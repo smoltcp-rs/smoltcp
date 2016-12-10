@@ -43,7 +43,13 @@ mod field {
 }
 
 mod ethernet;
+mod arp;
 
 pub use ethernet::ProtocolType as EthernetProtocolType;
 pub use ethernet::Address as EthernetAddress;
 pub use ethernet::Frame as EthernetFrame;
+
+pub use arp::HardwareType as ArpHardwareType;
+pub use arp::ProtocolType as ArpProtocolType;
+pub use arp::Operation as ArpOperation;
+pub use arp::Packet as ArpPacket;
