@@ -7,5 +7,5 @@ extern crate std;
 
 extern crate byteorder;
 
+pub mod phy;
 pub mod wire;
-pub mod interface;

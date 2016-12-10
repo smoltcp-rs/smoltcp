@@ -1,6 +1,6 @@
 //! Access to networking hardware.
 //!
-//! The `interface` module provides a way to capture and inject packets.
+//! The `phy` module provides a way to capture and inject packets.
 //! It requires the standard library, and currently only works on Linux.
 
 #[cfg(all(unix, feature = "std"))]

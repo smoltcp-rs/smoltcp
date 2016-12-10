@@ -1,8 +1,8 @@
 extern crate smoltcp;
 
 use std::{env, io};
+use smoltcp::phy::RawSocket;
 use smoltcp::wire::{EthernetFrame, EthernetProtocolType, ArpPacket};
-use smoltcp::interface::RawSocket;
 
 fn get<T>(result: Result<T, ()>) -> io::Result<T> {
     result.map_err(|()| io::Error::new(io::ErrorKind::InvalidData,
