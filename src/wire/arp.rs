@@ -1,3 +1,4 @@
+use core::fmt;
 use byteorder::{ByteOrder, NetworkEndian};
 
 pub use super::EthernetProtocolType as ProtocolType;
@@ -209,6 +210,24 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     }
 }
 
+impl<T: AsRef<[u8]>> fmt::Display for Packet<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match Repr::parse(self) {
+            Ok(repr) => write!(f, "{}", repr),
+            _ => {
+                try!(write!(f, "ARP htype={:?} ptype={:?} hlen={:?} plen={:?} op={:?}",
+                            self.hardware_type(), self.protocol_type(),
+                            self.hardware_length(), self.protocol_length(),
+                            self.operation()));
+                try!(write!(f, " sha={:?} spa={:?} tha={:?} tpa={:?}",
+                            self.source_hardware_addr(), self.source_protocol_addr(),
+                            self.target_hardware_addr(), self.target_protocol_addr()));
+                Ok(())
+            }
+        }
+    }
+}
+
 use super::{EthernetAddress, Ipv4Address};
 
 /// A high-level representation of an Address Resolution Protocol packet.
@@ -254,10 +273,8 @@ impl Repr {
         match self {
             &Repr::EthernetIpv4 {
                 operation,
-                source_hardware_addr,
-                source_protocol_addr,
-                target_hardware_addr,
-                target_protocol_addr
+                source_hardware_addr, source_protocol_addr,
+                target_hardware_addr, target_protocol_addr
             } => {
                 packet.set_hardware_type(HardwareType::Ethernet);
                 packet.set_protocol_type(ProtocolType::Ipv4);
@@ -268,6 +285,24 @@ impl Repr {
                 packet.set_source_protocol_addr(source_protocol_addr.as_bytes());
                 packet.set_target_hardware_addr(target_hardware_addr.as_bytes());
                 packet.set_target_protocol_addr(target_protocol_addr.as_bytes());
+            },
+            &Repr::__Nonexhaustive => unreachable!()
+        }
+    }
+}
+
+impl fmt::Display for Repr {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            &Repr::EthernetIpv4 {
+                operation,
+                source_hardware_addr, source_protocol_addr,
+                target_hardware_addr, target_protocol_addr
+            } => {
+                write!(f, "ARP type=Ethernet+IPv4 src={}/{} dst={}/{} op={:?}",
+                       source_hardware_addr, source_protocol_addr,
+                       target_hardware_addr, target_protocol_addr,
+                       operation)
             },
             &Repr::__Nonexhaustive => unreachable!()
         }

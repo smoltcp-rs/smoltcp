@@ -59,7 +59,7 @@ mod ethernet;
 mod arp;
 mod ipv4;
 
-pub use self::ethernet::ProtocolType as EthernetProtocolType;
+pub use self::ethernet::EtherType as EthernetProtocolType;
 pub use self::ethernet::Address as EthernetAddress;
 pub use self::ethernet::Frame as EthernetFrame;
 

@@ -8,3 +8,4 @@ extern crate std;
 extern crate byteorder;
 
 pub mod wire;
+pub mod interface;

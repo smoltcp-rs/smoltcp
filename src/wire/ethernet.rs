@@ -3,10 +3,21 @@ use byteorder::{ByteOrder, NetworkEndian};
 
 enum_with_unknown! {
     /// Ethernet protocol type.
-    pub enum ProtocolType(u16) {
+    pub enum EtherType(u16) {
         Ipv4 = 0x0800,
         Arp  = 0x0806,
-        Iv6  = 0x86DD
+        Ipv6 = 0x86DD
+    }
+}
+
+impl fmt::Display for EtherType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            &EtherType::Ipv4 => write!(f, "IPv4"),
+            &EtherType::Ipv6 => write!(f, "IPv6"),
+            &EtherType::Arp  => write!(f, "ARP"),
+            &EtherType::Unknown(ty) => write!(f, "0x{:04x}", ty)
+        }
     }
 }
 
@@ -48,7 +59,7 @@ mod field {
 
     pub const SOURCE:      Field     =  0..6;
     pub const DESTINATION: Field     =  6..12;
-    pub const LENGTH:      Field     = 12..14;
+    pub const ETHERTYPE:   Field     = 12..14;
     pub const PAYLOAD:     FieldFrom = 14..;
 }
 
@@ -57,7 +68,7 @@ impl<T: AsRef<[u8]>> Frame<T> {
     /// is too small or too large to contain one.
     pub fn new(storage: T) -> Result<Frame<T>, ()> {
         let len = storage.as_ref().len();
-        if !(64..1518).contains(len) {
+        if !(14..1518).contains(len) {
             Err(()) // TODO: error type?
         } else {
             Ok(Frame(storage))
@@ -83,11 +94,12 @@ impl<T: AsRef<[u8]>> Frame<T> {
         Address::from_bytes(&bytes[field::DESTINATION])
     }
 
-    /// Return the length field, without checking for 802.1Q.
+    /// Return the EtherType field, without checking for 802.1Q.
     #[inline(always)]
-    pub fn length(&self) -> u16 {
+    pub fn ethertype(&self) -> EtherType {
         let bytes = self.0.as_ref();
-        NetworkEndian::read_u16(&bytes[field::LENGTH])
+        let raw = NetworkEndian::read_u16(&bytes[field::ETHERTYPE]);
+        EtherType::from(raw)
     }
 
     /// Return a pointer to the payload, without checking for 802.1Q.
@@ -113,11 +125,11 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Frame<T> {
         bytes[field::DESTINATION].copy_from_slice(value.as_bytes())
     }
 
-    /// Set the length field.
+    /// Set the EtherType field.
     #[inline(always)]
-    pub fn set_length(&mut self, value: u16) {
+    pub fn set_ethertype(&mut self, value: EtherType) {
         let bytes = self.0.as_mut();
-        NetworkEndian::write_u16(&mut bytes[field::LENGTH], value)
+        NetworkEndian::write_u16(&mut bytes[field::ETHERTYPE], value.into())
     }
 
     /// Return a mutable pointer to the payload.
@@ -125,6 +137,13 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Frame<T> {
     pub fn payload_mut(&mut self) -> &mut [u8] {
         let bytes = self.0.as_mut();
         &mut bytes[field::PAYLOAD]
+    }
+}
+
+impl<T: AsRef<[u8]>> fmt::Display for Frame<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "EthernetII src={} dst={} type={}",
+               self.source(), self.destination(), self.ethertype())
     }
 }
 

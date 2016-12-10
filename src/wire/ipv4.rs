@@ -24,7 +24,6 @@ impl Address {
 impl fmt::Display for Address {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let bytes = self.0;
-        write!(f, "{:02x}.{:02x}.{:02x}.{:02x}",
-               bytes[0], bytes[1], bytes[2], bytes[3])
+        write!(f, "{}.{}.{}.{}", bytes[0], bytes[1], bytes[2], bytes[3])
     }
 }
