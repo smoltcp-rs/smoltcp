@@ -44,6 +44,7 @@ mod field {
 
 mod ethernet;
 mod arp;
+mod ipv4;
 
 pub use ethernet::ProtocolType as EthernetProtocolType;
 pub use ethernet::Address as EthernetAddress;
@@ -53,3 +54,6 @@ pub use arp::HardwareType as ArpHardwareType;
 pub use arp::ProtocolType as ArpProtocolType;
 pub use arp::Operation as ArpOperation;
 pub use arp::Packet as ArpPacket;
+pub use arp::Repr as ArpRepr;
+
+pub use ipv4::Address as Ipv4Address;

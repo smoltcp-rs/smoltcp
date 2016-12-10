@@ -209,6 +209,69 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     }
 }
 
+/// A high-level representation of an Address Resolution Protocol packet.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum Repr {
+    /// An Ethernet and IPv4 Address Resolution Protocol packet.
+    EthernetIpv4 {
+        operation: Operation,
+        source_hardware_addr: ::EthernetAddress,
+        source_protocol_addr: ::Ipv4Address,
+        target_hardware_addr: ::EthernetAddress,
+        target_protocol_addr: ::Ipv4Address
+    },
+    #[doc(hidden)]
+    __Nonexhaustive
+}
+
+impl Repr {
+    /// Parse an Address Resolution Packet and return a high-level representation,
+    /// or return `Err(())` if the packet is not recognized.
+    pub fn parse<T: AsRef<[u8]>>(packet: &Packet<T>) -> Result<Repr, ()> {
+        match (packet.hardware_type(), packet.protocol_type(),
+               packet.hardware_length(), packet.protocol_length()) {
+            (HardwareType::Ethernet, ProtocolType::Ipv4, 6, 4) => {
+                Ok(Repr::EthernetIpv4 {
+                    operation: packet.operation(),
+                    source_hardware_addr:
+                        ::EthernetAddress::from_bytes(packet.source_hardware_addr()),
+                    source_protocol_addr:
+                        ::Ipv4Address::from_bytes(packet.source_protocol_addr()),
+                    target_hardware_addr:
+                        ::EthernetAddress::from_bytes(packet.target_hardware_addr()),
+                    target_protocol_addr:
+                        ::Ipv4Address::from_bytes(packet.target_protocol_addr())
+                })
+            },
+            _ => Err(())
+        }
+    }
+
+    /// Emit a high-level representation into an Address Resolution Packet.
+    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(&self, packet: &mut Packet<T>) {
+        match self {
+            &Repr::EthernetIpv4 {
+                operation,
+                source_hardware_addr,
+                source_protocol_addr,
+                target_hardware_addr,
+                target_protocol_addr
+            } => {
+                packet.set_hardware_type(HardwareType::Ethernet);
+                packet.set_protocol_type(ProtocolType::Ipv4);
+                packet.set_hardware_length(6);
+                packet.set_protocol_length(4);
+                packet.set_operation(operation);
+                packet.set_source_hardware_addr(source_hardware_addr.as_bytes());
+                packet.set_source_protocol_addr(source_protocol_addr.as_bytes());
+                packet.set_target_hardware_addr(target_hardware_addr.as_bytes());
+                packet.set_target_protocol_addr(target_protocol_addr.as_bytes());
+            },
+            &Repr::__Nonexhaustive => unreachable!()
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -251,6 +314,35 @@ mod test {
         packet.set_source_protocol_addr(&[0x21, 0x22, 0x23, 0x24]);
         packet.set_target_hardware_addr(&[0x31, 0x32, 0x33, 0x34, 0x35, 0x36]);
         packet.set_target_protocol_addr(&[0x41, 0x42, 0x43, 0x44]);
+        assert_eq!(&packet.into_inner()[..], &PACKET_BYTES[..]);
+    }
+
+    fn packet_repr() -> Repr {
+        Repr::EthernetIpv4 {
+            operation: Operation::Request,
+            source_hardware_addr:
+                ::EthernetAddress::from_bytes(&[0x11, 0x12, 0x13, 0x14, 0x15, 0x16]),
+            source_protocol_addr:
+                ::Ipv4Address::from_bytes(&[0x21, 0x22, 0x23, 0x24]),
+            target_hardware_addr:
+                ::EthernetAddress::from_bytes(&[0x31, 0x32, 0x33, 0x34, 0x35, 0x36]),
+            target_protocol_addr:
+                ::Ipv4Address::from_bytes(&[0x41, 0x42, 0x43, 0x44])
+        }
+    }
+
+    #[test]
+    fn test_parse() {
+        let packet = Packet::new(&PACKET_BYTES[..]).unwrap();
+        let repr = Repr::parse(&packet).unwrap();
+        assert_eq!(repr, packet_repr());
+    }
+
+    #[test]
+    fn test_emit() {
+        let mut bytes = vec![0; 28];
+        let mut packet = Packet::new(&mut bytes).unwrap();
+        packet_repr().emit(&mut packet);
         assert_eq!(&packet.into_inner()[..], &PACKET_BYTES[..]);
     }
 }
