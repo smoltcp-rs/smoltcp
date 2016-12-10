@@ -1,0 +1,7 @@
+[package]
+name = "smoltcp"
+version = "0.1.0"
+authors = ["whitequark <whitequark@whitequark.org>"]
+
+[dependencies]
+byteorder = { version = "0.5", default-features = false }
