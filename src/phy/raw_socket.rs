@@ -78,24 +78,35 @@ impl RawSocket {
             })
         }
     }
-
-    /// Captures a packet into the internal buffer, which is sized appropriately
-    /// for the interface MTU.
-    pub fn capture(&mut self) -> io::Result<&[u8]> {
-        unsafe {
-            let len = libc::recv(self.sockfd, self.buffer.as_mut_ptr() as *mut libc::c_void,
-                                 self.buffer.len(), 0);
-            if len == -1 {
-                return Err(io::Error::last_os_error())
-            }
-
-            Ok(&self.buffer[..len as usize])
-        }
-    }
 }
 
 impl Drop for RawSocket {
     fn drop(&mut self) {
         unsafe { libc::close(self.sockfd); }
+    }
+}
+
+impl super::Device for RawSocket {
+    const MTU: usize = 1536;
+
+    fn recv<F: FnOnce(&[u8])>(&mut self, handler: F) {
+        let len = unsafe {
+            let len = libc::recv(self.sockfd, self.buffer.as_mut_ptr() as *mut libc::c_void,
+                                 self.buffer.len(), 0);
+            if len == -1 { Err(io::Error::last_os_error()).unwrap() }
+            len
+        };
+
+        handler(&self.buffer[..len as usize])
+    }
+
+    fn send<F: FnOnce(&mut [u8])>(&mut self, size: usize, handler: F) {
+        handler(&mut self.buffer[..size]);
+
+        unsafe {
+            let len = libc::send(self.sockfd, self.buffer.as_ptr() as *const libc::c_void,
+                                 size, 0);
+            if len == -1 { Err(io::Error::last_os_error()).unwrap() }
+        }
     }
 }

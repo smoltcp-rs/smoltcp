@@ -1,4 +1,4 @@
-#![feature(range_contains)]
+#![feature(range_contains, associated_consts)]
 #![no_std]
 
 #[cfg(test)]
