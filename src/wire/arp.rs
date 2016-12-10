@@ -210,24 +210,6 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     }
 }
 
-impl<T: AsRef<[u8]>> fmt::Display for Packet<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match Repr::parse(self) {
-            Ok(repr) => write!(f, "{}", repr),
-            _ => {
-                try!(write!(f, "ARP htype={:?} ptype={:?} hlen={:?} plen={:?} op={:?}",
-                            self.hardware_type(), self.protocol_type(),
-                            self.hardware_length(), self.protocol_length(),
-                            self.operation()));
-                try!(write!(f, " sha={:?} spa={:?} tha={:?} tpa={:?}",
-                            self.source_hardware_addr(), self.source_protocol_addr(),
-                            self.target_hardware_addr(), self.target_protocol_addr()));
-                Ok(())
-            }
-        }
-    }
-}
-
 use super::{EthernetAddress, Ipv4Address};
 
 /// A high-level representation of an Address Resolution Protocol packet.
@@ -291,6 +273,24 @@ impl Repr {
     }
 }
 
+impl<T: AsRef<[u8]>> fmt::Display for Packet<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match Repr::parse(self) {
+            Ok(repr) => write!(f, "{}", repr),
+            _ => {
+                try!(write!(f, "ARP htype={:?} ptype={:?} hlen={:?} plen={:?} op={:?}",
+                            self.hardware_type(), self.protocol_type(),
+                            self.hardware_length(), self.protocol_length(),
+                            self.operation()));
+                try!(write!(f, " sha={:?} spa={:?} tha={:?} tpa={:?}",
+                            self.source_hardware_addr(), self.source_protocol_addr(),
+                            self.target_hardware_addr(), self.target_protocol_addr()));
+                Ok(())
+            }
+        }
+    }
+}
+
 impl fmt::Display for Repr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
@@ -305,6 +305,18 @@ impl fmt::Display for Repr {
                        operation)
             },
             &Repr::__Nonexhaustive => unreachable!()
+        }
+    }
+}
+
+use super::pretty_print::{PrettyPrint, PrettyIndent};
+
+impl<T: AsRef<[u8]>> PrettyPrint<T> for Packet<T> {
+    fn pretty_print(buffer: T, f: &mut fmt::Formatter,
+                    indent: &mut PrettyIndent) -> fmt::Result {
+        match Packet::new(buffer) {
+            Err(())   => write!(f, "{}(truncated)\n", indent),
+            Ok(frame) => write!(f, "{}{}\n", indent, frame)
         }
     }
 }

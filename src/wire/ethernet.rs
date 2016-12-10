@@ -147,6 +147,26 @@ impl<T: AsRef<[u8]>> fmt::Display for Frame<T> {
     }
 }
 
+use super::pretty_print::{PrettyPrint, PrettyIndent};
+
+impl<T: AsRef<[u8]>> PrettyPrint<T> for Frame<T> {
+    fn pretty_print(buffer: T, f: &mut fmt::Formatter,
+                    indent: &mut PrettyIndent) -> fmt::Result {
+        let frame = match Frame::new(buffer) {
+            Err(())   => return write!(f, "{}(truncated)\n", indent),
+            Ok(frame) => frame
+        };
+        try!(write!(f, "{}{}\n", indent, frame));
+        indent.increase();
+
+        match frame.ethertype() {
+            EtherType::Arp =>
+                super::ArpPacket::pretty_print(frame.payload(), f, indent),
+            _ => Ok(())
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;

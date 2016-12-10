@@ -55,9 +55,13 @@ mod field {
     pub type FieldFrom = ::core::ops::RangeFrom<usize>;
 }
 
+pub mod pretty_print;
+
 mod ethernet;
 mod arp;
 mod ipv4;
+
+pub use self::pretty_print::PrettyPrinter;
 
 pub use self::ethernet::EtherType as EthernetProtocolType;
 pub use self::ethernet::Address as EthernetAddress;
