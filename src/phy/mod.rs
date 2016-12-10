@@ -2,13 +2,21 @@
 //!
 //! The `phy` module provides an interface for sending and receiving frames
 //! through a physical (or perhaps virtualized) network device, [Device](trait.Device.html),
-//! as well as some useful implementations of that trait.
-//!
-//! Currently the only implementation, [RawSocket](struct.RawSocket.html), is based on
-//! Unix raw sockets, and only works on Linux.
+//! as well as an implementations of that trait that uses the host OS,
+//! [OsDevice](struct.OsDevice.html).
 
-#[cfg(all(unix, feature = "std"))]
+#[cfg(feature = "std")]
+mod sys;
+
+#[cfg(feature = "std")]
 mod raw_socket;
+#[cfg(all(feature = "std", target_os = "linux"))]
+mod tap_interface;
+
+#[cfg(feature = "std")]
+pub use self::raw_socket::RawSocket;
+#[cfg(all(feature = "std", target_os = "linux"))]
+pub use self::tap_interface::TapInterface;
 
 /// An interface for sending and receiving raw network frames.
 ///
@@ -32,13 +40,10 @@ pub trait Device {
     /// Transmits a frame.
     ///
     /// It is expected that a `send` implementation would gain ownership of a buffer with
-    /// the requested size, provide it for emission, and then schedule it to be read from
+    /// the requested length, provide it for emission, and then schedule it to be read from
     /// memory by the network device.
     ///
     /// # Panics
-    /// This function may panic if `size` is larger than `MTU`.
-    fn send<F: FnOnce(&mut [u8])>(&mut self, size: usize, handler: F);
+    /// This function may panic if `len` is larger than `MTU`.
+    fn send<F: FnOnce(&mut [u8])>(&mut self, len: usize, handler: F);
 }
-
-#[cfg(all(unix, feature = "std"))]
-pub use self::raw_socket::RawSocket;
