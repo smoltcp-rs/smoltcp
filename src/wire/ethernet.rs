@@ -44,7 +44,7 @@ impl fmt::Display for Address {
 pub struct Frame<T: AsRef<[u8]>>(T);
 
 mod field {
-    use ::field::*;
+    use ::wire::field::*;
 
     pub const SOURCE:      Field     =  0..6;
     pub const DESTINATION: Field     =  6..12;

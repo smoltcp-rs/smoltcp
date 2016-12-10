@@ -1,6 +1,6 @@
 use byteorder::{ByteOrder, NetworkEndian};
 
-pub use ::ethernet::ProtocolType as ProtocolType;
+pub use super::EthernetProtocolType as ProtocolType;
 
 enum_with_unknown! {
     /// ARP network protocol type.
@@ -24,7 +24,7 @@ pub struct Packet<T: AsRef<[u8]>>(T);
 mod field {
     #![allow(non_snake_case)]
 
-    use ::field::*;
+    use ::wire::field::*;
 
     pub const HTYPE: Field = 0..2;
     pub const PTYPE: Field = 2..4;
@@ -209,16 +209,18 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     }
 }
 
+use super::{EthernetAddress, Ipv4Address};
+
 /// A high-level representation of an Address Resolution Protocol packet.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Repr {
     /// An Ethernet and IPv4 Address Resolution Protocol packet.
     EthernetIpv4 {
         operation: Operation,
-        source_hardware_addr: ::EthernetAddress,
-        source_protocol_addr: ::Ipv4Address,
-        target_hardware_addr: ::EthernetAddress,
-        target_protocol_addr: ::Ipv4Address
+        source_hardware_addr: EthernetAddress,
+        source_protocol_addr: Ipv4Address,
+        target_hardware_addr: EthernetAddress,
+        target_protocol_addr: Ipv4Address
     },
     #[doc(hidden)]
     __Nonexhaustive
@@ -234,13 +236,13 @@ impl Repr {
                 Ok(Repr::EthernetIpv4 {
                     operation: packet.operation(),
                     source_hardware_addr:
-                        ::EthernetAddress::from_bytes(packet.source_hardware_addr()),
+                        EthernetAddress::from_bytes(packet.source_hardware_addr()),
                     source_protocol_addr:
-                        ::Ipv4Address::from_bytes(packet.source_protocol_addr()),
+                        Ipv4Address::from_bytes(packet.source_protocol_addr()),
                     target_hardware_addr:
-                        ::EthernetAddress::from_bytes(packet.target_hardware_addr()),
+                        EthernetAddress::from_bytes(packet.target_hardware_addr()),
                     target_protocol_addr:
-                        ::Ipv4Address::from_bytes(packet.target_protocol_addr())
+                        Ipv4Address::from_bytes(packet.target_protocol_addr())
                 })
             },
             _ => Err(())
@@ -321,13 +323,13 @@ mod test {
         Repr::EthernetIpv4 {
             operation: Operation::Request,
             source_hardware_addr:
-                ::EthernetAddress::from_bytes(&[0x11, 0x12, 0x13, 0x14, 0x15, 0x16]),
+                EthernetAddress::from_bytes(&[0x11, 0x12, 0x13, 0x14, 0x15, 0x16]),
             source_protocol_addr:
-                ::Ipv4Address::from_bytes(&[0x21, 0x22, 0x23, 0x24]),
+                Ipv4Address::from_bytes(&[0x21, 0x22, 0x23, 0x24]),
             target_hardware_addr:
-                ::EthernetAddress::from_bytes(&[0x31, 0x32, 0x33, 0x34, 0x35, 0x36]),
+                EthernetAddress::from_bytes(&[0x31, 0x32, 0x33, 0x34, 0x35, 0x36]),
             target_protocol_addr:
-                ::Ipv4Address::from_bytes(&[0x41, 0x42, 0x43, 0x44])
+                Ipv4Address::from_bytes(&[0x41, 0x42, 0x43, 0x44])
         }
     }
 
