@@ -34,27 +34,27 @@ mod field {
     pub const OPER:  Field = 6..8;
 
     #[inline(always)]
-    pub fn SHA(hardware_length: u8, _protocol_length: u8) -> Field {
+    pub fn SHA(hardware_len: u8, _protocol_len: u8) -> Field {
         let start = OPER.end;
-        start..(start + hardware_length as usize)
+        start..(start + hardware_len as usize)
     }
 
     #[inline(always)]
-    pub fn SPA(hardware_length: u8, protocol_length: u8) -> Field {
-        let start = SHA(hardware_length, protocol_length).end;
-        start..(start + protocol_length as usize)
+    pub fn SPA(hardware_len: u8, protocol_len: u8) -> Field {
+        let start = SHA(hardware_len, protocol_len).end;
+        start..(start + protocol_len as usize)
     }
 
     #[inline(always)]
-    pub fn THA(hardware_length: u8, protocol_length: u8) -> Field {
-        let start = SPA(hardware_length, protocol_length).end;
-        start..(start + hardware_length as usize)
+    pub fn THA(hardware_len: u8, protocol_len: u8) -> Field {
+        let start = SPA(hardware_len, protocol_len).end;
+        start..(start + hardware_len as usize)
     }
 
     #[inline(always)]
-    pub fn TPA(hardware_length: u8, protocol_length: u8) -> Field {
-        let start = THA(hardware_length, protocol_length).end;
-        start..(start + protocol_length as usize)
+    pub fn TPA(hardware_len: u8, protocol_len: u8) -> Field {
+        let start = THA(hardware_len, protocol_len).end;
+        start..(start + protocol_len as usize)
     }
 }
 
@@ -67,7 +67,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
             Err(())
         } else {
             let packet = Packet(storage);
-            if len < field::TPA(packet.hardware_length(), packet.protocol_length()).end {
+            if len < field::TPA(packet.hardware_len(), packet.protocol_len()).end {
                 Err(())
             } else {
                 Ok(packet)
@@ -95,13 +95,13 @@ impl<T: AsRef<[u8]>> Packet<T> {
     }
 
     /// Return the hardware length field.
-    pub fn hardware_length(&self) -> u8 {
+    pub fn hardware_len(&self) -> u8 {
         let bytes = self.0.as_ref();
         bytes[field::HLEN]
     }
 
     /// Return the protocol length field.
-    pub fn protocol_length(&self) -> u8 {
+    pub fn protocol_len(&self) -> u8 {
         let bytes = self.0.as_ref();
         bytes[field::PLEN]
     }
@@ -116,25 +116,25 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// Return the source hardware address field.
     pub fn source_hardware_addr(&self) -> &[u8] {
         let bytes = self.0.as_ref();
-        &bytes[field::SHA(self.hardware_length(), self.protocol_length())]
+        &bytes[field::SHA(self.hardware_len(), self.protocol_len())]
     }
 
     /// Return the source protocol address field.
     pub fn source_protocol_addr(&self) -> &[u8] {
         let bytes = self.0.as_ref();
-        &bytes[field::SPA(self.hardware_length(), self.protocol_length())]
+        &bytes[field::SPA(self.hardware_len(), self.protocol_len())]
     }
 
     /// Return the target hardware address field.
     pub fn target_hardware_addr(&self) -> &[u8] {
         let bytes = self.0.as_ref();
-        &bytes[field::THA(self.hardware_length(), self.protocol_length())]
+        &bytes[field::THA(self.hardware_len(), self.protocol_len())]
     }
 
     /// Return the target protocol address field.
     pub fn target_protocol_addr(&self) -> &[u8] {
         let bytes = self.0.as_ref();
-        &bytes[field::TPA(self.hardware_length(), self.protocol_length())]
+        &bytes[field::TPA(self.hardware_len(), self.protocol_len())]
     }
 }
 
@@ -152,13 +152,13 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     }
 
     /// Set the hardware length field.
-    pub fn set_hardware_length(&mut self, value: u8) {
+    pub fn set_hardware_len(&mut self, value: u8) {
         let bytes = self.0.as_mut();
         bytes[field::HLEN] = value
     }
 
     /// Set the protocol length field.
-    pub fn set_protocol_length(&mut self, value: u8) {
+    pub fn set_protocol_len(&mut self, value: u8) {
         let bytes = self.0.as_mut();
         bytes[field::PLEN] = value
     }
@@ -172,41 +172,41 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// Set the source hardware address field.
     ///
     /// # Panics
-    /// The function panics if `value` is not `self.hardware_length()` long.
+    /// The function panics if `value` is not `self.hardware_len()` long.
     pub fn set_source_hardware_addr(&mut self, value: &[u8]) {
-        let (hardware_length, protocol_length) = (self.hardware_length(), self.protocol_length());
+        let (hardware_len, protocol_len) = (self.hardware_len(), self.protocol_len());
         let bytes = self.0.as_mut();
-        bytes[field::SHA(hardware_length, protocol_length)].copy_from_slice(value)
+        bytes[field::SHA(hardware_len, protocol_len)].copy_from_slice(value)
     }
 
     /// Set the source protocol address field.
     ///
     /// # Panics
-    /// The function panics if `value` is not `self.protocol_length()` long.
+    /// The function panics if `value` is not `self.protocol_len()` long.
     pub fn set_source_protocol_addr(&mut self, value: &[u8]) {
-        let (hardware_length, protocol_length) = (self.hardware_length(), self.protocol_length());
+        let (hardware_len, protocol_len) = (self.hardware_len(), self.protocol_len());
         let bytes = self.0.as_mut();
-        bytes[field::SPA(hardware_length, protocol_length)].copy_from_slice(value)
+        bytes[field::SPA(hardware_len, protocol_len)].copy_from_slice(value)
     }
 
     /// Set the target hardware address field.
     ///
     /// # Panics
-    /// The function panics if `value` is not `self.hardware_length()` long.
+    /// The function panics if `value` is not `self.hardware_len()` long.
     pub fn set_target_hardware_addr(&mut self, value: &[u8]) {
-        let (hardware_length, protocol_length) = (self.hardware_length(), self.protocol_length());
+        let (hardware_len, protocol_len) = (self.hardware_len(), self.protocol_len());
         let bytes = self.0.as_mut();
-        bytes[field::THA(hardware_length, protocol_length)].copy_from_slice(value)
+        bytes[field::THA(hardware_len, protocol_len)].copy_from_slice(value)
     }
 
     /// Set the target protocol address field.
     ///
     /// # Panics
-    /// The function panics if `value` is not `self.protocol_length()` long.
+    /// The function panics if `value` is not `self.protocol_len()` long.
     pub fn set_target_protocol_addr(&mut self, value: &[u8]) {
-        let (hardware_length, protocol_length) = (self.hardware_length(), self.protocol_length());
+        let (hardware_len, protocol_len) = (self.hardware_len(), self.protocol_len());
         let bytes = self.0.as_mut();
-        bytes[field::TPA(hardware_length, protocol_length)].copy_from_slice(value)
+        bytes[field::TPA(hardware_len, protocol_len)].copy_from_slice(value)
     }
 }
 
@@ -232,7 +232,7 @@ impl Repr {
     /// or return `Err(())` if the packet is not recognized.
     pub fn parse<T: AsRef<[u8]>>(packet: &Packet<T>) -> Result<Repr, ()> {
         match (packet.hardware_type(), packet.protocol_type(),
-               packet.hardware_length(), packet.protocol_length()) {
+               packet.hardware_len(), packet.protocol_len()) {
             (HardwareType::Ethernet, ProtocolType::Ipv4, 6, 4) => {
                 Ok(Repr::EthernetIpv4 {
                     operation: packet.operation(),
@@ -260,8 +260,8 @@ impl Repr {
             } => {
                 packet.set_hardware_type(HardwareType::Ethernet);
                 packet.set_protocol_type(ProtocolType::Ipv4);
-                packet.set_hardware_length(6);
-                packet.set_protocol_length(4);
+                packet.set_hardware_len(6);
+                packet.set_protocol_len(4);
                 packet.set_operation(operation);
                 packet.set_source_hardware_addr(source_hardware_addr.as_bytes());
                 packet.set_source_protocol_addr(source_protocol_addr.as_bytes());
@@ -280,7 +280,7 @@ impl<T: AsRef<[u8]>> fmt::Display for Packet<T> {
             _ => {
                 try!(write!(f, "ARP htype={:?} ptype={:?} hlen={:?} plen={:?} op={:?}",
                             self.hardware_type(), self.protocol_type(),
-                            self.hardware_length(), self.protocol_length(),
+                            self.hardware_len(), self.protocol_len(),
                             self.operation()));
                 try!(write!(f, " sha={:?} spa={:?} tha={:?} tpa={:?}",
                             self.source_hardware_addr(), self.source_protocol_addr(),
@@ -299,7 +299,7 @@ impl fmt::Display for Repr {
                 source_hardware_addr, source_protocol_addr,
                 target_hardware_addr, target_protocol_addr
             } => {
-                write!(f, "ARP type=Ethernet+IPv4 src={}/{} dst={}/{} op={:?}",
+                write!(f, "ARP type=Ethernet+IPv4 src={}/{} tgt={}/{} op={:?}",
                        source_hardware_addr, source_protocol_addr,
                        target_hardware_addr, target_protocol_addr,
                        operation)
@@ -341,8 +341,8 @@ mod test {
         let packet = Packet::new(&PACKET_BYTES[..]).unwrap();
         assert_eq!(packet.hardware_type(), HardwareType::Ethernet);
         assert_eq!(packet.protocol_type(), ProtocolType::Ipv4);
-        assert_eq!(packet.hardware_length(), 6);
-        assert_eq!(packet.protocol_length(), 4);
+        assert_eq!(packet.hardware_len(), 6);
+        assert_eq!(packet.protocol_len(), 4);
         assert_eq!(packet.operation(), Operation::Request);
         assert_eq!(packet.source_hardware_addr(), &[0x11, 0x12, 0x13, 0x14, 0x15, 0x16]);
         assert_eq!(packet.source_protocol_addr(), &[0x21, 0x22, 0x23, 0x24]);
@@ -356,8 +356,8 @@ mod test {
         let mut packet = Packet::new(&mut bytes).unwrap();
         packet.set_hardware_type(HardwareType::Ethernet);
         packet.set_protocol_type(ProtocolType::Ipv4);
-        packet.set_hardware_length(6);
-        packet.set_protocol_length(4);
+        packet.set_hardware_len(6);
+        packet.set_protocol_len(4);
         packet.set_operation(Operation::Request);
         packet.set_source_hardware_addr(&[0x11, 0x12, 0x13, 0x14, 0x15, 0x16]);
         packet.set_source_protocol_addr(&[0x21, 0x22, 0x23, 0x24]);
