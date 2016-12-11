@@ -154,7 +154,7 @@ mod test {
     static FRAME_BYTES: [u8; 64] =
         [0x01, 0x02, 0x03, 0x04, 0x05, 0x06,
          0x11, 0x12, 0x13, 0x14, 0x15, 0x16,
-         0x00, 0x40,
+         0x08, 0x00,
          0xaa, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
          0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
          0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -177,7 +177,7 @@ mod test {
         let frame = Frame::new(&FRAME_BYTES[..]).unwrap();
         assert_eq!(frame.source(), Address([0x01, 0x02, 0x03, 0x04, 0x05, 0x06]));
         assert_eq!(frame.destination(), Address([0x11, 0x12, 0x13, 0x14, 0x15, 0x16]));
-        assert_eq!(frame.length(), FRAME_BYTES.len() as u16);
+        assert_eq!(frame.ethertype(), EtherType::Ipv4);
         assert_eq!(frame.payload(), &PAYLOAD_BYTES[..]);
     }
 
@@ -187,7 +187,7 @@ mod test {
         let mut frame = Frame::new(&mut bytes).unwrap();
         frame.set_source(Address([0x01, 0x02, 0x03, 0x04, 0x05, 0x06]));
         frame.set_destination(Address([0x11, 0x12, 0x13, 0x14, 0x15, 0x16]));
-        frame.set_length(64);
+        frame.set_ethertype(EtherType::Ipv4);
         frame.payload_mut().copy_from_slice(&PAYLOAD_BYTES[..]);
         assert_eq!(&frame.into_inner()[..], &FRAME_BYTES[..]);
     }
