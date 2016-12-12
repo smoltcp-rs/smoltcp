@@ -59,6 +59,7 @@ pub mod pretty_print;
 
 mod ethernet;
 mod arp;
+mod ip;
 mod ipv4;
 
 pub use self::pretty_print::PrettyPrinter;
@@ -73,4 +74,7 @@ pub use self::arp::Operation as ArpOperation;
 pub use self::arp::Packet as ArpPacket;
 pub use self::arp::Repr as ArpRepr;
 
+pub use self::ip::ProtocolType as InternetProtocolType;
+
 pub use self::ipv4::Address as Ipv4Address;
+pub use self::ipv4::Packet as Ipv4Packet;

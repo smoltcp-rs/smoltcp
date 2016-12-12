@@ -17,7 +17,7 @@ impl fmt::Display for EtherType {
             &EtherType::Ipv4 => write!(f, "IPv4"),
             &EtherType::Ipv6 => write!(f, "IPv6"),
             &EtherType::Arp  => write!(f, "ARP"),
-            &EtherType::Unknown(ty) => write!(f, "0x{:04x}", ty)
+            &EtherType::Unknown(id) => write!(f, "0x{:04x}", id)
         }
     }
 }
@@ -63,14 +63,14 @@ impl fmt::Display for Address {
     }
 }
 
-/// A read/write wrapper around an Ethernet II frame.
+/// A read/write wrapper around an Ethernet II frame buffer.
 #[derive(Debug)]
 pub struct Frame<T: AsRef<[u8]>> {
     buffer: T
 }
 
 mod field {
-    use ::wire::field::*;
+    use wire::field::*;
 
     pub const DESTINATION: Field     =  0..6;
     pub const SOURCE:      Field     =  6..12;
@@ -97,14 +97,14 @@ impl<T: AsRef<[u8]>> Frame<T> {
 
     /// Return the destination address field.
     #[inline(always)]
-    pub fn destination(&self) -> Address {
+    pub fn dst_addr(&self) -> Address {
         let data = self.buffer.as_ref();
         Address::from_bytes(&data[field::DESTINATION])
     }
 
     /// Return the source address field.
     #[inline(always)]
-    pub fn source(&self) -> Address {
+    pub fn src_addr(&self) -> Address {
         let data = self.buffer.as_ref();
         Address::from_bytes(&data[field::SOURCE])
     }
@@ -128,14 +128,14 @@ impl<T: AsRef<[u8]>> Frame<T> {
 impl<T: AsRef<[u8]> + AsMut<[u8]>> Frame<T> {
     /// Set the destination address field.
     #[inline(always)]
-    pub fn set_destination(&mut self, value: Address) {
+    pub fn set_dst_addr(&mut self, value: Address) {
         let data = self.buffer.as_mut();
         data[field::DESTINATION].copy_from_slice(value.as_bytes())
     }
 
     /// Set the source address field.
     #[inline(always)]
-    pub fn set_source(&mut self, value: Address) {
+    pub fn set_src_addr(&mut self, value: Address) {
         let data = self.buffer.as_mut();
         data[field::SOURCE].copy_from_slice(value.as_bytes())
     }
@@ -158,7 +158,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Frame<T> {
 impl<T: AsRef<[u8]>> fmt::Display for Frame<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "EthernetII src={} dst={} type={}",
-               self.source(), self.destination(), self.ethertype())
+               self.src_addr(), self.dst_addr(), self.ethertype())
     }
 }
 
@@ -210,8 +210,8 @@ mod test {
     #[test]
     fn test_deconstruct() {
         let frame = Frame::new(&FRAME_BYTES[..]).unwrap();
-        assert_eq!(frame.destination(), Address([0x01, 0x02, 0x03, 0x04, 0x05, 0x06]));
-        assert_eq!(frame.source(), Address([0x11, 0x12, 0x13, 0x14, 0x15, 0x16]));
+        assert_eq!(frame.dst_addr(), Address([0x01, 0x02, 0x03, 0x04, 0x05, 0x06]));
+        assert_eq!(frame.src_addr(), Address([0x11, 0x12, 0x13, 0x14, 0x15, 0x16]));
         assert_eq!(frame.ethertype(), EtherType::Ipv4);
         assert_eq!(frame.payload(), &PAYLOAD_BYTES[..]);
     }
@@ -220,8 +220,8 @@ mod test {
     fn test_construct() {
         let mut bytes = vec![0; 64];
         let mut frame = Frame::new(&mut bytes).unwrap();
-        frame.set_destination(Address([0x01, 0x02, 0x03, 0x04, 0x05, 0x06]));
-        frame.set_source(Address([0x11, 0x12, 0x13, 0x14, 0x15, 0x16]));
+        frame.set_dst_addr(Address([0x01, 0x02, 0x03, 0x04, 0x05, 0x06]));
+        frame.set_src_addr(Address([0x11, 0x12, 0x13, 0x14, 0x15, 0x16]));
         frame.set_ethertype(EtherType::Ipv4);
         frame.payload_mut().copy_from_slice(&PAYLOAD_BYTES[..]);
         assert_eq!(&frame.into_inner()[..], &FRAME_BYTES[..]);

@@ -111,8 +111,8 @@ impl<'a, DeviceT: Device, ArpCacheT: ArpCache> Interface<'a, DeviceT, ArpCacheT>
                 let tx_size = self.device.mtu();
                 let tx_buffer = try!(self.device.transmit(tx_size));
                 let mut frame = try!(EthernetFrame::new(tx_buffer));
-                frame.set_source(self.hardware_addr);
-                frame.set_destination(match repr {
+                frame.set_src_addr(self.hardware_addr);
+                frame.set_dst_addr(match repr {
                     ArpRepr::EthernetIpv4 { target_hardware_addr, .. } => target_hardware_addr,
                     _ => unreachable!()
                 });

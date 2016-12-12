@@ -1,4 +1,4 @@
-#![feature(associated_consts, const_fn)]
+#![feature(associated_consts, const_fn, step_by)]
 #![no_std]
 
 extern crate byteorder;
@@ -21,8 +21,10 @@ pub enum Error {
     /// A packet could not be parsed or emitted because a field was out of bounds
     /// for the underlying buffer.
     Truncated,
-    /// A packet could not be recognized and was dropped.
+    /// An incoming packet could not be recognized and was dropped.
     Unrecognized,
+    /// An incoming packet had an incorrect checksum and was dropped.
+    Checksum,
 
     #[doc(hidden)]
     __Nonexhaustive
@@ -33,6 +35,7 @@ impl fmt::Display for Error {
         match self {
             &Error::Truncated    => write!(f, "truncated packet"),
             &Error::Unrecognized => write!(f, "unrecognized packet"),
+            &Error::Checksum     => write!(f, "checksum error"),
             &Error::__Nonexhaustive => unreachable!()
         }
     }
