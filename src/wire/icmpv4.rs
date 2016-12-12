@@ -1,4 +1,4 @@
-use core::fmt;
+use core::{cmp, fmt};
 use byteorder::{ByteOrder, NetworkEndian};
 
 use Error;
@@ -332,6 +332,17 @@ impl<'a> Repr<'a> {
         }
     }
 
+    /// Return the length of a packet that will be emitted from this high-level representation.
+    pub fn len(&self) -> usize {
+        match self {
+            &Repr::EchoRequest { data, .. } |
+            &Repr::EchoReply { data, .. } => {
+                field::ECHO_SEQNO.end + data.len()
+            },
+            &Repr::__Nonexhaustive => unreachable!()
+        }
+    }
+
     /// Emit a high-level representation into an Internet Protocol version 4 packet.
     pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(&self, packet: &mut Packet<T>) {
         packet.set_msg_code(0);
@@ -340,13 +351,15 @@ impl<'a> Repr<'a> {
                 packet.set_msg_type(Type::EchoRequest);
                 packet.set_echo_ident(ident);
                 packet.set_echo_seq_no(seq_no);
-                packet.data_mut().copy_from_slice(data)
+                let data_len = cmp::min(packet.data_mut().len(), data.len());
+                packet.data_mut()[..data_len].copy_from_slice(&data[..data_len])
             },
             &Repr::EchoReply { ident, seq_no, data } => {
                 packet.set_msg_type(Type::EchoReply);
                 packet.set_echo_ident(ident);
                 packet.set_echo_seq_no(seq_no);
-                packet.data_mut().copy_from_slice(data)
+                let data_len = cmp::min(packet.data_mut().len(), data.len());
+                packet.data_mut()[..data_len].copy_from_slice(&data[..data_len])
             },
             &Repr::__Nonexhaustive => unreachable!()
         }

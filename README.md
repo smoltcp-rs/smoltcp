@@ -18,11 +18,10 @@ features are listed.
 The only supported medium is Ethernet.
 
   * Regular 802.3 frames are supported.
+  * ARP packets (including gratuitous requests and replies) are supported.
   * 802.1Q is **not** supported.
   * Jumbo frames are **not** supported.
-  * CRC calculation is **not** supported.
-  * ARP packets are supported.
-  * ARP probes or announcements are **not** supported.
+  * Frame check sequence calculation is **not** supported.
 
 ### IP layer
 
@@ -31,6 +30,9 @@ The only supported internetworking protocol is IPv4.
   * IPv4 header checksum is supported.
   * IPv4 fragmentation is **not** supported.
   * IPv4 options are **not** supported.
+  * ICMPv4 echo requests and replies are supported.
+  * ICMPv4 destination unreachable message is **not** supported.
+  * ICMPv4 parameter problem message is **not** supported.
 
 ### UDP layer
 
@@ -91,7 +93,7 @@ cargo run --example smoltcpserver -- tap0
 
 It responds to:
 
-  * pings (`ping 192.168.69.1`) (actually not yet).
+  * pings (`ping 192.168.69.1`).
 
 License
 -------

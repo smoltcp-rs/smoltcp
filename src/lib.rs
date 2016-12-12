@@ -18,8 +18,8 @@ pub mod iface;
 /// The error type for the networking stack.
 #[derive(Debug)]
 pub enum Error {
-    /// A packet could not be parsed or emitted because a field was out of bounds
-    /// for the underlying buffer.
+    /// An incoming packet could not be parsed, or an outgoing packet could not be emitted
+    /// because a field was out of bounds for the underlying buffer.
     Truncated,
     /// An incoming packet could not be recognized and was dropped.
     /// E.g. a packet with an unknown EtherType.
@@ -32,6 +32,10 @@ pub enum Error {
     Checksum,
     /// An incoming packet has been fragmented and was dropped.
     Fragmented,
+    /// An outgoing packet could not be sent because a protocol address could not be mapped
+    /// to hardware address. E.g. an IPv4 packet did not have an Ethernet address
+    /// corresponding to its IPv4 destination address.
+    Unaddressable,
 
     #[doc(hidden)]
     __Nonexhaustive
@@ -40,11 +44,12 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            &Error::Truncated    => write!(f, "truncated packet"),
-            &Error::Unrecognized => write!(f, "unrecognized packet"),
-            &Error::Malformed    => write!(f, "malformed packet"),
-            &Error::Checksum     => write!(f, "checksum error"),
-            &Error::Fragmented   => write!(f, "fragmented packet"),
+            &Error::Truncated     => write!(f, "truncated packet"),
+            &Error::Unrecognized  => write!(f, "unrecognized packet"),
+            &Error::Malformed     => write!(f, "malformed packet"),
+            &Error::Checksum      => write!(f, "checksum error"),
+            &Error::Fragmented    => write!(f, "fragmented packet"),
+            &Error::Unaddressable => write!(f, "unaddressable destination"),
             &Error::__Nonexhaustive => unreachable!()
         }
     }

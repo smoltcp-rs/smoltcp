@@ -2,6 +2,9 @@ use Error;
 use phy::Device;
 use wire::{EthernetAddress, EthernetProtocolType, EthernetFrame};
 use wire::{ArpPacket, ArpRepr, ArpOperation};
+use wire::InternetProtocolType;
+use wire::{Ipv4Packet, Ipv4Repr};
+use wire::{Icmpv4Packet, Icmpv4Repr};
 use super::{ProtocolAddress, ArpCache};
 
 /// An Ethernet network interface.
@@ -71,19 +74,20 @@ impl<'a, DeviceT: Device, ArpCacheT: ArpCache> Interface<'a, DeviceT, ArpCacheT>
 
     /// Receive and process a packet, if available.
     pub fn poll(&mut self) -> Result<(), Error> {
-        enum Response {
+        enum Response<'a> {
             Nop,
-            Arp(ArpRepr)
+            Arp(ArpRepr),
+            Icmpv4(Ipv4Repr, Icmpv4Repr<'a>)
         }
         let mut response = Response::Nop;
 
         let rx_buffer = try!(self.device.receive());
-        let frame = try!(EthernetFrame::new(rx_buffer));
-        match frame.ethertype() {
+        let eth_frame = try!(EthernetFrame::new(rx_buffer));
+        match eth_frame.ethertype() {
+            // Snoop all ARP traffic, and respond to ARP packets directed at us.
             EthernetProtocolType::Arp => {
-                let packet = try!(ArpPacket::new(frame.payload()));
-                let repr = try!(ArpRepr::parse(&packet));
-                match repr {
+                let arp_packet = try!(ArpPacket::new(eth_frame.payload()));
+                match try!(ArpRepr::parse(&arp_packet)) {
                     // Respond to ARP requests aimed at us, and fill the ARP cache
                     // from all ARP requests, including gratuitous.
                     ArpRepr::EthernetIpv4 {
@@ -115,17 +119,61 @@ impl<'a, DeviceT: Device, ArpCacheT: ArpCache> Interface<'a, DeviceT, ArpCacheT>
                     _ => return Err(Error::Unrecognized)
                 }
             },
+
+            // Respond to IP packets directed at us.
+            EthernetProtocolType::Ipv4 => {
+                let ip_packet = try!(Ipv4Packet::new(eth_frame.payload()));
+                match try!(Ipv4Repr::parse(&ip_packet)) {
+                    // Ignore IP packets not directed at us.
+                    Ipv4Repr { dst_addr, .. } if !self.has_protocol_addr(dst_addr) => (),
+
+                    // Respond to ICMP packets.
+                    Ipv4Repr { protocol: InternetProtocolType::Icmp, src_addr, dst_addr } => {
+                        let icmp_packet = try!(Icmpv4Packet::new(ip_packet.payload()));
+                        let icmp_repr = try!(Icmpv4Repr::parse(&icmp_packet));
+                        match icmp_repr {
+                            // Respond to echo requests.
+                            Icmpv4Repr::EchoRequest {
+                                ident, seq_no, data
+                            } => {
+                                let ip_reply_repr = Ipv4Repr {
+                                    src_addr: dst_addr,
+                                    dst_addr: src_addr,
+                                    protocol: InternetProtocolType::Icmp
+                                };
+                                let icmp_reply_repr = Icmpv4Repr::EchoReply {
+                                    ident:  ident,
+                                    seq_no: seq_no,
+                                    data:   &[]
+                                };
+                                response = Response::Icmpv4(ip_reply_repr, icmp_reply_repr)
+                            }
+
+                            // Ignore any echo replies.
+                            Icmpv4Repr::EchoReply { .. } => (),
+
+                            // FIXME: do something correct here?
+                            _ => return Err(Error::Unrecognized)
+                        }
+                    },
+
+                    // FIXME: respond with ICMP unknown protocol here?
+                    _ => return Err(Error::Unrecognized)
+                }
+            }
+
+            // Drop all other traffic.
             _ => return Err(Error::Unrecognized)
         }
+        if let Response::Nop = response { return Ok(()) }
+
+        let tx_size = self.device.mtu();
+        let tx_buffer = try!(self.device.transmit(tx_size));
+        let mut frame = try!(EthernetFrame::new(tx_buffer));
+        frame.set_src_addr(self.hardware_addr);
 
         match response {
-            Response::Nop => Ok(()),
-
             Response::Arp(repr) => {
-                let tx_size = self.device.mtu();
-                let tx_buffer = try!(self.device.transmit(tx_size));
-                let mut frame = try!(EthernetFrame::new(tx_buffer));
-                frame.set_src_addr(self.hardware_addr);
                 frame.set_dst_addr(match repr {
                     ArpRepr::EthernetIpv4 { target_hardware_addr, .. } => target_hardware_addr,
                     _ => unreachable!()
@@ -133,10 +181,26 @@ impl<'a, DeviceT: Device, ArpCacheT: ArpCache> Interface<'a, DeviceT, ArpCacheT>
                 frame.set_ethertype(EthernetProtocolType::Arp);
 
                 let mut packet = try!(ArpPacket::new(frame.payload_mut()));
-                repr.emit(&mut packet);
+                repr.emit(&mut packet)
+            },
 
-                Ok(())
+            Response::Icmpv4(ip_repr, icmp_repr) => {
+                match self.arp_cache.lookup(ip_repr.dst_addr.into()) {
+                    None => return Err(Error::Unaddressable),
+                    Some(hardware_addr) => frame.set_dst_addr(hardware_addr)
+                }
+                frame.set_ethertype(EthernetProtocolType::Ipv4);
+
+                let mut ip_packet = try!(Ipv4Packet::new(frame.payload_mut()));
+                ip_repr.emit(&mut ip_packet, icmp_repr.len());
+
+                let mut icmp_packet = try!(Icmpv4Packet::new(ip_packet.payload_mut()));
+                icmp_repr.emit(&mut icmp_packet);
             }
+
+            Response::Nop => unreachable!()
         }
+
+        Ok(())
     }
 }
