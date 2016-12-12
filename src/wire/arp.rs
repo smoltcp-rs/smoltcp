@@ -1,5 +1,6 @@
 use core::fmt;
 use byteorder::{ByteOrder, NetworkEndian};
+use Error;
 
 pub use super::EthernetProtocolType as ProtocolType;
 
@@ -20,7 +21,9 @@ enum_with_unknown! {
 
 /// A read/write wrapper around an Address Resolution Protocol packet.
 #[derive(Debug)]
-pub struct Packet<T: AsRef<[u8]>>(T);
+pub struct Packet<T: AsRef<[u8]>> {
+    buffer: T
+}
 
 mod field {
     #![allow(non_snake_case)]
@@ -61,14 +64,14 @@ mod field {
 impl<T: AsRef<[u8]>> Packet<T> {
     /// Wrap a buffer with an ARP packet. Returns an error if the buffer
     /// is too small to contain one.
-    pub fn new(storage: T) -> Result<Packet<T>, ()> {
-        let len = storage.as_ref().len();
+    pub fn new(buffer: T) -> Result<Packet<T>, Error> {
+        let len = buffer.as_ref().len();
         if len < field::OPER.end {
-            Err(())
+            Err(Error::Truncated)
         } else {
-            let packet = Packet(storage);
+            let packet = Packet { buffer: buffer };
             if len < field::TPA(packet.hardware_len(), packet.protocol_len()).end {
-                Err(())
+                Err(Error::Truncated)
             } else {
                 Ok(packet)
             }
@@ -77,96 +80,96 @@ impl<T: AsRef<[u8]>> Packet<T> {
 
     /// Consumes the packet, returning the underlying buffer.
     pub fn into_inner(self) -> T {
-        self.0
+        self.buffer
     }
 
     /// Return the hardware type field.
     pub fn hardware_type(&self) -> HardwareType {
-        let bytes = self.0.as_ref();
-        let raw = NetworkEndian::read_u16(&bytes[field::HTYPE]);
+        let data = self.buffer.as_ref();
+        let raw = NetworkEndian::read_u16(&data[field::HTYPE]);
         HardwareType::from(raw)
     }
 
     /// Return the protocol type field.
     pub fn protocol_type(&self) -> ProtocolType {
-        let bytes = self.0.as_ref();
-        let raw = NetworkEndian::read_u16(&bytes[field::PTYPE]);
+        let data = self.buffer.as_ref();
+        let raw = NetworkEndian::read_u16(&data[field::PTYPE]);
         ProtocolType::from(raw)
     }
 
     /// Return the hardware length field.
     pub fn hardware_len(&self) -> u8 {
-        let bytes = self.0.as_ref();
-        bytes[field::HLEN]
+        let data = self.buffer.as_ref();
+        data[field::HLEN]
     }
 
     /// Return the protocol length field.
     pub fn protocol_len(&self) -> u8 {
-        let bytes = self.0.as_ref();
-        bytes[field::PLEN]
+        let data = self.buffer.as_ref();
+        data[field::PLEN]
     }
 
     /// Return the operation field.
     pub fn operation(&self) -> Operation {
-        let bytes = self.0.as_ref();
-        let raw = NetworkEndian::read_u16(&bytes[field::OPER]);
+        let data = self.buffer.as_ref();
+        let raw = NetworkEndian::read_u16(&data[field::OPER]);
         Operation::from(raw)
     }
 
     /// Return the source hardware address field.
     pub fn source_hardware_addr(&self) -> &[u8] {
-        let bytes = self.0.as_ref();
-        &bytes[field::SHA(self.hardware_len(), self.protocol_len())]
+        let data = self.buffer.as_ref();
+        &data[field::SHA(self.hardware_len(), self.protocol_len())]
     }
 
     /// Return the source protocol address field.
     pub fn source_protocol_addr(&self) -> &[u8] {
-        let bytes = self.0.as_ref();
-        &bytes[field::SPA(self.hardware_len(), self.protocol_len())]
+        let data = self.buffer.as_ref();
+        &data[field::SPA(self.hardware_len(), self.protocol_len())]
     }
 
     /// Return the target hardware address field.
     pub fn target_hardware_addr(&self) -> &[u8] {
-        let bytes = self.0.as_ref();
-        &bytes[field::THA(self.hardware_len(), self.protocol_len())]
+        let data = self.buffer.as_ref();
+        &data[field::THA(self.hardware_len(), self.protocol_len())]
     }
 
     /// Return the target protocol address field.
     pub fn target_protocol_addr(&self) -> &[u8] {
-        let bytes = self.0.as_ref();
-        &bytes[field::TPA(self.hardware_len(), self.protocol_len())]
+        let data = self.buffer.as_ref();
+        &data[field::TPA(self.hardware_len(), self.protocol_len())]
     }
 }
 
 impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// Set the hardware type field.
     pub fn set_hardware_type(&mut self, value: HardwareType) {
-        let bytes = self.0.as_mut();
-        NetworkEndian::write_u16(&mut bytes[field::HTYPE], value.into())
+        let data = self.buffer.as_mut();
+        NetworkEndian::write_u16(&mut data[field::HTYPE], value.into())
     }
 
     /// Set the protocol type field.
     pub fn set_protocol_type(&mut self, value: ProtocolType) {
-        let bytes = self.0.as_mut();
-        NetworkEndian::write_u16(&mut bytes[field::PTYPE], value.into())
+        let data = self.buffer.as_mut();
+        NetworkEndian::write_u16(&mut data[field::PTYPE], value.into())
     }
 
     /// Set the hardware length field.
     pub fn set_hardware_len(&mut self, value: u8) {
-        let bytes = self.0.as_mut();
-        bytes[field::HLEN] = value
+        let data = self.buffer.as_mut();
+        data[field::HLEN] = value
     }
 
     /// Set the protocol length field.
     pub fn set_protocol_len(&mut self, value: u8) {
-        let bytes = self.0.as_mut();
-        bytes[field::PLEN] = value
+        let data = self.buffer.as_mut();
+        data[field::PLEN] = value
     }
 
     /// Set the operation field.
     pub fn set_operation(&mut self, value: Operation) {
-        let bytes = self.0.as_mut();
-        NetworkEndian::write_u16(&mut bytes[field::OPER], value.into())
+        let data = self.buffer.as_mut();
+        NetworkEndian::write_u16(&mut data[field::OPER], value.into())
     }
 
     /// Set the source hardware address field.
@@ -175,8 +178,8 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// The function panics if `value` is not `self.hardware_len()` long.
     pub fn set_source_hardware_addr(&mut self, value: &[u8]) {
         let (hardware_len, protocol_len) = (self.hardware_len(), self.protocol_len());
-        let bytes = self.0.as_mut();
-        bytes[field::SHA(hardware_len, protocol_len)].copy_from_slice(value)
+        let data = self.buffer.as_mut();
+        data[field::SHA(hardware_len, protocol_len)].copy_from_slice(value)
     }
 
     /// Set the source protocol address field.
@@ -185,8 +188,8 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// The function panics if `value` is not `self.protocol_len()` long.
     pub fn set_source_protocol_addr(&mut self, value: &[u8]) {
         let (hardware_len, protocol_len) = (self.hardware_len(), self.protocol_len());
-        let bytes = self.0.as_mut();
-        bytes[field::SPA(hardware_len, protocol_len)].copy_from_slice(value)
+        let data = self.buffer.as_mut();
+        data[field::SPA(hardware_len, protocol_len)].copy_from_slice(value)
     }
 
     /// Set the target hardware address field.
@@ -195,8 +198,8 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// The function panics if `value` is not `self.hardware_len()` long.
     pub fn set_target_hardware_addr(&mut self, value: &[u8]) {
         let (hardware_len, protocol_len) = (self.hardware_len(), self.protocol_len());
-        let bytes = self.0.as_mut();
-        bytes[field::THA(hardware_len, protocol_len)].copy_from_slice(value)
+        let data = self.buffer.as_mut();
+        data[field::THA(hardware_len, protocol_len)].copy_from_slice(value)
     }
 
     /// Set the target protocol address field.
@@ -205,8 +208,8 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// The function panics if `value` is not `self.protocol_len()` long.
     pub fn set_target_protocol_addr(&mut self, value: &[u8]) {
         let (hardware_len, protocol_len) = (self.hardware_len(), self.protocol_len());
-        let bytes = self.0.as_mut();
-        bytes[field::TPA(hardware_len, protocol_len)].copy_from_slice(value)
+        let data = self.buffer.as_mut();
+        data[field::TPA(hardware_len, protocol_len)].copy_from_slice(value)
     }
 }
 
@@ -230,7 +233,7 @@ pub enum Repr {
 impl Repr {
     /// Parse an Address Resolution Packet and return a high-level representation,
     /// or return `Err(())` if the packet is not recognized.
-    pub fn parse<T: AsRef<[u8]>>(packet: &Packet<T>) -> Result<Repr, ()> {
+    pub fn parse<T: AsRef<[u8]>>(packet: &Packet<T>) -> Result<Repr, Error> {
         match (packet.hardware_type(), packet.protocol_type(),
                packet.hardware_len(), packet.protocol_len()) {
             (HardwareType::Ethernet, ProtocolType::Ipv4, 6, 4) => {
@@ -246,7 +249,7 @@ impl Repr {
                         Ipv4Address::from_bytes(packet.target_protocol_addr())
                 })
             },
-            _ => Err(())
+            _ => Err(Error::Unrecognized)
         }
     }
 
@@ -315,7 +318,7 @@ impl<T: AsRef<[u8]>> PrettyPrint<T> for Packet<T> {
     fn pretty_print(buffer: T, f: &mut fmt::Formatter,
                     indent: &mut PrettyIndent) -> fmt::Result {
         match Packet::new(buffer) {
-            Err(())   => write!(f, "{}(truncated)\n", indent),
+            Err(err)  => write!(f, "{}({})\n", indent, err),
             Ok(frame) => write!(f, "{}{}\n", indent, frame)
         }
     }

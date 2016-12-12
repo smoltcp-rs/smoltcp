@@ -1,11 +1,13 @@
-use std::{vec, io};
+use std::cell::RefCell;
+use std::vec::Vec;
+use std::io;
 use super::{sys, Device};
 
 /// A socket that captures or transmits the complete frame.
 #[derive(Debug)]
 pub struct RawSocket {
-    lower:  sys::RawSocketDesc,
-    buffer: vec::Vec<u8>
+    lower:  RefCell<sys::RawSocketDesc>,
+    buffer: RefCell<Vec<u8>>
 }
 
 impl RawSocket {
@@ -17,25 +19,33 @@ impl RawSocket {
         let mut lower = try!(sys::RawSocketDesc::new(name));
         try!(lower.bind_interface());
 
-        let mut buffer = vec::Vec::new();
+        let mut buffer = Vec::new();
         buffer.resize(try!(lower.interface_mtu()), 0);
         Ok(RawSocket {
-            lower:  lower,
-            buffer: buffer
+            lower:  RefCell::new(lower),
+            buffer: RefCell::new(buffer)
         })
     }
 }
 
 impl Device for RawSocket {
-    const MTU: usize = 1536;
-
-    fn recv<F: FnOnce(&[u8])>(&mut self, handler: F) {
-        let len = self.lower.recv(&mut self.buffer[..]).unwrap();
-        handler(&self.buffer[..len])
+    fn mtu(&self) -> usize {
+        let mut lower = self.lower.borrow_mut();
+        lower.interface_mtu().unwrap()
     }
 
-    fn send<F: FnOnce(&mut [u8])>(&mut self, len: usize, handler: F) {
-        handler(&mut self.buffer[..len]);
-        self.lower.send(&self.buffer[..len]).unwrap();
+    fn recv<R, F: FnOnce(&[u8]) -> R>(&self, handler: F) -> R {
+        let mut lower  = self.lower.borrow_mut();
+        let mut buffer = self.buffer.borrow_mut();
+        let len = lower.recv(&mut buffer[..]).unwrap();
+        handler(&buffer[..len])
+    }
+
+    fn send<R, F: FnOnce(&mut [u8]) -> R>(&self, len: usize, handler: F) -> R {
+        let mut lower  = self.lower.borrow_mut();
+        let mut buffer = self.buffer.borrow_mut();
+        let result = handler(&mut buffer[..len]);
+        lower.send(&buffer[..len]).unwrap();
+        result
     }
 }

@@ -27,15 +27,18 @@ pub trait Device {
     /// Maximum transmission unit.
     ///
     /// The network device is unable to send or receive frames larger than the MTU.
-    /// In practice, MTU will fall between 64 and 9216 octets.
-    const MTU: usize;
+    /// In practice, MTU will fall between 576 (for IPv4) or 1280 (for IPv6) and 9216 octets.
+    fn mtu(&self) -> usize;
 
     /// Receives a frame.
     ///
     /// It is expected that a `recv` implementation, once a packet is written to memory
     /// through DMA, would gain ownership of the underlying buffer, provide it for parsing,
     /// and then return it to the network device.
-    fn recv<F: FnOnce(&[u8])>(&mut self, handler: F);
+    ///
+    /// # Panics
+    /// This function may panic if called recursively.
+    fn recv<R, F: FnOnce(&[u8]) -> R>(&self, handler: F) -> R;
 
     /// Transmits a frame.
     ///
@@ -44,6 +47,6 @@ pub trait Device {
     /// memory by the network device.
     ///
     /// # Panics
-    /// This function may panic if `len` is larger than `MTU`.
-    fn send<F: FnOnce(&mut [u8])>(&mut self, len: usize, handler: F);
+    /// This function may panic if `len` is larger than `MTU`, or if called recursively.
+    fn send<R, F: FnOnce(&mut [u8]) -> R>(&self, len: usize, handler: F) -> R;
 }

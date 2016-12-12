@@ -1,5 +1,6 @@
 use core::fmt;
 use byteorder::{ByteOrder, NetworkEndian};
+use Error;
 
 enum_with_unknown! {
     /// Ethernet protocol type.
@@ -57,20 +58,22 @@ impl Address {
 impl fmt::Display for Address {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let bytes = self.0;
-        write!(f, "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+        write!(f, "{:02x}-{:02x}-{:02x}-{:02x}-{:02x}-{:02x}",
                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5])
     }
 }
 
 /// A read/write wrapper around an Ethernet II frame.
 #[derive(Debug)]
-pub struct Frame<T: AsRef<[u8]>>(T);
+pub struct Frame<T: AsRef<[u8]>> {
+    buffer: T
+}
 
 mod field {
     use ::wire::field::*;
 
-    pub const SOURCE:      Field     =  0..6;
-    pub const DESTINATION: Field     =  6..12;
+    pub const DESTINATION: Field     =  0..6;
+    pub const SOURCE:      Field     =  6..12;
     pub const ETHERTYPE:   Field     = 12..14;
     pub const PAYLOAD:     FieldFrom = 14..;
 }
@@ -78,77 +81,77 @@ mod field {
 impl<T: AsRef<[u8]>> Frame<T> {
     /// Wrap a buffer with an Ethernet frame. Returns an error if the buffer
     /// is too small or too large to contain one.
-    pub fn new(storage: T) -> Result<Frame<T>, ()> {
-        let len = storage.as_ref().len();
-        if !(14..1518).contains(len) {
-            Err(()) // TODO: error type?
+    pub fn new(buffer: T) -> Result<Frame<T>, Error> {
+        let len = buffer.as_ref().len();
+        if len < field::PAYLOAD.start {
+            Err(Error::Truncated)
         } else {
-            Ok(Frame(storage))
+            Ok(Frame { buffer: buffer })
         }
     }
 
     /// Consumes the frame, returning the underlying buffer.
     pub fn into_inner(self) -> T {
-        self.0
-    }
-
-    /// Return the source address field.
-    #[inline(always)]
-    pub fn source(&self) -> Address {
-        let bytes = self.0.as_ref();
-        Address::from_bytes(&bytes[field::SOURCE])
+        self.buffer
     }
 
     /// Return the destination address field.
     #[inline(always)]
     pub fn destination(&self) -> Address {
-        let bytes = self.0.as_ref();
-        Address::from_bytes(&bytes[field::DESTINATION])
+        let data = self.buffer.as_ref();
+        Address::from_bytes(&data[field::DESTINATION])
+    }
+
+    /// Return the source address field.
+    #[inline(always)]
+    pub fn source(&self) -> Address {
+        let data = self.buffer.as_ref();
+        Address::from_bytes(&data[field::SOURCE])
     }
 
     /// Return the EtherType field, without checking for 802.1Q.
     #[inline(always)]
     pub fn ethertype(&self) -> EtherType {
-        let bytes = self.0.as_ref();
-        let raw = NetworkEndian::read_u16(&bytes[field::ETHERTYPE]);
+        let data = self.buffer.as_ref();
+        let raw = NetworkEndian::read_u16(&data[field::ETHERTYPE]);
         EtherType::from(raw)
     }
 
     /// Return a pointer to the payload, without checking for 802.1Q.
     #[inline(always)]
     pub fn payload(&self) -> &[u8] {
-        let bytes = self.0.as_ref();
-        &bytes[field::PAYLOAD]
+        let data = self.buffer.as_ref();
+        &data[field::PAYLOAD]
     }
 }
 
 impl<T: AsRef<[u8]> + AsMut<[u8]>> Frame<T> {
-    /// Set the source address field.
-    #[inline(always)]
-    pub fn set_source(&mut self, value: Address) {
-        let bytes = self.0.as_mut();
-        bytes[field::SOURCE].copy_from_slice(value.as_bytes())
-    }
-
     /// Set the destination address field.
     #[inline(always)]
     pub fn set_destination(&mut self, value: Address) {
-        let bytes = self.0.as_mut();
-        bytes[field::DESTINATION].copy_from_slice(value.as_bytes())
+        let data = self.buffer.as_mut();
+        data[field::DESTINATION].copy_from_slice(value.as_bytes())
+    }
+
+    /// Set the source address field.
+    #[inline(always)]
+    pub fn set_source(&mut self, value: Address) {
+        let data = self.buffer.as_mut();
+        data[field::SOURCE].copy_from_slice(value.as_bytes())
     }
 
     /// Set the EtherType field.
     #[inline(always)]
     pub fn set_ethertype(&mut self, value: EtherType) {
-        let bytes = self.0.as_mut();
-        NetworkEndian::write_u16(&mut bytes[field::ETHERTYPE], value.into())
+        let data = self.buffer.as_mut();
+        NetworkEndian::write_u16(&mut data[field::ETHERTYPE], value.into())
     }
 
     /// Return a mutable pointer to the payload.
     #[inline(always)]
     pub fn payload_mut(&mut self) -> &mut [u8] {
-        let bytes = self.0.as_mut();
-        &mut bytes[field::PAYLOAD]
+        let data = self.buffer.as_mut();
+        &mut data[field::PAYLOAD]
     }
 }
 
@@ -165,7 +168,7 @@ impl<T: AsRef<[u8]>> PrettyPrint<T> for Frame<T> {
     fn pretty_print(buffer: T, f: &mut fmt::Formatter,
                     indent: &mut PrettyIndent) -> fmt::Result {
         let frame = match Frame::new(buffer) {
-            Err(())   => return write!(f, "{}(truncated)\n", indent),
+            Err(err)  => return write!(f, "{}({})\n", indent, err),
             Ok(frame) => frame
         };
         try!(write!(f, "{}{}\n", indent, frame));
