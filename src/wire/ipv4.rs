@@ -1,6 +1,8 @@
 use core::fmt;
 use byteorder::{ByteOrder, NetworkEndian};
+
 use Error;
+use super::ip::rfc1071_checksum;
 
 pub use super::InternetProtocolType as ProtocolType;
 
@@ -87,16 +89,6 @@ mod field {
     pub const CHECKSUM: Field = 10..12;
     pub const SRC_ADDR: Field = 12..16;
     pub const DST_ADDR: Field = 16..20;
-}
-
-fn checksum(data: &[u8]) -> u16 {
-    let mut accum: u32 = 0;
-    for i in (0..data.len()).step_by(2) {
-        if i == field::CHECKSUM.start { continue }
-        let word = NetworkEndian::read_u16(&data[i..i + 2]) as u32;
-        accum += word;
-    }
-    !(((accum >> 16) as u16) + (accum as u16))
 }
 
 impl<T: AsRef<[u8]>> Packet<T> {
@@ -229,7 +221,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     pub fn verify_checksum(&self) -> bool {
         let checksum = {
             let data = self.buffer.as_ref();
-            checksum(&data[..self.header_len() as usize])
+            rfc1071_checksum(field::CHECKSUM.start, &data[..self.header_len() as usize])
         };
         self.checksum() == checksum
     }
@@ -350,7 +342,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     pub fn fill_checksum(&mut self) {
         let checksum = {
             let data = self.buffer.as_ref();
-            checksum(&data[..self.header_len() as usize])
+            rfc1071_checksum(field::CHECKSUM.start, &data[..self.header_len() as usize])
         };
         self.set_checksum(checksum)
     }

@@ -1,4 +1,5 @@
 use core::fmt;
+use byteorder::{ByteOrder, NetworkEndian};
 
 enum_with_unknown! {
     /// Internet protocol type.
@@ -18,4 +19,14 @@ impl fmt::Display for ProtocolType {
             &ProtocolType::Unknown(id) => write!(f, "0x{:02x}", id)
         }
     }
+}
+
+pub fn rfc1071_checksum(checksum_at: usize, data: &[u8]) -> u16 {
+    let mut accum: u32 = 0;
+    for i in (0..data.len()).step_by(2) {
+        if i == checksum_at { continue }
+        let word = NetworkEndian::read_u16(&data[i..i + 2]) as u32;
+        accum += word;
+    }
+    !(((accum >> 16) as u16) + (accum as u16))
 }

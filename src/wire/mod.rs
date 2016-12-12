@@ -21,12 +21,35 @@
 //! as much as is necessary to build the representation.
 
 macro_rules! enum_with_unknown {
-    (#[$( $attr:meta ),*]
-     pub enum $name:ident($ty:ty) { $( $variant:ident = $value:expr ),+ }) => {
+    (
+        $( #[$enum_attr:meta] )*
+        pub enum $name:ident($ty:ty) {
+            $( $variant:ident = $value:expr ),+
+        }
+    ) => {
+        enum_with_unknown! {
+            $( #[$enum_attr] )*
+            pub doc enum $name($ty) {
+                $( #[doc(shown)] $variant = $value ),+
+            }
+        }
+    };
+    (
+        $( #[$enum_attr:meta] )*
+        pub doc enum $name:ident($ty:ty) {
+            $(
+              $( #[$variant_attr:meta] )+
+              $variant:ident = $value:expr
+            ),+
+        }
+    ) => {
         #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
-        #[$( $attr ),*]
+        $( #[$enum_attr] )*
         pub enum $name {
-            $( $variant ),*,
+            $(
+              $( #[$variant_attr] )*
+              $variant
+            ),*,
             Unknown($ty)
         }
 
@@ -61,6 +84,7 @@ mod ethernet;
 mod arp;
 mod ip;
 mod ipv4;
+mod icmpv4;
 
 pub use self::pretty_print::PrettyPrinter;
 
@@ -79,3 +103,10 @@ pub use self::ip::ProtocolType as InternetProtocolType;
 pub use self::ipv4::Address as Ipv4Address;
 pub use self::ipv4::Packet as Ipv4Packet;
 pub use self::ipv4::Repr as Ipv4Repr;
+
+pub use self::icmpv4::Type as Icmpv4Type;
+pub use self::icmpv4::DstUnreachable as Icmpv4DstUnreachable;
+pub use self::icmpv4::Redirect as Icmpv4Redirect;
+pub use self::icmpv4::TimeExceeded as Icmpv4TimeExceeded;
+pub use self::icmpv4::ParamProblem as Icmpv4ParamProblem;
+pub use self::icmpv4::Packet as Icmpv4Packet;
