@@ -84,11 +84,15 @@ impl<'a, DeviceT: Device, ArpCacheT: ArpCache> Interface<'a, DeviceT, ArpCacheT>
                 let packet = try!(ArpPacket::new(frame.payload()));
                 let repr = try!(ArpRepr::parse(&packet));
                 match repr {
+                    // Respond to ARP requests aimed at us, and fill the ARP cache
+                    // from all ARP requests, including gratuitous.
                     ArpRepr::EthernetIpv4 {
                         operation: ArpOperation::Request,
                         source_hardware_addr, source_protocol_addr,
                         target_protocol_addr, ..
                     } => {
+                        self.arp_cache.fill(source_protocol_addr.into(), source_hardware_addr);
+
                         if self.has_protocol_addr(target_protocol_addr) {
                             response = Response::Arp(ArpRepr::EthernetIpv4 {
                                 operation: ArpOperation::Reply,
@@ -99,6 +103,15 @@ impl<'a, DeviceT: Device, ArpCacheT: ArpCache> Interface<'a, DeviceT, ArpCacheT>
                             })
                         }
                     },
+
+                    // Fill the ARP cache from gratuitous ARP replies.
+                    ArpRepr::EthernetIpv4 {
+                        operation: ArpOperation::Reply,
+                        source_hardware_addr, source_protocol_addr, ..
+                    } => {
+                         self.arp_cache.fill(source_protocol_addr.into(), source_hardware_addr)
+                    },
+
                     _ => return Err(Error::Unrecognized)
                 }
             },
@@ -107,6 +120,7 @@ impl<'a, DeviceT: Device, ArpCacheT: ArpCache> Interface<'a, DeviceT, ArpCacheT>
 
         match response {
             Response::Nop => Ok(()),
+
             Response::Arp(repr) => {
                 let tx_size = self.device.mtu();
                 let tx_buffer = try!(self.device.transmit(tx_size));
