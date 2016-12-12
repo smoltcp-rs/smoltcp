@@ -1,9 +1,9 @@
 //! Access to networking hardware.
 //!
-//! The `phy` module provides an interface for sending and receiving frames
-//! through a physical (or perhaps virtualized) network device, [Device](trait.Device.html),
+//! The `phy` module deals with the *network devices*. It provides an interface
+//! for transmitting and receiving frames, [Device](trait.Device.html),
 //! as well as an implementations of that trait that uses the host OS,
-//! [OsDevice](struct.OsDevice.html).
+//! [RawSocket](struct.RawSocket.html) and [TapInterface](struct.TapInterface.html).
 
 #[cfg(feature = "std")]
 mod sys;

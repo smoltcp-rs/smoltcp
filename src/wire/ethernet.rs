@@ -22,10 +22,12 @@ impl fmt::Display for EtherType {
 }
 
 /// A six-octet Ethernet II address.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
 pub struct Address(pub [u8; 6]);
 
 impl Address {
+    pub const BROADCAST: Address = Address([0xff; 6]);
+
     /// Construct an Ethernet address from a sequence of octets, in big-endian.
     ///
     /// # Panics
@@ -39,6 +41,16 @@ impl Address {
     /// Return an Ethernet address as a sequence of octets, in big-endian.
     pub fn as_bytes(&self) -> &[u8] {
         &self.0
+    }
+
+    /// Query whether the "multicast" bit in the OUI is set.
+    pub fn is_multicast(&self) -> bool {
+        self.0[0] & 0x01 != 0
+    }
+
+    /// Query whether the "locally administered" bit in the OUI is set.
+    pub fn is_local(&self) -> bool {
+        self.0[0] & 0x02 != 0
     }
 }
 

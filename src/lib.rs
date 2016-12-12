@@ -1,4 +1,4 @@
-#![feature(range_contains, associated_consts)]
+#![feature(range_contains, associated_consts, const_fn)]
 #![no_std]
 
 extern crate byteorder;
@@ -11,3 +11,4 @@ extern crate libc;
 
 pub mod phy;
 pub mod wire;
+pub mod iface;

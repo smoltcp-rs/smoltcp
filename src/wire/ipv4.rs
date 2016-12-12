@@ -1,7 +1,7 @@
 use core::fmt;
 
 /// A four-octet IPv4 address.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
 pub struct Address(pub [u8; 4]);
 
 impl Address {
