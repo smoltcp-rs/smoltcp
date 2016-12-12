@@ -75,57 +75,53 @@ impl<'a, DeviceT: Device, ArpCacheT: ArpCache> Interface<'a, DeviceT, ArpCacheT>
             Nop,
             Arp(ArpRepr)
         }
+        let mut response = Response::Nop;
 
-        let response = try!(self.device.recv(|buffer| {
-            let frame = try!(EthernetFrame::new(buffer));
-            match frame.ethertype() {
-                EthernetProtocolType::Arp => {
-                    let packet = try!(ArpPacket::new(frame.payload()));
-                    let repr = try!(ArpRepr::parse(&packet));
-                    match repr {
-                        ArpRepr::EthernetIpv4 {
-                            operation: ArpOperation::Request,
-                            source_hardware_addr, source_protocol_addr,
-                            target_protocol_addr, ..
-                        } => {
-                            if self.has_protocol_addr(target_protocol_addr) {
-                                Ok(Response::Arp(ArpRepr::EthernetIpv4 {
-                                    operation: ArpOperation::Reply,
-                                    source_hardware_addr: self.hardware_addr,
-                                    source_protocol_addr: target_protocol_addr,
-                                    target_hardware_addr: source_hardware_addr,
-                                    target_protocol_addr: source_protocol_addr
-                                }))
-                            } else {
-                                Ok(Response::Nop)
-                            }
-                        },
-                        _ => Err(Error::Unrecognized)
-                    }
-                },
-                _ => Err(Error::Unrecognized)
-            }
-        }));
-
-        // TODO: accurately calculate the outgoing packet size?
-        let size = self.device.mtu();
+        let rx_buffer = try!(self.device.receive());
+        let frame = try!(EthernetFrame::new(rx_buffer));
+        match frame.ethertype() {
+            EthernetProtocolType::Arp => {
+                let packet = try!(ArpPacket::new(frame.payload()));
+                let repr = try!(ArpRepr::parse(&packet));
+                match repr {
+                    ArpRepr::EthernetIpv4 {
+                        operation: ArpOperation::Request,
+                        source_hardware_addr, source_protocol_addr,
+                        target_protocol_addr, ..
+                    } => {
+                        if self.has_protocol_addr(target_protocol_addr) {
+                            response = Response::Arp(ArpRepr::EthernetIpv4 {
+                                operation: ArpOperation::Reply,
+                                source_hardware_addr: self.hardware_addr,
+                                source_protocol_addr: target_protocol_addr,
+                                target_hardware_addr: source_hardware_addr,
+                                target_protocol_addr: source_protocol_addr
+                            })
+                        }
+                    },
+                    _ => return Err(Error::Unrecognized)
+                }
+            },
+            _ => return Err(Error::Unrecognized)
+        }
 
         match response {
             Response::Nop => Ok(()),
             Response::Arp(repr) => {
-                self.device.send(size, |buffer| {
-                    let mut frame = try!(EthernetFrame::new(buffer));
-                    frame.set_source(self.hardware_addr);
-                    frame.set_destination(match repr {
-                        ArpRepr::EthernetIpv4 { target_hardware_addr, .. } => target_hardware_addr,
-                        _ => unreachable!()
-                    });
+                let tx_size = self.device.mtu();
+                let tx_buffer = try!(self.device.transmit(tx_size));
+                let mut frame = try!(EthernetFrame::new(tx_buffer));
+                frame.set_source(self.hardware_addr);
+                frame.set_destination(match repr {
+                    ArpRepr::EthernetIpv4 { target_hardware_addr, .. } => target_hardware_addr,
+                    _ => unreachable!()
+                });
+                frame.set_ethertype(EthernetProtocolType::Arp);
 
-                    let mut packet = try!(ArpPacket::new(frame.payload_mut()));
-                    repr.emit(&mut packet);
+                let mut packet = try!(ArpPacket::new(frame.payload_mut()));
+                repr.emit(&mut packet);
 
-                    Ok(())
-                })
+                Ok(())
             }
         }
     }

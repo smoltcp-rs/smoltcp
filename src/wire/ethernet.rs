@@ -164,8 +164,8 @@ impl<T: AsRef<[u8]>> fmt::Display for Frame<T> {
 
 use super::pretty_print::{PrettyPrint, PrettyIndent};
 
-impl<T: AsRef<[u8]>> PrettyPrint<T> for Frame<T> {
-    fn pretty_print(buffer: T, f: &mut fmt::Formatter,
+impl<T: AsRef<[u8]>> PrettyPrint for Frame<T> {
+    fn pretty_print(buffer: &AsRef<[u8]>, f: &mut fmt::Formatter,
                     indent: &mut PrettyIndent) -> fmt::Result {
         let frame = match Frame::new(buffer) {
             Err(err)  => return write!(f, "{}({})\n", indent, err),
@@ -176,7 +176,7 @@ impl<T: AsRef<[u8]>> PrettyPrint<T> for Frame<T> {
 
         match frame.ethertype() {
             EtherType::Arp =>
-                super::ArpPacket::pretty_print(frame.payload(), f, indent),
+                super::ArpPacket::<&[u8]>::pretty_print(&frame.payload(), f, indent),
             _ => Ok(())
         }
     }
@@ -210,8 +210,8 @@ mod test {
     #[test]
     fn test_deconstruct() {
         let frame = Frame::new(&FRAME_BYTES[..]).unwrap();
-        assert_eq!(frame.source(), Address([0x01, 0x02, 0x03, 0x04, 0x05, 0x06]));
-        assert_eq!(frame.destination(), Address([0x11, 0x12, 0x13, 0x14, 0x15, 0x16]));
+        assert_eq!(frame.destination(), Address([0x01, 0x02, 0x03, 0x04, 0x05, 0x06]));
+        assert_eq!(frame.source(), Address([0x11, 0x12, 0x13, 0x14, 0x15, 0x16]));
         assert_eq!(frame.ethertype(), EtherType::Ipv4);
         assert_eq!(frame.payload(), &PAYLOAD_BYTES[..]);
     }
@@ -220,8 +220,8 @@ mod test {
     fn test_construct() {
         let mut bytes = vec![0; 64];
         let mut frame = Frame::new(&mut bytes).unwrap();
-        frame.set_source(Address([0x01, 0x02, 0x03, 0x04, 0x05, 0x06]));
-        frame.set_destination(Address([0x11, 0x12, 0x13, 0x14, 0x15, 0x16]));
+        frame.set_destination(Address([0x01, 0x02, 0x03, 0x04, 0x05, 0x06]));
+        frame.set_source(Address([0x11, 0x12, 0x13, 0x14, 0x15, 0x16]));
         frame.set_ethertype(EtherType::Ipv4);
         frame.payload_mut().copy_from_slice(&PAYLOAD_BYTES[..]);
         assert_eq!(&frame.into_inner()[..], &FRAME_BYTES[..]);

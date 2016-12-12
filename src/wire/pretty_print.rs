@@ -45,23 +45,24 @@ impl fmt::Display for PrettyIndent {
 }
 
 /// Interface for printing listings.
-pub trait PrettyPrint<T: AsRef<[u8]>> {
+pub trait PrettyPrint {
     /// Write a concise, formatted representation of a packet contained in the provided
     /// buffer, and any nested packets it may contain.
     ///
     /// `pretty_print` accepts a buffer and not a packet wrapper because the packet might
     /// be truncated, and so it might not be possible to create the packet wrapper.
-    fn pretty_print(buffer: T, fmt: &mut fmt::Formatter, indent: &mut PrettyIndent) -> fmt::Result;
+    fn pretty_print(buffer: &AsRef<[u8]>, fmt: &mut fmt::Formatter,
+                    indent: &mut PrettyIndent) -> fmt::Result;
 }
 
 /// Wrapper for using a `PrettyPrint` where a `Display` is expected.
-pub struct PrettyPrinter<'a, T: PrettyPrint<&'a AsRef<[u8]>>> {
+pub struct PrettyPrinter<'a, T: PrettyPrint> {
     prefix:  &'static str,
     buffer:  &'a AsRef<[u8]>,
     phantom: PhantomData<T>
 }
 
-impl<'a, T: PrettyPrint<&'a AsRef<[u8]>>> PrettyPrinter<'a, T> {
+impl<'a, T: PrettyPrint> PrettyPrinter<'a, T> {
     /// Format the listing with the recorded parameters when Display::fmt is called.
     pub fn new(prefix: &'static str, buffer: &'a AsRef<[u8]>) -> PrettyPrinter<'a, T> {
         PrettyPrinter {
@@ -72,8 +73,8 @@ impl<'a, T: PrettyPrint<&'a AsRef<[u8]>>> PrettyPrinter<'a, T> {
     }
 }
 
-impl<'a, T: PrettyPrint<&'a AsRef<[u8]>>> fmt::Display for PrettyPrinter<'a, T> {
+impl<'a, T: PrettyPrint> fmt::Display for PrettyPrinter<'a, T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        T::pretty_print(self.buffer, f, &mut PrettyIndent::new(self.prefix))
+        T::pretty_print(&self.buffer, f, &mut PrettyIndent::new(self.prefix))
     }
 }
