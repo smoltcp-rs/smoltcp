@@ -22,9 +22,16 @@ pub enum Error {
     /// for the underlying buffer.
     Truncated,
     /// An incoming packet could not be recognized and was dropped.
+    /// E.g. a packet with an unknown EtherType.
     Unrecognized,
+    /// An incoming packet was recognized but contained invalid data.
+    /// E.g. a packet with IPv4 EtherType but containing a value other than 4
+    /// in the version field.
+    Malformed,
     /// An incoming packet had an incorrect checksum and was dropped.
     Checksum,
+    /// An incoming packet has been fragmented and was dropped.
+    Fragmented,
 
     #[doc(hidden)]
     __Nonexhaustive
@@ -35,7 +42,9 @@ impl fmt::Display for Error {
         match self {
             &Error::Truncated    => write!(f, "truncated packet"),
             &Error::Unrecognized => write!(f, "unrecognized packet"),
+            &Error::Malformed    => write!(f, "malformed packet"),
             &Error::Checksum     => write!(f, "checksum error"),
+            &Error::Fragmented   => write!(f, "fragmented packet"),
             &Error::__Nonexhaustive => unreachable!()
         }
     }

@@ -78,3 +78,4 @@ pub use self::ip::ProtocolType as InternetProtocolType;
 
 pub use self::ipv4::Address as Ipv4Address;
 pub use self::ipv4::Packet as Ipv4Packet;
+pub use self::ipv4::Repr as Ipv4Repr;

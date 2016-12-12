@@ -177,6 +177,8 @@ impl<T: AsRef<[u8]>> PrettyPrint for Frame<T> {
         match frame.ethertype() {
             EtherType::Arp =>
                 super::ArpPacket::<&[u8]>::pretty_print(&frame.payload(), f, indent),
+            EtherType::Ipv4 =>
+                super::Ipv4Packet::<&[u8]>::pretty_print(&frame.payload(), f, indent),
             _ => Ok(())
         }
     }

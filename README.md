@@ -18,23 +18,27 @@ features are listed.
 The only supported medium is Ethernet.
 
   * Regular 802.3 frames are supported.
-  * 802.1Q is not supported.
-  * Jumbo frames are not supported.
-  * CRC calculation is not supported.
+  * 802.1Q is **not** supported.
+  * Jumbo frames are **not** supported.
+  * CRC calculation is **not** supported.
   * ARP packets are supported.
-  * ARP probes or announcements are not supported.
+  * ARP probes or announcements are **not** supported.
 
 ### IP layer
 
-IP is not supported yet.
+The only supported internetworking protocol is IPv4.
+
+  * IPv4 header checksum is supported.
+  * IPv4 fragmentation is **not** supported.
+  * IPv4 options are **not** supported.
 
 ### UDP layer
 
-UDP is not supported yet.
+UDP is **not** supported yet.
 
 ### TCP layer
 
-TCP is not supported yet.
+TCP is **not** supported yet.
 
 Installation
 ------------

@@ -81,8 +81,7 @@ mod field {
     pub const DSCP_ECN: usize = 1;
     pub const LENGTH:   Field = 2..4;
     pub const IDENT:    Field = 4..6;
-    pub const FLG_OFF1: usize = 6;
-    pub const FLG_OFF0: usize = 7;
+    pub const FLG_OFF:  Field = 6..8;
     pub const TTL:      usize = 8;
     pub const PROTOCOL: usize = 9;
     pub const CHECKSUM: Field = 10..12;
@@ -105,7 +104,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// is too small to contain one.
     pub fn new(buffer: T) -> Result<Packet<T>, Error> {
         let len = buffer.as_ref().len();
-        if len < field::VER_IHL {
+        if len < field::DST_ADDR.end {
             Err(Error::Truncated)
         } else {
             let packet = Packet { buffer: buffer };
@@ -126,26 +125,26 @@ impl<T: AsRef<[u8]>> Packet<T> {
     #[inline(always)]
     pub fn version(&self) -> u8 {
         let data = self.buffer.as_ref();
-        data[field::VER_IHL] & 0x04
+        data[field::VER_IHL] >> 4
     }
 
     /// Return the header length, in octets.
     #[inline(always)]
     pub fn header_len(&self) -> u8 {
         let data = self.buffer.as_ref();
-        (data[field::VER_IHL] >> 4) * 4
+        (data[field::VER_IHL] & 0x0f) * 4
     }
 
     /// Return the Differential Services Code Point field.
     pub fn dscp(&self) -> u8 {
         let data = self.buffer.as_ref();
-        data[field::DSCP_ECN] & 0x3f
+        data[field::DSCP_ECN] >> 2
     }
 
     /// Return the Explicit Congestion Notification field.
     pub fn ecn(&self) -> u8 {
         let data = self.buffer.as_ref();
-        data[field::DSCP_ECN] >> 6
+        data[field::DSCP_ECN] & 0x03
     }
 
     /// Return the total length field.
@@ -166,23 +165,21 @@ impl<T: AsRef<[u8]>> Packet<T> {
     #[inline(always)]
     pub fn dont_frag(&self) -> bool {
         let data = self.buffer.as_ref();
-        data[field::FLG_OFF1] & 0x02 != 0
+        NetworkEndian::read_u16(&data[field::FLG_OFF]) & 0x4000 != 0
     }
 
     /// Return the "more fragments" flag.
     #[inline(always)]
     pub fn more_frags(&self) -> bool {
         let data = self.buffer.as_ref();
-        data[field::FLG_OFF1] & 0x04 != 0
+        NetworkEndian::read_u16(&data[field::FLG_OFF]) & 0x2000 != 0
     }
 
     /// Return the fragment offset, in octets.
     #[inline(always)]
     pub fn frag_offset(&self) -> u16 {
         let data = self.buffer.as_ref();
-        let chunks = (((data[field::FLG_OFF1] >> 3) as u16) << 8) |
-                        data[field::FLG_OFF0] as u16;
-        chunks * 8
+        NetworkEndian::read_u16(&data[field::FLG_OFF]) << 3
     }
 
     /// Return the time to live field.
@@ -243,26 +240,26 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     #[inline(always)]
     pub fn set_version(&mut self, value: u8) {
         let data = self.buffer.as_mut();
-        data[field::VER_IHL] = (data[field::VER_IHL] & !0x04) | (value & 0x04);
+        data[field::VER_IHL] = (data[field::VER_IHL] & !0xf0) | (value << 4);
     }
 
     /// Set the header length, in octets.
     #[inline(always)]
     pub fn set_header_len(&mut self, value: u8) {
         let data = self.buffer.as_mut();
-        data[field::VER_IHL] = (data[field::VER_IHL] & !0x40) | ((value / 4) << 4);
+        data[field::VER_IHL] = (data[field::VER_IHL] & !0x0f) | ((value / 4) & 0x0f);
     }
 
     /// Set the Differential Services Code Point field.
     pub fn set_dscp(&mut self, value: u8) {
         let data = self.buffer.as_mut();
-        data[field::DSCP_ECN] = (data[field::DSCP_ECN] & !0x3f) | (value & 0x3f)
+        data[field::DSCP_ECN] = (data[field::DSCP_ECN] & !0xfc) | (value << 2)
     }
 
     /// Set the Explicit Congestion Notification field.
     pub fn set_ecn(&mut self, value: u8) {
         let data = self.buffer.as_mut();
-        data[field::DSCP_ECN] = (data[field::DSCP_ECN] & 0x3f) | (value << 6)
+        data[field::DSCP_ECN] = (data[field::DSCP_ECN] & !0x03) | (value & 0x03)
     }
 
     /// Set the total length field.
@@ -283,26 +280,27 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     #[inline(always)]
     pub fn set_dont_frag(&mut self, value: bool) {
         let data = self.buffer.as_mut();
-        let raw = data[field::FLG_OFF1];
-        data[field::FLG_OFF1] = if value { raw | 0x02 } else { raw & !0x02 };
+        let raw = NetworkEndian::read_u16(&data[field::FLG_OFF]);
+        let raw = if value { raw | 0x4000 } else { raw & !0x4000 };
+        NetworkEndian::write_u16(&mut data[field::FLG_OFF], raw);
     }
 
     /// Set the "more fragments" flag.
     #[inline(always)]
     pub fn set_more_frags(&mut self, value: bool) {
         let data = self.buffer.as_mut();
-        let raw = data[field::FLG_OFF1];
-        data[field::FLG_OFF1] = if value { raw | 0x04 } else { raw & !0x04 };
+        let raw = NetworkEndian::read_u16(&data[field::FLG_OFF]);
+        let raw = if value { raw | 0x2000 } else { raw & !0x2000 };
+        NetworkEndian::write_u16(&mut data[field::FLG_OFF], raw);
     }
 
     /// Set the fragment offset, in octets.
     #[inline(always)]
     pub fn set_frag_offset(&mut self, value: u16) {
         let data = self.buffer.as_mut();
-        let chunks = value / 8;
-        let raw = data[field::FLG_OFF1] & 0x7;
-        data[field::FLG_OFF1] = raw | (((chunks >> 8) << 3) as u8);
-        data[field::FLG_OFF0] = chunks as u8;
+        let raw = NetworkEndian::read_u16(&data[field::FLG_OFF]);
+        let raw = (raw & 0xe000) | (value >> 3);
+        NetworkEndian::write_u16(&mut data[field::FLG_OFF], raw);
     }
 
     /// Set the time to live field.
@@ -358,14 +356,126 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     }
 }
 
+/// A high-level representation of an Internet Protocol version 4 packet header.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct Repr {
+    pub src_addr: Address,
+    pub dst_addr: Address,
+    pub protocol: ProtocolType
+}
+
+impl Repr {
+    /// Parse an Internet Protocol version 4 packet and return a high-level representation,
+    /// or return `Err(())` if the packet is not recognized or is malformed.
+    pub fn parse<T: AsRef<[u8]>>(packet: &Packet<T>) -> Result<Repr, Error> {
+        // Version 4 is expected.
+        if packet.version() != 4 { return Err(Error::Malformed) }
+        // Valid checksum is expected.
+        if !packet.verify_checksum() { return Err(Error::Checksum) }
+        // We do not support any IP options.
+        if packet.header_len() > 20 { return Err(Error::Unrecognized) }
+        // We do not support fragmentation.
+        if packet.more_frags() || packet.frag_offset() != 0 { return Err(Error::Fragmented) }
+        // Since the packet is not fragmented, it must include the entire payload.
+        let payload_len = packet.total_len() as usize - packet.header_len() as usize;
+        if packet.payload().len() < payload_len  { return Err(Error::Truncated) }
+
+        // All DSCP values are acceptable, since they are of no concern to receiving endpoint.
+        // All ECN values are acceptable, since ECN requires opt-in from both endpoints.
+        // All TTL values are acceptable, since we do not perform routing.
+        Ok(Repr {
+            src_addr: packet.src_addr(),
+            dst_addr: packet.dst_addr(),
+            protocol: packet.protocol()
+        })
+    }
+
+    /// Emit a high-level representation into an Internet Protocol version 4 packet.
+    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(&self, packet: &mut Packet<T>,
+                                              payload_len: usize) {
+        packet.set_version(4);
+        packet.set_header_len(20);
+        packet.set_dscp(0);
+        packet.set_ecn(0);
+        let total_len = packet.header_len() as u16 + payload_len as u16;
+        packet.set_total_len(total_len);
+        packet.set_ident(0);
+        packet.set_more_frags(false);
+        packet.set_dont_frag(true);
+        packet.set_frag_offset(0);
+        packet.set_ttl(64);
+        packet.set_protocol(self.protocol);
+        packet.set_src_addr(self.src_addr);
+        packet.set_dst_addr(self.dst_addr);
+        packet.fill_checksum();
+    }
+}
+
+impl<T: AsRef<[u8]>> fmt::Display for Packet<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match Repr::parse(self) {
+            Ok(repr) => write!(f, "{}", repr),
+            _ => {
+                try!(write!(f, "IPv4 src={} dst={} proto={} ttl={}",
+                            self.src_addr(), self.dst_addr(), self.protocol(), self.ttl()));
+                if self.version() != 4 {
+                    try!(write!(f, " ver={}", self.version()))
+                }
+                if self.header_len() != 20 {
+                    try!(write!(f, " hlen={}", self.header_len()))
+                }
+                if self.dscp() != 0 {
+                    try!(write!(f, " dscp={}", self.dscp()))
+                }
+                if self.ecn() != 0 {
+                    try!(write!(f, " ecn={}", self.ecn()))
+                }
+                try!(write!(f, " tlen={}", self.total_len()));
+                if self.dont_frag() {
+                    try!(write!(f, " df"))
+                }
+                if self.more_frags() {
+                    try!(write!(f, " mf"))
+                }
+                if self.frag_offset() != 0 {
+                    try!(write!(f, " off={}", self.frag_offset()))
+                }
+                if self.more_frags() || self.frag_offset() != 0 {
+                    try!(write!(f, " id={}", self.ident()))
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
+impl fmt::Display for Repr {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "IPv4 src={} dst={} proto={}",
+               self.src_addr, self.dst_addr, self.protocol)
+    }
+}
+
+use super::pretty_print::{PrettyPrint, PrettyIndent};
+
+impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
+    fn pretty_print(buffer: &AsRef<[u8]>, f: &mut fmt::Formatter,
+                    indent: &mut PrettyIndent) -> fmt::Result {
+        match Packet::new(buffer) {
+            Err(err)  => write!(f, "{}({})\n", indent, err),
+            Ok(frame) => write!(f, "{}{}\n", indent, frame)
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
 
     static PACKET_BYTES: [u8; 30] =
-        [0x54, 0x00, 0x00, 0x1e,
-         0x01, 0x02, 0x16, 0x03,
-         0x1a, 0x01, 0x12, 0x6f,
+        [0x45, 0x00, 0x00, 0x1e,
+         0x01, 0x02, 0x62, 0x03,
+         0x1a, 0x01, 0xd5, 0x6e,
          0x11, 0x12, 0x13, 0x14,
          0x21, 0x22, 0x23, 0x24,
          0xaa, 0x00, 0x00, 0x00,
@@ -391,7 +501,7 @@ mod test {
         assert_eq!(packet.frag_offset(), 0x203 * 8);
         assert_eq!(packet.ttl(), 0x1a);
         assert_eq!(packet.protocol(), ProtocolType::Icmp);
-        assert_eq!(packet.checksum(), 0x126f);
+        assert_eq!(packet.checksum(), 0xd56e);
         assert_eq!(packet.src_addr(), Address([0x11, 0x12, 0x13, 0x14]));
         assert_eq!(packet.dst_addr(), Address([0x21, 0x22, 0x23, 0x24]));
         assert_eq!(packet.verify_checksum(), true);
@@ -418,5 +528,36 @@ mod test {
         packet.fill_checksum();
         packet.payload_mut().copy_from_slice(&PAYLOAD_BYTES[..]);
         assert_eq!(&packet.into_inner()[..], &PACKET_BYTES[..]);
+    }
+
+    static REPR_PACKET_BYTES: [u8; 24] =
+        [0x45, 0x00, 0x00, 0x18,
+         0x00, 0x00, 0x40, 0x00,
+         0x40, 0x01, 0xd2, 0x79,
+         0x11, 0x12, 0x13, 0x14,
+         0x21, 0x22, 0x23, 0x24,
+         0x00, 0x00, 0x00, 0x00];
+
+    fn packet_repr() -> Repr {
+        Repr {
+            src_addr: Address([0x11, 0x12, 0x13, 0x14]),
+            dst_addr: Address([0x21, 0x22, 0x23, 0x24]),
+            protocol: ProtocolType::Icmp
+        }
+    }
+
+    #[test]
+    fn test_parse() {
+        let packet = Packet::new(&REPR_PACKET_BYTES[..]).unwrap();
+        let repr = Repr::parse(&packet).unwrap();
+        assert_eq!(repr, packet_repr());
+    }
+
+    #[test]
+    fn test_emit() {
+        let mut bytes = vec![0; 24];
+        let mut packet = Packet::new(&mut bytes).unwrap();
+        packet_repr().emit(&mut packet, 4);
+        assert_eq!(&packet.into_inner()[..], &REPR_PACKET_BYTES[..]);
     }
 }

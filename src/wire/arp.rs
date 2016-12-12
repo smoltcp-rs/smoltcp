@@ -241,7 +241,7 @@ pub enum Repr {
 }
 
 impl Repr {
-    /// Parse an Address Resolution Packet and return a high-level representation,
+    /// Parse an Address Resolution Protocol packet and return a high-level representation,
     /// or return `Err(())` if the packet is not recognized.
     pub fn parse<T: AsRef<[u8]>>(packet: &Packet<T>) -> Result<Repr, Error> {
         match (packet.hardware_type(), packet.protocol_type(),
@@ -263,7 +263,7 @@ impl Repr {
         }
     }
 
-    /// Emit a high-level representation into an Address Resolution Packet.
+    /// Emit a high-level representation into an Address Resolution Protocol packet.
     pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(&self, packet: &mut Packet<T>) {
         match self {
             &Repr::EthernetIpv4 {
