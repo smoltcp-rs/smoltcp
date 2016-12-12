@@ -453,9 +453,17 @@ use super::pretty_print::{PrettyPrint, PrettyIndent};
 impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
     fn pretty_print(buffer: &AsRef<[u8]>, f: &mut fmt::Formatter,
                     indent: &mut PrettyIndent) -> fmt::Result {
-        match Packet::new(buffer) {
-            Err(err)  => write!(f, "{}({})\n", indent, err),
-            Ok(frame) => write!(f, "{}{}\n", indent, frame)
+        let packet = match Packet::new(buffer) {
+            Err(err)  => return write!(f, "{}({})\n", indent, err),
+            Ok(packet) => packet
+        };
+        try!(write!(f, "{}{}\n", indent, packet));
+        indent.increase();
+
+        match packet.protocol() {
+            ProtocolType::Icmp =>
+                super::Icmpv4Packet::<&[u8]>::pretty_print(&packet.payload(), f, indent),
+            _ => Ok(())
         }
     }
 }

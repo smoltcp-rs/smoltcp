@@ -39,7 +39,7 @@ impl fmt::Display for PrettyIndent {
         if self.level == 0 {
             write!(f, "{}", self.prefix)
         } else {
-            write!(f, "{0:1$}{0:2$}| ", "", self.prefix.len(), (self.level - 1) * 2)
+            write!(f, "{0:1$}{0:2$}\\ ", "", self.prefix.len(), self.level - 1)
         }
     }
 }

@@ -30,6 +30,24 @@ enum_with_unknown! {
     }
 }
 
+impl fmt::Display for Type {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            &Type::EchoReply      => write!(f, "echo reply"),
+            &Type::DstUnreachable => write!(f, "destination unreachable"),
+            &Type::Redirect       => write!(f, "message redirect"),
+            &Type::EchoRequest    => write!(f, "echo request"),
+            &Type::RouterAdvert   => write!(f, "router advertisement"),
+            &Type::RouterSolicit  => write!(f, "router solicitation"),
+            &Type::TimeExceeded   => write!(f, "time exceeded"),
+            &Type::ParamProblem   => write!(f, "parameter problem"),
+            &Type::Timestamp      => write!(f, "timestamp"),
+            &Type::TimestampReply => write!(f, "timestamp reply"),
+            &Type::Unknown(id) => write!(f, "{}", id)
+        }
+    }
+}
+
 enum_with_unknown! {
     /// Internet protocol control message subtype for type "Destination Unreachable".
     pub doc enum DstUnreachable(u8) {
@@ -270,5 +288,166 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
             rfc1071_checksum(field::CHECKSUM.start, &data[..self.header_len()])
         };
         self.set_checksum(checksum)
+    }
+}
+
+/// A high-level representation of an Internet Control Message Protocol version 4 packet header.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum Repr<'a> {
+    EchoRequest {
+        ident:  u16,
+        seq_no: u16,
+        data:   &'a [u8]
+    },
+    EchoReply {
+        ident:  u16,
+        seq_no: u16,
+        data:   &'a [u8]
+    },
+    #[doc(hidden)]
+    __Nonexhaustive
+}
+
+impl<'a> Repr<'a> {
+    /// Parse an Internet Control Message Protocol version 4 packet and return
+    /// a high-level representation, or return `Err(())` if the packet is not recognized
+    /// or is malformed.
+    pub fn parse<T: AsRef<[u8]>>(packet: &'a Packet<T>) -> Result<Repr<'a>, Error> {
+        match (packet.msg_type(), packet.msg_code()) {
+            (Type::EchoRequest, 0) => {
+                Ok(Repr::EchoRequest {
+                    ident:  packet.echo_ident(),
+                    seq_no: packet.echo_seq_no(),
+                    data:   packet.data()
+                })
+            },
+            (Type::EchoReply, 0) => {
+                Ok(Repr::EchoReply {
+                    ident:  packet.echo_ident(),
+                    seq_no: packet.echo_seq_no(),
+                    data:   packet.data()
+                })
+            },
+            _ => Err(Error::Unrecognized)
+        }
+    }
+
+    /// Emit a high-level representation into an Internet Protocol version 4 packet.
+    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(&self, packet: &mut Packet<T>) {
+        packet.set_msg_code(0);
+        match self {
+            &Repr::EchoRequest { ident, seq_no, data } => {
+                packet.set_msg_type(Type::EchoRequest);
+                packet.set_echo_ident(ident);
+                packet.set_echo_seq_no(seq_no);
+                packet.data_mut().copy_from_slice(data)
+            },
+            &Repr::EchoReply { ident, seq_no, data } => {
+                packet.set_msg_type(Type::EchoReply);
+                packet.set_echo_ident(ident);
+                packet.set_echo_seq_no(seq_no);
+                packet.data_mut().copy_from_slice(data)
+            },
+            &Repr::__Nonexhaustive => unreachable!()
+        }
+        packet.fill_checksum()
+    }
+}
+
+impl<T: AsRef<[u8]>> fmt::Display for Packet<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match Repr::parse(self) {
+            Ok(repr) => write!(f, "{}", repr),
+            _ => {
+                write!(f, "ICMPv4 type={} code={}",
+                       self.msg_type(), self.msg_code())
+            }
+        }
+    }
+}
+
+impl<'a> fmt::Display for Repr<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            &Repr::EchoRequest { ident, seq_no, .. } =>
+                write!(f, "ICMPv4 Echo Request id={} seq={}", ident, seq_no),
+            &Repr::EchoReply { ident, seq_no, .. } =>
+                write!(f, "ICMPv4 Echo Reply id={} seq={}", ident, seq_no),
+            &Repr::__Nonexhaustive => unreachable!()
+        }
+    }
+}
+
+use super::pretty_print::{PrettyPrint, PrettyIndent};
+
+impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
+    fn pretty_print(buffer: &AsRef<[u8]>, f: &mut fmt::Formatter,
+                    indent: &mut PrettyIndent) -> fmt::Result {
+        match Packet::new(buffer) {
+            Err(err)  => write!(f, "{}({})\n", indent, err),
+            Ok(frame) => write!(f, "{}{}\n", indent, frame)
+        }
+    }
+}
+
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    static ECHO_PACKET_BYTES: [u8; 12] =
+        [0x08, 0x00, 0x39, 0xfe,
+         0x12, 0x34, 0xab, 0xcd,
+         0xaa, 0x00, 0x00, 0xff];
+
+    static ECHO_DATA_BYTES: [u8; 4] =
+        [0xaa, 0x00, 0x00, 0xff];
+
+    #[test]
+    fn test_echo_deconstruct() {
+        let packet = Packet::new(&ECHO_PACKET_BYTES[..]).unwrap();
+        assert_eq!(packet.msg_type(), Type::EchoRequest);
+        assert_eq!(packet.msg_code(), 0);
+        assert_eq!(packet.checksum(), 0x39fe);
+        assert_eq!(packet.echo_ident(), 0x1234);
+        assert_eq!(packet.echo_seq_no(), 0xabcd);
+        assert_eq!(packet.verify_checksum(), true);
+        assert_eq!(packet.data(), &ECHO_DATA_BYTES[..]);
+    }
+
+    #[test]
+    fn test_echo_construct() {
+        let mut bytes = vec![0; 12];
+        let mut packet = Packet::new(&mut bytes).unwrap();
+        packet.set_msg_type(Type::EchoRequest);
+        packet.set_msg_code(0);
+        packet.set_echo_ident(0x1234);
+        packet.set_echo_seq_no(0xabcd);
+        packet.fill_checksum();
+        packet.data_mut().copy_from_slice(&ECHO_DATA_BYTES[..]);
+        assert_eq!(&packet.into_inner()[..], &ECHO_PACKET_BYTES[..]);
+    }
+
+    fn echo_packet_repr() -> Repr<'static> {
+        Repr::EchoRequest {
+            ident: 0x1234,
+            seq_no: 0xabcd,
+            data: &ECHO_DATA_BYTES
+        }
+    }
+
+    #[test]
+    fn test_echo_parse() {
+        let packet = Packet::new(&ECHO_PACKET_BYTES[..]).unwrap();
+        let repr = Repr::parse(&packet).unwrap();
+        assert_eq!(repr, echo_packet_repr());
+    }
+
+    #[test]
+    fn test_echo_emit() {
+        let mut bytes = vec![0; 12];
+        let mut packet = Packet::new(&mut bytes).unwrap();
+        echo_packet_repr().emit(&mut packet);
+        assert_eq!(&packet.into_inner()[..], &ECHO_PACKET_BYTES[..]);
     }
 }

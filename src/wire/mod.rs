@@ -110,3 +110,4 @@ pub use self::icmpv4::Redirect as Icmpv4Redirect;
 pub use self::icmpv4::TimeExceeded as Icmpv4TimeExceeded;
 pub use self::icmpv4::ParamProblem as Icmpv4ParamProblem;
 pub use self::icmpv4::Packet as Icmpv4Packet;
+pub use self::icmpv4::Repr as Icmpv4Repr;
