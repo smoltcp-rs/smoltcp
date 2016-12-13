@@ -2,7 +2,7 @@ use core::{cmp, fmt};
 use byteorder::{ByteOrder, NetworkEndian};
 
 use Error;
-use super::ip::rfc1071_checksum;
+use super::ip::checksum;
 
 enum_with_unknown! {
     /// Internet protocol control message type.
@@ -216,11 +216,8 @@ impl<T: AsRef<[u8]>> Packet<T> {
 
     /// Validate the header checksum.
     pub fn verify_checksum(&self) -> bool {
-        let checksum = {
-            let data = self.buffer.as_ref();
-            rfc1071_checksum(field::CHECKSUM.start, data)
-        };
-        self.checksum() == checksum
+        let data = self.buffer.as_ref();
+        checksum(data) == !0
     }
 }
 
@@ -285,9 +282,10 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
 
     /// Compute and fill in the header checksum.
     pub fn fill_checksum(&mut self) {
+        self.set_checksum(0);
         let checksum = {
             let data = self.buffer.as_ref();
-            rfc1071_checksum(field::CHECKSUM.start, data)
+            !checksum(data)
         };
         self.set_checksum(checksum)
     }
@@ -411,7 +409,7 @@ mod test {
     use super::*;
 
     static ECHO_PACKET_BYTES: [u8; 12] =
-        [0x08, 0x00, 0x39, 0xfe,
+        [0x08, 0x00, 0x8e, 0xfe,
          0x12, 0x34, 0xab, 0xcd,
          0xaa, 0x00, 0x00, 0xff];
 
@@ -423,11 +421,11 @@ mod test {
         let packet = Packet::new(&ECHO_PACKET_BYTES[..]).unwrap();
         assert_eq!(packet.msg_type(), Type::EchoRequest);
         assert_eq!(packet.msg_code(), 0);
-        assert_eq!(packet.checksum(), 0x39fe);
+        assert_eq!(packet.checksum(), 0x8efe);
         assert_eq!(packet.echo_ident(), 0x1234);
         assert_eq!(packet.echo_seq_no(), 0xabcd);
-        assert_eq!(packet.verify_checksum(), true);
         assert_eq!(packet.data(), &ECHO_DATA_BYTES[..]);
+        assert_eq!(packet.verify_checksum(), true);
     }
 
     #[test]
@@ -438,8 +436,8 @@ mod test {
         packet.set_msg_code(0);
         packet.set_echo_ident(0x1234);
         packet.set_echo_seq_no(0xabcd);
-        packet.fill_checksum();
         packet.data_mut().copy_from_slice(&ECHO_DATA_BYTES[..]);
+        packet.fill_checksum();
         assert_eq!(&packet.into_inner()[..], &ECHO_PACKET_BYTES[..]);
     }
 

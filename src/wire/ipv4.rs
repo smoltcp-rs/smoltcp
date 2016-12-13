@@ -2,7 +2,7 @@ use core::fmt;
 use byteorder::{ByteOrder, NetworkEndian};
 
 use Error;
-use super::ip::rfc1071_checksum;
+use super::ip::checksum;
 
 pub use super::InternetProtocolType as ProtocolType;
 
@@ -211,11 +211,8 @@ impl<T: AsRef<[u8]>> Packet<T> {
 
     /// Validate the header checksum.
     pub fn verify_checksum(&self) -> bool {
-        let checksum = {
-            let data = self.buffer.as_ref();
-            rfc1071_checksum(field::CHECKSUM.start, &data[..self.header_len() as usize])
-        };
-        self.checksum() == checksum
+        let data = self.buffer.as_ref();
+        checksum(&data[..self.header_len() as usize]) == !0
     }
 }
 
@@ -342,9 +339,10 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
 
     /// Compute and fill in the header checksum.
     pub fn fill_checksum(&mut self) {
+        self.set_checksum(0);
         let checksum = {
             let data = self.buffer.as_ref();
-            rfc1071_checksum(field::CHECKSUM.start, &data[..self.header_len() as usize])
+            !checksum(&data[..self.header_len() as usize])
         };
         self.set_checksum(checksum)
     }
