@@ -214,20 +214,22 @@ impl<T: AsRef<[u8]>> Packet<T> {
         }
     }
 
-    /// Return a pointer to the type-specific data.
-    #[inline(always)]
-    pub fn data(&self) -> &[u8] {
-        let data = self.buffer.as_ref();
-        &data[self.header_len()..]
-    }
-
     /// Validate the header checksum.
     pub fn verify_checksum(&self) -> bool {
         let checksum = {
             let data = self.buffer.as_ref();
-            rfc1071_checksum(field::CHECKSUM.start, &data[..self.header_len()])
+            rfc1071_checksum(field::CHECKSUM.start, data)
         };
         self.checksum() == checksum
+    }
+}
+
+impl<'a, T: AsRef<[u8]> + ?Sized> Packet<&'a T> {
+    /// Return a pointer to the type-specific data.
+    #[inline(always)]
+    pub fn data(&self) -> &'a [u8] {
+        let data = self.buffer.as_ref();
+        &data[self.header_len()..]
     }
 }
 
@@ -285,7 +287,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     pub fn fill_checksum(&mut self) {
         let checksum = {
             let data = self.buffer.as_ref();
-            rfc1071_checksum(field::CHECKSUM.start, &data[..self.header_len()])
+            rfc1071_checksum(field::CHECKSUM.start, data)
         };
         self.set_checksum(checksum)
     }
@@ -312,7 +314,7 @@ impl<'a> Repr<'a> {
     /// Parse an Internet Control Message Protocol version 4 packet and return
     /// a high-level representation, or return `Err(())` if the packet is not recognized
     /// or is malformed.
-    pub fn parse<T: AsRef<[u8]>>(packet: &'a Packet<T>) -> Result<Repr<'a>, Error> {
+    pub fn parse<T: AsRef<[u8]> + ?Sized>(packet: &Packet<&'a T>) -> Result<Repr<'a>, Error> {
         match (packet.msg_type(), packet.msg_code()) {
             (Type::EchoRequest, 0) => {
                 Ok(Repr::EchoRequest {
@@ -367,7 +369,7 @@ impl<'a> Repr<'a> {
     }
 }
 
-impl<T: AsRef<[u8]>> fmt::Display for Packet<T> {
+impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match Repr::parse(self) {
             Ok(repr) => write!(f, "{}", repr),

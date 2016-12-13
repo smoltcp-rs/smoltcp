@@ -116,10 +116,12 @@ impl<T: AsRef<[u8]>> Frame<T> {
         let raw = NetworkEndian::read_u16(&data[field::ETHERTYPE]);
         EtherType::from(raw)
     }
+}
 
+impl<'a, T: AsRef<[u8]> + ?Sized> Frame<&'a T> {
     /// Return a pointer to the payload, without checking for 802.1Q.
     #[inline(always)]
-    pub fn payload(&self) -> &[u8] {
+    pub fn payload(&self) -> &'a [u8] {
         let data = self.buffer.as_ref();
         &data[field::PAYLOAD]
     }

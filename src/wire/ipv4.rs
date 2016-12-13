@@ -209,14 +209,6 @@ impl<T: AsRef<[u8]>> Packet<T> {
         Address::from_bytes(&data[field::DST_ADDR])
     }
 
-    /// Return a pointer to the payload.
-    #[inline(always)]
-    pub fn payload(&self) -> &[u8] {
-        let range = self.header_len() as usize;
-        let data = self.buffer.as_ref();
-        &data[range..]
-    }
-
     /// Validate the header checksum.
     pub fn verify_checksum(&self) -> bool {
         let checksum = {
@@ -224,6 +216,16 @@ impl<T: AsRef<[u8]>> Packet<T> {
             rfc1071_checksum(field::CHECKSUM.start, &data[..self.header_len() as usize])
         };
         self.checksum() == checksum
+    }
+}
+
+impl<'a, T: AsRef<[u8]> + ?Sized> Packet<&'a T> {
+    /// Return a pointer to the payload.
+    #[inline(always)]
+    pub fn payload(&self) -> &'a [u8] {
+        let range = self.header_len() as usize;
+        let data = self.buffer.as_ref();
+        &data[range..]
     }
 }
 
@@ -359,7 +361,7 @@ pub struct Repr {
 impl Repr {
     /// Parse an Internet Protocol version 4 packet and return a high-level representation,
     /// or return `Err(())` if the packet is not recognized or is malformed.
-    pub fn parse<T: AsRef<[u8]>>(packet: &Packet<T>) -> Result<Repr, Error> {
+    pub fn parse<T: AsRef<[u8]> + ?Sized>(packet: &Packet<&T>) -> Result<Repr, Error> {
         // Version 4 is expected.
         if packet.version() != 4 { return Err(Error::Malformed) }
         // Valid checksum is expected.
@@ -403,7 +405,7 @@ impl Repr {
     }
 }
 
-impl<T: AsRef<[u8]>> fmt::Display for Packet<T> {
+impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match Repr::parse(self) {
             Ok(repr) => write!(f, "{}", repr),

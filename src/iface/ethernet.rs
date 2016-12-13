@@ -79,10 +79,11 @@ impl<'a, DeviceT: Device, ArpCacheT: ArpCache> Interface<'a, DeviceT, ArpCacheT>
             Arp(ArpRepr),
             Icmpv4(Ipv4Repr, Icmpv4Repr<'a>)
         }
-        let mut response = Response::Nop;
 
         let rx_buffer = try!(self.device.receive());
-        let eth_frame = try!(EthernetFrame::new(rx_buffer));
+        let eth_frame = try!(EthernetFrame::new(&rx_buffer));
+
+        let mut response = Response::Nop;
         match eth_frame.ethertype() {
             // Snoop all ARP traffic, and respond to ARP packets directed at us.
             EthernetProtocolType::Arp => {
@@ -144,7 +145,7 @@ impl<'a, DeviceT: Device, ArpCacheT: ArpCache> Interface<'a, DeviceT, ArpCacheT>
                                 let icmp_reply_repr = Icmpv4Repr::EchoReply {
                                     ident:  ident,
                                     seq_no: seq_no,
-                                    data:   &[]
+                                    data:   data
                                 };
                                 response = Response::Icmpv4(ip_reply_repr, icmp_reply_repr)
                             }
