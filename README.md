@@ -17,9 +17,9 @@ features are listed.
 
 The only supported medium is Ethernet.
 
-  * Regular 802.3 frames are supported.
+  * Regular Ethernet II frames are supported.
   * ARP packets (including gratuitous requests and replies) are supported.
-  * 802.1Q is **not** supported.
+  * 802.3 and 802.1Q is **not** supported.
   * Jumbo frames are **not** supported.
   * Frame check sequence calculation is **not** supported.
 
@@ -55,9 +55,13 @@ smoltcp = "0.1"
 Usage example
 -------------
 
-_smoltcp_, being a userspace networking stack, needs to be able to send and receive raw frames.
-This normally requires superuser privileges, but on Linux it is possible to create
-a _persistent tap interface_ that can be manipulated by a specific user:
+_smoltcp_, being a freestanding networking stack, needs to be able to transmit and receive
+raw frames. For testing purposes, we will use a regular OS, and run _smoltcp_ in
+a userspace process. Only Linux is supported (right now).
+
+On *nix OSes, transmiting and receiving raw frames normally requires superuser privileges, but
+on Linux it is possible to create a _persistent tap interface_ that can be manipulated by
+a specific user:
 
 ```sh
 sudo ip tuntap add name tap0 mode tap user $USER
