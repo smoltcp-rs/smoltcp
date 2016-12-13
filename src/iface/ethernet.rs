@@ -169,8 +169,8 @@ impl<'a, DeviceT: Device, ArpCacheT: ArpCache> Interface<'a, DeviceT, ArpCacheT>
         if let Response::Nop = response { return Ok(()) }
 
         let tx_size = self.device.mtu();
-        let tx_buffer = try!(self.device.transmit(tx_size));
-        let mut frame = try!(EthernetFrame::new(tx_buffer));
+        let mut tx_buffer = try!(self.device.transmit(tx_size));
+        let mut frame = try!(EthernetFrame::new(&mut tx_buffer));
         frame.set_src_addr(self.hardware_addr);
 
         match response {

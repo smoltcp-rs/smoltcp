@@ -329,14 +329,6 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
         data[field::DST_ADDR].copy_from_slice(value.as_bytes())
     }
 
-    /// Return a mutable pointer to the payload.
-    #[inline(always)]
-    pub fn payload_mut(&mut self) -> &mut [u8] {
-        let range = self.header_len() as usize..;
-        let data = self.buffer.as_mut();
-        &mut data[range]
-    }
-
     /// Compute and fill in the header checksum.
     pub fn fill_checksum(&mut self) {
         self.set_checksum(0);
@@ -345,6 +337,16 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
             !checksum(&data[..self.header_len() as usize])
         };
         self.set_checksum(checksum)
+    }
+}
+
+impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Packet<&'a mut T> {
+    /// Return a mutable pointer to the payload.
+    #[inline(always)]
+    pub fn payload_mut(&mut self) -> &mut [u8] {
+        let range = self.header_len() as usize..;
+        let data = self.buffer.as_mut();
+        &mut data[range]
     }
 }
 

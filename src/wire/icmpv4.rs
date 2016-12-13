@@ -272,14 +272,6 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
         NetworkEndian::write_u16(&mut data[field::ECHO_SEQNO], value)
     }
 
-    /// Return a mutable pointer to the type-specific data.
-    #[inline(always)]
-    pub fn data_mut(&mut self) -> &mut [u8] {
-        let range = self.header_len()..;
-        let mut data = self.buffer.as_mut();
-        &mut data[range]
-    }
-
     /// Compute and fill in the header checksum.
     pub fn fill_checksum(&mut self) {
         self.set_checksum(0);
@@ -288,6 +280,16 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
             !checksum(data)
         };
         self.set_checksum(checksum)
+    }
+}
+
+impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Packet<&'a mut T> {
+    /// Return a mutable pointer to the type-specific data.
+    #[inline(always)]
+    pub fn data_mut(&mut self) -> &mut [u8] {
+        let range = self.header_len()..;
+        let mut data = self.buffer.as_mut();
+        &mut data[range]
     }
 }
 
@@ -344,7 +346,7 @@ impl<'a> Repr<'a> {
     }
 
     /// Emit a high-level representation into an Internet Protocol version 4 packet.
-    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(&self, packet: &mut Packet<T>) {
+    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]> + ?Sized>(&self, packet: &mut Packet<&mut T>) {
         packet.set_msg_code(0);
         match self {
             &Repr::EchoRequest { ident, seq_no, data } => {
