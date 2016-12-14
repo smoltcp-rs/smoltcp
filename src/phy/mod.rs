@@ -4,6 +4,7 @@
 //! for transmitting and receiving frames, [Device](trait.Device.html),
 //! as well as an implementations of that trait that uses the host OS,
 //! [RawSocket](struct.RawSocket.html) and [TapInterface](struct.TapInterface.html).
+
 use Error;
 
 #[cfg(feature = "std")]

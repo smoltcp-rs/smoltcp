@@ -14,6 +14,7 @@ use core::fmt;
 pub mod phy;
 pub mod wire;
 pub mod iface;
+pub mod socket;
 
 /// The error type for the networking stack.
 #[derive(Debug)]
@@ -36,6 +37,10 @@ pub enum Error {
     /// to hardware address. E.g. an IPv4 packet did not have an Ethernet address
     /// corresponding to its IPv4 destination address.
     Unaddressable,
+    /// A buffer for incoming packets is empty, or a buffer for outgoing packets is full.
+    Exhausted,
+    /// An incoming packet does not match the socket endpoint.
+    Rejected,
 
     #[doc(hidden)]
     __Nonexhaustive
@@ -50,6 +55,8 @@ impl fmt::Display for Error {
             &Error::Checksum      => write!(f, "checksum error"),
             &Error::Fragmented    => write!(f, "fragmented packet"),
             &Error::Unaddressable => write!(f, "unaddressable destination"),
+            &Error::Exhausted     => write!(f, "buffer space exhausted"),
+            &Error::Rejected      => write!(f, "rejected by socket"),
             &Error::__Nonexhaustive => unreachable!()
         }
     }

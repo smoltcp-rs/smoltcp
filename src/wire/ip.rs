@@ -45,6 +45,14 @@ impl Address {
             &Address::Ipv4(addr) => addr.is_unicast()
         }
     }
+
+    /// Query whether the address falls into the "unspecified" range.
+    pub fn is_unspecified(&self) -> bool {
+        match self {
+            &Address::Invalid    => false,
+            &Address::Ipv4(addr) => addr.is_unspecified()
+        }
+    }
 }
 
 impl Default for Address {
@@ -65,6 +73,26 @@ impl fmt::Display for Address {
             &Address::Invalid    => write!(f, "(invalid)"),
             &Address::Ipv4(addr) => write!(f, "{}", addr)
         }
+    }
+}
+
+/// An internet endpoint address.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
+pub struct Endpoint {
+    pub addr: Address,
+    pub port: u16
+}
+
+impl Endpoint {
+    /// Create an internet endpoint address.
+    pub fn new(addr: Address, port: u16) -> Endpoint {
+        Endpoint { addr: addr, port: port }
+    }
+}
+
+impl fmt::Display for Endpoint {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}:{}", self.addr, self.port)
     }
 }
 

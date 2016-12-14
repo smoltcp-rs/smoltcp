@@ -19,7 +19,7 @@ The only supported medium is Ethernet.
 
   * Regular Ethernet II frames are supported.
   * ARP packets (including gratuitous requests and replies) are supported.
-  * 802.3 and 802.1Q is **not** supported.
+  * 802.3 and 802.1Q are **not** supported.
   * Jumbo frames are **not** supported.
   * Frame check sequence calculation is **not** supported.
 
@@ -30,13 +30,17 @@ The only supported internetworking protocol is IPv4.
   * IPv4 header checksum is supported.
   * IPv4 fragmentation is **not** supported.
   * IPv4 options are **not** supported.
+  * ICMPv4 header checksum is supported.
   * ICMPv4 echo requests and replies are supported.
   * ICMPv4 destination unreachable message is **not** supported.
   * ICMPv4 parameter problem message is **not** supported.
 
 ### UDP layer
 
-UDP is **not** supported yet.
+The UDP protocol is supported over IPv4.
+
+  * UDP header checksum is supported.
+  * UDP sockets are supported.
 
 ### TCP layer
 

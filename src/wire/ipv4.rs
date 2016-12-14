@@ -11,7 +11,8 @@ pub use super::InternetProtocolType as ProtocolType;
 pub struct Address(pub [u8; 4]);
 
 impl Address {
-    pub const BROADCAST: Address = Address([255; 4]);
+    pub const UNSPECIFIED: Address = Address([0x00; 4]);
+    pub const BROADCAST:   Address = Address([0xff; 4]);
 
     /// Construct an IPv4 address from a sequence of octets, in big-endian.
     ///

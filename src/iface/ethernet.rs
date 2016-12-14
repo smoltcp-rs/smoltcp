@@ -5,6 +5,7 @@ use wire::{ArpPacket, ArpRepr, ArpOperation};
 use wire::{InternetAddress, InternetProtocolType};
 use wire::{Ipv4Packet, Ipv4Repr};
 use wire::{Icmpv4Packet, Icmpv4Repr};
+use wire::{UdpPacket, UdpRepr};
 use super::{ArpCache};
 
 /// An Ethernet network interface.
@@ -121,7 +122,7 @@ impl<'a, DeviceT: Device, ArpCacheT: ArpCache> Interface<'a, DeviceT, ArpCacheT>
                 }
             },
 
-            // Respond to IP packets directed at us.
+            // Handle IP packets directed at us.
             EthernetProtocolType::Ipv4 => {
                 let ip_packet = try!(Ipv4Packet::new(eth_frame.payload()));
                 match try!(Ipv4Repr::parse(&ip_packet)) {
@@ -157,6 +158,14 @@ impl<'a, DeviceT: Device, ArpCacheT: ArpCache> Interface<'a, DeviceT, ArpCacheT>
                             _ => return Err(Error::Unrecognized)
                         }
                     },
+
+                    // Queue UDP packets.
+                    Ipv4Repr { protocol: InternetProtocolType::Udp, src_addr, dst_addr } => {
+                        let udp_packet = try!(UdpPacket::new(ip_packet.payload()));
+                        let udp_repr = try!(UdpRepr::parse(&udp_packet,
+                                                           &src_addr.into(), &dst_addr.into()));
+                        println!("yes")
+                    }
 
                     // FIXME: respond with ICMP unknown protocol here?
                     _ => return Err(Error::Unrecognized)

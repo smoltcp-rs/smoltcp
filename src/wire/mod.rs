@@ -100,6 +100,7 @@ pub use self::arp::Repr as ArpRepr;
 
 pub use self::ip::ProtocolType as InternetProtocolType;
 pub use self::ip::Address as InternetAddress;
+pub use self::ip::Endpoint as InternetEndpoint;
 
 pub use self::ipv4::Address as Ipv4Address;
 pub use self::ipv4::Packet as Ipv4Packet;
