@@ -215,7 +215,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// Validate the header checksum.
     pub fn verify_checksum(&self) -> bool {
         let data = self.buffer.as_ref();
-        checksum(data) == !0
+        checksum::data(data) == !0
     }
 }
 
@@ -275,7 +275,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
         self.set_checksum(0);
         let checksum = {
             let data = self.buffer.as_ref();
-            !checksum(data)
+            !checksum::data(data)
         };
         self.set_checksum(checksum)
     }
@@ -310,8 +310,7 @@ pub enum Repr<'a> {
 
 impl<'a> Repr<'a> {
     /// Parse an Internet Control Message Protocol version 4 packet and return
-    /// a high-level representation, or return `Err(())` if the packet is not recognized
-    /// or is malformed.
+    /// a high-level representation.
     pub fn parse<T: AsRef<[u8]> + ?Sized>(packet: &Packet<&'a T>) -> Result<Repr<'a>, Error> {
         match (packet.msg_type(), packet.msg_code()) {
             (Type::EchoRequest, 0) => {
@@ -343,7 +342,8 @@ impl<'a> Repr<'a> {
         }
     }
 
-    /// Emit a high-level representation into an Internet Protocol version 4 packet.
+    /// Emit a high-level representation into an Internet Control Message Protocol version 4
+    /// packet.
     pub fn emit<T: AsRef<[u8]> + AsMut<[u8]> + ?Sized>(&self, packet: &mut Packet<&mut T>) {
         packet.set_msg_code(0);
         match self {
@@ -372,8 +372,10 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
         match Repr::parse(self) {
             Ok(repr) => write!(f, "{}", repr),
             _ => {
-                write!(f, "ICMPv4 type={} code={}",
-                       self.msg_type(), self.msg_code())
+                try!(write!(f, "ICMPv4 (unrecognized)"));
+                try!(write!(f, " type={} code={} cksum={:#04x}",
+                            self.msg_type(), self.msg_code(), self.checksum()));
+                Ok(())
             }
         }
     }
@@ -397,8 +399,8 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
     fn pretty_print(buffer: &AsRef<[u8]>, f: &mut fmt::Formatter,
                     indent: &mut PrettyIndent) -> fmt::Result {
         match Packet::new(buffer) {
-            Err(err)  => write!(f, "{}({})\n", indent, err),
-            Ok(frame) => write!(f, "{}{}\n", indent, frame)
+            Err(err)   => write!(f, "{}({})\n", indent, err),
+            Ok(packet) => write!(f, "{}{}\n", indent, packet)
         }
     }
 }

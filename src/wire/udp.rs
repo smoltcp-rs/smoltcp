@@ -1,7 +1,8 @@
-use core::{cmp, fmt};
+use core::fmt;
 use byteorder::{ByteOrder, NetworkEndian};
 
 use Error;
+use super::{InternetProtocolType, InternetAddress};
 use super::ip::checksum;
 
 /// A read/write wrapper around an User Datagram Protocol packet buffer.
@@ -71,9 +72,17 @@ impl<T: AsRef<[u8]>> Packet<T> {
     }
 
     /// Validate the packet checksum.
-    pub fn verify_checksum(&self) -> bool {
+    ///
+    /// # Panics
+    /// This function panics unless `src_addr` and `dst_addr` belong to the same family,
+    /// and that family is IPv4 or IPv6.
+    pub fn verify_checksum(&self, src_addr: &InternetAddress, dst_addr: &InternetAddress) -> bool {
         let data = self.buffer.as_ref();
-        checksum(&data[..self.len() as usize]) == !0
+        checksum::combine(&[
+            checksum::pseudo_header(src_addr, dst_addr, InternetProtocolType::Udp,
+                                    self.len() as u32),
+            checksum::data(&data[..self.len() as usize])
+        ]) == !0
     }
 }
 
@@ -116,11 +125,19 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     }
 
     /// Compute and fill in the header checksum.
-    pub fn fill_checksum(&mut self) {
+    ///
+    /// # Panics
+    /// This function panics unless `src_addr` and `dst_addr` belong to the same family,
+    /// and that family is IPv4 or IPv6.
+    pub fn fill_checksum(&mut self, src_addr: &InternetAddress, dst_addr: &InternetAddress) {
         self.set_checksum(0);
         let checksum = {
             let data = self.buffer.as_ref();
-            !checksum(&data[..self.len() as usize])
+            !checksum::combine(&[
+                checksum::pseudo_header(src_addr, dst_addr, InternetProtocolType::Udp,
+                                        self.len() as u32),
+                checksum::data(&data[..self.len() as usize])
+            ])
         };
         self.set_checksum(checksum)
     }
@@ -135,13 +152,99 @@ impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Packet<&'a mut T> {
     }
 }
 
+/// A high-level representation of an User Datagram Protocol packet.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct Repr<'a> {
+    pub src_port: u16,
+    pub dst_port: u16,
+    pub payload:  &'a [u8]
+}
+
+impl<'a> Repr<'a> {
+    /// Parse an User Datagram Protocol packet and return a high-level representation.
+    pub fn parse<T: ?Sized>(packet: &Packet<&'a T>,
+                            src_addr: &InternetAddress,
+                            dst_addr: &InternetAddress) -> Result<Repr<'a>, Error>
+            where T: AsRef<[u8]> {
+        // Destination port cannot be omitted (but source port can be).
+        if packet.dst_port() == 0 { return Err(Error::Malformed) }
+        // Valid checksum is expected...
+        if !packet.verify_checksum(src_addr, dst_addr) {
+            match (src_addr, dst_addr) {
+                (&InternetAddress::Ipv4(_), &InternetAddress::Ipv4(_))
+                        if packet.checksum() != 0 => {
+                    // ... except on UDP-over-IPv4, where it can be omitted.
+                    return Err(Error::Checksum)
+                },
+                _ => {
+                    return Err(Error::Checksum)
+                }
+            }
+        }
+
+        Ok(Repr {
+            src_port: packet.src_port(),
+            dst_port: packet.dst_port(),
+            payload:  packet.payload()
+        })
+    }
+
+    /// Return the length of a packet that will be emitted from this high-level representation.
+    pub fn len(&self) -> usize {
+        field::PAYLOAD.start + self.payload.len()
+    }
+
+    /// Emit a high-level representation into an User Datagram Protocol packet.
+    pub fn emit<T: ?Sized>(&self, packet: &mut Packet<&mut T>,
+                           src_addr: &InternetAddress,
+                           dst_addr: &InternetAddress)
+            where T: AsRef<[u8]> + AsMut<[u8]> {
+        packet.set_src_port(self.src_port);
+        packet.set_dst_port(self.dst_port);
+        packet.set_len((field::PAYLOAD.start + self.payload.len()) as u16);
+        packet.payload_mut().copy_from_slice(self.payload);
+        packet.fill_checksum(src_addr, dst_addr)
+    }
+}
+
+impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // Cannot use Repr::parse because we don't have the IP addresses.
+        write!(f, "UDP src={} dst={} len={}",
+               self.src_port(), self.dst_port(), self.payload().len())
+    }
+}
+
+impl<'a> fmt::Display for Repr<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "UDP src={} dst={} len={}",
+               self.src_port, self.dst_port, self.payload.len())
+    }
+}
+
+use super::pretty_print::{PrettyPrint, PrettyIndent};
+
+impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
+    fn pretty_print(buffer: &AsRef<[u8]>, f: &mut fmt::Formatter,
+                    indent: &mut PrettyIndent) -> fmt::Result {
+        match Packet::new(buffer) {
+            Err(err)   => write!(f, "{}({})\n", indent, err),
+            Ok(packet) => write!(f, "{}{}\n", indent, packet)
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
+    use wire::Ipv4Address;
     use super::*;
+
+    const SRC_ADDR: Ipv4Address = Ipv4Address([192, 168, 1, 1]);
+    const DST_ADDR: Ipv4Address = Ipv4Address([192, 168, 1, 2]);
 
     static PACKET_BYTES: [u8; 12] =
         [0xbf, 0x00, 0x00, 0x35,
-         0x00, 0x0c, 0x95, 0xbe,
+         0x00, 0x0c, 0x12, 0x4d,
          0xaa, 0x00, 0x00, 0xff];
 
     static PAYLOAD_BYTES: [u8; 4] =
@@ -153,9 +256,9 @@ mod test {
         assert_eq!(packet.src_port(), 48896);
         assert_eq!(packet.dst_port(), 53);
         assert_eq!(packet.len(), 12);
-        assert_eq!(packet.checksum(), 0x95be);
+        assert_eq!(packet.checksum(), 0x124d);
         assert_eq!(packet.payload(), &PAYLOAD_BYTES[..]);
-        assert_eq!(packet.verify_checksum(), true);
+        assert_eq!(packet.verify_checksum(&SRC_ADDR.into(), &DST_ADDR.into()), true);
     }
 
     #[test]
@@ -167,7 +270,30 @@ mod test {
         packet.set_len(12);
         packet.set_checksum(0xffff);
         packet.payload_mut().copy_from_slice(&PAYLOAD_BYTES[..]);
-        packet.fill_checksum();
+        packet.fill_checksum(&SRC_ADDR.into(), &DST_ADDR.into());
+        assert_eq!(&packet.into_inner()[..], &PACKET_BYTES[..]);
+    }
+
+    fn packet_repr() -> Repr<'static> {
+        Repr {
+            src_port: 48896,
+            dst_port: 53,
+            payload:  &PAYLOAD_BYTES
+        }
+    }
+
+    #[test]
+    fn test_parse() {
+        let packet = Packet::new(&PACKET_BYTES[..]).unwrap();
+        let repr = Repr::parse(&packet, &SRC_ADDR.into(), &DST_ADDR.into()).unwrap();
+        assert_eq!(repr, packet_repr());
+    }
+
+    #[test]
+    fn test_emit() {
+        let mut bytes = vec![0; 12];
+        let mut packet = Packet::new(&mut bytes).unwrap();
+        packet_repr().emit(&mut packet, &SRC_ADDR.into(), &DST_ADDR.into());
         assert_eq!(&packet.into_inner()[..], &PACKET_BYTES[..]);
     }
 }

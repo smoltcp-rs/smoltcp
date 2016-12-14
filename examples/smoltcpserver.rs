@@ -3,14 +3,14 @@ extern crate smoltcp;
 
 use std::env;
 use smoltcp::phy::{Tracer, TapInterface};
-use smoltcp::wire::{EthernetFrame, EthernetAddress};
-use smoltcp::iface::{ProtocolAddress, SliceArpCache, EthernetInterface};
+use smoltcp::wire::{EthernetFrame, EthernetAddress, InternetAddress};
+use smoltcp::iface::{SliceArpCache, EthernetInterface};
 
 fn main() {
     let ifname = env::args().nth(1).unwrap();
 
     let hardware_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
-    let protocol_addrs = [ProtocolAddress::ipv4([192, 168, 69, 1])];
+    let protocol_addrs = [InternetAddress::ipv4([192, 168, 69, 1])];
 
     let device = TapInterface::new(ifname.as_ref()).unwrap();
     let device = Tracer::<_, EthernetFrame<&[u8]>>::new(device);

@@ -1,15 +1,14 @@
-use wire::EthernetAddress;
-use super::ProtocolAddress;
+use wire::{EthernetAddress, InternetAddress};
 
 /// An Address Resolution Protocol cache.
 ///
 /// This cache maps protocol addresses to hardware addresses.
 pub trait Cache {
     /// Update the cache to map given protocol address to given hardware address.
-    fn fill(&mut self, protocol_addr: ProtocolAddress, hardware_addr: EthernetAddress);
+    fn fill(&mut self, protocol_addr: InternetAddress, hardware_addr: EthernetAddress);
 
     /// Look up the hardware address corresponding for the given protocol address.
-    fn lookup(&mut self, protocol_addr: ProtocolAddress) -> Option<EthernetAddress>;
+    fn lookup(&mut self, protocol_addr: InternetAddress) -> Option<EthernetAddress>;
 }
 
 /// An Address Resolution Protocol cache backed by a slice.
@@ -26,7 +25,7 @@ pub trait Cache {
 /// let mut arp_cache = SliceArpCache::new(&mut arp_cache_storage);
 /// ```
 pub struct SliceCache<'a> {
-    storage: &'a mut [(ProtocolAddress, EthernetAddress, usize)],
+    storage: &'a mut [(InternetAddress, EthernetAddress, usize)],
     counter: usize
 }
 
@@ -35,7 +34,7 @@ impl<'a> SliceCache<'a> {
     ///
     /// # Panics
     /// This function panics if `storage.len() == 0`.
-    pub fn new(storage: &'a mut [(ProtocolAddress, EthernetAddress, usize)]) -> SliceCache<'a> {
+    pub fn new(storage: &'a mut [(InternetAddress, EthernetAddress, usize)]) -> SliceCache<'a> {
         if storage.len() == 0 {
             panic!("ARP slice cache created with empty storage")
         }
@@ -50,9 +49,9 @@ impl<'a> SliceCache<'a> {
     }
 
     /// Find an entry for the given protocol address, if any.
-    fn find(&self, protocol_addr: ProtocolAddress) -> Option<usize> {
-        // The order of comparison is important: any valid ProtocolAddress should
-        // sort before ProtocolAddress::Invalid.
+    fn find(&self, protocol_addr: InternetAddress) -> Option<usize> {
+        // The order of comparison is important: any valid InternetAddress should
+        // sort before InternetAddress::Invalid.
         self.storage.binary_search_by_key(&protocol_addr, |&(key, _, _)| key).ok()
     }
 
@@ -68,14 +67,14 @@ impl<'a> SliceCache<'a> {
 }
 
 impl<'a> Cache for SliceCache<'a> {
-    fn fill(&mut self, protocol_addr: ProtocolAddress, hardware_addr: EthernetAddress) {
+    fn fill(&mut self, protocol_addr: InternetAddress, hardware_addr: EthernetAddress) {
         if let None = self.find(protocol_addr) {
             self.storage[self.lru()] = (protocol_addr, hardware_addr, self.counter);
             self.sort()
         }
     }
 
-    fn lookup(&mut self, protocol_addr: ProtocolAddress) -> Option<EthernetAddress> {
+    fn lookup(&mut self, protocol_addr: InternetAddress) -> Option<EthernetAddress> {
         if let Some(index) = self.find(protocol_addr) {
             let (_protocol_addr, hardware_addr, ref mut counter) = self.storage[index];
             self.counter += 1;
@@ -96,10 +95,10 @@ mod test {
     const HADDR_C: EthernetAddress = EthernetAddress([0, 0, 0, 0, 0, 3]);
     const HADDR_D: EthernetAddress = EthernetAddress([0, 0, 0, 0, 0, 4]);
 
-    const PADDR_A: ProtocolAddress = ProtocolAddress::ipv4([0, 0, 0, 0]);
-    const PADDR_B: ProtocolAddress = ProtocolAddress::ipv4([0, 0, 0, 1]);
-    const PADDR_C: ProtocolAddress = ProtocolAddress::ipv4([0, 0, 0, 2]);
-    const PADDR_D: ProtocolAddress = ProtocolAddress::ipv4([0, 0, 0, 3]);
+    const PADDR_A: InternetAddress = InternetAddress::ipv4([0, 0, 0, 0]);
+    const PADDR_B: InternetAddress = InternetAddress::ipv4([0, 0, 0, 1]);
+    const PADDR_C: InternetAddress = InternetAddress::ipv4([0, 0, 0, 2]);
+    const PADDR_D: InternetAddress = InternetAddress::ipv4([0, 0, 0, 3]);
 
     #[test]
     fn test_slice_cache() {

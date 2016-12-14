@@ -2,10 +2,10 @@ use Error;
 use phy::Device;
 use wire::{EthernetAddress, EthernetProtocolType, EthernetFrame};
 use wire::{ArpPacket, ArpRepr, ArpOperation};
-use wire::InternetProtocolType;
+use wire::{InternetAddress, InternetProtocolType};
 use wire::{Ipv4Packet, Ipv4Repr};
 use wire::{Icmpv4Packet, Icmpv4Repr};
-use super::{ProtocolAddress, ArpCache};
+use super::{ArpCache};
 
 /// An Ethernet network interface.
 #[derive(Debug)]
@@ -13,7 +13,7 @@ pub struct Interface<'a, DeviceT: Device, ArpCacheT: ArpCache> {
     device:         DeviceT,
     arp_cache:      ArpCacheT,
     hardware_addr:  EthernetAddress,
-    protocol_addrs: &'a [ProtocolAddress]
+    protocol_addrs: &'a [InternetAddress]
 }
 
 impl<'a, DeviceT: Device, ArpCacheT: ArpCache> Interface<'a, DeviceT, ArpCacheT> {
@@ -48,7 +48,7 @@ impl<'a, DeviceT: Device, ArpCacheT: ArpCache> Interface<'a, DeviceT, ArpCacheT>
     }
 
     /// Get the protocol addresses of the interface.
-    pub fn protocol_addrs(&self) -> &'a [ProtocolAddress] {
+    pub fn protocol_addrs(&self) -> &'a [InternetAddress] {
         self.protocol_addrs
     }
 
@@ -56,7 +56,7 @@ impl<'a, DeviceT: Device, ArpCacheT: ArpCache> Interface<'a, DeviceT, ArpCacheT>
     ///
     /// # Panics
     /// This function panics if any of the addresses is not unicast.
-    pub fn set_protocol_addrs(&mut self, addrs: &'a [ProtocolAddress]) {
+    pub fn set_protocol_addrs(&mut self, addrs: &'a [InternetAddress]) {
         for addr in addrs {
             if !addr.is_unicast() {
                 panic!("protocol address {} is not unicast", addr)
@@ -67,7 +67,7 @@ impl<'a, DeviceT: Device, ArpCacheT: ArpCache> Interface<'a, DeviceT, ArpCacheT>
     }
 
     /// Checks whether the interface has the given protocol address assigned.
-    pub fn has_protocol_addr<T: Into<ProtocolAddress>>(&self, addr: T) -> bool {
+    pub fn has_protocol_addr<T: Into<InternetAddress>>(&self, addr: T) -> bool {
         let addr = addr.into();
         self.protocol_addrs.iter().any(|&probe| probe == addr)
     }

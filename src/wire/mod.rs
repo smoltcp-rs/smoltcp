@@ -16,9 +16,9 @@
 //! `-Cpanic=abort`. The accessor and parsing functions never panic. The setter and emission
 //! functions only panic if the underlying buffer is too small.
 //!
-//! The data structures in the `wire` module do not perform validation of received data;
-//! that is the job of an upper layer. This includes the `Repr` family, which only validate
-//! as much as is necessary to build the representation.
+//! The `Frame` and `Packet` families of data structures in the `wire` module do not perform
+//! validation of received data except as needed to access the contents without panicking;
+//! the `Repr` family does.
 
 macro_rules! enum_with_unknown {
     (
@@ -94,12 +94,12 @@ pub use self::ethernet::Address as EthernetAddress;
 pub use self::ethernet::Frame as EthernetFrame;
 
 pub use self::arp::HardwareType as ArpHardwareType;
-pub use self::arp::ProtocolType as ArpProtocolType;
 pub use self::arp::Operation as ArpOperation;
 pub use self::arp::Packet as ArpPacket;
 pub use self::arp::Repr as ArpRepr;
 
 pub use self::ip::ProtocolType as InternetProtocolType;
+pub use self::ip::Address as InternetAddress;
 
 pub use self::ipv4::Address as Ipv4Address;
 pub use self::ipv4::Packet as Ipv4Packet;
@@ -114,3 +114,4 @@ pub use self::icmpv4::Packet as Icmpv4Packet;
 pub use self::icmpv4::Repr as Icmpv4Repr;
 
 pub use self::udp::Packet as UdpPacket;
+pub use self::udp::Repr as UdpRepr;

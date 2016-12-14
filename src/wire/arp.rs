@@ -291,7 +291,8 @@ impl<T: AsRef<[u8]>> fmt::Display for Packet<T> {
         match Repr::parse(self) {
             Ok(repr) => write!(f, "{}", repr),
             _ => {
-                try!(write!(f, "ARP htype={:?} ptype={:?} hlen={:?} plen={:?} op={:?}",
+                try!(write!(f, "ARP (unrecognized)"));
+                try!(write!(f, " htype={:?} ptype={:?} hlen={:?} plen={:?} op={:?}",
                             self.hardware_type(), self.protocol_type(),
                             self.hardware_len(), self.protocol_len(),
                             self.operation()));

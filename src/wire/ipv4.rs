@@ -210,7 +210,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// Validate the header checksum.
     pub fn verify_checksum(&self) -> bool {
         let data = self.buffer.as_ref();
-        checksum(&data[..self.header_len() as usize]) == !0
+        checksum::data(&data[..self.header_len() as usize]) == !0
     }
 }
 
@@ -332,7 +332,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
         self.set_checksum(0);
         let checksum = {
             let data = self.buffer.as_ref();
-            !checksum(&data[..self.header_len() as usize])
+            !checksum::data(&data[..self.header_len() as usize])
         };
         self.set_checksum(checksum)
     }
@@ -357,8 +357,7 @@ pub struct Repr {
 }
 
 impl Repr {
-    /// Parse an Internet Protocol version 4 packet and return a high-level representation,
-    /// or return `Err(())` if the packet is not recognized or is malformed.
+    /// Parse an Internet Protocol version 4 packet and return a high-level representation.
     pub fn parse<T: AsRef<[u8]> + ?Sized>(packet: &Packet<&T>) -> Result<Repr, Error> {
         // Version 4 is expected.
         if packet.version() != 4 { return Err(Error::Malformed) }
@@ -408,7 +407,8 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
         match Repr::parse(self) {
             Ok(repr) => write!(f, "{}", repr),
             _ => {
-                try!(write!(f, "IPv4 src={} dst={} proto={} ttl={}",
+                try!(write!(f, "IPv4 (unrecognized)"));
+                try!(write!(f, " src={} dst={} proto={} ttl={}",
                             self.src_addr(), self.dst_addr(), self.protocol(), self.ttl()));
                 if self.version() != 4 {
                     try!(write!(f, " ver={}", self.version()))
@@ -463,6 +463,8 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
         match packet.protocol() {
             ProtocolType::Icmp =>
                 super::Icmpv4Packet::<&[u8]>::pretty_print(&packet.payload(), f, indent),
+            ProtocolType::Udp =>
+                super::UdpPacket::<&[u8]>::pretty_print(&packet.payload(), f, indent),
             _ => Ok(())
         }
     }
