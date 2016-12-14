@@ -72,10 +72,10 @@ pub struct Frame<T: AsRef<[u8]>> {
 mod field {
     use wire::field::*;
 
-    pub const DESTINATION: Field     =  0..6;
-    pub const SOURCE:      Field     =  6..12;
-    pub const ETHERTYPE:   Field     = 12..14;
-    pub const PAYLOAD:     FieldFrom = 14..;
+    pub const DESTINATION: Field =  0..6;
+    pub const SOURCE:      Field =  6..12;
+    pub const ETHERTYPE:   Field = 12..14;
+    pub const PAYLOAD:     Rest  = 14..;
 }
 
 impl<T: AsRef<[u8]>> Frame<T> {

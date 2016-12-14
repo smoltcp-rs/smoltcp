@@ -74,8 +74,8 @@ macro_rules! enum_with_unknown {
 }
 
 mod field {
-    pub type Field     = ::core::ops::Range<usize>;
-    pub type FieldFrom = ::core::ops::RangeFrom<usize>;
+    pub type Field = ::core::ops::Range<usize>;
+    pub type Rest  = ::core::ops::RangeFrom<usize>;
 }
 
 pub mod pretty_print;
@@ -85,6 +85,7 @@ mod arp;
 mod ip;
 mod ipv4;
 mod icmpv4;
+mod udp;
 
 pub use self::pretty_print::PrettyPrinter;
 
@@ -111,3 +112,5 @@ pub use self::icmpv4::TimeExceeded as Icmpv4TimeExceeded;
 pub use self::icmpv4::ParamProblem as Icmpv4ParamProblem;
 pub use self::icmpv4::Packet as Icmpv4Packet;
 pub use self::icmpv4::Repr as Icmpv4Repr;
+
+pub use self::udp::Packet as UdpPacket;

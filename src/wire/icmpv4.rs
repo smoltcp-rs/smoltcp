@@ -129,8 +129,6 @@ pub struct Packet<T: AsRef<[u8]>> {
 }
 
 mod field {
-    #![allow(non_snake_case)]
-
     use wire::field::*;
 
     pub const TYPE:       usize = 0;
