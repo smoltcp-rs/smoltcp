@@ -17,7 +17,7 @@ pub mod iface;
 pub mod socket;
 
 /// The error type for the networking stack.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Error {
     /// An incoming packet could not be parsed, or an outgoing packet could not be emitted
     /// because a field was out of bounds for the underlying buffer.

@@ -9,10 +9,6 @@
 //! the operating system decides on the good size for a buffer and manages it.
 //! The interface implemented by this module uses explicit buffering: you decide on the good
 //! size for a buffer, allocate it, and let the networking stack use it.
-//!
-//! Every socket implementation allows selecting transmit and receive buffers separately;
-//! this means that, for example, a socket that never receives data does not have to allocate
-//! any storage to receive buffers.
 
 use Error;
 use wire::{InternetAddress as Address, InternetProtocolType as ProtocolType};
@@ -20,8 +16,7 @@ use wire::{InternetAddress as Address, InternetProtocolType as ProtocolType};
 mod udp;
 
 pub use self::udp::Buffer as UdpBuffer;
-pub use self::udp::NullBuffer as UdpNullBuffer;
-pub use self::udp::UnitaryBuffer as UdpUnitaryBuffer;
+pub use self::udp::BufferElem as UdpBufferElem;
 pub use self::udp::UdpSocket as UdpSocket;
 
 /// A packet representation.
