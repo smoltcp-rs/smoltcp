@@ -1,8 +1,10 @@
 use core::borrow::BorrowMut;
 
 use Error;
-use wire::{InternetAddress as Address, InternetEndpoint as Endpoint};
-use wire::UdpRepr;
+use wire::{InternetAddress as Address, InternetProtocolType as ProtocolType};
+use wire::{InternetEndpoint as Endpoint};
+use wire::{UdpPacket, UdpRepr};
+use socket::{Socket, PacketRepr};
 
 /// A packet buffer.
 ///
@@ -91,7 +93,7 @@ impl<T: BorrowMut<[u8]>> Buffer for UnitaryBuffer<T> {
 
     fn dequeue<R, F>(&mut self, f: F) -> Result<R, Error>
             where F: FnOnce(Endpoint, &[u8]) -> Result<R, Error> {
-        let mut storage = self.storage.borrow_mut();
+        let storage = self.storage.borrow_mut();
         match self.endpoint {
             Endpoint { addr: Address::Invalid, .. } => {
                 Err(Error::Exhausted)
@@ -107,18 +109,21 @@ impl<T: BorrowMut<[u8]>> Buffer for UnitaryBuffer<T> {
 }
 
 /// An User Datagram Protocol socket.
-pub struct Socket<RxBufferT: Buffer, TxBufferT: Buffer> {
+///
+/// An UDP socket is bound to a specific endpoint, and owns transmit and receive
+/// packet buffers.
+pub struct UdpSocket<RxBufferT: Buffer, TxBufferT: Buffer> {
     endpoint:  Endpoint,
     rx_buffer: RxBufferT,
     tx_buffer: TxBufferT
 }
 
-impl<RxBufferT: Buffer, TxBufferT: Buffer> Socket<RxBufferT, TxBufferT> {
+impl<RxBufferT: Buffer, TxBufferT: Buffer> UdpSocket<RxBufferT, TxBufferT> {
     /// Create an UDP socket with the given buffers.
     pub fn new(endpoint: Endpoint,
                rx_buffer: RxBufferT,
-               tx_buffer: TxBufferT) -> Socket<RxBufferT, TxBufferT> {
-        Socket {
+               tx_buffer: TxBufferT) -> UdpSocket<RxBufferT, TxBufferT> {
+        UdpSocket {
             endpoint:  endpoint,
             rx_buffer: rx_buffer,
             tx_buffer: tx_buffer
@@ -158,41 +163,52 @@ impl<RxBufferT: Buffer, TxBufferT: Buffer> Socket<RxBufferT, TxBufferT> {
             Ok((buffer.len(), endpoint))
         })
     }
+}
 
-    /// Process a packet received from a network interface.
-    ///
-    /// This function checks if the packet matches the socket endpoint, and if it does,
-    /// copies it into the internal buffer, otherwise, `Err(Error::Rejected)` is returned.
-    ///
-    /// This function is used internally by the networking stack.
-    pub fn collect<'a>(&mut self, src_addr: Address, dst_addr: Address,
-                       repr: &UdpRepr<'a>) -> Result<(), Error> {
+impl<RxBufferT: Buffer, TxBufferT: Buffer> Socket for UdpSocket<RxBufferT, TxBufferT> {
+    fn collect(&mut self, src_addr: &Address, dst_addr: &Address,
+               protocol: ProtocolType, payload: &[u8])
+            -> Result<(), Error> {
+        if protocol != ProtocolType::Udp { return Err(Error::Rejected) }
+
+        let packet = try!(UdpPacket::new(payload));
+        let repr = try!(UdpRepr::parse(&packet, src_addr, dst_addr));
+
         if repr.dst_port != self.endpoint.port { return Err(Error::Rejected) }
         if !self.endpoint.addr.is_unspecified() {
-            if self.endpoint.addr != dst_addr { return Err(Error::Rejected) }
+            if self.endpoint.addr != *dst_addr { return Err(Error::Rejected) }
         }
-        let endpoint = Endpoint { addr: src_addr, port: repr.src_port };
+
+        let endpoint = Endpoint { addr: *src_addr, port: repr.src_port };
         self.rx_buffer.enqueue(endpoint, repr.payload.len(), |buffer| {
             Ok(buffer.copy_from_slice(repr.payload))
         })
     }
 
-    /// Prepare a packet to be transmitted to a network interface.
-    ///
-    /// This function checks if the internal buffer is empty, and if it is not,
-    /// calls `f` with the representation of the UDP packet to be transmitted, otherwise,
-    /// `Err(Error::Exhausted)` is returned.
-    ///
-    /// This function is used internally by the networking stack.
-    pub fn dispatch<R, F>(&mut self, f: F) -> Result<R, Error>
-            where F: for<'a> FnOnce(Address, Address, &UdpRepr<'a>) -> Result<R, Error> {
+    fn dispatch(&mut self, f: &mut FnMut(&Address, &Address,
+                                         ProtocolType, &PacketRepr) -> Result<(), Error>)
+            -> Result<(), Error> {
         let src_endpoint = self.endpoint;
         self.tx_buffer.dequeue(|dst_endpoint, buffer| {
-            f(src_endpoint.addr, dst_endpoint.addr, &UdpRepr {
+            f(&src_endpoint.addr,
+              &dst_endpoint.addr,
+              ProtocolType::Udp,
+              &UdpRepr {
                 src_port: src_endpoint.port,
                 dst_port: dst_endpoint.port,
                 payload:  buffer
             })
         })
+    }
+}
+
+impl<'a> PacketRepr for UdpRepr<'a> {
+    fn len(&self) -> usize {
+        self.len()
+    }
+
+    fn emit(&self, src_addr: &Address, dst_addr: &Address, payload: &mut [u8]) {
+        let mut packet = UdpPacket::new(payload).expect("undersized payload slice");
+        self.emit(&mut packet, src_addr, dst_addr)
     }
 }

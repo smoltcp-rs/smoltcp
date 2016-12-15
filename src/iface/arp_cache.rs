@@ -1,8 +1,10 @@
+use core::borrow::BorrowMut;
+
 use wire::{EthernetAddress, InternetAddress};
 
 /// An Address Resolution Protocol cache.
 ///
-/// This cache maps protocol addresses to hardware addresses.
+/// This interface maps protocol addresses to hardware addresses.
 pub trait Cache {
     /// Update the cache to map given protocol address to given hardware address.
     fn fill(&mut self, protocol_addr: InternetAddress, hardware_addr: EthernetAddress);
@@ -17,29 +19,40 @@ pub trait Cache {
 /// eviction strategy.
 ///
 /// # Examples
-/// This cache can be created as:
 ///
+/// On systems with heap, this cache can be created with:
 /// ```rust
 /// use smoltcp::iface::SliceArpCache;
-/// let mut arp_cache_storage = [Default::default(); 8];
-/// let mut arp_cache = SliceArpCache::new(&mut arp_cache_storage);
+/// let mut arp_cache = SliceArpCache::new(vec![Default::default(); 8]);
 /// ```
-pub struct SliceCache<'a> {
-    storage: &'a mut [(InternetAddress, EthernetAddress, usize)],
+///
+/// On systems without heap, use:
+/// ```rust
+/// use smoltcp::iface::SliceArpCache;
+/// let mut arp_cache_storage = [Default::default(); 8]
+/// let mut arp_cache = SliceArpCache::new(&mut arp_cache_storage[..]);
+/// ```
+
+pub struct SliceCache<
+    StorageT: BorrowMut<[(InternetAddress, EthernetAddress, usize)]>
+> {
+    storage: StorageT,
     counter: usize
 }
 
-impl<'a> SliceCache<'a> {
+impl<
+    StorageT: BorrowMut<[(InternetAddress, EthernetAddress, usize)]>
+> SliceCache<StorageT> {
     /// Create a cache. The backing storage is cleared upon creation.
     ///
     /// # Panics
     /// This function panics if `storage.len() == 0`.
-    pub fn new(storage: &'a mut [(InternetAddress, EthernetAddress, usize)]) -> SliceCache<'a> {
-        if storage.len() == 0 {
+    pub fn new(mut storage: StorageT) -> SliceCache<StorageT> {
+        if storage.borrow().len() == 0 {
             panic!("ARP slice cache created with empty storage")
         }
 
-        for elem in storage.iter_mut() {
+        for elem in storage.borrow_mut().iter_mut() {
             *elem = Default::default()
         }
         SliceCache {
@@ -52,31 +65,39 @@ impl<'a> SliceCache<'a> {
     fn find(&self, protocol_addr: InternetAddress) -> Option<usize> {
         // The order of comparison is important: any valid InternetAddress should
         // sort before InternetAddress::Invalid.
-        self.storage.binary_search_by_key(&protocol_addr, |&(key, _, _)| key).ok()
+        let storage = self.storage.borrow();
+        storage.binary_search_by_key(&protocol_addr, |&(key, _, _)| key).ok()
     }
 
     /// Sort entries in an order suitable for `find`.
     fn sort(&mut self) {
-        self.storage.sort_by_key(|&(key, _, _)| key)
+        let mut storage = self.storage.borrow_mut();
+        storage.sort_by_key(|&(key, _, _)| key)
     }
 
     /// Find the least recently used entry.
     fn lru(&self) -> usize {
-        self.storage.iter().enumerate().min_by_key(|&(_, &(_, _, counter))| counter).unwrap().0
+        let storage = self.storage.borrow();
+        storage.iter().enumerate().min_by_key(|&(_, &(_, _, counter))| counter).unwrap().0
     }
 }
 
-impl<'a> Cache for SliceCache<'a> {
+impl<
+    StorageT: BorrowMut<[(InternetAddress, EthernetAddress, usize)]>
+> Cache for SliceCache<StorageT> {
     fn fill(&mut self, protocol_addr: InternetAddress, hardware_addr: EthernetAddress) {
         if let None = self.find(protocol_addr) {
-            self.storage[self.lru()] = (protocol_addr, hardware_addr, self.counter);
+            let lru_index = self.lru();
+            self.storage.borrow_mut()[lru_index] =
+                (protocol_addr, hardware_addr, self.counter);
             self.sort()
         }
     }
 
     fn lookup(&mut self, protocol_addr: InternetAddress) -> Option<EthernetAddress> {
         if let Some(index) = self.find(protocol_addr) {
-            let (_protocol_addr, hardware_addr, ref mut counter) = self.storage[index];
+            let (_protocol_addr, hardware_addr, ref mut counter) =
+                self.storage.borrow_mut()[index];
             self.counter += 1;
             *counter = self.counter;
             Some(hardware_addr)
@@ -103,7 +124,7 @@ mod test {
     #[test]
     fn test_slice_cache() {
         let mut cache_storage = [Default::default(); 3];
-        let mut cache = SliceCache::new(&mut cache_storage);
+        let mut cache = SliceCache::new(&mut cache_storage[..]);
 
         cache.fill(PADDR_A, HADDR_A);
         assert_eq!(cache.lookup(PADDR_A), Some(HADDR_A));

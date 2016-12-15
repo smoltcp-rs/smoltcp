@@ -1,3 +1,6 @@
+use core::borrow::BorrowMut;
+use core::marker::PhantomData;
+
 use Error;
 use phy::Device;
 use wire::{EthernetAddress, EthernetProtocolType, EthernetFrame};
@@ -5,29 +8,58 @@ use wire::{ArpPacket, ArpRepr, ArpOperation};
 use wire::{InternetAddress, InternetProtocolType};
 use wire::{Ipv4Packet, Ipv4Repr};
 use wire::{Icmpv4Packet, Icmpv4Repr};
-use wire::{UdpPacket, UdpRepr};
+use socket::Socket;
 use super::{ArpCache};
 
 /// An Ethernet network interface.
+///
+/// The network interface logically owns a number of other data structures; to avoid
+/// a dependency on heap allocation, it instead owns a `BorrowMut<[T]>`, which can be
+/// a `&mut [T]`, or `Vec<T>` if a heap is available.
 #[derive(Debug)]
-pub struct Interface<'a, DeviceT: Device, ArpCacheT: ArpCache> {
+pub struct Interface<'a,
+    DeviceT:        Device,
+    ArpCacheT:      ArpCache,
+    ProtocolAddrsT: BorrowMut<[InternetAddress]>,
+    SocketsT:       BorrowMut<[&'a mut Socket]>
+> {
     device:         DeviceT,
     arp_cache:      ArpCacheT,
     hardware_addr:  EthernetAddress,
-    protocol_addrs: &'a [InternetAddress]
+    protocol_addrs: ProtocolAddrsT,
+    sockets:        SocketsT,
+    phantom:        PhantomData<&'a mut Socket>
 }
 
-impl<'a, DeviceT: Device, ArpCacheT: ArpCache> Interface<'a, DeviceT, ArpCacheT> {
+impl<'a,
+    DeviceT:        Device,
+    ArpCacheT:      ArpCache,
+    ProtocolAddrsT: BorrowMut<[InternetAddress]>,
+    SocketsT:       BorrowMut<[&'a mut Socket]>
+> Interface<'a, DeviceT, ArpCacheT, ProtocolAddrsT, SocketsT> {
     /// Create a network interface using the provided network device.
     ///
-    /// The newly created interface uses hardware address `00-00-00-00-00-00` and
-    /// has no assigned protocol addresses.
-    pub fn new(device: DeviceT, arp_cache: ArpCacheT) -> Interface<'a, DeviceT, ArpCacheT> {
+    /// # Panics
+    /// See the restrictions on [set_hardware_addr](#method.set_hardware_addr)
+    /// and [set_protocol_addrs](#method.set_protocol_addrs) functions.
+    pub fn new(device: DeviceT, arp_cache: ArpCacheT, hardware_addr: EthernetAddress,
+               protocol_addrs: ProtocolAddrsT, sockets: SocketsT) ->
+            Interface<'a, DeviceT, ArpCacheT, ProtocolAddrsT, SocketsT> {
+        Self::check_hardware_addr(&hardware_addr);
+        Self::check_protocol_addrs(protocol_addrs.borrow());
         Interface {
             device:         device,
             arp_cache:      arp_cache,
-            hardware_addr:  EthernetAddress([0x00; 6]),
-            protocol_addrs: &[]
+            hardware_addr:  hardware_addr,
+            protocol_addrs: protocol_addrs,
+            sockets:        sockets,
+            phantom:        PhantomData
+        }
+    }
+
+    fn check_hardware_addr(addr: &EthernetAddress) {
+        if addr.is_multicast() {
+            panic!("hardware address {} is not unicast", addr)
         }
     }
 
@@ -41,36 +73,36 @@ impl<'a, DeviceT: Device, ArpCacheT: ArpCache> Interface<'a, DeviceT, ArpCacheT>
     /// # Panics
     /// This function panics if the address is not unicast.
     pub fn set_hardware_addr(&mut self, addr: EthernetAddress) {
-        if addr.is_multicast() {
-            panic!("hardware address {} is not unicast", addr)
-        }
-
-        self.hardware_addr = addr
+        self.hardware_addr = addr;
+        Self::check_hardware_addr(&self.hardware_addr);
     }
 
-    /// Get the protocol addresses of the interface.
-    pub fn protocol_addrs(&self) -> &'a [InternetAddress] {
-        self.protocol_addrs
-    }
-
-    /// Set the protocol addresses of the interface.
-    ///
-    /// # Panics
-    /// This function panics if any of the addresses is not unicast.
-    pub fn set_protocol_addrs(&mut self, addrs: &'a [InternetAddress]) {
+    fn check_protocol_addrs(addrs: &[InternetAddress]) {
         for addr in addrs {
             if !addr.is_unicast() {
                 panic!("protocol address {} is not unicast", addr)
             }
         }
+    }
 
-        self.protocol_addrs = addrs
+    /// Get the protocol addresses of the interface.
+    pub fn protocol_addrs(&self) -> &[InternetAddress] {
+        self.protocol_addrs.borrow()
+    }
+
+    /// Update the protocol addresses of the interface.
+    ///
+    /// # Panics
+    /// This function panics if any of the addresses is not unicast.
+    pub fn update_protocol_addrs<F: FnOnce(&mut [InternetAddress])>(&mut self, f: F) {
+        f(self.protocol_addrs.borrow_mut());
+        Self::check_protocol_addrs(self.protocol_addrs.borrow())
     }
 
     /// Checks whether the interface has the given protocol address assigned.
     pub fn has_protocol_addr<T: Into<InternetAddress>>(&self, addr: T) -> bool {
         let addr = addr.into();
-        self.protocol_addrs.iter().any(|&probe| probe == addr)
+        self.protocol_addrs.borrow().iter().any(|&probe| probe == addr)
     }
 
     /// Receive and process a packet, if available.
@@ -159,31 +191,32 @@ impl<'a, DeviceT: Device, ArpCacheT: ArpCache> Interface<'a, DeviceT, ArpCacheT>
                         }
                     },
 
-                    // Queue UDP packets.
-                    Ipv4Repr { protocol: InternetProtocolType::Udp, src_addr, dst_addr } => {
-                        let udp_packet = try!(UdpPacket::new(ip_packet.payload()));
-                        let udp_repr = try!(UdpRepr::parse(&udp_packet,
-                                                           &src_addr.into(), &dst_addr.into()));
-                        println!("yes")
-                    }
+                    // Try dispatching a packet to a socket.
+                    Ipv4Repr { src_addr, dst_addr, protocol } => {
+                        for socket in self.sockets.borrow_mut() {
+                            match socket.collect(&src_addr.into(), &dst_addr.into(),
+                                                 protocol, ip_packet.payload()) {
+                                Ok(()) => break,
+                                Err(Error::Rejected) => continue,
+                                Err(e) => return Err(e)
+                            }
+                        }
 
-                    // FIXME: respond with ICMP unknown protocol here?
-                    _ => return Err(Error::Unrecognized)
+                        // FIXME: respond with ICMP destination unreachable here?
+                    },
                 }
             }
 
             // Drop all other traffic.
             _ => return Err(Error::Unrecognized)
         }
-        if let Response::Nop = response { return Ok(()) }
 
         let tx_size = self.device.mtu();
-        let mut tx_buffer = try!(self.device.transmit(tx_size));
-        let mut frame = try!(EthernetFrame::new(&mut tx_buffer));
-        frame.set_src_addr(self.hardware_addr);
-
         match response {
             Response::Arp(repr) => {
+                let mut tx_buffer = try!(self.device.transmit(tx_size));
+                let mut frame = try!(EthernetFrame::new(&mut tx_buffer));
+                frame.set_src_addr(self.hardware_addr);
                 frame.set_dst_addr(match repr {
                     ArpRepr::EthernetIpv4 { target_hardware_addr, .. } => target_hardware_addr,
                     _ => unreachable!()
@@ -195,10 +228,16 @@ impl<'a, DeviceT: Device, ArpCacheT: ArpCache> Interface<'a, DeviceT, ArpCacheT>
             },
 
             Response::Icmpv4(ip_repr, icmp_repr) => {
-                match self.arp_cache.lookup(ip_repr.dst_addr.into()) {
-                    None => return Err(Error::Unaddressable),
-                    Some(hardware_addr) => frame.set_dst_addr(hardware_addr)
-                }
+                let dst_hardware_addr =
+                    match self.arp_cache.lookup(ip_repr.dst_addr.into()) {
+                        None => return Err(Error::Unaddressable),
+                        Some(hardware_addr) => hardware_addr
+                    };
+
+                let mut tx_buffer = try!(self.device.transmit(tx_size));
+                let mut frame = try!(EthernetFrame::new(&mut tx_buffer));
+                frame.set_src_addr(self.hardware_addr);
+                frame.set_dst_addr(dst_hardware_addr);
                 frame.set_ethertype(EthernetProtocolType::Ipv4);
 
                 let mut ip_packet = try!(Ipv4Packet::new(frame.payload_mut()));
@@ -208,9 +247,56 @@ impl<'a, DeviceT: Device, ArpCacheT: ArpCache> Interface<'a, DeviceT, ArpCacheT>
                 icmp_repr.emit(&mut icmp_packet);
             }
 
-            Response::Nop => unreachable!()
+            Response::Nop => {
+                // Borrow checker is being overly careful around closures, so we have
+                // to hack around that.
+                let src_hardware_addr = self.hardware_addr;
+                let arp_cache = &mut self.arp_cache;
+                let device = &mut self.device;
+
+                for socket in self.sockets.borrow_mut() {
+                    let result = socket.dispatch(&mut |src_addr, dst_addr, protocol, payload| {
+                        let dst_hardware_addr =
+                            match arp_cache.lookup(*dst_addr) {
+                                None => return Err(Error::Unaddressable),
+                                Some(hardware_addr) => hardware_addr
+                            };
+
+                        let mut tx_buffer = try!(device.transmit(tx_size));
+                        let mut frame = try!(EthernetFrame::new(&mut tx_buffer));
+                        frame.set_src_addr(src_hardware_addr);
+                        frame.set_dst_addr(dst_hardware_addr);
+                        frame.set_ethertype(EthernetProtocolType::Ipv4);
+
+                        let mut ip_packet = try!(Ipv4Packet::new(frame.payload_mut()));
+                        let ip_repr =
+                            match (src_addr, dst_addr) {
+                                (&InternetAddress::Ipv4(src_addr),
+                                 &InternetAddress::Ipv4(dst_addr)) => {
+                                    Ipv4Repr {
+                                        src_addr: src_addr,
+                                        dst_addr: dst_addr,
+                                        protocol: protocol
+                                    }
+                                },
+                                _ => unreachable!()
+                            };
+                        ip_repr.emit(&mut ip_packet, payload.len());
+                        payload.emit(src_addr, dst_addr, ip_packet.payload_mut());
+
+                        Ok(())
+                    });
+
+                    match result {
+                        Ok(()) => break,
+                        Err(Error::Exhausted) => continue,
+                        Err(e) => return Err(e)
+                    }
+                }
+            }
         }
 
         Ok(())
     }
 }
+
