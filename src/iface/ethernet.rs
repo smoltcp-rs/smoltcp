@@ -21,21 +21,21 @@ pub struct Interface<'a,
     DeviceT:        Device,
     ArpCacheT:      ArpCache,
     ProtocolAddrsT: BorrowMut<[InternetAddress]>,
-    SocketsT:       BorrowMut<[&'a mut Socket]>
+    SocketsT:       BorrowMut<[Socket<'a>]>
 > {
     device:         DeviceT,
     arp_cache:      ArpCacheT,
     hardware_addr:  EthernetAddress,
     protocol_addrs: ProtocolAddrsT,
     sockets:        SocketsT,
-    phantom:        PhantomData<&'a mut Socket>
+    phantom:        PhantomData<Socket<'a>>
 }
 
 impl<'a,
     DeviceT:        Device,
     ArpCacheT:      ArpCache,
     ProtocolAddrsT: BorrowMut<[InternetAddress]>,
-    SocketsT:       BorrowMut<[&'a mut Socket]>
+    SocketsT:       BorrowMut<[Socket<'a>]>
 > Interface<'a, DeviceT, ArpCacheT, ProtocolAddrsT, SocketsT> {
     /// Create a network interface using the provided network device.
     ///
@@ -106,8 +106,8 @@ impl<'a,
     }
 
     /// Get the set of sockets owned by the interface.
-    pub fn with_sockets<R, F: FnOnce(&mut [&'a mut Socket]) -> R>(&mut self, f: F) -> R {
-        f(self.sockets.borrow_mut())
+    pub fn sockets(&mut self) -> &mut [Socket<'a>] {
+        self.sockets.borrow_mut()
     }
 
     /// Receive and process a packet, if available.

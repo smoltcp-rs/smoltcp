@@ -12,13 +12,18 @@ pub struct Packet<T: AsRef<[u8]>> {
 }
 
 mod field {
+    #![allow(non_snake_case)]
+
     use wire::field::*;
 
     pub const SRC_PORT: Field = 0..2;
     pub const DST_PORT: Field = 2..4;
     pub const LENGTH:   Field = 4..6;
     pub const CHECKSUM: Field = 6..8;
-    pub const PAYLOAD:  Rest  = 8..;
+
+    pub fn PAYLOAD(length: u16) -> Field {
+        CHECKSUM.end..(length as usize)
+    }
 }
 
 impl<T: AsRef<[u8]>> Packet<T> {
@@ -90,8 +95,9 @@ impl<'a, T: AsRef<[u8]> + ?Sized> Packet<&'a T> {
     /// Return a pointer to the payload.
     #[inline(always)]
     pub fn payload(&self) -> &'a [u8] {
+        let length = self.len();
         let data = self.buffer.as_ref();
-        &data[field::PAYLOAD]
+        &data[field::PAYLOAD(length)]
     }
 }
 
@@ -147,8 +153,9 @@ impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Packet<&'a mut T> {
     /// Return a mutable pointer to the type-specific data.
     #[inline(always)]
     pub fn payload_mut(&mut self) -> &mut [u8] {
+        let length = self.len();
         let mut data = self.buffer.as_mut();
-        &mut data[field::PAYLOAD]
+        &mut data[field::PAYLOAD(length)]
     }
 }
 
@@ -191,7 +198,7 @@ impl<'a> Repr<'a> {
 
     /// Return the length of a packet that will be emitted from this high-level representation.
     pub fn len(&self) -> usize {
-        field::PAYLOAD.start + self.payload.len()
+        field::CHECKSUM.end + self.payload.len()
     }
 
     /// Emit a high-level representation into an User Datagram Protocol packet.
@@ -201,7 +208,7 @@ impl<'a> Repr<'a> {
             where T: AsRef<[u8]> + AsMut<[u8]> {
         packet.set_src_port(self.src_port);
         packet.set_dst_port(self.dst_port);
-        packet.set_len((field::PAYLOAD.start + self.payload.len()) as u16);
+        packet.set_len((field::CHECKSUM.end + self.payload.len()) as u16);
         packet.payload_mut().copy_from_slice(self.payload);
         packet.fill_checksum(src_addr, dst_addr)
     }

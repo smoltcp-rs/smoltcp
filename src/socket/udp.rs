@@ -25,6 +25,14 @@ impl<'a> BufferElem<'a> {
             payload:  payload.into()
         }
     }
+
+    fn as_ref<'b>(&'b self) -> &'b [u8] {
+        &self.payload[..self.size]
+    }
+
+    fn as_mut<'b>(&'b mut self) -> &'b mut [u8] {
+        &mut self.payload[..self.size]
+    }
 }
 
 /// An UDP packet buffer.
@@ -108,12 +116,12 @@ pub struct UdpSocket<'a> {
 impl<'a> UdpSocket<'a> {
     /// Create an UDP socket with the given buffers.
     pub fn new(endpoint: Endpoint, rx_buffer: Buffer<'a>, tx_buffer: Buffer<'a>)
-            -> UdpSocket<'a> {
-        UdpSocket {
+            -> Socket<'a> {
+        Socket::Udp(UdpSocket {
             endpoint:  endpoint,
             rx_buffer: rx_buffer,
             tx_buffer: tx_buffer
-        }
+        })
     }
 
     /// Enqueue a packet to be sent to a given remote endpoint, and return a pointer
@@ -125,21 +133,40 @@ impl<'a> UdpSocket<'a> {
         let packet_buf = try!(self.tx_buffer.enqueue());
         packet_buf.endpoint = endpoint;
         packet_buf.size = size;
-        Ok(&mut packet_buf.payload.borrow_mut()[..size])
+        Ok(&mut packet_buf.as_mut()[..size])
+    }
+
+    /// Enqueue a packete to be sent to a given remote endpoint, and fill it from a slice.
+    ///
+    /// See also [send](#method.send).
+    pub fn send_slice(&mut self, endpoint: Endpoint, data: &[u8]) -> Result<(), Error> {
+        let buffer = try!(self.send(endpoint, data.len()));
+        Ok(buffer.copy_from_slice(data))
     }
 
     /// Dequeue a packet received from a remote endpoint, and return the endpoint as well
     /// as a pointer to the payload.
     ///
     /// This function returns `Err(Error::Exhausted)` if the receive buffer is empty.
-    pub fn recv<R, F>(&mut self) -> Result<(Endpoint, &[u8]), Error> {
+    pub fn recv(&mut self) -> Result<(Endpoint, &[u8]), Error> {
         let packet_buf = try!(self.rx_buffer.dequeue());
-        Ok((packet_buf.endpoint, &packet_buf.payload[..packet_buf.size]))
+        Ok((packet_buf.endpoint, &packet_buf.as_ref()[..packet_buf.size]))
     }
-}
 
-impl<'a> Socket for UdpSocket<'a> {
-    fn collect(&mut self, src_addr: &Address, dst_addr: &Address,
+    /// Dequeue a packet received from a remote endpoint, and return the endpoint as well
+    /// as copy the payload into the given slice.
+    ///
+    /// This function returns `Err(Error::Exhausted)` if the received packet has payload
+    /// larger than the provided slice. See also [recv](#method.recv).
+    pub fn recv_slice(&mut self, data: &mut [u8]) -> Result<(Endpoint, usize), Error> {
+        let (endpoint, buffer) = try!(self.recv());
+        if data.len() < buffer.len() { return Err(Error::Exhausted) }
+        data[..buffer.len()].copy_from_slice(buffer);
+        Ok((endpoint, buffer.len()))
+    }
+
+    /// See [Socket::collect](enum.Socket.html#method.collect).
+    pub fn collect(&mut self, src_addr: &Address, dst_addr: &Address,
                protocol: ProtocolType, payload: &[u8])
             -> Result<(), Error> {
         if protocol != ProtocolType::Udp { return Err(Error::Rejected) }
@@ -155,11 +182,12 @@ impl<'a> Socket for UdpSocket<'a> {
         let packet_buf = try!(self.rx_buffer.enqueue());
         packet_buf.endpoint = Endpoint { addr: *src_addr, port: repr.src_port };
         packet_buf.size = repr.payload.len();
-        packet_buf.payload.borrow_mut()[..repr.payload.len()].copy_from_slice(repr.payload);
+        packet_buf.as_mut()[..repr.payload.len()].copy_from_slice(repr.payload);
         Ok(())
     }
 
-    fn dispatch(&mut self, f: &mut FnMut(&Address, &Address,
+    /// See [Socket::dispatch](enum.Socket.html#method.dispatch).
+    pub fn dispatch(&mut self, f: &mut FnMut(&Address, &Address,
                                          ProtocolType, &PacketRepr) -> Result<(), Error>)
             -> Result<(), Error> {
         let packet_buf = try!(self.tx_buffer.dequeue());
@@ -169,7 +197,7 @@ impl<'a> Socket for UdpSocket<'a> {
           &UdpRepr {
             src_port: self.endpoint.port,
             dst_port: packet_buf.endpoint.port,
-            payload:  &packet_buf.payload[..]
+            payload:  &packet_buf.as_ref()[..]
           })
     }
 }

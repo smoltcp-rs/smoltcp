@@ -33,10 +33,9 @@ pub trait PacketRepr {
 
 /// A network socket.
 ///
-/// This interface abstracts the various types of sockets based on the IP protocol.
-/// It is necessarily implemented as a trait, and not as an enumeration, to allow using different
-/// buffer types in sockets assigned to the same interface. To access a socket through this
-/// interface, cast it using `.as::<T>()`.
+/// This enumeration abstracts the various types of sockets based on the IP protocol.
+/// To downcast a `Socket` value down to a concrete socket, use
+/// the [AsSocket](trait.AsSocket.html) trait, and call e.g. `socket.as_socket::<UdpSocket<_>>()`.
 ///
 /// The `collect` and `dispatch` functions are fundamentally asymmetric and thus differ in
 /// their use of the [trait PacketRepr](trait.PacketRepr.html). When `collect` is called,
@@ -45,7 +44,13 @@ pub trait PacketRepr {
 /// which is rather inelegant. Conversely, when `dispatch` is called, the packet length is
 /// not yet known and the packet storage has to be allocated; but the `&PacketRepr` is sufficient
 /// since the lower layers treat the packet as an opaque octet sequence.
-pub trait Socket {
+pub enum Socket<'a> {
+    Udp(UdpSocket<'a>),
+    #[doc(hidden)]
+    __Nonexhaustive
+}
+
+impl<'a> Socket<'a> {
     /// Process a packet received from a network interface.
     ///
     /// This function checks if the packet contained in the payload matches the socket endpoint,
@@ -53,9 +58,15 @@ pub trait Socket {
     /// is returned.
     ///
     /// This function is used internally by the networking stack.
-    fn collect(&mut self, src_addr: &Address, dst_addr: &Address,
-               protocol: ProtocolType, payload: &[u8])
-        -> Result<(), Error>;
+    pub fn collect(&mut self, src_addr: &Address, dst_addr: &Address,
+                   protocol: ProtocolType, payload: &[u8])
+            -> Result<(), Error> {
+        match self {
+            &mut Socket::Udp(ref mut socket) =>
+                socket.collect(src_addr, dst_addr, protocol, payload),
+            &mut Socket::__Nonexhaustive => unreachable!()
+        }
+    }
 
     /// Prepare a packet to be transmitted to a network interface.
     ///
@@ -64,7 +75,30 @@ pub trait Socket {
     /// is returned.
     ///
     /// This function is used internally by the networking stack.
-    fn dispatch(&mut self, f: &mut FnMut(&Address, &Address,
-                                         ProtocolType, &PacketRepr) -> Result<(), Error>)
-        -> Result<(), Error>;
+    pub fn dispatch(&mut self, f: &mut FnMut(&Address, &Address,
+                                             ProtocolType, &PacketRepr) -> Result<(), Error>)
+            -> Result<(), Error> {
+        match self {
+            &mut Socket::Udp(ref mut socket) =>
+                socket.dispatch(f),
+            &mut Socket::__Nonexhaustive => unreachable!()
+        }
+    }
+}
+
+/// A conversion trait for network sockets.
+///
+/// This trait is used to concisely downcast [Socket](trait.Socket.html) values to their
+/// concrete types.
+pub trait AsSocket<T> {
+    fn as_socket(&mut self) -> &mut T;
+}
+
+impl<'a> AsSocket<UdpSocket<'a>> for Socket<'a> {
+    fn as_socket(&mut self) -> &mut UdpSocket<'a> {
+        match self {
+            &mut Socket::Udp(ref mut socket) => socket,
+            _ => panic!(".as_socket::<UdpSocket> called on wrong socket type")
+        }
+    }
 }

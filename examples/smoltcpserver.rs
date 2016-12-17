@@ -2,10 +2,11 @@
 extern crate smoltcp;
 
 use std::env;
+use smoltcp::Error;
 use smoltcp::phy::{Tracer, TapInterface};
 use smoltcp::wire::{EthernetFrame, EthernetAddress, InternetAddress, InternetEndpoint};
 use smoltcp::iface::{SliceArpCache, EthernetInterface};
-use smoltcp::socket::{Socket, UdpSocket, UdpBuffer, UdpBufferElem};
+use smoltcp::socket::{UdpSocket, AsSocket, UdpBuffer, UdpBufferElem};
 
 fn main() {
     let ifname = env::args().nth(1).unwrap();
@@ -22,16 +23,34 @@ fn main() {
 
     let udp_rx_buffer = UdpBuffer::new(vec![UdpBufferElem::new(vec![0; 2048])]);
     let udp_tx_buffer = UdpBuffer::new(vec![UdpBufferElem::new(vec![0; 2048])]);
-    let mut udp_socket = UdpSocket::new(endpoint, udp_rx_buffer, udp_tx_buffer);
+    let udp_socket = UdpSocket::new(endpoint, udp_rx_buffer, udp_tx_buffer);
 
-    let mut sockets: [&mut Socket; 1] = [&mut udp_socket];
+    let mut sockets = [udp_socket];
     let mut iface = EthernetInterface::new(device, arp_cache,
         hardware_addr, &mut protocol_addrs[..], &mut sockets[..]);
 
     loop {
         match iface.poll() {
             Ok(()) => (),
-            Err(e) => println!("{}", e)
+            Err(e) => println!("error {}", e)
+        }
+
+        let udp_socket = iface.sockets()[0].as_socket();
+        let client = match udp_socket.recv() {
+            Ok((endpoint, data)) => {
+                println!("data {:?} from {}", &data[..8], endpoint);
+                Some(endpoint)
+            }
+            Err(Error::Exhausted) => {
+                None
+            }
+            Err(e) => {
+                println!("error {}", e);
+                None
+            }
+        };
+        if let Some(endpoint) = client {
+            udp_socket.send_slice(endpoint, "hihihi".as_bytes()).unwrap()
         }
     }
 }
