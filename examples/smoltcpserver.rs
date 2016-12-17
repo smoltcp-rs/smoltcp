@@ -20,13 +20,14 @@ fn main() {
     let listen_address = InternetAddress::ipv4([0, 0, 0, 0]);
     let endpoint = InternetEndpoint::new(listen_address, 6969);
 
-    let udp_rx_buffer = UdpBuffer::new([UdpBufferElem::new(vec![0; 2048])]);
-    let udp_tx_buffer = UdpBuffer::new([UdpBufferElem::new(vec![0; 2048])]);
+    let udp_rx_buffer = UdpBuffer::new(vec![UdpBufferElem::new(vec![0; 2048])]);
+    let udp_tx_buffer = UdpBuffer::new(vec![UdpBufferElem::new(vec![0; 2048])]);
     let mut udp_socket = UdpSocket::new(endpoint, udp_rx_buffer, udp_tx_buffer);
-    let mut sockets: [&mut Socket; 1] = [&mut udp_socket];
 
+    let mut sockets: [&mut Socket; 1] = [&mut udp_socket];
     let mut iface = EthernetInterface::new(device, arp_cache,
         hardware_addr, &mut protocol_addrs[..], &mut sockets[..]);
+
     loop {
         match iface.poll() {
             Ok(()) => (),

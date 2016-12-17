@@ -35,7 +35,8 @@ pub trait PacketRepr {
 ///
 /// This interface abstracts the various types of sockets based on the IP protocol.
 /// It is necessarily implemented as a trait, and not as an enumeration, to allow using different
-/// buffering strategies in sockets assigned to the same interface.
+/// buffer types in sockets assigned to the same interface. To access a socket through this
+/// interface, cast it using `.as::<T>()`.
 ///
 /// The `collect` and `dispatch` functions are fundamentally asymmetric and thus differ in
 /// their use of the [trait PacketRepr](trait.PacketRepr.html). When `collect` is called,

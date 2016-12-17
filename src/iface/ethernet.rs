@@ -99,10 +99,15 @@ impl<'a,
         Self::check_protocol_addrs(self.protocol_addrs.borrow())
     }
 
-    /// Checks whether the interface has the given protocol address assigned.
+    /// Check whether the interface has the given protocol address assigned.
     pub fn has_protocol_addr<T: Into<InternetAddress>>(&self, addr: T) -> bool {
         let addr = addr.into();
         self.protocol_addrs.borrow().iter().any(|&probe| probe == addr)
+    }
+
+    /// Get the set of sockets owned by the interface.
+    pub fn with_sockets<R, F: FnOnce(&mut [&'a mut Socket]) -> R>(&mut self, f: F) -> R {
+        f(self.sockets.borrow_mut())
     }
 
     /// Receive and process a packet, if available.

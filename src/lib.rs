@@ -1,4 +1,4 @@
-#![feature(associated_consts, const_fn, step_by)]
+#![feature(associated_consts, const_fn, step_by, intrinsics)]
 #![no_std]
 
 extern crate byteorder;
@@ -11,10 +11,14 @@ extern crate libc;
 
 use core::fmt;
 
+mod managed;
+
 pub mod phy;
 pub mod wire;
 pub mod iface;
 pub mod socket;
+
+pub use managed::Managed;
 
 /// The error type for the networking stack.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]

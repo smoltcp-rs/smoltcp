@@ -1,5 +1,4 @@
-use core::borrow::BorrowMut;
-
+use Managed;
 use wire::{EthernetAddress, InternetAddress};
 
 /// An Address Resolution Protocol cache.
@@ -33,26 +32,24 @@ pub trait Cache {
 /// let mut arp_cache = SliceArpCache::new(&mut arp_cache_storage[..]);
 /// ```
 
-pub struct SliceCache<
-    StorageT: BorrowMut<[(InternetAddress, EthernetAddress, usize)]>
-> {
-    storage: StorageT,
+pub struct SliceCache<'a> {
+    storage: Managed<'a, [(InternetAddress, EthernetAddress, usize)]>,
     counter: usize
 }
 
-impl<
-    StorageT: BorrowMut<[(InternetAddress, EthernetAddress, usize)]>
-> SliceCache<StorageT> {
+impl<'a> SliceCache<'a> {
     /// Create a cache. The backing storage is cleared upon creation.
     ///
     /// # Panics
     /// This function panics if `storage.len() == 0`.
-    pub fn new(mut storage: StorageT) -> SliceCache<StorageT> {
-        if storage.borrow().len() == 0 {
+    pub fn new<T>(storage: T) -> SliceCache<'a>
+            where T: Into<Managed<'a, [(InternetAddress, EthernetAddress, usize)]>> {
+        let mut storage = storage.into();
+        if storage.len() == 0 {
             panic!("ARP slice cache created with empty storage")
         }
 
-        for elem in storage.borrow_mut().iter_mut() {
+        for elem in storage.iter_mut() {
             *elem = Default::default()
         }
         SliceCache {
@@ -65,30 +62,25 @@ impl<
     fn find(&self, protocol_addr: InternetAddress) -> Option<usize> {
         // The order of comparison is important: any valid InternetAddress should
         // sort before InternetAddress::Invalid.
-        let storage = self.storage.borrow();
-        storage.binary_search_by_key(&protocol_addr, |&(key, _, _)| key).ok()
+        self.storage.binary_search_by_key(&protocol_addr, |&(key, _, _)| key).ok()
     }
 
     /// Sort entries in an order suitable for `find`.
     fn sort(&mut self) {
-        let mut storage = self.storage.borrow_mut();
-        storage.sort_by_key(|&(key, _, _)| key)
+        self.storage.sort_by_key(|&(key, _, _)| key)
     }
 
     /// Find the least recently used entry.
     fn lru(&self) -> usize {
-        let storage = self.storage.borrow();
-        storage.iter().enumerate().min_by_key(|&(_, &(_, _, counter))| counter).unwrap().0
+        self.storage.iter().enumerate().min_by_key(|&(_, &(_, _, counter))| counter).unwrap().0
     }
 }
 
-impl<
-    StorageT: BorrowMut<[(InternetAddress, EthernetAddress, usize)]>
-> Cache for SliceCache<StorageT> {
+impl<'a> Cache for SliceCache<'a> {
     fn fill(&mut self, protocol_addr: InternetAddress, hardware_addr: EthernetAddress) {
         if let None = self.find(protocol_addr) {
             let lru_index = self.lru();
-            self.storage.borrow_mut()[lru_index] =
+            self.storage[lru_index] =
                 (protocol_addr, hardware_addr, self.counter);
             self.sort()
         }
@@ -97,7 +89,7 @@ impl<
     fn lookup(&mut self, protocol_addr: InternetAddress) -> Option<EthernetAddress> {
         if let Some(index) = self.find(protocol_addr) {
             let (_protocol_addr, hardware_addr, ref mut counter) =
-                self.storage.borrow_mut()[index];
+                self.storage[index];
             self.counter += 1;
             *counter = self.counter;
             Some(hardware_addr)
@@ -146,3 +138,4 @@ mod test {
         assert_eq!(cache.lookup(PADDR_D), Some(HADDR_D));
     }
 }
+
