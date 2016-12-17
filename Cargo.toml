@@ -3,7 +3,6 @@ name = "smoltcp"
 version = "0.1.0"
 authors = ["whitequark <whitequark@whitequark.org>"]
 license = "0BSD"
-license-file = "LICENSE-0BSD"
 
 [dependencies]
 byteorder = { version = "0.5", default-features = false }
