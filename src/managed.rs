@@ -35,8 +35,8 @@ impl<'a, T: 'a + fmt::Debug + ?Sized> fmt::Debug for Managed<'a, T> {
     }
 }
 
-impl<'a, T: 'a + ?Sized> From<&'a mut T> for Managed<'a, T> {
-    fn from(value: &'a mut T) -> Self {
+impl<'a, 'b: 'a, T: 'b + ?Sized> From<&'b mut T> for Managed<'b, T> {
+    fn from(value: &'b mut T) -> Self {
         Managed::Borrowed(value)
     }
 }

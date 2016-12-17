@@ -44,13 +44,13 @@ pub trait PacketRepr {
 /// which is rather inelegant. Conversely, when `dispatch` is called, the packet length is
 /// not yet known and the packet storage has to be allocated; but the `&PacketRepr` is sufficient
 /// since the lower layers treat the packet as an opaque octet sequence.
-pub enum Socket<'a> {
-    Udp(UdpSocket<'a>),
+pub enum Socket<'a, 'b: 'a> {
+    Udp(UdpSocket<'a, 'b>),
     #[doc(hidden)]
     __Nonexhaustive
 }
 
-impl<'a> Socket<'a> {
+impl<'a, 'b> Socket<'a, 'b> {
     /// Process a packet received from a network interface.
     ///
     /// This function checks if the packet contained in the payload matches the socket endpoint,
@@ -94,8 +94,8 @@ pub trait AsSocket<T> {
     fn as_socket(&mut self) -> &mut T;
 }
 
-impl<'a> AsSocket<UdpSocket<'a>> for Socket<'a> {
-    fn as_socket(&mut self) -> &mut UdpSocket<'a> {
+impl<'a, 'b> AsSocket<UdpSocket<'a, 'b>> for Socket<'a, 'b> {
+    fn as_socket(&mut self) -> &mut UdpSocket<'a, 'b> {
         match self {
             &mut Socket::Udp(ref mut socket) => socket,
             _ => panic!(".as_socket::<UdpSocket> called on wrong socket type")

@@ -17,26 +17,26 @@ use super::{ArpCache};
 /// a dependency on heap allocation, it instead owns a `BorrowMut<[T]>`, which can be
 /// a `&mut [T]`, or `Vec<T>` if a heap is available.
 #[derive(Debug)]
-pub struct Interface<'a,
+pub struct Interface<'a, 'b: 'a,
     DeviceT:        Device,
     ArpCacheT:      ArpCache,
     ProtocolAddrsT: BorrowMut<[InternetAddress]>,
-    SocketsT:       BorrowMut<[Socket<'a>]>
+    SocketsT:       BorrowMut<[Socket<'a, 'b>]>
 > {
     device:         DeviceT,
     arp_cache:      ArpCacheT,
     hardware_addr:  EthernetAddress,
     protocol_addrs: ProtocolAddrsT,
     sockets:        SocketsT,
-    phantom:        PhantomData<Socket<'a>>
+    phantom:        PhantomData<Socket<'a, 'b>>
 }
 
-impl<'a,
+impl<'a, 'b: 'a,
     DeviceT:        Device,
     ArpCacheT:      ArpCache,
     ProtocolAddrsT: BorrowMut<[InternetAddress]>,
-    SocketsT:       BorrowMut<[Socket<'a>]>
-> Interface<'a, DeviceT, ArpCacheT, ProtocolAddrsT, SocketsT> {
+    SocketsT:       BorrowMut<[Socket<'a, 'b>]>
+> Interface<'a, 'b, DeviceT, ArpCacheT, ProtocolAddrsT, SocketsT> {
     /// Create a network interface using the provided network device.
     ///
     /// # Panics
@@ -44,7 +44,7 @@ impl<'a,
     /// and [set_protocol_addrs](#method.set_protocol_addrs) functions.
     pub fn new(device: DeviceT, arp_cache: ArpCacheT, hardware_addr: EthernetAddress,
                protocol_addrs: ProtocolAddrsT, sockets: SocketsT) ->
-            Interface<'a, DeviceT, ArpCacheT, ProtocolAddrsT, SocketsT> {
+            Interface<'a, 'b, DeviceT, ArpCacheT, ProtocolAddrsT, SocketsT> {
         Self::check_hardware_addr(&hardware_addr);
         Self::check_protocol_addrs(protocol_addrs.borrow());
         Interface {
@@ -106,7 +106,7 @@ impl<'a,
     }
 
     /// Get the set of sockets owned by the interface.
-    pub fn sockets(&mut self) -> &mut [Socket<'a>] {
+    pub fn sockets(&mut self) -> &mut [Socket<'a, 'b>] {
         self.sockets.borrow_mut()
     }
 

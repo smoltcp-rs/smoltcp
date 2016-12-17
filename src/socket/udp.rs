@@ -37,16 +37,16 @@ impl<'a> BufferElem<'a> {
 
 /// An UDP packet buffer.
 #[derive(Debug)]
-pub struct Buffer<'a> {
-    storage: Managed<'a, [BufferElem<'a>]>,
+pub struct Buffer<'a, 'b: 'a> {
+    storage: Managed<'a, [BufferElem<'b>]>,
     read_at: usize,
     length:  usize
 }
 
-impl<'a> Buffer<'a> {
+impl<'a, 'b> Buffer<'a, 'b> {
     /// Create a packet buffer with the given storage.
-    pub fn new<T>(storage: T) -> Buffer<'a>
-            where T: Into<Managed<'a, [BufferElem<'a>]>> {
+    pub fn new<T>(storage: T) -> Buffer<'a, 'b>
+            where T: Into<Managed<'a, [BufferElem<'b>]>> {
         let mut storage = storage.into();
         for elem in storage.iter_mut() {
             elem.endpoint = Default::default();
@@ -78,7 +78,7 @@ impl<'a> Buffer<'a> {
 
     /// Enqueue an element into the buffer, and return a pointer to it, or return
     /// `Err(Error::Exhausted)` if the buffer is full.
-    pub fn enqueue(&mut self) -> Result<&mut BufferElem<'a>, Error> {
+    pub fn enqueue(&mut self) -> Result<&mut BufferElem<'b>, Error> {
         if self.full() {
             Err(Error::Exhausted)
         } else {
@@ -91,7 +91,7 @@ impl<'a> Buffer<'a> {
 
     /// Dequeue an element from the buffer, and return a pointer to it, or return
     /// `Err(Error::Exhausted)` if the buffer is empty.
-    pub fn dequeue(&mut self) -> Result<&BufferElem<'a>, Error> {
+    pub fn dequeue(&mut self) -> Result<&BufferElem<'b>, Error> {
         if self.empty() {
             Err(Error::Exhausted)
         } else {
@@ -107,16 +107,16 @@ impl<'a> Buffer<'a> {
 ///
 /// An UDP socket is bound to a specific endpoint, and owns transmit and receive
 /// packet buffers.
-pub struct UdpSocket<'a> {
+pub struct UdpSocket<'a, 'b: 'a> {
     endpoint:  Endpoint,
-    rx_buffer: Buffer<'a>,
-    tx_buffer: Buffer<'a>
+    rx_buffer: Buffer<'a, 'b>,
+    tx_buffer: Buffer<'a, 'b>
 }
 
-impl<'a> UdpSocket<'a> {
+impl<'a, 'b> UdpSocket<'a, 'b> {
     /// Create an UDP socket with the given buffers.
-    pub fn new(endpoint: Endpoint, rx_buffer: Buffer<'a>, tx_buffer: Buffer<'a>)
-            -> Socket<'a> {
+    pub fn new(endpoint: Endpoint, rx_buffer: Buffer<'a, 'b>, tx_buffer: Buffer<'a, 'b>)
+            -> Socket<'a, 'b> {
         Socket::Udp(UdpSocket {
             endpoint:  endpoint,
             rx_buffer: rx_buffer,
