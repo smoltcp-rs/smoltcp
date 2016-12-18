@@ -33,7 +33,7 @@ impl<'a> Packet<'a> {
     }
 }
 
-/// An UDP packet buffer.
+/// An UDP packet ring buffer.
 #[derive(Debug)]
 pub struct Buffer<'a, 'b: 'a> {
     storage: Managed<'a, [Packet<'b>]>,

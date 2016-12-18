@@ -14,10 +14,13 @@ use Error;
 use wire::{InternetAddress as Address, InternetProtocolType as ProtocolType};
 
 mod udp;
+mod tcp;
 
 pub use self::udp::Packet as UdpPacket;
 pub use self::udp::Buffer as UdpBuffer;
 pub use self::udp::UdpSocket as UdpSocket;
+
+pub use self::tcp::Buffer as TcpBuffer;
 
 /// A packet representation.
 ///
