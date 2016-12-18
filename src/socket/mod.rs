@@ -15,8 +15,8 @@ use wire::{InternetAddress as Address, InternetProtocolType as ProtocolType};
 
 mod udp;
 
+pub use self::udp::Packet as UdpPacket;
 pub use self::udp::Buffer as UdpBuffer;
-pub use self::udp::BufferElem as UdpBufferElem;
 pub use self::udp::UdpSocket as UdpSocket;
 
 /// A packet representation.

@@ -1,5 +1,3 @@
-use core::borrow::BorrowMut;
-
 use Error;
 use Managed;
 use wire::{InternetAddress as Address, InternetProtocolType as ProtocolType};
@@ -9,17 +7,17 @@ use socket::{Socket, PacketRepr};
 
 /// A buffered UDP packet.
 #[derive(Debug)]
-pub struct BufferElem<'a> {
+pub struct Packet<'a> {
     endpoint: Endpoint,
     size:     usize,
     payload:  Managed<'a, [u8]>
 }
 
-impl<'a> BufferElem<'a> {
+impl<'a> Packet<'a> {
     /// Create a buffered packet.
-    pub fn new<T>(payload: T) -> BufferElem<'a>
+    pub fn new<T>(payload: T) -> Packet<'a>
             where T: Into<Managed<'a, [u8]>> {
-        BufferElem {
+        Packet {
             endpoint: Endpoint::INVALID,
             size:     0,
             payload:  payload.into()
@@ -38,7 +36,7 @@ impl<'a> BufferElem<'a> {
 /// An UDP packet buffer.
 #[derive(Debug)]
 pub struct Buffer<'a, 'b: 'a> {
-    storage: Managed<'a, [BufferElem<'b>]>,
+    storage: Managed<'a, [Packet<'b>]>,
     read_at: usize,
     length:  usize
 }
@@ -46,7 +44,7 @@ pub struct Buffer<'a, 'b: 'a> {
 impl<'a, 'b> Buffer<'a, 'b> {
     /// Create a packet buffer with the given storage.
     pub fn new<T>(storage: T) -> Buffer<'a, 'b>
-            where T: Into<Managed<'a, [BufferElem<'b>]>> {
+            where T: Into<Managed<'a, [Packet<'b>]>> {
         let mut storage = storage.into();
         for elem in storage.iter_mut() {
             elem.endpoint = Default::default();
@@ -78,12 +76,12 @@ impl<'a, 'b> Buffer<'a, 'b> {
 
     /// Enqueue an element into the buffer, and return a pointer to it, or return
     /// `Err(Error::Exhausted)` if the buffer is full.
-    pub fn enqueue(&mut self) -> Result<&mut BufferElem<'b>, Error> {
+    pub fn enqueue(&mut self) -> Result<&mut Packet<'b>, Error> {
         if self.full() {
             Err(Error::Exhausted)
         } else {
             let index = self.mask(self.read_at + self.length);
-            let result = &mut self.storage.borrow_mut()[index];
+            let result = &mut self.storage[index];
             self.length += 1;
             Ok(result)
         }
@@ -91,7 +89,7 @@ impl<'a, 'b> Buffer<'a, 'b> {
 
     /// Dequeue an element from the buffer, and return a pointer to it, or return
     /// `Err(Error::Exhausted)` if the buffer is empty.
-    pub fn dequeue(&mut self) -> Result<&BufferElem<'b>, Error> {
+    pub fn dequeue(&mut self) -> Result<&Packet<'b>, Error> {
         if self.empty() {
             Err(Error::Exhausted)
         } else {
@@ -221,7 +219,7 @@ mod test {
     pub fn test_buffer() {
         let mut storage = vec![];
         for _ in 0..5 {
-            storage.push(BufferElem::new(vec![0]))
+            storage.push(Packet::new(vec![0]))
         }
         let mut buffer = Buffer::new(&mut storage[..]);
 

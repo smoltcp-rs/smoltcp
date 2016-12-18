@@ -6,7 +6,7 @@ use smoltcp::Error;
 use smoltcp::phy::{Tracer, TapInterface};
 use smoltcp::wire::{EthernetFrame, EthernetAddress, InternetAddress, InternetEndpoint};
 use smoltcp::iface::{SliceArpCache, EthernetInterface};
-use smoltcp::socket::{UdpSocket, AsSocket, UdpBuffer, UdpBufferElem};
+use smoltcp::socket::{UdpSocket, AsSocket, UdpBuffer, UdpPacket};
 
 fn main() {
     let ifname = env::args().nth(1).unwrap();
@@ -21,8 +21,8 @@ fn main() {
     let listen_address = InternetAddress::ipv4([0, 0, 0, 0]);
     let endpoint = InternetEndpoint::new(listen_address, 6969);
 
-    let udp_rx_buffer = UdpBuffer::new(vec![UdpBufferElem::new(vec![0; 2048])]);
-    let udp_tx_buffer = UdpBuffer::new(vec![UdpBufferElem::new(vec![0; 2048])]);
+    let udp_rx_buffer = UdpBuffer::new(vec![UdpPacket::new(vec![0; 2048])]);
+    let udp_tx_buffer = UdpBuffer::new(vec![UdpPacket::new(vec![0; 2048])]);
     let udp_socket = UdpSocket::new(endpoint, udp_rx_buffer, udp_tx_buffer);
 
     let mut sockets = [udp_socket];
