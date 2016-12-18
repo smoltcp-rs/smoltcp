@@ -150,7 +150,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
 }
 
 impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Packet<&'a mut T> {
-    /// Return a mutable pointer to the type-specific data.
+    /// Return a mutable pointer to the payload.
     #[inline(always)]
     pub fn payload_mut(&mut self) -> &mut [u8] {
         let length = self.len();

@@ -86,6 +86,7 @@ mod ip;
 mod ipv4;
 mod icmpv4;
 mod udp;
+mod tcp;
 
 pub use self::pretty_print::PrettyPrinter;
 
@@ -116,3 +117,5 @@ pub use self::icmpv4::Repr as Icmpv4Repr;
 
 pub use self::udp::Packet as UdpPacket;
 pub use self::udp::Repr as UdpRepr;
+
+pub use self::tcp::Packet as TcpPacket;
