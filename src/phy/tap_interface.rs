@@ -38,7 +38,8 @@ impl Device for TapInterface {
     fn receive(&mut self) -> Result<Self::RxBuffer, Error> {
         let mut lower = self.lower.borrow_mut();
         let mut buffer = vec![0; self.mtu];
-        lower.recv(&mut buffer[..]).unwrap();
+        let size = lower.recv(&mut buffer[..]).unwrap();
+        buffer.resize(size, 0);
         Ok(buffer)
     }
 

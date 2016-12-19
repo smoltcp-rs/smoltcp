@@ -27,8 +27,8 @@ pub use self::tcp::Buffer as TcpBuffer;
 /// This interface abstracts the various types of packets layered under the IP protocol,
 /// and serves as an accessory to [trait Socket](trait.Socket.html).
 pub trait PacketRepr {
-    /// Return the length required to serialize this high-level representation.
-    fn len(&self) -> usize;
+    /// Return the length of the buffer required to serialize this high-level representation.
+    fn buffer_len(&self) -> usize;
 
     /// Emit this high-level representation into a sequence of octets.
     fn emit(&self, src_addr: &Address, dst_addr: &Address, payload: &mut [u8]);

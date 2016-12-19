@@ -216,10 +216,10 @@ impl<'a, 'b: 'a,
             _ => return Err(Error::Unrecognized)
         }
 
-        let tx_size = self.device.mtu();
         match response {
             Response::Arp(repr) => {
-                let mut tx_buffer = try!(self.device.transmit(tx_size));
+                let tx_len = EthernetFrame::<&[u8]>::buffer_len(repr.buffer_len());
+                let mut tx_buffer = try!(self.device.transmit(tx_len));
                 let mut frame = try!(EthernetFrame::new(&mut tx_buffer));
                 frame.set_src_addr(self.hardware_addr);
                 frame.set_dst_addr(match repr {
@@ -239,14 +239,16 @@ impl<'a, 'b: 'a,
                         Some(hardware_addr) => hardware_addr
                     };
 
-                let mut tx_buffer = try!(self.device.transmit(tx_size));
+                let tx_len = EthernetFrame::<&[u8]>::buffer_len(ip_repr.buffer_len() +
+                                                                icmp_repr.buffer_len());
+                let mut tx_buffer = try!(self.device.transmit(tx_len));
                 let mut frame = try!(EthernetFrame::new(&mut tx_buffer));
                 frame.set_src_addr(self.hardware_addr);
                 frame.set_dst_addr(dst_hardware_addr);
                 frame.set_ethertype(EthernetProtocolType::Ipv4);
 
                 let mut ip_packet = try!(Ipv4Packet::new(frame.payload_mut()));
-                ip_repr.emit(&mut ip_packet, icmp_repr.len());
+                ip_repr.emit(&mut ip_packet, icmp_repr.buffer_len());
 
                 let mut icmp_packet = try!(Icmpv4Packet::new(ip_packet.payload_mut()));
                 icmp_repr.emit(&mut icmp_packet);
@@ -261,19 +263,6 @@ impl<'a, 'b: 'a,
 
                 for socket in self.sockets.borrow_mut() {
                     let result = socket.dispatch(&mut |src_addr, dst_addr, protocol, payload| {
-                        let dst_hardware_addr =
-                            match arp_cache.lookup(*dst_addr) {
-                                None => return Err(Error::Unaddressable),
-                                Some(hardware_addr) => hardware_addr
-                            };
-
-                        let mut tx_buffer = try!(device.transmit(tx_size));
-                        let mut frame = try!(EthernetFrame::new(&mut tx_buffer));
-                        frame.set_src_addr(src_hardware_addr);
-                        frame.set_dst_addr(dst_hardware_addr);
-                        frame.set_ethertype(EthernetProtocolType::Ipv4);
-
-                        let mut ip_packet = try!(Ipv4Packet::new(frame.payload_mut()));
                         let ip_repr =
                             match (src_addr, dst_addr) {
                                 (&InternetAddress::Ipv4(src_addr),
@@ -286,7 +275,24 @@ impl<'a, 'b: 'a,
                                 },
                                 _ => unreachable!()
                             };
-                        ip_repr.emit(&mut ip_packet, payload.len());
+
+                        let dst_hardware_addr =
+                            match arp_cache.lookup(*dst_addr) {
+                                None => return Err(Error::Unaddressable),
+                                Some(hardware_addr) => hardware_addr
+                            };
+
+                        let tx_len = EthernetFrame::<&[u8]>::buffer_len(ip_repr.buffer_len() +
+                                                                        payload.buffer_len());
+                        let mut tx_buffer = try!(device.transmit(tx_len));
+                        let mut frame = try!(EthernetFrame::new(&mut tx_buffer));
+                        frame.set_src_addr(src_hardware_addr);
+                        frame.set_dst_addr(dst_hardware_addr);
+                        frame.set_ethertype(EthernetProtocolType::Ipv4);
+
+                        let mut ip_packet = try!(Ipv4Packet::new(frame.payload_mut()));
+                        ip_repr.emit(&mut ip_packet, payload.buffer_len());
+
                         payload.emit(src_addr, dst_addr, ip_packet.payload_mut());
 
                         Ok(())

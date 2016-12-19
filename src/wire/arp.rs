@@ -263,6 +263,14 @@ impl Repr {
         }
     }
 
+    /// Return the length of a packet that will be emitted from this high-level representation.
+    pub fn buffer_len(&self) -> usize {
+        match self {
+            &Repr::EthernetIpv4 { .. } => field::TPA(6, 4).end,
+            &Repr::__Nonexhaustive => unreachable!()
+        }
+    }
+
     /// Emit a high-level representation into an Address Resolution Protocol packet.
     pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(&self, packet: &mut Packet<T>) {
         match self {

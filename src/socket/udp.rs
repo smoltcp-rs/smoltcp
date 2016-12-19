@@ -201,8 +201,8 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
 }
 
 impl<'a> PacketRepr for UdpRepr<'a> {
-    fn len(&self) -> usize {
-        self.len()
+    fn buffer_len(&self) -> usize {
+        self.buffer_len()
     }
 
     fn emit(&self, src_addr: &Address, dst_addr: &Address, payload: &mut [u8]) {

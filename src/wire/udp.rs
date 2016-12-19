@@ -197,7 +197,7 @@ impl<'a> Repr<'a> {
     }
 
     /// Return the length of a packet that will be emitted from this high-level representation.
-    pub fn len(&self) -> usize {
+    pub fn buffer_len(&self) -> usize {
         field::CHECKSUM.end + self.payload.len()
     }
 

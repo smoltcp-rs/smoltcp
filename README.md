@@ -21,7 +21,6 @@ The only supported medium is Ethernet.
   * ARP packets (including gratuitous requests and replies) are supported.
   * 802.3 and 802.1Q are **not** supported.
   * Jumbo frames are **not** supported.
-  * Frame check sequence calculation is **not** supported.
 
 ### IP layer
 

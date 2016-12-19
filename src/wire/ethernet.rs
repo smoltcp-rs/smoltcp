@@ -1,5 +1,7 @@
+use core::cmp;
 use core::fmt;
 use byteorder::{ByteOrder, NetworkEndian};
+
 use Error;
 
 enum_with_unknown! {
@@ -93,6 +95,14 @@ impl<T: AsRef<[u8]>> Frame<T> {
     /// Consumes the frame, returning the underlying buffer.
     pub fn into_inner(self) -> T {
         self.buffer
+    }
+
+    /// Return the length of a buffer required to hold a packet with the payload
+    /// of a given length.
+    pub fn buffer_len(payload_len: usize) -> usize {
+        // Minimal frame size is 64, but that includes FCS, which the network device
+        // is taking care of for us.
+        cmp::max(field::PAYLOAD.start + payload_len, 60)
     }
 
     /// Return the destination address field.

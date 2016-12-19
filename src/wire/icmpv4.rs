@@ -332,7 +332,7 @@ impl<'a> Repr<'a> {
     }
 
     /// Return the length of a packet that will be emitted from this high-level representation.
-    pub fn len(&self) -> usize {
+    pub fn buffer_len(&self) -> usize {
         match self {
             &Repr::EchoRequest { data, .. } |
             &Repr::EchoReply { data, .. } => {
@@ -384,10 +384,12 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
 impl<'a> fmt::Display for Repr<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            &Repr::EchoRequest { ident, seq_no, .. } =>
-                write!(f, "ICMPv4 Echo Request id={} seq={}", ident, seq_no),
-            &Repr::EchoReply { ident, seq_no, .. } =>
-                write!(f, "ICMPv4 Echo Reply id={} seq={}", ident, seq_no),
+            &Repr::EchoRequest { ident, seq_no, data } =>
+                write!(f, "ICMPv4 Echo Request id={} seq={} len={}",
+                       ident, seq_no, data.len()),
+            &Repr::EchoReply { ident, seq_no, data } =>
+                write!(f, "ICMPv4 Echo Reply id={} seq={} len={}",
+                       ident, seq_no, data.len()),
             &Repr::__Nonexhaustive => unreachable!()
         }
     }

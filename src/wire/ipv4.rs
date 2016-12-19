@@ -382,6 +382,12 @@ impl Repr {
         })
     }
 
+    /// Return the length of a header that will be emitted from this high-level representation.
+    pub fn buffer_len(&self) -> usize {
+        // We never emit any options.
+        field::DST_ADDR.end
+    }
+
     /// Emit a high-level representation into an Internet Protocol version 4 packet.
     pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(&self, packet: &mut Packet<T>,
                                               payload_len: usize) {
