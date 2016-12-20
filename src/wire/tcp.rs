@@ -239,7 +239,9 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     #[inline(always)]
     pub fn clear_flags(&mut self) {
         let data = self.buffer.as_mut();
-        NetworkEndian::write_u16(&mut data[field::FLAGS], 0)
+        let raw = NetworkEndian::read_u16(&data[field::FLAGS]);
+        let raw = raw & !0x0fff;
+        NetworkEndian::write_u16(&mut data[field::FLAGS], raw)
     }
 
     /// Set the FIN flag.
@@ -382,6 +384,96 @@ impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Packet<&'a mut T> {
     }
 }
 
+/// A high-level representation of a Transmission Control Protocol packet.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct Repr<'a> {
+    src_port:   u16,
+    dst_port:   u16,
+    seq_number: u32,
+    ack_number: Option<u32>,
+    window_len: u16,
+    control:    Control,
+    payload:    &'a [u8]
+}
+
+/// The control flags of a Transmission Control Protocol packet.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum Control {
+    None,
+    Syn,
+    Fin,
+    Rst
+}
+
+impl<'a> Repr<'a> {
+    /// Parse a Transmission Control Protocol packet and return a high-level representation.
+    pub fn parse<T: ?Sized>(packet: &Packet<&'a T>,
+                            src_addr: &InternetAddress,
+                            dst_addr: &InternetAddress) -> Result<Repr<'a>, Error>
+            where T: AsRef<[u8]> {
+        // Source and destination ports must be present.
+        if packet.src_port() == 0 { return Err(Error::Malformed) }
+        if packet.dst_port() == 0 { return Err(Error::Malformed) }
+        // Valid checksum is expected...
+        if !packet.verify_checksum(src_addr, dst_addr) { return Err(Error::Checksum) }
+
+        let control =
+            match (packet.syn(), packet.fin(), packet.rst()) {
+                (false, false, false) => Control::None,
+                (true,  false, false) => Control::Syn,
+                (false, true,  false) => Control::Fin,
+                (false, false, true ) => Control::Rst,
+                _ => return Err(Error::Malformed)
+            };
+        let ack_number =
+            match packet.ack() {
+                true  => Some(packet.ack_number()),
+                false => None
+            };
+        // The PSH flag is ignored.
+        // The URG flag and the urgent field is ignored. This behavior is standards-compliant,
+        // however, most deployed systems (e.g. Linux) are *not* standards-compliant, and would
+        // cut the byte at the urgent pointer from the stream.
+
+        Ok(Repr {
+            src_port:   packet.src_port(),
+            dst_port:   packet.dst_port(),
+            seq_number: packet.seq_number(),
+            ack_number: ack_number,
+            window_len: packet.window_len(),
+            control:    control,
+            payload:    packet.payload()
+        })
+    }
+
+    /// Return the length of a packet that will be emitted from this high-level representation.
+    pub fn buffer_len(&self) -> usize {
+        field::URGENT.end + self.payload.len()
+    }
+
+    /// Emit a high-level representation into a Transmission Control Protocol packet.
+    pub fn emit<T: ?Sized>(&self, packet: &mut Packet<&mut T>,
+                           src_addr: &InternetAddress,
+                           dst_addr: &InternetAddress)
+            where T: AsRef<[u8]> + AsMut<[u8]> {
+        packet.set_src_port(self.src_port);
+        packet.set_dst_port(self.dst_port);
+        packet.set_seq_number(self.seq_number);
+        packet.set_ack_number(self.ack_number.unwrap_or(0));
+        packet.set_window_len(self.window_len);
+        packet.set_header_len(20);
+        packet.clear_flags();
+        match self.control {
+            Control::None => (),
+            Control::Syn  => packet.set_syn(true),
+            Control::Fin  => packet.set_fin(true),
+            Control::Rst  => packet.set_rst(true)
+        }
+        packet.payload_mut().copy_from_slice(self.payload);
+        packet.fill_checksum(src_addr, dst_addr)
+    }
+}
+
 #[cfg(test)]
 mod test {
     use wire::Ipv4Address;
@@ -443,5 +535,41 @@ mod test {
         packet.payload_mut().copy_from_slice(&PAYLOAD_BYTES[..]);
         packet.fill_checksum(&SRC_ADDR.into(), &DST_ADDR.into());
         assert_eq!(&packet.into_inner()[..], &PACKET_BYTES[..]);
+    }
+
+    static SYN_PACKET_BYTES: [u8; 24] =
+        [0xbf, 0x00, 0x00, 0x50,
+         0x01, 0x23, 0x45, 0x67,
+         0x00, 0x00, 0x00, 0x00,
+         0x50, 0x02, 0x01, 0x23,
+         0x7a, 0x8d, 0x00, 0x00,
+         0xaa, 0x00, 0x00, 0xff];
+
+    fn packet_repr() -> Repr<'static> {
+        Repr {
+            src_port:   48896,
+            dst_port:   80,
+            seq_number: 0x01234567,
+            ack_number: None,
+            window_len: 0x0123,
+            control:    Control::Syn,
+            payload:    &PAYLOAD_BYTES
+        }
+    }
+
+    #[test]
+    fn test_parse() {
+        let packet = Packet::new(&SYN_PACKET_BYTES[..]).unwrap();
+        let repr = Repr::parse(&packet, &SRC_ADDR.into(), &DST_ADDR.into()).unwrap();
+        assert_eq!(repr, packet_repr());
+    }
+
+    #[test]
+    fn test_emit() {
+        let repr = packet_repr();
+        let mut bytes = vec![0; repr.buffer_len()];
+        let mut packet = Packet::new(&mut bytes).unwrap();
+        repr.emit(&mut packet, &SRC_ADDR.into(), &DST_ADDR.into());
+        assert_eq!(&packet.into_inner()[..], &SYN_PACKET_BYTES[..]);
     }
 }

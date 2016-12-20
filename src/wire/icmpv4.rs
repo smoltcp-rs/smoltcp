@@ -462,9 +462,10 @@ mod test {
 
     #[test]
     fn test_echo_emit() {
-        let mut bytes = vec![0; 12];
+        let repr = echo_packet_repr();
+        let mut bytes = vec![0; repr.buffer_len()];
         let mut packet = Packet::new(&mut bytes).unwrap();
-        echo_packet_repr().emit(&mut packet);
+        repr.emit(&mut packet);
         assert_eq!(&packet.into_inner()[..], &ECHO_PACKET_BYTES[..]);
     }
 }

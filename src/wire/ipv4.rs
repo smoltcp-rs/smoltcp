@@ -555,7 +555,10 @@ mod test {
          0x40, 0x01, 0xd2, 0x79,
          0x11, 0x12, 0x13, 0x14,
          0x21, 0x22, 0x23, 0x24,
-         0x00, 0x00, 0x00, 0x00];
+         0xaa, 0x00, 0x00, 0xff];
+
+    static REPR_PAYLOAD_BYTES: [u8; 4] =
+        [0xaa, 0x00, 0x00, 0xff];
 
     fn packet_repr() -> Repr {
         Repr {
@@ -574,9 +577,11 @@ mod test {
 
     #[test]
     fn test_emit() {
-        let mut bytes = vec![0; 24];
+        let repr = packet_repr();
+        let mut bytes = vec![0; repr.buffer_len() + REPR_PAYLOAD_BYTES.len()];
         let mut packet = Packet::new(&mut bytes).unwrap();
-        packet_repr().emit(&mut packet, 4);
+        repr.emit(&mut packet, REPR_PAYLOAD_BYTES.len());
+        packet.payload_mut().copy_from_slice(&REPR_PAYLOAD_BYTES);
         assert_eq!(&packet.into_inner()[..], &REPR_PACKET_BYTES[..]);
     }
 }

@@ -298,9 +298,10 @@ mod test {
 
     #[test]
     fn test_emit() {
-        let mut bytes = vec![0; 12];
+        let repr = packet_repr();
+        let mut bytes = vec![0; repr.buffer_len()];
         let mut packet = Packet::new(&mut bytes).unwrap();
-        packet_repr().emit(&mut packet, &SRC_ADDR.into(), &DST_ADDR.into());
+        repr.emit(&mut packet, &SRC_ADDR.into(), &DST_ADDR.into());
         assert_eq!(&packet.into_inner()[..], &PACKET_BYTES[..]);
     }
 }

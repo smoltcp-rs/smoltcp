@@ -119,3 +119,5 @@ pub use self::udp::Packet as UdpPacket;
 pub use self::udp::Repr as UdpRepr;
 
 pub use self::tcp::Packet as TcpPacket;
+pub use self::tcp::Repr as TcpRepr;
+pub use self::tcp::Control as TcpControl;
