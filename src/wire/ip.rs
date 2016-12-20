@@ -3,21 +3,21 @@ use core::fmt;
 use super::Ipv4Address;
 
 enum_with_unknown! {
-    /// Internetworking protocol type.
-    pub enum ProtocolType(u8) {
+    /// Internetworking protocol.
+    pub enum Protocol(u8) {
         Icmp = 0x01,
         Tcp  = 0x06,
         Udp  = 0x11
     }
 }
 
-impl fmt::Display for ProtocolType {
+impl fmt::Display for Protocol {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            &ProtocolType::Icmp => write!(f, "ICMP"),
-            &ProtocolType::Tcp  => write!(f, "TCP"),
-            &ProtocolType::Udp  => write!(f, "UDP"),
-            &ProtocolType::Unknown(id) => write!(f, "0x{:02x}", id)
+            &Protocol::Icmp => write!(f, "ICMP"),
+            &Protocol::Tcp  => write!(f, "TCP"),
+            &Protocol::Udp  => write!(f, "UDP"),
+            &Protocol::Unknown(id) => write!(f, "0x{:02x}", id)
         }
     }
 }
@@ -34,8 +34,8 @@ pub enum Address {
 
 impl Address {
     /// Create an address wrapping an IPv4 address with the given octets.
-    pub const fn ipv4(octets: [u8; 4]) -> Address {
-        Address::Ipv4(Ipv4Address(octets))
+    pub const fn v4(a0: u8, a1: u8, a2: u8, a3: u8) -> Address {
+        Address::Ipv4(Ipv4Address([a0, a1, a2, a3]))
     }
 
     /// Query whether the address is a valid unicast address.
@@ -129,7 +129,7 @@ pub mod checksum {
 
     /// Compute an IP pseudo header checksum.
     pub fn pseudo_header(src_addr: &Address, dst_addr: &Address,
-                         protocol: ProtocolType, length: u32) -> u16 {
+                         protocol: Protocol, length: u32) -> u16 {
         match (src_addr, dst_addr) {
             (&Address::Ipv4(src_addr), &Address::Ipv4(dst_addr)) => {
                 let mut proto_len = [0u8; 4];

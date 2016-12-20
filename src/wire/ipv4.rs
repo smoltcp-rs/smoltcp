@@ -4,7 +4,7 @@ use byteorder::{ByteOrder, NetworkEndian};
 use Error;
 use super::ip::checksum;
 
-pub use super::InternetProtocolType as ProtocolType;
+pub use super::IpProtocol as Protocol;
 
 /// A four-octet IPv4 address.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
@@ -182,9 +182,9 @@ impl<T: AsRef<[u8]>> Packet<T> {
 
     /// Return the protocol field.
     #[inline(always)]
-    pub fn protocol(&self) -> ProtocolType {
+    pub fn protocol(&self) -> Protocol {
         let data = self.buffer.as_ref();
-        ProtocolType::from(data[field::PROTOCOL])
+        Protocol::from(data[field::PROTOCOL])
     }
 
     /// Return the header checksum field.
@@ -311,7 +311,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
 
     /// Set the protocol field.
     #[inline(always)]
-    pub fn set_protocol(&mut self, value: ProtocolType) {
+    pub fn set_protocol(&mut self, value: Protocol) {
         let data = self.buffer.as_mut();
         data[field::PROTOCOL] = value.into()
     }
@@ -363,7 +363,7 @@ impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Packet<&'a mut T> {
 pub struct Repr {
     pub src_addr: Address,
     pub dst_addr: Address,
-    pub protocol: ProtocolType
+    pub protocol: Protocol
 }
 
 impl Repr {
@@ -478,11 +478,11 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
         indent.increase();
 
         match packet.protocol() {
-            ProtocolType::Icmp =>
+            Protocol::Icmp =>
                 super::Icmpv4Packet::<&[u8]>::pretty_print(&packet.payload(), f, indent),
-            ProtocolType::Udp =>
+            Protocol::Udp =>
                 super::UdpPacket::<&[u8]>::pretty_print(&packet.payload(), f, indent),
-            ProtocolType::Tcp =>
+            Protocol::Tcp =>
                 super::TcpPacket::<&[u8]>::pretty_print(&packet.payload(), f, indent),
             _ => Ok(())
         }
@@ -521,7 +521,7 @@ mod test {
         assert_eq!(packet.dont_frag(), true);
         assert_eq!(packet.frag_offset(), 0x203 * 8);
         assert_eq!(packet.ttl(), 0x1a);
-        assert_eq!(packet.protocol(), ProtocolType::Icmp);
+        assert_eq!(packet.protocol(), Protocol::Icmp);
         assert_eq!(packet.checksum(), 0xd56e);
         assert_eq!(packet.src_addr(), Address([0x11, 0x12, 0x13, 0x14]));
         assert_eq!(packet.dst_addr(), Address([0x21, 0x22, 0x23, 0x24]));
@@ -543,7 +543,7 @@ mod test {
         packet.set_dont_frag(true);
         packet.set_frag_offset(0x203 * 8);
         packet.set_ttl(0x1a);
-        packet.set_protocol(ProtocolType::Icmp);
+        packet.set_protocol(Protocol::Icmp);
         packet.set_src_addr(Address([0x11, 0x12, 0x13, 0x14]));
         packet.set_dst_addr(Address([0x21, 0x22, 0x23, 0x24]));
         packet.fill_checksum();
@@ -566,7 +566,7 @@ mod test {
         Repr {
             src_addr: Address([0x11, 0x12, 0x13, 0x14]),
             dst_addr: Address([0x21, 0x22, 0x23, 0x24]),
-            protocol: ProtocolType::Icmp
+            protocol: Protocol::Icmp
         }
     }
 

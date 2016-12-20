@@ -6,7 +6,7 @@ use super::ip::checksum;
 
 enum_with_unknown! {
     /// Internet protocol control message type.
-    pub doc enum Type(u8) {
+    pub doc enum Message(u8) {
         /// Echo reply
         EchoReply      =  0,
         /// Destination unreachable
@@ -30,20 +30,20 @@ enum_with_unknown! {
     }
 }
 
-impl fmt::Display for Type {
+impl fmt::Display for Message {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            &Type::EchoReply      => write!(f, "echo reply"),
-            &Type::DstUnreachable => write!(f, "destination unreachable"),
-            &Type::Redirect       => write!(f, "message redirect"),
-            &Type::EchoRequest    => write!(f, "echo request"),
-            &Type::RouterAdvert   => write!(f, "router advertisement"),
-            &Type::RouterSolicit  => write!(f, "router solicitation"),
-            &Type::TimeExceeded   => write!(f, "time exceeded"),
-            &Type::ParamProblem   => write!(f, "parameter problem"),
-            &Type::Timestamp      => write!(f, "timestamp"),
-            &Type::TimestampReply => write!(f, "timestamp reply"),
-            &Type::Unknown(id) => write!(f, "{}", id)
+            &Message::EchoReply      => write!(f, "echo reply"),
+            &Message::DstUnreachable => write!(f, "destination unreachable"),
+            &Message::Redirect       => write!(f, "message redirect"),
+            &Message::EchoRequest    => write!(f, "echo request"),
+            &Message::RouterAdvert   => write!(f, "router advertisement"),
+            &Message::RouterSolicit  => write!(f, "router solicitation"),
+            &Message::TimeExceeded   => write!(f, "time exceeded"),
+            &Message::ParamProblem   => write!(f, "parameter problem"),
+            &Message::Timestamp      => write!(f, "timestamp"),
+            &Message::TimestampReply => write!(f, "timestamp reply"),
+            &Message::Unknown(id) => write!(f, "{}", id)
         }
     }
 }
@@ -163,9 +163,9 @@ impl<T: AsRef<[u8]>> Packet<T> {
 
     /// Return the message type field.
     #[inline(always)]
-    pub fn msg_type(&self) -> Type {
+    pub fn msg_type(&self) -> Message {
         let data = self.buffer.as_ref();
-        Type::from(data[field::TYPE])
+        Message::from(data[field::TYPE])
     }
 
     /// Return the message code field.
@@ -206,8 +206,8 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// The result depends on the value of the message type field.
     pub fn header_len(&self) -> usize {
         match self.msg_type() {
-            Type::EchoRequest => field::ECHO_SEQNO.end,
-            Type::EchoReply   => field::ECHO_SEQNO.end,
+            Message::EchoRequest => field::ECHO_SEQNO.end,
+            Message::EchoReply   => field::ECHO_SEQNO.end,
             _ => field::CHECKSUM.end // make a conservative assumption
         }
     }
@@ -231,7 +231,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized> Packet<&'a T> {
 impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// Set the message type field.
     #[inline(always)]
-    pub fn set_msg_type(&mut self, value: Type) {
+    pub fn set_msg_type(&mut self, value: Message) {
         let mut data = self.buffer.as_mut();
         data[field::TYPE] = value.into()
     }
@@ -313,14 +313,14 @@ impl<'a> Repr<'a> {
     /// a high-level representation.
     pub fn parse<T: AsRef<[u8]> + ?Sized>(packet: &Packet<&'a T>) -> Result<Repr<'a>, Error> {
         match (packet.msg_type(), packet.msg_code()) {
-            (Type::EchoRequest, 0) => {
+            (Message::EchoRequest, 0) => {
                 Ok(Repr::EchoRequest {
                     ident:  packet.echo_ident(),
                     seq_no: packet.echo_seq_no(),
                     data:   packet.data()
                 })
             },
-            (Type::EchoReply, 0) => {
+            (Message::EchoReply, 0) => {
                 Ok(Repr::EchoReply {
                     ident:  packet.echo_ident(),
                     seq_no: packet.echo_seq_no(),
@@ -348,14 +348,14 @@ impl<'a> Repr<'a> {
         packet.set_msg_code(0);
         match self {
             &Repr::EchoRequest { ident, seq_no, data } => {
-                packet.set_msg_type(Type::EchoRequest);
+                packet.set_msg_type(Message::EchoRequest);
                 packet.set_echo_ident(ident);
                 packet.set_echo_seq_no(seq_no);
                 let data_len = cmp::min(packet.data_mut().len(), data.len());
                 packet.data_mut()[..data_len].copy_from_slice(&data[..data_len])
             },
             &Repr::EchoReply { ident, seq_no, data } => {
-                packet.set_msg_type(Type::EchoReply);
+                packet.set_msg_type(Message::EchoReply);
                 packet.set_echo_ident(ident);
                 packet.set_echo_seq_no(seq_no);
                 let data_len = cmp::min(packet.data_mut().len(), data.len());
@@ -423,7 +423,7 @@ mod test {
     #[test]
     fn test_echo_deconstruct() {
         let packet = Packet::new(&ECHO_PACKET_BYTES[..]).unwrap();
-        assert_eq!(packet.msg_type(), Type::EchoRequest);
+        assert_eq!(packet.msg_type(), Message::EchoRequest);
         assert_eq!(packet.msg_code(), 0);
         assert_eq!(packet.checksum(), 0x8efe);
         assert_eq!(packet.echo_ident(), 0x1234);
@@ -436,7 +436,7 @@ mod test {
     fn test_echo_construct() {
         let mut bytes = vec![0; 12];
         let mut packet = Packet::new(&mut bytes).unwrap();
-        packet.set_msg_type(Type::EchoRequest);
+        packet.set_msg_type(Message::EchoRequest);
         packet.set_msg_code(0);
         packet.set_echo_ident(0x1234);
         packet.set_echo_seq_no(0xabcd);

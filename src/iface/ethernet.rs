@@ -3,9 +3,9 @@ use core::marker::PhantomData;
 
 use Error;
 use phy::Device;
-use wire::{EthernetAddress, EthernetProtocolType, EthernetFrame};
+use wire::{EthernetAddress, EthernetProtocol, EthernetFrame};
 use wire::{ArpPacket, ArpRepr, ArpOperation};
-use wire::{InternetAddress, InternetProtocolType};
+use wire::{IpAddress, IpProtocol};
 use wire::{Ipv4Packet, Ipv4Repr};
 use wire::{Icmpv4Packet, Icmpv4Repr};
 use socket::Socket;
@@ -20,7 +20,7 @@ use super::{ArpCache};
 pub struct Interface<'a, 'b: 'a,
     DeviceT:        Device,
     ArpCacheT:      ArpCache,
-    ProtocolAddrsT: BorrowMut<[InternetAddress]>,
+    ProtocolAddrsT: BorrowMut<[IpAddress]>,
     SocketsT:       BorrowMut<[Socket<'a, 'b>]>
 > {
     device:         DeviceT,
@@ -34,7 +34,7 @@ pub struct Interface<'a, 'b: 'a,
 impl<'a, 'b: 'a,
     DeviceT:        Device,
     ArpCacheT:      ArpCache,
-    ProtocolAddrsT: BorrowMut<[InternetAddress]>,
+    ProtocolAddrsT: BorrowMut<[IpAddress]>,
     SocketsT:       BorrowMut<[Socket<'a, 'b>]>
 > Interface<'a, 'b, DeviceT, ArpCacheT, ProtocolAddrsT, SocketsT> {
     /// Create a network interface using the provided network device.
@@ -77,7 +77,7 @@ impl<'a, 'b: 'a,
         Self::check_hardware_addr(&self.hardware_addr);
     }
 
-    fn check_protocol_addrs(addrs: &[InternetAddress]) {
+    fn check_protocol_addrs(addrs: &[IpAddress]) {
         for addr in addrs {
             if !addr.is_unicast() {
                 panic!("protocol address {} is not unicast", addr)
@@ -86,7 +86,7 @@ impl<'a, 'b: 'a,
     }
 
     /// Get the protocol addresses of the interface.
-    pub fn protocol_addrs(&self) -> &[InternetAddress] {
+    pub fn protocol_addrs(&self) -> &[IpAddress] {
         self.protocol_addrs.borrow()
     }
 
@@ -94,13 +94,13 @@ impl<'a, 'b: 'a,
     ///
     /// # Panics
     /// This function panics if any of the addresses is not unicast.
-    pub fn update_protocol_addrs<F: FnOnce(&mut [InternetAddress])>(&mut self, f: F) {
+    pub fn update_protocol_addrs<F: FnOnce(&mut [IpAddress])>(&mut self, f: F) {
         f(self.protocol_addrs.borrow_mut());
         Self::check_protocol_addrs(self.protocol_addrs.borrow())
     }
 
     /// Check whether the interface has the given protocol address assigned.
-    pub fn has_protocol_addr<T: Into<InternetAddress>>(&self, addr: T) -> bool {
+    pub fn has_protocol_addr<T: Into<IpAddress>>(&self, addr: T) -> bool {
         let addr = addr.into();
         self.protocol_addrs.borrow().iter().any(|&probe| probe == addr)
     }
@@ -130,7 +130,7 @@ impl<'a, 'b: 'a,
         let mut response = Response::Nop;
         match eth_frame.ethertype() {
             // Snoop all ARP traffic, and respond to ARP packets directed at us.
-            EthernetProtocolType::Arp => {
+            EthernetProtocol::Arp => {
                 let arp_packet = try!(ArpPacket::new(eth_frame.payload()));
                 match try!(ArpRepr::parse(&arp_packet)) {
                     // Respond to ARP requests aimed at us, and fill the ARP cache
@@ -166,14 +166,14 @@ impl<'a, 'b: 'a,
             },
 
             // Handle IP packets directed at us.
-            EthernetProtocolType::Ipv4 => {
+            EthernetProtocol::Ipv4 => {
                 let ip_packet = try!(Ipv4Packet::new(eth_frame.payload()));
                 match try!(Ipv4Repr::parse(&ip_packet)) {
                     // Ignore IP packets not directed at us.
                     Ipv4Repr { dst_addr, .. } if !self.has_protocol_addr(dst_addr) => (),
 
                     // Respond to ICMP packets.
-                    Ipv4Repr { protocol: InternetProtocolType::Icmp, src_addr, dst_addr } => {
+                    Ipv4Repr { protocol: IpProtocol::Icmp, src_addr, dst_addr } => {
                         let icmp_packet = try!(Icmpv4Packet::new(ip_packet.payload()));
                         let icmp_repr = try!(Icmpv4Repr::parse(&icmp_packet));
                         match icmp_repr {
@@ -184,7 +184,7 @@ impl<'a, 'b: 'a,
                                 let ip_reply_repr = Ipv4Repr {
                                     src_addr: dst_addr,
                                     dst_addr: src_addr,
-                                    protocol: InternetProtocolType::Icmp
+                                    protocol: IpProtocol::Icmp
                                 };
                                 let icmp_reply_repr = Icmpv4Repr::EchoReply {
                                     ident:  ident,
@@ -232,7 +232,7 @@ impl<'a, 'b: 'a,
                     ArpRepr::EthernetIpv4 { target_hardware_addr, .. } => target_hardware_addr,
                     _ => unreachable!()
                 });
-                frame.set_ethertype(EthernetProtocolType::Arp);
+                frame.set_ethertype(EthernetProtocol::Arp);
 
                 let mut packet = try!(ArpPacket::new(frame.payload_mut()));
                 repr.emit(&mut packet);
@@ -253,7 +253,7 @@ impl<'a, 'b: 'a,
                 let mut frame = try!(EthernetFrame::new(&mut tx_buffer));
                 frame.set_src_addr(self.hardware_addr);
                 frame.set_dst_addr(dst_hardware_addr);
-                frame.set_ethertype(EthernetProtocolType::Ipv4);
+                frame.set_ethertype(EthernetProtocol::Ipv4);
 
                 let mut ip_packet = try!(Ipv4Packet::new(frame.payload_mut()));
                 ip_repr.emit(&mut ip_packet, icmp_repr.buffer_len());
@@ -283,11 +283,11 @@ impl<'a, 'b: 'a,
             let result = socket.dispatch(&mut |src_addr, dst_addr, protocol, payload| {
                 let src_addr =
                     match src_addr {
-                        &InternetAddress::Ipv4(_) if src_addr.is_unspecified() => {
+                        &IpAddress::Ipv4(_) if src_addr.is_unspecified() => {
                             let mut assigned_addr = None;
                             for addr in src_protocol_addrs {
                                 match addr {
-                                    addr @ &InternetAddress::Ipv4(_) => {
+                                    addr @ &IpAddress::Ipv4(_) => {
                                         assigned_addr = Some(addr);
                                         break
                                     }
@@ -304,8 +304,8 @@ impl<'a, 'b: 'a,
 
                 let ip_repr =
                     match (src_addr, dst_addr) {
-                        (&InternetAddress::Ipv4(src_addr),
-                         &InternetAddress::Ipv4(dst_addr)) => {
+                        (&IpAddress::Ipv4(src_addr),
+                         &IpAddress::Ipv4(dst_addr)) => {
                             Ipv4Repr {
                                 src_addr: src_addr,
                                 dst_addr: dst_addr,
@@ -327,7 +327,7 @@ impl<'a, 'b: 'a,
                 let mut frame = try!(EthernetFrame::new(&mut tx_buffer));
                 frame.set_src_addr(src_hardware_addr);
                 frame.set_dst_addr(dst_hardware_addr);
-                frame.set_ethertype(EthernetProtocolType::Ipv4);
+                frame.set_ethertype(EthernetProtocol::Ipv4);
 
                 let mut ip_packet = try!(Ipv4Packet::new(frame.payload_mut()));
                 ip_repr.emit(&mut ip_packet, payload.buffer_len());

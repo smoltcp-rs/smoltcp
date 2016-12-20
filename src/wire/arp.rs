@@ -2,11 +2,11 @@ use core::fmt;
 use byteorder::{ByteOrder, NetworkEndian};
 use Error;
 
-pub use super::EthernetProtocolType as ProtocolType;
+pub use super::EthernetProtocol as Protocol;
 
 enum_with_unknown! {
-    /// ARP network protocol type.
-    pub enum HardwareType(u16) {
+    /// ARP hardware type.
+    pub enum Hardware(u16) {
         Ethernet = 1
     }
 }
@@ -85,18 +85,18 @@ impl<T: AsRef<[u8]>> Packet<T> {
 
     /// Return the hardware type field.
     #[inline(always)]
-    pub fn hardware_type(&self) -> HardwareType {
+    pub fn hardware_type(&self) -> Hardware {
         let data = self.buffer.as_ref();
         let raw = NetworkEndian::read_u16(&data[field::HTYPE]);
-        HardwareType::from(raw)
+        Hardware::from(raw)
     }
 
     /// Return the protocol type field.
     #[inline(always)]
-    pub fn protocol_type(&self) -> ProtocolType {
+    pub fn protocol_type(&self) -> Protocol {
         let data = self.buffer.as_ref();
         let raw = NetworkEndian::read_u16(&data[field::PTYPE]);
-        ProtocolType::from(raw)
+        Protocol::from(raw)
     }
 
     /// Return the hardware length field.
@@ -149,14 +149,14 @@ impl<T: AsRef<[u8]>> Packet<T> {
 impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// Set the hardware type field.
     #[inline(always)]
-    pub fn set_hardware_type(&mut self, value: HardwareType) {
+    pub fn set_hardware_type(&mut self, value: Hardware) {
         let data = self.buffer.as_mut();
         NetworkEndian::write_u16(&mut data[field::HTYPE], value.into())
     }
 
     /// Set the protocol type field.
     #[inline(always)]
-    pub fn set_protocol_type(&mut self, value: ProtocolType) {
+    pub fn set_protocol_type(&mut self, value: Protocol) {
         let data = self.buffer.as_mut();
         NetworkEndian::write_u16(&mut data[field::PTYPE], value.into())
     }
@@ -246,7 +246,7 @@ impl Repr {
     pub fn parse<T: AsRef<[u8]>>(packet: &Packet<T>) -> Result<Repr, Error> {
         match (packet.hardware_type(), packet.protocol_type(),
                packet.hardware_len(), packet.protocol_len()) {
-            (HardwareType::Ethernet, ProtocolType::Ipv4, 6, 4) => {
+            (Hardware::Ethernet, Protocol::Ipv4, 6, 4) => {
                 Ok(Repr::EthernetIpv4 {
                     operation: packet.operation(),
                     source_hardware_addr:
@@ -279,8 +279,8 @@ impl Repr {
                 source_hardware_addr, source_protocol_addr,
                 target_hardware_addr, target_protocol_addr
             } => {
-                packet.set_hardware_type(HardwareType::Ethernet);
-                packet.set_protocol_type(ProtocolType::Ipv4);
+                packet.set_hardware_type(Hardware::Ethernet);
+                packet.set_protocol_type(Protocol::Ipv4);
                 packet.set_hardware_len(6);
                 packet.set_protocol_len(4);
                 packet.set_operation(operation);
@@ -361,8 +361,8 @@ mod test {
     #[test]
     fn test_deconstruct() {
         let packet = Packet::new(&PACKET_BYTES[..]).unwrap();
-        assert_eq!(packet.hardware_type(), HardwareType::Ethernet);
-        assert_eq!(packet.protocol_type(), ProtocolType::Ipv4);
+        assert_eq!(packet.hardware_type(), Hardware::Ethernet);
+        assert_eq!(packet.protocol_type(), Protocol::Ipv4);
         assert_eq!(packet.hardware_len(), 6);
         assert_eq!(packet.protocol_len(), 4);
         assert_eq!(packet.operation(), Operation::Request);
@@ -376,8 +376,8 @@ mod test {
     fn test_construct() {
         let mut bytes = vec![0; 28];
         let mut packet = Packet::new(&mut bytes).unwrap();
-        packet.set_hardware_type(HardwareType::Ethernet);
-        packet.set_protocol_type(ProtocolType::Ipv4);
+        packet.set_hardware_type(Hardware::Ethernet);
+        packet.set_protocol_type(Protocol::Ipv4);
         packet.set_hardware_len(6);
         packet.set_protocol_len(4);
         packet.set_operation(Operation::Request);

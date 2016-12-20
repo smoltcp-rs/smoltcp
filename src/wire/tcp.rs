@@ -2,7 +2,7 @@ use core::fmt;
 use byteorder::{ByteOrder, NetworkEndian};
 
 use Error;
-use super::{InternetProtocolType, InternetAddress};
+use super::{IpProtocol, IpAddress};
 use super::ip::checksum;
 
 /// A read/write wrapper around an Transmission Control Protocol packet buffer.
@@ -187,10 +187,10 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// # Panics
     /// This function panics unless `src_addr` and `dst_addr` belong to the same family,
     /// and that family is IPv4 or IPv6.
-    pub fn verify_checksum(&self, src_addr: &InternetAddress, dst_addr: &InternetAddress) -> bool {
+    pub fn verify_checksum(&self, src_addr: &IpAddress, dst_addr: &IpAddress) -> bool {
         let data = self.buffer.as_ref();
         checksum::combine(&[
-            checksum::pseudo_header(src_addr, dst_addr, InternetProtocolType::Tcp,
+            checksum::pseudo_header(src_addr, dst_addr, IpProtocol::Tcp,
                                     data.len() as u32),
             checksum::data(data)
         ]) == !0
@@ -361,12 +361,12 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// # Panics
     /// This function panics unless `src_addr` and `dst_addr` belong to the same family,
     /// and that family is IPv4 or IPv6.
-    pub fn fill_checksum(&mut self, src_addr: &InternetAddress, dst_addr: &InternetAddress) {
+    pub fn fill_checksum(&mut self, src_addr: &IpAddress, dst_addr: &IpAddress) {
         self.set_checksum(0);
         let checksum = {
             let data = self.buffer.as_ref();
             !checksum::combine(&[
-                checksum::pseudo_header(src_addr, dst_addr, InternetProtocolType::Tcp,
+                checksum::pseudo_header(src_addr, dst_addr, IpProtocol::Tcp,
                                         data.len() as u32),
                 checksum::data(data)
             ])
@@ -409,8 +409,8 @@ pub enum Control {
 impl<'a> Repr<'a> {
     /// Parse a Transmission Control Protocol packet and return a high-level representation.
     pub fn parse<T: ?Sized>(packet: &Packet<&'a T>,
-                            src_addr: &InternetAddress,
-                            dst_addr: &InternetAddress) -> Result<Repr<'a>, Error>
+                            src_addr: &IpAddress,
+                            dst_addr: &IpAddress) -> Result<Repr<'a>, Error>
             where T: AsRef<[u8]> {
         // Source and destination ports must be present.
         if packet.src_port() == 0 { return Err(Error::Malformed) }
@@ -454,8 +454,8 @@ impl<'a> Repr<'a> {
 
     /// Emit a high-level representation into a Transmission Control Protocol packet.
     pub fn emit<T: ?Sized>(&self, packet: &mut Packet<&mut T>,
-                           src_addr: &InternetAddress,
-                           dst_addr: &InternetAddress)
+                           src_addr: &IpAddress,
+                           dst_addr: &IpAddress)
             where T: AsRef<[u8]> + AsMut<[u8]> {
         packet.set_src_port(self.src_port);
         packet.set_dst_port(self.dst_port);

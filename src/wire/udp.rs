@@ -2,7 +2,7 @@ use core::fmt;
 use byteorder::{ByteOrder, NetworkEndian};
 
 use Error;
-use super::{InternetProtocolType, InternetAddress};
+use super::{IpProtocol, IpAddress};
 use super::ip::checksum;
 
 /// A read/write wrapper around an User Datagram Protocol packet buffer.
@@ -81,10 +81,10 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// # Panics
     /// This function panics unless `src_addr` and `dst_addr` belong to the same family,
     /// and that family is IPv4 or IPv6.
-    pub fn verify_checksum(&self, src_addr: &InternetAddress, dst_addr: &InternetAddress) -> bool {
+    pub fn verify_checksum(&self, src_addr: &IpAddress, dst_addr: &IpAddress) -> bool {
         let data = self.buffer.as_ref();
         checksum::combine(&[
-            checksum::pseudo_header(src_addr, dst_addr, InternetProtocolType::Udp,
+            checksum::pseudo_header(src_addr, dst_addr, IpProtocol::Udp,
                                     self.len() as u32),
             checksum::data(&data[..self.len() as usize])
         ]) == !0
@@ -135,12 +135,12 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// # Panics
     /// This function panics unless `src_addr` and `dst_addr` belong to the same family,
     /// and that family is IPv4 or IPv6.
-    pub fn fill_checksum(&mut self, src_addr: &InternetAddress, dst_addr: &InternetAddress) {
+    pub fn fill_checksum(&mut self, src_addr: &IpAddress, dst_addr: &IpAddress) {
         self.set_checksum(0);
         let checksum = {
             let data = self.buffer.as_ref();
             !checksum::combine(&[
-                checksum::pseudo_header(src_addr, dst_addr, InternetProtocolType::Udp,
+                checksum::pseudo_header(src_addr, dst_addr, IpProtocol::Udp,
                                         self.len() as u32),
                 checksum::data(&data[..self.len() as usize])
             ])
@@ -170,15 +170,15 @@ pub struct Repr<'a> {
 impl<'a> Repr<'a> {
     /// Parse an User Datagram Protocol packet and return a high-level representation.
     pub fn parse<T: ?Sized>(packet: &Packet<&'a T>,
-                            src_addr: &InternetAddress,
-                            dst_addr: &InternetAddress) -> Result<Repr<'a>, Error>
+                            src_addr: &IpAddress,
+                            dst_addr: &IpAddress) -> Result<Repr<'a>, Error>
             where T: AsRef<[u8]> {
         // Destination port cannot be omitted (but source port can be).
         if packet.dst_port() == 0 { return Err(Error::Malformed) }
         // Valid checksum is expected...
         if !packet.verify_checksum(src_addr, dst_addr) {
             match (src_addr, dst_addr) {
-                (&InternetAddress::Ipv4(_), &InternetAddress::Ipv4(_))
+                (&IpAddress::Ipv4(_), &IpAddress::Ipv4(_))
                         if packet.checksum() != 0 => {
                     // ... except on UDP-over-IPv4, where it can be omitted.
                     return Err(Error::Checksum)
@@ -203,8 +203,8 @@ impl<'a> Repr<'a> {
 
     /// Emit a high-level representation into an User Datagram Protocol packet.
     pub fn emit<T: ?Sized>(&self, packet: &mut Packet<&mut T>,
-                           src_addr: &InternetAddress,
-                           dst_addr: &InternetAddress)
+                           src_addr: &IpAddress,
+                           dst_addr: &IpAddress)
             where T: AsRef<[u8]> + AsMut<[u8]> {
         packet.set_src_port(self.src_port);
         packet.set_dst_port(self.dst_port);

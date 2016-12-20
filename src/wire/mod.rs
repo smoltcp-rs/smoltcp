@@ -90,24 +90,24 @@ mod tcp;
 
 pub use self::pretty_print::PrettyPrinter;
 
-pub use self::ethernet::EtherType as EthernetProtocolType;
+pub use self::ethernet::EtherType as EthernetProtocol;
 pub use self::ethernet::Address as EthernetAddress;
 pub use self::ethernet::Frame as EthernetFrame;
 
-pub use self::arp::HardwareType as ArpHardwareType;
+pub use self::arp::Hardware as ArpHardware;
 pub use self::arp::Operation as ArpOperation;
 pub use self::arp::Packet as ArpPacket;
 pub use self::arp::Repr as ArpRepr;
 
-pub use self::ip::ProtocolType as InternetProtocolType;
-pub use self::ip::Address as InternetAddress;
-pub use self::ip::Endpoint as InternetEndpoint;
+pub use self::ip::Protocol as IpProtocol;
+pub use self::ip::Address as IpAddress;
+pub use self::ip::Endpoint as IpEndpoint;
 
 pub use self::ipv4::Address as Ipv4Address;
 pub use self::ipv4::Packet as Ipv4Packet;
 pub use self::ipv4::Repr as Ipv4Repr;
 
-pub use self::icmpv4::Type as Icmpv4Type;
+pub use self::icmpv4::Message as Icmpv4Message;
 pub use self::icmpv4::DstUnreachable as Icmpv4DstUnreachable;
 pub use self::icmpv4::Redirect as Icmpv4Redirect;
 pub use self::icmpv4::TimeExceeded as Icmpv4TimeExceeded;

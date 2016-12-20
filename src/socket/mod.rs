@@ -11,7 +11,7 @@
 //! size for a buffer, allocate it, and let the networking stack use it.
 
 use Error;
-use wire::{InternetAddress as Address, InternetProtocolType as ProtocolType};
+use wire::{IpAddress, IpProtocol};
 
 mod udp;
 mod tcp;
@@ -31,7 +31,7 @@ pub trait PacketRepr {
     fn buffer_len(&self) -> usize;
 
     /// Emit this high-level representation into a sequence of octets.
-    fn emit(&self, src_addr: &Address, dst_addr: &Address, payload: &mut [u8]);
+    fn emit(&self, src_addr: &IpAddress, dst_addr: &IpAddress, payload: &mut [u8]);
 }
 
 /// A network socket.
@@ -61,8 +61,8 @@ impl<'a, 'b> Socket<'a, 'b> {
     /// is returned.
     ///
     /// This function is used internally by the networking stack.
-    pub fn collect(&mut self, src_addr: &Address, dst_addr: &Address,
-                   protocol: ProtocolType, payload: &[u8])
+    pub fn collect(&mut self, src_addr: &IpAddress, dst_addr: &IpAddress,
+                   protocol: IpProtocol, payload: &[u8])
             -> Result<(), Error> {
         match self {
             &mut Socket::Udp(ref mut socket) =>
@@ -78,8 +78,8 @@ impl<'a, 'b> Socket<'a, 'b> {
     /// is returned.
     ///
     /// This function is used internally by the networking stack.
-    pub fn dispatch(&mut self, f: &mut FnMut(&Address, &Address,
-                                             ProtocolType, &PacketRepr) -> Result<(), Error>)
+    pub fn dispatch(&mut self, f: &mut FnMut(&IpAddress, &IpAddress,
+                                             IpProtocol, &PacketRepr) -> Result<(), Error>)
             -> Result<(), Error> {
         match self {
             &mut Socket::Udp(ref mut socket) =>

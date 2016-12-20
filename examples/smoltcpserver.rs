@@ -4,7 +4,7 @@ extern crate smoltcp;
 use std::env;
 use smoltcp::Error;
 use smoltcp::phy::{Tracer, TapInterface};
-use smoltcp::wire::{EthernetFrame, EthernetAddress, InternetAddress, InternetEndpoint};
+use smoltcp::wire::{EthernetFrame, EthernetAddress, IpAddress, IpEndpoint};
 use smoltcp::iface::{SliceArpCache, EthernetInterface};
 use smoltcp::socket::{UdpSocket, AsSocket, UdpBuffer, UdpPacket};
 
@@ -16,10 +16,10 @@ fn main() {
     let arp_cache = SliceArpCache::new(vec![Default::default(); 8]);
 
     let hardware_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
-    let mut protocol_addrs = [InternetAddress::ipv4([192, 168, 69, 1])];
+    let mut protocol_addrs = [IpAddress::v4(192, 168, 69, 1)];
 
-    let listen_address = InternetAddress::ipv4([0, 0, 0, 0]);
-    let endpoint = InternetEndpoint::new(listen_address, 6969);
+    let listen_address = IpAddress::v4(0, 0, 0, 0);
+    let endpoint = IpEndpoint::new(listen_address, 6969);
 
     let udp_rx_buffer = UdpBuffer::new(vec![UdpPacket::new(vec![0; 2048])]);
     let udp_tx_buffer = UdpBuffer::new(vec![UdpPacket::new(vec![0; 2048])]);
