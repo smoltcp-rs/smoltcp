@@ -118,6 +118,12 @@ impl<'a, 'b: 'a,
             Icmpv4(Ipv4Repr, Icmpv4Repr<'a>)
         }
 
+        // First, transmit any outgoing packets.
+        loop {
+            if try!(self.emit()) { break }
+        }
+
+        // Now, receive any incoming packets.
         let rx_buffer = try!(self.device.receive());
         let eth_frame = try!(EthernetFrame::new(&rx_buffer));
 
@@ -229,7 +235,9 @@ impl<'a, 'b: 'a,
                 frame.set_ethertype(EthernetProtocolType::Arp);
 
                 let mut packet = try!(ArpPacket::new(frame.payload_mut()));
-                repr.emit(&mut packet)
+                repr.emit(&mut packet);
+
+                Ok(())
             },
 
             Response::Icmpv4(ip_repr, icmp_repr) => {
@@ -252,62 +260,94 @@ impl<'a, 'b: 'a,
 
                 let mut icmp_packet = try!(Icmpv4Packet::new(ip_packet.payload_mut()));
                 icmp_repr.emit(&mut icmp_packet);
+
+                Ok(())
             }
 
             Response::Nop => {
-                // Borrow checker is being overly careful around closures, so we have
-                // to hack around that.
-                let src_hardware_addr = self.hardware_addr;
-                let arp_cache = &mut self.arp_cache;
-                let device = &mut self.device;
+                Ok(())
+            }
+        }
+    }
 
-                for socket in self.sockets.borrow_mut() {
-                    let result = socket.dispatch(&mut |src_addr, dst_addr, protocol, payload| {
-                        let ip_repr =
-                            match (src_addr, dst_addr) {
-                                (&InternetAddress::Ipv4(src_addr),
-                                 &InternetAddress::Ipv4(dst_addr)) => {
-                                    Ipv4Repr {
-                                        src_addr: src_addr,
-                                        dst_addr: dst_addr,
-                                        protocol: protocol
+    pub fn emit(&mut self) -> Result<bool, Error> {
+        // Borrow checker is being overly careful around closures, so we have
+        // to hack around that.
+        let src_hardware_addr = self.hardware_addr;
+        let src_protocol_addrs = self.protocol_addrs.borrow();
+        let arp_cache = &mut self.arp_cache;
+        let device = &mut self.device;
+
+        let mut nothing_to_transmit = true;
+        for socket in self.sockets.borrow_mut() {
+            let result = socket.dispatch(&mut |src_addr, dst_addr, protocol, payload| {
+                let src_addr =
+                    match src_addr {
+                        &InternetAddress::Ipv4(_) if src_addr.is_unspecified() => {
+                            let mut assigned_addr = None;
+                            for addr in src_protocol_addrs {
+                                match addr {
+                                    addr @ &InternetAddress::Ipv4(_) => {
+                                        assigned_addr = Some(addr);
+                                        break
                                     }
-                                },
-                                _ => unreachable!()
-                            };
+                                    _ => ()
+                                }
+                            }
+                            assigned_addr.expect(
+                                "to respond to an UDP packet without a source address,\
+                                 the interface must have an assigned address from \
+                                 the same family")
+                        },
+                        addr => addr
+                    };
 
-                        let dst_hardware_addr =
-                            match arp_cache.lookup(*dst_addr) {
-                                None => return Err(Error::Unaddressable),
-                                Some(hardware_addr) => hardware_addr
-                            };
+                let ip_repr =
+                    match (src_addr, dst_addr) {
+                        (&InternetAddress::Ipv4(src_addr),
+                         &InternetAddress::Ipv4(dst_addr)) => {
+                            Ipv4Repr {
+                                src_addr: src_addr,
+                                dst_addr: dst_addr,
+                                protocol: protocol
+                            }
+                        },
+                        _ => unreachable!()
+                    };
 
-                        let tx_len = EthernetFrame::<&[u8]>::buffer_len(ip_repr.buffer_len() +
-                                                                        payload.buffer_len());
-                        let mut tx_buffer = try!(device.transmit(tx_len));
-                        let mut frame = try!(EthernetFrame::new(&mut tx_buffer));
-                        frame.set_src_addr(src_hardware_addr);
-                        frame.set_dst_addr(dst_hardware_addr);
-                        frame.set_ethertype(EthernetProtocolType::Ipv4);
+                let dst_hardware_addr =
+                    match arp_cache.lookup(*dst_addr) {
+                        None => return Err(Error::Unaddressable),
+                        Some(hardware_addr) => hardware_addr
+                    };
 
-                        let mut ip_packet = try!(Ipv4Packet::new(frame.payload_mut()));
-                        ip_repr.emit(&mut ip_packet, payload.buffer_len());
+                let tx_len = EthernetFrame::<&[u8]>::buffer_len(ip_repr.buffer_len() +
+                                                                payload.buffer_len());
+                let mut tx_buffer = try!(device.transmit(tx_len));
+                let mut frame = try!(EthernetFrame::new(&mut tx_buffer));
+                frame.set_src_addr(src_hardware_addr);
+                frame.set_dst_addr(dst_hardware_addr);
+                frame.set_ethertype(EthernetProtocolType::Ipv4);
 
-                        payload.emit(src_addr, dst_addr, ip_packet.payload_mut());
+                let mut ip_packet = try!(Ipv4Packet::new(frame.payload_mut()));
+                ip_repr.emit(&mut ip_packet, payload.buffer_len());
 
-                        Ok(())
-                    });
+                payload.emit(src_addr, dst_addr, ip_packet.payload_mut());
 
-                    match result {
-                        Ok(()) => break,
-                        Err(Error::Exhausted) => continue,
-                        Err(e) => return Err(e)
-                    }
+                Ok(())
+            });
+
+            match result {
+                Ok(()) => {
+                    nothing_to_transmit = false;
+                    break
                 }
+                Err(Error::Exhausted) => continue,
+                Err(e) => return Err(e)
             }
         }
 
-        Ok(())
+        Ok(nothing_to_transmit)
     }
 }
 
