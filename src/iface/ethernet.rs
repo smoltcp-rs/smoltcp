@@ -95,8 +95,8 @@ impl<'a, 'b: 'a,
     ///
     /// # Panics
     /// This function panics if any of the addresses is not unicast.
-    pub fn update_protocol_addrs<F: FnOnce(&mut [IpAddress])>(&mut self, f: F) {
-        f(self.protocol_addrs.borrow_mut());
+    pub fn update_protocol_addrs<F: FnOnce(&mut ProtocolAddrsT)>(&mut self, f: F) {
+        f(&mut self.protocol_addrs);
         Self::check_protocol_addrs(self.protocol_addrs.borrow())
     }
 
@@ -107,8 +107,8 @@ impl<'a, 'b: 'a,
     }
 
     /// Get the set of sockets owned by the interface.
-    pub fn sockets(&mut self) -> &mut [Socket<'a, 'b>] {
-        self.sockets.borrow_mut()
+    pub fn sockets(&mut self) -> &mut SocketsT {
+        &mut self.sockets
     }
 
     /// Receive and process a packet, if available.

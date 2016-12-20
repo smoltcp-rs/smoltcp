@@ -2,21 +2,21 @@ use Error;
 use Managed;
 use wire::{IpProtocol, IpAddress, IpEndpoint};
 use wire::{TcpPacket, TcpRepr, TcpControl};
-use socket::{Socket};
+use socket::{Socket, PacketRepr};
 
 /// A TCP stream ring buffer.
 #[derive(Debug)]
-pub struct SocketBuffer<'a> {
+pub struct StreamBuffer<'a> {
     storage: Managed<'a, [u8]>,
     read_at: usize,
     length:  usize
 }
 
-impl<'a> SocketBuffer<'a> {
+impl<'a> StreamBuffer<'a> {
     /// Create a packet buffer with the given storage.
-    pub fn new<T>(storage: T) -> SocketBuffer<'a>
+    pub fn new<T>(storage: T) -> StreamBuffer<'a>
             where T: Into<Managed<'a, [u8]>> {
-        SocketBuffer {
+        StreamBuffer {
             storage: storage.into(),
             read_at: 0,
             length:  0
@@ -60,23 +60,118 @@ impl<'a> SocketBuffer<'a> {
     }
 }
 
-/// A description of incoming TCP connection.
-#[derive(Debug)]
-pub struct Incoming {
-    local_end:  IpEndpoint,
-    remote_end: IpEndpoint,
-    seq_number: u32
+impl<'a> Into<StreamBuffer<'a>> for Managed<'a, [u8]> {
+    fn into(self) -> StreamBuffer<'a> {
+        StreamBuffer::new(self)
+    }
 }
 
-impl Incoming {
+/// A Transmission Control Protocol data stream.
+#[derive(Debug)]
+pub struct Stream<'a> {
+    local_end:  IpEndpoint,
+    remote_end: IpEndpoint,
+    local_seq:  u32,
+    remote_seq: u32,
+    rx_buffer:  StreamBuffer<'a>,
+    tx_buffer:  StreamBuffer<'a>
+}
+
+impl<'a> Stream<'a> {
     /// Return the local endpoint.
+    #[inline(always)]
     pub fn local_end(&self) -> IpEndpoint {
         self.local_end
     }
 
     /// Return the remote endpoint.
+    #[inline(always)]
     pub fn remote_end(&self) -> IpEndpoint {
         self.remote_end
+    }
+
+    /// See [Socket::collect](enum.Socket.html#method.collect).
+    pub fn collect(&mut self, src_addr: &IpAddress, dst_addr: &IpAddress,
+                   protocol: IpProtocol, payload: &[u8])
+            -> Result<(), Error> {
+        if protocol != IpProtocol::Tcp { return Err(Error::Rejected) }
+
+        let packet = try!(TcpPacket::new(payload));
+        let repr = try!(TcpRepr::parse(&packet, src_addr, dst_addr));
+
+        if self.local_end  != IpEndpoint::new(*dst_addr, repr.dst_port) {
+            return Err(Error::Rejected)
+        }
+        if self.remote_end != IpEndpoint::new(*src_addr, repr.src_port) {
+            return Err(Error::Rejected)
+        }
+
+        // FIXME: process
+        Ok(())
+    }
+
+    /// See [Socket::dispatch](enum.Socket.html#method.dispatch).
+    pub fn dispatch(&mut self, _f: &mut FnMut(&IpAddress, &IpAddress,
+                                              IpProtocol, &PacketRepr) -> Result<(), Error>)
+            -> Result<(), Error> {
+        // FIXME: process
+        // f(&self.local_end.addr,
+        //   &self.remote_end.addr,
+        //   IpProtocol::Tcp,
+        //   &TcpRepr {
+        //     src_port: self.local_end.port,
+        //     dst_port: self.remote_end.port,
+        //     payload:  &packet_buf.as_ref()[..]
+        //   })
+
+        Ok(())
+    }
+}
+
+impl<'a> PacketRepr for TcpRepr<'a> {
+    fn buffer_len(&self) -> usize {
+        self.buffer_len()
+    }
+
+    fn emit(&self, src_addr: &IpAddress, dst_addr: &IpAddress, payload: &mut [u8]) {
+        let mut packet = TcpPacket::new(payload).expect("undersized payload");
+        self.emit(&mut packet, src_addr, dst_addr)
+    }
+}
+
+/// A description of incoming TCP connection.
+#[derive(Debug)]
+pub struct Incoming {
+    local_end:  IpEndpoint,
+    remote_end: IpEndpoint,
+    local_seq:  u32,
+    remote_seq: u32
+}
+
+impl Incoming {
+    /// Return the local endpoint.
+    #[inline(always)]
+    pub fn local_end(&self) -> IpEndpoint {
+        self.local_end
+    }
+
+    /// Return the remote endpoint.
+    #[inline(always)]
+    pub fn remote_end(&self) -> IpEndpoint {
+        self.remote_end
+    }
+
+    /// Convert into a data stream using the given buffers.
+    pub fn into_stream<'a, T>(self, rx_buffer: T, tx_buffer: T) -> Socket<'a, 'static>
+            where T: Into<StreamBuffer<'a>> {
+        Socket::TcpStream(Stream {
+            rx_buffer:  rx_buffer.into(),
+            tx_buffer:  tx_buffer.into(),
+            local_end:  self.local_end,
+            remote_end: self.remote_end,
+            local_seq:  self.local_seq,
+            remote_seq: self.remote_seq
+        })
     }
 }
 
@@ -93,7 +188,7 @@ impl<'a> Listener<'a> {
     /// Create a server socket with the given backlog.
     pub fn new<T>(endpoint: IpEndpoint, backlog: T) -> Socket<'a, 'static>
             where T: Into<Managed<'a, [Option<Incoming>]>> {
-        Socket::TcpServer(Listener {
+        Socket::TcpListener(Listener {
             endpoint:  endpoint,
             backlog:   backlog.into(),
             accept_at: 0,
@@ -137,7 +232,9 @@ impl<'a> Listener<'a> {
                 self.backlog[inject_at] = Some(Incoming {
                     local_end:  IpEndpoint::new(*dst_addr, repr.dst_port),
                     remote_end: IpEndpoint::new(*src_addr, repr.src_port),
-                    seq_number: repr.seq_number
+                    // FIXME: choose something more secure?
+                    local_seq:  !repr.seq_number,
+                    remote_seq: repr.seq_number
                 });
                 Ok(())
             }
@@ -152,7 +249,7 @@ mod test {
 
     #[test]
     fn test_buffer() {
-        let mut buffer = SocketBuffer::new(vec![0; 8]);       // ........
+        let mut buffer = StreamBuffer::new(vec![0; 8]); // ........
         buffer.enqueue(6).copy_from_slice(b"foobar");   // foobar..
         assert_eq!(buffer.dequeue(3), b"foo");          // ...bar..
         buffer.enqueue(6).copy_from_slice(b"ba");       // ...barba

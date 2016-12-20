@@ -7,7 +7,7 @@ use smoltcp::phy::{Tracer, TapInterface};
 use smoltcp::wire::{EthernetFrame, EthernetAddress, IpAddress, IpEndpoint};
 use smoltcp::iface::{SliceArpCache, EthernetInterface};
 use smoltcp::socket::{UdpSocket, AsSocket, UdpSocketBuffer, UdpPacketBuffer};
-use smoltcp::socket::{TcpListener};
+use smoltcp::socket::{TcpListener, TcpStreamBuffer};
 
 fn main() {
     let ifname = env::args().nth(1).unwrap();
@@ -27,7 +27,7 @@ fn main() {
 
     let hardware_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
     let protocol_addrs = [IpAddress::v4(192, 168, 69, 1)];
-    let sockets = [udp_socket, tcp_listener];
+    let sockets = vec![udp_socket, tcp_listener];
     let mut iface = EthernetInterface::new(device, arp_cache,
         hardware_addr, protocol_addrs, sockets);
 
@@ -57,11 +57,15 @@ fn main() {
             }
         }
 
-        {
+        if let Some(incoming) = {
             let tcp_listener: &mut TcpListener = iface.sockets()[1].as_socket();
-            if let Some(stream) = tcp_listener.accept() {
-                println!("client from {}", stream.remote_end())
-            }
+            tcp_listener.accept()
+        } {
+            println!("client from {}", incoming.remote_end());
+
+            let tcp_rx_buffer = TcpStreamBuffer::new(vec![0; 8192]);
+            let tcp_tx_buffer = TcpStreamBuffer::new(vec![0; 4096]);
+            iface.sockets().push(incoming.into_stream(tcp_rx_buffer, tcp_tx_buffer));
         }
     }
 }
