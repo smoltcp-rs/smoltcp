@@ -2,17 +2,17 @@ use Managed;
 
 /// A TCP stream ring buffer.
 #[derive(Debug)]
-pub struct Buffer<'a> {
+pub struct SocketBuffer<'a> {
     storage: Managed<'a, [u8]>,
     read_at: usize,
     length:  usize
 }
 
-impl<'a> Buffer<'a> {
+impl<'a> SocketBuffer<'a> {
     /// Create a packet buffer with the given storage.
-    pub fn new<T>(storage: T) -> Buffer<'a>
+    pub fn new<T>(storage: T) -> SocketBuffer<'a>
             where T: Into<Managed<'a, [u8]>> {
-        Buffer {
+        SocketBuffer {
             storage: storage.into(),
             read_at: 0,
             length:  0
@@ -62,7 +62,7 @@ mod test {
 
     #[test]
     fn test_buffer() {
-        let mut buffer = Buffer::new(vec![0; 8]);       // ........
+        let mut buffer = SocketBuffer::new(vec![0; 8]);       // ........
         buffer.enqueue(6).copy_from_slice(b"foobar");   // foobar..
         assert_eq!(buffer.dequeue(3), b"foo");          // ...bar..
         buffer.enqueue(6).copy_from_slice(b"ba");       // ...barba

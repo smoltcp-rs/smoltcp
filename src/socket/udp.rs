@@ -6,17 +6,17 @@ use socket::{Socket, PacketRepr};
 
 /// A buffered UDP packet.
 #[derive(Debug)]
-pub struct Packet<'a> {
+pub struct PacketBuffer<'a> {
     endpoint: IpEndpoint,
     size:     usize,
     payload:  Managed<'a, [u8]>
 }
 
-impl<'a> Packet<'a> {
+impl<'a> PacketBuffer<'a> {
     /// Create a buffered packet.
-    pub fn new<T>(payload: T) -> Packet<'a>
+    pub fn new<T>(payload: T) -> PacketBuffer<'a>
             where T: Into<Managed<'a, [u8]>> {
-        Packet {
+        PacketBuffer {
             endpoint: IpEndpoint::INVALID,
             size:     0,
             payload:  payload.into()
@@ -34,23 +34,23 @@ impl<'a> Packet<'a> {
 
 /// An UDP packet ring buffer.
 #[derive(Debug)]
-pub struct Buffer<'a, 'b: 'a> {
-    storage: Managed<'a, [Packet<'b>]>,
+pub struct SocketBuffer<'a, 'b: 'a> {
+    storage: Managed<'a, [PacketBuffer<'b>]>,
     read_at: usize,
     length:  usize
 }
 
-impl<'a, 'b> Buffer<'a, 'b> {
+impl<'a, 'b> SocketBuffer<'a, 'b> {
     /// Create a packet buffer with the given storage.
-    pub fn new<T>(storage: T) -> Buffer<'a, 'b>
-            where T: Into<Managed<'a, [Packet<'b>]>> {
+    pub fn new<T>(storage: T) -> SocketBuffer<'a, 'b>
+            where T: Into<Managed<'a, [PacketBuffer<'b>]>> {
         let mut storage = storage.into();
         for elem in storage.iter_mut() {
             elem.endpoint = Default::default();
             elem.size = 0;
         }
 
-        Buffer {
+        SocketBuffer {
             storage: storage,
             read_at: 0,
             length:  0
@@ -75,7 +75,7 @@ impl<'a, 'b> Buffer<'a, 'b> {
 
     /// Enqueue an element into the buffer, and return a pointer to it, or return
     /// `Err(Error::Exhausted)` if the buffer is full.
-    pub fn enqueue(&mut self) -> Result<&mut Packet<'b>, Error> {
+    pub fn enqueue(&mut self) -> Result<&mut PacketBuffer<'b>, Error> {
         if self.full() {
             Err(Error::Exhausted)
         } else {
@@ -88,7 +88,7 @@ impl<'a, 'b> Buffer<'a, 'b> {
 
     /// Dequeue an element from the buffer, and return a pointer to it, or return
     /// `Err(Error::Exhausted)` if the buffer is empty.
-    pub fn dequeue(&mut self) -> Result<&Packet<'b>, Error> {
+    pub fn dequeue(&mut self) -> Result<&PacketBuffer<'b>, Error> {
         if self.empty() {
             Err(Error::Exhausted)
         } else {
@@ -106,13 +106,14 @@ impl<'a, 'b> Buffer<'a, 'b> {
 /// packet buffers.
 pub struct UdpSocket<'a, 'b: 'a> {
     endpoint:  IpEndpoint,
-    rx_buffer: Buffer<'a, 'b>,
-    tx_buffer: Buffer<'a, 'b>
+    rx_buffer: SocketBuffer<'a, 'b>,
+    tx_buffer: SocketBuffer<'a, 'b>
 }
 
 impl<'a, 'b> UdpSocket<'a, 'b> {
     /// Create an UDP socket with the given buffers.
-    pub fn new(endpoint: IpEndpoint, rx_buffer: Buffer<'a, 'b>, tx_buffer: Buffer<'a, 'b>)
+    pub fn new(endpoint: IpEndpoint,
+               rx_buffer: SocketBuffer<'a, 'b>, tx_buffer: SocketBuffer<'a, 'b>)
             -> Socket<'a, 'b> {
         Socket::Udp(UdpSocket {
             endpoint:  endpoint,
@@ -218,9 +219,9 @@ mod test {
     pub fn test_buffer() {
         let mut storage = vec![];
         for _ in 0..5 {
-            storage.push(Packet::new(vec![0]))
+            storage.push(PacketBuffer::new(vec![0]))
         }
-        let mut buffer = Buffer::new(&mut storage[..]);
+        let mut buffer = SocketBuffer::new(&mut storage[..]);
 
         assert_eq!(buffer.empty(), true);
         assert_eq!(buffer.full(),  false);

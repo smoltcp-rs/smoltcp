@@ -16,11 +16,11 @@ use wire::{IpAddress, IpProtocol};
 mod udp;
 mod tcp;
 
-pub use self::udp::Packet as UdpPacket;
-pub use self::udp::Buffer as UdpBuffer;
+pub use self::udp::PacketBuffer as UdpPacketBuffer;
+pub use self::udp::SocketBuffer as UdpSocketBuffer;
 pub use self::udp::UdpSocket as UdpSocket;
 
-pub use self::tcp::Buffer as TcpBuffer;
+pub use self::tcp::SocketBuffer as TcpSocketBuffer;
 
 /// A packet representation.
 ///
