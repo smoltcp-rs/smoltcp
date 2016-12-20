@@ -462,7 +462,7 @@ impl<'a> Repr<'a> {
         packet.set_seq_number(self.seq_number);
         packet.set_ack_number(self.ack_number.unwrap_or(0));
         packet.set_window_len(self.window_len);
-        packet.set_header_len(20);
+        packet.set_header_len(field::URGENT.end as u8);
         packet.clear_flags();
         match self.control {
             Control::None => (),
@@ -470,6 +470,7 @@ impl<'a> Repr<'a> {
             Control::Fin  => packet.set_fin(true),
             Control::Rst  => packet.set_rst(true)
         }
+        packet.set_ack(self.ack_number.is_some());
         packet.payload_mut().copy_from_slice(self.payload);
         packet.fill_checksum(src_addr, dst_addr)
     }

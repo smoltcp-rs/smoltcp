@@ -7,7 +7,8 @@ use wire::{EthernetAddress, EthernetProtocol, EthernetFrame};
 use wire::{ArpPacket, ArpRepr, ArpOperation};
 use wire::{IpAddress, IpProtocol};
 use wire::{Ipv4Packet, Ipv4Repr};
-use wire::{Icmpv4Packet, Icmpv4Repr};
+use wire::{Icmpv4Packet, Icmpv4Repr, Icmpv4DstUnreachable};
+use wire::{TcpPacket, TcpRepr, TcpControl};
 use socket::Socket;
 use super::{ArpCache};
 
@@ -115,7 +116,8 @@ impl<'a, 'b: 'a,
         enum Response<'a> {
             Nop,
             Arp(ArpRepr),
-            Icmpv4(Ipv4Repr, Icmpv4Repr<'a>)
+            Icmpv4(Ipv4Repr, Icmpv4Repr<'a>),
+            Tcpv4(Ipv4Repr, TcpRepr<'a>)
         }
 
         // First, transmit any outgoing packets.
@@ -168,7 +170,8 @@ impl<'a, 'b: 'a,
             // Handle IP packets directed at us.
             EthernetProtocol::Ipv4 => {
                 let ip_packet = try!(Ipv4Packet::new(eth_frame.payload()));
-                match try!(Ipv4Repr::parse(&ip_packet)) {
+                let ip_repr = try!(Ipv4Repr::parse(&ip_packet));
+                match ip_repr {
                     // Ignore IP packets not directed at us.
                     Ipv4Repr { dst_addr, .. } if !self.has_protocol_addr(dst_addr) => (),
 
@@ -204,22 +207,87 @@ impl<'a, 'b: 'a,
 
                     // Try dispatching a packet to a socket.
                     Ipv4Repr { src_addr, dst_addr, protocol } => {
+                        let mut handled = false;
                         for socket in self.sockets.borrow_mut() {
                             match socket.collect(&src_addr.into(), &dst_addr.into(),
                                                  protocol, ip_packet.payload()) {
-                                Ok(()) => break,
+                                Ok(()) => { handled = true; break }
                                 Err(Error::Rejected) => continue,
                                 Err(e) => return Err(e)
                             }
                         }
 
-                        // FIXME: respond with ICMP destination unreachable here?
+                        if !handled && protocol == IpProtocol::Tcp {
+                            let tcp_packet = try!(TcpPacket::new(ip_packet.payload()));
+
+                            let ip_reply_repr = Ipv4Repr {
+                                src_addr: dst_addr,
+                                dst_addr: src_addr,
+                                protocol: IpProtocol::Tcp
+                            };
+                            let tcp_reply_repr = TcpRepr {
+                                src_port:   tcp_packet.dst_port(),
+                                dst_port:   tcp_packet.src_port(),
+                                control:    TcpControl::Rst,
+                                seq_number: 0,
+                                ack_number: Some(tcp_packet.seq_number() + 1),
+                                window_len: 0,
+                                payload:    &[]
+                            };
+                            response = Response::Tcpv4(ip_reply_repr, tcp_reply_repr);
+                        } else if !handled {
+                            let reason;
+                            if protocol == IpProtocol::Udp {
+                                reason = Icmpv4DstUnreachable::PortUnreachable
+                            } else {
+                                reason = Icmpv4DstUnreachable::ProtoUnreachable
+                            }
+
+                            let mut data = [0; 8];
+                            data.copy_from_slice(&ip_packet.payload()[0..8]);
+
+                            let ip_reply_repr = Ipv4Repr {
+                                src_addr: dst_addr,
+                                dst_addr: src_addr,
+                                protocol: IpProtocol::Icmp
+                            };
+                            let icmp_reply_repr = Icmpv4Repr::DstUnreachable {
+                                reason:   reason,
+                                header:   ip_repr,
+                                length:   ip_packet.payload().len(),
+                                data:     data
+                            };
+                            response = Response::Icmpv4(ip_reply_repr, icmp_reply_repr)
+                        }
                     },
                 }
             }
 
             // Drop all other traffic.
             _ => return Err(Error::Unrecognized)
+        }
+
+        macro_rules! ip_response {
+            ($tx_buffer:ident, $frame:ident, $ip_repr:ident, $length:expr) => ({
+                let dst_hardware_addr =
+                    match self.arp_cache.lookup($ip_repr.dst_addr.into()) {
+                        None => return Err(Error::Unaddressable),
+                        Some(hardware_addr) => hardware_addr
+                    };
+
+                let payload_len = $length;
+                let frame_len = EthernetFrame::<&[u8]>::buffer_len($ip_repr.buffer_len() +
+                                                                   payload_len);
+                $tx_buffer = try!(self.device.transmit(frame_len));
+                $frame = try!(EthernetFrame::new(&mut $tx_buffer));
+                $frame.set_src_addr(self.hardware_addr);
+                $frame.set_dst_addr(dst_hardware_addr);
+                $frame.set_ethertype(EthernetProtocol::Ipv4);
+
+                let mut ip_packet = try!(Ipv4Packet::new($frame.payload_mut()));
+                $ip_repr.emit(&mut ip_packet, payload_len);
+                ip_packet
+            })
         }
 
         match response {
@@ -241,26 +309,24 @@ impl<'a, 'b: 'a,
             },
 
             Response::Icmpv4(ip_repr, icmp_repr) => {
-                let dst_hardware_addr =
-                    match self.arp_cache.lookup(ip_repr.dst_addr.into()) {
-                        None => return Err(Error::Unaddressable),
-                        Some(hardware_addr) => hardware_addr
-                    };
-
-                let tx_len = EthernetFrame::<&[u8]>::buffer_len(ip_repr.buffer_len() +
-                                                                icmp_repr.buffer_len());
-                let mut tx_buffer = try!(self.device.transmit(tx_len));
-                let mut frame = try!(EthernetFrame::new(&mut tx_buffer));
-                frame.set_src_addr(self.hardware_addr);
-                frame.set_dst_addr(dst_hardware_addr);
-                frame.set_ethertype(EthernetProtocol::Ipv4);
-
-                let mut ip_packet = try!(Ipv4Packet::new(frame.payload_mut()));
-                ip_repr.emit(&mut ip_packet, icmp_repr.buffer_len());
-
+                let mut tx_buffer;
+                let mut frame;
+                let mut ip_packet = ip_response!(tx_buffer, frame, ip_repr,
+                                                 icmp_repr.buffer_len());
                 let mut icmp_packet = try!(Icmpv4Packet::new(ip_packet.payload_mut()));
                 icmp_repr.emit(&mut icmp_packet);
+                Ok(())
+            }
 
+            Response::Tcpv4(ip_repr, tcp_repr) => {
+                let mut tx_buffer;
+                let mut frame;
+                let mut ip_packet = ip_response!(tx_buffer, frame, ip_repr,
+                                                 tcp_repr.buffer_len());
+                let mut tcp_packet = try!(TcpPacket::new(ip_packet.payload_mut()));
+                tcp_repr.emit(&mut tcp_packet,
+                              &IpAddress::Ipv4(ip_repr.src_addr),
+                              &IpAddress::Ipv4(ip_repr.dst_addr));
                 Ok(())
             }
 

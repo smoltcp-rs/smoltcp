@@ -401,7 +401,7 @@ impl Repr {
     pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(&self, packet: &mut Packet<T>,
                                               payload_len: usize) {
         packet.set_version(4);
-        packet.set_header_len(20);
+        packet.set_header_len(field::DST_ADDR.end as u8);
         packet.set_dscp(0);
         packet.set_ecn(0);
         let total_len = packet.header_len() as u16 + payload_len as u16;
@@ -423,8 +423,8 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match Repr::parse(self) {
             Ok(repr) => write!(f, "{}", repr),
-            _ => {
-                try!(write!(f, "IPv4 (unrecognized)"));
+            Err(err) => {
+                try!(write!(f, "IPv4 ({})", err));
                 try!(write!(f, " src={} dst={} proto={} ttl={}",
                             self.src_addr(), self.dst_addr(), self.protocol(), self.ttl()));
                 if self.version() != 4 {
@@ -471,12 +471,12 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
     fn pretty_print(buffer: &AsRef<[u8]>, f: &mut fmt::Formatter,
                     indent: &mut PrettyIndent) -> fmt::Result {
         let packet = match Packet::new(buffer) {
-            Err(err)  => return write!(f, "{}({})\n", indent, err),
+            Err(err)   => return write!(f, "{}({})\n", indent, err),
             Ok(packet) => packet
         };
         try!(write!(f, "{}{}\n", indent, packet));
-        indent.increase();
 
+        indent.increase();
         match packet.protocol() {
             Protocol::Icmp =>
                 super::Icmpv4Packet::<&[u8]>::pretty_print(&packet.payload(), f, indent),

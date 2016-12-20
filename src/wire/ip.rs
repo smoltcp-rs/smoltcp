@@ -86,7 +86,7 @@ pub struct Endpoint {
 impl Endpoint {
     pub const INVALID: Endpoint = Endpoint { addr: Address::Invalid, port: 0 };
 
-    /// Create an internet endpoint address.
+    /// Create an endpoint address from given address and port.
     pub fn new(addr: Address, port: u16) -> Endpoint {
         Endpoint { addr: addr, port: port }
     }

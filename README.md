@@ -31,7 +31,7 @@ The only supported internetworking protocol is IPv4.
   * IPv4 options are **not** supported.
   * ICMPv4 header checksum is supported.
   * ICMPv4 echo requests and replies are supported.
-  * ICMPv4 destination unreachable message is **not** supported.
+  * ICMPv4 destination unreachable message is supported.
   * ICMPv4 parameter problem message is **not** supported.
 
 ### UDP layer

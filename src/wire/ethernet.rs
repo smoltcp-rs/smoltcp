@@ -1,4 +1,3 @@
-use core::cmp;
 use core::fmt;
 use byteorder::{ByteOrder, NetworkEndian};
 
@@ -100,9 +99,7 @@ impl<T: AsRef<[u8]>> Frame<T> {
     /// Return the length of a buffer required to hold a packet with the payload
     /// of a given length.
     pub fn buffer_len(payload_len: usize) -> usize {
-        // Minimal frame size is 64, but that includes FCS, which the network device
-        // is taking care of for us.
-        cmp::max(field::PAYLOAD.start + payload_len, 60)
+        field::PAYLOAD.start + payload_len
     }
 
     /// Return the destination address field.

@@ -15,19 +15,16 @@ fn main() {
     let device = Tracer::<_, EthernetFrame<&[u8]>>::new(device);
     let arp_cache = SliceArpCache::new(vec![Default::default(); 8]);
 
-    let hardware_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
-    let mut protocol_addrs = [IpAddress::v4(192, 168, 69, 1)];
-
-    let listen_address = IpAddress::v4(0, 0, 0, 0);
-    let endpoint = IpEndpoint::new(listen_address, 6969);
-
     let udp_rx_buffer = UdpSocketBuffer::new(vec![UdpPacketBuffer::new(vec![0; 2048])]);
     let udp_tx_buffer = UdpSocketBuffer::new(vec![UdpPacketBuffer::new(vec![0; 2048])]);
+    let endpoint = IpEndpoint::new(IpAddress::default(), 6969);
     let udp_socket = UdpSocket::new(endpoint, udp_rx_buffer, udp_tx_buffer);
 
-    let mut sockets = [udp_socket];
+    let hardware_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
+    let protocol_addrs = [IpAddress::v4(192, 168, 69, 1)];
+    let sockets = [udp_socket];
     let mut iface = EthernetInterface::new(device, arp_cache,
-        hardware_addr, &mut protocol_addrs[..], &mut sockets[..]);
+        hardware_addr, protocol_addrs, sockets);
 
     loop {
         match iface.poll() {
