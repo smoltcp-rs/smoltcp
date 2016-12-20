@@ -266,6 +266,15 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
         NetworkEndian::write_u16(&mut data[field::IDENT], value)
     }
 
+    /// Clear the entire flags field.
+    #[inline(always)]
+    pub fn clear_flags(&mut self) {
+        let data = self.buffer.as_mut();
+        let raw = NetworkEndian::read_u16(&data[field::FLG_OFF]);
+        let raw = raw & !0xe000;
+        NetworkEndian::write_u16(&mut data[field::FLG_OFF], raw);
+    }
+
     /// Set the "don't fragment" flag.
     #[inline(always)]
     pub fn set_dont_frag(&mut self, value: bool) {
@@ -398,6 +407,7 @@ impl Repr {
         let total_len = packet.header_len() as u16 + payload_len as u16;
         packet.set_total_len(total_len);
         packet.set_ident(0);
+        packet.clear_flags();
         packet.set_more_frags(false);
         packet.set_dont_frag(true);
         packet.set_frag_offset(0);

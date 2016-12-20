@@ -235,6 +235,13 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
         NetworkEndian::write_u32(&mut data[field::ACK_NUM], value)
     }
 
+    /// Clear the entire flags field.
+    #[inline(always)]
+    pub fn clear_flags(&mut self) {
+        let data = self.buffer.as_mut();
+        NetworkEndian::write_u16(&mut data[field::FLAGS], 0)
+    }
+
     /// Set the FIN flag.
     #[inline(always)]
     pub fn set_fin(&mut self, value: bool) {
