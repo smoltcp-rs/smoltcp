@@ -1,4 +1,5 @@
 use core::ops::{Deref, DerefMut};
+#[cfg(feature = "std")]
 use core::borrow::BorrowMut;
 use core::fmt;
 

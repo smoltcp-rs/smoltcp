@@ -67,7 +67,24 @@ impl<'a> SliceCache<'a> {
 
     /// Sort entries in an order suitable for `find`.
     fn sort(&mut self) {
-        self.storage.sort_by_key(|&(key, _, _)| key)
+        #[cfg(feature = "std")]
+        fn sort(data: &mut [(IpAddress, EthernetAddress, usize)]) {
+            data.sort_by_key(|&(key, _, _)| key)
+        }
+
+        #[cfg(not(feature = "std"))]
+        fn sort(data: &mut [(IpAddress, EthernetAddress, usize)]) {
+            // Use an insertion sort, which performs best on 10 elements and less.
+            for i in 1..data.len() {
+                let mut j = i;
+                while j > 0 && data[j-1].0 > data[j].0 {
+                    data.swap(j, j - 1);
+                    j = j - 1;
+                }
+            }
+        }
+
+        sort(&mut self.storage)
     }
 
     /// Find the least recently used entry.
