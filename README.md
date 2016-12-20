@@ -43,7 +43,10 @@ The UDP protocol is supported over IPv4.
 
 ### TCP layer
 
-TCP is **not** supported yet.
+The TCP protocol is supported over IPv4.
+
+  * TCP header checksum is supported.
+  * TCP options are **not** supported.
 
 Installation
 ------------

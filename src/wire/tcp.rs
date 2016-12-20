@@ -388,13 +388,13 @@ impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Packet<&'a mut T> {
 /// A high-level representation of a Transmission Control Protocol packet.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct Repr<'a> {
-    src_port:   u16,
-    dst_port:   u16,
-    control:    Control,
-    seq_number: u32,
-    ack_number: Option<u32>,
-    window_len: u16,
-    payload:    &'a [u8]
+    pub src_port:   u16,
+    pub dst_port:   u16,
+    pub control:    Control,
+    pub seq_number: u32,
+    pub ack_number: Option<u32>,
+    pub window_len: u16,
+    pub payload:    &'a [u8]
 }
 
 /// The control flags of a Transmission Control Protocol packet.
