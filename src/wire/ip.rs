@@ -25,9 +25,9 @@ impl fmt::Display for Protocol {
 /// An internetworking address.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub enum Address {
-    /// An invalid address.
+    /// An unspecified address.
     /// May be used as a placeholder for storage where the address is not assigned yet.
-    Invalid,
+    Unspecified,
     /// An IPv4 address.
     Ipv4(Ipv4Address)
 }
@@ -41,23 +41,23 @@ impl Address {
     /// Query whether the address is a valid unicast address.
     pub fn is_unicast(&self) -> bool {
         match self {
-            &Address::Invalid    => false,
-            &Address::Ipv4(addr) => addr.is_unicast()
+            &Address::Unspecified => false,
+            &Address::Ipv4(addr)  => addr.is_unicast()
         }
     }
 
     /// Query whether the address falls into the "unspecified" range.
     pub fn is_unspecified(&self) -> bool {
         match self {
-            &Address::Invalid    => false,
-            &Address::Ipv4(addr) => addr.is_unspecified()
+            &Address::Unspecified => true,
+            &Address::Ipv4(addr)  => addr.is_unspecified()
         }
     }
 }
 
 impl Default for Address {
     fn default() -> Address {
-        Address::Invalid
+        Address::Unspecified
     }
 }
 
@@ -70,8 +70,8 @@ impl From<Ipv4Address> for Address {
 impl fmt::Display for Address {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            &Address::Invalid    => write!(f, "(invalid)"),
-            &Address::Ipv4(addr) => write!(f, "{}", addr)
+            &Address::Unspecified => write!(f, "*"),
+            &Address::Ipv4(addr)  => write!(f, "{}", addr)
         }
     }
 }
@@ -84,7 +84,7 @@ pub struct Endpoint {
 }
 
 impl Endpoint {
-    pub const INVALID: Endpoint = Endpoint { addr: Address::Invalid, port: 0 };
+    pub const UNSPECIFIED: Endpoint = Endpoint { addr: Address::Unspecified, port: 0 };
 
     /// Create an endpoint address from given address and port.
     pub fn new(addr: Address, port: u16) -> Endpoint {

@@ -21,6 +21,8 @@ pub use self::udp::SocketBuffer as UdpSocketBuffer;
 pub use self::udp::UdpSocket as UdpSocket;
 
 pub use self::tcp::SocketBuffer as TcpSocketBuffer;
+pub use self::tcp::Incoming as TcpIncoming;
+pub use self::tcp::Listener as TcpListener;
 
 /// A packet representation.
 ///
@@ -49,6 +51,7 @@ pub trait PacketRepr {
 /// since the lower layers treat the packet as an opaque octet sequence.
 pub enum Socket<'a, 'b: 'a> {
     Udp(UdpSocket<'a, 'b>),
+    TcpServer(TcpListener<'a>),
     #[doc(hidden)]
     __Nonexhaustive
 }
@@ -67,6 +70,8 @@ impl<'a, 'b> Socket<'a, 'b> {
         match self {
             &mut Socket::Udp(ref mut socket) =>
                 socket.collect(src_addr, dst_addr, protocol, payload),
+            &mut Socket::TcpServer(ref mut socket) =>
+                socket.collect(src_addr, dst_addr, protocol, payload),
             &mut Socket::__Nonexhaustive => unreachable!()
         }
     }
@@ -84,6 +89,8 @@ impl<'a, 'b> Socket<'a, 'b> {
         match self {
             &mut Socket::Udp(ref mut socket) =>
                 socket.dispatch(f),
+            &mut Socket::TcpServer(_) =>
+                Err(Error::Exhausted),
             &mut Socket::__Nonexhaustive => unreachable!()
         }
     }
@@ -102,6 +109,15 @@ impl<'a, 'b> AsSocket<UdpSocket<'a, 'b>> for Socket<'a, 'b> {
         match self {
             &mut Socket::Udp(ref mut socket) => socket,
             _ => panic!(".as_socket::<UdpSocket> called on wrong socket type")
+        }
+    }
+}
+
+impl<'a, 'b> AsSocket<TcpListener<'a>> for Socket<'a, 'b> {
+    fn as_socket(&mut self) -> &mut TcpListener<'a> {
+        match self {
+            &mut Socket::TcpServer(ref mut socket) => socket,
+            _ => panic!(".as_socket::<TcpListener> called on wrong socket type")
         }
     }
 }

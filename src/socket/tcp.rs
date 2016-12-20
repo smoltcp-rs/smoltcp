@@ -1,4 +1,8 @@
+use Error;
 use Managed;
+use wire::{IpProtocol, IpAddress, IpEndpoint};
+use wire::{TcpPacket, TcpRepr, TcpControl};
+use socket::{Socket};
 
 /// A TCP stream ring buffer.
 #[derive(Debug)]
@@ -53,6 +57,92 @@ impl<'a> SocketBuffer<'a> {
         self.read_at = (self.read_at + size) % self.storage.len();
         self.length -= size;
         &self.storage[read_at..read_at + size]
+    }
+}
+
+/// A description of incoming TCP connection.
+#[derive(Debug)]
+pub struct Incoming {
+    local_end:  IpEndpoint,
+    remote_end: IpEndpoint,
+    seq_number: u32
+}
+
+impl Incoming {
+    /// Return the local endpoint.
+    pub fn local_end(&self) -> IpEndpoint {
+        self.local_end
+    }
+
+    /// Return the remote endpoint.
+    pub fn remote_end(&self) -> IpEndpoint {
+        self.remote_end
+    }
+}
+
+/// A Transmission Control Protocol server socket.
+#[derive(Debug)]
+pub struct Listener<'a> {
+    endpoint:   IpEndpoint,
+    backlog:    Managed<'a, [Option<Incoming>]>,
+    accept_at:  usize,
+    length:     usize
+}
+
+impl<'a> Listener<'a> {
+    /// Create a server socket with the given backlog.
+    pub fn new<T>(endpoint: IpEndpoint, backlog: T) -> Socket<'a, 'static>
+            where T: Into<Managed<'a, [Option<Incoming>]>> {
+        Socket::TcpServer(Listener {
+            endpoint:  endpoint,
+            backlog:   backlog.into(),
+            accept_at: 0,
+            length:    0
+        })
+    }
+
+    /// Accept a connection from this server socket,
+    pub fn accept(&mut self) -> Option<Incoming> {
+        if self.length == 0 { return None }
+
+        let accept_at = self.accept_at;
+        self.accept_at = (self.accept_at + 1) % self.backlog.len();
+        self.length -= 1;
+
+        self.backlog[accept_at].take()
+    }
+
+    /// See [Socket::collect](enum.Socket.html#method.collect).
+    pub fn collect(&mut self, src_addr: &IpAddress, dst_addr: &IpAddress,
+                   protocol: IpProtocol, payload: &[u8])
+            -> Result<(), Error> {
+        if protocol != IpProtocol::Tcp { return Err(Error::Rejected) }
+
+        let packet = try!(TcpPacket::new(payload));
+        let repr = try!(TcpRepr::parse(&packet, src_addr, dst_addr));
+
+        if repr.dst_port != self.endpoint.port { return Err(Error::Rejected) }
+        if !self.endpoint.addr.is_unspecified() {
+            if self.endpoint.addr != *dst_addr { return Err(Error::Rejected) }
+        }
+
+        match (repr.control, repr.ack_number) {
+            (TcpControl::Syn, None) => {
+                if self.length == self.backlog.len() { return Err(Error::Exhausted) }
+
+                let inject_at = (self.accept_at + self.length) % self.backlog.len();
+                self.length += 1;
+
+                assert!(self.backlog[inject_at].is_none());
+                self.backlog[inject_at] = Some(Incoming {
+                    local_end:  IpEndpoint::new(*dst_addr, repr.dst_port),
+                    remote_end: IpEndpoint::new(*src_addr, repr.src_port),
+                    seq_number: repr.seq_number
+                });
+                Ok(())
+            }
+            _ => Err(Error::Rejected)
+        }
     }
 }
 
