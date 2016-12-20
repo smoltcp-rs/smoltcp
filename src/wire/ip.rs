@@ -107,7 +107,12 @@ pub mod checksum {
     pub fn data(data: &[u8]) -> u16 {
         let mut accum: u32 = 0;
         for i in (0..data.len()).step_by(2) {
-            let word = NetworkEndian::read_u16(&data[i..i + 2]) as u32;
+            let word;
+            if i + 2 <= data.len() {
+                word = NetworkEndian::read_u16(&data[i..i + 2]) as u32
+            } else {
+                word = (data[i] as u32) << 8
+            }
             accum += word;
         }
         (((accum >> 16) as u16) + (accum as u16))
