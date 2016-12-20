@@ -38,7 +38,7 @@ fn main() {
         let udp_socket = iface.sockets()[0].as_socket();
         let client = match udp_socket.recv() {
             Ok((endpoint, data)) => {
-                println!("data {:?} from {}", &data[..8], endpoint);
+                println!("data {:?} from {}", data, endpoint);
                 Some(endpoint)
             }
             Err(Error::Exhausted) => {
