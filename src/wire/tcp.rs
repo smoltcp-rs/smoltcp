@@ -1,3 +1,4 @@
+use core::fmt;
 use byteorder::{ByteOrder, NetworkEndian};
 
 use Error;
@@ -389,10 +390,10 @@ impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Packet<&'a mut T> {
 pub struct Repr<'a> {
     src_port:   u16,
     dst_port:   u16,
+    control:    Control,
     seq_number: u32,
     ack_number: Option<u32>,
     window_len: u16,
-    control:    Control,
     payload:    &'a [u8]
 }
 
@@ -438,10 +439,10 @@ impl<'a> Repr<'a> {
         Ok(Repr {
             src_port:   packet.src_port(),
             dst_port:   packet.dst_port(),
+            control:    control,
             seq_number: packet.seq_number(),
             ack_number: ack_number,
             window_len: packet.window_len(),
-            control:    control,
             payload:    packet.payload()
         })
     }
@@ -471,6 +472,63 @@ impl<'a> Repr<'a> {
         }
         packet.payload_mut().copy_from_slice(self.payload);
         packet.fill_checksum(src_addr, dst_addr)
+    }
+}
+
+impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // Cannot use Repr::parse because we don't have the IP addresses.
+        try!(write!(f, "TCP src={} dst={}",
+                    self.src_port(), self.dst_port()));
+        if self.syn() { try!(write!(f, " syn")) }
+        if self.fin() { try!(write!(f, " fin")) }
+        if self.rst() { try!(write!(f, " rst")) }
+        if self.psh() { try!(write!(f, " psh")) }
+        if self.ece() { try!(write!(f, " ece")) }
+        if self.cwr() { try!(write!(f, " cwr")) }
+        if self.ns()  { try!(write!(f, " ns" )) }
+        try!(write!(f, " seq={}", self.seq_number()));
+        if self.ack() {
+            try!(write!(f, " ack={}", self.ack_number()));
+        }
+        try!(write!(f, " win={}", self.window_len()));
+        if self.urg() {
+            try!(write!(f, " urg={}", self.urgent_at()))
+        }
+        try!(write!(f, " len={}", self.payload().len()));
+        Ok(())
+    }
+}
+
+impl<'a> fmt::Display for Repr<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        try!(write!(f, "TCP src={} dst={} ",
+                    self.src_port, self.dst_port));
+        match self.control {
+            Control::Syn => try!(write!(f, " syn")),
+            Control::Fin => try!(write!(f, " fin")),
+            Control::Rst => try!(write!(f, " rst")),
+            Control::None => ()
+        }
+        try!(write!(f, " seq={}", self.seq_number));
+        if let Some(ack_number) = self.ack_number {
+            try!(write!(f, " ack={}", ack_number));
+        }
+        try!(write!(f, " win={}", self.window_len));
+        try!(write!(f, " len={}", self.payload.len()));
+        Ok(())
+    }
+}
+
+use super::pretty_print::{PrettyPrint, PrettyIndent};
+
+impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
+    fn pretty_print(buffer: &AsRef<[u8]>, f: &mut fmt::Formatter,
+                    indent: &mut PrettyIndent) -> fmt::Result {
+        match Packet::new(buffer) {
+            Err(err)   => write!(f, "{}({})\n", indent, err),
+            Ok(packet) => write!(f, "{}{}\n", indent, packet)
+        }
     }
 }
 

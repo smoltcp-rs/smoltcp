@@ -482,6 +482,8 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
                 super::Icmpv4Packet::<&[u8]>::pretty_print(&packet.payload(), f, indent),
             ProtocolType::Udp =>
                 super::UdpPacket::<&[u8]>::pretty_print(&packet.payload(), f, indent),
+            ProtocolType::Tcp =>
+                super::TcpPacket::<&[u8]>::pretty_print(&packet.payload(), f, indent),
             _ => Ok(())
         }
     }
