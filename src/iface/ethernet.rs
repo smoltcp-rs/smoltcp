@@ -171,6 +171,10 @@ impl<'a, 'b: 'a,
             EthernetProtocol::Ipv4 => {
                 let ip_packet = try!(Ipv4Packet::new(eth_frame.payload()));
                 let ip_repr = try!(Ipv4Repr::parse(&ip_packet));
+
+                // Fill the ARP cache from IP header.
+                self.arp_cache.fill(IpAddress::Ipv4(ip_repr.src_addr), eth_frame.src_addr());
+
                 match ip_repr {
                     // Ignore IP packets not directed at us.
                     Ipv4Repr { dst_addr, .. } if !self.has_protocol_addr(dst_addr) => (),
