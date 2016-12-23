@@ -246,6 +246,18 @@ impl<'a> TcpSocket<'a> {
                 Ok(())
             }
 
+            (State::SynReceived, TcpRepr {
+                control: TcpControl::None, ack_number: Some(ack_number), ..
+            }) => {
+                if ack_number != self.local_seq_no + 1 { return Err(Error::Rejected) }
+                self.set_state(State::Established);
+
+                // FIXME: queue data from ACK
+                // FIXME: update sequence numbers
+                self.retransmit.reset();
+                Ok(())
+            }
+
             _ => {
                 // This will cause the interface to reply with an RST.
                 Err(Error::Rejected)
@@ -274,6 +286,7 @@ impl<'a> TcpSocket<'a> {
             State::Listen => {
                 return Err(Error::Exhausted)
             }
+
             State::SynReceived => {
                 if !self.retransmit.check() { return Err(Error::Exhausted) }
                 repr.control    = TcpControl::Syn;
@@ -282,6 +295,12 @@ impl<'a> TcpSocket<'a> {
                 net_trace!("tcp:{}:{}: SYN sent",
                            self.local_end, self.remote_end);
             }
+
+            State::Established => {
+                // FIXME: transmit something
+                return Err(Error::Exhausted)
+            }
+
             _ => unreachable!()
         }
 
