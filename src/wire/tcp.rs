@@ -182,6 +182,16 @@ impl<T: AsRef<[u8]>> Packet<T> {
         NetworkEndian::read_u16(&data[field::URGENT])
     }
 
+    /// Return the length of the segment, in terms of sequence space.
+    #[inline(always)]
+    pub fn segment_len(&self) -> i32 {
+        let data = self.buffer.as_ref();
+        let mut length = data.len() - self.header_len() as usize;
+        if self.syn() { length += 1}
+        if self.fin() { length += 1}
+        length as i32
+    }
+
     /// Validate the packet checksum.
     ///
     /// # Panics

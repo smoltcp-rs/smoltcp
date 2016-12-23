@@ -233,8 +233,9 @@ impl<'a, 'b: 'a,
                                 src_port:   tcp_packet.dst_port(),
                                 dst_port:   tcp_packet.src_port(),
                                 control:    TcpControl::Rst,
-                                seq_number: 0,
-                                ack_number: Some(tcp_packet.seq_number() + 1),
+                                seq_number: tcp_packet.ack_number(),
+                                ack_number: Some(tcp_packet.seq_number() +
+                                                 tcp_packet.segment_len()),
                                 window_len: 0,
                                 payload:    &[]
                             };
