@@ -69,16 +69,16 @@ impl<T: AsRef<[u8]>> Packet<T> {
 
     /// Return the sequence number field.
     #[inline(always)]
-    pub fn seq_number(&self) -> u32 {
+    pub fn seq_number(&self) -> i32 {
         let data = self.buffer.as_ref();
-        NetworkEndian::read_u32(&data[field::SEQ_NUM])
+        NetworkEndian::read_i32(&data[field::SEQ_NUM])
     }
 
     /// Return the acknowledgement number field.
     #[inline(always)]
-    pub fn ack_number(&self) -> u32 {
+    pub fn ack_number(&self) -> i32 {
         let data = self.buffer.as_ref();
-        NetworkEndian::read_u32(&data[field::ACK_NUM])
+        NetworkEndian::read_i32(&data[field::ACK_NUM])
     }
 
     /// Return the FIN flag.
@@ -224,16 +224,16 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
 
     /// Set the sequence number field.
     #[inline(always)]
-    pub fn set_seq_number(&mut self, value: u32) {
+    pub fn set_seq_number(&mut self, value: i32) {
         let mut data = self.buffer.as_mut();
-        NetworkEndian::write_u32(&mut data[field::SEQ_NUM], value)
+        NetworkEndian::write_i32(&mut data[field::SEQ_NUM], value)
     }
 
     /// Set the acknowledgement number field.
     #[inline(always)]
-    pub fn set_ack_number(&mut self, value: u32) {
+    pub fn set_ack_number(&mut self, value: i32) {
         let mut data = self.buffer.as_mut();
-        NetworkEndian::write_u32(&mut data[field::ACK_NUM], value)
+        NetworkEndian::write_i32(&mut data[field::ACK_NUM], value)
     }
 
     /// Clear the entire flags field.
@@ -391,8 +391,8 @@ pub struct Repr<'a> {
     pub src_port:   u16,
     pub dst_port:   u16,
     pub control:    Control,
-    pub seq_number: u32,
-    pub ack_number: Option<u32>,
+    pub seq_number: i32,
+    pub ack_number: Option<i32>,
     pub window_len: u16,
     pub payload:    &'a [u8]
 }
@@ -488,9 +488,9 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
         if self.ece() { try!(write!(f, " ece")) }
         if self.cwr() { try!(write!(f, " cwr")) }
         if self.ns()  { try!(write!(f, " ns" )) }
-        try!(write!(f, " seq={}", self.seq_number()));
+        try!(write!(f, " seq={}", self.seq_number() as u32));
         if self.ack() {
-            try!(write!(f, " ack={}", self.ack_number()));
+            try!(write!(f, " ack={}", self.ack_number() as u32));
         }
         try!(write!(f, " win={}", self.window_len()));
         if self.urg() {
@@ -511,9 +511,9 @@ impl<'a> fmt::Display for Repr<'a> {
             Control::Rst => try!(write!(f, " rst")),
             Control::None => ()
         }
-        try!(write!(f, " seq={}", self.seq_number));
+        try!(write!(f, " seq={}", self.seq_number as u32));
         if let Some(ack_number) = self.ack_number {
-            try!(write!(f, " ack={}", ack_number));
+            try!(write!(f, " ack={}", ack_number as u32));
         }
         try!(write!(f, " win={}", self.window_len));
         try!(write!(f, " len={}", self.payload.len()));
@@ -558,7 +558,7 @@ mod test {
         assert_eq!(packet.src_port(), 48896);
         assert_eq!(packet.dst_port(), 80);
         assert_eq!(packet.seq_number(), 0x01234567);
-        assert_eq!(packet.ack_number(), 0x89abcdef);
+        assert_eq!(packet.ack_number(), 0x89abcdefu32 as i32);
         assert_eq!(packet.header_len(), 20);
         assert_eq!(packet.fin(), true);
         assert_eq!(packet.syn(), false);
@@ -580,7 +580,7 @@ mod test {
         packet.set_src_port(48896);
         packet.set_dst_port(80);
         packet.set_seq_number(0x01234567);
-        packet.set_ack_number(0x89abcdef);
+        packet.set_ack_number(0x89abcdefu32 as i32);
         packet.set_header_len(20);
         packet.set_fin(true);
         packet.set_syn(false);

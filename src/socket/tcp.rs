@@ -71,8 +71,8 @@ impl<'a> Into<StreamBuffer<'a>> for Managed<'a, [u8]> {
 pub struct Stream<'a> {
     local_end:  IpEndpoint,
     remote_end: IpEndpoint,
-    local_seq:  u32,
-    remote_seq: u32,
+    local_seq:  i32,
+    remote_seq: i32,
     rx_buffer:  StreamBuffer<'a>,
     tx_buffer:  StreamBuffer<'a>
 }
@@ -144,8 +144,8 @@ impl<'a> PacketRepr for TcpRepr<'a> {
 pub struct Incoming {
     local_end:  IpEndpoint,
     remote_end: IpEndpoint,
-    local_seq:  u32,
-    remote_seq: u32
+    local_seq:  i32,
+    remote_seq: i32
 }
 
 impl Incoming {
