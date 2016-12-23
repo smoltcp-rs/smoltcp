@@ -1,3 +1,5 @@
+use core::fmt;
+
 use Error;
 use Managed;
 use wire::{IpProtocol, IpAddress, IpEndpoint};
@@ -6,21 +8,31 @@ use socket::{Socket, PacketRepr};
 
 /// A TCP stream ring buffer.
 #[derive(Debug)]
-pub struct StreamBuffer<'a> {
+pub struct SocketBuffer<'a> {
     storage: Managed<'a, [u8]>,
     read_at: usize,
     length:  usize
 }
 
-impl<'a> StreamBuffer<'a> {
+impl<'a> SocketBuffer<'a> {
     /// Create a packet buffer with the given storage.
-    pub fn new<T>(storage: T) -> StreamBuffer<'a>
+    pub fn new<T>(storage: T) -> SocketBuffer<'a>
             where T: Into<Managed<'a, [u8]>> {
-        StreamBuffer {
+        SocketBuffer {
             storage: storage.into(),
             read_at: 0,
             length:  0
         }
+    }
+
+    /// Return the amount of octets enqueued in the buffer.
+    pub fn len(&self) -> usize {
+        self.length
+    }
+
+    /// Return the maximum amount of octets that can be enqueued in the buffer.
+    pub fn capacity(&self) -> usize {
+        self.storage.len()
     }
 
     /// Enqueue a slice of octets up to the given size into the buffer, and return a pointer
@@ -60,34 +72,128 @@ impl<'a> StreamBuffer<'a> {
     }
 }
 
-impl<'a> Into<StreamBuffer<'a>> for Managed<'a, [u8]> {
-    fn into(self) -> StreamBuffer<'a> {
-        StreamBuffer::new(self)
+impl<'a> Into<SocketBuffer<'a>> for Managed<'a, [u8]> {
+    fn into(self) -> SocketBuffer<'a> {
+        SocketBuffer::new(self)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum State {
+    Closed,
+    Listen,
+    SynSent,
+    SynReceived,
+    Established,
+    FinWait1,
+    FinWait2,
+    CloseWait,
+    Closing,
+    LastAck,
+    TimeWait
+}
+
+impl fmt::Display for State {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            &State::Closed      => write!(f, "CLOSED"),
+            &State::Listen      => write!(f, "LISTEN"),
+            &State::SynSent     => write!(f, "SYN_SENT"),
+            &State::SynReceived => write!(f, "SYN_RECEIVED"),
+            &State::Established => write!(f, "ESTABLISHED"),
+            &State::FinWait1    => write!(f, "FIN_WAIT_1"),
+            &State::FinWait2    => write!(f, "FIN_WAIT_2"),
+            &State::CloseWait   => write!(f, "CLOSE_WAIT"),
+            &State::Closing     => write!(f, "CLOSING"),
+            &State::LastAck     => write!(f, "LAST_ACK"),
+            &State::TimeWait    => write!(f, "TIME_WAIT")
+        }
+    }
+}
+
+#[derive(Debug)]
+struct Retransmit {
+    sent: bool // FIXME
+}
+
+impl Retransmit {
+    fn new() -> Retransmit {
+        Retransmit { sent: false }
+    }
+
+    fn reset(&mut self) {
+        self.sent = false
+    }
+
+    fn check(&mut self) -> bool {
+        let result = !self.sent;
+        self.sent = true;
+        result
     }
 }
 
 /// A Transmission Control Protocol data stream.
 #[derive(Debug)]
-pub struct Stream<'a> {
-    local_end:  IpEndpoint,
-    remote_end: IpEndpoint,
-    local_seq:  i32,
-    remote_seq: i32,
-    rx_buffer:  StreamBuffer<'a>,
-    tx_buffer:  StreamBuffer<'a>
+pub struct TcpSocket<'a> {
+    state:         State,
+    local_end:     IpEndpoint,
+    remote_end:    IpEndpoint,
+    local_seq_no:  i32,
+    remote_seq_no: i32,
+    retransmit:    Retransmit,
+    rx_buffer:     SocketBuffer<'a>,
+    tx_buffer:     SocketBuffer<'a>
 }
 
-impl<'a> Stream<'a> {
+impl<'a> TcpSocket<'a> {
+    /// Create a socket using the given buffers.
+    pub fn new<T>(rx_buffer: T, tx_buffer: T) -> Socket<'a, 'static>
+            where T: Into<SocketBuffer<'a>> {
+        let rx_buffer = rx_buffer.into();
+        if rx_buffer.capacity() > <u16>::max_value() as usize {
+            panic!("buffers larger than {} require window scaling, which is not implemented",
+                   <u16>::max_value())
+        }
+
+        Socket::Tcp(TcpSocket {
+            state:         State::Closed,
+            local_end:     IpEndpoint::default(),
+            remote_end:    IpEndpoint::default(),
+            local_seq_no:  0,
+            remote_seq_no: 0,
+            retransmit:    Retransmit::new(),
+            tx_buffer:     tx_buffer.into(),
+            rx_buffer:     rx_buffer.into()
+        })
+    }
+
+    /// Return the connection state.
+    #[inline(always)]
+    pub fn state(&self) -> State {
+        self.state
+    }
+
     /// Return the local endpoint.
     #[inline(always)]
-    pub fn local_end(&self) -> IpEndpoint {
+    pub fn local_endpoint(&self) -> IpEndpoint {
         self.local_end
     }
 
     /// Return the remote endpoint.
     #[inline(always)]
-    pub fn remote_end(&self) -> IpEndpoint {
+    pub fn remote_endpoint(&self) -> IpEndpoint {
         self.remote_end
+    }
+
+    /// Start listening on the given endpoint.
+    ///
+    /// # Panics
+    /// This function will panic if the socket is not in the CLOSED state.
+    pub fn listen(&mut self, endpoint: IpEndpoint) {
+        assert!(self.state == State::Closed);
+        self.state      = State::Listen;
+        self.local_end  = endpoint;
+        self.remote_end = IpEndpoint::default()
     }
 
     /// See [Socket::collect](enum.Socket.html#method.collect).
@@ -99,32 +205,70 @@ impl<'a> Stream<'a> {
         let packet = try!(TcpPacket::new(payload));
         let repr = try!(TcpRepr::parse(&packet, src_addr, dst_addr));
 
-        if self.local_end  != IpEndpoint::new(*dst_addr, repr.dst_port) {
-            return Err(Error::Rejected)
-        }
-        if self.remote_end != IpEndpoint::new(*src_addr, repr.src_port) {
-            return Err(Error::Rejected)
-        }
+        if self.local_end.port != repr.dst_port { return Err(Error::Rejected) }
+        if !self.local_end.addr.is_unspecified() &&
+           self.local_end.addr != *dst_addr { return Err(Error::Rejected) }
 
-        // FIXME: process
-        Ok(())
+        if self.remote_end.port != 0 &&
+           self.remote_end.port != repr.src_port { return Err(Error::Rejected) }
+        if !self.remote_end.addr.is_unspecified() &&
+           self.remote_end.addr != *src_addr { return Err(Error::Rejected) }
+
+        match (self.state, repr) {
+            (State::Closed, _) => Err(Error::Rejected),
+
+            (State::Listen, TcpRepr {
+                src_port, dst_port, control: TcpControl::Syn, seq_number, ack_number: None, ..
+            }) => {
+                self.state         = State::SynReceived;
+                self.local_end     = IpEndpoint::new(*dst_addr, dst_port);
+                self.remote_end    = IpEndpoint::new(*src_addr, src_port);
+                self.remote_seq_no = seq_number;
+                // FIXME: use something more secure
+                self.local_seq_no  = !seq_number;
+                // FIXME: queue data from SYN
+                self.retransmit.reset();
+                Ok(())
+            }
+
+            _ => {
+                // This will cause the interface to reply with an RST.
+                Err(Error::Rejected)
+            }
+        }
     }
 
     /// See [Socket::dispatch](enum.Socket.html#method.dispatch).
-    pub fn dispatch(&mut self, _f: &mut FnMut(&IpAddress, &IpAddress,
-                                              IpProtocol, &PacketRepr) -> Result<(), Error>)
+    pub fn dispatch(&mut self, f: &mut FnMut(&IpAddress, &IpAddress,
+                                             IpProtocol, &PacketRepr) -> Result<(), Error>)
             -> Result<(), Error> {
-        // FIXME: process
-        // f(&self.local_end.addr,
-        //   &self.remote_end.addr,
-        //   IpProtocol::Tcp,
-        //   &TcpRepr {
-        //     src_port: self.local_end.port,
-        //     dst_port: self.remote_end.port,
-        //     payload:  &packet_buf.as_ref()[..]
-        //   })
+        let mut repr = TcpRepr {
+            src_port:   self.local_end.port,
+            dst_port:   self.remote_end.port,
+            control:    TcpControl::None,
+            seq_number: 0,
+            ack_number: None,
+            window_len: (self.rx_buffer.capacity() - self.rx_buffer.len()) as u16,
+            payload:    &[]
+        };
 
-        Ok(())
+        // FIXME: process
+
+        match self.state {
+            State::Closed |
+            State::Listen => {
+                return Err(Error::Exhausted)
+            }
+            State::SynReceived => {
+                if !self.retransmit.check() { return Err(Error::Exhausted) }
+                repr.control    = TcpControl::Syn;
+                repr.seq_number = self.local_seq_no;
+                repr.ack_number = Some(self.remote_seq_no + 1);
+            }
+            _ => unreachable!()
+        }
+
+        f(&self.local_end.addr, &self.remote_end.addr, IpProtocol::Tcp, &repr)
     }
 }
 
@@ -139,117 +283,13 @@ impl<'a> PacketRepr for TcpRepr<'a> {
     }
 }
 
-/// A description of incoming TCP connection.
-#[derive(Debug)]
-pub struct Incoming {
-    local_end:  IpEndpoint,
-    remote_end: IpEndpoint,
-    local_seq:  i32,
-    remote_seq: i32
-}
-
-impl Incoming {
-    /// Return the local endpoint.
-    #[inline(always)]
-    pub fn local_end(&self) -> IpEndpoint {
-        self.local_end
-    }
-
-    /// Return the remote endpoint.
-    #[inline(always)]
-    pub fn remote_end(&self) -> IpEndpoint {
-        self.remote_end
-    }
-
-    /// Convert into a data stream using the given buffers.
-    pub fn into_stream<'a, T>(self, rx_buffer: T, tx_buffer: T) -> Socket<'a, 'static>
-            where T: Into<StreamBuffer<'a>> {
-        Socket::TcpStream(Stream {
-            rx_buffer:  rx_buffer.into(),
-            tx_buffer:  tx_buffer.into(),
-            local_end:  self.local_end,
-            remote_end: self.remote_end,
-            local_seq:  self.local_seq,
-            remote_seq: self.remote_seq
-        })
-    }
-}
-
-/// A Transmission Control Protocol server socket.
-#[derive(Debug)]
-pub struct Listener<'a> {
-    endpoint:   IpEndpoint,
-    backlog:    Managed<'a, [Option<Incoming>]>,
-    accept_at:  usize,
-    length:     usize
-}
-
-impl<'a> Listener<'a> {
-    /// Create a server socket with the given backlog.
-    pub fn new<T>(endpoint: IpEndpoint, backlog: T) -> Socket<'a, 'static>
-            where T: Into<Managed<'a, [Option<Incoming>]>> {
-        Socket::TcpListener(Listener {
-            endpoint:  endpoint,
-            backlog:   backlog.into(),
-            accept_at: 0,
-            length:    0
-        })
-    }
-
-    /// Accept a connection from this server socket,
-    pub fn accept(&mut self) -> Option<Incoming> {
-        if self.length == 0 { return None }
-
-        let accept_at = self.accept_at;
-        self.accept_at = (self.accept_at + 1) % self.backlog.len();
-        self.length -= 1;
-
-        self.backlog[accept_at].take()
-    }
-
-    /// See [Socket::collect](enum.Socket.html#method.collect).
-    pub fn collect(&mut self, src_addr: &IpAddress, dst_addr: &IpAddress,
-                   protocol: IpProtocol, payload: &[u8])
-            -> Result<(), Error> {
-        if protocol != IpProtocol::Tcp { return Err(Error::Rejected) }
-
-        let packet = try!(TcpPacket::new(payload));
-        let repr = try!(TcpRepr::parse(&packet, src_addr, dst_addr));
-
-        if repr.dst_port != self.endpoint.port { return Err(Error::Rejected) }
-        if !self.endpoint.addr.is_unspecified() {
-            if self.endpoint.addr != *dst_addr { return Err(Error::Rejected) }
-        }
-
-        match (repr.control, repr.ack_number) {
-            (TcpControl::Syn, None) => {
-                if self.length == self.backlog.len() { return Err(Error::Exhausted) }
-
-                let inject_at = (self.accept_at + self.length) % self.backlog.len();
-                self.length += 1;
-
-                assert!(self.backlog[inject_at].is_none());
-                self.backlog[inject_at] = Some(Incoming {
-                    local_end:  IpEndpoint::new(*dst_addr, repr.dst_port),
-                    remote_end: IpEndpoint::new(*src_addr, repr.src_port),
-                    // FIXME: choose something more secure?
-                    local_seq:  !repr.seq_number,
-                    remote_seq: repr.seq_number
-                });
-                Ok(())
-            }
-            _ => Err(Error::Rejected)
-        }
-    }
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
 
     #[test]
     fn test_buffer() {
-        let mut buffer = StreamBuffer::new(vec![0; 8]); // ........
+        let mut buffer = SocketBuffer::new(vec![0; 8]); // ........
         buffer.enqueue(6).copy_from_slice(b"foobar");   // foobar..
         assert_eq!(buffer.dequeue(3), b"foo");          // ...bar..
         buffer.enqueue(6).copy_from_slice(b"ba");       // ...barba

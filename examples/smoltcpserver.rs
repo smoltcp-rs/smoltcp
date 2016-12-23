@@ -1,4 +1,4 @@
-#![feature(associated_consts)]
+#![feature(associated_consts, type_ascription)]
 extern crate smoltcp;
 
 use std::env;
@@ -6,8 +6,9 @@ use smoltcp::Error;
 use smoltcp::phy::{Tracer, TapInterface};
 use smoltcp::wire::{EthernetFrame, EthernetAddress, IpAddress, IpEndpoint};
 use smoltcp::iface::{SliceArpCache, EthernetInterface};
-use smoltcp::socket::{UdpSocket, AsSocket, UdpSocketBuffer, UdpPacketBuffer};
-use smoltcp::socket::{TcpListener, TcpStreamBuffer};
+use smoltcp::socket::AsSocket;
+use smoltcp::socket::{UdpSocket, UdpSocketBuffer, UdpPacketBuffer};
+use smoltcp::socket::{TcpSocket, TcpSocketBuffer};
 
 fn main() {
     let ifname = env::args().nth(1).unwrap();
@@ -22,12 +23,14 @@ fn main() {
     let udp_tx_buffer = UdpSocketBuffer::new(vec![UdpPacketBuffer::new(vec![0; 2048])]);
     let udp_socket = UdpSocket::new(endpoint, udp_rx_buffer, udp_tx_buffer);
 
-    let tcp_backlog = vec![None];
-    let tcp_listener = TcpListener::new(endpoint, tcp_backlog);
+    let tcp_rx_buffer = TcpSocketBuffer::new(vec![0; 8192]);
+    let tcp_tx_buffer = TcpSocketBuffer::new(vec![0; 8192]);
+    let mut tcp_socket = TcpSocket::new(tcp_rx_buffer, tcp_tx_buffer);
+    (tcp_socket.as_socket() : &mut TcpSocket).listen(endpoint);
 
     let hardware_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
     let protocol_addrs = [IpAddress::v4(192, 168, 69, 1)];
-    let sockets = vec![udp_socket, tcp_listener];
+    let sockets = vec![udp_socket, tcp_socket];
     let mut iface = EthernetInterface::new(device, arp_cache,
         hardware_addr, protocol_addrs, sockets);
 
@@ -57,15 +60,6 @@ fn main() {
             }
         }
 
-        if let Some(incoming) = {
-            let tcp_listener: &mut TcpListener = iface.sockets()[1].as_socket();
-            tcp_listener.accept()
-        } {
-            println!("client from {}", incoming.remote_end());
-
-            let tcp_rx_buffer = TcpStreamBuffer::new(vec![0; 8192]);
-            let tcp_tx_buffer = TcpStreamBuffer::new(vec![0; 4096]);
-            iface.sockets().push(incoming.into_stream(tcp_rx_buffer, tcp_tx_buffer));
-        }
+        let _tcp_socket: &mut TcpSocket = iface.sockets()[1].as_socket();
     }
 }

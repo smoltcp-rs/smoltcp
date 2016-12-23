@@ -115,7 +115,7 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     pub fn new(endpoint: IpEndpoint,
                rx_buffer: SocketBuffer<'a, 'b>, tx_buffer: SocketBuffer<'a, 'b>)
             -> Socket<'a, 'b> {
-        Socket::UdpSocket(UdpSocket {
+        Socket::Udp(UdpSocket {
             endpoint:  endpoint,
             rx_buffer: rx_buffer,
             tx_buffer: tx_buffer
