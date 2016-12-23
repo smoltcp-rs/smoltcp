@@ -6,7 +6,7 @@ use phy::Device;
 use wire::{EthernetAddress, EthernetProtocol, EthernetFrame};
 use wire::{ArpPacket, ArpRepr, ArpOperation};
 use wire::{IpAddress, IpProtocol};
-use wire::{Ipv4Packet, Ipv4Repr};
+use wire::{Ipv4Address, Ipv4Packet, Ipv4Repr};
 use wire::{Icmpv4Packet, Icmpv4Repr, Icmpv4DstUnreachable};
 use wire::{TcpPacket, TcpRepr, TcpControl};
 use socket::Socket;
@@ -353,8 +353,9 @@ impl<'a, 'b: 'a,
         for socket in self.sockets.borrow_mut() {
             let result = socket.dispatch(&mut |src_addr, dst_addr, protocol, payload| {
                 let src_addr =
-                    match src_addr {
-                        &IpAddress::Ipv4(_) if src_addr.is_unspecified() => {
+                    try!(match src_addr {
+                        &IpAddress::Unspecified |
+                        &IpAddress::Ipv4(Ipv4Address([0, _, _, _])) => {
                             let mut assigned_addr = None;
                             for addr in src_protocol_addrs {
                                 match addr {
@@ -365,13 +366,10 @@ impl<'a, 'b: 'a,
                                     _ => ()
                                 }
                             }
-                            assigned_addr.expect(
-                                "to respond to an UDP packet without a source address,\
-                                 the interface must have an assigned address from \
-                                 the same family")
+                            assigned_addr.ok_or(Error::Unaddressable)
                         },
-                        addr => addr
-                    };
+                        addr => Ok(addr)
+                    });
 
                 let ip_repr =
                     match (src_addr, dst_addr) {
