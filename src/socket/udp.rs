@@ -131,6 +131,8 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
         let packet_buf = try!(self.tx_buffer.enqueue());
         packet_buf.endpoint = endpoint;
         packet_buf.size = size;
+        net_trace!("udp:{}:{}: send {} octets",
+                   self.endpoint, packet_buf.endpoint, packet_buf.size);
         Ok(&mut packet_buf.as_mut()[..size])
     }
 
@@ -148,6 +150,8 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     /// This function returns `Err(Error::Exhausted)` if the receive buffer is empty.
     pub fn recv(&mut self) -> Result<(IpEndpoint, &[u8]), Error> {
         let packet_buf = try!(self.rx_buffer.dequeue());
+        net_trace!("udp:{}:{}: recv {} octets",
+                   self.endpoint, packet_buf.endpoint, packet_buf.size);
         Ok((packet_buf.endpoint, &packet_buf.as_ref()[..packet_buf.size]))
     }
 
@@ -181,6 +185,8 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
         packet_buf.endpoint = IpEndpoint { addr: *src_addr, port: repr.src_port };
         packet_buf.size = repr.payload.len();
         packet_buf.as_mut()[..repr.payload.len()].copy_from_slice(repr.payload);
+        net_trace!("udp:{}:{}: collect {} octets",
+                   self.endpoint, packet_buf.endpoint, packet_buf.size);
         Ok(())
     }
 
@@ -189,6 +195,8 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
                                              IpProtocol, &PacketRepr) -> Result<(), Error>)
             -> Result<(), Error> {
         let packet_buf = try!(self.tx_buffer.dequeue());
+        net_trace!("udp:{}:{}: dispatch {} octets",
+                   self.endpoint, packet_buf.endpoint, packet_buf.size);
         f(&self.endpoint.addr,
           &packet_buf.endpoint.addr,
           IpProtocol::Udp,

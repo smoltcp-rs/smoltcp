@@ -1,7 +1,14 @@
 #![feature(associated_consts, type_ascription)]
+#[macro_use]
+extern crate log;
+extern crate env_logger;
 extern crate smoltcp;
 
 use std::env;
+use std::time::Instant;
+use log::{LogLevelFilter, LogRecord};
+use env_logger::{LogBuilder};
+
 use smoltcp::Error;
 use smoltcp::phy::{Tracer, TapInterface};
 use smoltcp::wire::{EthernetFrame, EthernetAddress, IpAddress, IpEndpoint};
@@ -11,6 +18,18 @@ use smoltcp::socket::{UdpSocket, UdpSocketBuffer, UdpPacketBuffer};
 use smoltcp::socket::{TcpSocket, TcpSocketBuffer};
 
 fn main() {
+    let startup_time = Instant::now();
+    LogBuilder::new()
+        .format(move |record: &LogRecord| {
+            let elapsed = Instant::now().duration_since(startup_time);
+            format!("[{:6}.{:03}ms] ({}): {}",
+                    elapsed.as_secs(), elapsed.subsec_nanos() / 1000000,
+                    record.target().replace("smoltcp::", ""), record.args())
+        })
+        .filter(None, LogLevelFilter::Trace)
+        .init()
+        .unwrap();
+
     let ifname = env::args().nth(1).unwrap();
 
     let device = TapInterface::new(ifname.as_ref()).unwrap();
@@ -37,21 +56,21 @@ fn main() {
     loop {
         match iface.poll() {
             Ok(()) => (),
-            Err(e) => println!("error {}", e)
+            Err(e) => debug!("error {}", e)
         }
 
         {
             let udp_socket: &mut UdpSocket = iface.sockets()[0].as_socket();
             let udp_client = match udp_socket.recv() {
                 Ok((endpoint, data)) => {
-                    println!("data {:?} from {}", data, endpoint);
+                    debug!("data {:?} from {}", data, endpoint);
                     Some(endpoint)
                 }
                 Err(Error::Exhausted) => {
                     None
                 }
                 Err(e) => {
-                    println!("error {}", e);
+                    debug!("error {}", e);
                     None
                 }
             };

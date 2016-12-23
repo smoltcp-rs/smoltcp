@@ -1,4 +1,4 @@
-#![feature(associated_consts, const_fn, step_by, intrinsics)]
+#![feature(associated_consts, const_fn, step_by, intrinsics, slice_patterns)]
 #![no_std]
 
 extern crate byteorder;
@@ -8,6 +8,16 @@ extern crate byteorder;
 extern crate std;
 #[cfg(feature = "std")]
 extern crate libc;
+#[cfg(feature = "logging")]
+#[macro_use(trace, log)]
+extern crate log;
+
+macro_rules! net_trace {
+    ($($arg:tt)*) => {
+        #[cfg(feature = "logging")]
+        trace!($($arg)*)
+    }
+}
 
 use core::fmt;
 

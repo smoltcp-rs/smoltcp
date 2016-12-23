@@ -185,15 +185,29 @@ impl<'a> TcpSocket<'a> {
         self.remote_end
     }
 
+    fn set_state(&mut self, state: State) {
+        if self.state != state {
+            if self.remote_end.addr.is_unspecified() {
+                net_trace!("tcp:{}: state={}→{}",
+                           self.local_end, self.state, state);
+            } else {
+                net_trace!("tcp:{}:{}: state={}→{}",
+                           self.local_end, self.remote_end, self.state, state);
+            }
+        }
+        self.state = state
+    }
+
     /// Start listening on the given endpoint.
     ///
     /// # Panics
     /// This function will panic if the socket is not in the CLOSED state.
     pub fn listen(&mut self, endpoint: IpEndpoint) {
         assert!(self.state == State::Closed);
-        self.state      = State::Listen;
+
         self.local_end  = endpoint;
-        self.remote_end = IpEndpoint::default()
+        self.remote_end = IpEndpoint::default();
+        self.set_state(State::Listen);
     }
 
     /// See [Socket::collect](enum.Socket.html#method.collect).
@@ -220,12 +234,13 @@ impl<'a> TcpSocket<'a> {
             (State::Listen, TcpRepr {
                 src_port, dst_port, control: TcpControl::Syn, seq_number, ack_number: None, ..
             }) => {
-                self.state         = State::SynReceived;
                 self.local_end     = IpEndpoint::new(*dst_addr, dst_port);
                 self.remote_end    = IpEndpoint::new(*src_addr, src_port);
                 self.remote_seq_no = seq_number;
                 // FIXME: use something more secure
                 self.local_seq_no  = !seq_number;
+                self.set_state(State::SynReceived);
+
                 // FIXME: queue data from SYN
                 self.retransmit.reset();
                 Ok(())
@@ -264,6 +279,8 @@ impl<'a> TcpSocket<'a> {
                 repr.control    = TcpControl::Syn;
                 repr.seq_number = self.local_seq_no;
                 repr.ack_number = Some(self.remote_seq_no + 1);
+                net_trace!("tcp:{}:{}: SYN sent",
+                           self.local_end, self.remote_end);
             }
             _ => unreachable!()
         }
