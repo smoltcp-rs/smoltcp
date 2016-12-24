@@ -87,7 +87,7 @@ impl Endpoint {
     pub const UNSPECIFIED: Endpoint = Endpoint { addr: Address::Unspecified, port: 0 };
 
     /// Create an endpoint address from given address and port.
-    pub fn new(addr: Address, port: u16) -> Endpoint {
+    pub const fn new(addr: Address, port: u16) -> Endpoint {
         Endpoint { addr: addr, port: port }
     }
 }

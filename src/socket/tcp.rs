@@ -334,4 +334,122 @@ mod test {
         assert_eq!(buffer.dequeue(8), b"zho");          // ........
         buffer.enqueue(8).copy_from_slice(b"gefug");    // ...gefug
     }
+
+    const LOCAL_IP:     IpAddress  = IpAddress::v4(10, 0, 0, 1);
+    const REMOTE_IP:    IpAddress  = IpAddress::v4(10, 0, 0, 2);
+    const LOCAL_PORT:   u16        = 80;
+    const REMOTE_PORT:  u16        = 49500;
+    const LOCAL_END:    IpEndpoint = IpEndpoint::new(LOCAL_IP, LOCAL_PORT);
+    const REMOTE_END:   IpEndpoint = IpEndpoint::new(REMOTE_IP, REMOTE_PORT);
+    const LOCAL_SEQ:    i32        = 100;
+    const REMOTE_SEQ:   i32        = !100;
+
+    const SEND_TEMPL: TcpRepr<'static> = TcpRepr {
+        src_port: REMOTE_PORT, dst_port: LOCAL_PORT,
+        control: TcpControl::None,
+        seq_number: 0, ack_number: Some(0),
+        window_len: 256, payload: &[]
+    };
+    const RECV_TEMPL:  TcpRepr<'static> = TcpRepr {
+        src_port: LOCAL_PORT, dst_port: REMOTE_PORT,
+        control: TcpControl::None,
+        seq_number: 0, ack_number: Some(0),
+        window_len: 128, payload: &[]
+    };
+
+    macro_rules! send {
+        ($socket:ident, $repr:expr) => ({
+            let repr = $repr;
+            let mut buffer = vec![0; repr.buffer_len()];
+            let mut packet = TcpPacket::new(&mut buffer).unwrap();
+            repr.emit(&mut packet, &REMOTE_IP, &LOCAL_IP);
+            let result = $socket.collect(&REMOTE_IP, &LOCAL_IP, IpProtocol::Tcp,
+                                         &packet.into_inner()[..]);
+            result.expect("send error")
+        })
+    }
+
+    macro_rules! recv {
+        ($socket:ident, $expected:expr) => ({
+            let result = $socket.dispatch(&mut |src_addr, dst_addr, protocol, payload| {
+                assert_eq!(protocol, IpProtocol::Tcp);
+                assert_eq!(src_addr, &LOCAL_IP);
+                assert_eq!(dst_addr, &REMOTE_IP);
+
+                let mut buffer = vec![0; payload.buffer_len()];
+                payload.emit(src_addr, dst_addr, &mut buffer);
+                let packet = TcpPacket::new(&buffer[..]).unwrap();
+                let repr = TcpRepr::parse(&packet, src_addr, dst_addr).unwrap();
+                assert_eq!(repr, $expected);
+                Ok(())
+            });
+            assert_eq!(result, Ok(()));
+            let result = $socket.dispatch(&mut |_src_addr, _dst_addr, _protocol, _payload| {
+                Ok(())
+            });
+            assert_eq!(result, Err(Error::Exhausted));
+        })
+    }
+
+    fn init_logger() {
+        extern crate log;
+        use std::boxed::Box;
+
+        struct Logger(());
+
+        impl log::Log for Logger {
+            fn enabled(&self, _metadata: &log::LogMetadata) -> bool {
+                true
+            }
+
+            fn log(&self, record: &log::LogRecord) {
+                println!("{}", record.args());
+            }
+        }
+
+        let _ = log::set_logger(|max_level| {
+            max_level.set(log::LogLevelFilter::Trace);
+            Box::new(Logger(()))
+        });
+
+        println!("");
+    }
+
+    fn socket() -> TcpSocket<'static> {
+        init_logger();
+
+        let rx_buffer = SocketBuffer::new(vec![0; 128]);
+        let tx_buffer = SocketBuffer::new(vec![0; 128]);
+        match TcpSocket::new(rx_buffer, tx_buffer) {
+            Socket::Tcp(socket) => socket,
+            _ => unreachable!()
+        }
+    }
+
+    #[test]
+    fn test_handshake() {
+        let mut s = socket();
+        s.listen(IpEndpoint::new(IpAddress::default(), LOCAL_PORT));
+        assert_eq!(s.state(), State::Listen);
+
+        send!(s, TcpRepr {
+            control: TcpControl::Syn,
+            seq_number: LOCAL_SEQ, ack_number: None,
+            ..SEND_TEMPL
+        });
+        assert_eq!(s.state(), State::SynReceived);
+        assert_eq!(s.local_endpoint(), LOCAL_END);
+        assert_eq!(s.remote_endpoint(), REMOTE_END);
+        recv!(s, TcpRepr {
+            control: TcpControl::Syn,
+            seq_number: REMOTE_SEQ, ack_number: Some(LOCAL_SEQ + 1),
+            ..RECV_TEMPL
+        });
+        send!(s, TcpRepr {
+            control: TcpControl::None,
+            seq_number: LOCAL_SEQ + 1, ack_number: Some(REMOTE_SEQ + 1),
+            ..SEND_TEMPL
+        });
+        assert_eq!(s.state(), State::Established);
+    }
 }
