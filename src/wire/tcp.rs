@@ -187,8 +187,8 @@ impl<T: AsRef<[u8]>> Packet<T> {
     pub fn segment_len(&self) -> i32 {
         let data = self.buffer.as_ref();
         let mut length = data.len() - self.header_len() as usize;
-        if self.syn() { length += 1}
-        if self.fin() { length += 1}
+        if self.syn() { length += 1 }
+        if self.fin() { length += 1 }
         length as i32
     }
 
@@ -395,6 +395,27 @@ impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Packet<&'a mut T> {
     }
 }
 
+/// The control flags of a Transmission Control Protocol packet.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum Control {
+    None,
+    Syn,
+    Fin,
+    Rst
+}
+
+impl Control {
+    /// Return the length of the control flag, in terms of sequence space.
+    pub fn len(self) -> i32 {
+        match self {
+            Control::None => 0,
+            Control::Syn  => 1,
+            Control::Fin  => 1,
+            Control::Rst  => 0
+        }
+    }
+}
+
 /// A high-level representation of a Transmission Control Protocol packet.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct Repr<'a> {
@@ -405,15 +426,6 @@ pub struct Repr<'a> {
     pub ack_number: Option<i32>,
     pub window_len: u16,
     pub payload:    &'a [u8]
-}
-
-/// The control flags of a Transmission Control Protocol packet.
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum Control {
-    None,
-    Syn,
-    Fin,
-    Rst
 }
 
 impl<'a> Repr<'a> {
@@ -498,9 +510,9 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
         if self.ece() { try!(write!(f, " ece")) }
         if self.cwr() { try!(write!(f, " cwr")) }
         if self.ns()  { try!(write!(f, " ns" )) }
-        try!(write!(f, " seq={}", self.seq_number() as u32));
+        try!(write!(f, " seq={}", self.seq_number()));
         if self.ack() {
-            try!(write!(f, " ack={}", self.ack_number() as u32));
+            try!(write!(f, " ack={}", self.ack_number()));
         }
         try!(write!(f, " win={}", self.window_len()));
         if self.urg() {
@@ -513,7 +525,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
 
 impl<'a> fmt::Display for Repr<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        try!(write!(f, "TCP src={} dst={} ",
+        try!(write!(f, "TCP src={} dst={}",
                     self.src_port, self.dst_port));
         match self.control {
             Control::Syn => try!(write!(f, " syn")),
@@ -521,9 +533,9 @@ impl<'a> fmt::Display for Repr<'a> {
             Control::Rst => try!(write!(f, " rst")),
             Control::None => ()
         }
-        try!(write!(f, " seq={}", self.seq_number as u32));
+        try!(write!(f, " seq={}", self.seq_number));
         if let Some(ack_number) = self.ack_number {
-            try!(write!(f, " ack={}", ack_number as u32));
+            try!(write!(f, " ack={}", ack_number));
         }
         try!(write!(f, " win={}", self.window_len));
         try!(write!(f, " len={}", self.payload.len()));

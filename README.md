@@ -47,7 +47,7 @@ The TCP protocol is supported over IPv4.
 
   * TCP header checksum is supported.
   * TCP options are **not** supported.
-  * TCP SYN packets with a payload are **not** supported.
+  * Reassembly of out-of-order segments is **not** supported.
 
 Installation
 ------------
