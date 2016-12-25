@@ -166,6 +166,7 @@ pub struct TcpSocket<'a> {
     remote_endpoint: IpEndpoint,
     local_seq_no:    i32,
     remote_seq_no:   i32,
+    remote_last_ack: i32,
     remote_win_len:  usize,
     retransmit:      Retransmit,
     rx_buffer:       SocketBuffer<'a>,
@@ -189,6 +190,7 @@ impl<'a> TcpSocket<'a> {
             local_seq_no:    0,
             remote_seq_no:   0,
             remote_win_len:  0,
+            remote_last_ack: 0,
             retransmit:      Retransmit::new(),
             tx_buffer:       tx_buffer.into(),
             rx_buffer:       rx_buffer.into()
@@ -391,16 +393,24 @@ impl<'a> TcpSocket<'a> {
 
             State::SynReceived => {
                 if !self.retransmit.check() { return Err(Error::Exhausted) }
+
                 repr.control    = TcpControl::Syn;
                 repr.seq_number = self.local_seq_no;
                 repr.ack_number = Some(self.remote_seq_no);
-                net_trace!("tcp:{}:{}: SYN sent",
+                net_trace!("tcp:{}:{}: SYN|ACK sent",
                            self.local_endpoint, self.remote_endpoint);
+                self.remote_last_ack = self.remote_seq_no;
             }
 
             State::Established => {
-                // FIXME: transmit something
-                return Err(Error::Exhausted)
+                let ack_number = self.remote_seq_no + self.rx_buffer.len() as i32;
+                if self.remote_last_ack == ack_number { return Err(Error::Exhausted) }
+
+                repr.seq_number = self.local_seq_no;
+                repr.ack_number = Some(ack_number);
+                net_trace!("tcp:{}:{}: ACK sent",
+                           self.local_endpoint, self.remote_endpoint);
+                self.remote_last_ack = ack_number;
             }
 
             _ => unreachable!()
@@ -582,12 +592,12 @@ mod test {
             payload: &b"abcdef"[..],
             ..SEND_TEMPL
         });
-        send!(s, TcpRepr {
-            seq_number: REMOTE_SEQ + 1 + 6,
-            ack_number: Some(LOCAL_SEQ + 1),
-            payload: &b"foo"[..],
-            ..SEND_TEMPL
+        recv!(s, TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1 + 6),
+            window_len: 122,
+            ..RECV_TEMPL
         });
-        assert_eq!(s.rx_buffer.dequeue(9), &b"abcdeffoo"[..]);
+        assert_eq!(s.rx_buffer.dequeue(6), &b"abcdef"[..]);
     }
 }
