@@ -215,8 +215,22 @@ impl<'a, 'b: 'a,
                         for socket in self.sockets.borrow_mut() {
                             match socket.collect(&src_addr.into(), &dst_addr.into(),
                                                  protocol, ip_packet.payload()) {
-                                Ok(()) => { handled = true; break }
-                                Err(Error::Rejected) => continue,
+                                Ok(()) => {
+                                    // The packet was valid and handled by socket.
+                                    handled = true;
+                                    break
+                                }
+                                Err(Error::Rejected) => {
+                                    // The packet wasn't addressed to the socket.
+                                    // For TCP, send RST only if no other socket accepts
+                                    // the packet.
+                                    continue
+                                }
+                                Err(Error::Malformed) => {
+                                    // The packet was addressed to the socket but is malformed.
+                                    // For TCP, send RST immediately.
+                                    break
+                                }
                                 Err(e) => return Err(e)
                             }
                         }
