@@ -10,14 +10,12 @@ use Error;
 #[cfg(feature = "std")]
 mod sys;
 
-#[cfg(feature = "std")]
 mod tracer;
 #[cfg(feature = "std")]
 mod raw_socket;
 #[cfg(all(feature = "std", target_os = "linux"))]
 mod tap_interface;
 
-#[cfg(feature = "std")]
 pub use self::tracer::Tracer;
 #[cfg(feature = "std")]
 pub use self::raw_socket::RawSocket;

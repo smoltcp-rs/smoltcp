@@ -10,14 +10,30 @@ use super::Device;
 /// to the standard output, and delegates to another device otherwise.
 pub struct Tracer<T: Device, U: PrettyPrint> {
     lower:   T,
+    writer:  fn(PrettyPrinter<U>),
     phantom: PhantomData<U>
 }
 
 impl<T: Device, U: PrettyPrint> Tracer<T, U> {
     /// Create a tracer device.
-    pub fn new(lower: T) -> Tracer<T, U> {
+    pub fn new(lower: T, writer: fn(PrettyPrinter<U>)) -> Tracer<T, U> {
         Tracer {
             lower:   lower,
+            writer:  writer,
+            phantom: PhantomData
+        }
+    }
+
+    /// Create a tracer device, printing to standard output.
+    #[cfg(feature = "std")]
+    pub fn new_stdout(lower: T) -> Tracer<T, U> {
+        fn writer<U: PrettyPrint>(printer: PrettyPrinter<U>) {
+            print!("{}", printer)
+        }
+
+        Tracer {
+            lower:   lower,
+            writer:  writer,
             phantom: PhantomData
         }
     }
@@ -36,7 +52,7 @@ impl<T: Device, U: PrettyPrint> Device for Tracer<T, U> {
 
     fn receive(&mut self) -> Result<Self::RxBuffer, Error> {
         let buffer = try!(self.lower.receive());
-        print!("{}", PrettyPrinter::<U>::new("<- ", &buffer));
+        (self.writer)(PrettyPrinter::<U>::new("<- ", &buffer));
         Ok(buffer)
     }
 
@@ -44,6 +60,7 @@ impl<T: Device, U: PrettyPrint> Device for Tracer<T, U> {
         let buffer = try!(self.lower.transmit(len));
         Ok(TxBuffer {
             buffer:  buffer,
+            writer:  self.writer,
             phantom: PhantomData
         })
     }
@@ -52,6 +69,7 @@ impl<T: Device, U: PrettyPrint> Device for Tracer<T, U> {
 #[doc(hidden)]
 pub struct TxBuffer<T: AsRef<[u8]>, U: PrettyPrint> {
     buffer:  T,
+    writer:  fn(PrettyPrinter<U>),
     phantom: PhantomData<U>
 }
 
@@ -67,6 +85,6 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>, U: PrettyPrint> AsMut<[u8]>
 
 impl<T: AsRef<[u8]>, U: PrettyPrint> Drop for TxBuffer<T, U> {
     fn drop(&mut self) {
-        print!("{}", PrettyPrinter::<U>::new("-> ", &self.buffer));
+        (self.writer)(PrettyPrinter::<U>::new("-> ", &self.buffer));
     }
 }
