@@ -566,6 +566,17 @@ mod test {
     }
 
     #[test]
+    fn test_closed() {
+        let mut s = socket();
+        assert_eq!(s.state(), State::Closed);
+
+        send!(s, TcpRepr {
+            control: TcpControl::Syn,
+            ..SEND_TEMPL
+        }, Err(Error::Rejected));
+    }
+
+    #[test]
     fn test_handshake() {
         let mut s = socket();
         s.listen(IpEndpoint::new(IpAddress::default(), LOCAL_PORT));
@@ -594,6 +605,64 @@ mod test {
         assert_eq!(s.state(), State::Established);
         assert_eq!(s.local_seq_no, LOCAL_SEQ + 1);
         assert_eq!(s.remote_seq_no, REMOTE_SEQ + 1);
+    }
+
+    #[test]
+    fn test_no_ack() {
+        let mut s = socket();
+        s.state = State::Established;
+        s.local_endpoint  = LOCAL_END;
+        s.remote_endpoint = REMOTE_END;
+        s.local_seq_no    = LOCAL_SEQ + 1;
+        s.remote_seq_no   = REMOTE_SEQ + 1;
+
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: None,
+            ..SEND_TEMPL
+        }, Err(Error::Malformed));
+    }
+
+    #[test]
+    fn test_unacceptable_ack() {
+        let mut s = socket();
+        s.state = State::Established;
+        s.local_endpoint  = LOCAL_END;
+        s.remote_endpoint = REMOTE_END;
+        s.local_seq_no    = LOCAL_SEQ + 1;
+        s.remote_seq_no   = REMOTE_SEQ + 1;
+        s.tx_buffer.enqueue_slice(b"abcdef");
+
+        // Already acknowledged data.
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ - 1),
+            ..SEND_TEMPL
+        }, Err(Error::Malformed));
+
+        // Data not yet transmitted.
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 10),
+            ..SEND_TEMPL
+        }, Err(Error::Malformed));
+    }
+
+    #[test]
+    fn test_unacceptable_seq() {
+        let mut s = socket();
+        s.state = State::Established;
+        s.local_endpoint  = LOCAL_END;
+        s.remote_endpoint = REMOTE_END;
+        s.local_seq_no    = LOCAL_SEQ + 1;
+        s.remote_seq_no   = REMOTE_SEQ + 1;
+
+        // Data outside of receive window.
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1 + 256,
+            ack_number: Some(LOCAL_SEQ + 1),
+            ..SEND_TEMPL
+        }, Err(Error::Malformed));
     }
 
     #[test]
