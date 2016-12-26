@@ -12,6 +12,7 @@ use env_logger::{LogBuilder};
 use smoltcp::Error;
 use smoltcp::phy::{Tracer, TapInterface};
 use smoltcp::wire::{EthernetFrame, EthernetAddress, IpAddress, IpEndpoint};
+use smoltcp::wire::PrettyPrinter;
 use smoltcp::iface::{SliceArpCache, EthernetInterface};
 use smoltcp::socket::AsSocket;
 use smoltcp::socket::{UdpSocket, UdpSocketBuffer, UdpPacketBuffer};
@@ -22,18 +23,28 @@ fn main() {
     LogBuilder::new()
         .format(move |record: &LogRecord| {
             let elapsed = Instant::now().duration_since(startup_time);
-            format!("[{:6}.{:03}ms] ({}): {}",
-                    elapsed.as_secs(), elapsed.subsec_nanos() / 1000000,
-                    record.target().replace("smoltcp::", ""), record.args())
+            if record.target().starts_with("smoltcp::") {
+                format!("\x1b[0m[{:6}.{:03}ms] ({}): {}\x1b[0m",
+                        elapsed.as_secs(), elapsed.subsec_nanos() / 1000000,
+                        record.target().replace("smoltcp::", ""), record.args())
+            } else {
+                format!("\x1b[32m[{:6}.{:03}ms] ({}): {}\x1b[0m",
+                        elapsed.as_secs(), elapsed.subsec_nanos() / 1000000,
+                        record.target(), record.args())
+            }
         })
         .filter(None, LogLevelFilter::Trace)
         .init()
         .unwrap();
 
+    fn trace_writer(printer: PrettyPrinter<EthernetFrame<&[u8]>>) {
+        print!("\x1b[37m{}\x1b[0m", printer)
+    }
+
     let ifname = env::args().nth(1).unwrap();
 
     let device = TapInterface::new(ifname.as_ref()).unwrap();
-    let device = Tracer::<_, EthernetFrame<&[u8]>>::new(device);
+    let device = Tracer::<_, EthernetFrame<&[u8]>>::new(device, trace_writer);
     let arp_cache = SliceArpCache::new(vec![Default::default(); 8]);
 
     let endpoint = IpEndpoint::new(IpAddress::default(), 6969);
@@ -75,7 +86,9 @@ fn main() {
                 }
             };
             if let Some(endpoint) = client {
-                socket.send_slice(endpoint, b"yo dawg").unwrap()
+                let data = b"yo dawg";
+                debug!("udp send data: {:?}", data);
+                socket.send_slice(endpoint, data).unwrap()
             }
         }
 
@@ -91,7 +104,10 @@ fn main() {
                 }
                 data
             };
-            socket.send_slice(data.as_ref());
+            if data.len() > 0 {
+                debug!("tcp send data: {:?}", &data[..]);
+                socket.send_slice(&data[..]);
+            }
         }
     }
 }
