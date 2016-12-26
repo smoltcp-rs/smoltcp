@@ -69,8 +69,8 @@ impl<'a, 'b> Socket<'a, 'b> {
     /// is returned.
     ///
     /// This function is used internally by the networking stack.
-    pub fn dispatch<F>(&mut self, emit: &mut F) -> Result<(), Error>
-            where F: FnMut(&IpRepr, &IpPayload) -> Result<(), Error> {
+    pub fn dispatch<F, R>(&mut self, emit: &mut F) -> Result<R, Error>
+            where F: FnMut(&IpRepr, &IpPayload) -> Result<R, Error> {
         match self {
             &mut Socket::Udp(ref mut socket) =>
                 socket.dispatch(emit),

@@ -189,8 +189,8 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     }
 
     /// See [Socket::dispatch](enum.Socket.html#method.dispatch).
-    pub fn dispatch<F>(&mut self, emit: &mut F) -> Result<(), Error>
-            where F: FnMut(&IpRepr, &IpPayload) -> Result<(), Error> {
+    pub fn dispatch<F, R>(&mut self, emit: &mut F) -> Result<R, Error>
+            where F: FnMut(&IpRepr, &IpPayload) -> Result<R, Error> {
         let packet_buf = try!(self.tx_buffer.dequeue());
         net_trace!("udp:{}:{}: dispatch {} octets",
                    self.endpoint, packet_buf.endpoint, packet_buf.size);
