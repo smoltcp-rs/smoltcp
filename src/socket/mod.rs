@@ -24,18 +24,6 @@ pub use self::tcp::SocketBuffer as TcpSocketBuffer;
 pub use self::tcp::State as TcpState;
 pub use self::tcp::TcpSocket;
 
-/// A packet representation.
-///
-/// This interface abstracts the various types of packets layered under the IP protocol,
-/// and serves as an accessory to [trait Socket](trait.Socket.html).
-pub trait PacketRepr {
-    /// Return the length of the buffer required to serialize this high-level representation.
-    fn buffer_len(&self) -> usize;
-
-    /// Emit this high-level representation into a sequence of octets.
-    fn emit(&self, src_addr: &IpAddress, dst_addr: &IpAddress, payload: &mut [u8]);
-}
-
 /// A network socket.
 ///
 /// This enumeration abstracts the various types of sockets based on the IP protocol.
@@ -64,14 +52,12 @@ impl<'a, 'b> Socket<'a, 'b> {
     /// is returned.
     ///
     /// This function is used internally by the networking stack.
-    pub fn collect(&mut self, src_addr: &IpAddress, dst_addr: &IpAddress,
-                   protocol: IpProtocol, payload: &[u8])
-            -> Result<(), Error> {
+    pub fn collect(&mut self, repr: &IpRepr<&[u8]>) -> Result<(), Error> {
         match self {
             &mut Socket::Udp(ref mut socket) =>
-                socket.collect(src_addr, dst_addr, protocol, payload),
+                socket.collect(repr),
             &mut Socket::Tcp(ref mut socket) =>
-                socket.collect(src_addr, dst_addr, protocol, payload),
+                socket.collect(repr),
             &mut Socket::__Nonexhaustive => unreachable!()
         }
     }
@@ -83,17 +69,38 @@ impl<'a, 'b> Socket<'a, 'b> {
     /// is returned.
     ///
     /// This function is used internally by the networking stack.
-    pub fn dispatch(&mut self, f: &mut FnMut(&IpAddress, &IpAddress,
-                                             IpProtocol, &PacketRepr) -> Result<(), Error>)
-            -> Result<(), Error> {
+    pub fn dispatch<F>(&mut self, emit: &mut F) -> Result<(), Error>
+            where F: FnMut(&IpRepr<&IpPayload>) -> Result<(), Error> {
         match self {
             &mut Socket::Udp(ref mut socket) =>
-                socket.dispatch(f),
+                socket.dispatch(emit),
             &mut Socket::Tcp(ref mut socket) =>
-                socket.dispatch(f),
+                socket.dispatch(emit),
             &mut Socket::__Nonexhaustive => unreachable!()
         }
     }
+}
+
+/// An IP packet representation.
+///
+/// This struct abstracts the various versions of IP packets.
+pub struct IpRepr<T> {
+    pub src_addr: IpAddress,
+    pub dst_addr: IpAddress,
+    pub protocol: IpProtocol,
+    pub payload:  T
+}
+
+/// An IP-encapsulated packet representation.
+///
+/// This trait abstracts the various types of packets layered under the IP protocol,
+/// and serves as an accessory to [trait Socket](trait.Socket.html).
+pub trait IpPayload {
+    /// Return the length of the buffer required to serialize this high-level representation.
+    fn buffer_len(&self) -> usize;
+
+    /// Emit this high-level representation into a sequence of octets.
+    fn emit(&self, repr: &mut IpRepr<&mut [u8]>);
 }
 
 /// A conversion trait for network sockets.

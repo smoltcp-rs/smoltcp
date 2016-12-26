@@ -6,10 +6,10 @@ use wire::{EthernetAddress, IpAddress};
 /// This interface maps protocol addresses to hardware addresses.
 pub trait Cache {
     /// Update the cache to map given protocol address to given hardware address.
-    fn fill(&mut self, protocol_addr: IpAddress, hardware_addr: EthernetAddress);
+    fn fill(&mut self, protocol_addr: &IpAddress, hardware_addr: &EthernetAddress);
 
     /// Look up the hardware address corresponding for the given protocol address.
-    fn lookup(&mut self, protocol_addr: IpAddress) -> Option<EthernetAddress>;
+    fn lookup(&mut self, protocol_addr: &IpAddress) -> Option<EthernetAddress>;
 }
 
 /// An Address Resolution Protocol cache backed by a slice.
@@ -59,10 +59,10 @@ impl<'a> SliceCache<'a> {
     }
 
     /// Find an entry for the given protocol address, if any.
-    fn find(&self, protocol_addr: IpAddress) -> Option<usize> {
+    fn find(&self, protocol_addr: &IpAddress) -> Option<usize> {
         // The order of comparison is important: any valid IpAddress should
         // sort before IpAddress::Invalid.
-        self.storage.binary_search_by_key(&protocol_addr, |&(key, _, _)| key).ok()
+        self.storage.binary_search_by_key(protocol_addr, |&(key, _, _)| key).ok()
     }
 
     /// Sort entries in an order suitable for `find`.
@@ -94,16 +94,16 @@ impl<'a> SliceCache<'a> {
 }
 
 impl<'a> Cache for SliceCache<'a> {
-    fn fill(&mut self, protocol_addr: IpAddress, hardware_addr: EthernetAddress) {
+    fn fill(&mut self, protocol_addr: &IpAddress, hardware_addr: &EthernetAddress) {
         if let None = self.find(protocol_addr) {
             let lru_index = self.lru();
             self.storage[lru_index] =
-                (protocol_addr, hardware_addr, self.counter);
+                (*protocol_addr, *hardware_addr, self.counter);
             self.sort()
         }
     }
 
-    fn lookup(&mut self, protocol_addr: IpAddress) -> Option<EthernetAddress> {
+    fn lookup(&mut self, protocol_addr: &IpAddress) -> Option<EthernetAddress> {
         if let Some(index) = self.find(protocol_addr) {
             let (_protocol_addr, hardware_addr, ref mut counter) =
                 self.storage[index];
@@ -135,24 +135,24 @@ mod test {
         let mut cache_storage = [Default::default(); 3];
         let mut cache = SliceCache::new(&mut cache_storage[..]);
 
-        cache.fill(PADDR_A, HADDR_A);
-        assert_eq!(cache.lookup(PADDR_A), Some(HADDR_A));
-        assert_eq!(cache.lookup(PADDR_B), None);
+        cache.fill(&PADDR_A, &HADDR_A);
+        assert_eq!(cache.lookup(&PADDR_A), Some(HADDR_A));
+        assert_eq!(cache.lookup(&PADDR_B), None);
 
-        cache.fill(PADDR_B, HADDR_B);
-        cache.fill(PADDR_C, HADDR_C);
-        assert_eq!(cache.lookup(PADDR_A), Some(HADDR_A));
-        assert_eq!(cache.lookup(PADDR_B), Some(HADDR_B));
-        assert_eq!(cache.lookup(PADDR_C), Some(HADDR_C));
+        cache.fill(&PADDR_B, &HADDR_B);
+        cache.fill(&PADDR_C, &HADDR_C);
+        assert_eq!(cache.lookup(&PADDR_A), Some(HADDR_A));
+        assert_eq!(cache.lookup(&PADDR_B), Some(HADDR_B));
+        assert_eq!(cache.lookup(&PADDR_C), Some(HADDR_C));
 
-        cache.lookup(PADDR_B);
-        cache.lookup(PADDR_A);
-        cache.lookup(PADDR_C);
-        cache.fill(PADDR_D, HADDR_D);
-        assert_eq!(cache.lookup(PADDR_A), Some(HADDR_A));
-        assert_eq!(cache.lookup(PADDR_B), None);
-        assert_eq!(cache.lookup(PADDR_C), Some(HADDR_C));
-        assert_eq!(cache.lookup(PADDR_D), Some(HADDR_D));
+        cache.lookup(&PADDR_B);
+        cache.lookup(&PADDR_A);
+        cache.lookup(&PADDR_C);
+        cache.fill(&PADDR_D, &HADDR_D);
+        assert_eq!(cache.lookup(&PADDR_A), Some(HADDR_A));
+        assert_eq!(cache.lookup(&PADDR_B), None);
+        assert_eq!(cache.lookup(&PADDR_C), Some(HADDR_C));
+        assert_eq!(cache.lookup(&PADDR_D), Some(HADDR_D));
     }
 }
 

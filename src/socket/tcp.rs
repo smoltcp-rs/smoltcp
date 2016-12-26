@@ -2,9 +2,9 @@ use core::fmt;
 
 use Error;
 use Managed;
-use wire::{IpProtocol, IpAddress, IpEndpoint};
+use wire::{IpProtocol, IpEndpoint};
 use wire::{TcpPacket, TcpRepr, TcpControl};
-use socket::{Socket, PacketRepr};
+use socket::{Socket, IpRepr, IpPayload};
 
 /// A TCP stream ring buffer.
 #[derive(Debug)]
@@ -241,29 +241,27 @@ impl<'a> TcpSocket<'a> {
     }
 
     /// See [Socket::collect](enum.Socket.html#method.collect).
-    pub fn collect(&mut self, src_addr: &IpAddress, dst_addr: &IpAddress,
-                   protocol: IpProtocol, payload: &[u8])
-            -> Result<(), Error> {
-        if protocol != IpProtocol::Tcp { return Err(Error::Rejected) }
+    pub fn collect(&mut self, ip_repr: &IpRepr<&[u8]>) -> Result<(), Error> {
+        if ip_repr.protocol != IpProtocol::Tcp { return Err(Error::Rejected) }
 
-        let packet = try!(TcpPacket::new(payload));
-        let repr = try!(TcpRepr::parse(&packet, src_addr, dst_addr));
+        let packet = try!(TcpPacket::new(ip_repr.payload));
+        let repr = try!(TcpRepr::parse(&packet, &ip_repr.src_addr, &ip_repr.dst_addr));
 
         // Reject packets with a wrong destination.
         if self.local_endpoint.port != repr.dst_port { return Err(Error::Rejected) }
         if !self.local_endpoint.addr.is_unspecified() &&
-           self.local_endpoint.addr != *dst_addr { return Err(Error::Rejected) }
+           self.local_endpoint.addr != ip_repr.dst_addr { return Err(Error::Rejected) }
 
         // Reject packets from a source to which we aren't connected.
         if self.remote_endpoint.port != 0 &&
            self.remote_endpoint.port != repr.src_port { return Err(Error::Rejected) }
         if !self.remote_endpoint.addr.is_unspecified() &&
-           self.remote_endpoint.addr != *src_addr { return Err(Error::Rejected) }
+           self.remote_endpoint.addr != ip_repr.src_addr { return Err(Error::Rejected) }
 
         // Reject packets addressed to a closed socket.
         if self.state == State::Closed {
             net_trace!("tcp:{}:{}:{}: packet sent to a closed socket",
-                       self.local_endpoint, src_addr, repr.src_port);
+                       self.local_endpoint, ip_repr.src_addr, repr.src_port);
             return Err(Error::Malformed)
         }
 
@@ -317,8 +315,8 @@ impl<'a> TcpSocket<'a> {
             (State::Listen, TcpRepr {
                 src_port, dst_port, control: TcpControl::Syn, seq_number, ack_number: None, ..
             }) => {
-                self.local_endpoint  = IpEndpoint::new(*dst_addr, dst_port);
-                self.remote_endpoint = IpEndpoint::new(*src_addr, src_port);
+                self.local_endpoint  = IpEndpoint::new(ip_repr.dst_addr, dst_port);
+                self.remote_endpoint = IpEndpoint::new(ip_repr.src_addr, src_port);
                 self.local_seq_no    = -seq_number; // FIXME: use something more secure
                 self.remote_seq_no   = seq_number + 1;
                 self.set_state(State::SynReceived);
@@ -370,9 +368,8 @@ impl<'a> TcpSocket<'a> {
     }
 
     /// See [Socket::dispatch](enum.Socket.html#method.dispatch).
-    pub fn dispatch(&mut self, f: &mut FnMut(&IpAddress, &IpAddress,
-                                             IpProtocol, &PacketRepr) -> Result<(), Error>)
-            -> Result<(), Error> {
+    pub fn dispatch<F>(&mut self, emit: &mut F) -> Result<(), Error>
+            where F: FnMut(&IpRepr<&IpPayload>) -> Result<(), Error> {
         let mut repr = TcpRepr {
             src_port:   self.local_endpoint.port,
             dst_port:   self.remote_endpoint.port,
@@ -416,23 +413,29 @@ impl<'a> TcpSocket<'a> {
             _ => unreachable!()
         }
 
-        f(&self.local_endpoint.addr, &self.remote_endpoint.addr, IpProtocol::Tcp, &repr)
+        emit(&IpRepr {
+            src_addr: self.local_endpoint.addr,
+            dst_addr: self.remote_endpoint.addr,
+            protocol: IpProtocol::Tcp,
+            payload:  &repr as &IpPayload
+        })
     }
 }
 
-impl<'a> PacketRepr for TcpRepr<'a> {
+impl<'a> IpPayload for TcpRepr<'a> {
     fn buffer_len(&self) -> usize {
         self.buffer_len()
     }
 
-    fn emit(&self, src_addr: &IpAddress, dst_addr: &IpAddress, payload: &mut [u8]) {
-        let mut packet = TcpPacket::new(payload).expect("undersized payload");
-        self.emit(&mut packet, src_addr, dst_addr)
+    fn emit(&self, repr: &mut IpRepr<&mut [u8]>) {
+        let mut packet = TcpPacket::new(&mut repr.payload).expect("undersized payload");
+        self.emit(&mut packet, &repr.src_addr, &repr.dst_addr)
     }
 }
 
 #[cfg(test)]
 mod test {
+    use wire::IpAddress;
     use super::*;
 
     #[test]
@@ -483,28 +486,37 @@ mod test {
             let mut buffer = vec![0; repr.buffer_len()];
             let mut packet = TcpPacket::new(&mut buffer).unwrap();
             repr.emit(&mut packet, &REMOTE_IP, &LOCAL_IP);
-            let result = $socket.collect(&REMOTE_IP, &LOCAL_IP, IpProtocol::Tcp,
-                                         &packet.into_inner()[..]);
+            let result = $socket.collect(&IpRepr {
+                src_addr: REMOTE_IP,
+                dst_addr: LOCAL_IP,
+                protocol: IpProtocol::Tcp,
+                payload:  &packet.into_inner()[..]
+            });
             result.expect("send error")
         })
     }
 
     macro_rules! recv {
         ($socket:ident, $expected:expr) => ({
-            let result = $socket.dispatch(&mut |src_addr, dst_addr, protocol, payload| {
-                assert_eq!(protocol, IpProtocol::Tcp);
-                assert_eq!(src_addr, &LOCAL_IP);
-                assert_eq!(dst_addr, &REMOTE_IP);
+            let result = $socket.dispatch(&mut |repr| {
+                assert_eq!(repr.protocol, IpProtocol::Tcp);
+                assert_eq!(repr.src_addr, LOCAL_IP);
+                assert_eq!(repr.dst_addr, REMOTE_IP);
 
-                let mut buffer = vec![0; payload.buffer_len()];
-                payload.emit(src_addr, dst_addr, &mut buffer);
+                let mut buffer = vec![0; repr.payload.buffer_len()];
+                repr.payload.emit(&mut IpRepr {
+                    src_addr: repr.src_addr,
+                    dst_addr: repr.dst_addr,
+                    protocol: repr.protocol,
+                    payload:  &mut buffer[..]
+                });
                 let packet = TcpPacket::new(&buffer[..]).unwrap();
-                let repr = TcpRepr::parse(&packet, src_addr, dst_addr).unwrap();
+                let repr = TcpRepr::parse(&packet, &repr.src_addr, &repr.dst_addr).unwrap();
                 assert_eq!(repr, $expected);
                 Ok(())
             });
             assert_eq!(result, Ok(()));
-            let result = $socket.dispatch(&mut |_src_addr, _dst_addr, _protocol, _payload| {
+            let result = $socket.dispatch(&mut |_repr| {
                 Ok(())
             });
             assert_eq!(result, Err(Error::Exhausted));
