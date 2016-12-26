@@ -274,6 +274,23 @@ impl<'a> TcpSocket<'a> {
                 return Err(Error::Malformed)
             }
             (State::Listen, TcpRepr { ack_number: None, .. }) => (),
+            // A reset received in response to initial SYN is acceptable if it acknowledges
+            // the initial SYN.
+            (State::SynSent, TcpRepr { control: TcpControl::Rst, ack_number: None, .. }) => {
+                net_trace!("tcp:{}:{}: unacceptable RST (expecting RST|ACK) \
+                            in response to initial SYN",
+                           self.local_endpoint, self.remote_endpoint);
+                return Err(Error::Malformed)
+            }
+            (State::SynSent, TcpRepr {
+                control: TcpControl::Rst, ack_number: Some(ack_number), ..
+            }) => {
+                if ack_number != self.local_seq_no {
+                    net_trace!("tcp:{}:{}: unacceptable RST|ACK in response to initial SYN",
+                               self.local_endpoint, self.remote_endpoint);
+                    return Err(Error::Malformed)
+                }
+            }
             // Every packet after the initial SYN must be an acknowledgement.
             (_, TcpRepr { ack_number: None, .. }) => {
                 net_trace!("tcp:{}:{}: expecting an ACK",
@@ -644,6 +661,38 @@ mod test {
             control: TcpControl::Syn,
             seq_number: REMOTE_SEQ,
             ack_number: Some(LOCAL_SEQ),
+            ..SEND_TEMPL
+        }, Err(Error::Malformed));
+    }
+
+    #[test]
+    fn test_no_ack_syn_sent_rst() {
+        let mut s = socket();
+        s.state           = State::SynSent;
+        s.local_endpoint  = LOCAL_END;
+        s.remote_endpoint = REMOTE_END;
+        s.local_seq_no    = LOCAL_SEQ;
+
+        send!(s, TcpRepr {
+            control: TcpControl::Rst,
+            seq_number: REMOTE_SEQ,
+            ack_number: None,
+            ..SEND_TEMPL
+        }, Err(Error::Malformed));
+    }
+
+    #[test]
+    fn test_bad_ack_syn_sent_rst() {
+        let mut s = socket();
+        s.state           = State::SynSent;
+        s.local_endpoint  = LOCAL_END;
+        s.remote_endpoint = REMOTE_END;
+        s.local_seq_no    = LOCAL_SEQ;
+
+        send!(s, TcpRepr {
+            control: TcpControl::Rst,
+            seq_number: REMOTE_SEQ,
+            ack_number: Some(1234),
             ..SEND_TEMPL
         }, Err(Error::Malformed));
     }
