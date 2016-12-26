@@ -244,6 +244,59 @@ impl<'a> TcpSocket<'a> {
         self.set_state(State::Listen);
     }
 
+    /// Enqueue a sequence of octets to be sent, and return a pointer to it.
+    ///
+    /// This function may return a slice smaller than the requested size in case
+    /// there is not enough contiguous free space in the transmit buffer, down to
+    /// an empty slice.
+    pub fn send(&mut self, size: usize) -> &mut [u8] {
+        let buffer = self.tx_buffer.enqueue(size);
+        if buffer.len() > 0 {
+            net_trace!("tcp:{}:{}: buffer to send {} octets",
+                       self.local_endpoint, self.remote_endpoint, buffer.len());
+        }
+        buffer
+    }
+
+    /// Enqueue a sequence of octets to be sent, and fill it from a slice.
+    ///
+    /// This function returns the amount of bytes actually enqueued, which is limited
+    /// by the amount of free space in the transmit buffer; down to zero.
+    ///
+    /// See also [send](#method.send).
+    pub fn send_slice(&mut self, data: &[u8]) -> usize {
+        let buffer = self.send(data.len());
+        buffer.copy_from_slice(data);
+        buffer.len()
+    }
+
+    /// Dequeue a sequence of received octets, and return a pointer to it.
+    ///
+    /// This function may return a slice smaller than the requested size in case
+    /// there are not enough octets queued in the receive buffer, down to
+    /// an empty slice.
+    pub fn recv(&mut self, size: usize) -> &[u8] {
+        let buffer = self.rx_buffer.dequeue(size);
+        self.remote_seq_no += buffer.len() as i32;
+        if buffer.len() > 0 {
+            net_trace!("tcp:{}:{}: receive {} buffered octets",
+                       self.local_endpoint, self.remote_endpoint, buffer.len());
+        }
+        buffer
+    }
+
+    /// Dequeue a sequence of received octets, and fill a slice from it.
+    ///
+    /// This function returns the amount of bytes actually dequeued, which is limited
+    /// by the amount of free space in the transmit buffer; down to zero.
+    ///
+    /// See also [recv](#method.recv).
+    pub fn recv_slice(&mut self, data: &mut [u8]) -> usize {
+        let buffer = self.recv(data.len());
+        data[..buffer.len()].copy_from_slice(buffer);
+        buffer.len()
+    }
+
     /// See [Socket::collect](enum.Socket.html#method.collect).
     pub fn collect(&mut self, ip_repr: &IpRepr, payload: &[u8]) -> Result<(), Error> {
         if ip_repr.protocol() != IpProtocol::Tcp { return Err(Error::Rejected) }

@@ -106,7 +106,8 @@ cargo run --example smoltcpserver -- tap0
 It responds to:
 
   * pings (`ping 192.168.69.1`),
-  * UDP packets on port 6969 (`socat stdio udp4-connect:192.168.69.1:6969 <<<"abcdefg"`).
+  * UDP packets on port 6969 (`socat stdio udp4-connect:192.168.69.1:6969 <<<"abcdefg"`),
+  * TCP packets on port 6969 (`socat stdio tcp4-connect:192.168.69.1:6969 <<<"abcdefg"`),
 
 License
 -------

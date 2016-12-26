@@ -56,29 +56,42 @@ fn main() {
     loop {
         match iface.poll() {
             Ok(()) => (),
-            Err(e) => debug!("error {}", e)
+            Err(e) => debug!("poll error: {}", e)
         }
 
         {
-            let udp_socket: &mut UdpSocket = iface.sockets()[0].as_socket();
-            let udp_client = match udp_socket.recv() {
+            let socket: &mut UdpSocket = iface.sockets()[0].as_socket();
+            let client = match socket.recv() {
                 Ok((endpoint, data)) => {
-                    debug!("data {:?} from {}", data, endpoint);
+                    debug!("udp recv data: {:?} from {}", data, endpoint);
                     Some(endpoint)
                 }
                 Err(Error::Exhausted) => {
                     None
                 }
                 Err(e) => {
-                    debug!("error {}", e);
+                    debug!("udp recv error: {}", e);
                     None
                 }
             };
-            if let Some(endpoint) = udp_client {
-                udp_socket.send_slice(endpoint, "hihihi".as_bytes()).unwrap()
+            if let Some(endpoint) = client {
+                socket.send_slice(endpoint, b"yo dawg").unwrap()
             }
         }
 
-        let _tcp_socket: &mut TcpSocket = iface.sockets()[1].as_socket();
+        {
+            let socket: &mut TcpSocket = iface.sockets()[1].as_socket();
+            let data = {
+                let mut data = socket.recv(128).to_owned();
+                if data.len() > 0 {
+                    debug!("tcp recv data: {:?}", &data[..]);
+                    data = data.split(|&b| b == b'\n').next().unwrap().to_owned();
+                    data.reverse();
+                    data.extend(b"\n");
+                }
+                data
+            };
+            socket.send_slice(data.as_ref());
+        }
     }
 }

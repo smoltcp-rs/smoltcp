@@ -131,12 +131,12 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
         let packet_buf = try!(self.tx_buffer.enqueue());
         packet_buf.endpoint = endpoint;
         packet_buf.size = size;
-        net_trace!("udp:{}:{}: send {} octets",
+        net_trace!("udp:{}:{}: buffer to send {} octets",
                    self.endpoint, packet_buf.endpoint, packet_buf.size);
         Ok(&mut packet_buf.as_mut()[..size])
     }
 
-    /// Enqueue a packete to be sent to a given remote endpoint, and fill it from a slice.
+    /// Enqueue a packet to be sent to a given remote endpoint, and fill it from a slice.
     ///
     /// See also [send](#method.send).
     pub fn send_slice(&mut self, endpoint: IpEndpoint, data: &[u8]) -> Result<(), Error> {
@@ -150,7 +150,7 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     /// This function returns `Err(Error::Exhausted)` if the receive buffer is empty.
     pub fn recv(&mut self) -> Result<(IpEndpoint, &[u8]), Error> {
         let packet_buf = try!(self.rx_buffer.dequeue());
-        net_trace!("udp:{}:{}: recv {} octets",
+        net_trace!("udp:{}:{}: receive {} buffered octets",
                    self.endpoint, packet_buf.endpoint, packet_buf.size);
         Ok((packet_buf.endpoint, &packet_buf.as_ref()[..packet_buf.size]))
     }
@@ -183,7 +183,7 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
         packet_buf.endpoint = IpEndpoint { addr: ip_repr.src_addr(), port: repr.src_port };
         packet_buf.size = repr.payload.len();
         packet_buf.as_mut()[..repr.payload.len()].copy_from_slice(repr.payload);
-        net_trace!("udp:{}:{}: collect {} octets",
+        net_trace!("udp:{}:{}: receiving {} octets",
                    self.endpoint, packet_buf.endpoint, packet_buf.size);
         Ok(())
     }
@@ -192,7 +192,7 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     pub fn dispatch<F, R>(&mut self, emit: &mut F) -> Result<R, Error>
             where F: FnMut(&IpRepr, &IpPayload) -> Result<R, Error> {
         let packet_buf = try!(self.tx_buffer.dequeue());
-        net_trace!("udp:{}:{}: dispatch {} octets",
+        net_trace!("udp:{}:{}: sending {} octets",
                    self.endpoint, packet_buf.endpoint, packet_buf.size);
         let ip_repr = IpRepr::Unspecified {
             src_addr: self.endpoint.addr,
