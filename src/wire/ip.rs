@@ -1,6 +1,7 @@
 use core::fmt;
 
-use super::Ipv4Address;
+use Error;
+use super::{Ipv4Address, Ipv4Packet, Ipv4Repr};
 
 enum_with_unknown! {
     /// Internetworking protocol.
@@ -95,6 +96,131 @@ impl Endpoint {
 impl fmt::Display for Endpoint {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}:{}", self.addr, self.port)
+    }
+}
+
+/// An IP packet representation.
+///
+/// This enum abstracts the various versions of IP packets. It either contains a concrete
+/// high-level representation for some IP protocol version, or an unspecified representation,
+/// which permits the `IpAddress::Unspecified` addresses.
+#[derive(Debug, Clone)]
+pub enum IpRepr {
+    Unspecified {
+        src_addr: Address,
+        dst_addr: Address,
+        protocol: Protocol
+    },
+    Ipv4(Ipv4Repr),
+    #[doc(hidden)]
+    __Nonexhaustive
+}
+
+impl IpRepr {
+    /// Return the source address.
+    pub fn src_addr(&self) -> Address {
+        match self {
+            &IpRepr::Unspecified { src_addr, .. } => src_addr,
+            &IpRepr::Ipv4(repr) => Address::Ipv4(repr.src_addr),
+            &IpRepr::__Nonexhaustive => unreachable!()
+        }
+    }
+
+    /// Return the destination address.
+    pub fn dst_addr(&self) -> Address {
+        match self {
+            &IpRepr::Unspecified { dst_addr, .. } => dst_addr,
+            &IpRepr::Ipv4(repr) => Address::Ipv4(repr.dst_addr),
+            &IpRepr::__Nonexhaustive => unreachable!()
+        }
+    }
+
+    /// Return the protocol.
+    pub fn protocol(&self) -> Protocol {
+        match self {
+            &IpRepr::Unspecified { protocol, .. } => protocol,
+            &IpRepr::Ipv4(repr) => repr.protocol,
+            &IpRepr::__Nonexhaustive => unreachable!()
+        }
+    }
+
+    /// Convert an unspecified representation into a concrete one, or return
+    /// `Err(Error::Unaddressable)` if not possible.
+    ///
+    /// # Panics
+    /// This function panics if source and destination addresses belong to different families,
+    /// or the destination address is unspecified, since this indicates a logic error.
+    pub fn lower(&self, fallback_src_addrs: &[Address]) -> Result<IpRepr, Error> {
+        match self {
+            &IpRepr::Unspecified {
+                src_addr: Address::Ipv4(src_addr),
+                dst_addr: Address::Ipv4(dst_addr),
+                protocol
+            } => {
+                Ok(IpRepr::Ipv4(Ipv4Repr {
+                    src_addr: src_addr,
+                    dst_addr: dst_addr,
+                    protocol: protocol
+                }))
+            }
+
+            &IpRepr::Unspecified {
+                src_addr: Address::Unspecified,
+                dst_addr: Address::Ipv4(dst_addr),
+                protocol
+            } => {
+                let mut src_addr = None;
+                for addr in fallback_src_addrs {
+                    match addr {
+                        &Address::Ipv4(addr) => {
+                            src_addr = Some(addr);
+                            break
+                        }
+                        _ => ()
+                    }
+                }
+                Ok(IpRepr::Ipv4(Ipv4Repr {
+                    src_addr: try!(src_addr.ok_or(Error::Unaddressable)),
+                    dst_addr: dst_addr,
+                    protocol: protocol
+                }))
+            }
+
+            &IpRepr::Unspecified { dst_addr: Address::Unspecified, .. } =>
+                panic!("unspecified destination IP address"),
+            // &IpRepr::Unspecified { .. } =>
+            //     panic!("source and destination IP address families do not match"),
+
+            repr @ &IpRepr::Ipv4(_) => Ok(repr.clone()),
+            &IpRepr::__Nonexhaustive => unreachable!()
+        }
+    }
+
+    /// Return the length of a header that will be emitted from this high-level representation.
+    ///
+    /// # Panics
+    /// This function panics if invoked on an unspecified representation.
+    pub fn buffer_len(&self) -> usize {
+        match self {
+            &IpRepr::Unspecified { .. } => panic!("unspecified IP representation"),
+            &IpRepr::Ipv4(repr) => repr.buffer_len(),
+            &IpRepr::__Nonexhaustive => unreachable!()
+        }
+    }
+
+    /// Emit this high-level representation into a buffer.
+    ///
+    /// # Panics
+    /// This function panics if invoked on an unspecified representation.
+    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(&self, buffer: T, payload_len: usize) {
+        match self {
+            &IpRepr::Unspecified { .. } => panic!("unspecified IP representation"),
+            &IpRepr::Ipv4(repr) => {
+                let mut packet = Ipv4Packet::new(buffer).expect("undersized buffer");
+                repr.emit(&mut packet, payload_len)
+            }
+            &IpRepr::__Nonexhaustive => unreachable!()
+        }
     }
 }
 

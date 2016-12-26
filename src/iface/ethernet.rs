@@ -5,11 +5,11 @@ use Error;
 use phy::Device;
 use wire::{EthernetAddress, EthernetProtocol, EthernetFrame};
 use wire::{ArpPacket, ArpRepr, ArpOperation};
-use wire::{IpAddress, IpProtocol};
-use wire::{Ipv4Address, Ipv4Packet, Ipv4Repr};
+use wire::{Ipv4Packet, Ipv4Repr};
 use wire::{Icmpv4Packet, Icmpv4Repr, Icmpv4DstUnreachable};
+use wire::{IpAddress, IpProtocol, IpRepr};
 use wire::{TcpPacket, TcpRepr, TcpControl};
-use socket::{Socket, IpRepr};
+use socket::Socket;
 use super::{ArpCache};
 
 /// An Ethernet network interface.
@@ -213,13 +213,8 @@ impl<'a, 'b: 'a,
                     Ipv4Repr { src_addr, dst_addr, protocol } => {
                         let mut handled = false;
                         for socket in self.sockets.borrow_mut() {
-                            let ip_repr = IpRepr {
-                                src_addr: src_addr.into(),
-                                dst_addr: dst_addr.into(),
-                                protocol: protocol,
-                                payload:  ipv4_packet.payload()
-                            };
-                            match socket.collect(&ip_repr) {
+                            let ip_repr = IpRepr::Ipv4(ipv4_repr);
+                            match socket.collect(&ip_repr, ipv4_packet.payload()) {
                                 Ok(()) => {
                                     // The packet was valid and handled by socket.
                                     handled = true;
@@ -370,62 +365,27 @@ impl<'a, 'b: 'a,
 
         let mut nothing_to_transmit = true;
         for socket in self.sockets.borrow_mut() {
-            let result = socket.dispatch(&mut |repr| {
-                let src_addr =
-                    try!(match &repr.src_addr {
-                        &IpAddress::Unspecified |
-                        &IpAddress::Ipv4(Ipv4Address([0, _, _, _])) => {
-                            let mut assigned_addr = None;
-                            for addr in src_protocol_addrs {
-                                match addr {
-                                    addr @ &IpAddress::Ipv4(_) => {
-                                        assigned_addr = Some(addr);
-                                        break
-                                    }
-                                    _ => ()
-                                }
-                            }
-                            assigned_addr.ok_or(Error::Unaddressable)
-                        },
-                        addr => Ok(addr)
-                    });
-
-                let ipv4_repr =
-                    match (src_addr, &repr.dst_addr) {
-                        (&IpAddress::Ipv4(src_addr),
-                         &IpAddress::Ipv4(dst_addr)) => {
-                            Ipv4Repr {
-                                src_addr: src_addr,
-                                dst_addr: dst_addr,
-                                protocol: repr.protocol
-                            }
-                        },
-                        _ => unreachable!()
-                    };
+            let result = socket.dispatch(&mut |repr, payload| {
+                let repr = try!(repr.lower(src_protocol_addrs));
 
                 let dst_hardware_addr =
-                    match arp_cache.lookup(&repr.dst_addr) {
+                    match arp_cache.lookup(&repr.dst_addr()) {
                         None => return Err(Error::Unaddressable),
                         Some(hardware_addr) => hardware_addr
                     };
 
-                let tx_len = EthernetFrame::<&[u8]>::buffer_len(ipv4_repr.buffer_len() +
-                                                                repr.payload.buffer_len());
+                let tx_len = EthernetFrame::<&[u8]>::buffer_len(repr.buffer_len() +
+                                                                payload.buffer_len());
                 let mut tx_buffer = try!(device.transmit(tx_len));
                 let mut frame = try!(EthernetFrame::new(&mut tx_buffer));
                 frame.set_src_addr(src_hardware_addr);
                 frame.set_dst_addr(dst_hardware_addr);
                 frame.set_ethertype(EthernetProtocol::Ipv4);
 
-                let mut ip_packet = try!(Ipv4Packet::new(frame.payload_mut()));
-                ipv4_repr.emit(&mut ip_packet, repr.payload.buffer_len());
+                repr.emit(frame.payload_mut(), payload.buffer_len());
 
-                repr.payload.emit(&mut IpRepr {
-                    src_addr: repr.src_addr,
-                    dst_addr: repr.dst_addr,
-                    protocol: repr.protocol,
-                    payload:  ip_packet.payload_mut()
-                });
+                let mut ip_packet = try!(Ipv4Packet::new(frame.payload_mut()));
+                payload.emit(&repr, ip_packet.payload_mut());
 
                 Ok(())
             });

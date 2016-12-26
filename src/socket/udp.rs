@@ -168,19 +168,19 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     }
 
     /// See [Socket::collect](enum.Socket.html#method.collect).
-    pub fn collect(&mut self, ip_repr: &IpRepr<&[u8]>) -> Result<(), Error> {
-        if ip_repr.protocol != IpProtocol::Udp { return Err(Error::Rejected) }
+    pub fn collect(&mut self, ip_repr: &IpRepr, payload: &[u8]) -> Result<(), Error> {
+        if ip_repr.protocol() != IpProtocol::Udp { return Err(Error::Rejected) }
 
-        let packet = try!(UdpPacket::new(ip_repr.payload));
-        let repr = try!(UdpRepr::parse(&packet, &ip_repr.src_addr, &ip_repr.dst_addr));
+        let packet = try!(UdpPacket::new(payload));
+        let repr = try!(UdpRepr::parse(&packet, &ip_repr.src_addr(), &ip_repr.dst_addr()));
 
         if repr.dst_port != self.endpoint.port { return Err(Error::Rejected) }
         if !self.endpoint.addr.is_unspecified() {
-            if self.endpoint.addr != ip_repr.dst_addr { return Err(Error::Rejected) }
+            if self.endpoint.addr != ip_repr.dst_addr() { return Err(Error::Rejected) }
         }
 
         let packet_buf = try!(self.rx_buffer.enqueue());
-        packet_buf.endpoint = IpEndpoint { addr: ip_repr.src_addr, port: repr.src_port };
+        packet_buf.endpoint = IpEndpoint { addr: ip_repr.src_addr(), port: repr.src_port };
         packet_buf.size = repr.payload.len();
         packet_buf.as_mut()[..repr.payload.len()].copy_from_slice(repr.payload);
         net_trace!("udp:{}:{}: collect {} octets",
@@ -190,20 +190,21 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
 
     /// See [Socket::dispatch](enum.Socket.html#method.dispatch).
     pub fn dispatch<F>(&mut self, emit: &mut F) -> Result<(), Error>
-            where F: FnMut(&IpRepr<&IpPayload>) -> Result<(), Error> {
+            where F: FnMut(&IpRepr, &IpPayload) -> Result<(), Error> {
         let packet_buf = try!(self.tx_buffer.dequeue());
         net_trace!("udp:{}:{}: dispatch {} octets",
                    self.endpoint, packet_buf.endpoint, packet_buf.size);
-        emit(&IpRepr {
+        let ip_repr = IpRepr::Unspecified {
             src_addr: self.endpoint.addr,
             dst_addr: packet_buf.endpoint.addr,
-            protocol: IpProtocol::Udp,
-            payload:  &UdpRepr {
-                src_port: self.endpoint.port,
-                dst_port: packet_buf.endpoint.port,
-                payload:  &packet_buf.as_ref()[..]
-            } as &IpPayload
-        })
+            protocol: IpProtocol::Udp
+        };
+        let payload = UdpRepr {
+            src_port: self.endpoint.port,
+            dst_port: packet_buf.endpoint.port,
+            payload:  &packet_buf.as_ref()[..]
+        };
+        emit(&ip_repr, &payload)
     }
 }
 
@@ -212,9 +213,9 @@ impl<'a> IpPayload for UdpRepr<'a> {
         self.buffer_len()
     }
 
-    fn emit(&self, repr: &mut IpRepr<&mut [u8]>) {
-        let mut packet = UdpPacket::new(&mut repr.payload).expect("undersized payload");
-        self.emit(&mut packet, &repr.src_addr, &repr.dst_addr)
+    fn emit(&self, repr: &IpRepr, payload: &mut [u8]) {
+        let mut packet = UdpPacket::new(payload).expect("undersized payload");
+        self.emit(&mut packet, &repr.src_addr(), &repr.dst_addr())
     }
 }
 

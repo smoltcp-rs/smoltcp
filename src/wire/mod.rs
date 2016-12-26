@@ -102,6 +102,7 @@ pub use self::arp::Repr as ArpRepr;
 pub use self::ip::Protocol as IpProtocol;
 pub use self::ip::Address as IpAddress;
 pub use self::ip::Endpoint as IpEndpoint;
+pub use self::ip::IpRepr as IpRepr;
 
 pub use self::ipv4::Address as Ipv4Address;
 pub use self::ipv4::Packet as Ipv4Packet;

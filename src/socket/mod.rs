@@ -11,7 +11,7 @@
 //! size for a buffer, allocate it, and let the networking stack use it.
 
 use Error;
-use wire::{IpAddress, IpProtocol};
+use wire::IpRepr;
 
 mod udp;
 mod tcp;
@@ -52,12 +52,12 @@ impl<'a, 'b> Socket<'a, 'b> {
     /// is returned.
     ///
     /// This function is used internally by the networking stack.
-    pub fn collect(&mut self, repr: &IpRepr<&[u8]>) -> Result<(), Error> {
+    pub fn collect(&mut self, ip_repr: &IpRepr, payload: &[u8]) -> Result<(), Error> {
         match self {
             &mut Socket::Udp(ref mut socket) =>
-                socket.collect(repr),
+                socket.collect(ip_repr, payload),
             &mut Socket::Tcp(ref mut socket) =>
-                socket.collect(repr),
+                socket.collect(ip_repr, payload),
             &mut Socket::__Nonexhaustive => unreachable!()
         }
     }
@@ -70,7 +70,7 @@ impl<'a, 'b> Socket<'a, 'b> {
     ///
     /// This function is used internally by the networking stack.
     pub fn dispatch<F>(&mut self, emit: &mut F) -> Result<(), Error>
-            where F: FnMut(&IpRepr<&IpPayload>) -> Result<(), Error> {
+            where F: FnMut(&IpRepr, &IpPayload) -> Result<(), Error> {
         match self {
             &mut Socket::Udp(ref mut socket) =>
                 socket.dispatch(emit),
@@ -79,16 +79,6 @@ impl<'a, 'b> Socket<'a, 'b> {
             &mut Socket::__Nonexhaustive => unreachable!()
         }
     }
-}
-
-/// An IP packet representation.
-///
-/// This struct abstracts the various versions of IP packets.
-pub struct IpRepr<T> {
-    pub src_addr: IpAddress,
-    pub dst_addr: IpAddress,
-    pub protocol: IpProtocol,
-    pub payload:  T
 }
 
 /// An IP-encapsulated packet representation.
@@ -100,7 +90,7 @@ pub trait IpPayload {
     fn buffer_len(&self) -> usize;
 
     /// Emit this high-level representation into a sequence of octets.
-    fn emit(&self, repr: &mut IpRepr<&mut [u8]>);
+    fn emit(&self, ip_repr: &IpRepr, payload: &mut [u8]);
 }
 
 /// A conversion trait for network sockets.
