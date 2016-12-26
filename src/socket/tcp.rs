@@ -399,9 +399,8 @@ impl<'a> TcpSocket<'a> {
             (State::SynSent, _) => (),
             // In all other states, segments must occupy a valid portion of the receive window.
             // For now, do not try to reassemble out-of-order segments.
-            (_, TcpRepr { control, seq_number, .. }) => {
-                let next_remote_seq = self.remote_seq_no + self.rx_buffer.len() as i32 +
-                                      control.len();
+            (_, TcpRepr { seq_number, .. }) => {
+                let next_remote_seq = self.remote_seq_no + self.rx_buffer.len() as i32;
                 if seq_number - next_remote_seq > 0 {
                     net_trace!("tcp:{}:{}: unacceptable SEQ ({} not in {}..)",
                                self.local_endpoint, self.remote_endpoint,
