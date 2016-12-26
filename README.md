@@ -46,7 +46,8 @@ The UDP protocol is supported over IPv4.
 The TCP protocol is supported over IPv4.
 
   * TCP header checksum is supported.
-  * TCP options are **not** supported.
+  * TCP options are **not** supported. In particular, the MSS of the remote endpoint
+    is hardcoded at the default value, 536.
   * Reassembly of out-of-order segments is **not** supported.
 
 Installation
