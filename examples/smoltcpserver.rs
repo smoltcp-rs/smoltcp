@@ -4,6 +4,7 @@ extern crate log;
 extern crate env_logger;
 extern crate smoltcp;
 
+use std::str;
 use std::env;
 use std::time::Instant;
 use log::{LogLevelFilter, LogRecord};
@@ -49,12 +50,12 @@ fn main() {
 
     let endpoint = IpEndpoint::new(IpAddress::default(), 6969);
 
-    let udp_rx_buffer = UdpSocketBuffer::new(vec![UdpPacketBuffer::new(vec![0; 2048])]);
-    let udp_tx_buffer = UdpSocketBuffer::new(vec![UdpPacketBuffer::new(vec![0; 2048])]);
+    let udp_rx_buffer = UdpSocketBuffer::new(vec![UdpPacketBuffer::new(vec![0; 64])]);
+    let udp_tx_buffer = UdpSocketBuffer::new(vec![UdpPacketBuffer::new(vec![0; 64])]);
     let udp_socket = UdpSocket::new(endpoint, udp_rx_buffer, udp_tx_buffer);
 
-    let tcp_rx_buffer = TcpSocketBuffer::new(vec![0; 8192]);
-    let tcp_tx_buffer = TcpSocketBuffer::new(vec![0; 8192]);
+    let tcp_rx_buffer = TcpSocketBuffer::new(vec![0; 64]);
+    let tcp_tx_buffer = TcpSocketBuffer::new(vec![0; 64]);
     let mut tcp_socket = TcpSocket::new(tcp_rx_buffer, tcp_tx_buffer);
     (tcp_socket.as_socket() : &mut TcpSocket).listen(endpoint);
 
@@ -74,7 +75,8 @@ fn main() {
             let socket: &mut UdpSocket = iface.sockets()[0].as_socket();
             let client = match socket.recv() {
                 Ok((endpoint, data)) => {
-                    debug!("udp recv data: {:?} from {}", data, endpoint);
+                    debug!("udp recv data: {} from {}",
+                           str::from_utf8(data.as_ref()).unwrap(), endpoint);
                     Some(endpoint)
                 }
                 Err(Error::Exhausted) => {
@@ -87,7 +89,8 @@ fn main() {
             };
             if let Some(endpoint) = client {
                 let data = b"yo dawg";
-                debug!("udp send data: {:?}", data);
+                debug!("udp send data: {}",
+                       str::from_utf8(data.as_ref()).unwrap());
                 socket.send_slice(endpoint, data).unwrap()
             }
         }
@@ -97,7 +100,8 @@ fn main() {
             let data = {
                 let mut data = socket.recv(128).to_owned();
                 if data.len() > 0 {
-                    debug!("tcp recv data: {:?}", &data[..]);
+                    debug!("tcp recv data: {}",
+                           str::from_utf8(data.as_ref()).unwrap());
                     data = data.split(|&b| b == b'\n').next().unwrap().to_owned();
                     data.reverse();
                     data.extend(b"\n");
@@ -105,7 +109,8 @@ fn main() {
                 data
             };
             if data.len() > 0 {
-                debug!("tcp send data: {:?}", &data[..]);
+                debug!("tcp send data: {}",
+                       str::from_utf8(data.as_ref()).unwrap());
                 socket.send_slice(&data[..]);
             }
         }

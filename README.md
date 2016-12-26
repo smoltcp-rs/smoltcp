@@ -109,6 +109,8 @@ It responds to:
   * UDP packets on port 6969 (`socat stdio udp4-connect:192.168.69.1:6969 <<<"abcdefg"`),
   * TCP packets on port 6969 (`socat stdio tcp4-connect:192.168.69.1:6969 <<<"abcdefg"`),
 
+The buffers are only 64 bytes long, for convenience of testing resource exhaustion conditions.
+
 License
 -------
 

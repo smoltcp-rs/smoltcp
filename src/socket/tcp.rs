@@ -266,6 +266,7 @@ impl<'a> TcpSocket<'a> {
     /// See also [send](#method.send).
     pub fn send_slice(&mut self, data: &[u8]) -> usize {
         let buffer = self.send(data.len());
+        let data = &data[..buffer.len()];
         buffer.copy_from_slice(data);
         buffer.len()
     }
@@ -279,7 +280,7 @@ impl<'a> TcpSocket<'a> {
         let buffer = self.rx_buffer.dequeue(size);
         self.remote_seq_no += buffer.len() as i32;
         if buffer.len() > 0 {
-            net_trace!("tcp:{}:{}: receive {} buffered octets",
+            net_trace!("tcp:{}:{}: rx buffer: dequeueing {} octets",
                        self.local_endpoint, self.remote_endpoint, buffer.len());
         }
         buffer
@@ -293,7 +294,8 @@ impl<'a> TcpSocket<'a> {
     /// See also [recv](#method.recv).
     pub fn recv_slice(&mut self, data: &mut [u8]) -> usize {
         let buffer = self.recv(data.len());
-        data[..buffer.len()].copy_from_slice(buffer);
+        let data = &mut data[..buffer.len()];
+        data.copy_from_slice(buffer);
         buffer.len()
     }
 
@@ -447,12 +449,8 @@ impl<'a> TcpSocket<'a> {
         if let Some(ack_number) = repr.ack_number {
             let control_len =
                 if old_state == State::SynReceived { 1 } else { 0 };
-            if control_len > 0 {
-                net_trace!("tcp:{}:{}: ACK for a control flag",
-                           self.local_endpoint, self.remote_endpoint);
-            }
             if ack_number - self.local_seq_no - control_len > 0 {
-                net_trace!("tcp:{}:{}: ACK for {} octets",
+                net_trace!("tcp:{}:{}: tx buffer: dequeueing {} octets",
                            self.local_endpoint, self.remote_endpoint,
                            ack_number - self.local_seq_no - control_len);
             }
@@ -462,7 +460,7 @@ impl<'a> TcpSocket<'a> {
 
         // Enqueue payload octets, which is guaranteed to be in order, unless we already did.
         if repr.payload.len() > 0 {
-            net_trace!("tcp:{}:{}: receiving {} octets",
+            net_trace!("tcp:{}:{}: rx buffer: enqueueing {} octets",
                        self.local_endpoint, self.remote_endpoint, repr.payload.len());
             self.rx_buffer.enqueue_slice(repr.payload)
         }
@@ -604,7 +602,7 @@ mod test {
         src_port: LOCAL_PORT, dst_port: REMOTE_PORT,
         control: TcpControl::None,
         seq_number: 0, ack_number: Some(0),
-        window_len: 128, payload: &[]
+        window_len: 64, payload: &[]
     };
 
     fn send(socket: &mut TcpSocket, repr: &TcpRepr) -> Result<(), Error> {
@@ -684,8 +682,8 @@ mod test {
     fn socket() -> TcpSocket<'static> {
         init_logger();
 
-        let rx_buffer = SocketBuffer::new(vec![0; 128]);
-        let tx_buffer = SocketBuffer::new(vec![0; 128]);
+        let rx_buffer = SocketBuffer::new(vec![0; 64]);
+        let tx_buffer = SocketBuffer::new(vec![0; 64]);
         match TcpSocket::new(rx_buffer, tx_buffer) {
             Socket::Tcp(socket) => socket,
             _ => unreachable!()
@@ -840,7 +838,7 @@ mod test {
         recv!(s, [TcpRepr {
             seq_number: LOCAL_SEQ + 1,
             ack_number: Some(REMOTE_SEQ + 1 + 6),
-            window_len: 122,
+            window_len: 58,
             ..RECV_TEMPL
         }]);
         assert_eq!(s.rx_buffer.dequeue(6), &b"abcdef"[..]);
