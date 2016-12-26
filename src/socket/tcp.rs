@@ -267,9 +267,13 @@ impl<'a> TcpSocket<'a> {
 
         // Reject unacceptable acknowledgements.
         match (self.state, repr) {
-            // Don't care about ACKs when performing the handshake.
-            (State::Listen, _) => (),
-            (State::SynSent, _) => (),
+            // The initial SYN cannot contain an acknowledgement.
+            (State::Listen, TcpRepr { ack_number: Some(_), .. }) => {
+                net_trace!("tcp:{}:{}: ACK in initial SYN",
+                           self.local_endpoint, self.remote_endpoint);
+                return Err(Error::Malformed)
+            }
+            (State::Listen, TcpRepr { ack_number: None, .. }) => (),
             // Every packet after the initial SYN must be an acknowledgement.
             (_, TcpRepr { ack_number: None, .. }) => {
                 net_trace!("tcp:{}:{}: expecting an ACK",
@@ -577,10 +581,17 @@ mod test {
     }
 
     #[test]
-    fn test_handshake() {
+    fn test_listen() {
         let mut s = socket();
         s.listen(IpEndpoint::new(IpAddress::default(), LOCAL_PORT));
         assert_eq!(s.state(), State::Listen);
+    }
+
+    #[test]
+    fn test_handshake() {
+        let mut s = socket();
+        s.state           = State::Listen;
+        s.local_endpoint  = IpEndpoint::new(IpAddress::default(), LOCAL_PORT);
 
         send!(s, [TcpRepr {
             control: TcpControl::Syn,
@@ -610,7 +621,7 @@ mod test {
     #[test]
     fn test_no_ack() {
         let mut s = socket();
-        s.state = State::Established;
+        s.state           = State::Established;
         s.local_endpoint  = LOCAL_END;
         s.remote_endpoint = REMOTE_END;
         s.local_seq_no    = LOCAL_SEQ + 1;
@@ -624,9 +635,23 @@ mod test {
     }
 
     #[test]
-    fn test_unacceptable_ack() {
+    fn test_bad_ack_listen() {
         let mut s = socket();
-        s.state = State::Established;
+        s.state           = State::Listen;
+        s.local_endpoint  = IpEndpoint::new(IpAddress::default(), LOCAL_PORT);
+
+        send!(s, TcpRepr {
+            control: TcpControl::Syn,
+            seq_number: REMOTE_SEQ,
+            ack_number: Some(LOCAL_SEQ),
+            ..SEND_TEMPL
+        }, Err(Error::Malformed));
+    }
+
+    #[test]
+    fn test_bad_ack_established() {
+        let mut s = socket();
+        s.state           = State::Established;
         s.local_endpoint  = LOCAL_END;
         s.remote_endpoint = REMOTE_END;
         s.local_seq_no    = LOCAL_SEQ + 1;
@@ -651,7 +676,7 @@ mod test {
     #[test]
     fn test_unacceptable_seq() {
         let mut s = socket();
-        s.state = State::Established;
+        s.state          = State::Established;
         s.local_endpoint  = LOCAL_END;
         s.remote_endpoint = REMOTE_END;
         s.local_seq_no    = LOCAL_SEQ + 1;
@@ -668,7 +693,7 @@ mod test {
     #[test]
     fn test_recv_data() {
         let mut s = socket();
-        s.state = State::Established;
+        s.state          = State::Established;
         s.local_endpoint  = LOCAL_END;
         s.remote_endpoint = REMOTE_END;
         s.local_seq_no    = LOCAL_SEQ + 1;
