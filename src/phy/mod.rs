@@ -7,19 +7,19 @@
 
 use Error;
 
-#[cfg(feature = "std")]
+#[cfg(feature = "use_std")]
 mod sys;
 
 mod tracer;
-#[cfg(feature = "std")]
+#[cfg(feature = "use_std")]
 mod raw_socket;
-#[cfg(all(feature = "std", target_os = "linux"))]
+#[cfg(all(feature = "use_std", target_os = "linux"))]
 mod tap_interface;
 
 pub use self::tracer::Tracer;
-#[cfg(feature = "std")]
+#[cfg(feature = "use_std")]
 pub use self::raw_socket::RawSocket;
-#[cfg(all(feature = "std", target_os = "linux"))]
+#[cfg(all(feature = "use_std", target_os = "linux"))]
 pub use self::tap_interface::TapInterface;
 
 /// An interface for sending and receiving raw network frames.

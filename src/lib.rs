@@ -3,18 +3,18 @@
 
 extern crate byteorder;
 
-#[cfg(any(test, feature = "std"))]
+#[cfg(any(test, feature = "use_std"))]
 #[macro_use]
 extern crate std;
-#[cfg(feature = "std")]
+#[cfg(feature = "use_std")]
 extern crate libc;
-#[cfg(feature = "logging")]
+#[cfg(feature = "use_log")]
 #[macro_use(trace, log)]
 extern crate log;
 
 macro_rules! net_trace {
     ($($arg:tt)*) => {
-        #[cfg(feature = "logging")]
+        #[cfg(feature = "use_log")]
         trace!($($arg)*)
     }
 }

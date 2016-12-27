@@ -67,12 +67,12 @@ impl<'a> SliceCache<'a> {
 
     /// Sort entries in an order suitable for `find`.
     fn sort(&mut self) {
-        #[cfg(feature = "std")]
+        #[cfg(feature = "use_std")]
         fn sort(data: &mut [(IpAddress, EthernetAddress, usize)]) {
             data.sort_by_key(|&(key, _, _)| key)
         }
 
-        #[cfg(not(feature = "std"))]
+        #[cfg(not(feature = "use_std"))]
         fn sort(data: &mut [(IpAddress, EthernetAddress, usize)]) {
             // Use an insertion sort, which performs best on 10 elements and less.
             for i in 1..data.len() {

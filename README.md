@@ -46,9 +46,13 @@ The UDP protocol is supported over IPv4.
 The TCP protocol is supported over IPv4.
 
   * TCP header checksum is supported.
-  * TCP options are **not** supported. In particular, the MSS of the remote endpoint
-    is hardcoded at the default value, 536.
+  * Multiple packets will be transmitted without waiting for an acknowledgement.
+  * TCP urgent pointer is **not** supported; any urgent octets will be received alongside data.
   * Reassembly of out-of-order segments is **not** supported.
+  * TCP options are **not** supported, in particular:
+    * Maximum segment size is hardcoded at the default value, 536.
+    * Window scaling is **not** supported.
+  * Keepalive is **not** supported.
 
 Installation
 ------------
@@ -59,6 +63,27 @@ To use the _smoltcp_ library in your project, add the following to `Cargo.toml`:
 [dependencies]
 smoltcp = "0.1"
 ```
+
+The default configuration assumes a hosted environment, for ease of evaluation.
+You probably want to disable default features and configure them one by one:
+
+```toml
+[dependencies]
+smoltcp = { version = ..., default-features = false, features = [...] }
+```
+
+### Feature `use_std`
+
+The `use_std` feature enables use of buffers owned by the networking stack through a dependency
+on `std::boxed::Box`. It also enables `smoltcp::phy::RawSocket` and `smoltcp::phy::TapInterface`,
+if the platform supports it.
+
+### Feature `use_log`
+
+The `use_log` feature enables logging of events within the networking stack through
+the [log crate][log]. The events are emitted with the TRACE log level.
+
+[log]: https://crates.io/crates/log
 
 Usage example
 -------------

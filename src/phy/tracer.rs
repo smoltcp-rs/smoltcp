@@ -25,7 +25,7 @@ impl<T: Device, U: PrettyPrint> Tracer<T, U> {
     }
 
     /// Create a tracer device, printing to standard output.
-    #[cfg(feature = "std")]
+    #[cfg(feature = "use_std")]
     pub fn new_stdout(lower: T) -> Tracer<T, U> {
         fn writer<U: PrettyPrint>(printer: PrettyPrinter<U>) {
             print!("{}", printer)
