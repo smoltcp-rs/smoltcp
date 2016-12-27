@@ -254,7 +254,7 @@ impl<'a> TcpSocket<'a> {
         Ok(())
     }
 
-    /// Return whether the connection is open.
+    /// Return whether the socket is open.
     ///
     /// This function returns true if the socket will process incoming or dispatch outgoing
     /// packets. Note that this does not mean that it is possible to send or receive data through
@@ -263,6 +263,24 @@ impl<'a> TcpSocket<'a> {
         match self.state {
             State::Closed => false,
             State::TimeWait => false,
+            _ => true
+        }
+    }
+
+    /// Return whether a connection is established.
+    ///
+    /// This function returns true if the socket is actively exchanging packets with
+    /// a remote endpoint. Note that this does not mean that it is possible to send or receive
+    /// data through the socket; for that, use [can_send](#method.can_send) or
+    /// [can_recv](#method.can_recv).
+    ///
+    /// If a connection is established, [abort](#method.close) will send a reset to
+    /// the remote endpoint.
+    pub fn is_connected(&self) -> bool {
+        match self.state {
+            State::Closed => false,
+            State::TimeWait => false,
+            State::Listen => false,
             _ => true
         }
     }
@@ -491,6 +509,8 @@ impl<'a> TcpSocket<'a> {
 
             // RSTs in SYN_RECEIVED flip the socket back to the LISTEN state.
             (State::SynReceived, TcpRepr { control: TcpControl::Rst, .. }) => {
+                net_trace!("tcp:{}:{}: received RST",
+                           self.local_endpoint, self.remote_endpoint);
                 self.local_endpoint.addr = self.listen_address;
                 self.remote_endpoint     = IpEndpoint::default();
                 self.set_state(State::Listen);
@@ -499,6 +519,8 @@ impl<'a> TcpSocket<'a> {
 
             // RSTs in any other state close the socket.
             (_, TcpRepr { control: TcpControl::Rst, .. }) => {
+                net_trace!("tcp:{}:{}: received RST",
+                           self.local_endpoint, self.remote_endpoint);
                 self.local_endpoint  = IpEndpoint::default();
                 self.remote_endpoint = IpEndpoint::default();
                 self.set_state(State::Closed);

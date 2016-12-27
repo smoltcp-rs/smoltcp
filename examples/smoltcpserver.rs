@@ -65,6 +65,7 @@ fn main() {
     let mut iface = EthernetInterface::new(device, arp_cache,
         hardware_addr, protocol_addrs, sockets);
 
+    let mut tcp_6969_connected = false;
     loop {
         match iface.poll() {
             Ok(()) => (),
@@ -97,6 +98,13 @@ fn main() {
 
         {
             let socket: &mut TcpSocket = iface.sockets()[1].as_socket();
+            if socket.is_connected() && !tcp_6969_connected {
+                debug!("tcp connected");
+            } else if !socket.is_connected() && tcp_6969_connected {
+                debug!("tcp disconnected");
+            }
+            tcp_6969_connected = socket.is_connected();
+
             if socket.can_recv() {
                 let data = {
                     let mut data = socket.recv(128).unwrap().to_owned();
