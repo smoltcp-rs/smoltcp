@@ -122,7 +122,8 @@ fn main() {
                     socket.send_slice(&data[..]).unwrap();
                 }
             } else if socket.can_send() {
-                socket.close()
+                socket.close();
+                debug!("tcp closed")
             }
         }
 

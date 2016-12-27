@@ -273,10 +273,14 @@ impl<'a> TcpSocket<'a> {
                 self.set_state(State::Closed),
             // In the SYN_RECEIVED, ESTABLISHED and CLOSE_WAIT states the transmit half
             // of the connection is open, and needs to be explicitly closed with a FIN.
-            State::SynReceived | State::Established =>
-                self.set_state(State::FinWait1),
-            State::CloseWait =>
-                self.set_state(State::LastAck),
+            State::SynReceived | State::Established => {
+                self.retransmit.reset();
+                self.set_state(State::FinWait1);
+            }
+            State::CloseWait => {
+                self.retransmit.reset();
+                self.set_state(State::LastAck);
+            }
             // In the FIN_WAIT_1, FIN_WAIT_2, CLOSING, LAST_ACK, TIME_WAIT and CLOSED states,
             // the transmit half of the connection is already closed, and no further
             // action is needed.
@@ -600,6 +604,14 @@ impl<'a> TcpSocket<'a> {
             // ACK packets in CLOSE_WAIT state do nothing.
             (State::CloseWait, TcpRepr { control: TcpControl::None, .. }) => (),
 
+            // ACK packets in LAST_ACK state change it to CLOSED.
+            (State::LastAck, TcpRepr { control: TcpControl::None, .. }) => {
+                // Clear the remote endpoint, or we'll send an RST there.
+                self.remote_endpoint = IpEndpoint::default();
+                self.local_seq_no   += 1;
+                self.set_state(State::Closed);
+            }
+
             _ => {
                 net_trace!("tcp:{}:{}: unexpected packet {}",
                            self.local_endpoint, self.remote_endpoint, repr);
@@ -653,8 +665,12 @@ impl<'a> TcpSocket<'a> {
 
         let mut should_send = false;
         match self.state {
-            State::Closed | State::Listen => return Err(Error::Exhausted),
+            // We never transmit anything in the CLOSED, LISTEN, TIME_WAIT or FIN_WAIT_2 states.
+            State::Closed | State::Listen | State::TimeWait | State::FinWait2 => {
+                return Err(Error::Exhausted)
+            }
 
+            // We transmit a SYN|ACK in the SYN_RECEIVED state.
             State::SynReceived => {
                 if !self.retransmit.check() { return Err(Error::Exhausted) }
 
@@ -664,16 +680,30 @@ impl<'a> TcpSocket<'a> {
                 should_send = true;
             }
 
+            // We transmit a SYN in the SYN_SENT state.
+            State::SynSent => {
+                if !self.retransmit.check() { return Err(Error::Exhausted) }
+
+                repr.control = TcpControl::Syn;
+                repr.ack_number = None;
+                net_trace!("tcp:{}:{}: sending SYN",
+                           self.local_endpoint, self.remote_endpoint);
+                should_send = true;
+            }
+
+            // We transmit data in the ESTABLISHED state,
+            // ACK in CLOSE_WAIT and CLOSING states,
+            // FIN in FIN_WAIT_1 and LAST_ACK states.
             State::Established |
-            State::CloseWait => {
+            State::CloseWait   | State::LastAck |
+            State::FinWait1    | State::Closing => {
                 // See if we should send data to the remote end because:
-                //   1. the retransmit timer has expired, or...
-                let mut may_send = self.retransmit.check();
+                let mut may_send = false;
+                //   1. the retransmit timer has expired or was reset, or...
+                if self.retransmit.check() { may_send = true }
                 //   2. we've got new data in the transmit buffer.
                 let remote_next_seq = self.local_seq_no + self.tx_buffer.len();
-                if self.remote_last_seq != remote_next_seq {
-                    may_send = true;
-                }
+                if self.remote_last_seq != remote_next_seq { may_send = true }
 
                 if self.tx_buffer.len() > 0 && self.remote_win_len > 0 && may_send {
                     // We can send something, so let's do that.
@@ -699,9 +729,19 @@ impl<'a> TcpSocket<'a> {
                     self.remote_last_seq += data.len();
                     should_send = true;
                 }
-            }
 
-            _ => unreachable!()
+                match self.state {
+                    State::FinWait1 | State::LastAck if may_send => {
+                        // We should notify the other side that we've closed the transmit half
+                        // of the connection.
+                        net_trace!("tcp:{}:{}: sending FIN|ACK",
+                                   self.local_endpoint, self.remote_endpoint);
+                        repr.control = TcpControl::Fin;
+                        should_send = true;
+                    },
+                    _ => ()
+                }
+            }
         }
 
         let ack_number = self.remote_seq_no + self.rx_buffer.len();
@@ -1326,6 +1366,24 @@ mod test {
         let mut s = socket_close_wait();
         s.state           = State::LastAck;
         s
+    }
+
+    #[test]
+    fn test_last_ack_fin_ack() {
+        let mut s = socket_last_ack();
+        recv!(s, [TcpRepr {
+            control: TcpControl::Fin,
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1 + 1),
+            ..RECV_TEMPL
+        }]);
+        assert_eq!(s.state, State::LastAck);
+        send!(s, [TcpRepr {
+            seq_number: REMOTE_SEQ + 1 + 1,
+            ack_number: Some(LOCAL_SEQ + 1 + 1),
+            ..SEND_TEMPL
+        }]);
+        assert_eq!(s.state, State::Closed);
     }
 
     #[test]
