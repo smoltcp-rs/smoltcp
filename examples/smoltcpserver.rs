@@ -67,11 +67,6 @@ fn main() {
 
     let mut tcp_6969_connected = false;
     loop {
-        match iface.poll() {
-            Ok(()) => (),
-            Err(e) => debug!("poll error: {}", e)
-        }
-
         {
             let socket: &mut UdpSocket = iface.sockets()[0].as_socket();
             let client = match socket.recv() {
@@ -98,6 +93,10 @@ fn main() {
 
         {
             let socket: &mut TcpSocket = iface.sockets()[1].as_socket();
+            if !socket.is_open() {
+                socket.listen(endpoint).unwrap()
+            }
+
             if socket.is_connected() && !tcp_6969_connected {
                 debug!("tcp connected");
             } else if !socket.is_connected() && tcp_6969_connected {
@@ -123,6 +122,11 @@ fn main() {
                     socket.send_slice(&data[..]).unwrap();
                 }
             }
+        }
+
+        match iface.poll() {
+            Ok(()) => (),
+            Err(e) => debug!("poll error: {}", e)
         }
     }
 }

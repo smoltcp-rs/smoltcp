@@ -458,6 +458,8 @@ impl<'a> TcpSocket<'a> {
                     return Err(Error::Malformed)
                 }
             }
+            // Any other RST need only have a valid sequence number.
+            (_, TcpRepr { control: TcpControl::Rst, .. }) => (),
             // Every packet after the initial SYN must be an acknowledgement.
             (_, TcpRepr { ack_number: None, .. }) => {
                 net_trace!("tcp:{}:{}: expecting an ACK",
@@ -1129,6 +1131,18 @@ mod test {
             control: TcpControl::Rst,
             seq_number: REMOTE_SEQ + 1,
             ack_number: Some(LOCAL_SEQ + 1),
+            ..SEND_TEMPL
+        }]);
+        assert_eq!(s.state, State::Closed);
+    }
+
+    #[test]
+    fn test_established_rst_no_ack() {
+        let mut s = socket_established();
+        send!(s, [TcpRepr {
+            control: TcpControl::Rst,
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: None,
             ..SEND_TEMPL
         }]);
         assert_eq!(s.state, State::Closed);
