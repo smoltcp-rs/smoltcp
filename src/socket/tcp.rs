@@ -3,7 +3,7 @@ use core::fmt;
 use Error;
 use Managed;
 use wire::{IpProtocol, IpAddress, IpEndpoint};
-use wire::{TcpPacket, TcpRepr, TcpControl};
+use wire::{TcpSeqNumber, TcpPacket, TcpRepr, TcpControl};
 use socket::{Socket, IpRepr, IpPayload};
 
 /// A TCP stream ring buffer.
@@ -185,16 +185,16 @@ pub struct TcpSocket<'a> {
     remote_endpoint: IpEndpoint,
     /// The sequence number corresponding to the beginning of the transmit buffer.
     /// I.e. an ACK(local_seq_no+n) packet removes n bytes from the transmit buffer.
-    local_seq_no:    i32,
+    local_seq_no:    TcpSeqNumber,
     /// The sequence number corresponding to the beginning of the receive buffer.
     /// I.e. userspace reading n bytes adds n to remote_seq_no.
-    remote_seq_no:   i32,
+    remote_seq_no:   TcpSeqNumber,
     /// The last sequence number sent.
     /// I.e. in an idle socket, local_seq_no+tx_buffer.len().
-    remote_last_seq: i32,
+    remote_last_seq: TcpSeqNumber,
     /// The last acknowledgement number sent.
     /// I.e. in an idle socket, remote_seq_no+rx_buffer.len().
-    remote_last_ack: i32,
+    remote_last_ack: TcpSeqNumber,
     /// The speculative remote window size.
     /// I.e. the actual remote window size minus the count of in-flight octets.
     remote_win_len:  usize,
@@ -218,10 +218,10 @@ impl<'a> TcpSocket<'a> {
             listen_address:  IpAddress::default(),
             local_endpoint:  IpEndpoint::default(),
             remote_endpoint: IpEndpoint::default(),
-            local_seq_no:    0,
-            remote_seq_no:   0,
-            remote_last_seq: 0,
-            remote_last_ack: 0,
+            local_seq_no:    TcpSeqNumber(0),
+            remote_seq_no:   TcpSeqNumber(0),
+            remote_last_seq: TcpSeqNumber(0),
+            remote_last_ack: TcpSeqNumber(0),
             remote_win_len:  0,
             retransmit:      Retransmit::new(),
             tx_buffer:       tx_buffer.into(),
@@ -341,7 +341,7 @@ impl<'a> TcpSocket<'a> {
         if !self.can_recv() { return Err(()) }
 
         let buffer = self.rx_buffer.dequeue(size);
-        self.remote_seq_no += buffer.len() as i32;
+        self.remote_seq_no += buffer.len();
         if buffer.len() > 0 {
             net_trace!("tcp:{}:{}: rx buffer: dequeueing {} octets",
                        self.local_endpoint, self.remote_endpoint, buffer.len());
@@ -450,9 +450,9 @@ impl<'a> TcpSocket<'a> {
                     // all of the control flags we sent.
                     _ => 0
                 };
-                let unacknowledged = self.tx_buffer.len() as i32 + control_len;
-                if !(ack_number - self.local_seq_no >= 0 &&
-                     ack_number - (self.local_seq_no + unacknowledged) <= 0) {
+                let unacknowledged = self.tx_buffer.len() + control_len;
+                if !(ack_number >= self.local_seq_no &&
+                     ack_number <= (self.local_seq_no + unacknowledged)) {
                     net_trace!("tcp:{}:{}: unacceptable ACK ({} not in {}..{})",
                                self.local_endpoint, self.remote_endpoint,
                                ack_number, self.local_seq_no, self.local_seq_no + unacknowledged);
@@ -468,13 +468,13 @@ impl<'a> TcpSocket<'a> {
             // In all other states, segments must occupy a valid portion of the receive window.
             // For now, do not try to reassemble out-of-order segments.
             (_, TcpRepr { seq_number, .. }) => {
-                let next_remote_seq = self.remote_seq_no + self.rx_buffer.len() as i32;
-                if seq_number - next_remote_seq > 0 {
+                let next_remote_seq = self.remote_seq_no + self.rx_buffer.len();
+                if seq_number > next_remote_seq {
                     net_trace!("tcp:{}:{}: unacceptable SEQ ({} not in {}..)",
                                self.local_endpoint, self.remote_endpoint,
                                seq_number, next_remote_seq);
                     return Err(Error::Malformed)
-                } else if seq_number - next_remote_seq != 0 {
+                } else if seq_number != next_remote_seq {
                     net_trace!("tcp:{}:{}: duplicate SEQ ({} in ..{})",
                                self.local_endpoint, self.remote_endpoint,
                                seq_number, next_remote_seq);
@@ -511,7 +511,8 @@ impl<'a> TcpSocket<'a> {
             }) => {
                 self.local_endpoint  = IpEndpoint::new(ip_repr.dst_addr(), dst_port);
                 self.remote_endpoint = IpEndpoint::new(ip_repr.src_addr(), src_port);
-                self.local_seq_no    = -seq_number; // FIXME: use something more secure
+                // FIXME: use something more secure here
+                self.local_seq_no    = TcpSeqNumber(-seq_number.0);
                 self.remote_last_seq = self.local_seq_no + 1;
                 self.remote_seq_no   = seq_number + 1;
                 self.set_state(State::SynReceived);
@@ -607,7 +608,7 @@ impl<'a> TcpSocket<'a> {
                 //   1. the retransmit timer has expired, or...
                 let mut may_send = self.retransmit.check();
                 //   2. we've got new data in the transmit buffer.
-                let remote_next_seq = self.local_seq_no + self.tx_buffer.len() as i32;
+                let remote_next_seq = self.local_seq_no + self.tx_buffer.len();
                 if self.remote_last_seq != remote_next_seq {
                     may_send = true;
                 }
@@ -627,9 +628,9 @@ impl<'a> TcpSocket<'a> {
                     repr.payload = data;
                     // Speculatively shrink the remote window. This will get updated the next
                     // time we receive a packet.
-                    self.remote_win_len -= data.len();
+                    self.remote_win_len  -= data.len();
                     // Advance the in-flight sequence number.
-                    self.remote_last_seq += data.len() as i32;
+                    self.remote_last_seq += data.len();
                     should_send = true;
                 }
             }
@@ -637,7 +638,7 @@ impl<'a> TcpSocket<'a> {
             _ => unreachable!()
         }
 
-        let ack_number = self.remote_seq_no + self.rx_buffer.len() as i32;
+        let ack_number = self.remote_seq_no + self.rx_buffer.len();
         if !should_send && self.remote_last_ack != ack_number {
             // Acknowledge all data we have received, since it is all in order.
             net_trace!("tcp:{}:{}: sending ACK",
@@ -692,25 +693,25 @@ mod test {
         buffer.enqueue_slice(&b"bazhoge"[..]);          // zhobarba
     }
 
-    const LOCAL_IP:     IpAddress  = IpAddress::v4(10, 0, 0, 1);
-    const REMOTE_IP:    IpAddress  = IpAddress::v4(10, 0, 0, 2);
-    const LOCAL_PORT:   u16        = 80;
-    const REMOTE_PORT:  u16        = 49500;
-    const LOCAL_END:    IpEndpoint = IpEndpoint::new(LOCAL_IP, LOCAL_PORT);
-    const REMOTE_END:   IpEndpoint = IpEndpoint::new(REMOTE_IP, REMOTE_PORT);
-    const LOCAL_SEQ:    i32        = 10000;
-    const REMOTE_SEQ:   i32        = -10000;
+    const LOCAL_IP:     IpAddress    = IpAddress::v4(10, 0, 0, 1);
+    const REMOTE_IP:    IpAddress    = IpAddress::v4(10, 0, 0, 2);
+    const LOCAL_PORT:   u16          = 80;
+    const REMOTE_PORT:  u16          = 49500;
+    const LOCAL_END:    IpEndpoint   = IpEndpoint::new(LOCAL_IP, LOCAL_PORT);
+    const REMOTE_END:   IpEndpoint   = IpEndpoint::new(REMOTE_IP, REMOTE_PORT);
+    const LOCAL_SEQ:    TcpSeqNumber = TcpSeqNumber(10000);
+    const REMOTE_SEQ:   TcpSeqNumber = TcpSeqNumber(-10000);
 
     const SEND_TEMPL: TcpRepr<'static> = TcpRepr {
         src_port: REMOTE_PORT, dst_port: LOCAL_PORT,
         control: TcpControl::None,
-        seq_number: 0, ack_number: Some(0),
+        seq_number: TcpSeqNumber(0), ack_number: Some(TcpSeqNumber(0)),
         window_len: 256, payload: &[]
     };
     const RECV_TEMPL:  TcpRepr<'static> = TcpRepr {
         src_port: LOCAL_PORT, dst_port: REMOTE_PORT,
         control: TcpControl::None,
-        seq_number: 0, ack_number: Some(0),
+        seq_number: TcpSeqNumber(0), ack_number: Some(TcpSeqNumber(0)),
         window_len: 64, payload: &[]
     };
 
@@ -917,7 +918,7 @@ mod test {
         send!(s, TcpRepr {
             control: TcpControl::Rst,
             seq_number: REMOTE_SEQ,
-            ack_number: Some(1234),
+            ack_number: Some(TcpSeqNumber(1234)),
             ..SEND_TEMPL
         }, Err(Error::Malformed));
         assert_eq!(s.state, State::SynSent);
@@ -1005,7 +1006,7 @@ mod test {
         // Already acknowledged data.
         send!(s, TcpRepr {
             seq_number: REMOTE_SEQ + 1,
-            ack_number: Some(LOCAL_SEQ - 1),
+            ack_number: Some(TcpSeqNumber(LOCAL_SEQ.0 - 1)),
             ..SEND_TEMPL
         }, Err(Error::Malformed));
         assert_eq!(s.local_seq_no, LOCAL_SEQ + 1);
