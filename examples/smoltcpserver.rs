@@ -121,6 +121,8 @@ fn main() {
                            str::from_utf8(data.as_ref()).unwrap_or("(invalid utf8)"));
                     socket.send_slice(&data[..]).unwrap();
                 }
+            } else if socket.can_send() {
+                socket.close()
             }
         }
 
