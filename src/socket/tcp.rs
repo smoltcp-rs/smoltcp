@@ -474,6 +474,9 @@ impl<'a> TcpSocket<'a> {
                 self.retransmit.reset()
             }
 
+            // ACK packets in CLOSE_WAIT state do nothing.
+            (State::CloseWait, TcpRepr { control: TcpControl::None, .. }) => (),
+
             _ => {
                 net_trace!("tcp:{}:{}: unexpected packet {}",
                            self.local_endpoint, self.remote_endpoint, repr);
@@ -863,10 +866,8 @@ mod test {
     // Tests for the ESTABLISHED state.
     // =========================================================================================//
     fn socket_established() -> TcpSocket<'static> {
-        let mut s = socket();
+        let mut s = socket_syn_received();
         s.state          = State::Established;
-        s.local_endpoint  = LOCAL_END;
-        s.remote_endpoint = REMOTE_END;
         s.local_seq_no    = LOCAL_SEQ + 1;
         s.remote_seq_no   = REMOTE_SEQ + 1;
         s.remote_last_seq = LOCAL_SEQ + 1;
@@ -1014,6 +1015,34 @@ mod test {
             ..SEND_TEMPL
         }]);
         assert_eq!(s.state, State::Closed);
+    }
+
+    // =========================================================================================//
+    // Tests for the CLOSE_WAIT state.
+    // =========================================================================================//
+    fn socket_close_wait() -> TcpSocket<'static> {
+        let mut s = socket_established();
+        s.state           = State::CloseWait;
+        s.remote_seq_no   = REMOTE_SEQ + 1 + 1;
+        s.remote_last_ack = REMOTE_SEQ + 1 + 1;
+        s
+    }
+
+    #[test]
+    fn test_close_wait_ack() {
+        let mut s = socket_close_wait();
+        s.tx_buffer.enqueue_slice(b"abcdef");
+        recv!(s, [TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1 + 1),
+            payload: &b"abcdef"[..],
+            ..RECV_TEMPL
+        }]);
+        send!(s, [TcpRepr {
+            seq_number: REMOTE_SEQ + 1 + 1,
+            ack_number: Some(LOCAL_SEQ + 1 + 6),
+            ..SEND_TEMPL
+        }]);
     }
 
     // =========================================================================================//
