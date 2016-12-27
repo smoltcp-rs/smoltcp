@@ -662,6 +662,7 @@ impl<'a> TcpSocket<'a> {
                     // Send the extracted data.
                     net_trace!("tcp:{}:{}: tx buffer: peeking at {} octets (from {})",
                                self.local_endpoint, self.remote_endpoint, data.len(), offset);
+                    repr.seq_number += offset;
                     repr.payload = data;
                     // Speculatively shrink the remote window. This will get updated the next
                     // time we receive a packet.
@@ -1033,6 +1034,25 @@ mod test {
             ..SEND_TEMPL
         }]);
         assert_eq!(s.tx_buffer.len(), 0);
+    }
+
+    #[test]
+    fn test_established_send_no_ack_send() {
+        let mut s = socket_established();
+        s.tx_buffer.enqueue_slice(b"abcdef");
+        recv!(s, [TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload: &b"abcdef"[..],
+            ..RECV_TEMPL
+        }]);
+        s.tx_buffer.enqueue_slice(b"foobar");
+        recv!(s, [TcpRepr {
+            seq_number: LOCAL_SEQ + 1 + 6,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload: &b"foobar"[..],
+            ..RECV_TEMPL
+        }]);
     }
 
     #[test]
