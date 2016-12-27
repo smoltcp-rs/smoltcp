@@ -229,6 +229,11 @@ pub mod checksum {
 
     use super::*;
 
+    fn propagate_carries(word: u32) -> u16 {
+        let sum = (word >> 16) + (word & 0xffff);
+        ((sum >> 16) as u16) + (sum as u16)
+    }
+
     /// Compute an RFC 1071 compliant checksum (without the final complement).
     pub fn data(data: &[u8]) -> u16 {
         let mut accum: u32 = 0;
@@ -241,7 +246,7 @@ pub mod checksum {
             }
             accum += word;
         }
-        (((accum >> 16) as u16) + (accum as u16))
+        propagate_carries(accum)
     }
 
     /// Combine several RFC 1071 compliant checksums.
@@ -250,7 +255,7 @@ pub mod checksum {
         for &word in checksums {
             accum += word as u32;
         }
-        (((accum >> 16) as u16) + (accum as u16))
+        propagate_carries(accum)
     }
 
     /// Compute an IP pseudo header checksum.
