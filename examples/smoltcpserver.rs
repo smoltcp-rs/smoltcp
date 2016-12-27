@@ -57,7 +57,7 @@ fn main() {
     let tcp_rx_buffer = TcpSocketBuffer::new(vec![0; 64]);
     let tcp_tx_buffer = TcpSocketBuffer::new(vec![0; 128]);
     let mut tcp_socket = TcpSocket::new(tcp_rx_buffer, tcp_tx_buffer);
-    (tcp_socket.as_socket() : &mut TcpSocket).listen(endpoint);
+    (tcp_socket.as_socket() : &mut TcpSocket).listen(endpoint).unwrap();
 
     let hardware_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
     let protocol_addrs = [IpAddress::v4(192, 168, 69, 1)];
@@ -97,21 +97,23 @@ fn main() {
 
         {
             let socket: &mut TcpSocket = iface.sockets()[1].as_socket();
-            let data = {
-                let mut data = socket.recv(128).to_owned();
-                if data.len() > 0 {
-                    debug!("tcp recv data: {:?}",
-                           str::from_utf8(data.as_ref()).unwrap());
-                    data = data.split(|&b| b == b'\n').next().unwrap().to_owned();
-                    data.reverse();
-                    data.extend(b"\n");
+            if socket.can_recv() {
+                let data = {
+                    let mut data = socket.recv(128).unwrap().to_owned();
+                    if data.len() > 0 {
+                        debug!("tcp recv data: {:?}",
+                               str::from_utf8(data.as_ref()).unwrap_or("(invalid utf8)"));
+                        data = data.split(|&b| b == b'\n').collect::<Vec<_>>().concat();
+                        data.reverse();
+                        data.extend(b"\n");
+                    }
+                    data
+                };
+                if socket.can_send() && data.len() > 0 {
+                    debug!("tcp send data: {:?}",
+                           str::from_utf8(data.as_ref()).unwrap_or("(invalid utf8)"));
+                    socket.send_slice(&data[..]).unwrap();
                 }
-                data
-            };
-            if data.len() > 0 {
-                debug!("tcp send data: {:?}",
-                       str::from_utf8(data.as_ref()).unwrap());
-                socket.send_slice(&data[..]);
             }
         }
     }

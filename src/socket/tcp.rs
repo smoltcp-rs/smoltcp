@@ -1112,7 +1112,7 @@ mod test {
     #[test]
     fn test_listen() {
         let mut s = socket();
-        s.listen(IpEndpoint::new(IpAddress::default(), LOCAL_PORT));
+        s.listen(IpEndpoint::new(IpAddress::default(), LOCAL_PORT)).unwrap();
         assert_eq!(s.state, State::Listen);
     }
 

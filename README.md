@@ -105,9 +105,11 @@ cargo run --example smoltcpserver -- tap0
 
 It responds to:
 
-  * pings (`ping 192.168.69.1`),
+  * pings (`ping 192.168.69.1`);
   * UDP packets on port 6969 (`socat stdio udp4-connect:192.168.69.1:6969 <<<"abcdefg"`),
+    where it will respond "yo dawg" to any incoming packet;
   * TCP packets on port 6969 (`socat stdio tcp4-connect:192.168.69.1:6969 <<<"abcdefg"`),
+    where it will respond with reversed chunks of the input indefinitely.
 
 The buffers are only 64 bytes long, for convenience of testing resource exhaustion conditions.
 
