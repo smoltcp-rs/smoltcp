@@ -131,15 +131,15 @@ impl fmt::Display for State {
         match self {
             &State::Closed      => write!(f, "CLOSED"),
             &State::Listen      => write!(f, "LISTEN"),
-            &State::SynSent     => write!(f, "SYN_SENT"),
-            &State::SynReceived => write!(f, "SYN_RECEIVED"),
+            &State::SynSent     => write!(f, "SYN-SENT"),
+            &State::SynReceived => write!(f, "SYN-RECEIVED"),
             &State::Established => write!(f, "ESTABLISHED"),
-            &State::FinWait1    => write!(f, "FIN_WAIT_1"),
-            &State::FinWait2    => write!(f, "FIN_WAIT_2"),
-            &State::CloseWait   => write!(f, "CLOSE_WAIT"),
+            &State::FinWait1    => write!(f, "FIN-WAIT-1"),
+            &State::FinWait2    => write!(f, "FIN-WAIT-2"),
+            &State::CloseWait   => write!(f, "CLOSE-WAIT"),
             &State::Closing     => write!(f, "CLOSING"),
-            &State::LastAck     => write!(f, "LAST_ACK"),
-            &State::TimeWait    => write!(f, "TIME_WAIT")
+            &State::LastAck     => write!(f, "LAST-ACK"),
+            &State::TimeWait    => write!(f, "TIME-WAIT")
         }
     }
 }
@@ -267,11 +267,11 @@ impl<'a> TcpSocket<'a> {
             // In the LISTEN state there is no established connection.
             State::Listen =>
                 self.set_state(State::Closed),
-            // In the SYN_SENT state the remote endpoint is not yet synchronized and, upon
+            // In the SYN-SENT state the remote endpoint is not yet synchronized and, upon
             // receiving an RST, will abort the connection.
             State::SynSent =>
                 self.set_state(State::Closed),
-            // In the SYN_RECEIVED, ESTABLISHED and CLOSE_WAIT states the transmit half
+            // In the SYN-RECEIVED, ESTABLISHED and CLOSE-WAIT states the transmit half
             // of the connection is open, and needs to be explicitly closed with a FIN.
             State::SynReceived | State::Established => {
                 self.retransmit.reset();
@@ -281,7 +281,7 @@ impl<'a> TcpSocket<'a> {
                 self.retransmit.reset();
                 self.set_state(State::LastAck);
             }
-            // In the FIN_WAIT_1, FIN_WAIT_2, CLOSING, LAST_ACK, TIME_WAIT and CLOSED states,
+            // In the FIN-WAIT-1, FIN-WAIT-2, CLOSING, LAST-ACK, TIME-WAIT and CLOSED states,
             // the transmit half of the connection is already closed, and no further
             // action is needed.
             State::FinWait1 | State::FinWait2 | State::Closing |
@@ -329,7 +329,7 @@ impl<'a> TcpSocket<'a> {
     pub fn can_send(&self) -> bool {
         match self.state {
             State::Established => true,
-            // In CLOSE_WAIT, the remote endpoint has closed our receive half of the connection
+            // In CLOSE-WAIT, the remote endpoint has closed our receive half of the connection
             // but we still can transmit indefinitely.
             State::CloseWait => true,
             _ => false
@@ -344,7 +344,7 @@ impl<'a> TcpSocket<'a> {
     pub fn can_recv(&self) -> bool {
         match self.state {
             State::Established => true,
-            // In FIN_WAIT_1/2, we have closed our transmit half of the connection but
+            // In FIN-WAIT-1/2, we have closed our transmit half of the connection but
             // we still can receive indefinitely.
             State::FinWait1 | State::FinWait2 => true,
             // If we have something in the receive buffer, we can receive that.
@@ -503,9 +503,9 @@ impl<'a> TcpSocket<'a> {
             // Every acknowledgement must be for transmitted but unacknowledged data.
             (state, TcpRepr { ack_number: Some(ack_number), .. }) => {
                 let control_len = match state {
-                    // In SYN_SENT or SYN_RECEIVED, we've just sent a SYN.
+                    // In SYN-SENT or SYN-RECEIVED, we've just sent a SYN.
                     State::SynSent | State::SynReceived => 1,
-                    // In FIN_WAIT_1 or LAST_ACK, we've just sent a FIN.
+                    // In FIN-WAIT-1 or LAST-ACK, we've just sent a FIN.
                     State::FinWait1 | State::LastAck => 1,
                     // In all other states we've already got acknowledgemetns for
                     // all of the control flags we sent.
@@ -523,7 +523,7 @@ impl<'a> TcpSocket<'a> {
         }
 
         match (self.state, repr) {
-            // In LISTEN and SYN_SENT states, we have not yet synchronized with the remote end.
+            // In LISTEN and SYN-SENT states, we have not yet synchronized with the remote end.
             (State::Listen, _)  => (),
             (State::SynSent, _) => (),
             // In all other states, segments must occupy a valid portion of the receive window.
@@ -550,7 +550,7 @@ impl<'a> TcpSocket<'a> {
             (State::Listen, TcpRepr { control: TcpControl::Rst, .. }) =>
                 return Ok(()),
 
-            // RSTs in SYN_RECEIVED flip the socket back to the LISTEN state.
+            // RSTs in SYN-RECEIVED flip the socket back to the LISTEN state.
             (State::SynReceived, TcpRepr { control: TcpControl::Rst, .. }) => {
                 net_trace!("tcp:{}:{}: received RST",
                            self.local_endpoint, self.remote_endpoint);
@@ -570,7 +570,7 @@ impl<'a> TcpSocket<'a> {
                 return Ok(())
             }
 
-            // SYN packets in the LISTEN state change it to SYN_RECEIVED.
+            // SYN packets in the LISTEN state change it to SYN-RECEIVED.
             (State::Listen, TcpRepr {
                 src_port, dst_port, control: TcpControl::Syn, seq_number, ack_number: None, ..
             }) => {
@@ -584,7 +584,7 @@ impl<'a> TcpSocket<'a> {
                 self.retransmit.reset()
             }
 
-            // ACK packets in the SYN_RECEIVED state change it to ESTABLISHED.
+            // ACK packets in the SYN-RECEIVED state change it to ESTABLISHED.
             (State::SynReceived, TcpRepr { control: TcpControl::None, .. }) => {
                 self.local_seq_no   += 1;
                 self.set_state(State::Established);
@@ -601,10 +601,10 @@ impl<'a> TcpSocket<'a> {
                 self.retransmit.reset()
             }
 
-            // ACK packets in CLOSE_WAIT state do nothing.
+            // ACK packets in CLOSE-WAIT state do nothing.
             (State::CloseWait, TcpRepr { control: TcpControl::None, .. }) => (),
 
-            // ACK packets in LAST_ACK state change it to CLOSED.
+            // ACK packets in LAST-ACK state change it to CLOSED.
             (State::LastAck, TcpRepr { control: TcpControl::None, .. }) => {
                 // Clear the remote endpoint, or we'll send an RST there.
                 self.remote_endpoint = IpEndpoint::default();
@@ -665,12 +665,12 @@ impl<'a> TcpSocket<'a> {
 
         let mut should_send = false;
         match self.state {
-            // We never transmit anything in the CLOSED, LISTEN, TIME_WAIT or FIN_WAIT_2 states.
+            // We never transmit anything in the CLOSED, LISTEN, TIME-WAIT or FIN-WAIT-2 states.
             State::Closed | State::Listen | State::TimeWait | State::FinWait2 => {
                 return Err(Error::Exhausted)
             }
 
-            // We transmit a SYN|ACK in the SYN_RECEIVED state.
+            // We transmit a SYN|ACK in the SYN-RECEIVED state.
             State::SynReceived => {
                 if !self.retransmit.check() { return Err(Error::Exhausted) }
 
@@ -680,7 +680,7 @@ impl<'a> TcpSocket<'a> {
                 should_send = true;
             }
 
-            // We transmit a SYN in the SYN_SENT state.
+            // We transmit a SYN in the SYN-SENT state.
             State::SynSent => {
                 if !self.retransmit.check() { return Err(Error::Exhausted) }
 
@@ -692,8 +692,8 @@ impl<'a> TcpSocket<'a> {
             }
 
             // We transmit data in the ESTABLISHED state,
-            // ACK in CLOSE_WAIT and CLOSING states,
-            // FIN in FIN_WAIT_1 and LAST_ACK states.
+            // ACK in CLOSE-WAIT and CLOSING states,
+            // FIN in FIN-WAIT-1 and LAST-ACK states.
             State::Established |
             State::CloseWait   | State::LastAck |
             State::FinWait1    | State::Closing => {
@@ -978,7 +978,7 @@ mod test {
     }
 
     // =========================================================================================//
-    // Tests for the SYN_RECEIVED state.
+    // Tests for the SYN-RECEIVED state.
     // =========================================================================================//
     fn socket_syn_received() -> TcpSocket<'static> {
         let mut s = socket();
@@ -1012,7 +1012,7 @@ mod test {
     }
 
     // =========================================================================================//
-    // Tests for the SYN_SENT state.
+    // Tests for the SYN-SENT state.
     // =========================================================================================//
     fn socket_syn_sent() -> TcpSocket<'static> {
         let mut s = socket();
@@ -1274,7 +1274,7 @@ mod test {
     }
 
     // =========================================================================================//
-    // Tests for the FIN_WAIT_1 state.
+    // Tests for the FIN-WAIT-1 state.
     // =========================================================================================//
     fn socket_fin_wait_1() -> TcpSocket<'static> {
         let mut s = socket_established();
@@ -1290,7 +1290,7 @@ mod test {
     }
 
     // =========================================================================================//
-    // Tests for the FIN_WAIT_2 state.
+    // Tests for the FIN-WAIT-2 state.
     // =========================================================================================//
     fn socket_fin_wait_2() -> TcpSocket<'static> {
         let mut s = socket_fin_wait_1();
@@ -1325,7 +1325,7 @@ mod test {
     }
 
     // =========================================================================================//
-    // Tests for the CLOSE_WAIT state.
+    // Tests for the CLOSE-WAIT state.
     // =========================================================================================//
     fn socket_close_wait() -> TcpSocket<'static> {
         let mut s = socket_established();
@@ -1360,7 +1360,7 @@ mod test {
     }
 
     // =========================================================================================//
-    // Tests for the LAST_ACK state.
+    // Tests for the LAST-ACK state.
     // =========================================================================================//
     fn socket_last_ack() -> TcpSocket<'static> {
         let mut s = socket_close_wait();
@@ -1394,7 +1394,7 @@ mod test {
     }
 
     // =========================================================================================//
-    // Tests for the TIME_WAIT state.
+    // Tests for the TIME-WAIT state.
     // =========================================================================================//
     fn socket_time_wait() -> TcpSocket<'static> {
         let mut s = socket_fin_wait_2();
