@@ -315,6 +315,8 @@ impl<'a> TcpSocket<'a> {
             // In FIN_WAIT_1/2, we have closed our transmit half of the connection but
             // we still can receive indefinitely.
             State::FinWait1 | State::FinWait2 => true,
+            // If we have something in the receive buffer, we can receive that.
+            _ if self.rx_buffer.len() > 0 => true,
             _ => false
         }
     }
