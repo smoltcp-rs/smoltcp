@@ -460,6 +460,12 @@ impl<'a> TcpSocket<'a> {
             // ACK packets in ESTABLISHED state do nothing.
             (State::Established, TcpRepr { control: TcpControl::None, .. }) => (),
 
+            // FIN packets in ESTABLISHED state indicate the remote side has closed.
+            (State::Established, TcpRepr { control: TcpControl::Fin, .. }) => {
+                self.set_state(State::CloseWait);
+                self.retransmit.reset()
+            }
+
             _ => {
                 net_trace!("tcp:{}:{}: unexpected packet {}",
                            self.local_endpoint, self.remote_endpoint, repr);
@@ -471,12 +477,13 @@ impl<'a> TcpSocket<'a> {
         if let Some(ack_number) = repr.ack_number {
             let control_len =
                 if old_state == State::SynReceived { 1 } else { 0 };
-            if ack_number - self.local_seq_no - control_len > 0 {
+            let ack_length = ack_number - self.local_seq_no - control_len;
+            if ack_length > 0 {
                 net_trace!("tcp:{}:{}: tx buffer: dequeueing {} octets",
                            self.local_endpoint, self.remote_endpoint,
-                           ack_number - self.local_seq_no - control_len);
+                           ack_length);
             }
-            self.tx_buffer.advance((ack_number - self.local_seq_no - control_len) as usize);
+            self.tx_buffer.advance(ack_length as usize);
             self.local_seq_no = ack_number;
         }
 
@@ -511,7 +518,13 @@ impl<'a> TcpSocket<'a> {
             payload:    &[]
         };
 
-        let ack_number = self.remote_seq_no + self.rx_buffer.len() as i32;
+        let mut ack_number = self.remote_seq_no + self.rx_buffer.len() as i32;
+        match self.state {
+            // In CLOSE_WAIT or CLOSING, we have received a FIN and must acknowledge it.
+            State::CloseWait | State::Closing =>
+                ack_number += 1,
+            _ => ()
+        }
 
         match self.state {
             State::Closed | State::Listen => return Err(Error::Exhausted),
@@ -524,7 +537,8 @@ impl<'a> TcpSocket<'a> {
                            self.local_endpoint, self.remote_endpoint);
             }
 
-            State::Established => {
+            State::Established |
+            State::CloseWait => {
                 // See if we should send data to the remote end because:
                 //   1. the retransmit timer has expired, or...
                 let mut may_send = self.retransmit.check();
@@ -953,6 +967,42 @@ mod test {
             ..SEND_TEMPL
         }, Err(Error::Malformed));
         assert_eq!(s.remote_seq_no, REMOTE_SEQ + 1);
+    }
+
+    #[test]
+    fn test_established_fin() {
+        let mut s = socket_established();
+        send!(s, [TcpRepr {
+            control: TcpControl::Fin,
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            ..SEND_TEMPL
+        }]);
+        assert_eq!(s.state, State::CloseWait);
+        recv!(s, [TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1 + 1),
+            ..RECV_TEMPL
+        }]);
+    }
+
+    #[test]
+    fn test_established_send_fin() {
+        let mut s = socket_established();
+        s.tx_buffer.enqueue_slice(b"abcdef");
+        send!(s, [TcpRepr {
+            control: TcpControl::Fin,
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            ..SEND_TEMPL
+        }]);
+        assert_eq!(s.state, State::CloseWait);
+        recv!(s, [TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1 + 1),
+            payload: &b"abcdef"[..],
+            ..RECV_TEMPL
+        }]);
     }
 
     #[test]
