@@ -167,8 +167,8 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
         Ok((endpoint, buffer.len()))
     }
 
-    /// See [Socket::collect](enum.Socket.html#method.collect).
-    pub fn collect(&mut self, ip_repr: &IpRepr, payload: &[u8]) -> Result<(), Error> {
+    /// See [Socket::process](enum.Socket.html#method.process).
+    pub fn process(&mut self, ip_repr: &IpRepr, payload: &[u8]) -> Result<(), Error> {
         if ip_repr.protocol() != IpProtocol::Udp { return Err(Error::Rejected) }
 
         let packet = try!(UdpPacket::new(payload));

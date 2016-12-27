@@ -30,10 +30,10 @@ pub use self::tcp::TcpSocket;
 /// To downcast a `Socket` value down to a concrete socket, use
 /// the [AsSocket](trait.AsSocket.html) trait, and call e.g. `socket.as_socket::<UdpSocket<_>>()`.
 ///
-/// The `collect` and `dispatch` functions are fundamentally asymmetric and thus differ in
-/// their use of the [trait PacketRepr](trait.PacketRepr.html). When `collect` is called,
+/// The `process` and `dispatch` functions are fundamentally asymmetric and thus differ in
+/// their use of the [trait PacketRepr](trait.PacketRepr.html). When `process` is called,
 /// the packet length is already known and no allocation is required; on the other hand,
-/// `collect` would have to downcast a `&PacketRepr` to e.g. an `&UdpRepr` through `Any`,
+/// `process` would have to downcast a `&PacketRepr` to e.g. an `&UdpRepr` through `Any`,
 /// which is rather inelegant. Conversely, when `dispatch` is called, the packet length is
 /// not yet known and the packet storage has to be allocated; but the `&PacketRepr` is sufficient
 /// since the lower layers treat the packet as an opaque octet sequence.
@@ -52,12 +52,12 @@ impl<'a, 'b> Socket<'a, 'b> {
     /// is returned.
     ///
     /// This function is used internally by the networking stack.
-    pub fn collect(&mut self, ip_repr: &IpRepr, payload: &[u8]) -> Result<(), Error> {
+    pub fn process(&mut self, ip_repr: &IpRepr, payload: &[u8]) -> Result<(), Error> {
         match self {
             &mut Socket::Udp(ref mut socket) =>
-                socket.collect(ip_repr, payload),
+                socket.process(ip_repr, payload),
             &mut Socket::Tcp(ref mut socket) =>
-                socket.collect(ip_repr, payload),
+                socket.process(ip_repr, payload),
             &mut Socket::__Nonexhaustive => unreachable!()
         }
     }

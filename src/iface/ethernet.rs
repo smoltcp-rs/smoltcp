@@ -111,7 +111,7 @@ impl<'a, 'b: 'a,
         &mut self.sockets
     }
 
-    /// Receive and process a packet, if available.
+    /// Receive and process a packet, if available, and then transmit a packet, if necessary.
     pub fn poll(&mut self) -> Result<(), Error> {
         enum Response<'a> {
             Nop,
@@ -214,7 +214,7 @@ impl<'a, 'b: 'a,
                         let mut handled = false;
                         for socket in self.sockets.borrow_mut() {
                             let ip_repr = IpRepr::Ipv4(ipv4_repr);
-                            match socket.collect(&ip_repr, ipv4_packet.payload()) {
+                            match socket.process(&ip_repr, ipv4_packet.payload()) {
                                 Ok(()) => {
                                     // The packet was valid and handled by socket.
                                     handled = true;
@@ -355,7 +355,7 @@ impl<'a, 'b: 'a,
         }
     }
 
-    pub fn emit(&mut self) -> Result<bool, Error> {
+    fn emit(&mut self) -> Result<bool, Error> {
         // Borrow checker is being overly careful around closures, so we have
         // to hack around that.
         let src_hardware_addr = self.hardware_addr;
