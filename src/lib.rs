@@ -16,9 +16,11 @@ extern crate alloc;
 extern crate log;
 
 macro_rules! net_trace {
-    ($($arg:tt)*) => {
+    ($($arg:expr),*) => {
         #[cfg(feature = "use_log")]
-        trace!($($arg)*)
+        trace!($($arg),*);
+        #[cfg(not(feature = "use_log"))]
+        $( let _ = $arg );*; // suppress unused variable warnings
     }
 }
 
