@@ -1,10 +1,12 @@
 use core::ops::{Deref, DerefMut};
-#[cfg(feature = "use_std")]
+#[cfg(any(feature = "use_std", feature = "use_alloc"))]
 use core::borrow::BorrowMut;
 use core::fmt;
 
 #[cfg(feature = "use_std")]
 use std::boxed::Box;
+#[cfg(feature = "use_alloc")]
+use alloc::boxed::Box;
 #[cfg(feature = "use_std")]
 use std::vec::Vec;
 
@@ -26,7 +28,7 @@ pub enum Managed<'a, T: 'a + ?Sized> {
     /// Borrowed variant, either a single element or a slice.
     Borrowed(&'a mut T),
     /// Owned variant, only available with `std` present.
-    #[cfg(feature = "use_std")]
+    #[cfg(any(feature = "use_std", feature = "use_alloc"))]
     Owned(Box<BorrowMut<T>>)
 }
 
@@ -42,7 +44,7 @@ impl<'a, T: 'a + ?Sized> From<&'a mut T> for Managed<'a, T> {
     }
 }
 
-#[cfg(feature = "use_std")]
+#[cfg(any(feature = "use_std", feature = "use_alloc"))]
 impl<T, U: BorrowMut<T> + 'static> From<Box<U>> for Managed<'static, T> {
     fn from(value: Box<U>) -> Self {
         Managed::Owned(value)
@@ -63,7 +65,7 @@ impl<'a, T: 'a + ?Sized> Deref for Managed<'a, T> {
     fn deref(&self) -> &Self::Target {
         match self {
             &Managed::Borrowed(ref value) => value,
-            #[cfg(feature = "use_std")]
+            #[cfg(any(feature = "use_std", feature = "use_alloc"))]
             &Managed::Owned(ref value) => (**value).borrow()
         }
     }
@@ -73,7 +75,7 @@ impl<'a, T: 'a + ?Sized> DerefMut for Managed<'a, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         match self {
             &mut Managed::Borrowed(ref mut value) => value,
-            #[cfg(feature = "use_std")]
+            #[cfg(any(feature = "use_std", feature = "use_alloc"))]
             &mut Managed::Owned(ref mut value) => (**value).borrow_mut()
         }
     }

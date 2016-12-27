@@ -1,4 +1,5 @@
-#![feature(associated_consts, const_fn, step_by, intrinsics, slice_patterns)]
+#![feature(associated_consts, const_fn, step_by)]
+#![cfg_attr(feature = "use_alloc", feature(alloc))]
 #![no_std]
 
 extern crate byteorder;
@@ -8,6 +9,8 @@ extern crate byteorder;
 extern crate std;
 #[cfg(feature = "use_std")]
 extern crate libc;
+#[cfg(feature = "use_alloc")]
+extern crate alloc;
 #[cfg(feature = "use_log")]
 #[macro_use(trace, log)]
 extern crate log;

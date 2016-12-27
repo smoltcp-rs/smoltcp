@@ -78,6 +78,11 @@ The `use_std` feature enables use of buffers owned by the networking stack throu
 on `std::boxed::Box`. It also enables `smoltcp::phy::RawSocket` and `smoltcp::phy::TapInterface`,
 if the platform supports it.
 
+### Feature `use_alloc`
+
+The `use_std` feature enables use of buffers owned by the networking stack through a dependency
+on `alloc::boxed::Box`. This only works on nightly rustc.
+
 ### Feature `use_log`
 
 The `use_log` feature enables logging of events within the networking stack through
