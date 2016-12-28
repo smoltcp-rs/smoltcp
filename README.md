@@ -52,11 +52,12 @@ The TCP protocol is supported over IPv4.
 
   * TCP header checksum is supported.
   * Multiple packets will be transmitted without waiting for an acknowledgement.
-  * TCP urgent pointer is **not** supported; any urgent octets will be received alongside data.
+  * TCP urgent pointer is **not** supported; any urgent octets will be received alongside
+    data octets.
   * Reassembly of out-of-order segments is **not** supported.
   * TCP options are **not** supported, in particular:
     * Maximum segment size is hardcoded at the default value, 536.
-    * Window scaling is **not** supported.
+    * Window scaling is **not** supported, and the maximum buffer size is 65536.
   * Keepalive is **not** supported.
 
 Installation
@@ -143,7 +144,9 @@ It responds to:
   * pings (`ping 192.168.69.1`);
   * UDP packets on port 6969 (`socat stdio udp4-connect:192.168.69.1:6969 <<<"abcdefg"`),
     where it will respond "yo dawg" to any incoming packet;
-  * TCP packets on port 6969 (`socat stdio tcp4-connect:192.168.69.1:6969 <<<"abcdefg"`),
+  * TCP packets on port 6969 (`socat stdio tcp4-connect:192.168.69.1:6969`),
+    where it will respond "yo dawg" to any incoming connection and immediately close it;
+  * TCP packets on port 6970 (`socat stdio tcp4-connect:192.168.69.1:6970 <<<"abcdefg"`),
     where it will respond with reversed chunks of the input indefinitely.
 
 The buffers are only 64 bytes long, for convenience of testing resource exhaustion conditions.

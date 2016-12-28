@@ -78,6 +78,8 @@ impl fmt::Display for Address {
 }
 
 /// An internet endpoint address.
+///
+/// An endpoint can be constructed from a port, in which case the address is unspecified.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
 pub struct Endpoint {
     pub addr: Address,
@@ -101,6 +103,12 @@ impl Endpoint {
 impl fmt::Display for Endpoint {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}:{}", self.addr, self.port)
+    }
+}
+
+impl From<u16> for Endpoint {
+    fn from(port: u16) -> Endpoint {
+        Endpoint { addr: Address::Unspecified, port: port }
     }
 }
 
