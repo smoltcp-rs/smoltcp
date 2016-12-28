@@ -3,6 +3,9 @@ rust:
   - stable
   - beta
   - nightly
+matrix:
+  allow_failures:
+    - rust: stable # until 1.15 comes out
 notifications:
   irc:
     channels:
