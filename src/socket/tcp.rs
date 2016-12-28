@@ -175,8 +175,8 @@ impl Retransmit {
 pub struct TcpSocket<'a> {
     /// State of the socket.
     state:           State,
-    /// Address passed to `listen()`. `listen_address` is set when `listen()` is called and
-    /// used every time the socket is reset back to the `LISTEN` state.
+    /// Address passed to listen(). Listen address is set when listen() is called and
+    /// used every time the socket is reset back to the LISTEN state.
     listen_address:  IpAddress,
     /// Current local endpoint. This is used for both filtering the incoming packets and
     /// setting the source address. When listening or initiating connection on/from
@@ -184,7 +184,9 @@ pub struct TcpSocket<'a> {
     /// any packets are sent.
     local_endpoint:  IpEndpoint,
     /// Current remote endpoint. This is used for both filtering the incoming packets and
-    /// setting the destination address.
+    /// setting the destination address. If the remote endpoint is unspecified, it means that
+    /// aborting the connection will not send an RST, and, in TIME-WAIT state, will not
+    /// send an ACK.
     remote_endpoint: IpEndpoint,
     /// The sequence number corresponding to the beginning of the transmit buffer.
     /// I.e. an ACK(local_seq_no+n) packet removes n bytes from the transmit buffer.
@@ -621,6 +623,13 @@ impl<'a> TcpSocket<'a> {
                 self.retransmit.reset();
             }
 
+            // ACK packets in CLOSING state change it to TIME-WAIT.
+            (State::Closing, TcpRepr { control: TcpControl::None, .. }) => {
+                // Clear the remote endpoint, or we'll send an ACK there.
+                self.remote_endpoint = IpEndpoint::default();
+                self.set_state(State::TimeWait);
+            }
+
             // ACK packets in CLOSE-WAIT state do nothing.
             (State::CloseWait, TcpRepr { control: TcpControl::None, .. }) => (),
 
@@ -668,6 +677,8 @@ impl<'a> TcpSocket<'a> {
     /// See [Socket::dispatch](enum.Socket.html#method.dispatch).
     pub fn dispatch<F, R>(&mut self, emit: &mut F) -> Result<R, Error>
             where F: FnMut(&IpRepr, &IpPayload) -> Result<R, Error> {
+        if self.remote_endpoint.is_unspecified() { return Err(Error::Exhausted) }
+
         let ip_repr = IpRepr::Unspecified {
             src_addr: self.local_endpoint.addr,
             dst_addr: self.remote_endpoint.addr,
@@ -1364,6 +1375,7 @@ mod test {
             ..SEND_TEMPL
         }]);
         assert_eq!(s.state, State::TimeWait);
+        assert!(!s.remote_endpoint.is_unspecified());
     }
 
     #[test]
@@ -1379,9 +1391,26 @@ mod test {
     fn socket_closing() -> TcpSocket<'static> {
         let mut s = socket_fin_wait_1();
         s.state           = State::Closing;
+        s.local_seq_no    = LOCAL_SEQ + 1 + 1;
         s.remote_seq_no   = REMOTE_SEQ + 1 + 1;
-        s.remote_last_ack = REMOTE_SEQ + 1 + 1;
         s
+    }
+
+    #[test]
+    fn test_closing_ack_fin() {
+        let mut s = socket_closing();
+        recv!(s, [TcpRepr {
+            seq_number: LOCAL_SEQ + 1 + 1,
+            ack_number: Some(REMOTE_SEQ + 1 + 1),
+            ..RECV_TEMPL
+        }]);
+        send!(s, [TcpRepr {
+            seq_number: REMOTE_SEQ + 1 + 1,
+            ack_number: Some(LOCAL_SEQ + 1 + 1),
+            ..SEND_TEMPL
+        }]);
+        assert_eq!(s.state, State::TimeWait);
+        assert!(s.remote_endpoint.is_unspecified());
     }
 
     #[test]

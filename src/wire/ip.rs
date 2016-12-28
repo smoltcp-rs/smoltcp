@@ -91,6 +91,11 @@ impl Endpoint {
     pub fn new(addr: Address, port: u16) -> Endpoint {
         Endpoint { addr: addr, port: port }
     }
+
+    /// Query whether the endpoint has an unspecified address.
+    pub fn is_unspecified(&self) -> bool {
+        self.addr.is_unspecified()
+    }
 }
 
 impl fmt::Display for Endpoint {
