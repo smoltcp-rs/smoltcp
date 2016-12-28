@@ -581,14 +581,14 @@ impl<'a> TcpSocket<'a> {
                 self.remote_last_seq = self.local_seq_no + 1;
                 self.remote_seq_no   = seq_number + 1;
                 self.set_state(State::SynReceived);
-                self.retransmit.reset()
+                self.retransmit.reset();
             }
 
             // ACK packets in the SYN-RECEIVED state change it to ESTABLISHED.
             (State::SynReceived, TcpRepr { control: TcpControl::None, .. }) => {
                 self.local_seq_no   += 1;
                 self.set_state(State::Established);
-                self.retransmit.reset()
+                self.retransmit.reset();
             }
 
             // ACK packets in ESTABLISHED state do nothing.
@@ -598,7 +598,20 @@ impl<'a> TcpSocket<'a> {
             (State::Established, TcpRepr { control: TcpControl::Fin, .. }) => {
                 self.remote_seq_no  += 1;
                 self.set_state(State::CloseWait);
-                self.retransmit.reset()
+                self.retransmit.reset();
+            }
+
+            // ACK packets in FIN-WAIT-1 state change it to FIN-WAIT-2.
+            (State::FinWait1, TcpRepr { control: TcpControl::None, .. }) => {
+                self.local_seq_no   += 1;
+                self.set_state(State::FinWait2);
+            }
+
+            // FIN packets in FIN-WAIT-1 state change it to CLOSING.
+            (State::FinWait1, TcpRepr { control: TcpControl::Fin, .. })  => {
+                self.remote_seq_no  += 1;
+                self.set_state(State::Closing);
+                self.retransmit.reset();
             }
 
             // ACK packets in CLOSE-WAIT state do nothing.
@@ -1283,6 +1296,41 @@ mod test {
     }
 
     #[test]
+    fn test_fin_wait_1_fin_ack() {
+        let mut s = socket_fin_wait_1();
+        recv!(s, [TcpRepr {
+            control: TcpControl::Fin,
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            ..RECV_TEMPL
+        }]);
+        send!(s, [TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1 + 1),
+            ..SEND_TEMPL
+        }]);
+        assert_eq!(s.state, State::FinWait2);
+    }
+
+    #[test]
+    fn test_fin_wait_1_fin_fin() {
+        let mut s = socket_fin_wait_1();
+        recv!(s, [TcpRepr {
+            control: TcpControl::Fin,
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            ..RECV_TEMPL
+        }]);
+        send!(s, [TcpRepr {
+            control: TcpControl::Fin,
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            ..SEND_TEMPL
+        }]);
+        assert_eq!(s.state, State::Closing);
+    }
+
+    #[test]
     fn test_fin_wait_1_close() {
         let mut s = socket_fin_wait_1();
         s.close();
@@ -1423,10 +1471,7 @@ mod test {
 
     #[test]
     fn test_three_way_handshake() {
-        let mut s = socket();
-        s.state           = State::Listen;
-        s.local_endpoint  = IpEndpoint::new(IpAddress::default(), LOCAL_PORT);
-
+        let mut s = socket_listen();
         send!(s, [TcpRepr {
             control: TcpControl::Syn,
             seq_number: REMOTE_SEQ,
@@ -1450,5 +1495,35 @@ mod test {
         assert_eq!(s.state(), State::Established);
         assert_eq!(s.local_seq_no, LOCAL_SEQ + 1);
         assert_eq!(s.remote_seq_no, REMOTE_SEQ + 1);
+    }
+
+    #[test]
+    fn test_remote_close() {
+        let mut s = socket_established();
+        send!(s, [TcpRepr {
+            control: TcpControl::Fin,
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            ..SEND_TEMPL
+        }]);
+        assert_eq!(s.state, State::CloseWait);
+        recv!(s, [TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1 + 1),
+            ..RECV_TEMPL
+        }]);
+        s.close();
+        assert_eq!(s.state, State::LastAck);
+        recv!(s, [TcpRepr {
+            control: TcpControl::Fin,
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1 + 1),
+            ..RECV_TEMPL
+        }]);
+        send!(s, [TcpRepr {
+            seq_number: REMOTE_SEQ + 1 + 1,
+            ack_number: Some(LOCAL_SEQ + 1 + 1),
+            ..SEND_TEMPL
+        }]);
     }
 }
