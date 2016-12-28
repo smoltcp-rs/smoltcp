@@ -1,4 +1,3 @@
-#![feature(associated_consts, type_ascription)]
 #[macro_use]
 extern crate log;
 extern crate env_logger;
@@ -56,8 +55,7 @@ fn main() {
 
     let tcp_rx_buffer = TcpSocketBuffer::new(vec![0; 64]);
     let tcp_tx_buffer = TcpSocketBuffer::new(vec![0; 128]);
-    let mut tcp_socket = TcpSocket::new(tcp_rx_buffer, tcp_tx_buffer);
-    (tcp_socket.as_socket() : &mut TcpSocket).listen(endpoint).unwrap();
+    let tcp_socket = TcpSocket::new(tcp_rx_buffer, tcp_tx_buffer);
 
     let hardware_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
     let protocol_addrs = [IpAddress::v4(192, 168, 69, 1)];

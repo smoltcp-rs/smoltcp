@@ -112,30 +112,30 @@ sudo ip link set tap0 up
 sudo ip addr add 192.168.69.100/24 dev tap0
 ```
 
-### smoltcpdump
+### examples/tcpdump.rs
 
-_smoltcpdump_ is a tiny clone of the _tcpdump_ utility.
+_examples/tcpdump.rs_ is a tiny clone of the _tcpdump_ utility.
 
 Unlike the rest of the examples, it uses raw sockets, and so it can be used on regular interfaces,
 e.g. `eth0` or `wlan0`, as well as the `tap0` interface we've created above.
 
-Read its [source code](/examples/smoltcpdump.rs), then run it as:
+Read its [source code](/examples/tcpdump.rs), then run it as:
 
 ```sh
-cargo build --example smoltcpdump
-sudo ./target/debug/smoltcpdump eth0
+cargo build --example tcpdump
+sudo ./target/debug/tcpdump eth0
 ```
 
-### smoltcpserver
+### examples/server.rs
 
-_smoltcpserver_ emulates a network host that can serve requests.
+_examples/server.rs_ emulates a network host that can serve requests.
 
 The host is assigned the hardware address `02-00-00-00-00-01` and IPv4 address `192.168.69.1`.
 
-Read its [source code](/examples/smoltcpserver.rs), then run it as:
+Read its [source code](/examples/server.rs), then run it as:
 
 ```sh
-cargo run --example smoltcpserver -- tap0
+cargo run --example server -- tap0
 ```
 
 It responds to:
