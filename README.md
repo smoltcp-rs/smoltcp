@@ -151,8 +151,6 @@ The buffers are only 64 bytes long, for convenience of testing resource exhausti
 License
 -------
 
-_smoltcp_ is distributed under the terms of both the MIT license
-and the Apache License (Version 2.0).
+_smoltcp_ is distributed under the terms of 0-clause BSD license.
 
-See [LICENSE-APACHE](LICENSE-APACHE) and [LICENSE-MIT](LICENSE-MIT)
-for details.
+See [LICENSE-0BSD](LICENSE-0BSD.txt) for details.
