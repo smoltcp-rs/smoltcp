@@ -28,7 +28,7 @@ impl fmt::Display for EtherType {
 pub struct Address(pub [u8; 6]);
 
 impl Address {
-    pub const BROADCAST: Address = Address([0xff; 6]);
+    // pub const BROADCAST: Address = Address([0xff; 6]);
 
     /// Construct an Ethernet address from a sequence of octets, in big-endian.
     ///

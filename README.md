@@ -6,6 +6,11 @@ real-time systems. Its design goals are simplicity and robustness. Its design an
 include complicated compile-time computations, such as macro or type tricks, even
 at cost of performance degradation.
 
+_smoltcp_ does not need heap allocation *at all*, is [extensively documented][docs],
+and compiles on stable Rust.
+
+[docs]: https://m-labs.github.io/smoltcp/smoltcp/index.html
+
 Features
 --------
 

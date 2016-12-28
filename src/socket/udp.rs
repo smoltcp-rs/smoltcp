@@ -17,7 +17,7 @@ impl<'a> PacketBuffer<'a> {
     pub fn new<T>(payload: T) -> PacketBuffer<'a>
             where T: Into<Managed<'a, [u8]>> {
         PacketBuffer {
-            endpoint: IpEndpoint::UNSPECIFIED,
+            endpoint: IpEndpoint::default(),
             size:     0,
             payload:  payload.into()
         }

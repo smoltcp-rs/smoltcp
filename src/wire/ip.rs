@@ -85,7 +85,7 @@ pub struct Endpoint {
 }
 
 impl Endpoint {
-    pub const UNSPECIFIED: Endpoint = Endpoint { addr: Address::Unspecified, port: 0 };
+    // pub const UNSPECIFIED: Endpoint = Endpoint { addr: Address::Unspecified, port: 0 };
 
     /// Create an endpoint address from given address and port.
     pub fn new(addr: Address, port: u16) -> Endpoint {
