@@ -514,7 +514,7 @@ impl<'a> TcpSocket<'a> {
                 let unacknowledged = self.tx_buffer.len() + control_len;
                 if !(ack_number >= self.local_seq_no &&
                      ack_number <= (self.local_seq_no + unacknowledged)) {
-                    net_trace!("tcp:{}:{}: unacceptable ACK ({} not in {}..{})",
+                    net_trace!("tcp:{}:{}: unacceptable ACK ({} not in {}...{})",
                                self.local_endpoint, self.remote_endpoint,
                                ack_number, self.local_seq_no, self.local_seq_no + unacknowledged);
                     return Err(Error::Malformed)
@@ -608,9 +608,16 @@ impl<'a> TcpSocket<'a> {
             }
 
             // FIN packets in FIN-WAIT-1 state change it to CLOSING.
-            (State::FinWait1, TcpRepr { control: TcpControl::Fin, .. })  => {
+            (State::FinWait1, TcpRepr { control: TcpControl::Fin, .. }) => {
                 self.remote_seq_no  += 1;
                 self.set_state(State::Closing);
+                self.retransmit.reset();
+            }
+
+            // FIN packets in FIN-WAIT-2 state change it to TIME-WAIT.
+            (State::FinWait2, TcpRepr { control: TcpControl::Fin, .. }) => {
+                self.remote_seq_no  += 1;
+                self.set_state(State::TimeWait);
                 self.retransmit.reset();
             }
 
@@ -1348,6 +1355,18 @@ mod test {
     }
 
     #[test]
+    fn test_fin_wait_2_fin() {
+        let mut s = socket_fin_wait_2();
+        send!(s, [TcpRepr {
+            control: TcpControl::Fin,
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1 + 1),
+            ..SEND_TEMPL
+        }]);
+        assert_eq!(s.state, State::TimeWait);
+    }
+
+    #[test]
     fn test_fin_wait_2_close() {
         let mut s = socket_fin_wait_2();
         s.close();
@@ -1370,6 +1389,24 @@ mod test {
         let mut s = socket_closing();
         s.close();
         assert_eq!(s.state, State::Closing);
+    }
+
+    // =========================================================================================//
+    // Tests for the TIME-WAIT state.
+    // =========================================================================================//
+    fn socket_time_wait() -> TcpSocket<'static> {
+        let mut s = socket_fin_wait_2();
+        s.state           = State::TimeWait;
+        s.remote_seq_no   = REMOTE_SEQ + 1 + 1;
+        s.remote_last_ack = REMOTE_SEQ + 1 + 1;
+        s
+    }
+
+    #[test]
+    fn test_time_wait_close() {
+        let mut s = socket_time_wait();
+        s.close();
+        assert_eq!(s.state, State::TimeWait);
     }
 
     // =========================================================================================//
@@ -1439,24 +1476,6 @@ mod test {
         let mut s = socket_last_ack();
         s.close();
         assert_eq!(s.state, State::LastAck);
-    }
-
-    // =========================================================================================//
-    // Tests for the TIME-WAIT state.
-    // =========================================================================================//
-    fn socket_time_wait() -> TcpSocket<'static> {
-        let mut s = socket_fin_wait_2();
-        s.state           = State::TimeWait;
-        s.remote_seq_no   = REMOTE_SEQ + 1 + 1;
-        s.remote_last_ack = REMOTE_SEQ + 1 + 1;
-        s
-    }
-
-    #[test]
-    fn test_time_wait_close() {
-        let mut s = socket_time_wait();
-        s.close();
-        assert_eq!(s.state, State::TimeWait);
     }
 
     // =========================================================================================//
