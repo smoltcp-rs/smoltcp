@@ -776,7 +776,7 @@ impl<'a> IpPayload for TcpRepr<'a> {
 
 #[cfg(test)]
 mod test {
-    use wire::IpAddress;
+    use wire::{IpAddress, Ipv4Address};
     use super::*;
 
     #[test]
@@ -807,12 +807,12 @@ mod test {
         assert_eq!(buffer.peek(3, 8), &b"bar"[..]);
     }
 
-    const LOCAL_IP:     IpAddress    = IpAddress::v4(10, 0, 0, 1);
-    const REMOTE_IP:    IpAddress    = IpAddress::v4(10, 0, 0, 2);
+    const LOCAL_IP:     IpAddress    = IpAddress::Ipv4(Ipv4Address([10, 0, 0, 1]));
+    const REMOTE_IP:    IpAddress    = IpAddress::Ipv4(Ipv4Address([10, 0, 0, 2]));
     const LOCAL_PORT:   u16          = 80;
     const REMOTE_PORT:  u16          = 49500;
-    const LOCAL_END:    IpEndpoint   = IpEndpoint::new(LOCAL_IP, LOCAL_PORT);
-    const REMOTE_END:   IpEndpoint   = IpEndpoint::new(REMOTE_IP, REMOTE_PORT);
+    const LOCAL_END:    IpEndpoint   = IpEndpoint { addr: LOCAL_IP,  port: LOCAL_PORT  };
+    const REMOTE_END:   IpEndpoint   = IpEndpoint { addr: REMOTE_IP, port: REMOTE_PORT };
     const LOCAL_SEQ:    TcpSeqNumber = TcpSeqNumber(10000);
     const REMOTE_SEQ:   TcpSeqNumber = TcpSeqNumber(-10000);
 

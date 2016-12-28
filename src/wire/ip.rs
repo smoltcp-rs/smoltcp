@@ -35,7 +35,7 @@ pub enum Address {
 
 impl Address {
     /// Create an address wrapping an IPv4 address with the given octets.
-    pub const fn v4(a0: u8, a1: u8, a2: u8, a3: u8) -> Address {
+    pub fn v4(a0: u8, a1: u8, a2: u8, a3: u8) -> Address {
         Address::Ipv4(Ipv4Address([a0, a1, a2, a3]))
     }
 
@@ -88,7 +88,7 @@ impl Endpoint {
     pub const UNSPECIFIED: Endpoint = Endpoint { addr: Address::Unspecified, port: 0 };
 
     /// Create an endpoint address from given address and port.
-    pub const fn new(addr: Address, port: u16) -> Endpoint {
+    pub fn new(addr: Address, port: u16) -> Endpoint {
         Endpoint { addr: addr, port: port }
     }
 }

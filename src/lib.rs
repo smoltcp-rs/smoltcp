@@ -1,4 +1,4 @@
-#![feature(associated_consts, const_fn)]
+#![feature(associated_consts)]
 #![cfg_attr(feature = "use_alloc", feature(alloc))]
 #![no_std]
 

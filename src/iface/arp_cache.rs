@@ -118,6 +118,7 @@ impl<'a> Cache for SliceCache<'a> {
 
 #[cfg(test)]
 mod test {
+    use wire::Ipv4Address;
     use super::*;
 
     const HADDR_A: EthernetAddress = EthernetAddress([0, 0, 0, 0, 0, 1]);
@@ -125,10 +126,10 @@ mod test {
     const HADDR_C: EthernetAddress = EthernetAddress([0, 0, 0, 0, 0, 3]);
     const HADDR_D: EthernetAddress = EthernetAddress([0, 0, 0, 0, 0, 4]);
 
-    const PADDR_A: IpAddress = IpAddress::v4(0, 0, 0, 0);
-    const PADDR_B: IpAddress = IpAddress::v4(0, 0, 0, 1);
-    const PADDR_C: IpAddress = IpAddress::v4(0, 0, 0, 2);
-    const PADDR_D: IpAddress = IpAddress::v4(0, 0, 0, 3);
+    const PADDR_A: IpAddress = IpAddress::Ipv4(Ipv4Address([0, 0, 0, 0]));
+    const PADDR_B: IpAddress = IpAddress::Ipv4(Ipv4Address([0, 0, 0, 1]));
+    const PADDR_C: IpAddress = IpAddress::Ipv4(Ipv4Address([0, 0, 0, 2]));
+    const PADDR_D: IpAddress = IpAddress::Ipv4(Ipv4Address([0, 0, 0, 3]));
 
     #[test]
     fn test_slice_cache() {
