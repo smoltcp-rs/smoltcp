@@ -1,0 +1,11 @@
+language: rust
+rust:
+  - stable
+  - beta
+  - nightly
+notifications:
+  irc:
+    channels:
+      - "chat.freenode.net#m-labs"
+    use_notice: true
+    skip_join: true
