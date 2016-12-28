@@ -9,7 +9,7 @@ at cost of performance degradation.
 _smoltcp_ does not need heap allocation *at all*, is [extensively documented][docs],
 and compiles on stable Rust.
 
-[docs]: https://m-labs.github.io/smoltcp/smoltcp/index.html
+[docs]: https://docs.rs/smoltcp/
 
 Features
 --------
