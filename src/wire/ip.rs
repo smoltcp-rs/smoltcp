@@ -237,7 +237,8 @@ pub mod checksum {
     /// Compute an RFC 1071 compliant checksum (without the final complement).
     pub fn data(data: &[u8]) -> u16 {
         let mut accum: u32 = 0;
-        for i in (0..data.len()).step_by(2) {
+        let mut i = 0;
+        while i < data.len() {
             let word;
             if i + 2 <= data.len() {
                 word = NetworkEndian::read_u16(&data[i..i + 2]) as u32
@@ -245,6 +246,7 @@ pub mod checksum {
                 word = (data[i] as u32) << 8
             }
             accum += word;
+            i += 2;
         }
         propagate_carries(accum)
     }
