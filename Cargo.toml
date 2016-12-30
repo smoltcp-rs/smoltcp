@@ -11,7 +11,7 @@ keywords = ["ip", "tcp", "udp", "ethernet", "network"]
 license = "0BSD"
 
 [dependencies]
-byteorder = { version = "0.5", default-features = false }
+byteorder = { version = "1.0", default-features = false }
 log = { version = "0.3", optional = true }
 libc = { version = "0.2.18", optional = true }
 
