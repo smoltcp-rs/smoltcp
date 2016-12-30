@@ -206,21 +206,21 @@ impl<T: AsRef<[u8]>> Packet<T> {
     }
 
     /// Return the message type field.
-    #[inline(always)]
+    #[inline]
     pub fn msg_type(&self) -> Message {
         let data = self.buffer.as_ref();
         Message::from(data[field::TYPE])
     }
 
     /// Return the message code field.
-    #[inline(always)]
+    #[inline]
     pub fn msg_code(&self) -> u8 {
         let data = self.buffer.as_ref();
         data[field::CODE]
     }
 
     /// Return the checksum field.
-    #[inline(always)]
+    #[inline]
     pub fn checksum(&self) -> u16 {
         let data = self.buffer.as_ref();
         NetworkEndian::read_u16(&data[field::CHECKSUM])
@@ -230,7 +230,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     ///
     /// # Panics
     /// This function may panic if this packet is not an echo request or reply packet.
-    #[inline(always)]
+    #[inline]
     pub fn echo_ident(&self) -> u16 {
         let data = self.buffer.as_ref();
         NetworkEndian::read_u16(&data[field::ECHO_IDENT])
@@ -240,7 +240,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     ///
     /// # Panics
     /// This function may panic if this packet is not an echo request or reply packet.
-    #[inline(always)]
+    #[inline]
     pub fn echo_seq_no(&self) -> u16 {
         let data = self.buffer.as_ref();
         NetworkEndian::read_u16(&data[field::ECHO_SEQNO])
@@ -266,7 +266,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
 
 impl<'a, T: AsRef<[u8]> + ?Sized> Packet<&'a T> {
     /// Return a pointer to the type-specific data.
-    #[inline(always)]
+    #[inline]
     pub fn data(&self) -> &'a [u8] {
         let data = self.buffer.as_ref();
         &data[self.header_len()..]
@@ -275,21 +275,21 @@ impl<'a, T: AsRef<[u8]> + ?Sized> Packet<&'a T> {
 
 impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// Set the message type field.
-    #[inline(always)]
+    #[inline]
     pub fn set_msg_type(&mut self, value: Message) {
         let mut data = self.buffer.as_mut();
         data[field::TYPE] = value.into()
     }
 
     /// Set the message code field.
-    #[inline(always)]
+    #[inline]
     pub fn set_msg_code(&mut self, value: u8) {
         let mut data = self.buffer.as_mut();
         data[field::CODE] = value
     }
 
     /// Set the checksum field.
-    #[inline(always)]
+    #[inline]
     pub fn set_checksum(&mut self, value: u16) {
         let mut data = self.buffer.as_mut();
         NetworkEndian::write_u16(&mut data[field::CHECKSUM], value)
@@ -299,7 +299,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     ///
     /// # Panics
     /// This function may panic if this packet is not an echo request or reply packet.
-    #[inline(always)]
+    #[inline]
     pub fn set_echo_ident(&mut self, value: u16) {
         let mut data = self.buffer.as_mut();
         NetworkEndian::write_u16(&mut data[field::ECHO_IDENT], value)
@@ -309,7 +309,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     ///
     /// # Panics
     /// This function may panic if this packet is not an echo request or reply packet.
-    #[inline(always)]
+    #[inline]
     pub fn set_echo_seq_no(&mut self, value: u16) {
         let mut data = self.buffer.as_mut();
         NetworkEndian::write_u16(&mut data[field::ECHO_SEQNO], value)
@@ -328,7 +328,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
 
 impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Packet<&'a mut T> {
     /// Return a mutable pointer to the type-specific data.
-    #[inline(always)]
+    #[inline]
     pub fn data_mut(&mut self) -> &mut [u8] {
         let range = self.header_len()..;
         let mut data = self.buffer.as_mut();

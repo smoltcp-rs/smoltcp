@@ -113,14 +113,14 @@ impl<T: AsRef<[u8]>> Packet<T> {
     }
 
     /// Return the version field.
-    #[inline(always)]
+    #[inline]
     pub fn version(&self) -> u8 {
         let data = self.buffer.as_ref();
         data[field::VER_IHL] >> 4
     }
 
     /// Return the header length, in octets.
-    #[inline(always)]
+    #[inline]
     pub fn header_len(&self) -> u8 {
         let data = self.buffer.as_ref();
         (data[field::VER_IHL] & 0x0f) * 4
@@ -139,70 +139,70 @@ impl<T: AsRef<[u8]>> Packet<T> {
     }
 
     /// Return the total length field.
-    #[inline(always)]
+    #[inline]
     pub fn total_len(&self) -> u16 {
         let data = self.buffer.as_ref();
         NetworkEndian::read_u16(&data[field::LENGTH])
     }
 
     /// Return the fragment identification field.
-    #[inline(always)]
+    #[inline]
     pub fn ident(&self) -> u16 {
         let data = self.buffer.as_ref();
         NetworkEndian::read_u16(&data[field::IDENT])
     }
 
     /// Return the "don't fragment" flag.
-    #[inline(always)]
+    #[inline]
     pub fn dont_frag(&self) -> bool {
         let data = self.buffer.as_ref();
         NetworkEndian::read_u16(&data[field::FLG_OFF]) & 0x4000 != 0
     }
 
     /// Return the "more fragments" flag.
-    #[inline(always)]
+    #[inline]
     pub fn more_frags(&self) -> bool {
         let data = self.buffer.as_ref();
         NetworkEndian::read_u16(&data[field::FLG_OFF]) & 0x2000 != 0
     }
 
     /// Return the fragment offset, in octets.
-    #[inline(always)]
+    #[inline]
     pub fn frag_offset(&self) -> u16 {
         let data = self.buffer.as_ref();
         NetworkEndian::read_u16(&data[field::FLG_OFF]) << 3
     }
 
     /// Return the time to live field.
-    #[inline(always)]
+    #[inline]
     pub fn ttl(&self) -> u8 {
         let data = self.buffer.as_ref();
         data[field::TTL]
     }
 
     /// Return the protocol field.
-    #[inline(always)]
+    #[inline]
     pub fn protocol(&self) -> Protocol {
         let data = self.buffer.as_ref();
         Protocol::from(data[field::PROTOCOL])
     }
 
     /// Return the header checksum field.
-    #[inline(always)]
+    #[inline]
     pub fn checksum(&self) -> u16 {
         let data = self.buffer.as_ref();
         NetworkEndian::read_u16(&data[field::CHECKSUM])
     }
 
     /// Return the source address field.
-    #[inline(always)]
+    #[inline]
     pub fn src_addr(&self) -> Address {
         let data = self.buffer.as_ref();
         Address::from_bytes(&data[field::SRC_ADDR])
     }
 
     /// Return the destination address field.
-    #[inline(always)]
+    #[inline]
     pub fn dst_addr(&self) -> Address {
         let data = self.buffer.as_ref();
         Address::from_bytes(&data[field::DST_ADDR])
@@ -217,7 +217,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
 
 impl<'a, T: AsRef<[u8]> + ?Sized> Packet<&'a T> {
     /// Return a pointer to the payload.
-    #[inline(always)]
+    #[inline]
     pub fn payload(&self) -> &'a [u8] {
         let range = self.header_len() as usize;
         let data = self.buffer.as_ref();
@@ -227,14 +227,14 @@ impl<'a, T: AsRef<[u8]> + ?Sized> Packet<&'a T> {
 
 impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// Set the version field.
-    #[inline(always)]
+    #[inline]
     pub fn set_version(&mut self, value: u8) {
         let data = self.buffer.as_mut();
         data[field::VER_IHL] = (data[field::VER_IHL] & !0xf0) | (value << 4);
     }
 
     /// Set the header length, in octets.
-    #[inline(always)]
+    #[inline]
     pub fn set_header_len(&mut self, value: u8) {
         let data = self.buffer.as_mut();
         data[field::VER_IHL] = (data[field::VER_IHL] & !0x0f) | ((value / 4) & 0x0f);
@@ -253,21 +253,21 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     }
 
     /// Set the total length field.
-    #[inline(always)]
+    #[inline]
     pub fn set_total_len(&mut self, value: u16) {
         let data = self.buffer.as_mut();
         NetworkEndian::write_u16(&mut data[field::LENGTH], value)
     }
 
     /// Set the fragment identification field.
-    #[inline(always)]
+    #[inline]
     pub fn set_ident(&mut self, value: u16) {
         let data = self.buffer.as_mut();
         NetworkEndian::write_u16(&mut data[field::IDENT], value)
     }
 
     /// Clear the entire flags field.
-    #[inline(always)]
+    #[inline]
     pub fn clear_flags(&mut self) {
         let data = self.buffer.as_mut();
         let raw = NetworkEndian::read_u16(&data[field::FLG_OFF]);
@@ -276,7 +276,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     }
 
     /// Set the "don't fragment" flag.
-    #[inline(always)]
+    #[inline]
     pub fn set_dont_frag(&mut self, value: bool) {
         let data = self.buffer.as_mut();
         let raw = NetworkEndian::read_u16(&data[field::FLG_OFF]);
@@ -285,7 +285,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     }
 
     /// Set the "more fragments" flag.
-    #[inline(always)]
+    #[inline]
     pub fn set_more_frags(&mut self, value: bool) {
         let data = self.buffer.as_mut();
         let raw = NetworkEndian::read_u16(&data[field::FLG_OFF]);
@@ -294,7 +294,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     }
 
     /// Set the fragment offset, in octets.
-    #[inline(always)]
+    #[inline]
     pub fn set_frag_offset(&mut self, value: u16) {
         let data = self.buffer.as_mut();
         let raw = NetworkEndian::read_u16(&data[field::FLG_OFF]);
@@ -303,35 +303,35 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     }
 
     /// Set the time to live field.
-    #[inline(always)]
+    #[inline]
     pub fn set_ttl(&mut self, value: u8) {
         let data = self.buffer.as_mut();
         data[field::TTL] = value
     }
 
     /// Set the protocol field.
-    #[inline(always)]
+    #[inline]
     pub fn set_protocol(&mut self, value: Protocol) {
         let data = self.buffer.as_mut();
         data[field::PROTOCOL] = value.into()
     }
 
     /// Set the header checksum field.
-    #[inline(always)]
+    #[inline]
     pub fn set_checksum(&mut self, value: u16) {
         let data = self.buffer.as_mut();
         NetworkEndian::write_u16(&mut data[field::CHECKSUM], value)
     }
 
     /// Set the source address field.
-    #[inline(always)]
+    #[inline]
     pub fn set_src_addr(&mut self, value: Address) {
         let data = self.buffer.as_mut();
         data[field::SRC_ADDR].copy_from_slice(value.as_bytes())
     }
 
     /// Set the destination address field.
-    #[inline(always)]
+    #[inline]
     pub fn set_dst_addr(&mut self, value: Address) {
         let data = self.buffer.as_mut();
         data[field::DST_ADDR].copy_from_slice(value.as_bytes())
@@ -350,7 +350,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
 
 impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Packet<&'a mut T> {
     /// Return a mutable pointer to the payload.
-    #[inline(always)]
+    #[inline]
     pub fn payload_mut(&mut self) -> &mut [u8] {
         let range = self.header_len() as usize..;
         let data = self.buffer.as_mut();

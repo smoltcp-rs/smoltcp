@@ -235,13 +235,13 @@ impl<'a> TcpSocket<'a> {
     }
 
     /// Return the local endpoint.
-    #[inline(always)]
+    #[inline]
     pub fn local_endpoint(&self) -> IpEndpoint {
         self.local_endpoint
     }
 
     /// Return the remote endpoint.
-    #[inline(always)]
+    #[inline]
     pub fn remote_endpoint(&self) -> IpEndpoint {
         self.remote_endpoint
     }

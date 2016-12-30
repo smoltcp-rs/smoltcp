@@ -103,21 +103,21 @@ impl<T: AsRef<[u8]>> Frame<T> {
     }
 
     /// Return the destination address field.
-    #[inline(always)]
+    #[inline]
     pub fn dst_addr(&self) -> Address {
         let data = self.buffer.as_ref();
         Address::from_bytes(&data[field::DESTINATION])
     }
 
     /// Return the source address field.
-    #[inline(always)]
+    #[inline]
     pub fn src_addr(&self) -> Address {
         let data = self.buffer.as_ref();
         Address::from_bytes(&data[field::SOURCE])
     }
 
     /// Return the EtherType field, without checking for 802.1Q.
-    #[inline(always)]
+    #[inline]
     pub fn ethertype(&self) -> EtherType {
         let data = self.buffer.as_ref();
         let raw = NetworkEndian::read_u16(&data[field::ETHERTYPE]);
@@ -127,7 +127,7 @@ impl<T: AsRef<[u8]>> Frame<T> {
 
 impl<'a, T: AsRef<[u8]> + ?Sized> Frame<&'a T> {
     /// Return a pointer to the payload, without checking for 802.1Q.
-    #[inline(always)]
+    #[inline]
     pub fn payload(&self) -> &'a [u8] {
         let data = self.buffer.as_ref();
         &data[field::PAYLOAD]
@@ -136,21 +136,21 @@ impl<'a, T: AsRef<[u8]> + ?Sized> Frame<&'a T> {
 
 impl<T: AsRef<[u8]> + AsMut<[u8]>> Frame<T> {
     /// Set the destination address field.
-    #[inline(always)]
+    #[inline]
     pub fn set_dst_addr(&mut self, value: Address) {
         let data = self.buffer.as_mut();
         data[field::DESTINATION].copy_from_slice(value.as_bytes())
     }
 
     /// Set the source address field.
-    #[inline(always)]
+    #[inline]
     pub fn set_src_addr(&mut self, value: Address) {
         let data = self.buffer.as_mut();
         data[field::SOURCE].copy_from_slice(value.as_bytes())
     }
 
     /// Set the EtherType field.
-    #[inline(always)]
+    #[inline]
     pub fn set_ethertype(&mut self, value: EtherType) {
         let data = self.buffer.as_mut();
         NetworkEndian::write_u16(&mut data[field::ETHERTYPE], value.into())
@@ -159,7 +159,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Frame<T> {
 
 impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Frame<&'a mut T> {
     /// Return a mutable pointer to the payload.
-    #[inline(always)]
+    #[inline]
     pub fn payload_mut(&mut self) -> &mut [u8] {
         let data = self.buffer.as_mut();
         &mut data[field::PAYLOAD]

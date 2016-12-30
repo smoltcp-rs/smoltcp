@@ -36,25 +36,25 @@ mod field {
     pub const PLEN:  usize = 5;
     pub const OPER:  Field = 6..8;
 
-    #[inline(always)]
+    #[inline]
     pub fn SHA(hardware_len: u8, _protocol_len: u8) -> Field {
         let start = OPER.end;
         start..(start + hardware_len as usize)
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn SPA(hardware_len: u8, protocol_len: u8) -> Field {
         let start = SHA(hardware_len, protocol_len).end;
         start..(start + protocol_len as usize)
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn THA(hardware_len: u8, protocol_len: u8) -> Field {
         let start = SPA(hardware_len, protocol_len).end;
         start..(start + hardware_len as usize)
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn TPA(hardware_len: u8, protocol_len: u8) -> Field {
         let start = THA(hardware_len, protocol_len).end;
         start..(start + protocol_len as usize)
@@ -84,7 +84,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     }
 
     /// Return the hardware type field.
-    #[inline(always)]
+    #[inline]
     pub fn hardware_type(&self) -> Hardware {
         let data = self.buffer.as_ref();
         let raw = NetworkEndian::read_u16(&data[field::HTYPE]);
@@ -92,7 +92,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     }
 
     /// Return the protocol type field.
-    #[inline(always)]
+    #[inline]
     pub fn protocol_type(&self) -> Protocol {
         let data = self.buffer.as_ref();
         let raw = NetworkEndian::read_u16(&data[field::PTYPE]);
@@ -100,21 +100,21 @@ impl<T: AsRef<[u8]>> Packet<T> {
     }
 
     /// Return the hardware length field.
-    #[inline(always)]
+    #[inline]
     pub fn hardware_len(&self) -> u8 {
         let data = self.buffer.as_ref();
         data[field::HLEN]
     }
 
     /// Return the protocol length field.
-    #[inline(always)]
+    #[inline]
     pub fn protocol_len(&self) -> u8 {
         let data = self.buffer.as_ref();
         data[field::PLEN]
     }
 
     /// Return the operation field.
-    #[inline(always)]
+    #[inline]
     pub fn operation(&self) -> Operation {
         let data = self.buffer.as_ref();
         let raw = NetworkEndian::read_u16(&data[field::OPER]);
@@ -148,35 +148,35 @@ impl<T: AsRef<[u8]>> Packet<T> {
 
 impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// Set the hardware type field.
-    #[inline(always)]
+    #[inline]
     pub fn set_hardware_type(&mut self, value: Hardware) {
         let data = self.buffer.as_mut();
         NetworkEndian::write_u16(&mut data[field::HTYPE], value.into())
     }
 
     /// Set the protocol type field.
-    #[inline(always)]
+    #[inline]
     pub fn set_protocol_type(&mut self, value: Protocol) {
         let data = self.buffer.as_mut();
         NetworkEndian::write_u16(&mut data[field::PTYPE], value.into())
     }
 
     /// Set the hardware length field.
-    #[inline(always)]
+    #[inline]
     pub fn set_hardware_len(&mut self, value: u8) {
         let data = self.buffer.as_mut();
         data[field::HLEN] = value
     }
 
     /// Set the protocol length field.
-    #[inline(always)]
+    #[inline]
     pub fn set_protocol_len(&mut self, value: u8) {
         let data = self.buffer.as_mut();
         data[field::PLEN] = value
     }
 
     /// Set the operation field.
-    #[inline(always)]
+    #[inline]
     pub fn set_operation(&mut self, value: Operation) {
         let data = self.buffer.as_mut();
         NetworkEndian::write_u16(&mut data[field::OPER], value.into())

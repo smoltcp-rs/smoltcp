@@ -98,35 +98,35 @@ impl<T: AsRef<[u8]>> Packet<T> {
     }
 
     /// Return the source port field.
-    #[inline(always)]
+    #[inline]
     pub fn src_port(&self) -> u16 {
         let data = self.buffer.as_ref();
         NetworkEndian::read_u16(&data[field::SRC_PORT])
     }
 
     /// Return the destination port field.
-    #[inline(always)]
+    #[inline]
     pub fn dst_port(&self) -> u16 {
         let data = self.buffer.as_ref();
         NetworkEndian::read_u16(&data[field::DST_PORT])
     }
 
     /// Return the sequence number field.
-    #[inline(always)]
+    #[inline]
     pub fn seq_number(&self) -> SeqNumber {
         let data = self.buffer.as_ref();
         SeqNumber(NetworkEndian::read_i32(&data[field::SEQ_NUM]))
     }
 
     /// Return the acknowledgement number field.
-    #[inline(always)]
+    #[inline]
     pub fn ack_number(&self) -> SeqNumber {
         let data = self.buffer.as_ref();
         SeqNumber(NetworkEndian::read_i32(&data[field::ACK_NUM]))
     }
 
     /// Return the FIN flag.
-    #[inline(always)]
+    #[inline]
     pub fn fin(&self) -> bool {
         let data = self.buffer.as_ref();
         let raw = NetworkEndian::read_u16(&data[field::FLAGS]);
@@ -134,7 +134,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     }
 
     /// Return the SYN flag.
-    #[inline(always)]
+    #[inline]
     pub fn syn(&self) -> bool {
         let data = self.buffer.as_ref();
         let raw = NetworkEndian::read_u16(&data[field::FLAGS]);
@@ -142,7 +142,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     }
 
     /// Return the RST flag.
-    #[inline(always)]
+    #[inline]
     pub fn rst(&self) -> bool {
         let data = self.buffer.as_ref();
         let raw = NetworkEndian::read_u16(&data[field::FLAGS]);
@@ -150,7 +150,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     }
 
     /// Return the PSH flag.
-    #[inline(always)]
+    #[inline]
     pub fn psh(&self) -> bool {
         let data = self.buffer.as_ref();
         let raw = NetworkEndian::read_u16(&data[field::FLAGS]);
@@ -158,7 +158,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     }
 
     /// Return the ACK flag.
-    #[inline(always)]
+    #[inline]
     pub fn ack(&self) -> bool {
         let data = self.buffer.as_ref();
         let raw = NetworkEndian::read_u16(&data[field::FLAGS]);
@@ -166,7 +166,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     }
 
     /// Return the URG flag.
-    #[inline(always)]
+    #[inline]
     pub fn urg(&self) -> bool {
         let data = self.buffer.as_ref();
         let raw = NetworkEndian::read_u16(&data[field::FLAGS]);
@@ -174,7 +174,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     }
 
     /// Return the ECE flag.
-    #[inline(always)]
+    #[inline]
     pub fn ece(&self) -> bool {
         let data = self.buffer.as_ref();
         let raw = NetworkEndian::read_u16(&data[field::FLAGS]);
@@ -182,7 +182,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     }
 
     /// Return the CWR flag.
-    #[inline(always)]
+    #[inline]
     pub fn cwr(&self) -> bool {
         let data = self.buffer.as_ref();
         let raw = NetworkEndian::read_u16(&data[field::FLAGS]);
@@ -190,7 +190,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     }
 
     /// Return the NS flag.
-    #[inline(always)]
+    #[inline]
     pub fn ns(&self) -> bool {
         let data = self.buffer.as_ref();
         let raw = NetworkEndian::read_u16(&data[field::FLAGS]);
@@ -198,7 +198,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     }
 
     /// Return the header length, in octets.
-    #[inline(always)]
+    #[inline]
     pub fn header_len(&self) -> u8 {
         let data = self.buffer.as_ref();
         let raw = NetworkEndian::read_u16(&data[field::FLAGS]);
@@ -206,28 +206,28 @@ impl<T: AsRef<[u8]>> Packet<T> {
     }
 
     /// Return the window size field.
-    #[inline(always)]
+    #[inline]
     pub fn window_len(&self) -> u16 {
         let data = self.buffer.as_ref();
         NetworkEndian::read_u16(&data[field::WIN_SIZE])
     }
 
     /// Return the checksum field.
-    #[inline(always)]
+    #[inline]
     pub fn checksum(&self) -> u16 {
         let data = self.buffer.as_ref();
         NetworkEndian::read_u16(&data[field::CHECKSUM])
     }
 
     /// Return the urgent pointer field.
-    #[inline(always)]
+    #[inline]
     pub fn urgent_at(&self) -> u16 {
         let data = self.buffer.as_ref();
         NetworkEndian::read_u16(&data[field::URGENT])
     }
 
     /// Return the length of the segment, in terms of sequence space.
-    #[inline(always)]
+    #[inline]
     pub fn segment_len(&self) -> usize {
         let data = self.buffer.as_ref();
         let mut length = data.len() - self.header_len() as usize;
@@ -253,7 +253,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
 
 impl<'a, T: AsRef<[u8]> + ?Sized> Packet<&'a T> {
     /// Return a pointer to the payload.
-    #[inline(always)]
+    #[inline]
     pub fn payload(&self) -> &'a [u8] {
         let header_len = self.header_len() as usize;
         let data = self.buffer.as_ref();
@@ -263,35 +263,35 @@ impl<'a, T: AsRef<[u8]> + ?Sized> Packet<&'a T> {
 
 impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// Set the source port field.
-    #[inline(always)]
+    #[inline]
     pub fn set_src_port(&mut self, value: u16) {
         let mut data = self.buffer.as_mut();
         NetworkEndian::write_u16(&mut data[field::SRC_PORT], value)
     }
 
     /// Set the destination port field.
-    #[inline(always)]
+    #[inline]
     pub fn set_dst_port(&mut self, value: u16) {
         let mut data = self.buffer.as_mut();
         NetworkEndian::write_u16(&mut data[field::DST_PORT], value)
     }
 
     /// Set the sequence number field.
-    #[inline(always)]
+    #[inline]
     pub fn set_seq_number(&mut self, value: SeqNumber) {
         let mut data = self.buffer.as_mut();
         NetworkEndian::write_i32(&mut data[field::SEQ_NUM], value.0)
     }
 
     /// Set the acknowledgement number field.
-    #[inline(always)]
+    #[inline]
     pub fn set_ack_number(&mut self, value: SeqNumber) {
         let mut data = self.buffer.as_mut();
         NetworkEndian::write_i32(&mut data[field::ACK_NUM], value.0)
     }
 
     /// Clear the entire flags field.
-    #[inline(always)]
+    #[inline]
     pub fn clear_flags(&mut self) {
         let data = self.buffer.as_mut();
         let raw = NetworkEndian::read_u16(&data[field::FLAGS]);
@@ -300,7 +300,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     }
 
     /// Set the FIN flag.
-    #[inline(always)]
+    #[inline]
     pub fn set_fin(&mut self, value: bool) {
         let mut data = self.buffer.as_mut();
         let raw = NetworkEndian::read_u16(&data[field::FLAGS]);
@@ -309,7 +309,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     }
 
     /// Set the SYN flag.
-    #[inline(always)]
+    #[inline]
     pub fn set_syn(&mut self, value: bool) {
         let mut data = self.buffer.as_mut();
         let raw = NetworkEndian::read_u16(&data[field::FLAGS]);
@@ -318,7 +318,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     }
 
     /// Set the RST flag.
-    #[inline(always)]
+    #[inline]
     pub fn set_rst(&mut self, value: bool) {
         let mut data = self.buffer.as_mut();
         let raw = NetworkEndian::read_u16(&data[field::FLAGS]);
@@ -327,7 +327,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     }
 
     /// Set the PSH flag.
-    #[inline(always)]
+    #[inline]
     pub fn set_psh(&mut self, value: bool) {
         let mut data = self.buffer.as_mut();
         let raw = NetworkEndian::read_u16(&data[field::FLAGS]);
@@ -336,7 +336,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     }
 
     /// Set the ACK flag.
-    #[inline(always)]
+    #[inline]
     pub fn set_ack(&mut self, value: bool) {
         let mut data = self.buffer.as_mut();
         let raw = NetworkEndian::read_u16(&data[field::FLAGS]);
@@ -345,7 +345,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     }
 
     /// Set the URG flag.
-    #[inline(always)]
+    #[inline]
     pub fn set_urg(&mut self, value: bool) {
         let mut data = self.buffer.as_mut();
         let raw = NetworkEndian::read_u16(&data[field::FLAGS]);
@@ -354,7 +354,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     }
 
     /// Set the ECE flag.
-    #[inline(always)]
+    #[inline]
     pub fn set_ece(&mut self, value: bool) {
         let mut data = self.buffer.as_mut();
         let raw = NetworkEndian::read_u16(&data[field::FLAGS]);
@@ -363,7 +363,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     }
 
     /// Set the CWR flag.
-    #[inline(always)]
+    #[inline]
     pub fn set_cwr(&mut self, value: bool) {
         let mut data = self.buffer.as_mut();
         let raw = NetworkEndian::read_u16(&data[field::FLAGS]);
@@ -372,7 +372,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     }
 
     /// Set the NS flag.
-    #[inline(always)]
+    #[inline]
     pub fn set_ns(&mut self, value: bool) {
         let mut data = self.buffer.as_mut();
         let raw = NetworkEndian::read_u16(&data[field::FLAGS]);
@@ -381,7 +381,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     }
 
     /// Set the header length, in octets.
-    #[inline(always)]
+    #[inline]
     pub fn set_header_len(&mut self, value: u8) {
         let mut data = self.buffer.as_mut();
         let raw = NetworkEndian::read_u16(&data[field::FLAGS]);
@@ -390,21 +390,21 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     }
 
     /// Return the window size field.
-    #[inline(always)]
+    #[inline]
     pub fn set_window_len(&mut self, value: u16) {
         let mut data = self.buffer.as_mut();
         NetworkEndian::write_u16(&mut data[field::WIN_SIZE], value)
     }
 
     /// Set the checksum field.
-    #[inline(always)]
+    #[inline]
     pub fn set_checksum(&mut self, value: u16) {
         let mut data = self.buffer.as_mut();
         NetworkEndian::write_u16(&mut data[field::CHECKSUM], value)
     }
 
     /// Set the urgent pointer field.
-    #[inline(always)]
+    #[inline]
     pub fn set_urgent_at(&mut self, value: u16) {
         let mut data = self.buffer.as_mut();
         NetworkEndian::write_u16(&mut data[field::URGENT], value)
@@ -431,7 +431,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
 
 impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Packet<&'a mut T> {
     /// Return a mutable pointer to the payload data.
-    #[inline(always)]
+    #[inline]
     pub fn payload_mut(&mut self) -> &mut [u8] {
         let header_len = self.header_len() as usize;
         let mut data = self.buffer.as_mut();
