@@ -1,5 +1,3 @@
-use core::marker::PhantomData;
-
 use Error;
 use wire::pretty_print::{PrettyPrint, PrettyPrinter};
 use super::Device;
@@ -10,8 +8,7 @@ use super::Device;
 /// to the standard output, and delegates to another device otherwise.
 pub struct Tracer<T: Device, U: PrettyPrint> {
     lower:   T,
-    writer:  fn(PrettyPrinter<U>),
-    phantom: PhantomData<U>
+    writer:  fn(PrettyPrinter<U>)
 }
 
 impl<T: Device, U: PrettyPrint> Tracer<T, U> {
@@ -19,8 +16,7 @@ impl<T: Device, U: PrettyPrint> Tracer<T, U> {
     pub fn new(lower: T, writer: fn(PrettyPrinter<U>)) -> Tracer<T, U> {
         Tracer {
             lower:   lower,
-            writer:  writer,
-            phantom: PhantomData
+            writer:  writer
         }
     }
 
@@ -33,8 +29,7 @@ impl<T: Device, U: PrettyPrint> Tracer<T, U> {
 
         Tracer {
             lower:   lower,
-            writer:  writer,
-            phantom: PhantomData
+            writer:  writer
         }
     }
 
@@ -60,8 +55,7 @@ impl<T: Device, U: PrettyPrint> Device for Tracer<T, U> {
         let buffer = try!(self.lower.transmit(len));
         Ok(TxBuffer {
             buffer:  buffer,
-            writer:  self.writer,
-            phantom: PhantomData
+            writer:  self.writer
         })
     }
 }
@@ -69,8 +63,7 @@ impl<T: Device, U: PrettyPrint> Device for Tracer<T, U> {
 #[doc(hidden)]
 pub struct TxBuffer<T: AsRef<[u8]>, U: PrettyPrint> {
     buffer:  T,
-    writer:  fn(PrettyPrinter<U>),
-    phantom: PhantomData<U>
+    writer:  fn(PrettyPrinter<U>)
 }
 
 impl<T: AsRef<[u8]>, U: PrettyPrint> AsRef<[u8]>
