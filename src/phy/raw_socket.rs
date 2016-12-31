@@ -43,10 +43,10 @@ impl Device for RawSocket {
         Ok(buffer)
     }
 
-    fn transmit(&mut self, len: usize) -> Result<Self::TxBuffer, Error> {
+    fn transmit(&mut self, length: usize) -> Result<Self::TxBuffer, Error> {
         Ok(TxBuffer {
             lower:  self.lower.clone(),
-            buffer: vec![0; len]
+            buffer: vec![0; length]
         })
     }
 }

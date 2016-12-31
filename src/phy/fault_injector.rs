@@ -119,19 +119,20 @@ impl<T: Device> Device for FaultInjector<T>
         Ok(buffer)
     }
 
-    fn transmit(&mut self, len: usize) -> Result<Self::TxBuffer, Error> {
+    fn transmit(&mut self, length: usize) -> Result<Self::TxBuffer, Error> {
         let buffer;
         if check_rng(&mut self.state, self.config.drop_pct) {
             net_trace!("rx: dropping a packet");
             buffer = None;
         } else {
-            buffer = Some(try!(self.lower.transmit(len)));
+            buffer = Some(try!(self.lower.transmit(length)));
         }
         Ok(TxBuffer {
             buffer: buffer,
             state:  xorshift32(&mut self.state),
             config: self.config,
-            junk:   [0; MTU]
+            junk:   [0; MTU],
+            length: length
         })
     }
 }
@@ -141,7 +142,8 @@ pub struct TxBuffer<T: AsRef<[u8]> + AsMut<[u8]>> {
     state:  u32,
     config: Config,
     buffer: Option<T>,
-    junk:   [u8; MTU]
+    junk:   [u8; MTU],
+    length: usize
 }
 
 impl<T: AsRef<[u8]> + AsMut<[u8]>> AsRef<[u8]>
@@ -149,7 +151,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> AsRef<[u8]>
     fn as_ref(&self) -> &[u8] {
         match self.buffer {
             Some(ref buf) => buf.as_ref(),
-            None => &self.junk[..]
+            None => &self.junk[..self.length]
         }
     }
 }
@@ -159,7 +161,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> AsMut<[u8]>
     fn as_mut(&mut self) -> &mut [u8] {
         match self.buffer {
             Some(ref mut buf) => buf.as_mut(),
-            None => &mut self.junk[..]
+            None => &mut self.junk[..self.length]
         }
     }
 }

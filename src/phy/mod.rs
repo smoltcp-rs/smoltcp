@@ -51,5 +51,5 @@ pub trait Device {
     /// It is expected that a `transmit` implementation would gain ownership of a buffer with
     /// the requested length, provide it for emission, and schedule it to be read from
     /// memory by the network device once it is dropped.
-    fn transmit(&mut self, len: usize) -> Result<Self::TxBuffer, Error>;
+    fn transmit(&mut self, length: usize) -> Result<Self::TxBuffer, Error>;
 }

@@ -51,8 +51,8 @@ impl<T: Device, U: PrettyPrint> Device for Tracer<T, U> {
         Ok(buffer)
     }
 
-    fn transmit(&mut self, len: usize) -> Result<Self::TxBuffer, Error> {
-        let buffer = try!(self.lower.transmit(len));
+    fn transmit(&mut self, length: usize) -> Result<Self::TxBuffer, Error> {
+        let buffer = try!(self.lower.transmit(length));
         Ok(TxBuffer {
             buffer:  buffer,
             writer:  self.writer
