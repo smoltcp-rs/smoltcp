@@ -12,7 +12,7 @@ license = "0BSD"
 
 [dependencies]
 byteorder = { version = "1.0", default-features = false }
-log = { version = "0.3", optional = true }
+log = { version = "0.3", default-features = false, optional = true }
 libc = { version = "0.2.18", optional = true }
 
 [dev-dependencies]
