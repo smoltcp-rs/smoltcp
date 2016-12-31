@@ -31,7 +31,7 @@
 //!
 //! # The physical layer
 //! The physical layer APIs are provided in the module [phy](phy/index.html); currently,
-//! raw socket and TAP interface are provided. In addition, two "middleware" interfaces
+//! raw socket and TAP interface are provided. In addition, two _middleware_ interfaces
 //! are provided: the _tracer device_, which prints a human-readable representation of packets,
 //! and the _fault injector device_, which randomly introduces errors into the transmitted
 //! and received packet sequences.

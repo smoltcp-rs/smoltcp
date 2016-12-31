@@ -21,6 +21,7 @@
 //! the `Repr` family does.
 //!
 //! # Examples
+//!
 //! To emit an IP packet header into an octet buffer, and then parse it back:
 //!
 /*!

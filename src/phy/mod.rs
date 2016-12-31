@@ -1,9 +1,102 @@
 //! Access to networking hardware.
 //!
-//! The `phy` module deals with the *network devices*. It provides an interface
+//! The `phy` module deals with the *network devices*. It provides a trait
 //! for transmitting and receiving frames, [Device](trait.Device.html),
 //! as well as an implementations of that trait that uses the host OS,
 //! [RawSocket](struct.RawSocket.html) and [TapInterface](struct.TapInterface.html).
+//!
+//! It also provides the _middleware interfaces_ [Tracer](struct.Tracer.html) and
+//! [FaultInjector](struct.FaultInjector.html), to facilitate debugging.
+//!
+//! # Examples
+//!
+//! An implementation of the [Device](trait.Device.html) trait for a simple hardware
+//! Ethernet controller could look as follows:
+//!
+/*!
+```rust
+use std::slice;
+use smoltcp::Error;
+use smoltcp::phy::Device;
+
+const MTU: usize = 1536;
+const TX_BUFFERS: [*mut u8; 2] = [0x10000000 as *mut u8, 0x10001000 as *mut u8];
+const RX_BUFFERS: [*mut u8; 2] = [0x10002000 as *mut u8, 0x10003000 as *mut u8];
+
+fn rx_full() -> bool {
+    /* platform-specific code to check if an incoming packet has arrived */
+    false
+}
+
+fn rx_setup(buf: *mut u8) {
+    /* platform-specific code to receive a packet into a buffer */
+}
+
+fn tx_empty() -> bool {
+    /* platform-specific code to check if the outgoing packet was sent */
+    false
+}
+
+fn tx_setup(buf: *const u8) {
+    /* platform-specific code to send a buffer with a packet */
+}
+
+struct EthernetDevice {
+    tx_next:    usize,
+    rx_next:    usize
+}
+
+impl Device for EthernetDevice {
+    type RxBuffer = &'static [u8];
+    type TxBuffer = EthernetTxBuffer;
+
+    fn mtu(&self) -> usize { MTU }
+
+    fn receive(&mut self) -> Result<Self::RxBuffer, Error> {
+        if rx_full() {
+            let index = self.rx_next;
+            self.rx_next = (self.rx_next + 1) % RX_BUFFERS.len();
+            rx_setup(RX_BUFFERS[self.rx_next]);
+            Ok(unsafe { slice::from_raw_parts(RX_BUFFERS[index], MTU) })
+        } else {
+            Err(Error::Exhausted)
+        }
+    }
+
+    fn transmit(&mut self, length: usize) -> Result<Self::TxBuffer, Error> {
+        if tx_empty() {
+            let index = self.tx_next;
+            self.tx_next = (self.tx_next + 1) % TX_BUFFERS.len();
+            Ok(EthernetTxBuffer {
+                buffer: unsafe { slice::from_raw_parts_mut(TX_BUFFERS[index], length) },
+                length: length,
+            })
+        } else {
+            Err(Error::Exhausted)
+        }
+    }
+}
+
+struct EthernetTxBuffer {
+    buffer: &'static mut [u8],
+    length: usize
+}
+
+impl AsRef<[u8]> for EthernetTxBuffer {
+    fn as_ref(&self) -> &[u8] { &self.buffer[..self.length] }
+}
+
+impl AsMut<[u8]> for EthernetTxBuffer {
+    fn as_mut(&mut self) -> &mut [u8] { &mut self.buffer[..self.length] }
+}
+
+impl Drop for EthernetTxBuffer {
+    fn drop(&mut self) {
+        tx_setup(self.buffer.as_ptr())
+    }
+}
+```
+*/
 
 use Error;
 

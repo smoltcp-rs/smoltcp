@@ -31,7 +31,6 @@ pub trait Cache {
 /// let mut arp_cache_storage = [Default::default(); 8]
 /// let mut arp_cache = SliceArpCache::new(&mut arp_cache_storage[..]);
 /// ```
-
 pub struct SliceCache<'a> {
     storage: Managed<'a, [(IpAddress, EthernetAddress, usize)]>,
     counter: usize
