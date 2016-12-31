@@ -1,6 +1,4 @@
 use core::ops::{Deref, DerefMut};
-#[cfg(any(feature = "use_std", feature = "use_alloc"))]
-use core::borrow::BorrowMut;
 use core::fmt;
 
 #[cfg(feature = "use_std")]
@@ -18,8 +16,8 @@ use std::vec::Vec;
 ///
 /// The purpose of this enum is providing good ergonomics with `std` present while making
 /// it possible to avoid having a heap at all (which of course means that `std` is not present).
-/// To achieve this, the `Managed::Owned` variant is only available when the "std" feature
-/// is enabled.
+/// To achieve this, the `Managed::Boxed` variant is only available when the "use_std" or
+/// "use_alloc" feature is enabled.
 ///
 /// A function that requires a managed object should be generic over an `Into<Managed<'a, T>>`
 /// argument; then, it will be possible to pass either a `Box<T>`, `Vec<T>`, or a `&'a mut T`
@@ -29,7 +27,7 @@ pub enum Managed<'a, T: 'a + ?Sized> {
     Borrowed(&'a mut T),
     /// Owned variant, only available with `std` present.
     #[cfg(any(feature = "use_std", feature = "use_alloc"))]
-    Owned(Box<BorrowMut<T>>)
+    Boxed(Box<T>)
 }
 
 impl<'a, T: 'a + fmt::Debug + ?Sized> fmt::Debug for Managed<'a, T> {
@@ -45,17 +43,16 @@ impl<'a, T: 'a + ?Sized> From<&'a mut T> for Managed<'a, T> {
 }
 
 #[cfg(any(feature = "use_std", feature = "use_alloc"))]
-impl<T, U: BorrowMut<T> + 'static> From<Box<U>> for Managed<'static, T> {
-    fn from(value: Box<U>) -> Self {
-        Managed::Owned(value)
+impl<T: ?Sized + 'static> From<Box<T>> for Managed<'static, T> {
+    fn from(value: Box<T>) -> Self {
+        Managed::Boxed(value)
     }
 }
 
 #[cfg(feature = "use_std")]
 impl<T: 'static> From<Vec<T>> for Managed<'static, [T]> {
-    fn from(mut value: Vec<T>) -> Self {
-        value.shrink_to_fit();
-        Managed::Owned(Box::new(value))
+    fn from(value: Vec<T>) -> Self {
+        Managed::Boxed(value.into_boxed_slice())
     }
 }
 
@@ -66,7 +63,7 @@ impl<'a, T: 'a + ?Sized> Deref for Managed<'a, T> {
         match self {
             &Managed::Borrowed(ref value) => value,
             #[cfg(any(feature = "use_std", feature = "use_alloc"))]
-            &Managed::Owned(ref value) => (**value).borrow()
+            &Managed::Boxed(ref value) => value
         }
     }
 }
@@ -76,7 +73,7 @@ impl<'a, T: 'a + ?Sized> DerefMut for Managed<'a, T> {
         match self {
             &mut Managed::Borrowed(ref mut value) => value,
             #[cfg(any(feature = "use_std", feature = "use_alloc"))]
-            &mut Managed::Owned(ref mut value) => (**value).borrow_mut()
+            &mut Managed::Boxed(ref mut value) => value
         }
     }
 }
