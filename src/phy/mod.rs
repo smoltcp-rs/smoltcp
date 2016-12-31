@@ -11,12 +11,14 @@ use Error;
 mod sys;
 
 mod tracer;
+mod fault_injector;
 #[cfg(feature = "use_std")]
 mod raw_socket;
 #[cfg(all(feature = "use_std", target_os = "linux"))]
 mod tap_interface;
 
 pub use self::tracer::Tracer;
+pub use self::fault_injector::FaultInjector;
 #[cfg(feature = "use_std")]
 pub use self::raw_socket::RawSocket;
 #[cfg(all(feature = "use_std", target_os = "linux"))]

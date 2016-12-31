@@ -1,16 +1,17 @@
 #[macro_use]
 extern crate log;
 extern crate env_logger;
+extern crate getopts;
 extern crate smoltcp;
 
-use std::str;
+use std::str::{self, FromStr};
 use std::env;
-use std::time::Instant;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use log::{LogLevelFilter, LogRecord};
 use env_logger::{LogBuilder};
 
 use smoltcp::Error;
-use smoltcp::phy::{Tracer, TapInterface};
+use smoltcp::phy::{Tracer, FaultInjector, TapInterface};
 use smoltcp::wire::{EthernetFrame, EthernetAddress, IpAddress, IpEndpoint};
 use smoltcp::wire::PrettyPrinter;
 use smoltcp::iface::{SliceArpCache, EthernetInterface};
@@ -19,6 +20,24 @@ use smoltcp::socket::{UdpSocket, UdpSocketBuffer, UdpPacketBuffer};
 use smoltcp::socket::{TcpSocket, TcpSocketBuffer};
 
 fn main() {
+    let mut opts = getopts::Options::new();
+    opts.optopt("", "drop-chance", "Chance of dropping a packet (%)", "CHANCE");
+    opts.optopt("", "corrupt-chance", "Chance of corrupting a packet (%)", "CHANCE");
+    opts.optflag("h", "help", "print this help menu");
+
+    let matches = opts.parse(env::args().skip(1)).unwrap();
+    if matches.opt_present("h") || matches.free.len() != 1 {
+        let brief = format!("Usage: {} FILE [options]", env::args().nth(0).unwrap());
+        print!("{}", opts.usage(&brief));
+        return
+    }
+    let drop_chance    = u8::from_str(&matches.opt_str("drop-chance")
+                                             .unwrap_or("0".to_string())).unwrap();
+    let corrupt_chance = u8::from_str(&matches.opt_str("corrupt-chance")
+                                             .unwrap_or("0".to_string())).unwrap();
+
+    let seed = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().subsec_nanos();
+
     let startup_time = Instant::now();
     LogBuilder::new()
         .format(move |record: &LogRecord| {
@@ -41,10 +60,12 @@ fn main() {
         print!("\x1b[37m{}\x1b[0m", printer)
     }
 
-    let ifname = env::args().nth(1).unwrap();
-
-    let device = TapInterface::new(ifname.as_ref()).unwrap();
+    let device = TapInterface::new(&matches.free[0]).unwrap();
+    let mut device = FaultInjector::new(device, seed);
+    device.set_drop_chance(drop_chance);
+    device.set_corrupt_chance(corrupt_chance);
     let device = Tracer::<_, EthernetFrame<&[u8]>>::new(device, trace_writer);
+
     let arp_cache = SliceArpCache::new(vec![Default::default(); 8]);
 
     let endpoint = IpEndpoint::new(IpAddress::default(), 6969);

@@ -151,6 +151,9 @@ It responds to:
 
 The buffers are only 64 bytes long, for convenience of testing resource exhaustion conditions.
 
+Fault injection is available through the `--drop-chance` and `--corrupt-chance` options,
+with values in percents. A good starting value is 15%.
+
 License
 -------
 
