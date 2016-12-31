@@ -36,7 +36,7 @@ pub enum Address {
 impl Address {
     /// Create an address wrapping an IPv4 address with the given octets.
     pub fn v4(a0: u8, a1: u8, a2: u8, a3: u8) -> Address {
-        Address::Ipv4(Ipv4Address([a0, a1, a2, a3]))
+        Address::Ipv4(Ipv4Address::new(a0, a1, a2, a3))
     }
 
     /// Query whether the address is a valid unicast address.

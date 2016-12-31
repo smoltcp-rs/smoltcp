@@ -6,11 +6,11 @@
 //!  * First, it provides functions to extract fields from sequences of octets,
 //!    and to insert fields into sequences of octets. This happens through the `Frame`
 //!    and `Packet` families of structures, e.g. [EthernetPacket](struct.EthernetPacket.html).
-//!
 //!  * Second, in cases where the space of valid field values is much smaller than the space
 //!    of possible field values, it provides a compact, high-level representation
 //!    of packet data that can be parsed from and emitted into a sequence of octets.
 //!    This happens through the `Repr` family of enums, e.g. [ArpRepr](enum.ArpRepr.html).
+//! </ul>
 //!
 //! The functions in the `wire` module are designed for robustness and use together with
 //! `-Cpanic=abort`. The accessor and parsing functions never panic. The setter and emission
@@ -19,6 +19,30 @@
 //! The `Frame` and `Packet` families of data structures in the `wire` module do not perform
 //! validation of received data except as needed to access the contents without panicking;
 //! the `Repr` family does.
+//!
+//! # Examples
+//! To emit an IP packet header into an octet buffer, and then parse it back:
+//!
+/*!
+```rust
+use smoltcp::wire::*;
+let repr = Ipv4Repr {
+    src_addr: Ipv4Address::new(10, 0, 0, 1),
+    dst_addr: Ipv4Address::new(10, 0, 0, 2),
+    protocol: IpProtocol::Tcp
+};
+let mut buffer = vec![0; repr.buffer_len()];
+{ // emission
+    let mut packet = Ipv4Packet::new(&mut buffer).unwrap();
+    repr.emit(&mut packet, /*payload size*/ 0);
+}
+{ // parsing
+    let mut packet = Ipv4Packet::new(&buffer).unwrap();
+    let parsed = Ipv4Repr::parse(&packet).unwrap();
+    assert_eq!(repr, parsed);
+}
+```
+*/
 
 macro_rules! enum_with_unknown {
     (

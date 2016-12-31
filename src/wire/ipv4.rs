@@ -14,6 +14,11 @@ impl Address {
     // pub const UNSPECIFIED: Address = Address([0x00; 4]);
     // pub const BROADCAST:   Address = Address([0xff; 4]);
 
+    /// Construct an IPv4 address from parts.
+    pub fn new(a0: u8, a1: u8, a2: u8, a3: u8) -> Address {
+        Address([a0, a1, a2, a3])
+    }
+
     /// Construct an IPv4 address from a sequence of octets, in big-endian.
     ///
     /// # Panics
