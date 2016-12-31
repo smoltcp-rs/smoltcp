@@ -112,7 +112,9 @@ impl<'a, 'b: 'a,
     }
 
     /// Receive and process a packet, if available, and then transmit a packet, if necessary.
-    pub fn poll(&mut self) -> Result<(), Error> {
+    ///
+    /// The timestamp is a monotonically increasing number of milliseconds.
+    pub fn poll(&mut self, timestamp: u64) -> Result<(), Error> {
         enum Response<'a> {
             Nop,
             Arp(ArpRepr),
@@ -122,7 +124,7 @@ impl<'a, 'b: 'a,
 
         // First, transmit any outgoing packets.
         loop {
-            if try!(self.emit()) { break }
+            if try!(self.emit(timestamp)) { break }
         }
 
         // Now, receive any incoming packets.
@@ -214,7 +216,7 @@ impl<'a, 'b: 'a,
                         let mut handled = false;
                         for socket in self.sockets.borrow_mut() {
                             let ip_repr = IpRepr::Ipv4(ipv4_repr);
-                            match socket.process(&ip_repr, ipv4_packet.payload()) {
+                            match socket.process(timestamp, &ip_repr, ipv4_packet.payload()) {
                                 Ok(()) => {
                                     // The packet was valid and handled by socket.
                                     handled = true;
@@ -355,7 +357,7 @@ impl<'a, 'b: 'a,
         }
     }
 
-    fn emit(&mut self) -> Result<bool, Error> {
+    fn emit(&mut self, timestamp: u64) -> Result<bool, Error> {
         // Borrow checker is being overly careful around closures, so we have
         // to hack around that.
         let src_hardware_addr = self.hardware_addr;
@@ -365,7 +367,7 @@ impl<'a, 'b: 'a,
 
         let mut nothing_to_transmit = true;
         for socket in self.sockets.borrow_mut() {
-            let result = socket.dispatch(&mut |repr, payload| {
+            let result = socket.dispatch(timestamp, &mut |repr, payload| {
                 let repr = try!(repr.lower(src_protocol_addrs));
 
                 let dst_hardware_addr =

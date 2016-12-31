@@ -52,12 +52,13 @@ impl<'a, 'b> Socket<'a, 'b> {
     /// is returned.
     ///
     /// This function is used internally by the networking stack.
-    pub fn process(&mut self, ip_repr: &IpRepr, payload: &[u8]) -> Result<(), Error> {
+    pub fn process(&mut self, timestamp: u64, ip_repr: &IpRepr,
+                   payload: &[u8]) -> Result<(), Error> {
         match self {
             &mut Socket::Udp(ref mut socket) =>
-                socket.process(ip_repr, payload),
+                socket.process(timestamp, ip_repr, payload),
             &mut Socket::Tcp(ref mut socket) =>
-                socket.process(ip_repr, payload),
+                socket.process(timestamp, ip_repr, payload),
             &mut Socket::__Nonexhaustive => unreachable!()
         }
     }
@@ -69,13 +70,13 @@ impl<'a, 'b> Socket<'a, 'b> {
     /// is returned.
     ///
     /// This function is used internally by the networking stack.
-    pub fn dispatch<F, R>(&mut self, emit: &mut F) -> Result<R, Error>
+    pub fn dispatch<F, R>(&mut self, timestamp: u64, emit: &mut F) -> Result<R, Error>
             where F: FnMut(&IpRepr, &IpPayload) -> Result<R, Error> {
         match self {
             &mut Socket::Udp(ref mut socket) =>
-                socket.dispatch(emit),
+                socket.dispatch(timestamp, emit),
             &mut Socket::Tcp(ref mut socket) =>
-                socket.dispatch(emit),
+                socket.dispatch(timestamp, emit),
             &mut Socket::__Nonexhaustive => unreachable!()
         }
     }

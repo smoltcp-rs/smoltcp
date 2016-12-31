@@ -43,11 +43,11 @@ fn main() {
         .format(move |record: &LogRecord| {
             let elapsed = Instant::now().duration_since(startup_time);
             if record.target().starts_with("smoltcp::") {
-                format!("\x1b[0m[{:6}.{:03}ms] ({}): {}\x1b[0m",
+                format!("\x1b[0m[{:6}.{:03}s] ({}): {}\x1b[0m",
                         elapsed.as_secs(), elapsed.subsec_nanos() / 1000000,
                         record.target().replace("smoltcp::", ""), record.args())
             } else {
-                format!("\x1b[32m[{:6}.{:03}ms] ({}): {}\x1b[0m",
+                format!("\x1b[32m[{:6}.{:03}s] ({}): {}\x1b[0m",
                         elapsed.as_secs(), elapsed.subsec_nanos() / 1000000,
                         record.target(), record.args())
             }
@@ -169,7 +169,10 @@ fn main() {
             }
         }
 
-        match iface.poll() {
+        let timestamp = Instant::now().duration_since(startup_time);
+        let timestamp_ms = (timestamp.as_secs() * 1000) +
+                           (timestamp.subsec_nanos() / 1000000) as u64;
+        match iface.poll(timestamp_ms) {
             Ok(()) => (),
             Err(e) => debug!("poll error: {}", e)
         }

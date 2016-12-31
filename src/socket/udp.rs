@@ -168,7 +168,8 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     }
 
     /// See [Socket::process](enum.Socket.html#method.process).
-    pub fn process(&mut self, ip_repr: &IpRepr, payload: &[u8]) -> Result<(), Error> {
+    pub fn process(&mut self, _timestamp: u64, ip_repr: &IpRepr,
+                   payload: &[u8]) -> Result<(), Error> {
         if ip_repr.protocol() != IpProtocol::Udp { return Err(Error::Rejected) }
 
         let packet = try!(UdpPacket::new(payload));
@@ -189,7 +190,7 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     }
 
     /// See [Socket::dispatch](enum.Socket.html#method.dispatch).
-    pub fn dispatch<F, R>(&mut self, emit: &mut F) -> Result<R, Error>
+    pub fn dispatch<F, R>(&mut self, _timestamp: u64, emit: &mut F) -> Result<R, Error>
             where F: FnMut(&IpRepr, &IpPayload) -> Result<R, Error> {
         let packet_buf = try!(self.tx_buffer.dequeue());
         net_trace!("udp:{}:{}: sending {} octets",

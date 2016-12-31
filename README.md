@@ -52,6 +52,8 @@ The TCP protocol is supported over IPv4.
 
   * TCP header checksum is supported.
   * Multiple packets will be transmitted without waiting for an acknowledgement.
+  * Lost packets will be retransmitted with exponential backoff, starting at
+    a fixed delay of 100 ms.
   * TCP urgent pointer is **not** supported; any urgent octets will be received alongside
     data octets.
   * Reassembly of out-of-order segments is **not** supported.
