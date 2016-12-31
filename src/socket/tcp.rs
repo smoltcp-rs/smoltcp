@@ -542,6 +542,9 @@ impl<'a> TcpSocket<'a> {
                     net_trace!("tcp:{}:{}: duplicate SEQ ({} in ..{})",
                                self.local_endpoint, self.remote_endpoint,
                                seq_number, next_remote_seq);
+                    // If we've seen this sequence number already but the remote end is not aware
+                    // of that, make sure we send the acknowledgement again.
+                    self.remote_last_ack = next_remote_seq - 1;
                     return Ok(())
                 }
             }
@@ -1655,5 +1658,43 @@ mod test {
         }]);
         assert_eq!(s.state, State::TimeWait);
         recv!(s, []);
+    }
+
+    // =========================================================================================//
+    // Tests for retransmission on packet loss.
+    // =========================================================================================//
+    fn socket_recved() -> TcpSocket<'static> {
+        let mut s = socket_established();
+        send!(s, [TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            payload:    &b"abcdef"[..],
+            ..SEND_TEMPL
+        }]);
+        recv!(s, [TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1 + 6),
+            window_len: 58,
+            ..RECV_TEMPL
+        }]);
+        s
+    }
+
+    #[test]
+    fn test_duplicate_seq_ack() {
+        let mut s = socket_recved();
+        // remote retransmission
+        send!(s, [TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            payload:    &b"abcdef"[..],
+            ..SEND_TEMPL
+        }]);
+        recv!(s, [TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1 + 6),
+            window_len: 58,
+            ..RECV_TEMPL
+        }]);
     }
 }

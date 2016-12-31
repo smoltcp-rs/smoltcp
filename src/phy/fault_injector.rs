@@ -122,7 +122,7 @@ impl<T: Device> Device for FaultInjector<T>
     fn transmit(&mut self, length: usize) -> Result<Self::TxBuffer, Error> {
         let buffer;
         if check_rng(&mut self.state, self.config.drop_pct) {
-            net_trace!("rx: dropping a packet");
+            net_trace!("tx: dropping a packet");
             buffer = None;
         } else {
             buffer = Some(try!(self.lower.transmit(length)));

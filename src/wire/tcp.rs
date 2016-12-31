@@ -29,6 +29,17 @@ impl ops::Add<usize> for SeqNumber {
     }
 }
 
+impl ops::Sub<usize> for SeqNumber {
+    type Output = SeqNumber;
+
+    fn sub(self, rhs: usize) -> SeqNumber {
+        if rhs > i32::MAX as usize {
+            panic!("attempt to subtract to sequence number with unsigned overflow")
+        }
+        SeqNumber(self.0.wrapping_sub(rhs as i32))
+    }
+}
+
 impl ops::AddAssign<usize> for SeqNumber {
     fn add_assign(&mut self, rhs: usize) {
         *self = *self + rhs;
