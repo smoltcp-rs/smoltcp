@@ -10,6 +10,7 @@
 //!    of possible field values, it provides a compact, high-level representation
 //!    of packet data that can be parsed from and emitted into a sequence of octets.
 //!    This happens through the `Repr` family of enums, e.g. [ArpRepr](enum.ArpRepr.html).
+// https://github.com/rust-lang/rust/issues/38739
 //! </ul>
 //!
 //! The functions in the `wire` module are designed for robustness and use together with

@@ -8,7 +8,8 @@
 //! It also provides the _middleware interfaces_ [Tracer](struct.Tracer.html) and
 //! [FaultInjector](struct.FaultInjector.html), to facilitate debugging.
 //!
-//! # Examples
+// https://github.com/rust-lang/rust/issues/38740
+//! <h1 id="examples" class="section-header"><a href="#examples">Examples</a></h1>
 //!
 //! An implementation of the [Device](trait.Device.html) trait for a simple hardware
 //! Ethernet controller could look as follows:
@@ -19,13 +20,17 @@ use std::slice;
 use smoltcp::Error;
 use smoltcp::phy::Device;
 
-const MTU: usize = 1536;
 const TX_BUFFERS: [*mut u8; 2] = [0x10000000 as *mut u8, 0x10001000 as *mut u8];
 const RX_BUFFERS: [*mut u8; 2] = [0x10002000 as *mut u8, 0x10003000 as *mut u8];
 
 fn rx_full() -> bool {
     /* platform-specific code to check if an incoming packet has arrived */
     false
+}
+
+fn rx_length() -> usize {
+    /* platform-specific code to determine the length of an incoming packet */
+    0
 }
 
 fn rx_setup(buf: *mut u8) {
@@ -42,22 +47,23 @@ fn tx_setup(buf: *const u8) {
 }
 
 struct EthernetDevice {
-    tx_next:    usize,
-    rx_next:    usize
+    tx_next: usize,
+    rx_next: usize
 }
 
 impl Device for EthernetDevice {
     type RxBuffer = &'static [u8];
     type TxBuffer = EthernetTxBuffer;
 
-    fn mtu(&self) -> usize { MTU }
+    fn mtu(&self) -> usize { 1536 }
 
     fn receive(&mut self) -> Result<Self::RxBuffer, Error> {
         if rx_full() {
-            let index = self.rx_next;
+            let length = rx_length();
+            let index  = self.rx_next;
             self.rx_next = (self.rx_next + 1) % RX_BUFFERS.len();
             rx_setup(RX_BUFFERS[self.rx_next]);
-            Ok(unsafe { slice::from_raw_parts(RX_BUFFERS[index], MTU) })
+            Ok(unsafe { slice::from_raw_parts(RX_BUFFERS[index], length) })
         } else {
             Err(Error::Exhausted)
         }
@@ -67,33 +73,25 @@ impl Device for EthernetDevice {
         if tx_empty() {
             let index = self.tx_next;
             self.tx_next = (self.tx_next + 1) % TX_BUFFERS.len();
-            Ok(EthernetTxBuffer {
-                buffer: unsafe { slice::from_raw_parts_mut(TX_BUFFERS[index], length) },
-                length: length,
-            })
+            Ok(EthernetTxBuffer(unsafe { slice::from_raw_parts_mut(TX_BUFFERS[index], length) }))
         } else {
             Err(Error::Exhausted)
         }
     }
 }
 
-struct EthernetTxBuffer {
-    buffer: &'static mut [u8],
-    length: usize
-}
+struct EthernetTxBuffer(&'static mut [u8]);
 
 impl AsRef<[u8]> for EthernetTxBuffer {
-    fn as_ref(&self) -> &[u8] { &self.buffer[..self.length] }
+    fn as_ref(&self) -> &[u8] { self.0 }
 }
 
 impl AsMut<[u8]> for EthernetTxBuffer {
-    fn as_mut(&mut self) -> &mut [u8] { &mut self.buffer[..self.length] }
+    fn as_mut(&mut self) -> &mut [u8] { self.0 }
 }
 
 impl Drop for EthernetTxBuffer {
-    fn drop(&mut self) {
-        tx_setup(self.buffer.as_ptr())
-    }
+    fn drop(&mut self) { tx_setup(self.0.as_ptr()) }
 }
 ```
 */
