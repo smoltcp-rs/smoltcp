@@ -20,32 +20,32 @@ use super::{ArpCache};
 #[derive(Debug)]
 pub struct Interface<'a, 'b: 'a,
     DeviceT:        Device,
-    ArpCacheT:      ArpCache,
     ProtocolAddrsT: BorrowMut<[IpAddress]>,
+    ArpCacheT:      ArpCache,
     SocketsT:       BorrowMut<[Socket<'a, 'b>]>
 > {
     device:         DeviceT,
-    arp_cache:      ArpCacheT,
     hardware_addr:  EthernetAddress,
     protocol_addrs: ProtocolAddrsT,
+    arp_cache:      ArpCacheT,
     sockets:        SocketsT,
     phantom:        PhantomData<Socket<'a, 'b>>
 }
 
 impl<'a, 'b: 'a,
     DeviceT:        Device,
-    ArpCacheT:      ArpCache,
     ProtocolAddrsT: BorrowMut<[IpAddress]>,
+    ArpCacheT:      ArpCache,
     SocketsT:       BorrowMut<[Socket<'a, 'b>]>
-> Interface<'a, 'b, DeviceT, ArpCacheT, ProtocolAddrsT, SocketsT> {
+> Interface<'a, 'b, DeviceT, ProtocolAddrsT, ArpCacheT, SocketsT> {
     /// Create a network interface using the provided network device.
     ///
     /// # Panics
     /// See the restrictions on [set_hardware_addr](#method.set_hardware_addr)
     /// and [set_protocol_addrs](#method.set_protocol_addrs) functions.
-    pub fn new(device: DeviceT, arp_cache: ArpCacheT, hardware_addr: EthernetAddress,
-               protocol_addrs: ProtocolAddrsT, sockets: SocketsT) ->
-            Interface<'a, 'b, DeviceT, ArpCacheT, ProtocolAddrsT, SocketsT> {
+    pub fn new(device: DeviceT, hardware_addr: EthernetAddress, protocol_addrs: ProtocolAddrsT,
+               arp_cache: ArpCacheT, sockets: SocketsT) ->
+            Interface<'a, 'b, DeviceT, ProtocolAddrsT, ArpCacheT, SocketsT> {
         Self::check_hardware_addr(&hardware_addr);
         Self::check_protocol_addrs(protocol_addrs.borrow());
         Interface {

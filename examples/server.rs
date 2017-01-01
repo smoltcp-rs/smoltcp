@@ -82,11 +82,11 @@ fn main() {
     let tcp2_tx_buffer = TcpSocketBuffer::new(vec![0; 128]);
     let tcp2_socket = TcpSocket::new(tcp2_rx_buffer, tcp2_tx_buffer);
 
-    let hardware_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
+    let hardware_addr  = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
     let protocol_addrs = [IpAddress::v4(192, 168, 69, 1)];
-    let sockets = vec![udp_socket, tcp1_socket, tcp2_socket];
-    let mut iface = EthernetInterface::new(device, arp_cache,
-        hardware_addr, protocol_addrs, sockets);
+    let sockets        = vec![udp_socket, tcp1_socket, tcp2_socket];
+    let mut iface      = EthernetInterface::new(device, hardware_addr, protocol_addrs,
+                                                arp_cache, sockets);
 
     let mut tcp_6969_connected = false;
     loop {
