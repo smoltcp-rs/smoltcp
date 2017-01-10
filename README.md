@@ -82,14 +82,19 @@ smoltcp = { version = ..., default-features = false, features = [...] }
 
 ### Feature `use_std`
 
-The `use_std` feature enables use of buffers owned by the networking stack through a dependency
-on `std::boxed::Box`. It also enables `smoltcp::phy::RawSocket` and `smoltcp::phy::TapInterface`,
-if the platform supports it.
+The `use_std` feature enables use of objects and slices owned by the networking stack through a
+dependency on `std::boxed::Box` and `std::vec::Vec`. It also enables `smoltcp::phy::RawSocket`
+and `smoltcp::phy::TapInterface`, if the platform supports it.
 
 ### Feature `use_alloc`
 
-The `use_std` feature enables use of buffers owned by the networking stack through a dependency
+The `use_std` feature enables use of objects owned by the networking stack through a dependency
 on `alloc::boxed::Box`. This only works on nightly rustc.
+
+### Feature `use_collections`
+
+The `use_std` feature enables use of slices owned by the networking stack through a dependency
+on `collections::vec::Vec`. This only works on nightly rustc.
 
 ### Feature `use_log`
 

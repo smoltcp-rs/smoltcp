@@ -23,5 +23,6 @@ getopts = "0.2"
 [features]
 use_std = ["managed/use_std", "libc"]
 use_alloc = ["managed/use_alloc"]
+use_collections = ["managed/use_collections"]
 use_log = ["log"]
 default = ["use_std", "use_log"]
