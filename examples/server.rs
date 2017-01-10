@@ -14,7 +14,7 @@ use smoltcp::Error;
 use smoltcp::phy::{Tracer, FaultInjector, TapInterface};
 use smoltcp::wire::{EthernetFrame, EthernetAddress, IpAddress, IpEndpoint};
 use smoltcp::wire::PrettyPrinter;
-use smoltcp::iface::{SliceArpCache, EthernetInterface};
+use smoltcp::iface::{ArpCache, SliceArpCache, EthernetInterface};
 use smoltcp::socket::AsSocket;
 use smoltcp::socket::{UdpSocket, UdpSocketBuffer, UdpPacketBuffer};
 use smoltcp::socket::{TcpSocket, TcpSocketBuffer};
@@ -85,8 +85,9 @@ fn main() {
     let hardware_addr  = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
     let protocol_addrs = [IpAddress::v4(192, 168, 69, 1)];
     let sockets        = vec![udp_socket, tcp1_socket, tcp2_socket];
-    let mut iface      = EthernetInterface::new(device, hardware_addr, protocol_addrs,
-                                                arp_cache, sockets);
+    let mut iface      = EthernetInterface::new(
+        Box::new(device), hardware_addr, protocol_addrs,
+        Box::new(arp_cache) as Box<ArpCache>, sockets);
 
     let mut tcp_6969_connected = false;
     loop {

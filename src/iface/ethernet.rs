@@ -1,5 +1,4 @@
-use core::borrow::BorrowMut;
-use core::marker::PhantomData;
+use managed::{Managed, ManagedSlice};
 
 use Error;
 use phy::Device;
@@ -17,44 +16,43 @@ use super::{ArpCache};
 /// The network interface logically owns a number of other data structures; to avoid
 /// a dependency on heap allocation, it instead owns a `BorrowMut<[T]>`, which can be
 /// a `&mut [T]`, or `Vec<T>` if a heap is available.
-#[derive(Debug)]
-pub struct Interface<'a, 'b: 'a,
-    DeviceT:        Device,
-    ProtocolAddrsT: BorrowMut<[IpAddress]>,
-    ArpCacheT:      ArpCache,
-    SocketsT:       BorrowMut<[Socket<'a, 'b>]>
-> {
-    device:         DeviceT,
+pub struct Interface<'a, 'b, 'c, 'd, 'e: 'd, 'f: 'e + 'd, DeviceT: Device + 'a> {
+    device:         Managed<'a, DeviceT>,
     hardware_addr:  EthernetAddress,
-    protocol_addrs: ProtocolAddrsT,
-    arp_cache:      ArpCacheT,
-    sockets:        SocketsT,
-    phantom:        PhantomData<Socket<'a, 'b>>
+    protocol_addrs: ManagedSlice<'b, IpAddress>,
+    arp_cache:      Managed<'c, ArpCache>,
+    sockets:        ManagedSlice<'d, Socket<'e, 'f>>
 }
 
-impl<'a, 'b: 'a,
-    DeviceT:        Device,
-    ProtocolAddrsT: BorrowMut<[IpAddress]>,
-    ArpCacheT:      ArpCache,
-    SocketsT:       BorrowMut<[Socket<'a, 'b>]>
-> Interface<'a, 'b, DeviceT, ProtocolAddrsT, ArpCacheT, SocketsT> {
+impl<'a, 'b, 'c, 'd, 'e: 'd, 'f: 'e + 'd, DeviceT: Device + 'a>
+        Interface<'a, 'b, 'c, 'd, 'e, 'f, DeviceT> {
     /// Create a network interface using the provided network device.
     ///
     /// # Panics
     /// See the restrictions on [set_hardware_addr](#method.set_hardware_addr)
     /// and [set_protocol_addrs](#method.set_protocol_addrs) functions.
-    pub fn new(device: DeviceT, hardware_addr: EthernetAddress, protocol_addrs: ProtocolAddrsT,
-               arp_cache: ArpCacheT, sockets: SocketsT) ->
-            Interface<'a, 'b, DeviceT, ProtocolAddrsT, ArpCacheT, SocketsT> {
+    pub fn new<DeviceMT, ProtocolAddrsMT, ArpCacheMT, SocketsMT>
+              (device: DeviceMT,
+               hardware_addr: EthernetAddress, protocol_addrs: ProtocolAddrsMT,
+               arp_cache: ArpCacheMT, sockets: SocketsMT) ->
+              Interface<'a, 'b, 'c, 'd, 'e, 'f, DeviceT>
+            where DeviceMT: Into<Managed<'a, DeviceT>>,
+                  ProtocolAddrsMT: Into<ManagedSlice<'b, IpAddress>>,
+                  ArpCacheMT: Into<Managed<'c, ArpCache>>,
+                  SocketsMT: Into<ManagedSlice<'d, Socket<'e, 'f>>> {
+        let device = device.into();
+        let protocol_addrs = protocol_addrs.into();
+        let arp_cache = arp_cache.into();
+        let sockets = sockets.into();
+
         Self::check_hardware_addr(&hardware_addr);
-        Self::check_protocol_addrs(protocol_addrs.borrow());
+        Self::check_protocol_addrs(&protocol_addrs);
         Interface {
             device:         device,
             arp_cache:      arp_cache,
             hardware_addr:  hardware_addr,
             protocol_addrs: protocol_addrs,
-            sockets:        sockets,
-            phantom:        PhantomData
+            sockets:        sockets
         }
     }
 
@@ -88,26 +86,26 @@ impl<'a, 'b: 'a,
 
     /// Get the protocol addresses of the interface.
     pub fn protocol_addrs(&self) -> &[IpAddress] {
-        self.protocol_addrs.borrow()
+        self.protocol_addrs.as_ref()
     }
 
     /// Update the protocol addresses of the interface.
     ///
     /// # Panics
     /// This function panics if any of the addresses is not unicast.
-    pub fn update_protocol_addrs<F: FnOnce(&mut ProtocolAddrsT)>(&mut self, f: F) {
+    pub fn update_protocol_addrs<F: FnOnce(&mut ManagedSlice<'b, IpAddress>)>(&mut self, f: F) {
         f(&mut self.protocol_addrs);
-        Self::check_protocol_addrs(self.protocol_addrs.borrow())
+        Self::check_protocol_addrs(&self.protocol_addrs)
     }
 
     /// Check whether the interface has the given protocol address assigned.
     pub fn has_protocol_addr<T: Into<IpAddress>>(&self, addr: T) -> bool {
         let addr = addr.into();
-        self.protocol_addrs.borrow().iter().any(|&probe| probe == addr)
+        self.protocol_addrs.iter().any(|&probe| probe == addr)
     }
 
     /// Get the set of sockets owned by the interface.
-    pub fn sockets(&mut self) -> &mut SocketsT {
+    pub fn sockets(&mut self) -> &mut ManagedSlice<'d, Socket<'e, 'f>> {
         &mut self.sockets
     }
 
@@ -214,7 +212,7 @@ impl<'a, 'b: 'a,
                     // Try dispatching a packet to a socket.
                     Ipv4Repr { src_addr, dst_addr, protocol } => {
                         let mut handled = false;
-                        for socket in self.sockets.borrow_mut() {
+                        for socket in self.sockets.iter_mut() {
                             let ip_repr = IpRepr::Ipv4(ipv4_repr);
                             match socket.process(timestamp, &ip_repr, ipv4_packet.payload()) {
                                 Ok(()) => {
@@ -361,12 +359,12 @@ impl<'a, 'b: 'a,
         // Borrow checker is being overly careful around closures, so we have
         // to hack around that.
         let src_hardware_addr = self.hardware_addr;
-        let src_protocol_addrs = self.protocol_addrs.borrow();
+        let src_protocol_addrs = self.protocol_addrs.as_ref();
         let arp_cache = &mut self.arp_cache;
         let device = &mut self.device;
 
         let mut nothing_to_transmit = true;
-        for socket in self.sockets.borrow_mut() {
+        for socket in self.sockets.iter_mut() {
             let result = socket.dispatch(timestamp, &mut |repr, payload| {
                 let repr = try!(repr.lower(src_protocol_addrs));
 
