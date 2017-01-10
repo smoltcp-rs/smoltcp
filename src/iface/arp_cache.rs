@@ -1,4 +1,4 @@
-use managed::Managed;
+use managed::ManagedSlice;
 
 use wire::{EthernetAddress, IpAddress};
 
@@ -33,7 +33,7 @@ pub trait Cache {
 /// let mut arp_cache = SliceArpCache::new(&mut arp_cache_storage[..]);
 /// ```
 pub struct SliceCache<'a> {
-    storage: Managed<'a, [(IpAddress, EthernetAddress, usize)]>,
+    storage: ManagedSlice<'a, (IpAddress, EthernetAddress, usize)>,
     counter: usize
 }
 
@@ -43,7 +43,7 @@ impl<'a> SliceCache<'a> {
     /// # Panics
     /// This function panics if `storage.len() == 0`.
     pub fn new<T>(storage: T) -> SliceCache<'a>
-            where T: Into<Managed<'a, [(IpAddress, EthernetAddress, usize)]>> {
+            where T: Into<ManagedSlice<'a, (IpAddress, EthernetAddress, usize)>> {
         let mut storage = storage.into();
         if storage.len() == 0 {
             panic!("ARP slice cache created with empty storage")
