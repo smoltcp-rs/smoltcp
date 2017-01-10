@@ -12,6 +12,7 @@ license = "0BSD"
 
 [dependencies]
 byteorder = { version = "1.0", default-features = false }
+managed = { version = "0.1", default-features = false }
 log = { version = "0.3", default-features = false, optional = true }
 libc = { version = "0.2.18", optional = true }
 
@@ -20,7 +21,7 @@ env_logger = "0.3"
 getopts = "0.2"
 
 [features]
-use_std = ["libc"]
-use_alloc = []
+use_std = ["managed/use_std", "libc"]
+use_alloc = ["managed/use_alloc"]
 use_log = ["log"]
 default = ["use_std", "use_log"]

@@ -1,7 +1,7 @@
 use core::fmt;
+use managed::Managed;
 
 use Error;
-use Managed;
 use wire::{IpProtocol, IpAddress, IpEndpoint};
 use wire::{TcpSeqNumber, TcpPacket, TcpRepr, TcpControl};
 use socket::{Socket, IpRepr, IpPayload};

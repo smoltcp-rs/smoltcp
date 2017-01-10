@@ -1,4 +1,5 @@
-use Managed;
+use managed::Managed;
+
 use wire::{EthernetAddress, IpAddress};
 
 /// An Address Resolution Protocol cache.

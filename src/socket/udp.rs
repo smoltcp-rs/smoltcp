@@ -1,5 +1,6 @@
+use managed::Managed;
+
 use Error;
-use Managed;
 use wire::{IpProtocol, IpEndpoint};
 use wire::{UdpPacket, UdpRepr};
 use socket::{Socket, IpRepr, IpPayload};

@@ -68,6 +68,7 @@
 //! of a packet, it is still logged correctly and in full.
 
 extern crate byteorder;
+extern crate managed;
 #[cfg(any(test, feature = "use_std"))]
 #[macro_use]
 extern crate std;
@@ -90,14 +91,10 @@ macro_rules! net_trace {
 
 use core::fmt;
 
-mod managed;
-
 pub mod phy;
 pub mod wire;
 pub mod iface;
 pub mod socket;
-
-pub use managed::Managed;
 
 /// The error type for the networking stack.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
