@@ -28,12 +28,7 @@ fn rx_full() -> bool {
     false
 }
 
-fn rx_length() -> usize {
-    /* platform-specific code to determine the length of an incoming packet */
-    0
-}
-
-fn rx_setup(buf: *mut u8) {
+fn rx_setup(buf: *mut u8, length: &mut usize) {
     /* platform-specific code to receive a packet into a buffer */
 }
 
@@ -42,7 +37,7 @@ fn tx_empty() -> bool {
     false
 }
 
-fn tx_setup(buf: *const u8) {
+fn tx_setup(buf: *const u8, length: usize) {
     /* platform-specific code to send a buffer with a packet */
 }
 
@@ -59,11 +54,13 @@ impl Device for EthernetDevice {
 
     fn receive(&mut self) -> Result<Self::RxBuffer, Error> {
         if rx_full() {
-            let length = rx_length();
-            let index  = self.rx_next;
+            let index = self.rx_next;
             self.rx_next = (self.rx_next + 1) % RX_BUFFERS.len();
-            rx_setup(RX_BUFFERS[self.rx_next]);
-            Ok(unsafe { slice::from_raw_parts(RX_BUFFERS[index], length) })
+            let mut length = 0;
+            rx_setup(RX_BUFFERS[self.rx_next], &mut length);
+            Ok(unsafe {
+                slice::from_raw_parts(RX_BUFFERS[index], length)
+            })
         } else {
             Err(Error::Exhausted)
         }
@@ -73,7 +70,9 @@ impl Device for EthernetDevice {
         if tx_empty() {
             let index = self.tx_next;
             self.tx_next = (self.tx_next + 1) % TX_BUFFERS.len();
-            Ok(EthernetTxBuffer(unsafe { slice::from_raw_parts_mut(TX_BUFFERS[index], length) }))
+            Ok(EthernetTxBuffer(unsafe {
+                slice::from_raw_parts_mut(TX_BUFFERS[index], length)
+            }))
         } else {
             Err(Error::Exhausted)
         }
@@ -91,7 +90,7 @@ impl AsMut<[u8]> for EthernetTxBuffer {
 }
 
 impl Drop for EthernetTxBuffer {
-    fn drop(&mut self) { tx_setup(self.0.as_ptr()) }
+    fn drop(&mut self) { tx_setup(self.0.as_ptr(), self.0.len()) }
 }
 ```
 */
