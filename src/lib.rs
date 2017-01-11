@@ -27,7 +27,7 @@
 //! Ethernet interface is provided.
 //!
 //! The interface layer handles the control messages, physical addressing and neighbor discovery.
-//! It owns the sockets and routes packets to and from them.
+//! It routes packets to and from sockets.
 //!
 //! # The physical layer
 //! The physical layer APIs are provided in the module [phy](phy/index.html); currently,

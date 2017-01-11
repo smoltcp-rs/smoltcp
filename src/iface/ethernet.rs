@@ -8,42 +8,37 @@ use wire::{Ipv4Packet, Ipv4Repr};
 use wire::{Icmpv4Packet, Icmpv4Repr, Icmpv4DstUnreachable};
 use wire::{IpAddress, IpProtocol, IpRepr};
 use wire::{TcpPacket, TcpRepr, TcpControl};
-use socket::{Socket, SocketSet};
-use super::{ArpCache};
+use socket::SocketSet;
+use super::ArpCache;
 
 /// An Ethernet network interface.
 ///
 /// The network interface logically owns a number of other data structures; to avoid
 /// a dependency on heap allocation, it instead owns a `BorrowMut<[T]>`, which can be
 /// a `&mut [T]`, or `Vec<T>` if a heap is available.
-pub struct Interface<'a, 'b, 'c, 'd, 'e: 'd, 'f: 'e + 'd, DeviceT: Device + 'a> {
+pub struct Interface<'a, 'b, 'c, DeviceT: Device + 'a> {
     device:         Managed<'a, DeviceT>,
+    arp_cache:      Managed<'b, ArpCache>,
     hardware_addr:  EthernetAddress,
-    protocol_addrs: ManagedSlice<'b, IpAddress>,
-    arp_cache:      Managed<'c, ArpCache>,
-    sockets:        SocketSet<'d, 'e, 'f>
+    protocol_addrs: ManagedSlice<'c, IpAddress>,
 }
 
-impl<'a, 'b, 'c, 'd, 'e: 'd, 'f: 'e + 'd, DeviceT: Device + 'a>
-        Interface<'a, 'b, 'c, 'd, 'e, 'f, DeviceT> {
+impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
     /// Create a network interface using the provided network device.
     ///
     /// # Panics
     /// See the restrictions on [set_hardware_addr](#method.set_hardware_addr)
     /// and [set_protocol_addrs](#method.set_protocol_addrs) functions.
-    pub fn new<DeviceMT, ProtocolAddrsMT, ArpCacheMT, SocketsMT>
-              (device: DeviceMT,
-               hardware_addr: EthernetAddress, protocol_addrs: ProtocolAddrsMT,
-               arp_cache: ArpCacheMT, sockets: SocketsMT) ->
-              Interface<'a, 'b, 'c, 'd, 'e, 'f, DeviceT>
+    pub fn new<DeviceMT, ArpCacheMT, ProtocolAddrsMT>
+              (device: DeviceMT, arp_cache: ArpCacheMT,
+               hardware_addr: EthernetAddress, protocol_addrs: ProtocolAddrsMT) ->
+              Interface<'a, 'b, 'c, DeviceT>
             where DeviceMT: Into<Managed<'a, DeviceT>>,
-                  ProtocolAddrsMT: Into<ManagedSlice<'b, IpAddress>>,
-                  ArpCacheMT: Into<Managed<'c, ArpCache>>,
-                  SocketsMT: Into<ManagedSlice<'d, Option<Socket<'e, 'f>>>> {
+                  ArpCacheMT: Into<Managed<'b, ArpCache>>,
+                  ProtocolAddrsMT: Into<ManagedSlice<'c, IpAddress>>, {
         let device = device.into();
-        let protocol_addrs = protocol_addrs.into();
         let arp_cache = arp_cache.into();
-        let sockets = SocketSet::new(sockets);
+        let protocol_addrs = protocol_addrs.into();
 
         Self::check_hardware_addr(&hardware_addr);
         Self::check_protocol_addrs(&protocol_addrs);
@@ -52,7 +47,6 @@ impl<'a, 'b, 'c, 'd, 'e: 'd, 'f: 'e + 'd, DeviceT: Device + 'a>
             arp_cache:      arp_cache,
             hardware_addr:  hardware_addr,
             protocol_addrs: protocol_addrs,
-            sockets:        sockets
         }
     }
 
@@ -93,7 +87,7 @@ impl<'a, 'b, 'c, 'd, 'e: 'd, 'f: 'e + 'd, DeviceT: Device + 'a>
     ///
     /// # Panics
     /// This function panics if any of the addresses is not unicast.
-    pub fn update_protocol_addrs<F: FnOnce(&mut ManagedSlice<'b, IpAddress>)>(&mut self, f: F) {
+    pub fn update_protocol_addrs<F: FnOnce(&mut ManagedSlice<'c, IpAddress>)>(&mut self, f: F) {
         f(&mut self.protocol_addrs);
         Self::check_protocol_addrs(&self.protocol_addrs)
     }
@@ -104,20 +98,11 @@ impl<'a, 'b, 'c, 'd, 'e: 'd, 'f: 'e + 'd, DeviceT: Device + 'a>
         self.protocol_addrs.iter().any(|&probe| probe == addr)
     }
 
-    /// Get the set of sockets owned by the interface.
-    pub fn sockets(&self) -> &SocketSet<'d, 'e, 'f> {
-        &self.sockets
-    }
-
-    /// Get the set of sockets owned by the interface, as mutable.
-    pub fn sockets_mut(&mut self) -> &mut SocketSet<'d, 'e, 'f> {
-        &mut self.sockets
-    }
-
-    /// Receive and process a packet, if available, and then transmit a packet, if necessary.
+    /// Receive and process a packet, if available, and then transmit a packet, if necessary,
+    /// handling the given set of sockets.
     ///
     /// The timestamp is a monotonically increasing number of milliseconds.
-    pub fn poll(&mut self, timestamp: u64) -> Result<(), Error> {
+    pub fn poll(&mut self, sockets: &mut SocketSet, timestamp: u64) -> Result<(), Error> {
         enum Response<'a> {
             Nop,
             Arp(ArpRepr),
@@ -127,7 +112,7 @@ impl<'a, 'b, 'c, 'd, 'e: 'd, 'f: 'e + 'd, DeviceT: Device + 'a>
 
         // First, transmit any outgoing packets.
         loop {
-            if try!(self.emit(timestamp)) { break }
+            if try!(self.emit(sockets, timestamp)) { break }
         }
 
         // Now, receive any incoming packets.
@@ -217,7 +202,7 @@ impl<'a, 'b, 'c, 'd, 'e: 'd, 'f: 'e + 'd, DeviceT: Device + 'a>
                     // Try dispatching a packet to a socket.
                     Ipv4Repr { src_addr, dst_addr, protocol } => {
                         let mut handled = false;
-                        for socket in self.sockets.iter_mut() {
+                        for socket in sockets.iter_mut() {
                             let ip_repr = IpRepr::Ipv4(ipv4_repr);
                             match socket.process(timestamp, &ip_repr, ipv4_packet.payload()) {
                                 Ok(()) => {
@@ -360,7 +345,7 @@ impl<'a, 'b, 'c, 'd, 'e: 'd, 'f: 'e + 'd, DeviceT: Device + 'a>
         }
     }
 
-    fn emit(&mut self, timestamp: u64) -> Result<bool, Error> {
+    fn emit(&mut self, sockets: &mut SocketSet, timestamp: u64) -> Result<bool, Error> {
         // Borrow checker is being overly careful around closures, so we have
         // to hack around that.
         let src_hardware_addr = self.hardware_addr;
@@ -369,7 +354,7 @@ impl<'a, 'b, 'c, 'd, 'e: 'd, 'f: 'e + 'd, DeviceT: Device + 'a>
         let device = &mut self.device;
 
         let mut nothing_to_transmit = true;
-        for socket in self.sockets.iter_mut() {
+        for socket in sockets.iter_mut() {
             let result = socket.dispatch(timestamp, &mut |repr, payload| {
                 let repr = try!(repr.lower(src_protocol_addrs));
 

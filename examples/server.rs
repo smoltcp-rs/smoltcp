@@ -15,7 +15,7 @@ use smoltcp::phy::{Tracer, FaultInjector, TapInterface};
 use smoltcp::wire::{EthernetFrame, EthernetAddress, IpAddress};
 use smoltcp::wire::PrettyPrinter;
 use smoltcp::iface::{ArpCache, SliceArpCache, EthernetInterface};
-use smoltcp::socket::AsSocket;
+use smoltcp::socket::{AsSocket, SocketSet};
 use smoltcp::socket::{UdpSocket, UdpSocketBuffer, UdpPacketBuffer};
 use smoltcp::socket::{TcpSocket, TcpSocketBuffer};
 
@@ -83,18 +83,19 @@ fn main() {
     let hardware_addr  = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
     let protocol_addrs = [IpAddress::v4(192, 168, 69, 1)];
     let mut iface      = EthernetInterface::new(
-        Box::new(device), hardware_addr, protocol_addrs,
-        Box::new(arp_cache) as Box<ArpCache>, []);
+        Box::new(device), Box::new(arp_cache) as Box<ArpCache>,
+        hardware_addr, protocol_addrs);
 
-    let udp_handle  = iface.sockets_mut().add(udp_socket);
-    let tcp1_handle = iface.sockets_mut().add(tcp1_socket);
-    let tcp2_handle = iface.sockets_mut().add(tcp2_socket);
+    let mut sockets = SocketSet::new(vec![]);
+    let udp_handle  = sockets.add(udp_socket);
+    let tcp1_handle = sockets.add(tcp1_socket);
+    let tcp2_handle = sockets.add(tcp2_socket);
 
     let mut tcp_6969_connected = false;
     loop {
         // udp:6969: respond "yo dawg"
         {
-            let socket: &mut UdpSocket = iface.sockets_mut().get_mut(&udp_handle).as_socket();
+            let socket: &mut UdpSocket = sockets.get_mut(&udp_handle).as_socket();
             if socket.endpoint().is_unspecified() {
                 socket.bind(6969)
             }
@@ -123,7 +124,7 @@ fn main() {
 
         // tcp:6969: respond "yo dawg"
         {
-            let socket: &mut TcpSocket = iface.sockets_mut().get_mut(&tcp1_handle).as_socket();
+            let socket: &mut TcpSocket = sockets.get_mut(&tcp1_handle).as_socket();
             if !socket.is_open() {
                 socket.listen(6969).unwrap();
             }
@@ -140,7 +141,7 @@ fn main() {
 
         // tcp:6970: echo with reverse
         {
-            let socket: &mut TcpSocket = iface.sockets_mut().get_mut(&tcp2_handle).as_socket();
+            let socket: &mut TcpSocket = sockets.get_mut(&tcp2_handle).as_socket();
             if !socket.is_open() {
                 socket.listen(6970).unwrap()
             }
@@ -178,7 +179,7 @@ fn main() {
         let timestamp = Instant::now().duration_since(startup_time);
         let timestamp_ms = (timestamp.as_secs() * 1000) +
                            (timestamp.subsec_nanos() / 1000000) as u64;
-        match iface.poll(timestamp_ms) {
+        match iface.poll(&mut sockets, timestamp_ms) {
             Ok(()) => (),
             Err(e) => debug!("poll error: {}", e)
         }

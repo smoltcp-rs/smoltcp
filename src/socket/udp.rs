@@ -113,8 +113,8 @@ pub struct UdpSocket<'a, 'b: 'a> {
 
 impl<'a, 'b> UdpSocket<'a, 'b> {
     /// Create an UDP socket with the given buffers.
-    pub fn new(rx_buffer: SocketBuffer<'a, 'b>, tx_buffer: SocketBuffer<'a, 'b>)
-            -> Socket<'a, 'b> {
+    pub fn new(rx_buffer: SocketBuffer<'a, 'b>,
+               tx_buffer: SocketBuffer<'a, 'b>) -> Socket<'a, 'b> {
         Socket::Udp(UdpSocket {
             endpoint:  IpEndpoint::default(),
             rx_buffer: rx_buffer,
