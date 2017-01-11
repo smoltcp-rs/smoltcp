@@ -155,9 +155,11 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     /// Enqueue a packet to be sent to a given remote endpoint, and fill it from a slice.
     ///
     /// See also [send](#method.send).
-    pub fn send_slice(&mut self, data: &[u8], endpoint: IpEndpoint) -> Result<(), Error> {
+    pub fn send_slice(&mut self, data: &[u8], endpoint: IpEndpoint) -> Result<usize, Error> {
         let buffer = try!(self.send(data.len(), endpoint));
-        Ok(buffer.copy_from_slice(data))
+        let data = &data[..buffer.len()];
+        buffer.copy_from_slice(data);
+        Ok(data.len())
     }
 
     /// Check whether the receive buffer is full.
