@@ -138,7 +138,7 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     ///
     /// This function returns `Err(Error::Exhausted)` if the size is greater than what
     /// the transmit buffer can accomodate.
-    pub fn send(&mut self, endpoint: IpEndpoint, size: usize) -> Result<&mut [u8], Error> {
+    pub fn send(&mut self, size: usize, endpoint: IpEndpoint) -> Result<&mut [u8], Error> {
         let packet_buf = try!(self.tx_buffer.enqueue());
         packet_buf.endpoint = endpoint;
         packet_buf.size = size;
@@ -150,8 +150,8 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     /// Enqueue a packet to be sent to a given remote endpoint, and fill it from a slice.
     ///
     /// See also [send](#method.send).
-    pub fn send_slice(&mut self, endpoint: IpEndpoint, data: &[u8]) -> Result<(), Error> {
-        let buffer = try!(self.send(endpoint, data.len()));
+    pub fn send_slice(&mut self, data: &[u8], endpoint: IpEndpoint) -> Result<(), Error> {
+        let buffer = try!(self.send(data.len(), endpoint));
         Ok(buffer.copy_from_slice(data))
     }
 
@@ -159,11 +159,11 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     /// as a pointer to the payload.
     ///
     /// This function returns `Err(Error::Exhausted)` if the receive buffer is empty.
-    pub fn recv(&mut self) -> Result<(IpEndpoint, &[u8]), Error> {
+    pub fn recv(&mut self) -> Result<(&[u8], IpEndpoint), Error> {
         let packet_buf = try!(self.rx_buffer.dequeue());
         net_trace!("udp:{}:{}: receive {} buffered octets",
                    self.endpoint, packet_buf.endpoint, packet_buf.size);
-        Ok((packet_buf.endpoint, &packet_buf.as_ref()[..packet_buf.size]))
+        Ok((&packet_buf.as_ref()[..packet_buf.size], packet_buf.endpoint))
     }
 
     /// Dequeue a packet received from a remote endpoint, and return the endpoint as well
@@ -171,11 +171,11 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     ///
     /// This function returns `Err(Error::Exhausted)` if the received packet has payload
     /// larger than the provided slice. See also [recv](#method.recv).
-    pub fn recv_slice(&mut self, data: &mut [u8]) -> Result<(IpEndpoint, usize), Error> {
-        let (endpoint, buffer) = try!(self.recv());
+    pub fn recv_slice(&mut self, data: &mut [u8]) -> Result<(usize, IpEndpoint), Error> {
+        let (buffer, endpoint) = try!(self.recv());
         if data.len() < buffer.len() { return Err(Error::Exhausted) }
         data[..buffer.len()].copy_from_slice(buffer);
-        Ok((endpoint, buffer.len()))
+        Ok((buffer.len(), endpoint))
     }
 
     /// See [Socket::process](enum.Socket.html#method.process).

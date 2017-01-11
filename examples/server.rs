@@ -101,7 +101,7 @@ fn main() {
             }
 
             let client = match socket.recv() {
-                Ok((endpoint, data)) => {
+                Ok((data, endpoint)) => {
                     debug!("udp:6969 recv data: {:?} from {}",
                            str::from_utf8(data.as_ref()).unwrap(), endpoint);
                     Some(endpoint)
@@ -118,7 +118,7 @@ fn main() {
                 let data = b"yo dawg\n";
                 debug!("udp:6969 send data: {:?}",
                        str::from_utf8(data.as_ref()).unwrap());
-                socket.send_slice(endpoint, data).unwrap()
+                socket.send_slice(data, endpoint).unwrap()
             }
         }
 
