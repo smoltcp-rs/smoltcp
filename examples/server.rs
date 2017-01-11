@@ -84,16 +84,19 @@ fn main() {
 
     let hardware_addr  = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
     let protocol_addrs = [IpAddress::v4(192, 168, 69, 1)];
-    let sockets        = vec![udp_socket, tcp1_socket, tcp2_socket];
     let mut iface      = EthernetInterface::new(
         Box::new(device), hardware_addr, protocol_addrs,
-        Box::new(arp_cache) as Box<ArpCache>, sockets);
+        Box::new(arp_cache) as Box<ArpCache>, []);
+
+    let udp_handle  = iface.sockets_mut().add(udp_socket);
+    let tcp1_handle = iface.sockets_mut().add(tcp1_socket);
+    let tcp2_handle = iface.sockets_mut().add(tcp2_socket);
 
     let mut tcp_6969_connected = false;
     loop {
         // udp:6969: respond "yo dawg"
         {
-            let socket: &mut UdpSocket = iface.sockets()[0].as_socket();
+            let socket: &mut UdpSocket = iface.sockets_mut().get_mut(&udp_handle).as_socket();
             let client = match socket.recv() {
                 Ok((endpoint, data)) => {
                     debug!("udp:6969 recv data: {:?} from {}",
@@ -118,7 +121,7 @@ fn main() {
 
         // tcp:6969: respond "yo dawg"
         {
-            let socket: &mut TcpSocket = iface.sockets()[1].as_socket();
+            let socket: &mut TcpSocket = iface.sockets_mut().get_mut(&tcp1_handle).as_socket();
             if !socket.is_open() {
                 socket.listen(6969).unwrap();
             }
@@ -135,7 +138,7 @@ fn main() {
 
         // tcp:6970: echo with reverse
         {
-            let socket: &mut TcpSocket = iface.sockets()[2].as_socket();
+            let socket: &mut TcpSocket = iface.sockets_mut().get_mut(&tcp2_handle).as_socket();
             if !socket.is_open() {
                 socket.listen(6970).unwrap()
             }

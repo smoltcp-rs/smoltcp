@@ -8,7 +8,7 @@ use wire::{Ipv4Packet, Ipv4Repr};
 use wire::{Icmpv4Packet, Icmpv4Repr, Icmpv4DstUnreachable};
 use wire::{IpAddress, IpProtocol, IpRepr};
 use wire::{TcpPacket, TcpRepr, TcpControl};
-use socket::Socket;
+use socket::{Socket, SocketSet};
 use super::{ArpCache};
 
 /// An Ethernet network interface.
@@ -21,7 +21,7 @@ pub struct Interface<'a, 'b, 'c, 'd, 'e: 'd, 'f: 'e + 'd, DeviceT: Device + 'a> 
     hardware_addr:  EthernetAddress,
     protocol_addrs: ManagedSlice<'b, IpAddress>,
     arp_cache:      Managed<'c, ArpCache>,
-    sockets:        ManagedSlice<'d, Socket<'e, 'f>>
+    sockets:        SocketSet<'d, 'e, 'f>
 }
 
 impl<'a, 'b, 'c, 'd, 'e: 'd, 'f: 'e + 'd, DeviceT: Device + 'a>
@@ -39,11 +39,11 @@ impl<'a, 'b, 'c, 'd, 'e: 'd, 'f: 'e + 'd, DeviceT: Device + 'a>
             where DeviceMT: Into<Managed<'a, DeviceT>>,
                   ProtocolAddrsMT: Into<ManagedSlice<'b, IpAddress>>,
                   ArpCacheMT: Into<Managed<'c, ArpCache>>,
-                  SocketsMT: Into<ManagedSlice<'d, Socket<'e, 'f>>> {
+                  SocketsMT: Into<ManagedSlice<'d, Option<Socket<'e, 'f>>>> {
         let device = device.into();
         let protocol_addrs = protocol_addrs.into();
         let arp_cache = arp_cache.into();
-        let sockets = sockets.into();
+        let sockets = SocketSet::new(sockets);
 
         Self::check_hardware_addr(&hardware_addr);
         Self::check_protocol_addrs(&protocol_addrs);
@@ -105,7 +105,12 @@ impl<'a, 'b, 'c, 'd, 'e: 'd, 'f: 'e + 'd, DeviceT: Device + 'a>
     }
 
     /// Get the set of sockets owned by the interface.
-    pub fn sockets(&mut self) -> &mut ManagedSlice<'d, Socket<'e, 'f>> {
+    pub fn sockets(&self) -> &SocketSet<'d, 'e, 'f> {
+        &self.sockets
+    }
+
+    /// Get the set of sockets owned by the interface, as mutable.
+    pub fn sockets_mut(&mut self) -> &mut SocketSet<'d, 'e, 'f> {
         &mut self.sockets
     }
 

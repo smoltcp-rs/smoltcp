@@ -15,6 +15,7 @@ use wire::IpRepr;
 
 mod udp;
 mod tcp;
+mod set;
 
 pub use self::udp::PacketBuffer as UdpPacketBuffer;
 pub use self::udp::SocketBuffer as UdpSocketBuffer;
@@ -23,6 +24,9 @@ pub use self::udp::UdpSocket;
 pub use self::tcp::SocketBuffer as TcpSocketBuffer;
 pub use self::tcp::State as TcpState;
 pub use self::tcp::TcpSocket;
+
+pub use self::set::{Set as SocketSet, Handle as SocketHandle};
+pub use self::set::{Iter as SocketSetIter, IterMut as SocketSetIterMut};
 
 /// A network socket.
 ///
