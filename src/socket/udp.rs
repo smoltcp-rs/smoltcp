@@ -133,6 +133,11 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
         self.endpoint = endpoint.into()
     }
 
+    /// Check whether the transmit buffer is full.
+    pub fn can_send(&self) -> bool {
+        !self.tx_buffer.full()
+    }
+
     /// Enqueue a packet to be sent to a given remote endpoint, and return a pointer
     /// to its payload.
     ///
@@ -153,6 +158,11 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     pub fn send_slice(&mut self, data: &[u8], endpoint: IpEndpoint) -> Result<(), Error> {
         let buffer = try!(self.send(data.len(), endpoint));
         Ok(buffer.copy_from_slice(data))
+    }
+
+    /// Check whether the receive buffer is full.
+    pub fn can_recv(&self) -> bool {
+        !self.rx_buffer.empty()
     }
 
     /// Dequeue a packet received from a remote endpoint, and return the endpoint as well
