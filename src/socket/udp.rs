@@ -113,14 +113,24 @@ pub struct UdpSocket<'a, 'b: 'a> {
 
 impl<'a, 'b> UdpSocket<'a, 'b> {
     /// Create an UDP socket with the given buffers.
-    pub fn new(endpoint: IpEndpoint,
-               rx_buffer: SocketBuffer<'a, 'b>, tx_buffer: SocketBuffer<'a, 'b>)
+    pub fn new(rx_buffer: SocketBuffer<'a, 'b>, tx_buffer: SocketBuffer<'a, 'b>)
             -> Socket<'a, 'b> {
         Socket::Udp(UdpSocket {
-            endpoint:  endpoint,
+            endpoint:  IpEndpoint::default(),
             rx_buffer: rx_buffer,
             tx_buffer: tx_buffer
         })
+    }
+
+    /// Return the bound endpoint.
+    #[inline]
+    pub fn endpoint(&self) -> IpEndpoint {
+        self.endpoint
+    }
+
+    /// Bind the socket to the given endpoint.
+    pub fn bind<T: Into<IpEndpoint>>(&mut self, endpoint: T) {
+        self.endpoint = endpoint.into()
     }
 
     /// Enqueue a packet to be sent to a given remote endpoint, and return a pointer

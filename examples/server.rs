@@ -12,7 +12,7 @@ use env_logger::{LogBuilder};
 
 use smoltcp::Error;
 use smoltcp::phy::{Tracer, FaultInjector, TapInterface};
-use smoltcp::wire::{EthernetFrame, EthernetAddress, IpAddress, IpEndpoint};
+use smoltcp::wire::{EthernetFrame, EthernetAddress, IpAddress};
 use smoltcp::wire::PrettyPrinter;
 use smoltcp::iface::{ArpCache, SliceArpCache, EthernetInterface};
 use smoltcp::socket::AsSocket;
@@ -68,11 +68,9 @@ fn main() {
 
     let arp_cache = SliceArpCache::new(vec![Default::default(); 8]);
 
-    let endpoint = IpEndpoint::new(IpAddress::default(), 6969);
-
     let udp_rx_buffer = UdpSocketBuffer::new(vec![UdpPacketBuffer::new(vec![0; 64])]);
     let udp_tx_buffer = UdpSocketBuffer::new(vec![UdpPacketBuffer::new(vec![0; 128])]);
-    let udp_socket = UdpSocket::new(endpoint, udp_rx_buffer, udp_tx_buffer);
+    let udp_socket = UdpSocket::new(udp_rx_buffer, udp_tx_buffer);
 
     let tcp1_rx_buffer = TcpSocketBuffer::new(vec![0; 64]);
     let tcp1_tx_buffer = TcpSocketBuffer::new(vec![0; 128]);
@@ -97,6 +95,10 @@ fn main() {
         // udp:6969: respond "yo dawg"
         {
             let socket: &mut UdpSocket = iface.sockets_mut().get_mut(&udp_handle).as_socket();
+            if socket.endpoint().is_unspecified() {
+                socket.bind(6969)
+            }
+
             let client = match socket.recv() {
                 Ok((endpoint, data)) => {
                     debug!("udp:6969 recv data: {:?} from {}",
