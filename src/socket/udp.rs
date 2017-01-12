@@ -66,19 +66,21 @@ impl<'a, 'b> SocketBuffer<'a, 'b> {
         self.mask(index + 1)
     }
 
-    fn empty(&self) -> bool {
+    /// Query whether the buffer is empty.
+    pub fn empty(&self) -> bool {
         self.length == 0
     }
 
-    fn full(&self) -> bool {
+    /// Query whether the buffer is full.
+    pub fn full(&self) -> bool {
         self.length == self.storage.len()
     }
 
     /// Enqueue an element into the buffer, and return a pointer to it, or return
-    /// `Err(Error::Exhausted)` if the buffer is full.
-    pub fn enqueue(&mut self) -> Result<&mut PacketBuffer<'b>, Error> {
+    /// `Err(())` if the buffer is full.
+    pub fn enqueue(&mut self) -> Result<&mut PacketBuffer<'b>, ()> {
         if self.full() {
-            Err(Error::Exhausted)
+            Err(())
         } else {
             let index = self.mask(self.read_at + self.length);
             let result = &mut self.storage[index];
@@ -88,10 +90,10 @@ impl<'a, 'b> SocketBuffer<'a, 'b> {
     }
 
     /// Dequeue an element from the buffer, and return a pointer to it, or return
-    /// `Err(Error::Exhausted)` if the buffer is empty.
-    pub fn dequeue(&mut self) -> Result<&PacketBuffer<'b>, Error> {
+    /// `Err(())` if the buffer is empty.
+    pub fn dequeue(&mut self) -> Result<&PacketBuffer<'b>, ()> {
         if self.empty() {
-            Err(Error::Exhausted)
+            Err(())
         } else {
             self.length -= 1;
             let result = &self.storage[self.read_at];
@@ -141,9 +143,9 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     /// Enqueue a packet to be sent to a given remote endpoint, and return a pointer
     /// to its payload.
     ///
-    /// This function returns `Err(Error::Exhausted)` if the size is greater than what
+    /// This function returns `Err(())` if the size is greater than what
     /// the transmit buffer can accomodate.
-    pub fn send(&mut self, size: usize, endpoint: IpEndpoint) -> Result<&mut [u8], Error> {
+    pub fn send(&mut self, size: usize, endpoint: IpEndpoint) -> Result<&mut [u8], ()> {
         let packet_buf = try!(self.tx_buffer.enqueue());
         packet_buf.endpoint = endpoint;
         packet_buf.size = size;
@@ -155,7 +157,7 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     /// Enqueue a packet to be sent to a given remote endpoint, and fill it from a slice.
     ///
     /// See also [send](#method.send).
-    pub fn send_slice(&mut self, data: &[u8], endpoint: IpEndpoint) -> Result<usize, Error> {
+    pub fn send_slice(&mut self, data: &[u8], endpoint: IpEndpoint) -> Result<usize, ()> {
         let buffer = try!(self.send(data.len(), endpoint));
         let data = &data[..buffer.len()];
         buffer.copy_from_slice(data);
@@ -170,8 +172,8 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     /// Dequeue a packet received from a remote endpoint, and return the endpoint as well
     /// as a pointer to the payload.
     ///
-    /// This function returns `Err(Error::Exhausted)` if the receive buffer is empty.
-    pub fn recv(&mut self) -> Result<(&[u8], IpEndpoint), Error> {
+    /// This function returns `Err(())` if the receive buffer is empty.
+    pub fn recv(&mut self) -> Result<(&[u8], IpEndpoint), ()> {
         let packet_buf = try!(self.rx_buffer.dequeue());
         net_trace!("udp:{}:{}: receive {} buffered octets",
                    self.endpoint, packet_buf.endpoint, packet_buf.size);
@@ -181,11 +183,9 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     /// Dequeue a packet received from a remote endpoint, and return the endpoint as well
     /// as copy the payload into the given slice.
     ///
-    /// This function returns `Err(Error::Exhausted)` if the received packet has payload
-    /// larger than the provided slice. See also [recv](#method.recv).
-    pub fn recv_slice(&mut self, data: &mut [u8]) -> Result<(usize, IpEndpoint), Error> {
+    /// See also [recv](#method.recv).
+    pub fn recv_slice(&mut self, data: &mut [u8]) -> Result<(usize, IpEndpoint), ()> {
         let (buffer, endpoint) = try!(self.recv());
-        if data.len() < buffer.len() { return Err(Error::Exhausted) }
         data[..buffer.len()].copy_from_slice(buffer);
         Ok((buffer.len(), endpoint))
     }
@@ -203,7 +203,7 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
             if self.endpoint.addr != ip_repr.dst_addr() { return Err(Error::Rejected) }
         }
 
-        let packet_buf = try!(self.rx_buffer.enqueue());
+        let packet_buf = try!(self.rx_buffer.enqueue().map_err(|()| Error::Exhausted));
         packet_buf.endpoint = IpEndpoint { addr: ip_repr.src_addr(), port: repr.src_port };
         packet_buf.size = repr.payload.len();
         packet_buf.as_mut()[..repr.payload.len()].copy_from_slice(repr.payload);
@@ -215,7 +215,7 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     /// See [Socket::dispatch](enum.Socket.html#method.dispatch).
     pub fn dispatch<F, R>(&mut self, _timestamp: u64, emit: &mut F) -> Result<R, Error>
             where F: FnMut(&IpRepr, &IpPayload) -> Result<R, Error> {
-        let packet_buf = try!(self.tx_buffer.dequeue());
+        let packet_buf = try!(self.tx_buffer.dequeue().map_err(|()| Error::Exhausted));
         net_trace!("udp:{}:{}: sending {} octets",
                    self.endpoint, packet_buf.endpoint, packet_buf.size);
         let ip_repr = IpRepr::Unspecified {
@@ -268,7 +268,7 @@ mod test {
         buffer.enqueue().unwrap().size = 5;
         buffer.enqueue().unwrap().size = 6;
         buffer.enqueue().unwrap().size = 7;
-        assert_eq!(buffer.enqueue().unwrap_err(), Error::Exhausted);
+        assert_eq!(buffer.enqueue().unwrap_err(), ());
         assert_eq!(buffer.empty(), false);
         assert_eq!(buffer.full(),  true);
         assert_eq!(buffer.dequeue().unwrap().size, 3);
@@ -276,7 +276,7 @@ mod test {
         assert_eq!(buffer.dequeue().unwrap().size, 5);
         assert_eq!(buffer.dequeue().unwrap().size, 6);
         assert_eq!(buffer.dequeue().unwrap().size, 7);
-        assert_eq!(buffer.dequeue().unwrap_err(), Error::Exhausted);
+        assert_eq!(buffer.dequeue().unwrap_err(), ());
         assert_eq!(buffer.empty(), true);
         assert_eq!(buffer.full(),  false);
     }

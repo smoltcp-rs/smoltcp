@@ -10,7 +10,6 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use log::{LogLevelFilter, LogRecord};
 use env_logger::{LogBuilder};
 
-use smoltcp::Error;
 use smoltcp::phy::{Tracer, FaultInjector, TapInterface};
 use smoltcp::wire::{EthernetFrame, EthernetAddress, IpAddress};
 use smoltcp::wire::PrettyPrinter;
@@ -95,7 +94,7 @@ fn main() {
     loop {
         // udp:6969: respond "yo dawg"
         {
-            let socket: &mut UdpSocket = sockets.get_mut(&udp_handle).as_socket();
+            let socket: &mut UdpSocket = sockets.get_mut(udp_handle).as_socket();
             if socket.endpoint().is_unspecified() {
                 socket.bind(6969)
             }
@@ -106,13 +105,7 @@ fn main() {
                            str::from_utf8(data.as_ref()).unwrap(), endpoint);
                     Some(endpoint)
                 }
-                Err(Error::Exhausted) => {
-                    None
-                }
-                Err(e) => {
-                    debug!("udp:6969 recv error: {}", e);
-                    None
-                }
+                Err(_) => None
             };
             if let Some(endpoint) = client {
                 let data = b"yo dawg\n";
@@ -124,7 +117,7 @@ fn main() {
 
         // tcp:6969: respond "yo dawg"
         {
-            let socket: &mut TcpSocket = sockets.get_mut(&tcp1_handle).as_socket();
+            let socket: &mut TcpSocket = sockets.get_mut(tcp1_handle).as_socket();
             if !socket.is_open() {
                 socket.listen(6969).unwrap();
             }
@@ -141,7 +134,7 @@ fn main() {
 
         // tcp:6970: echo with reverse
         {
-            let socket: &mut TcpSocket = sockets.get_mut(&tcp2_handle).as_socket();
+            let socket: &mut TcpSocket = sockets.get_mut(tcp2_handle).as_socket();
             if !socket.is_open() {
                 socket.listen(6970).unwrap()
             }
