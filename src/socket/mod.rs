@@ -41,6 +41,7 @@ pub use self::set::{Iter as SocketSetIter, IterMut as SocketSetIterMut};
 /// which is rather inelegant. Conversely, when `dispatch` is called, the packet length is
 /// not yet known and the packet storage has to be allocated; but the `&PacketRepr` is sufficient
 /// since the lower layers treat the packet as an opaque octet sequence.
+#[derive(Debug)]
 pub enum Socket<'a, 'b: 'a> {
     Udp(UdpSocket<'a, 'b>),
     Tcp(TcpSocket<'a>),

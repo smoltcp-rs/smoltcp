@@ -107,6 +107,7 @@ impl<'a, 'b> SocketBuffer<'a, 'b> {
 ///
 /// An UDP socket is bound to a specific endpoint, and owns transmit and receive
 /// packet buffers.
+#[derive(Debug)]
 pub struct UdpSocket<'a, 'b: 'a> {
     endpoint:  IpEndpoint,
     rx_buffer: SocketBuffer<'a, 'b>,

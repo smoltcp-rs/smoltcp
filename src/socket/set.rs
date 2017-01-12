@@ -10,6 +10,7 @@ pub struct Handle {
 }
 
 /// An extensible set of sockets, with stable numeric identifiers.
+#[derive(Debug)]
 pub struct Set<'a, 'b: 'a, 'c: 'a + 'b> {
     sockets: ManagedSlice<'a, Option<Socket<'b, 'c>>>
 }
