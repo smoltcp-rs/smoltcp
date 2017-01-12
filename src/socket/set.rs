@@ -4,7 +4,7 @@ use core::slice;
 use super::Socket;
 
 /// A handle, identifying a socket in a set.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub struct Handle {
     index: usize
 }
@@ -51,20 +51,20 @@ impl<'a, 'b: 'a, 'c: 'a + 'b> Set<'a, 'b, 'c> {
     ///
     /// # Panics
     /// This function may panic if the handle does not belong to this socket set.
-    pub fn get(&self, handle: &Handle) -> &Socket<'b, 'c> {
+    pub fn get(&self, handle: Handle) -> &Socket<'b, 'c> {
         self.sockets[handle.index]
             .as_ref()
-            .expect("handle does not contain a valid socket index")
+            .expect("handle does not refer to a valid socket")
     }
 
     /// Get a socket from the set by its handle, as mutable.
     ///
     /// # Panics
     /// This function may panic if the handle does not belong to this socket set.
-    pub fn get_mut(&mut self, handle: &Handle) -> &mut Socket<'b, 'c> {
+    pub fn get_mut(&mut self, handle: Handle) -> &mut Socket<'b, 'c> {
         self.sockets[handle.index]
             .as_mut()
-            .expect("handle does not contain a valid socket index")
+            .expect("handle does not refer to a valid socket")
     }
 
     /// Remove a socket from the set, without changing its state.
