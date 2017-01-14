@@ -760,9 +760,13 @@ impl<'a> TcpSocket<'a> {
         };
 
         if self.retransmit.may_send_old(timestamp) {
-            // The retransmit timer has expired, so assume all in-flight packets that
-            // have not been acknowledged are lost.
-            self.remote_last_seq = self.local_seq_no;
+            // The retransmit timer has expired, so assume all in-flight data that
+            // has not been acknowledged is lost.
+            match self.state {
+                // Retransmission of SYN is handled elsewhere.
+                State::SynReceived => (),
+                _ => self.remote_last_seq = self.local_seq_no
+            }
         } else if self.retransmit.may_send_new(timestamp) {
             // The retransmit timer has reset, and we can send something new.
         } else {
@@ -1121,8 +1125,25 @@ mod test {
         s.local_endpoint  = LOCAL_END;
         s.remote_endpoint = REMOTE_END;
         s.local_seq_no    = LOCAL_SEQ;
-        s.remote_seq_no   = REMOTE_SEQ;
+        s.remote_seq_no   = REMOTE_SEQ + 1;
+        s.remote_last_seq = LOCAL_SEQ + 1;
         s
+    }
+
+    #[test]
+    fn test_syn_received_syn_ack() {
+        let mut s = socket_syn_received();
+        recv!(s, [TcpRepr {
+            control: TcpControl::Syn,
+            seq_number: LOCAL_SEQ,
+            ack_number: Some(REMOTE_SEQ + 1),
+            ..RECV_TEMPL
+        }]);
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            ..SEND_TEMPL
+        });
     }
 
     #[test]
@@ -1130,7 +1151,7 @@ mod test {
         let mut s = socket_syn_received();
         send!(s, TcpRepr {
             control: TcpControl::Rst,
-            seq_number: REMOTE_SEQ,
+            seq_number: REMOTE_SEQ + 1,
             ack_number: Some(LOCAL_SEQ),
             ..SEND_TEMPL
         });
@@ -1760,6 +1781,20 @@ mod test {
         recv!(s, []);
     }
 
+    #[test]
+    fn test_fin_with_data() {
+        let mut s = socket_established();
+        s.send_slice(b"abcdef").unwrap();
+        s.close();
+        recv!(s, [TcpRepr {
+            control:    TcpControl::Fin,
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"abcdef"[..],
+            ..RECV_TEMPL
+        }])
+    }
+
     // =========================================================================================//
     // Tests for retransmission on packet loss.
     // =========================================================================================//
@@ -1818,16 +1853,33 @@ mod test {
     }
 
     #[test]
-    fn test_fin_with_data() {
-        let mut s = socket_established();
+    fn test_send_data_after_syn_ack_retransmit() {
+        let mut s = socket_syn_received();
+        recv!(s, time 50, Ok(TcpRepr {
+            control:    TcpControl::Syn,
+            seq_number: LOCAL_SEQ,
+            ack_number: Some(REMOTE_SEQ + 1),
+            ..RECV_TEMPL
+        }));
+        recv!(s, time 150, Ok(TcpRepr { // retransmit
+            control:    TcpControl::Syn,
+            seq_number: LOCAL_SEQ,
+            ack_number: Some(REMOTE_SEQ + 1),
+            ..RECV_TEMPL
+        }));
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            ..SEND_TEMPL
+        });
+        assert_eq!(s.state(), State::Established);
         s.send_slice(b"abcdef").unwrap();
-        s.close();
         recv!(s, [TcpRepr {
-            control:    TcpControl::Fin,
             seq_number: LOCAL_SEQ + 1,
             ack_number: Some(REMOTE_SEQ + 1),
             payload:    &b"abcdef"[..],
             ..RECV_TEMPL
         }])
     }
+
 }
