@@ -141,6 +141,11 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
         !self.tx_buffer.full()
     }
 
+    /// Check whether the receive buffer is not empty.
+    pub fn can_recv(&self) -> bool {
+        !self.rx_buffer.empty()
+    }
+
     /// Enqueue a packet to be sent to a given remote endpoint, and return a pointer
     /// to its payload.
     ///
@@ -163,11 +168,6 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
         let data = &data[..buffer.len()];
         buffer.copy_from_slice(data);
         Ok(data.len())
-    }
-
-    /// Check whether the receive buffer is full.
-    pub fn can_recv(&self) -> bool {
-        !self.rx_buffer.empty()
     }
 
     /// Dequeue a packet received from a remote endpoint, and return the endpoint as well

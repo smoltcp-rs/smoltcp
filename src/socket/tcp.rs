@@ -37,6 +37,14 @@ impl<'a> SocketBuffer<'a> {
         self.capacity() - self.len()
     }
 
+    fn empty(&self) -> bool {
+        self.length != 0
+    }
+
+    fn full(&self) -> bool {
+        self.window() == 0
+    }
+
     fn clamp_writer(&self, mut size: usize) -> (usize, usize) {
         let write_at = (self.read_at + self.length) % self.storage.len();
         // We can't enqueue more than there is free space.
@@ -360,7 +368,7 @@ impl<'a> TcpSocket<'a> {
     /// to the remote endpoint. However, it does not make any guarantees about the state
     /// of the transmit buffer, and even if it returns true, [send](#method.send) may
     /// not be able to enqueue any octets.
-    pub fn can_send(&self) -> bool {
+    pub fn may_send(&self) -> bool {
         match self.state {
             State::Established => true,
             // In CLOSE-WAIT, the remote endpoint has closed our receive half of the connection
@@ -375,7 +383,7 @@ impl<'a> TcpSocket<'a> {
     /// This function returns true if it's possible to receive data from the remote endpoint.
     /// It will return true while there is data in the receive buffer, and if there isn't,
     /// as long as the remote endpoint has not closed the connection.
-    pub fn can_recv(&self) -> bool {
+    pub fn may_recv(&self) -> bool {
         match self.state {
             State::Established => true,
             // In FIN-WAIT-1/2, we have closed our transmit half of the connection but
@@ -385,6 +393,16 @@ impl<'a> TcpSocket<'a> {
             _ if self.rx_buffer.len() > 0 => true,
             _ => false
         }
+    }
+
+    /// Check whether the transmit buffer is full.
+    pub fn can_send(&self) -> bool {
+        !self.tx_buffer.full()
+    }
+
+    /// Check whether the receive buffer is not empty.
+    pub fn can_recv(&self) -> bool {
+        !self.rx_buffer.empty()
     }
 
     /// Enqueue a sequence of octets to be sent, and return a pointer to it.

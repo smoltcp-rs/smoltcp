@@ -146,7 +146,7 @@ fn main() {
             }
             tcp_6969_connected = socket.is_connected();
 
-            if socket.can_recv() {
+            if socket.may_recv() {
                 let data = {
                     let mut data = socket.recv(128).unwrap().to_owned();
                     if data.len() > 0 {
@@ -163,7 +163,7 @@ fn main() {
                            str::from_utf8(data.as_ref()).unwrap_or("(invalid utf8)"));
                     socket.send_slice(&data[..]).unwrap();
                 }
-            } else if socket.can_send() {
+            } else if socket.may_send() {
                 debug!("tcp:6970 close");
                 socket.close();
             }
