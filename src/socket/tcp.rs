@@ -344,7 +344,15 @@ impl<'a> TcpSocket<'a> {
         }
     }
 
-    /// Return whether a connection is established.
+    /// Return whether the socket is passively listening for incoming connections.
+    pub fn is_listening(&self) -> bool {
+        match self.state {
+            State::Listen => true,
+            _ => false
+        }
+    }
+
+    /// Return whether a connection is active.
     ///
     /// This function returns true if the socket is actively exchanging packets with
     /// a remote endpoint. Note that this does not mean that it is possible to send or receive
@@ -353,7 +361,7 @@ impl<'a> TcpSocket<'a> {
     ///
     /// If a connection is established, [abort](#method.close) will send a reset to
     /// the remote endpoint.
-    pub fn is_connected(&self) -> bool {
+    pub fn is_active(&self) -> bool {
         match self.state {
             State::Closed => false,
             State::TimeWait => false,
