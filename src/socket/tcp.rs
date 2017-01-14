@@ -152,7 +152,7 @@ impl fmt::Display for State {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 struct Retransmit {
     resend_at: u64,
     delay:     u64
@@ -1020,6 +1020,29 @@ mod test {
             (recv(&mut $socket, $time, |repr| assert_eq!(repr, $result)));
     }
 
+    macro_rules! sanity {
+        ($socket1:expr, $socket2:expr, retransmit: $retransmit:expr) => ({
+            let (s1, s2) = ($socket1, $socket2);
+            assert_eq!(s1.state,            s2.state,           "state");
+            assert_eq!(s1.listen_address,   s2.listen_address,  "listen_address");
+            assert_eq!(s1.local_endpoint,   s2.local_endpoint,  "local_endpoint");
+            assert_eq!(s1.remote_endpoint,  s2.remote_endpoint, "remote_endpoint");
+            assert_eq!(s1.local_seq_no,     s2.local_seq_no,    "local_seq_no");
+            assert_eq!(s1.remote_seq_no,    s2.remote_seq_no,   "remote_seq_no");
+            assert_eq!(s1.remote_last_seq,  s2.remote_last_seq, "remote_last_seq");
+            assert_eq!(s1.remote_last_ack,  s2.remote_last_ack, "remote_last_ack");
+            assert_eq!(s1.remote_win_len,   s2.remote_win_len,  "remote_win_len");
+            if $retransmit {
+                assert_eq!(s1.retransmit,   s2.retransmit,      "retransmit");
+            } else {
+                let retransmit = Retransmit { resend_at: 100, delay: 100 };
+                assert_eq!(s1.retransmit,      retransmit,      "retransmit (delaying)");
+            }
+        });
+        ($socket1:expr, $socket2:expr) =>
+            (sanity!($socket1, $socket2, retransmit: true))
+    }
+
     fn init_logger() {
         extern crate log;
         use std::boxed::Box;
@@ -1087,6 +1110,25 @@ mod test {
     }
 
     #[test]
+    fn test_listen_sanity() {
+        let mut s = socket();
+        s.listen(LOCAL_PORT).unwrap();
+        sanity!(s, socket_listen());
+    }
+
+    #[test]
+    fn test_listen_syn() {
+        let mut s = socket_listen();
+        send!(s, TcpRepr {
+            control:    TcpControl::Syn,
+            seq_number: REMOTE_SEQ,
+            ack_number: None,
+            ..SEND_TEMPL
+        });
+        sanity!(s, socket_syn_received());
+    }
+
+    #[test]
     fn test_listen_syn_no_ack() {
         let mut s = socket_listen();
         send!(s, TcpRepr {
@@ -1127,6 +1169,7 @@ mod test {
         s.local_seq_no    = LOCAL_SEQ;
         s.remote_seq_no   = REMOTE_SEQ + 1;
         s.remote_last_seq = LOCAL_SEQ + 1;
+        s.remote_win_len  = 256;
         s
     }
 
@@ -1144,6 +1187,8 @@ mod test {
             ack_number: Some(LOCAL_SEQ + 1),
             ..SEND_TEMPL
         });
+        assert_eq!(s.state, State::Established);
+        sanity!(s, socket_established());
     }
 
     #[test]
@@ -1227,12 +1272,9 @@ mod test {
     // =========================================================================================//
     fn socket_established() -> TcpSocket<'static> {
         let mut s = socket_syn_received();
-        s.state          = State::Established;
+        s.state           = State::Established;
         s.local_seq_no    = LOCAL_SEQ + 1;
-        s.remote_seq_no   = REMOTE_SEQ + 1;
-        s.remote_last_seq = LOCAL_SEQ + 1;
         s.remote_last_ack = REMOTE_SEQ + 1;
-        s.remote_win_len  = 128;
         s
     }
 
@@ -1371,12 +1413,13 @@ mod test {
             ack_number: Some(LOCAL_SEQ + 1),
             ..SEND_TEMPL
         });
-        assert_eq!(s.state, State::CloseWait);
         recv!(s, [TcpRepr {
             seq_number: LOCAL_SEQ + 1,
             ack_number: Some(REMOTE_SEQ + 1 + 1),
             ..RECV_TEMPL
         }]);
+        assert_eq!(s.state, State::CloseWait);
+        sanity!(s, socket_close_wait(), retransmit: false);
     }
 
     #[test]
@@ -1427,6 +1470,7 @@ mod test {
         let mut s = socket_established();
         s.close();
         assert_eq!(s.state, State::FinWait1);
+        sanity!(s, socket_fin_wait_1());
     }
 
     // =========================================================================================//
@@ -1453,6 +1497,7 @@ mod test {
             ..SEND_TEMPL
         });
         assert_eq!(s.state, State::FinWait2);
+        sanity!(&s, socket_fin_wait_2(), retransmit: false);
     }
 
     #[test]
@@ -1471,6 +1516,7 @@ mod test {
             ..SEND_TEMPL
         });
         assert_eq!(s.state, State::Closing);
+        sanity!(s, socket_closing());
     }
 
     #[test]
@@ -1500,6 +1546,7 @@ mod test {
             ..SEND_TEMPL
         });
         assert_eq!(s.state, State::TimeWait);
+        sanity!(s, socket_time_wait(false));
     }
 
     #[test]
@@ -1534,6 +1581,7 @@ mod test {
             ..SEND_TEMPL
         });
         assert_eq!(s.state, State::TimeWait);
+        sanity!(s, socket_time_wait(true));
     }
 
     #[test]
@@ -1612,6 +1660,7 @@ mod test {
         let mut s = socket_close_wait();
         s.close();
         assert_eq!(s.state, State::LastAck);
+        sanity!(s, socket_last_ack());
     }
 
     // =========================================================================================//
