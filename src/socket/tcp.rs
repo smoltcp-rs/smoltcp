@@ -395,13 +395,19 @@ impl<'a> TcpSocket<'a> {
         }
     }
 
-    /// Check whether the transmit buffer is full.
+    /// Check whether the transmit half of the full-duplex connection is open, and
+    /// the transmit buffer is not full.
     pub fn can_send(&self) -> bool {
+        if !self.may_send() { return false }
+
         !self.tx_buffer.full()
     }
 
-    /// Check whether the receive buffer is not empty.
+    /// Check whether the receive half of the full-duplex connection buffer is open,
+    /// and the receive buffer is not empty.
     pub fn can_recv(&self) -> bool {
+        if !self.may_recv() { return false }
+
         !self.rx_buffer.empty()
     }
 
@@ -414,7 +420,7 @@ impl<'a> TcpSocket<'a> {
     /// This function returns an error if the transmit half of the connection is not open;
     /// see [can_send](#method.can_send).
     pub fn send(&mut self, size: usize) -> Result<&mut [u8], ()> {
-        if !self.can_send() { return Err(()) }
+        if !self.may_send() { return Err(()) }
 
         let old_length = self.tx_buffer.len();
         let buffer = self.tx_buffer.enqueue(size);
@@ -448,7 +454,7 @@ impl<'a> TcpSocket<'a> {
     pub fn recv(&mut self, size: usize) -> Result<&[u8], ()> {
         // We may have received some data inside the initial SYN ("TCP Fast Open"),
         // but until the connection is fully open we refuse to dequeue any data.
-        if !self.can_recv() { return Err(()) }
+        if !self.may_recv() { return Err(()) }
 
         let old_length = self.rx_buffer.len();
         let buffer = self.rx_buffer.dequeue(size);
@@ -803,21 +809,21 @@ impl<'a> TcpSocket<'a> {
                 // in case it's not possible to extract a contiguous slice.
                 let offset = self.remote_last_seq - self.local_seq_no;
                 let data = self.tx_buffer.peek(offset, size);
+                if data.len() > 0 {
+                    // Send the extracted data.
+                    net_trace!("tcp:{}:{}: tx buffer: peeking at {} octets (from {})",
+                               self.local_endpoint, self.remote_endpoint,
+                               data.len(), offset);
+                    repr.seq_number += offset;
+                    repr.payload = data;
+                    // Speculatively shrink the remote window. This will get updated
+                    // the next time we receive a packet.
+                    self.remote_win_len  -= data.len();
+                    // Advance the in-flight sequence number.
+                    self.remote_last_seq += data.len();
+                    should_send = true;
+                }
                 match self.state {
-                    _ if data.len() > 0 => {
-                        // Send the extracted data.
-                        net_trace!("tcp:{}:{}: tx buffer: peeking at {} octets (from {})",
-                                   self.local_endpoint, self.remote_endpoint,
-                                   data.len(), offset);
-                        repr.seq_number += offset;
-                        repr.payload = data;
-                        // Speculatively shrink the remote window. This will get updated
-                        // the next time we receive a packet.
-                        self.remote_win_len  -= data.len();
-                        // Advance the in-flight sequence number.
-                        self.remote_last_seq += data.len();
-                        should_send = true;
-                    }
                     State::FinWait1 | State::LastAck => {
                         // We should notify the other side that we've closed the transmit half
                         // of the connection.
@@ -1799,5 +1805,19 @@ mod test {
             payload:    &b"abcdef"[..],
             ..RECV_TEMPL
         }));
+    }
+
+    #[test]
+    fn test_fin_with_data() {
+        let mut s = socket_established();
+        s.send_slice(b"abcdef").unwrap();
+        s.close();
+        recv!(s, [TcpRepr {
+            control:    TcpControl::Fin,
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"abcdef"[..],
+            ..RECV_TEMPL
+        }])
     }
 }
