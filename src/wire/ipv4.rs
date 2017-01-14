@@ -3,6 +3,7 @@ use byteorder::{ByteOrder, NetworkEndian};
 
 use Error;
 use super::ip::checksum;
+use super::IpAddress;
 
 pub use super::IpProtocol as Protocol;
 
@@ -475,20 +476,42 @@ use super::pretty_print::{PrettyPrint, PrettyIndent};
 impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
     fn pretty_print(buffer: &AsRef<[u8]>, f: &mut fmt::Formatter,
                     indent: &mut PrettyIndent) -> fmt::Result {
-        let packet = match Packet::new(buffer) {
-            Err(err)   => return write!(f, "{}({})\n", indent, err),
-            Ok(packet) => packet
+        let ip_packet = match Packet::new(buffer) {
+            Err(err) => return write!(f, "{}({})\n", indent, err),
+            Ok(ip_packet) => ip_packet
         };
-        try!(write!(f, "{}{}\n", indent, packet));
+        try!(write!(f, "{}{}\n", indent, ip_packet));
 
         indent.increase();
-        match packet.protocol() {
+        match ip_packet.protocol() {
             Protocol::Icmp =>
-                super::Icmpv4Packet::<&[u8]>::pretty_print(&packet.payload(), f, indent),
-            Protocol::Udp =>
-                super::UdpPacket::<&[u8]>::pretty_print(&packet.payload(), f, indent),
-            Protocol::Tcp =>
-                super::TcpPacket::<&[u8]>::pretty_print(&packet.payload(), f, indent),
+                super::Icmpv4Packet::<&[u8]>::pretty_print(&ip_packet.payload(), f, indent),
+            Protocol::Udp => {
+                match super::UdpPacket::new(&ip_packet.payload()) {
+                    Err(err) => write!(f, "{}({})\n", indent, err),
+                    Ok(udp_packet) => {
+                        match super::UdpRepr::parse(&udp_packet,
+                                                    &IpAddress::from(ip_packet.src_addr()),
+                                                    &IpAddress::from(ip_packet.dst_addr())) {
+                            Err(err) => write!(f, "{}{} ({})\n", indent, udp_packet, err),
+                            Ok(udp_repr) => write!(f, "{}{}\n", indent, udp_repr)
+                        }
+                    }
+                }
+            }
+            Protocol::Tcp => {
+                match super::TcpPacket::new(&ip_packet.payload()) {
+                    Err(err) => write!(f, "{}({})\n", indent, err),
+                    Ok(tcp_packet) => {
+                        match super::TcpRepr::parse(&tcp_packet,
+                                                    &IpAddress::from(ip_packet.src_addr()),
+                                                    &IpAddress::from(ip_packet.dst_addr())) {
+                            Err(err) => write!(f, "{}{} ({})\n", indent, tcp_packet, err),
+                            Ok(tcp_repr) => write!(f, "{}{}\n", indent, tcp_repr)
+                        }
+                    }
+                }
+            }
             _ => Ok(())
         }
     }
