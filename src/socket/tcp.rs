@@ -490,10 +490,10 @@ impl<'a> TcpSocket<'a> {
     fn set_state(&mut self, state: State) {
         if self.state != state {
             if self.remote_endpoint.addr.is_unspecified() {
-                net_trace!("tcp:{}: state={}→{}",
+                net_trace!("tcp:{}: state={}=>{}",
                            self.local_endpoint, self.state, state);
             } else {
-                net_trace!("tcp:{}:{}: state={}→{}",
+                net_trace!("tcp:{}:{}: state={}=>{}",
                            self.local_endpoint, self.remote_endpoint, self.state, state);
             }
         }
