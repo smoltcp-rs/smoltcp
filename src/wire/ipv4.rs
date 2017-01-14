@@ -480,13 +480,13 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
         let (ip_repr, payload) = match Packet::new(buffer) {
             Err(err) => return write!(f, "{}({})\n", indent, err),
             Ok(ip_packet) => {
+                try!(write!(f, "{}{}\n", indent, ip_packet));
                 match Repr::parse(&ip_packet) {
-                    Err(err) => return write!(f, "{}{} ({})\n", indent, ip_packet, err),
+                    Err(_) => return Ok(()),
                     Ok(ip_repr) => (ip_repr, &ip_packet.payload()[..ip_repr.payload_len])
                 }
             }
         };
-        try!(write!(f, "{}{}\n", indent, ip_repr));
 
         indent.increase();
         match ip_repr.protocol {
