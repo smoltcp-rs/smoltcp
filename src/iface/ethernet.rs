@@ -170,7 +170,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                     Ipv4Repr { dst_addr, .. } if !self.has_protocol_addr(dst_addr) => (),
 
                     // Respond to ICMP packets.
-                    Ipv4Repr { protocol: IpProtocol::Icmp, src_addr, dst_addr } => {
+                    Ipv4Repr { protocol: IpProtocol::Icmp, src_addr, dst_addr, .. } => {
                         let icmp_packet = try!(Icmpv4Packet::new(ipv4_packet.payload()));
                         let icmp_repr = try!(Icmpv4Repr::parse(&icmp_packet));
                         match icmp_repr {
@@ -178,15 +178,16 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                             Icmpv4Repr::EchoRequest {
                                 ident, seq_no, data
                             } => {
-                                let ipv4_reply_repr = Ipv4Repr {
-                                    src_addr: dst_addr,
-                                    dst_addr: src_addr,
-                                    protocol: IpProtocol::Icmp
-                                };
                                 let icmp_reply_repr = Icmpv4Repr::EchoReply {
                                     ident:  ident,
                                     seq_no: seq_no,
                                     data:   data
+                                };
+                                let ipv4_reply_repr = Ipv4Repr {
+                                    src_addr:    dst_addr,
+                                    dst_addr:    src_addr,
+                                    protocol:    IpProtocol::Icmp,
+                                    payload_len: icmp_reply_repr.buffer_len()
                                 };
                                 response = Response::Icmpv4(ipv4_reply_repr, icmp_reply_repr)
                             }
@@ -200,7 +201,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                     },
 
                     // Try dispatching a packet to a socket.
-                    Ipv4Repr { src_addr, dst_addr, protocol } => {
+                    Ipv4Repr { src_addr, dst_addr, protocol, .. } => {
                         let mut handled = false;
                         for socket in sockets.iter_mut() {
                             let ip_repr = IpRepr::Ipv4(ipv4_repr);
@@ -228,11 +229,6 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                         if !handled && protocol == IpProtocol::Tcp {
                             let tcp_packet = try!(TcpPacket::new(ipv4_packet.payload()));
 
-                            let ipv4_reply_repr = Ipv4Repr {
-                                src_addr: dst_addr,
-                                dst_addr: src_addr,
-                                protocol: IpProtocol::Tcp
-                            };
                             let tcp_reply_repr = TcpRepr {
                                 src_port:   tcp_packet.dst_port(),
                                 dst_port:   tcp_packet.src_port(),
@@ -242,6 +238,12 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                                                  tcp_packet.segment_len()),
                                 window_len: 0,
                                 payload:    &[]
+                            };
+                            let ipv4_reply_repr = Ipv4Repr {
+                                src_addr:    dst_addr,
+                                dst_addr:    src_addr,
+                                protocol:    IpProtocol::Tcp,
+                                payload_len: tcp_reply_repr.buffer_len()
                             };
                             response = Response::Tcpv4(ipv4_reply_repr, tcp_reply_repr);
                         } else if !handled {
@@ -255,16 +257,16 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                             let mut data = [0; 8];
                             data.copy_from_slice(&ipv4_packet.payload()[0..8]);
 
-                            let ipv4_reply_repr = Ipv4Repr {
-                                src_addr: dst_addr,
-                                dst_addr: src_addr,
-                                protocol: IpProtocol::Icmp
-                            };
                             let icmp_reply_repr = Icmpv4Repr::DstUnreachable {
-                                reason:   reason,
-                                header:   ipv4_repr,
-                                length:   ipv4_packet.payload().len(),
-                                data:     data
+                                reason: reason,
+                                header: ipv4_repr,
+                                data:   data
+                            };
+                            let ipv4_reply_repr = Ipv4Repr {
+                                src_addr:    dst_addr,
+                                dst_addr:    src_addr,
+                                protocol:    IpProtocol::Icmp,
+                                payload_len: icmp_reply_repr.buffer_len()
                             };
                             response = Response::Icmpv4(ipv4_reply_repr, icmp_reply_repr)
                         }
@@ -277,16 +279,15 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         }
 
         macro_rules! ip_response {
-            ($tx_buffer:ident, $frame:ident, $ip_repr:ident, $length:expr) => ({
+            ($tx_buffer:ident, $frame:ident, $ip_repr:ident) => ({
                 let dst_hardware_addr =
                     match self.arp_cache.lookup(&$ip_repr.dst_addr.into()) {
                         None => return Err(Error::Unaddressable),
                         Some(hardware_addr) => hardware_addr
                     };
 
-                let payload_len = $length;
                 let frame_len = EthernetFrame::<&[u8]>::buffer_len($ip_repr.buffer_len() +
-                                                                   payload_len);
+                                                                   $ip_repr.payload_len);
                 $tx_buffer = try!(self.device.transmit(frame_len));
                 $frame = try!(EthernetFrame::new(&mut $tx_buffer));
                 $frame.set_src_addr(self.hardware_addr);
@@ -294,7 +295,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                 $frame.set_ethertype(EthernetProtocol::Ipv4);
 
                 let mut ip_packet = try!(Ipv4Packet::new($frame.payload_mut()));
-                $ip_repr.emit(&mut ip_packet, payload_len);
+                $ip_repr.emit(&mut ip_packet);
                 ip_packet
             })
         }
@@ -320,8 +321,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
             Response::Icmpv4(ip_repr, icmp_repr) => {
                 let mut tx_buffer;
                 let mut frame;
-                let mut ip_packet = ip_response!(tx_buffer, frame, ip_repr,
-                                                 icmp_repr.buffer_len());
+                let mut ip_packet = ip_response!(tx_buffer, frame, ip_repr);
                 let mut icmp_packet = try!(Icmpv4Packet::new(ip_packet.payload_mut()));
                 icmp_repr.emit(&mut icmp_packet);
                 Ok(())
@@ -330,8 +330,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
             Response::Tcpv4(ip_repr, tcp_repr) => {
                 let mut tx_buffer;
                 let mut frame;
-                let mut ip_packet = ip_response!(tx_buffer, frame, ip_repr,
-                                                 tcp_repr.buffer_len());
+                let mut ip_packet = ip_response!(tx_buffer, frame, ip_repr);
                 let mut tcp_packet = try!(TcpPacket::new(ip_packet.payload_mut()));
                 tcp_repr.emit(&mut tcp_packet,
                               &IpAddress::Ipv4(ip_repr.src_addr),
@@ -372,7 +371,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                 frame.set_dst_addr(dst_hardware_addr);
                 frame.set_ethertype(EthernetProtocol::Ipv4);
 
-                repr.emit(frame.payload_mut(), payload.buffer_len());
+                repr.emit(frame.payload_mut());
 
                 let mut ip_packet = try!(Ipv4Packet::new(frame.payload_mut()));
                 payload.emit(&repr, ip_packet.payload_mut());

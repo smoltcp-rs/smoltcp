@@ -352,7 +352,6 @@ pub enum Repr<'a> {
     DstUnreachable {
         reason: DstUnreachable,
         header: Ipv4Repr,
-        length: usize,
         data:   [u8; 8]
     },
     #[doc(hidden)]
@@ -389,12 +388,9 @@ impl<'a> Repr<'a> {
                 if payload.len() < data.len() { return Err(Error::Truncated) }
                 data.copy_from_slice(&payload[0..8]);
 
-                let length = ip_packet.total_len() as usize - ip_packet.header_len() as usize;
-
                 Ok(Repr::DstUnreachable {
                     reason: DstUnreachable::from(code),
                     header: ip_repr,
-                    length: length,
                     data:   data
                 })
             }
@@ -439,13 +435,13 @@ impl<'a> Repr<'a> {
                 packet.data_mut()[..data_len].copy_from_slice(&data[..data_len])
             },
 
-            &Repr::DstUnreachable { reason, header, length, data } => {
+            &Repr::DstUnreachable { reason, header, data } => {
                 packet.set_msg_type(Message::DstUnreachable);
                 packet.set_msg_code(reason.into());
 
                 let mut ip_packet = Ipv4Packet::new(packet.data_mut())
                                                .expect("undersized data");
-                header.emit(&mut ip_packet, length);
+                header.emit(&mut ip_packet);
                 let mut payload = &mut ip_packet.into_inner()[header.buffer_len()..];
                 payload.copy_from_slice(&data[..])
             }

@@ -120,9 +120,10 @@ impl From<u16> for Endpoint {
 #[derive(Debug, Clone)]
 pub enum IpRepr {
     Unspecified {
-        src_addr: Address,
-        dst_addr: Address,
-        protocol: Protocol
+        src_addr:    Address,
+        dst_addr:    Address,
+        protocol:    Protocol,
+        payload_len: usize
     },
     Ipv4(Ipv4Repr),
     #[doc(hidden)]
@@ -157,6 +158,15 @@ impl IpRepr {
         }
     }
 
+    /// Return the payload length.
+    pub fn payload_len(&self) -> usize {
+        match self {
+            &IpRepr::Unspecified { payload_len, .. } => payload_len,
+            &IpRepr::Ipv4(repr) => repr.payload_len,
+            &IpRepr::__Nonexhaustive => unreachable!()
+        }
+    }
+
     /// Convert an unspecified representation into a concrete one, or return
     /// `Err(Error::Unaddressable)` if not possible.
     ///
@@ -168,19 +178,20 @@ impl IpRepr {
             &IpRepr::Unspecified {
                 src_addr: Address::Ipv4(src_addr),
                 dst_addr: Address::Ipv4(dst_addr),
-                protocol
+                protocol, payload_len
             } => {
                 Ok(IpRepr::Ipv4(Ipv4Repr {
-                    src_addr: src_addr,
-                    dst_addr: dst_addr,
-                    protocol: protocol
+                    src_addr:    src_addr,
+                    dst_addr:    dst_addr,
+                    protocol:    protocol,
+                    payload_len: payload_len
                 }))
             }
 
             &IpRepr::Unspecified {
                 src_addr: Address::Unspecified,
                 dst_addr: Address::Ipv4(dst_addr),
-                protocol
+                protocol, payload_len
             } => {
                 let mut src_addr = None;
                 for addr in fallback_src_addrs {
@@ -193,9 +204,10 @@ impl IpRepr {
                     }
                 }
                 Ok(IpRepr::Ipv4(Ipv4Repr {
-                    src_addr: try!(src_addr.ok_or(Error::Unaddressable)),
-                    dst_addr: dst_addr,
-                    protocol: protocol
+                    src_addr:    try!(src_addr.ok_or(Error::Unaddressable)),
+                    dst_addr:    dst_addr,
+                    protocol:    protocol,
+                    payload_len: payload_len
                 }))
             }
 
@@ -225,12 +237,12 @@ impl IpRepr {
     ///
     /// # Panics
     /// This function panics if invoked on an unspecified representation.
-    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(&self, buffer: T, payload_len: usize) {
+    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(&self, buffer: T) {
         match self {
             &IpRepr::Unspecified { .. } => panic!("unspecified IP representation"),
             &IpRepr::Ipv4(repr) => {
                 let mut packet = Ipv4Packet::new(buffer).expect("undersized buffer");
-                repr.emit(&mut packet, payload_len)
+                repr.emit(&mut packet)
             }
             &IpRepr::__Nonexhaustive => unreachable!()
         }

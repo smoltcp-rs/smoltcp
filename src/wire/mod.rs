@@ -29,17 +29,18 @@
 ```rust
 use smoltcp::wire::*;
 let repr = Ipv4Repr {
-    src_addr: Ipv4Address::new(10, 0, 0, 1),
-    dst_addr: Ipv4Address::new(10, 0, 0, 2),
-    protocol: IpProtocol::Tcp
+    src_addr:    Ipv4Address::new(10, 0, 0, 1),
+    dst_addr:    Ipv4Address::new(10, 0, 0, 2),
+    protocol:    IpProtocol::Tcp,
+    payload_len: 10
 };
-let mut buffer = vec![0; repr.buffer_len()];
+let mut buffer = vec![0; repr.buffer_len() + 10];
 { // emission
     let mut packet = Ipv4Packet::new(&mut buffer).unwrap();
-    repr.emit(&mut packet, /*payload size*/ 0);
+    repr.emit(&mut packet);
 }
 { // parsing
-    let mut packet = Ipv4Packet::new(&buffer).unwrap();
+    let packet = Ipv4Packet::new(&buffer).unwrap();
     let parsed = Ipv4Repr::parse(&packet).unwrap();
     assert_eq!(repr, parsed);
 }

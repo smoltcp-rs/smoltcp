@@ -513,7 +513,7 @@ impl<'a> TcpSocket<'a> {
                    payload: &[u8]) -> Result<(), Error> {
         if ip_repr.protocol() != IpProtocol::Tcp { return Err(Error::Rejected) }
 
-        let packet = try!(TcpPacket::new(payload));
+        let packet = try!(TcpPacket::new(&payload[..ip_repr.payload_len()]));
         let repr = try!(TcpRepr::parse(&packet, &ip_repr.src_addr(), &ip_repr.dst_addr()));
 
         // Reject packets with a wrong destination.
@@ -749,11 +749,6 @@ impl<'a> TcpSocket<'a> {
             where F: FnMut(&IpRepr, &IpPayload) -> Result<R, Error> {
         if self.remote_endpoint.is_unspecified() { return Err(Error::Exhausted) }
 
-        let ip_repr = IpRepr::Unspecified {
-            src_addr: self.local_endpoint.addr,
-            dst_addr: self.remote_endpoint.addr,
-            protocol: IpProtocol::Tcp,
-        };
         let mut repr = TcpRepr {
             src_port:   self.local_endpoint.port,
             dst_port:   self.remote_endpoint.port,
@@ -864,6 +859,12 @@ impl<'a> TcpSocket<'a> {
             repr.ack_number = Some(ack_number);
             self.remote_last_ack = ack_number;
 
+            let ip_repr = IpRepr::Unspecified {
+                src_addr:    self.local_endpoint.addr,
+                dst_addr:    self.remote_endpoint.addr,
+                protocol:    IpProtocol::Tcp,
+                payload_len: repr.buffer_len()
+            };
             emit(&ip_repr, &repr)
         } else {
             Err(Error::Exhausted)
@@ -963,9 +964,10 @@ mod test {
         let mut packet = TcpPacket::new(&mut buffer).unwrap();
         repr.emit(&mut packet, &REMOTE_IP, &LOCAL_IP);
         let ip_repr = IpRepr::Unspecified {
-            src_addr: REMOTE_IP,
-            dst_addr: LOCAL_IP,
-            protocol: IpProtocol::Tcp
+            src_addr:    REMOTE_IP,
+            dst_addr:    LOCAL_IP,
+            protocol:    IpProtocol::Tcp,
+            payload_len: repr.buffer_len()
         };
         socket.process(timestamp, &ip_repr, &packet.into_inner()[..])
     }

@@ -196,7 +196,7 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
                    payload: &[u8]) -> Result<(), Error> {
         if ip_repr.protocol() != IpProtocol::Udp { return Err(Error::Rejected) }
 
-        let packet = try!(UdpPacket::new(payload));
+        let packet = try!(UdpPacket::new(&payload[..ip_repr.payload_len()]));
         let repr = try!(UdpRepr::parse(&packet, &ip_repr.src_addr(), &ip_repr.dst_addr()));
 
         if repr.dst_port != self.endpoint.port { return Err(Error::Rejected) }
@@ -219,17 +219,18 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
         let packet_buf = try!(self.tx_buffer.dequeue().map_err(|()| Error::Exhausted));
         net_trace!("udp:{}:{}: sending {} octets",
                    self.endpoint, packet_buf.endpoint, packet_buf.size);
-        let ip_repr = IpRepr::Unspecified {
-            src_addr: self.endpoint.addr,
-            dst_addr: packet_buf.endpoint.addr,
-            protocol: IpProtocol::Udp
-        };
-        let payload = UdpRepr {
+        let repr = UdpRepr {
             src_port: self.endpoint.port,
             dst_port: packet_buf.endpoint.port,
             payload:  &packet_buf.as_ref()[..]
         };
-        emit(&ip_repr, &payload)
+        let ip_repr = IpRepr::Unspecified {
+            src_addr:    self.endpoint.addr,
+            dst_addr:    packet_buf.endpoint.addr,
+            protocol:    IpProtocol::Udp,
+            payload_len: repr.buffer_len()
+        };
+        emit(&ip_repr, &repr)
     }
 }
 

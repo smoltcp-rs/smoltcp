@@ -367,9 +367,10 @@ impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Packet<&'a mut T> {
 /// A high-level representation of an Internet Protocol version 4 packet header.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct Repr {
-    pub src_addr: Address,
-    pub dst_addr: Address,
-    pub protocol: Protocol
+    pub src_addr:    Address,
+    pub dst_addr:    Address,
+    pub protocol:    Protocol,
+    pub payload_len: usize
 }
 
 impl Repr {
@@ -391,9 +392,10 @@ impl Repr {
         // All ECN values are acceptable, since ECN requires opt-in from both endpoints.
         // All TTL values are acceptable, since we do not perform routing.
         Ok(Repr {
-            src_addr: packet.src_addr(),
-            dst_addr: packet.dst_addr(),
-            protocol: packet.protocol()
+            src_addr:    packet.src_addr(),
+            dst_addr:    packet.dst_addr(),
+            protocol:    packet.protocol(),
+            payload_len: payload_len
         })
     }
 
@@ -404,13 +406,12 @@ impl Repr {
     }
 
     /// Emit a high-level representation into an Internet Protocol version 4 packet.
-    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(&self, packet: &mut Packet<T>,
-                                              payload_len: usize) {
+    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(&self, packet: &mut Packet<T>) {
         packet.set_version(4);
         packet.set_header_len(field::DST_ADDR.end as u8);
         packet.set_dscp(0);
         packet.set_ecn(0);
-        let total_len = packet.header_len() as u16 + payload_len as u16;
+        let total_len = packet.header_len() as u16 + self.payload_len as u16;
         packet.set_total_len(total_len);
         packet.set_ident(0);
         packet.clear_flags();
@@ -476,23 +477,28 @@ use super::pretty_print::{PrettyPrint, PrettyIndent};
 impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
     fn pretty_print(buffer: &AsRef<[u8]>, f: &mut fmt::Formatter,
                     indent: &mut PrettyIndent) -> fmt::Result {
-        let ip_packet = match Packet::new(buffer) {
+        let (ip_repr, payload) = match Packet::new(buffer) {
             Err(err) => return write!(f, "{}({})\n", indent, err),
-            Ok(ip_packet) => ip_packet
+            Ok(ip_packet) => {
+                match Repr::parse(&ip_packet) {
+                    Err(err) => return write!(f, "{}{} ({})\n", indent, ip_packet, err),
+                    Ok(ip_repr) => (ip_repr, &ip_packet.payload()[..ip_repr.payload_len])
+                }
+            }
         };
-        try!(write!(f, "{}{}\n", indent, ip_packet));
+        try!(write!(f, "{}{}\n", indent, ip_repr));
 
         indent.increase();
-        match ip_packet.protocol() {
+        match ip_repr.protocol {
             Protocol::Icmp =>
-                super::Icmpv4Packet::<&[u8]>::pretty_print(&ip_packet.payload(), f, indent),
+                super::Icmpv4Packet::<&[u8]>::pretty_print(&payload, f, indent),
             Protocol::Udp => {
-                match super::UdpPacket::new(&ip_packet.payload()) {
+                match super::UdpPacket::new(payload) {
                     Err(err) => write!(f, "{}({})\n", indent, err),
                     Ok(udp_packet) => {
                         match super::UdpRepr::parse(&udp_packet,
-                                                    &IpAddress::from(ip_packet.src_addr()),
-                                                    &IpAddress::from(ip_packet.dst_addr())) {
+                                                    &IpAddress::from(ip_repr.src_addr),
+                                                    &IpAddress::from(ip_repr.dst_addr)) {
                             Err(err) => write!(f, "{}{} ({})\n", indent, udp_packet, err),
                             Ok(udp_repr) => write!(f, "{}{}\n", indent, udp_repr)
                         }
@@ -500,12 +506,12 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
                 }
             }
             Protocol::Tcp => {
-                match super::TcpPacket::new(&ip_packet.payload()) {
+                match super::TcpPacket::new(payload) {
                     Err(err) => write!(f, "{}({})\n", indent, err),
                     Ok(tcp_packet) => {
                         match super::TcpRepr::parse(&tcp_packet,
-                                                    &IpAddress::from(ip_packet.src_addr()),
-                                                    &IpAddress::from(ip_packet.dst_addr())) {
+                                                    &IpAddress::from(ip_repr.src_addr),
+                                                    &IpAddress::from(ip_repr.dst_addr)) {
                             Err(err) => write!(f, "{}{} ({})\n", indent, tcp_packet, err),
                             Ok(tcp_repr) => write!(f, "{}{}\n", indent, tcp_repr)
                         }
@@ -592,9 +598,10 @@ mod test {
 
     fn packet_repr() -> Repr {
         Repr {
-            src_addr: Address([0x11, 0x12, 0x13, 0x14]),
-            dst_addr: Address([0x21, 0x22, 0x23, 0x24]),
-            protocol: Protocol::Icmp
+            src_addr:    Address([0x11, 0x12, 0x13, 0x14]),
+            dst_addr:    Address([0x21, 0x22, 0x23, 0x24]),
+            protocol:    Protocol::Icmp,
+            payload_len: 4
         }
     }
 
@@ -610,7 +617,7 @@ mod test {
         let repr = packet_repr();
         let mut bytes = vec![0; repr.buffer_len() + REPR_PAYLOAD_BYTES.len()];
         let mut packet = Packet::new(&mut bytes).unwrap();
-        repr.emit(&mut packet, REPR_PAYLOAD_BYTES.len());
+        repr.emit(&mut packet);
         packet.payload_mut().copy_from_slice(&REPR_PAYLOAD_BYTES);
         assert_eq!(&packet.into_inner()[..], &REPR_PACKET_BYTES[..]);
     }
