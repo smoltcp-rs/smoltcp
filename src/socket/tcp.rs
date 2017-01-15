@@ -38,7 +38,7 @@ impl<'a> SocketBuffer<'a> {
     }
 
     fn empty(&self) -> bool {
-        self.length != 0
+        self.len() == 0
     }
 
     fn full(&self) -> bool {
@@ -331,6 +331,14 @@ impl<'a> TcpSocket<'a> {
         }
     }
 
+    /// Return whether the socket is passively listening for incoming connections.
+    pub fn is_listening(&self) -> bool {
+        match self.state {
+            State::Listen => true,
+            _ => false
+        }
+    }
+
     /// Return whether the socket is open.
     ///
     /// This function returns true if the socket will process incoming or dispatch outgoing
@@ -341,14 +349,6 @@ impl<'a> TcpSocket<'a> {
             State::Closed => false,
             State::TimeWait => false,
             _ => true
-        }
-    }
-
-    /// Return whether the socket is passively listening for incoming connections.
-    pub fn is_listening(&self) -> bool {
-        match self.state {
-            State::Listen => true,
-            _ => false
         }
     }
 
