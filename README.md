@@ -88,12 +88,12 @@ and `smoltcp::phy::TapInterface`, if the platform supports it.
 
 ### Feature `use_alloc`
 
-The `use_std` feature enables use of objects owned by the networking stack through a dependency
+The `use_alloc` feature enables use of objects owned by the networking stack through a dependency
 on `alloc::boxed::Box`. This only works on nightly rustc.
 
 ### Feature `use_collections`
 
-The `use_std` feature enables use of slices owned by the networking stack through a dependency
+The `use_collections` feature enables use of slices owned by the networking stack through a dependency
 on `collections::vec::Vec`. This only works on nightly rustc.
 
 ### Feature `use_log`
