@@ -105,7 +105,7 @@ pub enum Error {
     /// An incoming packet could not be recognized and was dropped.
     /// E.g. a packet with an unknown EtherType.
     Unrecognized,
-    /// An incoming packet was recognized but contained invalid data.
+    /// An incoming packet was recognized but contained invalid control information.
     /// E.g. a packet with IPv4 EtherType but containing a value other than 4
     /// in the version field.
     Malformed,
@@ -121,6 +121,9 @@ pub enum Error {
     Exhausted,
     /// An incoming packet does not match the socket endpoint.
     Rejected,
+    /// An incoming packet was recognized by a stateful socket and contained invalid control
+    /// information that caused the socket to drop it.
+    Dropped,
 
     #[doc(hidden)]
     __Nonexhaustive
@@ -137,6 +140,7 @@ impl fmt::Display for Error {
             &Error::Unaddressable => write!(f, "unaddressable destination"),
             &Error::Exhausted     => write!(f, "buffer space exhausted"),
             &Error::Rejected      => write!(f, "rejected by socket"),
+            &Error::Dropped       => write!(f, "dropped by socket"),
             &Error::__Nonexhaustive => unreachable!()
         }
     }

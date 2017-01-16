@@ -530,13 +530,6 @@ impl<'a> TcpSocket<'a> {
         if !self.remote_endpoint.addr.is_unspecified() &&
            self.remote_endpoint.addr != ip_repr.src_addr() { return Err(Error::Rejected) }
 
-        // Reject packets addressed to a closed socket.
-        if self.state == State::Closed {
-            net_trace!("tcp:{}:{}:{}: packet received by a closed socket",
-                       self.local_endpoint, ip_repr.src_addr(), repr.src_port);
-            return Err(Error::Malformed)
-        }
-
         // Reject unacceptable acknowledgements.
         match (self.state, repr) {
             // The initial SYN (or whatever) cannot contain an acknowledgement.
@@ -588,7 +581,7 @@ impl<'a> TcpSocket<'a> {
                     net_trace!("tcp:{}:{}: unacceptable ACK ({} not in {}...{})",
                                self.local_endpoint, self.remote_endpoint,
                                ack_number, self.local_seq_no, self.local_seq_no + unacknowledged);
-                    return Err(Error::Malformed)
+                    return Err(Error::Dropped)
                 }
             }
         }
@@ -605,7 +598,7 @@ impl<'a> TcpSocket<'a> {
                     net_trace!("tcp:{}:{}: unacceptable SEQ ({} not in {}..)",
                                self.local_endpoint, self.remote_endpoint,
                                seq_number, next_remote_seq);
-                    return Err(Error::Malformed)
+                    return Err(Error::Dropped)
                 } else if seq_number != next_remote_seq {
                     net_trace!("tcp:{}:{}: duplicate SEQ ({} in ..{})",
                                self.local_endpoint, self.remote_endpoint,
@@ -614,7 +607,7 @@ impl<'a> TcpSocket<'a> {
                     // of that, make sure we send the acknowledgement again.
                     self.remote_last_ack = next_remote_seq - 1;
                     self.retransmit.reset();
-                    return Ok(())
+                    return Err(Error::Dropped)
                 }
             }
         }
@@ -1090,7 +1083,7 @@ mod test {
     // Tests for the CLOSED state.
     // =========================================================================================//
     #[test]
-    fn test_closed() {
+    fn test_closed_reject() {
         let mut s = socket();
         assert_eq!(s.state, State::Closed);
 
@@ -1389,14 +1382,14 @@ mod test {
             seq_number: REMOTE_SEQ + 1,
             ack_number: Some(TcpSeqNumber(LOCAL_SEQ.0 - 1)),
             ..SEND_TEMPL
-        }, Err(Error::Malformed));
+        }, Err(Error::Dropped));
         assert_eq!(s.local_seq_no, LOCAL_SEQ + 1);
         // Data not yet transmitted.
         send!(s, TcpRepr {
             seq_number: REMOTE_SEQ + 1,
             ack_number: Some(LOCAL_SEQ + 10),
             ..SEND_TEMPL
-        }, Err(Error::Malformed));
+        }, Err(Error::Dropped));
         assert_eq!(s.local_seq_no, LOCAL_SEQ + 1);
     }
 
@@ -1408,7 +1401,7 @@ mod test {
             seq_number: REMOTE_SEQ + 1 + 256,
             ack_number: Some(LOCAL_SEQ + 1),
             ..SEND_TEMPL
-        }, Err(Error::Malformed));
+        }, Err(Error::Dropped));
         assert_eq!(s.remote_seq_no, REMOTE_SEQ + 1);
     }
 
@@ -1881,7 +1874,7 @@ mod test {
             ack_number: Some(LOCAL_SEQ + 1),
             payload:    &b"abcdef"[..],
             ..SEND_TEMPL
-        });
+        }, Err(Error::Dropped));
         recv!(s, [TcpRepr {
             seq_number: LOCAL_SEQ + 1,
             ack_number: Some(REMOTE_SEQ + 1 + 6),
