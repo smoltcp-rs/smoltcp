@@ -192,14 +192,17 @@ impl Retransmit {
         }
     }
 
-    fn commit(&mut self, timestamp: u64) {
+    fn commit(&mut self, timestamp: u64) -> bool {
         if self.delay == 0 {
             self.delay      = 100; // ms
             self.resend_at  = timestamp + self.delay;
+            false
         } else if timestamp >= self.resend_at {
-            net_trace!("retransmitting after a {}ms delay", self.delay);
             self.resend_at  = timestamp + self.delay;
             self.delay     *= 2;
+            true
+        } else {
+            false
         }
     }
 }
@@ -636,9 +639,9 @@ impl<'a> TcpSocket<'a> {
             (_, TcpRepr { control: TcpControl::Rst, .. }) => {
                 net_trace!("tcp:{}:{}: received RST",
                            self.local_endpoint, self.remote_endpoint);
+                self.set_state(State::Closed);
                 self.local_endpoint  = IpEndpoint::default();
                 self.remote_endpoint = IpEndpoint::default();
-                self.set_state(State::Closed);
                 return Ok(())
             }
 
@@ -646,6 +649,8 @@ impl<'a> TcpSocket<'a> {
             (State::Listen, TcpRepr {
                 src_port, dst_port, control: TcpControl::Syn, seq_number, ack_number: None, ..
             }) => {
+                net_trace!("tcp:{}: received SYN",
+                           self.local_endpoint);
                 self.local_endpoint  = IpEndpoint::new(ip_repr.dst_addr(), dst_port);
                 self.remote_endpoint = IpEndpoint::new(ip_repr.src_addr(), src_port);
                 // FIXME: use something more secure here
@@ -706,9 +711,9 @@ impl<'a> TcpSocket<'a> {
             // ACK packets in LAST-ACK state change it to CLOSED.
             (State::LastAck, TcpRepr { control: TcpControl::None, .. }) => {
                 // Clear the remote endpoint, or we'll send an RST there.
+                self.set_state(State::Closed);
                 self.remote_endpoint = IpEndpoint::default();
                 self.local_seq_no   += 1;
-                self.set_state(State::Closed);
             }
 
             _ => {
@@ -858,7 +863,10 @@ impl<'a> TcpSocket<'a> {
         }
 
         if should_send {
-            self.retransmit.commit(timestamp);
+            if self.retransmit.commit(timestamp) {
+                net_trace!("tcp:{}:{}: retransmit after {}ms",
+                           self.local_endpoint, self.remote_endpoint, self.retransmit.delay);
+            }
 
             repr.ack_number = Some(ack_number);
             self.remote_last_ack = ack_number;
