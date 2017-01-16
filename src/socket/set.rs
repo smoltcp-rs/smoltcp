@@ -29,9 +29,10 @@ impl<'a, 'b: 'a, 'c: 'a + 'b> Set<'a, 'b, 'c> {
     ///
     /// # Panics
     /// This function panics if the storage is fixed-size (not a `Vec`) and is full.
-    pub fn add(&mut self, socket: Socket<'b, 'c>) -> Handle {
+    pub fn add(&mut self, mut socket: Socket<'b, 'c>) -> Handle {
         for (index, slot) in self.sockets.iter_mut().enumerate() {
             if slot.is_none() {
+                socket.set_debug_id(index);
                 *slot = Some(socket);
                 return Handle { index: index }
             }
@@ -42,8 +43,10 @@ impl<'a, 'b: 'a, 'c: 'a + 'b> Set<'a, 'b, 'c> {
                 panic!("adding a socket to a full SocketSet")
             }
             ManagedSlice::Owned(ref mut sockets) => {
+                let index = sockets.len();
+                socket.set_debug_id(index);
                 sockets.push(Some(socket));
-                Handle { index: sockets.len() - 1 }
+                Handle { index: index }
             }
         }
     }

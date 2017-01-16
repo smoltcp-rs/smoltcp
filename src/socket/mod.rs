@@ -49,7 +49,30 @@ pub enum Socket<'a, 'b: 'a> {
     __Nonexhaustive
 }
 
+macro_rules! dispatch_socket {
+    ($self_:expr, |$socket:ident [$( $mut_:tt )*]| $code:expr) => ({
+        match $self_ {
+            &$( $mut_ )* Socket::Udp(ref $( $mut_ )* $socket) => $code,
+            &$( $mut_ )* Socket::Tcp(ref $( $mut_ )* $socket) => $code,
+            &$( $mut_ )* Socket::__Nonexhaustive => unreachable!()
+        }
+    })
+}
+
 impl<'a, 'b> Socket<'a, 'b> {
+    /// Return the debug identifier.
+    pub fn debug_id(&self) -> usize {
+        dispatch_socket!(self, |socket []| socket.debug_id())
+    }
+
+    /// Set the debug identifier.
+    ///
+    /// The debug identifier is a number printed in socket trace messages.
+    /// It could as well be used by the user code.
+    pub fn set_debug_id(&mut self, id: usize) {
+        dispatch_socket!(self, |socket [mut]| socket.set_debug_id(id))
+    }
+
     /// Process a packet received from a network interface.
     ///
     /// This function checks if the packet contained in the payload matches the socket endpoint,
@@ -59,13 +82,7 @@ impl<'a, 'b> Socket<'a, 'b> {
     /// This function is used internally by the networking stack.
     pub fn process(&mut self, timestamp: u64, ip_repr: &IpRepr,
                    payload: &[u8]) -> Result<(), Error> {
-        match self {
-            &mut Socket::Udp(ref mut socket) =>
-                socket.process(timestamp, ip_repr, payload),
-            &mut Socket::Tcp(ref mut socket) =>
-                socket.process(timestamp, ip_repr, payload),
-            &mut Socket::__Nonexhaustive => unreachable!()
-        }
+        dispatch_socket!(self, |socket [mut]| socket.process(timestamp, ip_repr, payload))
     }
 
     /// Prepare a packet to be transmitted to a network interface.
@@ -77,13 +94,7 @@ impl<'a, 'b> Socket<'a, 'b> {
     /// This function is used internally by the networking stack.
     pub fn dispatch<F, R>(&mut self, timestamp: u64, emit: &mut F) -> Result<R, Error>
             where F: FnMut(&IpRepr, &IpPayload) -> Result<R, Error> {
-        match self {
-            &mut Socket::Udp(ref mut socket) =>
-                socket.dispatch(timestamp, emit),
-            &mut Socket::Tcp(ref mut socket) =>
-                socket.dispatch(timestamp, emit),
-            &mut Socket::__Nonexhaustive => unreachable!()
-        }
+        dispatch_socket!(self, |socket [mut]| socket.dispatch(timestamp, emit))
     }
 }
 
