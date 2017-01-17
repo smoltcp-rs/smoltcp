@@ -354,6 +354,17 @@ impl<'a> TcpSocket<'a> {
         }
     }
 
+    /// Aborts the connection, if any.
+    ///
+    /// This function instantly closes the socket. One reset packet will be sent to the remote
+    /// endpoint.
+    ///
+    /// In terms of the TCP state machine, the socket may be in any state and is moved to
+    /// the `CLOSED` state.
+    pub fn abort(&mut self) {
+        self.set_state(State::Closed);
+    }
+
     /// Return whether the socket is passively listening for incoming connections.
     ///
     /// In terms of the TCP state machine, the socket must be in the `LISTEN` state.
@@ -786,6 +797,27 @@ impl<'a> TcpSocket<'a> {
             window_len: self.rx_buffer.window() as u16,
             payload:    &[]
         };
+
+        if self.state == State::Closed {
+            // If we have a specified local and remote endpoint, but are in the CLOSED state,
+            // we've ended up here after aborting a connection. Send exactly one RST packet.
+            net_trace!("[{}]{}:{}: sending RST",
+                       self.debug_id, self.local_endpoint, self.remote_endpoint);
+
+            repr.control    = TcpControl::Rst;
+            repr.ack_number = Some(self.remote_seq_no);
+            let ip_repr = IpRepr::Unspecified {
+                src_addr:    self.local_endpoint.addr,
+                dst_addr:    self.remote_endpoint.addr,
+                protocol:    IpProtocol::Tcp,
+                payload_len: repr.buffer_len()
+            };
+            let result = emit(&ip_repr, &repr);
+
+            self.local_endpoint  = IpEndpoint::default();
+            self.remote_endpoint = IpEndpoint::default();
+            return result
+        }
 
         if self.retransmit.may_send_old(timestamp) {
             // The retransmit timer has expired, so assume all in-flight data that
@@ -1515,6 +1547,19 @@ mod test {
         s.close();
         assert_eq!(s.state, State::FinWait1);
         sanity!(s, socket_fin_wait_1());
+    }
+
+    #[test]
+    fn test_established_abort() {
+        let mut s = socket_established();
+        s.abort();
+        assert_eq!(s.state, State::Closed);
+        recv!(s, [TcpRepr {
+            control: TcpControl::Rst,
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            ..RECV_TEMPL
+        }]);
     }
 
     // =========================================================================================//
