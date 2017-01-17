@@ -542,6 +542,8 @@ impl<'a> TcpSocket<'a> {
     /// See [Socket::process](enum.Socket.html#method.process).
     pub fn process(&mut self, _timestamp: u64, ip_repr: &IpRepr,
                    payload: &[u8]) -> Result<(), Error> {
+        if self.state == State::Closed { return Err(Error::Rejected) }
+
         if ip_repr.protocol() != IpProtocol::Tcp { return Err(Error::Rejected) }
 
         let packet = try!(TcpPacket::new(&payload[..ip_repr.payload_len()]));
@@ -1115,6 +1117,18 @@ mod test {
     fn test_closed_reject() {
         let mut s = socket();
         assert_eq!(s.state, State::Closed);
+
+        send!(s, TcpRepr {
+            control: TcpControl::Syn,
+            ..SEND_TEMPL
+        }, Err(Error::Rejected));
+    }
+
+    #[test]
+    fn test_closed_reject_after_listen() {
+        let mut s = socket();
+        s.listen(LOCAL_END).unwrap();
+        s.close();
 
         send!(s, TcpRepr {
             control: TcpControl::Syn,
