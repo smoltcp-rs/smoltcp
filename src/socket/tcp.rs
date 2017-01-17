@@ -657,7 +657,7 @@ impl<'a> TcpSocket<'a> {
         match (self.state, repr) {
             // RSTs are ignored in the LISTEN state.
             (State::Listen, TcpRepr { control: TcpControl::Rst, .. }) =>
-                return Ok(()),
+                return Err(Error::Rejected),
 
             // RSTs in SYN-RECEIVED flip the socket back to the LISTEN state.
             (State::SynReceived, TcpRepr { control: TcpControl::Rst, .. }) => {
@@ -1224,7 +1224,7 @@ mod test {
             seq_number: REMOTE_SEQ,
             ack_number: None,
             ..SEND_TEMPL
-        });
+        }, Err(Error::Rejected));
     }
 
     #[test]
