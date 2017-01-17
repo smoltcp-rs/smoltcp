@@ -574,10 +574,9 @@ impl<'a> TcpSocket<'a> {
         // Reject unacceptable acknowledgements.
         match (self.state, repr) {
             // The initial SYN (or whatever) cannot contain an acknowledgement.
+            // It may be destined to another socket though.
             (State::Listen, TcpRepr { ack_number: Some(_), .. }) => {
-                net_trace!("[{}]{}:{}: ACK received by a socket in LISTEN state",
-                           self.debug_id, self.local_endpoint, self.remote_endpoint);
-                return Err(Error::Malformed)
+                return Err(Error::Rejected)
             }
             (State::Listen, TcpRepr { ack_number: None, .. }) => (),
             // An RST received in response to initial SYN is acceptable if it acknowledges
@@ -1205,14 +1204,14 @@ mod test {
     }
 
     #[test]
-    fn test_listen_syn_no_ack() {
+    fn test_listen_syn_reject_ack() {
         let mut s = socket_listen();
         send!(s, TcpRepr {
             control: TcpControl::Syn,
             seq_number: REMOTE_SEQ,
             ack_number: Some(LOCAL_SEQ),
             ..SEND_TEMPL
-        }, Err(Error::Malformed));
+        }, Err(Error::Rejected));
         assert_eq!(s.state, State::Listen);
     }
 
