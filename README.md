@@ -86,6 +86,8 @@ The `use_std` feature enables use of objects and slices owned by the networking 
 dependency on `std::boxed::Box` and `std::vec::Vec`. It also enables `smoltcp::phy::RawSocket`
 and `smoltcp::phy::TapInterface`, if the platform supports it.
 
+This feature is enabled by default.
+
 ### Feature `use_alloc`
 
 The `use_alloc` feature enables use of objects owned by the networking stack through a dependency
@@ -102,6 +104,17 @@ The `use_log` feature enables logging of events within the networking stack thro
 the [log crate][log]. The events are emitted with the TRACE log level.
 
 [log]: https://crates.io/crates/log
+
+This feature is enabled by default.
+
+### Feature `verbose`
+
+The `verbose` feature enables logging of events where the logging itself may incur very high
+overhead. For example, emitting a log line every time an application reads or writes as little
+as 1 octet from a socket is likely to overwhelm the application logic unless a `BufReader`
+or `BufWriter` is used, which are of course not available on heap-less systems.
+
+This feature is disabled by default.
 
 Usage example
 -------------

@@ -480,6 +480,7 @@ impl<'a> TcpSocket<'a> {
         let old_length = self.tx_buffer.len();
         let buffer = self.tx_buffer.enqueue(size);
         if buffer.len() > 0 {
+            #[cfg(any(test, feature = "verbose"))]
             net_trace!("[{}]{}:{}: tx buffer: enqueueing {} octets (now {})",
                        self.debug_id, self.local_endpoint, self.remote_endpoint,
                        buffer.len(), old_length + buffer.len());
@@ -515,6 +516,7 @@ impl<'a> TcpSocket<'a> {
         let buffer = self.rx_buffer.dequeue(size);
         self.remote_seq_no += buffer.len();
         if buffer.len() > 0 {
+            #[cfg(any(test, feature = "verbose"))]
             net_trace!("[{}]{}:{}: rx buffer: dequeueing {} octets (now {})",
                        self.debug_id, self.local_endpoint, self.remote_endpoint,
                        buffer.len(), old_length - buffer.len());
