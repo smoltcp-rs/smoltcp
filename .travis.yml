@@ -1,11 +1,22 @@
 language: rust
-rust:
-  - stable
-  - beta
-  - nightly
 matrix:
+  include:
+    - rust: stable
+      env: FEATURES='use_std'
+    - rust: beta
+      env: FEATURES='use_std'
+    - rust: nightly
+      env: FEATURES='use_std'
+    - rust: nightly
+      env: FEATURES='use_std use_log'
+    - rust: nightly
+      env: FEATURES='use_alloc use_collections'
+    - rust: nightly
+      env: FEATURES=''
   allow_failures:
     - rust: stable # until 1.15 comes out
+script:
+   - cargo build --no-default-features --features "$FEATURES"
 notifications:
   irc:
     channels:
