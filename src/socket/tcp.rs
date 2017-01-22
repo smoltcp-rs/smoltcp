@@ -477,6 +477,7 @@ impl<'a> TcpSocket<'a> {
     pub fn send(&mut self, size: usize) -> Result<&mut [u8], ()> {
         if !self.may_send() { return Err(()) }
 
+        #[cfg(any(test, feature = "verbose"))]
         let old_length = self.tx_buffer.len();
         let buffer = self.tx_buffer.enqueue(size);
         if buffer.len() > 0 {
@@ -512,6 +513,7 @@ impl<'a> TcpSocket<'a> {
         // but until the connection is fully open we refuse to dequeue any data.
         if !self.may_recv() { return Err(()) }
 
+        #[cfg(any(test, feature = "verbose"))]
         let old_length = self.rx_buffer.len();
         let buffer = self.rx_buffer.dequeue(size);
         self.remote_seq_no += buffer.len();
