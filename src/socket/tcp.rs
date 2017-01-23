@@ -627,6 +627,14 @@ impl<'a> TcpSocket<'a> {
                                ack_number, self.local_seq_no, self.local_seq_no + unacknowledged);
                     return Err(Error::Dropped)
                 }
+                // If we got a valid acknowledgement and the transmit half of the connection
+                // is open, reset the retransmit timer.
+                // This primarily matters in the case where the local endpoint keeps sending data
+                // already in its buffer (e.g. if the contents of the buffer exceed the window
+                // of the remote endpoint), and nothing else happens.
+                if self.may_send() {
+                    self.retransmit.reset()
+                }
             }
         }
 
@@ -2023,4 +2031,42 @@ mod test {
         }])
     }
 
+    #[test]
+    fn test_retransmit_reset_after_ack() {
+        let mut s = socket_established();
+        s.remote_win_len = 6;
+        s.send_slice(b"abcdef").unwrap();
+        s.send_slice(b"123456").unwrap();
+        s.send_slice(b"ABCDEF").unwrap();
+        recv!(s, time 1000, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"abcdef"[..],
+            ..RECV_TEMPL
+        }));
+        send!(s, time 1005, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1 + 6),
+            window_len: 6,
+            ..SEND_TEMPL
+        });
+        recv!(s, time 1010, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1 + 6,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"123456"[..],
+            ..RECV_TEMPL
+        }));
+        send!(s, time 1015, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1 + 6 + 6),
+            window_len: 6,
+            ..SEND_TEMPL
+        });
+        recv!(s, time 1020, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1 + 6 + 6,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"ABCDEF"[..],
+            ..RECV_TEMPL
+        }));
+    }
 }
