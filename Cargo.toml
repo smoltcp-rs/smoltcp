@@ -17,7 +17,7 @@ log = { version = "0.3", default-features = false, optional = true }
 libc = { version = "0.2.18", optional = true }
 
 [dev-dependencies]
-env_logger = "0.3"
+env_logger = "0.4"
 getopts = "0.2"
 
 [features]
