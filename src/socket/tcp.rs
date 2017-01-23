@@ -901,8 +901,12 @@ impl<'a> TcpSocket<'a> {
                     self.remote_last_seq += data.len();
                     should_send = true;
                 }
+                // The FIN control flag occupies the place in the sequence space after
+                // the data in the current segment. If we still have some data left for the next
+                // segment (e.g. the receiver window is too small), then don't send FIN just yet.
+                let all_data_sent = self.tx_buffer.len() == offset + size;
                 match self.state {
-                    State::FinWait1 | State::LastAck => {
+                    State::FinWait1 | State::LastAck if all_data_sent => {
                         // We should notify the other side that we've closed the transmit half
                         // of the connection.
                         net_trace!("[{}]{}:{}: sending FIN|ACK",
@@ -1617,6 +1621,20 @@ mod test {
         });
         assert_eq!(s.state, State::Closing);
         sanity!(s, socket_closing());
+    }
+
+    #[test]
+    fn test_fin_wait_1_fin_with_data_queued() {
+        let mut s = socket_established();
+        s.remote_win_len = 6;
+        s.send_slice(b"abcdef123456").unwrap();
+        s.close();
+        recv!(s, [TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"abcdef"[..],
+            ..RECV_TEMPL
+        }]);
     }
 
     #[test]
