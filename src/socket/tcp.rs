@@ -725,9 +725,12 @@ impl<'a> TcpSocket<'a> {
                 self.retransmit.reset();
             }
 
-            // ACK packets in FIN-WAIT-1 state change it to FIN-WAIT-2.
+            // ACK packets in FIN-WAIT-1 state change it to FIN-WAIT-2, if we've already
+            // sent everything in the transmit buffer.
             (State::FinWait1, TcpRepr { control: TcpControl::None, .. }) => {
-                self.set_state(State::FinWait2);
+                if self.tx_buffer.empty() {
+                    self.set_state(State::FinWait2);
+                }
             }
 
             // FIN packets in FIN-WAIT-1 state change it to CLOSING.
@@ -1654,6 +1657,12 @@ mod test {
             payload:    &b"abcdef"[..],
             ..RECV_TEMPL
         }]);
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1 + 6),
+            ..SEND_TEMPL
+        });
+        assert_eq!(s.state, State::FinWait1);
     }
 
     #[test]
