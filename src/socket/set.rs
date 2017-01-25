@@ -137,13 +137,17 @@ impl<'a, 'b: 'a, 'c: 'a + 'b> Set<'a, 'b, 'c> {
     pub fn prune(&mut self) {
         for (index, item) in self.sockets.iter_mut().enumerate() {
             let mut may_remove = false;
-            if let &mut Some(Item { refs: 0, ref socket }) = item {
+            if let &mut Some(Item { refs: 0, ref mut socket }) = item {
                 match socket {
-                    &Socket::Udp(_) =>
+                    &mut Socket::Udp(_) =>
                         may_remove = true,
-                    &Socket::Tcp(ref socket) =>
-                        may_remove = socket.state() == TcpState::Closed,
-                    &Socket::__Nonexhaustive => unreachable!()
+                    &mut Socket::Tcp(ref mut socket) =>
+                        if socket.state() == TcpState::Closed {
+                            may_remove = true
+                        } else {
+                            socket.close()
+                        },
+                    &mut Socket::__Nonexhaustive => unreachable!()
                 }
             }
             if may_remove {
