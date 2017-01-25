@@ -96,6 +96,8 @@ pub mod wire;
 pub mod iface;
 pub mod socket;
 
+mod parsing;
+
 /// The error type for the networking stack.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Error {
