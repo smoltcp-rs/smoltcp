@@ -778,7 +778,17 @@ impl<'a> TcpSocket<'a> {
             // We could've sent data before the FIN, so only remove FIN from the sequence
             // space if all of that data is acknowledged.
             if sent_fin && self.tx_buffer.len() + 1 == ack_len {
-                ack_len -= 1
+                ack_len -= 1;
+                net_trace!("[{}]{}:{}: received ACK of FIN",
+                           self.debug_id, self.local_endpoint, self.remote_endpoint);
+                // If we've just switched from the FIN-WAIT-1 state to the CLOSING state
+                // because we've received a FIN, and the same packet simultaneously acknowledges
+                // the FIN we've sent, this is our only opportunity to move to the TIME-WAIT state.
+                match self.state {
+                    State::Closing =>
+                        self.set_state(State::TimeWait),
+                    _ => ()
+                }
             }
             if ack_len > 0 {
                 net_trace!("[{}]{}:{}: tx buffer: dequeueing {} octets (now {})",
@@ -1955,6 +1965,31 @@ mod test {
         });
         assert_eq!(s.state, State::TimeWait);
         recv!(s, []);
+    }
+
+    #[test]
+    fn test_simultaneous_close_combined_fin_ack() {
+        let mut s = socket_established();
+        s.close();
+        assert_eq!(s.state, State::FinWait1);
+        recv!(s, [TcpRepr {
+            control: TcpControl::Fin,
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            ..RECV_TEMPL
+        }]);
+        send!(s, TcpRepr {
+            control: TcpControl::Fin,
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1 + 1),
+            ..SEND_TEMPL
+        });
+        assert_eq!(s.state, State::TimeWait);
+        recv!(s, [TcpRepr {
+            seq_number: LOCAL_SEQ + 1 + 1,
+            ack_number: Some(REMOTE_SEQ + 1 + 1),
+            ..RECV_TEMPL
+        }]);
     }
 
     #[test]
