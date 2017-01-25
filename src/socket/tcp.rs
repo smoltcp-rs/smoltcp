@@ -924,7 +924,7 @@ impl<'a> TcpSocket<'a> {
                 // The FIN control flag occupies the place in the sequence space after
                 // the data in the current segment. If we still have some data left for the next
                 // segment (e.g. the receiver window is too small), then don't send FIN just yet.
-                let all_data_sent = self.tx_buffer.len() == offset + size;
+                let all_data_sent = self.tx_buffer.len() == offset + data.len();
                 match self.state {
                     State::FinWait1 | State::LastAck if all_data_sent => {
                         // We should notify the other side that we've closed the transmit half
