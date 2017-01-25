@@ -135,7 +135,7 @@ impl<'a, 'b: 'a, 'c: 'a + 'b> Set<'a, 'b, 'c> {
     /// Pruning affects sockets with reference count 0. Open sockets are closed.
     /// Closed sockets are removed and dropped.
     pub fn prune(&mut self) {
-        for item in self.sockets.iter_mut() {
+        for (index, item) in self.sockets.iter_mut().enumerate() {
             let mut may_remove = false;
             if let &mut Some(Item { refs: 0, ref socket }) = item {
                 match socket {
@@ -147,6 +147,7 @@ impl<'a, 'b: 'a, 'c: 'a + 'b> Set<'a, 'b, 'c> {
                 }
             }
             if may_remove {
+                net_trace!("[{}]: pruning", index);
                 *item = None
             }
         }
