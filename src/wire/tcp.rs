@@ -60,7 +60,7 @@ impl cmp::PartialOrd for SeqNumber {
     }
 }
 
-/// A read/write wrapper around an Transmission Control Protocol packet buffer.
+/// A read/write wrapper around a Transmission Control Protocol packet buffer.
 #[derive(Debug)]
 pub struct Packet<T: AsRef<[u8]>> {
     buffer: T
@@ -457,18 +457,6 @@ pub enum Control {
     Syn,
     Fin,
     Rst
-}
-
-impl Control {
-    /// Return the length of the control flag, in terms of sequence space.
-    pub fn len(self) -> i32 {
-        match self {
-            Control::None => 0,
-            Control::Syn  => 1,
-            Control::Fin  => 1,
-            Control::Rst  => 0
-        }
-    }
 }
 
 /// A high-level representation of a Transmission Control Protocol packet.
