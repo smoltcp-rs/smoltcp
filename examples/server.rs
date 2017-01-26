@@ -90,7 +90,7 @@ fn main() {
     let tcp1_handle = sockets.add(tcp1_socket);
     let tcp2_handle = sockets.add(tcp2_socket);
 
-    let mut tcp_6969_active = false;
+    let mut tcp_6970_active = false;
     loop {
         // udp:6969: respond "yo dawg"
         {
@@ -139,12 +139,12 @@ fn main() {
                 socket.listen(6970).unwrap()
             }
 
-            if socket.is_active() && !tcp_6969_active {
+            if socket.is_active() && !tcp_6970_active {
                 debug!("tcp:6970 connected");
-            } else if !socket.is_active() && tcp_6969_active {
+            } else if !socket.is_active() && tcp_6970_active {
                 debug!("tcp:6970 disconnected");
             }
-            tcp_6969_active = socket.is_active();
+            tcp_6970_active = socket.is_active();
 
             if socket.may_recv() {
                 let data = {
