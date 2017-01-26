@@ -95,15 +95,25 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn accept_mac(&mut self) -> Result<EthernetAddress> {
+    fn accept_mac_joined_with(&mut self, separator: u8) -> Result<EthernetAddress> {
         let mut octets = [0u8; 6];
         for n in 0..6 {
             octets[n] = self.accept_number(2, 0x100, true)? as u8;
             if n != 5 {
-                self.accept_char(b':')?;
+                self.accept_char(separator)?;
             }
         }
         Ok(EthernetAddress(octets))
+    }
+
+    fn accept_mac(&mut self) -> Result<EthernetAddress> {
+        if let Some(mac) = self.try(|p| p.accept_mac_joined_with(b'-')) {
+            return Ok(mac)
+        }
+        if let Some(mac) = self.try(|p| p.accept_mac_joined_with(b':')) {
+            return Ok(mac)
+        }
+        Err(())
     }
 
     fn accept_ipv4(&mut self) -> Result<Ipv4Address> {
@@ -164,6 +174,10 @@ mod test {
                    Ok(EthernetAddress([0xcd, 0xef, 0x10, 0x00, 0x00, 0x00])));
         assert_eq!(EthernetAddress::parse("00:00:00:ab:cd:ef"),
                    Ok(EthernetAddress([0x00, 0x00, 0x00, 0xab, 0xcd, 0xef])));
+        assert_eq!(EthernetAddress::parse("00-00-00-ab-cd-ef"),
+                   Ok(EthernetAddress([0x00, 0x00, 0x00, 0xab, 0xcd, 0xef])));
+        assert_eq!(EthernetAddress::parse("AB-CD-EF-00-00-00"),
+                   Ok(EthernetAddress([0xab, 0xcd, 0xef, 0x00, 0x00, 0x00])));
         assert_eq!(EthernetAddress::parse("100:00:00:00:00:00"), Err(()));
         assert_eq!(EthernetAddress::parse("002:00:00:00:00:00"), Err(()));
         assert_eq!(EthernetAddress::parse("02:00:00:00:00:000"), Err(()));
