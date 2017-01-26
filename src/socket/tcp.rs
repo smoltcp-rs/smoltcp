@@ -509,8 +509,9 @@ impl<'a> TcpSocket<'a> {
     /// there are not enough octets queued in the receive buffer, down to
     /// an empty slice.
     pub fn recv(&mut self, size: usize) -> Result<&[u8], ()> {
-        // We may have received some data inside the initial SYN ("TCP Fast Open"),
-        // but until the connection is fully open we refuse to dequeue any data.
+        // We may have received some data inside the initial SYN, but until the connection
+        // is fully open we must not dequeue any data, as it may be overwritten by e.g.
+        // another (stale) SYN.
         if !self.may_recv() { return Err(()) }
 
         #[cfg(any(test, feature = "verbose"))]
