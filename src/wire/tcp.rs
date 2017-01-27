@@ -89,6 +89,11 @@ mod field {
     pub const FLG_ECE: u16 = 0x040;
     pub const FLG_CWR: u16 = 0x080;
     pub const FLG_NS:  u16 = 0x100;
+
+    pub const OPT_END: u8 = 0x00;
+    pub const OPT_NOP: u8 = 0x01;
+    pub const OPT_MSS: u8 = 0x02;
+    pub const OPT_WS:  u8 = 0x03;
 }
 
 impl<T: AsRef<[u8]>> Packet<T> {
@@ -263,6 +268,14 @@ impl<T: AsRef<[u8]>> Packet<T> {
 }
 
 impl<'a, T: AsRef<[u8]> + ?Sized> Packet<&'a T> {
+    /// Return a pointer to the options.
+    #[inline]
+    pub fn options(&self) -> &'a [u8] {
+        let header_len = self.header_len() as usize;
+        let data = self.buffer.as_ref();
+        &data[field::URGENT.end..header_len]
+    }
+
     /// Return a pointer to the payload.
     #[inline]
     pub fn payload(&self) -> &'a [u8] {
@@ -441,12 +454,113 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
 }
 
 impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Packet<&'a mut T> {
+    /// Return a pointer to the options.
+    #[inline]
+    pub fn options_mut(&mut self) -> &mut [u8] {
+        let header_len = self.header_len() as usize;
+        let data = self.buffer.as_mut();
+        &mut data[field::URGENT.end..header_len]
+    }
+
     /// Return a mutable pointer to the payload data.
     #[inline]
     pub fn payload_mut(&mut self) -> &mut [u8] {
         let header_len = self.header_len() as usize;
         let mut data = self.buffer.as_mut();
         &mut data[header_len..]
+    }
+}
+
+/// A representation of a single TCP option.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum TcpOption<'a> {
+    EndOfList,
+    NoOperation,
+    MaxSegmentSize(u16),
+    WindowScale(u8),
+    Unknown { kind: u8, data: &'a [u8] }
+}
+
+impl<'a> TcpOption<'a> {
+    pub fn parse(buffer: &'a [u8]) -> Result<(&'a [u8], TcpOption<'a>), Error> {
+        let (length, option);
+        match *buffer.get(0).ok_or(Error::Truncated)? {
+            field::OPT_END => {
+                length = 1;
+                option = TcpOption::EndOfList;
+            }
+            field::OPT_NOP => {
+                length = 1;
+                option = TcpOption::NoOperation;
+            }
+            kind => {
+                length = *buffer.get(1).ok_or(Error::Truncated)? as usize;
+                if buffer.len() < length { return Err(Error::Truncated) }
+                let data = &buffer[2..length];
+                match (kind, length) {
+                    (field::OPT_END, _) |
+                    (field::OPT_NOP, _) =>
+                        unreachable!(),
+                    (field::OPT_MSS, 4) =>
+                        option = TcpOption::MaxSegmentSize(NetworkEndian::read_u16(data)),
+                    (field::OPT_MSS, _) =>
+                        return Err(Error::Malformed),
+                    (field::OPT_WS, 3) =>
+                        option = TcpOption::WindowScale(data[0]),
+                    (field::OPT_WS, _) =>
+                        return Err(Error::Malformed),
+                    (_, _) =>
+                        option = TcpOption::Unknown { kind: kind, data: data }
+                }
+            }
+        }
+        Ok((&buffer[length..], option))
+    }
+
+    pub fn buffer_len(&self) -> usize {
+        match self {
+            &TcpOption::EndOfList => 1,
+            &TcpOption::NoOperation => 1,
+            &TcpOption::MaxSegmentSize(_) => 4,
+            &TcpOption::WindowScale(_) => 3,
+            &TcpOption::Unknown { data, .. } => 2 + data.len()
+        }
+    }
+
+    pub fn emit<'b>(&self, buffer: &'b mut [u8]) -> &'b mut [u8] {
+        let length;
+        match self {
+            &TcpOption::EndOfList => {
+                length    = 1;
+                buffer[0] = field::OPT_END;
+            }
+            &TcpOption::NoOperation => {
+                length    = 1;
+                buffer[0] = field::OPT_NOP;
+            }
+            _ => {
+                length    = self.buffer_len();
+                buffer[1] = length as u8;
+                match self {
+                    &TcpOption::EndOfList |
+                    &TcpOption::NoOperation =>
+                        unreachable!(),
+                    &TcpOption::MaxSegmentSize(value) => {
+                        buffer[0] = field::OPT_MSS;
+                        NetworkEndian::write_u16(&mut buffer[2..], value)
+                    }
+                    &TcpOption::WindowScale(value) => {
+                        buffer[0] = field::OPT_WS;
+                        buffer[2] = value;
+                    }
+                    &TcpOption::Unknown { kind, data: provided } => {
+                        buffer[0] = kind;
+                        buffer[2..].copy_from_slice(provided)
+                    }
+                }
+            }
+        }
+        &mut buffer[length..]
     }
 }
 
@@ -606,13 +720,17 @@ mod test {
     const SRC_ADDR: Ipv4Address = Ipv4Address([192, 168, 1, 1]);
     const DST_ADDR: Ipv4Address = Ipv4Address([192, 168, 1, 2]);
 
-    static PACKET_BYTES: [u8; 24] =
+    static PACKET_BYTES: [u8; 28] =
         [0xbf, 0x00, 0x00, 0x50,
          0x01, 0x23, 0x45, 0x67,
          0x89, 0xab, 0xcd, 0xef,
-         0x50, 0x35, 0x01, 0x23,
-         0x20, 0xbe, 0x02, 0x01,
+         0x60, 0x35, 0x01, 0x23,
+         0x01, 0xb6, 0x02, 0x01,
+         0x03, 0x03, 0x0c, 0x01,
          0xaa, 0x00, 0x00, 0xff];
+
+    static OPTION_BYTES: [u8; 4] =
+        [0x03, 0x03, 0x0c, 0x01];
 
     static PAYLOAD_BYTES: [u8; 4] =
         [0xaa, 0x00, 0x00, 0xff];
@@ -624,7 +742,7 @@ mod test {
         assert_eq!(packet.dst_port(), 80);
         assert_eq!(packet.seq_number(), SeqNumber(0x01234567));
         assert_eq!(packet.ack_number(), SeqNumber(0x89abcdefu32 as i32));
-        assert_eq!(packet.header_len(), 20);
+        assert_eq!(packet.header_len(), 24);
         assert_eq!(packet.fin(), true);
         assert_eq!(packet.syn(), false);
         assert_eq!(packet.rst(), true);
@@ -633,20 +751,21 @@ mod test {
         assert_eq!(packet.urg(), true);
         assert_eq!(packet.window_len(), 0x0123);
         assert_eq!(packet.urgent_at(), 0x0201);
-        assert_eq!(packet.checksum(), 0x20be);
+        assert_eq!(packet.checksum(), 0x01b6);
+        assert_eq!(packet.options(), &OPTION_BYTES[..]);
         assert_eq!(packet.payload(), &PAYLOAD_BYTES[..]);
         assert_eq!(packet.verify_checksum(&SRC_ADDR.into(), &DST_ADDR.into()), true);
     }
 
     #[test]
     fn test_construct() {
-        let mut bytes = vec![0; 24];
+        let mut bytes = vec![0; PACKET_BYTES.len()];
         let mut packet = Packet::new(&mut bytes).unwrap();
         packet.set_src_port(48896);
         packet.set_dst_port(80);
         packet.set_seq_number(SeqNumber(0x01234567));
         packet.set_ack_number(SeqNumber(0x89abcdefu32 as i32));
-        packet.set_header_len(20);
+        packet.set_header_len(24);
         packet.set_fin(true);
         packet.set_syn(false);
         packet.set_rst(true);
@@ -656,6 +775,7 @@ mod test {
         packet.set_window_len(0x0123);
         packet.set_urgent_at(0x0201);
         packet.set_checksum(0xEEEE);
+        packet.options_mut().copy_from_slice(&OPTION_BYTES[..]);
         packet.payload_mut().copy_from_slice(&PAYLOAD_BYTES[..]);
         packet.fill_checksum(&SRC_ADDR.into(), &DST_ADDR.into());
         assert_eq!(&packet.into_inner()[..], &PACKET_BYTES[..]);
@@ -695,5 +815,42 @@ mod test {
         let mut packet = Packet::new(&mut bytes).unwrap();
         repr.emit(&mut packet, &SRC_ADDR.into(), &DST_ADDR.into());
         assert_eq!(&packet.into_inner()[..], &SYN_PACKET_BYTES[..]);
+    }
+
+    macro_rules! assert_option_parses {
+        ($opt:expr, $data:expr) => ({
+            assert_eq!(TcpOption::parse($data), Ok((&[][..], $opt)));
+            let buffer = &mut [0; 20][..$opt.buffer_len()];
+            assert_eq!($opt.emit(buffer), &mut []);
+            assert_eq!(&*buffer, $data);
+        })
+    }
+
+    #[test]
+    fn test_tcp_options() {
+        assert_option_parses!(TcpOption::EndOfList,
+                              &[0x00]);
+        assert_option_parses!(TcpOption::NoOperation,
+                              &[0x01]);
+        assert_option_parses!(TcpOption::MaxSegmentSize(1500),
+                              &[0x02, 0x04, 0x05, 0xdc]);
+        assert_option_parses!(TcpOption::WindowScale(12),
+                              &[0x03, 0x03, 0x0c]);
+        assert_option_parses!(TcpOption::Unknown { kind: 12, data: &[1, 2, 3][..] },
+                              &[0x0c, 0x05, 0x01, 0x02, 0x03])
+    }
+
+    #[test]
+    fn test_malformed_tcp_options() {
+        assert_eq!(TcpOption::parse(&[]),
+                   Err(Error::Truncated));
+        assert_eq!(TcpOption::parse(&[0xc]),
+                   Err(Error::Truncated));
+        assert_eq!(TcpOption::parse(&[0xc, 0x05, 0x01, 0x02]),
+                   Err(Error::Truncated));
+        assert_eq!(TcpOption::parse(&[0x2, 0x02]),
+                   Err(Error::Malformed));
+        assert_eq!(TcpOption::parse(&[0x3, 0x02]),
+                   Err(Error::Malformed));
     }
 }
