@@ -965,6 +965,12 @@ impl<'a> TcpSocket<'a> {
             repr.ack_number = Some(ack_number);
             self.remote_last_ack = ack_number;
 
+            if repr.control == TcpControl::Syn {
+                // First enable the option, without assigning any value, to get a correct
+                // result for (ip_repr:Unspecified).payload_len below.
+                repr.max_seg_size = Some(0);
+            }
+
             let ip_repr = IpRepr::Unspecified {
                 src_addr:     self.local_endpoint.addr,
                 dst_addr:     self.remote_endpoint.addr,
