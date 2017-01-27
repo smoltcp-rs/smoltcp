@@ -230,14 +230,15 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                             let tcp_packet = try!(TcpPacket::new(ipv4_packet.payload()));
                             if !tcp_packet.rst() {
                                 let tcp_reply_repr = TcpRepr {
-                                    src_port:   tcp_packet.dst_port(),
-                                    dst_port:   tcp_packet.src_port(),
-                                    control:    TcpControl::Rst,
-                                    seq_number: tcp_packet.ack_number(),
-                                    ack_number: Some(tcp_packet.seq_number() +
-                                                     tcp_packet.segment_len()),
-                                    window_len: 0,
-                                    payload:    &[]
+                                    src_port:     tcp_packet.dst_port(),
+                                    dst_port:     tcp_packet.src_port(),
+                                    control:      TcpControl::Rst,
+                                    seq_number:   tcp_packet.ack_number(),
+                                    ack_number:   Some(tcp_packet.seq_number() +
+                                                       tcp_packet.segment_len()),
+                                    window_len:   0,
+                                    max_seg_size: None,
+                                    payload:      &[]
                                 };
                                 let ipv4_reply_repr = Ipv4Repr {
                                     src_addr:    dst_addr,

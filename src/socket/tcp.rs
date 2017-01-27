@@ -821,13 +821,14 @@ impl<'a> TcpSocket<'a> {
         if self.remote_endpoint.is_unspecified() { return Err(Error::Exhausted) }
 
         let mut repr = TcpRepr {
-            src_port:   self.local_endpoint.port,
-            dst_port:   self.remote_endpoint.port,
-            control:    TcpControl::None,
-            seq_number: self.local_seq_no,
-            ack_number: None,
-            window_len: self.rx_buffer.window() as u16,
-            payload:    &[]
+            src_port:     self.local_endpoint.port,
+            dst_port:     self.remote_endpoint.port,
+            control:      TcpControl::None,
+            seq_number:   self.local_seq_no,
+            ack_number:   None,
+            window_len:   self.rx_buffer.window() as u16,
+            max_seg_size: None,
+            payload:      &[]
         };
 
         if self.state == State::Closed {
@@ -1053,13 +1054,15 @@ mod test {
         src_port: REMOTE_PORT, dst_port: LOCAL_PORT,
         control: TcpControl::None,
         seq_number: TcpSeqNumber(0), ack_number: Some(TcpSeqNumber(0)),
-        window_len: 256, payload: &[]
+        window_len: 256, max_seg_size: None,
+        payload: &[]
     };
     const RECV_TEMPL:  TcpRepr<'static> = TcpRepr {
         src_port: LOCAL_PORT, dst_port: REMOTE_PORT,
         control: TcpControl::None,
         seq_number: TcpSeqNumber(0), ack_number: Some(TcpSeqNumber(0)),
-        window_len: 64, payload: &[]
+        window_len: 64, max_seg_size: None,
+        payload: &[]
     };
 
     fn send(socket: &mut TcpSocket, timestamp: u64, repr: &TcpRepr) -> Result<(), Error> {

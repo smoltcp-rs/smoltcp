@@ -576,13 +576,14 @@ pub enum Control {
 /// A high-level representation of a Transmission Control Protocol packet.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct Repr<'a> {
-    pub src_port:   u16,
-    pub dst_port:   u16,
-    pub control:    Control,
-    pub seq_number: SeqNumber,
-    pub ack_number: Option<SeqNumber>,
-    pub window_len: u16,
-    pub payload:    &'a [u8]
+    pub src_port:     u16,
+    pub dst_port:     u16,
+    pub control:      Control,
+    pub seq_number:   SeqNumber,
+    pub ack_number:   Option<SeqNumber>,
+    pub window_len:   u16,
+    pub max_seg_size: Option<u16>,
+    pub payload:      &'a [u8]
 }
 
 impl<'a> Repr<'a> {
@@ -615,20 +616,44 @@ impl<'a> Repr<'a> {
         // however, most deployed systems (e.g. Linux) are *not* standards-compliant, and would
         // cut the byte at the urgent pointer from the stream.
 
+        let mut max_seg_size = None;
+        let mut options = packet.options();
+        while options.len() > 0 {
+            let (next_options, option) = TcpOption::parse(options)?;
+            match option {
+                TcpOption::EndOfList => break,
+                TcpOption::NoOperation => (),
+                TcpOption::MaxSegmentSize(value) =>
+                    max_seg_size = Some(value),
+                _ => ()
+            }
+            options = next_options;
+        }
+
         Ok(Repr {
-            src_port:   packet.src_port(),
-            dst_port:   packet.dst_port(),
-            control:    control,
-            seq_number: packet.seq_number(),
-            ack_number: ack_number,
-            window_len: packet.window_len(),
-            payload:    packet.payload()
+            src_port:     packet.src_port(),
+            dst_port:     packet.dst_port(),
+            control:      control,
+            seq_number:   packet.seq_number(),
+            ack_number:   ack_number,
+            window_len:   packet.window_len(),
+            max_seg_size: max_seg_size,
+            payload:      packet.payload()
         })
+    }
+
+    /// Return the length of a header that will be emitted from this high-level representation.
+    pub fn header_len(&self) -> usize {
+        let mut length = field::URGENT.end;
+        if self.max_seg_size.is_some() {
+            length += 4
+        }
+        length
     }
 
     /// Return the length of a packet that will be emitted from this high-level representation.
     pub fn buffer_len(&self) -> usize {
-        field::URGENT.end + self.payload.len()
+        self.header_len() + self.payload.len()
     }
 
     /// Emit a high-level representation into a Transmission Control Protocol packet.
@@ -641,7 +666,7 @@ impl<'a> Repr<'a> {
         packet.set_seq_number(self.seq_number);
         packet.set_ack_number(self.ack_number.unwrap_or(SeqNumber(0)));
         packet.set_window_len(self.window_len);
-        packet.set_header_len(field::URGENT.end as u8);
+        packet.set_header_len(self.header_len() as u8);
         packet.clear_flags();
         match self.control {
             Control::None => (),
@@ -650,6 +675,15 @@ impl<'a> Repr<'a> {
             Control::Rst  => packet.set_rst(true)
         }
         packet.set_ack(self.ack_number.is_some());
+        {
+            let mut options = packet.options_mut();
+            if let Some(value) = self.max_seg_size {
+                let tmp = options; options = TcpOption::MaxSegmentSize(value).emit(tmp);
+            }
+            if options.len() > 0 {
+                TcpOption::EndOfList.emit(options);
+            }
+        }
         packet.payload_mut().copy_from_slice(self.payload);
         packet.fill_checksum(src_addr, dst_addr)
     }
@@ -676,6 +710,25 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
             try!(write!(f, " urg={}", self.urgent_at()))
         }
         try!(write!(f, " len={}", self.payload().len()));
+        let mut options = self.options();
+        while options.len() > 0 {
+            let (next_options, option) =
+                match TcpOption::parse(options) {
+                    Ok(res) => res,
+                    Err(err) => return write!(f, " ({})", err)
+                };
+            match option {
+                TcpOption::EndOfList => break,
+                TcpOption::NoOperation => (),
+                TcpOption::MaxSegmentSize(value) =>
+                    try!(write!(f, " mss={}", value)),
+                TcpOption::WindowScale(value) =>
+                    try!(write!(f, " ws={}", value)),
+                TcpOption::Unknown { kind, .. } =>
+                    try!(write!(f, " opt({})", kind)),
+            }
+            options = next_options;
+        }
         Ok(())
     }
 }
@@ -696,6 +749,9 @@ impl<'a> fmt::Display for Repr<'a> {
         }
         try!(write!(f, " win={}", self.window_len));
         try!(write!(f, " len={}", self.payload.len()));
+        if let Some(max_seg_size) = self.max_seg_size {
+            try!(write!(f, " mss={}", max_seg_size));
+        }
         Ok(())
     }
 }
@@ -791,13 +847,14 @@ mod test {
 
     fn packet_repr() -> Repr<'static> {
         Repr {
-            src_port:   48896,
-            dst_port:   80,
-            seq_number: SeqNumber(0x01234567),
-            ack_number: None,
-            window_len: 0x0123,
-            control:    Control::Syn,
-            payload:    &PAYLOAD_BYTES
+            src_port:     48896,
+            dst_port:     80,
+            seq_number:   SeqNumber(0x01234567),
+            ack_number:   None,
+            window_len:   0x0123,
+            control:      Control::Syn,
+            max_seg_size: None,
+            payload:      &PAYLOAD_BYTES
         }
     }
 
