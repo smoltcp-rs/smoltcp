@@ -816,7 +816,8 @@ impl<'a> TcpSocket<'a> {
     }
 
     /// See [Socket::dispatch](enum.Socket.html#method.dispatch).
-    pub fn dispatch<F, R>(&mut self, timestamp: u64, emit: &mut F) -> Result<R, Error>
+    pub fn dispatch<F, R>(&mut self, timestamp: u64, mtu: usize,
+                          emit: &mut F) -> Result<R, Error>
             where F: FnMut(&IpRepr, &IpPayload) -> Result<R, Error> {
         if self.remote_endpoint.is_unspecified() { return Err(Error::Exhausted) }
 
@@ -875,19 +876,12 @@ impl<'a> TcpSocket<'a> {
             }
 
             // We transmit a SYN|ACK in the SYN-RECEIVED state.
-            State::SynReceived => {
-                repr.control = TcpControl::Syn;
-                net_trace!("[{}]{}:{}: sending SYN|ACK",
-                           self.debug_id, self.local_endpoint, self.remote_endpoint);
-                should_send = true;
-            }
-
             // We transmit a SYN in the SYN-SENT state.
-            State::SynSent => {
+            State::SynReceived | State::SynSent => {
                 repr.control = TcpControl::Syn;
-                repr.ack_number = None;
-                net_trace!("[{}]{}:{}: sending SYN",
-                           self.debug_id, self.local_endpoint, self.remote_endpoint);
+                net_trace!("[{}]{}:{}: sending SYN{}",
+                           self.debug_id, self.local_endpoint, self.remote_endpoint,
+                           if repr.ack_number.is_some() { "|ACK" } else { "" });
                 should_send = true;
             }
 
@@ -965,11 +959,18 @@ impl<'a> TcpSocket<'a> {
             self.remote_last_ack = ack_number;
 
             let ip_repr = IpRepr::Unspecified {
-                src_addr:    self.local_endpoint.addr,
-                dst_addr:    self.remote_endpoint.addr,
-                protocol:    IpProtocol::Tcp,
-                payload_len: repr.buffer_len()
+                src_addr:     self.local_endpoint.addr,
+                dst_addr:     self.remote_endpoint.addr,
+                protocol:     IpProtocol::Tcp,
+                payload_len:  repr.buffer_len()
             };
+            let ip_repr = try!(ip_repr.lower(&[]));
+
+            if repr.control == TcpControl::Syn {
+                let mtu = mtu - repr.header_len() - ip_repr.buffer_len();
+                repr.max_seg_size = Some(mtu as u16);
+            }
+
             emit(&ip_repr, &repr)
         } else {
             Err(Error::Exhausted)
@@ -1082,7 +1083,7 @@ mod test {
     fn recv<F>(socket: &mut TcpSocket, timestamp: u64, mut f: F)
             where F: FnMut(Result<TcpRepr, Error>) {
         let mut buffer = vec![];
-        let result = socket.dispatch(timestamp, &mut |ip_repr, payload| {
+        let result = socket.dispatch(timestamp, 1520, &mut |ip_repr, payload| {
             assert_eq!(ip_repr.protocol(), IpProtocol::Tcp);
             assert_eq!(ip_repr.src_addr(), LOCAL_IP);
             assert_eq!(ip_repr.dst_addr(), REMOTE_IP);
@@ -1295,6 +1296,7 @@ mod test {
             control: TcpControl::Syn,
             seq_number: LOCAL_SEQ,
             ack_number: Some(REMOTE_SEQ + 1),
+            max_seg_size: Some(1480),
             ..RECV_TEMPL
         }]);
         send!(s, TcpRepr {
@@ -1871,6 +1873,7 @@ mod test {
             control: TcpControl::Syn,
             seq_number: LOCAL_SEQ,
             ack_number: Some(REMOTE_SEQ + 1),
+            max_seg_size: Some(1480),
             ..RECV_TEMPL
         }]);
         send!(s, TcpRepr {
@@ -2102,12 +2105,14 @@ mod test {
             control:    TcpControl::Syn,
             seq_number: LOCAL_SEQ,
             ack_number: Some(REMOTE_SEQ + 1),
+            max_seg_size: Some(1480),
             ..RECV_TEMPL
         }));
         recv!(s, time 150, Ok(TcpRepr { // retransmit
             control:    TcpControl::Syn,
             seq_number: LOCAL_SEQ,
             ack_number: Some(REMOTE_SEQ + 1),
+            max_seg_size: Some(1480),
             ..RECV_TEMPL
         }));
         send!(s, TcpRepr {

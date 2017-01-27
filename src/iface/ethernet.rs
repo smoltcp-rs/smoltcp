@@ -353,10 +353,11 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         let src_protocol_addrs = self.protocol_addrs.as_ref();
         let arp_cache = &mut self.arp_cache;
         let device = &mut self.device;
+        let mtu = device.mtu() - EthernetFrame::<&[u8]>::header_len();
 
         let mut nothing_to_transmit = true;
         for socket in sockets.iter_mut() {
-            let result = socket.dispatch(timestamp, &mut |repr, payload| {
+            let result = socket.dispatch(timestamp, mtu, &mut |repr, payload| {
                 let repr = try!(repr.lower(src_protocol_addrs));
 
                 let dst_hardware_addr =

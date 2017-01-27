@@ -232,7 +232,8 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     }
 
     /// See [Socket::dispatch](enum.Socket.html#method.dispatch).
-    pub fn dispatch<F, R>(&mut self, _timestamp: u64, emit: &mut F) -> Result<R, Error>
+    pub fn dispatch<F, R>(&mut self, _timestamp: u64, _mtu: usize,
+                          emit: &mut F) -> Result<R, Error>
             where F: FnMut(&IpRepr, &IpPayload) -> Result<R, Error> {
         let packet_buf = try!(self.tx_buffer.dequeue().map_err(|()| Error::Exhausted));
         net_trace!("[{}]{}:{}: sending {} octets",

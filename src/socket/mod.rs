@@ -92,9 +92,10 @@ impl<'a, 'b> Socket<'a, 'b> {
     /// is returned.
     ///
     /// This function is used internally by the networking stack.
-    pub fn dispatch<F, R>(&mut self, timestamp: u64, emit: &mut F) -> Result<R, Error>
+    pub fn dispatch<F, R>(&mut self, timestamp: u64, mtu: usize,
+                          emit: &mut F) -> Result<R, Error>
             where F: FnMut(&IpRepr, &IpPayload) -> Result<R, Error> {
-        dispatch_socket!(self, |socket [mut]| socket.dispatch(timestamp, emit))
+        dispatch_socket!(self, |socket [mut]| socket.dispatch(timestamp, mtu, emit))
     }
 }
 

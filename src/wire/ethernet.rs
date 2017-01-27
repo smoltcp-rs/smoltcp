@@ -96,6 +96,11 @@ impl<T: AsRef<[u8]>> Frame<T> {
         self.buffer
     }
 
+    /// Return the length of a frame header.
+    pub fn header_len() -> usize {
+        field::PAYLOAD.start
+    }
+
     /// Return the length of a buffer required to hold a packet with the payload
     /// of a given length.
     pub fn buffer_len(payload_len: usize) -> usize {
