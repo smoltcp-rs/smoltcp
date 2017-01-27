@@ -245,6 +245,8 @@ pub struct TcpSocket<'a> {
     /// The speculative remote window size.
     /// I.e. the actual remote window size minus the count of in-flight octets.
     remote_win_len:  usize,
+    /// The maximum number of data octets that the remote side may receive.
+    remote_mss:      usize,
     retransmit:      Retransmit,
     rx_buffer:       SocketBuffer<'a>,
     tx_buffer:       SocketBuffer<'a>,
@@ -271,6 +273,7 @@ impl<'a> TcpSocket<'a> {
             remote_last_seq: TcpSeqNumber(0),
             remote_last_ack: TcpSeqNumber(0),
             remote_win_len:  0,
+            remote_mss:      536,
             retransmit:      Retransmit::new(),
             tx_buffer:       tx_buffer.into(),
             rx_buffer:       rx_buffer.into(),
@@ -688,7 +691,8 @@ impl<'a> TcpSocket<'a> {
 
             // SYN packets in the LISTEN state change it to SYN-RECEIVED.
             (State::Listen, TcpRepr {
-                src_port, dst_port, control: TcpControl::Syn, seq_number, ack_number: None, ..
+                src_port, dst_port, control: TcpControl::Syn, seq_number, ack_number: None,
+                max_seg_size, ..
             }) => {
                 net_trace!("[{}]{}: received SYN",
                            self.debug_id, self.local_endpoint);
@@ -698,6 +702,9 @@ impl<'a> TcpSocket<'a> {
                 self.local_seq_no    = TcpSeqNumber(-seq_number.0);
                 self.remote_last_seq = self.local_seq_no + 1;
                 self.remote_seq_no   = seq_number + 1;
+                if let Some(max_seg_size) = max_seg_size {
+                    self.remote_mss = max_seg_size as usize
+                }
                 self.set_state(State::SynReceived);
                 self.retransmit.reset();
             }
@@ -897,8 +904,8 @@ impl<'a> TcpSocket<'a> {
                 let mut size = self.tx_buffer.len();
                 // Clamp to remote window length.
                 if size > self.remote_win_len { size = self.remote_win_len }
-                // Clamp to MSS. Currently we only support the default MSS value.
-                if size > 536 { size = 536 }
+                // Clamp to MSS.
+                if size > self.remote_mss { size = self.remote_mss }
                 // Extract data from the buffer. This may return less than what we want,
                 // in case it's not possible to extract a contiguous slice.
                 let offset = self.remote_last_seq - self.local_seq_no;
@@ -2247,5 +2254,38 @@ mod test {
             payload:    &b"ABCDEF"[..],
             ..RECV_TEMPL
         }));
+    }
+
+    #[test]
+    fn test_maximum_segment_size() {
+        let mut s = socket_listen();
+        s.tx_buffer = SocketBuffer::new(vec![0; 32767]);
+        send!(s, TcpRepr {
+            control: TcpControl::Syn,
+            seq_number: REMOTE_SEQ,
+            ack_number: None,
+            max_seg_size: Some(1000),
+            ..SEND_TEMPL
+        });
+        recv!(s, [TcpRepr {
+            control: TcpControl::Syn,
+            seq_number: LOCAL_SEQ,
+            ack_number: Some(REMOTE_SEQ + 1),
+            max_seg_size: Some(1480),
+            ..RECV_TEMPL
+        }]);
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            window_len: 32767,
+            ..SEND_TEMPL
+        });
+        s.send_slice(&[0; 1200][..]).unwrap();
+        recv!(s, [TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload: &[0; 1000][..],
+            ..RECV_TEMPL
+        }])
     }
 }
