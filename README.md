@@ -48,7 +48,7 @@ The UDP protocol is supported over IPv4.
 
 ### TCP layer
 
-The TCP protocol is supported over IPv4.
+The TCP protocol is supported over IPv4. Only server sockets are supported.
 
   * TCP header checksum is supported.
   * Multiple packets will be transmitted without waiting for an acknowledgement.
@@ -57,9 +57,11 @@ The TCP protocol is supported over IPv4.
   * TCP urgent pointer is **not** supported; any urgent octets will be received alongside
     data octets.
   * Reassembly of out-of-order segments is **not** supported.
-  * TCP options are **not** supported, in particular:
-    * Maximum segment size is hardcoded at the default value, 536.
+  * The status of TCP options is:
+    * Maximum segment size option is supported.
     * Window scaling is **not** supported, and the maximum buffer size is 65536.
+    * Timestamping is **not** supported.
+    * Fast open is **not** supported.
   * Keepalive is **not** supported.
 
 Installation
