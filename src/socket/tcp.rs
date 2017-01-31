@@ -965,6 +965,10 @@ impl<'a> TcpSocket<'a> {
             repr.ack_number = Some(ack_number);
             self.remote_last_ack = ack_number;
 
+            // Remember the header length before enabling the MSS option, since that option
+            // only affects SYN packets.
+            let header_len = repr.header_len();
+
             if repr.control == TcpControl::Syn {
                 // First enable the option, without assigning any value, to get a correct
                 // result for (ip_repr:Unspecified).payload_len below.
@@ -980,7 +984,7 @@ impl<'a> TcpSocket<'a> {
             let ip_repr = try!(ip_repr.lower(&[]));
 
             if repr.control == TcpControl::Syn {
-                let mtu = mtu - repr.header_len() - ip_repr.buffer_len();
+                let mtu = mtu - header_len - ip_repr.buffer_len();
                 repr.max_seg_size = Some(mtu as u16);
             }
 
