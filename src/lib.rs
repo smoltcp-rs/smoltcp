@@ -76,7 +76,7 @@ extern crate std;
 extern crate libc;
 #[cfg(feature = "use_alloc")]
 extern crate alloc;
-#[cfg(feature = "use_log")]
+#[cfg(any(test, feature = "use_log"))]
 #[macro_use(trace, log)]
 extern crate log;
 
