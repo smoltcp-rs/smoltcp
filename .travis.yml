@@ -16,7 +16,7 @@ matrix:
   allow_failures:
     - rust: stable # until 1.15 comes out
 script:
-   - cargo build --no-default-features --features "$FEATURES"
+   - cargo test --no-default-features --features "$FEATURES"
 notifications:
   irc:
     channels:
