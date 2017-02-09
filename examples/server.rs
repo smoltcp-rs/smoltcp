@@ -95,7 +95,7 @@ fn main() {
         // udp:6969: respond "yo dawg"
         {
             let socket: &mut UdpSocket = sockets.get_mut(udp_handle).as_socket();
-            if socket.endpoint().is_unspecified() {
+            if socket.local_endpoint().is_unspecified() {
                 socket.bind(6969)
             }
 
@@ -111,7 +111,7 @@ fn main() {
                 let data = b"yo dawg\n";
                 debug!("udp:6969 send data: {:?}",
                        str::from_utf8(data.as_ref()).unwrap());
-                socket.send_slice(data, endpoint).unwrap();
+                socket.send_slice(data, Some(endpoint)).unwrap();
             }
         }
 
