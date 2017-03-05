@@ -325,6 +325,16 @@ impl<'a> TcpSocket<'a> {
         Ok(())
     }
 
+    pub fn active_open<T: Into<IpEndpoint>>(&mut self, local_endpoint: T, remote_endpoint: T) -> Result<(), ()> {
+        if self.is_open() {
+            return Err(());
+        }
+        self.local_endpoint  = local_endpoint.into();
+        self.remote_endpoint = remote_endpoint.into();
+        self.set_state(State::SynSent);
+        Ok(())
+    }
+
     /// Close the transmit half of the full-duplex connection.
     ///
     /// Note that there is no corresponding function for the receive half of the full-duplex
