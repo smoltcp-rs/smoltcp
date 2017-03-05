@@ -674,7 +674,7 @@ impl<'a> TcpSocket<'a> {
             (State::SynSent, TcpRepr {
                 control: TcpControl::Rst, ack_number: Some(ack_number), ..
             }) => {
-                if ack_number != self.local_seq_no {
+                if ack_number != self.local_seq_no + 1 {
                     net_trace!("[{}]{}:{}: unacceptable RST|ACK in response to initial SYN",
                                self.debug_id, self.local_endpoint, self.remote_endpoint);
                     return Err(Error::Malformed)
@@ -1501,7 +1501,7 @@ mod test {
         send!(s, TcpRepr {
             control: TcpControl::Rst,
             seq_number: REMOTE_SEQ,
-            ack_number: Some(LOCAL_SEQ),
+            ack_number: Some(LOCAL_SEQ + 1),
             ..SEND_TEMPL
         });
         assert_eq!(s.state, State::Closed);
