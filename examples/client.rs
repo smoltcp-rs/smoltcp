@@ -28,8 +28,8 @@ fn main() {
     let tcp_tx_buffer = TcpSocketBuffer::new(vec![0; 128]);
     let tcp_socket = TcpSocket::new(tcp_rx_buffer, tcp_tx_buffer);
 
-    let hardware_addr  = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
-    let protocol_addr  = IpAddress::v4(192, 168, 69, 1);
+    let hardware_addr  = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x02]);
+    let protocol_addr  = IpAddress::v4(192, 168, 69, 2);
     let mut iface      = EthernetInterface::new(
         Box::new(device), Box::new(arp_cache) as Box<ArpCache>,
         hardware_addr, [protocol_addr]);

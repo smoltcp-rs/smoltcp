@@ -151,7 +151,7 @@ sudo ./target/debug/tcpdump eth0
 
 ### examples/server.rs
 
-_examples/server.rs_ emulates a network host that can serve requests.
+_examples/server.rs_ emulates a network host that can respond to requests.
 
 The host is assigned the hardware address `02-00-00-00-00-01` and IPv4 address `192.168.69.1`.
 
@@ -175,6 +175,23 @@ The buffers are only 64 bytes long, for convenience of testing resource exhausti
 
 Fault injection is available through the `--drop-chance` and `--corrupt-chance` options,
 with values in percents. A good starting value is 15%.
+
+### examples/client.rs
+
+_examples/client.rs_ emulates a network host that can initiate requests.
+
+The host is assigned the hardware address `02-00-00-00-00-02` and IPv4 address `192.168.69.2`.
+
+Read its [source code](/examples/client.rs), then run it as:
+
+```sh
+cargo run --example client -- tap0 ADDRESS PORT
+```
+
+It connects to the given address (not a hostname) and port (e.g. `socat stdio tcp4-listen 1234`),
+and will respond with reversed chunks of the input indefinitely.
+
+Fault injection is available, as described above.
 
 License
 -------
