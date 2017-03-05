@@ -48,7 +48,7 @@ The UDP protocol is supported over IPv4.
 
 ### TCP layer
 
-The TCP protocol is supported over IPv4. Only server sockets are supported.
+The TCP protocol is supported over IPv4. Server and client sockets are supported.
 
   * TCP header checksum is supported.
   * Multiple packets will be transmitted without waiting for an acknowledgement.
@@ -71,7 +71,7 @@ To use the _smoltcp_ library in your project, add the following to `Cargo.toml`:
 
 ```toml
 [dependencies]
-smoltcp = "0.1"
+smoltcp = "0.3"
 ```
 
 The default configuration assumes a hosted environment, for ease of evaluation.
@@ -79,7 +79,7 @@ You probably want to disable default features and configure them one by one:
 
 ```toml
 [dependencies]
-smoltcp = { version = ..., default-features = false, features = [...] }
+smoltcp = { version = "0.3", default-features = false, features = ["..."] }
 ```
 
 ### Feature `std`
