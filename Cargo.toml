@@ -34,3 +34,6 @@ name = "tcpdump"
 
 [[example]]
 name = "server"
+
+[[example]]
+name = "client"

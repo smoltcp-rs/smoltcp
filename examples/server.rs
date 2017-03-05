@@ -16,7 +16,7 @@ use smoltcp::socket::{TcpSocket, TcpSocketBuffer};
 
 fn main() {
     utils::setup_logging();
-    let device = utils::setup_device();
+    let (device, _args) = utils::setup_device(&[]);
 
     let startup_time = Instant::now();
 

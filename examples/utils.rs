@@ -30,17 +30,21 @@ pub fn setup_logging() {
         .unwrap();
 }
 
-pub fn setup_device() -> Tracer<FaultInjector<TapInterface>, EthernetFrame<&'static [u8]>> {
+pub fn setup_device(more_args: &[&str])
+        -> (Tracer<FaultInjector<TapInterface>, EthernetFrame<&'static [u8]>>,
+            Vec<String>) {
     let mut opts = getopts::Options::new();
     opts.optopt("", "drop-chance", "Chance of dropping a packet (%)", "CHANCE");
     opts.optopt("", "corrupt-chance", "Chance of corrupting a packet (%)", "CHANCE");
     opts.optflag("h", "help", "print this help menu");
 
     let matches = opts.parse(env::args().skip(1)).unwrap();
-    if matches.opt_present("h") || matches.free.len() != 1 {
-        let brief = format!("Usage: {} INTERFACE [options]", env::args().nth(0).unwrap());
+    if matches.opt_present("h") || matches.free.len() != more_args.len() + 1 {
+        let brief = format!("Usage: {} INTERFACE {} [options]",
+                            env::args().nth(0).unwrap(),
+                            more_args.join(" "));
         print!("{}", opts.usage(&brief));
-        process::exit(if matches.free.len() != 1 { 1 } else { 0 });
+        process::exit(if matches.free.len() != more_args.len() + 1 { 1 } else { 0 });
     }
     let drop_chance    = u8::from_str(&matches.opt_str("drop-chance")
                                              .unwrap_or("0".to_string())).unwrap();
@@ -59,5 +63,5 @@ pub fn setup_device() -> Tracer<FaultInjector<TapInterface>, EthernetFrame<&'sta
     device.set_corrupt_chance(corrupt_chance);
     let device = Tracer::<_, EthernetFrame<&'static [u8]>>::new(device, trace_writer);
 
-    device
+    (device, matches.free[1..].to_owned())
 }
