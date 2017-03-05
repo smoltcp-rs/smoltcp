@@ -719,6 +719,12 @@ impl<'a> TcpSocket<'a> {
                 self.retransmit.reset();
             }
 
+            // SYN-ACK packet in SYN-SENT state change it to ESTABLISHED
+            (State::SynSent, TcpRepr { control: TcpControl::Syn, ack_number: Some(_), .. }) => {
+                self.set_state(State::Established);
+                self.retransmit.reset();
+            }
+
             // ACK packets in the SYN-RECEIVED state change it to ESTABLISHED.
             (State::SynReceived, TcpRepr { control: TcpControl::None, .. }) => {
                 self.set_state(State::Established);
