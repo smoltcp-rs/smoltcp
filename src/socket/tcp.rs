@@ -972,8 +972,10 @@ impl<'a> TcpSocket<'a> {
                            self.retransmit.delay);
             }
 
-            repr.ack_number = Some(ack_number);
-            self.remote_last_ack = ack_number;
+            if self.state != State::SynSent {
+                repr.ack_number = Some(ack_number);
+                self.remote_last_ack = ack_number;
+            }
 
             // Remember the header length before enabling the MSS option, since that option
             // only affects SYN packets.
