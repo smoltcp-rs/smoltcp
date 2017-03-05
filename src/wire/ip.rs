@@ -112,6 +112,12 @@ impl From<u16> for Endpoint {
     }
 }
 
+impl<T: Into<Address>> From<(T, u16)> for Endpoint {
+    fn from((addr, port): (T, u16)) -> Endpoint {
+        Endpoint { addr: addr.into(), port: port }
+    }
+}
+
 /// An IP packet representation.
 ///
 /// This enum abstracts the various versions of IP packets. It either contains a concrete
