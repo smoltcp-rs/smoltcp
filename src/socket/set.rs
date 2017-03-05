@@ -61,7 +61,7 @@ impl<'a, 'b: 'a, 'c: 'a + 'b> Set<'a, 'b, 'c> {
             ManagedSlice::Borrowed(_) => {
                 panic!("adding a socket to a full SocketSet")
             }
-            #[cfg(any(feature = "use_std", feature = "use_collections"))]
+            #[cfg(any(feature = "std", feature = "collections"))]
             ManagedSlice::Owned(ref mut sockets) => {
                 sockets.push(None);
                 let index = sockets.len() - 1;

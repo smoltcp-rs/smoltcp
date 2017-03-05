@@ -97,21 +97,21 @@ impl Drop for EthernetTxBuffer {
 
 use Error;
 
-#[cfg(feature = "use_std")]
+#[cfg(feature = "std")]
 mod sys;
 
 mod tracer;
 mod fault_injector;
-#[cfg(feature = "use_std")]
+#[cfg(feature = "std")]
 mod raw_socket;
-#[cfg(all(feature = "use_std", target_os = "linux"))]
+#[cfg(all(feature = "std", target_os = "linux"))]
 mod tap_interface;
 
 pub use self::tracer::Tracer;
 pub use self::fault_injector::FaultInjector;
-#[cfg(feature = "use_std")]
+#[cfg(feature = "std")]
 pub use self::raw_socket::RawSocket;
-#[cfg(all(feature = "use_std", target_os = "linux"))]
+#[cfg(all(feature = "std", target_os = "linux"))]
 pub use self::tap_interface::TapInterface;
 
 /// An interface for sending and receiving raw network frames.

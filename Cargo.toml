@@ -12,7 +12,7 @@ license = "0BSD"
 
 [dependencies]
 byteorder = { version = "1.0", default-features = false }
-managed = { version = "0.2.1", default-features = false }
+managed = { version = "0.3.0", default-features = false }
 log = { version = "0.3", default-features = false, optional = true }
 libc = { version = "0.2.18", optional = true }
 
@@ -22,12 +22,11 @@ env_logger = "0.4"
 getopts = "0.2"
 
 [features]
-use_std = ["managed/use_std", "libc"]
-use_alloc = ["managed/use_alloc"]
-use_collections = ["managed/use_collections"]
-use_log = ["log"]
+std = ["managed/std", "libc"]
+alloc = ["managed/alloc"]
+collections = ["managed/collections"]
 verbose = []
-default = ["use_std", "use_log", "verbose"]
+default = ["std", "log", "verbose"]
 
 [[example]]
 name = "tcpdump"

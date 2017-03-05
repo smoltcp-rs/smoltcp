@@ -1,4 +1,4 @@
-#![cfg_attr(feature = "use_alloc", feature(alloc))]
+#![cfg_attr(feature = "alloc", feature(alloc))]
 #![no_std]
 
 //! The _smoltcp_ library is built in a layered structure, with the layers corresponding
@@ -69,22 +69,22 @@
 
 extern crate byteorder;
 extern crate managed;
-#[cfg(any(test, feature = "use_std"))]
+#[cfg(any(test, feature = "std"))]
 #[macro_use]
 extern crate std;
-#[cfg(feature = "use_std")]
+#[cfg(feature = "std")]
 extern crate libc;
-#[cfg(feature = "use_alloc")]
+#[cfg(feature = "alloc")]
 extern crate alloc;
-#[cfg(any(test, feature = "use_log"))]
+#[cfg(any(test, feature = "log"))]
 #[macro_use(trace, log)]
 extern crate log;
 
 macro_rules! net_trace {
     ($($arg:expr),*) => {
-        #[cfg(feature = "use_log")]
+        #[cfg(feature = "log")]
         trace!($($arg),*);
-        #[cfg(not(feature = "use_log"))]
+        #[cfg(not(feature = "log"))]
         $( let _ = $arg );*; // suppress unused variable warnings
     }
 }

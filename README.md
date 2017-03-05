@@ -82,27 +82,27 @@ You probably want to disable default features and configure them one by one:
 smoltcp = { version = ..., default-features = false, features = [...] }
 ```
 
-### Feature `use_std`
+### Feature `std`
 
-The `use_std` feature enables use of objects and slices owned by the networking stack through a
+The `std` feature enables use of objects and slices owned by the networking stack through a
 dependency on `std::boxed::Box` and `std::vec::Vec`. It also enables `smoltcp::phy::RawSocket`
 and `smoltcp::phy::TapInterface`, if the platform supports it.
 
 This feature is enabled by default.
 
-### Feature `use_alloc`
+### Feature `alloc`
 
-The `use_alloc` feature enables use of objects owned by the networking stack through a dependency
+The `alloc` feature enables use of objects owned by the networking stack through a dependency
 on `alloc::boxed::Box`. This only works on nightly rustc.
 
-### Feature `use_collections`
+### Feature `collections`
 
-The `use_collections` feature enables use of slices owned by the networking stack through a dependency
+The `collections` feature enables use of slices owned by the networking stack through a dependency
 on `collections::vec::Vec`. This only works on nightly rustc.
 
-### Feature `use_log`
+### Feature `log`
 
-The `use_log` feature enables logging of events within the networking stack through
+The `log` feature enables logging of events within the networking stack through
 the [log crate][log]. The events are emitted with the TRACE log level.
 
 [log]: https://crates.io/crates/log
