@@ -888,7 +888,7 @@ impl<'a> TcpSocket<'a> {
                 repr.control = TcpControl::Syn;
                 net_trace!("[{}]{}:{}: sending SYN{}",
                            self.debug_id, self.local_endpoint, self.remote_endpoint,
-                           if repr.ack_number.is_some() { "|ACK" } else { "" });
+                           if self.state == State::SynReceived { "|ACK" } else { "" });
                 should_send = true;
             }
 
