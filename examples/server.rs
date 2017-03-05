@@ -8,6 +8,7 @@ mod utils;
 
 use std::str;
 use std::time::Instant;
+use smoltcp::Error;
 use smoltcp::wire::{EthernetAddress, IpAddress};
 use smoltcp::iface::{ArpCache, SliceArpCache, EthernetInterface};
 use smoltcp::socket::{AsSocket, SocketSet};
@@ -128,7 +129,7 @@ fn main() {
         let timestamp_ms = (timestamp.as_secs() * 1000) +
                            (timestamp.subsec_nanos() / 1000000) as u64;
         match iface.poll(&mut sockets, timestamp_ms) {
-            Ok(()) => (),
+            Ok(()) | Err(Error::Exhausted) => (),
             Err(e) => debug!("poll error: {}", e)
         }
     }
