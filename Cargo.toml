@@ -8,6 +8,7 @@ homepage = "https://github.com/m-labs/smoltcp"
 repository = "https://github.com/m-labs/smoltcp.git"
 readme = "README.md"
 keywords = ["ip", "tcp", "udp", "ethernet", "network"]
+categories = ["embedded"]
 license = "0BSD"
 
 [dependencies]
