@@ -20,6 +20,7 @@ libc = { version = "0.2.18", optional = true }
 log = "0.3"
 env_logger = "0.4"
 getopts = "0.2"
+lazy_static = "0.2"
 
 [features]
 use_std = ["managed/use_std", "libc"]

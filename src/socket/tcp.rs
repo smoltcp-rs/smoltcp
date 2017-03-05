@@ -325,6 +325,16 @@ impl<'a> TcpSocket<'a> {
         Ok(())
     }
 
+    pub fn active_open<T: Into<IpEndpoint>>(&mut self, local_endpoint: T, remote_endpoint: T) -> Result<(), ()> {
+        if self.is_open() {
+            return Err(());
+        }
+        self.local_endpoint  = local_endpoint.into();
+        self.remote_endpoint = remote_endpoint.into();
+        self.set_state(State::SynSent);
+        Ok(())
+    }
+
     /// Close the transmit half of the full-duplex connection.
     ///
     /// Note that there is no corresponding function for the receive half of the full-duplex
@@ -709,6 +719,12 @@ impl<'a> TcpSocket<'a> {
                 self.retransmit.reset();
             }
 
+            // SYN-ACK packet in SYN-SENT state change it to ESTABLISHED
+            (State::SynSent, TcpRepr { control: TcpControl::Syn, ack_number: Some(_), .. }) => {
+                self.set_state(State::Established);
+                self.retransmit.reset();
+            }
+
             // ACK packets in the SYN-RECEIVED state change it to ESTABLISHED.
             (State::SynReceived, TcpRepr { control: TcpControl::None, .. }) => {
                 self.set_state(State::Established);
@@ -962,8 +978,10 @@ impl<'a> TcpSocket<'a> {
                            self.retransmit.delay);
             }
 
-            repr.ack_number = Some(ack_number);
-            self.remote_last_ack = ack_number;
+            if self.state != State::SynSent {
+                repr.ack_number = Some(ack_number);
+                self.remote_last_ack = ack_number;
+            }
 
             // Remember the header length before enabling the MSS option, since that option
             // only affects SYN packets.
