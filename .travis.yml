@@ -2,21 +2,21 @@ language: rust
 matrix:
   include:
     - rust: stable
-      env: FEATURES='use_std'
+      env: FEATURES='use_std' MODE='test'
     - rust: beta
-      env: FEATURES='use_std'
+      env: FEATURES='use_std' MODE='test'
     - rust: nightly
-      env: FEATURES='use_std'
+      env: FEATURES='use_std' MODE='test'
     - rust: nightly
-      env: FEATURES='use_std use_log'
+      env: FEATURES='use_std use_log' MODE='test'
     - rust: nightly
-      env: FEATURES='use_alloc use_collections'
+      env: FEATURES='use_alloc use_collections' MODE='build'
     - rust: nightly
-      env: FEATURES=''
+      env: FEATURES='' MODE='build'
   allow_failures:
     - rust: stable # until 1.15 comes out
 script:
-   - cargo test --no-default-features --features "$FEATURES"
+   - cargo "$MODE" --no-default-features --features "$FEATURES"
 notifications:
   irc:
     channels:
