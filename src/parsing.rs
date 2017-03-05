@@ -1,5 +1,4 @@
-#![allow(dead_code)]
-
+use core::str::FromStr;
 use core::result;
 use wire::{EthernetAddress, IpAddress, Ipv4Address};
 
@@ -138,23 +137,29 @@ impl<'a> Parser<'a> {
     }
 }
 
-impl EthernetAddress {
+impl FromStr for EthernetAddress {
+    type Err = ();
+
     /// Parse a string representation of an Ethernet address.
-    pub fn parse(s: &str) -> Result<EthernetAddress> {
+    fn from_str(s: &str) -> Result<EthernetAddress> {
         Parser::new(s).until_eof(|p| p.accept_mac())
     }
 }
 
-impl Ipv4Address {
+impl FromStr for Ipv4Address {
+    type Err = ();
+
     /// Parse a string representation of an IPv4 address.
-    pub fn parse(s: &str) -> Result<Ipv4Address> {
+    fn from_str(s: &str) -> Result<Ipv4Address> {
         Parser::new(s).until_eof(|p| p.accept_ipv4())
     }
 }
 
-impl IpAddress {
+impl FromStr for IpAddress {
+    type Err = ();
+
     /// Parse a string representation of an IPv4 address.
-    pub fn parse(s: &str) -> Result<IpAddress> {
+    fn from_str(s: &str) -> Result<IpAddress> {
         Parser::new(s).until_eof(|p| p.accept_ip())
     }
 }
@@ -165,46 +170,46 @@ mod test {
 
     #[test]
     fn test_mac() {
-        assert_eq!(EthernetAddress::parse(""), Err(()));
-        assert_eq!(EthernetAddress::parse("02:00:00:00:00:00"),
+        assert_eq!(EthernetAddress::from_str(""), Err(()));
+        assert_eq!(EthernetAddress::from_str("02:00:00:00:00:00"),
                    Ok(EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x00])));
-        assert_eq!(EthernetAddress::parse("01:23:45:67:89:ab"),
+        assert_eq!(EthernetAddress::from_str("01:23:45:67:89:ab"),
                    Ok(EthernetAddress([0x01, 0x23, 0x45, 0x67, 0x89, 0xab])));
-        assert_eq!(EthernetAddress::parse("cd:ef:10:00:00:00"),
+        assert_eq!(EthernetAddress::from_str("cd:ef:10:00:00:00"),
                    Ok(EthernetAddress([0xcd, 0xef, 0x10, 0x00, 0x00, 0x00])));
-        assert_eq!(EthernetAddress::parse("00:00:00:ab:cd:ef"),
+        assert_eq!(EthernetAddress::from_str("00:00:00:ab:cd:ef"),
                    Ok(EthernetAddress([0x00, 0x00, 0x00, 0xab, 0xcd, 0xef])));
-        assert_eq!(EthernetAddress::parse("00-00-00-ab-cd-ef"),
+        assert_eq!(EthernetAddress::from_str("00-00-00-ab-cd-ef"),
                    Ok(EthernetAddress([0x00, 0x00, 0x00, 0xab, 0xcd, 0xef])));
-        assert_eq!(EthernetAddress::parse("AB-CD-EF-00-00-00"),
+        assert_eq!(EthernetAddress::from_str("AB-CD-EF-00-00-00"),
                    Ok(EthernetAddress([0xab, 0xcd, 0xef, 0x00, 0x00, 0x00])));
-        assert_eq!(EthernetAddress::parse("100:00:00:00:00:00"), Err(()));
-        assert_eq!(EthernetAddress::parse("002:00:00:00:00:00"), Err(()));
-        assert_eq!(EthernetAddress::parse("02:00:00:00:00:000"), Err(()));
-        assert_eq!(EthernetAddress::parse("02:00:00:00:00:0x"), Err(()));
+        assert_eq!(EthernetAddress::from_str("100:00:00:00:00:00"), Err(()));
+        assert_eq!(EthernetAddress::from_str("002:00:00:00:00:00"), Err(()));
+        assert_eq!(EthernetAddress::from_str("02:00:00:00:00:000"), Err(()));
+        assert_eq!(EthernetAddress::from_str("02:00:00:00:00:0x"), Err(()));
     }
 
     #[test]
     fn test_ipv4() {
-        assert_eq!(Ipv4Address::parse(""), Err(()));
-        assert_eq!(Ipv4Address::parse("1.2.3.4"),
+        assert_eq!(Ipv4Address::from_str(""), Err(()));
+        assert_eq!(Ipv4Address::from_str("1.2.3.4"),
                    Ok(Ipv4Address([1, 2, 3, 4])));
-        assert_eq!(Ipv4Address::parse("001.2.3.4"),
+        assert_eq!(Ipv4Address::from_str("001.2.3.4"),
                    Ok(Ipv4Address([1, 2, 3, 4])));
-        assert_eq!(Ipv4Address::parse("0001.2.3.4"), Err(()));
-        assert_eq!(Ipv4Address::parse("999.2.3.4"), Err(()));
-        assert_eq!(Ipv4Address::parse("1.2.3.4.5"), Err(()));
-        assert_eq!(Ipv4Address::parse("1.2.3"), Err(()));
-        assert_eq!(Ipv4Address::parse("1.2.3."), Err(()));
-        assert_eq!(Ipv4Address::parse("1.2.3.4."), Err(()));
+        assert_eq!(Ipv4Address::from_str("0001.2.3.4"), Err(()));
+        assert_eq!(Ipv4Address::from_str("999.2.3.4"), Err(()));
+        assert_eq!(Ipv4Address::from_str("1.2.3.4.5"), Err(()));
+        assert_eq!(Ipv4Address::from_str("1.2.3"), Err(()));
+        assert_eq!(Ipv4Address::from_str("1.2.3."), Err(()));
+        assert_eq!(Ipv4Address::from_str("1.2.3.4."), Err(()));
     }
 
     #[test]
     fn test_ip() {
-        assert_eq!(IpAddress::parse(""),
+        assert_eq!(IpAddress::from_str(""),
                    Ok(IpAddress::Unspecified));
-        assert_eq!(IpAddress::parse("1.2.3.4"),
+        assert_eq!(IpAddress::from_str("1.2.3.4"),
                    Ok(IpAddress::Ipv4(Ipv4Address([1, 2, 3, 4]))));
-        assert_eq!(IpAddress::parse("x"), Err(()));
+        assert_eq!(IpAddress::from_str("x"), Err(()));
     }
 }
