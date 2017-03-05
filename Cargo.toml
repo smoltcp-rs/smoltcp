@@ -28,3 +28,9 @@ use_collections = ["managed/use_collections"]
 use_log = ["log"]
 verbose = []
 default = ["use_std", "use_log", "verbose"]
+
+[[example]]
+name = "tcpdump"
+
+[[example]]
+name = "server"
