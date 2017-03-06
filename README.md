@@ -23,6 +23,7 @@ features are listed.
 The only supported medium is Ethernet.
 
   * Regular Ethernet II frames are supported.
+  * Unicast and broadcast packets are supported, multicast packets are **not** supported.
   * ARP packets (including gratuitous requests and replies) are supported.
   * 802.3 frames and 802.1Q are **not** supported.
   * Jumbo frames are **not** supported.
