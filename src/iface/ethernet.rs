@@ -119,7 +119,10 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         let rx_buffer = try!(self.device.receive());
         let eth_frame = try!(EthernetFrame::new(&rx_buffer));
 
-        if eth_frame.dst_addr() != self.hardware_addr { return Ok(()) }
+        if !eth_frame.dst_addr().is_broadcast() &&
+                eth_frame.dst_addr() != self.hardware_addr {
+            return Ok(())
+        }
 
         let mut response = Response::Nop;
         match eth_frame.ethertype() {

@@ -45,6 +45,11 @@ impl Address {
         &self.0
     }
 
+    /// Query whether this address is the broadcast address.
+    pub fn is_broadcast(&self) -> bool {
+        self.0 == [0xff; 6]
+    }
+
     /// Query whether the "multicast" bit in the OUI is set.
     pub fn is_multicast(&self) -> bool {
         self.0[0] & 0x01 != 0
