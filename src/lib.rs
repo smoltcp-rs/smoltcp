@@ -77,7 +77,7 @@ extern crate libc;
 #[cfg(feature = "alloc")]
 extern crate alloc;
 #[cfg(any(test, feature = "log"))]
-#[macro_use(trace, log)]
+#[macro_use(trace, log, log_enabled)]
 extern crate log;
 
 macro_rules! net_trace {
@@ -87,6 +87,16 @@ macro_rules! net_trace {
         #[cfg(not(feature = "log"))]
         $( let _ = $arg );*; // suppress unused variable warnings
     }
+}
+
+macro_rules! net_trace_enabled {
+    () => ({
+        #[cfg(feature = "log")]
+        fn enabled() -> bool { log_enabled!($crate::log::LogLevel::Trace) }
+        #[cfg(not(feature = "log"))]
+        fn enabled() -> bool { false }
+        enabled()
+    })
 }
 
 use core::fmt;

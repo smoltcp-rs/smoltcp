@@ -97,6 +97,15 @@ impl<'a> Cache for SliceCache<'a> {
     fn fill(&mut self, protocol_addr: &IpAddress, hardware_addr: &EthernetAddress) {
         if let None = self.find(protocol_addr) {
             let lru_index = self.lru();
+
+            if net_trace_enabled!() {
+                let (old_protocol_addr, old_hardware_addr, _counter) = self.storage[lru_index];
+                if !old_protocol_addr.is_unspecified() {
+                    net_trace!("evicting {} => {}", old_protocol_addr, old_hardware_addr);
+                }
+                net_trace!("filling {} => {}", protocol_addr, hardware_addr);
+            }
+
             self.counter += 1;
             self.storage[lru_index] =
                 (*protocol_addr, *hardware_addr, self.counter);
@@ -106,8 +115,7 @@ impl<'a> Cache for SliceCache<'a> {
 
     fn lookup(&mut self, protocol_addr: &IpAddress) -> Option<EthernetAddress> {
         if let Some(index) = self.find(protocol_addr) {
-            let (_protocol_addr, hardware_addr, ref mut counter) =
-                self.storage[index];
+            let (_protocol_addr, hardware_addr, ref mut counter) = self.storage[index];
             self.counter += 1;
             *counter = self.counter;
             Some(hardware_addr)
