@@ -1080,11 +1080,19 @@ impl<'a> TcpSocket<'a> {
             };
             let ip_repr = try!(ip_repr.lower(&[]));
 
+            let mut max_segment_size = limits.max_transmission_unit;
+            max_segment_size -= header_len;
+            max_segment_size -= ip_repr.buffer_len();
+
             if repr.control == TcpControl::Syn {
-                let mut max_segment_size = limits.max_transmission_unit;
-                max_segment_size -= header_len;
-                max_segment_size -= ip_repr.buffer_len();
                 repr.max_seg_size = Some(max_segment_size as u16);
+            }
+
+            if let Some(max_burst_size) = limits.max_burst_size {
+                let max_window_size = max_burst_size * max_segment_size;
+                if repr.window_len as usize > max_window_size {
+                    repr.window_len = max_window_size as u16;
+                }
             }
 
             emit(&ip_repr, &repr)
@@ -2488,5 +2496,38 @@ mod test {
             payload: &[0; 1000][..],
             ..RECV_TEMPL
         }])
+    }
+
+    // =========================================================================================//
+    // Tests for window management.
+    // =========================================================================================//
+
+    #[test]
+    fn test_window_size_clamp() {
+        let mut s = socket_established();
+        s.rx_buffer = SocketBuffer::new(vec![0; 32767]);
+
+        let mut limits = DeviceLimits::default();
+        limits.max_transmission_unit = 1520;
+
+        limits.max_burst_size = None;
+        s.send_slice(b"abcdef").unwrap();
+        s.dispatch(0, &limits, &mut |ip_repr, payload| {
+            let mut buffer = vec![0; payload.buffer_len()];
+            payload.emit(&ip_repr, &mut buffer[..]);
+            let packet = TcpPacket::new(&buffer[..]).unwrap();
+            assert_eq!(packet.window_len(), 32767);
+            Ok(())
+        }).unwrap();
+
+        limits.max_burst_size = Some(4);
+        s.send_slice(b"abcdef").unwrap();
+        s.dispatch(0, &limits, &mut |ip_repr, payload| {
+            let mut buffer = vec![0; payload.buffer_len()];
+            payload.emit(&ip_repr, &mut buffer[..]);
+            let packet = TcpPacket::new(&buffer[..]).unwrap();
+            assert_eq!(packet.window_len(), 5920);
+            Ok(())
+        }).unwrap();
     }
 }
