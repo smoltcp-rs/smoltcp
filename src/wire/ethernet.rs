@@ -45,6 +45,12 @@ impl Address {
         &self.0
     }
 
+    /// Query whether the address is an unicast address.
+    pub fn is_unicast(&self) -> bool {
+        !(self.is_broadcast() ||
+          self.is_multicast())
+    }
+
     /// Query whether this address is the broadcast address.
     pub fn is_broadcast(&self) -> bool {
         self.0 == [0xff; 6]

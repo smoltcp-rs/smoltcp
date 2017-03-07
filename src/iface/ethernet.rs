@@ -137,7 +137,10 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                         source_hardware_addr, source_protocol_addr,
                         target_protocol_addr, ..
                     } => {
-                        self.arp_cache.fill(&source_protocol_addr.into(), &source_hardware_addr);
+                        if source_protocol_addr.is_unicast() && source_hardware_addr.is_unicast() {
+                            self.arp_cache.fill(&source_protocol_addr.into(),
+                                                &source_hardware_addr);
+                        }
 
                         if self.has_protocol_addr(target_protocol_addr) {
                             response = Response::Arp(ArpRepr::EthernetIpv4 {
@@ -155,7 +158,10 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                         operation: ArpOperation::Reply,
                         source_hardware_addr, source_protocol_addr, ..
                     } => {
-                         self.arp_cache.fill(&source_protocol_addr.into(), &source_hardware_addr)
+                        if source_protocol_addr.is_unicast() && source_hardware_addr.is_unicast() {
+                            self.arp_cache.fill(&source_protocol_addr.into(),
+                                                &source_hardware_addr);
+                        }
                     },
 
                     _ => return Err(Error::Unrecognized)
@@ -168,7 +174,10 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                 let ipv4_repr = try!(Ipv4Repr::parse(&ipv4_packet));
 
                 // Fill the ARP cache from IP header.
-                self.arp_cache.fill(&IpAddress::Ipv4(ipv4_repr.src_addr), &eth_frame.src_addr());
+                if ipv4_repr.src_addr.is_unicast() && eth_frame.src_addr().is_unicast() {
+                    self.arp_cache.fill(&IpAddress::Ipv4(ipv4_repr.src_addr),
+                                        &eth_frame.src_addr());
+                }
 
                 match ipv4_repr {
                     // Ignore IP packets not directed at us.

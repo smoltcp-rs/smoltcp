@@ -95,6 +95,9 @@ impl<'a> SliceCache<'a> {
 
 impl<'a> Cache for SliceCache<'a> {
     fn fill(&mut self, protocol_addr: &IpAddress, hardware_addr: &EthernetAddress) {
+        debug_assert!(protocol_addr.is_unicast());
+        debug_assert!(hardware_addr.is_unicast());
+
         if let None = self.find(protocol_addr) {
             let lru_index = self.lru();
 
