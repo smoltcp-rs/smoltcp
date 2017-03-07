@@ -59,7 +59,6 @@ impl<'b, 'a: 'b> Iterator for SliceCacheIterator<'b, 'a> {
     type Item = &'b (IpAddress, EthernetAddress, usize);
 
     fn next(&mut self) -> Option<Self::Item> {
-        println!("{:?}", self.storage);
 
         while self.index < self.storage.len() {
             let cur_index = self.index;
