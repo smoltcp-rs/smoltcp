@@ -1,5 +1,5 @@
 use Error;
-use super::Device;
+use super::{DeviceLimits, Device};
 
 // We use our own RNG to stay compatible with #![no_std].
 // The use of the RNG below has a slight bias, but it doesn't matter.
@@ -98,12 +98,12 @@ impl<T: Device> Device for FaultInjector<T>
     type RxBuffer = T::RxBuffer;
     type TxBuffer = TxBuffer<T::TxBuffer>;
 
-    fn mtu(&self) -> usize {
-        if self.lower.mtu() < MTU {
-            self.lower.mtu()
-        } else {
-            MTU
+    fn limits(&self) -> DeviceLimits {
+        let mut limits = self.lower.limits();
+        if limits.max_transmission_unit > MTU {
+            limits.max_transmission_unit = MTU;
         }
+        limits
     }
 
     fn receive(&mut self) -> Result<Self::RxBuffer, Error> {

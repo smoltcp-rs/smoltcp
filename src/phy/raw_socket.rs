@@ -4,7 +4,7 @@ use std::rc::Rc;
 use std::io;
 
 use Error;
-use super::{sys, Device};
+use super::{sys, DeviceLimits, Device};
 
 /// A socket that captures or transmits the complete frame.
 #[derive(Debug)]
@@ -33,7 +33,12 @@ impl Device for RawSocket {
     type RxBuffer = Vec<u8>;
     type TxBuffer = TxBuffer;
 
-    fn mtu(&self) -> usize { self.mtu }
+    fn limits(&self) -> DeviceLimits {
+        DeviceLimits {
+            max_transmission_unit: self.mtu,
+            ..DeviceLimits::default()
+        }
+    }
 
     fn receive(&mut self) -> Result<Self::RxBuffer, Error> {
         let mut lower = self.lower.borrow_mut();

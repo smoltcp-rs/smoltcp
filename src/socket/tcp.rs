@@ -2,6 +2,7 @@ use core::fmt;
 use managed::Managed;
 
 use Error;
+use phy::DeviceLimits;
 use wire::{IpProtocol, IpAddress, IpEndpoint};
 use wire::{TcpSeqNumber, TcpPacket, TcpRepr, TcpControl};
 use socket::{Socket, IpRepr, IpPayload};
@@ -916,7 +917,7 @@ impl<'a> TcpSocket<'a> {
     }
 
     /// See [Socket::dispatch](enum.Socket.html#method.dispatch).
-    pub fn dispatch<F, R>(&mut self, timestamp: u64, mtu: usize,
+    pub fn dispatch<F, R>(&mut self, timestamp: u64, limits: &DeviceLimits,
                           emit: &mut F) -> Result<R, Error>
             where F: FnMut(&IpRepr, &IpPayload) -> Result<R, Error> {
         if self.remote_endpoint.is_unspecified() { return Err(Error::Exhausted) }
@@ -1080,8 +1081,10 @@ impl<'a> TcpSocket<'a> {
             let ip_repr = try!(ip_repr.lower(&[]));
 
             if repr.control == TcpControl::Syn {
-                let mtu = mtu - header_len - ip_repr.buffer_len();
-                repr.max_seg_size = Some(mtu as u16);
+                let mut max_segment_size = limits.max_transmission_unit;
+                max_segment_size -= header_len;
+                max_segment_size -= ip_repr.buffer_len();
+                repr.max_seg_size = Some(max_segment_size as u16);
             }
 
             emit(&ip_repr, &repr)
@@ -1196,7 +1199,9 @@ mod test {
     fn recv<F>(socket: &mut TcpSocket, timestamp: u64, mut f: F)
             where F: FnMut(Result<TcpRepr, Error>) {
         let mut buffer = vec![];
-        let result = socket.dispatch(timestamp, 1520, &mut |ip_repr, payload| {
+        let mut limits = DeviceLimits::default();
+        limits.max_transmission_unit = 1520;
+        let result = socket.dispatch(timestamp, &limits, &mut |ip_repr, payload| {
             assert_eq!(ip_repr.protocol(), IpProtocol::Tcp);
             assert_eq!(ip_repr.src_addr(), LOCAL_IP);
             assert_eq!(ip_repr.dst_addr(), REMOTE_IP);

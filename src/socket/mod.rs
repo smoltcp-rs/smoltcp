@@ -11,6 +11,7 @@
 //! size for a buffer, allocate it, and let the networking stack use it.
 
 use Error;
+use phy::DeviceLimits;
 use wire::IpRepr;
 
 mod udp;
@@ -92,10 +93,10 @@ impl<'a, 'b> Socket<'a, 'b> {
     /// is returned.
     ///
     /// This function is used internally by the networking stack.
-    pub fn dispatch<F, R>(&mut self, timestamp: u64, mtu: usize,
+    pub fn dispatch<F, R>(&mut self, timestamp: u64, limits: &DeviceLimits,
                           emit: &mut F) -> Result<R, Error>
             where F: FnMut(&IpRepr, &IpPayload) -> Result<R, Error> {
-        dispatch_socket!(self, |socket [mut]| socket.dispatch(timestamp, mtu, emit))
+        dispatch_socket!(self, |socket [mut]| socket.dispatch(timestamp, limits, emit))
     }
 }
 

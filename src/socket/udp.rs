@@ -1,6 +1,7 @@
 use managed::Managed;
 
 use Error;
+use phy::DeviceLimits;
 use wire::{IpProtocol, IpEndpoint};
 use wire::{UdpPacket, UdpRepr};
 use socket::{Socket, IpRepr, IpPayload};
@@ -232,7 +233,7 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     }
 
     /// See [Socket::dispatch](enum.Socket.html#method.dispatch).
-    pub fn dispatch<F, R>(&mut self, _timestamp: u64, _mtu: usize,
+    pub fn dispatch<F, R>(&mut self, _timestamp: u64, _limits: &DeviceLimits,
                           emit: &mut F) -> Result<R, Error>
             where F: FnMut(&IpRepr, &IpPayload) -> Result<R, Error> {
         let packet_buf = try!(self.tx_buffer.dequeue().map_err(|()| Error::Exhausted));

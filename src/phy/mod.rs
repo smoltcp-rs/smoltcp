@@ -18,7 +18,7 @@
 ```rust
 use std::slice;
 use smoltcp::Error;
-use smoltcp::phy::Device;
+use smoltcp::phy::{DeviceLimits, Device};
 
 const TX_BUFFERS: [*mut u8; 2] = [0x10000000 as *mut u8, 0x10001000 as *mut u8];
 const RX_BUFFERS: [*mut u8; 2] = [0x10002000 as *mut u8, 0x10003000 as *mut u8];
@@ -50,7 +50,12 @@ impl Device for EthernetDevice {
     type RxBuffer = &'static [u8];
     type TxBuffer = EthernetTxBuffer;
 
-    fn mtu(&self) -> usize { 1536 }
+    fn limits(&self) -> DeviceLimits {
+        let mut limits = DeviceLimits::default();
+        limits.max_transmission_unit = 1536;
+        limits.max_burst_size = Some(2);
+        limits
+    }
 
     fn receive(&mut self) -> Result<Self::RxBuffer, Error> {
         if rx_full() {
@@ -114,6 +119,34 @@ pub use self::raw_socket::RawSocket;
 #[cfg(all(feature = "std", target_os = "linux"))]
 pub use self::tap_interface::TapInterface;
 
+/// A description of device limitations.
+///
+/// Higher-level protocols may achieve higher throughput or lower latency if they consider
+/// the bandwidth or packet size limitations.
+#[derive(Debug, Clone, Default)]
+pub struct DeviceLimits {
+    /// Maximum transmission unit.
+    ///
+    /// The network device is unable to send or receive frames larger than the value returned
+    /// by this function.
+    ///
+    /// For Ethernet, MTU will fall between 576 (for IPv4) or 1280 (for IPv6) and 9216 octets.
+    pub max_transmission_unit: usize,
+
+    /// Maximum burst size, in terms of MTU.
+    ///
+    /// The network device is unable to send or receive bursts large than the value returned
+    /// by this function.
+    ///
+    /// If `None`, there is no fixed limit on burst size, e.g. if network buffers are
+    /// dynamically allocated.
+    pub max_burst_size: Option<usize>,
+
+    /// Only present to prevent people from trying to initialize every field of DeviceLimits,
+    /// which would not let us add new fields in the future.
+    dummy: ()
+}
+
 /// An interface for sending and receiving raw network frames.
 ///
 /// It is expected that a `Device` implementation would allocate memory for both sending
@@ -123,11 +156,8 @@ pub trait Device {
     type RxBuffer: AsRef<[u8]>;
     type TxBuffer: AsRef<[u8]> + AsMut<[u8]>;
 
-    /// Get maximum transmission unit.
-    ///
-    /// The network device is unable to send or receive frames larger than the MTU.
-    /// In practice, MTU will fall between 576 (for IPv4) or 1280 (for IPv6) and 9216 octets.
-    fn mtu(&self) -> usize;
+    /// Get a description of device limitations.
+    fn limits(&self) -> DeviceLimits;
 
     /// Receive a frame.
     ///

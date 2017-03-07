@@ -1,6 +1,6 @@
 use Error;
 use wire::pretty_print::{PrettyPrint, PrettyPrinter};
-use super::Device;
+use super::{DeviceLimits, Device};
 
 /// A tracer device.
 ///
@@ -43,7 +43,7 @@ impl<T: Device, U: PrettyPrint> Device for Tracer<T, U> {
     type RxBuffer = T::RxBuffer;
     type TxBuffer = TxBuffer<T::TxBuffer, U>;
 
-    fn mtu(&self) -> usize { self.lower.mtu() }
+    fn limits(&self) -> DeviceLimits { self.lower.limits() }
 
     fn receive(&mut self) -> Result<Self::RxBuffer, Error> {
         let buffer = try!(self.lower.receive());
