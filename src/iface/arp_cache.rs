@@ -37,6 +37,42 @@ pub struct SliceCache<'a> {
     counter: usize
 }
 
+pub struct SliceCacheIterator<'b, 'a: 'b> {
+    index: usize,
+    storage: &'b ManagedSlice<'a, (IpAddress, EthernetAddress, usize)>,
+}
+
+impl<'b, 'a: 'b> IntoIterator for &'b SliceCache<'a> {
+    type Item = &'b (IpAddress, EthernetAddress, usize);
+    type IntoIter = SliceCacheIterator<'b, 'a>;
+
+    fn into_iter(self) -> SliceCacheIterator<'b, 'a> {
+        SliceCacheIterator {
+            index: 0,
+            storage: &self.storage,
+        }
+    }
+}
+
+impl<'b, 'a: 'b> Iterator for SliceCacheIterator<'b, 'a> {
+
+    type Item = &'b (IpAddress, EthernetAddress, usize);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        println!("{:?}", self.storage);
+
+        while self.index < self.storage.len() {
+            let cur_index = self.index;
+            self.index += 1;
+            if self.storage[cur_index].0.is_unicast() {
+                return Some(&self.storage[cur_index]);
+            }
+        }
+
+        None
+    }
+}
+
 impl<'a> SliceCache<'a> {
     /// Create a cache. The backing storage is cleared upon creation.
     ///
