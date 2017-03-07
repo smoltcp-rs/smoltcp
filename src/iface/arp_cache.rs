@@ -37,6 +37,41 @@ pub struct SliceCache<'a> {
     counter: usize
 }
 
+pub struct SliceCacheIterator<'b, 'a: 'b> {
+    index: usize,
+    storage: &'b ManagedSlice<'a, (IpAddress, EthernetAddress, usize)>,
+}
+
+impl<'b, 'a: 'b> IntoIterator for &'b SliceCache<'a> {
+    type Item = &'b (IpAddress, EthernetAddress, usize);
+    type IntoIter = SliceCacheIterator<'b, 'a>;
+
+    fn into_iter(self) -> SliceCacheIterator<'b, 'a> {
+        SliceCacheIterator {
+            index: 0,
+            storage: &self.storage,
+        }
+    }
+}
+
+impl<'b, 'a: 'b> Iterator for SliceCacheIterator<'b, 'a> {
+
+    type Item = &'b (IpAddress, EthernetAddress, usize);
+
+    fn next(&mut self) -> Option<Self::Item> {
+
+        while self.index < self.storage.len() {
+            let cur_index = self.index;
+            self.index += 1;
+            if self.storage[cur_index].0.is_unicast() {
+                return Some(&self.storage[cur_index]);
+            }
+        }
+
+        None
+    }
+}
+
 impl<'a> SliceCache<'a> {
     /// Create a cache. The backing storage is cleared upon creation.
     ///
@@ -156,5 +191,38 @@ mod test {
         assert_eq!(cache.lookup(&PADDR_C), Some(HADDR_C));
         assert_eq!(cache.lookup(&PADDR_D), Some(HADDR_D));
     }
-}
 
+    #[test]
+    fn test_slice_cache_iter() {
+        let mut cache_storage = [Default::default(); 3];
+        let mut cache = SliceCache::new(&mut cache_storage[..]);
+
+        // empty case
+        {
+            let mut cache_iter = cache.into_iter();
+            assert_eq!(cache_iter.next(), None);
+        }
+
+        // multiple items
+        {
+            cache.fill(&PADDR_A, &HADDR_A);
+            cache.fill(&PADDR_B, &HADDR_B);
+            cache.fill(&PADDR_C, &HADDR_C);
+            let mut cache_iter = cache.into_iter();
+            assert_eq!(cache_iter.next(), Some(&(PADDR_A, HADDR_A, 1)));
+            assert_eq!(cache_iter.next(), Some(&(PADDR_B, HADDR_B, 2)));
+            assert_eq!(cache_iter.next(), Some(&(PADDR_C, HADDR_C, 3)));
+            assert_eq!(cache_iter.next(), None);
+        }
+
+        // verify lru behavior upon lookup
+        {
+            cache.lookup(&PADDR_A);
+            let mut cache_iter = cache.into_iter();
+            assert_eq!(cache_iter.next(), Some(&(PADDR_A, HADDR_A, 4)));
+            assert_eq!(cache_iter.next(), Some(&(PADDR_B, HADDR_B, 2)));
+            assert_eq!(cache_iter.next(), Some(&(PADDR_C, HADDR_C, 3)));
+            assert_eq!(cache_iter.next(), None);
+        }
+    }
+}
