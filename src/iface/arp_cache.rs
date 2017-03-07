@@ -191,5 +191,38 @@ mod test {
         assert_eq!(cache.lookup(&PADDR_C), Some(HADDR_C));
         assert_eq!(cache.lookup(&PADDR_D), Some(HADDR_D));
     }
-}
 
+    #[test]
+    fn test_slice_cache_iter() {
+        let mut cache_storage = [Default::default(); 3];
+        let mut cache = SliceCache::new(&mut cache_storage[..]);
+
+        // empty case
+        {
+            let mut cache_iter = cache.into_iter();
+            assert_eq!(cache_iter.next(), None);
+        }
+
+        // multiple items
+        {
+            cache.fill(&PADDR_A, &HADDR_A);
+            cache.fill(&PADDR_B, &HADDR_B);
+            cache.fill(&PADDR_C, &HADDR_C);
+            let mut cache_iter = cache.into_iter();
+            assert_eq!(cache_iter.next(), Some(&(PADDR_A, HADDR_A, 1)));
+            assert_eq!(cache_iter.next(), Some(&(PADDR_B, HADDR_B, 2)));
+            assert_eq!(cache_iter.next(), Some(&(PADDR_C, HADDR_C, 3)));
+            assert_eq!(cache_iter.next(), None);
+        }
+
+        // verify lru behavior upon lookup
+        {
+            cache.lookup(&PADDR_A);
+            let mut cache_iter = cache.into_iter();
+            assert_eq!(cache_iter.next(), Some(&(PADDR_A, HADDR_A, 4)));
+            assert_eq!(cache_iter.next(), Some(&(PADDR_B, HADDR_B, 2)));
+            assert_eq!(cache_iter.next(), Some(&(PADDR_C, HADDR_C, 3)));
+            assert_eq!(cache_iter.next(), None);
+        }
+    }
+}
