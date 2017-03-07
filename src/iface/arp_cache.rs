@@ -133,6 +133,7 @@ impl<'a> Cache for SliceCache<'a> {
     fn fill(&mut self, protocol_addr: &IpAddress, hardware_addr: &EthernetAddress) {
         if let None = self.find(protocol_addr) {
             let lru_index = self.lru();
+            self.counter += 1;
             self.storage[lru_index] =
                 (*protocol_addr, *hardware_addr, self.counter);
             self.sort()
