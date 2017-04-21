@@ -29,7 +29,7 @@ pub trait Cache {
 /// On systems without heap, use:
 /// ```rust
 /// use smoltcp::iface::SliceArpCache;
-/// let mut arp_cache_storage = [Default::default(); 8]
+/// let mut arp_cache_storage = [Default::default(); 8];
 /// let mut arp_cache = SliceArpCache::new(&mut arp_cache_storage[..]);
 /// ```
 pub struct SliceCache<'a> {
