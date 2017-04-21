@@ -253,13 +253,17 @@ pub struct TcpSocket<'a> {
     remote_win_len:  usize,
     /// The maximum number of data octets that the remote side may receive.
     remote_mss:      usize,
+    /// The retransmit timeout.
     retransmit:      Retransmit,
+    /// The TIME-WAIT timeout.
+    time_wait_since: u64,
     rx_buffer:       SocketBuffer<'a>,
     tx_buffer:       SocketBuffer<'a>,
     debug_id:        usize
 }
 
 const DEFAULT_MSS: usize = 536;
+const TIME_WAIT_TIMEOUT: u64 = 10_000;
 
 impl<'a> TcpSocket<'a> {
     /// Create a socket using the given buffers.
@@ -283,6 +287,7 @@ impl<'a> TcpSocket<'a> {
             remote_win_len:  0,
             remote_mss:      DEFAULT_MSS,
             retransmit:      Retransmit::new(),
+            time_wait_since: 0,
             tx_buffer:       tx_buffer.into(),
             rx_buffer:       rx_buffer.into(),
             debug_id:        0
@@ -320,6 +325,7 @@ impl<'a> TcpSocket<'a> {
     }
 
     fn reset(&mut self) {
+        self.state           = State::Closed;
         self.listen_address  = IpAddress::default();
         self.local_endpoint  = IpEndpoint::default();
         self.remote_endpoint = IpEndpoint::default();
@@ -624,7 +630,7 @@ impl<'a> TcpSocket<'a> {
     }
 
     /// See [Socket::process](enum.Socket.html#method.process).
-    pub fn process(&mut self, _timestamp: u64, ip_repr: &IpRepr,
+    pub fn process(&mut self, timestamp: u64, ip_repr: &IpRepr,
                    payload: &[u8]) -> Result<(), Error> {
         if self.state == State::Closed { return Err(Error::Rejected) }
 
@@ -723,6 +729,10 @@ impl<'a> TcpSocket<'a> {
                     // of that, make sure we send the acknowledgement again.
                     self.remote_last_ack = next_remote_seq - 1;
                     self.retransmit.reset();
+                    // If we're in the TIME-WAIT state, restart the TIME-WAIT timeout.
+                    if self.state == State::TimeWait {
+                        self.time_wait_since = timestamp;
+                    }
                     return Err(Error::Dropped)
                 }
             }
@@ -842,10 +852,12 @@ impl<'a> TcpSocket<'a> {
                 }
             }
 
-            // FIN packets in FIN-WAIT-1 state change it to CLOSING.
+            // FIN packets in FIN-WAIT-1 state change it to CLOSING, or to TIME-WAIT
+            // if they also acknowledge our FIN.
             (State::FinWait1, TcpRepr { control: TcpControl::Fin, .. }) => {
                 self.remote_seq_no  += 1;
                 if ack_of_fin {
+                    self.time_wait_since = timestamp;
                     self.set_state(State::TimeWait);
                 } else {
                     self.set_state(State::Closing);
@@ -856,6 +868,7 @@ impl<'a> TcpSocket<'a> {
             // FIN packets in FIN-WAIT-2 state change it to TIME-WAIT.
             (State::FinWait2, TcpRepr { control: TcpControl::Fin, .. }) => {
                 self.remote_seq_no  += 1;
+                self.time_wait_since = timestamp;
                 self.set_state(State::TimeWait);
                 self.retransmit.reset();
             }
@@ -863,6 +876,7 @@ impl<'a> TcpSocket<'a> {
             // ACK packets in CLOSING state change it to TIME-WAIT.
             (State::Closing, TcpRepr { control: TcpControl::None, .. }) => {
                 if ack_of_fin {
+                    self.time_wait_since = timestamp;
                     self.set_state(State::TimeWait);
                 } else {
                     self.retransmit.reset();
@@ -952,6 +966,15 @@ impl<'a> TcpSocket<'a> {
             self.local_endpoint  = IpEndpoint::default();
             self.remote_endpoint = IpEndpoint::default();
             return result
+        }
+
+        if self.state == State::TimeWait {
+            if timestamp >= self.time_wait_since + TIME_WAIT_TIMEOUT {
+                net_trace!("[{}]{}:{}: TIME-WAIT timeout",
+                           self.debug_id, self.local_endpoint, self.remote_endpoint);
+                self.reset();
+                return Err(Error::Exhausted)
+            }
         }
 
         if self.retransmit.may_send_old(timestamp) {
@@ -1234,7 +1257,7 @@ mod test {
         ($socket:ident, $repr:expr, $result:expr) =>
             (send!($socket, time 0, $repr, $result));
         ($socket:ident, time $time:expr, $repr:expr) =>
-            (send!($socket, time 0, $repr, Ok(())));
+            (send!($socket, time $time, $repr, Ok(())));
         ($socket:ident, time $time:expr, $repr:expr, $result:expr) =>
             (assert_eq!(send(&mut $socket, $time, &$repr), $result));
     }
@@ -1262,6 +1285,7 @@ mod test {
             assert_eq!(s1.remote_last_seq,  s2.remote_last_seq, "remote_last_seq");
             assert_eq!(s1.remote_last_ack,  s2.remote_last_ack, "remote_last_ack");
             assert_eq!(s1.remote_win_len,   s2.remote_win_len,  "remote_win_len");
+            assert_eq!(s1.time_wait_since,  s2.time_wait_since, "time_wait_since");
             if $retransmit {
                 assert_eq!(s1.retransmit,   s2.retransmit,      "retransmit");
             } else {
@@ -1872,7 +1896,7 @@ mod test {
     #[test]
     fn test_fin_wait_2_fin() {
         let mut s = socket_fin_wait_2();
-        send!(s, TcpRepr {
+        send!(s, time 1_000, TcpRepr {
             control: TcpControl::Fin,
             seq_number: REMOTE_SEQ + 1,
             ack_number: Some(LOCAL_SEQ + 1 + 1),
@@ -1908,7 +1932,7 @@ mod test {
             ack_number: Some(REMOTE_SEQ + 1 + 1),
             ..RECV_TEMPL
         }]);
-        send!(s, TcpRepr {
+        send!(s, time 1_000, TcpRepr {
             seq_number: REMOTE_SEQ + 1 + 1,
             ack_number: Some(LOCAL_SEQ + 1 + 1),
             ..SEND_TEMPL
@@ -1934,6 +1958,7 @@ mod test {
         if from_closing {
             s.remote_last_ack = REMOTE_SEQ + 1 + 1;
         }
+        s.time_wait_since = 1_000;
         s
     }
 
@@ -1958,6 +1983,31 @@ mod test {
         let mut s = socket_time_wait(false);
         s.close();
         assert_eq!(s.state, State::TimeWait);
+    }
+
+    #[test]
+    fn test_time_wait_retransmit() {
+        let mut s = socket_time_wait(false);
+        send!(s, time 5_000, TcpRepr {
+            control: TcpControl::Fin,
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1 + 1),
+            ..SEND_TEMPL
+        }, Err(Error::Dropped));
+        assert_eq!(s.time_wait_since, 5_000);
+    }
+
+    #[test]
+    fn test_time_wait_timeout() {
+        let mut s = socket_time_wait(false);
+        recv!(s, [TcpRepr {
+            seq_number: LOCAL_SEQ + 1 + 1,
+            ack_number: Some(REMOTE_SEQ + 1 + 1),
+            ..RECV_TEMPL
+        }]);
+        assert_eq!(s.state, State::TimeWait);
+        recv!(s, time 60_000, Err(Error::Exhausted));
+        assert_eq!(s.state, State::Closed);
     }
 
     // =========================================================================================//
