@@ -110,7 +110,8 @@ impl<'a, 'b> SocketBuffer<'a, 'b> {
 /// packet buffers.
 #[derive(Debug)]
 pub struct UdpSocket<'a, 'b: 'a> {
-    endpoint:  IpEndpoint,
+    local_endpoint: IpEndpoint,
+    remote_endpoint: Option<IpEndpoint>,
     rx_buffer: SocketBuffer<'a, 'b>,
     tx_buffer: SocketBuffer<'a, 'b>,
     debug_id:  usize
@@ -121,7 +122,8 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     pub fn new(rx_buffer: SocketBuffer<'a, 'b>,
                tx_buffer: SocketBuffer<'a, 'b>) -> Socket<'a, 'b> {
         Socket::Udp(UdpSocket {
-            endpoint:  IpEndpoint::default(),
+            local_endpoint: IpEndpoint::default(),
+            remote_endpoint: None,
             rx_buffer: rx_buffer,
             tx_buffer: tx_buffer,
             debug_id:  0
@@ -143,13 +145,13 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
 
     /// Return the bound endpoint.
     #[inline]
-    pub fn endpoint(&self) -> IpEndpoint {
-        self.endpoint
+    pub fn local_endpoint(&self) -> IpEndpoint {
+        self.local_endpoint
     }
 
     /// Bind the socket to the given endpoint.
     pub fn bind<T: Into<IpEndpoint>>(&mut self, endpoint: T) {
-        self.endpoint = endpoint.into()
+        self.local_endpoint = endpoint.into()
     }
 
     /// Check whether the transmit buffer is full.
@@ -162,17 +164,50 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
         !self.rx_buffer.empty()
     }
 
+    /// Check whether the socket is connected to a remote endpoint.
+    pub fn is_connected(&self) -> bool {
+        self.remote_endpoint.is_some()
+    }
+
+    /// Connects the socket to a remote endpoint, allowing to send (resp. receive) datagrams only to
+    /// (resp. from) this endpoint. It is an error not to specify the remote IP address.
+    pub fn connect<T: Into<IpEndpoint>>(&mut self, endpoint: T) -> Result<(), ()> {
+        let endpoint = endpoint.into();
+        if endpoint.addr.is_unspecified() {
+            return Err(());
+        }
+        self.remote_endpoint = Some(endpoint);
+        Ok(())
+    }
+
     /// Enqueue a packet to be sent to a given remote endpoint, and return a pointer
     /// to its payload.
     ///
     /// This function returns `Err(())` if the size is greater than what
-    /// the transmit buffer can accomodate.
-    pub fn send(&mut self, size: usize, endpoint: IpEndpoint) -> Result<&mut [u8], ()> {
+    /// the transmit buffer can accomodate, or if an endpoint is specified while the socket is
+    /// already connected to a remote endpoint.
+    pub fn send(&mut self, size: usize, endpoint: Option<IpEndpoint>) -> Result<&mut [u8], ()> {
+        let endpoint = match endpoint {
+            Some(ep) => {
+                if self.is_connected() {
+                    return Err(());
+                } else {
+                    ep
+                }
+            },
+            None => {
+                if ! self.is_connected() {
+                    return Err(());
+                } else {
+                    self.remote_endpoint.and_then(|ep| Some(ep.clone())).unwrap()
+                }
+            },
+        };
         let packet_buf = try!(self.tx_buffer.enqueue());
         packet_buf.endpoint = endpoint;
         packet_buf.size = size;
         net_trace!("[{}]{}:{}: buffer to send {} octets",
-                   self.debug_id, self.endpoint,
+                   self.debug_id, self.local_endpoint,
                    packet_buf.endpoint, packet_buf.size);
         Ok(&mut packet_buf.as_mut()[..size])
     }
@@ -180,7 +215,7 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     /// Enqueue a packet to be sent to a given remote endpoint, and fill it from a slice.
     ///
     /// See also [send](#method.send).
-    pub fn send_slice(&mut self, data: &[u8], endpoint: IpEndpoint) -> Result<usize, ()> {
+    pub fn send_slice(&mut self, data: &[u8], endpoint: Option<IpEndpoint>) -> Result<usize, ()> {
         let buffer = try!(self.send(data.len(), endpoint));
         let data = &data[..buffer.len()];
         buffer.copy_from_slice(data);
@@ -194,7 +229,7 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     pub fn recv(&mut self) -> Result<(&[u8], IpEndpoint), ()> {
         let packet_buf = try!(self.rx_buffer.dequeue());
         net_trace!("[{}]{}:{}: receive {} buffered octets",
-                   self.debug_id, self.endpoint,
+                   self.debug_id, self.local_endpoint,
                    packet_buf.endpoint, packet_buf.size);
         Ok((&packet_buf.as_ref()[..packet_buf.size], packet_buf.endpoint))
     }
@@ -217,9 +252,19 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
         let packet = try!(UdpPacket::new(&payload[..ip_repr.payload_len()]));
         let repr = try!(UdpRepr::parse(&packet, &ip_repr.src_addr(), &ip_repr.dst_addr()));
 
-        if repr.dst_port != self.endpoint.port { return Err(Error::Rejected) }
-        if !self.endpoint.addr.is_unspecified() {
-            if self.endpoint.addr != ip_repr.dst_addr() { return Err(Error::Rejected) }
+        if repr.dst_port != self.local_endpoint.port { return Err(Error::Rejected) }
+        if !self.local_endpoint.addr.is_unspecified() {
+            if self.local_endpoint.addr != ip_repr.dst_addr() { return Err(Error::Rejected) }
+        }
+
+        // If a remote endpoint is specified, reject datagrams which source ip and source port
+        // don't match the remote endpoint.
+        if let Some(remote_endpoint) = self.remote_endpoint {
+            // It's an error to have a remote endpoint with an unspecified address
+            assert!(!remote_endpoint.is_unspecified());
+            if remote_endpoint.addr != ip_repr.src_addr() || remote_endpoint.port != repr.src_port {
+                return Err(Error::Rejected);
+            }
         }
 
         let packet_buf = try!(self.rx_buffer.enqueue().map_err(|()| Error::Exhausted));
@@ -227,7 +272,7 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
         packet_buf.size = repr.payload.len();
         packet_buf.as_mut()[..repr.payload.len()].copy_from_slice(repr.payload);
         net_trace!("[{}]{}:{}: receiving {} octets",
-                   self.debug_id, self.endpoint,
+                   self.debug_id, self.local_endpoint,
                    packet_buf.endpoint, packet_buf.size);
         Ok(())
     }
@@ -238,15 +283,15 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
             where F: FnMut(&IpRepr, &IpPayload) -> Result<R, Error> {
         let packet_buf = try!(self.tx_buffer.dequeue().map_err(|()| Error::Exhausted));
         net_trace!("[{}]{}:{}: sending {} octets",
-                   self.debug_id, self.endpoint,
+                   self.debug_id, self.local_endpoint,
                    packet_buf.endpoint, packet_buf.size);
         let repr = UdpRepr {
-            src_port: self.endpoint.port,
+            src_port: self.local_endpoint.port,
             dst_port: packet_buf.endpoint.port,
             payload:  &packet_buf.as_ref()[..]
         };
         let ip_repr = IpRepr::Unspecified {
-            src_addr:    self.endpoint.addr,
+            src_addr:    self.local_endpoint.addr,
             dst_addr:    packet_buf.endpoint.addr,
             protocol:    IpProtocol::Udp,
             payload_len: repr.buffer_len()
