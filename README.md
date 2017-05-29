@@ -137,6 +137,23 @@ sudo ip link set tap0 up
 sudo ip addr add 192.168.69.100/24 dev tap0
 ```
 
+### Fault injection
+
+In order to demonstrate the response of _smoltcp_ to adverse network conditions, all examples
+implement fault injection, available through command-line options:
+
+  * The `--drop-chance` option randomly drops packets, with given probability in percents.
+  * The `--corrupt-chance` option randomly mutates one octet in a packet, with given
+    probability in percents.
+  * The `--size-limit` option drops packets larger than specified size.
+  * The `--tx-rate-limit` and `--rx-rate-limit` options set the amount of tokens for
+    a token bucket rate limiter, in packets per bucket.
+  * The `--shaping-interval` option sets the refill interval of a token bucket rate limiter,
+    in milliseconds.
+
+A good starting value for `--drop-chance` and `--corrupt-chance` is 15%. A good starting
+value for `--?x-rate-limit` is 4 and `--shaping-interval` is 50 ms.
+
 ### examples/tcpdump.rs
 
 _examples/tcpdump.rs_ is a tiny clone of the _tcpdump_ utility.
@@ -175,9 +192,6 @@ It responds to:
 
 The buffers are only 64 bytes long, for convenience of testing resource exhaustion conditions.
 
-Fault injection is available through the `--drop-chance` and `--corrupt-chance` options,
-with values in percents. A good starting value is 15%.
-
 ### examples/client.rs
 
 _examples/client.rs_ emulates a network host that can initiate requests.
@@ -192,8 +206,6 @@ cargo run --example client -- tap0 ADDRESS PORT
 
 It connects to the given address (not a hostname) and port (e.g. `socat stdio tcp4-listen 1234`),
 and will respond with reversed chunks of the input indefinitely.
-
-Fault injection is available, as described above.
 
 License
 -------
