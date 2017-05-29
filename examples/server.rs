@@ -35,6 +35,10 @@ fn main() {
     let tcp2_tx_buffer = TcpSocketBuffer::new(vec![0; 128]);
     let tcp2_socket = TcpSocket::new(tcp2_rx_buffer, tcp2_tx_buffer);
 
+    let tcp3_rx_buffer = TcpSocketBuffer::new(vec![0; 65535]);
+    let tcp3_tx_buffer = TcpSocketBuffer::new(vec![0; 65535]);
+    let tcp3_socket = TcpSocket::new(tcp3_rx_buffer, tcp3_tx_buffer);
+
     let hardware_addr  = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
     let protocol_addrs = [IpAddress::v4(192, 168, 69, 1)];
     let mut iface      = EthernetInterface::new(
@@ -45,6 +49,7 @@ fn main() {
     let udp_handle  = sockets.add(udp_socket);
     let tcp1_handle = sockets.add(tcp1_socket);
     let tcp2_handle = sockets.add(tcp2_socket);
+    let tcp3_handle = sockets.add(tcp3_socket);
 
     let mut tcp_6970_active = false;
     loop {
@@ -121,6 +126,24 @@ fn main() {
                 }
             } else if socket.may_send() {
                 debug!("tcp:6970 close");
+                socket.close();
+            }
+        }
+
+        // tcp:6971: sinkhole
+        {
+            let socket: &mut TcpSocket = sockets.get_mut(tcp3_handle).as_socket();
+            if !socket.is_open() {
+                socket.listen(6971).unwrap()
+            }
+
+            if socket.may_recv() {
+                if let Ok(data) = socket.recv(65535) {
+                    if data.len() > 0 {
+                        debug!("tcp:6971 recv {:?} octets", data.len());
+                    }
+                }
+            } else if socket.may_send() {
                 socket.close();
             }
         }

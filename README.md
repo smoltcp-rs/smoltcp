@@ -189,6 +189,8 @@ It responds to:
     where it will respond "yo dawg" to any incoming connection and immediately close it;
   * TCP packets on port 6970 (`socat stdio tcp4-connect:192.168.69.1:6970 <<<"abcdefg"`),
     where it will respond with reversed chunks of the input indefinitely.
+  * TCP packets on port 6971 (`cat /dev/urandom | socat stdio tcp4-connect:192.168.69.1:6971`),
+    which will be ignored.
 
 The buffers are only 64 bytes long, for convenience of testing resource exhaustion conditions.
 
