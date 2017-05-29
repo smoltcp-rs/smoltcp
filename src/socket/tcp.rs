@@ -717,7 +717,6 @@ impl<'a> TcpSocket<'a> {
             (_, TcpRepr { seq_number, .. }) => {
                 let next_remote_seq = self.remote_seq_no + self.rx_buffer.len();
                 if seq_number > next_remote_seq {
-                    self.retransmit.reset();
                     net_trace!("[{}]{}:{}: unacceptable SEQ ({} not in {}..)",
                                self.debug_id, self.local_endpoint, self.remote_endpoint,
                                seq_number, next_remote_seq);
