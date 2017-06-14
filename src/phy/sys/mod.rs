@@ -5,12 +5,14 @@ use std::io;
 #[path = "linux.rs"]
 mod imp;
 
+#[cfg(feature = "raw_socket")]
 pub mod raw_socket;
-#[cfg(target_os = "linux")]
+#[cfg(all(feature = "tap_interface", target_os = "linux"))]
 pub mod tap_interface;
 
+#[cfg(feature = "raw_socket")]
 pub use self::raw_socket::RawSocketDesc;
-#[cfg(target_os = "linux")]
+#[cfg(all(feature = "tap_interface", target_os = "linux"))]
 pub use self::tap_interface::TapInterfaceDesc;
 
 #[repr(C)]

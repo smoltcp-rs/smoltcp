@@ -23,11 +23,13 @@ env_logger = "0.4"
 getopts = "0.2"
 
 [features]
-std = ["managed/std", "libc"]
+std = ["managed/std"]
 alloc = ["managed/alloc"]
 collections = ["managed/collections"]
 verbose = []
-default = ["std", "log", "verbose"]
+raw_socket = ["libc"]
+tap_interface = ["libc"]
+default = ["std", "raw_socket", "tap_interface", "log", "verbose"]
 
 [[example]]
 name = "tcpdump"
