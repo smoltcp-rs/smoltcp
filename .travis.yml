@@ -2,13 +2,13 @@ language: rust
 matrix:
   include:
     - rust: stable
-      env: FEATURES='std' MODE='test'
+      env: FEATURES='std raw_socket tap_interface' MODE='test'
     - rust: beta
-      env: FEATURES='std' MODE='test'
+      env: FEATURES='std raw_socket tap_interface' MODE='test'
     - rust: nightly
-      env: FEATURES='std' MODE='test'
+      env: FEATURES='std raw_socket tap_interface' MODE='test'
     - rust: nightly
-      env: FEATURES='std log' MODE='test'
+      env: FEATURES='std raw_socket tap_interface log' MODE='test'
     - rust: nightly
       env: FEATURES='alloc collections' MODE='build'
     - rust: nightly

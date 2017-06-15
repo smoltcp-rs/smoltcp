@@ -87,10 +87,15 @@ smoltcp = { version = "0.3", default-features = false, features = ["..."] }
 ### Feature `std`
 
 The `std` feature enables use of objects and slices owned by the networking stack through a
-dependency on `std::boxed::Box` and `std::vec::Vec`. It also enables `smoltcp::phy::RawSocket`
-and `smoltcp::phy::TapInterface`, if the platform supports it.
+dependency on `std::boxed::Box` and `std::vec::Vec`.
 
 This feature is enabled by default.
+
+### Features `raw_socket` and `tap_interface`
+
+Enable `smoltcp::phy::RawSocket` and `smoltcp::phy::TapInterface`, respectively.
+
+These features are enabled by default.
 
 ### Feature `alloc`
 

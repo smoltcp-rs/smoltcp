@@ -102,21 +102,21 @@ impl Drop for EthernetTxBuffer {
 
 use Error;
 
-#[cfg(feature = "std")]
+#[cfg(any(feature = "raw_socket", feature="tap_interface"))]
 mod sys;
 
 mod tracer;
 mod fault_injector;
-#[cfg(feature = "std")]
+#[cfg(feature = "raw_socket")]
 mod raw_socket;
-#[cfg(all(feature = "std", target_os = "linux"))]
+#[cfg(all(feature = "tap_interface", target_os = "linux"))]
 mod tap_interface;
 
 pub use self::tracer::Tracer;
 pub use self::fault_injector::FaultInjector;
-#[cfg(feature = "std")]
+#[cfg(any(feature = "raw_socket"))]
 pub use self::raw_socket::RawSocket;
-#[cfg(all(feature = "std", target_os = "linux"))]
+#[cfg(all(feature = "tap_interface", target_os = "linux"))]
 pub use self::tap_interface::TapInterface;
 
 /// A description of device limitations.
