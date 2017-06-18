@@ -39,3 +39,6 @@ name = "server"
 
 [[example]]
 name = "client"
+
+[[example]]
+name = "ping"

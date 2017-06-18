@@ -101,6 +101,7 @@ macro_rules! net_trace_enabled {
 
 use core::fmt;
 
+pub mod storage;
 pub mod phy;
 pub mod wire;
 pub mod iface;

@@ -5,6 +5,8 @@ use phy::DeviceLimits;
 use wire::{IpProtocol, IpEndpoint};
 use wire::{UdpPacket, UdpRepr};
 use socket::{Socket, IpRepr, IpPayload};
+use storage::ring_buffer::RingBuffer;
+use storage::Resettable;
 
 /// A buffered UDP packet.
 #[derive(Debug)]
@@ -12,6 +14,13 @@ pub struct PacketBuffer<'a> {
     endpoint: IpEndpoint,
     size:     usize,
     payload:  Managed<'a, [u8]>
+}
+
+impl<'a> Resettable for PacketBuffer<'a> {
+    fn reset(&mut self) {
+        self.endpoint = Default::default();
+        self.size = 0;
+    }
 }
 
 impl<'a> PacketBuffer<'a> {
@@ -35,74 +44,7 @@ impl<'a> PacketBuffer<'a> {
 }
 
 /// An UDP packet ring buffer.
-#[derive(Debug)]
-pub struct SocketBuffer<'a, 'b: 'a> {
-    storage: Managed<'a, [PacketBuffer<'b>]>,
-    read_at: usize,
-    length:  usize
-}
-
-impl<'a, 'b> SocketBuffer<'a, 'b> {
-    /// Create a packet buffer with the given storage.
-    pub fn new<T>(storage: T) -> SocketBuffer<'a, 'b>
-            where T: Into<Managed<'a, [PacketBuffer<'b>]>> {
-        let mut storage = storage.into();
-        for elem in storage.iter_mut() {
-            elem.endpoint = Default::default();
-            elem.size = 0;
-        }
-
-        SocketBuffer {
-            storage: storage,
-            read_at: 0,
-            length:  0
-        }
-    }
-
-    fn mask(&self, index: usize) -> usize {
-        index % self.storage.len()
-    }
-
-    fn incr(&self, index: usize) -> usize {
-        self.mask(index + 1)
-    }
-
-    /// Query whether the buffer is empty.
-    pub fn empty(&self) -> bool {
-        self.length == 0
-    }
-
-    /// Query whether the buffer is full.
-    pub fn full(&self) -> bool {
-        self.length == self.storage.len()
-    }
-
-    /// Enqueue an element into the buffer, and return a pointer to it, or return
-    /// `Err(())` if the buffer is full.
-    pub fn enqueue(&mut self) -> Result<&mut PacketBuffer<'b>, ()> {
-        if self.full() {
-            Err(())
-        } else {
-            let index = self.mask(self.read_at + self.length);
-            let result = &mut self.storage[index];
-            self.length += 1;
-            Ok(result)
-        }
-    }
-
-    /// Dequeue an element from the buffer, and return a pointer to it, or return
-    /// `Err(())` if the buffer is empty.
-    pub fn dequeue(&mut self) -> Result<&PacketBuffer<'b>, ()> {
-        if self.empty() {
-            Err(())
-        } else {
-            self.length -= 1;
-            let result = &self.storage[self.read_at];
-            self.read_at = self.incr(self.read_at);
-            Ok(result)
-        }
-    }
-}
+pub type SocketBuffer<'a, 'b : 'a> = RingBuffer<'a, PacketBuffer<'b>>;
 
 /// An User Datagram Protocol socket.
 ///
