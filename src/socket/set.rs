@@ -147,6 +147,8 @@ impl<'a, 'b: 'a, 'c: 'a + 'b> Set<'a, 'b, 'c> {
                         } else {
                             socket.close()
                         },
+                    &mut Socket::Raw(_) =>
+                        may_remove = true,
                     &mut Socket::__Nonexhaustive => unreachable!()
                 }
             }

@@ -17,10 +17,16 @@ use wire::IpRepr;
 mod udp;
 mod tcp;
 mod set;
+mod raw;
 
 pub use self::udp::PacketBuffer as UdpPacketBuffer;
 pub use self::udp::SocketBuffer as UdpSocketBuffer;
 pub use self::udp::UdpSocket;
+
+pub use self::raw::PacketBuffer as RawPacketBuffer;
+pub use self::raw::SocketBuffer as RawSocketBuffer;
+pub use self::raw::PayloadType as RawPayloadType;
+pub use self::raw::RawSocket;
 
 pub use self::tcp::SocketBuffer as TcpSocketBuffer;
 pub use self::tcp::State as TcpState;
@@ -46,6 +52,7 @@ pub use self::set::{Iter as SocketSetIter, IterMut as SocketSetIterMut};
 pub enum Socket<'a, 'b: 'a> {
     Udp(UdpSocket<'a, 'b>),
     Tcp(TcpSocket<'a>),
+    Raw(RawSocket<'a, 'b>),
     #[doc(hidden)]
     __Nonexhaustive
 }
@@ -55,6 +62,7 @@ macro_rules! dispatch_socket {
         match $self_ {
             &$( $mut_ )* Socket::Udp(ref $( $mut_ )* $socket) => $code,
             &$( $mut_ )* Socket::Tcp(ref $( $mut_ )* $socket) => $code,
+            &$( $mut_ )* Socket::Raw(ref $( $mut_ )* $socket) => $code,
             &$( $mut_ )* Socket::__Nonexhaustive => unreachable!()
         }
     })
@@ -118,6 +126,7 @@ pub trait IpPayload {
 /// concrete types.
 pub trait AsSocket<T> {
     fn as_socket(&mut self) -> &mut T;
+    fn try_as_socket(&mut self) -> Option<&mut T>;
 }
 
 impl<'a, 'b> AsSocket<UdpSocket<'a, 'b>> for Socket<'a, 'b> {
@@ -127,6 +136,29 @@ impl<'a, 'b> AsSocket<UdpSocket<'a, 'b>> for Socket<'a, 'b> {
             _ => panic!(".as_socket::<UdpSocket> called on wrong socket type")
         }
     }
+
+    fn try_as_socket(&mut self) -> Option<&mut UdpSocket<'a, 'b>> {
+        match self {
+            &mut Socket::Udp(ref mut socket) => Some(socket),
+            _ => None,
+        }
+    }
+}
+
+impl<'a, 'b> AsSocket<RawSocket<'a, 'b>> for Socket<'a, 'b> {
+    fn as_socket(&mut self) -> &mut RawSocket<'a, 'b> {
+        match self {
+            &mut Socket::Raw(ref mut socket) => socket,
+            _ => panic!(".as_socket::<RawSocket> called on wrong socket type")
+        }
+    }
+
+    fn try_as_socket(&mut self) -> Option<&mut RawSocket<'a, 'b>> {
+        match self {
+            &mut Socket::Raw(ref mut socket) => Some(socket),
+            _ => None,
+        }
+    }
 }
 
 impl<'a, 'b> AsSocket<TcpSocket<'a>> for Socket<'a, 'b> {
@@ -134,6 +166,13 @@ impl<'a, 'b> AsSocket<TcpSocket<'a>> for Socket<'a, 'b> {
         match self {
             &mut Socket::Tcp(ref mut socket) => socket,
             _ => panic!(".as_socket::<TcpSocket> called on wrong socket type")
+        }
+    }
+
+    fn try_as_socket(&mut self) -> Option<&mut TcpSocket<'a>> {
+        match self {
+            &mut Socket::Tcp(ref mut socket) => Some(socket),
+            _ => None,
         }
     }
 }
