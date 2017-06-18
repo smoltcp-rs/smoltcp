@@ -7,7 +7,7 @@ include complicated compile-time computations, such as macro or type tricks, eve
 at cost of performance degradation.
 
 _smoltcp_ does not need heap allocation *at all*, is [extensively documented][docs],
-and compiles on stable Rust 1.15 and later.
+and compiles on stable Rust 1.18 and later.
 
 [docs]: https://docs.rs/smoltcp/
 
@@ -213,6 +213,28 @@ cargo run --example client -- tap0 ADDRESS PORT
 
 It connects to the given address (not a hostname) and port (e.g. `socat stdio tcp4-listen 1234`),
 and will respond with reversed chunks of the input indefinitely.
+
+### examples/ping.rs
+
+_examples/ping.rs_ implements a minimal version of the `ping` utility using raw sockets.
+
+The host is assigned the hardware address `02-00-00-00-00-02` and IPv4 address `192.168.69.1`.
+
+Read its [source code](/examples/ping.rs), then run it as:
+
+```sh
+cargo run --example ping -- tap0 ADDRESS
+```
+
+It sends a series of 4 ICMP ECHO\_REQUEST packets to the given address at one second intervals and
+prints out a status line on each valid ECHO\_RESPONSE received.
+
+The first ECHO\_REQUEST packet is expected to be lost since arp\_cache is empty after startup;
+the ECHO\_REQUEST packet is dropped and an ARP request is sent instead.
+
+Currently, netmasks are not implemented, and so the only address this example can reach
+is the other endpoint of the tap interface, `192.168.1.100`. It cannot reach itself because
+packets entering a tap interface do not loop back.
 
 License
 -------
