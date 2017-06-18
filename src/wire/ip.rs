@@ -123,7 +123,7 @@ impl<T: Into<Address>> From<(T, u16)> for Endpoint {
 /// This enum abstracts the various versions of IP packets. It either contains a concrete
 /// high-level representation for some IP protocol version, or an unspecified representation,
 /// which permits the `IpAddress::Unspecified` addresses.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IpRepr {
     Unspecified {
         src_addr:    Address,
@@ -219,10 +219,27 @@ impl IpRepr {
 
             &IpRepr::Unspecified { dst_addr: Address::Unspecified, .. } =>
                 panic!("unspecified destination IP address"),
+
             // &IpRepr::Unspecified { .. } =>
             //     panic!("source and destination IP address families do not match"),
 
-            repr @ &IpRepr::Ipv4(_) => Ok(repr.clone()),
+            &IpRepr::Ipv4(mut repr) => {
+                if repr.src_addr.is_unspecified() {
+                    for addr in fallback_src_addrs {
+                        match addr {
+                            &Address::Ipv4(addr) => {
+                                repr.src_addr = addr;
+                                return Ok(IpRepr::Ipv4(repr));
+                            }
+                            _ => ()
+                        }
+                    }
+                    Err(Error::Unaddressable)
+                } else {
+                    Ok(IpRepr::Ipv4(repr))
+                }
+            },
+
             &IpRepr::__Nonexhaustive => unreachable!()
         }
     }
@@ -309,5 +326,98 @@ pub mod checksum {
 
             _ => panic!("Unexpected pseudo header ")
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use wire::{Ipv4Address, IpProtocol, IpAddress, Ipv4Repr};
+    #[test]
+    fn ip_repr_lower() {
+        let ip_addr_a = Ipv4Address::new(1, 2, 3, 4);
+        let ip_addr_b = Ipv4Address::new(5, 6, 7, 8);
+        let proto = IpProtocol::Icmp;
+        let payload_len = 10;
+
+        assert_eq!(
+            IpRepr::Unspecified{
+                src_addr: IpAddress::Ipv4(ip_addr_a),
+                dst_addr: IpAddress::Ipv4(ip_addr_b),
+                protocol: proto,
+                payload_len
+            }.lower(&[]),
+            Ok(IpRepr::Ipv4(Ipv4Repr{
+                src_addr: ip_addr_a,
+                dst_addr: ip_addr_b,
+                protocol: proto,
+                payload_len
+            }))
+        );
+
+        assert_eq!(
+            IpRepr::Unspecified{
+                src_addr: IpAddress::Unspecified,
+                dst_addr: IpAddress::Ipv4(ip_addr_b),
+                protocol: proto,
+                payload_len
+            }.lower(&[]),
+            Err(Error::Unaddressable)
+        );
+
+        assert_eq!(
+            IpRepr::Unspecified{
+                src_addr: IpAddress::Unspecified,
+                dst_addr: IpAddress::Ipv4(ip_addr_b),
+                protocol: proto,
+                payload_len
+            }.lower(&[IpAddress::Ipv4(ip_addr_a)]),
+            Ok(IpRepr::Ipv4(Ipv4Repr{
+                src_addr: ip_addr_a,
+                dst_addr: ip_addr_b,
+                protocol: proto,
+                payload_len
+            }))
+        );
+
+        assert_eq!(
+            IpRepr::Ipv4(Ipv4Repr{
+                src_addr: ip_addr_a,
+                dst_addr: ip_addr_b,
+                protocol: proto,
+                payload_len
+            }).lower(&[]),
+            Ok(IpRepr::Ipv4(Ipv4Repr{
+                src_addr: ip_addr_a,
+                dst_addr: ip_addr_b,
+                protocol: proto,
+                payload_len
+            }))
+        );
+
+        assert_eq!(
+            IpRepr::Ipv4(Ipv4Repr{
+                src_addr: Ipv4Address::new(0, 0, 0, 0),
+                dst_addr: ip_addr_b,
+                protocol: proto,
+                payload_len
+            }).lower(&[]),
+            Err(Error::Unaddressable)
+        );
+
+        assert_eq!(
+            IpRepr::Ipv4(Ipv4Repr{
+                src_addr: Ipv4Address::new(0, 0, 0, 0),
+                dst_addr: ip_addr_b,
+                protocol: proto,
+                payload_len
+            }).lower(&[IpAddress::Ipv4(ip_addr_a)]),
+            Ok(IpRepr::Ipv4(Ipv4Repr{
+                src_addr: ip_addr_a,
+                dst_addr: ip_addr_b,
+                protocol: proto,
+                payload_len
+            }))
+        );
     }
 }
