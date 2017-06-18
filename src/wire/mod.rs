@@ -126,6 +126,7 @@ pub use self::arp::Operation as ArpOperation;
 pub use self::arp::Packet as ArpPacket;
 pub use self::arp::Repr as ArpRepr;
 
+pub use self::ip::Version as IpVersion;
 pub use self::ip::Protocol as IpProtocol;
 pub use self::ip::Address as IpAddress;
 pub use self::ip::Endpoint as IpEndpoint;

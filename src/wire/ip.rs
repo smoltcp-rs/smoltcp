@@ -3,8 +3,25 @@ use core::fmt;
 use Error;
 use super::{Ipv4Address, Ipv4Packet, Ipv4Repr};
 
+/// Internet protocol version.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Version {
+    Ipv4,
+    #[doc(hidden)]
+    __Nonexhaustive,
+}
+
+impl fmt::Display for Version {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            &Version::Ipv4 => write!(f, "IPv4"),
+            &Version::__Nonexhaustive => unreachable!()
+        }
+    }
+}
+
 enum_with_unknown! {
-    /// Internetworking protocol.
+    /// IP datagram encapsulated protocol.
     pub enum Protocol(u8) {
         Icmp = 0x01,
         Tcp  = 0x06,

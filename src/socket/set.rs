@@ -139,6 +139,8 @@ impl<'a, 'b: 'a, 'c: 'a + 'b> Set<'a, 'b, 'c> {
             let mut may_remove = false;
             if let &mut Some(Item { refs: 0, ref mut socket }) = item {
                 match socket {
+                    &mut Socket::Raw(_) =>
+                        may_remove = true,
                     &mut Socket::Udp(_) =>
                         may_remove = true,
                     &mut Socket::Tcp(ref mut socket) =>

@@ -8,7 +8,7 @@ use wire::{Ipv4Packet, Ipv4Repr};
 use wire::{Icmpv4Packet, Icmpv4Repr, Icmpv4DstUnreachable};
 use wire::{IpAddress, IpProtocol, IpRepr};
 use wire::{TcpPacket, TcpRepr, TcpControl};
-use socket::SocketSet;
+use socket::{Socket, SocketSet, RawSocket, AsSocket};
 use super::ArpCache;
 
 /// An Ethernet network interface.
@@ -177,6 +177,16 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                 if ipv4_repr.src_addr.is_unicast() && eth_frame.src_addr().is_unicast() {
                     self.arp_cache.fill(&IpAddress::Ipv4(ipv4_repr.src_addr),
                                         &eth_frame.src_addr());
+                }
+
+                // Pass every IP packet to all raw sockets we have registered.
+                for raw_socket in sockets.iter_mut().filter_map(
+                        <Socket as AsSocket<RawSocket>>::try_as_socket) {
+                    match raw_socket.process(timestamp, &IpRepr::Ipv4(ipv4_repr),
+                                             ipv4_packet.payload()) {
+                        Ok(()) | Err(Error::Rejected) => (),
+                        _ => unreachable!(),
+                    }
                 }
 
                 match ipv4_repr {
