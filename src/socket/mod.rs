@@ -31,7 +31,7 @@ pub use self::tcp::SocketBuffer as TcpSocketBuffer;
 pub use self::tcp::State as TcpState;
 pub use self::tcp::TcpSocket;
 
-pub use self::set::{Set as SocketSet, Handle as SocketHandle};
+pub use self::set::{Set as SocketSet, Item as SocketSetItem, Handle as SocketHandle};
 pub use self::set::{Iter as SocketSetIter, IterMut as SocketSetIterMut};
 
 /// A network socket.
