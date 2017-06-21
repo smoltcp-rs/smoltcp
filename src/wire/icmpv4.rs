@@ -352,7 +352,7 @@ pub enum Repr<'a> {
     DstUnreachable {
         reason: DstUnreachable,
         header: Ipv4Repr,
-        data:   [u8; 8]
+        data:   &'a [u8]
     },
     #[doc(hidden)]
     __Nonexhaustive
@@ -381,17 +381,21 @@ impl<'a> Repr<'a> {
 
             (Message::DstUnreachable, code) => {
                 let ip_packet = try!(Ipv4Packet::new(packet.data()));
-                let ip_repr = try!(Ipv4Repr::parse(&ip_packet));
 
-                let mut data = [0; 8];
                 let payload = &packet.data()[ip_packet.header_len() as usize..];
-                if payload.len() < data.len() { return Err(Error::Truncated) }
-                data.copy_from_slice(&payload[0..8]);
+                // RFC 792 requires exactly eight bytes to be returned.
+                // We allow more, since there isn't a reason not to, but require at least eight.
+                if payload.len() < 8 { return Err(Error::Truncated) }
 
                 Ok(Repr::DstUnreachable {
                     reason: DstUnreachable::from(code),
-                    header: ip_repr,
-                    data:   data
+                    header: Ipv4Repr {
+                        src_addr: ip_packet.src_addr(),
+                        dst_addr: ip_packet.dst_addr(),
+                        protocol: ip_packet.protocol(),
+                        payload_len: payload.len(),
+                    },
+                    data: payload
                 })
             }
             _ => Err(Error::Unrecognized)

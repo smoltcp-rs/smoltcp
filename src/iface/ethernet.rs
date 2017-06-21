@@ -280,13 +280,10 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                                 reason = Icmpv4DstUnreachable::ProtoUnreachable
                             }
 
-                            let mut data = [0; 8];
-                            data.copy_from_slice(&ipv4_packet.payload()[0..8]);
-
                             let icmp_reply_repr = Icmpv4Repr::DstUnreachable {
                                 reason: reason,
                                 header: ipv4_repr,
-                                data:   data
+                                data:   &ipv4_packet.payload()[0..8]
                             };
                             let ipv4_reply_repr = Ipv4Repr {
                                 src_addr:    dst_addr,
