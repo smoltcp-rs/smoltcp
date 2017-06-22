@@ -404,7 +404,8 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                             match (repr.src_addr(), repr.dst_addr()) {
                                 (IpAddress::Ipv4(src_addr), IpAddress::Ipv4(dst_addr)) =>
                                     (src_addr, dst_addr),
-                                _ => unimplemented!()
+                                // We've lowered all addresses to a concrete form.
+                                _ => unreachable!()
                             };
 
                         let payload = ArpRepr::EthernetIpv4 {
