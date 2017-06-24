@@ -123,7 +123,12 @@ impl<T: AsRef<[u8]>> Packet<T> {
         if len < field::URGENT.end {
             Err(Error::Truncated)
         } else {
-            Ok(())
+            let header_len = self.header_len() as usize;
+            if len < header_len {
+                Err(Error::Truncated)
+            } else {
+                Ok(())
+            }
         }
     }
 
@@ -860,6 +865,12 @@ mod test {
         packet.payload_mut().copy_from_slice(&PAYLOAD_BYTES[..]);
         packet.fill_checksum(&SRC_ADDR.into(), &DST_ADDR.into());
         assert_eq!(&packet.into_inner()[..], &PACKET_BYTES[..]);
+    }
+
+    #[test]
+    fn test_truncated() {
+        let packet = Packet::new(&PACKET_BYTES[..23]);
+        assert_eq!(packet.check_len(), Err(Error::Truncated));
     }
 
     static SYN_PACKET_BYTES: [u8; 24] =
