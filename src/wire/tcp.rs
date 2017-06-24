@@ -118,6 +118,8 @@ impl<T: AsRef<[u8]>> Packet<T> {
 
     /// Ensure that no accessor method will panic if called.
     /// Returns `Err(Error::Truncated)` if the buffer is too short.
+    /// Returns `Err(Error::Malformed)` if the header length field has a value smaller
+    /// than the minimal header length.
     ///
     /// The result of this check is invalidated by calling [set_header_len].
     ///
@@ -130,6 +132,8 @@ impl<T: AsRef<[u8]>> Packet<T> {
             let header_len = self.header_len() as usize;
             if len < header_len {
                 Err(Error::Truncated)
+            } else if header_len < field::URGENT.end {
+                Err(Error::Malformed)
             } else {
                 Ok(())
             }
@@ -875,6 +879,14 @@ mod test {
     fn test_truncated() {
         let packet = Packet::new(&PACKET_BYTES[..23]);
         assert_eq!(packet.check_len(), Err(Error::Truncated));
+    }
+
+    #[test]
+    fn test_impossible_len() {
+        let mut bytes = vec![0; 20];
+        let mut packet = Packet::new(&mut bytes);
+        packet.set_header_len(10);
+        assert_eq!(packet.check_len(), Err(Error::Malformed));
     }
 
     static SYN_PACKET_BYTES: [u8; 24] =
