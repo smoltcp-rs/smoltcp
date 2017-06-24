@@ -28,7 +28,7 @@ fn rx_full() -> bool {
     false
 }
 
-fn rx_setup(buf: *mut u8, length: &mut usize) {
+fn rx_setup(_buf: *mut u8, _length: &mut usize) {
     /* platform-specific code to receive a packet into a buffer */
 }
 
@@ -37,11 +37,12 @@ fn tx_empty() -> bool {
     false
 }
 
-fn tx_setup(buf: *const u8, length: usize) {
+fn tx_setup(_buf: *const u8, _length: usize) {
     /* platform-specific code to send a buffer with a packet */
 }
 
-struct EthernetDevice {
+# #[allow(dead_code)]
+pub struct EthernetDevice {
     tx_next: usize,
     rx_next: usize
 }
@@ -84,7 +85,7 @@ impl Device for EthernetDevice {
     }
 }
 
-struct EthernetTxBuffer(&'static mut [u8]);
+pub struct EthernetTxBuffer(&'static mut [u8]);
 
 impl AsRef<[u8]> for EthernetTxBuffer {
     fn as_ref(&self) -> &[u8] { self.0 }
