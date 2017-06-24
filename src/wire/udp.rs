@@ -44,17 +44,22 @@ impl<T: AsRef<[u8]>> Packet<T> {
 
     /// Ensure that no accessor method will panic if called.
     /// Returns `Err(Error::Truncated)` if the buffer is too short.
+    /// Returns `Err(Error::Malformed)` if the length field has a value smaller
+    /// than the header length.
     ///
-    /// The result of this check is invalidated by calling [set_header_len].
+    /// The result of this check is invalidated by calling [set_len].
     ///
-    /// [set_header_len]: #method.set_header_len
+    /// [set_len]: #method.set_len
     pub fn check_len(&self) -> Result<(), Error> {
-        let len = self.buffer.as_ref().len();
-        if len < field::CHECKSUM.end {
+        let buffer_len = self.buffer.as_ref().len();
+        if buffer_len < field::CHECKSUM.end {
             Err(Error::Truncated)
         } else {
-            if len < self.len() as usize {
+            let field_len = self.len() as usize;
+            if buffer_len < field_len {
                 Err(Error::Truncated)
+            } else if field_len < field::CHECKSUM.end {
+                Err(Error::Malformed)
             } else {
                 Ok(())
             }
@@ -297,6 +302,14 @@ mod test {
         packet.payload_mut().copy_from_slice(&PAYLOAD_BYTES[..]);
         packet.fill_checksum(&SRC_ADDR.into(), &DST_ADDR.into());
         assert_eq!(&packet.into_inner()[..], &PACKET_BYTES[..]);
+    }
+
+    #[test]
+    fn test_impossible_len() {
+        let mut bytes = vec![0; 12];
+        let mut packet = Packet::new(&mut bytes);
+        packet.set_len(4);
+        assert_eq!(packet.check_len(), Err(Error::Malformed));
     }
 
     fn packet_repr() -> Repr<'static> {
