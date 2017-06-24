@@ -402,6 +402,8 @@ impl Repr {
         if packet.header_len() > 20 { return Err(Error::Unrecognized) }
         // We do not support fragmentation.
         if packet.more_frags() || packet.frag_offset() != 0 { return Err(Error::Fragmented) }
+        // Total length may not be less than header length.
+        if packet.total_len() < packet.header_len() as u16 { return Err(Error::Malformed) }
         // Since the packet is not fragmented, it must include the entire payload.
         let payload_len = packet.total_len() as usize - packet.header_len() as usize;
         if packet.payload().len() < payload_len  { return Err(Error::Truncated) }
@@ -628,6 +630,17 @@ mod test {
         let packet = Packet::new(&REPR_PACKET_BYTES[..]);
         let repr = Repr::parse(&packet).unwrap();
         assert_eq!(repr, packet_repr());
+    }
+
+    #[test]
+    fn test_parse_total_len_underflow() {
+        let mut bytes = vec![0; 24];
+        bytes.copy_from_slice(&REPR_PACKET_BYTES[..]);
+        let mut packet = Packet::new(&mut bytes);
+        packet.set_total_len(10);
+        packet.fill_checksum();
+        let packet = Packet::new(&*packet.into_inner());
+        assert_eq!(Repr::parse(&packet), Err(Error::Malformed));
     }
 
     #[test]
