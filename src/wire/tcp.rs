@@ -289,7 +289,12 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// # Panics
     /// This function panics unless `src_addr` and `dst_addr` belong to the same family,
     /// and that family is IPv4 or IPv6.
+    ///
+    /// # Fuzzing
+    /// This function always returns `true` when fuzzing.
     pub fn verify_checksum(&self, src_addr: &IpAddress, dst_addr: &IpAddress) -> bool {
+        if cfg!(fuzzing) { return true }
+
         let data = self.buffer.as_ref();
         checksum::combine(&[
             checksum::pseudo_header(src_addr, dst_addr, IpProtocol::Tcp,

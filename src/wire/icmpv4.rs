@@ -276,7 +276,12 @@ impl<T: AsRef<[u8]>> Packet<T> {
     }
 
     /// Validate the header checksum.
+    ///
+    /// # Fuzzing
+    /// This function always returns `true` when fuzzing.
     pub fn verify_checksum(&self) -> bool {
+        if cfg!(fuzzing) { return true }
+
         let data = self.buffer.as_ref();
         checksum::data(data) == !0
     }
