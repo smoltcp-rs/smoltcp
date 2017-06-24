@@ -80,6 +80,10 @@ mod field {
     pub const CHECKSUM: Field = 16..18;
     pub const URGENT:   Field = 18..20;
 
+    pub fn OPTIONS(length: u8) -> Field {
+        URGENT.end..(length as usize)
+    }
+
     pub const FLG_FIN: u16 = 0x001;
     pub const FLG_SYN: u16 = 0x002;
     pub const FLG_RST: u16 = 0x004;
@@ -295,9 +299,9 @@ impl<'a, T: AsRef<[u8]> + ?Sized> Packet<&'a T> {
     /// Return a pointer to the options.
     #[inline]
     pub fn options(&self) -> &'a [u8] {
-        let header_len = self.header_len() as usize;
+        let header_len = self.header_len();
         let data = self.buffer.as_ref();
-        &data[field::URGENT.end..header_len]
+        &data[field::OPTIONS(header_len)]
     }
 
     /// Return a pointer to the payload.
@@ -481,9 +485,9 @@ impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Packet<&'a mut T> {
     /// Return a pointer to the options.
     #[inline]
     pub fn options_mut(&mut self) -> &mut [u8] {
-        let header_len = self.header_len() as usize;
+        let header_len = self.header_len();
         let data = self.buffer.as_mut();
-        &mut data[field::URGENT.end..header_len]
+        &mut data[field::OPTIONS(header_len)]
     }
 
     /// Return a mutable pointer to the payload data.
