@@ -108,7 +108,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// [check_len]: #method.check_len
     pub fn new_checked(buffer: T) -> Result<Packet<T>, Error> {
         let packet = Self::new(buffer);
-        try!(packet.check_len());
+        packet.check_len()?;
         Ok(packet)
     }
 
@@ -456,33 +456,33 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
         match Repr::parse(self) {
             Ok(repr) => write!(f, "{}", repr),
             Err(err) => {
-                try!(write!(f, "IPv4 ({})", err));
-                try!(write!(f, " src={} dst={} proto={} ttl={}",
-                            self.src_addr(), self.dst_addr(), self.protocol(), self.ttl()));
+                write!(f, "IPv4 ({})", err)?;
+                write!(f, " src={} dst={} proto={} ttl={}",
+                       self.src_addr(), self.dst_addr(), self.protocol(), self.ttl())?;
                 if self.version() != 4 {
-                    try!(write!(f, " ver={}", self.version()))
+                    write!(f, " ver={}", self.version())?;
                 }
                 if self.header_len() != 20 {
-                    try!(write!(f, " hlen={}", self.header_len()))
+                    write!(f, " hlen={}", self.header_len())?;
                 }
                 if self.dscp() != 0 {
-                    try!(write!(f, " dscp={}", self.dscp()))
+                    write!(f, " dscp={}", self.dscp())?;
                 }
                 if self.ecn() != 0 {
-                    try!(write!(f, " ecn={}", self.ecn()))
+                    write!(f, " ecn={}", self.ecn())?;
                 }
-                try!(write!(f, " tlen={}", self.total_len()));
+                write!(f, " tlen={}", self.total_len())?;
                 if self.dont_frag() {
-                    try!(write!(f, " df"))
+                    write!(f, " df")?;
                 }
                 if self.more_frags() {
-                    try!(write!(f, " mf"))
+                    write!(f, " mf")?;
                 }
                 if self.frag_offset() != 0 {
-                    try!(write!(f, " off={}", self.frag_offset()))
+                    write!(f, " off={}", self.frag_offset())?;
                 }
                 if self.more_frags() || self.frag_offset() != 0 {
-                    try!(write!(f, " id={}", self.ident()))
+                    write!(f, " id={}", self.ident())?;
                 }
                 Ok(())
             }
@@ -505,7 +505,7 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
         let (ip_repr, payload) = match Packet::new_checked(buffer) {
             Err(err) => return write!(f, "{}({})\n", indent, err),
             Ok(ip_packet) => {
-                try!(write!(f, "{}{}\n", indent, ip_packet));
+                write!(f, "{}{}\n", indent, ip_packet)?;
                 match Repr::parse(&ip_packet) {
                     Err(_) => return Ok(()),
                     Ok(ip_repr) => (ip_repr, &ip_packet.payload()[..ip_repr.payload_len])

@@ -195,7 +195,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// [check_len]: #method.check_len
     pub fn new_checked(buffer: T) -> Result<Packet<T>, Error> {
         let packet = Self::new(buffer);
-        try!(packet.check_len());
+        packet.check_len()?;
         Ok(packet)
     }
 
@@ -403,7 +403,7 @@ impl<'a> Repr<'a> {
             },
 
             (Message::DstUnreachable, code) => {
-                let ip_packet = try!(Ipv4Packet::new_checked(packet.data()));
+                let ip_packet = Ipv4Packet::new_checked(packet.data())?;
 
                 let payload = &packet.data()[ip_packet.header_len() as usize..];
                 // RFC 792 requires exactly eight bytes to be returned.
@@ -483,14 +483,13 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
         match Repr::parse(self) {
             Ok(repr) => write!(f, "{}", repr),
             Err(err) => {
-                try!(write!(f, "ICMPv4 ({})", err));
-                try!(write!(f, " type={:?}", self.msg_type()));
+                write!(f, "ICMPv4 ({})", err)?;
+                write!(f, " type={:?}", self.msg_type())?;
                 match self.msg_type() {
                     Message::DstUnreachable =>
-                        try!(write!(f, " code={:?}", DstUnreachable::from(self.msg_code()))),
-                    _ => try!(write!(f, " code={}", self.msg_code()))
+                        write!(f, " code={:?}", DstUnreachable::from(self.msg_code())),
+                    _ => write!(f, " code={}", self.msg_code())
                 }
-                Ok(())
             }
         }
     }
@@ -522,7 +521,7 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
             Err(err)   => return write!(f, "{}({})\n", indent, err),
             Ok(packet) => packet
         };
-        try!(write!(f, "{}{}\n", indent, packet));
+        write!(f, "{}{}\n", indent, packet)?;
 
         indent.increase();
         match packet.msg_type() {

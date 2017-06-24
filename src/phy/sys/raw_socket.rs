@@ -31,7 +31,7 @@ impl RawSocketDesc {
         let sockaddr = libc::sockaddr_ll {
             sll_family:   libc::AF_PACKET as u16,
             sll_protocol: imp::ETH_P_ALL.to_be() as u16,
-            sll_ifindex:  try!(ifreq_ioctl(self.lower, &mut self.ifreq, imp::SIOCGIFINDEX)),
+            sll_ifindex:  ifreq_ioctl(self.lower, &mut self.ifreq, imp::SIOCGIFINDEX)?,
             sll_hatype:   1,
             sll_pkttype:  0,
             sll_halen:    6,

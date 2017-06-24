@@ -102,7 +102,7 @@ impl<T: AsRef<[u8]>> Frame<T> {
     /// [check_len]: #method.check_len
     pub fn new_checked(buffer: T) -> Result<Frame<T>, Error> {
         let packet = Self::new(buffer);
-        try!(packet.check_len());
+        packet.check_len()?;
         Ok(packet)
     }
 
@@ -213,7 +213,7 @@ impl<T: AsRef<[u8]>> PrettyPrint for Frame<T> {
             Err(err)  => return write!(f, "{}({})\n", indent, err),
             Ok(frame) => frame
         };
-        try!(write!(f, "{}{}\n", indent, frame));
+        write!(f, "{}{}\n", indent, frame)?;
         indent.increase();
 
         match frame.ethertype() {

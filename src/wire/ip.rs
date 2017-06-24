@@ -227,7 +227,7 @@ impl IpRepr {
                     }
                 }
                 Ok(IpRepr::Ipv4(Ipv4Repr {
-                    src_addr:    try!(src_addr.ok_or(Error::Unaddressable)),
+                    src_addr:    src_addr.ok_or(Error::Unaddressable)?,
                     dst_addr:    dst_addr,
                     protocol:    protocol,
                     payload_len: payload_len

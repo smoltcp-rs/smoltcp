@@ -73,7 +73,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// [check_len]: #method.check_len
     pub fn new_checked(buffer: T) -> Result<Packet<T>, Error> {
         let packet = Self::new(buffer);
-        try!(packet.check_len());
+        packet.check_len()?;
         Ok(packet)
     }
 
@@ -317,14 +317,14 @@ impl<T: AsRef<[u8]>> fmt::Display for Packet<T> {
         match Repr::parse(self) {
             Ok(repr) => write!(f, "{}", repr),
             _ => {
-                try!(write!(f, "ARP (unrecognized)"));
-                try!(write!(f, " htype={:?} ptype={:?} hlen={:?} plen={:?} op={:?}",
-                            self.hardware_type(), self.protocol_type(),
-                            self.hardware_len(), self.protocol_len(),
-                            self.operation()));
-                try!(write!(f, " sha={:?} spa={:?} tha={:?} tpa={:?}",
-                            self.source_hardware_addr(), self.source_protocol_addr(),
-                            self.target_hardware_addr(), self.target_protocol_addr()));
+                write!(f, "ARP (unrecognized)")?;
+                write!(f, " htype={:?} ptype={:?} hlen={:?} plen={:?} op={:?}",
+                       self.hardware_type(), self.protocol_type(),
+                       self.hardware_len(), self.protocol_len(),
+                       self.operation())?;
+                write!(f, " sha={:?} spa={:?} tha={:?} tpa={:?}",
+                       self.source_hardware_addr(), self.source_protocol_addr(),
+                       self.target_hardware_addr(), self.target_protocol_addr())?;
                 Ok(())
             }
         }

@@ -571,7 +571,7 @@ impl<'a> TcpSocket<'a> {
     ///
     /// See also [send](#method.send).
     pub fn send_slice(&mut self, data: &[u8]) -> Result<usize, ()> {
-        let buffer = try!(self.send(data.len()));
+        let buffer = self.send(data.len())?;
         let data = &data[..buffer.len()];
         buffer.copy_from_slice(data);
         Ok(buffer.len())
@@ -608,7 +608,7 @@ impl<'a> TcpSocket<'a> {
     ///
     /// See also [recv](#method.recv).
     pub fn recv_slice(&mut self, data: &mut [u8]) -> Result<usize, ()> {
-        let buffer = try!(self.recv(data.len()));
+        let buffer = self.recv(data.len())?;
         let data = &mut data[..buffer.len()];
         data.copy_from_slice(buffer);
         Ok(buffer.len())
@@ -636,8 +636,8 @@ impl<'a> TcpSocket<'a> {
 
         if ip_repr.protocol() != IpProtocol::Tcp { return Err(Error::Rejected) }
 
-        let packet = try!(TcpPacket::new_checked(&payload[..ip_repr.payload_len()]));
-        let repr = try!(TcpRepr::parse(&packet, &ip_repr.src_addr(), &ip_repr.dst_addr()));
+        let packet = TcpPacket::new_checked(&payload[..ip_repr.payload_len()])?;
+        let repr = TcpRepr::parse(&packet, &ip_repr.src_addr(), &ip_repr.dst_addr())?;
 
         // Reject packets with a wrong destination.
         if self.local_endpoint.port != repr.dst_port { return Err(Error::Rejected) }
@@ -1101,7 +1101,7 @@ impl<'a> TcpSocket<'a> {
                 protocol:     IpProtocol::Tcp,
                 payload_len:  repr.buffer_len()
             };
-            let ip_repr = try!(ip_repr.lower(&[]));
+            let ip_repr = ip_repr.lower(&[])?;
 
             let mut max_segment_size = limits.max_transmission_unit;
             max_segment_size -= header_len;
@@ -1240,7 +1240,7 @@ mod test {
             buffer.resize(payload.buffer_len(), 0);
             payload.emit(&ip_repr, &mut buffer[..]);
             let packet = TcpPacket::new(&buffer[..]);
-            let repr = try!(TcpRepr::parse(&packet, &ip_repr.src_addr(), &ip_repr.dst_addr()));
+            let repr = TcpRepr::parse(&packet, &ip_repr.src_addr(), &ip_repr.dst_addr())?;
             trace!("recv: {}", repr);
             Ok(f(Ok(repr)))
         });

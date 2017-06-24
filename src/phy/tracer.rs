@@ -46,13 +46,13 @@ impl<T: Device, U: PrettyPrint> Device for Tracer<T, U> {
     fn limits(&self) -> DeviceLimits { self.lower.limits() }
 
     fn receive(&mut self) -> Result<Self::RxBuffer, Error> {
-        let buffer = try!(self.lower.receive());
+        let buffer = self.lower.receive()?;
         (self.writer)(PrettyPrinter::<U>::new("<- ", &buffer));
         Ok(buffer)
     }
 
     fn transmit(&mut self, length: usize) -> Result<Self::TxBuffer, Error> {
-        let buffer = try!(self.lower.transmit(length));
+        let buffer = self.lower.transmit(length)?;
         Ok(TxBuffer {
             buffer:  buffer,
             writer:  self.writer

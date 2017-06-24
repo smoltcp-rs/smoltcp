@@ -19,9 +19,9 @@ impl RawSocket {
     /// This requires superuser privileges or a corresponding capability bit
     /// set on the executable.
     pub fn new(name: &str) -> io::Result<RawSocket> {
-        let mut lower = try!(sys::RawSocketDesc::new(name));
-        try!(lower.bind_interface());
-        let mtu = try!(lower.interface_mtu());
+        let mut lower = sys::RawSocketDesc::new(name)?;
+        lower.bind_interface()?;
+        let mtu = lower.interface_mtu()?;
         Ok(RawSocket {
             lower: Rc::new(RefCell::new(lower)),
             mtu:   mtu

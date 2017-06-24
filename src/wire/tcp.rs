@@ -112,7 +112,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// [check_len]: #method.check_len
     pub fn new_checked(buffer: T) -> Result<Packet<T>, Error> {
         let packet = Self::new(buffer);
-        try!(packet.check_len());
+        packet.check_len()?;
         Ok(packet)
     }
 
@@ -728,29 +728,28 @@ impl<'a> Repr<'a> {
 impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // Cannot use Repr::parse because we don't have the IP addresses.
-        try!(write!(f, "TCP src={} dst={}",
-                    self.src_port(), self.dst_port()));
-        if self.syn() { try!(write!(f, " syn")) }
-        if self.fin() { try!(write!(f, " fin")) }
-        if self.rst() { try!(write!(f, " rst")) }
-        if self.psh() { try!(write!(f, " psh")) }
-        if self.ece() { try!(write!(f, " ece")) }
-        if self.cwr() { try!(write!(f, " cwr")) }
-        if self.ns()  { try!(write!(f, " ns" )) }
-        try!(write!(f, " seq={}", self.seq_number()));
+        write!(f, "TCP src={} dst={}",
+               self.src_port(), self.dst_port())?;
+        if self.syn() { write!(f, " syn")? }
+        if self.fin() { write!(f, " fin")? }
+        if self.rst() { write!(f, " rst")? }
+        if self.psh() { write!(f, " psh")? }
+        if self.ece() { write!(f, " ece")? }
+        if self.cwr() { write!(f, " cwr")? }
+        if self.ns()  { write!(f, " ns" )? }
+        write!(f, " seq={}", self.seq_number())?;
         if self.ack() {
-            try!(write!(f, " ack={}", self.ack_number()));
+            write!(f, " ack={}", self.ack_number())?;
         }
-        try!(write!(f, " win={}", self.window_len()));
+        write!(f, " win={}", self.window_len())?;
         if self.urg() {
-            try!(write!(f, " urg={}", self.urgent_at()))
+            write!(f, " urg={}", self.urgent_at())?;
         }
-        try!(write!(f, " len={}", self.payload().len()));
+        write!(f, " len={}", self.payload().len())?;
 
         let header_len = self.header_len() as usize;
         if header_len < field::URGENT.end {
-            try!(write!(f, " {}", Error::Truncated));
-            return Ok(())
+            return write!(f, " ({})", Error::Truncated)
         }
 
         let mut options = self.options();
@@ -764,11 +763,11 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
                 TcpOption::EndOfList => break,
                 TcpOption::NoOperation => (),
                 TcpOption::MaxSegmentSize(value) =>
-                    try!(write!(f, " mss={}", value)),
+                    write!(f, " mss={}", value)?,
                 TcpOption::WindowScale(value) =>
-                    try!(write!(f, " ws={}", value)),
+                    write!(f, " ws={}", value)?,
                 TcpOption::Unknown { kind, .. } =>
-                    try!(write!(f, " opt({})", kind)),
+                    write!(f, " opt({})", kind)?,
             }
             options = next_options;
         }
@@ -778,22 +777,22 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
 
 impl<'a> fmt::Display for Repr<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        try!(write!(f, "TCP src={} dst={}",
-                    self.src_port, self.dst_port));
+        write!(f, "TCP src={} dst={}",
+               self.src_port, self.dst_port)?;
         match self.control {
-            Control::Syn => try!(write!(f, " syn")),
-            Control::Fin => try!(write!(f, " fin")),
-            Control::Rst => try!(write!(f, " rst")),
+            Control::Syn => write!(f, " syn")?,
+            Control::Fin => write!(f, " fin")?,
+            Control::Rst => write!(f, " rst")?,
             Control::None => ()
         }
-        try!(write!(f, " seq={}", self.seq_number));
+        write!(f, " seq={}", self.seq_number)?;
         if let Some(ack_number) = self.ack_number {
-            try!(write!(f, " ack={}", ack_number));
+            write!(f, " ack={}", ack_number)?;
         }
-        try!(write!(f, " win={}", self.window_len));
-        try!(write!(f, " len={}", self.payload.len()));
+        write!(f, " win={}", self.window_len)?;
+        write!(f, " len={}", self.payload.len())?;
         if let Some(max_seg_size) = self.max_seg_size {
-            try!(write!(f, " mss={}", max_seg_size));
+            write!(f, " mss={}", max_seg_size)?;
         }
         Ok(())
     }

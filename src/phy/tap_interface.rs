@@ -20,8 +20,8 @@ impl TapInterface {
     /// no special privileges are needed. Otherwise, this requires superuser privileges
     /// or a corresponding capability set on the executable.
     pub fn new(name: &str) -> io::Result<TapInterface> {
-        let mut lower = try!(sys::TapInterfaceDesc::new(name));
-        try!(lower.attach_interface());
+        let mut lower = sys::TapInterfaceDesc::new(name)?;
+        lower.attach_interface()?;
         Ok(TapInterface {
             lower: Rc::new(RefCell::new(lower)),
             mtu:   1536 // FIXME: get the real value somehow
