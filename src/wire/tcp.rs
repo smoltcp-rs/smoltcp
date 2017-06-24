@@ -514,8 +514,7 @@ impl<'a> TcpOption<'a> {
             }
             kind => {
                 length = *buffer.get(1).ok_or(Error::Truncated)? as usize;
-                if buffer.len() < length { return Err(Error::Truncated) }
-                let data = &buffer[2..length];
+                let data = buffer.get(2..length).ok_or(Error::Truncated)?;
                 match (kind, length) {
                     (field::OPT_END, _) |
                     (field::OPT_NOP, _) =>
@@ -930,6 +929,8 @@ mod test {
         assert_eq!(TcpOption::parse(&[0xc]),
                    Err(Error::Truncated));
         assert_eq!(TcpOption::parse(&[0xc, 0x05, 0x01, 0x02]),
+                   Err(Error::Truncated));
+        assert_eq!(TcpOption::parse(&[0xc, 0x01]),
                    Err(Error::Truncated));
         assert_eq!(TcpOption::parse(&[0x2, 0x02]),
                    Err(Error::Malformed));
