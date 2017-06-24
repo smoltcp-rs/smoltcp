@@ -747,11 +747,6 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
         }
         write!(f, " len={}", self.payload().len())?;
 
-        let header_len = self.header_len() as usize;
-        if header_len < field::URGENT.end {
-            return write!(f, " ({})", Error::Truncated)
-        }
-
         let mut options = self.options();
         while options.len() > 0 {
             let (next_options, option) =
