@@ -97,23 +97,41 @@ mod field {
 }
 
 impl<T: AsRef<[u8]>> Packet<T> {
-    /// Wrap a buffer with an IPv4 packet. Returns an error if the buffer
-    /// is too small to contain one.
-    pub fn new(buffer: T) -> Result<Packet<T>, Error> {
-        let len = buffer.as_ref().len();
+    /// Imbue a raw octet buffer with IPv4 packet structure.
+    pub fn new(buffer: T) -> Packet<T> {
+        Packet { buffer }
+    }
+
+    /// Shorthand for a combination of [new] and [check_len].
+    ///
+    /// [new]: #method.new
+    /// [check_len]: #method.check_len
+    pub fn new_checked(buffer: T) -> Result<Packet<T>, Error> {
+        let packet = Self::new(buffer);
+        try!(packet.check_len());
+        Ok(packet)
+    }
+
+    /// Ensure that no accessor method will panic if called.
+    /// Returns `Err(Error::Truncated)` if the buffer is too short.
+    ///
+    /// The result of this check is invalidated by calling [set_header_len].
+    ///
+    /// [set_header_len]: #method.set_header_len
+    pub fn check_len(&self) -> Result<(), Error> {
+        let len = self.buffer.as_ref().len();
         if len < field::DST_ADDR.end {
             Err(Error::Truncated)
         } else {
-            let packet = Packet { buffer: buffer };
-            if len < packet.header_len() as usize {
+            if len < self.header_len() as usize {
                 Err(Error::Truncated)
             } else {
-                Ok(packet)
+                Ok(())
             }
         }
     }
 
-    /// Consumes the packet, returning the underlying buffer.
+    /// Consume the packet, returning the underlying buffer.
     pub fn into_inner(self) -> T {
         self.buffer
     }
@@ -477,7 +495,7 @@ use super::pretty_print::{PrettyPrint, PrettyIndent};
 impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
     fn pretty_print(buffer: &AsRef<[u8]>, f: &mut fmt::Formatter,
                     indent: &mut PrettyIndent) -> fmt::Result {
-        let (ip_repr, payload) = match Packet::new(buffer) {
+        let (ip_repr, payload) = match Packet::new_checked(buffer) {
             Err(err) => return write!(f, "{}({})\n", indent, err),
             Ok(ip_packet) => {
                 try!(write!(f, "{}{}\n", indent, ip_packet));
@@ -493,7 +511,7 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
             Protocol::Icmp =>
                 super::Icmpv4Packet::<&[u8]>::pretty_print(&payload, f, indent),
             Protocol::Udp => {
-                match super::UdpPacket::new(payload) {
+                match super::UdpPacket::new_checked(payload) {
                     Err(err) => write!(f, "{}({})\n", indent, err),
                     Ok(udp_packet) => {
                         match super::UdpRepr::parse(&udp_packet,
@@ -506,7 +524,7 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
                 }
             }
             Protocol::Tcp => {
-                match super::TcpPacket::new(payload) {
+                match super::TcpPacket::new_checked(payload) {
                     Err(err) => write!(f, "{}({})\n", indent, err),
                     Ok(tcp_packet) => {
                         match super::TcpRepr::parse(&tcp_packet,
@@ -544,7 +562,7 @@ mod test {
 
     #[test]
     fn test_deconstruct() {
-        let packet = Packet::new(&PACKET_BYTES[..]).unwrap();
+        let packet = Packet::new(&PACKET_BYTES[..]);
         assert_eq!(packet.version(), 4);
         assert_eq!(packet.header_len(), 20);
         assert_eq!(packet.dscp(), 0);
@@ -566,7 +584,7 @@ mod test {
     #[test]
     fn test_construct() {
         let mut bytes = vec![0; 30];
-        let mut packet = Packet::new(&mut bytes).unwrap();
+        let mut packet = Packet::new(&mut bytes);
         packet.set_version(4);
         packet.set_header_len(20);
         packet.set_dscp(0);
@@ -607,7 +625,7 @@ mod test {
 
     #[test]
     fn test_parse() {
-        let packet = Packet::new(&REPR_PACKET_BYTES[..]).unwrap();
+        let packet = Packet::new(&REPR_PACKET_BYTES[..]);
         let repr = Repr::parse(&packet).unwrap();
         assert_eq!(repr, packet_repr());
     }
@@ -616,7 +634,7 @@ mod test {
     fn test_emit() {
         let repr = packet_repr();
         let mut bytes = vec![0; repr.buffer_len() + REPR_PAYLOAD_BYTES.len()];
-        let mut packet = Packet::new(&mut bytes).unwrap();
+        let mut packet = Packet::new(&mut bytes);
         repr.emit(&mut packet);
         packet.payload_mut().copy_from_slice(&REPR_PAYLOAD_BYTES);
         assert_eq!(&packet.into_inner()[..], &REPR_PACKET_BYTES[..]);

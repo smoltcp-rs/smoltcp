@@ -636,7 +636,7 @@ impl<'a> TcpSocket<'a> {
 
         if ip_repr.protocol() != IpProtocol::Tcp { return Err(Error::Rejected) }
 
-        let packet = try!(TcpPacket::new(&payload[..ip_repr.payload_len()]));
+        let packet = try!(TcpPacket::new_checked(&payload[..ip_repr.payload_len()]));
         let repr = try!(TcpRepr::parse(&packet, &ip_repr.src_addr(), &ip_repr.dst_addr()));
 
         // Reject packets with a wrong destination.
@@ -1131,7 +1131,7 @@ impl<'a> IpPayload for TcpRepr<'a> {
     }
 
     fn emit(&self, ip_repr: &IpRepr, payload: &mut [u8]) {
-        let mut packet = TcpPacket::new(payload).expect("undersized payload");
+        let mut packet = TcpPacket::new(payload);
         self.emit(&mut packet, &ip_repr.src_addr(), &ip_repr.dst_addr())
     }
 }
@@ -1216,7 +1216,7 @@ mod test {
     fn send(socket: &mut TcpSocket, timestamp: u64, repr: &TcpRepr) -> Result<(), Error> {
         trace!("send: {}", repr);
         let mut buffer = vec![0; repr.buffer_len()];
-        let mut packet = TcpPacket::new(&mut buffer).unwrap();
+        let mut packet = TcpPacket::new(&mut buffer);
         repr.emit(&mut packet, &REMOTE_IP, &LOCAL_IP);
         let ip_repr = IpRepr::Unspecified {
             src_addr:    REMOTE_IP,
@@ -1239,7 +1239,7 @@ mod test {
 
             buffer.resize(payload.buffer_len(), 0);
             payload.emit(&ip_repr, &mut buffer[..]);
-            let packet = TcpPacket::new(&buffer[..]).unwrap();
+            let packet = TcpPacket::new(&buffer[..]);
             let repr = try!(TcpRepr::parse(&packet, &ip_repr.src_addr(), &ip_repr.dst_addr()));
             trace!("recv: {}", repr);
             Ok(f(Ok(repr)))
@@ -2565,7 +2565,7 @@ mod test {
         s.dispatch(0, &limits, &mut |ip_repr, payload| {
             let mut buffer = vec![0; payload.buffer_len()];
             payload.emit(&ip_repr, &mut buffer[..]);
-            let packet = TcpPacket::new(&buffer[..]).unwrap();
+            let packet = TcpPacket::new(&buffer[..]);
             assert_eq!(packet.window_len(), 32767);
             Ok(())
         }).unwrap();
@@ -2575,7 +2575,7 @@ mod test {
         s.dispatch(0, &limits, &mut |ip_repr, payload| {
             let mut buffer = vec![0; payload.buffer_len()];
             payload.emit(&ip_repr, &mut buffer[..]);
-            let packet = TcpPacket::new(&buffer[..]).unwrap();
+            let packet = TcpPacket::new(&buffer[..]);
             assert_eq!(packet.window_len(), 5920);
             Ok(())
         }).unwrap();

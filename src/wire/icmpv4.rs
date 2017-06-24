@@ -184,23 +184,41 @@ mod field {
 }
 
 impl<T: AsRef<[u8]>> Packet<T> {
-    /// Wrap a buffer with an ICMPv4 packet. Returns an error if the buffer
-    /// is too small to contain one.
-    pub fn new(buffer: T) -> Result<Packet<T>, Error> {
-        let len = buffer.as_ref().len();
+    /// Imbue a raw octet buffer with ICMPv4 packet structure.
+    pub fn new(buffer: T) -> Packet<T> {
+        Packet { buffer }
+    }
+
+    /// Shorthand for a combination of [new] and [check_len].
+    ///
+    /// [new]: #method.new
+    /// [check_len]: #method.check_len
+    pub fn new_checked(buffer: T) -> Result<Packet<T>, Error> {
+        let packet = Self::new(buffer);
+        try!(packet.check_len());
+        Ok(packet)
+    }
+
+    /// Ensure that no accessor method will panic if called.
+    /// Returns `Err(Error::Truncated)` if the buffer is too short.
+    ///
+    /// The result of this check is invalidated by calling [set_header_len].
+    ///
+    /// [set_header_len]: #method.set_header_len
+    pub fn check_len(&self) -> Result<(), Error> {
+        let len = self.buffer.as_ref().len();
         if len < field::CHECKSUM.end {
             Err(Error::Truncated)
         } else {
-            let packet = Packet { buffer: buffer };
-            if len < packet.header_len() {
+            if len < self.header_len() as usize {
                 Err(Error::Truncated)
             } else {
-                Ok(packet)
+                Ok(())
             }
         }
     }
 
-    /// Consumes the packet, returning the underlying buffer.
+    /// Consume the packet, returning the underlying buffer.
     pub fn into_inner(self) -> T {
         self.buffer
     }
@@ -380,7 +398,7 @@ impl<'a> Repr<'a> {
             },
 
             (Message::DstUnreachable, code) => {
-                let ip_packet = try!(Ipv4Packet::new(packet.data()));
+                let ip_packet = try!(Ipv4Packet::new_checked(packet.data()));
 
                 let payload = &packet.data()[ip_packet.header_len() as usize..];
                 // RFC 792 requires exactly eight bytes to be returned.
@@ -443,8 +461,7 @@ impl<'a> Repr<'a> {
                 packet.set_msg_type(Message::DstUnreachable);
                 packet.set_msg_code(reason.into());
 
-                let mut ip_packet = Ipv4Packet::new(packet.data_mut())
-                                               .expect("undersized data");
+                let mut ip_packet = Ipv4Packet::new(packet.data_mut());
                 header.emit(&mut ip_packet);
                 let mut payload = &mut ip_packet.into_inner()[header.buffer_len()..];
                 payload.copy_from_slice(&data[..])
@@ -496,7 +513,7 @@ use super::pretty_print::{PrettyPrint, PrettyIndent};
 impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
     fn pretty_print(buffer: &AsRef<[u8]>, f: &mut fmt::Formatter,
                     indent: &mut PrettyIndent) -> fmt::Result {
-        let packet = match Packet::new(buffer) {
+        let packet = match Packet::new_checked(buffer) {
             Err(err)   => return write!(f, "{}({})\n", indent, err),
             Ok(packet) => packet
         };
@@ -525,7 +542,7 @@ mod test {
 
     #[test]
     fn test_echo_deconstruct() {
-        let packet = Packet::new(&ECHO_PACKET_BYTES[..]).unwrap();
+        let packet = Packet::new(&ECHO_PACKET_BYTES[..]);
         assert_eq!(packet.msg_type(), Message::EchoRequest);
         assert_eq!(packet.msg_code(), 0);
         assert_eq!(packet.checksum(), 0x8efe);
@@ -538,7 +555,7 @@ mod test {
     #[test]
     fn test_echo_construct() {
         let mut bytes = vec![0; 12];
-        let mut packet = Packet::new(&mut bytes).unwrap();
+        let mut packet = Packet::new(&mut bytes);
         packet.set_msg_type(Message::EchoRequest);
         packet.set_msg_code(0);
         packet.set_echo_ident(0x1234);
@@ -558,7 +575,7 @@ mod test {
 
     #[test]
     fn test_echo_parse() {
-        let packet = Packet::new(&ECHO_PACKET_BYTES[..]).unwrap();
+        let packet = Packet::new(&ECHO_PACKET_BYTES[..]);
         let repr = Repr::parse(&packet).unwrap();
         assert_eq!(repr, echo_packet_repr());
     }
@@ -567,7 +584,7 @@ mod test {
     fn test_echo_emit() {
         let repr = echo_packet_repr();
         let mut bytes = vec![0; repr.buffer_len()];
-        let mut packet = Packet::new(&mut bytes).unwrap();
+        let mut packet = Packet::new(&mut bytes);
         repr.emit(&mut packet);
         assert_eq!(&packet.into_inner()[..], &ECHO_PACKET_BYTES[..]);
     }

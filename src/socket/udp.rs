@@ -155,7 +155,7 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
                    payload: &[u8]) -> Result<(), Error> {
         if ip_repr.protocol() != IpProtocol::Udp { return Err(Error::Rejected) }
 
-        let packet = try!(UdpPacket::new(&payload[..ip_repr.payload_len()]));
+        let packet = try!(UdpPacket::new_checked(&payload[..ip_repr.payload_len()]));
         let repr = try!(UdpRepr::parse(&packet, &ip_repr.src_addr(), &ip_repr.dst_addr()));
 
         if repr.dst_port != self.endpoint.port { return Err(Error::Rejected) }
@@ -202,7 +202,7 @@ impl<'a> IpPayload for UdpRepr<'a> {
     }
 
     fn emit(&self, repr: &IpRepr, payload: &mut [u8]) {
-        let mut packet = UdpPacket::new(payload).expect("undersized payload");
+        let mut packet = UdpPacket::new(payload);
         self.emit(&mut packet, &repr.src_addr(), &repr.dst_addr())
     }
 }

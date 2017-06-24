@@ -91,14 +91,29 @@ mod field {
 }
 
 impl<T: AsRef<[u8]>> Frame<T> {
-    /// Wrap a buffer with an Ethernet frame. Returns an error if the buffer
-    /// is too small or too large to contain one.
-    pub fn new(buffer: T) -> Result<Frame<T>, Error> {
-        let len = buffer.as_ref().len();
+    /// Imbue a raw octet buffer with Ethernet frame structure.
+    pub fn new(buffer: T) -> Frame<T> {
+        Frame { buffer }
+    }
+
+    /// Shorthand for a combination of [new] and [check_len].
+    ///
+    /// [new]: #method.new
+    /// [check_len]: #method.check_len
+    pub fn new_checked(buffer: T) -> Result<Frame<T>, Error> {
+        let packet = Self::new(buffer);
+        try!(packet.check_len());
+        Ok(packet)
+    }
+
+    /// Ensure that no accessor method will panic if called.
+    /// Returns `Err(Error::Truncated)` if the buffer is too short.
+    pub fn check_len(&self) -> Result<(), Error> {
+        let len = self.buffer.as_ref().len();
         if len < field::PAYLOAD.start {
             Err(Error::Truncated)
         } else {
-            Ok(Frame { buffer: buffer })
+            Ok(())
         }
     }
 
@@ -194,7 +209,7 @@ use super::pretty_print::{PrettyPrint, PrettyIndent};
 impl<T: AsRef<[u8]>> PrettyPrint for Frame<T> {
     fn pretty_print(buffer: &AsRef<[u8]>, f: &mut fmt::Formatter,
                     indent: &mut PrettyIndent) -> fmt::Result {
-        let frame = match Frame::new(buffer) {
+        let frame = match Frame::new_checked(buffer) {
             Err(err)  => return write!(f, "{}({})\n", indent, err),
             Ok(frame) => frame
         };
@@ -238,7 +253,7 @@ mod test {
 
     #[test]
     fn test_deconstruct() {
-        let frame = Frame::new(&FRAME_BYTES[..]).unwrap();
+        let frame = Frame::new(&FRAME_BYTES[..]);
         assert_eq!(frame.dst_addr(), Address([0x01, 0x02, 0x03, 0x04, 0x05, 0x06]));
         assert_eq!(frame.src_addr(), Address([0x11, 0x12, 0x13, 0x14, 0x15, 0x16]));
         assert_eq!(frame.ethertype(), EtherType::Ipv4);
@@ -248,7 +263,7 @@ mod test {
     #[test]
     fn test_construct() {
         let mut bytes = vec![0; 64];
-        let mut frame = Frame::new(&mut bytes).unwrap();
+        let mut frame = Frame::new(&mut bytes);
         frame.set_dst_addr(Address([0x01, 0x02, 0x03, 0x04, 0x05, 0x06]));
         frame.set_src_addr(Address([0x11, 0x12, 0x13, 0x14, 0x15, 0x16]));
         frame.set_ethertype(EtherType::Ipv4);

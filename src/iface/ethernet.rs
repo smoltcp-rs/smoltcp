@@ -117,7 +117,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
 
         // Now, receive any incoming packets.
         let rx_buffer = try!(self.device.receive());
-        let eth_frame = try!(EthernetFrame::new(&rx_buffer));
+        let eth_frame = try!(EthernetFrame::new_checked(&rx_buffer));
 
         if !eth_frame.dst_addr().is_broadcast() &&
                 eth_frame.dst_addr() != self.hardware_addr {
@@ -128,7 +128,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         match eth_frame.ethertype() {
             // Snoop all ARP traffic, and respond to ARP packets directed at us.
             EthernetProtocol::Arp => {
-                let arp_packet = try!(ArpPacket::new(eth_frame.payload()));
+                let arp_packet = try!(ArpPacket::new_checked(eth_frame.payload()));
                 match try!(ArpRepr::parse(&arp_packet)) {
                     // Respond to ARP requests aimed at us, and fill the ARP cache
                     // from all ARP requests, including gratuitous.
@@ -170,7 +170,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
 
             // Handle IP packets directed at us.
             EthernetProtocol::Ipv4 => {
-                let ipv4_packet = try!(Ipv4Packet::new(eth_frame.payload()));
+                let ipv4_packet = try!(Ipv4Packet::new_checked(eth_frame.payload()));
                 let ipv4_repr = try!(Ipv4Repr::parse(&ipv4_packet));
 
                 // Fill the ARP cache from IP header.
@@ -195,7 +195,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
 
                     // Respond to ICMP packets.
                     Ipv4Repr { protocol: IpProtocol::Icmp, src_addr, dst_addr, .. } => {
-                        let icmp_packet = try!(Icmpv4Packet::new(ipv4_packet.payload()));
+                        let icmp_packet = try!(Icmpv4Packet::new_checked(ipv4_packet.payload()));
                         let icmp_repr = try!(Icmpv4Repr::parse(&icmp_packet));
                         match icmp_repr {
                             // Respond to echo requests.
@@ -251,7 +251,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                         }
 
                         if !handled && protocol == IpProtocol::Tcp {
-                            let tcp_packet = try!(TcpPacket::new(ipv4_packet.payload()));
+                            let tcp_packet = try!(TcpPacket::new_checked(ipv4_packet.payload()));
                             if !tcp_packet.rst() {
                                 let tcp_reply_repr = TcpRepr {
                                     src_port:     tcp_packet.dst_port(),
@@ -312,12 +312,13 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                 let frame_len = EthernetFrame::<&[u8]>::buffer_len($ip_repr.buffer_len() +
                                                                    $ip_repr.payload_len);
                 $tx_buffer = try!(self.device.transmit(frame_len));
-                $frame = try!(EthernetFrame::new(&mut $tx_buffer));
+                $frame = EthernetFrame::new_checked(&mut $tx_buffer)
+                                       .expect("transmit frame too small");
                 $frame.set_src_addr(self.hardware_addr);
                 $frame.set_dst_addr(dst_hardware_addr);
                 $frame.set_ethertype(EthernetProtocol::Ipv4);
 
-                let mut ip_packet = try!(Ipv4Packet::new($frame.payload_mut()));
+                let mut ip_packet = Ipv4Packet::new($frame.payload_mut());
                 $ip_repr.emit(&mut ip_packet);
                 ip_packet
             })
@@ -327,7 +328,8 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
             Response::Arp(repr) => {
                 let tx_len = EthernetFrame::<&[u8]>::buffer_len(repr.buffer_len());
                 let mut tx_buffer = try!(self.device.transmit(tx_len));
-                let mut frame = try!(EthernetFrame::new(&mut tx_buffer));
+                let mut frame = EthernetFrame::new_checked(&mut tx_buffer)
+                                              .expect("transmit frame too small");
                 frame.set_src_addr(self.hardware_addr);
                 frame.set_dst_addr(match repr {
                     ArpRepr::EthernetIpv4 { target_hardware_addr, .. } => target_hardware_addr,
@@ -335,7 +337,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                 });
                 frame.set_ethertype(EthernetProtocol::Arp);
 
-                let mut packet = try!(ArpPacket::new(frame.payload_mut()));
+                let mut packet = ArpPacket::new(frame.payload_mut());
                 repr.emit(&mut packet);
 
                 Ok(())
@@ -345,7 +347,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                 let mut tx_buffer;
                 let mut frame;
                 let mut ip_packet = ip_response!(tx_buffer, frame, ip_repr);
-                let mut icmp_packet = try!(Icmpv4Packet::new(ip_packet.payload_mut()));
+                let mut icmp_packet = Icmpv4Packet::new(ip_packet.payload_mut());
                 icmp_repr.emit(&mut icmp_packet);
                 Ok(())
             }
@@ -354,7 +356,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                 let mut tx_buffer;
                 let mut frame;
                 let mut ip_packet = ip_response!(tx_buffer, frame, ip_repr);
-                let mut tcp_packet = try!(TcpPacket::new(ip_packet.payload_mut()));
+                let mut tcp_packet = TcpPacket::new(ip_packet.payload_mut());
                 tcp_repr.emit(&mut tcp_packet,
                               &IpAddress::Ipv4(ip_repr.src_addr),
                               &IpAddress::Ipv4(ip_repr.dst_addr));
@@ -388,14 +390,15 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                         let tx_len = EthernetFrame::<&[u8]>::buffer_len(repr.buffer_len() +
                                                                         payload.buffer_len());
                         let mut tx_buffer = try!(device.transmit(tx_len));
-                        let mut frame = try!(EthernetFrame::new(&mut tx_buffer));
+                        let mut frame = EthernetFrame::new_checked(&mut tx_buffer)
+                                                      .expect("transmit frame too small");
                         frame.set_src_addr(src_hardware_addr);
                         frame.set_dst_addr(dst_hardware_addr);
                         frame.set_ethertype(EthernetProtocol::Ipv4);
 
                         repr.emit(frame.payload_mut());
 
-                        let mut ip_packet = try!(Ipv4Packet::new(frame.payload_mut()));
+                        let mut ip_packet = Ipv4Packet::new(frame.payload_mut());
                         payload.emit(&repr, ip_packet.payload_mut());
                     }
 
@@ -418,12 +421,13 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
 
                         let tx_len = EthernetFrame::<&[u8]>::buffer_len(payload.buffer_len());
                         let mut tx_buffer = try!(device.transmit(tx_len));
-                        let mut frame = try!(EthernetFrame::new(&mut tx_buffer));
+                        let mut frame = EthernetFrame::new_checked(&mut tx_buffer)
+                                                      .expect("transmit frame too small");
                         frame.set_src_addr(src_hardware_addr);
                         frame.set_dst_addr(EthernetAddress([0xff; 6]));
                         frame.set_ethertype(EthernetProtocol::Arp);
 
-                        let mut arp_packet = try!(ArpPacket::new(frame.payload_mut()));
+                        let mut arp_packet = ArpPacket::new(frame.payload_mut());
                         payload.emit(&mut arp_packet);
                     }
                 }

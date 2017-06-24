@@ -84,9 +84,9 @@ fn main() {
                     .send(ipv4_repr.buffer_len() + icmp_repr.buffer_len())
                     .unwrap();
 
-                let mut ipv4_packet = Ipv4Packet::new(raw_payload).unwrap();
+                let mut ipv4_packet = Ipv4Packet::new(raw_payload);
                 ipv4_repr.emit(&mut ipv4_packet);
-                let mut icmp_packet = Icmpv4Packet::new(ipv4_packet.payload_mut()).unwrap();
+                let mut icmp_packet = Icmpv4Packet::new(ipv4_packet.payload_mut());
                 icmp_repr.emit(&mut icmp_packet);
 
                 waiting_queue.insert(seq_no, timestamp);
@@ -96,11 +96,11 @@ fn main() {
 
             if socket.can_recv() {
                 let payload = socket.recv().unwrap();
-                let ipv4_packet = Ipv4Packet::new(payload).unwrap();
+                let ipv4_packet = Ipv4Packet::new(payload);
                 let ipv4_repr = Ipv4Repr::parse(&ipv4_packet).unwrap();
 
                 if ipv4_repr.src_addr == remote_addr && ipv4_repr.dst_addr == local_addr {
-                    let icmp_packet = Icmpv4Packet::new(ipv4_packet.payload()).unwrap();
+                    let icmp_packet = Icmpv4Packet::new(ipv4_packet.payload());
                     let icmp_repr = Icmpv4Repr::parse(&icmp_packet);
 
                     if let Ok(Icmpv4Repr::EchoReply { seq_no, data, .. }) = icmp_repr {

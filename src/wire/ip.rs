@@ -267,9 +267,12 @@ impl IpRepr {
     /// This function panics if invoked on an unspecified representation.
     pub fn buffer_len(&self) -> usize {
         match self {
-            &IpRepr::Unspecified { .. } => panic!("unspecified IP representation"),
-            &IpRepr::Ipv4(repr) => repr.buffer_len(),
-            &IpRepr::__Nonexhaustive => unreachable!()
+            &IpRepr::Unspecified { .. } =>
+                panic!("unspecified IP representation"),
+            &IpRepr::Ipv4(repr) =>
+                repr.buffer_len(),
+            &IpRepr::__Nonexhaustive =>
+                unreachable!()
         }
     }
 
@@ -279,12 +282,12 @@ impl IpRepr {
     /// This function panics if invoked on an unspecified representation.
     pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(&self, buffer: T) {
         match self {
-            &IpRepr::Unspecified { .. } => panic!("unspecified IP representation"),
-            &IpRepr::Ipv4(repr) => {
-                let mut packet = Ipv4Packet::new(buffer).expect("undersized buffer");
-                repr.emit(&mut packet)
-            }
-            &IpRepr::__Nonexhaustive => unreachable!()
+            &IpRepr::Unspecified { .. } =>
+                panic!("unspecified IP representation"),
+            &IpRepr::Ipv4(repr) =>
+                repr.emit(&mut Ipv4Packet::new(buffer)),
+            &IpRepr::__Nonexhaustive =>
+                unreachable!()
         }
     }
 }

@@ -112,8 +112,7 @@ mod parsing;
 /// The error type for the networking stack.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Error {
-    /// An incoming packet could not be parsed, or an outgoing packet could not be emitted
-    /// because a field was out of bounds for the underlying buffer.
+    /// An incoming packet could not be parsed.
     Truncated,
     /// An incoming packet could not be recognized and was dropped.
     /// E.g. a packet with an unknown EtherType.

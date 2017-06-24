@@ -179,10 +179,10 @@ impl<'a, 'b> RawSocket<'a, 'b> {
 
         match self.ip_version {
             IpVersion::Ipv4 => {
-                let mut ipv4_packet = Ipv4Packet::new(packet_buf.as_mut())?;
+                let mut ipv4_packet = Ipv4Packet::new_checked(packet_buf.as_mut())?;
                 ipv4_packet.fill_checksum();
 
-                let ipv4_packet = Ipv4Packet::new(&*ipv4_packet.into_inner())?;
+                let ipv4_packet = Ipv4Packet::new(&*ipv4_packet.into_inner());
                 let raw_repr = RawRepr(ipv4_packet.payload());
                 let ipv4_repr = Ipv4Repr::parse(&ipv4_packet)?;
                 emit(&IpRepr::Ipv4(ipv4_repr), &raw_repr)
