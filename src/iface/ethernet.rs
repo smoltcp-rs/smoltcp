@@ -257,6 +257,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                                     src_port:     tcp_packet.dst_port(),
                                     dst_port:     tcp_packet.src_port(),
                                     control:      TcpControl::Rst,
+                                    push:         false,
                                     seq_number:   tcp_packet.ack_number(),
                                     ack_number:   Some(tcp_packet.seq_number() +
                                                        tcp_packet.segment_len()),

@@ -939,6 +939,7 @@ impl<'a> TcpSocket<'a> {
             src_port:     self.local_endpoint.port,
             dst_port:     self.remote_endpoint.port,
             control:      TcpControl::None,
+            push:         false,
             seq_number:   self.local_seq_no,
             ack_number:   None,
             window_len:   self.rx_buffer.window() as u16,
@@ -1199,14 +1200,14 @@ mod test {
 
     const SEND_TEMPL: TcpRepr<'static> = TcpRepr {
         src_port: REMOTE_PORT, dst_port: LOCAL_PORT,
-        control: TcpControl::None,
+        control: TcpControl::None, push: false,
         seq_number: TcpSeqNumber(0), ack_number: Some(TcpSeqNumber(0)),
         window_len: 256, max_seg_size: None,
         payload: &[]
     };
     const RECV_TEMPL:  TcpRepr<'static> = TcpRepr {
         src_port: LOCAL_PORT, dst_port: REMOTE_PORT,
-        control: TcpControl::None,
+        control: TcpControl::None, push: false,
         seq_number: TcpSeqNumber(0), ack_number: Some(TcpSeqNumber(0)),
         window_len: 64, max_seg_size: None,
         payload: &[]

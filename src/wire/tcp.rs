@@ -615,6 +615,7 @@ pub struct Repr<'a> {
     pub src_port:     u16,
     pub dst_port:     u16,
     pub control:      Control,
+    pub push:         bool,
     pub seq_number:   SeqNumber,
     pub ack_number:   Option<SeqNumber>,
     pub window_len:   u16,
@@ -670,6 +671,7 @@ impl<'a> Repr<'a> {
             src_port:     packet.src_port(),
             dst_port:     packet.dst_port(),
             control:      control,
+            push:         packet.psh(),
             seq_number:   packet.seq_number(),
             ack_number:   ack_number,
             window_len:   packet.window_len(),
@@ -710,6 +712,7 @@ impl<'a> Repr<'a> {
             Control::Fin  => packet.set_fin(true),
             Control::Rst  => packet.set_rst(true)
         }
+        packet.set_psh(self.push);
         packet.set_ack(self.ack_number.is_some());
         {
             let mut options = packet.options_mut();
@@ -779,6 +782,9 @@ impl<'a> fmt::Display for Repr<'a> {
             Control::Fin => write!(f, " fin")?,
             Control::Rst => write!(f, " rst")?,
             Control::None => ()
+        }
+        if self.push {
+            write!(f, " psh")?;
         }
         write!(f, " seq={}", self.seq_number)?;
         if let Some(ack_number) = self.ack_number {
@@ -892,8 +898,8 @@ mod test {
         [0xbf, 0x00, 0x00, 0x50,
          0x01, 0x23, 0x45, 0x67,
          0x00, 0x00, 0x00, 0x00,
-         0x50, 0x02, 0x01, 0x23,
-         0x7a, 0x8d, 0x00, 0x00,
+         0x50, 0x0a, 0x01, 0x23,
+         0x7a, 0x85, 0x00, 0x00,
          0xaa, 0x00, 0x00, 0xff];
 
     fn packet_repr() -> Repr<'static> {
@@ -904,6 +910,7 @@ mod test {
             ack_number:   None,
             window_len:   0x0123,
             control:      Control::Syn,
+            push:         true,
             max_seg_size: None,
             payload:      &PAYLOAD_BYTES
         }
