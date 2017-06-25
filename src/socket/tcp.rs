@@ -1034,6 +1034,10 @@ impl<'a> TcpSocket<'a> {
                                data.len(), offset);
                     repr.seq_number += offset;
                     repr.payload = data;
+                    // If that was the last data we had buffered, set the PSH flag.
+                    if offset + data.len() == self.tx_buffer.len() {
+                        repr.push = true;
+                    }
                     // Speculatively shrink the remote window. This will get updated
                     // the next time we receive a packet.
                     self.remote_win_len  -= data.len();
@@ -1270,6 +1274,12 @@ mod test {
         ($socket:ident, $result:expr) =>
             (recv!($socket, time 0, $result));
         ($socket:ident, time $time:expr, $result:expr) =>
+            (recv(&mut $socket, $time, |repr| {
+                // Most of the time we don't care about the PSH flag.
+                let repr = repr.map(|r| TcpRepr { push: false, ..r });
+                assert_eq!(repr, $result)
+            }));
+        ($socket:ident, time $time:expr, $result:expr, exact) =>
             (recv(&mut $socket, $time, |repr| assert_eq!(repr, $result)));
     }
 
@@ -2579,5 +2589,39 @@ mod test {
             assert_eq!(packet.window_len(), 5920);
             Ok(())
         }).unwrap();
+    }
+
+    // =========================================================================================//
+    // Tests for flow control.
+    // =========================================================================================//
+
+    #[test]
+    fn test_psh() {
+        let mut s = socket_established();
+        s.remote_win_len = 6;
+        s.send_slice(b"abcdef").unwrap();
+        s.send_slice(b"123456").unwrap();
+        s.close();
+        recv!(s, time 0, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            push:       false,
+            payload:    &b"abcdef"[..],
+            ..RECV_TEMPL
+        }), exact);
+        send!(s, time 0, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1 + 6),
+            window_len: 6,
+            ..SEND_TEMPL
+        });
+        recv!(s, time 0, Ok(TcpRepr {
+            control:    TcpControl::Fin,
+            seq_number: LOCAL_SEQ + 1 + 6,
+            ack_number: Some(REMOTE_SEQ + 1),
+            push:       true,
+            payload:    &b"123456"[..],
+            ..RECV_TEMPL
+        }), exact);
     }
 }
