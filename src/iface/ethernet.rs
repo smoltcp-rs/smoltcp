@@ -297,6 +297,10 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
 
         // The packet wasn't handled by a socket, send a TCP RST packet.
         let tcp_packet = TcpPacket::new_checked(ip_payload)?;
+        if tcp_packet.rst() {
+            // Don't reply to a TCP RST packet with another TCP RST packet.
+            return Ok(Response::Nop)
+        }
         let tcp_reply_repr = TcpRepr {
             src_port:     tcp_packet.dst_port(),
             dst_port:     tcp_packet.src_port(),
