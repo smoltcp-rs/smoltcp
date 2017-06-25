@@ -334,7 +334,6 @@ impl<'a> TcpSocket<'a> {
         self.remote_last_seq = TcpSeqNumber(0);
         self.remote_last_ack = TcpSeqNumber(0);
         self.remote_win_len  = 0;
-        self.remote_win_len  = 0;
         self.remote_mss      = DEFAULT_MSS;
         self.retransmit.reset();
         self.tx_buffer.clear();
@@ -986,7 +985,7 @@ impl<'a> TcpSocket<'a> {
                 _ => self.remote_last_seq = self.local_seq_no
             }
         } else if self.retransmit.may_send_new(timestamp) {
-            // The retransmit timer has reset, and we can send something new.
+            // The retransmit timer has been reset, and we can send something new.
         } else {
             // We don't have anything to send at this time.
             return Err(Error::Exhausted)
@@ -1091,7 +1090,7 @@ impl<'a> TcpSocket<'a> {
 
             if repr.control == TcpControl::Syn {
                 // First enable the option, without assigning any value, to get a correct
-                // result for (ip_repr:Unspecified).payload_len below.
+                // result for the payload_len field of ip_repr below.
                 repr.max_seg_size = Some(0);
             }
 
