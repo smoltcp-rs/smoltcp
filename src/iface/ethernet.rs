@@ -8,7 +8,7 @@ use wire::{Ipv4Packet, Ipv4Repr};
 use wire::{Icmpv4Packet, Icmpv4Repr, Icmpv4DstUnreachable};
 use wire::{IpAddress, IpProtocol, IpRepr};
 use wire::{TcpPacket, TcpRepr, TcpControl};
-use socket::{Socket, SocketSet, RawSocket, AsSocket};
+use socket::{Socket, SocketSet, RawSocket, TcpSocket, UdpSocket, AsSocket};
 use super::ArpCache;
 
 /// An Ethernet network interface.
@@ -21,6 +21,13 @@ pub struct Interface<'a, 'b, 'c, DeviceT: Device + 'a> {
     arp_cache:      Managed<'b, ArpCache>,
     hardware_addr:  EthernetAddress,
     protocol_addrs: ManagedSlice<'c, IpAddress>,
+}
+
+enum Response<'a> {
+    Nop,
+    Arp(ArpRepr),
+    Icmpv4(Ipv4Repr, Icmpv4Repr<'a>),
+    Tcpv4(Ipv4Repr, TcpRepr<'a>)
 }
 
 impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
@@ -103,13 +110,6 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
     ///
     /// The timestamp is a monotonically increasing number of milliseconds.
     pub fn poll(&mut self, sockets: &mut SocketSet, timestamp: u64) -> Result<(), Error> {
-        enum Response<'a> {
-            Nop,
-            Arp(ArpRepr),
-            Icmpv4(Ipv4Repr, Icmpv4Repr<'a>),
-            Tcpv4(Ipv4Repr, TcpRepr<'a>)
-        }
-
         // First, transmit any outgoing packets.
         loop {
             if self.emit(sockets, timestamp)? { break }
@@ -119,189 +119,239 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         let rx_buffer = self.device.receive()?;
         let eth_frame = EthernetFrame::new_checked(&rx_buffer)?;
 
+        // Ignore any packets not directed to our hardware address.
         if !eth_frame.dst_addr().is_broadcast() &&
                 eth_frame.dst_addr() != self.hardware_addr {
             return Ok(())
         }
 
-        let mut response = Response::Nop;
-        match eth_frame.ethertype() {
-            // Snoop all ARP traffic, and respond to ARP packets directed at us.
-            EthernetProtocol::Arp => {
-                let arp_packet = ArpPacket::new_checked(eth_frame.payload())?;
-                match ArpRepr::parse(&arp_packet)? {
-                    // Respond to ARP requests aimed at us, and fill the ARP cache
-                    // from all ARP requests, including gratuitous.
-                    ArpRepr::EthernetIpv4 {
-                        operation: ArpOperation::Request,
-                        source_hardware_addr, source_protocol_addr,
-                        target_protocol_addr, ..
-                    } => {
-                        if source_protocol_addr.is_unicast() && source_hardware_addr.is_unicast() {
-                            self.arp_cache.fill(&source_protocol_addr.into(),
-                                                &source_hardware_addr);
-                        }
+        let response = match eth_frame.ethertype() {
+            EthernetProtocol::Arp =>
+                self.process_arp(&eth_frame)?,
+            EthernetProtocol::Ipv4 =>
+                self.process_ipv4(sockets, timestamp, &eth_frame)?,
+            // Drop all other traffic.
+            _ => return Err(Error::Unrecognized),
+        };
 
-                        if self.has_protocol_addr(target_protocol_addr) {
-                            response = Response::Arp(ArpRepr::EthernetIpv4 {
-                                operation: ArpOperation::Reply,
-                                source_hardware_addr: self.hardware_addr,
-                                source_protocol_addr: target_protocol_addr,
-                                target_hardware_addr: source_hardware_addr,
-                                target_protocol_addr: source_protocol_addr
-                            })
-                        }
-                    },
+        self.send_response(response)
+    }
 
-                    // Fill the ARP cache from gratuitous ARP replies.
-                    ArpRepr::EthernetIpv4 {
+    // Snoop all ARP traffic, and respond to ARP packets directed at us.
+    fn process_arp<'frame, T: AsRef<[u8]>>
+                  (&mut self, eth_frame: &EthernetFrame<&'frame T>) ->
+                  Result<Response<'frame>, Error> {
+        let arp_packet = ArpPacket::new_checked(eth_frame.payload())?;
+        let arp_repr = ArpRepr::parse(&arp_packet)?;
+
+        match arp_repr {
+            // Respond to ARP requests aimed at us, and fill the ARP cache
+            // from all ARP requests, including gratuitous.
+            ArpRepr::EthernetIpv4 {
+                operation: ArpOperation::Request,
+                source_hardware_addr, source_protocol_addr,
+                target_protocol_addr, ..
+            } => {
+                if source_protocol_addr.is_unicast() && source_hardware_addr.is_unicast() {
+                    self.arp_cache.fill(&source_protocol_addr.into(),
+                                        &source_hardware_addr);
+                }
+
+                if self.has_protocol_addr(target_protocol_addr) {
+                    Ok(Response::Arp(ArpRepr::EthernetIpv4 {
                         operation: ArpOperation::Reply,
-                        source_hardware_addr, source_protocol_addr, ..
-                    } => {
-                        if source_protocol_addr.is_unicast() && source_hardware_addr.is_unicast() {
-                            self.arp_cache.fill(&source_protocol_addr.into(),
-                                                &source_hardware_addr);
-                        }
-                    },
-
-                    _ => return Err(Error::Unrecognized)
-                }
-            },
-
-            // Handle IP packets directed at us.
-            EthernetProtocol::Ipv4 => {
-                let ipv4_packet = Ipv4Packet::new_checked(eth_frame.payload())?;
-                let ipv4_repr = Ipv4Repr::parse(&ipv4_packet)?;
-
-                // Fill the ARP cache from IP header.
-                if ipv4_repr.src_addr.is_unicast() && eth_frame.src_addr().is_unicast() {
-                    self.arp_cache.fill(&IpAddress::Ipv4(ipv4_repr.src_addr),
-                                        &eth_frame.src_addr());
-                }
-
-                // Pass every IP packet to all raw sockets we have registered.
-                for raw_socket in sockets.iter_mut().filter_map(
-                        <Socket as AsSocket<RawSocket>>::try_as_socket) {
-                    match raw_socket.process(timestamp, &IpRepr::Ipv4(ipv4_repr),
-                                             ipv4_packet.payload()) {
-                        Ok(()) | Err(Error::Rejected) => (),
-                        _ => unreachable!(),
-                    }
-                }
-
-                match ipv4_repr {
-                    // Ignore IP packets not directed at us.
-                    Ipv4Repr { dst_addr, .. } if !self.has_protocol_addr(dst_addr) => (),
-
-                    // Respond to ICMP packets.
-                    Ipv4Repr { protocol: IpProtocol::Icmp, src_addr, dst_addr, .. } => {
-                        let icmp_packet = Icmpv4Packet::new_checked(ipv4_packet.payload())?;
-                        let icmp_repr = Icmpv4Repr::parse(&icmp_packet)?;
-                        match icmp_repr {
-                            // Respond to echo requests.
-                            Icmpv4Repr::EchoRequest {
-                                ident, seq_no, data
-                            } => {
-                                let icmp_reply_repr = Icmpv4Repr::EchoReply {
-                                    ident:  ident,
-                                    seq_no: seq_no,
-                                    data:   data
-                                };
-                                let ipv4_reply_repr = Ipv4Repr {
-                                    src_addr:    dst_addr,
-                                    dst_addr:    src_addr,
-                                    protocol:    IpProtocol::Icmp,
-                                    payload_len: icmp_reply_repr.buffer_len()
-                                };
-                                response = Response::Icmpv4(ipv4_reply_repr, icmp_reply_repr)
-                            }
-
-                            // Ignore any echo replies.
-                            Icmpv4Repr::EchoReply { .. } => (),
-
-                            // FIXME: do something correct here?
-                            _ => return Err(Error::Unrecognized)
-                        }
-                    },
-
-                    // Try dispatching a packet to a socket.
-                    Ipv4Repr { src_addr, dst_addr, protocol, .. } => {
-                        let mut handled = false;
-                        for socket in sockets.iter_mut() {
-                            let ip_repr = IpRepr::Ipv4(ipv4_repr);
-                            match socket.process(timestamp, &ip_repr, ipv4_packet.payload()) {
-                                Ok(()) => {
-                                    // The packet was valid and handled by socket.
-                                    handled = true;
-                                    break
-                                }
-                                Err(Error::Rejected) => {
-                                    // The packet wasn't addressed to the socket.
-                                    // For TCP, send RST only if no other socket accepts
-                                    // the packet.
-                                    continue
-                                }
-                                Err(Error::Malformed) => {
-                                    // The packet was addressed to the socket but is malformed.
-                                    // For TCP, send RST immediately.
-                                    break
-                                }
-                                Err(e) => return Err(e)
-                            }
-                        }
-
-                        if !handled && protocol == IpProtocol::Tcp {
-                            let tcp_packet = TcpPacket::new_checked(ipv4_packet.payload())?;
-                            if !tcp_packet.rst() {
-                                let tcp_reply_repr = TcpRepr {
-                                    src_port:     tcp_packet.dst_port(),
-                                    dst_port:     tcp_packet.src_port(),
-                                    control:      TcpControl::Rst,
-                                    push:         false,
-                                    seq_number:   tcp_packet.ack_number(),
-                                    ack_number:   Some(tcp_packet.seq_number() +
-                                                       tcp_packet.segment_len()),
-                                    window_len:   0,
-                                    max_seg_size: None,
-                                    payload:      &[]
-                                };
-                                let ipv4_reply_repr = Ipv4Repr {
-                                    src_addr:    dst_addr,
-                                    dst_addr:    src_addr,
-                                    protocol:    IpProtocol::Tcp,
-                                    payload_len: tcp_reply_repr.buffer_len()
-                                };
-                                response = Response::Tcpv4(ipv4_reply_repr, tcp_reply_repr);
-                            }
-                        } else if !handled {
-                            let reason;
-                            if protocol == IpProtocol::Udp {
-                                reason = Icmpv4DstUnreachable::PortUnreachable
-                            } else {
-                                reason = Icmpv4DstUnreachable::ProtoUnreachable
-                            }
-
-                            let icmp_reply_repr = Icmpv4Repr::DstUnreachable {
-                                reason: reason,
-                                header: ipv4_repr,
-                                data:   &ipv4_packet.payload()[0..8]
-                            };
-                            let ipv4_reply_repr = Ipv4Repr {
-                                src_addr:    dst_addr,
-                                dst_addr:    src_addr,
-                                protocol:    IpProtocol::Icmp,
-                                payload_len: icmp_reply_repr.buffer_len()
-                            };
-                            response = Response::Icmpv4(ipv4_reply_repr, icmp_reply_repr)
-                        }
-                    },
+                        source_hardware_addr: self.hardware_addr,
+                        source_protocol_addr: target_protocol_addr,
+                        target_hardware_addr: source_hardware_addr,
+                        target_protocol_addr: source_protocol_addr
+                    }))
+                } else {
+                    Ok(Response::Nop)
                 }
             }
 
-            // Drop all other traffic.
-            _ => return Err(Error::Unrecognized)
+            // Fill the ARP cache from gratuitous ARP replies.
+            ArpRepr::EthernetIpv4 {
+                operation: ArpOperation::Reply,
+                source_hardware_addr, source_protocol_addr, ..
+            } => {
+                if source_protocol_addr.is_unicast() && source_hardware_addr.is_unicast() {
+                    self.arp_cache.fill(&source_protocol_addr.into(),
+                                        &source_hardware_addr);
+                }
+                Ok(Response::Nop)
+            }
+
+            _ => Err(Error::Unrecognized)
+        }
+    }
+
+    fn process_ipv4<'frame, T: AsRef<[u8]>>
+                   (&mut self, sockets: &mut SocketSet, timestamp: u64,
+                    eth_frame: &EthernetFrame<&'frame T>) ->
+                   Result<Response<'frame>, Error> {
+        let ipv4_packet = Ipv4Packet::new_checked(eth_frame.payload())?;
+        let ipv4_repr = Ipv4Repr::parse(&ipv4_packet)?;
+
+        if ipv4_repr.src_addr.is_unicast() && eth_frame.src_addr().is_unicast() {
+            // Fill the ARP cache from IP header of unicast frames.
+            self.arp_cache.fill(&IpAddress::Ipv4(ipv4_repr.src_addr),
+                                &eth_frame.src_addr());
         }
 
+        // Pass every IP packet to all raw sockets we have registered.
+        let mut handled_by_raw_socket = false;
+        for raw_socket in sockets.iter_mut().filter_map(
+                <Socket as AsSocket<RawSocket>>::try_as_socket) {
+            match raw_socket.process(timestamp, &IpRepr::Ipv4(ipv4_repr),
+                                     ipv4_packet.payload()) {
+                Ok(()) => handled_by_raw_socket = true,
+                Err(Error::Rejected) => (),
+                _ => unreachable!(),
+            }
+        }
+
+        if !self.has_protocol_addr(ipv4_repr.dst_addr) {
+            // Ignore IP packets not directed at us.
+            return Ok(Response::Nop)
+        }
+
+        match ipv4_repr.protocol {
+            IpProtocol::Icmp =>
+                Self::process_icmpv4(ipv4_repr, ipv4_packet.payload()),
+            IpProtocol::Tcp =>
+                Self::process_tcpv4(sockets, timestamp, ipv4_repr, ipv4_packet.payload()),
+            IpProtocol::Udp =>
+                Self::process_udpv4(sockets, timestamp, ipv4_repr, ipv4_packet.payload()),
+            _ => {
+                if handled_by_raw_socket {
+                    Ok(Response::Nop)
+                } else {
+                    let icmp_reply_repr = Icmpv4Repr::DstUnreachable {
+                        reason: Icmpv4DstUnreachable::PortUnreachable,
+                        header: ipv4_repr,
+                        data:   &ipv4_packet.payload()[0..8]
+                    };
+                    let ipv4_reply_repr = Ipv4Repr {
+                        src_addr:    ipv4_repr.dst_addr,
+                        dst_addr:    ipv4_repr.src_addr,
+                        protocol:    IpProtocol::Icmp,
+                        payload_len: icmp_reply_repr.buffer_len()
+                    };
+                    Ok(Response::Icmpv4(ipv4_reply_repr, icmp_reply_repr))
+                }
+            }
+        }
+    }
+
+    fn process_icmpv4<'frame>(ipv4_repr: Ipv4Repr, ip_payload: &'frame [u8]) ->
+                             Result<Response<'frame>, Error> {
+        let icmp_packet = Icmpv4Packet::new_checked(ip_payload)?;
+        let icmp_repr = Icmpv4Repr::parse(&icmp_packet)?;
+
+        match icmp_repr {
+            // Respond to echo requests.
+            Icmpv4Repr::EchoRequest {
+                ident, seq_no, data
+            } => {
+                let icmp_reply_repr = Icmpv4Repr::EchoReply {
+                    ident:  ident,
+                    seq_no: seq_no,
+                    data:   data
+                };
+                let ipv4_reply_repr = Ipv4Repr {
+                    src_addr:    ipv4_repr.dst_addr,
+                    dst_addr:    ipv4_repr.src_addr,
+                    protocol:    IpProtocol::Icmp,
+                    payload_len: icmp_reply_repr.buffer_len()
+                };
+                Ok(Response::Icmpv4(ipv4_reply_repr, icmp_reply_repr))
+            }
+
+            // Ignore any echo replies.
+            Icmpv4Repr::EchoReply { .. } => Ok(Response::Nop),
+
+            // FIXME: do something correct here?
+            _ => Err(Error::Unrecognized),
+        }
+    }
+
+    fn process_tcpv4<'frame>(sockets: &mut SocketSet, timestamp: u64,
+                             ipv4_repr: Ipv4Repr, ip_payload: &'frame [u8]) ->
+                            Result<Response<'frame>, Error> {
+        let ip_repr = IpRepr::Ipv4(ipv4_repr);
+
+        for tcp_socket in sockets.iter_mut().filter_map(
+                <Socket as AsSocket<TcpSocket>>::try_as_socket) {
+            match tcp_socket.process(timestamp, &ip_repr, ip_payload) {
+                // The packet was valid and handled by socket.
+                Ok(()) => return Ok(Response::Nop),
+                // The packet wasn't addressed to the socket.
+                // Send RST only if no other socket accepts the packet.
+                Err(Error::Rejected) => continue,
+                // The packet was addressed to the socket but is malformed.
+                Err(Error::Malformed) => break,
+                Err(e) => return Err(e)
+            }
+        }
+
+        // The packet wasn't handled by a socket, send a TCP RST packet.
+        let tcp_packet = TcpPacket::new_checked(ip_payload)?;
+        let tcp_reply_repr = TcpRepr {
+            src_port:     tcp_packet.dst_port(),
+            dst_port:     tcp_packet.src_port(),
+            control:      TcpControl::Rst,
+            push:         false,
+            seq_number:   tcp_packet.ack_number(),
+            ack_number:   Some(tcp_packet.seq_number() +
+                               tcp_packet.segment_len()),
+            window_len:   0,
+            max_seg_size: None,
+            payload:      &[]
+        };
+        let ipv4_reply_repr = Ipv4Repr {
+            src_addr:    ipv4_repr.dst_addr,
+            dst_addr:    ipv4_repr.src_addr,
+            protocol:    IpProtocol::Tcp,
+            payload_len: tcp_reply_repr.buffer_len()
+        };
+        Ok(Response::Tcpv4(ipv4_reply_repr, tcp_reply_repr))
+    }
+
+    fn process_udpv4<'frame>(sockets: &mut SocketSet, timestamp: u64,
+                             ipv4_repr: Ipv4Repr, ip_payload: &'frame [u8]) ->
+                            Result<Response<'frame>, Error> {
+        let ip_repr = IpRepr::Ipv4(ipv4_repr);
+
+        for udp_socket in sockets.iter_mut().filter_map(
+                <Socket as AsSocket<UdpSocket>>::try_as_socket) {
+            match udp_socket.process(timestamp, &ip_repr, ip_payload) {
+                // The packet was valid and handled by socket.
+                Ok(()) => return Ok(Response::Nop),
+                // The packet wasn't addressed to the socket.
+                Err(Error::Rejected) => continue,
+                // The packet was addressed to the socket but is malformed.
+                Err(Error::Malformed) => break,
+                Err(e) => return Err(e)
+            }
+        }
+
+        //The packet wasn't handled by a socket, send an ICMP port unreachable packet.
+        let icmp_reply_repr = Icmpv4Repr::DstUnreachable {
+            reason: Icmpv4DstUnreachable::PortUnreachable,
+            header: ipv4_repr,
+            data:   &ip_payload[0..8]
+        };
+        let ipv4_reply_repr = Ipv4Repr {
+            src_addr:    ipv4_repr.dst_addr,
+            dst_addr:    ipv4_repr.src_addr,
+            protocol:    IpProtocol::Icmp,
+            payload_len: icmp_reply_repr.buffer_len()
+        };
+        Ok(Response::Icmpv4(ipv4_reply_repr, icmp_reply_repr))
+    }
+
+    fn send_response(&mut self, response: Response) -> Result<(), Error> {
         macro_rules! ip_response {
             ($tx_buffer:ident, $frame:ident, $ip_repr:ident) => ({
                 let dst_hardware_addr =
@@ -449,4 +499,3 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         Ok(nothing_to_transmit)
     }
 }
-
