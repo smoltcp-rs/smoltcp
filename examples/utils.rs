@@ -15,13 +15,18 @@ pub fn setup_logging() {
     LogBuilder::new()
         .format(move |record: &LogRecord| {
             let elapsed = Instant::now().duration_since(startup_time);
-            if record.target().starts_with("smoltcp::") {
-                format!("\x1b[0m[{:6}.{:03}s] ({}): {}\x1b[0m",
-                        elapsed.as_secs(), elapsed.subsec_nanos() / 1000000,
+            let timestamp = format!("[{:6}.{:03}s]",
+                                    elapsed.as_secs(), elapsed.subsec_nanos() / 1000000);
+            if record.target().ends_with("::utils") {
+                let mut message = format!("{}", record.args());
+                message.pop();
+                format!("\x1b[37m{} {}\x1b[0m", timestamp,
+                        message.replace("\n", "\n             "))
+            } else if record.target().starts_with("smoltcp::") {
+                format!("\x1b[0m{} ({}): {}\x1b[0m", timestamp,
                         record.target().replace("smoltcp::", ""), record.args())
             } else {
-                format!("\x1b[32m[{:6}.{:03}s] ({}): {}\x1b[0m",
-                        elapsed.as_secs(), elapsed.subsec_nanos() / 1000000,
+                format!("\x1b[32m{} ({}): {}\x1b[0m", timestamp,
                         record.target(), record.args())
             }
         })
@@ -68,7 +73,7 @@ pub fn setup_device(more_args: &[&str])
     let seed = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().subsec_nanos();
 
     fn trace_writer(printer: PrettyPrinter<EthernetFrame<&[u8]>>) {
-        print!("\x1b[37m{}\x1b[0m", printer)
+        trace!("{}", printer)
     }
 
     let device = TapInterface::new(&matches.free[0]).unwrap();
