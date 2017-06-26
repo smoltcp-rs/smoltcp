@@ -173,7 +173,11 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
                 checksum::data(&data[..self.len() as usize])
             ])
         };
-        self.set_checksum(checksum)
+        // UDP checksum value of 0 means no checksum; if the checksum really is zero,
+        // use all-ones, which indicates that the remote end must verify the checksum.
+        // Arithmetically, RFC 1071 checksums of all-zeroes and all-ones behave identically,
+        // so no action is necessary on the remote end.
+        self.set_checksum(if checksum == 0 { 0xffff } else { checksum })
     }
 }
 
@@ -315,6 +319,17 @@ mod test {
         let mut packet = Packet::new(&mut bytes);
         packet.set_len(4);
         assert_eq!(packet.check_len(), Err(Error::Malformed));
+    }
+
+    #[test]
+    fn test_zero_checksum() {
+        let mut bytes = vec![0; 8];
+        let mut packet = Packet::new(&mut bytes);
+        packet.set_src_port(1);
+        packet.set_dst_port(31881);
+        packet.set_len(8);
+        packet.fill_checksum(&SRC_ADDR.into(), &DST_ADDR.into());
+        assert_eq!(packet.checksum(), 0xffff);
     }
 
     fn packet_repr() -> Repr<'static> {
