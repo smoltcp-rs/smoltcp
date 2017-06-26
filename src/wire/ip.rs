@@ -4,7 +4,7 @@ use Error;
 use super::{Ipv4Address, Ipv4Packet, Ipv4Repr};
 
 /// Internet protocol version.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub enum Version {
     Ipv4,
     #[doc(hidden)]
