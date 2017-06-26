@@ -262,7 +262,7 @@ mod test {
 
     #[test]
     fn test_construct() {
-        let mut bytes = vec![0; 64];
+        let mut bytes = vec![0xa5; 64];
         let mut frame = Frame::new(&mut bytes);
         frame.set_dst_addr(Address([0x01, 0x02, 0x03, 0x04, 0x05, 0x06]));
         frame.set_src_addr(Address([0x11, 0x12, 0x13, 0x14, 0x15, 0x16]));

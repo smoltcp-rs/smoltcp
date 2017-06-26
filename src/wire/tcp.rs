@@ -723,6 +723,7 @@ impl<'a> Repr<'a> {
                 TcpOption::EndOfList.emit(options);
             }
         }
+        packet.set_urgent_at(0);
         packet.payload_mut().copy_from_slice(self.payload);
         packet.fill_checksum(src_addr, dst_addr)
     }
@@ -858,13 +859,14 @@ mod test {
 
     #[test]
     fn test_construct() {
-        let mut bytes = vec![0; PACKET_BYTES.len()];
+        let mut bytes = vec![0xa5; PACKET_BYTES.len()];
         let mut packet = Packet::new(&mut bytes);
         packet.set_src_port(48896);
         packet.set_dst_port(80);
         packet.set_seq_number(SeqNumber(0x01234567));
         packet.set_ack_number(SeqNumber(0x89abcdefu32 as i32));
         packet.set_header_len(24);
+        packet.clear_flags();
         packet.set_fin(true);
         packet.set_syn(false);
         packet.set_rst(true);
@@ -926,7 +928,7 @@ mod test {
     #[test]
     fn test_emit() {
         let repr = packet_repr();
-        let mut bytes = vec![0; repr.buffer_len()];
+        let mut bytes = vec![0xa5; repr.buffer_len()];
         let mut packet = Packet::new(&mut bytes);
         repr.emit(&mut packet, &SRC_ADDR.into(), &DST_ADDR.into());
         assert_eq!(&packet.into_inner()[..], &SYN_PACKET_BYTES[..]);

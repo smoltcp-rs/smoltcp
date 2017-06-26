@@ -392,7 +392,7 @@ mod test {
 
     #[test]
     fn test_construct() {
-        let mut bytes = vec![0; 28];
+        let mut bytes = vec![0xa5; 28];
         let mut packet = Packet::new(&mut bytes);
         packet.set_hardware_type(Hardware::Ethernet);
         packet.set_protocol_type(Protocol::Ipv4);
@@ -429,7 +429,7 @@ mod test {
 
     #[test]
     fn test_emit() {
-        let mut bytes = vec![0; 28];
+        let mut bytes = vec![0xa5; 28];
         let mut packet = Packet::new(&mut bytes);
         packet_repr().emit(&mut packet);
         assert_eq!(&packet.into_inner()[..], &PACKET_BYTES[..]);

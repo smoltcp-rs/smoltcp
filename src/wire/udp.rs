@@ -298,7 +298,7 @@ mod test {
 
     #[test]
     fn test_construct() {
-        let mut bytes = vec![0; 12];
+        let mut bytes = vec![0xa5; 12];
         let mut packet = Packet::new(&mut bytes);
         packet.set_src_port(48896);
         packet.set_dst_port(53);
@@ -335,7 +335,7 @@ mod test {
     #[test]
     fn test_emit() {
         let repr = packet_repr();
-        let mut bytes = vec![0; repr.buffer_len()];
+        let mut bytes = vec![0xa5; repr.buffer_len()];
         let mut packet = Packet::new(&mut bytes);
         repr.emit(&mut packet, &SRC_ADDR.into(), &DST_ADDR.into());
         assert_eq!(&packet.into_inner()[..], &PACKET_BYTES[..]);

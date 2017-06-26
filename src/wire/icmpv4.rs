@@ -558,7 +558,7 @@ mod test {
 
     #[test]
     fn test_echo_construct() {
-        let mut bytes = vec![0; 12];
+        let mut bytes = vec![0xa5; 12];
         let mut packet = Packet::new(&mut bytes);
         packet.set_msg_type(Message::EchoRequest);
         packet.set_msg_code(0);
@@ -587,7 +587,7 @@ mod test {
     #[test]
     fn test_echo_emit() {
         let repr = echo_packet_repr();
-        let mut bytes = vec![0; repr.buffer_len()];
+        let mut bytes = vec![0xa5; repr.buffer_len()];
         let mut packet = Packet::new(&mut bytes);
         repr.emit(&mut packet);
         assert_eq!(&packet.into_inner()[..], &ECHO_PACKET_BYTES[..]);

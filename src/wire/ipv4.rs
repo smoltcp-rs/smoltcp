@@ -590,10 +590,11 @@ mod test {
 
     #[test]
     fn test_construct() {
-        let mut bytes = vec![0; 30];
+        let mut bytes = vec![0xa5; 30];
         let mut packet = Packet::new(&mut bytes);
         packet.set_version(4);
         packet.set_header_len(20);
+        packet.clear_flags();
         packet.set_dscp(0);
         packet.set_ecn(0);
         packet.set_total_len(30);
@@ -651,7 +652,7 @@ mod test {
     #[test]
     fn test_emit() {
         let repr = packet_repr();
-        let mut bytes = vec![0; repr.buffer_len() + REPR_PAYLOAD_BYTES.len()];
+        let mut bytes = vec![0xa5; repr.buffer_len() + REPR_PAYLOAD_BYTES.len()];
         let mut packet = Packet::new(&mut bytes);
         repr.emit(&mut packet);
         packet.payload_mut().copy_from_slice(&REPR_PAYLOAD_BYTES);
