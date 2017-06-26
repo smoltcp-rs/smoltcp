@@ -1,3 +1,6 @@
+// Heads up! Before working on this file you should read, at least, RFC 793 and
+// the parts of RFC 1122 that discuss TCP.
+
 use core::fmt;
 use managed::Managed;
 
@@ -697,8 +700,15 @@ impl<'a> TcpSocket<'a> {
             // Every acknowledgement must be for transmitted but unacknowledged data.
             (_, TcpRepr { ack_number: Some(ack_number), .. }) => {
                 let unacknowledged = self.tx_buffer.len() + control_len;
-                if !(ack_number >= self.local_seq_no &&
-                     ack_number <= (self.local_seq_no + unacknowledged)) {
+                if ack_number < self.local_seq_no {
+                    net_trace!("[{}]{}:{}: duplicate ACK ({} not in {}...{})",
+                               self.debug_id, self.local_endpoint, self.remote_endpoint,
+                               ack_number, self.local_seq_no, self.local_seq_no + unacknowledged);
+                    // FIXME: instead of waiting for the retransmit timer to kick in,
+                    // reset it here.
+                    return Err(Error::Dropped)
+                }
+                if ack_number > self.local_seq_no + unacknowledged {
                     net_trace!("[{}]{}:{}: unacceptable ACK ({} not in {}...{})",
                                self.debug_id, self.local_endpoint, self.remote_endpoint,
                                ack_number, self.local_seq_no, self.local_seq_no + unacknowledged);
@@ -715,20 +725,34 @@ impl<'a> TcpSocket<'a> {
             // For now, do not try to reassemble out-of-order segments.
             (_, TcpRepr { seq_number, .. }) => {
                 let next_remote_seq = self.remote_seq_no + self.rx_buffer.len();
+                let mut send_ack_again = false;
                 if seq_number > next_remote_seq {
-                    net_trace!("[{}]{}:{}: unacceptable SEQ ({} not in {}..)",
+                    net_trace!("[{}]{}:{}: unacceptable SEQ ({} not in {}..), \
+                                will send duplicate ACK",
                                self.debug_id, self.local_endpoint, self.remote_endpoint,
                                seq_number, next_remote_seq);
-                    return Err(Error::Dropped)
+                    // Some segments between what we have last received and this segment
+                    // went missing. Send a duplicate ACK; RFC 793 does not specify the behavior
+                    // required when receiving a duplicate ACK, but in practice (see RFC 1122
+                    // section 4.2.2.21) most congestion control algorithms implement what's called
+                    // a "fast retransmit", where a threshold amount of duplicate ACKs triggers
+                    // retransmission.
+                    send_ack_again = true;
                 } else if seq_number != next_remote_seq {
-                    net_trace!("[{}]{}:{}: duplicate SEQ ({} in ..{})",
+                    net_trace!("[{}]{}:{}: duplicate SEQ ({} in ..{}), \
+                                will re-send ACK",
                                self.debug_id, self.local_endpoint, self.remote_endpoint,
                                seq_number, next_remote_seq);
                     // If we've seen this sequence number already but the remote end is not aware
                     // of that, make sure we send the acknowledgement again.
+                    send_ack_again = true;
+                }
+
+                if send_ack_again {
                     self.remote_last_ack = next_remote_seq - 1;
                     self.retransmit.reset();
-                    // If we're in the TIME-WAIT state, restart the TIME-WAIT timeout.
+                    // If we're in the TIME-WAIT state, restart the TIME-WAIT timeout, since
+                    // the remote end may not realize we've closed the connection.
                     if self.state == State::TimeWait {
                         self.time_wait_since = timestamp;
                     }
@@ -2345,6 +2369,35 @@ mod test {
             seq_number: REMOTE_SEQ + 1,
             ack_number: Some(LOCAL_SEQ + 1),
             payload:    &b"abcdef"[..],
+            ..SEND_TEMPL
+        }, Err(Error::Dropped));
+        recv!(s, [TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1 + 6),
+            window_len: 58,
+            ..RECV_TEMPL
+        }]);
+    }
+
+    #[test]
+    fn test_missing_segment() {
+        let mut s = socket_established();
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            payload:    &b"abcdef"[..],
+            ..SEND_TEMPL
+        });
+        recv!(s, [TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1 + 6),
+            window_len: 58,
+            ..RECV_TEMPL
+        }]);
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1 + 6 + 6,
+            ack_number: Some(LOCAL_SEQ + 1),
+            payload:    &b"mnopqr"[..],
             ..SEND_TEMPL
         }, Err(Error::Dropped));
         recv!(s, [TcpRepr {
