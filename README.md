@@ -159,6 +159,10 @@ implement fault injection, available through command-line options:
 A good starting value for `--drop-chance` and `--corrupt-chance` is 15%. A good starting
 value for `--?x-rate-limit` is 4 and `--shaping-interval` is 50 ms.
 
+Note that packets dropped by the fault injector still get traced;
+the  `rx: randomly dropping a packet` message indicates that the packet *above* it got dropped,
+and the `tx: randomly dropping a packet` message indicates that the packet *below* it was.
+
 ### examples/tcpdump.rs
 
 _examples/tcpdump.rs_ is a tiny clone of the _tcpdump_ utility.

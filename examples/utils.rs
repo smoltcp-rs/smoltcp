@@ -36,7 +36,7 @@ pub fn setup_logging() {
 }
 
 pub fn setup_device(more_args: &[&str])
-        -> (Tracer<FaultInjector<TapInterface>, EthernetFrame<&'static [u8]>>,
+        -> (FaultInjector<Tracer<TapInterface, EthernetFrame<&'static [u8]>>>,
             Vec<String>) {
     let mut opts = getopts::Options::new();
     opts.optopt("", "drop-chance", "Chance of dropping a packet (%)", "CHANCE");
@@ -77,6 +77,7 @@ pub fn setup_device(more_args: &[&str])
     }
 
     let device = TapInterface::new(&matches.free[0]).unwrap();
+    let device = Tracer::<_, EthernetFrame<&'static [u8]>>::new(device, trace_writer);
     let mut device = FaultInjector::new(device, seed);
     device.set_drop_chance(drop_chance);
     device.set_corrupt_chance(corrupt_chance);
@@ -84,7 +85,6 @@ pub fn setup_device(more_args: &[&str])
     device.set_max_tx_rate(tx_rate_limit);
     device.set_max_rx_rate(rx_rate_limit);
     device.set_bucket_interval(Duration::from_millis(shaping_interval as u64));
-    let device = Tracer::<_, EthernetFrame<&'static [u8]>>::new(device, trace_writer);
 
     (device, matches.free[1..].to_owned())
 }
