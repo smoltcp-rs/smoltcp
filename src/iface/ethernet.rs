@@ -193,7 +193,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         let ipv4_packet = Ipv4Packet::new_checked(eth_frame.payload())?;
         let ipv4_repr = Ipv4Repr::parse(&ipv4_packet)?;
 
-        if ipv4_repr.src_addr.is_unicast() {
+        if !ipv4_repr.src_addr.is_unicast() {
             // Discard packets with non-unicast source addresses.
             return Err(Error::Malformed)
         }
