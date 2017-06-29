@@ -81,27 +81,8 @@ impl<'a, 'b> Socket<'a, 'b> {
         dispatch_socket!(self, |socket [mut]| socket.set_debug_id(id))
     }
 
-    /// Process a packet received from a network interface.
-    ///
-    /// This function checks if the packet contained in the payload matches the socket endpoint,
-    /// and if it does, copies it into the internal buffer, otherwise, `Err(Error::Rejected)`
-    /// is returned.
-    ///
-    /// This function is used internally by the networking stack.
-    pub fn process(&mut self, timestamp: u64, ip_repr: &IpRepr,
-                   payload: &[u8]) -> Result<(), Error> {
-        dispatch_socket!(self, |socket [mut]| socket.process(timestamp, ip_repr, payload))
-    }
-
-    /// Prepare a packet to be transmitted to a network interface.
-    ///
-    /// This function checks if the internal buffer is empty, and if it is not, calls `f` with
-    /// the representation of the packet to be transmitted, otherwise, `Err(Error::Exhausted)`
-    /// is returned.
-    ///
-    /// This function is used internally by the networking stack.
-    pub fn dispatch<F, R>(&mut self, timestamp: u64, limits: &DeviceLimits,
-                          emit: &mut F) -> Result<R, Error>
+    pub(crate) fn dispatch<F, R>(&mut self, timestamp: u64, limits: &DeviceLimits,
+                                 emit: &mut F) -> Result<R, Error>
             where F: FnMut(&IpRepr, &IpPayload) -> Result<R, Error> {
         dispatch_socket!(self, |socket [mut]| socket.dispatch(timestamp, limits, emit))
     }
