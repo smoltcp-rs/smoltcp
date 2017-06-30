@@ -631,9 +631,8 @@ impl<'a> TcpSocket<'a> {
         self.state = state
     }
 
-    /// See [Socket::process](enum.Socket.html#method.process).
-    pub fn process(&mut self, timestamp: u64, ip_repr: &IpRepr,
-                   payload: &[u8]) -> Result<(), Error> {
+    pub(crate) fn process(&mut self, timestamp: u64, ip_repr: &IpRepr,
+                          payload: &[u8]) -> Result<(), Error> {
         debug_assert!(ip_repr.protocol() == IpProtocol::Tcp);
 
         if self.state == State::Closed { return Err(Error::Rejected) }
@@ -953,9 +952,8 @@ impl<'a> TcpSocket<'a> {
         Ok(())
     }
 
-    /// See [Socket::dispatch](enum.Socket.html#method.dispatch).
-    pub fn dispatch<F, R>(&mut self, timestamp: u64, limits: &DeviceLimits,
-                          emit: &mut F) -> Result<R, Error>
+    pub(crate) fn dispatch<F, R>(&mut self, timestamp: u64, limits: &DeviceLimits,
+                                 emit: &mut F) -> Result<R, Error>
             where F: FnMut(&IpRepr, &IpPayload) -> Result<R, Error> {
         if self.remote_endpoint.is_unspecified() { return Err(Error::Exhausted) }
 

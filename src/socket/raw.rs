@@ -145,9 +145,8 @@ impl<'a, 'b> RawSocket<'a, 'b> {
         Ok(buffer.len())
     }
 
-    /// See [Socket::process](enum.Socket.html#method.process).
-    pub fn process(&mut self, _timestamp: u64, ip_repr: &IpRepr,
-                   payload: &[u8]) -> Result<(), Error> {
+    pub(crate) fn process(&mut self, _timestamp: u64, ip_repr: &IpRepr,
+                          payload: &[u8]) -> Result<(), Error> {
         match self.ip_version {
             IpVersion::Ipv4 => {
                 if ip_repr.protocol() != self.ip_protocol {
@@ -169,8 +168,8 @@ impl<'a, 'b> RawSocket<'a, 'b> {
     }
 
     /// See [Socket::dispatch](enum.Socket.html#method.dispatch).
-    pub fn dispatch<F, R>(&mut self, _timestamp: u64, _limits: &DeviceLimits,
-                          emit: &mut F) -> Result<R, Error>
+    pub(crate) fn dispatch<F, R>(&mut self, _timestamp: u64, _limits: &DeviceLimits,
+                                 emit: &mut F) -> Result<R, Error>
             where F: FnMut(&IpRepr, &IpPayload) -> Result<R, Error> {
         let mut packet_buf = self.tx_buffer.dequeue_mut().map_err(|()| Error::Exhausted)?;
         net_trace!("[{}]:{}:{}: sending {} octets",

@@ -150,9 +150,8 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
         Ok((buffer.len(), endpoint))
     }
 
-    /// See [Socket::process](enum.Socket.html#method.process).
-    pub fn process(&mut self, _timestamp: u64, ip_repr: &IpRepr,
-                   payload: &[u8]) -> Result<(), Error> {
+    pub(crate) fn process(&mut self, _timestamp: u64, ip_repr: &IpRepr,
+                          payload: &[u8]) -> Result<(), Error> {
         debug_assert!(ip_repr.protocol() == IpProtocol::Udp);
 
         let packet = UdpPacket::new_checked(&payload[..ip_repr.payload_len()])?;
@@ -173,9 +172,8 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
         Ok(())
     }
 
-    /// See [Socket::dispatch](enum.Socket.html#method.dispatch).
-    pub fn dispatch<F, R>(&mut self, _timestamp: u64, _limits: &DeviceLimits,
-                          emit: &mut F) -> Result<R, Error>
+    pub(crate) fn dispatch<F, R>(&mut self, _timestamp: u64, _limits: &DeviceLimits,
+                                 emit: &mut F) -> Result<R, Error>
             where F: FnMut(&IpRepr, &IpPayload) -> Result<R, Error> {
         let packet_buf = self.tx_buffer.dequeue().map_err(|()| Error::Exhausted)?;
         net_trace!("[{}]{}:{}: sending {} octets",
