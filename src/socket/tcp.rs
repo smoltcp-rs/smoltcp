@@ -634,9 +634,9 @@ impl<'a> TcpSocket<'a> {
     /// See [Socket::process](enum.Socket.html#method.process).
     pub fn process(&mut self, timestamp: u64, ip_repr: &IpRepr,
                    payload: &[u8]) -> Result<(), Error> {
-        if self.state == State::Closed { return Err(Error::Rejected) }
+        debug_assert!(ip_repr.protocol() == IpProtocol::Tcp);
 
-        if ip_repr.protocol() != IpProtocol::Tcp { return Err(Error::Rejected) }
+        if self.state == State::Closed { return Err(Error::Rejected) }
 
         let packet = TcpPacket::new_checked(&payload[..ip_repr.payload_len()])?;
         let repr = TcpRepr::parse(&packet, &ip_repr.src_addr(), &ip_repr.dst_addr())?;

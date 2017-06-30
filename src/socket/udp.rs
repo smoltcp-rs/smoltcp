@@ -153,7 +153,7 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     /// See [Socket::process](enum.Socket.html#method.process).
     pub fn process(&mut self, _timestamp: u64, ip_repr: &IpRepr,
                    payload: &[u8]) -> Result<(), Error> {
-        if ip_repr.protocol() != IpProtocol::Udp { return Err(Error::Rejected) }
+        debug_assert!(ip_repr.protocol() == IpProtocol::Udp);
 
         let packet = UdpPacket::new_checked(&payload[..ip_repr.payload_len()])?;
         let repr = UdpRepr::parse(&packet, &ip_repr.src_addr(), &ip_repr.dst_addr())?;
