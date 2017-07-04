@@ -70,6 +70,7 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     }
 
     /// Return the debug identifier.
+    #[inline]
     pub fn debug_id(&self) -> usize {
         self.debug_id
     }
@@ -94,11 +95,13 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     }
 
     /// Check whether the transmit buffer is full.
+    #[inline]
     pub fn can_send(&self) -> bool {
         !self.tx_buffer.full()
     }
 
     /// Check whether the receive buffer is not empty.
+    #[inline]
     pub fn can_recv(&self) -> bool {
         !self.rx_buffer.empty()
     }

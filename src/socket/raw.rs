@@ -70,6 +70,7 @@ impl<'a, 'b> RawSocket<'a, 'b> {
     }
 
     /// Return the debug identifier.
+    #[inline]
     pub fn debug_id(&self) -> usize {
         self.debug_id
     }
@@ -83,21 +84,25 @@ impl<'a, 'b> RawSocket<'a, 'b> {
     }
 
     /// Return the IP version the socket is bound to.
+    #[inline]
     pub fn ip_version(&self) -> IpVersion {
         self.ip_version
     }
 
     /// Return the IP protocol the socket is bound to.
+    #[inline]
     pub fn ip_protocol(&self) -> IpProtocol {
         self.ip_protocol
     }
 
     /// Check whether the transmit buffer is full.
+    #[inline]
     pub fn can_send(&self) -> bool {
         !self.tx_buffer.full()
     }
 
     /// Check whether the receive buffer is not empty.
+    #[inline]
     pub fn can_recv(&self) -> bool {
         !self.rx_buffer.empty()
     }

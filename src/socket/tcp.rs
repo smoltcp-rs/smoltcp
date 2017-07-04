@@ -298,6 +298,7 @@ impl<'a> TcpSocket<'a> {
     }
 
     /// Return the debug identifier.
+    #[inline]
     pub fn debug_id(&self) -> usize {
         self.debug_id
     }
@@ -323,6 +324,7 @@ impl<'a> TcpSocket<'a> {
     }
 
     /// Return the connection state, in terms of the TCP state machine.
+    #[inline]
     pub fn state(&self) -> State {
         self.state
     }
@@ -444,6 +446,7 @@ impl<'a> TcpSocket<'a> {
     /// Return whether the socket is passively listening for incoming connections.
     ///
     /// In terms of the TCP state machine, the socket must be in the `LISTEN` state.
+    #[inline]
     pub fn is_listening(&self) -> bool {
         match self.state {
             State::Listen => true,
@@ -458,6 +461,7 @@ impl<'a> TcpSocket<'a> {
     /// the socket; for that, use [can_send](#method.can_send) or [can_recv](#method.can_recv).
     ///
     /// In terms of the TCP state machine, the socket must be in the `CLOSED` or `TIME-WAIT` state.
+    #[inline]
     pub fn is_open(&self) -> bool {
         match self.state {
             State::Closed => false,
@@ -478,6 +482,7 @@ impl<'a> TcpSocket<'a> {
     ///
     /// In terms of the TCP state machine, the socket must be in the `CLOSED`, `TIME-WAIT`,
     /// or `LISTEN` state.
+    #[inline]
     pub fn is_active(&self) -> bool {
         match self.state {
             State::Closed => false,
@@ -496,6 +501,7 @@ impl<'a> TcpSocket<'a> {
     ///
     /// In terms of the TCP state machine, the socket must be in the `ESTABLISHED` or
     /// `CLOSE-WAIT` state.
+    #[inline]
     pub fn may_send(&self) -> bool {
         match self.state {
             State::Established => true,
@@ -514,6 +520,7 @@ impl<'a> TcpSocket<'a> {
     ///
     /// In terms of the TCP state machine, the socket must be in the `ESTABLISHED`,
     /// `FIN-WAIT-1`, or `FIN-WAIT-2` state, or have data in the receive buffer instead.
+    #[inline]
     pub fn may_recv(&self) -> bool {
         match self.state {
             State::Established => true,
@@ -528,6 +535,7 @@ impl<'a> TcpSocket<'a> {
 
     /// Check whether the transmit half of the full-duplex connection is open
     /// (see [may_send](#method.may_send), and the transmit buffer is not full.
+    #[inline]
     pub fn can_send(&self) -> bool {
         if !self.may_send() { return false }
 
@@ -536,6 +544,7 @@ impl<'a> TcpSocket<'a> {
 
     /// Check whether the receive half of the full-duplex connection buffer is open
     /// (see [may_recv](#method.may_recv), and the receive buffer is not empty.
+    #[inline]
     pub fn can_recv(&self) -> bool {
         if !self.may_recv() { return false }
 
