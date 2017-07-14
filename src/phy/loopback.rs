@@ -12,7 +12,7 @@ use std::collections::VecDeque;
 use collections::{Vec, VecDeque};
 
 use Error;
-use super::Device;
+use super::{Device, DeviceLimits};
 
 /// A loopback interface.
 #[derive(Debug)]
@@ -31,6 +31,13 @@ impl Loopback {
 impl Device for Loopback {
     type RxBuffer = Vec<u8>;
     type TxBuffer = TxBuffer;
+
+    fn limits(&self) -> DeviceLimits {
+        DeviceLimits {
+            max_transmission_unit: 65535,
+            ..DeviceLimits::default()
+        }
+    }
 
     fn receive(&mut self) -> Result<Self::RxBuffer, Error> {
         match self.0.borrow_mut().pop_front() {

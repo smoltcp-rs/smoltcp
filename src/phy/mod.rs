@@ -162,9 +162,7 @@ pub trait Device {
     type TxBuffer: AsRef<[u8]> + AsMut<[u8]>;
 
     /// Get a description of device limitations.
-    fn limits(&self) -> DeviceLimits {
-        DeviceLimits::default()
-    }
+    fn limits(&self) -> DeviceLimits;
 
     /// Receive a frame.
     ///
