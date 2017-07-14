@@ -118,7 +118,7 @@ mod tap_interface;
 pub use self::tracer::Tracer;
 pub use self::fault_injector::FaultInjector;
 #[cfg(any(feature = "std", feature = "collections"))]
-pub use self::loopback::LoopbackInterface;
+pub use self::loopback::Loopback;
 #[cfg(any(feature = "raw_socket"))]
 pub use self::raw_socket::RawSocket;
 #[cfg(all(feature = "tap_interface", target_os = "linux"))]

@@ -16,19 +16,19 @@ use super::Device;
 
 /// A loopback interface.
 #[derive(Debug)]
-pub struct LoopbackInterface(Rc<RefCell<VecDeque<Vec<u8>>>>);
+pub struct Loopback(Rc<RefCell<VecDeque<Vec<u8>>>>);
 
-impl LoopbackInterface {
+impl Loopback {
     /// Creates a loopback interface.
     ///
     /// Every packet transmitted through this interface will be received through it
     /// in FIFO order.
-    pub fn new() -> LoopbackInterface {
-        LoopbackInterface(Rc::new(RefCell::new(VecDeque::new())))
+    pub fn new() -> Loopback {
+        Loopback(Rc::new(RefCell::new(VecDeque::new())))
     }
 }
 
-impl Device for LoopbackInterface {
+impl Device for Loopback {
     type RxBuffer = Vec<u8>;
     type TxBuffer = TxBuffer;
 
