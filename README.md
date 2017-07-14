@@ -125,8 +125,8 @@ or `BufWriter` is used, which are of course not available on heap-less systems.
 
 This feature is disabled by default.
 
-Usage example
--------------
+Hosted usage examples
+---------------------
 
 _smoltcp_, being a freestanding networking stack, needs to be able to transmit and receive
 raw frames. For testing purposes, we will use a regular OS, and run _smoltcp_ in
@@ -239,6 +239,26 @@ the ECHO\_REQUEST packet is dropped and an ARP request is sent instead.
 Currently, netmasks are not implemented, and so the only address this example can reach
 is the other endpoint of the tap interface, `192.168.1.100`. It cannot reach itself because
 packets entering a tap interface do not loop back.
+
+Bare-metal usage examples
+-------------------------
+
+Examples that use no services from the host OS are necessarily less illustrative than examples
+that do. Because of this, only one such example is provided.
+
+### examples/loopback.rs
+
+_examples/loopback.rs_ performs a simple exchange between two TCP socket via a loopback interface.
+This example requires the `collections` feature to run.
+
+Read its [source code](/examples/loopback.rs), then run it as:
+
+```sh
+cargo run --example loopback
+```
+
+If the `std` feature is enabled, it will print logs and packet dumps; otherwise, nothing at all
+will be displayed.
 
 License
 -------

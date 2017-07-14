@@ -1,9 +1,11 @@
+#![allow(dead_code)]
+
 use std::str::{self, FromStr};
 use std::env;
 use std::time::{Instant, Duration, SystemTime, UNIX_EPOCH};
 use std::process;
 use log::{LogLevelFilter, LogRecord};
-use env_logger::{LogBuilder};
+use env_logger::LogBuilder;
 use getopts;
 
 use smoltcp::phy::{Tracer, FaultInjector, TapInterface};
@@ -33,6 +35,10 @@ pub fn setup_logging() {
         .filter(None, LogLevelFilter::Trace)
         .init()
         .unwrap();
+}
+
+pub fn trace_writer(printer: PrettyPrinter<EthernetFrame<&[u8]>>) {
+    trace!("{}", printer)
 }
 
 pub fn setup_device(more_args: &[&str])
@@ -71,10 +77,6 @@ pub fn setup_device(more_args: &[&str])
                                                  .unwrap_or("0".to_string())).unwrap();
 
     let seed = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().subsec_nanos();
-
-    fn trace_writer(printer: PrettyPrinter<EthernetFrame<&[u8]>>) {
-        trace!("{}", printer)
-    }
 
     let device = TapInterface::new(&matches.free[0]).unwrap();
     let device = Tracer::<_, EthernetFrame<&'static [u8]>>::new(device, trace_writer);

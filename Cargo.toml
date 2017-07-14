@@ -25,7 +25,7 @@ getopts = "0.2"
 [features]
 std = ["managed/std"]
 alloc = ["managed/alloc"]
-collections = ["managed/collections"]
+collections = ["alloc", "managed/collections"]
 verbose = []
 raw_socket = ["libc"]
 tap_interface = ["libc"]
@@ -42,3 +42,6 @@ name = "client"
 
 [[example]]
 name = "ping"
+
+[[example]]
+name = "loopback"
