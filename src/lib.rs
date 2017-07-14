@@ -1,4 +1,5 @@
 #![cfg_attr(feature = "alloc", feature(alloc))]
+#![cfg_attr(feature = "collections", feature(collections))]
 #![no_std]
 
 //! The _smoltcp_ library is built in a layered structure, with the layers corresponding
@@ -76,6 +77,9 @@ extern crate std;
 extern crate libc;
 #[cfg(feature = "alloc")]
 extern crate alloc;
+#[allow(deprecated)]
+#[cfg(feature = "collections")]
+extern crate collections;
 #[cfg(any(test, feature = "log"))]
 #[macro_use(trace, log, log_enabled)]
 extern crate log;

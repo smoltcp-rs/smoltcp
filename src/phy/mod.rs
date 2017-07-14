@@ -103,11 +103,13 @@ impl Drop for EthernetTxBuffer {
 
 use Error;
 
-#[cfg(any(feature = "raw_socket", feature="tap_interface"))]
+#[cfg(any(feature = "raw_socket", feature = "tap_interface"))]
 mod sys;
 
 mod tracer;
 mod fault_injector;
+#[cfg(any(feature = "std", feature = "collections"))]
+mod loopback;
 #[cfg(feature = "raw_socket")]
 mod raw_socket;
 #[cfg(all(feature = "tap_interface", target_os = "linux"))]
@@ -115,6 +117,8 @@ mod tap_interface;
 
 pub use self::tracer::Tracer;
 pub use self::fault_injector::FaultInjector;
+#[cfg(any(feature = "std", feature = "collections"))]
+pub use self::loopback::LoopbackInterface;
 #[cfg(any(feature = "raw_socket"))]
 pub use self::raw_socket::RawSocket;
 #[cfg(all(feature = "tap_interface", target_os = "linux"))]
@@ -158,7 +162,9 @@ pub trait Device {
     type TxBuffer: AsRef<[u8]> + AsMut<[u8]>;
 
     /// Get a description of device limitations.
-    fn limits(&self) -> DeviceLimits;
+    fn limits(&self) -> DeviceLimits {
+        DeviceLimits::default()
+    }
 
     /// Receive a frame.
     ///
