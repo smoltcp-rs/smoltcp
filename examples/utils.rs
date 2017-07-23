@@ -36,7 +36,7 @@ pub fn setup_logging() {
     let startup_at = Instant::now();
     setup_logging_with_clock(move  || {
         let elapsed = Instant::now().duration_since(startup_at);
-        elapsed.as_secs() * 1000 + (elapsed.subsec_nanos() / 1000) as u64
+        elapsed.as_secs() * 1000 + (elapsed.subsec_nanos() / 1000000) as u64
     })
 }
 
