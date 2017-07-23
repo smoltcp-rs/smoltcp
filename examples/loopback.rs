@@ -15,7 +15,6 @@ mod utils;
 
 use smoltcp::Error;
 use smoltcp::phy::Loopback;
-use smoltcp::phy::EthernetTracer;
 use smoltcp::wire::{EthernetAddress, IpAddress};
 use smoltcp::iface::{ArpCache, SliceArpCache, EthernetInterface};
 use smoltcp::socket::{AsSocket, SocketSet};
@@ -69,18 +68,13 @@ mod mock {
 
 fn main() {
     let clock = mock::Clock::new();
-
-    #[cfg(feature = "std")]
-    {
-        let clock = clock.clone();
-        utils::setup_logging_with_clock("", move || clock.elapsed());
-    }
-
     let mut device = Loopback::new();
-    let mut device = EthernetTracer::new(device, |_timestamp, printer| trace!("{}", printer));
 
     #[cfg(feature = "std")]
     let mut device = {
+        let clock = clock.clone();
+        utils::setup_logging_with_clock("", move || clock.elapsed());
+
         let (mut opts, mut free) = utils::create_options();
         utils::add_middleware_options(&mut opts, &mut free);
 
