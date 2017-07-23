@@ -201,17 +201,18 @@ impl Retransmit {
         }
     }
 
-    fn commit(&mut self, timestamp: u64) -> bool {
+    fn commit(&mut self, timestamp: u64) -> Option<u64> {
         if self.delay == 0 {
             self.delay      = 100; // ms
             self.resend_at  = timestamp + self.delay;
-            false
+            None
         } else if timestamp >= self.resend_at {
+            let actual_delay = (timestamp - self.resend_at) + self.delay;
             self.resend_at  = timestamp + self.delay;
             self.delay     *= 2;
-            true
+            Some(actual_delay)
         } else {
-            false
+            None
         }
     }
 }
@@ -1109,10 +1110,10 @@ impl<'a> TcpSocket<'a> {
         }
 
         if should_send {
-            if self.retransmit.commit(timestamp) {
-                net_trace!("[{}]{}:{}: retransmit after {}ms",
+            if let Some(actual_delay) = self.retransmit.commit(timestamp) {
+                net_trace!("[{}]{}:{}: retransmitting at t+{}ms ",
                            self.debug_id, self.local_endpoint, self.remote_endpoint,
-                           self.retransmit.delay);
+                           actual_delay);
             }
 
             if self.state != State::SynSent {
