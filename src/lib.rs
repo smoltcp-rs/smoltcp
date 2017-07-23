@@ -84,34 +84,17 @@ extern crate collections;
 #[macro_use(trace, log, log_enabled)]
 extern crate log;
 
-macro_rules! net_trace {
-    ($($arg:expr),*) => {
-        #[cfg(feature = "log")]
-        trace!($($arg),*);
-        #[cfg(not(feature = "log"))]
-        $( let _ = $arg );*; // suppress unused variable warnings
-    }
-}
-
-macro_rules! net_trace_enabled {
-    () => ({
-        #[cfg(feature = "log")]
-        fn enabled() -> bool { log_enabled!($crate::log::LogLevel::Trace) }
-        #[cfg(not(feature = "log"))]
-        fn enabled() -> bool { false }
-        enabled()
-    })
-}
-
 use core::fmt;
+
+#[macro_use]
+mod macros;
+mod parsing;
 
 pub mod storage;
 pub mod phy;
 pub mod wire;
 pub mod iface;
 pub mod socket;
-
-mod parsing;
 
 /// The error type for the networking stack.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
