@@ -22,9 +22,10 @@ impl TapInterface {
     pub fn new(name: &str) -> io::Result<TapInterface> {
         let mut lower = sys::TapInterfaceDesc::new(name)?;
         lower.attach_interface()?;
+        let mtu = lower.interface_mtu()?;
         Ok(TapInterface {
             lower: Rc::new(RefCell::new(lower)),
-            mtu:   1536 // FIXME: get the real value somehow
+            mtu:   mtu
         })
     }
 }

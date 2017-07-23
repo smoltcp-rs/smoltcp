@@ -30,6 +30,16 @@ impl TapInterfaceDesc {
         ifreq_ioctl(self.lower, &mut self.ifreq, imp::TUNSETIFF).map(|_| ())
     }
 
+    pub fn interface_mtu(&mut self) -> io::Result<usize> {
+        let lower = unsafe {
+            let lower = libc::socket(libc::AF_INET, libc::SOCK_DGRAM, libc::IPPROTO_IP);
+            if lower == -1 { return Err(io::Error::last_os_error()) }
+            lower
+        };
+
+        ifreq_ioctl(lower, &mut self.ifreq, imp::SIOCGIFMTU).map(|mtu| mtu as usize)
+    }
+
     fn wait(&mut self, ms: u32) -> io::Result<bool> {
         unsafe {
             let mut readfds = mem::uninitialized::<libc::fd_set>();
