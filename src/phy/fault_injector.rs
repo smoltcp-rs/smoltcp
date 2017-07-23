@@ -1,6 +1,3 @@
-#[cfg(feature = "std")]
-use std::time::{Instant, Duration};
-
 use Error;
 use super::{DeviceLimits, Device};
 
@@ -24,22 +21,16 @@ struct Config {
     drop_pct:    u8,
     reorder_pct: u8,
     max_size:    usize,
-    #[cfg(feature = "std")]
     max_tx_rate: u64,
-    #[cfg(feature = "std")]
     max_rx_rate: u64,
-    #[cfg(feature = "std")]
-    interval:    Duration,
+    interval:    u64,
 }
 
 #[derive(Debug, Clone, Copy)]
 struct State {
     rng_seed:    u32,
-    #[cfg(feature = "std")]
-    refilled_at: Instant,
-    #[cfg(feature = "std")]
+    refilled_at: u64,
     tx_bucket:   u64,
-    #[cfg(feature = "std")]
     rx_bucket:   u64,
 }
 
@@ -56,20 +47,18 @@ impl State {
         buffer[index] ^= bit;
     }
 
-    #[cfg(feature = "std")]
-    fn refill(&mut self, config: &Config) {
-        if self.refilled_at.elapsed() > config.interval {
+    fn refill(&mut self, config: &Config, timestamp: u64) {
+        if self.refilled_at - timestamp > config.interval {
             self.tx_bucket = config.max_tx_rate;
             self.rx_bucket = config.max_rx_rate;
-            self.refilled_at = Instant::now();
+            self.refilled_at = timestamp;
         }
     }
 
-    #[cfg(feature = "std")]
-    fn maybe_transmit(&mut self, config: &Config) -> bool {
+    fn maybe_transmit(&mut self, config: &Config, timestamp: u64) -> bool {
         if config.max_tx_rate == 0 { return true }
 
-        self.refill(config);
+        self.refill(config, timestamp);
         if self.tx_bucket > 0 {
             self.tx_bucket -= 1;
             true
@@ -78,27 +67,16 @@ impl State {
         }
     }
 
-    #[cfg(not(feature = "std"))]
-    fn maybe_transmit(&mut self, _config: &Config) -> bool {
-        true
-    }
-
-    #[cfg(feature = "std")]
-    fn maybe_receive(&mut self, config: &Config) -> bool {
+    fn maybe_receive(&mut self, config: &Config, timestamp: u64) -> bool {
         if config.max_rx_rate == 0 { return true }
 
-        self.refill(config);
+        self.refill(config, timestamp);
         if self.rx_bucket > 0 {
             self.rx_bucket -= 1;
             true
         } else {
             false
         }
-    }
-
-    #[cfg(not(feature = "std"))]
-    fn maybe_receive(&mut self, _config: &Config) -> bool {
-        true
     }
 }
 
@@ -117,16 +95,11 @@ pub struct FaultInjector<D: Device> {
 impl<D: Device> FaultInjector<D> {
     /// Create a fault injector device, using the given random number generator seed.
     pub fn new(inner: D, seed: u32) -> FaultInjector<D> {
-        #[cfg(feature = "std")]
         let state = State {
             rng_seed:    seed,
-            refilled_at: Instant::now(),
+            refilled_at: 0,
             tx_bucket:   0,
             rx_bucket:   0,
-        };
-        #[cfg(not(feature = "std"))]
-        let state = State {
-            rng_seed:    seed,
         };
         FaultInjector {
             inner: inner,
@@ -156,20 +129,17 @@ impl<D: Device> FaultInjector<D> {
     }
 
     /// Return the maximum packet transmission rate, in packets per second.
-    #[cfg(feature = "std")]
     pub fn max_tx_rate(&self) -> u64 {
         self.config.max_rx_rate
     }
 
     /// Return the maximum packet reception rate, in packets per second.
-    #[cfg(feature = "std")]
     pub fn max_rx_rate(&self) -> u64 {
         self.config.max_tx_rate
     }
 
     /// Return the interval for packet rate limiting, in milliseconds.
-    #[cfg(feature = "std")]
-    pub fn bucket_interval(&self) -> Duration {
+    pub fn bucket_interval(&self) -> u64 {
         self.config.interval
     }
 
@@ -197,21 +167,18 @@ impl<D: Device> FaultInjector<D> {
     }
 
     /// Set the maximum packet transmission rate, in packets per interval.
-    #[cfg(feature = "std")]
     pub fn set_max_tx_rate(&mut self, rate: u64) {
         self.config.max_tx_rate = rate
     }
 
     /// Set the maximum packet reception rate, in packets per interval.
-    #[cfg(feature = "std")]
     pub fn set_max_rx_rate(&mut self, rate: u64) {
         self.config.max_rx_rate = rate
     }
 
     /// Set the interval for packet rate limiting, in milliseconds.
-    #[cfg(feature = "std")]
-    pub fn set_bucket_interval(&mut self, interval: Duration) {
-        self.state.refilled_at = Instant::now() - self.config.interval;
+    pub fn set_bucket_interval(&mut self, interval: u64) {
+        self.state.refilled_at = 0;
         self.config.interval = interval
     }
 }
@@ -243,7 +210,7 @@ impl<D: Device> Device for FaultInjector<D>
             net_trace!("rx: dropping a packet that is too large");
             return Err(Error::Exhausted)
         }
-        if !self.state.maybe_receive(&self.config) {
+        if !self.state.maybe_receive(&self.config, timestamp) {
             net_trace!("rx: dropping a packet because of rate limiting");
             return Err(Error::Exhausted)
         }
@@ -258,7 +225,7 @@ impl<D: Device> Device for FaultInjector<D>
         } else if self.config.max_size > 0 && length > self.config.max_size {
             net_trace!("tx: dropping a packet that is too large");
             buffer = None;
-        } else if !self.state.maybe_transmit(&self.config) {
+        } else if !self.state.maybe_transmit(&self.config, timestamp) {
             net_trace!("tx: dropping a packet because of rate limiting");
             buffer = None;
         } else {

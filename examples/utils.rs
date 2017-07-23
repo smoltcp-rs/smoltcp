@@ -3,7 +3,7 @@ use std::str::{self, FromStr};
 use std::rc::Rc;
 use std::io;
 use std::fs::File;
-use std::time::{Instant, Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use std::env;
 use std::process;
 use log::{LogLevel, LogLevelFilter, LogRecord};
@@ -106,18 +106,18 @@ pub fn add_middleware_options(opts: &mut Options, _free: &mut Vec<&str>) {
 
 pub fn parse_middleware_options<D: Device>(matches: &mut Matches, device: D, loopback: bool)
         -> FaultInjector<EthernetTracer<PcapWriter<D, Rc<PcapSink>>>> {
-    let drop_chance    = u8::from_str(&matches.opt_str("drop-chance")
-                                             .unwrap_or("0".to_string())).unwrap();
-    let corrupt_chance = u8::from_str(&matches.opt_str("corrupt-chance")
-                                             .unwrap_or("0".to_string())).unwrap();
-    let size_limit = usize::from_str(&matches.opt_str("size-limit")
-                                             .unwrap_or("0".to_string())).unwrap();
-    let tx_rate_limit = u64::from_str(&matches.opt_str("tx-rate-limit")
-                                              .unwrap_or("0".to_string())).unwrap();
-    let rx_rate_limit = u64::from_str(&matches.opt_str("rx-rate-limit")
-                                              .unwrap_or("0".to_string())).unwrap();
-    let shaping_interval = u32::from_str(&matches.opt_str("shaping-interval")
-                                                 .unwrap_or("0".to_string())).unwrap();
+    let drop_chance      = matches.opt_str("drop-chance").map(|s| u8::from_str(&s).unwrap())
+                                  .unwrap_or(0);
+    let corrupt_chance   = matches.opt_str("corrupt-chance").map(|s| u8::from_str(&s).unwrap())
+                                  .unwrap_or(0);
+    let size_limit       = matches.opt_str("size-limit").map(|s| usize::from_str(&s).unwrap())
+                                  .unwrap_or(0);
+    let tx_rate_limit    = matches.opt_str("tx-rate-limit").map(|s| u64::from_str(&s).unwrap())
+                                  .unwrap_or(0);
+    let rx_rate_limit    = matches.opt_str("rx-rate-limit").map(|s| u64::from_str(&s).unwrap())
+                                  .unwrap_or(0);
+    let shaping_interval = matches.opt_str("shaping-interval").map(|s| u64::from_str(&s).unwrap())
+                                  .unwrap_or(0);
 
     let pcap_writer: Box<io::Write>;
     if let Some(pcap_filename) = matches.opt_str("pcap") {
@@ -138,6 +138,6 @@ pub fn parse_middleware_options<D: Device>(matches: &mut Matches, device: D, loo
     device.set_max_packet_size(size_limit);
     device.set_max_tx_rate(tx_rate_limit);
     device.set_max_rx_rate(rx_rate_limit);
-    device.set_bucket_interval(Duration::from_millis(shaping_interval as u64));
+    device.set_bucket_interval(shaping_interval);
     device
 }
