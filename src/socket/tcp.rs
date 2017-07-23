@@ -852,6 +852,15 @@ impl<'a> TcpSocket<'a> {
                 self.retransmit.reset();
             }
 
+            // FIN packets in the SYN-RECEIVED state change it to CLOSE-WAIT.
+            // It's not obvious from RFC 793 that this is permitted, but
+            // 7th and 8th steps in the "SEGMENT ARRIVES" event describe this behavior.
+            (State::SynReceived, TcpRepr { control: TcpControl::Fin, .. }) => {
+                self.remote_seq_no  += 1;
+                self.set_state(State::CloseWait);
+                self.retransmit.reset();
+            }
+
             // SYN|ACK packets in the SYN-SENT state change it to ESTABLISHED.
             (State::SynSent, TcpRepr {
                 control: TcpControl::Syn, seq_number, ack_number: Some(_),
@@ -1498,7 +1507,7 @@ mod test {
     }
 
     #[test]
-    fn test_syn_received_syn_ack() {
+    fn test_syn_received_ack() {
         let mut s = socket_syn_received();
         recv!(s, [TcpRepr {
             control: TcpControl::Syn,
@@ -1514,6 +1523,30 @@ mod test {
         });
         assert_eq!(s.state, State::Established);
         sanity!(s, socket_established());
+    }
+
+    #[test]
+    fn test_syn_received_fin() {
+        let mut s = socket_syn_received();
+        recv!(s, [TcpRepr {
+            control: TcpControl::Syn,
+            seq_number: LOCAL_SEQ,
+            ack_number: Some(REMOTE_SEQ + 1),
+            max_seg_size: Some(1480),
+            ..RECV_TEMPL
+        }]);
+        send!(s, TcpRepr {
+            control: TcpControl::Fin,
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            payload: &b"abcdef"[..],
+            ..SEND_TEMPL
+        });
+        assert_eq!(s.state, State::CloseWait);
+        sanity!(s, TcpSocket {
+            remote_last_ack: REMOTE_SEQ + 1,
+            ..socket_close_wait()
+        });
     }
 
     #[test]

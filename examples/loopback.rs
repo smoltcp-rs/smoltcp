@@ -1,6 +1,8 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![allow(unused_mut)]
 
+#[cfg(feature = "std")]
+use std as core;
 #[macro_use]
 extern crate log;
 extern crate smoltcp;
@@ -13,6 +15,7 @@ extern crate getopts;
 #[allow(dead_code)]
 mod utils;
 
+use core::str;
 use smoltcp::Error;
 use smoltcp::phy::Loopback;
 use smoltcp::wire::{EthernetAddress, IpAddress};
@@ -126,13 +129,14 @@ fn main() {
             let socket: &mut TcpSocket = socket_set.get_mut(server_handle).as_socket();
             if !socket.is_active() && !socket.is_listening() {
                 if !did_listen {
+                    debug!("listening");
                     socket.listen(1234).unwrap();
                     did_listen = true;
                 }
             }
 
             if socket.can_recv() {
-                debug!("got {:?}", socket.recv(32).unwrap());
+                debug!("got {:?}", str::from_utf8(socket.recv(32).unwrap()).unwrap());
                 socket.close();
                 done = true;
             }
@@ -142,6 +146,7 @@ fn main() {
             let socket: &mut TcpSocket = socket_set.get_mut(client_handle).as_socket();
             if !socket.is_open() {
                 if !did_connect {
+                    debug!("connecting");
                     socket.connect((IpAddress::v4(127, 0, 0, 1), 1234),
                                    (IpAddress::Unspecified, 65000)).unwrap();
                     did_connect = true;
@@ -149,6 +154,7 @@ fn main() {
             }
 
             if socket.can_send() {
+                debug!("sending");
                 socket.send_slice(b"0123456789abcdef").unwrap();
                 socket.close();
             }
@@ -162,7 +168,9 @@ fn main() {
         clock.advance(1);
     }
 
-    if !done {
-        error!("this is taking too long, bailing out");
+    if done {
+        info!("done")
+    } else {
+        error!("this is taking too long, bailing out")
     }
 }
