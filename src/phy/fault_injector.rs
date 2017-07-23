@@ -109,14 +109,14 @@ impl State {
 /// or hardware limitations (such as a limited number or size of usable network buffers).
 #[derive(Debug)]
 pub struct FaultInjector<D: Device> {
-    lower:  D,
+    inner:  D,
     state:  State,
     config: Config
 }
 
 impl<D: Device> FaultInjector<D> {
     /// Create a fault injector device, using the given random number generator seed.
-    pub fn new(lower: D, seed: u32) -> FaultInjector<D> {
+    pub fn new(inner: D, seed: u32) -> FaultInjector<D> {
         #[cfg(feature = "std")]
         let state = State {
             rng_seed:    seed,
@@ -129,15 +129,15 @@ impl<D: Device> FaultInjector<D> {
             rng_seed:    seed,
         };
         FaultInjector {
-            lower: lower,
+            inner: inner,
             state: state,
             config: Config::default()
         }
     }
 
     /// Return the underlying device, consuming the fault injector.
-    pub fn into_lower(self) -> D {
-        self.lower
+    pub fn into_inner(self) -> D {
+        self.inner
     }
 
     /// Return the probability of corrupting a packet, in percents.
@@ -222,7 +222,7 @@ impl<D: Device> Device for FaultInjector<D>
     type TxBuffer = TxBuffer<D::TxBuffer>;
 
     fn limits(&self) -> DeviceLimits {
-        let mut limits = self.lower.limits();
+        let mut limits = self.inner.limits();
         if limits.max_transmission_unit > MTU {
             limits.max_transmission_unit = MTU;
         }
@@ -230,7 +230,7 @@ impl<D: Device> Device for FaultInjector<D>
     }
 
     fn receive(&mut self, timestamp: u64) -> Result<Self::RxBuffer, Error> {
-        let mut buffer = self.lower.receive(timestamp)?;
+        let mut buffer = self.inner.receive(timestamp)?;
         if self.state.maybe(self.config.drop_pct) {
             net_trace!("rx: randomly dropping a packet");
             return Err(Error::Exhausted)
@@ -262,7 +262,7 @@ impl<D: Device> Device for FaultInjector<D>
             net_trace!("tx: dropping a packet because of rate limiting");
             buffer = None;
         } else {
-            buffer = Some(self.lower.transmit(timestamp, length)?);
+            buffer = Some(self.inner.transmit(timestamp, length)?);
         }
         Ok(TxBuffer {
             buffer: buffer,

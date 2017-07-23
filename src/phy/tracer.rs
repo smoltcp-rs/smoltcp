@@ -8,22 +8,22 @@ use super::{DeviceLimits, Device};
 /// using the provided writer function, and then passes them to another
 /// device.
 pub struct Tracer<D: Device, P: PrettyPrint> {
-    lower:     D,
+    inner:     D,
     writer:    fn(u64, PrettyPrinter<P>)
 }
 
 impl<D: Device, P: PrettyPrint> Tracer<D, P> {
     /// Create a tracer device.
-    pub fn new(lower: D, writer: fn(timestamp: u64, printer: PrettyPrinter<P>)) -> Tracer<D, P> {
+    pub fn new(inner: D, writer: fn(timestamp: u64, printer: PrettyPrinter<P>)) -> Tracer<D, P> {
         Tracer {
-            lower:   lower,
+            inner:   inner,
             writer:  writer
         }
     }
 
     /// Return the underlying device, consuming the tracer.
-    pub fn into_lower(self) -> D {
-        self.lower
+    pub fn into_inner(self) -> D {
+        self.inner
     }
 }
 
@@ -31,16 +31,16 @@ impl<D: Device, P: PrettyPrint> Device for Tracer<D, P> {
     type RxBuffer = D::RxBuffer;
     type TxBuffer = TxBuffer<D::TxBuffer, P>;
 
-    fn limits(&self) -> DeviceLimits { self.lower.limits() }
+    fn limits(&self) -> DeviceLimits { self.inner.limits() }
 
     fn receive(&mut self, timestamp: u64) -> Result<Self::RxBuffer, Error> {
-        let buffer = self.lower.receive(timestamp)?;
+        let buffer = self.inner.receive(timestamp)?;
         (self.writer)(timestamp, PrettyPrinter::<P>::new("<- ", &buffer));
         Ok(buffer)
     }
 
     fn transmit(&mut self, timestamp: u64, length: usize) -> Result<Self::TxBuffer, Error> {
-        let buffer = self.lower.transmit(timestamp, length)?;
+        let buffer = self.inner.transmit(timestamp, length)?;
         Ok(TxBuffer { buffer, timestamp, writer: self.writer })
     }
 }
