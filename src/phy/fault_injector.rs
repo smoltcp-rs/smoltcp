@@ -229,8 +229,8 @@ impl<T: Device> Device for FaultInjector<T>
         limits
     }
 
-    fn receive(&mut self) -> Result<Self::RxBuffer, Error> {
-        let mut buffer = self.lower.receive()?;
+    fn receive(&mut self, timestamp: u64) -> Result<Self::RxBuffer, Error> {
+        let mut buffer = self.lower.receive(timestamp)?;
         if self.state.maybe(self.config.drop_pct) {
             net_trace!("rx: randomly dropping a packet");
             return Err(Error::Exhausted)
@@ -250,7 +250,7 @@ impl<T: Device> Device for FaultInjector<T>
         Ok(buffer)
     }
 
-    fn transmit(&mut self, length: usize) -> Result<Self::TxBuffer, Error> {
+    fn transmit(&mut self, timestamp: u64, length: usize) -> Result<Self::TxBuffer, Error> {
         let buffer;
         if self.state.maybe(self.config.drop_pct) {
             net_trace!("tx: randomly dropping a packet");
@@ -262,7 +262,7 @@ impl<T: Device> Device for FaultInjector<T>
             net_trace!("tx: dropping a packet because of rate limiting");
             buffer = None;
         } else {
-            buffer = Some(self.lower.transmit(length)?);
+            buffer = Some(self.lower.transmit(timestamp, length)?);
         }
         Ok(TxBuffer {
             buffer: buffer,

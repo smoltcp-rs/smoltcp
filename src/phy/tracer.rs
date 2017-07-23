@@ -8,26 +8,13 @@ use super::{DeviceLimits, Device};
 /// using the provided writer function, and then passes them to another
 /// device.
 pub struct Tracer<T: Device, U: PrettyPrint> {
-    lower:   T,
-    writer:  fn(PrettyPrinter<U>)
+    lower:     T,
+    writer:    fn(u64, PrettyPrinter<U>)
 }
 
 impl<T: Device, U: PrettyPrint> Tracer<T, U> {
     /// Create a tracer device.
-    pub fn new(lower: T, writer: fn(PrettyPrinter<U>)) -> Tracer<T, U> {
-        Tracer {
-            lower:   lower,
-            writer:  writer
-        }
-    }
-
-    /// Create a tracer device, printing to standard output.
-    #[cfg(feature = "std")]
-    pub fn new_stdout(lower: T) -> Tracer<T, U> {
-        fn writer<U: PrettyPrint>(printer: PrettyPrinter<U>) {
-            print!("{}", printer)
-        }
-
+    pub fn new(lower: T, writer: fn(timestamp: u64, printer: PrettyPrinter<U>)) -> Tracer<T, U> {
         Tracer {
             lower:   lower,
             writer:  writer
@@ -46,25 +33,23 @@ impl<T: Device, U: PrettyPrint> Device for Tracer<T, U> {
 
     fn limits(&self) -> DeviceLimits { self.lower.limits() }
 
-    fn receive(&mut self) -> Result<Self::RxBuffer, Error> {
-        let buffer = self.lower.receive()?;
-        (self.writer)(PrettyPrinter::<U>::new("<- ", &buffer));
+    fn receive(&mut self, timestamp: u64) -> Result<Self::RxBuffer, Error> {
+        let buffer = self.lower.receive(timestamp)?;
+        (self.writer)(timestamp, PrettyPrinter::<U>::new("<- ", &buffer));
         Ok(buffer)
     }
 
-    fn transmit(&mut self, length: usize) -> Result<Self::TxBuffer, Error> {
-        let buffer = self.lower.transmit(length)?;
-        Ok(TxBuffer {
-            buffer:  buffer,
-            writer:  self.writer
-        })
+    fn transmit(&mut self, timestamp: u64, length: usize) -> Result<Self::TxBuffer, Error> {
+        let buffer = self.lower.transmit(timestamp, length)?;
+        Ok(TxBuffer { buffer, timestamp, writer: self.writer })
     }
 }
 
 #[doc(hidden)]
 pub struct TxBuffer<T: AsRef<[u8]>, U: PrettyPrint> {
-    buffer:  T,
-    writer:  fn(PrettyPrinter<U>)
+    buffer:    T,
+    timestamp: u64,
+    writer:    fn(u64, PrettyPrinter<U>)
 }
 
 impl<T: AsRef<[u8]>, U: PrettyPrint> AsRef<[u8]>
@@ -79,6 +64,6 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>, U: PrettyPrint> AsMut<[u8]>
 
 impl<T: AsRef<[u8]>, U: PrettyPrint> Drop for TxBuffer<T, U> {
     fn drop(&mut self) {
-        (self.writer)(PrettyPrinter::<U>::new("-> ", &self.buffer));
+        (self.writer)(self.timestamp, PrettyPrinter::<U>::new("-> ", &self.buffer));
     }
 }

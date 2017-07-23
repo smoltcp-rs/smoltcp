@@ -8,7 +8,7 @@ fn main() {
     let ifname = env::args().nth(1).unwrap();
     let mut socket = RawSocket::new(ifname.as_ref()).unwrap();
     loop {
-        let buffer = socket.receive().unwrap();
+        let buffer = socket.receive(/*timestamp=*/0).unwrap();
         print!("{}", PrettyPrinter::<EthernetFrame<&[u8]>>::new("", &buffer))
     }
 }

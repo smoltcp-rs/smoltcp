@@ -116,7 +116,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         }
 
         // Now, receive any incoming packets.
-        let rx_buffer = self.device.receive()?;
+        let rx_buffer = self.device.receive(timestamp)?;
         let eth_frame = EthernetFrame::new_checked(&rx_buffer)?;
 
         // Ignore any packets not directed to our hardware address.
@@ -134,7 +134,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
             _ => return Err(Error::Unrecognized),
         };
 
-        self.send_response(response)
+        self.send_response(timestamp, response)
     }
 
     // Snoop all ARP traffic, and respond to ARP packets directed at us.
@@ -360,7 +360,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         Ok(Response::Icmpv4(ipv4_reply_repr, icmp_reply_repr))
     }
 
-    fn send_response(&mut self, response: Response) -> Result<(), Error> {
+    fn send_response(&mut self, timestamp: u64, response: Response) -> Result<(), Error> {
         macro_rules! ip_response {
             ($tx_buffer:ident, $frame:ident, $ip_repr:ident) => ({
                 let dst_hardware_addr =
@@ -371,7 +371,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
 
                 let frame_len = EthernetFrame::<&[u8]>::buffer_len($ip_repr.buffer_len() +
                                                                    $ip_repr.payload_len);
-                $tx_buffer = self.device.transmit(frame_len)?;
+                $tx_buffer = self.device.transmit(timestamp, frame_len)?;
                 $frame = EthernetFrame::new_checked(&mut $tx_buffer)
                                        .expect("transmit frame too small");
                 $frame.set_src_addr(self.hardware_addr);
@@ -387,7 +387,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         match response {
             Response::Arp(repr) => {
                 let tx_len = EthernetFrame::<&[u8]>::buffer_len(repr.buffer_len());
-                let mut tx_buffer = self.device.transmit(tx_len)?;
+                let mut tx_buffer = self.device.transmit(timestamp, tx_len)?;
                 let mut frame = EthernetFrame::new_checked(&mut tx_buffer)
                                               .expect("transmit frame too small");
                 frame.set_src_addr(self.hardware_addr);
@@ -449,7 +449,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                     Some(dst_hardware_addr) => {
                         let tx_len = EthernetFrame::<&[u8]>::buffer_len(repr.buffer_len() +
                                                                         payload.buffer_len());
-                        let mut tx_buffer = device.transmit(tx_len)?;
+                        let mut tx_buffer = device.transmit(timestamp, tx_len)?;
                         let mut frame = EthernetFrame::new_checked(&mut tx_buffer)
                                                       .expect("transmit frame too small");
                         frame.set_src_addr(src_hardware_addr);
@@ -480,7 +480,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                         };
 
                         let tx_len = EthernetFrame::<&[u8]>::buffer_len(payload.buffer_len());
-                        let mut tx_buffer = device.transmit(tx_len)?;
+                        let mut tx_buffer = device.transmit(timestamp, tx_len)?;
                         let mut frame = EthernetFrame::new_checked(&mut tx_buffer)
                                                       .expect("transmit frame too small");
                         frame.set_src_addr(src_hardware_addr);

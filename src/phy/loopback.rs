@@ -39,14 +39,14 @@ impl Device for Loopback {
         }
     }
 
-    fn receive(&mut self) -> Result<Self::RxBuffer, Error> {
+    fn receive(&mut self, _timestamp: u64) -> Result<Self::RxBuffer, Error> {
         match self.0.borrow_mut().pop_front() {
             Some(packet) => Ok(packet),
             None => Err(Error::Exhausted)
         }
     }
 
-    fn transmit(&mut self, length: usize) -> Result<Self::TxBuffer, Error> {
+    fn transmit(&mut self, _timestamp: u64, length: usize) -> Result<Self::TxBuffer, Error> {
         let mut buffer = Vec::new();
         buffer.resize(length, 0);
         Ok(TxBuffer {

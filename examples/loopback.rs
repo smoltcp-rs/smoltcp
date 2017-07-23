@@ -77,7 +77,7 @@ fn main() {
     }
 
     let mut device = Loopback::new();
-    let mut device = EthernetTracer::new(device, |printer| trace!("{}", printer));
+    let mut device = EthernetTracer::new(device, |printer, _timestamp| trace!("{}", printer));
 
     let mut arp_cache_entries: [_; 8] = Default::default();
     let mut arp_cache = SliceArpCache::new(&mut arp_cache_entries[..]);
