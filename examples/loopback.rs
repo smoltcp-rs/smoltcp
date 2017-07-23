@@ -23,9 +23,60 @@ use smoltcp::iface::{ArpCache, SliceArpCache, EthernetInterface};
 use smoltcp::socket::{AsSocket, SocketSet};
 use smoltcp::socket::{TcpSocket, TcpSocketBuffer};
 
+#[cfg(not(feature = "std"))]
+mod mock {
+    use core::cell::Cell;
+
+    #[derive(Debug)]
+    pub struct Clock(Cell<u64>);
+
+    impl Clock {
+        pub fn new() -> Clock {
+            Clock(Cell::new(0))
+        }
+
+        pub fn advance(&mut self, millis: u64) {
+            self.0.set(self.0.get() + millis)
+        }
+
+        pub fn elapsed(&self) -> u64 {
+            self.0.get()
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+mod mock {
+    use std::sync::Arc;
+    use std::sync::atomic::{Ordering, AtomicUsize};
+
+    // should be AtomicU64 but that's unstable
+    #[derive(Debug, Clone)]
+    pub struct Clock(Arc<AtomicUsize>);
+
+    impl Clock {
+        pub fn new() -> Clock {
+            Clock(Arc::new(AtomicUsize::new(0)))
+        }
+
+        pub fn advance(&self, millis: u64) {
+            self.0.fetch_add(millis as usize, Ordering::SeqCst);
+        }
+
+        pub fn elapsed(&self) -> u64 {
+            self.0.load(Ordering::SeqCst) as u64
+        }
+    }
+}
+
 fn main() {
+    let clock = mock::Clock::new();
+
     #[cfg(feature = "std")]
-    utils::setup_logging();
+    {
+        let clock = clock.clone();
+        utils::setup_logging_with_clock(move || clock.elapsed());
+    }
 
     let mut device = Loopback::new();
     #[cfg(feature = "std")]
@@ -68,8 +119,7 @@ fn main() {
     let mut did_listen  = false;
     let mut did_connect = false;
     let mut done = false;
-    let mut timestamp_ms = 0;
-    while !done && timestamp_ms < 500 {
+    while !done && clock.elapsed() < 10_000 {
         {
             let socket: &mut TcpSocket = socket_set.get_mut(server_handle).as_socket();
             if !socket.is_active() && !socket.is_listening() {
@@ -102,14 +152,12 @@ fn main() {
             }
         }
 
-        match iface.poll(&mut socket_set, timestamp_ms) {
+        match iface.poll(&mut socket_set, clock.elapsed()) {
             Ok(()) | Err(Error::Exhausted) => (),
             Err(e) => debug!("poll error: {}", e)
         }
 
-        const DELAY: u64 = 20;
-        debug!("{}ms pass", DELAY);
-        timestamp_ms += DELAY;
+        clock.advance(1);
     }
 
     if !done {

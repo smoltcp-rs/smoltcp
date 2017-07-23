@@ -12,13 +12,12 @@ use smoltcp::phy::{Tracer, FaultInjector, TapInterface};
 use smoltcp::wire::EthernetFrame;
 use smoltcp::wire::PrettyPrinter;
 
-pub fn setup_logging() {
-    let startup_time = Instant::now();
+pub fn setup_logging_with_clock<F>(since_startup: F)
+        where F: Fn() -> u64 + Send + Sync + 'static {
     LogBuilder::new()
         .format(move |record: &LogRecord| {
-            let elapsed = Instant::now().duration_since(startup_time);
-            let timestamp = format!("[{:6}.{:03}s]",
-                                    elapsed.as_secs(), elapsed.subsec_nanos() / 1000000);
+            let elapsed = since_startup();
+            let timestamp = format!("[{:6}.{:03}s]", elapsed / 1000, elapsed % 1000);
             if record.target().ends_with("::utils") {
                 let mut message = format!("{}", record.args());
                 message.pop();
@@ -35,6 +34,14 @@ pub fn setup_logging() {
         .filter(None, LogLevelFilter::Trace)
         .init()
         .unwrap();
+}
+
+pub fn setup_logging() {
+    let startup_at = Instant::now();
+    setup_logging_with_clock(move  || {
+        let elapsed = Instant::now().duration_since(startup_at);
+        elapsed.as_secs() * 1000 + (elapsed.subsec_nanos() / 1000) as u64
+    })
 }
 
 pub fn trace_writer(printer: PrettyPrinter<EthernetFrame<&[u8]>>) {
