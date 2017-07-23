@@ -108,15 +108,15 @@ impl State {
 /// adverse network conditions (such as random packet loss or corruption), or software
 /// or hardware limitations (such as a limited number or size of usable network buffers).
 #[derive(Debug)]
-pub struct FaultInjector<T: Device> {
-    lower:  T,
+pub struct FaultInjector<D: Device> {
+    lower:  D,
     state:  State,
     config: Config
 }
 
-impl<T: Device> FaultInjector<T> {
+impl<D: Device> FaultInjector<D> {
     /// Create a fault injector device, using the given random number generator seed.
-    pub fn new(lower: T, seed: u32) -> FaultInjector<T> {
+    pub fn new(lower: D, seed: u32) -> FaultInjector<D> {
         #[cfg(feature = "std")]
         let state = State {
             rng_seed:    seed,
@@ -136,7 +136,7 @@ impl<T: Device> FaultInjector<T> {
     }
 
     /// Return the underlying device, consuming the fault injector.
-    pub fn into_lower(self) -> T {
+    pub fn into_lower(self) -> D {
         self.lower
     }
 
@@ -216,10 +216,10 @@ impl<T: Device> FaultInjector<T> {
     }
 }
 
-impl<T: Device> Device for FaultInjector<T>
-        where T::RxBuffer: AsMut<[u8]> {
-    type RxBuffer = T::RxBuffer;
-    type TxBuffer = TxBuffer<T::TxBuffer>;
+impl<D: Device> Device for FaultInjector<D>
+        where D::RxBuffer: AsMut<[u8]> {
+    type RxBuffer = D::RxBuffer;
+    type TxBuffer = TxBuffer<D::TxBuffer>;
 
     fn limits(&self) -> DeviceLimits {
         let mut limits = self.lower.limits();
@@ -275,16 +275,15 @@ impl<T: Device> Device for FaultInjector<T>
 }
 
 #[doc(hidden)]
-pub struct TxBuffer<T: AsRef<[u8]> + AsMut<[u8]>> {
+pub struct TxBuffer<B: AsRef<[u8]> + AsMut<[u8]>> {
     state:  State,
     config: Config,
-    buffer: Option<T>,
+    buffer: Option<B>,
     junk:   [u8; MTU],
     length: usize
 }
 
-impl<T: AsRef<[u8]> + AsMut<[u8]>> AsRef<[u8]>
-        for TxBuffer<T> {
+impl<B: AsRef<[u8]> + AsMut<[u8]>> AsRef<[u8]> for TxBuffer<B> {
     fn as_ref(&self) -> &[u8] {
         match self.buffer {
             Some(ref buf) => buf.as_ref(),
@@ -293,8 +292,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> AsRef<[u8]>
     }
 }
 
-impl<T: AsRef<[u8]> + AsMut<[u8]>> AsMut<[u8]>
-        for TxBuffer<T> {
+impl<B: AsRef<[u8]> + AsMut<[u8]>> AsMut<[u8]> for TxBuffer<B> {
     fn as_mut(&mut self) -> &mut [u8] {
         match self.buffer {
             Some(ref mut buf) => buf.as_mut(),
@@ -303,7 +301,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> AsMut<[u8]>
     }
 }
 
-impl<T: AsRef<[u8]> + AsMut<[u8]>> Drop for TxBuffer<T> {
+impl<B: AsRef<[u8]> + AsMut<[u8]>> Drop for TxBuffer<B> {
     fn drop(&mut self) {
         match self.buffer {
             Some(ref mut buf) => {
