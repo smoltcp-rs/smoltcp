@@ -149,7 +149,7 @@ fn main() {
             if !socket.is_open() {
                 if !did_connect {
                     socket.connect((IpAddress::v4(127, 0, 0, 1), 1234),
-                                   (IpAddress::v4(127, 0, 0, 1), 65000)).unwrap();
+                                   (IpAddress::Unspecified, 65000)).unwrap();
                     did_connect = true;
                 }
             }

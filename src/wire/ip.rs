@@ -71,6 +71,15 @@ impl Address {
             &Address::Ipv4(addr)  => addr.is_unspecified()
         }
     }
+
+    /// Return an unspecified address that has the same IP version as `self`.
+    pub fn as_unspecified(&self) -> Address {
+        match self {
+            &Address::Unspecified => Address::Unspecified,
+            // &Address::Ipv4 => Address::Ipv4(Ipv4Address::UNSPECIFIED),
+            &Address::Ipv4(_) => Address::Ipv4(Ipv4Address(/*FIXME*/[0x00; 4])),
+        }
+    }
 }
 
 impl Default for Address {
