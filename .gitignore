@@ -1,2 +1,3 @@
-target
+/target
 Cargo.lock
+*.pcap

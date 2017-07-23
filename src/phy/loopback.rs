@@ -14,14 +14,14 @@ use collections::{Vec, VecDeque};
 use Error;
 use super::{Device, DeviceLimits};
 
-/// A loopback interface.
+/// A loopback device.
 #[derive(Debug)]
 pub struct Loopback(Rc<RefCell<VecDeque<Vec<u8>>>>);
 
 impl Loopback {
-    /// Creates a loopback interface.
+    /// Creates a loopback device.
     ///
-    /// Every packet transmitted through this interface will be received through it
+    /// Every packet transmitted through this device will be received through it
     /// in FIFO order.
     pub fn new() -> Loopback {
         Loopback(Rc::new(RefCell::new(VecDeque::new())))

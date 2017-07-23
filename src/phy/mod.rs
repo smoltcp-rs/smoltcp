@@ -36,7 +36,7 @@ fn rx_setup(_buf: *mut u8, _length: &mut usize) {
 }
 
 fn tx_empty() -> bool {
-    /* platform-specific code to check if the outgoing packet was sent */
+    /* platform-specific code to check if an outgoing packet can be sent */
     false
 }
 
@@ -111,6 +111,7 @@ mod sys;
 
 mod tracer;
 mod fault_injector;
+mod pcap_writer;
 #[cfg(any(feature = "std", feature = "collections"))]
 mod loopback;
 #[cfg(feature = "raw_socket")]
@@ -120,6 +121,7 @@ mod tap_interface;
 
 pub use self::tracer::Tracer;
 pub use self::fault_injector::FaultInjector;
+pub use self::pcap_writer::{PcapLinkType, PcapMode, PcapSink, PcapWriter};
 #[cfg(any(feature = "std", feature = "collections"))]
 pub use self::loopback::Loopback;
 #[cfg(any(feature = "raw_socket"))]
