@@ -78,7 +78,7 @@ pub fn setup_device(more_args: &[&str])
     let seed = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().subsec_nanos();
 
     let device = TapInterface::new(&matches.free[0]).unwrap();
-    let device = EthernetTracer::new(device, |printer, _timestamp| trace!("{}", printer));
+    let device = EthernetTracer::new(device, |_timestamp, printer| trace!("{}", printer));
     let mut device = FaultInjector::new(device, seed);
     device.set_drop_chance(drop_chance);
     device.set_corrupt_chance(corrupt_chance);
