@@ -4,8 +4,9 @@ use super::{DeviceLimits, Device};
 
 /// A tracer device.
 ///
-/// A tracer is a device that prints all packets traversing it
-/// to the standard output, and delegates to another device otherwise.
+/// A tracer is a device that pretty prints all packets traversing it
+/// using the provided writer function, and then passes them to another
+/// device.
 pub struct Tracer<T: Device, U: PrettyPrint> {
     lower:   T,
     writer:  fn(PrettyPrinter<U>)

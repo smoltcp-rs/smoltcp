@@ -1,16 +1,12 @@
-#![allow(dead_code)]
-
 use std::str::{self, FromStr};
 use std::env;
 use std::time::{Instant, Duration, SystemTime, UNIX_EPOCH};
 use std::process;
-use log::{LogLevelFilter, LogRecord};
+use log::{LogLevel, LogLevelFilter, LogRecord};
 use env_logger::LogBuilder;
 use getopts;
 
-use smoltcp::phy::{Tracer, FaultInjector, TapInterface};
-use smoltcp::wire::EthernetFrame;
-use smoltcp::wire::PrettyPrinter;
+use smoltcp::phy::{EthernetTracer, FaultInjector, TapInterface};
 
 pub fn setup_logging_with_clock<F>(since_startup: F)
         where F: Fn() -> u64 + Send + Sync + 'static {
@@ -18,14 +14,14 @@ pub fn setup_logging_with_clock<F>(since_startup: F)
         .format(move |record: &LogRecord| {
             let elapsed = since_startup();
             let timestamp = format!("[{:6}.{:03}s]", elapsed / 1000, elapsed % 1000);
-            if record.target().ends_with("::utils") {
+            if record.target().starts_with("smoltcp::") {
+                format!("\x1b[0m{} ({}): {}\x1b[0m", timestamp,
+                        record.target().replace("smoltcp::", ""), record.args())
+            } else if record.level() == LogLevel::Trace {
                 let mut message = format!("{}", record.args());
                 message.pop();
                 format!("\x1b[37m{} {}\x1b[0m", timestamp,
                         message.replace("\n", "\n             "))
-            } else if record.target().starts_with("smoltcp::") {
-                format!("\x1b[0m{} ({}): {}\x1b[0m", timestamp,
-                        record.target().replace("smoltcp::", ""), record.args())
             } else {
                 format!("\x1b[32m{} ({}): {}\x1b[0m", timestamp,
                         record.target(), record.args())
@@ -44,12 +40,8 @@ pub fn setup_logging() {
     })
 }
 
-pub fn trace_writer(printer: PrettyPrinter<EthernetFrame<&[u8]>>) {
-    trace!("{}", printer)
-}
-
 pub fn setup_device(more_args: &[&str])
-        -> (FaultInjector<Tracer<TapInterface, EthernetFrame<&'static [u8]>>>,
+        -> (FaultInjector<EthernetTracer<TapInterface>>,
             Vec<String>) {
     let mut opts = getopts::Options::new();
     opts.optopt("", "drop-chance", "Chance of dropping a packet (%)", "CHANCE");
@@ -86,7 +78,7 @@ pub fn setup_device(more_args: &[&str])
     let seed = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().subsec_nanos();
 
     let device = TapInterface::new(&matches.free[0]).unwrap();
-    let device = Tracer::<_, EthernetFrame<&'static [u8]>>::new(device, trace_writer);
+    let device = EthernetTracer::new(device, |printer| trace!("{}", printer));
     let mut device = FaultInjector::new(device, seed);
     device.set_drop_chance(drop_chance);
     device.set_corrupt_chance(corrupt_chance);

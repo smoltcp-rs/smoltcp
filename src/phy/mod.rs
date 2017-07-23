@@ -127,6 +127,9 @@ pub use self::raw_socket::RawSocket;
 #[cfg(all(feature = "tap_interface", target_os = "linux"))]
 pub use self::tap_interface::TapInterface;
 
+/// A tracer device for Ethernet frames.
+pub type EthernetTracer<T> = Tracer<T, super::wire::EthernetFrame<&'static [u8]>>;
+
 /// A description of device limitations.
 ///
 /// Higher-level protocols may achieve higher throughput or lower latency if they consider

@@ -3,22 +3,20 @@
 
 #[macro_use]
 extern crate log;
+extern crate smoltcp;
 #[cfg(feature = "std")]
 extern crate env_logger;
 #[cfg(feature = "std")]
 extern crate getopts;
-extern crate smoltcp;
 
 #[cfg(feature = "std")]
+#[allow(dead_code)]
 mod utils;
 
 use smoltcp::Error;
 use smoltcp::phy::Loopback;
-#[cfg(feature = "std")]
-use smoltcp::phy::Tracer;
+use smoltcp::phy::EthernetTracer;
 use smoltcp::wire::{EthernetAddress, IpAddress};
-#[cfg(feature = "std")]
-use smoltcp::wire::EthernetFrame;
 use smoltcp::iface::{ArpCache, SliceArpCache, EthernetInterface};
 use smoltcp::socket::{AsSocket, SocketSet};
 use smoltcp::socket::{TcpSocket, TcpSocketBuffer};
@@ -35,7 +33,7 @@ mod mock {
             Clock(Cell::new(0))
         }
 
-        pub fn advance(&mut self, millis: u64) {
+        pub fn advance(&self, millis: u64) {
             self.0.set(self.0.get() + millis)
         }
 
@@ -79,8 +77,7 @@ fn main() {
     }
 
     let mut device = Loopback::new();
-    #[cfg(feature = "std")]
-    let mut device = Tracer::<_, EthernetFrame<&'static [u8]>>::new(device, utils::trace_writer);
+    let mut device = EthernetTracer::new(device, |printer| trace!("{}", printer));
 
     let mut arp_cache_entries: [_; 8] = Default::default();
     let mut arp_cache = SliceArpCache::new(&mut arp_cache_entries[..]);
