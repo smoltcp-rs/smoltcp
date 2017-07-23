@@ -163,6 +163,13 @@ Note that packets dropped by the fault injector still get traced;
 the  `rx: randomly dropping a packet` message indicates that the packet *above* it got dropped,
 and the `tx: randomly dropping a packet` message indicates that the packet *below* it was.
 
+### Packet dumps
+
+All examples provide a `--pcap` option that writes a [libpcap] file containing a view of every
+packet as it is seen by _smoltcp_.
+
+[libpcap]: https://wiki.wireshark.org/Development/LibpcapFileFormat
+
 ### examples/tcpdump.rs
 
 _examples/tcpdump.rs_ is a tiny clone of the _tcpdump_ utility.
@@ -248,17 +255,28 @@ that do. Because of this, only one such example is provided.
 
 ### examples/loopback.rs
 
-_examples/loopback.rs_ performs a simple exchange between two TCP socket via a loopback interface.
-This example requires the `collections` feature to run.
+_examples/loopback.rs_ sets up _smoltcp_ to talk with itself via a loopback interface.
+Although it does not require `std`, this example still requires the `collections` feature to run.
 
-Read its [source code](/examples/loopback.rs), then run it as:
+Read its [source code](/examples/loopback.rs), then run it without `std`:
 
 ```sh
-cargo run --example loopback
+cargo run --example loopback --no-default-features --features collections
 ```
 
-If the `std` feature is enabled, it will print logs and packet dumps; otherwise, nothing at all
-will be displayed.
+... or with `std`:
+
+```sh
+cargo run --example loopback -- --pcap loopback.pcap
+```
+
+It opens a server and a client TCP socket, and transfers a chunk of data. You can examine
+the packet exchange by opening `loopback.pcap` in [Wireshark].
+
+If the `std` feature is enabled, it will print logs and packet dumps, and fault injection
+is possible; otherwise, nothing at all will be displayed and no options are accepted.
+
+[wireshark]: https://wireshark.org
 
 License
 -------
