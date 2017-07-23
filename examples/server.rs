@@ -16,8 +16,15 @@ use smoltcp::socket::{UdpSocket, UdpSocketBuffer, UdpPacketBuffer};
 use smoltcp::socket::{TcpSocket, TcpSocketBuffer};
 
 fn main() {
-    utils::setup_logging();
-    let (device, _args) = utils::setup_device(&[]);
+    utils::setup_logging("");
+
+    let (mut opts, mut free) = utils::create_options();
+    utils::add_tap_options(&mut opts, &mut free);
+    utils::add_middleware_options(&mut opts, &mut free);
+
+    let mut matches = utils::parse_options(&opts, free);
+    let device = utils::parse_tap_options(&mut matches);
+    let device = utils::parse_middleware_options(&mut matches, device, /*loopback=*/false);
 
     let startup_time = Instant::now();
 

@@ -15,10 +15,19 @@ use smoltcp::socket::{AsSocket, SocketSet};
 use smoltcp::socket::{TcpSocket, TcpSocketBuffer};
 
 fn main() {
-    utils::setup_logging();
-    let (device, args) = utils::setup_device(&["ADDRESS", "PORT"]);
-    let address = IpAddress::from_str(&args[0]).expect("invalid address format");
-    let port = u16::from_str(&args[1]).expect("invalid port format");
+    utils::setup_logging("");
+
+    let (mut opts, mut free) = utils::create_options();
+    utils::add_tap_options(&mut opts, &mut free);
+    utils::add_middleware_options(&mut opts, &mut free);
+    free.push("ADDRESS");
+    free.push("PORT");
+
+    let mut matches = utils::parse_options(&opts, free);
+    let device = utils::parse_tap_options(&mut matches);
+    let device = utils::parse_middleware_options(&mut matches, device, /*loopback=*/false);
+    let address = IpAddress::from_str(&matches.free[0]).expect("invalid address format");
+    let port = u16::from_str(&matches.free[1]).expect("invalid port format");
 
     let startup_time = Instant::now();
 

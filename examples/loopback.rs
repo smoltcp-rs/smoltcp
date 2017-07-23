@@ -73,11 +73,22 @@ fn main() {
     #[cfg(feature = "std")]
     {
         let clock = clock.clone();
-        utils::setup_logging_with_clock(move || clock.elapsed());
+        utils::setup_logging_with_clock("", move || clock.elapsed());
     }
 
     let mut device = Loopback::new();
     let mut device = EthernetTracer::new(device, |_timestamp, printer| trace!("{}", printer));
+
+    #[cfg(feature = "std")]
+    let mut device = {
+        let (mut opts, mut free) = utils::create_options();
+        utils::add_middleware_options(&mut opts, &mut free);
+
+        let mut matches = utils::parse_options(&opts, free);
+        let device = utils::parse_middleware_options(&mut matches, device, /*loopback=*/true);
+
+        device
+    };
 
     let mut arp_cache_entries: [_; 8] = Default::default();
     let mut arp_cache = SliceArpCache::new(&mut arp_cache_entries[..]);

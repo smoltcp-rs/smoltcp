@@ -19,19 +19,33 @@ use smoltcp::socket::{RawSocket, RawSocketBuffer, RawPacketBuffer};
 use std::collections::HashMap;
 use byteorder::{ByteOrder, NetworkEndian};
 
-const PING_INTERVAL_S: u64 = 1;
-const PING_TIMEOUT_S: u64 = 5;
-const PINGS_TO_SEND: usize = 4;
-
 fn main() {
-    utils::setup_logging();
-    let (device, args) = utils::setup_device(&["ADDRESS"]);
+    utils::setup_logging("warn");
+
+    let (mut opts, mut free) = utils::create_options();
+    utils::add_tap_options(&mut opts, &mut free);
+    utils::add_middleware_options(&mut opts, &mut free);
+    opts.optopt("c", "count", "Amount of echo request packets to send (default: 4)", "COUNT");
+    opts.optopt("i", "interval",
+                "Interval between successive packets sent (seconds) (default: 1)", "INTERVAL");
+    opts.optopt("", "timeout",
+                "Maximum wait duration for an echo response packet (seconds) (default: 5)",
+                "TIMEOUT");
+    free.push("ADDRESS");
+
+    let mut matches = utils::parse_options(&opts, free);
+    let device = utils::parse_tap_options(&mut matches);
+    let device = utils::parse_middleware_options(&mut matches, device, /*loopback=*/false);
+    let address  = Ipv4Address::from_str(&matches.free[0]).expect("invalid address format");
+    let count    = matches.opt_str("count").map(|s| usize::from_str(&s).unwrap()).unwrap_or(4);
+    let interval = matches.opt_str("interval").map(|s| u64::from_str(&s).unwrap()).unwrap_or(1);
+    let timeout  = matches.opt_str("timeout").map(|s| u64::from_str(&s).unwrap()).unwrap_or(5);
 
     let startup_time = Instant::now();
 
     let arp_cache = SliceArpCache::new(vec![Default::default(); 8]);
 
-    let remote_addr = Ipv4Address::from_str(&args[0]).unwrap();
+    let remote_addr = address;
     let local_addr  = Ipv4Address::new(192, 168, 69, 1);
 
     let raw_rx_buffer = RawSocketBuffer::new(vec![RawPacketBuffer::new(vec![0; 256])]);
@@ -61,11 +75,11 @@ fn main() {
             let timestamp_us = (timestamp.as_secs() * 1000000) +
                 (timestamp.subsec_nanos() / 1000) as u64;
 
-            if seq_no == PINGS_TO_SEND as u16 && waiting_queue.is_empty() {
+            if seq_no == count as u16 && waiting_queue.is_empty() {
                 break;
             }
 
-            if socket.can_send() && seq_no < PINGS_TO_SEND as u16 && send_next <= timestamp {
+            if socket.can_send() && seq_no < count as u16 && send_next <= timestamp {
                 NetworkEndian::write_u64(&mut echo_payload, timestamp_us);
                 let icmp_repr = Icmpv4Repr::EchoRequest {
                     ident: 1,
@@ -91,7 +105,7 @@ fn main() {
 
                 waiting_queue.insert(seq_no, timestamp);
                 seq_no += 1;
-                send_next += Duration::new(PING_INTERVAL_S, 0);
+                send_next += Duration::new(interval, 0);
             }
 
             if socket.can_recv() {
@@ -117,7 +131,7 @@ fn main() {
             }
 
             waiting_queue.retain(|seq, from| {
-                if (timestamp - *from).as_secs() < PING_TIMEOUT_S {
+                if (timestamp - *from).as_secs() < timeout {
                     true
                 } else {
                     println!("From {} icmp_seq={} timeout", remote_addr, seq);
