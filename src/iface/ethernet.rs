@@ -235,7 +235,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                 Ok(Response::Nop),
             _ => {
                 let icmp_reply_repr = Icmpv4Repr::DstUnreachable {
-                    reason: Icmpv4DstUnreachable::PortUnreachable,
+                    reason: Icmpv4DstUnreachable::ProtoUnreachable,
                     header: ipv4_repr,
                     data:   &ipv4_packet.payload()[0..8]
                 };
