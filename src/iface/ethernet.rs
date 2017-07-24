@@ -210,8 +210,11 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                 <Socket as AsSocket<RawSocket>>::try_as_socket) {
             match raw_socket.process(timestamp, &IpRepr::Ipv4(ipv4_repr),
                                      ipv4_packet.payload()) {
+                // The packet is valid and handled by socket.
                 Ok(()) => handled_by_raw_socket = true,
-                Err(Error::Rejected) => (),
+                // The packet isn't addressed to the socket, or cannot be accepted by it.
+                Err(Error::Rejected) | Err(Error::Exhausted) => (),
+                // Raw sockets either accept or reject packets, not parse them.
                 _ => unreachable!(),
             }
         }
@@ -287,17 +290,16 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         for udp_socket in sockets.iter_mut().filter_map(
                 <Socket as AsSocket<UdpSocket>>::try_as_socket) {
             match udp_socket.process(timestamp, &ip_repr, ip_payload) {
-                // The packet was valid and handled by socket.
+                // The packet is valid and handled by socket.
                 Ok(()) => return Ok(Response::Nop),
-                // The packet wasn't addressed to the socket.
+                // The packet isn't addressed to the socket.
                 Err(Error::Rejected) => continue,
-                // The packet was addressed to the socket but is malformed.
-                Err(Error::Malformed) => break,
+                // The packet is malformed, or addressed to the socket but cannot be accepted.
                 Err(e) => return Err(e)
             }
         }
 
-        //The packet wasn't handled by a socket, send an ICMP port unreachable packet.
+        // The packet wasn't handled by a socket, send an ICMP port unreachable packet.
         let icmp_reply_repr = Icmpv4Repr::DstUnreachable {
             reason: Icmpv4DstUnreachable::PortUnreachable,
             header: ipv4_repr,
@@ -320,13 +322,12 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         for tcp_socket in sockets.iter_mut().filter_map(
                 <Socket as AsSocket<TcpSocket>>::try_as_socket) {
             match tcp_socket.process(timestamp, &ip_repr, ip_payload) {
-                // The packet was valid and handled by socket.
+                // The packet is valid and handled by socket.
                 Ok(()) => return Ok(Response::Nop),
-                // The packet wasn't addressed to the socket.
+                // The packet isn't addressed to the socket.
                 // Send RST only if no other socket accepts the packet.
                 Err(Error::Rejected) => continue,
-                // The packet was addressed to the socket but is malformed.
-                Err(Error::Malformed) => break,
+                // The packet is malformed, or addressed to the socket but cannot be accepted.
                 Err(e) => return Err(e)
             }
         }
