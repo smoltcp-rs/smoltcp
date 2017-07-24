@@ -176,7 +176,7 @@ impl<'a, 'b> RawSocket<'a, 'b> {
     pub(crate) fn dispatch<F, R>(&mut self, _timestamp: u64, _limits: &DeviceLimits,
                                  emit: &mut F) -> Result<R, Error>
             where F: FnMut(&IpRepr, &IpPayload) -> Result<R, Error> {
-        let mut packet_buf = self.tx_buffer.dequeue_mut().map_err(|()| Error::Exhausted)?;
+        let mut packet_buf = self.tx_buffer.dequeue().map_err(|()| Error::Exhausted)?;
         net_trace!("[{}]:{}:{}: sending {} octets",
                    self.debug_id, self.ip_version, self.ip_protocol,
                    packet_buf.size);

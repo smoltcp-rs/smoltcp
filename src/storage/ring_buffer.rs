@@ -59,22 +59,9 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
         }
     }
 
-    /// Dequeue an element from the buffer, and return a pointer to it, or return
-    /// `Err(())` if the buffer is empty.
-    pub fn dequeue(&mut self) -> Result<&T, ()> {
-        if self.empty() {
-            Err(())
-        } else {
-            self.length -= 1;
-            let result = &self.storage[self.read_at];
-            self.read_at = self.incr(self.read_at);
-            Ok(result)
-        }
-    }
-
     /// Dequeue an element from the buffer, and return a mutable reference to it, or return
     /// `Err(())` if the buffer is empty.
-    pub fn dequeue_mut(&mut self) -> Result<&mut T, ()> {
+    pub fn dequeue(&mut self) -> Result<&mut T, ()> {
         if self.empty() {
             Err(())
         } else {
