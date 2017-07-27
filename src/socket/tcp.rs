@@ -377,8 +377,8 @@ impl<'a> TcpSocket<'a> {
     /// The local address may optionally be provided.
     ///
     /// This function returns an error if the socket was open; see [is_open](#method.is_open).
-    /// It also returns an error if the local or remote port is zero, or if
-    /// the local or remote address is unspecified.
+    /// It also returns an error if the local or remote port is zero, or if the remote address
+    /// is unspecified.
     pub fn connect<T, U>(&mut self, remote_endpoint: T, local_endpoint: U) -> Result<(), ()>
             where T: Into<IpEndpoint>, U: Into<IpEndpoint> {
         let remote_endpoint = remote_endpoint.into();
