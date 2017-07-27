@@ -73,7 +73,7 @@ impl Address {
     }
 
     /// Return an unspecified address that has the same IP version as `self`.
-    pub fn as_unspecified(&self) -> Address {
+    pub fn to_unspecified(&self) -> Address {
         match self {
             &Address::Unspecified => Address::Unspecified,
             // &Address::Ipv4 => Address::Ipv4(Ipv4Address::UNSPECIFIED),
@@ -353,7 +353,8 @@ pub mod checksum {
                 ])
             },
 
-            _ => panic!("Unexpected pseudo header ")
+            _ => panic!("Unexpected pseudo header addresses: {}, {}",
+                        src_addr, dst_addr)
         }
     }
 }

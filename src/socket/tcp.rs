@@ -393,7 +393,7 @@ impl<'a> TcpSocket<'a> {
         // but without committing to a specific address right away.
         let local_addr = match remote_endpoint.addr {
             IpAddress::Unspecified => return Err(()),
-            _ => remote_endpoint.addr.as_unspecified(),
+            _ => remote_endpoint.addr.to_unspecified(),
         };
         let local_endpoint = IpEndpoint { addr: local_addr, ..local_endpoint };
 
