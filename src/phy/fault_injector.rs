@@ -1,4 +1,4 @@
-use Error;
+use {Error, Result};
 use super::{DeviceLimits, Device};
 
 // We use our own RNG to stay compatible with #![no_std].
@@ -196,7 +196,7 @@ impl<D: Device> Device for FaultInjector<D>
         limits
     }
 
-    fn receive(&mut self, timestamp: u64) -> Result<Self::RxBuffer, Error> {
+    fn receive(&mut self, timestamp: u64) -> Result<Self::RxBuffer> {
         let mut buffer = self.inner.receive(timestamp)?;
         if self.state.maybe(self.config.drop_pct) {
             net_trace!("rx: randomly dropping a packet");
@@ -217,7 +217,7 @@ impl<D: Device> Device for FaultInjector<D>
         Ok(buffer)
     }
 
-    fn transmit(&mut self, timestamp: u64, length: usize) -> Result<Self::TxBuffer, Error> {
+    fn transmit(&mut self, timestamp: u64, length: usize) -> Result<Self::TxBuffer> {
         let buffer;
         if self.state.maybe(self.config.drop_pct) {
             net_trace!("tx: randomly dropping a packet");

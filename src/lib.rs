@@ -134,6 +134,9 @@ pub enum Error {
     __Nonexhaustive
 }
 
+/// The result type for the networking stack.
+pub type Result<T> = core::result::Result<T, Error>;
+
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {

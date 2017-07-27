@@ -1,7 +1,7 @@
 use core::fmt;
 use byteorder::{ByteOrder, NetworkEndian};
 
-use Error;
+use {Error, Result};
 
 enum_with_unknown! {
     /// Ethernet protocol type.
@@ -100,7 +100,7 @@ impl<T: AsRef<[u8]>> Frame<T> {
     ///
     /// [new]: #method.new
     /// [check_len]: #method.check_len
-    pub fn new_checked(buffer: T) -> Result<Frame<T>, Error> {
+    pub fn new_checked(buffer: T) -> Result<Frame<T>> {
         let packet = Self::new(buffer);
         packet.check_len()?;
         Ok(packet)
@@ -108,7 +108,7 @@ impl<T: AsRef<[u8]>> Frame<T> {
 
     /// Ensure that no accessor method will panic if called.
     /// Returns `Err(Error::Truncated)` if the buffer is too short.
-    pub fn check_len(&self) -> Result<(), Error> {
+    pub fn check_len(&self) -> Result<()> {
         let len = self.buffer.as_ref().len();
         if len < field::PAYLOAD.start {
             Err(Error::Truncated)

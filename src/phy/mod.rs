@@ -20,7 +20,7 @@
 /*!
 ```rust
 use std::slice;
-use smoltcp::Error;
+use smoltcp::{Error, Result};
 use smoltcp::phy::{DeviceLimits, Device};
 
 const TX_BUFFERS: [*mut u8; 2] = [0x10000000 as *mut u8, 0x10001000 as *mut u8];
@@ -61,7 +61,7 @@ impl Device for EthernetDevice {
         limits
     }
 
-    fn receive(&mut self, _timestamp: u64) -> Result<Self::RxBuffer, Error> {
+    fn receive(&mut self, _timestamp: u64) -> Result<Self::RxBuffer> {
         if rx_full() {
             let index = self.rx_next;
             self.rx_next = (self.rx_next + 1) % RX_BUFFERS.len();
@@ -75,7 +75,7 @@ impl Device for EthernetDevice {
         }
     }
 
-    fn transmit(&mut self, _timestamp: u64, length: usize) -> Result<Self::TxBuffer, Error> {
+    fn transmit(&mut self, _timestamp: u64, length: usize) -> Result<Self::TxBuffer> {
         if tx_empty() {
             let index = self.tx_next;
             self.tx_next = (self.tx_next + 1) % TX_BUFFERS.len();
@@ -104,7 +104,7 @@ impl Drop for EthernetTxBuffer {
 ```
 */
 
-use Error;
+use {Error, Result};
 
 #[cfg(any(feature = "raw_socket", feature = "tap_interface"))]
 mod sys;
@@ -177,12 +177,12 @@ pub trait Device {
     /// It is expected that a `receive` implementation, once a packet is written to memory
     /// through DMA, would gain ownership of the underlying buffer, provide it for parsing,
     /// and return it to the network device once it is dropped.
-    fn receive(&mut self, timestamp: u64) -> Result<Self::RxBuffer, Error>;
+    fn receive(&mut self, timestamp: u64) -> Result<Self::RxBuffer>;
 
     /// Transmit a frame.
     ///
     /// It is expected that a `transmit` implementation would gain ownership of a buffer with
     /// the requested length, provide it for emission, and schedule it to be read from
     /// memory by the network device once it is dropped.
-    fn transmit(&mut self, timestamp: u64, length: usize) -> Result<Self::TxBuffer, Error>;
+    fn transmit(&mut self, timestamp: u64, length: usize) -> Result<Self::TxBuffer>;
 }

@@ -1,6 +1,7 @@
 use core::fmt;
 use byteorder::{ByteOrder, NetworkEndian};
-use Error;
+
+use {Error, Result};
 
 pub use super::EthernetProtocol as Protocol;
 
@@ -71,7 +72,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     ///
     /// [new]: #method.new
     /// [check_len]: #method.check_len
-    pub fn new_checked(buffer: T) -> Result<Packet<T>, Error> {
+    pub fn new_checked(buffer: T) -> Result<Packet<T>> {
         let packet = Self::new(buffer);
         packet.check_len()?;
         Ok(packet)
@@ -85,7 +86,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     ///
     /// [set_hardware_len]: #method.set_hardware_len
     /// [set_protocol_len]: #method.set_protocol_len
-    pub fn check_len(&self) -> Result<(), Error> {
+    pub fn check_len(&self) -> Result<()> {
         let len = self.buffer.as_ref().len();
         if len < field::OPER.end {
             Err(Error::Truncated)
@@ -260,8 +261,8 @@ pub enum Repr {
 
 impl Repr {
     /// Parse an Address Resolution Protocol packet and return a high-level representation,
-    /// or return `Err(())` if the packet is not recognized.
-    pub fn parse<T: AsRef<[u8]>>(packet: &Packet<T>) -> Result<Repr, Error> {
+    /// or return `Err(Error::Unrecognized)` if the packet is not recognized.
+    pub fn parse<T: AsRef<[u8]>>(packet: &Packet<T>) -> Result<Repr> {
         match (packet.hardware_type(), packet.protocol_type(),
                packet.hardware_len(), packet.protocol_len()) {
             (Hardware::Ethernet, Protocol::Ipv4, 6, 4) => {

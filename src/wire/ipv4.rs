@@ -1,7 +1,7 @@
 use core::fmt;
 use byteorder::{ByteOrder, NetworkEndian};
 
-use Error;
+use {Error, Result};
 use super::ip::checksum;
 use super::IpAddress;
 
@@ -106,7 +106,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     ///
     /// [new]: #method.new
     /// [check_len]: #method.check_len
-    pub fn new_checked(buffer: T) -> Result<Packet<T>, Error> {
+    pub fn new_checked(buffer: T) -> Result<Packet<T>> {
         let packet = Self::new(buffer);
         packet.check_len()?;
         Ok(packet)
@@ -118,7 +118,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// The result of this check is invalidated by calling [set_header_len].
     ///
     /// [set_header_len]: #method.set_header_len
-    pub fn check_len(&self) -> Result<(), Error> {
+    pub fn check_len(&self) -> Result<()> {
         let len = self.buffer.as_ref().len();
         if len < field::DST_ADDR.end {
             Err(Error::Truncated)
@@ -398,7 +398,7 @@ pub struct Repr {
 
 impl Repr {
     /// Parse an Internet Protocol version 4 packet and return a high-level representation.
-    pub fn parse<T: AsRef<[u8]> + ?Sized>(packet: &Packet<&T>) -> Result<Repr, Error> {
+    pub fn parse<T: AsRef<[u8]> + ?Sized>(packet: &Packet<&T>) -> Result<Repr> {
         // Version 4 is expected.
         if packet.version() != 4 { return Err(Error::Malformed) }
         // Valid checksum is expected.

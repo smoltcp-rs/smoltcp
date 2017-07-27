@@ -1,4 +1,4 @@
-use Error;
+use {Error, Result};
 use wire::pretty_print::{PrettyPrint, PrettyPrinter};
 use super::{DeviceLimits, Device};
 
@@ -33,13 +33,13 @@ impl<D: Device, P: PrettyPrint> Device for Tracer<D, P> {
 
     fn limits(&self) -> DeviceLimits { self.inner.limits() }
 
-    fn receive(&mut self, timestamp: u64) -> Result<Self::RxBuffer, Error> {
+    fn receive(&mut self, timestamp: u64) -> Result<Self::RxBuffer> {
         let buffer = self.inner.receive(timestamp)?;
         (self.writer)(timestamp, PrettyPrinter::<P>::new("<- ", &buffer));
         Ok(buffer)
     }
 
-    fn transmit(&mut self, timestamp: u64, length: usize) -> Result<Self::TxBuffer, Error> {
+    fn transmit(&mut self, timestamp: u64, length: usize) -> Result<Self::TxBuffer> {
         let buffer = self.inner.transmit(timestamp, length)?;
         Ok(TxBuffer { buffer, timestamp, writer: self.writer })
     }

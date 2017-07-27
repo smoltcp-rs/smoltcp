@@ -3,7 +3,7 @@ use core::cell::RefCell;
 use std::io::Write;
 use byteorder::{ByteOrder, NativeEndian};
 
-use Error;
+use {Error, Result};
 use super::{DeviceLimits, Device};
 
 enum_with_unknown! {
@@ -136,7 +136,7 @@ impl<D: Device, S: PcapSink + Clone> Device for PcapWriter<D, S> {
 
     fn limits(&self) -> DeviceLimits { self.lower.limits() }
 
-    fn receive(&mut self, timestamp: u64) -> Result<Self::RxBuffer, Error> {
+    fn receive(&mut self, timestamp: u64) -> Result<Self::RxBuffer> {
         let buffer = self.lower.receive(timestamp)?;
         match self.mode {
             PcapMode::Both | PcapMode::RxOnly =>
@@ -146,7 +146,7 @@ impl<D: Device, S: PcapSink + Clone> Device for PcapWriter<D, S> {
         Ok(buffer)
     }
 
-    fn transmit(&mut self, timestamp: u64, length: usize) -> Result<Self::TxBuffer, Error> {
+    fn transmit(&mut self, timestamp: u64, length: usize) -> Result<Self::TxBuffer> {
         let buffer = self.lower.transmit(timestamp, length)?;
         Ok(TxBuffer { buffer, timestamp, sink: self.sink.clone(), mode: self.mode })
     }

@@ -1,6 +1,6 @@
 use managed::Managed;
 
-use Error;
+use {Error, Result};
 use phy::DeviceLimits;
 use wire::{IpVersion, IpProtocol, Ipv4Repr, Ipv4Packet};
 use socket::{IpRepr, IpPayload, Socket};
@@ -109,9 +109,9 @@ impl<'a, 'b> RawSocket<'a, 'b> {
 
     /// Enqueue a packet to send, and return a pointer to its payload.
     ///
-    /// This function returns `Err(())` if the size is greater than what
-    /// the transmit buffer can accomodate.
-    pub fn send(&mut self, size: usize) -> Result<&mut [u8], ()> {
+    /// This function returns `Err(Error::Exhausted)` if the size is greater than
+    /// the transmit packet buffer size.
+    pub fn send(&mut self, size: usize) -> Result<&mut [u8]> {
         let packet_buf = self.tx_buffer.enqueue()?;
         packet_buf.size = size;
         net_trace!("[{}]:{}:{}: buffer to send {} octets",
@@ -123,7 +123,7 @@ impl<'a, 'b> RawSocket<'a, 'b> {
     /// Enqueue a packet to send, and fill it from a slice.
     ///
     /// See also [send](#method.send).
-    pub fn send_slice(&mut self, data: &[u8]) -> Result<usize, ()> {
+    pub fn send_slice(&mut self, data: &[u8]) -> Result<usize> {
         let buffer = self.send(data.len())?;
         let data = &data[..buffer.len()];
         buffer.copy_from_slice(data);
@@ -132,8 +132,8 @@ impl<'a, 'b> RawSocket<'a, 'b> {
 
     /// Dequeue a packet, and return a pointer to the payload.
     ///
-    /// This function returns `Err(())` if the receive buffer is empty.
-    pub fn recv(&mut self) -> Result<&[u8], ()> {
+    /// This function returns `Err(Error::Exhausted)` if the receive buffer is empty.
+    pub fn recv(&mut self) -> Result<&[u8]> {
         let packet_buf = self.rx_buffer.dequeue()?;
         net_trace!("[{}]:{}:{}: receive {} buffered octets",
                    self.debug_id, self.ip_version, self.ip_protocol,
@@ -144,21 +144,21 @@ impl<'a, 'b> RawSocket<'a, 'b> {
     /// Dequeue a packet, and copy the payload into the given slice.
     ///
     /// See also [recv](#method.recv).
-    pub fn recv_slice(&mut self, data: &mut [u8]) -> Result<usize, ()> {
+    pub fn recv_slice(&mut self, data: &mut [u8]) -> Result<usize> {
         let buffer = self.recv()?;
         data[..buffer.len()].copy_from_slice(buffer);
         Ok(buffer.len())
     }
 
     pub(crate) fn process(&mut self, _timestamp: u64, ip_repr: &IpRepr,
-                          payload: &[u8]) -> Result<(), Error> {
+                          payload: &[u8]) -> Result<()> {
         match self.ip_version {
             IpVersion::Ipv4 => {
                 if ip_repr.protocol() != self.ip_protocol {
                     return Err(Error::Rejected);
                 }
                 let header_len = ip_repr.buffer_len();
-                let packet_buf = self.rx_buffer.enqueue().map_err(|()| Error::Exhausted)?;
+                let packet_buf = self.rx_buffer.enqueue()?;
                 packet_buf.size = header_len + payload.len();
                 ip_repr.emit(&mut packet_buf.as_mut()[..header_len]);
                 packet_buf.as_mut()[header_len..header_len + payload.len()]
@@ -174,9 +174,9 @@ impl<'a, 'b> RawSocket<'a, 'b> {
 
     /// See [Socket::dispatch](enum.Socket.html#method.dispatch).
     pub(crate) fn dispatch<F, R>(&mut self, _timestamp: u64, _limits: &DeviceLimits,
-                                 emit: &mut F) -> Result<R, Error>
-            where F: FnMut(&IpRepr, &IpPayload) -> Result<R, Error> {
-        let mut packet_buf = self.tx_buffer.dequeue().map_err(|()| Error::Exhausted)?;
+                                 emit: &mut F) -> Result<R>
+            where F: FnMut(&IpRepr, &IpPayload) -> Result<R> {
+        let mut packet_buf = self.tx_buffer.dequeue()?;
         net_trace!("[{}]:{}:{}: sending {} octets",
                    self.debug_id, self.ip_version, self.ip_protocol,
                    packet_buf.size);

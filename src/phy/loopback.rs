@@ -11,7 +11,7 @@ use std::collections::VecDeque;
 #[cfg(feature = "collections")]
 use collections::{Vec, VecDeque};
 
-use Error;
+use {Error, Result};
 use super::{Device, DeviceLimits};
 
 /// A loopback device.
@@ -39,14 +39,14 @@ impl Device for Loopback {
         }
     }
 
-    fn receive(&mut self, _timestamp: u64) -> Result<Self::RxBuffer, Error> {
+    fn receive(&mut self, _timestamp: u64) -> Result<Self::RxBuffer> {
         match self.0.borrow_mut().pop_front() {
             Some(packet) => Ok(packet),
             None => Err(Error::Exhausted)
         }
     }
 
-    fn transmit(&mut self, _timestamp: u64, length: usize) -> Result<Self::TxBuffer, Error> {
+    fn transmit(&mut self, _timestamp: u64, length: usize) -> Result<Self::TxBuffer> {
         let mut buffer = Vec::new();
         buffer.resize(length, 0);
         Ok(TxBuffer {

@@ -1,7 +1,7 @@
 use core::{cmp, fmt};
 use byteorder::{ByteOrder, NetworkEndian};
 
-use Error;
+use {Error, Result};
 use super::ip::checksum;
 use super::{Ipv4Packet, Ipv4Repr};
 
@@ -193,7 +193,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     ///
     /// [new]: #method.new
     /// [check_len]: #method.check_len
-    pub fn new_checked(buffer: T) -> Result<Packet<T>, Error> {
+    pub fn new_checked(buffer: T) -> Result<Packet<T>> {
         let packet = Self::new(buffer);
         packet.check_len()?;
         Ok(packet)
@@ -205,7 +205,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// The result of this check is invalidated by calling [set_header_len].
     ///
     /// [set_header_len]: #method.set_header_len
-    pub fn check_len(&self) -> Result<(), Error> {
+    pub fn check_len(&self) -> Result<()> {
         let len = self.buffer.as_ref().len();
         if len < field::CHECKSUM.end {
             Err(Error::Truncated)
@@ -384,7 +384,7 @@ pub enum Repr<'a> {
 impl<'a> Repr<'a> {
     /// Parse an Internet Control Message Protocol version 4 packet and return
     /// a high-level representation.
-    pub fn parse<T: AsRef<[u8]> + ?Sized>(packet: &Packet<&'a T>) -> Result<Repr<'a>, Error> {
+    pub fn parse<T: AsRef<[u8]> + ?Sized>(packet: &Packet<&'a T>) -> Result<Repr<'a>> {
         match (packet.msg_type(), packet.msg_code()) {
             (Message::EchoRequest, 0) => {
                 Ok(Repr::EchoRequest {

@@ -1,5 +1,7 @@
 use managed::Managed;
-use storage::Resettable;
+
+use {Error, Result};
+use super::Resettable;
 
 /// A ring buffer.
 #[derive(Debug)]
@@ -47,10 +49,10 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
     }
 
     /// Enqueue an element into the buffer, and return a pointer to it, or return
-    /// `Err(())` if the buffer is full.
-    pub fn enqueue(&mut self) -> Result<&mut T, ()> {
+    /// `Err(Error::Exhausted)` if the buffer is full.
+    pub fn enqueue(&mut self) -> Result<&mut T> {
         if self.full() {
-            Err(())
+            Err(Error::Exhausted)
         } else {
             let index = self.mask(self.read_at + self.length);
             let result = &mut self.storage[index];
@@ -60,10 +62,10 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
     }
 
     /// Dequeue an element from the buffer, and return a mutable reference to it, or return
-    /// `Err(())` if the buffer is empty.
-    pub fn dequeue(&mut self) -> Result<&mut T, ()> {
+    /// `Err(Error::Exhausted)` if the buffer is empty.
+    pub fn dequeue(&mut self) -> Result<&mut T> {
         if self.empty() {
-            Err(())
+            Err(Error::Exhausted)
         } else {
             self.length -= 1;
             let read_at = self.read_at;
@@ -95,7 +97,7 @@ mod test {
         let mut ring_buffer = RingBuffer::new(&mut storage[..]);
         assert!(ring_buffer.empty());
         assert!(!ring_buffer.full());
-        assert_eq!(ring_buffer.dequeue(), Err(()));
+        assert_eq!(ring_buffer.dequeue(), Err(Error::Exhausted));
         ring_buffer.enqueue().unwrap();
         assert!(!ring_buffer.empty());
         assert!(!ring_buffer.full());
@@ -104,13 +106,13 @@ mod test {
             assert!(!ring_buffer.empty());
         }
         assert!(ring_buffer.full());
-        assert_eq!(ring_buffer.enqueue(), Err(()));
+        assert_eq!(ring_buffer.enqueue(), Err(Error::Exhausted));
 
         for i in 0..TEST_BUFFER_SIZE {
             assert_eq!(*ring_buffer.dequeue().unwrap(), i);
             assert!(!ring_buffer.full());
         }
-        assert_eq!(ring_buffer.dequeue(), Err(()));
+        assert_eq!(ring_buffer.dequeue(), Err(Error::Exhausted));
         assert!(ring_buffer.empty());
     }
 }

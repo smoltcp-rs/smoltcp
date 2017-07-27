@@ -3,7 +3,7 @@ use std::vec::Vec;
 use std::rc::Rc;
 use std::io;
 
-use Error;
+use {Error, Result};
 use super::{sys, DeviceLimits, Device};
 
 /// A socket that captures or transmits the complete frame.
@@ -40,7 +40,7 @@ impl Device for RawSocket {
         }
     }
 
-    fn receive(&mut self, _timestamp: u64) -> Result<Self::RxBuffer, Error> {
+    fn receive(&mut self, _timestamp: u64) -> Result<Self::RxBuffer> {
         let mut lower = self.lower.borrow_mut();
         let mut buffer = vec![0; self.mtu];
         let size = lower.recv(&mut buffer[..]).unwrap();
@@ -48,7 +48,7 @@ impl Device for RawSocket {
         Ok(buffer)
     }
 
-    fn transmit(&mut self, _timestamp: u64, length: usize) -> Result<Self::TxBuffer, Error> {
+    fn transmit(&mut self, _timestamp: u64, length: usize) -> Result<Self::TxBuffer> {
         Ok(TxBuffer {
             lower:  self.lower.clone(),
             buffer: vec![0; length]

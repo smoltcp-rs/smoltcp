@@ -4,7 +4,7 @@
 use core::fmt;
 use managed::Managed;
 
-use Error;
+use {Error, Result};
 use phy::DeviceLimits;
 use wire::{IpProtocol, IpAddress, IpEndpoint};
 use wire::{TcpSeqNumber, TcpPacket, TcpRepr, TcpControl};
@@ -350,12 +350,12 @@ impl<'a> TcpSocket<'a> {
     ///
     /// This function returns an error if the socket was open; see [is_open](#method.is_open).
     /// It also returns an error if the specified port is zero.
-    pub fn listen<T>(&mut self, local_endpoint: T) -> Result<(), ()>
+    pub fn listen<T>(&mut self, local_endpoint: T) -> Result<()>
             where T: Into<IpEndpoint> {
         let local_endpoint = local_endpoint.into();
 
-        if self.is_open() { return Err(()) }
-        if local_endpoint.port == 0 { return Err(()) }
+        if self.is_open() { return Err(Error::Illegal) }
+        if local_endpoint.port == 0 { return Err(Error::Unaddressable) }
 
         self.reset();
         self.listen_address  = local_endpoint.addr;
@@ -379,7 +379,7 @@ impl<'a> TcpSocket<'a> {
     /// This function returns an error if the socket was open; see [is_open](#method.is_open).
     /// It also returns an error if the local or remote port is zero, or if the remote address
     /// is unspecified.
-    pub fn connect<T, U>(&mut self, remote_endpoint: T, local_endpoint: U) -> Result<(), Error>
+    pub fn connect<T, U>(&mut self, remote_endpoint: T, local_endpoint: U) -> Result<()>
             where T: Into<IpEndpoint>, U: Into<IpEndpoint> {
         let remote_endpoint = remote_endpoint.into();
         let local_endpoint  = local_endpoint.into();
@@ -565,10 +565,10 @@ impl<'a> TcpSocket<'a> {
     /// there is not enough contiguous free space in the transmit buffer, down to
     /// an empty slice.
     ///
-    /// This function returns an error if the transmit half of the connection is not open;
-    /// see [can_send](#method.can_send).
-    pub fn send(&mut self, size: usize) -> Result<&mut [u8], ()> {
-        if !self.may_send() { return Err(()) }
+    /// This function returns `Err(Error::Illegal) if the transmit half of
+    /// the connection is not open; see [may_send](#method.may_send).
+    pub fn send(&mut self, size: usize) -> Result<&mut [u8]> {
+        if !self.may_send() { return Err(Error::Illegal) }
 
         #[cfg(any(test, feature = "verbose"))]
         let old_length = self.tx_buffer.len();
@@ -589,7 +589,7 @@ impl<'a> TcpSocket<'a> {
     /// by the amount of free space in the transmit buffer; down to zero.
     ///
     /// See also [send](#method.send).
-    pub fn send_slice(&mut self, data: &[u8]) -> Result<usize, ()> {
+    pub fn send_slice(&mut self, data: &[u8]) -> Result<usize> {
         let buffer = self.send(data.len())?;
         let data = &data[..buffer.len()];
         buffer.copy_from_slice(data);
@@ -601,11 +601,14 @@ impl<'a> TcpSocket<'a> {
     /// This function may return a slice smaller than the requested size in case
     /// there are not enough octets queued in the receive buffer, down to
     /// an empty slice.
-    pub fn recv(&mut self, size: usize) -> Result<&[u8], ()> {
+    ///
+    /// This function returns `Err(Error::Illegal) if the receive half of
+    /// the connection is not open; see [may_recv](#method.may_recv).
+    pub fn recv(&mut self, size: usize) -> Result<&[u8]> {
         // We may have received some data inside the initial SYN, but until the connection
         // is fully open we must not dequeue any data, as it may be overwritten by e.g.
         // another (stale) SYN.
-        if !self.may_recv() { return Err(()) }
+        if !self.may_recv() { return Err(Error::Illegal) }
 
         #[cfg(any(test, feature = "verbose"))]
         let old_length = self.rx_buffer.len();
@@ -626,7 +629,7 @@ impl<'a> TcpSocket<'a> {
     /// by the amount of free space in the transmit buffer; down to zero.
     ///
     /// See also [recv](#method.recv).
-    pub fn recv_slice(&mut self, data: &mut [u8]) -> Result<usize, ()> {
+    pub fn recv_slice(&mut self, data: &mut [u8]) -> Result<usize> {
         let buffer = self.recv(data.len())?;
         let data = &mut data[..buffer.len()];
         data.copy_from_slice(buffer);
@@ -649,7 +652,7 @@ impl<'a> TcpSocket<'a> {
     }
 
     pub(crate) fn process(&mut self, timestamp: u64, ip_repr: &IpRepr,
-                          payload: &[u8]) -> Result<(), Error> {
+                          payload: &[u8]) -> Result<()> {
         debug_assert!(ip_repr.protocol() == IpProtocol::Tcp);
 
         if self.state == State::Closed { return Err(Error::Rejected) }
@@ -980,8 +983,8 @@ impl<'a> TcpSocket<'a> {
     }
 
     pub(crate) fn dispatch<F, R>(&mut self, timestamp: u64, limits: &DeviceLimits,
-                                 emit: &mut F) -> Result<R, Error>
-            where F: FnMut(&IpRepr, &IpPayload) -> Result<R, Error> {
+                                 emit: &mut F) -> Result<R>
+            where F: FnMut(&IpRepr, &IpPayload) -> Result<R> {
         if !self.remote_endpoint.is_specified() { return Err(Error::Exhausted) }
 
         let mut repr = TcpRepr {
@@ -1266,7 +1269,7 @@ mod test {
         payload: &[]
     };
 
-    fn send(socket: &mut TcpSocket, timestamp: u64, repr: &TcpRepr) -> Result<(), Error> {
+    fn send(socket: &mut TcpSocket, timestamp: u64, repr: &TcpRepr) -> Result<()> {
         trace!("send: {}", repr);
         let mut buffer = vec![0; repr.buffer_len()];
         let mut packet = TcpPacket::new(&mut buffer);
@@ -1281,7 +1284,7 @@ mod test {
     }
 
     fn recv<F>(socket: &mut TcpSocket, timestamp: u64, mut f: F)
-            where F: FnMut(Result<TcpRepr, Error>) {
+            where F: FnMut(Result<TcpRepr>) {
         let mut buffer = vec![];
         let mut limits = DeviceLimits::default();
         limits.max_transmission_unit = 1520;
@@ -1446,7 +1449,14 @@ mod test {
     #[test]
     fn test_listen_validation() {
         let mut s = socket();
-        assert_eq!(s.listen(0), Err(()));
+        assert_eq!(s.listen(0), Err(Error::Unaddressable));
+    }
+
+    #[test]
+    fn test_listen_twice() {
+        let mut s = socket();
+        assert_eq!(s.listen(80), Ok(()));
+        assert_eq!(s.listen(80), Err(Error::Illegal));
     }
 
     #[test]

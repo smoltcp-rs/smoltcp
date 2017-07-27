@@ -3,7 +3,7 @@ use std::vec::Vec;
 use std::rc::Rc;
 use std::io;
 
-use Error;
+use {Error, Result};
 use super::{sys, DeviceLimits, Device};
 
 /// A virtual Ethernet interface.
@@ -41,7 +41,7 @@ impl Device for TapInterface {
         }
     }
 
-    fn receive(&mut self, _timestamp: u64) -> Result<Self::RxBuffer, Error> {
+    fn receive(&mut self, _timestamp: u64) -> Result<Self::RxBuffer> {
         let mut lower = self.lower.borrow_mut();
         let mut buffer = vec![0; self.mtu];
         match lower.recv(&mut buffer[..]) {
@@ -56,7 +56,7 @@ impl Device for TapInterface {
         }
     }
 
-    fn transmit(&mut self, _timestamp: u64, length: usize) -> Result<Self::TxBuffer, Error> {
+    fn transmit(&mut self, _timestamp: u64, length: usize) -> Result<Self::TxBuffer> {
         Ok(TxBuffer {
             lower:  self.lower.clone(),
             buffer: vec![0; length]

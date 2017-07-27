@@ -1,7 +1,7 @@
 use core::fmt;
 use byteorder::{ByteOrder, NetworkEndian};
 
-use Error;
+use {Error, Result};
 use super::{IpProtocol, IpAddress};
 use super::ip::checksum;
 
@@ -36,7 +36,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     ///
     /// [new]: #method.new
     /// [check_len]: #method.check_len
-    pub fn new_checked(buffer: T) -> Result<Packet<T>, Error> {
+    pub fn new_checked(buffer: T) -> Result<Packet<T>> {
         let packet = Self::new(buffer);
         packet.check_len()?;
         Ok(packet)
@@ -50,7 +50,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// The result of this check is invalidated by calling [set_len].
     ///
     /// [set_len]: #method.set_len
-    pub fn check_len(&self) -> Result<(), Error> {
+    pub fn check_len(&self) -> Result<()> {
         let buffer_len = self.buffer.as_ref().len();
         if buffer_len < field::CHECKSUM.end {
             Err(Error::Truncated)
@@ -203,7 +203,7 @@ impl<'a> Repr<'a> {
     /// Parse an User Datagram Protocol packet and return a high-level representation.
     pub fn parse<T: ?Sized>(packet: &Packet<&'a T>,
                             src_addr: &IpAddress,
-                            dst_addr: &IpAddress) -> Result<Repr<'a>, Error>
+                            dst_addr: &IpAddress) -> Result<Repr<'a>>
             where T: AsRef<[u8]> {
         // Destination port cannot be omitted (but source port can be).
         if packet.dst_port() == 0 { return Err(Error::Malformed) }

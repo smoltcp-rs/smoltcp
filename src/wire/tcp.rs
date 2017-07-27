@@ -1,7 +1,7 @@
 use core::{i32, ops, cmp, fmt};
 use byteorder::{ByteOrder, NetworkEndian};
 
-use Error;
+use {Error, Result};
 use super::{IpProtocol, IpAddress};
 use super::ip::checksum;
 
@@ -110,7 +110,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     ///
     /// [new]: #method.new
     /// [check_len]: #method.check_len
-    pub fn new_checked(buffer: T) -> Result<Packet<T>, Error> {
+    pub fn new_checked(buffer: T) -> Result<Packet<T>> {
         let packet = Self::new(buffer);
         packet.check_len()?;
         Ok(packet)
@@ -124,7 +124,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// The result of this check is invalidated by calling [set_header_len].
     ///
     /// [set_header_len]: #method.set_header_len
-    pub fn check_len(&self) -> Result<(), Error> {
+    pub fn check_len(&self) -> Result<()> {
         let len = self.buffer.as_ref().len();
         if len < field::URGENT.end {
             Err(Error::Truncated)
@@ -519,7 +519,7 @@ pub enum TcpOption<'a> {
 }
 
 impl<'a> TcpOption<'a> {
-    pub fn parse(buffer: &'a [u8]) -> Result<(&'a [u8], TcpOption<'a>), Error> {
+    pub fn parse(buffer: &'a [u8]) -> Result<(&'a [u8], TcpOption<'a>)> {
         let (length, option);
         match *buffer.get(0).ok_or(Error::Truncated)? {
             field::OPT_END => {
@@ -627,7 +627,7 @@ impl<'a> Repr<'a> {
     /// Parse a Transmission Control Protocol packet and return a high-level representation.
     pub fn parse<T: ?Sized>(packet: &Packet<&'a T>,
                             src_addr: &IpAddress,
-                            dst_addr: &IpAddress) -> Result<Repr<'a>, Error>
+                            dst_addr: &IpAddress) -> Result<Repr<'a>>
             where T: AsRef<[u8]> {
         // Source and destination ports must be present.
         if packet.src_port() == 0 { return Err(Error::Malformed) }

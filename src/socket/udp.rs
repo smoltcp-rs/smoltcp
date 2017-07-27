@@ -1,6 +1,6 @@
 use managed::Managed;
 
-use Error;
+use {Error, Result};
 use phy::DeviceLimits;
 use wire::{IpProtocol, IpEndpoint};
 use wire::{UdpPacket, UdpRepr};
@@ -109,9 +109,9 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     /// Enqueue a packet to be sent to a given remote endpoint, and return a pointer
     /// to its payload.
     ///
-    /// This function returns `Err(())` if the size is greater than what
-    /// the transmit buffer can accomodate.
-    pub fn send(&mut self, size: usize, endpoint: IpEndpoint) -> Result<&mut [u8], ()> {
+    /// This function returns `Err(Error::Exhausted)` if the size is greater than
+    /// the transmit packet buffer size.
+    pub fn send(&mut self, size: usize, endpoint: IpEndpoint) -> Result<&mut [u8]> {
         let packet_buf = self.tx_buffer.enqueue()?;
         packet_buf.endpoint = endpoint;
         packet_buf.size = size;
@@ -124,7 +124,7 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     /// Enqueue a packet to be sent to a given remote endpoint, and fill it from a slice.
     ///
     /// See also [send](#method.send).
-    pub fn send_slice(&mut self, data: &[u8], endpoint: IpEndpoint) -> Result<usize, ()> {
+    pub fn send_slice(&mut self, data: &[u8], endpoint: IpEndpoint) -> Result<usize> {
         let buffer = self.send(data.len(), endpoint)?;
         let data = &data[..buffer.len()];
         buffer.copy_from_slice(data);
@@ -134,8 +134,8 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     /// Dequeue a packet received from a remote endpoint, and return the endpoint as well
     /// as a pointer to the payload.
     ///
-    /// This function returns `Err(())` if the receive buffer is empty.
-    pub fn recv(&mut self) -> Result<(&[u8], IpEndpoint), ()> {
+    /// This function returns `Err(Error::Exhausted)` if the receive buffer is empty.
+    pub fn recv(&mut self) -> Result<(&[u8], IpEndpoint)> {
         let packet_buf = self.rx_buffer.dequeue()?;
         net_trace!("[{}]{}:{}: receive {} buffered octets",
                    self.debug_id, self.endpoint,
@@ -147,14 +147,14 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     /// as copy the payload into the given slice.
     ///
     /// See also [recv](#method.recv).
-    pub fn recv_slice(&mut self, data: &mut [u8]) -> Result<(usize, IpEndpoint), ()> {
+    pub fn recv_slice(&mut self, data: &mut [u8]) -> Result<(usize, IpEndpoint)> {
         let (buffer, endpoint) = self.recv()?;
         data[..buffer.len()].copy_from_slice(buffer);
         Ok((buffer.len(), endpoint))
     }
 
     pub(crate) fn process(&mut self, _timestamp: u64, ip_repr: &IpRepr,
-                          payload: &[u8]) -> Result<(), Error> {
+                          payload: &[u8]) -> Result<()> {
         debug_assert!(ip_repr.protocol() == IpProtocol::Udp);
 
         let packet = UdpPacket::new_checked(&payload[..ip_repr.payload_len()])?;
@@ -165,7 +165,7 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
             if self.endpoint.addr != ip_repr.dst_addr() { return Err(Error::Rejected) }
         }
 
-        let packet_buf = self.rx_buffer.enqueue().map_err(|()| Error::Exhausted)?;
+        let packet_buf = self.rx_buffer.enqueue()?;
         packet_buf.endpoint = IpEndpoint { addr: ip_repr.src_addr(), port: repr.src_port };
         packet_buf.size = repr.payload.len();
         packet_buf.as_mut()[..repr.payload.len()].copy_from_slice(repr.payload);
@@ -176,9 +176,9 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     }
 
     pub(crate) fn dispatch<F, R>(&mut self, _timestamp: u64, _limits: &DeviceLimits,
-                                 emit: &mut F) -> Result<R, Error>
-            where F: FnMut(&IpRepr, &IpPayload) -> Result<R, Error> {
-        let packet_buf = self.tx_buffer.dequeue().map_err(|()| Error::Exhausted)?;
+                                 emit: &mut F) -> Result<R>
+            where F: FnMut(&IpRepr, &IpPayload) -> Result<R> {
+        let packet_buf = self.tx_buffer.dequeue()?;
         net_trace!("[{}]{}:{}: sending {} octets",
                    self.debug_id, self.endpoint,
                    packet_buf.endpoint, packet_buf.size);

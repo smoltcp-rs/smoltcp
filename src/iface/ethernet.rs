@@ -1,6 +1,6 @@
 use managed::{Managed, ManagedSlice};
 
-use Error;
+use {Error, Result};
 use phy::Device;
 use wire::{EthernetAddress, EthernetProtocol, EthernetFrame};
 use wire::{ArpPacket, ArpRepr, ArpOperation};
@@ -109,7 +109,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
     /// handling the given set of sockets.
     ///
     /// The timestamp is a monotonically increasing number of milliseconds.
-    pub fn poll(&mut self, sockets: &mut SocketSet, timestamp: u64) -> Result<(), Error> {
+    pub fn poll(&mut self, sockets: &mut SocketSet, timestamp: u64) -> Result<()> {
         // First, transmit any outgoing packets.
         loop {
             if self.emit(sockets, timestamp)? { break }
@@ -140,7 +140,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
     // Snoop all ARP traffic, and respond to ARP packets directed at us.
     fn process_arp<'frame, T: AsRef<[u8]>>
                   (&mut self, eth_frame: &EthernetFrame<&'frame T>) ->
-                  Result<Response<'frame>, Error> {
+                  Result<Response<'frame>> {
         let arp_packet = ArpPacket::new_checked(eth_frame.payload())?;
         let arp_repr = ArpRepr::parse(&arp_packet)?;
 
@@ -189,7 +189,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
     fn process_ipv4<'frame, T: AsRef<[u8]>>
                    (&mut self, sockets: &mut SocketSet, timestamp: u64,
                     eth_frame: &EthernetFrame<&'frame T>) ->
-                   Result<Response<'frame>, Error> {
+                   Result<Response<'frame>> {
         let ipv4_packet = Ipv4Packet::new_checked(eth_frame.payload())?;
         let ipv4_repr = Ipv4Repr::parse(&ipv4_packet)?;
 
@@ -251,7 +251,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
     }
 
     fn process_icmpv4<'frame>(ipv4_repr: Ipv4Repr, ip_payload: &'frame [u8]) ->
-                             Result<Response<'frame>, Error> {
+                             Result<Response<'frame>> {
         let icmp_packet = Icmpv4Packet::new_checked(ip_payload)?;
         let icmp_repr = Icmpv4Repr::parse(&icmp_packet)?;
 
@@ -284,7 +284,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
 
     fn process_udpv4<'frame>(sockets: &mut SocketSet, timestamp: u64,
                              ipv4_repr: Ipv4Repr, ip_payload: &'frame [u8]) ->
-                            Result<Response<'frame>, Error> {
+                            Result<Response<'frame>> {
         let ip_repr = IpRepr::Ipv4(ipv4_repr);
 
         for udp_socket in sockets.iter_mut().filter_map(
@@ -316,7 +316,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
 
     fn process_tcpv4<'frame>(sockets: &mut SocketSet, timestamp: u64,
                              ipv4_repr: Ipv4Repr, ip_payload: &'frame [u8]) ->
-                            Result<Response<'frame>, Error> {
+                            Result<Response<'frame>> {
         let ip_repr = IpRepr::Ipv4(ipv4_repr);
 
         for tcp_socket in sockets.iter_mut().filter_map(
@@ -359,7 +359,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         Ok(Response::Tcpv4(ipv4_reply_repr, tcp_reply_repr))
     }
 
-    fn send_response(&mut self, timestamp: u64, response: Response) -> Result<(), Error> {
+    fn send_response(&mut self, timestamp: u64, response: Response) -> Result<()> {
         macro_rules! ip_response {
             ($tx_buffer:ident, $frame:ident, $ip_repr:ident) => ({
                 let dst_hardware_addr =
@@ -428,7 +428,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         }
     }
 
-    fn emit(&mut self, sockets: &mut SocketSet, timestamp: u64) -> Result<bool, Error> {
+    fn emit(&mut self, sockets: &mut SocketSet, timestamp: u64) -> Result<bool> {
         // Borrow checker is being overly careful around closures, so we have
         // to hack around that.
         let src_hardware_addr = self.hardware_addr;

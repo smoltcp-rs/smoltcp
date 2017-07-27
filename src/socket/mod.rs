@@ -10,7 +10,7 @@
 //! The interface implemented by this module uses explicit buffering: you decide on the good
 //! size for a buffer, allocate it, and let the networking stack use it.
 
-use Error;
+use {Error, Result};
 use phy::DeviceLimits;
 use wire::IpRepr;
 
@@ -82,8 +82,8 @@ impl<'a, 'b> Socket<'a, 'b> {
     }
 
     pub(crate) fn dispatch<F, R>(&mut self, timestamp: u64, limits: &DeviceLimits,
-                                 emit: &mut F) -> Result<R, Error>
-            where F: FnMut(&IpRepr, &IpPayload) -> Result<R, Error> {
+                                 emit: &mut F) -> Result<R>
+            where F: FnMut(&IpRepr, &IpPayload) -> Result<R> {
         dispatch_socket!(self, |socket [mut]| socket.dispatch(timestamp, limits, emit))
     }
 }

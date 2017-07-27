@@ -1,6 +1,6 @@
 use core::fmt;
 
-use Error;
+use {Error, Result};
 use super::{Ipv4Address, Ipv4Packet, Ipv4Repr};
 
 /// Internet protocol version.
@@ -205,7 +205,7 @@ impl IpRepr {
     /// # Panics
     /// This function panics if source and destination addresses belong to different families,
     /// or the destination address is unspecified, since this indicates a logic error.
-    pub fn lower(&self, fallback_src_addrs: &[Address]) -> Result<IpRepr, Error> {
+    pub fn lower(&self, fallback_src_addrs: &[Address]) -> Result<IpRepr> {
         match self {
             &IpRepr::Unspecified {
                 src_addr: Address::Ipv4(src_addr),
