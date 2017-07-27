@@ -50,28 +50,55 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
 
     /// Enqueue an element into the buffer, and return a pointer to it, or return
     /// `Err(Error::Exhausted)` if the buffer is full.
-    pub fn enqueue(&mut self) -> Result<&mut T> {
-        if self.full() {
-            Err(Error::Exhausted)
-        } else {
-            let index = self.mask(self.read_at + self.length);
-            let result = &mut self.storage[index];
-            self.length += 1;
-            Ok(result)
+    pub fn enqueue<'b>(&'b mut self) -> Result<&'b mut T> {
+        if self.full() { return Err(Error::Exhausted) }
+
+        let index = self.mask(self.read_at + self.length);
+        self.length += 1;
+        Ok(&mut self.storage[index])
+    }
+
+    /// Call `f` with a buffer element, and enqueue the element if `f` returns successfully, or
+    /// return `Err(Error::Exhausted)` if the buffer is full.
+    pub fn try_enqueue<'b, R, F>(&'b mut self, f: F) -> Result<R>
+            where F: Fn(&'b mut T) -> Result<R> {
+        if self.full() { return Err(Error::Exhausted) }
+
+        let index = self.mask(self.read_at + self.length);
+        match f(&mut self.storage[index]) {
+            Ok(result) => {
+                self.length += 1;
+                Ok(result)
+            }
+            Err(error) => Err(error)
         }
     }
 
     /// Dequeue an element from the buffer, and return a mutable reference to it, or return
     /// `Err(Error::Exhausted)` if the buffer is empty.
     pub fn dequeue(&mut self) -> Result<&mut T> {
-        if self.empty() {
-            Err(Error::Exhausted)
-        } else {
-            self.length -= 1;
-            let read_at = self.read_at;
-            self.read_at = self.incr(self.read_at);
-            let result = &mut self.storage[read_at];
-            Ok(result)
+        if self.empty() { return Err(Error::Exhausted) }
+
+        let read_at = self.read_at;
+        self.length -= 1;
+        self.read_at = self.incr(self.read_at);
+        Ok(&mut self.storage[read_at])
+    }
+
+    /// Call `f` with a buffer element, and dequeue the element if `f` returns successfully, or
+    /// return `Err(Error::Exhausted)` if the buffer is empty.
+    pub fn try_dequeue<'b, R, F>(&'b mut self, f: F) -> Result<R>
+            where F: Fn(&'b mut T) -> Result<R> {
+        if self.empty() { return Err(Error::Exhausted) }
+
+        let next_at = self.incr(self.read_at);
+        match f(&mut self.storage[self.read_at]) {
+            Ok(result) => {
+                self.length -= 1;
+                self.read_at = next_at;
+                Ok(result)
+            }
+            Err(error) => Err(error)
         }
     }
 }
@@ -86,33 +113,69 @@ mod test {
         }
     }
 
-    #[test]
-    pub fn test_buffer() {
-        const TEST_BUFFER_SIZE: usize = 5;
+    const SIZE: usize = 5;
+
+    fn buffer() -> RingBuffer<'static, usize> {
         let mut storage = vec![];
-        for i in 0..TEST_BUFFER_SIZE {
+        for i in 0..SIZE {
             storage.push(i + 10);
         }
 
-        let mut ring_buffer = RingBuffer::new(&mut storage[..]);
-        assert!(ring_buffer.empty());
-        assert!(!ring_buffer.full());
-        assert_eq!(ring_buffer.dequeue(), Err(Error::Exhausted));
-        ring_buffer.enqueue().unwrap();
-        assert!(!ring_buffer.empty());
-        assert!(!ring_buffer.full());
-        for i in 1..TEST_BUFFER_SIZE {
-            *ring_buffer.enqueue().unwrap() = i;
-            assert!(!ring_buffer.empty());
-        }
-        assert!(ring_buffer.full());
-        assert_eq!(ring_buffer.enqueue(), Err(Error::Exhausted));
+        RingBuffer::new(storage)
+    }
 
-        for i in 0..TEST_BUFFER_SIZE {
-            assert_eq!(*ring_buffer.dequeue().unwrap(), i);
-            assert!(!ring_buffer.full());
+    #[test]
+    pub fn test_buffer() {
+        let mut buf = buffer();
+        assert!(buf.empty());
+        assert!(!buf.full());
+        assert_eq!(buf.dequeue(), Err(Error::Exhausted));
+
+        buf.enqueue().unwrap();
+        assert!(!buf.empty());
+        assert!(!buf.full());
+
+        for i in 1..SIZE {
+            *buf.enqueue().unwrap() = i;
+            assert!(!buf.empty());
         }
-        assert_eq!(ring_buffer.dequeue(), Err(Error::Exhausted));
-        assert!(ring_buffer.empty());
+        assert!(buf.full());
+        assert_eq!(buf.enqueue(), Err(Error::Exhausted));
+
+        for i in 0..SIZE {
+            assert_eq!(*buf.dequeue().unwrap(), i);
+            assert!(!buf.full());
+        }
+        assert_eq!(buf.dequeue(), Err(Error::Exhausted));
+        assert!(buf.empty());
+    }
+
+    #[test]
+    pub fn test_buffer_try() {
+        let mut buf = buffer();
+        assert!(buf.empty());
+        assert!(!buf.full());
+        assert_eq!(buf.try_dequeue(|_| unreachable!()) as Result<()>,
+                   Err(Error::Exhausted));
+
+        buf.try_enqueue(|e| Ok(e)).unwrap();
+        assert!(!buf.empty());
+        assert!(!buf.full());
+
+        for i in 1..SIZE {
+            buf.try_enqueue(|e| Ok(*e = i)).unwrap();
+            assert!(!buf.empty());
+        }
+        assert!(buf.full());
+        assert_eq!(buf.try_enqueue(|_| unreachable!()) as Result<()>,
+                   Err(Error::Exhausted));
+
+        for i in 0..SIZE {
+            assert_eq!(buf.try_dequeue(|e| Ok(*e)).unwrap(), i);
+            assert!(!buf.full());
+        }
+        assert_eq!(buf.try_dequeue(|_| unreachable!()) as Result<()>,
+                   Err(Error::Exhausted));
+        assert!(buf.empty());
     }
 }

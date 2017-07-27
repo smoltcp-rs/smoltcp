@@ -64,7 +64,7 @@ fn main() {
         {
             let socket: &mut UdpSocket = sockets.get_mut(udp_handle).as_socket();
             if !socket.endpoint().is_specified() {
-                socket.bind(6969)
+                socket.bind(6969).unwrap()
             }
 
             let client = match socket.recv() {
