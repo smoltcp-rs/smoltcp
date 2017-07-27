@@ -47,11 +47,11 @@ pub type SocketBuffer<'a, 'b: 'a> = RingBuffer<'a, PacketBuffer<'b>>;
 /// transmit and receive packet buffers.
 #[derive(Debug)]
 pub struct RawSocket<'a, 'b: 'a> {
+    debug_id:    usize,
     ip_version:  IpVersion,
     ip_protocol: IpProtocol,
     rx_buffer:   SocketBuffer<'a, 'b>,
     tx_buffer:   SocketBuffer<'a, 'b>,
-    debug_id:    usize,
 }
 
 impl<'a, 'b> RawSocket<'a, 'b> {
@@ -61,11 +61,11 @@ impl<'a, 'b> RawSocket<'a, 'b> {
                rx_buffer: SocketBuffer<'a, 'b>,
                tx_buffer: SocketBuffer<'a, 'b>) -> Socket<'a, 'b> {
         Socket::Raw(RawSocket {
+            debug_id: 0,
             ip_version,
             ip_protocol,
             rx_buffer,
             tx_buffer,
-            debug_id: 0,
         })
     }
 

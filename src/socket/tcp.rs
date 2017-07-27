@@ -225,6 +225,7 @@ impl Retransmit {
 /// attempts will be reset.
 #[derive(Debug)]
 pub struct TcpSocket<'a> {
+    debug_id:        usize,
     /// State of the socket.
     state:           State,
     /// Address passed to listen(). Listen address is set when listen() is called and
@@ -263,7 +264,6 @@ pub struct TcpSocket<'a> {
     time_wait_since: u64,
     rx_buffer:       SocketBuffer<'a>,
     tx_buffer:       SocketBuffer<'a>,
-    debug_id:        usize
 }
 
 const DEFAULT_MSS: usize = 536;
@@ -280,6 +280,7 @@ impl<'a> TcpSocket<'a> {
         }
 
         Socket::Tcp(TcpSocket {
+            debug_id:        0,
             state:           State::Closed,
             listen_address:  IpAddress::default(),
             local_endpoint:  IpEndpoint::default(),
@@ -294,7 +295,6 @@ impl<'a> TcpSocket<'a> {
             time_wait_since: 0,
             tx_buffer:       tx_buffer.into(),
             rx_buffer:       rx_buffer.into(),
-            debug_id:        0
         })
     }
 

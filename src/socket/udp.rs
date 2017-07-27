@@ -61,10 +61,10 @@ pub type SocketBuffer<'a, 'b : 'a> = RingBuffer<'a, PacketBuffer<'b>>;
 /// packet buffers.
 #[derive(Debug)]
 pub struct UdpSocket<'a, 'b: 'a> {
+    debug_id:  usize,
     endpoint:  IpEndpoint,
     rx_buffer: SocketBuffer<'a, 'b>,
     tx_buffer: SocketBuffer<'a, 'b>,
-    debug_id:  usize
 }
 
 impl<'a, 'b> UdpSocket<'a, 'b> {
@@ -72,10 +72,10 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     pub fn new(rx_buffer: SocketBuffer<'a, 'b>,
                tx_buffer: SocketBuffer<'a, 'b>) -> Socket<'a, 'b> {
         Socket::Udp(UdpSocket {
+            debug_id:  0,
             endpoint:  IpEndpoint::default(),
             rx_buffer: rx_buffer,
             tx_buffer: tx_buffer,
-            debug_id:  0
         })
     }
 
