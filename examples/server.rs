@@ -63,7 +63,7 @@ fn main() {
         // udp:6969: respond "yo dawg"
         {
             let socket: &mut UdpSocket = sockets.get_mut(udp_handle).as_socket();
-            if socket.endpoint().is_unspecified() {
+            if !socket.endpoint().is_specified() {
                 socket.bind(6969)
             }
 

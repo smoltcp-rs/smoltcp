@@ -101,6 +101,8 @@ pub mod socket;
 pub enum Error {
     /// An operation cannot proceed because a buffer is empty or full.
     Exhausted,
+    /// An operation is not permitted in the current state.
+    Illegal,
     /// An endpoint or address of a remote host could not be translated to a lower level address.
     /// E.g. there was no an Ethernet address corresponding to an IPv4 address in the ARP cache,
     /// or a TCP connection attempt was made to an unspecified endpoint.
@@ -136,6 +138,7 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             &Error::Exhausted     => write!(f, "buffer space exhausted"),
+            &Error::Illegal       => write!(f, "illegal operation"),
             &Error::Unaddressable => write!(f, "unaddressable destination"),
             &Error::Truncated     => write!(f, "truncated packet"),
             &Error::Checksum      => write!(f, "checksum error"),

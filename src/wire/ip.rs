@@ -120,9 +120,9 @@ impl Endpoint {
         Endpoint { addr: addr, port: port }
     }
 
-    /// Query whether the endpoint has an unspecified address.
-    pub fn is_unspecified(&self) -> bool {
-        self.addr.is_unspecified()
+    /// Query whether the endpoint has a specified address and port.
+    pub fn is_specified(&self) -> bool {
+        !self.addr.is_unspecified() && self.port != 0
     }
 }
 
