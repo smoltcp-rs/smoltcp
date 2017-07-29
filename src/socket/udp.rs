@@ -146,9 +146,9 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     /// Enqueue a packet to be sent to a given remote endpoint, and fill it from a slice.
     ///
     /// See also [send](#method.send).
-    pub fn send_slice(&mut self, data: &[u8], endpoint: IpEndpoint) -> Result<usize> {
+    pub fn send_slice(&mut self, data: &[u8], endpoint: IpEndpoint) -> Result<()> {
         self.send(data.len(), endpoint)?.copy_from_slice(data);
-        Ok(data.len())
+        Ok(())
     }
 
     /// Dequeue a packet received from a remote endpoint, and return the endpoint as well
@@ -294,7 +294,7 @@ mod test {
         assert_eq!(socket.send_slice(b"abcdef",
                                      IpEndpoint { port: 0, ..REMOTE_END }),
                    Err(Error::Unaddressable));
-        assert_eq!(socket.send_slice(b"abcdef", REMOTE_END), Ok(6));
+        assert_eq!(socket.send_slice(b"abcdef", REMOTE_END), Ok(()));
     }
 
     #[test]
@@ -316,7 +316,7 @@ mod test {
             unreachable!()
         }), Err(Error::Exhausted) as Result<()>);
 
-        assert_eq!(socket.send_slice(b"abcdef", REMOTE_END), Ok(6));
+        assert_eq!(socket.send_slice(b"abcdef", REMOTE_END), Ok(()));
         assert_eq!(socket.send_slice(b"123456", REMOTE_END), Err(Error::Exhausted));
         assert!(!socket.can_send());
 
