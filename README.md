@@ -7,7 +7,7 @@ include complicated compile-time computations, such as macro or type tricks, eve
 at cost of performance degradation.
 
 _smoltcp_ does not need heap allocation *at all*, is [extensively documented][docs],
-and compiles on stable Rust 1.18 and later.
+and compiles on stable Rust 1.19 and later.
 
 [docs]: https://docs.rs/smoltcp/
 
