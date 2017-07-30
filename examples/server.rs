@@ -7,6 +7,7 @@ extern crate smoltcp;
 mod utils;
 
 use std::str;
+use std::fmt::Write;
 use std::time::Instant;
 use smoltcp::Error;
 use smoltcp::wire::{EthernetAddress, IpAddress};
@@ -60,7 +61,7 @@ fn main() {
 
     let mut tcp_6970_active = false;
     loop {
-        // udp:6969: respond "yo dawg"
+        // udp:6969: respond "hello"
         {
             let socket: &mut UdpSocket = sockets.get_mut(udp_handle).as_socket();
             if !socket.is_open() {
@@ -76,14 +77,14 @@ fn main() {
                 Err(_) => None
             };
             if let Some(endpoint) = client {
-                let data = b"yo dawg\n";
+                let data = b"hello\n";
                 debug!("udp:6969 send data: {:?}",
                        str::from_utf8(data.as_ref()).unwrap());
                 socket.send_slice(data, endpoint).unwrap();
             }
         }
 
-        // tcp:6969: respond "yo dawg"
+        // tcp:6969: respond "hello"
         {
             let socket: &mut TcpSocket = sockets.get_mut(tcp1_handle).as_socket();
             if !socket.is_open() {
@@ -91,10 +92,8 @@ fn main() {
             }
 
             if socket.can_send() {
-                let data = b"yo dawg\n";
-                debug!("tcp:6969 send data: {:?}",
-                       str::from_utf8(data.as_ref()).unwrap());
-                socket.send_slice(data).unwrap();
+                debug!("tcp:6969 send greeting");
+                write!(socket, "hello\n");
                 debug!("tcp:6969 close");
                 socket.close();
             }

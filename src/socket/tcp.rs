@@ -1182,6 +1182,17 @@ impl<'a> TcpSocket<'a> {
     }
 }
 
+impl<'a> fmt::Write for TcpSocket<'a> {
+    fn write_str(&mut self, slice: &str) -> fmt::Result {
+        let slice = slice.as_bytes();
+        if self.send_slice(slice) == Ok(slice.len()) {
+            Ok(())
+        } else {
+            Err(fmt::Error)
+        }
+    }
+}
+
 impl<'a> IpPayload for TcpRepr<'a> {
     fn buffer_len(&self) -> usize {
         self.buffer_len()
