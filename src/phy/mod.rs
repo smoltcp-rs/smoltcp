@@ -104,7 +104,7 @@ impl Drop for EthernetTxBuffer {
 ```
 */
 
-use {Error, Result};
+use Result;
 
 #[cfg(any(feature = "raw_socket", feature = "tap_interface"))]
 mod sys;

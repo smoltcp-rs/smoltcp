@@ -1,4 +1,4 @@
-use {Error, Result};
+use Result;
 use wire::pretty_print::{PrettyPrint, PrettyPrinter};
 use super::{DeviceLimits, Device};
 

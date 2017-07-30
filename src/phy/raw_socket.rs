@@ -3,7 +3,7 @@ use std::vec::Vec;
 use std::rc::Rc;
 use std::io;
 
-use {Error, Result};
+use Result;
 use super::{sys, DeviceLimits, Device};
 
 /// A socket that captures or transmits the complete frame.

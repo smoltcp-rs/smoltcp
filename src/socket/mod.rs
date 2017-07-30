@@ -10,7 +10,7 @@
 //! The interface implemented by this module uses explicit buffering: you decide on the good
 //! size for a buffer, allocate it, and let the networking stack use it.
 
-use {Error, Result};
+use Result;
 use phy::DeviceLimits;
 use wire::IpRepr;
 

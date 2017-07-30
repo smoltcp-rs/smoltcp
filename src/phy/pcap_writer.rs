@@ -3,7 +3,7 @@ use core::cell::RefCell;
 use std::io::Write;
 use byteorder::{ByteOrder, NativeEndian};
 
-use {Error, Result};
+use Result;
 use super::{DeviceLimits, Device};
 
 enum_with_unknown! {
