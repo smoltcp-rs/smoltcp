@@ -101,16 +101,23 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
 
     /// Bind the socket to the given endpoint.
     ///
-    /// Returns `Err(Error::Illegal)` if the socket is already bound,
-    /// and `Err(Error::Unaddressable)` if the port is unspecified.
+    /// This function returns `Err(Error::Illegal)` if the socket was open
+    /// (see [is_open](#method.is_open)), and `Err(Error::Unaddressable)`
+    /// if the port in the given endpoint is zero.
     pub fn bind<T: Into<IpEndpoint>>(&mut self, endpoint: T) -> Result<()> {
         let endpoint = endpoint.into();
         if endpoint.port == 0 { return Err(Error::Unaddressable) }
 
-        if self.endpoint.port != 0 { return Err(Error::Illegal) }
+        if self.is_open() { return Err(Error::Illegal) }
 
         self.endpoint = endpoint;
         Ok(())
+    }
+
+    /// Check whether the socket is open.
+    #[inline]
+    pub fn is_open(&self) -> bool {
+        self.endpoint.port != 0
     }
 
     /// Check whether the transmit buffer is full.

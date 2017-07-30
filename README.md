@@ -208,7 +208,8 @@ It responds to:
   * TCP packets on port 6971 (`cat /dev/urandom | socat stdio tcp4-connect:192.168.69.1:6971`),
     which will be ignored.
 
-The buffers are only 64 bytes long, for convenience of testing resource exhaustion conditions.
+Except for the socket on port 6971. the buffers are only 64 bytes long, for convenience
+of testing resource exhaustion conditions.
 
 ### examples/client.rs
 

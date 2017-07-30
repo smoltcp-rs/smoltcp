@@ -348,8 +348,9 @@ impl<'a> TcpSocket<'a> {
 
     /// Start listening on the given endpoint.
     ///
-    /// This function returns an error if the socket was open; see [is_open](#method.is_open).
-    /// It also returns an error if the specified port is zero.
+    /// This function returns `Err(Error::Illegal)` if the socket was already open
+    /// (see [is_open](#method.is_open)), and `Err(Error::Unaddressable)`
+    /// if the port in the given endpoint is zero.
     pub fn listen<T>(&mut self, local_endpoint: T) -> Result<()>
             where T: Into<IpEndpoint> {
         let local_endpoint = local_endpoint.into();
