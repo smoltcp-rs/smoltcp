@@ -6,14 +6,29 @@ use super::{Ipv4Address, Ipv4Packet, Ipv4Repr};
 /// Internet protocol version.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub enum Version {
+    Unspecified,
     Ipv4,
     #[doc(hidden)]
     __Nonexhaustive,
 }
 
+impl Version {
+    /// Return the version of an IP packet stored in the provided buffer.
+    ///
+    /// This function never returns `Ok(IpVersion::Unspecified)`; instead,
+    /// unknown versions result in `Err(Error::Unrecognized)`.
+    pub fn of_packet(data: &[u8]) -> Result<Version> {
+        match data[0] >> 4 {
+            4 => Ok(Version::Ipv4),
+            _ => Err(Error::Unrecognized)
+        }
+    }
+}
+
 impl fmt::Display for Version {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            &Version::Unspecified => write!(f, "IPv?"),
             &Version::Ipv4 => write!(f, "IPv4"),
             &Version::__Nonexhaustive => unreachable!()
         }
@@ -171,6 +186,15 @@ pub enum IpRepr {
 }
 
 impl IpRepr {
+    /// Return the protocol version.
+    pub fn version(&self) -> Version {
+        match self {
+            &IpRepr::Unspecified { .. } => Version::Unspecified,
+            &IpRepr::Ipv4(_) => Version::Ipv4,
+            &IpRepr::__Nonexhaustive => unreachable!()
+        }
+    }
+
     /// Return the source address.
     pub fn src_addr(&self) -> Address {
         match self {

@@ -1,3 +1,4 @@
+use core::cmp::min;
 use managed::Managed;
 
 use {Error, Result};
@@ -29,6 +30,15 @@ impl<'a> PacketBuffer<'a> {
 
     fn as_mut<'b>(&'b mut self) -> &'b mut [u8] {
         &mut self.payload[..self.size]
+    }
+
+    fn resize<'b>(&'b mut self, size: usize) -> Result<&'b mut Self> {
+        if self.payload.len() >= size {
+            self.size = size;
+            Ok(self)
+        } else {
+            Err(Error::Truncated)
+        }
     }
 }
 
@@ -111,34 +121,40 @@ impl<'a, 'b> RawSocket<'a, 'b> {
     ///
     /// This function returns `Err(Error::Exhausted)` if the size is greater than
     /// the transmit packet buffer size.
+    ///
+    /// If the buffer is filled in a way that does not match the socket's
+    /// IP version or protocol, the packet will be silently dropped.
+    ///
+    /// **Note:** The IP header is parsed and reserialized, and may not match
+    /// the header actually transmitted bit for bit.
     pub fn send(&mut self, size: usize) -> Result<&mut [u8]> {
-        let packet_buf = self.tx_buffer.enqueue()?;
-        packet_buf.size = size;
+        let packet_buf = self.tx_buffer.try_enqueue(|buf| buf.resize(size))?;
         net_trace!("[{}]:{}:{}: buffer to send {} octets",
                    self.debug_id, self.ip_version, self.ip_protocol,
                    packet_buf.size);
-        Ok(&mut packet_buf.as_mut()[..size])
+        Ok(packet_buf.as_mut())
     }
 
     /// Enqueue a packet to send, and fill it from a slice.
     ///
     /// See also [send](#method.send).
-    pub fn send_slice(&mut self, data: &[u8]) -> Result<usize> {
-        let buffer = self.send(data.len())?;
-        let data = &data[..buffer.len()];
-        buffer.copy_from_slice(data);
-        Ok(data.len())
+    pub fn send_slice(&mut self, data: &[u8]) -> Result<()> {
+        self.send(data.len())?.copy_from_slice(data);
+        Ok(())
     }
 
     /// Dequeue a packet, and return a pointer to the payload.
     ///
     /// This function returns `Err(Error::Exhausted)` if the receive buffer is empty.
+    ///
+    /// **Note:** The IP header is parsed and reserialized, and may not match
+    /// the header actually received bit for bit.
     pub fn recv(&mut self) -> Result<&[u8]> {
         let packet_buf = self.rx_buffer.dequeue()?;
         net_trace!("[{}]:{}:{}: receive {} buffered octets",
                    self.debug_id, self.ip_version, self.ip_protocol,
                    packet_buf.size);
-        Ok(&packet_buf.as_ref()[..packet_buf.size])
+        Ok(&packet_buf.as_ref())
     }
 
     /// Dequeue a packet, and copy the payload into the given slice.
@@ -146,52 +162,66 @@ impl<'a, 'b> RawSocket<'a, 'b> {
     /// See also [recv](#method.recv).
     pub fn recv_slice(&mut self, data: &mut [u8]) -> Result<usize> {
         let buffer = self.recv()?;
-        data[..buffer.len()].copy_from_slice(buffer);
-        Ok(buffer.len())
+        let length = min(data.len(), buffer.len());
+        data[..length].copy_from_slice(&buffer[..length]);
+        Ok(length)
     }
 
     pub(crate) fn process(&mut self, _timestamp: u64, ip_repr: &IpRepr,
                           payload: &[u8]) -> Result<()> {
-        match self.ip_version {
-            IpVersion::Ipv4 => {
-                if ip_repr.protocol() != self.ip_protocol {
-                    return Err(Error::Rejected);
-                }
-                let header_len = ip_repr.buffer_len();
-                let packet_buf = self.rx_buffer.enqueue()?;
-                packet_buf.size = header_len + payload.len();
-                ip_repr.emit(&mut packet_buf.as_mut()[..header_len]);
-                packet_buf.as_mut()[header_len..header_len + payload.len()]
-                    .copy_from_slice(payload);
-                net_trace!("[{}]:{}:{}: receiving {} octets",
-                           self.debug_id, self.ip_version, self.ip_protocol,
-                           packet_buf.size);
-                Ok(())
-            }
-            IpVersion::__Nonexhaustive => unreachable!()
-        }
+        if ip_repr.version() != self.ip_version { return Err(Error::Rejected) }
+        if ip_repr.protocol() != self.ip_protocol { return Err(Error::Rejected) }
+
+        let header_len = ip_repr.buffer_len();
+        let total_len = header_len + payload.len();
+        let packet_buf = self.rx_buffer.try_enqueue(|buf| buf.resize(total_len))?;
+        ip_repr.emit(&mut packet_buf.as_mut()[..header_len]);
+        packet_buf.as_mut()[header_len..].copy_from_slice(payload);
+        net_trace!("[{}]:{}:{}: receiving {} octets",
+                   self.debug_id, self.ip_version, self.ip_protocol,
+                   packet_buf.size);
+        Ok(())
     }
 
-    /// See [Socket::dispatch](enum.Socket.html#method.dispatch).
     pub(crate) fn dispatch<F, R>(&mut self, _timestamp: u64, _limits: &DeviceLimits,
                                  emit: &mut F) -> Result<R>
             where F: FnMut(&IpRepr, &IpPayload) -> Result<R> {
-        let mut packet_buf = self.tx_buffer.dequeue()?;
-        net_trace!("[{}]:{}:{}: sending {} octets",
-                   self.debug_id, self.ip_version, self.ip_protocol,
-                   packet_buf.size);
+        fn prepare(version: IpVersion, protocol: IpProtocol,
+                   buffer: &mut [u8]) -> Result<(IpRepr, RawRepr)> {
+            match IpVersion::of_packet(buffer.as_ref())? {
+                IpVersion::Ipv4 => {
+                    let mut packet = Ipv4Packet::new_checked(buffer.as_mut())?;
+                    if packet.protocol() != protocol { return Err(Error::Unaddressable) }
+                    packet.fill_checksum();
 
-        match self.ip_version {
-            IpVersion::Ipv4 => {
-                let mut ipv4_packet = Ipv4Packet::new_checked(packet_buf.as_mut())?;
-                ipv4_packet.fill_checksum();
-
-                let ipv4_packet = Ipv4Packet::new(&*ipv4_packet.into_inner());
-                let raw_repr = RawRepr(ipv4_packet.payload());
-                let ipv4_repr = Ipv4Repr::parse(&ipv4_packet)?;
-                emit(&IpRepr::Ipv4(ipv4_repr), &raw_repr)
+                    let packet = Ipv4Packet::new(&*packet.into_inner());
+                    let ipv4_repr = Ipv4Repr::parse(&packet)?;
+                    let raw_repr = RawRepr(packet.payload());
+                    Ok((IpRepr::Ipv4(ipv4_repr), raw_repr))
+                }
+                IpVersion::Unspecified => unreachable!(),
+                IpVersion::__Nonexhaustive => unreachable!()
             }
-            IpVersion::__Nonexhaustive => unreachable!()
+        }
+
+        let mut packet_buf = self.tx_buffer.dequeue()?;
+        match prepare(self.ip_version, self.ip_protocol, packet_buf.as_mut()) {
+            Ok((ip_repr, raw_repr)) => {
+                net_trace!("[{}]:{}:{}: sending {} octets",
+                           self.debug_id, self.ip_version, self.ip_protocol,
+                           ip_repr.buffer_len() + raw_repr.buffer_len());
+                emit(&ip_repr, &raw_repr)
+            }
+            Err(error) => {
+                net_trace!("[{}]:{}:{}: dropping outgoing packet ({})",
+                           self.debug_id, self.ip_version, self.ip_protocol,
+                           error);
+                // This case is a bit special because in every other socket, no matter what data
+                // is put into the socket, it can be sent, but it's possible to put data into
+                // a raw socket that may not be, and we're generic over the result type, so
+                // we can't possibly return Ok(()) here.
+                Err(Error::Rejected)
+            }
         }
     }
 }
@@ -205,5 +235,156 @@ impl<'a> IpPayload for RawRepr<'a> {
 
     fn emit(&self, _repr: &IpRepr, payload: &mut [u8]) {
         payload.copy_from_slice(self.0);
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use wire::{IpAddress, Ipv4Address, IpRepr, Ipv4Repr};
+    use super::*;
+
+    fn buffer(packets: usize) -> SocketBuffer<'static, 'static> {
+        let mut storage = vec![];
+        for _ in 0..packets {
+            storage.push(PacketBuffer::new(vec![0; 24]))
+        }
+        SocketBuffer::new(storage)
+    }
+
+    fn socket(rx_buffer: SocketBuffer<'static, 'static>,
+              tx_buffer: SocketBuffer<'static, 'static>)
+            -> RawSocket<'static, 'static> {
+        match RawSocket::new(IpVersion::Ipv4, IpProtocol::Unknown(63),
+                             rx_buffer, tx_buffer) {
+            Socket::Raw(socket) => socket,
+            _ => unreachable!()
+        }
+    }
+
+    const HEADER_REPR: IpRepr = IpRepr::Ipv4(Ipv4Repr {
+        src_addr: Ipv4Address([10, 0, 0, 1]),
+        dst_addr: Ipv4Address([10, 0, 0, 2]),
+        protocol: IpProtocol::Unknown(63),
+        payload_len: 4
+    });
+    const PACKET_BYTES: [u8; 24] = [
+        0x45, 0x00, 0x00, 0x18,
+        0x00, 0x00, 0x40, 0x00,
+        0x40, 0x3f, 0x00, 0x00,
+        0x0a, 0x00, 0x00, 0x01,
+        0x0a, 0x00, 0x00, 0x02,
+        0xaa, 0x00, 0x00, 0xff
+    ];
+    const PACKET_PAYLOAD: [u8; 4] = [
+        0xaa, 0x00, 0x00, 0xff
+    ];
+
+    #[test]
+    fn test_send_truncated() {
+        let mut socket = socket(buffer(0), buffer(1));
+        assert_eq!(socket.send_slice(&[0; 32][..]), Err(Error::Truncated));
+    }
+
+    #[test]
+    fn test_send_dispatch() {
+        let limits = DeviceLimits::default();
+
+        let mut socket = socket(buffer(0), buffer(1));
+
+        assert!(socket.can_send());
+        assert_eq!(socket.dispatch(0, &limits, &mut |ip_repr, ip_payload| {
+            unreachable!()
+        }), Err(Error::Exhausted) as Result<()>);
+
+        assert_eq!(socket.send_slice(&PACKET_BYTES[..]), Ok(()));
+        assert_eq!(socket.send_slice(b""), Err(Error::Exhausted));
+        assert!(!socket.can_send());
+
+        macro_rules! assert_payload_eq {
+            ($ip_repr:expr, $ip_payload:expr, $expected:expr) => {{
+                let mut buffer = vec![0; $ip_payload.buffer_len()];
+                $ip_payload.emit(&$ip_repr, &mut buffer);
+                assert_eq!(&buffer[..], &$expected[$ip_repr.buffer_len()..]);
+            }}
+        }
+
+        assert_eq!(socket.dispatch(0, &limits, &mut |ip_repr, ip_payload| {
+            assert_eq!(ip_repr, &HEADER_REPR);
+            assert_payload_eq!(ip_repr, ip_payload, PACKET_BYTES);
+            Err(Error::Unaddressable)
+        }), Err(Error::Unaddressable) as Result<()>);
+        /*assert!(!socket.can_send());*/
+
+        assert_eq!(socket.dispatch(0, &limits, &mut |ip_repr, ip_payload| {
+            assert_eq!(ip_repr, &HEADER_REPR);
+            assert_payload_eq!(ip_repr, ip_payload, PACKET_BYTES);
+            Ok(())
+        }), /*Ok(())*/ Err(Error::Exhausted));
+        assert!(socket.can_send());
+    }
+
+    #[test]
+    fn test_send_illegal() {
+        let limits = DeviceLimits::default();
+
+        let mut socket = socket(buffer(0), buffer(1));
+
+        let mut wrong_version = PACKET_BYTES.clone();
+        Ipv4Packet::new(&mut wrong_version).set_version(5);
+
+        assert_eq!(socket.send_slice(&wrong_version[..]), Ok(()));
+        assert_eq!(socket.dispatch(0, &limits, &mut |ip_repr, ip_payload| {
+            unreachable!()
+        }), Err(Error::Rejected) as Result<()>);
+
+        let mut wrong_protocol = PACKET_BYTES.clone();
+        Ipv4Packet::new(&mut wrong_protocol).set_protocol(IpProtocol::Tcp);
+
+        assert_eq!(socket.send_slice(&wrong_protocol[..]), Ok(()));
+        assert_eq!(socket.dispatch(0, &limits, &mut |ip_repr, ip_payload| {
+            unreachable!()
+        }), Err(Error::Rejected) as Result<()>);
+    }
+
+    #[test]
+    fn test_recv_process() {
+        let mut socket = socket(buffer(1), buffer(0));
+        assert!(!socket.can_recv());
+
+        let mut cksumd_packet = PACKET_BYTES.clone();
+        Ipv4Packet::new(&mut cksumd_packet).fill_checksum();
+
+        assert_eq!(socket.recv(), Err(Error::Exhausted));
+        assert_eq!(socket.process(0, &HEADER_REPR, &PACKET_PAYLOAD),
+                   Ok(()));
+        assert!(socket.can_recv());
+
+        assert_eq!(socket.process(0, &HEADER_REPR, &PACKET_PAYLOAD),
+                   Err(Error::Exhausted));
+        assert_eq!(socket.recv(), Ok(&cksumd_packet[..]));
+        assert!(!socket.can_recv());
+    }
+
+    #[test]
+    fn test_recv_truncated_slice() {
+        let mut socket = socket(buffer(1), buffer(0));
+
+        assert_eq!(socket.process(0, &HEADER_REPR, &PACKET_PAYLOAD),
+                   Ok(()));
+
+        let mut slice = [0; 4];
+        assert_eq!(socket.recv_slice(&mut slice[..]), Ok(4));
+        assert_eq!(&slice, &PACKET_BYTES[..slice.len()]);
+    }
+
+    #[test]
+    fn test_recv_truncated_packet() {
+        let mut socket = socket(buffer(1), buffer(0));
+
+        let mut buffer = vec![0; 128];
+        buffer[..PACKET_BYTES.len()].copy_from_slice(&PACKET_BYTES[..]);
+
+        assert_eq!(socket.process(0, &HEADER_REPR, &buffer),
+                   Err(Error::Truncated));
     }
 }
