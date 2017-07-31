@@ -236,9 +236,7 @@ impl<'a> IpPayload for UdpRepr<'a> {
 
 #[cfg(test)]
 mod test {
-    use std::vec::Vec;
     use wire::{IpAddress, Ipv4Address, IpRepr, Ipv4Repr, UdpRepr};
-    use socket::AsSocket;
     use super::*;
 
     fn buffer(packets: usize) -> SocketBuffer<'static, 'static> {
@@ -294,7 +292,7 @@ mod test {
     fn test_send_unaddressable() {
         let mut socket = socket(buffer(0), buffer(1));
         assert_eq!(socket.send_slice(b"abcdef", REMOTE_END), Err(Error::Unaddressable));
-        socket.bind(LOCAL_PORT);
+        assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
         assert_eq!(socket.send_slice(b"abcdef",
                                      IpEndpoint { addr: IpAddress::Unspecified, ..REMOTE_END }),
                    Err(Error::Unaddressable));
@@ -307,7 +305,8 @@ mod test {
     #[test]
     fn test_send_truncated() {
         let mut socket = socket(buffer(0), buffer(1));
-        socket.bind(LOCAL_END);
+        assert_eq!(socket.bind(LOCAL_END), Ok(()));
+
         assert_eq!(socket.send_slice(&[0; 32][..], REMOTE_END), Err(Error::Truncated));
     }
 
@@ -316,10 +315,10 @@ mod test {
         let limits = DeviceLimits::default();
 
         let mut socket = socket(buffer(0), buffer(1));
-        socket.bind(LOCAL_END);
+        assert_eq!(socket.bind(LOCAL_END), Ok(()));
 
         assert!(socket.can_send());
-        assert_eq!(socket.dispatch(0, &limits, &mut |ip_repr, ip_payload| {
+        assert_eq!(socket.dispatch(0, &limits, &mut |_ip_repr, _ip_payload| {
             unreachable!()
         }), Err(Error::Exhausted) as Result<()>);
 
@@ -367,13 +366,14 @@ mod test {
     #[test]
     fn test_recv_process() {
         let mut socket = socket(buffer(1), buffer(0));
-        socket.bind(LOCAL_PORT);
-        assert!(!socket.can_recv());
+        assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
 
         let mut buffer = vec![0; REMOTE_UDP_REPR.buffer_len()];
         REMOTE_UDP_REPR.emit(&mut UdpPacket::new(&mut buffer), &LOCAL_IP, &REMOTE_IP);
 
+        assert!(!socket.can_recv());
         assert_eq!(socket.recv(), Err(Error::Exhausted));
+
         assert_eq!(socket.process(0, &REMOTE_IP_REPR, &buffer),
                    Ok(()));
         assert!(socket.can_recv());
@@ -387,7 +387,7 @@ mod test {
     #[test]
     fn test_recv_truncated_slice() {
         let mut socket = socket(buffer(1), buffer(0));
-        socket.bind(LOCAL_PORT);
+        assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
 
         let mut buffer = vec![0; REMOTE_UDP_REPR.buffer_len()];
         REMOTE_UDP_REPR.emit(&mut UdpPacket::new(&mut buffer), &LOCAL_IP, &REMOTE_IP);
@@ -401,7 +401,7 @@ mod test {
     #[test]
     fn test_recv_truncated_packet() {
         let mut socket = socket(buffer(1), buffer(0));
-        socket.bind(LOCAL_PORT);
+        assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
 
         let udp_repr = UdpRepr { payload: &[0; 100][..], ..REMOTE_UDP_REPR };
         let mut buffer = vec![0; udp_repr.buffer_len()];
