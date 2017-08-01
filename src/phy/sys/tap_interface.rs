@@ -49,7 +49,7 @@ impl TapInterfaceDesc {
             libc::FD_ZERO(&mut writefds);
             let mut exceptfds = mem::uninitialized::<libc::fd_set>();
             libc::FD_ZERO(&mut exceptfds);
-            let mut timeout = libc::timeval { tv_sec: 0, tv_usec: (ms * 1_000) as i64 };
+            let mut timeout = libc::timeval { tv_sec: 0, tv_usec: (ms * 1_000) as libc::suseconds_t };
             let res = libc::select(self.lower + 1, &mut readfds, &mut writefds, &mut exceptfds,
                                    &mut timeout);
             if res == -1 { return Err(io::Error::last_os_error()) }
