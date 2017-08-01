@@ -689,7 +689,7 @@ impl<'a> TcpSocket<'a> {
             // The initial SYN (or whatever) cannot contain an acknowledgement.
             // It may be destined to another socket though.
             (State::Listen, TcpRepr { ack_number: Some(_), .. }) => {
-                net_trace!("[{}]{}:{}: unacceptable ACK in LISTEN state",
+                net_debug!("[{}]{}:{}: unacceptable ACK in LISTEN state",
                            self.debug_id, self.local_endpoint, self.remote_endpoint);
                 return Err(Error::Dropped)
             }
@@ -697,7 +697,7 @@ impl<'a> TcpSocket<'a> {
             // An RST received in response to initial SYN is acceptable if it acknowledges
             // the initial SYN.
             (State::SynSent, TcpRepr { control: TcpControl::Rst, ack_number: None, .. }) => {
-                net_trace!("[{}]{}:{}: unacceptable RST (expecting RST|ACK) \
+                net_debug!("[{}]{}:{}: unacceptable RST (expecting RST|ACK) \
                             in response to initial SYN",
                            self.debug_id, self.local_endpoint, self.remote_endpoint);
                 return Err(Error::Malformed)
@@ -706,7 +706,7 @@ impl<'a> TcpSocket<'a> {
                 control: TcpControl::Rst, ack_number: Some(ack_number), ..
             }) => {
                 if ack_number != self.local_seq_no + 1 {
-                    net_trace!("[{}]{}:{}: unacceptable RST|ACK in response to initial SYN",
+                    net_debug!("[{}]{}:{}: unacceptable RST|ACK in response to initial SYN",
                                self.debug_id, self.local_endpoint, self.remote_endpoint);
                     return Err(Error::Malformed)
                 }
@@ -715,7 +715,7 @@ impl<'a> TcpSocket<'a> {
             (_, TcpRepr { control: TcpControl::Rst, .. }) => (),
             // Every packet after the initial SYN must be an acknowledgement.
             (_, TcpRepr { ack_number: None, .. }) => {
-                net_trace!("[{}]{}:{}: expecting an ACK",
+                net_debug!("[{}]{}:{}: expecting an ACK",
                            self.debug_id, self.local_endpoint, self.remote_endpoint);
                 return Err(Error::Malformed)
             }
@@ -723,7 +723,7 @@ impl<'a> TcpSocket<'a> {
             (_, TcpRepr { ack_number: Some(ack_number), .. }) => {
                 let unacknowledged = self.tx_buffer.len() + control_len;
                 if ack_number < self.local_seq_no {
-                    net_trace!("[{}]{}:{}: duplicate ACK ({} not in {}...{})",
+                    net_debug!("[{}]{}:{}: duplicate ACK ({} not in {}...{})",
                                self.debug_id, self.local_endpoint, self.remote_endpoint,
                                ack_number, self.local_seq_no, self.local_seq_no + unacknowledged);
                     // FIXME: instead of waiting for the retransmit timer to kick in,
@@ -731,7 +731,7 @@ impl<'a> TcpSocket<'a> {
                     return Err(Error::Dropped)
                 }
                 if ack_number > self.local_seq_no + unacknowledged {
-                    net_trace!("[{}]{}:{}: unacceptable ACK ({} not in {}...{})",
+                    net_debug!("[{}]{}:{}: unacceptable ACK ({} not in {}...{})",
                                self.debug_id, self.local_endpoint, self.remote_endpoint,
                                ack_number, self.local_seq_no, self.local_seq_no + unacknowledged);
                     return Err(Error::Dropped)
@@ -749,7 +749,7 @@ impl<'a> TcpSocket<'a> {
                 let next_remote_seq = self.remote_seq_no + self.rx_buffer.len();
                 let mut send_ack_again = false;
                 if seq_number > next_remote_seq {
-                    net_trace!("[{}]{}:{}: unacceptable SEQ ({} not in {}..), \
+                    net_debug!("[{}]{}:{}: unacceptable SEQ ({} not in {}..), \
                                 will send duplicate ACK",
                                self.debug_id, self.local_endpoint, self.remote_endpoint,
                                seq_number, next_remote_seq);
@@ -761,7 +761,7 @@ impl<'a> TcpSocket<'a> {
                     // retransmission.
                     send_ack_again = true;
                 } else if seq_number != next_remote_seq {
-                    net_trace!("[{}]{}:{}: duplicate SEQ ({} in ..{}), \
+                    net_debug!("[{}]{}:{}: duplicate SEQ ({} in ..{}), \
                                 will re-send ACK",
                                self.debug_id, self.local_endpoint, self.remote_endpoint,
                                seq_number, next_remote_seq);
@@ -951,7 +951,7 @@ impl<'a> TcpSocket<'a> {
             }
 
             _ => {
-                net_trace!("[{}]{}:{}: unexpected packet {}",
+                net_debug!("[{}]{}:{}: unexpected packet {}",
                            self.debug_id, self.local_endpoint, self.remote_endpoint, repr);
                 return Err(Error::Malformed)
             }
@@ -1134,7 +1134,7 @@ impl<'a> TcpSocket<'a> {
 
         if should_send {
             if let Some(actual_delay) = self.retransmit.commit(timestamp) {
-                net_trace!("[{}]{}:{}: retransmitting at t+{}ms ",
+                net_debug!("[{}]{}:{}: retransmitting at t+{}ms ",
                            self.debug_id, self.local_endpoint, self.remote_endpoint,
                            actual_delay);
             }

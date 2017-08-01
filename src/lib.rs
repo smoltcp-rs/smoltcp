@@ -81,7 +81,7 @@ extern crate alloc;
 #[cfg(feature = "collections")]
 extern crate collections;
 #[cfg(any(test, feature = "log"))]
-#[macro_use(trace, log, log_enabled)]
+#[macro_use(log, log_enabled, trace, debug)]
 extern crate log;
 
 use core::fmt;

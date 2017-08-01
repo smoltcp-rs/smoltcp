@@ -110,7 +110,9 @@ on `collections::vec::Vec`. This only works on nightly rustc.
 ### Feature `log`
 
 The `log` feature enables logging of events within the networking stack through
-the [log crate][log]. The events are emitted with the TRACE log level.
+the [log crate][log]. Normal events (e.g. buffer level or TCP state changes) are emitted with
+the TRACE log level. Exceptional events (e.g. malformed packets) are emitted with
+the DEBUG log level.
 
 [log]: https://crates.io/crates/log
 

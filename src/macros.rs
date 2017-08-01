@@ -17,6 +17,15 @@ macro_rules! net_trace_enabled {
     })
 }
 
+macro_rules! net_debug {
+    ($($arg:expr),*) => {
+        #[cfg(feature = "log")]
+        debug!($($arg),*);
+        #[cfg(not(feature = "log"))]
+        $( let _ = $arg );*; // suppress unused variable warnings
+    }
+}
+
 macro_rules! enum_with_unknown {
     (
         $( #[$enum_attr:meta] )*
