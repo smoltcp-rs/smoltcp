@@ -689,7 +689,9 @@ impl<'a> TcpSocket<'a> {
             // The initial SYN (or whatever) cannot contain an acknowledgement.
             // It may be destined to another socket though.
             (State::Listen, TcpRepr { ack_number: Some(_), .. }) => {
-                return Err(Error::Rejected)
+                net_trace!("[{}]{}:{}: unacceptable ACK in LISTEN state",
+                           self.debug_id, self.local_endpoint, self.remote_endpoint);
+                return Err(Error::Dropped)
             }
             (State::Listen, TcpRepr { ack_number: None, .. }) => (),
             // An RST received in response to initial SYN is acceptable if it acknowledges
@@ -806,9 +808,9 @@ impl<'a> TcpSocket<'a> {
 
         // Validate and update the state.
         match (self.state, repr) {
-            // RSTs are ignored in the LISTEN state.
+            // RSTs are not accepted in the LISTEN state.
             (State::Listen, TcpRepr { control: TcpControl::Rst, .. }) =>
-                return Err(Error::Rejected),
+                return Err(Error::Dropped),
 
             // RSTs in SYN-RECEIVED flip the socket back to the LISTEN state.
             (State::SynReceived, TcpRepr { control: TcpControl::Rst, .. }) => {
@@ -1491,7 +1493,7 @@ mod test {
             seq_number: REMOTE_SEQ,
             ack_number: Some(LOCAL_SEQ),
             ..SEND_TEMPL
-        }, Err(Error::Rejected));
+        }, Err(Error::Dropped));
         assert_eq!(s.state, State::Listen);
     }
 
@@ -1503,7 +1505,7 @@ mod test {
             seq_number: REMOTE_SEQ,
             ack_number: None,
             ..SEND_TEMPL
-        }, Err(Error::Rejected));
+        }, Err(Error::Dropped));
     }
 
     #[test]
