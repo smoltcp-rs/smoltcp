@@ -188,12 +188,14 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
         let packet = UdpPacket::new_checked(&payload[..ip_repr.payload_len()])?;
         let repr = UdpRepr::parse(&packet, &ip_repr.src_addr(), &ip_repr.dst_addr())?;
 
-        let endpoint = IpEndpoint { addr: ip_repr.src_addr(), port: repr.src_port };
-        if !self.endpoint.accepts(&endpoint) { return Err(Error::Rejected) }
+        // Reject packets with a wrong destination.
+        if self.endpoint.port != repr.dst_port { return Err(Error::Rejected) }
+        if !self.endpoint.addr.is_unspecified() &&
+           self.endpoint.addr != ip_repr.dst_addr() { return Err(Error::Rejected) }
 
         let packet_buf = self.rx_buffer.try_enqueue(|buf| buf.resize(repr.payload.len()))?;
         packet_buf.as_mut().copy_from_slice(repr.payload);
-        packet_buf.endpoint = endpoint;
+        packet_buf.endpoint = IpEndpoint { addr: ip_repr.src_addr(), port: repr.src_port };
         net_trace!("[{}]{}:{}: receiving {} octets",
                    self.debug_id, self.endpoint,
                    packet_buf.endpoint, packet_buf.size);

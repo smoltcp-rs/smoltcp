@@ -139,14 +139,6 @@ impl Endpoint {
     pub fn is_specified(&self) -> bool {
         !self.addr.is_unspecified() && self.port != 0
     }
-
-    /// Query whether `self` should accept packets from `other`.
-    ///
-    /// Returns `true` if `other` is a specified endpoint and `self` either
-    /// has an unspecified address, or the addresses are equal.
-    pub fn accepts(&self, other: &Endpoint) -> bool {
-        other.is_specified() && (self.addr == other.addr || self.addr.is_unspecified())
-    }
 }
 
 impl fmt::Display for Endpoint {
