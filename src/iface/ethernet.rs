@@ -368,11 +368,12 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                         Some(hardware_addr) => hardware_addr
                     };
 
-                let frame_len = EthernetFrame::<&[u8]>::buffer_len($ip_repr.buffer_len() +
-                                                                   $ip_repr.payload_len);
-                $tx_buffer = self.device.transmit(timestamp, frame_len)?;
-                $frame = EthernetFrame::new_checked(&mut $tx_buffer)
-                                       .expect("transmit frame too small");
+                let tx_len = EthernetFrame::<&[u8]>::buffer_len($ip_repr.buffer_len() +
+                                                                $ip_repr.payload_len);
+                $tx_buffer = self.device.transmit(timestamp, tx_len)?;
+                debug_assert!($tx_buffer.as_ref().len() == tx_len);
+
+                $frame = EthernetFrame::new(&mut $tx_buffer);
                 $frame.set_src_addr(self.hardware_addr);
                 $frame.set_dst_addr(dst_hardware_addr);
                 $frame.set_ethertype(EthernetProtocol::Ipv4);
@@ -387,8 +388,9 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
             Response::Arp(repr) => {
                 let tx_len = EthernetFrame::<&[u8]>::buffer_len(repr.buffer_len());
                 let mut tx_buffer = self.device.transmit(timestamp, tx_len)?;
-                let mut frame = EthernetFrame::new_checked(&mut tx_buffer)
-                                              .expect("transmit frame too small");
+                debug_assert!(tx_buffer.as_ref().len() == tx_len);
+
+                let mut frame = EthernetFrame::new(&mut tx_buffer);
                 frame.set_src_addr(self.hardware_addr);
                 frame.set_dst_addr(match repr {
                     ArpRepr::EthernetIpv4 { target_hardware_addr, .. } => target_hardware_addr,
@@ -449,8 +451,9 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                         let tx_len = EthernetFrame::<&[u8]>::buffer_len(repr.buffer_len() +
                                                                         payload.buffer_len());
                         let mut tx_buffer = device.transmit(timestamp, tx_len)?;
-                        let mut frame = EthernetFrame::new_checked(&mut tx_buffer)
-                                                      .expect("transmit frame too small");
+                        debug_assert!(tx_buffer.as_ref().len() == tx_len);
+
+                        let mut frame = EthernetFrame::new(&mut tx_buffer);
                         frame.set_src_addr(src_hardware_addr);
                         frame.set_dst_addr(dst_hardware_addr);
                         frame.set_ethertype(EthernetProtocol::Ipv4);
@@ -480,8 +483,9 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
 
                         let tx_len = EthernetFrame::<&[u8]>::buffer_len(payload.buffer_len());
                         let mut tx_buffer = device.transmit(timestamp, tx_len)?;
-                        let mut frame = EthernetFrame::new_checked(&mut tx_buffer)
-                                                      .expect("transmit frame too small");
+                        debug_assert!(tx_buffer.as_ref().len() == tx_len);
+
+                        let mut frame = EthernetFrame::new(&mut tx_buffer);
                         frame.set_src_addr(src_hardware_addr);
                         frame.set_dst_addr(EthernetAddress([0xff; 6]));
                         frame.set_ethertype(EthernetProtocol::Arp);
