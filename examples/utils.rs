@@ -47,18 +47,6 @@ pub fn setup_logging(filter: &str) {
     })
 }
 
-struct Dispose;
-
-impl io::Write for Dispose {
-    fn write(&mut self, data: &[u8]) -> io::Result<usize> {
-        Ok(data.len())
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
-
 pub fn create_options() -> (Options, Vec<&'static str>) {
     let mut opts = Options::new();
     opts.optflag("h", "help", "print this help menu");
@@ -123,7 +111,7 @@ pub fn parse_middleware_options<D: Device>(matches: &mut Matches, device: D, loo
     if let Some(pcap_filename) = matches.opt_str("pcap") {
         pcap_writer = Box::new(File::create(pcap_filename).expect("cannot open file"))
     } else {
-        pcap_writer = Box::new(Dispose)
+        pcap_writer = Box::new(io::sink())
     }
 
     let seed = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().subsec_nanos();
