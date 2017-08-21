@@ -145,19 +145,23 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         let arp_repr = ArpRepr::parse(&arp_packet)?;
 
         match arp_repr {
-            // Respond to ARP requests aimed at us, and fill the ARP cache
-            // from all ARP requests, including gratuitous.
+            // Respond to ARP requests aimed at us, and fill the ARP cache from all ARP
+            // requests and replies, to minimize the chance that we have to perform
+            // an explicit ARP request.
             ArpRepr::EthernetIpv4 {
-                operation: ArpOperation::Request,
-                source_hardware_addr, source_protocol_addr,
-                target_protocol_addr, ..
+                operation, source_hardware_addr, source_protocol_addr, target_protocol_addr, ..
             } => {
                 if source_protocol_addr.is_unicast() && source_hardware_addr.is_unicast() {
                     self.arp_cache.fill(&source_protocol_addr.into(),
                                         &source_hardware_addr);
+                } else {
+                    // Discard packets with non-unicast source addresses.
+                    net_debug!("non-unicast source in {}", arp_repr);
+                    return Err(Error::Malformed)
                 }
 
-                if self.has_protocol_addr(target_protocol_addr) {
+                if operation == ArpOperation::Reply &&
+                        self.has_protocol_addr(target_protocol_addr) {
                     Ok(Response::Arp(ArpRepr::EthernetIpv4 {
                         operation: ArpOperation::Reply,
                         source_hardware_addr: self.hardware_addr,
@@ -168,18 +172,6 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                 } else {
                     Ok(Response::Nop)
                 }
-            }
-
-            // Fill the ARP cache from gratuitous ARP replies.
-            ArpRepr::EthernetIpv4 {
-                operation: ArpOperation::Reply,
-                source_hardware_addr, source_protocol_addr, ..
-            } => {
-                if source_protocol_addr.is_unicast() && source_hardware_addr.is_unicast() {
-                    self.arp_cache.fill(&source_protocol_addr.into(),
-                                        &source_hardware_addr);
-                }
-                Ok(Response::Nop)
             }
 
             _ => Err(Error::Unrecognized)
@@ -195,6 +187,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
 
         if !ipv4_repr.src_addr.is_unicast() {
             // Discard packets with non-unicast source addresses.
+            net_debug!("non-unicast source in {}", ipv4_repr);
             return Err(Error::Malformed)
         }
 
