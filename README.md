@@ -1,5 +1,4 @@
-smoltcp
-=======
+# smoltcp
 
 _smoltcp_ is a standalone, event-driven TCP/IP stack that is designed for bare-metal,
 real-time systems. Its design goals are simplicity and robustness. Its design anti-goals
@@ -11,8 +10,7 @@ and compiles on stable Rust 1.19 and later.
 
 [docs]: https://docs.rs/smoltcp/
 
-Features
---------
+## Features
 
 _smoltcp_ is missing many widely deployed features, whether by design or simply because
 no one implemented them yet. To set expectations right, both implemented and omitted
@@ -66,8 +64,7 @@ The TCP protocol is supported over IPv4. Server and client sockets are supported
     * Fast open is **not** supported.
   * Keepalive is **not** supported.
 
-Installation
-------------
+## Installation
 
 To use the _smoltcp_ library in your project, add the following to `Cargo.toml`:
 
@@ -127,14 +124,13 @@ or `BufWriter` is used, which are of course not available on heap-less systems.
 
 This feature is disabled by default.
 
-Hosted usage examples
----------------------
+## Hosted usage examples
 
 _smoltcp_, being a freestanding networking stack, needs to be able to transmit and receive
 raw frames. For testing purposes, we will use a regular OS, and run _smoltcp_ in
 a userspace process. Only Linux is supported (right now).
 
-On *nix OSes, transmiting and receiving raw frames normally requires superuser privileges, but
+On \*nix OSes, transmiting and receiving raw frames normally requires superuser privileges, but
 on Linux it is possible to create a _persistent tap interface_ that can be manipulated by
 a specific user:
 
@@ -250,8 +246,7 @@ Currently, netmasks are not implemented, and so the only address this example ca
 is the other endpoint of the tap interface, `192.168.1.100`. It cannot reach itself because
 packets entering a tap interface do not loop back.
 
-Bare-metal usage examples
--------------------------
+## Bare-metal usage examples
 
 Examples that use no services from the host OS are necessarily less illustrative than examples
 that do. Because of this, only one such example is provided.
@@ -281,8 +276,7 @@ is possible; otherwise, nothing at all will be displayed and no options are acce
 
 [wireshark]: https://wireshark.org
 
-License
--------
+## License
 
 _smoltcp_ is distributed under the terms of 0-clause BSD license.
 
