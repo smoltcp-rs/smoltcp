@@ -37,7 +37,11 @@ impl TapInterfaceDesc {
             lower
         };
 
-        ifreq_ioctl(lower, &mut self.ifreq, imp::SIOCGIFMTU).map(|mtu| mtu as usize)
+        let mtu = ifreq_ioctl(lower, &mut self.ifreq, imp::SIOCGIFMTU).map(|mtu| mtu as usize);
+
+        unsafe { libc::close(lower); }
+
+        mtu
     }
 
     fn wait(&mut self, ms: u32) -> io::Result<bool> {
