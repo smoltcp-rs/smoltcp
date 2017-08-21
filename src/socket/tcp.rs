@@ -690,6 +690,11 @@ impl<'a> TcpSocket<'a> {
         let packet = TcpPacket::new_checked(&payload[..ip_repr.payload_len()])?;
         let repr = TcpRepr::parse(&packet, &ip_repr.src_addr(), &ip_repr.dst_addr())?;
 
+        // If we're still listening for SYNs and the packet has an ACK, it cannot
+        // be destined to this socket, but another one may well listen on the same
+        // local endpoint.
+        if self.state == State::Listen && repr.ack_number.is_some() { return Err(Error::Rejected) }
+
         // Reject packets with a wrong destination.
         if self.local_endpoint.port != repr.dst_port { return Err(Error::Rejected) }
         if !self.local_endpoint.addr.is_unspecified() &&
@@ -715,17 +720,11 @@ impl<'a> TcpSocket<'a> {
 
         // Reject unacceptable acknowledgements.
         match (self.state, repr) {
-            // The initial SYN (or whatever) cannot contain an acknowledgement.
-            // It may be destined to another socket though.
-            (State::Listen, TcpRepr { ack_number: Some(_), .. }) => {
-                net_debug!("[{}]{}:{}: unacceptable ACK in LISTEN state",
-                           self.debug_id, self.local_endpoint, self.remote_endpoint);
-                return Err(Error::Dropped)
-            }
-            (State::Listen, TcpRepr { ack_number: None, .. }) => (),
             // An RST received in response to initial SYN is acceptable if it acknowledges
             // the initial SYN.
-            (State::SynSent, TcpRepr { control: TcpControl::Rst, ack_number: None, .. }) => {
+            (State::SynSent, TcpRepr {
+                control: TcpControl::Rst, ack_number: None, ..
+            }) => {
                 net_debug!("[{}]{}:{}: unacceptable RST (expecting RST|ACK) \
                             in response to initial SYN",
                            self.debug_id, self.local_endpoint, self.remote_endpoint);
@@ -742,6 +741,10 @@ impl<'a> TcpSocket<'a> {
             }
             // Any other RST need only have a valid sequence number.
             (_, TcpRepr { control: TcpControl::Rst, .. }) => (),
+            // The initial SYN cannot contain an acknowledgement.
+            (State::Listen, TcpRepr { ack_number: None, .. }) => (),
+            // This case is handled above.
+            (State::Listen, TcpRepr { ack_number: Some(_), .. }) => unreachable!(),
             // Every packet after the initial SYN must be an acknowledgement.
             (_, TcpRepr { ack_number: None, .. }) => {
                 net_debug!("[{}]{}:{}: expecting an ACK",
@@ -1522,7 +1525,7 @@ mod test {
             seq_number: REMOTE_SEQ,
             ack_number: Some(LOCAL_SEQ),
             ..SEND_TEMPL
-        }, Err(Error::Dropped));
+        }, Err(Error::Rejected));
         assert_eq!(s.state, State::Listen);
     }
 
