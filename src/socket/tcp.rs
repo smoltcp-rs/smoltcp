@@ -637,6 +637,35 @@ impl<'a> TcpSocket<'a> {
         Ok(buffer.len())
     }
 
+    /// Peek at a sequence of received octets without removing them from
+    /// the receive buffer, and return a pointer to it.
+    ///
+    /// This function otherwise behaves identically to [recv](#method.recv).
+    pub fn peek(&mut self, size: usize) -> Result<&[u8]> {
+        // See recv() above.
+        if !self.may_recv() { return Err(Error::Illegal) }
+
+        let buffer = self.rx_buffer.peek(0, size);
+        if buffer.len() > 0 {
+            #[cfg(any(test, feature = "verbose"))]
+            net_trace!("[{}]{}:{}: rx buffer: peeking at {} octets",
+                       self.debug_id, self.local_endpoint, self.remote_endpoint,
+                       buffer.len());
+        }
+        Ok(buffer)
+    }
+
+    /// Peek at a sequence of received octets without removing them from
+    /// the receive buffer, and fill a slice from it.
+    ///
+    /// This function otherwise behaves identically to [recv_slice](#method.recv_slice).
+    pub fn peek_slice(&mut self, data: &mut [u8]) -> Result<usize> {
+        let buffer = self.peek(data.len())?;
+        let data = &mut data[..buffer.len()];
+        data.copy_from_slice(buffer);
+        Ok(buffer.len())
+    }
+
     fn set_state(&mut self, state: State) {
         if self.state != state {
             if self.remote_endpoint.addr.is_unspecified() {
