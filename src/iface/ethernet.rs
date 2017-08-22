@@ -160,7 +160,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                     return Err(Error::Malformed)
                 }
 
-                if operation == ArpOperation::Reply &&
+                if operation == ArpOperation::Request &&
                         self.has_protocol_addr(target_protocol_addr) {
                     Ok(Response::Arp(ArpRepr::EthernetIpv4 {
                         operation: ArpOperation::Reply,
