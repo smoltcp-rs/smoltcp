@@ -9,7 +9,7 @@ use super::ip::checksum;
 ///
 /// A sequence number is a monotonically advancing integer modulo 2<sup>32</sup>.
 /// Sequence numbers do not have a discontiguity when compared pairwise across a signed overflow.
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
 pub struct SeqNumber(pub i32);
 
 impl fmt::Display for SeqNumber {
@@ -275,7 +275,6 @@ impl<T: AsRef<[u8]>> Packet<T> {
     }
 
     /// Return the length of the segment, in terms of sequence space.
-    #[inline]
     pub fn segment_len(&self) -> usize {
         let data = self.buffer.as_ref();
         let mut length = data.len() - self.header_len() as usize;
@@ -695,10 +694,9 @@ impl<'a> Repr<'a> {
     }
 
     /// Emit a high-level representation into a Transmission Control Protocol packet.
-    pub fn emit<T: ?Sized>(&self, packet: &mut Packet<&mut T>,
-                           src_addr: &IpAddress,
-                           dst_addr: &IpAddress)
-            where T: AsRef<[u8]> + AsMut<[u8]> {
+    pub fn emit<T>(&self, packet: &mut Packet<&mut T>,
+                   src_addr: &IpAddress, dst_addr: &IpAddress)
+            where T: AsRef<[u8]> + AsMut<[u8]> + ?Sized {
         packet.set_src_port(self.src_port);
         packet.set_dst_port(self.dst_port);
         packet.set_seq_number(self.seq_number);
@@ -726,6 +724,16 @@ impl<'a> Repr<'a> {
         packet.set_urgent_at(0);
         packet.payload_mut().copy_from_slice(self.payload);
         packet.fill_checksum(src_addr, dst_addr)
+    }
+
+    /// Return the length of the segment, in terms of sequence space.
+    pub fn segment_len(&self) -> usize {
+        let mut length = self.payload.len();
+        match self.control {
+            Control::Syn | Control::Fin => length += 1,
+            _ => ()
+        }
+        length
     }
 }
 

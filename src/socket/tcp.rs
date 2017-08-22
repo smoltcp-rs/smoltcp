@@ -285,10 +285,10 @@ impl<'a> TcpSocket<'a> {
             listen_address:  IpAddress::default(),
             local_endpoint:  IpEndpoint::default(),
             remote_endpoint: IpEndpoint::default(),
-            local_seq_no:    TcpSeqNumber(0),
-            remote_seq_no:   TcpSeqNumber(0),
-            remote_last_seq: TcpSeqNumber(0),
-            remote_last_ack: TcpSeqNumber(0),
+            local_seq_no:    TcpSeqNumber::default(),
+            remote_seq_no:   TcpSeqNumber::default(),
+            remote_last_seq: TcpSeqNumber::default(),
+            remote_last_ack: TcpSeqNumber::default(),
             remote_win_len:  0,
             remote_mss:      DEFAULT_MSS,
             retransmit:      Retransmit::new(),
@@ -335,10 +335,10 @@ impl<'a> TcpSocket<'a> {
         self.listen_address  = IpAddress::default();
         self.local_endpoint  = IpEndpoint::default();
         self.remote_endpoint = IpEndpoint::default();
-        self.local_seq_no    = TcpSeqNumber(0);
-        self.remote_seq_no   = TcpSeqNumber(0);
-        self.remote_last_seq = TcpSeqNumber(0);
-        self.remote_last_ack = TcpSeqNumber(0);
+        self.local_seq_no    = TcpSeqNumber::default();
+        self.remote_seq_no   = TcpSeqNumber::default();
+        self.remote_last_seq = TcpSeqNumber::default();
+        self.remote_last_ack = TcpSeqNumber::default();
         self.remote_win_len  = 0;
         self.remote_mss      = DEFAULT_MSS;
         self.retransmit.reset();
@@ -679,6 +679,44 @@ impl<'a> TcpSocket<'a> {
             }
         }
         self.state = state
+    }
+
+    pub(crate) fn reply(ip_repr: &IpRepr, tcp_repr: &TcpRepr) -> (IpRepr, TcpRepr<'static>) {
+        let tcp_reply_repr = TcpRepr {
+            src_port:     tcp_repr.dst_port,
+            dst_port:     tcp_repr.src_port,
+            control:      TcpControl::None,
+            push:         false,
+            seq_number:   TcpSeqNumber(0),
+            ack_number:   None,
+            window_len:   0,
+            max_seg_size: None,
+            payload:      &[]
+        };
+        let ip_reply_repr = IpRepr::Unspecified {
+            src_addr:    ip_repr.dst_addr(),
+            dst_addr:    ip_repr.src_addr(),
+            protocol:    IpProtocol::Tcp,
+            payload_len: tcp_reply_repr.buffer_len()
+        };
+        (ip_reply_repr, tcp_reply_repr)
+    }
+
+    pub(crate) fn rst_reply(ip_repr: &IpRepr, tcp_repr: &TcpRepr) -> (IpRepr, TcpRepr<'static>) {
+        debug_assert!(tcp_repr.control != TcpControl::Rst);
+
+        let (ip_reply_repr, mut tcp_reply_repr) = Self::reply(ip_repr, tcp_repr);
+
+        // See https://www.snellman.net/blog/archive/2016-02-01-tcp-rst/ for explanation
+        // of why we sometimes send an RST and sometimes an RST|ACK
+        tcp_reply_repr.control = TcpControl::Rst;
+        tcp_reply_repr.seq_number = tcp_repr.ack_number.unwrap_or_default();
+        if tcp_repr.control == TcpControl::Syn {
+            tcp_reply_repr.ack_number = Some(tcp_repr.seq_number +
+                                             tcp_repr.segment_len());
+        }
+
+        (ip_reply_repr, tcp_reply_repr)
     }
 
     pub(crate) fn process(&mut self, timestamp: u64, ip_repr: &IpRepr,

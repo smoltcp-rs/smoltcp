@@ -177,6 +177,12 @@ pub enum IpRepr {
     __Nonexhaustive
 }
 
+impl From<Ipv4Repr> for IpRepr {
+    fn from(repr: Ipv4Repr) -> IpRepr {
+        IpRepr::Ipv4(repr)
+    }
+}
+
 impl IpRepr {
     /// Return the protocol version.
     pub fn version(&self) -> Version {
@@ -322,6 +328,17 @@ impl IpRepr {
             &IpRepr::__Nonexhaustive =>
                 unreachable!()
         }
+    }
+
+    /// Return the total length of a packet that will be emitted from this
+    /// high-level representation.
+    ///
+    /// This is the same as `repr.buffer_len() + repr.payload_len()`.
+    ///
+    /// # Panics
+    /// This function panics if invoked on an unspecified representation.
+    pub fn total_len(&self) -> usize {
+        self.buffer_len() + self.payload_len()
     }
 }
 
