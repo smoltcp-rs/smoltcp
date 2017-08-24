@@ -13,7 +13,7 @@ pub struct TapInterfaceDesc {
 impl TapInterfaceDesc {
     pub fn new(name: &str) -> io::Result<TapInterfaceDesc> {
         let lower = unsafe {
-            let lower = libc::open("/dev/net/tun".as_ptr() as *const libc::c_char,
+            let lower = libc::open("/dev/net/tun\0".as_ptr() as *const libc::c_char,
                                    libc::O_RDWR);
             if lower == -1 { return Err(io::Error::last_os_error()) }
             lower
