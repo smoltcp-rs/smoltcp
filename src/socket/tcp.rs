@@ -696,7 +696,6 @@ impl<'a> TcpSocket<'a> {
             src_port:     repr.dst_port,
             dst_port:     repr.src_port,
             control:      TcpControl::None,
-            push:         false,
             seq_number:   TcpSeqNumber(0),
             ack_number:   None,
             window_len:   0,
@@ -1103,7 +1102,6 @@ impl<'a> TcpSocket<'a> {
             src_port:     self.local_endpoint.port,
             dst_port:     self.remote_endpoint.port,
             control:      TcpControl::None,
-            push:         false,
             seq_number:   self.remote_next_seq,
             ack_number:   Some(self.remote_seq_no + self.rx_buffer.len()),
             window_len:   self.rx_buffer.window() as u16,
@@ -1146,7 +1144,7 @@ impl<'a> TcpSocket<'a> {
                         State::FinWait1 | State::LastAck =>
                             repr.control = TcpControl::Fin,
                         State::Established | State::CloseWait =>
-                            repr.push = true,
+                            repr.control = TcpControl::Psh,
                         _ => ()
                     }
                 }
@@ -1190,7 +1188,8 @@ impl<'a> TcpSocket<'a> {
                     (TcpControl::Syn,  Some(_)) => "SYN|ACK",
                     (TcpControl::Fin,  Some(_)) => "FIN|ACK",
                     (TcpControl::Rst,  Some(_)) => "RST|ACK",
-                    (TcpControl::None, _)       => "ACK",
+                    (TcpControl::Psh,  Some(_)) => "PSH|ACK",
+                    (TcpControl::None, Some(_)) => "ACK",
                     _ => unreachable!()
                 };
             if repr.payload.len() > 0 {
@@ -1346,14 +1345,14 @@ mod test {
 
     const SEND_TEMPL: TcpRepr<'static> = TcpRepr {
         src_port: REMOTE_PORT, dst_port: LOCAL_PORT,
-        control: TcpControl::None, push: false,
+        control: TcpControl::None,
         seq_number: TcpSeqNumber(0), ack_number: Some(TcpSeqNumber(0)),
         window_len: 256, max_seg_size: None,
         payload: &[]
     };
     const RECV_TEMPL:  TcpRepr<'static> = TcpRepr {
         src_port: LOCAL_PORT, dst_port: REMOTE_PORT,
-        control: TcpControl::None, push: false,
+        control: TcpControl::None,
         seq_number: TcpSeqNumber(0), ack_number: Some(TcpSeqNumber(0)),
         window_len: 64, max_seg_size: None,
         payload: &[]
@@ -1426,10 +1425,15 @@ mod test {
         ($socket:ident, $result:expr) =>
             (recv!($socket, time 0, $result));
         ($socket:ident, time $time:expr, $result:expr) =>
-            (recv(&mut $socket, $time, |repr| {
+            (recv(&mut $socket, $time, |result| {
                 // Most of the time we don't care about the PSH flag.
-                let repr = repr.map(|r| TcpRepr { push: false, ..r });
-                assert_eq!(repr, $result)
+                let result = result.map(|mut repr| {
+                    if repr.control == TcpControl::Psh {
+                        repr.control = TcpControl::None;
+                    }
+                    repr
+                });
+                assert_eq!(result, $result)
             }));
         ($socket:ident, time $time:expr, $result:expr, exact) =>
             (recv(&mut $socket, $time, |repr| assert_eq!(repr, $result)));
@@ -2893,16 +2897,16 @@ mod test {
         s.send_slice(b"abcdef").unwrap();
         s.send_slice(b"123456").unwrap();
         recv!(s, time 0, Ok(TcpRepr {
+            control:    TcpControl::None,
             seq_number: LOCAL_SEQ + 1,
             ack_number: Some(REMOTE_SEQ + 1),
-            push:       false,
             payload:    &b"abcdef"[..],
             ..RECV_TEMPL
         }), exact);
         recv!(s, time 0, Ok(TcpRepr {
+            control:    TcpControl::Psh,
             seq_number: LOCAL_SEQ + 1 + 6,
             ack_number: Some(REMOTE_SEQ + 1),
-            push:       true,
             payload:    &b"123456"[..],
             ..RECV_TEMPL
         }), exact);

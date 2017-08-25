@@ -603,6 +603,7 @@ impl<'a> TcpOption<'a> {
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Control {
     None,
+    Psh,
     Syn,
     Fin,
     Rst
@@ -613,7 +614,7 @@ impl Control {
     pub fn len(self) -> usize {
         match self {
             Control::Syn | Control::Fin  => 1,
-            Control::Rst | Control::None => 0
+            _ => 0
         }
     }
 }
@@ -624,7 +625,6 @@ pub struct Repr<'a> {
     pub src_port:     u16,
     pub dst_port:     u16,
     pub control:      Control,
-    pub push:         bool,
     pub seq_number:   SeqNumber,
     pub ack_number:   Option<SeqNumber>,
     pub window_len:   u16,
@@ -645,11 +645,12 @@ impl<'a> Repr<'a> {
         if !packet.verify_checksum(src_addr, dst_addr) { return Err(Error::Checksum) }
 
         let control =
-            match (packet.syn(), packet.fin(), packet.rst()) {
-                (false, false, false) => Control::None,
-                (true,  false, false) => Control::Syn,
-                (false, true,  false) => Control::Fin,
-                (false, false, true ) => Control::Rst,
+            match (packet.syn(), packet.fin(), packet.rst(), packet.psh()) {
+                (false, false, false, false) => Control::None,
+                (false, false, false, true)  => Control::Psh,
+                (true,  false, false, _)     => Control::Syn,
+                (false, true,  false, _)     => Control::Fin,
+                (false, false, true , _)     => Control::Rst,
                 _ => return Err(Error::Malformed)
             };
         let ack_number =
@@ -680,7 +681,6 @@ impl<'a> Repr<'a> {
             src_port:     packet.src_port(),
             dst_port:     packet.dst_port(),
             control:      control,
-            push:         packet.psh(),
             seq_number:   packet.seq_number(),
             ack_number:   ack_number,
             window_len:   packet.window_len(),
@@ -716,11 +716,11 @@ impl<'a> Repr<'a> {
         packet.clear_flags();
         match self.control {
             Control::None => (),
+            Control::Psh  => packet.set_psh(true),
             Control::Syn  => packet.set_syn(true),
             Control::Fin  => packet.set_fin(true),
             Control::Rst  => packet.set_rst(true)
         }
-        packet.set_psh(self.push);
         packet.set_ack(self.ack_number.is_some());
         {
             let mut options = packet.options_mut();
@@ -795,10 +795,8 @@ impl<'a> fmt::Display for Repr<'a> {
             Control::Syn => write!(f, " syn")?,
             Control::Fin => write!(f, " fin")?,
             Control::Rst => write!(f, " rst")?,
+            Control::Psh => write!(f, " psh")?,
             Control::None => ()
-        }
-        if self.push {
-            write!(f, " psh")?;
         }
         write!(f, " seq={}", self.seq_number)?;
         if let Some(ack_number) = self.ack_number {
@@ -913,8 +911,8 @@ mod test {
         [0xbf, 0x00, 0x00, 0x50,
          0x01, 0x23, 0x45, 0x67,
          0x00, 0x00, 0x00, 0x00,
-         0x50, 0x0a, 0x01, 0x23,
-         0x7a, 0x85, 0x00, 0x00,
+         0x50, 0x02, 0x01, 0x23,
+         0x7a, 0x8d, 0x00, 0x00,
          0xaa, 0x00, 0x00, 0xff];
 
     fn packet_repr() -> Repr<'static> {
@@ -925,7 +923,6 @@ mod test {
             ack_number:   None,
             window_len:   0x0123,
             control:      Control::Syn,
-            push:         true,
             max_seg_size: None,
             payload:      &PAYLOAD_BYTES
         }

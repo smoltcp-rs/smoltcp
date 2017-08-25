@@ -57,11 +57,11 @@ The TCP protocol is supported over IPv4. Server and client sockets are supported
   * TCP urgent pointer is **not** supported; any urgent octets will be received alongside
     data octets.
   * Reassembly of out-of-order segments is **not** supported.
-  * The status of TCP options is:
+  * The status of TCP options or extensions is:
     * Maximum segment size option is supported.
     * Window scaling is **not** supported, and the maximum buffer size is 65536.
     * Timestamping is **not** supported.
-    * Fast open is **not** supported.
+    * Fast open is **not** supported when smoltcp initiates connection.
   * Keepalive is **not** supported.
 
 ## Installation
