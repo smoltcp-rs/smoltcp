@@ -101,7 +101,7 @@ impl<'a> Cache for SliceCache<'a> {
         if let None = self.find(protocol_addr) {
             let lru_index = self.lru();
 
-            if net_trace_enabled!() {
+            if net_log_enabled!(trace) {
                 let (old_protocol_addr, old_hardware_addr, _counter) = self.storage[lru_index];
                 if !old_protocol_addr.is_unspecified() {
                     net_trace!("evicting {} => {}", old_protocol_addr, old_hardware_addr);

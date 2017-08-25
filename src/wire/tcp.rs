@@ -599,13 +599,23 @@ impl<'a> TcpOption<'a> {
     }
 }
 
-/// The control flags of a Transmission Control Protocol packet.
+/// The possible control flags of a Transmission Control Protocol packet.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Control {
     None,
     Syn,
     Fin,
     Rst
+}
+
+impl Control {
+    /// Return the length of a control flag, in terms of sequence space.
+    pub fn len(self) -> usize {
+        match self {
+            Control::Syn | Control::Fin  => 1,
+            Control::Rst | Control::None => 0
+        }
+    }
 }
 
 /// A high-level representation of a Transmission Control Protocol packet.
@@ -728,12 +738,7 @@ impl<'a> Repr<'a> {
 
     /// Return the length of the segment, in terms of sequence space.
     pub fn segment_len(&self) -> usize {
-        let mut length = self.payload.len();
-        match self.control {
-            Control::Syn | Control::Fin => length += 1,
-            _ => ()
-        }
-        length
+        self.payload.len() + self.control.len()
     }
 }
 

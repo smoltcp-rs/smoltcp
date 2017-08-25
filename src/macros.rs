@@ -1,3 +1,15 @@
+#[cfg(feature = "log")]
+macro_rules! net_log_enabled {
+    (trace) => (log_enabled!($crate::log::LogLevel::Trace));
+    (debug) => (log_enabled!($crate::log::LogLevel::Debug));
+}
+
+#[cfg(not(feature = "log"))]
+macro_rules! net_log_enabled {
+    (trace) => (false);
+    (debug) => (false);
+}
+
 macro_rules! net_trace {
     ($($arg:expr),*) => {
         #[cfg(feature = "log")]
@@ -5,16 +17,6 @@ macro_rules! net_trace {
         #[cfg(not(feature = "log"))]
         $( let _ = $arg );*; // suppress unused variable warnings
     }
-}
-
-macro_rules! net_trace_enabled {
-    () => ({
-        #[cfg(feature = "log")]
-        fn enabled() -> bool { log_enabled!($crate::log::LogLevel::Trace) }
-        #[cfg(not(feature = "log"))]
-        fn enabled() -> bool { false }
-        enabled()
-    })
 }
 
 macro_rules! net_debug {

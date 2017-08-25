@@ -27,7 +27,7 @@ enum Response<'a> {
     Nop,
     Arp(ArpRepr),
     Icmpv4(Ipv4Repr, Icmpv4Repr<'a>),
-    Tcp(IpRepr, TcpRepr<'a>)
+    Tcp((IpRepr, TcpRepr<'a>))
 }
 
 impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
@@ -314,7 +314,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                 <Socket as AsSocket<TcpSocket>>::try_as_socket) {
             match tcp_socket.process(timestamp, &ip_repr, ip_payload) {
                 // The packet is valid and handled by socket.
-                Ok(()) => return Ok(Response::Nop),
+                Ok(reply) => return Ok(reply.map_or(Response::Nop, Response::Tcp)),
                 // The packet isn't addressed to the socket.
                 // Send RST only if no other socket accepts the packet.
                 Err(Error::Rejected) => continue,
@@ -330,8 +330,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
             // Never reply to a TCP RST packet with another TCP RST packet.
             Ok(Response::Nop)
         } else {
-            let (ip_reply_repr, tcp_reply_repr) = TcpSocket::rst_reply(&ip_repr, &tcp_repr);
-            Ok(Response::Tcp(ip_reply_repr, tcp_reply_repr))
+            Ok(Response::Tcp(TcpSocket::rst_reply(&ip_repr, &tcp_repr)))
         }
     }
 
@@ -393,7 +392,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                     icmpv4_repr.emit(&mut Icmpv4Packet::new(payload));
                 })
             }
-            Response::Tcp(ip_repr, tcp_repr) => {
+            Response::Tcp((ip_repr, tcp_repr)) => {
                 emit_packet!(Ip, ip_repr, |payload| {
                     tcp_repr.emit(&mut TcpPacket::new(payload),
                                   &ip_repr.src_addr(), &ip_repr.dst_addr());
