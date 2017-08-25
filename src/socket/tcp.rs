@@ -1251,8 +1251,10 @@ impl<'a> TcpSocket<'a> {
         self.remote_next_seq = repr.seq_number + repr.segment_len();
         self.remote_last_ack = repr.ack_number.unwrap_or_default();
 
-        if self.remote_next_seq - self.local_seq_no >= self.tx_buffer.len() {
-            // If we've transmitted all we could, wind up the retransmit timer.
+        if self.remote_next_seq - self.local_seq_no >= self.tx_buffer.len() &&
+                repr.segment_len() > 0 {
+            // If we've transmitted all we could (and there was something to transmit),
+            // wind up the retransmit timer.
             self.timer.set_for_data(timestamp);
         }
 
@@ -1797,11 +1799,9 @@ mod test {
             ack_number: Some(REMOTE_SEQ + 1),
             ..RECV_TEMPL
         }]);
+        recv!(s, time 1000, Err(Error::Exhausted));
         assert_eq!(s.state, State::Established);
-        sanity!(s, TcpSocket {
-            timer: Timer::Retransmit { expires_at: 100, delay: 100 },
-            ..socket_established()
-        });
+        sanity!(s, socket_established());
     }
 
     #[test]
@@ -2012,10 +2012,7 @@ mod test {
             ..RECV_TEMPL
         }]);
         assert_eq!(s.state, State::CloseWait);
-        sanity!(s, TcpSocket {
-            timer: Timer::Retransmit { expires_at: 100, delay: 100 },
-            ..socket_close_wait()
-        });
+        sanity!(s, socket_close_wait());
     }
 
     #[test]
