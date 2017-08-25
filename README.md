@@ -221,7 +221,7 @@ Read its [source code](/examples/client.rs), then run it as:
 cargo run --example client -- tap0 ADDRESS PORT
 ```
 
-It connects to the given address (not a hostname) and port (e.g. `socat stdio tcp4-listen 1234`),
+It connects to the given address (not a hostname) and port (e.g. `socat stdio tcp4-listen:1234`),
 and will respond with reversed chunks of the input indefinitely.
 
 ### examples/ping.rs
