@@ -750,7 +750,7 @@ impl<'a> TcpSocket<'a> {
         if self.state == State::Closed { return Err(Error::Rejected) }
 
         let packet = TcpPacket::new_checked(&payload[..ip_repr.payload_len()])?;
-        let repr = TcpRepr::parse(&packet, &ip_repr.src_addr(), &ip_repr.dst_addr())?;
+        let mut repr = TcpRepr::parse(&packet, &ip_repr.src_addr(), &ip_repr.dst_addr())?;
 
         // If we're still listening for SYNs and the packet has an ACK, it cannot
         // be destined to this socket, but another one may well listen on the same
@@ -899,6 +899,11 @@ impl<'a> TcpSocket<'a> {
                     ack_of_fin = true;
                 }
             }
+        }
+
+        if repr.control == TcpControl::Psh {
+            // We don't care about the PSH flag.
+            repr.control = TcpControl::None;
         }
 
         // Validate and update the state.
@@ -2891,7 +2896,7 @@ mod test {
     // =========================================================================================//
 
     #[test]
-    fn test_psh() {
+    fn test_psh_transmit() {
         let mut s = socket_established();
         s.remote_win_len = 6;
         s.send_slice(b"abcdef").unwrap();
@@ -2910,5 +2915,22 @@ mod test {
             payload:    &b"123456"[..],
             ..RECV_TEMPL
         }), exact);
+    }
+
+    #[test]
+    fn test_psh_receive() {
+        let mut s = socket_established();
+        send!(s, TcpRepr {
+            control:    TcpControl::Psh,
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            payload:    &b"abcdef"[..],
+            ..SEND_TEMPL
+        }, Ok(Some(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1 + 6),
+            window_len: 58,
+            ..RECV_TEMPL
+        })));
     }
 }
