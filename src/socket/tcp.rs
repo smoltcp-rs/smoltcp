@@ -766,7 +766,7 @@ impl<'a> TcpSocket<'a> {
                 net_debug!("[{}]{}:{}: unacceptable RST (expecting RST|ACK) \
                             in response to initial SYN",
                            self.debug_id, self.local_endpoint, self.remote_endpoint);
-                return Err(Error::Malformed)
+                return Err(Error::Dropped)
             }
             (State::SynSent, TcpRepr {
                 control: TcpControl::Rst, ack_number: Some(ack_number), ..
@@ -774,7 +774,7 @@ impl<'a> TcpSocket<'a> {
                 if ack_number != self.local_seq_no + 1 {
                     net_debug!("[{}]{}:{}: unacceptable RST|ACK in response to initial SYN",
                                self.debug_id, self.local_endpoint, self.remote_endpoint);
-                    return Err(Error::Malformed)
+                    return Err(Error::Dropped)
                 }
             }
             // Any other RST need only have a valid sequence number.
@@ -787,7 +787,7 @@ impl<'a> TcpSocket<'a> {
             (_, TcpRepr { ack_number: None, .. }) => {
                 net_debug!("[{}]{}:{}: expecting an ACK",
                            self.debug_id, self.local_endpoint, self.remote_endpoint);
-                return Err(Error::Malformed)
+                return Err(Error::Dropped)
             }
             // Every acknowledgement must be for transmitted but unacknowledged data.
             (_, TcpRepr { ack_number: Some(ack_number), .. }) => {
@@ -1023,7 +1023,7 @@ impl<'a> TcpSocket<'a> {
             _ => {
                 net_debug!("[{}]{}:{}: unexpected packet {}",
                            self.debug_id, self.local_endpoint, self.remote_endpoint, repr);
-                return Err(Error::Malformed)
+                return Err(Error::Dropped)
             }
         }
 
@@ -1793,7 +1793,7 @@ mod test {
             seq_number: REMOTE_SEQ,
             ack_number: None,
             ..SEND_TEMPL
-        }, Err(Error::Malformed));
+        }, Err(Error::Dropped));
         assert_eq!(s.state, State::SynSent);
     }
 
@@ -1805,7 +1805,7 @@ mod test {
             seq_number: REMOTE_SEQ,
             ack_number: Some(TcpSeqNumber(1234)),
             ..SEND_TEMPL
-        }, Err(Error::Malformed));
+        }, Err(Error::Dropped));
         assert_eq!(s.state, State::SynSent);
     }
 
@@ -1919,7 +1919,7 @@ mod test {
             seq_number: REMOTE_SEQ + 1,
             ack_number: None,
             ..SEND_TEMPL
-        }, Err(Error::Malformed));
+        }, Err(Error::Dropped));
     }
 
     #[test]
