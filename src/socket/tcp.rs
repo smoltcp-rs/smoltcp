@@ -1052,8 +1052,11 @@ impl<'a> TcpSocket<'a> {
             }
         }
 
-        // Dequeue acknowledged octets.
+        // Update window length.
+        self.remote_win_len = repr.window_len as usize;
+
         if ack_len > 0 {
+            // Dequeue acknowledged octets.
             net_trace!("[{}]{}:{}: tx buffer: dequeueing {} octets (now {})",
                        self.debug_id, self.local_endpoint, self.remote_endpoint,
                        ack_len, self.tx_buffer.len() - ack_len);
@@ -1066,18 +1069,21 @@ impl<'a> TcpSocket<'a> {
             self.local_seq_no = ack_number;
         }
 
-        // Enqueue payload octets, which is guaranteed to be in order, unless we already did.
         if repr.payload.len() > 0 {
+            // Enqueue payload octets, which are guaranteed to be in order.
             net_trace!("[{}]{}:{}: rx buffer: enqueueing {} octets (now {})",
                        self.debug_id, self.local_endpoint, self.remote_endpoint,
                        repr.payload.len(), self.rx_buffer.len() + repr.payload.len());
-            self.rx_buffer.enqueue_slice(repr.payload)
+            self.rx_buffer.enqueue_slice(repr.payload);
+
+            // Send an acknowledgement.
+            self.remote_last_ack = self.remote_seq_no + self.rx_buffer.len();
+            Ok(Some(self.ack_reply(ip_repr, &repr)))
+        } else {
+            // No data to acknowledge; the logic to acknowledge SYN and FIN flags
+            // resides in dispatch().
+            Ok(None)
         }
-
-        // Update window length.
-        self.remote_win_len = repr.window_len as usize;
-
-        Ok(None)
     }
 
     pub(crate) fn dispatch<F, R>(&mut self, timestamp: u64, limits: &DeviceLimits,
@@ -1635,10 +1641,15 @@ mod test {
             ack_number: Some(LOCAL_SEQ + 1),
             payload: &b"abcdef"[..],
             ..SEND_TEMPL
-        });
+        }, Ok(Some(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1 + 6 + 1),
+            window_len: 58,
+            ..RECV_TEMPL
+        })));
         assert_eq!(s.state, State::CloseWait);
         sanity!(s, TcpSocket {
-            remote_last_ack: REMOTE_SEQ + 1,
+            remote_last_ack: REMOTE_SEQ + 1 + 6 + 1,
             ..socket_close_wait()
         });
     }
@@ -1847,13 +1858,12 @@ mod test {
             ack_number: Some(LOCAL_SEQ + 1),
             payload: &b"abcdef"[..],
             ..SEND_TEMPL
-        });
-        recv!(s, [TcpRepr {
+        }, Ok(Some(TcpRepr {
             seq_number: LOCAL_SEQ + 1,
             ack_number: Some(REMOTE_SEQ + 1 + 6),
             window_len: 58,
             ..RECV_TEMPL
-        }]);
+        })));
         assert_eq!(s.rx_buffer.dequeue(6), &b"abcdef"[..]);
     }
 
@@ -2583,13 +2593,12 @@ mod test {
             ack_number: Some(LOCAL_SEQ + 1),
             payload:    &b"abcdef"[..],
             ..SEND_TEMPL
-        });
-        recv!(s, [TcpRepr {
+        }, Ok(Some(TcpRepr {
             seq_number: LOCAL_SEQ + 1,
             ack_number: Some(REMOTE_SEQ + 1 + 6),
             window_len: 58,
             ..RECV_TEMPL
-        }]);
+        })));
         s
     }
 
@@ -2618,13 +2627,12 @@ mod test {
             ack_number: Some(LOCAL_SEQ + 1),
             payload:    &b"abcdef"[..],
             ..SEND_TEMPL
-        });
-        recv!(s, [TcpRepr {
+        }, Ok(Some(TcpRepr {
             seq_number: LOCAL_SEQ + 1,
             ack_number: Some(REMOTE_SEQ + 1 + 6),
             window_len: 58,
             ..RECV_TEMPL
-        }]);
+        })));
         send!(s, TcpRepr {
             seq_number: REMOTE_SEQ + 1 + 6 + 6,
             ack_number: Some(LOCAL_SEQ + 1),
@@ -2884,7 +2892,6 @@ mod test {
         s.remote_win_len = 6;
         s.send_slice(b"abcdef").unwrap();
         s.send_slice(b"123456").unwrap();
-        s.close();
         recv!(s, time 0, Ok(TcpRepr {
             seq_number: LOCAL_SEQ + 1,
             ack_number: Some(REMOTE_SEQ + 1),
@@ -2892,16 +2899,10 @@ mod test {
             payload:    &b"abcdef"[..],
             ..RECV_TEMPL
         }), exact);
-        send!(s, time 0, TcpRepr {
-            seq_number: REMOTE_SEQ + 1,
-            ack_number: Some(LOCAL_SEQ + 1 + 6),
-            window_len: 6,
-            ..SEND_TEMPL
-        });
         recv!(s, time 0, Ok(TcpRepr {
-            control:    TcpControl::Fin,
             seq_number: LOCAL_SEQ + 1 + 6,
             ack_number: Some(REMOTE_SEQ + 1),
+            push:       true,
             payload:    &b"123456"[..],
             ..RECV_TEMPL
         }), exact);
