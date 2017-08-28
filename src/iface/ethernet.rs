@@ -199,11 +199,14 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                                 &eth_frame.src_addr());
         }
 
+        let ip_repr = IpRepr::Ipv4(ipv4_repr);
+        let ip_payload = ipv4_packet.payload();
+
         // Pass every IP packet to all raw sockets we have registered.
         let mut handled_by_raw_socket = false;
         for raw_socket in sockets.iter_mut().filter_map(
                 <Socket as AsSocket<RawSocket>>::try_as_socket) {
-            match raw_socket.process(&ipv4_repr.into(), ipv4_packet.payload()) {
+            match raw_socket.process(&ip_repr, ip_payload) {
                 // The packet is valid and handled by socket.
                 Ok(()) => handled_by_raw_socket = true,
                 // The packet isn't addressed to the socket, or cannot be accepted by it.
@@ -220,18 +223,18 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
 
         match ipv4_repr.protocol {
             IpProtocol::Icmp =>
-                Self::process_icmpv4(ipv4_repr, ipv4_packet.payload()),
+                Self::process_icmpv4(ipv4_repr, ip_payload),
             IpProtocol::Udp =>
-                Self::process_udpv4(sockets, ipv4_repr, ipv4_packet.payload()),
+                Self::process_udpv4(sockets, ip_repr, ip_payload),
             IpProtocol::Tcp =>
-                Self::process_tcp(sockets, timestamp, ipv4_repr.into(), ipv4_packet.payload()),
+                Self::process_tcp(sockets, timestamp, ip_repr, ip_payload),
             _ if handled_by_raw_socket =>
                 Ok(Response::Nop),
             _ => {
                 let icmp_reply_repr = Icmpv4Repr::DstUnreachable {
                     reason: Icmpv4DstUnreachable::ProtoUnreachable,
                     header: ipv4_repr,
-                    data:   &ipv4_packet.payload()[0..8]
+                    data:   &ip_payload[0..8]
                 };
                 let ipv4_reply_repr = Ipv4Repr {
                     src_addr:    ipv4_repr.dst_addr,
@@ -251,9 +254,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
 
         match icmp_repr {
             // Respond to echo requests.
-            Icmpv4Repr::EchoRequest {
-                ident, seq_no, data
-            } => {
+            Icmpv4Repr::EchoRequest { ident, seq_no, data } => {
                 let icmp_reply_repr = Icmpv4Repr::EchoReply {
                     ident:  ident,
                     seq_no: seq_no,
@@ -277,13 +278,15 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
     }
 
     fn process_udpv4<'frame>(sockets: &mut SocketSet,
-                             ipv4_repr: Ipv4Repr, ip_payload: &'frame [u8]) ->
+                             ip_repr: IpRepr, ip_payload: &'frame [u8]) ->
                             Result<Response<'frame>> {
-        let ip_repr = IpRepr::Ipv4(ipv4_repr);
+        let (src_addr, dst_addr) = (ip_repr.src_addr(), ip_repr.dst_addr());
+        let udp_packet = UdpPacket::new_checked(ip_payload)?;
+        let udp_repr = UdpRepr::parse(&udp_packet, &src_addr, &dst_addr)?;
 
         for udp_socket in sockets.iter_mut().filter_map(
                 <Socket as AsSocket<UdpSocket>>::try_as_socket) {
-            match udp_socket.process(&ip_repr, ip_payload) {
+            match udp_socket.process(&ip_repr, &udp_repr) {
                 // The packet is valid and handled by socket.
                 Ok(()) => return Ok(Response::Nop),
                 // The packet isn't addressed to the socket.
@@ -294,26 +297,37 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         }
 
         // The packet wasn't handled by a socket, send an ICMP port unreachable packet.
-        let icmp_reply_repr = Icmpv4Repr::DstUnreachable {
-            reason: Icmpv4DstUnreachable::PortUnreachable,
-            header: ipv4_repr,
-            data:   &ip_payload[0..8]
-        };
-        let ipv4_reply_repr = Ipv4Repr {
-            src_addr:    ipv4_repr.dst_addr,
-            dst_addr:    ipv4_repr.src_addr,
-            protocol:    IpProtocol::Icmp,
-            payload_len: icmp_reply_repr.buffer_len()
-        };
-        Ok(Response::Icmpv4(ipv4_reply_repr, icmp_reply_repr))
+        match ip_repr {
+            IpRepr::Ipv4(ipv4_repr) => {
+                let icmpv4_reply_repr = Icmpv4Repr::DstUnreachable {
+                    reason: Icmpv4DstUnreachable::PortUnreachable,
+                    header: ipv4_repr,
+                    data:   &ip_payload[0..8]
+                };
+                let ipv4_reply_repr = Ipv4Repr {
+                    src_addr:    ipv4_repr.dst_addr,
+                    dst_addr:    ipv4_repr.src_addr,
+                    protocol:    IpProtocol::Icmp,
+                    payload_len: icmpv4_reply_repr.buffer_len()
+                };
+                Ok(Response::Icmpv4(ipv4_reply_repr, icmpv4_reply_repr))
+            },
+            IpRepr::Unspecified { .. } |
+            IpRepr::__Nonexhaustive =>
+                unreachable!()
+        }
     }
 
     fn process_tcp<'frame>(sockets: &mut SocketSet, timestamp: u64,
                            ip_repr: IpRepr, ip_payload: &'frame [u8]) ->
                           Result<Response<'frame>> {
+        let (src_addr, dst_addr) = (ip_repr.src_addr(), ip_repr.dst_addr());
+        let tcp_packet = TcpPacket::new_checked(ip_payload)?;
+        let tcp_repr = TcpRepr::parse(&tcp_packet, &src_addr, &dst_addr)?;
+
         for tcp_socket in sockets.iter_mut().filter_map(
                 <Socket as AsSocket<TcpSocket>>::try_as_socket) {
-            match tcp_socket.process(timestamp, &ip_repr, ip_payload) {
+            match tcp_socket.process(timestamp, &ip_repr, &tcp_repr) {
                 // The packet is valid and handled by socket.
                 Ok(reply) => return Ok(reply.map_or(Response::Nop, Response::Tcp)),
                 // The packet isn't addressed to the socket.
@@ -324,13 +338,11 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
             }
         }
 
-        // The packet wasn't handled by a socket, send a TCP RST packet.
-        let tcp_packet = TcpPacket::new_checked(ip_payload)?;
-        let tcp_repr = TcpRepr::parse(&tcp_packet, &ip_repr.src_addr(), &ip_repr.dst_addr())?;
         if tcp_repr.control == TcpControl::Rst {
             // Never reply to a TCP RST packet with another TCP RST packet.
             Ok(Response::Nop)
         } else {
+            // The packet wasn't handled by a socket, send a TCP RST packet.
             Ok(Response::Tcp(TcpSocket::rst_reply(&ip_repr, &tcp_repr)))
         }
     }

@@ -2,8 +2,7 @@ use core::cmp::min;
 use managed::Managed;
 
 use {Error, Result};
-use wire::{IpProtocol, IpEndpoint};
-use wire::{UdpPacket, UdpRepr};
+use wire::{IpProtocol, IpEndpoint, UdpRepr};
 use socket::{Socket, IpRepr};
 use storage::{Resettable, RingBuffer};
 
@@ -180,12 +179,7 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
         Ok((length, endpoint))
     }
 
-    pub(crate) fn process(&mut self, ip_repr: &IpRepr, payload: &[u8]) -> Result<()> {
-        debug_assert!(ip_repr.protocol() == IpProtocol::Udp);
-
-        let packet = UdpPacket::new_checked(&payload[..ip_repr.payload_len()])?;
-        let repr = UdpRepr::parse(&packet, &ip_repr.src_addr(), &ip_repr.dst_addr())?;
-
+    pub(crate) fn process(&mut self, ip_repr: &IpRepr, repr: &UdpRepr) -> Result<()> {
         // Reject packets with a wrong destination.
         if self.endpoint.port != repr.dst_port { return Err(Error::Rejected) }
         if !self.endpoint.addr.is_unspecified() &&
@@ -343,17 +337,14 @@ mod test {
         let mut socket = socket(buffer(1), buffer(0));
         assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
 
-        let mut buffer = vec![0; REMOTE_UDP_REPR.buffer_len()];
-        REMOTE_UDP_REPR.emit(&mut UdpPacket::new(&mut buffer), &LOCAL_IP, &REMOTE_IP);
-
         assert!(!socket.can_recv());
         assert_eq!(socket.recv(), Err(Error::Exhausted));
 
-        assert_eq!(socket.process(&REMOTE_IP_REPR, &buffer),
+        assert_eq!(socket.process(&REMOTE_IP_REPR, &REMOTE_UDP_REPR),
                    Ok(()));
         assert!(socket.can_recv());
 
-        assert_eq!(socket.process(&REMOTE_IP_REPR, &buffer),
+        assert_eq!(socket.process(&REMOTE_IP_REPR, &REMOTE_UDP_REPR),
                    Err(Error::Exhausted));
         assert_eq!(socket.recv(), Ok((&b"abcdef"[..], REMOTE_END)));
         assert!(!socket.can_recv());
@@ -364,9 +355,8 @@ mod test {
         let mut socket = socket(buffer(1), buffer(0));
         assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
 
-        let mut buffer = vec![0; REMOTE_UDP_REPR.buffer_len()];
-        REMOTE_UDP_REPR.emit(&mut UdpPacket::new(&mut buffer), &LOCAL_IP, &REMOTE_IP);
-        assert_eq!(socket.process(&REMOTE_IP_REPR, &buffer), Ok(()));
+        assert_eq!(socket.process(&REMOTE_IP_REPR, &REMOTE_UDP_REPR),
+                   Ok(()));
 
         let mut slice = [0; 4];
         assert_eq!(socket.recv_slice(&mut slice[..]), Ok((4, REMOTE_END)));
@@ -379,9 +369,7 @@ mod test {
         assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
 
         let udp_repr = UdpRepr { payload: &[0; 100][..], ..REMOTE_UDP_REPR };
-        let mut buffer = vec![0; udp_repr.buffer_len()];
-        udp_repr.emit(&mut UdpPacket::new(&mut buffer), &LOCAL_IP, &REMOTE_IP);
-        assert_eq!(socket.process(&REMOTE_IP_REPR, &buffer),
+        assert_eq!(socket.process(&REMOTE_IP_REPR, &udp_repr),
                    Err(Error::Truncated));
     }
 }
