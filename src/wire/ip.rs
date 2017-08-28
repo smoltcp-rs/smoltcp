@@ -79,6 +79,14 @@ impl Address {
         }
     }
 
+    /// Query whether the address is the broadcast address.
+    pub fn is_broadcast(&self) -> bool {
+        match self {
+            &Address::Unspecified => false,
+            &Address::Ipv4(addr)  => addr.is_broadcast()
+        }
+    }
+
     /// Query whether the address falls into the "unspecified" range.
     pub fn is_unspecified(&self) -> bool {
         match self {

@@ -118,28 +118,39 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         }
 
         // Now, receive any incoming packets.
-        let rx_buffer = self.device.receive(timestamp)?;
-        let eth_frame = EthernetFrame::new_checked(&rx_buffer)?;
+        self.process(sockets, timestamp)
+    }
+
+    fn process(&mut self, sockets: &mut SocketSet, timestamp: u64) -> Result<()> {
+        loop {
+            let frame = self.device.receive(timestamp)?;
+            let response = self.process_ethernet(sockets, timestamp, &frame)?;
+            self.dispatch_response(timestamp, response)?;
+        }
+    }
+
+    fn process_ethernet<'frame, T: AsRef<[u8]>>
+                       (&mut self, sockets: &mut SocketSet, timestamp: u64,
+                        frame: &'frame T) ->
+                       Result<Response<'frame>> {
+        let eth_frame = EthernetFrame::new_checked(frame)?;
 
         // Ignore any packets not directed to our hardware address.
         if !eth_frame.dst_addr().is_broadcast() &&
                 eth_frame.dst_addr() != self.hardware_addr {
-            return Ok(())
+            return Ok(Response::Nop)
         }
 
-        let response = match eth_frame.ethertype() {
+        match eth_frame.ethertype() {
             EthernetProtocol::Arp =>
-                self.process_arp(&eth_frame)?,
+                self.process_arp(&eth_frame),
             EthernetProtocol::Ipv4 =>
-                self.process_ipv4(sockets, timestamp, &eth_frame)?,
+                self.process_ipv4(sockets, timestamp, &eth_frame),
             // Drop all other traffic.
-            _ => return Err(Error::Unrecognized),
-        };
-
-        self.dispatch_response(timestamp, response)
+            _ => Err(Error::Unrecognized),
+        }
     }
 
-    // Snoop all ARP traffic, and respond to ARP packets directed at us.
     fn process_arp<'frame, T: AsRef<[u8]>>
                   (&mut self, eth_frame: &EthernetFrame<&'frame T>) ->
                   Result<Response<'frame>> {
@@ -380,66 +391,6 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
     }
 
     fn dispatch_response(&mut self, timestamp: u64, response: Response) -> Result<()> {
-        macro_rules! emit_packet {
-            (Ethernet, $buffer_len:expr, |$frame:ident| $code:stmt) => ({
-                let tx_len = EthernetFrame::<&[u8]>::buffer_len($buffer_len);
-                let mut tx_buffer = self.device.transmit(timestamp, tx_len)?;
-                debug_assert!(tx_buffer.as_ref().len() == tx_len);
-
-                let mut $frame = EthernetFrame::new(&mut tx_buffer);
-                $frame.set_src_addr(self.hardware_addr);
-
-                $code
-
-                Ok(())
-            });
-
-            (Ip, $ip_repr_unspec:expr, |$ip_repr:ident, $payload:ident| $code:stmt) => ({
-                let $ip_repr = $ip_repr_unspec.lower(&self.protocol_addrs)?;
-
-                match self.arp_cache.lookup(&$ip_repr.dst_addr()) {
-                    None => {
-                        match ($ip_repr.src_addr(), $ip_repr.dst_addr()) {
-                            (IpAddress::Ipv4(src_addr), IpAddress::Ipv4(dst_addr)) => {
-                                net_debug!("address {} not in ARP cache, sending request",
-                                           dst_addr);
-
-                                let arp_repr = ArpRepr::EthernetIpv4 {
-                                    operation: ArpOperation::Request,
-                                    source_hardware_addr: self.hardware_addr,
-                                    source_protocol_addr: src_addr,
-                                    target_hardware_addr: EthernetAddress([0xff; 6]),
-                                    target_protocol_addr: dst_addr,
-                                };
-
-                                emit_packet!(Ethernet, arp_repr.buffer_len(), |frame| {
-                                    frame.set_dst_addr(EthernetAddress([0xff; 6]));
-                                    frame.set_ethertype(EthernetProtocol::Arp);
-
-                                    arp_repr.emit(&mut ArpPacket::new(frame.payload_mut()));
-                                })
-                            }
-                            _ => unreachable!()
-                        }
-                    },
-                    Some(dst_hardware_addr) => {
-                        emit_packet!(Ethernet, $ip_repr.total_len(), |frame| {
-                            frame.set_dst_addr(dst_hardware_addr);
-                            match $ip_repr {
-                                IpRepr::Ipv4(_) => frame.set_ethertype(EthernetProtocol::Ipv4),
-                                _ => unreachable!()
-                            }
-
-                            $ip_repr.emit(frame.payload_mut());
-
-                            let $payload = &mut frame.payload_mut()[$ip_repr.buffer_len()..];
-                            $code
-                        })
-                    }
-                }
-            })
-        }
-
         match response {
             Response::Arp(arp_repr) => {
                 let dst_hardware_addr =
@@ -448,7 +399,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                         _ => unreachable!()
                     };
 
-                emit_packet!(Ethernet, arp_repr.buffer_len(), |frame| {
+                self.dispatch_ethernet(timestamp, arp_repr.buffer_len(), |mut frame| {
                     frame.set_dst_addr(dst_hardware_addr);
                     frame.set_ethertype(EthernetProtocol::Arp);
 
@@ -457,28 +408,105 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                 })
             },
             Response::Icmpv4(ipv4_repr, icmpv4_repr) => {
-                emit_packet!(Ip, IpRepr::Ipv4(ipv4_repr), |ip_repr, payload| {
+                self.dispatch_ip(timestamp, IpRepr::Ipv4(ipv4_repr), |_ip_repr, payload| {
                     icmpv4_repr.emit(&mut Icmpv4Packet::new(payload));
                 })
             }
             Response::Raw((ip_repr, raw_packet)) => {
-                emit_packet!(Ip, ip_repr, |ip_repr, payload| {
+                self.dispatch_ip(timestamp, ip_repr, |_ip_repr, payload| {
                     payload.copy_from_slice(raw_packet);
                 })
             }
             Response::Udp((ip_repr, udp_repr)) => {
-                emit_packet!(Ip, ip_repr, |ip_repr, payload| {
+                self.dispatch_ip(timestamp, ip_repr, |ip_repr, payload| {
                     udp_repr.emit(&mut UdpPacket::new(payload),
                                   &ip_repr.src_addr(), &ip_repr.dst_addr());
                 })
             }
             Response::Tcp((ip_repr, tcp_repr)) => {
-                emit_packet!(Ip, ip_repr, |ip_repr, payload| {
+                self.dispatch_ip(timestamp, ip_repr, |ip_repr, payload| {
                     tcp_repr.emit(&mut TcpPacket::new(payload),
                                   &ip_repr.src_addr(), &ip_repr.dst_addr());
                 })
             }
             Response::Nop => Ok(())
         }
+    }
+
+    fn dispatch_ethernet<F>(&mut self, timestamp: u64, buffer_len: usize, f: F) -> Result<()>
+            where F: FnOnce(EthernetFrame<&mut [u8]>) {
+        let tx_len = EthernetFrame::<&[u8]>::buffer_len(buffer_len);
+        let mut tx_buffer = self.device.transmit(timestamp, tx_len)?;
+        debug_assert!(tx_buffer.as_ref().len() == tx_len);
+
+        let mut frame = EthernetFrame::new(tx_buffer.as_mut());
+        frame.set_src_addr(self.hardware_addr);
+
+        f(frame);
+
+        Ok(())
+    }
+
+    fn lookup_hardware_addr(&mut self, timestamp: u64,
+                            src_addr: &IpAddress, dst_addr: &IpAddress) ->
+                           Result<EthernetAddress> {
+        if let Some(hardware_addr) = self.arp_cache.lookup(dst_addr) {
+            return Ok(hardware_addr)
+        }
+
+        if dst_addr.is_broadcast() {
+            return Ok(EthernetAddress([0xff; 6]))
+        }
+
+        match (src_addr, dst_addr) {
+            (&IpAddress::Ipv4(src_addr), &IpAddress::Ipv4(dst_addr)) => {
+                net_debug!("address {} not in ARP cache, sending request",
+                           dst_addr);
+
+                let arp_repr = ArpRepr::EthernetIpv4 {
+                    operation: ArpOperation::Request,
+                    source_hardware_addr: self.hardware_addr,
+                    source_protocol_addr: src_addr,
+                    target_hardware_addr: EthernetAddress([0xff; 6]),
+                    target_protocol_addr: dst_addr,
+                };
+
+                self.dispatch_ethernet(timestamp, arp_repr.buffer_len(), |mut frame| {
+                    frame.set_dst_addr(EthernetAddress([0xff; 6]));
+                    frame.set_ethertype(EthernetProtocol::Arp);
+
+                    arp_repr.emit(&mut ArpPacket::new(frame.payload_mut()))
+                })?;
+
+                Err(Error::Unaddressable)
+            }
+            _ => unreachable!()
+        }
+    }
+
+    fn dispatch_ip<F>(&mut self, timestamp: u64, ip_repr: IpRepr, f: F) -> Result<()>
+            where F: FnOnce(IpRepr, &mut [u8]) {
+        let ip_repr = ip_repr.lower(&self.protocol_addrs)?;
+
+        // FIXME: use plain try! here once we don't have the horrible nothing_to_transmit hack.
+        let dst_hardware_addr =
+            self.lookup_hardware_addr(timestamp, &ip_repr.src_addr(), &ip_repr.dst_addr());
+        if let Err(Error::Unaddressable) = dst_hardware_addr {
+            return Ok(())
+        }
+        let dst_hardware_addr = dst_hardware_addr?;
+
+        self.dispatch_ethernet(timestamp, ip_repr.total_len(), |mut frame| {
+            frame.set_dst_addr(dst_hardware_addr);
+            match ip_repr {
+                IpRepr::Ipv4(_) => frame.set_ethertype(EthernetProtocol::Ipv4),
+                _ => unreachable!()
+            }
+
+            ip_repr.emit(frame.payload_mut());
+
+            let payload = &mut frame.payload_mut()[ip_repr.buffer_len()..];
+            f(ip_repr, payload)
+        })
     }
 }
