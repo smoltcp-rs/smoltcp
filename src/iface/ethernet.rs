@@ -236,7 +236,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
             IpProtocol::Icmp =>
                 Self::process_icmpv4(ipv4_repr, ip_payload),
             IpProtocol::Udp =>
-                Self::process_udpv4(sockets, ip_repr, ip_payload),
+                Self::process_udp(sockets, ip_repr, ip_payload),
             IpProtocol::Tcp =>
                 Self::process_tcp(sockets, timestamp, ip_repr, ip_payload),
             _ if handled_by_raw_socket =>
@@ -288,9 +288,9 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         }
     }
 
-    fn process_udpv4<'frame>(sockets: &mut SocketSet,
-                             ip_repr: IpRepr, ip_payload: &'frame [u8]) ->
-                            Result<Response<'frame>> {
+    fn process_udp<'frame>(sockets: &mut SocketSet,
+                           ip_repr: IpRepr, ip_payload: &'frame [u8]) ->
+                          Result<Response<'frame>> {
         let (src_addr, dst_addr) = (ip_repr.src_addr(), ip_repr.dst_addr());
         let udp_packet = UdpPacket::new_checked(ip_payload)?;
         let udp_repr = UdpRepr::parse(&udp_packet, &src_addr, &dst_addr)?;
