@@ -720,8 +720,7 @@ impl<'a> TcpSocket<'a> {
         reply_repr.control = TcpControl::Rst;
         reply_repr.seq_number = repr.ack_number.unwrap_or_default();
         if repr.control == TcpControl::Syn {
-            reply_repr.ack_number = Some(repr.seq_number +
-                                             repr.segment_len());
+            reply_repr.ack_number = Some(repr.seq_number + repr.segment_len());
         }
 
         (ip_reply_repr, reply_repr)
@@ -2892,6 +2891,34 @@ mod test {
             seq_number: LOCAL_SEQ + 1,
             ack_number: Some(REMOTE_SEQ + 1 + 6),
             window_len: 58,
+            ..RECV_TEMPL
+        })));
+    }
+
+    #[test]
+    fn test_zero_window_ack() {
+        let mut s = socket_established();
+        s.rx_buffer = SocketBuffer::new(vec![0; 6]);
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            payload:    &b"abcdef"[..],
+            ..SEND_TEMPL
+        }, Ok(Some(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1 + 6),
+            window_len: 0,
+            ..RECV_TEMPL
+        })));
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1 + 6,
+            ack_number: Some(LOCAL_SEQ + 1),
+            payload:    &b"123456"[..],
+            ..SEND_TEMPL
+        }, Ok(Some(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1 + 6),
+            window_len: 0,
             ..RECV_TEMPL
         })));
     }
