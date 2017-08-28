@@ -2,7 +2,6 @@ use core::cmp::min;
 use managed::Managed;
 
 use {Error, Result};
-use phy::DeviceLimits;
 use wire::{IpProtocol, IpEndpoint};
 use wire::{UdpPacket, UdpRepr};
 use socket::{Socket, IpRepr};
@@ -181,8 +180,7 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
         Ok((length, endpoint))
     }
 
-    pub(crate) fn process(&mut self, _timestamp: u64, ip_repr: &IpRepr,
-                          payload: &[u8]) -> Result<()> {
+    pub(crate) fn process(&mut self, ip_repr: &IpRepr, payload: &[u8]) -> Result<()> {
         debug_assert!(ip_repr.protocol() == IpProtocol::Udp);
 
         let packet = UdpPacket::new_checked(&payload[..ip_repr.payload_len()])?;
@@ -202,8 +200,7 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
         Ok(())
     }
 
-    pub(crate) fn dispatch<F>(&mut self, _timestamp: u64, _limits: &DeviceLimits,
-                              emit: F) -> Result<()>
+    pub(crate) fn dispatch<F>(&mut self, emit: F) -> Result<()>
             where F: FnOnce((IpRepr, UdpRepr)) -> Result<()> {
         let packet_buf = self.tx_buffer.dequeue()?;
         net_trace!("[{}]{}:{}: sending {} octets",
@@ -303,27 +300,25 @@ mod test {
 
     #[test]
     fn test_send_dispatch() {
-        let limits = DeviceLimits::default();
-
         let mut socket = socket(buffer(0), buffer(1));
         assert_eq!(socket.bind(LOCAL_END), Ok(()));
 
         assert!(socket.can_send());
-        assert_eq!(socket.dispatch(0, &limits, |_| unreachable!()),
+        assert_eq!(socket.dispatch(|_| unreachable!()),
                    Err(Error::Exhausted));
 
         assert_eq!(socket.send_slice(b"abcdef", REMOTE_END), Ok(()));
         assert_eq!(socket.send_slice(b"123456", REMOTE_END), Err(Error::Exhausted));
         assert!(!socket.can_send());
 
-        assert_eq!(socket.dispatch(0, &limits, |(ip_repr, udp_repr)| {
+        assert_eq!(socket.dispatch(|(ip_repr, udp_repr)| {
             assert_eq!(ip_repr, LOCAL_IP_REPR);
             assert_eq!(udp_repr, LOCAL_UDP_REPR);
             Err(Error::Unaddressable)
         }), Err(Error::Unaddressable));
         /*assert!(!socket.can_send());*/
 
-        assert_eq!(socket.dispatch(0, &limits, |(ip_repr, udp_repr)| {
+        assert_eq!(socket.dispatch(|(ip_repr, udp_repr)| {
             assert_eq!(ip_repr, LOCAL_IP_REPR);
             assert_eq!(udp_repr, LOCAL_UDP_REPR);
             Ok(())
@@ -354,11 +349,11 @@ mod test {
         assert!(!socket.can_recv());
         assert_eq!(socket.recv(), Err(Error::Exhausted));
 
-        assert_eq!(socket.process(0, &REMOTE_IP_REPR, &buffer),
+        assert_eq!(socket.process(&REMOTE_IP_REPR, &buffer),
                    Ok(()));
         assert!(socket.can_recv());
 
-        assert_eq!(socket.process(0, &REMOTE_IP_REPR, &buffer),
+        assert_eq!(socket.process(&REMOTE_IP_REPR, &buffer),
                    Err(Error::Exhausted));
         assert_eq!(socket.recv(), Ok((&b"abcdef"[..], REMOTE_END)));
         assert!(!socket.can_recv());
@@ -371,7 +366,7 @@ mod test {
 
         let mut buffer = vec![0; REMOTE_UDP_REPR.buffer_len()];
         REMOTE_UDP_REPR.emit(&mut UdpPacket::new(&mut buffer), &LOCAL_IP, &REMOTE_IP);
-        assert_eq!(socket.process(0, &REMOTE_IP_REPR, &buffer), Ok(()));
+        assert_eq!(socket.process(&REMOTE_IP_REPR, &buffer), Ok(()));
 
         let mut slice = [0; 4];
         assert_eq!(socket.recv_slice(&mut slice[..]), Ok((4, REMOTE_END)));
@@ -386,7 +381,7 @@ mod test {
         let udp_repr = UdpRepr { payload: &[0; 100][..], ..REMOTE_UDP_REPR };
         let mut buffer = vec![0; udp_repr.buffer_len()];
         udp_repr.emit(&mut UdpPacket::new(&mut buffer), &LOCAL_IP, &REMOTE_IP);
-        assert_eq!(socket.process(0, &REMOTE_IP_REPR, &buffer),
+        assert_eq!(socket.process(&REMOTE_IP_REPR, &buffer),
                    Err(Error::Truncated));
     }
 }

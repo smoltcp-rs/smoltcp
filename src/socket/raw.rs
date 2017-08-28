@@ -2,7 +2,6 @@ use core::cmp::min;
 use managed::Managed;
 
 use {Error, Result};
-use phy::DeviceLimits;
 use wire::{IpVersion, IpProtocol, Ipv4Repr, Ipv4Packet};
 use socket::{IpRepr, Socket};
 use storage::{Resettable, RingBuffer};
@@ -167,8 +166,7 @@ impl<'a, 'b> RawSocket<'a, 'b> {
         Ok(length)
     }
 
-    pub(crate) fn process(&mut self, _timestamp: u64, ip_repr: &IpRepr,
-                          payload: &[u8]) -> Result<()> {
+    pub(crate) fn process(&mut self, ip_repr: &IpRepr, payload: &[u8]) -> Result<()> {
         if ip_repr.version() != self.ip_version { return Err(Error::Rejected) }
         if ip_repr.protocol() != self.ip_protocol { return Err(Error::Rejected) }
 
@@ -183,8 +181,7 @@ impl<'a, 'b> RawSocket<'a, 'b> {
         Ok(())
     }
 
-    pub(crate) fn dispatch<F>(&mut self, _timestamp: u64, _limits: &DeviceLimits,
-                              emit: F) -> Result<()>
+    pub(crate) fn dispatch<F>(&mut self, emit: F) -> Result<()>
             where F: FnOnce((IpRepr, &[u8])) -> Result<()> {
         fn prepare(protocol: IpProtocol, buffer: &mut [u8]) -> Result<(IpRepr, &[u8])> {
             match IpVersion::of_packet(buffer.as_ref())? {
@@ -273,26 +270,24 @@ mod test {
 
     #[test]
     fn test_send_dispatch() {
-        let limits = DeviceLimits::default();
-
         let mut socket = socket(buffer(0), buffer(1));
 
         assert!(socket.can_send());
-        assert_eq!(socket.dispatch(0, &limits, |_| unreachable!()),
+        assert_eq!(socket.dispatch(|_| unreachable!()),
                    Err(Error::Exhausted));
 
         assert_eq!(socket.send_slice(&PACKET_BYTES[..]), Ok(()));
         assert_eq!(socket.send_slice(b""), Err(Error::Exhausted));
         assert!(!socket.can_send());
 
-        assert_eq!(socket.dispatch(0, &limits, |(ip_repr, ip_payload)| {
+        assert_eq!(socket.dispatch(|(ip_repr, ip_payload)| {
             assert_eq!(ip_repr, HEADER_REPR);
             assert_eq!(ip_payload, &PACKET_PAYLOAD);
             Err(Error::Unaddressable)
         }), Err(Error::Unaddressable));
         /*assert!(!socket.can_send());*/
 
-        assert_eq!(socket.dispatch(0, &limits, |(ip_repr, ip_payload)| {
+        assert_eq!(socket.dispatch(|(ip_repr, ip_payload)| {
             assert_eq!(ip_repr, HEADER_REPR);
             assert_eq!(ip_payload, &PACKET_PAYLOAD);
             Ok(())
@@ -302,22 +297,20 @@ mod test {
 
     #[test]
     fn test_send_illegal() {
-        let limits = DeviceLimits::default();
-
         let mut socket = socket(buffer(0), buffer(1));
 
         let mut wrong_version = PACKET_BYTES.clone();
         Ipv4Packet::new(&mut wrong_version).set_version(5);
 
         assert_eq!(socket.send_slice(&wrong_version[..]), Ok(()));
-        assert_eq!(socket.dispatch(0, &limits, |_| unreachable!()),
+        assert_eq!(socket.dispatch(|_| unreachable!()),
                    Err(Error::Rejected));
 
         let mut wrong_protocol = PACKET_BYTES.clone();
         Ipv4Packet::new(&mut wrong_protocol).set_protocol(IpProtocol::Tcp);
 
         assert_eq!(socket.send_slice(&wrong_protocol[..]), Ok(()));
-        assert_eq!(socket.dispatch(0, &limits, |_| unreachable!()),
+        assert_eq!(socket.dispatch(|_| unreachable!()),
                    Err(Error::Rejected));
     }
 
@@ -330,11 +323,11 @@ mod test {
         Ipv4Packet::new(&mut cksumd_packet).fill_checksum();
 
         assert_eq!(socket.recv(), Err(Error::Exhausted));
-        assert_eq!(socket.process(0, &HEADER_REPR, &PACKET_PAYLOAD),
+        assert_eq!(socket.process(&HEADER_REPR, &PACKET_PAYLOAD),
                    Ok(()));
         assert!(socket.can_recv());
 
-        assert_eq!(socket.process(0, &HEADER_REPR, &PACKET_PAYLOAD),
+        assert_eq!(socket.process(&HEADER_REPR, &PACKET_PAYLOAD),
                    Err(Error::Exhausted));
         assert_eq!(socket.recv(), Ok(&cksumd_packet[..]));
         assert!(!socket.can_recv());
@@ -344,7 +337,7 @@ mod test {
     fn test_recv_truncated_slice() {
         let mut socket = socket(buffer(1), buffer(0));
 
-        assert_eq!(socket.process(0, &HEADER_REPR, &PACKET_PAYLOAD),
+        assert_eq!(socket.process(&HEADER_REPR, &PACKET_PAYLOAD),
                    Ok(()));
 
         let mut slice = [0; 4];
@@ -359,7 +352,7 @@ mod test {
         let mut buffer = vec![0; 128];
         buffer[..PACKET_BYTES.len()].copy_from_slice(&PACKET_BYTES[..]);
 
-        assert_eq!(socket.process(0, &HEADER_REPR, &buffer),
+        assert_eq!(socket.process(&HEADER_REPR, &buffer),
                    Err(Error::Truncated));
     }
 }

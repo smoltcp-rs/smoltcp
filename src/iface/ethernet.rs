@@ -203,8 +203,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         let mut handled_by_raw_socket = false;
         for raw_socket in sockets.iter_mut().filter_map(
                 <Socket as AsSocket<RawSocket>>::try_as_socket) {
-            match raw_socket.process(timestamp, &IpRepr::Ipv4(ipv4_repr),
-                                     ipv4_packet.payload()) {
+            match raw_socket.process(&ipv4_repr.into(), ipv4_packet.payload()) {
                 // The packet is valid and handled by socket.
                 Ok(()) => handled_by_raw_socket = true,
                 // The packet isn't addressed to the socket, or cannot be accepted by it.
@@ -223,7 +222,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
             IpProtocol::Icmp =>
                 Self::process_icmpv4(ipv4_repr, ipv4_packet.payload()),
             IpProtocol::Udp =>
-                Self::process_udpv4(sockets, timestamp, ipv4_repr, ipv4_packet.payload()),
+                Self::process_udpv4(sockets, ipv4_repr, ipv4_packet.payload()),
             IpProtocol::Tcp =>
                 Self::process_tcp(sockets, timestamp, ipv4_repr.into(), ipv4_packet.payload()),
             _ if handled_by_raw_socket =>
@@ -277,14 +276,14 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         }
     }
 
-    fn process_udpv4<'frame>(sockets: &mut SocketSet, timestamp: u64,
+    fn process_udpv4<'frame>(sockets: &mut SocketSet,
                              ipv4_repr: Ipv4Repr, ip_payload: &'frame [u8]) ->
                             Result<Response<'frame>> {
         let ip_repr = IpRepr::Ipv4(ipv4_repr);
 
         for udp_socket in sockets.iter_mut().filter_map(
                 <Socket as AsSocket<UdpSocket>>::try_as_socket) {
-            match udp_socket.process(timestamp, &ip_repr, ip_payload) {
+            match udp_socket.process(&ip_repr, ip_payload) {
                 // The packet is valid and handled by socket.
                 Ok(()) => return Ok(Response::Nop),
                 // The packet isn't addressed to the socket.
@@ -344,10 +343,10 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         for socket in sockets.iter_mut() {
             let result = match socket {
                 &mut Socket::Raw(ref mut socket) =>
-                    socket.dispatch(timestamp, &limits, |response|
+                    socket.dispatch(|response|
                         self.dispatch_response(timestamp, Response::Raw(response))),
                 &mut Socket::Udp(ref mut socket) =>
-                    socket.dispatch(timestamp, &limits, |response|
+                    socket.dispatch(|response|
                         self.dispatch_response(timestamp, Response::Udp(response))),
                 &mut Socket::Tcp(ref mut socket) =>
                     socket.dispatch(timestamp, &limits, |response|

@@ -729,7 +729,7 @@ impl<'a> TcpSocket<'a> {
     }
 
     pub(crate) fn ack_reply(&self, ip_repr: &IpRepr, repr: &TcpRepr) ->
-            (IpRepr, TcpRepr<'static>) {
+                           (IpRepr, TcpRepr<'static>) {
         let (ip_reply_repr, mut reply_repr) = Self::reply(ip_repr, repr);
 
         // From RFC793:
@@ -743,8 +743,8 @@ impl<'a> TcpSocket<'a> {
         (ip_reply_repr, reply_repr)
     }
 
-    pub(crate) fn process(&mut self, timestamp: u64, ip_repr: &IpRepr,
-                          payload: &[u8]) -> Result<Option<(IpRepr, TcpRepr<'static>)>> {
+    pub(crate) fn process(&mut self, timestamp: u64, ip_repr: &IpRepr, payload: &[u8]) ->
+                         Result<Option<(IpRepr, TcpRepr<'static>)>> {
         debug_assert!(ip_repr.protocol() == IpProtocol::Tcp);
 
         if self.state == State::Closed { return Err(Error::Rejected) }
@@ -1355,7 +1355,7 @@ mod test {
     };
 
     fn send(socket: &mut TcpSocket, timestamp: u64, repr: &TcpRepr) ->
-            Result<Option<TcpRepr<'static>>> {
+           Result<Option<TcpRepr<'static>>> {
         trace!("send: {}", repr);
         let mut buffer = vec![0; repr.buffer_len()];
         let mut packet = TcpPacket::new(&mut buffer);
