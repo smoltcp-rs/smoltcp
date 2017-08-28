@@ -7,8 +7,8 @@ use wire::{ArpPacket, ArpRepr, ArpOperation};
 use wire::{Ipv4Packet, Ipv4Repr};
 use wire::{Icmpv4Packet, Icmpv4Repr, Icmpv4DstUnreachable};
 use wire::{IpAddress, IpProtocol, IpRepr};
-use wire::{TcpPacket, TcpRepr, TcpControl};
-use socket::{Socket, SocketSet, RawSocket, TcpSocket, UdpSocket, AsSocket, IpPayload};
+use wire::{UdpPacket, UdpRepr, TcpPacket, TcpRepr, TcpControl};
+use socket::{Socket, SocketSet, RawSocket, TcpSocket, UdpSocket, AsSocket};
 use super::ArpCache;
 
 /// An Ethernet network interface.
@@ -27,8 +27,9 @@ enum Response<'a> {
     Nop,
     Arp(ArpRepr),
     Icmpv4(Ipv4Repr, Icmpv4Repr<'a>),
-    Tcp((IpRepr, TcpRepr<'a>)),
-    Payload(IpRepr, &'a IpPayload)
+    Raw((IpRepr, &'a [u8])),
+    Udp((IpRepr, UdpRepr<'a>)),
+    Tcp((IpRepr, TcpRepr<'a>))
 }
 
 impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
@@ -341,9 +342,18 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
 
         let mut nothing_to_transmit = true;
         for socket in sockets.iter_mut() {
-            let result = socket.dispatch(timestamp, &limits, |repr, payload| {
-                self.dispatch_response(timestamp, Response::Payload(repr.clone(), payload))
-            });
+            let result = match socket {
+                &mut Socket::Raw(ref mut socket) =>
+                    socket.dispatch(timestamp, &limits, |response|
+                        self.dispatch_response(timestamp, Response::Raw(response))),
+                &mut Socket::Udp(ref mut socket) =>
+                    socket.dispatch(timestamp, &limits, |response|
+                        self.dispatch_response(timestamp, Response::Udp(response))),
+                &mut Socket::Tcp(ref mut socket) =>
+                    socket.dispatch(timestamp, &limits, |response|
+                        self.dispatch_response(timestamp, Response::Tcp(response))),
+                &mut Socket::__Nonexhaustive => unreachable!()
+            };
 
             match result {
                 Ok(()) => {
@@ -373,12 +383,12 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                 Ok(())
             });
 
-            (Ip, $ip_repr:expr, |$payload:ident| $code:stmt) => ({
-                let ip_repr = $ip_repr.lower(&self.protocol_addrs)?;
+            (Ip, $ip_repr_unspec:expr, |$ip_repr:ident, $payload:ident| $code:stmt) => ({
+                let $ip_repr = $ip_repr_unspec.lower(&self.protocol_addrs)?;
 
-                match self.arp_cache.lookup(&ip_repr.dst_addr()) {
+                match self.arp_cache.lookup(&$ip_repr.dst_addr()) {
                     None => {
-                        match (ip_repr.src_addr(), ip_repr.dst_addr()) {
+                        match ($ip_repr.src_addr(), $ip_repr.dst_addr()) {
                             (IpAddress::Ipv4(src_addr), IpAddress::Ipv4(dst_addr)) => {
                                 net_debug!("address {} not in ARP cache, sending request",
                                            dst_addr);
@@ -402,16 +412,16 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                         }
                     },
                     Some(dst_hardware_addr) => {
-                        emit_packet!(Ethernet, ip_repr.total_len(), |frame| {
+                        emit_packet!(Ethernet, $ip_repr.total_len(), |frame| {
                             frame.set_dst_addr(dst_hardware_addr);
-                            match ip_repr {
+                            match $ip_repr {
                                 IpRepr::Ipv4(_) => frame.set_ethertype(EthernetProtocol::Ipv4),
                                 _ => unreachable!()
                             }
 
-                            ip_repr.emit(frame.payload_mut());
+                            $ip_repr.emit(frame.payload_mut());
 
-                            let $payload = &mut frame.payload_mut()[ip_repr.buffer_len()..];
+                            let $payload = &mut frame.payload_mut()[$ip_repr.buffer_len()..];
                             $code
                         })
                     }
@@ -436,20 +446,25 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                 })
             },
             Response::Icmpv4(ipv4_repr, icmpv4_repr) => {
-                emit_packet!(Ip, IpRepr::Ipv4(ipv4_repr), |payload| {
+                emit_packet!(Ip, IpRepr::Ipv4(ipv4_repr), |ip_repr, payload| {
                     icmpv4_repr.emit(&mut Icmpv4Packet::new(payload));
                 })
             }
-            Response::Tcp((ip_repr, tcp_repr)) => {
-                emit_packet!(Ip, ip_repr, |payload| {
-                    tcp_repr.emit(&mut TcpPacket::new(payload),
+            Response::Raw((ip_repr, raw_packet)) => {
+                emit_packet!(Ip, ip_repr, |ip_repr, payload| {
+                    payload.copy_from_slice(raw_packet);
+                })
+            }
+            Response::Udp((ip_repr, udp_repr)) => {
+                emit_packet!(Ip, ip_repr, |ip_repr, payload| {
+                    udp_repr.emit(&mut UdpPacket::new(payload),
                                   &ip_repr.src_addr(), &ip_repr.dst_addr());
                 })
             }
-            Response::Payload(ip_repr, ip_payload) => {
-                let ip_repr = ip_repr.lower(&self.protocol_addrs)?;
-                emit_packet!(Ip, ip_repr, |payload| {
-                    ip_payload.emit(&ip_repr, payload);
+            Response::Tcp((ip_repr, tcp_repr)) => {
+                emit_packet!(Ip, ip_repr, |ip_repr, payload| {
+                    tcp_repr.emit(&mut TcpPacket::new(payload),
+                                  &ip_repr.src_addr(), &ip_repr.dst_addr());
                 })
             }
             Response::Nop => Ok(())

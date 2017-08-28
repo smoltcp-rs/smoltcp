@@ -80,24 +80,6 @@ impl<'a, 'b> Socket<'a, 'b> {
     pub fn set_debug_id(&mut self, id: usize) {
         dispatch_socket!(self, |socket [mut]| socket.set_debug_id(id))
     }
-
-    pub(crate) fn dispatch<F, R>(&mut self, timestamp: u64, limits: &DeviceLimits,
-                                 emit: F) -> Result<R>
-            where F: FnOnce(&IpRepr, &IpPayload) -> Result<R> {
-        dispatch_socket!(self, |socket [mut]| socket.dispatch(timestamp, limits, emit))
-    }
-}
-
-/// An IP-encapsulated packet representation.
-///
-/// This trait abstracts the various types of packets layered under the IP protocol,
-/// and serves as an accessory to [trait Socket](trait.Socket.html).
-pub trait IpPayload {
-    /// Return the length of the buffer required to serialize this high-level representation.
-    fn buffer_len(&self) -> usize;
-
-    /// Emit this high-level representation into a sequence of octets.
-    fn emit(&self, ip_repr: &IpRepr, payload: &mut [u8]);
 }
 
 /// A conversion trait for network sockets.

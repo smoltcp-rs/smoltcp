@@ -8,7 +8,7 @@ use {Error, Result};
 use phy::DeviceLimits;
 use wire::{IpProtocol, IpAddress, IpEndpoint};
 use wire::{TcpSeqNumber, TcpPacket, TcpRepr, TcpControl};
-use socket::{Socket, IpRepr, IpPayload};
+use socket::{Socket, IpRepr};
 
 /// A TCP stream ring buffer.
 #[derive(Debug)]
@@ -1090,9 +1090,9 @@ impl<'a> TcpSocket<'a> {
         }
     }
 
-    pub(crate) fn dispatch<F, R>(&mut self, timestamp: u64, limits: &DeviceLimits,
-                                 emit: F) -> Result<R>
-            where F: FnOnce(&IpRepr, &IpPayload) -> Result<R> {
+    pub(crate) fn dispatch<F>(&mut self, timestamp: u64, limits: &DeviceLimits,
+                              emit: F) -> Result<()>
+            where F: FnOnce((IpRepr, TcpRepr)) -> Result<()> {
         if !self.remote_endpoint.is_specified() { return Err(Error::Exhausted) }
 
         if let Some(retransmit_delta) = self.timer.should_retransmit(timestamp) {
@@ -1245,7 +1245,7 @@ impl<'a> TcpSocket<'a> {
             }
         }
 
-        let result = emit(&ip_repr, &repr)?;
+        emit((ip_repr, repr))?;
 
         // We've sent a packet successfully, so we can update the internal state now.
         self.remote_next_seq = repr.seq_number + repr.segment_len();
@@ -1265,7 +1265,7 @@ impl<'a> TcpSocket<'a> {
             self.remote_endpoint = IpEndpoint::default();
         }
 
-        Ok(result)
+        Ok(())
     }
 }
 
@@ -1277,17 +1277,6 @@ impl<'a> fmt::Write for TcpSocket<'a> {
         } else {
             Err(fmt::Error)
         }
-    }
-}
-
-impl<'a> IpPayload for TcpRepr<'a> {
-    fn buffer_len(&self) -> usize {
-        self.buffer_len()
-    }
-
-    fn emit(&self, ip_repr: &IpRepr, payload: &mut [u8]) {
-        let mut packet = TcpPacket::new(payload);
-        self.emit(&mut packet, &ip_repr.src_addr(), &ip_repr.dst_addr())
     }
 }
 
@@ -1389,24 +1378,18 @@ mod test {
 
     fn recv<F>(socket: &mut TcpSocket, timestamp: u64, mut f: F)
             where F: FnMut(Result<TcpRepr>) {
-        let mut buffer = vec![];
         let mut limits = DeviceLimits::default();
         limits.max_transmission_unit = 1520;
-        let result = socket.dispatch(timestamp, &limits, |ip_repr, payload| {
+        let result = socket.dispatch(timestamp, &limits, |(ip_repr, tcp_repr)| {
             let ip_repr = ip_repr.lower(&[LOCAL_END.addr.into()]).unwrap();
 
             assert_eq!(ip_repr.protocol(), IpProtocol::Tcp);
             assert_eq!(ip_repr.src_addr(), LOCAL_IP);
             assert_eq!(ip_repr.dst_addr(), REMOTE_IP);
 
-            buffer.resize(payload.buffer_len(), 0);
-            payload.emit(&ip_repr, &mut buffer[..]);
-            let packet = TcpPacket::new(&buffer[..]);
-            let repr = TcpRepr::parse(&packet, &ip_repr.src_addr(), &ip_repr.dst_addr())?;
-            trace!("recv: {}", repr);
-            Ok(f(Ok(repr)))
+            trace!("recv: {}", tcp_repr);
+            Ok(f(Ok(tcp_repr)))
         });
-        // Appease borrow checker.
         match result {
             Ok(()) => (),
             Err(e) => f(Err(e))
@@ -2869,21 +2852,15 @@ mod test {
 
         limits.max_burst_size = None;
         s.send_slice(b"abcdef").unwrap();
-        s.dispatch(0, &limits, |ip_repr, payload| {
-            let mut buffer = vec![0; payload.buffer_len()];
-            payload.emit(&ip_repr, &mut buffer[..]);
-            let packet = TcpPacket::new(&buffer[..]);
-            assert_eq!(packet.window_len(), 32767);
+        s.dispatch(0, &limits, |(ip_repr, tcp_repr)| {
+            assert_eq!(tcp_repr.window_len, 32767);
             Ok(())
         }).unwrap();
 
         limits.max_burst_size = Some(4);
         s.send_slice(b"abcdef").unwrap();
-        s.dispatch(0, &limits, |ip_repr, payload| {
-            let mut buffer = vec![0; payload.buffer_len()];
-            payload.emit(&ip_repr, &mut buffer[..]);
-            let packet = TcpPacket::new(&buffer[..]);
-            assert_eq!(packet.window_len(), 5920);
+        s.dispatch(0, &limits, |(ip_repr, tcp_repr)| {
+            assert_eq!(tcp_repr.window_len, 5920);
             Ok(())
         }).unwrap();
     }

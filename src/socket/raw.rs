@@ -4,7 +4,7 @@ use managed::Managed;
 use {Error, Result};
 use phy::DeviceLimits;
 use wire::{IpVersion, IpProtocol, Ipv4Repr, Ipv4Packet};
-use socket::{IpRepr, IpPayload, Socket};
+use socket::{IpRepr, Socket};
 use storage::{Resettable, RingBuffer};
 
 /// A buffered raw IP packet.
@@ -183,10 +183,10 @@ impl<'a, 'b> RawSocket<'a, 'b> {
         Ok(())
     }
 
-    pub(crate) fn dispatch<F, R>(&mut self, _timestamp: u64, _limits: &DeviceLimits,
-                                 emit: F) -> Result<R>
-            where F: FnOnce(&IpRepr, &IpPayload) -> Result<R> {
-        fn prepare(protocol: IpProtocol, buffer: &mut [u8]) -> Result<(IpRepr, RawRepr)> {
+    pub(crate) fn dispatch<F>(&mut self, _timestamp: u64, _limits: &DeviceLimits,
+                              emit: F) -> Result<()>
+            where F: FnOnce((IpRepr, &[u8])) -> Result<()> {
+        fn prepare(protocol: IpProtocol, buffer: &mut [u8]) -> Result<(IpRepr, &[u8])> {
             match IpVersion::of_packet(buffer.as_ref())? {
                 IpVersion::Ipv4 => {
                     let mut packet = Ipv4Packet::new_checked(buffer.as_mut())?;
@@ -195,8 +195,7 @@ impl<'a, 'b> RawSocket<'a, 'b> {
 
                     let packet = Ipv4Packet::new(&*packet.into_inner());
                     let ipv4_repr = Ipv4Repr::parse(&packet)?;
-                    let raw_repr = RawRepr(packet.payload());
-                    Ok((IpRepr::Ipv4(ipv4_repr), raw_repr))
+                    Ok((IpRepr::Ipv4(ipv4_repr), packet.payload()))
                 }
                 IpVersion::Unspecified => unreachable!(),
                 IpVersion::__Nonexhaustive => unreachable!()
@@ -205,14 +204,14 @@ impl<'a, 'b> RawSocket<'a, 'b> {
 
         let mut packet_buf = self.tx_buffer.dequeue()?;
         match prepare(self.ip_protocol, packet_buf.as_mut()) {
-            Ok((ip_repr, raw_repr)) => {
+            Ok((ip_repr, raw_packet)) => {
                 net_trace!("[{}]:{}:{}: sending {} octets",
                            self.debug_id, self.ip_version, self.ip_protocol,
-                           ip_repr.buffer_len() + raw_repr.buffer_len());
-                emit(&ip_repr, &raw_repr)
+                           ip_repr.buffer_len() + raw_packet.len());
+                emit((ip_repr, raw_packet))
             }
             Err(error) => {
-                net_trace!("[{}]:{}:{}: dropping outgoing packet ({})",
+                net_debug!("[{}]:{}:{}: dropping outgoing packet ({})",
                            self.debug_id, self.ip_version, self.ip_protocol,
                            error);
                 // This case is a bit special because in every other socket, no matter what data
@@ -222,18 +221,6 @@ impl<'a, 'b> RawSocket<'a, 'b> {
                 Err(Error::Rejected)
             }
         }
-    }
-}
-
-struct RawRepr<'a>(&'a [u8]);
-
-impl<'a> IpPayload for RawRepr<'a> {
-    fn buffer_len(&self) -> usize {
-        self.0.len()
-    }
-
-    fn emit(&self, _repr: &IpRepr, payload: &mut [u8]) {
-        payload.copy_from_slice(self.0);
     }
 }
 
@@ -291,32 +278,23 @@ mod test {
         let mut socket = socket(buffer(0), buffer(1));
 
         assert!(socket.can_send());
-        assert_eq!(socket.dispatch(0, &limits, |_ip_repr, _ip_payload| {
-            unreachable!()
-        }), Err(Error::Exhausted) as Result<()>);
+        assert_eq!(socket.dispatch(0, &limits, |_| unreachable!()),
+                   Err(Error::Exhausted));
 
         assert_eq!(socket.send_slice(&PACKET_BYTES[..]), Ok(()));
         assert_eq!(socket.send_slice(b""), Err(Error::Exhausted));
         assert!(!socket.can_send());
 
-        macro_rules! assert_payload_eq {
-            ($ip_repr:expr, $ip_payload:expr, $expected:expr) => {{
-                let mut buffer = vec![0; $ip_payload.buffer_len()];
-                $ip_payload.emit(&$ip_repr, &mut buffer);
-                assert_eq!(&buffer[..], &$expected[$ip_repr.buffer_len()..]);
-            }}
-        }
-
-        assert_eq!(socket.dispatch(0, &limits, |ip_repr, ip_payload| {
-            assert_eq!(ip_repr, &HEADER_REPR);
-            assert_payload_eq!(ip_repr, ip_payload, PACKET_BYTES);
+        assert_eq!(socket.dispatch(0, &limits, |(ip_repr, ip_payload)| {
+            assert_eq!(ip_repr, HEADER_REPR);
+            assert_eq!(ip_payload, &PACKET_PAYLOAD);
             Err(Error::Unaddressable)
-        }), Err(Error::Unaddressable) as Result<()>);
+        }), Err(Error::Unaddressable));
         /*assert!(!socket.can_send());*/
 
-        assert_eq!(socket.dispatch(0, &limits, |ip_repr, ip_payload| {
-            assert_eq!(ip_repr, &HEADER_REPR);
-            assert_payload_eq!(ip_repr, ip_payload, PACKET_BYTES);
+        assert_eq!(socket.dispatch(0, &limits, |(ip_repr, ip_payload)| {
+            assert_eq!(ip_repr, HEADER_REPR);
+            assert_eq!(ip_payload, &PACKET_PAYLOAD);
             Ok(())
         }), /*Ok(())*/ Err(Error::Exhausted));
         assert!(socket.can_send());
@@ -332,17 +310,15 @@ mod test {
         Ipv4Packet::new(&mut wrong_version).set_version(5);
 
         assert_eq!(socket.send_slice(&wrong_version[..]), Ok(()));
-        assert_eq!(socket.dispatch(0, &limits, |_ip_repr, _ip_payload| {
-            unreachable!()
-        }), Err(Error::Rejected) as Result<()>);
+        assert_eq!(socket.dispatch(0, &limits, |_| unreachable!()),
+                   Err(Error::Rejected));
 
         let mut wrong_protocol = PACKET_BYTES.clone();
         Ipv4Packet::new(&mut wrong_protocol).set_protocol(IpProtocol::Tcp);
 
         assert_eq!(socket.send_slice(&wrong_protocol[..]), Ok(()));
-        assert_eq!(socket.dispatch(0, &limits, |_ip_repr, _ip_payload| {
-            unreachable!()
-        }), Err(Error::Rejected) as Result<()>);
+        assert_eq!(socket.dispatch(0, &limits, |_| unreachable!()),
+                   Err(Error::Rejected));
     }
 
     #[test]
