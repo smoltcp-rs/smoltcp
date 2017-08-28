@@ -203,8 +203,8 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     }
 
     pub(crate) fn dispatch<F, R>(&mut self, _timestamp: u64, _limits: &DeviceLimits,
-                                 emit: &mut F) -> Result<R>
-            where F: FnMut(&IpRepr, &IpPayload) -> Result<R> {
+                                 emit: F) -> Result<R>
+            where F: FnOnce(&IpRepr, &IpPayload) -> Result<R> {
         let packet_buf = self.tx_buffer.dequeue()?;
         net_trace!("[{}]{}:{}: sending {} octets",
                    self.debug_id, self.endpoint,
@@ -320,7 +320,7 @@ mod test {
         assert_eq!(socket.bind(LOCAL_END), Ok(()));
 
         assert!(socket.can_send());
-        assert_eq!(socket.dispatch(0, &limits, &mut |_ip_repr, _ip_payload| {
+        assert_eq!(socket.dispatch(0, &limits, |_ip_repr, _ip_payload| {
             unreachable!()
         }), Err(Error::Exhausted) as Result<()>);
 
@@ -338,14 +338,14 @@ mod test {
             }}
         }
 
-        assert_eq!(socket.dispatch(0, &limits, &mut |ip_repr, ip_payload| {
+        assert_eq!(socket.dispatch(0, &limits, |ip_repr, ip_payload| {
             assert_eq!(ip_repr, &LOCAL_IP_REPR);
             assert_payload_eq!(ip_repr, ip_payload, &LOCAL_UDP_REPR);
             Err(Error::Unaddressable)
         }), Err(Error::Unaddressable) as Result<()>);
         /*assert!(!socket.can_send());*/
 
-        assert_eq!(socket.dispatch(0, &limits, &mut |ip_repr, ip_payload| {
+        assert_eq!(socket.dispatch(0, &limits, |ip_repr, ip_payload| {
             assert_eq!(ip_repr, &LOCAL_IP_REPR);
             assert_payload_eq!(ip_repr, ip_payload, &LOCAL_UDP_REPR);
             Ok(())

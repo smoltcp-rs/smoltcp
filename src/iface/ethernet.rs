@@ -403,30 +403,23 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
     }
 
     fn emit(&mut self, sockets: &mut SocketSet, timestamp: u64) -> Result<bool> {
-        // Borrow checker is being overly careful around closures, so we have
-        // to hack around that.
-        let src_hardware_addr = self.hardware_addr;
-        let src_protocol_addrs = self.protocol_addrs.as_ref();
-        let arp_cache = &mut self.arp_cache;
-        let device = &mut self.device;
-
-        let mut limits = device.limits();
+        let mut limits = self.device.limits();
         limits.max_transmission_unit -= EthernetFrame::<&[u8]>::header_len();
 
         let mut nothing_to_transmit = true;
         for socket in sockets.iter_mut() {
-            let result = socket.dispatch(timestamp, &limits, &mut |repr, payload| {
-                let repr = repr.lower(src_protocol_addrs)?;
+            let result = socket.dispatch(timestamp, &limits, |repr, payload| {
+                let repr = repr.lower(self.protocol_addrs.as_ref())?;
 
-                match arp_cache.lookup(&repr.dst_addr()) {
+                match self.arp_cache.lookup(&repr.dst_addr()) {
                     Some(dst_hardware_addr) => {
                         let tx_len = EthernetFrame::<&[u8]>::buffer_len(repr.buffer_len() +
                                                                         payload.buffer_len());
-                        let mut tx_buffer = device.transmit(timestamp, tx_len)?;
+                        let mut tx_buffer = self.device.transmit(timestamp, tx_len)?;
                         debug_assert!(tx_buffer.as_ref().len() == tx_len);
 
                         let mut frame = EthernetFrame::new(&mut tx_buffer);
-                        frame.set_src_addr(src_hardware_addr);
+                        frame.set_src_addr(self.hardware_addr);
                         frame.set_dst_addr(dst_hardware_addr);
                         frame.set_ethertype(EthernetProtocol::Ipv4);
 
@@ -447,18 +440,18 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
 
                         let payload = ArpRepr::EthernetIpv4 {
                             operation: ArpOperation::Request,
-                            source_hardware_addr: src_hardware_addr,
+                            source_hardware_addr: self.hardware_addr,
                             source_protocol_addr: src_addr,
                             target_hardware_addr: EthernetAddress::default(),
                             target_protocol_addr: dst_addr,
                         };
 
                         let tx_len = EthernetFrame::<&[u8]>::buffer_len(payload.buffer_len());
-                        let mut tx_buffer = device.transmit(timestamp, tx_len)?;
+                        let mut tx_buffer = self.device.transmit(timestamp, tx_len)?;
                         debug_assert!(tx_buffer.as_ref().len() == tx_len);
 
                         let mut frame = EthernetFrame::new(&mut tx_buffer);
-                        frame.set_src_addr(src_hardware_addr);
+                        frame.set_src_addr(self.hardware_addr);
                         frame.set_dst_addr(EthernetAddress([0xff; 6]));
                         frame.set_ethertype(EthernetProtocol::Arp);
 

@@ -1091,8 +1091,8 @@ impl<'a> TcpSocket<'a> {
     }
 
     pub(crate) fn dispatch<F, R>(&mut self, timestamp: u64, limits: &DeviceLimits,
-                                 emit: &mut F) -> Result<R>
-            where F: FnMut(&IpRepr, &IpPayload) -> Result<R> {
+                                 emit: F) -> Result<R>
+            where F: FnOnce(&IpRepr, &IpPayload) -> Result<R> {
         if !self.remote_endpoint.is_specified() { return Err(Error::Exhausted) }
 
         if let Some(retransmit_delta) = self.timer.should_retransmit(timestamp) {
@@ -1392,7 +1392,7 @@ mod test {
         let mut buffer = vec![];
         let mut limits = DeviceLimits::default();
         limits.max_transmission_unit = 1520;
-        let result = socket.dispatch(timestamp, &limits, &mut |ip_repr, payload| {
+        let result = socket.dispatch(timestamp, &limits, |ip_repr, payload| {
             let ip_repr = ip_repr.lower(&[LOCAL_END.addr.into()]).unwrap();
 
             assert_eq!(ip_repr.protocol(), IpProtocol::Tcp);
@@ -2869,7 +2869,7 @@ mod test {
 
         limits.max_burst_size = None;
         s.send_slice(b"abcdef").unwrap();
-        s.dispatch(0, &limits, &mut |ip_repr, payload| {
+        s.dispatch(0, &limits, |ip_repr, payload| {
             let mut buffer = vec![0; payload.buffer_len()];
             payload.emit(&ip_repr, &mut buffer[..]);
             let packet = TcpPacket::new(&buffer[..]);
@@ -2879,7 +2879,7 @@ mod test {
 
         limits.max_burst_size = Some(4);
         s.send_slice(b"abcdef").unwrap();
-        s.dispatch(0, &limits, &mut |ip_repr, payload| {
+        s.dispatch(0, &limits, |ip_repr, payload| {
             let mut buffer = vec![0; payload.buffer_len()];
             payload.emit(&ip_repr, &mut buffer[..]);
             let packet = TcpPacket::new(&buffer[..]);

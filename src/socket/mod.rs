@@ -82,8 +82,8 @@ impl<'a, 'b> Socket<'a, 'b> {
     }
 
     pub(crate) fn dispatch<F, R>(&mut self, timestamp: u64, limits: &DeviceLimits,
-                                 emit: &mut F) -> Result<R>
-            where F: FnMut(&IpRepr, &IpPayload) -> Result<R> {
+                                 emit: F) -> Result<R>
+            where F: FnOnce(&IpRepr, &IpPayload) -> Result<R> {
         dispatch_socket!(self, |socket [mut]| socket.dispatch(timestamp, limits, emit))
     }
 }
