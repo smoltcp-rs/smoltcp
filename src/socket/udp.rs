@@ -196,23 +196,34 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
 
     pub(crate) fn dispatch<F>(&mut self, emit: F) -> Result<()>
             where F: FnOnce((IpRepr, UdpRepr)) -> Result<()> {
-        let packet_buf = self.tx_buffer.dequeue()?;
-        net_trace!("[{}]{}:{}: sending {} octets",
-                   self.debug_id, self.endpoint,
-                   packet_buf.endpoint, packet_buf.size);
+        let debug_id = self.debug_id;
+        let endpoint = self.endpoint;
+        self.tx_buffer.try_dequeue(|packet_buf| {
+            net_trace!("[{}]{}:{}: sending {} octets",
+                       debug_id, endpoint,
+                       packet_buf.endpoint, packet_buf.size);
 
-        let repr = UdpRepr {
-            src_port: self.endpoint.port,
-            dst_port: packet_buf.endpoint.port,
-            payload:  &packet_buf.as_ref()[..]
-        };
-        let ip_repr = IpRepr::Unspecified {
-            src_addr:    self.endpoint.addr,
-            dst_addr:    packet_buf.endpoint.addr,
-            protocol:    IpProtocol::Udp,
-            payload_len: repr.buffer_len()
-        };
-        emit((ip_repr, repr))
+            let repr = UdpRepr {
+                src_port: endpoint.port,
+                dst_port: packet_buf.endpoint.port,
+                payload:  &packet_buf.as_ref()[..]
+            };
+            let ip_repr = IpRepr::Unspecified {
+                src_addr:    endpoint.addr,
+                dst_addr:    packet_buf.endpoint.addr,
+                protocol:    IpProtocol::Udp,
+                payload_len: repr.buffer_len()
+            };
+            emit((ip_repr, repr))
+        })
+    }
+
+    pub(crate) fn poll_at(&self) -> Option<u64> {
+        if self.tx_buffer.empty() {
+            None
+        } else {
+            Some(0)
+        }
     }
 }
 
@@ -310,13 +321,13 @@ mod test {
             assert_eq!(udp_repr, LOCAL_UDP_REPR);
             Err(Error::Unaddressable)
         }), Err(Error::Unaddressable));
-        /*assert!(!socket.can_send());*/
+        assert!(!socket.can_send());
 
         assert_eq!(socket.dispatch(|(ip_repr, udp_repr)| {
             assert_eq!(ip_repr, LOCAL_IP_REPR);
             assert_eq!(udp_repr, LOCAL_UDP_REPR);
             Ok(())
-        }), /*Ok(())*/ Err(Error::Exhausted));
+        }), Ok(()));
         assert!(socket.can_send());
     }
 

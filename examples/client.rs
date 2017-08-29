@@ -8,7 +8,8 @@ mod utils;
 
 use std::str::{self, FromStr};
 use std::time::Instant;
-use smoltcp::Error;
+use std::os::unix::io::AsRawFd;
+use smoltcp::phy::wait as phy_wait;
 use smoltcp::wire::{EthernetAddress, IpAddress};
 use smoltcp::iface::{ArpCache, SliceArpCache, EthernetInterface};
 use smoltcp::socket::{AsSocket, SocketSet};
@@ -25,6 +26,7 @@ fn main() {
 
     let mut matches = utils::parse_options(&opts, free);
     let device = utils::parse_tap_options(&mut matches);
+    let fd = device.as_raw_fd();
     let device = utils::parse_middleware_options(&mut matches, device, /*loopback=*/false);
     let address = IpAddress::from_str(&matches.free[0]).expect("invalid address format");
     let port = u16::from_str(&matches.free[1]).expect("invalid port format");
@@ -86,12 +88,8 @@ fn main() {
             }
         }
 
-        let timestamp = Instant::now().duration_since(startup_time);
-        let timestamp_ms = (timestamp.as_secs() * 1000) +
-                           (timestamp.subsec_nanos() / 1000000) as u64;
-        match iface.poll(&mut sockets, timestamp_ms) {
-            Ok(()) | Err(Error::Exhausted) => (),
-            Err(e) => debug!("poll error: {}", e)
-        }
+        let timestamp = utils::millis_since(startup_time);
+        let poll_at = iface.poll(&mut sockets, timestamp).expect("poll error");
+        phy_wait(fd, poll_at).expect("wait error");
     }
 }

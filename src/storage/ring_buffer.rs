@@ -61,7 +61,7 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
     /// Call `f` with a buffer element, and enqueue the element if `f` returns successfully, or
     /// return `Err(Error::Exhausted)` if the buffer is full.
     pub fn try_enqueue<'b, R, F>(&'b mut self, f: F) -> Result<R>
-            where F: Fn(&'b mut T) -> Result<R> {
+            where F: FnOnce(&'b mut T) -> Result<R> {
         if self.full() { return Err(Error::Exhausted) }
 
         let index = self.mask(self.read_at + self.length);
@@ -88,7 +88,7 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
     /// Call `f` with a buffer element, and dequeue the element if `f` returns successfully, or
     /// return `Err(Error::Exhausted)` if the buffer is empty.
     pub fn try_dequeue<'b, R, F>(&'b mut self, f: F) -> Result<R>
-            where F: Fn(&'b mut T) -> Result<R> {
+            where F: FnOnce(&'b mut T) -> Result<R> {
         if self.empty() { return Err(Error::Exhausted) }
 
         let next_at = self.incr(self.read_at);

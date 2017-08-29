@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::vec::Vec;
 use std::rc::Rc;
 use std::io;
+use std::os::unix::io::{RawFd, AsRawFd};
 
 use Result;
 use super::{sys, DeviceLimits, Device};
@@ -11,6 +12,12 @@ use super::{sys, DeviceLimits, Device};
 pub struct RawSocket {
     lower:  Rc<RefCell<sys::RawSocketDesc>>,
     mtu:    usize
+}
+
+impl AsRawFd for RawSocket {
+    fn as_raw_fd(&self) -> RawFd {
+        self.lower.borrow().as_raw_fd()
+    }
 }
 
 impl RawSocket {

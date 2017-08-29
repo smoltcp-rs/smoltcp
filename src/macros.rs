@@ -11,21 +11,21 @@ macro_rules! net_log_enabled {
 }
 
 macro_rules! net_trace {
-    ($($arg:expr),*) => {
+    ($($arg:expr),*) => {{
         #[cfg(feature = "log")]
         trace!($($arg),*);
         #[cfg(not(feature = "log"))]
         $( let _ = $arg );*; // suppress unused variable warnings
-    }
+    }}
 }
 
 macro_rules! net_debug {
-    ($($arg:expr),*) => {
+    ($($arg:expr),*) => {{
         #[cfg(feature = "log")]
         debug!($($arg),*);
         #[cfg(not(feature = "log"))]
         $( let _ = $arg );*; // suppress unused variable warnings
-    }
+    }}
 }
 
 macro_rules! enum_with_unknown {

@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::vec::Vec;
 use std::rc::Rc;
 use std::io;
+use std::os::unix::io::{RawFd, AsRawFd};
 
 use {Error, Result};
 use super::{sys, DeviceLimits, Device};
@@ -11,6 +12,12 @@ use super::{sys, DeviceLimits, Device};
 pub struct TapInterface {
     lower:  Rc<RefCell<sys::TapInterfaceDesc>>,
     mtu:    usize
+}
+
+impl AsRawFd for TapInterface {
+    fn as_raw_fd(&self) -> RawFd {
+        self.lower.borrow().as_raw_fd()
+    }
 }
 
 impl TapInterface {
@@ -49,10 +56,10 @@ impl Device for TapInterface {
                 buffer.resize(size, 0);
                 Ok(buffer)
             }
-            Err(ref err) if err.kind() == io::ErrorKind::TimedOut => {
+            Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => {
                 Err(Error::Exhausted)
             }
-            Err(err) => panic!(err)
+            Err(err) => panic!("{}", err)
         }
     }
 

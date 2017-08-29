@@ -129,3 +129,10 @@ pub fn parse_middleware_options<D: Device>(matches: &mut Matches, device: D, loo
     device.set_bucket_interval(shaping_interval);
     device
 }
+
+pub fn millis_since(startup_time: Instant) -> u64 {
+    let duration = Instant::now().duration_since(startup_time);
+    let duration_ms = (duration.as_secs() * 1000) +
+        (duration.subsec_nanos() / 1000000) as u64;
+    duration_ms
+}

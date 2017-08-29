@@ -1,5 +1,6 @@
-use libc;
 use std::{mem, io};
+use std::os::unix::io::{RawFd, AsRawFd};
+use libc;
 use super::*;
 
 #[derive(Debug)]
@@ -8,10 +9,16 @@ pub struct RawSocketDesc {
     ifreq: ifreq
 }
 
+impl AsRawFd for RawSocketDesc {
+    fn as_raw_fd(&self) -> RawFd {
+        self.lower
+    }
+}
+
 impl RawSocketDesc {
     pub fn new(name: &str) -> io::Result<RawSocketDesc> {
         let lower = unsafe {
-            let lower = libc::socket(libc::AF_PACKET, libc::SOCK_RAW,
+            let lower = libc::socket(libc::AF_PACKET, libc::SOCK_RAW | libc::SOCK_NONBLOCK,
                                      imp::ETH_P_ALL.to_be() as i32);
             if lower == -1 { return Err(io::Error::last_os_error()) }
             lower

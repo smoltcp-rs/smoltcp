@@ -78,6 +78,10 @@ impl<'a, 'b> Socket<'a, 'b> {
     pub fn set_debug_id(&mut self, id: usize) {
         dispatch_socket!(self, |socket [mut]| socket.set_debug_id(id))
     }
+
+    pub(crate) fn poll_at(&self) -> Option<u64> {
+        dispatch_socket!(self, |socket []| socket.poll_at())
+    }
 }
 
 /// A conversion trait for network sockets.

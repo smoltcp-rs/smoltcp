@@ -119,6 +119,9 @@ mod raw_socket;
 #[cfg(all(feature = "tap_interface", target_os = "linux"))]
 mod tap_interface;
 
+#[cfg(any(feature = "raw_socket", feature = "tap_interface"))]
+pub use self::sys::wait;
+
 pub use self::tracer::Tracer;
 pub use self::fault_injector::FaultInjector;
 pub use self::pcap_writer::{PcapLinkType, PcapMode, PcapSink, PcapWriter};

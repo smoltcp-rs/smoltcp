@@ -199,24 +199,33 @@ impl<'a, 'b> RawSocket<'a, 'b> {
             }
         }
 
-        let mut packet_buf = self.tx_buffer.dequeue()?;
-        match prepare(self.ip_protocol, packet_buf.as_mut()) {
-            Ok((ip_repr, raw_packet)) => {
-                net_trace!("[{}]:{}:{}: sending {} octets",
-                           self.debug_id, self.ip_version, self.ip_protocol,
-                           ip_repr.buffer_len() + raw_packet.len());
-                emit((ip_repr, raw_packet))
+        let debug_id    = self.debug_id;
+        let ip_protocol = self.ip_protocol;
+        let ip_version  = self.ip_version;
+        self.tx_buffer.try_dequeue(|packet_buf| {
+            match prepare(ip_protocol, packet_buf.as_mut()) {
+                Ok((ip_repr, raw_packet)) => {
+                    net_trace!("[{}]:{}:{}: sending {} octets",
+                               debug_id, ip_version, ip_protocol,
+                               ip_repr.buffer_len() + raw_packet.len());
+                    emit((ip_repr, raw_packet))
+                }
+                Err(error) => {
+                    net_debug!("[{}]:{}:{}: dropping outgoing packet ({})",
+                               debug_id, ip_version, ip_protocol,
+                               error);
+                    // Return Ok(()) so the packet is dequeued.
+                    Ok(())
+                }
             }
-            Err(error) => {
-                net_debug!("[{}]:{}:{}: dropping outgoing packet ({})",
-                           self.debug_id, self.ip_version, self.ip_protocol,
-                           error);
-                // This case is a bit special because in every other socket, no matter what data
-                // is put into the socket, it can be sent, but it's possible to put data into
-                // a raw socket that may not be, and we're generic over the result type, so
-                // we can't possibly return Ok(()) here.
-                Err(Error::Rejected)
-            }
+        })
+    }
+
+    pub(crate) fn poll_at(&self) -> Option<u64> {
+        if self.tx_buffer.empty() {
+            None
+        } else {
+            Some(0)
         }
     }
 }
@@ -285,13 +294,13 @@ mod test {
             assert_eq!(ip_payload, &PACKET_PAYLOAD);
             Err(Error::Unaddressable)
         }), Err(Error::Unaddressable));
-        /*assert!(!socket.can_send());*/
+        assert!(!socket.can_send());
 
         assert_eq!(socket.dispatch(|(ip_repr, ip_payload)| {
             assert_eq!(ip_repr, HEADER_REPR);
             assert_eq!(ip_payload, &PACKET_PAYLOAD);
             Ok(())
-        }), /*Ok(())*/ Err(Error::Exhausted));
+        }), Ok(()));
         assert!(socket.can_send());
     }
 
@@ -304,14 +313,14 @@ mod test {
 
         assert_eq!(socket.send_slice(&wrong_version[..]), Ok(()));
         assert_eq!(socket.dispatch(|_| unreachable!()),
-                   Err(Error::Rejected));
+                   Ok(()));
 
         let mut wrong_protocol = PACKET_BYTES.clone();
         Ipv4Packet::new(&mut wrong_protocol).set_protocol(IpProtocol::Tcp);
 
         assert_eq!(socket.send_slice(&wrong_protocol[..]), Ok(()));
         assert_eq!(socket.dispatch(|_| unreachable!()),
-                   Err(Error::Rejected));
+                   Ok(()));
     }
 
     #[test]

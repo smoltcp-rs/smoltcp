@@ -200,6 +200,14 @@ impl Timer {
         }
     }
 
+    fn poll_at(&self) -> Option<u64> {
+        match *self {
+            Timer::Idle => None,
+            Timer::Retransmit { expires_at, .. } => Some(expires_at),
+            Timer::Close { expires_at, .. } => Some(expires_at),
+        }
+    }
+
     fn reset(&mut self) {
         *self = Timer::Idle
     }
@@ -1255,6 +1263,16 @@ impl<'a> TcpSocket<'a> {
         }
 
         Ok(())
+    }
+
+    pub(crate) fn poll_at(&self) -> Option<u64> {
+        self.timer.poll_at().or_else(|| {
+            if self.tx_buffer.empty() {
+                None
+            } else {
+                Some(0)
+            }
+        })
     }
 }
 
@@ -2835,14 +2853,14 @@ mod test {
 
         limits.max_burst_size = None;
         s.send_slice(b"abcdef").unwrap();
-        s.dispatch(0, &limits, |(ip_repr, tcp_repr)| {
+        s.dispatch(0, &limits, |(_ip_repr, tcp_repr)| {
             assert_eq!(tcp_repr.window_len, 32767);
             Ok(())
         }).unwrap();
 
         limits.max_burst_size = Some(4);
         s.send_slice(b"abcdef").unwrap();
-        s.dispatch(0, &limits, |(ip_repr, tcp_repr)| {
+        s.dispatch(0, &limits, |(_ip_repr, tcp_repr)| {
             assert_eq!(tcp_repr.window_len, 5920);
             Ok(())
         }).unwrap();

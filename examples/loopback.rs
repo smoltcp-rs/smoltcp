@@ -16,7 +16,6 @@ extern crate getopts;
 mod utils;
 
 use core::str;
-use smoltcp::Error;
 use smoltcp::phy::Loopback;
 use smoltcp::wire::{EthernetAddress, IpAddress};
 use smoltcp::iface::{ArpCache, SliceArpCache, EthernetInterface};
@@ -161,11 +160,14 @@ fn main() {
         }
 
         match iface.poll(&mut socket_set, clock.elapsed()) {
-            Ok(()) | Err(Error::Exhausted) => (),
+            Ok(Some(poll_at)) => {
+                let delay = poll_at - clock.elapsed();
+                debug!("sleeping for {} ms", delay);
+                clock.advance(delay)
+            }
+            Ok(None) => clock.advance(1),
             Err(e) => debug!("poll error: {}", e)
         }
-
-        clock.advance(1);
     }
 
     if done {

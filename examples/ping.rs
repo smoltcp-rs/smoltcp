@@ -8,8 +8,10 @@ extern crate byteorder;
 mod utils;
 
 use std::str::{self, FromStr};
-use std::time::{Duration, Instant};
-use smoltcp::Error;
+use std::cmp;
+use std::time::Instant;
+use std::os::unix::io::AsRawFd;
+use smoltcp::phy::wait as phy_wait;
 use smoltcp::wire::{EthernetAddress, IpVersion, IpProtocol, IpAddress,
                     Ipv4Address, Ipv4Packet, Ipv4Repr,
                     Icmpv4Repr, Icmpv4Packet};
@@ -35,6 +37,7 @@ fn main() {
 
     let mut matches = utils::parse_options(&opts, free);
     let device = utils::parse_tap_options(&mut matches);
+    let fd = device.as_raw_fd();
     let device = utils::parse_middleware_options(&mut matches, device, /*loopback=*/false);
     let address  = Ipv4Address::from_str(&matches.free[0]).expect("invalid address format");
     let count    = matches.opt_str("count").map(|s| usize::from_str(&s).unwrap()).unwrap_or(4);
@@ -61,7 +64,7 @@ fn main() {
     let mut sockets = SocketSet::new(vec![]);
     let raw_handle = sockets.add(raw_socket);
 
-    let mut send_next = Duration::default();
+    let mut send_at = 0;
     let mut seq_no = 0;
     let mut received = 0;
     let mut echo_payload = [0xffu8; 40];
@@ -75,11 +78,8 @@ fn main() {
             let timestamp_us = (timestamp.as_secs() * 1000000) +
                 (timestamp.subsec_nanos() / 1000) as u64;
 
-            if seq_no == count as u16 && waiting_queue.is_empty() {
-                break;
-            }
-
-            if socket.can_send() && seq_no < count as u16 && send_next <= timestamp {
+            if socket.can_send() && seq_no < count as u16 &&
+                    send_at <= utils::millis_since(startup_time) {
                 NetworkEndian::write_u64(&mut echo_payload, timestamp_us);
                 let icmp_repr = Icmpv4Repr::EchoRequest {
                     ident: 1,
@@ -105,7 +105,7 @@ fn main() {
 
                 waiting_queue.insert(seq_no, timestamp);
                 seq_no += 1;
-                send_next += Duration::new(interval, 0);
+                send_at += interval * 1000;
             }
 
             if socket.can_recv() {
@@ -137,16 +137,23 @@ fn main() {
                     println!("From {} icmp_seq={} timeout", remote_addr, seq);
                     false
                 }
-            })
+            });
+
+            if seq_no == count as u16 && waiting_queue.is_empty() {
+                break
+            }
         }
 
-        let timestamp = Instant::now().duration_since(startup_time);
-        let timestamp_ms = (timestamp.as_secs() * 1000) +
-            (timestamp.subsec_nanos() / 1000000) as u64;
-        match iface.poll(&mut sockets, timestamp_ms) {
-            Ok(()) | Err(Error::Exhausted) => (),
-            Err(e) => debug!("poll error: {}", e),
+        let timestamp = utils::millis_since(startup_time);
+
+        let poll_at = iface.poll(&mut sockets, timestamp).expect("poll error");
+        let mut resume_at = Some(send_at);
+        if let Some(poll_at) = poll_at {
+            resume_at = resume_at.map(|at| cmp::min(at, poll_at))
         }
+
+        debug!("waiting until {:?} ms", resume_at);
+        phy_wait(fd, resume_at.map(|at| at.saturating_sub(timestamp))).expect("wait error");
     }
 
     println!("--- {} ping statistics ---", remote_addr);
