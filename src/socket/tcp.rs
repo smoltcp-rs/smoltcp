@@ -992,9 +992,8 @@ impl<'a> TcpSocket<'a> {
             (State::FinWait1, TcpControl::None) => {
                 if ack_of_fin {
                     self.set_state(State::FinWait2);
-                } else {
-                    self.timer.reset();
                 }
+                self.timer.reset();
             }
 
             // FIN packets in FIN-WAIT-1 state change it to CLOSING, or to TIME-WAIT
@@ -2073,10 +2072,7 @@ mod test {
             ..SEND_TEMPL
         });
         assert_eq!(s.state, State::FinWait2);
-        sanity!(s, TcpSocket {
-            timer: Timer::Retransmit { expires_at: 100, delay: 100 },
-            ..socket_fin_wait_2()
-        });
+        sanity!(s, socket_fin_wait_2());
     }
 
     #[test]
