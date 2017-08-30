@@ -248,9 +248,9 @@ impl<'a, T: AsRef<[u8]> + ?Sized> Packet<&'a T> {
     /// Return a pointer to the payload.
     #[inline]
     pub fn payload(&self) -> &'a [u8] {
-        let range = self.header_len() as usize;
+        let range = self.header_len() as usize..self.total_len() as usize;
         let data = self.buffer.as_ref();
-        &data[range..]
+        &data[range]
     }
 }
 
@@ -381,7 +381,7 @@ impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Packet<&'a mut T> {
     /// Return a mutable pointer to the payload.
     #[inline]
     pub fn payload_mut(&mut self) -> &mut [u8] {
-        let range = self.header_len() as usize..;
+        let range = self.header_len() as usize..self.total_len() as usize;
         let data = self.buffer.as_mut();
         &mut data[range]
     }
@@ -609,6 +609,18 @@ mod test {
         packet.fill_checksum();
         packet.payload_mut().copy_from_slice(&PAYLOAD_BYTES[..]);
         assert_eq!(&packet.into_inner()[..], &PACKET_BYTES[..]);
+    }
+
+    #[test]
+    fn test_overlong() {
+        let mut bytes = vec![];
+        bytes.extend(&PACKET_BYTES[..]);
+        bytes.push(0);
+
+        assert_eq!(Packet::new(&bytes).payload().len(),
+                   PAYLOAD_BYTES.len());
+        assert_eq!(Packet::new(&mut bytes).payload_mut().len(),
+                   PAYLOAD_BYTES.len());
     }
 
     static REPR_PACKET_BYTES: [u8; 24] =
