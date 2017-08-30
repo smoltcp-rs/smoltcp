@@ -830,30 +830,33 @@ impl<'a> TcpSocket<'a> {
             }
         }
 
-        match (self.state, repr) {
+        match self.state {
             // In LISTEN and SYN-SENT states, we have not yet synchronized with the remote end.
-            (State::Listen, _)  => (),
-            (State::SynSent, _) => (),
+            State::Listen  => (),
+            State::SynSent => (),
             // In all other states, segments must occupy a valid portion of the receive window.
-            (_, &TcpRepr { seq_number, .. }) => {
+            _ => {
                 let mut send_challenge_ack = false;
 
-                let window_start = self.remote_last_ack;
-                let window_end   = window_start + self.rx_buffer.capacity();
-                if seq_number < window_start || seq_number > window_end {
-                    net_debug!("[{}]{}:{}: SEQ not in receive window ({} not in {}..{}), \
-                                will send challenge ACK",
+                let window_start  = self.remote_seq_no;
+                let window_end    = window_start + self.rx_buffer.capacity();
+                let segment_start = repr.seq_number;
+                let segment_end   = segment_start + repr.segment_len();
+                if !((window_start <= segment_start && segment_start <= window_end) ||
+                     (window_start <= segment_end   && segment_end <= window_end)) {
+                    net_debug!("[{}]{}:{}: segment not in receive window \
+                                ({}..{} not intersecting {}..{}), will send challenge ACK",
                                self.debug_id, self.local_endpoint, self.remote_endpoint,
-                               seq_number, window_start, window_end);
+                               segment_start, segment_end, window_start, window_end);
                     send_challenge_ack = true;
                 }
 
                 // For now, do not actually try to reassemble out-of-order segments.
-                if seq_number != self.remote_last_ack {
-                    net_debug!("[{}]{}:{}: out-of-order SEQ ({} not in ..{}), \
+                if segment_start != window_start + self.rx_buffer.len() {
+                    net_debug!("[{}]{}:{}: out-of-order SEQ ({} not equal to {}), \
                                 will send challenge ACK",
                                self.debug_id, self.local_endpoint, self.remote_endpoint,
-                               seq_number, self.remote_last_ack);
+                               segment_start, window_start + self.rx_buffer.len());
                     // Some segments between what we have last received and this segment
                     // went missing. Send a duplicate ACK; RFC 793 does not specify the behavior
                     // required when receiving a duplicate ACK, but in practice (see RFC 1122
