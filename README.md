@@ -23,6 +23,7 @@ The only supported medium is Ethernet.
   * Regular Ethernet II frames are supported.
   * Unicast and broadcast packets are supported, multicast packets are **not** supported.
   * ARP packets (including gratuitous requests and replies) are supported.
+  * ARP rate limiting and cache expiration is **not** supported.
   * 802.3 frames and 802.1Q are **not** supported.
   * Jumbo frames are **not** supported.
 
@@ -33,6 +34,7 @@ The only supported internetworking protocol is IPv4.
   * IPv4 header checksum is supported.
   * IPv4 fragmentation is **not** supported.
   * IPv4 options are **not** supported.
+  * IPv4 routes or default gateways are **not** supported.
   * ICMPv4 header checksum is supported.
   * ICMPv4 echo requests and replies are supported.
   * ICMPv4 destination unreachable message is supported.
