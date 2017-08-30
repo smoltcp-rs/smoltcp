@@ -458,8 +458,28 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                                   &ip_repr.src_addr(), &ip_repr.dst_addr());
                 })
             }
-            Packet::Tcp((ip_repr, tcp_repr)) => {
+            Packet::Tcp((ip_repr, mut tcp_repr)) => {
+                let limits = self.device.limits();
                 self.dispatch_ip(timestamp, ip_repr, |ip_repr, payload| {
+                    // This is a terrible hack to make TCP performance more acceptable on systems
+                    // where the TCP buffers are significantly larger than network buffers,
+                    // e.g. a 64 kB TCP receive buffer (and so, when empty, a 64k window)
+                    // together with four 1500 B Ethernet receive buffers. If left untreated,
+                    // this would result in our peer pushing our window and sever packet loss.
+                    //
+                    // I'm really not happy about this "solution" but I don't know what else to do.
+                    if let Some(max_burst_size) = limits.max_burst_size {
+                        let mut max_segment_size = limits.max_transmission_unit;
+                        max_segment_size -= EthernetFrame::<&[u8]>::header_len();
+                        max_segment_size -= ip_repr.buffer_len();
+                        max_segment_size -= tcp_repr.header_len();
+
+                        let max_window_size = max_burst_size * max_segment_size;
+                        if tcp_repr.window_len as usize > max_window_size {
+                            tcp_repr.window_len = max_window_size as u16;
+                        }
+                    }
+
                     tcp_repr.emit(&mut TcpPacket::new(payload),
                                   &ip_repr.src_addr(), &ip_repr.dst_addr());
                 })

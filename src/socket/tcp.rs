@@ -1241,13 +1241,6 @@ impl<'a> TcpSocket<'a> {
             repr.max_seg_size = Some(max_segment_size as u16);
         }
 
-        if let Some(max_burst_size) = limits.max_burst_size {
-            let max_window_size = max_burst_size * max_segment_size;
-            if repr.window_len as usize > max_window_size {
-                repr.window_len = max_window_size as u16;
-            }
-        }
-
         emit((ip_repr, repr))?;
 
         // We've sent a packet successfully, so we can update the internal state now.
@@ -2891,29 +2884,6 @@ mod test {
             payload: &[0; 1000][..],
             ..RECV_TEMPL
         }));
-    }
-
-    #[test]
-    fn test_window_size_clamp() {
-        let mut s = socket_established();
-        s.rx_buffer = SocketBuffer::new(vec![0; 32767]);
-
-        let mut limits = DeviceLimits::default();
-        limits.max_transmission_unit = 1520;
-
-        limits.max_burst_size = None;
-        s.send_slice(b"abcdef").unwrap();
-        s.dispatch(0, &limits, |(_ip_repr, tcp_repr)| {
-            assert_eq!(tcp_repr.window_len, 32767);
-            Ok(())
-        }).unwrap();
-
-        limits.max_burst_size = Some(4);
-        s.send_slice(b"abcdef").unwrap();
-        s.dispatch(0, &limits, |(_ip_repr, tcp_repr)| {
-            assert_eq!(tcp_repr.window_len, 5920);
-            Ok(())
-        }).unwrap();
     }
 
     // =========================================================================================//
