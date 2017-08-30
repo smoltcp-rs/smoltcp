@@ -624,6 +624,12 @@ impl<'a> TcpSocket<'a> {
         // another (stale) SYN.
         if !self.may_recv() { return Err(Error::Illegal) }
 
+        // If we advertised a zero window, make sure to send an ACK so that the peer
+        // can resume sending data.
+        if self.rx_buffer.window() == 0 {
+            self.remote_last_ack = None;
+        }
+
         #[cfg(any(test, feature = "verbose"))]
         let old_length = self.rx_buffer.len();
         let buffer = self.rx_buffer.dequeue(size);
@@ -2961,5 +2967,30 @@ mod test {
             window_len: 0,
             ..RECV_TEMPL
         })));
+    }
+
+    #[test]
+    fn test_zero_window_ack_on_window_growth() {
+        let mut s = socket_established();
+        s.rx_buffer = SocketBuffer::new(vec![0; 6]);
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            payload:    &b"abcdef"[..],
+            ..SEND_TEMPL
+        }, Ok(Some(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1 + 6),
+            window_len: 0,
+            ..RECV_TEMPL
+        })));
+        recv!(s, time 0, Err(Error::Exhausted));
+        assert_eq!(s.recv(6), Ok(&b"abcdef"[..]));
+        recv!(s, time 0, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1 + 6),
+            window_len: 6,
+            ..RECV_TEMPL
+        }));
     }
 }
