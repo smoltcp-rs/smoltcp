@@ -1,22 +1,22 @@
-use managed::Managed;
+use managed::ManagedSlice;
 
 use {Error, Result};
 use super::Resettable;
 
 /// A ring buffer.
 #[derive(Debug)]
-pub struct RingBuffer<'a, T: 'a> {
-    storage: Managed<'a, [T]>,
+pub struct RingBuffer<'a, T: 'a + Resettable> {
+    storage: ManagedSlice<'a, T>,
     read_at: usize,
     length: usize,
 }
 
-impl<'a, T: 'a> RingBuffer<'a, T> {
+impl<'a, T: 'a + Resettable> RingBuffer<'a, T> {
     /// Create a ring buffer with the given storage.
     ///
     /// During creation, every element in `storage` is reset.
     pub fn new<S>(storage: S) -> RingBuffer<'a, T>
-        where S: Into<Managed<'a, [T]>>, T: Resettable,
+        where S: Into<ManagedSlice<'a, T>>,
     {
         let mut storage = storage.into();
         for elem in storage.iter_mut() {
@@ -46,6 +46,16 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
     /// Query whether the buffer is full.
     pub fn full(&self) -> bool {
         self.length == self.storage.len()
+    }
+
+    /// Get capacity of the underlying storage.
+    pub fn capacity(&self) -> usize {
+        self.storage.len()
+    }
+
+    /// Get the number of elements in the buffer
+    pub fn len(&self) -> usize {
+        self.length
     }
 
     /// Enqueue an element into the buffer, and return a pointer to it, or return
@@ -101,6 +111,36 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
             Err(error) => Err(error)
         }
     }
+
+    /// Expand the underlying storage to fit `additional` more elements,
+    /// panic if the storage cannot be expanded.
+    pub fn reserve_exact(&mut self, additional: usize)
+        where T: Copy + Default {
+        match self.storage {
+            ManagedSlice::Borrowed(_) => {
+                panic!("Cannot expand a ring_buffer in not-owned memory")
+            }
+            #[cfg(any(feature = "std", feature = "collections"))]
+            ManagedSlice::Owned(ref mut storage) => {
+                storage.reserve(additional);
+                for _ in 0..additional {
+                    storage.push(Default::default());
+                }
+            }
+        }
+        #[cfg(any(feature = "std", feature = "collections"))]
+        {
+            if self.length != 0 && self.storage.len() > 1 {
+                let end = (self.read_at + self.length) % (self.storage.len() - additional);
+                if end <= self.read_at {
+                    for j in self.length - end..self.length {
+                        self.storage[self.mask(self.read_at + j)] =
+                            self.storage[self.mask(self.read_at + j + additional)];
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -129,11 +169,13 @@ mod test {
         let mut buf = buffer();
         assert!(buf.empty());
         assert!(!buf.full());
+        assert_eq!(buf.len(), 0);
         assert_eq!(buf.dequeue(), Err(Error::Exhausted));
 
         buf.enqueue().unwrap();
         assert!(!buf.empty());
         assert!(!buf.full());
+        assert_eq!(buf.len(), 1);
 
         for i in 1..SIZE {
             *buf.enqueue().unwrap() = i;
@@ -147,6 +189,7 @@ mod test {
             assert!(!buf.full());
         }
         assert_eq!(buf.dequeue(), Err(Error::Exhausted));
+        assert_eq!(buf.len(), 0);
         assert!(buf.empty());
     }
 
@@ -177,5 +220,63 @@ mod test {
         assert_eq!(buf.try_dequeue(|_| unreachable!()) as Result<()>,
                    Err(Error::Exhausted));
         assert!(buf.empty());
+    }
+
+    #[test]
+    pub fn test_buffer_reserve() {
+        let mut buf = RingBuffer::new(vec![]);
+        assert_eq!(buf.capacity(), 0);
+        assert_eq!(buf.len(), 0);
+        assert!(buf.empty());
+        assert!(buf.full());
+        assert_eq!(buf.enqueue(), Err(Error::Exhausted));
+
+        buf.reserve_exact(1);
+        assert_eq!(buf.capacity(), 1);
+        assert_eq!(buf.len(), 0);
+
+        *buf.enqueue().unwrap() = 123;
+        assert!(!buf.empty());
+        assert!(buf.full());
+        assert_eq!(buf.capacity(), 1);
+        assert_eq!(buf.len(), 1);
+
+        assert_eq!(*buf.dequeue().unwrap(), 123);
+        assert!(buf.empty());
+        assert!(!buf.full());
+        assert_eq!(buf.capacity(), 1);
+        assert_eq!(buf.len(), 0);
+
+        *buf.enqueue().unwrap() = 123;
+        assert!(buf.full());
+
+        buf.reserve_exact(5);
+        assert!(!buf.full());
+        assert!(!buf.empty());
+        assert_eq!(buf.capacity(), 6);
+        assert_eq!(buf.len(), 1);
+    }
+
+    #[test]
+    pub fn test_buffer_reserve_2() {
+        let mut buf = buffer();
+        for i in 0..SIZE {
+            *buf.enqueue().unwrap() = i;
+        }
+        assert!(buf.full());
+        for i in 0..SIZE/2 {
+            assert_eq!(*buf.dequeue().unwrap(), i);
+        }
+        for i in SIZE..SIZE+SIZE/2 {
+            *buf.enqueue().unwrap() = i;
+        }
+        buf.reserve_exact(SIZE);
+        for i in SIZE/2..SIZE+SIZE/2 {
+            assert_eq!(*buf.dequeue().unwrap(), i);
+        }
+
+        assert!(buf.empty());
+        assert_eq!(buf.capacity(), 2*SIZE);
+        assert_eq!(buf.len(), 0);
     }
 }
