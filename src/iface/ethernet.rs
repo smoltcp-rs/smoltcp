@@ -142,7 +142,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                     Ok(response) => response,
                     Err(err) => {
                         net_debug!("cannot process ingress packet: {}", err);
-                        continue
+                        return Err(err)
                     }
                 };
             processed_any = true;
@@ -151,7 +151,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                 Ok(()) => (),
                 Err(err) => {
                     net_debug!("cannot dispatch response packet: {}", err);
-                    continue
+                    return Err(err)
                 }
             }
         }
@@ -185,8 +185,10 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                 };
             match (device_result, socket_result) {
                 (Ok(()), Err(Error::Exhausted)) => (), // nothing to transmit
-                (Err(err), _) | (_, Err(err)) =>
-                    net_debug!("cannot dispatch egress packet: {}", err),
+                (Err(err), _) | (_, Err(err)) => {
+                    net_debug!("cannot dispatch egress packet: {}", err);
+                    return Err(err)
+                }
                 (Ok(()), Ok(())) => ()
             }
         }
