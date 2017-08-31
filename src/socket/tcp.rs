@@ -683,6 +683,20 @@ impl<'a> TcpSocket<'a> {
         Ok(buffer.len())
     }
 
+    /// Return the amount of octets queued in the transmit buffer.
+    ///
+    /// Note that the Berkeley sockets interface does not have an equivalent of this API.
+    pub fn send_queue(&self) -> usize {
+        self.tx_buffer.len()
+    }
+
+    /// Return the amount of octets queued in the receive buffer.
+    ///
+    /// Note that the Berkeley sockets interface does not have an equivalent of this API.
+    pub fn recv_queue(&self) -> usize {
+        self.rx_buffer.len()
+    }
+
     fn set_state(&mut self, state: State) {
         if self.state != state {
             if self.remote_endpoint.addr.is_unspecified() {
