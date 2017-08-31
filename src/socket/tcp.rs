@@ -1202,7 +1202,11 @@ impl<'a> TcpSocket<'a> {
             return Err(Error::Exhausted)
         }
 
-        if net_log_enabled!(debug) {
+        if repr.payload.len() > 0 {
+            net_trace!("[{}]{}:{}: tx buffer: peeking at {} octets (from {})",
+                       self.debug_id, self.local_endpoint, self.remote_endpoint,
+                       repr.payload.len(), self.remote_last_seq - self.local_seq_no);
+        } else {
             let flags =
                 match (repr.control, repr.ack_number) {
                     (TcpControl::Syn,  None)    => "SYN",
@@ -1213,15 +1217,9 @@ impl<'a> TcpSocket<'a> {
                     (TcpControl::None, Some(_)) => "ACK",
                     _ => unreachable!()
                 };
-            if repr.payload.len() > 0 {
-                net_trace!("[{}]{}:{}: tx buffer: peeking at {} octets (from {})",
-                           self.debug_id, self.local_endpoint, self.remote_endpoint,
-                           repr.payload.len(), self.remote_last_seq - self.local_seq_no);
-            } else {
-                net_debug!("[{}]{}:{}: sending {}",
-                           self.debug_id, self.local_endpoint, self.remote_endpoint,
-                           flags);
-            }
+            net_trace!("[{}]{}:{}: sending {}",
+                       self.debug_id, self.local_endpoint, self.remote_endpoint,
+                       flags);
         }
 
         // Remember the header length before enabling the MSS option, since that option
@@ -3005,5 +3003,28 @@ mod test {
             window_len: 6,
             ..RECV_TEMPL
         }));
+    }
+
+    #[test]
+    fn test_fill_peer_window() {
+        let mut s = socket_established();
+        s.remote_mss = 6;
+        s.send_slice(b"abcdef123456!@#$%^").unwrap();
+        recv!(s, [TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"abcdef"[..],
+            ..RECV_TEMPL
+        }, TcpRepr {
+            seq_number: LOCAL_SEQ + 1 + 6,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"123456"[..],
+            ..RECV_TEMPL
+        }, TcpRepr {
+            seq_number: LOCAL_SEQ + 1 + 6 + 6,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"!@#$%^"[..],
+            ..RECV_TEMPL
+        }]);
     }
 }
