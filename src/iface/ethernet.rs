@@ -285,13 +285,13 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         let mut handled_by_raw_socket = false;
         for raw_socket in sockets.iter_mut().filter_map(
                 <Socket as AsSocket<RawSocket>>::try_as_socket) {
-            match raw_socket.process(&ip_repr, ip_payload) {
-                // The packet is valid and handled by socket.
-                Ok(()) => handled_by_raw_socket = true,
-                // The packet isn't addressed to the socket, or cannot be accepted by it.
-                Err(Error::Rejected) | Err(Error::Exhausted) => (),
-                // Raw sockets either accept or reject packets, not parse them.
-                _ => unreachable!(),
+            if raw_socket.would_accept(&ip_repr) {
+                match raw_socket.process_accepted(&ip_repr, ip_payload) {
+                    // The packet is valid and handled by socket.
+                    Ok(()) => handled_by_raw_socket = true,
+                    // Raw sockets can't fail to process an accepted packet
+                    _ => unreachable!(),
+                }
             }
         }
 
