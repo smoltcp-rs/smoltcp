@@ -48,7 +48,7 @@ impl State {
     }
 
     fn refill(&mut self, config: &Config, timestamp: u64) {
-        if self.refilled_at - timestamp > config.interval {
+        if timestamp - self.refilled_at > config.interval {
             self.tx_bucket = config.max_tx_rate;
             self.rx_bucket = config.max_rx_rate;
             self.refilled_at = timestamp;
