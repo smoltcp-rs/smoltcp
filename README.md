@@ -201,12 +201,14 @@ It responds to:
   * pings (`ping 192.168.69.1`);
   * UDP packets on port 6969 (`socat stdio udp4-connect:192.168.69.1:6969 <<<"abcdefg"`),
     where it will respond "hello" to any incoming packet;
-  * TCP packets on port 6969 (`socat stdio tcp4-connect:192.168.69.1:6969`),
+  * TCP connections on port 6969 (`socat stdio tcp4-connect:192.168.69.1:6969`),
     where it will respond "hello" to any incoming connection and immediately close it;
-  * TCP packets on port 6970 (`socat stdio tcp4-connect:192.168.69.1:6970 <<<"abcdefg"`),
+  * TCP connections on port 6970 (`socat stdio tcp4-connect:192.168.69.1:6970 <<<"abcdefg"`),
     where it will respond with reversed chunks of the input indefinitely.
-  * TCP packets on port 6971 (`cat /dev/urandom | socat stdio tcp4-connect:192.168.69.1:6971`),
-    which will be ignored.
+  * TCP connections on port 6971 (`socat stdio tcp4-connect:192.168.69.1:6971 </dev/urandom`),
+    which will sink data.
+  * TCP connections on port 6972 (`socat stdio tcp4-connect:192.168.69.1:6972 >/dev/null`),
+    which will source data.
 
 Except for the socket on port 6971. the buffers are only 64 bytes long, for convenience
 of testing resource exhaustion conditions.

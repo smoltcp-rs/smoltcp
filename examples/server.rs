@@ -49,6 +49,10 @@ fn main() {
     let tcp3_tx_buffer = TcpSocketBuffer::new(vec![0; 65535]);
     let tcp3_socket = TcpSocket::new(tcp3_rx_buffer, tcp3_tx_buffer);
 
+    let tcp4_rx_buffer = TcpSocketBuffer::new(vec![0; 65535]);
+    let tcp4_tx_buffer = TcpSocketBuffer::new(vec![0; 65535]);
+    let tcp4_socket = TcpSocket::new(tcp4_rx_buffer, tcp4_tx_buffer);
+
     let hardware_addr  = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
     let protocol_addrs = [IpAddress::v4(192, 168, 69, 1)];
     let mut iface      = EthernetInterface::new(
@@ -60,6 +64,7 @@ fn main() {
     let tcp1_handle = sockets.add(tcp1_socket);
     let tcp2_handle = sockets.add(tcp2_socket);
     let tcp3_handle = sockets.add(tcp3_socket);
+    let tcp4_handle = sockets.add(tcp4_socket);
 
     let mut tcp_6970_active = false;
     loop {
@@ -153,6 +158,25 @@ fn main() {
                 }
             } else if socket.may_send() {
                 socket.close();
+            }
+        }
+
+        // tcp:6972: fountain
+        {
+            let socket: &mut TcpSocket = sockets.get_mut(tcp4_handle).as_socket();
+            if !socket.is_open() {
+                socket.listen(6972).unwrap()
+            }
+
+            if socket.may_send() {
+                if let Ok(data) = socket.send(65535) {
+                    if data.len() > 0 {
+                        debug!("tcp:6972 send {:?} octets", data.len());
+                        for (i, b) in data.iter_mut().enumerate() {
+                            *b = (i % 256) as u8;
+                        }
+                    }
+                }
             }
         }
 
