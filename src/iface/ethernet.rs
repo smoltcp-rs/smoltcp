@@ -371,12 +371,12 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
 
         for udp_socket in sockets.iter_mut().filter_map(
                 <Socket as AsSocket<UdpSocket>>::try_as_socket) {
+            if !udp_socket.accepts(&ip_repr, &udp_repr) { continue }
+
             match udp_socket.process(&ip_repr, &udp_repr) {
                 // The packet is valid and handled by socket.
                 Ok(()) => return Ok(Packet::None),
-                // The packet isn't addressed to the socket.
-                Err(Error::Rejected) => continue,
-                // The packet is malformed, or addressed to the socket but cannot be accepted.
+                // The packet is malformed, or the socket buffer is full.
                 Err(e) => return Err(e)
             }
         }
