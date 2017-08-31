@@ -273,6 +273,8 @@ pub struct TcpSocket<'a> {
     /// The last acknowledgement number sent.
     /// I.e. in an idle socket, remote_seq_no+rx_buffer.len().
     remote_last_ack: Option<TcpSeqNumber>,
+    /// The last window length sent.
+    remote_last_win: u16,
     /// The speculative remote window size.
     /// I.e. the actual remote window size minus the count of in-flight octets.
     remote_win_len:  usize,
@@ -305,6 +307,7 @@ impl<'a> TcpSocket<'a> {
             remote_seq_no:   TcpSeqNumber::default(),
             remote_last_seq: TcpSeqNumber::default(),
             remote_last_ack: None,
+            remote_last_win: 0,
             remote_win_len:  0,
             remote_mss:      DEFAULT_MSS,
         })
@@ -351,6 +354,7 @@ impl<'a> TcpSocket<'a> {
         self.remote_seq_no   = TcpSeqNumber::default();
         self.remote_last_seq = TcpSeqNumber::default();
         self.remote_last_ack = None;
+        self.remote_last_win = 0;
         self.remote_win_len  = 0;
         self.remote_mss      = DEFAULT_MSS;
         self.timer.reset();
@@ -623,12 +627,6 @@ impl<'a> TcpSocket<'a> {
         // is fully open we must not dequeue any data, as it may be overwritten by e.g.
         // another (stale) SYN.
         if !self.may_recv() { return Err(Error::Illegal) }
-
-        // If we advertised a zero window, make sure to send an ACK so that the peer
-        // can resume sending data.
-        if self.rx_buffer.window() == 0 {
-            self.remote_last_ack = None;
-        }
 
         #[cfg(any(test, feature = "verbose"))]
         let old_length = self.rx_buffer.len();
@@ -1083,6 +1081,7 @@ impl<'a> TcpSocket<'a> {
 
             // Send an acknowledgement.
             self.remote_last_ack = Some(self.remote_seq_no + self.rx_buffer.len());
+            self.remote_last_win = self.rx_buffer.window() as u16;
             Ok(Some(self.ack_reply(ip_repr, &repr)))
         } else {
             // No data to acknowledge; the logic to acknowledge SYN and FIN flags
@@ -1193,6 +1192,8 @@ impl<'a> TcpSocket<'a> {
             // If we have data to transmit and it fits into partner's window, do it.
         } else if self.ack_to_transmit() && repr.ack_number.is_some() {
             // If we have data to acknowledge, do it.
+        } else if repr.window_len > self.remote_last_win {
+            // If we have window length increase to advertise, do it.
         } else if self.timer.should_retransmit(timestamp).is_some() {
             // If we have packets to retransmit, do it.
         } else if repr.control == TcpControl::Rst {
@@ -1258,6 +1259,7 @@ impl<'a> TcpSocket<'a> {
         // We've sent a packet successfully, so we can update the internal state now.
         self.remote_last_seq = repr.seq_number + repr.segment_len();
         self.remote_last_ack = repr.ack_number;
+        self.remote_last_win = repr.window_len;
 
         if !self.seq_to_transmit(repr.control) && repr.segment_len() > 0 {
             // If we've transmitted all data could (and there was something at all,
@@ -1454,6 +1456,7 @@ mod test {
             assert_eq!(s1.remote_seq_no,    s2.remote_seq_no,   "remote_seq_no");
             assert_eq!(s1.remote_last_seq,  s2.remote_last_seq, "remote_last_seq");
             assert_eq!(s1.remote_last_ack,  s2.remote_last_ack, "remote_last_ack");
+            assert_eq!(s1.remote_last_win,  s2.remote_last_win, "remote_last_win");
             assert_eq!(s1.remote_win_len,   s2.remote_win_len,  "remote_win_len");
             assert_eq!(s1.timer,            s2.timer,           "timer");
         })
@@ -1658,6 +1661,7 @@ mod test {
         assert_eq!(s.state, State::CloseWait);
         sanity!(s, TcpSocket {
             remote_last_ack: Some(REMOTE_SEQ + 1 + 6 + 1),
+            remote_last_win: 58,
             ..socket_close_wait()
         });
     }
@@ -1853,6 +1857,7 @@ mod test {
         s.local_seq_no    = LOCAL_SEQ + 1;
         s.remote_last_seq = LOCAL_SEQ + 1;
         s.remote_last_ack = Some(REMOTE_SEQ + 1);
+        s.remote_last_win = 64;
         s
     }
 
@@ -2985,7 +2990,15 @@ mod test {
             ..RECV_TEMPL
         })));
         recv!(s, time 0, Err(Error::Exhausted));
-        assert_eq!(s.recv(6), Ok(&b"abcdef"[..]));
+        assert_eq!(s.recv(3), Ok(&b"abc"[..]));
+        recv!(s, time 0, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1 + 6),
+            window_len: 3,
+            ..RECV_TEMPL
+        }));
+        recv!(s, time 0, Err(Error::Exhausted));
+        assert_eq!(s.recv(3), Ok(&b"def"[..]));
         recv!(s, time 0, Ok(TcpRepr {
             seq_number: LOCAL_SEQ + 1,
             ack_number: Some(REMOTE_SEQ + 1 + 6),
