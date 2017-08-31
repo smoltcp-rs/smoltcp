@@ -1,4 +1,5 @@
-use core::cell::RefCell;
+#[cfg(feature = "std")]
+use std::cell::RefCell;
 #[cfg(feature = "std")]
 use std::io::Write;
 use byteorder::{ByteOrder, NativeEndian};
