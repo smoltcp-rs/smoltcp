@@ -412,13 +412,13 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
 
         for tcp_socket in sockets.iter_mut().filter_map(
                 <Socket as AsSocket<TcpSocket>>::try_as_socket) {
+            if !tcp_socket.accepts(&ip_repr, &tcp_repr) { continue }
+
             match tcp_socket.process(timestamp, &ip_repr, &tcp_repr) {
                 // The packet is valid and handled by socket.
                 Ok(reply) => return Ok(reply.map_or(Packet::None, Packet::Tcp)),
-                // The packet isn't addressed to the socket.
-                // Send RST only if no other socket accepts the packet.
-                Err(Error::Rejected) => continue,
-                // The packet is malformed, or addressed to the socket but cannot be accepted.
+                // The packet is malformed, or doesn't match the socket state,
+                // or the socket buffer is full.
                 Err(e) => return Err(e)
             }
         }
