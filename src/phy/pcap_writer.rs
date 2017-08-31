@@ -29,9 +29,6 @@ pub enum PcapMode {
 }
 
 /// A packet capture sink.
-///
-/// A sink is an interface to the platform functions, providing timestamping
-/// and streaming data output.
 pub trait PcapSink {
     /// Write data into the sink.
     fn write(&self, data: &[u8]);
