@@ -184,6 +184,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                     &mut Socket::__Nonexhaustive => unreachable!()
                 };
             match (device_result, socket_result) {
+                (Err(Error::Exhausted), Ok(())) => break, // nowhere to transmit
                 (Ok(()), Err(Error::Exhausted)) => (), // nothing to transmit
                 (Err(err), _) | (_, Err(err)) => {
                     net_debug!("cannot dispatch egress packet: {}", err);
