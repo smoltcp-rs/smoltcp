@@ -126,10 +126,6 @@ pub enum Error {
     /// E.g. a TCP packet addressed to a socket that doesn't exist.
     Dropped,
 
-    // Implementation detail.
-    #[doc(hidden)]
-    Rejected,
-
     #[doc(hidden)]
     __Nonexhaustive
 }
@@ -149,7 +145,6 @@ impl fmt::Display for Error {
             &Error::Fragmented    => write!(f, "fragmented packet"),
             &Error::Malformed     => write!(f, "malformed packet"),
             &Error::Dropped       => write!(f, "dropped by socket"),
-            &Error::Rejected      => write!(f, "rejected by socket"),
             &Error::__Nonexhaustive => unreachable!()
         }
     }

@@ -1321,6 +1321,7 @@ impl<'a> fmt::Write for TcpSocket<'a> {
 
 #[cfg(test)]
 mod test {
+    use core::result::Result as CoreResult;
     use wire::{IpAddress, Ipv4Address};
     use super::*;
 
@@ -1394,8 +1395,16 @@ mod test {
         payload: &[]
     };
 
+    #[derive(PartialEq, Eq, Debug)]
+    enum TestError {
+        Rejected,
+        Processed(Error),
+    }
+
+    type TestResult<T> = CoreResult<T, TestError>;
+
     fn send(socket: &mut TcpSocket, timestamp: u64, repr: &TcpRepr) ->
-           Result<Option<TcpRepr<'static>>> {
+           TestResult<Option<TcpRepr<'static>>> {
         trace!("send: {}", repr);
         let ip_repr = IpRepr::Unspecified {
             src_addr:    REMOTE_IP,
@@ -1405,7 +1414,7 @@ mod test {
         };
 
         if !socket.would_accept(&ip_repr, repr) {
-            return Err(Error::Rejected);
+            return Err(TestError::Rejected);
         }
 
         match socket.process_accepted(timestamp, &ip_repr, repr) {
@@ -1414,7 +1423,7 @@ mod test {
                 Ok(Some(repr))
             }
             Ok(None) => Ok(None),
-            Err(err) => Err(err)
+            Err(err) => Err(TestError::Processed(err))
         }
     }
 
@@ -1534,7 +1543,7 @@ mod test {
         send!(s, TcpRepr {
             control: TcpControl::Syn,
             ..SEND_TEMPL
-        }, Err(Error::Rejected));
+        }, Err(TestError::Rejected));
     }
 
     #[test]
@@ -1546,7 +1555,7 @@ mod test {
         send!(s, TcpRepr {
             control: TcpControl::Syn,
             ..SEND_TEMPL
-        }, Err(Error::Rejected));
+        }, Err(TestError::Rejected));
     }
 
     #[test]
@@ -1606,7 +1615,7 @@ mod test {
             seq_number: REMOTE_SEQ,
             ack_number: Some(LOCAL_SEQ),
             ..SEND_TEMPL
-        }, Err(Error::Rejected));
+        }, Err(TestError::Rejected));
         assert_eq!(s.state, State::Listen);
     }
 
@@ -1618,7 +1627,7 @@ mod test {
             seq_number: REMOTE_SEQ,
             ack_number: None,
             ..SEND_TEMPL
-        }, Err(Error::Dropped));
+        }, Err(TestError::Processed(Error::Dropped)));
     }
 
     #[test]
@@ -1851,7 +1860,7 @@ mod test {
             seq_number: REMOTE_SEQ,
             ack_number: None,
             ..SEND_TEMPL
-        }, Err(Error::Dropped));
+        }, Err(TestError::Processed(Error::Dropped)));
         assert_eq!(s.state, State::SynSent);
     }
 
@@ -1863,7 +1872,7 @@ mod test {
             seq_number: REMOTE_SEQ,
             ack_number: Some(TcpSeqNumber(1234)),
             ..SEND_TEMPL
-        }, Err(Error::Dropped));
+        }, Err(TestError::Processed(Error::Dropped)));
         assert_eq!(s.state, State::SynSent);
     }
 
@@ -1987,7 +1996,7 @@ mod test {
             seq_number: REMOTE_SEQ + 1,
             ack_number: None,
             ..SEND_TEMPL
-        }, Err(Error::Dropped));
+        }, Err(TestError::Processed(Error::Dropped)));
     }
 
     #[test]
@@ -1998,14 +2007,14 @@ mod test {
             seq_number: REMOTE_SEQ + 1,
             ack_number: Some(TcpSeqNumber(LOCAL_SEQ.0 - 1)),
             ..SEND_TEMPL
-        }, Err(Error::Dropped));
+        }, Err(TestError::Processed(Error::Dropped)));
         assert_eq!(s.local_seq_no, LOCAL_SEQ + 1);
         // Data not yet transmitted.
         send!(s, TcpRepr {
             seq_number: REMOTE_SEQ + 1,
             ack_number: Some(LOCAL_SEQ + 10),
             ..SEND_TEMPL
-        }, Err(Error::Dropped));
+        }, Err(TestError::Processed(Error::Dropped)));
         assert_eq!(s.local_seq_no, LOCAL_SEQ + 1);
     }
 
@@ -3071,7 +3080,7 @@ mod test {
             payload:    &b"abcdef"[..],
             dst_port:   LOCAL_PORT + 1,
             ..SEND_TEMPL
-        }, Err(Error::Rejected));
+        }, Err(TestError::Rejected));
 
         send!(s, TcpRepr {
             seq_number: REMOTE_SEQ + 1,
@@ -3079,7 +3088,7 @@ mod test {
             payload:    &b"abcdef"[..],
             src_port:   REMOTE_PORT + 1,
             ..SEND_TEMPL
-        }, Err(Error::Rejected));
+        }, Err(TestError::Rejected));
 
         send!(s, TcpRepr {
             seq_number: REMOTE_SEQ + 1,
