@@ -1,3 +1,6 @@
+// Heads up! Before working on this file you should read the parts
+// of RFC 1122 that discuss Ethernet, ARP and IP.
+
 use managed::{Managed, ManagedSlice};
 
 use {Error, Result};

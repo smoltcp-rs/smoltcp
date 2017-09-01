@@ -403,8 +403,6 @@ impl Repr {
         if packet.version() != 4 { return Err(Error::Malformed) }
         // Valid checksum is expected.
         if !packet.verify_checksum() { return Err(Error::Checksum) }
-        // We do not support any IP options.
-        if packet.header_len() > 20 { return Err(Error::Unrecognized) }
         // We do not support fragmentation.
         if packet.more_frags() || packet.frag_offset() != 0 { return Err(Error::Fragmented) }
         // Total length may not be less than header length.
