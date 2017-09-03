@@ -31,27 +31,31 @@ The only supported medium is Ethernet.
 
 The only supported internetworking protocol is IPv4.
 
-  * IPv4 header checksum is supported.
+  * IPv4 header checksum is generated and validated.
+  * IPv4 time-to-live value is fixed at 64.
   * IPv4 fragmentation is **not** supported.
-  * IPv4 options are **not** supported.
+  * IPv4 options are **not** supported and are silently ignored.
   * IPv4 routes or default gateways are **not** supported.
   * ICMPv4 header checksum is supported.
   * ICMPv4 echo requests and replies are supported.
-  * ICMPv4 destination unreachable message is supported.
-  * ICMPv4 parameter problem message is **not** supported.
+  * ICMPv4 protocol unreachable messages are **not** passed to higher layers when received.
+  * ICMPv4 time exceeded messages are **not** supported.
+  * ICMPv4 parameter problem messages are **not** supported.
 
 ### UDP layer
 
 The UDP protocol is supported over IPv4.
 
-  * UDP header checksum is supported.
-  * UDP sockets are supported.
+  * UDP header checksum is always generated and validated.
+  * In response to a packet arriving at a port without a listening socket,
+    an ICMP destination unreachable message is generated.
 
 ### TCP layer
 
 The TCP protocol is supported over IPv4. Server and client sockets are supported.
 
-  * TCP header checksum is supported.
+  * TCP header checksum is generated and validated.
+  * Maximum segment size is negotiated.
   * Multiple packets will be transmitted without waiting for an acknowledgement.
   * Lost packets will be retransmitted with exponential backoff, starting at
     a fixed delay of 100 ms.
@@ -59,11 +63,14 @@ The TCP protocol is supported over IPv4. Server and client sockets are supported
   * TCP urgent pointer is **not** supported; any urgent octets will be received alongside
     data octets.
   * Reassembly of out-of-order segments is **not** supported.
-  * The status of TCP options or extensions is:
-    * Maximum segment size option is supported.
-    * Window scaling is **not** supported, and the maximum buffer size is 65536.
-    * Timestamping is **not** supported.
-    * Fast open is **not** supported when smoltcp initiates connection.
+  * Silly window syndrome avoidance is **not** supported for either transmission or reception.
+  * Congestion control is **not** implemented.
+  * Delayed acknowledgements are **not** implemented.
+  * Nagle's algorithm is **not** implemented.
+  * Window scaling is **not** supported, and the maximum buffer size is 65536.
+  * Timestamping (used in round-trip time measurement and protection against wrapped sequences)
+    is **not** supported.
+  * Fast open is **not** supported when smoltcp initiates connection.
   * Keepalive is **not** supported.
 
 ## Installation
