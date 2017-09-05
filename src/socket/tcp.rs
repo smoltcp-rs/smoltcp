@@ -856,10 +856,18 @@ impl<'a> TcpSocket<'a> {
             _ => {
                 let mut send_challenge_ack = false;
 
-                let window_start  = self.remote_seq_no;
-                let window_end    = window_start + self.rx_buffer.capacity();
+                let window_start  = self.remote_seq_no + self.rx_buffer.len();
+                let window_end    = self.remote_seq_no + self.rx_buffer.capacity();
                 let segment_start = repr.seq_number;
-                let segment_end   = segment_start + repr.segment_len();
+                let segment_end   = repr.seq_number + repr.segment_len();
+
+                if window_start == window_end && segment_start != segment_end {
+                    net_debug!("[{}]{}:{}: non-zero-length segment with zero receive window, \
+                                will only send an ACK",
+                               self.debug_id, self.local_endpoint, self.remote_endpoint);
+                    send_challenge_ack = true;
+                }
+
                 if !((window_start <= segment_start && segment_start <= window_end) ||
                      (window_start <= segment_end   && segment_end <= window_end)) {
                     net_debug!("[{}]{}:{}: segment not in receive window \
@@ -870,11 +878,11 @@ impl<'a> TcpSocket<'a> {
                 }
 
                 // For now, do not actually try to reassemble out-of-order segments.
-                if segment_start != window_start + self.rx_buffer.len() {
+                if segment_start != window_start {
                     net_debug!("[{}]{}:{}: out-of-order SEQ ({} not equal to {}), \
                                 will send challenge ACK",
                                self.debug_id, self.local_endpoint, self.remote_endpoint,
-                               segment_start, window_start + self.rx_buffer.len());
+                               segment_start, window_start);
                     // Some segments between what we have last received and this segment
                     // went missing. Send a duplicate ACK; RFC 793 does not specify the behavior
                     // required when receiving a duplicate ACK, but in practice (see RFC 1122
@@ -1092,16 +1100,9 @@ impl<'a> TcpSocket<'a> {
                        self.debug_id, self.local_endpoint, self.remote_endpoint,
                        repr.payload.len(), self.rx_buffer.len() + repr.payload.len());
             self.rx_buffer.enqueue_slice(repr.payload);
-
-            // Send an acknowledgement.
-            self.remote_last_ack = Some(self.remote_seq_no + self.rx_buffer.len());
-            self.remote_last_win = self.rx_buffer.window() as u16;
-            Ok(Some(self.ack_reply(ip_repr, &repr)))
-        } else {
-            // No data to acknowledge; the logic to acknowledge SYN and FIN flags
-            // resides in dispatch().
-            Ok(None)
         }
+
+        Ok(None)
     }
 
     fn seq_to_transmit(&self, control: TcpControl) -> bool {
@@ -1664,12 +1665,13 @@ mod test {
             ack_number: Some(LOCAL_SEQ + 1),
             payload: &b"abcdef"[..],
             ..SEND_TEMPL
-        }, Ok(Some(TcpRepr {
+        });
+        recv!(s, [TcpRepr {
             seq_number: LOCAL_SEQ + 1,
             ack_number: Some(REMOTE_SEQ + 1 + 6 + 1),
             window_len: 58,
             ..RECV_TEMPL
-        })));
+        }]);
         assert_eq!(s.state, State::CloseWait);
         sanity!(s, TcpSocket {
             remote_last_ack: Some(REMOTE_SEQ + 1 + 6 + 1),
@@ -1881,12 +1883,13 @@ mod test {
             ack_number: Some(LOCAL_SEQ + 1),
             payload: &b"abcdef"[..],
             ..SEND_TEMPL
-        }, Ok(Some(TcpRepr {
+        });
+        recv!(s, [TcpRepr {
             seq_number: LOCAL_SEQ + 1,
             ack_number: Some(REMOTE_SEQ + 1 + 6),
             window_len: 58,
             ..RECV_TEMPL
-        })));
+        }]);
         assert_eq!(s.rx_buffer.dequeue(6), &b"abcdef"[..]);
     }
 
@@ -2610,12 +2613,13 @@ mod test {
             ack_number: Some(LOCAL_SEQ + 1),
             payload:    &b"abcdef"[..],
             ..SEND_TEMPL
-        }, Ok(Some(TcpRepr {
+        });
+        recv!(s, [TcpRepr {
             seq_number: LOCAL_SEQ + 1,
             ack_number: Some(REMOTE_SEQ + 1 + 6),
             window_len: 58,
             ..RECV_TEMPL
-        })));
+        }]);
         s
     }
 
@@ -2644,12 +2648,13 @@ mod test {
             ack_number: Some(LOCAL_SEQ + 1),
             payload:    &b"abcdef"[..],
             ..SEND_TEMPL
-        }, Ok(Some(TcpRepr {
+        });
+        recv!(s, [TcpRepr {
             seq_number: LOCAL_SEQ + 1,
             ack_number: Some(REMOTE_SEQ + 1 + 6),
             window_len: 58,
             ..RECV_TEMPL
-        })));
+        }]);
         send!(s, TcpRepr {
             seq_number: REMOTE_SEQ + 1 + 6 + 6,
             ack_number: Some(LOCAL_SEQ + 1),
@@ -2950,12 +2955,13 @@ mod test {
             ack_number: Some(LOCAL_SEQ + 1),
             payload:    &b"abcdef"[..],
             ..SEND_TEMPL
-        }, Ok(Some(TcpRepr {
+        });
+        recv!(s, [TcpRepr {
             seq_number: LOCAL_SEQ + 1,
             ack_number: Some(REMOTE_SEQ + 1 + 6),
             window_len: 58,
             ..RECV_TEMPL
-        })));
+        }]);
     }
 
     #[test]
@@ -2967,12 +2973,13 @@ mod test {
             ack_number: Some(LOCAL_SEQ + 1),
             payload:    &b"abcdef"[..],
             ..SEND_TEMPL
-        }, Ok(Some(TcpRepr {
+        });
+        recv!(s, [TcpRepr {
             seq_number: LOCAL_SEQ + 1,
             ack_number: Some(REMOTE_SEQ + 1 + 6),
             window_len: 0,
             ..RECV_TEMPL
-        })));
+        }]);
         send!(s, TcpRepr {
             seq_number: REMOTE_SEQ + 1 + 6,
             ack_number: Some(LOCAL_SEQ + 1),
@@ -2995,12 +3002,13 @@ mod test {
             ack_number: Some(LOCAL_SEQ + 1),
             payload:    &b"abcdef"[..],
             ..SEND_TEMPL
-        }, Ok(Some(TcpRepr {
+        });
+        recv!(s, [TcpRepr {
             seq_number: LOCAL_SEQ + 1,
             ack_number: Some(REMOTE_SEQ + 1 + 6),
             window_len: 0,
             ..RECV_TEMPL
-        })));
+        }]);
         recv!(s, time 0, Err(Error::Exhausted));
         assert_eq!(s.recv(3), Ok(&b"abc"[..]));
         recv!(s, time 0, Ok(TcpRepr {
