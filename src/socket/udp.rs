@@ -46,6 +46,9 @@ impl<'a> PacketBuffer<'a> {
 impl<'a> Resettable for PacketBuffer<'a> {
     fn reset(&mut self) {
         self.endpoint = Default::default();
+        for i in 0..self.size {
+            self.payload[i] = 0u8;
+        }
         self.size = 0;
     }
 }
