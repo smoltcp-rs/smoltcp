@@ -64,17 +64,6 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
         self.length
     }
 
-    /// Set the current number of elements in the ring buffer.
-    ///
-    /// The newly added elements (if any) retain their old value.
-    ///
-    /// # Panics
-    /// This function panics if the new length is greater than capacity.
-    pub fn set_len(&mut self, length: usize) {
-        assert!(length <= self.capacity());
-        self.length = length
-    }
-
     /// Return the number of elements that can be added to the ring buffer.
     pub fn window(&self) -> usize {
         self.capacity() - self.len()
@@ -297,14 +286,14 @@ mod test {
         assert_eq!(ring.capacity(), 2);
         assert_eq!(ring.window(), 2);
 
-        ring.set_len(1);
+        ring.length = 1;
         assert!(!ring.empty());
         assert!(!ring.full());
         assert_eq!(ring.len(), 1);
         assert_eq!(ring.capacity(), 2);
         assert_eq!(ring.window(), 1);
 
-        ring.set_len(2);
+        ring.length = 2;
         assert!(!ring.empty());
         assert!(ring.full());
         assert_eq!(ring.len(), 2);
