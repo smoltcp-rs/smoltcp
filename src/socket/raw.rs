@@ -127,7 +127,7 @@ impl<'a, 'b> RawSocket<'a, 'b> {
     /// **Note:** The IP header is parsed and reserialized, and may not match
     /// the header actually transmitted bit for bit.
     pub fn send(&mut self, size: usize) -> Result<&mut [u8]> {
-        let packet_buf = self.tx_buffer.try_enqueue(|buf| buf.resize(size))?;
+        let packet_buf = self.tx_buffer.enqueue_one_with(|buf| buf.resize(size))?;
         net_trace!("[{}]:{}:{}: buffer to send {} octets",
                    self.debug_id, self.ip_version, self.ip_protocol,
                    packet_buf.size);
@@ -149,7 +149,7 @@ impl<'a, 'b> RawSocket<'a, 'b> {
     /// **Note:** The IP header is parsed and reserialized, and may not match
     /// the header actually received bit for bit.
     pub fn recv(&mut self) -> Result<&[u8]> {
-        let packet_buf = self.rx_buffer.dequeue()?;
+        let packet_buf = self.rx_buffer.dequeue_one()?;
         net_trace!("[{}]:{}:{}: receive {} buffered octets",
                    self.debug_id, self.ip_version, self.ip_protocol,
                    packet_buf.size);
@@ -172,7 +172,7 @@ impl<'a, 'b> RawSocket<'a, 'b> {
 
         let header_len = ip_repr.buffer_len();
         let total_len = header_len + payload.len();
-        let packet_buf = self.rx_buffer.try_enqueue(|buf| buf.resize(total_len))?;
+        let packet_buf = self.rx_buffer.enqueue_one_with(|buf| buf.resize(total_len))?;
         ip_repr.emit(&mut packet_buf.as_mut()[..header_len]);
         packet_buf.as_mut()[header_len..].copy_from_slice(payload);
         net_trace!("[{}]:{}:{}: receiving {} octets",
@@ -202,7 +202,7 @@ impl<'a, 'b> RawSocket<'a, 'b> {
         let debug_id    = self.debug_id;
         let ip_protocol = self.ip_protocol;
         let ip_version  = self.ip_version;
-        self.tx_buffer.try_dequeue(|packet_buf| {
+        self.tx_buffer.dequeue_one_with(|packet_buf| {
             match prepare(ip_protocol, packet_buf.as_mut()) {
                 Ok((ip_repr, raw_packet)) => {
                     net_trace!("[{}]:{}:{}: sending {} octets",

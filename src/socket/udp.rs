@@ -141,7 +141,7 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
         if self.endpoint.port == 0 { return Err(Error::Unaddressable) }
         if !endpoint.is_specified() { return Err(Error::Unaddressable) }
 
-        let packet_buf = self.tx_buffer.try_enqueue(|buf| buf.resize(size))?;
+        let packet_buf = self.tx_buffer.enqueue_one_with(|buf| buf.resize(size))?;
         packet_buf.endpoint = endpoint;
         net_trace!("[{}]{}:{}: buffer to send {} octets",
                    self.debug_id, self.endpoint, packet_buf.endpoint, size);
@@ -161,7 +161,7 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     ///
     /// This function returns `Err(Error::Exhausted)` if the receive buffer is empty.
     pub fn recv(&mut self) -> Result<(&[u8], IpEndpoint)> {
-        let packet_buf = self.rx_buffer.dequeue()?;
+        let packet_buf = self.rx_buffer.dequeue_one()?;
         net_trace!("[{}]{}:{}: receive {} buffered octets",
                    self.debug_id, self.endpoint,
                    packet_buf.endpoint, packet_buf.size);
@@ -185,7 +185,7 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
         if !self.endpoint.addr.is_unspecified() &&
            self.endpoint.addr != ip_repr.dst_addr() { return Err(Error::Rejected) }
 
-        let packet_buf = self.rx_buffer.try_enqueue(|buf| buf.resize(repr.payload.len()))?;
+        let packet_buf = self.rx_buffer.enqueue_one_with(|buf| buf.resize(repr.payload.len()))?;
         packet_buf.as_mut().copy_from_slice(repr.payload);
         packet_buf.endpoint = IpEndpoint { addr: ip_repr.src_addr(), port: repr.src_port };
         net_trace!("[{}]{}:{}: receiving {} octets",
@@ -198,7 +198,7 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
             where F: FnOnce((IpRepr, UdpRepr)) -> Result<()> {
         let debug_id = self.debug_id;
         let endpoint = self.endpoint;
-        self.tx_buffer.try_dequeue(|packet_buf| {
+        self.tx_buffer.dequeue_one_with(|packet_buf| {
             net_trace!("[{}]{}:{}: sending {} octets",
                        debug_id, endpoint,
                        packet_buf.endpoint, packet_buf.size);

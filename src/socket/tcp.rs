@@ -475,14 +475,13 @@ impl<'a> TcpSocket<'a> {
     pub fn send(&mut self, size: usize) -> Result<&mut [u8]> {
         if !self.may_send() { return Err(Error::Illegal) }
 
-        #[cfg(any(test, feature = "verbose"))]
-        let old_length = self.tx_buffer.len();
-        let buffer = self.tx_buffer.enqueue_slice(size);
+        let _old_length = self.tx_buffer.len();
+        let buffer = self.tx_buffer.enqueue_many(size);
         if buffer.len() > 0 {
             #[cfg(any(test, feature = "verbose"))]
             net_trace!("[{}]{}:{}: tx buffer: enqueueing {} octets (now {})",
                        self.debug_id, self.local_endpoint, self.remote_endpoint,
-                       buffer.len(), old_length + buffer.len());
+                       buffer.len(), _old_length + buffer.len());
             self.timer.reset();
         }
         Ok(buffer)
@@ -495,10 +494,18 @@ impl<'a> TcpSocket<'a> {
     ///
     /// See also [send](#method.send).
     pub fn send_slice(&mut self, data: &[u8]) -> Result<usize> {
-        let buffer = self.send(data.len())?;
-        let data = &data[..buffer.len()];
-        buffer.copy_from_slice(data);
-        Ok(buffer.len())
+        if !self.may_send() { return Err(Error::Illegal) }
+
+        let old_length = self.tx_buffer.len();
+        let enqueued = self.tx_buffer.enqueue_slice(data);
+        if enqueued != 0 {
+            #[cfg(any(test, feature = "verbose"))]
+            net_trace!("[{}]{}:{}: tx buffer: enqueueing {} octets (now {})",
+                       self.debug_id, self.local_endpoint, self.remote_endpoint,
+                       enqueued, old_length + enqueued);
+            self.timer.reset();
+        }
+        Ok(enqueued)
     }
 
     /// Dequeue a sequence of received octets, and return a pointer to it.
@@ -517,7 +524,7 @@ impl<'a> TcpSocket<'a> {
 
         #[cfg(any(test, feature = "verbose"))]
         let old_length = self.rx_buffer.len();
-        let buffer = self.rx_buffer.dequeue_slice(size);
+        let buffer = self.rx_buffer.dequeue_many(size);
         self.remote_seq_no += buffer.len();
         if buffer.len() > 0 {
             #[cfg(any(test, feature = "verbose"))]
@@ -535,10 +542,19 @@ impl<'a> TcpSocket<'a> {
     ///
     /// See also [recv](#method.recv).
     pub fn recv_slice(&mut self, data: &mut [u8]) -> Result<usize> {
-        let buffer = self.recv(data.len())?;
-        let data = &mut data[..buffer.len()];
-        data.copy_from_slice(buffer);
-        Ok(buffer.len())
+        // See recv() above.
+        if !self.may_recv() { return Err(Error::Illegal) }
+
+        let old_length = self.rx_buffer.len();
+        let dequeued = self.rx_buffer.dequeue_slice(data);
+        self.remote_seq_no += dequeued;
+        if dequeued > 0 {
+            #[cfg(any(test, feature = "verbose"))]
+            net_trace!("[{}]{}:{}: rx buffer: dequeueing {} octets (now {})",
+                       self.debug_id, self.local_endpoint, self.remote_endpoint,
+                       dequeued, old_length - dequeued);
+        }
+        Ok(dequeued)
     }
 
     /// Peek at a sequence of received octets without removing them from
@@ -972,7 +988,7 @@ impl<'a> TcpSocket<'a> {
             net_trace!("[{}]{}:{}: tx buffer: dequeueing {} octets (now {})",
                        self.debug_id, self.local_endpoint, self.remote_endpoint,
                        ack_len, self.tx_buffer.len() - ack_len);
-            let acked = self.tx_buffer.dequeue_slice(ack_len);
+            let acked = self.tx_buffer.dequeue_many(ack_len);
             debug_assert!(acked.len() == ack_len);
         }
 
@@ -987,7 +1003,7 @@ impl<'a> TcpSocket<'a> {
             net_trace!("[{}]{}:{}: rx buffer: enqueueing {} octets (now {})",
                        self.debug_id, self.local_endpoint, self.remote_endpoint,
                        repr.payload.len(), self.rx_buffer.len() + repr.payload.len());
-            self.rx_buffer.enqueue_slice_all(repr.payload);
+            self.rx_buffer.enqueue_slice(repr.payload);
         }
 
         Ok(None)
@@ -1750,7 +1766,7 @@ mod test {
             window_len: 58,
             ..RECV_TEMPL
         }]);
-        assert_eq!(s.rx_buffer.dequeue_slice(6), &b"abcdef"[..]);
+        assert_eq!(s.rx_buffer.dequeue_many(6), &b"abcdef"[..]);
     }
 
     #[test]
