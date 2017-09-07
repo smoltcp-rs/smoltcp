@@ -8,122 +8,9 @@ use {Error, Result};
 use phy::DeviceLimits;
 use wire::{IpProtocol, IpAddress, IpEndpoint, TcpSeqNumber, TcpRepr, TcpControl};
 use socket::{Socket, IpRepr};
+use storage::RingBuffer;
 
-/// A TCP stream ring buffer.
-#[derive(Debug)]
-pub struct SocketBuffer<'a> {
-    storage: Managed<'a, [u8]>,
-    read_at: usize,
-    length:  usize
-}
-
-impl<'a> SocketBuffer<'a> {
-    /// Create a packet buffer with the given storage.
-    pub fn new<T>(storage: T) -> SocketBuffer<'a>
-            where T: Into<Managed<'a, [u8]>> {
-        SocketBuffer {
-            storage: storage.into(),
-            read_at: 0,
-            length:  0
-        }
-    }
-
-    fn clear(&mut self) {
-        self.read_at = 0;
-        self.length = 0;
-    }
-
-    fn capacity(&self) -> usize {
-        self.storage.len()
-    }
-
-    fn len(&self) -> usize {
-        self.length
-    }
-
-    fn window(&self) -> usize {
-        self.capacity() - self.len()
-    }
-
-    fn empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    fn full(&self) -> bool {
-        self.window() == 0
-    }
-
-    fn clamp_writer(&self, mut size: usize) -> (usize, usize) {
-        let write_at = (self.read_at + self.length) % self.storage.len();
-        // We can't enqueue more than there is free space.
-        let free = self.storage.len() - self.length;
-        if size > free { size = free }
-        // We can't contiguously enqueue past the beginning of the storage.
-        let until_end = self.storage.len() - write_at;
-        if size > until_end { size = until_end }
-
-        (write_at, size)
-    }
-
-    fn enqueue(&mut self, size: usize) -> &mut [u8] {
-        let (write_at, size) = self.clamp_writer(size);
-        self.length += size;
-        &mut self.storage[write_at..write_at + size]
-    }
-
-    fn enqueue_slice(&mut self, data: &[u8]) {
-        let data = {
-            let mut dest = self.enqueue(data.len());
-            let (data, rest) = data.split_at(dest.len());
-            dest.copy_from_slice(data);
-            rest
-        };
-        // Retry, in case we had a wraparound.
-        let mut dest = self.enqueue(data.len());
-        let (data, _) = data.split_at(dest.len());
-        dest.copy_from_slice(data);
-    }
-
-    fn clamp_reader(&self, offset: usize, mut size: usize) -> (usize, usize) {
-        let read_at = (self.read_at + offset) % self.storage.len();
-        // We can't read past the end of the queued data.
-        if offset > self.length { return (read_at, 0) }
-        // We can't dequeue more than was queued.
-        let clamped_length = self.length - offset;
-        if size > clamped_length { size = clamped_length }
-        // We can't contiguously dequeue past the end of the storage.
-        let until_end = self.storage.len() - read_at;
-        if size > until_end { size = until_end }
-
-        (read_at, size)
-    }
-
-    fn dequeue(&mut self, size: usize) -> &[u8] {
-        let (read_at, size) = self.clamp_reader(0, size);
-        self.read_at = (self.read_at + size) % self.storage.len();
-        self.length -= size;
-        &self.storage[read_at..read_at + size]
-    }
-
-    fn peek(&self, offset: usize, size: usize) -> &[u8] {
-        let (read_at, size) = self.clamp_reader(offset, size);
-        &self.storage[read_at..read_at + size]
-    }
-
-    fn advance(&mut self, size: usize) {
-        if size > self.length {
-            panic!("advancing {} octets into free space", size - self.length)
-        }
-        self.read_at = (self.read_at + size) % self.storage.len();
-        self.length -= size;
-    }
-}
-
-impl<'a> Into<SocketBuffer<'a>> for Managed<'a, [u8]> {
-    fn into(self) -> SocketBuffer<'a> {
-        SocketBuffer::new(self)
-    }
-}
+pub type SocketBuffer<'a> = RingBuffer<'a, u8>;
 
 /// The state of a TCP socket, according to [RFC 793][rfc793].
 /// [rfc793]: https://tools.ietf.org/html/rfc793
@@ -590,7 +477,7 @@ impl<'a> TcpSocket<'a> {
 
         #[cfg(any(test, feature = "verbose"))]
         let old_length = self.tx_buffer.len();
-        let buffer = self.tx_buffer.enqueue(size);
+        let buffer = self.tx_buffer.enqueue_slice(size);
         if buffer.len() > 0 {
             #[cfg(any(test, feature = "verbose"))]
             net_trace!("[{}]{}:{}: tx buffer: enqueueing {} octets (now {})",
@@ -630,7 +517,7 @@ impl<'a> TcpSocket<'a> {
 
         #[cfg(any(test, feature = "verbose"))]
         let old_length = self.rx_buffer.len();
-        let buffer = self.rx_buffer.dequeue(size);
+        let buffer = self.rx_buffer.dequeue_slice(size);
         self.remote_seq_no += buffer.len();
         if buffer.len() > 0 {
             #[cfg(any(test, feature = "verbose"))]
@@ -1085,7 +972,8 @@ impl<'a> TcpSocket<'a> {
             net_trace!("[{}]{}:{}: tx buffer: dequeueing {} octets (now {})",
                        self.debug_id, self.local_endpoint, self.remote_endpoint,
                        ack_len, self.tx_buffer.len() - ack_len);
-            self.tx_buffer.advance(ack_len);
+            let acked = self.tx_buffer.dequeue_slice(ack_len);
+            debug_assert!(acked.len() == ack_len);
         }
 
         // We've processed everything in the incoming segment, so advance the local
@@ -1099,7 +987,7 @@ impl<'a> TcpSocket<'a> {
             net_trace!("[{}]{}:{}: rx buffer: enqueueing {} octets (now {})",
                        self.debug_id, self.local_endpoint, self.remote_endpoint,
                        repr.payload.len(), self.rx_buffer.len() + repr.payload.len());
-            self.rx_buffer.enqueue_slice(repr.payload);
+            self.rx_buffer.enqueue_slice_all(repr.payload);
         }
 
         Ok(None)
@@ -1316,34 +1204,6 @@ impl<'a> fmt::Write for TcpSocket<'a> {
 mod test {
     use wire::{IpAddress, Ipv4Address};
     use super::*;
-
-    #[test]
-    fn test_buffer() {
-        let mut buffer = SocketBuffer::new(vec![0; 8]); // ........
-        buffer.enqueue(6).copy_from_slice(b"foobar");   // foobar..
-        assert_eq!(buffer.dequeue(3), b"foo");          // ...bar..
-        buffer.enqueue(6).copy_from_slice(b"ba");       // ...barba
-        buffer.enqueue(4).copy_from_slice(b"zho");      // zhobarba
-        assert_eq!(buffer.dequeue(6), b"barba");        // zho.....
-        assert_eq!(buffer.dequeue(8), b"zho");          // ........
-        buffer.enqueue(8).copy_from_slice(b"gefug");    // ...gefug
-    }
-
-    #[test]
-    fn test_buffer_wraparound() {
-        let mut buffer = SocketBuffer::new(vec![0; 8]); // ........
-        buffer.enqueue_slice(&b"foobar"[..]);           // foobar..
-        assert_eq!(buffer.dequeue(3), b"foo");          // ...bar..
-        buffer.enqueue_slice(&b"bazhoge"[..]);          // zhobarba
-    }
-
-    #[test]
-    fn test_buffer_peek() {
-        let mut buffer = SocketBuffer::new(vec![0; 8]); // ........
-        buffer.enqueue_slice(&b"foobar"[..]);           // foobar..
-        assert_eq!(buffer.peek(0, 8), &b"foobar"[..]);
-        assert_eq!(buffer.peek(3, 8), &b"bar"[..]);
-    }
 
     #[test]
     fn test_timer_retransmit() {
@@ -1890,7 +1750,7 @@ mod test {
             window_len: 58,
             ..RECV_TEMPL
         }]);
-        assert_eq!(s.rx_buffer.dequeue(6), &b"abcdef"[..]);
+        assert_eq!(s.rx_buffer.dequeue_slice(6), &b"abcdef"[..]);
     }
 
     #[test]
