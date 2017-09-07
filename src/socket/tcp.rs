@@ -565,7 +565,7 @@ impl<'a> TcpSocket<'a> {
         // See recv() above.
         if !self.may_recv() { return Err(Error::Illegal) }
 
-        let buffer = self.rx_buffer.peek(0, size);
+        let buffer = self.rx_buffer.get_allocated(0, size);
         if buffer.len() > 0 {
             #[cfg(any(test, feature = "verbose"))]
             net_trace!("[{}]{}:{}: rx buffer: peeking at {} octets",
@@ -1074,7 +1074,7 @@ impl<'a> TcpSocket<'a> {
                 // from the transmit buffer.
                 let offset = self.remote_last_seq - self.local_seq_no;
                 let size = cmp::min(self.remote_win_len, self.remote_mss);
-                repr.payload = self.tx_buffer.peek(offset, size);
+                repr.payload = self.tx_buffer.get_allocated(offset, size);
                 // If we've sent everything we had in the buffer, follow it with the PSH or FIN
                 // flags, depending on whether the transmit half of the connection is open.
                 if offset + repr.payload.len() == self.tx_buffer.len() {
