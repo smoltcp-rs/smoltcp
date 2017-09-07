@@ -179,11 +179,17 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
         Ok((length, endpoint))
     }
 
-    pub(crate) fn process(&mut self, ip_repr: &IpRepr, repr: &UdpRepr) -> Result<()> {
+    /// Check whatever the socket would accept the packet
+    pub(crate) fn would_accept(&self, ip_repr: &IpRepr, repr: &UdpRepr) -> bool {
         // Reject packets with a wrong destination.
-        if self.endpoint.port != repr.dst_port { return Err(Error::Rejected) }
-        if !self.endpoint.addr.is_unspecified() &&
-           self.endpoint.addr != ip_repr.dst_addr() { return Err(Error::Rejected) }
+        self.endpoint.port == repr.dst_port &&
+            (self.endpoint.addr.is_unspecified() ||
+             self.endpoint.addr == ip_repr.dst_addr())
+    }
+
+    /// Process a packet, assuming it has been accepted by `would_accept`
+    pub(crate) fn process_accepted(&mut self, ip_repr: &IpRepr, repr: &UdpRepr) -> Result<()> {
+        debug_assert!(self.would_accept(ip_repr, repr));
 
         let packet_buf = self.rx_buffer.enqueue_one_with(|buf| buf.resize(repr.payload.len()))?;
         packet_buf.as_mut().copy_from_slice(repr.payload);
@@ -351,11 +357,13 @@ mod test {
         assert!(!socket.can_recv());
         assert_eq!(socket.recv(), Err(Error::Exhausted));
 
-        assert_eq!(socket.process(&REMOTE_IP_REPR, &REMOTE_UDP_REPR),
+        assert!(socket.would_accept(&REMOTE_IP_REPR, &REMOTE_UDP_REPR));
+        assert_eq!(socket.process_accepted(&REMOTE_IP_REPR, &REMOTE_UDP_REPR),
                    Ok(()));
         assert!(socket.can_recv());
 
-        assert_eq!(socket.process(&REMOTE_IP_REPR, &REMOTE_UDP_REPR),
+        assert!(socket.would_accept(&REMOTE_IP_REPR, &REMOTE_UDP_REPR));
+        assert_eq!(socket.process_accepted(&REMOTE_IP_REPR, &REMOTE_UDP_REPR),
                    Err(Error::Exhausted));
         assert_eq!(socket.recv(), Ok((&b"abcdef"[..], REMOTE_END)));
         assert!(!socket.can_recv());
@@ -366,7 +374,8 @@ mod test {
         let mut socket = socket(buffer(1), buffer(0));
         assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
 
-        assert_eq!(socket.process(&REMOTE_IP_REPR, &REMOTE_UDP_REPR),
+        assert!(socket.would_accept(&REMOTE_IP_REPR, &REMOTE_UDP_REPR));
+        assert_eq!(socket.process_accepted(&REMOTE_IP_REPR, &REMOTE_UDP_REPR),
                    Ok(()));
 
         let mut slice = [0; 4];
@@ -380,7 +389,37 @@ mod test {
         assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
 
         let udp_repr = UdpRepr { payload: &[0; 100][..], ..REMOTE_UDP_REPR };
-        assert_eq!(socket.process(&REMOTE_IP_REPR, &udp_repr),
+        assert!(socket.would_accept(&REMOTE_IP_REPR, &udp_repr));
+        assert_eq!(socket.process_accepted(&REMOTE_IP_REPR, &udp_repr),
                    Err(Error::Truncated));
+    }
+
+    #[test]
+    fn test_wouldnt_accept_wrong_port() {
+        let mut socket = socket(buffer(1), buffer(0));
+        assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
+
+        let mut udp_repr = REMOTE_UDP_REPR;
+        assert!(socket.would_accept(&REMOTE_IP_REPR, &udp_repr));
+        udp_repr.dst_port += 1;
+        assert!(!socket.would_accept(&REMOTE_IP_REPR, &udp_repr));
+    }
+
+    #[test]
+    fn test_wouldnt_accept_wrong_ip() {
+        let ip_repr = IpRepr::Ipv4(Ipv4Repr {
+            src_addr: Ipv4Address([10, 0, 0, 2]),
+            dst_addr: Ipv4Address([10, 0, 0, 10]),
+            protocol: IpProtocol::Udp,
+            payload_len: 8 + 6
+        });
+
+        let mut port_bound_socket = socket(buffer(1), buffer(0));
+        assert_eq!(port_bound_socket.bind(LOCAL_PORT), Ok(()));
+        assert!(port_bound_socket.would_accept(&ip_repr, &REMOTE_UDP_REPR));
+
+        let mut ip_bound_socket = socket(buffer(1), buffer(0));
+        assert_eq!(ip_bound_socket.bind(LOCAL_END), Ok(()));
+        assert!(!ip_bound_socket.would_accept(&ip_repr, &REMOTE_UDP_REPR));
     }
 }
