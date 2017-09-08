@@ -121,13 +121,13 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     /// Check whether the transmit buffer is full.
     #[inline]
     pub fn can_send(&self) -> bool {
-        !self.tx_buffer.full()
+        !self.tx_buffer.is_full()
     }
 
     /// Check whether the receive buffer is not empty.
     #[inline]
     pub fn can_recv(&self) -> bool {
-        !self.rx_buffer.empty()
+        !self.rx_buffer.is_empty()
     }
 
     /// Enqueue a packet to be sent to a given remote endpoint, and return a pointer
@@ -224,7 +224,7 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     }
 
     pub(crate) fn poll_at(&self) -> Option<u64> {
-        if self.tx_buffer.empty() {
+        if self.tx_buffer.is_empty() {
             None
         } else {
             Some(0)

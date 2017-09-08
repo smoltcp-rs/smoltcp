@@ -452,7 +452,7 @@ impl<'a> TcpSocket<'a> {
     pub fn can_send(&self) -> bool {
         if !self.may_send() { return false }
 
-        !self.tx_buffer.full()
+        !self.tx_buffer.is_full()
     }
 
     /// Check whether the receive half of the full-duplex connection buffer is open
@@ -461,7 +461,7 @@ impl<'a> TcpSocket<'a> {
     pub fn can_recv(&self) -> bool {
         if !self.may_recv() { return false }
 
-        !self.rx_buffer.empty()
+        !self.rx_buffer.is_empty()
     }
 
     /// Enqueue a sequence of octets to be sent, and return a pointer to it.
@@ -1203,7 +1203,7 @@ impl<'a> TcpSocket<'a> {
 
     pub(crate) fn poll_at(&self) -> Option<u64> {
         self.timer.poll_at().or_else(|| {
-            if self.tx_buffer.empty() {
+            if self.tx_buffer.is_empty() {
                 None
             } else {
                 Some(0)

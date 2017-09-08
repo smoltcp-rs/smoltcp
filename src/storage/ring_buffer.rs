@@ -70,12 +70,12 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
     }
 
     /// Query whether the buffer is empty.
-    pub fn empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
     /// Query whether the buffer is full.
-    pub fn full(&self) -> bool {
+    pub fn is_full(&self) -> bool {
         self.window() == 0
     }
 }
@@ -87,7 +87,7 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
     /// returns successfully, or return `Err(Error::Exhausted)` if the buffer is full.
     pub fn enqueue_one_with<'b, R, F>(&'b mut self, f: F) -> Result<R>
             where F: FnOnce(&'b mut T) -> Result<R> {
-        if self.full() { return Err(Error::Exhausted) }
+        if self.is_full() { return Err(Error::Exhausted) }
 
         let index = (self.read_at + self.length) % self.capacity();
         match f(&mut self.storage[index]) {
@@ -111,7 +111,7 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
     /// returns successfully, or return `Err(Error::Exhausted)` if the buffer is empty.
     pub fn dequeue_one_with<'b, R, F>(&'b mut self, f: F) -> Result<R>
             where F: FnOnce(&'b mut T) -> Result<R> {
-        if self.empty() { return Err(Error::Exhausted) }
+        if self.is_empty() { return Err(Error::Exhausted) }
 
         let next_at = (self.read_at + 1) % self.capacity();
         match f(&mut self.storage[self.read_at]) {
@@ -280,22 +280,22 @@ mod test {
     #[test]
     fn test_buffer_length_changes() {
         let mut ring = RingBuffer::new(vec![0; 2]);
-        assert!(ring.empty());
-        assert!(!ring.full());
+        assert!(ring.is_empty());
+        assert!(!ring.is_full());
         assert_eq!(ring.len(), 0);
         assert_eq!(ring.capacity(), 2);
         assert_eq!(ring.window(), 2);
 
         ring.length = 1;
-        assert!(!ring.empty());
-        assert!(!ring.full());
+        assert!(!ring.is_empty());
+        assert!(!ring.is_full());
         assert_eq!(ring.len(), 1);
         assert_eq!(ring.capacity(), 2);
         assert_eq!(ring.window(), 1);
 
         ring.length = 2;
-        assert!(!ring.empty());
-        assert!(ring.full());
+        assert!(!ring.is_empty());
+        assert!(ring.is_full());
         assert_eq!(ring.len(), 2);
         assert_eq!(ring.capacity(), 2);
         assert_eq!(ring.window(), 0);
@@ -308,24 +308,24 @@ mod test {
                    Err(Error::Exhausted));
 
         ring.enqueue_one_with(|e| Ok(e)).unwrap();
-        assert!(!ring.empty());
-        assert!(!ring.full());
+        assert!(!ring.is_empty());
+        assert!(!ring.is_full());
 
         for i in 1..5 {
             ring.enqueue_one_with(|e| Ok(*e = i)).unwrap();
-            assert!(!ring.empty());
+            assert!(!ring.is_empty());
         }
-        assert!(ring.full());
+        assert!(ring.is_full());
         assert_eq!(ring.enqueue_one_with(|_| unreachable!()) as Result<()>,
                    Err(Error::Exhausted));
 
         for i in 0..5 {
             assert_eq!(ring.dequeue_one_with(|e| Ok(*e)).unwrap(), i);
-            assert!(!ring.full());
+            assert!(!ring.is_full());
         }
         assert_eq!(ring.dequeue_one_with(|_| unreachable!()) as Result<()>,
                    Err(Error::Exhausted));
-        assert!(ring.empty());
+        assert!(ring.is_empty());
     }
 
     #[test]
@@ -334,22 +334,22 @@ mod test {
         assert_eq!(ring.dequeue_one(), Err(Error::Exhausted));
 
         ring.enqueue_one().unwrap();
-        assert!(!ring.empty());
-        assert!(!ring.full());
+        assert!(!ring.is_empty());
+        assert!(!ring.is_full());
 
         for i in 1..5 {
             *ring.enqueue_one().unwrap() = i;
-            assert!(!ring.empty());
+            assert!(!ring.is_empty());
         }
-        assert!(ring.full());
+        assert!(ring.is_full());
         assert_eq!(ring.enqueue_one(), Err(Error::Exhausted));
 
         for i in 0..5 {
             assert_eq!(*ring.dequeue_one().unwrap(), i);
-            assert!(!ring.full());
+            assert!(!ring.is_full());
         }
         assert_eq!(ring.dequeue_one(), Err(Error::Exhausted));
-        assert!(ring.empty());
+        assert!(ring.is_empty());
     }
 
     #[test]
