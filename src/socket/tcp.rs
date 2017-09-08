@@ -1247,7 +1247,7 @@ mod test {
 
     const LOCAL_IP:     IpAddress    = IpAddress::Ipv4(Ipv4Address([10, 0, 0, 1]));
     const REMOTE_IP:    IpAddress    = IpAddress::Ipv4(Ipv4Address([10, 0, 0, 2]));
-    const THIRD_PARTY_IP: IpAddress  = IpAddress::Ipv4(Ipv4Address([10, 0, 0, 3]));
+    const OTHER_IP:     IpAddress    = IpAddress::Ipv4(Ipv4Address([10, 0, 0, 3]));
     const LOCAL_PORT:   u16          = 80;
     const REMOTE_PORT:  u16          = 49500;
     const LOCAL_END:    IpEndpoint   = IpEndpoint { addr: LOCAL_IP,  port: LOCAL_PORT  };
@@ -1255,12 +1255,20 @@ mod test {
     const LOCAL_SEQ:    TcpSeqNumber = TcpSeqNumber(10000);
     const REMOTE_SEQ:   TcpSeqNumber = TcpSeqNumber(-10000);
 
+    const SEND_IP_TEMPL: IpRepr = IpRepr::Unspecified {
+        src_addr: LOCAL_IP, dst_addr: REMOTE_IP,
+        protocol: IpProtocol::Tcp, payload_len: 20
+    };
     const SEND_TEMPL: TcpRepr<'static> = TcpRepr {
         src_port: REMOTE_PORT, dst_port: LOCAL_PORT,
         control: TcpControl::None,
         seq_number: TcpSeqNumber(0), ack_number: Some(TcpSeqNumber(0)),
         window_len: 256, max_seg_size: None,
         payload: &[]
+    };
+    const RECV_IP_TEMPL: IpRepr = IpRepr::Unspecified {
+        src_addr: REMOTE_IP, dst_addr: LOCAL_IP,
+        protocol: IpProtocol::Tcp, payload_len: 20
     };
     const RECV_TEMPL:  TcpRepr<'static> = TcpRepr {
         src_port: LOCAL_PORT, dst_port: REMOTE_PORT,
@@ -1272,18 +1280,15 @@ mod test {
 
     fn send(socket: &mut TcpSocket, timestamp: u64, repr: &TcpRepr) ->
            Result<Option<TcpRepr<'static>>> {
-        trace!("send: {}", repr);
         let ip_repr = IpRepr::Unspecified {
             src_addr:    REMOTE_IP,
             dst_addr:    LOCAL_IP,
             protocol:    IpProtocol::Tcp,
             payload_len: repr.buffer_len()
         };
+        trace!("send: {}", repr);
 
-        if !socket.accepts(&ip_repr, repr) {
-            return Err(Error::Rejected);
-        }
-
+        assert!(socket.accepts(&ip_repr, repr));
         match socket.process(timestamp, &ip_repr, repr) {
             Ok(Some((_ip_repr, repr))) => {
                 trace!("recv: {}", repr);
@@ -1407,10 +1412,11 @@ mod test {
         let mut s = socket();
         assert_eq!(s.state, State::Closed);
 
-        send!(s, TcpRepr {
+        let tcp_repr = TcpRepr {
             control: TcpControl::Syn,
             ..SEND_TEMPL
-        }, Err(Error::Rejected));
+        };
+        assert!(!s.accepts(&SEND_IP_TEMPL, &tcp_repr));
     }
 
     #[test]
@@ -1419,10 +1425,11 @@ mod test {
         s.listen(LOCAL_END).unwrap();
         s.close();
 
-        send!(s, TcpRepr {
+        let tcp_repr = TcpRepr {
             control: TcpControl::Syn,
             ..SEND_TEMPL
-        }, Err(Error::Rejected));
+        };
+        assert!(!s.accepts(&SEND_IP_TEMPL, &tcp_repr));
     }
 
     #[test]
@@ -1477,12 +1484,15 @@ mod test {
     #[test]
     fn test_listen_syn_reject_ack() {
         let mut s = socket_listen();
-        send!(s, TcpRepr {
+
+        let tcp_repr = TcpRepr {
             control: TcpControl::Syn,
             seq_number: REMOTE_SEQ,
             ack_number: Some(LOCAL_SEQ),
             ..SEND_TEMPL
-        }, Err(Error::Rejected));
+        };
+        assert!(!s.accepts(&SEND_IP_TEMPL, &tcp_repr));
+
         assert_eq!(s.state, State::Listen);
     }
 
@@ -2952,21 +2962,21 @@ mod test {
         let mut s = socket_established();
         s.rx_buffer = SocketBuffer::new(vec![0; 6]);
 
-        send!(s, TcpRepr {
+        let tcp_repr = TcpRepr {
             seq_number: REMOTE_SEQ + 1,
             ack_number: Some(LOCAL_SEQ + 1),
-            payload:    &b"abcdef"[..],
             dst_port:   LOCAL_PORT + 1,
             ..SEND_TEMPL
-        }, Err(Error::Rejected));
+        };
+        assert!(!s.accepts(&SEND_IP_TEMPL, &tcp_repr));
 
-        send!(s, TcpRepr {
+        let tcp_repr = TcpRepr {
             seq_number: REMOTE_SEQ + 1,
             ack_number: Some(LOCAL_SEQ + 1),
-            payload:    &b"abcdef"[..],
             src_port:   REMOTE_PORT + 1,
             ..SEND_TEMPL
-        }, Err(Error::Rejected));
+        };
+        assert!(!s.accepts(&SEND_IP_TEMPL, &tcp_repr));
     }
 
     #[test]
@@ -2989,7 +2999,7 @@ mod test {
         assert!(s.accepts(&ip_repr, &tcp_repr));
 
         let ip_repr_wrong_src = IpRepr::Unspecified {
-            src_addr:    THIRD_PARTY_IP,
+            src_addr:    OTHER_IP,
             dst_addr:    LOCAL_IP,
             protocol:    IpProtocol::Tcp,
             payload_len: tcp_repr.buffer_len()
@@ -2998,7 +3008,7 @@ mod test {
 
         let ip_repr_wrong_dst = IpRepr::Unspecified {
             src_addr:    REMOTE_IP,
-            dst_addr:    THIRD_PARTY_IP,
+            dst_addr:    OTHER_IP,
             protocol:    IpProtocol::Tcp,
             payload_len: tcp_repr.buffer_len()
         };
