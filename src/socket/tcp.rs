@@ -734,19 +734,20 @@ impl<'a> TcpSocket<'a> {
             // Every acknowledgement must be for transmitted but unacknowledged data.
             (_, &TcpRepr { ack_number: Some(ack_number), .. }) => {
                 let unacknowledged = self.tx_buffer.len() + control_len;
+
                 if ack_number < self.local_seq_no {
                     net_debug!("[{}]{}:{}: duplicate ACK ({} not in {}...{})",
                                self.debug_id, self.local_endpoint, self.remote_endpoint,
                                ack_number, self.local_seq_no, self.local_seq_no + unacknowledged);
-                    // FIXME: instead of waiting for the retransmit timer to kick in,
-                    // reset it here.
+                    // FIXME: implement fast retransmit
                     return Err(Error::Dropped)
                 }
+
                 if ack_number > self.local_seq_no + unacknowledged {
                     net_debug!("[{}]{}:{}: unacceptable ACK ({} not in {}...{})",
                                self.debug_id, self.local_endpoint, self.remote_endpoint,
                                ack_number, self.local_seq_no, self.local_seq_no + unacknowledged);
-                    return Err(Error::Dropped)
+                    return Ok(Some(self.ack_reply(ip_repr, &repr)))
                 }
             }
         }
@@ -1870,7 +1871,11 @@ mod test {
             seq_number: REMOTE_SEQ + 1,
             ack_number: Some(LOCAL_SEQ + 10),
             ..SEND_TEMPL
-        }, Err(Error::Dropped));
+        }, Ok(Some(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            ..RECV_TEMPL
+        })));
         assert_eq!(s.local_seq_no, LOCAL_SEQ + 1);
     }
 
