@@ -19,8 +19,7 @@ use core::str;
 use smoltcp::phy::Loopback;
 use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr};
 use smoltcp::iface::{ArpCache, SliceArpCache, EthernetInterface};
-use smoltcp::socket::{AsSocket, SocketSet};
-use smoltcp::socket::{TcpSocket, TcpSocketBuffer};
+use smoltcp::socket::{SocketSet, TcpSocket, TcpSocketBuffer};
 
 #[cfg(not(feature = "std"))]
 mod mock {
@@ -124,7 +123,7 @@ fn main() {
     let mut done = false;
     while !done && clock.elapsed() < 10_000 {
         {
-            let socket: &mut TcpSocket = socket_set.get_mut(server_handle).as_socket();
+            let mut socket = socket_set.get::<TcpSocket>(server_handle);
             if !socket.is_active() && !socket.is_listening() {
                 if !did_listen {
                     debug!("listening");
@@ -141,7 +140,7 @@ fn main() {
         }
 
         {
-            let socket: &mut TcpSocket = socket_set.get_mut(client_handle).as_socket();
+            let mut socket = socket_set.get::<TcpSocket>(client_handle);
             if !socket.is_open() {
                 if !did_connect {
                     debug!("connecting");

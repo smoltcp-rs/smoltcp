@@ -17,6 +17,7 @@ use wire::IpRepr;
 #[cfg(feature = "socket-udp")] mod udp;
 #[cfg(feature = "socket-tcp")] mod tcp;
 mod set;
+mod ref_;
 
 #[cfg(feature = "socket-raw")]
 pub use self::raw::{PacketBuffer as RawPacketBuffer,
@@ -36,19 +37,19 @@ pub use self::tcp::{SocketBuffer as TcpSocketBuffer,
 pub use self::set::{Set as SocketSet, Item as SocketSetItem, Handle as SocketHandle};
 pub use self::set::{Iter as SocketSetIter, IterMut as SocketSetIterMut};
 
+pub use self::ref_::Ref as SocketRef;
+pub(crate) use self::ref_::Session as SocketSession;
+
 /// A network socket.
 ///
 /// This enumeration abstracts the various types of sockets based on the IP protocol.
-/// To downcast a `Socket` value down to a concrete socket, use
-/// the [AsSocket](trait.AsSocket.html) trait, and call e.g. `socket.as_socket::<UdpSocket<_>>()`.
+/// To downcast a `Socket` value to a concrete socket, use the [AnySocket] trait,
+/// e.g. to get `UdpSocket`, call `UdpSocket::downcast(socket)`.
 ///
-/// The `process` and `dispatch` functions are fundamentally asymmetric and thus differ in
-/// their use of the [trait PacketRepr](trait.PacketRepr.html). When `process` is called,
-/// the packet length is already known and no allocation is required; on the other hand,
-/// `process` would have to downcast a `&PacketRepr` to e.g. an `&UdpRepr` through `Any`,
-/// which is rather inelegant. Conversely, when `dispatch` is called, the packet length is
-/// not yet known and the packet storage has to be allocated; but the `&PacketRepr` is sufficient
-/// since the lower layers treat the packet as an opaque octet sequence.
+/// It is usually more convenient to use [SocketSet::get] instead.
+///
+/// [AnySocket]: trait.AnySocket.html
+/// [SocketSet::get]: struct.SocketSet.html#method.get
 #[derive(Debug)]
 pub enum Socket<'a, 'b: 'a> {
     #[cfg(feature = "socket-raw")]
@@ -90,40 +91,37 @@ impl<'a, 'b> Socket<'a, 'b> {
     }
 }
 
-/// A conversion trait for network sockets.
-///
-/// This trait is used to concisely downcast [Socket](trait.Socket.html) values to their
-/// concrete types.
-pub trait AsSocket<T> {
-    fn as_socket(&mut self) -> &mut T;
-    fn try_as_socket(&mut self) -> Option<&mut T>;
+impl<'a, 'b> SocketSession for Socket<'a, 'b> {
+    fn finish(&mut self) {
+        dispatch_socket!(self, |socket [mut]| socket.finish())
+    }
 }
 
-macro_rules! as_socket {
-    ($socket:ty, $variant:ident) => {
-        impl<'a, 'b> AsSocket<$socket> for Socket<'a, 'b> {
-            fn as_socket(&mut self) -> &mut $socket {
-                match self {
-                    &mut Socket::$variant(ref mut socket) => socket,
-                    _ => panic!(concat!(".as_socket::<",
-                                        stringify!($socket),
-                                        "> called on wrong socket type"))
-                }
-            }
+/// A conversion trait for network sockets.
+pub trait AnySocket<'a, 'b>: SocketSession + Sized {
+    fn downcast<'c>(socket_ref: SocketRef<'c, Socket<'a, 'b>>) ->
+                   Option<SocketRef<'c, Self>>;
+}
 
-            fn try_as_socket(&mut self) -> Option<&mut $socket> {
-                match self {
-                    &mut Socket::$variant(ref mut socket) => Some(socket),
-                    _ => None,
-                }
+macro_rules! from_socket {
+    ($socket:ty, $variant:ident) => {
+        impl<'a, 'b> AnySocket<'a, 'b> for $socket {
+            fn downcast<'c>(ref_: SocketRef<'c, Socket<'a, 'b>>) ->
+                           Option<SocketRef<'c, Self>> {
+                SocketRef::map(ref_, |socket| {
+                    match *socket {
+                        Socket::$variant(ref mut socket) => Some(socket),
+                        _ => None,
+                    }
+                })
             }
         }
     }
 }
 
 #[cfg(feature = "socket-raw")]
-as_socket!(RawSocket<'a, 'b>, Raw);
+from_socket!(RawSocket<'a, 'b>, Raw);
 #[cfg(feature = "socket-udp")]
-as_socket!(UdpSocket<'a, 'b>, Udp);
+from_socket!(UdpSocket<'a, 'b>, Udp);
 #[cfg(feature = "socket-tcp")]
-as_socket!(TcpSocket<'a>, Tcp);
+from_socket!(TcpSocket<'a>, Tcp);

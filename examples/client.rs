@@ -12,8 +12,7 @@ use std::os::unix::io::AsRawFd;
 use smoltcp::phy::wait as phy_wait;
 use smoltcp::wire::{EthernetAddress, Ipv4Address, IpAddress, IpCidr};
 use smoltcp::iface::{ArpCache, SliceArpCache, EthernetInterface};
-use smoltcp::socket::{AsSocket, SocketSet};
-use smoltcp::socket::{TcpSocket, TcpSocketBuffer};
+use smoltcp::socket::{SocketSet, TcpSocket, TcpSocketBuffer};
 
 fn main() {
     utils::setup_logging("");
@@ -50,14 +49,14 @@ fn main() {
     let tcp_handle = sockets.add(tcp_socket);
 
     {
-        let socket: &mut TcpSocket = sockets.get_mut(tcp_handle).as_socket();
+        let mut socket = sockets.get::<TcpSocket>(tcp_handle);
         socket.connect((address, port), 49500).unwrap();
     }
 
     let mut tcp_active = false;
     loop {
         {
-            let socket: &mut TcpSocket = sockets.get_mut(tcp_handle).as_socket();
+            let mut socket = sockets.get::<TcpSocket>(tcp_handle);
             if socket.is_active() && !tcp_active {
                 debug!("connected");
             } else if !socket.is_active() && tcp_active {
