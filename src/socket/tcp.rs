@@ -2,7 +2,6 @@
 // the parts of RFC 1122 that discuss TCP.
 
 use core::{cmp, fmt};
-use managed::Managed;
 
 use {Error, Result};
 use phy::DeviceLimits;
@@ -1266,7 +1265,7 @@ mod test {
         window_len: 256, max_seg_size: None,
         payload: &[]
     };
-    const RECV_IP_TEMPL: IpRepr = IpRepr::Unspecified {
+    const _RECV_IP_TEMPL: IpRepr = IpRepr::Unspecified {
         src_addr: REMOTE_IP, dst_addr: LOCAL_IP,
         protocol: IpProtocol::Tcp, payload_len: 20
     };
@@ -1409,7 +1408,7 @@ mod test {
     // =========================================================================================//
     #[test]
     fn test_closed_reject() {
-        let mut s = socket();
+        let s = socket();
         assert_eq!(s.state, State::Closed);
 
         let tcp_repr = TcpRepr {
@@ -1483,7 +1482,7 @@ mod test {
 
     #[test]
     fn test_listen_syn_reject_ack() {
-        let mut s = socket_listen();
+        let s = socket_listen();
 
         let tcp_repr = TcpRepr {
             control: TcpControl::Syn,

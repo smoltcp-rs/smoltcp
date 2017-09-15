@@ -1,5 +1,5 @@
 use core::cmp;
-use managed::{Managed, ManagedSlice};
+use managed::ManagedSlice;
 
 use {Error, Result};
 use super::Resettable;
@@ -380,7 +380,7 @@ mod test {
         assert_eq!(ring.len(), 8);
         assert_eq!(&ring.storage[..], b"abcdefgh....");
 
-        for i in 0..4 {
+        for _ in 0..4 {
             *ring.dequeue_one().unwrap() = b'.';
         }
         assert_eq!(ring.len(), 4);
@@ -402,7 +402,7 @@ mod test {
         assert_eq!(ring.len(), 12);
         assert_eq!(&ring.storage[..], b"abcdefghijkl");
 
-        for i in 0..4 {
+        for _ in 0..4 {
             *ring.dequeue_one().unwrap() = b'.';
         }
         assert_eq!(ring.len(), 8);
@@ -430,7 +430,7 @@ mod test {
         assert_eq!(ring.len(), 8);
         assert_eq!(&ring.storage[..], b"abcdefgh....");
 
-        for i in 0..4 {
+        for _ in 0..4 {
             *ring.dequeue_one().unwrap() = b'.';
         }
         assert_eq!(ring.len(), 4);
