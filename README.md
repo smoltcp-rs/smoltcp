@@ -59,6 +59,7 @@ The TCP protocol is supported over IPv4. Server and client sockets are supported
   * Multiple packets will be transmitted without waiting for an acknowledgement.
   * Lost packets will be retransmitted with exponential backoff, starting at
     a fixed delay of 100 ms.
+  * Sending keep-alive packets is supported, with a configurable interval.
   * After arriving at the TIME-WAIT state, sockets will close after a fixed delay of 10 s.
   * TCP urgent pointer is **not** supported; any urgent octets will be received alongside
     data octets.
@@ -71,7 +72,6 @@ The TCP protocol is supported over IPv4. Server and client sockets are supported
   * Timestamping (used in round-trip time measurement and protection against wrapped sequences)
     is **not** supported.
   * Fast open is **not** supported when smoltcp initiates connection.
-  * Keepalive is **not** supported.
 
 ## Installation
 
