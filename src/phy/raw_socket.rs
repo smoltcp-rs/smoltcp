@@ -5,7 +5,7 @@ use std::io;
 use std::os::unix::io::{RawFd, AsRawFd};
 
 use Result;
-use super::{sys, DeviceLimits, Device};
+use super::{sys, DeviceCapabilities, Device};
 
 /// A socket that captures or transmits the complete frame.
 #[derive(Debug)]
@@ -40,10 +40,10 @@ impl Device for RawSocket {
     type RxBuffer = Vec<u8>;
     type TxBuffer = TxBuffer;
 
-    fn limits(&self) -> DeviceLimits {
-        DeviceLimits {
+    fn capabilities(&self) -> DeviceCapabilities {
+        DeviceCapabilities {
             max_transmission_unit: self.mtu,
-            ..DeviceLimits::default()
+            ..DeviceCapabilities::default()
         }
     }
 

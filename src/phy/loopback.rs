@@ -12,7 +12,7 @@ use std::collections::VecDeque;
 use alloc::{Vec, VecDeque};
 
 use {Error, Result};
-use super::{Device, DeviceLimits};
+use super::{Device, DeviceCapabilities};
 
 /// A loopback device.
 #[derive(Debug)]
@@ -32,10 +32,10 @@ impl Device for Loopback {
     type RxBuffer = Vec<u8>;
     type TxBuffer = TxBuffer;
 
-    fn limits(&self) -> DeviceLimits {
-        DeviceLimits {
+    fn capabilities(&self) -> DeviceCapabilities {
+        DeviceCapabilities {
             max_transmission_unit: 65535,
-            ..DeviceLimits::default()
+            ..DeviceCapabilities::default()
         }
     }
 

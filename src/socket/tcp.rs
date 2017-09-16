@@ -5,7 +5,7 @@
 use core::{cmp, fmt};
 
 use {Error, Result};
-use phy::DeviceLimits;
+use phy::DeviceCapabilities;
 use wire::{IpProtocol, IpAddress, IpEndpoint, TcpSeqNumber, TcpRepr, TcpControl};
 use socket::{Socket, IpRepr};
 use storage::{Assembler, RingBuffer};
@@ -1185,7 +1185,7 @@ impl<'a> TcpSocket<'a> {
         self.rx_buffer.window() as u16 > self.remote_last_win
     }
 
-    pub(crate) fn dispatch<F>(&mut self, timestamp: u64, limits: &DeviceLimits,
+    pub(crate) fn dispatch<F>(&mut self, timestamp: u64, caps: &DeviceCapabilities,
                               emit: F) -> Result<()>
             where F: FnOnce((IpRepr, TcpRepr)) -> Result<()> {
         if !self.remote_endpoint.is_specified() { return Err(Error::Exhausted) }
@@ -1358,7 +1358,7 @@ impl<'a> TcpSocket<'a> {
 
         if repr.control == TcpControl::Syn {
             // Fill the MSS option. See RFC 6691 for an explanation of this calculation.
-            let mut max_segment_size = limits.max_transmission_unit;
+            let mut max_segment_size = caps.max_transmission_unit;
             max_segment_size -= ip_repr.buffer_len();
             max_segment_size -= repr.header_len();
             repr.max_seg_size = Some(max_segment_size as u16);
@@ -1526,9 +1526,9 @@ mod test {
 
     fn recv<F>(socket: &mut TcpSocket, timestamp: u64, mut f: F)
             where F: FnMut(Result<TcpRepr>) {
-        let mut limits = DeviceLimits::default();
-        limits.max_transmission_unit = 1520;
-        let result = socket.dispatch(timestamp, &limits, |(ip_repr, tcp_repr)| {
+        let mut caps = DeviceCapabilities::default();
+        caps.max_transmission_unit = 1520;
+        let result = socket.dispatch(timestamp, &caps, |(ip_repr, tcp_repr)| {
             let ip_repr = ip_repr.lower(&[LOCAL_END.addr.into()]).unwrap();
 
             assert_eq!(ip_repr.protocol(), IpProtocol::Tcp);

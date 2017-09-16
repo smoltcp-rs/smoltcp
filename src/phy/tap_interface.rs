@@ -5,7 +5,7 @@ use std::io;
 use std::os::unix::io::{RawFd, AsRawFd};
 
 use {Error, Result};
-use super::{sys, DeviceLimits, Device};
+use super::{sys, DeviceCapabilities, Device};
 
 /// A virtual Ethernet interface.
 #[derive(Debug)]
@@ -41,10 +41,10 @@ impl Device for TapInterface {
     type RxBuffer = Vec<u8>;
     type TxBuffer = TxBuffer;
 
-    fn limits(&self) -> DeviceLimits {
-        DeviceLimits {
+    fn capabilities(&self) -> DeviceCapabilities {
+        DeviceCapabilities {
             max_transmission_unit: self.mtu,
-            ..DeviceLimits::default()
+            ..DeviceCapabilities::default()
         }
     }
 

@@ -1,6 +1,6 @@
 use Result;
 use wire::pretty_print::{PrettyPrint, PrettyPrinter};
-use super::{DeviceLimits, Device};
+use super::{DeviceCapabilities, Device};
 
 /// A tracer device.
 ///
@@ -31,7 +31,7 @@ impl<D: Device, P: PrettyPrint> Device for Tracer<D, P> {
     type RxBuffer = D::RxBuffer;
     type TxBuffer = TxBuffer<D::TxBuffer, P>;
 
-    fn limits(&self) -> DeviceLimits { self.inner.limits() }
+    fn capabilities(&self) -> DeviceCapabilities { self.inner.capabilities() }
 
     fn receive(&mut self, timestamp: u64) -> Result<Self::RxBuffer> {
         let buffer = self.inner.receive(timestamp)?;
