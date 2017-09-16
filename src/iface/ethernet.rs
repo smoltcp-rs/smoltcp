@@ -169,8 +169,8 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
     }
 
     fn socket_egress(&mut self, sockets: &mut SocketSet, timestamp: u64) -> Result<()> {
-        let mut limits = self.device.limits();
-        limits.max_transmission_unit -= EthernetFrame::<&[u8]>::header_len();
+        let mut caps = self.device.capabilities();
+        caps.max_transmission_unit -= EthernetFrame::<&[u8]>::header_len();
 
         for socket in sockets.iter_mut() {
             let mut device_result = Ok(());
@@ -491,7 +491,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
             }
             #[cfg(feature = "socket-tcp")]
             Packet::Tcp((ip_repr, mut tcp_repr)) => {
-                let limits = self.device.limits();
+                let caps = self.device.capabilities();
                 self.dispatch_ip(timestamp, ip_repr, |ip_repr, payload| {
                     // This is a terrible hack to make TCP performance more acceptable on systems
                     // where the TCP buffers are significantly larger than network buffers,
@@ -500,8 +500,8 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                     // this would result in our peer pushing our window and sever packet loss.
                     //
                     // I'm really not happy about this "solution" but I don't know what else to do.
-                    if let Some(max_burst_size) = limits.max_burst_size {
-                        let mut max_segment_size = limits.max_transmission_unit;
+                    if let Some(max_burst_size) = caps.max_burst_size {
+                        let mut max_segment_size = caps.max_transmission_unit;
                         max_segment_size -= EthernetFrame::<&[u8]>::header_len();
                         max_segment_size -= ip_repr.buffer_len();
                         max_segment_size -= tcp_repr.header_len();

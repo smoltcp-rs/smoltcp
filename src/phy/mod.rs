@@ -21,7 +21,7 @@
 ```rust
 use std::slice;
 use smoltcp::{Error, Result};
-use smoltcp::phy::{DeviceLimits, Device};
+use smoltcp::phy::{DeviceCapabilities, Device};
 
 const TX_BUFFERS: [*mut u8; 2] = [0x10000000 as *mut u8, 0x10001000 as *mut u8];
 const RX_BUFFERS: [*mut u8; 2] = [0x10002000 as *mut u8, 0x10003000 as *mut u8];
@@ -54,11 +54,11 @@ impl Device for EthernetDevice {
     type RxBuffer = &'static [u8];
     type TxBuffer = EthernetTxBuffer;
 
-    fn limits(&self) -> DeviceLimits {
-        let mut limits = DeviceLimits::default();
-        limits.max_transmission_unit = 1536;
-        limits.max_burst_size = Some(2);
-        limits
+    fn capabilities(&self) -> DeviceCapabilities {
+        let mut caps = DeviceCapabilities::default();
+        caps.max_transmission_unit = 1536;
+        caps.max_burst_size = Some(2);
+        caps
     }
 
     fn receive(&mut self, _timestamp: u64) -> Result<Self::RxBuffer> {
@@ -135,12 +135,12 @@ pub use self::tap_interface::TapInterface;
 /// A tracer device for Ethernet frames.
 pub type EthernetTracer<T> = Tracer<T, super::wire::EthernetFrame<&'static [u8]>>;
 
-/// A description of device limitations.
+/// A description of device capabilities.
 ///
 /// Higher-level protocols may achieve higher throughput or lower latency if they consider
 /// the bandwidth or packet size limitations.
 #[derive(Debug, Clone, Default)]
-pub struct DeviceLimits {
+pub struct DeviceCapabilities {
     /// Maximum transmission unit.
     ///
     /// The network device is unable to send or receive frames larger than the value returned
@@ -172,8 +172,8 @@ pub trait Device {
     type RxBuffer: AsRef<[u8]>;
     type TxBuffer: AsRef<[u8]> + AsMut<[u8]>;
 
-    /// Get a description of device limitations.
-    fn limits(&self) -> DeviceLimits;
+    /// Get a description of device capabilities.
+    fn capabilities(&self) -> DeviceCapabilities;
 
     /// Receive a frame.
     ///

@@ -5,7 +5,7 @@ use std::io::Write;
 use byteorder::{ByteOrder, NativeEndian};
 
 use Result;
-use super::{DeviceLimits, Device};
+use super::{DeviceCapabilities, Device};
 
 enum_with_unknown! {
     /// Captured packet header type.
@@ -132,7 +132,7 @@ impl<D: Device, S: PcapSink + Clone> Device for PcapWriter<D, S> {
     type RxBuffer = D::RxBuffer;
     type TxBuffer = TxBuffer<D::TxBuffer, S>;
 
-    fn limits(&self) -> DeviceLimits { self.lower.limits() }
+    fn capabilities(&self) -> DeviceCapabilities { self.lower.capabilities() }
 
     fn receive(&mut self, timestamp: u64) -> Result<Self::RxBuffer> {
         let buffer = self.lower.receive(timestamp)?;
