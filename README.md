@@ -46,7 +46,7 @@ The only supported internetworking protocol is IPv4.
 
 The UDP protocol is supported over IPv4.
 
-  * UDP header checksum is always generated and validated.
+  * Header checksum is always generated and validated.
   * In response to a packet arriving at a port without a listening socket,
     an ICMP destination unreachable message is generated.
 
@@ -54,15 +54,14 @@ The UDP protocol is supported over IPv4.
 
 The TCP protocol is supported over IPv4. Server and client sockets are supported.
 
-  * TCP header checksum is generated and validated.
+  * Header checksum is generated and validated.
   * Maximum segment size is negotiated.
-  * Multiple packets will be transmitted without waiting for an acknowledgement.
-  * Lost packets will be retransmitted with exponential backoff, starting at
-    a fixed delay of 100 ms.
+  * Multiple packets are transmitted without waiting for an acknowledgement.
+  * Lost packets are retransmitted with exponential backoff, starting at a fixed delay of 100 ms.
   * Sending keep-alive packets is supported, with a configurable interval.
-  * After arriving at the TIME-WAIT state, sockets will close after a fixed delay of 10 s.
-  * TCP urgent pointer is **not** supported; any urgent octets will be received alongside
-    data octets.
+  * Connection, retransmission and keep-alive timeouts are supported, with a configurable duration.
+  * After arriving at the TIME-WAIT state, sockets close after a fixed delay of 10 s.
+  * Urgent pointer is **not** supported; any urgent octets will be received alongside data octets.
   * Reassembly of out-of-order segments is **not** supported.
   * Silly window syndrome avoidance is **not** supported for either transmission or reception.
   * Congestion control is **not** implemented.

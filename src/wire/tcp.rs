@@ -740,6 +740,15 @@ impl<'a> Repr<'a> {
     pub fn segment_len(&self) -> usize {
         self.payload.len() + self.control.len()
     }
+
+    /// Return whether the segment has no flags set (except PSH) and no data.
+    pub fn is_empty(&self) -> bool {
+        match self.control {
+            _ if self.payload.len() != 0 => false,
+            Control::Syn  | Control::Fin | Control::Rst => false,
+            Control::None | Control::Psh => true
+        }
+    }
 }
 
 impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
