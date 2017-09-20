@@ -88,7 +88,7 @@ use core::fmt;
 
 #[macro_use]
 mod macros;
-mod parsing;
+mod parsers;
 
 pub mod storage;
 pub mod phy;
