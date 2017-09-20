@@ -517,7 +517,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         }
 
         if dst_addr.is_broadcast() {
-            return Ok(EthernetAddress([0xff; 6]))
+            return Ok(EthernetAddress::BROADCAST)
         }
 
         match (src_addr, dst_addr) {
@@ -529,12 +529,12 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                     operation: ArpOperation::Request,
                     source_hardware_addr: self.hardware_addr,
                     source_protocol_addr: src_addr,
-                    target_hardware_addr: EthernetAddress([0xff; 6]),
+                    target_hardware_addr: EthernetAddress::BROADCAST,
                     target_protocol_addr: dst_addr,
                 };
 
                 self.dispatch_ethernet(timestamp, arp_repr.buffer_len(), |mut frame| {
-                    frame.set_dst_addr(EthernetAddress([0xff; 6]));
+                    frame.set_dst_addr(EthernetAddress::BROADCAST);
                     frame.set_ethertype(EthernetProtocol::Arp);
 
                     arp_repr.emit(&mut ArpPacket::new(frame.payload_mut()))

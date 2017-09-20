@@ -12,8 +12,8 @@ pub use super::IpProtocol as Protocol;
 pub struct Address(pub [u8; 4]);
 
 impl Address {
-    // pub const UNSPECIFIED: Address = Address([0x00; 4]);
-    // pub const BROADCAST:   Address = Address([0xff; 4]);
+    pub const UNSPECIFIED: Address = Address([0x00; 4]);
+    pub const BROADCAST:   Address = Address([0xff; 4]);
 
     /// Construct an IPv4 address from parts.
     pub fn new(a0: u8, a1: u8, a2: u8, a3: u8) -> Address {
@@ -667,5 +667,23 @@ mod test {
         repr.emit(&mut packet);
         packet.payload_mut().copy_from_slice(&REPR_PAYLOAD_BYTES);
         assert_eq!(&packet.into_inner()[..], &REPR_PACKET_BYTES[..]);
+    }
+
+    #[test]
+    fn test_unspecified() {
+        assert!(Address::UNSPECIFIED.is_unspecified());
+        assert!(!Address::UNSPECIFIED.is_broadcast());
+        assert!(!Address::UNSPECIFIED.is_multicast());
+        assert!(!Address::UNSPECIFIED.is_link_local());
+        assert!(!Address::UNSPECIFIED.is_loopback());
+    }
+
+    #[test]
+    fn test_broadcast() {
+        assert!(!Address::BROADCAST.is_unspecified());
+        assert!(Address::BROADCAST.is_broadcast());
+        assert!(!Address::BROADCAST.is_multicast());
+        assert!(!Address::BROADCAST.is_link_local());
+        assert!(!Address::BROADCAST.is_loopback());
     }
 }
