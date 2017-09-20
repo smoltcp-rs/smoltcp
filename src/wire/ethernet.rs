@@ -28,7 +28,7 @@ impl fmt::Display for EtherType {
 pub struct Address(pub [u8; 6]);
 
 impl Address {
-    // pub const BROADCAST: Address = Address([0xff; 6]);
+    pub const BROADCAST: Address = Address([0xff; 6]);
 
     /// Construct an Ethernet address from a sequence of octets, in big-endian.
     ///
@@ -53,7 +53,7 @@ impl Address {
 
     /// Query whether this address is the broadcast address.
     pub fn is_broadcast(&self) -> bool {
-        self.0 == [0xff; 6]
+        *self == Self::BROADCAST
     }
 
     /// Query whether the "multicast" bit in the OUI is set.
@@ -269,5 +269,13 @@ mod test {
         frame.set_ethertype(EtherType::Ipv4);
         frame.payload_mut().copy_from_slice(&PAYLOAD_BYTES[..]);
         assert_eq!(&frame.into_inner()[..], &FRAME_BYTES[..]);
+    }
+
+    #[test]
+    fn test_broadcast() {
+        assert!(Address::BROADCAST.is_broadcast());
+        assert!(!Address::BROADCAST.is_unicast());
+        assert!(Address::BROADCAST.is_multicast());
+        assert!(Address::BROADCAST.is_local());
     }
 }

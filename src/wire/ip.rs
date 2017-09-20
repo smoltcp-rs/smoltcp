@@ -99,8 +99,7 @@ impl Address {
     pub fn to_unspecified(&self) -> Address {
         match self {
             &Address::Unspecified => Address::Unspecified,
-            // &Address::Ipv4 => Address::Ipv4(Ipv4Address::UNSPECIFIED),
-            &Address::Ipv4(_) => Address::Ipv4(Ipv4Address(/*FIXME*/[0x00; 4])),
+            &Address::Ipv4(_) => Address::Ipv4(Ipv4Address::UNSPECIFIED),
         }
     }
 }
@@ -136,7 +135,7 @@ pub struct Endpoint {
 }
 
 impl Endpoint {
-    // pub const UNSPECIFIED: Endpoint = Endpoint { addr: Address::Unspecified, port: 0 };
+    pub const UNSPECIFIED: Endpoint = Endpoint { addr: Address::Unspecified, port: 0 };
 
     /// Create an endpoint address from given address and port.
     pub fn new(addr: Address, port: u16) -> Endpoint {
@@ -487,7 +486,7 @@ mod test {
 
         assert_eq!(
             IpRepr::Ipv4(Ipv4Repr{
-                src_addr: Ipv4Address::new(0, 0, 0, 0),
+                src_addr: Ipv4Address::UNSPECIFIED,
                 dst_addr: ip_addr_b,
                 protocol: proto,
                 payload_len
@@ -497,7 +496,7 @@ mod test {
 
         assert_eq!(
             IpRepr::Ipv4(Ipv4Repr{
-                src_addr: Ipv4Address::new(0, 0, 0, 0),
+                src_addr: Ipv4Address::UNSPECIFIED,
                 dst_addr: ip_addr_b,
                 protocol: proto,
                 payload_len
@@ -509,5 +508,10 @@ mod test {
                 payload_len
             }))
         );
+    }
+
+    #[test]
+    fn endpoint_unspecified() {
+        assert!(!Endpoint::UNSPECIFIED.is_specified());
     }
 }
