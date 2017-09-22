@@ -165,38 +165,36 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         let mut limits = self.device.limits();
         limits.max_transmission_unit -= EthernetFrame::<&[u8]>::header_len();
 
-        'iface: for socket in sockets.iter_mut() {
-            'socket: loop {
-                let mut device_result = Ok(());
-                let socket_result =
-                    match socket {
-                        &mut Socket::Raw(ref mut socket) =>
-                            socket.dispatch(|response| {
-                                device_result = self.dispatch(timestamp, Packet::Raw(response));
-                                device_result
-                            }),
-                        &mut Socket::Udp(ref mut socket) =>
-                            socket.dispatch(|response| {
-                                device_result = self.dispatch(timestamp, Packet::Udp(response));
-                                device_result
-                            }),
-                        &mut Socket::Tcp(ref mut socket) =>
-                            socket.dispatch(timestamp, &limits, |response| {
-                                device_result = self.dispatch(timestamp, Packet::Tcp(response));
-                                device_result
-                            }),
-                        &mut Socket::__Nonexhaustive => unreachable!()
-                    };
-                match (device_result, socket_result) {
-                    (Err(Error::Exhausted), _)      => break 'iface,  // nowhere to transmit
-                    (Err(Error::Unaddressable), _)  => break 'socket, // no one to transmit to
-                    (Ok(()), Err(Error::Exhausted)) => break 'socket, // nothing to transmit
-                    (_, Err(err)) => {
-                        net_debug!("cannot dispatch egress packet: {}", err);
-                        return Err(err)
-                    }
-                    (_, Ok(())) => ()
+        for socket in sockets.iter_mut() {
+            let mut device_result = Ok(());
+            let socket_result =
+                match socket {
+                    &mut Socket::Raw(ref mut socket) =>
+                        socket.dispatch(|response| {
+                            device_result = self.dispatch(timestamp, Packet::Raw(response));
+                            device_result
+                        }),
+                    &mut Socket::Udp(ref mut socket) =>
+                        socket.dispatch(|response| {
+                            device_result = self.dispatch(timestamp, Packet::Udp(response));
+                            device_result
+                        }),
+                    &mut Socket::Tcp(ref mut socket) =>
+                        socket.dispatch(timestamp, &limits, |response| {
+                            device_result = self.dispatch(timestamp, Packet::Tcp(response));
+                            device_result
+                        }),
+                    &mut Socket::__Nonexhaustive => unreachable!()
+                };
+            match (device_result, socket_result) {
+                (Err(Error::Unaddressable), _) => break, // no one to transmit to
+                (Err(Error::Exhausted), _) => break,     // nowhere to transmit
+                (Ok(()), Err(Error::Exhausted)) => (),   // nothing to transmit
+                (Err(err), _) | (_, Err(err)) => {
+                    net_debug!("cannot dispatch egress packet: {}", err);
+                    return Err(err)
                 }
+                (Ok(()), Ok(())) => ()
             }
         }
 
