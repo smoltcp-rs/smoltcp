@@ -1375,7 +1375,7 @@ impl<'a> TcpSocket<'a> {
                     (Some(remote_last_ts), Some(timeout))
                             if !self.tx_buffer.is_empty() =>
                         Some(remote_last_ts + timeout),
-                    (None, Some(timeout)) =>
+                    (None, Some(_timeout)) =>
                         Some(0),
                     (_, _) =>
                         None

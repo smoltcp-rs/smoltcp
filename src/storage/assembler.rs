@@ -152,7 +152,7 @@ impl Assembler {
         while index != self.contigs.len() && size != 0 {
             let contig = self.contigs[index];
 
-            if let Some(new_offset) = offset.checked_sub(contig.total_size()) {
+            if offset >= contig.total_size() {
                 // The range being added does not cover this contig, skip it.
                 index += 1;
             } else if offset == 0 && size >= contig.hole_size && index > 0 {
