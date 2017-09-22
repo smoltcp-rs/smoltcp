@@ -627,15 +627,14 @@ impl<'a> TcpSocket<'a> {
         // another (stale) SYN.
         if !self.may_recv() { return Err(Error::Illegal) }
 
-        #[cfg(any(test, feature = "verbose"))]
-        let old_length = self.rx_buffer.len();
+        let _old_length = self.rx_buffer.len();
         let buffer = self.rx_buffer.dequeue_many(size);
         self.remote_seq_no += buffer.len();
         if buffer.len() > 0 {
             #[cfg(any(test, feature = "verbose"))]
             net_trace!("[{}]{}:{}: rx buffer: dequeueing {} octets (now {})",
                        self.debug_id, self.local_endpoint, self.remote_endpoint,
-                       buffer.len(), old_length - buffer.len());
+                       buffer.len(), _old_length - buffer.len());
         }
         Ok(buffer)
     }
@@ -650,14 +649,14 @@ impl<'a> TcpSocket<'a> {
         // See recv() above.
         if !self.may_recv() { return Err(Error::Illegal) }
 
-        let old_length = self.rx_buffer.len();
+        let _old_length = self.rx_buffer.len();
         let dequeued = self.rx_buffer.dequeue_slice(data);
         self.remote_seq_no += dequeued;
         if dequeued > 0 {
             #[cfg(any(test, feature = "verbose"))]
             net_trace!("[{}]{}:{}: rx buffer: dequeueing {} octets (now {})",
                        self.debug_id, self.local_endpoint, self.remote_endpoint,
-                       dequeued, old_length - dequeued);
+                       dequeued, _old_length - dequeued);
         }
         Ok(dequeued)
     }
