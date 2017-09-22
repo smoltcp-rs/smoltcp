@@ -57,19 +57,19 @@ The TCP protocol is supported over IPv4. Server and client sockets are supported
   * Header checksum is generated and validated.
   * Maximum segment size is negotiated.
   * Multiple packets are transmitted without waiting for an acknowledgement.
-  * Reassembly of out-of-order segments is supported, with no more than 4 missing sequence ranges.
-  * Lost packets are retransmitted with exponential backoff, starting at a fixed delay of 100 ms.
-  * Sending keep-alive packets is supported, with a configurable interval.
-  * Connection, retransmission and keep-alive timeouts are supported, with a configurable duration.
-  * After arriving at the TIME-WAIT state, sockets close after a fixed delay of 10 s.
-  * Urgent pointer is **not** supported; any urgent octets will be received alongside data octets.
-  * Silly window syndrome avoidance is **not** supported for either transmission or reception.
-  * Congestion control is **not** implemented.
-  * Delayed acknowledgements are **not** implemented.
-  * Nagle's algorithm is **not** implemented.
+  * Reassembly of out-of-order segments is supported, with no more than 4 gaps in sequence space.
+  * Keep-alive packets may be sent at a configurable interval.
+  * Retransmission timeout starts at a fixed interval of 100 ms and doubles every time.
+  * Time-wait timeout has a fixed interval of 10 s.
+  * User timeout has a configurable interval.
   * Window scaling is **not** supported, and the maximum buffer size is 65536.
-  * Timestamping (used in round-trip time measurement and protection against wrapped sequences)
-    is **not** supported.
+  * Selective acknowledgements are **not** implemented.
+  * Delayed acknowledgements are **not** implemented.
+  * Silly window syndrome avoidance is **not** implemented.
+  * Nagle's algorithm is **not** implemented.
+  * Congestion control is **not** implemented.
+  * Timestamping is **not** supported.
+  * Urgent pointer is **ignored**.
 
 ## Installation
 
