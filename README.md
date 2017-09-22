@@ -77,7 +77,7 @@ To use the _smoltcp_ library in your project, add the following to `Cargo.toml`:
 
 ```toml
 [dependencies]
-smoltcp = "0.3"
+smoltcp = "0.4"
 ```
 
 The default configuration assumes a hosted environment, for ease of evaluation.
@@ -85,7 +85,7 @@ You probably want to disable default features and configure them one by one:
 
 ```toml
 [dependencies]
-smoltcp = { version = "0.3", default-features = false, features = ["..."] }
+smoltcp = { version = "0.4", default-features = false, features = ["log"] }
 ```
 
 ### Feature `std`
