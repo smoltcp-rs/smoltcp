@@ -1082,7 +1082,7 @@ impl<'a> TcpSocket<'a> {
             net_trace!("[{}]{}:{}: tx buffer: dequeueing {} octets (now {})",
                        self.debug_id, self.local_endpoint, self.remote_endpoint,
                        ack_len, self.tx_buffer.len() - ack_len);
-            self.tx_buffer.dequeue_many(ack_len);
+            self.tx_buffer.dequeue_allocated(ack_len);
         }
 
         if let Some(ack_number) = repr.ack_number {
@@ -1102,8 +1102,7 @@ impl<'a> TcpSocket<'a> {
                 net_trace!("[{}]{}:{}: rx buffer: writing {} octets at offset {}",
                            self.debug_id, self.local_endpoint, self.remote_endpoint,
                            payload_len, payload_offset);
-                self.rx_buffer.get_unallocated(payload_offset, payload_len)
-                              .copy_from_slice(repr.payload);
+                self.rx_buffer.write_unallocated(payload_offset, repr.payload);
             }
             Err(()) => {
                 net_debug!("[{}]{}:{}: assembler: too many holes to add {} octets at offset {}",
@@ -1119,7 +1118,7 @@ impl<'a> TcpSocket<'a> {
             net_trace!("[{}]{}:{}: rx buffer: enqueueing {} octets (now {})",
                        self.debug_id, self.local_endpoint, self.remote_endpoint,
                        contig_len, self.rx_buffer.len() + contig_len);
-            self.rx_buffer.enqueue_many(contig_len);
+            self.rx_buffer.enqueue_unallocated(contig_len);
         }
 
         if self.assembler.is_empty() {
@@ -3291,6 +3290,29 @@ mod test {
             ..RECV_TEMPL
         }]);
         assert_eq!(s.recv(10), Ok(&b"abcdef"[..]));
+    }
+
+    #[test]
+    fn test_buffer_wraparound() {
+        let mut s = socket_established();
+        s.rx_buffer = SocketBuffer::new(vec![0; 6]);
+        s.assembler = Assembler::new(s.rx_buffer.capacity());
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            payload:    &b"abc"[..],
+            ..SEND_TEMPL
+        });
+        assert_eq!(s.recv(3), Ok(&b"abc"[..]));
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1 + 3,
+            ack_number: Some(LOCAL_SEQ + 1),
+            payload:    &b"defghi"[..],
+            ..SEND_TEMPL
+        });
+        let mut data = [0; 6];
+        assert_eq!(s.recv_slice(&mut data[..]), Ok(6));
+        assert_eq!(data, &b"defghi"[..]);
     }
 
     // =========================================================================================//
