@@ -104,12 +104,7 @@ These features are enabled by default.
 ### Feature `alloc`
 
 The `alloc` feature enables use of objects owned by the networking stack through a dependency
-on `alloc::boxed::Box`. This only works on nightly rustc.
-
-### Feature `collections`
-
-The `collections` feature enables use of slices owned by the networking stack through a dependency
-on `collections::vec::Vec`. This only works on nightly rustc.
+on collections from the `alloc` crate. This only works on nightly rustc.
 
 ### Feature `log`
 
