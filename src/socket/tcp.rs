@@ -1094,6 +1094,8 @@ impl<'a> TcpSocket<'a> {
         let payload_len = repr.payload.len();
         if payload_len == 0 { return Ok(None) }
 
+        let assembler_was_empty = self.assembler.is_empty();
+
         // Try adding payload octets to the assembler.
         match self.assembler.add(payload_offset, payload_len) {
             Ok(()) => {
@@ -1121,17 +1123,24 @@ impl<'a> TcpSocket<'a> {
             self.rx_buffer.enqueue_unallocated(contig_len);
         }
 
-        // Per RFC 5681, we should send an immediate ACK when either:
-        //  1) an out-of-order segment is received, or
-        //  2) a segment arrives that fills in all or part of a gap in sequence space.
-        if self.assembler.is_empty() {
-            Ok(None)
-        } else {
-            // The assembler isn't empty, so there's at least one gap.
+        if !self.assembler.is_empty() {
+            // Print the ranges recorded in the assembler.
             net_trace!("[{}]{}:{}: assembler: {}",
                        self.debug_id, self.local_endpoint, self.remote_endpoint,
                        self.assembler);
+        }
+
+        // Per RFC 5681, we should send an immediate ACK when either:
+        //  1) an out-of-order segment is received, or
+        //  2) a segment arrives that fills in all or part of a gap in sequence space.
+        if !self.assembler.is_empty() || !assembler_was_empty {
+            // Note that we change the transmitter state here.
+            // This is fine because smoltcp assumes that it can always transmit zero or one
+            // packets for every packet it receives.
+            self.remote_last_ack = Some(self.remote_seq_no + self.rx_buffer.len());
             Ok(Some(self.ack_reply(ip_repr, &repr)))
+        } else {
+            Ok(None)
         }
     }
 
@@ -3270,13 +3279,12 @@ mod test {
             ack_number: Some(LOCAL_SEQ + 1),
             payload:    &b"abcdef"[..],
             ..SEND_TEMPL
-        });
-        recv!(s, [TcpRepr {
+        }, Ok(Some(TcpRepr {
             seq_number: LOCAL_SEQ + 1,
             ack_number: Some(REMOTE_SEQ + 1 + 6),
             window_len: 58,
             ..RECV_TEMPL
-        }]);
+        })));
         assert_eq!(s.recv(10), Ok(&b"abcdef"[..]));
     }
 
