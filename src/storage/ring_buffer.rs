@@ -230,9 +230,6 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
 
 /// This is the "random access" ring buffer interface: it operates with element slices,
 /// and allows to access elements of the buffer that are not adjacent to its head or tail.
-///
-/// After calling these functions to inject or extract elements, one would normally
-/// use the `enqueue_many` or `dequeue_many` methods to adjust the head or tail.
 impl<'a, T: 'a> RingBuffer<'a, T> {
     /// Return the largest contiguous slice of unallocated buffer elements starting
     /// at the given offset past the last allocated element, and up to the given size.
@@ -270,6 +267,15 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
         size_1 + size_2
     }
 
+    /// Enqueue the given number of unallocated buffer elements.
+    ///
+    /// # Panics
+    /// Panics if the number of elements given exceeds the number of unallocated elements.
+    pub fn enqueue_unallocated(&mut self, count: usize) {
+        assert!(count <= self.window());
+        self.length += count;
+    }
+
     /// Return the largest contiguous slice of allocated buffer elements starting
     /// at the given offset past the first allocated element, and up to the given size.
     pub fn get_allocated(&self, offset: usize, mut size: usize) -> &[T] {
@@ -302,6 +308,16 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
             slice.len()
         };
         size_1 + size_2
+    }
+
+    /// Dequeue the given number of allocated buffer elements.
+    ///
+    /// # Panics
+    /// Panics if the number of elements given exceeds the number of allocated elements.
+    pub fn dequeue_allocated(&mut self, count: usize) {
+        assert!(count <= self.len());
+        self.length -= count;
+        self.read_at = (self.read_at + count) % self.capacity();
     }
 }
 
