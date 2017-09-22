@@ -70,7 +70,6 @@ The TCP protocol is supported over IPv4. Server and client sockets are supported
   * Window scaling is **not** supported, and the maximum buffer size is 65536.
   * Timestamping (used in round-trip time measurement and protection against wrapped sequences)
     is **not** supported.
-  * Fast open is **not** supported when smoltcp initiates connection.
 
 ## Installation
 
