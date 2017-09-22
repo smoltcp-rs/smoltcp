@@ -1,3 +1,6 @@
+// Uncomment the #[must_use]s here once [RFC 1940] hits stable.
+// [RFC 1940]: https://github.com/rust-lang/rust/issues/43302
+
 use core::cmp;
 use managed::ManagedSlice;
 
@@ -157,6 +160,7 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
     ///
     /// This function may return a slice smaller than the given size
     /// if the free space in the buffer is not contiguous.
+    // #[must_use]
     pub fn enqueue_many<'b>(&'b mut self, size: usize) -> &'b mut [T] {
         self.enqueue_many_with(|buf| {
             let size = cmp::min(size, buf.len());
@@ -166,6 +170,7 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
 
     /// Enqueue as many elements from the given slice into the buffer as possible,
     /// and return the amount of elements that could fit.
+    // #[must_use]
     pub fn enqueue_slice(&mut self, data: &[T]) -> usize
             where T: Copy {
         let (size_1, data) = self.enqueue_many_with(|buf| {
@@ -203,6 +208,7 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
     ///
     /// This function may return a slice smaller than the given size
     /// if the allocated space in the buffer is not contiguous.
+    // #[must_use]
     pub fn dequeue_many<'b>(&'b mut self, size: usize) -> &'b mut [T] {
         self.dequeue_many_with(|buf| {
             let size = cmp::min(size, buf.len());
@@ -212,6 +218,7 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
 
     /// Dequeue as many elements from the buffer into the given slice as possible,
     /// and return the amount of elements that could fit.
+    // #[must_use]
     pub fn dequeue_slice(&mut self, data: &mut [T]) -> usize
             where T: Copy {
         let (size_1, data) = self.dequeue_many_with(|buf| {
@@ -233,6 +240,7 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
 impl<'a, T: 'a> RingBuffer<'a, T> {
     /// Return the largest contiguous slice of unallocated buffer elements starting
     /// at the given offset past the last allocated element, and up to the given size.
+    // #[must_use]
     pub fn get_unallocated(&mut self, offset: usize, mut size: usize) -> &mut [T] {
         let start_at = (self.read_at + self.length + offset) % self.capacity();
         // We can't access past the end of unallocated data.
@@ -250,6 +258,7 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
     /// Write as many elements from the given slice into unallocated buffer elements
     /// starting at the given offset past the last allocated element, and return
     /// the amount written.
+    // #[must_use]
     pub fn write_unallocated(&mut self, offset: usize, data: &[T]) -> usize
             where T: Copy {
         let (size_1, offset, data) = {
@@ -278,6 +287,7 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
 
     /// Return the largest contiguous slice of allocated buffer elements starting
     /// at the given offset past the first allocated element, and up to the given size.
+    // #[must_use]
     pub fn get_allocated(&self, offset: usize, mut size: usize) -> &[T] {
         let start_at = (self.read_at + offset) % self.capacity();
         // We can't read past the end of the allocated data.
@@ -295,6 +305,7 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
     /// Read as many elements from allocated buffer elements into the given slice
     /// starting at the given offset past the first allocated element, and return
     /// the amount read.
+    // #[must_use]
     pub fn read_allocated(&mut self, offset: usize, data: &mut [T]) -> usize
             where T: Copy {
         let (size_1, offset, data) = {
