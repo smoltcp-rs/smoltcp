@@ -237,6 +237,17 @@ impl IpRepr {
         }
     }
 
+    /// Set the payload length.
+    pub fn set_payload_len(&mut self, length: usize) {
+        match self {
+            &mut IpRepr::Unspecified { ref mut payload_len, .. } =>
+                *payload_len = length,
+            &mut IpRepr::Ipv4(Ipv4Repr { ref mut payload_len, .. }) =>
+                *payload_len = length,
+            &mut IpRepr::__Nonexhaustive => unreachable!()
+        }
+    }
+
     /// Convert an unspecified representation into a concrete one, or return
     /// `Err(Error::Unaddressable)` if not possible.
     ///

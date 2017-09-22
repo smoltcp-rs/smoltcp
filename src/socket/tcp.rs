@@ -756,11 +756,10 @@ impl<'a> TcpSocket<'a> {
         (ip_reply_repr, reply_repr)
     }
 
-    pub(crate) fn ack_reply(&self, ip_repr: &IpRepr, repr: &TcpRepr) ->
-                           (IpRepr, TcpRepr<'static>) {
+    fn ack_reply(&self, ip_repr: &IpRepr, repr: &TcpRepr) -> (IpRepr, TcpRepr<'static>) {
         let (ip_reply_repr, mut reply_repr) = Self::reply(ip_repr, repr);
 
-        // From RFC793:
+        // From RFC 793:
         // [...] an empty acknowledgment segment containing the current send-sequence number
         // and an acknowledgment indicating the next sequence number expected
         // to be received.
@@ -1338,6 +1337,7 @@ impl<'a> TcpSocket<'a> {
             repr.max_seg_size = Some(max_segment_size as u16);
         }
 
+        ip_repr.set_payload_len(repr.buffer_len());
         emit((ip_repr, repr))?;
 
         // We've sent something, whether useful data or a keep-alive packet, so rewind
@@ -1481,6 +1481,7 @@ mod test {
             assert_eq!(ip_repr.protocol(), IpProtocol::Tcp);
             assert_eq!(ip_repr.src_addr(), LOCAL_IP);
             assert_eq!(ip_repr.dst_addr(), REMOTE_IP);
+            assert_eq!(ip_repr.payload_len(), tcp_repr.buffer_len());
 
             trace!("recv: {}", tcp_repr);
             Ok(f(Ok(tcp_repr)))
