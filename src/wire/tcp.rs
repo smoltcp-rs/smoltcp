@@ -617,6 +617,14 @@ impl Control {
             _ => 0
         }
     }
+
+    /// Turn the PSH flag into no flag, and keep the rest as-is.
+    pub fn quash_psh(self) -> Control {
+        match self {
+            Control::Psh => Control::None,
+            _ => self
+        }
+    }
 }
 
 /// A high-level representation of a Transmission Control Protocol packet.

@@ -939,16 +939,8 @@ impl<'a> TcpSocket<'a> {
             }
         }
 
-        // We don't care about the PSH flag.
-        let control =
-            if repr.control == TcpControl::Psh {
-                TcpControl::None
-            } else {
-                repr.control
-            };
-
         // Validate and update the state.
-        match (self.state, control) {
+        match (self.state, repr.control.quash_psh()) {
             // RSTs are not accepted in the LISTEN state.
             (State::Listen, TcpControl::Rst) =>
                 return Err(Error::Dropped),
@@ -1493,9 +1485,7 @@ mod test {
             (recv(&mut $socket, $time, |result| {
                 // Most of the time we don't care about the PSH flag.
                 let result = result.map(|mut repr| {
-                    if repr.control == TcpControl::Psh {
-                        repr.control = TcpControl::None;
-                    }
+                    repr.control = repr.control.quash_psh();
                     repr
                 });
                 assert_eq!(result, $result)
