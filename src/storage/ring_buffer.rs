@@ -250,6 +250,26 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
         &mut self.storage[start_at..start_at + size]
     }
 
+    /// Write as many elements from the given slice into unallocated buffer elements
+    /// starting at the given offset past the last allocated element, and return
+    /// the amount written.
+    pub fn write_unallocated(&mut self, offset: usize, data: &[T]) -> usize
+            where T: Copy {
+        let (size_1, offset, data) = {
+            let slice = self.get_unallocated(offset, data.len());
+            let slice_len = slice.len();
+            slice.copy_from_slice(&data[..slice_len]);
+            (slice_len, offset + slice_len, &data[slice_len..])
+        };
+        let size_2 = {
+            let slice = self.get_unallocated(offset, data.len());
+            let slice_len = slice.len();
+            slice.copy_from_slice(&data[..slice_len]);
+            slice_len
+        };
+        size_1 + size_2
+    }
+
     /// Return the largest contiguous slice of allocated buffer elements starting
     /// at the given offset past the first allocated element, and up to the given size.
     pub fn get_allocated(&self, offset: usize, mut size: usize) -> &[T] {
@@ -264,6 +284,24 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
         if size > until_end { size = until_end }
 
         &self.storage[start_at..start_at + size]
+    }
+
+    /// Read as many elements from allocated buffer elements into the given slice
+    /// starting at the given offset past the first allocated element, and return
+    /// the amount read.
+    pub fn read_allocated(&mut self, offset: usize, data: &mut [T]) -> usize
+            where T: Copy {
+        let (size_1, offset, data) = {
+            let slice = self.get_allocated(offset, data.len());
+            data[..slice.len()].copy_from_slice(slice);
+            (slice.len(), offset + slice.len(), &mut data[slice.len()..])
+        };
+        let size_2 = {
+            let slice = self.get_allocated(offset, data.len());
+            data[..slice.len()].copy_from_slice(slice);
+            slice.len()
+        };
+        size_1 + size_2
     }
 }
 
@@ -561,6 +599,22 @@ mod test {
     }
 
     #[test]
+    fn test_buffer_write_unallocated() {
+        let mut ring = RingBuffer::new(vec![b'.'; 12]);
+        ring.enqueue_many(6).copy_from_slice(b"abcdef");
+        ring.dequeue_many(6).copy_from_slice(b"ABCDEF");
+
+        assert_eq!(ring.write_unallocated(0, b"ghi"), 3);
+        assert_eq!(&ring.storage[..], b"ABCDEFghi...");
+
+        assert_eq!(ring.write_unallocated(3, b"jklmno"), 6);
+        assert_eq!(&ring.storage[..], b"mnoDEFghijkl");
+
+        assert_eq!(ring.write_unallocated(9, b"pqrstu"), 3);
+        assert_eq!(&ring.storage[..], b"mnopqrghijkl");
+    }
+
+    #[test]
     fn test_buffer_get_allocated() {
         let mut ring = RingBuffer::new(vec![b'.'; 12]);;
 
@@ -576,5 +630,27 @@ mod test {
 
         ring.enqueue_slice(b"abcd");
         assert_eq!(ring.get_allocated(4, 8), b"ijkl");
+    }
+
+    #[test]
+    fn test_buffer_read_allocated() {
+        let mut ring = RingBuffer::new(vec![b'.'; 12]);
+        ring.enqueue_many(12).copy_from_slice(b"abcdefghijkl");
+
+        let mut data = [0; 6];
+        assert_eq!(ring.read_allocated(0, &mut data[..]), 6);
+        assert_eq!(&data[..], b"abcdef");
+
+        ring.dequeue_many(6).copy_from_slice(b"ABCDEF");
+        ring.enqueue_many(3).copy_from_slice(b"mno");
+
+        let mut data = [0; 6];
+        assert_eq!(ring.read_allocated(3, &mut data[..]), 6);
+        assert_eq!(&data[..], b"jklmno");
+
+        let mut data = [0; 6];
+        assert_eq!(ring.read_allocated(6, &mut data[..]), 3);
+        assert_eq!(&data[..], b"mno\x00\x00\x00");
+
     }
 }
