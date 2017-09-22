@@ -1172,6 +1172,17 @@ impl<'a> TcpSocket<'a> {
             }
         }
 
+        // Construct the lowered IP representation.
+        // We might need this to calculate the MSS, so do it early.
+        let mut ip_repr = IpRepr::Unspecified {
+            src_addr:     self.local_endpoint.addr,
+            dst_addr:     self.remote_endpoint.addr,
+            protocol:     IpProtocol::Tcp,
+            payload_len:  0
+        }.lower(&[])?;
+
+        // Construct the basic TCP representation, an empty ACK packet.
+        // We'll adjust this to be more specific as needed.
         let mut repr = TcpRepr {
             src_port:     self.local_endpoint.port,
             dst_port:     self.remote_endpoint.port,
@@ -1290,33 +1301,21 @@ impl<'a> TcpSocket<'a> {
             is_keep_alive = false;
         }
 
-        // Remember the header length before enabling the MSS option, since that option
-        // only affects SYN packets.
-        let header_len = repr.header_len();
-
         if repr.control == TcpControl::Syn {
-            // First enable the option, without assigning any value, to get a correct
-            // result for the payload_len field of ip_repr below.
-            repr.max_seg_size = Some(0);
-        }
-
-        // Then, construct the IP representation, since we know the final length
-        // of the TCP header.
-        let ip_repr = IpRepr::Unspecified {
-            src_addr:     self.local_endpoint.addr,
-            dst_addr:     self.remote_endpoint.addr,
-            protocol:     IpProtocol::Tcp,
-            payload_len:  repr.buffer_len()
-        }.lower(&[])?;
-
-        // Finally, compute the maximum segment size, deriving it from from the underlying
-        // maximum transmission unit and the header sizes we just determined.
-        let mut max_segment_size = limits.max_transmission_unit;
-        max_segment_size -= header_len;
-        max_segment_size -= ip_repr.buffer_len();
-
-        if repr.control == TcpControl::Syn {
-            // And fill in the actual option, if it's a SYN packet.
+            // Compute the maximum segment size, deriving it from from the underlying
+            // maximum transmission unit and the IP and TCP header sizes.
+            //
+            // Note that what we actually *want* is for the other party to limit
+            // the total length of the TCP segment, but what we *get* is limiting
+            // the amount of data in the TCP segment. As a result, if they interpret
+            // the requirement naively and send us a TCP packet with both some options
+            // and an MSS-sized payload, that packet's last few bytes will get split
+            // into a tiny fragment.
+            //
+            // TCP is not a well-designed protocol.
+            let mut max_segment_size = limits.max_transmission_unit;
+            max_segment_size -= ip_repr.buffer_len();
+            max_segment_size -= repr.header_len();
             repr.max_seg_size = Some(max_segment_size as u16);
         }
 
