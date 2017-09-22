@@ -57,12 +57,12 @@ The TCP protocol is supported over IPv4. Server and client sockets are supported
   * Header checksum is generated and validated.
   * Maximum segment size is negotiated.
   * Multiple packets are transmitted without waiting for an acknowledgement.
+  * Reassembly of out-of-order segments is supported, with no more than 4 missing sequence ranges.
   * Lost packets are retransmitted with exponential backoff, starting at a fixed delay of 100 ms.
   * Sending keep-alive packets is supported, with a configurable interval.
   * Connection, retransmission and keep-alive timeouts are supported, with a configurable duration.
   * After arriving at the TIME-WAIT state, sockets close after a fixed delay of 10 s.
   * Urgent pointer is **not** supported; any urgent octets will be received alongside data octets.
-  * Reassembly of out-of-order segments is **not** supported.
   * Silly window syndrome avoidance is **not** supported for either transmission or reception.
   * Congestion control is **not** implemented.
   * Delayed acknowledgements are **not** implemented.

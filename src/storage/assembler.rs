@@ -3,14 +3,15 @@ use core::fmt;
 /// A contiguous chunk of absent data, followed by a contiguous chunk of present data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Contig {
-    hole_size: u32,
-    data_size: u32
+    hole_size: usize,
+    data_size: usize
 }
 
 impl fmt::Display for Contig {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if self.has_hole() { write!(f, "({})", self.hole_size)?; }
-        if self.has_data() { write!(f, " {}",  self.data_size)?; }
+        if self.has_hole() && self.has_data() { write!(f, " ")?; }
+        if self.has_data() { write!(f, "{}",   self.data_size)?; }
         Ok(())
     }
 }
@@ -20,11 +21,11 @@ impl Contig {
         Contig { hole_size: 0, data_size: 0 }
     }
 
-    fn hole(size: u32) -> Contig {
+    fn hole(size: usize) -> Contig {
         Contig { hole_size: size, data_size: 0 }
     }
 
-    fn hole_and_data(hole_size: u32, data_size: u32) -> Contig {
+    fn hole_and_data(hole_size: usize, data_size: usize) -> Contig {
         Contig { hole_size, data_size }
     }
 
@@ -36,7 +37,7 @@ impl Contig {
         self.data_size != 0
     }
 
-    fn total_size(&self) -> u32 {
+    fn total_size(&self) -> usize {
         self.hole_size + self.data_size
     }
 
@@ -44,15 +45,15 @@ impl Contig {
         self.total_size() == 0
     }
 
-    fn expand_data_by(&mut self, size: u32) {
+    fn expand_data_by(&mut self, size: usize) {
         self.data_size += size;
     }
 
-    fn shrink_hole_by(&mut self, size: u32) {
+    fn shrink_hole_by(&mut self, size: usize) {
         self.hole_size -= size;
     }
 
-    fn shrink_hole_to(&mut self, size: u32) {
+    fn shrink_hole_to(&mut self, size: usize) {
         assert!(self.hole_size >= size);
 
         let total_size = self.total_size();
@@ -86,13 +87,13 @@ impl fmt::Display for Assembler {
 
 impl Assembler {
     /// Create a new buffer assembler for buffers of the given size.
-    pub fn new(size: u32) -> Assembler {
+    pub fn new(size: usize) -> Assembler {
         let mut contigs = [Contig::empty(); CONTIG_COUNT];
         contigs[0] = Contig::hole(size);
         Assembler { contigs }
     }
 
-    pub(crate) fn total_size(&self) -> u32 {
+    pub(crate) fn total_size(&self) -> usize {
         self.contigs
             .iter()
             .map(|contig| contig.total_size())
@@ -107,13 +108,20 @@ impl Assembler {
         self.contigs[self.contigs.len() - 1]
     }
 
-    /// Remove a contig at the given index, and return a pointer to the the first empty contig.
+    /// Return whether the assembler contains no data.
+    pub fn is_empty(&self) -> bool {
+        !self.front().has_data()
+    }
+
+    /// Remove a contig at the given index, and return a pointer to the first contig
+    /// without data.
     fn remove_contig_at(&mut self, at: usize) -> &mut Contig {
         debug_assert!(!self.contigs[at].is_empty());
 
         for i in at..self.contigs.len() - 1 {
             self.contigs[i] = self.contigs[i + 1];
-            if self.contigs[i].is_empty() {
+            if !self.contigs[i].has_data() {
+                self.contigs[i + 1] = Contig::empty();
                 return &mut self.contigs[i]
             }
         }
@@ -139,7 +147,7 @@ impl Assembler {
 
     /// Add a new contiguous range to the assembler, and return `Ok(())`,
     /// or return `Err(())` if too many discontiguities are already recorded.
-    pub fn add(&mut self, mut offset: u32, mut size: u32) -> Result<(), ()> {
+    pub fn add(&mut self, mut offset: usize, mut size: usize) -> Result<(), ()> {
         let mut index = 0;
         while index != self.contigs.len() && size != 0 {
             let contig = self.contigs[index];
@@ -172,8 +180,8 @@ impl Assembler {
                 // The range being added covers a part of the hole but not of the data
                 // in this contig, add a new contig containing the range.
                 self.contigs[index].shrink_hole_by(offset + size);
-                let empty = self.add_contig_at(index)?;
-                *empty = Contig::hole_and_data(offset, size);
+                let inserted = self.add_contig_at(index)?;
+                *inserted = Contig::hole_and_data(offset, size);
                 index += 2;
             } else {
                 unreachable!()
@@ -192,30 +200,18 @@ impl Assembler {
         Ok(())
     }
 
-    /// Return `Ok(size)` with the size of a contiguous range in the front of the assembler,
-    /// or return `Err(())` if there is no such range.
-    pub fn front_len(&self) -> u32 {
+    /// Remove a contiguous range from the front of the assembler and `Some(data_size)`,
+    /// or return `None` if there is no such range.
+    pub fn remove_front(&mut self) -> Option<usize> {
         let front = self.front();
         if front.has_hole() {
-            0
+            None
         } else {
-            debug_assert!(front.data_size > 0);
-            front.data_size
-        }
-    }
-
-    /// Remove a contiguous range from the front of the assembler and `Ok(data_size)`,
-    /// or return `Err(())` if there is no such range.
-    pub fn front_remove(&mut self) -> u32 {
-        let front = self.front();
-        if front.has_hole() {
-            0
-        } else {
-            let empty = self.remove_contig_at(0);
-            *empty = Contig::hole(front.data_size);
+            let last_hole = self.remove_contig_at(0);
+            last_hole.hole_size += front.data_size;
 
             debug_assert!(front.data_size > 0);
-            front.data_size
+            Some(front.data_size)
         }
     }
 }
@@ -225,8 +221,8 @@ mod test {
     use std::vec::Vec;
     use super::*;
 
-    impl From<Vec<(u32, u32)>> for Assembler {
-        fn from(vec: Vec<(u32, u32)>) -> Assembler {
+    impl From<Vec<(usize, usize)>> for Assembler {
+        fn from(vec: Vec<(usize, usize)>) -> Assembler {
             let mut contigs = [Contig::empty(); CONTIG_COUNT];
             for (i, &(hole_size, data_size)) in vec.iter().enumerate() {
                 contigs[i] = Contig { hole_size, data_size };
@@ -330,5 +326,25 @@ mod test {
         let mut assr = contigs![(4, 8), (4, 0)];
         assert_eq!(assr.add(2, 12), Ok(()));
         assert_eq!(assr, contigs![(2, 12), (2, 0)]);
+    }
+
+    #[test]
+    fn test_empty_remove_front() {
+        let mut assr = contigs![(12, 0)];
+        assert_eq!(assr.remove_front(), None);
+    }
+
+    #[test]
+    fn test_trailing_hole_remove_front() {
+        let mut assr = contigs![(0, 4), (8, 0)];
+        assert_eq!(assr.remove_front(), Some(4));
+        assert_eq!(assr, contigs![(12, 0)]);
+    }
+
+    #[test]
+    fn test_trailing_data_remove_front() {
+        let mut assr = contigs![(0, 4), (4, 4)];
+        assert_eq!(assr.remove_front(), Some(4));
+        assert_eq!(assr, contigs![(4, 4), (4, 0)]);
     }
 }
