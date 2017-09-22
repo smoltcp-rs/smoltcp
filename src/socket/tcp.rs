@@ -1,5 +1,6 @@
 // Heads up! Before working on this file you should read, at least, RFC 793 and
-// the parts of RFC 1122 that discuss TCP.
+// the parts of RFC 1122 that discuss TCP. Consult RFC 7414 when implementing
+// a new feature.
 
 use core::{cmp, fmt};
 
@@ -1120,15 +1121,13 @@ impl<'a> TcpSocket<'a> {
             self.rx_buffer.enqueue_unallocated(contig_len);
         }
 
+        // Per RFC 5681, we should send an immediate ACK when either:
+        //  1) an out-of-order segment is received, or
+        //  2) a segment arrives that fills in all or part of a gap in sequence space.
         if self.assembler.is_empty() {
             Ok(None)
         } else {
-            // If the assembler isn't empty, some segments at the start of our window got lost.
-            // Send a reply acknowledging the data we already have; RFC 793 does not specify
-            // the behavior triggerd by such a reply, but RFC 1122 section 4.2.2.21 states that
-            // most congestion control algorithms implement what's called a "fast retransmit",
-            // where a threshold amount of duplicate ACKs triggers retransmission without
-            // the need to wait for a timeout to expire.
+            // The assembler isn't empty, so there's at least one gap.
             net_trace!("[{}]{}:{}: assembler: {}",
                        self.debug_id, self.local_endpoint, self.remote_endpoint,
                        self.assembler);
@@ -1318,17 +1317,7 @@ impl<'a> TcpSocket<'a> {
         }
 
         if repr.control == TcpControl::Syn {
-            // Compute the maximum segment size, deriving it from from the underlying
-            // maximum transmission unit and the IP and TCP header sizes.
-            //
-            // Note that what we actually *want* is for the other party to limit
-            // the total length of the TCP segment, but what we *get* is limiting
-            // the amount of data in the TCP segment. As a result, if they interpret
-            // the requirement naively and send us a TCP packet with both some options
-            // and an MSS-sized payload, that packet's last few bytes will get split
-            // into a tiny fragment.
-            //
-            // TCP is not a well-designed protocol.
+            // See RFC 6691 for an explanation of this calculation.
             let mut max_segment_size = limits.max_transmission_unit;
             max_segment_size -= ip_repr.buffer_len();
             max_segment_size -= repr.header_len();
