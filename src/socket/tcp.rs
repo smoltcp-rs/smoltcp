@@ -280,8 +280,7 @@ impl<'a> TcpSocket<'a> {
     ///   * After enabling [keep-alive](#method.set_keep_alive), the remote endpoint exceeds
     ///     the specified duration between any two packets it sends.
     pub fn set_timeout(&mut self, duration: Option<u64>) {
-        self.timeout = duration;
-        self.remote_last_ts = None;
+        self.timeout = duration
     }
 
     /// Return the keep-alive interval.
