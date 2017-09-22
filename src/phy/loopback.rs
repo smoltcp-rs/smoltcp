@@ -8,8 +8,8 @@ use alloc::rc::Rc;
 use std::vec::Vec;
 #[cfg(feature = "std")]
 use std::collections::VecDeque;
-#[cfg(feature = "collections")]
-use collections::{Vec, VecDeque};
+#[cfg(feature = "alloc")]
+use alloc::{Vec, VecDeque};
 
 use {Error, Result};
 use super::{Device, DeviceLimits};

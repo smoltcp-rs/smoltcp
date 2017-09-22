@@ -112,7 +112,7 @@ mod sys;
 mod tracer;
 mod fault_injector;
 mod pcap_writer;
-#[cfg(any(feature = "std", feature = "collections"))]
+#[cfg(any(feature = "std", feature = "alloc"))]
 mod loopback;
 #[cfg(feature = "raw_socket")]
 mod raw_socket;
@@ -125,7 +125,7 @@ pub use self::sys::wait;
 pub use self::tracer::Tracer;
 pub use self::fault_injector::FaultInjector;
 pub use self::pcap_writer::{PcapLinkType, PcapMode, PcapSink, PcapWriter};
-#[cfg(any(feature = "std", feature = "collections"))]
+#[cfg(any(feature = "std", feature = "alloc"))]
 pub use self::loopback::Loopback;
 #[cfg(any(feature = "raw_socket"))]
 pub use self::raw_socket::RawSocket;
