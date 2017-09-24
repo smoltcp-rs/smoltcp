@@ -147,12 +147,7 @@ fn main() {
         let timestamp = utils::millis_since(startup_time);
 
         let poll_at = iface.poll(&mut sockets, timestamp).expect("poll error");
-        let mut resume_at = Some(send_at);
-        if let Some(poll_at) = poll_at {
-            resume_at = resume_at.map(|at| cmp::min(at, poll_at))
-        }
-
-        debug!("waiting until {:?} ms", resume_at);
+        let resume_at = [poll_at, Some(send_at)].iter().flat_map(|x| *x).min();
         phy_wait(fd, resume_at.map(|at| at.saturating_sub(timestamp))).expect("wait error");
     }
 

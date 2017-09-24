@@ -90,6 +90,6 @@ fn main() {
 
         let timestamp = utils::millis_since(startup_time);
         let poll_at = iface.poll(&mut sockets, timestamp).expect("poll error");
-        phy_wait(fd, poll_at).expect("wait error");
+        phy_wait(fd, poll_at.map(|at| at.saturating_sub(timestamp))).expect("wait error");
     }
 }
