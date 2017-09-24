@@ -473,7 +473,8 @@ impl<'a> TcpSocket<'a> {
     /// packets. Note that this does not mean that it is possible to send or receive data through
     /// the socket; for that, use [can_send](#method.can_send) or [can_recv](#method.can_recv).
     ///
-    /// In terms of the TCP state machine, the socket must be in the `CLOSED` or `TIME-WAIT` state.
+    /// In terms of the TCP state machine, the socket must not be in the `CLOSED`
+    /// or `TIME-WAIT` states.
     #[inline]
     pub fn is_open(&self) -> bool {
         match self.state {
