@@ -12,7 +12,10 @@ pub use super::IpProtocol as Protocol;
 pub struct Address(pub [u8; 4]);
 
 impl Address {
+    /// An unspecified address.
     pub const UNSPECIFIED: Address = Address([0x00; 4]);
+
+    /// The broadcast address.
     pub const BROADCAST:   Address = Address([0xff; 4]);
 
     /// Construct an IPv4 address from parts.
