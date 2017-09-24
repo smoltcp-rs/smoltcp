@@ -1104,7 +1104,7 @@ impl<'a> TcpSocket<'a> {
             Ok(()) => {
                 debug_assert!(self.assembler.total_size() == self.rx_buffer.capacity());
                 // Place payload octets into the buffer.
-                net_trace!("[{}]{}:{}: rx buffer: writing {} octets at offset {}",
+                net_trace!("[{}]{}:{}: rx buffer: receiving {} octets at offset {}",
                            self.debug_id, self.local_endpoint, self.remote_endpoint,
                            payload_len, payload_offset);
                 self.rx_buffer.write_unallocated(payload_offset, repr.payload);
@@ -1292,7 +1292,7 @@ impl<'a> TcpSocket<'a> {
                     match self.state {
                         State::FinWait1 | State::LastAck =>
                             repr.control = TcpControl::Fin,
-                        State::Established | State::CloseWait =>
+                        State::Established | State::CloseWait if repr.payload.len() > 0 =>
                             repr.control = TcpControl::Psh,
                         _ => ()
                     }
@@ -1318,11 +1318,29 @@ impl<'a> TcpSocket<'a> {
             }
         }
 
-        if repr.payload.len() > 0 {
-            net_trace!("[{}]{}:{}: tx buffer: reading {} octets at offset {}",
+        // There might be more than one reason to send a packet. E.g. the keep-alive timer
+        // has expired, and we also have data in transmit buffer. Since any packet that occupies
+        // sequence space will elicit an ACK, we only need to send an explicit packet if we
+        // couldn't fill the sequence space with anything.
+        let is_keep_alive;
+        if self.timer.should_keep_alive(timestamp) && repr.is_empty() {
+            repr.seq_number = repr.seq_number - 1;
+            repr.payload    = b"\x00"; // RFC 1122 says we should do this
+            is_keep_alive = true;
+        } else {
+            is_keep_alive = false;
+        }
+
+        // Trace a summary of what will be sent.
+        if is_keep_alive {
+            net_trace!("[{}]{}:{}: sending a keep-alive",
+                       self.debug_id, self.local_endpoint, self.remote_endpoint);
+        } else if repr.payload.len() > 0 {
+            net_trace!("[{}]{}:{}: tx buffer: sending {} octets at offset {}",
                        self.debug_id, self.local_endpoint, self.remote_endpoint,
                        repr.payload.len(), self.remote_last_seq - self.local_seq_no);
-        } else {
+        }
+        if repr.control != TcpControl::None || repr.payload.len() == 0 {
             let flags =
                 match (repr.control, repr.ack_number) {
                     (TcpControl::Syn,  None)    => "SYN",
@@ -1331,26 +1349,11 @@ impl<'a> TcpSocket<'a> {
                     (TcpControl::Rst,  Some(_)) => "RST|ACK",
                     (TcpControl::Psh,  Some(_)) => "PSH|ACK",
                     (TcpControl::None, Some(_)) => "ACK",
-                    _ => unreachable!()
+                    _ => "<unreachable>"
                 };
             net_trace!("[{}]{}:{}: sending {}",
                        self.debug_id, self.local_endpoint, self.remote_endpoint,
                        flags);
-        }
-
-        // There might be more than one reason to send a packet. E.g. the keep-alive timer
-        // has expired, and we also have data in transmit buffer. Since any packet that occupies
-        // sequence space will elicit an ACK, we only need to send an explicit packet if we
-        // couldn't fill the sequence space with anything.
-        let is_keep_alive;
-        if self.timer.should_keep_alive(timestamp) && repr.is_empty() {
-            net_trace!("[{}]{}:{}: sending a keep-alive",
-                       self.debug_id, self.local_endpoint, self.remote_endpoint);
-            repr.seq_number = repr.seq_number - 1;
-            repr.payload    = b"\x00"; // RFC 1122 says we should do this
-            is_keep_alive = true;
-        } else {
-            is_keep_alive = false;
         }
 
         if repr.control == TcpControl::Syn {
