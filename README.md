@@ -12,9 +12,8 @@ and compiles on stable Rust 1.19 and later.
 
 ## Features
 
-_smoltcp_ is missing many widely deployed features, whether by design or simply because
-no one implemented them yet. To set expectations right, both implemented and omitted
-features are listed.
+_smoltcp_ is missing many widely deployed features, usually because no one implemented them yet.
+To set expectations right, both implemented and omitted features are listed.
 
 ### Media layer
 
