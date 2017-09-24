@@ -6,14 +6,14 @@ use std::os::unix::io::RawFd;
 #[path = "linux.rs"]
 mod imp;
 
-#[cfg(feature = "raw_socket")]
+#[cfg(feature = "phy-raw_socket")]
 pub mod raw_socket;
-#[cfg(all(feature = "tap_interface", target_os = "linux"))]
+#[cfg(all(feature = "phy-tap_interface", target_os = "linux"))]
 pub mod tap_interface;
 
-#[cfg(feature = "raw_socket")]
+#[cfg(feature = "phy-raw_socket")]
 pub use self::raw_socket::RawSocketDesc;
-#[cfg(all(feature = "tap_interface", target_os = "linux"))]
+#[cfg(all(feature = "phy-tap_interface", target_os = "linux"))]
 pub use self::tap_interface::TapInterfaceDesc;
 
 /// Wait until given file descriptor becomes readable, but no longer than given timeout.

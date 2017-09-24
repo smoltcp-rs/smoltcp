@@ -94,16 +94,12 @@ dependency on `std::boxed::Box` and `std::vec::Vec`.
 
 This feature is enabled by default.
 
-### Features `raw_socket` and `tap_interface`
-
-Enable `smoltcp::phy::RawSocket` and `smoltcp::phy::TapInterface`, respectively.
-
-These features are enabled by default.
-
 ### Feature `alloc`
 
 The `alloc` feature enables use of objects owned by the networking stack through a dependency
 on collections from the `alloc` crate. This only works on nightly rustc.
+
+This feature is disabled by default.
 
 ### Feature `log`
 
@@ -124,6 +120,12 @@ as 1 octet from a socket is likely to overwhelm the application logic unless a `
 or `BufWriter` is used, which are of course not available on heap-less systems.
 
 This feature is disabled by default.
+
+### Features `phy-raw_socket` and `phy-tap_interface`
+
+Enable `smoltcp::phy::RawSocket` and `smoltcp::phy::TapInterface`, respectively.
+
+These features are enabled by default.
 
 ## Hosted usage examples
 

@@ -26,9 +26,9 @@ getopts = "0.2"
 std = ["managed/std"]
 alloc = ["managed/alloc"]
 verbose = []
-raw_socket = ["libc"]
-tap_interface = ["libc"]
-default = ["std", "raw_socket", "tap_interface", "log", "verbose"]
+"phy-raw_socket" = ["std", "libc"]
+"phy-tap_interface" = ["std", "libc"]
+default = ["std", "log", "phy-raw_socket", "phy-tap_interface"]
 
 [[example]]
 name = "tcpdump"

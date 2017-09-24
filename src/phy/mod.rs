@@ -106,7 +106,7 @@ impl Drop for EthernetTxBuffer {
 
 use Result;
 
-#[cfg(any(feature = "raw_socket", feature = "tap_interface"))]
+#[cfg(any(feature = "phy-raw_socket", feature = "phy-tap_interface"))]
 mod sys;
 
 mod tracer;
@@ -114,12 +114,12 @@ mod fault_injector;
 mod pcap_writer;
 #[cfg(any(feature = "std", feature = "alloc"))]
 mod loopback;
-#[cfg(feature = "raw_socket")]
+#[cfg(feature = "phy-raw_socket")]
 mod raw_socket;
-#[cfg(all(feature = "tap_interface", target_os = "linux"))]
+#[cfg(all(feature = "phy-tap_interface", target_os = "linux"))]
 mod tap_interface;
 
-#[cfg(any(feature = "raw_socket", feature = "tap_interface"))]
+#[cfg(any(feature = "phy-raw_socket", feature = "phy-tap_interface"))]
 pub use self::sys::wait;
 
 pub use self::tracer::Tracer;
@@ -127,9 +127,9 @@ pub use self::fault_injector::FaultInjector;
 pub use self::pcap_writer::{PcapLinkType, PcapMode, PcapSink, PcapWriter};
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use self::loopback::Loopback;
-#[cfg(any(feature = "raw_socket"))]
+#[cfg(any(feature = "phy-raw_socket"))]
 pub use self::raw_socket::RawSocket;
-#[cfg(all(feature = "tap_interface", target_os = "linux"))]
+#[cfg(all(feature = "phy-tap_interface", target_os = "linux"))]
 pub use self::tap_interface::TapInterface;
 
 /// A tracer device for Ethernet frames.
