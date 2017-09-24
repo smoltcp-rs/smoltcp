@@ -147,7 +147,9 @@ fn main() {
         {
             let socket: &mut TcpSocket = sockets.get_mut(tcp3_handle).as_socket();
             if !socket.is_open() {
-                socket.listen(6971).unwrap()
+                socket.listen(6971).unwrap();
+                socket.set_keep_alive(Some(1000));
+                socket.set_timeout(Some(2000));
             }
 
             if socket.may_recv() {
