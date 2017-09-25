@@ -10,9 +10,9 @@ matrix:
     - rust: nightly
       env: FEATURES='default' MODE='test'
     - rust: nightly
-      env: FEATURES='phy-raw_socket' MODE='build'
+      env: FEATURES='phy-raw_socket socket-udp' MODE='build'
     - rust: nightly
-      env: FEATURES='phy-tap_interface' MODE='build'
+      env: FEATURES='phy-tap_interface socket-udp' MODE='build'
     - rust: nightly
       env: FEATURES='socket-raw' MODE='build'
     - rust: nightly
