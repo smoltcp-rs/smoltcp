@@ -7,7 +7,7 @@ extern crate byteorder;
 
 mod utils;
 
-use std::str::{self, FromStr};
+use std::str::FromStr;
 use std::time::Instant;
 use std::os::unix::io::AsRawFd;
 use smoltcp::phy::wait as phy_wait;

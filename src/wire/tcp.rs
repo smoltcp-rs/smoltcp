@@ -325,28 +325,28 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// Set the source port field.
     #[inline]
     pub fn set_src_port(&mut self, value: u16) {
-        let mut data = self.buffer.as_mut();
+        let data = self.buffer.as_mut();
         NetworkEndian::write_u16(&mut data[field::SRC_PORT], value)
     }
 
     /// Set the destination port field.
     #[inline]
     pub fn set_dst_port(&mut self, value: u16) {
-        let mut data = self.buffer.as_mut();
+        let data = self.buffer.as_mut();
         NetworkEndian::write_u16(&mut data[field::DST_PORT], value)
     }
 
     /// Set the sequence number field.
     #[inline]
     pub fn set_seq_number(&mut self, value: SeqNumber) {
-        let mut data = self.buffer.as_mut();
+        let data = self.buffer.as_mut();
         NetworkEndian::write_i32(&mut data[field::SEQ_NUM], value.0)
     }
 
     /// Set the acknowledgement number field.
     #[inline]
     pub fn set_ack_number(&mut self, value: SeqNumber) {
-        let mut data = self.buffer.as_mut();
+        let data = self.buffer.as_mut();
         NetworkEndian::write_i32(&mut data[field::ACK_NUM], value.0)
     }
 
@@ -362,7 +362,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// Set the FIN flag.
     #[inline]
     pub fn set_fin(&mut self, value: bool) {
-        let mut data = self.buffer.as_mut();
+        let data = self.buffer.as_mut();
         let raw = NetworkEndian::read_u16(&data[field::FLAGS]);
         let raw = if value { raw | field::FLG_FIN } else { raw & !field::FLG_FIN };
         NetworkEndian::write_u16(&mut data[field::FLAGS], raw)
@@ -371,7 +371,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// Set the SYN flag.
     #[inline]
     pub fn set_syn(&mut self, value: bool) {
-        let mut data = self.buffer.as_mut();
+        let data = self.buffer.as_mut();
         let raw = NetworkEndian::read_u16(&data[field::FLAGS]);
         let raw = if value { raw | field::FLG_SYN } else { raw & !field::FLG_SYN };
         NetworkEndian::write_u16(&mut data[field::FLAGS], raw)
@@ -380,7 +380,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// Set the RST flag.
     #[inline]
     pub fn set_rst(&mut self, value: bool) {
-        let mut data = self.buffer.as_mut();
+        let data = self.buffer.as_mut();
         let raw = NetworkEndian::read_u16(&data[field::FLAGS]);
         let raw = if value { raw | field::FLG_RST } else { raw & !field::FLG_RST };
         NetworkEndian::write_u16(&mut data[field::FLAGS], raw)
@@ -389,7 +389,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// Set the PSH flag.
     #[inline]
     pub fn set_psh(&mut self, value: bool) {
-        let mut data = self.buffer.as_mut();
+        let data = self.buffer.as_mut();
         let raw = NetworkEndian::read_u16(&data[field::FLAGS]);
         let raw = if value { raw | field::FLG_PSH } else { raw & !field::FLG_PSH };
         NetworkEndian::write_u16(&mut data[field::FLAGS], raw)
@@ -398,7 +398,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// Set the ACK flag.
     #[inline]
     pub fn set_ack(&mut self, value: bool) {
-        let mut data = self.buffer.as_mut();
+        let data = self.buffer.as_mut();
         let raw = NetworkEndian::read_u16(&data[field::FLAGS]);
         let raw = if value { raw | field::FLG_ACK } else { raw & !field::FLG_ACK };
         NetworkEndian::write_u16(&mut data[field::FLAGS], raw)
@@ -407,7 +407,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// Set the URG flag.
     #[inline]
     pub fn set_urg(&mut self, value: bool) {
-        let mut data = self.buffer.as_mut();
+        let data = self.buffer.as_mut();
         let raw = NetworkEndian::read_u16(&data[field::FLAGS]);
         let raw = if value { raw | field::FLG_URG } else { raw & !field::FLG_URG };
         NetworkEndian::write_u16(&mut data[field::FLAGS], raw)
@@ -416,7 +416,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// Set the ECE flag.
     #[inline]
     pub fn set_ece(&mut self, value: bool) {
-        let mut data = self.buffer.as_mut();
+        let data = self.buffer.as_mut();
         let raw = NetworkEndian::read_u16(&data[field::FLAGS]);
         let raw = if value { raw | field::FLG_ECE } else { raw & !field::FLG_ECE };
         NetworkEndian::write_u16(&mut data[field::FLAGS], raw)
@@ -425,7 +425,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// Set the CWR flag.
     #[inline]
     pub fn set_cwr(&mut self, value: bool) {
-        let mut data = self.buffer.as_mut();
+        let data = self.buffer.as_mut();
         let raw = NetworkEndian::read_u16(&data[field::FLAGS]);
         let raw = if value { raw | field::FLG_CWR } else { raw & !field::FLG_CWR };
         NetworkEndian::write_u16(&mut data[field::FLAGS], raw)
@@ -434,7 +434,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// Set the NS flag.
     #[inline]
     pub fn set_ns(&mut self, value: bool) {
-        let mut data = self.buffer.as_mut();
+        let data = self.buffer.as_mut();
         let raw = NetworkEndian::read_u16(&data[field::FLAGS]);
         let raw = if value { raw | field::FLG_NS } else { raw & !field::FLG_NS };
         NetworkEndian::write_u16(&mut data[field::FLAGS], raw)
@@ -443,7 +443,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// Set the header length, in octets.
     #[inline]
     pub fn set_header_len(&mut self, value: u8) {
-        let mut data = self.buffer.as_mut();
+        let data = self.buffer.as_mut();
         let raw = NetworkEndian::read_u16(&data[field::FLAGS]);
         let raw = (raw & !0xf000) | ((value as u16) / 4) << 12;
         NetworkEndian::write_u16(&mut data[field::FLAGS], raw)
@@ -452,21 +452,21 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// Return the window size field.
     #[inline]
     pub fn set_window_len(&mut self, value: u16) {
-        let mut data = self.buffer.as_mut();
+        let data = self.buffer.as_mut();
         NetworkEndian::write_u16(&mut data[field::WIN_SIZE], value)
     }
 
     /// Set the checksum field.
     #[inline]
     pub fn set_checksum(&mut self, value: u16) {
-        let mut data = self.buffer.as_mut();
+        let data = self.buffer.as_mut();
         NetworkEndian::write_u16(&mut data[field::CHECKSUM], value)
     }
 
     /// Set the urgent pointer field.
     #[inline]
     pub fn set_urgent_at(&mut self, value: u16) {
-        let mut data = self.buffer.as_mut();
+        let data = self.buffer.as_mut();
         NetworkEndian::write_u16(&mut data[field::URGENT], value)
     }
 
@@ -502,7 +502,7 @@ impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Packet<&'a mut T> {
     #[inline]
     pub fn payload_mut(&mut self) -> &mut [u8] {
         let header_len = self.header_len() as usize;
-        let mut data = self.buffer.as_mut();
+        let data = self.buffer.as_mut();
         &mut data[header_len..]
     }
 }

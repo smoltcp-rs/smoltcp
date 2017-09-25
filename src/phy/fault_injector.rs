@@ -40,7 +40,7 @@ impl State {
     }
 
     fn corrupt<T: AsMut<[u8]>>(&mut self, mut buffer: T) {
-        let mut buffer = buffer.as_mut();
+        let buffer = buffer.as_mut();
         // We introduce a single bitflip, as the most likely, and the hardest to detect, error.
         let index = (xorshift32(&mut self.rng_seed) as usize) % buffer.len();
         let bit   = 1 << (xorshift32(&mut self.rng_seed) % 8) as u8;

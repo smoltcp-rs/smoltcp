@@ -300,21 +300,21 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// Set the message type field.
     #[inline]
     pub fn set_msg_type(&mut self, value: Message) {
-        let mut data = self.buffer.as_mut();
+        let data = self.buffer.as_mut();
         data[field::TYPE] = value.into()
     }
 
     /// Set the message code field.
     #[inline]
     pub fn set_msg_code(&mut self, value: u8) {
-        let mut data = self.buffer.as_mut();
+        let data = self.buffer.as_mut();
         data[field::CODE] = value
     }
 
     /// Set the checksum field.
     #[inline]
     pub fn set_checksum(&mut self, value: u16) {
-        let mut data = self.buffer.as_mut();
+        let data = self.buffer.as_mut();
         NetworkEndian::write_u16(&mut data[field::CHECKSUM], value)
     }
 
@@ -324,7 +324,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// This function may panic if this packet is not an echo request or reply packet.
     #[inline]
     pub fn set_echo_ident(&mut self, value: u16) {
-        let mut data = self.buffer.as_mut();
+        let data = self.buffer.as_mut();
         NetworkEndian::write_u16(&mut data[field::ECHO_IDENT], value)
     }
 
@@ -334,7 +334,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// This function may panic if this packet is not an echo request or reply packet.
     #[inline]
     pub fn set_echo_seq_no(&mut self, value: u16) {
-        let mut data = self.buffer.as_mut();
+        let data = self.buffer.as_mut();
         NetworkEndian::write_u16(&mut data[field::ECHO_SEQNO], value)
     }
 
@@ -354,7 +354,7 @@ impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Packet<&'a mut T> {
     #[inline]
     pub fn data_mut(&mut self) -> &mut [u8] {
         let range = self.header_len()..;
-        let mut data = self.buffer.as_mut();
+        let data = self.buffer.as_mut();
         &mut data[range]
     }
 }
@@ -468,7 +468,7 @@ impl<'a> Repr<'a> {
 
                 let mut ip_packet = Ipv4Packet::new(packet.data_mut());
                 header.emit(&mut ip_packet);
-                let mut payload = &mut ip_packet.into_inner()[header.buffer_len()..];
+                let payload = &mut ip_packet.into_inner()[header.buffer_len()..];
                 payload.copy_from_slice(&data[..])
             }
 

@@ -133,28 +133,28 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// Set the source port field.
     #[inline]
     pub fn set_src_port(&mut self, value: u16) {
-        let mut data = self.buffer.as_mut();
+        let data = self.buffer.as_mut();
         NetworkEndian::write_u16(&mut data[field::SRC_PORT], value)
     }
 
     /// Set the destination port field.
     #[inline]
     pub fn set_dst_port(&mut self, value: u16) {
-        let mut data = self.buffer.as_mut();
+        let data = self.buffer.as_mut();
         NetworkEndian::write_u16(&mut data[field::DST_PORT], value)
     }
 
     /// Set the length field.
     #[inline]
     pub fn set_len(&mut self, value: u16) {
-        let mut data = self.buffer.as_mut();
+        let data = self.buffer.as_mut();
         NetworkEndian::write_u16(&mut data[field::LENGTH], value)
     }
 
     /// Set the checksum field.
     #[inline]
     pub fn set_checksum(&mut self, value: u16) {
-        let mut data = self.buffer.as_mut();
+        let data = self.buffer.as_mut();
         NetworkEndian::write_u16(&mut data[field::CHECKSUM], value)
     }
 
@@ -186,7 +186,7 @@ impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Packet<&'a mut T> {
     #[inline]
     pub fn payload_mut(&mut self) -> &mut [u8] {
         let length = self.len();
-        let mut data = self.buffer.as_mut();
+        let data = self.buffer.as_mut();
         &mut data[field::PAYLOAD(length)]
     }
 }

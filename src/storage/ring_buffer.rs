@@ -553,7 +553,7 @@ mod test {
         assert_eq!(ring.enqueue_slice(b"abcdefghijkl"), 12);
 
         {
-            let mut buf = ring.dequeue_many(8);
+            let buf = ring.dequeue_many(8);
             assert_eq!(buf, b"abcdefgh");
             buf.copy_from_slice(b"........");
         }
@@ -561,7 +561,7 @@ mod test {
         assert_eq!(&ring.storage[..], b"........ijkl");
 
         {
-            let mut buf = ring.dequeue_many(8);
+            let buf = ring.dequeue_many(8);
             assert_eq!(buf, b"ijkl");
             buf.copy_from_slice(b"....");
         }
