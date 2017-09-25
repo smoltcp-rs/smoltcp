@@ -10,15 +10,21 @@ matrix:
     - rust: nightly
       env: FEATURES='default' MODE='test'
     - rust: nightly
-      env: FEATURES='std' MODE='test'
-    - rust: nightly
-      env: FEATURES='alloc' MODE='build'
-    - rust: nightly
       env: FEATURES='phy-raw_socket' MODE='build'
     - rust: nightly
       env: FEATURES='phy-tap_interface' MODE='build'
     - rust: nightly
-      env: FEATURES='' MODE='build'
+      env: FEATURES='socket-raw' MODE='build'
+    - rust: nightly
+      env: FEATURES='socket-udp' MODE='build'
+    - rust: nightly
+      env: FEATURES='socket-tcp' MODE='build'
+    - rust: nightly
+      env: FEATURES='socket-raw socket-udp socket-tcp' MODE='build'
+    - rust: nightly
+      env: FEATURES='socket-raw socket-udp socket-tcp std' MODE='build'
+    - rust: nightly
+      env: FEATURES='socket-raw socket-udp socket-tcp alloc' MODE='build'
 script:
    - cargo "$MODE" --no-default-features --features "$FEATURES"
 notifications:

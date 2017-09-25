@@ -10,8 +10,12 @@ use wire::{ArpPacket, ArpRepr, ArpOperation};
 use wire::{Ipv4Packet, Ipv4Repr};
 use wire::{Icmpv4Packet, Icmpv4Repr, Icmpv4DstUnreachable};
 use wire::{IpAddress, IpProtocol, IpRepr};
-use wire::{UdpPacket, UdpRepr, TcpPacket, TcpRepr, TcpControl};
-use socket::{Socket, SocketSet, RawSocket, TcpSocket, UdpSocket, AsSocket};
+#[cfg(feature = "socket-udp")] use wire::{UdpPacket, UdpRepr};
+#[cfg(feature = "socket-tcp")] use wire::{TcpPacket, TcpRepr, TcpControl};
+use socket::{Socket, SocketSet, AsSocket};
+#[cfg(feature = "socket-raw")] use socket::RawSocket;
+#[cfg(feature = "socket-udp")] use socket::UdpSocket;
+#[cfg(feature = "socket-tcp")] use socket::TcpSocket;
 use super::ArpCache;
 
 /// An Ethernet network interface.
@@ -30,8 +34,11 @@ enum Packet<'a> {
     None,
     Arp(ArpRepr),
     Icmpv4(Ipv4Repr, Icmpv4Repr<'a>),
+    #[cfg(feature = "socket-raw")]
     Raw((IpRepr, &'a [u8])),
+    #[cfg(feature = "socket-udp")]
     Udp((IpRepr, UdpRepr<'a>)),
+    #[cfg(feature = "socket-tcp")]
     Tcp((IpRepr, TcpRepr<'a>))
 }
 
@@ -169,22 +176,25 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
             let mut device_result = Ok(());
             let socket_result =
                 match socket {
+                    #[cfg(feature = "socket-raw")]
                     &mut Socket::Raw(ref mut socket) =>
                         socket.dispatch(|response| {
                             device_result = self.dispatch(timestamp, Packet::Raw(response));
                             device_result
                         }),
+                    #[cfg(feature = "socket-udp")]
                     &mut Socket::Udp(ref mut socket) =>
                         socket.dispatch(|response| {
                             device_result = self.dispatch(timestamp, Packet::Udp(response));
                             device_result
                         }),
+                    #[cfg(feature = "socket-tcp")]
                     &mut Socket::Tcp(ref mut socket) =>
                         socket.dispatch(timestamp, &limits, |response| {
                             device_result = self.dispatch(timestamp, Packet::Tcp(response));
                             device_result
                         }),
-                    &mut Socket::__Nonexhaustive => unreachable!()
+                    &mut Socket::__Nonexhaustive(_) => unreachable!()
                 };
             match (device_result, socket_result) {
                 (Err(Error::Unaddressable), _) => break, // no one to transmit to
@@ -285,8 +295,11 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         let ip_repr = IpRepr::Ipv4(ipv4_repr);
         let ip_payload = ipv4_packet.payload();
 
-        // Pass every IP packet to all raw sockets we have registered.
+        #[cfg(feature = "socket-raw")]
         let mut handled_by_raw_socket = false;
+
+        // Pass every IP packet to all raw sockets we have registered.
+        #[cfg(feature = "socket-raw")]
         for raw_socket in sockets.iter_mut().filter_map(
                 <Socket as AsSocket<RawSocket>>::try_as_socket) {
             if !raw_socket.accepts(&ip_repr) { continue }
@@ -309,12 +322,19 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         match ipv4_repr.protocol {
             IpProtocol::Icmp =>
                 Self::process_icmpv4(ipv4_repr, ip_payload),
+
+            #[cfg(feature = "socket-udp")]
             IpProtocol::Udp =>
                 Self::process_udp(sockets, ip_repr, ip_payload),
+
+            #[cfg(feature = "socket-tcp")]
             IpProtocol::Tcp =>
                 Self::process_tcp(sockets, timestamp, ip_repr, ip_payload),
+
+            #[cfg(feature = "socket-raw")]
             _ if handled_by_raw_socket =>
                 Ok(Packet::None),
+
             _ => {
                 let icmp_reply_repr = Icmpv4Repr::DstUnreachable {
                     reason: Icmpv4DstUnreachable::ProtoUnreachable,
@@ -362,6 +382,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         }
     }
 
+    #[cfg(feature = "socket-udp")]
     fn process_udp<'frame>(sockets: &mut SocketSet,
                            ip_repr: IpRepr, ip_payload: &'frame [u8]) ->
                           Result<Packet<'frame>> {
@@ -403,6 +424,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         }
     }
 
+    #[cfg(feature = "socket-tcp")]
     fn process_tcp<'frame>(sockets: &mut SocketSet, timestamp: u64,
                            ip_repr: IpRepr, ip_payload: &'frame [u8]) ->
                           Result<Packet<'frame>> {
@@ -454,17 +476,20 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                     icmpv4_repr.emit(&mut Icmpv4Packet::new(payload));
                 })
             }
+            #[cfg(feature = "socket-raw")]
             Packet::Raw((ip_repr, raw_packet)) => {
                 self.dispatch_ip(timestamp, ip_repr, |_ip_repr, payload| {
                     payload.copy_from_slice(raw_packet);
                 })
             }
+            #[cfg(feature = "socket-udp")]
             Packet::Udp((ip_repr, udp_repr)) => {
                 self.dispatch_ip(timestamp, ip_repr, |ip_repr, payload| {
                     udp_repr.emit(&mut UdpPacket::new(payload),
                                   &ip_repr.src_addr(), &ip_repr.dst_addr());
                 })
             }
+            #[cfg(feature = "socket-tcp")]
             Packet::Tcp((ip_repr, mut tcp_repr)) => {
                 let limits = self.device.limits();
                 self.dispatch_ip(timestamp, ip_repr, |ip_repr, payload| {

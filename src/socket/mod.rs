@@ -10,24 +10,28 @@
 //! The interface implemented by this module uses explicit buffering: you decide on the good
 //! size for a buffer, allocate it, and let the networking stack use it.
 
+use core::marker::PhantomData;
 use wire::IpRepr;
 
-mod raw;
-mod udp;
-mod tcp;
+#[cfg(feature = "socket-raw")] mod raw;
+#[cfg(feature = "socket-udp")] mod udp;
+#[cfg(feature = "socket-tcp")] mod tcp;
 mod set;
 
-pub use self::raw::PacketBuffer as RawPacketBuffer;
-pub use self::raw::SocketBuffer as RawSocketBuffer;
-pub use self::raw::RawSocket;
+#[cfg(feature = "socket-raw")]
+pub use self::raw::{PacketBuffer as RawPacketBuffer,
+                    SocketBuffer as RawSocketBuffer,
+                    RawSocket};
 
-pub use self::udp::PacketBuffer as UdpPacketBuffer;
-pub use self::udp::SocketBuffer as UdpSocketBuffer;
-pub use self::udp::UdpSocket;
+#[cfg(feature = "socket-udp")]
+pub use self::udp::{PacketBuffer as UdpPacketBuffer,
+                    SocketBuffer as UdpSocketBuffer,
+                    UdpSocket};
 
-pub use self::tcp::SocketBuffer as TcpSocketBuffer;
-pub use self::tcp::State as TcpState;
-pub use self::tcp::TcpSocket;
+#[cfg(feature = "socket-tcp")]
+pub use self::tcp::{SocketBuffer as TcpSocketBuffer,
+                    State as TcpState,
+                    TcpSocket};
 
 pub use self::set::{Set as SocketSet, Item as SocketSetItem, Handle as SocketHandle};
 pub use self::set::{Iter as SocketSetIter, IterMut as SocketSetIterMut};
@@ -47,20 +51,26 @@ pub use self::set::{Iter as SocketSetIter, IterMut as SocketSetIterMut};
 /// since the lower layers treat the packet as an opaque octet sequence.
 #[derive(Debug)]
 pub enum Socket<'a, 'b: 'a> {
+    #[cfg(feature = "socket-raw")]
     Raw(RawSocket<'a, 'b>),
+    #[cfg(feature = "socket-udp")]
     Udp(UdpSocket<'a, 'b>),
+    #[cfg(feature = "socket-tcp")]
     Tcp(TcpSocket<'a>),
     #[doc(hidden)]
-    __Nonexhaustive
+    __Nonexhaustive(PhantomData<(&'a (), &'b ())>)
 }
 
 macro_rules! dispatch_socket {
     ($self_:expr, |$socket:ident [$( $mut_:tt )*]| $code:expr) => ({
         match $self_ {
+            #[cfg(feature = "socket-raw")]
             &$( $mut_ )* Socket::Raw(ref $( $mut_ )* $socket) => $code,
+            #[cfg(feature = "socket-udp")]
             &$( $mut_ )* Socket::Udp(ref $( $mut_ )* $socket) => $code,
+            #[cfg(feature = "socket-tcp")]
             &$( $mut_ )* Socket::Tcp(ref $( $mut_ )* $socket) => $code,
-            &$( $mut_ )* Socket::__Nonexhaustive => unreachable!()
+            &$( $mut_ )* Socket::__Nonexhaustive(_) => unreachable!()
         }
     })
 }
@@ -115,6 +125,9 @@ macro_rules! as_socket {
     }
 }
 
+#[cfg(feature = "socket-raw")]
 as_socket!(RawSocket<'a, 'b>, Raw);
+#[cfg(feature = "socket-udp")]
 as_socket!(UdpSocket<'a, 'b>, Udp);
+#[cfg(feature = "socket-tcp")]
 as_socket!(TcpSocket<'a>, Tcp);

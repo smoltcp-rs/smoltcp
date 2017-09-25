@@ -127,6 +127,13 @@ Enable `smoltcp::phy::RawSocket` and `smoltcp::phy::TapInterface`, respectively.
 
 These features are enabled by default.
 
+### Features `socket-raw`, `socket-udp`, and `socket-tcp`
+
+Enable `smoltcp::socket::RawSocket`, `smoltcp::socket::UdpSocket`,
+and `smoltcp::socket::TcpSocket`, respectively.
+
+These features are enabled by default.
+
 ## Hosted usage examples
 
 _smoltcp_, being a freestanding networking stack, needs to be able to transmit and receive

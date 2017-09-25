@@ -2,7 +2,7 @@ use managed::ManagedSlice;
 use core::slice;
 
 use super::Socket;
-use super::TcpState;
+#[cfg(feature = "socket-tcp")] use super::TcpState;
 
 /// An item of a socket set.
 ///
@@ -68,7 +68,6 @@ impl<'a, 'b: 'a, 'c: 'a + 'b> Set<'a, 'b, 'c> {
                 return put(index, &mut sockets[index], socket)
             }
         }
-
     }
 
     /// Get a socket from the set by its handle.
@@ -139,17 +138,20 @@ impl<'a, 'b: 'a, 'c: 'a + 'b> Set<'a, 'b, 'c> {
             let mut may_remove = false;
             if let &mut Some(Item { refs: 0, ref mut socket }) = item {
                 match socket {
+                    #[cfg(feature = "socket-raw")]
                     &mut Socket::Raw(_) =>
                         may_remove = true,
+                    #[cfg(feature = "socket-udp")]
                     &mut Socket::Udp(_) =>
                         may_remove = true,
+                    #[cfg(feature = "socket-tcp")]
                     &mut Socket::Tcp(ref mut socket) =>
                         if socket.state() == TcpState::Closed {
                             may_remove = true
                         } else {
                             socket.close()
                         },
-                    &mut Socket::__Nonexhaustive => unreachable!()
+                    &mut Socket::__Nonexhaustive(_) => unreachable!()
                 }
             }
             if may_remove {

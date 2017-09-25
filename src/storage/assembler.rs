@@ -93,6 +93,8 @@ impl Assembler {
         Assembler { contigs }
     }
 
+    /// FIXME(whitequark): remove this once I'm certain enough that the assembler works well.
+    #[allow(dead_code)]
     pub(crate) fn total_size(&self) -> usize {
         self.contigs
             .iter()
