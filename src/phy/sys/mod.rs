@@ -1,3 +1,5 @@
+#![allow(unsafe_code)]
+
 use libc;
 use std::{mem, ptr, io};
 use std::os::unix::io::RawFd;

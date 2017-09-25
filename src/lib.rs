@@ -1,5 +1,6 @@
 #![cfg_attr(feature = "alloc", feature(alloc))]
 #![no_std]
+#![deny(unsafe_code, unused)]
 
 //! The _smoltcp_ library is built in a layered structure, with the layers corresponding
 //! to the levels of API abstraction. Only the highest layers would be used by a typical
@@ -66,6 +67,12 @@
 //! except where necessary to provide safe access to fields, and strives to implement every
 //! feature ever defined, to ensure that, when the representation layer is unable to make sense
 //! of a packet, it is still logged correctly and in full.
+
+/* XXX compiler bug
+#![cfg(not(any(feature = "socket-raw",
+               feature = "socket-udp",
+               feature = "socket-tcp")))]
+compile_error!("at least one socket needs to be enabled"); */
 
 extern crate byteorder;
 extern crate managed;

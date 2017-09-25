@@ -8,7 +8,6 @@ extern crate byteorder;
 mod utils;
 
 use std::str::{self, FromStr};
-use std::cmp;
 use std::time::Instant;
 use std::os::unix::io::AsRawFd;
 use smoltcp::phy::wait as phy_wait;

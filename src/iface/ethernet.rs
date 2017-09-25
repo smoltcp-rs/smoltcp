@@ -274,7 +274,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
     }
 
     fn process_ipv4<'frame, T: AsRef<[u8]>>
-                   (&mut self, sockets: &mut SocketSet, timestamp: u64,
+                   (&mut self, sockets: &mut SocketSet, _timestamp: u64,
                     eth_frame: &EthernetFrame<&'frame T>) ->
                    Result<Packet<'frame>> {
         let ipv4_packet = Ipv4Packet::new_checked(eth_frame.payload())?;
@@ -329,7 +329,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
 
             #[cfg(feature = "socket-tcp")]
             IpProtocol::Tcp =>
-                Self::process_tcp(sockets, timestamp, ip_repr, ip_payload),
+                Self::process_tcp(sockets, _timestamp, ip_repr, ip_payload),
 
             #[cfg(feature = "socket-raw")]
             _ if handled_by_raw_socket =>
