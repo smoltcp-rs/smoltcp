@@ -376,7 +376,11 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
 
             // Ignore any echo replies.
             Icmpv4Repr::EchoReply { .. } => Ok(Packet::None),
-
+			
+			// if dst unreachable just print a message
+			// TODO: maybe we should do something smarter?
+			Icmpv4Repr::DstUnreachable { .. } => Ok(Packet::None),
+			
             // FIXME: do something correct here?
             _ => Err(Error::Unrecognized),
         }
