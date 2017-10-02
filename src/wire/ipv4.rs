@@ -2,6 +2,7 @@ use core::fmt;
 use byteorder::{ByteOrder, NetworkEndian};
 
 use {Error, Result};
+use phy::ChecksumCapabilities;
 use super::ip::checksum;
 use super::IpAddress;
 
@@ -401,11 +402,14 @@ pub struct Repr {
 
 impl Repr {
     /// Parse an Internet Protocol version 4 packet and return a high-level representation.
-    pub fn parse<T: AsRef<[u8]> + ?Sized>(packet: &Packet<&T>) -> Result<Repr> {
+    pub fn parse<T: AsRef<[u8]> + ?Sized>(packet: &Packet<&T>, 
+                                          checksum_caps: &ChecksumCapabilities) -> Result<Repr> {
         // Version 4 is expected.
         if packet.version() != 4 { return Err(Error::Malformed) }
         // Valid checksum is expected.
-        if !packet.verify_checksum() { return Err(Error::Checksum) }
+        if checksum_caps.ipv4.rx() {
+            if !packet.verify_checksum() { return Err(Error::Checksum) }
+        }
         // We do not support fragmentation.
         if packet.more_frags() || packet.frag_offset() != 0 { return Err(Error::Fragmented) }
         // Total length may not be less than header length.
@@ -432,7 +436,7 @@ impl Repr {
     }
 
     /// Emit a high-level representation into an Internet Protocol version 4 packet.
-    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(&self, packet: &mut Packet<T>) {
+    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(&self, packet: &mut Packet<T>, checksum_caps: &ChecksumCapabilities) {
         packet.set_version(4);
         packet.set_header_len(field::DST_ADDR.end as u8);
         packet.set_dscp(0);
@@ -448,13 +452,19 @@ impl Repr {
         packet.set_protocol(self.protocol);
         packet.set_src_addr(self.src_addr);
         packet.set_dst_addr(self.dst_addr);
-        packet.fill_checksum();
+
+        if checksum_caps.ipv4.tx() {
+            packet.fill_checksum();
+        } else {
+            // make sure we get a consistently zeroed checksum, since implementations might rely on it
+            packet.set_checksum(0);
+        }
     }
 }
 
 impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match Repr::parse(self) {
+        match Repr::parse(self, &ChecksumCapabilities::default()) {
             Ok(repr) => write!(f, "{}", repr),
             Err(err) => {
                 write!(f, "IPv4 ({})", err)?;
@@ -507,7 +517,7 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
             Err(err) => return write!(f, "{}({})\n", indent, err),
             Ok(ip_packet) => {
                 write!(f, "{}{}\n", indent, ip_packet)?;
-                match Repr::parse(&ip_packet) {
+                match Repr::parse(&ip_packet, &ChecksumCapabilities::default()) {
                     Err(_) => return Ok(()),
                     Ok(ip_repr) => (ip_repr, &ip_packet.payload()[..ip_repr.payload_len])
                 }
@@ -524,7 +534,8 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
                     Ok(udp_packet) => {
                         match super::UdpRepr::parse(&udp_packet,
                                                     &IpAddress::from(ip_repr.src_addr),
-                                                    &IpAddress::from(ip_repr.dst_addr)) {
+                                                    &IpAddress::from(ip_repr.dst_addr),
+                                                    &ChecksumCapabilities::default()) {
                             Err(err) => write!(f, "{}{} ({})\n", indent, udp_packet, err),
                             Ok(udp_repr) => write!(f, "{}{}\n", indent, udp_repr)
                         }
@@ -537,7 +548,8 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
                     Ok(tcp_packet) => {
                         match super::TcpRepr::parse(&tcp_packet,
                                                     &IpAddress::from(ip_repr.src_addr),
-                                                    &IpAddress::from(ip_repr.dst_addr)) {
+                                                    &IpAddress::from(ip_repr.dst_addr),
+                                                    &ChecksumCapabilities::default()) {
                             Err(err) => write!(f, "{}{} ({})\n", indent, tcp_packet, err),
                             Ok(tcp_repr) => write!(f, "{}{}\n", indent, tcp_repr)
                         }
@@ -647,7 +659,7 @@ mod test {
     #[test]
     fn test_parse() {
         let packet = Packet::new(&REPR_PACKET_BYTES[..]);
-        let repr = Repr::parse(&packet).unwrap();
+        let repr = Repr::parse(&packet, &ChecksumCapabilities::default()).unwrap();
         assert_eq!(repr, packet_repr());
     }
 
@@ -659,7 +671,7 @@ mod test {
         packet.set_total_len(10);
         packet.fill_checksum();
         let packet = Packet::new(&*packet.into_inner());
-        assert_eq!(Repr::parse(&packet), Err(Error::Malformed));
+        assert_eq!(Repr::parse(&packet, &ChecksumCapabilities::default()), Err(Error::Malformed));
     }
 
     #[test]
@@ -667,7 +679,7 @@ mod test {
         let repr = packet_repr();
         let mut bytes = vec![0xa5; repr.buffer_len() + REPR_PAYLOAD_BYTES.len()];
         let mut packet = Packet::new(&mut bytes);
-        repr.emit(&mut packet);
+        repr.emit(&mut packet, &ChecksumCapabilities::default());
         packet.payload_mut().copy_from_slice(&REPR_PAYLOAD_BYTES);
         assert_eq!(&packet.into_inner()[..], &REPR_PACKET_BYTES[..]);
     }

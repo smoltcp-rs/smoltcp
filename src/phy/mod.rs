@@ -135,6 +135,52 @@ pub use self::tap_interface::TapInterface;
 /// A tracer device for Ethernet frames.
 pub type EthernetTracer<T> = Tracer<T, super::wire::EthernetFrame<&'static [u8]>>;
 
+/// The checksum configuration for a device
+#[derive(Debug, Clone, Copy)]
+pub enum Checksum {
+    /// Validate checksum when receiving and supply checksum when sending
+    Both,
+    /// Validate checksum when receiving
+    Rx,
+    /// Supply checksum before sending
+    Tx,
+    /// Ignore checksum
+    None,
+}
+
+impl Default for Checksum {
+    fn default() -> Checksum {
+        Checksum::Both
+    }
+}
+
+impl Checksum {
+    pub(crate) fn rx(&self) -> bool {
+        match *self {
+            Checksum::Both | Checksum::Rx => true,
+            _ => false
+        }
+    }
+
+    pub(crate) fn tx(&self) -> bool {
+        match *self {
+            Checksum::Both | Checksum::Tx => true,
+            _ => false
+        }
+    }
+}
+
+/// Configuration of checksum capabilities for each applicable protocol
+#[derive(Debug, Clone, Default)]
+pub struct ChecksumCapabilities {
+    pub ipv4: Checksum,
+    pub udpv4: Checksum,
+    pub udpv6: Checksum,
+    pub tcpv4: Checksum,
+    pub icmpv4: Checksum,
+    dummy: (),
+}
+
 /// A description of device capabilities.
 ///
 /// Higher-level protocols may achieve higher throughput or lower latency if they consider
@@ -157,6 +203,9 @@ pub struct DeviceCapabilities {
     /// If `None`, there is no fixed limit on burst size, e.g. if network buffers are
     /// dynamically allocated.
     pub max_burst_size: Option<usize>,
+
+    /// Checksum capabilities for the current device
+    pub checksum: ChecksumCapabilities,
 
     /// Only present to prevent people from trying to initialize every field of DeviceLimits,
     /// which would not let us add new fields in the future.

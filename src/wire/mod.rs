@@ -46,6 +46,7 @@
 //!
 /*!
 ```rust
+use smoltcp::phy::ChecksumCapabilities;
 use smoltcp::wire::*;
 let repr = Ipv4Repr {
     src_addr:    Ipv4Address::new(10, 0, 0, 1),
@@ -56,12 +57,12 @@ let repr = Ipv4Repr {
 let mut buffer = vec![0; repr.buffer_len() + repr.payload_len];
 { // emission
     let mut packet = Ipv4Packet::new(&mut buffer);
-    repr.emit(&mut packet);
+    repr.emit(&mut packet, &ChecksumCapabilities::default());
 }
 { // parsing
     let packet = Ipv4Packet::new_checked(&buffer)
                             .expect("truncated packet");
-    let parsed = Ipv4Repr::parse(&packet)
+    let parsed = Ipv4Repr::parse(&packet, &ChecksumCapabilities::default())
                           .expect("malformed packet");
     assert_eq!(repr, parsed);
 }

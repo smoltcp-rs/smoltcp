@@ -2,6 +2,7 @@ use core::{i32, ops, cmp, fmt};
 use byteorder::{ByteOrder, NetworkEndian};
 
 use {Error, Result};
+use phy::ChecksumCapabilities;
 use super::{IpProtocol, IpAddress};
 use super::ip::checksum;
 
@@ -644,13 +645,17 @@ impl<'a> Repr<'a> {
     /// Parse a Transmission Control Protocol packet and return a high-level representation.
     pub fn parse<T: ?Sized>(packet: &Packet<&'a T>,
                             src_addr: &IpAddress,
-                            dst_addr: &IpAddress) -> Result<Repr<'a>>
+                            dst_addr: &IpAddress,
+                            checksum_caps: &ChecksumCapabilities) -> Result<Repr<'a>>
             where T: AsRef<[u8]> {
         // Source and destination ports must be present.
         if packet.src_port() == 0 { return Err(Error::Malformed) }
         if packet.dst_port() == 0 { return Err(Error::Malformed) }
+        
         // Valid checksum is expected...
-        if !packet.verify_checksum(src_addr, dst_addr) { return Err(Error::Checksum) }
+        if checksum_caps.tcpv4.rx() && !packet.verify_checksum(src_addr, dst_addr) { 
+            return Err(Error::Checksum) 
+        }
 
         let control =
             match (packet.syn(), packet.fin(), packet.rst(), packet.psh()) {
@@ -713,7 +718,9 @@ impl<'a> Repr<'a> {
 
     /// Emit a high-level representation into a Transmission Control Protocol packet.
     pub fn emit<T>(&self, packet: &mut Packet<&mut T>,
-                   src_addr: &IpAddress, dst_addr: &IpAddress)
+                          src_addr: &IpAddress, 
+                          dst_addr: &IpAddress,
+                          checksum_caps: &ChecksumCapabilities)
             where T: AsRef<[u8]> + AsMut<[u8]> + ?Sized {
         packet.set_src_port(self.src_port);
         packet.set_dst_port(self.dst_port);
@@ -741,7 +748,13 @@ impl<'a> Repr<'a> {
         }
         packet.set_urgent_at(0);
         packet.payload_mut().copy_from_slice(self.payload);
-        packet.fill_checksum(src_addr, dst_addr)
+        
+        if checksum_caps.tcpv4.tx() {
+            packet.fill_checksum(src_addr, dst_addr)
+        } else {
+            // make sure we get a consistently zeroed checksum, since implementations might rely on it
+            packet.set_checksum(0);
+        }
     }
 
     /// Return the length of the segment, in terms of sequence space.
@@ -948,7 +961,7 @@ mod test {
     #[test]
     fn test_parse() {
         let packet = Packet::new(&SYN_PACKET_BYTES[..]);
-        let repr = Repr::parse(&packet, &SRC_ADDR.into(), &DST_ADDR.into()).unwrap();
+        let repr = Repr::parse(&packet, &SRC_ADDR.into(), &DST_ADDR.into(), &ChecksumCapabilities::default()).unwrap();
         assert_eq!(repr, packet_repr());
     }
 
@@ -957,7 +970,7 @@ mod test {
         let repr = packet_repr();
         let mut bytes = vec![0xa5; repr.buffer_len()];
         let mut packet = Packet::new(&mut bytes);
-        repr.emit(&mut packet, &SRC_ADDR.into(), &DST_ADDR.into());
+        repr.emit(&mut packet, &SRC_ADDR.into(), &DST_ADDR.into(), &ChecksumCapabilities::default());
         assert_eq!(&packet.into_inner()[..], &SYN_PACKET_BYTES[..]);
     }
 

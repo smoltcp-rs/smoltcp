@@ -1,6 +1,7 @@
 use core::fmt;
 
 use {Error, Result};
+use phy::ChecksumCapabilities;
 use super::{Ipv4Address, Ipv4Packet, Ipv4Repr};
 
 /// Internet protocol version.
@@ -338,12 +339,12 @@ impl IpRepr {
     ///
     /// # Panics
     /// This function panics if invoked on an unspecified representation.
-    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(&self, buffer: T) {
+    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(&self, buffer: T, checksum_caps: &ChecksumCapabilities) {
         match self {
             &IpRepr::Unspecified { .. } =>
                 panic!("unspecified IP representation"),
             &IpRepr::Ipv4(repr) =>
-                repr.emit(&mut Ipv4Packet::new(buffer)),
+                repr.emit(&mut Ipv4Packet::new(buffer), &checksum_caps),
             &IpRepr::__Nonexhaustive =>
                 unreachable!()
         }

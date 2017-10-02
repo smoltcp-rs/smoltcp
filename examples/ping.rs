@@ -10,6 +10,7 @@ mod utils;
 use std::str::FromStr;
 use std::time::Instant;
 use std::os::unix::io::AsRawFd;
+use smoltcp::phy::Device;
 use smoltcp::phy::wait as phy_wait;
 use smoltcp::wire::{EthernetAddress, IpVersion, IpProtocol, IpAddress,
                     Ipv4Address, Ipv4Packet, Ipv4Repr,
@@ -56,6 +57,7 @@ fn main() {
                                     raw_rx_buffer, raw_tx_buffer);
 
     let hardware_addr  = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x02]);
+    let caps = device.capabilities();
     let mut iface = EthernetInterface::new(
         Box::new(device), Box::new(arp_cache) as Box<ArpCache>,
         hardware_addr, [IpAddress::from(local_addr)]);
@@ -98,9 +100,9 @@ fn main() {
                     .unwrap();
 
                 let mut ipv4_packet = Ipv4Packet::new(raw_payload);
-                ipv4_repr.emit(&mut ipv4_packet);
+                ipv4_repr.emit(&mut ipv4_packet, &caps.checksum);
                 let mut icmp_packet = Icmpv4Packet::new(ipv4_packet.payload_mut());
-                icmp_repr.emit(&mut icmp_packet);
+                icmp_repr.emit(&mut icmp_packet, &caps.checksum);
 
                 waiting_queue.insert(seq_no, timestamp);
                 seq_no += 1;
@@ -110,11 +112,11 @@ fn main() {
             if socket.can_recv() {
                 let payload = socket.recv().unwrap();
                 let ipv4_packet = Ipv4Packet::new(payload);
-                let ipv4_repr = Ipv4Repr::parse(&ipv4_packet).unwrap();
+                let ipv4_repr = Ipv4Repr::parse(&ipv4_packet, &caps.checksum).unwrap();
 
                 if ipv4_repr.src_addr == remote_addr && ipv4_repr.dst_addr == local_addr {
                     let icmp_packet = Icmpv4Packet::new(ipv4_packet.payload());
-                    let icmp_repr = Icmpv4Repr::parse(&icmp_packet);
+                    let icmp_repr = Icmpv4Repr::parse(&icmp_packet, &caps.checksum);
 
                     if let Ok(Icmpv4Repr::EchoReply { seq_no, data, .. }) = icmp_repr {
                         if let Some(_) = waiting_queue.get(&seq_no) {
