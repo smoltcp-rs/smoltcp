@@ -402,14 +402,12 @@ pub struct Repr {
 
 impl Repr {
     /// Parse an Internet Protocol version 4 packet and return a high-level representation.
-    pub fn parse<T: AsRef<[u8]> + ?Sized>(packet: &Packet<&T>, 
+    pub fn parse<T: AsRef<[u8]> + ?Sized>(packet: &Packet<&T>,
                                           checksum_caps: &ChecksumCapabilities) -> Result<Repr> {
         // Version 4 is expected.
         if packet.version() != 4 { return Err(Error::Malformed) }
         // Valid checksum is expected.
-        if checksum_caps.ipv4.rx() {
-            if !packet.verify_checksum() { return Err(Error::Checksum) }
-        }
+        if checksum_caps.ipv4.rx() && !packet.verify_checksum() { return Err(Error::Checksum) }
         // We do not support fragmentation.
         if packet.more_frags() || packet.frag_offset() != 0 { return Err(Error::Fragmented) }
         // Total length may not be less than header length.

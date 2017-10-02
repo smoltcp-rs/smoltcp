@@ -385,10 +385,11 @@ pub enum Repr<'a> {
 impl<'a> Repr<'a> {
     /// Parse an Internet Control Message Protocol version 4 packet and return
     /// a high-level representation.
-    pub fn parse<T: AsRef<[u8]> + ?Sized>(packet: &Packet<&'a T>, checksum_caps: &ChecksumCapabilities) -> Result<Repr<'a>> {
-        if checksum_caps.icmpv4.rx() && !packet.verify_checksum() { 
-            return Err(Error::Checksum) 
-        }
+    pub fn parse<T>(packet: &Packet<&'a T>, checksum_caps: &ChecksumCapabilities)
+                   -> Result<Repr<'a>>
+                where T: AsRef<[u8]> + ?Sized {
+        // Valid checksum is expected.
+        if checksum_caps.icmpv4.rx() && !packet.verify_checksum() { return Err(Error::Checksum) }
 
         match (packet.msg_type(), packet.msg_code()) {
             (Message::EchoRequest, 0) => {
@@ -446,9 +447,8 @@ impl<'a> Repr<'a> {
 
     /// Emit a high-level representation into an Internet Control Message Protocol version 4
     /// packet.
-    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]> + ?Sized>(&self, 
-                                                       packet: &mut Packet<&mut T>, 
-                                                       checksum_caps: &ChecksumCapabilities) {
+    pub fn emit<T>(&self, packet: &mut Packet<&mut T>, checksum_caps: &ChecksumCapabilities)
+            where T: AsRef<[u8]> + AsMut<[u8]> + ?Sized {
         packet.set_msg_code(0);
         match self {
             &Repr::EchoRequest { ident, seq_no, data } => {

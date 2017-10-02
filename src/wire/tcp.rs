@@ -643,18 +643,15 @@ pub struct Repr<'a> {
 
 impl<'a> Repr<'a> {
     /// Parse a Transmission Control Protocol packet and return a high-level representation.
-    pub fn parse<T: ?Sized>(packet: &Packet<&'a T>,
-                            src_addr: &IpAddress,
-                            dst_addr: &IpAddress,
-                            checksum_caps: &ChecksumCapabilities) -> Result<Repr<'a>>
-            where T: AsRef<[u8]> {
+    pub fn parse<T>(packet: &Packet<&'a T>, src_addr: &IpAddress, dst_addr: &IpAddress,
+                    checksum_caps: &ChecksumCapabilities) -> Result<Repr<'a>>
+            where T: AsRef<[u8]> + ?Sized {
         // Source and destination ports must be present.
         if packet.src_port() == 0 { return Err(Error::Malformed) }
         if packet.dst_port() == 0 { return Err(Error::Malformed) }
-        
-        // Valid checksum is expected...
-        if checksum_caps.tcpv4.rx() && !packet.verify_checksum(src_addr, dst_addr) { 
-            return Err(Error::Checksum) 
+        // Valid checksum is expected.
+        if checksum_caps.tcpv4.rx() && !packet.verify_checksum(src_addr, dst_addr) {
+            return Err(Error::Checksum)
         }
 
         let control =
@@ -717,10 +714,8 @@ impl<'a> Repr<'a> {
     }
 
     /// Emit a high-level representation into a Transmission Control Protocol packet.
-    pub fn emit<T>(&self, packet: &mut Packet<&mut T>,
-                          src_addr: &IpAddress, 
-                          dst_addr: &IpAddress,
-                          checksum_caps: &ChecksumCapabilities)
+    pub fn emit<T>(&self, packet: &mut Packet<&mut T>, src_addr: &IpAddress, dst_addr: &IpAddress,
+                   checksum_caps: &ChecksumCapabilities)
             where T: AsRef<[u8]> + AsMut<[u8]> + ?Sized {
         packet.set_src_port(self.src_port);
         packet.set_dst_port(self.dst_port);
@@ -748,7 +743,7 @@ impl<'a> Repr<'a> {
         }
         packet.set_urgent_at(0);
         packet.payload_mut().copy_from_slice(self.payload);
-        
+
         if checksum_caps.tcpv4.tx() {
             packet.fill_checksum(src_addr, dst_addr)
         } else {

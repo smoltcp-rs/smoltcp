@@ -202,14 +202,11 @@ pub struct Repr<'a> {
 
 impl<'a> Repr<'a> {
     /// Parse an User Datagram Protocol packet and return a high-level representation.
-    pub fn parse<T: ?Sized>(packet: &Packet<&'a T>,
-                            src_addr: &IpAddress,
-                            dst_addr: &IpAddress,
-                            checksum_caps: &ChecksumCapabilities) -> Result<Repr<'a>>
-            where T: AsRef<[u8]> {
+    pub fn parse<T>(packet: &Packet<&'a T>, src_addr: &IpAddress, dst_addr: &IpAddress,
+                    checksum_caps: &ChecksumCapabilities) -> Result<Repr<'a>>
+            where T: AsRef<[u8]> + ?Sized {
         // Destination port cannot be omitted (but source port can be).
         if packet.dst_port() == 0 { return Err(Error::Malformed) }
-
         // Valid checksum is expected...
         if checksum_caps.udpv4.rx() && !packet.verify_checksum(src_addr, dst_addr) {
             match (src_addr, dst_addr) {
