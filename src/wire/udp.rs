@@ -2,6 +2,7 @@ use core::fmt;
 use byteorder::{ByteOrder, NetworkEndian};
 
 use {Error, Result};
+use phy::ChecksumCapabilities;
 use super::{IpProtocol, IpAddress};
 use super::ip::checksum;
 
@@ -203,12 +204,14 @@ impl<'a> Repr<'a> {
     /// Parse an User Datagram Protocol packet and return a high-level representation.
     pub fn parse<T: ?Sized>(packet: &Packet<&'a T>,
                             src_addr: &IpAddress,
-                            dst_addr: &IpAddress) -> Result<Repr<'a>>
+                            dst_addr: &IpAddress,
+                            checksum_caps: &ChecksumCapabilities) -> Result<Repr<'a>>
             where T: AsRef<[u8]> {
         // Destination port cannot be omitted (but source port can be).
         if packet.dst_port() == 0 { return Err(Error::Malformed) }
+
         // Valid checksum is expected...
-        if !packet.verify_checksum(src_addr, dst_addr) {
+        if checksum_caps.udpv4.rx() && !packet.verify_checksum(src_addr, dst_addr) {
             match (src_addr, dst_addr) {
                 (&IpAddress::Ipv4(_), &IpAddress::Ipv4(_))
                         if packet.checksum() != 0 => {
@@ -236,13 +239,20 @@ impl<'a> Repr<'a> {
     /// Emit a high-level representation into an User Datagram Protocol packet.
     pub fn emit<T: ?Sized>(&self, packet: &mut Packet<&mut T>,
                            src_addr: &IpAddress,
-                           dst_addr: &IpAddress)
+                           dst_addr: &IpAddress,
+                           checksum_caps: &ChecksumCapabilities)
             where T: AsRef<[u8]> + AsMut<[u8]> {
         packet.set_src_port(self.src_port);
         packet.set_dst_port(self.dst_port);
         packet.set_len((field::CHECKSUM.end + self.payload.len()) as u16);
         packet.payload_mut().copy_from_slice(self.payload);
-        packet.fill_checksum(src_addr, dst_addr)
+
+        if checksum_caps.udpv4.tx() {
+            packet.fill_checksum(src_addr, dst_addr)
+        } else {
+            // make sure we get a consistently zeroed checksum, since implementations might rely on it
+            packet.set_checksum(0);
+        }
     }
 }
 
@@ -343,7 +353,7 @@ mod test {
     #[test]
     fn test_parse() {
         let packet = Packet::new(&PACKET_BYTES[..]);
-        let repr = Repr::parse(&packet, &SRC_ADDR.into(), &DST_ADDR.into()).unwrap();
+        let repr = Repr::parse(&packet, &SRC_ADDR.into(), &DST_ADDR.into(), &ChecksumCapabilities::default()).unwrap();
         assert_eq!(repr, packet_repr());
     }
 
@@ -352,7 +362,7 @@ mod test {
         let repr = packet_repr();
         let mut bytes = vec![0xa5; repr.buffer_len()];
         let mut packet = Packet::new(&mut bytes);
-        repr.emit(&mut packet, &SRC_ADDR.into(), &DST_ADDR.into());
+        repr.emit(&mut packet, &SRC_ADDR.into(), &DST_ADDR.into(), &ChecksumCapabilities::default());
         assert_eq!(&packet.into_inner()[..], &PACKET_BYTES[..]);
     }
 }

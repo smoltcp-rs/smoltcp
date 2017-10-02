@@ -2,6 +2,7 @@ use core::{cmp, fmt};
 use byteorder::{ByteOrder, NetworkEndian};
 
 use {Error, Result};
+use phy::ChecksumCapabilities;
 use super::ip::checksum;
 use super::{Ipv4Packet, Ipv4Repr};
 
@@ -384,7 +385,11 @@ pub enum Repr<'a> {
 impl<'a> Repr<'a> {
     /// Parse an Internet Control Message Protocol version 4 packet and return
     /// a high-level representation.
-    pub fn parse<T: AsRef<[u8]> + ?Sized>(packet: &Packet<&'a T>) -> Result<Repr<'a>> {
+    pub fn parse<T: AsRef<[u8]> + ?Sized>(packet: &Packet<&'a T>, checksum_caps: &ChecksumCapabilities) -> Result<Repr<'a>> {
+        if checksum_caps.icmpv4.rx() && !packet.verify_checksum() { 
+            return Err(Error::Checksum) 
+        }
+
         match (packet.msg_type(), packet.msg_code()) {
             (Message::EchoRequest, 0) => {
                 Ok(Repr::EchoRequest {
@@ -441,7 +446,9 @@ impl<'a> Repr<'a> {
 
     /// Emit a high-level representation into an Internet Control Message Protocol version 4
     /// packet.
-    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]> + ?Sized>(&self, packet: &mut Packet<&mut T>) {
+    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]> + ?Sized>(&self, 
+                                                       packet: &mut Packet<&mut T>, 
+                                                       checksum_caps: &ChecksumCapabilities) {
         packet.set_msg_code(0);
         match self {
             &Repr::EchoRequest { ident, seq_no, data } => {
@@ -467,20 +474,26 @@ impl<'a> Repr<'a> {
                 packet.set_msg_code(reason.into());
 
                 let mut ip_packet = Ipv4Packet::new(packet.data_mut());
-                header.emit(&mut ip_packet);
+                header.emit(&mut ip_packet, checksum_caps);
                 let payload = &mut ip_packet.into_inner()[header.buffer_len()..];
                 payload.copy_from_slice(&data[..])
             }
 
             &Repr::__Nonexhaustive => unreachable!()
         }
-        packet.fill_checksum()
+
+        if checksum_caps.icmpv4.tx() {
+            packet.fill_checksum()
+        } else {
+            // make sure we get a consistently zeroed checksum, since implementations might rely on it
+            packet.set_checksum(0);
+        }
     }
 }
 
 impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match Repr::parse(self) {
+        match Repr::parse(self, &ChecksumCapabilities::default()) {
             Ok(repr) => write!(f, "{}", repr),
             Err(err) => {
                 write!(f, "ICMPv4 ({})", err)?;
@@ -580,7 +593,7 @@ mod test {
     #[test]
     fn test_echo_parse() {
         let packet = Packet::new(&ECHO_PACKET_BYTES[..]);
-        let repr = Repr::parse(&packet).unwrap();
+        let repr = Repr::parse(&packet, &ChecksumCapabilities::default()).unwrap();
         assert_eq!(repr, echo_packet_repr());
     }
 
@@ -589,7 +602,7 @@ mod test {
         let repr = echo_packet_repr();
         let mut bytes = vec![0xa5; repr.buffer_len()];
         let mut packet = Packet::new(&mut bytes);
-        repr.emit(&mut packet);
+        repr.emit(&mut packet, &ChecksumCapabilities::default());
         assert_eq!(&packet.into_inner()[..], &ECHO_PACKET_BYTES[..]);
     }
 }

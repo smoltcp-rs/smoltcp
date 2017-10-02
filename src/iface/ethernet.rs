@@ -181,7 +181,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                         socket.dispatch(|response| {
                             device_result = self.dispatch(timestamp, Packet::Raw(response));
                             device_result
-                        }),
+                        }, &caps.checksum),
                     #[cfg(feature = "socket-udp")]
                     &mut Socket::Udp(ref mut socket) =>
                         socket.dispatch(|response| {
@@ -190,7 +190,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                         }),
                     #[cfg(feature = "socket-tcp")]
                     &mut Socket::Tcp(ref mut socket) =>
-                        socket.dispatch(timestamp, &limits, |response| {
+                        socket.dispatch(timestamp, &caps, |response| {
                             device_result = self.dispatch(timestamp, Packet::Tcp(response));
                             device_result
                         }),
@@ -278,7 +278,8 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                     eth_frame: &EthernetFrame<&'frame T>) ->
                    Result<Packet<'frame>> {
         let ipv4_packet = Ipv4Packet::new_checked(eth_frame.payload())?;
-        let ipv4_repr = Ipv4Repr::parse(&ipv4_packet)?;
+        let checksum_caps = self.device.capabilities().checksum;
+        let ipv4_repr = Ipv4Repr::parse(&ipv4_packet, &checksum_caps)?;
 
         if !ipv4_repr.src_addr.is_unicast() {
             // Discard packets with non-unicast source addresses.
@@ -304,7 +305,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                 <Socket as AsSocket<RawSocket>>::try_as_socket) {
             if !raw_socket.accepts(&ip_repr) { continue }
 
-            match raw_socket.process(&ip_repr, ip_payload) {
+            match raw_socket.process(&ip_repr, ip_payload, &checksum_caps) {
                 // The packet is valid and handled by socket.
                 Ok(()) => handled_by_raw_socket = true,
                 // The socket buffer is full.
@@ -321,15 +322,15 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
 
         match ipv4_repr.protocol {
             IpProtocol::Icmp =>
-                Self::process_icmpv4(ipv4_repr, ip_payload),
+                self.process_icmpv4(ipv4_repr, ip_payload),
 
             #[cfg(feature = "socket-udp")]
             IpProtocol::Udp =>
-                Self::process_udp(sockets, ip_repr, ip_payload),
+                self.process_udp(sockets, ip_repr, ip_payload),
 
             #[cfg(feature = "socket-tcp")]
             IpProtocol::Tcp =>
-                Self::process_tcp(sockets, _timestamp, ip_repr, ip_payload),
+                self.process_tcp(sockets, _timestamp, ip_repr, ip_payload),
 
             #[cfg(feature = "socket-raw")]
             _ if handled_by_raw_socket =>
@@ -352,10 +353,11 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         }
     }
 
-    fn process_icmpv4<'frame>(ipv4_repr: Ipv4Repr, ip_payload: &'frame [u8]) ->
-                             Result<Packet<'frame>> {
+    fn process_icmpv4<'frame>(&self, ipv4_repr: Ipv4Repr, 
+                              ip_payload: &'frame [u8]) -> Result<Packet<'frame>> {
         let icmp_packet = Icmpv4Packet::new_checked(ip_payload)?;
-        let icmp_repr = Icmpv4Repr::parse(&icmp_packet)?;
+        let checksum_caps = self.device.capabilities().checksum;
+        let icmp_repr = Icmpv4Repr::parse(&icmp_packet, &checksum_caps)?;
 
         match icmp_repr {
             // Respond to echo requests.
@@ -383,12 +385,13 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
     }
 
     #[cfg(feature = "socket-udp")]
-    fn process_udp<'frame>(sockets: &mut SocketSet,
+    fn process_udp<'frame>(&self, sockets: &mut SocketSet,
                            ip_repr: IpRepr, ip_payload: &'frame [u8]) ->
                           Result<Packet<'frame>> {
         let (src_addr, dst_addr) = (ip_repr.src_addr(), ip_repr.dst_addr());
         let udp_packet = UdpPacket::new_checked(ip_payload)?;
-        let udp_repr = UdpRepr::parse(&udp_packet, &src_addr, &dst_addr)?;
+        let checksum_caps = self.device.capabilities().checksum;
+        let udp_repr = UdpRepr::parse(&udp_packet, &src_addr, &dst_addr, &checksum_caps)?;
 
         for udp_socket in sockets.iter_mut().filter_map(
                 <Socket as AsSocket<UdpSocket>>::try_as_socket) {
@@ -425,12 +428,13 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
     }
 
     #[cfg(feature = "socket-tcp")]
-    fn process_tcp<'frame>(sockets: &mut SocketSet, timestamp: u64,
+    fn process_tcp<'frame>(&self, sockets: &mut SocketSet, timestamp: u64,
                            ip_repr: IpRepr, ip_payload: &'frame [u8]) ->
                           Result<Packet<'frame>> {
         let (src_addr, dst_addr) = (ip_repr.src_addr(), ip_repr.dst_addr());
         let tcp_packet = TcpPacket::new_checked(ip_payload)?;
-        let tcp_repr = TcpRepr::parse(&tcp_packet, &src_addr, &dst_addr)?;
+        let checksum_caps = self.device.capabilities().checksum;
+        let tcp_repr = TcpRepr::parse(&tcp_packet, &src_addr, &dst_addr, &checksum_caps)?;
 
         for tcp_socket in sockets.iter_mut().filter_map(
                 <Socket as AsSocket<TcpSocket>>::try_as_socket) {
@@ -455,6 +459,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
     }
 
     fn dispatch(&mut self, timestamp: u64, packet: Packet) -> Result<()> {
+        let checksum_caps = self.device.capabilities().checksum;
         match packet {
             Packet::Arp(arp_repr) => {
                 let dst_hardware_addr =
@@ -473,7 +478,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
             },
             Packet::Icmpv4(ipv4_repr, icmpv4_repr) => {
                 self.dispatch_ip(timestamp, IpRepr::Ipv4(ipv4_repr), |_ip_repr, payload| {
-                    icmpv4_repr.emit(&mut Icmpv4Packet::new(payload));
+                    icmpv4_repr.emit(&mut Icmpv4Packet::new(payload), &checksum_caps);
                 })
             }
             #[cfg(feature = "socket-raw")]
@@ -486,7 +491,8 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
             Packet::Udp((ip_repr, udp_repr)) => {
                 self.dispatch_ip(timestamp, ip_repr, |ip_repr, payload| {
                     udp_repr.emit(&mut UdpPacket::new(payload),
-                                  &ip_repr.src_addr(), &ip_repr.dst_addr());
+                                  &ip_repr.src_addr(), &ip_repr.dst_addr(), 
+                                  &checksum_caps);
                 })
             }
             #[cfg(feature = "socket-tcp")]
@@ -513,7 +519,8 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                     }
 
                     tcp_repr.emit(&mut TcpPacket::new(payload),
-                                  &ip_repr.src_addr(), &ip_repr.dst_addr());
+                                  &ip_repr.src_addr(), &ip_repr.dst_addr(),
+                                  &checksum_caps);
                 })
             }
             Packet::None => Ok(())
@@ -574,6 +581,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
     fn dispatch_ip<F>(&mut self, timestamp: u64, ip_repr: IpRepr, f: F) -> Result<()>
             where F: FnOnce(IpRepr, &mut [u8]) {
         let ip_repr = ip_repr.lower(&self.protocol_addrs)?;
+        let checksum_caps = self.device.capabilities().checksum;
 
         let dst_hardware_addr =
             self.lookup_hardware_addr(timestamp, &ip_repr.src_addr(), &ip_repr.dst_addr())?;
@@ -585,7 +593,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                 _ => unreachable!()
             }
 
-            ip_repr.emit(frame.payload_mut());
+            ip_repr.emit(frame.payload_mut(), &checksum_caps);
 
             let payload = &mut frame.payload_mut()[ip_repr.buffer_len()..];
             f(ip_repr, payload)

@@ -2,6 +2,7 @@ use core::cmp::min;
 use managed::Managed;
 
 use {Error, Result};
+use phy::ChecksumCapabilities;
 use wire::{IpVersion, IpProtocol, Ipv4Repr, Ipv4Packet};
 use socket::{IpRepr, Socket};
 use storage::{Resettable, RingBuffer};
@@ -173,13 +174,14 @@ impl<'a, 'b> RawSocket<'a, 'b> {
         true
     }
 
-    pub(crate) fn process(&mut self, ip_repr: &IpRepr, payload: &[u8]) -> Result<()> {
+    pub(crate) fn process(&mut self, ip_repr: &IpRepr, payload: &[u8], 
+                          checksum_caps: &ChecksumCapabilities) -> Result<()> {
         debug_assert!(self.accepts(ip_repr));
 
         let header_len = ip_repr.buffer_len();
         let total_len = header_len + payload.len();
         let packet_buf = self.rx_buffer.enqueue_one_with(|buf| buf.resize(total_len))?;
-        ip_repr.emit(&mut packet_buf.as_mut()[..header_len]);
+        ip_repr.emit(&mut packet_buf.as_mut()[..header_len], &checksum_caps);
         packet_buf.as_mut()[header_len..].copy_from_slice(payload);
         net_trace!("[{}]:{}:{}: receiving {} octets",
                    self.debug_id, self.ip_version, self.ip_protocol,
@@ -187,17 +189,23 @@ impl<'a, 'b> RawSocket<'a, 'b> {
         Ok(())
     }
 
-    pub(crate) fn dispatch<F>(&mut self, emit: F) -> Result<()>
+    pub(crate) fn dispatch<F>(&mut self, emit: F, checksum_caps: &ChecksumCapabilities) -> Result<()>
             where F: FnOnce((IpRepr, &[u8])) -> Result<()> {
-        fn prepare(protocol: IpProtocol, buffer: &mut [u8]) -> Result<(IpRepr, &[u8])> {
+        fn prepare<'a>(protocol: IpProtocol, buffer: &'a mut [u8], 
+                   checksum_caps: &ChecksumCapabilities) -> Result<(IpRepr, &'a [u8])> {
             match IpVersion::of_packet(buffer.as_ref())? {
                 IpVersion::Ipv4 => {
                     let mut packet = Ipv4Packet::new_checked(buffer.as_mut())?;
                     if packet.protocol() != protocol { return Err(Error::Unaddressable) }
-                    packet.fill_checksum();
+                    if checksum_caps.ipv4.tx() {
+                        packet.fill_checksum();
+                    } else {
+                        // make sure we get a consistently zeroed checksum, since implementations might rely on it
+                        packet.set_checksum(0);
+                    }
 
                     let packet = Ipv4Packet::new(&*packet.into_inner());
-                    let ipv4_repr = Ipv4Repr::parse(&packet)?;
+                    let ipv4_repr = Ipv4Repr::parse(&packet, checksum_caps)?;
                     Ok((IpRepr::Ipv4(ipv4_repr), packet.payload()))
                 }
                 IpVersion::Unspecified => unreachable!(),
@@ -209,7 +217,7 @@ impl<'a, 'b> RawSocket<'a, 'b> {
         let ip_protocol = self.ip_protocol;
         let ip_version  = self.ip_version;
         self.tx_buffer.dequeue_one_with(|packet_buf| {
-            match prepare(ip_protocol, packet_buf.as_mut()) {
+            match prepare(ip_protocol, packet_buf.as_mut(), &checksum_caps) {
                 Ok((ip_repr, raw_packet)) => {
                     net_trace!("[{}]:{}:{}: sending {} octets",
                                debug_id, ip_version, ip_protocol,
@@ -289,7 +297,7 @@ mod test {
         let mut socket = socket(buffer(0), buffer(1));
 
         assert!(socket.can_send());
-        assert_eq!(socket.dispatch(|_| unreachable!()),
+        assert_eq!(socket.dispatch(|_| unreachable!(), &ChecksumCapabilities::default()),
                    Err(Error::Exhausted));
 
         assert_eq!(socket.send_slice(&PACKET_BYTES[..]), Ok(()));
@@ -300,14 +308,14 @@ mod test {
             assert_eq!(ip_repr, HEADER_REPR);
             assert_eq!(ip_payload, &PACKET_PAYLOAD);
             Err(Error::Unaddressable)
-        }), Err(Error::Unaddressable));
+        }, &ChecksumCapabilities::default()), Err(Error::Unaddressable));
         assert!(!socket.can_send());
 
         assert_eq!(socket.dispatch(|(ip_repr, ip_payload)| {
             assert_eq!(ip_repr, HEADER_REPR);
             assert_eq!(ip_payload, &PACKET_PAYLOAD);
             Ok(())
-        }), Ok(()));
+        }, &ChecksumCapabilities::default()), Ok(()));
         assert!(socket.can_send());
     }
 
@@ -319,14 +327,14 @@ mod test {
         Ipv4Packet::new(&mut wrong_version).set_version(5);
 
         assert_eq!(socket.send_slice(&wrong_version[..]), Ok(()));
-        assert_eq!(socket.dispatch(|_| unreachable!()),
+        assert_eq!(socket.dispatch(|_| unreachable!(), &ChecksumCapabilities::default()),
                    Ok(()));
 
         let mut wrong_protocol = PACKET_BYTES.clone();
         Ipv4Packet::new(&mut wrong_protocol).set_protocol(IpProtocol::Tcp);
 
         assert_eq!(socket.send_slice(&wrong_protocol[..]), Ok(()));
-        assert_eq!(socket.dispatch(|_| unreachable!()),
+        assert_eq!(socket.dispatch(|_| unreachable!(), &ChecksumCapabilities::default()),
                    Ok(()));
     }
 
@@ -340,12 +348,12 @@ mod test {
 
         assert_eq!(socket.recv(), Err(Error::Exhausted));
         assert!(socket.accepts(&HEADER_REPR));
-        assert_eq!(socket.process(&HEADER_REPR, &PACKET_PAYLOAD),
+        assert_eq!(socket.process(&HEADER_REPR, &PACKET_PAYLOAD, &ChecksumCapabilities::default()),
                    Ok(()));
         assert!(socket.can_recv());
 
         assert!(socket.accepts(&HEADER_REPR));
-        assert_eq!(socket.process(&HEADER_REPR, &PACKET_PAYLOAD),
+        assert_eq!(socket.process(&HEADER_REPR, &PACKET_PAYLOAD, &ChecksumCapabilities::default()),
                    Err(Error::Exhausted));
         assert_eq!(socket.recv(), Ok(&cksumd_packet[..]));
         assert!(!socket.can_recv());
@@ -356,7 +364,7 @@ mod test {
         let mut socket = socket(buffer(1), buffer(0));
 
         assert!(socket.accepts(&HEADER_REPR));
-        assert_eq!(socket.process(&HEADER_REPR, &PACKET_PAYLOAD),
+        assert_eq!(socket.process(&HEADER_REPR, &PACKET_PAYLOAD, &ChecksumCapabilities::default()),
                    Ok(()));
 
         let mut slice = [0; 4];
@@ -372,7 +380,7 @@ mod test {
         buffer[..PACKET_BYTES.len()].copy_from_slice(&PACKET_BYTES[..]);
 
         assert!(socket.accepts(&HEADER_REPR));
-        assert_eq!(socket.process(&HEADER_REPR, &buffer),
+        assert_eq!(socket.process(&HEADER_REPR, &buffer, &ChecksumCapabilities::default()),
                    Err(Error::Truncated));
     }
 
