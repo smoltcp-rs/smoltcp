@@ -135,16 +135,16 @@ pub use self::tap_interface::TapInterface;
 /// A tracer device for Ethernet frames.
 pub type EthernetTracer<T> = Tracer<T, super::wire::EthernetFrame<&'static [u8]>>;
 
-/// The checksum configuration for a device
+/// A description of checksum behavior for a particular protocol.
 #[derive(Debug, Clone, Copy)]
 pub enum Checksum {
-    /// Validate checksum when receiving and supply checksum when sending
+    /// Verify checksum when receiving and compute checksum when sending.
     Both,
-    /// Validate checksum when receiving
+    /// Verify checksum when receiving.
     Rx,
-    /// Supply checksum before sending
+    /// Compute checksum before sending.
     Tx,
-    /// Ignore checksum
+    /// Ignore checksum completely.
     None,
 }
 
@@ -155,14 +155,16 @@ impl Default for Checksum {
 }
 
 impl Checksum {
-    pub(crate) fn rx(&self) -> bool {
+    /// Returns whether checksum should be verified when receiving.
+    pub fn rx(&self) -> bool {
         match *self {
             Checksum::Both | Checksum::Rx => true,
             _ => false
         }
     }
 
-    pub(crate) fn tx(&self) -> bool {
+    /// Returns whether checksum should be verified when sending.
+    pub fn tx(&self) -> bool {
         match *self {
             Checksum::Both | Checksum::Tx => true,
             _ => false
@@ -170,7 +172,7 @@ impl Checksum {
     }
 }
 
-/// Configuration of checksum capabilities for each applicable protocol
+/// A description of checksum behavior for every supported protocol.
 #[derive(Debug, Clone, Default)]
 pub struct ChecksumCapabilities {
     pub ipv4: Checksum,
@@ -204,7 +206,7 @@ pub struct DeviceCapabilities {
     /// dynamically allocated.
     pub max_burst_size: Option<usize>,
 
-    /// Checksum capabilities for the current device
+    /// The set of protocols for which checksum can be computed in hardware.
     pub checksum: ChecksumCapabilities,
 
     /// Only present to prevent people from trying to initialize every field of DeviceLimits,
