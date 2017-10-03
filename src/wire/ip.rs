@@ -342,7 +342,7 @@ impl IpRepr {
     /// # Panics
     /// This function panics if source and destination addresses belong to different families,
     /// or the destination address is unspecified, since this indicates a logic error.
-    pub fn lower(&self, fallback_src_addrs: &[Address]) -> Result<IpRepr> {
+    pub fn lower(&self, fallback_src_addrs: &[Cidr]) -> Result<IpRepr> {
         match self {
             &IpRepr::Unspecified {
                 src_addr: Address::Ipv4(src_addr),
@@ -363,9 +363,9 @@ impl IpRepr {
                 protocol, payload_len
             } => {
                 let mut src_addr = None;
-                for addr in fallback_src_addrs {
-                    match addr {
-                        &Address::Ipv4(addr) => {
+                for cidr in fallback_src_addrs {
+                    match cidr.address() {
+                        Address::Ipv4(addr) => {
                             src_addr = Some(addr);
                             break
                         }
@@ -388,9 +388,9 @@ impl IpRepr {
 
             &IpRepr::Ipv4(mut repr) => {
                 if repr.src_addr.is_unspecified() {
-                    for addr in fallback_src_addrs {
-                        match addr {
-                            &Address::Ipv4(addr) => {
+                    for cidr in fallback_src_addrs {
+                        match cidr.address() {
+                            Address::Ipv4(addr) => {
                                 repr.src_addr = addr;
                                 return Ok(IpRepr::Ipv4(repr));
                             }
@@ -521,7 +521,7 @@ pub mod checksum {
 #[cfg(test)]
 mod test {
     use super::*;
-    use wire::{Ipv4Address, IpProtocol, IpAddress, Ipv4Repr};
+    use wire::{Ipv4Address, IpProtocol, IpAddress, Ipv4Repr, IpCidr};
     #[test]
     fn ip_repr_lower() {
         let ip_addr_a = Ipv4Address::new(1, 2, 3, 4);
@@ -560,7 +560,7 @@ mod test {
                 dst_addr: IpAddress::Ipv4(ip_addr_b),
                 protocol: proto,
                 payload_len
-            }.lower(&[IpAddress::Ipv4(ip_addr_a)]),
+            }.lower(&[IpCidr::new(IpAddress::Ipv4(ip_addr_a), 24)]),
             Ok(IpRepr::Ipv4(Ipv4Repr{
                 src_addr: ip_addr_a,
                 dst_addr: ip_addr_b,
@@ -600,7 +600,7 @@ mod test {
                 dst_addr: ip_addr_b,
                 protocol: proto,
                 payload_len
-            }).lower(&[IpAddress::Ipv4(ip_addr_a)]),
+            }).lower(&[IpCidr::new(IpAddress::Ipv4(ip_addr_a), 24)]),
             Ok(IpRepr::Ipv4(Ipv4Repr{
                 src_addr: ip_addr_a,
                 dst_addr: ip_addr_b,

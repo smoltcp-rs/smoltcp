@@ -17,7 +17,7 @@ mod utils;
 
 use core::str;
 use smoltcp::phy::Loopback;
-use smoltcp::wire::{EthernetAddress, IpAddress};
+use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr};
 use smoltcp::iface::{ArpCache, SliceArpCache, EthernetInterface};
 use smoltcp::socket::{AsSocket, SocketSet};
 use smoltcp::socket::{TcpSocket, TcpSocketBuffer};
@@ -90,10 +90,10 @@ fn main() {
     let mut arp_cache = SliceArpCache::new(&mut arp_cache_entries[..]);
 
     let     hardware_addr  = EthernetAddress::default();
-    let mut protocol_addrs = [IpAddress::v4(127, 0, 0, 1)];
+    let mut protocol_addrs = [IpCidr::new(IpAddress::v4(127, 0, 0, 1), 24)];
     let mut iface = EthernetInterface::new(
         &mut device, &mut arp_cache as &mut ArpCache,
-        hardware_addr, &mut protocol_addrs[..]);
+        hardware_addr, &mut protocol_addrs[..], None);
 
     let server_socket = {
         // It is not strictly necessary to use a `static mut` and unsafe code here, but

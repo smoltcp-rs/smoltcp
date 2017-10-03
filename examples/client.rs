@@ -10,7 +10,7 @@ use std::str::{self, FromStr};
 use std::time::Instant;
 use std::os::unix::io::AsRawFd;
 use smoltcp::phy::wait as phy_wait;
-use smoltcp::wire::{EthernetAddress, IpAddress};
+use smoltcp::wire::{EthernetAddress, Ipv4Address, IpAddress, IpCidr};
 use smoltcp::iface::{ArpCache, SliceArpCache, EthernetInterface};
 use smoltcp::socket::{AsSocket, SocketSet};
 use smoltcp::socket::{TcpSocket, TcpSocketBuffer};
@@ -40,17 +40,18 @@ fn main() {
     let tcp_socket = TcpSocket::new(tcp_rx_buffer, tcp_tx_buffer);
 
     let hardware_addr  = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x02]);
-    let protocol_addr  = IpAddress::v4(192, 168, 69, 2);
-    let mut iface      = EthernetInterface::new(
+    let protocol_addrs = [IpCidr::new(IpAddress::v4(192, 168, 69, 2), 24)];
+    let default_v4_gw  = Ipv4Address::new(192, 168, 69, 100);
+    let mut iface = EthernetInterface::new(
         Box::new(device), Box::new(arp_cache) as Box<ArpCache>,
-        hardware_addr, [protocol_addr]);
+        hardware_addr, protocol_addrs, Some(default_v4_gw));
 
     let mut sockets = SocketSet::new(vec![]);
     let tcp_handle = sockets.add(tcp_socket);
 
     {
         let socket: &mut TcpSocket = sockets.get_mut(tcp_handle).as_socket();
-        socket.connect((address, port), (protocol_addr, 49500)).unwrap();
+        socket.connect((address, port), 49500).unwrap();
     }
 
     let mut tcp_active = false;

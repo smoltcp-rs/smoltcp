@@ -6,10 +6,11 @@ use managed::{Managed, ManagedSlice};
 use {Error, Result};
 use phy::Device;
 use wire::{EthernetAddress, EthernetProtocol, EthernetFrame};
+use wire::{Ipv4Address};
+use wire::{IpAddress, IpProtocol, IpRepr, IpCidr};
 use wire::{ArpPacket, ArpRepr, ArpOperation};
 use wire::{Ipv4Packet, Ipv4Repr};
 use wire::{Icmpv4Packet, Icmpv4Repr, Icmpv4DstUnreachable};
-use wire::{IpAddress, IpProtocol, IpRepr};
 #[cfg(feature = "socket-udp")] use wire::{UdpPacket, UdpRepr};
 #[cfg(feature = "socket-tcp")] use wire::{TcpPacket, TcpRepr, TcpControl};
 use socket::{Socket, SocketSet, AsSocket};
@@ -27,7 +28,8 @@ pub struct Interface<'a, 'b, 'c, DeviceT: Device + 'a> {
     device:         Managed<'a, DeviceT>,
     arp_cache:      Managed<'b, ArpCache>,
     hardware_addr:  EthernetAddress,
-    protocol_addrs: ManagedSlice<'c, IpAddress>,
+    protocol_addrs: ManagedSlice<'c, IpCidr>,
+    ipv4_gateway:   Option<Ipv4Address>,
 }
 
 enum Packet<'a> {
@@ -48,24 +50,29 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
     /// # Panics
     /// See the restrictions on [set_hardware_addr](#method.set_hardware_addr)
     /// and [set_protocol_addrs](#method.set_protocol_addrs) functions.
-    pub fn new<DeviceMT, ArpCacheMT, ProtocolAddrsMT>
+    pub fn new<DeviceMT, ArpCacheMT, ProtocolAddrsMT, Ipv4GatewayAddrT>
               (device: DeviceMT, arp_cache: ArpCacheMT,
-               hardware_addr: EthernetAddress, protocol_addrs: ProtocolAddrsMT) ->
+               hardware_addr: EthernetAddress,
+               protocol_addrs: ProtocolAddrsMT,
+               ipv4_gateway: Ipv4GatewayAddrT) ->
               Interface<'a, 'b, 'c, DeviceT>
             where DeviceMT: Into<Managed<'a, DeviceT>>,
                   ArpCacheMT: Into<Managed<'b, ArpCache>>,
-                  ProtocolAddrsMT: Into<ManagedSlice<'c, IpAddress>>, {
+                  ProtocolAddrsMT: Into<ManagedSlice<'c, IpCidr>>,
+                  Ipv4GatewayAddrT: Into<Option<Ipv4Address>>, {
         let device = device.into();
         let arp_cache = arp_cache.into();
         let protocol_addrs = protocol_addrs.into();
+        let ipv4_gateway = ipv4_gateway.into();
 
         Self::check_hardware_addr(&hardware_addr);
         Self::check_protocol_addrs(&protocol_addrs);
         Interface {
-            device:         device,
-            arp_cache:      arp_cache,
-            hardware_addr:  hardware_addr,
-            protocol_addrs: protocol_addrs,
+            device,
+            arp_cache,
+            hardware_addr,
+            protocol_addrs,
+            ipv4_gateway,
         }
     }
 
@@ -89,16 +96,16 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         Self::check_hardware_addr(&self.hardware_addr);
     }
 
-    fn check_protocol_addrs(addrs: &[IpAddress]) {
-        for addr in addrs {
-            if !addr.is_unicast() {
-                panic!("protocol address {} is not unicast", addr)
+    fn check_protocol_addrs(addrs: &[IpCidr]) {
+        for cidr in addrs {
+            if !cidr.address().is_unicast() {
+                panic!("protocol address {} is not unicast", cidr.address())
             }
         }
     }
 
     /// Get the protocol addresses of the interface.
-    pub fn protocol_addrs(&self) -> &[IpAddress] {
+    pub fn protocol_addrs(&self) -> &[IpCidr] {
         self.protocol_addrs.as_ref()
     }
 
@@ -106,7 +113,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
     ///
     /// # Panics
     /// This function panics if any of the addresses is not unicast.
-    pub fn update_protocol_addrs<F: FnOnce(&mut ManagedSlice<'c, IpAddress>)>(&mut self, f: F) {
+    pub fn update_protocol_addrs<F: FnOnce(&mut ManagedSlice<'c, IpCidr>)>(&mut self, f: F) {
         f(&mut self.protocol_addrs);
         Self::check_protocol_addrs(&self.protocol_addrs)
     }
@@ -114,7 +121,18 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
     /// Check whether the interface has the given protocol address assigned.
     pub fn has_protocol_addr<T: Into<IpAddress>>(&self, addr: T) -> bool {
         let addr = addr.into();
-        self.protocol_addrs.iter().any(|&probe| probe == addr)
+        self.protocol_addrs.iter().any(|probe| probe.address() == addr)
+    }
+
+    /// Get the IPv4 gateway of the interface.
+    pub fn ipv4_gateway(&self) -> Option<Ipv4Address> {
+        self.ipv4_gateway
+    }
+
+    /// Set the IPv4 gateway of the interface.
+    pub fn set_ipv4_gateway<GatewayAddrT>(&mut self, gateway: GatewayAddrT)
+            where GatewayAddrT: Into<Option<Ipv4Address>> {
+        self.ipv4_gateway = gateway.into();
     }
 
     /// Transmit packets queued in the given sockets, and receive packets queued
@@ -541,10 +559,28 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         Ok(())
     }
 
+    fn route_address(&self, addr: &IpAddress) -> Result<IpAddress> {
+        self.protocol_addrs
+            .iter()
+            .find(|cidr| cidr.contains_addr(&addr))
+            .map(|_cidr| Ok(addr.clone())) // route directly
+            .unwrap_or_else(|| {
+                match (addr, self.ipv4_gateway) {
+                    // route via a gateway
+                    (&IpAddress::Ipv4(_), Some(gateway)) =>
+                        Ok(gateway.into()),
+                    // unroutable
+                    _ => Err(Error::Unaddressable)
+                }
+            })
+    }
+
     fn lookup_hardware_addr(&mut self, timestamp: u64,
                             src_addr: &IpAddress, dst_addr: &IpAddress) ->
                            Result<EthernetAddress> {
-        if let Some(hardware_addr) = self.arp_cache.lookup(dst_addr) {
+        let dst_addr = self.route_address(dst_addr)?;
+
+        if let Some(hardware_addr) = self.arp_cache.lookup(&dst_addr) {
             return Ok(hardware_addr)
         }
 
@@ -553,7 +589,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         }
 
         match (src_addr, dst_addr) {
-            (&IpAddress::Ipv4(src_addr), &IpAddress::Ipv4(dst_addr)) => {
+            (&IpAddress::Ipv4(src_addr), IpAddress::Ipv4(dst_addr)) => {
                 net_debug!("address {} not in ARP cache, sending request",
                            dst_addr);
 

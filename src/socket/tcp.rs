@@ -1450,7 +1450,7 @@ impl<'a> fmt::Write for TcpSocket<'a> {
 
 #[cfg(test)]
 mod test {
-    use wire::{IpAddress, Ipv4Address};
+    use wire::{IpAddress, Ipv4Address, IpCidr};
     use super::*;
 
     #[test]
@@ -1529,7 +1529,7 @@ mod test {
         let mut caps = DeviceCapabilities::default();
         caps.max_transmission_unit = 1520;
         let result = socket.dispatch(timestamp, &caps, |(ip_repr, tcp_repr)| {
-            let ip_repr = ip_repr.lower(&[LOCAL_END.addr.into()]).unwrap();
+            let ip_repr = ip_repr.lower(&[IpCidr::new(LOCAL_END.addr, 24)]).unwrap();
 
             assert_eq!(ip_repr.protocol(), IpProtocol::Tcp);
             assert_eq!(ip_repr.src_addr(), LOCAL_IP);

@@ -12,7 +12,7 @@ use std::time::Instant;
 use std::os::unix::io::AsRawFd;
 use smoltcp::phy::Device;
 use smoltcp::phy::wait as phy_wait;
-use smoltcp::wire::{EthernetAddress, IpVersion, IpProtocol, IpAddress,
+use smoltcp::wire::{EthernetAddress, IpVersion, IpProtocol, IpAddress, IpCidr,
                     Ipv4Address, Ipv4Packet, Ipv4Repr,
                     Icmpv4Repr, Icmpv4Packet};
 use smoltcp::iface::{ArpCache, SliceArpCache, EthernetInterface};
@@ -39,6 +39,7 @@ fn main() {
     let device = utils::parse_tap_options(&mut matches);
     let fd = device.as_raw_fd();
     let device = utils::parse_middleware_options(&mut matches, device, /*loopback=*/false);
+    let device_caps = device.capabilities();
     let address  = Ipv4Address::from_str(&matches.free[0]).expect("invalid address format");
     let count    = matches.opt_str("count").map(|s| usize::from_str(&s).unwrap()).unwrap_or(4);
     let interval = matches.opt_str("interval").map(|s| u64::from_str(&s).unwrap()).unwrap_or(1);
@@ -56,11 +57,12 @@ fn main() {
     let raw_socket = RawSocket::new(IpVersion::Ipv4, IpProtocol::Icmp,
                                     raw_rx_buffer, raw_tx_buffer);
 
-    let hardware_addr  = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x02]);
-    let caps = device.capabilities();
+    let hardware_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x02]);
+    let protocol_addr = IpCidr::new(IpAddress::from(local_addr), 24);
+    let default_v4_gw = Ipv4Address::new(192, 168, 69, 100);
     let mut iface = EthernetInterface::new(
         Box::new(device), Box::new(arp_cache) as Box<ArpCache>,
-        hardware_addr, [IpAddress::from(local_addr)]);
+        hardware_addr, [protocol_addr], Some(default_v4_gw));
 
     let mut sockets = SocketSet::new(vec![]);
     let raw_handle = sockets.add(raw_socket);
@@ -100,9 +102,9 @@ fn main() {
                     .unwrap();
 
                 let mut ipv4_packet = Ipv4Packet::new(raw_payload);
-                ipv4_repr.emit(&mut ipv4_packet, &caps.checksum);
+                ipv4_repr.emit(&mut ipv4_packet, &device_caps.checksum);
                 let mut icmp_packet = Icmpv4Packet::new(ipv4_packet.payload_mut());
-                icmp_repr.emit(&mut icmp_packet, &caps.checksum);
+                icmp_repr.emit(&mut icmp_packet, &device_caps.checksum);
 
                 waiting_queue.insert(seq_no, timestamp);
                 seq_no += 1;
@@ -112,11 +114,11 @@ fn main() {
             if socket.can_recv() {
                 let payload = socket.recv().unwrap();
                 let ipv4_packet = Ipv4Packet::new(payload);
-                let ipv4_repr = Ipv4Repr::parse(&ipv4_packet, &caps.checksum).unwrap();
+                let ipv4_repr = Ipv4Repr::parse(&ipv4_packet, &device_caps.checksum).unwrap();
 
                 if ipv4_repr.src_addr == remote_addr && ipv4_repr.dst_addr == local_addr {
                     let icmp_packet = Icmpv4Packet::new(ipv4_packet.payload());
-                    let icmp_repr = Icmpv4Repr::parse(&icmp_packet, &caps.checksum);
+                    let icmp_repr = Icmpv4Repr::parse(&icmp_packet, &device_caps.checksum);
 
                     if let Ok(Icmpv4Repr::EchoReply { seq_no, data, .. }) = icmp_repr {
                         if let Some(_) = waiting_queue.get(&seq_no) {

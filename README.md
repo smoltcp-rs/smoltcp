@@ -150,6 +150,13 @@ sudo ip link set tap0 up
 sudo ip addr add 192.168.69.100/24 dev tap0
 ```
 
+It's possible to let _smoltcp_ access Internet by enabling routing for the tap interface:
+
+```sh
+sudo iptables -t nat -A POSTROUTING -s 192.168.69.0/24 -j MASQUERADE
+sudo sysctl net.ipv4.ip_forward=1
+```
+
 ### Fault injection
 
 In order to demonstrate the response of _smoltcp_ to adverse network conditions, all examples
