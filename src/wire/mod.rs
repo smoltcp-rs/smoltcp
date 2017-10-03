@@ -100,10 +100,12 @@ pub use self::ip::Protocol as IpProtocol;
 pub use self::ip::Address as IpAddress;
 pub use self::ip::Endpoint as IpEndpoint;
 pub use self::ip::IpRepr as IpRepr;
+pub use self::ip::Cidr as IpCidr;
 
 pub use self::ipv4::Address as Ipv4Address;
 pub use self::ipv4::Packet as Ipv4Packet;
 pub use self::ipv4::Repr as Ipv4Repr;
+pub use self::ipv4::Cidr as Ipv4Cidr;
 
 pub use self::icmpv4::Message as Icmpv4Message;
 pub use self::icmpv4::DstUnreachable as Icmpv4DstUnreachable;

@@ -1,6 +1,6 @@
 use core::str::FromStr;
 use core::result;
-use wire::{EthernetAddress, IpAddress, Ipv4Address};
+use wire::{EthernetAddress, IpAddress, Ipv4Address, Ipv4Cidr, IpCidr};
 
 type Result<T> = result::Result<T, ()>;
 
@@ -164,6 +164,29 @@ impl FromStr for IpAddress {
     }
 }
 
+impl FromStr for Ipv4Cidr {
+    type Err = ();
+
+    /// Parse a string representation of an IPv4 CIDR.
+    fn from_str(s: &str) -> Result<Ipv4Cidr> {
+        Parser::new(s).until_eof(|p| {
+            let ip = p.accept_ipv4()?;
+            p.accept_char(b'/')?;
+            let prefix_len = p.accept_number(2, 33, false)? as u8;
+            Ok(Ipv4Cidr::new(ip, prefix_len).map_err(|_|())?)
+        })
+    }
+}
+
+impl FromStr for IpCidr {
+    type Err = ();
+
+    /// Parse a string representation of an IP CIDR.
+    fn from_str(s: &str) -> Result<IpCidr> {
+        Ipv4Cidr::from_str(s).map(IpCidr::Ipv4)
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -211,5 +234,37 @@ mod test {
         assert_eq!(IpAddress::from_str("1.2.3.4"),
                    Ok(IpAddress::Ipv4(Ipv4Address([1, 2, 3, 4]))));
         assert_eq!(IpAddress::from_str("x"), Err(()));
+    }
+
+    #[test]
+    fn test_cidr() {
+        let tests = [
+            ("127.0.0.1/8",
+             Ok(Ipv4Cidr::new(Ipv4Address([127, 0, 0, 1]), 8u8).unwrap())),
+            ("192.168.1.1/24",
+             Ok(Ipv4Cidr::new(Ipv4Address([192, 168, 1, 1]), 24u8).unwrap())),
+            ("8.8.8.8/32",
+             Ok(Ipv4Cidr::new(Ipv4Address([8, 8, 8, 8]), 32u8).unwrap())),
+            ("8.8.8.8/0",
+             Ok(Ipv4Cidr::new(Ipv4Address([8, 8, 8, 8]), 0u8).unwrap())),
+            ("", Err(())),
+            ("1", Err(())),
+            ("127.0.0.1", Err(())),
+            ("127.0.0.1/", Err(())),
+            ("127.0.0.1/33", Err(())),
+            ("127.0.0.1/111", Err(())),
+            ("/32", Err(())),
+        ];
+
+        for &(s, cidr) in &tests {
+            assert_eq!(Ipv4Cidr::from_str(s), cidr);
+            assert_eq!(IpCidr::from_str(s), cidr.map(IpCidr::Ipv4));
+
+            if let Ok(cidr) = cidr {
+                assert_eq!(Ipv4Cidr::from_str(&format!("{}", cidr)), Ok(cidr));
+                assert_eq!(IpCidr::from_str(&format!("{}", cidr)),
+                           Ok(IpCidr::Ipv4(cidr)));
+            }
+        }
     }
 }

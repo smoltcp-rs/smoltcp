@@ -1,8 +1,9 @@
 use core::fmt;
+use core::convert::From;
 
 use {Error, Result};
 use phy::ChecksumCapabilities;
-use super::{Ipv4Address, Ipv4Packet, Ipv4Repr};
+use super::{Ipv4Address, Ipv4Packet, Ipv4Repr, Ipv4Cidr};
 
 /// Internet protocol version.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
@@ -122,6 +123,66 @@ impl fmt::Display for Address {
         match self {
             &Address::Unspecified => write!(f, "*"),
             &Address::Ipv4(addr)  => write!(f, "{}", addr)
+        }
+    }
+}
+
+/// A CIDR containing an IP address with a prefix length, could be used to
+/// represent IP subnets or standalone IP addresses with prefix length.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+pub enum Cidr {
+    Ipv4(Ipv4Cidr),
+}
+
+impl Cidr {
+    /// Construct a new CIDR value, fails if prefix_len is invalid.
+    pub fn new(addr: Address, prefix_len: u8) -> Result<Cidr> {
+        match addr {
+            Address::Ipv4(addr) => Ok(Cidr::Ipv4(Ipv4Cidr::new(addr, prefix_len)?)),
+            Address::Unspecified => {
+                panic!("Can't convert an unspecified address to a CIDR")
+            }
+        }
+    }
+
+    /// Check whether the subnet described by the CIDR conains the address.
+    pub fn contains_ip(&self, addr: Address) -> bool {
+        match (self, addr) {
+            (&Cidr::Ipv4(ref ipv4_cidr), Address::Ipv4(ipv4_addr)) => {
+                ipv4_cidr.contains_ip(ipv4_addr)
+            },
+            _ => false,
+        }
+    }
+
+    /// Check whether the subnet described by the CIDR conains the given subnet.
+    pub fn contains_subnet(&self, subnet: Cidr) -> bool {
+        match (self, subnet) {
+            (&Cidr::Ipv4(ref subnet), Cidr::Ipv4(other)) => {
+                subnet.contains_subnet(other)
+            },
+        }
+    }
+
+    /// Return the prefix length of the CIDR.
+    pub fn prefix_len(&self) -> u8 {
+        match self {
+            &Cidr::Ipv4(cidr) => cidr.prefix_len(),
+        }
+    }
+
+    /// Return the IP address of the CIDR.
+    pub fn address(&self) -> Address {
+        match self {
+            &Cidr::Ipv4(cidr) => Address::Ipv4(cidr.address()),
+        }
+    }
+}
+
+impl fmt::Display for Cidr {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            &Cidr::Ipv4(cidr)  => write!(f, "{}", cidr)
         }
     }
 }
