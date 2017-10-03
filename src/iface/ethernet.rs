@@ -27,8 +27,8 @@ use super::ArpCache;
 pub struct Interface<'a, 'b, 'c, DeviceT: Device + 'a> {
     device:         Managed<'a, DeviceT>,
     arp_cache:      Managed<'b, ArpCache>,
-    hardware_addr:  EthernetAddress,
-    protocol_addrs: ManagedSlice<'c, IpCidr>,
+    ethernet_addr:  EthernetAddress,
+    ip_addrs:       ManagedSlice<'c, IpCidr>,
     ipv4_gateway:   Option<Ipv4Address>,
 }
 
@@ -52,8 +52,8 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
     /// and [set_protocol_addrs](#method.set_protocol_addrs) functions.
     pub fn new<DeviceMT, ArpCacheMT, ProtocolAddrsMT, Ipv4GatewayAddrT>
               (device: DeviceMT, arp_cache: ArpCacheMT,
-               hardware_addr: EthernetAddress,
-               protocol_addrs: ProtocolAddrsMT,
+               ethernet_addr: EthernetAddress,
+               ip_addrs: ProtocolAddrsMT,
                ipv4_gateway: Ipv4GatewayAddrT) ->
               Interface<'a, 'b, 'c, DeviceT>
             where DeviceMT: Into<Managed<'a, DeviceT>>,
@@ -62,66 +62,60 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                   Ipv4GatewayAddrT: Into<Option<Ipv4Address>>, {
         let device = device.into();
         let arp_cache = arp_cache.into();
-        let protocol_addrs = protocol_addrs.into();
+        let ip_addrs = ip_addrs.into();
         let ipv4_gateway = ipv4_gateway.into();
 
-        Self::check_hardware_addr(&hardware_addr);
-        Self::check_protocol_addrs(&protocol_addrs);
-        Interface {
-            device,
-            arp_cache,
-            hardware_addr,
-            protocol_addrs,
-            ipv4_gateway,
-        }
+        Self::check_ethernet_addr(&ethernet_addr);
+        Self::check_ip_addrs(&ip_addrs);
+        Interface { device, arp_cache, ethernet_addr, ip_addrs, ipv4_gateway }
     }
 
-    fn check_hardware_addr(addr: &EthernetAddress) {
+    fn check_ethernet_addr(addr: &EthernetAddress) {
         if addr.is_multicast() {
-            panic!("hardware address {} is not unicast", addr)
+            panic!("Ethernet address {} is not unicast", addr)
         }
     }
 
-    /// Get the hardware address of the interface.
-    pub fn hardware_addr(&self) -> EthernetAddress {
-        self.hardware_addr
+    /// Get the Ethernet address of the interface.
+    pub fn ethernet_addr(&self) -> EthernetAddress {
+        self.ethernet_addr
     }
 
-    /// Set the hardware address of the interface.
+    /// Set the Ethernet address of the interface.
     ///
     /// # Panics
     /// This function panics if the address is not unicast.
-    pub fn set_hardware_addr(&mut self, addr: EthernetAddress) {
-        self.hardware_addr = addr;
-        Self::check_hardware_addr(&self.hardware_addr);
+    pub fn set_ethernet_addr(&mut self, addr: EthernetAddress) {
+        self.ethernet_addr = addr;
+        Self::check_ethernet_addr(&self.ethernet_addr);
     }
 
-    fn check_protocol_addrs(addrs: &[IpCidr]) {
+    fn check_ip_addrs(addrs: &[IpCidr]) {
         for cidr in addrs {
             if !cidr.address().is_unicast() {
-                panic!("protocol address {} is not unicast", cidr.address())
+                panic!("IP address {} is not unicast", cidr.address())
             }
         }
     }
 
-    /// Get the protocol addresses of the interface.
-    pub fn protocol_addrs(&self) -> &[IpCidr] {
-        self.protocol_addrs.as_ref()
+    /// Get the IP addresses of the interface.
+    pub fn ip_addrs(&self) -> &[IpCidr] {
+        self.ip_addrs.as_ref()
     }
 
-    /// Update the protocol addresses of the interface.
+    /// Update the IP addresses of the interface.
     ///
     /// # Panics
     /// This function panics if any of the addresses is not unicast.
-    pub fn update_protocol_addrs<F: FnOnce(&mut ManagedSlice<'c, IpCidr>)>(&mut self, f: F) {
-        f(&mut self.protocol_addrs);
-        Self::check_protocol_addrs(&self.protocol_addrs)
+    pub fn update_ip_addrs<F: FnOnce(&mut ManagedSlice<'c, IpCidr>)>(&mut self, f: F) {
+        f(&mut self.ip_addrs);
+        Self::check_ip_addrs(&self.ip_addrs)
     }
 
-    /// Check whether the interface has the given protocol address assigned.
-    pub fn has_protocol_addr<T: Into<IpAddress>>(&self, addr: T) -> bool {
+    /// Check whether the interface has the given IP address assigned.
+    pub fn has_ip_addr<T: Into<IpAddress>>(&self, addr: T) -> bool {
         let addr = addr.into();
-        self.protocol_addrs.iter().any(|probe| probe.address() == addr)
+        self.ip_addrs.iter().any(|probe| probe.address() == addr)
     }
 
     /// Get the IPv4 gateway of the interface.
@@ -237,7 +231,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
 
         // Ignore any packets not directed to our hardware address.
         if !eth_frame.dst_addr().is_broadcast() &&
-                eth_frame.dst_addr() != self.hardware_addr {
+                eth_frame.dst_addr() != self.ethernet_addr {
             return Ok(Packet::None)
         }
 
@@ -273,11 +267,10 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                     return Err(Error::Malformed)
                 }
 
-                if operation == ArpOperation::Request &&
-                        self.has_protocol_addr(target_protocol_addr) {
+                if operation == ArpOperation::Request && self.has_ip_addr(target_protocol_addr) {
                     Ok(Packet::Arp(ArpRepr::EthernetIpv4 {
                         operation: ArpOperation::Reply,
-                        source_hardware_addr: self.hardware_addr,
+                        source_hardware_addr: self.ethernet_addr,
                         source_protocol_addr: target_protocol_addr,
                         target_hardware_addr: source_hardware_addr,
                         target_protocol_addr: source_protocol_addr
@@ -333,7 +326,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
             }
         }
 
-        if !self.has_protocol_addr(ipv4_repr.dst_addr) {
+        if !self.has_ip_addr(ipv4_repr.dst_addr) {
             // Ignore IP packets not directed at us.
             return Ok(Packet::None)
         }
@@ -552,15 +545,15 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         debug_assert!(tx_buffer.as_ref().len() == tx_len);
 
         let mut frame = EthernetFrame::new(tx_buffer.as_mut());
-        frame.set_src_addr(self.hardware_addr);
+        frame.set_src_addr(self.ethernet_addr);
 
         f(frame);
 
         Ok(())
     }
 
-    fn route_address(&self, addr: &IpAddress) -> Result<IpAddress> {
-        self.protocol_addrs
+    fn route(&self, addr: &IpAddress) -> Result<IpAddress> {
+        self.ip_addrs
             .iter()
             .find(|cidr| cidr.contains_addr(&addr))
             .map(|_cidr| Ok(addr.clone())) // route directly
@@ -578,7 +571,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
     fn lookup_hardware_addr(&mut self, timestamp: u64,
                             src_addr: &IpAddress, dst_addr: &IpAddress) ->
                            Result<EthernetAddress> {
-        let dst_addr = self.route_address(dst_addr)?;
+        let dst_addr = self.route(dst_addr)?;
 
         if let Some(hardware_addr) = self.arp_cache.lookup(&dst_addr) {
             return Ok(hardware_addr)
@@ -595,7 +588,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
 
                 let arp_repr = ArpRepr::EthernetIpv4 {
                     operation: ArpOperation::Request,
-                    source_hardware_addr: self.hardware_addr,
+                    source_hardware_addr: self.ethernet_addr,
                     source_protocol_addr: src_addr,
                     target_hardware_addr: EthernetAddress::BROADCAST,
                     target_protocol_addr: dst_addr,
@@ -616,7 +609,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
 
     fn dispatch_ip<F>(&mut self, timestamp: u64, ip_repr: IpRepr, f: F) -> Result<()>
             where F: FnOnce(IpRepr, &mut [u8]) {
-        let ip_repr = ip_repr.lower(&self.protocol_addrs)?;
+        let ip_repr = ip_repr.lower(&self.ip_addrs)?;
         let checksum_caps = self.device.capabilities().checksum;
 
         let dst_hardware_addr =

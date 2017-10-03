@@ -57,12 +57,12 @@ fn main() {
     let raw_socket = RawSocket::new(IpVersion::Ipv4, IpProtocol::Icmp,
                                     raw_rx_buffer, raw_tx_buffer);
 
-    let hardware_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x02]);
-    let protocol_addr = IpCidr::new(IpAddress::from(local_addr), 24);
+    let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x02]);
+    let ip_addr = IpCidr::new(IpAddress::from(local_addr), 24);
     let default_v4_gw = Ipv4Address::new(192, 168, 69, 100);
     let mut iface = EthernetInterface::new(
         Box::new(device), Box::new(arp_cache) as Box<ArpCache>,
-        hardware_addr, [protocol_addr], Some(default_v4_gw));
+        ethernet_addr, [ip_addr], Some(default_v4_gw));
 
     let mut sockets = SocketSet::new(vec![]);
     let raw_handle = sockets.add(raw_socket);

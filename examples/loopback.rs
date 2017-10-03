@@ -89,11 +89,10 @@ fn main() {
     let mut arp_cache_entries: [_; 8] = Default::default();
     let mut arp_cache = SliceArpCache::new(&mut arp_cache_entries[..]);
 
-    let     hardware_addr  = EthernetAddress::default();
-    let mut protocol_addrs = [IpCidr::new(IpAddress::v4(127, 0, 0, 1), 24)];
+    let mut ip_addrs = [IpCidr::new(IpAddress::v4(127, 0, 0, 1), 8)];
     let mut iface = EthernetInterface::new(
         &mut device, &mut arp_cache as &mut ArpCache,
-        hardware_addr, &mut protocol_addrs[..], None);
+        EthernetAddress::default(), &mut ip_addrs[..], None);
 
     let server_socket = {
         // It is not strictly necessary to use a `static mut` and unsafe code here, but
