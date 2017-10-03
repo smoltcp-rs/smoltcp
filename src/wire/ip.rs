@@ -418,6 +418,14 @@ pub mod checksum {
                         src_addr, dst_addr)
         }
     }
+
+    // We use this in pretty printer implementations.
+    pub(crate) fn write_checksum(f: &mut fmt::Formatter, correct: bool) -> fmt::Result {
+        if !correct {
+            write!(f, " (checksum incorrect)")?;
+        }
+        write!(f, "\n")
+    }
 }
 
 #[cfg(test)]

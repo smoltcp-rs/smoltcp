@@ -177,10 +177,23 @@ impl Checksum {
 pub struct ChecksumCapabilities {
     pub ipv4: Checksum,
     pub udpv4: Checksum,
-    pub udpv6: Checksum,
     pub tcpv4: Checksum,
     pub icmpv4: Checksum,
     dummy: (),
+}
+
+impl ChecksumCapabilities {
+    /// Checksum behavior that results in not computing or verifying checksums
+    /// for any of the supported protocols.
+    pub fn ignored() -> Self {
+        ChecksumCapabilities {
+            ipv4: Checksum::None,
+            udpv4: Checksum::None,
+            tcpv4: Checksum::None,
+            icmpv4: Checksum::None,
+            ..Self::default()
+        }
+    }
 }
 
 /// A description of device capabilities.
