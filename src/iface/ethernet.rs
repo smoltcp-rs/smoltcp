@@ -139,6 +139,17 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
     /// That is, if `iface.poll(&mut sockets, 1000)` returns `Ok(Some(2000))`,
     /// it harmless (but wastes energy) to call it 500 ms later, and potentially
     /// harmful (impacting quality of service) to call it 1500 ms later.
+    ///
+    /// # Errors
+    /// This method will routinely return errors in response to normal network
+    /// activity as well as certain boundary conditions such as buffer exhaustion.
+    /// These errors are provided as an aid for troubleshooting, and are meant
+    /// to be logged and ignored.
+
+    /// As a special case, `Err(Error::Unrecognized)` is returned in response to
+    /// packets containing any unsupported protocol, option, or form, which is
+    /// a very common occurrence and on a production system it should not even
+    /// be logged.
     pub fn poll(&mut self, sockets: &mut SocketSet, timestamp: u64) -> Result<Option<u64>> {
         self.socket_egress(sockets, timestamp)?;
 
