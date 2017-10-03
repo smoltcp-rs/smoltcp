@@ -10,7 +10,7 @@ use std::str::{self, FromStr};
 use std::time::Instant;
 use std::os::unix::io::AsRawFd;
 use smoltcp::phy::wait as phy_wait;
-use smoltcp::wire::{EthernetAddress, IpAddress};
+use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr};
 use smoltcp::iface::{ArpCache, SliceArpCache, EthernetInterface};
 use smoltcp::socket::{AsSocket, SocketSet};
 use smoltcp::socket::{TcpSocket, TcpSocketBuffer};
@@ -41,9 +41,10 @@ fn main() {
 
     let hardware_addr  = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x02]);
     let protocol_addr  = IpAddress::v4(192, 168, 69, 2);
+    let default_gw     = IpAddress::v4(192, 168, 69, 100);
     let mut iface      = EthernetInterface::new(
         Box::new(device), Box::new(arp_cache) as Box<ArpCache>,
-        hardware_addr, [protocol_addr]);
+        hardware_addr, [IpCidr::new(protocol_addr, 24).unwrap()], default_gw);
 
     let mut sockets = SocketSet::new(vec![]);
     let tcp_handle = sockets.add(tcp_socket);
