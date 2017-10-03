@@ -1,8 +1,9 @@
 use core::fmt;
+use core::convert::From;
 
 use {Error, Result};
 use phy::ChecksumCapabilities;
-use super::{Ipv4Address, Ipv4Packet, Ipv4Repr};
+use super::{Ipv4Address, Ipv4Packet, Ipv4Repr, Ipv4Cidr};
 
 /// Internet protocol version.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
@@ -129,6 +130,85 @@ impl fmt::Display for Address {
             &Address::Unspecified => write!(f, "*"),
             &Address::Ipv4(addr)  => write!(f, "{}", addr),
             &Address::__Nonexhaustive => unreachable!()
+        }
+    }
+}
+
+/// A specification of a CIDR block, containing an address and a variable-length
+/// subnet masking prefix length.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Cidr {
+    Ipv4(Ipv4Cidr),
+    #[doc(hidden)]
+    __Nonexhaustive,
+}
+
+impl Cidr {
+    /// Create a CIDR block from the given address and prefix length.
+    ///
+    /// # Panics
+    /// This function panics if the given address is unspecified, or
+    /// the given prefix length is invalid for the given address.
+    pub fn new(addr: Address, prefix_len: u8) -> Cidr {
+        match addr {
+            Address::Ipv4(addr) => Cidr::Ipv4(Ipv4Cidr::new(addr, prefix_len)),
+            Address::Unspecified =>
+                panic!("a CIDR block cannot be based on an unspecified address"),
+            Address::__Nonexhaustive =>
+                unreachable!()
+        }
+    }
+
+    /// Return the IP address of this CIDR block.
+    pub fn address(&self) -> Address {
+        match self {
+            &Cidr::Ipv4(cidr) => Address::Ipv4(cidr.address()),
+            &Cidr::__Nonexhaustive => unreachable!()
+        }
+    }
+
+    /// Return the prefix length of this CIDR block.
+    pub fn prefix_len(&self) -> u8 {
+        match self {
+            &Cidr::Ipv4(cidr) => cidr.prefix_len(),
+            &Cidr::__Nonexhaustive => unreachable!()
+        }
+    }
+
+    /// Query whether the subnetwork described by this CIDR block contains
+    /// the given address.
+    pub fn contains_addr(&self, addr: &Address) -> bool {
+        match (self, addr) {
+            (&Cidr::Ipv4(ref cidr), &Address::Ipv4(ref addr)) =>
+                cidr.contains_addr(addr),
+            (_, &Address::Unspecified) =>
+                // a fully unspecified address covers both IPv4 and IPv6,
+                // and no CIDR block can do that.
+                false,
+            (&Cidr::__Nonexhaustive, _) |
+            (_, &Address::__Nonexhaustive) =>
+                unreachable!()
+        }
+    }
+
+    /// Query whether the subnetwork described by this CIDR block contains
+    /// the subnetwork described by the given CIDR block.
+    pub fn contains_subnet(&self, subnet: &Cidr) -> bool {
+        match (self, subnet) {
+            (&Cidr::Ipv4(ref cidr), &Cidr::Ipv4(ref other)) =>
+                cidr.contains_subnet(other),
+            (&Cidr::__Nonexhaustive, _) |
+            (_, &Cidr::__Nonexhaustive) =>
+                unreachable!()
+        }
+    }
+}
+
+impl fmt::Display for Cidr {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            &Cidr::Ipv4(cidr) => write!(f, "{}", cidr),
+            &Cidr::__Nonexhaustive => unreachable!()
         }
     }
 }

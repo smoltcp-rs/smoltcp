@@ -78,6 +78,56 @@ impl fmt::Display for Address {
     }
 }
 
+/// A specification of an IPv4 CIDR block, containing an address and a variable-length
+/// subnet masking prefix length.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+pub struct Cidr {
+    address:    Address,
+    prefix_len: u8,
+}
+
+impl Cidr {
+    /// Create an IPv4 CIDR block from the given address and prefix length.
+    ///
+    /// # Panics
+    /// This function panics if the prefix length is larger than 32.
+    pub fn new(address: Address, prefix_len: u8) -> Cidr {
+        assert!(prefix_len <= 32);
+        Cidr { address, prefix_len }
+    }
+
+    /// Return the address of this IPv4 CIDR block.
+    pub fn address(&self) -> Address {
+        self.address
+    }
+
+    /// Return the prefix length of this IPv4 CIDR block.
+    pub fn prefix_len(&self) -> u8 {
+        self.prefix_len
+    }
+
+    /// Query whether the subnetwork described by this IPv4 CIDR block contains
+    /// the given address.
+    pub fn contains_addr(&self, addr: &Address) -> bool {
+        let shift = 32 - self.prefix_len;
+        let self_prefix = NetworkEndian::read_u32(self.address.as_bytes()) >> shift;
+        let addr_prefix = NetworkEndian::read_u32(addr.as_bytes()) >> shift;
+        self_prefix == addr_prefix
+    }
+
+    /// Query whether the subnetwork described by this IPv4 CIDR block contains
+    /// the subnetwork described by the given IPv4 CIDR block.
+    pub fn contains_subnet(&self, subnet: &Cidr) -> bool {
+        self.prefix_len <= subnet.prefix_len && self.contains_addr(&subnet.address)
+    }
+}
+
+impl fmt::Display for Cidr {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}/{}", self.address, self.prefix_len)
+    }
+}
+
 /// A read/write wrapper around an Internet Protocol version 4 packet buffer.
 #[derive(Debug)]
 pub struct Packet<T: AsRef<[u8]>> {
@@ -720,5 +770,53 @@ mod test {
         assert!(!Address::BROADCAST.is_multicast());
         assert!(!Address::BROADCAST.is_link_local());
         assert!(!Address::BROADCAST.is_loopback());
+    }
+
+    #[test]
+    fn test_cidr() {
+        let cidr = Cidr::new(Address::new(192, 168, 1, 10), 24);
+
+        let inside_subnet = [
+            [192, 168,   1,   0], [192, 168,   1,   1],
+            [192, 168,   1,   2], [192, 168,   1,  10],
+            [192, 168,   1, 127], [192, 168,   1, 255],
+        ];
+
+        let outside_subnet = [
+            [192, 168,   0,   0], [127,   0,   0,   1],
+            [192, 168,   2,   0], [192, 168,   0, 255],
+            [  0,   0,   0,   0], [255, 255, 255, 255],
+        ];
+
+        let subnets = [
+            ([192, 168,   1,   0], 32),
+            ([192, 168,   1, 255], 24),
+            ([192, 168,   1,  10], 30),
+        ];
+
+        let not_subnets = [
+            ([192, 168,   1,  10], 23),
+            ([127,   0,   0,   1],  8),
+            ([192, 168,   1,   0],  0),
+            ([192, 168,   0, 255], 32),
+        ];
+
+        for addr in inside_subnet.iter().map(|a| Address::from_bytes(a)) {
+            assert!(cidr.contains_addr(&addr));
+        }
+
+        for addr in outside_subnet.iter().map(|a| Address::from_bytes(a)) {
+            assert!(!cidr.contains_addr(&addr));
+        }
+
+        for subnet in subnets.iter().map(
+            |&(a, p)| Cidr::new(Address::new(a[0], a[1], a[2], a[3]), p)) {
+            assert!(cidr.contains_subnet(&subnet));
+        }
+
+        for subnet in not_subnets.iter().map(
+            |&(a, p)| Cidr::new(Address::new(a[0], a[1], a[2], a[3]), p)) {
+            assert!(!cidr.contains_subnet(&subnet));
+        }
     }
 }
