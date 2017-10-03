@@ -9,7 +9,7 @@ use wire::{EthernetAddress, EthernetProtocol, EthernetFrame};
 use wire::{ArpPacket, ArpRepr, ArpOperation};
 use wire::{Ipv4Packet, Ipv4Repr};
 use wire::{Icmpv4Packet, Icmpv4Repr, Icmpv4DstUnreachable};
-use wire::{IpAddress, IpProtocol, IpRepr};
+use wire::{IpAddress, IpProtocol, IpRepr, IpCidr};
 #[cfg(feature = "socket-udp")] use wire::{UdpPacket, UdpRepr};
 #[cfg(feature = "socket-tcp")] use wire::{TcpPacket, TcpRepr, TcpControl};
 use socket::{Socket, SocketSet, AsSocket};
@@ -27,7 +27,8 @@ pub struct Interface<'a, 'b, 'c, DeviceT: Device + 'a> {
     device:         Managed<'a, DeviceT>,
     arp_cache:      Managed<'b, ArpCache>,
     hardware_addr:  EthernetAddress,
-    protocol_addrs: ManagedSlice<'c, IpAddress>,
+    protocol_addrs: ManagedSlice<'c, IpCidr>,
+    gateway:        Option<IpAddress>,
 }
 
 enum Packet<'a> {
@@ -48,24 +49,29 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
     /// # Panics
     /// See the restrictions on [set_hardware_addr](#method.set_hardware_addr)
     /// and [set_protocol_addrs](#method.set_protocol_addrs) functions.
-    pub fn new<DeviceMT, ArpCacheMT, ProtocolAddrsMT>
+    pub fn new<DeviceMT, ArpCacheMT, ProtocolAddrsMT, GatewayAddressT, GatewayT>
               (device: DeviceMT, arp_cache: ArpCacheMT,
-               hardware_addr: EthernetAddress, protocol_addrs: ProtocolAddrsMT) ->
+               hardware_addr: EthernetAddress, protocol_addrs: ProtocolAddrsMT,
+               gateway: GatewayT) ->
               Interface<'a, 'b, 'c, DeviceT>
             where DeviceMT: Into<Managed<'a, DeviceT>>,
                   ArpCacheMT: Into<Managed<'b, ArpCache>>,
-                  ProtocolAddrsMT: Into<ManagedSlice<'c, IpAddress>>, {
+                  ProtocolAddrsMT: Into<ManagedSlice<'c, IpCidr>>,
+                  GatewayAddressT: Into<IpAddress>,
+                  GatewayT: Into<Option<GatewayAddressT>>, {
         let device = device.into();
         let arp_cache = arp_cache.into();
         let protocol_addrs = protocol_addrs.into();
+        let gateway = gateway.into().map(Into::into);
 
         Self::check_hardware_addr(&hardware_addr);
         Self::check_protocol_addrs(&protocol_addrs);
         Interface {
-            device:         device,
-            arp_cache:      arp_cache,
-            hardware_addr:  hardware_addr,
-            protocol_addrs: protocol_addrs,
+            device,
+            arp_cache,
+            hardware_addr,
+            protocol_addrs,
+            gateway,
         }
     }
 
@@ -89,16 +95,16 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         Self::check_hardware_addr(&self.hardware_addr);
     }
 
-    fn check_protocol_addrs(addrs: &[IpAddress]) {
-        for addr in addrs {
-            if !addr.is_unicast() {
-                panic!("protocol address {} is not unicast", addr)
+    fn check_protocol_addrs(addrs: &[IpCidr]) {
+        for cidr in addrs {
+            if !cidr.address().is_unicast() {
+                panic!("protocol address {} is not unicast", cidr.address())
             }
         }
     }
 
     /// Get the protocol addresses of the interface.
-    pub fn protocol_addrs(&self) -> &[IpAddress] {
+    pub fn protocol_addrs(&self) -> &[IpCidr] {
         self.protocol_addrs.as_ref()
     }
 
@@ -106,7 +112,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
     ///
     /// # Panics
     /// This function panics if any of the addresses is not unicast.
-    pub fn update_protocol_addrs<F: FnOnce(&mut ManagedSlice<'c, IpAddress>)>(&mut self, f: F) {
+    pub fn update_protocol_addrs<F: FnOnce(&mut ManagedSlice<'c, IpCidr>)>(&mut self, f: F) {
         f(&mut self.protocol_addrs);
         Self::check_protocol_addrs(&self.protocol_addrs)
     }
@@ -114,7 +120,20 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
     /// Check whether the interface has the given protocol address assigned.
     pub fn has_protocol_addr<T: Into<IpAddress>>(&self, addr: T) -> bool {
         let addr = addr.into();
-        self.protocol_addrs.iter().any(|&probe| probe == addr)
+        self.protocol_addrs.iter().any(|probe| probe.address() == addr)
+    }
+
+    /// Get the gateway of the interface.
+    pub fn gateway(&self) -> Option<IpAddress> {
+        self.gateway
+    }
+
+    /// Set the gateway of the interface.
+    pub fn set_gateway<AddressT, GatewayT>(&mut self, gateway: GatewayT)
+        where AddressT: Into<IpAddress>,
+              GatewayT: Into<Option<AddressT>>
+    {
+        self.gateway = gateway.into().map(Into::into);
     }
 
     /// Transmit packets queued in the given sockets, and receive packets queued
@@ -541,10 +560,25 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         Ok(())
     }
 
+    fn route_ip(&self, addr: IpAddress) -> IpAddress {
+        if let Some(gateway) = self.gateway {
+            for cidr in self.protocol_addrs.iter() {
+                if cidr.contains_ip(addr) {
+                    return addr;
+                }
+            }
+            gateway
+        } else {
+            addr
+        }
+    }
+
     fn lookup_hardware_addr(&mut self, timestamp: u64,
                             src_addr: &IpAddress, dst_addr: &IpAddress) ->
                            Result<EthernetAddress> {
-        if let Some(hardware_addr) = self.arp_cache.lookup(dst_addr) {
+        let dst_addr = self.route_ip(*dst_addr);
+
+        if let Some(hardware_addr) = self.arp_cache.lookup(&dst_addr) {
             return Ok(hardware_addr)
         }
 
@@ -553,7 +587,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         }
 
         match (src_addr, dst_addr) {
-            (&IpAddress::Ipv4(src_addr), &IpAddress::Ipv4(dst_addr)) => {
+            (&IpAddress::Ipv4(src_addr), IpAddress::Ipv4(dst_addr)) => {
                 net_debug!("address {} not in ARP cache, sending request",
                            dst_addr);
 
