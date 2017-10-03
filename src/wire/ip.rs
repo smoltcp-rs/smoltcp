@@ -63,7 +63,9 @@ pub enum Address {
     /// May be used as a placeholder for storage where the address is not assigned yet.
     Unspecified,
     /// An IPv4 address.
-    Ipv4(Ipv4Address)
+    Ipv4(Ipv4Address),
+    #[doc(hidden)]
+    __Nonexhaustive
 }
 
 impl Address {
@@ -76,7 +78,8 @@ impl Address {
     pub fn is_unicast(&self) -> bool {
         match self {
             &Address::Unspecified => false,
-            &Address::Ipv4(addr)  => addr.is_unicast()
+            &Address::Ipv4(addr)  => addr.is_unicast(),
+            &Address::__Nonexhaustive => unreachable!()
         }
     }
 
@@ -84,7 +87,8 @@ impl Address {
     pub fn is_broadcast(&self) -> bool {
         match self {
             &Address::Unspecified => false,
-            &Address::Ipv4(addr)  => addr.is_broadcast()
+            &Address::Ipv4(addr)  => addr.is_broadcast(),
+            &Address::__Nonexhaustive => unreachable!()
         }
     }
 
@@ -92,7 +96,8 @@ impl Address {
     pub fn is_unspecified(&self) -> bool {
         match self {
             &Address::Unspecified => true,
-            &Address::Ipv4(addr)  => addr.is_unspecified()
+            &Address::Ipv4(addr)  => addr.is_unspecified(),
+            &Address::__Nonexhaustive => unreachable!()
         }
     }
 
@@ -101,6 +106,7 @@ impl Address {
         match self {
             &Address::Unspecified => Address::Unspecified,
             &Address::Ipv4(_) => Address::Ipv4(Ipv4Address::UNSPECIFIED),
+            &Address::__Nonexhaustive => unreachable!()
         }
     }
 }
@@ -121,7 +127,8 @@ impl fmt::Display for Address {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             &Address::Unspecified => write!(f, "*"),
-            &Address::Ipv4(addr)  => write!(f, "{}", addr)
+            &Address::Ipv4(addr)  => write!(f, "{}", addr),
+            &Address::__Nonexhaustive => unreachable!()
         }
     }
 }
@@ -316,7 +323,10 @@ impl IpRepr {
                 }
             },
 
-            &IpRepr::__Nonexhaustive => unreachable!()
+            &IpRepr::__Nonexhaustive |
+            &IpRepr::Unspecified { src_addr: Address::__Nonexhaustive, .. } |
+            &IpRepr::Unspecified { dst_addr: Address::__Nonexhaustive, .. } =>
+                unreachable!()
         }
     }
 
