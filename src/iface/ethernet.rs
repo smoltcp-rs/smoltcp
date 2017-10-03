@@ -13,7 +13,7 @@ use wire::{Ipv4Packet, Ipv4Repr};
 use wire::{Icmpv4Packet, Icmpv4Repr, Icmpv4DstUnreachable};
 #[cfg(feature = "socket-udp")] use wire::{UdpPacket, UdpRepr};
 #[cfg(feature = "socket-tcp")] use wire::{TcpPacket, TcpRepr, TcpControl};
-use socket::{Socket, SocketSet, AsSocket};
+use socket::{Socket, SocketSet, FromSocket};
 #[cfg(feature = "socket-raw")] use socket::RawSocket;
 #[cfg(feature = "socket-udp")] use socket::UdpSocket;
 #[cfg(feature = "socket-tcp")] use socket::TcpSocket;
@@ -195,29 +195,29 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         let mut caps = self.device.capabilities();
         caps.max_transmission_unit -= EthernetFrame::<&[u8]>::header_len();
 
-        for socket in sockets.iter_mut() {
+        for mut socket in sockets.iter_mut() {
             let mut device_result = Ok(());
             let socket_result =
-                match socket {
+                match *socket {
                     #[cfg(feature = "socket-raw")]
-                    &mut Socket::Raw(ref mut socket) =>
+                    Socket::Raw(ref mut socket) =>
                         socket.dispatch(|response| {
                             device_result = self.dispatch(timestamp, Packet::Raw(response));
                             device_result
                         }, &caps.checksum),
                     #[cfg(feature = "socket-udp")]
-                    &mut Socket::Udp(ref mut socket) =>
+                    Socket::Udp(ref mut socket) =>
                         socket.dispatch(|response| {
                             device_result = self.dispatch(timestamp, Packet::Udp(response));
                             device_result
                         }),
                     #[cfg(feature = "socket-tcp")]
-                    &mut Socket::Tcp(ref mut socket) =>
+                    Socket::Tcp(ref mut socket) =>
                         socket.dispatch(timestamp, &caps, |response| {
                             device_result = self.dispatch(timestamp, Packet::Tcp(response));
                             device_result
                         }),
-                    &mut Socket::__Nonexhaustive(_) => unreachable!()
+                    Socket::__Nonexhaustive(_) => unreachable!()
                 };
             match (device_result, socket_result) {
                 (Err(Error::Unaddressable), _) => break, // no one to transmit to
@@ -323,8 +323,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
 
         // Pass every IP packet to all raw sockets we have registered.
         #[cfg(feature = "socket-raw")]
-        for raw_socket in sockets.iter_mut().filter_map(
-                <Socket as AsSocket<RawSocket>>::try_as_socket) {
+        for mut raw_socket in sockets.iter_mut().filter_map(RawSocket::from_socket_ref) {
             if !raw_socket.accepts(&ip_repr) { continue }
 
             match raw_socket.process(&ip_repr, ip_payload, &checksum_caps) {
@@ -415,8 +414,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         let checksum_caps = self.device.capabilities().checksum;
         let udp_repr = UdpRepr::parse(&udp_packet, &src_addr, &dst_addr, &checksum_caps)?;
 
-        for udp_socket in sockets.iter_mut().filter_map(
-                <Socket as AsSocket<UdpSocket>>::try_as_socket) {
+        for mut udp_socket in sockets.iter_mut().filter_map(UdpSocket::from_socket_ref) {
             if !udp_socket.accepts(&ip_repr, &udp_repr) { continue }
 
             match udp_socket.process(&ip_repr, &udp_repr) {
@@ -458,8 +456,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         let checksum_caps = self.device.capabilities().checksum;
         let tcp_repr = TcpRepr::parse(&tcp_packet, &src_addr, &dst_addr, &checksum_caps)?;
 
-        for tcp_socket in sockets.iter_mut().filter_map(
-                <Socket as AsSocket<TcpSocket>>::try_as_socket) {
+        for mut tcp_socket in sockets.iter_mut().filter_map(TcpSocket::from_socket_ref) {
             if !tcp_socket.accepts(&ip_repr, &tcp_repr) { continue }
 
             match tcp_socket.process(timestamp, &ip_repr, &tcp_repr) {

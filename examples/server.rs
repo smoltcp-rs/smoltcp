@@ -13,7 +13,7 @@ use std::os::unix::io::AsRawFd;
 use smoltcp::phy::wait as phy_wait;
 use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr};
 use smoltcp::iface::{ArpCache, SliceArpCache, EthernetInterface};
-use smoltcp::socket::{AsSocket, SocketSet};
+use smoltcp::socket::SocketSet;
 use smoltcp::socket::{UdpSocket, UdpSocketBuffer, UdpPacketBuffer};
 use smoltcp::socket::{TcpSocket, TcpSocketBuffer};
 
@@ -70,7 +70,7 @@ fn main() {
     loop {
         // udp:6969: respond "hello"
         {
-            let socket: &mut UdpSocket = sockets.get_mut(udp_handle).as_socket();
+            let mut socket = sockets.get::<UdpSocket>(udp_handle);
             if !socket.is_open() {
                 socket.bind(6969).unwrap()
             }
@@ -93,7 +93,7 @@ fn main() {
 
         // tcp:6969: respond "hello"
         {
-            let socket: &mut TcpSocket = sockets.get_mut(tcp1_handle).as_socket();
+            let mut socket = sockets.get::<TcpSocket>(tcp1_handle);
             if !socket.is_open() {
                 socket.listen(6969).unwrap();
             }
@@ -108,7 +108,7 @@ fn main() {
 
         // tcp:6970: echo with reverse
         {
-            let socket: &mut TcpSocket = sockets.get_mut(tcp2_handle).as_socket();
+            let mut socket = sockets.get::<TcpSocket>(tcp2_handle);
             if !socket.is_open() {
                 socket.listen(6970).unwrap()
             }
@@ -145,7 +145,7 @@ fn main() {
 
         // tcp:6971: sinkhole
         {
-            let socket: &mut TcpSocket = sockets.get_mut(tcp3_handle).as_socket();
+            let mut socket = sockets.get::<TcpSocket>(tcp3_handle);
             if !socket.is_open() {
                 socket.listen(6971).unwrap();
                 socket.set_keep_alive(Some(1000));
@@ -165,7 +165,7 @@ fn main() {
 
         // tcp:6972: fountain
         {
-            let socket: &mut TcpSocket = sockets.get_mut(tcp4_handle).as_socket();
+            let mut socket = sockets.get::<TcpSocket>(tcp4_handle);
             if !socket.is_open() {
                 socket.listen(6972).unwrap()
             }

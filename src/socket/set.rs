@@ -1,7 +1,8 @@
 use managed::ManagedSlice;
 use core::slice;
+use core::iter::Enumerate;
 
-use super::Socket;
+use super::{Socket, SocketRef, FromSocket};
 #[cfg(feature = "socket-tcp")] use super::TcpState;
 
 /// An item of a socket set.
@@ -70,26 +71,25 @@ impl<'a, 'b: 'a, 'c: 'a + 'b> Set<'a, 'b, 'c> {
         }
     }
 
-    /// Get a socket from the set by its handle.
-    ///
-    /// # Panics
-    /// This function may panic if the handle does not belong to this socket set.
-    pub fn get(&self, handle: Handle) -> &Socket<'b, 'c> {
-        &self.sockets[handle.index]
-             .as_ref()
-             .expect("handle does not refer to a valid socket")
-             .socket
+    /// Get a socket from the set by its handle, as mutable.
+    pub fn try_get<T: FromSocket<'b, 'c>>(&mut self, handle: Handle)
+                                          -> Option<SocketRef<T>> {
+        if let Some(item) = self.sockets[handle.index].as_mut() {
+            T::downcast_socket(&mut item.socket).map(|s| SocketRef::new(s, handle))
+        } else {
+            None
+        }
     }
 
     /// Get a socket from the set by its handle, as mutable.
     ///
     /// # Panics
-    /// This function may panic if the handle does not belong to this socket set.
-    pub fn get_mut(&mut self, handle: Handle) -> &mut Socket<'b, 'c> {
-        &mut self.sockets[handle.index]
-                 .as_mut()
-                 .expect("handle does not refer to a valid socket")
-                 .socket
+    /// This function may panic if the handle does not belong to this socket set
+    /// or the socket has the wrong type.
+    pub fn get<T: FromSocket<'b, 'c>>(&mut self, handle: Handle)
+                                      -> SocketRef<T> {
+        SocketRef::new(T::downcast_socket(
+            &mut self.sockets[handle.index].as_mut().unwrap().socket).unwrap(), handle)
     }
 
     /// Remove a socket from the set, without changing its state.
@@ -166,9 +166,9 @@ impl<'a, 'b: 'a, 'c: 'a + 'b> Set<'a, 'b, 'c> {
         Iter { lower: self.sockets.iter() }
     }
 
-    /// Iterate every socket in this set, as mutable.
+    /// Iterate every socket in this set, as SocketRef.
     pub fn iter_mut<'d>(&'d mut self) -> IterMut<'d, 'b, 'c> {
-        IterMut { lower: self.sockets.iter_mut() }
+        IterMut { lower: self.sockets.iter_mut().enumerate() }
     }
 }
 
@@ -198,16 +198,16 @@ impl<'a, 'b: 'a, 'c: 'a + 'b> Iterator for Iter<'a, 'b, 'c> {
 /// This struct is created by the [iter_mut](struct.SocketSet.html#method.iter_mut)
 /// on [socket sets](struct.SocketSet.html).
 pub struct IterMut<'a, 'b: 'a, 'c: 'a + 'b> {
-    lower: slice::IterMut<'a, Option<Item<'b, 'c>>>
+    lower: Enumerate<slice::IterMut<'a, Option<Item<'b, 'c>>>>,
 }
 
 impl<'a, 'b: 'a, 'c: 'a + 'b> Iterator for IterMut<'a, 'b, 'c> {
-    type Item = &'a mut Socket<'b, 'c>;
+    type Item = SocketRef<'a, Socket<'b, 'c>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some(item_opt) = self.lower.next() {
+        while let Some((index, item_opt)) = self.lower.next() {
             if let Some(item) = item_opt.as_mut() {
-                return Some(&mut item.socket)
+                return Some(SocketRef::new(&mut item.socket, Handle { index }))
             }
         }
         None
