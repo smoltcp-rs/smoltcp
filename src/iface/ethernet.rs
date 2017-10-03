@@ -353,8 +353,8 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         }
     }
 
-    fn process_icmpv4<'frame>(&self, ipv4_repr: Ipv4Repr, 
-                              ip_payload: &'frame [u8]) -> Result<Packet<'frame>> {
+    fn process_icmpv4<'frame>(&self, ipv4_repr: Ipv4Repr, ip_payload: &'frame [u8]) ->
+                             Result<Packet<'frame>> {
         let icmp_packet = Icmpv4Packet::new_checked(ip_payload)?;
         let checksum_caps = self.device.capabilities().checksum;
         let icmp_repr = Icmpv4Repr::parse(&icmp_packet, &checksum_caps)?;
@@ -491,7 +491,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
             Packet::Udp((ip_repr, udp_repr)) => {
                 self.dispatch_ip(timestamp, ip_repr, |ip_repr, payload| {
                     udp_repr.emit(&mut UdpPacket::new(payload),
-                                  &ip_repr.src_addr(), &ip_repr.dst_addr(), 
+                                  &ip_repr.src_addr(), &ip_repr.dst_addr(),
                                   &checksum_caps);
                 })
             }
