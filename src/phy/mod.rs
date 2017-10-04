@@ -173,7 +173,7 @@ impl Checksum {
 }
 
 /// A description of checksum behavior for every supported protocol.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct ChecksumCapabilities {
     pub ipv4: Checksum,
     pub udpv4: Checksum,

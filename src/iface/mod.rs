@@ -8,4 +8,4 @@ mod ethernet;
 
 pub use self::arp_cache::Cache as ArpCache;
 pub use self::arp_cache::SliceCache as SliceArpCache;
-pub use self::ethernet::Interface as EthernetInterface;
+pub use self::ethernet::{EthernetDevice, Interface as EthernetInterface, Packet as EthernetPacket};
