@@ -145,7 +145,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
     /// activity as well as certain boundary conditions such as buffer exhaustion.
     /// These errors are provided as an aid for troubleshooting, and are meant
     /// to be logged and ignored.
-
+    ///
     /// As a special case, `Err(Error::Unrecognized)` is returned in response to
     /// packets containing any unsupported protocol, option, or form, which is
     /// a very common occurrence and on a production system it should not even
