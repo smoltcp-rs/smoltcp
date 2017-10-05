@@ -4,7 +4,7 @@ use managed::Managed;
 use {Error, Result};
 use phy::ChecksumCapabilities;
 use wire::{IpVersion, IpProtocol, Ipv4Repr, Ipv4Packet};
-use socket::{IpRepr, Socket};
+use socket::{IpRepr, Socket, SocketHandle};
 use storage::{Resettable, RingBuffer};
 
 /// A buffered raw IP packet.
@@ -57,7 +57,7 @@ pub type SocketBuffer<'a, 'b: 'a> = RingBuffer<'a, PacketBuffer<'b>>;
 /// transmit and receive packet buffers.
 #[derive(Debug)]
 pub struct RawSocket<'a, 'b: 'a> {
-    debug_id:    usize,
+    handle:      SocketHandle,
     ip_version:  IpVersion,
     ip_protocol: IpProtocol,
     rx_buffer:   SocketBuffer<'a, 'b>,
@@ -71,7 +71,7 @@ impl<'a, 'b> RawSocket<'a, 'b> {
                rx_buffer: SocketBuffer<'a, 'b>,
                tx_buffer: SocketBuffer<'a, 'b>) -> Socket<'a, 'b> {
         Socket::Raw(RawSocket {
-            debug_id: 0,
+            handle: SocketHandle::EMPTY,
             ip_version,
             ip_protocol,
             rx_buffer,
@@ -79,18 +79,15 @@ impl<'a, 'b> RawSocket<'a, 'b> {
         })
     }
 
-    /// Return the debug identifier.
+    /// Return the socket handle.
     #[inline]
-    pub fn debug_id(&self) -> usize {
-        self.debug_id
+    pub fn handle(&self) -> SocketHandle {
+        self.handle
     }
 
-    /// Set the debug identifier.
-    ///
-    /// The debug identifier is a number printed in socket trace messages.
-    /// It could as well be used by the user code.
-    pub fn set_debug_id(&mut self, id: usize) {
-        self.debug_id = id;
+    /// Set the socket handle.
+    pub(in super) fn set_handle(&mut self, handle: SocketHandle) {
+        self.handle = handle;
     }
 
     /// Return the IP version the socket is bound to.
@@ -129,8 +126,8 @@ impl<'a, 'b> RawSocket<'a, 'b> {
     /// the header actually transmitted bit for bit.
     pub fn send(&mut self, size: usize) -> Result<&mut [u8]> {
         let packet_buf = self.tx_buffer.enqueue_one_with(|buf| buf.resize(size))?;
-        net_trace!("[{}]:{}:{}: buffer to send {} octets",
-                   self.debug_id, self.ip_version, self.ip_protocol,
+        net_trace!("{}:{}:{}: buffer to send {} octets",
+                   self.handle, self.ip_version, self.ip_protocol,
                    packet_buf.size);
         Ok(packet_buf.as_mut())
     }
@@ -151,8 +148,8 @@ impl<'a, 'b> RawSocket<'a, 'b> {
     /// the header actually received bit for bit.
     pub fn recv(&mut self) -> Result<&[u8]> {
         let packet_buf = self.rx_buffer.dequeue_one()?;
-        net_trace!("[{}]:{}:{}: receive {} buffered octets",
-                   self.debug_id, self.ip_version, self.ip_protocol,
+        net_trace!("{}:{}:{}: receive {} buffered octets",
+                   self.handle, self.ip_version, self.ip_protocol,
                    packet_buf.size);
         Ok(&packet_buf.as_ref())
     }
@@ -174,7 +171,7 @@ impl<'a, 'b> RawSocket<'a, 'b> {
         true
     }
 
-    pub(crate) fn process(&mut self, ip_repr: &IpRepr, payload: &[u8], 
+    pub(crate) fn process(&mut self, ip_repr: &IpRepr, payload: &[u8],
                           checksum_caps: &ChecksumCapabilities) -> Result<()> {
         debug_assert!(self.accepts(ip_repr));
 
@@ -183,15 +180,16 @@ impl<'a, 'b> RawSocket<'a, 'b> {
         let packet_buf = self.rx_buffer.enqueue_one_with(|buf| buf.resize(total_len))?;
         ip_repr.emit(&mut packet_buf.as_mut()[..header_len], &checksum_caps);
         packet_buf.as_mut()[header_len..].copy_from_slice(payload);
-        net_trace!("[{}]:{}:{}: receiving {} octets",
-                   self.debug_id, self.ip_version, self.ip_protocol,
+        net_trace!("{}:{}:{}: receiving {} octets",
+                   self.handle, self.ip_version, self.ip_protocol,
                    packet_buf.size);
         Ok(())
     }
 
-    pub(crate) fn dispatch<F>(&mut self, emit: F, checksum_caps: &ChecksumCapabilities) -> Result<()>
+    pub(crate) fn dispatch<F>(&mut self, emit: F, checksum_caps: &ChecksumCapabilities) ->
+                             Result<()>
             where F: FnOnce((IpRepr, &[u8])) -> Result<()> {
-        fn prepare<'a>(protocol: IpProtocol, buffer: &'a mut [u8], 
+        fn prepare<'a>(protocol: IpProtocol, buffer: &'a mut [u8],
                    checksum_caps: &ChecksumCapabilities) -> Result<(IpRepr, &'a [u8])> {
             match IpVersion::of_packet(buffer.as_ref())? {
                 IpVersion::Ipv4 => {
@@ -213,20 +211,20 @@ impl<'a, 'b> RawSocket<'a, 'b> {
             }
         }
 
-        let debug_id    = self.debug_id;
+        let handle      = self.handle;
         let ip_protocol = self.ip_protocol;
         let ip_version  = self.ip_version;
         self.tx_buffer.dequeue_one_with(|packet_buf| {
             match prepare(ip_protocol, packet_buf.as_mut(), &checksum_caps) {
                 Ok((ip_repr, raw_packet)) => {
-                    net_trace!("[{}]:{}:{}: sending {} octets",
-                               debug_id, ip_version, ip_protocol,
+                    net_trace!("{}:{}:{}: sending {} octets",
+                               handle, ip_version, ip_protocol,
                                ip_repr.buffer_len() + raw_packet.len());
                     emit((ip_repr, raw_packet))
                 }
                 Err(error) => {
-                    net_debug!("[{}]:{}:{}: dropping outgoing packet ({})",
-                               debug_id, ip_version, ip_protocol,
+                    net_debug!("{}:{}:{}: dropping outgoing packet ({})",
+                               handle, ip_version, ip_protocol,
                                error);
                     // Return Ok(()) so the packet is dequeued.
                     Ok(())

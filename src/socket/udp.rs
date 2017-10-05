@@ -3,7 +3,7 @@ use managed::Managed;
 
 use {Error, Result};
 use wire::{IpProtocol, IpEndpoint, UdpRepr};
-use socket::{Socket, IpRepr};
+use socket::{Socket, SocketHandle, IpRepr};
 use storage::{Resettable, RingBuffer};
 
 /// A buffered UDP packet.
@@ -59,7 +59,7 @@ pub type SocketBuffer<'a, 'b : 'a> = RingBuffer<'a, PacketBuffer<'b>>;
 /// packet buffers.
 #[derive(Debug)]
 pub struct UdpSocket<'a, 'b: 'a> {
-    debug_id:  usize,
+    handle:    SocketHandle,
     endpoint:  IpEndpoint,
     rx_buffer: SocketBuffer<'a, 'b>,
     tx_buffer: SocketBuffer<'a, 'b>,
@@ -70,25 +70,22 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     pub fn new(rx_buffer: SocketBuffer<'a, 'b>,
                tx_buffer: SocketBuffer<'a, 'b>) -> Socket<'a, 'b> {
         Socket::Udp(UdpSocket {
-            debug_id:  0,
+            handle:    SocketHandle::EMPTY,
             endpoint:  IpEndpoint::default(),
             rx_buffer: rx_buffer,
             tx_buffer: tx_buffer,
         })
     }
 
-    /// Return the debug identifier.
+    /// Return the socket handle.
     #[inline]
-    pub fn debug_id(&self) -> usize {
-        self.debug_id
+    pub fn handle(&self) -> SocketHandle {
+        self.handle
     }
 
-    /// Set the debug identifier.
-    ///
-    /// The debug identifier is a number printed in socket trace messages.
-    /// It could as well be used by the user code.
-    pub fn set_debug_id(&mut self, id: usize) {
-        self.debug_id = id
+    /// Set the socket handle.
+    pub(in super) fn set_handle(&mut self, handle: SocketHandle) {
+        self.handle = handle;
     }
 
     /// Return the bound endpoint.
@@ -143,8 +140,8 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
 
         let packet_buf = self.tx_buffer.enqueue_one_with(|buf| buf.resize(size))?;
         packet_buf.endpoint = endpoint;
-        net_trace!("[{}]{}:{}: buffer to send {} octets",
-                   self.debug_id, self.endpoint, packet_buf.endpoint, size);
+        net_trace!("{}:{}:{}: buffer to send {} octets",
+                   self.handle, self.endpoint, packet_buf.endpoint, size);
         Ok(&mut packet_buf.as_mut()[..size])
     }
 
@@ -162,8 +159,8 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     /// This function returns `Err(Error::Exhausted)` if the receive buffer is empty.
     pub fn recv(&mut self) -> Result<(&[u8], IpEndpoint)> {
         let packet_buf = self.rx_buffer.dequeue_one()?;
-        net_trace!("[{}]{}:{}: receive {} buffered octets",
-                   self.debug_id, self.endpoint,
+        net_trace!("{}:{}:{}: receive {} buffered octets",
+                   self.handle, self.endpoint,
                    packet_buf.endpoint, packet_buf.size);
         Ok((&packet_buf.as_ref(), packet_buf.endpoint))
     }
@@ -193,19 +190,19 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
         let packet_buf = self.rx_buffer.enqueue_one_with(|buf| buf.resize(repr.payload.len()))?;
         packet_buf.as_mut().copy_from_slice(repr.payload);
         packet_buf.endpoint = IpEndpoint { addr: ip_repr.src_addr(), port: repr.src_port };
-        net_trace!("[{}]{}:{}: receiving {} octets",
-                   self.debug_id, self.endpoint,
+        net_trace!("{}:{}:{}: receiving {} octets",
+                   self.handle, self.endpoint,
                    packet_buf.endpoint, packet_buf.size);
         Ok(())
     }
 
     pub(crate) fn dispatch<F>(&mut self, emit: F) -> Result<()>
             where F: FnOnce((IpRepr, UdpRepr)) -> Result<()> {
-        let debug_id = self.debug_id;
+        let handle   = self.handle;
         let endpoint = self.endpoint;
         self.tx_buffer.dequeue_one_with(|packet_buf| {
-            net_trace!("[{}]{}:{}: sending {} octets",
-                       debug_id, endpoint,
+            net_trace!("{}:{}:{}: sending {} octets",
+                       handle, endpoint,
                        packet_buf.endpoint, packet_buf.size);
 
             let repr = UdpRepr {

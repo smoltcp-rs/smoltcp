@@ -1,5 +1,5 @@
+use core::{fmt, slice};
 use managed::ManagedSlice;
-use core::slice;
 
 use super::Socket;
 #[cfg(feature = "socket-tcp")] use super::TcpState;
@@ -16,8 +16,16 @@ pub struct Item<'a, 'b: 'a> {
 
 /// A handle, identifying a socket in a set.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
-pub struct Handle {
-    index: usize
+pub struct Handle(usize);
+
+impl Handle {
+    pub(crate) const EMPTY: Handle = Handle(0);
+}
+
+impl fmt::Display for Handle {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "#{}", self.0)
+    }
 }
 
 /// An extensible set of sockets, with stable numeric identifiers.
@@ -46,9 +54,10 @@ impl<'a, 'b: 'a, 'c: 'a + 'b> Set<'a, 'b, 'c> {
         fn put<'b, 'c>(index: usize, slot: &mut Option<Item<'b, 'c>>,
                        mut socket: Socket<'b, 'c>) -> Handle {
             net_trace!("[{}]: adding", index);
-            socket.set_debug_id(index);
+            let handle = Handle(index);
+            socket.set_handle(handle);
             *slot = Some(Item { socket: socket, refs: 1 });
-            return Handle { index: index }
+            handle
         }
 
         for (index, slot) in self.sockets.iter_mut().enumerate() {
@@ -75,7 +84,7 @@ impl<'a, 'b: 'a, 'c: 'a + 'b> Set<'a, 'b, 'c> {
     /// # Panics
     /// This function may panic if the handle does not belong to this socket set.
     pub fn get(&self, handle: Handle) -> &Socket<'b, 'c> {
-        &self.sockets[handle.index]
+        &self.sockets[handle.0]
              .as_ref()
              .expect("handle does not refer to a valid socket")
              .socket
@@ -86,7 +95,7 @@ impl<'a, 'b: 'a, 'c: 'a + 'b> Set<'a, 'b, 'c> {
     /// # Panics
     /// This function may panic if the handle does not belong to this socket set.
     pub fn get_mut(&mut self, handle: Handle) -> &mut Socket<'b, 'c> {
-        &mut self.sockets[handle.index]
+        &mut self.sockets[handle.0]
                  .as_mut()
                  .expect("handle does not refer to a valid socket")
                  .socket
@@ -97,8 +106,8 @@ impl<'a, 'b: 'a, 'c: 'a + 'b> Set<'a, 'b, 'c> {
     /// # Panics
     /// This function may panic if the handle does not belong to this socket set.
     pub fn remove(&mut self, handle: Handle) -> Socket<'b, 'c> {
-        net_trace!("[{}]: removing", handle.index);
-        match self.sockets[handle.index].take() {
+        net_trace!("[{}]: removing", handle.0);
+        match self.sockets[handle.0].take() {
             Some(item) => item.socket,
             None => panic!("handle does not refer to a valid socket")
         }
@@ -109,7 +118,7 @@ impl<'a, 'b: 'a, 'c: 'a + 'b> Set<'a, 'b, 'c> {
     /// # Panics
     /// This function may panic if the handle does not belong to this socket set.
     pub fn retain(&mut self, handle: Handle) {
-        self.sockets[handle.index]
+        self.sockets[handle.0]
             .as_mut()
             .expect("handle does not refer to a valid socket")
             .refs += 1
@@ -121,7 +130,7 @@ impl<'a, 'b: 'a, 'c: 'a + 'b> Set<'a, 'b, 'c> {
     /// This function may panic if the handle does not belong to this socket set,
     /// or if the reference count is already zero.
     pub fn release(&mut self, handle: Handle) {
-        let refs = &mut self.sockets[handle.index]
+        let refs = &mut self.sockets[handle.0]
                             .as_mut()
                             .expect("handle does not refer to a valid socket")
                             .refs;

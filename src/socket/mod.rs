@@ -76,17 +76,13 @@ macro_rules! dispatch_socket {
 }
 
 impl<'a, 'b> Socket<'a, 'b> {
-    /// Return the debug identifier.
-    pub fn debug_id(&self) -> usize {
-        dispatch_socket!(self, |socket []| socket.debug_id())
+    /// Return the socket handle.
+    pub fn handle(&self) -> SocketHandle {
+        dispatch_socket!(self, |socket []| socket.handle())
     }
 
-    /// Set the debug identifier.
-    ///
-    /// The debug identifier is a number printed in socket trace messages.
-    /// It could as well be used by the user code.
-    pub fn set_debug_id(&mut self, id: usize) {
-        dispatch_socket!(self, |socket [mut]| socket.set_debug_id(id))
+    pub(crate) fn set_handle(&mut self, handle: SocketHandle) {
+        dispatch_socket!(self, |socket [mut]| socket.set_handle(handle))
     }
 
     pub(crate) fn poll_at(&self) -> Option<u64> {
