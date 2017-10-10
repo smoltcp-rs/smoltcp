@@ -41,6 +41,7 @@ enum_with_unknown! {
     /// IP datagram encapsulated protocol.
     pub enum Protocol(u8) {
         Icmp = 0x01,
+        Igmp = 0x02,
         Tcp  = 0x06,
         Udp  = 0x11
     }
@@ -50,6 +51,7 @@ impl fmt::Display for Protocol {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             &Protocol::Icmp => write!(f, "ICMP"),
+            &Protocol::Igmp => write!(f, "IGMP"),
             &Protocol::Tcp  => write!(f, "TCP"),
             &Protocol::Udp  => write!(f, "UDP"),
             &Protocol::Unknown(id) => write!(f, "0x{:02x}", id)

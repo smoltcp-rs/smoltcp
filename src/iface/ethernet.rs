@@ -11,6 +11,7 @@ use wire::{IpAddress, IpProtocol, IpRepr, IpCidr};
 use wire::{ArpPacket, ArpRepr, ArpOperation};
 use wire::{Ipv4Packet, Ipv4Repr};
 use wire::{Icmpv4Packet, Icmpv4Repr, Icmpv4DstUnreachable};
+#[cfg(feature = "protocol-igmp")] use wire::{IgmpPacket, IgmpRepr};
 #[cfg(feature = "socket-udp")] use wire::{UdpPacket, UdpRepr};
 #[cfg(feature = "socket-tcp")] use wire::{TcpPacket, TcpRepr, TcpControl};
 use socket::{Socket, SocketSet, AnySocket};
@@ -36,6 +37,8 @@ enum Packet<'a> {
     None,
     Arp(ArpRepr),
     Icmpv4(Ipv4Repr, Icmpv4Repr<'a>),
+    #[cfg(feature = "protocol-igmp")]
+    Igmp(IgmpRepr, IgmpRepr<'a>),
     #[cfg(feature = "socket-raw")]
     Raw((IpRepr, &'a [u8])),
     #[cfg(feature = "socket-udp")]
@@ -242,7 +245,8 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
 
         // Ignore any packets not directed to our hardware address.
         if !eth_frame.dst_addr().is_broadcast() &&
-                eth_frame.dst_addr() != self.ethernet_addr {
+                eth_frame.dst_addr() != self.ethernet_addr &&
+                !self.is_subscribed_to(eth_frame.dst_addr()) {
             return Ok(Packet::None)
         }
 
@@ -344,6 +348,10 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         match ipv4_repr.protocol {
             IpProtocol::Icmp =>
                 self.process_icmpv4(ipv4_repr, ip_payload),
+
+			#[cfg(feature = "protocol-igmp")]
+            IpProtocol::Igmp =>
+	            self.process_igmp(ipv4_repr, ip_payload),
 
             #[cfg(feature = "socket-udp")]
             IpProtocol::Udp =>
