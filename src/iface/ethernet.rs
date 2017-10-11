@@ -38,7 +38,7 @@ enum Packet<'a> {
     Arp(ArpRepr),
     Icmpv4(Ipv4Repr, Icmpv4Repr<'a>),
     #[cfg(feature = "protocol-igmp")]
-    Igmp(IgmpRepr, IgmpRepr<'a>),
+    Igmp(Ipv4Repr, IgmpRepr<'a>),
     #[cfg(feature = "socket-raw")]
     Raw((IpRepr, &'a [u8])),
     #[cfg(feature = "socket-udp")]
@@ -245,8 +245,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
 
         // Ignore any packets not directed to our hardware address.
         if !eth_frame.dst_addr().is_broadcast() &&
-                eth_frame.dst_addr() != self.ethernet_addr &&
-                !self.is_subscribed_to(eth_frame.dst_addr()) {
+                eth_frame.dst_addr() != self.ethernet_addr {
             return Ok(Packet::None)
         }
 
