@@ -586,6 +586,8 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
         match ip_repr.protocol {
             Protocol::Icmp =>
                 super::Icmpv4Packet::<&[u8]>::pretty_print(&payload, f, indent),
+            Protocol::Igmp =>
+                super::IgmpPacket::<&[u8]>::pretty_print(&payload, f, indent),
             Protocol::Udp => {
                 match super::UdpPacket::new_checked(payload) {
                     Err(err) => write!(f, "{}({})\n", indent, err),

@@ -81,6 +81,7 @@ mod arp;
 mod ip;
 mod ipv4;
 mod icmpv4;
+mod igmpv2;
 mod udp;
 mod tcp;
 
@@ -114,6 +115,9 @@ pub use self::icmpv4::TimeExceeded as Icmpv4TimeExceeded;
 pub use self::icmpv4::ParamProblem as Icmpv4ParamProblem;
 pub use self::icmpv4::Packet as Icmpv4Packet;
 pub use self::icmpv4::Repr as Icmpv4Repr;
+
+pub use self::igmpv2::Packet as IgmpPacket;
+pub use self::igmpv2::Repr as IgmpRepr;
 
 pub use self::udp::Packet as UdpPacket;
 pub use self::udp::Repr as UdpRepr;
