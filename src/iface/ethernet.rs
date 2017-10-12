@@ -38,7 +38,7 @@ enum Packet<'a> {
     Arp(ArpRepr),
     Icmpv4(Ipv4Repr, Icmpv4Repr<'a>),
     #[cfg(feature = "protocol-igmp")]
-    Igmp(Ipv4Repr, IgmpRepr<'a>),
+    Igmp(Ipv4Repr, IgmpRepr),
     #[cfg(feature = "socket-raw")]
     Raw((IpRepr, &'a [u8])),
     #[cfg(feature = "socket-udp")]
@@ -198,6 +198,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         let mut caps = self.device.capabilities();
         caps.max_transmission_unit -= EthernetFrame::<&[u8]>::header_len();
 
+        // TODO: how to send delayed packets?
         for mut socket in sockets.iter_mut() {
             let mut device_result = Ok(());
             let socket_result =
@@ -348,9 +349,9 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
             IpProtocol::Icmp =>
                 self.process_icmpv4(ipv4_repr, ip_payload),
 
-			#[cfg(feature = "protocol-igmp")]
+            #[cfg(feature = "protocol-igmp")]
             IpProtocol::Igmp =>
-	            self.process_igmp(ipv4_repr, ip_payload),
+                self.process_igmp(ipv4_repr, ip_payload),
 
             #[cfg(feature = "socket-udp")]
             IpProtocol::Udp =>
@@ -378,6 +379,36 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                 };
                 Ok(Packet::Icmpv4(ipv4_reply_repr, icmp_reply_repr))
             }
+        }
+    }
+
+
+    #[cfg(feature = "protocol-igmp")]
+    fn process_igmp<'frame>(&self, ipv4_repr: Ipv4Repr, ip_payload: &'frame [u8]) ->
+                             Result<Packet<'frame>> {
+        let igmp_packet = IgmpPacket::new_checked(ip_payload)?;
+        let checksum_caps = self.device.capabilities().checksum;
+        let igmp_repr = IgmpRepr::parse(&igmp_packet, &checksum_caps)?; // errors if illegal packet
+
+        // for now - reply immediately
+        match igmp_repr {
+            IgmpRepr::MembershipQuery { .. } => {
+            // see what query it is
+            // if GENERAL then set timer and prepare response
+            // if SPECIFIC then check which group is it for
+            // if our group then set a timer and prepare a report to send
+            //
+            // FIXME: dummy for now
+            Ok(Packet::None)
+          },
+          // Ignore membershiup reports
+          IgmpRepr::MembershipReport { .. } => {
+              Ok(Packet::None)
+          },
+          // Ignore hosts leavinng groups
+          IgmpRepr::LeaveGroup{ .. } => {
+              Ok(Packet::None)
+          },
         }
     }
 
@@ -507,6 +538,14 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                     icmpv4_repr.emit(&mut Icmpv4Packet::new(payload), &checksum_caps);
                 })
             }
+
+            #[cfg(feature = "protocol-igmp")]
+            Packet::Igmp(ipv4_repr, igmp_repr) => {
+                self.dispatch_ip(timestamp, IpRepr::Ipv4(ipv4_repr), |_ip_repr, payload| {
+                    igmp_repr.emit(&mut IgmpPacket::new(payload), &checksum_caps);
+                })
+            }
+
             #[cfg(feature = "socket-raw")]
             Packet::Raw((ip_repr, raw_packet)) => {
                 self.dispatch_ip(timestamp, ip_repr, |_ip_repr, payload| {

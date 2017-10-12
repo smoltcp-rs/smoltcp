@@ -179,7 +179,6 @@ pub struct ChecksumCapabilities {
     pub udpv4: Checksum,
     pub tcpv4: Checksum,
     pub icmpv4: Checksum,
-    pub igmp: Checksum,
     dummy: (),
 }
 
@@ -192,7 +191,6 @@ impl ChecksumCapabilities {
             udpv4: Checksum::None,
             tcpv4: Checksum::None,
             icmpv4: Checksum::None,
-            igmp: Checksum::None,
             ..Self::default()
         }
     }
