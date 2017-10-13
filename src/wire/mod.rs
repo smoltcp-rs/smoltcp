@@ -100,7 +100,7 @@ pub use self::ip::Version as IpVersion;
 pub use self::ip::Protocol as IpProtocol;
 pub use self::ip::Address as IpAddress;
 pub use self::ip::Endpoint as IpEndpoint;
-pub use self::ip::IpRepr as IpRepr;
+pub use self::ip::IpRepr;
 pub use self::ip::Cidr as IpCidr;
 
 pub use self::ipv4::Address as Ipv4Address;
@@ -118,6 +118,7 @@ pub use self::icmpv4::Repr as Icmpv4Repr;
 
 pub use self::igmpv2::Packet as IgmpPacket;
 pub use self::igmpv2::Repr as IgmpRepr;
+pub use self::igmpv2::ReportVersion as IgmpReportVersion;
 
 pub use self::udp::Packet as UdpPacket;
 pub use self::udp::Repr as UdpRepr;

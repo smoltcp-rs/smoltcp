@@ -1,6 +1,7 @@
 #![cfg_attr(feature = "alloc", feature(alloc))]
 #![no_std]
-#![deny(unsafe_code, unused)]
+#![deny(unsafe_code)]
+//#![deny(unsafe_code, unused)]
 
 //! The _smoltcp_ library is built in a layered structure, with the layers corresponding
 //! to the levels of API abstraction. Only the highest layers would be used by a typical
@@ -124,11 +125,13 @@ pub enum Error {
     Fragmented,
     /// An incoming packet was recognized but was self-contradictory.
     /// E.g. a TCP packet with both SYN and FIN flags set.
+    /// Or a IGMP packet querying address that is not multicast
     Malformed,
     /// An incoming packet was recognized but contradicted internal state.
     /// E.g. a TCP packet addressed to a socket that doesn't exist.
     Dropped,
-
+	/// An unspecified IO error on the raw socket
+	IOError,
     #[doc(hidden)]
     __Nonexhaustive
 }
@@ -148,6 +151,7 @@ impl fmt::Display for Error {
             &Error::Fragmented    => write!(f, "fragmented packet"),
             &Error::Malformed     => write!(f, "malformed packet"),
             &Error::Dropped       => write!(f, "dropped by socket"),
+            &Error::IOError       => write!(f, "an unspecified IO error "),
             &Error::__Nonexhaustive => unreachable!()
         }
     }

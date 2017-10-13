@@ -140,17 +140,6 @@ impl<T: AsRef<[u8]>> Packet<T> {
     }
 }
 
-
-//impl<'a, T: AsRef<[u8]> + ?Sized> Packet<&'a T> {
-//    /// Return a pointer to the type-specific data.
-//    #[inline]
-//    pub fn data(&self) -> &'a [u8] {
-//        let data = self.buffer.as_ref();
-//        &data[self.header_len()..]
-//    }
-//}
-
-
 impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// Set the message type field.
     #[inline]
@@ -196,16 +185,6 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     }
 }
 
-//impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Packet<&'a mut T> {
-//    /// Return a mutable pointer to the type-specific data.
-//    #[inline]
-//    pub fn data_mut(&mut self) -> &mut [u8] {
-//        let range = self.header_len()..;
-//        let data = self.buffer.as_mut();
-//        &mut data[range]
-//    }
-//}
-
 
 /// A high-level representation of an Internet Group Management Protocol v2 header.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -213,21 +192,12 @@ pub enum Repr {
     MembershipQuery {
         max_resp_time: u8,
         group_addr: Ipv4Address,
-        query_type: QueryType,
     },
     MembershipReport {
-        max_resp_time: u8,
         group_addr: Ipv4Address,
         version: ReportVersion,
     },
     LeaveGroup { group_addr: Ipv4Address },
-}
-
-/// Type of IGMPv2 membership query
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum QueryType {
-    GeneralQuery,
-    GroupSpecificQuery,
 }
 
 /// Type of IGMPv2 membership report version
@@ -248,32 +218,23 @@ impl Repr {
             return Err(Error::Checksum);
         }
 
-        // TODO: Check if the address is multicast
+        // Check if the address is multicast
+        let addr = packet.group_addr();
+        if !addr.is_multicast() {
+            return Err(Error::Malformed);
+        }
 
         // construct a packet based on the Type field
         match packet.msg_type() {
             Message::MembershipQuery => {
-                // There are two sub-types of Membership Query messages:
-                // - General Query, used to learn which groups have members on an
-                //   attached network.
-                // - Group-Specific Query, used to learn if a particular group
-                //   has any members on an attached network.
-                // TODO: timer for setting the response time
-                //
-                let addr = packet.group_addr();
+                // TODO: act accordingly ?
                 Ok(Repr::MembershipQuery {
                        max_resp_time: packet.max_resp_time(),
                        group_addr: addr,
-                       query_type: if addr.is_unspecified() {
-                           QueryType::GeneralQuery
-                       } else {
-                           QueryType::GroupSpecificQuery
-                       },
                    })
             }
             Message::MembershipReportV2 => {
                 Ok(Repr::MembershipReport {
-                       max_resp_time: packet.max_resp_time(),
                        group_addr: packet.group_addr(),
                        version: ReportVersion::Version2,
                    })
@@ -281,15 +242,19 @@ impl Repr {
             Message::LeaveGroup => Ok(Repr::LeaveGroup { group_addr: packet.group_addr() }),
             Message::MembershipReportV1 => {
                 // for backwards compatibility with IGMPv1
-                // TODO
                 Ok(Repr::MembershipReport {
-                       max_resp_time: 0,
                        group_addr: packet.group_addr(),
                        version: ReportVersion::Version1,
                    })
             }
             _ => Err(Error::Unrecognized),
         }
+    }
+
+    /// Return the length of a packet that will be emitted from this high-level representation.
+    pub fn buffer_len(&self) -> usize {
+        // always 8 bytes
+        field::GROUP_ADDRESS.end
     }
 
     /// Emit a high-level representation into an Internet Group Management Protocol v2 packet.
@@ -300,14 +265,12 @@ impl Repr {
             &Repr::MembershipQuery {
                 max_resp_time,
                 group_addr,
-                query_type,
             } => {
                 packet.set_msg_type(Message::MembershipQuery);
                 packet.set_max_resp_time(max_resp_time);
                 packet.set_group_address(group_addr);
             }
             &Repr::MembershipReport {
-                max_resp_time,
                 group_addr,
                 version,
             } => {
@@ -315,7 +278,7 @@ impl Repr {
                     ReportVersion::Version1 => packet.set_msg_type(Message::MembershipReportV1),
                     ReportVersion::Version2 => packet.set_msg_type(Message::MembershipReportV2),
                 };
-                packet.set_max_resp_time(max_resp_time);
+                packet.set_max_resp_time(0);
                 packet.set_group_address(group_addr);
             }
             &Repr::LeaveGroup { group_addr } => {
@@ -323,10 +286,10 @@ impl Repr {
                 packet.set_group_address(group_addr);
             }
         }
-
         packet.fill_checksum()
     }
 }
+
 
 
 impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
@@ -344,22 +307,18 @@ impl<'a> fmt::Display for Repr {
             &Repr::MembershipQuery {
                 max_resp_time,
                 group_addr,
-                query_type,
             } => {
                 write!(f,
-                       "IGMPv2 membership query max_resp_time={} group_addr={} query_type={:?}",
+                       "IGMPv2 membership query max_resp_time={} group_addr={}",
                        max_resp_time,
-                       group_addr,
-                       query_type)
+                       group_addr)
             }
             &Repr::MembershipReport {
-                max_resp_time,
                 group_addr,
                 version,
             } => {
                 write!(f,
-                       "IGMPv2 Membership report max_resp_time={} group_addr={} version={:?}",
-                       max_resp_time,
+                       "IGMPv2 Membership report group_addr={} version={:?}",
                        group_addr,
                        version)
             }
@@ -370,7 +329,7 @@ impl<'a> fmt::Display for Repr {
     }
 }
 
-use super::pretty_print::{PrettyPrint, PrettyIndent};
+use super::pretty_print::{PrettyIndent, PrettyPrint};
 
 impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
     fn pretty_print(buffer: &AsRef<[u8]>,
@@ -403,41 +362,43 @@ mod test {
         assert_eq!(packet.msg_type(), Message::LeaveGroup);
         assert_eq!(packet.max_resp_time(), 0);
         assert_eq!(packet.checksum(), 0x269);
-        assert_eq!(packet.group_addr(), Ipv4Address::from_bytes(&[224,0,6,150]));
+        assert_eq!(packet.group_addr(),
+                   Ipv4Address::from_bytes(&[224, 0, 6, 150]));
         assert_eq!(packet.verify_checksum(), true);
     }
 
-	#[test]
+    #[test]
     fn test_report_deconstruct() {
         let packet = Packet::new(&REPORT_PACKET_BYTES[..]);
         assert_eq!(packet.msg_type(), Message::MembershipReportV2);
         assert_eq!(packet.max_resp_time(), 0);
         assert_eq!(packet.checksum(), 0x08da);
-        assert_eq!(packet.group_addr(), Ipv4Address::from_bytes(&[225,0,0,37]));
+        assert_eq!(packet.group_addr(),
+                   Ipv4Address::from_bytes(&[225, 0, 0, 37]));
         assert_eq!(packet.verify_checksum(), true);
     }
-    
+
     #[test]
     fn test_leave_construct() {
         let mut bytes = vec![0xa5; 8];
         let mut packet = Packet::new(&mut bytes);
         packet.set_msg_type(Message::LeaveGroup);
         packet.set_max_resp_time(0);
-        packet.set_group_address(Ipv4Address::from_bytes(&[224,0,6,150]));
+        packet.set_group_address(Ipv4Address::from_bytes(&[224, 0, 6, 150]));
         packet.fill_checksum();
         assert_eq!(&packet.into_inner()[..], &LEAVE_PACKET_BYTES[..]);
     }
-    
+
     #[test]
     fn test_report_construct() {
         let mut bytes = vec![0xa5; 8];
         let mut packet = Packet::new(&mut bytes);
         packet.set_msg_type(Message::MembershipReportV2);
         packet.set_max_resp_time(0);
-        packet.set_group_address(Ipv4Address::from_bytes(&[225,0,0,37]));
+        packet.set_group_address(Ipv4Address::from_bytes(&[225, 0, 0, 37]));
         packet.fill_checksum();
         assert_eq!(&packet.into_inner()[..], &REPORT_PACKET_BYTES[..]);
     }
-    
+
 
 }

@@ -2,16 +2,17 @@ use std::cell::RefCell;
 use std::vec::Vec;
 use std::rc::Rc;
 use std::io;
-use std::os::unix::io::{RawFd, AsRawFd};
+use std::os::unix::io::{AsRawFd, RawFd};
 
-use Result;
-use super::{sys, DeviceCapabilities, Device};
+use {Error, Result};
+use super::{sys, Device, DeviceCapabilities};
+
 
 /// A socket that captures or transmits the complete frame.
 #[derive(Debug)]
 pub struct RawSocket {
-    lower:  Rc<RefCell<sys::RawSocketDesc>>,
-    mtu:    usize
+    lower: Rc<RefCell<sys::RawSocketDesc>>,
+    mtu:   usize,
 }
 
 impl AsRawFd for RawSocket {
@@ -31,7 +32,7 @@ impl RawSocket {
         let mtu = lower.interface_mtu()?;
         Ok(RawSocket {
             lower: Rc::new(RefCell::new(lower)),
-            mtu:   mtu
+            mtu:   mtu,
         })
     }
 }
@@ -50,15 +51,21 @@ impl Device for RawSocket {
     fn receive(&mut self, _timestamp: u64) -> Result<Self::RxBuffer> {
         let mut lower = self.lower.borrow_mut();
         let mut buffer = vec![0; self.mtu];
-        let size = lower.recv(&mut buffer[..]).unwrap();
-        buffer.resize(size, 0);
-        Ok(buffer)
+        match lower.recv(&mut buffer[..]) {
+          Ok(size) => {
+            buffer.resize(size, 0);
+            Ok(buffer)
+          },
+          Err(e) => {
+            Err(Error::IOError)
+          }
+        }
     }
 
     fn transmit(&mut self, _timestamp: u64, length: usize) -> Result<Self::TxBuffer> {
         Ok(TxBuffer {
             lower:  self.lower.clone(),
-            buffer: vec![0; length]
+            buffer: vec![0; length],
         })
     }
 }
@@ -66,15 +73,19 @@ impl Device for RawSocket {
 #[doc(hidden)]
 pub struct TxBuffer {
     lower:  Rc<RefCell<sys::RawSocketDesc>>,
-    buffer: Vec<u8>
+    buffer: Vec<u8>,
 }
 
 impl AsRef<[u8]> for TxBuffer {
-    fn as_ref(&self) -> &[u8] { self.buffer.as_ref() }
+    fn as_ref(&self) -> &[u8] {
+        self.buffer.as_ref()
+    }
 }
 
 impl AsMut<[u8]> for TxBuffer {
-    fn as_mut(&mut self) -> &mut [u8] { self.buffer.as_mut() }
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.buffer.as_mut()
+    }
 }
 
 impl Drop for TxBuffer {

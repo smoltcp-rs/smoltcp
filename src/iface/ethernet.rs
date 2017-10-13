@@ -11,7 +11,7 @@ use wire::{IpAddress, IpProtocol, IpRepr, IpCidr};
 use wire::{ArpPacket, ArpRepr, ArpOperation};
 use wire::{Ipv4Packet, Ipv4Repr};
 use wire::{Icmpv4Packet, Icmpv4Repr, Icmpv4DstUnreachable};
-#[cfg(feature = "protocol-igmp")] use wire::{IgmpPacket, IgmpRepr};
+#[cfg(feature = "protocol-igmp")] use wire::{IgmpPacket, IgmpRepr, IgmpReportVersion};
 #[cfg(feature = "socket-udp")] use wire::{UdpPacket, UdpRepr};
 #[cfg(feature = "socket-tcp")] use wire::{TcpPacket, TcpRepr, TcpControl};
 use socket::{Socket, SocketSet, AnySocket};
@@ -49,19 +49,19 @@ enum Packet<'a> {
     Tcp((IpRepr, TcpRepr<'a>))
 }
 
-  /// Map IPv4 multicast address into an ethernet address
-    pub fn ip_multicast_to_mac(ip_addr: Ipv4Address) -> Option<EthernetAddress> {
-      if !ip_addr.is_multicast() {
+/// Map IPv4 multicast address into an ethernet addres
+pub fn ip_multicast_to_mac(ip_addr: Ipv4Address) -> Option<EthernetAddress> {
+    if !ip_addr.is_multicast() {
         return None;
-      } else {
+    } else {
         let mut hw_addr = EthernetAddress::MULTICAST_PREFIX;
         // first three octets are fixed
-        hw_addr[3] = ip_addr.as_bytes()[1] & 0x7f; // 4th octet, first zero fixed
-        hw_addr[4] = ip_addr.as_bytes()[2]; // 5th octet
-        hw_addr[5] = ip_addr.as_bytes()[3]; // last octet
-        return Some(EthernetAddress::from_bytes(&hw_addr));
-      }
+    hw_addr[3] = ip_addr.as_bytes()[1] & 0x7f; // 4th octet, first zero fixed
+    hw_addr[4] = ip_addr.as_bytes()[2]; // 5th octet
+    hw_addr[5] = ip_addr.as_bytes()[3]; // last octet
+    return Some(EthernetAddress::from_bytes(&hw_addr));
     }
+}
 
 impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
     /// Create a network interface using the provided network device.
@@ -465,17 +465,54 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         let checksum_caps = self.device.capabilities().checksum;
         let igmp_repr = IgmpRepr::parse(&igmp_packet, &checksum_caps)?; // errors if illegal packet
 
-    println!("igmp_packet: {}", igmp_packet);
-    println!("igmp_repr: {}", igmp_repr);
+        println!("igmp_packet: {}", igmp_packet);
+        println!("igmp_repr: {}", igmp_repr);
         // for now - reply immediately
         match igmp_repr {
-            IgmpRepr::MembershipQuery { .. } => {
+            IgmpRepr::MembershipQuery { max_resp_time, group_addr } => {
+            //
             // see what query it is
             // if GENERAL then set timer and prepare response
             // if SPECIFIC then check which group is it for
             // if our group then set a timer and prepare a report to send
             //
-            // FIXME: dummy for now
+            if group_addr.is_unspecified() {
+              // General Query
+              // how to handle this? We can set a flag somewhere but we can reply with only one
+              // packet here, so we just take the last address
+              if !self.ipv4_mcast_addr.is_empty() {
+                // not empty, get the last record
+                // Respond
+                let igmp_reply_repr = IgmpRepr::MembershipReport {
+                  // we know we have nonzero length
+                  group_addr: self.ipv4_mcast_addr.iter().cloned().next().unwrap(),
+                  version: IgmpReportVersion::Version2,
+                };
+                let ipv4_reply_repr = Ipv4Repr {
+                      src_addr:    ipv4_repr.dst_addr,
+                      dst_addr:    ipv4_repr.src_addr,
+                      protocol:    IpProtocol::Igmp,
+                      payload_len: igmp_reply_repr.buffer_len(),
+                  };
+                return Ok(Packet::Igmp(ipv4_reply_repr, igmp_reply_repr));
+              }
+            } else {
+              // Group Specifif query
+              if self.has_ip_mcast_addr(group_addr) {
+                // Respond
+                let igmp_reply_repr = IgmpRepr::MembershipReport {
+                  group_addr: group_addr,
+                  version: IgmpReportVersion::Version2,
+                };
+                let ipv4_reply_repr = Ipv4Repr {
+                      src_addr:    ipv4_repr.dst_addr,
+                      dst_addr:    ipv4_repr.src_addr,
+                      protocol:    IpProtocol::Igmp,
+                      payload_len: igmp_reply_repr.buffer_len(),
+                  };
+                return Ok(Packet::Igmp(ipv4_reply_repr, igmp_reply_repr));
+              }
+            }
             Ok(Packet::None)
           },
           // Ignore membershiup reports

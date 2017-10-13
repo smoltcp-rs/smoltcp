@@ -49,21 +49,20 @@ fn main() {
 
     let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x02]);
     let ip_addr = IpCidr::new(IpAddress::from(local_addr), 24);
-    let default_v4_gw = Ipv4Address::new(192, 168, 69, 100);
+    let default_v4_gw = Ipv4Address::new(192, 168, 41, 6);
     let mut iface = EthernetInterface::new(Box::new(device),
                                            Box::new(arp_cache) as Box<ArpCache>,
                                            ethernet_addr,
                                            [ip_addr],
                                            Some(default_v4_gw));
-    iface.add_mac_multicast_ip_addr(Ipv4Address::new(225, 0, 0, 37));
-    iface.add_mac_multicast_ip_addr(Ipv4Address::new(224, 0, 6, 150));
+
+    // These are default broadcast messages we should listen to
     iface.add_mac_multicast_ip_addr(Ipv4Address::new(224, 0, 0, 2));
     iface.add_mac_multicast_ip_addr(Ipv4Address::new(224, 0, 0, 22));
-    
-    println!("{}",iface.has_ip_mcast_addr(Ipv4Address::new(225, 0, 0, 37)));
-    println!("{}",iface.has_ip_mcast_addr(Ipv4Address::new(224, 0, 6, 150)));
-    println!("{}",iface.has_ip_mcast_addr(Ipv4Address::new(224, 0, 0, 2)));
-    println!("{}",iface.has_ip_mcast_addr(Ipv4Address::new(224, 0, 0, 22)));
+
+    // These are two groups we are subscribed to
+    iface.add_mac_multicast_ip_addr(Ipv4Address::new(225, 0, 0, 37));
+    iface.add_mac_multicast_ip_addr(Ipv4Address::new(224, 0, 6, 150));
 
     let mut sockets = SocketSet::new(vec![]);
     let raw_handle = sockets.add(raw_socket);
@@ -72,36 +71,27 @@ fn main() {
         {
             let mut socket = sockets.get::<RawSocket>(raw_handle);
 
-
-			/*
             if socket.can_send() {
-                NetworkEndian::write_u64(&mut echo_payload, timestamp_us);
-                let icmp_repr = Icmpv4Repr::EchoRequest {
-                    ident: 1,
-                    seq_no,
-                    data: &echo_payload,
+                let igmp_repr = IgmpRepr::MembershipQuery {
+                    max_resp_time: 10,
+                    group_addr: Ipv4Address::UNSPECIFIED,
                 };
                 let ipv4_repr = Ipv4Repr {
-                    src_addr: Ipv4Address::new(0, 0, 0, 0),
-                    dst_addr: remote_addr,
-                    protocol: IpProtocol::Icmp,
-                    payload_len: icmp_repr.buffer_len(),
+                    src_addr: Ipv4Address::new(192, 168, 41, 6),
+                    dst_addr: Ipv4Address::new(224, 0, 0, 2),
+                    protocol: IpProtocol::Igmp,
+                    payload_len: igmp_repr.buffer_len(),
                 };
 
                 let raw_payload = socket
-                    .send(ipv4_repr.buffer_len() + icmp_repr.buffer_len())
+                    .send(ipv4_repr.buffer_len() + igmp_repr.buffer_len())
                     .unwrap();
 
                 let mut ipv4_packet = Ipv4Packet::new(raw_payload);
                 ipv4_repr.emit(&mut ipv4_packet, &device_caps.checksum);
-                let mut icmp_packet = Icmpv4Packet::new(ipv4_packet.payload_mut());
-                icmp_repr.emit(&mut icmp_packet, &device_caps.checksum);
-
-                waiting_queue.insert(seq_no, timestamp);
-                seq_no += 1;
-                send_at += interval * 1000;
+                let mut igmp_packet = IgmpPacket::new(ipv4_packet.payload_mut());
+                igmp_repr.emit(&mut igmp_packet, &device_caps.checksum);
             }
-            */
 
             if socket.can_recv() {
                 let payload = socket.recv().unwrap();
