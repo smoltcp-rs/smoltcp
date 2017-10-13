@@ -239,9 +239,9 @@ pub trait Device {
 }
 
 pub trait RxToken {
-    fn consume<R, F: FnOnce(&[u8]) -> R>(self, f: F) -> R;
+    fn consume<R, F: FnOnce(&[u8]) -> R>(self, timestamp: u64, f: F) -> R;
 }
 
 pub trait TxToken {
-    fn consume<R, F: FnOnce(&mut [u8]) -> R>(self, len: usize, f: F) -> R;
+    fn consume<R, F: FnOnce(&mut [u8]) -> R>(self, timestamp: u64, len: usize, f: F) -> R;
 }

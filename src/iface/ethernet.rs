@@ -169,7 +169,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                 None => break,
                 Some(tokens) => tokens,
             };
-            let dispatch_result = rx_token.consume(|frame| {
+            let dispatch_result = rx_token.consume(timestamp, |frame| {
                 let response =
                 self.process_ethernet(sockets, timestamp, &frame).map_err(|err| {
                     net_debug!("cannot process ingress packet: {}", err);
@@ -566,7 +566,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
     fn dispatch_ethernet<T: TxToken, F>(&mut self, tx_token: T, timestamp: u64, buffer_len: usize, f: F) -> Result<()>
             where F: FnOnce(EthernetFrame<&mut [u8]>) {
         let tx_len = EthernetFrame::<&[u8]>::buffer_len(buffer_len);
-        tx_token.consume(tx_len, |tx_buffer| {
+        tx_token.consume(timestamp, tx_len, |tx_buffer| {
             debug_assert!(tx_buffer.as_ref().len() == tx_len);
             let mut frame = EthernetFrame::new(tx_buffer.as_mut());
             frame.set_src_addr(self.ethernet_addr);

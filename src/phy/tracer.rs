@@ -55,10 +55,9 @@ pub struct RxToken<T: phy::RxToken, P: PrettyPrint> {
 }
 
 impl<T: phy::RxToken, P: PrettyPrint> phy::RxToken for RxToken<T, P> {
-    fn consume<R, F: FnOnce(&[u8]) -> R>(self, f: F) -> R {
+    fn consume<R, F: FnOnce(&[u8]) -> R>(self, timestamp: u64, f: F) -> R {
         let Self {token, writer} = self;
-        let timestamp = 0; // TODO
-        token.consume(|buffer| {
+        token.consume(timestamp, |buffer| {
             writer(timestamp, PrettyPrinter::<P>::new("<- ", &buffer));
             f(buffer)
         })
@@ -72,10 +71,9 @@ pub struct TxToken<T: phy::TxToken, P: PrettyPrint> {
 }
 
 impl<T: phy::TxToken, P: PrettyPrint> phy::TxToken for TxToken<T, P> {
-    fn consume<R, F: FnOnce(&mut [u8]) -> R>(self, len: usize, f: F) -> R {
+    fn consume<R, F: FnOnce(&mut [u8]) -> R>(self, timestamp: u64, len: usize, f: F) -> R {
         let Self {token, writer} = self;
-        let timestamp = 0; // TODO
-        token.consume(len, |buffer| {
+        token.consume(timestamp, len, |buffer| {
             let result = f(buffer);
             writer(timestamp, PrettyPrinter::<P>::new("-> ", &buffer));
             result
