@@ -6,6 +6,7 @@ use byteorder::{ByteOrder, NativeEndian};
 
 use Result;
 use super::{DeviceCapabilities, Device};
+use phy;
 
 enum_with_unknown! {
     /// Captured packet header type.
@@ -129,52 +130,64 @@ impl<D: Device, S: PcapSink + Clone> PcapWriter<D, S> {
 }
 
 impl<D: Device, S: PcapSink + Clone> Device for PcapWriter<D, S> {
-    type RxBuffer = D::RxBuffer;
-    type TxBuffer = TxBuffer<D::TxBuffer, S>;
+    type RxToken = RxToken<D::RxToken, S>;
+    type TxToken = TxToken<D::TxToken, S>;
 
     fn capabilities(&self) -> DeviceCapabilities { self.lower.capabilities() }
 
-    fn receive(&mut self, timestamp: u64) -> Result<Self::RxBuffer> {
-        let buffer = self.lower.receive(timestamp)?;
-        match self.mode {
-            PcapMode::Both | PcapMode::RxOnly =>
-                self.sink.packet(timestamp, buffer.as_ref()),
-            PcapMode::TxOnly => ()
-        }
-        Ok(buffer)
+    fn receive(&mut self) -> Option<(Self::RxToken, Self::TxToken)> {
+        self.lower.receive().map(|(rx_token, tx_token)| {
+            let rx = RxToken {token: rx_token, sink: self.sink.clone(), mode: self.mode };
+            let tx = TxToken {token: tx_token, sink: self.sink.clone(), mode: self.mode };
+            (rx, tx)
+        })
     }
 
-    fn transmit(&mut self, timestamp: u64, length: usize) -> Result<Self::TxBuffer> {
-        let buffer = self.lower.transmit(timestamp, length)?;
-        Ok(TxBuffer { buffer, timestamp, sink: self.sink.clone(), mode: self.mode })
+    fn transmit(&mut self) -> Option<Self::TxToken> {
+        self.lower.transmit().map(|token| {
+            TxToken {token, sink: self.sink.clone(), mode: self.mode}
+        })
     }
 }
 
 #[doc(hidden)]
-pub struct TxBuffer<B: AsRef<[u8]> + AsMut<[u8]>, S: PcapSink> {
-    buffer:    B,
-    timestamp: u64,
+pub struct RxToken<T: phy::RxToken, S: PcapSink> {
+    token:     T,
     sink:      S,
     mode:      PcapMode
 }
 
-impl<B, S> AsRef<[u8]> for TxBuffer<B, S>
-        where B: AsRef<[u8]> + AsMut<[u8]>, S: PcapSink {
-    fn as_ref(&self) -> &[u8] { self.buffer.as_ref() }
+impl<T: phy::RxToken, S: PcapSink> phy::RxToken for RxToken<T, S> {
+    fn consume<R, F: FnOnce(&[u8]) -> Result<R>>(self, timestamp: u64, f: F) -> Result<R> {
+        let Self {token, sink, mode} = self;
+        token.consume(timestamp, |buffer| {
+            match mode {
+                PcapMode::Both | PcapMode::RxOnly =>
+                    sink.packet(timestamp, buffer.as_ref()),
+                PcapMode::TxOnly => ()
+            }
+            f(buffer)
+        })
+    }
 }
 
-impl<B, S> AsMut<[u8]> for TxBuffer<B, S>
-        where B: AsRef<[u8]> + AsMut<[u8]>, S: PcapSink {
-    fn as_mut(&mut self) -> &mut [u8] { self.buffer.as_mut() }
+#[doc(hidden)]
+pub struct TxToken<T: phy::TxToken, S: PcapSink> {
+    token:     T,
+    sink:      S,
+    mode:      PcapMode
 }
 
-impl<B, S> Drop for TxBuffer<B, S>
-        where B: AsRef<[u8]> + AsMut<[u8]>, S: PcapSink {
-    fn drop(&mut self) {
-        match self.mode {
-            PcapMode::Both | PcapMode::TxOnly =>
-                self.sink.packet(self.timestamp, self.as_ref()),
-            PcapMode::RxOnly => ()
-        }
+impl<T: phy::TxToken, S: PcapSink> phy::TxToken for TxToken<T, S> {
+    fn consume<R, F: FnOnce(&mut [u8]) -> R>(self, timestamp: u64, len: usize, f: F) -> R {
+        let Self {token, sink, mode} = self;
+        token.consume(timestamp, len, |buffer| {
+            match mode {
+                PcapMode::Both | PcapMode::TxOnly =>
+                    sink.packet(timestamp, &buffer),
+                PcapMode::RxOnly => ()
+            };
+            f(buffer)
+        })
     }
 }
