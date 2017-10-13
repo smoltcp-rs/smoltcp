@@ -227,29 +227,21 @@ pub struct DeviceCapabilities {
     dummy: ()
 }
 
-/// An interface for sending and receiving raw network frames.
-///
-/// It is expected that a `Device` implementation would allocate memory for both sending
-/// and receiving packets from memory pools; hence, the stack borrows the buffer for a packet
-/// that it is about to receive, as well for a packet that it is about to send, from the device.
 pub trait Device {
-    type RxBuffer: AsRef<[u8]>;
-    type TxBuffer: AsRef<[u8]> + AsMut<[u8]>;
+    type RxToken: RxToken;
+    type TxToken: TxToken;
+
+    fn receive(&mut self) -> Option<(Self::RxToken, Self::TxToken)>;
+    fn transmit(&mut self) -> Option<Self::TxToken>;
 
     /// Get a description of device capabilities.
     fn capabilities(&self) -> DeviceCapabilities;
+}
 
-    /// Receive a frame.
-    ///
-    /// It is expected that a `receive` implementation, once a packet is written to memory
-    /// through DMA, would gain ownership of the underlying buffer, provide it for parsing,
-    /// and return it to the network device once it is dropped.
-    fn receive(&mut self, timestamp: u64) -> Result<Self::RxBuffer>;
+pub trait RxToken {
+    fn consume<R, F: FnOnce(&[u8]) -> R>(self, f: F) -> R;
+}
 
-    /// Transmit a frame.
-    ///
-    /// It is expected that a `transmit` implementation would gain ownership of a buffer with
-    /// the requested length, provide it for emission, and schedule it to be read from
-    /// memory by the network device once it is dropped.
-    fn transmit(&mut self, timestamp: u64, length: usize) -> Result<Self::TxBuffer>;
+pub trait TxToken {
+    fn consume<R, F: FnOnce(&mut [u8]) -> R>(self, len: usize, f: F) -> R;
 }
