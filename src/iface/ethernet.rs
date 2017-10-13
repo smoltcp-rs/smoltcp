@@ -5,7 +5,7 @@ use core::cmp;
 use managed::{Managed, ManagedSlice};
 
 use {Error, Result};
-use phy::Device;
+use phy::{Device, RxToken, TxToken};
 use wire::{EthernetAddress, EthernetProtocol, EthernetFrame};
 use wire::{Ipv4Address};
 use wire::{IpAddress, IpProtocol, IpRepr, IpCidr};
@@ -162,37 +162,15 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         }
     }
 
-    fn icmpv4_reply<'frame, 'icmp: 'frame>(&self,
-                                           ipv4_repr: Ipv4Repr,
-                                           icmp_repr: Icmpv4Repr<'icmp>)
-            -> Packet<'frame> {
-        if ipv4_repr.dst_addr.is_unicast() {
-            let ipv4_reply_repr = Ipv4Repr {
-                src_addr:    ipv4_repr.dst_addr,
-                dst_addr:    ipv4_repr.src_addr,
-                protocol:    IpProtocol::Icmp,
-                payload_len: icmp_repr.buffer_len(),
-                ttl:         64
-            };
-            Packet::Icmpv4(ipv4_reply_repr, icmp_repr)
-        } else {
-            // Do not send Protocol Unreachable ICMPv4 error responses to datagrams
-            // with a broadcast destination address.
-            Packet::None
-        }
-    }
-
     fn socket_ingress(&mut self, sockets: &mut SocketSet, timestamp: u64) -> Result<bool> {
         let mut processed_any = false;
         loop {
-            let frame =
-                match self.device.receive(timestamp) {
-                    Ok(frame) => frame,
-                    Err(Error::Exhausted) => break, // nothing to receive
-                    Err(err) => return Err(err)
-                };
-
-            let response =
+            let (rx_token, tx_token) = match self.device.receive() {
+                None => break,
+                Some(tokens) => tokens,
+            };
+            let dispatch_result = rx_token.consume(|frame| {
+                let response =
                 self.process_ethernet(sockets, timestamp, &frame).map_err(|err| {
                     net_debug!("cannot process ingress packet: {}", err);
                     if net_log_enabled!(debug) {
@@ -207,9 +185,11 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                     }
                     err
                 })?;
-            processed_any = true;
+                processed_any = true;
 
-            self.dispatch(timestamp, response).map_err(|err| {
+                self.dispatch(tx_token, timestamp, response)
+            });
+            dispatch_result.map_err(|err| {
                 net_debug!("cannot dispatch response packet: {}", err);
                 err
             })?;
@@ -228,19 +208,22 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                     #[cfg(feature = "proto-raw")]
                     Socket::Raw(ref mut socket) =>
                         socket.dispatch(|response| {
-                            device_result = self.dispatch(timestamp, Packet::Raw(response));
+                            let tx_token = self.device.transmit().ok_or(Error::Exhausted)?;
+                            device_result = self.dispatch(tx_token, timestamp, Packet::Raw(response));
                             device_result
                         }, &caps.checksum),
                     #[cfg(feature = "proto-udp")]
                     Socket::Udp(ref mut socket) =>
                         socket.dispatch(|response| {
-                            device_result = self.dispatch(timestamp, Packet::Udp(response));
+                            let tx_token = self.device.transmit().ok_or(Error::Exhausted)?;
+                            device_result = self.dispatch(tx_token, timestamp, Packet::Udp(response));
                             device_result
                         }),
                     #[cfg(feature = "proto-tcp")]
                     Socket::Tcp(ref mut socket) =>
                         socket.dispatch(timestamp, &caps, |response| {
-                            device_result = self.dispatch(timestamp, Packet::Tcp(response));
+                            let tx_token = self.device.transmit().ok_or(Error::Exhausted)?;
+                            device_result = self.dispatch(tx_token, timestamp, Packet::Tcp(response));
                             device_result
                         }),
                     Socket::__Nonexhaustive(_) => unreachable!()
@@ -386,7 +369,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
             _ => {
                 // Send back as much of the original payload as we can
                 let payload_len = cmp::min(
-                    ip_payload.len(), self.device.capabilities().max_transmission_unit);
+                    ip_payload.len(), self.device_capabilities.max_transmission_unit);
                 let icmp_reply_repr = Icmpv4Repr::DstUnreachable {
                     reason: Icmpv4DstUnreachable::ProtoUnreachable,
                     header: ipv4_repr,
@@ -422,6 +405,26 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         }
     }
 
+    fn icmpv4_reply<'frame, 'icmp: 'frame>(&self,
+                                           ipv4_repr: Ipv4Repr,
+                                           icmp_repr: Icmpv4Repr<'icmp>)
+            -> Packet<'frame> {
+        if ipv4_repr.dst_addr.is_unicast() {
+            let ipv4_reply_repr = Ipv4Repr {
+                src_addr:    ipv4_repr.dst_addr,
+                dst_addr:    ipv4_repr.src_addr,
+                protocol:    IpProtocol::Icmp,
+                payload_len: icmp_repr.buffer_len(),
+                ttl:         64
+            };
+            Packet::Icmpv4(ipv4_reply_repr, icmp_repr)
+        } else {
+            // Do not send Protocol Unreachable ICMPv4 error responses to datagrams
+            // with a broadcast destination address.
+            Packet::None
+        }
+    }
+
     #[cfg(feature = "proto-udp")]
     fn process_udp<'frame>(&self, sockets: &mut SocketSet,
                            ip_repr: IpRepr, ip_payload: &'frame [u8]) ->
@@ -447,7 +450,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
             IpRepr::Ipv4(ipv4_repr) => {
                 // Send back as much of the original payload as we can
                 let payload_len = cmp::min(
-                    ip_payload.len(), self.device.capabilities().max_transmission_unit);
+                    ip_payload.len(), self.device_capabilities.max_transmission_unit);
                 let icmpv4_reply_repr = Icmpv4Repr::DstUnreachable {
                     reason: Icmpv4DstUnreachable::PortUnreachable,
                     header: ipv4_repr,
@@ -491,7 +494,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         }
     }
 
-    fn dispatch(&mut self, timestamp: u64, packet: Packet) -> Result<()> {
+    fn dispatch<T: TxToken>(&mut self, tx_token: T, timestamp: u64, packet: Packet) -> Result<()> {
         let checksum_caps = self.device.capabilities().checksum;
         match packet {
             Packet::Arp(arp_repr) => {
@@ -501,7 +504,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                         _ => unreachable!()
                     };
 
-                self.dispatch_ethernet(timestamp, arp_repr.buffer_len(), |mut frame| {
+                self.dispatch_ethernet(tx_token, timestamp, arp_repr.buffer_len(), |mut frame| {
                     frame.set_dst_addr(dst_hardware_addr);
                     frame.set_ethertype(EthernetProtocol::Arp);
 
@@ -510,19 +513,19 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                 })
             },
             Packet::Icmpv4(ipv4_repr, icmpv4_repr) => {
-                self.dispatch_ip(timestamp, IpRepr::Ipv4(ipv4_repr), |_ip_repr, payload| {
+                self.dispatch_ip(tx_token, timestamp, IpRepr::Ipv4(ipv4_repr), |_ip_repr, payload| {
                     icmpv4_repr.emit(&mut Icmpv4Packet::new(payload), &checksum_caps);
                 })
             }
             #[cfg(feature = "proto-raw")]
             Packet::Raw((ip_repr, raw_packet)) => {
-                self.dispatch_ip(timestamp, ip_repr, |_ip_repr, payload| {
+                self.dispatch_ip(tx_token, timestamp, ip_repr, |_ip_repr, payload| {
                     payload.copy_from_slice(raw_packet);
                 })
             }
             #[cfg(feature = "proto-udp")]
             Packet::Udp((ip_repr, udp_repr)) => {
-                self.dispatch_ip(timestamp, ip_repr, |ip_repr, payload| {
+                self.dispatch_ip(tx_token, timestamp, ip_repr, |ip_repr, payload| {
                     udp_repr.emit(&mut UdpPacket::new(payload),
                                   &ip_repr.src_addr(), &ip_repr.dst_addr(),
                                   &checksum_caps);
@@ -531,7 +534,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
             #[cfg(feature = "proto-tcp")]
             Packet::Tcp((ip_repr, mut tcp_repr)) => {
                 let caps = self.device.capabilities();
-                self.dispatch_ip(timestamp, ip_repr, |ip_repr, payload| {
+                self.dispatch_ip(tx_token, timestamp, ip_repr, |ip_repr, payload| {
                     // This is a terrible hack to make TCP performance more acceptable on systems
                     // where the TCP buffers are significantly larger than network buffers,
                     // e.g. a 64 kB TCP receive buffer (and so, when empty, a 64k window)
@@ -560,18 +563,18 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         }
     }
 
-    fn dispatch_ethernet<F>(&mut self, timestamp: u64, buffer_len: usize, f: F) -> Result<()>
+    fn dispatch_ethernet<T: TxToken, F>(&mut self, tx_token: T, timestamp: u64, buffer_len: usize, f: F) -> Result<()>
             where F: FnOnce(EthernetFrame<&mut [u8]>) {
         let tx_len = EthernetFrame::<&[u8]>::buffer_len(buffer_len);
-        let mut tx_buffer = self.device.transmit(timestamp, tx_len)?;
-        debug_assert!(tx_buffer.as_ref().len() == tx_len);
+        tx_token.consume(tx_len, |tx_buffer| {
+            debug_assert!(tx_buffer.as_ref().len() == tx_len);
+            let mut frame = EthernetFrame::new(tx_buffer.as_mut());
+            frame.set_src_addr(self.ethernet_addr);
 
-        let mut frame = EthernetFrame::new(tx_buffer.as_mut());
-        frame.set_src_addr(self.ethernet_addr);
+            f(frame);
 
-        f(frame);
-
-        Ok(())
+            Ok(())
+        })
     }
 
     fn route(&self, addr: &IpAddress) -> Result<IpAddress> {
@@ -616,7 +619,8 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                     target_protocol_addr: dst_addr,
                 };
 
-                self.dispatch_ethernet(timestamp, arp_repr.buffer_len(), |mut frame| {
+                let tx_token = self.device.transmit().ok_or(Error::Exhausted)?;
+                self.dispatch_ethernet(tx_token, timestamp, arp_repr.buffer_len(), |mut frame| {
                     frame.set_dst_addr(EthernetAddress::BROADCAST);
                     frame.set_ethertype(EthernetProtocol::Arp);
 
@@ -629,7 +633,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         }
     }
 
-    fn dispatch_ip<F>(&mut self, timestamp: u64, ip_repr: IpRepr, f: F) -> Result<()>
+    fn dispatch_ip<T: TxToken, F>(&mut self, tx_token: T, timestamp: u64, ip_repr: IpRepr, f: F) -> Result<()>
             where F: FnOnce(IpRepr, &mut [u8]) {
         let ip_repr = ip_repr.lower(&self.ip_addrs)?;
         let checksum_caps = self.device.capabilities().checksum;
@@ -637,7 +641,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         let dst_hardware_addr =
             self.lookup_hardware_addr(timestamp, &ip_repr.src_addr(), &ip_repr.dst_addr())?;
 
-        self.dispatch_ethernet(timestamp, ip_repr.total_len(), |mut frame| {
+        self.dispatch_ethernet(tx_token, timestamp, ip_repr.total_len(), |mut frame| {
             frame.set_dst_addr(dst_hardware_addr);
             match ip_repr {
                 IpRepr::Ipv4(_) => frame.set_ethertype(EthernetProtocol::Ipv4),
