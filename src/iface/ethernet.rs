@@ -5,7 +5,7 @@ use core::cmp;
 use managed::{Managed, ManagedSlice};
 
 use {Error, Result};
-use phy::{Device, RxToken, TxToken};
+use phy::{Device, DeviceCapabilities, RxToken, TxToken};
 use wire::{EthernetAddress, EthernetProtocol, EthernetFrame};
 use wire::{Ipv4Address};
 use wire::{IpAddress, IpProtocol, IpRepr, IpCidr};
@@ -26,11 +26,16 @@ use super::ArpCache;
 /// a dependency on heap allocation, it instead owns a `BorrowMut<[T]>`, which can be
 /// a `&mut [T]`, or `Vec<T>` if a heap is available.
 pub struct Interface<'a, 'b, 'c, DeviceT: for<'d> Device<'d> + 'a> {
-    device:         Managed<'a, DeviceT>,
-    arp_cache:      Managed<'b, ArpCache>,
-    ethernet_addr:  EthernetAddress,
-    ip_addrs:       ManagedSlice<'c, IpCidr>,
-    ipv4_gateway:   Option<Ipv4Address>,
+    device: Managed<'a, DeviceT>,
+    inner:  InterfaceInner<'b, 'c>,
+}
+
+struct InterfaceInner<'b, 'c> {
+    arp_cache:              Managed<'b, ArpCache>,
+    ethernet_addr:          EthernetAddress,
+    ip_addrs:               ManagedSlice<'c, IpCidr>,
+    ipv4_gateway:           Option<Ipv4Address>,
+    device_capabilities:    DeviceCapabilities,
 }
 
 #[derive(Debug, PartialEq)]
@@ -46,7 +51,7 @@ enum Packet<'a> {
     Tcp((IpRepr, TcpRepr<'a>))
 }
 
-impl<'a, 'b, 'c, DeviceT: for<'d> Device<'d>> Interface<'a, 'b, 'c, DeviceT> {
+impl<'a, 'b, 'c, DeviceT: for<'d> Device<'d> + 'a> Interface<'a, 'b, 'c, DeviceT> {
     /// Create a network interface using the provided network device.
     ///
     /// # Panics
@@ -63,24 +68,15 @@ impl<'a, 'b, 'c, DeviceT: for<'d> Device<'d>> Interface<'a, 'b, 'c, DeviceT> {
                   ProtocolAddrsMT: Into<ManagedSlice<'c, IpCidr>>,
                   Ipv4GatewayAddrT: Into<Option<Ipv4Address>>, {
         let device = device.into();
-        let arp_cache = arp_cache.into();
-        let ip_addrs = ip_addrs.into();
-        let ipv4_gateway = ipv4_gateway.into();
+        let caps = device.capabilities();
+        let inner = InterfaceInner::new(arp_cache, ethernet_addr, ip_addrs, ipv4_gateway, caps);
 
-        Self::check_ethernet_addr(&ethernet_addr);
-        Self::check_ip_addrs(&ip_addrs);
-        Interface { device, arp_cache, ethernet_addr, ip_addrs, ipv4_gateway}
-    }
-
-    fn check_ethernet_addr(addr: &EthernetAddress) {
-        if addr.is_multicast() {
-            panic!("Ethernet address {} is not unicast", addr)
-        }
+        Interface { device, inner }
     }
 
     /// Get the Ethernet address of the interface.
     pub fn ethernet_addr(&self) -> EthernetAddress {
-        self.ethernet_addr
+        self.inner.ethernet_addr
     }
 
     /// Set the Ethernet address of the interface.
@@ -88,21 +84,13 @@ impl<'a, 'b, 'c, DeviceT: for<'d> Device<'d>> Interface<'a, 'b, 'c, DeviceT> {
     /// # Panics
     /// This function panics if the address is not unicast.
     pub fn set_ethernet_addr(&mut self, addr: EthernetAddress) {
-        self.ethernet_addr = addr;
-        Self::check_ethernet_addr(&self.ethernet_addr);
-    }
-
-    fn check_ip_addrs(addrs: &[IpCidr]) {
-        for cidr in addrs {
-            if !cidr.address().is_unicast() {
-                panic!("IP address {} is not unicast", cidr.address())
-            }
-        }
+        self.inner.ethernet_addr = addr;
+        InterfaceInner::check_ethernet_addr(&self.inner.ethernet_addr);
     }
 
     /// Get the IP addresses of the interface.
     pub fn ip_addrs(&self) -> &[IpCidr] {
-        self.ip_addrs.as_ref()
+        self.inner.ip_addrs.as_ref()
     }
 
     /// Update the IP addresses of the interface.
@@ -110,25 +98,24 @@ impl<'a, 'b, 'c, DeviceT: for<'d> Device<'d>> Interface<'a, 'b, 'c, DeviceT> {
     /// # Panics
     /// This function panics if any of the addresses is not unicast.
     pub fn update_ip_addrs<F: FnOnce(&mut ManagedSlice<'c, IpCidr>)>(&mut self, f: F) {
-        f(&mut self.ip_addrs);
-        Self::check_ip_addrs(&self.ip_addrs)
+        f(&mut self.inner.ip_addrs);
+        InterfaceInner::check_ip_addrs(&self.inner.ip_addrs)
     }
 
     /// Check whether the interface has the given IP address assigned.
     pub fn has_ip_addr<T: Into<IpAddress>>(&self, addr: T) -> bool {
-        let addr = addr.into();
-        self.ip_addrs.iter().any(|probe| probe.address() == addr)
+        self.inner.has_ip_addr(addr)
     }
 
     /// Get the IPv4 gateway of the interface.
     pub fn ipv4_gateway(&self) -> Option<Ipv4Address> {
-        self.ipv4_gateway
+        self.inner.ipv4_gateway
     }
 
     /// Set the IPv4 gateway of the interface.
     pub fn set_ipv4_gateway<GatewayAddrT>(&mut self, gateway: GatewayAddrT)
             where GatewayAddrT: Into<Option<Ipv4Address>> {
-        self.ipv4_gateway = gateway.into();
+        self.inner.ipv4_gateway = gateway.into();
     }
 
     /// Transmit packets queued in the given sockets, and receive packets queued
@@ -165,13 +152,13 @@ impl<'a, 'b, 'c, DeviceT: for<'d> Device<'d>> Interface<'a, 'b, 'c, DeviceT> {
     fn socket_ingress(&mut self, sockets: &mut SocketSet, timestamp: u64) -> Result<bool> {
         let mut processed_any = false;
         loop {
-            let (rx_token, tx_token) = match self.device.receive() {
+            let &mut Self {ref mut device, ref mut inner} = self;
+            let (rx_token, tx_token) = match device.receive() {
                 None => break,
                 Some(tokens) => tokens,
             };
             let dispatch_result = rx_token.consume(timestamp, |frame| {
-                let response =
-                self.process_ethernet(sockets, timestamp, &frame).map_err(|err| {
+                let response = inner.process_ethernet(sockets, timestamp, &frame).map_err(|err| {
                     net_debug!("cannot process ingress packet: {}", err);
                     if net_log_enabled!(debug) {
                         match EthernetFrame::new_checked(frame.as_ref()) {
@@ -187,7 +174,7 @@ impl<'a, 'b, 'c, DeviceT: for<'d> Device<'d>> Interface<'a, 'b, 'c, DeviceT> {
                 })?;
                 processed_any = true;
 
-                self.dispatch(tx_token, timestamp, response)
+                inner.dispatch(tx_token, timestamp, response)
             });
             dispatch_result.map_err(|err| {
                 net_debug!("cannot dispatch response packet: {}", err);
@@ -203,27 +190,28 @@ impl<'a, 'b, 'c, DeviceT: for<'d> Device<'d>> Interface<'a, 'b, 'c, DeviceT> {
 
         for mut socket in sockets.iter_mut() {
             let mut device_result = Ok(());
+            let &mut Self {ref mut device, ref mut inner} = self;
             let socket_result =
                 match *socket {
                     #[cfg(feature = "proto-raw")]
                     Socket::Raw(ref mut socket) =>
                         socket.dispatch(|response| {
-                            let tx_token = self.device.transmit().ok_or(Error::Exhausted)?;
-                            device_result = self.dispatch(tx_token, timestamp, Packet::Raw(response));
+                            let tx_token = device.transmit().ok_or(Error::Exhausted)?;
+                            device_result = inner.dispatch(tx_token, timestamp, Packet::Raw(response));
                             device_result
                         }, &caps.checksum),
                     #[cfg(feature = "proto-udp")]
                     Socket::Udp(ref mut socket) =>
                         socket.dispatch(|response| {
-                            let tx_token = self.device.transmit().ok_or(Error::Exhausted)?;
-                            device_result = self.dispatch(tx_token, timestamp, Packet::Udp(response));
+                            let tx_token = device.transmit().ok_or(Error::Exhausted)?;
+                            device_result = inner.dispatch(tx_token, timestamp, Packet::Udp(response));
                             device_result
                         }),
                     #[cfg(feature = "proto-tcp")]
                     Socket::Tcp(ref mut socket) =>
                         socket.dispatch(timestamp, &caps, |response| {
-                            let tx_token = self.device.transmit().ok_or(Error::Exhausted)?;
-                            device_result = self.dispatch(tx_token, timestamp, Packet::Tcp(response));
+                            let tx_token = device.transmit().ok_or(Error::Exhausted)?;
+                            device_result = inner.dispatch(tx_token, timestamp, Packet::Tcp(response));
                             device_result
                         }),
                     Socket::__Nonexhaustive(_) => unreachable!()
@@ -239,8 +227,48 @@ impl<'a, 'b, 'c, DeviceT: for<'d> Device<'d>> Interface<'a, 'b, 'c, DeviceT> {
                 (Ok(()), Ok(())) => ()
             }
         }
-
         Ok(())
+    }
+}
+
+impl<'b, 'c> InterfaceInner<'b, 'c> {
+    pub fn new<ArpCacheMT, ProtocolAddrsMT, Ipv4GatewayAddrT>
+              (arp_cache: ArpCacheMT,
+               ethernet_addr: EthernetAddress,
+               ip_addrs: ProtocolAddrsMT,
+               ipv4_gateway: Ipv4GatewayAddrT,
+               device_capabilities: DeviceCapabilities) ->
+              InterfaceInner<'b, 'c>
+            where ArpCacheMT: Into<Managed<'b, ArpCache>>,
+                  ProtocolAddrsMT: Into<ManagedSlice<'c, IpCidr>>,
+                  Ipv4GatewayAddrT: Into<Option<Ipv4Address>>, {
+        let arp_cache = arp_cache.into();
+        let ip_addrs = ip_addrs.into();
+        let ipv4_gateway = ipv4_gateway.into();
+
+        Self::check_ethernet_addr(&ethernet_addr);
+        Self::check_ip_addrs(&ip_addrs);
+        InterfaceInner { arp_cache, ethernet_addr, ip_addrs, ipv4_gateway, device_capabilities}
+    }
+
+    fn check_ethernet_addr(addr: &EthernetAddress) {
+        if addr.is_multicast() {
+            panic!("Ethernet address {} is not unicast", addr)
+        }
+    }
+
+    fn check_ip_addrs(addrs: &[IpCidr]) {
+        for cidr in addrs {
+            if !cidr.address().is_unicast() {
+                panic!("IP address {} is not unicast", cidr.address())
+            }
+        }
+    }
+
+    /// Check whether the interface has the given IP address assigned.
+    fn has_ip_addr<T: Into<IpAddress>>(&self, addr: T) -> bool {
+        let addr = addr.into();
+        self.ip_addrs.iter().any(|probe| probe.address() == addr)
     }
 
     fn process_ethernet<'frame, T: AsRef<[u8]>>
@@ -309,7 +337,7 @@ impl<'a, 'b, 'c, DeviceT: for<'d> Device<'d>> Interface<'a, 'b, 'c, DeviceT> {
                     eth_frame: &EthernetFrame<&'frame T>) ->
                    Result<Packet<'frame>> {
         let ipv4_packet = Ipv4Packet::new_checked(eth_frame.payload())?;
-        let checksum_caps = self.device.capabilities().checksum;
+        let checksum_caps = self.device_capabilities.checksum.clone();
         let ipv4_repr = Ipv4Repr::parse(&ipv4_packet, &checksum_caps)?;
 
         if !ipv4_repr.src_addr.is_unicast() {
@@ -383,7 +411,7 @@ impl<'a, 'b, 'c, DeviceT: for<'d> Device<'d>> Interface<'a, 'b, 'c, DeviceT> {
     fn process_icmpv4<'frame>(&self, ipv4_repr: Ipv4Repr, ip_payload: &'frame [u8]) ->
                              Result<Packet<'frame>> {
         let icmp_packet = Icmpv4Packet::new_checked(ip_payload)?;
-        let checksum_caps = self.device.capabilities().checksum;
+        let checksum_caps = self.device_capabilities.checksum.clone();
         let icmp_repr = Icmpv4Repr::parse(&icmp_packet, &checksum_caps)?;
 
         match icmp_repr {
@@ -431,7 +459,7 @@ impl<'a, 'b, 'c, DeviceT: for<'d> Device<'d>> Interface<'a, 'b, 'c, DeviceT> {
                           Result<Packet<'frame>> {
         let (src_addr, dst_addr) = (ip_repr.src_addr(), ip_repr.dst_addr());
         let udp_packet = UdpPacket::new_checked(ip_payload)?;
-        let checksum_caps = self.device.capabilities().checksum;
+        let checksum_caps = self.device_capabilities.checksum.clone();
         let udp_repr = UdpRepr::parse(&udp_packet, &src_addr, &dst_addr, &checksum_caps)?;
 
         for mut udp_socket in sockets.iter_mut().filter_map(UdpSocket::downcast) {
@@ -470,7 +498,7 @@ impl<'a, 'b, 'c, DeviceT: for<'d> Device<'d>> Interface<'a, 'b, 'c, DeviceT> {
                           Result<Packet<'frame>> {
         let (src_addr, dst_addr) = (ip_repr.src_addr(), ip_repr.dst_addr());
         let tcp_packet = TcpPacket::new_checked(ip_payload)?;
-        let checksum_caps = self.device.capabilities().checksum;
+        let checksum_caps = self.device_capabilities.checksum.clone();
         let tcp_repr = TcpRepr::parse(&tcp_packet, &src_addr, &dst_addr, &checksum_caps)?;
 
         for mut tcp_socket in sockets.iter_mut().filter_map(TcpSocket::downcast) {
@@ -494,8 +522,11 @@ impl<'a, 'b, 'c, DeviceT: for<'d> Device<'d>> Interface<'a, 'b, 'c, DeviceT> {
         }
     }
 
-    fn dispatch<T: TxToken>(&mut self, tx_token: T, timestamp: u64, packet: Packet) -> Result<()> {
-        let checksum_caps = self.device.capabilities().checksum;
+    fn dispatch<T: TxToken>(&mut self, tx_token: T, timestamp: u64, packet: Packet)
+        -> Result<()>
+    {
+        let caps = self.device_capabilities.clone();
+        let checksum_caps = self.device_capabilities.checksum.clone();
         match packet {
             Packet::Arp(arp_repr) => {
                 let dst_hardware_addr =
@@ -533,7 +564,6 @@ impl<'a, 'b, 'c, DeviceT: for<'d> Device<'d>> Interface<'a, 'b, 'c, DeviceT> {
             }
             #[cfg(feature = "proto-tcp")]
             Packet::Tcp((ip_repr, mut tcp_repr)) => {
-                let caps = self.device.capabilities();
                 self.dispatch_ip(tx_token, timestamp, ip_repr, |ip_repr, payload| {
                     // This is a terrible hack to make TCP performance more acceptable on systems
                     // where the TCP buffers are significantly larger than network buffers,
@@ -563,8 +593,10 @@ impl<'a, 'b, 'c, DeviceT: for<'d> Device<'d>> Interface<'a, 'b, 'c, DeviceT> {
         }
     }
 
-    fn dispatch_ethernet<T: TxToken, F>(&mut self, tx_token: T, timestamp: u64, buffer_len: usize, f: F) -> Result<()>
-            where F: FnOnce(EthernetFrame<&mut [u8]>) {
+    fn dispatch_ethernet<T: TxToken, F>(&mut self, tx_token: T, timestamp: u64,
+            buffer_len: usize, f: F) -> Result<()>
+        where F: FnOnce(EthernetFrame<&mut [u8]>)
+    {
         let tx_len = EthernetFrame::<&[u8]>::buffer_len(buffer_len);
         tx_token.consume(timestamp, tx_len, |tx_buffer| {
             debug_assert!(tx_buffer.as_ref().len() == tx_len);
@@ -593,17 +625,17 @@ impl<'a, 'b, 'c, DeviceT: for<'d> Device<'d>> Interface<'a, 'b, 'c, DeviceT> {
             })
     }
 
-    fn lookup_hardware_addr(&mut self, timestamp: u64,
+    fn lookup_hardware_addr<T: TxToken>(&mut self, tx_token: T, timestamp: u64,
                             src_addr: &IpAddress, dst_addr: &IpAddress) ->
-                           Result<EthernetAddress> {
+                           Result<(EthernetAddress, T)> {
         let dst_addr = self.route(dst_addr)?;
 
         if let Some(hardware_addr) = self.arp_cache.lookup(&dst_addr) {
-            return Ok(hardware_addr)
+            return Ok((hardware_addr,tx_token))
         }
 
         if dst_addr.is_broadcast() {
-            return Ok(EthernetAddress::BROADCAST)
+            return Ok((EthernetAddress::BROADCAST, tx_token))
         }
 
         match (src_addr, dst_addr) {
@@ -619,7 +651,6 @@ impl<'a, 'b, 'c, DeviceT: for<'d> Device<'d>> Interface<'a, 'b, 'c, DeviceT> {
                     target_protocol_addr: dst_addr,
                 };
 
-                let tx_token = self.device.transmit().ok_or(Error::Exhausted)?;
                 self.dispatch_ethernet(tx_token, timestamp, arp_repr.buffer_len(), |mut frame| {
                     frame.set_dst_addr(EthernetAddress::BROADCAST);
                     frame.set_ethertype(EthernetProtocol::Arp);
@@ -633,13 +664,15 @@ impl<'a, 'b, 'c, DeviceT: for<'d> Device<'d>> Interface<'a, 'b, 'c, DeviceT> {
         }
     }
 
-    fn dispatch_ip<T: TxToken, F>(&mut self, tx_token: T, timestamp: u64, ip_repr: IpRepr, f: F) -> Result<()>
-            where F: FnOnce(IpRepr, &mut [u8]) {
+    fn dispatch_ip<T: TxToken, F>(&mut self, tx_token: T, timestamp: u64, ip_repr: IpRepr,
+            f: F) -> Result<()>
+        where F: FnOnce(IpRepr, &mut [u8])
+    {
         let ip_repr = ip_repr.lower(&self.ip_addrs)?;
-        let checksum_caps = self.device.capabilities().checksum;
+        let checksum_caps = self.device_capabilities.checksum.clone();
 
-        let dst_hardware_addr =
-            self.lookup_hardware_addr(timestamp, &ip_repr.src_addr(), &ip_repr.dst_addr())?;
+        let (dst_hardware_addr, tx_token) =
+            self.lookup_hardware_addr(tx_token, timestamp, &ip_repr.src_addr(), &ip_repr.dst_addr())?;
 
         self.dispatch_ethernet(tx_token, timestamp, ip_repr.total_len(), |mut frame| {
             frame.set_dst_addr(dst_hardware_addr);
