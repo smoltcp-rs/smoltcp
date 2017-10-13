@@ -1,4 +1,3 @@
-use core::marker::PhantomData;
 #[cfg(feature = "std")]
 use std::cell::RefCell;
 #[cfg(feature = "std")]
@@ -116,38 +115,43 @@ impl<T: AsMut<Write>> PcapSink for RefCell<T> {
 /// [libpcap]: https://wiki.wireshark.org/Development/LibpcapFileFormat
 /// [sink]: trait.PcapSink.html
 #[derive(Debug)]
-pub struct PcapWriter<'a, D: Device<'a>, S: PcapSink + Clone> {
+pub struct PcapWriter<D: for<'a> Device<'a>, S: PcapSink + Clone> {
     lower:      D,
     sink:       S,
     mode:       PcapMode,
-    phantom:    PhantomData<&'a ()>,
 }
 
-impl<'a, D: Device<'a>, S: PcapSink + Clone> PcapWriter<'a, D, S> {
+impl<D: for<'a> Device<'a>, S: PcapSink + Clone> PcapWriter<D, S> {
     /// Creates a packet capture writer.
-    pub fn new(lower: D, sink: S, mode: PcapMode, link_type: PcapLinkType) -> PcapWriter<'a, D, S> {
+    pub fn new(lower: D, sink: S, mode: PcapMode, link_type: PcapLinkType) -> PcapWriter<D, S> {
         sink.global_header(link_type);
-        PcapWriter { lower, sink, mode, phantom: PhantomData }
+        PcapWriter { lower, sink, mode }
     }
 }
 
-impl<'a, D: Device<'a>, S: PcapSink + Clone> Device<'a> for PcapWriter<'a, D, S> {
-    type RxToken = RxToken<D::RxToken, S>;
-    type TxToken = TxToken<D::TxToken, S>;
+impl<'a, DR, DT, D, S: PcapSink + Clone> Device<'a> for PcapWriter<D, S>
+    where D: for<'b> Device<'b, RxToken=DR, TxToken=DT>,
+          DR: phy::RxToken,
+          DT: phy::TxToken,
+{
+    type RxToken = RxToken<DR, S>;
+    type TxToken = TxToken<DT, S>;
 
     fn capabilities(&self) -> DeviceCapabilities { self.lower.capabilities() }
 
-    fn receive(&mut self) -> Option<(Self::RxToken, Self::TxToken)> {
-        self.lower.receive().map(|(rx_token, tx_token)| {
-            let rx = RxToken {token: rx_token, sink: self.sink.clone(), mode: self.mode };
-            let tx = TxToken {token: tx_token, sink: self.sink.clone(), mode: self.mode };
+    fn receive(&'a mut self) -> Option<(Self::RxToken, Self::TxToken)> {
+        let &mut Self {ref mut lower, ref sink, mode, ..} = self;
+        lower.receive().map(|(rx_token, tx_token)| {
+            let rx = RxToken {token: rx_token, sink: sink.clone(), mode: mode };
+            let tx = TxToken {token: tx_token, sink: sink.clone(), mode: mode };
             (rx, tx)
         })
     }
 
-    fn transmit(&mut self) -> Option<Self::TxToken> {
-        self.lower.transmit().map(|token| {
-            TxToken {token, sink: self.sink.clone(), mode: self.mode}
+    fn transmit(&'a mut self) -> Option<Self::TxToken> {
+        let &mut Self {ref mut lower, ref sink, mode} = self;
+        lower.transmit().map(|token| {
+            TxToken {token, sink: sink.clone(), mode: mode}
         })
     }
 }

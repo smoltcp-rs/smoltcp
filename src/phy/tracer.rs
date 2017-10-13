@@ -1,4 +1,3 @@
-use core::marker::PhantomData;
 use Result;
 use wire::pretty_print::{PrettyPrint, PrettyPrinter};
 use super::{DeviceCapabilities, Device};
@@ -9,19 +8,17 @@ use phy;
 /// A tracer is a device that pretty prints all packets traversing it
 /// using the provided writer function, and then passes them to another
 /// device.
-pub struct Tracer<'a, D: Device<'a>, P: PrettyPrint> {
+pub struct Tracer<D: for<'a> Device<'a>, P: PrettyPrint> {
     inner:      D,
     writer:     fn(u64, PrettyPrinter<P>),
-    phantom:    PhantomData<&'a ()>,
 }
 
-impl<'a, D: Device<'a>, P: PrettyPrint> Tracer<'a, D, P> {
+impl<D: for<'a> Device<'a>, P: PrettyPrint> Tracer<D, P> {
     /// Create a tracer device.
-    pub fn new(inner: D, writer: fn(timestamp: u64, printer: PrettyPrinter<P>)) -> Tracer<'a, D, P> {
+    pub fn new(inner: D, writer: fn(timestamp: u64, printer: PrettyPrinter<P>)) -> Tracer<D, P> {
         Tracer {
             inner:   inner,
             writer:  writer,
-            phantom: PhantomData,
         }
     }
 
@@ -31,16 +28,21 @@ impl<'a, D: Device<'a>, P: PrettyPrint> Tracer<'a, D, P> {
     }
 }
 
-impl<'a, D: Device<'a>, P: PrettyPrint> Device<'a> for Tracer<'a, D, P> {
-    type RxToken = RxToken<D::RxToken, P>;
-    type TxToken = TxToken<D::TxToken, P>;
+impl<'a, DR, DT, D, P: PrettyPrint> Device<'a> for Tracer<D, P>
+    where D: for<'b> Device<'b, RxToken=DR, TxToken=DT>,
+          DR: phy::RxToken,
+          DT: phy::TxToken,
+{
+    type RxToken = RxToken<DR, P>;
+    type TxToken = TxToken<DT, P>;
 
     fn capabilities(&self) -> DeviceCapabilities { self.inner.capabilities() }
 
-    fn receive(&mut self) -> Option<(Self::RxToken, Self::TxToken)> {
-        self.inner.receive().map(|(rx_token, tx_token)| {
-            let rx = RxToken { token: rx_token, writer: self.writer };
-            let tx = TxToken { token: tx_token, writer: self.writer };
+    fn receive(&'a mut self) -> Option<(Self::RxToken, Self::TxToken)> {
+        let &mut Self {ref mut inner, writer, ..} = self;
+        inner.receive().map(|(rx_token, tx_token)| {
+            let rx = RxToken { token: rx_token, writer: writer };
+            let tx = TxToken { token: tx_token, writer: writer };
             (rx, tx) // TODO is copying `writer` desired?
         })
     }

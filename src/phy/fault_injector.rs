@@ -1,4 +1,3 @@
-use core::marker::PhantomData;
 use {Error, Result};
 use super::{DeviceCapabilities, Device};
 use phy;
@@ -88,16 +87,15 @@ impl State {
 /// adverse network conditions (such as random packet loss or corruption), or software
 /// or hardware limitations (such as a limited number or size of usable network buffers).
 #[derive(Debug)]
-pub struct FaultInjector<'a, D: Device<'a>> {
+pub struct FaultInjector<D: for<'a> Device<'a>> {
     inner:      D,
     state:      State,
     config:     Config,
-    phantom:    PhantomData<&'a ()>,
 }
 
-impl<'a, D: Device<'a>> FaultInjector<'a, D> {
+impl<D: for<'a> Device<'a>> FaultInjector<D> {
     /// Create a fault injector device, using the given random number generator seed.
-    pub fn new(inner: D, seed: u32) -> FaultInjector<'a, D> {
+    pub fn new(inner: D, seed: u32) -> FaultInjector<D> {
         let state = State {
             rng_seed:    seed,
             refilled_at: 0,
@@ -108,7 +106,6 @@ impl<'a, D: Device<'a>> FaultInjector<'a, D> {
             inner: inner,
             state: state,
             config: Config::default(),
-            phantom: PhantomData,
         }
     }
 
@@ -187,9 +184,13 @@ impl<'a, D: Device<'a>> FaultInjector<'a, D> {
     }
 }
 
-impl<'a, D: Device<'a>> Device<'a> for FaultInjector<'a, D> {
-    type RxToken = RxToken<D::RxToken>;
-    type TxToken = TxToken<D::TxToken>;
+impl<'a, DR, DT, D> Device<'a> for FaultInjector<D>
+    where D: for<'b> Device<'b, RxToken=DR, TxToken=DT>,
+          DR: phy::RxToken,
+          DT: phy::TxToken,
+{
+    type RxToken = RxToken<DR>;
+    type TxToken = TxToken<DT>;
 
     fn capabilities(&self) -> DeviceCapabilities {
         let mut caps = self.inner.capabilities();
@@ -202,7 +203,7 @@ impl<'a, D: Device<'a>> Device<'a> for FaultInjector<'a, D> {
     // TODO clone state on each transmit/receive?
     // use refcell/mutex alternatively?
 
-    fn receive(&mut self) -> Option<(Self::RxToken, Self::TxToken)> {
+    fn receive(&'a mut self) -> Option<(Self::RxToken, Self::TxToken)> {
         self.inner.receive().map(|(rx_token, tx_token)| {
             let rx = RxToken {
                 state:          self.state.clone(),

@@ -2,7 +2,6 @@
 // of RFC 1122 that discuss Ethernet, ARP and IP.
 
 use core::cmp;
-use core::marker::PhantomData;
 use managed::{Managed, ManagedSlice};
 
 use {Error, Result};
@@ -26,13 +25,12 @@ use super::ArpCache;
 /// The network interface logically owns a number of other data structures; to avoid
 /// a dependency on heap allocation, it instead owns a `BorrowMut<[T]>`, which can be
 /// a `&mut [T]`, or `Vec<T>` if a heap is available.
-pub struct Interface<'a, 'b, 'c, 'd: 'a, DeviceT: Device<'d> + 'a> {
+pub struct Interface<'a, 'b, 'c, DeviceT: for<'d> Device<'d> + 'a> {
     device:         Managed<'a, DeviceT>,
     arp_cache:      Managed<'b, ArpCache>,
     ethernet_addr:  EthernetAddress,
     ip_addrs:       ManagedSlice<'c, IpCidr>,
     ipv4_gateway:   Option<Ipv4Address>,
-    phantom:        PhantomData<&'d ()>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -48,7 +46,7 @@ enum Packet<'a> {
     Tcp((IpRepr, TcpRepr<'a>))
 }
 
-impl<'a, 'b, 'c, 'd, DeviceT: Device<'d>> Interface<'a, 'b, 'c, 'd, DeviceT> {
+impl<'a, 'b, 'c, DeviceT: for<'d> Device<'d>> Interface<'a, 'b, 'c, DeviceT> {
     /// Create a network interface using the provided network device.
     ///
     /// # Panics
@@ -59,7 +57,7 @@ impl<'a, 'b, 'c, 'd, DeviceT: Device<'d>> Interface<'a, 'b, 'c, 'd, DeviceT> {
                ethernet_addr: EthernetAddress,
                ip_addrs: ProtocolAddrsMT,
                ipv4_gateway: Ipv4GatewayAddrT) ->
-              Interface<'a, 'b, 'c, 'd, DeviceT>
+              Interface<'a, 'b, 'c, DeviceT>
             where DeviceMT: Into<Managed<'a, DeviceT>>,
                   ArpCacheMT: Into<Managed<'b, ArpCache>>,
                   ProtocolAddrsMT: Into<ManagedSlice<'c, IpCidr>>,
@@ -71,7 +69,7 @@ impl<'a, 'b, 'c, 'd, DeviceT: Device<'d>> Interface<'a, 'b, 'c, 'd, DeviceT> {
 
         Self::check_ethernet_addr(&ethernet_addr);
         Self::check_ip_addrs(&ip_addrs);
-        Interface { device, arp_cache, ethernet_addr, ip_addrs, ipv4_gateway, phantom: PhantomData}
+        Interface { device, arp_cache, ethernet_addr, ip_addrs, ipv4_gateway}
     }
 
     fn check_ethernet_addr(addr: &EthernetAddress) {
