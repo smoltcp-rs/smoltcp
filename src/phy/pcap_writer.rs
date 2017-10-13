@@ -1,3 +1,4 @@
+use core::marker::PhantomData;
 #[cfg(feature = "std")]
 use std::cell::RefCell;
 #[cfg(feature = "std")]
@@ -115,21 +116,22 @@ impl<T: AsMut<Write>> PcapSink for RefCell<T> {
 /// [libpcap]: https://wiki.wireshark.org/Development/LibpcapFileFormat
 /// [sink]: trait.PcapSink.html
 #[derive(Debug)]
-pub struct PcapWriter<D: Device, S: PcapSink + Clone> {
-    lower: D,
-    sink:  S,
-    mode:  PcapMode
+pub struct PcapWriter<'a, D: Device<'a>, S: PcapSink + Clone> {
+    lower:      D,
+    sink:       S,
+    mode:       PcapMode,
+    phantom:    PhantomData<&'a ()>,
 }
 
-impl<D: Device, S: PcapSink + Clone> PcapWriter<D, S> {
+impl<'a, D: Device<'a>, S: PcapSink + Clone> PcapWriter<'a, D, S> {
     /// Creates a packet capture writer.
-    pub fn new(lower: D, sink: S, mode: PcapMode, link_type: PcapLinkType) -> PcapWriter<D, S> {
+    pub fn new(lower: D, sink: S, mode: PcapMode, link_type: PcapLinkType) -> PcapWriter<'a, D, S> {
         sink.global_header(link_type);
-        PcapWriter { lower, sink, mode }
+        PcapWriter { lower, sink, mode, phantom: PhantomData }
     }
 }
 
-impl<D: Device, S: PcapSink + Clone> Device for PcapWriter<D, S> {
+impl<'a, D: Device<'a>, S: PcapSink + Clone> Device<'a> for PcapWriter<'a, D, S> {
     type RxToken = RxToken<D::RxToken, S>;
     type TxToken = TxToken<D::TxToken, S>;
 

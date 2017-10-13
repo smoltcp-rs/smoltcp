@@ -1,3 +1,4 @@
+use core::marker::PhantomData;
 use {Error, Result};
 use super::{DeviceCapabilities, Device};
 use phy;
@@ -87,15 +88,16 @@ impl State {
 /// adverse network conditions (such as random packet loss or corruption), or software
 /// or hardware limitations (such as a limited number or size of usable network buffers).
 #[derive(Debug)]
-pub struct FaultInjector<D: Device> {
-    inner:  D,
-    state:  State,
-    config: Config
+pub struct FaultInjector<'a, D: Device<'a>> {
+    inner:      D,
+    state:      State,
+    config:     Config,
+    phantom:    PhantomData<&'a ()>,
 }
 
-impl<D: Device> FaultInjector<D> {
+impl<'a, D: Device<'a>> FaultInjector<'a, D> {
     /// Create a fault injector device, using the given random number generator seed.
-    pub fn new(inner: D, seed: u32) -> FaultInjector<D> {
+    pub fn new(inner: D, seed: u32) -> FaultInjector<'a, D> {
         let state = State {
             rng_seed:    seed,
             refilled_at: 0,
@@ -105,7 +107,8 @@ impl<D: Device> FaultInjector<D> {
         FaultInjector {
             inner: inner,
             state: state,
-            config: Config::default()
+            config: Config::default(),
+            phantom: PhantomData,
         }
     }
 
@@ -184,7 +187,7 @@ impl<D: Device> FaultInjector<D> {
     }
 }
 
-impl<D: Device> Device for FaultInjector<D> {
+impl<'a, D: Device<'a>> Device<'a> for FaultInjector<'a, D> {
     type RxToken = RxToken<D::RxToken>;
     type TxToken = TxToken<D::TxToken>;
 

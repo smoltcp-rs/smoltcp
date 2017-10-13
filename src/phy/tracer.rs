@@ -1,3 +1,4 @@
+use core::marker::PhantomData;
 use Result;
 use wire::pretty_print::{PrettyPrint, PrettyPrinter};
 use super::{DeviceCapabilities, Device};
@@ -8,17 +9,19 @@ use phy;
 /// A tracer is a device that pretty prints all packets traversing it
 /// using the provided writer function, and then passes them to another
 /// device.
-pub struct Tracer<D: Device, P: PrettyPrint> {
-    inner:     D,
-    writer:    fn(u64, PrettyPrinter<P>)
+pub struct Tracer<'a, D: Device<'a>, P: PrettyPrint> {
+    inner:      D,
+    writer:     fn(u64, PrettyPrinter<P>),
+    phantom:    PhantomData<&'a ()>,
 }
 
-impl<D: Device, P: PrettyPrint> Tracer<D, P> {
+impl<'a, D: Device<'a>, P: PrettyPrint> Tracer<'a, D, P> {
     /// Create a tracer device.
-    pub fn new(inner: D, writer: fn(timestamp: u64, printer: PrettyPrinter<P>)) -> Tracer<D, P> {
+    pub fn new(inner: D, writer: fn(timestamp: u64, printer: PrettyPrinter<P>)) -> Tracer<'a, D, P> {
         Tracer {
             inner:   inner,
-            writer:  writer
+            writer:  writer,
+            phantom: PhantomData,
         }
     }
 
@@ -28,7 +31,7 @@ impl<D: Device, P: PrettyPrint> Tracer<D, P> {
     }
 }
 
-impl<D: Device, P: PrettyPrint> Device for Tracer<D, P> {
+impl<'a, D: Device<'a>, P: PrettyPrint> Device<'a> for Tracer<'a, D, P> {
     type RxToken = RxToken<D::RxToken, P>;
     type TxToken = TxToken<D::TxToken, P>;
 

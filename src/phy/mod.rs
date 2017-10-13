@@ -133,7 +133,7 @@ pub use self::raw_socket::RawSocket;
 pub use self::tap_interface::TapInterface;
 
 /// A tracer device for Ethernet frames.
-pub type EthernetTracer<T> = Tracer<T, super::wire::EthernetFrame<&'static [u8]>>;
+pub type EthernetTracer<T> = Tracer<'static, T, super::wire::EthernetFrame<&'static [u8]>>;
 
 /// A description of checksum behavior for a particular protocol.
 #[derive(Debug, Clone, Copy)]
@@ -227,7 +227,7 @@ pub struct DeviceCapabilities {
     dummy: ()
 }
 
-pub trait Device {
+pub trait Device<'a> {
     type RxToken: RxToken;
     type TxToken: TxToken;
 
