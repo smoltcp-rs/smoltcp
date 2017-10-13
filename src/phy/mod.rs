@@ -239,7 +239,7 @@ pub trait Device {
 }
 
 pub trait RxToken {
-    fn consume<R, F: FnOnce(&[u8]) -> R>(self, timestamp: u64, f: F) -> R;
+    fn consume<R, F: FnOnce(&[u8]) -> Result<R>>(self, timestamp: u64, f: F) -> Result<R>;
 }
 
 pub trait TxToken {

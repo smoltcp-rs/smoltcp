@@ -1,3 +1,4 @@
+use Result;
 use wire::pretty_print::{PrettyPrint, PrettyPrinter};
 use super::{DeviceCapabilities, Device};
 use phy;
@@ -55,7 +56,7 @@ pub struct RxToken<T: phy::RxToken, P: PrettyPrint> {
 }
 
 impl<T: phy::RxToken, P: PrettyPrint> phy::RxToken for RxToken<T, P> {
-    fn consume<R, F: FnOnce(&[u8]) -> R>(self, timestamp: u64, f: F) -> R {
+    fn consume<R, F: FnOnce(&[u8]) -> Result<R>>(self, timestamp: u64, f: F) -> Result<R> {
         let Self {token, writer} = self;
         token.consume(timestamp, |buffer| {
             writer(timestamp, PrettyPrinter::<P>::new("<- ", &buffer));
