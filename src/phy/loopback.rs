@@ -1,4 +1,3 @@
-use core::mem::swap;
 use core::cell::RefCell;
 #[cfg(feature = "std")]
 use std::rc::Rc;
@@ -11,8 +10,9 @@ use std::collections::VecDeque;
 #[cfg(feature = "alloc")]
 use alloc::{Vec, VecDeque};
 
-use {Error, Result};
+use Result;
 use super::{Device, DeviceCapabilities};
+use phy;
 
 /// A loopback device.
 #[derive(Debug)]
@@ -29,8 +29,8 @@ impl Loopback {
 }
 
 impl Device for Loopback {
-    type RxBuffer = Vec<u8>;
-    type TxBuffer = TxBuffer;
+    type RxToken = RxToken;
+    type TxToken = TxToken;
 
     fn capabilities(&self) -> DeviceCapabilities {
         DeviceCapabilities {
@@ -39,41 +39,44 @@ impl Device for Loopback {
         }
     }
 
-    fn receive(&mut self, _timestamp: u64) -> Result<Self::RxBuffer> {
-        match self.0.borrow_mut().pop_front() {
-            Some(packet) => Ok(packet),
-            None => Err(Error::Exhausted)
-        }
+    fn receive(&mut self) -> Option<(Self::RxToken, Self::TxToken)> {
+        self.0.borrow_mut().pop_front().map(|buffer| {
+            let rx = RxToken {buffer: buffer};
+            let tx = TxToken {queue: self.0.clone()};
+            (rx, tx)
+        })       
     }
 
-    fn transmit(&mut self, _timestamp: u64, length: usize) -> Result<Self::TxBuffer> {
-        let mut buffer = Vec::new();
-        buffer.resize(length, 0);
-        Ok(TxBuffer {
+
+    fn transmit(&mut self) -> Option<Self::TxToken> {
+        Some(TxToken {
             queue:  self.0.clone(),
-            buffer: buffer
         })
     }
 }
 
 #[doc(hidden)]
-pub struct TxBuffer {
-    queue:  Rc<RefCell<VecDeque<Vec<u8>>>>,
-    buffer: Vec<u8>
+pub struct RxToken {
+    buffer: Vec<u8>,
 }
 
-impl AsRef<[u8]> for TxBuffer {
-    fn as_ref(&self) -> &[u8] { self.buffer.as_ref() }
+impl<'a> phy::RxToken for RxToken {
+    fn consume<R, F: FnOnce(&[u8]) -> Result<R>>(self, _timestamp: u64, f: F) -> Result<R> {
+        f(&self.buffer)
+    }
 }
 
-impl AsMut<[u8]> for TxBuffer {
-    fn as_mut(&mut self) -> &mut [u8] { self.buffer.as_mut() }
+#[doc(hidden)]
+pub struct TxToken {
+    queue: Rc<RefCell<VecDeque<Vec<u8>>>>,
 }
 
-impl Drop for TxBuffer {
-    fn drop(&mut self) {
+impl phy::TxToken for TxToken {
+    fn consume<R, F: FnOnce(&mut [u8]) -> R>(self, _timestamp: u64, len: usize, f: F) -> R {
         let mut buffer = Vec::new();
-        swap(&mut buffer, &mut self.buffer);
-        self.queue.borrow_mut().push_back(buffer)
+        buffer.resize(len, 0);
+        let result = f(&mut buffer);
+        self.queue.borrow_mut().push_back(buffer);
+        result
     }
 }
