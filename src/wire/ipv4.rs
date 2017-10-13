@@ -8,7 +8,7 @@ use super::ip::checksum;
 pub use super::IpProtocol as Protocol;
 
 /// A four-octet IPv4 address.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default, Hash)]
 pub struct Address(pub [u8; 4]);
 
 impl Address {

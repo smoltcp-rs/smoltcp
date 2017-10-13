@@ -50,3 +50,6 @@ name = "ping"
 
 [[example]]
 name = "loopback"
+
+[[example]]
+name = "multicast"

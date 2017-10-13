@@ -19,7 +19,7 @@ use socket::{Socket, SocketSet, AnySocket};
 #[cfg(feature = "socket-udp")] use socket::UdpSocket;
 #[cfg(feature = "socket-tcp")] use socket::TcpSocket;
 use super::ArpCache;
-
+use std::collections::HashSet; // TODO: make it a managed cache
 /// An Ethernet network interface.
 ///
 /// The network interface logically owns a number of other data structures; to avoid
@@ -31,6 +31,8 @@ pub struct Interface<'a, 'b, 'c, DeviceT: Device + 'a> {
     ethernet_addr:  EthernetAddress,
     ip_addrs:       ManagedSlice<'c, IpCidr>,
     ipv4_gateway:   Option<Ipv4Address>,
+    eth_mcast_addr: HashSet<EthernetAddress>, // TODO: use ManagedMap
+    ipv4_mcast_addr:HashSet<Ipv4Address>, // TODO: use ManagedMap
 }
 
 enum Packet<'a> {
@@ -46,6 +48,20 @@ enum Packet<'a> {
     #[cfg(feature = "socket-tcp")]
     Tcp((IpRepr, TcpRepr<'a>))
 }
+
+  /// Map IPv4 multicast address into an ethernet address
+    pub fn ip_multicast_to_mac(ip_addr: Ipv4Address) -> Option<EthernetAddress> {
+      if !ip_addr.is_multicast() {
+        return None;
+      } else {
+        let mut hw_addr = EthernetAddress::MULTICAST_PREFIX;
+        // first three octets are fixed
+        hw_addr[3] = ip_addr.as_bytes()[1] & 0x7f; // 4th octet, first zero fixed
+        hw_addr[4] = ip_addr.as_bytes()[2]; // 5th octet
+        hw_addr[5] = ip_addr.as_bytes()[3]; // last octet
+        return Some(EthernetAddress::from_bytes(&hw_addr));
+      }
+    }
 
 impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
     /// Create a network interface using the provided network device.
@@ -70,7 +86,9 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
 
         Self::check_ethernet_addr(&ethernet_addr);
         Self::check_ip_addrs(&ip_addrs);
-        Interface { device, arp_cache, ethernet_addr, ip_addrs, ipv4_gateway }
+        let eth_mcast_addr = HashSet::new();
+        let ipv4_mcast_addr = HashSet::new();
+        Interface { device, arp_cache, ethernet_addr, ip_addrs, ipv4_gateway, eth_mcast_addr, ipv4_mcast_addr }
     }
 
     fn check_ethernet_addr(addr: &EthernetAddress) {
@@ -100,6 +118,49 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
             }
         }
     }
+
+    /// Remove given address from a list of subscribed multicast addresses
+    pub fn remove_mac_multicast_addr(&mut self, key: EthernetAddress) -> bool {
+      if key.is_multicast() {
+        self.eth_mcast_addr.remove(&key)
+      } else {
+        false
+      }
+    }
+
+    /// Add an address to a list of subscribed multicast addresses
+    pub fn add_mac_multicast_addr(&mut self, key: EthernetAddress) -> bool {
+      if key.is_multicast() {
+          self.eth_mcast_addr.insert(key)
+      } else {
+          false
+      }
+    }
+
+    /// Add an address to a list of subscribed multicast addresses
+    pub fn add_mac_multicast_ip_addr(&mut self, key: Ipv4Address) -> bool {
+      // add to the list of IP addresses
+      if self.ipv4_mcast_addr.insert(key) {
+        match ip_multicast_to_mac(key) {
+          Some(addr) => return self.add_mac_multicast_addr(addr),
+          None => return false,
+        }
+      }
+      false
+    }
+
+    /// Check whether the interface listens to given destination MAC address.
+    pub fn has_mac_addr<T: Into<EthernetAddress>>(&self, addr: T) -> bool {
+        let addr = addr.into();
+        self.eth_mcast_addr.iter().any(|probe| *probe == addr)
+    }
+
+    /// Check whether the interface listens to given destination MAC address.
+    pub fn has_ip_mcast_addr<T: Into<Ipv4Address>>(&self, addr: T) -> bool {
+        let addr = addr.into();
+        self.ipv4_mcast_addr.iter().any(|probe| *probe == addr)
+    }
+
 
     /// Get the IP addresses of the interface.
     pub fn ip_addrs(&self) -> &[IpCidr] {
@@ -237,6 +298,21 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
 
         Ok(())
     }
+    
+    fn keep_ethernet_frame<'frame, T: AsRef<[u8]>>(&self, eth_frame: &EthernetFrame<&T>) -> bool {
+      // the multicast frame belongs to one of the subscribed groups
+      if self.eth_mcast_addr.contains(&eth_frame.dst_addr()) {
+        return true;
+      } else {
+        // check if it is broadcast or directly for this harware addr
+        if !eth_frame.dst_addr().is_broadcast() &&
+                eth_frame.dst_addr() != self.ethernet_addr {
+                  return false
+            } else {
+              return true;
+            }
+      }
+    }
 
     fn process_ethernet<'frame, T: AsRef<[u8]>>
                        (&mut self, sockets: &mut SocketSet, timestamp: u64,
@@ -244,9 +320,8 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                        Result<Packet<'frame>> {
         let eth_frame = EthernetFrame::new_checked(frame)?;
 
-        // Ignore any packets not directed to our hardware address.
-        if !eth_frame.dst_addr().is_broadcast() &&
-                eth_frame.dst_addr() != self.ethernet_addr {
+        // Check whether to keep the packet
+        if !self.keep_ethernet_frame(&eth_frame)  {
             return Ok(Packet::None)
         }
 
@@ -340,8 +415,8 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
             }
         }
 
-        if !self.has_ip_addr(ipv4_repr.dst_addr) {
-            // Ignore IP packets not directed at us.
+        if !self.has_ip_addr(ipv4_repr.dst_addr) && !self.has_ip_mcast_addr(ipv4_repr.dst_addr) {
+            // Ignore IP packets not directed at us or any of the multicast groups
             return Ok(Packet::None)
         }
 
@@ -390,6 +465,8 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         let checksum_caps = self.device.capabilities().checksum;
         let igmp_repr = IgmpRepr::parse(&igmp_packet, &checksum_caps)?; // errors if illegal packet
 
+    println!("igmp_packet: {}", igmp_packet);
+    println!("igmp_repr: {}", igmp_repr);
         // for now - reply immediately
         match igmp_repr {
             IgmpRepr::MembershipQuery { .. } => {
@@ -683,3 +760,4 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         })
     }
 }
+
