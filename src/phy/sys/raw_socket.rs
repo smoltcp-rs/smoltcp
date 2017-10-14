@@ -68,7 +68,7 @@ impl RawSocketDesc {
         unsafe {
             let len = libc::send(self.lower, buffer.as_ptr() as *const libc::c_void,
                                  buffer.len(), 0);
-            if len == -1 { Err(io::Error::last_os_error()).unwrap() }
+            if len == -1 { return Err(io::Error::last_os_error()) }
             Ok(len as usize)
         }
     }

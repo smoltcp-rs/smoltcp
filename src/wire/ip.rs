@@ -60,7 +60,7 @@ impl fmt::Display for Protocol {
 }
 
 /// An internetworking address.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub enum Address {
     /// An unspecified address.
     /// May be used as a placeholder for storage where the address is not assigned yet.
@@ -91,6 +91,15 @@ impl Address {
         match self {
             &Address::Unspecified => false,
             &Address::Ipv4(addr)  => addr.is_broadcast(),
+            &Address::__Nonexhaustive => unreachable!()
+        }
+    }
+
+	/// Query whether the address is a multicast address.
+    pub fn is_multicast(&self) -> bool {
+        match self {
+            &Address::Unspecified => false,
+            &Address::Ipv4(addr)  => addr.is_multicast(),
             &Address::__Nonexhaustive => unreachable!()
         }
     }

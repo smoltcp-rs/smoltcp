@@ -32,7 +32,7 @@ pub struct Interface<'a, 'b, 'c, DeviceT: Device + 'a> {
     ip_addrs:       ManagedSlice<'c, IpCidr>,
     ipv4_gateway:   Option<Ipv4Address>,
     eth_mcast_addr: HashSet<EthernetAddress>, // TODO: use ManagedMap
-    ipv4_mcast_addr:HashSet<Ipv4Address>, // TODO: use ManagedMap
+    ip_mcast_addr: HashSet<IpAddress>, // TODO: use ManagedMap
 }
 
 enum Packet<'a> {
@@ -50,16 +50,22 @@ enum Packet<'a> {
 }
 
 /// Map IPv4 multicast address into an ethernet addres
-pub fn ip_multicast_to_mac(ip_addr: Ipv4Address) -> Option<EthernetAddress> {
+pub fn ip_multicast_to_mac(ip_addr: IpAddress) -> Option<EthernetAddress> {
     if !ip_addr.is_multicast() {
         return None;
     } else {
-        let mut hw_addr = EthernetAddress::MULTICAST_PREFIX;
-        // first three octets are fixed
-    hw_addr[3] = ip_addr.as_bytes()[1] & 0x7f; // 4th octet, first zero fixed
-    hw_addr[4] = ip_addr.as_bytes()[2]; // 5th octet
-    hw_addr[5] = ip_addr.as_bytes()[3]; // last octet
-    return Some(EthernetAddress::from_bytes(&hw_addr));
+    	match ip_addr {
+    		IpAddress::Unspecified => None,
+    		IpAddress::Ipv4(addr)  => {
+    			let mut hw_addr = EthernetAddress::MULTICAST_PREFIX;
+    			// first three octets are fixed
+			    hw_addr[3] = addr.as_bytes()[1] & 0x7f; // 4th octet, first zero fixed
+			    hw_addr[4] = addr.as_bytes()[2]; // 5th octet
+			    hw_addr[5] = addr.as_bytes()[3]; // last octet
+			    Some(EthernetAddress::from_bytes(&hw_addr))
+    		}
+    		IpAddress::__Nonexhaustive => unreachable!(),
+    	}
     }
 }
 
@@ -87,8 +93,8 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         Self::check_ethernet_addr(&ethernet_addr);
         Self::check_ip_addrs(&ip_addrs);
         let eth_mcast_addr = HashSet::new();
-        let ipv4_mcast_addr = HashSet::new();
-        Interface { device, arp_cache, ethernet_addr, ip_addrs, ipv4_gateway, eth_mcast_addr, ipv4_mcast_addr }
+        let ip_mcast_addr = HashSet::new();
+        Interface { device, arp_cache, ethernet_addr, ip_addrs, ipv4_gateway, eth_mcast_addr, ip_mcast_addr }
     }
 
     fn check_ethernet_addr(addr: &EthernetAddress) {
@@ -138,15 +144,16 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
     }
 
     /// Add an address to a list of subscribed multicast addresses
-    pub fn add_mac_multicast_ip_addr(&mut self, key: Ipv4Address) -> bool {
+    pub fn add_mac_multicast_ip_addr(&mut self, key: IpAddress) -> bool {
       // add to the list of IP addresses
-      if self.ipv4_mcast_addr.insert(key) {
-        match ip_multicast_to_mac(key) {
-          Some(addr) => return self.add_mac_multicast_addr(addr),
-          None => return false,
-        }
+      if self.ip_mcast_addr.insert(key) {
+      	match ip_multicast_to_mac(key) {
+      		Some(addr) => self.add_mac_multicast_addr(addr),
+      		None => false,
+      	}
+      } else {
+	      false	
       }
-      false
     }
 
     /// Check whether the interface listens to given destination MAC address.
@@ -156,9 +163,9 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
     }
 
     /// Check whether the interface listens to given destination MAC address.
-    pub fn has_ip_mcast_addr<T: Into<Ipv4Address>>(&self, addr: T) -> bool {
+    pub fn has_ip_mcast_addr<T: Into<IpAddress>>(&self, addr: T) -> bool {
         let addr = addr.into();
-        self.ipv4_mcast_addr.iter().any(|probe| *probe == addr)
+        self.ip_mcast_addr.iter().any(|probe| *probe == addr)
     }
 
 
@@ -258,6 +265,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
     fn socket_egress(&mut self, sockets: &mut SocketSet, timestamp: u64) -> Result<()> {
         let mut caps = self.device.capabilities();
         caps.max_transmission_unit -= EthernetFrame::<&[u8]>::header_len();
+		
 
         // TODO: how to send delayed packets?
         for mut socket in sockets.iter_mut() {
@@ -480,12 +488,16 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
               // General Query
               // how to handle this? We can set a flag somewhere but we can reply with only one
               // packet here, so we just take the last address
-              if !self.ipv4_mcast_addr.is_empty() {
+              if !self.ip_mcast_addr.is_empty() {
                 // not empty, get the last record
                 // Respond
+                let addr = match self.ip_mcast_addr.iter().cloned().next().unwrap() {
+                	IpAddress::Ipv4(addr) => addr,
+                	_ => Ipv4Address::UNSPECIFIED, 
+                };
                 let igmp_reply_repr = IgmpRepr::MembershipReport {
                   // we know we have nonzero length
-                  group_addr: self.ipv4_mcast_addr.iter().cloned().next().unwrap(),
+                  group_addr: addr,
                   version: IgmpReportVersion::Version2,
                 };
                 let ipv4_reply_repr = Ipv4Repr {
@@ -631,6 +643,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
 
     fn dispatch(&mut self, timestamp: u64, packet: Packet) -> Result<()> {
         let checksum_caps = self.device.capabilities().checksum;
+        println!("Dispatching packet");
         match packet {
             Packet::Arp(arp_repr) => {
                 let dst_hardware_addr =
@@ -655,6 +668,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
 
             #[cfg(feature = "protocol-igmp")]
             Packet::Igmp(ipv4_repr, igmp_repr) => {
+            	println!("Dispatching igmp");
                 self.dispatch_ip(timestamp, IpRepr::Ipv4(ipv4_repr), |_ip_repr, payload| {
                     igmp_repr.emit(&mut IgmpPacket::new(payload), &checksum_caps);
                 })
@@ -739,19 +753,34 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
     fn lookup_hardware_addr(&mut self, timestamp: u64,
                             src_addr: &IpAddress, dst_addr: &IpAddress) ->
                            Result<EthernetAddress> {
+                           	
+		if dst_addr.is_multicast() {
+        	println!("Is multicast");
+        	match ip_multicast_to_mac(*dst_addr) {
+        		Some(addr) => return Ok(addr),
+        		None => return Err(Error::Unaddressable), 
+        	};
+        }
+                           	
         let dst_addr = self.route(dst_addr)?;
 
         if let Some(hardware_addr) = self.arp_cache.lookup(&dst_addr) {
+        	println!("Is in cache");
             return Ok(hardware_addr)
         }
 
         if dst_addr.is_broadcast() {
+        	println!("Is broadcast");
             return Ok(EthernetAddress::BROADCAST)
         }
+        
+        
+		
+		println!("Got here");
 
         match (src_addr, dst_addr) {
             (&IpAddress::Ipv4(src_addr), IpAddress::Ipv4(dst_addr)) => {
-                net_debug!("address {} not in ARP cache, sending request",
+                println!("address {} not in ARP cache, sending request",
                            dst_addr);
 
                 let arp_repr = ArpRepr::EthernetIpv4 {
@@ -779,9 +808,10 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
             where F: FnOnce(IpRepr, &mut [u8]) {
         let ip_repr = ip_repr.lower(&self.ip_addrs)?;
         let checksum_caps = self.device.capabilities().checksum;
-
+		println!("Looking up address: ip_repr.dst_addr() = {}, ip_repr.src_addr()={}", ip_repr.dst_addr(), ip_repr.src_addr());
         let dst_hardware_addr =
             self.lookup_hardware_addr(timestamp, &ip_repr.src_addr(), &ip_repr.dst_addr())?;
+        println!("dst_hardware_addr={}",dst_hardware_addr);
 
         self.dispatch_ethernet(timestamp, ip_repr.total_len(), |mut frame| {
             frame.set_dst_addr(dst_hardware_addr);
