@@ -378,7 +378,8 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                     src_addr:    ipv4_repr.dst_addr,
                     dst_addr:    ipv4_repr.src_addr,
                     protocol:    IpProtocol::Icmp,
-                    payload_len: icmp_reply_repr.buffer_len()
+                    payload_len: icmp_reply_repr.buffer_len(),
+                    ttl:         64,
                 };
                 Ok(Packet::Icmpv4(ipv4_reply_repr, icmp_reply_repr))
             }
@@ -403,7 +404,8 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                     src_addr:    ipv4_repr.dst_addr,
                     dst_addr:    ipv4_repr.src_addr,
                     protocol:    IpProtocol::Icmp,
-                    payload_len: icmp_reply_repr.buffer_len()
+                    payload_len: icmp_reply_repr.buffer_len(),
+                    ttl:         64
                 };
                 Ok(Packet::Icmpv4(ipv4_reply_repr, icmp_reply_repr))
             }
@@ -448,7 +450,8 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                     src_addr:    ipv4_repr.dst_addr,
                     dst_addr:    ipv4_repr.src_addr,
                     protocol:    IpProtocol::Icmp,
-                    payload_len: icmpv4_reply_repr.buffer_len()
+                    payload_len: icmpv4_reply_repr.buffer_len(),
+                    ttl:         64,
                 };
                 Ok(Packet::Icmpv4(ipv4_reply_repr, icmpv4_reply_repr))
             },

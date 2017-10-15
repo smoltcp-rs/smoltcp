@@ -266,7 +266,8 @@ pub enum IpRepr {
         src_addr:    Address,
         dst_addr:    Address,
         protocol:    Protocol,
-        payload_len: usize
+        payload_len: usize,
+        ttl:         u8
     },
     Ipv4(Ipv4Repr),
     #[doc(hidden)]
@@ -336,6 +337,15 @@ impl IpRepr {
         }
     }
 
+    /// Return the TTL value.
+    pub fn ttl(&self) -> u8 {
+        match self {
+            &IpRepr::Unspecified { ttl, .. } => ttl,
+            &IpRepr::Ipv4(Ipv4Repr { ttl, .. }) => ttl,
+            &IpRepr::__Nonexhaustive => unreachable!()
+        }
+    }
+
     /// Convert an unspecified representation into a concrete one, or return
     /// `Err(Error::Unaddressable)` if not possible.
     ///
@@ -347,20 +357,20 @@ impl IpRepr {
             &IpRepr::Unspecified {
                 src_addr: Address::Ipv4(src_addr),
                 dst_addr: Address::Ipv4(dst_addr),
-                protocol, payload_len
+                protocol, payload_len, ttl
             } => {
                 Ok(IpRepr::Ipv4(Ipv4Repr {
                     src_addr:    src_addr,
                     dst_addr:    dst_addr,
                     protocol:    protocol,
-                    payload_len: payload_len
+                    payload_len: payload_len, ttl
                 }))
             }
 
             &IpRepr::Unspecified {
                 src_addr: Address::Unspecified,
                 dst_addr: Address::Ipv4(dst_addr),
-                protocol, payload_len
+                protocol, payload_len, ttl
             } => {
                 let mut src_addr = None;
                 for cidr in fallback_src_addrs {
@@ -374,9 +384,7 @@ impl IpRepr {
                 }
                 Ok(IpRepr::Ipv4(Ipv4Repr {
                     src_addr:    src_addr.ok_or(Error::Unaddressable)?,
-                    dst_addr:    dst_addr,
-                    protocol:    protocol,
-                    payload_len: payload_len
+                    dst_addr, protocol, payload_len, ttl
                 }))
             }
 
@@ -534,12 +542,14 @@ mod test {
                 src_addr: IpAddress::Ipv4(ip_addr_a),
                 dst_addr: IpAddress::Ipv4(ip_addr_b),
                 protocol: proto,
-                payload_len
+                ttl:      0x2a,
+                payload_len,
             }.lower(&[]),
             Ok(IpRepr::Ipv4(Ipv4Repr{
                 src_addr: ip_addr_a,
                 dst_addr: ip_addr_b,
                 protocol: proto,
+                ttl:      0x2a,
                 payload_len
             }))
         );
@@ -549,6 +559,7 @@ mod test {
                 src_addr: IpAddress::Unspecified,
                 dst_addr: IpAddress::Ipv4(ip_addr_b),
                 protocol: proto,
+                ttl:      64,
                 payload_len
             }.lower(&[]),
             Err(Error::Unaddressable)
@@ -559,12 +570,14 @@ mod test {
                 src_addr: IpAddress::Unspecified,
                 dst_addr: IpAddress::Ipv4(ip_addr_b),
                 protocol: proto,
+                ttl:      64,
                 payload_len
             }.lower(&[IpCidr::new(IpAddress::Ipv4(ip_addr_a), 24)]),
             Ok(IpRepr::Ipv4(Ipv4Repr{
                 src_addr: ip_addr_a,
                 dst_addr: ip_addr_b,
                 protocol: proto,
+                ttl:      64,
                 payload_len
             }))
         );
@@ -574,12 +587,14 @@ mod test {
                 src_addr: ip_addr_a,
                 dst_addr: ip_addr_b,
                 protocol: proto,
+                ttl:      255,
                 payload_len
             }).lower(&[]),
             Ok(IpRepr::Ipv4(Ipv4Repr{
                 src_addr: ip_addr_a,
                 dst_addr: ip_addr_b,
                 protocol: proto,
+                ttl:      255,
                 payload_len
             }))
         );
@@ -589,6 +604,7 @@ mod test {
                 src_addr: Ipv4Address::UNSPECIFIED,
                 dst_addr: ip_addr_b,
                 protocol: proto,
+                ttl:      255,
                 payload_len
             }).lower(&[]),
             Err(Error::Unaddressable)
@@ -599,12 +615,14 @@ mod test {
                 src_addr: Ipv4Address::UNSPECIFIED,
                 dst_addr: ip_addr_b,
                 protocol: proto,
+                ttl:      64,
                 payload_len
             }).lower(&[IpCidr::new(IpAddress::Ipv4(ip_addr_a), 24)]),
             Ok(IpRepr::Ipv4(Ipv4Repr{
                 src_addr: ip_addr_a,
                 dst_addr: ip_addr_b,
                 protocol: proto,
+                ttl:      64,
                 payload_len
             }))
         );

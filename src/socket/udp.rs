@@ -63,6 +63,8 @@ pub struct UdpSocket<'a, 'b: 'a> {
     endpoint:  IpEndpoint,
     rx_buffer: SocketBuffer<'a, 'b>,
     tx_buffer: SocketBuffer<'a, 'b>,
+    /// The time-to-live (IPv4) or hop limit (IPv6) value used in outgoing packets.
+    ttl:       Option<u8>
 }
 
 impl<'a, 'b> UdpSocket<'a, 'b> {
@@ -74,6 +76,7 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
             endpoint:  IpEndpoint::default(),
             rx_buffer: rx_buffer,
             tx_buffer: tx_buffer,
+            ttl:       None
         })
     }
 
@@ -92,6 +95,33 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     #[inline]
     pub fn endpoint(&self) -> IpEndpoint {
         self.endpoint
+    }
+
+    /// Return the time-to-live (IPv4) or hop limit (IPv6) value used in outgoing packets.
+    ///
+    /// See also the [set_ttl](#method.set_ttl) method
+    pub fn ttl(&self) -> Option<u8> {
+        self.ttl
+    }
+
+    /// Set the time-to-live (IPv4) or hop limit (IPv6) value used in outgoing packets.
+    ///
+    /// A socket without an explicitly set TTL value uses the default [IANA recommended]
+    /// value (`64`).
+    ///
+    /// # Panics
+    ///
+    /// This function panics if a TTL value of `0` is given. See [RFC 1122 § 3.2.1.7].
+    ///
+    /// [IANA recommended]: https://www.iana.org/assignments/ip-parameters/ip-parameters.xhtml
+    /// [RFC 1122 § 3.2.1.7]: https://tools.ietf.org/html/rfc1122#section-3.2.1.7
+    pub fn set_ttl(&mut self, ttl: Option<u8>) {
+        // A host MUST NOT send a datagram with a Time-to-Live (TTL)
+        // value of 0
+        match ttl {
+            Some(0)  => { panic!("A TTL value of 0 is invalid for a sent packet"); },
+            catchall => self.ttl = catchall,
+        }
     }
 
     /// Bind the socket to the given endpoint.
@@ -200,6 +230,7 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
             where F: FnOnce((IpRepr, UdpRepr)) -> Result<()> {
         let handle   = self.handle;
         let endpoint = self.endpoint;
+        let ttl = self.ttl.unwrap_or(64);
         self.tx_buffer.dequeue_one_with(|packet_buf| {
             net_trace!("{}:{}:{}: sending {} octets",
                        handle, endpoint,
@@ -214,7 +245,8 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
                 src_addr:    endpoint.addr,
                 dst_addr:    packet_buf.endpoint.addr,
                 protocol:    IpProtocol::Udp,
-                payload_len: repr.buffer_len()
+                payload_len: repr.buffer_len(),
+                ttl:         ttl,
             };
             emit((ip_repr, repr))
         })
@@ -275,7 +307,8 @@ mod test {
         src_addr: LOCAL_IP,
         dst_addr: REMOTE_IP,
         protocol: IpProtocol::Udp,
-        payload_len: 8 + 6
+        payload_len: 8 + 6,
+        ttl: 64,
     };
     const LOCAL_UDP_REPR: UdpRepr = UdpRepr {
         src_port: LOCAL_PORT,
@@ -337,7 +370,8 @@ mod test {
         src_addr: Ipv4Address([10, 0, 0, 2]),
         dst_addr: Ipv4Address([10, 0, 0, 1]),
         protocol: IpProtocol::Udp,
-        payload_len: 8 + 6
+        payload_len: 8 + 6,
+        ttl: 64
     });
     const REMOTE_UDP_REPR: UdpRepr = UdpRepr {
         src_port: REMOTE_PORT,
@@ -407,7 +441,8 @@ mod test {
             src_addr: Ipv4Address([10, 0, 0, 2]),
             dst_addr: Ipv4Address([10, 0, 0, 10]),
             protocol: IpProtocol::Udp,
-            payload_len: 8 + 6
+            payload_len: 8 + 6,
+            ttl: 64
         });
 
         let mut port_bound_socket = socket(buffer(1), buffer(0));
@@ -417,5 +452,24 @@ mod test {
         let mut ip_bound_socket = socket(buffer(1), buffer(0));
         assert_eq!(ip_bound_socket.bind(LOCAL_END), Ok(()));
         assert!(!ip_bound_socket.accepts(&ip_repr, &REMOTE_UDP_REPR));
+    }
+
+    #[test]
+    fn test_set_ttl() {
+        let mut s = socket(buffer(0), buffer(1));
+        assert_eq!(s.bind(LOCAL_END), Ok(()));
+
+        s.set_ttl(Some(0x2a));
+        assert_eq!(s.send_slice(b"abcdef", REMOTE_END), Ok(()));
+        assert_eq!(s.dispatch(|(ip_repr, _)| {
+            assert_eq!(ip_repr, IpRepr::Unspecified{
+                src_addr: LOCAL_IP,
+                dst_addr: REMOTE_IP,
+                protocol: IpProtocol::Udp,
+                payload_len: 8 + 6,
+                ttl: 0x2a,
+            });
+            Ok(())
+        }), Ok(()));
     }
 }
