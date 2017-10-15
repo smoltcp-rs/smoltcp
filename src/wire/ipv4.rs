@@ -448,7 +448,8 @@ pub struct Repr {
     pub src_addr:    Address,
     pub dst_addr:    Address,
     pub protocol:    Protocol,
-    pub payload_len: usize
+    pub payload_len: usize,
+    pub ttl:         u8
 }
 
 impl Repr {
@@ -474,7 +475,8 @@ impl Repr {
             src_addr:    packet.src_addr(),
             dst_addr:    packet.dst_addr(),
             protocol:    packet.protocol(),
-            payload_len: payload_len
+            payload_len: payload_len,
+            ttl:         packet.ttl()
         })
     }
 
@@ -497,7 +499,7 @@ impl Repr {
         packet.set_more_frags(false);
         packet.set_dont_frag(true);
         packet.set_frag_offset(0);
-        packet.set_ttl(64);
+        packet.set_ttl(self.ttl);
         packet.set_protocol(self.protocol);
         packet.set_src_addr(self.src_addr);
         packet.set_dst_addr(self.dst_addr);
@@ -722,7 +724,8 @@ mod test {
             src_addr:    Address([0x11, 0x12, 0x13, 0x14]),
             dst_addr:    Address([0x21, 0x22, 0x23, 0x24]),
             protocol:    Protocol::Icmp,
-            payload_len: 4
+            payload_len: 4,
+            ttl:         64
         }
     }
 
@@ -731,6 +734,17 @@ mod test {
         let packet = Packet::new(&REPR_PACKET_BYTES[..]);
         let repr = Repr::parse(&packet, &ChecksumCapabilities::default()).unwrap();
         assert_eq!(repr, packet_repr());
+    }
+
+    #[test]
+    fn test_parse_bad_version() {
+        let mut bytes = vec![0; 24];
+        bytes.copy_from_slice(&REPR_PACKET_BYTES[..]);
+        let mut packet = Packet::new(&mut bytes);
+        packet.set_version(6);
+        packet.fill_checksum();
+        let packet = Packet::new(&*packet.into_inner());
+        assert_eq!(Repr::parse(&packet, &ChecksumCapabilities::default()), Err(Error::Malformed));
     }
 
     #[test]

@@ -52,7 +52,8 @@ let repr = Ipv4Repr {
     src_addr:    Ipv4Address::new(10, 0, 0, 1),
     dst_addr:    Ipv4Address::new(10, 0, 0, 2),
     protocol:    IpProtocol::Tcp,
-    payload_len: 10
+    payload_len: 10,
+    ttl:         64
 };
 let mut buffer = vec![0; repr.buffer_len() + repr.payload_len];
 { // emission

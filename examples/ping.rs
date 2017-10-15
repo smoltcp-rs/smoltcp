@@ -94,6 +94,7 @@ fn main() {
                     dst_addr: remote_addr,
                     protocol: IpProtocol::Icmp,
                     payload_len: icmp_repr.buffer_len(),
+                    ttl: 64
                 };
 
                 let raw_payload = socket
