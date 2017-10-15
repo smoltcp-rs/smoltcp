@@ -20,7 +20,7 @@ mod log {
     }
 
     macro_rules! net_log {
-        ($level:ident, $($arg:expr),*) => { $( let _ = $arg );* }
+        ($level:ident, $($arg:expr),*) => { $( let _ = $arg; )* }
     }
 }
 
