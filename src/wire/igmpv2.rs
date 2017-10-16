@@ -10,13 +10,12 @@
 ///   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 ///
 
-use core::{cmp, fmt};
+use core::fmt;
 use byteorder::{ByteOrder, NetworkEndian};
 
 use {Error, Result};
 use phy::ChecksumCapabilities;
 use super::ip::checksum;
-use super::{Ipv4Packet, Ipv4Repr};
 
 use wire::Ipv4Address;
 
@@ -258,7 +257,7 @@ impl Repr {
     }
 
     /// Emit a high-level representation into an Internet Group Management Protocol v2 packet.
-    pub fn emit<T>(&self, packet: &mut Packet<&mut T>, checksum_caps: &ChecksumCapabilities)
+    pub fn emit<T>(&self, packet: &mut Packet<&mut T>)
         where T: AsRef<[u8]> + AsMut<[u8]> + ?Sized
     {
         match self {

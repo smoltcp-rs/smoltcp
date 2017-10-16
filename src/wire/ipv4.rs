@@ -497,7 +497,7 @@ impl Repr {
         packet.set_more_frags(false);
         packet.set_dont_frag(true);
         packet.set_frag_offset(0);
-        packet.set_ttl(64);
+        packet.set_ttl(64); // NOTE: this has to be configurable depending on the type of payload
         packet.set_protocol(self.protocol);
         packet.set_src_addr(self.src_addr);
         packet.set_dst_addr(self.dst_addr);

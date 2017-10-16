@@ -56,7 +56,7 @@ impl Device for RawSocket {
             buffer.resize(size, 0);
             Ok(buffer)
           },
-          Err(e) => {
+          Err(_) => {
             Err(Error::IOError)
           }
         }

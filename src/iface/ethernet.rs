@@ -11,7 +11,7 @@ use wire::{IpAddress, IpProtocol, IpRepr, IpCidr};
 use wire::{ArpPacket, ArpRepr, ArpOperation};
 use wire::{Ipv4Packet, Ipv4Repr};
 use wire::{Icmpv4Packet, Icmpv4Repr, Icmpv4DstUnreachable};
-#[cfg(feature = "protocol-igmp")] use wire::{IgmpPacket, IgmpRepr, IgmpReportVersion};
+use wire::{IgmpPacket, IgmpRepr, IgmpReportVersion};
 #[cfg(feature = "socket-udp")] use wire::{UdpPacket, UdpRepr};
 #[cfg(feature = "socket-tcp")] use wire::{TcpPacket, TcpRepr, TcpControl};
 use socket::{Socket, SocketSet, AnySocket};
@@ -31,15 +31,14 @@ pub struct Interface<'a, 'b, 'c, DeviceT: Device + 'a> {
     ethernet_addr:  EthernetAddress,
     ip_addrs:       ManagedSlice<'c, IpCidr>,
     ipv4_gateway:   Option<Ipv4Address>,
-    eth_mcast_addr: HashSet<EthernetAddress>, // TODO: use ManagedMap
-    ip_mcast_addr: HashSet<IpAddress>, // TODO: use ManagedMap
+    eth_mcast_addr: HashSet<EthernetAddress>, // TODO: use Managed
+    ip_mcast_addr: HashSet<IpAddress>, // TODO: use Managed
 }
 
 enum Packet<'a> {
     None,
     Arp(ArpRepr),
     Icmpv4(Ipv4Repr, Icmpv4Repr<'a>),
-    #[cfg(feature = "protocol-igmp")]
     Igmp(Ipv4Repr, IgmpRepr),
     #[cfg(feature = "socket-raw")]
     Raw((IpRepr, &'a [u8])),
@@ -49,23 +48,25 @@ enum Packet<'a> {
     Tcp((IpRepr, TcpRepr<'a>))
 }
 
+
+
 /// Map IPv4 multicast address into an ethernet addres
 pub fn ip_multicast_to_mac(ip_addr: IpAddress) -> Option<EthernetAddress> {
     if !ip_addr.is_multicast() {
         return None;
     } else {
-    	match ip_addr {
-    		IpAddress::Unspecified => None,
-    		IpAddress::Ipv4(addr)  => {
-    			let mut hw_addr = EthernetAddress::MULTICAST_PREFIX;
-    			// first three octets are fixed
-			    hw_addr[3] = addr.as_bytes()[1] & 0x7f; // 4th octet, first zero fixed
-			    hw_addr[4] = addr.as_bytes()[2]; // 5th octet
-			    hw_addr[5] = addr.as_bytes()[3]; // last octet
-			    Some(EthernetAddress::from_bytes(&hw_addr))
-    		}
-    		IpAddress::__Nonexhaustive => unreachable!(),
-    	}
+         match ip_addr {
+            IpAddress::Unspecified => None,
+            IpAddress::Ipv4(addr)  => {
+                let mut hw_addr = EthernetAddress::MULTICAST_PREFIX;
+                // first three octets are fixed
+                hw_addr[3] = addr.as_bytes()[1] & 0x7f; // 4th octet, first zero fixed
+                hw_addr[4] = addr.as_bytes()[2]; // 5th octet
+                hw_addr[5] = addr.as_bytes()[3]; // last octet
+                Some(EthernetAddress::from_bytes(&hw_addr))
+            }
+            IpAddress::__Nonexhaustive => unreachable!(),
+        }
     }
 }
 
@@ -92,10 +93,16 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
 
         Self::check_ethernet_addr(&ethernet_addr);
         Self::check_ip_addrs(&ip_addrs);
+
+        // initialize the default multicast addresses
         let eth_mcast_addr = HashSet::new();
         let ip_mcast_addr = HashSet::new();
-        Interface { device, arp_cache, ethernet_addr, ip_addrs, ipv4_gateway, eth_mcast_addr, ip_mcast_addr }
-    }
+
+        let mut iface = Interface { device, arp_cache, ethernet_addr, ip_addrs, ipv4_gateway, eth_mcast_addr, ip_mcast_addr };
+        iface.add_mac_multicast_ip_addr(IpAddress::Ipv4(Ipv4Address::new(224, 0, 0, 1))); // all host group
+        iface.add_mac_multicast_ip_addr(IpAddress::Ipv4(Ipv4Address::new(224, 0, 0, 2))); // all router group
+        iface
+   }
 
     fn check_ethernet_addr(addr: &EthernetAddress) {
         if addr.is_multicast() {
@@ -125,7 +132,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         }
     }
 
-    /// Remove given address from a list of subscribed multicast addresses
+    /// Remove given address from a list of subscribed multicast MAC addresses
     pub fn remove_mac_multicast_addr(&mut self, key: EthernetAddress) -> bool {
       if key.is_multicast() {
         self.eth_mcast_addr.remove(&key)
@@ -134,7 +141,20 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
       }
     }
 
-    /// Add an address to a list of subscribed multicast addresses
+    /// Remove given address from a list of subscribed multicast IP and MAC addresses
+    pub fn remove_mac_multicast_ip_addr(&mut self, key: IpAddress) -> bool {
+      if self.ip_mcast_addr.remove(&key) {
+          match ip_multicast_to_mac(key) {
+              Some(addr) => self.remove_mac_multicast_addr(addr),
+              None => false,
+          }
+      } else {
+          false
+      }
+    }
+
+
+    /// Add an address to a list of subscribed multicast MAC addresses
     pub fn add_mac_multicast_addr(&mut self, key: EthernetAddress) -> bool {
       if key.is_multicast() {
           self.eth_mcast_addr.insert(key)
@@ -143,16 +163,15 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
       }
     }
 
-    /// Add an address to a list of subscribed multicast addresses
+    /// Add an address to a list of subscribed multicast IP addresses
     pub fn add_mac_multicast_ip_addr(&mut self, key: IpAddress) -> bool {
-      // add to the list of IP addresses
       if self.ip_mcast_addr.insert(key) {
-      	match ip_multicast_to_mac(key) {
-      		Some(addr) => self.add_mac_multicast_addr(addr),
-      		None => false,
-      	}
+          match ip_multicast_to_mac(key) {
+              Some(addr) => self.add_mac_multicast_addr(addr),
+              None => false,
+          }
       } else {
-	      false	
+          false
       }
     }
 
@@ -265,9 +284,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
     fn socket_egress(&mut self, sockets: &mut SocketSet, timestamp: u64) -> Result<()> {
         let mut caps = self.device.capabilities();
         caps.max_transmission_unit -= EthernetFrame::<&[u8]>::header_len();
-		
 
-        // TODO: how to send delayed packets?
         for mut socket in sockets.iter_mut() {
             let mut device_result = Ok(());
             let socket_result =
@@ -390,6 +407,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         let checksum_caps = self.device.capabilities().checksum;
         let ipv4_repr = Ipv4Repr::parse(&ipv4_packet, &checksum_caps)?;
 
+        //TODO: verify that IGMP queries sent from the router have unicast source address
         if !ipv4_repr.src_addr.is_unicast() {
             // Discard packets with non-unicast source addresses.
             net_debug!("non-unicast source in {}", ipv4_repr);
@@ -432,7 +450,6 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
             IpProtocol::Icmp =>
                 self.process_icmpv4(ipv4_repr, ip_payload),
 
-            #[cfg(feature = "protocol-igmp")]
             IpProtocol::Igmp =>
                 self.process_igmp(ipv4_repr, ip_payload),
 
@@ -466,75 +483,91 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
     }
 
 
-    #[cfg(feature = "protocol-igmp")]
+    /// We are implementing host duties of IGMPv2 protocol, and we are not worried about routing
+    /// i.e. we can ignore Membership and Leave Group reports and asnwer only Membership Query messages
+    ///
+    /// For group specific query the destination address of the IP packet as well as the group address has to be
+    /// set to the IP address of the group being queried (otherwise we drop the packet)
+    /// The max response time determines when we send the response - it is in `0..max_resp_time` [ms].
+    /// TODO: we have to handle this properly, for now just respond immediately
+    ///
+    /// For general query, the group IP address is set to zero and the destination IP address is 224.0.0.1
+    /// The max response time determines when we send the response *for each group* - it is in `0..max_resp_time` [ms].
+    /// TODO: we have to handle this properly
+    /// Note that we are required to report even groups that we haven't been subscribed to from the upper layers, but are
+    /// part of the standard protocols (such as 224.0.0.251 for DNS).
+    ///
+    /// Leaving and joining a group:
+    /// this is done by manipulating `ip_mcast_addr` field - the higher layers should use `remove_mac_multicast_ip_addr` and
+    /// `add_mac_multicast_ip_addr` (similar to Linux `mreq` struct and correcponding `sockopts`)
+    ///
     fn process_igmp<'frame>(&self, ipv4_repr: Ipv4Repr, ip_payload: &'frame [u8]) ->
                              Result<Packet<'frame>> {
         let igmp_packet = IgmpPacket::new_checked(ip_payload)?;
         let checksum_caps = self.device.capabilities().checksum;
-        let igmp_repr = IgmpRepr::parse(&igmp_packet, &checksum_caps)?; // errors if illegal packet
+        let igmp_repr = IgmpRepr::parse(&igmp_packet, &checksum_caps)?;
 
-        println!("igmp_packet: {}", igmp_packet);
-        println!("igmp_repr: {}", igmp_repr);
         // for now - reply immediately
         match igmp_repr {
-            IgmpRepr::MembershipQuery { max_resp_time, group_addr } => {
-            //
-            // see what query it is
-            // if GENERAL then set timer and prepare response
-            // if SPECIFIC then check which group is it for
-            // if our group then set a timer and prepare a report to send
-            //
-            if group_addr.is_unspecified() {
-              // General Query
-              // how to handle this? We can set a flag somewhere but we can reply with only one
-              // packet here, so we just take the last address
-              if !self.ip_mcast_addr.is_empty() {
-                // not empty, get the last record
-                // Respond
-                let addr = match self.ip_mcast_addr.iter().cloned().next().unwrap() {
-                	IpAddress::Ipv4(addr) => addr,
-                	_ => Ipv4Address::UNSPECIFIED, 
-                };
-                let igmp_reply_repr = IgmpRepr::MembershipReport {
-                  // we know we have nonzero length
-                  group_addr: addr,
-                  version: IgmpReportVersion::Version2,
-                };
-                let ipv4_reply_repr = Ipv4Repr {
-                      src_addr:    ipv4_repr.dst_addr,
-                      dst_addr:    ipv4_repr.src_addr,
-                      protocol:    IpProtocol::Igmp,
-                      payload_len: igmp_reply_repr.buffer_len(),
-                  };
-                return Ok(Packet::Igmp(ipv4_reply_repr, igmp_reply_repr));
-              }
-            } else {
-              // Group Specifif query
-              if self.has_ip_mcast_addr(group_addr) {
-                // Respond
-                let igmp_reply_repr = IgmpRepr::MembershipReport {
-                  group_addr: group_addr,
-                  version: IgmpReportVersion::Version2,
-                };
-                let ipv4_reply_repr = Ipv4Repr {
-                      src_addr:    ipv4_repr.dst_addr,
-                      dst_addr:    ipv4_repr.src_addr,
-                      protocol:    IpProtocol::Igmp,
-                      payload_len: igmp_reply_repr.buffer_len(),
-                  };
-                return Ok(Packet::Igmp(ipv4_reply_repr, igmp_reply_repr));
-              }
-            }
-            Ok(Packet::None)
-          },
-          // Ignore membershiup reports
-          IgmpRepr::MembershipReport { .. } => {
-              Ok(Packet::None)
-          },
-          // Ignore hosts leavinng groups
-          IgmpRepr::LeaveGroup{ .. } => {
-              Ok(Packet::None)
-          },
+            // TODO: max_resp_time not taken in account yet, respond immediately
+            IgmpRepr::MembershipQuery { group_addr, .. } => {
+                // General Query
+                if group_addr.is_unspecified() && (ipv4_repr.dst_addr == Ipv4Address::new(224,0,0,1))  {
+                    // are we a member of any group?
+                    if !self.ip_mcast_addr.is_empty() {
+                        // respond
+                        let addr = match self.ip_mcast_addr.iter().cloned().next().unwrap() {
+                              IpAddress::Ipv4(addr) => addr,
+                              _ => Ipv4Address::UNSPECIFIED,
+                        };
+                        let igmp_reply_repr = IgmpRepr::MembershipReport {
+                            group_addr: addr,
+                            version: IgmpReportVersion::Version2,
+                        };
+                        if let IpAddress::Ipv4(iface_addr) = self.ip_addrs[0].address() {
+                            let ipv4_reply_repr = Ipv4Repr {
+                                src_addr:    iface_addr,
+                                dst_addr:    ipv4_repr.src_addr, // keep the destination address
+                                protocol:    IpProtocol::Igmp,
+                                payload_len: igmp_reply_repr.buffer_len(),
+                            };
+                            return Ok(Packet::Igmp(ipv4_reply_repr, igmp_reply_repr));
+                        } else {
+                            // errpr getting the interface address, return none
+                            return Ok(Packet::None);
+                        }
+                    }
+                } else { // Group Specifif query
+                    if self.has_ip_mcast_addr(group_addr) && (ipv4_repr.dst_addr == group_addr) {
+                        // Respond
+                        let igmp_reply_repr = IgmpRepr::MembershipReport {
+                            group_addr: group_addr,
+                            version: IgmpReportVersion::Version2,
+                        };
+                        if let IpAddress::Ipv4(iface_addr) = self.ip_addrs[0].address() {
+                            let ipv4_reply_repr = Ipv4Repr {
+                                src_addr:    iface_addr,
+                                dst_addr:    group_addr,
+                                protocol:    IpProtocol::Igmp,
+                                payload_len: igmp_reply_repr.buffer_len(),
+                            };
+                            return Ok(Packet::Igmp(ipv4_reply_repr, igmp_reply_repr));
+                        } else {
+                            // errpr getting the interface address, return none
+                            return Ok(Packet::None);
+                        }
+                    }
+                }
+                Ok(Packet::None)
+            },
+            // Ignore membershiup reports
+            IgmpRepr::MembershipReport { .. } => {
+                Ok(Packet::None)
+            },
+            // Ignore hosts leavinng groups
+            IgmpRepr::LeaveGroup{ .. } => {
+                Ok(Packet::None)
+            },
         }
     }
 
@@ -643,7 +676,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
 
     fn dispatch(&mut self, timestamp: u64, packet: Packet) -> Result<()> {
         let checksum_caps = self.device.capabilities().checksum;
-        println!("Dispatching packet");
+
         match packet {
             Packet::Arp(arp_repr) => {
                 let dst_hardware_addr =
@@ -665,15 +698,11 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                     icmpv4_repr.emit(&mut Icmpv4Packet::new(payload), &checksum_caps);
                 })
             }
-
-            #[cfg(feature = "protocol-igmp")]
             Packet::Igmp(ipv4_repr, igmp_repr) => {
-            	println!("Dispatching igmp");
                 self.dispatch_ip(timestamp, IpRepr::Ipv4(ipv4_repr), |_ip_repr, payload| {
-                    igmp_repr.emit(&mut IgmpPacket::new(payload), &checksum_caps);
+                    igmp_repr.emit(&mut IgmpPacket::new(payload));
                 })
             }
-
             #[cfg(feature = "socket-raw")]
             Packet::Raw((ip_repr, raw_packet)) => {
                 self.dispatch_ip(timestamp, ip_repr, |_ip_repr, payload| {
@@ -753,35 +782,24 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
     fn lookup_hardware_addr(&mut self, timestamp: u64,
                             src_addr: &IpAddress, dst_addr: &IpAddress) ->
                            Result<EthernetAddress> {
-                           	
-		if dst_addr.is_multicast() {
-        	println!("Is multicast");
-        	match ip_multicast_to_mac(*dst_addr) {
-        		Some(addr) => return Ok(addr),
-        		None => return Err(Error::Unaddressable), 
-        	};
+        if dst_addr.is_multicast() {
+            match ip_multicast_to_mac(*dst_addr) {
+                Some(addr) => return Ok(addr),
+                None => return Err(Error::Unaddressable),
+            };
         }
-                           	
         let dst_addr = self.route(dst_addr)?;
 
         if let Some(hardware_addr) = self.arp_cache.lookup(&dst_addr) {
-        	println!("Is in cache");
             return Ok(hardware_addr)
         }
 
         if dst_addr.is_broadcast() {
-        	println!("Is broadcast");
             return Ok(EthernetAddress::BROADCAST)
         }
         
-        
-		
-		println!("Got here");
-
         match (src_addr, dst_addr) {
             (&IpAddress::Ipv4(src_addr), IpAddress::Ipv4(dst_addr)) => {
-                println!("address {} not in ARP cache, sending request",
-                           dst_addr);
 
                 let arp_repr = ArpRepr::EthernetIpv4 {
                     operation: ArpOperation::Request,
@@ -808,10 +826,8 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
             where F: FnOnce(IpRepr, &mut [u8]) {
         let ip_repr = ip_repr.lower(&self.ip_addrs)?;
         let checksum_caps = self.device.capabilities().checksum;
-		println!("Looking up address: ip_repr.dst_addr() = {}, ip_repr.src_addr()={}", ip_repr.dst_addr(), ip_repr.src_addr());
         let dst_hardware_addr =
             self.lookup_hardware_addr(timestamp, &ip_repr.src_addr(), &ip_repr.dst_addr())?;
-        println!("dst_hardware_addr={}",dst_hardware_addr);
 
         self.dispatch_ethernet(timestamp, ip_repr.total_len(), |mut frame| {
             frame.set_dst_addr(dst_hardware_addr);
