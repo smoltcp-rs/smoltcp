@@ -43,7 +43,7 @@ impl<'a, DR, DT, D, P: PrettyPrint> Device<'a> for Tracer<D, P>
         inner.receive().map(|(rx_token, tx_token)| {
             let rx = RxToken { token: rx_token, writer: writer };
             let tx = TxToken { token: tx_token, writer: writer };
-            (rx, tx) // TODO is copying `writer` desired?
+            (rx, tx)
         })
     }
 
