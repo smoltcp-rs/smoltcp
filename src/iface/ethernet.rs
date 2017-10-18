@@ -152,7 +152,7 @@ impl<'a, 'b, 'c, DeviceT: for<'d> Device<'d> + 'a> Interface<'a, 'b, 'c, DeviceT
     fn socket_ingress(&mut self, sockets: &mut SocketSet, timestamp: u64) -> Result<bool> {
         let mut processed_any = false;
         loop {
-            let &mut Self {ref mut device, ref mut inner} = self;
+            let &mut Self { ref mut device, ref mut inner } = self;
             let (rx_token, tx_token) = match device.receive() {
                 None => break,
                 Some(tokens) => tokens,
@@ -190,7 +190,7 @@ impl<'a, 'b, 'c, DeviceT: for<'d> Device<'d> + 'a> Interface<'a, 'b, 'c, DeviceT
 
         for mut socket in sockets.iter_mut() {
             let mut device_result = Ok(());
-            let &mut Self {ref mut device, ref mut inner} = self;
+            let &mut Self { ref mut device, ref mut inner } = self;
             let socket_result =
                 match *socket {
                     #[cfg(feature = "proto-raw")]

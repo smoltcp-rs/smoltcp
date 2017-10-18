@@ -39,7 +39,7 @@ impl<'a, DR, DT, D, P: PrettyPrint> Device<'a> for Tracer<D, P>
     fn capabilities(&self) -> DeviceCapabilities { self.inner.capabilities() }
 
     fn receive(&'a mut self) -> Option<(Self::RxToken, Self::TxToken)> {
-        let &mut Self {ref mut inner, writer, ..} = self;
+        let &mut Self { ref mut inner, writer, .. } = self;
         inner.receive().map(|(rx_token, tx_token)| {
             let rx = RxToken { token: rx_token, writer: writer };
             let tx = TxToken { token: tx_token, writer: writer };
@@ -62,7 +62,7 @@ pub struct RxToken<T: phy::RxToken, P: PrettyPrint> {
 
 impl<T: phy::RxToken, P: PrettyPrint> phy::RxToken for RxToken<T, P> {
     fn consume<R, F: FnOnce(&[u8]) -> Result<R>>(self, timestamp: u64, f: F) -> Result<R> {
-        let Self {token, writer} = self;
+        let Self { token, writer } = self;
         token.consume(timestamp, |buffer| {
             writer(timestamp, PrettyPrinter::<P>::new("<- ", &buffer));
             f(buffer)
@@ -78,7 +78,7 @@ pub struct TxToken<T: phy::TxToken, P: PrettyPrint> {
 
 impl<T: phy::TxToken, P: PrettyPrint> phy::TxToken for TxToken<T, P> {
     fn consume<R, F: FnOnce(&mut [u8]) -> R>(self, timestamp: u64, len: usize, f: F) -> R {
-        let Self {token, writer} = self;
+        let Self { token, writer } = self;
         token.consume(timestamp, len, |buffer| {
             let result = f(buffer);
             writer(timestamp, PrettyPrinter::<P>::new("-> ", &buffer));

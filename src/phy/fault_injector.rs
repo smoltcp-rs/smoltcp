@@ -249,7 +249,7 @@ impl<T: phy::RxToken> phy::RxToken for RxToken<T> {
             net_trace!("rx: dropping a packet because of rate limiting");
             return Err(Error::Exhausted)
         }
-        let Self {token, config, mut state, mut corrupt_buffer} = self;
+        let Self { token, config, mut state, mut corrupt_buffer } = self;
         token.consume(timestamp, |buffer| {
             if config.max_size > 0 && buffer.as_ref().len() > config.max_size {
                 net_trace!("rx: dropping a packet that is too large");
@@ -295,7 +295,7 @@ impl<T: phy::TxToken> phy::TxToken for TxToken<T> {
             return f(&mut self.junk);
         }
 
-        let Self {token, mut state, config, ..} = self;
+        let Self { token, mut state, config, .. } = self;
         token.consume(timestamp, len, |mut buf| {
             if state.maybe(config.corrupt_pct) {
                 net_trace!("tx: corrupting a packet");

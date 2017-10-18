@@ -40,8 +40,8 @@ impl<'a> Device<'a> for Loopback {
 
     fn receive(&'a mut self) -> Option<(Self::RxToken, Self::TxToken)> {
         self.queue.pop_front().map(move |buffer| {
-            let rx = RxToken {buffer: buffer};
-            let tx = TxToken {queue: &mut self.queue};
+            let rx = RxToken { buffer: buffer };
+            let tx = TxToken { queue: &mut self.queue };
             (rx, tx)
         })
     }

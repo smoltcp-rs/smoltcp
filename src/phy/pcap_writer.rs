@@ -140,18 +140,18 @@ impl<'a, DR, DT, D, S: PcapSink + Clone> Device<'a> for PcapWriter<D, S>
     fn capabilities(&self) -> DeviceCapabilities { self.lower.capabilities() }
 
     fn receive(&'a mut self) -> Option<(Self::RxToken, Self::TxToken)> {
-        let &mut Self {ref mut lower, ref sink, mode, ..} = self;
+        let &mut Self { ref mut lower, ref sink, mode, .. } = self;
         lower.receive().map(|(rx_token, tx_token)| {
-            let rx = RxToken {token: rx_token, sink: sink.clone(), mode: mode };
-            let tx = TxToken {token: tx_token, sink: sink.clone(), mode: mode };
+            let rx = RxToken { token: rx_token, sink: sink.clone(), mode: mode };
+            let tx = TxToken { token: tx_token, sink: sink.clone(), mode: mode };
             (rx, tx)
         })
     }
 
     fn transmit(&'a mut self) -> Option<Self::TxToken> {
-        let &mut Self {ref mut lower, ref sink, mode} = self;
+        let &mut Self { ref mut lower, ref sink, mode } = self;
         lower.transmit().map(|token| {
-            TxToken {token, sink: sink.clone(), mode: mode}
+            TxToken { token, sink: sink.clone(), mode: mode }
         })
     }
 }
@@ -165,7 +165,7 @@ pub struct RxToken<T: phy::RxToken, S: PcapSink> {
 
 impl<T: phy::RxToken, S: PcapSink> phy::RxToken for RxToken<T, S> {
     fn consume<R, F: FnOnce(&[u8]) -> Result<R>>(self, timestamp: u64, f: F) -> Result<R> {
-        let Self {token, sink, mode} = self;
+        let Self { token, sink, mode } = self;
         token.consume(timestamp, |buffer| {
             match mode {
                 PcapMode::Both | PcapMode::RxOnly =>
@@ -186,7 +186,7 @@ pub struct TxToken<T: phy::TxToken, S: PcapSink> {
 
 impl<T: phy::TxToken, S: PcapSink> phy::TxToken for TxToken<T, S> {
     fn consume<R, F: FnOnce(&mut [u8]) -> R>(self, timestamp: u64, len: usize, f: F) -> R {
-        let Self {token, sink, mode} = self;
+        let Self { token, sink, mode } = self;
         token.consume(timestamp, len, |buffer| {
             match mode {
                 PcapMode::Both | PcapMode::TxOnly =>
