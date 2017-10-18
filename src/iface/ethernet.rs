@@ -30,6 +30,13 @@ pub struct Interface<'a, 'b, 'c, DeviceT: for<'d> Device<'d> + 'a> {
     inner:  InterfaceInner<'b, 'c>,
 }
 
+/// The device independent part of an Ethernet network interface.
+///
+/// Separating the device from the data required for prorcessing and dispatching makes
+/// it possible to borrow them independently. For example, the tx and rx tokens borrow
+/// the `device` mutably until they're used, which makes it impossible to call other
+/// methods on the `Interface` in this time (since its `device` field is borrowed
+/// exclusively). However, it is still possible to call methods on its `inner` field.
 struct InterfaceInner<'b, 'c> {
     arp_cache:              Managed<'b, ArpCache>,
     ethernet_addr:          EthernetAddress,
