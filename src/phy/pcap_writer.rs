@@ -188,12 +188,13 @@ impl<T: phy::TxToken, S: PcapSink> phy::TxToken for TxToken<T, S> {
     fn consume<R, F: FnOnce(&mut [u8]) -> R>(self, timestamp: u64, len: usize, f: F) -> R {
         let Self { token, sink, mode } = self;
         token.consume(timestamp, len, |buffer| {
+            let ret = f(buffer);
             match mode {
                 PcapMode::Both | PcapMode::TxOnly =>
                     sink.packet(timestamp, &buffer),
                 PcapMode::RxOnly => ()
             };
-            f(buffer)
+            ret
         })
     }
 }
