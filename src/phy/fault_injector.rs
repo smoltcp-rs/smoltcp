@@ -1,3 +1,4 @@
+use core::cell::RefCell;
 use {Error, Result};
 use super::{DeviceCapabilities, Device};
 use phy;
@@ -27,7 +28,7 @@ struct Config {
     interval:    u64,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct State {
     rng_seed:    u32,
     refilled_at: u64,
@@ -89,7 +90,7 @@ impl State {
 #[derive(Debug)]
 pub struct FaultInjector<D: for<'a> Device<'a>> {
     inner:      D,
-    state:      State,
+    state:      RefCell<State>,
     config:     Config,
 }
 
@@ -104,7 +105,7 @@ impl<D: for<'a> Device<'a>> FaultInjector<D> {
         };
         FaultInjector {
             inner: inner,
-            state: state,
+            state: RefCell::new(state),
             config: Config::default(),
         }
     }
@@ -179,7 +180,7 @@ impl<D: for<'a> Device<'a>> FaultInjector<D> {
 
     /// Set the interval for packet rate limiting, in milliseconds.
     pub fn set_bucket_interval(&mut self, interval: u64) {
-        self.state.refilled_at = 0;
+        self.state.borrow_mut().refilled_at = 0;
         self.config.interval = interval
     }
 }
@@ -189,8 +190,8 @@ impl<'a, DR, DT, D> Device<'a> for FaultInjector<D>
           DR: phy::RxToken,
           DT: phy::TxToken,
 {
-    type RxToken = RxToken<DR>;
-    type TxToken = TxToken<DT>;
+    type RxToken = RxToken<'a, DR>;
+    type TxToken = TxToken<'a, DT>;
 
     fn capabilities(&self) -> DeviceCapabilities {
         let mut caps = self.inner.capabilities();
@@ -200,19 +201,16 @@ impl<'a, DR, DT, D> Device<'a> for FaultInjector<D>
         caps
     }
 
-    // TODO clone state on each transmit/receive?
-    // use refcell/mutex alternatively?
-
     fn receive(&'a mut self) -> Option<(Self::RxToken, Self::TxToken)> {
-        self.inner.receive().map(|(rx_token, tx_token)| {
+        self.inner.receive().map(move |(rx_token, tx_token)| {
             let rx = RxToken {
-                state:          self.state.clone(),
+                state:          &self.state,
                 config:         self.config,
                 token:          rx_token,
                 corrupt_buffer: [0; MTU],
             };
             let tx = TxToken {
-                state:  self.state.clone(),
+                state:  &self.state,
                 config: self.config,
                 token:  tx_token,
                 junk:   [0; MTU],
@@ -221,9 +219,9 @@ impl<'a, DR, DT, D> Device<'a> for FaultInjector<D>
         })
     }
 
-    fn transmit(&mut self) -> Option<Self::TxToken> {
-        self.inner.transmit().map(|token| TxToken {
-            state:  self.state.clone(),
+    fn transmit(&'a mut self) -> Option<Self::TxToken> {
+        self.inner.transmit().map(move |token| TxToken {
+            state:  &self.state,
             config: self.config,
             token: token,
             junk:   [0; MTU],
@@ -232,34 +230,34 @@ impl<'a, DR, DT, D> Device<'a> for FaultInjector<D>
 }
 
 #[doc(hidden)]
-pub struct RxToken<T: phy::RxToken> {
-    state:          State,
+pub struct RxToken<'a, T: phy::RxToken> {
+    state:          &'a RefCell<State>,
     config:         Config,
     token:          T,
     corrupt_buffer: [u8; MTU],
 }
 
-impl<T: phy::RxToken> phy::RxToken for RxToken<T> {
-    fn consume<R, F: FnOnce(&[u8]) -> Result<R>>(mut self, timestamp: u64, f: F) -> Result<R> {
-        if self.state.maybe(self.config.drop_pct) {
+impl<'a, T: phy::RxToken> phy::RxToken for RxToken<'a, T> {
+    fn consume<R, F: FnOnce(&[u8]) -> Result<R>>(self, timestamp: u64, f: F) -> Result<R> {
+        if self.state.borrow_mut().maybe(self.config.drop_pct) {
             net_trace!("rx: randomly dropping a packet");
             return Err(Error::Exhausted)
         }
-        if !self.state.maybe_receive(&self.config, timestamp) {
+        if !self.state.borrow_mut().maybe_receive(&self.config, timestamp) {
             net_trace!("rx: dropping a packet because of rate limiting");
             return Err(Error::Exhausted)
         }
-        let Self { token, config, mut state, mut corrupt_buffer } = self;
+        let Self { token, config, state, mut corrupt_buffer } = self;
         token.consume(timestamp, |buffer| {
             if config.max_size > 0 && buffer.as_ref().len() > config.max_size {
                 net_trace!("rx: dropping a packet that is too large");
                 return Err(Error::Exhausted)
             }
-            if state.maybe(config.corrupt_pct) {
+            if state.borrow_mut().maybe(config.corrupt_pct) {
                 net_trace!("rx: randomly corrupting a packet");
                 let mut corrupt_buffer = &mut corrupt_buffer[..buffer.len()];
                 corrupt_buffer.copy_from_slice(buffer);
-                state.corrupt(&mut corrupt_buffer);
+                state.borrow_mut().corrupt(&mut corrupt_buffer);
                 f(&mut corrupt_buffer)
             } else {
                 f(buffer)
@@ -269,22 +267,22 @@ impl<T: phy::RxToken> phy::RxToken for RxToken<T> {
 }
 
 #[doc(hidden)]
-pub struct TxToken<T: phy::TxToken> {
-    state:  State,
+pub struct TxToken<'a, T: phy::TxToken> {
+    state:  &'a RefCell<State>,
     config: Config,
     token:  T,
     junk:   [u8; MTU],
 }
 
-impl<T: phy::TxToken> phy::TxToken for TxToken<T> {
+impl<'a, T: phy::TxToken> phy::TxToken for TxToken<'a, T> {
     fn consume<R, F: FnOnce(&mut [u8]) -> R>(mut self, timestamp: u64, len: usize, f: F) -> R {
-        let drop = if self.state.maybe(self.config.drop_pct) {
+        let drop = if self.state.borrow_mut().maybe(self.config.drop_pct) {
             net_trace!("tx: randomly dropping a packet");
             true
         } else if self.config.max_size > 0 && len > self.config.max_size {
             net_trace!("tx: dropping a packet that is too large");
             true
-        } else if !self.state.maybe_transmit(&self.config, timestamp) {
+        } else if !self.state.borrow_mut().maybe_transmit(&self.config, timestamp) {
             net_trace!("tx: dropping a packet because of rate limiting");
             true
         } else {
@@ -295,11 +293,11 @@ impl<T: phy::TxToken> phy::TxToken for TxToken<T> {
             return f(&mut self.junk);
         }
 
-        let Self { token, mut state, config, .. } = self;
+        let Self { token, state, config, .. } = self;
         token.consume(timestamp, len, |mut buf| {
-            if state.maybe(config.corrupt_pct) {
+            if state.borrow_mut().maybe(config.corrupt_pct) {
                 net_trace!("tx: corrupting a packet");
-                state.corrupt(&mut buf)
+                state.borrow_mut().corrupt(&mut buf)
             }
             f(buf)
         })
