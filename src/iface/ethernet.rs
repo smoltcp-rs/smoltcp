@@ -75,8 +75,17 @@ impl<'a, 'b, 'c, DeviceT: for<'d> Device<'d> + 'a> Interface<'a, 'b, 'c, DeviceT
                   ProtocolAddrsMT: Into<ManagedSlice<'c, IpCidr>>,
                   Ipv4GatewayAddrT: Into<Option<Ipv4Address>>, {
         let device = device.into();
-        let caps = device.capabilities();
-        let inner = InterfaceInner::new(arp_cache, ethernet_addr, ip_addrs, ipv4_gateway, caps);
+        let ip_addrs = ip_addrs.into();
+        InterfaceInner::check_ethernet_addr(&ethernet_addr);
+        InterfaceInner::check_ip_addrs(&ip_addrs);
+
+        let inner = InterfaceInner {
+            ethernet_addr,
+            ip_addrs,
+            arp_cache: arp_cache.into(),
+            ipv4_gateway: ipv4_gateway.into(),
+            device_capabilities: device.capabilities(),
+        };
 
         Interface { device, inner }
     }
@@ -239,25 +248,6 @@ impl<'a, 'b, 'c, DeviceT: for<'d> Device<'d> + 'a> Interface<'a, 'b, 'c, DeviceT
 }
 
 impl<'b, 'c> InterfaceInner<'b, 'c> {
-    pub fn new<ArpCacheMT, ProtocolAddrsMT, Ipv4GatewayAddrT>
-              (arp_cache: ArpCacheMT,
-               ethernet_addr: EthernetAddress,
-               ip_addrs: ProtocolAddrsMT,
-               ipv4_gateway: Ipv4GatewayAddrT,
-               device_capabilities: DeviceCapabilities) ->
-              InterfaceInner<'b, 'c>
-            where ArpCacheMT: Into<Managed<'b, ArpCache>>,
-                  ProtocolAddrsMT: Into<ManagedSlice<'c, IpCidr>>,
-                  Ipv4GatewayAddrT: Into<Option<Ipv4Address>>, {
-        let arp_cache = arp_cache.into();
-        let ip_addrs = ip_addrs.into();
-        let ipv4_gateway = ipv4_gateway.into();
-
-        Self::check_ethernet_addr(&ethernet_addr);
-        Self::check_ip_addrs(&ip_addrs);
-        InterfaceInner { arp_cache, ethernet_addr, ip_addrs, ipv4_gateway, device_capabilities}
-    }
-
     fn check_ethernet_addr(addr: &EthernetAddress) {
         if addr.is_multicast() {
             panic!("Ethernet address {} is not unicast", addr)
