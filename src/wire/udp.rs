@@ -7,7 +7,7 @@ use super::{IpProtocol, IpAddress};
 use super::ip::checksum;
 
 /// A read/write wrapper around an User Datagram Protocol packet buffer.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Packet<T: AsRef<[u8]>> {
     buffer: T
 }
