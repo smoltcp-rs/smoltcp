@@ -21,7 +21,7 @@ enum_with_unknown! {
 }
 
 /// A read/write wrapper around an Address Resolution Protocol packet buffer.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Packet<T: AsRef<[u8]>> {
     buffer: T
 }

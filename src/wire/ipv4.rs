@@ -129,7 +129,7 @@ impl fmt::Display for Cidr {
 }
 
 /// A read/write wrapper around an Internet Protocol version 4 packet buffer.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Packet<T: AsRef<[u8]>> {
     buffer: T
 }

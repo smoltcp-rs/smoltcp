@@ -32,6 +32,7 @@ pub struct Interface<'a, 'b, 'c, DeviceT: Device + 'a> {
     ipv4_gateway:   Option<Ipv4Address>,
 }
 
+#[derive(Debug, PartialEq)]
 enum Packet<'a> {
     None,
     Arp(ArpRepr),
@@ -642,5 +643,148 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
             let payload = &mut frame.payload_mut()[ip_repr.buffer_len()..];
             f(ip_repr, payload)
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::boxed::Box;
+    use super::Packet;
+    use phy::{Loopback, ChecksumCapabilities};
+    use wire::{ArpOperation, ArpPacket, ArpRepr};
+    use wire::{EthernetAddress, EthernetFrame, EthernetProtocol};
+    use wire::{IpAddress, IpCidr, IpProtocol, IpRepr};
+    use wire::{Ipv4Address, Ipv4Repr};
+    use iface::{ArpCache, SliceArpCache, EthernetInterface};
+    use socket::SocketSet;
+
+    fn create_loopback<'a, 'b>() ->
+            (EthernetInterface<'a, 'static, 'b, Loopback>, SocketSet<'static, 'a, 'b>) {
+        // Create a basic device
+        let device = Loopback::new();
+
+        let arp_cache = SliceArpCache::new(vec![Default::default(); 8]);
+
+        let ip_addr = IpCidr::new(IpAddress::v4(127, 0, 0, 1), 8);
+        (EthernetInterface::new(
+            Box::new(device), Box::new(arp_cache) as Box<ArpCache>,
+            EthernetAddress::default(), [ip_addr], None), SocketSet::new(vec![]))
+    }
+
+    #[test]
+    fn no_icmp_to_broadcast() {
+        let (mut iface, mut socket_set) = create_loopback();
+
+        let mut eth_bytes = vec![0u8; 34];
+
+        // Unknown Ipv4 Protocol
+        //
+        // Because the destination is the broadcast address
+        // this should not trigger and Destination Unreachable
+        // response. See RFC 1122 § 3.2.2.
+        let repr = IpRepr::Ipv4(Ipv4Repr {
+            src_addr:    Ipv4Address([0x7f, 0x00, 0x00, 0x01]),
+            dst_addr:    Ipv4Address::BROADCAST,
+            protocol:    IpProtocol::Unknown(0x0c),
+            payload_len: 0,
+            ttl:         0x40
+        });
+
+        let frame = {
+            let mut frame = EthernetFrame::new(&mut eth_bytes);
+            frame.set_dst_addr(EthernetAddress::BROADCAST);
+            frame.set_src_addr(EthernetAddress([0x52, 0x54, 0x00, 0x00, 0x00, 0x00]));
+            frame.set_ethertype(EthernetProtocol::Ipv4);
+            repr.emit(frame.payload_mut(), &ChecksumCapabilities::default());
+            EthernetFrame::new(&*frame.into_inner())
+        };
+
+        // Ensure that the unknown protocol frame does not trigger an
+        // ICMP error response when the destination address is a
+        // broadcast address
+        assert_eq!(iface.process_ipv4(&mut socket_set, 0, &frame),
+                   Ok(Packet::None));
+    }
+
+    #[test]
+    fn handle_valid_arp_request() {
+        let (mut iface, mut socket_set) = create_loopback();
+
+        let mut eth_bytes = vec![0u8; 42];
+
+        let local_ip_addr = Ipv4Address([0x7f, 0x00, 0x00, 0x01]);
+        let remote_ip_addr = Ipv4Address([0x7f, 0x00, 0x00, 0x02]);
+        let local_hw_addr = EthernetAddress([0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+        let remote_hw_addr = EthernetAddress([0x52, 0x54, 0x00, 0x00, 0x00, 0x00]);
+
+        let repr = ArpRepr::EthernetIpv4 {
+            operation: ArpOperation::Request,
+            source_hardware_addr: remote_hw_addr,
+            source_protocol_addr: remote_ip_addr,
+            target_hardware_addr: EthernetAddress::default(),
+            target_protocol_addr: local_ip_addr,
+        };
+
+        let mut frame = EthernetFrame::new(&mut eth_bytes);
+        frame.set_dst_addr(EthernetAddress::BROADCAST);
+        frame.set_src_addr(remote_hw_addr);
+        frame.set_ethertype(EthernetProtocol::Arp);
+        {
+            let mut packet = ArpPacket::new(frame.payload_mut());
+            repr.emit(&mut packet);
+        }
+
+        // Ensure an ARP Request for us triggers an ARP Reply
+        assert_eq!(iface.process_ethernet(&mut socket_set, 0, frame.into_inner()),
+                   Ok(Packet::Arp(ArpRepr::EthernetIpv4 {
+                       operation: ArpOperation::Reply,
+                       source_hardware_addr: local_hw_addr,
+                       source_protocol_addr: local_ip_addr,
+                       target_hardware_addr: remote_hw_addr,
+                       target_protocol_addr: remote_ip_addr
+                   })));
+
+        // Ensure the address of the requestor was entered in the cache
+        assert_eq!(iface.lookup_hardware_addr(0,
+                                              &IpAddress::Ipv4(local_ip_addr),
+                                              &IpAddress::Ipv4(remote_ip_addr)),
+                   Ok(remote_hw_addr));
+    }
+
+    #[test]
+    fn handle_other_arp_request() {
+        let (mut iface, mut socket_set) = create_loopback();
+
+        let mut eth_bytes = vec![0u8; 42];
+
+        let remote_ip_addr = Ipv4Address([0x7f, 0x00, 0x00, 0x02]);
+        let remote_hw_addr = EthernetAddress([0x52, 0x54, 0x00, 0x00, 0x00, 0x00]);
+
+        let repr = ArpRepr::EthernetIpv4 {
+            operation: ArpOperation::Request,
+            source_hardware_addr: remote_hw_addr,
+            source_protocol_addr: remote_ip_addr,
+            target_hardware_addr: EthernetAddress::default(),
+            target_protocol_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x03]),
+        };
+
+        let mut frame = EthernetFrame::new(&mut eth_bytes);
+        frame.set_dst_addr(EthernetAddress::BROADCAST);
+        frame.set_src_addr(remote_hw_addr);
+        frame.set_ethertype(EthernetProtocol::Arp);
+        {
+            let mut packet = ArpPacket::new(frame.payload_mut());
+            repr.emit(&mut packet);
+        }
+
+        // Ensure an ARP Request for someone else does not trigger an ARP Reply
+        assert_eq!(iface.process_ethernet(&mut socket_set, 0, frame.into_inner()),
+                   Ok(Packet::None));
+
+        // Ensure the address of the requestor was entered in the cache
+        assert_eq!(iface.lookup_hardware_addr(0,
+                                              &IpAddress::Ipv4(Ipv4Address([0x7f, 0x00, 0x00, 0x01])),
+                                              &IpAddress::Ipv4(remote_ip_addr)),
+                   Ok(remote_hw_addr));
     }
 }
