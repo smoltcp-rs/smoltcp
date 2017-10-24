@@ -175,6 +175,17 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                     Ok(response) => response,
                     Err(err) => {
                         net_debug!("cannot process ingress packet: {}", err);
+
+                        if net_log_enabled!(debug) {
+                            match EthernetFrame::new_checked(frame.as_ref()) {
+                                Err(_) => {
+                                    net_debug!("packet dump follows:\n{:?}", frame.as_ref());
+                                }
+                                Ok(frame) => {
+                                    net_debug!("packet dump follows:\n{}", frame);
+                                }
+                            }
+                        }
                         return Err(err)
                     }
                 };
@@ -274,7 +285,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                                         &source_hardware_addr);
                 } else {
                     // Discard packets with non-unicast source addresses.
-                    net_debug!("non-unicast source in {}", arp_repr);
+                    net_debug!("non-unicast source address");
                     return Err(Error::Malformed)
                 }
 
@@ -305,7 +316,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
 
         if !ipv4_repr.src_addr.is_unicast() {
             // Discard packets with non-unicast source addresses.
-            net_debug!("non-unicast source in {}", ipv4_repr);
+            net_debug!("non-unicast source address");
             return Err(Error::Malformed)
         }
 
