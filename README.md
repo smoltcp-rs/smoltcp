@@ -31,6 +31,7 @@ The only supported medium is Ethernet.
 The only supported internetworking protocol is IPv4.
 
   * IPv4 header checksum is generated and validated.
+  * IPv4 time-to-live value is configurable per socket, set to 64 by default.
   * IPv4 fragmentation is **not** supported.
   * IPv4 options are **not** supported and are silently ignored.
   * IPv4 routes or default gateways are **not** supported.

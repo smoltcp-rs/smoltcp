@@ -324,21 +324,21 @@ impl<'a> TcpSocket<'a> {
     /// Set the time-to-live (IPv4) or hop limit (IPv6) value used in outgoing packets.
     ///
     /// A socket without an explicitly set TTL value uses the default [IANA recommended]
-    /// value (`64`).
+    /// value (64).
     ///
     /// # Panics
     ///
-    /// This function panics if a TTL value of `0` is given. See [RFC 1122 § 3.2.1.7].
+    /// This function panics if a TTL value of 0 is given. See [RFC 1122 § 3.2.1.7].
     ///
     /// [IANA recommended]: https://www.iana.org/assignments/ip-parameters/ip-parameters.xhtml
     /// [RFC 1122 § 3.2.1.7]: https://tools.ietf.org/html/rfc1122#section-3.2.1.7
     pub fn set_ttl(&mut self, ttl: Option<u8>) {
-        // A host MUST NOT send a datagram with a Time-to-Live (TTL)
-        // value of 0
-        match ttl {
-            Some(0)  => { panic!("A TTL value of 0 is invalid for a sent packet"); },
-            catchall => self.ttl = catchall,
+        // A host MUST NOT send a datagram with a Time-to-Live (TTL) value of 0
+        if let Some(0) = ttl {
+            panic!("the time-to-live value of a packet must not be zero")
         }
+
+        self.ttl = ttl
     }
 
     /// Return the local endpoint.
@@ -3411,6 +3411,36 @@ mod test {
     }
 
     // =========================================================================================//
+    // Tests for time-to-live configuration.
+    // =========================================================================================//
+
+    #[test]
+    fn test_set_ttl() {
+        let mut s = socket_syn_received();
+        let mut caps = DeviceCapabilities::default();
+        caps.max_transmission_unit = 1520;
+
+        s.set_ttl(Some(0x2a));
+        assert_eq!(s.dispatch(0, &caps, |(ip_repr, _)| {
+            assert_eq!(ip_repr, IpRepr::Ipv4(Ipv4Repr {
+                src_addr: Ipv4Address([10, 0, 0, 1]),
+                dst_addr: Ipv4Address([10, 0, 0, 2]),
+                protocol: IpProtocol::Tcp,
+                payload_len: 24,
+                ttl: 0x2a,
+            }));
+            Ok(())
+        }), Ok(()));
+    }
+
+    #[test]
+    #[should_panic(expected = "the time-to-live value of a packet must not be zero")]
+    fn test_set_ttl_zero() {
+        let mut s = socket_syn_received();
+        s.set_ttl(Some(0));
+    }
+
+    // =========================================================================================//
     // Tests for reassembly.
     // =========================================================================================//
 
@@ -3529,24 +3559,5 @@ mod test {
             ttl:         64
         };
         assert!(!s.accepts(&ip_repr_wrong_dst, &tcp_repr));
-    }
-
-    #[test]
-    fn test_set_ttl() {
-        let mut s = socket_syn_received();
-        let mut caps = DeviceCapabilities::default();
-        caps.max_transmission_unit = 1520;
-
-        s.set_ttl(Some(0x2a));
-        assert_eq!(s.dispatch(0, &caps, |(ip_repr, _)| {
-            assert_eq!(ip_repr, IpRepr::Ipv4(Ipv4Repr {
-                src_addr: Ipv4Address([10, 0, 0, 1]),
-                dst_addr: Ipv4Address([10, 0, 0, 2]),
-                protocol: IpProtocol::Tcp,
-                payload_len: 24,
-                ttl: 0x2a,
-            }));
-            Ok(())
-        }), Ok(()));
     }
 }
