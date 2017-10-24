@@ -261,7 +261,7 @@ impl<T: Into<Address>> From<(T, u16)> for Endpoint {
 /// high-level representation for some IP protocol version, or an unspecified representation,
 /// which permits the `IpAddress::Unspecified` addresses.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum IpRepr {
+pub enum Repr {
     Unspecified {
         src_addr:    Address,
         dst_addr:    Address,
@@ -274,75 +274,75 @@ pub enum IpRepr {
     __Nonexhaustive
 }
 
-impl From<Ipv4Repr> for IpRepr {
-    fn from(repr: Ipv4Repr) -> IpRepr {
-        IpRepr::Ipv4(repr)
+impl From<Ipv4Repr> for Repr {
+    fn from(repr: Ipv4Repr) -> Repr {
+        Repr::Ipv4(repr)
     }
 }
 
-impl IpRepr {
+impl Repr {
     /// Return the protocol version.
     pub fn version(&self) -> Version {
         match self {
-            &IpRepr::Unspecified { .. } => Version::Unspecified,
-            &IpRepr::Ipv4(_) => Version::Ipv4,
-            &IpRepr::__Nonexhaustive => unreachable!()
+            &Repr::Unspecified { .. } => Version::Unspecified,
+            &Repr::Ipv4(_) => Version::Ipv4,
+            &Repr::__Nonexhaustive => unreachable!()
         }
     }
 
     /// Return the source address.
     pub fn src_addr(&self) -> Address {
         match self {
-            &IpRepr::Unspecified { src_addr, .. } => src_addr,
-            &IpRepr::Ipv4(repr) => Address::Ipv4(repr.src_addr),
-            &IpRepr::__Nonexhaustive => unreachable!()
+            &Repr::Unspecified { src_addr, .. } => src_addr,
+            &Repr::Ipv4(repr) => Address::Ipv4(repr.src_addr),
+            &Repr::__Nonexhaustive => unreachable!()
         }
     }
 
     /// Return the destination address.
     pub fn dst_addr(&self) -> Address {
         match self {
-            &IpRepr::Unspecified { dst_addr, .. } => dst_addr,
-            &IpRepr::Ipv4(repr) => Address::Ipv4(repr.dst_addr),
-            &IpRepr::__Nonexhaustive => unreachable!()
+            &Repr::Unspecified { dst_addr, .. } => dst_addr,
+            &Repr::Ipv4(repr) => Address::Ipv4(repr.dst_addr),
+            &Repr::__Nonexhaustive => unreachable!()
         }
     }
 
     /// Return the protocol.
     pub fn protocol(&self) -> Protocol {
         match self {
-            &IpRepr::Unspecified { protocol, .. } => protocol,
-            &IpRepr::Ipv4(repr) => repr.protocol,
-            &IpRepr::__Nonexhaustive => unreachable!()
+            &Repr::Unspecified { protocol, .. } => protocol,
+            &Repr::Ipv4(repr) => repr.protocol,
+            &Repr::__Nonexhaustive => unreachable!()
         }
     }
 
     /// Return the payload length.
     pub fn payload_len(&self) -> usize {
         match self {
-            &IpRepr::Unspecified { payload_len, .. } => payload_len,
-            &IpRepr::Ipv4(repr) => repr.payload_len,
-            &IpRepr::__Nonexhaustive => unreachable!()
+            &Repr::Unspecified { payload_len, .. } => payload_len,
+            &Repr::Ipv4(repr) => repr.payload_len,
+            &Repr::__Nonexhaustive => unreachable!()
         }
     }
 
     /// Set the payload length.
     pub fn set_payload_len(&mut self, length: usize) {
         match self {
-            &mut IpRepr::Unspecified { ref mut payload_len, .. } =>
+            &mut Repr::Unspecified { ref mut payload_len, .. } =>
                 *payload_len = length,
-            &mut IpRepr::Ipv4(Ipv4Repr { ref mut payload_len, .. }) =>
+            &mut Repr::Ipv4(Ipv4Repr { ref mut payload_len, .. }) =>
                 *payload_len = length,
-            &mut IpRepr::__Nonexhaustive => unreachable!()
+            &mut Repr::__Nonexhaustive => unreachable!()
         }
     }
 
     /// Return the TTL value.
     pub fn ttl(&self) -> u8 {
         match self {
-            &IpRepr::Unspecified { ttl, .. } => ttl,
-            &IpRepr::Ipv4(Ipv4Repr { ttl, .. }) => ttl,
-            &IpRepr::__Nonexhaustive => unreachable!()
+            &Repr::Unspecified { ttl, .. } => ttl,
+            &Repr::Ipv4(Ipv4Repr { ttl, .. }) => ttl,
+            &Repr::__Nonexhaustive => unreachable!()
         }
     }
 
@@ -352,14 +352,14 @@ impl IpRepr {
     /// # Panics
     /// This function panics if source and destination addresses belong to different families,
     /// or the destination address is unspecified, since this indicates a logic error.
-    pub fn lower(&self, fallback_src_addrs: &[Cidr]) -> Result<IpRepr> {
+    pub fn lower(&self, fallback_src_addrs: &[Cidr]) -> Result<Repr> {
         match self {
-            &IpRepr::Unspecified {
+            &Repr::Unspecified {
                 src_addr: Address::Ipv4(src_addr),
                 dst_addr: Address::Ipv4(dst_addr),
                 protocol, payload_len, ttl
             } => {
-                Ok(IpRepr::Ipv4(Ipv4Repr {
+                Ok(Repr::Ipv4(Ipv4Repr {
                     src_addr:    src_addr,
                     dst_addr:    dst_addr,
                     protocol:    protocol,
@@ -367,7 +367,7 @@ impl IpRepr {
                 }))
             }
 
-            &IpRepr::Unspecified {
+            &Repr::Unspecified {
                 src_addr: Address::Unspecified,
                 dst_addr: Address::Ipv4(dst_addr),
                 protocol, payload_len, ttl
@@ -382,38 +382,38 @@ impl IpRepr {
                         _ => ()
                     }
                 }
-                Ok(IpRepr::Ipv4(Ipv4Repr {
+                Ok(Repr::Ipv4(Ipv4Repr {
                     src_addr:    src_addr.ok_or(Error::Unaddressable)?,
                     dst_addr, protocol, payload_len, ttl
                 }))
             }
 
-            &IpRepr::Unspecified { dst_addr: Address::Unspecified, .. } =>
+            &Repr::Unspecified { dst_addr: Address::Unspecified, .. } =>
                 panic!("unspecified destination IP address"),
 
-            // &IpRepr::Unspecified { .. } =>
+            // &Repr::Unspecified { .. } =>
             //     panic!("source and destination IP address families do not match"),
 
-            &IpRepr::Ipv4(mut repr) => {
+            &Repr::Ipv4(mut repr) => {
                 if repr.src_addr.is_unspecified() {
                     for cidr in fallback_src_addrs {
                         match cidr.address() {
                             Address::Ipv4(addr) => {
                                 repr.src_addr = addr;
-                                return Ok(IpRepr::Ipv4(repr));
+                                return Ok(Repr::Ipv4(repr));
                             }
                             _ => ()
                         }
                     }
                     Err(Error::Unaddressable)
                 } else {
-                    Ok(IpRepr::Ipv4(repr))
+                    Ok(Repr::Ipv4(repr))
                 }
             },
 
-            &IpRepr::__Nonexhaustive |
-            &IpRepr::Unspecified { src_addr: Address::__Nonexhaustive, .. } |
-            &IpRepr::Unspecified { dst_addr: Address::__Nonexhaustive, .. } =>
+            &Repr::__Nonexhaustive |
+            &Repr::Unspecified { src_addr: Address::__Nonexhaustive, .. } |
+            &Repr::Unspecified { dst_addr: Address::__Nonexhaustive, .. } =>
                 unreachable!()
         }
     }
@@ -424,11 +424,11 @@ impl IpRepr {
     /// This function panics if invoked on an unspecified representation.
     pub fn buffer_len(&self) -> usize {
         match self {
-            &IpRepr::Unspecified { .. } =>
+            &Repr::Unspecified { .. } =>
                 panic!("unspecified IP representation"),
-            &IpRepr::Ipv4(repr) =>
+            &Repr::Ipv4(repr) =>
                 repr.buffer_len(),
-            &IpRepr::__Nonexhaustive =>
+            &Repr::__Nonexhaustive =>
                 unreachable!()
         }
     }
@@ -439,11 +439,11 @@ impl IpRepr {
     /// This function panics if invoked on an unspecified representation.
     pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(&self, buffer: T, checksum_caps: &ChecksumCapabilities) {
         match self {
-            &IpRepr::Unspecified { .. } =>
+            &Repr::Unspecified { .. } =>
                 panic!("unspecified IP representation"),
-            &IpRepr::Ipv4(repr) =>
+            &Repr::Ipv4(repr) =>
                 repr.emit(&mut Ipv4Packet::new(buffer), &checksum_caps),
-            &IpRepr::__Nonexhaustive =>
+            &Repr::__Nonexhaustive =>
                 unreachable!()
         }
     }
@@ -538,14 +538,14 @@ mod test {
         let payload_len = 10;
 
         assert_eq!(
-            IpRepr::Unspecified{
+            Repr::Unspecified{
                 src_addr: IpAddress::Ipv4(ip_addr_a),
                 dst_addr: IpAddress::Ipv4(ip_addr_b),
                 protocol: proto,
                 ttl:      0x2a,
                 payload_len,
             }.lower(&[]),
-            Ok(IpRepr::Ipv4(Ipv4Repr{
+            Ok(Repr::Ipv4(Ipv4Repr{
                 src_addr: ip_addr_a,
                 dst_addr: ip_addr_b,
                 protocol: proto,
@@ -555,7 +555,7 @@ mod test {
         );
 
         assert_eq!(
-            IpRepr::Unspecified{
+            Repr::Unspecified{
                 src_addr: IpAddress::Unspecified,
                 dst_addr: IpAddress::Ipv4(ip_addr_b),
                 protocol: proto,
@@ -566,14 +566,14 @@ mod test {
         );
 
         assert_eq!(
-            IpRepr::Unspecified{
+            Repr::Unspecified{
                 src_addr: IpAddress::Unspecified,
                 dst_addr: IpAddress::Ipv4(ip_addr_b),
                 protocol: proto,
                 ttl:      64,
                 payload_len
             }.lower(&[IpCidr::new(IpAddress::Ipv4(ip_addr_a), 24)]),
-            Ok(IpRepr::Ipv4(Ipv4Repr{
+            Ok(Repr::Ipv4(Ipv4Repr{
                 src_addr: ip_addr_a,
                 dst_addr: ip_addr_b,
                 protocol: proto,
@@ -583,14 +583,14 @@ mod test {
         );
 
         assert_eq!(
-            IpRepr::Ipv4(Ipv4Repr{
+            Repr::Ipv4(Ipv4Repr{
                 src_addr: ip_addr_a,
                 dst_addr: ip_addr_b,
                 protocol: proto,
                 ttl:      255,
                 payload_len
             }).lower(&[]),
-            Ok(IpRepr::Ipv4(Ipv4Repr{
+            Ok(Repr::Ipv4(Ipv4Repr{
                 src_addr: ip_addr_a,
                 dst_addr: ip_addr_b,
                 protocol: proto,
@@ -600,7 +600,7 @@ mod test {
         );
 
         assert_eq!(
-            IpRepr::Ipv4(Ipv4Repr{
+            Repr::Ipv4(Ipv4Repr{
                 src_addr: Ipv4Address::UNSPECIFIED,
                 dst_addr: ip_addr_b,
                 protocol: proto,
@@ -611,14 +611,14 @@ mod test {
         );
 
         assert_eq!(
-            IpRepr::Ipv4(Ipv4Repr{
+            Repr::Ipv4(Ipv4Repr{
                 src_addr: Ipv4Address::UNSPECIFIED,
                 dst_addr: ip_addr_b,
                 protocol: proto,
                 ttl:      64,
                 payload_len
             }).lower(&[IpCidr::new(IpAddress::Ipv4(ip_addr_a), 24)]),
-            Ok(IpRepr::Ipv4(Ipv4Repr{
+            Ok(Repr::Ipv4(Ipv4Repr{
                 src_addr: ip_addr_a,
                 dst_addr: ip_addr_b,
                 protocol: proto,

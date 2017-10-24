@@ -100,7 +100,7 @@ pub use self::ip::Version as IpVersion;
 pub use self::ip::Protocol as IpProtocol;
 pub use self::ip::Address as IpAddress;
 pub use self::ip::Endpoint as IpEndpoint;
-pub use self::ip::IpRepr as IpRepr;
+pub use self::ip::Repr as IpRepr;
 pub use self::ip::Cidr as IpCidr;
 
 pub use self::ipv4::Address as Ipv4Address;
