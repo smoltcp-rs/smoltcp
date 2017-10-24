@@ -51,7 +51,7 @@ impl<'a> Resettable for PacketBuffer<'a> {
 }
 
 /// An UDP packet ring buffer.
-pub type SocketBuffer<'a, 'b : 'a> = RingBuffer<'a, PacketBuffer<'b>>;
+pub type SocketBuffer<'a, 'b: 'a> = RingBuffer<'a, PacketBuffer<'b>>;
 
 /// An User Datagram Protocol socket.
 ///

@@ -594,7 +594,7 @@ mod test {
 
     #[test]
     fn test_buffer_get_unallocated() {
-        let mut ring = RingBuffer::new(vec![b'.'; 12]);;
+        let mut ring = RingBuffer::new(vec![b'.'; 12]);
 
         assert_eq!(ring.get_unallocated(16, 4), b"");
 
@@ -643,7 +643,7 @@ mod test {
 
     #[test]
     fn test_buffer_get_allocated() {
-        let mut ring = RingBuffer::new(vec![b'.'; 12]);;
+        let mut ring = RingBuffer::new(vec![b'.'; 12]);
 
         assert_eq!(ring.get_allocated(16, 4), b"");
         assert_eq!(ring.get_allocated(0, 4),  b"");
