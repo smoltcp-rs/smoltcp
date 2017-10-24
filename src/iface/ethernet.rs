@@ -171,33 +171,26 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                 };
 
             let response =
-                match self.process_ethernet(sockets, timestamp, &frame) {
-                    Ok(response) => response,
-                    Err(err) => {
-                        net_debug!("cannot process ingress packet: {}", err);
-
-                        if net_log_enabled!(debug) {
-                            match EthernetFrame::new_checked(frame.as_ref()) {
-                                Err(_) => {
-                                    net_debug!("packet dump follows:\n{:?}", frame.as_ref());
-                                }
-                                Ok(frame) => {
-                                    net_debug!("packet dump follows:\n{}", frame);
-                                }
+                self.process_ethernet(sockets, timestamp, &frame).map_err(|err| {
+                    net_debug!("cannot process ingress packet: {}", err);
+                    if net_log_enabled!(debug) {
+                        match EthernetFrame::new_checked(frame.as_ref()) {
+                            Err(_) => {
+                                net_debug!("packet dump follows:\n{:?}", frame.as_ref());
+                            }
+                            Ok(frame) => {
+                                net_debug!("packet dump follows:\n{}", frame);
                             }
                         }
-                        return Err(err)
                     }
-                };
+                    err
+                })?;
             processed_any = true;
 
-            match self.dispatch(timestamp, response) {
-                Ok(()) => (),
-                Err(err) => {
-                    net_debug!("cannot dispatch response packet: {}", err);
-                    return Err(err)
-                }
-            }
+            self.dispatch(timestamp, response).map_err(|err| {
+                net_debug!("cannot dispatch response packet: {}", err);
+                err
+            })?;
         }
         Ok(processed_any)
     }
