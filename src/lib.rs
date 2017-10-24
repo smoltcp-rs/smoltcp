@@ -106,11 +106,11 @@ pub enum Error {
     Exhausted,
     /// An operation is not permitted in the current state.
     Illegal,
+    /// There was no an Ethernet address corresponding to an IPv4 address in the ARP cache.
+    UnknownEthernetAddress(wire::IpAddress),
     /// An endpoint or address of a remote host could not be translated to a lower level address.
-    /// E.g. there was no an Ethernet address corresponding to an IPv4 address in the ARP cache,
-    /// or a TCP connection attempt was made to an unspecified endpoint.
+    /// E.g. a TCP connection attempt was made to an unspecified endpoint.
     Unaddressable,
-
     /// An incoming packet could not be parsed because some of its fields were out of bounds
     /// of the received data.
     Truncated,
@@ -141,6 +141,7 @@ impl fmt::Display for Error {
         match self {
             &Error::Exhausted     => write!(f, "buffer space exhausted"),
             &Error::Illegal       => write!(f, "illegal operation"),
+            &Error::UnknownEthernetAddress(ip) => write!(f, "unknown ethernet address for ip {}", ip),
             &Error::Unaddressable => write!(f, "unaddressable destination"),
             &Error::Truncated     => write!(f, "truncated packet"),
             &Error::Checksum      => write!(f, "checksum error"),
