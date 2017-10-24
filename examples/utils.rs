@@ -12,6 +12,7 @@ use getopts::{Options, Matches};
 
 use smoltcp::phy::{Device, EthernetTracer, FaultInjector, TapInterface};
 use smoltcp::phy::{PcapWriter, PcapSink, PcapMode, PcapLinkType};
+use smoltcp::phy::{RawSocket};
 
 pub fn setup_logging_with_clock<F>(filter: &str, since_startup: F)
         where F: Fn() -> u64 + Send + Sync + 'static {
@@ -78,6 +79,11 @@ pub fn add_tap_options(_opts: &mut Options, free: &mut Vec<&str>) {
 pub fn parse_tap_options(matches: &mut Matches) -> TapInterface {
     let interface = matches.free.remove(0);
     TapInterface::new(&interface).unwrap()
+}
+
+pub fn parse_raw_socket_options(matches: &mut Matches) -> RawSocket {
+    let interface = matches.free.remove(0);
+    RawSocket::new(&interface).unwrap()
 }
 
 pub fn add_middleware_options(opts: &mut Options, _free: &mut Vec<&str>) {

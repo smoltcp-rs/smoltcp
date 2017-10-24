@@ -41,6 +41,7 @@ enum_with_unknown! {
     /// IP datagram encapsulated protocol.
     pub enum Protocol(u8) {
         Icmp = 0x01,
+        Igmp = 0x02,
         Tcp  = 0x06,
         Udp  = 0x11
     }
@@ -50,6 +51,7 @@ impl fmt::Display for Protocol {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             &Protocol::Icmp => write!(f, "ICMP"),
+            &Protocol::Igmp => write!(f, "IGMP"),
             &Protocol::Tcp  => write!(f, "TCP"),
             &Protocol::Udp  => write!(f, "UDP"),
             &Protocol::Unknown(id) => write!(f, "0x{:02x}", id)
@@ -58,7 +60,7 @@ impl fmt::Display for Protocol {
 }
 
 /// An internetworking address.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub enum Address {
     /// An unspecified address.
     /// May be used as a placeholder for storage where the address is not assigned yet.
@@ -89,6 +91,15 @@ impl Address {
         match self {
             &Address::Unspecified => false,
             &Address::Ipv4(addr)  => addr.is_broadcast(),
+            &Address::__Nonexhaustive => unreachable!()
+        }
+    }
+
+	/// Query whether the address is a multicast address.
+    pub fn is_multicast(&self) -> bool {
+        match self {
+            &Address::Unspecified => false,
+            &Address::Ipv4(addr)  => addr.is_multicast(),
             &Address::__Nonexhaustive => unreachable!()
         }
     }

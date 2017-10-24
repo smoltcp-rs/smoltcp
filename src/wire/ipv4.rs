@@ -8,7 +8,7 @@ use super::ip::checksum;
 pub use super::IpProtocol as Protocol;
 
 /// A four-octet IPv4 address.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default, Hash)]
 pub struct Address(pub [u8; 4]);
 
 impl Address {
@@ -497,7 +497,7 @@ impl Repr {
         packet.set_more_frags(false);
         packet.set_dont_frag(true);
         packet.set_frag_offset(0);
-        packet.set_ttl(64);
+        packet.set_ttl(64); // NOTE: this has to be configurable depending on the type of payload
         packet.set_protocol(self.protocol);
         packet.set_src_addr(self.src_addr);
         packet.set_dst_addr(self.dst_addr);
@@ -586,6 +586,8 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
         match ip_repr.protocol {
             Protocol::Icmp =>
                 super::Icmpv4Packet::<&[u8]>::pretty_print(&payload, f, indent),
+            Protocol::Igmp =>
+                super::IgmpPacket::<&[u8]>::pretty_print(&payload, f, indent),
             Protocol::Udp => {
                 match super::UdpPacket::new_checked(payload) {
                     Err(err) => write!(f, "{}({})\n", indent, err),
