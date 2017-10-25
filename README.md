@@ -32,9 +32,10 @@ The only supported internetworking protocol is IPv4.
 
   * IPv4 header checksum is generated and validated.
   * IPv4 time-to-live value is configurable per socket, set to 64 by default.
+  * IPv4 default gateway is supported.
   * IPv4 fragmentation is **not** supported.
   * IPv4 options are **not** supported and are silently ignored.
-  * IPv4 routes or default gateways are **not** supported.
+  * IPv4 routes (other than the default one) are **not** supported.
   * ICMPv4 header checksum is supported.
   * ICMPv4 echo requests and replies are supported.
   * ICMPv4 protocol unreachable messages are **not** passed to higher layers when received.
