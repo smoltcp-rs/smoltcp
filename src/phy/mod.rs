@@ -227,21 +227,53 @@ pub struct DeviceCapabilities {
     dummy: ()
 }
 
+/// An interface for sending and receiving raw network frames.
+///
+/// The interface is based on _tokens_, which are types that allow to receive/transmit a
+/// single packet. The `receive` and `transmit` functions only construct such tokens, the
+/// real sending/receiving operation are performed performed when the tokens are
+/// consumed.
 pub trait Device<'a> {
     type RxToken: RxToken + 'a;
     type TxToken: TxToken + 'a;
 
+    /// Construct a token pair consisting of one receive token and one transmit token.
+    ///
+    /// The additional transmit token makes it possible to generate a reply packet based
+    /// on the contents of the received packet. For example, this makes it possible to
+    /// handle arbitrarily large ICMP echo ("ping") requests, where the all received bytes
+    /// need to be sent back, without heap allocation.
     fn receive(&'a mut self) -> Option<(Self::RxToken, Self::TxToken)>;
+
+    /// Construct a transmit token.
     fn transmit(&'a mut self) -> Option<Self::TxToken>;
 
     /// Get a description of device capabilities.
     fn capabilities(&self) -> DeviceCapabilities;
 }
 
+/// A token to receive a single network packet.
 pub trait RxToken {
+    /// Consumes the token to receive a single network packet.
+    ///
+    /// This method receives a packet and then calls the given closure `f` with the raw
+    /// packet bytes as argument.
+    ///
+    /// The timestamp must be a number of milliseconds, monotonically increasing since an
+    /// arbitrary moment in time, such as system startup.
     fn consume<R, F: FnOnce(&[u8]) -> Result<R>>(self, timestamp: u64, f: F) -> Result<R>;
 }
 
+/// A token to transmit a single network packet.
 pub trait TxToken {
+    /// Consumes the token to send a single network packet.
+    ///
+    /// This method constructs a transmit buffer of size `len` and calls the passed
+    /// closure `f` with a mutable reference to that buffer. The closure should construct
+    /// a valid network packet (e.g. an ethernet packet) in the buffer. When the closure
+    /// returns, the transmit buffer is sent out.
+    ///
+    /// The timestamp must be a number of milliseconds, monotonically increasing since an
+    /// arbitrary moment in time, such as system startup.
     fn consume<R, F: FnOnce(&mut [u8]) -> R>(self, timestamp: u64, len: usize, f: F) -> R;
 }
