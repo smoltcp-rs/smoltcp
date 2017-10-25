@@ -522,7 +522,6 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
     fn dispatch<T: TxToken>(&mut self, tx_token: T, timestamp: u64, packet: Packet)
         -> Result<()>
     {
-        let caps = self.device_capabilities.clone();
         let checksum_caps = self.device_capabilities.checksum.clone();
         match packet {
             Packet::Arp(arp_repr) => {
@@ -561,6 +560,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
             }
             #[cfg(feature = "proto-tcp")]
             Packet::Tcp((ip_repr, mut tcp_repr)) => {
+                let caps = self.device_capabilities.clone();
                 self.dispatch_ip(tx_token, timestamp, ip_repr, |ip_repr, payload| {
                     // This is a terrible hack to make TCP performance more acceptable on systems
                     // where the TCP buffers are significantly larger than network buffers,
