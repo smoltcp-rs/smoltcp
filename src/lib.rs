@@ -69,9 +69,9 @@
 //! of a packet, it is still logged correctly and in full.
 
 /* XXX compiler bug
-#![cfg(not(any(feature = "socket-raw",
-               feature = "socket-udp",
-               feature = "socket-tcp")))]
+#![cfg(not(any(feature = "proto-raw",
+               feature = "proto-udp",
+               feature = "proto-tcp")))]
 compile_error!("at least one socket needs to be enabled"); */
 
 extern crate byteorder;

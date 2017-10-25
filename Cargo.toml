@@ -28,12 +28,12 @@ alloc = ["managed/alloc"]
 verbose = []
 "phy-raw_socket" = ["std", "libc"]
 "phy-tap_interface" = ["std", "libc"]
-"socket-raw" = []
-"socket-udp" = []
-"socket-tcp" = []
+"proto-raw" = []
+"proto-udp" = []
+"proto-tcp" = []
 default = ["std", "log",
   "phy-raw_socket", "phy-tap_interface",
-  "socket-raw", "socket-udp", "socket-tcp"]
+  "proto-raw", "proto-udp", "proto-tcp"]
 
 [[example]]
 name = "tcpdump"

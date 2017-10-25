@@ -13,23 +13,23 @@
 use core::marker::PhantomData;
 use wire::IpRepr;
 
-#[cfg(feature = "socket-raw")] mod raw;
-#[cfg(feature = "socket-udp")] mod udp;
-#[cfg(feature = "socket-tcp")] mod tcp;
+#[cfg(feature = "proto-raw")] mod raw;
+#[cfg(feature = "proto-udp")] mod udp;
+#[cfg(feature = "proto-tcp")] mod tcp;
 mod set;
 mod ref_;
 
-#[cfg(feature = "socket-raw")]
+#[cfg(feature = "proto-raw")]
 pub use self::raw::{PacketBuffer as RawPacketBuffer,
                     SocketBuffer as RawSocketBuffer,
                     RawSocket};
 
-#[cfg(feature = "socket-udp")]
+#[cfg(feature = "proto-udp")]
 pub use self::udp::{PacketBuffer as UdpPacketBuffer,
                     SocketBuffer as UdpSocketBuffer,
                     UdpSocket};
 
-#[cfg(feature = "socket-tcp")]
+#[cfg(feature = "proto-tcp")]
 pub use self::tcp::{SocketBuffer as TcpSocketBuffer,
                     State as TcpState,
                     TcpSocket};
@@ -52,11 +52,11 @@ pub(crate) use self::ref_::Session as SocketSession;
 /// [SocketSet::get]: struct.SocketSet.html#method.get
 #[derive(Debug)]
 pub enum Socket<'a, 'b: 'a> {
-    #[cfg(feature = "socket-raw")]
+    #[cfg(feature = "proto-raw")]
     Raw(RawSocket<'a, 'b>),
-    #[cfg(feature = "socket-udp")]
+    #[cfg(feature = "proto-udp")]
     Udp(UdpSocket<'a, 'b>),
-    #[cfg(feature = "socket-tcp")]
+    #[cfg(feature = "proto-tcp")]
     Tcp(TcpSocket<'a>),
     #[doc(hidden)]
     __Nonexhaustive(PhantomData<(&'a (), &'b ())>)
@@ -65,11 +65,11 @@ pub enum Socket<'a, 'b: 'a> {
 macro_rules! dispatch_socket {
     ($self_:expr, |$socket:ident [$( $mut_:tt )*]| $code:expr) => ({
         match $self_ {
-            #[cfg(feature = "socket-raw")]
+            #[cfg(feature = "proto-raw")]
             &$( $mut_ )* Socket::Raw(ref $( $mut_ )* $socket) => $code,
-            #[cfg(feature = "socket-udp")]
+            #[cfg(feature = "proto-udp")]
             &$( $mut_ )* Socket::Udp(ref $( $mut_ )* $socket) => $code,
-            #[cfg(feature = "socket-tcp")]
+            #[cfg(feature = "proto-tcp")]
             &$( $mut_ )* Socket::Tcp(ref $( $mut_ )* $socket) => $code,
             &$( $mut_ )* Socket::__Nonexhaustive(_) => unreachable!()
         }
@@ -119,9 +119,9 @@ macro_rules! from_socket {
     }
 }
 
-#[cfg(feature = "socket-raw")]
+#[cfg(feature = "proto-raw")]
 from_socket!(RawSocket<'a, 'b>, Raw);
-#[cfg(feature = "socket-udp")]
+#[cfg(feature = "proto-udp")]
 from_socket!(UdpSocket<'a, 'b>, Udp);
-#[cfg(feature = "socket-tcp")]
+#[cfg(feature = "proto-tcp")]
 from_socket!(TcpSocket<'a>, Tcp);

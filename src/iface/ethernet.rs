@@ -11,12 +11,12 @@ use wire::{IpAddress, IpProtocol, IpRepr, IpCidr};
 use wire::{ArpPacket, ArpRepr, ArpOperation};
 use wire::{Ipv4Packet, Ipv4Repr};
 use wire::{Icmpv4Packet, Icmpv4Repr, Icmpv4DstUnreachable};
-#[cfg(feature = "socket-udp")] use wire::{UdpPacket, UdpRepr};
-#[cfg(feature = "socket-tcp")] use wire::{TcpPacket, TcpRepr, TcpControl};
+#[cfg(feature = "proto-udp")] use wire::{UdpPacket, UdpRepr};
+#[cfg(feature = "proto-tcp")] use wire::{TcpPacket, TcpRepr, TcpControl};
 use socket::{Socket, SocketSet, AnySocket};
-#[cfg(feature = "socket-raw")] use socket::RawSocket;
-#[cfg(feature = "socket-udp")] use socket::UdpSocket;
-#[cfg(feature = "socket-tcp")] use socket::TcpSocket;
+#[cfg(feature = "proto-raw")] use socket::RawSocket;
+#[cfg(feature = "proto-udp")] use socket::UdpSocket;
+#[cfg(feature = "proto-tcp")] use socket::TcpSocket;
 use super::ArpCache;
 
 /// An Ethernet network interface.
@@ -36,11 +36,11 @@ enum Packet<'a> {
     None,
     Arp(ArpRepr),
     Icmpv4(Ipv4Repr, Icmpv4Repr<'a>),
-    #[cfg(feature = "socket-raw")]
+    #[cfg(feature = "proto-raw")]
     Raw((IpRepr, &'a [u8])),
-    #[cfg(feature = "socket-udp")]
+    #[cfg(feature = "proto-udp")]
     Udp((IpRepr, UdpRepr<'a>)),
-    #[cfg(feature = "socket-tcp")]
+    #[cfg(feature = "proto-tcp")]
     Tcp((IpRepr, TcpRepr<'a>))
 }
 
@@ -203,19 +203,19 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
             let mut device_result = Ok(());
             let socket_result =
                 match *socket {
-                    #[cfg(feature = "socket-raw")]
+                    #[cfg(feature = "proto-raw")]
                     Socket::Raw(ref mut socket) =>
                         socket.dispatch(|response| {
                             device_result = self.dispatch(timestamp, Packet::Raw(response));
                             device_result
                         }, &caps.checksum),
-                    #[cfg(feature = "socket-udp")]
+                    #[cfg(feature = "proto-udp")]
                     Socket::Udp(ref mut socket) =>
                         socket.dispatch(|response| {
                             device_result = self.dispatch(timestamp, Packet::Udp(response));
                             device_result
                         }),
-                    #[cfg(feature = "socket-tcp")]
+                    #[cfg(feature = "proto-tcp")]
                     Socket::Tcp(ref mut socket) =>
                         socket.dispatch(timestamp, &caps, |response| {
                             device_result = self.dispatch(timestamp, Packet::Tcp(response));
@@ -322,11 +322,11 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         let ip_repr = IpRepr::Ipv4(ipv4_repr);
         let ip_payload = ipv4_packet.payload();
 
-        #[cfg(feature = "socket-raw")]
+        #[cfg(feature = "proto-raw")]
         let mut handled_by_raw_socket = false;
 
         // Pass every IP packet to all raw sockets we have registered.
-        #[cfg(feature = "socket-raw")]
+        #[cfg(feature = "proto-raw")]
         for mut raw_socket in sockets.iter_mut().filter_map(RawSocket::downcast) {
             if !raw_socket.accepts(&ip_repr) { continue }
 
@@ -349,15 +349,15 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
             IpProtocol::Icmp =>
                 self.process_icmpv4(ipv4_repr, ip_payload),
 
-            #[cfg(feature = "socket-udp")]
+            #[cfg(feature = "proto-udp")]
             IpProtocol::Udp =>
                 self.process_udp(sockets, ip_repr, ip_payload),
 
-            #[cfg(feature = "socket-tcp")]
+            #[cfg(feature = "proto-tcp")]
             IpProtocol::Tcp =>
                 self.process_tcp(sockets, _timestamp, ip_repr, ip_payload),
 
-            #[cfg(feature = "socket-raw")]
+            #[cfg(feature = "proto-raw")]
             _ if handled_by_raw_socket =>
                 Ok(Packet::None),
 
@@ -411,7 +411,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         }
     }
 
-    #[cfg(feature = "socket-udp")]
+    #[cfg(feature = "proto-udp")]
     fn process_udp<'frame>(&self, sockets: &mut SocketSet,
                            ip_repr: IpRepr, ip_payload: &'frame [u8]) ->
                           Result<Packet<'frame>> {
@@ -454,7 +454,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         }
     }
 
-    #[cfg(feature = "socket-tcp")]
+    #[cfg(feature = "proto-tcp")]
     fn process_tcp<'frame>(&self, sockets: &mut SocketSet, timestamp: u64,
                            ip_repr: IpRepr, ip_payload: &'frame [u8]) ->
                           Result<Packet<'frame>> {
@@ -507,13 +507,13 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                     icmpv4_repr.emit(&mut Icmpv4Packet::new(payload), &checksum_caps);
                 })
             }
-            #[cfg(feature = "socket-raw")]
+            #[cfg(feature = "proto-raw")]
             Packet::Raw((ip_repr, raw_packet)) => {
                 self.dispatch_ip(timestamp, ip_repr, |_ip_repr, payload| {
                     payload.copy_from_slice(raw_packet);
                 })
             }
-            #[cfg(feature = "socket-udp")]
+            #[cfg(feature = "proto-udp")]
             Packet::Udp((ip_repr, udp_repr)) => {
                 self.dispatch_ip(timestamp, ip_repr, |ip_repr, payload| {
                     udp_repr.emit(&mut UdpPacket::new(payload),
@@ -521,7 +521,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                                   &checksum_caps);
                 })
             }
-            #[cfg(feature = "socket-tcp")]
+            #[cfg(feature = "proto-tcp")]
             Packet::Tcp((ip_repr, mut tcp_repr)) => {
                 let caps = self.device.capabilities();
                 self.dispatch_ip(timestamp, ip_repr, |ip_repr, payload| {
