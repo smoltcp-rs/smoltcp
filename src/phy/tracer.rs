@@ -46,9 +46,10 @@ impl<'a, D, P> Device<'a> for Tracer<D, P>
         })
     }
 
-    fn transmit(&mut self) -> Option<Self::TxToken> {
-        self.inner.transmit().map(|tx_token| {
-            TxToken { token: tx_token, writer: self.writer }
+    fn transmit(&'a mut self) -> Option<Self::TxToken> {
+        let &mut Self { ref mut inner, writer } = self;
+        inner.transmit().map(|tx_token| {
+            TxToken { token: tx_token, writer: writer }
         })
     }
 }

@@ -200,16 +200,17 @@ impl<'a, D> Device<'a> for FaultInjector<D>
     }
 
     fn receive(&'a mut self) -> Option<(Self::RxToken, Self::TxToken)> {
-        self.inner.receive().map(move |(rx_token, tx_token)| {
+        let &mut Self { ref mut inner, ref state, config } = self;
+        inner.receive().map(|(rx_token, tx_token)| {
             let rx = RxToken {
-                state:          &self.state,
-                config:         self.config,
+                state:          &state,
+                config:         config,
                 token:          rx_token,
                 corrupt_buffer: [0; MTU],
             };
             let tx = TxToken {
-                state:  &self.state,
-                config: self.config,
+                state:  &state,
+                config: config,
                 token:  tx_token,
                 junk:   [0; MTU],
             };
@@ -218,9 +219,10 @@ impl<'a, D> Device<'a> for FaultInjector<D>
     }
 
     fn transmit(&'a mut self) -> Option<Self::TxToken> {
-        self.inner.transmit().map(move |token| TxToken {
-            state:  &self.state,
-            config: self.config,
+        let &mut Self { ref mut inner, ref state, config } = self;
+        inner.transmit().map(|token| TxToken {
+            state:  &state,
+            config: config,
             token: token,
             junk:   [0; MTU],
         })
