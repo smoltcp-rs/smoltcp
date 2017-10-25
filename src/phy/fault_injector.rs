@@ -185,13 +185,11 @@ impl<D: for<'a> Device<'a>> FaultInjector<D> {
     }
 }
 
-impl<'a, DR, DT, D> Device<'a> for FaultInjector<D>
-    where D: for<'b> Device<'b, RxToken=DR, TxToken=DT>,
-          DR: phy::RxToken,
-          DT: phy::TxToken,
+impl<'a, D> Device<'a> for FaultInjector<D>
+    where D: for<'b> Device<'b>,
 {
-    type RxToken = RxToken<'a, DR>;
-    type TxToken = TxToken<'a, DT>;
+    type RxToken = RxToken<'a, <D as Device<'a>>::RxToken>;
+    type TxToken = TxToken<'a, <D as Device<'a>>::TxToken>;
 
     fn capabilities(&self) -> DeviceCapabilities {
         let mut caps = self.inner.capabilities();

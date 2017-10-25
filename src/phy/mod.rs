@@ -228,8 +228,8 @@ pub struct DeviceCapabilities {
 }
 
 pub trait Device<'a> {
-    type RxToken: RxToken;
-    type TxToken: TxToken;
+    type RxToken: RxToken + 'a;
+    type TxToken: TxToken + 'a;
 
     fn receive(&'a mut self) -> Option<(Self::RxToken, Self::TxToken)>;
     fn transmit(&'a mut self) -> Option<Self::TxToken>;

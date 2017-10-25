@@ -129,13 +129,12 @@ impl<D: for<'a> Device<'a>, S: PcapSink + Clone> PcapWriter<D, S> {
     }
 }
 
-impl<'a, DR, DT, D, S: PcapSink + Clone> Device<'a> for PcapWriter<D, S>
-    where D: for<'b> Device<'b, RxToken=DR, TxToken=DT>,
-          DR: phy::RxToken,
-          DT: phy::TxToken,
+impl<'a, D, S> Device<'a> for PcapWriter<D, S>
+    where D: for<'b> Device<'b>,
+          S: PcapSink + Clone + 'a,
 {
-    type RxToken = RxToken<DR, S>;
-    type TxToken = TxToken<DT, S>;
+    type RxToken = RxToken<<D as Device<'a>>::RxToken, S>;
+    type TxToken = TxToken<<D as Device<'a>>::TxToken, S>;
 
     fn capabilities(&self) -> DeviceCapabilities { self.lower.capabilities() }
 

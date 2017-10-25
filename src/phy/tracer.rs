@@ -28,13 +28,12 @@ impl<D: for<'a> Device<'a>, P: PrettyPrint> Tracer<D, P> {
     }
 }
 
-impl<'a, DR, DT, D, P: PrettyPrint> Device<'a> for Tracer<D, P>
-    where D: for<'b> Device<'b, RxToken=DR, TxToken=DT>,
-          DR: phy::RxToken,
-          DT: phy::TxToken,
+impl<'a, D, P> Device<'a> for Tracer<D, P>
+    where D: for<'b> Device<'b>,
+          P: PrettyPrint + 'a,
 {
-    type RxToken = RxToken<DR, P>;
-    type TxToken = TxToken<DT, P>;
+    type RxToken = RxToken<<D as Device<'a>>::RxToken, P>;
+    type TxToken = TxToken<<D as Device<'a>>::TxToken, P>;
 
     fn capabilities(&self) -> DeviceCapabilities { self.inner.capabilities() }
 
