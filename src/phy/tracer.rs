@@ -55,12 +55,12 @@ impl<'a, D, P> Device<'a> for Tracer<D, P>
 }
 
 #[doc(hidden)]
-pub struct RxToken<T: phy::RxToken, P: PrettyPrint> {
-    token:     T,
+pub struct RxToken<Rx: phy::RxToken, P: PrettyPrint> {
+    token:     Rx,
     writer:    fn(u64, PrettyPrinter<P>)
 }
 
-impl<T: phy::RxToken, P: PrettyPrint> phy::RxToken for RxToken<T, P> {
+impl<Rx: phy::RxToken, P: PrettyPrint> phy::RxToken for RxToken<Rx, P> {
     fn consume<R, F: FnOnce(&[u8]) -> Result<R>>(self, timestamp: u64, f: F) -> Result<R> {
         let Self { token, writer } = self;
         token.consume(timestamp, |buffer| {
@@ -71,12 +71,12 @@ impl<T: phy::RxToken, P: PrettyPrint> phy::RxToken for RxToken<T, P> {
 }
 
 #[doc(hidden)]
-pub struct TxToken<T: phy::TxToken, P: PrettyPrint> {
-    token:     T,
+pub struct TxToken<Tx: phy::TxToken, P: PrettyPrint> {
+    token:     Tx,
     writer:    fn(u64, PrettyPrinter<P>)
 }
 
-impl<T: phy::TxToken, P: PrettyPrint> phy::TxToken for TxToken<T, P> {
+impl<Tx: phy::TxToken, P: PrettyPrint> phy::TxToken for TxToken<Tx, P> {
     fn consume<R, F: FnOnce(&mut [u8]) -> R>(self, timestamp: u64, len: usize, f: F) -> R {
         let Self { token, writer } = self;
         token.consume(timestamp, len, |buffer| {

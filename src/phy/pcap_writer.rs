@@ -156,13 +156,13 @@ impl<'a, D, S> Device<'a> for PcapWriter<D, S>
 }
 
 #[doc(hidden)]
-pub struct RxToken<T: phy::RxToken, S: PcapSink> {
-    token:     T,
+pub struct RxToken<Rx: phy::RxToken, S: PcapSink> {
+    token:     Rx,
     sink:      S,
     mode:      PcapMode
 }
 
-impl<T: phy::RxToken, S: PcapSink> phy::RxToken for RxToken<T, S> {
+impl<Rx: phy::RxToken, S: PcapSink> phy::RxToken for RxToken<Rx, S> {
     fn consume<R, F: FnOnce(&[u8]) -> Result<R>>(self, timestamp: u64, f: F) -> Result<R> {
         let Self { token, sink, mode } = self;
         token.consume(timestamp, |buffer| {
@@ -177,13 +177,13 @@ impl<T: phy::RxToken, S: PcapSink> phy::RxToken for RxToken<T, S> {
 }
 
 #[doc(hidden)]
-pub struct TxToken<T: phy::TxToken, S: PcapSink> {
-    token:     T,
+pub struct TxToken<Tx: phy::TxToken, S: PcapSink> {
+    token:     Tx,
     sink:      S,
     mode:      PcapMode
 }
 
-impl<T: phy::TxToken, S: PcapSink> phy::TxToken for TxToken<T, S> {
+impl<Tx: phy::TxToken, S: PcapSink> phy::TxToken for TxToken<Tx, S> {
     fn consume<R, F: FnOnce(&mut [u8]) -> R>(self, timestamp: u64, len: usize, f: F) -> R {
         let Self { token, sink, mode } = self;
         token.consume(timestamp, len, |buffer| {

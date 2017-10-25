@@ -230,14 +230,14 @@ impl<'a, D> Device<'a> for FaultInjector<D>
 }
 
 #[doc(hidden)]
-pub struct RxToken<'a, T: phy::RxToken> {
+pub struct RxToken<'a, Rx: phy::RxToken> {
     state:          &'a RefCell<State>,
     config:         Config,
-    token:          T,
+    token:          Rx,
     corrupt_buffer: [u8; MTU],
 }
 
-impl<'a, T: phy::RxToken> phy::RxToken for RxToken<'a, T> {
+impl<'a, Rx: phy::RxToken> phy::RxToken for RxToken<'a, Rx> {
     fn consume<R, F: FnOnce(&[u8]) -> Result<R>>(self, timestamp: u64, f: F) -> Result<R> {
         if self.state.borrow_mut().maybe(self.config.drop_pct) {
             net_trace!("rx: randomly dropping a packet");
@@ -267,14 +267,14 @@ impl<'a, T: phy::RxToken> phy::RxToken for RxToken<'a, T> {
 }
 
 #[doc(hidden)]
-pub struct TxToken<'a, T: phy::TxToken> {
+pub struct TxToken<'a, Tx: phy::TxToken> {
     state:  &'a RefCell<State>,
     config: Config,
-    token:  T,
+    token:  Tx,
     junk:   [u8; MTU],
 }
 
-impl<'a, T: phy::TxToken> phy::TxToken for TxToken<'a, T> {
+impl<'a, Tx: phy::TxToken> phy::TxToken for TxToken<'a, Tx> {
     fn consume<R, F: FnOnce(&mut [u8]) -> R>(mut self, timestamp: u64, len: usize, f: F) -> R {
         let drop = if self.state.borrow_mut().maybe(self.config.drop_pct) {
             net_trace!("tx: randomly dropping a packet");
