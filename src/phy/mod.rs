@@ -19,87 +19,81 @@
 //!
 /*!
 ```rust
-use std::slice;
-use smoltcp::{Error, Result};
-use smoltcp::phy::{DeviceCapabilities, Device};
+use smoltcp::Result;
+use smoltcp::phy::{self, DeviceCapabilities, Device};
 
-const TX_BUFFERS: [*mut u8; 2] = [0x10000000 as *mut u8, 0x10001000 as *mut u8];
-const RX_BUFFERS: [*mut u8; 2] = [0x10002000 as *mut u8, 0x10003000 as *mut u8];
-
-fn rx_full() -> bool {
-    /* platform-specific code to check if an incoming packet has arrived */
-    false
+struct StmPhy {
+    rx_buffer: [u8; 1536],
+    tx_buffer: [u8; 1536],
 }
 
-fn rx_setup(_buf: *mut u8, _length: &mut usize) {
-    /* platform-specific code to receive a packet into a buffer */
+impl<'a> StmPhy {
+    fn new() -> StmPhy {
+        StmPhy {
+            rx_buffer: [0; 1536],
+            tx_buffer: [0; 1536],
+        }
+    }
 }
 
-fn tx_empty() -> bool {
-    /* platform-specific code to check if an outgoing packet can be sent */
-    false
-}
+impl<'a> phy::Device<'a> for StmPhy {
+    type RxToken = StmPhyRxToken<'a>;
+    type TxToken = StmPhyTxToken<'a>;
 
-fn tx_setup(_buf: *const u8, _length: usize) {
-    /* platform-specific code to send a buffer with a packet */
-}
+    fn receive(&'a mut self) -> Option<(Self::RxToken, Self::TxToken)> {
+        Some((StmPhyRxToken(&mut self.rx_buffer[..]),
+              StmPhyTxToken(&mut self.tx_buffer[..])))
+    }
 
-# #[allow(dead_code)]
-pub struct EthernetDevice {
-    tx_next: usize,
-    rx_next: usize
-}
-
-impl Device for EthernetDevice {
-    type RxBuffer = &'static [u8];
-    type TxBuffer = EthernetTxBuffer;
+    fn transmit(&'a mut self) -> Option<Self::TxToken> {
+        Some(StmPhyTxToken(&mut self.tx_buffer[..]))
+    }
 
     fn capabilities(&self) -> DeviceCapabilities {
-        let mut caps = DeviceCapabilities::default();
-        caps.max_transmission_unit = 1536;
-        caps.max_burst_size = Some(2);
-        caps
-    }
-
-    fn receive(&mut self, _timestamp: u64) -> Result<Self::RxBuffer> {
-        if rx_full() {
-            let index = self.rx_next;
-            self.rx_next = (self.rx_next + 1) % RX_BUFFERS.len();
-            let mut length = 0;
-            rx_setup(RX_BUFFERS[self.rx_next], &mut length);
-            Ok(unsafe {
-                slice::from_raw_parts(RX_BUFFERS[index], length)
-            })
-        } else {
-            Err(Error::Exhausted)
-        }
-    }
-
-    fn transmit(&mut self, _timestamp: u64, length: usize) -> Result<Self::TxBuffer> {
-        if tx_empty() {
-            let index = self.tx_next;
-            self.tx_next = (self.tx_next + 1) % TX_BUFFERS.len();
-            Ok(EthernetTxBuffer(unsafe {
-                slice::from_raw_parts_mut(TX_BUFFERS[index], length)
-            }))
-        } else {
-            Err(Error::Exhausted)
-        }
+        DeviceCapabilities::default()
     }
 }
 
-pub struct EthernetTxBuffer(&'static mut [u8]);
+struct StmPhyRxToken<'a>(&'a [u8]);
 
-impl AsRef<[u8]> for EthernetTxBuffer {
-    fn as_ref(&self) -> &[u8] { self.0 }
+impl<'a> phy::RxToken for StmPhyRxToken<'a> {
+    fn consume<R, F: FnOnce(&[u8]) -> Result<R>>(self, _timestamp: u64, f: F) -> Result<R> {
+        // TODO: receive packet into buffer
+        let ret = f(self.0);
+        println!("rx called");
+        ret
+    }
 }
 
-impl AsMut<[u8]> for EthernetTxBuffer {
-    fn as_mut(&mut self) -> &mut [u8] { self.0 }
+struct StmPhyTxToken<'a>(&'a mut [u8]);
+
+impl<'a> phy::TxToken for StmPhyTxToken<'a> {
+    fn consume<R, F: FnOnce(&mut [u8]) -> R>(self, _timestamp: u64, len: usize, f: F) -> R {
+        let ret = f(&mut self.0[..len]);
+        println!("tx called {}", len);
+        // TODO: send packet out
+        ret
+    }
 }
 
-impl Drop for EthernetTxBuffer {
-    fn drop(&mut self) { tx_setup(self.0.as_ptr(), self.0.len()) }
+fn main() {
+    use smoltcp::phy::{TxToken, RxToken};
+
+    let mut phy = StmPhy::new();
+    if let Some(tx_token) = phy.transmit() {
+        tx_token.consume(0, 40, |buf| {
+            println!("got tx buf len {}", buf.len());
+        });
+    }
+    if let Some((rx_token, tx_token)) = phy.receive() {
+        rx_token.consume(0, |buf| {
+            println!("got rx buf");
+            Ok(())
+        });
+        tx_token.consume(0, 80, |buf| {
+            println!("got tx buf len {}", buf.len());
+        });
+    }
 }
 ```
 */
