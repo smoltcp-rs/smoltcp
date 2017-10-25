@@ -87,7 +87,7 @@ impl<'a, 'b: 'a, 'c: 'a + 'b> Set<'a, 'b, 'c> {
     pub fn get<T: AnySocket<'b, 'c>>(&mut self, handle: Handle) -> SocketRef<T> {
         match self.sockets[handle.0].as_mut() {
             Some(item) => {
-                T::downcast(SocketRef::new(&mut item.socket))
+                T::downcast(SocketRef::wrap(&mut item.socket))
                   .expect("handle refers to a socket of a wrong type")
             }
             None => panic!("handle does not refer to a valid socket")
@@ -209,7 +209,7 @@ impl<'a, 'b: 'a, 'c: 'a + 'b> Iterator for IterMut<'a, 'b, 'c> {
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(item_opt) = self.lower.next() {
             if let Some(item) = item_opt.as_mut() {
-                return Some(SocketRef::new(&mut item.socket))
+                return Some(SocketRef::wrap(&mut item.socket))
             }
         }
         None

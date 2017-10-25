@@ -32,21 +32,29 @@ pub struct Ref<'a, T: Session + 'a> {
     consumed: bool,
 }
 
-impl<'a, T: Session> Ref<'a, T> {
-    pub(crate) fn new(socket: &'a mut T) -> Self {
+impl<'a, T: Session + 'a> Ref<'a, T> {
+    /// Wrap a pointer to a socket to make a smart pointer.
+    ///
+    /// Calling this function is only necessary if your code is using [unwrap].
+    ///
+    /// [unwrap]: #method.unwrap
+    pub fn wrap(socket: &'a mut T) -> Self {
         Ref { socket, consumed: false }
     }
-}
 
-impl<'a, T: Session + 'a> Ref<'a, T> {
-    pub(crate) fn map<U, F>(mut ref_: Self, f: F) -> Option<Ref<'a, U>>
-            where U: Session + 'a, F: FnOnce(&'a mut T) -> Option<&'a mut U> {
-        if let Some(socket) = f(ref_.socket) {
-            ref_.consumed = true;
-            Some(Ref::new(socket))
-        } else {
-            None
-        }
+    /// Unwrap a smart pointer to a socket.
+    ///
+    /// The finalization code is not run. Prompt operation of the network stack depends
+    /// on wrapping the returned pointer back and dropping it.
+    ///
+    /// Calling this function is only necessary to achieve composability if you *must*
+    /// map a `&mut SocketRef<'a, XSocket>` to a `&'a mut XSocket` (note the lifetimes);
+    /// be sure to call [wrap] afterwards.
+    ///
+    /// [wrap]: #method.wrap
+    pub fn unwrap(mut ref_: Self) -> &'a mut T {
+        ref_.consumed = true;
+        ref_.socket
     }
 }
 

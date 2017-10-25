@@ -108,12 +108,10 @@ macro_rules! from_socket {
         impl<'a, 'b> AnySocket<'a, 'b> for $socket {
             fn downcast<'c>(ref_: SocketRef<'c, Socket<'a, 'b>>) ->
                            Option<SocketRef<'c, Self>> {
-                SocketRef::map(ref_, |socket| {
-                    match *socket {
-                        Socket::$variant(ref mut socket) => Some(socket),
-                        _ => None,
-                    }
-                })
+                match SocketRef::unwrap(ref_) {
+                    &mut Socket::$variant(ref mut socket) => Some(SocketRef::wrap(socket)),
+                    _ => None,
+                }
             }
         }
     }
