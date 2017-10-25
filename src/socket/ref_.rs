@@ -35,10 +35,10 @@ pub struct Ref<'a, T: Session + 'a> {
 impl<'a, T: Session + 'a> Ref<'a, T> {
     /// Wrap a pointer to a socket to make a smart pointer.
     ///
-    /// Calling this function is only necessary if your code is using [unwrap].
+    /// Calling this function is only necessary if your code is using [into_inner].
     ///
-    /// [unwrap]: #method.unwrap
-    pub fn wrap(socket: &'a mut T) -> Self {
+    /// [into_inner]: #method.into_inner
+    pub fn new(socket: &'a mut T) -> Self {
         Ref { socket, consumed: false }
     }
 
@@ -49,10 +49,10 @@ impl<'a, T: Session + 'a> Ref<'a, T> {
     ///
     /// Calling this function is only necessary to achieve composability if you *must*
     /// map a `&mut SocketRef<'a, XSocket>` to a `&'a mut XSocket` (note the lifetimes);
-    /// be sure to call [wrap] afterwards.
+    /// be sure to call [new] afterwards.
     ///
-    /// [wrap]: #method.wrap
-    pub fn unwrap(mut ref_: Self) -> &'a mut T {
+    /// [new]: #method.new
+    pub fn into_inner(mut ref_: Self) -> &'a mut T {
         ref_.consumed = true;
         ref_.socket
     }

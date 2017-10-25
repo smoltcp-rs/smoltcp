@@ -108,8 +108,8 @@ macro_rules! from_socket {
         impl<'a, 'b> AnySocket<'a, 'b> for $socket {
             fn downcast<'c>(ref_: SocketRef<'c, Socket<'a, 'b>>) ->
                            Option<SocketRef<'c, Self>> {
-                match SocketRef::unwrap(ref_) {
-                    &mut Socket::$variant(ref mut socket) => Some(SocketRef::wrap(socket)),
+                match SocketRef::into_inner(ref_) {
+                    &mut Socket::$variant(ref mut socket) => Some(SocketRef::new(socket)),
                     _ => None,
                 }
             }
