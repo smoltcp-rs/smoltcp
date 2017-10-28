@@ -159,6 +159,13 @@ impl Timer {
             expires_at: timestamp + CLOSE_DELAY
         }
     }
+
+    fn is_retransmit(&self) -> bool {
+        match *self {
+            Timer::Retransmit {..} => true,
+            _ => false,
+        }
+    }
 }
 
 /// A Transmission Control Protocol socket.
@@ -1025,9 +1032,12 @@ impl<'a> TcpSocket<'a> {
                 self.timer.set_for_idle(timestamp, self.keep_alive);
             }
 
-            // ACK packets in ESTABLISHED state reset the retransmit timer.
+            // ACK packets in ESTABLISHED state reset the retransmit timer,
+            // except for duplicate ACK packets which preserve it.
             (State::Established, TcpControl::None) => {
-                self.timer.set_for_idle(timestamp, self.keep_alive);
+                if !self.timer.is_retransmit() || ack_len != 0 {
+                    self.timer.set_for_idle(timestamp, self.keep_alive);
+                }
             },
 
             // FIN packets in ESTABLISHED state indicate the remote side has closed.
@@ -2887,6 +2897,34 @@ mod test {
             payload:    &b"abcdef"[..],
             ..RECV_TEMPL
         }])
+    }
+
+    #[test]
+    fn test_established_retransmit_for_dup_ack() {
+        let mut s = socket_established();
+        // Duplicate ACKs do not replace the retransmission timer
+        s.send_slice(b"abc").unwrap();
+        recv!(s, time 1000, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"abc"[..],
+            ..RECV_TEMPL
+        }));
+        // Retransmit timer is on because all data was sent
+        assert_eq!(s.tx_buffer.len(), 3);
+        // ACK nothing new
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            ..SEND_TEMPL
+        });
+        // Retransmit
+        recv!(s, time 4000, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"abc"[..],
+            ..RECV_TEMPL
+        }));
     }
 
     #[test]
