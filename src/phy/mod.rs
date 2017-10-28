@@ -50,7 +50,10 @@ impl<'a> phy::Device<'a> for StmPhy {
     }
 
     fn capabilities(&self) -> DeviceCapabilities {
-        DeviceCapabilities::default()
+        let mut caps = DeviceCapabilities::default();
+        caps.max_transmission_unit = 1536;
+        caps.max_burst_size = Some(1);
+        caps
     }
 }
 
