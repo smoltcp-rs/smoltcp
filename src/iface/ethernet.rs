@@ -690,7 +690,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
 mod test {
     use std::boxed::Box;
     use super::Packet;
-    use phy::{Loopback, ChecksumCapabilities};
+    use phy::{self, Loopback, ChecksumCapabilities};
     use wire::{ArpOperation, ArpPacket, ArpRepr};
     use wire::{EthernetAddress, EthernetFrame, EthernetProtocol};
     use wire::{IpAddress, IpCidr, IpProtocol, IpRepr};
@@ -699,6 +699,7 @@ mod test {
     use wire::{UdpPacket, UdpRepr};
     use iface::{ArpCache, SliceArpCache, EthernetInterface};
     use socket::SocketSet;
+    use {Result, Error};
 
     fn create_loopback<'a, 'b>() ->
             (EthernetInterface<'a, 'static, 'b, Loopback>, SocketSet<'static, 'a, 'b>) {
@@ -711,6 +712,16 @@ mod test {
         (EthernetInterface::new(
             Box::new(device), Box::new(arp_cache) as Box<ArpCache>,
             EthernetAddress::default(), [ip_addr], None), SocketSet::new(vec![]))
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct TxTokenDummy;
+
+    impl phy::TxToken for TxTokenDummy {
+        fn consume<R, F: FnOnce(&mut [u8]) -> Result<R>>(self, _: u64, _: usize, _: F) -> Result<R>
+        {
+            Err(Error::__Nonexhaustive)
+        }
     }
 
     #[test]
@@ -744,7 +755,7 @@ mod test {
         // Ensure that the unknown protocol frame does not trigger an
         // ICMP error response when the destination address is a
         // broadcast address
-        assert_eq!(iface.process_ipv4(&mut socket_set, 0, &frame),
+        assert_eq!(iface.inner.process_ipv4(&mut socket_set, 0, &frame),
                    Ok(Packet::None));
     }
 
@@ -801,7 +812,7 @@ mod test {
 
         // Ensure that the unknown protocol triggers an error response.
         // And we correctly handle no payload.
-        assert_eq!(iface.process_ipv4(&mut socket_set, 0, &frame),
+        assert_eq!(iface.inner.process_ipv4(&mut socket_set, 0, &frame),
                    Ok(expected_repr));
     }
 
@@ -866,7 +877,7 @@ mod test {
 
         // Ensure that the unknown protocol triggers an error response.
         // And we correctly handle no payload.
-        assert_eq!(iface.process_udp(&mut socket_set, ip_repr, data),
+        assert_eq!(iface.inner.process_udp(&mut socket_set, ip_repr, data),
                    Ok(expected_repr));
 
         let ip_repr = IpRepr::Ipv4(Ipv4Repr {
@@ -885,8 +896,8 @@ mod test {
         // Ensure that the port unreachable error does not trigger an
         // ICMP error response when the destination address is a
         // broadcast address
-        assert_eq!(iface.process_udp(&mut socket_set, ip_repr, packet_broadcast.into_inner()),
-                   Ok(Packet::None));
+        assert_eq!(iface.inner.process_udp(&mut socket_set, ip_repr,
+                   packet_broadcast.into_inner()), Ok(Packet::None));
 
     }
 
@@ -919,7 +930,7 @@ mod test {
         }
 
         // Ensure an ARP Request for us triggers an ARP Reply
-        assert_eq!(iface.process_ethernet(&mut socket_set, 0, frame.into_inner()),
+        assert_eq!(iface.inner.process_ethernet(&mut socket_set, 0, frame.into_inner()),
                    Ok(Packet::Arp(ArpRepr::EthernetIpv4 {
                        operation: ArpOperation::Reply,
                        source_hardware_addr: local_hw_addr,
@@ -929,10 +940,9 @@ mod test {
                    })));
 
         // Ensure the address of the requestor was entered in the cache
-        assert_eq!(iface.lookup_hardware_addr(0,
-                                              &IpAddress::Ipv4(local_ip_addr),
-                                              &IpAddress::Ipv4(remote_ip_addr)),
-                   Ok(remote_hw_addr));
+        assert_eq!(iface.inner.lookup_hardware_addr(TxTokenDummy, 0,
+            &IpAddress::Ipv4(local_ip_addr), &IpAddress::Ipv4(remote_ip_addr)),
+            Ok((remote_hw_addr, TxTokenDummy)));
     }
 
     #[test]
@@ -962,13 +972,13 @@ mod test {
         }
 
         // Ensure an ARP Request for someone else does not trigger an ARP Reply
-        assert_eq!(iface.process_ethernet(&mut socket_set, 0, frame.into_inner()),
+        assert_eq!(iface.inner.process_ethernet(&mut socket_set, 0, frame.into_inner()),
                    Ok(Packet::None));
 
         // Ensure the address of the requestor was entered in the cache
-        assert_eq!(iface.lookup_hardware_addr(0,
-                                              &IpAddress::Ipv4(Ipv4Address([0x7f, 0x00, 0x00, 0x01])),
-                                              &IpAddress::Ipv4(remote_ip_addr)),
-                   Ok(remote_hw_addr));
+        assert_eq!(iface.inner.lookup_hardware_addr(TxTokenDummy, 0,
+            &IpAddress::Ipv4(Ipv4Address([0x7f, 0x00, 0x00, 0x01])),
+            &IpAddress::Ipv4(remote_ip_addr)),
+            Ok((remote_hw_addr, TxTokenDummy)));
     }
 }
