@@ -90,7 +90,9 @@ pub struct TxToken {
 }
 
 impl phy::TxToken for TxToken {
-    fn consume<R, F: FnOnce(&mut [u8]) -> R>(self, _timestamp: u64, len: usize, f: F) -> R {
+    fn consume<R, F: FnOnce(&mut [u8]) -> Result<R>>(self, _timestamp: u64, len: usize, f: F)
+        -> Result<R>
+    {
         let mut lower = self.lower.borrow_mut();
         let mut buffer = vec![0; len];
         let ret = f(&mut buffer);

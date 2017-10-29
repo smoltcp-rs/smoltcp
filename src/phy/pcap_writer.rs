@@ -184,7 +184,9 @@ pub struct TxToken<Tx: phy::TxToken, S: PcapSink> {
 }
 
 impl<Tx: phy::TxToken, S: PcapSink> phy::TxToken for TxToken<Tx, S> {
-    fn consume<R, F: FnOnce(&mut [u8]) -> R>(self, timestamp: u64, len: usize, f: F) -> R {
+    fn consume<R, F: FnOnce(&mut [u8]) -> Result<R>>(self, timestamp: u64, len: usize, f: F)
+        -> Result<R>
+    {
         let Self { token, sink, mode } = self;
         token.consume(timestamp, len, |buffer| {
             let ret = f(buffer);

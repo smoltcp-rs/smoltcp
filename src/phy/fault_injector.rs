@@ -275,7 +275,9 @@ pub struct TxToken<'a, Tx: phy::TxToken> {
 }
 
 impl<'a, Tx: phy::TxToken> phy::TxToken for TxToken<'a, Tx> {
-    fn consume<R, F: FnOnce(&mut [u8]) -> R>(mut self, timestamp: u64, len: usize, f: F) -> R {
+    fn consume<R, F: FnOnce(&mut [u8]) -> Result<R>>(mut self, timestamp: u64, len: usize, f: F)
+        -> Result<R>
+    {
         let drop = if self.state.borrow_mut().maybe(self.config.drop_pct) {
             net_trace!("tx: randomly dropping a packet");
             true

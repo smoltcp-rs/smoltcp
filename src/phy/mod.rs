@@ -71,7 +71,9 @@ impl<'a> phy::RxToken for StmPhyRxToken<'a> {
 struct StmPhyTxToken<'a>(&'a mut [u8]);
 
 impl<'a> phy::TxToken for StmPhyTxToken<'a> {
-    fn consume<R, F: FnOnce(&mut [u8]) -> R>(self, _timestamp: u64, len: usize, f: F) -> R {
+    fn consume<R, F: FnOnce(&mut [u8]) -> Result<R>>(self, _timestamp: u64, len: usize, f: F)
+        -> Result<R>
+    {
         let ret = f(&mut self.0[..len]);
         println!("tx called {}", len);
         // TODO: send packet out
@@ -86,6 +88,7 @@ fn main() {
     if let Some(tx_token) = phy.transmit() {
         tx_token.consume(0, 40, |buf| {
             println!("got tx buf len {}", buf.len());
+            Ok(())
         });
     }
     if let Some((rx_token, tx_token)) = phy.receive() {
@@ -95,6 +98,7 @@ fn main() {
         });
         tx_token.consume(0, 80, |buf| {
             println!("got tx buf len {}", buf.len());
+            Ok(())
         });
     }
 }
@@ -272,5 +276,6 @@ pub trait TxToken {
     ///
     /// The timestamp must be a number of milliseconds, monotonically increasing since an
     /// arbitrary moment in time, such as system startup.
-    fn consume<R, F: FnOnce(&mut [u8]) -> R>(self, timestamp: u64, len: usize, f: F) -> R;
+    fn consume<R, F: FnOnce(&mut [u8]) -> Result<R>>(self, timestamp: u64, len: usize, f: F)
+        -> Result<R>;
 }

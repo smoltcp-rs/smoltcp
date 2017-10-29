@@ -77,7 +77,9 @@ pub struct TxToken<Tx: phy::TxToken, P: PrettyPrint> {
 }
 
 impl<Tx: phy::TxToken, P: PrettyPrint> phy::TxToken for TxToken<Tx, P> {
-    fn consume<R, F: FnOnce(&mut [u8]) -> R>(self, timestamp: u64, len: usize, f: F) -> R {
+    fn consume<R, F: FnOnce(&mut [u8]) -> Result<R>>(self, timestamp: u64, len: usize, f: F)
+        -> Result<R>
+    {
         let Self { token, writer } = self;
         token.consume(timestamp, len, |buffer| {
             let result = f(buffer);

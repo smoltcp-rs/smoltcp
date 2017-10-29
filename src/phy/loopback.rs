@@ -71,7 +71,9 @@ pub struct TxToken<'a> {
 }
 
 impl<'a> phy::TxToken for TxToken<'a> {
-    fn consume<R, F: FnOnce(&mut [u8]) -> R>(self, _timestamp: u64, len: usize, f: F) -> R {
+    fn consume<R, F: FnOnce(&mut [u8]) -> Result<R>>(self, _timestamp: u64, len: usize, f: F)
+        -> Result<R>
+    {
         let mut buffer = Vec::new();
         buffer.resize(len, 0);
         let result = f(&mut buffer);
