@@ -232,8 +232,7 @@ pub struct DeviceCapabilities {
 ///
 /// The interface is based on _tokens_, which are types that allow to receive/transmit a
 /// single packet. The `receive` and `transmit` functions only construct such tokens, the
-/// real sending/receiving operation are performed performed when the tokens are
-/// consumed.
+/// real sending/receiving operation are performed when the tokens are consumed.
 pub trait Device<'a> {
     type RxToken: RxToken + 'a;
     type TxToken: TxToken + 'a;
