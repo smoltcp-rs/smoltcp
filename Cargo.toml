@@ -31,9 +31,11 @@ verbose = []
 "socket-raw" = []
 "socket-udp" = []
 "socket-tcp" = []
+"socket-icmp" = []
 default = ["std", "log",
   "phy-raw_socket", "phy-tap_interface",
-  "socket-raw", "socket-udp", "socket-tcp"]
+  "socket-raw", "socket-udp", "socket-tcp",
+  "socket-icmp"]
 
 [[example]]
 name = "tcpdump"

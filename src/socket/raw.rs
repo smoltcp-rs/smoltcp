@@ -3,8 +3,8 @@ use managed::Managed;
 
 use {Error, Result};
 use phy::ChecksumCapabilities;
-use wire::{IpVersion, IpProtocol, Ipv4Repr, Ipv4Packet};
-use socket::{IpRepr, Socket, SocketHandle};
+use wire::{IpVersion, IpRepr, IpProtocol, Ipv4Repr, Ipv4Packet};
+use socket::{Socket, SocketHandle};
 use storage::{Resettable, RingBuffer};
 
 /// A buffered raw IP packet.

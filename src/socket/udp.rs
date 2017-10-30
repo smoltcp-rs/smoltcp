@@ -2,8 +2,8 @@ use core::cmp::min;
 use managed::Managed;
 
 use {Error, Result};
-use wire::{IpProtocol, IpEndpoint, UdpRepr};
-use socket::{Socket, SocketHandle, IpRepr};
+use wire::{IpProtocol, IpRepr, IpEndpoint, UdpRepr};
+use socket::{Socket, SocketHandle};
 use storage::{Resettable, RingBuffer};
 
 /// A buffered UDP packet.

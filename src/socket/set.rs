@@ -144,6 +144,9 @@ impl<'a, 'b: 'a, 'c: 'a + 'b> Set<'a, 'b, 'c> {
                     #[cfg(feature = "socket-raw")]
                     &mut Socket::Raw(_) =>
                         may_remove = true,
+                    #[cfg(feature = "socket-icmp")]
+                    &mut Socket::Icmp(_) =>
+                        may_remove = true,
                     #[cfg(feature = "socket-udp")]
                     &mut Socket::Udp(_) =>
                         may_remove = true,
