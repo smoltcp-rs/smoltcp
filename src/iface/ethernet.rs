@@ -1,6 +1,7 @@
 // Heads up! Before working on this file you should read the parts
 // of RFC 1122 that discuss Ethernet, ARP and IP.
 
+use core::cmp;
 use managed::{Managed, ManagedSlice};
 
 use {Error, Result};
@@ -158,6 +159,26 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
             Ok(Some(0))
         } else {
             Ok(sockets.iter().filter_map(|socket| socket.poll_at()).min())
+        }
+    }
+
+    fn icmpv4_reply<'frame, 'icmp: 'frame>(&self,
+                                           ipv4_repr: Ipv4Repr,
+                                           icmp_repr: Icmpv4Repr<'icmp>)
+            -> Packet<'frame> {
+        if ipv4_repr.dst_addr.is_unicast() {
+            let ipv4_reply_repr = Ipv4Repr {
+                src_addr:    ipv4_repr.dst_addr,
+                dst_addr:    ipv4_repr.src_addr,
+                protocol:    IpProtocol::Icmp,
+                payload_len: icmp_repr.buffer_len(),
+                ttl:         64
+            };
+            Packet::Icmpv4(ipv4_reply_repr, icmp_repr)
+        } else {
+            // Do not send Protocol Unreachable ICMPv4 error responses to datagrams
+            // with a broadcast destination address.
+            Packet::None
         }
     }
 
@@ -363,19 +384,15 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                 Ok(Packet::None),
 
             _ => {
+                // Send back as much of the original payload as we can
+                let payload_len = cmp::min(
+                    ip_payload.len(), self.device.capabilities().max_transmission_unit);
                 let icmp_reply_repr = Icmpv4Repr::DstUnreachable {
                     reason: Icmpv4DstUnreachable::ProtoUnreachable,
                     header: ipv4_repr,
-                    data:   &ip_payload[0..8]
+                    data:   &ip_payload[0..payload_len]
                 };
-                let ipv4_reply_repr = Ipv4Repr {
-                    src_addr:    ipv4_repr.dst_addr,
-                    dst_addr:    ipv4_repr.src_addr,
-                    protocol:    IpProtocol::Icmp,
-                    payload_len: icmp_reply_repr.buffer_len(),
-                    ttl:         64,
-                };
-                Ok(Packet::Icmpv4(ipv4_reply_repr, icmp_reply_repr))
+                Ok(self.icmpv4_reply(ipv4_repr, icmp_reply_repr))
             }
         }
     }
@@ -394,14 +411,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
                     seq_no: seq_no,
                     data:   data
                 };
-                let ipv4_reply_repr = Ipv4Repr {
-                    src_addr:    ipv4_repr.dst_addr,
-                    dst_addr:    ipv4_repr.src_addr,
-                    protocol:    IpProtocol::Icmp,
-                    payload_len: icmp_reply_repr.buffer_len(),
-                    ttl:         64
-                };
-                Ok(Packet::Icmpv4(ipv4_reply_repr, icmp_reply_repr))
+                Ok(self.icmpv4_reply(ipv4_repr, icmp_reply_repr))
             }
 
             // Ignore any echo replies.
@@ -435,19 +445,15 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
         // The packet wasn't handled by a socket, send an ICMP port unreachable packet.
         match ip_repr {
             IpRepr::Ipv4(ipv4_repr) => {
+                // Send back as much of the original payload as we can
+                let payload_len = cmp::min(
+                    ip_payload.len(), self.device.capabilities().max_transmission_unit);
                 let icmpv4_reply_repr = Icmpv4Repr::DstUnreachable {
                     reason: Icmpv4DstUnreachable::PortUnreachable,
                     header: ipv4_repr,
-                    data:   &ip_payload[0..8]
+                    data:   &ip_payload[0..payload_len]
                 };
-                let ipv4_reply_repr = Ipv4Repr {
-                    src_addr:    ipv4_repr.dst_addr,
-                    dst_addr:    ipv4_repr.src_addr,
-                    protocol:    IpProtocol::Icmp,
-                    payload_len: icmpv4_reply_repr.buffer_len(),
-                    ttl:         64,
-                };
-                Ok(Packet::Icmpv4(ipv4_reply_repr, icmpv4_reply_repr))
+                Ok(self.icmpv4_reply(ipv4_repr, icmpv4_reply_repr))
             },
             IpRepr::Unspecified { .. } |
             IpRepr::__Nonexhaustive =>
@@ -647,7 +653,7 @@ impl<'a, 'b, 'c, DeviceT: Device + 'a> Interface<'a, 'b, 'c, DeviceT> {
 }
 
 #[cfg(test)]
-mod tests {
+mod test {
     use std::boxed::Box;
     use super::Packet;
     use phy::{Loopback, ChecksumCapabilities};
@@ -655,6 +661,8 @@ mod tests {
     use wire::{EthernetAddress, EthernetFrame, EthernetProtocol};
     use wire::{IpAddress, IpCidr, IpProtocol, IpRepr};
     use wire::{Ipv4Address, Ipv4Repr};
+    use wire::{Icmpv4Repr, Icmpv4DstUnreachable};
+    use wire::{UdpPacket, UdpRepr};
     use iface::{ArpCache, SliceArpCache, EthernetInterface};
     use socket::SocketSet;
 
@@ -704,6 +712,148 @@ mod tests {
         // broadcast address
         assert_eq!(iface.process_ipv4(&mut socket_set, 0, &frame),
                    Ok(Packet::None));
+    }
+
+    #[test]
+    fn icmp_error_no_payload() {
+        static NO_BYTES: [u8; 0] = [];
+        let (mut iface, mut socket_set) = create_loopback();
+
+        let mut eth_bytes = vec![0u8; 34];
+
+        // Unknown Ipv4 Protocol with no payload
+        let repr = IpRepr::Ipv4(Ipv4Repr {
+            src_addr:    Ipv4Address([0x7f, 0x00, 0x00, 0x02]),
+            dst_addr:    Ipv4Address([0x7f, 0x00, 0x00, 0x01]),
+            protocol:    IpProtocol::Unknown(0x0c),
+            payload_len: 0,
+            ttl:         0x40
+        });
+
+        // emit the above repr to a frame
+        let frame = {
+            let mut frame = EthernetFrame::new(&mut eth_bytes);
+            frame.set_dst_addr(EthernetAddress([0x00, 0x00, 0x00, 0x00, 0x00, 0x00]));
+            frame.set_src_addr(EthernetAddress([0x52, 0x54, 0x00, 0x00, 0x00, 0x00]));
+            frame.set_ethertype(EthernetProtocol::Ipv4);
+            repr.emit(frame.payload_mut(), &ChecksumCapabilities::default());
+            EthernetFrame::new(&*frame.into_inner())
+        };
+
+        // The expected Destination Unreachable response due to the
+        // unknown protocol
+        let icmp_repr = Icmpv4Repr::DstUnreachable {
+            reason: Icmpv4DstUnreachable::ProtoUnreachable,
+            header: Ipv4Repr {
+                src_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x02]),
+                dst_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x01]),
+                protocol: IpProtocol::Unknown(12),
+                payload_len: 0,
+                ttl: 64
+            },
+            data: &NO_BYTES
+        };
+
+        let expected_repr = Packet::Icmpv4(
+            Ipv4Repr {
+                src_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x01]),
+                dst_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x02]),
+                protocol: IpProtocol::Icmp,
+                payload_len: icmp_repr.buffer_len(),
+                ttl: 64
+            },
+            icmp_repr
+        );
+
+        // Ensure that the unknown protocol triggers an error response.
+        // And we correctly handle no payload.
+        assert_eq!(iface.process_ipv4(&mut socket_set, 0, &frame),
+                   Ok(expected_repr));
+    }
+
+    #[test]
+    fn icmp_error_port_unreachable() {
+        static UDP_PAYLOAD: [u8; 12] = [
+            0x48, 0x65, 0x6c, 0x6c,
+            0x6f, 0x2c, 0x20, 0x57,
+            0x6f, 0x6c, 0x64, 0x21
+        ];
+        let (iface, mut socket_set) = create_loopback();
+
+        let mut udp_bytes_unicast = vec![0u8; 20];
+        let mut udp_bytes_broadcast = vec![0u8; 20];
+        let mut packet_unicast = UdpPacket::new(&mut udp_bytes_unicast);
+        let mut packet_broadcast = UdpPacket::new(&mut udp_bytes_broadcast);
+
+        // Unknown Ipv4 Protocol with no payload
+        let udp_repr = UdpRepr {
+            src_port: 67,
+            dst_port: 68,
+            payload:  &UDP_PAYLOAD
+        };
+
+        let ip_repr = IpRepr::Ipv4(Ipv4Repr {
+            src_addr:    Ipv4Address([0x7f, 0x00, 0x00, 0x02]),
+            dst_addr:    Ipv4Address([0x7f, 0x00, 0x00, 0x01]),
+            protocol:    IpProtocol::Udp,
+            payload_len: udp_repr.buffer_len(),
+            ttl:         64
+        });
+
+        // Emit the representations to a packet
+        udp_repr.emit(&mut packet_unicast, &ip_repr.src_addr(),
+                      &ip_repr.dst_addr(), &ChecksumCapabilities::default());
+
+        let data = packet_unicast.into_inner();
+
+        // The expected Destination Unreachable ICMPv4 error response due
+        // to no sockets listening on the destination port.
+        let icmp_repr = Icmpv4Repr::DstUnreachable {
+            reason: Icmpv4DstUnreachable::PortUnreachable,
+            header: Ipv4Repr {
+                src_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x02]),
+                dst_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x01]),
+                protocol: IpProtocol::Udp,
+                payload_len: udp_repr.buffer_len(),
+                ttl: 64
+            },
+            data: &data
+        };
+        let expected_repr = Packet::Icmpv4(
+            Ipv4Repr {
+                src_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x01]),
+                dst_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x02]),
+                protocol: IpProtocol::Icmp,
+                payload_len: icmp_repr.buffer_len(),
+                ttl: 64
+            },
+            icmp_repr
+        );
+
+        // Ensure that the unknown protocol triggers an error response.
+        // And we correctly handle no payload.
+        assert_eq!(iface.process_udp(&mut socket_set, ip_repr, data),
+                   Ok(expected_repr));
+
+        let ip_repr = IpRepr::Ipv4(Ipv4Repr {
+            src_addr:    Ipv4Address([0x7f, 0x00, 0x00, 0x02]),
+            dst_addr:    Ipv4Address::BROADCAST,
+            protocol:    IpProtocol::Udp,
+            payload_len: udp_repr.buffer_len(),
+            ttl:         64
+        });
+
+        // Emit the representations to a packet
+        udp_repr.emit(&mut packet_broadcast, &ip_repr.src_addr(),
+                      &IpAddress::Ipv4(Ipv4Address::BROADCAST),
+                      &ChecksumCapabilities::default());
+
+        // Ensure that the port unreachable error does not trigger an
+        // ICMP error response when the destination address is a
+        // broadcast address
+        assert_eq!(iface.process_udp(&mut socket_set, ip_repr, packet_broadcast.into_inner()),
+                   Ok(Packet::None));
+
     }
 
     #[test]
