@@ -109,6 +109,9 @@ impl Cidr {
     /// Query whether the subnetwork described by this IPv4 CIDR block contains
     /// the given address.
     pub fn contains_addr(&self, addr: &Address) -> bool {
+        // right shift by 32 is not legal
+        if self.prefix_len == 0 { return true }
+
         let shift = 32 - self.prefix_len;
         let self_prefix = NetworkEndian::read_u32(self.address.as_bytes()) >> shift;
         let addr_prefix = NetworkEndian::read_u32(addr.as_bytes()) >> shift;
@@ -832,5 +835,8 @@ mod test {
             |&(a, p)| Cidr::new(Address::new(a[0], a[1], a[2], a[3]), p)) {
             assert!(!cidr.contains_subnet(&subnet));
         }
+
+        let cidr_without_prefix = Cidr::new(cidr.address(), 0);
+        assert!(cidr_without_prefix.contains_addr(&Address::new(127, 0, 0, 1)));
     }
 }
