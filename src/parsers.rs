@@ -127,9 +127,6 @@ impl<'a> Parser<'a> {
     }
 
     fn accept_ip(&mut self) -> Result<IpAddress> {
-        if let Some(()) = self.try(|p| p.accept_eof()) {
-            return Ok(IpAddress::Unspecified)
-        }
         if let Some(ipv4) = self.try(|p| p.accept_ipv4()) {
             return Ok(IpAddress::Ipv4(ipv4))
         }
@@ -158,7 +155,7 @@ impl FromStr for Ipv4Address {
 impl FromStr for IpAddress {
     type Err = ();
 
-    /// Parse a string representation of an IPv4 address.
+    /// Parse a string representation of an IP address.
     fn from_str(s: &str) -> Result<IpAddress> {
         Parser::new(s).until_eof(|p| p.accept_ip())
     }
@@ -229,8 +226,7 @@ mod test {
 
     #[test]
     fn test_ip() {
-        assert_eq!(IpAddress::from_str(""),
-                   Ok(IpAddress::Unspecified));
+        assert_eq!(IpAddress::from_str(""), Err(()));
         assert_eq!(IpAddress::from_str("1.2.3.4"),
                    Ok(IpAddress::Ipv4(Ipv4Address([1, 2, 3, 4]))));
         assert_eq!(IpAddress::from_str("x"), Err(()));
