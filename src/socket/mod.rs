@@ -11,10 +11,11 @@
 //! size for a buffer, allocate it, and let the networking stack use it.
 
 use core::marker::PhantomData;
-use wire::IpRepr;
 
 #[cfg(feature = "socket-raw")]
 mod raw;
+#[cfg(feature = "socket-icmp")]
+mod icmp;
 #[cfg(feature = "socket-udp")]
 mod udp;
 #[cfg(feature = "socket-tcp")]
@@ -26,6 +27,12 @@ mod ref_;
 pub use self::raw::{PacketBuffer as RawPacketBuffer,
                     SocketBuffer as RawSocketBuffer,
                     RawSocket};
+
+#[cfg(feature = "socket-icmp")]
+pub use self::icmp::{PacketBuffer as IcmpPacketBuffer,
+                     SocketBuffer as IcmpSocketBuffer,
+                     Endpoint as IcmpEndpoint,
+                     IcmpSocket};
 
 #[cfg(feature = "socket-udp")]
 pub use self::udp::{PacketBuffer as UdpPacketBuffer,
@@ -57,6 +64,8 @@ pub(crate) use self::ref_::Session as SocketSession;
 pub enum Socket<'a, 'b: 'a> {
     #[cfg(feature = "socket-raw")]
     Raw(RawSocket<'a, 'b>),
+    #[cfg(feature = "socket-icmp")]
+    Icmp(IcmpSocket<'a, 'b>),
     #[cfg(feature = "socket-udp")]
     Udp(UdpSocket<'a, 'b>),
     #[cfg(feature = "socket-tcp")]
@@ -70,6 +79,8 @@ macro_rules! dispatch_socket {
         match $self_ {
             #[cfg(feature = "socket-raw")]
             &$( $mut_ )* Socket::Raw(ref $( $mut_ )* $socket) => $code,
+            #[cfg(feature = "socket-icmp")]
+            &$( $mut_ )* Socket::Icmp(ref $( $mut_ )* $socket) => $code,
             #[cfg(feature = "socket-udp")]
             &$( $mut_ )* Socket::Udp(ref $( $mut_ )* $socket) => $code,
             #[cfg(feature = "socket-tcp")]
@@ -122,6 +133,8 @@ macro_rules! from_socket {
 
 #[cfg(feature = "socket-raw")]
 from_socket!(RawSocket<'a, 'b>, Raw);
+#[cfg(feature = "socket-icmp")]
+from_socket!(IcmpSocket<'a, 'b>, Icmp);
 #[cfg(feature = "socket-udp")]
 from_socket!(UdpSocket<'a, 'b>, Udp);
 #[cfg(feature = "socket-tcp")]

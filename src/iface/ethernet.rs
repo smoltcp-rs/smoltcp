@@ -24,6 +24,8 @@ use socket::RawSocket;
 use socket::UdpSocket;
 #[cfg(feature = "socket-tcp")]
 use socket::TcpSocket;
+#[cfg(feature = "socket-icmp")]
+use socket::IcmpSocket;
 use super::ArpCache;
 
 /// An Ethernet network interface.
@@ -55,7 +57,7 @@ struct InterfaceInner<'b, 'c> {
 enum Packet<'a> {
     None,
     Arp(ArpRepr),
-    Icmpv4(Ipv4Repr, Icmpv4Repr<'a>),
+    Icmpv4((Ipv4Repr, Icmpv4Repr<'a>)),
     #[cfg(feature = "socket-raw")]
     Raw((IpRepr, &'a [u8])),
     #[cfg(feature = "socket-udp")]
@@ -235,6 +237,16 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
                             device_result = inner.dispatch(tx_token, timestamp, Packet::Tcp(response));
                             device_result
                         }),
+                    #[cfg(feature = "socket-icmp")]
+                    Socket::Icmp(ref mut socket) =>
+                        socket.dispatch(&caps, |response| {
+                            let tx_token = device.transmit().ok_or(Error::Exhausted)?;
+                            match response {
+                                (IpRepr::Ipv4(repr), icmp_repr) =>
+                                    inner.dispatch(tx_token, timestamp, Packet::Icmpv4((repr, icmp_repr))),
+                                _ => Err(Error::Unaddressable),
+                            }
+                        }),
                     Socket::__Nonexhaustive(_) => unreachable!()
                 };
             match (device_result, socket_result) {
@@ -384,7 +396,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
 
         match ipv4_repr.protocol {
             IpProtocol::Icmp =>
-                self.process_icmpv4(ipv4_repr, ip_payload),
+                self.process_icmpv4(sockets, ip_repr, ip_payload),
 
             #[cfg(feature = "socket-udp")]
             IpProtocol::Udp =>
@@ -412,12 +424,24 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         }
     }
 
-    fn process_icmpv4<'frame>(&self, ipv4_repr: Ipv4Repr, ip_payload: &'frame [u8]) ->
-                             Result<Packet<'frame>>
+    fn process_icmpv4<'frame>(&self, _sockets: &mut SocketSet, ip_repr: IpRepr,
+                              ip_payload: &'frame [u8]) -> Result<Packet<'frame>>
     {
         let icmp_packet = Icmpv4Packet::new_checked(ip_payload)?;
         let checksum_caps = self.device_capabilities.checksum.clone();
         let icmp_repr = Icmpv4Repr::parse(&icmp_packet, &checksum_caps)?;
+
+        #[cfg(feature = "socket-icmp")]
+        for mut icmp_socket in _sockets.iter_mut().filter_map(IcmpSocket::downcast) {
+            if !icmp_socket.accepts(&ip_repr, &icmp_repr, &checksum_caps) { continue }
+
+            match icmp_socket.process(&ip_repr, ip_payload) {
+                // The packet is valid and handled by socket.
+                Ok(()) => return Ok(Packet::None),
+                // The packet is malformed, or the socket buffer is full.
+                Err(e) => return Err(e)
+            }
+        }
 
         match icmp_repr {
             // Respond to echo requests.
@@ -427,7 +451,10 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
                     seq_no: seq_no,
                     data:   data
                 };
-                Ok(self.icmpv4_reply(ipv4_repr, icmp_reply_repr))
+                match ip_repr {
+                    IpRepr::Ipv4(ipv4_repr) => Ok(self.icmpv4_reply(ipv4_repr, icmp_reply_repr)),
+                    _ => Err(Error::Unrecognized),
+                }
             }
 
             // Ignore any echo replies.
@@ -450,7 +477,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
                 payload_len: icmp_repr.buffer_len(),
                 ttl:         64
             };
-            Packet::Icmpv4(ipv4_reply_repr, icmp_repr)
+            Packet::Icmpv4((ipv4_reply_repr, icmp_repr))
         } else {
             // Do not send any ICMP replies to a broadcast destination address.
             Packet::None
@@ -549,7 +576,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
                     arp_repr.emit(&mut packet);
                 })
             },
-            Packet::Icmpv4(ipv4_repr, icmpv4_repr) => {
+            Packet::Icmpv4((ipv4_repr, icmpv4_repr)) => {
                 self.dispatch_ip(tx_token, timestamp, IpRepr::Ipv4(ipv4_repr), |_ip_repr, payload| {
                     icmpv4_repr.emit(&mut Icmpv4Packet::new(payload), &checksum_caps);
                 })
@@ -702,17 +729,19 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
 #[cfg(test)]
 mod test {
     use std::boxed::Box;
-    use super::Packet;
+    use {Result, Error};
+
+    use iface::{ArpCache, SliceArpCache, EthernetInterface};
     use phy::{self, Loopback, ChecksumCapabilities};
+    use socket::SocketSet;
     use wire::{ArpOperation, ArpPacket, ArpRepr};
     use wire::{EthernetAddress, EthernetFrame, EthernetProtocol};
     use wire::{IpAddress, IpCidr, IpProtocol, IpRepr};
     use wire::{Ipv4Address, Ipv4Repr};
     use wire::{Icmpv4Repr, Icmpv4DstUnreachable};
     use wire::{UdpPacket, UdpRepr};
-    use iface::{ArpCache, SliceArpCache, EthernetInterface};
-    use socket::SocketSet;
-    use {Result, Error};
+
+    use super::Packet;
 
     fn create_loopback<'a, 'b>() ->
             (EthernetInterface<'static, 'b, Loopback>, SocketSet<'static, 'a, 'b>) {
@@ -812,7 +841,7 @@ mod test {
             data: &NO_BYTES
         };
 
-        let expected_repr = Packet::Icmpv4(
+        let expected_repr = Packet::Icmpv4((
             Ipv4Repr {
                 src_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x01]),
                 dst_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x02]),
@@ -821,7 +850,7 @@ mod test {
                 ttl: 64
             },
             icmp_repr
-        );
+        ));
 
         // Ensure that the unknown protocol triggers an error response.
         // And we correctly handle no payload.
@@ -877,7 +906,7 @@ mod test {
             },
             data: &data
         };
-        let expected_repr = Packet::Icmpv4(
+        let expected_repr = Packet::Icmpv4((
             Ipv4Repr {
                 src_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x01]),
                 dst_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x02]),
@@ -886,7 +915,7 @@ mod test {
                 ttl: 64
             },
             icmp_repr
-        );
+        ));
 
         // Ensure that the unknown protocol triggers an error response.
         // And we correctly handle no payload.
@@ -993,5 +1022,61 @@ mod test {
             &IpAddress::Ipv4(Ipv4Address([0x7f, 0x00, 0x00, 0x01])),
             &IpAddress::Ipv4(remote_ip_addr)),
             Ok((remote_hw_addr, MockTxToken)));
+    }
+
+    #[test]
+    #[cfg(feature = "socket-icmp")]
+    fn test_icmpv4_socket() {
+        use socket::{IcmpPacketBuffer, IcmpSocket, IcmpSocketBuffer, IcmpEndpoint};
+        use wire::Icmpv4Packet;
+
+        let (iface, mut socket_set) = create_loopback();
+
+        let rx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketBuffer::new(vec![0; 24])]);
+        let tx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketBuffer::new(vec![0; 24])]);
+
+        let icmpv4_socket = IcmpSocket::new(rx_buffer, tx_buffer);
+
+        let socket_handle = socket_set.add(icmpv4_socket);
+
+        let ident = 0x1234;
+        {
+            let mut socket = socket_set.get::<IcmpSocket>(socket_handle);
+            // Bind to the ID 0x1234
+            assert_eq!(socket.bind(IcmpEndpoint::Ident(ident)), Ok(()));
+        }
+
+        // Ensure the ident we bound to and the ident of the packet are the same.
+        let mut bytes = [0xff; 24];
+        let mut packet = Icmpv4Packet::new(&mut bytes);
+        let echo_repr = Icmpv4Repr::EchoReply {
+            ident:  ident,
+            seq_no: 0x5432,
+            data:   &[0xff; 16],
+        };
+        echo_repr.emit(&mut packet, &ChecksumCapabilities::default());
+        let data = &packet.into_inner()[..];
+
+        let ip_repr = IpRepr::Ipv4(Ipv4Repr {
+            src_addr:    Ipv4Address::new(0x7f, 0x00, 0x00, 0x02),
+            dst_addr:    Ipv4Address::new(0x7f, 0x00, 0x00, 0x01),
+            protocol:    IpProtocol::Icmp,
+            payload_len: 24,
+            ttl:         64
+        });
+
+        // Open a socket and ensure the packet is handled due to the listening
+        // socket.
+        {
+            assert!(!socket_set.get::<IcmpSocket>(socket_handle).can_recv());
+        }
+        assert_eq!(iface.inner.process_icmpv4(&mut socket_set, ip_repr, data),
+                   Ok(Packet::None));
+        {
+            let mut socket = socket_set.get::<IcmpSocket>(socket_handle);
+            assert!(socket.can_recv());
+            assert_eq!(socket.recv(),
+                       Ok((&data[..], IpAddress::Ipv4(Ipv4Address::new(0x7f, 0x00, 0x00, 0x02)))));
+        }
     }
 }

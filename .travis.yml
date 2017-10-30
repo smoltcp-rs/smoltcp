@@ -20,11 +20,13 @@ matrix:
     - rust: nightly
       env: FEATURES='socket-tcp' MODE='build'
     - rust: nightly
-      env: FEATURES='socket-raw socket-udp socket-tcp' MODE='build'
+      env: FEATURES='socket-icmp' MODE='build'
     - rust: nightly
-      env: FEATURES='socket-raw socket-udp socket-tcp std' MODE='build'
+      env: FEATURES='socket-raw socket-udp socket-tcp socket-icmp' MODE='build'
     - rust: nightly
-      env: FEATURES='socket-raw socket-udp socket-tcp alloc' MODE='build'
+      env: FEATURES='socket-raw socket-udp socket-tcp socket-icmp std' MODE='build'
+    - rust: nightly
+      env: FEATURES='socket-raw socket-udp socket-tcp socket-icmp alloc' MODE='build'
 script:
    - cargo "$MODE" --no-default-features --features "$FEATURES"
 notifications:

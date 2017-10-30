@@ -6,8 +6,8 @@ use core::{cmp, fmt};
 
 use {Error, Result};
 use phy::DeviceCapabilities;
-use wire::{IpProtocol, IpAddress, IpEndpoint, TcpSeqNumber, TcpRepr, TcpControl};
-use socket::{Socket, SocketHandle, IpRepr};
+use wire::{IpProtocol, IpRepr, IpAddress, IpEndpoint, TcpSeqNumber, TcpRepr, TcpControl};
+use socket::{Socket, SocketHandle};
 use storage::{Assembler, RingBuffer};
 
 pub type SocketBuffer<'a> = RingBuffer<'a, u8>;
