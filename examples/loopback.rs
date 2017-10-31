@@ -133,7 +133,9 @@ fn main() {
             }
 
             if socket.can_recv() {
-                debug!("got {:?}", str::from_utf8(socket.recv(32).unwrap()).unwrap());
+                debug!("got {:?}", socket.recv(|buffer| {
+                    (buffer.len(), str::from_utf8(buffer).unwrap())
+                }));
                 socket.close();
                 done = true;
             }

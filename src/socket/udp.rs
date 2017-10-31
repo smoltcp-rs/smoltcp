@@ -195,8 +195,8 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
         Ok((&packet_buf.as_ref(), packet_buf.endpoint))
     }
 
-    /// Dequeue a packet received from a remote endpoint, and return the endpoint as well
-    /// as copy the payload into the given slice.
+    /// Dequeue a packet received from a remote endpoint, copy the payload into the given slice,
+    /// and return the amount of octets copied as well as the endpoint.
     ///
     /// See also [recv](#method.recv).
     pub fn recv_slice(&mut self, data: &mut [u8]) -> Result<(usize, IpEndpoint)> {

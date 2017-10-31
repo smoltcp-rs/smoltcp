@@ -121,8 +121,8 @@ fn main() {
             tcp_6970_active = socket.is_active();
 
             if socket.may_recv() {
-                let data = {
-                    let mut data = socket.recv(128).unwrap().to_owned();
+                let data = socket.recv(|buffer| {
+                    let mut data = buffer.to_owned();
                     if data.len() > 0 {
                         debug!("tcp:6970 recv data: {:?}",
                                str::from_utf8(data.as_ref()).unwrap_or("(invalid utf8)"));
@@ -130,8 +130,8 @@ fn main() {
                         data.reverse();
                         data.extend(b"\n");
                     }
-                    data
-                };
+                    (data.len(), data)
+                }).unwrap();
                 if socket.can_send() && data.len() > 0 {
                     debug!("tcp:6970 send data: {:?}",
                            str::from_utf8(data.as_ref()).unwrap_or("(invalid utf8)"));
@@ -153,11 +153,12 @@ fn main() {
             }
 
             if socket.may_recv() {
-                if let Ok(data) = socket.recv(65535) {
-                    if data.len() > 0 {
-                        debug!("tcp:6971 recv {:?} octets", data.len());
+                socket.recv(|buffer| {
+                    if buffer.len() > 0 {
+                        debug!("tcp:6971 recv {:?} octets", buffer.len());
                     }
-                }
+                    (buffer.len(), ())
+                }).unwrap();
             } else if socket.may_send() {
                 socket.close();
             }
@@ -171,14 +172,15 @@ fn main() {
             }
 
             if socket.may_send() {
-                if let Ok(data) = socket.send(65535) {
+                socket.send(|data| {
                     if data.len() > 0 {
                         debug!("tcp:6972 send {:?} octets", data.len());
                         for (i, b) in data.iter_mut().enumerate() {
                             *b = (i % 256) as u8;
                         }
                     }
-                }
+                    (data.len(), ())
+                }).unwrap();
             }
         }
 

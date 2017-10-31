@@ -66,8 +66,8 @@ fn main() {
             tcp_active = socket.is_active();
 
             if socket.may_recv() {
-                let data = {
-                    let mut data = socket.recv(128).unwrap().to_owned();
+                let data = socket.recv(|data| {
+                    let mut data = data.to_owned();
                     if data.len() > 0 {
                         debug!("recv data: {:?}",
                                str::from_utf8(data.as_ref()).unwrap_or("(invalid utf8)"));
@@ -75,8 +75,8 @@ fn main() {
                         data.reverse();
                         data.extend(b"\n");
                     }
-                    data
-                };
+                    (data.len(), data)
+                }).unwrap();
                 if socket.can_send() && data.len() > 0 {
                     debug!("send data: {:?}",
                            str::from_utf8(data.as_ref()).unwrap_or("(invalid utf8)"));
