@@ -81,6 +81,8 @@ mod ethernet;
 mod arp;
 mod ip;
 mod ipv4;
+#[cfg(feature = "proto-ipv6")]
+mod ipv6;
 mod icmpv4;
 mod udp;
 mod tcp;
@@ -107,6 +109,10 @@ pub use self::ipv4::Address as Ipv4Address;
 pub use self::ipv4::Packet as Ipv4Packet;
 pub use self::ipv4::Repr as Ipv4Repr;
 pub use self::ipv4::Cidr as Ipv4Cidr;
+
+#[cfg(feature = "proto-ipv6")]
+pub use self::ipv6::{Address as Ipv6Address,
+                     Cidr as Ipv6Cidr};
 
 pub use self::icmpv4::Message as Icmpv4Message;
 pub use self::icmpv4::DstUnreachable as Icmpv4DstUnreachable;

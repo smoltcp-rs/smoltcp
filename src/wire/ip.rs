@@ -4,12 +4,16 @@ use core::convert::From;
 use {Error, Result};
 use phy::ChecksumCapabilities;
 use super::{Ipv4Address, Ipv4Packet, Ipv4Repr, Ipv4Cidr};
+#[cfg(feature = "proto-ipv6")]
+use super::{Ipv6Address, Ipv6Cidr};
 
 /// Internet protocol version.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub enum Version {
     Unspecified,
     Ipv4,
+    #[cfg(feature = "proto-ipv6")]
+    Ipv6,
     #[doc(hidden)]
     __Nonexhaustive,
 }
@@ -22,6 +26,8 @@ impl Version {
     pub fn of_packet(data: &[u8]) -> Result<Version> {
         match data[0] >> 4 {
             4 => Ok(Version::Ipv4),
+            #[cfg(feature = "proto-ipv6")]
+            6 => Ok(Version::Ipv6),
             _ => Err(Error::Unrecognized)
         }
     }
@@ -32,6 +38,8 @@ impl fmt::Display for Version {
         match self {
             &Version::Unspecified => write!(f, "IPv?"),
             &Version::Ipv4 => write!(f, "IPv4"),
+            #[cfg(feature = "proto-ipv6")]
+            &Version::Ipv6 => write!(f, "IPv6"),
             &Version::__Nonexhaustive => unreachable!()
         }
     }
@@ -40,18 +48,30 @@ impl fmt::Display for Version {
 enum_with_unknown! {
     /// IP datagram encapsulated protocol.
     pub enum Protocol(u8) {
-        Icmp = 0x01,
-        Tcp  = 0x06,
-        Udp  = 0x11
+        HopByHop  = 0x00,
+        Icmp      = 0x01,
+        Tcp       = 0x06,
+        Udp       = 0x11,
+        Ipv6Route = 0x2b,
+        Ipv6Frag  = 0x2c,
+        Icmpv6    = 0x3a,
+        Ipv6NoNxt = 0x3b,
+        Ipv6Opts  = 0x3c
     }
 }
 
 impl fmt::Display for Protocol {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            &Protocol::Icmp => write!(f, "ICMP"),
-            &Protocol::Tcp  => write!(f, "TCP"),
-            &Protocol::Udp  => write!(f, "UDP"),
+            &Protocol::HopByHop    => write!(f, "Hop-by-Hop"),
+            &Protocol::Icmp        => write!(f, "ICMP"),
+            &Protocol::Tcp         => write!(f, "TCP"),
+            &Protocol::Udp         => write!(f, "UDP"),
+            &Protocol::Ipv6Route   => write!(f, "IPv6-Route"),
+            &Protocol::Ipv6Frag    => write!(f, "IPv6-Frag"),
+            &Protocol::Icmpv6      => write!(f, "ICMPv6"),
+            &Protocol::Ipv6NoNxt   => write!(f, "IPv6-NoNxt"),
+            &Protocol::Ipv6Opts    => write!(f, "IPv6-Opts"),
             &Protocol::Unknown(id) => write!(f, "0x{:02x}", id)
         }
     }
@@ -65,6 +85,9 @@ pub enum Address {
     Unspecified,
     /// An IPv4 address.
     Ipv4(Ipv4Address),
+    /// An IPv6 address.
+    #[cfg(feature = "proto-ipv6")]
+    Ipv6(Ipv6Address),
     #[doc(hidden)]
     __Nonexhaustive
 }
@@ -75,11 +98,20 @@ impl Address {
         Address::Ipv4(Ipv4Address::new(a0, a1, a2, a3))
     }
 
+    /// Create an address wrapping an IPv6 address with the given octets.
+    #[cfg(feature = "proto-ipv6")]
+    pub fn v6(a0: u16, a1: u16, a2: u16, a3: u16,
+              a4: u16, a5: u16, a6: u16, a7: u16) -> Address {
+        Address::Ipv6(Ipv6Address::new(a0, a1, a2, a3, a4, a5, a6, a7))
+    }
+
     /// Query whether the address is a valid unicast address.
     pub fn is_unicast(&self) -> bool {
         match self {
-            &Address::Unspecified => false,
-            &Address::Ipv4(addr)  => addr.is_unicast(),
+            &Address::Unspecified     => false,
+            &Address::Ipv4(addr)      => addr.is_unicast(),
+            #[cfg(feature = "proto-ipv6")]
+            &Address::Ipv6(addr)      => addr.is_unicast(),
             &Address::__Nonexhaustive => unreachable!()
         }
     }
@@ -87,8 +119,10 @@ impl Address {
     /// Query whether the address is the broadcast address.
     pub fn is_broadcast(&self) -> bool {
         match self {
-            &Address::Unspecified => false,
-            &Address::Ipv4(addr)  => addr.is_broadcast(),
+            &Address::Unspecified     => false,
+            &Address::Ipv4(addr)      => addr.is_broadcast(),
+            #[cfg(feature = "proto-ipv6")]
+            &Address::Ipv6(_)         => false,
             &Address::__Nonexhaustive => unreachable!()
         }
     }
@@ -96,8 +130,10 @@ impl Address {
     /// Query whether the address falls into the "unspecified" range.
     pub fn is_unspecified(&self) -> bool {
         match self {
-            &Address::Unspecified => true,
-            &Address::Ipv4(addr)  => addr.is_unspecified(),
+            &Address::Unspecified     => true,
+            &Address::Ipv4(addr)      => addr.is_unspecified(),
+            #[cfg(feature = "proto-ipv6")]
+            &Address::Ipv6(addr)      => addr.is_unspecified(),
             &Address::__Nonexhaustive => unreachable!()
         }
     }
@@ -105,8 +141,10 @@ impl Address {
     /// Return an unspecified address that has the same IP version as `self`.
     pub fn to_unspecified(&self) -> Address {
         match self {
-            &Address::Unspecified => Address::Unspecified,
-            &Address::Ipv4(_) => Address::Ipv4(Ipv4Address::UNSPECIFIED),
+            &Address::Unspecified     => Address::Unspecified,
+            &Address::Ipv4(_)         => Address::Ipv4(Ipv4Address::UNSPECIFIED),
+            #[cfg(feature = "proto-ipv6")]
+            &Address::Ipv6(_)         => Address::Ipv6(Ipv6Address::UNSPECIFIED),
             &Address::__Nonexhaustive => unreachable!()
         }
     }
@@ -124,11 +162,20 @@ impl From<Ipv4Address> for Address {
     }
 }
 
+#[cfg(feature = "proto-ipv6")]
+impl From<Ipv6Address> for Address {
+    fn from(addr: Ipv6Address) -> Self {
+        Address::Ipv6(addr)
+    }
+}
+
 impl fmt::Display for Address {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            &Address::Unspecified => write!(f, "*"),
-            &Address::Ipv4(addr)  => write!(f, "{}", addr),
+            &Address::Unspecified     => write!(f, "*"),
+            &Address::Ipv4(addr)      => write!(f, "{}", addr),
+            #[cfg(feature = "proto-ipv6")]
+            &Address::Ipv6(addr)      => write!(f, "{}", addr),
             &Address::__Nonexhaustive => unreachable!()
         }
     }
@@ -139,6 +186,8 @@ impl fmt::Display for Address {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Cidr {
     Ipv4(Ipv4Cidr),
+    #[cfg(feature = "proto-ipv6")]
+    Ipv6(Ipv6Cidr),
     #[doc(hidden)]
     __Nonexhaustive,
 }
@@ -152,6 +201,8 @@ impl Cidr {
     pub fn new(addr: Address, prefix_len: u8) -> Cidr {
         match addr {
             Address::Ipv4(addr) => Cidr::Ipv4(Ipv4Cidr::new(addr, prefix_len)),
+            #[cfg(feature = "proto-ipv6")]
+            Address::Ipv6(addr) => Cidr::Ipv6(Ipv6Cidr::new(addr, prefix_len)),
             Address::Unspecified =>
                 panic!("a CIDR block cannot be based on an unspecified address"),
             Address::__Nonexhaustive =>
@@ -162,7 +213,9 @@ impl Cidr {
     /// Return the IP address of this CIDR block.
     pub fn address(&self) -> Address {
         match self {
-            &Cidr::Ipv4(cidr) => Address::Ipv4(cidr.address()),
+            &Cidr::Ipv4(cidr)      => Address::Ipv4(cidr.address()),
+            #[cfg(feature = "proto-ipv6")]
+            &Cidr::Ipv6(cidr)      => Address::Ipv6(cidr.address()),
             &Cidr::__Nonexhaustive => unreachable!()
         }
     }
@@ -170,7 +223,9 @@ impl Cidr {
     /// Return the prefix length of this CIDR block.
     pub fn prefix_len(&self) -> u8 {
         match self {
-            &Cidr::Ipv4(cidr) => cidr.prefix_len(),
+            &Cidr::Ipv4(cidr)      => cidr.prefix_len(),
+            #[cfg(feature = "proto-ipv6")]
+            &Cidr::Ipv6(cidr)      => cidr.prefix_len(),
             &Cidr::__Nonexhaustive => unreachable!()
         }
     }
@@ -181,6 +236,12 @@ impl Cidr {
         match (self, addr) {
             (&Cidr::Ipv4(ref cidr), &Address::Ipv4(ref addr)) =>
                 cidr.contains_addr(addr),
+            #[cfg(feature = "proto-ipv6")]
+            (&Cidr::Ipv6(ref cidr), &Address::Ipv6(ref addr)) =>
+                cidr.contains_addr(addr),
+            #[cfg(feature = "proto-ipv6")]
+            (&Cidr::Ipv4(_), &Address::Ipv6(_)) | (&Cidr::Ipv6(_), &Address::Ipv4(_)) =>
+                false,
             (_, &Address::Unspecified) =>
                 // a fully unspecified address covers both IPv4 and IPv6,
                 // and no CIDR block can do that.
@@ -197,6 +258,12 @@ impl Cidr {
         match (self, subnet) {
             (&Cidr::Ipv4(ref cidr), &Cidr::Ipv4(ref other)) =>
                 cidr.contains_subnet(other),
+            #[cfg(feature = "proto-ipv6")]
+            (&Cidr::Ipv6(ref cidr), &Cidr::Ipv6(ref other)) =>
+                cidr.contains_subnet(other),
+            #[cfg(feature = "proto-ipv6")]
+            (&Cidr::Ipv4(_), &Cidr::Ipv6(_)) | (&Cidr::Ipv6(_), &Cidr::Ipv4(_)) =>
+                false,
             (&Cidr::__Nonexhaustive, _) |
             (_, &Cidr::__Nonexhaustive) =>
                 unreachable!()
@@ -207,7 +274,9 @@ impl Cidr {
 impl fmt::Display for Cidr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            &Cidr::Ipv4(cidr) => write!(f, "{}", cidr),
+            &Cidr::Ipv4(cidr)      => write!(f, "{}", cidr),
+            #[cfg(feature = "proto-ipv6")]
+            &Cidr::Ipv6(cidr)      => write!(f, "{}", cidr),
             &Cidr::__Nonexhaustive => unreachable!()
         }
     }
@@ -367,6 +436,13 @@ impl Repr {
                 }))
             }
 
+            #[cfg(feature = "proto-ipv6")]
+            &Repr::Unspecified {
+                src_addr: Address::Ipv6(_),
+                dst_addr: Address::Ipv6(_),
+                ..
+            } => Err(Error::Unaddressable),
+
             &Repr::Unspecified {
                 src_addr: Address::Unspecified,
                 dst_addr: Address::Ipv4(dst_addr),
@@ -388,11 +464,12 @@ impl Repr {
                 }))
             }
 
-            &Repr::Unspecified { dst_addr: Address::Unspecified, .. } =>
-                panic!("unspecified destination IP address"),
-
-            // &Repr::Unspecified { .. } =>
-            //     panic!("source and destination IP address families do not match"),
+            #[cfg(feature = "proto-ipv6")]
+            &Repr::Unspecified {
+                src_addr: Address::Unspecified,
+                dst_addr: Address::Ipv6(_),
+                ..
+            } => Err(Error::Unaddressable),
 
             &Repr::Ipv4(mut repr) => {
                 if repr.src_addr.is_unspecified() {
@@ -411,10 +488,10 @@ impl Repr {
                 }
             },
 
-            &Repr::__Nonexhaustive |
-            &Repr::Unspecified { src_addr: Address::__Nonexhaustive, .. } |
-            &Repr::Unspecified { dst_addr: Address::__Nonexhaustive, .. } =>
-                unreachable!()
+            &Repr::Unspecified { .. } =>
+                panic!("source and destination IP address families do not match"),
+
+            &Repr::__Nonexhaustive => unreachable!()
         }
     }
 

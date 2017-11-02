@@ -201,6 +201,8 @@ impl<'a, 'b> RawSocket<'a, 'b> {
                     let ipv4_repr = Ipv4Repr::parse(&packet, checksum_caps)?;
                     Ok((IpRepr::Ipv4(ipv4_repr), packet.payload()))
                 }
+                #[cfg(feature = "proto-ipv6")]
+                IpVersion::Ipv6 => Err(Error::Unrecognized),
                 IpVersion::Unspecified => unreachable!(),
                 IpVersion::__Nonexhaustive => unreachable!()
             }
