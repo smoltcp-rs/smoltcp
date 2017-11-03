@@ -1,24 +1,21 @@
 use Result;
 use wire::pretty_print::{PrettyPrint, PrettyPrinter};
-use super::{DeviceCapabilities, Device};
+use phy::{self, DeviceCapabilities, Device};
 
 /// A tracer device.
 ///
 /// A tracer is a device that pretty prints all packets traversing it
 /// using the provided writer function, and then passes them to another
 /// device.
-pub struct Tracer<D: Device, P: PrettyPrint> {
-    inner:     D,
-    writer:    fn(u64, PrettyPrinter<P>)
+pub struct Tracer<D: for<'a> Device<'a>, P: PrettyPrint> {
+    inner:  D,
+    writer: fn(u64, PrettyPrinter<P>),
 }
 
-impl<D: Device, P: PrettyPrint> Tracer<D, P> {
+impl<D: for<'a> Device<'a>, P: PrettyPrint> Tracer<D, P> {
     /// Create a tracer device.
     pub fn new(inner: D, writer: fn(timestamp: u64, printer: PrettyPrinter<P>)) -> Tracer<D, P> {
-        Tracer {
-            inner:   inner,
-            writer:  writer
-        }
+        Tracer { inner, writer }
     }
 
     /// Return the underlying device, consuming the tracer.
@@ -27,41 +24,65 @@ impl<D: Device, P: PrettyPrint> Tracer<D, P> {
     }
 }
 
-impl<D: Device, P: PrettyPrint> Device for Tracer<D, P> {
-    type RxBuffer = D::RxBuffer;
-    type TxBuffer = TxBuffer<D::TxBuffer, P>;
+impl<'a, D, P> Device<'a> for Tracer<D, P>
+    where D: for<'b> Device<'b>,
+          P: PrettyPrint + 'a,
+{
+    type RxToken = RxToken<<D as Device<'a>>::RxToken, P>;
+    type TxToken = TxToken<<D as Device<'a>>::TxToken, P>;
 
     fn capabilities(&self) -> DeviceCapabilities { self.inner.capabilities() }
 
-    fn receive(&mut self, timestamp: u64) -> Result<Self::RxBuffer> {
-        let buffer = self.inner.receive(timestamp)?;
-        (self.writer)(timestamp, PrettyPrinter::<P>::new("<- ", &buffer));
-        Ok(buffer)
+    fn receive(&'a mut self) -> Option<(Self::RxToken, Self::TxToken)> {
+        let &mut Self { ref mut inner, writer, .. } = self;
+        inner.receive().map(|(rx_token, tx_token)| {
+            let rx = RxToken { token: rx_token, writer: writer };
+            let tx = TxToken { token: tx_token, writer: writer };
+            (rx, tx)
+        })
     }
 
-    fn transmit(&mut self, timestamp: u64, length: usize) -> Result<Self::TxBuffer> {
-        let buffer = self.inner.transmit(timestamp, length)?;
-        Ok(TxBuffer { buffer, timestamp, writer: self.writer })
+    fn transmit(&'a mut self) -> Option<Self::TxToken> {
+        let &mut Self { ref mut inner, writer } = self;
+        inner.transmit().map(|tx_token| {
+            TxToken { token: tx_token, writer: writer }
+        })
     }
 }
 
 #[doc(hidden)]
-pub struct TxBuffer<B: AsRef<[u8]> + AsMut<[u8]>, P: PrettyPrint> {
-    buffer:    B,
-    timestamp: u64,
+pub struct RxToken<Rx: phy::RxToken, P: PrettyPrint> {
+    token:     Rx,
     writer:    fn(u64, PrettyPrinter<P>)
 }
 
-impl<B: AsRef<[u8]> + AsMut<[u8]>, P: PrettyPrint> AsRef<[u8]> for TxBuffer<B, P> {
-    fn as_ref(&self) -> &[u8] { self.buffer.as_ref() }
+impl<Rx: phy::RxToken, P: PrettyPrint> phy::RxToken for RxToken<Rx, P> {
+    fn consume<R, F>(self, timestamp: u64, f: F) -> Result<R>
+        where F: FnOnce(&[u8]) -> Result<R>
+    {
+        let Self { token, writer } = self;
+        token.consume(timestamp, |buffer| {
+            writer(timestamp, PrettyPrinter::<P>::new("<- ", &buffer));
+            f(buffer)
+        })
+    }
 }
 
-impl<B: AsRef<[u8]> + AsMut<[u8]>, P: PrettyPrint> AsMut<[u8]> for TxBuffer<B, P> {
-    fn as_mut(&mut self) -> &mut [u8] { self.buffer.as_mut() }
+#[doc(hidden)]
+pub struct TxToken<Tx: phy::TxToken, P: PrettyPrint> {
+    token:     Tx,
+    writer:    fn(u64, PrettyPrinter<P>)
 }
 
-impl<B: AsRef<[u8]> + AsMut<[u8]>, P: PrettyPrint> Drop for TxBuffer<B, P> {
-    fn drop(&mut self) {
-        (self.writer)(self.timestamp, PrettyPrinter::<P>::new("-> ", &self.buffer));
+impl<Tx: phy::TxToken, P: PrettyPrint> phy::TxToken for TxToken<Tx, P> {
+    fn consume<R, F>(self, timestamp: u64, len: usize, f: F) -> Result<R>
+        where F: FnOnce(&mut [u8]) -> Result<R>
+    {
+        let Self { token, writer } = self;
+        token.consume(timestamp, len, |buffer| {
+            let result = f(buffer);
+            writer(timestamp, PrettyPrinter::<P>::new("-> ", &buffer));
+            result
+        })
     }
 }

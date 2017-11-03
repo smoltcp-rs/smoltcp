@@ -19,87 +19,66 @@
 //!
 /*!
 ```rust
-use std::slice;
-use smoltcp::{Error, Result};
-use smoltcp::phy::{DeviceCapabilities, Device};
+use smoltcp::Result;
+use smoltcp::phy::{self, DeviceCapabilities, Device};
 
-const TX_BUFFERS: [*mut u8; 2] = [0x10000000 as *mut u8, 0x10001000 as *mut u8];
-const RX_BUFFERS: [*mut u8; 2] = [0x10002000 as *mut u8, 0x10003000 as *mut u8];
-
-fn rx_full() -> bool {
-    /* platform-specific code to check if an incoming packet has arrived */
-    false
+struct StmPhy {
+    rx_buffer: [u8; 1536],
+    tx_buffer: [u8; 1536],
 }
 
-fn rx_setup(_buf: *mut u8, _length: &mut usize) {
-    /* platform-specific code to receive a packet into a buffer */
+impl<'a> StmPhy {
+    fn new() -> StmPhy {
+        StmPhy {
+            rx_buffer: [0; 1536],
+            tx_buffer: [0; 1536],
+        }
+    }
 }
 
-fn tx_empty() -> bool {
-    /* platform-specific code to check if an outgoing packet can be sent */
-    false
-}
+impl<'a> phy::Device<'a> for StmPhy {
+    type RxToken = StmPhyRxToken<'a>;
+    type TxToken = StmPhyTxToken<'a>;
 
-fn tx_setup(_buf: *const u8, _length: usize) {
-    /* platform-specific code to send a buffer with a packet */
-}
+    fn receive(&'a mut self) -> Option<(Self::RxToken, Self::TxToken)> {
+        Some((StmPhyRxToken(&mut self.rx_buffer[..]),
+              StmPhyTxToken(&mut self.tx_buffer[..])))
+    }
 
-# #[allow(dead_code)]
-pub struct EthernetDevice {
-    tx_next: usize,
-    rx_next: usize
-}
-
-impl Device for EthernetDevice {
-    type RxBuffer = &'static [u8];
-    type TxBuffer = EthernetTxBuffer;
+    fn transmit(&'a mut self) -> Option<Self::TxToken> {
+        Some(StmPhyTxToken(&mut self.tx_buffer[..]))
+    }
 
     fn capabilities(&self) -> DeviceCapabilities {
         let mut caps = DeviceCapabilities::default();
         caps.max_transmission_unit = 1536;
-        caps.max_burst_size = Some(2);
+        caps.max_burst_size = Some(1);
         caps
     }
+}
 
-    fn receive(&mut self, _timestamp: u64) -> Result<Self::RxBuffer> {
-        if rx_full() {
-            let index = self.rx_next;
-            self.rx_next = (self.rx_next + 1) % RX_BUFFERS.len();
-            let mut length = 0;
-            rx_setup(RX_BUFFERS[self.rx_next], &mut length);
-            Ok(unsafe {
-                slice::from_raw_parts(RX_BUFFERS[index], length)
-            })
-        } else {
-            Err(Error::Exhausted)
-        }
-    }
+struct StmPhyRxToken<'a>(&'a [u8]);
 
-    fn transmit(&mut self, _timestamp: u64, length: usize) -> Result<Self::TxBuffer> {
-        if tx_empty() {
-            let index = self.tx_next;
-            self.tx_next = (self.tx_next + 1) % TX_BUFFERS.len();
-            Ok(EthernetTxBuffer(unsafe {
-                slice::from_raw_parts_mut(TX_BUFFERS[index], length)
-            }))
-        } else {
-            Err(Error::Exhausted)
-        }
+impl<'a> phy::RxToken for StmPhyRxToken<'a> {
+    fn consume<R, F: FnOnce(&[u8]) -> Result<R>>(self, _timestamp: u64, f: F) -> Result<R> {
+        // TODO: receive packet into buffer
+        let result = f(self.0);
+        println!("rx called");
+        result
     }
 }
 
-pub struct EthernetTxBuffer(&'static mut [u8]);
+struct StmPhyTxToken<'a>(&'a mut [u8]);
 
-impl AsRef<[u8]> for EthernetTxBuffer {
-    fn as_ref(&self) -> &[u8] { self.0 }
-}
-
-impl AsMut<[u8]> for EthernetTxBuffer {
-    fn as_mut(&mut self) -> &mut [u8] { self.0 }
-}
-
-impl Drop for EthernetTxBuffer {
-    fn drop(&mut self) { tx_setup(self.0.as_ptr(), self.0.len()) }
+impl<'a> phy::TxToken for StmPhyTxToken<'a> {
+    fn consume<R, F: FnOnce(&mut [u8]) -> Result<R>>(self, _timestamp: u64, len: usize, f: F)
+        -> Result<R>
+    {
+        let result = f(&mut self.0[..len]);
+        println!("tx called {}", len);
+        // TODO: send packet out
+        result
+    }
 }
 ```
 */
@@ -229,27 +208,52 @@ pub struct DeviceCapabilities {
 
 /// An interface for sending and receiving raw network frames.
 ///
-/// It is expected that a `Device` implementation would allocate memory for both sending
-/// and receiving packets from memory pools; hence, the stack borrows the buffer for a packet
-/// that it is about to receive, as well for a packet that it is about to send, from the device.
-pub trait Device {
-    type RxBuffer: AsRef<[u8]>;
-    type TxBuffer: AsRef<[u8]> + AsMut<[u8]>;
+/// The interface is based on _tokens_, which are types that allow to receive/transmit a
+/// single packet. The `receive` and `transmit` functions only construct such tokens, the
+/// real sending/receiving operation are performed when the tokens are consumed.
+pub trait Device<'a> {
+    type RxToken: RxToken + 'a;
+    type TxToken: TxToken + 'a;
+
+    /// Construct a token pair consisting of one receive token and one transmit token.
+    ///
+    /// The additional transmit token makes it possible to generate a reply packet based
+    /// on the contents of the received packet. For example, this makes it possible to
+    /// handle arbitrarily large ICMP echo ("ping") requests, where the all received bytes
+    /// need to be sent back, without heap allocation.
+    fn receive(&'a mut self) -> Option<(Self::RxToken, Self::TxToken)>;
+
+    /// Construct a transmit token.
+    fn transmit(&'a mut self) -> Option<Self::TxToken>;
 
     /// Get a description of device capabilities.
     fn capabilities(&self) -> DeviceCapabilities;
+}
 
-    /// Receive a frame.
+/// A token to receive a single network packet.
+pub trait RxToken {
+    /// Consumes the token to receive a single network packet.
     ///
-    /// It is expected that a `receive` implementation, once a packet is written to memory
-    /// through DMA, would gain ownership of the underlying buffer, provide it for parsing,
-    /// and return it to the network device once it is dropped.
-    fn receive(&mut self, timestamp: u64) -> Result<Self::RxBuffer>;
+    /// This method receives a packet and then calls the given closure `f` with the raw
+    /// packet bytes as argument.
+    ///
+    /// The timestamp must be a number of milliseconds, monotonically increasing since an
+    /// arbitrary moment in time, such as system startup.
+    fn consume<R, F>(self, timestamp: u64, f: F) -> Result<R>
+        where F: FnOnce(&[u8]) -> Result<R>;
+}
 
-    /// Transmit a frame.
+/// A token to transmit a single network packet.
+pub trait TxToken {
+    /// Consumes the token to send a single network packet.
     ///
-    /// It is expected that a `transmit` implementation would gain ownership of a buffer with
-    /// the requested length, provide it for emission, and schedule it to be read from
-    /// memory by the network device once it is dropped.
-    fn transmit(&mut self, timestamp: u64, length: usize) -> Result<Self::TxBuffer>;
+    /// This method constructs a transmit buffer of size `len` and calls the passed
+    /// closure `f` with a mutable reference to that buffer. The closure should construct
+    /// a valid network packet (e.g. an ethernet packet) in the buffer. When the closure
+    /// returns, the transmit buffer is sent out.
+    ///
+    /// The timestamp must be a number of milliseconds, monotonically increasing since an
+    /// arbitrary moment in time, such as system startup.
+    fn consume<R, F>(self, timestamp: u64, len: usize, f: F) -> Result<R>
+        where F: FnOnce(&mut [u8]) -> Result<R>;
 }
