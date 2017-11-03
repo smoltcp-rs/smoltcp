@@ -6,8 +6,7 @@ use std::collections::VecDeque;
 use alloc::{Vec, VecDeque};
 
 use Result;
-use super::{Device, DeviceCapabilities};
-use phy;
+use phy::{self, Device, DeviceCapabilities};
 
 /// A loopback device.
 #[derive(Debug)]
@@ -46,7 +45,6 @@ impl<'a> Device<'a> for Loopback {
         })
     }
 
-
     fn transmit(&'a mut self) -> Option<Self::TxToken> {
         Some(TxToken {
             queue: &mut self.queue,
@@ -71,8 +69,8 @@ pub struct TxToken<'a> {
 }
 
 impl<'a> phy::TxToken for TxToken<'a> {
-    fn consume<R, F: FnOnce(&mut [u8]) -> Result<R>>(self, _timestamp: u64, len: usize, f: F)
-        -> Result<R>
+    fn consume<R, F>(self, _timestamp: u64, len: usize, f: F) -> Result<R>
+        where F: FnOnce(&mut [u8]) -> Result<R>
     {
         let mut buffer = Vec::new();
         buffer.resize(len, 0);

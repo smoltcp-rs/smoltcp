@@ -4,8 +4,7 @@ use std::io;
 use std::os::unix::io::{RawFd, AsRawFd};
 
 use {Error, Result};
-use super::{sys, DeviceCapabilities, Device};
-use phy;
+use phy::{self, sys, DeviceCapabilities, Device};
 
 /// A virtual Ethernet interface.
 #[derive(Debug)]
@@ -68,7 +67,9 @@ pub struct RxToken {
 }
 
 impl phy::RxToken for RxToken {
-    fn consume<R, F: FnOnce(&[u8]) -> Result<R>>(self, _timestamp: u64, f: F) -> Result<R> {
+    fn consume<R, F>(self, _timestamp: u64, f: F) -> Result<R>
+        where F: FnOnce(&[u8]) -> Result<R>
+    {
         let mut lower = self.lower.borrow_mut();
         let mut buffer = vec![0; self.mtu];
         match lower.recv(&mut buffer[..]) {
@@ -90,13 +91,13 @@ pub struct TxToken {
 }
 
 impl phy::TxToken for TxToken {
-    fn consume<R, F: FnOnce(&mut [u8]) -> Result<R>>(self, _timestamp: u64, len: usize, f: F)
-        -> Result<R>
+    fn consume<R, F>(self, _timestamp: u64, len: usize, f: F) -> Result<R>
+        where F: FnOnce(&mut [u8]) -> Result<R>
     {
         let mut lower = self.lower.borrow_mut();
         let mut buffer = vec![0; len];
-        let ret = f(&mut buffer);
+        let result = f(&mut buffer);
         lower.send(&mut buffer[..]).unwrap();
-        ret
+        result
     }
 }

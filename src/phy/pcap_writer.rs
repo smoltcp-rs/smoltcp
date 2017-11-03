@@ -5,8 +5,7 @@ use std::io::Write;
 use byteorder::{ByteOrder, NativeEndian};
 
 use Result;
-use super::{DeviceCapabilities, Device};
-use phy;
+use phy::{self, DeviceCapabilities, Device};
 
 enum_with_unknown! {
     /// Captured packet header type.
@@ -115,10 +114,13 @@ impl<T: AsMut<Write>> PcapSink for RefCell<T> {
 /// [libpcap]: https://wiki.wireshark.org/Development/LibpcapFileFormat
 /// [sink]: trait.PcapSink.html
 #[derive(Debug)]
-pub struct PcapWriter<D: for<'a> Device<'a>, S: PcapSink + Clone> {
-    lower:      D,
-    sink:       S,
-    mode:       PcapMode,
+pub struct PcapWriter<D, S>
+    where D: for<'a> Device<'a>,
+          S: PcapSink + Clone,
+{
+    lower: D,
+    sink:  S,
+    mode:  PcapMode,
 }
 
 impl<D: for<'a> Device<'a>, S: PcapSink + Clone> PcapWriter<D, S> {
@@ -157,9 +159,9 @@ impl<'a, D, S> Device<'a> for PcapWriter<D, S>
 
 #[doc(hidden)]
 pub struct RxToken<Rx: phy::RxToken, S: PcapSink> {
-    token:     Rx,
-    sink:      S,
-    mode:      PcapMode
+    token: Rx,
+    sink:  S,
+    mode:  PcapMode,
 }
 
 impl<Rx: phy::RxToken, S: PcapSink> phy::RxToken for RxToken<Rx, S> {
@@ -178,24 +180,24 @@ impl<Rx: phy::RxToken, S: PcapSink> phy::RxToken for RxToken<Rx, S> {
 
 #[doc(hidden)]
 pub struct TxToken<Tx: phy::TxToken, S: PcapSink> {
-    token:     Tx,
-    sink:      S,
-    mode:      PcapMode
+    token: Tx,
+    sink:  S,
+    mode:  PcapMode
 }
 
 impl<Tx: phy::TxToken, S: PcapSink> phy::TxToken for TxToken<Tx, S> {
-    fn consume<R, F: FnOnce(&mut [u8]) -> Result<R>>(self, timestamp: u64, len: usize, f: F)
-        -> Result<R>
+    fn consume<R, F>(self, timestamp: u64, len: usize, f: F) -> Result<R>
+        where F: FnOnce(&mut [u8]) -> Result<R>
     {
         let Self { token, sink, mode } = self;
         token.consume(timestamp, len, |buffer| {
-            let ret = f(buffer);
+            let result = f(buffer);
             match mode {
                 PcapMode::Both | PcapMode::TxOnly =>
                     sink.packet(timestamp, &buffer),
                 PcapMode::RxOnly => ()
             };
-            ret
+            result
         })
     }
 }

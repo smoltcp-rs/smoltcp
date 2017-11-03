@@ -58,7 +58,8 @@ enum Packet<'a> {
     Tcp((IpRepr, TcpRepr<'a>))
 }
 
-impl<'a, 'b, 'c, DeviceT: for<'d> Device<'d> + 'a> Interface<'a, 'b, 'c, DeviceT> {
+impl<'a, 'b, 'c, DeviceT> Interface<'a, 'b, 'c, DeviceT>
+        where DeviceT: for<'d> Device<'d> + 'a {
     /// Create a network interface using the provided network device.
     ///
     /// # Panics
@@ -269,9 +270,9 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
     }
 
     fn process_ethernet<'frame, T: AsRef<[u8]>>
-                       (&mut self, sockets: &mut SocketSet, timestamp: u64,
-                        frame: &'frame T) ->
-                       Result<Packet<'frame>> {
+                       (&mut self, sockets: &mut SocketSet, timestamp: u64, frame: &'frame T) ->
+                       Result<Packet<'frame>>
+    {
         let eth_frame = EthernetFrame::new_checked(frame)?;
 
         // Ignore any packets not directed to our hardware address.
@@ -292,7 +293,8 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
 
     fn process_arp<'frame, T: AsRef<[u8]>>
                   (&mut self, eth_frame: &EthernetFrame<&'frame T>) ->
-                  Result<Packet<'frame>> {
+                  Result<Packet<'frame>>
+    {
         let arp_packet = ArpPacket::new_checked(eth_frame.payload())?;
         let arp_repr = ArpRepr::parse(&arp_packet)?;
 
@@ -332,7 +334,8 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
     fn process_ipv4<'frame, T: AsRef<[u8]>>
                    (&mut self, sockets: &mut SocketSet, _timestamp: u64,
                     eth_frame: &EthernetFrame<&'frame T>) ->
-                   Result<Packet<'frame>> {
+                   Result<Packet<'frame>>
+    {
         let ipv4_packet = Ipv4Packet::new_checked(eth_frame.payload())?;
         let checksum_caps = self.device_capabilities.checksum.clone();
         let ipv4_repr = Ipv4Repr::parse(&ipv4_packet, &checksum_caps)?;
@@ -406,7 +409,8 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
     }
 
     fn process_icmpv4<'frame>(&self, ipv4_repr: Ipv4Repr, ip_payload: &'frame [u8]) ->
-                             Result<Packet<'frame>> {
+                             Result<Packet<'frame>>
+    {
         let icmp_packet = Icmpv4Packet::new_checked(ip_payload)?;
         let checksum_caps = self.device_capabilities.checksum.clone();
         let icmp_repr = Icmpv4Repr::parse(&icmp_packet, &checksum_caps)?;
@@ -430,10 +434,10 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         }
     }
 
-    fn icmpv4_reply<'frame, 'icmp: 'frame>(&self,
-                                           ipv4_repr: Ipv4Repr,
-                                           icmp_repr: Icmpv4Repr<'icmp>)
-            -> Packet<'frame> {
+    fn icmpv4_reply<'frame, 'icmp: 'frame>
+                   (&self, ipv4_repr: Ipv4Repr, icmp_repr: Icmpv4Repr<'icmp>) ->
+                   Packet<'frame>
+    {
         if ipv4_repr.dst_addr.is_unicast() {
             let ipv4_reply_repr = Ipv4Repr {
                 src_addr:    ipv4_repr.dst_addr,
@@ -444,8 +448,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
             };
             Packet::Icmpv4(ipv4_reply_repr, icmp_repr)
         } else {
-            // Do not send Protocol Unreachable ICMPv4 error responses to datagrams
-            // with a broadcast destination address.
+            // Do not send any ICMP replies to a broadcast destination address.
             Packet::None
         }
     }
@@ -453,7 +456,8 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
     #[cfg(feature = "proto-udp")]
     fn process_udp<'frame>(&self, sockets: &mut SocketSet,
                            ip_repr: IpRepr, ip_payload: &'frame [u8]) ->
-                          Result<Packet<'frame>> {
+                          Result<Packet<'frame>>
+    {
         let (src_addr, dst_addr) = (ip_repr.src_addr(), ip_repr.dst_addr());
         let udp_packet = UdpPacket::new_checked(ip_payload)?;
         let checksum_caps = self.device_capabilities.checksum.clone();
@@ -492,7 +496,8 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
     #[cfg(feature = "proto-tcp")]
     fn process_tcp<'frame>(&self, sockets: &mut SocketSet, timestamp: u64,
                            ip_repr: IpRepr, ip_payload: &'frame [u8]) ->
-                          Result<Packet<'frame>> {
+                          Result<Packet<'frame>>
+    {
         let (src_addr, dst_addr) = (ip_repr.src_addr(), ip_repr.dst_addr());
         let tcp_packet = TcpPacket::new_checked(ip_payload)?;
         let checksum_caps = self.device_capabilities.checksum.clone();
@@ -519,8 +524,9 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         }
     }
 
-    fn dispatch<T: TxToken>(&mut self, tx_token: T, timestamp: u64, packet: Packet)
-        -> Result<()>
+    fn dispatch<Tx>(&mut self, tx_token: Tx, timestamp: u64,
+                    packet: Packet) -> Result<()>
+        where Tx: TxToken
     {
         let checksum_caps = self.device_capabilities.checksum.clone();
         match packet {
@@ -590,9 +596,9 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         }
     }
 
-    fn dispatch_ethernet<T: TxToken, F>(&mut self, tx_token: T, timestamp: u64,
-            buffer_len: usize, f: F) -> Result<()>
-        where F: FnOnce(EthernetFrame<&mut [u8]>)
+    fn dispatch_ethernet<Tx, F>(&mut self, tx_token: Tx, timestamp: u64,
+                                buffer_len: usize, f: F) -> Result<()>
+        where Tx: TxToken, F: FnOnce(EthernetFrame<&mut [u8]>)
     {
         let tx_len = EthernetFrame::<&[u8]>::buffer_len(buffer_len);
         tx_token.consume(timestamp, tx_len, |tx_buffer| {
@@ -622,9 +628,11 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
             })
     }
 
-    fn lookup_hardware_addr<T: TxToken>(&mut self, tx_token: T, timestamp: u64,
-                            src_addr: &IpAddress, dst_addr: &IpAddress) ->
-                           Result<(EthernetAddress, T)> {
+    fn lookup_hardware_addr<Tx>(&mut self, tx_token: Tx, timestamp: u64,
+                                src_addr: &IpAddress, dst_addr: &IpAddress) ->
+                               Result<(EthernetAddress, Tx)>
+        where Tx: TxToken
+    {
         let dst_addr = self.route(dst_addr)?;
 
         if let Some(hardware_addr) = self.arp_cache.lookup(&dst_addr) {
@@ -661,15 +669,16 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         }
     }
 
-    fn dispatch_ip<T: TxToken, F>(&mut self, tx_token: T, timestamp: u64, ip_repr: IpRepr,
-            f: F) -> Result<()>
-        where F: FnOnce(IpRepr, &mut [u8])
+    fn dispatch_ip<Tx, F>(&mut self, tx_token: Tx, timestamp: u64,
+                          ip_repr: IpRepr, f: F) -> Result<()>
+        where Tx: TxToken, F: FnOnce(IpRepr, &mut [u8])
     {
         let ip_repr = ip_repr.lower(&self.ip_addrs)?;
         let checksum_caps = self.device_capabilities.checksum.clone();
 
         let (dst_hardware_addr, tx_token) =
-            self.lookup_hardware_addr(tx_token, timestamp, &ip_repr.src_addr(), &ip_repr.dst_addr())?;
+            self.lookup_hardware_addr(tx_token, timestamp,
+                                      &ip_repr.src_addr(), &ip_repr.dst_addr())?;
 
         self.dispatch_ethernet(tx_token, timestamp, ip_repr.total_len(), |mut frame| {
             frame.set_dst_addr(dst_hardware_addr);
@@ -715,11 +724,11 @@ mod test {
     }
 
     #[derive(Debug, PartialEq)]
-    struct TxTokenDummy;
+    struct MockTxToken;
 
-    impl phy::TxToken for TxTokenDummy {
-        fn consume<R, F: FnOnce(&mut [u8]) -> Result<R>>(self, _: u64, _: usize, _: F) -> Result<R>
-        {
+    impl phy::TxToken for MockTxToken {
+        fn consume<R, F>(self, _: u64, _: usize, _: F) -> Result<R>
+                where F: FnOnce(&mut [u8]) -> Result<R> {
             Err(Error::__Nonexhaustive)
         }
     }
@@ -940,9 +949,9 @@ mod test {
                    })));
 
         // Ensure the address of the requestor was entered in the cache
-        assert_eq!(iface.inner.lookup_hardware_addr(TxTokenDummy, 0,
+        assert_eq!(iface.inner.lookup_hardware_addr(MockTxToken, 0,
             &IpAddress::Ipv4(local_ip_addr), &IpAddress::Ipv4(remote_ip_addr)),
-            Ok((remote_hw_addr, TxTokenDummy)));
+            Ok((remote_hw_addr, MockTxToken)));
     }
 
     #[test]
@@ -976,9 +985,9 @@ mod test {
                    Ok(Packet::None));
 
         // Ensure the address of the requestor was entered in the cache
-        assert_eq!(iface.inner.lookup_hardware_addr(TxTokenDummy, 0,
+        assert_eq!(iface.inner.lookup_hardware_addr(MockTxToken, 0,
             &IpAddress::Ipv4(Ipv4Address([0x7f, 0x00, 0x00, 0x01])),
             &IpAddress::Ipv4(remote_ip_addr)),
-            Ok((remote_hw_addr, TxTokenDummy)));
+            Ok((remote_hw_addr, MockTxToken)));
     }
 }

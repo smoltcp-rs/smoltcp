@@ -62,9 +62,9 @@ struct StmPhyRxToken<'a>(&'a [u8]);
 impl<'a> phy::RxToken for StmPhyRxToken<'a> {
     fn consume<R, F: FnOnce(&[u8]) -> Result<R>>(self, _timestamp: u64, f: F) -> Result<R> {
         // TODO: receive packet into buffer
-        let ret = f(self.0);
+        let result = f(self.0);
         println!("rx called");
-        ret
+        result
     }
 }
 
@@ -74,32 +74,10 @@ impl<'a> phy::TxToken for StmPhyTxToken<'a> {
     fn consume<R, F: FnOnce(&mut [u8]) -> Result<R>>(self, _timestamp: u64, len: usize, f: F)
         -> Result<R>
     {
-        let ret = f(&mut self.0[..len]);
+        let result = f(&mut self.0[..len]);
         println!("tx called {}", len);
         // TODO: send packet out
-        ret
-    }
-}
-
-fn main() {
-    use smoltcp::phy::{TxToken, RxToken};
-
-    let mut phy = StmPhy::new();
-    if let Some(tx_token) = phy.transmit() {
-        tx_token.consume(0, 40, |buf| {
-            println!("got tx buf len {}", buf.len());
-            Ok(())
-        });
-    }
-    if let Some((rx_token, tx_token)) = phy.receive() {
-        rx_token.consume(0, |buf| {
-            println!("got rx buf");
-            Ok(())
-        });
-        tx_token.consume(0, 80, |buf| {
-            println!("got tx buf len {}", buf.len());
-            Ok(())
-        });
+        result
     }
 }
 ```
@@ -261,7 +239,8 @@ pub trait RxToken {
     ///
     /// The timestamp must be a number of milliseconds, monotonically increasing since an
     /// arbitrary moment in time, such as system startup.
-    fn consume<R, F: FnOnce(&[u8]) -> Result<R>>(self, timestamp: u64, f: F) -> Result<R>;
+    fn consume<R, F>(self, timestamp: u64, f: F) -> Result<R>
+        where F: FnOnce(&[u8]) -> Result<R>;
 }
 
 /// A token to transmit a single network packet.
@@ -275,6 +254,6 @@ pub trait TxToken {
     ///
     /// The timestamp must be a number of milliseconds, monotonically increasing since an
     /// arbitrary moment in time, such as system startup.
-    fn consume<R, F: FnOnce(&mut [u8]) -> Result<R>>(self, timestamp: u64, len: usize, f: F)
-        -> Result<R>;
+    fn consume<R, F>(self, timestamp: u64, len: usize, f: F) -> Result<R>
+        where F: FnOnce(&mut [u8]) -> Result<R>;
 }

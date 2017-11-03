@@ -4,8 +4,7 @@ use std::io;
 use std::os::unix::io::{RawFd, AsRawFd};
 
 use Result;
-use super::{sys, DeviceCapabilities, Device};
-use phy;
+use phy::{self, sys, DeviceCapabilities, Device};
 
 /// A socket that captures or transmits the complete frame.
 #[derive(Debug)]
@@ -87,8 +86,8 @@ impl phy::TxToken for TxToken {
     {
         let mut lower = self.lower.borrow_mut();
         let mut buffer = vec![0; len];
-        let ret = f(&mut buffer);
+        let result = f(&mut buffer);
         lower.send(&mut buffer[..]).unwrap();
-        ret
+        result
     }
 }

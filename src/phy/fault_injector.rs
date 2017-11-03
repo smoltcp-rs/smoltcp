@@ -1,7 +1,7 @@
 use core::cell::RefCell;
+
 use {Error, Result};
-use super::{DeviceCapabilities, Device};
-use phy;
+use phy::{self, DeviceCapabilities, Device};
 
 // We use our own RNG to stay compatible with #![no_std].
 // The use of the RNG below has a slight bias, but it doesn't matter.
@@ -203,16 +203,16 @@ impl<'a, D> Device<'a> for FaultInjector<D>
         let &mut Self { ref mut inner, ref state, config } = self;
         inner.receive().map(|(rx_token, tx_token)| {
             let rx = RxToken {
-                state:          &state,
-                config:         config,
-                token:          rx_token,
-                corrupt_buffer: [0; MTU],
+                state:   &state,
+                config:  config,
+                token:   rx_token,
+                corrupt: [0; MTU],
             };
             let tx = TxToken {
-                state:  &state,
-                config: config,
-                token:  tx_token,
-                junk:   [0; MTU],
+                state:   &state,
+                config:  config,
+                token:   tx_token,
+                junk:    [0; MTU],
             };
             (rx, tx)
         })
@@ -231,10 +231,10 @@ impl<'a, D> Device<'a> for FaultInjector<D>
 
 #[doc(hidden)]
 pub struct RxToken<'a, Rx: phy::RxToken> {
-    state:          &'a RefCell<State>,
-    config:         Config,
-    token:          Rx,
-    corrupt_buffer: [u8; MTU],
+    state:   &'a RefCell<State>,
+    config:  Config,
+    token:   Rx,
+    corrupt: [u8; MTU],
 }
 
 impl<'a, Rx: phy::RxToken> phy::RxToken for RxToken<'a, Rx> {
@@ -247,7 +247,7 @@ impl<'a, Rx: phy::RxToken> phy::RxToken for RxToken<'a, Rx> {
             net_trace!("rx: dropping a packet because of rate limiting");
             return Err(Error::Exhausted)
         }
-        let Self { token, config, state, mut corrupt_buffer } = self;
+        let Self { token, config, state, mut corrupt } = self;
         token.consume(timestamp, |buffer| {
             if config.max_size > 0 && buffer.as_ref().len() > config.max_size {
                 net_trace!("rx: dropping a packet that is too large");
@@ -255,10 +255,10 @@ impl<'a, Rx: phy::RxToken> phy::RxToken for RxToken<'a, Rx> {
             }
             if state.borrow_mut().maybe(config.corrupt_pct) {
                 net_trace!("rx: randomly corrupting a packet");
-                let mut corrupt_buffer = &mut corrupt_buffer[..buffer.len()];
-                corrupt_buffer.copy_from_slice(buffer);
-                state.borrow_mut().corrupt(&mut corrupt_buffer);
-                f(&mut corrupt_buffer)
+                let mut corrupt = &mut corrupt[..buffer.len()];
+                corrupt.copy_from_slice(buffer);
+                state.borrow_mut().corrupt(&mut corrupt);
+                f(&mut corrupt)
             } else {
                 f(buffer)
             }
