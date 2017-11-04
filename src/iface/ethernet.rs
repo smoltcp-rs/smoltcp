@@ -734,7 +734,7 @@ mod test {
     }
 
     #[test]
-    fn no_icmp_to_broadcast() {
+    fn test_no_icmp_to_broadcast() {
         let (mut iface, mut socket_set) = create_loopback();
 
         let mut eth_bytes = vec![0u8; 34];
@@ -769,7 +769,7 @@ mod test {
     }
 
     #[test]
-    fn icmp_error_no_payload() {
+    fn test_icmp_error_no_payload() {
         static NO_BYTES: [u8; 0] = [];
         let (mut iface, mut socket_set) = create_loopback();
 
@@ -826,7 +826,7 @@ mod test {
     }
 
     #[test]
-    fn icmp_error_port_unreachable() {
+    fn test_icmp_error_port_unreachable() {
         static UDP_PAYLOAD: [u8; 12] = [
             0x48, 0x65, 0x6c, 0x6c,
             0x6f, 0x2c, 0x20, 0x57,
@@ -911,7 +911,7 @@ mod test {
     }
 
     #[test]
-    fn handle_valid_arp_request() {
+    fn test_handle_valid_arp_request() {
         let (mut iface, mut socket_set) = create_loopback();
 
         let mut eth_bytes = vec![0u8; 42];
@@ -955,7 +955,7 @@ mod test {
     }
 
     #[test]
-    fn handle_other_arp_request() {
+    fn test_handle_other_arp_request() {
         let (mut iface, mut socket_set) = create_loopback();
 
         let mut eth_bytes = vec![0u8; 42];
