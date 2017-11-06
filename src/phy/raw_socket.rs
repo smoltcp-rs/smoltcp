@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::vec::Vec;
 use std::rc::Rc;
 use std::io;
 use std::os::unix::io::{RawFd, AsRawFd};
@@ -47,9 +48,20 @@ impl<'a> Device<'a> for RawSocket {
     }
 
     fn receive(&'a mut self) -> Option<(Self::RxToken, Self::TxToken)> {
-        let rx = RxToken { lower: self.lower.clone(), mtu: self.mtu };
-        let tx = TxToken { lower: self.lower.clone() };
-        Some((rx, tx))
+        let mut lower = self.lower.borrow_mut();
+        let mut buffer = vec![0; self.mtu];
+        match lower.recv(&mut buffer[..]) {
+            Ok(size) => {
+                buffer.resize(size, 0);
+                let rx = RxToken { buffer };
+                let tx = TxToken { lower: self.lower.clone() };
+                Some((rx, tx))
+            }
+            Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => {
+                None
+            }
+            Err(err) => panic!("{}", err)
+        }
     }
 
     fn transmit(&'a mut self) -> Option<Self::TxToken> {
@@ -61,17 +73,12 @@ impl<'a> Device<'a> for RawSocket {
 
 #[doc(hidden)]
 pub struct RxToken {
-    lower:  Rc<RefCell<sys::RawSocketDesc>>,
-    mtu:    usize,
+    buffer: Vec<u8>
 }
 
 impl phy::RxToken for RxToken {
     fn consume<R, F: FnOnce(&[u8]) -> Result<R>>(self, _timestamp: u64, f: F) -> Result<R> {
-        let mut lower = self.lower.borrow_mut();
-        let mut buffer = vec![0; self.mtu];
-        let size = lower.recv(&mut buffer[..]).unwrap();
-        buffer.resize(size, 0);
-        f(&mut buffer)
+        f(&self.buffer[..])
     }
 }
 

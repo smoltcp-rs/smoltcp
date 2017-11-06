@@ -1,9 +1,10 @@
 use std::cell::RefCell;
+use std::vec::Vec;
 use std::rc::Rc;
 use std::io;
 use std::os::unix::io::{RawFd, AsRawFd};
 
-use {Error, Result};
+use Result;
 use phy::{self, sys, DeviceCapabilities, Device};
 
 /// A virtual Ethernet interface.
@@ -48,9 +49,20 @@ impl<'a> Device<'a> for TapInterface {
     }
 
     fn receive(&'a mut self) -> Option<(Self::RxToken, Self::TxToken)> {
-        let rx = RxToken { lower: self.lower.clone(), mtu: self.mtu };
-        let tx = TxToken { lower: self.lower.clone(), };
-        Some((rx, tx))
+        let mut lower = self.lower.borrow_mut();
+        let mut buffer = vec![0; self.mtu];
+        match lower.recv(&mut buffer[..]) {
+            Ok(size) => {
+                buffer.resize(size, 0);
+                let rx = RxToken { buffer };
+                let tx = TxToken { lower: self.lower.clone() };
+                Some((rx, tx))
+            }
+            Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => {
+                None
+            }
+            Err(err) => panic!("{}", err)
+        }
     }
 
     fn transmit(&'a mut self) -> Option<Self::TxToken> {
@@ -62,26 +74,14 @@ impl<'a> Device<'a> for TapInterface {
 
 #[doc(hidden)]
 pub struct RxToken {
-    lower: Rc<RefCell<sys::TapInterfaceDesc>>,
-    mtu:   usize,
+    buffer: Vec<u8>
 }
 
 impl phy::RxToken for RxToken {
     fn consume<R, F>(self, _timestamp: u64, f: F) -> Result<R>
         where F: FnOnce(&[u8]) -> Result<R>
     {
-        let mut lower = self.lower.borrow_mut();
-        let mut buffer = vec![0; self.mtu];
-        match lower.recv(&mut buffer[..]) {
-            Ok(size) => {
-                buffer.resize(size, 0);
-                f(&buffer)
-            }
-            Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => {
-                Err(Error::Exhausted)
-            }
-            Err(err) => panic!("{}", err)
-        }
+        f(&self.buffer[..])
     }
 }
 
