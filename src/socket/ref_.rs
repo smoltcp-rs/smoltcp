@@ -1,10 +1,10 @@
 use core::ops::{Deref, DerefMut};
 
-#[cfg(feature = "proto-raw")]
+#[cfg(feature = "socket-raw")]
 use socket::RawSocket;
-#[cfg(feature = "proto-udp")]
+#[cfg(feature = "socket-udp")]
 use socket::UdpSocket;
-#[cfg(feature = "proto-tcp")]
+#[cfg(feature = "socket-tcp")]
 use socket::TcpSocket;
 
 /// A trait for tracking a socket usage session.
@@ -17,11 +17,11 @@ pub trait Session {
     fn finish(&mut self) {}
 }
 
-#[cfg(feature = "proto-raw")]
+#[cfg(feature = "socket-raw")]
 impl<'a, 'b> Session for RawSocket<'a, 'b> {}
-#[cfg(feature = "proto-udp")]
+#[cfg(feature = "socket-udp")]
 impl<'a, 'b> Session for UdpSocket<'a, 'b> {}
-#[cfg(feature = "proto-tcp")]
+#[cfg(feature = "socket-tcp")]
 impl<'a> Session for TcpSocket<'a> {}
 
 /// A smart pointer to a socket.

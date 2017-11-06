@@ -2,7 +2,8 @@ use core::{fmt, slice};
 use managed::ManagedSlice;
 
 use super::{Socket, SocketRef, AnySocket};
-#[cfg(feature = "proto-tcp")] use super::TcpState;
+#[cfg(feature = "socket-tcp")]
+use super::TcpState;
 
 /// An item of a socket set.
 ///
@@ -140,13 +141,13 @@ impl<'a, 'b: 'a, 'c: 'a + 'b> Set<'a, 'b, 'c> {
             let mut may_remove = false;
             if let &mut Some(Item { refs: 0, ref mut socket }) = item {
                 match socket {
-                    #[cfg(feature = "proto-raw")]
+                    #[cfg(feature = "socket-raw")]
                     &mut Socket::Raw(_) =>
                         may_remove = true,
-                    #[cfg(feature = "proto-udp")]
+                    #[cfg(feature = "socket-udp")]
                     &mut Socket::Udp(_) =>
                         may_remove = true,
-                    #[cfg(feature = "proto-tcp")]
+                    #[cfg(feature = "socket-tcp")]
                     &mut Socket::Tcp(ref mut socket) =>
                         if socket.state() == TcpState::Closed {
                             may_remove = true
