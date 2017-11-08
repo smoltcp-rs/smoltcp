@@ -69,10 +69,10 @@ mod mock {
 
 fn main() {
     let clock = mock::Clock::new();
-    let mut device = Loopback::new();
+    let device = Loopback::new();
 
     #[cfg(feature = "std")]
-    let mut device = {
+    let device = {
         let clock = clock.clone();
         utils::setup_logging_with_clock("", move || clock.elapsed());
 
@@ -90,7 +90,7 @@ fn main() {
 
     let mut ip_addrs = [IpCidr::new(IpAddress::v4(127, 0, 0, 1), 8)];
     let mut iface = EthernetInterface::new(
-        &mut device, &mut arp_cache as &mut ArpCache,
+        device, &mut arp_cache as &mut ArpCache,
         EthernetAddress::default(), &mut ip_addrs[..], None);
 
     let server_socket = {
