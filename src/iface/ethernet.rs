@@ -31,8 +31,8 @@ use super::ArpCache;
 /// The network interface logically owns a number of other data structures; to avoid
 /// a dependency on heap allocation, it instead owns a `BorrowMut<[T]>`, which can be
 /// a `&mut [T]`, or `Vec<T>` if a heap is available.
-pub struct Interface<'a, 'b, 'c, DeviceT: for<'d> Device<'d> + 'a> {
-    device: Managed<'a, DeviceT>,
+pub struct Interface<'b, 'c, DeviceT: for<'d> Device<'d>> {
+    device: DeviceT,
     inner:  InterfaceInner<'b, 'c>,
 }
 
@@ -64,24 +64,22 @@ enum Packet<'a> {
     Tcp((IpRepr, TcpRepr<'a>))
 }
 
-impl<'a, 'b, 'c, DeviceT> Interface<'a, 'b, 'c, DeviceT>
-        where DeviceT: for<'d> Device<'d> + 'a {
+impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
+        where DeviceT: for<'d> Device<'d> {
     /// Create a network interface using the provided network device.
     ///
     /// # Panics
     /// See the restrictions on [set_hardware_addr](#method.set_hardware_addr)
     /// and [set_protocol_addrs](#method.set_protocol_addrs) functions.
-    pub fn new<DeviceMT, ArpCacheMT, ProtocolAddrsMT, Ipv4GatewayAddrT>
-              (device: DeviceMT, arp_cache: ArpCacheMT,
+    pub fn new<ArpCacheMT, ProtocolAddrsMT, Ipv4GatewayAddrT>
+              (device: DeviceT, arp_cache: ArpCacheMT,
                ethernet_addr: EthernetAddress,
                ip_addrs: ProtocolAddrsMT,
                ipv4_gateway: Ipv4GatewayAddrT) ->
-              Interface<'a, 'b, 'c, DeviceT>
-            where DeviceMT: Into<Managed<'a, DeviceT>>,
-                  ArpCacheMT: Into<Managed<'b, ArpCache>>,
+              Interface<'b, 'c, DeviceT>
+            where ArpCacheMT: Into<Managed<'b, ArpCache>>,
                   ProtocolAddrsMT: Into<ManagedSlice<'c, IpCidr>>,
                   Ipv4GatewayAddrT: Into<Option<Ipv4Address>>, {
-        let device = device.into();
         let ip_addrs = ip_addrs.into();
         InterfaceInner::check_ethernet_addr(&ethernet_addr);
         InterfaceInner::check_ip_addrs(&ip_addrs);
@@ -717,7 +715,7 @@ mod test {
     use {Result, Error};
 
     fn create_loopback<'a, 'b>() ->
-            (EthernetInterface<'a, 'static, 'b, Loopback>, SocketSet<'static, 'a, 'b>) {
+            (EthernetInterface<'static, 'b, Loopback>, SocketSet<'static, 'a, 'b>) {
         // Create a basic device
         let device = Loopback::new();
 
@@ -725,7 +723,7 @@ mod test {
 
         let ip_addr = IpCidr::new(IpAddress::v4(127, 0, 0, 1), 8);
         (EthernetInterface::new(
-            Box::new(device), Box::new(arp_cache) as Box<ArpCache>,
+            device, Box::new(arp_cache) as Box<ArpCache>,
             EthernetAddress::default(), [ip_addr], None), SocketSet::new(vec![]))
     }
 

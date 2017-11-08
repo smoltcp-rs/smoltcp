@@ -42,7 +42,7 @@ fn main() {
     let ip_addrs = [IpCidr::new(IpAddress::v4(192, 168, 69, 2), 24)];
     let default_v4_gw = Ipv4Address::new(192, 168, 69, 100);
     let mut iface = EthernetInterface::new(
-        Box::new(device), Box::new(arp_cache) as Box<ArpCache>,
+        device, Box::new(arp_cache) as Box<ArpCache>,
         ethernet_addr, ip_addrs, Some(default_v4_gw));
 
     let mut sockets = SocketSet::new(vec![]);

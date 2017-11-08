@@ -56,7 +56,7 @@ fn main() {
     let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
     let ip_addrs = [IpCidr::new(IpAddress::v4(192, 168, 69, 1), 24)];
     let mut iface = EthernetInterface::new(
-        Box::new(device), Box::new(arp_cache) as Box<ArpCache>,
+        device, Box::new(arp_cache) as Box<ArpCache>,
         ethernet_addr, ip_addrs, None);
 
     let mut sockets = SocketSet::new(vec![]);

@@ -60,7 +60,7 @@ fn main() {
     let ip_addr = IpCidr::new(IpAddress::from(local_addr), 24);
     let default_v4_gw = Ipv4Address::new(192, 168, 69, 100);
     let mut iface = EthernetInterface::new(
-        Box::new(device), Box::new(arp_cache) as Box<ArpCache>,
+        device, Box::new(arp_cache) as Box<ArpCache>,
         ethernet_addr, [ip_addr], Some(default_v4_gw));
 
     let mut sockets = SocketSet::new(vec![]);
