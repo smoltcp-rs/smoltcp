@@ -136,7 +136,7 @@ impl fmt::Display for Address {
 
 /// A specification of a CIDR block, containing an address and a variable-length
 /// subnet masking prefix length.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Cidr {
     Ipv4(Ipv4Cidr),
     #[doc(hidden)]
