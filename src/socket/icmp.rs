@@ -167,43 +167,49 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
     /// diagnose connection problems.
     ///
     /// ```
-    /// # use smoltcp::socket::{IcmpPacketBuffer, IcmpSocketBuffer};
+    /// # use smoltcp::socket::{Socket, IcmpSocket, IcmpPacketBuffer, IcmpSocketBuffer};
     /// # let rx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketBuffer::new(vec![0; 20])]);
     /// # let tx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketBuffer::new(vec![0; 20])]);
     /// use smoltcp::wire::IpEndpoint;
-    /// use smoltcp::socket::{Socket, IcmpSocket, IcmpEndpoint};
-    /// let mut icmp_socket = match IcmpSocket::new(rx_buffer, tx_buffer) {
-    ///     Socket::Icmp(socket) => socket,
-    ///     _ => unreachable!()
-    /// };
+    /// use smoltcp::socket::IcmpEndpoint;
+    ///
+    /// let mut icmp_socket = // ...
+    /// # match IcmpSocket::new(rx_buffer, tx_buffer) {
+    /// #     Socket::Icmp(socket) => socket,
+    /// #     _ => unreachable!()
+    /// # };
+    ///
     /// // Bind to ICMP error responses for UDP packets sent from port 53.
     /// let endpoint = IpEndpoint::from(53);
     /// icmp_socket.bind(IcmpEndpoint::Udp(endpoint)).unwrap();
     /// ```
     ///
-    /// ## Bind to a specific ICMP identifier:
+    /// ## Bind to a specific IP identifier:
     ///
     /// To [send] and [recv] ICMP packets that are not associated with a specific UDP
-    /// port, the socket may be bound to a specific ICMP identifier using
+    /// port, the socket may be bound to a specific IP identifier using
     /// [IcmpEndpoint::Ident]. This is useful for sending and receiving Echo Request/Reply
     /// messages.
     ///
     /// ```
-    /// # use smoltcp::socket::{IcmpPacketBuffer, IcmpSocketBuffer};
+    /// # use smoltcp::socket::{Socket, IcmpSocket, IcmpPacketBuffer, IcmpSocketBuffer};
     /// # let rx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketBuffer::new(vec![0; 20])]);
     /// # let tx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketBuffer::new(vec![0; 20])]);
-    /// use smoltcp::socket::{Socket, IcmpSocket, IcmpEndpoint};
-    /// let mut icmp_socket = match IcmpSocket::new(rx_buffer, tx_buffer) {
-    ///     Socket::Icmp(socket) => socket,
-    ///     _ => unreachable!()
-    /// };
-    /// // Bind to ICMP messages with the identifier 0x1234
+    /// use smoltcp::socket::IcmpEndpoint;
+    ///
+    /// let mut icmp_socket = // ...
+    /// # match IcmpSocket::new(rx_buffer, tx_buffer) {
+    /// #     Socket::Icmp(socket) => socket,
+    /// #     _ => unreachable!()
+    /// # };
+    ///
+    /// // Bind to ICMP messages with the IP identifier 0x1234
     /// icmp_socket.bind(IcmpEndpoint::Ident(0x1234)).unwrap();
     /// ```
     ///
     /// [is_specified]: enum.IcmpEndpoint.html#method.is_specified
-    /// [IcmpEndpoint::Ident]: enum.IcmpEndpoint#variant.Ident
-    /// [IcmpEndpoint::Udp]: enum.IcmpEndpoint#variant.Udp
+    /// [IcmpEndpoint::Ident]: enum.IcmpEndpoint.html#variant.Ident
+    /// [IcmpEndpoint::Udp]: enum.IcmpEndpoint.html#variant.Udp
     /// [send]: #method.send
     /// [recv]: #method.recv
     pub fn bind<T: Into<Endpoint>>(&mut self, endpoint: T) -> Result<()> {
@@ -241,7 +247,7 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
     ///
     /// This function returns `Err(Error::Exhausted)` if the transmit buffer is full,
     /// `Err(Error::Truncated)` if the requested size is larger than the packet buffer
-    /// size, and `Err(Error::Unaddressable)` if the or remote address, is unspecified.
+    /// size, and `Err(Error::Unaddressable)` if the remote address is unspecified.
     pub fn send(&mut self, size: usize, endpoint: IpAddress) -> Result<&mut [u8]> {
         if endpoint.is_unspecified() {
             return Err(Error::Unaddressable)
@@ -289,34 +295,24 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
     /// the given sockets received buffer.
     pub(crate) fn accepts(&self, ip_repr: &IpRepr, icmp_repr: &Icmpv4Repr,
                           cksum: &ChecksumCapabilities) -> bool {
-        match self.endpoint {
+        match (&self.endpoint, icmp_repr) {
             // If we are bound to ICMP errors associated to a UDP port, only
             // accept Destination Unreachable messages with the data containing
             // a UDP packet send from the local port we are bound to.
-            Endpoint::Udp(endpoint) =>
-                if !endpoint.addr.is_unspecified() && endpoint.addr != ip_repr.dst_addr() {
-                    false
-                } else {
-                    match icmp_repr {
-                        &Icmpv4Repr::DstUnreachable { data, .. } => {
-                            let packet = UdpPacket::new(data);
-                            match UdpRepr::parse(&packet, &ip_repr.src_addr(),
-                                                 &ip_repr.dst_addr(), cksum) {
-                                Ok(repr) => endpoint.port == repr.src_port,
-                                Err(_) => false,
-                            }
-                        }
-                        _ => false,
-                    }
+            (&Endpoint::Udp(endpoint), &Icmpv4Repr::DstUnreachable { data, .. })
+                    if endpoint.addr.is_unspecified() || endpoint.addr == ip_repr.dst_addr() => {
+                let packet = UdpPacket::new(data);
+                match UdpRepr::parse(&packet, &ip_repr.src_addr(), &ip_repr.dst_addr(), cksum) {
+                    Ok(repr) => endpoint.port == repr.src_port,
+                    Err(_) => false,
                 }
+            }
             // If we are bound to a specific ICMP identifier value, only accept an
             // Echo Request/Reply with the identifier field matching the endpoint
             // port.
-            Endpoint::Ident(id) => match icmp_repr {
-                &Icmpv4Repr::EchoRequest { ident, .. } | &Icmpv4Repr::EchoReply { ident, .. } =>
-                    ident == id,
-                _ => false,
-            }
+            (&Endpoint::Ident(bound_ident), &Icmpv4Repr::EchoRequest { ident, .. }) |
+            (&Endpoint::Ident(bound_ident), &Icmpv4Repr::EchoReply { ident, .. }) =>
+                ident == bound_ident,
             _ => false,
         }
     }
@@ -330,9 +326,9 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
         Ok(())
     }
 
-    pub(crate) fn dispatch<F>(&mut self, caps: &DeviceCapabilities,
-                              emit: F) -> Result<()>
-            where F: FnOnce((IpRepr, Icmpv4Repr)) -> Result<()> {
+    pub(crate) fn dispatch<F>(&mut self, caps: &DeviceCapabilities, emit: F) -> Result<()>
+        where F: FnOnce((IpRepr, Icmpv4Repr)) -> Result<()>
+    {
         let handle = self.handle;
         let ttl = self.ttl.unwrap_or(64);
         let checksum = &caps.checksum;

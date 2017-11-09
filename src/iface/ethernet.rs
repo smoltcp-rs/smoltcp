@@ -20,12 +20,12 @@ use wire::{TcpPacket, TcpRepr, TcpControl};
 use socket::{Socket, SocketSet, AnySocket};
 #[cfg(feature = "socket-raw")]
 use socket::RawSocket;
+#[cfg(feature = "socket-icmp")]
+use socket::IcmpSocket;
 #[cfg(feature = "socket-udp")]
 use socket::UdpSocket;
 #[cfg(feature = "socket-tcp")]
 use socket::TcpSocket;
-#[cfg(feature = "socket-icmp")]
-use socket::IcmpSocket;
 use super::ArpCache;
 
 /// An Ethernet network interface.
@@ -223,6 +223,16 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
                             device_result = inner.dispatch(tx_token, timestamp, Packet::Raw(response));
                             device_result
                         }, &caps.checksum),
+                    #[cfg(feature = "socket-icmp")]
+                    Socket::Icmp(ref mut socket) =>
+                        socket.dispatch(&caps, |response| {
+                            let tx_token = device.transmit().ok_or(Error::Exhausted)?;
+                            match response {
+                                (IpRepr::Ipv4(repr), icmp_repr) =>
+                                    inner.dispatch(tx_token, timestamp, Packet::Icmpv4((repr, icmp_repr))),
+                                _ => Err(Error::Unaddressable),
+                            }
+                        }),
                     #[cfg(feature = "socket-udp")]
                     Socket::Udp(ref mut socket) =>
                         socket.dispatch(|response| {
@@ -236,16 +246,6 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
                             let tx_token = device.transmit().ok_or(Error::Exhausted)?;
                             device_result = inner.dispatch(tx_token, timestamp, Packet::Tcp(response));
                             device_result
-                        }),
-                    #[cfg(feature = "socket-icmp")]
-                    Socket::Icmp(ref mut socket) =>
-                        socket.dispatch(&caps, |response| {
-                            let tx_token = device.transmit().ok_or(Error::Exhausted)?;
-                            match response {
-                                (IpRepr::Ipv4(repr), icmp_repr) =>
-                                    inner.dispatch(tx_token, timestamp, Packet::Icmpv4((repr, icmp_repr))),
-                                _ => Err(Error::Unaddressable),
-                            }
                         }),
                     Socket::__Nonexhaustive(_) => unreachable!()
                 };

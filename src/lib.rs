@@ -14,7 +14,7 @@
 //!
 //! # The socket layer
 //! The socket layer APIs are provided in the module [socket](socket/index.html); currently,
-//! TCP, UDP, ICMP, and Raw sockets are provided. The socket API provides the usual primitives,
+//! raw, ICMP, TCP, and UDP sockets are provided. The socket API provides the usual primitives,
 //! but necessarily differs in many from the [Berkeley socket API][berk], as the latter was
 //! not designed to be used without heap allocation.
 //! [berk]: https://en.wikipedia.org/wiki/Berkeley_sockets
