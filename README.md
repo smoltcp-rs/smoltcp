@@ -36,15 +36,21 @@ The only supported internetworking protocol is IPv4.
   * IPv4 fragmentation is **not** supported.
   * IPv4 options are **not** supported and are silently ignored.
   * IPv4 routes (other than the default one) are **not** supported.
+
+### ICMP layer
+
+The ICMPv4 protocol is supported, and ICMP sockets are available.
+
   * ICMPv4 header checksum is supported.
-  * ICMPv4 echo requests and replies are supported.
+  * ICMPv4 echo replies are generated in response to echo requests.
+  * ICMP sockets can listen to ICMPv4 Port Unreachable messages, or any ICMPv4 messages with
+    a given IPv4 identifier field.
   * ICMPv4 protocol unreachable messages are **not** passed to higher layers when received.
-  * ICMPv4 time exceeded messages are **not** supported.
-  * ICMPv4 parameter problem messages are **not** supported.
+  * ICMPv4 parameter problem messages are **not** generated.
 
 ### UDP layer
 
-The UDP protocol is supported over IPv4.
+The UDP protocol is supported over IPv4, and UDP sockets are available.
 
   * Header checksum is always generated and validated.
   * In response to a packet arriving at a port without a listening socket,
@@ -52,7 +58,7 @@ The UDP protocol is supported over IPv4.
 
 ### TCP layer
 
-The TCP protocol is supported over IPv4. Server and client sockets are supported.
+The TCP protocol is supported over IPv4, and server and client TCP sockets are available.
 
   * Header checksum is generated and validated.
   * Maximum segment size is negotiated.
