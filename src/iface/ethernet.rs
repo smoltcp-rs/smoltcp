@@ -227,11 +227,13 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
                     Socket::Icmp(ref mut socket) =>
                         socket.dispatch(&caps, |response| {
                             let tx_token = device.transmit().ok_or(Error::Exhausted)?;
-                            match response {
-                                (IpRepr::Ipv4(repr), icmp_repr) =>
-                                    inner.dispatch(tx_token, timestamp, Packet::Icmpv4((repr, icmp_repr))),
+                            device_result = match response {
+                                (IpRepr::Ipv4(ipv4_repr), icmpv4_repr) =>
+                                    inner.dispatch(tx_token, timestamp,
+                                                   Packet::Icmpv4((ipv4_repr, icmpv4_repr))),
                                 _ => Err(Error::Unaddressable),
-                            }
+                            };
+                            device_result
                         }),
                     #[cfg(feature = "socket-udp")]
                     Socket::Udp(ref mut socket) =>
