@@ -252,10 +252,13 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
             match (device_result, socket_result) {
                 (Err(Error::Unaddressable), _) => break, // no one to transmit to
                 (Err(Error::Exhausted), _) => break,     // nowhere to transmit
-                (Ok(()), Err(Error::Exhausted)) => (),   // nothing to transmit
-                (Err(err), _) | (_, Err(err)) => {
-                    net_debug!("cannot dispatch egress packet: {}", err);
+                (Err(err), _) => {
+                    net_debug!("cannot dispatch egress packet, device error: {}", err);
                     return Err(err)
+                }
+                (Ok(()), Err(Error::Exhausted)) => (),   // nothing to transmit
+                (Ok(()), Err(err)) => {
+                    net_debug!("cannot dispatch egress packet, socket error: {}", err);
                 }
                 (Ok(()), Ok(())) => ()
             }
