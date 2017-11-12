@@ -432,14 +432,19 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         let icmp_repr = Icmpv4Repr::parse(&icmp_packet, &checksum_caps)?;
 
         #[cfg(feature = "socket-icmp")]
+        let mut handled_by_icmp_socket = false;
+
+        #[cfg(feature = "socket-icmp")]
         for mut icmp_socket in _sockets.iter_mut().filter_map(IcmpSocket::downcast) {
             if !icmp_socket.accepts(&ip_repr, &icmp_repr, &checksum_caps) { continue }
 
             match icmp_socket.process(&ip_repr, ip_payload) {
                 // The packet is valid and handled by socket.
-                Ok(()) => return Ok(Packet::None),
-                // The packet is malformed, or the socket buffer is full.
-                Err(e) => return Err(e)
+                Ok(()) => handled_by_icmp_socket = true,
+                // The socket buffer is full.
+                Err(Error::Exhausted) => (),
+                // ICMP sockets don't validate the packets in any way.
+                Err(_) => unreachable!(),
             }
         }
 
@@ -459,6 +464,11 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
 
             // Ignore any echo replies.
             Icmpv4Repr::EchoReply { .. } => Ok(Packet::None),
+
+            // Don't report an error if a packet with unknown type
+            // has been handled by an ICMP socket
+            #[cfg(feature = "socket-icmp")]
+            _ if handled_by_icmp_socket => Ok(Packet::None),
 
             // FIXME: do something correct here?
             _ => Err(Error::Unrecognized),
@@ -1040,6 +1050,9 @@ mod test {
         let socket_handle = socket_set.add(icmpv4_socket);
 
         let ident = 0x1234;
+        let seq_no = 0x5432;
+        let echo_data = &[0xff; 16];
+
         {
             let mut socket = socket_set.get::<IcmpSocket>(socket_handle);
             // Bind to the ID 0x1234
@@ -1049,34 +1062,41 @@ mod test {
         // Ensure the ident we bound to and the ident of the packet are the same.
         let mut bytes = [0xff; 24];
         let mut packet = Icmpv4Packet::new(&mut bytes);
-        let echo_repr = Icmpv4Repr::EchoReply {
-            ident:  ident,
-            seq_no: 0x5432,
-            data:   &[0xff; 16],
-        };
+        let echo_repr = Icmpv4Repr::EchoRequest{ ident, seq_no, data: echo_data };
         echo_repr.emit(&mut packet, &ChecksumCapabilities::default());
-        let data = &packet.into_inner()[..];
+        let icmp_data = &packet.into_inner()[..];
 
-        let ip_repr = IpRepr::Ipv4(Ipv4Repr {
+        let ipv4_repr = Ipv4Repr {
             src_addr:    Ipv4Address::new(0x7f, 0x00, 0x00, 0x02),
             dst_addr:    Ipv4Address::new(0x7f, 0x00, 0x00, 0x01),
             protocol:    IpProtocol::Icmp,
             payload_len: 24,
             ttl:         64
-        });
+        };
+        let ip_repr = IpRepr::Ipv4(ipv4_repr);
 
         // Open a socket and ensure the packet is handled due to the listening
         // socket.
         {
             assert!(!socket_set.get::<IcmpSocket>(socket_handle).can_recv());
         }
-        assert_eq!(iface.inner.process_icmpv4(&mut socket_set, ip_repr, data),
-                   Ok(Packet::None));
+
+        // Confirm we still get EchoReply from `smoltcp` even with the ICMP socket listening
+        let echo_reply = Icmpv4Repr::EchoReply{ ident, seq_no, data: echo_data };
+        let ipv4_reply = Ipv4Repr {
+            src_addr: ipv4_repr.dst_addr,
+            dst_addr: ipv4_repr.src_addr,
+            ..ipv4_repr
+        };
+        assert_eq!(iface.inner.process_icmpv4(&mut socket_set, ip_repr, icmp_data),
+                   Ok(Packet::Icmpv4((ipv4_reply, echo_reply))));
+
         {
             let mut socket = socket_set.get::<IcmpSocket>(socket_handle);
             assert!(socket.can_recv());
             assert_eq!(socket.recv(),
-                       Ok((&data[..], IpAddress::Ipv4(Ipv4Address::new(0x7f, 0x00, 0x00, 0x02)))));
+                       Ok((&icmp_data[..],
+                           IpAddress::Ipv4(Ipv4Address::new(0x7f, 0x00, 0x00, 0x02)))));
         }
     }
 }
