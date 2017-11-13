@@ -1115,9 +1115,29 @@ impl<'a> TcpSocket<'a> {
         }
 
         if let Some(ack_number) = repr.ack_number {
+            let old_local_seq_no = self.local_seq_no;
             // We've processed everything in the incoming segment, so advance the local
             // sequence number past it.
             self.local_seq_no = ack_number;
+            // During retransmission, a higher sequence number can get acknowledged than
+            // and has to be used for further sending instead of the last calculated after
+            // retransmitting an older packet. Thus have to forward remote_last_seq to the
+            // updated local sequence number here.
+            // In normal operation, nothing should be done here.
+            // Due to wrapping of the sequence numbers it is not enough to check
+            // the two cases of local_seq_no < remote_last_seq to see if it is a
+            // retransmission or not, but instead the two wrapped cases also have to be
+            // considered. To distinguish them old_local_seq_no is needed:
+            // These two cases describe retransmission where remote_last_seq lags behind
+            // local_seq_no and old_local_seq_no lies not inbetween (because that would
+            // be the case when for wrapped non-retransmission) or lies inbetween if
+            // local_seq_no just got wrapped (it would not be inbetween for non-wrapped
+            // no-retransmission sending).
+            if (self.remote_last_seq < self.local_seq_no &&
+                !(self.remote_last_seq < old_local_seq_no && old_local_seq_no < self.local_seq_no)) ||
+               (self.local_seq_no < old_local_seq_no && old_local_seq_no < self.remote_last_seq) {
+                self.remote_last_seq = self.local_seq_no;
+            }
         }
 
         let payload_len = repr.payload.len();
@@ -3055,6 +3075,92 @@ mod test {
             payload:    &b"ABCDEF"[..],
             ..RECV_TEMPL
         }));
+    }
+
+    #[test]
+    fn test_established_retransmit_ack_higher() {
+        // Generate cases where local_seq_no and remote_last_seq wrap when
+        // ACKs are received, both for regular and retransmitted data.
+        for local_seq_start in vec![LOCAL_SEQ, TcpSeqNumber(i32::MAX - 10),
+            TcpSeqNumber(i32::MAX - 7), TcpSeqNumber(i32::MAX - 6),
+            TcpSeqNumber(i32::MAX - 3)] {
+            let mut s = socket_established();
+            // After retransmission of an older packet,
+            // the sequence number can jump higher than
+            // this last sequence number sent, because
+            // the following packets were received well
+            // at the first try and get acknowledged now
+            // all at once. Sending should continue
+            // with unacknowleged data, and use the correct
+            // sequence number for it (remote_last_seq).
+            // Constellations of old_local_seq_no, local_seq_no and remote_last_seq
+            // are covered by cases LOCAL_SEQ, MAX-10 and MAX-7 for regular
+            // transmission (2nd send! macro) and for retransmission by the cases
+            // LOCAL_SEQ, MAX-7, MAX-6, MAX-3 (1st send! macro).
+            s.local_seq_no = local_seq_start + 1;
+            s.remote_last_seq = local_seq_start + 1;
+            s.remote_mss = 3;
+            s.send_slice(b"abcdef").unwrap();
+            recv!(s, time 1000, Ok(TcpRepr {
+                seq_number: local_seq_start + 1,
+                ack_number: Some(REMOTE_SEQ + 1),
+                payload:    &b"abc"[..],
+                ..RECV_TEMPL
+            }));
+            recv!(s, time 1005, Ok(TcpRepr {
+                seq_number: local_seq_start + 1 + 3,
+                ack_number: Some(REMOTE_SEQ + 1),
+                payload:    &b"def"[..],
+                ..RECV_TEMPL
+            }));
+            assert_eq!(s.tx_buffer.len(), 6);
+            // Retransmit timer is on because all data was sent
+            recv!(s, time 4000, Ok(TcpRepr {
+                seq_number: local_seq_start + 1,
+                ack_number: Some(REMOTE_SEQ + 1),
+                payload:    &b"abc"[..],
+                ..RECV_TEMPL
+            }));
+            // Enqueue more, but do not send yet
+            s.send_slice(b"123").unwrap();
+            // ACK all sent data while in retransmission has to update remote_last_seq
+            send!(s, TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(local_seq_start + 1 + 6),
+                ..SEND_TEMPL
+            });
+            assert_eq!(s.tx_buffer.len(), 3);
+            // Continue sending at the correct position
+            recv!(s, time 4010, Ok(TcpRepr {
+                seq_number: local_seq_start + 1 + 6,
+                ack_number: Some(REMOTE_SEQ + 1),
+                payload:    &b"123"[..],
+                ..RECV_TEMPL
+            }));
+            s.send_slice(b"456789").unwrap();
+            // Send even more
+            recv!(s, time 4015, Ok(TcpRepr {
+                seq_number: local_seq_start + 1 + 9,
+                ack_number: Some(REMOTE_SEQ + 1),
+                payload:    &b"456"[..],
+                ..RECV_TEMPL
+            }));
+            // ACK of "123" during normal transmission should not update remote_last_seq
+            // which would result in transmitting "456" again
+            send!(s, TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(local_seq_start + 1 + 9),
+                ..SEND_TEMPL
+            });
+            assert_eq!(s.tx_buffer.len(), 6);
+            // Correctly continue with the last data to send
+            recv!(s, time 4020, Ok(TcpRepr {
+                seq_number: local_seq_start + 1 + 12,
+                ack_number: Some(REMOTE_SEQ + 1),
+                payload:    &b"789"[..],
+                ..RECV_TEMPL
+            }));
+        }
     }
 
     // =========================================================================================//
