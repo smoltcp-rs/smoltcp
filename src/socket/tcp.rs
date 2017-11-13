@@ -1482,6 +1482,7 @@ impl<'a> fmt::Write for TcpSocket<'a> {
 
 #[cfg(test)]
 mod test {
+    use core::i32;
     use wire::{IpAddress, IpRepr};
     use wire::{Ipv4Address, IpCidr, Ipv4Repr};
     use super::*;
@@ -2126,6 +2127,21 @@ mod test {
             payload: &data[16..32],
             ..RECV_TEMPL
         }]);
+    }
+
+    #[test]
+    fn test_established_send_wrap() {
+        let mut s = socket_established();
+        let local_seq_start = TcpSeqNumber(i32::MAX - 1);
+        s.local_seq_no = local_seq_start + 1;
+        s.remote_last_seq = local_seq_start + 1;
+        s.send_slice(b"abc").unwrap();
+        recv!(s, time 1000, Ok(TcpRepr {
+            seq_number: local_seq_start + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"abc"[..],
+            ..RECV_TEMPL
+        }));
     }
 
     #[test]

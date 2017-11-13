@@ -51,13 +51,13 @@ impl ops::Sub for SeqNumber {
     type Output = usize;
 
     fn sub(self, rhs: SeqNumber) -> usize {
-        (self.0 - rhs.0) as usize
+        self.0.wrapping_sub(rhs.0) as usize
     }
 }
 
 impl cmp::PartialOrd for SeqNumber {
     fn partial_cmp(&self, other: &SeqNumber) -> Option<cmp::Ordering> {
-        (self.0 - other.0).partial_cmp(&0)
+        self.0.wrapping_sub(other.0).partial_cmp(&0)
     }
 }
 
