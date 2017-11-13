@@ -184,10 +184,10 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
     /// icmp_socket.bind(IcmpEndpoint::Udp(endpoint)).unwrap();
     /// ```
     ///
-    /// ## Bind to a specific IP identifier:
+    /// ## Bind to a specific ICMP identifier:
     ///
     /// To [send] and [recv] ICMP packets that are not associated with a specific UDP
-    /// port, the socket may be bound to a specific IP identifier using
+    /// port, the socket may be bound to a specific ICMP identifier using
     /// [IcmpEndpoint::Ident]. This is useful for sending and receiving Echo Request/Reply
     /// messages.
     ///
@@ -203,7 +203,7 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
     /// #     _ => unreachable!()
     /// # };
     ///
-    /// // Bind to ICMP messages with the IP identifier 0x1234
+    /// // Bind to ICMP messages with the ICMP identifier 0x1234
     /// icmp_socket.bind(IcmpEndpoint::Ident(0x1234)).unwrap();
     /// ```
     ///
