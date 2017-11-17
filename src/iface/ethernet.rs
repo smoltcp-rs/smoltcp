@@ -884,7 +884,6 @@ mod test {
         let mut packet_unicast = UdpPacket::new(&mut udp_bytes_unicast);
         let mut packet_broadcast = UdpPacket::new(&mut udp_bytes_broadcast);
 
-        // Unknown Ipv4 Protocol with no payload
         let udp_repr = UdpRepr {
             src_port: 67,
             dst_port: 68,
@@ -949,10 +948,69 @@ mod test {
 
         // Ensure that the port unreachable error does not trigger an
         // ICMP error response when the destination address is a
-        // broadcast address
+        // broadcast address and no socket is bound to the port.
         assert_eq!(iface.inner.process_udp(&mut socket_set, ip_repr,
                    packet_broadcast.into_inner()), Ok(Packet::None));
+    }
 
+    #[test]
+    #[cfg(feature = "socket-udp")]
+    fn test_handle_udp_broadcast() {
+        use socket::{UdpPacketBuffer, UdpSocket, UdpSocketBuffer};
+        use wire::IpEndpoint;
+
+        static UDP_PAYLOAD: [u8; 5] = [0x48, 0x65, 0x6c, 0x6c, 0x6f];
+
+        let (iface, mut socket_set) = create_loopback();
+
+        let rx_buffer = UdpSocketBuffer::new(vec![UdpPacketBuffer::new(vec![0; 15])]);
+        let tx_buffer = UdpSocketBuffer::new(vec![UdpPacketBuffer::new(vec![0; 15])]);
+
+        let udp_socket = UdpSocket::new(rx_buffer, tx_buffer);
+
+        let mut udp_bytes = vec![0u8; 13];
+        let mut packet = UdpPacket::new(&mut udp_bytes);
+
+        let socket_handle = socket_set.add(udp_socket);
+
+        let src_ip = Ipv4Address([0x7f, 0x00, 0x00, 0x02]);
+
+        let udp_repr = UdpRepr {
+            src_port: 67,
+            dst_port: 68,
+            payload:  &UDP_PAYLOAD
+        };
+
+        let ip_repr = IpRepr::Ipv4(Ipv4Repr {
+            src_addr:    src_ip,
+            dst_addr:    Ipv4Address::BROADCAST,
+            protocol:    IpProtocol::Udp,
+            payload_len: udp_repr.buffer_len(),
+            ttl:         0x40
+        });
+
+        {
+            // Bind the socket to port 68
+            let mut socket = socket_set.get::<UdpSocket>(socket_handle);
+            assert_eq!(socket.bind(68), Ok(()));
+            assert!(!socket.can_recv());
+            assert!(socket.can_send());
+        }
+
+        udp_repr.emit(&mut packet, &ip_repr.src_addr(), &ip_repr.dst_addr(),
+                      &ChecksumCapabilities::default());
+
+        // Packet should be handled by bound UDP socket
+        assert_eq!(iface.inner.process_udp(&mut socket_set, ip_repr, packet.into_inner()),
+                   Ok(Packet::None));
+
+        {
+            // Make sure the payload to the UDP packet processed by process_udp is
+            // appended to the bound sockets rx_buffer
+            let mut socket = socket_set.get::<UdpSocket>(socket_handle);
+            assert!(socket.can_recv());
+            assert_eq!(socket.recv(), Ok((&UDP_PAYLOAD[..], IpEndpoint::new(src_ip.into(), 67))));
+        }
     }
 
     #[test]
