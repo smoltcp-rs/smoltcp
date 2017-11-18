@@ -540,16 +540,84 @@ impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Packet<&'a mut T> {
 }
 
 /// A high-level representation of a Dynamic Host Configuration Protocol packet.
+///
+/// DHCP messages have the following layout (see [RFC 2131](https://tools.ietf.org/html/rfc2131)
+/// for details):
+///
+/// ```no_rust
+/// 0                   1                   2                   3
+/// 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+/// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+/// | message_type  | htype (N/A)   |   hlen (N/A)  |   hops        |
+/// +---------------+---------------+---------------+---------------+
+/// |                       transaction_id                          |
+/// +-------------------------------+-------------------------------+
+/// |           secs                |           flags               |
+/// +-------------------------------+-------------------------------+
+/// |                           client_ip                           |
+/// +---------------------------------------------------------------+
+/// |                            your_ip                            |
+/// +---------------------------------------------------------------+
+/// |                           server_ip                           |
+/// +---------------------------------------------------------------+
+/// |                        relay_agent_ip                         |
+/// +---------------------------------------------------------------+
+/// |                                                               |
+/// |                    client_hardware_address                    |
+/// |                                                               |
+/// |                                                               |
+/// +---------------------------------------------------------------+
+/// |                                                               |
+/// |                          sname  (N/A)                         |
+/// +---------------------------------------------------------------+
+/// |                                                               |
+/// |                          file    (N/A)                        |
+/// +---------------------------------------------------------------+
+/// |                                                               |
+/// |                          options                              |
+/// +---------------------------------------------------------------+
+/// ```
+///
+/// It is assumed that the access layer is Ethernet, so `htype` (the field representing the
+/// hardware address type) is always set to `1`, and `hlen` (which represents the hardware address
+/// length) is set to `6`.
+///
+/// The `options` field has a variable length.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct Repr<'a> {
+    /// This field is also known as `op` in the RFC. It indicates the type of DHCP message this
+    /// packet represents.
     pub message_type: MessageType,
+    /// This field is also known as `xid` in the RFC. It is a random number chosen by the client,
+    /// used by the client and server to associate messages and responses between a client and a
+    /// server.
     pub transaction_id: u32,
+    /// This field is also known as `chaddr` in the RFC and for networks where the access layer is
+    /// ethernet, it is the client MAC address.
     pub client_hardware_address: EthernetAddress,
+    /// This field is also known as `ciaddr` in the RFC. It is only filled in if client is in
+    /// BOUND, RENEW or REBINDING state and can respond to ARP requests.
     pub client_ip: Ipv4Address,
+    /// This field is also known as `yiaddr` in the RFC.
     pub your_ip: Ipv4Address,
+    /// This field is also known as `siaddr` in the RFC. It may be set by the server in DHCPOFFER
+    /// and DHCPACK messages, and represent the address of the next server to use in bootstrap.
     pub server_ip: Ipv4Address,
+    /// This field is also known as `giaddr` in the RFC. In order to allow DHCP clients on subnets
+    /// not directly served by DHCP servers to communicate with DHCP servers, DHCP relay agents can
+    /// be installed on these subnets. The DHCP client broadcasts on the local link; the relay
+    /// agent receives the broadcast and transmits it to one or more DHCP servers using unicast.
+    /// The relay agent stores its own IP address in the `relay_agent_ip` field of the DHCP packet.
+    /// The DHCP server uses the `relay_agent_ip` to determine the subnet on which the relay agent
+    /// received the broadcast, and allocates an IP address on that subnet. When the DHCP server
+    /// replies to the client, it sends the reply to the `relay_agent_ip` address, again using
+    /// unicast. The relay agent then retransmits the response on the local network
     pub relay_agent_ip: Ipv4Address,
+    /// Broadcast flags. It can be set in DHCPDISCOVER, DHCPINFORM and DHCPREQUEST message if the
+    /// client requires the response to be broadcasted.
     pub broadcast: bool,
+    /// The "requested IP address" option. It can be used by clients in DHCPREQUEST or DHCPDISCOVER
+    /// messages, or by servers in DHCPDECLINE messages.
     pub requested_ip: Option<Ipv4Address>,
     /// The "client identifier" option.
     ///
@@ -561,6 +629,8 @@ pub struct Repr<'a> {
     /// it MUST use that same identifier in all subsequent messages, to ensure that all servers
     /// correctly identify the client.
     pub client_identifier: Option<EthernetAddress>,
+    /// The "server identifier" option. It is used both to identify a DHCP server
+    /// in a DHCP message and as a destination address from clients to servers.
     pub server_identifier: Option<Ipv4Address>,
     /// The parameter request list informs the server about which configuration parameters
     /// the client is interested in.
