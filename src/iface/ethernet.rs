@@ -2,7 +2,7 @@
 // of RFC 1122 that discuss Ethernet, ARP and IP.
 
 use core::cmp;
-use managed::{Managed, ManagedSlice};
+use managed::ManagedSlice;
 
 use {Error, Result};
 use phy::{Device, DeviceCapabilities, RxToken, TxToken};
@@ -26,7 +26,7 @@ use socket::IcmpSocket;
 use socket::UdpSocket;
 #[cfg(feature = "socket-tcp")]
 use socket::TcpSocket;
-use super::ArpCache;
+use super::{NeighborCache, NeighborAnswer};
 
 /// An Ethernet network interface.
 ///
@@ -46,7 +46,7 @@ pub struct Interface<'b, 'c, DeviceT: for<'d> Device<'d>> {
 /// methods on the `Interface` in this time (since its `device` field is borrowed
 /// exclusively). However, it is still possible to call methods on its `inner` field.
 struct InterfaceInner<'b, 'c> {
-    arp_cache:              Managed<'b, ArpCache>,
+    neighbor_cache:         NeighborCache<'b>,
     ethernet_addr:          EthernetAddress,
     ip_addrs:               ManagedSlice<'c, IpCidr>,
     ipv4_gateway:           Option<Ipv4Address>,
@@ -73,23 +73,21 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
     /// # Panics
     /// See the restrictions on [set_hardware_addr](#method.set_hardware_addr)
     /// and [set_protocol_addrs](#method.set_protocol_addrs) functions.
-    pub fn new<ArpCacheMT, ProtocolAddrsMT, Ipv4GatewayAddrT>
-              (device: DeviceT, arp_cache: ArpCacheMT,
+    pub fn new<ProtocolAddrsMT, Ipv4GatewayAddrT>
+              (device: DeviceT,
+               neighbor_cache: NeighborCache<'b>,
                ethernet_addr: EthernetAddress,
                ip_addrs: ProtocolAddrsMT,
                ipv4_gateway: Ipv4GatewayAddrT) ->
               Interface<'b, 'c, DeviceT>
-            where ArpCacheMT: Into<Managed<'b, ArpCache>>,
-                  ProtocolAddrsMT: Into<ManagedSlice<'c, IpCidr>>,
+            where ProtocolAddrsMT: Into<ManagedSlice<'c, IpCidr>>,
                   Ipv4GatewayAddrT: Into<Option<Ipv4Address>>, {
         let ip_addrs = ip_addrs.into();
         InterfaceInner::check_ethernet_addr(&ethernet_addr);
         InterfaceInner::check_ip_addrs(&ip_addrs);
 
         let inner = InterfaceInner {
-            ethernet_addr,
-            ip_addrs,
-            arp_cache: arp_cache.into(),
+            ethernet_addr, ip_addrs, neighbor_cache,
             ipv4_gateway: ipv4_gateway.into(),
             device_capabilities: device.capabilities(),
         };
@@ -301,7 +299,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
 
         match eth_frame.ethertype() {
             EthernetProtocol::Arp =>
-                self.process_arp(&eth_frame),
+                self.process_arp(timestamp, &eth_frame),
             EthernetProtocol::Ipv4 =>
                 self.process_ipv4(sockets, timestamp, &eth_frame),
             // Drop all other traffic.
@@ -310,7 +308,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
     }
 
     fn process_arp<'frame, T: AsRef<[u8]>>
-                  (&mut self, eth_frame: &EthernetFrame<&'frame T>) ->
+                  (&mut self, timestamp: u64, eth_frame: &EthernetFrame<&'frame T>) ->
                   Result<Packet<'frame>>
     {
         let arp_packet = ArpPacket::new_checked(eth_frame.payload())?;
@@ -324,8 +322,9 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
                 operation, source_hardware_addr, source_protocol_addr, target_protocol_addr, ..
             } => {
                 if source_protocol_addr.is_unicast() && source_hardware_addr.is_unicast() {
-                    self.arp_cache.fill(&source_protocol_addr.into(),
-                                        &source_hardware_addr);
+                    self.neighbor_cache.fill(source_protocol_addr.into(),
+                                             source_hardware_addr,
+                                             timestamp);
                 } else {
                     // Discard packets with non-unicast source addresses.
                     net_debug!("non-unicast source address");
@@ -350,7 +349,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
     }
 
     fn process_ipv4<'frame, T: AsRef<[u8]>>
-                   (&mut self, sockets: &mut SocketSet, _timestamp: u64,
+                   (&mut self, sockets: &mut SocketSet, timestamp: u64,
                     eth_frame: &EthernetFrame<&'frame T>) ->
                    Result<Packet<'frame>>
     {
@@ -366,8 +365,9 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
 
         if eth_frame.src_addr().is_unicast() {
             // Fill the ARP cache from IP header of unicast frames.
-            self.arp_cache.fill(&IpAddress::Ipv4(ipv4_repr.src_addr),
-                                &eth_frame.src_addr());
+            self.neighbor_cache.fill(IpAddress::Ipv4(ipv4_repr.src_addr),
+                                     eth_frame.src_addr(),
+                                     timestamp);
         }
 
         let ip_repr = IpRepr::Ipv4(ipv4_repr);
@@ -406,7 +406,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
 
             #[cfg(feature = "socket-tcp")]
             IpProtocol::Tcp =>
-                self.process_tcp(sockets, _timestamp, ip_repr, ip_payload),
+                self.process_tcp(sockets, timestamp, ip_repr, ip_payload),
 
             #[cfg(feature = "socket-raw")]
             _ if handled_by_raw_socket =>
@@ -678,12 +678,12 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
     {
         let dst_addr = self.route(dst_addr)?;
 
-        if let Some(hardware_addr) = self.arp_cache.lookup(&dst_addr) {
-            return Ok((hardware_addr,tx_token))
-        }
-
-        if dst_addr.is_broadcast() {
-            return Ok((EthernetAddress::BROADCAST, tx_token))
+        match self.neighbor_cache.lookup(&dst_addr, timestamp) {
+            NeighborAnswer::Found(hardware_addr) =>
+                return Ok((hardware_addr, tx_token)),
+            NeighborAnswer::Hushed =>
+                return Err(Error::Unaddressable),
+            NeighborAnswer::NotFound => (),
         }
 
         match (src_addr, dst_addr) {
@@ -740,10 +740,10 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
 
 #[cfg(test)]
 mod test {
-    use std::boxed::Box;
+    use std::collections::BTreeMap;
     use {Result, Error};
 
-    use iface::{ArpCache, SliceArpCache, EthernetInterface};
+    use iface::{NeighborCache, EthernetInterface};
     use phy::{self, Loopback, ChecksumCapabilities};
     use socket::SocketSet;
     use wire::{ArpOperation, ArpPacket, ArpRepr};
@@ -755,17 +755,17 @@ mod test {
 
     use super::Packet;
 
-    fn create_loopback<'a, 'b>() ->
-            (EthernetInterface<'static, 'b, Loopback>, SocketSet<'static, 'a, 'b>) {
+    fn create_loopback<'a, 'b>() -> (EthernetInterface<'static, 'b, Loopback>,
+                                     SocketSet<'static, 'a, 'b>) {
         // Create a basic device
         let device = Loopback::new();
 
-        let arp_cache = SliceArpCache::new(vec![Default::default(); 8]);
+        let neighbor_cache = NeighborCache::new(BTreeMap::new());
 
         let ip_addr = IpCidr::new(IpAddress::v4(127, 0, 0, 1), 8);
-        (EthernetInterface::new(
-            device, Box::new(arp_cache) as Box<ArpCache>,
-            EthernetAddress::default(), [ip_addr], None), SocketSet::new(vec![]))
+        (EthernetInterface::new(device, neighbor_cache,
+            EthernetAddress::default(), [ip_addr], None),
+            SocketSet::new(vec![]))
     }
 
     #[derive(Debug, PartialEq)]
