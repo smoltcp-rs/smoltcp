@@ -2,10 +2,11 @@ language: rust
 matrix:
   include:
     # litmus check that we work on stable/beta
-    - rust: stable
-      env: FEATURES='default' MODE='test'
-    - rust: beta
-      env: FEATURES='default' MODE='test'
+    # we don't, not until slice_rotate lands
+    # - rust: stable
+    #   env: FEATURES='default' MODE='test'
+    # - rust: beta
+    #   env: FEATURES='default' MODE='test'
     # actually test everything
     - rust: nightly
       env: FEATURES='default' MODE='test'
