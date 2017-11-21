@@ -81,7 +81,7 @@ impl<'a> Cache<'a> {
             Ok(Some(old_neighbor)) => {
                 if old_neighbor.hardware_addr != hardware_addr {
                     net_trace!("replaced {} => {} (was {})",
-                               protocol_addr, hardware_addr, old_neighbor.hardware_addr)
+                               protocol_addr, hardware_addr, old_neighbor.hardware_addr);
                 }
             }
             Ok(None) => {
