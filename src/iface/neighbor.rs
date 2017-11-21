@@ -103,6 +103,7 @@ impl<'a> Cache<'a> {
                             .0
                     }
                     // Owned maps can extend themselves.
+                    #[cfg(any(feature = "std", feature = "alloc"))]
                     ManagedMap::Owned(_) => unreachable!()
                 };
 
