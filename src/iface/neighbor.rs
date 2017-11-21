@@ -85,9 +85,40 @@ impl<'a> Cache<'a> {
                 }
             }
             Ok(None) => {
-                net_trace!("filled {} => {}", protocol_addr, hardware_addr);
+                net_trace!("filled {} => {} (was empty)", protocol_addr, hardware_addr);
             }
-            Err(_) => unreachable!()
+            Err((protocol_addr, neighbor)) => {
+                // If we're going down this branch, it means that a fixed-size cache storage
+                // is full, and we need to evict an entry.
+                let old_protocol_addr = match self.storage {
+                    ManagedMap::Borrowed(ref mut pairs) => {
+                        pairs
+                            .iter()
+                            .min_by_key(|pair_opt| {
+                                let (_protocol_addr, neighbor) = pair_opt.unwrap();
+                                neighbor.expires_at
+                            })
+                            .expect("empty neighbor cache storage") // unwraps min_by_key
+                            .unwrap() // unwraps pair
+                            .0
+                    }
+                    // Owned maps can extend themselves.
+                    ManagedMap::Owned(_) => unreachable!()
+                };
+
+                let _old_neighbor =
+                    self.storage.remove(&old_protocol_addr).unwrap();
+                match self.storage.insert(protocol_addr, neighbor) {
+                    Ok(None) => {
+                        net_trace!("filled {} => {} (evicted {} => {})",
+                                   protocol_addr, hardware_addr,
+                                   old_protocol_addr, _old_neighbor.hardware_addr);
+                    }
+                    // We've covered everything else above.
+                    _ => unreachable!()
+                }
+
+            }
         }
     }
 
@@ -130,9 +161,13 @@ mod test {
 
     const HADDR_A: EthernetAddress = EthernetAddress([0, 0, 0, 0, 0, 1]);
     const HADDR_B: EthernetAddress = EthernetAddress([0, 0, 0, 0, 0, 2]);
+    const HADDR_C: EthernetAddress = EthernetAddress([0, 0, 0, 0, 0, 3]);
+    const HADDR_D: EthernetAddress = EthernetAddress([0, 0, 0, 0, 0, 4]);
 
     const PADDR_A: IpAddress = IpAddress::Ipv4(Ipv4Address([1, 0, 0, 1]));
     const PADDR_B: IpAddress = IpAddress::Ipv4(Ipv4Address([1, 0, 0, 2]));
+    const PADDR_C: IpAddress = IpAddress::Ipv4(Ipv4Address([1, 0, 0, 3]));
+    const PADDR_D: IpAddress = IpAddress::Ipv4(Ipv4Address([1, 0, 0, 4]));
 
     #[test]
     fn test_fill() {
@@ -170,6 +205,24 @@ mod test {
         assert_eq!(cache.lookup_pure(&PADDR_A, 0), Some(HADDR_A));
         cache.fill(PADDR_A, HADDR_B, 0);
         assert_eq!(cache.lookup_pure(&PADDR_A, 0), Some(HADDR_B));
+    }
+
+    #[test]
+    fn test_evict() {
+        let mut cache_storage = [Default::default(); 3];
+        let mut cache = Cache::new(&mut cache_storage[..]);
+
+        cache.fill(PADDR_A, HADDR_A, 100);
+        cache.fill(PADDR_B, HADDR_B, 50);
+        cache.fill(PADDR_C, HADDR_C, 200);
+        assert_eq!(cache.lookup_pure(&PADDR_B, 1000), Some(HADDR_B));
+        assert_eq!(cache.lookup_pure(&PADDR_D, 1000), None);
+
+        println!("{:?}", cache);
+        cache.fill(PADDR_D, HADDR_D, 300);
+        println!("{:?}", cache);
+        assert_eq!(cache.lookup_pure(&PADDR_B, 1000), None);
+        assert_eq!(cache.lookup_pure(&PADDR_D, 1000), Some(HADDR_D));
     }
 
     #[test]
