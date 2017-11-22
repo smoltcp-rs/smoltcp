@@ -616,7 +616,8 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
                 })
             },
             Packet::Icmpv4((ipv4_repr, icmpv4_repr)) => {
-                self.dispatch_ip(tx_token, timestamp, IpRepr::Ipv4(ipv4_repr), |_ip_repr, payload| {
+                self.dispatch_ip(tx_token, timestamp, IpRepr::Ipv4(ipv4_repr),
+                                 |_ip_repr, payload| {
                     icmpv4_repr.emit(&mut Icmpv4Packet::new(payload), &checksum_caps);
                 })
             }

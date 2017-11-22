@@ -103,7 +103,8 @@ pub struct IcmpSocket<'a, 'b: 'a> {
 
 impl<'a, 'b> IcmpSocket<'a, 'b> {
     /// Create an ICMPv4 socket with the given buffers.
-    pub fn new(rx_buffer: SocketBuffer<'a, 'b>, tx_buffer: SocketBuffer<'a, 'b>) -> Socket<'a, 'b> {
+    pub fn new(rx_buffer: SocketBuffer<'a, 'b>,
+               tx_buffer: SocketBuffer<'a, 'b>) -> Socket<'a, 'b> {
         Socket::Icmp(IcmpSocket {
             meta:      SocketMeta::default(),
             rx_buffer: rx_buffer,
