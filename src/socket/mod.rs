@@ -80,7 +80,11 @@ pub enum Socket<'a, 'b: 'a> {
 /// is interested in, but which are more conveniently stored inside the socket itself.
 #[derive(Debug, Default)]
 pub(crate) struct SocketMeta {
-    handle: SocketHandle,
+    /// Handle of this socket within its enclosing `SocketSet`.
+    /// Mainly useful for debug output.
+    pub(crate) handle:       SocketHandle,
+    /// A lower limit on the timestamp returned from the socket's `poll_at()` method.
+    pub(crate) hushed_until: Option<u64>,
 }
 
 macro_rules! dispatch_socket {
@@ -101,6 +105,7 @@ macro_rules! dispatch_socket {
 
 impl<'a, 'b> Socket<'a, 'b> {
     /// Return the socket handle.
+    #[inline]
     pub fn handle(&self) -> SocketHandle {
         self.meta().handle
     }
@@ -114,7 +119,8 @@ impl<'a, 'b> Socket<'a, 'b> {
     }
 
     pub(crate) fn poll_at(&self) -> Option<u64> {
-        dispatch_socket!(self, |socket []| socket.poll_at())
+        let poll_at = dispatch_socket!(self, |socket []| socket.poll_at());
+        self.meta().hushed_until.or(poll_at)
     }
 }
 

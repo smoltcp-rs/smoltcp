@@ -210,6 +210,12 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
         caps.max_transmission_unit -= EthernetFrame::<&[u8]>::header_len();
 
         for mut socket in sockets.iter_mut() {
+            if let Some(hushed_until) = socket.meta().hushed_until {
+                if hushed_until > timestamp {
+                    continue
+                }
+            }
+
             let mut device_result = Ok(());
             let &mut Self { ref mut device, ref mut inner } = self;
             let socket_result =
@@ -218,7 +224,8 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
                     Socket::Raw(ref mut socket) =>
                         socket.dispatch(|response| {
                             let tx_token = device.transmit().ok_or(Error::Exhausted)?;
-                            device_result = inner.dispatch(tx_token, timestamp, Packet::Raw(response));
+                            device_result = inner.dispatch(tx_token, timestamp,
+                                                           Packet::Raw(response));
                             device_result
                         }, &caps.checksum),
                     #[cfg(feature = "socket-icmp")]
@@ -237,27 +244,47 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
                     Socket::Udp(ref mut socket) =>
                         socket.dispatch(|response| {
                             let tx_token = device.transmit().ok_or(Error::Exhausted)?;
-                            device_result = inner.dispatch(tx_token, timestamp, Packet::Udp(response));
+                            device_result = inner.dispatch(tx_token, timestamp,
+                                                           Packet::Udp(response));
                             device_result
                         }),
                     #[cfg(feature = "socket-tcp")]
                     Socket::Tcp(ref mut socket) =>
                         socket.dispatch(timestamp, &caps, |response| {
                             let tx_token = device.transmit().ok_or(Error::Exhausted)?;
-                            device_result = inner.dispatch(tx_token, timestamp, Packet::Tcp(response));
+                            device_result = inner.dispatch(tx_token, timestamp,
+                                                           Packet::Tcp(response));
                             device_result
                         }),
                     Socket::__Nonexhaustive(_) => unreachable!()
                 };
             match (device_result, socket_result) {
-                (Err(Error::Unaddressable), _) => break, // no one to transmit to
                 (Err(Error::Exhausted), _) => break,     // nowhere to transmit
                 (Ok(()), Err(Error::Exhausted)) => (),   // nothing to transmit
+                (Err(Error::Unaddressable), _) => {
+                    // `NeighborCache` already takes care of rate limiting the neighbor discovery
+                    // requests from the socket. However, without an additional rate limiting
+                    // mechanism, we would spin on every socket that has yet to discover its
+                    // peer/neighboor./
+                    if let None = socket.meta_mut().hushed_until {
+                        net_trace!("{}: hushed", socket.meta().handle);
+                    }
+                    socket.meta_mut().hushed_until =
+                        Some(timestamp + NeighborCache::SILENT_TIME);
+                    break
+                }
                 (Err(err), _) | (_, Err(err)) => {
-                    net_debug!("cannot dispatch egress packet: {}", err);
+                    net_debug!("{}: cannot dispatch egress packet: {}",
+                               socket.meta().handle, err);
                     return Err(err)
                 }
-                (Ok(()), Ok(())) => ()
+                (Ok(()), Ok(())) => {
+                    // We definitely have a neighbor cache entry now, so this socket does not
+                    // need to be hushed anymore.
+                    if let Some(_) = socket.meta_mut().hushed_until.take() {
+                        net_trace!("{}: unhushed", socket.meta().handle);
+                    }
+                }
             }
         }
         Ok(())
@@ -364,7 +391,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         }
 
         if eth_frame.src_addr().is_unicast() {
-            // Fill the ARP cache from IP header of unicast frames.
+            // Fill the neighbor cache from IP header of unicast frames.
             self.neighbor_cache.fill(IpAddress::Ipv4(ipv4_repr.src_addr),
                                      eth_frame.src_addr(),
                                      timestamp);
@@ -688,7 +715,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
 
         match (src_addr, dst_addr) {
             (&IpAddress::Ipv4(src_addr), IpAddress::Ipv4(dst_addr)) => {
-                net_debug!("address {} not in ARP cache, sending request",
+                net_debug!("address {} not in neighbor cache, sending ARP request",
                            dst_addr);
 
                 let arp_repr = ArpRepr::EthernetIpv4 {

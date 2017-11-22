@@ -51,11 +51,11 @@ pub struct Cache<'a> {
 }
 
 impl<'a> Cache<'a> {
-    /// Flood protection delay, in milliseconds.
-    const FLOOD_TIMER: u64 = 1_000;
+    /// Minimum delay between discovery requests, in milliseconds.
+    pub(crate) const SILENT_TIME: u64 = 1_000;
 
     /// Neighbor entry lifetime, in milliseconds.
-    const ENTRY_LIFETIME: u64 = 60_000;
+    pub(crate) const ENTRY_LIFETIME: u64 = 60_000;
 
     /// Create a cache. The backing storage is cleared upon creation.
     ///
@@ -148,7 +148,7 @@ impl<'a> Cache<'a> {
             None if timestamp < self.hushed_until =>
                 Answer::Hushed,
             None => {
-                self.hushed_until = timestamp + Self::FLOOD_TIMER;
+                self.hushed_until = timestamp + Self::SILENT_TIME;
                 Answer::NotFound
             }
         }
