@@ -7,12 +7,13 @@ extern crate smoltcp;
 mod utils;
 
 use std::str;
+use std::collections::BTreeMap;
 use std::fmt::Write;
 use std::time::Instant;
 use std::os::unix::io::AsRawFd;
 use smoltcp::phy::wait as phy_wait;
 use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr};
-use smoltcp::iface::{ArpCache, SliceArpCache, EthernetInterface};
+use smoltcp::iface::{NeighborCache, EthernetInterface};
 use smoltcp::socket::SocketSet;
 use smoltcp::socket::{UdpSocket, UdpSocketBuffer, UdpPacketBuffer};
 use smoltcp::socket::{TcpSocket, TcpSocketBuffer};
@@ -31,7 +32,7 @@ fn main() {
 
     let startup_time = Instant::now();
 
-    let arp_cache = SliceArpCache::new(vec![Default::default(); 8]);
+    let neighbor_cache = NeighborCache::new(BTreeMap::new());
 
     let udp_rx_buffer = UdpSocketBuffer::new(vec![UdpPacketBuffer::new(vec![0; 64])]);
     let udp_tx_buffer = UdpSocketBuffer::new(vec![UdpPacketBuffer::new(vec![0; 128])]);
@@ -56,8 +57,7 @@ fn main() {
     let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
     let ip_addrs = [IpCidr::new(IpAddress::v4(192, 168, 69, 1), 24)];
     let mut iface = EthernetInterface::new(
-        device, Box::new(arp_cache) as Box<ArpCache>,
-        ethernet_addr, ip_addrs, None);
+        device, neighbor_cache, ethernet_addr, ip_addrs, None);
 
     let mut sockets = SocketSet::new(vec![]);
     let udp_handle  = sockets.add(udp_socket);

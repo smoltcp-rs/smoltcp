@@ -8,13 +8,14 @@ extern crate byteorder;
 mod utils;
 
 use std::str::FromStr;
+use std::collections::BTreeMap;
 use std::time::Instant;
 use std::os::unix::io::AsRawFd;
 use smoltcp::phy::Device;
 use smoltcp::phy::wait as phy_wait;
 use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr,
                     Ipv4Address, Icmpv4Repr, Icmpv4Packet};
-use smoltcp::iface::{ArpCache, SliceArpCache, EthernetInterface};
+use smoltcp::iface::{NeighborCache, EthernetInterface};
 use smoltcp::socket::{SocketSet, IcmpSocket, IcmpSocketBuffer, IcmpPacketBuffer, IcmpEndpoint};
 use std::collections::HashMap;
 use byteorder::{ByteOrder, NetworkEndian};
@@ -45,7 +46,7 @@ fn main() {
 
     let startup_time = Instant::now();
 
-    let arp_cache = SliceArpCache::new(vec![Default::default(); 8]);
+    let neighbor_cache = NeighborCache::new(BTreeMap::new());
 
     let remote_addr = address;
     let local_addr  = Ipv4Address::new(192, 168, 69, 1);
@@ -58,8 +59,7 @@ fn main() {
     let ip_addr = IpCidr::new(IpAddress::from(local_addr), 24);
     let default_v4_gw = Ipv4Address::new(192, 168, 69, 100);
     let mut iface = EthernetInterface::new(
-        device, Box::new(arp_cache) as Box<ArpCache>,
-        ethernet_addr, [ip_addr], Some(default_v4_gw));
+        device, neighbor_cache, ethernet_addr, [ip_addr], Some(default_v4_gw));
 
     let mut sockets = SocketSet::new(vec![]);
     let icmp_handle = sockets.add(icmp_socket);

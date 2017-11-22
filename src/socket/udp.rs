@@ -3,7 +3,7 @@ use managed::Managed;
 
 use {Error, Result};
 use wire::{IpProtocol, IpRepr, IpEndpoint, UdpRepr};
-use socket::{Socket, SocketHandle};
+use socket::{Socket, SocketMeta, SocketHandle};
 use storage::{Resettable, RingBuffer};
 
 /// A buffered UDP packet.
@@ -59,7 +59,7 @@ pub type SocketBuffer<'a, 'b: 'a> = RingBuffer<'a, PacketBuffer<'b>>;
 /// packet buffers.
 #[derive(Debug)]
 pub struct UdpSocket<'a, 'b: 'a> {
-    handle:    SocketHandle,
+    pub(crate) meta: SocketMeta,
     endpoint:  IpEndpoint,
     rx_buffer: SocketBuffer<'a, 'b>,
     tx_buffer: SocketBuffer<'a, 'b>,
@@ -72,7 +72,7 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     pub fn new(rx_buffer: SocketBuffer<'a, 'b>,
                tx_buffer: SocketBuffer<'a, 'b>) -> Socket<'a, 'b> {
         Socket::Udp(UdpSocket {
-            handle:    SocketHandle::EMPTY,
+            meta:      SocketMeta::default(),
             endpoint:  IpEndpoint::default(),
             rx_buffer: rx_buffer,
             tx_buffer: tx_buffer,
@@ -83,12 +83,7 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     /// Return the socket handle.
     #[inline]
     pub fn handle(&self) -> SocketHandle {
-        self.handle
-    }
-
-    /// Set the socket handle.
-    pub(in super) fn set_handle(&mut self, handle: SocketHandle) {
-        self.handle = handle;
+        self.meta.handle
     }
 
     /// Return the bound endpoint.
@@ -171,7 +166,7 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
         let packet_buf = self.tx_buffer.enqueue_one_with(|buf| buf.resize(size))?;
         packet_buf.endpoint = endpoint;
         net_trace!("{}:{}:{}: buffer to send {} octets",
-                   self.handle, self.endpoint, packet_buf.endpoint, size);
+                   self.meta.handle, self.endpoint, packet_buf.endpoint, size);
         Ok(&mut packet_buf.as_mut()[..size])
     }
 
@@ -190,7 +185,7 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     pub fn recv(&mut self) -> Result<(&[u8], IpEndpoint)> {
         let packet_buf = self.rx_buffer.dequeue_one()?;
         net_trace!("{}:{}:{}: receive {} buffered octets",
-                   self.handle, self.endpoint,
+                   self.meta.handle, self.endpoint,
                    packet_buf.endpoint, packet_buf.size);
         Ok((&packet_buf.as_ref(), packet_buf.endpoint))
     }
@@ -221,14 +216,14 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
         packet_buf.as_mut().copy_from_slice(repr.payload);
         packet_buf.endpoint = IpEndpoint { addr: ip_repr.src_addr(), port: repr.src_port };
         net_trace!("{}:{}:{}: receiving {} octets",
-                   self.handle, self.endpoint,
+                   self.meta.handle, self.endpoint,
                    packet_buf.endpoint, packet_buf.size);
         Ok(())
     }
 
     pub(crate) fn dispatch<F>(&mut self, emit: F) -> Result<()>
             where F: FnOnce((IpRepr, UdpRepr)) -> Result<()> {
-        let handle   = self.handle;
+        let handle   = self.handle();
         let endpoint = self.endpoint;
         let ttl = self.ttl.unwrap_or(64);
         self.tx_buffer.dequeue_one_with(|packet_buf| {

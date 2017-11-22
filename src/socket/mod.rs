@@ -74,6 +74,19 @@ pub enum Socket<'a, 'b: 'a> {
     __Nonexhaustive(PhantomData<(&'a (), &'b ())>)
 }
 
+/// Network socket metadata.
+///
+/// This includes things that only external (to the socket, that is) code
+/// is interested in, but which are more conveniently stored inside the socket itself.
+#[derive(Debug, Default)]
+pub(crate) struct SocketMeta {
+    /// Handle of this socket within its enclosing `SocketSet`.
+    /// Mainly useful for debug output.
+    pub(crate) handle:       SocketHandle,
+    /// A lower limit on the timestamp returned from the socket's `poll_at()` method.
+    pub(crate) hushed_until: Option<u64>,
+}
+
 macro_rules! dispatch_socket {
     ($self_:expr, |$socket:ident [$( $mut_:tt )*]| $code:expr) => ({
         match $self_ {
@@ -92,16 +105,22 @@ macro_rules! dispatch_socket {
 
 impl<'a, 'b> Socket<'a, 'b> {
     /// Return the socket handle.
+    #[inline]
     pub fn handle(&self) -> SocketHandle {
-        dispatch_socket!(self, |socket []| socket.handle())
+        self.meta().handle
     }
 
-    pub(crate) fn set_handle(&mut self, handle: SocketHandle) {
-        dispatch_socket!(self, |socket [mut]| socket.set_handle(handle))
+    pub(crate) fn meta(&self) -> &SocketMeta {
+        dispatch_socket!(self, |socket []| &socket.meta)
+    }
+
+    pub(crate) fn meta_mut(&mut self) -> &mut SocketMeta {
+        dispatch_socket!(self, |socket [mut]| &mut socket.meta)
     }
 
     pub(crate) fn poll_at(&self) -> Option<u64> {
-        dispatch_socket!(self, |socket []| socket.poll_at())
+        let poll_at = dispatch_socket!(self, |socket []| socket.poll_at());
+        self.meta().hushed_until.or(poll_at)
     }
 }
 

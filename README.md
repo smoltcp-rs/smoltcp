@@ -22,7 +22,8 @@ The only supported medium is Ethernet.
   * Regular Ethernet II frames are supported.
   * Unicast and broadcast packets are supported, multicast packets are **not** supported.
   * ARP packets (including gratuitous requests and replies) are supported.
-  * ARP rate limiting and cache expiration is **not** supported.
+  * ARP requests are sent at a rate not exceeding one per second.
+  * Cached ARP entries expire after one minute.
   * 802.3 frames and 802.1Q are **not** supported.
   * Jumbo frames are **not** supported.
 

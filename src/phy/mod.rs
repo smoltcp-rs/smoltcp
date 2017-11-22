@@ -60,7 +60,9 @@ impl<'a> phy::Device<'a> for StmPhy {
 struct StmPhyRxToken<'a>(&'a [u8]);
 
 impl<'a> phy::RxToken for StmPhyRxToken<'a> {
-    fn consume<R, F: FnOnce(&[u8]) -> Result<R>>(self, _timestamp: u64, f: F) -> Result<R> {
+    fn consume<R, F>(self, _timestamp: u64, f: F) -> Result<R>
+        where F: FnOnce(&[u8]) -> Result<R>
+    {
         // TODO: receive packet into buffer
         let result = f(self.0);
         println!("rx called");
@@ -71,8 +73,8 @@ impl<'a> phy::RxToken for StmPhyRxToken<'a> {
 struct StmPhyTxToken<'a>(&'a mut [u8]);
 
 impl<'a> phy::TxToken for StmPhyTxToken<'a> {
-    fn consume<R, F: FnOnce(&mut [u8]) -> Result<R>>(self, _timestamp: u64, len: usize, f: F)
-        -> Result<R>
+    fn consume<R, F>(self, _timestamp: u64, len: usize, f: F) -> Result<R>
+        where F: FnOnce(&mut [u8]) -> Result<R>
     {
         let result = f(&mut self.0[..len]);
         println!("tx called {}", len);

@@ -16,12 +16,8 @@ pub struct Item<'a, 'b: 'a> {
 }
 
 /// A handle, identifying a socket in a set.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct Handle(usize);
-
-impl Handle {
-    pub(crate) const EMPTY: Handle = Handle(0);
-}
 
 impl fmt::Display for Handle {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -56,7 +52,7 @@ impl<'a, 'b: 'a, 'c: 'a + 'b> Set<'a, 'b, 'c> {
                        mut socket: Socket<'b, 'c>) -> Handle {
             net_trace!("[{}]: adding", index);
             let handle = Handle(index);
-            socket.set_handle(handle);
+            socket.meta_mut().handle = handle;
             *slot = Some(Item { socket: socket, refs: 1 });
             handle
         }
