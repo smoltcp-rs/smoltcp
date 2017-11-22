@@ -74,6 +74,15 @@ pub enum Socket<'a, 'b: 'a> {
     __Nonexhaustive(PhantomData<(&'a (), &'b ())>)
 }
 
+/// Network socket metadata.
+///
+/// This includes things that only external (to the socket, that is) code
+/// is interested in, but which are more conveniently stored inside the socket itself.
+#[derive(Debug, Default)]
+pub(crate) struct SocketMeta {
+    handle: SocketHandle,
+}
+
 macro_rules! dispatch_socket {
     ($self_:expr, |$socket:ident [$( $mut_:tt )*]| $code:expr) => ({
         match $self_ {
@@ -93,11 +102,15 @@ macro_rules! dispatch_socket {
 impl<'a, 'b> Socket<'a, 'b> {
     /// Return the socket handle.
     pub fn handle(&self) -> SocketHandle {
-        dispatch_socket!(self, |socket []| socket.handle())
+        self.meta().handle
     }
 
-    pub(crate) fn set_handle(&mut self, handle: SocketHandle) {
-        dispatch_socket!(self, |socket [mut]| socket.set_handle(handle))
+    pub(crate) fn meta(&self) -> &SocketMeta {
+        dispatch_socket!(self, |socket []| &socket.meta)
+    }
+
+    pub(crate) fn meta_mut(&mut self) -> &mut SocketMeta {
+        dispatch_socket!(self, |socket [mut]| &mut socket.meta)
     }
 
     pub(crate) fn poll_at(&self) -> Option<u64> {

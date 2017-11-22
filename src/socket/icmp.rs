@@ -3,7 +3,7 @@ use managed::Managed;
 
 use {Error, Result};
 use phy::{ChecksumCapabilities, DeviceCapabilities};
-use socket::{Socket, SocketHandle};
+use socket::{Socket, SocketMeta, SocketHandle};
 use storage::{Resettable, RingBuffer};
 use wire::{IpAddress, IpEndpoint, IpProtocol, IpRepr};
 use wire::{Ipv4Address, Ipv4Repr};
@@ -92,7 +92,7 @@ pub type SocketBuffer<'a, 'b: 'a> = RingBuffer<'a, PacketBuffer<'b>>;
 /// [bind]: #method.bind
 #[derive(Debug)]
 pub struct IcmpSocket<'a, 'b: 'a> {
-    handle:    SocketHandle,
+    pub(crate) meta: SocketMeta,
     rx_buffer: SocketBuffer<'a, 'b>,
     tx_buffer: SocketBuffer<'a, 'b>,
     /// The endpoint this socket is communicating with
@@ -105,7 +105,7 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
     /// Create an ICMPv4 socket with the given buffers.
     pub fn new(rx_buffer: SocketBuffer<'a, 'b>, tx_buffer: SocketBuffer<'a, 'b>) -> Socket<'a, 'b> {
         Socket::Icmp(IcmpSocket {
-            handle:    SocketHandle::EMPTY,
+            meta:      SocketMeta::default(),
             rx_buffer: rx_buffer,
             tx_buffer: tx_buffer,
             endpoint:  Endpoint::default(),
@@ -116,12 +116,7 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
     /// Return the socket handle.
     #[inline]
     pub fn handle(&self) -> SocketHandle {
-        self.handle
-    }
-
-    /// Set the socket handle.
-    pub(in super) fn set_handle(&mut self, handle: SocketHandle) {
-        self.handle = handle;
+        self.meta.handle
     }
 
     /// Return the time-to-live (IPv4) or hop limit (IPv6) value used in outgoing packets.
@@ -256,7 +251,7 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
         let packet_buf = self.tx_buffer.enqueue_one_with(|buf| buf.resize(size))?;
         packet_buf.endpoint = endpoint;
         net_trace!("{}:{}: buffer to send {} octets",
-                   self.handle, packet_buf.endpoint, size);
+                   self.meta.handle, packet_buf.endpoint, size);
         Ok(&mut packet_buf.as_mut()[..size])
     }
 
@@ -276,7 +271,7 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
     pub fn recv(&mut self) -> Result<(&[u8], IpAddress)> {
         let packet_buf = self.rx_buffer.dequeue_one()?;
         net_trace!("{}:{}: receive {} buffered octets",
-                   self.handle, packet_buf.endpoint, packet_buf.size);
+                   self.meta.handle, packet_buf.endpoint, packet_buf.size);
         Ok((&packet_buf.as_ref(), packet_buf.endpoint))
     }
 
@@ -322,14 +317,14 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
         packet_buf.as_mut().copy_from_slice(ip_payload);
         packet_buf.endpoint = ip_repr.src_addr();
         net_trace!("{}:{}: receiving {} octets",
-                   self.handle, packet_buf.endpoint, packet_buf.size);
+                   self.meta.handle, packet_buf.endpoint, packet_buf.size);
         Ok(())
     }
 
     pub(crate) fn dispatch<F>(&mut self, caps: &DeviceCapabilities, emit: F) -> Result<()>
         where F: FnOnce((IpRepr, Icmpv4Repr)) -> Result<()>
     {
-        let handle = self.handle;
+        let handle = self.meta.handle;
         let ttl = self.ttl.unwrap_or(64);
         let checksum = &caps.checksum;
         self.tx_buffer.dequeue_one_with(|packet_buf| {

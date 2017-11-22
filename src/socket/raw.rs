@@ -4,7 +4,7 @@ use managed::Managed;
 use {Error, Result};
 use phy::ChecksumCapabilities;
 use wire::{IpVersion, IpRepr, IpProtocol, Ipv4Repr, Ipv4Packet};
-use socket::{Socket, SocketHandle};
+use socket::{Socket, SocketMeta, SocketHandle};
 use storage::{Resettable, RingBuffer};
 
 /// A buffered raw IP packet.
@@ -57,7 +57,7 @@ pub type SocketBuffer<'a, 'b: 'a> = RingBuffer<'a, PacketBuffer<'b>>;
 /// transmit and receive packet buffers.
 #[derive(Debug)]
 pub struct RawSocket<'a, 'b: 'a> {
-    handle:      SocketHandle,
+    pub(crate) meta: SocketMeta,
     ip_version:  IpVersion,
     ip_protocol: IpProtocol,
     rx_buffer:   SocketBuffer<'a, 'b>,
@@ -71,7 +71,7 @@ impl<'a, 'b> RawSocket<'a, 'b> {
                rx_buffer: SocketBuffer<'a, 'b>,
                tx_buffer: SocketBuffer<'a, 'b>) -> Socket<'a, 'b> {
         Socket::Raw(RawSocket {
-            handle: SocketHandle::EMPTY,
+            meta: SocketMeta::default(),
             ip_version,
             ip_protocol,
             rx_buffer,
@@ -82,12 +82,7 @@ impl<'a, 'b> RawSocket<'a, 'b> {
     /// Return the socket handle.
     #[inline]
     pub fn handle(&self) -> SocketHandle {
-        self.handle
-    }
-
-    /// Set the socket handle.
-    pub(in super) fn set_handle(&mut self, handle: SocketHandle) {
-        self.handle = handle;
+        self.meta.handle
     }
 
     /// Return the IP version the socket is bound to.
@@ -127,7 +122,7 @@ impl<'a, 'b> RawSocket<'a, 'b> {
     pub fn send(&mut self, size: usize) -> Result<&mut [u8]> {
         let packet_buf = self.tx_buffer.enqueue_one_with(|buf| buf.resize(size))?;
         net_trace!("{}:{}:{}: buffer to send {} octets",
-                   self.handle, self.ip_version, self.ip_protocol,
+                   self.meta.handle, self.ip_version, self.ip_protocol,
                    packet_buf.size);
         Ok(packet_buf.as_mut())
     }
@@ -149,7 +144,7 @@ impl<'a, 'b> RawSocket<'a, 'b> {
     pub fn recv(&mut self) -> Result<&[u8]> {
         let packet_buf = self.rx_buffer.dequeue_one()?;
         net_trace!("{}:{}:{}: receive {} buffered octets",
-                   self.handle, self.ip_version, self.ip_protocol,
+                   self.meta.handle, self.ip_version, self.ip_protocol,
                    packet_buf.size);
         Ok(&packet_buf.as_ref())
     }
@@ -176,12 +171,12 @@ impl<'a, 'b> RawSocket<'a, 'b> {
         debug_assert!(self.accepts(ip_repr));
 
         let header_len = ip_repr.buffer_len();
-        let total_len = header_len + payload.len();
+        let total_len  = header_len + payload.len();
         let packet_buf = self.rx_buffer.enqueue_one_with(|buf| buf.resize(total_len))?;
         ip_repr.emit(&mut packet_buf.as_mut()[..header_len], &checksum_caps);
         packet_buf.as_mut()[header_len..].copy_from_slice(payload);
         net_trace!("{}:{}:{}: receiving {} octets",
-                   self.handle, self.ip_version, self.ip_protocol,
+                   self.meta.handle, self.ip_version, self.ip_protocol,
                    packet_buf.size);
         Ok(())
     }
@@ -211,7 +206,7 @@ impl<'a, 'b> RawSocket<'a, 'b> {
             }
         }
 
-        let handle      = self.handle;
+        let handle      = self.meta.handle;
         let ip_protocol = self.ip_protocol;
         let ip_version  = self.ip_version;
         self.tx_buffer.dequeue_one_with(|packet_buf| {
