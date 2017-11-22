@@ -219,9 +219,7 @@ mod test {
         assert_eq!(cache.lookup_pure(&PADDR_B, 1000), Some(HADDR_B));
         assert_eq!(cache.lookup_pure(&PADDR_D, 1000), None);
 
-        println!("{:?}", cache);
         cache.fill(PADDR_D, HADDR_D, 300);
-        println!("{:?}", cache);
         assert_eq!(cache.lookup_pure(&PADDR_B, 1000), None);
         assert_eq!(cache.lookup_pure(&PADDR_D, 1000), Some(HADDR_D));
     }
