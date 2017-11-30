@@ -9,20 +9,28 @@ pub use super::IpProtocol as Protocol;
 pub struct Address(pub [u8; 16]);
 
 impl Address {
-    /// An unspecified address.
+    /// The [unspecified address].
+    ///
+    /// [unspecified address]: https://tools.ietf.org/html/rfc4291#section-2.5.2
     pub const UNSPECIFIED: Address = Address([0x00; 16]);
 
-    /// Link local all routers multicast address.
+    /// The link-local [all routers multicast address].
+    ///
+    /// [all routers multicast address]: https://tools.ietf.org/html/rfc4291#section-2.7.1
     pub const LINK_LOCAL_ALL_NODES: Address =
         Address([0xff, 0x02, 0x00, 0x0, 0x00, 0x00, 0x00, 0x0,
                  0x00, 0x00, 0x00, 0x0, 0x00, 0x00, 0x00, 0x1]);
 
-    /// Link local all nodes multicast address.
+    /// The link-local [all nodes multicast address].
+    ///
+    /// [all nodes multicast address]: https://tools.ietf.org/html/rfc4291#section-2.7.1
     pub const LINK_LOCAL_ALL_ROUTERS: Address =
         Address([0xff, 0x02, 0x00, 0x0, 0x00, 0x00, 0x00, 0x0,
                  0x00, 0x00, 0x00, 0x0, 0x00, 0x00, 0x00, 0x2]);
 
-    /// Loopback address.
+    /// The [loopback address].
+    ///
+    /// [loopback address]: https://tools.ietf.org/html/rfc4291#section-2.5.3
     pub const LOOPBACK: Address =
         Address([0x00, 0x00, 0x00, 0x0, 0x00, 0x00, 0x00, 0x0,
                  0x00, 0x00, 0x00, 0x0, 0x00, 0x00, 0x00, 0x1]);
@@ -83,28 +91,38 @@ impl Address {
         &self.0
     }
 
-    /// Query whether the IPv6 address is an unicast address.
+    /// Query whether the IPv6 address is an [unicast address].
+    ///
+    /// [unicast address]: https://tools.ietf.org/html/rfc4291#section-2.5
     pub fn is_unicast(&self) -> bool {
         !(self.is_multicast() || self.is_unspecified())
     }
 
-    /// Query whether the IPv6 address is a multicast address.
+    /// Query whether the IPv6 address is a [multicast address].
+    ///
+    /// [multicast address]: https://tools.ietf.org/html/rfc4291#section-2.7
     pub fn is_multicast(&self) -> bool {
         self.0[0] == 0xff
     }
 
-    /// Query whether the IPv6 address is the "unspecified" address.
+    /// Query whether the IPv6 address is the [unspecified address].
+    ///
+    /// [unspecified address]: https://tools.ietf.org/html/rfc4291#section-2.5.2
     pub fn is_unspecified(&self) -> bool {
         self.0 == [0x00; 16]
     }
 
-    /// Query whether the IPv6 address is in the "link-local" range.
+    /// Query whether the IPv6 address is in the [link-local] scope.
+    ///
+    /// [link-local]: https://tools.ietf.org/html/rfc4291#section-2.5.6
     pub fn is_link_local(&self) -> bool {
         self.0[0..8] == [0xfe, 0x80, 0x00, 0x00,
                          0x00, 0x00, 0x00, 0x00]
     }
 
-    /// Query whether the IPv6 address is the "loopback" address.
+    /// Query whether the IPv6 address is the [loopback address].
+    ///
+    /// [loopback address]: https://tools.ietf.org/html/rfc4291#section-2.5.3
     pub fn is_loopback(&self) -> bool {
         *self == Self::LOOPBACK
     }
@@ -130,6 +148,12 @@ impl Address {
 
 impl fmt::Display for Address {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // The string representation of an IPv6 address should
+        // collapse a series of 16 bit sections that evaluate
+        // to 0 to "::"
+        //
+        // See https://tools.ietf.org/html/rfc4291#section-2.2
+        // for details.
         enum State {
             Head,
             HeadBody,
@@ -219,6 +243,7 @@ impl Cidr {
 
 impl fmt::Display for Cidr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // https://tools.ietf.org/html/rfc4291#section-2.3
         write!(f, "{}/{}", self.address, self.prefix_len)
     }
 }
