@@ -221,6 +221,9 @@ impl<'a> Parser<'a> {
         // possible second section after the "::", and finally
         // combine the second optional section to the end of the
         // final address.
+        //
+        // See https://tools.ietf.org/html/rfc4291#section-2.2
+        // for details.
         let (mut addr, mut tail) = ([0u16; 8], [0u16; 6]);
         let (mut head_idx, mut tail_idx) = (0, 0);
 
@@ -316,6 +319,7 @@ impl FromStr for Ipv6Cidr {
 
     /// Parse a string representation of an IPv6 CIDR.
     fn from_str(s: &str) -> Result<Ipv6Cidr> {
+        // https://tools.ietf.org/html/rfc4291#section-2.3
         Parser::new(s).until_eof(|p| {
             let ip = p.accept_ipv6(true)?;
             p.accept_char(b'/')?;
