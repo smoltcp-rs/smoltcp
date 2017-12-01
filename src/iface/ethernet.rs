@@ -671,6 +671,8 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
                 };
                 Ok(self.icmpv4_reply(ipv4_repr, icmpv4_reply_repr))
             },
+            #[cfg(feature = "proto-ipv6")]
+            IpRepr::Ipv6(_) => Err(Error::Unaddressable),
             IpRepr::Unspecified { .. } |
             IpRepr::__Nonexhaustive =>
                 unreachable!()

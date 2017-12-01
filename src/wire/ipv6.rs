@@ -1,8 +1,11 @@
-use core::fmt;
+#![deny(missing_docs)]
 
+use core::fmt;
 use byteorder::{ByteOrder, NetworkEndian};
 
+use {Error, Result};
 pub use super::IpProtocol as Protocol;
+use super::ip::pretty_print_ip_payload;
 
 /// A sixteen-octet IPv6 address.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
@@ -248,9 +251,353 @@ impl fmt::Display for Cidr {
     }
 }
 
+/// A read/write wrapper around an Internet Protocol version 6 packet buffer.
+#[derive(Debug, PartialEq)]
+pub struct Packet<T: AsRef<[u8]>> {
+    buffer: T
+}
+
+// Ranges and constants describing the IPv6 header
+//
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// |Version| Traffic Class |           Flow Label                  |
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// |         Payload Length        |  Next Header  |   Hop Limit   |
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// |                                                               |
+// +                                                               +
+// |                                                               |
+// +                         Source Address                        +
+// |                                                               |
+// +                                                               +
+// |                                                               |
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// |                                                               |
+// +                                                               +
+// |                                                               |
+// +                      Destination Address                      +
+// |                                                               |
+// +                                                               +
+// |                                                               |
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+//
+// See https://tools.ietf.org/html/rfc2460#section-3 for details.
+mod field {
+    use wire::field::*;
+    // 4-bit version number, 8-bit traffic class, and the
+    // 20-bit flow label.
+    pub const VER_TC_FLOW: Field = 0..4;
+    // 16-bit value representing the length of the payload.
+    // Note: Options are included in this length.
+    pub const LENGTH:      Field = 4..6;
+    // 8-bit value identifying the type of header following this
+    // one. Note: The same numbers are used in IPv4.
+    pub const NXT_HDR:     usize = 6;
+    // 8-bit value decremented by each node that forwards this
+    // packet. The packet is discarded when the value is 0.
+    pub const HOP_LIMIT:   usize = 7;
+    // IPv6 address of the source node.
+    pub const SRC_ADDR:    Field = 8..24;
+    // IPv6 address of the destination node.
+    pub const DST_ADDR:    Field = 24..40;
+}
+
+impl<T: AsRef<[u8]>> Packet<T> {
+    /// Create a raw octet buffer with an IPv6 packet structure.
+    #[inline]
+    pub fn new(buffer: T) -> Packet<T> {
+        Packet { buffer }
+    }
+
+    /// Shorthand for a combination of [new] and [check_len].
+    ///
+    /// [new]: #method.new
+    /// [check_len]: #method.check_len
+    #[inline]
+    pub fn new_checked(buffer: T) -> Result<Packet<T>> {
+        let packet = Self::new(buffer);
+        packet.check_len()?;
+        Ok(packet)
+    }
+
+    /// Ensure that no accessor method will panic if called.
+    /// Returns `Err(Error::Truncated)` if the buffer is too short.
+    ///
+    /// The result of this check is invalidated by calling [set_payload_len].
+    ///
+    /// [set_payload_len]: #method.set_payload_len
+    #[inline]
+    pub fn check_len(&self) -> Result<()> {
+        let len = self.buffer.as_ref().len();
+        if len < field::DST_ADDR.end || len < self.total_len() {
+            Err(Error::Truncated)
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Consume the packet, returning the underlying buffer.
+    #[inline]
+    pub fn into_inner(self) -> T {
+        self.buffer
+    }
+
+    /// Return the header length.
+    #[inline]
+    pub fn header_len(&self) -> usize {
+        // This is not a strictly necessary function, but it makes
+        // code more readable.
+        field::DST_ADDR.end
+    }
+
+    /// Return the version field.
+    #[inline]
+    pub fn version(&self) -> u8 {
+        let data = self.buffer.as_ref();
+        data[field::VER_TC_FLOW.start] >> 4
+    }
+
+    /// Return the traffic class.
+    #[inline]
+    pub fn traffic_class(&self) -> u8 {
+        let data = self.buffer.as_ref();
+        ((NetworkEndian::read_u16(&data[0..2]) & 0x0ff0) >> 4) as u8
+    }
+
+    /// Return the flow label field.
+    #[inline]
+    pub fn flow_label(&self) -> u32 {
+        let data = self.buffer.as_ref();
+        NetworkEndian::read_u24(&data[1..4]) & 0x000fffff
+    }
+
+    /// Return the payload length field.
+    #[inline]
+    pub fn payload_len(&self) -> u16 {
+        let data = self.buffer.as_ref();
+        NetworkEndian::read_u16(&data[field::LENGTH])
+    }
+
+    /// Return the payload length added to the known header length.
+    #[inline]
+    pub fn total_len(&self) -> usize {
+        self.header_len() + self.payload_len() as usize
+    }
+
+    /// Return the next header field.
+    #[inline]
+    pub fn next_header(&self) -> Protocol {
+        let data = self.buffer.as_ref();
+        Protocol::from(data[field::NXT_HDR])
+    }
+
+    /// Return the hop limit field.
+    #[inline]
+    pub fn hop_limit(&self) -> u8 {
+        let data = self.buffer.as_ref();
+        data[field::HOP_LIMIT]
+    }
+
+    /// Return the source address field.
+    #[inline]
+    pub fn src_addr(&self) -> Address {
+        let data = self.buffer.as_ref();
+        Address::from_bytes(&data[field::SRC_ADDR])
+    }
+
+    /// Return the destination address field.
+    #[inline]
+    pub fn dst_addr(&self) -> Address {
+        let data = self.buffer.as_ref();
+        Address::from_bytes(&data[field::DST_ADDR])
+    }
+}
+
+impl<'a, T: AsRef<[u8]> + ?Sized> Packet<&'a T> {
+    /// Return a pointer to the payload.
+    #[inline]
+    pub fn payload(&self) -> &'a [u8] {
+        let data = self.buffer.as_ref();
+        let range = self.header_len()..self.total_len();
+        &data[range]
+    }
+}
+
+impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
+    /// Set the version field.
+    #[inline]
+    pub fn set_version(&mut self, value: u8) {
+        let data = self.buffer.as_mut();
+        // Make sure to retain the lower order bits which contain
+        // the higher order bits of the traffic class
+        data[0] = (data[0] & 0x0f) | ((value & 0x0f) << 4);
+    }
+
+    /// Set the traffic class field.
+    #[inline]
+    pub fn set_traffic_class(&mut self, value: u8) {
+        let data = self.buffer.as_mut();
+        // Put the higher order 4-bits of value in the lower order
+        // 4-bits of the first byte
+        data[0] = (data[0] & 0xf0) | ((value & 0xf0) >> 4);
+        // Put the lower order 4-bits of value in the higher order
+        // 4-bits of the second byte
+        data[1] = (data[1] & 0x0f) | ((value & 0x0f) << 4);
+    }
+
+    /// Set the flow label field.
+    #[inline]
+    pub fn set_flow_label(&mut self, value: u32) {
+        let data = self.buffer.as_mut();
+        // Retain the lower order 4-bits of the traffic class
+        let raw = (((data[1] & 0xf0) as u32) << 16) | (value & 0x0fffff);
+        NetworkEndian::write_u24(&mut data[1..4], raw);
+    }
+
+    /// Set the payload length field.
+    #[inline]
+    pub fn set_payload_len(&mut self, value: u16) {
+        let data = self.buffer.as_mut();
+        NetworkEndian::write_u16(&mut data[field::LENGTH], value);
+    }
+
+    /// Set the next header field.
+    #[inline]
+    pub fn set_next_header(&mut self, value: Protocol) {
+        let data = self.buffer.as_mut();
+        data[field::NXT_HDR] = value.into();
+    }
+
+    /// Set the hop limit field.
+    #[inline]
+    pub fn set_hop_limit(&mut self, value: u8) {
+        let data = self.buffer.as_mut();
+        data[field::HOP_LIMIT] = value;
+    }
+
+    /// Set the source address field.
+    #[inline]
+    pub fn set_src_addr(&mut self, value: Address) {
+        let data = self.buffer.as_mut();
+        data[field::SRC_ADDR].copy_from_slice(value.as_bytes());
+    }
+
+    /// Set the destination address field.
+    #[inline]
+    pub fn set_dst_addr(&mut self, value: Address) {
+        let data = self.buffer.as_mut();
+        data[field::DST_ADDR].copy_from_slice(value.as_bytes());
+    }
+}
+
+impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Packet<&'a mut T> {
+    /// Return a mutable pointer to the payload.
+    #[inline]
+    pub fn payload_mut(&mut self) -> &mut [u8] {
+        let range = self.header_len()..self.total_len();
+        let data = self.buffer.as_mut();
+        &mut data[range]
+    }
+}
+
+impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match Repr::parse(self) {
+            Ok(repr) => write!(f, "{}", repr),
+            Err(err) => {
+                write!(f, "IPv6 ({})", err)?;
+                Ok(())
+            }
+        }
+    }
+}
+
+/// A high-level representation of an Internet Protocol version 6 packet header.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct Repr {
+    /// IPv6 address of the source node.
+    pub src_addr:    Address,
+    /// IPv6 address of the destination node.
+    pub dst_addr:    Address,
+    /// Protocol contained in the next header.
+    pub next_header: Protocol,
+    /// Length of the payload including the extension headers.
+    pub payload_len: usize,
+    /// The 8-bit hop limit field.
+    pub hop_limit:   u8
+}
+
+impl Repr {
+    /// Parse an Internet Protocol version 6 packet and return a high-level representation.
+    pub fn parse<T: AsRef<[u8]> + ?Sized>(packet: &Packet<&T>) -> Result<Repr> {
+        // Ensure basic accessors will work
+        packet.check_len()?;
+        if packet.version() != 6 { return Err(Error::Malformed); }
+        Ok(Repr {
+            src_addr:    packet.src_addr(),
+            dst_addr:    packet.dst_addr(),
+            next_header: packet.next_header(),
+            payload_len: packet.payload_len() as usize,
+            hop_limit:   packet.hop_limit()
+        })
+    }
+
+    /// Return the length of a header that will be emitted from this high-level representation.
+    pub fn buffer_len(&self) -> usize {
+        // This function is not strictly necessary, but it can make client code more readable.
+        field::DST_ADDR.end
+    }
+
+    /// Emit a high-level representation into an Internet Protocol version 6 packet.
+    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(&self, packet: &mut Packet<T>) {
+        // Make no assumptions about the original state of the packet buffer.
+        // Make sure to set every byte.
+        packet.set_version(6);
+        packet.set_traffic_class(0);
+        packet.set_flow_label(0);
+        packet.set_payload_len(self.payload_len as u16);
+        packet.set_hop_limit(self.hop_limit);
+        packet.set_next_header(self.next_header);
+        packet.set_src_addr(self.src_addr);
+        packet.set_dst_addr(self.dst_addr);
+    }
+}
+
+impl fmt::Display for Repr {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "IPv6 src={} dst={} nxt_hdr={} hop_limit={}",
+               self.src_addr, self.dst_addr, self.next_header, self.hop_limit)
+    }
+}
+
+use super::pretty_print::{PrettyPrint, PrettyIndent};
+
+impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
+    fn pretty_print(buffer: &AsRef<[u8]>, f: &mut fmt::Formatter,
+                    indent: &mut PrettyIndent) -> fmt::Result {
+        let (ip_repr, payload) = match Packet::new_checked(buffer) {
+            Err(err) => return write!(f, "{}({})", indent, err),
+            Ok(ip_packet) => {
+                match Repr::parse(&ip_packet) {
+                    Err(_) => return Ok(()),
+                    Ok(ip_repr) => {
+                        write!(f, "{}{}", indent, ip_repr)?;
+                        (ip_repr, ip_packet.payload())
+                    }
+                }
+            }
+        };
+
+        pretty_print_ip_payload(f, indent, ip_repr, payload)
+    }
+}
+
 #[cfg(test)]
 mod test {
+    use Error;
     use super::{Address, Cidr};
+    use super::{Packet, Protocol, Repr};
+    use wire::pretty_print::{PrettyPrinter};
 
     static LINK_LOCAL_ADDR: Address = Address([0xfe, 0x80, 0x00, 0x00,
                                                0x00, 0x00, 0x00, 0x00,
@@ -426,13 +773,173 @@ mod test {
 
     #[test]
     #[should_panic(expected = "destination and source slices have different lengths")]
-    fn from_bytes_too_long() {
+    fn test_from_bytes_too_long() {
         let _ = Address::from_bytes(&[0u8; 15]);
     }
 
     #[test]
     #[should_panic(expected = "data.len() >= 8")]
-    fn from_parts_too_long() {
+    fn test_from_parts_too_long() {
         let _ = Address::from_parts(&[0u16; 7]);
+    }
+
+    static REPR_PACKET_BYTES: [u8; 52] = [0x60, 0x00, 0x00, 0x00,
+                                          0x00, 0x0c, 0x11, 0x40,
+                                          0xfe, 0x80, 0x00, 0x00,
+                                          0x00, 0x00, 0x00, 0x00,
+                                          0x00, 0x00, 0x00, 0x00,
+                                          0x00, 0x00, 0x00, 0x01,
+                                          0xff, 0x02, 0x00, 0x00,
+                                          0x00, 0x00, 0x00, 0x00,
+                                          0x00, 0x00, 0x00, 0x00,
+                                          0x00, 0x00, 0x00, 0x01,
+                                          0x00, 0x01, 0x00, 0x02,
+                                          0x00, 0x0c, 0x02, 0x4e,
+                                          0xff, 0xff, 0xff, 0xff];
+    static REPR_PAYLOAD_BYTES: [u8; 12] = [0x00, 0x01, 0x00, 0x02,
+                                           0x00, 0x0c, 0x02, 0x4e,
+                                           0xff, 0xff, 0xff, 0xff];
+
+    fn packet_repr() -> Repr {
+        Repr {
+            src_addr:    Address([0xfe, 0x80, 0x00, 0x00,
+                                  0x00, 0x00, 0x00, 0x00,
+                                  0x00, 0x00, 0x00, 0x00,
+                                  0x00, 0x00, 0x00, 0x01]),
+            dst_addr:    Address::LINK_LOCAL_ALL_NODES,
+            next_header: Protocol::Udp,
+            payload_len: 12,
+            hop_limit:   64
+        }
+    }
+
+    #[test]
+    fn test_packet_deconstruction() {
+        let packet = Packet::new(&REPR_PACKET_BYTES[..]);
+        assert_eq!(packet.check_len(), Ok(()));
+        assert_eq!(packet.version(), 6);
+        assert_eq!(packet.traffic_class(), 0);
+        assert_eq!(packet.flow_label(), 0);
+        assert_eq!(packet.total_len(), 0x34);
+        assert_eq!(packet.payload_len() as usize, REPR_PAYLOAD_BYTES.len());
+        assert_eq!(packet.next_header(), Protocol::Udp);
+        assert_eq!(packet.hop_limit(), 0x40);
+        assert_eq!(packet.src_addr(), Address([0xfe, 0x80, 0x00, 0x00,
+                                               0x00, 0x00, 0x00, 0x00,
+                                               0x00, 0x00, 0x00, 0x00,
+                                               0x00, 0x00, 0x00, 0x01]));
+        assert_eq!(packet.dst_addr(), Address::LINK_LOCAL_ALL_NODES);
+        assert_eq!(packet.payload(), &REPR_PAYLOAD_BYTES[..]);
+    }
+
+    #[test]
+    fn test_packet_construction() {
+        let mut bytes = [0xff; 52];
+        let mut packet = Packet::new(&mut bytes[..]);
+        // Version, Traffic Class, and Flow Label are not
+        // byte aligned. make sure the setters and getters
+        // do not interfere with each other.
+        packet.set_version(6);
+        assert_eq!(packet.version(), 6);
+        packet.set_traffic_class(0x99);
+        assert_eq!(packet.version(), 6);
+        assert_eq!(packet.traffic_class(), 0x99);
+        packet.set_flow_label(0x54321);
+        assert_eq!(packet.traffic_class(), 0x99);
+        assert_eq!(packet.flow_label(), 0x54321);
+        packet.set_payload_len(0xc);
+        packet.set_next_header(Protocol::Udp);
+        packet.set_hop_limit(0xfe);
+        packet.set_src_addr(Address::LINK_LOCAL_ALL_ROUTERS);
+        packet.set_dst_addr(Address::LINK_LOCAL_ALL_NODES);
+        packet.payload_mut().copy_from_slice(&REPR_PAYLOAD_BYTES[..]);
+        let mut expected_bytes = [
+            0x69, 0x95, 0x43, 0x21, 0x00, 0x0c, 0x11, 0xfe,
+            0xff, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02,
+            0xff, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00
+        ];
+        let start = expected_bytes.len() - REPR_PAYLOAD_BYTES.len();
+        expected_bytes[start..].copy_from_slice(&REPR_PAYLOAD_BYTES[..]);
+        assert_eq!(packet.check_len(), Ok(()));
+        assert_eq!(&packet.into_inner()[..], &expected_bytes[..]);
+    }
+
+    #[test]
+    fn test_overlong() {
+        let mut bytes = vec![];
+        bytes.extend(&REPR_PACKET_BYTES[..]);
+        bytes.push(0);
+
+        assert_eq!(Packet::new(&bytes).payload().len(),
+                   REPR_PAYLOAD_BYTES.len());
+        assert_eq!(Packet::new(&mut bytes).payload_mut().len(),
+                   REPR_PAYLOAD_BYTES.len());
+    }
+
+    #[test]
+    fn test_total_len_overflow() {
+        let mut bytes = vec![];
+        bytes.extend(&REPR_PACKET_BYTES[..]);
+        Packet::new(&mut bytes).set_payload_len(0x80);
+
+        assert_eq!(Packet::new_checked(&bytes).unwrap_err(),
+                   Error::Truncated);
+    }
+
+    #[test]
+    fn test_repr_parse_valid() {
+        let packet = Packet::new(&REPR_PACKET_BYTES[..]);
+        let repr = Repr::parse(&packet).unwrap();
+        assert_eq!(repr, packet_repr());
+    }
+
+    #[test]
+    fn test_repr_parse_bad_version() {
+        let mut bytes = vec![0; 40];
+        let mut packet = Packet::new(&mut bytes[..]);
+        packet.set_version(4);
+        packet.set_payload_len(0);
+        let packet = Packet::new(&*packet.into_inner());
+        assert_eq!(Repr::parse(&packet), Err(Error::Malformed));
+    }
+
+    #[test]
+    fn test_repr_parse_smaller_than_header() {
+        let mut bytes = vec![0; 40];
+        let mut packet = Packet::new(&mut bytes[..]);
+        packet.set_version(6);
+        packet.set_payload_len(39);
+        let packet = Packet::new(&*packet.into_inner());
+        assert_eq!(Repr::parse(&packet), Err(Error::Truncated));
+    }
+
+    #[test]
+    fn test_repr_parse_smaller_than_payload() {
+        let mut bytes = vec![0; 40];
+        let mut packet = Packet::new(&mut bytes[..]);
+        packet.set_version(6);
+        packet.set_payload_len(1);
+        let packet = Packet::new(&*packet.into_inner());
+        assert_eq!(Repr::parse(&packet), Err(Error::Truncated));
+    }
+
+    #[test]
+    fn test_basic_repr_emit() {
+        let repr = packet_repr();
+        let mut bytes = vec![0xff; repr.buffer_len() + REPR_PAYLOAD_BYTES.len()];
+        let mut packet = Packet::new(&mut bytes);
+        repr.emit(&mut packet);
+        packet.payload_mut().copy_from_slice(&REPR_PAYLOAD_BYTES);
+        assert_eq!(&packet.into_inner()[..], &REPR_PACKET_BYTES[..]);
+    }
+
+    #[test]
+    fn test_pretty_print() {
+        assert_eq!(format!("{}", PrettyPrinter::<Packet<&'static [u8]>>::new("\n", &&REPR_PACKET_BYTES[..])),
+                   "\nIPv6 src=fe80::1 dst=ff02::1 nxt_hdr=UDP hop_limit=64\n \\ UDP src=1 dst=2 len=4");
     }
 }
