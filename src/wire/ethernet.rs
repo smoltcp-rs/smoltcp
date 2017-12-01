@@ -225,6 +225,11 @@ impl<T: AsRef<[u8]>> PrettyPrint for Frame<T> {
                 indent.increase(f)?;
                 super::Ipv4Packet::<&[u8]>::pretty_print(&frame.payload(), f, indent)
             }
+            #[cfg(feature = "proto-ipv6")]
+            EtherType::Ipv6 => {
+                indent.increase(f)?;
+                super::Ipv6Packet::<&[u8]>::pretty_print(&frame.payload(), f, indent)
+            }
             _ => Ok(())
         }
     }

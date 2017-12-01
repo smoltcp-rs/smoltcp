@@ -3,7 +3,7 @@ use byteorder::{ByteOrder, NetworkEndian};
 
 use {Error, Result};
 use phy::ChecksumCapabilities;
-use super::ip::checksum;
+use super::ip::{checksum, pretty_print_ip_payload};
 
 pub use super::IpProtocol as Protocol;
 
@@ -568,7 +568,6 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
     fn pretty_print(buffer: &AsRef<[u8]>, f: &mut fmt::Formatter,
                     indent: &mut PrettyIndent) -> fmt::Result {
         use wire::ip::checksum::format_checksum;
-        use wire::{Icmpv4Packet, TcpPacket, TcpRepr, UdpPacket, UdpRepr};
 
         let checksum_caps = ChecksumCapabilities::ignored();
 
@@ -586,48 +585,7 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
             }
         };
 
-        let src_addr = ip_repr.src_addr.into();
-        let dst_addr = ip_repr.dst_addr.into();
-
-        match ip_repr.protocol {
-            Protocol::Icmp => {
-                indent.increase(f)?;
-                Icmpv4Packet::<&[u8]>::pretty_print(&payload.as_ref(), f, indent)
-            }
-            Protocol::Udp => {
-                indent.increase(f)?;
-                match UdpPacket::<&[u8]>::new_checked(payload.as_ref()) {
-                    Err(err) => write!(f, "{}({})", indent, err),
-                    Ok(udp_packet) => {
-                        match UdpRepr::parse(&udp_packet, &src_addr, &dst_addr, &checksum_caps) {
-                            Err(err) => write!(f, "{}{} ({})", indent, udp_packet, err),
-                            Ok(udp_repr) => {
-                                write!(f, "{}{}", indent, udp_repr)?;
-                                let valid = udp_packet.verify_checksum(&src_addr, &dst_addr);
-                                format_checksum(f, valid)
-                            }
-                        }
-                    }
-                }
-            }
-            Protocol::Tcp => {
-                indent.increase(f)?;
-                match TcpPacket::<&[u8]>::new_checked(payload.as_ref()) {
-                    Err(err) => write!(f, "{}({})", indent, err),
-                    Ok(tcp_packet) => {
-                        match TcpRepr::parse(&tcp_packet, &src_addr, &dst_addr, &checksum_caps) {
-                            Err(err) => write!(f, "{}{} ({})", indent, tcp_packet, err),
-                            Ok(tcp_repr) => {
-                                write!(f, "{}{}", indent, tcp_repr)?;
-                                let valid = tcp_packet.verify_checksum(&src_addr, &dst_addr);
-                                format_checksum(f, valid)
-                            }
-                        }
-                    }
-                }
-            }
-            _ => Ok(())
-        }
+        pretty_print_ip_payload(f, indent, ip_repr, payload)
     }
 }
 

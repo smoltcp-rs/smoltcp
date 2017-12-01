@@ -5,7 +5,7 @@ use {Error, Result};
 use phy::ChecksumCapabilities;
 use super::{Ipv4Address, Ipv4Packet, Ipv4Repr, Ipv4Cidr};
 #[cfg(feature = "proto-ipv6")]
-use super::{Ipv6Address, Ipv6Cidr};
+use super::{Ipv6Address, Ipv6Cidr, Ipv6Packet, Ipv6Repr};
 
 /// Internet protocol version.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
@@ -339,6 +339,8 @@ pub enum Repr {
         ttl:         u8
     },
     Ipv4(Ipv4Repr),
+    #[cfg(feature = "proto-ipv6")]
+    Ipv6(Ipv6Repr),
     #[doc(hidden)]
     __Nonexhaustive
 }
@@ -349,12 +351,21 @@ impl From<Ipv4Repr> for Repr {
     }
 }
 
+#[cfg(feature = "proto-ipv6")]
+impl From<Ipv6Repr> for Repr {
+    fn from(repr: Ipv6Repr) -> Repr {
+        Repr::Ipv6(repr)
+    }
+}
+
 impl Repr {
     /// Return the protocol version.
     pub fn version(&self) -> Version {
         match self {
             &Repr::Unspecified { .. } => Version::Unspecified,
             &Repr::Ipv4(_) => Version::Ipv4,
+            #[cfg(feature = "proto-ipv6")]
+            &Repr::Ipv6(_) => Version::Ipv6,
             &Repr::__Nonexhaustive => unreachable!()
         }
     }
@@ -364,6 +375,8 @@ impl Repr {
         match self {
             &Repr::Unspecified { src_addr, .. } => src_addr,
             &Repr::Ipv4(repr) => Address::Ipv4(repr.src_addr),
+            #[cfg(feature = "proto-ipv6")]
+            &Repr::Ipv6(repr) => Address::Ipv6(repr.src_addr),
             &Repr::__Nonexhaustive => unreachable!()
         }
     }
@@ -373,6 +386,8 @@ impl Repr {
         match self {
             &Repr::Unspecified { dst_addr, .. } => dst_addr,
             &Repr::Ipv4(repr) => Address::Ipv4(repr.dst_addr),
+            #[cfg(feature = "proto-ipv6")]
+            &Repr::Ipv6(repr) => Address::Ipv6(repr.dst_addr),
             &Repr::__Nonexhaustive => unreachable!()
         }
     }
@@ -382,6 +397,8 @@ impl Repr {
         match self {
             &Repr::Unspecified { protocol, .. } => protocol,
             &Repr::Ipv4(repr) => repr.protocol,
+            #[cfg(feature = "proto-ipv6")]
+            &Repr::Ipv6(repr) => repr.next_header,
             &Repr::__Nonexhaustive => unreachable!()
         }
     }
@@ -391,6 +408,8 @@ impl Repr {
         match self {
             &Repr::Unspecified { payload_len, .. } => payload_len,
             &Repr::Ipv4(repr) => repr.payload_len,
+            #[cfg(feature = "proto-ipv6")]
+            &Repr::Ipv6(repr) => repr.payload_len,
             &Repr::__Nonexhaustive => unreachable!()
         }
     }
@@ -402,6 +421,9 @@ impl Repr {
                 *payload_len = length,
             &mut Repr::Ipv4(Ipv4Repr { ref mut payload_len, .. }) =>
                 *payload_len = length,
+            #[cfg(feature = "proto-ipv6")]
+            &mut Repr::Ipv6(Ipv6Repr { ref mut payload_len, .. }) =>
+                *payload_len = length,
             &mut Repr::__Nonexhaustive => unreachable!()
         }
     }
@@ -411,6 +433,8 @@ impl Repr {
         match self {
             &Repr::Unspecified { ttl, .. } => ttl,
             &Repr::Ipv4(Ipv4Repr { ttl, .. }) => ttl,
+            #[cfg(feature = "proto-ipv6")]
+            &Repr::Ipv6(Ipv6Repr { hop_limit, ..}) => hop_limit,
             &Repr::__Nonexhaustive => unreachable!()
         }
     }
@@ -422,6 +446,25 @@ impl Repr {
     /// This function panics if source and destination addresses belong to different families,
     /// or the destination address is unspecified, since this indicates a logic error.
     pub fn lower(&self, fallback_src_addrs: &[Cidr]) -> Result<Repr> {
+        macro_rules! resolve_unspecified {
+            ($reprty:path, $ipty:path, $iprepr:expr, $fallbacks:expr) => {
+                if $iprepr.src_addr.is_unspecified() {
+                    for cidr in $fallbacks {
+                        match cidr.address() {
+                            $ipty(addr) => {
+                                $iprepr.src_addr = addr;
+                                return Ok($reprty($iprepr));
+                            },
+                            _ => ()
+                        }
+                    }
+                    Err(Error::Unaddressable)
+                } else {
+                    Ok($reprty($iprepr))
+                }
+            }
+        }
+
         match self {
             &Repr::Unspecified {
                 src_addr: Address::Ipv4(src_addr),
@@ -438,10 +481,18 @@ impl Repr {
 
             #[cfg(feature = "proto-ipv6")]
             &Repr::Unspecified {
-                src_addr: Address::Ipv6(_),
-                dst_addr: Address::Ipv6(_),
-                ..
-            } => Err(Error::Unaddressable),
+                src_addr: Address::Ipv6(src_addr),
+                dst_addr: Address::Ipv6(dst_addr),
+                protocol, payload_len, ttl
+            } => {
+                Ok(Repr::Ipv6(Ipv6Repr {
+                    src_addr:    src_addr,
+                    dst_addr:    dst_addr,
+                    next_header: protocol,
+                    payload_len: payload_len,
+                    hop_limit:   ttl
+                }))
+            }
 
             &Repr::Unspecified {
                 src_addr: Address::Unspecified,
@@ -467,26 +518,31 @@ impl Repr {
             #[cfg(feature = "proto-ipv6")]
             &Repr::Unspecified {
                 src_addr: Address::Unspecified,
-                dst_addr: Address::Ipv6(_),
-                ..
-            } => Err(Error::Unaddressable),
-
-            &Repr::Ipv4(mut repr) => {
-                if repr.src_addr.is_unspecified() {
-                    for cidr in fallback_src_addrs {
-                        match cidr.address() {
-                            Address::Ipv4(addr) => {
-                                repr.src_addr = addr;
-                                return Ok(Repr::Ipv4(repr));
-                            }
-                            _ => ()
-                        }
-                    }
-                    Err(Error::Unaddressable)
-                } else {
-                    Ok(Repr::Ipv4(repr))
+                dst_addr: Address::Ipv6(dst_addr),
+                protocol, payload_len, ttl
+            } => {
+                // Find a fallback address to use
+                match fallback_src_addrs.iter().filter_map(|cidr| match cidr.address() {
+                    Address::Ipv6(addr) => Some(addr),
+                    _ => None
+                }).next() {
+                    Some(addr) =>
+                        Ok(Repr::Ipv6(Ipv6Repr {
+                            src_addr:    addr,
+                            next_header: protocol,
+                            hop_limit:   ttl,
+                            dst_addr, payload_len
+                        })),
+                    None => Err(Error::Unaddressable)
                 }
-            },
+            }
+
+            &Repr::Ipv4(mut repr) =>
+                resolve_unspecified!(Repr::Ipv4, Address::Ipv4, repr, fallback_src_addrs),
+
+            #[cfg(feature = "proto-ipv6")]
+            &Repr::Ipv6(mut repr) =>
+                resolve_unspecified!(Repr::Ipv6, Address::Ipv6, repr, fallback_src_addrs),
 
             &Repr::Unspecified { .. } =>
                 panic!("source and destination IP address families do not match"),
@@ -505,6 +561,9 @@ impl Repr {
                 panic!("unspecified IP representation"),
             &Repr::Ipv4(repr) =>
                 repr.buffer_len(),
+            #[cfg(feature = "proto-ipv6")]
+            &Repr::Ipv6(repr) =>
+                repr.buffer_len(),
             &Repr::__Nonexhaustive =>
                 unreachable!()
         }
@@ -520,6 +579,9 @@ impl Repr {
                 panic!("unspecified IP representation"),
             &Repr::Ipv4(repr) =>
                 repr.emit(&mut Ipv4Packet::new(buffer), &checksum_caps),
+            #[cfg(feature = "proto-ipv6")]
+            &Repr::Ipv6(repr) =>
+                repr.emit(&mut Ipv6Packet::new(buffer)),
             &Repr::__Nonexhaustive =>
                 unreachable!()
         }
@@ -589,6 +651,18 @@ pub mod checksum {
                 ])
             },
 
+            #[cfg(feature = "proto-ipv6")]
+            (&Address::Ipv6(src_addr), &Address::Ipv6(dst_addr)) => {
+                let mut proto_len = [0u8; 8];
+                proto_len[7] = protocol.into();
+                NetworkEndian::write_u32(&mut proto_len[0..4], length);
+                combine(&[
+                    data(src_addr.as_bytes()),
+                    data(dst_addr.as_bytes()),
+                    data(&proto_len[..])
+                ])
+            }
+
             _ => panic!("Unexpected pseudo header addresses: {}, {}",
                         src_addr, dst_addr)
         }
@@ -601,6 +675,60 @@ pub mod checksum {
         } else {
             Ok(())
         }
+    }
+}
+
+use super::pretty_print::{PrettyPrint, PrettyIndent};
+
+pub fn pretty_print_ip_payload<T: Into<Repr>>(f: &mut fmt::Formatter, indent: &mut PrettyIndent,
+                                              ip_repr: T, payload: &[u8]) -> fmt::Result {
+    use wire::{Icmpv4Packet, TcpPacket, TcpRepr, UdpPacket, UdpRepr};
+    use wire::ip::checksum::format_checksum;
+
+    let checksum_caps = ChecksumCapabilities::ignored();
+    let repr = ip_repr.into();
+    match repr.protocol() {
+        Protocol::Icmp => {
+            indent.increase(f)?;
+            Icmpv4Packet::<&[u8]>::pretty_print(&payload.as_ref(), f, indent)
+        }
+        Protocol::Udp => {
+            indent.increase(f)?;
+            match UdpPacket::<&[u8]>::new_checked(payload.as_ref()) {
+                Err(err) => write!(f, "{}({})", indent, err),
+                Ok(udp_packet) => {
+                    match UdpRepr::parse(&udp_packet, &repr.src_addr(),
+                                         &repr.dst_addr(), &checksum_caps) {
+                        Err(err) => write!(f, "{}{} ({})", indent, udp_packet, err),
+                        Ok(udp_repr) => {
+                            write!(f, "{}{}", indent, udp_repr)?;
+                            let valid = udp_packet.verify_checksum(&repr.src_addr(),
+                                                                   &repr.dst_addr());
+                            format_checksum(f, valid)
+                        }
+                    }
+                }
+            }
+        }
+        Protocol::Tcp => {
+            indent.increase(f)?;
+            match TcpPacket::<&[u8]>::new_checked(payload.as_ref()) {
+                Err(err) => write!(f, "{}({})", indent, err),
+                Ok(tcp_packet) => {
+                    match TcpRepr::parse(&tcp_packet, &repr.src_addr(),
+                                         &repr.dst_addr(), &checksum_caps) {
+                        Err(err) => write!(f, "{}{} ({})", indent, tcp_packet, err),
+                        Ok(tcp_repr) => {
+                            write!(f, "{}{}", indent, tcp_repr)?;
+                            let valid = tcp_packet.verify_checksum(&repr.src_addr(),
+                                                                   &repr.dst_addr());
+                            format_checksum(f, valid)
+                        }
+                    }
+                }
+            }
+        }
+        _ => Ok(())
     }
 }
 

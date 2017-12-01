@@ -112,6 +112,8 @@ pub use self::ipv4::{Address as Ipv4Address,
 
 #[cfg(feature = "proto-ipv6")]
 pub use self::ipv6::{Address as Ipv6Address,
+                     Packet as Ipv6Packet,
+                     Repr as Ipv6Repr,
                      Cidr as Ipv6Cidr};
 
 pub use self::icmpv4::{Message as Icmpv4Message,
