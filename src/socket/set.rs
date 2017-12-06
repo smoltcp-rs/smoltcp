@@ -4,6 +4,9 @@ use managed::ManagedSlice;
 use super::{Socket, SocketRef, AnySocket};
 #[cfg(feature = "socket-tcp")]
 use super::TcpState;
+use iface::EthernetPacket;
+use phy::ChecksumCapabilities;
+use {Result, Error};
 
 /// An item of a socket set.
 ///
@@ -171,6 +174,100 @@ impl<'a, 'b: 'a, 'c: 'a + 'b> Set<'a, 'b, 'c> {
     /// Iterate every socket in this set, as SocketRef.
     pub fn iter_mut<'d>(&'d mut self) -> IterMut<'d, 'b, 'c> {
         IterMut { lower: self.sockets.iter_mut() }
+    }
+
+    pub fn handle<'p>(&mut self, packet: EthernetPacket<'p>, timestamp: u64,
+        checksum_caps: &ChecksumCapabilities) -> Result<EthernetPacket<'p>>
+    {
+        use wire::IpRepr;
+        #[cfg(feature = "socket-raw")]
+        use socket::RawSocket;
+        #[cfg(feature = "socket-icmp")]
+        use socket::IcmpSocket;
+        #[cfg(feature = "socket-udp")]
+        use socket::UdpSocket;
+        #[cfg(feature = "socket-tcp")]
+        use socket::TcpSocket;
+
+        match packet {
+            EthernetPacket::None | EthernetPacket::Arp(_) => unreachable!(),
+
+            #[cfg(feature = "socket-icmp")]
+            EthernetPacket::Icmpv4((ipv4_repr, icmpv4_repr)) => {
+                let mut handled_by_icmp_socket = false;
+                let ip_repr = IpRepr::Ipv4(ipv4_repr);
+                for mut icmp_socket in self.iter_mut().filter_map(IcmpSocket::downcast) {
+                    if !icmp_socket.accepts(&ip_repr, &icmpv4_repr, &checksum_caps) { continue }
+
+                    match icmp_socket.process(&ip_repr, &[] /* <- TODO FIXME */) {
+                        // The packet is valid and handled by socket.
+                        Ok(()) => handled_by_icmp_socket = true,
+                        // The socket buffer is full.
+                        Err(Error::Exhausted) => (),
+                        // ICMP sockets don't validate the packets in any way.
+                        Err(_) => unreachable!(),
+                    }
+                }
+                if handled_by_icmp_socket {
+                    Ok(EthernetPacket::None)
+                } else {
+                    Err(Error::Dropped)
+                }
+            }
+
+            #[cfg(feature = "socket-raw")]
+            EthernetPacket::Raw((ip_repr, ip_payload)) => {
+                let mut handled_by_raw_socket = false;
+                for mut raw_socket in self.iter_mut().filter_map(RawSocket::downcast) {
+                    if !raw_socket.accepts(&ip_repr) { continue }
+
+                    match raw_socket.process(&ip_repr, ip_payload, &checksum_caps) {
+                        // The packet is valid and handled by socket.
+                        Ok(()) => handled_by_raw_socket = true,
+                        // The socket buffer is full.
+                        Err(Error::Exhausted) => (),
+                        // Raw sockets don't validate the packets in any way.
+                        Err(_) => unreachable!(),
+                    }
+                }
+                if handled_by_raw_socket {
+                    Ok(EthernetPacket::None)
+                } else {
+                    Err(Error::Dropped)
+                }
+            }
+
+            #[cfg(feature = "socket-udp")]
+            EthernetPacket::Udp((ip_repr, udp_repr)) => {
+                for mut udp_socket in self.iter_mut().filter_map(UdpSocket::downcast) {
+                    if !udp_socket.accepts(&ip_repr, &udp_repr) { continue }
+
+                    match udp_socket.process(&ip_repr, &udp_repr) {
+                        // The packet is valid and handled by socket.
+                        Ok(()) => return Ok(EthernetPacket::None),
+                        // The packet is malformed, or the socket buffer is full.
+                        Err(e) => return Err(e)
+                    }
+                }
+                Err(Error::Dropped)
+            }
+
+            #[cfg(feature = "socket-tcp")]
+            EthernetPacket::Tcp((ip_repr, tcp_repr)) => {
+                for mut tcp_socket in self.iter_mut().filter_map(TcpSocket::downcast) {
+                    if !tcp_socket.accepts(&ip_repr, &tcp_repr) { continue }
+
+                    match tcp_socket.process(timestamp, &ip_repr, &tcp_repr) {
+                        // The packet is valid and handled by socket.
+                        Ok(reply) => return Ok(reply.map_or(EthernetPacket::None, EthernetPacket::Tcp)),
+                        // The packet is malformed, or doesn't match the socket state,
+                        // or the socket buffer is full.
+                        Err(e) => return Err(e)
+                    }
+                }
+                Err(Error::Dropped)
+            }
+        }
     }
 }
 
