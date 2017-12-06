@@ -160,7 +160,7 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
     /// packets containing any unsupported protocol, option, or form, which is
     /// a very common occurrence and on a production system it should not even
     /// be logged.
-    pub fn poll(&mut self, sockets: &mut SocketSet, timestamp: u64) -> Result<Option<u64>> {
+    pub fn poll_sockets(&mut self, sockets: &mut SocketSet, timestamp: u64) -> Result<Option<u64>> {
         self.socket_egress(sockets, timestamp)?;
 
         if self.socket_ingress(sockets, timestamp)? {
