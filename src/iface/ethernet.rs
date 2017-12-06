@@ -54,7 +54,7 @@ struct InterfaceInner<'b, 'c> {
 }
 
 #[derive(Debug, PartialEq)]
-enum Packet<'a> {
+pub enum Packet<'a> {
     None,
     Arp(ArpRepr),
     Icmpv4((Ipv4Repr, Icmpv4Repr<'a>)),
