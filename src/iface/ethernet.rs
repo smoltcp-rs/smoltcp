@@ -460,7 +460,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         for mut icmp_socket in _sockets.iter_mut().filter_map(IcmpSocket::downcast) {
             if !icmp_socket.accepts(&ip_repr, &icmp_repr, &checksum_caps) { continue }
 
-            match icmp_socket.process(&ip_repr, ip_payload) {
+            match icmp_socket.process(&ip_repr, &icmp_repr, &checksum_caps) {
                 // The packet is valid and handled by socket.
                 Ok(()) => handled_by_icmp_socket = true,
                 // The socket buffer is full.
