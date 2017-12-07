@@ -313,12 +313,14 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
         }
     }
 
-    pub(crate) fn process(&mut self, ip_repr: &IpRepr, ip_payload: &[u8]) -> Result<()> {
-        let packet_buf = self.rx_buffer.enqueue_one_with(|buf| buf.resize(ip_payload.len()))?;
-        packet_buf.as_mut().copy_from_slice(ip_payload);
+    pub(crate) fn process(&mut self, ip_repr: &IpRepr, icmp_repr: &Icmpv4Repr,
+                          cksum: &ChecksumCapabilities) -> Result<()> {
+        let packet_buf = self.rx_buffer.enqueue_one_with(|buf| buf.resize(icmp_repr.buffer_len()))?;
         packet_buf.endpoint = ip_repr.src_addr();
         net_trace!("{}:{}: receiving {} octets",
                    self.meta.handle, packet_buf.endpoint, packet_buf.size);
+        let mut packet = Icmpv4Packet::new(packet_buf.as_mut());
+        icmp_repr.emit(&mut packet, cksum);
         Ok(())
     }
 
@@ -367,7 +369,7 @@ mod test {
     fn buffer(packets: usize) -> SocketBuffer<'static, 'static> {
         let mut storage = vec![];
         for _ in 0..packets {
-            storage.push(PacketBuffer::new(vec![0; 24]))
+            storage.push(PacketBuffer::new(vec![0; 46]))
         }
         SocketBuffer::new(storage)
     }
@@ -432,7 +434,7 @@ mod test {
                    Err(Error::Exhausted));
 
         // This buffer is too long
-        assert_eq!(socket.send_slice(&[0xff; 25], REMOTE_IP), Err(Error::Truncated));
+        assert_eq!(socket.send_slice(&[0xff; 47], REMOTE_IP), Err(Error::Truncated));
         assert!(socket.can_send());
 
         let mut bytes = [0xff; 24];
@@ -494,19 +496,20 @@ mod test {
 
         let caps = DeviceCapabilities::default();
 
-        let mut bytes = [0xff; 20];
+        let mut bytes = [0xff; 24];
         let mut packet = Icmpv4Packet::new(&mut bytes);
         ECHO_REPR.emit(&mut packet, &caps.checksum);
         let data = &packet.into_inner()[..];
 
         assert!(socket.accepts(&REMOTE_IP_REPR, &ECHO_REPR, &caps.checksum));
-        assert_eq!(socket.process(&REMOTE_IP_REPR, &data[..]),
+        assert_eq!(socket.process(&REMOTE_IP_REPR, &ECHO_REPR, &caps.checksum),
                    Ok(()));
         assert!(socket.can_recv());
 
         assert!(socket.accepts(&REMOTE_IP_REPR, &ECHO_REPR, &caps.checksum));
-        assert_eq!(socket.process(&REMOTE_IP_REPR, &data[..]),
+        assert_eq!(socket.process(&REMOTE_IP_REPR, &ECHO_REPR, &caps.checksum),
                    Err(Error::Exhausted));
+
         assert_eq!(socket.recv(), Ok((&data[..], REMOTE_IP)));
         assert!(!socket.can_recv());
     }
@@ -568,8 +571,14 @@ mod test {
         // Ensure we can accept ICMP error response to the bound
         // UDP port
         assert!(socket.accepts(&ip_repr, &icmp_repr, &caps.checksum));
-        assert_eq!(socket.process(&ip_repr, &data[..]),
+        assert_eq!(socket.process(&ip_repr, &icmp_repr, &caps.checksum),
                    Ok(()));
         assert!(socket.can_recv());
+
+        let mut bytes = [0x00; 46];
+        let mut packet = Icmpv4Packet::new(&mut bytes[..]);
+        icmp_repr.emit(&mut packet, &caps.checksum);
+        assert_eq!(socket.recv(), Ok((&packet.into_inner()[..], REMOTE_IP)));
+        assert!(!socket.can_recv());
     }
 }
