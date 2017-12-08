@@ -84,7 +84,7 @@ extern crate libc;
 #[cfg(feature = "alloc")]
 extern crate alloc;
 #[cfg(any(test, feature = "log"))]
-#[macro_use(log, log_enabled, trace, debug)]
+#[macro_use(log, trace, debug)]
 extern crate log;
 
 use core::fmt;

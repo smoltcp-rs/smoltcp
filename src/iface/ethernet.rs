@@ -6,6 +6,7 @@ use managed::ManagedSlice;
 
 use {Error, Result};
 use phy::{Device, DeviceCapabilities, RxToken, TxToken};
+use wire::pretty_print::PrettyPrinter;
 use wire::{EthernetAddress, EthernetProtocol, EthernetFrame};
 use wire::{Ipv4Address};
 use wire::{IpAddress, IpProtocol, IpRepr, IpCidr};
@@ -181,16 +182,8 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
             let dispatch_result = rx_token.consume(timestamp, |frame| {
                 let response = inner.process_ethernet(sockets, timestamp, &frame).map_err(|err| {
                     net_debug!("cannot process ingress packet: {}", err);
-                    if net_log_enabled!(debug) {
-                        match EthernetFrame::new_checked(frame.as_ref()) {
-                            Err(_) => {
-                                net_debug!("packet dump follows:\n{:?}", frame.as_ref());
-                            }
-                            Ok(frame) => {
-                                net_debug!("packet dump follows:\n{}", frame);
-                            }
-                        }
-                    }
+                    net_debug!("packet dump follows:\n{}",
+                               PrettyPrinter::<EthernetFrame<&[u8]>>::new("", &frame));
                     err
                 })?;
                 processed_any = true;
