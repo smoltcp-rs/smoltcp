@@ -257,7 +257,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
 
     /// Return the time to live field.
     #[inline]
-    pub fn ttl(&self) -> u8 {
+    pub fn hop_limit(&self) -> u8 {
         let data = self.buffer.as_ref();
         data[field::TTL]
     }
@@ -391,7 +391,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
 
     /// Set the time to live field.
     #[inline]
-    pub fn set_ttl(&mut self, value: u8) {
+    pub fn set_hop_limit(&mut self, value: u8) {
         let data = self.buffer.as_mut();
         data[field::TTL] = value
     }
@@ -452,7 +452,7 @@ pub struct Repr {
     pub dst_addr:    Address,
     pub protocol:    Protocol,
     pub payload_len: usize,
-    pub ttl:         u8
+    pub hop_limit:   u8
 }
 
 impl Repr {
@@ -479,7 +479,7 @@ impl Repr {
             dst_addr:    packet.dst_addr(),
             protocol:    packet.protocol(),
             payload_len: payload_len,
-            ttl:         packet.ttl()
+            hop_limit:   packet.hop_limit()
         })
     }
 
@@ -502,7 +502,7 @@ impl Repr {
         packet.set_more_frags(false);
         packet.set_dont_frag(true);
         packet.set_frag_offset(0);
-        packet.set_ttl(self.ttl);
+        packet.set_hop_limit(self.hop_limit);
         packet.set_protocol(self.protocol);
         packet.set_src_addr(self.src_addr);
         packet.set_dst_addr(self.dst_addr);
@@ -522,8 +522,8 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
             Ok(repr) => write!(f, "{}", repr),
             Err(err) => {
                 write!(f, "IPv4 ({})", err)?;
-                write!(f, " src={} dst={} proto={} ttl={}",
-                       self.src_addr(), self.dst_addr(), self.protocol(), self.ttl())?;
+                write!(f, " src={} dst={} proto={} hop_limit={}",
+                       self.src_addr(), self.dst_addr(), self.protocol(), self.hop_limit())?;
                 if self.version() != 4 {
                     write!(f, " ver={}", self.version())?;
                 }
@@ -620,7 +620,7 @@ mod test {
         assert_eq!(packet.more_frags(), true);
         assert_eq!(packet.dont_frag(), true);
         assert_eq!(packet.frag_offset(), 0x203 * 8);
-        assert_eq!(packet.ttl(), 0x1a);
+        assert_eq!(packet.hop_limit(), 0x1a);
         assert_eq!(packet.protocol(), Protocol::Icmp);
         assert_eq!(packet.checksum(), 0xd56e);
         assert_eq!(packet.src_addr(), Address([0x11, 0x12, 0x13, 0x14]));
@@ -643,7 +643,7 @@ mod test {
         packet.set_more_frags(true);
         packet.set_dont_frag(true);
         packet.set_frag_offset(0x203 * 8);
-        packet.set_ttl(0x1a);
+        packet.set_hop_limit(0x1a);
         packet.set_protocol(Protocol::Icmp);
         packet.set_src_addr(Address([0x11, 0x12, 0x13, 0x14]));
         packet.set_dst_addr(Address([0x21, 0x22, 0x23, 0x24]));
@@ -691,7 +691,7 @@ mod test {
             dst_addr:    Address([0x21, 0x22, 0x23, 0x24]),
             protocol:    Protocol::Icmp,
             payload_len: 4,
-            ttl:         64
+            hop_limit:   64
         }
     }
 

@@ -268,7 +268,7 @@ mod test {
         dst_addr: Ipv4Address([10, 0, 0, 2]),
         protocol: IpProtocol::Unknown(IP_PROTO),
         payload_len: 4,
-        ttl: 64
+        hop_limit: 64
     });
     const PACKET_BYTES: [u8; 24] = [
         0x45, 0x00, 0x00, 0x18,

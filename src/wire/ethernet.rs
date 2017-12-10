@@ -235,8 +235,26 @@ impl<T: AsRef<[u8]>> PrettyPrint for Frame<T> {
     }
 }
 
+
 #[cfg(test)]
 mod test {
+    // Tests that are valid with any combination of
+    // "proto-*" features.
+    use super::*;
+
+    #[test]
+    fn test_broadcast() {
+        assert!(Address::BROADCAST.is_broadcast());
+        assert!(!Address::BROADCAST.is_unicast());
+        assert!(Address::BROADCAST.is_multicast());
+        assert!(Address::BROADCAST.is_local());
+    }
+}
+
+#[cfg(test)]
+#[cfg(feature = "proto-ipv4")]
+mod test_ipv4 {
+    // Tests that are valid only with "proto-ipv4"
     use super::*;
 
     static FRAME_BYTES: [u8; 64] =
@@ -279,12 +297,49 @@ mod test {
         frame.payload_mut().copy_from_slice(&PAYLOAD_BYTES[..]);
         assert_eq!(&frame.into_inner()[..], &FRAME_BYTES[..]);
     }
+}
+
+#[cfg(test)]
+#[cfg(feature = "proto-ipv6")]
+mod test_ipv6 {
+    // Tests that are valid only with "proto-ipv6"
+    use super::*;
+
+    static FRAME_BYTES: [u8; 54] =
+        [0x01, 0x02, 0x03, 0x04, 0x05, 0x06,
+         0x11, 0x12, 0x13, 0x14, 0x15, 0x16,
+         0x86, 0xdd,
+         0x60, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+         0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01];
+
+    static PAYLOAD_BYTES: [u8; 40] =
+        [0x60, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+         0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01];
 
     #[test]
-    fn test_broadcast() {
-        assert!(Address::BROADCAST.is_broadcast());
-        assert!(!Address::BROADCAST.is_unicast());
-        assert!(Address::BROADCAST.is_multicast());
-        assert!(Address::BROADCAST.is_local());
+    fn test_deconstruct() {
+        let frame = Frame::new(&FRAME_BYTES[..]);
+        assert_eq!(frame.dst_addr(), Address([0x01, 0x02, 0x03, 0x04, 0x05, 0x06]));
+        assert_eq!(frame.src_addr(), Address([0x11, 0x12, 0x13, 0x14, 0x15, 0x16]));
+        assert_eq!(frame.ethertype(), EtherType::Ipv6);
+        assert_eq!(frame.payload(), &PAYLOAD_BYTES[..]);
+    }
+
+    #[test]
+    fn test_construct() {
+        let mut bytes = vec![0xa5; 54];
+        let mut frame = Frame::new(&mut bytes);
+        frame.set_dst_addr(Address([0x01, 0x02, 0x03, 0x04, 0x05, 0x06]));
+        frame.set_src_addr(Address([0x11, 0x12, 0x13, 0x14, 0x15, 0x16]));
+        frame.set_ethertype(EtherType::Ipv6);
+        assert_eq!(PAYLOAD_BYTES.len(), frame.payload_mut().len());
+        frame.payload_mut().copy_from_slice(&PAYLOAD_BYTES[..]);
+        assert_eq!(&frame.into_inner()[..], &FRAME_BYTES[..]);
     }
 }

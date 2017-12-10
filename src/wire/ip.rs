@@ -336,7 +336,7 @@ pub enum Repr {
         dst_addr:    Address,
         protocol:    Protocol,
         payload_len: usize,
-        ttl:         u8
+        hop_limit:   u8
     },
     Ipv4(Ipv4Repr),
     #[cfg(feature = "proto-ipv6")]
@@ -429,12 +429,12 @@ impl Repr {
     }
 
     /// Return the TTL value.
-    pub fn ttl(&self) -> u8 {
+    pub fn hop_limit(&self) -> u8 {
         match self {
-            &Repr::Unspecified { ttl, .. } => ttl,
-            &Repr::Ipv4(Ipv4Repr { ttl, .. }) => ttl,
+            &Repr::Unspecified { hop_limit, .. }    => hop_limit,
+            &Repr::Ipv4(Ipv4Repr { hop_limit, .. }) => hop_limit,
             #[cfg(feature = "proto-ipv6")]
-            &Repr::Ipv6(Ipv6Repr { hop_limit, ..}) => hop_limit,
+            &Repr::Ipv6(Ipv6Repr { hop_limit, ..})  => hop_limit,
             &Repr::__Nonexhaustive => unreachable!()
         }
     }
@@ -469,13 +469,13 @@ impl Repr {
             &Repr::Unspecified {
                 src_addr: Address::Ipv4(src_addr),
                 dst_addr: Address::Ipv4(dst_addr),
-                protocol, payload_len, ttl
+                protocol, payload_len, hop_limit
             } => {
                 Ok(Repr::Ipv4(Ipv4Repr {
                     src_addr:    src_addr,
                     dst_addr:    dst_addr,
                     protocol:    protocol,
-                    payload_len: payload_len, ttl
+                    payload_len: payload_len, hop_limit
                 }))
             }
 
@@ -483,21 +483,21 @@ impl Repr {
             &Repr::Unspecified {
                 src_addr: Address::Ipv6(src_addr),
                 dst_addr: Address::Ipv6(dst_addr),
-                protocol, payload_len, ttl
+                protocol, payload_len, hop_limit
             } => {
                 Ok(Repr::Ipv6(Ipv6Repr {
                     src_addr:    src_addr,
                     dst_addr:    dst_addr,
                     next_header: protocol,
                     payload_len: payload_len,
-                    hop_limit:   ttl
+                    hop_limit:   hop_limit
                 }))
             }
 
             &Repr::Unspecified {
                 src_addr: Address::Unspecified,
                 dst_addr: Address::Ipv4(dst_addr),
-                protocol, payload_len, ttl
+                protocol, payload_len, hop_limit
             } => {
                 let mut src_addr = None;
                 for cidr in fallback_src_addrs {
@@ -511,7 +511,7 @@ impl Repr {
                 }
                 Ok(Repr::Ipv4(Ipv4Repr {
                     src_addr:    src_addr.ok_or(Error::Unaddressable)?,
-                    dst_addr, protocol, payload_len, ttl
+                    dst_addr, protocol, payload_len, hop_limit
                 }))
             }
 
@@ -519,7 +519,7 @@ impl Repr {
             &Repr::Unspecified {
                 src_addr: Address::Unspecified,
                 dst_addr: Address::Ipv6(dst_addr),
-                protocol, payload_len, ttl
+                protocol, payload_len, hop_limit
             } => {
                 // Find a fallback address to use
                 match fallback_src_addrs.iter().filter_map(|cidr| match cidr.address() {
@@ -530,7 +530,7 @@ impl Repr {
                         Ok(Repr::Ipv6(Ipv6Repr {
                             src_addr:    addr,
                             next_header: protocol,
-                            hop_limit:   ttl,
+                            hop_limit:   hop_limit,
                             dst_addr, payload_len
                         })),
                     None => Err(Error::Unaddressable)
@@ -745,27 +745,27 @@ mod test {
 
         assert_eq!(
             Repr::Unspecified{
-                src_addr: IpAddress::Ipv4(ip_addr_a),
-                dst_addr: IpAddress::Ipv4(ip_addr_b),
-                protocol: proto,
-                ttl:      0x2a,
+                src_addr:  IpAddress::Ipv4(ip_addr_a),
+                dst_addr:  IpAddress::Ipv4(ip_addr_b),
+                protocol:  proto,
+                hop_limit: 0x2a,
                 payload_len,
             }.lower(&[]),
             Ok(Repr::Ipv4(Ipv4Repr{
-                src_addr: ip_addr_a,
-                dst_addr: ip_addr_b,
-                protocol: proto,
-                ttl:      0x2a,
+                src_addr:  ip_addr_a,
+                dst_addr:  ip_addr_b,
+                protocol:  proto,
+                hop_limit: 0x2a,
                 payload_len
             }))
         );
 
         assert_eq!(
             Repr::Unspecified{
-                src_addr: IpAddress::Unspecified,
-                dst_addr: IpAddress::Ipv4(ip_addr_b),
-                protocol: proto,
-                ttl:      64,
+                src_addr:  IpAddress::Unspecified,
+                dst_addr:  IpAddress::Ipv4(ip_addr_b),
+                protocol:  proto,
+                hop_limit: 64,
                 payload_len
             }.lower(&[]),
             Err(Error::Unaddressable)
@@ -773,44 +773,44 @@ mod test {
 
         assert_eq!(
             Repr::Unspecified{
-                src_addr: IpAddress::Unspecified,
-                dst_addr: IpAddress::Ipv4(ip_addr_b),
-                protocol: proto,
-                ttl:      64,
+                src_addr:  IpAddress::Unspecified,
+                dst_addr:  IpAddress::Ipv4(ip_addr_b),
+                protocol:  proto,
+                hop_limit: 64,
                 payload_len
             }.lower(&[IpCidr::new(IpAddress::Ipv4(ip_addr_a), 24)]),
             Ok(Repr::Ipv4(Ipv4Repr{
-                src_addr: ip_addr_a,
-                dst_addr: ip_addr_b,
-                protocol: proto,
-                ttl:      64,
+                src_addr:  ip_addr_a,
+                dst_addr:  ip_addr_b,
+                protocol:  proto,
+                hop_limit: 64,
                 payload_len
             }))
         );
 
         assert_eq!(
             Repr::Ipv4(Ipv4Repr{
-                src_addr: ip_addr_a,
-                dst_addr: ip_addr_b,
-                protocol: proto,
-                ttl:      255,
+                src_addr:  ip_addr_a,
+                dst_addr:  ip_addr_b,
+                protocol:  proto,
+                hop_limit: 255,
                 payload_len
             }).lower(&[]),
             Ok(Repr::Ipv4(Ipv4Repr{
-                src_addr: ip_addr_a,
-                dst_addr: ip_addr_b,
-                protocol: proto,
-                ttl:      255,
+                src_addr:  ip_addr_a,
+                dst_addr:  ip_addr_b,
+                protocol:  proto,
+                hop_limit: 255,
                 payload_len
             }))
         );
 
         assert_eq!(
             Repr::Ipv4(Ipv4Repr{
-                src_addr: Ipv4Address::UNSPECIFIED,
-                dst_addr: ip_addr_b,
-                protocol: proto,
-                ttl:      255,
+                src_addr:  Ipv4Address::UNSPECIFIED,
+                dst_addr:  ip_addr_b,
+                protocol:  proto,
+                hop_limit: 255,
                 payload_len
             }).lower(&[]),
             Err(Error::Unaddressable)
@@ -818,17 +818,17 @@ mod test {
 
         assert_eq!(
             Repr::Ipv4(Ipv4Repr{
-                src_addr: Ipv4Address::UNSPECIFIED,
-                dst_addr: ip_addr_b,
-                protocol: proto,
-                ttl:      64,
+                src_addr:  Ipv4Address::UNSPECIFIED,
+                dst_addr:  ip_addr_b,
+                protocol:  proto,
+                hop_limit: 64,
                 payload_len
             }).lower(&[IpCidr::new(IpAddress::Ipv4(ip_addr_a), 24)]),
             Ok(Repr::Ipv4(Ipv4Repr{
-                src_addr: ip_addr_a,
-                dst_addr: ip_addr_b,
-                protocol: proto,
-                ttl:      64,
+                src_addr:  ip_addr_a,
+                dst_addr:  ip_addr_b,
+                protocol:  proto,
+                hop_limit: 64,
                 payload_len
             }))
         );

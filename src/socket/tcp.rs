@@ -187,7 +187,7 @@ pub struct TcpSocket<'a> {
     /// Interval at which keep-alive packets will be sent.
     keep_alive:      Option<u64>,
     /// The time-to-live (IPv4) or hop limit (IPv6) value used in outgoing packets.
-    ttl:             Option<u8>,
+    hop_limit:       Option<u8>,
     /// Address passed to listen(). Listen address is set when listen() is called and
     /// used every time the socket is reset back to the LISTEN state.
     listen_address:  IpAddress,
@@ -245,7 +245,7 @@ impl<'a> TcpSocket<'a> {
             rx_buffer:       rx_buffer,
             timeout:         None,
             keep_alive:      None,
-            ttl:             None,
+            hop_limit:       None,
             listen_address:  IpAddress::default(),
             local_endpoint:  IpEndpoint::default(),
             remote_endpoint: IpEndpoint::default(),
@@ -318,29 +318,29 @@ impl<'a> TcpSocket<'a> {
 
     /// Return the time-to-live (IPv4) or hop limit (IPv6) value used in outgoing packets.
     ///
-    /// See also the [set_ttl](#method.set_ttl) method
-    pub fn ttl(&self) -> Option<u8> {
-        self.ttl
+    /// See also the [set_hop_limit](#method.set_hop_limit) method
+    pub fn hop_limit(&self) -> Option<u8> {
+        self.hop_limit
     }
 
     /// Set the time-to-live (IPv4) or hop limit (IPv6) value used in outgoing packets.
     ///
-    /// A socket without an explicitly set TTL value uses the default [IANA recommended]
+    /// A socket without an explicitly set hop limit value uses the default [IANA recommended]
     /// value (64).
     ///
     /// # Panics
     ///
-    /// This function panics if a TTL value of 0 is given. See [RFC 1122 § 3.2.1.7].
+    /// This function panics if a hop limit value of 0 is given. See [RFC 1122 § 3.2.1.7].
     ///
     /// [IANA recommended]: https://www.iana.org/assignments/ip-parameters/ip-parameters.xhtml
     /// [RFC 1122 § 3.2.1.7]: https://tools.ietf.org/html/rfc1122#section-3.2.1.7
-    pub fn set_ttl(&mut self, ttl: Option<u8>) {
-        // A host MUST NOT send a datagram with a Time-to-Live (TTL) value of 0
-        if let Some(0) = ttl {
+    pub fn set_hop_limit(&mut self, hop_limit: Option<u8>) {
+        // A host MUST NOT send a datagram with a hop limit value of 0
+        if let Some(0) = hop_limit {
             panic!("the time-to-live value of a packet must not be zero")
         }
 
-        self.ttl = ttl
+        self.hop_limit = hop_limit
     }
 
     /// Return the local endpoint.
@@ -369,7 +369,7 @@ impl<'a> TcpSocket<'a> {
         self.rx_buffer.clear();
         self.keep_alive      = None;
         self.timeout         = None;
-        self.ttl             = None;
+        self.hop_limit       = None;
         self.listen_address  = IpAddress::default();
         self.local_endpoint  = IpEndpoint::default();
         self.remote_endpoint = IpEndpoint::default();
@@ -759,7 +759,7 @@ impl<'a> TcpSocket<'a> {
             dst_addr:    ip_repr.src_addr(),
             protocol:    IpProtocol::Tcp,
             payload_len: reply_repr.buffer_len(),
-            ttl:         64
+            hop_limit:   64
         };
         (ip_reply_repr, reply_repr)
     }
@@ -1284,7 +1284,7 @@ impl<'a> TcpSocket<'a> {
             src_addr:     self.local_endpoint.addr,
             dst_addr:     self.remote_endpoint.addr,
             protocol:     IpProtocol::Tcp,
-            ttl:          self.ttl.unwrap_or(64),
+            hop_limit:    self.hop_limit.unwrap_or(64),
             payload_len:  0
         }.lower(&[])?;
 
@@ -1517,7 +1517,7 @@ mod test {
     const SEND_IP_TEMPL: IpRepr = IpRepr::Unspecified {
         src_addr: LOCAL_IP, dst_addr: REMOTE_IP,
         protocol: IpProtocol::Tcp, payload_len: 20,
-        ttl: 64
+        hop_limit: 64
     };
     const SEND_TEMPL: TcpRepr<'static> = TcpRepr {
         src_port: REMOTE_PORT, dst_port: LOCAL_PORT,
@@ -1529,7 +1529,7 @@ mod test {
     const _RECV_IP_TEMPL: IpRepr = IpRepr::Unspecified {
         src_addr: REMOTE_IP, dst_addr: LOCAL_IP,
         protocol: IpProtocol::Tcp, payload_len: 20,
-        ttl: 64
+        hop_limit: 64
     };
     const RECV_TEMPL:  TcpRepr<'static> = TcpRepr {
         src_port: LOCAL_PORT, dst_port: REMOTE_PORT,
@@ -1546,7 +1546,7 @@ mod test {
             dst_addr:    LOCAL_IP,
             protocol:    IpProtocol::Tcp,
             payload_len: repr.buffer_len(),
-            ttl:         64
+            hop_limit:   64
         };
         trace!("send: {}", repr);
 
@@ -3467,19 +3467,19 @@ mod test {
     // =========================================================================================//
 
     #[test]
-    fn test_set_ttl() {
+    fn test_set_hop_limit() {
         let mut s = socket_syn_received();
         let mut caps = DeviceCapabilities::default();
         caps.max_transmission_unit = 1520;
 
-        s.set_ttl(Some(0x2a));
+        s.set_hop_limit(Some(0x2a));
         assert_eq!(s.dispatch(0, &caps, |(ip_repr, _)| {
             assert_eq!(ip_repr, IpRepr::Ipv4(Ipv4Repr {
                 src_addr: Ipv4Address([10, 0, 0, 1]),
                 dst_addr: Ipv4Address([10, 0, 0, 2]),
                 protocol: IpProtocol::Tcp,
                 payload_len: 24,
-                ttl: 0x2a,
+                hop_limit: 0x2a,
             }));
             Ok(())
         }), Ok(()));
@@ -3487,9 +3487,9 @@ mod test {
 
     #[test]
     #[should_panic(expected = "the time-to-live value of a packet must not be zero")]
-    fn test_set_ttl_zero() {
+    fn test_set_hop_limit_zero() {
         let mut s = socket_syn_received();
-        s.set_ttl(Some(0));
+        s.set_hop_limit(Some(0));
     }
 
     // =========================================================================================//
@@ -3631,7 +3631,7 @@ mod test {
             dst_addr:    LOCAL_IP,
             protocol:    IpProtocol::Tcp,
             payload_len: tcp_repr.buffer_len(),
-            ttl:         64
+            hop_limit:   64
         };
         assert!(s.accepts(&ip_repr, &tcp_repr));
 
@@ -3640,7 +3640,7 @@ mod test {
             dst_addr:    LOCAL_IP,
             protocol:    IpProtocol::Tcp,
             payload_len: tcp_repr.buffer_len(),
-            ttl:         64
+            hop_limit:   64
         };
         assert!(!s.accepts(&ip_repr_wrong_src, &tcp_repr));
 
@@ -3649,7 +3649,7 @@ mod test {
             dst_addr:    OTHER_IP,
             protocol:    IpProtocol::Tcp,
             payload_len: tcp_repr.buffer_len(),
-            ttl:         64
+            hop_limit:   64
         };
         assert!(!s.accepts(&ip_repr_wrong_dst, &tcp_repr));
     }

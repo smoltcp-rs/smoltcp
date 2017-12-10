@@ -507,7 +507,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
                 dst_addr:    ipv4_repr.src_addr,
                 protocol:    IpProtocol::Icmp,
                 payload_len: icmp_repr.buffer_len(),
-                ttl:         64
+                hop_limit:   64
             };
             Packet::Icmpv4((ipv4_reply_repr, icmp_repr))
         } else {
@@ -817,7 +817,7 @@ mod test {
             dst_addr:    Ipv4Address::BROADCAST,
             protocol:    IpProtocol::Unknown(0x0c),
             payload_len: 0,
-            ttl:         0x40
+            hop_limit:   0x40
         });
 
         let frame = {
@@ -849,7 +849,7 @@ mod test {
             dst_addr:    Ipv4Address([0x7f, 0x00, 0x00, 0x01]),
             protocol:    IpProtocol::Unknown(0x0c),
             payload_len: 0,
-            ttl:         0x40
+            hop_limit:   0x40
         });
 
         // emit the above repr to a frame
@@ -871,7 +871,7 @@ mod test {
                 dst_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x01]),
                 protocol: IpProtocol::Unknown(12),
                 payload_len: 0,
-                ttl: 64
+                hop_limit: 64
             },
             data: &NO_BYTES
         };
@@ -882,7 +882,7 @@ mod test {
                 dst_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x02]),
                 protocol: IpProtocol::Icmp,
                 payload_len: icmp_repr.buffer_len(),
-                ttl: 64
+                hop_limit: 64
             },
             icmp_repr
         ));
@@ -918,7 +918,7 @@ mod test {
             dst_addr:    Ipv4Address([0x7f, 0x00, 0x00, 0x01]),
             protocol:    IpProtocol::Udp,
             payload_len: udp_repr.buffer_len(),
-            ttl:         64
+            hop_limit:   64
         });
 
         // Emit the representations to a packet
@@ -936,7 +936,7 @@ mod test {
                 dst_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x01]),
                 protocol: IpProtocol::Udp,
                 payload_len: udp_repr.buffer_len(),
-                ttl: 64
+                hop_limit: 64
             },
             data: &data
         };
@@ -946,7 +946,7 @@ mod test {
                 dst_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x02]),
                 protocol: IpProtocol::Icmp,
                 payload_len: icmp_repr.buffer_len(),
-                ttl: 64
+                hop_limit: 64
             },
             icmp_repr
         ));
@@ -961,7 +961,7 @@ mod test {
             dst_addr:    Ipv4Address::BROADCAST,
             protocol:    IpProtocol::Udp,
             payload_len: udp_repr.buffer_len(),
-            ttl:         64
+            hop_limit:   64
         });
 
         // Emit the representations to a packet
@@ -1009,7 +1009,7 @@ mod test {
             dst_addr:    Ipv4Address::BROADCAST,
             protocol:    IpProtocol::Udp,
             payload_len: udp_repr.buffer_len(),
-            ttl:         0x40
+            hop_limit:   0x40
         });
 
         {
@@ -1154,7 +1154,7 @@ mod test {
             dst_addr:    Ipv4Address::new(0x7f, 0x00, 0x00, 0x01),
             protocol:    IpProtocol::Icmp,
             payload_len: 24,
-            ttl:         64
+            hop_limit:   64
         };
         let ip_repr = IpRepr::Ipv4(ipv4_repr);
 
