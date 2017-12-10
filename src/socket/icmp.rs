@@ -98,7 +98,7 @@ pub struct IcmpSocket<'a, 'b: 'a> {
     /// The endpoint this socket is communicating with
     endpoint:  Endpoint,
     /// The time-to-live (IPv4) or hop limit (IPv6) value used in outgoing packets.
-    ttl:       Option<u8>
+    hop_limit: Option<u8>
 }
 
 impl<'a, 'b> IcmpSocket<'a, 'b> {
@@ -110,7 +110,7 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
             rx_buffer: rx_buffer,
             tx_buffer: tx_buffer,
             endpoint:  Endpoint::default(),
-            ttl:       None
+            hop_limit: None
         })
     }
 
@@ -122,29 +122,29 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
 
     /// Return the time-to-live (IPv4) or hop limit (IPv6) value used in outgoing packets.
     ///
-    /// See also the [set_ttl](#method.set_ttl) method
-    pub fn ttl(&self) -> Option<u8> {
-        self.ttl
+    /// See also the [set_hop_limit](#method.set_hop_limit) method
+    pub fn hop_limit(&self) -> Option<u8> {
+        self.hop_limit
     }
 
     /// Set the time-to-live (IPv4) or hop limit (IPv6) value used in outgoing packets.
     ///
-    /// A socket without an explicitly set TTL value uses the default [IANA recommended]
+    /// A socket without an explicitly set hop limit value uses the default [IANA recommended]
     /// value (64).
     ///
     /// # Panics
     ///
-    /// This function panics if a TTL value of 0 is given. See [RFC 1122 § 3.2.1.7].
+    /// This function panics if a hop limit value of 0 is given. See [RFC 1122 § 3.2.1.7].
     ///
     /// [IANA recommended]: https://www.iana.org/assignments/ip-parameters/ip-parameters.xhtml
     /// [RFC 1122 § 3.2.1.7]: https://tools.ietf.org/html/rfc1122#section-3.2.1.7
-    pub fn set_ttl(&mut self, ttl: Option<u8>) {
-        // A host MUST NOT send a datagram with a Time-to-Live (TTL) value of 0
-        if let Some(0) = ttl {
+    pub fn set_hop_limit(&mut self, hop_limit: Option<u8>) {
+        // A host MUST NOT send a datagram with a hop limit value of 0
+        if let Some(0) = hop_limit {
             panic!("the time-to-live value of a packet must not be zero")
         }
 
-        self.ttl = ttl
+        self.hop_limit = hop_limit
     }
 
     /// Bind the socket to the given endpoint.
@@ -328,7 +328,7 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
         where F: FnOnce((IpRepr, Icmpv4Repr)) -> Result<()>
     {
         let handle = self.meta.handle;
-        let ttl = self.ttl.unwrap_or(64);
+        let hop_limit = self.hop_limit.unwrap_or(64);
         let checksum = &caps.checksum;
         self.tx_buffer.dequeue_one_with(|packet_buf| {
             net_trace!("{}:{}: sending {} octets",
@@ -342,7 +342,7 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
                         dst_addr:    ipv4_addr,
                         protocol:    IpProtocol::Icmp,
                         payload_len: repr.buffer_len(),
-                        ttl:         ttl,
+                        hop_limit:   hop_limit,
                     });
                     emit((ip_repr, repr))
                 },
@@ -406,7 +406,7 @@ mod test {
         dst_addr: REMOTE_IPV4,
         protocol: IpProtocol::Icmp,
         payload_len: 24,
-        ttl: 0x40
+        hop_limit: 0x40
     });
 
     static REMOTE_IP_REPR: IpRepr = IpRepr::Ipv4(Ipv4Repr {
@@ -414,7 +414,7 @@ mod test {
         dst_addr: LOCAL_IPV4,
         protocol: IpProtocol::Icmp,
         payload_len: 24,
-        ttl: 0x40
+        hop_limit: 0x40
     });
 
     #[test]
@@ -463,7 +463,7 @@ mod test {
     }
 
     #[test]
-    fn test_set_ttl() {
+    fn test_set_hop_limit() {
         let mut s = socket(buffer(0), buffer(1));
         let caps = DeviceCapabilities::default();
 
@@ -471,7 +471,7 @@ mod test {
         let mut packet = Icmpv4Packet::new(&mut bytes);
         ECHO_REPR.emit(&mut packet, &caps.checksum);
 
-        s.set_ttl(Some(0x2a));
+        s.set_hop_limit(Some(0x2a));
 
         assert_eq!(s.send_slice(&packet.into_inner()[..], REMOTE_IP), Ok(()));
         assert_eq!(s.dispatch(&caps, |(ip_repr, _)| {
@@ -480,7 +480,7 @@ mod test {
                 dst_addr: REMOTE_IPV4,
                 protocol: IpProtocol::Icmp,
                 payload_len: ECHO_REPR.buffer_len(),
-                ttl: 0x2a,
+                hop_limit: 0x2a,
             }));
             Ok(())
         }), Ok(()));
@@ -554,7 +554,7 @@ mod test {
                 dst_addr: REMOTE_IPV4,
                 protocol: IpProtocol::Icmp,
                 payload_len: 12,
-                ttl: 0x40
+                hop_limit: 0x40
             },
             data: data
         };
@@ -563,7 +563,7 @@ mod test {
             dst_addr: LOCAL_IP,
             protocol: IpProtocol::Icmp,
             payload_len: icmp_repr.buffer_len(),
-            ttl: 0x40
+            hop_limit: 0x40
         };
 
         assert!(!socket.can_recv());

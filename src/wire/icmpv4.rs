@@ -423,7 +423,7 @@ impl<'a> Repr<'a> {
                         dst_addr: ip_packet.dst_addr(),
                         protocol: ip_packet.protocol(),
                         payload_len: payload.len(),
-                        ttl:      ip_packet.ttl()
+                        hop_limit: ip_packet.hop_limit()
                     },
                     data: payload
                 })
