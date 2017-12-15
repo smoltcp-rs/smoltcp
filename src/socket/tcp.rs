@@ -1246,18 +1246,34 @@ impl<'a> TcpSocket<'a> {
         // Decide whether we're sending a packet.
         if self.seq_to_transmit() {
             // If we have data to transmit and it fits into partner's window, do it.
+            net_trace!("{}:{}:{}: have data to send",
+                       self.meta.handle, self.local_endpoint, self.remote_endpoint);
         } else if self.ack_to_transmit() {
             // If we have data to acknowledge, do it.
+            net_trace!("{}:{}:{}: have data to acknowledge",
+                       self.meta.handle, self.local_endpoint, self.remote_endpoint);
         } else if self.window_to_update() {
             // If we have window length increase to advertise, do it.
+            net_trace!("{}:{}:{}: have a window update",
+                       self.meta.handle, self.local_endpoint, self.remote_endpoint);
         } else if self.state == State::Closed {
             // If we need to abort the connection, do it.
+            net_trace!("{}:{}:{}: connection abort",
+                       self.meta.handle, self.local_endpoint, self.remote_endpoint);
         } else if self.timer.should_retransmit(timestamp).is_some() {
             // If we have packets to retransmit, do it.
+            net_trace!("{}:{}:{}: retransmit timer expired",
+                       self.meta.handle, self.local_endpoint, self.remote_endpoint);
         } else if self.timer.should_keep_alive(timestamp) {
             // If we need to transmit a keep-alive packet, do it.
+            net_trace!("{}:{}:{}: keep-alive timer expired",
+                       self.meta.handle, self.local_endpoint, self.remote_endpoint);
         } else if self.timer.should_close(timestamp) {
             // If we have spent enough time in the TIME-WAIT state, close the socket.
+            net_trace!("{}:{}:{}: TIME-WAIT timer expired",
+                       self.meta.handle, self.local_endpoint, self.remote_endpoint);
+            self.reset();
+            return Err(Error::Exhausted)
         } else {
             return Err(Error::Exhausted)
         }
@@ -1329,20 +1345,9 @@ impl<'a> TcpSocket<'a> {
             // We do not transmit anything in the FIN-WAIT-2 state.
             State::FinWait2 => return Err(Error::Exhausted),
 
-            // We do not transmit data or control flags in the CLOSING state, but we may
-            // retransmit an ACK.
-            State::Closing => (),
-
-            // Handling of the TIME-WAIT state is the same as for the CLOSING state, but also
-            // we wait for the timer to expire.
-            State::TimeWait => {
-                if self.timer.should_close(timestamp) {
-                    net_trace!("{}:{}:{}: TIME-WAIT timeout",
-                               self.meta.handle, self.local_endpoint, self.remote_endpoint);
-                    self.reset();
-                    return Err(Error::Exhausted)
-                }
-            }
+            // We do not transmit data or control flags in the CLOSING or TIME-WAIT states,
+            // but we may retransmit an ACK.
+            State::Closing | State::TimeWait => ()
         }
 
         // There might be more than one reason to send a packet. E.g. the keep-alive timer
