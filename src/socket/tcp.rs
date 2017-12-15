@@ -1246,19 +1246,19 @@ impl<'a> TcpSocket<'a> {
         // Decide whether we're sending a packet.
         if self.seq_to_transmit() {
             // If we have data to transmit and it fits into partner's window, do it.
-            net_trace!("{}:{}:{}: have data to send",
+            net_trace!("{}:{}:{}: will send",
                        self.meta.handle, self.local_endpoint, self.remote_endpoint);
         } else if self.ack_to_transmit() {
             // If we have data to acknowledge, do it.
-            net_trace!("{}:{}:{}: have data to acknowledge",
+            net_trace!("{}:{}:{}: will acknowledge",
                        self.meta.handle, self.local_endpoint, self.remote_endpoint);
         } else if self.window_to_update() {
             // If we have window length increase to advertise, do it.
-            net_trace!("{}:{}:{}: have a window update",
+            net_trace!("{}:{}:{}: will update window",
                        self.meta.handle, self.local_endpoint, self.remote_endpoint);
         } else if self.state == State::Closed {
             // If we need to abort the connection, do it.
-            net_trace!("{}:{}:{}: connection abort",
+            net_trace!("{}:{}:{}: will abort connection",
                        self.meta.handle, self.local_endpoint, self.remote_endpoint);
         } else if self.timer.should_retransmit(timestamp).is_some() {
             // If we have packets to retransmit, do it.
