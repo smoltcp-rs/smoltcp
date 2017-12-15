@@ -159,6 +159,8 @@ fn main() {
         }
 
         match iface.poll(&mut socket_set, clock.elapsed()) {
+            Ok(Some(poll_at)) if poll_at < clock.elapsed() =>
+                debug!("resuming"),
             Ok(Some(poll_at)) => {
                 let delay = poll_at - clock.elapsed();
                 debug!("sleeping for {} ms", delay);
