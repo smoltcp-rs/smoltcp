@@ -567,17 +567,19 @@ use super::pretty_print::{PrettyPrint, PrettyIndent};
 impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
     fn pretty_print(buffer: &AsRef<[u8]>, f: &mut fmt::Formatter,
                     indent: &mut PrettyIndent) -> fmt::Result {
-        use wire::ip::checksum::write_checksum;
+        use wire::ip::checksum::format_checksum;
+        use wire::{Icmpv4Packet, TcpPacket, TcpRepr, UdpPacket, UdpRepr};
+
         let checksum_caps = ChecksumCapabilities::ignored();
 
         let (ip_repr, payload) = match Packet::new_checked(buffer) {
-            Err(err) => return write!(f, "{}({})\n", indent, err),
+            Err(err) => return write!(f, "{}({})", indent, err),
             Ok(ip_packet) => {
                 match Repr::parse(&ip_packet, &checksum_caps) {
                     Err(_) => return Ok(()),
                     Ok(ip_repr) => {
                         write!(f, "{}{}", indent, ip_repr)?;
-                        write_checksum(f, ip_packet.verify_checksum())?;
+                        format_checksum(f, ip_packet.verify_checksum())?;
                         (ip_repr, ip_packet.payload())
                     }
                 }
@@ -587,35 +589,38 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
         let src_addr = ip_repr.src_addr.into();
         let dst_addr = ip_repr.dst_addr.into();
 
-        indent.increase();
         match ip_repr.protocol {
-            Protocol::Icmp =>
-                super::Icmpv4Packet::<&[u8]>::pretty_print(&payload, f, indent),
+            Protocol::Icmp => {
+                indent.increase(f)?;
+                Icmpv4Packet::<&[u8]>::pretty_print(&payload.as_ref(), f, indent)
+            }
             Protocol::Udp => {
-                match super::UdpPacket::new_checked(payload) {
-                    Err(err) => write!(f, "{}({})\n", indent, err),
+                indent.increase(f)?;
+                match UdpPacket::<&[u8]>::new_checked(payload.as_ref()) {
+                    Err(err) => write!(f, "{}({})", indent, err),
                     Ok(udp_packet) => {
-                        match super::UdpRepr::parse(&udp_packet, &src_addr, &dst_addr,
-                                                    &checksum_caps) {
-                            Err(err) => write!(f, "{}{} ({})\n", indent, udp_packet, err),
+                        match UdpRepr::parse(&udp_packet, &src_addr, &dst_addr, &checksum_caps) {
+                            Err(err) => write!(f, "{}{} ({})", indent, udp_packet, err),
                             Ok(udp_repr) => {
                                 write!(f, "{}{}", indent, udp_repr)?;
-                                write_checksum(f, udp_packet.verify_checksum(&src_addr, &dst_addr))
+                                let valid = udp_packet.verify_checksum(&src_addr, &dst_addr);
+                                format_checksum(f, valid)
                             }
                         }
                     }
                 }
             }
             Protocol::Tcp => {
-                match super::TcpPacket::new_checked(payload) {
-                    Err(err) => write!(f, "{}({})\n", indent, err),
+                indent.increase(f)?;
+                match TcpPacket::<&[u8]>::new_checked(payload.as_ref()) {
+                    Err(err) => write!(f, "{}({})", indent, err),
                     Ok(tcp_packet) => {
-                        match super::TcpRepr::parse(&tcp_packet, &src_addr, &dst_addr,
-                                                    &checksum_caps) {
-                            Err(err) => write!(f, "{}{} ({})\n", indent, tcp_packet, err),
+                        match TcpRepr::parse(&tcp_packet, &src_addr, &dst_addr, &checksum_caps) {
+                            Err(err) => write!(f, "{}{} ({})", indent, tcp_packet, err),
                             Ok(tcp_repr) => {
                                 write!(f, "{}{}", indent, tcp_repr)?;
-                                write_checksum(f, tcp_packet.verify_checksum(&src_addr, &dst_addr))
+                                let valid = tcp_packet.verify_checksum(&src_addr, &dst_addr);
+                                format_checksum(f, valid)
                             }
                         }
                     }

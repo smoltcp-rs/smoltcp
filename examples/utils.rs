@@ -23,8 +23,7 @@ pub fn setup_logging_with_clock<F>(filter: &str, since_startup: F)
                 format!("\x1b[0m{} ({}): {}\x1b[0m", timestamp,
                         record.target().replace("smoltcp::", ""), record.args())
             } else if record.level() == LogLevel::Trace {
-                let mut message = format!("{}", record.args());
-                message.pop();
+                let message = format!("{}", record.args());
                 format!("\x1b[37m{} {}\x1b[0m", timestamp,
                         message.replace("\n", "\n             "))
             } else {

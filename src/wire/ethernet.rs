@@ -211,17 +211,20 @@ impl<T: AsRef<[u8]>> PrettyPrint for Frame<T> {
     fn pretty_print(buffer: &AsRef<[u8]>, f: &mut fmt::Formatter,
                     indent: &mut PrettyIndent) -> fmt::Result {
         let frame = match Frame::new_checked(buffer) {
-            Err(err)  => return write!(f, "{}({})\n", indent, err),
+            Err(err)  => return write!(f, "{}({})", indent, err),
             Ok(frame) => frame
         };
-        write!(f, "{}{}\n", indent, frame)?;
-        indent.increase();
+        write!(f, "{}{}", indent, frame)?;
 
         match frame.ethertype() {
-            EtherType::Arp =>
-                super::ArpPacket::<&[u8]>::pretty_print(&frame.payload(), f, indent),
-            EtherType::Ipv4 =>
-                super::Ipv4Packet::<&[u8]>::pretty_print(&frame.payload(), f, indent),
+            EtherType::Arp => {
+                indent.increase(f)?;
+                super::ArpPacket::<&[u8]>::pretty_print(&frame.payload(), f, indent)
+            }
+            EtherType::Ipv4 => {
+                indent.increase(f)?;
+                super::Ipv4Packet::<&[u8]>::pretty_print(&frame.payload(), f, indent)
+            }
             _ => Ok(())
         }
     }

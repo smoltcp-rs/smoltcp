@@ -595,11 +595,12 @@ pub mod checksum {
     }
 
     // We use this in pretty printer implementations.
-    pub(crate) fn write_checksum(f: &mut fmt::Formatter, correct: bool) -> fmt::Result {
+    pub(crate) fn format_checksum(f: &mut fmt::Formatter, correct: bool) -> fmt::Result {
         if !correct {
-            write!(f, " (checksum incorrect)")?;
+            write!(f, " (checksum incorrect)")
+        } else {
+            Ok(())
         }
-        write!(f, "\n")
     }
 }
 

@@ -532,15 +532,16 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
     fn pretty_print(buffer: &AsRef<[u8]>, f: &mut fmt::Formatter,
                     indent: &mut PrettyIndent) -> fmt::Result {
         let packet = match Packet::new_checked(buffer) {
-            Err(err)   => return write!(f, "{}({})\n", indent, err),
+            Err(err)   => return write!(f, "{}({})", indent, err),
             Ok(packet) => packet
         };
-        write!(f, "{}{}\n", indent, packet)?;
+        write!(f, "{}{}", indent, packet)?;
 
-        indent.increase();
         match packet.msg_type() {
-            Message::DstUnreachable =>
-                super::Ipv4Packet::<&[u8]>::pretty_print(&packet.data(), f, indent),
+            Message::DstUnreachable => {
+                indent.increase(f)?;
+                super::Ipv4Packet::<&[u8]>::pretty_print(&packet.data(), f, indent)
+            }
             _ => Ok(())
         }
     }
