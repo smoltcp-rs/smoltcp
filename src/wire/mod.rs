@@ -89,44 +89,44 @@ mod tcp;
 
 pub use self::pretty_print::PrettyPrinter;
 
-pub use self::ethernet::EtherType as EthernetProtocol;
-pub use self::ethernet::Address as EthernetAddress;
-pub use self::ethernet::Frame as EthernetFrame;
+pub use self::ethernet::{EtherType as EthernetProtocol,
+                         Address as EthernetAddress,
+                         Frame as EthernetFrame};
 
-pub use self::arp::Hardware as ArpHardware;
-pub use self::arp::Operation as ArpOperation;
-pub use self::arp::Packet as ArpPacket;
-pub use self::arp::Repr as ArpRepr;
+pub use self::arp::{Hardware as ArpHardware,
+                    Operation as ArpOperation,
+                    Packet as ArpPacket,
+                    Repr as ArpRepr};
 
-pub use self::ip::Version as IpVersion;
-pub use self::ip::Protocol as IpProtocol;
-pub use self::ip::Address as IpAddress;
-pub use self::ip::Endpoint as IpEndpoint;
-pub use self::ip::Repr as IpRepr;
-pub use self::ip::Cidr as IpCidr;
+pub use self::ip::{Version as IpVersion,
+                   Protocol as IpProtocol,
+                   Address as IpAddress,
+                   Endpoint as IpEndpoint,
+                   Repr as IpRepr,
+                   Cidr as IpCidr};
 
-pub use self::ipv4::Address as Ipv4Address;
-pub use self::ipv4::Packet as Ipv4Packet;
-pub use self::ipv4::Repr as Ipv4Repr;
-pub use self::ipv4::Cidr as Ipv4Cidr;
+pub use self::ipv4::{Address as Ipv4Address,
+                     Packet as Ipv4Packet,
+                     Repr as Ipv4Repr,
+                     Cidr as Ipv4Cidr};
 
 #[cfg(feature = "proto-ipv6")]
 pub use self::ipv6::{Address as Ipv6Address,
                      Cidr as Ipv6Cidr};
 
-pub use self::icmpv4::Message as Icmpv4Message;
-pub use self::icmpv4::DstUnreachable as Icmpv4DstUnreachable;
-pub use self::icmpv4::Redirect as Icmpv4Redirect;
-pub use self::icmpv4::TimeExceeded as Icmpv4TimeExceeded;
-pub use self::icmpv4::ParamProblem as Icmpv4ParamProblem;
-pub use self::icmpv4::Packet as Icmpv4Packet;
-pub use self::icmpv4::Repr as Icmpv4Repr;
+pub use self::icmpv4::{Message as Icmpv4Message,
+                       DstUnreachable as Icmpv4DstUnreachable,
+                       Redirect as Icmpv4Redirect,
+                       TimeExceeded as Icmpv4TimeExceeded,
+                       ParamProblem as Icmpv4ParamProblem,
+                       Packet as Icmpv4Packet,
+                       Repr as Icmpv4Repr};
 
-pub use self::udp::Packet as UdpPacket;
-pub use self::udp::Repr as UdpRepr;
+pub use self::udp::{Packet as UdpPacket,
+                    Repr as UdpRepr};
 
-pub use self::tcp::SeqNumber as TcpSeqNumber;
-pub use self::tcp::Packet as TcpPacket;
-pub use self::tcp::TcpOption;
-pub use self::tcp::Repr as TcpRepr;
-pub use self::tcp::Control as TcpControl;
+pub use self::tcp::{SeqNumber as TcpSeqNumber,
+                    Packet as TcpPacket,
+                    TcpOption,
+                    Repr as TcpRepr,
+                    Control as TcpControl};
