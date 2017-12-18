@@ -67,6 +67,22 @@ enum Packet<'a> {
     Tcp((IpRepr, TcpRepr<'a>))
 }
 
+impl<'a> Packet<'a> {
+    fn neighbor_addr(&self) -> Option<IpAddress> {
+        match self {
+            &Packet::None |
+            &Packet::Arp(_) =>
+                None,
+            &Packet::Icmpv4((ref ipv4_repr, _)) =>
+                Some(ipv4_repr.dst_addr.into()),
+            &Packet::Raw((ref ip_repr, _)) |
+            &Packet::Udp((ref ip_repr, _)) |
+            &Packet::Tcp((ref ip_repr, _)) =>
+                Some(ip_repr.dst_addr())
+        }
+    }
+}
+
 impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
         where DeviceT: for<'d> Device<'d> {
     /// Create a network interface using the provided network device.
@@ -167,7 +183,11 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
         if self.socket_ingress(sockets, timestamp)? {
             Ok(Some(0))
         } else {
-            Ok(sockets.iter().filter_map(|socket| socket.poll_at()).min())
+            Ok(sockets.iter().filter_map(|socket| {
+                let socket_poll_at = socket.poll_at();
+                socket.meta().poll_at(socket_poll_at, |ip_addr|
+                    self.inner.has_neighbor(&ip_addr, timestamp))
+            }).min())
         }
     }
 
@@ -203,12 +223,12 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
         caps.max_transmission_unit -= EthernetFrame::<&[u8]>::header_len();
 
         for mut socket in sockets.iter_mut() {
-            if let Some(hushed_until) = socket.meta().hushed_until {
-                if hushed_until > timestamp {
-                    continue
-                }
+            if !socket.meta_mut().egress_permitted(|ip_addr|
+                    self.inner.has_neighbor(&ip_addr, timestamp)) {
+                continue
             }
 
+            let mut neighbor_addr = None;
             let mut device_result = Ok(());
             let &mut Self { ref mut device, ref mut inner } = self;
             let socket_result =
@@ -216,9 +236,10 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
                     #[cfg(feature = "socket-raw")]
                     Socket::Raw(ref mut socket) =>
                         socket.dispatch(|response| {
+                            let response = Packet::Raw(response);
+                            neighbor_addr = response.neighbor_addr();
                             let tx_token = device.transmit().ok_or(Error::Exhausted)?;
-                            device_result = inner.dispatch(tx_token, timestamp,
-                                                           Packet::Raw(response));
+                            device_result = inner.dispatch(tx_token, timestamp, response);
                             device_result
                         }, &caps.checksum),
                     #[cfg(feature = "socket-icmp")]
@@ -226,9 +247,11 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
                         socket.dispatch(&caps, |response| {
                             let tx_token = device.transmit().ok_or(Error::Exhausted)?;
                             device_result = match response {
-                                (IpRepr::Ipv4(ipv4_repr), icmpv4_repr) =>
-                                    inner.dispatch(tx_token, timestamp,
-                                                   Packet::Icmpv4((ipv4_repr, icmpv4_repr))),
+                                (IpRepr::Ipv4(ipv4_repr), icmpv4_repr) => {
+                                    let response = Packet::Icmpv4((ipv4_repr, icmpv4_repr));
+                                    neighbor_addr = response.neighbor_addr();
+                                    inner.dispatch(tx_token, timestamp, response)
+                                }
                                 _ => Err(Error::Unaddressable),
                             };
                             device_result
@@ -236,17 +259,19 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
                     #[cfg(feature = "socket-udp")]
                     Socket::Udp(ref mut socket) =>
                         socket.dispatch(|response| {
+                            let response = Packet::Udp(response);
+                            neighbor_addr = response.neighbor_addr();
                             let tx_token = device.transmit().ok_or(Error::Exhausted)?;
-                            device_result = inner.dispatch(tx_token, timestamp,
-                                                           Packet::Udp(response));
+                            device_result = inner.dispatch(tx_token, timestamp, response);
                             device_result
                         }),
                     #[cfg(feature = "socket-tcp")]
                     Socket::Tcp(ref mut socket) =>
                         socket.dispatch(timestamp, &caps, |response| {
+                            let response = Packet::Tcp(response);
+                            neighbor_addr = response.neighbor_addr();
                             let tx_token = device.transmit().ok_or(Error::Exhausted)?;
-                            device_result = inner.dispatch(tx_token, timestamp,
-                                                           Packet::Tcp(response));
+                            device_result = inner.dispatch(tx_token, timestamp, response);
                             device_result
                         }),
                     Socket::__Nonexhaustive(_) => unreachable!()
@@ -258,12 +283,9 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
                     // `NeighborCache` already takes care of rate limiting the neighbor discovery
                     // requests from the socket. However, without an additional rate limiting
                     // mechanism, we would spin on every socket that has yet to discover its
-                    // peer/neighboor./
-                    if let None = socket.meta_mut().hushed_until {
-                        net_trace!("{}: hushed", socket.meta().handle);
-                    }
-                    socket.meta_mut().hushed_until =
-                        Some(timestamp + NeighborCache::SILENT_TIME);
+                    // neighboor.
+                    socket.meta_mut().neighbor_missing(timestamp,
+                        neighbor_addr.expect("non-IP response packet"));
                     break
                 }
                 (Err(err), _) | (_, Err(err)) => {
@@ -271,13 +293,7 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
                                socket.meta().handle, err);
                     return Err(err)
                 }
-                (Ok(()), Ok(())) => {
-                    // We definitely have a neighbor cache entry now, so this socket does not
-                    // need to be hushed anymore.
-                    if let Some(_) = socket.meta_mut().hushed_until.take() {
-                        net_trace!("{}: unhushed", socket.meta().handle);
-                    }
-                }
+                (Ok(()), Ok(())) => ()
             }
         }
         Ok(())
@@ -679,7 +695,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
     fn route(&self, addr: &IpAddress) -> Result<IpAddress> {
         self.ip_addrs
             .iter()
-            .find(|cidr| cidr.contains_addr(&addr))
+            .find(|cidr| cidr.contains_addr(addr))
             .map(|_cidr| Ok(addr.clone())) // route directly
             .unwrap_or_else(|| {
                 match (addr, self.ipv4_gateway) {
@@ -692,6 +708,17 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
             })
     }
 
+    fn has_neighbor<'a>(&self, addr: &'a IpAddress, timestamp: u64) -> bool {
+        match self.route(addr) {
+            Ok(routed_addr) => {
+                self.neighbor_cache
+                    .lookup_pure(&routed_addr, timestamp)
+                    .is_some()
+            }
+            Err(_) => false
+        }
+    }
+
     fn lookup_hardware_addr<Tx>(&mut self, tx_token: Tx, timestamp: u64,
                                 src_addr: &IpAddress, dst_addr: &IpAddress) ->
                                Result<(EthernetAddress, Tx)>
@@ -702,7 +729,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         match self.neighbor_cache.lookup(&dst_addr, timestamp) {
             NeighborAnswer::Found(hardware_addr) =>
                 return Ok((hardware_addr, tx_token)),
-            NeighborAnswer::Hushed =>
+            NeighborAnswer::RateLimited =>
                 return Err(Error::Unaddressable),
             NeighborAnswer::NotFound => (),
         }
