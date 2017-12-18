@@ -13,7 +13,7 @@ use std::time::Instant;
 use std::os::unix::io::AsRawFd;
 use smoltcp::phy::wait as phy_wait;
 use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr};
-use smoltcp::iface::{NeighborCache, EthernetInterface};
+use smoltcp::iface::{NeighborCache, EthernetInterfaceBuilder};
 use smoltcp::socket::SocketSet;
 use smoltcp::socket::{UdpSocket, UdpSocketBuffer, UdpPacketBuffer};
 use smoltcp::socket::{TcpSocket, TcpSocketBuffer};
@@ -56,8 +56,11 @@ fn main() {
 
     let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
     let ip_addrs = [IpCidr::new(IpAddress::v4(192, 168, 69, 1), 24)];
-    let mut iface = EthernetInterface::new(
-        device, neighbor_cache, ethernet_addr, ip_addrs, None);
+    let mut iface = EthernetInterfaceBuilder::new(device)
+            .ethernet_addr(ethernet_addr)
+            .neighbor_cache(neighbor_cache)
+            .ip_addrs(ip_addrs)
+            .finalize();
 
     let mut sockets = SocketSet::new(vec![]);
     let udp_handle  = sockets.add(udp_socket);

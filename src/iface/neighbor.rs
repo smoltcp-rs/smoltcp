@@ -24,7 +24,7 @@ pub(crate) enum Answer {
     NotFound,
     /// The neighbor address is not in the cache, or has expired,
     /// and a lookup has been made recently.
-    Hushed
+    RateLimited
 }
 
 /// A neighbor cache backed by a map.
@@ -47,7 +47,7 @@ pub(crate) enum Answer {
 #[derive(Debug)]
 pub struct Cache<'a> {
     storage:      ManagedMap<'a, IpAddress, Neighbor>,
-    hushed_until: u64,
+    silent_until: u64,
 }
 
 impl<'a> Cache<'a> {
@@ -66,7 +66,7 @@ impl<'a> Cache<'a> {
         let mut storage = storage.into();
         storage.clear();
 
-        Cache { storage, hushed_until: 0 }
+        Cache { storage, silent_until: 0 }
     }
 
     pub(crate) fn fill(&mut self, protocol_addr: IpAddress, hardware_addr: EthernetAddress,
@@ -145,10 +145,10 @@ impl<'a> Cache<'a> {
         match self.lookup_pure(protocol_addr, timestamp) {
             Some(hardware_addr) =>
                 Answer::Found(hardware_addr),
-            None if timestamp < self.hushed_until =>
-                Answer::Hushed,
+            None if timestamp < self.silent_until =>
+                Answer::RateLimited,
             None => {
-                self.hushed_until = timestamp + Self::SILENT_TIME;
+                self.silent_until = timestamp + Self::SILENT_TIME;
                 Answer::NotFound
             }
         }
@@ -230,7 +230,7 @@ mod test {
         let mut cache = Cache::new(&mut cache_storage[..]);
 
         assert_eq!(cache.lookup(&PADDR_A, 0), Answer::NotFound);
-        assert_eq!(cache.lookup(&PADDR_A, 100), Answer::Hushed);
+        assert_eq!(cache.lookup(&PADDR_A, 100), Answer::RateLimited);
         assert_eq!(cache.lookup(&PADDR_A, 2000), Answer::NotFound);
     }
 }

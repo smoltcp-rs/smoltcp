@@ -54,6 +54,132 @@ struct InterfaceInner<'b, 'c> {
     device_capabilities:    DeviceCapabilities,
 }
 
+/// A builder structure used for creating a Ethernet network
+/// interface.
+pub struct InterfaceBuilder <'b, 'c, DeviceT: for<'d> Device<'d>> {
+    device:              DeviceT,
+    ethernet_addr:       Option<EthernetAddress>,
+    neighbor_cache:      Option<NeighborCache<'b>>,
+    ip_addrs:            Option<ManagedSlice<'c, IpCidr>>,
+    ipv4_gateway:        Option<Ipv4Address>,
+}
+
+impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
+        where DeviceT: for<'d> Device<'d> {
+    /// Create a builder used for creating a network interface using the
+    /// given device and address.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use std::collections::BTreeMap;
+    /// use smoltcp::iface::{EthernetInterfaceBuilder, NeighborCache};
+    /// # use smoltcp::phy::Loopback;
+    /// use smoltcp::wire::{EthernetAddress, IpCidr, IpAddress};
+    ///
+    /// let device = // ...
+    /// # Loopback::new();
+    /// let hw_addr = // ...
+    /// # EthernetAddress::default();
+    /// let neighbor_cache = // ...
+    /// # NeighborCache::new(BTreeMap::new());
+    /// let ip_addrs = // ...
+    /// # [];
+    /// let iface = EthernetInterfaceBuilder::new(device)
+    ///         .ethernet_addr(hw_addr)
+    ///         .neighbor_cache(neighbor_cache)
+    ///         .ip_addrs(ip_addrs)
+    ///         .finalize();
+    /// ```
+    pub fn new(device: DeviceT) -> InterfaceBuilder<'b, 'c, DeviceT> {
+        InterfaceBuilder {
+            device:              device,
+            ethernet_addr:       None,
+            neighbor_cache:      None,
+            ip_addrs:            None,
+            ipv4_gateway:        None
+        }
+    }
+
+    /// Set the Ethernet address the interface will use. See also
+    /// [ethernet_addr].
+    ///
+    /// # Panics
+    /// This function panics if the address is not unicast.
+    ///
+    /// [ethernet_addr]: struct.EthernetInterface.html#method.ethernet_addr
+    pub fn ethernet_addr(mut self, addr: EthernetAddress) -> InterfaceBuilder<'b, 'c, DeviceT> {
+        InterfaceInner::check_ethernet_addr(&addr);
+        self.ethernet_addr = Some(addr);
+        self
+    }
+
+    /// Set the IP addresses the interface will use. See also
+    /// [ip_addrs].
+    ///
+    /// # Panics
+    /// This function panics if any of the addresses is not unicast.
+    ///
+    /// [ip_addrs]: struct.EthernetInterface.html#method.ip_addrs
+    pub fn ip_addrs<T: Into<ManagedSlice<'c, IpCidr>>>(mut self, ips: T) -> InterfaceBuilder<'b, 'c, DeviceT> {
+        let ips = ips.into();
+        InterfaceInner::check_ip_addrs(&ips);
+        self.ip_addrs = Some(ips);
+        self
+    }
+
+    /// Set the IPv4 gateway the interface will use. See also
+    /// [ipv4_gateway].
+    ///
+    /// # Panics
+    /// This function panics if the given address is not unicast.
+    ///
+    /// [ipv4_gateway]: struct.EthernetInterface.html#method.ipv4_gateway
+    pub fn ipv4_gateway<T>(mut self, gateway: T) -> InterfaceBuilder<'b, 'c, DeviceT>
+            where T: Into<Ipv4Address> {
+        let addr = gateway.into();
+        InterfaceInner::check_gateway_addr(&addr);
+        self.ipv4_gateway = Some(addr);
+        self
+    }
+
+    /// Set the Neighbor Cache the interface will use.
+    pub fn neighbor_cache(mut self, neighbor_cache: NeighborCache<'b>) -> InterfaceBuilder<'b, 'c, DeviceT> {
+        self.neighbor_cache = Some(neighbor_cache);
+        self
+    }
+
+    /// Create a network interface using the previously provided configuration.
+    ///
+    /// # Panics
+    /// If a required option is not provided, this function will panic. Required
+    /// options are:
+    ///
+    /// - [ethernet_addr]
+    /// - [neighbor_cache]
+    /// - [ip_addrs]
+    ///
+    /// [ethernet_addr]: #method.ethernet_addr
+    /// [neighbor_cache]: #method.neighbor_cache
+    /// [ip_addrs]: #method.ip_addrs
+    pub fn finalize(self) -> Interface<'b, 'c, DeviceT> {
+        // TODO: Limit the number of required options.
+        match (self.ethernet_addr, self.neighbor_cache, self.ip_addrs) {
+            (Some(ethernet_addr), Some(neighbor_cache), Some(ip_addrs)) => {
+                let device_capabilities = self.device.capabilities();
+                Interface {
+                    device: self.device,
+                    inner: InterfaceInner {
+                        ethernet_addr, device_capabilities, neighbor_cache, 
+                        ip_addrs, ipv4_gateway: self.ipv4_gateway,
+                    }
+                }
+            },
+            _ => panic!("a required option was not set"),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 enum Packet<'a> {
     None,
@@ -67,35 +193,23 @@ enum Packet<'a> {
     Tcp((IpRepr, TcpRepr<'a>))
 }
 
+impl<'a> Packet<'a> {
+    fn neighbor_addr(&self) -> Option<IpAddress> {
+        match self {
+            &Packet::None | &Packet::Arp(_) => None,
+            &Packet::Icmpv4((ref ipv4_repr, _)) => Some(ipv4_repr.dst_addr.into()),
+            #[cfg(feature = "socket-raw")]
+            &Packet::Raw((ref ip_repr, _)) => Some(ip_repr.dst_addr()),
+            #[cfg(feature = "socket-udp")]
+            &Packet::Udp((ref ip_repr, _)) => Some(ip_repr.dst_addr()),
+            #[cfg(feature = "socket-tcp")]
+            &Packet::Tcp((ref ip_repr, _)) => Some(ip_repr.dst_addr())
+        }
+    }
+}
+
 impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
         where DeviceT: for<'d> Device<'d> {
-    /// Create a network interface using the provided network device.
-    ///
-    /// # Panics
-    /// See the restrictions on [set_hardware_addr](#method.set_hardware_addr)
-    /// and [set_protocol_addrs](#method.set_protocol_addrs) functions.
-    pub fn new<ProtocolAddrsMT, Ipv4GatewayAddrT>
-              (device: DeviceT,
-               neighbor_cache: NeighborCache<'b>,
-               ethernet_addr: EthernetAddress,
-               ip_addrs: ProtocolAddrsMT,
-               ipv4_gateway: Ipv4GatewayAddrT) ->
-              Interface<'b, 'c, DeviceT>
-            where ProtocolAddrsMT: Into<ManagedSlice<'c, IpCidr>>,
-                  Ipv4GatewayAddrT: Into<Option<Ipv4Address>>, {
-        let ip_addrs = ip_addrs.into();
-        InterfaceInner::check_ethernet_addr(&ethernet_addr);
-        InterfaceInner::check_ip_addrs(&ip_addrs);
-
-        let inner = InterfaceInner {
-            ethernet_addr, ip_addrs, neighbor_cache,
-            ipv4_gateway: ipv4_gateway.into(),
-            device_capabilities: device.capabilities(),
-        };
-
-        Interface { device, inner }
-    }
-
     /// Get the Ethernet address of the interface.
     pub fn ethernet_addr(&self) -> EthernetAddress {
         self.inner.ethernet_addr
@@ -167,7 +281,11 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
         if self.socket_ingress(sockets, timestamp)? {
             Ok(Some(0))
         } else {
-            Ok(sockets.iter().filter_map(|socket| socket.poll_at()).min())
+            Ok(sockets.iter().filter_map(|socket| {
+                let socket_poll_at = socket.poll_at();
+                socket.meta().poll_at(socket_poll_at, |ip_addr|
+                    self.inner.has_neighbor(&ip_addr, timestamp))
+            }).min())
         }
     }
 
@@ -203,12 +321,12 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
         caps.max_transmission_unit -= EthernetFrame::<&[u8]>::header_len();
 
         for mut socket in sockets.iter_mut() {
-            if let Some(hushed_until) = socket.meta().hushed_until {
-                if hushed_until > timestamp {
-                    continue
-                }
+            if !socket.meta_mut().egress_permitted(|ip_addr|
+                    self.inner.has_neighbor(&ip_addr, timestamp)) {
+                continue
             }
 
+            let mut neighbor_addr = None;
             let mut device_result = Ok(());
             let &mut Self { ref mut device, ref mut inner } = self;
             let socket_result =
@@ -216,9 +334,10 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
                     #[cfg(feature = "socket-raw")]
                     Socket::Raw(ref mut socket) =>
                         socket.dispatch(|response| {
+                            let response = Packet::Raw(response);
+                            neighbor_addr = response.neighbor_addr();
                             let tx_token = device.transmit().ok_or(Error::Exhausted)?;
-                            device_result = inner.dispatch(tx_token, timestamp,
-                                                           Packet::Raw(response));
+                            device_result = inner.dispatch(tx_token, timestamp, response);
                             device_result
                         }, &caps.checksum),
                     #[cfg(feature = "socket-icmp")]
@@ -226,9 +345,11 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
                         socket.dispatch(&caps, |response| {
                             let tx_token = device.transmit().ok_or(Error::Exhausted)?;
                             device_result = match response {
-                                (IpRepr::Ipv4(ipv4_repr), icmpv4_repr) =>
-                                    inner.dispatch(tx_token, timestamp,
-                                                   Packet::Icmpv4((ipv4_repr, icmpv4_repr))),
+                                (IpRepr::Ipv4(ipv4_repr), icmpv4_repr) => {
+                                    let response = Packet::Icmpv4((ipv4_repr, icmpv4_repr));
+                                    neighbor_addr = response.neighbor_addr();
+                                    inner.dispatch(tx_token, timestamp, response)
+                                }
                                 _ => Err(Error::Unaddressable),
                             };
                             device_result
@@ -236,17 +357,19 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
                     #[cfg(feature = "socket-udp")]
                     Socket::Udp(ref mut socket) =>
                         socket.dispatch(|response| {
+                            let response = Packet::Udp(response);
+                            neighbor_addr = response.neighbor_addr();
                             let tx_token = device.transmit().ok_or(Error::Exhausted)?;
-                            device_result = inner.dispatch(tx_token, timestamp,
-                                                           Packet::Udp(response));
+                            device_result = inner.dispatch(tx_token, timestamp, response);
                             device_result
                         }),
                     #[cfg(feature = "socket-tcp")]
                     Socket::Tcp(ref mut socket) =>
                         socket.dispatch(timestamp, &caps, |response| {
+                            let response = Packet::Tcp(response);
+                            neighbor_addr = response.neighbor_addr();
                             let tx_token = device.transmit().ok_or(Error::Exhausted)?;
-                            device_result = inner.dispatch(tx_token, timestamp,
-                                                           Packet::Tcp(response));
+                            device_result = inner.dispatch(tx_token, timestamp, response);
                             device_result
                         }),
                     Socket::__Nonexhaustive(_) => unreachable!()
@@ -258,12 +381,9 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
                     // `NeighborCache` already takes care of rate limiting the neighbor discovery
                     // requests from the socket. However, without an additional rate limiting
                     // mechanism, we would spin on every socket that has yet to discover its
-                    // peer/neighboor./
-                    if let None = socket.meta_mut().hushed_until {
-                        net_trace!("{}: hushed", socket.meta().handle);
-                    }
-                    socket.meta_mut().hushed_until =
-                        Some(timestamp + NeighborCache::SILENT_TIME);
+                    // neighboor.
+                    socket.meta_mut().neighbor_missing(timestamp,
+                        neighbor_addr.expect("non-IP response packet"));
                     break
                 }
                 (Err(err), _) | (_, Err(err)) => {
@@ -271,13 +391,7 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
                                socket.meta().handle, err);
                     return Err(err)
                 }
-                (Ok(()), Ok(())) => {
-                    // We definitely have a neighbor cache entry now, so this socket does not
-                    // need to be hushed anymore.
-                    if let Some(_) = socket.meta_mut().hushed_until.take() {
-                        net_trace!("{}: unhushed", socket.meta().handle);
-                    }
-                }
+                (Ok(()), Ok(())) => ()
             }
         }
         Ok(())
@@ -296,6 +410,12 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
             if !cidr.address().is_unicast() {
                 panic!("IP address {} is not unicast", cidr.address())
             }
+        }
+    }
+
+    fn check_gateway_addr(addr: &Ipv4Address) {
+        if !addr.is_unicast() {
+            panic!("gateway IP address {} is not unicast", addr);
         }
     }
 
@@ -385,9 +505,10 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
 
         if eth_frame.src_addr().is_unicast() {
             // Fill the neighbor cache from IP header of unicast frames.
-            self.neighbor_cache.fill(IpAddress::Ipv4(ipv4_repr.src_addr),
-                                     eth_frame.src_addr(),
-                                     timestamp);
+            let ip_addr = IpAddress::Ipv4(ipv4_repr.src_addr);
+            if self.in_same_network(&ip_addr) {
+                self.neighbor_cache.fill(ip_addr, eth_frame.src_addr(), timestamp);
+            }
         }
 
         let ip_repr = IpRepr::Ipv4(ipv4_repr);
@@ -678,20 +799,35 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         })
     }
 
-    fn route(&self, addr: &IpAddress) -> Result<IpAddress> {
+    fn in_same_network(&self, addr: &IpAddress) -> bool {
         self.ip_addrs
             .iter()
-            .find(|cidr| cidr.contains_addr(&addr))
-            .map(|_cidr| Ok(addr.clone())) // route directly
-            .unwrap_or_else(|| {
-                match (addr, self.ipv4_gateway) {
-                    // route via a gateway
-                    (&IpAddress::Ipv4(_), Some(gateway)) =>
-                        Ok(gateway.into()),
-                    // unroutable
-                    _ => Err(Error::Unaddressable)
-                }
-            })
+            .find(|cidr| cidr.contains_addr(addr))
+            .is_some()
+    }
+
+    fn route(&self, addr: &IpAddress) -> Result<IpAddress> {
+        // Send directly.
+        if self.in_same_network(addr) {
+            return Ok(addr.clone())
+        }
+
+        // Route via a gateway.
+        match (addr, self.ipv4_gateway) {
+            (&IpAddress::Ipv4(_), Some(gateway)) => Ok(gateway.into()),
+            _ => Err(Error::Unaddressable)
+        }
+    }
+
+    fn has_neighbor<'a>(&self, addr: &'a IpAddress, timestamp: u64) -> bool {
+        match self.route(addr) {
+            Ok(routed_addr) => {
+                self.neighbor_cache
+                    .lookup_pure(&routed_addr, timestamp)
+                    .is_some()
+            }
+            Err(_) => false
+        }
     }
 
     fn lookup_hardware_addr<Tx>(&mut self, tx_token: Tx, timestamp: u64,
@@ -704,7 +840,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         match self.neighbor_cache.lookup(&dst_addr, timestamp) {
             NeighborAnswer::Found(hardware_addr) =>
                 return Ok((hardware_addr, tx_token)),
-            NeighborAnswer::Hushed =>
+            NeighborAnswer::RateLimited =>
                 return Err(Error::Unaddressable),
             NeighborAnswer::NotFound => (),
         }
@@ -766,6 +902,7 @@ mod test {
     use std::collections::BTreeMap;
     use {Result, Error};
 
+    use super::InterfaceBuilder;
     use iface::{NeighborCache, EthernetInterface};
     use phy::{self, Loopback, ChecksumCapabilities};
     use socket::SocketSet;
@@ -783,12 +920,13 @@ mod test {
         // Create a basic device
         let device = Loopback::new();
 
-        let neighbor_cache = NeighborCache::new(BTreeMap::new());
+        let iface = InterfaceBuilder::new(device)
+                .ethernet_addr(EthernetAddress::default())
+                .neighbor_cache(NeighborCache::new(BTreeMap::new()))
+                .ip_addrs([IpCidr::new(IpAddress::v4(127, 0, 0, 1), 8)])
+                .finalize();
 
-        let ip_addr = IpCidr::new(IpAddress::v4(127, 0, 0, 1), 8);
-        (EthernetInterface::new(device, neighbor_cache,
-            EthernetAddress::default(), [ip_addr], None),
-            SocketSet::new(vec![]))
+        (iface, SocketSet::new(vec![]))
     }
 
     #[derive(Debug, PartialEq)]
@@ -799,6 +937,12 @@ mod test {
                 where F: FnOnce(&mut [u8]) -> Result<R> {
             Err(Error::__Nonexhaustive)
         }
+    }
+
+    #[test]
+    #[should_panic(expected = "a required option was not set")]
+    fn test_builder_initialization_panic() {
+        InterfaceBuilder::new(Loopback::new()).finalize();
     }
 
     #[test]

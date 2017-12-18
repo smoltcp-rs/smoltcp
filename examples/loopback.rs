@@ -18,7 +18,7 @@ mod utils;
 use core::str;
 use smoltcp::phy::Loopback;
 use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr};
-use smoltcp::iface::{NeighborCache, EthernetInterface};
+use smoltcp::iface::{NeighborCache, EthernetInterfaceBuilder};
 use smoltcp::socket::{SocketSet, TcpSocket, TcpSocketBuffer};
 
 #[cfg(not(feature = "std"))]
@@ -89,8 +89,11 @@ fn main() {
     let mut neighbor_cache = NeighborCache::new(&mut neighbor_cache_entries[..]);
 
     let mut ip_addrs = [IpCidr::new(IpAddress::v4(127, 0, 0, 1), 8)];
-    let mut iface = EthernetInterface::new(
-        device, neighbor_cache, EthernetAddress::default(), &mut ip_addrs[..], None);
+    let mut iface = EthernetInterfaceBuilder::new(device)
+            .ethernet_addr(EthernetAddress::default())
+            .neighbor_cache(neighbor_cache)
+            .ip_addrs(ip_addrs)
+            .finalize();
 
     let server_socket = {
         // It is not strictly necessary to use a `static mut` and unsafe code here, but

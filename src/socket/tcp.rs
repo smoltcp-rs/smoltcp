@@ -1166,6 +1166,8 @@ impl<'a> TcpSocket<'a> {
             // Note that we change the transmitter state here.
             // This is fine because smoltcp assumes that it can always transmit zero or one
             // packets for every packet it receives.
+            net_trace!("{}:{}:{}: acknowledging incoming segment",
+                       self.meta.handle, self.local_endpoint, self.remote_endpoint);
             self.remote_last_ack = Some(self.remote_seq_no + self.rx_buffer.len());
             Ok(Some(self.ack_reply(ip_repr, &repr)))
         } else {
@@ -1246,19 +1248,19 @@ impl<'a> TcpSocket<'a> {
         // Decide whether we're sending a packet.
         if self.seq_to_transmit() {
             // If we have data to transmit and it fits into partner's window, do it.
-            net_trace!("{}:{}:{}: will send",
+            net_trace!("{}:{}:{}: outgoing segment will send data or flags",
                        self.meta.handle, self.local_endpoint, self.remote_endpoint);
         } else if self.ack_to_transmit() {
             // If we have data to acknowledge, do it.
-            net_trace!("{}:{}:{}: will acknowledge",
+            net_trace!("{}:{}:{}: outgoing segment will acknowledge",
                        self.meta.handle, self.local_endpoint, self.remote_endpoint);
         } else if self.window_to_update() {
             // If we have window length increase to advertise, do it.
-            net_trace!("{}:{}:{}: will update window",
+            net_trace!("{}:{}:{}: outgoing segment will update window",
                        self.meta.handle, self.local_endpoint, self.remote_endpoint);
         } else if self.state == State::Closed {
             // If we need to abort the connection, do it.
-            net_trace!("{}:{}:{}: will abort connection",
+            net_trace!("{}:{}:{}: outgoing segment will abort connection",
                        self.meta.handle, self.local_endpoint, self.remote_endpoint);
         } else if self.timer.should_retransmit(timestamp).is_some() {
             // If we have packets to retransmit, do it.
