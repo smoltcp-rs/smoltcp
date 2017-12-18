@@ -54,6 +54,137 @@ struct InterfaceInner<'b, 'c> {
     device_capabilities:    DeviceCapabilities,
 }
 
+/// A builder structure used for creating a Ethernet network
+/// interface.
+pub struct InterfaceBuilder <'b, 'c, DeviceT: for<'d> Device<'d>> {
+    device:              DeviceT,
+    device_capabilities: DeviceCapabilities,
+    ethernet_addr:       Option<EthernetAddress>,
+    neighbor_cache:      Option<NeighborCache<'b>>,
+    ip_addrs:            Option<ManagedSlice<'c, IpCidr>>,
+    ipv4_gateway:        Option<Ipv4Address>,
+}
+
+impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
+        where DeviceT: for<'d> Device<'d> {
+    /// Create a builder used for creating a network interface using the
+    /// given device and address.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use std::collections::BTreeMap;
+    /// use smoltcp::iface::{EthernetInterfaceBuilder, NeighborCache};
+    /// # use smoltcp::phy::Loopback;
+    /// use smoltcp::wire::{EthernetAddress, IpCidr, IpAddress};
+    ///
+    /// let device = // ...
+    /// # Loopback::new();
+    /// let hw_addr = // ...
+    /// # EthernetAddress::default();
+    /// let neighbor_cache = // ...
+    /// # NeighborCache::new(BTreeMap::new());
+    /// let ip_addrs = // ...
+    /// # [];
+    /// let iface = EthernetInterfaceBuilder::new(device)
+    ///         .ethernet_addr(hw_addr)
+    ///         .neighbor_cache(neighbor_cache)
+    ///         .ip_addrs(ip_addrs)
+    ///         .finalize();
+    /// ```
+    pub fn new(device: DeviceT) -> InterfaceBuilder<'b, 'c, DeviceT> {
+        let caps = device.capabilities();
+        InterfaceBuilder {
+            device:              device,
+            device_capabilities: caps,
+            ethernet_addr:       None,
+            neighbor_cache:      None,
+            ip_addrs:            None,
+            ipv4_gateway:        None
+        }
+    }
+
+    /// Set the Ethernet address the interface will use. See also
+    /// [ethernet_addr].
+    ///
+    /// # Panics
+    /// This function panics if the address is not unicast.
+    ///
+    /// [ethernet_addr]: struct.EthernetInterface.html#method.ethernet_addr
+    pub fn ethernet_addr(mut self, addr: EthernetAddress) -> InterfaceBuilder<'b, 'c, DeviceT> {
+        InterfaceInner::check_ethernet_addr(&addr);
+        self.ethernet_addr = Some(addr);
+        self
+    }
+
+    /// Set the IP addresses the interface will use. See also
+    /// [ip_addrs].
+    ///
+    /// # Panics
+    /// This function panics if any of the addresses is not unicast.
+    ///
+    /// [ip_addrs]: struct.EthernetInterface.html#method.ip_addrs
+    pub fn ip_addrs<T: Into<ManagedSlice<'c, IpCidr>>>(mut self, ips: T) -> InterfaceBuilder<'b, 'c, DeviceT> {
+        let ips = ips.into();
+        InterfaceInner::check_ip_addrs(&ips);
+        self.ip_addrs = Some(ips);
+        self
+    }
+
+    /// Set the IPv4 gateway the interface will use. See also
+    /// [ipv4_gateway].
+    ///
+    /// # Panics
+    /// This function panics if the given address is not unicast.
+    ///
+    /// [ipv4_gateway]: struct.EthernetInterface.html#method.ipv4_gateway
+    pub fn ipv4_gateway<T>(mut self, gateway: T) -> InterfaceBuilder<'b, 'c, DeviceT>
+            where T: Into<Ipv4Address> {
+        let addr = gateway.into();
+        InterfaceInner::check_gateway_addr(&addr);
+        self.ipv4_gateway = Some(addr);
+        self
+    }
+
+    /// Set the Neighbor Cache the interface will use.
+    pub fn neighbor_cache(mut self, neighbor_cache: NeighborCache<'b>) -> InterfaceBuilder<'b, 'c, DeviceT> {
+        self.neighbor_cache = Some(neighbor_cache);
+        self
+    }
+
+    /// Create a network interface using the previously provided configuration.
+    ///
+    /// # Panics
+    /// If a required option is not provided, this function will panic. Required
+    /// options are:
+    ///
+    /// - [ethernet_addr]
+    /// - [neighbor_cache]
+    /// - [ip_addrs]
+    ///
+    /// [ethernet_addr]: #method.ethernet_addr
+    /// [neighbor_cache]: #method.neighbor_cache
+    /// [ip_addrs]: #method.ip_addrs
+    pub fn finalize(self) -> Interface<'b, 'c, DeviceT> {
+        // TODO: Limit the number of required options.
+        match (self.ethernet_addr, self.neighbor_cache, self.ip_addrs) {
+            (Some(ethernet_addr), Some(neighbor_cache), Some(ip_addrs)) => {
+                Interface {
+                    device: self.device,
+                    inner: InterfaceInner {
+                        ethernet_addr:       ethernet_addr,
+                        device_capabilities: self.device_capabilities,
+                        neighbor_cache:      neighbor_cache,
+                        ip_addrs:            ip_addrs,
+                        ipv4_gateway:        self.ipv4_gateway
+                    }
+                }
+            },
+            _ => panic!("a required option was not set"),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 enum Packet<'a> {
     None,
@@ -737,138 +868,6 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         })
     }
 }
-
-/// A builder structure used for creating a Ethernet network
-/// interface.
-pub struct InterfaceBuilder <'b, 'c, DeviceT: for<'d> Device<'d>> {
-    device:              DeviceT,
-    device_capabilities: DeviceCapabilities,
-    ethernet_addr:       Option<EthernetAddress>,
-    neighbor_cache:      Option<NeighborCache<'b>>,
-    ip_addrs:            Option<ManagedSlice<'c, IpCidr>>,
-    ipv4_gateway:        Option<Ipv4Address>,
-}
-
-impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
-        where DeviceT: for<'d> Device<'d> {
-    /// Create a builder used for creating a network interface using the
-    /// given device and address.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use std::collections::BTreeMap;
-    /// use smoltcp::iface::{EthernetInterfaceBuilder, NeighborCache};
-    /// # use smoltcp::phy::Loopback;
-    /// use smoltcp::wire::{EthernetAddress, IpCidr, IpAddress};
-    ///
-    /// let device = // ...
-    /// # Loopback::new();
-    /// let hw_addr = // ...
-    /// # EthernetAddress::default();
-    /// let neighbor_cache = // ...
-    /// # NeighborCache::new(BTreeMap::new());
-    /// let ip_addrs = // ...
-    /// # [];
-    /// let iface = EthernetInterfaceBuilder::new(device)
-    ///         .ethernet_addr(hw_addr)
-    ///         .neighbor_cache(neighbor_cache)
-    ///         .ip_addrs(ip_addrs)
-    ///         .finalize();
-    /// ```
-    pub fn new(device: DeviceT) -> InterfaceBuilder<'b, 'c, DeviceT> {
-        let caps = device.capabilities();
-        InterfaceBuilder {
-            device:              device,
-            device_capabilities: caps,
-            ethernet_addr:       None,
-            neighbor_cache:      None,
-            ip_addrs:            None,
-            ipv4_gateway:        None
-        }
-    }
-
-    /// Set the Ethernet address the interface will use. See also
-    /// [ethernet_addr].
-    ///
-    /// # Panics
-    /// This function panics if the address is not unicast.
-    ///
-    /// [ethernet_addr]: struct.EthernetInterface.html#method.ethernet_addr
-    pub fn ethernet_addr(mut self, addr: EthernetAddress) -> InterfaceBuilder<'b, 'c, DeviceT> {
-        InterfaceInner::check_ethernet_addr(&addr);
-        self.ethernet_addr = Some(addr);
-        self
-    }
-
-    /// Set the IP addresses the interface will use. See also
-    /// [ip_addrs].
-    ///
-    /// # Panics
-    /// This function panics if any of the addresses is not unicast.
-    ///
-    /// [ip_addrs]: struct.EthernetInterface.html#method.ip_addrs
-    pub fn ip_addrs<T: Into<ManagedSlice<'c, IpCidr>>>(mut self, ips: T) -> InterfaceBuilder<'b, 'c, DeviceT> {
-        let ips = ips.into();
-        InterfaceInner::check_ip_addrs(&ips);
-        self.ip_addrs = Some(ips);
-        self
-    }
-
-    /// Set the IPv4 gateway the interface will use. See also
-    /// [ipv4_gateway].
-    ///
-    /// # Panics
-    /// This function panics if the given address is not unicast.
-    ///
-    /// [ipv4_gateway]: struct.EthernetInterface.html#method.ipv4_gateway
-    pub fn ipv4_gateway<T>(mut self, gateway: T) -> InterfaceBuilder<'b, 'c, DeviceT>
-            where T: Into<Ipv4Address> {
-        let addr = gateway.into();
-        InterfaceInner::check_gateway_addr(&addr);
-        self.ipv4_gateway = Some(addr);
-        self
-    }
-
-    /// Set the Neighbor Cache the interface will use.
-    pub fn neighbor_cache(mut self, neighbor_cache: NeighborCache<'b>) -> InterfaceBuilder<'b, 'c, DeviceT> {
-        self.neighbor_cache = Some(neighbor_cache);
-        self
-    }
-
-    /// Create a network interface using the previously provided configuration.
-    ///
-    /// # Panics
-    /// If a required option is not provided, this function will panic. Required
-    /// options are:
-    ///
-    /// - [ethernet_addr]
-    /// - [neighbor_cache]
-    /// - [ip_addrs]
-    ///
-    /// [ethernet_addr]: #method.ethernet_addr
-    /// [neighbor_cache]: #method.neighbor_cache
-    /// [ip_addrs]: #method.ip_addrs
-    pub fn finalize(self) -> Interface<'b, 'c, DeviceT> {
-        // TODO: Limit the number of required options.
-        match (self.ethernet_addr, self.neighbor_cache, self.ip_addrs) {
-            (Some(ethernet_addr), Some(neighbor_cache), Some(ip_addrs)) => {
-                Interface {
-                    device: self.device,
-                    inner: InterfaceInner {
-                        ethernet_addr:       ethernet_addr,
-                        device_capabilities: self.device_capabilities,
-                        neighbor_cache:      neighbor_cache,
-                        ip_addrs:            ip_addrs,
-                        ipv4_gateway:        self.ipv4_gateway
-                    }
-                }
-            },
-            _ => panic!("a required option was not set"),
-        }
-    }
-}
-
 
 #[cfg(test)]
 mod test {
