@@ -58,7 +58,6 @@ struct InterfaceInner<'b, 'c> {
 /// interface.
 pub struct InterfaceBuilder <'b, 'c, DeviceT: for<'d> Device<'d>> {
     device:              DeviceT,
-    device_capabilities: DeviceCapabilities,
     ethernet_addr:       Option<EthernetAddress>,
     neighbor_cache:      Option<NeighborCache<'b>>,
     ip_addrs:            Option<ManagedSlice<'c, IpCidr>>,
@@ -93,10 +92,8 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
     ///         .finalize();
     /// ```
     pub fn new(device: DeviceT) -> InterfaceBuilder<'b, 'c, DeviceT> {
-        let caps = device.capabilities();
         InterfaceBuilder {
             device:              device,
-            device_capabilities: caps,
             ethernet_addr:       None,
             neighbor_cache:      None,
             ip_addrs:            None,
@@ -169,14 +166,12 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
         // TODO: Limit the number of required options.
         match (self.ethernet_addr, self.neighbor_cache, self.ip_addrs) {
             (Some(ethernet_addr), Some(neighbor_cache), Some(ip_addrs)) => {
+                let device_capabilites = self.device.capabilities();
                 Interface {
                     device: self.device,
                     inner: InterfaceInner {
-                        ethernet_addr:       ethernet_addr,
-                        device_capabilities: self.device_capabilities,
-                        neighbor_cache:      neighbor_cache,
-                        ip_addrs:            ip_addrs,
-                        ipv4_gateway:        self.ipv4_gateway
+                        ethernet_addr, device_capabilities, neighbor_cache, 
+                        ip_addrs, ipv4_gateway: self.ipv4_gateway,
                     }
                 }
             },
