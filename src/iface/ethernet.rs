@@ -70,15 +70,14 @@ enum Packet<'a> {
 impl<'a> Packet<'a> {
     fn neighbor_addr(&self) -> Option<IpAddress> {
         match self {
-            &Packet::None |
-            &Packet::Arp(_) =>
-                None,
-            &Packet::Icmpv4((ref ipv4_repr, _)) =>
-                Some(ipv4_repr.dst_addr.into()),
-            &Packet::Raw((ref ip_repr, _)) |
-            &Packet::Udp((ref ip_repr, _)) |
-            &Packet::Tcp((ref ip_repr, _)) =>
-                Some(ip_repr.dst_addr())
+            &Packet::None | &Packet::Arp(_) => None,
+            &Packet::Icmpv4((ref ipv4_repr, _)) => Some(ipv4_repr.dst_addr.into()),
+            #[cfg(feature = "socket-raw")]
+            &Packet::Raw((ref ip_repr, _)) => Some(ip_repr.dst_addr()),
+            #[cfg(feature = "socket-udp")]
+            &Packet::Udp((ref ip_repr, _)) => Some(ip_repr.dst_addr()),
+            #[cfg(feature = "socket-tcp")]
+            &Packet::Tcp((ref ip_repr, _)) => Some(ip_repr.dst_addr())
         }
     }
 }
