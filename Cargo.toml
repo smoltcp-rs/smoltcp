@@ -26,6 +26,8 @@ features = ["map"]
 log = "0.3"
 env_logger = "0.4"
 getopts = "0.2"
+rand = "0.3"
+url = "1.0"
 
 [features]
 std = ["managed/std"]
@@ -38,10 +40,10 @@ verbose = []
 "socket-udp" = []
 "socket-tcp" = []
 "socket-icmp" = []
-default = ["std", "log",
+default = [
   "phy-raw_socket", "phy-tap_interface",
-  "socket-raw", "socket-udp", "socket-tcp",
-  "socket-icmp"]
+  "socket-raw", "socket-icmp", "socket-udp", "socket-tcp"
+]
 
 [[example]]
 name = "tcpdump"
@@ -51,6 +53,9 @@ name = "server"
 
 [[example]]
 name = "client"
+
+[[example]]
+name = "httpclient"
 
 [[example]]
 name = "ping"

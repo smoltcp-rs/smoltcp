@@ -207,9 +207,52 @@ cargo build --example tcpdump
 sudo ./target/debug/tcpdump eth0
 ```
 
+### examples/httpclient.rs
+
+_examples/httpclient.rs_ emulates a network host that can initiate HTTP requests.
+
+The host is assigned the hardware address `02-00-00-00-00-02` and IPv4 address `192.168.69.1`.
+
+Read its [source code](/examples/httpclient.rs), then run it as:
+
+```sh
+cargo run --example client -- tap0 ADDRESS URL
+```
+
+For example:
+
+```sh
+cargo run --example client -- tap0 93.184.216.34 http://example.org/
+```
+
+It connects to the given address (not a hostname) and URL, and prints any returned response data.
+The TCP socket buffers are limited to 1024 bytes to make packet traces more interesting.
+
+### examples/ping.rs
+
+_examples/ping.rs_ implements a minimal version of the `ping` utility using raw sockets.
+
+The host is assigned the hardware address `02-00-00-00-00-02` and IPv4 address `192.168.69.1`.
+
+Read its [source code](/examples/ping.rs), then run it as:
+
+```sh
+cargo run --example ping -- tap0 ADDRESS
+```
+
+It sends a series of 4 ICMP ECHO\_REQUEST packets to the given address at one second intervals and
+prints out a status line on each valid ECHO\_RESPONSE received.
+
+The first ECHO\_REQUEST packet is expected to be lost since arp\_cache is empty after startup;
+the ECHO\_REQUEST packet is dropped and an ARP request is sent instead.
+
+Currently, netmasks are not implemented, and so the only address this example can reach
+is the other endpoint of the tap interface, `192.168.1.100`. It cannot reach itself because
+packets entering a tap interface do not loop back.
+
 ### examples/server.rs
 
-_examples/server.rs_ emulates a network host that can respond to requests.
+_examples/server.rs_ emulates a network host that can respond to basic requests.
 
 The host is assigned the hardware address `02-00-00-00-00-01` and IPv4 address `192.168.69.1`.
 
@@ -239,7 +282,7 @@ of testing resource exhaustion conditions.
 
 ### examples/client.rs
 
-_examples/client.rs_ emulates a network host that can initiate requests.
+_examples/client.rs_ emulates a network host that can initiate basic requests.
 
 The host is assigned the hardware address `02-00-00-00-00-02` and IPv4 address `192.168.69.2`.
 
@@ -251,28 +294,6 @@ cargo run --example client -- tap0 ADDRESS PORT
 
 It connects to the given address (not a hostname) and port (e.g. `socat stdio tcp4-listen:1234`),
 and will respond with reversed chunks of the input indefinitely.
-
-### examples/ping.rs
-
-_examples/ping.rs_ implements a minimal version of the `ping` utility using raw sockets.
-
-The host is assigned the hardware address `02-00-00-00-00-02` and IPv4 address `192.168.69.1`.
-
-Read its [source code](/examples/ping.rs), then run it as:
-
-```sh
-cargo run --example ping -- tap0 ADDRESS
-```
-
-It sends a series of 4 ICMP ECHO\_REQUEST packets to the given address at one second intervals and
-prints out a status line on each valid ECHO\_RESPONSE received.
-
-The first ECHO\_REQUEST packet is expected to be lost since arp\_cache is empty after startup;
-the ECHO\_REQUEST packet is dropped and an ARP request is sent instead.
-
-Currently, netmasks are not implemented, and so the only address this example can reach
-is the other endpoint of the tap interface, `192.168.1.100`. It cannot reach itself because
-packets entering a tap interface do not loop back.
 
 ## Bare-metal usage examples
 
