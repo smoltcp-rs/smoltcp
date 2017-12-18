@@ -166,7 +166,7 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
         // TODO: Limit the number of required options.
         match (self.ethernet_addr, self.neighbor_cache, self.ip_addrs) {
             (Some(ethernet_addr), Some(neighbor_cache), Some(ip_addrs)) => {
-                let device_capabilites = self.device.capabilities();
+                let device_capabilities = self.device.capabilities();
                 Interface {
                     device: self.device,
                     inner: InterfaceInner {
