@@ -60,7 +60,7 @@ pub struct InterfaceBuilder <'b, 'c, DeviceT: for<'d> Device<'d>> {
     device:              DeviceT,
     ethernet_addr:       Option<EthernetAddress>,
     neighbor_cache:      Option<NeighborCache<'b>>,
-    ip_addrs:            Option<ManagedSlice<'c, IpCidr>>,
+    ip_addrs:            ManagedSlice<'c, IpCidr>,
     ipv4_gateway:        Option<Ipv4Address>,
 }
 
@@ -96,7 +96,7 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
             device:              device,
             ethernet_addr:       None,
             neighbor_cache:      None,
-            ip_addrs:            None,
+            ip_addrs:            [].into(),
             ipv4_gateway:        None
         }
     }
@@ -121,10 +121,12 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
     /// This function panics if any of the addresses is not unicast.
     ///
     /// [ip_addrs]: struct.EthernetInterface.html#method.ip_addrs
-    pub fn ip_addrs<T: Into<ManagedSlice<'c, IpCidr>>>(mut self, ips: T) -> InterfaceBuilder<'b, 'c, DeviceT> {
-        let ips = ips.into();
-        InterfaceInner::check_ip_addrs(&ips);
-        self.ip_addrs = Some(ips);
+    pub fn ip_addrs<T>(mut self, ip_addrs: T) -> InterfaceBuilder<'b, 'c, DeviceT>
+            where T: Into<ManagedSlice<'c, IpCidr>>
+    {
+        let ip_addrs = ip_addrs.into();
+        InterfaceInner::check_ip_addrs(&ip_addrs);
+        self.ip_addrs = ip_addrs;
         self
     }
 
@@ -136,7 +138,8 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
     ///
     /// [ipv4_gateway]: struct.EthernetInterface.html#method.ipv4_gateway
     pub fn ipv4_gateway<T>(mut self, gateway: T) -> InterfaceBuilder<'b, 'c, DeviceT>
-            where T: Into<Ipv4Address> {
+            where T: Into<Ipv4Address>
+    {
         let addr = gateway.into();
         InterfaceInner::check_gateway_addr(&addr);
         self.ipv4_gateway = Some(addr);
@@ -144,7 +147,8 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
     }
 
     /// Set the Neighbor Cache the interface will use.
-    pub fn neighbor_cache(mut self, neighbor_cache: NeighborCache<'b>) -> InterfaceBuilder<'b, 'c, DeviceT> {
+    pub fn neighbor_cache(mut self, neighbor_cache: NeighborCache<'b>) ->
+                         InterfaceBuilder<'b, 'c, DeviceT> {
         self.neighbor_cache = Some(neighbor_cache);
         self
     }
@@ -157,21 +161,18 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
     ///
     /// - [ethernet_addr]
     /// - [neighbor_cache]
-    /// - [ip_addrs]
     ///
     /// [ethernet_addr]: #method.ethernet_addr
     /// [neighbor_cache]: #method.neighbor_cache
-    /// [ip_addrs]: #method.ip_addrs
     pub fn finalize(self) -> Interface<'b, 'c, DeviceT> {
-        // TODO: Limit the number of required options.
-        match (self.ethernet_addr, self.neighbor_cache, self.ip_addrs) {
-            (Some(ethernet_addr), Some(neighbor_cache), Some(ip_addrs)) => {
+        match (self.ethernet_addr, self.neighbor_cache) {
+            (Some(ethernet_addr), Some(neighbor_cache)) => {
                 let device_capabilities = self.device.capabilities();
                 Interface {
                     device: self.device,
                     inner: InterfaceInner {
-                        ethernet_addr, device_capabilities, neighbor_cache, 
-                        ip_addrs, ipv4_gateway: self.ipv4_gateway,
+                        ethernet_addr, device_capabilities, neighbor_cache,
+                        ip_addrs: self.ip_addrs, ipv4_gateway: self.ipv4_gateway,
                     }
                 }
             },
