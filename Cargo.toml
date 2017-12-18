@@ -41,6 +41,7 @@ verbose = []
 "socket-tcp" = []
 "socket-icmp" = []
 default = [
+  "std", "log", # needed for `cargo test --no-default-features --features default` :/
   "phy-raw_socket", "phy-tap_interface",
   "socket-raw", "socket-icmp", "socket-udp", "socket-tcp"
 ]
