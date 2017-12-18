@@ -401,9 +401,10 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
 
         if eth_frame.src_addr().is_unicast() {
             // Fill the neighbor cache from IP header of unicast frames.
-            self.neighbor_cache.fill(IpAddress::Ipv4(ipv4_repr.src_addr),
-                                     eth_frame.src_addr(),
-                                     timestamp);
+            let ip_addr = IpAddress::Ipv4(ipv4_repr.src_addr);
+            if self.in_same_network(&ip_addr) {
+                self.neighbor_cache.fill(ip_addr, eth_frame.src_addr(), timestamp);
+            }
         }
 
         let ip_repr = IpRepr::Ipv4(ipv4_repr);
@@ -692,20 +693,24 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         })
     }
 
-    fn route(&self, addr: &IpAddress) -> Result<IpAddress> {
+    fn in_same_network(&self, addr: &IpAddress) -> bool {
         self.ip_addrs
             .iter()
             .find(|cidr| cidr.contains_addr(addr))
-            .map(|_cidr| Ok(addr.clone())) // route directly
-            .unwrap_or_else(|| {
-                match (addr, self.ipv4_gateway) {
-                    // route via a gateway
-                    (&IpAddress::Ipv4(_), Some(gateway)) =>
-                        Ok(gateway.into()),
-                    // unroutable
-                    _ => Err(Error::Unaddressable)
-                }
-            })
+            .is_some()
+    }
+
+    fn route(&self, addr: &IpAddress) -> Result<IpAddress> {
+        // Send directly.
+        if self.in_same_network(addr) {
+            return Ok(addr.clone())
+        }
+
+        // Route via a gateway.
+        match (addr, self.ipv4_gateway) {
+            (&IpAddress::Ipv4(_), Some(gateway)) => Ok(gateway.into()),
+            _ => Err(Error::Unaddressable)
+        }
     }
 
     fn has_neighbor<'a>(&self, addr: &'a IpAddress, timestamp: u64) -> bool {
