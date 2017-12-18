@@ -12,6 +12,7 @@
 
 use core::marker::PhantomData;
 
+mod meta;
 #[cfg(feature = "socket-raw")]
 mod raw;
 #[cfg(feature = "socket-icmp")]
@@ -22,6 +23,8 @@ mod udp;
 mod tcp;
 mod set;
 mod ref_;
+
+pub(crate) use self::meta::Meta as SocketMeta;
 
 #[cfg(feature = "socket-raw")]
 pub use self::raw::{PacketBuffer as RawPacketBuffer,
@@ -74,19 +77,6 @@ pub enum Socket<'a, 'b: 'a> {
     __Nonexhaustive(PhantomData<(&'a (), &'b ())>)
 }
 
-/// Network socket metadata.
-///
-/// This includes things that only external (to the socket, that is) code
-/// is interested in, but which are more conveniently stored inside the socket itself.
-#[derive(Debug, Default)]
-pub(crate) struct SocketMeta {
-    /// Handle of this socket within its enclosing `SocketSet`.
-    /// Mainly useful for debug output.
-    pub(crate) handle:       SocketHandle,
-    /// A lower limit on the timestamp returned from the socket's `poll_at()` method.
-    pub(crate) hushed_until: Option<u64>,
-}
-
 macro_rules! dispatch_socket {
     ($self_:expr, |$socket:ident [$( $mut_:tt )*]| $code:expr) => ({
         match $self_ {
@@ -119,8 +109,7 @@ impl<'a, 'b> Socket<'a, 'b> {
     }
 
     pub(crate) fn poll_at(&self) -> Option<u64> {
-        let poll_at = dispatch_socket!(self, |socket []| socket.poll_at());
-        self.meta().hushed_until.or(poll_at)
+        dispatch_socket!(self, |socket []| socket.poll_at())
     }
 }
 
