@@ -96,7 +96,7 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
             device:              device,
             ethernet_addr:       None,
             neighbor_cache:      None,
-            ip_addrs:            [].into(),
+            ip_addrs:            ManagedSlice::Borrowed(&mut []),
             ipv4_gateway:        None
         }
     }
