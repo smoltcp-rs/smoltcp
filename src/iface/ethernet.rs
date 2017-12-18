@@ -400,7 +400,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
 
     fn check_gateway_addr(addr: &Ipv4Address) {
         if !addr.is_unicast() {
-            panic!("IP address {} is not unicast", addr);
+            panic!("gateway IP address {} is not unicast", addr);
         }
     }
 
