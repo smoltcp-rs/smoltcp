@@ -15,7 +15,7 @@ use core::marker::PhantomData;
 mod meta;
 #[cfg(feature = "socket-raw")]
 mod raw;
-#[cfg(feature = "socket-icmp")]
+#[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
 mod icmp;
 #[cfg(feature = "socket-udp")]
 mod udp;
@@ -31,7 +31,7 @@ pub use self::raw::{PacketBuffer as RawPacketBuffer,
                     SocketBuffer as RawSocketBuffer,
                     RawSocket};
 
-#[cfg(feature = "socket-icmp")]
+#[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
 pub use self::icmp::{PacketBuffer as IcmpPacketBuffer,
                      SocketBuffer as IcmpSocketBuffer,
                      Endpoint as IcmpEndpoint,
@@ -67,7 +67,7 @@ pub(crate) use self::ref_::Session as SocketSession;
 pub enum Socket<'a, 'b: 'a> {
     #[cfg(feature = "socket-raw")]
     Raw(RawSocket<'a, 'b>),
-    #[cfg(feature = "socket-icmp")]
+    #[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
     Icmp(IcmpSocket<'a, 'b>),
     #[cfg(feature = "socket-udp")]
     Udp(UdpSocket<'a, 'b>),
@@ -82,7 +82,7 @@ macro_rules! dispatch_socket {
         match $self_ {
             #[cfg(feature = "socket-raw")]
             &$( $mut_ )* Socket::Raw(ref $( $mut_ )* $socket) => $code,
-            #[cfg(feature = "socket-icmp")]
+            #[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
             &$( $mut_ )* Socket::Icmp(ref $( $mut_ )* $socket) => $code,
             #[cfg(feature = "socket-udp")]
             &$( $mut_ )* Socket::Udp(ref $( $mut_ )* $socket) => $code,
@@ -141,7 +141,7 @@ macro_rules! from_socket {
 
 #[cfg(feature = "socket-raw")]
 from_socket!(RawSocket<'a, 'b>, Raw);
-#[cfg(feature = "socket-icmp")]
+#[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
 from_socket!(IcmpSocket<'a, 'b>, Icmp);
 #[cfg(feature = "socket-udp")]
 from_socket!(UdpSocket<'a, 'b>, Udp);

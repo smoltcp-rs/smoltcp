@@ -3,6 +3,7 @@ use core::convert::From;
 
 use {Error, Result};
 use phy::ChecksumCapabilities;
+#[cfg(feature = "proto-ipv4")]
 use super::{Ipv4Address, Ipv4Packet, Ipv4Repr, Ipv4Cidr};
 #[cfg(feature = "proto-ipv6")]
 use super::{Ipv6Address, Ipv6Cidr, Ipv6Packet, Ipv6Repr};
@@ -11,6 +12,7 @@ use super::{Ipv6Address, Ipv6Cidr, Ipv6Packet, Ipv6Repr};
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub enum Version {
     Unspecified,
+    #[cfg(feature = "proto-ipv4")]
     Ipv4,
     #[cfg(feature = "proto-ipv6")]
     Ipv6,
@@ -25,6 +27,7 @@ impl Version {
     /// unknown versions result in `Err(Error::Unrecognized)`.
     pub fn of_packet(data: &[u8]) -> Result<Version> {
         match data[0] >> 4 {
+            #[cfg(feature = "proto-ipv4")]
             4 => Ok(Version::Ipv4),
             #[cfg(feature = "proto-ipv6")]
             6 => Ok(Version::Ipv6),
@@ -37,6 +40,7 @@ impl fmt::Display for Version {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             &Version::Unspecified => write!(f, "IPv?"),
+            #[cfg(feature = "proto-ipv4")]
             &Version::Ipv4 => write!(f, "IPv4"),
             #[cfg(feature = "proto-ipv6")]
             &Version::Ipv6 => write!(f, "IPv6"),
@@ -84,6 +88,7 @@ pub enum Address {
     /// May be used as a placeholder for storage where the address is not assigned yet.
     Unspecified,
     /// An IPv4 address.
+    #[cfg(feature = "proto-ipv4")]
     Ipv4(Ipv4Address),
     /// An IPv6 address.
     #[cfg(feature = "proto-ipv6")]
@@ -94,6 +99,7 @@ pub enum Address {
 
 impl Address {
     /// Create an address wrapping an IPv4 address with the given octets.
+    #[cfg(feature = "proto-ipv4")]
     pub fn v4(a0: u8, a1: u8, a2: u8, a3: u8) -> Address {
         Address::Ipv4(Ipv4Address::new(a0, a1, a2, a3))
     }
@@ -109,6 +115,7 @@ impl Address {
     pub fn is_unicast(&self) -> bool {
         match self {
             &Address::Unspecified     => false,
+            #[cfg(feature = "proto-ipv4")]
             &Address::Ipv4(addr)      => addr.is_unicast(),
             #[cfg(feature = "proto-ipv6")]
             &Address::Ipv6(addr)      => addr.is_unicast(),
@@ -120,6 +127,7 @@ impl Address {
     pub fn is_broadcast(&self) -> bool {
         match self {
             &Address::Unspecified     => false,
+            #[cfg(feature = "proto-ipv4")]
             &Address::Ipv4(addr)      => addr.is_broadcast(),
             #[cfg(feature = "proto-ipv6")]
             &Address::Ipv6(_)         => false,
@@ -131,6 +139,7 @@ impl Address {
     pub fn is_unspecified(&self) -> bool {
         match self {
             &Address::Unspecified     => true,
+            #[cfg(feature = "proto-ipv4")]
             &Address::Ipv4(addr)      => addr.is_unspecified(),
             #[cfg(feature = "proto-ipv6")]
             &Address::Ipv6(addr)      => addr.is_unspecified(),
@@ -142,6 +151,7 @@ impl Address {
     pub fn to_unspecified(&self) -> Address {
         match self {
             &Address::Unspecified     => Address::Unspecified,
+            #[cfg(feature = "proto-ipv4")]
             &Address::Ipv4(_)         => Address::Ipv4(Ipv4Address::UNSPECIFIED),
             #[cfg(feature = "proto-ipv6")]
             &Address::Ipv6(_)         => Address::Ipv6(Ipv6Address::UNSPECIFIED),
@@ -156,6 +166,7 @@ impl Default for Address {
     }
 }
 
+#[cfg(feature = "proto-ipv4")]
 impl From<Ipv4Address> for Address {
     fn from(addr: Ipv4Address) -> Self {
         Address::Ipv4(addr)
@@ -173,6 +184,7 @@ impl fmt::Display for Address {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             &Address::Unspecified     => write!(f, "*"),
+            #[cfg(feature = "proto-ipv4")]
             &Address::Ipv4(addr)      => write!(f, "{}", addr),
             #[cfg(feature = "proto-ipv6")]
             &Address::Ipv6(addr)      => write!(f, "{}", addr),
@@ -185,6 +197,7 @@ impl fmt::Display for Address {
 /// subnet masking prefix length.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Cidr {
+    #[cfg(feature = "proto-ipv4")]
     Ipv4(Ipv4Cidr),
     #[cfg(feature = "proto-ipv6")]
     Ipv6(Ipv6Cidr),
@@ -200,6 +213,7 @@ impl Cidr {
     /// the given prefix length is invalid for the given address.
     pub fn new(addr: Address, prefix_len: u8) -> Cidr {
         match addr {
+            #[cfg(feature = "proto-ipv4")]
             Address::Ipv4(addr) => Cidr::Ipv4(Ipv4Cidr::new(addr, prefix_len)),
             #[cfg(feature = "proto-ipv6")]
             Address::Ipv6(addr) => Cidr::Ipv6(Ipv6Cidr::new(addr, prefix_len)),
@@ -213,6 +227,7 @@ impl Cidr {
     /// Return the IP address of this CIDR block.
     pub fn address(&self) -> Address {
         match self {
+            #[cfg(feature = "proto-ipv4")]
             &Cidr::Ipv4(cidr)      => Address::Ipv4(cidr.address()),
             #[cfg(feature = "proto-ipv6")]
             &Cidr::Ipv6(cidr)      => Address::Ipv6(cidr.address()),
@@ -223,6 +238,7 @@ impl Cidr {
     /// Return the prefix length of this CIDR block.
     pub fn prefix_len(&self) -> u8 {
         match self {
+            #[cfg(feature = "proto-ipv4")]
             &Cidr::Ipv4(cidr)      => cidr.prefix_len(),
             #[cfg(feature = "proto-ipv6")]
             &Cidr::Ipv6(cidr)      => cidr.prefix_len(),
@@ -234,12 +250,13 @@ impl Cidr {
     /// the given address.
     pub fn contains_addr(&self, addr: &Address) -> bool {
         match (self, addr) {
+            #[cfg(feature = "proto-ipv4")]
             (&Cidr::Ipv4(ref cidr), &Address::Ipv4(ref addr)) =>
                 cidr.contains_addr(addr),
             #[cfg(feature = "proto-ipv6")]
             (&Cidr::Ipv6(ref cidr), &Address::Ipv6(ref addr)) =>
                 cidr.contains_addr(addr),
-            #[cfg(feature = "proto-ipv6")]
+            #[cfg(all(feature = "proto-ipv6", feature = "proto-ipv4"))]
             (&Cidr::Ipv4(_), &Address::Ipv6(_)) | (&Cidr::Ipv6(_), &Address::Ipv4(_)) =>
                 false,
             (_, &Address::Unspecified) =>
@@ -256,12 +273,13 @@ impl Cidr {
     /// the subnetwork described by the given CIDR block.
     pub fn contains_subnet(&self, subnet: &Cidr) -> bool {
         match (self, subnet) {
+            #[cfg(feature = "proto-ipv4")]
             (&Cidr::Ipv4(ref cidr), &Cidr::Ipv4(ref other)) =>
                 cidr.contains_subnet(other),
             #[cfg(feature = "proto-ipv6")]
             (&Cidr::Ipv6(ref cidr), &Cidr::Ipv6(ref other)) =>
                 cidr.contains_subnet(other),
-            #[cfg(feature = "proto-ipv6")]
+            #[cfg(all(feature = "proto-ipv6", feature = "proto-ipv4"))]
             (&Cidr::Ipv4(_), &Cidr::Ipv6(_)) | (&Cidr::Ipv6(_), &Cidr::Ipv4(_)) =>
                 false,
             (&Cidr::__Nonexhaustive, _) |
@@ -274,6 +292,7 @@ impl Cidr {
 impl fmt::Display for Cidr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            #[cfg(feature = "proto-ipv4")]
             &Cidr::Ipv4(cidr)      => write!(f, "{}", cidr),
             #[cfg(feature = "proto-ipv6")]
             &Cidr::Ipv6(cidr)      => write!(f, "{}", cidr),
@@ -338,6 +357,7 @@ pub enum Repr {
         payload_len: usize,
         hop_limit:   u8
     },
+    #[cfg(feature = "proto-ipv4")]
     Ipv4(Ipv4Repr),
     #[cfg(feature = "proto-ipv6")]
     Ipv6(Ipv6Repr),
@@ -345,6 +365,7 @@ pub enum Repr {
     __Nonexhaustive
 }
 
+#[cfg(feature = "proto-ipv4")]
 impl From<Ipv4Repr> for Repr {
     fn from(repr: Ipv4Repr) -> Repr {
         Repr::Ipv4(repr)
@@ -363,6 +384,7 @@ impl Repr {
     pub fn version(&self) -> Version {
         match self {
             &Repr::Unspecified { .. } => Version::Unspecified,
+            #[cfg(feature = "proto-ipv4")]
             &Repr::Ipv4(_) => Version::Ipv4,
             #[cfg(feature = "proto-ipv6")]
             &Repr::Ipv6(_) => Version::Ipv6,
@@ -374,6 +396,7 @@ impl Repr {
     pub fn src_addr(&self) -> Address {
         match self {
             &Repr::Unspecified { src_addr, .. } => src_addr,
+            #[cfg(feature = "proto-ipv4")]
             &Repr::Ipv4(repr) => Address::Ipv4(repr.src_addr),
             #[cfg(feature = "proto-ipv6")]
             &Repr::Ipv6(repr) => Address::Ipv6(repr.src_addr),
@@ -385,6 +408,7 @@ impl Repr {
     pub fn dst_addr(&self) -> Address {
         match self {
             &Repr::Unspecified { dst_addr, .. } => dst_addr,
+            #[cfg(feature = "proto-ipv4")]
             &Repr::Ipv4(repr) => Address::Ipv4(repr.dst_addr),
             #[cfg(feature = "proto-ipv6")]
             &Repr::Ipv6(repr) => Address::Ipv6(repr.dst_addr),
@@ -396,6 +420,7 @@ impl Repr {
     pub fn protocol(&self) -> Protocol {
         match self {
             &Repr::Unspecified { protocol, .. } => protocol,
+            #[cfg(feature = "proto-ipv4")]
             &Repr::Ipv4(repr) => repr.protocol,
             #[cfg(feature = "proto-ipv6")]
             &Repr::Ipv6(repr) => repr.next_header,
@@ -407,6 +432,7 @@ impl Repr {
     pub fn payload_len(&self) -> usize {
         match self {
             &Repr::Unspecified { payload_len, .. } => payload_len,
+            #[cfg(feature = "proto-ipv4")]
             &Repr::Ipv4(repr) => repr.payload_len,
             #[cfg(feature = "proto-ipv6")]
             &Repr::Ipv6(repr) => repr.payload_len,
@@ -419,6 +445,7 @@ impl Repr {
         match self {
             &mut Repr::Unspecified { ref mut payload_len, .. } =>
                 *payload_len = length,
+            #[cfg(feature = "proto-ipv4")]
             &mut Repr::Ipv4(Ipv4Repr { ref mut payload_len, .. }) =>
                 *payload_len = length,
             #[cfg(feature = "proto-ipv6")]
@@ -432,6 +459,7 @@ impl Repr {
     pub fn hop_limit(&self) -> u8 {
         match self {
             &Repr::Unspecified { hop_limit, .. }    => hop_limit,
+            #[cfg(feature = "proto-ipv4")]
             &Repr::Ipv4(Ipv4Repr { hop_limit, .. }) => hop_limit,
             #[cfg(feature = "proto-ipv6")]
             &Repr::Ipv6(Ipv6Repr { hop_limit, ..})  => hop_limit,
@@ -466,6 +494,7 @@ impl Repr {
         }
 
         match self {
+            #[cfg(feature = "proto-ipv4")]
             &Repr::Unspecified {
                 src_addr: Address::Ipv4(src_addr),
                 dst_addr: Address::Ipv4(dst_addr),
@@ -494,6 +523,7 @@ impl Repr {
                 }))
             }
 
+            #[cfg(feature = "proto-ipv4")]
             &Repr::Unspecified {
                 src_addr: Address::Unspecified,
                 dst_addr: Address::Ipv4(dst_addr),
@@ -537,6 +567,7 @@ impl Repr {
                 }
             }
 
+            #[cfg(feature = "proto-ipv4")]
             &Repr::Ipv4(mut repr) =>
                 resolve_unspecified!(Repr::Ipv4, Address::Ipv4, repr, fallback_src_addrs),
 
@@ -559,6 +590,7 @@ impl Repr {
         match self {
             &Repr::Unspecified { .. } =>
                 panic!("unspecified IP representation"),
+            #[cfg(feature = "proto-ipv4")]
             &Repr::Ipv4(repr) =>
                 repr.buffer_len(),
             #[cfg(feature = "proto-ipv6")]
@@ -577,6 +609,7 @@ impl Repr {
         match self {
             &Repr::Unspecified { .. } =>
                 panic!("unspecified IP representation"),
+            #[cfg(feature = "proto-ipv4")]
             &Repr::Ipv4(repr) =>
                 repr.emit(&mut Ipv4Packet::new(buffer), &checksum_caps),
             #[cfg(feature = "proto-ipv6")]
@@ -639,6 +672,7 @@ pub mod checksum {
     pub fn pseudo_header(src_addr: &Address, dst_addr: &Address,
                          protocol: Protocol, length: u32) -> u16 {
         match (src_addr, dst_addr) {
+            #[cfg(feature = "proto-ipv4")]
             (&Address::Ipv4(src_addr), &Address::Ipv4(dst_addr)) => {
                 let mut proto_len = [0u8; 4];
                 proto_len[1] = protocol.into();
@@ -682,12 +716,15 @@ use super::pretty_print::{PrettyPrint, PrettyIndent};
 
 pub fn pretty_print_ip_payload<T: Into<Repr>>(f: &mut fmt::Formatter, indent: &mut PrettyIndent,
                                               ip_repr: T, payload: &[u8]) -> fmt::Result {
-    use wire::{Icmpv4Packet, TcpPacket, TcpRepr, UdpPacket, UdpRepr};
+    #[cfg(feature = "proto-ipv4")]
+    use wire::Icmpv4Packet;
+    use wire::{TcpPacket, TcpRepr, UdpPacket, UdpRepr};
     use wire::ip::checksum::format_checksum;
 
     let checksum_caps = ChecksumCapabilities::ignored();
     let repr = ip_repr.into();
     match repr.protocol() {
+        #[cfg(feature = "proto-ipv4")]
         Protocol::Icmp => {
             indent.increase(f)?;
             Icmpv4Packet::<&[u8]>::pretty_print(&payload.as_ref(), f, indent)
@@ -733,10 +770,43 @@ pub fn pretty_print_ip_payload<T: Into<Repr>>(f: &mut fmt::Formatter, indent: &m
 }
 
 #[cfg(test)]
-mod test {
+pub(crate) mod test {
+    #![allow(unused)]
+
+    #[cfg(feature = "proto-ipv6")]
+    pub(crate) const MOCK_IP_ADDR_1: IpAddress = IpAddress::Ipv6(Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0,
+                                                                              0, 0, 0, 0, 0, 0, 0, 1]));
+    #[cfg(feature = "proto-ipv6")]
+    pub(crate) const MOCK_IP_ADDR_2: IpAddress = IpAddress::Ipv6(Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0,
+                                                                              0, 0, 0, 0, 0, 0, 0, 2]));
+    #[cfg(feature = "proto-ipv6")]
+    pub(crate) const MOCK_IP_ADDR_3: IpAddress = IpAddress::Ipv6(Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0,
+                                                                              0, 0, 0, 0, 0, 0, 0, 3]));
+    #[cfg(feature = "proto-ipv6")]
+    pub(crate) const MOCK_IP_ADDR_4: IpAddress = IpAddress::Ipv6(Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0,
+                                                                              0, 0, 0, 0, 0, 0, 0, 4]));
+    #[cfg(feature = "proto-ipv6")]
+    pub(crate) const MOCK_UNSPECIFIED: IpAddress = IpAddress::Ipv6(Ipv6Address::UNSPECIFIED);
+
+    #[cfg(all(feature = "proto-ipv4", not(feature = "proto-ipv6")))]
+    pub(crate) const MOCK_IP_ADDR_1: IpAddress = IpAddress::Ipv4(Ipv4Address([192, 168, 1, 1]));
+    #[cfg(all(feature = "proto-ipv4", not(feature = "proto-ipv6")))]
+    pub(crate) const MOCK_IP_ADDR_2: IpAddress = IpAddress::Ipv4(Ipv4Address([192, 168, 1, 2]));
+    #[cfg(all(feature = "proto-ipv4", not(feature = "proto-ipv6")))]
+    pub(crate) const MOCK_IP_ADDR_3: IpAddress = IpAddress::Ipv4(Ipv4Address([192, 168, 1, 3]));
+    #[cfg(all(feature = "proto-ipv4", not(feature = "proto-ipv6")))]
+    pub(crate) const MOCK_IP_ADDR_4: IpAddress = IpAddress::Ipv4(Ipv4Address([192, 168, 1, 4]));
+    #[cfg(all(feature = "proto-ipv4", not(feature = "proto-ipv6")))]
+    pub(crate) const MOCK_UNSPECIFIED: IpAddress = IpAddress::Ipv4(Ipv4Address::UNSPECIFIED);
+
+
     use super::*;
-    use wire::{Ipv4Address, IpProtocol, IpAddress, Ipv4Repr, IpCidr};
+    use wire::{IpAddress, IpProtocol,IpCidr};
+    #[cfg(feature = "proto-ipv4")]
+    use wire::{Ipv4Address, Ipv4Repr};
+
     #[test]
+    #[cfg(feature = "proto-ipv4")]
     fn ip_repr_lower() {
         let ip_addr_a = Ipv4Address::new(1, 2, 3, 4);
         let ip_addr_b = Ipv4Address::new(5, 6, 7, 8);

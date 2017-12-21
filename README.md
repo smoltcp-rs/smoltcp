@@ -145,6 +145,13 @@ and `smoltcp::socket::TcpSocket`, respectively.
 
 These features are enabled by default.
 
+### Features `proto-ipv4` and `proto-ipv6`
+
+Enable [IPv4] and [IPv6] respectively.
+
+[IPv4]: https://tools.ietf.org/rfc/rfc791.txt
+[IPv6]: https://tools.ietf.org/rfc/rfc8200.txt
+
 ## Hosted usage examples
 
 _smoltcp_, being a freestanding networking stack, needs to be able to transmit and receive

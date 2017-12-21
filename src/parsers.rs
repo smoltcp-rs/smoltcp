@@ -1,9 +1,10 @@
-#![cfg_attr(not(feature = "proto-ipv6"), allow(dead_code))]
+#![cfg_attr(not(all(feature = "proto-ipv6", feature = "proto-ipv4")), allow(dead_code))]
 
 use core::str::FromStr;
 use core::result;
 
 use wire::{EthernetAddress, IpAddress, IpCidr};
+#[cfg(feature = "proto-ipv4")]
 use wire::{Ipv4Address, Ipv4Cidr};
 #[cfg(feature = "proto-ipv6")]
 use wire::{Ipv6Address, Ipv6Cidr};
@@ -236,6 +237,7 @@ impl<'a> Parser<'a> {
         Ok(Ipv6Address::from_parts(&addr))
     }
 
+    #[cfg(feature = "proto-ipv4")]
     fn accept_ipv4(&mut self) -> Result<Ipv4Address> {
         let mut octets = [0u8; 4];
         for n in 0..4 {
@@ -248,8 +250,10 @@ impl<'a> Parser<'a> {
     }
 
     fn accept_ip(&mut self) -> Result<IpAddress> {
-        if let Some(ipv4) = self.try(|p| p.accept_ipv4()) {
-            return Ok(IpAddress::Ipv4(ipv4))
+        #[cfg(feature = "proto-ipv4")]
+        match self.try(|p| p.accept_ipv4()) {
+            Some(ipv4) => return Ok(IpAddress::Ipv4(ipv4)),
+            None => ()
         }
 
         #[cfg(feature = "proto-ipv6")]
@@ -271,6 +275,7 @@ impl FromStr for EthernetAddress {
     }
 }
 
+#[cfg(feature = "proto-ipv4")]
 impl FromStr for Ipv4Address {
     type Err = ();
 
@@ -299,6 +304,7 @@ impl FromStr for IpAddress {
     }
 }
 
+#[cfg(feature = "proto-ipv4")]
 impl FromStr for Ipv4Cidr {
     type Err = ();
 
@@ -334,8 +340,10 @@ impl FromStr for IpCidr {
 
     /// Parse a string representation of an IP CIDR.
     fn from_str(s: &str) -> Result<IpCidr> {
-        if let Ok(ipv4) = Ipv4Cidr::from_str(s) {
-            return Ok(IpCidr::Ipv4(ipv4))
+        #[cfg(feature = "proto-ipv4")]
+        match Ipv4Cidr::from_str(s) {
+            Ok(cidr) => return Ok(IpCidr::Ipv4(cidr)),
+            Err(_) => ()
         }
 
         #[cfg(feature = "proto-ipv6")]
@@ -368,6 +376,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "proto-ipv4")]
     fn test_mac() {
         assert_eq!(EthernetAddress::from_str(""), Err(()));
         assert_eq!(EthernetAddress::from_str("02:00:00:00:00:00"),
@@ -389,6 +398,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "proto-ipv4")]
     fn test_ipv4() {
         assert_eq!(Ipv4Address::from_str(""), Err(()));
         assert_eq!(Ipv4Address::from_str("1.2.3.4"),
@@ -449,6 +459,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "proto-ipv4")]
     fn test_ip_ipv4() {
         assert_eq!(IpAddress::from_str(""), Err(()));
         assert_eq!(IpAddress::from_str("1.2.3.4"),
@@ -466,6 +477,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "proto-ipv4")]
     fn test_cidr_ipv4() {
         let tests = [
             ("127.0.0.1/8",

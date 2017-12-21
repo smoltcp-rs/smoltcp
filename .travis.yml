@@ -14,22 +14,22 @@ matrix:
       env: FEATURES='default proto-ipv6' MODE='test'
     ### Test select feature permutations, chosen to be as orthogonal as possible
     - rust: nightly
-      env: FEATURES='std phy-raw_socket socket-udp' MODE='test'
+      env: FEATURES='std phy-raw_socket socket-udp proto-ipv4' MODE='test'
     - rust: nightly
-      env: FEATURES='std phy-tap_interface socket-udp' MODE='test'
+      env: FEATURES='std phy-tap_interface socket-udp proto-ipv4' MODE='test'
     - rust: nightly
-      env: FEATURES='std socket-raw' MODE='test'
+      env: FEATURES='std socket-raw proto-ipv4' MODE='test'
     - rust: nightly
-      env: FEATURES='std socket-udp' MODE='test'
+      env: FEATURES='std socket-udp proto-ipv4' MODE='test'
     - rust: nightly
-      env: FEATURES='std socket-tcp' MODE='test'
+      env: FEATURES='std socket-tcp proto-ipv6' MODE='test'
     - rust: nightly
-      env: FEATURES='std socket-icmp' MODE='test'
+      env: FEATURES='std socket-icmp socket-tcp proto-ipv4' MODE='test'
     ### Test select feature permutations, chosen to be as aggressive as possible
     - rust: nightly
-      env: FEATURES='socket-raw socket-udp socket-tcp socket-icmp std' MODE='test'
+      env: FEATURES='socket-raw socket-udp socket-tcp socket-icmp proto-ipv4 std' MODE='test'
     - rust: nightly
-      env: FEATURES='socket-raw socket-udp socket-tcp socket-icmp alloc' MODE='test'
+      env: FEATURES='socket-raw socket-udp socket-tcp socket-icmp proto-ipv4 alloc' MODE='test'
     - rust: nightly
       env: FEATURES='socket-raw socket-udp socket-tcp socket-icmp' MODE='build'
 script:
