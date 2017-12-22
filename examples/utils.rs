@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::cell::RefCell;
 use std::str::{self, FromStr};
 use std::rc::Rc;
@@ -6,13 +8,16 @@ use std::fs::File;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use std::env;
 use std::process;
+#[cfg(feature = "log")]
 use log::{LogLevel, LogLevelFilter, LogRecord};
+#[cfg(feature = "log")]
 use env_logger::LogBuilder;
 use getopts::{Options, Matches};
 
 use smoltcp::phy::{Device, EthernetTracer, FaultInjector, TapInterface};
 use smoltcp::phy::{PcapWriter, PcapSink, PcapMode, PcapLinkType};
 
+#[cfg(feature = "log")]
 pub fn setup_logging_with_clock<F>(filter: &str, since_startup: F)
         where F: Fn() -> u64 + Send + Sync + 'static {
     LogBuilder::new()
@@ -38,6 +43,7 @@ pub fn setup_logging_with_clock<F>(filter: &str, since_startup: F)
         .unwrap();
 }
 
+#[cfg(feature = "log")]
 pub fn setup_logging(filter: &str) {
     let startup_at = Instant::now();
     setup_logging_with_clock(filter, move  || {
@@ -91,8 +97,10 @@ pub fn add_middleware_options(opts: &mut Options, _free: &mut Vec<&str>) {
     opts.optopt("", "shaping-interval", "Sets the interval for rate limiting (ms)", "RATE");
 }
 
-pub fn parse_middleware_options<D: for<'a> Device<'a>>(matches: &mut Matches, device: D, loopback: bool)
-        -> FaultInjector<EthernetTracer<PcapWriter<D, Rc<PcapSink>>>> {
+pub fn parse_middleware_options<D>(matches: &mut Matches, device: D, loopback: bool)
+        -> FaultInjector<EthernetTracer<PcapWriter<D, Rc<PcapSink>>>>
+    where D: for<'a> Device<'a>
+{
     let drop_chance      = matches.opt_str("drop-chance").map(|s| u8::from_str(&s).unwrap())
                                   .unwrap_or(0);
     let corrupt_chance   = matches.opt_str("corrupt-chance").map(|s| u8::from_str(&s).unwrap())
@@ -118,7 +126,10 @@ pub fn parse_middleware_options<D: for<'a> Device<'a>>(matches: &mut Matches, de
     let device = PcapWriter::new(device, Rc::new(RefCell::new(pcap_writer)) as Rc<PcapSink>,
                                  if loopback { PcapMode::TxOnly } else { PcapMode::Both },
                                  PcapLinkType::Ethernet);
-    let device = EthernetTracer::new(device, |_timestamp, printer| trace!("{}", printer));
+    let device = EthernetTracer::new(device, |_timestamp, _printer| {
+        #[cfg(feature = "log")]
+        trace!("{}", _printer);
+    });
     let mut device = FaultInjector::new(device, seed);
     device.set_drop_chance(drop_chance);
     device.set_corrupt_chance(corrupt_chance);

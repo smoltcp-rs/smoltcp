@@ -23,7 +23,6 @@ default-features = false
 features = ["map"]
 
 [dev-dependencies]
-log = "0.3"
 env_logger = "0.4"
 getopts = "0.2"
 rand = "0.3"
@@ -69,3 +68,9 @@ required-features = ["std", "phy-tap_interface", "socket-tcp", "socket-udp"]
 [[example]]
 name = "loopback"
 required-features = ["alloc", "proto-ipv4"]
+
+# This is really a test, but it requires root privileges for setup (the tap interface)
+# so it is built as an example.
+[[example]]
+name = "stress"
+required-features = ["std", "phy-tap_interface", "socket-tcp"]
