@@ -216,13 +216,13 @@ The host is assigned the hardware address `02-00-00-00-00-02` and IPv4 address `
 Read its [source code](/examples/httpclient.rs), then run it as:
 
 ```sh
-cargo run --example client -- tap0 ADDRESS URL
+cargo run --example httpclient -- tap0 ADDRESS URL
 ```
 
 For example:
 
 ```sh
-cargo run --example client -- tap0 93.184.216.34 http://example.org/
+cargo run --example httpclient -- tap0 93.184.216.34 http://example.org/
 ```
 
 It connects to the given address (not a hostname) and URL, and prints any returned response data.

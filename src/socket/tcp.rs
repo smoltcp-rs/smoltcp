@@ -10,6 +10,7 @@ use wire::{IpProtocol, IpRepr, IpAddress, IpEndpoint, TcpSeqNumber, TcpRepr, Tcp
 use socket::{Socket, SocketMeta, SocketHandle};
 use storage::{Assembler, RingBuffer};
 
+/// A TCP socket ring buffer.
 pub type SocketBuffer<'a> = RingBuffer<'a, u8>;
 
 /// The state of a TCP socket, according to [RFC 793][rfc793].
