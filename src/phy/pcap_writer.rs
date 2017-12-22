@@ -63,6 +63,9 @@ pub trait PcapSink {
     /// Write the libpcap packet header into the sink.
     ///
     /// See also the note for [global_header](#method.global_header).
+    ///
+    /// # Panics
+    /// This function panics if `length` is greater than 65535.
     fn packet_header(&self, timestamp: u64, length: usize) {
         assert!(length <= 65535);
 
