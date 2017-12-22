@@ -1555,12 +1555,12 @@ mod test {
             payload_len: repr.buffer_len(),
             hop_limit:   64
         };
-        trace!("send: {}", repr);
+        net_trace!("send: {}", repr);
 
         assert!(socket.accepts(&ip_repr, repr));
         match socket.process(timestamp, &ip_repr, repr) {
             Ok(Some((_ip_repr, repr))) => {
-                trace!("recv: {}", repr);
+                net_trace!("recv: {}", repr);
                 Ok(Some(repr))
             }
             Ok(None) => Ok(None),
@@ -1580,7 +1580,7 @@ mod test {
             assert_eq!(ip_repr.dst_addr(), REMOTE_IP);
             assert_eq!(ip_repr.payload_len(), tcp_repr.buffer_len());
 
-            trace!("recv: {}", tcp_repr);
+            net_trace!("recv: {}", tcp_repr);
             Ok(f(Ok(tcp_repr)))
         });
         match result {
@@ -1637,6 +1637,7 @@ mod test {
         })
     }
 
+    #[cfg(feature = "log")]
     fn init_logger() {
         extern crate log;
         use std::boxed::Box;
@@ -1662,6 +1663,7 @@ mod test {
     }
 
     fn socket() -> TcpSocket<'static> {
+        #[cfg(feature = "log")]
         init_logger();
 
         let rx_buffer = SocketBuffer::new(vec![0; 64]);

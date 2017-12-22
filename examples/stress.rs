@@ -1,4 +1,5 @@
 #[cfg(feature = "log")]
+#[macro_use]
 extern crate log;
 #[cfg(feature = "log")]
 extern crate env_logger;

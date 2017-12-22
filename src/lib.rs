@@ -83,8 +83,7 @@ extern crate std;
 extern crate libc;
 #[cfg(feature = "alloc")]
 extern crate alloc;
-#[cfg(any(test, feature = "log"))]
-#[allow(unused_imports)]
+#[cfg(feature = "log")]
 #[macro_use(log, trace, debug)]
 extern crate log;
 

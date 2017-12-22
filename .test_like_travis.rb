@@ -11,5 +11,6 @@ travis_config['matrix']['include'].each do |env|
   travis_config['script'].each do |cmd|
     $stderr.puts('+ ' + cmd.gsub(/\$(\w+)/) { ENV[$1] })
     system(cmd)
+    $?.success? or exit 1
   end
 end
