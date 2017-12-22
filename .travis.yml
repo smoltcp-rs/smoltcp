@@ -1,35 +1,37 @@
 language: rust
 matrix:
   include:
-    # litmus check that we work on stable/beta
-    # we don't, not until slice_rotate lands
+    ### Litmus check that we work on stable/beta
+    # (we don't, not until slice_rotate lands)
     # - rust: stable
     #   env: FEATURES='default' MODE='test'
     # - rust: beta
     #   env: FEATURES='default' MODE='test'
-    # actually test everything
+    ### Test default configurations
     - rust: nightly
       env: FEATURES='default' MODE='test'
     - rust: nightly
       env: FEATURES='default proto-ipv6' MODE='test'
+    ### Test select feature permutations, chosen to be as orthogonal as possible
     - rust: nightly
-      env: FEATURES='phy-raw_socket socket-udp' MODE='build'
+      env: FEATURES='std phy-raw_socket socket-udp' MODE='test'
     - rust: nightly
-      env: FEATURES='phy-tap_interface socket-udp' MODE='build'
+      env: FEATURES='std phy-tap_interface socket-udp' MODE='test'
     - rust: nightly
-      env: FEATURES='socket-raw' MODE='build'
+      env: FEATURES='std socket-raw' MODE='test'
     - rust: nightly
-      env: FEATURES='socket-udp' MODE='build'
+      env: FEATURES='std socket-udp' MODE='test'
     - rust: nightly
-      env: FEATURES='socket-tcp' MODE='build'
+      env: FEATURES='std socket-tcp' MODE='test'
     - rust: nightly
-      env: FEATURES='socket-icmp' MODE='build'
+      env: FEATURES='std socket-icmp' MODE='test'
+    ### Test select feature permutations, chosen to be as aggressive as possible
+    - rust: nightly
+      env: FEATURES='socket-raw socket-udp socket-tcp socket-icmp std' MODE='test'
+    - rust: nightly
+      env: FEATURES='socket-raw socket-udp socket-tcp socket-icmp alloc' MODE='test'
     - rust: nightly
       env: FEATURES='socket-raw socket-udp socket-tcp socket-icmp' MODE='build'
-    - rust: nightly
-      env: FEATURES='socket-raw socket-udp socket-tcp socket-icmp std' MODE='build'
-    - rust: nightly
-      env: FEATURES='socket-raw socket-udp socket-tcp socket-icmp alloc' MODE='build'
 script:
    - cargo "$MODE" --no-default-features --features "$FEATURES"
 notifications:

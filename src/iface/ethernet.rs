@@ -912,6 +912,7 @@ mod test {
     use wire::{IpAddress, IpCidr, IpProtocol, IpRepr};
     use wire::{Ipv4Address, Ipv4Repr};
     use wire::{Icmpv4Repr, Icmpv4DstUnreachable};
+    #[cfg(feature = "socket-udp")]
     use wire::{UdpPacket, UdpRepr};
 
     use super::Packet;
@@ -1039,6 +1040,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "socket-udp")]
     fn test_icmp_error_port_unreachable() {
         static UDP_PAYLOAD: [u8; 12] = [
             0x48, 0x65, 0x6c, 0x6c,

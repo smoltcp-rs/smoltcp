@@ -303,12 +303,12 @@ that do. Because of this, only one such example is provided.
 ### examples/loopback.rs
 
 _examples/loopback.rs_ sets up _smoltcp_ to talk with itself via a loopback interface.
-Although it does not require `std`, this example still requires the `collections` feature to run.
+Although it does not require `std`, this example still requires the `alloc` feature to run.
 
 Read its [source code](/examples/loopback.rs), then run it without `std`:
 
 ```sh
-cargo run --example loopback --no-default-features --features collections
+cargo run --example loopback --no-default-features --features alloc
 ```
 
 ... or with `std`:

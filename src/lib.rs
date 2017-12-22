@@ -84,6 +84,7 @@ extern crate libc;
 #[cfg(feature = "alloc")]
 extern crate alloc;
 #[cfg(any(test, feature = "log"))]
+#[allow(unused_imports)]
 #[macro_use(log, trace, debug)]
 extern crate log;
 
