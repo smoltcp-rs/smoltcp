@@ -74,3 +74,6 @@ required-features = ["log", "socket-tcp"]
 [[example]]
 name = "stress"
 required-features = ["std", "phy-tap_interface", "socket-tcp"]
+
+[profile.release]
+debug = 2
