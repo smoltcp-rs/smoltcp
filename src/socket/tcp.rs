@@ -640,7 +640,7 @@ impl<'a> TcpSocket<'a> {
         })
     }
 
-    pub fn recv_impl<'b, F, R>(&'b mut self, f: F) -> Result<R>
+    fn recv_impl<'b, F, R>(&'b mut self, f: F) -> Result<R>
             where F: FnOnce(&'b mut SocketBuffer<'a>) -> (usize, R) {
         // We may have received some data inside the initial SYN, but until the connection
         // is fully open we must not dequeue any data, as it may be overwritten by e.g.
@@ -658,7 +658,6 @@ impl<'a> TcpSocket<'a> {
         }
         Ok(result)
     }
-
 
     /// Call `f` with the largest contiguous slice of octets in the receive buffer,
     /// and dequeue the amount of elements returned by `f`.
