@@ -67,7 +67,7 @@ required-features = ["std", "phy-tap_interface", "socket-tcp", "socket-udp"]
 
 [[example]]
 name = "loopback"
-required-features = ["alloc", "proto-ipv4"]
+required-features = ["log", "socket-tcp"]
 
 # This is really a test, but it requires root privileges for setup (the tap interface)
 # so it is built as an example.

@@ -59,6 +59,9 @@ fn main() {
 
     let mut tcp_active = false;
     loop {
+        let timestamp = utils::millis_since(startup_time);
+        iface.poll(&mut sockets, timestamp).expect("poll error");
+
         {
             let mut socket = sockets.get::<TcpSocket>(tcp_handle);
             if socket.is_active() && !tcp_active {
@@ -92,8 +95,6 @@ fn main() {
             }
         }
 
-        let timestamp = utils::millis_since(startup_time);
-        let poll_at = iface.poll(&mut sockets, timestamp).expect("poll error");
-        phy_wait(fd, poll_at.map(|at| at.saturating_sub(timestamp))).expect("wait error");
+        phy_wait(fd, iface.poll_delay(&sockets, timestamp)).expect("wait error");
     }
 }

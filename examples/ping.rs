@@ -77,6 +77,9 @@ fn main() {
     let endpoint = IpAddress::Ipv4(remote_addr);
 
     loop {
+        let timestamp = utils::millis_since(startup_time);
+        iface.poll(&mut sockets, timestamp).expect("poll error");
+
         {
             let mut socket = sockets.get::<IcmpSocket>(icmp_handle);
             if !socket.is_open() {
@@ -141,7 +144,7 @@ fn main() {
 
         let timestamp = utils::millis_since(startup_time);
 
-        let poll_at = iface.poll(&mut sockets, timestamp).expect("poll error");
+        let poll_at = iface.poll_at(&sockets, timestamp);
         let resume_at = [poll_at, Some(send_at)].iter().flat_map(|x| *x).min();
         phy_wait(fd, resume_at.map(|at| at.saturating_sub(timestamp))).expect("wait error");
     }

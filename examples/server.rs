@@ -71,6 +71,9 @@ fn main() {
 
     let mut tcp_6970_active = false;
     loop {
+        let timestamp = utils::millis_since(startup_time);
+        iface.poll(&mut sockets, timestamp).expect("poll error");
+
         // udp:6969: respond "hello"
         {
             let mut socket = sockets.get::<UdpSocket>(udp_handle);
@@ -187,8 +190,6 @@ fn main() {
             }
         }
 
-        let timestamp = utils::millis_since(startup_time);
-        let poll_at = iface.poll(&mut sockets, timestamp).expect("poll error");
-        phy_wait(fd, poll_at.map(|at| at.saturating_sub(timestamp))).expect("wait error");
+        phy_wait(fd, iface.poll_delay(&sockets, timestamp)).expect("wait error");
     }
 }

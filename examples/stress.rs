@@ -41,7 +41,7 @@ fn client(kind: Client) {
         match result {
             Ok(0) => break,
             Ok(result) => {
-                print!("(P:{})", result);
+                // print!("(P:{})", result);
                 processed += result
             }
             Err(err) => panic!("cannot process: {}", err)
@@ -54,6 +54,9 @@ fn client(kind: Client) {
 static CLIENT_DONE: AtomicBool = ATOMIC_BOOL_INIT;
 
 fn main() {
+    #[cfg(feature = "log")]
+    utils::setup_logging("info");
+
     let (mut opts, mut free) = utils::create_options();
     utils::add_tap_options(&mut opts, &mut free);
     utils::add_middleware_options(&mut opts, &mut free);
@@ -97,6 +100,9 @@ fn main() {
 
     let mut processed = 0;
     while !CLIENT_DONE.load(Ordering::SeqCst) {
+        let timestamp = utils::millis_since(startup_time);
+        iface.poll(&mut sockets, timestamp).expect("poll error");
+
         // tcp:1234: emit data
         {
             let mut socket = sockets.get::<TcpSocket>(tcp1_handle);
@@ -133,8 +139,6 @@ fn main() {
             }
         }
 
-        let timestamp = utils::millis_since(startup_time);
-        let poll_at = iface.poll(&mut sockets, timestamp).expect("poll error");
-        phy_wait(fd, poll_at.map(|at| at.saturating_sub(timestamp))).expect("wait error");
+        phy_wait(fd, iface.poll_delay(&sockets, timestamp)).expect("wait error");
     }
 }

@@ -14,7 +14,9 @@ use log::{LogLevel, LogLevelFilter, LogRecord};
 use env_logger::LogBuilder;
 use getopts::{Options, Matches};
 
-use smoltcp::phy::{Device, EthernetTracer, FaultInjector, TapInterface};
+use smoltcp::phy::{Device, EthernetTracer, FaultInjector};
+#[cfg(feature = "phy-tap_interface")]
+use smoltcp::phy::TapInterface;
 use smoltcp::phy::{PcapWriter, PcapSink, PcapMode, PcapLinkType};
 
 #[cfg(feature = "log")]

@@ -124,6 +124,8 @@ fn main() {
     let mut did_connect = false;
     let mut done = false;
     while !done && clock.elapsed() < 10_000 {
+        iface.poll(&mut socket_set, clock.elapsed()).expect("poll error");
+
         {
             let mut socket = socket_set.get::<TcpSocket>(server_handle);
             if !socket.is_active() && !socket.is_listening() {
@@ -161,16 +163,14 @@ fn main() {
             }
         }
 
-        match iface.poll(&mut socket_set, clock.elapsed()) {
-            Ok(Some(poll_at)) if poll_at < clock.elapsed() =>
+        match iface.poll_delay(&socket_set, clock.elapsed()) {
+            Some(0) =>
                 debug!("resuming"),
-            Ok(Some(poll_at)) => {
-                let delay = poll_at - clock.elapsed();
+            Some(delay) => {
                 debug!("sleeping for {} ms", delay);
                 clock.advance(delay)
             }
-            Ok(None) => clock.advance(1),
-            Err(e) => debug!("poll error: {}", e)
+            None => clock.advance(1)
         }
     }
 
