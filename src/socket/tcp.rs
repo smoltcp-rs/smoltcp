@@ -1123,6 +1123,14 @@ impl<'a> TcpSocket<'a> {
             // We've processed everything in the incoming segment, so advance the local
             // sequence number past it.
             self.local_seq_no = ack_number;
+            // During retransmission, if an earlier segment got lost but later was
+            // successfully received, self.local_seq_no can move past self.remote_last_seq.
+            // Do not attempt to retransmit the latter segments; not only this is pointless
+            // in theory but also impossible in practice, since they have been already
+            // deallocated from the buffer.
+            if self.remote_last_seq < self.local_seq_no {
+                self.remote_last_seq = self.local_seq_no
+            }
         }
 
         let payload_len = repr.payload.len();
@@ -2989,6 +2997,48 @@ mod test {
             payload:    &b"ABCDEF"[..],
             ..RECV_TEMPL
         }));
+    }
+
+    #[test]
+    fn test_established_queue_during_retransmission() {
+        let mut s = socket_established();
+        s.remote_mss = 6;
+        s.send_slice(b"abcdef123456ABCDEF").unwrap();
+        recv!(s, time 1000, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"abcdef"[..],
+            ..RECV_TEMPL
+        })); // this one is dropped
+        recv!(s, time 1005, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1 + 6,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"123456"[..],
+            ..RECV_TEMPL
+        })); // this one is received
+        recv!(s, time 1010, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1 + 6 + 6,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"ABCDEF"[..],
+            ..RECV_TEMPL
+        })); // also dropped
+        recv!(s, time 2000, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"abcdef"[..],
+            ..RECV_TEMPL
+        })); // retransmission
+        send!(s, time 2005, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1 + 6 + 6),
+            ..SEND_TEMPL
+        }); // acknowledgement of both segments
+        recv!(s, time 2010, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1 + 6 + 6,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"ABCDEF"[..],
+            ..RECV_TEMPL
+        })); // retransmission of only unacknowledged data
     }
 
     #[test]
