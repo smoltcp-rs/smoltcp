@@ -22,14 +22,16 @@ use smoltcp::iface::{NeighborCache, EthernetInterfaceBuilder};
 use smoltcp::socket::SocketSet;
 use smoltcp::socket::{TcpSocket, TcpSocketBuffer};
 
-const AMOUNT: usize = 10_000_000;
+const AMOUNT: usize = 1_000_000_000;
 
 enum Client { Reader, Writer }
 
 fn client(kind: Client) {
     let port = match kind { Client::Reader => 1234, Client::Writer => 1235 };
     let mut stream = TcpStream::connect(("192.168.69.1", port)).unwrap();
-    let mut buffer = vec![0; 64];
+    let mut buffer = vec![0; 1_000_000];
+
+    let start = Instant::now();
 
     let mut processed = 0;
     while processed < AMOUNT {
@@ -47,7 +49,15 @@ fn client(kind: Client) {
             Err(err) => panic!("cannot process: {}", err)
         }
     }
-    println!("client done");
+
+    let end = Instant::now();
+
+    let elapsed = end - start;
+    let elapsed = elapsed.as_secs() as f64
+                + elapsed.subsec_nanos() as f64 * 1e-9;
+
+    println!("throughput: {:.3} Gbps", AMOUNT as f64 / elapsed / 0.125e9);
+
     CLIENT_DONE.store(true, Ordering::SeqCst);
 }
 
@@ -139,6 +149,6 @@ fn main() {
             }
         }
 
-        phy_wait(fd, iface.poll_delay(&sockets, timestamp)).expect("wait error");
+        phy_wait(fd, iface.poll_delay(&sockets, timestamp).or(Some(1000))).expect("wait error");
     }
 }

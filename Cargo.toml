@@ -69,10 +69,8 @@ required-features = ["std", "phy-tap_interface", "socket-tcp", "socket-udp"]
 name = "loopback"
 required-features = ["log", "socket-tcp"]
 
-# This is really a test, but it requires root privileges for setup (the tap interface)
-# so it is built as an example.
 [[example]]
-name = "stress"
+name = "benchmark"
 required-features = ["std", "phy-tap_interface", "socket-tcp"]
 
 [profile.release]

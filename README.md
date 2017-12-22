@@ -8,6 +8,9 @@ at cost of performance degradation.
 _smoltcp_ does not need heap allocation *at all*, is [extensively documented][docs],
 and compiles on stable Rust 1.20 and later.
 
+_smoltcp_ achieves [~Gbps of throughput](#examplesbenchmarkrs) when tested against
+the Linux TCP stack in loopback mode.
+
 [docs]: https://docs.rs/smoltcp/
 
 ## Features
@@ -294,6 +297,29 @@ cargo run --example client -- tap0 ADDRESS PORT
 
 It connects to the given address (not a hostname) and port (e.g. `socat stdio tcp4-listen:1234`),
 and will respond with reversed chunks of the input indefinitely.
+
+### examples/benchmark.rs
+
+_examples/benchmark.rs_ implements a simple throughput benchmark.
+
+Read its [source code](/examples/benchmark.rs), then run it as:
+
+```sh
+cargo run --release --example benchmark -- tap0 [reader|writer]
+```
+
+It establishes a connection to itself from a different thread and reads or writes a large amount
+of data in one direction.
+
+A typical result (achieved on a Intel Core i7-7500U CPU and a Linux 4.9.65 x86_64 kernel running
+on a Dell XPS 13 9360 laptop) is as follows:
+
+```
+$ cargo run -q --release --example benchmark tap0 reader
+throughput: 2.219 Gbps
+$ cargo run -q --release --example benchmark tap0 writer
+throughput: 4.519 Gbps
+```
 
 ## Bare-metal usage examples
 
