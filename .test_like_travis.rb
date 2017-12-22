@@ -9,7 +9,7 @@ travis_config['matrix']['include'].each do |env|
     ENV[$1] = $2
   end
   travis_config['script'].each do |cmd|
-    $stderr.puts('+ #{cmd}'.gsub(/\$(\w+)/) { ENV[$1] })
+    $stderr.puts('+ ' + cmd.gsub(/\$(\w+)/) { ENV[$1] })
     system(cmd)
   end
 end
