@@ -33,7 +33,7 @@ matrix:
     - rust: nightly
       env: FEATURES='socket-raw socket-udp socket-tcp socket-icmp' MODE='build'
 script:
-   - cargo "$MODE" --no-default-features --features "$FEATURES"
+  - cargo "$MODE" --no-default-features --features "$FEATURES"
 notifications:
   irc:
     channels:
