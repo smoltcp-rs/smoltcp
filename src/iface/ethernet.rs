@@ -250,9 +250,13 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
     }
 
     /// Set the IPv4 gateway of the interface.
+    ///
+    /// # Panics
+    /// This function panics if the given address is not unicast.
     pub fn set_ipv4_gateway<GatewayAddrT>(&mut self, gateway: GatewayAddrT)
             where GatewayAddrT: Into<Option<Ipv4Address>> {
         self.inner.ipv4_gateway = gateway.into();
+        self.inner.ipv4_gateway.map(|addr| InterfaceInner::check_gateway_addr(&addr));
     }
 
     /// Transmit packets queued in the given sockets, and receive packets queued
