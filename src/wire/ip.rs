@@ -611,26 +611,29 @@ pub mod checksum {
 
     /// Compute an RFC 1071 compliant checksum (without the final complement).
     pub fn data(mut data: &[u8]) -> u16 {
-        const SIZE: usize = 32;
         let mut accum = 0;
 
-        while data.len() >= SIZE {
-            let mut d = &data[..SIZE];
+        // Operate on large chunks first to ease the job of the autovectorizer.
+        const CHUNK_SIZE: usize = 32;
+        while data.len() >= CHUNK_SIZE {
+            let mut d = &data[..CHUNK_SIZE];
             while d.len() >= 2 {
                 accum += NetworkEndian::read_u16(d) as u32;
                 d = &d[2..];
             }
 
-            data = &data[SIZE..];
+            data = &data[CHUNK_SIZE..];
         }
 
         while data.len() >= 2 {
             accum += NetworkEndian::read_u16(data) as u32;
             data = &data[2..];
         }
+        
         if let Some(&value) = data.first() {
             accum += (value as u32) << 8;
         }
+        
         propagate_carries(accum)
     }
 
