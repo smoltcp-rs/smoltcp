@@ -3,7 +3,7 @@
 use core::str::FromStr;
 use core::result;
 
-use wire::{EthernetAddress, IpAddress, IpCidr};
+use wire::{EthernetAddress, IpAddress, IpCidr, IpEndpoint};
 use wire::{Ipv4Address, Ipv4Cidr};
 #[cfg(feature = "proto-ipv6")]
 use wire::{Ipv6Address, Ipv6Cidr};
@@ -260,6 +260,49 @@ impl<'a> Parser<'a> {
 
         Err(())
     }
+
+    fn accept_ipv4_endpoint(&mut self) -> Result<IpEndpoint> {
+        let ip = self.accept_ipv4()?;
+
+        let port = if self.accept_eof().is_ok() {
+            0
+        } else {
+            self.accept_char(b':')?;
+            self.accept_number(5, 65535, false)?
+        };
+
+        Ok(IpEndpoint { addr: IpAddress::Ipv4(ip), port: port as u16 })
+    }
+
+    #[cfg(feature = "proto-ipv6")]
+    fn accept_ipv6_endpoint(&mut self, is_cidr: bool) -> Result<IpEndpoint> {
+        if self.lookahead_char(b'[') {
+            self.accept_char(b'[')?;
+            let ip = self.accept_ipv6(false)?;
+            self.accept_char(b']')?;
+            self.accept_char(b':')?;
+            let port = self.accept_number(5, 65535, false)?;
+
+            Ok(IpEndpoint { addr: IpAddress::Ipv6(ip), port: port as u16 })
+        } else {
+            let ip = self.accept_ipv6(is_cidr)?;
+            Ok(IpEndpoint { addr: IpAddress::Ipv6(ip), port: 0 })
+        }
+    }
+
+    fn accept_ip_endpoint(&mut self) -> Result<IpEndpoint> {
+        if let Some(ipv4) = self.try(|p| p.accept_ipv4_endpoint()) {
+            return Ok(ipv4)
+        }
+
+        #[cfg(feature = "proto-ipv6")]
+        match self.try(|p| p.accept_ipv6_endpoint(false)) {
+            Some(ipv6) => return Ok(ipv6),
+            None => ()
+        }
+
+        Err(())
+    }
 }
 
 impl FromStr for EthernetAddress {
@@ -345,6 +388,14 @@ impl FromStr for IpCidr {
         }
 
         Err(())
+    }
+}
+
+impl FromStr for IpEndpoint {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<IpEndpoint> {
+        Parser::new(s).until_eof(|p| Ok(p.accept_ip_endpoint()?))
     }
 }
 
@@ -510,5 +561,34 @@ mod test {
              Err(()))
         ];
         check_cidr_test_array!(tests, Ipv6Cidr::from_str, IpCidr::Ipv6);
+    }
+
+    #[test]
+    fn test_endpoint_ipv4() {
+        assert_eq!(IpEndpoint::from_str(""), Err(()));
+        assert_eq!(IpEndpoint::from_str("x"), Err(()));
+        assert_eq!(
+            IpEndpoint::from_str("127.0.0.1"),
+            Ok(IpEndpoint { addr: IpAddress::v4(127, 0, 0, 1), port: 0 })
+        );
+        assert_eq!(
+            IpEndpoint::from_str("127.0.0.1:12345"),
+            Ok(IpEndpoint { addr: IpAddress::v4(127, 0, 0, 1), port: 12345 })
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "proto-ipv6")]
+    fn test_endpoint_ipv6() {
+        assert_eq!(IpEndpoint::from_str(""), Err(()));
+        assert_eq!(IpEndpoint::from_str("x"), Err(()));
+        assert_eq!(
+            IpEndpoint::from_str("fe80::1"),
+            Ok(IpEndpoint { addr: IpAddress::v6(0xfe80, 0, 0, 0, 0, 0, 0, 1), port: 0 })
+        );
+        assert_eq!(
+            IpEndpoint::from_str("[fe80::1]:12345"),
+            Ok(IpEndpoint { addr: IpAddress::v6(0xfe80, 0, 0, 0, 0, 0, 0, 1), port: 12345 })
+        );
     }
 }
