@@ -610,6 +610,7 @@ pub mod checksum {
     }
 
     /// Compute an RFC 1071 compliant checksum (without the final complement).
+    #[cfg(not(any(target_arch = "x86_64")))]
     pub fn data(data: &[u8]) -> u16 {
         let mut accum: u32 = 0;
         let mut i = 0;
@@ -623,6 +624,47 @@ pub mod checksum {
             accum += word;
             i += 2;
         }
+        propagate_carries(accum)
+    }
+
+    #[cfg(any(target_arch = "x86_64"))]
+    pub fn data(data: &[u8]) -> u16 {
+        use byteorder::NativeEndian;
+
+        // Number of bytes per loop iteration (needs to be power of 2)
+        const SIZE: usize = 32;
+
+        let mut accum = 0;
+
+        let (data, rest) = data.split_at(data.len() & !(SIZE - 1));
+
+        for i in 0..data.len() / SIZE {
+            let mut src = &data[i * SIZE..];
+            let mut r = [0; SIZE / 2];
+
+            for dst in r.iter_mut() {
+                *dst = NativeEndian::read_u16(src);
+                src = &src[2..];
+            }
+
+            // Convert to big endian
+            if cfg!(target_endian = "little") {
+                for v in r.iter_mut() {
+                    *v = (*v << 8) | (*v >> 8);
+                }
+            }
+
+            accum += r.iter().fold(0, |acc, e| acc + (*e as u32));
+        }
+
+        for i in 0..rest.len() / 2 {
+            accum += NetworkEndian::read_u16(&rest[i * 2..]) as u32;
+        }
+
+        if rest.len() % 2 == 1 {
+            accum += (rest[rest.len() - 1] as u32) << 8;
+        }
+
         propagate_carries(accum)
     }
 
