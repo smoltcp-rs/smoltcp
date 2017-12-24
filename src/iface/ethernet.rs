@@ -129,7 +129,7 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
     ///
     /// [ip_addrs]: struct.EthernetInterface.html#method.ip_addrs
     pub fn ip_addrs<T>(mut self, ip_addrs: T) -> InterfaceBuilder<'b, 'c, DeviceT>
-            where T: Into<ManagedSlice<'c, IpCidr>>
+        where T: Into<ManagedSlice<'c, IpCidr>>
     {
         let ip_addrs = ip_addrs.into();
         InterfaceInner::check_ip_addrs(&ip_addrs);
@@ -146,7 +146,7 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
     /// [ipv4_gateway]: struct.EthernetInterface.html#method.ipv4_gateway
     #[cfg(feature = "proto-ipv4")]
     pub fn ipv4_gateway<T>(mut self, gateway: T) -> InterfaceBuilder<'b, 'c, DeviceT>
-            where T: Into<Ipv4Address>
+        where T: Into<Ipv4Address>
     {
         let addr = gateway.into();
         InterfaceInner::check_gateway_addr(&addr);
@@ -957,7 +957,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
                 IpRepr::Ipv4(_) => frame.set_ethertype(EthernetProtocol::Ipv4),
                 #[cfg(feature = "proto-ipv6")]
                 IpRepr::Ipv6(_) => frame.set_ethertype(EthernetProtocol::Ipv6),
-                _ => { return; }
+                _ => return
             }
 
             ip_repr.emit(frame.payload_mut(), &checksum_caps);

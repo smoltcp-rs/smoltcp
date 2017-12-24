@@ -34,15 +34,16 @@ alloc = ["managed/alloc"]
 verbose = []
 "phy-raw_socket" = ["std", "libc"]
 "phy-tap_interface" = ["std", "libc"]
+"proto-ipv4" = []
 "proto-ipv6" = []
 "socket-raw" = []
 "socket-udp" = []
 "socket-tcp" = []
 "socket-icmp" = []
-"proto-ipv4" = []
 default = [
   "std", "log", # needed for `cargo test --no-default-features --features default` :/
-  "phy-raw_socket", "phy-tap_interface", "proto-ipv4",
+  "phy-raw_socket", "phy-tap_interface",
+  "proto-ipv4", "proto-ipv6",
   "socket-raw", "socket-icmp", "socket-udp", "socket-tcp"
 ]
 
