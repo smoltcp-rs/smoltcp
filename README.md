@@ -323,9 +323,9 @@ on a Dell XPS 13 9360 laptop) is as follows:
 
 ```
 $ cargo run -q --release --example benchmark tap0 reader
-throughput: 2.219 Gbps
+throughput: 2.556 Gbps
 $ cargo run -q --release --example benchmark tap0 writer
-throughput: 4.519 Gbps
+throughput: 5.301 Gbps
 ```
 
 ## Bare-metal usage examples
