@@ -46,6 +46,8 @@
 //!
 /*!
 ```rust
+# #[cfg(feature = "proto-ipv4")]
+# {
 use smoltcp::phy::ChecksumCapabilities;
 use smoltcp::wire::*;
 let repr = Ipv4Repr {
@@ -67,6 +69,7 @@ let mut buffer = vec![0; repr.buffer_len() + repr.payload_len];
                           .expect("malformed packet");
     assert_eq!(repr, parsed);
 }
+# }
 ```
 */
 
@@ -78,11 +81,14 @@ mod field {
 pub mod pretty_print;
 
 mod ethernet;
+#[cfg(feature = "proto-ipv4")]
 mod arp;
-mod ip;
+pub(crate) mod ip;
+#[cfg(feature = "proto-ipv4")]
 mod ipv4;
 #[cfg(feature = "proto-ipv6")]
 mod ipv6;
+#[cfg(feature = "proto-ipv4")]
 mod icmpv4;
 mod udp;
 mod tcp;
@@ -93,6 +99,7 @@ pub use self::ethernet::{EtherType as EthernetProtocol,
                          Address as EthernetAddress,
                          Frame as EthernetFrame};
 
+#[cfg(feature = "proto-ipv4")]
 pub use self::arp::{Hardware as ArpHardware,
                     Operation as ArpOperation,
                     Packet as ArpPacket,
@@ -105,6 +112,7 @@ pub use self::ip::{Version as IpVersion,
                    Repr as IpRepr,
                    Cidr as IpCidr};
 
+#[cfg(feature = "proto-ipv4")]
 pub use self::ipv4::{Address as Ipv4Address,
                      Packet as Ipv4Packet,
                      Repr as Ipv4Repr,
@@ -116,6 +124,7 @@ pub use self::ipv6::{Address as Ipv6Address,
                      Repr as Ipv6Repr,
                      Cidr as Ipv6Cidr};
 
+#[cfg(feature = "proto-ipv4")]
 pub use self::icmpv4::{Message as Icmpv4Message,
                        DstUnreachable as Icmpv4DstUnreachable,
                        Redirect as Icmpv4Redirect,

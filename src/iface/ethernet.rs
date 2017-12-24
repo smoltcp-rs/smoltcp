@@ -8,10 +8,14 @@ use {Error, Result};
 use phy::{Device, DeviceCapabilities, RxToken, TxToken};
 use wire::pretty_print::PrettyPrinter;
 use wire::{EthernetAddress, EthernetProtocol, EthernetFrame};
+#[cfg(feature = "proto-ipv4")]
 use wire::{Ipv4Address};
 use wire::{IpAddress, IpProtocol, IpRepr, IpCidr};
+#[cfg(feature = "proto-ipv4")]
 use wire::{ArpPacket, ArpRepr, ArpOperation};
+#[cfg(feature = "proto-ipv4")]
 use wire::{Ipv4Packet, Ipv4Repr};
+#[cfg(feature = "proto-ipv4")]
 use wire::{Icmpv4Packet, Icmpv4Repr, Icmpv4DstUnreachable};
 #[cfg(feature = "socket-udp")]
 use wire::{UdpPacket, UdpRepr};
@@ -21,7 +25,7 @@ use wire::{TcpPacket, TcpRepr, TcpControl};
 use socket::{Socket, SocketSet, AnySocket};
 #[cfg(feature = "socket-raw")]
 use socket::RawSocket;
-#[cfg(feature = "socket-icmp")]
+#[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
 use socket::IcmpSocket;
 #[cfg(feature = "socket-udp")]
 use socket::UdpSocket;
@@ -50,6 +54,7 @@ struct InterfaceInner<'b, 'c> {
     neighbor_cache:         NeighborCache<'b>,
     ethernet_addr:          EthernetAddress,
     ip_addrs:               ManagedSlice<'c, IpCidr>,
+    #[cfg(feature = "proto-ipv4")]
     ipv4_gateway:           Option<Ipv4Address>,
     device_capabilities:    DeviceCapabilities,
 }
@@ -61,6 +66,7 @@ pub struct InterfaceBuilder <'b, 'c, DeviceT: for<'d> Device<'d>> {
     ethernet_addr:       Option<EthernetAddress>,
     neighbor_cache:      Option<NeighborCache<'b>>,
     ip_addrs:            ManagedSlice<'c, IpCidr>,
+    #[cfg(feature = "proto-ipv4")]
     ipv4_gateway:        Option<Ipv4Address>,
 }
 
@@ -97,6 +103,7 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
             ethernet_addr:       None,
             neighbor_cache:      None,
             ip_addrs:            ManagedSlice::Borrowed(&mut []),
+            #[cfg(feature = "proto-ipv4")]
             ipv4_gateway:        None
         }
     }
@@ -122,7 +129,7 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
     ///
     /// [ip_addrs]: struct.EthernetInterface.html#method.ip_addrs
     pub fn ip_addrs<T>(mut self, ip_addrs: T) -> InterfaceBuilder<'b, 'c, DeviceT>
-            where T: Into<ManagedSlice<'c, IpCidr>>
+        where T: Into<ManagedSlice<'c, IpCidr>>
     {
         let ip_addrs = ip_addrs.into();
         InterfaceInner::check_ip_addrs(&ip_addrs);
@@ -137,8 +144,9 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
     /// This function panics if the given address is not unicast.
     ///
     /// [ipv4_gateway]: struct.EthernetInterface.html#method.ipv4_gateway
+    #[cfg(feature = "proto-ipv4")]
     pub fn ipv4_gateway<T>(mut self, gateway: T) -> InterfaceBuilder<'b, 'c, DeviceT>
-            where T: Into<Ipv4Address>
+        where T: Into<Ipv4Address>
     {
         let addr = gateway.into();
         InterfaceInner::check_gateway_addr(&addr);
@@ -172,7 +180,9 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
                     device: self.device,
                     inner: InterfaceInner {
                         ethernet_addr, device_capabilities, neighbor_cache,
-                        ip_addrs: self.ip_addrs, ipv4_gateway: self.ipv4_gateway,
+                        ip_addrs: self.ip_addrs,
+                        #[cfg(feature = "proto-ipv4")]
+                        ipv4_gateway: self.ipv4_gateway,
                     }
                 }
             },
@@ -184,7 +194,9 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
 #[derive(Debug, PartialEq)]
 enum Packet<'a> {
     None,
+    #[cfg(feature = "proto-ipv4")]
     Arp(ArpRepr),
+    #[cfg(feature = "proto-ipv4")]
     Icmpv4((Ipv4Repr, Icmpv4Repr<'a>)),
     #[cfg(feature = "socket-raw")]
     Raw((IpRepr, &'a [u8])),
@@ -197,7 +209,10 @@ enum Packet<'a> {
 impl<'a> Packet<'a> {
     fn neighbor_addr(&self) -> Option<IpAddress> {
         match self {
-            &Packet::None | &Packet::Arp(_) => None,
+            &Packet::None => None,
+            #[cfg(feature = "proto-ipv4")]
+            &Packet::Arp(_) => None,
+            #[cfg(feature = "proto-ipv4")]
             &Packet::Icmpv4((ref ipv4_repr, _)) => Some(ipv4_repr.dst_addr.into()),
             #[cfg(feature = "socket-raw")]
             &Packet::Raw((ref ip_repr, _)) => Some(ip_repr.dst_addr()),
@@ -245,6 +260,7 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
     }
 
     /// Get the IPv4 gateway of the interface.
+    #[cfg(feature = "proto-ipv4")]
     pub fn ipv4_gateway(&self) -> Option<Ipv4Address> {
         self.inner.ipv4_gateway
     }
@@ -253,6 +269,7 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
     ///
     /// # Panics
     /// This function panics if the given address is not unicast.
+    #[cfg(feature = "proto-ipv4")]
     pub fn set_ipv4_gateway<GatewayAddrT>(&mut self, gateway: GatewayAddrT)
             where GatewayAddrT: Into<Option<Ipv4Address>> {
         self.inner.ipv4_gateway = gateway.into();
@@ -376,11 +393,12 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
                             device_result = inner.dispatch(tx_token, timestamp, response);
                             device_result
                         }, &caps.checksum),
-                    #[cfg(feature = "socket-icmp")]
+                    #[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
                     Socket::Icmp(ref mut socket) =>
                         socket.dispatch(&caps, |response| {
                             let tx_token = device.transmit().ok_or(Error::Exhausted)?;
                             device_result = match response {
+                                #[cfg(feature = "proto-ipv4")]
                                 (IpRepr::Ipv4(ipv4_repr), icmpv4_repr) => {
                                     let response = Packet::Icmpv4((ipv4_repr, icmpv4_repr));
                                     neighbor_addr = response.neighbor_addr();
@@ -449,6 +467,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         }
     }
 
+    #[cfg(feature = "proto-ipv4")]
     fn check_gateway_addr(addr: &Ipv4Address) {
         if !addr.is_unicast() {
             panic!("gateway IP address {} is not unicast", addr);
@@ -474,8 +493,10 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         }
 
         match eth_frame.ethertype() {
+            #[cfg(feature = "proto-ipv4")]
             EthernetProtocol::Arp =>
                 self.process_arp(timestamp, &eth_frame),
+            #[cfg(feature = "proto-ipv4")]
             EthernetProtocol::Ipv4 =>
                 self.process_ipv4(sockets, timestamp, &eth_frame),
             // Drop all other traffic.
@@ -483,6 +504,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         }
     }
 
+    #[cfg(feature = "proto-ipv4")]
     fn process_arp<'frame, T: AsRef<[u8]>>
                   (&mut self, timestamp: u64, eth_frame: &EthernetFrame<&'frame T>) ->
                   Result<Packet<'frame>>
@@ -524,6 +546,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         }
     }
 
+    #[cfg(feature = "proto-ipv4")]
     fn process_ipv4<'frame, T: AsRef<[u8]>>
                    (&mut self, sockets: &mut SocketSet, timestamp: u64,
                     eth_frame: &EthernetFrame<&'frame T>) ->
@@ -603,6 +626,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         }
     }
 
+    #[cfg(feature = "proto-ipv4")]
     fn process_icmpv4<'frame>(&self, _sockets: &mut SocketSet, ip_repr: IpRepr,
                               ip_payload: &'frame [u8]) -> Result<Packet<'frame>>
     {
@@ -613,7 +637,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         #[cfg(feature = "socket-icmp")]
         let mut handled_by_icmp_socket = false;
 
-        #[cfg(feature = "socket-icmp")]
+        #[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
         for mut icmp_socket in _sockets.iter_mut().filter_map(IcmpSocket::downcast) {
             if !icmp_socket.accepts(&ip_repr, &icmp_repr, &checksum_caps) { continue }
 
@@ -654,6 +678,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         }
     }
 
+    #[cfg(feature = "proto-ipv4")]
     fn icmpv4_reply<'frame, 'icmp: 'frame>
                    (&self, ipv4_repr: Ipv4Repr, icmp_repr: Icmpv4Repr<'icmp>) ->
                    Packet<'frame>
@@ -696,6 +721,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
 
         // The packet wasn't handled by a socket, send an ICMP port unreachable packet.
         match ip_repr {
+            #[cfg(feature = "proto-ipv4")]
             IpRepr::Ipv4(ipv4_repr) => {
                 // Send back as much of the original payload as we can
                 let payload_len = cmp::min(
@@ -710,8 +736,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
             #[cfg(feature = "proto-ipv6")]
             IpRepr::Ipv6(_) => Err(Error::Unaddressable),
             IpRepr::Unspecified { .. } |
-            IpRepr::__Nonexhaustive =>
-                unreachable!()
+            IpRepr::__Nonexhaustive => Err(Error::Unaddressable),
         }
     }
 
@@ -752,6 +777,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
     {
         let checksum_caps = self.device_capabilities.checksum.clone();
         match packet {
+            #[cfg(feature = "proto-ipv4")]
             Packet::Arp(arp_repr) => {
                 let dst_hardware_addr =
                     match arp_repr {
@@ -767,6 +793,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
                     arp_repr.emit(&mut packet);
                 })
             },
+            #[cfg(feature = "proto-ipv4")]
             Packet::Icmpv4((ipv4_repr, icmpv4_repr)) => {
                 self.dispatch_ip(tx_token, timestamp, IpRepr::Ipv4(ipv4_repr),
                                  |_ip_repr, payload| {
@@ -849,8 +876,12 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         }
 
         // Route via a gateway.
-        match (addr, self.ipv4_gateway) {
-            (&IpAddress::Ipv4(_), Some(gateway)) => Ok(gateway.into()),
+        match addr {
+            #[cfg(feature = "proto-ipv4")]
+            &IpAddress::Ipv4(_) => match self.ipv4_gateway {
+                Some(gateway) => Ok(gateway.into()),
+                None => Err(Error::Unaddressable),
+            }
             _ => Err(Error::Unaddressable)
         }
     }
@@ -882,6 +913,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         }
 
         match (src_addr, dst_addr) {
+            #[cfg(feature = "proto-ipv4")]
             (&IpAddress::Ipv4(src_addr), IpAddress::Ipv4(dst_addr)) => {
                 net_debug!("address {} not in neighbor cache, sending ARP request",
                            dst_addr);
@@ -903,7 +935,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
 
                 Err(Error::Unaddressable)
             }
-            _ => unreachable!()
+            _ => Err(Error::Unaddressable)
         }
     }
 
@@ -921,8 +953,11 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         self.dispatch_ethernet(tx_token, timestamp, ip_repr.total_len(), |mut frame| {
             frame.set_dst_addr(dst_hardware_addr);
             match ip_repr {
+                #[cfg(feature = "proto-ipv4")]
                 IpRepr::Ipv4(_) => frame.set_ethertype(EthernetProtocol::Ipv4),
-                _ => unreachable!()
+                #[cfg(feature = "proto-ipv6")]
+                IpRepr::Ipv6(_) => frame.set_ethertype(EthernetProtocol::Ipv6),
+                _ => return
             }
 
             ip_repr.emit(frame.payload_mut(), &checksum_caps);
@@ -934,6 +969,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
 }
 
 #[cfg(test)]
+#[cfg(feature = "proto-ipv4")]
 mod test {
     use std::collections::BTreeMap;
     use {Result, Error};
@@ -1300,7 +1336,7 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "socket-icmp")]
+    #[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
     fn test_icmpv4_socket() {
         use socket::{IcmpPacketBuffer, IcmpSocket, IcmpSocketBuffer, IcmpEndpoint};
         use wire::Icmpv4Packet;

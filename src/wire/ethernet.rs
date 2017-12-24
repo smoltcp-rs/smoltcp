@@ -217,10 +217,12 @@ impl<T: AsRef<[u8]>> PrettyPrint for Frame<T> {
         write!(f, "{}{}", indent, frame)?;
 
         match frame.ethertype() {
+            #[cfg(feature = "proto-ipv4")]
             EtherType::Arp => {
                 indent.increase(f)?;
                 super::ArpPacket::<&[u8]>::pretty_print(&frame.payload(), f, indent)
             }
+            #[cfg(feature = "proto-ipv4")]
             EtherType::Ipv4 => {
                 indent.increase(f)?;
                 super::Ipv4Packet::<&[u8]>::pretty_print(&frame.payload(), f, indent)

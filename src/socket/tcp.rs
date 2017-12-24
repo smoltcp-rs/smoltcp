@@ -1498,39 +1498,23 @@ impl<'a> fmt::Write for TcpSocket<'a> {
 #[cfg(test)]
 mod test {
     use core::i32;
-    use wire::{IpAddress, IpRepr};
-    use wire::{Ipv4Address, IpCidr, Ipv4Repr};
+    use wire::{IpAddress, IpRepr, IpCidr};
+    use wire::ip::test::{MOCK_IP_ADDR_1, MOCK_IP_ADDR_2, MOCK_IP_ADDR_3, MOCK_UNSPECIFIED};
     use super::*;
 
-    #[test]
-    fn test_timer_retransmit() {
-        let mut r = Timer::default();
-        assert_eq!(r.should_retransmit(1000), None);
-        r.set_for_retransmit(1000);
-        assert_eq!(r.should_retransmit(1000), None);
-        assert_eq!(r.should_retransmit(1050), None);
-        assert_eq!(r.should_retransmit(1101), Some(101));
-        r.set_for_retransmit(1101);
-        assert_eq!(r.should_retransmit(1101), None);
-        assert_eq!(r.should_retransmit(1150), None);
-        assert_eq!(r.should_retransmit(1200), None);
-        assert_eq!(r.should_retransmit(1301), Some(300));
-        r.set_for_idle(1301, None);
-        assert_eq!(r.should_retransmit(1350), None);
-    }
+    // =========================================================================================//
+    // Constants
+    // =========================================================================================//
 
-    const LOCAL_IP:     IpAddress    = IpAddress::Ipv4(Ipv4Address([10, 0, 0, 1]));
-    const REMOTE_IP:    IpAddress    = IpAddress::Ipv4(Ipv4Address([10, 0, 0, 2]));
-    const OTHER_IP:     IpAddress    = IpAddress::Ipv4(Ipv4Address([10, 0, 0, 3]));
     const LOCAL_PORT:   u16          = 80;
     const REMOTE_PORT:  u16          = 49500;
-    const LOCAL_END:    IpEndpoint   = IpEndpoint { addr: LOCAL_IP,  port: LOCAL_PORT  };
-    const REMOTE_END:   IpEndpoint   = IpEndpoint { addr: REMOTE_IP, port: REMOTE_PORT };
+    const LOCAL_END:    IpEndpoint   = IpEndpoint { addr: MOCK_IP_ADDR_1,  port: LOCAL_PORT  };
+    const REMOTE_END:   IpEndpoint   = IpEndpoint { addr: MOCK_IP_ADDR_2, port: REMOTE_PORT };
     const LOCAL_SEQ:    TcpSeqNumber = TcpSeqNumber(10000);
     const REMOTE_SEQ:   TcpSeqNumber = TcpSeqNumber(-10000);
 
     const SEND_IP_TEMPL: IpRepr = IpRepr::Unspecified {
-        src_addr: LOCAL_IP, dst_addr: REMOTE_IP,
+        src_addr: MOCK_IP_ADDR_1, dst_addr: MOCK_IP_ADDR_2,
         protocol: IpProtocol::Tcp, payload_len: 20,
         hop_limit: 64
     };
@@ -1542,7 +1526,7 @@ mod test {
         payload: &[]
     };
     const _RECV_IP_TEMPL: IpRepr = IpRepr::Unspecified {
-        src_addr: REMOTE_IP, dst_addr: LOCAL_IP,
+        src_addr: MOCK_IP_ADDR_1, dst_addr: MOCK_IP_ADDR_2,
         protocol: IpProtocol::Tcp, payload_len: 20,
         hop_limit: 64
     };
@@ -1554,11 +1538,20 @@ mod test {
         payload: &[]
     };
 
+    #[cfg(feature = "proto-ipv6")]
+    const BASE_MSS: u16 = 1460;
+    #[cfg(all(feature = "proto-ipv4", not(feature = "proto-ipv6")))]
+    const BASE_MSS: u16 = 1480;
+
+    // =========================================================================================//
+    // Helper functions
+    // =========================================================================================//
+
     fn send(socket: &mut TcpSocket, timestamp: u64, repr: &TcpRepr) ->
            Result<Option<TcpRepr<'static>>> {
         let ip_repr = IpRepr::Unspecified {
-            src_addr:    REMOTE_IP,
-            dst_addr:    LOCAL_IP,
+            src_addr:    MOCK_IP_ADDR_2,
+            dst_addr:    MOCK_IP_ADDR_1,
             protocol:    IpProtocol::Tcp,
             payload_len: repr.buffer_len(),
             hop_limit:   64
@@ -1584,8 +1577,8 @@ mod test {
             let ip_repr = ip_repr.lower(&[IpCidr::new(LOCAL_END.addr, 24)]).unwrap();
 
             assert_eq!(ip_repr.protocol(), IpProtocol::Tcp);
-            assert_eq!(ip_repr.src_addr(), LOCAL_IP);
-            assert_eq!(ip_repr.dst_addr(), REMOTE_IP);
+            assert_eq!(ip_repr.src_addr(), MOCK_IP_ADDR_1);
+            assert_eq!(ip_repr.dst_addr(), MOCK_IP_ADDR_2);
             assert_eq!(ip_repr.payload_len(), tcp_repr.buffer_len());
 
             net_trace!("recv: {}", tcp_repr);
@@ -1680,6 +1673,102 @@ mod test {
             Socket::Tcp(socket) => socket,
             _ => unreachable!()
         }
+    }
+
+    fn socket_syn_received() -> TcpSocket<'static> {
+        let mut s = socket();
+        s.state           = State::SynReceived;
+        s.local_endpoint  = LOCAL_END;
+        s.remote_endpoint = REMOTE_END;
+        s.local_seq_no    = LOCAL_SEQ;
+        s.remote_seq_no   = REMOTE_SEQ + 1;
+        s.remote_last_seq = LOCAL_SEQ;
+        s.remote_win_len  = 256;
+        s
+    }
+
+    fn socket_syn_sent() -> TcpSocket<'static> {
+        let mut s = socket();
+        s.state           = State::SynSent;
+        s.local_endpoint  = IpEndpoint::new(MOCK_UNSPECIFIED, LOCAL_PORT);
+        s.remote_endpoint = REMOTE_END;
+        s.local_seq_no    = LOCAL_SEQ;
+        s.remote_last_seq = LOCAL_SEQ;
+        s
+    }
+
+    fn socket_established() -> TcpSocket<'static> {
+        let mut s = socket_syn_received();
+        s.state           = State::Established;
+        s.local_seq_no    = LOCAL_SEQ + 1;
+        s.remote_last_seq = LOCAL_SEQ + 1;
+        s.remote_last_ack = Some(REMOTE_SEQ + 1);
+        s.remote_last_win = 64;
+        s
+    }
+
+    fn socket_fin_wait_1() -> TcpSocket<'static> {
+        let mut s = socket_established();
+        s.state           = State::FinWait1;
+        s
+    }
+
+    fn socket_fin_wait_2() -> TcpSocket<'static> {
+        let mut s = socket_fin_wait_1();
+        s.state           = State::FinWait2;
+        s.local_seq_no    = LOCAL_SEQ + 1 + 1;
+        s.remote_last_seq = LOCAL_SEQ + 1 + 1;
+        s
+    }
+
+    fn socket_closing() -> TcpSocket<'static> {
+        let mut s = socket_fin_wait_1();
+        s.state           = State::Closing;
+        s.remote_last_seq = LOCAL_SEQ + 1 + 1;
+        s.remote_seq_no   = REMOTE_SEQ + 1 + 1;
+        s
+    }
+
+    fn socket_time_wait(from_closing: bool) -> TcpSocket<'static> {
+        let mut s = socket_fin_wait_2();
+        s.state           = State::TimeWait;
+        s.remote_seq_no   = REMOTE_SEQ + 1 + 1;
+        if from_closing {
+            s.remote_last_ack = Some(REMOTE_SEQ + 1 + 1);
+        }
+        s.timer           = Timer::Close { expires_at: 1_000 + CLOSE_DELAY };
+        s
+    }
+
+    fn socket_close_wait() -> TcpSocket<'static> {
+        let mut s = socket_established();
+        s.state           = State::CloseWait;
+        s.remote_seq_no   = REMOTE_SEQ + 1 + 1;
+        s.remote_last_ack = Some(REMOTE_SEQ + 1 + 1);
+        s
+    }
+
+    fn socket_last_ack() -> TcpSocket<'static> {
+        let mut s = socket_close_wait();
+        s.state           = State::LastAck;
+        s
+    }
+
+    fn socket_recved() -> TcpSocket<'static> {
+        let mut s = socket_established();
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            payload:    &b"abcdef"[..],
+            ..SEND_TEMPL
+        });
+        recv!(s, [TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1 + 6),
+            window_len: 58,
+            ..RECV_TEMPL
+        }]);
+        s
     }
 
     // =========================================================================================//
@@ -1795,17 +1884,6 @@ mod test {
     // =========================================================================================//
     // Tests for the SYN-RECEIVED state.
     // =========================================================================================//
-    fn socket_syn_received() -> TcpSocket<'static> {
-        let mut s = socket();
-        s.state           = State::SynReceived;
-        s.local_endpoint  = LOCAL_END;
-        s.remote_endpoint = REMOTE_END;
-        s.local_seq_no    = LOCAL_SEQ;
-        s.remote_seq_no   = REMOTE_SEQ + 1;
-        s.remote_last_seq = LOCAL_SEQ;
-        s.remote_win_len  = 256;
-        s
-    }
 
     #[test]
     fn test_syn_received_ack() {
@@ -1814,7 +1892,7 @@ mod test {
             control: TcpControl::Syn,
             seq_number: LOCAL_SEQ,
             ack_number: Some(REMOTE_SEQ + 1),
-            max_seg_size: Some(1480),
+            max_seg_size: Some(BASE_MSS),
             ..RECV_TEMPL
         }]);
         send!(s, TcpRepr {
@@ -1833,7 +1911,7 @@ mod test {
             control: TcpControl::Syn,
             seq_number: LOCAL_SEQ,
             ack_number: Some(REMOTE_SEQ + 1),
-            max_seg_size: Some(1480),
+            max_seg_size: Some(BASE_MSS),
             ..RECV_TEMPL
         }]);
         send!(s, TcpRepr {
@@ -1864,7 +1942,7 @@ mod test {
             control: TcpControl::Syn,
             seq_number: LOCAL_SEQ,
             ack_number: Some(REMOTE_SEQ + 1),
-            max_seg_size: Some(1480),
+            max_seg_size: Some(BASE_MSS),
             ..RECV_TEMPL
         }]);
         send!(s, TcpRepr {
@@ -1888,24 +1966,15 @@ mod test {
     // =========================================================================================//
     // Tests for the SYN-SENT state.
     // =========================================================================================//
-    fn socket_syn_sent() -> TcpSocket<'static> {
-        let mut s = socket();
-        s.state           = State::SynSent;
-        s.local_endpoint  = IpEndpoint::new(IpAddress::v4(0, 0, 0, 0), LOCAL_PORT);
-        s.remote_endpoint = REMOTE_END;
-        s.local_seq_no    = LOCAL_SEQ;
-        s.remote_last_seq = LOCAL_SEQ;
-        s
-    }
 
     #[test]
     fn test_connect_validation() {
         let mut s = socket();
-        assert_eq!(s.connect((IpAddress::v4(0, 0, 0, 0), 80), LOCAL_END),
+        assert_eq!(s.connect((IpAddress::Unspecified, 80), LOCAL_END),
                    Err(Error::Unaddressable));
-        assert_eq!(s.connect(REMOTE_END, (IpAddress::v4(10, 0, 0, 0), 0)),
+        assert_eq!(s.connect(REMOTE_END, (MOCK_UNSPECIFIED, 0)),
                    Err(Error::Unaddressable));
-        assert_eq!(s.connect((IpAddress::v4(10, 0, 0, 0), 0), LOCAL_END),
+        assert_eq!(s.connect((MOCK_UNSPECIFIED, 0), LOCAL_END),
                    Err(Error::Unaddressable));
         assert_eq!(s.connect((IpAddress::Unspecified, 80), LOCAL_END),
                    Err(Error::Unaddressable));
@@ -1916,19 +1985,19 @@ mod test {
         let mut s = socket();
         s.local_seq_no = LOCAL_SEQ;
         s.connect(REMOTE_END, LOCAL_END.port).unwrap();
-        assert_eq!(s.local_endpoint, IpEndpoint::new(IpAddress::v4(0, 0, 0, 0), LOCAL_END.port));
+        assert_eq!(s.local_endpoint, IpEndpoint::new(MOCK_UNSPECIFIED, LOCAL_END.port));
         recv!(s, [TcpRepr {
             control:    TcpControl::Syn,
             seq_number: LOCAL_SEQ,
             ack_number: None,
-            max_seg_size: Some(1480),
+            max_seg_size: Some(BASE_MSS),
             ..RECV_TEMPL
         }]);
         send!(s, TcpRepr {
             control:    TcpControl::Syn,
             seq_number: REMOTE_SEQ,
             ack_number: Some(LOCAL_SEQ + 1),
-            max_seg_size: Some(1400),
+            max_seg_size: Some(BASE_MSS - 80),
             ..SEND_TEMPL
         });
         assert_eq!(s.local_endpoint, LOCAL_END);
@@ -1937,7 +2006,7 @@ mod test {
     #[test]
     fn test_connect_unspecified_local() {
         let mut s = socket();
-        assert_eq!(s.connect(REMOTE_END, (IpAddress::v4(0, 0, 0, 0), 80)),
+        assert_eq!(s.connect(REMOTE_END, (MOCK_UNSPECIFIED, 80)),
                    Ok(()));
         s.abort();
         assert_eq!(s.connect(REMOTE_END, (IpAddress::Unspecified, 80)),
@@ -1948,7 +2017,7 @@ mod test {
     #[test]
     fn test_connect_specified_local() {
         let mut s = socket();
-        assert_eq!(s.connect(REMOTE_END, (IpAddress::v4(10, 0, 0, 2), 80)),
+        assert_eq!(s.connect(REMOTE_END, (MOCK_IP_ADDR_2, 80)),
                    Ok(()));
     }
 
@@ -1976,14 +2045,14 @@ mod test {
             control:    TcpControl::Syn,
             seq_number: LOCAL_SEQ,
             ack_number: None,
-            max_seg_size: Some(1480),
+            max_seg_size: Some(BASE_MSS),
             ..RECV_TEMPL
         }]);
         send!(s, TcpRepr {
             control:    TcpControl::Syn,
             seq_number: REMOTE_SEQ,
             ack_number: Some(LOCAL_SEQ + 1),
-            max_seg_size: Some(1400),
+            max_seg_size: Some(BASE_MSS - 80),
             ..SEND_TEMPL
         });
         recv!(s, [TcpRepr {
@@ -2042,15 +2111,6 @@ mod test {
     // =========================================================================================//
     // Tests for the ESTABLISHED state.
     // =========================================================================================//
-    fn socket_established() -> TcpSocket<'static> {
-        let mut s = socket_syn_received();
-        s.state           = State::Established;
-        s.local_seq_no    = LOCAL_SEQ + 1;
-        s.remote_last_seq = LOCAL_SEQ + 1;
-        s.remote_last_ack = Some(REMOTE_SEQ + 1);
-        s.remote_last_win = 64;
-        s
-    }
 
     #[test]
     fn test_established_recv() {
@@ -2295,11 +2355,6 @@ mod test {
     // =========================================================================================//
     // Tests for the FIN-WAIT-1 state.
     // =========================================================================================//
-    fn socket_fin_wait_1() -> TcpSocket<'static> {
-        let mut s = socket_established();
-        s.state           = State::FinWait1;
-        s
-    }
 
     #[test]
     fn test_fin_wait_1_fin_ack() {
@@ -2368,13 +2423,6 @@ mod test {
     // =========================================================================================//
     // Tests for the FIN-WAIT-2 state.
     // =========================================================================================//
-    fn socket_fin_wait_2() -> TcpSocket<'static> {
-        let mut s = socket_fin_wait_1();
-        s.state           = State::FinWait2;
-        s.local_seq_no    = LOCAL_SEQ + 1 + 1;
-        s.remote_last_seq = LOCAL_SEQ + 1 + 1;
-        s
-    }
 
     #[test]
     fn test_fin_wait_2_fin() {
@@ -2399,13 +2447,6 @@ mod test {
     // =========================================================================================//
     // Tests for the CLOSING state.
     // =========================================================================================//
-    fn socket_closing() -> TcpSocket<'static> {
-        let mut s = socket_fin_wait_1();
-        s.state           = State::Closing;
-        s.remote_last_seq = LOCAL_SEQ + 1 + 1;
-        s.remote_seq_no   = REMOTE_SEQ + 1 + 1;
-        s
-    }
 
     #[test]
     fn test_closing_ack_fin() {
@@ -2434,16 +2475,6 @@ mod test {
     // =========================================================================================//
     // Tests for the TIME-WAIT state.
     // =========================================================================================//
-    fn socket_time_wait(from_closing: bool) -> TcpSocket<'static> {
-        let mut s = socket_fin_wait_2();
-        s.state           = State::TimeWait;
-        s.remote_seq_no   = REMOTE_SEQ + 1 + 1;
-        if from_closing {
-            s.remote_last_ack = Some(REMOTE_SEQ + 1 + 1);
-        }
-        s.timer           = Timer::Close { expires_at: 1_000 + CLOSE_DELAY };
-        s
-    }
 
     #[test]
     fn test_time_wait_from_fin_wait_2_ack() {
@@ -2505,13 +2536,6 @@ mod test {
     // =========================================================================================//
     // Tests for the CLOSE-WAIT state.
     // =========================================================================================//
-    fn socket_close_wait() -> TcpSocket<'static> {
-        let mut s = socket_established();
-        s.state           = State::CloseWait;
-        s.remote_seq_no   = REMOTE_SEQ + 1 + 1;
-        s.remote_last_ack = Some(REMOTE_SEQ + 1 + 1);
-        s
-    }
 
     #[test]
     fn test_close_wait_ack() {
@@ -2541,12 +2565,6 @@ mod test {
     // =========================================================================================//
     // Tests for the LAST-ACK state.
     // =========================================================================================//
-    fn socket_last_ack() -> TcpSocket<'static> {
-        let mut s = socket_close_wait();
-        s.state           = State::LastAck;
-        s
-    }
-
     #[test]
     fn test_last_ack_fin_ack() {
         let mut s = socket_last_ack();
@@ -2575,6 +2593,7 @@ mod test {
     // =========================================================================================//
     // Tests for transitioning through multiple states.
     // =========================================================================================//
+
     #[test]
     fn test_listen() {
         let mut s = socket();
@@ -2598,7 +2617,7 @@ mod test {
             control: TcpControl::Syn,
             seq_number: LOCAL_SEQ,
             ack_number: Some(REMOTE_SEQ + 1),
-            max_seg_size: Some(1480),
+            max_seg_size: Some(BASE_MSS),
             ..RECV_TEMPL
         }]);
         send!(s, TcpRepr {
@@ -2802,22 +2821,6 @@ mod test {
     // =========================================================================================//
     // Tests for retransmission on packet loss.
     // =========================================================================================//
-    fn socket_recved() -> TcpSocket<'static> {
-        let mut s = socket_established();
-        send!(s, TcpRepr {
-            seq_number: REMOTE_SEQ + 1,
-            ack_number: Some(LOCAL_SEQ + 1),
-            payload:    &b"abcdef"[..],
-            ..SEND_TEMPL
-        });
-        recv!(s, [TcpRepr {
-            seq_number: LOCAL_SEQ + 1,
-            ack_number: Some(REMOTE_SEQ + 1 + 6),
-            window_len: 58,
-            ..RECV_TEMPL
-        }]);
-        s
-    }
 
     #[test]
     fn test_duplicate_seq_ack() {
@@ -2907,14 +2910,14 @@ mod test {
             control:    TcpControl::Syn,
             seq_number: LOCAL_SEQ,
             ack_number: Some(REMOTE_SEQ + 1),
-            max_seg_size: Some(1480),
+            max_seg_size: Some(BASE_MSS),
             ..RECV_TEMPL
         }));
         recv!(s, time 150, Ok(TcpRepr { // retransmit
             control:    TcpControl::Syn,
             seq_number: LOCAL_SEQ,
             ack_number: Some(REMOTE_SEQ + 1),
-            max_seg_size: Some(1480),
+            max_seg_size: Some(BASE_MSS),
             ..RECV_TEMPL
         }));
         send!(s, TcpRepr {
@@ -3140,7 +3143,7 @@ mod test {
             control: TcpControl::Syn,
             seq_number: LOCAL_SEQ,
             ack_number: Some(REMOTE_SEQ + 1),
-            max_seg_size: Some(1480),
+            max_seg_size: Some(BASE_MSS),
             ..RECV_TEMPL
         }]);
         send!(s, TcpRepr {
@@ -3317,7 +3320,7 @@ mod test {
             control:    TcpControl::Syn,
             seq_number: LOCAL_SEQ,
             ack_number: None,
-            max_seg_size: Some(1480),
+            max_seg_size: Some(BASE_MSS),
             ..RECV_TEMPL
         }));
         assert_eq!(s.state, State::SynSent);
@@ -3533,13 +3536,7 @@ mod test {
 
         s.set_hop_limit(Some(0x2a));
         assert_eq!(s.dispatch(0, &caps, |(ip_repr, _)| {
-            assert_eq!(ip_repr, IpRepr::Ipv4(Ipv4Repr {
-                src_addr: Ipv4Address([10, 0, 0, 1]),
-                dst_addr: Ipv4Address([10, 0, 0, 2]),
-                protocol: IpProtocol::Tcp,
-                payload_len: 24,
-                hop_limit: 0x2a,
-            }));
+            assert_eq!(ip_repr.hop_limit(), 0x2a);
             Ok(())
         }), Ok(()));
     }
@@ -3686,8 +3683,8 @@ mod test {
         };
 
         let ip_repr = IpRepr::Unspecified {
-            src_addr:    REMOTE_IP,
-            dst_addr:    LOCAL_IP,
+            src_addr:    MOCK_IP_ADDR_2,
+            dst_addr:    MOCK_IP_ADDR_1,
             protocol:    IpProtocol::Tcp,
             payload_len: tcp_repr.buffer_len(),
             hop_limit:   64
@@ -3695,8 +3692,8 @@ mod test {
         assert!(s.accepts(&ip_repr, &tcp_repr));
 
         let ip_repr_wrong_src = IpRepr::Unspecified {
-            src_addr:    OTHER_IP,
-            dst_addr:    LOCAL_IP,
+            src_addr:    MOCK_IP_ADDR_3,
+            dst_addr:    MOCK_IP_ADDR_1,
             protocol:    IpProtocol::Tcp,
             payload_len: tcp_repr.buffer_len(),
             hop_limit:   64
@@ -3704,12 +3701,34 @@ mod test {
         assert!(!s.accepts(&ip_repr_wrong_src, &tcp_repr));
 
         let ip_repr_wrong_dst = IpRepr::Unspecified {
-            src_addr:    REMOTE_IP,
-            dst_addr:    OTHER_IP,
+            src_addr:    MOCK_IP_ADDR_2,
+            dst_addr:    MOCK_IP_ADDR_3,
             protocol:    IpProtocol::Tcp,
             payload_len: tcp_repr.buffer_len(),
             hop_limit:   64
         };
         assert!(!s.accepts(&ip_repr_wrong_dst, &tcp_repr));
     }
+
+    // =========================================================================================//
+    // Timer tests
+    // =========================================================================================//
+
+    #[test]
+    fn test_timer_retransmit() {
+        let mut r = Timer::default();
+        assert_eq!(r.should_retransmit(1000), None);
+        r.set_for_retransmit(1000);
+        assert_eq!(r.should_retransmit(1000), None);
+        assert_eq!(r.should_retransmit(1050), None);
+        assert_eq!(r.should_retransmit(1101), Some(101));
+        r.set_for_retransmit(1101);
+        assert_eq!(r.should_retransmit(1101), None);
+        assert_eq!(r.should_retransmit(1150), None);
+        assert_eq!(r.should_retransmit(1200), None);
+        assert_eq!(r.should_retransmit(1301), Some(300));
+        r.set_for_idle(1301, None);
+        assert_eq!(r.should_retransmit(1350), None);
+    }
+
 }

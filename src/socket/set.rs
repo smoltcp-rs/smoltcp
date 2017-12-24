@@ -140,7 +140,7 @@ impl<'a, 'b: 'a, 'c: 'a + 'b> Set<'a, 'b, 'c> {
                     #[cfg(feature = "socket-raw")]
                     &mut Socket::Raw(_) =>
                         may_remove = true,
-                    #[cfg(feature = "socket-icmp")]
+                    #[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
                     &mut Socket::Icmp(_) =>
                         may_remove = true,
                     #[cfg(feature = "socket-udp")]

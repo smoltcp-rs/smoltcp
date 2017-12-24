@@ -854,12 +854,16 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
 
 #[cfg(test)]
 mod test {
+    #[cfg(feature = "proto-ipv4")]
     use wire::Ipv4Address;
     use super::*;
 
+    #[cfg(feature = "proto-ipv4")]
     const SRC_ADDR: Ipv4Address = Ipv4Address([192, 168, 1, 1]);
+    #[cfg(feature = "proto-ipv4")]
     const DST_ADDR: Ipv4Address = Ipv4Address([192, 168, 1, 2]);
 
+    #[cfg(feature = "proto-ipv4")]
     static PACKET_BYTES: [u8; 28] =
         [0xbf, 0x00, 0x00, 0x50,
          0x01, 0x23, 0x45, 0x67,
@@ -869,13 +873,16 @@ mod test {
          0x03, 0x03, 0x0c, 0x01,
          0xaa, 0x00, 0x00, 0xff];
 
+    #[cfg(feature = "proto-ipv4")]
     static OPTION_BYTES: [u8; 4] =
         [0x03, 0x03, 0x0c, 0x01];
 
+    #[cfg(feature = "proto-ipv4")]
     static PAYLOAD_BYTES: [u8; 4] =
         [0xaa, 0x00, 0x00, 0xff];
 
     #[test]
+    #[cfg(feature = "proto-ipv4")]
     fn test_deconstruct() {
         let packet = Packet::new(&PACKET_BYTES[..]);
         assert_eq!(packet.src_port(), 48896);
@@ -898,6 +905,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "proto-ipv4")]
     fn test_construct() {
         let mut bytes = vec![0xa5; PACKET_BYTES.len()];
         let mut packet = Packet::new(&mut bytes);
@@ -923,6 +931,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "proto-ipv4")]
     fn test_truncated() {
         let packet = Packet::new(&PACKET_BYTES[..23]);
         assert_eq!(packet.check_len(), Err(Error::Truncated));
@@ -936,6 +945,7 @@ mod test {
         assert_eq!(packet.check_len(), Err(Error::Malformed));
     }
 
+    #[cfg(feature = "proto-ipv4")]
     static SYN_PACKET_BYTES: [u8; 24] =
         [0xbf, 0x00, 0x00, 0x50,
          0x01, 0x23, 0x45, 0x67,
@@ -944,6 +954,7 @@ mod test {
          0x7a, 0x8d, 0x00, 0x00,
          0xaa, 0x00, 0x00, 0xff];
 
+    #[cfg(feature = "proto-ipv4")]
     fn packet_repr() -> Repr<'static> {
         Repr {
             src_port:     48896,
@@ -958,6 +969,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "proto-ipv4")]
     fn test_parse() {
         let packet = Packet::new(&SYN_PACKET_BYTES[..]);
         let repr = Repr::parse(&packet, &SRC_ADDR.into(), &DST_ADDR.into(), &ChecksumCapabilities::default()).unwrap();
@@ -965,6 +977,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "proto-ipv4")]
     fn test_emit() {
         let repr = packet_repr();
         let mut bytes = vec![0xa5; repr.buffer_len()];

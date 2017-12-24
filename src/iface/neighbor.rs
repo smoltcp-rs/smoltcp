@@ -157,81 +157,80 @@ impl<'a> Cache<'a> {
 
 #[cfg(test)]
 mod test {
-    use wire::Ipv4Address;
     use super::*;
+    use wire::ip::test::{MOCK_IP_ADDR_1, MOCK_IP_ADDR_2, MOCK_IP_ADDR_3, MOCK_IP_ADDR_4};
 
     const HADDR_A: EthernetAddress = EthernetAddress([0, 0, 0, 0, 0, 1]);
     const HADDR_B: EthernetAddress = EthernetAddress([0, 0, 0, 0, 0, 2]);
     const HADDR_C: EthernetAddress = EthernetAddress([0, 0, 0, 0, 0, 3]);
     const HADDR_D: EthernetAddress = EthernetAddress([0, 0, 0, 0, 0, 4]);
 
-    const PADDR_A: IpAddress = IpAddress::Ipv4(Ipv4Address([1, 0, 0, 1]));
-    const PADDR_B: IpAddress = IpAddress::Ipv4(Ipv4Address([1, 0, 0, 2]));
-    const PADDR_C: IpAddress = IpAddress::Ipv4(Ipv4Address([1, 0, 0, 3]));
-    const PADDR_D: IpAddress = IpAddress::Ipv4(Ipv4Address([1, 0, 0, 4]));
-
     #[test]
+    #[cfg(feature = "proto-ipv4")]
     fn test_fill() {
         let mut cache_storage = [Default::default(); 3];
         let mut cache = Cache::new(&mut cache_storage[..]);
 
-        assert_eq!(cache.lookup_pure(&PADDR_A, 0), None);
-        assert_eq!(cache.lookup_pure(&PADDR_B, 0), None);
+        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_1, 0), None);
+        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_2, 0), None);
 
-        cache.fill(PADDR_A, HADDR_A, 0);
-        assert_eq!(cache.lookup_pure(&PADDR_A, 0), Some(HADDR_A));
-        assert_eq!(cache.lookup_pure(&PADDR_B, 0), None);
-        assert_eq!(cache.lookup_pure(&PADDR_A, 2 * Cache::ENTRY_LIFETIME), None);
+        cache.fill(MOCK_IP_ADDR_1, HADDR_A, 0);
+        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_1, 0), Some(HADDR_A));
+        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_2, 0), None);
+        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_1, 2 * Cache::ENTRY_LIFETIME), None);
 
-        cache.fill(PADDR_A, HADDR_A, 0);
-        assert_eq!(cache.lookup_pure(&PADDR_B, 0), None);
+        cache.fill(MOCK_IP_ADDR_1, HADDR_A, 0);
+        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_2, 0), None);
     }
 
     #[test]
+    #[cfg(feature = "proto-ipv4")]
     fn test_expire() {
         let mut cache_storage = [Default::default(); 3];
         let mut cache = Cache::new(&mut cache_storage[..]);
 
-        cache.fill(PADDR_A, HADDR_A, 0);
-        assert_eq!(cache.lookup_pure(&PADDR_A, 0), Some(HADDR_A));
-        assert_eq!(cache.lookup_pure(&PADDR_A, 2 * Cache::ENTRY_LIFETIME), None);
+        cache.fill(MOCK_IP_ADDR_1, HADDR_A, 0);
+        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_1, 0), Some(HADDR_A));
+        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_1, 2 * Cache::ENTRY_LIFETIME), None);
     }
 
     #[test]
+    #[cfg(feature = "proto-ipv4")]
     fn test_replace() {
         let mut cache_storage = [Default::default(); 3];
         let mut cache = Cache::new(&mut cache_storage[..]);
 
-        cache.fill(PADDR_A, HADDR_A, 0);
-        assert_eq!(cache.lookup_pure(&PADDR_A, 0), Some(HADDR_A));
-        cache.fill(PADDR_A, HADDR_B, 0);
-        assert_eq!(cache.lookup_pure(&PADDR_A, 0), Some(HADDR_B));
+        cache.fill(MOCK_IP_ADDR_1, HADDR_A, 0);
+        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_1, 0), Some(HADDR_A));
+        cache.fill(MOCK_IP_ADDR_1, HADDR_B, 0);
+        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_1, 0), Some(HADDR_B));
     }
 
     #[test]
+    #[cfg(feature = "proto-ipv4")]
     fn test_evict() {
         let mut cache_storage = [Default::default(); 3];
         let mut cache = Cache::new(&mut cache_storage[..]);
 
-        cache.fill(PADDR_A, HADDR_A, 100);
-        cache.fill(PADDR_B, HADDR_B, 50);
-        cache.fill(PADDR_C, HADDR_C, 200);
-        assert_eq!(cache.lookup_pure(&PADDR_B, 1000), Some(HADDR_B));
-        assert_eq!(cache.lookup_pure(&PADDR_D, 1000), None);
+        cache.fill(MOCK_IP_ADDR_1, HADDR_A, 100);
+        cache.fill(MOCK_IP_ADDR_2, HADDR_B, 50);
+        cache.fill(MOCK_IP_ADDR_3, HADDR_C, 200);
+        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_2, 1000), Some(HADDR_B));
+        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_4, 1000), None);
 
-        cache.fill(PADDR_D, HADDR_D, 300);
-        assert_eq!(cache.lookup_pure(&PADDR_B, 1000), None);
-        assert_eq!(cache.lookup_pure(&PADDR_D, 1000), Some(HADDR_D));
+        cache.fill(MOCK_IP_ADDR_4, HADDR_D, 300);
+        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_2, 1000), None);
+        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_4, 1000), Some(HADDR_D));
     }
 
     #[test]
+    #[cfg(feature = "proto-ipv4")]
     fn test_hush() {
         let mut cache_storage = [Default::default(); 3];
         let mut cache = Cache::new(&mut cache_storage[..]);
 
-        assert_eq!(cache.lookup(&PADDR_A, 0), Answer::NotFound);
-        assert_eq!(cache.lookup(&PADDR_A, 100), Answer::RateLimited);
-        assert_eq!(cache.lookup(&PADDR_A, 2000), Answer::NotFound);
+        assert_eq!(cache.lookup(&MOCK_IP_ADDR_1, 0), Answer::NotFound);
+        assert_eq!(cache.lookup(&MOCK_IP_ADDR_1, 100), Answer::RateLimited);
+        assert_eq!(cache.lookup(&MOCK_IP_ADDR_1, 2000), Answer::NotFound);
     }
 }
-
