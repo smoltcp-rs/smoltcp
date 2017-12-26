@@ -7,6 +7,11 @@ use {Error, Result};
 pub use super::IpProtocol as Protocol;
 use super::ip::pretty_print_ip_payload;
 
+/// Minimum MTU required of all links supporting IPv6. See [RFC 8200 § 5].
+///
+/// [RFC 8200 § 5]: https://tools.ietf.org/html/rfc8200#section-5
+pub const MIN_MTU: usize = 1280;
+
 /// A sixteen-octet IPv6 address.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
 pub struct Address(pub [u8; 16]);
