@@ -183,7 +183,7 @@ impl<'a, 'b> RawSocket<'a, 'b> {
         Ok(())
     }
 
-    pub(crate) fn dispatch<F>(&mut self, emit: F, checksum_caps: &ChecksumCapabilities) ->
+    pub(crate) fn dispatch<F>(&mut self, checksum_caps: &ChecksumCapabilities, emit: F) ->
                              Result<()>
             where F: FnOnce((IpRepr, &[u8])) -> Result<()> {
         fn prepare<'a>(protocol: IpProtocol, buffer: &'a mut [u8],
@@ -301,48 +301,50 @@ mod test {
     #[test]
     #[cfg(feature = "proto-ipv4")]
     fn test_send_dispatch() {
+        let checksum_caps = &ChecksumCapabilities::default();
         let mut socket = ipv4_locals::socket(buffer(0), buffer(1));
 
         assert!(socket.can_send());
-        assert_eq!(socket.dispatch(|_| unreachable!(), &ChecksumCapabilities::default()),
+        assert_eq!(socket.dispatch(&checksum_caps, |_| unreachable!()),
                    Err(Error::Exhausted));
 
         assert_eq!(socket.send_slice(&ipv4_locals::PACKET_BYTES[..]), Ok(()));
         assert_eq!(socket.send_slice(b""), Err(Error::Exhausted));
         assert!(!socket.can_send());
 
-        assert_eq!(socket.dispatch(|(ip_repr, ip_payload)| {
+        assert_eq!(socket.dispatch(&checksum_caps, |(ip_repr, ip_payload)| {
             assert_eq!(ip_repr, ipv4_locals::HEADER_REPR);
             assert_eq!(ip_payload, &ipv4_locals::PACKET_PAYLOAD);
             Err(Error::Unaddressable)
-        }, &ChecksumCapabilities::default()), Err(Error::Unaddressable));
+        }), Err(Error::Unaddressable));
         assert!(!socket.can_send());
 
-        assert_eq!(socket.dispatch(|(ip_repr, ip_payload)| {
+        assert_eq!(socket.dispatch(&checksum_caps, |(ip_repr, ip_payload)| {
             assert_eq!(ip_repr, ipv4_locals::HEADER_REPR);
             assert_eq!(ip_payload, &ipv4_locals::PACKET_PAYLOAD);
             Ok(())
-        }, &ChecksumCapabilities::default()), Ok(()));
+        }), Ok(()));
         assert!(socket.can_send());
     }
 
     #[test]
     #[cfg(feature = "proto-ipv4")]
     fn test_send_illegal() {
+        let checksum_caps = &ChecksumCapabilities::default();
         let mut socket = ipv4_locals::socket(buffer(0), buffer(1));
 
         let mut wrong_version = ipv4_locals::PACKET_BYTES.clone();
         Ipv4Packet::new(&mut wrong_version).set_version(5);
 
         assert_eq!(socket.send_slice(&wrong_version[..]), Ok(()));
-        assert_eq!(socket.dispatch(|_| unreachable!(), &ChecksumCapabilities::default()),
+        assert_eq!(socket.dispatch(&checksum_caps, |_| unreachable!()),
                    Ok(()));
 
         let mut wrong_protocol = ipv4_locals::PACKET_BYTES.clone();
         Ipv4Packet::new(&mut wrong_protocol).set_protocol(IpProtocol::Tcp);
 
         assert_eq!(socket.send_slice(&wrong_protocol[..]), Ok(()));
-        assert_eq!(socket.dispatch(|_| unreachable!(), &ChecksumCapabilities::default()),
+        assert_eq!(socket.dispatch(&checksum_caps, |_| unreachable!()),
                    Ok(()));
     }
 

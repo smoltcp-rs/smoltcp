@@ -382,52 +382,44 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
             let mut neighbor_addr = None;
             let mut device_result = Ok(());
             let &mut Self { ref mut device, ref mut inner } = self;
+
+            macro_rules! respond {
+                ($response:expr) => ({
+                    let response = $response;
+                    neighbor_addr = response.neighbor_addr();
+                    let tx_token = device.transmit().ok_or(Error::Exhausted)?;
+                    device_result = inner.dispatch(tx_token, timestamp, response);
+                    device_result
+                })
+            }
+
             let socket_result =
                 match *socket {
                     #[cfg(feature = "socket-raw")]
                     Socket::Raw(ref mut socket) =>
-                        socket.dispatch(|response| {
-                            let response = Packet::Raw(response);
-                            neighbor_addr = response.neighbor_addr();
-                            let tx_token = device.transmit().ok_or(Error::Exhausted)?;
-                            device_result = inner.dispatch(tx_token, timestamp, response);
-                            device_result
-                        }, &caps.checksum),
+                        socket.dispatch(&caps.checksum, |response|
+                            respond!(Packet::Raw(response))),
                     #[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
                     Socket::Icmp(ref mut socket) =>
                         socket.dispatch(&caps, |response| {
-                            let tx_token = device.transmit().ok_or(Error::Exhausted)?;
-                            device_result = match response {
+                            match response {
                                 #[cfg(feature = "proto-ipv4")]
-                                (IpRepr::Ipv4(ipv4_repr), icmpv4_repr) => {
-                                    let response = Packet::Icmpv4((ipv4_repr, icmpv4_repr));
-                                    neighbor_addr = response.neighbor_addr();
-                                    inner.dispatch(tx_token, timestamp, response)
-                                }
-                                _ => Err(Error::Unaddressable),
-                            };
-                            device_result
+                                (IpRepr::Ipv4(ipv4_repr), icmpv4_repr) =>
+                                    respond!(Packet::Icmpv4((ipv4_repr, icmpv4_repr))),
+                                _ => Err(Error::Unaddressable)
+                            }
                         }),
                     #[cfg(feature = "socket-udp")]
                     Socket::Udp(ref mut socket) =>
-                        socket.dispatch(|response| {
-                            let response = Packet::Udp(response);
-                            neighbor_addr = response.neighbor_addr();
-                            let tx_token = device.transmit().ok_or(Error::Exhausted)?;
-                            device_result = inner.dispatch(tx_token, timestamp, response);
-                            device_result
-                        }),
+                        socket.dispatch(|response|
+                            respond!(Packet::Udp(response))),
                     #[cfg(feature = "socket-tcp")]
                     Socket::Tcp(ref mut socket) =>
-                        socket.dispatch(timestamp, &caps, |response| {
-                            let response = Packet::Tcp(response);
-                            neighbor_addr = response.neighbor_addr();
-                            let tx_token = device.transmit().ok_or(Error::Exhausted)?;
-                            device_result = inner.dispatch(tx_token, timestamp, response);
-                            device_result
-                        }),
+                        socket.dispatch(timestamp, &caps, |response|
+                            respond!(Packet::Tcp(response))),
                     Socket::__Nonexhaustive(_) => unreachable!()
                 };
+
             match (device_result, socket_result) {
                 (Err(Error::Exhausted), _) => break,     // nowhere to transmit
                 (Ok(()), Err(Error::Exhausted)) => (),   // nothing to transmit
