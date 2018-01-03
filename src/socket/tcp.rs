@@ -936,6 +936,17 @@ impl<'a> TcpSocket<'a> {
             }
         }
 
+        // If a FIN arrives before the data, we should wait until all data arrived.
+        // (A slight improvement would be to remember that we got the FIN already.)
+        let window_start = self.remote_seq_no + self.rx_buffer.len();
+        if repr.control == TcpControl::Fin && repr.seq_number > window_start {
+            net_debug!("{}:{}:{}: FIN arrived before unseen data \
+                        ({} > {}), will send challenge ACK",
+                       self.meta.handle, self.local_endpoint, self.remote_endpoint,
+                       repr.seq_number, window_start);
+            return Ok(Some(self.ack_reply(ip_repr, &repr)))
+        }
+
         // Compute the amount of acknowledged octets, removing the SYN and FIN bits
         // from the sequence space.
         let mut ack_len = 0;
@@ -2286,6 +2297,22 @@ mod test {
         }]);
         assert_eq!(s.state, State::CloseWait);
         sanity!(s, socket_close_wait());
+    }
+
+    #[test]
+    fn test_established_not_fin() {
+        let mut s = socket_established();
+        send!(s, TcpRepr {
+            control: TcpControl::Fin,
+            seq_number: REMOTE_SEQ + 10,
+            ack_number: Some(LOCAL_SEQ + 1),
+            ..SEND_TEMPL
+        }, Ok(Some(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            ..RECV_TEMPL
+        })));
+        assert_eq!(s.state, State::Established);
     }
 
     #[test]
