@@ -1,23 +1,21 @@
-//! Access to networking hardware.
-//!
-//! The `phy` module deals with the *network devices*. It provides a trait
-//! for transmitting and receiving frames, [Device](trait.Device.html)
-//! and implementations of it:
-//!
-//!   * the [_loopback_](struct.Loopback.html), for zero dependency testing;
-//!   * _middleware_ [Tracer](struct.Tracer.html) and
-//!     [FaultInjector](struct.FaultInjector.html), to facilitate debugging;
-//!   * _adapters_ [RawSocket](struct.RawSocket.html) and
-//!     [TapInterface](struct.TapInterface.html), to transmit and receive frames
-//!     on the host OS.
-//!
-// https://github.com/rust-lang/rust/issues/38740
-//! <h1 id="examples" class="section-header"><a href="#examples">Examples</a></h1>
-//!
-//! An implementation of the [Device](trait.Device.html) trait for a simple hardware
-//! Ethernet controller could look as follows:
-//!
-/*!
+/*! Access to networking hardware.
+
+The `phy` module deals with the *network devices*. It provides a trait
+for transmitting and receiving frames, [Device](trait.Device.html)
+and implementations of it:
+
+  * the [_loopback_](struct.Loopback.html), for zero dependency testing;
+  * _middleware_ [Tracer](struct.Tracer.html) and
+    [FaultInjector](struct.FaultInjector.html), to facilitate debugging;
+  * _adapters_ [RawSocket](struct.RawSocket.html) and
+    [TapInterface](struct.TapInterface.html), to transmit and receive frames
+    on the host OS.
+
+# Examples
+
+An implementation of the [Device](trait.Device.html) trait for a simple hardware
+Ethernet controller could look as follows:
+
 ```rust
 use smoltcp::Result;
 use smoltcp::phy::{self, DeviceCapabilities, Device};

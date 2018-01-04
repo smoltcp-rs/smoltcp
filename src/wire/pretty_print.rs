@@ -1,13 +1,12 @@
-//! Pretty-printing of packet representation.
-//!
-//! The `pretty_print` module provides bits and pieces for printing concise,
-//! easily human readable packet listings.
-//!
-//! # Example
-//!
-//! A packet can be formatted using the `PrettyPrinter` wrapper:
-//!
-/*!
+/*! Pretty-printing of packet representation.
+
+The `pretty_print` module provides bits and pieces for printing concise,
+easily human readable packet listings.
+
+# Example
+
+A packet can be formatted using the `PrettyPrinter` wrapper:
+
 ```rust
 use smoltcp::wire::*;
 let buffer = vec![

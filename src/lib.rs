@@ -12,14 +12,12 @@
 //!
 //! When discussing networking stacks and layering, often the [OSI model][osi] is invoked.
 //! _smoltcp_ makes no effort to conform to the OSI model as it is not applicable to TCP/IP.
-//! [osi]: https://en.wikipedia.org/wiki/OSI_model
 //!
 //! # The socket layer
 //! The socket layer APIs are provided in the module [socket](socket/index.html); currently,
 //! raw, ICMP, TCP, and UDP sockets are provided. The socket API provides the usual primitives,
 //! but necessarily differs in many from the [Berkeley socket API][berk], as the latter was
 //! not designed to be used without heap allocation.
-//! [berk]: https://en.wikipedia.org/wiki/Berkeley_sockets
 //!
 //! The socket layer provides the buffering, packet construction and validation, and (for
 //! stateful sockets) the state machines, but it is interface-agnostic. An application must
@@ -69,6 +67,9 @@
 //! except where necessary to provide safe access to fields, and strives to implement every
 //! feature ever defined, to ensure that, when the representation layer is unable to make sense
 //! of a packet, it is still logged correctly and in full.
+//!
+//! [osi]: https://en.wikipedia.org/wiki/OSI_model
+//! [berk]: https://en.wikipedia.org/wiki/Berkeley_sockets
 
 /* XXX compiler bug
 #![cfg(not(any(feature = "socket-raw",

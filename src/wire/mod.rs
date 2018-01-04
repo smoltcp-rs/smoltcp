@@ -1,50 +1,47 @@
-//! Low-level packet access and construction.
-//!
-//! The `wire` module deals with the packet *representation*. It provides two levels
-//! of functionality.
-//!
-//!  * First, it provides functions to extract fields from sequences of octets,
-//!    and to insert fields into sequences of octets. This happens `Packet` family of
-//!    structures, e.g. [EthernetFrame] or [Ipv4Packet].
-//!  * Second, in cases where the space of valid field values is much smaller than the space
-//!    of possible field values, it provides a compact, high-level representation
-//!    of packet data that can be parsed from and emitted into a sequence of octets.
-//!    This happens through the `Repr` family of structs and enums, e.g. [ArpRepr] or [Ipv4Repr].
-// https://github.com/rust-lang/rust/issues/38739
-//! </ul>
-//!
-//! [EthernetFrame]: struct.EthernetFrame.html
-//! [Ipv4Packet]: struct.Ipv4Packet.html
-//! [ArpRepr]: enum.ArpRepr.html
-//! [Ipv4Repr]: struct.Ipv4Repr.html
-//!
-//! The functions in the `wire` module are designed for use together with `-Cpanic=abort`.
-//!
-//! The `Packet` family of data structures guarantees that, if the `Packet::check_len()` method
-//! returned `Ok(())`, then no accessor or setter method will panic; however, the guarantee
-//! provided by `Packet::check_len()` may no longer hold after changing certain fields,
-//! which are listed in the documentation for the specific packet.
-//!
-//! The `Packet::new_checked` method is a shorthand for a combination of `Packet::new` and
-//! `Packet::check_len`.
-//! When parsing untrusted input, it is *necessary* to use `Packet::new_checked()`;
-//! so long as the buffer is not modified, no accessor will fail.
-//! When emitting output, though, it is *incorrect* to use `Packet::new_checked()`;
-//! the length check is likely to succeed on a zeroed buffer, but fail on a buffer
-//! filled with data from a previous packet, such as when reusing buffers, resulting
-//! in nondeterministic panics with some network devices but not others.
-//! The buffer length for emission is not calculated by the `Packet` layer.
-//!
-//! In the `Repr` family of data structures, the `Repr::parse()` method never panics
-//! as long as `Packet::new_checked()` (or `Packet::check_len()`) has succeeded, and
-//! the `Repr::emit()` method never panics as long as the underlying buffer is exactly
-//! `Repr::buffer_len()` octets long.
-//!
-//! # Examples
-//!
-//! To emit an IP packet header into an octet buffer, and then parse it back:
-//!
-/*!
+/*! Low-level packet access and construction.
+
+The `wire` module deals with the packet *representation*. It provides two levels
+of functionality.
+
+ * First, it provides functions to extract fields from sequences of octets,
+   and to insert fields into sequences of octets. This happens `Packet` family of
+   structures, e.g. [EthernetFrame] or [Ipv4Packet].
+ * Second, in cases where the space of valid field values is much smaller than the space
+   of possible field values, it provides a compact, high-level representation
+   of packet data that can be parsed from and emitted into a sequence of octets.
+   This happens through the `Repr` family of structs and enums, e.g. [ArpRepr] or [Ipv4Repr].
+
+[EthernetFrame]: struct.EthernetFrame.html
+[Ipv4Packet]: struct.Ipv4Packet.html
+[ArpRepr]: enum.ArpRepr.html
+[Ipv4Repr]: struct.Ipv4Repr.html
+
+The functions in the `wire` module are designed for use together with `-Cpanic=abort`.
+
+The `Packet` family of data structures guarantees that, if the `Packet::check_len()` method
+returned `Ok(())`, then no accessor or setter method will panic; however, the guarantee
+provided by `Packet::check_len()` may no longer hold after changing certain fields,
+which are listed in the documentation for the specific packet.
+
+The `Packet::new_checked` method is a shorthand for a combination of `Packet::new` and
+`Packet::check_len`.
+When parsing untrusted input, it is *necessary* to use `Packet::new_checked()`;
+so long as the buffer is not modified, no accessor will fail.
+When emitting output, though, it is *incorrect* to use `Packet::new_checked()`;
+the length check is likely to succeed on a zeroed buffer, but fail on a buffer
+filled with data from a previous packet, such as when reusing buffers, resulting
+in nondeterministic panics with some network devices but not others.
+The buffer length for emission is not calculated by the `Packet` layer.
+
+In the `Repr` family of data structures, the `Repr::parse()` method never panics
+as long as `Packet::new_checked()` (or `Packet::check_len()`) has succeeded, and
+the `Repr::emit()` method never panics as long as the underlying buffer is exactly
+`Repr::buffer_len()` octets long.
+
+# Examples
+
+To emit an IP packet header into an octet buffer, and then parse it back:
+
 ```rust
 # #[cfg(feature = "proto-ipv4")]
 # {
