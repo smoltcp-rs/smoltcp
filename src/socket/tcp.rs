@@ -887,6 +887,11 @@ impl<'a> TcpSocket<'a> {
             }
         }
 
+        let window_start  = self.remote_seq_no + self.rx_buffer.len();
+        let window_end    = self.remote_seq_no + self.rx_buffer.capacity();
+        let segment_start = repr.seq_number;
+        let segment_end   = repr.seq_number + repr.segment_len();
+
         let payload_offset;
         match self.state {
             // In LISTEN and SYN-SENT states, we have not yet synchronized with the remote end.
@@ -895,11 +900,6 @@ impl<'a> TcpSocket<'a> {
             // In all other states, segments must occupy a valid portion of the receive window.
             _ => {
                 let mut segment_in_window = true;
-
-                let window_start  = self.remote_seq_no + self.rx_buffer.len();
-                let window_end    = self.remote_seq_no + self.rx_buffer.capacity();
-                let segment_start = repr.seq_number;
-                let segment_end   = repr.seq_number + repr.segment_len();
 
                 if window_start == window_end && segment_start != segment_end {
                     net_debug!("{}:{}:{}: non-zero-length segment with zero receive window, \
@@ -960,8 +960,18 @@ impl<'a> TcpSocket<'a> {
             }
         }
 
+        // Disregard control flags we don't care about or shouldn't act on yet.
+        let mut control = repr.control;
+        control = control.quash_psh();
+
+        // If a FIN is received at the end of the current segment but the start of the segment
+        // is not at the start of the receive window, disregard this FIN.
+        if control == TcpControl::Fin && window_start != segment_start {
+            control = TcpControl::None;
+        }
+
         // Validate and update the state.
-        match (self.state, repr.control.quash_psh()) {
+        match (self.state, control) {
             // RSTs are not accepted in the LISTEN state.
             (State::Listen, TcpControl::Rst) =>
                 return Err(Error::Dropped),
@@ -2287,6 +2297,35 @@ mod test {
         }]);
         assert_eq!(s.state, State::CloseWait);
         sanity!(s, socket_close_wait());
+    }
+
+    #[test]
+    fn test_established_fin_after_missing() {
+        let mut s = socket_established();
+        send!(s, TcpRepr {
+            control: TcpControl::Fin,
+            seq_number: REMOTE_SEQ + 1 + 6,
+            ack_number: Some(LOCAL_SEQ + 1),
+            payload: &b"123456"[..],
+            ..SEND_TEMPL
+        }, Ok(Some(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            ..RECV_TEMPL
+        })));
+        assert_eq!(s.state, State::Established);
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            payload: &b"abcdef"[..],
+            ..SEND_TEMPL
+        }, Ok(Some(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1 + 6 + 6),
+            window_len: 52,
+            ..RECV_TEMPL
+        })));
+        assert_eq!(s.state, State::Established);
     }
 
     #[test]
