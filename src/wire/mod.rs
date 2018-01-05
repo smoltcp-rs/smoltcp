@@ -116,13 +116,15 @@ pub use self::ip::{Version as IpVersion,
 pub use self::ipv4::{Address as Ipv4Address,
                      Packet as Ipv4Packet,
                      Repr as Ipv4Repr,
-                     Cidr as Ipv4Cidr};
+                     Cidr as Ipv4Cidr,
+                     MIN_MTU as IPV4_MIN_MTU};
 
 #[cfg(feature = "proto-ipv6")]
 pub use self::ipv6::{Address as Ipv6Address,
                      Packet as Ipv6Packet,
                      Repr as Ipv6Repr,
-                     Cidr as Ipv6Cidr};
+                     Cidr as Ipv6Cidr,
+                     MIN_MTU as IPV6_MIN_MTU};
 
 #[cfg(feature = "proto-ipv4")]
 pub use self::icmpv4::{Message as Icmpv4Message,

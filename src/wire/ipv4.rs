@@ -7,6 +7,20 @@ use super::ip::{checksum, pretty_print_ip_payload};
 
 pub use super::IpProtocol as Protocol;
 
+/// Minimum MTU required of all links supporting IPv4. See [RFC 791 § 3.1].
+///
+/// [RFC 791 § 3.1]: https://tools.ietf.org/html/rfc791#section-3.1
+// RFC 791 states the following:
+//
+// > Every internet module must be able to forward a datagram of 68
+// > octets without further fragmentation... Every internet destination
+// > must be able to receive a datagram of 576 octets either in one piece
+// > or in fragments to be reassembled.
+//
+// As a result, we can assume that every host we send packets to can
+// accept a packet of the following size.
+pub const MIN_MTU: usize = 576;
+
 /// A four-octet IPv4 address.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
 pub struct Address(pub [u8; 4]);

@@ -9,16 +9,16 @@ use phy::{Device, DeviceCapabilities, RxToken, TxToken};
 use wire::pretty_print::PrettyPrinter;
 use wire::{EthernetAddress, EthernetProtocol, EthernetFrame};
 #[cfg(feature = "proto-ipv4")]
-use wire::{Ipv4Address};
+use wire::{Ipv4Address, Ipv4Packet, Ipv4Repr};
 use wire::{IpAddress, IpProtocol, IpRepr, IpCidr};
 #[cfg(feature = "proto-ipv4")]
 use wire::{ArpPacket, ArpRepr, ArpOperation};
 #[cfg(feature = "proto-ipv4")]
-use wire::{Ipv4Packet, Ipv4Repr};
-#[cfg(feature = "proto-ipv4")]
 use wire::{Icmpv4Packet, Icmpv4Repr, Icmpv4DstUnreachable};
 #[cfg(feature = "socket-udp")]
 use wire::{UdpPacket, UdpRepr};
+#[cfg(all(feature = "proto-ipv4", feature = "socket-udp"))]
+use wire::IPV4_MIN_MTU;
 #[cfg(feature = "socket-tcp")]
 use wire::{TcpPacket, TcpRepr, TcpControl};
 
@@ -715,9 +715,18 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         match ip_repr {
             #[cfg(feature = "proto-ipv4")]
             IpRepr::Ipv4(ipv4_repr) => {
-                // Send back as much of the original payload as we can
-                let payload_len = cmp::min(
-                    ip_payload.len(), self.device_capabilities.max_transmission_unit);
+                // Send back as much of the original payload as will fit within
+                // the minimum MTU required by IPv4. See RFC 1812 § 4.3.2.3 for
+                // more details.
+                //
+                // Since the entire network layer packet must fit within 576
+                // bytes, the payload must not exceed the following:
+                //
+                // 576 - New IP hdr size - Old IP hdr size - ICMPv4 DstUnreachable hdr size
+                //
+                // We do no support IP options, so this becomes 576 - 20 - 20 - 8.
+                const DST_UNREACHABLE_HDR_SIZE: usize = 48;
+                let payload_len = cmp::min(ip_payload.len(), IPV4_MIN_MTU - DST_UNREACHABLE_HDR_SIZE);
                 let icmpv4_reply_repr = Icmpv4Repr::DstUnreachable {
                     reason: Icmpv4DstUnreachable::PortUnreachable,
                     header: ipv4_repr,
@@ -1244,6 +1253,62 @@ mod test {
             assert!(socket.can_recv());
             assert_eq!(socket.recv(), Ok((&UDP_PAYLOAD[..], IpEndpoint::new(src_ip.into(), 67))));
         }
+    }
+
+    #[test]
+    #[cfg(feature = "socket-udp")]
+    fn test_icmpv4_reply_size() {
+        use wire::IPV4_MIN_MTU;
+
+        let (iface, mut socket_set) = create_loopback();
+
+        let src_addr = Ipv4Address([192, 168, 1, 1]);
+        let dst_addr = Ipv4Address([192, 168, 1, 2]);
+
+        // UDP packet that if not tructated will cause a icmp port unreachable reply
+        // to exeed 576 bytes in length.
+        let udp_repr = UdpRepr {
+            src_port: 67,
+            dst_port: 68,
+            payload: &[0x2a; 524]
+        };
+        let mut bytes = vec![0xff; udp_repr.buffer_len()];
+        let mut packet = UdpPacket::new(&mut bytes[..]);
+        udp_repr.emit(&mut packet, &src_addr.into(), &dst_addr.into(), &ChecksumCapabilities::default());
+        let ipv4_repr = Ipv4Repr {
+            src_addr: src_addr,
+            dst_addr: dst_addr,
+            protocol: IpProtocol::Udp,
+            hop_limit: 64,
+            payload_len: udp_repr.buffer_len()
+        };
+        let payload = packet.into_inner();
+
+        // Expected packets
+        let expected_icmpv4_repr = Icmpv4Repr::DstUnreachable {
+            reason: Icmpv4DstUnreachable::PortUnreachable,
+            header: ipv4_repr,
+            // We only include 520 bytes of the original payload
+            // in the expected packets payload. We must only send
+            // ICMPv4 replies that do not exceed 576 bytes in length.
+            //
+            // 528 + 2 * sizeof(IPv4 Header) + sizeof(DstUnreachable Header) = 576
+            data:   &payload[..528]
+        };
+        let expected_ipv4_repr = Ipv4Repr {
+            src_addr: dst_addr,
+            dst_addr: src_addr,
+            protocol: IpProtocol::Icmp,
+            hop_limit: 64,
+            payload_len: expected_icmpv4_repr.buffer_len()
+        };
+
+        // The expected packet does not exceed the IPV4_MIN_MTU
+        assert_eq!(expected_ipv4_repr.buffer_len() + expected_icmpv4_repr.buffer_len(),
+                   IPV4_MIN_MTU);
+        // The expected packet and the generated packet are equal
+        assert_eq!(iface.inner.process_udp(&mut socket_set, ipv4_repr.into(), payload),
+                   Ok(Packet::Icmpv4((expected_ipv4_repr, expected_icmpv4_repr))));
     }
 
     #[test]
