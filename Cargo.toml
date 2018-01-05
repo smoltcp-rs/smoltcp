@@ -12,15 +12,10 @@ categories = ["embedded"]
 license = "0BSD"
 
 [dependencies]
+managed = { version = "0.5", default-features = false, features = ["map"] }
 byteorder = { version = "1.0", default-features = false }
 log = { version = "0.3", default-features = false, optional = true }
 libc = { version = "0.2.18", optional = true }
-
-[dependencies.managed]
-git = "https://github.com/m-labs/rust-managed.git"
-rev = "629a6786a1cf1692015f464ed16c04eafa5cb8d1"
-default-features = false
-features = ["map"]
 
 [dev-dependencies]
 env_logger = "0.4"
