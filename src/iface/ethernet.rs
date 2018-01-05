@@ -733,8 +733,8 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
                 // 576 - New IP hdr size - Old IP hdr size - ICMPv4 DstUnreachable hdr size
                 //
                 // We do no support IP options, so this becomes 576 - 20 - 20 - 8.
-                const ICMP_REPLY_HDR_SZ: usize = 48;
-                let payload_len = cmp::min(ip_payload.len(), IPV4_MIN_MTU - ICMP_REPLY_HDR_SZ);
+                const DST_UNREACHABLE_HDR_SIZE: usize = 48;
+                let payload_len = cmp::min(ip_payload.len(), IPV4_MIN_MTU - DST_UNREACHABLE_HDR_SIZE);
                 let icmpv4_reply_repr = Icmpv4Repr::DstUnreachable {
                     reason: Icmpv4DstUnreachable::PortUnreachable,
                     header: ipv4_repr,
