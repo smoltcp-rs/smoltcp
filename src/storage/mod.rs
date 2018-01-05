@@ -1,8 +1,9 @@
-//! Specialized containers.
-//!
-//! The `storage` module provides containers for use in other modules.
-//! The containers support both pre-allocated memory, without the `std`
-//! or `alloc` crates being available, and heap-allocated memory.
+/*! Specialized containers.
+
+The `storage` module provides containers for use in other modules.
+The containers support both pre-allocated memory, without the `std`
+or `alloc` crates being available, and heap-allocated memory.
+*/
 
 mod assembler;
 mod ring_buffer;

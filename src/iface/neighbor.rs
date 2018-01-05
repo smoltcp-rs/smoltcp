@@ -32,6 +32,7 @@ pub(crate) enum Answer {
 /// # Examples
 ///
 /// On systems with heap, this cache can be created with:
+///
 /// ```rust
 /// use std::collections::BTreeMap;
 /// use smoltcp::iface::NeighborCache;
@@ -39,6 +40,7 @@ pub(crate) enum Answer {
 /// ```
 ///
 /// On systems without heap, use:
+///
 /// ```rust
 /// use smoltcp::iface::NeighborCache;
 /// let mut neighbor_cache_storage = [None; 8];

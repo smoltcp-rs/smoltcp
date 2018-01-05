@@ -13,8 +13,9 @@ use storage::{Assembler, RingBuffer};
 /// A TCP socket ring buffer.
 pub type SocketBuffer<'a> = RingBuffer<'a, u8>;
 
-/// The state of a TCP socket, according to [RFC 793][rfc793].
-/// [rfc793]: https://tools.ietf.org/html/rfc793
+/// The state of a TCP socket, according to [RFC 793].
+///
+/// [RFC 793]: https://tools.ietf.org/html/rfc793
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum State {
     Closed,
