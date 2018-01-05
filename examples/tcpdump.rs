@@ -13,7 +13,7 @@ fn main() {
         phy_wait(socket.as_raw_fd(), None).unwrap();
         let (rx_token, _) = socket.receive().unwrap();
         rx_token.consume(/*timestamp = */ 0, |buffer| {
-            print!("{}", PrettyPrinter::<EthernetFrame<&[u8]>>::new("", &buffer));
+            println!("{}", PrettyPrinter::<EthernetFrame<&[u8]>>::new("", &buffer));
             Ok(())
         }).unwrap();
     }
