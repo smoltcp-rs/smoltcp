@@ -168,7 +168,6 @@ mod test {
     const HADDR_D: EthernetAddress = EthernetAddress([0, 0, 0, 0, 0, 4]);
 
     #[test]
-    #[cfg(feature = "proto-ipv4")]
     fn test_fill() {
         let mut cache_storage = [Default::default(); 3];
         let mut cache = Cache::new(&mut cache_storage[..]);
@@ -186,7 +185,6 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "proto-ipv4")]
     fn test_expire() {
         let mut cache_storage = [Default::default(); 3];
         let mut cache = Cache::new(&mut cache_storage[..]);
@@ -197,7 +195,6 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "proto-ipv4")]
     fn test_replace() {
         let mut cache_storage = [Default::default(); 3];
         let mut cache = Cache::new(&mut cache_storage[..]);
@@ -209,7 +206,6 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "proto-ipv4")]
     fn test_evict() {
         let mut cache_storage = [Default::default(); 3];
         let mut cache = Cache::new(&mut cache_storage[..]);
@@ -226,7 +222,6 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "proto-ipv4")]
     fn test_hush() {
         let mut cache_storage = [Default::default(); 3];
         let mut cache = Cache::new(&mut cache_storage[..]);
