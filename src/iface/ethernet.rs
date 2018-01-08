@@ -22,16 +22,9 @@ use wire::IPV4_MIN_MTU;
 #[cfg(feature = "socket-tcp")]
 use wire::{TcpPacket, TcpRepr, TcpControl};
 
-use socket::{Socket, SocketSet, AnySocket};
-#[cfg(feature = "socket-raw")]
-use socket::RawSocket;
-#[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
-use socket::IcmpSocket;
-#[cfg(feature = "socket-udp")]
-use socket::UdpSocket;
 #[cfg(feature = "socket-tcp")]
 use socket::TcpSocket;
-use super::{NeighborCache, NeighborAnswer};
+use super::{NeighborCache, NeighborAnswer, PacketFilter, PacketEmitter};
 
 /// An Ethernet network interface.
 ///
@@ -296,11 +289,13 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
     /// packets containing any unsupported protocol, option, or form, which is
     /// a very common occurrence and on a production system it should not even
     /// be logged.
-    pub fn poll(&mut self, sockets: &mut SocketSet, timestamp: u64) -> Result<bool> {
+    pub fn poll<F>(&mut self, filter: &mut F, timestamp: u64) -> Result<bool>
+        where F: PacketFilter
+    {
         let mut readiness_may_have_changed = false;
         loop {
-            let processed_any = self.socket_ingress(sockets, timestamp)?;
-            let emitted_any   = self.socket_egress(sockets, timestamp)?;
+            let processed_any = self.socket_ingress(filter, timestamp)?;
+            let emitted_any   = self.socket_egress(filter, timestamp)?;
             if processed_any || emitted_any {
                 readiness_may_have_changed = true;
             } else {
@@ -319,12 +314,10 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
     /// The timestamp argument is the same as for [poll].
     ///
     /// [poll]: #method.poll
-    pub fn poll_at(&self, sockets: &SocketSet, timestamp: u64) -> Option<u64> {
-        sockets.iter().filter_map(|socket| {
-            let socket_poll_at = socket.poll_at();
-            socket.meta().poll_at(socket_poll_at, |ip_addr|
-                self.inner.has_neighbor(&ip_addr, timestamp))
-        }).min()
+    pub fn poll_at<F>(&self, filter: &F, timestamp: u64) -> Option<u64>
+        where F: PacketFilter
+    {
+        filter.poll_at(timestamp)
     }
 
     /// Return an _advisory wait time_ for calling [poll] the next time.
@@ -338,11 +331,15 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
     /// The timestamp argument is the same as for [poll].
     ///
     /// [poll]: #method.poll
-    pub fn poll_delay(&self, sockets: &SocketSet, timestamp: u64) -> Option<u64> {
-        self.poll_at(sockets, timestamp).map(|at| at.saturating_sub(timestamp))
+    pub fn poll_delay<F>(&self, filter: &F, timestamp: u64) -> Option<u64>
+        where F: PacketFilter
+    {
+        self.poll_at(filter, timestamp).map(|at| at.saturating_sub(timestamp))
     }
 
-    fn socket_ingress(&mut self, sockets: &mut SocketSet, timestamp: u64) -> Result<bool> {
+    fn socket_ingress<F>(&mut self, filter: &mut F, timestamp: u64) -> Result<bool>
+        where F: PacketFilter
+    {
         let mut processed_any = false;
         loop {
             let &mut Self { ref mut device, ref mut inner } = self;
@@ -351,7 +348,7 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
                 Some(tokens) => tokens,
             };
             rx_token.consume(timestamp, |frame| {
-                inner.process_ethernet(sockets, timestamp, &frame).map_err(|err| {
+                inner.process_ethernet(filter, timestamp, &frame).map_err(|err| {
                     net_debug!("cannot process ingress packet: {}", err);
                     net_debug!("packet dump follows:\n{}",
                                PrettyPrinter::<EthernetFrame<&[u8]>>::new("", &frame));
@@ -368,79 +365,40 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
         Ok(processed_any)
     }
 
-    fn socket_egress(&mut self, sockets: &mut SocketSet, timestamp: u64) -> Result<bool> {
+    fn socket_egress<F>(&mut self, filter: &mut F, timestamp: u64) -> Result<bool>
+        where F: PacketFilter
+    {
         let mut caps = self.device.capabilities();
         caps.max_transmission_unit -= EthernetFrame::<&[u8]>::header_len();
 
-        let mut emitted_any = false;
-        for mut socket in sockets.iter_mut() {
-            if !socket.meta_mut().egress_permitted(|ip_addr|
-                    self.inner.has_neighbor(&ip_addr, timestamp)) {
-                continue
-            }
+        filter.egress(&caps, timestamp, self)
+    }
 
-            let mut neighbor_addr = None;
-            let mut device_result = Ok(());
-            let &mut Self { ref mut device, ref mut inner } = self;
+    fn emit(&mut self, response: Packet, timestamp: u64) -> Result<()> {
+        let &mut Self { ref mut device, ref mut inner } = self;
+        let neighbor_addr = response.neighbor_addr();
+        let tx_token = device.transmit().ok_or(Error::Exhausted)?;
+        inner.dispatch(tx_token, timestamp, response)
+    }
+}
 
-            macro_rules! respond {
-                ($response:expr) => ({
-                    let response = $response;
-                    neighbor_addr = response.neighbor_addr();
-                    let tx_token = device.transmit().ok_or(Error::Exhausted)?;
-                    device_result = inner.dispatch(tx_token, timestamp, response);
-                    device_result
-                })
-            }
+impl<'b, 'c, DeviceT> PacketEmitter for Interface<'b, 'c, DeviceT>
+        where DeviceT: for<'d> Device<'d>
+{
+    fn emit_tcp(&mut self, response: (IpRepr, TcpRepr), timestamp: u64) -> Result<()> {
+        self.emit(Packet::Tcp(response), timestamp)
+    }
 
-            let socket_result =
-                match *socket {
-                    #[cfg(feature = "socket-raw")]
-                    Socket::Raw(ref mut socket) =>
-                        socket.dispatch(&caps.checksum, |response|
-                            respond!(Packet::Raw(response))),
-                    #[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
-                    Socket::Icmp(ref mut socket) =>
-                        socket.dispatch(&caps, |response| {
-                            match response {
-                                #[cfg(feature = "proto-ipv4")]
-                                (IpRepr::Ipv4(ipv4_repr), icmpv4_repr) =>
-                                    respond!(Packet::Icmpv4((ipv4_repr, icmpv4_repr))),
-                                _ => Err(Error::Unaddressable)
-                            }
-                        }),
-                    #[cfg(feature = "socket-udp")]
-                    Socket::Udp(ref mut socket) =>
-                        socket.dispatch(|response|
-                            respond!(Packet::Udp(response))),
-                    #[cfg(feature = "socket-tcp")]
-                    Socket::Tcp(ref mut socket) =>
-                        socket.dispatch(timestamp, &caps, |response|
-                            respond!(Packet::Tcp(response))),
-                    Socket::__Nonexhaustive(_) => unreachable!()
-                };
+    fn emit_udp(&mut self, response: (IpRepr, UdpRepr), timestamp: u64) -> Result<()> {
+        self.emit(Packet::Udp(response), timestamp)
+    }
 
-            match (device_result, socket_result) {
-                (Err(Error::Exhausted), _) => break,     // nowhere to transmit
-                (Ok(()), Err(Error::Exhausted)) => (),   // nothing to transmit
-                (Err(Error::Unaddressable), _) => {
-                    // `NeighborCache` already takes care of rate limiting the neighbor discovery
-                    // requests from the socket. However, without an additional rate limiting
-                    // mechanism, we would spin on every socket that has yet to discover its
-                    // neighboor.
-                    socket.meta_mut().neighbor_missing(timestamp,
-                        neighbor_addr.expect("non-IP response packet"));
-                    break
-                }
-                (Err(err), _) | (_, Err(err)) => {
-                    net_debug!("{}: cannot dispatch egress packet: {}",
-                               socket.meta().handle, err);
-                    return Err(err)
-                }
-                (Ok(()), Ok(())) => emitted_any = true
-            }
-        }
-        Ok(emitted_any)
+    fn emit_icmpv4(&mut self, response: (Ipv4Repr, Icmpv4Repr), timestamp: u64) -> Result<()> {
+        self.emit(Packet::Icmpv4(response), timestamp)
+    }
+
+    fn emit_raw(&mut self, response: (IpRepr, &[u8]), timestamp: u64) -> Result<()> {
+        self.emit(Packet::Raw(response), timestamp)
     }
 }
 
@@ -472,9 +430,10 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         self.ip_addrs.iter().any(|probe| probe.address() == addr)
     }
 
-    fn process_ethernet<'frame, T: AsRef<[u8]>>
-                       (&mut self, sockets: &mut SocketSet, timestamp: u64, frame: &'frame T) ->
+    fn process_ethernet<'frame, T: AsRef<[u8]>, F>
+                       (&mut self, filter: &mut F, timestamp: u64, frame: &'frame T) ->
                        Result<Packet<'frame>>
+        where F: PacketFilter
     {
         let eth_frame = EthernetFrame::new_checked(frame)?;
 
@@ -490,7 +449,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
                 self.process_arp(timestamp, &eth_frame),
             #[cfg(feature = "proto-ipv4")]
             EthernetProtocol::Ipv4 =>
-                self.process_ipv4(sockets, timestamp, &eth_frame),
+                self.process_ipv4(filter, timestamp, &eth_frame),
             // Drop all other traffic.
             _ => Err(Error::Unrecognized),
         }
@@ -539,10 +498,11 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
     }
 
     #[cfg(feature = "proto-ipv4")]
-    fn process_ipv4<'frame, T: AsRef<[u8]>>
-                   (&mut self, sockets: &mut SocketSet, timestamp: u64,
+    fn process_ipv4<'frame, T: AsRef<[u8]>, F>
+                   (&mut self, filter: &mut F, timestamp: u64,
                     eth_frame: &EthernetFrame<&'frame T>) ->
                    Result<Packet<'frame>>
+        where F: PacketFilter
     {
         let ipv4_packet = Ipv4Packet::new_checked(eth_frame.payload())?;
         let checksum_caps = self.device_capabilities.checksum.clone();
@@ -566,22 +526,17 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         let ip_payload = ipv4_packet.payload();
 
         #[cfg(feature = "socket-raw")]
-        let mut handled_by_raw_socket = false;
+        let handled_by_raw_socket = match filter.process_raw(&ip_repr, ip_payload,
+            &checksum_caps)
+        {
+            // The packet is valid.
+            Ok(handled) => handled,
+            // The socket buffer is full.
+            Err(Error::Exhausted) => false,
+            // The packet is malformed.
+            Err(e) => return Err(e)
+        };
 
-        // Pass every IP packet to all raw sockets we have registered.
-        #[cfg(feature = "socket-raw")]
-        for mut raw_socket in sockets.iter_mut().filter_map(RawSocket::downcast) {
-            if !raw_socket.accepts(&ip_repr) { continue }
-
-            match raw_socket.process(&ip_repr, ip_payload, &checksum_caps) {
-                // The packet is valid and handled by socket.
-                Ok(()) => handled_by_raw_socket = true,
-                // The socket buffer is full.
-                Err(Error::Exhausted) => (),
-                // Raw sockets don't validate the packets in any way.
-                Err(_) => unreachable!(),
-            }
-        }
 
         if !ipv4_repr.dst_addr.is_broadcast() && !self.has_ip_addr(ipv4_repr.dst_addr) {
             // Ignore IP packets not directed at us.
@@ -590,15 +545,15 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
 
         match ipv4_repr.protocol {
             IpProtocol::Icmp =>
-                self.process_icmpv4(sockets, ip_repr, ip_payload),
+                self.process_icmpv4(filter, ip_repr, ip_payload),
 
             #[cfg(feature = "socket-udp")]
             IpProtocol::Udp =>
-                self.process_udp(sockets, ip_repr, ip_payload),
+                self.process_udp(filter, ip_repr, ip_payload),
 
             #[cfg(feature = "socket-tcp")]
             IpProtocol::Tcp =>
-                self.process_tcp(sockets, timestamp, ip_repr, ip_payload),
+                self.process_tcp(filter, timestamp, ip_repr, ip_payload),
 
             #[cfg(feature = "socket-raw")]
             _ if handled_by_raw_socket =>
@@ -619,29 +574,25 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
     }
 
     #[cfg(feature = "proto-ipv4")]
-    fn process_icmpv4<'frame>(&self, _sockets: &mut SocketSet, ip_repr: IpRepr,
+    fn process_icmpv4<'frame, F>(&self, _filter: &mut F, ip_repr: IpRepr,
                               ip_payload: &'frame [u8]) -> Result<Packet<'frame>>
+        where F: PacketFilter
     {
         let icmp_packet = Icmpv4Packet::new_checked(ip_payload)?;
         let checksum_caps = self.device_capabilities.checksum.clone();
         let icmp_repr = Icmpv4Repr::parse(&icmp_packet, &checksum_caps)?;
 
-        #[cfg(feature = "socket-icmp")]
-        let mut handled_by_icmp_socket = false;
-
         #[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
-        for mut icmp_socket in _sockets.iter_mut().filter_map(IcmpSocket::downcast) {
-            if !icmp_socket.accepts(&ip_repr, &icmp_repr, &checksum_caps) { continue }
-
-            match icmp_socket.process(&ip_repr, &icmp_repr, &checksum_caps) {
-                // The packet is valid and handled by socket.
-                Ok(()) => handled_by_icmp_socket = true,
-                // The socket buffer is full.
-                Err(Error::Exhausted) => (),
-                // ICMP sockets don't validate the packets in any way.
-                Err(_) => unreachable!(),
-            }
-        }
+        let handled_by_icmp_socket = match _filter.process_icmpv4(&ip_repr, &icmp_repr,
+            &checksum_caps)
+        {
+            // The packet is valid.
+            Ok(handled) => handled,
+            // The socket buffer is full.
+            Err(Error::Exhausted) => false,
+            // The packet is malformed.
+            Err(e) => return Err(e)
+        };
 
         match icmp_repr {
             // Respond to echo requests.
@@ -691,27 +642,26 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
     }
 
     #[cfg(feature = "socket-udp")]
-    fn process_udp<'frame>(&self, sockets: &mut SocketSet,
+    fn process_udp<'frame, F>(&self, filter: &mut F,
                            ip_repr: IpRepr, ip_payload: &'frame [u8]) ->
                           Result<Packet<'frame>>
+        where F: PacketFilter
     {
         let (src_addr, dst_addr) = (ip_repr.src_addr(), ip_repr.dst_addr());
         let udp_packet = UdpPacket::new_checked(ip_payload)?;
         let checksum_caps = self.device_capabilities.checksum.clone();
         let udp_repr = UdpRepr::parse(&udp_packet, &src_addr, &dst_addr, &checksum_caps)?;
 
-        for mut udp_socket in sockets.iter_mut().filter_map(UdpSocket::downcast) {
-            if !udp_socket.accepts(&ip_repr, &udp_repr) { continue }
-
-            match udp_socket.process(&ip_repr, &udp_repr) {
-                // The packet is valid and handled by socket.
-                Ok(()) => return Ok(Packet::None),
-                // The packet is malformed, or the socket buffer is full.
-                Err(e) => return Err(e)
-            }
+        match filter.process_udp(&ip_repr, &udp_repr) {
+            // The packet is valid and handled by packet filter.
+            Ok(()) => return Ok(Packet::None),
+            // The packet was not handled by packet filter.
+            Err(Error::Dropped) => (),
+            // The packet is malformed, or e.g. the socket buffer is full.
+            Err(e) => return Err(e)
         }
 
-        // The packet wasn't handled by a socket, send an ICMP port unreachable packet.
+        // The packet wasn't handled by the packet filter, send an ICMP port unreachable packet.
         match ip_repr {
             #[cfg(feature = "proto-ipv4")]
             IpRepr::Ipv4(ipv4_repr) => {
@@ -742,25 +692,23 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
     }
 
     #[cfg(feature = "socket-tcp")]
-    fn process_tcp<'frame>(&self, sockets: &mut SocketSet, timestamp: u64,
+    fn process_tcp<'frame, F>(&self, filter: &mut F, timestamp: u64,
                            ip_repr: IpRepr, ip_payload: &'frame [u8]) ->
                           Result<Packet<'frame>>
+        where F: PacketFilter
     {
         let (src_addr, dst_addr) = (ip_repr.src_addr(), ip_repr.dst_addr());
         let tcp_packet = TcpPacket::new_checked(ip_payload)?;
         let checksum_caps = self.device_capabilities.checksum.clone();
         let tcp_repr = TcpRepr::parse(&tcp_packet, &src_addr, &dst_addr, &checksum_caps)?;
 
-        for mut tcp_socket in sockets.iter_mut().filter_map(TcpSocket::downcast) {
-            if !tcp_socket.accepts(&ip_repr, &tcp_repr) { continue }
-
-            match tcp_socket.process(timestamp, &ip_repr, &tcp_repr) {
-                // The packet is valid and handled by socket.
-                Ok(reply) => return Ok(reply.map_or(Packet::None, Packet::Tcp)),
-                // The packet is malformed, or doesn't match the socket state,
-                // or the socket buffer is full.
-                Err(e) => return Err(e)
-            }
+        match filter.process_tcp(timestamp, &ip_repr, &tcp_repr) {
+            // The packet is valid and handled by packet filter.
+            Ok(packet) => return Ok(packet.map_or(Packet::None, Packet::Tcp)),
+            // The packet was not handled by packet filter.
+            Err(Error::Dropped) => (),
+            // The packet is malformed, or e.g. the socket buffer is full.
+            Err(e) => return Err(e)
         }
 
         if tcp_repr.control == TcpControl::Rst {
