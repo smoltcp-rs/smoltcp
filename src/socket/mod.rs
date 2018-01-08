@@ -79,7 +79,13 @@ pub enum Socket<'a, 'b: 'a> {
 }
 
 macro_rules! dispatch_socket {
-    ($self_:expr, |$socket:ident [$( $mut_:tt )*]| $code:expr) => ({
+    ($self_:expr, |$socket:ident| $code:expr) => {
+        dispatch_socket!(@inner $self_, |$socket| $code);
+    };
+    (mut $self_:expr, |$socket:ident| $code:expr) => {
+        dispatch_socket!(@inner mut $self_, |$socket| $code);
+    };
+    (@inner $( $mut_:ident )* $self_:expr, |$socket:ident| $code:expr) => {
         match $self_ {
             #[cfg(feature = "socket-raw")]
             &$( $mut_ )* Socket::Raw(ref $( $mut_ )* $socket) => $code,
@@ -91,7 +97,7 @@ macro_rules! dispatch_socket {
             &$( $mut_ )* Socket::Tcp(ref $( $mut_ )* $socket) => $code,
             &$( $mut_ )* Socket::__Nonexhaustive(_) => unreachable!()
         }
-    })
+    };
 }
 
 impl<'a, 'b> Socket<'a, 'b> {
@@ -102,21 +108,21 @@ impl<'a, 'b> Socket<'a, 'b> {
     }
 
     pub(crate) fn meta(&self) -> &SocketMeta {
-        dispatch_socket!(self, |socket []| &socket.meta)
+        dispatch_socket!(self, |socket| &socket.meta)
     }
 
     pub(crate) fn meta_mut(&mut self) -> &mut SocketMeta {
-        dispatch_socket!(self, |socket [mut]| &mut socket.meta)
+        dispatch_socket!(mut self, |socket| &mut socket.meta)
     }
 
     pub(crate) fn poll_at(&self) -> Option<u64> {
-        dispatch_socket!(self, |socket []| socket.poll_at())
+        dispatch_socket!(self, |socket| socket.poll_at())
     }
 }
 
 impl<'a, 'b> SocketSession for Socket<'a, 'b> {
     fn finish(&mut self) {
-        dispatch_socket!(self, |socket [mut]| socket.finish())
+        dispatch_socket!(mut self, |socket| socket.finish())
     }
 }
 
