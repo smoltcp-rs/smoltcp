@@ -1,6 +1,7 @@
 // Heads up! Before working on this file you should read the parts
 // of RFC 1122 that discuss Ethernet, ARP and IP.
 
+#[cfg(feature = "proto-ipv4")]
 use core::cmp;
 use managed::ManagedSlice;
 
@@ -8,9 +9,11 @@ use {Error, Result};
 use phy::{Device, DeviceCapabilities, RxToken, TxToken};
 use wire::pretty_print::PrettyPrinter;
 use wire::{EthernetAddress, EthernetProtocol, EthernetFrame};
+use wire::{IpAddress, IpProtocol, IpRepr, IpCidr};
+#[cfg(feature = "proto-ipv6")]
+use wire::{Ipv6Packet, Ipv6Repr};
 #[cfg(feature = "proto-ipv4")]
 use wire::{Ipv4Address, Ipv4Packet, Ipv4Repr};
-use wire::{IpAddress, IpProtocol, IpRepr, IpCidr};
 #[cfg(feature = "proto-ipv4")]
 use wire::{ArpPacket, ArpRepr, ArpOperation};
 #[cfg(feature = "proto-ipv4")]
@@ -491,6 +494,9 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
             #[cfg(feature = "proto-ipv4")]
             EthernetProtocol::Ipv4 =>
                 self.process_ipv4(sockets, timestamp, &eth_frame),
+            #[cfg(feature = "proto-ipv6")]
+            EthernetProtocol::Ipv6 =>
+                self.process_ipv6(sockets, timestamp, &eth_frame),
             // Drop all other traffic.
             _ => Err(Error::Unrecognized),
         }
@@ -538,6 +544,76 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         }
     }
 
+    #[cfg(all(any(feature = "proto-ipv4", feature = "proto-ipv6"), feature = "socket-raw"))]
+    fn raw_socket_filter<'frame>(&mut self, sockets: &mut SocketSet, ip_repr: &IpRepr,
+                                 ip_payload: &'frame [u8]) -> bool {
+        let checksum_caps = self.device_capabilities.checksum.clone();
+        let mut handled_by_raw_socket = false;
+
+        // Pass every IP packet to all raw sockets we have registered.
+        for mut raw_socket in sockets.iter_mut().filter_map(RawSocket::downcast) {
+            if !raw_socket.accepts(&ip_repr) { continue }
+
+            match raw_socket.process(&ip_repr, ip_payload, &checksum_caps) {
+                // The packet is valid and handled by socket.
+                Ok(()) => handled_by_raw_socket = true,
+                // The socket buffer is full.
+                Err(Error::Exhausted) => (),
+                // Raw sockets don't validate the packets in any way.
+                Err(_) => unreachable!(),
+            }
+        }
+        handled_by_raw_socket
+    }
+
+    #[cfg(feature = "proto-ipv6")]
+    fn process_ipv6<'frame, T: AsRef<[u8]>>
+                   (&mut self, sockets: &mut SocketSet, timestamp: u64,
+                    eth_frame: &EthernetFrame<&'frame T>) ->
+                   Result<Packet<'frame>>
+    {
+        let ipv6_packet = Ipv6Packet::new_checked(eth_frame.payload())?;
+        let ipv6_repr = Ipv6Repr::parse(&ipv6_packet)?;
+
+        if !ipv6_repr.src_addr.is_unicast() {
+            // Discard packets with non-unicast source addresses.
+            net_debug!("non-unicast source address");
+            return Err(Error::Malformed)
+        }
+
+        if eth_frame.src_addr().is_unicast() {
+            // Fill the neighbor cache from IP header of unicast frames.
+            let ip_addr = IpAddress::Ipv6(ipv6_repr.src_addr);
+            if self.in_same_network(&ip_addr) {
+                self.neighbor_cache.fill(ip_addr, eth_frame.src_addr(), timestamp);
+            }
+        }
+
+        let ip_repr = IpRepr::Ipv6(ipv6_repr);
+        let ip_payload = ipv6_packet.payload();
+
+        #[cfg(feature = "socket-raw")]
+        let handled_by_raw_socket = self.raw_socket_filter(sockets, &ip_repr, ip_payload);
+
+        match ipv6_repr.next_header {
+            #[cfg(feature = "socket-udp")]
+            IpProtocol::Udp =>
+                self.process_udp(sockets, ip_repr, ip_payload),
+
+            #[cfg(feature = "socket-tcp")]
+            IpProtocol::Tcp =>
+                self.process_tcp(sockets, timestamp, ip_repr, ip_payload),
+
+            #[cfg(feature = "socket-raw")]
+            _ if handled_by_raw_socket =>
+                Ok(Packet::None),
+
+            // TODO: send error responses when appropriate.
+            _ => Ok(Packet::None)
+        }
+
+    }
+
     #[cfg(feature = "proto-ipv4")]
     fn process_ipv4<'frame, T: AsRef<[u8]>>
                    (&mut self, sockets: &mut SocketSet, timestamp: u64,
@@ -566,22 +642,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         let ip_payload = ipv4_packet.payload();
 
         #[cfg(feature = "socket-raw")]
-        let mut handled_by_raw_socket = false;
-
-        // Pass every IP packet to all raw sockets we have registered.
-        #[cfg(feature = "socket-raw")]
-        for mut raw_socket in sockets.iter_mut().filter_map(RawSocket::downcast) {
-            if !raw_socket.accepts(&ip_repr) { continue }
-
-            match raw_socket.process(&ip_repr, ip_payload, &checksum_caps) {
-                // The packet is valid and handled by socket.
-                Ok(()) => handled_by_raw_socket = true,
-                // The socket buffer is full.
-                Err(Error::Exhausted) => (),
-                // Raw sockets don't validate the packets in any way.
-                Err(_) => unreachable!(),
-            }
-        }
+        let handled_by_raw_socket = self.raw_socket_filter(sockets, &ip_repr, ip_payload);
 
         if !ipv4_repr.dst_addr.is_broadcast() && !self.has_ip_addr(ipv4_repr.dst_addr) {
             // Ignore IP packets not directed at us.
@@ -970,7 +1031,6 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
 }
 
 #[cfg(test)]
-#[cfg(feature = "proto-ipv4")]
 mod test {
     use std::collections::BTreeMap;
     use {Result, Error};
@@ -979,13 +1039,18 @@ mod test {
     use iface::{NeighborCache, EthernetInterface};
     use phy::{self, Loopback, ChecksumCapabilities};
     use socket::SocketSet;
+    #[cfg(feature = "proto-ipv4")]
     use wire::{ArpOperation, ArpPacket, ArpRepr};
     use wire::{EthernetAddress, EthernetFrame, EthernetProtocol};
     use wire::{IpAddress, IpCidr, IpProtocol, IpRepr};
+    #[cfg(feature = "proto-ipv4")]
     use wire::{Ipv4Address, Ipv4Repr};
+    #[cfg(feature = "proto-ipv4")]
     use wire::{Icmpv4Repr, Icmpv4DstUnreachable};
-    #[cfg(feature = "socket-udp")]
+    #[cfg(all(feature = "socket-udp", feature = "proto-ipv4"))]
     use wire::{UdpPacket, UdpRepr};
+    #[cfg(feature = "proto-ipv6")]
+    use wire::{Ipv6Address, Ipv6Repr};
 
     use super::Packet;
 
@@ -993,11 +1058,17 @@ mod test {
                                      SocketSet<'static, 'a, 'b>) {
         // Create a basic device
         let device = Loopback::new();
+        let ip_addrs = [
+            #[cfg(feature = "proto-ipv4")]
+            IpCidr::new(IpAddress::v4(127, 0, 0, 1), 8),
+            #[cfg(feature = "proto-ipv6")]
+            IpCidr::new(IpAddress::v6(0, 0, 0, 0, 0, 0, 0, 1), 128)
+        ];
 
         let iface = InterfaceBuilder::new(device)
                 .ethernet_addr(EthernetAddress::default())
                 .neighbor_cache(NeighborCache::new(BTreeMap::new()))
-                .ip_addrs([IpCidr::new(IpAddress::v4(127, 0, 0, 1), 8)])
+                .ip_addrs(ip_addrs)
                 .finalize();
 
         (iface, SocketSet::new(vec![]))
@@ -1020,6 +1091,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "proto-ipv4")]
     fn test_no_icmp_to_broadcast() {
         let (mut iface, mut socket_set) = create_loopback();
 
@@ -1055,6 +1127,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "proto-ipv4")]
     fn test_icmp_error_no_payload() {
         static NO_BYTES: [u8; 0] = [];
         let (mut iface, mut socket_set) = create_loopback();
@@ -1112,7 +1185,7 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "socket-udp")]
+    #[cfg(all(feature = "socket-udp", feature = "proto-ipv4"))]
     fn test_icmp_error_port_unreachable() {
         static UDP_PAYLOAD: [u8; 12] = [
             0x48, 0x65, 0x6c, 0x6c,
@@ -1196,7 +1269,7 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "socket-udp")]
+    #[cfg(all(feature = "socket-udp", feature = "proto-ipv4"))]
     fn test_handle_udp_broadcast() {
         use socket::{UdpPacketBuffer, UdpSocket, UdpSocketBuffer};
         use wire::IpEndpoint;
@@ -1256,7 +1329,7 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "socket-udp")]
+    #[cfg(all(feature = "socket-udp", feature = "proto-ipv4"))]
     fn test_icmpv4_reply_size() {
         use wire::IPV4_MIN_MTU;
 
@@ -1312,6 +1385,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "proto-ipv4")]
     fn test_handle_valid_arp_request() {
         let (mut iface, mut socket_set) = create_loopback();
 
@@ -1356,6 +1430,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "proto-ipv4")]
     fn test_handle_other_arp_request() {
         let (mut iface, mut socket_set) = create_loopback();
 
@@ -1456,5 +1531,42 @@ mod test {
                        Ok((&icmp_data[..],
                            IpAddress::Ipv4(Ipv4Address::new(0x7f, 0x00, 0x00, 0x02)))));
         }
+    }
+
+    #[test]
+    #[cfg(feature = "proto-ipv6")]
+    fn test_raw_socket() {
+        let (mut iface, mut socket_set) = create_loopback();
+
+        let remote_ip_addr = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
+        let remote_hw_addr = EthernetAddress([0x52, 0x54, 0x00, 0x00, 0x00, 0x01]);
+
+        let mut eth_bytes = vec![0; 54];
+
+        let repr = IpRepr::Ipv6(Ipv6Repr {
+            src_addr:    remote_ip_addr,
+            dst_addr:    Ipv6Address::LOOPBACK,
+            next_header: IpProtocol::Unknown(0x0c),
+            payload_len: 0,
+            hop_limit:   0x40
+        });
+
+        let frame = {
+            let mut frame = EthernetFrame::new(&mut eth_bytes);
+            frame.set_dst_addr(EthernetAddress([0x52, 0x54, 0x00, 0x00, 0x00, 0x00]));
+            frame.set_src_addr(remote_hw_addr);
+            frame.set_ethertype(EthernetProtocol::Ipv6);
+            repr.emit(frame.payload_mut(), &ChecksumCapabilities::default());
+            EthernetFrame::new(&*frame.into_inner())
+        };
+
+        assert_eq!(iface.inner.process_ipv6(&mut socket_set, 0, &frame),
+                   Ok(Packet::None));
+
+        // Ensure the address of the requestor was entered in the cache
+        assert_eq!(iface.inner.lookup_hardware_addr(MockTxToken, 0,
+            &IpAddress::Ipv6(Ipv6Address::LOOPBACK),
+            &IpAddress::Ipv6(remote_ip_addr)),
+            Ok((remote_hw_addr, MockTxToken)));
     }
 }

@@ -605,13 +605,13 @@ impl Repr {
     ///
     /// # Panics
     /// This function panics if invoked on an unspecified representation.
-    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(&self, buffer: T, checksum_caps: &ChecksumCapabilities) {
+    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(&self, buffer: T, _checksum_caps: &ChecksumCapabilities) {
         match self {
             &Repr::Unspecified { .. } =>
                 panic!("unspecified IP representation"),
             #[cfg(feature = "proto-ipv4")]
             &Repr::Ipv4(repr) =>
-                repr.emit(&mut Ipv4Packet::new(buffer), &checksum_caps),
+                repr.emit(&mut Ipv4Packet::new(buffer), &_checksum_caps),
             #[cfg(feature = "proto-ipv6")]
             &Repr::Ipv6(repr) =>
                 repr.emit(&mut Ipv6Packet::new(buffer)),
@@ -727,12 +727,14 @@ pub mod checksum {
     }
 }
 
-use super::pretty_print::{PrettyPrint, PrettyIndent};
+use super::pretty_print::PrettyIndent;
 
 pub fn pretty_print_ip_payload<T: Into<Repr>>(f: &mut fmt::Formatter, indent: &mut PrettyIndent,
                                               ip_repr: T, payload: &[u8]) -> fmt::Result {
     #[cfg(feature = "proto-ipv4")]
     use wire::Icmpv4Packet;
+    #[cfg(feature = "proto-ipv4")]
+    use super::pretty_print::PrettyPrint;
     use wire::{TcpPacket, TcpRepr, UdpPacket, UdpRepr};
     use wire::ip::checksum::format_checksum;
 
