@@ -317,7 +317,7 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
     pub fn poll_at<F>(&self, filter: &F, timestamp: u64) -> Option<u64>
         where F: PacketFilter
     {
-        filter.poll_at(timestamp)
+        filter.poll_at(timestamp, self)
     }
 
     /// Return an _advisory wait time_ for calling [poll] the next time.
@@ -374,31 +374,42 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
         filter.egress(&caps, timestamp, self)
     }
 
-    fn emit(&mut self, response: Packet, timestamp: u64) -> Result<()> {
+    fn emit(&mut self, response: Packet, timestamp: u64) -> Result<Option<IpAddress>> {
         let &mut Self { ref mut device, ref mut inner } = self;
         let neighbor_addr = response.neighbor_addr();
         let tx_token = device.transmit().ok_or(Error::Exhausted)?;
-        inner.dispatch(tx_token, timestamp, response)
+        inner.dispatch(tx_token, timestamp, response).map(|()| neighbor_addr)
     }
 }
 
 impl<'b, 'c, DeviceT> PacketEmitter for Interface<'b, 'c, DeviceT>
         where DeviceT: for<'d> Device<'d>
 {
-    fn emit_tcp(&mut self, response: (IpRepr, TcpRepr), timestamp: u64) -> Result<()> {
+    fn emit_tcp(&mut self, response: (IpRepr, TcpRepr), timestamp: u64) -> Result<Option<IpAddress>> {
         self.emit(Packet::Tcp(response), timestamp)
     }
 
-    fn emit_udp(&mut self, response: (IpRepr, UdpRepr), timestamp: u64) -> Result<()> {
+    fn emit_udp(&mut self, response: (IpRepr, UdpRepr), timestamp: u64) -> Result<Option<IpAddress>> {
         self.emit(Packet::Udp(response), timestamp)
     }
 
-    fn emit_icmpv4(&mut self, response: (Ipv4Repr, Icmpv4Repr), timestamp: u64) -> Result<()> {
+    fn emit_icmpv4(&mut self, response: (Ipv4Repr, Icmpv4Repr), timestamp: u64) -> Result<Option<IpAddress>> {
         self.emit(Packet::Icmpv4(response), timestamp)
     }
 
-    fn emit_raw(&mut self, response: (IpRepr, &[u8]), timestamp: u64) -> Result<()> {
+    fn emit_raw(&mut self, response: (IpRepr, &[u8]), timestamp: u64) -> Result<Option<IpAddress>> {
         self.emit(Packet::Raw(response), timestamp)
+    }
+
+    fn has_neighbor<'a>(&self, addr: &'a IpAddress, timestamp: u64) -> bool {
+        match self.inner.route(addr) {
+            Ok(routed_addr) => {
+                self.inner.neighbor_cache
+                    .lookup_pure(&routed_addr, timestamp)
+                    .is_some()
+            }
+            Err(_) => false
+        }
     }
 }
 
@@ -832,17 +843,6 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
                 None => Err(Error::Unaddressable),
             }
             _ => Err(Error::Unaddressable)
-        }
-    }
-
-    fn has_neighbor<'a>(&self, addr: &'a IpAddress, timestamp: u64) -> bool {
-        match self.route(addr) {
-            Ok(routed_addr) => {
-                self.neighbor_cache
-                    .lookup_pure(&routed_addr, timestamp)
-                    .is_some()
-            }
-            Err(_) => false
         }
     }
 

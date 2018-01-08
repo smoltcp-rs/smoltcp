@@ -15,7 +15,7 @@ pub use self::ethernet::{Interface as EthernetInterface,
 
 use Result;
 use phy::{DeviceCapabilities, ChecksumCapabilities};
-use wire::{IpRepr, Ipv4Repr, UdpRepr, TcpRepr, Icmpv4Repr};
+use wire::{IpAddress, IpRepr, Ipv4Repr, UdpRepr, TcpRepr, Icmpv4Repr};
 
 pub trait PacketFilter {
     fn process_udp(&mut self, ip_repr: &IpRepr, udp_repr: &UdpRepr) -> Result<()>;
@@ -27,12 +27,13 @@ pub trait PacketFilter {
     fn egress<E>(&mut self, caps: &DeviceCapabilities, timestamp: u64, emitter: &mut E) -> Result<bool>
         where E: PacketEmitter;
 
-    fn poll_at(&self, timestamp: u64) -> Option<u64> { None }
+    fn poll_at<E>(&self, _timestamp: u64, _emitter: &E) -> Option<u64> where E: PacketEmitter { None }
 }
 
 pub trait PacketEmitter {
-    fn emit_tcp(&mut self, (IpRepr, TcpRepr), timestamp: u64) -> Result<()>;
-    fn emit_udp(&mut self, (IpRepr, UdpRepr), timestamp: u64) -> Result<()>;
-    fn emit_icmpv4(&mut self, (Ipv4Repr, Icmpv4Repr), timestamp: u64) -> Result<()>;
-    fn emit_raw(&mut self, (IpRepr, &[u8]), timestamp: u64) -> Result<()>;
+    fn emit_tcp(&mut self, (IpRepr, TcpRepr), timestamp: u64) -> Result<Option<IpAddress>>;
+    fn emit_udp(&mut self, (IpRepr, UdpRepr), timestamp: u64) -> Result<Option<IpAddress>>;
+    fn emit_icmpv4(&mut self, (Ipv4Repr, Icmpv4Repr), timestamp: u64) -> Result<Option<IpAddress>>;
+    fn emit_raw(&mut self, (IpRepr, &[u8]), timestamp: u64) -> Result<Option<IpAddress>>;
+    fn has_neighbor<'a>(&self, addr: &'a IpAddress, timestamp: u64) -> bool;
 }

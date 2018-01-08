@@ -260,7 +260,7 @@ impl<'a, 'b: 'a, 'c: 'a + 'b> PacketFilter for Set<'a, 'b, 'c> {
         let mut emitted_any = false;
         for mut socket in self.iter_mut() {
             if !socket.meta_mut().egress_permitted(|ip_addr|
-                    self.inner.has_neighbor(&ip_addr, timestamp)) {
+                    emitter.has_neighbor(&ip_addr, timestamp)) {
                 continue
             }
 
@@ -272,25 +272,25 @@ impl<'a, 'b: 'a, 'c: 'a + 'b> PacketFilter for Set<'a, 'b, 'c> {
                     #[cfg(feature = "socket-raw")]
                     Socket::Raw(ref mut socket) =>
                         socket.dispatch(&caps.checksum, |response|
-                            emitter.emit_raw(response, timestamp)),
+                            emitter.emit_raw(response, timestamp).map(|addr| neighbor_addr = addr)),
                     #[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
                     Socket::Icmp(ref mut socket) =>
                         socket.dispatch(&caps, |response| {
                             match response {
                                 #[cfg(feature = "proto-ipv4")]
                                 (IpRepr::Ipv4(ipv4_repr), icmpv4_repr) =>
-                                    emitter.emit_icmpv4((ipv4_repr, icmpv4_repr), timestamp),
+                                    emitter.emit_icmpv4((ipv4_repr, icmpv4_repr), timestamp).map(|addr| neighbor_addr = addr),
                                 _ => Err(Error::Unaddressable)
                             }
                         }),
                     #[cfg(feature = "socket-udp")]
                     Socket::Udp(ref mut socket) =>
                         socket.dispatch(|response|
-                            emitter.emit_udp(response, timestamp)),
+                            emitter.emit_udp(response, timestamp).map(|addr| neighbor_addr = addr)),
                     #[cfg(feature = "socket-tcp")]
                     Socket::Tcp(ref mut socket) =>
                         socket.dispatch(timestamp, &caps, |response|
-                            emitter.emit_tcp(response, timestamp)),
+                            emitter.emit_tcp(response, timestamp).map(|addr| neighbor_addr = addr)),
                     Socket::__Nonexhaustive(_) => unreachable!()
                 };
 
@@ -317,11 +317,11 @@ impl<'a, 'b: 'a, 'c: 'a + 'b> PacketFilter for Set<'a, 'b, 'c> {
         Ok(emitted_any)
     }
 
-    fn poll_at(&self, timestamp: u64) -> Option<u64> {
+    fn poll_at<E>(&self, timestamp: u64, emitter: &E) -> Option<u64> where E: PacketEmitter {
         self.iter().filter_map(|socket| {
             let socket_poll_at = socket.poll_at();
             socket.meta().poll_at(socket_poll_at, |ip_addr|
-                self.inner.has_neighbor(&ip_addr, timestamp))
+                emitter.has_neighbor(&ip_addr, timestamp))
         }).min()
     }
 }
