@@ -164,6 +164,20 @@ impl<'a> Parser<'a> {
             }
         };
 
+        // Check for an IPv4 mapped address
+        if *head_idx == 6 || use_tail && *tail_idx == 1 {
+            match self.try(|p| p.accept_ipv4_octets()) {
+                Some(octets) => {
+                    tail[*tail_idx] = ((octets[0] as u16) << 8) | (octets[1] as u16);
+                    *tail_idx += 1;
+                    tail[*tail_idx] = ((octets[2] as u16) << 8) | (octets[3] as u16);
+                    *tail_idx += 1;
+                    return Ok(());
+                },
+                None => ()
+            }
+        }
+
         match self.try(|p| p.accept_number(4, 0x10000, true)) {
             Some(part) if !use_tail && *head_idx < 8 => {
                 // Valid u16 to be added to the address
@@ -237,8 +251,7 @@ impl<'a> Parser<'a> {
         Ok(Ipv6Address::from_parts(&addr))
     }
 
-    #[cfg(feature = "proto-ipv4")]
-    fn accept_ipv4(&mut self) -> Result<Ipv4Address> {
+    fn accept_ipv4_octets(&mut self) -> Result<[u8; 4]> {
         let mut octets = [0u8; 4];
         for n in 0..4 {
             octets[n] = self.accept_number(3, 0x100, false)? as u8;
@@ -246,6 +259,12 @@ impl<'a> Parser<'a> {
                 self.accept_char(b'.')?;
             }
         }
+        Ok(octets)
+    }
+
+    #[cfg(feature = "proto-ipv4")]
+    fn accept_ipv4(&mut self) -> Result<Ipv4Address> {
+        let octets = self.accept_ipv4_octets()?;
         Ok(Ipv4Address(octets))
     }
 
@@ -510,6 +529,11 @@ mod test {
         // Long number
         assert_eq!(Ipv6Address::from_str("::000001"),
                    Err(()));
+        // IPv4-Mapped address
+        assert_eq!(Ipv6Address::from_str("::ffff:192.168.1.1"),
+                   Ok(Ipv6Address([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 192, 168, 1, 1])));
+        assert_eq!(Ipv6Address::from_str("0:0:0:0:0:FFFF:192.168.1.1"),
+                   Ok(Ipv6Address([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 192, 168, 1, 1])));
     }
 
     #[test]

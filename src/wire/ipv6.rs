@@ -156,51 +156,69 @@ impl Address {
 
 impl fmt::Display for Address {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        // The string representation of an IPv6 address should
-        // collapse a series of 16 bit sections that evaluate
-        // to 0 to "::"
-        //
-        // See https://tools.ietf.org/html/rfc4291#section-2.2
-        // for details.
-        enum State {
-            Head,
-            HeadBody,
-            Tail,
-            TailBody
-        }
-        let mut words = [0u16; 8];
-        self.write_parts(&mut words);
-        let mut state = State::Head;
-        for word in words.iter() {
-            state = match (*word, &state) {
-                // Once a u16 equal to zero write a double colon and
-                // skip to the next non-zero u16.
-                (0, &State::Head) | (0, &State::HeadBody) => {
-                    write!(f, "::")?;
-                    State::Tail
-                },
-                // Continue iterating without writing any characters until
-                // we hit anothing non-zero value.
-                (0, &State::Tail) => State::Tail,
-                // When the state is Head or Tail write a u16 in hexadecimal
-                // without the leading colon if the value is not 0.
-                (_, &State::Head) => {
-                    write!(f, "{:x}", word)?;
-                    State::HeadBody
-                },
-                (_, &State::Tail) => {
-                    write!(f, "{:x}", word)?;
-                    State::TailBody
-                },
-                // Write the u16 with a leading colon when parsing a value
-                // that isn't the first in a section
-                (_, &State::HeadBody) | (_, &State::TailBody) => {
-                    write!(f, ":{:x}", word)?;
-                    state
+        match self.0 {
+            // IPv4-Mapped address
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, a, b, c, d] => {
+                write!(f, "::ffff:{}.{}.{}.{}", a, b, c, d)?;
+            },
+            _ => {
+                // The string representation of an IPv6 address should
+                // collapse a series of 16 bit sections that evaluate
+                // to 0 to "::"
+                //
+                // See https://tools.ietf.org/html/rfc4291#section-2.2
+                // for details.
+                enum State {
+                    Head,
+                    HeadBody,
+                    Tail,
+                    TailBody
+                }
+                let mut words = [0u16; 8];
+                self.write_parts(&mut words);
+                let mut state = State::Head;
+                for word in words.iter() {
+                    state = match (*word, &state) {
+                        // Once a u16 equal to zero write a double colon and
+                        // skip to the next non-zero u16.
+                        (0, &State::Head) | (0, &State::HeadBody) => {
+                            write!(f, "::")?;
+                            State::Tail
+                        },
+                        // Continue iterating without writing any characters until
+                        // we hit anothing non-zero value.
+                        (0, &State::Tail) => State::Tail,
+                        // When the state is Head or Tail write a u16 in hexadecimal
+                        // without the leading colon if the value is not 0.
+                        (_, &State::Head) => {
+                            write!(f, "{:x}", word)?;
+                            State::HeadBody
+                        },
+                        (_, &State::Tail) => {
+                            write!(f, "{:x}", word)?;
+                            State::TailBody
+                        },
+                        // Write the u16 with a leading colon when parsing a value
+                        // that isn't the first in a section
+                        (_, &State::HeadBody) | (_, &State::TailBody) => {
+                            write!(f, ":{:x}", word)?;
+                            state
+                        }
+                    }
                 }
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(feature = "proto-ipv4")]
+/// Convert the given IPv4 address into a IPv4-mapped IPv6 address
+impl From<::wire::ipv4::Address> for Address {
+    fn from(address: ::wire::ipv4::Address) -> Self {
+        Address::new(0, 0, 0, 0, 0, 0xffff,
+                      ((address.0[0] as u16) << 8) | address.0[1] as u16,
+                      ((address.0[2] as u16) << 8) | address.0[3] as u16)
     }
 }
 
@@ -606,6 +624,9 @@ mod test {
     use super::{Packet, Protocol, Repr};
     use wire::pretty_print::{PrettyPrinter};
 
+    #[cfg(feature = "proto-ipv4")]
+    use wire::ipv4::Address as Ipv4Address;
+
     static LINK_LOCAL_ADDR: Address = Address([0xfe, 0x80, 0x00, 0x00,
                                                0x00, 0x00, 0x00, 0x00,
                                                0x00, 0x00, 0x00, 0x00,
@@ -646,6 +667,14 @@ mod test {
                    format!("{}", LINK_LOCAL_ADDR));
         assert_eq!("fe80::7f00:0:1",
                    format!("{}", Address::new(0xfe80, 0, 0, 0, 0, 0x7f00, 0x0000, 0x0001)));
+        assert_eq!("::",
+                   format!("{}", Address::UNSPECIFIED));
+        assert_eq!("::1",
+                   format!("{}", Address::LOOPBACK));
+
+        #[cfg(feature = "proto-ipv4")]
+        assert_eq!("::ffff:192.168.1.1",
+                   format!("{}", Address::from(Ipv4Address::new(192, 168, 1, 1))));
     }
 
     #[test]
@@ -701,6 +730,15 @@ mod test {
         assert_eq!(addr.mask(26), [0x01, 0x23, 0x45, 0x40, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
         assert_eq!(addr.mask(128), [0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
         assert_eq!(addr.mask(127), [0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    }
+
+    #[cfg(feature = "proto-ipv4")]
+    #[test]
+    fn test_from_ipv4_address() {
+        assert_eq!(Address([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 192, 168, 1, 1]),
+            Address::from(Ipv4Address::new(192, 168, 1, 1)));
+        assert_eq!(Address([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 222, 1, 41, 90]),
+            Address::from(Ipv4Address::new(222, 1, 41, 90)));
     }
 
     #[test]

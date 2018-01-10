@@ -3,6 +3,7 @@
 #![deny(unsafe_code)]
 // TODO: Change this to enable deny(unused) if IPv6 or IPv4 are enabled
 #![cfg_attr(feature = "proto-ipv4", deny(unused))]
+#![feature(slice_patterns)]
 
 //! The _smoltcp_ library is built in a layered structure, with the layers corresponding
 //! to the levels of API abstraction. Only the highest layers would be used by a typical
