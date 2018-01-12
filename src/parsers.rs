@@ -164,32 +164,49 @@ impl<'a> Parser<'a> {
             }
         };
 
-        // Check for an IPv4 mapped address
-        if (*head_idx == 6 && head[*head_idx - 1] == 0xffff) ||
-            (use_tail && *tail_idx == 1 && tail[*tail_idx - 1] == 0xffff) {
-            match self.try(|p| p.accept_ipv4_octets()) {
-                Some(octets) => {
-                    tail[*tail_idx] = ((octets[0] as u16) << 8) | (octets[1] as u16);
-                    *tail_idx += 1;
-                    tail[*tail_idx] = ((octets[2] as u16) << 8) | (octets[3] as u16);
-                    *tail_idx += 1;
-                    return Ok(());
-                },
-                None => ()
-            }
-        }
-
         match self.try(|p| p.accept_number(4, 0x10000, true)) {
             Some(part) if !use_tail && *head_idx < 8 => {
                 // Valid u16 to be added to the address
                 head[*head_idx] = part as u16;
                 *head_idx += 1;
+
+                if part == 0xffff && *head_idx == 6 {
+                    // Check for an IPv4 mapped address
+                    match self.try(|p| {
+                        p.accept_char(b':')?;
+                        p.accept_ipv4_octets()
+                    }) {
+                        Some(octets) => {
+                            head[*head_idx] = ((octets[0] as u16) << 8) | (octets[1] as u16);
+                            *head_idx += 1;
+                            head[*head_idx] = ((octets[2] as u16) << 8) | (octets[3] as u16);
+                            *head_idx += 1;
+                        }
+                        None => ()
+                    }
+                }
                 Ok(())
             },
             Some(part) if *tail_idx < 6 => {
                 // Valid u16 to be added to the address
                 tail[*tail_idx] = part as u16;
                 *tail_idx += 1;
+
+                if part == 0xffff && use_tail && *tail_idx == 1 {
+                    // Check for an IPv4 mapped address
+                    match self.try(|p| {
+                        p.accept_char(b':')?;
+                        p.accept_ipv4_octets()
+                    }) {
+                        Some(octets) => {
+                            tail[*tail_idx] = ((octets[0] as u16) << 8) | (octets[1] as u16);
+                            *tail_idx += 1;
+                            tail[*tail_idx] = ((octets[2] as u16) << 8) | (octets[3] as u16);
+                            *tail_idx += 1;
+                        }
+                        None => ()
+                    }
+                }
                 Ok(())
             },
             Some(_) => {
