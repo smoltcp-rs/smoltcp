@@ -138,6 +138,18 @@ impl<'a> Parser<'a> {
     }
 
     #[cfg(feature = "proto-ipv6")]
+    fn accept_ipv4_mapped_ipv6_part(&mut self, parts: &mut [u16], idx: &mut usize) -> Result<()> {
+        let octets = self.accept_ipv4_octets()?;
+
+        parts[*idx] = ((octets[0] as u16) << 8) | (octets[1] as u16);
+        *idx += 1;
+        parts[*idx] = ((octets[2] as u16) << 8) | (octets[3] as u16);
+        *idx += 1;
+
+        Ok(())
+    }
+
+    #[cfg(feature = "proto-ipv6")]
     fn accept_ipv6_part(&mut self, (head, tail): (&mut [u16; 8], &mut [u16; 6]),
                         (head_idx, tail_idx): (&mut usize, &mut usize),
                         mut use_tail: bool, is_cidr: bool) -> Result<()> {
@@ -171,19 +183,10 @@ impl<'a> Parser<'a> {
                 *head_idx += 1;
 
                 if part == 0xffff && *head_idx == 6 {
-                    // Check for an IPv4 mapped address
-                    match self.try(|p| {
+                    self.try(|p| {
                         p.accept_char(b':')?;
-                        p.accept_ipv4_octets()
-                    }) {
-                        Some(octets) => {
-                            head[*head_idx] = ((octets[0] as u16) << 8) | (octets[1] as u16);
-                            *head_idx += 1;
-                            head[*head_idx] = ((octets[2] as u16) << 8) | (octets[3] as u16);
-                            *head_idx += 1;
-                        }
-                        None => ()
-                    }
+                        p.accept_ipv4_mapped_ipv6_part(head, head_idx)
+                    });
                 }
                 Ok(())
             },
@@ -193,19 +196,10 @@ impl<'a> Parser<'a> {
                 *tail_idx += 1;
 
                 if part == 0xffff && use_tail && *tail_idx == 1 {
-                    // Check for an IPv4 mapped address
-                    match self.try(|p| {
+                    self.try(|p| {
                         p.accept_char(b':')?;
-                        p.accept_ipv4_octets()
-                    }) {
-                        Some(octets) => {
-                            tail[*tail_idx] = ((octets[0] as u16) << 8) | (octets[1] as u16);
-                            *tail_idx += 1;
-                            tail[*tail_idx] = ((octets[2] as u16) << 8) | (octets[3] as u16);
-                            *tail_idx += 1;
-                        }
-                        None => ()
-                    }
+                        p.accept_ipv4_mapped_ipv6_part(tail, tail_idx)
+                    });
                 }
                 Ok(())
             },
