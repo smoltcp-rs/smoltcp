@@ -2,7 +2,7 @@ language: rust
 matrix:
   include:
     ### Litmus check that we work on stable/beta
-    # (we don't, not until slice_rotate lands)
+    # (we don't, not until slice_rotate and slice_patterns land)
     # - rust: stable
     #   env: FEATURES='default' MODE='test'
     # - rust: beta

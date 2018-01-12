@@ -216,9 +216,9 @@ impl fmt::Display for Address {
 /// Convert the given IPv4 address into a IPv4-mapped IPv6 address
 impl From<::wire::ipv4::Address> for Address {
     fn from(address: ::wire::ipv4::Address) -> Self {
-        Address::new(0, 0, 0, 0, 0, 0xffff,
-                      ((address.0[0] as u16) << 8) | address.0[1] as u16,
-                      ((address.0[2] as u16) << 8) | address.0[3] as u16)
+        let octets = address.0;
+        Address([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff,
+                octets[0], octets[1], octets[2], octets[3]])
     }
 }
 

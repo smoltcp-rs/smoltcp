@@ -182,7 +182,8 @@ impl<'a> Parser<'a> {
                 head[*head_idx] = part as u16;
                 *head_idx += 1;
 
-                if part == 0xffff && *head_idx == 6 {
+                if *head_idx == 6 && head[5] == 0xffff && head[4] == 0 && head[3] == 0
+                        && head[2] == 0 && head[1] == 0 && head[0] == 0 {
                     self.try(|p| {
                         p.accept_char(b':')?;
                         p.accept_ipv4_mapped_ipv6_part(head, head_idx)
@@ -195,7 +196,7 @@ impl<'a> Parser<'a> {
                 tail[*tail_idx] = part as u16;
                 *tail_idx += 1;
 
-                if part == 0xffff && use_tail && *tail_idx == 1 {
+                if *tail_idx == 1 && tail[0] == 0xffff {
                     self.try(|p| {
                         p.accept_char(b':')?;
                         p.accept_ipv4_mapped_ipv6_part(tail, tail_idx)
@@ -544,11 +545,19 @@ mod test {
         // IPv4-Mapped address
         assert_eq!(Ipv6Address::from_str("::ffff:192.168.1.1"),
                    Ok(Ipv6Address([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 192, 168, 1, 1])));
-        assert_eq!(Ipv6Address::from_str("0:0:0:0:0:FFFF:192.168.1.1"),
+        assert_eq!(Ipv6Address::from_str("0:0:0:0:0:ffff:192.168.1.1"),
                    Ok(Ipv6Address([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 192, 168, 1, 1])));
-        assert_eq!(Ipv6Address::from_str("0:0:0:0:0:EEEE:192.168.1.1"),
+        // Only ffff is allowed in position 6 when IPv4 mapped
+        assert_eq!(Ipv6Address::from_str("0:0:0:0:0:eeee:192.168.1.1"),
                    Err(()));
-        assert_eq!(Ipv6Address::from_str("::1:fff:192.168.1.1"),
+        // Positions 1-5 must be 0 when IPv4 mapped
+        assert_eq!(Ipv6Address::from_str("0:0:0:0:1:ffff:192.168.1.1"),
+                   Err(()));
+        // Out of range ipv4 octet
+        assert_eq!(Ipv6Address::from_str("0:0:0:0:0:ffff:256.168.1.1"),
+                   Err(()));
+        // Invalid hex in ipv4 octet
+        assert_eq!(Ipv6Address::from_str("0:0:0:0:0:ffff:c0.168.1.1"),
                    Err(()));
     }
 
