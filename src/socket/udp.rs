@@ -70,14 +70,14 @@ pub struct UdpSocket<'a, 'b: 'a> {
 impl<'a, 'b> UdpSocket<'a, 'b> {
     /// Create an UDP socket with the given buffers.
     pub fn new(rx_buffer: SocketBuffer<'a, 'b>,
-               tx_buffer: SocketBuffer<'a, 'b>) -> Socket<'a, 'b> {
-        Socket::Udp(UdpSocket {
+               tx_buffer: SocketBuffer<'a, 'b>) -> UdpSocket<'a, 'b> {
+        UdpSocket {
             meta:      SocketMeta::default(),
             endpoint:  IpEndpoint::default(),
             rx_buffer: rx_buffer,
             tx_buffer: tx_buffer,
             hop_limit: None
-        })
+        }
     }
 
     /// Return the socket handle.

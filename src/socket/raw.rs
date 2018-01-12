@@ -73,14 +73,14 @@ impl<'a, 'b> RawSocket<'a, 'b> {
     /// with the given buffers.
     pub fn new(ip_version: IpVersion, ip_protocol: IpProtocol,
                rx_buffer: SocketBuffer<'a, 'b>,
-               tx_buffer: SocketBuffer<'a, 'b>) -> Socket<'a, 'b> {
-        Socket::Raw(RawSocket {
+               tx_buffer: SocketBuffer<'a, 'b>) -> RawSocket<'a, 'b> {
+        RawSocket {
             meta: SocketMeta::default(),
             ip_version,
             ip_protocol,
             rx_buffer,
             tx_buffer,
-        })
+        }
     }
 
     /// Return the socket handle.

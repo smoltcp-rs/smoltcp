@@ -230,7 +230,7 @@ const DEFAULT_MSS: usize = 536;
 
 impl<'a> TcpSocket<'a> {
     /// Create a socket using the given buffers.
-    pub fn new<T>(rx_buffer: T, tx_buffer: T) -> Socket<'a, 'static>
+    pub fn new<T>(rx_buffer: T, tx_buffer: T) -> TcpSocket<'a>
             where T: Into<SocketBuffer<'a>> {
         let (rx_buffer, tx_buffer) = (rx_buffer.into(), tx_buffer.into());
         if rx_buffer.capacity() > <u16>::max_value() as usize {
@@ -238,7 +238,7 @@ impl<'a> TcpSocket<'a> {
                    <u16>::max_value())
         }
 
-        Socket::Tcp(TcpSocket {
+        TcpSocket {
             meta:            SocketMeta::default(),
             state:           State::Closed,
             timer:           Timer::default(),
@@ -259,7 +259,7 @@ impl<'a> TcpSocket<'a> {
             remote_win_len:  0,
             remote_mss:      DEFAULT_MSS,
             remote_last_ts:  None,
-        })
+        }
     }
 
     /// Return the socket handle.
