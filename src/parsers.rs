@@ -165,7 +165,8 @@ impl<'a> Parser<'a> {
         };
 
         // Check for an IPv4 mapped address
-        if *head_idx == 6 || use_tail && *tail_idx == 1 {
+        if (*head_idx == 6 && head[*head_idx - 1] == 0xffff) ||
+            (use_tail && *tail_idx == 1 && tail[*tail_idx - 1] == 0xffff) {
             match self.try(|p| p.accept_ipv4_octets()) {
                 Some(octets) => {
                     tail[*tail_idx] = ((octets[0] as u16) << 8) | (octets[1] as u16);
@@ -534,6 +535,10 @@ mod test {
                    Ok(Ipv6Address([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 192, 168, 1, 1])));
         assert_eq!(Ipv6Address::from_str("0:0:0:0:0:FFFF:192.168.1.1"),
                    Ok(Ipv6Address([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 192, 168, 1, 1])));
+        assert_eq!(Ipv6Address::from_str("0:0:0:0:0:EEEE:192.168.1.1"),
+                   Err(()));
+        assert_eq!(Ipv6Address::from_str("::1:fff:192.168.1.1"),
+                   Err(()));
     }
 
     #[test]
