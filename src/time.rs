@@ -12,9 +12,6 @@ absolute and relative time.
 
 use core::{ops, fmt};
 
-#[cfg(feature = "std")]
-const NANOS_PER_MILLI: u32 = 1_000_000;
-
 /// A representation of an absolute time value.
 ///
 /// The `Instant` type is a wrapper around a `i64` value that
@@ -45,7 +42,7 @@ impl Instant {
     #[cfg(feature = "std")]
     pub fn from_system_time(time: ::std::time::SystemTime) -> Result<Instant, ::std::time::SystemTimeError> {
         let n = ::std::time::UNIX_EPOCH.duration_since(time)?;
-        Ok(Self::from_millis(n.as_secs() as i64 * 1000 + (n.subsec_nanos() / NANOS_PER_MILLI) as i64))
+        Ok(Self::from_millis(n.as_secs() as i64 * 1000 + (n.subsec_nanos() / 1_000_000) as i64))
     }
 
     /// The fractional number of milliseconds that have passed
@@ -192,7 +189,7 @@ impl ops::DivAssign<u32> for Duration {
 impl From<::std::time::Duration> for Duration {
     fn from(other: ::std::time::Duration) -> Duration {
         Duration::from_millis(
-            other.as_secs() * 1000 + (other.subsec_nanos() / NANOS_PER_MILLI) as u64
+            other.as_secs() * 1000 + (other.subsec_nanos() / 1_000_000) as u64
         )
     }
 }
