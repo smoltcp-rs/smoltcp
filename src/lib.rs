@@ -101,6 +101,7 @@ pub mod phy;
 pub mod wire;
 pub mod iface;
 pub mod socket;
+pub mod time;
 
 /// The error type for the networking stack.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
