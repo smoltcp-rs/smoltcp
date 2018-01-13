@@ -745,6 +745,7 @@ mod test {
         assert_eq!(addr.mask(127), [0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
     }
 
+    #[cfg(feature = "proto-ipv4")]
     #[test]
     fn test_is_ipv4_mapped() {
         assert_eq!(false, Address::UNSPECIFIED.is_ipv4_mapped());
