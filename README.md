@@ -214,7 +214,7 @@ Read its [source code](/examples/tcpdump.rs), then run it as:
 
 ```sh
 cargo build --example tcpdump
-sudo ./target/debug/tcpdump eth0
+sudo ./target/debug/examples/tcpdump eth0
 ```
 
 ### examples/httpclient.rs
@@ -257,7 +257,7 @@ The first ECHO\_REQUEST packet is expected to be lost since arp\_cache is empty 
 the ECHO\_REQUEST packet is dropped and an ARP request is sent instead.
 
 Currently, netmasks are not implemented, and so the only address this example can reach
-is the other endpoint of the tap interface, `192.168.1.100`. It cannot reach itself because
+is the other endpoint of the tap interface, `192.168.69.100`. It cannot reach itself because
 packets entering a tap interface do not loop back.
 
 ### examples/server.rs
