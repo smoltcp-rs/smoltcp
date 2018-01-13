@@ -135,6 +135,23 @@ impl Address {
         *self == Self::LOOPBACK
     }
 
+    /// Query whether the IPv6 address is an [IPv4 mapped IPv6 address].
+    ///
+    /// [IPv4 mapped IPv6 address]: https://tools.ietf.org/html/rfc4291#section-2.5.5.2
+    pub fn is_ipv4_mapped(&self) -> bool {
+        self.0[0..12] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff]
+    }
+
+    #[cfg(feature = "proto-ipv4")]
+    /// Convert an IPv4 mapped IPv6 address to an IPv4 address.
+    pub fn as_ipv4(&self) -> Option<::wire::ipv4::Address> {
+        if self.is_ipv4_mapped() {
+            Some(::wire::ipv4::Address::new(self.0[12], self.0[13], self.0[14], self.0[15]))
+        } else {
+            None
+        }
+    }
+
     /// Helper function used to mask an addres given a prefix.
     ///
     /// # Panics
@@ -156,54 +173,50 @@ impl Address {
 
 impl fmt::Display for Address {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self.0 {
-            // IPv4-Mapped address
-            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, a, b, c, d] => {
-                write!(f, "::ffff:{}.{}.{}.{}", a, b, c, d)?;
-            },
-            _ => {
-                // The string representation of an IPv6 address should
-                // collapse a series of 16 bit sections that evaluate
-                // to 0 to "::"
-                //
-                // See https://tools.ietf.org/html/rfc4291#section-2.2
-                // for details.
-                enum State {
-                    Head,
-                    HeadBody,
-                    Tail,
-                    TailBody
-                }
-                let mut words = [0u16; 8];
-                self.write_parts(&mut words);
-                let mut state = State::Head;
-                for word in words.iter() {
-                    state = match (*word, &state) {
-                        // Once a u16 equal to zero write a double colon and
-                        // skip to the next non-zero u16.
-                        (0, &State::Head) | (0, &State::HeadBody) => {
-                            write!(f, "::")?;
-                            State::Tail
-                        },
-                        // Continue iterating without writing any characters until
-                        // we hit anothing non-zero value.
-                        (0, &State::Tail) => State::Tail,
-                        // When the state is Head or Tail write a u16 in hexadecimal
-                        // without the leading colon if the value is not 0.
-                        (_, &State::Head) => {
-                            write!(f, "{:x}", word)?;
-                            State::HeadBody
-                        },
-                        (_, &State::Tail) => {
-                            write!(f, "{:x}", word)?;
-                            State::TailBody
-                        },
-                        // Write the u16 with a leading colon when parsing a value
-                        // that isn't the first in a section
-                        (_, &State::HeadBody) | (_, &State::TailBody) => {
-                            write!(f, ":{:x}", word)?;
-                            state
-                        }
+        if self.is_ipv4_mapped() {
+            write!(f, "::ffff:{}.{}.{}.{}", self.0[12], self.0[13], self.0[14], self.0[15])?;
+        } else {
+            // The string representation of an IPv6 address should
+            // collapse a series of 16 bit sections that evaluate
+            // to 0 to "::"
+            //
+            // See https://tools.ietf.org/html/rfc4291#section-2.2
+            // for details.
+            enum State {
+                Head,
+                HeadBody,
+                Tail,
+                TailBody
+            }
+            let mut words = [0u16; 8];
+            self.write_parts(&mut words);
+            let mut state = State::Head;
+            for word in words.iter() {
+                state = match (*word, &state) {
+                    // Once a u16 equal to zero write a double colon and
+                    // skip to the next non-zero u16.
+                    (0, &State::Head) | (0, &State::HeadBody) => {
+                        write!(f, "::")?;
+                        State::Tail
+                    },
+                    // Continue iterating without writing any characters until
+                    // we hit anothing non-zero value.
+                    (0, &State::Tail) => State::Tail,
+                    // When the state is Head or Tail write a u16 in hexadecimal
+                    // without the leading colon if the value is not 0.
+                    (_, &State::Head) => {
+                        write!(f, "{:x}", word)?;
+                        State::HeadBody
+                    },
+                    (_, &State::Tail) => {
+                        write!(f, "{:x}", word)?;
+                        State::TailBody
+                    },
+                    // Write the u16 with a leading colon when parsing a value
+                    // that isn't the first in a section
+                    (_, &State::HeadBody) | (_, &State::TailBody) => {
+                        write!(f, ":{:x}", word)?;
+                        state
                     }
                 }
             }
@@ -730,6 +743,21 @@ mod test {
         assert_eq!(addr.mask(26), [0x01, 0x23, 0x45, 0x40, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
         assert_eq!(addr.mask(128), [0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
         assert_eq!(addr.mask(127), [0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn test_is_ipv4_mapped() {
+        assert_eq!(false, Address::UNSPECIFIED.is_ipv4_mapped());
+        assert_eq!(true, Address::from(Ipv4Address::new(192, 168, 1, 1)).is_ipv4_mapped());
+    }
+
+    #[cfg(feature = "proto-ipv4")]
+    #[test]
+    fn test_as_ipv4() {
+        assert_eq!(None, Address::UNSPECIFIED.as_ipv4());
+
+        let ipv4 = Ipv4Address::new(192, 168, 1, 1);
+        assert_eq!(Some(ipv4), Address::from(ipv4).as_ipv4());
     }
 
     #[cfg(feature = "proto-ipv4")]
