@@ -6,6 +6,8 @@ use phy::ChecksumCapabilities;
 use wire::{IpVersion, IpRepr, IpProtocol};
 #[cfg(feature = "proto-ipv4")]
 use wire::{Ipv4Repr, Ipv4Packet};
+#[cfg(feature = "proto-ipv6")]
+use wire::{Ipv6Repr, Ipv6Packet};
 use socket::{Socket, SocketMeta, SocketHandle};
 use storage::{Resettable, RingBuffer};
 
@@ -205,7 +207,13 @@ impl<'a, 'b> RawSocket<'a, 'b> {
                     Ok((IpRepr::Ipv4(ipv4_repr), packet.payload()))
                 }
                 #[cfg(feature = "proto-ipv6")]
-                IpVersion::Ipv6 => Err(Error::Unrecognized),
+                IpVersion::Ipv6 => {
+                    let mut packet = Ipv6Packet::new_checked(buffer.as_mut())?;
+                    if packet.next_header() != protocol { return Err(Error::Unaddressable) }
+                    let packet = Ipv6Packet::new(&*packet.into_inner());
+                    let ipv6_repr = Ipv6Repr::parse(&packet)?;
+                    Ok((IpRepr::Ipv6(ipv6_repr), packet.payload()))
+                }
                 IpVersion::Unspecified => unreachable!(),
                 IpVersion::__Nonexhaustive => unreachable!()
             }
@@ -244,14 +252,17 @@ impl<'a, 'b> RawSocket<'a, 'b> {
 
 #[cfg(test)]
 mod test {
+    use wire::IpRepr;
     #[cfg(feature = "proto-ipv4")]
-    use wire::{Ipv4Address, IpRepr, Ipv4Repr};
+    use wire::{Ipv4Address, Ipv4Repr};
+    #[cfg(feature = "proto-ipv6")]
+    use wire::{Ipv6Address, Ipv6Repr};
     use super::*;
 
     fn buffer(packets: usize) -> SocketBuffer<'static, 'static> {
         let mut storage = vec![];
         for _ in 0..packets {
-            storage.push(PacketBuffer::new(vec![0; 24]))
+            storage.push(PacketBuffer::new(vec![0; 48]))
         }
         SocketBuffer::new(storage)
     }
@@ -291,123 +302,238 @@ mod test {
         ];
     }
 
-    #[test]
-    #[cfg(feature = "proto-ipv4")]
-    fn test_send_truncated() {
-        let mut socket = ipv4_locals::socket(buffer(0), buffer(1));
-        assert_eq!(socket.send_slice(&[0; 32][..]), Err(Error::Truncated));
+    #[cfg(feature = "proto-ipv6")]
+    mod ipv6_locals {
+        use super::*;
+
+        pub fn socket(rx_buffer: SocketBuffer<'static, 'static>,
+                  tx_buffer: SocketBuffer<'static, 'static>)
+                -> RawSocket<'static, 'static> {
+            match RawSocket::new(IpVersion::Ipv6, IpProtocol::Unknown(IP_PROTO),
+                                 rx_buffer, tx_buffer) {
+                Socket::Raw(socket) => socket,
+                _ => unreachable!()
+            }
+        }
+
+        pub const IP_PROTO: u8 = 63;
+        pub const HEADER_REPR: IpRepr = IpRepr::Ipv6(Ipv6Repr {
+            src_addr: Ipv6Address([0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01]),
+            dst_addr: Ipv6Address([0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02]),
+            next_header: IpProtocol::Unknown(IP_PROTO),
+            payload_len: 4,
+            hop_limit: 64
+        });
+
+        pub const PACKET_BYTES: [u8; 44] = [
+            0x60, 0x00, 0x00, 0x00,
+            0x00, 0x04, 0x3f, 0x40,
+            0xfe, 0x80, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x01,
+            0xfe, 0x80, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x02,
+            0xaa, 0x00, 0x00, 0xff
+        ];
+
+        pub const PACKET_PAYLOAD: [u8; 4] = [
+            0xaa, 0x00, 0x00, 0xff
+        ];
     }
 
-    #[test]
-    #[cfg(feature = "proto-ipv4")]
-    fn test_send_dispatch() {
-        let checksum_caps = &ChecksumCapabilities::default();
-        let mut socket = ipv4_locals::socket(buffer(0), buffer(1));
+    macro_rules! reusable_ip_specific_tests {
+        ($module:ident, $socket:path, $hdr:path, $packet:path, $payload:path) => {
+            mod $module {
+                use super::*;
 
-        assert!(socket.can_send());
-        assert_eq!(socket.dispatch(&checksum_caps, |_| unreachable!()),
-                   Err(Error::Exhausted));
+                #[test]
+                fn test_send_truncated() {
+                    let mut socket = $socket(buffer(0), buffer(1));
+                    assert_eq!(socket.send_slice(&[0; 56][..]), Err(Error::Truncated));
+                }
 
-        assert_eq!(socket.send_slice(&ipv4_locals::PACKET_BYTES[..]), Ok(()));
-        assert_eq!(socket.send_slice(b""), Err(Error::Exhausted));
-        assert!(!socket.can_send());
+                #[test]
+                fn test_send_dispatch() {
+                    let checksum_caps = &ChecksumCapabilities::default();
+                    let mut socket = $socket(buffer(0), buffer(1));
 
-        assert_eq!(socket.dispatch(&checksum_caps, |(ip_repr, ip_payload)| {
-            assert_eq!(ip_repr, ipv4_locals::HEADER_REPR);
-            assert_eq!(ip_payload, &ipv4_locals::PACKET_PAYLOAD);
-            Err(Error::Unaddressable)
-        }), Err(Error::Unaddressable));
-        assert!(!socket.can_send());
+                    assert!(socket.can_send());
+                    assert_eq!(socket.dispatch(&checksum_caps, |_| unreachable!()),
+                               Err(Error::Exhausted));
 
-        assert_eq!(socket.dispatch(&checksum_caps, |(ip_repr, ip_payload)| {
-            assert_eq!(ip_repr, ipv4_locals::HEADER_REPR);
-            assert_eq!(ip_payload, &ipv4_locals::PACKET_PAYLOAD);
-            Ok(())
-        }), Ok(()));
-        assert!(socket.can_send());
+                    assert_eq!(socket.send_slice(&$packet[..]), Ok(()));
+                    assert_eq!(socket.send_slice(b""), Err(Error::Exhausted));
+                    assert!(!socket.can_send());
+
+                    assert_eq!(socket.dispatch(&checksum_caps, |(ip_repr, ip_payload)| {
+                        assert_eq!(ip_repr, $hdr);
+                        assert_eq!(ip_payload, &$payload);
+                        Err(Error::Unaddressable)
+                    }), Err(Error::Unaddressable));
+                    assert!(!socket.can_send());
+
+                    assert_eq!(socket.dispatch(&checksum_caps, |(ip_repr, ip_payload)| {
+                        assert_eq!(ip_repr, $hdr);
+                        assert_eq!(ip_payload, &$payload);
+                        Ok(())
+                    }), Ok(()));
+                    assert!(socket.can_send());
+                }
+
+                #[test]
+                fn test_recv_truncated_slice() {
+                    let mut socket = $socket(buffer(1), buffer(0));
+
+                    assert!(socket.accepts(&$hdr));
+                    assert_eq!(socket.process(&$hdr, &$payload,
+                                              &ChecksumCapabilities::default()), Ok(()));
+
+                    let mut slice = [0; 4];
+                    assert_eq!(socket.recv_slice(&mut slice[..]), Ok(4));
+                    assert_eq!(&slice, &$packet[..slice.len()]);
+                }
+
+                #[test]
+                fn test_recv_truncated_packet() {
+                    let mut socket = $socket(buffer(1), buffer(0));
+
+                    let mut buffer = vec![0; 128];
+                    buffer[..$packet.len()].copy_from_slice(&$packet[..]);
+
+                    assert!(socket.accepts(&$hdr));
+                    assert_eq!(socket.process(&$hdr, &buffer, &ChecksumCapabilities::default()),
+                               Err(Error::Truncated));
+                }
+            }
+        }
     }
+
+    #[cfg(feature = "proto-ipv4")]
+    reusable_ip_specific_tests!(ipv4, ipv4_locals::socket, ipv4_locals::HEADER_REPR,
+                                ipv4_locals::PACKET_BYTES, ipv4_locals::PACKET_PAYLOAD);
+
+    #[cfg(feature = "proto-ipv6")]
+    reusable_ip_specific_tests!(ipv6, ipv6_locals::socket, ipv6_locals::HEADER_REPR,
+                                ipv6_locals::PACKET_BYTES, ipv6_locals::PACKET_PAYLOAD);
+
 
     #[test]
     #[cfg(feature = "proto-ipv4")]
     fn test_send_illegal() {
         let checksum_caps = &ChecksumCapabilities::default();
-        let mut socket = ipv4_locals::socket(buffer(0), buffer(1));
+        #[cfg(feature = "proto-ipv4")]
+        {
+            let mut socket = ipv4_locals::socket(buffer(0), buffer(1));
 
-        let mut wrong_version = ipv4_locals::PACKET_BYTES.clone();
-        Ipv4Packet::new(&mut wrong_version).set_version(5);
+            let mut wrong_version = ipv4_locals::PACKET_BYTES.clone();
+            Ipv4Packet::new(&mut wrong_version).set_version(6);
 
-        assert_eq!(socket.send_slice(&wrong_version[..]), Ok(()));
-        assert_eq!(socket.dispatch(&checksum_caps, |_| unreachable!()),
-                   Ok(()));
+            assert_eq!(socket.send_slice(&wrong_version[..]), Ok(()));
+            assert_eq!(socket.dispatch(&checksum_caps, |_| unreachable!()),
+                       Ok(()));
 
-        let mut wrong_protocol = ipv4_locals::PACKET_BYTES.clone();
-        Ipv4Packet::new(&mut wrong_protocol).set_protocol(IpProtocol::Tcp);
+            let mut wrong_protocol = ipv4_locals::PACKET_BYTES.clone();
+            Ipv4Packet::new(&mut wrong_protocol).set_protocol(IpProtocol::Tcp);
 
-        assert_eq!(socket.send_slice(&wrong_protocol[..]), Ok(()));
-        assert_eq!(socket.dispatch(&checksum_caps, |_| unreachable!()),
-                   Ok(()));
+            assert_eq!(socket.send_slice(&wrong_protocol[..]), Ok(()));
+            assert_eq!(socket.dispatch(&checksum_caps, |_| unreachable!()),
+                       Ok(()));
+        }
+        #[cfg(feature = "proto-ipv6")]
+        {
+            let mut socket = ipv6_locals::socket(buffer(0), buffer(1));
+
+            let mut wrong_version = ipv6_locals::PACKET_BYTES.clone();
+            Ipv6Packet::new(&mut wrong_version[..]).set_version(4);
+
+            assert_eq!(socket.send_slice(&wrong_version[..]), Ok(()));
+            assert_eq!(socket.dispatch(&checksum_caps, |_| unreachable!()),
+                       Ok(()));
+
+            let mut wrong_protocol = ipv6_locals::PACKET_BYTES.clone();
+            Ipv6Packet::new(&mut wrong_protocol[..]).set_next_header(IpProtocol::Tcp);
+
+            assert_eq!(socket.send_slice(&wrong_protocol[..]), Ok(()));
+            assert_eq!(socket.dispatch(&checksum_caps, |_| unreachable!()),
+                       Ok(()));
+        }
     }
 
     #[test]
-    #[cfg(feature = "proto-ipv4")]
     fn test_recv_process() {
-        let mut socket = ipv4_locals::socket(buffer(1), buffer(0));
-        assert!(!socket.can_recv());
+        #[cfg(feature = "proto-ipv4")]
+        {
+            let mut socket = ipv4_locals::socket(buffer(1), buffer(0));
+            assert!(!socket.can_recv());
 
-        let mut cksumd_packet = ipv4_locals::PACKET_BYTES.clone();
-        Ipv4Packet::new(&mut cksumd_packet).fill_checksum();
+            let mut cksumd_packet = ipv4_locals::PACKET_BYTES.clone();
+            Ipv4Packet::new(&mut cksumd_packet).fill_checksum();
 
-        assert_eq!(socket.recv(), Err(Error::Exhausted));
-        assert!(socket.accepts(&ipv4_locals::HEADER_REPR));
-        assert_eq!(socket.process(&ipv4_locals::HEADER_REPR, &ipv4_locals::PACKET_PAYLOAD,
-                                  &ChecksumCapabilities::default()),
-                   Ok(()));
-        assert!(socket.can_recv());
+            assert_eq!(socket.recv(), Err(Error::Exhausted));
+            assert!(socket.accepts(&ipv4_locals::HEADER_REPR));
+            assert_eq!(socket.process(&ipv4_locals::HEADER_REPR, &ipv4_locals::PACKET_PAYLOAD,
+                                      &ChecksumCapabilities::default()),
+                       Ok(()));
+            assert!(socket.can_recv());
 
-        assert!(socket.accepts(&ipv4_locals::HEADER_REPR));
-        assert_eq!(socket.process(&ipv4_locals::HEADER_REPR, &ipv4_locals::PACKET_PAYLOAD,
-                                  &ChecksumCapabilities::default()),
-                   Err(Error::Exhausted));
-        assert_eq!(socket.recv(), Ok(&cksumd_packet[..]));
-        assert!(!socket.can_recv());
+            assert!(socket.accepts(&ipv4_locals::HEADER_REPR));
+            assert_eq!(socket.process(&ipv4_locals::HEADER_REPR, &ipv4_locals::PACKET_PAYLOAD,
+                                      &ChecksumCapabilities::default()),
+                       Err(Error::Exhausted));
+            assert_eq!(socket.recv(), Ok(&cksumd_packet[..]));
+            assert!(!socket.can_recv());
+        }
+        #[cfg(feature = "proto-ipv6")]
+        {
+            let mut socket = ipv6_locals::socket(buffer(1), buffer(0));
+            assert!(!socket.can_recv());
+
+            assert_eq!(socket.recv(), Err(Error::Exhausted));
+            assert!(socket.accepts(&ipv6_locals::HEADER_REPR));
+            assert_eq!(socket.process(&ipv6_locals::HEADER_REPR, &ipv6_locals::PACKET_PAYLOAD,
+                                      &ChecksumCapabilities::default()),
+                       Ok(()));
+            assert!(socket.can_recv());
+
+            assert!(socket.accepts(&ipv6_locals::HEADER_REPR));
+            assert_eq!(socket.process(&ipv6_locals::HEADER_REPR, &ipv6_locals::PACKET_PAYLOAD,
+                                      &ChecksumCapabilities::default()),
+                       Err(Error::Exhausted));
+            assert_eq!(socket.recv(), Ok(&ipv6_locals::PACKET_BYTES[..]));
+            assert!(!socket.can_recv());
+        }
     }
 
     #[test]
-    #[cfg(feature = "proto-ipv4")]
-    fn test_recv_truncated_slice() {
-        let mut socket = ipv4_locals::socket(buffer(1), buffer(0));
-
-        assert!(socket.accepts(&ipv4_locals::HEADER_REPR));
-        assert_eq!(socket.process(&ipv4_locals::HEADER_REPR, &ipv4_locals::PACKET_PAYLOAD,
-                                  &ChecksumCapabilities::default()), Ok(()));
-
-        let mut slice = [0; 4];
-        assert_eq!(socket.recv_slice(&mut slice[..]), Ok(4));
-        assert_eq!(&slice, &ipv4_locals::PACKET_BYTES[..slice.len()]);
-    }
-
-    #[test]
-    #[cfg(feature = "proto-ipv4")]
-    fn test_recv_truncated_packet() {
-        let mut socket = ipv4_locals::socket(buffer(1), buffer(0));
-
-        let mut buffer = vec![0; 128];
-        buffer[..ipv4_locals::PACKET_BYTES.len()].copy_from_slice(&ipv4_locals::PACKET_BYTES[..]);
-
-        assert!(socket.accepts(&ipv4_locals::HEADER_REPR));
-        assert_eq!(socket.process(&ipv4_locals::HEADER_REPR, &buffer, &ChecksumCapabilities::default()),
-                   Err(Error::Truncated));
-    }
-
-    #[test]
-    #[cfg(feature = "proto-ipv4")]
     fn test_doesnt_accept_wrong_proto() {
-        let socket = match RawSocket::new(IpVersion::Ipv4,
-                                          IpProtocol::Unknown(ipv4_locals::IP_PROTO+1),
-                                          buffer(1), buffer(1)) {
-            Socket::Raw(socket) => socket,
-            _ => unreachable!()
-        };
-        assert!(!socket.accepts(&ipv4_locals::HEADER_REPR));
+        #[cfg(feature = "proto-ipv4")]
+        {
+            let socket = match RawSocket::new(IpVersion::Ipv4,
+                                              IpProtocol::Unknown(ipv4_locals::IP_PROTO+1),
+                                              buffer(1), buffer(1)) {
+                Socket::Raw(socket) => socket,
+                _ => unreachable!()
+            };
+            assert!(!socket.accepts(&ipv4_locals::HEADER_REPR));
+            #[cfg(feature = "proto-ipv6")]
+            assert!(!socket.accepts(&ipv6_locals::HEADER_REPR));
+        }
+        #[cfg(feature = "proto-ipv6")]
+        {
+            let socket = match RawSocket::new(IpVersion::Ipv6,
+                                              IpProtocol::Unknown(ipv6_locals::IP_PROTO+1),
+                                              buffer(1), buffer(1)) {
+                Socket::Raw(socket) => socket,
+                _ => unreachable!()
+            };
+            assert!(!socket.accepts(&ipv6_locals::HEADER_REPR));
+            #[cfg(feature = "proto-ipv4")]
+            assert!(!socket.accepts(&ipv4_locals::HEADER_REPR));
+        }
     }
 }
