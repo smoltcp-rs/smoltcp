@@ -174,50 +174,50 @@ impl Address {
 impl fmt::Display for Address {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if self.is_ipv4_mapped() {
-            write!(f, "::ffff:{}.{}.{}.{}", self.0[12], self.0[13], self.0[14], self.0[15])?;
-        } else {
-            // The string representation of an IPv6 address should
-            // collapse a series of 16 bit sections that evaluate
-            // to 0 to "::"
-            //
-            // See https://tools.ietf.org/html/rfc4291#section-2.2
-            // for details.
-            enum State {
-                Head,
-                HeadBody,
-                Tail,
-                TailBody
-            }
-            let mut words = [0u16; 8];
-            self.write_parts(&mut words);
-            let mut state = State::Head;
-            for word in words.iter() {
-                state = match (*word, &state) {
-                    // Once a u16 equal to zero write a double colon and
-                    // skip to the next non-zero u16.
-                    (0, &State::Head) | (0, &State::HeadBody) => {
-                        write!(f, "::")?;
-                        State::Tail
-                    },
-                    // Continue iterating without writing any characters until
-                    // we hit anothing non-zero value.
-                    (0, &State::Tail) => State::Tail,
-                    // When the state is Head or Tail write a u16 in hexadecimal
-                    // without the leading colon if the value is not 0.
-                    (_, &State::Head) => {
-                        write!(f, "{:x}", word)?;
-                        State::HeadBody
-                    },
-                    (_, &State::Tail) => {
-                        write!(f, "{:x}", word)?;
-                        State::TailBody
-                    },
-                    // Write the u16 with a leading colon when parsing a value
-                    // that isn't the first in a section
-                    (_, &State::HeadBody) | (_, &State::TailBody) => {
-                        write!(f, ":{:x}", word)?;
-                        state
-                    }
+            return write!(f, "::ffff:{}.{}.{}.{}", self.0[12], self.0[13], self.0[14], self.0[15])
+        }
+        
+        // The string representation of an IPv6 address should
+        // collapse a series of 16 bit sections that evaluate
+        // to 0 to "::"
+        //
+        // See https://tools.ietf.org/html/rfc4291#section-2.2
+        // for details.
+        enum State {
+            Head,
+            HeadBody,
+            Tail,
+            TailBody
+        }
+        let mut words = [0u16; 8];
+        self.write_parts(&mut words);
+        let mut state = State::Head;
+        for word in words.iter() {
+            state = match (*word, &state) {
+                // Once a u16 equal to zero write a double colon and
+                // skip to the next non-zero u16.
+                (0, &State::Head) | (0, &State::HeadBody) => {
+                    write!(f, "::")?;
+                    State::Tail
+                },
+                // Continue iterating without writing any characters until
+                // we hit anothing non-zero value.
+                (0, &State::Tail) => State::Tail,
+                // When the state is Head or Tail write a u16 in hexadecimal
+                // without the leading colon if the value is not 0.
+                (_, &State::Head) => {
+                    write!(f, "{:x}", word)?;
+                    State::HeadBody
+                },
+                (_, &State::Tail) => {
+                    write!(f, "{:x}", word)?;
+                    State::TailBody
+                },
+                // Write the u16 with a leading colon when parsing a value
+                // that isn't the first in a section
+                (_, &State::HeadBody) | (_, &State::TailBody) => {
+                    write!(f, ":{:x}", word)?;
+                    state
                 }
             }
         }
