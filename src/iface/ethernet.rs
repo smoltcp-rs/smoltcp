@@ -933,7 +933,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
 
     fn route(&self, addr: &IpAddress) -> Result<IpAddress> {
         // Send directly.
-        if self.in_same_network(addr) {
+        if self.in_same_network(addr) || addr.is_broadcast() {
             return Ok(addr.clone())
         }
 
