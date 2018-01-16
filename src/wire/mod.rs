@@ -85,6 +85,8 @@ pub(crate) mod ip;
 mod ipv4;
 #[cfg(feature = "proto-ipv6")]
 mod ipv6;
+#[cfg(feature = "proto-ipv6")]
+mod ipv6exthdr;
 #[cfg(feature = "proto-ipv4")]
 mod icmpv4;
 mod udp;
@@ -122,6 +124,10 @@ pub use self::ipv6::{Address as Ipv6Address,
                      Repr as Ipv6Repr,
                      Cidr as Ipv6Cidr,
                      MIN_MTU as IPV6_MIN_MTU};
+
+#[cfg(feature = "proto-ipv6")]
+pub use self::ipv6exthdr::{Packet as Ipv6ExtHdrPacket,
+                           Repr as Ipv6ExtHdrRepr};
 
 #[cfg(feature = "proto-ipv4")]
 pub use self::icmpv4::{Message as Icmpv4Message,
