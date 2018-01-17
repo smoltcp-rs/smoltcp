@@ -61,6 +61,28 @@ impl<T: AsRef<[u8]>> Packet<T> {
     }
 }
 
+impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
+    #[inline]
+    pub fn set_option_type(&mut self, value: OptionType) {
+        let data = self.buffer.as_mut();
+        data[field::TYPE] = value.into();
+    }
+
+    #[inline]
+    pub fn set_option_data(&mut self, value: &[u8], len: u8) {
+        let data = self.buffer.as_mut();
+        data[field::LENGTH] = len;
+
+        let len = len as usize;
+
+        // TODO find idiomatic way of doing this
+        //data[field::DATA.start..len] = value[..len];
+        for i in field::DATA.start..len {
+            data[i] = value[(i-2)];
+        }
+    }
+}
+
 /// A high-level representation of an IPv6 Extension Header Option
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Repr<'a> {
@@ -69,7 +91,7 @@ pub enum Repr<'a> {
     },
     PadN {
         ident:  OptionType,
-        length: u8,
+        length: u8, // TODO -  should this value represent the total lenght or the data length?
         data:   &'a [u8]
     },
 
@@ -110,23 +132,19 @@ impl<'a> Repr<'a> {
         }
     }
 
-    //pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(&self, packet: &mut Packet<T>) {
-    //    match self {
-    //        Pad1 => {
-    //            packet.set_option_type
-    //        }
-    //        PadN => {
-    //        }
-    //    }
-    //    packet.set_version(6);
-    //    packet.set_traffic_class(1);
-    //    packet.set_flow_label(0);
-    //    packet.set_payload_len(self.payload_len as u16);
-    //    packet.set_hop_limit(self.hop_limit);
-    //    packet.set_next_header(self.next_header);
-    //    packet.set_src_addr(self.src_addr);
-    //    packet.set_dst_addr(self.dst_addr);
-    //}
+    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(&self, packet: &mut Packet<T>) {
+        match self {
+            &Repr::Pad1{ident} => {
+                packet.set_option_type(ident);
+            }
+            &Repr::PadN{ident, length, data} => {
+                packet.set_option_type(ident);
+                packet.set_option_data(data, length);
+            }
+
+            &Repr::__Nonexhaustive => unreachable!()
+        }
+    }
 }
 
 #[cfg(test)]
@@ -136,55 +154,71 @@ mod test {
     #[test]
     fn test_option_deconstruct() {
         // one octet of padding
-        let data:  [u8; 1] = [0x0];
-        let packet = Packet::new(&data);
+        let bytes:  [u8; 1] = [0x0];
+        let packet = Packet::new(&bytes);
         assert_eq!(packet.option_type(), OptionType::Pad1);
 
         // two octets of padding
-        let data:  [u8; 2] = [0x1, 0x0];
-        let packet = Packet::new(&data);
+        let bytes:  [u8; 2] = [0x1, 0x0];
+        let packet = Packet::new(&bytes);
         assert_eq!(packet.option_type(), OptionType::PadN);
         assert_eq!(packet.option_data_length(), 0);
 
         // three octets of padding
-        let data:  [u8; 3] = [0x1, 0x1, 0x0];
-        let packet = Packet::new(&data);
+        let bytes:  [u8; 3] = [0x1, 0x1, 0x0];
+        let packet = Packet::new(&bytes);
         assert_eq!(packet.option_type(), OptionType::PadN);
         assert_eq!(packet.option_data_length(), 1);
         assert_eq!(packet.option_data(), &[0]);
 
-        // extra data in buffer
-        let data:  [u8; 10] = [0x1, 0x7, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0xff];
-        let packet = Packet::new(&data);
+        // extra bytes in buffer
+        let bytes:  [u8; 10] = [0x1, 0x7, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0xff];
+        let packet = Packet::new(&bytes);
         assert_eq!(packet.option_type(), OptionType::PadN);
         assert_eq!(packet.option_data_length(), 7);
         assert_eq!(packet.option_data(), &[0, 0, 0, 0, 0, 0, 0]);
 
         // unrecognized option actions
-        let data:  [u8; 1] = [0xff];
-        let packet = Packet::new(&data);
+        let bytes:  [u8; 1] = [0xff];
+        let packet = Packet::new(&bytes);
         assert_eq!(packet.option_type(), OptionType::Unknown(255));
     }
 
     #[test]
     fn test_option_parse() {
         // one octet of padding
-        let data:  [u8; 1] = [0x0];
-        let packet = Packet::new(&data);
+        let bytes:  [u8; 1] = [0x0];
+        let packet = Packet::new(&bytes);
         let pad1 = Repr::parse(&packet).unwrap();
         assert_eq!(pad1, Repr::Pad1 { ident: OptionType::Pad1 });
         assert_eq!(pad1.buffer_len(), 1);
 
         // two or more octets of padding
-        let data:  [u8; 3] = [0x1, 0x1, 0x0];
-        let packet = Packet::new(&data);
+        let bytes:  [u8; 3] = [0x1, 0x1, 0x0];
+        let packet = Packet::new(&bytes);
         let padn = Repr::parse(&packet).unwrap();
-        assert_eq!(padn, Repr::PadN { ident: OptionType::PadN, length: 1, data: &data[2..3] });
+        assert_eq!(padn, Repr::PadN { ident: OptionType::PadN, length: 1, data: &bytes[2..3] });
         assert_eq!(padn.buffer_len(), 3);
 
         // unrecognized option type
-        let data:  [u8; 3] = [0xff, 0x1, 0x0];
-        let packet = Packet::new(&data);
+        let bytes:  [u8; 3] = [0xff, 0x1, 0x0];
+        let packet = Packet::new(&bytes);
         assert_eq!(Repr::parse(&packet), Err(Error::Unrecognized));
+    }
+
+    #[test]
+    fn test_option_emit() {
+        let repr = Repr::Pad1 { ident: OptionType::Pad1 };
+        let mut bytes = [0u8; 1];
+        let mut packet = Packet::new(&mut bytes);
+        repr.emit(&mut packet);
+        assert_eq!(packet.into_inner(), &[0x0]);
+
+        let data = [0u8; 1];
+        let repr = Repr::PadN { ident: OptionType::PadN, length: 1, data: &data };
+        let mut bytes = [0u8; 3];
+        let mut packet = Packet::new(&mut bytes);
+        repr.emit(&mut packet);
+        assert_eq!(packet.into_inner(), &[0x1, 0x1, 0x0]);
     }
 }
