@@ -10,20 +10,6 @@ enum_with_unknown! {
     }
 }
 
-enum_with_unknown! {
-    /// IPv6 Extension Header Option Action
-    pub doc enum OptionAction(u8) {
-        /// Skip over this option and continue processing the header.
-        Skip                           = 0,
-        /// Discard the packet.
-        Discard                        = 1,
-        /// Discard the packet and send an ICMP Parameter Problem, Code 2.
-        DiscardParamProblem            = 2,
-        /// Discard the packet and send an ICMP Parameter Problem, Code 2, if not multicast address.
-        DiscardParamProblemNoMulticast = 3
-    }
-}
-
 /// A read/write wrapper around a variable number of IPv6 Extension Header Options
 #[derive(Debug, PartialEq)]
 pub struct Packet<T: AsRef<[u8]>> {
@@ -46,9 +32,6 @@ mod field {
 }
 
 impl<T: AsRef<[u8]>> Packet<T> {
-    const OPTION_TYPE_MASK:   u8  = 0b00011111;
-    const OPTION_ACTION_SHIFT: u8 = 6;
-
     pub fn new(buffer: T) -> Packet<T> {
         Packet { buffer }
     }
@@ -61,13 +44,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     #[inline]
     pub fn option_type(&self) -> OptionType {
         let data = self.buffer.as_ref();
-        OptionType::from(data[field::TYPE] & Self::OPTION_TYPE_MASK)
-    }
-
-    #[inline]
-    pub fn option_action(&self) -> OptionAction {
-        let data = self.buffer.as_ref();
-        OptionAction::from(data[field::TYPE] >> Self::OPTION_ACTION_SHIFT)
+        OptionType::from(data[field::TYPE])
     }
 
     #[inline]
@@ -95,6 +72,7 @@ pub enum Repr<'a> {
         length: u8,
         data:   &'a [u8]
     },
+
     #[doc(hidden)]
     __Nonexhaustive
 }
@@ -183,25 +161,9 @@ mod test {
         assert_eq!(packet.option_data(), &[0, 0, 0, 0, 0, 0, 0]);
 
         // unrecognized option actions
-        let data:  [u8; 3] = [0b00000011, 0x1, 0x0];
+        let data:  [u8; 1] = [0xff];
         let packet = Packet::new(&data);
-        assert_eq!(packet.option_type(), OptionType::Unknown(3));
-        assert_eq!(packet.option_action(), OptionAction::Skip);
-
-        let data:  [u8; 3] = [0b01000011, 0x1, 0x0];
-        let packet = Packet::new(&data);
-        assert_eq!(packet.option_type(), OptionType::Unknown(3));
-        assert_eq!(packet.option_action(), OptionAction::Discard);
-
-        let data:  [u8; 3] = [0b10000011, 0x1, 0x0];
-        let packet = Packet::new(&data);
-        assert_eq!(packet.option_type(), OptionType::Unknown(3));
-        assert_eq!(packet.option_action(), OptionAction::DiscardParamProblem);
-
-        let data:  [u8; 3] = [0b11000011, 0x1, 0x0];
-        let packet = Packet::new(&data);
-        assert_eq!(packet.option_type(), OptionType::Unknown(3));
-        assert_eq!(packet.option_action(), OptionAction::DiscardParamProblemNoMulticast);
+        assert_eq!(packet.option_type(), OptionType::Unknown(255));
     }
 
     #[test]
