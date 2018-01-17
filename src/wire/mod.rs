@@ -86,7 +86,7 @@ mod ipv4;
 #[cfg(feature = "proto-ipv6")]
 mod ipv6;
 #[cfg(feature = "proto-ipv6")]
-mod ipv6exthdr;
+mod ipv6ext;
 #[cfg(feature = "proto-ipv4")]
 mod icmpv4;
 mod udp;
@@ -126,8 +126,8 @@ pub use self::ipv6::{Address as Ipv6Address,
                      MIN_MTU as IPV6_MIN_MTU};
 
 #[cfg(feature = "proto-ipv6")]
-pub use self::ipv6exthdr::{Packet as Ipv6ExtHdrPacket,
-                           Repr as Ipv6ExtHdrRepr};
+pub use self::ipv6ext::{Packet as Ipv6OptionPacket,
+                        Repr as Ipv6OptionRepr};
 
 #[cfg(feature = "proto-ipv4")]
 pub use self::icmpv4::{Message as Icmpv4Message,

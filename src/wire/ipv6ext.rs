@@ -26,12 +26,17 @@ pub struct Packet<T: AsRef<[u8]>> {
 // See https://tools.ietf.org/html/rfc8200#section-4.2 for details.
 mod field {
     use wire::field::*;
+
+    // 8-bit identifier of the type of option
     pub const TYPE:     usize = 0;
+    // 8-bit unsigned integer. Length of the DATA field of this option, in octets
     pub const LENGTH:   usize = 1;
+	// Variable-length field. Option-Type-specific data.
     pub const DATA:     Rest  = 2..;
 }
 
 impl<T: AsRef<[u8]>> Packet<T> {
+    /// Create a raw octet buffer with an IPv6 Extension Header Option packet structure.
     pub fn new(buffer: T) -> Packet<T> {
         Packet { buffer }
     }
@@ -41,18 +46,27 @@ impl<T: AsRef<[u8]>> Packet<T> {
         self.buffer
     }
 
+    /// Return the option type.
     #[inline]
     pub fn option_type(&self) -> OptionType {
         let data = self.buffer.as_ref();
         OptionType::from(data[field::TYPE])
     }
 
+    /// Return the length of the data.
+    ///
+    /// # Panics
+    /// The function panics if the type does not support this field
     #[inline]
     pub fn option_data_length(&self) -> u8 {
         let data = self.buffer.as_ref();
         data[field::LENGTH]
     }
 
+    /// Return the option data.
+    ///
+    /// # Panics
+    /// The function panics if the type does not support this field
     #[inline]
     pub fn option_data(&self) -> &[u8] {
         let data = self.buffer.as_ref();
@@ -62,12 +76,17 @@ impl<T: AsRef<[u8]>> Packet<T> {
 }
 
 impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
+    /// Set the option type.
     #[inline]
     pub fn set_option_type(&mut self, value: OptionType) {
         let data = self.buffer.as_mut();
         data[field::TYPE] = value.into();
     }
 
+    /// Set the option data and data length
+    ///
+    /// # Panics
+    /// The function panics if the type does not support the length or data fields
     #[inline]
     pub fn set_option_data(&mut self, value: &[u8], len: u8) {
         let data = self.buffer.as_mut();
@@ -91,7 +110,7 @@ pub enum Repr<'a> {
     },
     PadN {
         ident:  OptionType,
-        length: u8, // TODO -  should this value represent the total lenght or the data length?
+        length: u8, // TODO -  should this value represent the total length or the data length?
         data:   &'a [u8]
     },
 
@@ -100,6 +119,7 @@ pub enum Repr<'a> {
 }
 
 impl<'a> Repr<'a> {
+    /// Parse an IPv6 Extension Header Option packet and return a high-level representation.
     pub fn parse<T>(packet: &'a Packet<&'a T>) -> Result<Repr<'a>> where T: AsRef<[u8]> + ?Sized {
         match packet.option_type() {
             OptionType::Pad1 => {
@@ -126,12 +146,14 @@ impl<'a> Repr<'a> {
                 1
             }
             &Repr::PadN{length, ..} => {
-                (length as usize) + 2
+                (length as usize) + field::DATA.start
             }
-            _ => 0
+
+            &Repr::__Nonexhaustive => unreachable!()
         }
     }
 
+    /// Emit a high-level representation into an IPv6 Extension Header Option packet.
     pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(&self, packet: &mut Packet<T>) {
         match self {
             &Repr::Pad1{ident} => {
