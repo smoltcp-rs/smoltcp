@@ -65,10 +65,10 @@ impl<T: AsRef<[u8]>> Packet<T> {
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Repr<'a> {
     Pad1 {
-        ident:  u8,
+        ident:  OptionType,
     },
     PadN {
-        ident:  u8,
+        ident:  OptionType,
         length: u8,
         data:   &'a [u8]
     },
@@ -82,12 +82,12 @@ impl<'a> Repr<'a> {
         match packet.option_type() {
             OptionType::Pad1 => {
                 Ok(Repr::Pad1 {
-                    ident: From::from(packet.option_type()),
+                    ident: packet.option_type(),
                 })
             }
             OptionType::PadN => {
                 Ok(Repr::PadN {
-                    ident: From::from(packet.option_type()),
+                    ident: packet.option_type(),
                     length: packet.option_data_length(),
                     data: packet.option_data(),
                 })
@@ -172,15 +172,15 @@ mod test {
         let data:  [u8; 1] = [0x0];
         let packet = Packet::new(&data);
         let pad1 = Repr::parse(&packet).unwrap();
-        assert_eq!(pad1, Repr::Pad1 { ident: 0 });
+        assert_eq!(pad1, Repr::Pad1 { ident: OptionType::Pad1 });
         assert_eq!(pad1.buffer_len(), 1);
 
         // two or more octets of padding
         let data:  [u8; 3] = [0x1, 0x1, 0x0];
         let packet = Packet::new(&data);
         let padn = Repr::parse(&packet).unwrap();
-        assert_eq!(padn, Repr::PadN { ident: 1, length: 1, data: &data[2..3] });
-        assert_eq!(pad1.buffer_len(), 3);
+        assert_eq!(padn, Repr::PadN { ident: OptionType::PadN, length: 1, data: &data[2..3] });
+        assert_eq!(padn.buffer_len(), 3);
 
         // unrecognized option type
         let data:  [u8; 3] = [0xff, 0x1, 0x0];
