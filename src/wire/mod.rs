@@ -87,6 +87,8 @@ mod ipv4;
 mod ipv6;
 #[cfg(feature = "proto-ipv4")]
 mod icmpv4;
+#[cfg(feature = "proto-ipv6")]
+mod icmpv6;
 mod udp;
 mod tcp;
 
@@ -131,6 +133,12 @@ pub use self::icmpv4::{Message as Icmpv4Message,
                        ParamProblem as Icmpv4ParamProblem,
                        Packet as Icmpv4Packet,
                        Repr as Icmpv4Repr};
+
+#[cfg(feature = "proto-ipv6")]
+pub use self::icmpv6::{Message as Icmpv6Message,
+                       DstUnreachable as Icmpv6DstUnreachable,
+                       Packet as Icmpv6Packet,
+                       Repr as Icmpv6Repr};
 
 pub use self::udp::{Packet as UdpPacket,
                     Repr as UdpRepr};
