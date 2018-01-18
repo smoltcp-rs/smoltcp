@@ -678,12 +678,12 @@ pub mod checksum {
             accum += NetworkEndian::read_u16(data) as u32;
             data = &data[2..];
         }
-        
+
         // Add the last remaining odd byte, if any.
         if let Some(&value) = data.first() {
             accum += (value as u32) << 8;
         }
-        
+
         propagate_carries(accum)
     }
 
