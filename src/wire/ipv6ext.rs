@@ -1,3 +1,4 @@
+use core::fmt;
 use {Error, Result};
 
 enum_with_unknown! {
@@ -142,6 +143,18 @@ impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Packet<&'a mut T> {
     }
 }
 
+impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match Repr::parse(self) {
+            Ok(repr) => write!(f, "{}", repr),
+            Err(err) => {
+                write!(f, "IPv6 Extention Option ({})", err)?;
+                Ok(())
+            }
+        }
+    }
+}
+
 /// A high-level representation of an IPv6 Extension Header Option
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Repr<'a> {
@@ -198,6 +211,21 @@ impl<'a> Repr<'a> {
                 packet.set_option_data_length(length);
                 let len = length as usize;
                 packet.data_mut().copy_from_slice(&data[..len]);
+            }
+
+            &Repr::__Nonexhaustive => unreachable!()
+        }
+    }
+}
+
+impl<'a> fmt::Display for Repr<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            &Repr::Pad1 => {
+                write!(f, "IPv6 Extention Option type=Pad1 ")
+            }
+            &Repr::PadN{length, ..} => {
+                write!(f, "IPv6 Extention Option type=PadN length={} ", length )
             }
 
             &Repr::__Nonexhaustive => unreachable!()
