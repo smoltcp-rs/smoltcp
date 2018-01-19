@@ -128,7 +128,7 @@ pub use self::ipv6::{Address as Ipv6Address,
 #[cfg(feature = "proto-ipv6")]
 pub use self::ipv6ext::{Packet as Ipv6OptionPacket,
                         Repr as Ipv6OptionRepr,
-                        OptionType as IPv6OptionType};
+                        OptionType as Ipv6OptionType};
 
 #[cfg(feature = "proto-ipv4")]
 pub use self::icmpv4::{Message as Icmpv4Message,

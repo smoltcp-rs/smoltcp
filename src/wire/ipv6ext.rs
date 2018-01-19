@@ -21,7 +21,7 @@ impl fmt::Display for OptionType {
     }
 }
 
-/// A read/write wrapper around a variable number of IPv6 Extension Header Options
+/// A read/write wrapper around an of IPv6 Extension Header Option
 #[derive(Debug, PartialEq)]
 pub struct Packet<T: AsRef<[u8]>> {
     buffer: T
@@ -42,7 +42,7 @@ mod field {
     pub const TYPE:     usize = 0;
     // 8-bit unsigned integer. Length of the DATA field of this option, in octets
     pub const LENGTH:   usize = 1;
-	// Variable-length field. Option-Type-specific data.
+    // Variable-length field. Option-Type-specific data.
     pub const DATA:     Rest  = 2..;
 }
 
