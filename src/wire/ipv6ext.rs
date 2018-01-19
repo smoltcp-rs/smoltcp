@@ -2,12 +2,22 @@ use core::fmt;
 use {Error, Result};
 
 enum_with_unknown! {
-    /// IPv6 Extension Header Option type
+    /// IPv6 Extension Header Option Type
     pub doc enum OptionType(u8) {
         /// Pad1 option
         Pad1 =  0,
         /// PadN option
         PadN =  1
+    }
+}
+
+impl fmt::Display for OptionType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            &OptionType::Pad1        => write!(f, "Pad1"),
+            &OptionType::PadN        => write!(f, "PadN"),
+            &OptionType::Unknown(id) => write!(f, "{}", id)
+        }
     }
 }
 
@@ -74,11 +84,11 @@ impl<T: AsRef<[u8]>> Packet<T> {
             return Err(Error::Truncated);
         }
 
-        if data[field::DATA.start..].len() < (self.option_data_length() as usize) {
-            Err(Error::Truncated)
-        } else {
-            Ok(())
+        if data[field::DATA].len() < (self.option_data_length() as usize) {
+            return Err(Error::Truncated);
         }
+
+        Ok(())
     }
 
     /// Consume the packet, returning the underlying buffer.
@@ -102,6 +112,13 @@ impl<T: AsRef<[u8]>> Packet<T> {
         let data = self.buffer.as_ref();
         data[field::LENGTH]
     }
+
+    /// Return the start and end of option data
+    #[inline]
+    fn data_range(&self) -> ::core::ops::Range<usize> {
+        let len = (self.option_data_length() as usize) + field::DATA.start;
+        field::DATA.start..len
+    }
 }
 
 impl<'a, T: AsRef<[u8]> + ?Sized> Packet<&'a T> {
@@ -111,9 +128,9 @@ impl<'a, T: AsRef<[u8]> + ?Sized> Packet<&'a T> {
     /// The function panics if the type does not support this field
     #[inline]
     pub fn data(&self) -> &'a[u8] {
-        let len = (self.option_data_length() as usize) + field::DATA.start;
+        let range = self.data_range();
         let data = self.buffer.as_ref();
-        &data[field::DATA.start..len]
+        &data[range]
     }
 }
 
@@ -137,9 +154,9 @@ impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Packet<&'a mut T> {
     /// Return a mutable pointer to the option data.
     #[inline]
     pub fn data_mut(&mut self) -> &mut [u8] {
-        let len = (self.option_data_length() as usize) + field::DATA.start;
+        let range = self.data_range();
         let data = self.buffer.as_mut();
-        &mut data[field::DATA.start..len]
+        &mut data[range]
     }
 }
 
@@ -148,7 +165,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
         match Repr::parse(self) {
             Ok(repr) => write!(f, "{}", repr),
             Err(err) => {
-                write!(f, "IPv6 Extention Option ({})", err)?;
+                write!(f, "IPv6 Extension Option ({})", err)?;
                 Ok(())
             }
         }
@@ -200,16 +217,15 @@ impl<'a> Repr<'a> {
     }
 
     /// Emit a high-level representation into an IPv6 Extension Header Option packet.
-           //<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Packet<&'a mut T> {
     pub fn emit<T: AsRef<[u8]> + AsMut<[u8]> + ?Sized>(&self, packet: &mut Packet<&'a mut T>) {
         match self {
             &Repr::Pad1 => {
                 packet.set_option_type(From::from(OptionType::Pad1));
             }
             &Repr::PadN{length, data} => {
+                let len = length as usize;
                 packet.set_option_type(From::from(OptionType::PadN));
                 packet.set_option_data_length(length);
-                let len = length as usize;
                 packet.data_mut().copy_from_slice(&data[..len]);
             }
 
@@ -220,12 +236,13 @@ impl<'a> Repr<'a> {
 
 impl<'a> fmt::Display for Repr<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let name = "IPv6 Extension Option";
         match self {
             &Repr::Pad1 => {
-                write!(f, "IPv6 Extention Option type=Pad1 ")
+                write!(f, "{} type={} ", &name, OptionType::Pad1)
             }
             &Repr::PadN{length, ..} => {
-                write!(f, "IPv6 Extention Option type=PadN length={} ", length )
+                write!(f, "{} type={} length={} ", &name, OptionType::PadN, length)
             }
 
             &Repr::__Nonexhaustive => unreachable!()
@@ -237,41 +254,41 @@ impl<'a> fmt::Display for Repr<'a> {
 mod test {
     use super::*;
 
+    static PACKET_BYTES_PAD1:    [u8; 1] = [0x0];
+    static PACKET_BYTES_PADN:    [u8; 3] = [0x1, 0x1, 0x0];
+    static PACKET_BYTES_UNKNOWN: [u8; 5] = [0xff, 0x3, 0x0, 0x0, 0x0];
+
     #[test]
     fn test_check_len() {
         let bytes = [0u8];
         // zero byte buffer
         assert_eq!(Err(Error::Truncated), Packet::new(&bytes[..0]).check_len());
         // pad1
-        assert_eq!(Ok(()), Packet::new(&bytes).check_len());
+        assert_eq!(Ok(()), Packet::new(&PACKET_BYTES_PAD1).check_len());
 
-        let bytes: [u8; 3] = [0x1, 0x1, 0x0];
         // padn with truncated data
-        assert_eq!(Err(Error::Truncated), Packet::new(&bytes[..2]).check_len());
+        assert_eq!(Err(Error::Truncated), Packet::new(&PACKET_BYTES_PADN[..2]).check_len());
         // padn
-        assert_eq!(Ok(()), Packet::new(&bytes).check_len());
+        assert_eq!(Ok(()), Packet::new(&PACKET_BYTES_PADN).check_len());
 
-        let bytes: [u8; 5] = [0xff, 0x3, 0x0, 0x0, 0x0];
         // unknown option type with truncated data
-        assert_eq!(Err(Error::Truncated), Packet::new(&bytes[..4]).check_len());
-        assert_eq!(Err(Error::Truncated), Packet::new(&bytes[..1]).check_len());
+        assert_eq!(Err(Error::Truncated), Packet::new(&PACKET_BYTES_UNKNOWN[..4]).check_len());
+        assert_eq!(Err(Error::Truncated), Packet::new(&PACKET_BYTES_UNKNOWN[..1]).check_len());
         // unknown type
-        assert_eq!(Ok(()), Packet::new(&bytes).check_len());
+        assert_eq!(Ok(()), Packet::new(&PACKET_BYTES_UNKNOWN).check_len());
     }
 
     #[test]
     #[should_panic]
     fn test_option_data_length() {
-        let bytes:  [u8; 1] = [0x0];
-        let packet = Packet::new(&bytes);
+        let packet = Packet::new(&PACKET_BYTES_PAD1);
         packet.option_data_length();
     }
 
     #[test]
     fn test_option_deconstruct() {
         // one octet of padding
-        let bytes:  [u8; 1] = [0x0];
-        let packet = Packet::new(&bytes);
+        let packet = Packet::new(&PACKET_BYTES_PAD1);
         assert_eq!(packet.option_type(), OptionType::Pad1);
 
         // two octets of padding
@@ -281,8 +298,7 @@ mod test {
         assert_eq!(packet.option_data_length(), 0);
 
         // three octets of padding
-        let bytes:  [u8; 3] = [0x1, 0x1, 0x0];
-        let packet = Packet::new(&bytes);
+        let packet = Packet::new(&PACKET_BYTES_PADN);
         assert_eq!(packet.option_type(), OptionType::PadN);
         assert_eq!(packet.option_data_length(), 1);
         assert_eq!(packet.data(), &[0]);
@@ -294,32 +310,31 @@ mod test {
         assert_eq!(packet.option_data_length(), 7);
         assert_eq!(packet.data(), &[0, 0, 0, 0, 0, 0, 0]);
 
-        // unrecognized option actions
+        // unrecognized option
         let bytes:  [u8; 1] = [0xff];
         let packet = Packet::new(&bytes);
         assert_eq!(packet.option_type(), OptionType::Unknown(255));
+
+        // unrecognized option without length and data
         assert_eq!(Packet::new_checked(&bytes), Err(Error::Truncated));
     }
 
     #[test]
     fn test_option_parse() {
         // one octet of padding
-        let bytes:  [u8; 1] = [0x0];
-        let packet = Packet::new(&bytes);
+        let packet = Packet::new(&PACKET_BYTES_PAD1);
         let pad1 = Repr::parse(&packet).unwrap();
         assert_eq!(pad1, Repr::Pad1);
         assert_eq!(pad1.buffer_len(), 1);
 
         // two or more octets of padding
-        let bytes:  [u8; 3] = [0x1, 0x1, 0x0];
-        let packet = Packet::new(&bytes);
+        let packet = Packet::new(&PACKET_BYTES_PADN);
         let padn = Repr::parse(&packet).unwrap();
-        assert_eq!(padn, Repr::PadN { length: 1, data: &bytes[2..3] });
+        assert_eq!(padn, Repr::PadN { length: 1, data: &PACKET_BYTES_PADN[2..3] });
         assert_eq!(padn.buffer_len(), 3);
 
         // unrecognized option type
-        let bytes:  [u8; 3] = [0xff, 0x1, 0x0];
-        let packet = Packet::new(&bytes);
+        let packet = Packet::new(&PACKET_BYTES_UNKNOWN);
         assert_eq!(Repr::parse(&packet), Err(Error::Unrecognized));
     }
 
@@ -329,13 +344,13 @@ mod test {
         let mut bytes = [0u8; 1];
         let mut packet = Packet::new(&mut bytes);
         repr.emit(&mut packet);
-        assert_eq!(packet.into_inner(), &[0x0]);
+        assert_eq!(packet.into_inner(), &PACKET_BYTES_PAD1);
 
         let data = [0u8; 1];
         let repr = Repr::PadN { length: 1, data: &data };
         let mut bytes = [0u8; 3];
         let mut packet = Packet::new(&mut bytes);
         repr.emit(&mut packet);
-        assert_eq!(packet.into_inner(), &[0x1, 0x1, 0x0]);
+        assert_eq!(packet.into_inner(), &PACKET_BYTES_PADN);
     }
 }
