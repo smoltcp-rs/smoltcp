@@ -21,7 +21,7 @@ impl fmt::Display for OptionType {
     }
 }
 
-/// A read/write wrapper around an of IPv6 Extension Header Option
+/// A read/write wrapper around an IPv6 Extension Header Option.
 #[derive(Debug, PartialEq)]
 pub struct Packet<T: AsRef<[u8]>> {
     buffer: T
@@ -113,7 +113,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
         data[field::LENGTH]
     }
 
-    /// Return the start and end of option data
+    /// Return the start and end of option data.
     #[inline]
     fn data_range(&self) -> ::core::ops::Range<usize> {
         let len = (self.option_data_length() as usize) + field::DATA.start;
@@ -125,7 +125,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized> Packet<&'a T> {
     /// Return the option data.
     ///
     /// # Panics
-    /// The function panics if the type does not support this field
+    /// The function panics if the type does not support this field.
     #[inline]
     pub fn data(&self) -> &'a[u8] {
         let range = self.data_range();
@@ -172,7 +172,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
     }
 }
 
-/// A high-level representation of an IPv6 Extension Header Option
+/// A high-level representation of an IPv6 Extension Header Option.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Repr<'a> {
     Pad1,
