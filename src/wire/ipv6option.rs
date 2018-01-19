@@ -106,7 +106,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// Return the length of the data.
     ///
     /// # Panics
-    /// The function panics if the type does not support this field
+    /// The function panics if the type does not support this field.
     #[inline]
     pub fn option_data_length(&self) -> u8 {
         let data = self.buffer.as_ref();
