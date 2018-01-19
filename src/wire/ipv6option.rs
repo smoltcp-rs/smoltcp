@@ -279,7 +279,7 @@ mod test {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "index out of bounds")]
     fn test_option_data_length() {
         let packet = Packet::new(&PACKET_BYTES_PAD1);
         packet.option_data_length();
