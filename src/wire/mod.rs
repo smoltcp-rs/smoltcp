@@ -87,6 +87,8 @@ mod ipv4;
 mod ipv6;
 #[cfg(feature = "proto-ipv6")]
 mod ipv6option;
+#[cfg(feature = "proto-ipv6")]
+mod ipv6hopbyhop;
 #[cfg(feature = "proto-ipv4")]
 mod icmpv4;
 #[cfg(feature = "proto-ipv6")]
@@ -131,6 +133,10 @@ pub use self::ipv6::{Address as Ipv6Address,
 pub use self::ipv6option::{Ipv6Option,
                            Repr as Ipv6OptionRepr,
                            Type as Ipv6OptionType};
+
+#[cfg(feature = "proto-ipv6")]
+pub use self::ipv6hopbyhop::{Header as Ipv6HopByHopHeader,
+                             Repr as Ipv6HopByHopRepr};
 
 #[cfg(feature = "proto-ipv4")]
 pub use self::icmpv4::{Message as Icmpv4Message,
