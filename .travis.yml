@@ -37,6 +37,8 @@ matrix:
         MODE='build'
     - rust: nightly
       env: MODE='fuzz run' ARGS='packet_parser -- -max_len=1536 -max_total_time=30'
+before_script:
+  - if [ $MODE == "fuzz" ]; then cargo install cargo-fuzz; fi
 script:
   - cargo $MODE --no-default-features --features "$FEATURES" $ARGS
 notifications:
