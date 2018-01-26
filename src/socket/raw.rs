@@ -198,7 +198,8 @@ impl<'a, 'b> RawSocket<'a, 'b> {
                     if checksum_caps.ipv4.tx() {
                         packet.fill_checksum();
                     } else {
-                        // make sure we get a consistently zeroed checksum, since implementations might rely on it
+                        // make sure we get a consistently zeroed checksum,
+                        // since implementations might rely on it
                         packet.set_checksum(0);
                     }
 

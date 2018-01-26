@@ -482,7 +482,8 @@ impl<'a> Repr<'a> {
         if checksum_caps.icmpv4.tx() {
             packet.fill_checksum()
         } else {
-            // make sure we get a consistently zeroed checksum, since implementations might rely on it
+            // make sure we get a consistently zeroed checksum,
+            // since implementations might rely on it
             packet.set_checksum(0);
         }
     }
