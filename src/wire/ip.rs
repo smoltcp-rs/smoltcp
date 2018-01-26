@@ -9,7 +9,7 @@ use super::{Ipv4Address, Ipv4Packet, Ipv4Repr, Ipv4Cidr};
 use super::{Ipv6Address, Ipv6Cidr, Ipv6Packet, Ipv6Repr};
 
 /// Internet protocol version.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub enum Version {
     Unspecified,
     #[cfg(feature = "proto-ipv4")]
@@ -82,7 +82,7 @@ impl fmt::Display for Protocol {
 }
 
 /// An internetworking address.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub enum Address {
     /// An unspecified address.
     /// May be used as a placeholder for storage where the address is not assigned yet.
@@ -195,7 +195,7 @@ impl fmt::Display for Address {
 
 /// A specification of a CIDR block, containing an address and a variable-length
 /// subnet masking prefix length.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub enum Cidr {
     #[cfg(feature = "proto-ipv4")]
     Ipv4(Ipv4Cidr),
@@ -304,7 +304,7 @@ impl fmt::Display for Cidr {
 /// An internet endpoint address.
 ///
 /// An endpoint can be constructed from a port, in which case the address is unspecified.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
 pub struct Endpoint {
     pub addr: Address,
     pub port: u16
