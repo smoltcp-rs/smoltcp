@@ -182,6 +182,8 @@ mod field {
 
     pub const ECHO_IDENT: Field = 4..6;
     pub const ECHO_SEQNO: Field = 6..8;
+
+    pub const HEADER_END: usize = 8;
 }
 
 impl<T: AsRef<[u8]>> Packet<T> {
@@ -208,7 +210,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// [set_header_len]: #method.set_header_len
     pub fn check_len(&self) -> Result<()> {
         let len = self.buffer.as_ref().len();
-        if len < self.header_len() {
+        if len < field::HEADER_END {
             Err(Error::Truncated)
         } else {
             Ok(())
@@ -609,6 +611,7 @@ mod test {
     fn test_check_len() {
         let bytes = [0x0b, 0x00, 0x00, 0x00,
                      0x00, 0x00, 0x00, 0x00];
+        assert_eq!(Packet::new_checked(&[]), Err(Error::Truncated));
         assert_eq!(Packet::new_checked(&bytes[..4]), Err(Error::Truncated));
         assert!(Packet::new_checked(&bytes[..]).is_ok());
     }
