@@ -13,7 +13,7 @@ use super::ip::pretty_print_ip_payload;
 pub const MIN_MTU: usize = 1280;
 
 /// A sixteen-octet IPv6 address.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
 pub struct Address(pub [u8; 16]);
 
 impl Address {
@@ -237,7 +237,7 @@ impl From<::wire::ipv4::Address> for Address {
 
 /// A specification of an IPv6 CIDR block, containing an address and a variable-length
 /// subnet masking prefix length.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
 pub struct Cidr {
     address:    Address,
     prefix_len: u8,
