@@ -35,8 +35,10 @@ matrix:
     - rust: nightly
       env: FEATURES='proto-ipv4 proto-ipv6 socket-raw socket-udp socket-tcp socket-icmp'
         MODE='build'
+    - rust: nightly
+      env: MODE='fuzz run' ARGS='packet_parser -- -max_len=1536 -max_total_time=30'
 script:
-  - cargo "$MODE" --no-default-features --features "$FEATURES"
+  - cargo $MODE --no-default-features --features "$FEATURES" $ARGS
 notifications:
   irc:
     channels:
