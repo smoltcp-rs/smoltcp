@@ -8,12 +8,12 @@ use std::os::unix::io::RawFd;
 #[path = "linux.rs"]
 mod imp;
 
-#[cfg(feature = "phy-raw_socket")]
+#[cfg(all(feature = "phy-raw_socket", target_os = "linux"))]
 pub mod raw_socket;
 #[cfg(all(feature = "phy-tap_interface", target_os = "linux"))]
 pub mod tap_interface;
 
-#[cfg(feature = "phy-raw_socket")]
+#[cfg(all(feature = "phy-raw_socket", target_os = "linux"))]
 pub use self::raw_socket::RawSocketDesc;
 #[cfg(all(feature = "phy-tap_interface", target_os = "linux"))]
 pub use self::tap_interface::TapInterfaceDesc;
@@ -46,6 +46,7 @@ pub fn wait(fd: RawFd, millis: Option<u64>) -> io::Result<()> {
     }
 }
 
+#[cfg(all(target_os = "linux", any(feature = "phy-tap_interface", feature = "phy-raw_socket")))]
 #[repr(C)]
 #[derive(Debug)]
 struct ifreq {
@@ -53,6 +54,7 @@ struct ifreq {
     ifr_data: libc::c_int /* ifr_ifindex or ifr_mtu */
 }
 
+#[cfg(all(target_os = "linux", any(feature = "phy-tap_interface", feature = "phy-raw_socket")))]
 fn ifreq_for(name: &str) -> ifreq {
     let mut ifreq = ifreq {
         ifr_name: [0; libc::IF_NAMESIZE],
@@ -64,6 +66,7 @@ fn ifreq_for(name: &str) -> ifreq {
     ifreq
 }
 
+#[cfg(all(target_os = "linux", any(feature = "phy-tap_interface", feature = "phy-raw_socket")))]
 fn ifreq_ioctl(lower: libc::c_int, ifreq: &mut ifreq,
                cmd: libc::c_ulong) -> io::Result<libc::c_int> {
     unsafe {
