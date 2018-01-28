@@ -283,10 +283,7 @@ mod test {
     fn socket(rx_buffer: SocketBuffer<'static, 'static>,
               tx_buffer: SocketBuffer<'static, 'static>)
             -> UdpSocket<'static, 'static> {
-        match UdpSocket::new(rx_buffer, tx_buffer) {
-            Socket::Udp(socket) => socket,
-            _ => unreachable!()
-        }
+        UdpSocket::new(rx_buffer, tx_buffer)
     }
 
     const LOCAL_PORT:  u16        = 53;

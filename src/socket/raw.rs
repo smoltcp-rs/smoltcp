@@ -281,11 +281,8 @@ mod test {
         pub fn socket(rx_buffer: SocketBuffer<'static, 'static>,
                   tx_buffer: SocketBuffer<'static, 'static>)
                 -> RawSocket<'static, 'static> {
-            match RawSocket::new(IpVersion::Ipv4, IpProtocol::Unknown(IP_PROTO),
-                                 rx_buffer, tx_buffer) {
-                Socket::Raw(socket) => socket,
-                _ => unreachable!()
-            }
+            RawSocket::new(IpVersion::Ipv4, IpProtocol::Unknown(IP_PROTO),
+                rx_buffer, tx_buffer)
         }
 
         pub const IP_PROTO: u8 = 63;
@@ -316,11 +313,8 @@ mod test {
         pub fn socket(rx_buffer: SocketBuffer<'static, 'static>,
                   tx_buffer: SocketBuffer<'static, 'static>)
                 -> RawSocket<'static, 'static> {
-            match RawSocket::new(IpVersion::Ipv6, IpProtocol::Unknown(IP_PROTO),
-                                 rx_buffer, tx_buffer) {
-                Socket::Raw(socket) => socket,
-                _ => unreachable!()
-            }
+            RawSocket::new(IpVersion::Ipv6, IpProtocol::Unknown(IP_PROTO),
+                                 rx_buffer, tx_buffer)
         }
 
         pub const IP_PROTO: u8 = 63;
@@ -520,24 +514,16 @@ mod test {
     fn test_doesnt_accept_wrong_proto() {
         #[cfg(feature = "proto-ipv4")]
         {
-            let socket = match RawSocket::new(IpVersion::Ipv4,
-                                              IpProtocol::Unknown(ipv4_locals::IP_PROTO+1),
-                                              buffer(1), buffer(1)) {
-                Socket::Raw(socket) => socket,
-                _ => unreachable!()
-            };
+            let socket = RawSocket::new(IpVersion::Ipv4,
+                IpProtocol::Unknown(ipv4_locals::IP_PROTO+1), buffer(1), buffer(1));
             assert!(!socket.accepts(&ipv4_locals::HEADER_REPR));
             #[cfg(feature = "proto-ipv6")]
             assert!(!socket.accepts(&ipv6_locals::HEADER_REPR));
         }
         #[cfg(feature = "proto-ipv6")]
         {
-            let socket = match RawSocket::new(IpVersion::Ipv6,
-                                              IpProtocol::Unknown(ipv6_locals::IP_PROTO+1),
-                                              buffer(1), buffer(1)) {
-                Socket::Raw(socket) => socket,
-                _ => unreachable!()
-            };
+            let socket = RawSocket::new(IpVersion::Ipv6,
+                IpProtocol::Unknown(ipv6_locals::IP_PROTO+1), buffer(1), buffer(1));
             assert!(!socket.accepts(&ipv6_locals::HEADER_REPR));
             #[cfg(feature = "proto-ipv4")]
             assert!(!socket.accepts(&ipv4_locals::HEADER_REPR));

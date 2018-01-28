@@ -1686,10 +1686,7 @@ mod test {
 
         let rx_buffer = SocketBuffer::new(vec![0; 64]);
         let tx_buffer = SocketBuffer::new(vec![0; 64]);
-        match TcpSocket::new(rx_buffer, tx_buffer) {
-            Socket::Tcp(socket) => socket,
-            _ => unreachable!()
-        }
+        TcpSocket::new(rx_buffer, tx_buffer)
     }
 
     fn socket_syn_received() -> TcpSocket<'static> {

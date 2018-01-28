@@ -170,10 +170,7 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
     /// use smoltcp::socket::IcmpEndpoint;
     ///
     /// let mut icmp_socket = // ...
-    /// # match IcmpSocket::new(rx_buffer, tx_buffer) {
-    /// #     Socket::Icmp(socket) => socket,
-    /// #     _ => unreachable!()
-    /// # };
+    /// # IcmpSocket::new(rx_buffer, tx_buffer);
     ///
     /// // Bind to ICMP error responses for UDP packets sent from port 53.
     /// let endpoint = IpEndpoint::from(53);
@@ -194,10 +191,7 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
     /// use smoltcp::socket::IcmpEndpoint;
     ///
     /// let mut icmp_socket = // ...
-    /// # match IcmpSocket::new(rx_buffer, tx_buffer) {
-    /// #     Socket::Icmp(socket) => socket,
-    /// #     _ => unreachable!()
-    /// # };
+    /// # IcmpSocket::new(rx_buffer, tx_buffer);
     ///
     /// // Bind to ICMP messages with the ICMP identifier 0x1234
     /// icmp_socket.bind(IcmpEndpoint::Ident(0x1234)).unwrap();
@@ -382,10 +376,7 @@ mod test {
 
     fn socket(rx_buffer: SocketBuffer<'static, 'static>,
               tx_buffer: SocketBuffer<'static, 'static>) -> IcmpSocket<'static, 'static> {
-        match IcmpSocket::new(rx_buffer, tx_buffer) {
-            Socket::Icmp(socket) => socket,
-            _ => unreachable!()
-        }
+        IcmpSocket::new(rx_buffer, tx_buffer)
     }
 
     const REMOTE_IPV4: Ipv4Address = Ipv4Address([0x7f, 0x00, 0x00, 0x02]);
