@@ -175,9 +175,9 @@ pub enum Repr<'a> {
     Pad1,
     PadN(u8),
     Unknown {
-        ident: u8,
+        ident:  u8,
         length: u8,
-        data: &'a [u8]
+        data:   &'a [u8]
     },
 
     #[doc(hidden)]
@@ -196,9 +196,9 @@ impl<'a> Repr<'a> {
             }
             Type::Unknown(ident) => {
                 Ok(Repr::Unknown {
-                    ident: ident,
+                    ident:  ident,
                     length: packet.data_length(),
-                    data: packet.data(),
+                    data:   packet.data(),
                 })
             }
         }
