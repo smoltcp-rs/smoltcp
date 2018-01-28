@@ -126,9 +126,9 @@ pub use self::ipv6::{Address as Ipv6Address,
                      MIN_MTU as IPV6_MIN_MTU};
 
 #[cfg(feature = "proto-ipv6")]
-pub use self::ipv6option::{Packet as Ipv6OptionPacket,
+pub use self::ipv6option::{Ipv6Option,
                            Repr as Ipv6OptionRepr,
-                           OptionType as Ipv6OptionType};
+                           Type as Ipv6OptionType};
 
 #[cfg(feature = "proto-ipv4")]
 pub use self::icmpv4::{Message as Icmpv4Message,
