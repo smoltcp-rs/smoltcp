@@ -340,7 +340,7 @@ mod test {
         let data = [0u8; 3];
         let packet = Ipv6Option::new(&PACKET_BYTES_UNKNOWN);
         let unknown = Repr::parse(&packet).unwrap();
-        assert_eq!(unknown, Repr::Unknown { ident: 255, length: 3, data: &data});
+        assert_eq!(unknown, Repr::Unknown { type_: 255, length: 3, data: &data});
     }
 
     #[test]
@@ -358,7 +358,7 @@ mod test {
         assert_eq!(packet.into_inner(), &PACKET_BYTES_PADN);
 
         let data = [0u8; 3];
-        let repr = Repr::Unknown { ident: 255, length: 3, data: &data };
+        let repr = Repr::Unknown { type_: 255, length: 3, data: &data };
         let mut bytes = [254u8; 5]; // don't assume bytes are initialized to zero
         let mut packet = Ipv6Option::new(&mut bytes);
         repr.emit(&mut packet);
