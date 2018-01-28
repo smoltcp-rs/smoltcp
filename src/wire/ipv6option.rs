@@ -43,12 +43,9 @@ mod field {
     // 8-bit unsigned integer. Length of the DATA field of this option, in octets.
     pub const LENGTH:   usize = 1;
     // Variable-length field. Option-Type-specific data.
-    pub const DATA:     Rest  = 2..;
-
-    // return the start and end of option data
-    pub fn OPTIONS(length: u8) -> Field {
-        let len = length as usize + DATA.start;
-        DATA.start..len
+    pub fn DATA(length: u8) -> Field {
+        let len = length as usize + 2;
+        2..len
     }
 }
 
@@ -86,11 +83,12 @@ impl<T: AsRef<[u8]>> Ipv6Option<T> {
             return Ok(());
         }
 
-        if len < field::DATA.start {
+        let df = field::DATA(len as u8);
+        if len < df.start {
             return Err(Error::Truncated);
         }
 
-        if data[field::DATA].len() < self.data_length() as usize {
+        if data[df.start..].len() < self.data_length() as usize {
             return Err(Error::Truncated);
         }
 
@@ -129,7 +127,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized> Ipv6Option<&'a T> {
     pub fn data(&self) -> &'a [u8] {
         let len = self.data_length();
         let data = self.buffer.as_ref();
-        &data[field::OPTIONS(len)]
+        &data[field::DATA(len)]
     }
 }
 
@@ -155,7 +153,7 @@ impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Ipv6Option<&'a mut T> {
     pub fn data_mut(&mut self) -> &mut [u8] {
         let len = self.data_length();
         let data = self.buffer.as_mut();
-        &mut data[field::OPTIONS(len)]
+        &mut data[field::DATA(len)]
     }
 }
 
@@ -213,10 +211,10 @@ impl<'a> Repr<'a> {
                 1
             }
             &Repr::PadN(len) => {
-                field::OPTIONS(len).end
+                field::DATA(len).end
             }
             &Repr::Unknown{ length, .. } => {
-                field::OPTIONS(length).end
+                field::DATA(length).end
             }
 
             &Repr::__Nonexhaustive => unreachable!()
