@@ -251,6 +251,12 @@ impl<'a, 'b> RawSocket<'a, 'b> {
     }
 }
 
+impl<'a, 'b> Into<Socket<'a, 'b>> for RawSocket<'a, 'b> {
+    fn into(self) -> Socket<'a, 'b> {
+        Socket::Raw(self)
+    }
+}
+
 #[cfg(test)]
 mod test {
     use wire::IpRepr;

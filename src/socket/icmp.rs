@@ -360,6 +360,12 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
     }
 }
 
+impl<'a, 'b> Into<Socket<'a, 'b>> for IcmpSocket<'a, 'b> {
+    fn into(self) -> Socket<'a, 'b> {
+        Socket::Icmp(self)
+    }
+}
+
 #[cfg(test)]
 mod test {
     use phy::DeviceCapabilities;

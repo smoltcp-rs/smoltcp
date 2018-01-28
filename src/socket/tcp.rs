@@ -1495,6 +1495,12 @@ impl<'a> TcpSocket<'a> {
     }
 }
 
+impl<'a> Into<Socket<'a, 'static>> for TcpSocket<'a> {
+    fn into(self) -> Socket<'a, 'static> {
+        Socket::Tcp(self)
+    }
+}
+
 impl<'a> fmt::Write for TcpSocket<'a> {
     fn write_str(&mut self, slice: &str) -> fmt::Result {
         let slice = slice.as_bytes();

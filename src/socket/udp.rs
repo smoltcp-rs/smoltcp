@@ -256,6 +256,12 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     }
 }
 
+impl<'a, 'b> Into<Socket<'a, 'b>> for UdpSocket<'a, 'b> {
+    fn into(self) -> Socket<'a, 'b> {
+        Socket::Udp(self)
+    }
+}
+
 #[cfg(test)]
 mod test {
     use wire::{IpAddress, IpRepr, UdpRepr};
