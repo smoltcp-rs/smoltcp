@@ -36,6 +36,8 @@ pub struct Ipv6Option<T: AsRef<[u8]>> {
 //
 // See https://tools.ietf.org/html/rfc8200#section-4.2 for details.
 mod field {
+    #![allow(non_snake_case)]
+
     use wire::field::*;
 
     // 8-bit identifier of the type of option.
@@ -82,7 +84,12 @@ impl<T: AsRef<[u8]>> Ipv6Option<T> {
             return Ok(());
         }
 
-        let df = field::DATA(len as u8);
+        if len == field::LENGTH {
+            return Err(Error::Truncated);
+        }
+
+        let df = field::DATA(data[field::LENGTH]);
+
         if len < df.end {
             return Err(Error::Truncated);
         }
@@ -208,7 +215,7 @@ impl<'a> Repr<'a> {
                 field::DATA(length).end,
             &Repr::Unknown{ length, .. } =>
                 field::DATA(length).end,
-            
+
             &Repr::__Nonexhaustive => unreachable!()
         }
     }
