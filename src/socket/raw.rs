@@ -73,14 +73,14 @@ impl<'a, 'b> RawSocket<'a, 'b> {
     /// with the given buffers.
     pub fn new(ip_version: IpVersion, ip_protocol: IpProtocol,
                rx_buffer: SocketBuffer<'a, 'b>,
-               tx_buffer: SocketBuffer<'a, 'b>) -> Socket<'a, 'b> {
-        Socket::Raw(RawSocket {
+               tx_buffer: SocketBuffer<'a, 'b>) -> RawSocket<'a, 'b> {
+        RawSocket {
             meta: SocketMeta::default(),
             ip_version,
             ip_protocol,
             rx_buffer,
             tx_buffer,
-        })
+        }
     }
 
     /// Return the socket handle.
@@ -251,6 +251,12 @@ impl<'a, 'b> RawSocket<'a, 'b> {
     }
 }
 
+impl<'a, 'b> Into<Socket<'a, 'b>> for RawSocket<'a, 'b> {
+    fn into(self) -> Socket<'a, 'b> {
+        Socket::Raw(self)
+    }
+}
+
 #[cfg(test)]
 mod test {
     use wire::IpRepr;
@@ -275,11 +281,8 @@ mod test {
         pub fn socket(rx_buffer: SocketBuffer<'static, 'static>,
                   tx_buffer: SocketBuffer<'static, 'static>)
                 -> RawSocket<'static, 'static> {
-            match RawSocket::new(IpVersion::Ipv4, IpProtocol::Unknown(IP_PROTO),
-                                 rx_buffer, tx_buffer) {
-                Socket::Raw(socket) => socket,
-                _ => unreachable!()
-            }
+            RawSocket::new(IpVersion::Ipv4, IpProtocol::Unknown(IP_PROTO),
+                rx_buffer, tx_buffer)
         }
 
         pub const IP_PROTO: u8 = 63;
@@ -310,11 +313,8 @@ mod test {
         pub fn socket(rx_buffer: SocketBuffer<'static, 'static>,
                   tx_buffer: SocketBuffer<'static, 'static>)
                 -> RawSocket<'static, 'static> {
-            match RawSocket::new(IpVersion::Ipv6, IpProtocol::Unknown(IP_PROTO),
-                                 rx_buffer, tx_buffer) {
-                Socket::Raw(socket) => socket,
-                _ => unreachable!()
-            }
+            RawSocket::new(IpVersion::Ipv6, IpProtocol::Unknown(IP_PROTO),
+                                 rx_buffer, tx_buffer)
         }
 
         pub const IP_PROTO: u8 = 63;
@@ -514,24 +514,16 @@ mod test {
     fn test_doesnt_accept_wrong_proto() {
         #[cfg(feature = "proto-ipv4")]
         {
-            let socket = match RawSocket::new(IpVersion::Ipv4,
-                                              IpProtocol::Unknown(ipv4_locals::IP_PROTO+1),
-                                              buffer(1), buffer(1)) {
-                Socket::Raw(socket) => socket,
-                _ => unreachable!()
-            };
+            let socket = RawSocket::new(IpVersion::Ipv4,
+                IpProtocol::Unknown(ipv4_locals::IP_PROTO+1), buffer(1), buffer(1));
             assert!(!socket.accepts(&ipv4_locals::HEADER_REPR));
             #[cfg(feature = "proto-ipv6")]
             assert!(!socket.accepts(&ipv6_locals::HEADER_REPR));
         }
         #[cfg(feature = "proto-ipv6")]
         {
-            let socket = match RawSocket::new(IpVersion::Ipv6,
-                                              IpProtocol::Unknown(ipv6_locals::IP_PROTO+1),
-                                              buffer(1), buffer(1)) {
-                Socket::Raw(socket) => socket,
-                _ => unreachable!()
-            };
+            let socket = RawSocket::new(IpVersion::Ipv6,
+                IpProtocol::Unknown(ipv6_locals::IP_PROTO+1), buffer(1), buffer(1));
             assert!(!socket.accepts(&ipv6_locals::HEADER_REPR));
             #[cfg(feature = "proto-ipv4")]
             assert!(!socket.accepts(&ipv4_locals::HEADER_REPR));

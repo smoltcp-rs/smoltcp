@@ -104,14 +104,14 @@ pub struct IcmpSocket<'a, 'b: 'a> {
 impl<'a, 'b> IcmpSocket<'a, 'b> {
     /// Create an ICMPv4 socket with the given buffers.
     pub fn new(rx_buffer: SocketBuffer<'a, 'b>,
-               tx_buffer: SocketBuffer<'a, 'b>) -> Socket<'a, 'b> {
-        Socket::Icmp(IcmpSocket {
+               tx_buffer: SocketBuffer<'a, 'b>) -> IcmpSocket<'a, 'b> {
+        IcmpSocket {
             meta:      SocketMeta::default(),
             rx_buffer: rx_buffer,
             tx_buffer: tx_buffer,
             endpoint:  Endpoint::default(),
             hop_limit: None
-        })
+        }
     }
 
     /// Return the socket handle.
@@ -170,10 +170,7 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
     /// use smoltcp::socket::IcmpEndpoint;
     ///
     /// let mut icmp_socket = // ...
-    /// # match IcmpSocket::new(rx_buffer, tx_buffer) {
-    /// #     Socket::Icmp(socket) => socket,
-    /// #     _ => unreachable!()
-    /// # };
+    /// # IcmpSocket::new(rx_buffer, tx_buffer);
     ///
     /// // Bind to ICMP error responses for UDP packets sent from port 53.
     /// let endpoint = IpEndpoint::from(53);
@@ -194,10 +191,7 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
     /// use smoltcp::socket::IcmpEndpoint;
     ///
     /// let mut icmp_socket = // ...
-    /// # match IcmpSocket::new(rx_buffer, tx_buffer) {
-    /// #     Socket::Icmp(socket) => socket,
-    /// #     _ => unreachable!()
-    /// # };
+    /// # IcmpSocket::new(rx_buffer, tx_buffer);
     ///
     /// // Bind to ICMP messages with the ICMP identifier 0x1234
     /// icmp_socket.bind(IcmpEndpoint::Ident(0x1234)).unwrap();
@@ -360,6 +354,12 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
     }
 }
 
+impl<'a, 'b> Into<Socket<'a, 'b>> for IcmpSocket<'a, 'b> {
+    fn into(self) -> Socket<'a, 'b> {
+        Socket::Icmp(self)
+    }
+}
+
 #[cfg(test)]
 mod test {
     use phy::DeviceCapabilities;
@@ -376,10 +376,7 @@ mod test {
 
     fn socket(rx_buffer: SocketBuffer<'static, 'static>,
               tx_buffer: SocketBuffer<'static, 'static>) -> IcmpSocket<'static, 'static> {
-        match IcmpSocket::new(rx_buffer, tx_buffer) {
-            Socket::Icmp(socket) => socket,
-            _ => unreachable!()
-        }
+        IcmpSocket::new(rx_buffer, tx_buffer)
     }
 
     const REMOTE_IPV4: Ipv4Address = Ipv4Address([0x7f, 0x00, 0x00, 0x02]);
