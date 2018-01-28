@@ -13,4 +13,7 @@ travis_config['matrix']['include'].each do |env|
     system(cmd)
     $?.success? or exit 1
   end
+  env['env'].scan(/(\w+)=\'(.+?)\'/) do
+    ENV.delete $1
+  end
 end

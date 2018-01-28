@@ -230,7 +230,7 @@ const DEFAULT_MSS: usize = 536;
 
 impl<'a> TcpSocket<'a> {
     /// Create a socket using the given buffers.
-    pub fn new<T>(rx_buffer: T, tx_buffer: T) -> Socket<'a, 'static>
+    pub fn new<T>(rx_buffer: T, tx_buffer: T) -> TcpSocket<'a>
             where T: Into<SocketBuffer<'a>> {
         let (rx_buffer, tx_buffer) = (rx_buffer.into(), tx_buffer.into());
         if rx_buffer.capacity() > <u16>::max_value() as usize {
@@ -238,7 +238,7 @@ impl<'a> TcpSocket<'a> {
                    <u16>::max_value())
         }
 
-        Socket::Tcp(TcpSocket {
+        TcpSocket {
             meta:            SocketMeta::default(),
             state:           State::Closed,
             timer:           Timer::default(),
@@ -259,7 +259,7 @@ impl<'a> TcpSocket<'a> {
             remote_win_len:  0,
             remote_mss:      DEFAULT_MSS,
             remote_last_ts:  None,
-        })
+        }
     }
 
     /// Return the socket handle.
@@ -1495,6 +1495,12 @@ impl<'a> TcpSocket<'a> {
     }
 }
 
+impl<'a> Into<Socket<'a, 'static>> for TcpSocket<'a> {
+    fn into(self) -> Socket<'a, 'static> {
+        Socket::Tcp(self)
+    }
+}
+
 impl<'a> fmt::Write for TcpSocket<'a> {
     fn write_str(&mut self, slice: &str) -> fmt::Result {
         let slice = slice.as_bytes();
@@ -1680,10 +1686,7 @@ mod test {
 
         let rx_buffer = SocketBuffer::new(vec![0; 64]);
         let tx_buffer = SocketBuffer::new(vec![0; 64]);
-        match TcpSocket::new(rx_buffer, tx_buffer) {
-            Socket::Tcp(socket) => socket,
-            _ => unreachable!()
-        }
+        TcpSocket::new(rx_buffer, tx_buffer)
     }
 
     fn socket_syn_received() -> TcpSocket<'static> {

@@ -9,7 +9,7 @@ use super::{Ipv4Address, Ipv4Packet, Ipv4Repr, Ipv4Cidr};
 use super::{Ipv6Address, Ipv6Cidr, Ipv6Packet, Ipv6Repr};
 
 /// Internet protocol version.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub enum Version {
     Unspecified,
     #[cfg(feature = "proto-ipv4")]
@@ -82,7 +82,7 @@ impl fmt::Display for Protocol {
 }
 
 /// An internetworking address.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub enum Address {
     /// An unspecified address.
     /// May be used as a placeholder for storage where the address is not assigned yet.
@@ -195,7 +195,7 @@ impl fmt::Display for Address {
 
 /// A specification of a CIDR block, containing an address and a variable-length
 /// subnet masking prefix length.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub enum Cidr {
     #[cfg(feature = "proto-ipv4")]
     Ipv4(Ipv4Cidr),
@@ -304,7 +304,7 @@ impl fmt::Display for Cidr {
 /// An internet endpoint address.
 ///
 /// An endpoint can be constructed from a port, in which case the address is unspecified.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
 pub struct Endpoint {
     pub addr: Address,
     pub port: u16
@@ -496,6 +496,63 @@ impl Repr {
         match self {
             #[cfg(feature = "proto-ipv4")]
             &Repr::Unspecified {
+                src_addr: src_addr @ Address::Unspecified,
+                dst_addr: Address::Ipv4(dst_addr),
+                protocol, payload_len, hop_limit
+            } |
+            &Repr::Unspecified {
+                src_addr: src_addr @ Address::Ipv4(_),
+                dst_addr: Address::Ipv4(dst_addr),
+                protocol, payload_len, hop_limit
+            } if src_addr.is_unspecified() => {
+                let mut src_addr = if let Address::Ipv4(src_ipv4_addr) = src_addr {
+                    Some(src_ipv4_addr)
+                } else {
+                    None
+                };
+                for cidr in fallback_src_addrs {
+                    if let Address::Ipv4(addr) = cidr.address() {
+                        src_addr = Some(addr);
+                        break;
+                    }
+                }
+                Ok(Repr::Ipv4(Ipv4Repr {
+                    src_addr:    src_addr.ok_or(Error::Unaddressable)?,
+                    dst_addr, protocol, payload_len, hop_limit
+                }))
+            }
+
+            #[cfg(feature = "proto-ipv6")]
+            &Repr::Unspecified {
+                src_addr: src_addr @ Address::Unspecified,
+                dst_addr: Address::Ipv6(dst_addr),
+                protocol, payload_len, hop_limit
+            } |
+            &Repr::Unspecified {
+                src_addr: src_addr @ Address::Ipv6(_),
+                dst_addr: Address::Ipv6(dst_addr),
+                protocol, payload_len, hop_limit
+            } if src_addr.is_unspecified() => {
+                let mut src_addr = if let Address::Ipv6(src_ipv6_addr) = src_addr {
+                    Some(src_ipv6_addr)
+                } else {
+                    None
+                };
+                for cidr in fallback_src_addrs {
+                    if let Address::Ipv6(addr) = cidr.address() {
+                        src_addr = Some(addr);
+                        break;
+                    }
+                }
+                Ok(Repr::Ipv6(Ipv6Repr {
+                    src_addr:    src_addr.ok_or(Error::Unaddressable)?,
+                    next_header: protocol,
+                    dst_addr, payload_len, hop_limit
+                }))
+            }
+
+            #[cfg(feature = "proto-ipv4")]
+            &Repr::Unspecified {
                 src_addr: Address::Ipv4(src_addr),
                 dst_addr: Address::Ipv4(dst_addr),
                 protocol, payload_len, hop_limit
@@ -521,50 +578,6 @@ impl Repr {
                     payload_len: payload_len,
                     hop_limit:   hop_limit
                 }))
-            }
-
-            #[cfg(feature = "proto-ipv4")]
-            &Repr::Unspecified {
-                src_addr: Address::Unspecified,
-                dst_addr: Address::Ipv4(dst_addr),
-                protocol, payload_len, hop_limit
-            } => {
-                let mut src_addr = None;
-                for cidr in fallback_src_addrs {
-                    match cidr.address() {
-                        Address::Ipv4(addr) => {
-                            src_addr = Some(addr);
-                            break
-                        }
-                        _ => ()
-                    }
-                }
-                Ok(Repr::Ipv4(Ipv4Repr {
-                    src_addr:    src_addr.ok_or(Error::Unaddressable)?,
-                    dst_addr, protocol, payload_len, hop_limit
-                }))
-            }
-
-            #[cfg(feature = "proto-ipv6")]
-            &Repr::Unspecified {
-                src_addr: Address::Unspecified,
-                dst_addr: Address::Ipv6(dst_addr),
-                protocol, payload_len, hop_limit
-            } => {
-                // Find a fallback address to use
-                match fallback_src_addrs.iter().filter_map(|cidr| match cidr.address() {
-                    Address::Ipv6(addr) => Some(addr),
-                    _ => None
-                }).next() {
-                    Some(addr) =>
-                        Ok(Repr::Ipv6(Ipv6Repr {
-                            src_addr:    addr,
-                            next_header: protocol,
-                            hop_limit:   hop_limit,
-                            dst_addr, payload_len
-                        })),
-                    None => Err(Error::Unaddressable)
-                }
             }
 
             #[cfg(feature = "proto-ipv4")]
@@ -665,12 +678,12 @@ pub mod checksum {
             accum += NetworkEndian::read_u16(data) as u32;
             data = &data[2..];
         }
-        
+
         // Add the last remaining odd byte, if any.
         if let Some(&value) = data.first() {
             accum += (value as u32) << 8;
         }
-        
+
         propagate_carries(accum)
     }
 
@@ -868,6 +881,40 @@ pub(crate) mod test {
             }.lower(&[IpCidr::new(IpAddress::Ipv4(ip_addr_a), 24)]),
             Ok(Repr::Ipv4(Ipv4Repr{
                 src_addr:  ip_addr_a,
+                dst_addr:  ip_addr_b,
+                protocol:  proto,
+                hop_limit: 64,
+                payload_len
+            }))
+        );
+
+        assert_eq!(
+            Repr::Unspecified{
+                src_addr:  IpAddress::Ipv4(Ipv4Address::UNSPECIFIED),
+                dst_addr:  IpAddress::Ipv4(ip_addr_b),
+                protocol:  proto,
+                hop_limit: 64,
+                payload_len
+            }.lower(&[IpCidr::new(IpAddress::Ipv4(ip_addr_a), 24)]),
+            Ok(Repr::Ipv4(Ipv4Repr{
+                src_addr:  ip_addr_a,
+                dst_addr:  ip_addr_b,
+                protocol:  proto,
+                hop_limit: 64,
+                payload_len
+            }))
+        );
+
+        assert_eq!(
+            Repr::Unspecified{
+                src_addr:  IpAddress::Ipv4(Ipv4Address::UNSPECIFIED),
+                dst_addr:  IpAddress::Ipv4(ip_addr_b),
+                protocol:  proto,
+                hop_limit: 64,
+                payload_len
+            }.lower(&[]),
+            Ok(Repr::Ipv4(Ipv4Repr{
+                src_addr:  Ipv4Address::UNSPECIFIED,
                 dst_addr:  ip_addr_b,
                 protocol:  proto,
                 hop_limit: 64,

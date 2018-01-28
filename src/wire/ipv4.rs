@@ -22,7 +22,7 @@ pub use super::IpProtocol as Protocol;
 pub const MIN_MTU: usize = 576;
 
 /// A four-octet IPv4 address.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
 pub struct Address(pub [u8; 4]);
 
 impl Address {
@@ -94,7 +94,7 @@ impl fmt::Display for Address {
 
 /// A specification of an IPv4 CIDR block, containing an address and a variable-length
 /// subnet masking prefix length.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
 pub struct Cidr {
     address:    Address,
     prefix_len: u8,
@@ -524,7 +524,8 @@ impl Repr {
         if checksum_caps.ipv4.tx() {
             packet.fill_checksum();
         } else {
-            // make sure we get a consistently zeroed checksum, since implementations might rely on it
+            // make sure we get a consistently zeroed checksum,
+            // since implementations might rely on it
             packet.set_checksum(0);
         }
     }

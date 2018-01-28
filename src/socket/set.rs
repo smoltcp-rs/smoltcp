@@ -47,7 +47,9 @@ impl<'a, 'b: 'a, 'c: 'a + 'b> Set<'a, 'b, 'c> {
     ///
     /// # Panics
     /// This function panics if the storage is fixed-size (not a `Vec`) and is full.
-    pub fn add(&mut self, socket: Socket<'b, 'c>) -> Handle {
+    pub fn add<T>(&mut self, socket: T) -> Handle
+        where T: Into<Socket<'b, 'c>>
+    {
         fn put<'b, 'c>(index: usize, slot: &mut Option<Item<'b, 'c>>,
                        mut socket: Socket<'b, 'c>) -> Handle {
             net_trace!("[{}]: adding", index);
@@ -56,6 +58,8 @@ impl<'a, 'b: 'a, 'c: 'a + 'b> Set<'a, 'b, 'c> {
             *slot = Some(Item { socket: socket, refs: 1 });
             handle
         }
+
+        let socket = socket.into();
 
         for (index, slot) in self.sockets.iter_mut().enumerate() {
             if slot.is_none() {

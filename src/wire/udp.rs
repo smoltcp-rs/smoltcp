@@ -248,7 +248,8 @@ impl<'a> Repr<'a> {
         if checksum_caps.udpv4.tx() {
             packet.fill_checksum(src_addr, dst_addr)
         } else {
-            // make sure we get a consistently zeroed checksum, since implementations might rely on it
+            // make sure we get a consistently zeroed checksum,
+            // since implementations might rely on it
             packet.set_checksum(0);
         }
     }

@@ -70,14 +70,14 @@ pub struct UdpSocket<'a, 'b: 'a> {
 impl<'a, 'b> UdpSocket<'a, 'b> {
     /// Create an UDP socket with the given buffers.
     pub fn new(rx_buffer: SocketBuffer<'a, 'b>,
-               tx_buffer: SocketBuffer<'a, 'b>) -> Socket<'a, 'b> {
-        Socket::Udp(UdpSocket {
+               tx_buffer: SocketBuffer<'a, 'b>) -> UdpSocket<'a, 'b> {
+        UdpSocket {
             meta:      SocketMeta::default(),
             endpoint:  IpEndpoint::default(),
             rx_buffer: rx_buffer,
             tx_buffer: tx_buffer,
             hop_limit: None
-        })
+        }
     }
 
     /// Return the socket handle.
@@ -256,6 +256,12 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     }
 }
 
+impl<'a, 'b> Into<Socket<'a, 'b>> for UdpSocket<'a, 'b> {
+    fn into(self) -> Socket<'a, 'b> {
+        Socket::Udp(self)
+    }
+}
+
 #[cfg(test)]
 mod test {
     use wire::{IpAddress, IpRepr, UdpRepr};
@@ -277,10 +283,7 @@ mod test {
     fn socket(rx_buffer: SocketBuffer<'static, 'static>,
               tx_buffer: SocketBuffer<'static, 'static>)
             -> UdpSocket<'static, 'static> {
-        match UdpSocket::new(rx_buffer, tx_buffer) {
-            Socket::Udp(socket) => socket,
-            _ => unreachable!()
-        }
+        UdpSocket::new(rx_buffer, tx_buffer)
     }
 
     const LOCAL_PORT:  u16        = 53;

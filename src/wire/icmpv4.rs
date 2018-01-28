@@ -182,6 +182,8 @@ mod field {
 
     pub const ECHO_IDENT: Field = 4..6;
     pub const ECHO_SEQNO: Field = 6..8;
+
+    pub const HEADER_END: usize = 8;
 }
 
 impl<T: AsRef<[u8]>> Packet<T> {
@@ -208,14 +210,10 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// [set_header_len]: #method.set_header_len
     pub fn check_len(&self) -> Result<()> {
         let len = self.buffer.as_ref().len();
-        if len < field::CHECKSUM.end {
+        if len < field::HEADER_END {
             Err(Error::Truncated)
         } else {
-            if len < self.header_len() as usize {
-                Err(Error::Truncated)
-            } else {
-                Ok(())
-            }
+            Ok(())
         }
     }
 
@@ -272,7 +270,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
             Message::EchoRequest    => field::ECHO_SEQNO.end,
             Message::EchoReply      => field::ECHO_SEQNO.end,
             Message::DstUnreachable => field::UNUSED.end,
-            _ => field::CHECKSUM.end // make a conservative assumption
+            _ => field::UNUSED.end // make a conservative assumption
         }
     }
 
@@ -486,7 +484,8 @@ impl<'a> Repr<'a> {
         if checksum_caps.icmpv4.tx() {
             packet.fill_checksum()
         } else {
-            // make sure we get a consistently zeroed checksum, since implementations might rely on it
+            // make sure we get a consistently zeroed checksum,
+            // since implementations might rely on it
             packet.set_checksum(0);
         }
     }
@@ -606,5 +605,14 @@ mod test {
         let mut packet = Packet::new(&mut bytes);
         repr.emit(&mut packet, &ChecksumCapabilities::default());
         assert_eq!(&packet.into_inner()[..], &ECHO_PACKET_BYTES[..]);
+    }
+
+    #[test]
+    fn test_check_len() {
+        let bytes = [0x0b, 0x00, 0x00, 0x00,
+                     0x00, 0x00, 0x00, 0x00];
+        assert_eq!(Packet::new_checked(&[]), Err(Error::Truncated));
+        assert_eq!(Packet::new_checked(&bytes[..4]), Err(Error::Truncated));
+        assert!(Packet::new_checked(&bytes[..]).is_ok());
     }
 }
