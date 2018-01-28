@@ -6,7 +6,7 @@ enum_with_unknown! {
     pub doc enum Type(u8) {
         /// 1 byte of padding
         Pad1 =  0,
-        /// multiple bytes of padding
+        /// Multiple bytes of padding
         PadN =  1
     }
 }
@@ -44,8 +44,7 @@ mod field {
     pub const LENGTH:   usize = 1;
     // Variable-length field. Option-Type-specific data.
     pub fn DATA(length: u8) -> Field {
-        let len = length as usize + 2;
-        2..len
+        2..length as usize + 2
     }
 }
 
@@ -84,11 +83,7 @@ impl<T: AsRef<[u8]>> Ipv6Option<T> {
         }
 
         let df = field::DATA(len as u8);
-        if len < df.start {
-            return Err(Error::Truncated);
-        }
-
-        if data[df.start..].len() < self.data_length() as usize {
+        if len < df.end {
             return Err(Error::Truncated);
         }
 
@@ -110,7 +105,7 @@ impl<T: AsRef<[u8]>> Ipv6Option<T> {
     /// Return the length of the data.
     ///
     /// # Panics
-    /// The function panics if the type does not support this field.
+    /// This function panics if this is an 1-byte padding option.
     #[inline]
     pub fn data_length(&self) -> u8 {
         let data = self.buffer.as_ref();
@@ -122,7 +117,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized> Ipv6Option<&'a T> {
     /// Return the option data.
     ///
     /// # Panics
-    /// The function panics if the type does not support this field.
+    /// This function panics if this is an 1-byte padding option.
     #[inline]
     pub fn data(&self) -> &'a [u8] {
         let len = self.data_length();
@@ -140,6 +135,9 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Ipv6Option<T> {
     }
 
     /// Set the option data length.
+    ///
+    /// # Panics
+    /// This function panics if this is an 1-byte padding option.
     #[inline]
     pub fn set_data_length(&mut self, value: u8) {
         let data = self.buffer.as_mut();
@@ -175,7 +173,7 @@ pub enum Repr<'a> {
     Pad1,
     PadN(u8),
     Unknown {
-        ident:  u8,
+        type_:  u8,
         length: u8,
         data:   &'a [u8]
     },
@@ -188,15 +186,13 @@ impl<'a> Repr<'a> {
     /// Parse an IPv6 Extension Header Option packet and return a high-level representation.
     pub fn parse<T>(packet: &'a Ipv6Option<&'a T>) -> Result<Repr<'a>> where T: AsRef<[u8]> + ?Sized {
         match packet.option_type() {
-            Type::Pad1 => {
-                Ok(Repr::Pad1)
-            }
-            Type::PadN => {
-                Ok(Repr::PadN(packet.data_length()))
-            }
-            Type::Unknown(ident) => {
+            Type::Pad1 =>
+                Ok(Repr::Pad1),
+            Type::PadN =>
+                Ok(Repr::PadN(packet.data_length())),
+            Type::Unknown(type_) => {
                 Ok(Repr::Unknown {
-                    ident:  ident,
+                    type_:  type_,
                     length: packet.data_length(),
                     data:   packet.data(),
                 })
@@ -207,16 +203,12 @@ impl<'a> Repr<'a> {
     /// Return the length of a header that will be emitted from this high-level representation.
     pub fn buffer_len(&self) -> usize {
         match self {
-            &Repr::Pad1 => {
-                1
-            }
-            &Repr::PadN(len) => {
-                field::DATA(len).end
-            }
-            &Repr::Unknown{ length, .. } => {
-                field::DATA(length).end
-            }
-
+            &Repr::Pad1 => 1,
+            &Repr::PadN(length) =>
+                field::DATA(length).end,
+            &Repr::Unknown{ length, .. } =>
+                field::DATA(length).end,
+            
             &Repr::__Nonexhaustive => unreachable!()
         }
     }
@@ -224,20 +216,20 @@ impl<'a> Repr<'a> {
     /// Emit a high-level representation into an IPv6 Extension Header Option packet.
     pub fn emit<T: AsRef<[u8]> + AsMut<[u8]> + ?Sized>(&self, packet: &mut Ipv6Option<&'a mut T>) {
         match self {
-            &Repr::Pad1 => {
-                packet.set_option_type(Type::Pad1);
-            }
+            &Repr::Pad1 =>
+                packet.set_option_type(Type::Pad1),
             &Repr::PadN(len) => {
                 packet.set_option_type(Type::PadN);
                 packet.set_data_length(len);
-                // ensure all data values are 0
-                packet.data_mut().iter_mut().map(|x| *x = 0).count();
+                // Ensure all padding bytes are set to zero.
+                for x in packet.data_mut().iter_mut() {
+                    *x = 0
+                }
             }
-            &Repr::Unknown{ ident, length, data } => {
-                packet.set_option_type(Type::Unknown(ident));
+            &Repr::Unknown{ type_, length, data } => {
+                packet.set_option_type(Type::Unknown(type_));
                 packet.set_data_length(length);
-                let len = length as usize;
-                packet.data_mut().copy_from_slice(&data[..len]);
+                packet.data_mut().copy_from_slice(&data[..length as usize]);
             }
 
             &Repr::__Nonexhaustive => unreachable!()
@@ -249,16 +241,12 @@ impl<'a> fmt::Display for Repr<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "IPv6 Option ")?;
         match self {
-            &Repr::Pad1 => {
-                write!(f, "{} ", Type::Pad1)
-            }
-            &Repr::PadN(len) => {
-                write!(f, "{} length={} ", Type::PadN, len)
-            }
-
-            &Repr::Unknown{ ident, length, .. } => {
-                write!(f, "{} length={} ", Type::Unknown(ident), length)
-            }
+            &Repr::Pad1 =>
+                write!(f, "{} ", Type::Pad1),
+            &Repr::PadN(len) =>
+                write!(f, "{} length={} ", Type::PadN, len),
+            &Repr::Unknown{ type_, length, .. } =>
+                write!(f, "{} length={} ", Type::Unknown(type_), length),
 
             &Repr::__Nonexhaustive => unreachable!()
         }
