@@ -69,9 +69,9 @@ impl<T: AsRef<[u8]>> Ipv6Option<T> {
     /// Ensure that no accessor method will panic if called.
     /// Returns `Err(Error::Truncated)` if the buffer is too short.
     ///
-    /// The result of this check is invalidated by calling [set_data_length].
+    /// The result of this check is invalidated by calling [set_data_len].
     ///
-    /// [set_data_length]: #method.set_data_length
+    /// [set_data_len]: #method.set_data_len
     pub fn check_len(&self) -> Result<()> {
         let data = self.buffer.as_ref();
         let len = data.len();
@@ -114,7 +114,7 @@ impl<T: AsRef<[u8]>> Ipv6Option<T> {
     /// # Panics
     /// This function panics if this is an 1-byte padding option.
     #[inline]
-    pub fn data_length(&self) -> u8 {
+    pub fn data_len(&self) -> u8 {
         let data = self.buffer.as_ref();
         data[field::LENGTH]
     }
@@ -127,7 +127,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized> Ipv6Option<&'a T> {
     /// This function panics if this is an 1-byte padding option.
     #[inline]
     pub fn data(&self) -> &'a [u8] {
-        let len = self.data_length();
+        let len = self.data_len();
         let data = self.buffer.as_ref();
         &data[field::DATA(len)]
     }
@@ -146,7 +146,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Ipv6Option<T> {
     /// # Panics
     /// This function panics if this is an 1-byte padding option.
     #[inline]
-    pub fn set_data_length(&mut self, value: u8) {
+    pub fn set_data_len(&mut self, value: u8) {
         let data = self.buffer.as_mut();
         data[field::LENGTH] = value;
     }
@@ -156,7 +156,7 @@ impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Ipv6Option<&'a mut T> {
     /// Return a mutable pointer to the option data.
     #[inline]
     pub fn data_mut(&mut self) -> &mut [u8] {
-        let len = self.data_length();
+        let len = self.data_len();
         let data = self.buffer.as_mut();
         &mut data[field::DATA(len)]
     }
@@ -196,11 +196,11 @@ impl<'a> Repr<'a> {
             Type::Pad1 =>
                 Ok(Repr::Pad1),
             Type::PadN =>
-                Ok(Repr::PadN(opt.data_length())),
+                Ok(Repr::PadN(opt.data_len())),
             Type::Unknown(type_) => {
                 Ok(Repr::Unknown {
                     type_:  type_,
-                    length: opt.data_length(),
+                    length: opt.data_len(),
                     data:   opt.data(),
                 })
             }
@@ -227,7 +227,7 @@ impl<'a> Repr<'a> {
                 opt.set_option_type(Type::Pad1),
             &Repr::PadN(len) => {
                 opt.set_option_type(Type::PadN);
-                opt.set_data_length(len);
+                opt.set_data_len(len);
                 // Ensure all padding bytes are set to zero.
                 for x in opt.data_mut().iter_mut() {
                     *x = 0
@@ -235,7 +235,7 @@ impl<'a> Repr<'a> {
             }
             &Repr::Unknown{ type_, length, data } => {
                 opt.set_option_type(Type::Unknown(type_));
-                opt.set_data_length(length);
+                opt.set_data_len(length);
                 opt.data_mut().copy_from_slice(&data[..length as usize]);
             }
 
@@ -290,9 +290,9 @@ mod test {
 
     #[test]
     #[should_panic(expected = "index out of bounds")]
-    fn test_data_length() {
+    fn test_data_len() {
         let opt = Ipv6Option::new(&IPV6OPTION_BYTES_PAD1);
-        opt.data_length();
+        opt.data_len();
     }
 
     #[test]
@@ -305,19 +305,19 @@ mod test {
         let bytes:  [u8; 2] = [0x1, 0x0];
         let opt = Ipv6Option::new(&bytes);
         assert_eq!(opt.option_type(), Type::PadN);
-        assert_eq!(opt.data_length(), 0);
+        assert_eq!(opt.data_len(), 0);
 
         // three octets of padding
         let opt = Ipv6Option::new(&IPV6OPTION_BYTES_PADN);
         assert_eq!(opt.option_type(), Type::PadN);
-        assert_eq!(opt.data_length(), 1);
+        assert_eq!(opt.data_len(), 1);
         assert_eq!(opt.data(), &[0]);
 
         // extra bytes in buffer
         let bytes:  [u8; 10] = [0x1, 0x7, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0xff];
         let opt = Ipv6Option::new(&bytes);
         assert_eq!(opt.option_type(), Type::PadN);
-        assert_eq!(opt.data_length(), 7);
+        assert_eq!(opt.data_len(), 7);
         assert_eq!(opt.data(), &[0, 0, 0, 0, 0, 0, 0]);
 
         // unrecognized option
