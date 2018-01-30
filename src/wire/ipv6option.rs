@@ -264,9 +264,9 @@ impl<'a> fmt::Display for Repr<'a> {
 mod test {
     use super::*;
 
-    static PACKET_BYTES_PAD1:    [u8; 1] = [0x0];
-    static PACKET_BYTES_PADN:    [u8; 3] = [0x1, 0x1, 0x0];
-    static PACKET_BYTES_UNKNOWN: [u8; 5] = [0xff, 0x3, 0x0, 0x0, 0x0];
+    static IPV6OPTION_BYTES_PAD1:    [u8; 1] = [0x0];
+    static IPV6OPTION_BYTES_PADN:    [u8; 3] = [0x1, 0x1, 0x0];
+    static IPV6OPTION_BYTES_UNKNOWN: [u8; 5] = [0xff, 0x3, 0x0, 0x0, 0x0];
 
     #[test]
     fn test_check_len() {
@@ -274,31 +274,31 @@ mod test {
         // zero byte buffer
         assert_eq!(Err(Error::Truncated), Ipv6Option::new(&bytes[..0]).check_len());
         // pad1
-        assert_eq!(Ok(()), Ipv6Option::new(&PACKET_BYTES_PAD1).check_len());
+        assert_eq!(Ok(()), Ipv6Option::new(&IPV6OPTION_BYTES_PAD1).check_len());
 
         // padn with truncated data
-        assert_eq!(Err(Error::Truncated), Ipv6Option::new(&PACKET_BYTES_PADN[..2]).check_len());
+        assert_eq!(Err(Error::Truncated), Ipv6Option::new(&IPV6OPTION_BYTES_PADN[..2]).check_len());
         // padn
-        assert_eq!(Ok(()), Ipv6Option::new(&PACKET_BYTES_PADN).check_len());
+        assert_eq!(Ok(()), Ipv6Option::new(&IPV6OPTION_BYTES_PADN).check_len());
 
         // unknown option type with truncated data
-        assert_eq!(Err(Error::Truncated), Ipv6Option::new(&PACKET_BYTES_UNKNOWN[..4]).check_len());
-        assert_eq!(Err(Error::Truncated), Ipv6Option::new(&PACKET_BYTES_UNKNOWN[..1]).check_len());
+        assert_eq!(Err(Error::Truncated), Ipv6Option::new(&IPV6OPTION_BYTES_UNKNOWN[..4]).check_len());
+        assert_eq!(Err(Error::Truncated), Ipv6Option::new(&IPV6OPTION_BYTES_UNKNOWN[..1]).check_len());
         // unknown type
-        assert_eq!(Ok(()), Ipv6Option::new(&PACKET_BYTES_UNKNOWN).check_len());
+        assert_eq!(Ok(()), Ipv6Option::new(&IPV6OPTION_BYTES_UNKNOWN).check_len());
     }
 
     #[test]
     #[should_panic(expected = "index out of bounds")]
     fn test_data_length() {
-        let opt = Ipv6Option::new(&PACKET_BYTES_PAD1);
+        let opt = Ipv6Option::new(&IPV6OPTION_BYTES_PAD1);
         opt.data_length();
     }
 
     #[test]
     fn test_option_deconstruct() {
         // one octet of padding
-        let opt = Ipv6Option::new(&PACKET_BYTES_PAD1);
+        let opt = Ipv6Option::new(&IPV6OPTION_BYTES_PAD1);
         assert_eq!(opt.option_type(), Type::Pad1);
 
         // two octets of padding
@@ -308,7 +308,7 @@ mod test {
         assert_eq!(opt.data_length(), 0);
 
         // three octets of padding
-        let opt = Ipv6Option::new(&PACKET_BYTES_PADN);
+        let opt = Ipv6Option::new(&IPV6OPTION_BYTES_PADN);
         assert_eq!(opt.option_type(), Type::PadN);
         assert_eq!(opt.data_length(), 1);
         assert_eq!(opt.data(), &[0]);
@@ -332,20 +332,20 @@ mod test {
     #[test]
     fn test_option_parse() {
         // one octet of padding
-        let opt = Ipv6Option::new(&PACKET_BYTES_PAD1);
+        let opt = Ipv6Option::new(&IPV6OPTION_BYTES_PAD1);
         let pad1 = Repr::parse(&opt).unwrap();
         assert_eq!(pad1, Repr::Pad1);
         assert_eq!(pad1.buffer_len(), 1);
 
         // two or more octets of padding
-        let opt = Ipv6Option::new(&PACKET_BYTES_PADN);
+        let opt = Ipv6Option::new(&IPV6OPTION_BYTES_PADN);
         let padn = Repr::parse(&opt).unwrap();
         assert_eq!(padn, Repr::PadN(1));
         assert_eq!(padn.buffer_len(), 3);
 
         // unrecognized option type
         let data = [0u8; 3];
-        let opt = Ipv6Option::new(&PACKET_BYTES_UNKNOWN);
+        let opt = Ipv6Option::new(&IPV6OPTION_BYTES_UNKNOWN);
         let unknown = Repr::parse(&opt).unwrap();
         assert_eq!(unknown, Repr::Unknown { type_: 255, length: 3, data: &data});
     }
@@ -356,19 +356,19 @@ mod test {
         let mut bytes = [255u8; 1]; // don't assume bytes are initialized to zero
         let mut opt = Ipv6Option::new(&mut bytes);
         repr.emit(&mut opt);
-        assert_eq!(opt.into_inner(), &PACKET_BYTES_PAD1);
+        assert_eq!(opt.into_inner(), &IPV6OPTION_BYTES_PAD1);
 
         let repr = Repr::PadN(1);
         let mut bytes = [255u8; 3]; // don't assume bytes are initialized to zero
         let mut opt = Ipv6Option::new(&mut bytes);
         repr.emit(&mut opt);
-        assert_eq!(opt.into_inner(), &PACKET_BYTES_PADN);
+        assert_eq!(opt.into_inner(), &IPV6OPTION_BYTES_PADN);
 
         let data = [0u8; 3];
         let repr = Repr::Unknown { type_: 255, length: 3, data: &data };
         let mut bytes = [254u8; 5]; // don't assume bytes are initialized to zero
         let mut opt = Ipv6Option::new(&mut bytes);
         repr.emit(&mut opt);
-        assert_eq!(opt.into_inner(), &PACKET_BYTES_UNKNOWN);
+        assert_eq!(opt.into_inner(), &IPV6OPTION_BYTES_UNKNOWN);
     }
 }
