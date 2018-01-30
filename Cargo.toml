@@ -43,6 +43,11 @@ default = [
 ]
 
 [[example]]
+name = "packet2pcap"
+path = "utils/packet2pcap.rs"
+required-features = ["std"]
+
+[[example]]
 name = "tcpdump"
 required-features = ["std", "phy-raw_socket", "proto-ipv4"]
 

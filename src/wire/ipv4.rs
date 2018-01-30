@@ -184,6 +184,8 @@ impl<T: AsRef<[u8]>> Packet<T> {
 
     /// Ensure that no accessor method will panic if called.
     /// Returns `Err(Error::Truncated)` if the buffer is too short.
+    /// Returns `Err(Error::Malformed)` if the header length is greater
+    /// than total length.
     ///
     /// The result of this check is invalidated by calling [set_header_len]
     /// and [set_total_len].
@@ -196,6 +198,8 @@ impl<T: AsRef<[u8]>> Packet<T> {
             Err(Error::Truncated)
         } else if len < self.header_len() as usize {
             Err(Error::Truncated)
+        } else if self.header_len() as u16 > self.total_len() {
+            Err(Error::Malformed)
         } else if len < self.total_len() as usize {
             Err(Error::Truncated)
         } else {
@@ -737,6 +741,13 @@ mod test {
         packet.fill_checksum();
         let packet = Packet::new(&*packet.into_inner());
         assert_eq!(Repr::parse(&packet, &ChecksumCapabilities::default()), Err(Error::Malformed));
+    }
+
+    #[test]
+    fn test_parse_total_len_less_than_header_len() {
+        let mut bytes = vec![0; 40];
+        bytes[0] = 0x09;
+        assert_eq!(Packet::new_checked(&mut bytes), Err(Error::Malformed));
     }
 
     #[test]
