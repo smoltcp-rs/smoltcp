@@ -92,15 +92,15 @@ impl<T: AsRef<PcapSink>> PcapSink for T {
 }
 
 #[cfg(feature = "std")]
-impl<T: AsMut<Write>> PcapSink for RefCell<T> {
+impl<T: Write> PcapSink for RefCell<T> {
     fn write(&self, data: &[u8]) {
-        self.borrow_mut().as_mut().write_all(data).expect("cannot write")
+        self.borrow_mut().write_all(data).expect("cannot write")
     }
 
     fn packet(&self, timestamp: u64, packet: &[u8]) {
         self.packet_header(timestamp, packet.len());
         PcapSink::write(self, packet);
-        self.borrow_mut().as_mut().flush().expect("cannot flush")
+        self.borrow_mut().flush().expect("cannot flush")
     }
 }
 
