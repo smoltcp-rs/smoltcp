@@ -483,8 +483,6 @@ impl Repr {
         if checksum_caps.ipv4.rx() && !packet.verify_checksum() { return Err(Error::Checksum) }
         // We do not support fragmentation.
         if packet.more_frags() || packet.frag_offset() != 0 { return Err(Error::Fragmented) }
-        // Total length may not be less than header length.
-        if packet.total_len() < packet.header_len() as u16 { return Err(Error::Malformed) }
         // Since the packet is not fragmented, it must include the entire payload.
         let payload_len = packet.total_len() as usize - packet.header_len() as usize;
         if packet.payload().len() < payload_len  { return Err(Error::Truncated) }
