@@ -1,24 +1,39 @@
-#![allow(unsafe_code)]
+#![allow(unsafe_code, unused, non_camel_case_types, non_snake_case)]
 
 use libc;
+
 use std::{mem, ptr, io};
 use std::os::unix::io::RawFd;
 
-#[cfg(target_os = "linux")]
-#[path = "linux.rs"]
-mod imp;
+pub use libc::*;
 
-#[cfg(all(feature = "phy-raw_socket", target_os = "linux"))]
-pub mod raw_socket;
-#[cfg(all(feature = "phy-tap_interface", target_os = "linux"))]
-pub mod tap_interface;
+cfg_if! {
+    if #[cfg(target_os = "macos")] {
+        mod macos;
+        pub use self::macos::*;
+    } else if #[cfg(all(target_os = "linux", target_env = "gnu"))] {
+        mod linux;
+        pub use self::linux::*;
+    }
+}
 
-#[cfg(all(feature = "phy-raw_socket", target_os = "linux"))]
-pub use self::raw_socket::RawSocketDesc;
-#[cfg(all(feature = "phy-tap_interface", target_os = "linux"))]
-pub use self::tap_interface::TapInterfaceDesc;
+cfg_if! {
+    if #[cfg(all(feature = "phy-raw_socket",
+                 any(target_os = "macos",
+                     all(target_os = "linux", target_env = "gnu"))))] {
+        mod raw_socket;
+        pub use self::raw_socket::RawSocket;
+    }
+}
 
-/// Wait until given file descriptor becomes readable, but no longer than given timeout.
+cfg_if! {
+    if #[cfg(all(feature = "phy-tap_interface", 
+                 all(target_os = "linux", target_env = "gnu")))] {
+        mod tap_interface;
+        pub use self::tap_interface::TapInterfaceDesc;
+    }
+}
+
 pub fn wait(fd: RawFd, millis: Option<u64>) -> io::Result<()> {
     unsafe {
         let mut readfds = mem::uninitialized::<libc::fd_set>();
@@ -44,35 +59,4 @@ pub fn wait(fd: RawFd, millis: Option<u64>) -> io::Result<()> {
         if res == -1 { return Err(io::Error::last_os_error()) }
         Ok(())
     }
-}
-
-#[cfg(all(target_os = "linux", any(feature = "phy-tap_interface", feature = "phy-raw_socket")))]
-#[repr(C)]
-#[derive(Debug)]
-struct ifreq {
-    ifr_name: [libc::c_char; libc::IF_NAMESIZE],
-    ifr_data: libc::c_int /* ifr_ifindex or ifr_mtu */
-}
-
-#[cfg(all(target_os = "linux", any(feature = "phy-tap_interface", feature = "phy-raw_socket")))]
-fn ifreq_for(name: &str) -> ifreq {
-    let mut ifreq = ifreq {
-        ifr_name: [0; libc::IF_NAMESIZE],
-        ifr_data: 0
-    };
-    for (i, byte) in name.as_bytes().iter().enumerate() {
-        ifreq.ifr_name[i] = *byte as libc::c_char
-    }
-    ifreq
-}
-
-#[cfg(all(target_os = "linux", any(feature = "phy-tap_interface", feature = "phy-raw_socket")))]
-fn ifreq_ioctl(lower: libc::c_int, ifreq: &mut ifreq,
-               cmd: libc::c_ulong) -> io::Result<libc::c_int> {
-    unsafe {
-        let res = libc::ioctl(lower, cmd, ifreq as *mut ifreq);
-        if res == -1 { return Err(io::Error::last_os_error()) }
-    }
-
-    Ok(ifreq.ifr_data)
 }

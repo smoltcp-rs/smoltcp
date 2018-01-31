@@ -1,7 +1,38 @@
+use libc;
+
+use phy::sys;
+
 use std::io;
 use std::os::unix::io::{RawFd, AsRawFd};
-use libc;
-use super::*;
+
+#[repr(C)]
+#[derive(Debug)]
+struct ifreq {
+    ifr_name: [libc::c_char; libc::IF_NAMESIZE],
+    ifr_data: libc::c_int /* ifr_ifindex or ifr_mtu */
+}
+
+fn ifreq_for(name: &str) -> ifreq {
+    let mut ifreq = ifreq {
+        ifr_name: [0; libc::IF_NAMESIZE],
+        ifr_data: 0
+    };
+    for (i, byte) in name.as_bytes().iter().enumerate() {
+        ifreq.ifr_name[i] = *byte as libc::c_char
+    }
+    ifreq
+}
+
+fn ifreq_ioctl(lower: libc::c_int, ifreq: &mut ifreq,
+               cmd: libc::c_ulong) -> io::Result<libc::c_int> {
+    unsafe {
+        let res = libc::ioctl(lower, cmd, ifreq as *mut ifreq);
+        if res == -1 { return Err(io::Error::last_os_error()) }
+    }
+
+    Ok(ifreq.ifr_data)
+}
+
 
 #[derive(Debug)]
 pub struct TapInterfaceDesc {
@@ -31,8 +62,8 @@ impl TapInterfaceDesc {
     }
 
     pub fn attach_interface(&mut self) -> io::Result<()> {
-        self.ifreq.ifr_data = imp::IFF_TAP | imp::IFF_NO_PI;
-        ifreq_ioctl(self.lower, &mut self.ifreq, imp::TUNSETIFF).map(|_| ())
+        self.ifreq.ifr_data = (sys::IFF_TAP as i32) | (sys::IFF_NO_PI as i32);
+        ifreq_ioctl(self.lower, &mut self.ifreq, sys::TUNSETIFF).map(|_| ())
     }
 
     pub fn interface_mtu(&mut self) -> io::Result<usize> {
@@ -42,7 +73,7 @@ impl TapInterfaceDesc {
             lower
         };
 
-        let mtu = ifreq_ioctl(lower, &mut self.ifreq, imp::SIOCGIFMTU).map(|mtu| mtu as usize);
+        let mtu = ifreq_ioctl(lower, &mut self.ifreq, sys::SIOCGIFMTU).map(|mtu| mtu as usize);
 
         unsafe { libc::close(lower); }
 

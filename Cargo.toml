@@ -15,7 +15,8 @@ license = "0BSD"
 managed = { version = "0.5", default-features = false, features = ["map"] }
 byteorder = { version = "1.0", default-features = false }
 log = { version = "0.3", default-features = false, optional = true }
-libc = { version = "0.2.18", optional = true }
+libc = { version = "0.2.36", optional = true }
+cfg-if = "0.1"
 
 [dev-dependencies]
 env_logger = "0.4"

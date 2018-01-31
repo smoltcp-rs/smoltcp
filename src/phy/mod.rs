@@ -85,31 +85,50 @@ impl<'a> phy::TxToken for StmPhyTxToken<'a> {
 
 use Result;
 
-#[cfg(any(feature = "phy-raw_socket", feature = "phy-tap_interface"))]
-mod sys;
+mod linklayer;
+pub use self::linklayer::LinkLayer;
+
+cfg_if! {
+    if #[cfg(any(all(feature = "phy-raw_socket",
+                     any(target_os = "macos", all(target_os = "linux", target_env = "gnu"))),
+                 all(feature = "phy-tap_interface", 
+                     all(target_os = "linux", target_env = "gnu"))))] {
+        mod sys;
+        pub use self::sys::wait;
+    }
+}
+
+cfg_if! {
+    if #[cfg(all(feature = "phy-raw_socket",
+                 any(target_os = "macos",
+                     all(target_os = "linux", target_env = "gnu"))))] {
+        mod raw_socket;
+        pub use self::raw_socket::RawSocket;
+    }
+}
+
+cfg_if! {
+    if #[cfg(all(feature = "phy-tap_interface", 
+                 all(target_os = "linux", target_env = "gnu")))] {
+        mod tap_interface;
+        pub use self::tap_interface::TapInterface;
+    }
+}
+
+cfg_if! {
+    if #[cfg(any(feature = "std", feature = "alloc"))] {
+        mod loopback;
+        pub use self::loopback::Loopback;
+    }
+}
 
 mod tracer;
 mod fault_injector;
 mod pcap_writer;
-#[cfg(any(feature = "std", feature = "alloc"))]
-mod loopback;
-#[cfg(all(feature = "phy-raw_socket", target_os = "linux"))]
-mod raw_socket;
-#[cfg(all(feature = "phy-tap_interface", target_os = "linux"))]
-mod tap_interface;
-
-#[cfg(any(feature = "phy-raw_socket", feature = "phy-tap_interface"))]
-pub use self::sys::wait;
 
 pub use self::tracer::Tracer;
 pub use self::fault_injector::FaultInjector;
 pub use self::pcap_writer::{PcapLinkType, PcapMode, PcapSink, PcapWriter};
-#[cfg(any(feature = "std", feature = "alloc"))]
-pub use self::loopback::Loopback;
-#[cfg(all(feature = "phy-raw_socket", target_os = "linux"))]
-pub use self::raw_socket::RawSocket;
-#[cfg(all(feature = "phy-tap_interface", target_os = "linux"))]
-pub use self::tap_interface::TapInterface;
 
 /// A tracer device for Ethernet frames.
 pub type EthernetTracer<T> = Tracer<T, super::wire::EthernetFrame<&'static [u8]>>;
