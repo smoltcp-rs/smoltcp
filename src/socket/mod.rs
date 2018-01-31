@@ -40,7 +40,7 @@ pub use self::icmp::{PacketBuffer as IcmpPacketBuffer,
                      IcmpSocket};
 
 #[cfg(feature = "socket-udp")]
-pub use self::udp::{PacketBuffer as UdpPacketBuffer,
+pub use self::udp::{PacketMetadata as UdpPacketMetadata,
                     SocketBuffer as UdpSocketBuffer,
                     UdpSocket};
 
