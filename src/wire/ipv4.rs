@@ -731,17 +731,6 @@ mod test {
     }
 
     #[test]
-    fn test_parse_total_len_underflow() {
-        let mut bytes = vec![0; 24];
-        bytes.copy_from_slice(&REPR_PACKET_BYTES[..]);
-        let mut packet = Packet::new(&mut bytes);
-        packet.set_total_len(10);
-        packet.fill_checksum();
-        let packet = Packet::new(&*packet.into_inner());
-        assert_eq!(Repr::parse(&packet, &ChecksumCapabilities::default()), Err(Error::Malformed));
-    }
-
-    #[test]
     fn test_parse_total_len_less_than_header_len() {
         let mut bytes = vec![0; 40];
         bytes[0] = 0x09;
