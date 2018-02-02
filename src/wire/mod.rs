@@ -144,6 +144,8 @@ pub use self::icmpv4::{Message as Icmpv4Message,
 #[cfg(feature = "proto-ipv6")]
 pub use self::icmpv6::{Message as Icmpv6Message,
                        DstUnreachable as Icmpv6DstUnreachable,
+                       TimeExceeded as Icmpv6TimeExceeded,
+                       ParamProblem as Icmpv6ParamProblem,
                        Packet as Icmpv6Packet,
                        Repr as Icmpv6Repr};
 
