@@ -24,7 +24,7 @@ impl fmt::Display for EtherType {
 }
 
 /// A six-octet Ethernet II address.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
 pub struct Address(pub [u8; 6]);
 
 impl Address {
