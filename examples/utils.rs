@@ -82,6 +82,7 @@ pub fn add_tap_options(_opts: &mut Options, free: &mut Vec<&str>) {
     free.push("INTERFACE");
 }
 
+#[cfg(feature = "phy-tap_interface")]
 pub fn parse_tap_options(matches: &mut Matches) -> TapInterface {
     let interface = matches.free.remove(0);
     TapInterface::new(&interface).unwrap()
