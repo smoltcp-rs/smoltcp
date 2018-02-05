@@ -631,12 +631,6 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
 
             _ => {
                 // Send back as much of the original payload as we can.
-                //
-                // ICMPv6 Contains no protocol unreachable reason for the
-                // destination unreachable message. Instead a parameter
-                // problem message is returned with the code set to
-                // "unrecognized next header" and the pointer set to the
-                // offset within the invoking packet.
                 let payload_len = icmp_reply_payload_len(ip_payload.len(), IPV6_MIN_MTU,
                                                          ipv6_repr.buffer_len());
                 let icmp_reply_repr = Icmpv6Repr::ParamProblem {
