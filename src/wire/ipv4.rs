@@ -124,6 +124,16 @@ impl Cidr {
         Cidr { address, prefix_len }
     }
 
+    /// Create an IPv4 CIDR block from the given address and network mask.
+    pub fn from_netmask(addr: Address, netmask: Address) -> Result<Cidr> {
+        let netmask = NetworkEndian::read_u32(&netmask.0[..]);
+        if netmask.leading_zeros() == 0 && netmask.trailing_zeros() == netmask.count_zeros() {
+            Ok(Cidr { address: addr, prefix_len: netmask.count_ones() as u8 })
+        } else {
+            Err(Error::Illegal)
+        }
+    }
+
     /// Return the address of this IPv4 CIDR block.
     pub fn address(&self) -> Address {
         self.address
@@ -132,6 +142,55 @@ impl Cidr {
     /// Return the prefix length of this IPv4 CIDR block.
     pub fn prefix_len(&self) -> u8 {
         self.prefix_len
+    }
+
+    /// Return the network mask of this IPv4 CIDR.
+    pub fn netmask(&self) -> Address {
+        if self.prefix_len == 0 {
+            return Address([0, 0, 0, 0]);
+        }
+
+        let number = 0xffffffffu32 << (32 - self.prefix_len);
+        let data = [
+            ((number >> 24) & 0xff) as u8,
+            ((number >> 16) & 0xff) as u8,
+            ((number >>  8) & 0xff) as u8,
+            ((number >>  0) & 0xff) as u8,
+        ];
+
+        Address(data)
+    }
+
+    /// Return the broadcast address of this IPv4 CIDR.
+    pub fn broadcast(&self) -> Option<Address> {
+        let network = self.network();
+
+        if network.prefix_len == 31 || network.prefix_len == 32 {
+            return None;
+        }
+
+        let network_number = NetworkEndian::read_u32(&network.address.0[..]);
+        let number = network_number | 0xffffffffu32 >> network.prefix_len;
+        let data = [
+            ((number >> 24) & 0xff) as u8,
+            ((number >> 16) & 0xff) as u8,
+            ((number >>  8) & 0xff) as u8,
+            ((number >>  0) & 0xff) as u8,
+        ];
+
+        Some(Address(data))
+    }
+
+    /// Return the network block of this IPv4 CIDR.
+    pub fn network(&self) -> Cidr {
+        let mask = self.netmask().0;
+        let network = [
+            self.address.0[0] & mask[0],
+            self.address.0[1] & mask[1],
+            self.address.0[2] & mask[2],
+            self.address.0[3] & mask[3],
+        ];
+        Cidr { address: Address(network), prefix_len: self.prefix_len }
     }
 
     /// Query whether the subnetwork described by this IPv4 CIDR block contains
@@ -828,5 +887,98 @@ mod test {
 
         let cidr_without_prefix = Cidr::new(cidr.address(), 0);
         assert!(cidr_without_prefix.contains_addr(&Address::new(127, 0, 0, 1)));
+    }
+    
+    #[test]
+    fn test_cidr_from_netmask() {
+        assert_eq!(Cidr::from_netmask(Address([0, 0, 0, 0]), Address([1, 0, 2, 0])).is_err(),
+                   true);
+        assert_eq!(Cidr::from_netmask(Address([0, 0, 0, 0]), Address([0, 0, 0, 0])).is_err(),
+                   true);
+        assert_eq!(Cidr::from_netmask(Address([0, 0, 0, 1]), Address([255, 255, 255, 0])).unwrap(),
+                   Cidr::new(Address([0, 0, 0, 1]), 24));
+        assert_eq!(Cidr::from_netmask(Address([192, 168, 0, 1]), Address([255, 255, 0, 0])).unwrap(),
+                   Cidr::new(Address([192, 168, 0, 1]), 16));
+        assert_eq!(Cidr::from_netmask(Address([172, 16, 0, 1]), Address([255, 240, 0, 0])).unwrap(),
+                   Cidr::new(Address([172, 16, 0, 1]), 12));
+        assert_eq!(Cidr::from_netmask(Address([255, 255, 255, 1]), Address([255, 255, 255, 0])).unwrap(),
+                   Cidr::new(Address([255, 255, 255, 1]), 24));
+        assert_eq!(Cidr::from_netmask(Address([255, 255, 255, 255]), Address([255, 255, 255, 255])).unwrap(),
+                   Cidr::new(Address([255, 255, 255, 255]), 32));
+    }
+    
+    #[test]
+    fn test_cidr_netmask() {
+        assert_eq!(Cidr::new(Address([0, 0, 0, 0]), 0).netmask(),
+                   Address([0, 0, 0, 0]));
+        assert_eq!(Cidr::new(Address([0, 0, 0, 1]), 24).netmask(),
+                   Address([255, 255, 255, 0]));
+        assert_eq!(Cidr::new(Address([0, 0, 0, 0]), 32).netmask(),
+                   Address([255, 255, 255, 255]));
+        assert_eq!(Cidr::new(Address([127, 0, 0, 0]), 8).netmask(),
+                   Address([255, 0, 0, 0]));
+        assert_eq!(Cidr::new(Address([192, 168, 0, 0]), 16).netmask(),
+                   Address([255, 255, 0, 0]));
+        assert_eq!(Cidr::new(Address([192, 168, 1, 1]), 16).netmask(),
+                   Address([255, 255, 0, 0]));
+        assert_eq!(Cidr::new(Address([192, 168, 1, 1]), 17).netmask(),
+                   Address([255, 255, 128, 0]));
+        assert_eq!(Cidr::new(Address([172, 16, 0, 0]), 12).netmask(),
+                   Address([255, 240, 0, 0]));
+        assert_eq!(Cidr::new(Address([255, 255, 255, 1]), 24).netmask(),
+                   Address([255, 255, 255, 0]));
+        assert_eq!(Cidr::new(Address([255, 255, 255, 255]), 32).netmask(),
+                   Address([255, 255, 255, 255]));
+    }
+
+    #[test]
+    fn test_cidr_broadcast() {
+        assert_eq!(Cidr::new(Address([0, 0, 0, 0]), 0).broadcast().unwrap(),
+                   Address([255, 255, 255, 255]));
+        assert_eq!(Cidr::new(Address([0, 0, 0, 1]), 24).broadcast().unwrap(),
+                   Address([0, 0, 0, 255]));
+        assert_eq!(Cidr::new(Address([0, 0, 0, 0]), 32).broadcast(),
+                   None);
+        assert_eq!(Cidr::new(Address([127, 0, 0, 0]), 8).broadcast().unwrap(),
+                   Address([127, 255, 255, 255]));
+        assert_eq!(Cidr::new(Address([192, 168, 0, 0]), 16).broadcast().unwrap(),
+                   Address([192, 168, 255, 255]));
+        assert_eq!(Cidr::new(Address([192, 168, 1, 1]), 16).broadcast().unwrap(),
+                   Address([192, 168, 255, 255]));
+        assert_eq!(Cidr::new(Address([192, 168, 1, 1]), 17).broadcast().unwrap(),
+                   Address([192, 168, 127, 255]));
+        assert_eq!(Cidr::new(Address([172, 16, 0, 1]), 12).broadcast().unwrap(),
+                   Address([172, 31, 255, 255]));
+        assert_eq!(Cidr::new(Address([255, 255, 255, 1]), 24).broadcast().unwrap(),
+                   Address([255, 255, 255, 255]));
+        assert_eq!(Cidr::new(Address([255, 255, 255, 254]), 31).broadcast(),
+                   None);
+        assert_eq!(Cidr::new(Address([255, 255, 255, 255]), 32).broadcast(),
+                   None);
+
+    }
+
+    #[test]
+    fn test_cidr_network() {
+        assert_eq!(Cidr::new(Address([0, 0, 0, 0]), 0).network(),
+                   Cidr::new(Address([0, 0, 0, 0]), 0));
+        assert_eq!(Cidr::new(Address([0, 0, 0, 1]), 24).network(),
+                   Cidr::new(Address([0, 0, 0, 0]), 24));
+        assert_eq!(Cidr::new(Address([0, 0, 0, 0]), 32).network(),
+                   Cidr::new(Address([0, 0, 0, 0]), 32));
+        assert_eq!(Cidr::new(Address([127, 0, 0, 0]), 8).network(),
+                   Cidr::new(Address([127, 0, 0, 0]), 8));
+        assert_eq!(Cidr::new(Address([192, 168, 0, 0]), 16).network(),
+                   Cidr::new(Address([192, 168, 0, 0]), 16));
+        assert_eq!(Cidr::new(Address([192, 168, 1, 1]), 16).network(),
+                   Cidr::new(Address([192, 168, 0, 0]), 16));
+        assert_eq!(Cidr::new(Address([192, 168, 1, 1]), 17).network(),
+                   Cidr::new(Address([192, 168, 0, 0]), 17));
+        assert_eq!(Cidr::new(Address([172,  16, 0, 1]), 12).network(),
+                   Cidr::new(Address([172,  16, 0, 0]), 12));
+        assert_eq!(Cidr::new(Address([255, 255, 255, 1]), 24).network(),
+                   Cidr::new(Address([255, 255, 255, 0]), 24));
+        assert_eq!(Cidr::new(Address([255, 255, 255, 255]), 32).network(),
+                   Cidr::new(Address([255, 255, 255, 255]), 32));
     }
 }
