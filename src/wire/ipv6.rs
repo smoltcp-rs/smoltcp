@@ -171,6 +171,20 @@ impl Address {
     }
 }
 
+#[cfg(feature = "std")]
+impl From<::std::net::Ipv6Addr> for Address {
+    fn from(x: ::std::net::Ipv6Addr) -> Address {
+        Address(x.octets())
+    }
+}
+
+#[cfg(feature = "std")]
+impl From<Address> for ::std::net::Ipv6Addr {
+    fn from(Address(x): Address) -> ::std::net::Ipv6Addr {
+        x.into()
+    }
+}
+
 impl fmt::Display for Address {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if self.is_ipv4_mapped() {

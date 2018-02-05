@@ -160,6 +160,16 @@ impl Address {
     }
 }
 
+#[cfg(all(feature = "std", feature = "proto-ipv4", feature = "proto-ipv6"))]
+impl From<::std::net::IpAddr> for Address {
+    fn from(x: ::std::net::IpAddr) -> Address {
+        match x {
+            ::std::net::IpAddr::V4(ipv4) => Address::Ipv4(ipv4.into()),
+            ::std::net::IpAddr::V6(ipv6) => Address::Ipv6(ipv6.into()),
+        }
+    }
+}
+
 impl Default for Address {
     fn default() -> Address {
         Address::Unspecified
@@ -322,6 +332,16 @@ impl Endpoint {
     /// Query whether the endpoint has a specified address and port.
     pub fn is_specified(&self) -> bool {
         !self.addr.is_unspecified() && self.port != 0
+    }
+}
+
+#[cfg(all(feature = "std", feature = "proto-ipv4", feature = "proto-ipv6"))]
+impl From<::std::net::SocketAddr> for Endpoint {
+    fn from(x: ::std::net::SocketAddr) -> Endpoint {
+        Endpoint {
+            addr: x.ip().into(),
+            port: x.port(),
+        }
     }
 }
 
