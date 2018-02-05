@@ -85,6 +85,20 @@ impl Address {
     }
 }
 
+#[cfg(feature = "std")]
+impl From<::std::net::Ipv4Addr> for Address {
+    fn from(x: ::std::net::Ipv4Addr) -> Address {
+        Address(x.octets())
+    }
+}
+
+#[cfg(feature = "std")]
+impl From<Address> for ::std::net::Ipv4Addr {
+    fn from(Address(x): Address) -> ::std::net::Ipv4Addr {
+        x.into()
+    }
+}
+
 impl fmt::Display for Address {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let bytes = self.0;
