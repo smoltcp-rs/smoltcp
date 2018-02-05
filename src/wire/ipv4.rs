@@ -876,20 +876,20 @@ mod test {
     }
     
     #[test]
-    fn test_cidr_with_netmask() {
-        assert_eq!(Cidr::with_netmask(Address([0, 0, 0, 0]), Address([1, 0, 2, 0])).is_err(),
+    fn test_cidr_for_netmask() {
+        assert_eq!(Cidr::for_netmask(Address([0, 0, 0, 0]), Address([1, 0, 2, 0])).is_err(),
                    true);
-        assert_eq!(Cidr::with_netmask(Address([0, 0, 0, 0]), Address([0, 0, 0, 0])).is_err(),
+        assert_eq!(Cidr::for_netmask(Address([0, 0, 0, 0]), Address([0, 0, 0, 0])).is_err(),
                    true);
-        assert_eq!(Cidr::with_netmask(Address([0, 0, 0, 1]), Address([255, 255, 255, 0])).unwrap(),
+        assert_eq!(Cidr::for_netmask(Address([0, 0, 0, 1]), Address([255, 255, 255, 0])).unwrap(),
                    Cidr::new(Address([0, 0, 0, 1]), 24));
-        assert_eq!(Cidr::with_netmask(Address([192, 168, 0, 1]), Address([255, 255, 0, 0])).unwrap(),
+        assert_eq!(Cidr::for_netmask(Address([192, 168, 0, 1]), Address([255, 255, 0, 0])).unwrap(),
                    Cidr::new(Address([192, 168, 0, 1]), 16));
-        assert_eq!(Cidr::with_netmask(Address([172, 16, 0, 1]), Address([255, 240, 0, 0])).unwrap(),
+        assert_eq!(Cidr::for_netmask(Address([172, 16, 0, 1]), Address([255, 240, 0, 0])).unwrap(),
                    Cidr::new(Address([172, 16, 0, 1]), 12));
-        assert_eq!(Cidr::with_netmask(Address([255, 255, 255, 1]), Address([255, 255, 255, 0])).unwrap(),
+        assert_eq!(Cidr::for_netmask(Address([255, 255, 255, 1]), Address([255, 255, 255, 0])).unwrap(),
                    Cidr::new(Address([255, 255, 255, 1]), 24));
-        assert_eq!(Cidr::with_netmask(Address([255, 255, 255, 255]), Address([255, 255, 255, 255])).unwrap(),
+        assert_eq!(Cidr::for_netmask(Address([255, 255, 255, 255]), Address([255, 255, 255, 255])).unwrap(),
                    Cidr::new(Address([255, 255, 255, 255]), 32));
     }
     
