@@ -111,16 +111,10 @@ impl Cidr {
     }
 
     /// Create an IPv4 CIDR block from the given address and network mask.
-    pub fn with_netmask(addr: Address, netmask: Address) -> Result<Cidr> {
-
-        let n = NetworkEndian::read_u32(&netmask.0[..]);
-
-        if n.leading_zeros() == 0 {
-            if n.trailing_zeros() == n.count_zeros() {
-                Ok(Cidr { address: addr, prefix_len: n.count_ones() as u8 })
-            } else {
-                Err(Error::Illegal)
-            }
+    pub fn from_netmask(addr: Address, netmask: Address) -> Result<Cidr> {
+        let netmask = NetworkEndian::read_u32(&netmask.0[..]);
+        if netmask.leading_zeros() == 0 && netmask.trailing_zeros() == netmask.count_zeros() {
+            Ok(Cidr { address: addr, prefix_len: netmask.count_ones() as u8 })
         } else {
             Err(Error::Illegal)
         }
