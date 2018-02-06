@@ -20,24 +20,26 @@ use smoltcp::phy::Loopback;
 use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr};
 use smoltcp::iface::{NeighborCache, EthernetInterfaceBuilder};
 use smoltcp::socket::{SocketSet, TcpSocket, TcpSocketBuffer};
+use smoltcp::time::{Duration, Instant};
 
 #[cfg(not(feature = "std"))]
 mod mock {
+    use smoltcp::time::{Duration, Instant};
     use core::cell::Cell;
 
     #[derive(Debug)]
-    pub struct Clock(Cell<u64>);
+    pub struct Clock(Cell<Instant>);
 
     impl Clock {
         pub fn new() -> Clock {
-            Clock(Cell::new(0))
+            Clock(Cell::new(Instant::from_millis(0)))
         }
 
-        pub fn advance(&self, millis: u64) {
-            self.0.set(self.0.get() + millis)
+        pub fn advance(&self, duration: Duration) {
+            self.0.set(self.0.get() + duration)
         }
 
-        pub fn elapsed(&self) -> u64 {
+        pub fn elapsed(&self) -> Instant {
             self.0.get()
         }
     }
@@ -47,6 +49,7 @@ mod mock {
 mod mock {
     use std::sync::Arc;
     use std::sync::atomic::{Ordering, AtomicUsize};
+	use smoltcp::time::{Duration, Instant};
 
     // should be AtomicU64 but that's unstable
     #[derive(Debug, Clone)]
@@ -57,12 +60,12 @@ mod mock {
             Clock(Arc::new(AtomicUsize::new(0)))
         }
 
-        pub fn advance(&self, millis: u64) {
-            self.0.fetch_add(millis as usize, Ordering::SeqCst);
+        pub fn advance(&self, duration: Duration) {
+            self.0.fetch_add(duration.total_millis() as usize, Ordering::SeqCst);
         }
 
-        pub fn elapsed(&self) -> u64 {
-            self.0.load(Ordering::SeqCst) as u64
+        pub fn elapsed(&self) -> Instant {
+            Instant::from_millis(self.0.load(Ordering::SeqCst) as i64)
         }
     }
 }
@@ -123,7 +126,7 @@ fn main() {
     let mut did_listen  = false;
     let mut did_connect = false;
     let mut done = false;
-    while !done && clock.elapsed() < 10_000 {
+    while !done && clock.elapsed() < Instant::from_millis(10_000) {
         iface.poll(&mut socket_set, clock.elapsed()).expect("poll error");
 
         {
@@ -164,13 +167,12 @@ fn main() {
         }
 
         match iface.poll_delay(&socket_set, clock.elapsed()) {
-            Some(0) =>
-                debug!("resuming"),
+            Some(Duration { millis: 0 }) => debug!("resuming"),
             Some(delay) => {
                 debug!("sleeping for {} ms", delay);
                 clock.advance(delay)
-            }
-            None => clock.advance(1)
+            },
+            None => clock.advance(Duration::from_millis(1))
         }
     }
 

@@ -8,12 +8,12 @@ mod utils;
 
 use std::str::{self, FromStr};
 use std::collections::BTreeMap;
-use std::time::Instant;
 use std::os::unix::io::AsRawFd;
 use smoltcp::phy::wait as phy_wait;
 use smoltcp::wire::{EthernetAddress, Ipv4Address, IpAddress, IpCidr};
 use smoltcp::iface::{NeighborCache, EthernetInterfaceBuilder};
 use smoltcp::socket::{SocketSet, TcpSocket, TcpSocketBuffer};
+use smoltcp::time::Instant;
 
 fn main() {
     utils::setup_logging("");
@@ -30,8 +30,6 @@ fn main() {
     let device = utils::parse_middleware_options(&mut matches, device, /*loopback=*/false);
     let address = IpAddress::from_str(&matches.free[0]).expect("invalid address format");
     let port = u16::from_str(&matches.free[1]).expect("invalid port format");
-
-    let startup_time = Instant::now();
 
     let neighbor_cache = NeighborCache::new(BTreeMap::new());
 
@@ -59,7 +57,7 @@ fn main() {
 
     let mut tcp_active = false;
     loop {
-        let timestamp = utils::millis_since(startup_time);
+        let timestamp = Instant::now();
         iface.poll(&mut sockets, timestamp).expect("poll error");
 
         {
