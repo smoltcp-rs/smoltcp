@@ -187,9 +187,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Frame<T> {
         let data = self.buffer.as_mut();
         NetworkEndian::write_u16(&mut data[field::ETHERTYPE], value.into())
     }
-}
 
-impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Frame<&'a mut T> {
     /// Return a mutable pointer to the payload.
     #[inline]
     pub fn payload_mut(&mut self) -> &mut [u8] {
