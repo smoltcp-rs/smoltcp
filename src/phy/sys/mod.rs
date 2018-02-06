@@ -3,6 +3,7 @@
 use libc;
 use std::{mem, ptr, io};
 use std::os::unix::io::RawFd;
+use time::Duration;
 
 #[cfg(target_os = "linux")]
 #[path = "linux.rs"]
@@ -19,7 +20,7 @@ pub use self::raw_socket::RawSocketDesc;
 pub use self::tap_interface::TapInterfaceDesc;
 
 /// Wait until given file descriptor becomes readable, but no longer than given timeout.
-pub fn wait(fd: RawFd, millis: Option<u64>) -> io::Result<()> {
+pub fn wait(fd: RawFd, duration: Option<Duration>) -> io::Result<()> {
     unsafe {
         let mut readfds = mem::uninitialized::<libc::fd_set>();
         libc::FD_ZERO(&mut readfds);
@@ -33,8 +34,8 @@ pub fn wait(fd: RawFd, millis: Option<u64>) -> io::Result<()> {
 
         let mut timeout = libc::timeval { tv_sec: 0, tv_usec: 0 };
         let timeout_ptr =
-            if let Some(millis) = millis {
-                timeout.tv_usec = (millis * 1_000) as libc::suseconds_t;
+            if let Some(duration) = duration {
+                timeout.tv_usec = (duration.total_millis() * 1_000) as libc::suseconds_t;
                 &mut timeout as *mut _
             } else {
                 ptr::null_mut()

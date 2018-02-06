@@ -5,6 +5,7 @@ use core::cmp;
 use managed::ManagedSlice;
 
 use {Error, Result};
+use time::{Duration, Instant};
 use phy::{Device, DeviceCapabilities, RxToken, TxToken};
 use wire::pretty_print::PrettyPrinter;
 use wire::{EthernetAddress, EthernetProtocol, EthernetFrame};
@@ -300,9 +301,6 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
     /// Transmit packets queued in the given sockets, and receive packets queued
     /// in the device.
     ///
-    /// The timestamp must be a number of milliseconds, monotonically increasing
-    /// since an arbitrary moment in time, such as system startup.
-    ///
     /// This function returns a boolean value indicating whether any packets were
     /// processed or emitted, and thus, whether the readiness of any socket might
     /// have changed.
@@ -317,7 +315,7 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
     /// packets containing any unsupported protocol, option, or form, which is
     /// a very common occurrence and on a production system it should not even
     /// be logged.
-    pub fn poll(&mut self, sockets: &mut SocketSet, timestamp: u64) -> Result<bool> {
+    pub fn poll(&mut self, sockets: &mut SocketSet, timestamp: Instant) -> Result<bool> {
         let mut readiness_may_have_changed = false;
         loop {
             let processed_any = self.socket_ingress(sockets, timestamp)?;
@@ -332,38 +330,42 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
     }
 
     /// Return a _soft deadline_ for calling [poll] the next time.
-    /// That is, if `iface.poll_at(&sockets, 1000)` returns `Ok(Some(2000))`,
-    /// you should call call [poll] in 1000 ms; it is harmless (but wastes energy)
-    /// to call it 500 ms later, and potentially harmful (impacting quality of service)
-    /// to call it 1500 ms later.
-    ///
-    /// The timestamp argument is the same as for [poll].
+    /// The [Instant] returned is the time at which you should call [poll] next.
+    /// It is harmless (but wastes energy) to call it before the [Instant], and
+    /// potentially harmful (impacting quality of service) to call it after the
+    /// [Instant]
     ///
     /// [poll]: #method.poll
-    pub fn poll_at(&self, sockets: &SocketSet, timestamp: u64) -> Option<u64> {
+    /// [Instant]: struct.Instant.html
+    pub fn poll_at(&self, sockets: &SocketSet, timestamp: Instant) -> Option<Instant> {
         sockets.iter().filter_map(|socket| {
             let socket_poll_at = socket.poll_at();
             socket.meta().poll_at(socket_poll_at, |ip_addr|
-                self.inner.has_neighbor(&ip_addr, timestamp))
-        }).min()
+                self.inner.has_neighbor(&ip_addr, timestamp.total_millis() as u64))
+        }).min().map(|x| Instant::from_millis(x as i64))
     }
 
     /// Return an _advisory wait time_ for calling [poll] the next time.
-    /// That is, if `iface.poll_at(&sockets, 1000)` returns `Ok(Some(1000))`,
-    /// you should call call [poll] in 1000 ms; it is harmless (but wastes energy)
-    /// to call it 500 ms later, and potentially harmful (impacting quality of service)
-    /// to call it 1500 ms later.
-    ///
-    /// This is a shortcut for `poll_at(..., timestamp).map(|at| at.saturating_sub(timestamp))`.
-    ///
-    /// The timestamp argument is the same as for [poll].
+    /// The [Duration] returned is the time left to wait before calling [poll] next.
+    /// It is harmless (but wastes energy) to call it before the [Duration] has passed,
+    /// and potentially harmful (impacting quality of service) to call it after the
+    /// [Duration] has passed.
     ///
     /// [poll]: #method.poll
-    pub fn poll_delay(&self, sockets: &SocketSet, timestamp: u64) -> Option<u64> {
-        self.poll_at(sockets, timestamp).map(|at| at.saturating_sub(timestamp))
+    /// [Duration]: struct.Duration.html
+    pub fn poll_delay(&self, sockets: &SocketSet, timestamp: Instant) -> Option<Duration> {
+        match self.poll_at(sockets, timestamp) {
+            Some(poll_at) if timestamp < poll_at => {
+                Some(poll_at - timestamp)
+            }
+            Some(_) => {
+                Some(Duration::from_millis(0))
+            }
+            _ => None
+        }
     }
 
-    fn socket_ingress(&mut self, sockets: &mut SocketSet, timestamp: u64) -> Result<bool> {
+    fn socket_ingress(&mut self, sockets: &mut SocketSet, timestamp: Instant) -> Result<bool> {
         let mut processed_any = false;
         loop {
             let &mut Self { ref mut device, ref mut inner } = self;
@@ -371,15 +373,15 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
                 None => break,
                 Some(tokens) => tokens,
             };
-            rx_token.consume(timestamp, |frame| {
-                inner.process_ethernet(sockets, timestamp, &frame).map_err(|err| {
+            rx_token.consume(timestamp.total_millis() as u64, |frame| {
+                inner.process_ethernet(sockets, timestamp.total_millis() as u64, &frame).map_err(|err| {
                     net_debug!("cannot process ingress packet: {}", err);
                     net_debug!("packet dump follows:\n{}",
                                PrettyPrinter::<EthernetFrame<&[u8]>>::new("", &frame));
                     err
                 }).and_then(|response| {
                     processed_any = true;
-                    inner.dispatch(tx_token, timestamp, response).map_err(|err| {
+                    inner.dispatch(tx_token, timestamp.total_millis() as u64, response).map_err(|err| {
                         net_debug!("cannot dispatch response packet: {}", err);
                         err
                     })
@@ -389,14 +391,14 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
         Ok(processed_any)
     }
 
-    fn socket_egress(&mut self, sockets: &mut SocketSet, timestamp: u64) -> Result<bool> {
+    fn socket_egress(&mut self, sockets: &mut SocketSet, timestamp: Instant) -> Result<bool> {
         let mut caps = self.device.capabilities();
         caps.max_transmission_unit -= EthernetFrame::<&[u8]>::header_len();
 
         let mut emitted_any = false;
         for mut socket in sockets.iter_mut() {
             if !socket.meta_mut().egress_permitted(|ip_addr|
-                    self.inner.has_neighbor(&ip_addr, timestamp)) {
+                    self.inner.has_neighbor(&ip_addr, timestamp.total_millis() as u64)) {
                 continue
             }
 
@@ -409,7 +411,7 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
                     let response = $response;
                     neighbor_addr = response.neighbor_addr();
                     let tx_token = device.transmit().ok_or(Error::Exhausted)?;
-                    device_result = inner.dispatch(tx_token, timestamp, response);
+                    device_result = inner.dispatch(tx_token, timestamp.total_millis() as u64, response);
                     device_result
                 })
             }
@@ -436,7 +438,7 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
                             respond!(Packet::Udp(response))),
                     #[cfg(feature = "socket-tcp")]
                     Socket::Tcp(ref mut socket) =>
-                        socket.dispatch(timestamp, &caps, |response|
+                        socket.dispatch(timestamp.total_millis() as u64, &caps, |response|
                             respond!(Packet::Tcp(response))),
                     Socket::__Nonexhaustive(_) => unreachable!()
                 };
@@ -449,7 +451,7 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
                     // requests from the socket. However, without an additional rate limiting
                     // mechanism, we would spin on every socket that has yet to discover its
                     // neighboor.
-                    socket.meta_mut().neighbor_missing(timestamp,
+                    socket.meta_mut().neighbor_missing(timestamp.total_millis() as u64,
                         neighbor_addr.expect("non-IP response packet"));
                     break
                 }
