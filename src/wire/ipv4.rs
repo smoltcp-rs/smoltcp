@@ -524,9 +524,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
         };
         self.set_checksum(checksum)
     }
-}
 
-impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Packet<&'a mut T> {
     /// Return a mutable pointer to the payload.
     #[inline]
     pub fn payload_mut(&mut self) -> &mut [u8] {
