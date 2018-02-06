@@ -180,9 +180,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
         // so no action is necessary on the remote end.
         self.set_checksum(if checksum == 0 { 0xffff } else { checksum })
     }
-}
 
-impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Packet<&'a mut T> {
     /// Return a mutable pointer to the payload.
     #[inline]
     pub fn payload_mut(&mut self) -> &mut [u8] {
