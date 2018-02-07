@@ -855,137 +855,179 @@ pub(crate) mod test {
     #[cfg(feature = "proto-ipv4")]
     use wire::{Ipv4Address, Ipv4Repr};
 
-    #[test]
+    macro_rules! generate_common_tests {
+        ($name:ident, $repr:ident, $ip_repr:path, $ip_addr:path,
+         $addr_from:path, $nxthdr:ident, $bytes_a:expr, $bytes_b:expr,
+         $unspecified:expr) => {
+            mod $name {
+                use super::*;
+
+                #[test]
+                fn test_ip_repr_lower() {
+                    let ip_addr_a = $addr_from(&$bytes_a);
+                    let ip_addr_b = $addr_from(&$bytes_b);
+                    let proto = IpProtocol::Icmp;
+                    let payload_len = 10;
+
+                    assert_eq!(
+                        Repr::Unspecified{
+                            src_addr:  $ip_addr(ip_addr_a),
+                            dst_addr:  $ip_addr(ip_addr_b),
+                            protocol:  proto,
+                            hop_limit: 0x2a,
+                            payload_len,
+                        }.lower(&[]),
+                        Ok($ip_repr($repr{
+                            src_addr:  ip_addr_a,
+                            dst_addr:  ip_addr_b,
+                            $nxthdr:   proto,
+                            hop_limit: 0x2a,
+                            payload_len
+                        }))
+                    );
+
+                    assert_eq!(
+                        Repr::Unspecified{
+                            src_addr:  IpAddress::Unspecified,
+                            dst_addr:  $ip_addr(ip_addr_b),
+                            protocol:  proto,
+                            hop_limit: 64,
+                            payload_len
+                        }.lower(&[]),
+                        Err(Error::Unaddressable)
+                    );
+
+                    assert_eq!(
+                        Repr::Unspecified{
+                            src_addr:  IpAddress::Unspecified,
+                            dst_addr:  $ip_addr(ip_addr_b),
+                            protocol:  proto,
+                            hop_limit: 64,
+                            payload_len
+                        }.lower(&[IpCidr::new($ip_addr(ip_addr_a), 24)]),
+                        Ok($ip_repr($repr{
+                            src_addr:  ip_addr_a,
+                            dst_addr:  ip_addr_b,
+                            $nxthdr:   proto,
+                            hop_limit: 64,
+                            payload_len
+                        }))
+                    );
+
+                    assert_eq!(
+                        Repr::Unspecified{
+                            src_addr:  $ip_addr($unspecified),
+                            dst_addr:  $ip_addr(ip_addr_b),
+                            protocol:  proto,
+                            hop_limit: 64,
+                            payload_len
+                        }.lower(&[IpCidr::new($ip_addr(ip_addr_a), 24)]),
+                        Ok($ip_repr($repr{
+                            src_addr:  ip_addr_a,
+                            dst_addr:  ip_addr_b,
+                            $nxthdr:   proto,
+                            hop_limit: 64,
+                            payload_len
+                        }))
+                    );
+
+                    assert_eq!(
+                        Repr::Unspecified{
+                            src_addr:  $ip_addr($unspecified),
+                            dst_addr:  $ip_addr(ip_addr_b),
+                            protocol:  proto,
+                            hop_limit: 64,
+                            payload_len
+                        }.lower(&[]),
+                        Ok($ip_repr($repr{
+                            src_addr:  $unspecified,
+                            dst_addr:  ip_addr_b,
+                            $nxthdr:   proto,
+                            hop_limit: 64,
+                            payload_len
+                        }))
+                    );
+
+                    assert_eq!(
+                        $ip_repr($repr{
+                            src_addr:  ip_addr_a,
+                            dst_addr:  ip_addr_b,
+                            $nxthdr:   proto,
+                            hop_limit: 255,
+                            payload_len
+                        }).lower(&[]),
+                        Ok($ip_repr($repr{
+                            src_addr:  ip_addr_a,
+                            dst_addr:  ip_addr_b,
+                            $nxthdr:   proto,
+                            hop_limit: 255,
+                            payload_len
+                        }))
+                    );
+
+                    assert_eq!(
+                        $ip_repr($repr{
+                            src_addr:  $unspecified,
+                            dst_addr:  ip_addr_b,
+                            $nxthdr:   proto,
+                            hop_limit: 255,
+                            payload_len
+                        }).lower(&[]),
+                        Err(Error::Unaddressable)
+                    );
+
+                    assert_eq!(
+                        $ip_repr($repr{
+                            src_addr:  $unspecified,
+                            dst_addr:  ip_addr_b,
+                            $nxthdr:   proto,
+                            hop_limit: 64,
+                            payload_len
+                        }).lower(&[IpCidr::new($ip_addr(ip_addr_a), 24)]),
+                        Ok($ip_repr($repr{
+                            src_addr:  ip_addr_a,
+                            dst_addr:  ip_addr_b,
+                            $nxthdr:   proto,
+                            hop_limit: 64,
+                            payload_len
+                        }))
+                    );
+                }
+            }
+        };
+        (ipv4 $addr_bytes_a:expr, $addr_bytes_b:expr) => {
+            generate_common_tests!(ipv4, Ipv4Repr, Repr::Ipv4, IpAddress::Ipv4,
+                                   Ipv4Address::from_bytes, protocol, $addr_bytes_a,
+                                   $addr_bytes_b, Ipv4Address::UNSPECIFIED);
+        };
+        (ipv6 $addr_bytes_a:expr, $addr_bytes_b:expr) => {
+            generate_common_tests!(ipv6, Ipv6Repr, Repr::Ipv6, IpAddress::Ipv6,
+                                   Ipv6Address::from_bytes, next_header, $addr_bytes_a,
+                                   $addr_bytes_b, Ipv6Address::UNSPECIFIED);
+        }
+    }
+
     #[cfg(feature = "proto-ipv4")]
-    fn ip_repr_lower() {
-        let ip_addr_a = Ipv4Address::new(1, 2, 3, 4);
-        let ip_addr_b = Ipv4Address::new(5, 6, 7, 8);
-        let proto = IpProtocol::Icmp;
-        let payload_len = 10;
+    generate_common_tests!(ipv4
+                           [1, 2, 3, 4],
+                           [5, 6, 7, 8]);
 
-        assert_eq!(
-            Repr::Unspecified{
-                src_addr:  IpAddress::Ipv4(ip_addr_a),
-                dst_addr:  IpAddress::Ipv4(ip_addr_b),
-                protocol:  proto,
-                hop_limit: 0x2a,
-                payload_len,
-            }.lower(&[]),
-            Ok(Repr::Ipv4(Ipv4Repr{
-                src_addr:  ip_addr_a,
-                dst_addr:  ip_addr_b,
-                protocol:  proto,
-                hop_limit: 0x2a,
-                payload_len
-            }))
-        );
+    #[cfg(feature = "proto-ipv6")]
+    generate_common_tests!(ipv6
+                           [0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+                           [0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]);
 
-        assert_eq!(
-            Repr::Unspecified{
-                src_addr:  IpAddress::Unspecified,
-                dst_addr:  IpAddress::Ipv4(ip_addr_b),
-                protocol:  proto,
-                hop_limit: 64,
-                payload_len
-            }.lower(&[]),
-            Err(Error::Unaddressable)
-        );
-
-        assert_eq!(
-            Repr::Unspecified{
-                src_addr:  IpAddress::Unspecified,
-                dst_addr:  IpAddress::Ipv4(ip_addr_b),
-                protocol:  proto,
-                hop_limit: 64,
-                payload_len
-            }.lower(&[IpCidr::new(IpAddress::Ipv4(ip_addr_a), 24)]),
-            Ok(Repr::Ipv4(Ipv4Repr{
-                src_addr:  ip_addr_a,
-                dst_addr:  ip_addr_b,
-                protocol:  proto,
-                hop_limit: 64,
-                payload_len
-            }))
-        );
-
-        assert_eq!(
-            Repr::Unspecified{
-                src_addr:  IpAddress::Ipv4(Ipv4Address::UNSPECIFIED),
-                dst_addr:  IpAddress::Ipv4(ip_addr_b),
-                protocol:  proto,
-                hop_limit: 64,
-                payload_len
-            }.lower(&[IpCidr::new(IpAddress::Ipv4(ip_addr_a), 24)]),
-            Ok(Repr::Ipv4(Ipv4Repr{
-                src_addr:  ip_addr_a,
-                dst_addr:  ip_addr_b,
-                protocol:  proto,
-                hop_limit: 64,
-                payload_len
-            }))
-        );
-
-        assert_eq!(
-            Repr::Unspecified{
-                src_addr:  IpAddress::Ipv4(Ipv4Address::UNSPECIFIED),
-                dst_addr:  IpAddress::Ipv4(ip_addr_b),
-                protocol:  proto,
-                hop_limit: 64,
-                payload_len
-            }.lower(&[]),
-            Ok(Repr::Ipv4(Ipv4Repr{
-                src_addr:  Ipv4Address::UNSPECIFIED,
-                dst_addr:  ip_addr_b,
-                protocol:  proto,
-                hop_limit: 64,
-                payload_len
-            }))
-        );
-
-        assert_eq!(
-            Repr::Ipv4(Ipv4Repr{
-                src_addr:  ip_addr_a,
-                dst_addr:  ip_addr_b,
-                protocol:  proto,
-                hop_limit: 255,
-                payload_len
-            }).lower(&[]),
-            Ok(Repr::Ipv4(Ipv4Repr{
-                src_addr:  ip_addr_a,
-                dst_addr:  ip_addr_b,
-                protocol:  proto,
-                hop_limit: 255,
-                payload_len
-            }))
-        );
-
-        assert_eq!(
-            Repr::Ipv4(Ipv4Repr{
-                src_addr:  Ipv4Address::UNSPECIFIED,
-                dst_addr:  ip_addr_b,
-                protocol:  proto,
-                hop_limit: 255,
-                payload_len
-            }).lower(&[]),
-            Err(Error::Unaddressable)
-        );
-
-        assert_eq!(
-            Repr::Ipv4(Ipv4Repr{
-                src_addr:  Ipv4Address::UNSPECIFIED,
-                dst_addr:  ip_addr_b,
-                protocol:  proto,
-                hop_limit: 64,
-                payload_len
-            }).lower(&[IpCidr::new(IpAddress::Ipv4(ip_addr_a), 24)]),
-            Ok(Repr::Ipv4(Ipv4Repr{
-                src_addr:  ip_addr_a,
-                dst_addr:  ip_addr_b,
-                protocol:  proto,
-                hop_limit: 64,
-                payload_len
-            }))
-        );
+    #[test]
+    #[cfg(all(feature = "proto-ipv4", feature = "proto-ipv6"))]
+    #[should_panic(expected = "source and destination IP address families do not match")]
+    fn test_lower_between_families() {
+        Repr::Unspecified {
+            src_addr:  Address::Ipv6(Ipv6Address::UNSPECIFIED),
+            dst_addr:  Address::Ipv4(Ipv4Address::UNSPECIFIED),
+            protocol:  IpProtocol::Icmpv6,
+            hop_limit: 0xff,
+            payload_len: 0
+        }.lower(&[]);
     }
 
     #[test]
