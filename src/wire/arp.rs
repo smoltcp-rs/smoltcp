@@ -242,6 +242,12 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     }
 }
 
+impl<T: AsRef<[u8]>> AsRef<[u8]> for Packet<T> {
+    fn as_ref(&self) -> &[u8] {
+        self.buffer.as_ref()
+    }
+}
+
 use super::{EthernetAddress, Ipv4Address};
 
 /// A high-level representation of an Address Resolution Protocol packet.

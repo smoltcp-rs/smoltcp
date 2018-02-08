@@ -196,6 +196,12 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Frame<T> {
     }
 }
 
+impl<T: AsRef<[u8]>> AsRef<[u8]> for Frame<T> {
+    fn as_ref(&self) -> &[u8] {
+        self.buffer.as_ref()
+    }
+}
+
 impl<T: AsRef<[u8]>> fmt::Display for Frame<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "EthernetII src={} dst={} type={}",

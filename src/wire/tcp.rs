@@ -510,6 +510,12 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     }
 }
 
+impl<T: AsRef<[u8]>> AsRef<[u8]> for Packet<T> {
+    fn as_ref(&self) -> &[u8] {
+        self.buffer.as_ref()
+    }
+}
+
 /// A representation of a single TCP option.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum TcpOption<'a> {
