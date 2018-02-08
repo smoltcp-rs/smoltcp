@@ -358,6 +358,12 @@ impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Packet<&'a mut T> {
     }
 }
 
+impl<T: AsRef<[u8]>> AsRef<[u8]> for Packet<T> {
+    fn as_ref(&self) -> &[u8] {
+        self.buffer.as_ref()
+    }
+}
+
 /// A high-level representation of an Internet Control Message Protocol version 4 packet header.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Repr<'a> {
