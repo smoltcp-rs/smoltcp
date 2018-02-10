@@ -16,7 +16,7 @@ use smoltcp::iface::{NeighborCache, EthernetInterfaceBuilder};
 use smoltcp::socket::SocketSet;
 use smoltcp::socket::{UdpSocket, UdpSocketBuffer, UdpPacketBuffer};
 use smoltcp::socket::{TcpSocket, TcpSocketBuffer};
-use smoltcp::time::Instant;
+use smoltcp::time::{Duration, Instant};
 
 fn main() {
     utils::setup_logging("");
@@ -152,8 +152,8 @@ fn main() {
             let mut socket = sockets.get::<TcpSocket>(tcp3_handle);
             if !socket.is_open() {
                 socket.listen(6971).unwrap();
-                socket.set_keep_alive(Some(1000));
-                socket.set_timeout(Some(2000));
+                socket.set_keep_alive(Some(Duration::from_millis(1000)));
+                socket.set_timeout(Some(Duration::from_millis(2000)));
             }
 
             if socket.may_recv() {

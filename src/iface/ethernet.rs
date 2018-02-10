@@ -342,7 +342,7 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
             let socket_poll_at = socket.poll_at();
             socket.meta().poll_at(socket_poll_at, |ip_addr|
                 self.inner.has_neighbor(&ip_addr, timestamp))
-        }).min().map(|x| Instant::from_millis(x as i64))
+        }).min()
     }
 
     /// Return an _advisory wait time_ for calling [poll] the next time.
@@ -438,7 +438,7 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
                             respond!(Packet::Udp(response))),
                     #[cfg(feature = "socket-tcp")]
                     Socket::Tcp(ref mut socket) =>
-                        socket.dispatch(timestamp.total_millis() as u64, &caps, |response|
+                        socket.dispatch(timestamp, &caps, |response|
                             respond!(Packet::Tcp(response))),
                     Socket::__Nonexhaustive(_) => unreachable!()
                 };
@@ -451,7 +451,7 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
                     // requests from the socket. However, without an additional rate limiting
                     // mechanism, we would spin on every socket that has yet to discover its
                     // neighboor.
-                    socket.meta_mut().neighbor_missing(timestamp.total_millis() as u64,
+                    socket.meta_mut().neighbor_missing(timestamp,
                         neighbor_addr.expect("non-IP response packet"));
                     break
                 }
@@ -625,7 +625,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
 
             #[cfg(feature = "socket-tcp")]
             IpProtocol::Tcp =>
-                self.process_tcp(sockets, timestamp.total_millis() as u64, ip_repr, ip_payload),
+                self.process_tcp(sockets, timestamp, ip_repr, ip_payload),
 
             #[cfg(feature = "socket-raw")]
             _ if handled_by_raw_socket =>
@@ -692,7 +692,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
 
             #[cfg(feature = "socket-tcp")]
             IpProtocol::Tcp =>
-                self.process_tcp(sockets, timestamp.total_millis() as u64, ip_repr, ip_payload),
+                self.process_tcp(sockets, timestamp, ip_repr, ip_payload),
 
             #[cfg(feature = "socket-raw")]
             _ if handled_by_raw_socket =>
@@ -887,7 +887,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
     }
 
     #[cfg(feature = "socket-tcp")]
-    fn process_tcp<'frame>(&self, sockets: &mut SocketSet, timestamp: u64,
+    fn process_tcp<'frame>(&self, sockets: &mut SocketSet, timestamp: Instant,
                            ip_repr: IpRepr, ip_payload: &'frame [u8]) ->
                           Result<Packet<'frame>>
     {

@@ -2,9 +2,10 @@ use core::cmp::min;
 use managed::Managed;
 
 use {Error, Result};
-use wire::{IpProtocol, IpRepr, IpEndpoint, UdpRepr};
 use socket::{Socket, SocketMeta, SocketHandle};
 use storage::{Resettable, RingBuffer};
+use time::Instant;
+use wire::{IpProtocol, IpRepr, IpEndpoint, UdpRepr};
 
 /// A buffered UDP packet.
 #[derive(Debug)]
@@ -247,11 +248,11 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
         })
     }
 
-    pub(crate) fn poll_at(&self) -> Option<u64> {
+    pub(crate) fn poll_at(&self) -> Option<Instant> {
         if self.tx_buffer.is_empty() {
             None
         } else {
-            Some(0)
+            Some(Instant::from_millis(0))
         }
     }
 }
