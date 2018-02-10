@@ -1,6 +1,7 @@
 use Result;
 use wire::pretty_print::{PrettyPrint, PrettyPrinter};
 use phy::{self, DeviceCapabilities, Device};
+use time::Instant;
 
 /// A tracer device.
 ///
@@ -9,12 +10,12 @@ use phy::{self, DeviceCapabilities, Device};
 /// device.
 pub struct Tracer<D: for<'a> Device<'a>, P: PrettyPrint> {
     inner:  D,
-    writer: fn(u64, PrettyPrinter<P>),
+    writer: fn(Instant, PrettyPrinter<P>),
 }
 
 impl<D: for<'a> Device<'a>, P: PrettyPrint> Tracer<D, P> {
     /// Create a tracer device.
-    pub fn new(inner: D, writer: fn(timestamp: u64, printer: PrettyPrinter<P>)) -> Tracer<D, P> {
+    pub fn new(inner: D, writer: fn(timestamp: Instant, printer: PrettyPrinter<P>)) -> Tracer<D, P> {
         Tracer { inner, writer }
     }
 
@@ -53,11 +54,11 @@ impl<'a, D, P> Device<'a> for Tracer<D, P>
 #[doc(hidden)]
 pub struct RxToken<Rx: phy::RxToken, P: PrettyPrint> {
     token:     Rx,
-    writer:    fn(u64, PrettyPrinter<P>)
+    writer:    fn(Instant, PrettyPrinter<P>)
 }
 
 impl<Rx: phy::RxToken, P: PrettyPrint> phy::RxToken for RxToken<Rx, P> {
-    fn consume<R, F>(self, timestamp: u64, f: F) -> Result<R>
+    fn consume<R, F>(self, timestamp: Instant, f: F) -> Result<R>
         where F: FnOnce(&[u8]) -> Result<R>
     {
         let Self { token, writer } = self;
@@ -71,11 +72,11 @@ impl<Rx: phy::RxToken, P: PrettyPrint> phy::RxToken for RxToken<Rx, P> {
 #[doc(hidden)]
 pub struct TxToken<Tx: phy::TxToken, P: PrettyPrint> {
     token:     Tx,
-    writer:    fn(u64, PrettyPrinter<P>)
+    writer:    fn(Instant, PrettyPrinter<P>)
 }
 
 impl<Tx: phy::TxToken, P: PrettyPrint> phy::TxToken for TxToken<Tx, P> {
-    fn consume<R, F>(self, timestamp: u64, len: usize, f: F) -> Result<R>
+    fn consume<R, F>(self, timestamp: Instant, len: usize, f: F) -> Result<R>
         where F: FnOnce(&mut [u8]) -> Result<R>
     {
         let Self { token, writer } = self;

@@ -18,7 +18,7 @@ use smoltcp::phy::{Device, EthernetTracer, FaultInjector};
 #[cfg(feature = "phy-tap_interface")]
 use smoltcp::phy::TapInterface;
 use smoltcp::phy::{PcapWriter, PcapSink, PcapMode, PcapLinkType};
-use smoltcp::time::Instant;
+use smoltcp::time::{Duration, Instant};
 
 #[cfg(feature = "log")]
 pub fn setup_logging_with_clock<F>(filter: &str, since_startup: F)
@@ -138,6 +138,6 @@ pub fn parse_middleware_options<D>(matches: &mut Matches, device: D, loopback: b
     device.set_max_packet_size(size_limit);
     device.set_max_tx_rate(tx_rate_limit);
     device.set_max_rx_rate(rx_rate_limit);
-    device.set_bucket_interval(shaping_interval);
+    device.set_bucket_interval(Duration::from_millis(shaping_interval));
     device
 }

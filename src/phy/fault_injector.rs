@@ -2,6 +2,7 @@ use core::cell::RefCell;
 
 use {Error, Result};
 use phy::{self, DeviceCapabilities, Device};
+use time::{Duration, Instant};
 
 // We use our own RNG to stay compatible with #![no_std].
 // The use of the RNG below has a slight bias, but it doesn't matter.
@@ -17,7 +18,7 @@ fn xorshift32(state: &mut u32) -> u32 {
 // This could be fixed once associated consts are stable.
 const MTU: usize = 1536;
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Default, Clone, Copy)]
 struct Config {
     corrupt_pct: u8,
     drop_pct:    u8,
@@ -25,13 +26,13 @@ struct Config {
     max_size:    usize,
     max_tx_rate: u64,
     max_rx_rate: u64,
-    interval:    u64,
+    interval:    Duration,
 }
 
 #[derive(Debug, Clone)]
 struct State {
     rng_seed:    u32,
-    refilled_at: u64,
+    refilled_at: Instant,
     tx_bucket:   u64,
     rx_bucket:   u64,
 }
@@ -49,7 +50,7 @@ impl State {
         buffer[index] ^= bit;
     }
 
-    fn refill(&mut self, config: &Config, timestamp: u64) {
+    fn refill(&mut self, config: &Config, timestamp: Instant) {
         if timestamp - self.refilled_at > config.interval {
             self.tx_bucket = config.max_tx_rate;
             self.rx_bucket = config.max_rx_rate;
@@ -57,7 +58,7 @@ impl State {
         }
     }
 
-    fn maybe_transmit(&mut self, config: &Config, timestamp: u64) -> bool {
+    fn maybe_transmit(&mut self, config: &Config, timestamp: Instant) -> bool {
         if config.max_tx_rate == 0 { return true }
 
         self.refill(config, timestamp);
@@ -69,7 +70,7 @@ impl State {
         }
     }
 
-    fn maybe_receive(&mut self, config: &Config, timestamp: u64) -> bool {
+    fn maybe_receive(&mut self, config: &Config, timestamp: Instant) -> bool {
         if config.max_rx_rate == 0 { return true }
 
         self.refill(config, timestamp);
@@ -99,7 +100,7 @@ impl<D: for<'a> Device<'a>> FaultInjector<D> {
     pub fn new(inner: D, seed: u32) -> FaultInjector<D> {
         let state = State {
             rng_seed:    seed,
-            refilled_at: 0,
+            refilled_at: Instant::from_millis(0),
             tx_bucket:   0,
             rx_bucket:   0,
         };
@@ -141,7 +142,7 @@ impl<D: for<'a> Device<'a>> FaultInjector<D> {
     }
 
     /// Return the interval for packet rate limiting, in milliseconds.
-    pub fn bucket_interval(&self) -> u64 {
+    pub fn bucket_interval(&self) -> Duration {
         self.config.interval
     }
 
@@ -179,8 +180,8 @@ impl<D: for<'a> Device<'a>> FaultInjector<D> {
     }
 
     /// Set the interval for packet rate limiting, in milliseconds.
-    pub fn set_bucket_interval(&mut self, interval: u64) {
-        self.state.borrow_mut().refilled_at = 0;
+    pub fn set_bucket_interval(&mut self, interval: Duration) {
+        self.state.borrow_mut().refilled_at = Instant::from_millis(0);
         self.config.interval = interval
     }
 }
@@ -238,7 +239,7 @@ pub struct RxToken<'a, Rx: phy::RxToken> {
 }
 
 impl<'a, Rx: phy::RxToken> phy::RxToken for RxToken<'a, Rx> {
-    fn consume<R, F>(self, timestamp: u64, f: F) -> Result<R>
+    fn consume<R, F>(self, timestamp: Instant, f: F) -> Result<R>
         where F: FnOnce(&[u8]) -> Result<R>
     {
         if self.state.borrow_mut().maybe(self.config.drop_pct) {
@@ -277,7 +278,7 @@ pub struct TxToken<'a, Tx: phy::TxToken> {
 }
 
 impl<'a, Tx: phy::TxToken> phy::TxToken for TxToken<'a, Tx> {
-    fn consume<R, F>(mut self, timestamp: u64, len: usize, f: F) -> Result<R>
+    fn consume<R, F>(mut self, timestamp: Instant, len: usize, f: F) -> Result<R>
         where F: FnOnce(&mut [u8]) -> Result<R>
     {
         let drop = if self.state.borrow_mut().maybe(self.config.drop_pct) {

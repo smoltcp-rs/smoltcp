@@ -5,8 +5,8 @@ use core::cmp;
 use managed::ManagedSlice;
 
 use {Error, Result};
-use time::{Duration, Instant};
 use phy::{Device, DeviceCapabilities, RxToken, TxToken};
+use time::{Duration, Instant};
 use wire::pretty_print::PrettyPrinter;
 use wire::{EthernetAddress, EthernetProtocol, EthernetFrame};
 use wire::{IpAddress, IpProtocol, IpRepr, IpCidr};
@@ -341,7 +341,7 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
         sockets.iter().filter_map(|socket| {
             let socket_poll_at = socket.poll_at();
             socket.meta().poll_at(socket_poll_at, |ip_addr|
-                self.inner.has_neighbor(&ip_addr, timestamp.total_millis() as u64))
+                self.inner.has_neighbor(&ip_addr, timestamp))
         }).min().map(|x| Instant::from_millis(x as i64))
     }
 
@@ -373,15 +373,15 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
                 None => break,
                 Some(tokens) => tokens,
             };
-            rx_token.consume(timestamp.total_millis() as u64, |frame| {
-                inner.process_ethernet(sockets, timestamp.total_millis() as u64, &frame).map_err(|err| {
+            rx_token.consume(timestamp, |frame| {
+                inner.process_ethernet(sockets, timestamp, &frame).map_err(|err| {
                     net_debug!("cannot process ingress packet: {}", err);
                     net_debug!("packet dump follows:\n{}",
                                PrettyPrinter::<EthernetFrame<&[u8]>>::new("", &frame));
                     err
                 }).and_then(|response| {
                     processed_any = true;
-                    inner.dispatch(tx_token, timestamp.total_millis() as u64, response).map_err(|err| {
+                    inner.dispatch(tx_token, timestamp, response).map_err(|err| {
                         net_debug!("cannot dispatch response packet: {}", err);
                         err
                     })
@@ -398,7 +398,7 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
         let mut emitted_any = false;
         for mut socket in sockets.iter_mut() {
             if !socket.meta_mut().egress_permitted(|ip_addr|
-                    self.inner.has_neighbor(&ip_addr, timestamp.total_millis() as u64)) {
+                    self.inner.has_neighbor(&ip_addr, timestamp)) {
                 continue
             }
 
@@ -411,7 +411,7 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
                     let response = $response;
                     neighbor_addr = response.neighbor_addr();
                     let tx_token = device.transmit().ok_or(Error::Exhausted)?;
-                    device_result = inner.dispatch(tx_token, timestamp.total_millis() as u64, response);
+                    device_result = inner.dispatch(tx_token, timestamp, response);
                     device_result
                 })
             }
@@ -496,7 +496,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
     }
 
     fn process_ethernet<'frame, T: AsRef<[u8]>>
-                       (&mut self, sockets: &mut SocketSet, timestamp: u64, frame: &'frame T) ->
+                       (&mut self, sockets: &mut SocketSet, timestamp: Instant, frame: &'frame T) ->
                        Result<Packet<'frame>>
     {
         let eth_frame = EthernetFrame::new_checked(frame)?;
@@ -524,7 +524,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
 
     #[cfg(feature = "proto-ipv4")]
     fn process_arp<'frame, T: AsRef<[u8]>>
-                  (&mut self, timestamp: u64, eth_frame: &EthernetFrame<&'frame T>) ->
+                  (&mut self, timestamp: Instant, eth_frame: &EthernetFrame<&'frame T>) ->
                   Result<Packet<'frame>>
     {
         let arp_packet = ArpPacket::new_checked(eth_frame.payload())?;
@@ -588,7 +588,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
 
     #[cfg(feature = "proto-ipv6")]
     fn process_ipv6<'frame, T: AsRef<[u8]>>
-                   (&mut self, sockets: &mut SocketSet, timestamp: u64,
+                   (&mut self, sockets: &mut SocketSet, timestamp: Instant,
                     eth_frame: &EthernetFrame<&'frame T>) ->
                    Result<Packet<'frame>>
     {
@@ -625,7 +625,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
 
             #[cfg(feature = "socket-tcp")]
             IpProtocol::Tcp =>
-                self.process_tcp(sockets, timestamp, ip_repr, ip_payload),
+                self.process_tcp(sockets, timestamp.total_millis() as u64, ip_repr, ip_payload),
 
             #[cfg(feature = "socket-raw")]
             _ if handled_by_raw_socket =>
@@ -649,7 +649,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
 
     #[cfg(feature = "proto-ipv4")]
     fn process_ipv4<'frame, T: AsRef<[u8]>>
-                   (&mut self, sockets: &mut SocketSet, timestamp: u64,
+                   (&mut self, sockets: &mut SocketSet, timestamp: Instant,
                     eth_frame: &EthernetFrame<&'frame T>) ->
                    Result<Packet<'frame>>
     {
@@ -692,7 +692,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
 
             #[cfg(feature = "socket-tcp")]
             IpProtocol::Tcp =>
-                self.process_tcp(sockets, timestamp, ip_repr, ip_payload),
+                self.process_tcp(sockets, timestamp.total_millis() as u64, ip_repr, ip_payload),
 
             #[cfg(feature = "socket-raw")]
             _ if handled_by_raw_socket =>
@@ -917,7 +917,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         }
     }
 
-    fn dispatch<Tx>(&mut self, tx_token: Tx, timestamp: u64,
+    fn dispatch<Tx>(&mut self, tx_token: Tx, timestamp: Instant,
                     packet: Packet) -> Result<()>
         where Tx: TxToken
     {
@@ -999,7 +999,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         }
     }
 
-    fn dispatch_ethernet<Tx, F>(&mut self, tx_token: Tx, timestamp: u64,
+    fn dispatch_ethernet<Tx, F>(&mut self, tx_token: Tx, timestamp: Instant,
                                 buffer_len: usize, f: F) -> Result<()>
         where Tx: TxToken, F: FnOnce(EthernetFrame<&mut [u8]>)
     {
@@ -1039,7 +1039,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         }
     }
 
-    fn has_neighbor<'a>(&self, addr: &'a IpAddress, timestamp: u64) -> bool {
+    fn has_neighbor<'a>(&self, addr: &'a IpAddress, timestamp: Instant) -> bool {
         match self.route(addr) {
             Ok(routed_addr) => {
                 self.neighbor_cache
@@ -1050,7 +1050,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         }
     }
 
-    fn lookup_hardware_addr<Tx>(&mut self, tx_token: Tx, timestamp: u64,
+    fn lookup_hardware_addr<Tx>(&mut self, tx_token: Tx, timestamp: Instant,
                                 src_addr: &IpAddress, dst_addr: &IpAddress) ->
                                Result<(EthernetAddress, Tx)>
         where Tx: TxToken
@@ -1092,7 +1092,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         }
     }
 
-    fn dispatch_ip<Tx, F>(&mut self, tx_token: Tx, timestamp: u64,
+    fn dispatch_ip<Tx, F>(&mut self, tx_token: Tx, timestamp: Instant,
                           ip_repr: IpRepr, f: F) -> Result<()>
         where Tx: TxToken, F: FnOnce(IpRepr, &mut [u8])
     {
@@ -1129,6 +1129,7 @@ mod test {
     use super::InterfaceBuilder;
     use iface::{NeighborCache, EthernetInterface};
     use phy::{self, Loopback, ChecksumCapabilities};
+    use time::Instant;
     use socket::SocketSet;
     #[cfg(feature = "proto-ipv4")]
     use wire::{ArpOperation, ArpPacket, ArpRepr};
@@ -1171,7 +1172,7 @@ mod test {
     struct MockTxToken;
 
     impl phy::TxToken for MockTxToken {
-        fn consume<R, F>(self, _: u64, _: usize, _: F) -> Result<R>
+        fn consume<R, F>(self, _: Instant, _: usize, _: F) -> Result<R>
                 where F: FnOnce(&mut [u8]) -> Result<R> {
             Err(Error::__Nonexhaustive)
         }
@@ -1215,7 +1216,7 @@ mod test {
         // Ensure that the unknown protocol frame does not trigger an
         // ICMP error response when the destination address is a
         // broadcast address
-        assert_eq!(iface.inner.process_ipv4(&mut socket_set, 0, &frame),
+        assert_eq!(iface.inner.process_ipv4(&mut socket_set, Instant::from_millis(0), &frame),
                    Ok(Packet::None));
     }
 
@@ -1273,7 +1274,7 @@ mod test {
 
         // Ensure that the unknown protocol triggers an error response.
         // And we correctly handle no payload.
-        assert_eq!(iface.inner.process_ipv4(&mut socket_set, 0, &frame),
+        assert_eq!(iface.inner.process_ipv4(&mut socket_set, Instant::from_millis(0), &frame),
                    Ok(expected_repr));
     }
 
@@ -1507,7 +1508,7 @@ mod test {
         }
 
         // Ensure an ARP Request for us triggers an ARP Reply
-        assert_eq!(iface.inner.process_ethernet(&mut socket_set, 0, frame.into_inner()),
+        assert_eq!(iface.inner.process_ethernet(&mut socket_set, Instant::from_millis(0), frame.into_inner()),
                    Ok(Packet::Arp(ArpRepr::EthernetIpv4 {
                        operation: ArpOperation::Reply,
                        source_hardware_addr: local_hw_addr,
@@ -1517,7 +1518,7 @@ mod test {
                    })));
 
         // Ensure the address of the requestor was entered in the cache
-        assert_eq!(iface.inner.lookup_hardware_addr(MockTxToken, 0,
+        assert_eq!(iface.inner.lookup_hardware_addr(MockTxToken, Instant::from_secs(0),
             &IpAddress::Ipv4(local_ip_addr), &IpAddress::Ipv4(remote_ip_addr)),
             Ok((remote_hw_addr, MockTxToken)));
     }
@@ -1550,11 +1551,11 @@ mod test {
         }
 
         // Ensure an ARP Request for someone else does not trigger an ARP Reply
-        assert_eq!(iface.inner.process_ethernet(&mut socket_set, 0, frame.into_inner()),
+        assert_eq!(iface.inner.process_ethernet(&mut socket_set, Instant::from_millis(0), frame.into_inner()),
                    Ok(Packet::None));
 
         // Ensure the address of the requestor was entered in the cache
-        assert_eq!(iface.inner.lookup_hardware_addr(MockTxToken, 0,
+        assert_eq!(iface.inner.lookup_hardware_addr(MockTxToken, Instant::from_secs(0),
             &IpAddress::Ipv4(Ipv4Address([0x7f, 0x00, 0x00, 0x01])),
             &IpAddress::Ipv4(remote_ip_addr)),
             Ok((remote_hw_addr, MockTxToken)));
@@ -1673,11 +1674,11 @@ mod test {
 
         // Ensure the unknown next header causes a ICMPv6 Parameter Problem
         // error message to be sent to the sender.
-        assert_eq!(iface.inner.process_ipv6(&mut socket_set, 0, &frame),
+        assert_eq!(iface.inner.process_ipv6(&mut socket_set, Instant::from_millis(0), &frame),
                    Ok(Packet::Icmpv6((reply_ipv6_repr, reply_icmp_repr))));
 
         // Ensure the address of the requestor was entered in the cache
-        assert_eq!(iface.inner.lookup_hardware_addr(MockTxToken, 0,
+        assert_eq!(iface.inner.lookup_hardware_addr(MockTxToken, Instant::from_secs(0),
             &IpAddress::Ipv6(Ipv6Address::LOOPBACK),
             &IpAddress::Ipv6(remote_ip_addr)),
             Ok((remote_hw_addr, MockTxToken)));

@@ -6,6 +6,7 @@ use byteorder::{ByteOrder, NativeEndian};
 
 use Result;
 use phy::{self, DeviceCapabilities, Device};
+use time::Instant;
 
 enum_with_unknown! {
     /// Captured packet header type.
@@ -66,12 +67,11 @@ pub trait PcapSink {
     ///
     /// # Panics
     /// This function panics if `length` is greater than 65535.
-    fn packet_header(&self, timestamp: u64, length: usize) {
+    fn packet_header(&self, timestamp: Instant, length: usize) {
         assert!(length <= 65535);
 
-        let (seconds, micros) = (timestamp / 1000, timestamp % 1000 * 1000);
-        self.write_u32(seconds as u32);   // timestamp seconds
-        self.write_u32(micros  as u32);   // timestamp microseconds
+        self.write_u32(timestamp.secs() as u32);   // timestamp seconds
+        self.write_u32(timestamp.millis() as u32);   // timestamp microseconds
         self.write_u32(length  as u32);   // captured length
         self.write_u32(length  as u32);   // original length
     }
@@ -79,7 +79,7 @@ pub trait PcapSink {
     /// Write the libpcap packet header followed by packet data into the sink.
     ///
     /// See also the note for [global_header](#method.global_header).
-    fn packet(&self, timestamp: u64, packet: &[u8]) {
+    fn packet(&self, timestamp: Instant, packet: &[u8]) {
         self.packet_header(timestamp, packet.len());
         self.write(packet)
     }
@@ -97,7 +97,7 @@ impl<T: Write> PcapSink for RefCell<T> {
         self.borrow_mut().write_all(data).expect("cannot write")
     }
 
-    fn packet(&self, timestamp: u64, packet: &[u8]) {
+    fn packet(&self, timestamp: Instant, packet: &[u8]) {
         self.packet_header(timestamp, packet.len());
         PcapSink::write(self, packet);
         self.borrow_mut().flush().expect("cannot flush")
@@ -168,7 +168,7 @@ pub struct RxToken<Rx: phy::RxToken, S: PcapSink> {
 }
 
 impl<Rx: phy::RxToken, S: PcapSink> phy::RxToken for RxToken<Rx, S> {
-    fn consume<R, F: FnOnce(&[u8]) -> Result<R>>(self, timestamp: u64, f: F) -> Result<R> {
+    fn consume<R, F: FnOnce(&[u8]) -> Result<R>>(self, timestamp: Instant, f: F) -> Result<R> {
         let Self { token, sink, mode } = self;
         token.consume(timestamp, |buffer| {
             match mode {
@@ -189,7 +189,7 @@ pub struct TxToken<Tx: phy::TxToken, S: PcapSink> {
 }
 
 impl<Tx: phy::TxToken, S: PcapSink> phy::TxToken for TxToken<Tx, S> {
-    fn consume<R, F>(self, timestamp: u64, len: usize, f: F) -> Result<R>
+    fn consume<R, F>(self, timestamp: Instant, len: usize, f: F) -> Result<R>
         where F: FnOnce(&mut [u8]) -> Result<R>
     {
         let Self { token, sink, mode } = self;
