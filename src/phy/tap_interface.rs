@@ -6,6 +6,7 @@ use std::os::unix::io::{RawFd, AsRawFd};
 
 use Result;
 use phy::{self, sys, DeviceCapabilities, Device};
+use time::Instant;
 
 /// A virtual Ethernet interface.
 #[derive(Debug)]
@@ -78,7 +79,7 @@ pub struct RxToken {
 }
 
 impl phy::RxToken for RxToken {
-    fn consume<R, F>(self, _timestamp: u64, f: F) -> Result<R>
+    fn consume<R, F>(self, _timestamp: Instant, f: F) -> Result<R>
         where F: FnOnce(&[u8]) -> Result<R>
     {
         f(&self.buffer[..])
@@ -91,7 +92,7 @@ pub struct TxToken {
 }
 
 impl phy::TxToken for TxToken {
-    fn consume<R, F>(self, _timestamp: u64, len: usize, f: F) -> Result<R>
+    fn consume<R, F>(self, _timestamp: Instant, len: usize, f: F) -> Result<R>
         where F: FnOnce(&mut [u8]) -> Result<R>
     {
         let mut lower = self.lower.borrow_mut();
