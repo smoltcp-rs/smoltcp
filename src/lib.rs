@@ -49,8 +49,7 @@
 //! The wire layer APIs also provide _tcpdump_-like pretty printing.
 //!
 //! ## The representation layer
-//! The representation layer APIs are provided in the module [wire](wire/index.html); currently,
-//! Ethernet, ARP, generic IP, IPv4, ICMPv4, TCP and UDP packet representations are provided.
+//! The representation layer APIs are provided in the module [wire].
 //!
 //! The representation layer exists to reduce the state space of raw packets. Raw packets
 //! may be nonsensical in a multitude of ways: invalid checksums, impossible combinations of flags,
@@ -58,8 +57,7 @@
 //! as well as any features not supported by _smoltcp_.
 //!
 //! ## The packet layer
-//! The packet layer APIs are also provided in the module [wire](wire/index.html); currently,
-//! Ethernet, ARP, IPv4, ICMPv4, TCP and UDP packet representations are provided.
+//! The packet layer APIs are also provided in the module [wire].
 //!
 //! The packet layer exists to provide a more structured way to work with packets than
 //! treating them as sequences of octets. It makes no judgement as to content of the packets,
@@ -67,6 +65,19 @@
 //! feature ever defined, to ensure that, when the representation layer is unable to make sense
 //! of a packet, it is still logged correctly and in full.
 //!
+//! ## Packet and representation layer support
+//!  | Protocol | Packet | Representation |
+//!  |----------|--------|----------------|
+//!  | Ethernet | Yes    | No             |
+//!  | ARP      | Yes    | Yes            |
+//!  | IPv4     | Yes    | Yes            |
+//!  | ICMPv4   | Yes    | Yes            |
+//!  | IPv6     | Yes    | Yes            |
+//!  | ICMPv6   | Yes    | Yes            |
+//!  | TCP      | Yes    | Yes            |
+//!  | UDP      | Yes    | Yes            |
+//!
+//! [wire]: wire/index.html
 //! [osi]: https://en.wikipedia.org/wiki/OSI_model
 //! [berk]: https://en.wikipedia.org/wiki/Berkeley_sockets
 
