@@ -154,6 +154,9 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Ipv6Option<T> {
 
 impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Ipv6Option<&'a mut T> {
     /// Return a mutable pointer to the option data.
+    ///
+    /// # Panics
+    /// This function panics if this is an 1-byte padding option.
     #[inline]
     pub fn data_mut(&mut self) -> &mut [u8] {
         let len = self.data_len();
