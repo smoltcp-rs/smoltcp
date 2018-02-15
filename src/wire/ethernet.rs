@@ -241,6 +241,37 @@ impl<T: AsRef<[u8]>> PrettyPrint for Frame<T> {
     }
 }
 
+/// A high-level representation of an Internet Protocol version 4 packet header.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct Repr {
+    pub src_addr:    Address,
+    pub dst_addr:    Address,
+    pub ethertype:   EtherType,
+}
+
+impl Repr {
+    /// Parse an Ethernet II frame and return a high-level representation.
+    pub fn parse<T: AsRef<[u8]> + ?Sized>(frame: &Frame<&T>) -> Result<Repr> {
+        frame.check_len()?;
+        Ok(Repr {
+            src_addr: frame.src_addr(),
+            dst_addr: frame.dst_addr(),
+            ethertype: frame.ethertype(),
+        })
+    }
+
+    /// Return the length of a header that will be emitted from this high-level representation.
+    pub fn buffer_len(&self) -> usize {
+        field::PAYLOAD.start
+    }
+
+    /// Emit a high-level representation into an Ethernet II frame.
+    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(&self, frame: &mut Frame<T>) {
+        frame.set_src_addr(self.src_addr);
+        frame.set_dst_addr(self.dst_addr);
+        frame.set_ethertype(self.ethertype);
+    }
+}
 
 #[cfg(test)]
 mod test {
