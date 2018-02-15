@@ -93,6 +93,17 @@ impl<'a, T: PrettyPrint> PrettyPrinter<'a, T> {
     }
 }
 
+impl<'a, T: PrettyPrint + AsRef<[u8]>> PrettyPrinter<'a, T> {
+    /// Create a `PrettyPrinter` which prints the given object.
+    pub fn print(printable: &'a T) -> PrettyPrinter<'a, T> {
+        PrettyPrinter {
+            prefix: "",
+            buffer: printable,
+            phantom: PhantomData,
+        }
+    }
+}
+
 impl<'a, T: PrettyPrint> fmt::Display for PrettyPrinter<'a, T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         T::pretty_print(&self.buffer, f, &mut PrettyIndent::new(self.prefix))
