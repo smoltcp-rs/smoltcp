@@ -77,7 +77,7 @@ impl fmt::Display for Address {
 }
 
 /// A read/write wrapper around an Ethernet II frame buffer.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Frame<T: AsRef<[u8]>> {
     buffer: T
 }
