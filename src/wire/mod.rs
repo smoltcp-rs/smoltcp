@@ -98,7 +98,8 @@ pub use self::pretty_print::PrettyPrinter;
 
 pub use self::ethernet::{EtherType as EthernetProtocol,
                          Address as EthernetAddress,
-                         Frame as EthernetFrame};
+                         Frame as EthernetFrame,
+                         Repr as EthernetRepr};
 
 #[cfg(feature = "proto-ipv4")]
 pub use self::arp::{Hardware as ArpHardware,
