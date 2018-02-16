@@ -19,6 +19,7 @@ Ethernet controller could look as follows:
 ```rust
 use smoltcp::Result;
 use smoltcp::phy::{self, DeviceCapabilities, Device};
+use smoltcp::time::Instant;
 
 struct StmPhy {
     rx_buffer: [u8; 1536],
@@ -58,7 +59,7 @@ impl<'a> phy::Device<'a> for StmPhy {
 struct StmPhyRxToken<'a>(&'a [u8]);
 
 impl<'a> phy::RxToken for StmPhyRxToken<'a> {
-    fn consume<R, F>(self, _timestamp: u64, f: F) -> Result<R>
+    fn consume<R, F>(self, _timestamp: Instant, f: F) -> Result<R>
         where F: FnOnce(&[u8]) -> Result<R>
     {
         // TODO: receive packet into buffer
@@ -71,7 +72,7 @@ impl<'a> phy::RxToken for StmPhyRxToken<'a> {
 struct StmPhyTxToken<'a>(&'a mut [u8]);
 
 impl<'a> phy::TxToken for StmPhyTxToken<'a> {
-    fn consume<R, F>(self, _timestamp: u64, len: usize, f: F) -> Result<R>
+    fn consume<R, F>(self, _timestamp: Instant, len: usize, f: F) -> Result<R>
         where F: FnOnce(&mut [u8]) -> Result<R>
     {
         let result = f(&mut self.0[..len]);
@@ -84,6 +85,7 @@ impl<'a> phy::TxToken for StmPhyTxToken<'a> {
 */
 
 use Result;
+use time::Instant;
 
 #[cfg(any(feature = "phy-raw_socket", feature = "phy-tap_interface"))]
 mod sys;
@@ -245,7 +247,7 @@ pub trait RxToken {
     ///
     /// The timestamp must be a number of milliseconds, monotonically increasing since an
     /// arbitrary moment in time, such as system startup.
-    fn consume<R, F>(self, timestamp: u64, f: F) -> Result<R>
+    fn consume<R, F>(self, timestamp: Instant, f: F) -> Result<R>
         where F: FnOnce(&[u8]) -> Result<R>;
 }
 
@@ -260,6 +262,6 @@ pub trait TxToken {
     ///
     /// The timestamp must be a number of milliseconds, monotonically increasing since an
     /// arbitrary moment in time, such as system startup.
-    fn consume<R, F>(self, timestamp: u64, len: usize, f: F) -> Result<R>
+    fn consume<R, F>(self, timestamp: Instant, len: usize, f: F) -> Result<R>
         where F: FnOnce(&mut [u8]) -> Result<R>;
 }

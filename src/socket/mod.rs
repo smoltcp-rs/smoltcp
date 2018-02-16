@@ -12,6 +12,7 @@ size for a buffer, allocate it, and let the networking stack use it.
 */
 
 use core::marker::PhantomData;
+use time::Instant;
 
 mod meta;
 #[cfg(feature = "socket-raw")]
@@ -115,7 +116,7 @@ impl<'a, 'b> Socket<'a, 'b> {
         dispatch_socket!(mut self, |socket| &mut socket.meta)
     }
 
-    pub(crate) fn poll_at(&self) -> Option<u64> {
+    pub(crate) fn poll_at(&self) -> Option<Instant> {
         dispatch_socket!(self, |socket| socket.poll_at())
     }
 }

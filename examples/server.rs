@@ -9,7 +9,6 @@ mod utils;
 use std::str;
 use std::collections::BTreeMap;
 use std::fmt::Write;
-use std::time::Instant;
 use std::os::unix::io::AsRawFd;
 use smoltcp::phy::wait as phy_wait;
 use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr};
@@ -17,6 +16,7 @@ use smoltcp::iface::{NeighborCache, EthernetInterfaceBuilder};
 use smoltcp::socket::SocketSet;
 use smoltcp::socket::{UdpSocket, UdpSocketBuffer, UdpPacketBuffer};
 use smoltcp::socket::{TcpSocket, TcpSocketBuffer};
+use smoltcp::time::{Duration, Instant};
 
 fn main() {
     utils::setup_logging("");
@@ -29,8 +29,6 @@ fn main() {
     let device = utils::parse_tap_options(&mut matches);
     let fd = device.as_raw_fd();
     let device = utils::parse_middleware_options(&mut matches, device, /*loopback=*/false);
-
-    let startup_time = Instant::now();
 
     let neighbor_cache = NeighborCache::new(BTreeMap::new());
 
@@ -71,7 +69,7 @@ fn main() {
 
     let mut tcp_6970_active = false;
     loop {
-        let timestamp = utils::millis_since(startup_time);
+        let timestamp = Instant::now();
         iface.poll(&mut sockets, timestamp).expect("poll error");
 
         // udp:6969: respond "hello"
@@ -154,8 +152,8 @@ fn main() {
             let mut socket = sockets.get::<TcpSocket>(tcp3_handle);
             if !socket.is_open() {
                 socket.listen(6971).unwrap();
-                socket.set_keep_alive(Some(1000));
-                socket.set_timeout(Some(2000));
+                socket.set_keep_alive(Some(Duration::from_millis(1000)));
+                socket.set_timeout(Some(Duration::from_millis(2000)));
             }
 
             if socket.may_recv() {

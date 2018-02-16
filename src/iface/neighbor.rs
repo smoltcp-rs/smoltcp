@@ -4,6 +4,7 @@
 use managed::ManagedMap;
 
 use wire::{EthernetAddress, IpAddress};
+use time::{Duration, Instant};
 
 /// A cached neighbor.
 ///
@@ -12,7 +13,7 @@ use wire::{EthernetAddress, IpAddress};
 #[derive(Debug, Clone, Copy)]
 pub struct Neighbor {
     hardware_addr: EthernetAddress,
-    expires_at:    u64,
+    expires_at:    Instant,
 }
 
 /// An answer to a neighbor cache lookup.
@@ -49,15 +50,15 @@ pub(crate) enum Answer {
 #[derive(Debug)]
 pub struct Cache<'a> {
     storage:      ManagedMap<'a, IpAddress, Neighbor>,
-    silent_until: u64,
+    silent_until: Instant,
 }
 
 impl<'a> Cache<'a> {
     /// Minimum delay between discovery requests, in milliseconds.
-    pub(crate) const SILENT_TIME: u64 = 1_000;
+    pub(crate) const SILENT_TIME: Duration = Duration { millis: 1_000 };
 
     /// Neighbor entry lifetime, in milliseconds.
-    pub(crate) const ENTRY_LIFETIME: u64 = 60_000;
+    pub(crate) const ENTRY_LIFETIME: Duration = Duration { millis: 60_000 };
 
     /// Create a cache. The backing storage is cleared upon creation.
     ///
@@ -68,11 +69,11 @@ impl<'a> Cache<'a> {
         let mut storage = storage.into();
         storage.clear();
 
-        Cache { storage, silent_until: 0 }
+        Cache { storage, silent_until: Instant::from_millis(0) }
     }
 
     pub(crate) fn fill(&mut self, protocol_addr: IpAddress, hardware_addr: EthernetAddress,
-                       timestamp: u64) {
+                       timestamp: Instant) {
         debug_assert!(protocol_addr.is_unicast());
         debug_assert!(hardware_addr.is_unicast());
 
@@ -125,7 +126,7 @@ impl<'a> Cache<'a> {
         }
     }
 
-    pub(crate) fn lookup_pure(&self, protocol_addr: &IpAddress, timestamp: u64) ->
+    pub(crate) fn lookup_pure(&self, protocol_addr: &IpAddress, timestamp: Instant) ->
                              Option<EthernetAddress> {
         if protocol_addr.is_broadcast() {
             return Some(EthernetAddress::BROADCAST)
@@ -143,7 +144,7 @@ impl<'a> Cache<'a> {
         None
     }
 
-    pub(crate) fn lookup(&mut self, protocol_addr: &IpAddress, timestamp: u64) -> Answer {
+    pub(crate) fn lookup(&mut self, protocol_addr: &IpAddress, timestamp: Instant) -> Answer {
         match self.lookup_pure(protocol_addr, timestamp) {
             Some(hardware_addr) =>
                 Answer::Found(hardware_addr),
@@ -172,16 +173,17 @@ mod test {
         let mut cache_storage = [Default::default(); 3];
         let mut cache = Cache::new(&mut cache_storage[..]);
 
-        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_1, 0), None);
-        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_2, 0), None);
+        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_1, Instant::from_millis(0)), None);
+        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_2, Instant::from_millis(0)), None);
 
-        cache.fill(MOCK_IP_ADDR_1, HADDR_A, 0);
-        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_1, 0), Some(HADDR_A));
-        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_2, 0), None);
-        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_1, 2 * Cache::ENTRY_LIFETIME), None);
+        cache.fill(MOCK_IP_ADDR_1, HADDR_A, Instant::from_millis(0));
+        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_1, Instant::from_millis(0)), Some(HADDR_A));
+        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_2, Instant::from_millis(0)), None);
+        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_1, Instant::from_millis(0) + Cache::ENTRY_LIFETIME * 2),
+                   None);
 
-        cache.fill(MOCK_IP_ADDR_1, HADDR_A, 0);
-        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_2, 0), None);
+        cache.fill(MOCK_IP_ADDR_1, HADDR_A, Instant::from_millis(0));
+        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_2, Instant::from_millis(0)), None);
     }
 
     #[test]
@@ -189,9 +191,10 @@ mod test {
         let mut cache_storage = [Default::default(); 3];
         let mut cache = Cache::new(&mut cache_storage[..]);
 
-        cache.fill(MOCK_IP_ADDR_1, HADDR_A, 0);
-        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_1, 0), Some(HADDR_A));
-        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_1, 2 * Cache::ENTRY_LIFETIME), None);
+        cache.fill(MOCK_IP_ADDR_1, HADDR_A, Instant::from_millis(0));
+        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_1, Instant::from_millis(0)), Some(HADDR_A));
+        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_1, Instant::from_millis(0) + Cache::ENTRY_LIFETIME * 2),
+                   None);
     }
 
     #[test]
@@ -199,10 +202,10 @@ mod test {
         let mut cache_storage = [Default::default(); 3];
         let mut cache = Cache::new(&mut cache_storage[..]);
 
-        cache.fill(MOCK_IP_ADDR_1, HADDR_A, 0);
-        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_1, 0), Some(HADDR_A));
-        cache.fill(MOCK_IP_ADDR_1, HADDR_B, 0);
-        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_1, 0), Some(HADDR_B));
+        cache.fill(MOCK_IP_ADDR_1, HADDR_A, Instant::from_millis(0));
+        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_1, Instant::from_millis(0)), Some(HADDR_A));
+        cache.fill(MOCK_IP_ADDR_1, HADDR_B, Instant::from_millis(0));
+        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_1, Instant::from_millis(0)), Some(HADDR_B));
     }
 
     #[test]
@@ -210,15 +213,15 @@ mod test {
         let mut cache_storage = [Default::default(); 3];
         let mut cache = Cache::new(&mut cache_storage[..]);
 
-        cache.fill(MOCK_IP_ADDR_1, HADDR_A, 100);
-        cache.fill(MOCK_IP_ADDR_2, HADDR_B, 50);
-        cache.fill(MOCK_IP_ADDR_3, HADDR_C, 200);
-        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_2, 1000), Some(HADDR_B));
-        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_4, 1000), None);
+        cache.fill(MOCK_IP_ADDR_1, HADDR_A, Instant::from_millis(100));
+        cache.fill(MOCK_IP_ADDR_2, HADDR_B, Instant::from_millis(50));
+        cache.fill(MOCK_IP_ADDR_3, HADDR_C, Instant::from_millis(200));
+        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_2, Instant::from_millis(1000)), Some(HADDR_B));
+        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_4, Instant::from_millis(1000)), None);
 
-        cache.fill(MOCK_IP_ADDR_4, HADDR_D, 300);
-        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_2, 1000), None);
-        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_4, 1000), Some(HADDR_D));
+        cache.fill(MOCK_IP_ADDR_4, HADDR_D, Instant::from_millis(300));
+        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_2, Instant::from_millis(1000)), None);
+        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_4, Instant::from_millis(1000)), Some(HADDR_D));
     }
 
     #[test]
@@ -226,8 +229,8 @@ mod test {
         let mut cache_storage = [Default::default(); 3];
         let mut cache = Cache::new(&mut cache_storage[..]);
 
-        assert_eq!(cache.lookup(&MOCK_IP_ADDR_1, 0), Answer::NotFound);
-        assert_eq!(cache.lookup(&MOCK_IP_ADDR_1, 100), Answer::RateLimited);
-        assert_eq!(cache.lookup(&MOCK_IP_ADDR_1, 2000), Answer::NotFound);
+        assert_eq!(cache.lookup(&MOCK_IP_ADDR_1, Instant::from_millis(0)), Answer::NotFound);
+        assert_eq!(cache.lookup(&MOCK_IP_ADDR_1, Instant::from_millis(100)), Answer::RateLimited);
+        assert_eq!(cache.lookup(&MOCK_IP_ADDR_1, Instant::from_millis(2000)), Answer::NotFound);
     }
 }

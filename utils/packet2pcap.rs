@@ -8,6 +8,7 @@ use std::fs::File;
 use std::env;
 use std::process::exit;
 use smoltcp::phy::{PcapLinkType, PcapSink};
+use smoltcp::time::Instant;
 use getopts::Options;
 
 fn convert(packet_filename: &Path, pcap_filename: &Path, link_type: PcapLinkType)
@@ -18,7 +19,7 @@ fn convert(packet_filename: &Path, pcap_filename: &Path, link_type: PcapLinkType
 
     let pcap = RefCell::new(Vec::new());
     PcapSink::global_header(&pcap, link_type);
-    PcapSink::packet(&pcap, 0, &packet[..]);
+    PcapSink::packet(&pcap, Instant::from_millis(0), &packet[..]);
 
     let mut pcap_file = File::create(pcap_filename)?;
     pcap_file.write_all(&pcap.borrow()[..])?;

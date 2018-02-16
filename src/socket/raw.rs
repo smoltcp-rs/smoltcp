@@ -3,13 +3,14 @@ use managed::Managed;
 
 use {Error, Result};
 use phy::ChecksumCapabilities;
+use socket::{Socket, SocketMeta, SocketHandle};
+use storage::{Resettable, RingBuffer};
+use time::Instant;
 use wire::{IpVersion, IpRepr, IpProtocol};
 #[cfg(feature = "proto-ipv4")]
 use wire::{Ipv4Repr, Ipv4Packet};
 #[cfg(feature = "proto-ipv6")]
 use wire::{Ipv6Repr, Ipv6Packet};
-use socket::{Socket, SocketMeta, SocketHandle};
-use storage::{Resettable, RingBuffer};
 
 /// A buffered raw IP packet.
 #[derive(Debug)]
@@ -242,11 +243,11 @@ impl<'a, 'b> RawSocket<'a, 'b> {
         })
     }
 
-    pub(crate) fn poll_at(&self) -> Option<u64> {
+    pub(crate) fn poll_at(&self) -> Option<Instant> {
         if self.tx_buffer.is_empty() {
             None
         } else {
-            Some(0)
+            Some(Instant::from_millis(0))
         }
     }
 }

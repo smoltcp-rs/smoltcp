@@ -5,7 +5,7 @@ use std::str::{self, FromStr};
 use std::rc::Rc;
 use std::io;
 use std::fs::File;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 use std::env;
 use std::process;
 #[cfg(feature = "log")]
@@ -18,14 +18,15 @@ use smoltcp::phy::{Device, EthernetTracer, FaultInjector};
 #[cfg(feature = "phy-tap_interface")]
 use smoltcp::phy::TapInterface;
 use smoltcp::phy::{PcapWriter, PcapSink, PcapMode, PcapLinkType};
+use smoltcp::time::{Duration, Instant};
 
 #[cfg(feature = "log")]
 pub fn setup_logging_with_clock<F>(filter: &str, since_startup: F)
-        where F: Fn() -> u64 + Send + Sync + 'static {
+        where F: Fn() -> Instant + Send + Sync + 'static {
     LogBuilder::new()
         .format(move |record: &LogRecord| {
             let elapsed = since_startup();
-            let timestamp = format!("[{:6}.{:03}s]", elapsed / 1000, elapsed % 1000);
+            let timestamp = format!("[{}]", elapsed);
             if record.target().starts_with("smoltcp::") {
                 format!("\x1b[0m{} ({}): {}\x1b[0m", timestamp,
                         record.target().replace("smoltcp::", ""), record.args())
@@ -47,10 +48,8 @@ pub fn setup_logging_with_clock<F>(filter: &str, since_startup: F)
 
 #[cfg(feature = "log")]
 pub fn setup_logging(filter: &str) {
-    let startup_at = Instant::now();
     setup_logging_with_clock(filter, move  || {
-        let elapsed = Instant::now().duration_since(startup_at);
-        elapsed.as_secs() * 1000 + (elapsed.subsec_nanos() / 1000000) as u64
+        Instant::now()
     })
 }
 
@@ -139,13 +138,6 @@ pub fn parse_middleware_options<D>(matches: &mut Matches, device: D, loopback: b
     device.set_max_packet_size(size_limit);
     device.set_max_tx_rate(tx_rate_limit);
     device.set_max_rx_rate(rx_rate_limit);
-    device.set_bucket_interval(shaping_interval);
+    device.set_bucket_interval(Duration::from_millis(shaping_interval));
     device
-}
-
-pub fn millis_since(startup_time: Instant) -> u64 {
-    let duration = Instant::now().duration_since(startup_time);
-    let duration_ms = (duration.as_secs() * 1000) +
-        (duration.subsec_nanos() / 1000000) as u64;
-    duration_ms
 }

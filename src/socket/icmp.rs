@@ -5,6 +5,7 @@ use {Error, Result};
 use phy::{ChecksumCapabilities, DeviceCapabilities};
 use socket::{Socket, SocketMeta, SocketHandle};
 use storage::{Resettable, RingBuffer};
+use time::Instant;
 use wire::{IpAddress, IpEndpoint, IpProtocol, IpRepr};
 use wire::{Ipv4Address, Ipv4Repr};
 use wire::{Icmpv4Packet, Icmpv4Repr};
@@ -345,11 +346,11 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
         })
     }
 
-    pub(crate) fn poll_at(&self) -> Option<u64> {
+    pub(crate) fn poll_at(&self) -> Option<Instant> {
         if self.tx_buffer.is_empty() {
             None
         } else {
-            Some(0)
+            Some(Instant::from_millis(0))
         }
     }
 }

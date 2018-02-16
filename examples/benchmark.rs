@@ -11,7 +11,6 @@ mod utils;
 use std::cmp;
 use std::collections::BTreeMap;
 use std::sync::atomic::{Ordering, AtomicBool, ATOMIC_BOOL_INIT};
-use std::time::Instant;
 use std::thread;
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -21,6 +20,7 @@ use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr};
 use smoltcp::iface::{NeighborCache, EthernetInterfaceBuilder};
 use smoltcp::socket::SocketSet;
 use smoltcp::socket::{TcpSocket, TcpSocketBuffer};
+use smoltcp::time::{Duration, Instant};
 
 const AMOUNT: usize = 1_000_000_000;
 
@@ -52,9 +52,7 @@ fn client(kind: Client) {
 
     let end = Instant::now();
 
-    let elapsed = end - start;
-    let elapsed = elapsed.as_secs() as f64
-                + elapsed.subsec_nanos() as f64 * 1e-9;
+    let elapsed = (end - start).total_millis() as f64 / 1000.0;
 
     println!("throughput: {:.3} Gbps", AMOUNT as f64 / elapsed / 0.125e9);
 
@@ -84,8 +82,6 @@ fn main() {
 
     thread::spawn(move || client(mode));
 
-    let startup_time = Instant::now();
-
     let neighbor_cache = NeighborCache::new(BTreeMap::new());
 
     let tcp1_rx_buffer = TcpSocketBuffer::new(vec![0; 65535]);
@@ -107,10 +103,11 @@ fn main() {
     let mut sockets = SocketSet::new(vec![]);
     let tcp1_handle = sockets.add(tcp1_socket);
     let tcp2_handle = sockets.add(tcp2_socket);
+    let default_timeout = Some(Duration::from_millis(1000));
 
     let mut processed = 0;
     while !CLIENT_DONE.load(Ordering::SeqCst) {
-        let timestamp = utils::millis_since(startup_time);
+        let timestamp = Instant::now();
         iface.poll(&mut sockets, timestamp).expect("poll error");
 
         // tcp:1234: emit data
@@ -149,6 +146,14 @@ fn main() {
             }
         }
 
-        phy_wait(fd, iface.poll_delay(&sockets, timestamp).or(Some(1000))).expect("wait error");
+        match iface.poll_at(&sockets, timestamp) {
+            Some(poll_at) if timestamp < poll_at => {
+                phy_wait(fd, Some(poll_at - timestamp)).expect("wait error");
+            },
+            Some(_) => (),
+            None => {
+                phy_wait(fd, default_timeout).expect("wait error");
+            }
+        }
     }
 }

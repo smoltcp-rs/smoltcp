@@ -23,7 +23,7 @@ use core::{ops, fmt};
 ///   point.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Instant {
-    millis: i64,
+    pub millis: i64,
 }
 
 impl Instant {
@@ -32,17 +32,20 @@ impl Instant {
         Instant { millis }
     }
 
-    /// Create a new `Instant` from the current `SystemTime`.
-    #[cfg(feature = "std")]
-    pub fn now() -> Result<Instant, ::std::time::SystemTimeError> {
-        Self::from_system_time(::std::time::SystemTime::now())
+    /// Create a new `Instant` from a number of seconds.
+    pub fn from_secs(secs: i64) -> Instant {
+        Instant { millis: secs * 1000 }
     }
 
-    /// Create a new `Instant` from a `SystemTime`.
+    /// Create a new `Instant` from the current [std::time::SystemTime].
+    ///
+    /// See [std::time::SystemTime::now]
+    ///
+    /// [std::time::SystemTime]: https://doc.rust-lang.org/std/time/struct.SystemTime.html
+    /// [std::time::SystemTime::now]: https://doc.rust-lang.org/std/time/struct.SystemTime.html#method.now
     #[cfg(feature = "std")]
-    pub fn from_system_time(time: ::std::time::SystemTime) -> Result<Instant, ::std::time::SystemTimeError> {
-        let n = ::std::time::UNIX_EPOCH.duration_since(time)?;
-        Ok(Self::from_millis(n.as_secs() as i64 * 1000 + (n.subsec_nanos() / 1_000_000) as i64))
+    pub fn now() -> Instant {
+        Self::from(::std::time::SystemTime::now())
     }
 
     /// The fractional number of milliseconds that have passed
@@ -61,6 +64,23 @@ impl Instant {
     /// the biginning of time.
     pub fn total_millis(&self) -> i64 {
         self.millis
+    }
+}
+
+#[cfg(feature = "std")]
+impl From<::std::time::Instant> for Instant {
+    fn from(other: ::std::time::Instant) -> Instant {
+        let elapsed = other.elapsed();
+        Instant::from_millis((elapsed.as_secs() * 1_000) as i64 + (elapsed.subsec_nanos() / 1_000_000) as i64)
+    }
+}
+
+#[cfg(feature = "std")]
+impl From<::std::time::SystemTime> for Instant {
+    fn from(other: ::std::time::SystemTime) -> Instant {
+        let n = other.duration_since(::std::time::UNIX_EPOCH)
+            .expect("start time must not be before the unix epoch");
+        Self::from_millis(n.as_secs() as i64 * 1000 + (n.subsec_nanos() / 1000000) as i64)
     }
 }
 
@@ -85,6 +105,12 @@ impl ops::Add<Duration> for Instant {
     }
 }
 
+impl ops::AddAssign<Duration> for Instant {
+    fn add_assign(&mut self, rhs: Duration) {
+        self.millis += rhs.total_millis() as i64;
+    }
+}
+
 impl ops::Sub<Duration> for Instant {
     type Output = Instant;
 
@@ -93,16 +119,35 @@ impl ops::Sub<Duration> for Instant {
     }
 }
 
+impl ops::SubAssign<Duration> for Instant {
+    fn sub_assign(&mut self, rhs: Duration) {
+        self.millis -= rhs.total_millis() as i64;
+    }
+}
+
+impl ops::Sub<Instant> for Instant {
+    type Output = Duration;
+
+    fn sub(self, rhs: Instant) -> Duration {
+        Duration::from_millis((self.millis - rhs.millis).abs() as u64)
+    }
+}
+
 /// A relative amount of time.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Duration {
-    millis: u64,
+    pub millis: u64,
 }
 
 impl Duration {
     /// Create a new `Duration` from a number of milliseconds.
     pub fn from_millis(millis: u64) -> Duration {
         Duration { millis }
+    }
+
+    /// Create a new `Instant` from a number of seconds.
+    pub fn from_secs(secs: u64) -> Duration {
+        Duration { millis: secs * 1000 }
     }
 
     /// The fractional number of milliseconds in this `Duration`.
@@ -233,7 +278,7 @@ mod test {
     #[cfg(feature = "std")]
     fn test_instant_conversions() {
         let mut epoc: ::std::time::SystemTime = Instant::from_millis(0).into();
-        assert_eq!(Instant::from_system_time(::std::time::UNIX_EPOCH).unwrap(),
+        assert_eq!(Instant::from(::std::time::UNIX_EPOCH),
                    Instant::from_millis(0));
         assert_eq!(epoc, ::std::time::UNIX_EPOCH);
         epoc = Instant::from_millis(2085955200 * 1000).into();

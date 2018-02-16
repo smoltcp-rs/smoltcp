@@ -6,9 +6,10 @@ use core::{cmp, fmt};
 
 use {Error, Result};
 use phy::DeviceCapabilities;
-use wire::{IpProtocol, IpRepr, IpAddress, IpEndpoint, TcpSeqNumber, TcpRepr, TcpControl};
+use time::{Duration, Instant};
 use socket::{Socket, SocketMeta, SocketHandle};
 use storage::{Assembler, RingBuffer};
+use wire::{IpProtocol, IpRepr, IpAddress, IpEndpoint, TcpSeqNumber, TcpRepr, TcpControl};
 
 /// A TCP socket ring buffer.
 pub type SocketBuffer<'a> = RingBuffer<'a, u8>;
@@ -52,19 +53,19 @@ impl fmt::Display for State {
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Timer {
     Idle {
-        keep_alive_at: Option<u64>,
+        keep_alive_at: Option<Instant>,
     },
     Retransmit {
-        expires_at: u64,
-        delay:      u64
+        expires_at: Instant,
+        delay:      Duration
     },
     Close {
-        expires_at: u64
+        expires_at: Instant
     }
 }
 
-const RETRANSMIT_DELAY: u64 = 100;
-const CLOSE_DELAY:      u64 = 10_000;
+const RETRANSMIT_DELAY: Duration = Duration { millis: 100 };
+const CLOSE_DELAY:      Duration = Duration { millis: 10_000 };
 
 impl Default for Timer {
     fn default() -> Timer {
@@ -73,7 +74,7 @@ impl Default for Timer {
 }
 
 impl Timer {
-    fn should_keep_alive(&self, timestamp: u64) -> bool {
+    fn should_keep_alive(&self, timestamp: Instant) -> bool {
         match *self {
             Timer::Idle { keep_alive_at: Some(keep_alive_at) }
                     if timestamp >= keep_alive_at => {
@@ -83,7 +84,7 @@ impl Timer {
         }
     }
 
-    fn should_retransmit(&self, timestamp: u64) -> Option<u64> {
+    fn should_retransmit(&self, timestamp: Instant) -> Option<Duration> {
         match *self {
             Timer::Retransmit { expires_at, delay }
                     if timestamp >= expires_at => {
@@ -93,7 +94,7 @@ impl Timer {
         }
     }
 
-    fn should_close(&self, timestamp: u64) -> bool {
+    fn should_close(&self, timestamp: Instant) -> bool {
         match *self {
             Timer::Close { expires_at }
                     if timestamp >= expires_at => {
@@ -103,7 +104,7 @@ impl Timer {
         }
     }
 
-    fn poll_at(&self) -> Option<u64> {
+    fn poll_at(&self) -> Option<Instant> {
         match *self {
             Timer::Idle { keep_alive_at } => keep_alive_at,
             Timer::Retransmit { expires_at, .. } => Some(expires_at),
@@ -111,7 +112,7 @@ impl Timer {
         }
     }
 
-    fn set_for_idle(&mut self, timestamp: u64, interval: Option<u64>) {
+    fn set_for_idle(&mut self, timestamp: Instant, interval: Option<Duration>) {
         *self = Timer::Idle {
             keep_alive_at: interval.map(|interval| timestamp + interval)
         }
@@ -121,13 +122,13 @@ impl Timer {
         match *self {
             Timer::Idle { ref mut keep_alive_at }
                     if keep_alive_at.is_none() => {
-                *keep_alive_at = Some(0)
+                *keep_alive_at = Some(Instant::from_millis(0))
             }
             _ => ()
         }
     }
 
-    fn rewind_keep_alive(&mut self, timestamp: u64, interval: Option<u64>) {
+    fn rewind_keep_alive(&mut self, timestamp: Instant, interval: Option<Duration>) {
         match self {
             &mut Timer::Idle { ref mut keep_alive_at } => {
                 *keep_alive_at = interval.map(|interval| timestamp + interval)
@@ -136,7 +137,7 @@ impl Timer {
         }
     }
 
-    fn set_for_retransmit(&mut self, timestamp: u64) {
+    fn set_for_retransmit(&mut self, timestamp: Instant) {
         match *self {
             Timer::Idle { .. } => {
                 *self = Timer::Retransmit {
@@ -156,7 +157,7 @@ impl Timer {
         }
     }
 
-    fn set_for_close(&mut self, timestamp: u64) {
+    fn set_for_close(&mut self, timestamp: Instant) {
         *self = Timer::Close {
             expires_at: timestamp + CLOSE_DELAY
         }
@@ -185,9 +186,9 @@ pub struct TcpSocket<'a> {
     rx_buffer:       SocketBuffer<'a>,
     tx_buffer:       SocketBuffer<'a>,
     /// Interval after which, if no inbound packets are received, the connection is aborted.
-    timeout:         Option<u64>,
+    timeout:         Option<Duration>,
     /// Interval at which keep-alive packets will be sent.
-    keep_alive:      Option<u64>,
+    keep_alive:      Option<Duration>,
     /// The time-to-live (IPv4) or hop limit (IPv6) value used in outgoing packets.
     hop_limit:       Option<u8>,
     /// Address passed to listen(). Listen address is set when listen() is called and
@@ -223,7 +224,7 @@ pub struct TcpSocket<'a> {
     /// The maximum number of data octets that the remote side may receive.
     remote_mss:      usize,
     /// The timestamp of the last packet received.
-    remote_last_ts:  Option<u64>,
+    remote_last_ts:  Option<Instant>,
 }
 
 const DEFAULT_MSS: usize = 536;
@@ -271,7 +272,7 @@ impl<'a> TcpSocket<'a> {
     /// Return the timeout duration.
     ///
     /// See also the [set_timeout](#method.set_timeout) method.
-    pub fn timeout(&self) -> Option<u64> {
+    pub fn timeout(&self) -> Option<Duration> {
         self.timeout
     }
 
@@ -286,14 +287,14 @@ impl<'a> TcpSocket<'a> {
     ///     endpoint exceeds the specified duration between any two packets it sends;
     ///   * After enabling [keep-alive](#method.set_keep_alive), the remote endpoint exceeds
     ///     the specified duration between any two packets it sends.
-    pub fn set_timeout(&mut self, duration: Option<u64>) {
+    pub fn set_timeout(&mut self, duration: Option<Duration>) {
         self.timeout = duration
     }
 
     /// Return the keep-alive interval.
     ///
     /// See also the [set_keep_alive](#method.set_keep_alive) method.
-    pub fn keep_alive(&self) -> Option<u64> {
+    pub fn keep_alive(&self) -> Option<Duration> {
         self.keep_alive
     }
 
@@ -309,7 +310,7 @@ impl<'a> TcpSocket<'a> {
     ///
     /// The keep-alive functionality together with the timeout functionality allows to react
     /// to these error conditions.
-    pub fn set_keep_alive(&mut self, interval: Option<u64>) {
+    pub fn set_keep_alive(&mut self, interval: Option<Duration>) {
         self.keep_alive = interval;
         if self.keep_alive.is_some() {
             // If the connection is idle and we've just set the option, it would not take effect
@@ -817,7 +818,7 @@ impl<'a> TcpSocket<'a> {
         true
     }
 
-    pub(crate) fn process(&mut self, timestamp: u64, ip_repr: &IpRepr, repr: &TcpRepr) ->
+    pub(crate) fn process(&mut self, timestamp: Instant, ip_repr: &IpRepr, repr: &TcpRepr) ->
                          Result<Option<(IpRepr, TcpRepr<'static>)>> {
         debug_assert!(self.accepts(ip_repr, repr));
 
@@ -1199,7 +1200,7 @@ impl<'a> TcpSocket<'a> {
         }
     }
 
-    fn timed_out(&self, timestamp: u64) -> bool {
+    fn timed_out(&self, timestamp: Instant) -> bool {
         match (self.remote_last_ts, self.timeout) {
             (Some(remote_last_ts), Some(timeout)) =>
                 timestamp >= remote_last_ts + timeout,
@@ -1237,7 +1238,7 @@ impl<'a> TcpSocket<'a> {
         self.rx_buffer.window() as u16 > self.remote_last_win
     }
 
-    pub(crate) fn dispatch<F>(&mut self, timestamp: u64, caps: &DeviceCapabilities,
+    pub(crate) fn dispatch<F>(&mut self, timestamp: Instant, caps: &DeviceCapabilities,
                               emit: F) -> Result<()>
             where F: FnOnce((IpRepr, TcpRepr)) -> Result<()> {
         if !self.remote_endpoint.is_specified() { return Err(Error::Exhausted) }
@@ -1460,31 +1461,28 @@ impl<'a> TcpSocket<'a> {
         Ok(())
     }
 
-    pub(crate) fn poll_at(&self) -> Option<u64> {
+    pub(crate) fn poll_at(&self) -> Option<Instant> {
         // The logic here mirrors the beginning of dispatch() closely.
         if !self.remote_endpoint.is_specified() {
             // No one to talk to, nothing to transmit.
             None
         } else if self.remote_last_ts.is_none() {
             // Socket stopped being quiet recently, we need to acquire a timestamp.
-            Some(0)
+            Some(Instant::from_millis(0))
         } else if self.state == State::Closed {
             // Socket was aborted, we have an RST packet to transmit.
-            Some(0)
+            Some(Instant::from_millis(0))
         } else if self.seq_to_transmit() || self.ack_to_transmit() || self.window_to_update() {
             // We have a data or flag packet to transmit.
-            Some(0)
+            Some(Instant::from_millis(0))
         } else {
-            let timeout_poll_at;
-            match (self.remote_last_ts, self.timeout) {
+            let timeout_poll_at = match (self.remote_last_ts, self.timeout) {
                 // If we're transmitting or retransmitting data, we need to poll at the moment
                 // when the timeout would expire.
-                (Some(remote_last_ts), Some(timeout)) =>
-                    timeout_poll_at = Some(remote_last_ts + timeout),
+                (Some(remote_last_ts), Some(timeout)) => Some(remote_last_ts + timeout),
                 // Otherwise we have no timeout.
-                (_, _) =>
-                    timeout_poll_at = None
-            }
+                (_, _) => None
+            };
 
             // We wait for the earliest of our timers to fire.
             [self.timer.poll_at(), timeout_poll_at]
@@ -1564,7 +1562,7 @@ mod test {
     // Helper functions
     // =========================================================================================//
 
-    fn send(socket: &mut TcpSocket, timestamp: u64, repr: &TcpRepr) ->
+    fn send(socket: &mut TcpSocket, timestamp: Instant, repr: &TcpRepr) ->
            Result<Option<TcpRepr<'static>>> {
         let ip_repr = IpRepr::Unspecified {
             src_addr:    MOCK_IP_ADDR_2,
@@ -1586,7 +1584,7 @@ mod test {
         }
     }
 
-    fn recv<F>(socket: &mut TcpSocket, timestamp: u64, mut f: F)
+    fn recv<F>(socket: &mut TcpSocket, timestamp: Instant, mut f: F)
             where F: FnMut(Result<TcpRepr>) {
         let mut caps = DeviceCapabilities::default();
         caps.max_transmission_unit = 1520;
@@ -1615,7 +1613,7 @@ mod test {
         ($socket:ident, time $time:expr, $repr:expr) =>
             (send!($socket, time $time, $repr, Ok(None)));
         ($socket:ident, time $time:expr, $repr:expr, $result:expr) =>
-            (assert_eq!(send(&mut $socket, $time, &$repr), $result));
+            (assert_eq!(send(&mut $socket, Instant::from_millis($time), &$repr), $result));
     }
 
     macro_rules! recv {
@@ -1626,7 +1624,7 @@ mod test {
         ($socket:ident, $result:expr) =>
             (recv!($socket, time 0, $result));
         ($socket:ident, time $time:expr, $result:expr) =>
-            (recv(&mut $socket, $time, |result| {
+            (recv(&mut $socket, Instant::from_millis($time), |result| {
                 // Most of the time we don't care about the PSH flag.
                 let result = result.map(|mut repr| {
                     repr.control = repr.control.quash_psh();
@@ -1635,7 +1633,7 @@ mod test {
                 assert_eq!(result, $result)
             }));
         ($socket:ident, time $time:expr, $result:expr, exact) =>
-            (recv(&mut $socket, $time, |repr| assert_eq!(repr, $result)));
+            (recv(&mut $socket, Instant::from_millis($time), |repr| assert_eq!(repr, $result)));
     }
 
     macro_rules! sanity {
@@ -1750,7 +1748,7 @@ mod test {
         if from_closing {
             s.remote_last_ack = Some(REMOTE_SEQ + 1 + 1);
         }
-        s.timer           = Timer::Close { expires_at: 1_000 + CLOSE_DELAY };
+        s.timer           = Timer::Close { expires_at: Instant::from_secs(1) + CLOSE_DELAY };
         s
     }
 
@@ -2560,7 +2558,7 @@ mod test {
             ack_number: Some(REMOTE_SEQ + 1 + 1),
             ..RECV_TEMPL
         })));
-        assert_eq!(s.timer, Timer::Close { expires_at: 5_000 + CLOSE_DELAY });
+        assert_eq!(s.timer, Timer::Close { expires_at: Instant::from_secs(5) + CLOSE_DELAY });
     }
 
     #[test]
@@ -3349,7 +3347,7 @@ mod test {
     #[test]
     fn test_listen_timeout() {
         let mut s = socket_listen();
-        s.set_timeout(Some(100));
+        s.set_timeout(Some(Duration::from_millis(100)));
         assert_eq!(s.poll_at(), None);
     }
 
@@ -3358,7 +3356,7 @@ mod test {
         let mut s = socket();
         s.local_seq_no = LOCAL_SEQ;
         s.connect(REMOTE_END, LOCAL_END.port).unwrap();
-        s.set_timeout(Some(100));
+        s.set_timeout(Some(Duration::from_millis(100)));
         recv!(s, time 150, Ok(TcpRepr {
             control:    TcpControl::Syn,
             seq_number: LOCAL_SEQ,
@@ -3367,7 +3365,7 @@ mod test {
             ..RECV_TEMPL
         }));
         assert_eq!(s.state, State::SynSent);
-        assert_eq!(s.poll_at(), Some(250));
+        assert_eq!(s.poll_at(), Some(Instant::from_millis(250)));
         recv!(s, time 250, Ok(TcpRepr {
             control:    TcpControl::Rst,
             seq_number: LOCAL_SEQ + 1,
@@ -3380,25 +3378,25 @@ mod test {
     #[test]
     fn test_established_timeout() {
         let mut s = socket_established();
-        s.set_timeout(Some(200));
+        s.set_timeout(Some(Duration::from_millis(200)));
         recv!(s, time 250, Err(Error::Exhausted));
-        assert_eq!(s.poll_at(), Some(450));
+        assert_eq!(s.poll_at(), Some(Instant::from_millis(450)));
         s.send_slice(b"abcdef").unwrap();
-        assert_eq!(s.poll_at(), Some(0));
+        assert_eq!(s.poll_at(), Some(Instant::from_millis(0)));
         recv!(s, time 255, Ok(TcpRepr {
             seq_number: LOCAL_SEQ + 1,
             ack_number: Some(REMOTE_SEQ + 1),
             payload:    &b"abcdef"[..],
             ..RECV_TEMPL
         }));
-        assert_eq!(s.poll_at(), Some(355));
+        assert_eq!(s.poll_at(), Some(Instant::from_millis(355)));
         recv!(s, time 355, Ok(TcpRepr {
             seq_number: LOCAL_SEQ + 1,
             ack_number: Some(REMOTE_SEQ + 1),
             payload:    &b"abcdef"[..],
             ..RECV_TEMPL
         }));
-        assert_eq!(s.poll_at(), Some(455));
+        assert_eq!(s.poll_at(), Some(Instant::from_millis(455)));
         recv!(s, time 500, Ok(TcpRepr {
             control:    TcpControl::Rst,
             seq_number: LOCAL_SEQ + 1 + 6,
@@ -3411,8 +3409,8 @@ mod test {
     #[test]
     fn test_established_keep_alive_timeout() {
         let mut s = socket_established();
-        s.set_keep_alive(Some(50));
-        s.set_timeout(Some(100));
+        s.set_keep_alive(Some(Duration::from_millis(50)));
+        s.set_timeout(Some(Duration::from_millis(100)));
         recv!(s, time 100, Ok(TcpRepr {
             seq_number: LOCAL_SEQ,
             ack_number: Some(REMOTE_SEQ + 1),
@@ -3420,13 +3418,13 @@ mod test {
             ..RECV_TEMPL
         }));
         recv!(s, time 100, Err(Error::Exhausted));
-        assert_eq!(s.poll_at(), Some(150));
+        assert_eq!(s.poll_at(), Some(Instant::from_millis(150)));
         send!(s, time 105, TcpRepr {
             seq_number: REMOTE_SEQ + 1,
             ack_number: Some(LOCAL_SEQ + 1),
             ..SEND_TEMPL
         });
-        assert_eq!(s.poll_at(), Some(155));
+        assert_eq!(s.poll_at(), Some(Instant::from_millis(155)));
         recv!(s, time 155, Ok(TcpRepr {
             seq_number: LOCAL_SEQ,
             ack_number: Some(REMOTE_SEQ + 1),
@@ -3434,7 +3432,7 @@ mod test {
             ..RECV_TEMPL
         }));
         recv!(s, time 155, Err(Error::Exhausted));
-        assert_eq!(s.poll_at(), Some(205));
+        assert_eq!(s.poll_at(), Some(Instant::from_millis(205)));
         recv!(s, time 200, Err(Error::Exhausted));
         recv!(s, time 205, Ok(TcpRepr {
             control:    TcpControl::Rst,
@@ -3449,14 +3447,14 @@ mod test {
     #[test]
     fn test_fin_wait_1_timeout() {
         let mut s = socket_fin_wait_1();
-        s.set_timeout(Some(200));
+        s.set_timeout(Some(Duration::from_millis(200)));
         recv!(s, time 100, Ok(TcpRepr {
             control:    TcpControl::Fin,
             seq_number: LOCAL_SEQ + 1,
             ack_number: Some(REMOTE_SEQ + 1),
             ..RECV_TEMPL
         }));
-        assert_eq!(s.poll_at(), Some(200));
+        assert_eq!(s.poll_at(), Some(Instant::from_millis(200)));
         recv!(s, time 400, Ok(TcpRepr {
             control:    TcpControl::Rst,
             seq_number: LOCAL_SEQ + 1 + 1,
@@ -3469,14 +3467,14 @@ mod test {
     #[test]
     fn test_last_ack_timeout() {
         let mut s = socket_last_ack();
-        s.set_timeout(Some(200));
+        s.set_timeout(Some(Duration::from_millis(200)));
         recv!(s, time 100, Ok(TcpRepr {
             control:    TcpControl::Fin,
             seq_number: LOCAL_SEQ + 1,
             ack_number: Some(REMOTE_SEQ + 1 + 1),
             ..RECV_TEMPL
         }));
-        assert_eq!(s.poll_at(), Some(200));
+        assert_eq!(s.poll_at(), Some(Instant::from_millis(200)));
         recv!(s, time 400, Ok(TcpRepr {
             control:    TcpControl::Rst,
             seq_number: LOCAL_SEQ + 1 + 1,
@@ -3489,10 +3487,10 @@ mod test {
     #[test]
     fn test_closed_timeout() {
         let mut s = socket_established();
-        s.set_timeout(Some(200));
-        s.remote_last_ts = Some(100);
+        s.set_timeout(Some(Duration::from_millis(200)));
+        s.remote_last_ts = Some(Instant::from_millis(100));
         s.abort();
-        assert_eq!(s.poll_at(), Some(0));
+        assert_eq!(s.poll_at(), Some(Instant::from_millis(0)));
         recv!(s, time 100, Ok(TcpRepr {
             control:    TcpControl::Rst,
             seq_number: LOCAL_SEQ + 1,
@@ -3523,10 +3521,10 @@ mod test {
     #[test]
     fn test_sends_keep_alive() {
         let mut s = socket_established();
-        s.set_keep_alive(Some(100));
+        s.set_keep_alive(Some(Duration::from_millis(100)));
 
         // drain the forced keep-alive packet
-        assert_eq!(s.poll_at(), Some(0));
+        assert_eq!(s.poll_at(), Some(Instant::from_millis(0)));
         recv!(s, time 0, Ok(TcpRepr {
             seq_number: LOCAL_SEQ,
             ack_number: Some(REMOTE_SEQ + 1),
@@ -3534,7 +3532,7 @@ mod test {
             ..RECV_TEMPL
         }));
 
-        assert_eq!(s.poll_at(), Some(100));
+        assert_eq!(s.poll_at(), Some(Instant::from_millis(100)));
         recv!(s, time 95, Err(Error::Exhausted));
         recv!(s, time 100, Ok(TcpRepr {
             seq_number: LOCAL_SEQ,
@@ -3543,7 +3541,7 @@ mod test {
             ..RECV_TEMPL
         }));
 
-        assert_eq!(s.poll_at(), Some(200));
+        assert_eq!(s.poll_at(), Some(Instant::from_millis(200)));
         recv!(s, time 195, Err(Error::Exhausted));
         recv!(s, time 200, Ok(TcpRepr {
             seq_number: LOCAL_SEQ,
@@ -3557,7 +3555,7 @@ mod test {
             ack_number: Some(LOCAL_SEQ + 1),
             ..SEND_TEMPL
         });
-        assert_eq!(s.poll_at(), Some(350));
+        assert_eq!(s.poll_at(), Some(Instant::from_millis(350)));
         recv!(s, time 345, Err(Error::Exhausted));
         recv!(s, time 350, Ok(TcpRepr {
             seq_number: LOCAL_SEQ,
@@ -3578,7 +3576,7 @@ mod test {
         caps.max_transmission_unit = 1520;
 
         s.set_hop_limit(Some(0x2a));
-        assert_eq!(s.dispatch(0, &caps, |(ip_repr, _)| {
+        assert_eq!(s.dispatch(Instant::from_millis(0), &caps, |(ip_repr, _)| {
             assert_eq!(ip_repr.hop_limit(), 0x2a);
             Ok(())
         }), Ok(()));
@@ -3760,18 +3758,18 @@ mod test {
     #[test]
     fn test_timer_retransmit() {
         let mut r = Timer::default();
-        assert_eq!(r.should_retransmit(1000), None);
-        r.set_for_retransmit(1000);
-        assert_eq!(r.should_retransmit(1000), None);
-        assert_eq!(r.should_retransmit(1050), None);
-        assert_eq!(r.should_retransmit(1101), Some(101));
-        r.set_for_retransmit(1101);
-        assert_eq!(r.should_retransmit(1101), None);
-        assert_eq!(r.should_retransmit(1150), None);
-        assert_eq!(r.should_retransmit(1200), None);
-        assert_eq!(r.should_retransmit(1301), Some(300));
-        r.set_for_idle(1301, None);
-        assert_eq!(r.should_retransmit(1350), None);
+        assert_eq!(r.should_retransmit(Instant::from_secs(1)), None);
+        r.set_for_retransmit(Instant::from_millis(1000));
+        assert_eq!(r.should_retransmit(Instant::from_millis(1000)), None);
+        assert_eq!(r.should_retransmit(Instant::from_millis(1050)), None);
+        assert_eq!(r.should_retransmit(Instant::from_millis(1101)), Some(Duration::from_millis(101)));
+        r.set_for_retransmit(Instant::from_millis(1101));
+        assert_eq!(r.should_retransmit(Instant::from_millis(1101)), None);
+        assert_eq!(r.should_retransmit(Instant::from_millis(1150)), None);
+        assert_eq!(r.should_retransmit(Instant::from_millis(1200)), None);
+        assert_eq!(r.should_retransmit(Instant::from_millis(1301)), Some(Duration::from_millis(300)));
+        r.set_for_idle(Instant::from_millis(1301), None);
+        assert_eq!(r.should_retransmit(Instant::from_millis(1350)), None);
     }
 
 }
