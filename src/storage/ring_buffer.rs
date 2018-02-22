@@ -72,6 +72,12 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
         self.capacity() - self.len()
     }
 
+    /// Return the largest number of elements that can be added to the buffer
+    /// without wrapping around (i.e. in a single `enqueue_many` call).
+    pub fn contiguous_window(&self) -> usize {
+        cmp::min(self.window(), self.capacity() - self.get_idx(self.length))
+    }
+
     /// Query whether the buffer is empty.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
@@ -80,6 +86,23 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
     /// Query whether the buffer is full.
     pub fn is_full(&self) -> bool {
         self.window() == 0
+    }
+
+    /// Shorthand for `(self.read + idx) % self.capacity()` with an
+    /// additional check to ensure that the capacity is not zero.
+    fn get_idx(&self, idx: usize) -> usize {
+        let len = self.capacity();
+        if len > 0 {
+            (self.read_at + idx) % len
+        } else {
+            0
+        }
+    }
+
+    /// Shorthand for `(self.read + idx) % self.capacity()` with no
+    /// additional checks to ensure the capacity is not zero.
+    fn get_idx_unchecked(&self, idx: usize) -> usize {
+        (self.read_at + idx) % self.capacity()
     }
 }
 
@@ -92,7 +115,7 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
             where F: FnOnce(&'b mut T) -> Result<R> {
         if self.is_full() { return Err(Error::Exhausted) }
 
-        let index = (self.read_at + self.length) % self.capacity();
+        let index = self.get_idx_unchecked(self.length);
         match f(&mut self.storage[index]) {
             Ok(result) => {
                 self.length += 1;
@@ -116,7 +139,7 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
             where F: FnOnce(&'b mut T) -> Result<R> {
         if self.is_empty() { return Err(Error::Exhausted) }
 
-        let next_at = (self.read_at + 1) % self.capacity();
+        let next_at = self.get_idx_unchecked(1);
         match f(&mut self.storage[self.read_at]) {
             Ok(result) => {
                 self.length -= 1;
@@ -147,8 +170,8 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
     /// than the size of the slice passed into it.
     pub fn enqueue_many_with<'b, R, F>(&'b mut self, f: F) -> (usize, R)
             where F: FnOnce(&'b mut [T]) -> (usize, R) {
-        let write_at = (self.read_at + self.length) % self.capacity();
-        let max_size = cmp::min(self.window(), self.capacity() - write_at);
+        let write_at = self.get_idx(self.length);
+        let max_size = self.contiguous_window();
         let (size, result) = f(&mut self.storage[write_at..write_at + max_size]);
         assert!(size <= max_size);
         self.length += size;
@@ -198,7 +221,11 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
         let max_size = cmp::min(self.len(), capacity - self.read_at);
         let (size, result) = f(&mut self.storage[self.read_at..self.read_at + max_size]);
         assert!(size <= max_size);
-        self.read_at = (self.read_at + size) % capacity;
+        self.read_at = if capacity > 0 {
+            (self.read_at + size) % capacity
+        } else {
+            0
+        };
         self.length -= size;
         (size, result)
     }
@@ -242,7 +269,7 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
     /// at the given offset past the last allocated element, and up to the given size.
     // #[must_use]
     pub fn get_unallocated(&mut self, offset: usize, mut size: usize) -> &mut [T] {
-        let start_at = (self.read_at + self.length + offset) % self.capacity();
+        let start_at = self.get_idx(self.length + offset);
         // We can't access past the end of unallocated data.
         if offset > self.window() { return &mut [] }
         // We can't enqueue more than there is free space.
@@ -289,7 +316,7 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
     /// at the given offset past the first allocated element, and up to the given size.
     // #[must_use]
     pub fn get_allocated(&self, offset: usize, mut size: usize) -> &[T] {
-        let start_at = (self.read_at + offset) % self.capacity();
+        let start_at = self.get_idx(offset);
         // We can't read past the end of the allocated data.
         if offset > self.length { return &mut [] }
         // We can't read more than we have allocated.
@@ -328,7 +355,7 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
     pub fn dequeue_allocated(&mut self, count: usize) {
         assert!(count <= self.len());
         self.length -= count;
-        self.read_at = (self.read_at + count) % self.capacity();
+        self.read_at = self.get_idx(count);
     }
 }
 
@@ -679,5 +706,19 @@ mod test {
         assert_eq!(ring.read_allocated(6, &mut data[..]), 3);
         assert_eq!(&data[..], b"mno\x00\x00\x00");
 
+    }
+
+    #[test]
+    fn test_buffer_with_no_capacity() {
+        let mut no_capacity: RingBuffer<u8> = RingBuffer::new(vec![]);
+
+        // Call all functions that calculate the remainder against rx_buffer.capacity()
+        // with a backing storage with a length of 0.
+        assert_eq!(no_capacity.get_unallocated(0, 0), &[]);
+        assert_eq!(no_capacity.get_allocated(0, 0), &[]);
+        no_capacity.dequeue_allocated(0);
+        assert_eq!(no_capacity.enqueue_many(0), &[]);
+        assert_eq!(no_capacity.enqueue_one(), Err(Error::Exhausted));
+        assert_eq!(no_capacity.contiguous_window(), 0);
     }
 }
