@@ -1,10 +1,9 @@
 use core::cmp::min;
-use managed::Managed;
 
 use {Error, Result};
 use phy::ChecksumCapabilities;
 use socket::{Socket, SocketMeta, SocketHandle};
-use storage::{Resettable, RingBuffer};
+use storage::{PacketBuffer, PacketMetadata};
 use time::Instant;
 use wire::{IpVersion, IpRepr, IpProtocol};
 #[cfg(feature = "proto-ipv4")]
@@ -12,49 +11,11 @@ use wire::{Ipv4Repr, Ipv4Packet};
 #[cfg(feature = "proto-ipv6")]
 use wire::{Ipv6Repr, Ipv6Packet};
 
-/// A buffered raw IP packet.
-#[derive(Debug)]
-pub struct PacketBuffer<'a> {
-    size:    usize,
-    payload: Managed<'a, [u8]>,
-}
+/// A UDP packet metadata.
+pub type RawPacketMetadata = PacketMetadata<()>;
 
-impl<'a> PacketBuffer<'a> {
-    /// Create a buffered packet.
-    pub fn new<T>(payload: T) -> PacketBuffer<'a>
-            where T: Into<Managed<'a, [u8]>> {
-        PacketBuffer {
-            size:    0,
-            payload: payload.into(),
-        }
-    }
-
-    fn as_ref<'b>(&'b self) -> &'b [u8] {
-        &self.payload[..self.size]
-    }
-
-    fn as_mut<'b>(&'b mut self) -> &'b mut [u8] {
-        &mut self.payload[..self.size]
-    }
-
-    fn resize<'b>(&'b mut self, size: usize) -> Result<&'b mut Self> {
-        if self.payload.len() >= size {
-            self.size = size;
-            Ok(self)
-        } else {
-            Err(Error::Truncated)
-        }
-    }
-}
-
-impl<'a> Resettable for PacketBuffer<'a> {
-    fn reset(&mut self) {
-        self.size = 0;
-    }
-}
-
-/// A raw IP packet ring buffer.
-pub type SocketBuffer<'a, 'b: 'a> = RingBuffer<'a, PacketBuffer<'b>>;
+/// A UDP packet ring buffer.
+pub type RawSocketBuffer<'a, 'b> = PacketBuffer<'a, 'b, ()>;
 
 /// A raw IP socket.
 ///
@@ -65,16 +26,16 @@ pub struct RawSocket<'a, 'b: 'a> {
     pub(crate) meta: SocketMeta,
     ip_version:  IpVersion,
     ip_protocol: IpProtocol,
-    rx_buffer:   SocketBuffer<'a, 'b>,
-    tx_buffer:   SocketBuffer<'a, 'b>,
+    rx_buffer:   RawSocketBuffer<'a, 'b>,
+    tx_buffer:   RawSocketBuffer<'a, 'b>,
 }
 
 impl<'a, 'b> RawSocket<'a, 'b> {
     /// Create a raw IP socket bound to the given IP version and datagram protocol,
     /// with the given buffers.
     pub fn new(ip_version: IpVersion, ip_protocol: IpProtocol,
-               rx_buffer: SocketBuffer<'a, 'b>,
-               tx_buffer: SocketBuffer<'a, 'b>) -> RawSocket<'a, 'b> {
+               rx_buffer: RawSocketBuffer<'a, 'b>,
+               tx_buffer: RawSocketBuffer<'a, 'b>) -> RawSocket<'a, 'b> {
         RawSocket {
             meta: SocketMeta::default(),
             ip_version,
@@ -116,8 +77,9 @@ impl<'a, 'b> RawSocket<'a, 'b> {
 
     /// Enqueue a packet to send, and return a pointer to its payload.
     ///
-    /// This function returns `Err(Error::Exhausted)` if the size is greater than
-    /// the transmit packet buffer size.
+    /// This function returns `Err(Error::Exhausted)` if the transmit buffer is full,
+    /// and `Err(Error::Truncated)` if there is not enough transmit buffer capacity
+    /// to ever send this packet.
     ///
     /// If the buffer is filled in a way that does not match the socket's
     /// IP version or protocol, the packet will be silently dropped.
@@ -125,10 +87,11 @@ impl<'a, 'b> RawSocket<'a, 'b> {
     /// **Note:** The IP header is parsed and reserialized, and may not match
     /// the header actually transmitted bit for bit.
     pub fn send(&mut self, size: usize) -> Result<&mut [u8]> {
-        let packet_buf = self.tx_buffer.enqueue_one_with(|buf| buf.resize(size))?;
+        let packet_buf = self.tx_buffer.enqueue(size, ())?;
+
         net_trace!("{}:{}:{}: buffer to send {} octets",
                    self.meta.handle, self.ip_version, self.ip_protocol,
-                   packet_buf.size);
+                   packet_buf.len());
         Ok(packet_buf.as_mut())
     }
 
@@ -147,11 +110,12 @@ impl<'a, 'b> RawSocket<'a, 'b> {
     /// **Note:** The IP header is parsed and reserialized, and may not match
     /// the header actually received bit for bit.
     pub fn recv(&mut self) -> Result<&[u8]> {
-        let packet_buf = self.rx_buffer.dequeue_one()?;
+        let ((), packet_buf) = self.rx_buffer.dequeue()?;
+
         net_trace!("{}:{}:{}: receive {} buffered octets",
                    self.meta.handle, self.ip_version, self.ip_protocol,
-                   packet_buf.size);
-        Ok(&packet_buf.as_ref())
+                   packet_buf.len());
+        Ok(packet_buf)
     }
 
     /// Dequeue a packet, and copy the payload into the given slice.
@@ -177,12 +141,13 @@ impl<'a, 'b> RawSocket<'a, 'b> {
 
         let header_len = ip_repr.buffer_len();
         let total_len  = header_len + payload.len();
-        let packet_buf = self.rx_buffer.enqueue_one_with(|buf| buf.resize(total_len))?;
+        let packet_buf = self.rx_buffer.enqueue(total_len, ())?;
         ip_repr.emit(&mut packet_buf.as_mut()[..header_len], &checksum_caps);
         packet_buf.as_mut()[header_len..].copy_from_slice(payload);
+
         net_trace!("{}:{}:{}: receiving {} octets",
                    self.meta.handle, self.ip_version, self.ip_protocol,
-                   packet_buf.size);
+                   packet_buf.len());
         Ok(())
     }
 
@@ -224,7 +189,7 @@ impl<'a, 'b> RawSocket<'a, 'b> {
         let handle      = self.meta.handle;
         let ip_protocol = self.ip_protocol;
         let ip_version  = self.ip_version;
-        self.tx_buffer.dequeue_one_with(|packet_buf| {
+        self.tx_buffer.dequeue_with(|&mut (), packet_buf| {
             match prepare(ip_protocol, packet_buf.as_mut(), &checksum_caps) {
                 Ok((ip_repr, raw_packet)) => {
                     net_trace!("{}:{}:{}: sending {} octets",
@@ -267,23 +232,19 @@ mod test {
     use wire::{Ipv6Address, Ipv6Repr};
     use super::*;
 
-    fn buffer(packets: usize) -> SocketBuffer<'static, 'static> {
-        let mut storage = vec![];
-        for _ in 0..packets {
-            storage.push(PacketBuffer::new(vec![0; 48]))
-        }
-        SocketBuffer::new(storage)
+    fn buffer(packets: usize) -> RawSocketBuffer<'static, 'static> {
+        RawSocketBuffer::new(vec![RawPacketMetadata::empty(); packets], vec![0; 48 * packets])
     }
 
     #[cfg(feature = "proto-ipv4")]
     mod ipv4_locals {
         use super::*;
 
-        pub fn socket(rx_buffer: SocketBuffer<'static, 'static>,
-                  tx_buffer: SocketBuffer<'static, 'static>)
-                -> RawSocket<'static, 'static> {
+        pub fn socket(rx_buffer: RawSocketBuffer<'static, 'static>,
+                      tx_buffer: RawSocketBuffer<'static, 'static>)
+                     -> RawSocket<'static, 'static> {
             RawSocket::new(IpVersion::Ipv4, IpProtocol::Unknown(IP_PROTO),
-                rx_buffer, tx_buffer)
+                           rx_buffer, tx_buffer)
         }
 
         pub const IP_PROTO: u8 = 63;
@@ -311,11 +272,11 @@ mod test {
     mod ipv6_locals {
         use super::*;
 
-        pub fn socket(rx_buffer: SocketBuffer<'static, 'static>,
-                  tx_buffer: SocketBuffer<'static, 'static>)
-                -> RawSocket<'static, 'static> {
+        pub fn socket(rx_buffer: RawSocketBuffer<'static, 'static>,
+                      tx_buffer: RawSocketBuffer<'static, 'static>)
+                     -> RawSocket<'static, 'static> {
             RawSocket::new(IpVersion::Ipv6, IpProtocol::Unknown(IP_PROTO),
-                                 rx_buffer, tx_buffer)
+                           rx_buffer, tx_buffer)
         }
 
         pub const IP_PROTO: u8 = 63;
@@ -430,7 +391,7 @@ mod test {
         let checksum_caps = &ChecksumCapabilities::default();
         #[cfg(feature = "proto-ipv4")]
         {
-            let mut socket = ipv4_locals::socket(buffer(0), buffer(1));
+            let mut socket = ipv4_locals::socket(buffer(0), buffer(2));
 
             let mut wrong_version = ipv4_locals::PACKET_BYTES.clone();
             Ipv4Packet::new(&mut wrong_version).set_version(6);
@@ -448,7 +409,7 @@ mod test {
         }
         #[cfg(feature = "proto-ipv6")]
         {
-            let mut socket = ipv6_locals::socket(buffer(0), buffer(1));
+            let mut socket = ipv6_locals::socket(buffer(0), buffer(2));
 
             let mut wrong_version = ipv6_locals::PACKET_BYTES.clone();
             Ipv6Packet::new(&mut wrong_version[..]).set_version(4);

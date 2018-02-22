@@ -29,8 +29,8 @@ mod ref_;
 pub(crate) use self::meta::Meta as SocketMeta;
 
 #[cfg(feature = "socket-raw")]
-pub use self::raw::{PacketBuffer as RawPacketBuffer,
-                    SocketBuffer as RawSocketBuffer,
+pub use self::raw::{RawPacketMetadata,
+                    RawSocketBuffer,
                     RawSocket};
 
 #[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
