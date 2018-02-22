@@ -1,79 +1,14 @@
 use core::cmp::min;
-use managed::ManagedSlice;
 
 use {Error, Result};
 use socket::{Socket, SocketMeta, SocketHandle};
-use storage::RingBuffer;
+use storage::{PacketBuffer, PacketMetadata};
 use time::Instant;
 use wire::{IpProtocol, IpRepr, IpEndpoint, UdpRepr};
 
-/// Endpoint and size of an UDP packet.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct PacketMetadata {
-    endpoint: IpEndpoint,
-    size: usize,
-    /// Padding packets can be used to avoid wrap-arounds of packets in the payload buffer
-    padding: bool,
-}
+pub type UdpPacketMetadata = PacketMetadata<IpEndpoint>;
 
-/// An UDP packet ring buffer.
-#[derive(Debug)]
-pub struct SocketBuffer<'a, 'b> {
-    metadata_buffer: RingBuffer<'a, PacketMetadata>,
-    payload_buffer: RingBuffer<'b, u8>,
-}
-
-impl<'a, 'b> SocketBuffer<'a, 'b> {
-    /// Create a new socket buffer with the provided metadata and payload storage.
-    ///
-    /// Metadata storage limits the maximum _number_ of UDP packets in the buffer and payload
-    /// storage limits the maximum _cumulated size_ of UDP packets.
-    pub fn new<MS, PS>(metadata_storage: MS, payload_storage: PS) -> SocketBuffer<'a, 'b>
-        where MS: Into<ManagedSlice<'a, PacketMetadata>>, PS: Into<ManagedSlice<'b, u8>>,
-    {
-        SocketBuffer {
-            metadata_buffer: RingBuffer::new(metadata_storage),
-            payload_buffer: RingBuffer::new(payload_storage),
-        }
-    }
-
-    fn is_full(&self) -> bool {
-        self.metadata_buffer.is_full() || self.payload_buffer.is_full()
-    }
-
-    fn is_empty(&self) -> bool {
-        self.metadata_buffer.is_empty()
-    }
-
-    fn enqueue(&mut self, required_size: usize, endpoint: IpEndpoint) -> Result<&mut [u8]> {
-        let window = self.payload_buffer.window();
-        let contig_window = self.payload_buffer.contiguous_window();
-
-        if self.metadata_buffer.is_full() || self.payload_buffer.window() < required_size {
-            return Err(Error::Exhausted);
-        }
-
-        if contig_window < required_size {
-            // we reached the end of buffer, so the data does not fit without wrap-around
-            // -> insert padding and try again
-            self.payload_buffer.enqueue_many(required_size);
-            let metadata_buf = self.metadata_buffer.enqueue_one()?;
-            metadata_buf.padding = true;
-            metadata_buf.size = required_size;
-            metadata_buf.endpoint = IpEndpoint::default();
-            if window - contig_window < required_size {
-                return Err(Error::Exhausted);
-            }
-        }
-
-        let metadata_buf = self.metadata_buffer.enqueue_one()?;
-        metadata_buf.endpoint = endpoint;
-        metadata_buf.size = required_size;
-        metadata_buf.padding = false;
-
-        Ok(self.payload_buffer.enqueue_many(required_size))
-    }
-}
+pub type UdpSocketBuffer<'a, 'b> = PacketBuffer<'a, 'b, IpEndpoint>;
 
 /// An User Datagram Protocol socket.
 ///
@@ -83,16 +18,16 @@ impl<'a, 'b> SocketBuffer<'a, 'b> {
 pub struct UdpSocket<'a, 'b: 'a> {
     pub(crate) meta: SocketMeta,
     endpoint:  IpEndpoint,
-    rx_buffer: SocketBuffer<'a, 'b>,
-    tx_buffer: SocketBuffer<'a, 'b>,
+    rx_buffer: UdpSocketBuffer<'a, 'b>,
+    tx_buffer: UdpSocketBuffer<'a, 'b>,
     /// The time-to-live (IPv4) or hop limit (IPv6) value used in outgoing packets.
     hop_limit: Option<u8>
 }
 
 impl<'a, 'b> UdpSocket<'a, 'b> {
     /// Create an UDP socket with the given buffers.
-    pub fn new(rx_buffer: SocketBuffer<'a, 'b>,
-               tx_buffer: SocketBuffer<'a, 'b>) -> UdpSocket<'a, 'b> {
+    pub fn new(rx_buffer: UdpSocketBuffer<'a, 'b>,
+               tx_buffer: UdpSocketBuffer<'a, 'b>) -> UdpSocket<'a, 'b> {
         UdpSocket {
             meta:      SocketMeta::default(),
             endpoint:  IpEndpoint::default(),
@@ -185,8 +120,6 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
 
         let payload_buf = self.tx_buffer.enqueue(size, endpoint)?;
 
-        debug_assert_eq!(payload_buf.len(), size);
-
         net_trace!("{}:{}:{}: buffer to send {} octets",
                    self.meta.handle, self.endpoint, endpoint, size);
         Ok(payload_buf)
@@ -205,21 +138,12 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     ///
     /// This function returns `Err(Error::Exhausted)` if the receive buffer is empty.
     pub fn recv(&mut self) -> Result<(&[u8], IpEndpoint)> {
-        let mut metadata_buf = *self.rx_buffer.metadata_buffer.dequeue_one()?;
-        if metadata_buf.padding {
-            // packet is padding packet -> drop it and try again
-            self.rx_buffer.payload_buffer.dequeue_many(metadata_buf.size);
-            metadata_buf = *self.rx_buffer.metadata_buffer.dequeue_one()?;
-        }
-
-        debug_assert!(!metadata_buf.padding);
-        let payload_buf = self.rx_buffer.payload_buffer.dequeue_many(metadata_buf.size);
-        debug_assert_eq!(metadata_buf.size, payload_buf.len()); // ensured by inserting logic
+        let (endpoint, payload_buf) = self.rx_buffer.dequeue()?;
 
         net_trace!("{}:{}:{}: receive {} buffered octets",
                    self.meta.handle, self.endpoint,
-                metadata_buf.endpoint, metadata_buf.size);
-        Ok((payload_buf, metadata_buf.endpoint))
+                   endpoint, payload_buf.len());
+        Ok((payload_buf, endpoint))
     }
 
     /// Dequeue a packet received from a remote endpoint, copy the payload into the given slice,
@@ -259,50 +183,28 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
 
     pub(crate) fn dispatch<F>(&mut self, emit: F) -> Result<()>
             where F: FnOnce((IpRepr, UdpRepr)) -> Result<()> {
-        let handle   = self.handle();
-        let endpoint = self.endpoint;
+        let handle    = self.handle();
+        let endpoint  = self.endpoint;
         let hop_limit = self.hop_limit.unwrap_or(64);
 
-        let SocketBuffer { ref mut metadata_buffer, ref mut payload_buffer } = self.tx_buffer;
+        self.tx_buffer.dequeue_with(|remote_endpoint, payload_buf| {
+            net_trace!("{}:{}:{}: sending {} octets",
+                        handle, endpoint,
+                        endpoint, payload_buf.len());
 
-        // dequeue potential padding packet
-        let result = metadata_buffer.dequeue_one_with(|metadata_buf| {
-            if metadata_buf.padding {
-                Ok(metadata_buf.size) // dequeue metadata
-            } else {
-                Err(Error::Exhausted) // don't dequeue metadata
-            }
-        });
-        if let Ok(size) = result {
-            payload_buffer.dequeue_many(size); // dequeue padding payload
-        }
-
-        metadata_buffer.dequeue_one_with(move |metadata_buf| {
-            debug_assert!(!metadata_buf.padding);
-            payload_buffer.dequeue_many_with(|payload_buf| {
-                let payload_buf = &payload_buf[..metadata_buf.size];
-
-                net_trace!("{}:{}:{}: sending {} octets",
-                            handle, endpoint,
-                            metadata_buf.endpoint, metadata_buf.size);
-
-                let repr = UdpRepr {
-                    src_port: endpoint.port,
-                    dst_port: metadata_buf.endpoint.port,
-                    payload:  payload_buf,
-                };
-                let ip_repr = IpRepr::Unspecified {
-                    src_addr:    endpoint.addr,
-                    dst_addr:    metadata_buf.endpoint.addr,
-                    protocol:    IpProtocol::Udp,
-                    payload_len: repr.buffer_len(),
-                    hop_limit:   hop_limit,
-                };
-                match emit((ip_repr, repr)) {
-                    Ok(ret) => (metadata_buf.size, Ok(ret)),
-                    Err(ret) => (0, Err(ret)),
-                }
-            }).1
+            let repr = UdpRepr {
+                src_port: endpoint.port,
+                dst_port: remote_endpoint.port,
+                payload:  payload_buf,
+            };
+            let ip_repr = IpRepr::Unspecified {
+                src_addr:    endpoint.addr,
+                dst_addr:    remote_endpoint.addr,
+                protocol:    IpProtocol::Udp,
+                payload_len: repr.buffer_len(),
+                hop_limit:   hop_limit,
+            };
+            emit((ip_repr, repr))
         })
     }
 
@@ -331,12 +233,12 @@ mod test {
     use wire::ip::test::{MOCK_IP_ADDR_1, MOCK_IP_ADDR_2, MOCK_IP_ADDR_3};
     use super::*;
 
-    fn buffer(packets: usize) -> SocketBuffer<'static, 'static> {
-        SocketBuffer::new(vec![Default::default(); packets], vec![0; 16 * packets])
+    fn buffer(packets: usize) -> UdpSocketBuffer<'static, 'static> {
+        UdpSocketBuffer::new(vec![UdpPacketMetadata::empty(); packets], vec![0; 16 * packets])
     }
 
-    fn socket(rx_buffer: SocketBuffer<'static, 'static>,
-              tx_buffer: SocketBuffer<'static, 'static>)
+    fn socket(rx_buffer: UdpSocketBuffer<'static, 'static>,
+              tx_buffer: UdpSocketBuffer<'static, 'static>)
             -> UdpSocket<'static, 'static> {
         UdpSocket::new(rx_buffer, tx_buffer)
     }
@@ -560,107 +462,8 @@ mod test {
     }
 
     #[test]
-    fn test_send_wraparound_1() {
-        let mut socket = socket(buffer(0), buffer(3));
-        assert_eq!(socket.bind(LOCAL_END), Ok(()));
-
-        let large = b"0123456789abcdef0123456789abcdef0123456789abcdef";
-
-        assert_eq!(socket.send_slice(&large[..15], REMOTE_END), Ok(()));
-        assert_eq!(socket.send_slice(&large[..16*2], REMOTE_END), Ok(()));
-        // no padding should be inserted because capacity does not suffice
-        assert_eq!(socket.send_slice(b"12", REMOTE_END), Err(Error::Exhausted));
-        assert_eq!(socket.tx_buffer.metadata_buffer.len(), 2);
-        assert_eq!(socket.tx_buffer.payload_buffer.len(), 16*3-1);
-
-        assert_eq!(socket.dispatch(|_| Ok(())), Ok(()));
-        // insert padding
-        assert_eq!(socket.send_slice(&large[..16], REMOTE_END), Err(Error::Exhausted));
-        assert_eq!(socket.tx_buffer.metadata_buffer.len(), 2);
-        assert_eq!(socket.tx_buffer.payload_buffer.len(), 16*3-15);
-
-        assert_eq!(socket.dispatch(|_| Ok(())), Ok(()));
-        // packet dequed, but padding is still there
-        assert_eq!(socket.tx_buffer.metadata_buffer.len(), 1);
-        assert_eq!(socket.tx_buffer.payload_buffer.len(), 1);
-
-        assert_eq!(socket.dispatch(|_| Ok(())), Err(Error::Exhausted));
-        assert_eq!(socket.tx_buffer.metadata_buffer.len(), 0);
-        assert_eq!(socket.tx_buffer.payload_buffer.len(), 0);
-    }
-
-    #[test]
-    fn test_send_wraparound_2() {
-        let mut socket = socket(buffer(0), buffer(3));
-        assert_eq!(socket.bind(LOCAL_END), Ok(()));
-
-        let large = b"0123456789abcdef0123456789abcdef0123456789abcdef";
-
-        assert_eq!(socket.send_slice(&large[..16*2], REMOTE_END), Ok(()));
-        assert_eq!(socket.send_slice(&large[..15], REMOTE_END), Ok(()));
-        // no padding should be inserted because capacity does not suffice
-        assert_eq!(socket.send_slice(b"12", REMOTE_END), Err(Error::Exhausted));
-        assert_eq!(socket.tx_buffer.metadata_buffer.len(), 2);
-        assert_eq!(socket.tx_buffer.payload_buffer.len(), 16*3-1);
-
-        assert_eq!(socket.dispatch(|_| Ok(())), Ok(()));
-        // insert padding and slice
-        assert_eq!(socket.send_slice(&large[..16*2], REMOTE_END), Ok(()));
-        assert_eq!(socket.tx_buffer.metadata_buffer.len(), 3);
-        assert_eq!(socket.tx_buffer.payload_buffer.len(), 16*3);
-
-        assert_eq!(socket.dispatch(|_| Ok(())), Ok(()));
-        // packet dequed, but padding is still there
-        assert_eq!(socket.tx_buffer.metadata_buffer.len(), 2);
-        assert_eq!(socket.tx_buffer.payload_buffer.len(), 16*3-15);
-
-        assert_eq!(socket.dispatch(|_| Ok(())), Ok(()));
-        // padding and packet dequeued
-        assert_eq!(socket.tx_buffer.metadata_buffer.len(), 0);
-        assert_eq!(socket.tx_buffer.payload_buffer.len(), 0);
-    }
-
-    #[test]
-    fn test_process_wraparound() {
-        // every packet will be 6 bytes
-        let recv_buffer = SocketBuffer::new(vec![Default::default(); 4], vec![0; 6*3 + 2]);
-        let mut socket = socket(recv_buffer, buffer(0));
-        assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
-
-        assert_eq!(socket.process(&remote_ip_repr(), &REMOTE_UDP_REPR), Ok(()));
-        assert_eq!(socket.process(&remote_ip_repr(), &REMOTE_UDP_REPR), Ok(()));
-        assert_eq!(socket.process(&remote_ip_repr(), &REMOTE_UDP_REPR), Ok(()));
-        assert_eq!(socket.rx_buffer.metadata_buffer.len(), 3);
-        assert_eq!(socket.rx_buffer.payload_buffer.len(), 6*3);
-
-        assert_eq!(socket.process(&remote_ip_repr(), &REMOTE_UDP_REPR),
-                   Err(Error::Exhausted));
-        // no padding inserted because capacity does not suffice
-        assert_eq!(socket.rx_buffer.metadata_buffer.len(), 3);
-        assert_eq!(socket.rx_buffer.payload_buffer.len(), 6*3);
-
-        assert_eq!(socket.recv(), Ok((&b"abcdef"[..], REMOTE_END)));
-        assert_eq!(socket.process(&remote_ip_repr(), &REMOTE_UDP_REPR), Ok(()));
-        // padding inserted
-        assert_eq!(socket.rx_buffer.metadata_buffer.len(), 4);
-        assert_eq!(socket.rx_buffer.payload_buffer.len(), 6*3 + 2);
-
-        assert_eq!(socket.recv(), Ok((&b"abcdef"[..], REMOTE_END)));
-        assert_eq!(socket.recv(), Ok((&b"abcdef"[..], REMOTE_END)));
-        // two packets dequed, last packet and padding still there
-        assert_eq!(socket.rx_buffer.metadata_buffer.len(), 2);
-        assert_eq!(socket.rx_buffer.payload_buffer.len(), 6 + 2);
-
-        assert_eq!(socket.recv(), Ok((&b"abcdef"[..], REMOTE_END)));
-        // everything dequed
-        assert_eq!(socket.rx_buffer.metadata_buffer.len(), 0);
-        assert_eq!(socket.rx_buffer.payload_buffer.len(), 0);
-    }
-
-    #[test]
     fn test_process_empty_payload() {
-        // every packet will be 6 bytes
-        let recv_buffer = SocketBuffer::new(vec![Default::default(); 1], vec![]);
+        let recv_buffer = UdpSocketBuffer::new(vec![UdpPacketMetadata::empty(); 1], vec![]);
         let mut socket = socket(recv_buffer, buffer(0));
         assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
 
@@ -669,18 +472,6 @@ mod test {
             dst_port: LOCAL_PORT,
             payload: &[]
         };
-
-        assert_eq!(socket.process(&remote_ip_repr(), &repr), Ok(()));
-        assert_eq!(socket.rx_buffer.metadata_buffer.len(), 1);
-        assert_eq!(socket.rx_buffer.payload_buffer.len(), 0);
-
-        // The metatdata has been queued into the metadata buffer
-        assert!(!socket.rx_buffer.metadata_buffer.is_empty());
-        // The no payload data has been queued into the payload buffer
-        assert!(socket.rx_buffer.payload_buffer.is_empty());
-        // The received packets buffer is not empty and we can recv
-        assert!(socket.can_recv());
-        assert_eq!(socket.recv(), Ok((&[][..], REMOTE_END)));
         assert_eq!(socket.process(&remote_ip_repr(), &repr), Ok(()));
         assert_eq!(socket.recv(), Ok((&[][..], REMOTE_END)));
     }

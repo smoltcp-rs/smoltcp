@@ -1365,15 +1365,15 @@ mod test {
     #[test]
     #[cfg(all(feature = "socket-udp", feature = "proto-ipv4"))]
     fn test_handle_udp_broadcast() {
-        use socket::{UdpSocket, UdpSocketBuffer};
+        use socket::{UdpSocket, UdpSocketBuffer, UdpPacketMetadata};
         use wire::IpEndpoint;
 
         static UDP_PAYLOAD: [u8; 5] = [0x48, 0x65, 0x6c, 0x6c, 0x6f];
 
         let (iface, mut socket_set) = create_loopback();
 
-        let rx_buffer = UdpSocketBuffer::new(vec![Default::default()], vec![0; 15]);
-        let tx_buffer = UdpSocketBuffer::new(vec![Default::default()], vec![0; 15]);
+        let rx_buffer = UdpSocketBuffer::new(vec![UdpPacketMetadata::empty()], vec![0; 15]);
+        let tx_buffer = UdpSocketBuffer::new(vec![UdpPacketMetadata::empty()], vec![0; 15]);
 
         let udp_socket = UdpSocket::new(rx_buffer, tx_buffer);
 
