@@ -72,13 +72,21 @@ impl<'a, 'b, H> PacketBuffer<'a, 'b, H> {
 
     /// Enqueue a single packet with the given header into the buffer, and
     /// return a reference to its payload, or return `Err(Error::Exhausted)`
-    /// if the buffer is full or does not have enough spare payload space.
+    /// if the buffer is full, or return `Err(Error::Truncated)` if the buffer
+    /// does not have enough spare payload space.
     pub fn enqueue(&mut self, size: usize, header: H) -> Result<&mut [u8]> {
+        if self.payload_ring.capacity() < size {
+            return Err(Error::Truncated)
+        }
+
+        if self.metadata_ring.is_full() {
+            return Err(Error::Exhausted)
+        }
+
         let window = self.payload_ring.window();
         let contig_window = self.payload_ring.contiguous_window();
 
-        if self.metadata_ring.is_full() || window < size ||
-                (window != contig_window && window - contig_window < size) {
+        if window < size || (window != contig_window && window - contig_window < size) {
             return Err(Error::Exhausted)
         }
 
@@ -155,7 +163,7 @@ mod test {
     fn test_simple() {
         let mut buffer = buffer();
         buffer.enqueue(6, ()).unwrap().copy_from_slice(b"abcdef");
-        assert_eq!(buffer.enqueue(32, ()), Err(Error::Exhausted));
+        assert_eq!(buffer.enqueue(16, ()), Err(Error::Exhausted));
         assert_eq!(buffer.metadata_ring.len(), 1);
         assert_eq!(buffer.dequeue().unwrap().1, &b"abcdef"[..]);
         assert_eq!(buffer.dequeue(), Err(Error::Exhausted));
@@ -231,5 +239,11 @@ mod test {
         assert!(buffer.dequeue().is_ok());
         assert_eq!(buffer.enqueue(8, ()), Err(Error::Exhausted));
         assert_eq!(buffer.metadata_ring.len(), 1);
+    }
+
+    #[test]
+    fn test_capacity_too_small() {
+        let mut buffer = buffer();
+        assert_eq!(buffer.enqueue(32, ()), Err(Error::Truncated));
     }
 }

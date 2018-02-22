@@ -6,13 +6,15 @@ use storage::{PacketBuffer, PacketMetadata};
 use time::Instant;
 use wire::{IpProtocol, IpRepr, IpEndpoint, UdpRepr};
 
+/// A UDP packet metadata.
 pub type UdpPacketMetadata = PacketMetadata<IpEndpoint>;
 
+/// A UDP packet ring buffer.
 pub type UdpSocketBuffer<'a, 'b> = PacketBuffer<'a, 'b, IpEndpoint>;
 
-/// An User Datagram Protocol socket.
+/// A User Datagram Protocol socket.
 ///
-/// An UDP socket is bound to a specific endpoint, and owns transmit and receive
+/// A UDP socket is bound to a specific endpoint, and owns transmit and receive
 /// packet buffers.
 #[derive(Debug)]
 pub struct UdpSocket<'a, 'b: 'a> {
@@ -112,8 +114,10 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     /// Enqueue a packet to be sent to a given remote endpoint, and return a pointer
     /// to its payload.
     ///
-    /// This function returns `Err(Error::Exhausted)` if the transmit buffer is full and
-    /// `Err(Error::Unaddressable)` if local or remote port, or remote address are unspecified.
+    /// This function returns `Err(Error::Exhausted)` if the transmit buffer is full,
+    /// `Err(Error::Unaddressable)` if local or remote port, or remote address are unspecified,
+    /// and `Err(Error::Truncated)` if there is not enough transmit buffer capacity
+    /// to ever send this packet.
     pub fn send(&mut self, size: usize, endpoint: IpEndpoint) -> Result<&mut [u8]> {
         if self.endpoint.port == 0 { return Err(Error::Unaddressable) }
         if !endpoint.is_specified() { return Err(Error::Unaddressable) }
@@ -171,9 +175,7 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
         let size = repr.payload.len();
 
         let endpoint = IpEndpoint { addr: ip_repr.src_addr(), port: repr.src_port };
-        let payload_buf = self.rx_buffer.enqueue(size, endpoint)?;
-        assert_eq!(payload_buf.len(), size);
-        payload_buf.copy_from_slice(repr.payload);
+        self.rx_buffer.enqueue(size, endpoint)?.copy_from_slice(repr.payload);
 
         net_trace!("{}:{}:{}: receiving {} octets",
                    self.meta.handle, self.endpoint,
@@ -457,7 +459,7 @@ mod test {
         assert_eq!(socket.bind(LOCAL_END), Ok(()));
 
         let too_large = b"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdefx";
-        assert_eq!(socket.send_slice(too_large, REMOTE_END), Err(Error::Exhausted));
+        assert_eq!(socket.send_slice(too_large, REMOTE_END), Err(Error::Truncated));
         assert_eq!(socket.send_slice(&too_large[..16*4], REMOTE_END), Ok(()));
     }
 
