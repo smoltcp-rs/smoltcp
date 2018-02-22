@@ -118,10 +118,10 @@ fn main() {
 
                 if let Icmpv4Repr::EchoReply { seq_no, data, .. } = icmp_repr {
                     if let Some(_) = waiting_queue.get(&seq_no) {
-                        let packet_timestamp_us = NetworkEndian::read_i64(data);
-                        println!("{} bytes from {}: icmp_seq={}, time={:.3}ms",
+                        let packet_timestamp_ms = NetworkEndian::read_i64(data);
+                        println!("{} bytes from {}: icmp_seq={}, time={}ms",
                                  data.len(), remote_addr, seq_no,
-                                 (timestamp.total_millis() - packet_timestamp_us) as f64 / 1000.0);
+                                 timestamp.total_millis() - packet_timestamp_ms);
                         waiting_queue.remove(&seq_no);
                         received += 1;
                     }
