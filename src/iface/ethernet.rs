@@ -1564,13 +1564,13 @@ mod test {
     #[test]
     #[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
     fn test_icmpv4_socket() {
-        use socket::{IcmpPacketBuffer, IcmpSocket, IcmpSocketBuffer, IcmpEndpoint};
+        use socket::{IcmpSocket, IcmpEndpoint, IcmpSocketBuffer, IcmpPacketMetadata};
         use wire::Icmpv4Packet;
 
         let (iface, mut socket_set) = create_loopback();
 
-        let rx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketBuffer::new(vec![0; 24])]);
-        let tx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketBuffer::new(vec![0; 24])]);
+        let rx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketMetadata::empty()], vec![0; 24]);
+        let tx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketMetadata::empty()], vec![0; 24]);
 
         let icmpv4_socket = IcmpSocket::new(rx_buffer, tx_buffer);
 

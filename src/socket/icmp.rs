@@ -1,10 +1,9 @@
 use core::cmp;
-use managed::Managed;
 
 use {Error, Result};
 use phy::{ChecksumCapabilities, DeviceCapabilities};
 use socket::{Socket, SocketMeta, SocketHandle};
-use storage::{Resettable, RingBuffer};
+use storage::{PacketBuffer, PacketMetadata};
 use time::Instant;
 use wire::{IpAddress, IpEndpoint, IpProtocol, IpRepr};
 use wire::{Ipv4Address, Ipv4Repr};
@@ -36,51 +35,11 @@ impl Default for Endpoint {
     fn default() -> Endpoint { Endpoint::Unspecified }
 }
 
-/// A buffered ICMPv4 packet.
-#[derive(Debug)]
-pub struct PacketBuffer<'a> {
-    endpoint: IpAddress,
-    size:     usize,
-    payload:  Managed<'a, [u8]>
-}
-
-impl<'a> PacketBuffer<'a> {
-    /// Create a buffered packet.
-    pub fn new<T>(payload: T) -> PacketBuffer<'a>
-            where T: Into<Managed<'a, [u8]>> {
-        PacketBuffer {
-            endpoint: IpAddress::default(),
-            size:     0,
-            payload:  payload.into()
-        }
-    }
-
-    fn as_ref<'b>(&'b self) -> &'b [u8] {
-        &self.payload[..self.size]
-    }
-
-    fn as_mut<'b>(&'b mut self) -> &'b mut [u8] {
-        &mut self.payload[..self.size]
-    }
-
-    fn resize<'b>(&'b mut self, size: usize) -> Result<&'b mut Self> {
-        if self.payload.len() >= size {
-            self.size = size;
-            Ok(self)
-        } else {
-            Err(Error::Truncated)
-        }
-    }
-}
-
-impl<'a> Resettable for PacketBuffer<'a> {
-    fn reset(&mut self) {
-        self.size = 0;
-    }
-}
+/// An ICMPv4 packet metadata.
+pub type IcmpPacketMetadata = PacketMetadata<IpAddress>;
 
 /// An ICMPv4 packet ring buffer.
-pub type SocketBuffer<'a, 'b: 'a> = RingBuffer<'a, PacketBuffer<'b>>;
+pub type IcmpSocketBuffer<'a, 'b> = PacketBuffer<'a, 'b, IpAddress>;
 
 /// An ICMPv4 socket
 ///
@@ -94,8 +53,8 @@ pub type SocketBuffer<'a, 'b: 'a> = RingBuffer<'a, PacketBuffer<'b>>;
 #[derive(Debug)]
 pub struct IcmpSocket<'a, 'b: 'a> {
     pub(crate) meta: SocketMeta,
-    rx_buffer: SocketBuffer<'a, 'b>,
-    tx_buffer: SocketBuffer<'a, 'b>,
+    rx_buffer: IcmpSocketBuffer<'a, 'b>,
+    tx_buffer: IcmpSocketBuffer<'a, 'b>,
     /// The endpoint this socket is communicating with
     endpoint:  Endpoint,
     /// The time-to-live (IPv4) or hop limit (IPv6) value used in outgoing packets.
@@ -104,8 +63,8 @@ pub struct IcmpSocket<'a, 'b: 'a> {
 
 impl<'a, 'b> IcmpSocket<'a, 'b> {
     /// Create an ICMPv4 socket with the given buffers.
-    pub fn new(rx_buffer: SocketBuffer<'a, 'b>,
-               tx_buffer: SocketBuffer<'a, 'b>) -> IcmpSocket<'a, 'b> {
+    pub fn new(rx_buffer: IcmpSocketBuffer<'a, 'b>,
+               tx_buffer: IcmpSocketBuffer<'a, 'b>) -> IcmpSocket<'a, 'b> {
         IcmpSocket {
             meta:      SocketMeta::default(),
             rx_buffer: rx_buffer,
@@ -164,9 +123,9 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
     /// diagnose connection problems.
     ///
     /// ```
-    /// # use smoltcp::socket::{Socket, IcmpSocket, IcmpPacketBuffer, IcmpSocketBuffer};
-    /// # let rx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketBuffer::new(vec![0; 20])]);
-    /// # let tx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketBuffer::new(vec![0; 20])]);
+    /// # use smoltcp::socket::{Socket, IcmpSocket, IcmpSocketBuffer, IcmpPacketMetadata};
+    /// # let rx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketMetadata::empty()], vec![0; 20]);
+    /// # let tx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketMetadata::empty()], vec![0; 20]);
     /// use smoltcp::wire::IpEndpoint;
     /// use smoltcp::socket::IcmpEndpoint;
     ///
@@ -186,9 +145,9 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
     /// messages.
     ///
     /// ```
-    /// # use smoltcp::socket::{Socket, IcmpSocket, IcmpPacketBuffer, IcmpSocketBuffer};
-    /// # let rx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketBuffer::new(vec![0; 20])]);
-    /// # let tx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketBuffer::new(vec![0; 20])]);
+    /// # use smoltcp::socket::{Socket, IcmpSocket, IcmpSocketBuffer, IcmpPacketMetadata};
+    /// # let rx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketMetadata::empty()], vec![0; 20]);
+    /// # let tx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketMetadata::empty()], vec![0; 20]);
     /// use smoltcp::socket::IcmpEndpoint;
     ///
     /// let mut icmp_socket = // ...
@@ -244,11 +203,11 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
             return Err(Error::Unaddressable)
         }
 
-        let packet_buf = self.tx_buffer.enqueue_one_with(|buf| buf.resize(size))?;
-        packet_buf.endpoint = endpoint;
+        let packet_buf = self.tx_buffer.enqueue(size, endpoint)?;
+
         net_trace!("{}:{}: buffer to send {} octets",
-                   self.meta.handle, packet_buf.endpoint, size);
-        Ok(&mut packet_buf.as_mut()[..size])
+                   self.meta.handle, endpoint, size);
+        Ok(packet_buf)
     }
 
     /// Enqueue a packet to be sent to a given remote address, and fill it from a slice.
@@ -265,10 +224,11 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
     ///
     /// This function returns `Err(Error::Exhausted)` if the receive buffer is empty.
     pub fn recv(&mut self) -> Result<(&[u8], IpAddress)> {
-        let packet_buf = self.rx_buffer.dequeue_one()?;
+        let (endpoint, packet_buf) = self.rx_buffer.dequeue()?;
+
         net_trace!("{}:{}: receive {} buffered octets",
-                   self.meta.handle, packet_buf.endpoint, packet_buf.size);
-        Ok((&packet_buf.as_ref(), packet_buf.endpoint))
+                   self.meta.handle, endpoint, packet_buf.len());
+        Ok((packet_buf, endpoint))
     }
 
     /// Dequeue a packet received from a remote endpoint, copy the payload into the given slice,
@@ -309,29 +269,27 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
     }
 
     pub(crate) fn process(&mut self, ip_repr: &IpRepr, icmp_repr: &Icmpv4Repr,
-                          cksum: &ChecksumCapabilities) -> Result<()> {
-        let packet_buf = self.rx_buffer.enqueue_one_with(|buf| buf.resize(icmp_repr.buffer_len()))?;
-        packet_buf.endpoint = ip_repr.src_addr();
+                          _cksum: &ChecksumCapabilities) -> Result<()> {
+        let packet_buf = self.rx_buffer.enqueue(icmp_repr.buffer_len(), ip_repr.src_addr())?;
+        icmp_repr.emit(&mut Icmpv4Packet::new(packet_buf), &ChecksumCapabilities::default());
+
         net_trace!("{}:{}: receiving {} octets",
-                   self.meta.handle, packet_buf.endpoint, packet_buf.size);
-        let mut packet = Icmpv4Packet::new(packet_buf.as_mut());
-        icmp_repr.emit(&mut packet, cksum);
+                   self.meta.handle, icmp_repr.buffer_len(), packet_buf.len());
         Ok(())
     }
 
-    pub(crate) fn dispatch<F>(&mut self, caps: &DeviceCapabilities, emit: F) -> Result<()>
+    pub(crate) fn dispatch<F>(&mut self, _caps: &DeviceCapabilities, emit: F) -> Result<()>
         where F: FnOnce((IpRepr, Icmpv4Repr)) -> Result<()>
     {
-        let handle = self.meta.handle;
+        let handle    = self.meta.handle;
         let hop_limit = self.hop_limit.unwrap_or(64);
-        let checksum = &caps.checksum;
-        self.tx_buffer.dequeue_one_with(|packet_buf| {
+        self.tx_buffer.dequeue_with(|remote_endpoint, packet_buf| {
             net_trace!("{}:{}: sending {} octets",
-                       handle, packet_buf.endpoint, packet_buf.size);
-            match packet_buf.endpoint {
+                       handle, remote_endpoint, packet_buf.len());
+            match *remote_endpoint {
                 IpAddress::Ipv4(ipv4_addr) => {
-                    let packet = Icmpv4Packet::new(packet_buf.as_ref());
-                    let repr = Icmpv4Repr::parse(&packet, checksum)?;
+                    let packet = Icmpv4Packet::new(&*packet_buf);
+                    let repr = Icmpv4Repr::parse(&packet, &ChecksumCapabilities::default())?;
                     let ip_repr = IpRepr::Ipv4(Ipv4Repr {
                         src_addr:    Ipv4Address::default(),
                         dst_addr:    ipv4_addr,
@@ -367,23 +325,19 @@ mod test {
     use wire::{IpAddress, Icmpv4DstUnreachable};
     use super::*;
 
-    fn buffer(packets: usize) -> SocketBuffer<'static, 'static> {
-        let mut storage = vec![];
-        for _ in 0..packets {
-            storage.push(PacketBuffer::new(vec![0; 46]))
-        }
-        SocketBuffer::new(storage)
+    fn buffer(packets: usize) -> IcmpSocketBuffer<'static, 'static> {
+        IcmpSocketBuffer::new(vec![IcmpPacketMetadata::empty(); packets], vec![0; 46 * packets])
     }
 
-    fn socket(rx_buffer: SocketBuffer<'static, 'static>,
-              tx_buffer: SocketBuffer<'static, 'static>) -> IcmpSocket<'static, 'static> {
+    fn socket(rx_buffer: IcmpSocketBuffer<'static, 'static>,
+              tx_buffer: IcmpSocketBuffer<'static, 'static>) -> IcmpSocket<'static, 'static> {
         IcmpSocket::new(rx_buffer, tx_buffer)
     }
 
     const REMOTE_IPV4: Ipv4Address = Ipv4Address([0x7f, 0x00, 0x00, 0x02]);
-    const LOCAL_IPV4: Ipv4Address  = Ipv4Address([0x7f, 0x00, 0x00, 0x01]);
-    const REMOTE_IP: IpAddress     = IpAddress::Ipv4(REMOTE_IPV4);
-    const LOCAL_IP: IpAddress      = IpAddress::Ipv4(LOCAL_IPV4);
+    const LOCAL_IPV4:  Ipv4Address = Ipv4Address([0x7f, 0x00, 0x00, 0x01]);
+    const REMOTE_IP:   IpAddress   = IpAddress::Ipv4(REMOTE_IPV4);
+    const LOCAL_IP:    IpAddress   = IpAddress::Ipv4(LOCAL_IPV4);
     const LOCAL_PORT:  u16         = 53;
     const LOCAL_END:   IpEndpoint  = IpEndpoint { addr: LOCAL_IP,  port: LOCAL_PORT  };
 

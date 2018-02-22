@@ -17,7 +17,7 @@ use smoltcp::phy::wait as phy_wait;
 use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr,
                     Ipv4Address, Icmpv4Repr, Icmpv4Packet};
 use smoltcp::iface::{NeighborCache, EthernetInterfaceBuilder};
-use smoltcp::socket::{SocketSet, IcmpSocket, IcmpSocketBuffer, IcmpPacketBuffer, IcmpEndpoint};
+use smoltcp::socket::{SocketSet, IcmpSocket, IcmpSocketBuffer, IcmpPacketMetadata, IcmpEndpoint};
 use std::collections::HashMap;
 use byteorder::{ByteOrder, NetworkEndian};
 
@@ -54,8 +54,8 @@ fn main() {
     let remote_addr = address;
     let local_addr  = Ipv4Address::new(192, 168, 69, 1);
 
-    let icmp_rx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketBuffer::new(vec![0; 256])]);
-    let icmp_tx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketBuffer::new(vec![0; 256])]);
+    let icmp_rx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketMetadata::empty()], vec![0; 256]);
+    let icmp_tx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketMetadata::empty()], vec![0; 256]);
     let icmp_socket = IcmpSocket::new(icmp_rx_buffer, icmp_tx_buffer);
 
     let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x02]);

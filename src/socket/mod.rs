@@ -34,8 +34,8 @@ pub use self::raw::{RawPacketMetadata,
                     RawSocket};
 
 #[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
-pub use self::icmp::{PacketBuffer as IcmpPacketBuffer,
-                     SocketBuffer as IcmpSocketBuffer,
+pub use self::icmp::{IcmpPacketMetadata,
+                     IcmpSocketBuffer,
                      Endpoint as IcmpEndpoint,
                      IcmpSocket};
 
