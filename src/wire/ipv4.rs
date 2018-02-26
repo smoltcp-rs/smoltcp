@@ -892,7 +892,7 @@ mod test {
         let cidr_without_prefix = Cidr::new(cidr.address(), 0);
         assert!(cidr_without_prefix.contains_addr(&Address::new(127, 0, 0, 1)));
     }
-    
+
     #[test]
     fn test_cidr_from_netmask() {
         assert_eq!(Cidr::from_netmask(Address([0, 0, 0, 0]), Address([1, 0, 2, 0])).is_err(),
@@ -910,7 +910,7 @@ mod test {
         assert_eq!(Cidr::from_netmask(Address([255, 255, 255, 255]), Address([255, 255, 255, 255])).unwrap(),
                    Cidr::new(Address([255, 255, 255, 255]), 32));
     }
-    
+
     #[test]
     fn test_cidr_netmask() {
         assert_eq!(Cidr::new(Address([0, 0, 0, 0]), 0).netmask(),

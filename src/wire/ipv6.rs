@@ -190,7 +190,7 @@ impl fmt::Display for Address {
         if self.is_ipv4_mapped() {
             return write!(f, "::ffff:{}.{}.{}.{}", self.0[12], self.0[13], self.0[14], self.0[15])
         }
-        
+
         // The string representation of an IPv6 address should
         // collapse a series of 16 bit sections that evaluate
         // to 0 to "::"
