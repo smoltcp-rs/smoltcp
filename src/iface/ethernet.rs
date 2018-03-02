@@ -1055,6 +1055,39 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
                                Result<(EthernetAddress, Tx)>
         where Tx: TxToken
     {
+        if dst_addr.is_multicast() {
+            let b = dst_addr.as_bytes();
+            let hardware_addr =
+                match dst_addr {
+                    &IpAddress::Unspecified =>
+                        None,
+                    #[cfg(feature = "proto-ipv4")]
+                    &IpAddress::Ipv4(_addr) =>
+                        Some(EthernetAddress::from_bytes(&[
+                            0x01, 0x00,
+                            0x5e, b[1] & 0x7F,
+                            b[2], b[3],
+                        ])),
+                    #[cfg(feature = "proto-ipv6")]
+                    &IpAddress::Ipv6(_addr) =>
+                        Some(EthernetAddress::from_bytes(&[
+                            0x33, 0x33,
+                            b[12], b[13],
+                            b[14], b[15],
+                        ])),
+                    &IpAddress::__Nonexhaustive =>
+                        unreachable!()
+                };
+            match hardware_addr {
+                Some(hardware_addr) =>
+                    // Destination is multicast
+                    return Ok((hardware_addr, tx_token)),
+                None =>
+                    // Continue
+                    (),
+            }
+        }
+
         let dst_addr = self.route(dst_addr)?;
 
         match self.neighbor_cache.lookup(&dst_addr, timestamp) {
