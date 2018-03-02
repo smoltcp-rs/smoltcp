@@ -111,6 +111,18 @@ impl Address {
         Address::Ipv6(Ipv6Address::new(a0, a1, a2, a3, a4, a5, a6, a7))
     }
 
+    /// Return an address as a sequence of octets, in big-endian.
+    pub fn as_bytes(&self) -> &[u8] {
+        match self {
+            &Address::Unspecified     => &[],
+            #[cfg(feature = "proto-ipv4")]
+            &Address::Ipv4(ref addr)      => addr.as_bytes(),
+            #[cfg(feature = "proto-ipv6")]
+            &Address::Ipv6(ref addr)      => addr.as_bytes(),
+            &Address::__Nonexhaustive => unreachable!()
+        }
+    }
+
     /// Query whether the address is a valid unicast address.
     pub fn is_unicast(&self) -> bool {
         match self {
@@ -119,6 +131,18 @@ impl Address {
             &Address::Ipv4(addr)      => addr.is_unicast(),
             #[cfg(feature = "proto-ipv6")]
             &Address::Ipv6(addr)      => addr.is_unicast(),
+            &Address::__Nonexhaustive => unreachable!()
+        }
+    }
+
+    /// Query whether the address is a valid multicast address.
+    pub fn is_multicast(&self) -> bool {
+        match self {
+            &Address::Unspecified     => false,
+            #[cfg(feature = "proto-ipv4")]
+            &Address::Ipv4(addr)      => addr.is_multicast(),
+            #[cfg(feature = "proto-ipv6")]
+            &Address::Ipv6(addr)      => addr.is_multicast(),
             &Address::__Nonexhaustive => unreachable!()
         }
     }
