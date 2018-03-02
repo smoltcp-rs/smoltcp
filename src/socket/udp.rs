@@ -164,7 +164,9 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     pub(crate) fn accepts(&self, ip_repr: &IpRepr, repr: &UdpRepr) -> bool {
         if self.endpoint.port != repr.dst_port { return false }
         if !self.endpoint.addr.is_unspecified() &&
-           self.endpoint.addr != ip_repr.dst_addr() { return false }
+            self.endpoint.addr != ip_repr.dst_addr() &&
+            !ip_repr.dst_addr().is_broadcast() &&
+            !ip_repr.dst_addr().is_multicast() { return false }
 
         true
     }

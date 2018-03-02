@@ -503,6 +503,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
 
         // Ignore any packets not directed to our hardware address.
         if !eth_frame.dst_addr().is_broadcast() &&
+           !eth_frame.dst_addr().is_multicast() &&
                 eth_frame.dst_addr() != self.ethernet_addr {
             return Ok(Packet::None)
         }
@@ -677,7 +678,9 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         #[cfg(feature = "socket-raw")]
         let handled_by_raw_socket = self.raw_socket_filter(sockets, &ip_repr, ip_payload);
 
-        if !ipv4_repr.dst_addr.is_broadcast() && !self.has_ip_addr(ipv4_repr.dst_addr) {
+        if !ipv4_repr.dst_addr.is_broadcast() &&
+           !ipv4_repr.dst_addr.is_multicast() &&
+           !self.has_ip_addr(ipv4_repr.dst_addr) {
             // Ignore IP packets not directed at us.
             return Ok(Packet::None)
         }
