@@ -12,15 +12,16 @@ categories = ["embedded"]
 license = "0BSD"
 
 [dependencies]
+managed = { version = "0.5", default-features = false, features = ["map"] }
 byteorder = { version = "1.0", default-features = false }
-managed = { version = "0.4.0", default-features = false }
 log = { version = "0.3", default-features = false, optional = true }
 libc = { version = "0.2.18", optional = true }
 
 [dev-dependencies]
-log = "0.3"
 env_logger = "0.4"
 getopts = "0.2"
+rand = "0.3"
+url = "1.0"
 
 [features]
 std = ["managed/std"]
@@ -28,27 +29,54 @@ alloc = ["managed/alloc"]
 verbose = []
 "phy-raw_socket" = ["std", "libc"]
 "phy-tap_interface" = ["std", "libc"]
+"proto-ipv4" = []
+"proto-ipv6" = []
 "socket-raw" = []
 "socket-udp" = []
 "socket-tcp" = []
-default = ["std", "log",
+"socket-icmp" = []
+default = [
+  "std", "log", # needed for `cargo test --no-default-features --features default` :/
   "phy-raw_socket", "phy-tap_interface",
-  "socket-raw", "socket-udp", "socket-tcp"]
+  "proto-ipv4", "proto-ipv6",
+  "socket-raw", "socket-icmp", "socket-udp", "socket-tcp"
+]
+
+[[example]]
+name = "packet2pcap"
+path = "utils/packet2pcap.rs"
+required-features = ["std"]
 
 [[example]]
 name = "tcpdump"
+required-features = ["std", "phy-raw_socket", "proto-ipv4"]
 
 [[example]]
-name = "server"
-
-[[example]]
-name = "client"
+name = "httpclient"
+required-features = ["std", "phy-tap_interface", "proto-ipv4", "socket-tcp"]
 
 [[example]]
 name = "ping"
+required-features = ["std", "phy-tap_interface", "proto-ipv4", "socket-icmp"]
+
+[[example]]
+name = "server"
+required-features = ["std", "phy-tap_interface", "proto-ipv4", "socket-tcp", "socket-udp"]
+
+[[example]]
+name = "client"
+required-features = ["std", "phy-tap_interface", "proto-ipv4", "socket-tcp", "socket-udp"]
 
 [[example]]
 name = "loopback"
+required-features = ["log", "proto-ipv4", "socket-tcp"]
 
 [[example]]
 name = "multicast"
+
+[[example]]
+name = "benchmark"
+required-features = ["std", "phy-tap_interface", "proto-ipv4", "socket-tcp"]
+
+[profile.release]
+debug = 2

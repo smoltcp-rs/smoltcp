@@ -1,6 +1,7 @@
 #![cfg_attr(feature = "alloc", feature(alloc))]
 #![no_std]
-#![deny(unsafe_code, unused)]
+#![deny(unsafe_code)]
+#![cfg_attr(any(feature = "proto-ipv4", feature = "proto-ipv6"), deny(unused))]
 
 //! The _smoltcp_ library is built in a layered structure, with the layers corresponding
 //! to the levels of API abstraction. Only the highest layers would be used by a typical
@@ -10,14 +11,12 @@
 //!
 //! When discussing networking stacks and layering, often the [OSI model][osi] is invoked.
 //! _smoltcp_ makes no effort to conform to the OSI model as it is not applicable to TCP/IP.
-//! [osi]: https://en.wikipedia.org/wiki/OSI_model
 //!
 //! # The socket layer
 //! The socket layer APIs are provided in the module [socket](socket/index.html); currently,
-//! TCP and UDP sockets are provided. The socket API provides the usual primitives, but
-//! necessarily differs in many from the [Berkeley socket API][berk], as the latter was not
-//! designed to be used without heap allocation.
-//! [berk]: https://en.wikipedia.org/wiki/Berkeley_sockets
+//! raw, ICMP, TCP, and UDP sockets are provided. The socket API provides the usual primitives,
+//! but necessarily differs in many from the [Berkeley socket API][berk], as the latter was
+//! not designed to be used without heap allocation.
 //!
 //! The socket layer provides the buffering, packet construction and validation, and (for
 //! stateful sockets) the state machines, but it is interface-agnostic. An application must
@@ -50,8 +49,7 @@
 //! The wire layer APIs also provide _tcpdump_-like pretty printing.
 //!
 //! ## The representation layer
-//! The representation layer APIs are provided in the module [wire](wire/index.html); currently,
-//! Ethernet, ARP, generic IP, IPv4, ICMPv4, TCP and UDP packet representations are provided.
+//! The representation layer APIs are provided in the module [wire].
 //!
 //! The representation layer exists to reduce the state space of raw packets. Raw packets
 //! may be nonsensical in a multitude of ways: invalid checksums, impossible combinations of flags,
@@ -59,14 +57,29 @@
 //! as well as any features not supported by _smoltcp_.
 //!
 //! ## The packet layer
-//! The packet layer APIs are also provided in the module [wire](wire/index.html); currently,
-//! Ethernet, ARP, IPv4, ICMPv4, TCP and UDP packet representations are provided.
+//! The packet layer APIs are also provided in the module [wire].
 //!
 //! The packet layer exists to provide a more structured way to work with packets than
 //! treating them as sequences of octets. It makes no judgement as to content of the packets,
 //! except where necessary to provide safe access to fields, and strives to implement every
 //! feature ever defined, to ensure that, when the representation layer is unable to make sense
 //! of a packet, it is still logged correctly and in full.
+//!
+//! ## Packet and representation layer support
+//!  | Protocol | Packet | Representation |
+//!  |----------|--------|----------------|
+//!  | Ethernet | Yes    | No             |
+//!  | ARP      | Yes    | Yes            |
+//!  | IPv4     | Yes    | Yes            |
+//!  | ICMPv4   | Yes    | Yes            |
+//!  | IPv6     | Yes    | Yes            |
+//!  | ICMPv6   | Yes    | Yes            |
+//!  | TCP      | Yes    | Yes            |
+//!  | UDP      | Yes    | Yes            |
+//!
+//! [wire]: wire/index.html
+//! [osi]: https://en.wikipedia.org/wiki/OSI_model
+//! [berk]: https://en.wikipedia.org/wiki/Berkeley_sockets
 
 /* XXX compiler bug
 #![cfg(not(any(feature = "socket-raw",
@@ -83,8 +96,8 @@ extern crate std;
 extern crate libc;
 #[cfg(feature = "alloc")]
 extern crate alloc;
-#[cfg(any(test, feature = "log"))]
-#[macro_use(log, log_enabled, trace, debug)]
+#[cfg(feature = "log")]
+#[macro_use(log, trace, debug)]
 extern crate log;
 
 use core::fmt;
@@ -98,6 +111,7 @@ pub mod phy;
 pub mod wire;
 pub mod iface;
 pub mod socket;
+pub mod time;
 
 /// The error type for the networking stack.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

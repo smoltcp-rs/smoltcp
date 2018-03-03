@@ -21,7 +21,7 @@ enum_with_unknown! {
 }
 
 /// A read/write wrapper around an Address Resolution Protocol packet buffer.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Packet<T: AsRef<[u8]>> {
     buffer: T
 }
@@ -242,6 +242,12 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     }
 }
 
+impl<T: AsRef<[u8]>> AsRef<[u8]> for Packet<T> {
+    fn as_ref(&self) -> &[u8] {
+        self.buffer.as_ref()
+    }
+}
+
 use super::{EthernetAddress, Ipv4Address};
 
 /// A high-level representation of an Address Resolution Protocol packet.
@@ -356,8 +362,8 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
     fn pretty_print(buffer: &AsRef<[u8]>, f: &mut fmt::Formatter,
                     indent: &mut PrettyIndent) -> fmt::Result {
         match Packet::new_checked(buffer) {
-            Err(err)  => write!(f, "{}({})\n", indent, err),
-            Ok(frame) => write!(f, "{}{}\n", indent, frame)
+            Err(err) => write!(f, "{}({})", indent, err),
+            Ok(packet) => write!(f, "{}{}", indent, packet)
         }
     }
 }

@@ -54,7 +54,7 @@ impl Contig {
     }
 
     fn shrink_hole_to(&mut self, size: usize) {
-        assert!(self.hole_size >= size);
+        debug_assert!(self.hole_size >= size);
 
         let total_size = self.total_size();
         self.hole_size = size;

@@ -8,6 +8,9 @@ at cost of performance degradation.
 _smoltcp_ does not need heap allocation *at all*, is [extensively documented][docs],
 and compiles on stable Rust 1.20 and later.
 
+_smoltcp_ achieves [~Gbps of throughput](#examplesbenchmarkrs) when tested against
+the Linux TCP stack in loopback mode.
+
 [docs]: https://docs.rs/smoltcp/
 
 ## Features
@@ -22,7 +25,8 @@ The only supported medium is Ethernet.
   * Regular Ethernet II frames are supported.
   * Unicast and broadcast packets are supported, multicast packets are **not** supported.
   * ARP packets (including gratuitous requests and replies) are supported.
-  * ARP rate limiting and cache expiration is **not** supported.
+  * ARP requests are sent at a rate not exceeding one per second.
+  * Cached ARP entries expire after one minute.
   * 802.3 frames and 802.1Q are **not** supported.
   * Jumbo frames are **not** supported.
 
@@ -31,19 +35,26 @@ The only supported medium is Ethernet.
 The only supported internetworking protocol is IPv4.
 
   * IPv4 header checksum is generated and validated.
-  * IPv4 time-to-live value is fixed at 64.
+  * IPv4 time-to-live value is configurable per socket, set to 64 by default.
+  * IPv4 default gateway is supported.
   * IPv4 fragmentation is **not** supported.
   * IPv4 options are **not** supported and are silently ignored.
-  * IPv4 routes or default gateways are **not** supported.
+  * IPv4 routes (other than the default one) are **not** supported.
+
+### ICMP layer
+
+The ICMPv4 protocol is supported, and ICMP sockets are available.
+
   * ICMPv4 header checksum is supported.
-  * ICMPv4 echo requests and replies are supported.
+  * ICMPv4 echo replies are generated in response to echo requests.
+  * ICMP sockets can listen to ICMPv4 Port Unreachable messages, or any ICMPv4 messages with
+    a given IPv4 identifier field.
   * ICMPv4 protocol unreachable messages are **not** passed to higher layers when received.
-  * ICMPv4 time exceeded messages are **not** supported.
-  * ICMPv4 parameter problem messages are **not** supported.
+  * ICMPv4 parameter problem messages are **not** generated.
 
 ### UDP layer
 
-The UDP protocol is supported over IPv4.
+The UDP protocol is supported over IPv4, and UDP sockets are available.
 
   * Header checksum is always generated and validated.
   * In response to a packet arriving at a port without a listening socket,
@@ -51,7 +62,7 @@ The UDP protocol is supported over IPv4.
 
 ### TCP layer
 
-The TCP protocol is supported over IPv4. Server and client sockets are supported.
+The TCP protocol is supported over IPv4, and server and client TCP sockets are available.
 
   * Header checksum is generated and validated.
   * Maximum segment size is negotiated.
@@ -134,6 +145,13 @@ and `smoltcp::socket::TcpSocket`, respectively.
 
 These features are enabled by default.
 
+### Features `proto-ipv4` and `proto-ipv6`
+
+Enable [IPv4] and [IPv6] respectively.
+
+[IPv4]: https://tools.ietf.org/rfc/rfc791.txt
+[IPv6]: https://tools.ietf.org/rfc/rfc8200.txt
+
 ## Hosted usage examples
 
 _smoltcp_, being a freestanding networking stack, needs to be able to transmit and receive
@@ -196,12 +214,55 @@ Read its [source code](/examples/tcpdump.rs), then run it as:
 
 ```sh
 cargo build --example tcpdump
-sudo ./target/debug/tcpdump eth0
+sudo ./target/debug/examples/tcpdump eth0
 ```
+
+### examples/httpclient.rs
+
+_examples/httpclient.rs_ emulates a network host that can initiate HTTP requests.
+
+The host is assigned the hardware address `02-00-00-00-00-02` and IPv4 address `192.168.69.1`.
+
+Read its [source code](/examples/httpclient.rs), then run it as:
+
+```sh
+cargo run --example httpclient -- tap0 ADDRESS URL
+```
+
+For example:
+
+```sh
+cargo run --example httpclient -- tap0 93.184.216.34 http://example.org/
+```
+
+It connects to the given address (not a hostname) and URL, and prints any returned response data.
+The TCP socket buffers are limited to 1024 bytes to make packet traces more interesting.
+
+### examples/ping.rs
+
+_examples/ping.rs_ implements a minimal version of the `ping` utility using raw sockets.
+
+The host is assigned the hardware address `02-00-00-00-00-02` and IPv4 address `192.168.69.1`.
+
+Read its [source code](/examples/ping.rs), then run it as:
+
+```sh
+cargo run --example ping -- tap0 ADDRESS
+```
+
+It sends a series of 4 ICMP ECHO\_REQUEST packets to the given address at one second intervals and
+prints out a status line on each valid ECHO\_RESPONSE received.
+
+The first ECHO\_REQUEST packet is expected to be lost since arp\_cache is empty after startup;
+the ECHO\_REQUEST packet is dropped and an ARP request is sent instead.
+
+Currently, netmasks are not implemented, and so the only address this example can reach
+is the other endpoint of the tap interface, `192.168.69.100`. It cannot reach itself because
+packets entering a tap interface do not loop back.
 
 ### examples/server.rs
 
-_examples/server.rs_ emulates a network host that can respond to requests.
+_examples/server.rs_ emulates a network host that can respond to basic requests.
 
 The host is assigned the hardware address `02-00-00-00-00-01` and IPv4 address `192.168.69.1`.
 
@@ -231,7 +292,7 @@ of testing resource exhaustion conditions.
 
 ### examples/client.rs
 
-_examples/client.rs_ emulates a network host that can initiate requests.
+_examples/client.rs_ emulates a network host that can initiate basic requests.
 
 The host is assigned the hardware address `02-00-00-00-00-02` and IPv4 address `192.168.69.2`.
 
@@ -244,27 +305,28 @@ cargo run --example client -- tap0 ADDRESS PORT
 It connects to the given address (not a hostname) and port (e.g. `socat stdio tcp4-listen:1234`),
 and will respond with reversed chunks of the input indefinitely.
 
-### examples/ping.rs
+### examples/benchmark.rs
 
-_examples/ping.rs_ implements a minimal version of the `ping` utility using raw sockets.
+_examples/benchmark.rs_ implements a simple throughput benchmark.
 
-The host is assigned the hardware address `02-00-00-00-00-02` and IPv4 address `192.168.69.1`.
-
-Read its [source code](/examples/ping.rs), then run it as:
+Read its [source code](/examples/benchmark.rs), then run it as:
 
 ```sh
-cargo run --example ping -- tap0 ADDRESS
+cargo run --release --example benchmark -- tap0 [reader|writer]
 ```
 
-It sends a series of 4 ICMP ECHO\_REQUEST packets to the given address at one second intervals and
-prints out a status line on each valid ECHO\_RESPONSE received.
+It establishes a connection to itself from a different thread and reads or writes a large amount
+of data in one direction.
 
-The first ECHO\_REQUEST packet is expected to be lost since arp\_cache is empty after startup;
-the ECHO\_REQUEST packet is dropped and an ARP request is sent instead.
+A typical result (achieved on a Intel Core i7-7500U CPU and a Linux 4.9.65 x86_64 kernel running
+on a Dell XPS 13 9360 laptop) is as follows:
 
-Currently, netmasks are not implemented, and so the only address this example can reach
-is the other endpoint of the tap interface, `192.168.1.100`. It cannot reach itself because
-packets entering a tap interface do not loop back.
+```
+$ cargo run -q --release --example benchmark tap0 reader
+throughput: 2.556 Gbps
+$ cargo run -q --release --example benchmark tap0 writer
+throughput: 5.301 Gbps
+```
 
 ## Bare-metal usage examples
 
@@ -274,12 +336,12 @@ that do. Because of this, only one such example is provided.
 ### examples/loopback.rs
 
 _examples/loopback.rs_ sets up _smoltcp_ to talk with itself via a loopback interface.
-Although it does not require `std`, this example still requires the `collections` feature to run.
+Although it does not require `std`, this example still requires the `alloc` feature to run.
 
 Read its [source code](/examples/loopback.rs), then run it without `std`:
 
 ```sh
-cargo run --example loopback --no-default-features --features collections
+cargo run --example loopback --no-default-features --features alloc
 ```
 
 ... or with `std`:

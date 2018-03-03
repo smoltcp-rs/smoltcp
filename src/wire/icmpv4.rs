@@ -166,7 +166,7 @@ enum_with_unknown! {
 }
 
 /// A read/write wrapper around an Internet Control Message Protocol version 4 packet buffer.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Packet<T: AsRef<[u8]>> {
     buffer: T
 }
@@ -182,6 +182,8 @@ mod field {
 
     pub const ECHO_IDENT: Field = 4..6;
     pub const ECHO_SEQNO: Field = 6..8;
+
+    pub const HEADER_END: usize = 8;
 }
 
 impl<T: AsRef<[u8]>> Packet<T> {
@@ -208,14 +210,10 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// [set_header_len]: #method.set_header_len
     pub fn check_len(&self) -> Result<()> {
         let len = self.buffer.as_ref().len();
-        if len < field::CHECKSUM.end {
+        if len < field::HEADER_END {
             Err(Error::Truncated)
         } else {
-            if len < self.header_len() as usize {
-                Err(Error::Truncated)
-            } else {
-                Ok(())
-            }
+            Ok(())
         }
     }
 
@@ -272,7 +270,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
             Message::EchoRequest    => field::ECHO_SEQNO.end,
             Message::EchoReply      => field::ECHO_SEQNO.end,
             Message::DstUnreachable => field::UNUSED.end,
-            _ => field::CHECKSUM.end // make a conservative assumption
+            _ => field::UNUSED.end // make a conservative assumption
         }
     }
 
@@ -360,6 +358,12 @@ impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Packet<&'a mut T> {
     }
 }
 
+impl<T: AsRef<[u8]>> AsRef<[u8]> for Packet<T> {
+    fn as_ref(&self) -> &[u8] {
+        self.buffer.as_ref()
+    }
+}
+
 /// A high-level representation of an Internet Control Message Protocol version 4 packet header.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Repr<'a> {
@@ -423,6 +427,7 @@ impl<'a> Repr<'a> {
                         dst_addr: ip_packet.dst_addr(),
                         protocol: ip_packet.protocol(),
                         payload_len: payload.len(),
+                        hop_limit: ip_packet.hop_limit()
                     },
                     data: payload
                 })
@@ -485,7 +490,8 @@ impl<'a> Repr<'a> {
         if checksum_caps.icmpv4.tx() {
             packet.fill_checksum()
         } else {
-            // make sure we get a consistently zeroed checksum, since implementations might rely on it
+            // make sure we get a consistently zeroed checksum,
+            // since implementations might rely on it
             packet.set_checksum(0);
         }
     }
@@ -531,15 +537,16 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
     fn pretty_print(buffer: &AsRef<[u8]>, f: &mut fmt::Formatter,
                     indent: &mut PrettyIndent) -> fmt::Result {
         let packet = match Packet::new_checked(buffer) {
-            Err(err)   => return write!(f, "{}({})\n", indent, err),
+            Err(err)   => return write!(f, "{}({})", indent, err),
             Ok(packet) => packet
         };
-        write!(f, "{}{}\n", indent, packet)?;
+        write!(f, "{}{}", indent, packet)?;
 
-        indent.increase();
         match packet.msg_type() {
-            Message::DstUnreachable =>
-                super::Ipv4Packet::<&[u8]>::pretty_print(&packet.data(), f, indent),
+            Message::DstUnreachable => {
+                indent.increase(f)?;
+                super::Ipv4Packet::<&[u8]>::pretty_print(&packet.data(), f, indent)
+            }
             _ => Ok(())
         }
     }
@@ -604,5 +611,14 @@ mod test {
         let mut packet = Packet::new(&mut bytes);
         repr.emit(&mut packet, &ChecksumCapabilities::default());
         assert_eq!(&packet.into_inner()[..], &ECHO_PACKET_BYTES[..]);
+    }
+
+    #[test]
+    fn test_check_len() {
+        let bytes = [0x0b, 0x00, 0x00, 0x00,
+                     0x00, 0x00, 0x00, 0x00];
+        assert_eq!(Packet::new_checked(&[]), Err(Error::Truncated));
+        assert_eq!(Packet::new_checked(&bytes[..4]), Err(Error::Truncated));
+        assert!(Packet::new_checked(&bytes[..]).is_ok());
     }
 }

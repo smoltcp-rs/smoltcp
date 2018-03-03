@@ -2,6 +2,8 @@ use core::ops::{Deref, DerefMut};
 
 #[cfg(feature = "socket-raw")]
 use socket::RawSocket;
+#[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
+use socket::IcmpSocket;
 #[cfg(feature = "socket-udp")]
 use socket::UdpSocket;
 #[cfg(feature = "socket-tcp")]
@@ -19,6 +21,8 @@ pub trait Session {
 
 #[cfg(feature = "socket-raw")]
 impl<'a, 'b> Session for RawSocket<'a, 'b> {}
+#[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
+impl<'a, 'b> Session for IcmpSocket<'a, 'b> {}
 #[cfg(feature = "socket-udp")]
 impl<'a, 'b> Session for UdpSocket<'a, 'b> {}
 #[cfg(feature = "socket-tcp")]
@@ -32,21 +36,29 @@ pub struct Ref<'a, T: Session + 'a> {
     consumed: bool,
 }
 
-impl<'a, T: Session> Ref<'a, T> {
-    pub(crate) fn new(socket: &'a mut T) -> Self {
+impl<'a, T: Session + 'a> Ref<'a, T> {
+    /// Wrap a pointer to a socket to make a smart pointer.
+    ///
+    /// Calling this function is only necessary if your code is using [into_inner].
+    ///
+    /// [into_inner]: #method.into_inner
+    pub fn new(socket: &'a mut T) -> Self {
         Ref { socket, consumed: false }
     }
-}
 
-impl<'a, T: Session + 'a> Ref<'a, T> {
-    pub(crate) fn map<U, F>(mut ref_: Self, f: F) -> Option<Ref<'a, U>>
-            where U: Session + 'a, F: FnOnce(&'a mut T) -> Option<&'a mut U> {
-        if let Some(socket) = f(ref_.socket) {
-            ref_.consumed = true;
-            Some(Ref::new(socket))
-        } else {
-            None
-        }
+    /// Unwrap a smart pointer to a socket.
+    ///
+    /// The finalization code is not run. Prompt operation of the network stack depends
+    /// on wrapping the returned pointer back and dropping it.
+    ///
+    /// Calling this function is only necessary to achieve composability if you *must*
+    /// map a `&mut SocketRef<'a, XSocket>` to a `&'a mut XSocket` (note the lifetimes);
+    /// be sure to call [new] afterwards.
+    ///
+    /// [new]: #method.new
+    pub fn into_inner(mut ref_: Self) -> &'a mut T {
+        ref_.consumed = true;
+        ref_.socket
     }
 }
 

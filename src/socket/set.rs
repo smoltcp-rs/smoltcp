@@ -2,7 +2,8 @@ use core::{fmt, slice};
 use managed::ManagedSlice;
 
 use super::{Socket, SocketRef, AnySocket};
-#[cfg(feature = "socket-tcp")] use super::TcpState;
+#[cfg(feature = "socket-tcp")]
+use super::TcpState;
 
 /// An item of a socket set.
 ///
@@ -15,12 +16,8 @@ pub struct Item<'a, 'b: 'a> {
 }
 
 /// A handle, identifying a socket in a set.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct Handle(usize);
-
-impl Handle {
-    pub(crate) const EMPTY: Handle = Handle(0);
-}
 
 impl fmt::Display for Handle {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -50,15 +47,19 @@ impl<'a, 'b: 'a, 'c: 'a + 'b> Set<'a, 'b, 'c> {
     ///
     /// # Panics
     /// This function panics if the storage is fixed-size (not a `Vec`) and is full.
-    pub fn add(&mut self, socket: Socket<'b, 'c>) -> Handle {
+    pub fn add<T>(&mut self, socket: T) -> Handle
+        where T: Into<Socket<'b, 'c>>
+    {
         fn put<'b, 'c>(index: usize, slot: &mut Option<Item<'b, 'c>>,
                        mut socket: Socket<'b, 'c>) -> Handle {
             net_trace!("[{}]: adding", index);
             let handle = Handle(index);
-            socket.set_handle(handle);
+            socket.meta_mut().handle = handle;
             *slot = Some(Item { socket: socket, refs: 1 });
             handle
         }
+
+        let socket = socket.into();
 
         for (index, slot) in self.sockets.iter_mut().enumerate() {
             if slot.is_none() {
@@ -142,6 +143,9 @@ impl<'a, 'b: 'a, 'c: 'a + 'b> Set<'a, 'b, 'c> {
                 match socket {
                     #[cfg(feature = "socket-raw")]
                     &mut Socket::Raw(_) =>
+                        may_remove = true,
+                    #[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
+                    &mut Socket::Icmp(_) =>
                         may_remove = true,
                     #[cfg(feature = "socket-udp")]
                     &mut Socket::Udp(_) =>

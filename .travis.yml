@@ -1,32 +1,51 @@
 language: rust
 matrix:
   include:
-    # litmus check that we work on stable/beta
-    - rust: stable
-      env: FEATURES='default' MODE='test'
-    - rust: beta
-      env: FEATURES='default' MODE='test'
-    # actually test everything
+    ### Litmus check that we work on stable/beta
+    # (we don't, not until slice_rotate lands)
+    # - rust: stable
+    #   env: FEATURES='default' MODE='test'
+    # - rust: beta
+    #   env: FEATURES='default' MODE='test'
+    ### Test default configurations
     - rust: nightly
       env: FEATURES='default' MODE='test'
+    ### Test select feature permutations, chosen to be as orthogonal as possible
     - rust: nightly
-      env: FEATURES='phy-raw_socket socket-udp' MODE='build'
+      env: FEATURES='std phy-raw_socket proto-ipv6 socket-udp' MODE='test'
     - rust: nightly
-      env: FEATURES='phy-tap_interface socket-udp' MODE='build'
+      env: FEATURES='std phy-tap_interface proto-ipv6 socket-udp' MODE='test'
     - rust: nightly
-      env: FEATURES='socket-raw' MODE='build'
+      env: FEATURES='std proto-ipv4 socket-raw' MODE='test'
     - rust: nightly
-      env: FEATURES='socket-udp' MODE='build'
+      env: FEATURES='std proto-ipv6 socket-udp' MODE='test'
     - rust: nightly
-      env: FEATURES='socket-tcp' MODE='build'
+      env: FEATURES='std proto-ipv6 socket-tcp' MODE='test'
     - rust: nightly
-      env: FEATURES='socket-raw socket-udp socket-tcp' MODE='build'
+      env: FEATURES='std proto-ipv4 socket-icmp socket-tcp' MODE='test'
     - rust: nightly
-      env: FEATURES='socket-raw socket-udp socket-tcp std' MODE='build'
+      env: FEATURES='std proto-ipv6 socket-icmp socket-tcp' MODE='test'
+    ### Test select feature permutations, chosen to be as aggressive as possible
     - rust: nightly
-      env: FEATURES='socket-raw socket-udp socket-tcp alloc' MODE='build'
+      env: FEATURES='proto-ipv4 proto-ipv6 socket-raw socket-udp socket-tcp socket-icmp std'
+        MODE='test'
+    - rust: nightly
+      env: FEATURES='proto-ipv4 proto-ipv6 socket-raw socket-udp socket-tcp socket-icmp alloc'
+        MODE='test'
+    - rust: nightly
+      env: FEATURES='proto-ipv4 proto-ipv6 socket-raw socket-udp socket-tcp socket-icmp'
+        MODE='build'
+    - rust: nightly
+      env: MODE='fuzz run' ARGS='packet_parser -- -max_len=1536 -max_total_time=30'
+  allow_failures:
+    # something's screwy with Travis (as usual) and cargo-fuzz dies with a LeakSanitizer error
+    # even when it's successful. Keep this in .travis.yml in case it starts working some day.
+    - rust: nightly
+      env: MODE='fuzz run' ARGS='packet_parser -- -max_len=1536 -max_total_time=30'
+before_script:
+  - if [ "$MODE" == "fuzz run" ]; then cargo install cargo-fuzz; fi
 script:
-   - cargo "$MODE" --no-default-features --features "$FEATURES"
+  - cargo $MODE --no-default-features --features "$FEATURES" $ARGS
 notifications:
   irc:
     channels:

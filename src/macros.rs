@@ -1,11 +1,6 @@
 #[cfg(feature = "log")]
 #[macro_use]
 mod log {
-    macro_rules! net_log_enabled {
-        (trace) => (log_enabled!($crate::log::LogLevel::Trace));
-        (debug) => (log_enabled!($crate::log::LogLevel::Debug));
-    }
-
     macro_rules! net_log {
         (trace, $($arg:expr),*) => { trace!($($arg),*); };
         (debug, $($arg:expr),*) => { debug!($($arg),*); };
@@ -15,12 +10,8 @@ mod log {
 #[cfg(not(feature = "log"))]
 #[macro_use]
 mod log {
-    macro_rules! net_log_enabled {
-        ($level:ident) => (false);
-    }
-
     macro_rules! net_log {
-        ($level:ident, $($arg:expr),*) => { $( let _ = $arg );* }
+        ($level:ident, $($arg:expr),*) => { $( let _ = $arg; )* }
     }
 }
 

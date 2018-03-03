@@ -4,9 +4,9 @@ use std::rc::Rc;
 use std::io;
 use std::os::unix::io::{AsRawFd, RawFd};
 
-use {Error, Result};
-use super::{sys, Device, DeviceCapabilities};
-
+use Result;
+use phy::{self, sys, DeviceCapabilities, Device};
+use time::Instant;
 
 /// A socket that captures or transmits the complete frame.
 #[derive(Debug)]
@@ -37,9 +37,9 @@ impl RawSocket {
     }
 }
 
-impl Device for RawSocket {
-    type RxBuffer = Vec<u8>;
-    type TxBuffer = TxBuffer;
+impl<'a> Device<'a> for RawSocket {
+    type RxToken = RxToken;
+    type TxToken = TxToken;
 
     fn capabilities(&self) -> DeviceCapabilities {
         DeviceCapabilities {
@@ -48,49 +48,54 @@ impl Device for RawSocket {
         }
     }
 
-    fn receive(&mut self, _timestamp: u64) -> Result<Self::RxBuffer> {
+    fn receive(&'a mut self) -> Option<(Self::RxToken, Self::TxToken)> {
         let mut lower = self.lower.borrow_mut();
         let mut buffer = vec![0; self.mtu];
         match lower.recv(&mut buffer[..]) {
-          Ok(size) => {
-            buffer.resize(size, 0);
-            Ok(buffer)
-          },
-          Err(_) => {
-            Err(Error::IOError)
-          }
+            Ok(size) => {
+                buffer.resize(size, 0);
+                let rx = RxToken { buffer };
+                let tx = TxToken { lower: self.lower.clone() };
+                Some((rx, tx))
+            }
+            Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => {
+                None
+            }
+            Err(err) => panic!("{}", err)
         }
     }
 
-    fn transmit(&mut self, _timestamp: u64, length: usize) -> Result<Self::TxBuffer> {
-        Ok(TxBuffer {
-            lower:  self.lower.clone(),
-            buffer: vec![0; length],
+    fn transmit(&'a mut self) -> Option<Self::TxToken> {
+        Some(TxToken {
+            lower: self.lower.clone(),
         })
     }
 }
 
 #[doc(hidden)]
-pub struct TxBuffer {
+pub struct RxToken {
+    buffer: Vec<u8>
+}
+
+impl phy::RxToken for RxToken {
+    fn consume<R, F: FnOnce(&[u8]) -> Result<R>>(self, _timestamp: Instant, f: F) -> Result<R> {
+        f(&self.buffer[..])
+    }
+}
+
+#[doc(hidden)]
+pub struct TxToken {
     lower:  Rc<RefCell<sys::RawSocketDesc>>,
-    buffer: Vec<u8>,
 }
 
-impl AsRef<[u8]> for TxBuffer {
-    fn as_ref(&self) -> &[u8] {
-        self.buffer.as_ref()
-    }
-}
-
-impl AsMut<[u8]> for TxBuffer {
-    fn as_mut(&mut self) -> &mut [u8] {
-        self.buffer.as_mut()
-    }
-}
-
-impl Drop for TxBuffer {
-    fn drop(&mut self) {
+impl phy::TxToken for TxToken {
+    fn consume<R, F: FnOnce(&mut [u8]) -> Result<R>>(self, _timestamp: Instant, len: usize, f: F)
+        -> Result<R>
+    {
         let mut lower = self.lower.borrow_mut();
-        lower.send(&mut self.buffer[..]).unwrap();
+        let mut buffer = vec![0; len];
+        let result = f(&mut buffer);
+        lower.send(&mut buffer[..]).unwrap();
+        result
     }
 }

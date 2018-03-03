@@ -1,6 +1,13 @@
+#![cfg_attr(not(all(feature = "proto-ipv6", feature = "proto-ipv4")), allow(dead_code))]
+
 use core::str::FromStr;
 use core::result;
-use wire::{EthernetAddress, IpAddress, Ipv4Address, Ipv4Cidr, IpCidr};
+
+use wire::{EthernetAddress, IpAddress, IpCidr, IpEndpoint};
+#[cfg(feature = "proto-ipv4")]
+use wire::{Ipv4Address, Ipv4Cidr};
+#[cfg(feature = "proto-ipv6")]
+use wire::{Ipv6Address, Ipv6Cidr};
 
 type Result<T> = result::Result<T, ()>;
 
@@ -14,6 +21,14 @@ impl<'a> Parser<'a> {
         Parser {
             data: data.as_bytes(),
             pos:  0
+        }
+    }
+
+    fn lookahead_char(&self, ch: u8) -> bool {
+        if self.pos < self.data.len() {
+            self.data[self.pos] == ch
+        } else {
+            false
         }
     }
 
@@ -60,6 +75,13 @@ impl<'a> Parser<'a> {
         } else {
             Err(())
         }
+    }
+
+    fn accept_str(&mut self, string: &[u8]) -> Result<()> {
+        for byte in string.iter() {
+            self.accept_char(*byte)?;
+        }
+        Ok(())
     }
 
     fn accept_digit(&mut self, hex: bool) -> Result<u8> {
@@ -115,7 +137,134 @@ impl<'a> Parser<'a> {
         Err(())
     }
 
-    fn accept_ipv4(&mut self) -> Result<Ipv4Address> {
+    #[cfg(feature = "proto-ipv6")]
+    fn accept_ipv4_mapped_ipv6_part(&mut self, parts: &mut [u16], idx: &mut usize) -> Result<()> {
+        let octets = self.accept_ipv4_octets()?;
+
+        parts[*idx] = ((octets[0] as u16) << 8) | (octets[1] as u16);
+        *idx += 1;
+        parts[*idx] = ((octets[2] as u16) << 8) | (octets[3] as u16);
+        *idx += 1;
+
+        Ok(())
+    }
+
+    #[cfg(feature = "proto-ipv6")]
+    fn accept_ipv6_part(&mut self, (head, tail): (&mut [u16; 8], &mut [u16; 6]),
+                        (head_idx, tail_idx): (&mut usize, &mut usize),
+                        mut use_tail: bool, is_cidr: bool) -> Result<()> {
+        let double_colon = match self.try(|p| p.accept_str(b"::")) {
+            Some(_) if !use_tail && *head_idx < 7 => {
+                // Found a double colon. Start filling out the
+                // tail and set the double colon flag in case
+                // this is the last character we can parse.
+                use_tail = true;
+                true
+            },
+            Some(_) => {
+                // This is a bad address. Only one double colon is
+                // allowed and an address is only 128 bits.
+                return Err(());
+            }
+            None => {
+                if *head_idx != 0 || use_tail && *tail_idx != 0 {
+                    // If this is not the first number or the position following
+                    // a double colon, we expect there to be a single colon.
+                    self.accept_char(b':')?;
+                }
+                false
+            }
+        };
+
+        match self.try(|p| p.accept_number(4, 0x10000, true)) {
+            Some(part) if !use_tail && *head_idx < 8 => {
+                // Valid u16 to be added to the address
+                head[*head_idx] = part as u16;
+                *head_idx += 1;
+
+                if *head_idx == 6 && head[0..*head_idx] == [0, 0, 0, 0, 0, 0xffff] {
+                    self.try(|p| {
+                        p.accept_char(b':')?;
+                        p.accept_ipv4_mapped_ipv6_part(head, head_idx)
+                    });
+                }
+                Ok(())
+            },
+            Some(part) if *tail_idx < 6 => {
+                // Valid u16 to be added to the address
+                tail[*tail_idx] = part as u16;
+                *tail_idx += 1;
+
+                if *tail_idx == 1 && tail[0] == 0xffff
+                        && head[0..8] == [0, 0, 0, 0, 0, 0, 0, 0] {
+                    self.try(|p| {
+                        p.accept_char(b':')?;
+                        p.accept_ipv4_mapped_ipv6_part(tail, tail_idx)
+                    });
+                }
+                Ok(())
+            },
+            Some(_) => {
+                // Tail or head section is too long
+                Err(())
+            }
+            None if double_colon && (is_cidr || self.pos == self.data.len()) => {
+                // The address ends with "::". E.g. 1234:: or ::
+                Ok(())
+            }
+            None => {
+                // Invalid address
+                Err(())
+            }
+        }?;
+
+        if *head_idx + *tail_idx > 8 {
+            // The head and tail indexes add up to a bad address length.
+            Err(())
+        } else if !self.lookahead_char(b':') {
+            if *head_idx < 8 && !use_tail {
+                // There was no double colon found, and the head is too short
+                return Err(());
+            }
+            Ok(())
+        } else {
+            // Continue recursing
+            self.accept_ipv6_part((head, tail), (head_idx, tail_idx), use_tail, is_cidr)
+        }
+    }
+
+    #[cfg(feature = "proto-ipv6")]
+    fn accept_ipv6(&mut self, is_cidr: bool) -> Result<Ipv6Address> {
+        // IPv6 addresses may contain a "::" to indicate a series of
+        // 16 bit sections that evaluate to 0. E.g.
+        //
+        // fe80:0000:0000:0000:0000:0000:0000:0001
+        //
+        // May be written as
+        //
+        // fe80::1
+        //
+        // As a result, we need to find the first section of colon
+        // delimited u16's before a possible "::", then the
+        // possible second section after the "::", and finally
+        // combine the second optional section to the end of the
+        // final address.
+        //
+        // See https://tools.ietf.org/html/rfc4291#section-2.2
+        // for details.
+        let (mut addr, mut tail) = ([0u16; 8], [0u16; 6]);
+        let (mut head_idx, mut tail_idx) = (0, 0);
+
+        self.accept_ipv6_part((&mut addr, &mut tail), (&mut head_idx, &mut tail_idx), false, is_cidr)?;
+
+        // We need to copy the tail portion (the portion following the "::") to the
+        // end of the address.
+        addr[8 - tail_idx..].copy_from_slice(&tail[..tail_idx]);
+
+        Ok(Ipv6Address::from_parts(&addr))
+    }
+
+    fn accept_ipv4_octets(&mut self) -> Result<[u8; 4]> {
         let mut octets = [0u8; 4];
         for n in 0..4 {
             octets[n] = self.accept_number(3, 0x100, false)? as u8;
@@ -123,16 +272,74 @@ impl<'a> Parser<'a> {
                 self.accept_char(b'.')?;
             }
         }
+        Ok(octets)
+    }
+
+    #[cfg(feature = "proto-ipv4")]
+    fn accept_ipv4(&mut self) -> Result<Ipv4Address> {
+        let octets = self.accept_ipv4_octets()?;
         Ok(Ipv4Address(octets))
     }
 
     fn accept_ip(&mut self) -> Result<IpAddress> {
-        if let Some(()) = self.try(|p| p.accept_eof()) {
-            return Ok(IpAddress::Unspecified)
+        #[cfg(feature = "proto-ipv4")]
+        match self.try(|p| p.accept_ipv4()) {
+            Some(ipv4) => return Ok(IpAddress::Ipv4(ipv4)),
+            None => ()
         }
-        if let Some(ipv4) = self.try(|p| p.accept_ipv4()) {
-            return Ok(IpAddress::Ipv4(ipv4))
+
+        #[cfg(feature = "proto-ipv6")]
+        match self.try(|p| p.accept_ipv6(false)) {
+            Some(ipv6) => return Ok(IpAddress::Ipv6(ipv6)),
+            None => ()
         }
+
+        Err(())
+    }
+
+    #[cfg(feature = "proto-ipv4")]
+    fn accept_ipv4_endpoint(&mut self) -> Result<IpEndpoint> {
+        let ip = self.accept_ipv4()?;
+
+        let port = if self.accept_eof().is_ok() {
+            0
+        } else {
+            self.accept_char(b':')?;
+            self.accept_number(5, 65535, false)?
+        };
+
+        Ok(IpEndpoint { addr: IpAddress::Ipv4(ip), port: port as u16 })
+    }
+
+    #[cfg(feature = "proto-ipv6")]
+    fn accept_ipv6_endpoint(&mut self) -> Result<IpEndpoint> {
+        if self.lookahead_char(b'[') {
+            self.accept_char(b'[')?;
+            let ip = self.accept_ipv6(false)?;
+            self.accept_char(b']')?;
+            self.accept_char(b':')?;
+            let port = self.accept_number(5, 65535, false)?;
+
+            Ok(IpEndpoint { addr: IpAddress::Ipv6(ip), port: port as u16 })
+        } else {
+            let ip = self.accept_ipv6(false)?;
+            Ok(IpEndpoint { addr: IpAddress::Ipv6(ip), port: 0 })
+        }
+    }
+
+    fn accept_ip_endpoint(&mut self) -> Result<IpEndpoint> {
+        #[cfg(feature = "proto-ipv4")]
+        match self.try(|p| p.accept_ipv4_endpoint()) {
+            Some(ipv4) => return Ok(ipv4),
+            None => ()
+        }
+
+        #[cfg(feature = "proto-ipv6")]
+        match self.try(|p| p.accept_ipv6_endpoint()) {
+            Some(ipv6) => return Ok(ipv6),
+            None => ()
+        }
+
         Err(())
     }
 }
@@ -146,6 +353,7 @@ impl FromStr for EthernetAddress {
     }
 }
 
+#[cfg(feature = "proto-ipv4")]
 impl FromStr for Ipv4Address {
     type Err = ();
 
@@ -155,15 +363,26 @@ impl FromStr for Ipv4Address {
     }
 }
 
+#[cfg(feature = "proto-ipv6")]
+impl FromStr for Ipv6Address {
+    type Err = ();
+
+    /// Parse a string representation of an IPv6 address.
+    fn from_str(s: &str) -> Result<Ipv6Address> {
+        Parser::new(s).until_eof(|p| p.accept_ipv6(false))
+    }
+}
+
 impl FromStr for IpAddress {
     type Err = ();
 
-    /// Parse a string representation of an IPv4 address.
+    /// Parse a string representation of an IP address.
     fn from_str(s: &str) -> Result<IpAddress> {
         Parser::new(s).until_eof(|p| p.accept_ip())
     }
 }
 
+#[cfg(feature = "proto-ipv4")]
 impl FromStr for Ipv4Cidr {
     type Err = ();
 
@@ -178,12 +397,48 @@ impl FromStr for Ipv4Cidr {
     }
 }
 
+#[cfg(feature = "proto-ipv6")]
+impl FromStr for Ipv6Cidr {
+    type Err = ();
+
+    /// Parse a string representation of an IPv6 CIDR.
+    fn from_str(s: &str) -> Result<Ipv6Cidr> {
+        // https://tools.ietf.org/html/rfc4291#section-2.3
+        Parser::new(s).until_eof(|p| {
+            let ip = p.accept_ipv6(true)?;
+            p.accept_char(b'/')?;
+            let prefix_len = p.accept_number(3, 129, false)? as u8;
+            Ok(Ipv6Cidr::new(ip, prefix_len))
+        })
+    }
+}
+
 impl FromStr for IpCidr {
     type Err = ();
 
     /// Parse a string representation of an IP CIDR.
     fn from_str(s: &str) -> Result<IpCidr> {
-        Ipv4Cidr::from_str(s).map(IpCidr::Ipv4)
+        #[cfg(feature = "proto-ipv4")]
+        match Ipv4Cidr::from_str(s) {
+            Ok(cidr) => return Ok(IpCidr::Ipv4(cidr)),
+            Err(_) => ()
+        }
+
+        #[cfg(feature = "proto-ipv6")]
+        match Ipv6Cidr::from_str(s) {
+            Ok(cidr) => return Ok(IpCidr::Ipv6(cidr)),
+            Err(_) => ()
+        }
+
+        Err(())
+    }
+}
+
+impl FromStr for IpEndpoint {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<IpEndpoint> {
+        Parser::new(s).until_eof(|p| Ok(p.accept_ip_endpoint()?))
     }
 }
 
@@ -191,7 +446,23 @@ impl FromStr for IpCidr {
 mod test {
     use super::*;
 
+    macro_rules! check_cidr_test_array {
+        ($tests:expr, $from_str:path, $variant:path) => {
+            for &(s, cidr) in &$tests {
+                assert_eq!($from_str(s), cidr);
+                assert_eq!(IpCidr::from_str(s), cidr.map($variant));
+
+                if let Ok(cidr) = cidr {
+                    assert_eq!($from_str(&format!("{}", cidr)), Ok(cidr));
+                    assert_eq!(IpCidr::from_str(&format!("{}", cidr)),
+                               Ok($variant(cidr)));
+                }
+            }
+        }
+    }
+
     #[test]
+    #[cfg(feature = "proto-ipv4")]
     fn test_mac() {
         assert_eq!(EthernetAddress::from_str(""), Err(()));
         assert_eq!(EthernetAddress::from_str("02:00:00:00:00:00"),
@@ -213,6 +484,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "proto-ipv4")]
     fn test_ipv4() {
         assert_eq!(Ipv4Address::from_str(""), Err(()));
         assert_eq!(Ipv4Address::from_str("1.2.3.4"),
@@ -228,16 +500,92 @@ mod test {
     }
 
     #[test]
-    fn test_ip() {
-        assert_eq!(IpAddress::from_str(""),
-                   Ok(IpAddress::Unspecified));
+    #[cfg(feature = "proto-ipv6")]
+    fn test_ipv6() {
+        // Obviously not valid
+        assert_eq!(Ipv6Address::from_str(""), Err(()));
+        assert_eq!(Ipv6Address::from_str("fe80:0:0:0:0:0:0:1"),
+                   Ok(Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1)));
+        assert_eq!(Ipv6Address::from_str("::1"),
+                   Ok(Ipv6Address::LOOPBACK));
+        assert_eq!(Ipv6Address::from_str("::"),
+                   Ok(Ipv6Address::UNSPECIFIED));
+        assert_eq!(Ipv6Address::from_str("fe80::1"),
+                   Ok(Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1)));
+        assert_eq!(Ipv6Address::from_str("1234:5678::"),
+                   Ok(Ipv6Address::new(0x1234, 0x5678, 0, 0, 0, 0, 0, 0)));
+        assert_eq!(Ipv6Address::from_str("1234:5678::8765:4321"),
+                   Ok(Ipv6Address::new(0x1234, 0x5678, 0, 0, 0, 0, 0x8765, 0x4321)));
+        // Two double colons in address
+        assert_eq!(Ipv6Address::from_str("1234:5678::1::1"),
+                   Err(()));
+        assert_eq!(Ipv6Address::from_str("4444:333:22:1::4"),
+                   Ok(Ipv6Address::new(0x4444, 0x0333, 0x0022, 0x0001, 0, 0, 0, 4)));
+        assert_eq!(Ipv6Address::from_str("1:1:1:1:1:1::"),
+                   Ok(Ipv6Address::new(1, 1, 1, 1, 1, 1, 0, 0)));
+        assert_eq!(Ipv6Address::from_str("::1:1:1:1:1:1"),
+                   Ok(Ipv6Address::new(0, 0, 1, 1, 1, 1, 1, 1)));
+        assert_eq!(Ipv6Address::from_str("::1:1:1:1:1:1:1"),
+                   Err(()));
+        // Double colon appears too late indicating an address that is too long
+        assert_eq!(Ipv6Address::from_str("1:1:1:1:1:1:1::"),
+                   Err(()));
+        // Section after double colon is too long for a valid address
+        assert_eq!(Ipv6Address::from_str("::1:1:1:1:1:1:1"),
+                   Err(()));
+        // Obviously too long
+        assert_eq!(Ipv6Address::from_str("1:1:1:1:1:1:1:1:1"),
+                   Err(()));
+        // Address is too short
+        assert_eq!(Ipv6Address::from_str("1:1:1:1:1:1:1"),
+                   Err(()));
+        // Long number
+        assert_eq!(Ipv6Address::from_str("::000001"),
+                   Err(()));
+        // IPv4-Mapped address
+        assert_eq!(Ipv6Address::from_str("::ffff:192.168.1.1"),
+                   Ok(Ipv6Address([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 192, 168, 1, 1])));
+        assert_eq!(Ipv6Address::from_str("0:0:0:0:0:ffff:192.168.1.1"),
+                   Ok(Ipv6Address([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 192, 168, 1, 1])));
+        assert_eq!(Ipv6Address::from_str("0::ffff:192.168.1.1"),
+                   Ok(Ipv6Address([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 192, 168, 1, 1])));
+        // Only ffff is allowed in position 6 when IPv4 mapped
+        assert_eq!(Ipv6Address::from_str("0:0:0:0:0:eeee:192.168.1.1"),
+                   Err(()));
+        // Positions 1-5 must be 0 when IPv4 mapped
+        assert_eq!(Ipv6Address::from_str("0:0:0:0:1:ffff:192.168.1.1"),
+                   Err(()));
+        assert_eq!(Ipv6Address::from_str("1::ffff:192.168.1.1"),
+                   Err(()));
+        // Out of range ipv4 octet
+        assert_eq!(Ipv6Address::from_str("0:0:0:0:0:ffff:256.168.1.1"),
+                   Err(()));
+        // Invalid hex in ipv4 octet
+        assert_eq!(Ipv6Address::from_str("0:0:0:0:0:ffff:c0.168.1.1"),
+                   Err(()));
+    }
+
+    #[test]
+    #[cfg(feature = "proto-ipv4")]
+    fn test_ip_ipv4() {
+        assert_eq!(IpAddress::from_str(""), Err(()));
         assert_eq!(IpAddress::from_str("1.2.3.4"),
                    Ok(IpAddress::Ipv4(Ipv4Address([1, 2, 3, 4]))));
         assert_eq!(IpAddress::from_str("x"), Err(()));
     }
 
     #[test]
-    fn test_cidr() {
+    #[cfg(feature = "proto-ipv6")]
+    fn test_ip_ipv6() {
+        assert_eq!(IpAddress::from_str(""), Err(()));
+        assert_eq!(IpAddress::from_str("fe80::1"),
+                   Ok(IpAddress::Ipv6(Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1))));
+        assert_eq!(IpAddress::from_str("x"), Err(()));
+    }
+
+    #[test]
+    #[cfg(feature = "proto-ipv4")]
+    fn test_cidr_ipv4() {
         let tests = [
             ("127.0.0.1/8",
              Ok(Ipv4Cidr::new(Ipv4Address([127, 0, 0, 1]), 8u8))),
@@ -256,15 +604,60 @@ mod test {
             ("/32", Err(())),
         ];
 
-        for &(s, cidr) in &tests {
-            assert_eq!(Ipv4Cidr::from_str(s), cidr);
-            assert_eq!(IpCidr::from_str(s), cidr.map(IpCidr::Ipv4));
+        check_cidr_test_array!(tests, Ipv4Cidr::from_str, IpCidr::Ipv4);
+    }
 
-            if let Ok(cidr) = cidr {
-                assert_eq!(Ipv4Cidr::from_str(&format!("{}", cidr)), Ok(cidr));
-                assert_eq!(IpCidr::from_str(&format!("{}", cidr)),
-                           Ok(IpCidr::Ipv4(cidr)));
-            }
-        }
+    #[test]
+    #[cfg(feature = "proto-ipv6")]
+    fn test_cidr_ipv6() {
+        let tests = [
+            ("fe80::1/64",
+             Ok(Ipv6Cidr::new(Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1), 64u8))),
+            ("fe80::/64",
+             Ok(Ipv6Cidr::new(Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 0), 64u8))),
+            ("::1/128",
+             Ok(Ipv6Cidr::new(Ipv6Address::LOOPBACK, 128u8))),
+            ("::/128",
+             Ok(Ipv6Cidr::new(Ipv6Address::UNSPECIFIED, 128u8))),
+            ("fe80:0:0:0:0:0:0:1/64",
+             Ok(Ipv6Cidr::new(Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1), 64u8))),
+            ("fe80:0:0:0:0:0:0:1|64",
+             Err(())),
+            ("fe80::|64",
+             Err(())),
+            ("fe80::1::/64",
+             Err(()))
+        ];
+        check_cidr_test_array!(tests, Ipv6Cidr::from_str, IpCidr::Ipv6);
+    }
+
+    #[test]
+    #[cfg(feature = "proto-ipv4")]
+    fn test_endpoint_ipv4() {
+        assert_eq!(IpEndpoint::from_str(""), Err(()));
+        assert_eq!(IpEndpoint::from_str("x"), Err(()));
+        assert_eq!(
+            IpEndpoint::from_str("127.0.0.1"),
+            Ok(IpEndpoint { addr: IpAddress::v4(127, 0, 0, 1), port: 0 })
+        );
+        assert_eq!(
+            IpEndpoint::from_str("127.0.0.1:12345"),
+            Ok(IpEndpoint { addr: IpAddress::v4(127, 0, 0, 1), port: 12345 })
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "proto-ipv6")]
+    fn test_endpoint_ipv6() {
+        assert_eq!(IpEndpoint::from_str(""), Err(()));
+        assert_eq!(IpEndpoint::from_str("x"), Err(()));
+        assert_eq!(
+            IpEndpoint::from_str("fe80::1"),
+            Ok(IpEndpoint { addr: IpAddress::v6(0xfe80, 0, 0, 0, 0, 0, 0, 1), port: 0 })
+        );
+        assert_eq!(
+            IpEndpoint::from_str("[fe80::1]:12345"),
+            Ok(IpEndpoint { addr: IpAddress::v6(0xfe80, 0, 0, 0, 0, 0, 0, 1), port: 12345 })
+        );
     }
 }

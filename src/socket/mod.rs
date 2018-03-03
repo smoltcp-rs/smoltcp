@@ -1,32 +1,47 @@
-//! Communication between endpoints.
-//!
-//! The `socket` module deals with *network endpoints* and *buffering*.
-//! It provides interfaces for accessing buffers of data, and protocol state machines
-//! for filling and emptying these buffers.
-//!
-//! The programming interface implemented here differs greatly from the common Berkeley socket
-//! interface. Specifically, in the Berkeley interface the buffering is implicit:
-//! the operating system decides on the good size for a buffer and manages it.
-//! The interface implemented by this module uses explicit buffering: you decide on the good
-//! size for a buffer, allocate it, and let the networking stack use it.
+/*! Communication between endpoints.
+
+The `socket` module deals with *network endpoints* and *buffering*.
+It provides interfaces for accessing buffers of data, and protocol state machines
+for filling and emptying these buffers.
+
+The programming interface implemented here differs greatly from the common Berkeley socket
+interface. Specifically, in the Berkeley interface the buffering is implicit:
+the operating system decides on the good size for a buffer and manages it.
+The interface implemented by this module uses explicit buffering: you decide on the good
+size for a buffer, allocate it, and let the networking stack use it.
+*/
 
 use core::marker::PhantomData;
-use wire::IpRepr;
+use time::Instant;
 
-#[cfg(feature = "socket-raw")] mod raw;
-#[cfg(feature = "socket-udp")] mod udp;
-#[cfg(feature = "socket-tcp")] mod tcp;
+mod meta;
+#[cfg(feature = "socket-raw")]
+mod raw;
+#[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
+mod icmp;
+#[cfg(feature = "socket-udp")]
+mod udp;
+#[cfg(feature = "socket-tcp")]
+mod tcp;
 mod set;
 mod ref_;
 
+pub(crate) use self::meta::Meta as SocketMeta;
+
 #[cfg(feature = "socket-raw")]
-pub use self::raw::{PacketBuffer as RawPacketBuffer,
-                    SocketBuffer as RawSocketBuffer,
+pub use self::raw::{RawPacketMetadata,
+                    RawSocketBuffer,
                     RawSocket};
 
+#[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
+pub use self::icmp::{IcmpPacketMetadata,
+                     IcmpSocketBuffer,
+                     Endpoint as IcmpEndpoint,
+                     IcmpSocket};
+
 #[cfg(feature = "socket-udp")]
-pub use self::udp::{PacketBuffer as UdpPacketBuffer,
-                    SocketBuffer as UdpSocketBuffer,
+pub use self::udp::{UdpPacketMetadata,
+                    UdpSocketBuffer,
                     UdpSocket};
 
 #[cfg(feature = "socket-tcp")]
@@ -54,6 +69,8 @@ pub(crate) use self::ref_::Session as SocketSession;
 pub enum Socket<'a, 'b: 'a> {
     #[cfg(feature = "socket-raw")]
     Raw(RawSocket<'a, 'b>),
+    #[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
+    Icmp(IcmpSocket<'a, 'b>),
     #[cfg(feature = "socket-udp")]
     Udp(UdpSocket<'a, 'b>),
     #[cfg(feature = "socket-tcp")]
@@ -63,37 +80,50 @@ pub enum Socket<'a, 'b: 'a> {
 }
 
 macro_rules! dispatch_socket {
-    ($self_:expr, |$socket:ident [$( $mut_:tt )*]| $code:expr) => ({
+    ($self_:expr, |$socket:ident| $code:expr) => {
+        dispatch_socket!(@inner $self_, |$socket| $code);
+    };
+    (mut $self_:expr, |$socket:ident| $code:expr) => {
+        dispatch_socket!(@inner mut $self_, |$socket| $code);
+    };
+    (@inner $( $mut_:ident )* $self_:expr, |$socket:ident| $code:expr) => {
         match $self_ {
             #[cfg(feature = "socket-raw")]
             &$( $mut_ )* Socket::Raw(ref $( $mut_ )* $socket) => $code,
+            #[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
+            &$( $mut_ )* Socket::Icmp(ref $( $mut_ )* $socket) => $code,
             #[cfg(feature = "socket-udp")]
             &$( $mut_ )* Socket::Udp(ref $( $mut_ )* $socket) => $code,
             #[cfg(feature = "socket-tcp")]
             &$( $mut_ )* Socket::Tcp(ref $( $mut_ )* $socket) => $code,
             &$( $mut_ )* Socket::__Nonexhaustive(_) => unreachable!()
         }
-    })
+    };
 }
 
 impl<'a, 'b> Socket<'a, 'b> {
     /// Return the socket handle.
+    #[inline]
     pub fn handle(&self) -> SocketHandle {
-        dispatch_socket!(self, |socket []| socket.handle())
+        self.meta().handle
     }
 
-    pub(crate) fn set_handle(&mut self, handle: SocketHandle) {
-        dispatch_socket!(self, |socket [mut]| socket.set_handle(handle))
+    pub(crate) fn meta(&self) -> &SocketMeta {
+        dispatch_socket!(self, |socket| &socket.meta)
     }
 
-    pub(crate) fn poll_at(&self) -> Option<u64> {
-        dispatch_socket!(self, |socket []| socket.poll_at())
+    pub(crate) fn meta_mut(&mut self) -> &mut SocketMeta {
+        dispatch_socket!(mut self, |socket| &mut socket.meta)
+    }
+
+    pub(crate) fn poll_at(&self) -> Option<Instant> {
+        dispatch_socket!(self, |socket| socket.poll_at())
     }
 }
 
 impl<'a, 'b> SocketSession for Socket<'a, 'b> {
     fn finish(&mut self) {
-        dispatch_socket!(self, |socket [mut]| socket.finish())
+        dispatch_socket!(mut self, |socket| socket.finish())
     }
 }
 
@@ -108,12 +138,10 @@ macro_rules! from_socket {
         impl<'a, 'b> AnySocket<'a, 'b> for $socket {
             fn downcast<'c>(ref_: SocketRef<'c, Socket<'a, 'b>>) ->
                            Option<SocketRef<'c, Self>> {
-                SocketRef::map(ref_, |socket| {
-                    match *socket {
-                        Socket::$variant(ref mut socket) => Some(socket),
-                        _ => None,
-                    }
-                })
+                match SocketRef::into_inner(ref_) {
+                    &mut Socket::$variant(ref mut socket) => Some(SocketRef::new(socket)),
+                    _ => None,
+                }
             }
         }
     }
@@ -121,6 +149,8 @@ macro_rules! from_socket {
 
 #[cfg(feature = "socket-raw")]
 from_socket!(RawSocket<'a, 'b>, Raw);
+#[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
+from_socket!(IcmpSocket<'a, 'b>, Icmp);
 #[cfg(feature = "socket-udp")]
 from_socket!(UdpSocket<'a, 'b>, Udp);
 #[cfg(feature = "socket-tcp")]

@@ -1,31 +1,38 @@
+#![allow(dead_code)]
+
 use std::cell::RefCell;
 use std::str::{self, FromStr};
 use std::rc::Rc;
 use std::io;
 use std::fs::File;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 use std::env;
 use std::process;
+#[cfg(feature = "log")]
 use log::{LogLevel, LogLevelFilter, LogRecord};
+#[cfg(feature = "log")]
 use env_logger::LogBuilder;
 use getopts::{Options, Matches};
 
-use smoltcp::phy::{Device, EthernetTracer, FaultInjector, TapInterface};
+use smoltcp::phy::{Device, EthernetTracer, FaultInjector};
+#[cfg(feature = "phy-tap_interface")]
+use smoltcp::phy::TapInterface;
 use smoltcp::phy::{PcapWriter, PcapSink, PcapMode, PcapLinkType};
 use smoltcp::phy::{RawSocket};
+use smoltcp::time::{Duration, Instant};
 
+#[cfg(feature = "log")]
 pub fn setup_logging_with_clock<F>(filter: &str, since_startup: F)
-        where F: Fn() -> u64 + Send + Sync + 'static {
+        where F: Fn() -> Instant + Send + Sync + 'static {
     LogBuilder::new()
         .format(move |record: &LogRecord| {
             let elapsed = since_startup();
-            let timestamp = format!("[{:6}.{:03}s]", elapsed / 1000, elapsed % 1000);
+            let timestamp = format!("[{}]", elapsed);
             if record.target().starts_with("smoltcp::") {
                 format!("\x1b[0m{} ({}): {}\x1b[0m", timestamp,
                         record.target().replace("smoltcp::", ""), record.args())
             } else if record.level() == LogLevel::Trace {
-                let mut message = format!("{}", record.args());
-                message.pop();
+                let message = format!("{}", record.args());
                 format!("\x1b[37m{} {}\x1b[0m", timestamp,
                         message.replace("\n", "\n             "))
             } else {
@@ -40,11 +47,10 @@ pub fn setup_logging_with_clock<F>(filter: &str, since_startup: F)
         .unwrap();
 }
 
+#[cfg(feature = "log")]
 pub fn setup_logging(filter: &str) {
-    let startup_at = Instant::now();
     setup_logging_with_clock(filter, move  || {
-        let elapsed = Instant::now().duration_since(startup_at);
-        elapsed.as_secs() * 1000 + (elapsed.subsec_nanos() / 1000000) as u64
+        Instant::now()
     })
 }
 
@@ -76,6 +82,7 @@ pub fn add_tap_options(_opts: &mut Options, free: &mut Vec<&str>) {
     free.push("INTERFACE");
 }
 
+#[cfg(feature = "phy-tap_interface")]
 pub fn parse_tap_options(matches: &mut Matches) -> TapInterface {
     let interface = matches.free.remove(0);
     TapInterface::new(&interface).unwrap()
@@ -98,8 +105,10 @@ pub fn add_middleware_options(opts: &mut Options, _free: &mut Vec<&str>) {
     opts.optopt("", "shaping-interval", "Sets the interval for rate limiting (ms)", "RATE");
 }
 
-pub fn parse_middleware_options<D: Device>(matches: &mut Matches, device: D, loopback: bool)
-        -> FaultInjector<EthernetTracer<PcapWriter<D, Rc<PcapSink>>>> {
+pub fn parse_middleware_options<D>(matches: &mut Matches, device: D, loopback: bool)
+        -> FaultInjector<EthernetTracer<PcapWriter<D, Rc<PcapSink>>>>
+    where D: for<'a> Device<'a>
+{
     let drop_chance      = matches.opt_str("drop-chance").map(|s| u8::from_str(&s).unwrap())
                                   .unwrap_or(0);
     let corrupt_chance   = matches.opt_str("corrupt-chance").map(|s| u8::from_str(&s).unwrap())
@@ -125,20 +134,16 @@ pub fn parse_middleware_options<D: Device>(matches: &mut Matches, device: D, loo
     let device = PcapWriter::new(device, Rc::new(RefCell::new(pcap_writer)) as Rc<PcapSink>,
                                  if loopback { PcapMode::TxOnly } else { PcapMode::Both },
                                  PcapLinkType::Ethernet);
-    let device = EthernetTracer::new(device, |_timestamp, printer| trace!("{}", printer));
+    let device = EthernetTracer::new(device, |_timestamp, _printer| {
+        #[cfg(feature = "log")]
+        trace!("{}", _printer);
+    });
     let mut device = FaultInjector::new(device, seed);
     device.set_drop_chance(drop_chance);
     device.set_corrupt_chance(corrupt_chance);
     device.set_max_packet_size(size_limit);
     device.set_max_tx_rate(tx_rate_limit);
     device.set_max_rx_rate(rx_rate_limit);
-    device.set_bucket_interval(shaping_interval);
+    device.set_bucket_interval(Duration::from_millis(shaping_interval));
     device
-}
-
-pub fn millis_since(startup_time: Instant) -> u64 {
-    let duration = Instant::now().duration_since(startup_time);
-    let duration_ms = (duration.as_secs() * 1000) +
-        (duration.subsec_nanos() / 1000000) as u64;
-    duration_ms
 }

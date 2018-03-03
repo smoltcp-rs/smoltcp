@@ -1,13 +1,12 @@
-//! Pretty-printing of packet representation.
-//!
-//! The `pretty_print` module provides bits and pieces for printing concise,
-//! easily human readable packet listings.
-//!
-//! # Example
-//!
-//! A packet can be formatted using the `PrettyPrinter` wrapper:
-//!
-/*!
+/*! Pretty-printing of packet representation.
+
+The `pretty_print` module provides bits and pieces for printing concise,
+easily human readable packet listings.
+
+# Example
+
+A packet can be formatted using the `PrettyPrinter` wrapper:
+
 ```rust
 use smoltcp::wire::*;
 let buffer = vec![
@@ -48,8 +47,10 @@ impl PrettyIndent {
     }
 
     /// Increase indentation level.
-    pub fn increase(&mut self) {
-        self.level += 1
+    pub fn increase(&mut self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "\n")?;
+        self.level += 1;
+        Ok(())
     }
 }
 
@@ -88,6 +89,17 @@ impl<'a, T: PrettyPrint> PrettyPrinter<'a, T> {
             prefix:  prefix,
             buffer:  buffer,
             phantom: PhantomData
+        }
+    }
+}
+
+impl<'a, T: PrettyPrint + AsRef<[u8]>> PrettyPrinter<'a, T> {
+    /// Create a `PrettyPrinter` which prints the given object.
+    pub fn print(printable: &'a T) -> PrettyPrinter<'a, T> {
+        PrettyPrinter {
+            prefix: "",
+            buffer: printable,
+            phantom: PhantomData,
         }
     }
 }

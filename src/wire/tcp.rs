@@ -51,18 +51,22 @@ impl ops::Sub for SeqNumber {
     type Output = usize;
 
     fn sub(self, rhs: SeqNumber) -> usize {
-        (self.0 - rhs.0) as usize
+        let result = self.0.wrapping_sub(rhs.0);
+        if result < 0 {
+            panic!("attempt to subtract sequence numbers with underflow")
+        }
+        result as usize
     }
 }
 
 impl cmp::PartialOrd for SeqNumber {
     fn partial_cmp(&self, other: &SeqNumber) -> Option<cmp::Ordering> {
-        (self.0 - other.0).partial_cmp(&0)
+        self.0.wrapping_sub(other.0).partial_cmp(&0)
     }
 }
 
 /// A read/write wrapper around a Transmission Control Protocol packet buffer.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Packet<T: AsRef<[u8]>> {
     buffer: T
 }
@@ -488,9 +492,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
         };
         self.set_checksum(checksum)
     }
-}
 
-impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Packet<&'a mut T> {
     /// Return a pointer to the options.
     #[inline]
     pub fn options_mut(&mut self) -> &mut [u8] {
@@ -505,6 +507,12 @@ impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Packet<&'a mut T> {
         let header_len = self.header_len() as usize;
         let data = self.buffer.as_mut();
         &mut data[header_len..]
+    }
+}
+
+impl<T: AsRef<[u8]>> AsRef<[u8]> for Packet<T> {
+    fn as_ref(&self) -> &[u8] {
+        self.buffer.as_ref()
     }
 }
 
@@ -747,7 +755,8 @@ impl<'a> Repr<'a> {
         if checksum_caps.tcpv4.tx() {
             packet.fill_checksum(src_addr, dst_addr)
         } else {
-            // make sure we get a consistently zeroed checksum, since implementations might rely on it
+            // make sure we get a consistently zeroed checksum,
+            // since implementations might rely on it
             packet.set_checksum(0);
         }
     }
@@ -842,20 +851,24 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
     fn pretty_print(buffer: &AsRef<[u8]>, f: &mut fmt::Formatter,
                     indent: &mut PrettyIndent) -> fmt::Result {
         match Packet::new_checked(buffer) {
-            Err(err)   => write!(f, "{}({})\n", indent, err),
-            Ok(packet) => write!(f, "{}{}\n", indent, packet)
+            Err(err)   => write!(f, "{}({})", indent, err),
+            Ok(packet) => write!(f, "{}{}", indent, packet)
         }
     }
 }
 
 #[cfg(test)]
 mod test {
+    #[cfg(feature = "proto-ipv4")]
     use wire::Ipv4Address;
     use super::*;
 
+    #[cfg(feature = "proto-ipv4")]
     const SRC_ADDR: Ipv4Address = Ipv4Address([192, 168, 1, 1]);
+    #[cfg(feature = "proto-ipv4")]
     const DST_ADDR: Ipv4Address = Ipv4Address([192, 168, 1, 2]);
 
+    #[cfg(feature = "proto-ipv4")]
     static PACKET_BYTES: [u8; 28] =
         [0xbf, 0x00, 0x00, 0x50,
          0x01, 0x23, 0x45, 0x67,
@@ -865,13 +878,16 @@ mod test {
          0x03, 0x03, 0x0c, 0x01,
          0xaa, 0x00, 0x00, 0xff];
 
+    #[cfg(feature = "proto-ipv4")]
     static OPTION_BYTES: [u8; 4] =
         [0x03, 0x03, 0x0c, 0x01];
 
+    #[cfg(feature = "proto-ipv4")]
     static PAYLOAD_BYTES: [u8; 4] =
         [0xaa, 0x00, 0x00, 0xff];
 
     #[test]
+    #[cfg(feature = "proto-ipv4")]
     fn test_deconstruct() {
         let packet = Packet::new(&PACKET_BYTES[..]);
         assert_eq!(packet.src_port(), 48896);
@@ -894,6 +910,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "proto-ipv4")]
     fn test_construct() {
         let mut bytes = vec![0xa5; PACKET_BYTES.len()];
         let mut packet = Packet::new(&mut bytes);
@@ -919,6 +936,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "proto-ipv4")]
     fn test_truncated() {
         let packet = Packet::new(&PACKET_BYTES[..23]);
         assert_eq!(packet.check_len(), Err(Error::Truncated));
@@ -932,6 +950,7 @@ mod test {
         assert_eq!(packet.check_len(), Err(Error::Malformed));
     }
 
+    #[cfg(feature = "proto-ipv4")]
     static SYN_PACKET_BYTES: [u8; 24] =
         [0xbf, 0x00, 0x00, 0x50,
          0x01, 0x23, 0x45, 0x67,
@@ -940,6 +959,7 @@ mod test {
          0x7a, 0x8d, 0x00, 0x00,
          0xaa, 0x00, 0x00, 0xff];
 
+    #[cfg(feature = "proto-ipv4")]
     fn packet_repr() -> Repr<'static> {
         Repr {
             src_port:     48896,
@@ -954,6 +974,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "proto-ipv4")]
     fn test_parse() {
         let packet = Packet::new(&SYN_PACKET_BYTES[..]);
         let repr = Repr::parse(&packet, &SRC_ADDR.into(), &DST_ADDR.into(), &ChecksumCapabilities::default()).unwrap();
@@ -961,6 +982,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "proto-ipv4")]
     fn test_emit() {
         let repr = packet_repr();
         let mut bytes = vec![0xa5; repr.buffer_len()];

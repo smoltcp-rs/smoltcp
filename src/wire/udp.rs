@@ -7,7 +7,7 @@ use super::{IpProtocol, IpAddress};
 use super::ip::checksum;
 
 /// A read/write wrapper around an User Datagram Protocol packet buffer.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Packet<T: AsRef<[u8]>> {
     buffer: T
 }
@@ -180,15 +180,19 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
         // so no action is necessary on the remote end.
         self.set_checksum(if checksum == 0 { 0xffff } else { checksum })
     }
-}
 
-impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Packet<&'a mut T> {
     /// Return a mutable pointer to the payload.
     #[inline]
     pub fn payload_mut(&mut self) -> &mut [u8] {
         let length = self.len();
         let data = self.buffer.as_mut();
         &mut data[field::PAYLOAD(length)]
+    }
+}
+
+impl<T: AsRef<[u8]>> AsRef<[u8]> for Packet<T> {
+    fn as_ref(&self) -> &[u8] {
+        self.buffer.as_ref()
     }
 }
 
@@ -210,6 +214,7 @@ impl<'a> Repr<'a> {
         // Valid checksum is expected...
         if checksum_caps.udpv4.rx() && !packet.verify_checksum(src_addr, dst_addr) {
             match (src_addr, dst_addr) {
+                #[cfg(feature = "proto-ipv4")]
                 (&IpAddress::Ipv4(_), &IpAddress::Ipv4(_))
                         if packet.checksum() != 0 => {
                     // ... except on UDP-over-IPv4, where it can be omitted.
@@ -247,7 +252,8 @@ impl<'a> Repr<'a> {
         if checksum_caps.udpv4.tx() {
             packet.fill_checksum(src_addr, dst_addr)
         } else {
-            // make sure we get a consistently zeroed checksum, since implementations might rely on it
+            // make sure we get a consistently zeroed checksum,
+            // since implementations might rely on it
             packet.set_checksum(0);
         }
     }
@@ -274,29 +280,35 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
     fn pretty_print(buffer: &AsRef<[u8]>, f: &mut fmt::Formatter,
                     indent: &mut PrettyIndent) -> fmt::Result {
         match Packet::new_checked(buffer) {
-            Err(err)   => write!(f, "{}({})\n", indent, err),
-            Ok(packet) => write!(f, "{}{}\n", indent, packet)
+            Err(err)   => write!(f, "{}({})", indent, err),
+            Ok(packet) => write!(f, "{}{}", indent, packet)
         }
     }
 }
 
 #[cfg(test)]
 mod test {
+    #[cfg(feature = "proto-ipv4")]
     use wire::Ipv4Address;
     use super::*;
 
+    #[cfg(feature = "proto-ipv4")]
     const SRC_ADDR: Ipv4Address = Ipv4Address([192, 168, 1, 1]);
+    #[cfg(feature = "proto-ipv4")]
     const DST_ADDR: Ipv4Address = Ipv4Address([192, 168, 1, 2]);
 
+    #[cfg(feature = "proto-ipv4")]
     static PACKET_BYTES: [u8; 12] =
         [0xbf, 0x00, 0x00, 0x35,
          0x00, 0x0c, 0x12, 0x4d,
          0xaa, 0x00, 0x00, 0xff];
 
+    #[cfg(feature = "proto-ipv4")]
     static PAYLOAD_BYTES: [u8; 4] =
         [0xaa, 0x00, 0x00, 0xff];
 
     #[test]
+    #[cfg(feature = "proto-ipv4")]
     fn test_deconstruct() {
         let packet = Packet::new(&PACKET_BYTES[..]);
         assert_eq!(packet.src_port(), 48896);
@@ -308,6 +320,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "proto-ipv4")]
     fn test_construct() {
         let mut bytes = vec![0xa5; 12];
         let mut packet = Packet::new(&mut bytes);
@@ -329,6 +342,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "proto-ipv4")]
     fn test_zero_checksum() {
         let mut bytes = vec![0; 8];
         let mut packet = Packet::new(&mut bytes);
@@ -339,6 +353,7 @@ mod test {
         assert_eq!(packet.checksum(), 0xffff);
     }
 
+    #[cfg(feature = "proto-ipv4")]
     fn packet_repr() -> Repr<'static> {
         Repr {
             src_port: 48896,
@@ -348,6 +363,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "proto-ipv4")]
     fn test_parse() {
         let packet = Packet::new(&PACKET_BYTES[..]);
         let repr = Repr::parse(&packet, &SRC_ADDR.into(), &DST_ADDR.into(), &ChecksumCapabilities::default()).unwrap();
@@ -355,6 +371,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "proto-ipv4")]
     fn test_emit() {
         let repr = packet_repr();
         let mut bytes = vec![0xa5; repr.buffer_len()];
