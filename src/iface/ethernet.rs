@@ -237,6 +237,7 @@ pub fn ip_multicast_to_mac(ip_addr: IpAddress) -> Option<EthernetAddress> {
     } else {
          match ip_addr {
             IpAddress::Unspecified => None,
+            #[cfg(feature = "proto-ipv4")]
             IpAddress::Ipv4(addr)  => {
                 let mut hw_addr = EthernetAddress::MULTICAST_PREFIX;
                 // first three octets are fixed
@@ -244,6 +245,11 @@ pub fn ip_multicast_to_mac(ip_addr: IpAddress) -> Option<EthernetAddress> {
                 hw_addr[4] = addr.as_bytes()[2]; // 5th octet
                 hw_addr[5] = addr.as_bytes()[3]; // last octet
                 Some(EthernetAddress::from_bytes(&hw_addr))
+            }
+            #[cfg(feature = "proto-ipv4")]
+            IpAddress::Ipv6(_addr)  => {
+                // TODO: Left out for later
+                None
             }
             IpAddress::__Nonexhaustive => unreachable!(),
         }
@@ -349,13 +355,6 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
         let addr = addr.into();
         self.inner.eth_mcast_addr.iter().any(|probe| *probe == addr)
     }
-
-    /// Check whether the interface listens to given destination MAC address.
-    pub fn has_ip_mcast_addr<T: Into<IpAddress>>(&self, addr: T) -> bool {
-        let addr = addr.into();
-        self.inner.ip_mcast_addr.iter().any(|probe| *probe == addr)
-    }
-
 
     /// Get the IP addresses of the interface.
     pub fn ip_addrs(&self) -> &[IpCidr] {
@@ -590,6 +589,12 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         self.ip_addrs.iter().any(|probe| probe.address() == addr)
     }
     
+    /// Check whether the interface listens to given destination MAC address.
+    pub fn has_ip_mcast_addr<T: Into<IpAddress>>(&self, addr: T) -> bool {
+        let addr = addr.into();
+        self.ip_mcast_addr.iter().any(|probe| *probe == addr)
+    }
+
     fn keep_ethernet_frame<'frame, T: AsRef<[u8]>>(&self, eth_frame: &EthernetFrame<&T>) -> bool {
       // the multicast frame belongs to one of the subscribed groups
       if self.eth_mcast_addr.contains(&eth_frame.dst_addr()) {
@@ -846,7 +851,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
     fn process_igmp<'frame>(&self, ipv4_repr: Ipv4Repr, ip_payload: &'frame [u8]) ->
                              Result<Packet<'frame>> {
         let igmp_packet = IgmpPacket::new_checked(ip_payload)?;
-        let checksum_caps = self.device.capabilities().checksum;
+        let checksum_caps = &self.device_capabilities.checksum;
         let igmp_repr = IgmpRepr::parse(&igmp_packet, &checksum_caps)?;
 
         // for now - reply immediately
@@ -872,8 +877,9 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
                                 dst_addr:    ipv4_repr.src_addr, // keep the destination address
                                 protocol:    IpProtocol::Igmp,
                                 payload_len: igmp_reply_repr.buffer_len(),
+                                hop_limit:   1,
                             };
-                            return Ok(Packet::Igmp(ipv4_reply_repr, igmp_reply_repr));
+                            return Ok(Packet::Igmp((ipv4_reply_repr, igmp_reply_repr)));
                         } else {
                             // errpr getting the interface address, return none
                             return Ok(Packet::None);
@@ -892,8 +898,9 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
                                 dst_addr:    group_addr,
                                 protocol:    IpProtocol::Igmp,
                                 payload_len: igmp_reply_repr.buffer_len(),
+                                hop_limit:   1,
                             };
-                            return Ok(Packet::Igmp(ipv4_reply_repr, igmp_reply_repr));
+                            return Ok(Packet::Igmp((ipv4_reply_repr, igmp_reply_repr)));
                         } else {
                             // errpr getting the interface address, return none
                             return Ok(Packet::None);
@@ -1147,8 +1154,8 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
                     icmpv4_repr.emit(&mut Icmpv4Packet::new(payload), &checksum_caps);
                 })
             }
-            Packet::Igmp(ipv4_repr, igmp_repr) => {
-                self.dispatch_ip(timestamp, IpRepr::Ipv4(ipv4_repr), |_ip_repr, payload| {
+            Packet::Igmp((ipv4_repr, igmp_repr)) => {
+                self.dispatch_ip(tx_token, timestamp, IpRepr::Ipv4(ipv4_repr), |_ip_repr, payload| {
                     igmp_repr.emit(&mut IgmpPacket::new(payload));
                 })
             }
