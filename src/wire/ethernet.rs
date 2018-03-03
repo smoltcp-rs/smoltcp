@@ -31,9 +31,6 @@ impl Address {
     /// The broadcast address.
     pub const BROADCAST: Address = Address([0xff; 6]);
 
-    /// Multicast MAC address has upper 25 bits fixed
-    pub const MULTICAST_PREFIX: [u8;6] = [0x01, 0x00, 0x5e, 0x00, 0x00, 0x00];
-
     /// Construct an Ethernet address from a sequence of octets, in big-endian.
     ///
     /// # Panics
