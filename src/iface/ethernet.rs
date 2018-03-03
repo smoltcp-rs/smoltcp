@@ -588,7 +588,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         let addr = addr.into();
         self.ip_addrs.iter().any(|probe| probe.address() == addr)
     }
-    
+
     /// Check whether the interface listens to given destination MAC address.
     pub fn has_ip_mcast_addr<T: Into<IpAddress>>(&self, addr: T) -> bool {
         let addr = addr.into();
@@ -1310,7 +1310,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
                 return Err(Error::Unaddressable),
             NeighborAnswer::NotFound => (),
         }
-        
+
         match (src_addr, dst_addr) {
             #[cfg(feature = "proto-ipv4")]
             (&IpAddress::Ipv4(src_addr), IpAddress::Ipv4(dst_addr)) => {

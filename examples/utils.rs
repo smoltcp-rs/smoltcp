@@ -18,7 +18,7 @@ use smoltcp::phy::{Device, EthernetTracer, FaultInjector};
 #[cfg(feature = "phy-tap_interface")]
 use smoltcp::phy::TapInterface;
 use smoltcp::phy::{PcapWriter, PcapSink, PcapMode, PcapLinkType};
-use smoltcp::phy::{RawSocket};
+use smoltcp::phy::RawSocket;
 use smoltcp::time::{Duration, Instant};
 
 #[cfg(feature = "log")]

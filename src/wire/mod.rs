@@ -95,6 +95,7 @@ mod ipv6fragment;
 mod icmpv4;
 #[cfg(feature = "proto-ipv6")]
 mod icmpv6;
+#[cfg(feature = "proto-ipv4")]
 mod igmpv2;
 mod udp;
 mod tcp;
