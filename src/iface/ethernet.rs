@@ -64,8 +64,7 @@ struct InterfaceInner<'b, 'c> {
     ip_addrs:               ManagedSlice<'c, IpCidr>,
     #[cfg(feature = "proto-ipv4")]
     ipv4_gateway:           Option<Ipv4Address>,
-    eth_mcast_addr: HashSet<EthernetAddress>, // TODO: use Managed
-    ip_mcast_addr: HashSet<IpAddress>, // TODO: use Managed
+    ip_mcast_addr:          HashSet<IpAddress>, // TODO: use Managed
 
     device_capabilities:    DeviceCapabilities,
 }
@@ -189,7 +188,6 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
                 let device_capabilities = self.device.capabilities();
 
                 // initialize the default multicast addresses
-                let eth_mcast_addr = HashSet::new();
                 let ip_mcast_addr = HashSet::new();
 
                 Interface {
@@ -199,9 +197,6 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
                         ip_addrs: self.ip_addrs,
                         #[cfg(feature = "proto-ipv4")]
                         ipv4_gateway: self.ipv4_gateway,
-                        #[cfg(feature = "proto-ipv4")]
-                        eth_mcast_addr,
-                        #[cfg(feature = "proto-ipv4")]
                         ip_mcast_addr,
                     }
                 }
@@ -228,32 +223,6 @@ enum Packet<'a> {
     Udp((IpRepr, UdpRepr<'a>)),
     #[cfg(feature = "socket-tcp")]
     Tcp((IpRepr, TcpRepr<'a>))
-}
-
-/// Map IPv4 multicast address into an ethernet addres
-pub fn ip_multicast_to_mac(ip_addr: IpAddress) -> Option<EthernetAddress> {
-    if !ip_addr.is_multicast() {
-        return None;
-    } else {
-         match ip_addr {
-            IpAddress::Unspecified => None,
-            #[cfg(feature = "proto-ipv4")]
-            IpAddress::Ipv4(addr)  => {
-                let mut hw_addr = EthernetAddress::MULTICAST_PREFIX;
-                // first three octets are fixed
-                hw_addr[3] = addr.as_bytes()[1] & 0x7f; // 4th octet, first zero fixed
-                hw_addr[4] = addr.as_bytes()[2]; // 5th octet
-                hw_addr[5] = addr.as_bytes()[3]; // last octet
-                Some(EthernetAddress::from_bytes(&hw_addr))
-            }
-            #[cfg(feature = "proto-ipv4")]
-            IpAddress::Ipv6(_addr)  => {
-                // TODO: Left out for later
-                None
-            }
-            IpAddress::__Nonexhaustive => unreachable!(),
-        }
-    }
 }
 
 impl<'a> Packet<'a> {
@@ -307,53 +276,9 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
         InterfaceInner::check_ethernet_addr(&self.inner.ethernet_addr);
     }
 
-    /// Remove given address from a list of subscribed multicast MAC addresses
-    pub fn remove_mac_multicast_addr(&mut self, key: EthernetAddress) -> bool {
-      if key.is_multicast() {
-        self.inner.eth_mcast_addr.remove(&key)
-      } else {
-        false
-      }
-    }
-
-    /// Remove given address from a list of subscribed multicast IP and MAC addresses
-    pub fn remove_mac_multicast_ip_addr(&mut self, key: IpAddress) -> bool {
-      if self.inner.ip_mcast_addr.remove(&key) {
-          match ip_multicast_to_mac(key) {
-              Some(addr) => self.remove_mac_multicast_addr(addr),
-              None => false,
-          }
-      } else {
-          false
-      }
-    }
-
-
-    /// Add an address to a list of subscribed multicast MAC addresses
-    pub fn add_mac_multicast_addr(&mut self, key: EthernetAddress) -> bool {
-      if key.is_multicast() {
-          self.inner.eth_mcast_addr.insert(key)
-      } else {
-          false
-      }
-    }
-
     /// Add an address to a list of subscribed multicast IP addresses
-    pub fn add_mac_multicast_ip_addr(&mut self, key: IpAddress) -> bool {
-      if self.inner.ip_mcast_addr.insert(key) {
-          match ip_multicast_to_mac(key) {
-              Some(addr) => self.add_mac_multicast_addr(addr),
-              None => false,
-          }
-      } else {
-          false
-      }
-    }
-
-    /// Check whether the interface listens to given destination MAC address.
-    pub fn has_mac_addr<T: Into<EthernetAddress>>(&self, addr: T) -> bool {
-        let addr = addr.into();
-        self.inner.eth_mcast_addr.iter().any(|probe| *probe == addr)
+    pub fn add_multicast_ip_addr(&mut self, key: IpAddress) -> bool {
+      self.inner.ip_mcast_addr.insert(key)
     }
 
     /// Get the IP addresses of the interface.
@@ -589,25 +514,10 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         self.ip_addrs.iter().any(|probe| probe.address() == addr)
     }
 
-    /// Check whether the interface listens to given destination MAC address.
+    /// Check whether the interface listens to given destination multicast IP address.
     pub fn has_ip_mcast_addr<T: Into<IpAddress>>(&self, addr: T) -> bool {
         let addr = addr.into();
         self.ip_mcast_addr.iter().any(|probe| *probe == addr)
-    }
-
-    fn keep_ethernet_frame<'frame, T: AsRef<[u8]>>(&self, eth_frame: &EthernetFrame<&T>) -> bool {
-      // the multicast frame belongs to one of the subscribed groups
-      if self.eth_mcast_addr.contains(&eth_frame.dst_addr()) {
-        return true;
-      } else {
-        // check if it is broadcast or directly for this harware addr
-        if !eth_frame.dst_addr().is_broadcast() &&
-                eth_frame.dst_addr() != self.ethernet_addr {
-                  return false
-            } else {
-              return true;
-            }
-      }
     }
 
     fn process_ethernet<'frame, T: AsRef<[u8]>>
@@ -617,7 +527,10 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         let eth_frame = EthernetFrame::new_checked(frame)?;
 
         // Check whether to keep the packet
-        if !self.keep_ethernet_frame(&eth_frame)  {
+        if !eth_frame.dst_addr().is_broadcast() &&
+           !eth_frame.dst_addr().is_multicast() &&
+           eth_frame.dst_addr() != self.ethernet_addr
+        {
             return Ok(Packet::None)
         }
 
@@ -845,8 +758,8 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
     /// part of the standard protocols (such as 224.0.0.251 for DNS).
     ///
     /// Leaving and joining a group:
-    /// this is done by manipulating `ip_mcast_addr` field - the higher layers should use `remove_mac_multicast_ip_addr` and
-    /// `add_mac_multicast_ip_addr` (similar to Linux `mreq` struct and correcponding `sockopts`)
+    /// this is done by manipulating `ip_mcast_addr` field - the higher layers should use `remove_multicast_ip_addr` and
+    /// `add_multicast_ip_addr` (similar to Linux `mreq` struct and correcponding `sockopts`)
     ///
     fn process_igmp<'frame>(&self, ipv4_repr: Ipv4Repr, ip_payload: &'frame [u8]) ->
                              Result<Packet<'frame>> {

@@ -56,8 +56,8 @@ fn main() {
             .finalize();
 
     // These are two groups we are subscribed to
-    iface.add_mac_multicast_ip_addr(IpAddress::Ipv4(Ipv4Address::new(225, 0, 0, 37))); // user group 1
-    iface.add_mac_multicast_ip_addr(IpAddress::Ipv4(Ipv4Address::new(224, 0, 6, 150))); // user group 2
+    iface.add_multicast_ip_addr(IpAddress::Ipv4(Ipv4Address::new(225, 0, 0, 37))); // user group 1
+    iface.add_multicast_ip_addr(IpAddress::Ipv4(Ipv4Address::new(224, 0, 6, 150))); // user group 2
 
     let mut sockets = SocketSet::new(vec![]);
     let raw_handle = sockets.add(raw_socket);
