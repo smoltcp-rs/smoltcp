@@ -743,8 +743,10 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         }
     }
 
-    /// We are implementing host duties of IGMPv2 protocol, and we are not worried about routing
-    /// i.e. we can ignore Membership and Leave Group reports and asnwer only Membership Query messages
+    /// Host duties of the **IGMPv2** protocol
+    ///
+    /// and we are not worried about routing i.e. we can ignore **Membership** and **Leave Group** reports and asnwer
+    /// only **Membership Query** messages
     ///
     /// For group specific query the destination address of the IP packet as well as the group address has to be
     /// set to the IP address of the group being queried (otherwise we drop the packet)
@@ -757,9 +759,10 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
     /// Note that we are required to report even groups that we haven't been subscribed to from the upper layers, but are
     /// part of the standard protocols (such as 224.0.0.251 for DNS).
     ///
-    /// Leaving and joining a group:
+    /// ## Leaving and joining a group
+    ///
     /// this is done by manipulating `ip_mcast_addr` field - the higher layers should use `remove_multicast_ip_addr` and
-    /// `add_multicast_ip_addr` (similar to Linux `mreq` struct and correcponding `sockopts`)
+    /// `add_multicast_ip_addr` (similar to Linux `mreq` struct and corresponding `sockopts`)
     ///
     fn process_igmp<'frame>(&self, ipv4_repr: Ipv4Repr, ip_payload: &'frame [u8]) ->
                              Result<Packet<'frame>> {
@@ -773,9 +776,9 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
             IgmpRepr::MembershipQuery { group_addr, .. } => {
                 // General Query
                 if group_addr.is_unspecified() && (ipv4_repr.dst_addr == Ipv4Address::new(224,0,0,1))  {
-                    // are we a member of any group?
+                    // Are we a member of any group?
                     if !self.ip_mcast_addr.is_empty() {
-                        // respond
+                        // Respond
                         let addr = match self.ip_mcast_addr.iter().cloned().next().unwrap() {
                               IpAddress::Ipv4(addr) => addr,
                               _ => Ipv4Address::UNSPECIFIED,
@@ -794,11 +797,11 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
                             };
                             return Ok(Packet::Igmp((ipv4_reply_repr, igmp_reply_repr)));
                         } else {
-                            // errpr getting the interface address, return none
+                            // Error getting the interface address, return none
                             return Ok(Packet::None);
                         }
                     }
-                } else { // Group Specifif query
+                } else { // Group-specific query
                     if self.has_ip_mcast_addr(group_addr) && (ipv4_repr.dst_addr == group_addr) {
                         // Respond
                         let igmp_reply_repr = IgmpRepr::MembershipReport {
@@ -815,18 +818,18 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
                             };
                             return Ok(Packet::Igmp((ipv4_reply_repr, igmp_reply_repr)));
                         } else {
-                            // errpr getting the interface address, return none
+                            // Error getting the interface address, return none
                             return Ok(Packet::None);
                         }
                     }
                 }
                 Ok(Packet::None)
             },
-            // Ignore membershiup reports
+            // Ignore membership reports
             IgmpRepr::MembershipReport { .. } => {
                 Ok(Packet::None)
             },
-            // Ignore hosts leavinng groups
+            // Ignore hosts leaving groups
             IgmpRepr::LeaveGroup{ .. } => {
                 Ok(Packet::None)
             },
