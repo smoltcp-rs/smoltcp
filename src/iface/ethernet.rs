@@ -11,7 +11,7 @@ use wire::pretty_print::PrettyPrinter;
 use wire::{EthernetAddress, EthernetProtocol, EthernetFrame};
 use wire::{IpAddress, IpProtocol, IpRepr, IpCidr};
 #[cfg(feature = "proto-ipv6")]
-use wire::{Ipv6Packet, Ipv6Repr, IPV6_MIN_MTU};
+use wire::{Ipv6Address, Ipv6Packet, Ipv6Repr, IPV6_MIN_MTU};
 #[cfg(feature = "proto-ipv4")]
 use wire::{Ipv4Address, Ipv4Packet, Ipv4Repr, IPV4_MIN_MTU};
 #[cfg(feature = "proto-ipv4")]
@@ -130,7 +130,7 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
     /// [ip_addrs].
     ///
     /// # Panics
-    /// This function panics if any of the addresses is not unicast.
+    /// This function panics if any of the addresses are not unicast.
     ///
     /// [ip_addrs]: struct.EthernetInterface.html#method.ip_addrs
     pub fn ip_addrs<T>(mut self, ip_addrs: T) -> InterfaceBuilder<'b, 'c, DeviceT>
@@ -267,10 +267,29 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
         self.inner.ip_addrs.as_ref()
     }
 
+    /// Determine if the given `Ipv6Address` is the solicited node
+    /// multicast address for a IPv6 addresses assigned to the interface.
+    /// See [RFC 4291 § 2.7.1] for more details.
+    ///
+    /// [RFC 4291 § 2.7.1]: https://tools.ietf.org/html/rfc4291#section-2.7.1
+    #[cfg(feature = "proto-ipv6")]
+    pub fn has_solicited_node(&self, addr: Ipv6Address) -> bool {
+        self.inner.ip_addrs.iter().find(|cidr| {
+            match *cidr {
+                &IpCidr::Ipv6(cidr) if cidr.address() != Ipv6Address::LOOPBACK=> {
+                    // Take the lower order 24 bits of the IPv6 address and
+                    // append those bits to FF02:0:0:0:0:1:FF00::/104.
+                    addr.as_bytes()[14..] == cidr.address().as_bytes()[14..]
+                }
+                _ => false,
+            }
+        }).is_some()
+    }
+
     /// Update the IP addresses of the interface.
     ///
     /// # Panics
-    /// This function panics if any of the addresses is not unicast.
+    /// This function panics if any of the addresses are not unicast.
     pub fn update_ip_addrs<F: FnOnce(&mut ManagedSlice<'c, IpCidr>)>(&mut self, f: F) {
         f(&mut self.inner.ip_addrs);
         InterfaceInner::check_ip_addrs(&self.inner.ip_addrs)
@@ -1661,6 +1680,21 @@ mod test {
                        Ok((&icmp_data[..],
                            IpAddress::Ipv4(Ipv4Address::new(0x7f, 0x00, 0x00, 0x02)))));
         }
+    }
+
+    #[test]
+    #[cfg(feature = "proto-ipv6")]
+    fn test_solicited_node_addrs() {
+        let (mut iface, _) = create_loopback();
+        let mut new_addrs = vec![IpCidr::new(IpAddress::v6(0xfe80, 0, 0, 0, 1, 2, 0, 2), 64),
+                                 IpCidr::new(IpAddress::v6(0xfe80, 0, 0, 0, 3, 4, 0, 0xffff), 64)];
+        iface.update_ip_addrs(|addrs| {
+            new_addrs.extend(addrs.to_vec());
+            *addrs = From::from(new_addrs);
+        });
+        assert!(iface.has_solicited_node(Ipv6Address::new(0xff02, 0, 0, 0, 0, 1, 0xff00, 0x0002)));
+        assert!(iface.has_solicited_node(Ipv6Address::new(0xff02, 0, 0, 0, 0, 1, 0xff00, 0xffff)));
+        assert!(!iface.has_solicited_node(Ipv6Address::new(0xff02, 0, 0, 0, 0, 1, 0xff00, 0x0001)));
     }
 
     #[test]
