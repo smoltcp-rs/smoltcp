@@ -7,14 +7,15 @@ extern crate byteorder;
 
 mod utils;
 
-use std::time::Instant;
+use std::collections::BTreeMap;
 use std::os::unix::io::AsRawFd;
 use smoltcp::phy::Device;
 use smoltcp::phy::wait as phy_wait;
 use smoltcp::wire::{EthernetAddress, IpVersion, IpProtocol, IpAddress, IpCidr, Ipv4Address,
                     Ipv4Packet, Ipv4Repr, IgmpPacket, IgmpRepr};
-use smoltcp::iface::{ArpCache, SliceArpCache, EthernetInterface};
-use smoltcp::socket::{SocketSet, RawSocket, RawSocketBuffer, RawPacketBuffer};
+use smoltcp::iface::{NeighborCache, EthernetInterfaceBuilder};
+use smoltcp::socket::{SocketSet, RawSocket, RawSocketBuffer, RawPacketMetadata};
+use smoltcp::time::{Instant, Duration};
 
 fn main() {
     utils::setup_logging("warn");
@@ -31,16 +32,14 @@ fn main() {
                                                  /*loopback=*/
                                                  false);
     let device_caps = device.capabilities();
-    let startup_time = Instant::now();
-
-    let arp_cache = SliceArpCache::new(vec![Default::default(); 8]);
+    let neighbor_cache = NeighborCache::new(BTreeMap::new());
 
     let local_addr = Ipv4Address::new(192, 168, 69, 2);
     let remote_addr = Ipv4Address::new(224, 0, 0, 1);
     let query_addr = Ipv4Address::new(224, 0, 0, 37);
 
-    let raw_rx_buffer = RawSocketBuffer::new(vec![RawPacketBuffer::new(vec![0; 256])]);
-    let raw_tx_buffer = RawSocketBuffer::new(vec![RawPacketBuffer::new(vec![0; 256])]);
+    let raw_rx_buffer = RawSocketBuffer::new(vec![RawPacketMetadata::empty(); 2], vec![0; 256]);
+    let raw_tx_buffer = RawSocketBuffer::new(vec![], vec![]);
     let raw_socket = RawSocket::new(IpVersion::Ipv4,
                                     IpProtocol::Igmp,
                                     raw_rx_buffer,
@@ -49,11 +48,12 @@ fn main() {
     let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x02]);
     let ip_addr = IpCidr::new(IpAddress::from(local_addr), 24);
     let default_v4_gw = Ipv4Address::new(192, 168, 69, 1);
-    let mut iface = EthernetInterface::new(Box::new(device),
-                                           Box::new(arp_cache) as Box<ArpCache>,
-                                           ethernet_addr,
-                                           [ip_addr],
-                                           Some(default_v4_gw));
+    let mut iface = EthernetInterfaceBuilder::new(device)
+            .ethernet_addr(ethernet_addr)
+            .neighbor_cache(neighbor_cache)
+            .ip_addrs([ip_addr])
+            .ipv4_gateway(default_v4_gw)
+            .finalize();
 
     // These are two groups we are subscribed to
     iface.add_mac_multicast_ip_addr(IpAddress::Ipv4(Ipv4Address::new(225, 0, 0, 37))); // user group 1
@@ -66,11 +66,12 @@ fn main() {
     let mut last_time_query_sent = Instant::now();
 
     loop {
+        let timestamp = Instant::now();
         {
             let mut socket = sockets.get::<RawSocket>(raw_handle);
 
             // alternate between group specific and general query
-            if socket.can_send() && (utils::millis_since(last_time_query_sent) > 10000) {
+            if socket.can_send() && (timestamp - last_time_query_sent >= Duration::from_secs(10)) {
                 if (query_sent % 2) == 0 {
                     // send general query
                     println!("Sending General Query");
@@ -83,6 +84,7 @@ fn main() {
                         dst_addr: remote_addr, // All Systems group
                         protocol: IpProtocol::Igmp,
                         payload_len: igmp_repr.buffer_len(),
+                        hop_limit: 1,
                     };
                     let raw_payload = socket
                         .send(ipv4_repr.buffer_len() + igmp_repr.buffer_len())
@@ -104,6 +106,7 @@ fn main() {
                         dst_addr: query_addr, // group being queried
                         protocol: IpProtocol::Igmp,
                         payload_len: igmp_repr.buffer_len(),
+                        hop_limit: 1,
                     };
                     let raw_payload = socket
                         .send(ipv4_repr.buffer_len() + igmp_repr.buffer_len())
@@ -133,9 +136,8 @@ fn main() {
         }
 
 
-        let timestamp = utils::millis_since(startup_time);
         let _poll_at = iface.poll(&mut sockets, timestamp); // ignore the errors (or perhaps log them)
-        phy_wait(fd, Some(1)).expect("wait error");
+        phy_wait(fd, iface.poll_delay(&sockets, timestamp)).expect("wait error");
     }
 
 
