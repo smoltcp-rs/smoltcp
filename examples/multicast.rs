@@ -57,15 +57,18 @@ fn main() {
             .ipv4_mcast_groups(&mut ipv4_mcast_storage[..])
             .finalize();
 
+    let now = Instant::now();
     // These are two groups we are subscribed to
-    iface.join_multicast_group(IpAddress::Ipv4(Ipv4Address::new(225, 0, 0, 37))); // user group 1
-    iface.join_multicast_group(IpAddress::Ipv4(Ipv4Address::new(224, 0, 6, 150))); // user group 2
+    iface.join_multicast_group(IpAddress::Ipv4(Ipv4Address::new(225, 0, 0, 37)), now)
+        .unwrap(); // user group 1
+    iface.join_multicast_group(IpAddress::Ipv4(Ipv4Address::new(224, 0, 6, 150)), now)
+        .unwrap(); // user group 2
 
     let mut sockets = SocketSet::new(vec![]);
     let raw_handle = sockets.add(raw_socket);
 
     let mut query_sent = 0;
-    let mut last_time_query_sent = Instant::now();
+    let mut last_time_query_sent = now;
 
     loop {
         let timestamp = Instant::now();
