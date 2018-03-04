@@ -2,7 +2,7 @@
 // of RFC 1122 that discuss Ethernet, ARP and IP.
 
 use core::cmp;
-use managed::ManagedSlice;
+use managed::{ManagedSlice, ManagedMap};
 
 use {Error, Result};
 use phy::{Device, DeviceCapabilities, RxToken, TxToken};
@@ -39,7 +39,6 @@ use socket::UdpSocket;
 #[cfg(feature = "socket-tcp")]
 use socket::TcpSocket;
 use super::{NeighborCache, NeighborAnswer};
-use std::collections::HashSet; // TODO: make it a managed cache
 
 /// An Ethernet network interface.
 ///
@@ -64,7 +63,7 @@ struct InterfaceInner<'b, 'c> {
     ip_addrs:               ManagedSlice<'c, IpCidr>,
     #[cfg(feature = "proto-ipv4")]
     ipv4_gateway:           Option<Ipv4Address>,
-    ip_mcast_addr:          HashSet<IpAddress>, // TODO: use Managed
+    ip_mcast_addrs:         ManagedMap<'c, IpAddress, ()>,
 
     device_capabilities:    DeviceCapabilities,
 }
@@ -78,6 +77,7 @@ pub struct InterfaceBuilder <'b, 'c, DeviceT: for<'d> Device<'d>> {
     ip_addrs:            ManagedSlice<'c, IpCidr>,
     #[cfg(feature = "proto-ipv4")]
     ipv4_gateway:        Option<Ipv4Address>,
+    ip_mcast_addrs:      ManagedMap<'c, IpAddress, ()>,
 }
 
 impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
@@ -114,7 +114,8 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
             neighbor_cache:      None,
             ip_addrs:            ManagedSlice::Borrowed(&mut []),
             #[cfg(feature = "proto-ipv4")]
-            ipv4_gateway:        None
+            ipv4_gateway:        None,
+            ip_mcast_addrs:      ManagedMap::Borrowed(&mut []),
         }
     }
 
@@ -187,9 +188,6 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
             (Some(ethernet_addr), Some(neighbor_cache)) => {
                 let device_capabilities = self.device.capabilities();
 
-                // initialize the default multicast addresses
-                let ip_mcast_addr = HashSet::new();
-
                 Interface {
                     device: self.device,
                     inner: InterfaceInner {
@@ -197,7 +195,7 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
                         ip_addrs: self.ip_addrs,
                         #[cfg(feature = "proto-ipv4")]
                         ipv4_gateway: self.ipv4_gateway,
-                        ip_mcast_addr,
+                        ip_mcast_addrs: self.ip_mcast_addrs,
                     }
                 }
             },
@@ -277,8 +275,10 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
     }
 
     /// Add an address to a list of subscribed multicast IP addresses
+    ///
+    /// Returns whether address was add successfully added, or was already present.
     pub fn add_multicast_ip_addr(&mut self, key: IpAddress) -> bool {
-      self.inner.ip_mcast_addr.insert(key)
+      self.inner.ip_mcast_addrs.insert(key, ()).is_ok()
     }
 
     /// Get the IP addresses of the interface.
@@ -515,9 +515,9 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
     }
 
     /// Check whether the interface listens to given destination multicast IP address.
-    pub fn has_ip_mcast_addr<T: Into<IpAddress>>(&self, addr: T) -> bool {
+    pub fn has_mcast_addr<T: Into<IpAddress>>(&self, addr: T) -> bool {
         let addr = addr.into();
-        self.ip_mcast_addr.iter().any(|probe| *probe == addr)
+        self.ip_mcast_addrs.get(&addr).is_some()
     }
 
     fn process_ethernet<'frame, T: AsRef<[u8]>>
@@ -705,7 +705,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         #[cfg(feature = "socket-raw")]
         let handled_by_raw_socket = self.raw_socket_filter(sockets, &ip_repr, ip_payload);
 
-        if !self.has_ip_addr(ipv4_repr.dst_addr) && !self.has_ip_mcast_addr(ipv4_repr.dst_addr) {
+        if !self.has_ip_addr(ipv4_repr.dst_addr) && !self.has_mcast_addr(ipv4_repr.dst_addr) {
             // Ignore IP packets not directed at us or any of the multicast groups
             return Ok(Packet::None)
         }
@@ -761,7 +761,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
     ///
     /// ## Leaving and joining a group
     ///
-    /// this is done by manipulating `ip_mcast_addr` field - the higher layers should use `remove_multicast_ip_addr` and
+    /// this is done by manipulating `ip_mcast_addrs` field - the higher layers should use `remove_multicast_ip_addr` and
     /// `add_multicast_ip_addr` (similar to Linux `mreq` struct and corresponding `sockopts`)
     ///
     fn process_igmp<'frame>(&self, ipv4_repr: Ipv4Repr, ip_payload: &'frame [u8]) ->
@@ -777,10 +777,10 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
                 // General Query
                 if group_addr.is_unspecified() && (ipv4_repr.dst_addr == Ipv4Address::new(224,0,0,1))  {
                     // Are we a member of any group?
-                    if !self.ip_mcast_addr.is_empty() {
+                    if !self.ip_mcast_addrs.is_empty() {
                         // Respond
-                        let addr = match self.ip_mcast_addr.iter().cloned().next().unwrap() {
-                              IpAddress::Ipv4(addr) => addr,
+                        let addr = match self.ip_mcast_addrs.iter().next().unwrap() {
+                              (&IpAddress::Ipv4(addr), _) => addr,
                               _ => Ipv4Address::UNSPECIFIED,
                         };
                         let igmp_reply_repr = IgmpRepr::MembershipReport {
@@ -802,7 +802,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
                         }
                     }
                 } else { // Group-specific query
-                    if self.has_ip_mcast_addr(group_addr) && (ipv4_repr.dst_addr == group_addr) {
+                    if self.has_mcast_addr(group_addr) && (ipv4_repr.dst_addr == group_addr) {
                         // Respond
                         let igmp_reply_repr = IgmpRepr::MembershipReport {
                             group_addr: group_addr,
