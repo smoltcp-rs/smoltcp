@@ -41,7 +41,7 @@ use socket::TcpSocket;
 use super::{NeighborCache, NeighborAnswer};
 
 const IPV4_MCAST_ALL_SYSTEMS: [u8; 4] = [224, 0, 0, 1];
-//const IPV4_MCAST_ALL_ROUTERS: [u8; 4] = [224, 0, 0, 2];
+const IPV4_MCAST_ALL_ROUTERS: [u8; 4] = [224, 0, 0, 2];
 
 /// An Ethernet network interface.
 ///
@@ -295,23 +295,48 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
 
     /// Add an address to a list of subscribed multicast IP addresses
     ///
-    /// Returns whether address was add successfully added, or was already present.
+    /// Returns whether address was added successfully, and, if
+    /// possible, whether an initial immediate announcement has been
+    /// sent.
     pub fn join_multicast_group<T: Into<IpAddress>>(&mut self, addr: T, timestamp: Instant) -> Result<()> {
         match addr.into() {
             #[cfg(feature = "proto-ipv4")]
             IpAddress::Ipv4(addr) => {
-                let is_new = self.inner.ipv4_mcast_groups.insert(addr, ())
+                let is_not_new = self.inner.ipv4_mcast_groups.insert(addr, ())
                     .map_err(|_| Error::Exhausted)?
+                    .is_some();
+                if is_not_new {
+                    return Ok(());
+                }
+
+                if let Some(pkt) = self.inner.igmp_report_packet(addr) {
+                    // Send initial membership report
+                    let tx_token = self.device.transmit().ok_or(Error::Exhausted)?;
+                    self.inner.dispatch(tx_token, timestamp, pkt)?;
+                }
+
+                Ok(())
+            }
+            // Multicast is not yet implemented for other address families
+            _ =>
+                Err(Error::Unaddressable)
+        }
+    }
+
+    /// Remove an address from the subscribed multicast IP addresses
+    pub fn leave_multicast_group<T: Into<IpAddress>>(&mut self, addr: T, timestamp: Instant) -> Result<()> {
+        match addr.into() {
+            #[cfg(feature = "proto-ipv4")]
+            IpAddress::Ipv4(addr) => {
+                let was_not_present = self.inner.ipv4_mcast_groups.remove(&addr)
                     .is_none();
-                if ! is_new {
+                if was_not_present {
                     return Ok(())
                 }
 
-                let pkt = self.inner.igmp_report_packet(addr);
-                if let Some(pkt) = pkt {
-                    // Send initial membership report
+                if let Some(pkt) = self.inner.igmp_leave_packet(addr) {
+                    // Send group leave packet
                     let tx_token = self.device.transmit().ok_or(Error::Exhausted)?;
-
                     self.inner.dispatch(tx_token, timestamp, pkt)?;
                 }
 
@@ -1350,6 +1375,21 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
                 src_addr:    iface_addr.clone(),
                 // Send to the group being reported
                 dst_addr:    group_addr,
+                protocol:    IpProtocol::Igmp,
+                payload_len: igmp_repr.buffer_len(),
+                hop_limit:   1,
+            }, igmp_repr));
+            pkt
+        })
+    }
+
+    #[cfg(feature = "proto-ipv4")]
+    fn igmp_leave_packet<'any>(&self, group_addr: Ipv4Address) -> Option<Packet<'any>> {
+        self.ipv4_address().map(|iface_addr| {
+            let igmp_repr = IgmpRepr::LeaveGroup { group_addr };
+            let pkt = Packet::Igmp((Ipv4Repr {
+                src_addr:    iface_addr.clone(),
+                dst_addr:    Ipv4Address::from_bytes(&IPV4_MCAST_ALL_ROUTERS),
                 protocol:    IpProtocol::Igmp,
                 payload_len: igmp_repr.buffer_len(),
                 hop_limit:   1,

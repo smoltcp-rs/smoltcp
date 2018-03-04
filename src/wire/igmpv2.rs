@@ -22,14 +22,14 @@ use wire::Ipv4Address;
 enum_with_unknown! {
     /// Internet Group Management Protocol v2 message version/type.
     pub doc enum Message(u8) {
-    /// Membership Query
-    MembershipQuery = 0x11,
-    /// Version 2 Membership Report
-    MembershipReportV2 = 0x16,
-    /// Leave Group
-    LeaveGroup = 0x17,
-    /// Version 1 Membership Report
-    MembershipReportV1 = 0x12
+        /// Membership Query
+        MembershipQuery = 0x11,
+        /// Version 2 Membership Report
+        MembershipReportV2 = 0x16,
+        /// Leave Group
+        LeaveGroup = 0x17,
+        /// Version 1 Membership Report
+        MembershipReportV1 = 0x12
     }
 }
 
