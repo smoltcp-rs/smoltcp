@@ -48,16 +48,18 @@ fn main() {
     let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x02]);
     let ip_addr = IpCidr::new(IpAddress::from(local_addr), 24);
     let default_v4_gw = Ipv4Address::new(192, 168, 69, 1);
+    let mut ipv4_mcast_storage = [None; 2];
     let mut iface = EthernetInterfaceBuilder::new(device)
             .ethernet_addr(ethernet_addr)
             .neighbor_cache(neighbor_cache)
             .ip_addrs([ip_addr])
             .ipv4_gateway(default_v4_gw)
+            .ipv4_mcast_groups(&mut ipv4_mcast_storage[..])
             .finalize();
 
     // These are two groups we are subscribed to
-    iface.add_multicast_ip_addr(IpAddress::Ipv4(Ipv4Address::new(225, 0, 0, 37))); // user group 1
-    iface.add_multicast_ip_addr(IpAddress::Ipv4(Ipv4Address::new(224, 0, 6, 150))); // user group 2
+    iface.join_multicast_group(IpAddress::Ipv4(Ipv4Address::new(225, 0, 0, 37))); // user group 1
+    iface.join_multicast_group(IpAddress::Ipv4(Ipv4Address::new(224, 0, 6, 150))); // user group 2
 
     let mut sockets = SocketSet::new(vec![]);
     let raw_handle = sockets.add(raw_socket);
