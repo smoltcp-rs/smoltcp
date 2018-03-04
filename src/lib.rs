@@ -137,14 +137,12 @@ pub enum Error {
     /// since IP reassembly is not supported.
     Fragmented,
     /// An incoming packet was recognized but was self-contradictory.
-    /// E.g. a TCP packet with both SYN and FIN flags set.
-    /// Or a IGMP packet querying address that is not multicast
+    /// E.g. a TCP packet with both SYN and FIN flags set,
+    /// or an IGMP packet querying address that is not multicast.
     Malformed,
     /// An incoming packet was recognized but contradicted internal state.
     /// E.g. a TCP packet addressed to a socket that doesn't exist.
     Dropped,
-	/// An unspecified IO error on the raw socket
-	IOError,
     #[doc(hidden)]
     __Nonexhaustive
 }
@@ -164,7 +162,6 @@ impl fmt::Display for Error {
             &Error::Fragmented    => write!(f, "fragmented packet"),
             &Error::Malformed     => write!(f, "malformed packet"),
             &Error::Dropped       => write!(f, "dropped by socket"),
-            &Error::IOError       => write!(f, "an unspecified IO error "),
             &Error::__Nonexhaustive => unreachable!()
         }
     }
