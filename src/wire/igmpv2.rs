@@ -208,9 +208,9 @@ impl Repr {
             return Err(Error::Checksum);
         }
 
-        // Check if the address is multicast
+        // Check if the address is 0.0.0.0 or multicast
         let addr = packet.group_addr();
-        if !addr.is_multicast() {
+        if !addr.is_unspecified() && !addr.is_multicast() {
             return Err(Error::Malformed);
         }
 

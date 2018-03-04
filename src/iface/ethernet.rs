@@ -604,6 +604,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         match addr.into() {
             #[cfg(feature = "proto-ipv4")]
             IpAddress::Ipv4(key) =>
+                key == Ipv4Address::from_bytes(&IPV4_MCAST_ALL_SYSTEMS) ||
                 self.ipv4_mcast_groups.get(&key).is_some(),
             _ =>
                 false,
@@ -866,28 +867,12 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
             // TODO: max_resp_time not taken in account yet, respond immediately
             IgmpRepr::MembershipQuery { group_addr, .. } => {
                 // General Query
-                if group_addr.is_unspecified() && ipv4_repr.dst_addr.as_bytes() == IPV4_MCAST_ALL_SYSTEMS {
-                    // Are we a member of any group?
-                    if !self.ipv4_mcast_groups.is_empty() {
+                if group_addr.is_unspecified() && ipv4_repr.dst_addr == Ipv4Address::from_bytes(&IPV4_MCAST_ALL_SYSTEMS) {
+                    // Report all groups
+                    for (group_addr, &()) in &self.ipv4_mcast_groups {
                         // Respond
-                        let addr = self.ipv4_mcast_groups
-                            .iter().next()
-                            .map(|(addr, &())| addr.clone())
-                            .unwrap_or(Ipv4Address::UNSPECIFIED);
-                        let igmp_reply_repr = IgmpRepr::MembershipReport {
-                            group_addr: addr,
-                            version: IgmpReportVersion::Version2,
-                        };
-                        if let IpAddress::Ipv4(iface_addr) = self.ip_addrs[0].address() {
-                            let ipv4_reply_repr = Ipv4Repr {
-                                src_addr:    iface_addr,
-                                // Send to the group being reported
-                                dst_addr:    addr,
-                                protocol:    IpProtocol::Igmp,
-                                payload_len: igmp_reply_repr.buffer_len(),
-                                hop_limit:   1,
-                            };
-                            return Ok(Packet::Igmp((ipv4_reply_repr, igmp_reply_repr)));
+                        if let Some(pkt) = self.igmp_report_packet(group_addr.clone()) {
+                            return Ok(pkt);
                         } else {
                             // Error getting the interface address, return none
                             return Ok(Packet::None);
