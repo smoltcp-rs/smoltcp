@@ -1386,12 +1386,13 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
 
 #[cfg(test)]
 mod test {
+    use std::vec::Vec;
     use std::collections::BTreeMap;
     use {Result, Error};
 
     use super::InterfaceBuilder;
     use iface::{NeighborCache, EthernetInterface};
-    use phy::{self, Loopback, ChecksumCapabilities};
+    use phy::{self, Device, RxToken, TxToken, Loopback, ChecksumCapabilities};
     use time::Instant;
     use socket::SocketSet;
     #[cfg(feature = "proto-ipv4")]
@@ -1399,9 +1400,11 @@ mod test {
     use wire::{EthernetAddress, EthernetFrame, EthernetProtocol};
     use wire::{IpAddress, IpCidr, IpProtocol, IpRepr};
     #[cfg(feature = "proto-ipv4")]
-    use wire::{Ipv4Address, Ipv4Repr};
+    use wire::{Ipv4Address, Ipv4Repr, Ipv4Packet};
     #[cfg(feature = "proto-ipv4")]
     use wire::{Icmpv4Repr, Icmpv4DstUnreachable};
+    #[cfg(feature = "proto-ipv4")]
+    use wire::{IgmpPacket, IgmpRepr, IgmpReportVersion};
     #[cfg(all(feature = "socket-udp", feature = "proto-ipv4"))]
     use wire::{UdpPacket, UdpRepr};
     #[cfg(feature = "proto-ipv6")]
@@ -1426,9 +1429,21 @@ mod test {
                 .ethernet_addr(EthernetAddress::default())
                 .neighbor_cache(NeighborCache::new(BTreeMap::new()))
                 .ip_addrs(ip_addrs)
+                .ipv4_mcast_groups(BTreeMap::new())
                 .finalize();
 
         (iface, SocketSet::new(vec![]))
+    }
+
+    fn recv_all<'b>(iface: &mut EthernetInterface<'static, 'b, Loopback>, timestamp: Instant) -> Vec<Vec<u8>> {
+        let mut pkts = Vec::new();
+        while let Some((rx, _tx)) = iface.device.receive() {
+            rx.consume(timestamp, |pkt| {
+                pkts.push(pkt.iter().cloned().collect());
+                Ok(())
+            }).unwrap();
+        }
+        pkts
     }
 
     #[derive(Debug, PartialEq)]
@@ -1945,5 +1960,93 @@ mod test {
             &IpAddress::Ipv6(Ipv6Address::LOOPBACK),
             &IpAddress::Ipv6(remote_ip_addr)),
             Ok((remote_hw_addr, MockTxToken)));
+    }
+
+    #[test]
+    #[cfg(feature = "proto-ipv4")]
+    fn test_handle_igmp() {
+        fn recv_igmp<'b>(mut iface: &mut EthernetInterface<'static, 'b, Loopback>, timestamp: Instant) -> Vec<(Ipv4Repr, IgmpRepr)> {
+            let checksum_caps = &iface.device.capabilities().checksum;
+            recv_all(&mut iface, timestamp)
+                .iter()
+                .filter_map(|frame| {
+                    let eth_frame = EthernetFrame::new_checked(frame).ok()?;
+                    let ipv4_packet = Ipv4Packet::new_checked(eth_frame.payload()).ok()?;
+                    let ipv4_repr = Ipv4Repr::parse(&ipv4_packet, &checksum_caps).ok()?;
+                    let ip_payload = ipv4_packet.payload();
+                    let igmp_packet = IgmpPacket::new_checked(ip_payload).ok()?;
+                    let igmp_repr = IgmpRepr::parse(&igmp_packet, &checksum_caps).ok()?;
+                    Some((ipv4_repr, igmp_repr))
+                })
+                .collect::<Vec<_>>()
+        }
+
+        let groups = [
+            Ipv4Address::new(224, 0, 0, 22),
+            Ipv4Address::new(224, 0, 0, 56),
+        ];
+
+        let (mut iface, mut socket_set) = create_loopback();
+
+        // Join multicast groups
+        let timestamp = Instant::now();
+        for group in &groups {
+            iface.join_multicast_group(group.clone(), timestamp)
+                .unwrap();
+        }
+
+        let reports = recv_igmp(&mut iface, timestamp);
+        assert_eq!(reports.len(), 2);
+        for (i, group_addr) in groups.iter().cloned().enumerate() {
+            assert_eq!(reports[i].0.protocol, IpProtocol::Igmp);
+            assert_eq!(reports[i].0.dst_addr, group_addr);
+            assert_eq!(reports[i].1, IgmpRepr::MembershipReport {
+                group_addr: group_addr,
+                version: IgmpReportVersion::Version2,
+            });
+        }
+
+        // General query
+        let timestamp = Instant::now();
+        const GENERAL_QUERY_BYTES: &[u8] = &[
+            0x01, 0x00, 0x5e, 0x00, 0x00, 0x01, 0x0a, 0x14,
+            0x48, 0x01, 0x21, 0x01, 0x08, 0x00, 0x46, 0xc0,
+            0x00, 0x24, 0xed, 0xb4, 0x00, 0x00, 0x01, 0x02,
+            0x47, 0x43, 0xac, 0x16, 0x63, 0x04, 0xe0, 0x00,
+            0x00, 0x01, 0x94, 0x04, 0x00, 0x00, 0x11, 0x64,
+            0xec, 0x8f, 0x00, 0x00, 0x00, 0x00, 0x02, 0x0c,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00
+        ];
+        {
+            // Transmit GENERAL_QUERY_BYTES into loopback
+            let tx_token = iface.device.transmit().unwrap();
+            tx_token.consume(
+                timestamp, GENERAL_QUERY_BYTES.len(),
+                |buffer| {
+                    buffer.copy_from_slice(GENERAL_QUERY_BYTES);
+                    Ok(())
+                }).unwrap();
+        }
+        // Trigger processing until all packets received through the
+        // loopback have been processed, including responses to
+        // GENERAL_QUERY_BYTES. Therefore `recv_all()` would return 0
+        // pkts that could be checked.
+        iface.socket_ingress(&mut socket_set, timestamp).unwrap();
+
+        // Leave multicast groups
+        let timestamp = Instant::now();
+        for group in &groups {
+            iface.leave_multicast_group(group.clone(), timestamp)
+                .unwrap();
+        }
+
+        let leaves = recv_igmp(&mut iface, timestamp);
+        assert_eq!(leaves.len(), 2);
+        for (i, group_addr) in groups.iter().cloned().enumerate() {
+            assert_eq!(leaves[i].0.protocol, IpProtocol::Igmp);
+            assert_eq!(leaves[i].0.dst_addr, Ipv4Address::from_bytes(&super::IPV4_MCAST_ALL_ROUTERS));
+            assert_eq!(leaves[i].1, IgmpRepr::LeaveGroup { group_addr });
+        }
     }
 }
