@@ -20,7 +20,7 @@ use super::ip::checksum;
 use wire::Ipv4Address;
 
 enum_with_unknown! {
-    /// Internet Group Management Protocol v2 message type.
+    /// Internet Group Management Protocol v2 message version/type.
     pub doc enum Message(u8) {
     /// Membership Query
     MembershipQuery = 0x11,
@@ -81,14 +81,10 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// Returns `Err(Error::Truncated)` if the buffer is too short.
     pub fn check_len(&self) -> Result<()> {
         let len = self.buffer.as_ref().len();
-        if len < field::CHECKSUM.end {
+        if len < field::GROUP_ADDRESS.end as usize {
             Err(Error::Truncated)
         } else {
-            if len < field::GROUP_ADDRESS.end as usize {
-                Err(Error::Truncated)
-            } else {
-                Ok(())
-            }
+            Ok(())
         }
     }
 
@@ -165,12 +161,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     #[inline]
     pub fn set_group_address(&mut self, addr: Ipv4Address) {
         let data = self.buffer.as_mut();
-        let addr_bytes = addr.as_bytes();
-        // TODO: check for host endiannes?
-        let addr_u32: u32 = (addr_bytes[3] as u32) | (addr_bytes[2] as u32) << 8 |
-                            (addr_bytes[1] as u32) << 16 |
-                            (addr_bytes[0] as u32) << 24;
-        NetworkEndian::write_u32(&mut data[field::GROUP_ADDRESS], addr_u32)
+        data[field::GROUP_ADDRESS].copy_from_slice(addr.as_bytes());
     }
 
     /// Compute and fill in the header checksum.
