@@ -325,12 +325,12 @@ impl<'a> fmt::Display for Repr {
                 version,
             } => {
                 write!(f,
-                       "IGMPv2 Membership report group_addr={} version={:?}",
+                       "IGMPv2 membership report group_addr={} version={:?}",
                        group_addr,
                        version)
             }
             &Repr::LeaveGroup { group_addr } => {
-                write!(f, "IGMPv2 Leave Group group_addr={})", group_addr)
+                write!(f, "IGMPv2 leave group group_addr={})", group_addr)
             }
         }
     }
