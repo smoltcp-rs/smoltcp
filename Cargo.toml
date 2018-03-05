@@ -34,6 +34,7 @@ verbose = []
 "phy-raw_socket" = ["std", "libc"]
 "phy-tap_interface" = ["std", "libc"]
 "proto-ipv4" = []
+"proto-igmp" = ["proto-ipv4"]
 "proto-ipv6" = []
 "socket-raw" = []
 "socket-udp" = []
@@ -43,7 +44,7 @@ verbose = []
 default = [
   "std", "log", # needed for `cargo test --no-default-features --features default` :/
   "phy-raw_socket", "phy-tap_interface",
-  "proto-ipv4", "proto-ipv6",
+  "proto-ipv4", "proto-igmp", "proto-ipv6",
   "socket-raw", "socket-icmp", "socket-udp", "socket-tcp"
 ]
 
@@ -77,8 +78,12 @@ name = "loopback"
 required-features = ["log", "proto-ipv4", "socket-tcp"]
 
 [[example]]
+name = "multicast"
+required-features = ["std", "phy-tap_interface", "proto-ipv4", "proto-igmp", "socket-udp"]
+
+[[example]]
 name = "benchmark"
-required-features = ["std", "phy-tap_interface", "proto-ipv4", "socket-tcp"]
+required-features = ["std", "phy-tap_interface", "proto-ipv4", "socket-raw", "socket-udp"]
 
 [profile.release]
 debug = 2

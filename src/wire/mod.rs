@@ -99,7 +99,7 @@ mod icmpv4;
 mod icmpv6;
 #[cfg(any(feature = "proto-ipv4", feature = "proto-ipv6"))]
 mod icmp;
-#[cfg(feature = "proto-ipv4")]
+#[cfg(feature = "proto-igmp")]
 mod igmp;
 #[cfg(feature = "proto-ipv6")]
 mod ndisc;
@@ -173,7 +173,7 @@ pub use self::icmpv4::{Message as Icmpv4Message,
                        Packet as Icmpv4Packet,
                        Repr as Icmpv4Repr};
 
-#[cfg(feature = "proto-ipv4")]
+#[cfg(feature = "proto-igmp")]
 pub use self::igmp::{Packet as IgmpPacket,
                      Repr as IgmpRepr,
                      IgmpVersion};
