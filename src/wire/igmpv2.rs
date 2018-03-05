@@ -3,6 +3,7 @@ use byteorder::{ByteOrder, NetworkEndian};
 
 use {Error, Result};
 use super::ip::checksum;
+use time::Duration;
 
 use wire::Ipv4Address;
 
@@ -97,16 +98,17 @@ impl<T: AsRef<[u8]>> Packet<T> {
     ///
     /// [RFC 3376]: https://tools.ietf.org/html/rfc3376
     #[inline]
-    pub fn max_resp_time(&self) -> u16 {
+    pub fn max_resp_time(&self) -> Duration {
         let data = self.buffer.as_ref();
-        let value = data[field::MAX_RESP_TIME].into();
-        if value < 128 {
+        let value: u64 = data[field::MAX_RESP_TIME].into();
+        let centisecs = if value < 128 {
             value
         } else {
             let mant = value & 0xF;
             let exp = (value >> 4) & 0x7;
             (mant | 0x10) << (exp + 3)
-        }
+        };
+        Duration::from_millis(centisecs * 100)
     }
 
     /// Return the checksum field.
@@ -147,8 +149,16 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
 
     /// Set the Max Resp Time field.
     #[inline]
-    pub fn set_max_resp_time(&mut self, value: u8) {
+    pub fn set_max_resp_time(&mut self, duration: Duration) {
         let data = self.buffer.as_mut();
+        let centisecs = duration.total_millis() / 100;
+        let value = if centisecs < 128 {
+            centisecs as u8
+        } else {
+            // Could calculate the exp/mant form here but that is not
+            // needed as we do not generate membership queries.
+            127
+        };
         data[field::MAX_RESP_TIME] = value
     }
 
@@ -179,11 +189,11 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
 
 
 /// A high-level representation of an Internet Group Management Protocol v2 header.
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Repr {
     MembershipQuery {
-        /// Maximum Response Time in 1/10th second (100ms) units
-        max_resp_time: u16,
+        /// Maximum Response Time
+        max_resp_time: Duration,
         group_addr: Ipv4Address,
         version: IgmpVersion,
     },
@@ -191,7 +201,9 @@ pub enum Repr {
         group_addr: Ipv4Address,
         version: IgmpVersion,
     },
-    LeaveGroup { group_addr: Ipv4Address },
+    LeaveGroup {
+        group_addr: Ipv4Address,
+    },
 }
 
 /// Type of IGMP membership report version
@@ -220,7 +232,7 @@ impl Repr {
             Message::MembershipQuery => {
                 let max_resp_time = packet.max_resp_time();
                 // See RFC 3376: 7.1. Query Version Distinctions
-                let version = if max_resp_time == 0 {
+                let version = if max_resp_time == Duration::from_millis(0) {
                     IgmpVersion::Version1
                 } else {
                     IgmpVersion::Version2
@@ -268,9 +280,9 @@ impl Repr {
                 packet.set_msg_type(Message::MembershipQuery);
                 match version {
                     IgmpVersion::Version1 =>
-                        packet.set_max_resp_time(0),
+                        packet.set_max_resp_time(Duration::from_millis(0)),
                     IgmpVersion::Version2 =>
-                        packet.set_max_resp_time(max_resp_time.min(127) as u8),
+                        packet.set_max_resp_time(max_resp_time),
                 }
                 packet.set_group_address(group_addr);
             }
@@ -282,7 +294,7 @@ impl Repr {
                     IgmpVersion::Version1 => packet.set_msg_type(Message::MembershipReportV1),
                     IgmpVersion::Version2 => packet.set_msg_type(Message::MembershipReportV2),
                 };
-                packet.set_max_resp_time(0);
+                packet.set_max_resp_time(Duration::from_millis(0));
                 packet.set_group_address(group_addr);
             }
             &Repr::LeaveGroup { group_addr } => {
@@ -362,7 +374,7 @@ mod test {
     fn test_leave_group_deconstruct() {
         let packet = Packet::new(&LEAVE_PACKET_BYTES[..]);
         assert_eq!(packet.msg_type(), Message::LeaveGroup);
-        assert_eq!(packet.max_resp_time(), 0);
+        assert_eq!(packet.max_resp_time(), Duration::from_millis(0));
         assert_eq!(packet.checksum(), 0x269);
         assert_eq!(packet.group_addr(),
                    Ipv4Address::from_bytes(&[224, 0, 6, 150]));
@@ -373,7 +385,7 @@ mod test {
     fn test_report_deconstruct() {
         let packet = Packet::new(&REPORT_PACKET_BYTES[..]);
         assert_eq!(packet.msg_type(), Message::MembershipReportV2);
-        assert_eq!(packet.max_resp_time(), 0);
+        assert_eq!(packet.max_resp_time(), Duration::from_millis(0));
         assert_eq!(packet.checksum(), 0x08da);
         assert_eq!(packet.group_addr(),
                    Ipv4Address::from_bytes(&[225, 0, 0, 37]));
@@ -385,7 +397,7 @@ mod test {
         let mut bytes = vec![0xa5; 8];
         let mut packet = Packet::new(&mut bytes);
         packet.set_msg_type(Message::LeaveGroup);
-        packet.set_max_resp_time(0);
+        packet.set_max_resp_time(Duration::from_millis(0));
         packet.set_group_address(Ipv4Address::from_bytes(&[224, 0, 6, 150]));
         packet.fill_checksum();
         assert_eq!(&packet.into_inner()[..], &LEAVE_PACKET_BYTES[..]);
@@ -396,7 +408,7 @@ mod test {
         let mut bytes = vec![0xa5; 8];
         let mut packet = Packet::new(&mut bytes);
         packet.set_msg_type(Message::MembershipReportV2);
-        packet.set_max_resp_time(0);
+        packet.set_max_resp_time(Duration::from_millis(0));
         packet.set_group_address(Ipv4Address::from_bytes(&[225, 0, 0, 37]));
         packet.fill_checksum();
         assert_eq!(&packet.into_inner()[..], &REPORT_PACKET_BYTES[..]);
