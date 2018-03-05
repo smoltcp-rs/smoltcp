@@ -101,10 +101,19 @@ impl<T: AsRef<[u8]>> Packet<T> {
     }
 
     /// Return the Max reponse time
+    ///
+    /// See RFC 3376: 4.1.1. Max Resp Code
     #[inline]
-    pub fn max_resp_time(&self) -> u8 {
+    pub fn max_resp_time(&self) -> u16 {
         let data = self.buffer.as_ref();
-        data[field::MAX_RESP_TIME]
+        let value = data[field::MAX_RESP_TIME].into();
+        if value < 128 {
+            value
+        } else {
+            let mant = value & 0xF;
+            let exp = (value >> 4) & 0x7;
+            (mant | 0x10) << (exp + 3)
+        }
     }
 
     /// Return the checksum field.
@@ -180,7 +189,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Repr {
     MembershipQuery {
-        max_resp_time: u8,
+        max_resp_time: u16,
         group_addr: Ipv4Address,
     },
     MembershipReport {
@@ -257,7 +266,7 @@ impl Repr {
                 group_addr,
             } => {
                 packet.set_msg_type(Message::MembershipQuery);
-                packet.set_max_resp_time(max_resp_time);
+                packet.set_max_resp_time(max_resp_time.min(127) as u8),
                 packet.set_group_address(group_addr);
             }
             &Repr::MembershipReport {
