@@ -48,9 +48,9 @@ const IPV4_MCAST_ALL_ROUTERS: [u8; 4] = [224, 0, 0, 2];
 /// The network interface logically owns a number of other data structures; to avoid
 /// a dependency on heap allocation, it instead owns a `BorrowMut<[T]>`, which can be
 /// a `&mut [T]`, or `Vec<T>` if a heap is available.
-pub struct Interface<'b, 'c, DeviceT: for<'d> Device<'d>> {
+pub struct Interface<'b, 'c, 'e, DeviceT: for<'d> Device<'d>> {
     device: DeviceT,
-    inner:  InterfaceInner<'b, 'c>,
+    inner:  InterfaceInner<'b, 'c, 'e>,
 }
 
 /// The device independent part of an Ethernet network interface.
@@ -60,14 +60,15 @@ pub struct Interface<'b, 'c, DeviceT: for<'d> Device<'d>> {
 /// the `device` mutably until they're used, which makes it impossible to call other
 /// methods on the `Interface` in this time (since its `device` field is borrowed
 /// exclusively). However, it is still possible to call methods on its `inner` field.
-struct InterfaceInner<'b, 'c> {
+struct InterfaceInner<'b, 'c, 'e> {
     neighbor_cache:         NeighborCache<'b>,
     ethernet_addr:          EthernetAddress,
     ip_addrs:               ManagedSlice<'c, IpCidr>,
     #[cfg(feature = "proto-ipv4")]
     ipv4_gateway:           Option<Ipv4Address>,
     #[cfg(feature = "proto-ipv4")]
-    ipv4_mcast_groups:      ManagedMap<'c, Ipv4Address, ()>,
+    ipv4_mcast_groups:      ManagedMap<'e, Ipv4Address, ()>,
+    // TODO: not 'c?
     /// When to report for (all or) the next multicast group membership via IGMP
     #[cfg(feature = "proto-ipv4")]
     igmp_report_state:      IgmpReportState,
@@ -77,7 +78,7 @@ struct InterfaceInner<'b, 'c> {
 
 /// A builder structure used for creating a Ethernet network
 /// interface.
-pub struct InterfaceBuilder <'b, 'c, DeviceT: for<'d> Device<'d>> {
+pub struct InterfaceBuilder <'b, 'c, 'e, DeviceT: for<'d> Device<'d>> {
     device:              DeviceT,
     ethernet_addr:       Option<EthernetAddress>,
     neighbor_cache:      Option<NeighborCache<'b>>,
@@ -86,10 +87,10 @@ pub struct InterfaceBuilder <'b, 'c, DeviceT: for<'d> Device<'d>> {
     ipv4_gateway:        Option<Ipv4Address>,
     /// Does not share storage with `ipv6_mcast_groups` to avoid IPv6 size overhead.
     #[cfg(feature = "proto-ipv4")]
-    ipv4_mcast_groups:   ManagedMap<'c, Ipv4Address, ()>,
+    ipv4_mcast_groups:   ManagedMap<'e, Ipv4Address, ()>,
 }
 
-impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
+impl<'b, 'c, 'e, DeviceT> InterfaceBuilder<'b, 'c, 'e, DeviceT>
         where DeviceT: for<'d> Device<'d> {
     /// Create a builder used for creating a network interface using the
     /// given device and address.
@@ -116,7 +117,7 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
     ///         .ip_addrs(ip_addrs)
     ///         .finalize();
     /// ```
-    pub fn new(device: DeviceT) -> InterfaceBuilder<'b, 'c, DeviceT> {
+    pub fn new(device: DeviceT) -> InterfaceBuilder<'b, 'c, 'e, DeviceT> {
         InterfaceBuilder {
             device:              device,
             ethernet_addr:       None,
@@ -136,7 +137,7 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
     /// This function panics if the address is not unicast.
     ///
     /// [ethernet_addr]: struct.EthernetInterface.html#method.ethernet_addr
-    pub fn ethernet_addr(mut self, addr: EthernetAddress) -> InterfaceBuilder<'b, 'c, DeviceT> {
+    pub fn ethernet_addr(mut self, addr: EthernetAddress) -> InterfaceBuilder<'b, 'c, 'e, DeviceT> {
         InterfaceInner::check_ethernet_addr(&addr);
         self.ethernet_addr = Some(addr);
         self
@@ -149,7 +150,7 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
     /// This function panics if any of the addresses is not unicast.
     ///
     /// [ip_addrs]: struct.EthernetInterface.html#method.ip_addrs
-    pub fn ip_addrs<T>(mut self, ip_addrs: T) -> InterfaceBuilder<'b, 'c, DeviceT>
+    pub fn ip_addrs<T>(mut self, ip_addrs: T) -> InterfaceBuilder<'b, 'c, 'e, DeviceT>
         where T: Into<ManagedSlice<'c, IpCidr>>
     {
         let ip_addrs = ip_addrs.into();
@@ -166,7 +167,7 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
     ///
     /// [ipv4_gateway]: struct.EthernetInterface.html#method.ipv4_gateway
     #[cfg(feature = "proto-ipv4")]
-    pub fn ipv4_gateway<T>(mut self, gateway: T) -> InterfaceBuilder<'b, 'c, DeviceT>
+    pub fn ipv4_gateway<T>(mut self, gateway: T) -> InterfaceBuilder<'b, 'c, 'e, DeviceT>
         where T: Into<Ipv4Address>
     {
         let addr = gateway.into();
@@ -180,8 +181,8 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
     /// Add them to a finalized `Interface` using [join_multicast_group].
     ///
     /// [join_multicast_group]: struct.EthernetInterface.html#method.join_multicast_group
-    pub fn ipv4_mcast_groups<T>(mut self, ipv4_mcast_groups: T) -> InterfaceBuilder<'b, 'c, DeviceT>
-        where T: Into<ManagedMap<'c, Ipv4Address, ()>>
+    pub fn ipv4_mcast_groups<T>(mut self, ipv4_mcast_groups: T) -> InterfaceBuilder<'b, 'c, 'e, DeviceT>
+        where T: Into<ManagedMap<'e, Ipv4Address, ()>>
     {
         self.ipv4_mcast_groups = ipv4_mcast_groups.into();
         self
@@ -189,7 +190,7 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
 
     /// Set the Neighbor Cache the interface will use.
     pub fn neighbor_cache(mut self, neighbor_cache: NeighborCache<'b>) ->
-                         InterfaceBuilder<'b, 'c, DeviceT> {
+                         InterfaceBuilder<'b, 'c, 'e, DeviceT> {
         self.neighbor_cache = Some(neighbor_cache);
         self
     }
@@ -205,7 +206,7 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
     ///
     /// [ethernet_addr]: #method.ethernet_addr
     /// [neighbor_cache]: #method.neighbor_cache
-    pub fn finalize(self) -> Interface<'b, 'c, DeviceT> {
+    pub fn finalize(self) -> Interface<'b, 'c, 'e, DeviceT> {
         match (self.ethernet_addr, self.neighbor_cache) {
             (Some(ethernet_addr), Some(neighbor_cache)) => {
                 let device_capabilities = self.device.capabilities();
@@ -291,7 +292,7 @@ enum IgmpReportState {
     ToSpecificQuery(Instant, Ipv4Address),
 }
 
-impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
+impl<'b, 'c, 'e, DeviceT> Interface<'b, 'c, 'e, DeviceT>
         where DeviceT: for<'d> Device<'d> {
     /// Get the Ethernet address of the interface.
     pub fn ethernet_addr(&self) -> EthernetAddress {
@@ -627,7 +628,7 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
     }
 }
 
-impl<'b, 'c> InterfaceInner<'b, 'c> {
+impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
     fn check_ethernet_addr(addr: &EthernetAddress) {
         if addr.is_multicast() {
             panic!("Ethernet address {} is not unicast", addr)
@@ -1477,7 +1478,7 @@ mod test {
 
     use super::Packet;
 
-    fn create_loopback<'a, 'b>() -> (EthernetInterface<'static, 'b, Loopback>,
+    fn create_loopback<'a, 'b>() -> (EthernetInterface<'static, 'b, 'static, Loopback>,
                                      SocketSet<'static, 'a, 'b>) {
         // Create a basic device
         let device = Loopback::new();
@@ -1498,7 +1499,7 @@ mod test {
         (iface, SocketSet::new(vec![]))
     }
 
-    fn recv_all<'b>(iface: &mut EthernetInterface<'static, 'b, Loopback>, timestamp: Instant) -> Vec<Vec<u8>> {
+    fn recv_all<'b>(iface: &mut EthernetInterface<'static, 'b, 'static, Loopback>, timestamp: Instant) -> Vec<Vec<u8>> {
         let mut pkts = Vec::new();
         while let Some((rx, _tx)) = iface.device.receive() {
             rx.consume(timestamp, |pkt| {
@@ -2028,7 +2029,7 @@ mod test {
     #[test]
     #[cfg(feature = "proto-ipv4")]
     fn test_handle_igmp() {
-        fn recv_igmp<'b>(mut iface: &mut EthernetInterface<'static, 'b, Loopback>, timestamp: Instant) -> Vec<(Ipv4Repr, IgmpRepr)> {
+        fn recv_igmp<'b>(mut iface: &mut EthernetInterface<'static, 'b, 'static, Loopback>, timestamp: Instant) -> Vec<(Ipv4Repr, IgmpRepr)> {
             let checksum_caps = &iface.device.capabilities().checksum;
             recv_all(&mut iface, timestamp)
                 .iter()
