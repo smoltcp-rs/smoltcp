@@ -54,6 +54,7 @@ enum_with_unknown! {
     pub enum Protocol(u8) {
         HopByHop  = 0x00,
         Icmp      = 0x01,
+        Igmp      = 0x02,
         Tcp       = 0x06,
         Udp       = 0x11,
         Ipv6Route = 0x2b,
@@ -69,6 +70,7 @@ impl fmt::Display for Protocol {
         match self {
             &Protocol::HopByHop    => write!(f, "Hop-by-Hop"),
             &Protocol::Icmp        => write!(f, "ICMP"),
+            &Protocol::Igmp        => write!(f, "IGMP"),
             &Protocol::Tcp         => write!(f, "TCP"),
             &Protocol::Udp         => write!(f, "UDP"),
             &Protocol::Ipv6Route   => write!(f, "IPv6-Route"),

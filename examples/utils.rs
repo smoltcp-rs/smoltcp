@@ -18,6 +18,7 @@ use smoltcp::phy::{Device, EthernetTracer, FaultInjector};
 #[cfg(feature = "phy-tap_interface")]
 use smoltcp::phy::TapInterface;
 use smoltcp::phy::{PcapWriter, PcapSink, PcapMode, PcapLinkType};
+use smoltcp::phy::RawSocket;
 use smoltcp::time::{Duration, Instant};
 
 #[cfg(feature = "log")]
@@ -85,6 +86,11 @@ pub fn add_tap_options(_opts: &mut Options, free: &mut Vec<&str>) {
 pub fn parse_tap_options(matches: &mut Matches) -> TapInterface {
     let interface = matches.free.remove(0);
     TapInterface::new(&interface).unwrap()
+}
+
+pub fn parse_raw_socket_options(matches: &mut Matches) -> RawSocket {
+    let interface = matches.free.remove(0);
+    RawSocket::new(&interface).unwrap()
 }
 
 pub fn add_middleware_options(opts: &mut Options, _free: &mut Vec<&str>) {

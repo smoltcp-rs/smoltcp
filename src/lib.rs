@@ -142,7 +142,6 @@ pub enum Error {
     /// An incoming packet was recognized but contradicted internal state.
     /// E.g. a TCP packet addressed to a socket that doesn't exist.
     Dropped,
-
     #[doc(hidden)]
     __Nonexhaustive
 }

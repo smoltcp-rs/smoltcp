@@ -12,7 +12,7 @@ use time::Instant;
 #[derive(Debug)]
 pub struct RawSocket {
     lower:  Rc<RefCell<sys::RawSocketDesc>>,
-    mtu:    usize
+    mtu:    usize,
 }
 
 impl AsRawFd for RawSocket {

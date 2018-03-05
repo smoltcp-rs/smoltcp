@@ -72,6 +72,9 @@ name = "loopback"
 required-features = ["log", "proto-ipv4", "socket-tcp"]
 
 [[example]]
+name = "multicast"
+
+[[example]]
 name = "benchmark"
 required-features = ["std", "phy-tap_interface", "proto-ipv4", "socket-tcp"]
 
