@@ -226,24 +226,24 @@ impl Repr {
                     IgmpVersion::Version2
                 };
                 Ok(Repr::MembershipQuery {
-                       max_resp_time,
-                       group_addr: addr,
-                       version,
-                   })
+                    max_resp_time,
+                    group_addr: addr,
+                    version,
+                })
             }
             Message::MembershipReportV2 => {
                 Ok(Repr::MembershipReport {
-                       group_addr: packet.group_addr(),
-                       version: IgmpVersion::Version2,
-                   })
+                    group_addr: packet.group_addr(),
+                    version: IgmpVersion::Version2,
+                })
             }
             Message::LeaveGroup => Ok(Repr::LeaveGroup { group_addr: packet.group_addr() }),
             Message::MembershipReportV1 => {
                 // for backwards compatibility with IGMPv1
                 Ok(Repr::MembershipReport {
-                       group_addr: packet.group_addr(),
-                       version: IgmpVersion::Version1,
-                   })
+                    group_addr: packet.group_addr(),
+                    version: IgmpVersion::Version1,
+                })
             }
             _ => Err(Error::Unrecognized),
         }
