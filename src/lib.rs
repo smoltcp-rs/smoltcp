@@ -137,8 +137,7 @@ pub enum Error {
     /// since IP reassembly is not supported.
     Fragmented,
     /// An incoming packet was recognized but was self-contradictory.
-    /// E.g. a TCP packet with both SYN and FIN flags set,
-    /// or an IGMP packet querying address that is not multicast.
+    /// E.g. a TCP packet with both SYN and FIN flags set.
     Malformed,
     /// An incoming packet was recognized but contradicted internal state.
     /// E.g. a TCP packet addressed to a socket that doesn't exist.
