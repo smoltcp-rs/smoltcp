@@ -19,7 +19,7 @@ use wire::{ArpPacket, ArpRepr, ArpOperation};
 #[cfg(feature = "proto-ipv4")]
 use wire::{Icmpv4Packet, Icmpv4Repr, Icmpv4DstUnreachable};
 #[cfg(feature = "proto-ipv4")]
-use wire::{IgmpPacket, IgmpRepr, IgmpReportVersion};
+use wire::{IgmpPacket, IgmpRepr, IgmpVersion};
 #[cfg(feature = "proto-ipv6")]
 use wire::{Icmpv6Packet, Icmpv6Repr, Icmpv6ParamProblem};
 #[cfg(all(feature = "proto-ipv6", feature = "socket-udp"))]
@@ -284,12 +284,13 @@ fn icmp_reply_payload_len(len: usize, mtu: usize, header_len: usize) -> usize {
     cmp::min(len, mtu - header_len * 2 - 8)
 }
 
+#[cfg(feature = "proto-ipv4")]
 enum IgmpReportState {
     Inactive,
     /// (Timeout, Interval, NextGroup)
-    ToGeneralQuery(Instant, Duration, Ipv4Address),
+    ToGeneralQuery(IgmpVersion, Instant, Duration, Ipv4Address),
     /// (Timeout, Group)
-    ToSpecificQuery(Instant, Ipv4Address),
+    ToSpecificQuery(IgmpVersion, Instant, Ipv4Address),
 }
 
 impl<'b, 'c, 'e, DeviceT> Interface<'b, 'c, 'e, DeviceT>
@@ -324,7 +325,7 @@ impl<'b, 'c, 'e, DeviceT> Interface<'b, 'c, 'e, DeviceT>
                     return Ok(());
                 }
 
-                if let Some(pkt) = self.inner.igmp_report_packet(addr) {
+                if let Some(pkt) = self.inner.igmp_report_packet(IgmpVersion::Version2, addr) {
                     // Send initial membership report
                     let tx_token = self.device.transmit().ok_or(Error::Exhausted)?;
                     self.inner.dispatch(tx_token, timestamp, pkt)?;
@@ -577,8 +578,8 @@ impl<'b, 'c, 'e, DeviceT> Interface<'b, 'c, 'e, DeviceT>
 
     fn igmp_egress(&mut self, timestamp: Instant) -> Result<bool> {
         match self.inner.igmp_report_state {
-            IgmpReportState::ToSpecificQuery(timeout, addr) if timestamp >= timeout => {
-                if let Some(pkt) = self.inner.igmp_report_packet(addr) {
+            IgmpReportState::ToSpecificQuery(version, timeout, addr) if timestamp >= timeout => {
+                if let Some(pkt) = self.inner.igmp_report_packet(version, addr) {
                     // Send initial membership report
                     let tx_token = self.device.transmit().ok_or(Error::Exhausted)?;
                     self.inner.dispatch(tx_token, timestamp, pkt)?;
@@ -587,7 +588,7 @@ impl<'b, 'c, 'e, DeviceT> Interface<'b, 'c, 'e, DeviceT>
                 self.inner.igmp_report_state = IgmpReportState::Inactive;
                 Ok(true)
             }
-            IgmpReportState::ToGeneralQuery(timeout, interval, addr) if timestamp >= timeout => {
+            IgmpReportState::ToGeneralQuery(version, timeout, interval, addr) if timestamp >= timeout => {
                 let next_addr = {
                     let mut next_addrs = self.inner.ipv4_mcast_groups
                         .iter()
@@ -602,7 +603,7 @@ impl<'b, 'c, 'e, DeviceT> Interface<'b, 'c, 'e, DeviceT>
                         .map(|next_addr| next_addr.clone())
                 };
 
-                if let Some(pkt) = self.inner.igmp_report_packet(addr) {
+                if let Some(pkt) = self.inner.igmp_report_packet(version, addr) {
                     // Send initial membership report
                     let tx_token = self.device.transmit().ok_or(Error::Exhausted)?;
                     self.inner.dispatch(tx_token, timestamp, pkt)?;
@@ -611,7 +612,7 @@ impl<'b, 'c, 'e, DeviceT> Interface<'b, 'c, 'e, DeviceT>
                 match next_addr {
                     Some(next_addr) => {
                         let next_timeout = (timeout + interval).max(timestamp);
-                        self.inner.igmp_report_state = IgmpReportState::ToGeneralQuery(next_timeout, interval, next_addr);
+                        self.inner.igmp_report_state = IgmpReportState::ToGeneralQuery(version, next_timeout, interval, next_addr);
                         Ok(true)
                     }
                     None => {
@@ -933,14 +934,21 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
 
         // for now - reply immediately
         match igmp_repr {
-            IgmpRepr::MembershipQuery { group_addr, .. } => {
+            IgmpRepr::MembershipQuery { group_addr, version, .. } => {
                 // General Query
                 if group_addr.is_unspecified() && ipv4_repr.dst_addr == Ipv4Address::from_bytes(&IPV4_MCAST_ALL_SYSTEMS) {
                     if let Some((first_group_addr, &())) = self.ipv4_mcast_groups.iter().next() {
-                        // No dependence on a random generator but at least spread reports evenly over max_resp_time
-                        let intervals = self.ipv4_mcast_groups.len() as u64 + 1;
-                        let interval = Duration::from_millis(igmp_packet.max_resp_time() as u64 * 100 / intervals);
+                        let interval = match version {
+                            IgmpVersion::Version1 =>
+                                Duration::from_millis(100),
+                            IgmpVersion::Version2 => {
+                                // No dependence on a random generator but at least spread reports evenly over max_resp_time
+                                let intervals = self.ipv4_mcast_groups.len() as u64 + 1;
+                                Duration::from_millis(igmp_packet.max_resp_time() as u64 * 100 / intervals)
+                            }
+                        };
                         self.igmp_report_state = IgmpReportState::ToGeneralQuery(
+                            version,
                             timestamp + interval,
                             interval,
                             first_group_addr.clone()
@@ -951,6 +959,7 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
                         // Don't respond immediately
                         let timeout = Duration::from_millis(igmp_packet.max_resp_time() as u64 * 100 / 4);
                         self.igmp_report_state = IgmpReportState::ToSpecificQuery(
+                            version,
                             timestamp + timeout,
                             group_addr
                         );
@@ -1414,11 +1423,11 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
     }
 
     #[cfg(feature = "proto-ipv4")]
-    fn igmp_report_packet<'any>(&self, group_addr: Ipv4Address) -> Option<Packet<'any>> {
+    fn igmp_report_packet<'any>(&self, version: IgmpVersion, group_addr: Ipv4Address) -> Option<Packet<'any>> {
         self.ipv4_address().map(|iface_addr| {
             let igmp_repr = IgmpRepr::MembershipReport {
                 group_addr,
-                version: IgmpReportVersion::Version2,
+                version,
             };
             let pkt = Packet::Igmp((Ipv4Repr {
                 src_addr:    iface_addr.clone(),
@@ -1468,7 +1477,7 @@ mod test {
     #[cfg(feature = "proto-ipv4")]
     use wire::{Icmpv4Repr, Icmpv4DstUnreachable};
     #[cfg(feature = "proto-ipv4")]
-    use wire::{IgmpPacket, IgmpRepr, IgmpReportVersion};
+    use wire::{IgmpPacket, IgmpRepr, IgmpVersion};
     #[cfg(all(feature = "socket-udp", feature = "proto-ipv4"))]
     use wire::{UdpPacket, UdpRepr};
     #[cfg(feature = "proto-ipv6")]
@@ -2066,7 +2075,7 @@ mod test {
             assert_eq!(reports[i].0.dst_addr, group_addr);
             assert_eq!(reports[i].1, IgmpRepr::MembershipReport {
                 group_addr: group_addr,
-                version: IgmpReportVersion::Version2,
+                version: IgmpVersion::Version2,
             });
         }
 

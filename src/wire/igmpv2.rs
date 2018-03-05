@@ -191,17 +191,18 @@ pub enum Repr {
     MembershipQuery {
         max_resp_time: u16,
         group_addr: Ipv4Address,
+        version: IgmpVersion,
     },
     MembershipReport {
         group_addr: Ipv4Address,
-        version: ReportVersion,
+        version: IgmpVersion,
     },
     LeaveGroup { group_addr: Ipv4Address },
 }
 
 /// Type of IGMPv2 membership report version
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum ReportVersion {
+pub enum IgmpVersion {
     Version1,
     Version2,
 }
@@ -226,16 +227,23 @@ impl Repr {
         // construct a packet based on the Type field
         match packet.msg_type() {
             Message::MembershipQuery => {
-                // TODO: act accordingly ?
+                let max_resp_time = packet.max_resp_time();
+                // See RFC 3376: 7.1. Query Version Distinctions
+                let version = if max_resp_time == 0 {
+                    IgmpVersion::Version1
+                } else {
+                    IgmpVersion::Version2
+                };
                 Ok(Repr::MembershipQuery {
-                       max_resp_time: packet.max_resp_time(),
+                       max_resp_time,
                        group_addr: addr,
+                       version,
                    })
             }
             Message::MembershipReportV2 => {
                 Ok(Repr::MembershipReport {
                        group_addr: packet.group_addr(),
-                       version: ReportVersion::Version2,
+                       version: IgmpVersion::Version2,
                    })
             }
             Message::LeaveGroup => Ok(Repr::LeaveGroup { group_addr: packet.group_addr() }),
@@ -243,7 +251,7 @@ impl Repr {
                 // for backwards compatibility with IGMPv1
                 Ok(Repr::MembershipReport {
                        group_addr: packet.group_addr(),
-                       version: ReportVersion::Version1,
+                       version: IgmpVersion::Version1,
                    })
             }
             _ => Err(Error::Unrecognized),
@@ -264,9 +272,15 @@ impl Repr {
             &Repr::MembershipQuery {
                 max_resp_time,
                 group_addr,
+                version
             } => {
                 packet.set_msg_type(Message::MembershipQuery);
-                packet.set_max_resp_time(max_resp_time.min(127) as u8),
+                match version {
+                    IgmpVersion::Version1 =>
+                        packet.set_max_resp_time(0),
+                    IgmpVersion::Version2 =>
+                        packet.set_max_resp_time(max_resp_time.min(127) as u8),
+                }
                 packet.set_group_address(group_addr);
             }
             &Repr::MembershipReport {
@@ -274,8 +288,8 @@ impl Repr {
                 version,
             } => {
                 match version {
-                    ReportVersion::Version1 => packet.set_msg_type(Message::MembershipReportV1),
-                    ReportVersion::Version2 => packet.set_msg_type(Message::MembershipReportV2),
+                    IgmpVersion::Version1 => packet.set_msg_type(Message::MembershipReportV1),
+                    IgmpVersion::Version2 => packet.set_msg_type(Message::MembershipReportV2),
                 };
                 packet.set_max_resp_time(0);
                 packet.set_group_address(group_addr);
@@ -312,11 +326,13 @@ impl<'a> fmt::Display for Repr {
             &Repr::MembershipQuery {
                 max_resp_time,
                 group_addr,
+                version,
             } => {
                 write!(f,
-                       "IGMPv2 membership query max_resp_time={} group_addr={}",
+                       "IGMPv2 membership query max_resp_time={} group_addr={} version={:?}",
                        max_resp_time,
-                       group_addr)
+                       group_addr,
+                       version)
             }
             &Repr::MembershipReport {
                 group_addr,

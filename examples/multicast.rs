@@ -12,7 +12,7 @@ use std::os::unix::io::AsRawFd;
 use smoltcp::phy::Device;
 use smoltcp::phy::wait as phy_wait;
 use smoltcp::wire::{EthernetAddress, IpVersion, IpProtocol, IpAddress, IpCidr, Ipv4Address,
-                    Ipv4Packet, Ipv4Repr, IgmpPacket, IgmpRepr};
+                    Ipv4Packet, Ipv4Repr, IgmpPacket, IgmpRepr, IgmpVersion};
 use smoltcp::iface::{NeighborCache, EthernetInterfaceBuilder};
 use smoltcp::socket::{SocketSet, RawSocket, RawSocketBuffer, RawPacketMetadata};
 use smoltcp::time::{Instant, Duration};
@@ -83,6 +83,7 @@ fn main() {
                     let igmp_repr = IgmpRepr::MembershipQuery {
                         max_resp_time: 10,
                         group_addr: Ipv4Address::UNSPECIFIED,
+                        version: IgmpVersion::Version2,
                     };
                     let ipv4_repr = Ipv4Repr {
                         src_addr: local_addr,
@@ -105,6 +106,7 @@ fn main() {
                     let igmp_repr = IgmpRepr::MembershipQuery {
                         max_resp_time: 10,
                         group_addr: query_addr,
+                        version: IgmpVersion::Version2,
                     };
                     let ipv4_repr = Ipv4Repr {
                         src_addr: local_addr,

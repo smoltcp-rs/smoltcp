@@ -158,7 +158,7 @@ pub use self::icmpv4::{Message as Icmpv4Message,
 #[cfg(feature = "proto-ipv4")]
 pub use self::igmpv2::{Packet as IgmpPacket,
                        Repr as IgmpRepr,
-                       ReportVersion as IgmpReportVersion};
+                       IgmpVersion};
 
 #[cfg(feature = "proto-ipv6")]
 pub use self::icmpv6::{Message as Icmpv6Message,
