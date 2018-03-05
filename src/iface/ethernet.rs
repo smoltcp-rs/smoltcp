@@ -66,7 +66,11 @@ struct InterfaceInner<'b, 'c> {
     ip_addrs:               ManagedSlice<'c, IpCidr>,
     #[cfg(feature = "proto-ipv4")]
     ipv4_gateway:           Option<Ipv4Address>,
+    #[cfg(feature = "proto-ipv4")]
     ipv4_mcast_groups:      ManagedMap<'c, Ipv4Address, ()>,
+    /// When to report for (all or) the next multicast group membership via IGMP
+    #[cfg(feature = "proto-ipv4")]
+    igmp_report_state:      IgmpReportState,
 
     device_capabilities:    DeviceCapabilities,
 }
@@ -215,6 +219,8 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
                         ipv4_gateway: self.ipv4_gateway,
                         #[cfg(feature = "proto-ipv4")]
                         ipv4_mcast_groups: self.ipv4_mcast_groups,
+                        #[cfg(feature = "proto-ipv4")]
+                        igmp_report_state: IgmpReportState::Inactive,
                     }
                 }
             },
@@ -275,6 +281,14 @@ fn icmp_reply_payload_len(len: usize, mtu: usize, header_len: usize) -> usize {
     //
     // <min mtu> - IP Header Size * 2 - ICMPv4 DstUnreachable hdr size
     cmp::min(len, mtu - header_len * 2 - 8)
+}
+
+enum IgmpReportState {
+    Inactive,
+    /// (Timeout, Interval, NextGroup)
+    ToGeneralQuery(Instant, Duration, Ipv4Address),
+    /// (Timeout, Group)
+    ToSpecificQuery(Instant, Ipv4Address),
 }
 
 impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
@@ -412,7 +426,9 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
         loop {
             let processed_any = self.socket_ingress(sockets, timestamp)?;
             let emitted_any   = self.socket_egress(sockets, timestamp)?;
-            if processed_any || emitted_any {
+            let reported_any =  self.igmp_egress(timestamp)?;
+
+            if processed_any || emitted_any || reported_any {
                 readiness_may_have_changed = true;
             } else {
                 break
@@ -556,6 +572,58 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
             }
         }
         Ok(emitted_any)
+    }
+
+    fn igmp_egress(&mut self, timestamp: Instant) -> Result<bool> {
+        match self.inner.igmp_report_state {
+            IgmpReportState::ToSpecificQuery(timeout, addr) if timestamp >= timeout => {
+                if let Some(pkt) = self.inner.igmp_report_packet(addr) {
+                    // Send initial membership report
+                    let tx_token = self.device.transmit().ok_or(Error::Exhausted)?;
+                    self.inner.dispatch(tx_token, timestamp, pkt)?;
+                }
+
+                self.inner.igmp_report_state = IgmpReportState::Inactive;
+                Ok(true)
+            }
+            IgmpReportState::ToGeneralQuery(timeout, interval, addr) if timestamp >= timeout => {
+                let next_addr = {
+                    let mut next_addrs = self.inner.ipv4_mcast_groups
+                        .iter()
+                        .map(|(group_addr, &())| group_addr)
+                        .skip_while(|group_addr| *group_addr != &addr);
+                    if next_addrs.next() != Some(&addr) {
+                        // Current multicast group has been left, don't know where to continue
+                        self.inner.igmp_report_state = IgmpReportState::Inactive;
+                        return Ok(false)
+                    }
+                    next_addrs.next()
+                        .map(|next_addr| next_addr.clone())
+                };
+
+                if let Some(pkt) = self.inner.igmp_report_packet(addr) {
+                    // Send initial membership report
+                    let tx_token = self.device.transmit().ok_or(Error::Exhausted)?;
+                    self.inner.dispatch(tx_token, timestamp, pkt)?;
+                }
+
+                match next_addr {
+                    Some(next_addr) => {
+                        let next_timeout = (timeout + interval).max(timestamp);
+                        self.inner.igmp_report_state = IgmpReportState::ToGeneralQuery(next_timeout, interval, next_addr);
+                        Ok(true)
+                    }
+                    None => {
+                        // Multicast group have been modified while
+                        // reports are sent out, don't know which group
+                        // would be next.
+                        self.inner.igmp_report_state = IgmpReportState::Inactive;
+                        Ok(false)
+                    }
+                }
+            }
+            _ => Ok(false)
+        }
     }
 }
 
@@ -806,7 +874,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
                 self.process_icmpv4(sockets, ip_repr, ip_payload),
 
             IpProtocol::Igmp =>
-                self.process_igmp(ipv4_repr, ip_payload),
+                self.process_igmp(timestamp, ipv4_repr, ip_payload),
 
             #[cfg(feature = "socket-udp")]
             IpProtocol::Udp =>
@@ -856,7 +924,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
     /// `join_multicast_group` (similar to Linux `mreq` struct and corresponding `sockopts`)
     ///
     #[cfg(feature = "proto-ipv4")]
-    fn process_igmp<'frame>(&self, ipv4_repr: Ipv4Repr, ip_payload: &'frame [u8]) ->
+    fn process_igmp<'frame>(&mut self, timestamp: Instant, ipv4_repr: Ipv4Repr, ip_payload: &'frame [u8]) ->
                              Result<Packet<'frame>> {
         let igmp_packet = IgmpPacket::new_checked(ip_payload)?;
         let checksum_caps = &self.device_capabilities.checksum;
@@ -864,42 +932,37 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
 
         // for now - reply immediately
         match igmp_repr {
-            // TODO: max_resp_time not taken in account yet, respond immediately
             IgmpRepr::MembershipQuery { group_addr, .. } => {
                 // General Query
                 if group_addr.is_unspecified() && ipv4_repr.dst_addr == Ipv4Address::from_bytes(&IPV4_MCAST_ALL_SYSTEMS) {
-                    // Report all groups
-                    for (group_addr, &()) in &self.ipv4_mcast_groups {
-                        // Respond
-                        if let Some(pkt) = self.igmp_report_packet(group_addr.clone()) {
-                            return Ok(pkt);
-                        } else {
-                            // Error getting the interface address, return none
-                            return Ok(Packet::None);
-                        }
+                    if let Some((first_group_addr, &())) = self.ipv4_mcast_groups.iter().next() {
+                        // No dependence on a random generator but at least spread reports evenly over max_resp_time
+                        let intervals = self.ipv4_mcast_groups.len() as u64 + 1;
+                        let interval = Duration::from_millis(igmp_packet.max_resp_time() as u64 * 100 / intervals);
+                        self.igmp_report_state = IgmpReportState::ToGeneralQuery(
+                            timestamp + interval,
+                            interval,
+                            first_group_addr.clone()
+                        );
                     }
                 } else { // Group-specific query
                     if self.has_mcast_group(group_addr) && ipv4_repr.dst_addr == group_addr {
-                        // Respond
-                        if let Some(pkt) = self.igmp_report_packet(group_addr) {
-                            return Ok(pkt);
-                        } else {
-                            // Error getting the interface address, return none
-                            return Ok(Packet::None);
-                        }
+                        // Don't respond immediately
+                        let timeout = Duration::from_millis(igmp_packet.max_resp_time() as u64 * 100 / 4);
+                        self.igmp_report_state = IgmpReportState::ToSpecificQuery(
+                            timestamp + timeout,
+                            group_addr
+                        );
                     }
                 }
-                Ok(Packet::None)
             },
             // Ignore membership reports
-            IgmpRepr::MembershipReport { .. } => {
-                Ok(Packet::None)
-            },
+            IgmpRepr::MembershipReport { .. } => (),
             // Ignore hosts leaving groups
-            IgmpRepr::LeaveGroup{ .. } => {
-                Ok(Packet::None)
-            },
+            IgmpRepr::LeaveGroup{ .. } => (),
         }
+
+        Ok(Packet::None)
     }
 
     #[cfg(feature = "proto-ipv6")]
