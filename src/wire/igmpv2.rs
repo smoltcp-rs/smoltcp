@@ -1,15 +1,3 @@
-/// Internet Group Management Protocol v2
-/// defined in [RFC_2236]
-///
-///    0                   1                   2                   3
-///    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
-///   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-///   |      Type     | Max Resp Time |           Checksum            |
-///   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-///   |                         Group Address                         |
-///   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-///
-
 use core::fmt;
 use byteorder::{ByteOrder, NetworkEndian};
 
@@ -61,6 +49,20 @@ impl fmt::Display for Message {
 }
 
 
+/// Internet Group Management Protocol v2
+/// defined in [RFC 2236]
+///
+/// ```
+///  0                   1                   2                   3
+///  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+/// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+/// |      Type     | Max Resp Time |           Checksum            |
+/// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+/// |                         Group Address                         |
+/// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+/// ```
+///
+/// [RFC 2236]: https://tools.ietf.org/html/rfc2236
 impl<T: AsRef<[u8]>> Packet<T> {
     /// Imbue a raw octet buffer with IGMPv2 packet structure.
     pub fn new(buffer: T) -> Packet<T> {
@@ -102,7 +104,9 @@ impl<T: AsRef<[u8]>> Packet<T> {
 
     /// Return the Max reponse time
     ///
-    /// See RFC 3376: 4.1.1. Max Resp Code
+    /// See [RFC 3376]: 4.1.1. Max Resp Code
+    ///
+    /// [RFC 3376]: https://tools.ietf.org/html/rfc3376
     #[inline]
     pub fn max_resp_time(&self) -> u16 {
         let data = self.buffer.as_ref();
@@ -189,6 +193,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Repr {
     MembershipQuery {
+        /// Maximum Response Time in 1/10th second (100ms) units
         max_resp_time: u16,
         group_addr: Ipv4Address,
         version: IgmpVersion,
@@ -200,10 +205,12 @@ pub enum Repr {
     LeaveGroup { group_addr: Ipv4Address },
 }
 
-/// Type of IGMPv2 membership report version
+/// Type of IGMP membership report version
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum IgmpVersion {
+    /// IGMPv1
     Version1,
+    /// IGMPv2
     Version2,
 }
 
