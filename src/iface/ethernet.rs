@@ -4,6 +4,8 @@
 
 use core::cmp;
 use managed::{ManagedSlice, ManagedMap};
+#[cfg(not(feature = "proto-igmp"))]
+use core::marker::PhantomData;
 
 use {Error, Result};
 use phy::{Device, DeviceCapabilities, RxToken, TxToken};
@@ -14,11 +16,13 @@ use wire::{IpAddress, IpProtocol, IpRepr, IpCidr};
 #[cfg(feature = "proto-ipv6")]
 use wire::{Ipv6Address, Ipv6Packet, Ipv6Repr, IPV6_MIN_MTU};
 #[cfg(feature = "proto-ipv4")]
-use wire::{Ipv4Packet, Ipv4Repr, IPV4_MIN_MTU};
+use wire::{Ipv4Address, Ipv4Packet, Ipv4Repr, IPV4_MIN_MTU};
 #[cfg(feature = "proto-ipv4")]
 use wire::{ArpPacket, ArpRepr, ArpOperation};
 #[cfg(feature = "proto-ipv4")]
 use wire::{Icmpv4Packet, Icmpv4Repr, Icmpv4DstUnreachable};
+#[cfg(feature = "proto-igmp")]
+use wire::{IgmpPacket, IgmpRepr, IgmpVersion};
 #[cfg(feature = "proto-ipv6")]
 use wire::{Icmpv6Packet, Icmpv6Repr, Icmpv6ParamProblem};
 #[cfg(all(feature = "socket-icmp", any(feature = "proto-ipv4", feature = "proto-ipv6")))]
@@ -70,17 +74,29 @@ struct InterfaceInner<'b, 'c, 'e> {
     ethernet_addr:          EthernetAddress,
     ip_addrs:               ManagedSlice<'c, IpCidr>,
     routes:                 Routes<'e>,
+    #[cfg(feature = "proto-igmp")]
+    ipv4_multicast_groups:  ManagedMap<'e, Ipv4Address, ()>,
+    #[cfg(not(feature = "proto-igmp"))]
+    _ipv4_multicast_groups: PhantomData<&'e ()>,
+    /// When to report for (all or) the next multicast group membership via IGMP
+    #[cfg(feature = "proto-igmp")]
+    igmp_report_state:      IgmpReportState,
     device_capabilities:    DeviceCapabilities,
 }
 
 /// A builder structure used for creating a Ethernet network
 /// interface.
 pub struct InterfaceBuilder <'b, 'c, 'e, DeviceT: for<'d> Device<'d>> {
-    device:              DeviceT,
-    ethernet_addr:       Option<EthernetAddress>,
-    neighbor_cache:      Option<NeighborCache<'b>>,
-    ip_addrs:            ManagedSlice<'c, IpCidr>,
-    routes:              Routes<'e>,
+    device:                 DeviceT,
+    ethernet_addr:          Option<EthernetAddress>,
+    neighbor_cache:         Option<NeighborCache<'b>>,
+    ip_addrs:               ManagedSlice<'c, IpCidr>,
+    routes:                 Routes<'e>,
+    /// Does not share storage with `ipv6_multicast_groups` to avoid IPv6 size overhead.
+    #[cfg(feature = "proto-igmp")]
+    ipv4_multicast_groups:  ManagedMap<'e, Ipv4Address, ()>,
+    #[cfg(not(feature = "proto-igmp"))]
+    _ipv4_multicast_groups: PhantomData<&'e ()>,
 }
 
 impl<'b, 'c, 'e, DeviceT> InterfaceBuilder<'b, 'c, 'e, DeviceT>
@@ -110,13 +126,17 @@ impl<'b, 'c, 'e, DeviceT> InterfaceBuilder<'b, 'c, 'e, DeviceT>
     ///         .ip_addrs(ip_addrs)
     ///         .finalize();
     /// ```
-    pub fn new(device: DeviceT) -> InterfaceBuilder<'b, 'c, 'e, DeviceT> {
+    pub fn new(device: DeviceT) -> Self {
         InterfaceBuilder {
             device:              device,
             ethernet_addr:       None,
             neighbor_cache:      None,
             ip_addrs:            ManagedSlice::Borrowed(&mut []),
             routes:              Routes::new(ManagedMap::Borrowed(&mut [])),
+            #[cfg(feature = "proto-igmp")]
+            ipv4_multicast_groups:   ManagedMap::Borrowed(&mut []),
+            #[cfg(not(feature = "proto-igmp"))]
+            _ipv4_multicast_groups:  PhantomData,
         }
     }
 
@@ -127,7 +147,7 @@ impl<'b, 'c, 'e, DeviceT> InterfaceBuilder<'b, 'c, 'e, DeviceT>
     /// This function panics if the address is not unicast.
     ///
     /// [ethernet_addr]: struct.EthernetInterface.html#method.ethernet_addr
-    pub fn ethernet_addr(mut self, addr: EthernetAddress) -> InterfaceBuilder<'b, 'c, 'e, DeviceT> {
+    pub fn ethernet_addr(mut self, addr: EthernetAddress) -> Self {
         InterfaceInner::check_ethernet_addr(&addr);
         self.ethernet_addr = Some(addr);
         self
@@ -140,7 +160,7 @@ impl<'b, 'c, 'e, DeviceT> InterfaceBuilder<'b, 'c, 'e, DeviceT>
     /// This function panics if any of the addresses are not unicast.
     ///
     /// [ip_addrs]: struct.EthernetInterface.html#method.ip_addrs
-    pub fn ip_addrs<T>(mut self, ip_addrs: T) -> InterfaceBuilder<'b, 'c, 'e, DeviceT>
+    pub fn ip_addrs<T>(mut self, ip_addrs: T) -> Self
         where T: Into<ManagedSlice<'c, IpCidr>>
     {
         let ip_addrs = ip_addrs.into();
@@ -160,9 +180,26 @@ impl<'b, 'c, 'e, DeviceT> InterfaceBuilder<'b, 'c, 'e, DeviceT>
         self
     }
 
+    /// Provide storage for multicast groups.
+    ///
+    /// Join multicast groups by calling [`join_multicast_group()`] on an `Interface`.
+    /// Using [`join_multicast_group()`] will send initial membership reports.
+    ///
+    /// A previously destroyed interface can be recreated by reusing the multicast group
+    /// storage, i.e. providing a non-empty storage to `ipv4_multicast_groups()`.
+    /// Note that this way initial membership reports are **not** sent.
+    ///
+    /// [`join_multicast_group()`]: struct.EthernetInterface.html#method.join_multicast_group
+    #[cfg(feature = "proto-igmp")]
+    pub fn ipv4_multicast_groups<T>(mut self, ipv4_multicast_groups: T) -> Self
+        where T: Into<ManagedMap<'e, Ipv4Address, ()>>
+    {
+        self.ipv4_multicast_groups = ipv4_multicast_groups.into();
+        self
+    }
+
     /// Set the Neighbor Cache the interface will use.
-    pub fn neighbor_cache(mut self, neighbor_cache: NeighborCache<'b>) ->
-                         InterfaceBuilder<'b, 'c, 'e, DeviceT> {
+    pub fn neighbor_cache(mut self, neighbor_cache: NeighborCache<'b>) -> Self {
         self.neighbor_cache = Some(neighbor_cache);
         self
     }
@@ -182,12 +219,19 @@ impl<'b, 'c, 'e, DeviceT> InterfaceBuilder<'b, 'c, 'e, DeviceT>
         match (self.ethernet_addr, self.neighbor_cache) {
             (Some(ethernet_addr), Some(neighbor_cache)) => {
                 let device_capabilities = self.device.capabilities();
+
                 Interface {
                     device: self.device,
                     inner: InterfaceInner {
                         ethernet_addr, device_capabilities, neighbor_cache,
                         ip_addrs: self.ip_addrs,
                         routes: self.routes,
+                        #[cfg(feature = "proto-igmp")]
+                        ipv4_multicast_groups: self.ipv4_multicast_groups,
+                        #[cfg(not(feature = "proto-igmp"))]
+                        _ipv4_multicast_groups:  PhantomData,
+                        #[cfg(feature = "proto-igmp")]
+                        igmp_report_state: IgmpReportState::Inactive,
                     }
                 }
             },
@@ -203,6 +247,8 @@ enum Packet<'a> {
     Arp(ArpRepr),
     #[cfg(feature = "proto-ipv4")]
     Icmpv4((Ipv4Repr, Icmpv4Repr<'a>)),
+    #[cfg(feature = "proto-igmp")]
+    Igmp((Ipv4Repr, IgmpRepr)),
     #[cfg(feature = "proto-ipv6")]
     Icmpv6((Ipv6Repr, Icmpv6Repr<'a>)),
     #[cfg(feature = "socket-raw")]
@@ -221,6 +267,8 @@ impl<'a> Packet<'a> {
             &Packet::Arp(_) => None,
             #[cfg(feature = "proto-ipv4")]
             &Packet::Icmpv4((ref ipv4_repr, _)) => Some(ipv4_repr.dst_addr.into()),
+            #[cfg(feature = "proto-igmp")]
+            &Packet::Igmp((ref ipv4_repr, _)) => Some(ipv4_repr.dst_addr.into()),
             #[cfg(feature = "proto-ipv6")]
             &Packet::Icmpv6((ref ipv6_repr, _)) => Some(ipv6_repr.dst_addr.into()),
             #[cfg(feature = "socket-raw")]
@@ -246,6 +294,22 @@ fn icmp_reply_payload_len(len: usize, mtu: usize, header_len: usize) -> usize {
     cmp::min(len, mtu - header_len * 2 - 8)
 }
 
+#[cfg(feature = "proto-igmp")]
+enum IgmpReportState {
+    Inactive,
+    ToGeneralQuery {
+        version:    IgmpVersion,
+        timeout:    Instant,
+        interval:   Duration,
+        next_index: usize
+    },
+    ToSpecificQuery {
+        version:    IgmpVersion,
+        timeout:    Instant,
+        group:      Ipv4Address
+    },
+}
+
 impl<'b, 'c, 'e, DeviceT> Interface<'b, 'c, 'e, DeviceT>
         where DeviceT: for<'d> Device<'d> {
     /// Get the Ethernet address of the interface.
@@ -260,6 +324,65 @@ impl<'b, 'c, 'e, DeviceT> Interface<'b, 'c, 'e, DeviceT>
     pub fn set_ethernet_addr(&mut self, addr: EthernetAddress) {
         self.inner.ethernet_addr = addr;
         InterfaceInner::check_ethernet_addr(&self.inner.ethernet_addr);
+    }
+
+    /// Add an address to a list of subscribed multicast IP addresses.
+    ///
+    /// Returns `Ok(announce_sent)` if the address was added successfully, where `annouce_sent`
+    /// indicates whether an initial immediate announcement has been sent.
+    pub fn join_multicast_group<T: Into<IpAddress>>(&mut self, addr: T, _timestamp: Instant) -> Result<bool> {
+        match addr.into() {
+            #[cfg(feature = "proto-igmp")]
+            IpAddress::Ipv4(addr) => {
+                let is_not_new = self.inner.ipv4_multicast_groups.insert(addr, ())
+                    .map_err(|_| Error::Exhausted)?
+                    .is_some();
+                if is_not_new {
+                    Ok(false)
+                } else if let Some(pkt) =
+                        self.inner.igmp_report_packet(IgmpVersion::Version2, addr) {
+                    // Send initial membership report
+                    let tx_token = self.device.transmit().ok_or(Error::Exhausted)?;
+                    self.inner.dispatch(tx_token, _timestamp, pkt)?;
+                    Ok(true)
+                } else {
+                    Ok(false)
+                }
+            }
+            // Multicast is not yet implemented for other address families
+            _ => Err(Error::Unaddressable)
+        }
+    }
+
+    /// Remove an address from the subscribed multicast IP addresses.
+    ///
+    /// Returns `Ok(leave_sent)` if the address was removed successfully, where `leave_sent`
+    /// indicates whether an immediate leave packet has been sent.
+    pub fn leave_multicast_group<T: Into<IpAddress>>(&mut self, addr: T, _timestamp: Instant) -> Result<bool> {
+        match addr.into() {
+            #[cfg(feature = "proto-igmp")]
+            IpAddress::Ipv4(addr) => {
+                let was_not_present = self.inner.ipv4_multicast_groups.remove(&addr)
+                    .is_none();
+                if was_not_present {
+                    Ok(false)
+                } else if let Some(pkt) = self.inner.igmp_leave_packet(addr) {
+                    // Send group leave packet
+                    let tx_token = self.device.transmit().ok_or(Error::Exhausted)?;
+                    self.inner.dispatch(tx_token, _timestamp, pkt)?;
+                    Ok(true)
+                } else {
+                    Ok(false)
+                }
+            }
+            // Multicast is not yet implemented for other address families
+            _ => Err(Error::Unaddressable)
+        }
+    }
+
+    /// Check whether the interface listens to given destination multicast IP address.
+    pub fn has_multicast_group<T: Into<IpAddress>>(&self, addr: T) -> bool {
+        self.inner.has_multicast_group(addr)
     }
 
     /// Get the IP addresses of the interface.
@@ -279,6 +402,12 @@ impl<'b, 'c, 'e, DeviceT> Interface<'b, 'c, 'e, DeviceT>
     /// Check whether the interface has the given IP address assigned.
     pub fn has_ip_addr<T: Into<IpAddress>>(&self, addr: T) -> bool {
         self.inner.has_ip_addr(addr)
+    }
+
+    /// Get the first IPv4 address of the interface.
+    #[cfg(feature = "proto-ipv4")]
+    pub fn ipv4_address(&self) -> Option<Ipv4Address> {
+        self.inner.ipv4_address()
     }
 
     pub fn routes(&self) -> &Routes<'e> {
@@ -311,6 +440,10 @@ impl<'b, 'c, 'e, DeviceT> Interface<'b, 'c, 'e, DeviceT>
         loop {
             let processed_any = self.socket_ingress(sockets, timestamp)?;
             let emitted_any   = self.socket_egress(sockets, timestamp)?;
+
+            #[cfg(feature = "proto-igmp")]
+            self.igmp_egress(timestamp)?;
+
             if processed_any || emitted_any {
                 readiness_may_have_changed = true;
             } else {
@@ -463,6 +596,54 @@ impl<'b, 'c, 'e, DeviceT> Interface<'b, 'c, 'e, DeviceT>
         }
         Ok(emitted_any)
     }
+
+    /// Depending on `igmp_report_state` and the therein contained
+    /// timeouts, send IGMP membership reports.
+    #[cfg(feature = "proto-igmp")]
+    fn igmp_egress(&mut self, timestamp: Instant) -> Result<bool> {
+        match self.inner.igmp_report_state {
+            IgmpReportState::ToSpecificQuery { version, timeout, group }
+                    if timestamp >= timeout => {
+                if let Some(pkt) = self.inner.igmp_report_packet(version, group) {
+                    // Send initial membership report
+                    let tx_token = self.device.transmit().ok_or(Error::Exhausted)?;
+                    self.inner.dispatch(tx_token, timestamp, pkt)?;
+                }
+
+                self.inner.igmp_report_state = IgmpReportState::Inactive;
+                Ok(true)
+            }
+            IgmpReportState::ToGeneralQuery { version, timeout, interval, next_index }
+                    if timestamp >= timeout => {
+                let addr = self.inner.ipv4_multicast_groups
+                    .iter()
+                    .nth(next_index)
+                    .map(|(addr, ())| *addr);
+
+                match addr {
+                    Some(addr) => {
+                        if let Some(pkt) = self.inner.igmp_report_packet(version, addr) {
+                            // Send initial membership report
+                            let tx_token = self.device.transmit().ok_or(Error::Exhausted)?;
+                            self.inner.dispatch(tx_token, timestamp, pkt)?;
+                        }
+
+                        let next_timeout = (timeout + interval).max(timestamp);
+                        self.inner.igmp_report_state = IgmpReportState::ToGeneralQuery {
+                            version, timeout: next_timeout, interval, next_index: next_index + 1
+                        };
+                        Ok(true)
+                    }
+
+                    None => {
+                        self.inner.igmp_report_state = IgmpReportState::Inactive;
+                        Ok(false)
+                    }
+                }
+            }
+            _ => Ok(false)
+        }
+    }
 }
 
 impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
@@ -505,16 +686,44 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
         self.ip_addrs.iter().any(|probe| probe.address() == addr)
     }
 
+    /// Get the first IPv4 address of the interface.
+    #[cfg(feature = "proto-ipv4")]
+    pub fn ipv4_address(&self) -> Option<Ipv4Address> {
+        self.ip_addrs.iter()
+            .filter_map(
+                |addr| match addr {
+                    &IpCidr::Ipv4(cidr) => Some(cidr.address()),
+                    _ => None,
+                })
+            .next()
+    }
+
+    /// Check whether the interface listens to given destination multicast IP address.
+    ///
+    /// If built without feature `proto-igmp` this function will
+    /// always return `false`.
+    pub fn has_multicast_group<T: Into<IpAddress>>(&self, addr: T) -> bool {
+        match addr.into() {
+            #[cfg(feature = "proto-igmp")]
+            IpAddress::Ipv4(key) =>
+                key == Ipv4Address::MULTICAST_ALL_SYSTEMS ||
+                self.ipv4_multicast_groups.get(&key).is_some(),
+            _ =>
+                false,
+        }
+    }
+
     fn process_ethernet<'frame, T: AsRef<[u8]>>
                        (&mut self, sockets: &mut SocketSet, timestamp: Instant, frame: &'frame T) ->
                        Result<Packet<'frame>>
     {
         let eth_frame = EthernetFrame::new_checked(frame)?;
 
-        // Ignore any packets not directed to our hardware address.
+        // Ignore any packets not directed to our hardware address or any of the multicast groups.
         if !eth_frame.dst_addr().is_broadcast() &&
            !eth_frame.dst_addr().is_multicast() &&
-                eth_frame.dst_addr() != self.ethernet_addr {
+           eth_frame.dst_addr() != self.ethernet_addr
+        {
             return Ok(Packet::None)
         }
 
@@ -705,16 +914,18 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
         #[cfg(feature = "socket-raw")]
         let handled_by_raw_socket = self.raw_socket_filter(sockets, &ip_repr, ip_payload);
 
-        if !ipv4_repr.dst_addr.is_broadcast() &&
-           !ipv4_repr.dst_addr.is_multicast() &&
-           !self.has_ip_addr(ipv4_repr.dst_addr) {
-            // Ignore IP packets not directed at us.
+        if !self.has_ip_addr(ipv4_repr.dst_addr) && !self.has_multicast_group(ipv4_repr.dst_addr) {
+            // Ignore IP packets not directed at us or any of the multicast groups
             return Ok(Packet::None)
         }
 
         match ipv4_repr.protocol {
             IpProtocol::Icmp =>
                 self.process_icmpv4(sockets, ip_repr, ip_payload),
+
+            #[cfg(feature = "proto-igmp")]
+            IpProtocol::Igmp =>
+                self.process_igmp(timestamp, ipv4_repr, ip_payload),
 
             #[cfg(feature = "socket-udp")]
             IpProtocol::Udp =>
@@ -740,6 +951,60 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
                 Ok(self.icmpv4_reply(ipv4_repr, icmp_reply_repr))
             }
         }
+    }
+
+    /// Host duties of the **IGMPv2** protocol.
+    ///
+    /// Sets up `igmp_report_state` for responding to IGMP general/specific membership queries.
+    /// Membership must not be reported immediately in order to avoid flooding the network
+    /// after a query is broadcasted by a router; this is not currently done.
+    #[cfg(feature = "proto-igmp")]
+    fn process_igmp<'frame>(&mut self, timestamp: Instant, ipv4_repr: Ipv4Repr,
+                            ip_payload: &'frame [u8]) -> Result<Packet<'frame>> {
+        let igmp_packet = IgmpPacket::new_checked(ip_payload)?;
+        let igmp_repr = IgmpRepr::parse(&igmp_packet)?;
+
+        // FIXME: report membership after a delay
+        match igmp_repr {
+            IgmpRepr::MembershipQuery { group_addr, version, max_resp_time } => {
+                // General query
+                if group_addr.is_unspecified() &&
+                        ipv4_repr.dst_addr == Ipv4Address::MULTICAST_ALL_SYSTEMS {
+                    // Are we member in any groups?
+                    if self.ipv4_multicast_groups.iter().next().is_some() {
+                        let interval = match version {
+                            IgmpVersion::Version1 =>
+                                Duration::from_millis(100),
+                            IgmpVersion::Version2 => {
+                                // No dependence on a random generator
+                                // (see [#24](https://github.com/m-labs/smoltcp/issues/24))
+                                // but at least spread reports evenly across max_resp_time.
+                                let intervals = self.ipv4_multicast_groups.len() as u32 + 1;
+                                max_resp_time / intervals
+                            }
+                        };
+                        self.igmp_report_state = IgmpReportState::ToGeneralQuery {
+                            version, timeout: timestamp + interval, interval, next_index: 0
+                        };
+                    }
+                } else {
+                    // Group-specific query
+                    if self.has_multicast_group(group_addr) && ipv4_repr.dst_addr == group_addr {
+                        // Don't respond immediately
+                        let timeout = max_resp_time / 4;
+                        self.igmp_report_state = IgmpReportState::ToSpecificQuery {
+                            version, timeout: timestamp + timeout, group: group_addr
+                        };
+                    }
+                }
+            },
+            // Ignore membership reports
+            IgmpRepr::MembershipReport { .. } => (),
+            // Ignore hosts leaving groups
+            IgmpRepr::LeaveGroup{ .. } => (),
+        }
+
+        Ok(Packet::None)
     }
 
     #[cfg(feature = "proto-ipv6")]
@@ -1087,6 +1352,12 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
                     icmpv4_repr.emit(&mut Icmpv4Packet::new_unchecked(payload), &checksum_caps);
                 })
             }
+            #[cfg(feature = "proto-igmp")]
+            Packet::Igmp((ipv4_repr, igmp_repr)) => {
+                self.dispatch_ip(tx_token, timestamp, IpRepr::Ipv4(ipv4_repr), |_ip_repr, payload| {
+                    igmp_repr.emit(&mut IgmpPacket::new_unchecked(payload));
+                })
+            }
             #[cfg(feature = "proto-ipv6")]
             Packet::Icmpv6((ipv6_repr, icmpv6_repr)) => {
                 self.dispatch_ip(tx_token, timestamp, IpRepr::Ipv6(ipv6_repr),
@@ -1167,7 +1438,7 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
     fn route(&self, addr: &IpAddress, timestamp: Instant) -> Result<IpAddress> {
         // Send directly.
         if self.in_same_network(addr) || addr.is_broadcast() {
-            return Ok(addr.clone())
+            return Ok(*addr)
         }
 
         // Route via a router.
@@ -1319,16 +1590,55 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
             f(ip_repr, payload)
         })
     }
+
+    #[cfg(feature = "proto-igmp")]
+    fn igmp_report_packet<'any>(&self, version: IgmpVersion, group_addr: Ipv4Address) -> Option<Packet<'any>> {
+        let iface_addr = self.ipv4_address()?;
+        let igmp_repr = IgmpRepr::MembershipReport {
+            group_addr,
+            version,
+        };
+        let pkt = Packet::Igmp((Ipv4Repr {
+            src_addr:    iface_addr,
+            // Send to the group being reported
+            dst_addr:    group_addr,
+            protocol:    IpProtocol::Igmp,
+            payload_len: igmp_repr.buffer_len(),
+            hop_limit:   1,
+            // TODO: add Router Alert IPv4 header option. See
+            // [#183](https://github.com/m-labs/smoltcp/issues/183).
+        }, igmp_repr));
+        Some(pkt)
+    }
+
+    #[cfg(feature = "proto-igmp")]
+    fn igmp_leave_packet<'any>(&self, group_addr: Ipv4Address) -> Option<Packet<'any>> {
+        self.ipv4_address().map(|iface_addr| {
+            let igmp_repr = IgmpRepr::LeaveGroup { group_addr };
+            let pkt = Packet::Igmp((Ipv4Repr {
+                src_addr:    iface_addr,
+                dst_addr:    Ipv4Address::MULTICAST_ALL_ROUTERS,
+                protocol:    IpProtocol::Igmp,
+                payload_len: igmp_repr.buffer_len(),
+                hop_limit:   1,
+            }, igmp_repr));
+            pkt
+        })
+    }
 }
 
 #[cfg(test)]
 mod test {
+    #[cfg(feature = "proto-igmp")]
+    use std::vec::Vec;
     use std::collections::BTreeMap;
     use {Result, Error};
 
     use super::InterfaceBuilder;
     use iface::{NeighborCache, EthernetInterface};
     use phy::{self, Loopback, ChecksumCapabilities};
+    #[cfg(feature = "proto-igmp")]
+    use phy::{Device, RxToken, TxToken};
     use time::Instant;
     use socket::SocketSet;
     #[cfg(feature = "proto-ipv4")]
@@ -1337,8 +1647,12 @@ mod test {
     use wire::{IpAddress, IpCidr, IpProtocol, IpRepr};
     #[cfg(feature = "proto-ipv4")]
     use wire::{Ipv4Address, Ipv4Repr};
+    #[cfg(feature = "proto-igmp")]
+    use wire::Ipv4Packet;
     #[cfg(feature = "proto-ipv4")]
     use wire::{Icmpv4Repr, Icmpv4DstUnreachable};
+    #[cfg(feature = "proto-igmp")]
+    use wire::{IgmpPacket, IgmpRepr, IgmpVersion};
     #[cfg(all(feature = "socket-udp", any(feature = "proto-ipv4", feature = "proto-ipv6")))]
     use wire::{UdpPacket, UdpRepr};
     #[cfg(feature = "proto-ipv6")]
@@ -1365,13 +1679,29 @@ mod test {
             IpCidr::new(IpAddress::v6(0xfdbe, 0, 0, 0, 0, 0, 0, 1), 64),
         ];
 
-        let iface = InterfaceBuilder::new(device)
-                .ethernet_addr(EthernetAddress::default())
-                .neighbor_cache(NeighborCache::new(BTreeMap::new()))
-                .ip_addrs(ip_addrs)
-                .finalize();
+        let iface_builder = InterfaceBuilder::new(device)
+            .ethernet_addr(EthernetAddress::default())
+            .neighbor_cache(NeighborCache::new(BTreeMap::new()))
+            .ip_addrs(ip_addrs);
+        #[cfg(feature = "proto-igmp")]
+        let iface_builder = iface_builder
+            .ipv4_multicast_groups(BTreeMap::new());
+        let iface = iface_builder
+            .finalize();
 
         (iface, SocketSet::new(vec![]))
+    }
+
+    #[cfg(feature = "proto-igmp")]
+    fn recv_all<'b>(iface: &mut EthernetInterface<'static, 'b, 'static, Loopback>, timestamp: Instant) -> Vec<Vec<u8>> {
+        let mut pkts = Vec::new();
+        while let Some((rx, _tx)) = iface.device.receive() {
+            rx.consume(timestamp, |pkt| {
+                pkts.push(pkt.iter().cloned().collect());
+                Ok(())
+            }).unwrap();
+        }
+        pkts
     }
 
     #[derive(Debug, PartialEq)]
@@ -2042,5 +2372,93 @@ mod test {
             &IpAddress::Ipv6(Ipv6Address::LOOPBACK),
             &IpAddress::Ipv6(remote_ip_addr)),
             Ok((remote_hw_addr, MockTxToken)));
+    }
+
+    #[test]
+    #[cfg(feature = "proto-igmp")]
+    fn test_handle_igmp() {
+        fn recv_igmp<'b>(mut iface: &mut EthernetInterface<'static, 'b, 'static, Loopback>, timestamp: Instant) -> Vec<(Ipv4Repr, IgmpRepr)> {
+            let checksum_caps = &iface.device.capabilities().checksum;
+            recv_all(&mut iface, timestamp)
+                .iter()
+                .filter_map(|frame| {
+                    let eth_frame = EthernetFrame::new_checked(frame).ok()?;
+                    let ipv4_packet = Ipv4Packet::new_checked(eth_frame.payload()).ok()?;
+                    let ipv4_repr = Ipv4Repr::parse(&ipv4_packet, &checksum_caps).ok()?;
+                    let ip_payload = ipv4_packet.payload();
+                    let igmp_packet = IgmpPacket::new_checked(ip_payload).ok()?;
+                    let igmp_repr = IgmpRepr::parse(&igmp_packet).ok()?;
+                    Some((ipv4_repr, igmp_repr))
+                })
+                .collect::<Vec<_>>()
+        }
+
+        let groups = [
+            Ipv4Address::new(224, 0, 0, 22),
+            Ipv4Address::new(224, 0, 0, 56),
+        ];
+
+        let (mut iface, mut socket_set) = create_loopback();
+
+        // Join multicast groups
+        let timestamp = Instant::now();
+        for group in &groups {
+            iface.join_multicast_group(*group, timestamp)
+                .unwrap();
+        }
+
+        let reports = recv_igmp(&mut iface, timestamp);
+        assert_eq!(reports.len(), 2);
+        for (i, group_addr) in groups.iter().enumerate() {
+            assert_eq!(reports[i].0.protocol, IpProtocol::Igmp);
+            assert_eq!(reports[i].0.dst_addr, *group_addr);
+            assert_eq!(reports[i].1, IgmpRepr::MembershipReport {
+                group_addr: *group_addr,
+                version: IgmpVersion::Version2,
+            });
+        }
+
+        // General query
+        let timestamp = Instant::now();
+        const GENERAL_QUERY_BYTES: &[u8] = &[
+            0x01, 0x00, 0x5e, 0x00, 0x00, 0x01, 0x0a, 0x14,
+            0x48, 0x01, 0x21, 0x01, 0x08, 0x00, 0x46, 0xc0,
+            0x00, 0x24, 0xed, 0xb4, 0x00, 0x00, 0x01, 0x02,
+            0x47, 0x43, 0xac, 0x16, 0x63, 0x04, 0xe0, 0x00,
+            0x00, 0x01, 0x94, 0x04, 0x00, 0x00, 0x11, 0x64,
+            0xec, 0x8f, 0x00, 0x00, 0x00, 0x00, 0x02, 0x0c,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00
+        ];
+        {
+            // Transmit GENERAL_QUERY_BYTES into loopback
+            let tx_token = iface.device.transmit().unwrap();
+            tx_token.consume(
+                timestamp, GENERAL_QUERY_BYTES.len(),
+                |buffer| {
+                    buffer.copy_from_slice(GENERAL_QUERY_BYTES);
+                    Ok(())
+                }).unwrap();
+        }
+        // Trigger processing until all packets received through the
+        // loopback have been processed, including responses to
+        // GENERAL_QUERY_BYTES. Therefore `recv_all()` would return 0
+        // pkts that could be checked.
+        iface.socket_ingress(&mut socket_set, timestamp).unwrap();
+
+        // Leave multicast groups
+        let timestamp = Instant::now();
+        for group in &groups {
+            iface.leave_multicast_group(group.clone(), timestamp)
+                .unwrap();
+        }
+
+        let leaves = recv_igmp(&mut iface, timestamp);
+        assert_eq!(leaves.len(), 2);
+        for (i, group_addr) in groups.iter().cloned().enumerate() {
+            assert_eq!(leaves[i].0.protocol, IpProtocol::Igmp);
+            assert_eq!(leaves[i].0.dst_addr, Ipv4Address::MULTICAST_ALL_ROUTERS);
+            assert_eq!(leaves[i].1, IgmpRepr::LeaveGroup { group_addr });
+        }
     }
 }

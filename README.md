@@ -47,6 +47,16 @@ The only supported medium is Ethernet.
   * IPv6 default gateway is **not** supported.
   * IPv6 extension headers are **not** supported.
 
+### IP multicast
+
+#### IGMP
+
+The IGMPv1 and IGMPv2 protocols are supported, and IPv4 multicast is available.
+
+  * Membership reports are sent in response to membership queries at
+    equal intervals equal to the maximum response time divided by the
+    number of groups to be reported.
+
 ### ICMP layer
 
 #### ICMPv4

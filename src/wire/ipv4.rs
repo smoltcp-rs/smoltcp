@@ -27,10 +27,16 @@ pub struct Address(pub [u8; 4]);
 
 impl Address {
     /// An unspecified address.
-    pub const UNSPECIFIED: Address = Address([0x00; 4]);
+    pub const UNSPECIFIED:           Address = Address([0x00; 4]);
 
     /// The broadcast address.
-    pub const BROADCAST:   Address = Address([0xff; 4]);
+    pub const BROADCAST:             Address = Address([0xff; 4]);
+
+    /// All multicast-capable nodes
+    pub const MULTICAST_ALL_SYSTEMS: Address = Address([224, 0, 0, 1]);
+
+    /// All multicast-capable routers
+    pub const MULTICAST_ALL_ROUTERS: Address = Address([224, 0, 0, 2]);
 
     /// Construct an IPv4 address from parts.
     pub fn new(a0: u8, a1: u8, a2: u8, a3: u8) -> Address {
