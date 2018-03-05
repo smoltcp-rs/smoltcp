@@ -2,7 +2,6 @@ use core::fmt;
 use byteorder::{ByteOrder, NetworkEndian};
 
 use {Error, Result};
-use phy::ChecksumCapabilities;
 use super::ip::checksum;
 
 use wire::Ipv4Address;
@@ -207,14 +206,9 @@ pub enum IgmpVersion {
 impl Repr {
     /// Parse an Internet Group Management Protocol v2 packet and return
     /// a high-level representation.
-    pub fn parse<T>(packet: &Packet<&T>, checksum_caps: &ChecksumCapabilities) -> Result<Repr>
+    pub fn parse<T>(packet: &Packet<&T>) -> Result<Repr>
         where T: AsRef<[u8]> + ?Sized
     {
-        // Valid checksum is expected.
-        if checksum_caps.igmp.rx() && !packet.verify_checksum() {
-            return Err(Error::Checksum);
-        }
-
         // Check if the address is 0.0.0.0 or multicast
         let addr = packet.group_addr();
         if !addr.is_unspecified() && !addr.is_multicast() {
@@ -262,7 +256,7 @@ impl Repr {
     }
 
     /// Emit a high-level representation into an Internet Group Management Protocol v2 packet.
-    pub fn emit<T>(&self, packet: &mut Packet<&mut T>, checksum_caps: &ChecksumCapabilities)
+    pub fn emit<T>(&self, packet: &mut Packet<&mut T>)
         where T: AsRef<[u8]> + AsMut<[u8]> + ?Sized
     {
         match self {
@@ -296,13 +290,8 @@ impl Repr {
                 packet.set_group_address(group_addr);
             }
         }
-        if checksum_caps.igmp.tx() {
-            packet.fill_checksum()
-        } else {
-            // make sure we get a consistently zeroed checksum,
-            // since implementations might rely on it
-            packet.set_checksum(0);
-        }
+
+        packet.fill_checksum()
     }
 }
 
@@ -310,7 +299,7 @@ impl Repr {
 
 impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match Repr::parse(self, &ChecksumCapabilities::default()) {
+        match Repr::parse(self) {
             Ok(repr) => write!(f, "{}", repr),
             Err(err) => write!(f, "IGMPv2 ({})", err),
         }
