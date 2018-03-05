@@ -1203,7 +1203,7 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
             #[cfg(feature = "proto-ipv4")]
             Packet::Igmp((ipv4_repr, igmp_repr)) => {
                 self.dispatch_ip(tx_token, timestamp, IpRepr::Ipv4(ipv4_repr), |_ip_repr, payload| {
-                    igmp_repr.emit(&mut IgmpPacket::new(payload));
+                    igmp_repr.emit(&mut IgmpPacket::new(payload), &checksum_caps);
                 })
             }
             #[cfg(feature = "proto-ipv6")]

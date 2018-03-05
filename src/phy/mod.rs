@@ -161,6 +161,8 @@ pub struct ChecksumCapabilities {
     pub tcpv4: Checksum,
     #[cfg(feature = "proto-ipv4")]
     pub icmpv4: Checksum,
+    #[cfg(feature = "proto-ipv4")]
+    pub igmp: Checksum,
     #[cfg(feature = "proto-ipv6")]
     pub icmpv6: Checksum,
     dummy: (),
@@ -176,6 +178,8 @@ impl ChecksumCapabilities {
             tcpv4: Checksum::None,
             #[cfg(feature = "proto-ipv4")]
             icmpv4: Checksum::None,
+            #[cfg(feature = "proto-ipv4")]
+            igmp: Checksum::None,
             #[cfg(feature = "proto-ipv6")]
             icmpv6: Checksum::None,
             ..Self::default()

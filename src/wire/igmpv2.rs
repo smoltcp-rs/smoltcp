@@ -204,7 +204,7 @@ impl Repr {
         where T: AsRef<[u8]> + ?Sized
     {
         // Valid checksum is expected.
-        if checksum_caps.icmpv4.rx() && !packet.verify_checksum() {
+        if checksum_caps.igmp.rx() && !packet.verify_checksum() {
             return Err(Error::Checksum);
         }
 
@@ -248,7 +248,7 @@ impl Repr {
     }
 
     /// Emit a high-level representation into an Internet Group Management Protocol v2 packet.
-    pub fn emit<T>(&self, packet: &mut Packet<&mut T>)
+    pub fn emit<T>(&self, packet: &mut Packet<&mut T>, checksum_caps: &ChecksumCapabilities)
         where T: AsRef<[u8]> + AsMut<[u8]> + ?Sized
     {
         match self {
@@ -276,7 +276,13 @@ impl Repr {
                 packet.set_group_address(group_addr);
             }
         }
-        packet.fill_checksum()
+        if checksum_caps.igmp.tx() {
+            packet.fill_checksum()
+        } else {
+            // make sure we get a consistently zeroed checksum,
+            // since implementations might rely on it
+            packet.set_checksum(0);
+        }
     }
 }
 

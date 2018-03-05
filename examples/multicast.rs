@@ -98,7 +98,7 @@ fn main() {
                     let mut ipv4_packet = Ipv4Packet::new(raw_payload);
                     ipv4_repr.emit(&mut ipv4_packet, &device_caps.checksum);
                     let mut igmp_packet = IgmpPacket::new(ipv4_packet.payload_mut());
-                    igmp_repr.emit(&mut igmp_packet);
+                    igmp_repr.emit(&mut igmp_packet, &device_caps.checksum);
                 } else {
                     // send group specific query
                     println!("Sending Group Specific Query for group {}",query_addr);
@@ -120,7 +120,7 @@ fn main() {
                     let mut ipv4_packet = Ipv4Packet::new(raw_payload);
                     ipv4_repr.emit(&mut ipv4_packet, &device_caps.checksum);
                     let mut igmp_packet = IgmpPacket::new(ipv4_packet.payload_mut());
-                    igmp_repr.emit(&mut igmp_packet);
+                    igmp_repr.emit(&mut igmp_packet, &device_caps.checksum);
                 }
 
                 query_sent += 1;
