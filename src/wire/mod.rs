@@ -96,7 +96,7 @@ mod icmpv4;
 #[cfg(feature = "proto-ipv6")]
 mod icmpv6;
 #[cfg(feature = "proto-ipv4")]
-mod igmpv2;
+mod igmp;
 mod udp;
 mod tcp;
 
@@ -156,9 +156,9 @@ pub use self::icmpv4::{Message as Icmpv4Message,
                        Repr as Icmpv4Repr};
 
 #[cfg(feature = "proto-ipv4")]
-pub use self::igmpv2::{Packet as IgmpPacket,
-                       Repr as IgmpRepr,
-                       IgmpVersion};
+pub use self::igmp::{Packet as IgmpPacket,
+                     Repr as IgmpRepr,
+                     IgmpVersion};
 
 #[cfg(feature = "proto-ipv6")]
 pub use self::icmpv6::{Message as Icmpv6Message,
