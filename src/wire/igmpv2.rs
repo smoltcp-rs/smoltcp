@@ -100,7 +100,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     #[inline]
     pub fn max_resp_time(&self) -> u8 {
         let data = self.buffer.as_ref();
-        data[field::MAX_RESP_TIME].into()
+        data[field::MAX_RESP_TIME]
     }
 
     /// Return the checksum field.
