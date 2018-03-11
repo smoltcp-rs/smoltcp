@@ -88,6 +88,9 @@
                feature = "socket-tcp")))]
 compile_error!("at least one socket needs to be enabled"); */
 
+#[cfg(feature = "proto-ipv6")]
+#[macro_use]
+extern crate bitflags;
 extern crate byteorder;
 extern crate managed;
 #[cfg(any(test, feature = "std"))]
