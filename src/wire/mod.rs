@@ -97,6 +97,8 @@ mod icmpv4;
 mod icmpv6;
 #[cfg(feature = "proto-ipv4")]
 mod igmp;
+#[cfg(feature = "proto-ipv6")]
+mod ndiscoption;
 mod udp;
 mod tcp;
 #[cfg(feature = "proto-ipv4")]
@@ -170,6 +172,12 @@ pub use self::icmpv6::{Message as Icmpv6Message,
                        ParamProblem as Icmpv6ParamProblem,
                        Packet as Icmpv6Packet,
                        Repr as Icmpv6Repr};
+
+#[cfg(feature = "proto-ipv6")]
+pub use self::ndiscoption::{NdiscOption,
+                            Repr as NdiscOptionRepr,
+                            Type as NdiscOptionType,
+                            PrefixInfoFlags as NdiscPrefixInfoFlags};
 
 pub use self::udp::{Packet as UdpPacket,
                     Repr as UdpRepr};
