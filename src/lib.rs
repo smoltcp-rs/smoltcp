@@ -68,10 +68,11 @@
 //! ## Packet and representation layer support
 //!  | Protocol | Packet | Representation |
 //!  |----------|--------|----------------|
-//!  | Ethernet | Yes    | No             |
+//!  | Ethernet | Yes    | Yes            |
 //!  | ARP      | Yes    | Yes            |
 //!  | IPv4     | Yes    | Yes            |
 //!  | ICMPv4   | Yes    | Yes            |
+//!  | IGMPv1/2 | Yes    | No             |
 //!  | IPv6     | Yes    | Yes            |
 //!  | ICMPv6   | Yes    | Yes            |
 //!  | TCP      | Yes    | Yes            |
