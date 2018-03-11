@@ -426,7 +426,7 @@ mod test {
         for i in 0..256usize {
             let time1 = i as u8;
             let duration = max_resp_code_to_duration(time1);
-            let time2 = duration_to_max_resp_code(&duration);
+            let time2 = duration_to_max_resp_code(duration);
             assert!(time1 == time2);
         }
     }
