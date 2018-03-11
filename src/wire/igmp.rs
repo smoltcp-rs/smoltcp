@@ -210,9 +210,9 @@ impl Repr {
         // construct a packet based on the Type field
         match packet.msg_type() {
             Message::MembershipQuery => {
-                let max_resp_time = max_resp_code_to_duration(packet.max_resp_time());
+                let max_resp_time = max_resp_code_to_duration(packet.max_resp_code());
                 // See RFC 3376: 7.1. Query Version Distinctions
-                let version = if packet.max_resp_time() == 0 {
+                let version = if packet.max_resp_code() == 0 {
                     IgmpVersion::Version1
                 } else {
                     IgmpVersion::Version2
@@ -329,13 +329,13 @@ impl<'a> fmt::Display for Repr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             &Repr::MembershipQuery {
-                max_resp_duration,
+                max_resp_time,
                 group_addr,
                 version,
             } => {
                 write!(f,
-                       "IGMP membership query max_resp_duration={} group_addr={} version={:?}",
-                       max_resp_duration,
+                       "IGMP membership query max_resp_time={} group_addr={} version={:?}",
+                       max_resp_time,
                        group_addr,
                        version)
             }
