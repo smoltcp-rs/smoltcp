@@ -12,7 +12,7 @@ use std::fmt::Write;
 use std::os::unix::io::AsRawFd;
 use smoltcp::phy::wait as phy_wait;
 use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr};
-use smoltcp::iface::{NeighborCache, EthernetInterfaceBuilder};
+use smoltcp::iface::{NeighborCache, EthernetInterfaceBuilder, FragmentsSet, FragmentedPacket};
 use smoltcp::socket::SocketSet;
 use smoltcp::socket::{UdpSocket, UdpSocketBuffer, UdpPacketMetadata};
 use smoltcp::socket::{TcpSocket, TcpSocketBuffer};
@@ -66,6 +66,11 @@ fn main() {
     let tcp2_handle = sockets.add(tcp2_socket);
     let tcp3_handle = sockets.add(tcp3_socket);
     let tcp4_handle = sockets.add(tcp4_socket);
+    
+    let mut fragments = FragmentsSet::new(vec![]);
+    let fragment = FragmentedPacket::new(vec![0; 65535]);
+    fragments.add(fragment);
+    
 
     let mut tcp_6970_active = false;
     loop {

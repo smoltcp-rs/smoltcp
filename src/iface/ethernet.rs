@@ -675,7 +675,23 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
     {
         let ipv4_packet = Ipv4Packet::new_checked(eth_frame.payload())?;
         let checksum_caps = self.device_capabilities.checksum.clone();
-        let ipv4_repr = Ipv4Repr::parse(&ipv4_packet, &checksum_caps)?;
+        
+        // >> here we handle fragmentation
+        // verify checksum before making repr (in case we need to fragment)
+        if checksum_caps.ipv4.rx() && !ipv4_packet.verify_checksum() { return Err(Error::Checksum) }
+        
+        // contains more fragments ?
+        if ipv4_packet.more_frags() || ipv4_packet.frag_offset() > 0 {
+        	// pass to the map for fragmentation
+        	// iter over existing IDs, either add a new fragment or work with an existing one
+        	
+        	// potentially we end up with a new ipv4_packet
+        }
+        
+        // Repr doesn't support fragmentation yet, so don't give it fragmented packets yet
+        let ipv4_repr = Ipv4Repr::parse(&ipv4_packet, &checksum_caps)?; // this checks a checksum
+        
+        
 
         if !ipv4_repr.src_addr.is_unicast() {
             // Discard packets with non-unicast source addresses.
