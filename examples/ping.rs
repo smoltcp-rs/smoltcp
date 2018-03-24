@@ -54,8 +54,8 @@ fn main() {
     let remote_addr = address;
     let local_addr  = Ipv4Address::new(192, 168, 69, 1);
 
-    let icmp_rx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketMetadata::empty()], vec![0; 256]);
-    let icmp_tx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketMetadata::empty()], vec![0; 256]);
+    let icmp_rx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketMetadata::EMPTY], vec![0; 256]);
+    let icmp_tx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketMetadata::EMPTY], vec![0; 256]);
     let icmp_socket = IcmpSocket::new(icmp_rx_buffer, icmp_tx_buffer);
 
     let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x02]);

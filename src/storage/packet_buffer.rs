@@ -11,10 +11,8 @@ pub struct PacketMetadata<H> {
 }
 
 impl<H> PacketMetadata<H> {
-    /// Create an empty packet description.
-    pub fn empty() -> PacketMetadata<H> {
-        Self::padding(0)
-    }
+    /// Empty packet description.
+    pub const EMPTY: PacketMetadata<H> = PacketMetadata { size: 0, header: None };
 
     fn padding(size: usize) -> PacketMetadata<H> {
         PacketMetadata {
@@ -155,7 +153,7 @@ mod test {
     use super::*;
 
     fn buffer() -> PacketBuffer<'static, 'static, ()> {
-        PacketBuffer::new(vec![PacketMetadata::empty(); 4],
+        PacketBuffer::new(vec![PacketMetadata::EMPTY; 4],
                           vec![0u8; 16])
     }
 

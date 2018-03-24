@@ -1427,8 +1427,8 @@ mod test {
 
         let (iface, mut socket_set) = create_loopback();
 
-        let rx_buffer = UdpSocketBuffer::new(vec![UdpPacketMetadata::empty()], vec![0; 15]);
-        let tx_buffer = UdpSocketBuffer::new(vec![UdpPacketMetadata::empty()], vec![0; 15]);
+        let rx_buffer = UdpSocketBuffer::new(vec![UdpPacketMetadata::EMPTY], vec![0; 15]);
+        let tx_buffer = UdpSocketBuffer::new(vec![UdpPacketMetadata::EMPTY], vec![0; 15]);
 
         let udp_socket = UdpSocket::new(rx_buffer, tx_buffer);
 
@@ -1624,8 +1624,8 @@ mod test {
 
         let (iface, mut socket_set) = create_loopback();
 
-        let rx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketMetadata::empty()], vec![0; 24]);
-        let tx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketMetadata::empty()], vec![0; 24]);
+        let rx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketMetadata::EMPTY], vec![0; 24]);
+        let tx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketMetadata::EMPTY], vec![0; 24]);
 
         let icmpv4_socket = IcmpSocket::new(rx_buffer, tx_buffer);
 

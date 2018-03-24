@@ -233,7 +233,7 @@ mod test {
     use super::*;
 
     fn buffer(packets: usize) -> RawSocketBuffer<'static, 'static> {
-        RawSocketBuffer::new(vec![RawPacketMetadata::empty(); packets], vec![0; 48 * packets])
+        RawSocketBuffer::new(vec![RawPacketMetadata::EMPTY; packets], vec![0; 48 * packets])
     }
 
     #[cfg(feature = "proto-ipv4")]

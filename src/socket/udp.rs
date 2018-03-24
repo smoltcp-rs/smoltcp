@@ -238,7 +238,7 @@ mod test {
     use super::*;
 
     fn buffer(packets: usize) -> UdpSocketBuffer<'static, 'static> {
-        UdpSocketBuffer::new(vec![UdpPacketMetadata::empty(); packets], vec![0; 16 * packets])
+        UdpSocketBuffer::new(vec![UdpPacketMetadata::EMPTY; packets], vec![0; 16 * packets])
     }
 
     fn socket(rx_buffer: UdpSocketBuffer<'static, 'static>,
@@ -467,7 +467,7 @@ mod test {
 
     #[test]
     fn test_process_empty_payload() {
-        let recv_buffer = UdpSocketBuffer::new(vec![UdpPacketMetadata::empty(); 1], vec![]);
+        let recv_buffer = UdpSocketBuffer::new(vec![UdpPacketMetadata::EMPTY; 1], vec![]);
         let mut socket = socket(recv_buffer, buffer(0));
         assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
 

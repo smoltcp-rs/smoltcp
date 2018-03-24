@@ -124,8 +124,8 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
     ///
     /// ```
     /// # use smoltcp::socket::{Socket, IcmpSocket, IcmpSocketBuffer, IcmpPacketMetadata};
-    /// # let rx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketMetadata::empty()], vec![0; 20]);
-    /// # let tx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketMetadata::empty()], vec![0; 20]);
+    /// # let rx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketMetadata::EMPTY], vec![0; 20]);
+    /// # let tx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketMetadata::EMPTY], vec![0; 20]);
     /// use smoltcp::wire::IpEndpoint;
     /// use smoltcp::socket::IcmpEndpoint;
     ///
@@ -146,8 +146,8 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
     ///
     /// ```
     /// # use smoltcp::socket::{Socket, IcmpSocket, IcmpSocketBuffer, IcmpPacketMetadata};
-    /// # let rx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketMetadata::empty()], vec![0; 20]);
-    /// # let tx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketMetadata::empty()], vec![0; 20]);
+    /// # let rx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketMetadata::EMPTY], vec![0; 20]);
+    /// # let tx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketMetadata::EMPTY], vec![0; 20]);
     /// use smoltcp::socket::IcmpEndpoint;
     ///
     /// let mut icmp_socket = // ...
@@ -326,7 +326,7 @@ mod test {
     use super::*;
 
     fn buffer(packets: usize) -> IcmpSocketBuffer<'static, 'static> {
-        IcmpSocketBuffer::new(vec![IcmpPacketMetadata::empty(); packets], vec![0; 46 * packets])
+        IcmpSocketBuffer::new(vec![IcmpPacketMetadata::EMPTY; packets], vec![0; 46 * packets])
     }
 
     fn socket(rx_buffer: IcmpSocketBuffer<'static, 'static>,
