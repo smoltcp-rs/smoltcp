@@ -267,13 +267,19 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// [set_total_len]: #method.set_total_len
     pub fn check_len(&self) -> Result<()> {
         let len = self.buffer.as_ref().len();
+        println!(">>>check len: len = {}",len);
         if len < field::DST_ADDR.end {
+        	println!("len < field::DST_ADDR.end");
             Err(Error::Truncated)
         } else if len < self.header_len() as usize {
+        	println!("len < self.header_len()");
             Err(Error::Truncated)
         } else if self.header_len() as u16 > self.total_len() {
             Err(Error::Malformed)
-        } else if len < self.total_len() as usize {
+        } else if len < self.total_len() as usize && self.dont_frag() {
+        	println!("len < self.total_len()");
+        	println!("self.total_len()={}",self.total_len());
+        	println!("len={}",len);
             Err(Error::Truncated)
         } else {
             Ok(())

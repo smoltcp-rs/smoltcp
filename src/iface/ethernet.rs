@@ -36,7 +36,7 @@ use socket::IcmpSocket;
 use socket::UdpSocket;
 #[cfg(feature = "socket-tcp")]
 use socket::TcpSocket;
-use super::{NeighborCache, NeighborAnswer};
+use super::{NeighborCache, NeighborAnswer, FragmentsSet};
 
 /// An Ethernet network interface.
 ///
@@ -334,10 +334,10 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
     /// packets containing any unsupported protocol, option, or form, which is
     /// a very common occurrence and on a production system it should not even
     /// be logged.
-    pub fn poll(&mut self, sockets: &mut SocketSet, timestamp: Instant) -> Result<bool> {
+    pub fn poll(&mut self, sockets: &mut SocketSet, fragments: &mut FragmentsSet, timestamp: Instant) -> Result<bool> {
         let mut readiness_may_have_changed = false;
         loop {
-            let processed_any = self.socket_ingress(sockets, timestamp)?;
+            let processed_any = self.socket_ingress(sockets, fragments, timestamp)?;
             let emitted_any   = self.socket_egress(sockets, timestamp)?;
             if processed_any || emitted_any {
                 readiness_may_have_changed = true;
@@ -384,7 +384,7 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
         }
     }
 
-    fn socket_ingress(&mut self, sockets: &mut SocketSet, timestamp: Instant) -> Result<bool> {
+    fn socket_ingress(&mut self, sockets: &mut SocketSet, fragments: &mut FragmentsSet, timestamp: Instant) -> Result<bool> {
         let mut processed_any = false;
         loop {
             let &mut Self { ref mut device, ref mut inner } = self;
@@ -393,7 +393,7 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
                 Some(tokens) => tokens,
             };
             rx_token.consume(timestamp, |frame| {
-                inner.process_ethernet(sockets, timestamp, &frame).map_err(|err| {
+                inner.process_ethernet(sockets, fragments, timestamp, &frame).map_err(|err| {
                     net_debug!("cannot process ingress packet: {}", err);
                     net_debug!("packet dump follows:\n{}",
                                PrettyPrinter::<EthernetFrame<&[u8]>>::new("", &frame));
@@ -515,7 +515,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
     }
 
     fn process_ethernet<'frame, T: AsRef<[u8]>>
-                       (&mut self, sockets: &mut SocketSet, timestamp: Instant, frame: &'frame T) ->
+                       (&mut self, sockets: &mut SocketSet, fragments: &mut FragmentsSet, timestamp: Instant, frame: &'frame T) ->
                        Result<Packet<'frame>>
     {
         let eth_frame = EthernetFrame::new_checked(frame)?;
@@ -533,7 +533,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
                 self.process_arp(timestamp, &eth_frame),
             #[cfg(feature = "proto-ipv4")]
             EthernetProtocol::Ipv4 =>
-                self.process_ipv4(sockets, timestamp, &eth_frame),
+                self.process_ipv4(sockets, fragments, timestamp, &eth_frame),
             #[cfg(feature = "proto-ipv6")]
             EthernetProtocol::Ipv6 =>
                 self.process_ipv6(sockets, timestamp, &eth_frame),
@@ -669,29 +669,35 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
 
     #[cfg(feature = "proto-ipv4")]
     fn process_ipv4<'frame, T: AsRef<[u8]>>
-                   (&mut self, sockets: &mut SocketSet, timestamp: Instant,
+                   (&mut self, sockets: &mut SocketSet, _fragments: &mut FragmentsSet, timestamp: Instant,
                     eth_frame: &EthernetFrame<&'frame T>) ->
                    Result<Packet<'frame>>
     {
         let ipv4_packet = Ipv4Packet::new_checked(eth_frame.payload())?;
         let checksum_caps = self.device_capabilities.checksum.clone();
         
-        // >> here we handle fragmentation
-        // verify checksum before making repr (in case we need to fragment)
-        if checksum_caps.ipv4.rx() && !ipv4_packet.verify_checksum() { return Err(Error::Checksum) }
-        
-        // contains more fragments ?
-        if ipv4_packet.more_frags() || ipv4_packet.frag_offset() > 0 {
+        // if DF == 1 we have a normal packet, otherwise it is fragmented
+        if !ipv4_packet.dont_frag() {
+        	println!(">>> Fragmented packet found, ipv4_packet.frag_offset()");
         	// pass to the map for fragmentation
         	// iter over existing IDs, either add a new fragment or work with an existing one
+        	/*
+        	if fragments.contains(ipv4_packet.ident()) {
+        		// work with existing packet fragmant
+        	} else {
+        		// add a new packet fragment
+        	}
+        	*/
+        	//let mut fragment = fragments.get(ipv4_packet.ident());
+        	//fragment.assembler.
         	
         	// potentially we end up with a new ipv4_packet
+        	// if not (and we have just a fragment) return Ok(Packet::None)
+        	return Ok(Packet::None);
         }
         
         // Repr doesn't support fragmentation yet, so don't give it fragmented packets yet
         let ipv4_repr = Ipv4Repr::parse(&ipv4_packet, &checksum_caps)?; // this checks a checksum
-        
-        
 
         if !ipv4_repr.src_addr.is_unicast() {
             // Discard packets with non-unicast source addresses.

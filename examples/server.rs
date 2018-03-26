@@ -32,16 +32,16 @@ fn main() {
 
     let neighbor_cache = NeighborCache::new(BTreeMap::new());
 
-    let udp_rx_buffer = UdpSocketBuffer::new(vec![UdpPacketMetadata::empty()], vec![0; 64]);
-    let udp_tx_buffer = UdpSocketBuffer::new(vec![UdpPacketMetadata::empty()], vec![0; 128]);
+    let udp_rx_buffer = UdpSocketBuffer::new(vec![UdpPacketMetadata::empty()], vec![0; 65535]);
+    let udp_tx_buffer = UdpSocketBuffer::new(vec![UdpPacketMetadata::empty()], vec![0; 65535]);
     let udp_socket = UdpSocket::new(udp_rx_buffer, udp_tx_buffer);
 
-    let tcp1_rx_buffer = TcpSocketBuffer::new(vec![0; 64]);
-    let tcp1_tx_buffer = TcpSocketBuffer::new(vec![0; 128]);
+    let tcp1_rx_buffer = TcpSocketBuffer::new(vec![0; 65535]);
+    let tcp1_tx_buffer = TcpSocketBuffer::new(vec![0; 65535]);
     let tcp1_socket = TcpSocket::new(tcp1_rx_buffer, tcp1_tx_buffer);
 
-    let tcp2_rx_buffer = TcpSocketBuffer::new(vec![0; 64]);
-    let tcp2_tx_buffer = TcpSocketBuffer::new(vec![0; 128]);
+    let tcp2_rx_buffer = TcpSocketBuffer::new(vec![0; 65535]);
+    let tcp2_tx_buffer = TcpSocketBuffer::new(vec![0; 65535]);
     let tcp2_socket = TcpSocket::new(tcp2_rx_buffer, tcp2_tx_buffer);
 
     let tcp3_rx_buffer = TcpSocketBuffer::new(vec![0; 65535]);
@@ -75,10 +75,14 @@ fn main() {
     let mut tcp_6970_active = false;
     loop {
         let timestamp = Instant::now();
-        iface.poll(&mut sockets, timestamp).expect("poll error");
+        match iface.poll(&mut sockets, &mut fragments, timestamp) {
+        	Ok(_) => {},
+        	Err(e) => println!("Poll error: {}",e),
+        }
+        
 
         // udp:6969: respond "hello"
-        {
+        /*{
             let mut socket = sockets.get::<UdpSocket>(udp_handle);
             if !socket.is_open() {
                 socket.bind(6969).unwrap()
@@ -97,6 +101,40 @@ fn main() {
                 debug!("udp:6969 send data: {:?}",
                        str::from_utf8(data.as_ref()).unwrap());
                 socket.send_slice(data, endpoint).unwrap();
+            }
+        }*/
+                // udp:6942: echo with reverse
+        {
+            let mut socket = sockets.get::<UdpSocket>(udp_handle);
+            if !socket.is_open() {
+                socket.bind(6942).unwrap()
+            }
+
+            let mut rx_data = Vec::new();
+            let client = match socket.recv() {
+                Ok((data, endpoint)) => {
+                    println!(
+                        "udp:6969 recv data: {:?} from {}",
+                        str::from_utf8(data.as_ref()).unwrap(),
+                        endpoint
+                    );
+                    rx_data.extend_from_slice(data);
+                    Some(endpoint)
+                }
+                Err(_) => None,
+            };
+
+            if let Some(endpoint) = client {
+                if rx_data.len() > 0 {
+                    let mut data = rx_data.split(|&b| b == b'\n').collect::<Vec<_>>().concat();
+                    data.reverse();
+                    data.extend(b"\n");
+                    println!(
+                        "udp:6942 send data: {:?}",
+                        str::from_utf8(data.as_ref()).unwrap()
+                    );
+                    socket.send_slice(&data, endpoint).unwrap();
+                }
             }
         }
 

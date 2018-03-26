@@ -87,6 +87,7 @@ impl<'a, 'b, H> PacketBuffer<'a, 'b, H> {
         let contig_window = self.payload_ring.contiguous_window();
 
         if window < size || (window != contig_window && window - contig_window < size) {
+        	println!("window={}",window);
             return Err(Error::Exhausted)
         }
 
