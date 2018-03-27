@@ -267,7 +267,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// [set_total_len]: #method.set_total_len
     pub fn check_len(&self) -> Result<()> {
         let len = self.buffer.as_ref().len();
-        println!(">>>check len: len = {}",len);
+        println!("Ipv4packet check len: len = {}",len);
         if len < field::DST_ADDR.end {
         	println!("len < field::DST_ADDR.end");
             Err(Error::Truncated)
@@ -403,6 +403,9 @@ impl<'a, T: AsRef<[u8]> + ?Sized> Packet<&'a T> {
     /// Return a pointer to the payload.
     #[inline]
     pub fn payload(&self) -> &'a [u8] {
+    	println!("self.header_len = {}", self.header_len());
+    	println!("self.total_len = {}", self.total_len());
+    	println!("self.buffer.len = {}", self.buffer.as_ref().len());
         let range = self.header_len() as usize..self.total_len() as usize;
         let data = self.buffer.as_ref();
         &data[range]

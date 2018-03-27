@@ -515,7 +515,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
     }
 
     fn process_ethernet<'frame, T: AsRef<[u8]>>
-                       (&mut self, sockets: &mut SocketSet, fragments: &mut FragmentsSet, timestamp: Instant, frame: &'frame T) ->
+                       (&mut self, sockets: &mut SocketSet, fragments: & mut FragmentsSet, timestamp: Instant, frame: &'frame T) ->
                        Result<Packet<'frame>>
     {
         let eth_frame = EthernetFrame::new_checked(frame)?;
@@ -669,34 +669,37 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
 
     #[cfg(feature = "proto-ipv4")]
     fn process_ipv4<'frame, T: AsRef<[u8]>>
-                   (&mut self, sockets: &mut SocketSet, _fragments: &mut FragmentsSet, timestamp: Instant,
+                   (&mut self, sockets: &mut SocketSet, fragments: &mut FragmentsSet, timestamp: Instant,
                     eth_frame: &EthernetFrame<&'frame T>) ->
                    Result<Packet<'frame>>
     {
-        let ipv4_packet = Ipv4Packet::new_checked(eth_frame.payload())?;
+    	println!("eth_frame.payload().len() = {}", eth_frame.payload().len());
+        let mut ipv4_packet = Ipv4Packet::new_checked(eth_frame.payload())?;
         let checksum_caps = self.device_capabilities.checksum.clone();
         
-        // if DF == 1 we have a normal packet, otherwise it is fragmented
-        if !ipv4_packet.dont_frag() {
-        	println!(">>> Fragmented packet found, ipv4_packet.frag_offset()");
-        	// pass to the map for fragmentation
-        	// iter over existing IDs, either add a new fragment or work with an existing one
-        	/*
+        if ipv4_packet.dont_frag() == false && ( ipv4_packet.more_frags() || ipv4_packet.frag_offset() > 0){
+        	let fragment;
         	if fragments.contains(ipv4_packet.ident()) {
-        		// work with existing packet fragmant
+        		println!("Set contains this packet");
+        		fragment = fragments.get(ipv4_packet.ident()).unwrap();
+        		fragment.assembler.add(ipv4_packet.frag_offset() as usize, ipv4_packet.total_len() as usize).unwrap();
+        		fragment.rx_buffer[ipv4_packet.frag_offset() as usize..ipv4_packet.total_len() as usize].clone_from_slice(ipv4_packet.payload());
+        		
+        		// check if all done
+        		if ipv4_packet.more_frags() {
+        			ipv4_packet = Ipv4Packet::new_checked(fragment.rx_buffer.as_slice())?;
+        		} 
+        		
         	} else {
-        		// add a new packet fragment
+        		println!("Ask for a new fragment");
+        		fragment = fragments.get_empty().unwrap();
+        		fragment.id = ipv4_packet.ident();
+        		fragment.assembler.add(ipv4_packet.frag_offset() as usize, ipv4_packet.total_len() as usize).unwrap();
+        		fragment.rx_buffer[ipv4_packet.frag_offset() as usize..ipv4_packet.total_len() as usize].clone_from_slice(ipv4_packet.payload());
+	        	return Ok(Packet::None);	
         	}
-        	*/
-        	//let mut fragment = fragments.get(ipv4_packet.ident());
-        	//fragment.assembler.
-        	
-        	// potentially we end up with a new ipv4_packet
-        	// if not (and we have just a fragment) return Ok(Packet::None)
-        	return Ok(Packet::None);
         }
         
-        // Repr doesn't support fragmentation yet, so don't give it fragmented packets yet
         let ipv4_repr = Ipv4Repr::parse(&ipv4_packet, &checksum_caps)?; // this checks a checksum
 
         if !ipv4_repr.src_addr.is_unicast() {
