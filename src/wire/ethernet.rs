@@ -5,6 +5,8 @@ use {Error, Result};
 
 enum_with_unknown! {
     /// Ethernet protocol type.
+    /// EtherType values must be greater than or equal to 1536 (0x0600)
+    /// IEEE 802.1Q header, currently not supported
     pub enum EtherType(u16) {
         Ipv4 = 0x0800,
         Arp  = 0x0806,
@@ -22,6 +24,32 @@ impl fmt::Display for EtherType {
         }
     }
 }
+
+/// Ethernet frame differentiation
+/// from https://en.wikipedia.org/wiki/Ethernet_frame#Types
+/// 0x600 = 1536, 0x5DC = 1500
+/// Frame type 			Ethertype or length 	Payload start two bytes
+/// Ethernet II 			≥ 1536 					Any
+/// Novell raw IEEE 802.3 	≤ 1500 					0xFFFF
+/// IEEE 802.2 LLC	 	 	≤ 1500 					Other
+/// IEEE 802.2 SNAP 		≤ 1500 					0xAAAA
+pub enum FrameType {
+	EthernetII,
+	Unknown,
+}
+
+/// Max allowed payload length for Ethernet II frame
+pub const ETHERNET_II_MAX_MTU: usize = 1500;
+
+impl From<u16> for FrameType {
+	fn from(val: u16) -> FrameType {
+		if val >= 0x600 {
+			return FrameType::EthernetII;
+		}
+		FrameType::Unknown
+	}
+}
+
 
 /// A six-octet Ethernet II address.
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
@@ -88,8 +116,10 @@ mod field {
     pub const DESTINATION: Field =  0..6;
     pub const SOURCE:      Field =  6..12;
     pub const ETHERTYPE:   Field = 12..14;
+    pub const ETHERTYPE_8021_Q:   Field = 16..18;
     pub const PAYLOAD:     Rest  = 14..;
 }
+
 
 impl<T: AsRef<[u8]>> Frame<T> {
     /// Imbue a raw octet buffer with Ethernet frame structure.
@@ -98,24 +128,39 @@ impl<T: AsRef<[u8]>> Frame<T> {
     }
 
     /// Shorthand for a combination of [new] and [check_len].
+    /// Returns an error if the frame is a IEEE 802.1Q frame
     ///
     /// [new]: #method.new
     /// [check_len]: #method.check_len
     pub fn new_checked(buffer: T) -> Result<Frame<T>> {
         let packet = Self::new(buffer);
+        if packet.is_virtual_lan() {
+        	return Err(Error::Unrecognized)
+        }
         packet.check_len()?;
         Ok(packet)
     }
 
     /// Ensure that no accessor method will panic if called.
     /// Returns `Err(Error::Truncated)` if the buffer is too short.
+    /// or `Err(Error::Unrecognized)` if the frame is not supported
     pub fn check_len(&self) -> Result<()> {
         let len = self.buffer.as_ref().len();
-        if len < field::PAYLOAD.start {
-            Err(Error::Truncated)
-        } else {
-            Ok(())
-        }
+        match self.etherframe() {
+        	FrameType::EthernetII => {
+        		if len < field::PAYLOAD.start {
+				    return Err(Error::Truncated);
+        		}
+
+        		if len >= ETHERNET_II_MAX_MTU && !cfg!(feature = "jumbo-frames"){
+				    return Err(Error::Malformed);
+        		}
+			    Ok(()) 
+        	},
+        	FrameType::Unknown => {
+        		Err(Error::Unrecognized)
+        	} 
+        } 
     }
 
     /// Consumes the frame, returning the underlying buffer.
@@ -147,12 +192,37 @@ impl<T: AsRef<[u8]>> Frame<T> {
         let data = self.buffer.as_ref();
         Address::from_bytes(&data[field::SOURCE])
     }
+    
+    /// Is IEEE 802.1Q frame?
+    #[inline]
+    pub fn is_virtual_lan(&self) -> bool {
+    	let data = self.buffer.as_ref();
+    	let raw = NetworkEndian::read_u16(&data[field::ETHERTYPE]);
+    	if raw == 0x8100 {
+    		true
+    	} else {
+	    	false	
+    	}
+    }
 
-    /// Return the EtherType field, without checking for 802.1Q.
+	/// Return the Ethernet frame type
+    #[inline]
+    pub fn etherframe(&self) -> FrameType {
+    	let data = self.buffer.as_ref();
+    	let raw = NetworkEndian::read_u16(&data[field::ETHERTYPE]);
+    	FrameType::from(raw)
+    }
+
+    /// Return the EtherType field
     #[inline]
     pub fn ethertype(&self) -> EtherType {
         let data = self.buffer.as_ref();
-        let raw = NetworkEndian::read_u16(&data[field::ETHERTYPE]);
+        let raw;
+        if self.is_virtual_lan() {
+        	raw = NetworkEndian::read_u16(&data[field::ETHERTYPE_8021_Q]);
+        } else {
+        	raw = NetworkEndian::read_u16(&data[field::ETHERTYPE]);
+        }
         EtherType::from(raw)
     }
 }
