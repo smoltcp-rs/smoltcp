@@ -44,6 +44,10 @@ impl Set {
         Set { packets: packets }
     }
     
+    pub fn add(&mut self, packet: Packet) {
+        self.packets.push(packet)
+    }
+
     /// Check if the set contains given packet ID
     pub fn contains(&self, id: u16) -> bool {
         for packet in self.packets.iter() {
