@@ -1,0 +1,7 @@
+indent_style = "Block"
+use_small_heuristics = false
+struct_field_align_threshold = 100
+max_width = 100
+comment_width = 100
+struct_lit_single_line = true
+fn_args_density = "Compressed"
