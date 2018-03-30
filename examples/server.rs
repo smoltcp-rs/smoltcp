@@ -82,7 +82,7 @@ fn main() {
         
 
         // udp:6969: respond "hello"
-        /*{
+        {
             let mut socket = sockets.get::<UdpSocket>(udp_handle);
             if !socket.is_open() {
                 socket.bind(6969).unwrap()
@@ -102,7 +102,7 @@ fn main() {
                        str::from_utf8(data.as_ref()).unwrap());
                 socket.send_slice(data, endpoint).unwrap();
             }
-        }*/
+        }
                 // udp:6942: echo with reverse
         {
             let mut socket = sockets.get::<UdpSocket>(udp_handle);

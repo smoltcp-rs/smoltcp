@@ -667,41 +667,146 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         }
     }
 
-    #[cfg(feature = "proto-ipv4")]
-    fn process_ipv4<'frame, T: AsRef<[u8]>>
-                   (&mut self, sockets: &mut SocketSet, fragments: &'frame mut FragmentsSet, timestamp: Instant,
-                    eth_frame: &EthernetFrame<&'frame T>) ->
-                   Result<Packet<'frame>>
-    {
-    	println!("eth_frame.payload().len() = {}", eth_frame.payload().len());
-        let mut ipv4_packet = Ipv4Packet::new_checked(eth_frame.payload())?;
-        let checksum_caps = self.device_capabilities.checksum.clone();
-        
-        if ipv4_packet.dont_frag() == false && ( ipv4_packet.more_frags() || ipv4_packet.frag_offset() > 0){
+/*
+        	let frag_offset = ipv4_packet.frag_offset() as usize;
+        	let frag_len = ipv4_packet.total_len() as usize;
+        	let frag_id = ipv4_packet.ident();
+        	let more_frags = ipv4_packet.more_frags();
+        	let payload_len = ipv4_packet.payload().len();
+        	let header_len = ipv4_packet.header_len() as usize;
+        	
+        	println!("Frag offset  = {}, flag_len = {}, id = {}, more_frags={}, payload_len= {}, header len ={}",
+        		frag_offset, frag_len, frag_id, more_frags, payload_len, header_len);
+
         	let fragment;
         	if fragments.contains(ipv4_packet.ident()) {
         		println!("Set contains this packet");
-        		fragment = fragments.get(ipv4_packet.ident()).unwrap();
-        		fragment.assembler.add(ipv4_packet.frag_offset() as usize, ipv4_packet.total_len() as usize).unwrap();
-        		fragment.rx_buffer[ipv4_packet.frag_offset() as usize..ipv4_packet.total_len() as usize].clone_from_slice(ipv4_packet.payload());
+        		fragment = fragments.get(frag_id).unwrap();
+        		match fragment.assembler.add(frag_offset+header_len, payload_len) {
+        			Ok(_) => println!("Adding successfull"),
+        			Err(_) => println!("Adding error"),
+        		}
+	        	fragment.rx_buffer[frag_offset+header_len..frag_offset+payload_len+header_len].clone_from_slice(ipv4_packet.payload());		
+        		println!("Assembler = {}", fragment.assembler);
         		
-        		// check if all done
-        		if ipv4_packet.more_frags() {
-        			ipv4_packet = Ipv4Packet::new_checked(fragment.rx_buffer.as_slice())?;
-        		} 
-        		
+        		println!("After adding data");
+        		if !more_frags {
+        			println!("Last fragment");
+        			let front = fragment.assembler.remove_front().unwrap();
+        			println!("Assembler remove front = {:?}", front);
+        			//println!("Buffer = {:?}",fragment.rx_buffer);
+        			
+        			{
+	        			let mut ipv4_packet = Ipv4Packet::new_checked(&mut fragment.rx_buffer[0..front])?;	
+        				ipv4_packet.set_total_len(front as u16);
+        				ipv4_packet.fill_checksum();
+        				println!("My total len = {}",ipv4_packet.total_len()); 
+        			}
+        			
+        			ipv4_packet_fin = Ipv4Packet::new_checked(&fragment.rx_buffer[0..front])?;
+        			//ipv4_packet.set_total_len(front as u16);
+        			println!("My total len = {}",ipv4_packet_fin.total_len());
+        			println!("Creating Reassembled packet");
+        			ipv4_repr = Ipv4Repr::parse(&ipv4_packet_fin, &checksum_caps)?; // this checks a checksum
+        			println!("Reassembled packet OK");
+        		} else {
+        			return Ok(Packet::None);
+        		}
         	} else {
-        		println!("Ask for a new fragment");
         		fragment = fragments.get_empty().unwrap();
+        		println!("Ask for a new fragment");
         		fragment.id = ipv4_packet.ident();
-        		fragment.assembler.add(ipv4_packet.frag_offset() as usize, ipv4_packet.total_len() as usize).unwrap();
-        		fragment.rx_buffer[ipv4_packet.frag_offset() as usize..ipv4_packet.total_len() as usize].clone_from_slice(ipv4_packet.payload());
-	        	return Ok(Packet::None);	
+        		match fragment.assembler.add(frag_offset, payload_len+header_len) {
+        			Ok(_) => println!("Adding successfull"),
+        			Err(_) => println!("Adding error"),
+        		}
+        		let b = ipv4_packet.into_inner();
+        		fragment.rx_buffer[frag_offset..frag_offset+payload_len+header_len].clone_from_slice(b);
+        		println!("After adding data");
+        		println!("Assembler = {}", fragment.assembler);
+        		return Ok(Packet::None);
         	}
+        	*/
+
+    //#[cfg(feature = "ipv4-fragmentation")]
+    // TODO: compile only when frahmentation is enabled
+    fn process_ipv4_fragment<'frame>
+				    (ipv4_packet: Ipv4Packet<&[u8]>, fragments: &'frame mut FragmentsSet, _timestamp: Instant) ->
+                   Result<Option<Ipv4Packet<&'frame [u8]>>> 
+    {
+	     let id = ipv4_packet.ident();
+	     let frag_offset = ipv4_packet.frag_offset() as usize;
+        let payload_len = ipv4_packet.payload().len();
+        let header_len = ipv4_packet.header_len() as usize;
+	     
+	     let fragment;
+    	  if fragments.contains(id) {
+    	  	// fragment was previously seen
+    	  	fragment = fragments.get(id).unwrap();
+        		match fragment.assembler.add(frag_offset+header_len, payload_len) {
+        			Ok(_) => println!("Adding successfull"),
+        			Err(_) => println!("Adding error"),
+        		}
+	        	fragment.rx_buffer[frag_offset+header_len..frag_offset+payload_len+header_len].clone_from_slice(ipv4_packet.payload());		
+        		if !ipv4_packet.more_frags() {
+        			println!("Last fragment");
+        			let front = fragment.assembler.remove_front().unwrap();
+        			println!("Assembler remove front = {:?}", front);        			
+        			{
+	        			let mut ipv4_packet = Ipv4Packet::new_checked(&mut fragment.rx_buffer[0..front])?;	
+        				ipv4_packet.set_total_len(front as u16);
+        				ipv4_packet.fill_checksum();
+        				println!("My total len = {}",ipv4_packet.total_len()); 
+        			}
+        			return Ok(Some(Ipv4Packet::new_checked(&fragment.rx_buffer[0..front])?));
+        			
+        		} else {
+        			return Ok(None);
+        		}
+    	  } else {
+	    	  	fragment = fragments.get_empty().unwrap();
+        		println!("Ask for a new fragment");
+	    	  // new fragment
+	    	  fragment.id = id;
+    	  	  match fragment.assembler.add(frag_offset, payload_len+header_len) {
+        			Ok(_) => println!("Adding successfull"),
+        			Err(_) => println!("Adding error"),
+	    	  }
+    	  	  fragment.rx_buffer[frag_offset..frag_offset+payload_len+header_len]
+	    	  	  .clone_from_slice(ipv4_packet.into_inner());
+	    	  return Ok(None);
+    	  }
+    }
+
+
+    #[cfg(feature = "proto-ipv4")]
+    fn process_ipv4<'frame, T: AsRef<[u8]>>
+                   (&mut self, sockets: &mut SocketSet, fragments: &'frame mut FragmentsSet,
+                   	timestamp: Instant, eth_frame: &EthernetFrame<&'frame T>) ->
+                   Result<Packet<'frame>>
+    {
+        let ipv4_packet_in = Ipv4Packet::new_checked(eth_frame.payload())?;
+        let checksum_caps = self.device_capabilities.checksum.clone();
+        
+        let ipv4_packet;
+        if ipv4_packet_in.more_frags() || ipv4_packet_in.frag_offset() > 0{
+        	if cfg!(feature = "ipv4-fragmentation") {
+        		println!("ipv4-fragmentation");
+        		match InterfaceInner::process_ipv4_fragment(ipv4_packet_in, fragments, timestamp)? {
+        			Some(assembled_packet) => ipv4_packet = assembled_packet,
+        			None => return Ok(Packet::None),
+        		}
+        	} else {
+        		// return error (originally checked in Ipv4Repr::parse()
+	        	return Err(Error::Fragmented)
+        	}
+        } else {
+        	// non-fragmented packet
+        	ipv4_packet = ipv4_packet_in;
         }
         
-        let ipv4_repr = Ipv4Repr::parse(&ipv4_packet, &checksum_caps)?; // this checks a checksum
-
+        let ipv4_repr = Ipv4Repr::parse(&ipv4_packet, &checksum_caps)?;
+        
         if !ipv4_repr.src_addr.is_unicast() {
             // Discard packets with non-unicast source addresses.
             net_debug!("non-unicast source address");
@@ -758,6 +863,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
             }
         }
     }
+
 
     #[cfg(feature = "proto-ipv6")]
     fn process_icmpv6<'frame>(&self, _sockets: &mut SocketSet, ip_repr: IpRepr,

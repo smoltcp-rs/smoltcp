@@ -251,6 +251,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// [check_len]: #method.check_len
     pub fn new_checked(buffer: T) -> Result<Packet<T>> {
         let packet = Self::new(buffer);
+        let len = packet.buffer.as_ref().len();
         packet.check_len()?;
         Ok(packet)
     }
@@ -267,19 +268,13 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// [set_total_len]: #method.set_total_len
     pub fn check_len(&self) -> Result<()> {
         let len = self.buffer.as_ref().len();
-        println!("Ipv4packet check len: len = {}",len);
         if len < field::DST_ADDR.end {
-        	println!("len < field::DST_ADDR.end");
             Err(Error::Truncated)
         } else if len < self.header_len() as usize {
-        	println!("len < self.header_len()");
             Err(Error::Truncated)
         } else if self.header_len() as u16 > self.total_len() {
             Err(Error::Malformed)
         } else if len < self.total_len() as usize && self.dont_frag() {
-        	println!("len < self.total_len()");
-        	println!("self.total_len()={}",self.total_len());
-        	println!("len={}",len);
             Err(Error::Truncated)
         } else {
             Ok(())
@@ -403,9 +398,6 @@ impl<'a, T: AsRef<[u8]> + ?Sized> Packet<&'a T> {
     /// Return a pointer to the payload.
     #[inline]
     pub fn payload(&self) -> &'a [u8] {
-    	println!("self.header_len = {}", self.header_len());
-    	println!("self.total_len = {}", self.total_len());
-    	println!("self.buffer.len = {}", self.buffer.as_ref().len());
         let range = self.header_len() as usize..self.total_len() as usize;
         let data = self.buffer.as_ref();
         &data[range]
@@ -567,8 +559,6 @@ impl Repr {
         if packet.version() != 4 { return Err(Error::Malformed) }
         // Valid checksum is expected.
         if checksum_caps.ipv4.rx() && !packet.verify_checksum() { return Err(Error::Checksum) }
-        // We do not support fragmentation.
-        if packet.more_frags() || packet.frag_offset() != 0 { return Err(Error::Fragmented) }
         // Since the packet is not fragmented, it must include the entire payload.
         let payload_len = packet.total_len() as usize - packet.header_len() as usize;
         if packet.payload().len() < payload_len  { return Err(Error::Truncated) }
