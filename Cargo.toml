@@ -35,6 +35,8 @@ verbose = []
 "socket-udp" = []
 "socket-tcp" = []
 "socket-icmp" = []
+"eth-jumbo-frames" = []
+"ipv4-fragmentation" = []
 default = [
   "std", "log", # needed for `cargo test --no-default-features --features default` :/
   "phy-raw_socket", "phy-tap_interface",

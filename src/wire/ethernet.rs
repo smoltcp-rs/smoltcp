@@ -1,5 +1,6 @@
 use core::fmt;
 use byteorder::{ByteOrder, NetworkEndian};
+use phy::ETHERNET_HAEDER_MAX_LEN;
 
 use {Error, Result};
 
@@ -152,7 +153,8 @@ impl<T: AsRef<[u8]>> Frame<T> {
 				    return Err(Error::Truncated);
         		}
 
-        		if len >= ETHERNET_II_MAX_MTU && !cfg!(feature = "jumbo-frames"){
+             if len >= (ETHERNET_II_MAX_MTU+ETHERNET_HAEDER_MAX_LEN)
+	             && !cfg!(feature = "eth-jumbo-frames"){
 				    return Err(Error::Malformed);
         		}
 			    Ok(()) 
