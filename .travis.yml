@@ -20,6 +20,8 @@ matrix:
     - rust: nightly
       env: FEATURES='std proto-ipv4 socket-udp socket-tcp' MODE='test'
     - rust: nightly
+      env: FEATURES='std proto-ipv4 proto-dhcpv4 socket-udp' MODE='test'
+    - rust: nightly
       env: FEATURES='std proto-ipv6 socket-udp' MODE='test'
     - rust: nightly
       env: FEATURES='std proto-ipv6 socket-tcp' MODE='test'
@@ -35,7 +37,7 @@ matrix:
       env: FEATURES='proto-ipv4 proto-ipv6 socket-raw socket-udp socket-tcp socket-icmp alloc'
         MODE='test'
     - rust: nightly
-      env: FEATURES='proto-ipv4 proto-ipv6 proto-igmp socket-raw socket-udp socket-tcp socket-icmp'
+      env: FEATURES='proto-ipv4 proto-ipv6 proto-igmp proto-dhcpv4 socket-raw socket-udp socket-tcp socket-icmp'
         MODE='build'
     - rust: nightly
       env: MODE='fuzz run' ARGS='packet_parser -- -max_len=1536 -max_total_time=30'

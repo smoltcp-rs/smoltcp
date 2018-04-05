@@ -765,7 +765,8 @@ impl<'a> Repr<'a> {
         })
     }
 
-    /// Emit a high-level representation into a Transmission Control Protocol packet.
+    /// Emit a high-level representation into a Dynamic Host
+    /// Configuration Protocol packet.
     pub fn emit<T>(&self, packet: &mut Packet<&mut T>) -> Result<()>
             where T: AsRef<[u8]> + AsMut<[u8]> + ?Sized {
         packet.set_sname_and_boot_file_to_zero();
