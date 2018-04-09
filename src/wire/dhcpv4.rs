@@ -150,7 +150,7 @@ impl<'a> DhcpOption<'a> {
                     }
                     &DhcpOption::Other { kind, data: provided } => {
                         buffer[0] = kind;
-                        buffer[2..6].copy_from_slice(provided);
+                        buffer[2..skip_length].copy_from_slice(provided);
                     }
                 }
             }
