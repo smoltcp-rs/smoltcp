@@ -170,6 +170,12 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
     /// than the size of the slice passed into it.
     pub fn enqueue_many_with<'b, R, F>(&'b mut self, f: F) -> (usize, R)
             where F: FnOnce(&'b mut [T]) -> (usize, R) {
+        if self.length == 0 {
+            // Ring is currently empty. Reset `read_at` to optimize
+            // for contiguous space.
+            self.read_at = 0;
+        }
+
         let write_at = self.get_idx(self.length);
         let max_size = self.contiguous_window();
         let (size, result) = f(&mut self.storage[write_at..write_at + max_size]);
