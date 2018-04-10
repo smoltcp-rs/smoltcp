@@ -230,19 +230,17 @@ impl ops::DivAssign<u32> for Duration {
     }
 }
 
-#[cfg(feature = "std")]
-impl From<::std::time::Duration> for Duration {
-    fn from(other: ::std::time::Duration) -> Duration {
+impl From<::core::time::Duration> for Duration {
+    fn from(other: ::core::time::Duration) -> Duration {
         Duration::from_millis(
             other.as_secs() * 1000 + (other.subsec_nanos() / 1_000_000) as u64
         )
     }
 }
 
-#[cfg(feature = "std")]
-impl Into<::std::time::Duration> for Duration {
-    fn into(self) -> ::std::time::Duration {
-        ::std::time::Duration::from_millis(
+impl Into<::core::time::Duration> for Duration {
+    fn into(self) -> ::core::time::Duration {
+        ::core::time::Duration::from_millis(
             self.total_millis()
         )
     }
@@ -331,14 +329,13 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "std")]
     fn test_duration_conversions() {
-        let mut std_duration = ::std::time::Duration::from_millis(4934);
+        let mut std_duration = ::core::time::Duration::from_millis(4934);
         let duration: Duration = std_duration.into();
         assert_eq!(duration, Duration::from_millis(4934));
         assert_eq!(Duration::from(std_duration), Duration::from_millis(4934));
 
         std_duration = duration.into();
-        assert_eq!(std_duration, ::std::time::Duration::from_millis(4934));
+        assert_eq!(std_duration, ::core::time::Duration::from_millis(4934));
     }
 }
