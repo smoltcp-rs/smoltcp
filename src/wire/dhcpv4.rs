@@ -907,4 +907,20 @@ mod test {
             assert_eq!(*byte, 0); // padding bytes
         }
     }
+
+    #[test]
+    fn test_emit_dhcp_option() {
+        static DATA: &[u8] = &[1, 3, 6];
+        let mut bytes = vec![0xa5; 5];
+        let dhcp_option = DhcpOption::Other {
+            kind: field::OPT_PARAMETER_REQUEST_LIST,
+            data: DATA,
+        };
+        {
+            let rest = dhcp_option.emit(&mut bytes);
+            assert_eq!(rest.len(), 0);
+        }
+        assert_eq!(&bytes[0..2], &[field::OPT_PARAMETER_REQUEST_LIST, DATA.len() as u8]);
+        assert_eq!(&bytes[2..], DATA);
+    }
 }
