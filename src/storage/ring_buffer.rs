@@ -659,13 +659,13 @@ mod test {
         ring.dequeue_many(6).copy_from_slice(b"ABCDEF");
 
         assert_eq!(ring.write_unallocated(0, b"ghi"), 3);
-        assert_eq!(&ring.storage[..], b"ABCDEFghi...");
+        assert_eq!(ring.get_unallocated(0, 3), b"ghi");
 
         assert_eq!(ring.write_unallocated(3, b"jklmno"), 6);
-        assert_eq!(&ring.storage[..], b"mnoDEFghijkl");
+        assert_eq!(ring.get_unallocated(3, 3), b"jkl");
 
         assert_eq!(ring.write_unallocated(9, b"pqrstu"), 3);
-        assert_eq!(&ring.storage[..], b"mnopqrghijkl");
+        assert_eq!(ring.get_unallocated(9, 3), b"pqr");
     }
 
     #[test]
