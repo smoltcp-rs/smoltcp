@@ -180,6 +180,9 @@ pub use self::icmpv6::{RouterFlags as NdiscRouterFlags,
                        NeighborFlags as NdiscNeighborFlags};
 
 #[cfg(feature = "proto-ipv6")]
+pub use self::ndisc::Repr as NdiscRepr;
+
+#[cfg(feature = "proto-ipv6")]
 pub use self::ndiscoption::{NdiscOption,
                             Repr as NdiscOptionRepr,
                             Type as NdiscOptionType,
