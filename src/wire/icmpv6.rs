@@ -5,6 +5,7 @@ use {Error, Result};
 use phy::ChecksumCapabilities;
 use super::ip::checksum;
 use super::{Ipv6Packet, Ipv6Repr};
+use super::NdiscRepr;
 
 enum_with_unknown! {
     /// Internet protocol control message type.
@@ -42,6 +43,18 @@ impl Message {
     /// [RFC 4443 § 2.1]: https://tools.ietf.org/html/rfc4443#section-2.1
     pub fn is_error(&self) -> bool {
         (u8::from(*self) & 0x80) != 0x80
+    }
+
+    /// Return a boolean value indicating if the given message type
+    /// is an [NDISC] message type.
+    ///
+    /// [NDISC]: https://tools.ietf.org/html/rfc4861
+    pub fn is_ndisc(&self) -> bool {
+        match *self {
+            Message::RouterSolicit | Message::RouterAdvert | Message::NeighborSolicit |
+            Message::NeighborAdvert | Message::Redirect => true,
+            _ => false,
+        }
     }
 }
 
@@ -462,6 +475,7 @@ pub enum Repr<'a> {
         seq_no: u16,
         data:   &'a [u8]
     },
+    Ndisc(NdiscRepr<'a>),
     #[doc(hidden)]
     __Nonexhaustive
 }
@@ -539,6 +553,9 @@ impl<'a> Repr<'a> {
                     data:   packet.payload()
                 })
             },
+            (msg_type, 0) if msg_type.is_ndisc() => {
+                NdiscRepr::parse(packet).map(|repr| Repr::Ndisc(repr))
+            },
             _ => Err(Error::Unrecognized)
         }
     }
@@ -553,6 +570,9 @@ impl<'a> Repr<'a> {
             &Repr::EchoRequest { data, .. } |
             &Repr::EchoReply { data, .. } => {
                 field::ECHO_SEQNO.end + data.len()
+            },
+            &Repr::Ndisc(ndisc) => {
+                ndisc.buffer_len()
             },
             &Repr::__Nonexhaustive => unreachable!()
         }
@@ -616,6 +636,10 @@ impl<'a> Repr<'a> {
                 packet.set_echo_seq_no(seq_no);
                 let data_len = cmp::min(packet.payload_mut().len(), data.len());
                 packet.payload_mut()[..data_len].copy_from_slice(&data[..data_len])
+            },
+
+            &Repr::Ndisc(ndisc) => {
+                ndisc.emit(packet)
             },
 
             &Repr::__Nonexhaustive => unreachable!(),
