@@ -721,4 +721,20 @@ mod test {
         assert_eq!(no_capacity.enqueue_one(), Err(Error::Exhausted));
         assert_eq!(no_capacity.contiguous_window(), 0);
     }
+
+    /// Use the buffer a bit. Then empty it and put in an item of
+    /// maximum size. By detecting a length of 0, the implementation
+    /// can reset the current buffer position.
+    #[test]
+    fn test_buffer_write_wholly() {
+        let mut ring = RingBuffer::new(vec![b'.'; 8]);
+        ring.enqueue_many(2).copy_from_slice(b"xx");
+        ring.enqueue_many(2).copy_from_slice(b"xx");
+        assert_eq!(ring.len(), 4);
+        ring.dequeue_many(4);
+        assert_eq!(ring.len(), 0);
+
+        let large = ring.enqueue_many(8);
+        assert_eq!(large.len(), 8);
+    }
 }
