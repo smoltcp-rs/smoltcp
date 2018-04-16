@@ -37,7 +37,7 @@ use socket::UdpSocket;
 #[cfg(feature = "socket-tcp")]
 use socket::TcpSocket;
 use super::{NeighborCache, NeighborAnswer};
-use super::FragmentsSet;
+use super::FragmentSet;
 
 /// An Ethernet network interface.
 ///
@@ -63,7 +63,7 @@ struct InterfaceInner<'b, 'c, 'e> {
     #[cfg(feature = "proto-ipv4")]
     ipv4_gateway:           Option<Ipv4Address>,
     device_capabilities:    DeviceCapabilities,
-    fragments:				Option<FragmentsSet<'e>>,
+    fragments:              Option<FragmentSet<'e>>,
 }
 
 /// A builder structure used for creating a Ethernet network
@@ -75,7 +75,7 @@ pub struct InterfaceBuilder <'b, 'c, 'e, DeviceT: for<'d> Device<'d>> {
     ip_addrs:            ManagedSlice<'c, IpCidr>,
     #[cfg(feature = "proto-ipv4")]
     ipv4_gateway:        Option<Ipv4Address>,
-    fragments:			 Option<FragmentsSet<'e>>,
+    fragments:           Option<FragmentSet<'e>>,
 }
 
 impl<'b, 'c, 'e, DeviceT> InterfaceBuilder<'b, 'c, 'e, DeviceT>
@@ -113,7 +113,7 @@ impl<'b, 'c, 'e, DeviceT> InterfaceBuilder<'b, 'c, 'e, DeviceT>
             ip_addrs:            ManagedSlice::Borrowed(&mut []),
             #[cfg(feature = "proto-ipv4")]
             ipv4_gateway:        None,
-		    fragments:		 	 None,
+            fragments:        None,
         }
     }
 
@@ -170,13 +170,13 @@ impl<'b, 'c, 'e, DeviceT> InterfaceBuilder<'b, 'c, 'e, DeviceT>
         self
     }
 
-	/// Set the fragment set
-	#[cfg(feature = "fragmentation-ipv4")]
-	pub fn fragments_set(mut self, fragments: FragmentsSet<'e>) ->
-						InterfaceBuilder<'b, 'c, 'e, DeviceT> {
-		self.fragments = Some(fragments);
-		self
-	}
+    /// Set the fragment set
+    #[cfg(feature = "fragmentation-ipv4")]
+    pub fn fragments_set(mut self, fragments: FragmentSet<'e>) ->
+                        InterfaceBuilder<'b, 'c, 'e, DeviceT> {
+        self.fragments = Some(fragments);
+        self
+    }
 
     /// Create a network interface using the previously provided configuration.
     ///
@@ -200,7 +200,7 @@ impl<'b, 'c, 'e, DeviceT> InterfaceBuilder<'b, 'c, 'e, DeviceT>
                         ip_addrs: self.ip_addrs,
                         #[cfg(feature = "proto-ipv4")]
                         ipv4_gateway: self.ipv4_gateway,
-					    fragments: self.fragments,
+                        fragments: self.fragments,
                     }
                 }
             },
@@ -406,7 +406,12 @@ impl<'b, 'c, 'e, DeviceT> Interface<'b, 'c, 'e, DeviceT>
                 Some(tokens) => tokens,
             };
             rx_token.consume(timestamp, |frame| {
-            	let mut fragments = ::std::mem::replace(&mut inner.fragments, None);
+                // TODO: this code requires `std`. One way around would be to manually implement mem::replace as defined
+                // below:
+                // https://github.com/rust-lang/rust/blob/29e928f2ba3501d37660314f6186d0e2ac18b9db/src/libcore/mem.rs#L176
+                // The drawback is that this would require unsafe code.
+                let mut fragments = ::std::mem::replace(&mut inner.fragments, None);
+                // this corresponds to `let mut fragments = inner.fragments; && inner.fragments = None;`
                 let r = inner.process_ethernet(sockets, timestamp, &frame, &mut fragments).map_err(|err| {
                     net_debug!("cannot process ingress packet: {}", err);
                     net_debug!("packet dump follows:\n{}",
@@ -419,6 +424,7 @@ impl<'b, 'c, 'e, DeviceT> Interface<'b, 'c, 'e, DeviceT>
                         err
                     })
                 });
+                // Restore inner.fragments
                 inner.fragments = fragments;
                 r
             })?;
@@ -532,7 +538,7 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
 
     fn process_ethernet<'frame, 'r: 'frame, T: AsRef<[u8]>>
                        (&mut self, sockets: &mut SocketSet, timestamp: Instant,
-                        frame: &'frame T, fragments: &'r mut Option<FragmentsSet<'e>>) ->
+                        frame: &'frame T, fragments: &'r mut Option<FragmentSet<'e>>) ->
                         Result<Packet<'frame>>
     {
         let eth_frame = EthernetFrame::new_checked(frame)?;
@@ -689,58 +695,68 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
     /// or an error caused by processing a packet.
     #[cfg(feature = "fragmentation-ipv4")]
     fn process_ipv4_fragment<'frame, 'r>
-				    (&mut self,
-				    	ipv4_packet: Ipv4Packet<&'frame [u8]>,
+            (&mut self,
+              ipv4_packet: Ipv4Packet<&'frame [u8]>,
                         timestamp: Instant,
-				    	fragments: &'r mut Option<FragmentsSet<'e>>
-				    ) ->
+              fragments: &'r mut Option<FragmentSet<'e>>
+            ) ->
                      Result<Option<Ipv4Packet<&'r [u8]>>> 
     {
         match *fragments {
-        	Some(ref mut fragments) => {
+            Some(ref mut fragments) => {
                 // get an existing fragment or attempt to get a new one
-				let fragment = match fragments.get_packet(ipv4_packet.ident(), timestamp) {
-				    Some(frag) => frag,
-				    None => return Ok(None), // TODO: throw an exception?
-				};
+                let fragment = match fragments.get_packet(ipv4_packet.ident(),
+                                                          ipv4_packet.src_addr(),
+                                                          ipv4_packet.dst_addr(),
+                                                          timestamp) {
+                    Some(frag) => frag,
+                    None => return Err(Error::FragmentSetFull),
+                };
 
-				if fragment.is_empty() {
-				    // this is a new packet
-				    fragment.set_id(ipv4_packet.ident());
-				}
+                if fragment.is_empty() {
+                    // this is a new packet
+                    fragment.start(ipv4_packet.ident(),
+                                   ipv4_packet.src_addr(),
+                                   ipv4_packet.dst_addr());
+                }
 
-				if !ipv4_packet.more_frags() {
-				    // last fragment, remember data length
-				    fragment.set_total_len(ipv4_packet.frag_offset() as usize +
+                if ipv4_packet.more_frags() {
+                    // last fragment, remember data length
+                    fragment.set_total_len(ipv4_packet.frag_offset() as usize +
                                            ipv4_packet.total_len() as usize);
-				}
+                }
 
-                fragment.add(ipv4_packet.header_len() as usize,
+                match fragment.add(ipv4_packet.header_len() as usize,
                              ipv4_packet.frag_offset() as usize,
                              ipv4_packet.payload().len(),
                              ipv4_packet.into_inner(),
-                             timestamp)
-                .unwrap();
+                             timestamp) {
+                    Ok(_) => {},
+                    Err(_) => {
+                        fragment.reset();
+                        return Err(Error::TooManyFragments);
+                    }
+                }
 
                 if fragment.check_contig_range() {
                     // this is the last packet, attempt reassembly
                     let front = fragment.front().unwrap();
                     {
                         // because the different mutability of the underlying buffers, we have to do this exercise
-                        let mut ipv4_packet = Ipv4Packet::new_checked(&mut fragment.rx_buffer[0..front])?;
+                        let mut ipv4_packet = Ipv4Packet::new_checked(fragment.get_buffer_mut(0,front))?;
                         ipv4_packet.set_total_len(front as u16);
                         ipv4_packet.fill_checksum();
                     }
                     fragment.reset();
-                    return Ok(Some(Ipv4Packet::new_checked(&fragment.rx_buffer[0..front])?));
+                    return Ok(Some(Ipv4Packet::new_checked(fragment.get_buffer(0,front))?));
                 }
 
                 // not the last fragment
                 return Ok(None);
-        	},
-        	None => {
-        		return Ok(None); // TODO: throw an exception?
-        	}
+            },
+            None => {
+                return Err(Error::NoFragmentSet);
+            }
         }
     }
 
@@ -748,7 +764,7 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
     fn process_ipv4<'frame, 'r : 'frame, T: AsRef<[u8]>>
                    (&mut self, sockets: &mut SocketSet, timestamp: Instant,
                     eth_frame: &EthernetFrame<&'frame T>,
-                    _fragments: &'r mut Option<FragmentsSet<'e>>
+                    _fragments: &'r mut Option<FragmentSet<'e>>
                    ) ->
                    Result<Packet<'frame>>
     {
@@ -1296,7 +1312,7 @@ mod test {
     use wire::{Ipv6Address, Ipv6Repr};
     #[cfg(feature = "proto-ipv6")]
     use wire::{Icmpv6Repr, Icmpv6ParamProblem};
-    use iface::{FragmentsSet,FragmentedPacket};
+    use iface::{FragmentSet,FragmentedPacket};
     use super::Packet;
 
     fn create_loopback<'a, 'b, 'e>() -> (EthernetInterface<'static, 'b, 'e, Loopback>,
@@ -1864,7 +1880,7 @@ mod test {
         ];
 
         // A simple fragments set
-        let mut fragments = FragmentsSet::new(vec![]);
+        let mut fragments = FragmentSet::new(vec![]);
         let fragment = FragmentedPacket::new(vec![0; 65535]);
         fragments.add(fragment);
 

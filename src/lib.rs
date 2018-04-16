@@ -1,7 +1,8 @@
 #![cfg_attr(feature = "alloc", feature(alloc))]
 #![no_std]
 #![deny(unsafe_code)]
-#![cfg_attr(any(feature = "proto-ipv4", feature = "proto-ipv6"), deny(unused))]
+//#![cfg_attr(any(feature = "proto-ipv4", feature = "proto-ipv6"), deny(unused))]
+#![cfg_attr(any(feature = "proto-ipv4", feature = "proto-ipv6"), allow(unused))]
 
 //! The _smoltcp_ library is built in a layered structure, with the layers corresponding
 //! to the levels of API abstraction. Only the highest layers would be used by a typical
@@ -147,6 +148,13 @@ pub enum Error {
     /// E.g. a TCP packet addressed to a socket that doesn't exist.
     Dropped,
 
+    /// Fragmentation was enabled, but no FragmentSet was provided
+    NoFragmentSet,
+    /// FragmentSet full
+    FragmentSetFull,
+    /// Fragment reassembly error, typically too many fragments
+    TooManyFragments,
+
     #[doc(hidden)]
     __Nonexhaustive
 }
@@ -166,6 +174,9 @@ impl fmt::Display for Error {
             &Error::Fragmented    => write!(f, "fragmented packet"),
             &Error::Malformed     => write!(f, "malformed packet"),
             &Error::Dropped       => write!(f, "dropped by socket"),
+            &Error::NoFragmentSet => write!(f, "no fragment set provided"),
+            &Error::FragmentSetFull => write!(f, "fragment set full"),
+            &Error::TooManyFragments => write!(f, "too many fragments"),
             &Error::__Nonexhaustive => unreachable!()
         }
     }

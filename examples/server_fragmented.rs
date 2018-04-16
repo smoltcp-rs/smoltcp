@@ -17,6 +17,7 @@ use smoltcp::socket::SocketSet;
 use smoltcp::socket::{UdpSocket, UdpSocketBuffer, UdpPacketMetadata};
 use smoltcp::socket::{TcpSocket, TcpSocketBuffer};
 use smoltcp::time::{Duration, Instant};
+use smoltcp::iface::{FragmentSet, FragmentedPacket};
 
 fn main() {
     utils::setup_logging("");
@@ -52,6 +53,10 @@ fn main() {
     let tcp4_tx_buffer = TcpSocketBuffer::new(vec![0; 65535]);
     let tcp4_socket = TcpSocket::new(tcp4_rx_buffer, tcp4_tx_buffer);
 
+    let mut fragments = FragmentSet::new(vec![]);
+    let fragment = FragmentedPacket::new(vec![0; 65535]);
+    fragments.add(fragment);
+
     let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
     let ip_addrs = [IpCidr::new(IpAddress::v4(192, 168, 69, 1), 24)];
 
@@ -59,6 +64,7 @@ fn main() {
             .ethernet_addr(ethernet_addr)
             .neighbor_cache(neighbor_cache)
             .ip_addrs(ip_addrs)
+            .fragments_set(fragments)
             .finalize();
 
     let mut sockets = SocketSet::new(vec![]);

@@ -11,6 +11,6 @@ mod fragments;
 pub use self::neighbor::Neighbor as Neighbor;
 pub(crate) use self::neighbor::Answer as NeighborAnswer;
 pub use self::neighbor::Cache as NeighborCache;
-pub use self::fragments::{Packet as FragmentedPacket, Set as FragmentsSet};
+pub use self::fragments::{Packet as FragmentedPacket, Set as FragmentSet};
 pub use self::ethernet::{Interface as EthernetInterface,
                          InterfaceBuilder as EthernetInterfaceBuilder};
