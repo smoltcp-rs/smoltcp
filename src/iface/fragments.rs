@@ -1,6 +1,7 @@
 use storage::Assembler;
 use time::Instant;
 use managed::ManagedSlice;
+#[cfg(feature = "proto-ipv4")]
 use wire::Ipv4Address;
 
 pub struct Packet<'a> {
