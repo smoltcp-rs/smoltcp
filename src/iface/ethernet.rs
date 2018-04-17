@@ -406,11 +406,7 @@ impl<'b, 'c, 'e, DeviceT> Interface<'b, 'c, 'e, DeviceT>
                 Some(tokens) => tokens,
             };
             rx_token.consume(timestamp, |frame| {
-                // TODO: this code requires `std`. One way around would be to manually implement mem::replace as defined
-                // below:
-                // https://github.com/rust-lang/rust/blob/29e928f2ba3501d37660314f6186d0e2ac18b9db/src/libcore/mem.rs#L176
-                // The drawback is that this would require unsafe code.
-                let mut fragments = ::std::mem::replace(&mut inner.fragments, None);
+                let mut fragments = ::core::mem::replace(&mut inner.fragments, None);
                 // this corresponds to `let mut fragments = inner.fragments; && inner.fragments = None;`
                 let r = inner.process_ethernet(sockets, timestamp, &frame, &mut fragments).map_err(|err| {
                     net_debug!("cannot process ingress packet: {}", err);
