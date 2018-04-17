@@ -716,7 +716,7 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
                                    ipv4_packet.dst_addr());
                 }
 
-                if ipv4_packet.more_frags() {
+                if !ipv4_packet.more_frags() {
                     // last fragment, remember data length
                     fragment.set_total_len(ipv4_packet.frag_offset() as usize +
                                            ipv4_packet.total_len() as usize);
@@ -743,7 +743,6 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
                         ipv4_packet.set_total_len(front as u16);
                         ipv4_packet.fill_checksum();
                     }
-                    fragment.reset();
                     return Ok(Some(Ipv4Packet::new_checked(fragment.get_buffer(0,front))?));
                 }
 

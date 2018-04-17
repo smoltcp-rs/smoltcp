@@ -8,6 +8,7 @@ pub struct Packet<'a> {
     state: PacketState,
 }
 
+#[derive(Debug)]
 enum PacketState {
     Empty,
     Assembling {
@@ -137,8 +138,8 @@ impl<'a> Packet<'a> {
             PacketState::Empty => {
                 panic!("Packet is empty, cannot set total length of the fragment");
             },
-            PacketState::Assembling{mut total_len, ..} => {
-                total_len = len;
+            PacketState::Assembling{ref mut total_len, ..} => {
+                *total_len = len;
             }
         }
     }
