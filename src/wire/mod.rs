@@ -186,6 +186,8 @@ pub use self::ndisc::Repr as NdiscRepr;
 pub use self::ndiscoption::{NdiscOption,
                             Repr as NdiscOptionRepr,
                             Type as NdiscOptionType,
+                            PrefixInformation as NdiscPrefixInformation,
+                            RedirectedHeader as NdiscRedirectedHeader,
                             PrefixInfoFlags as NdiscPrefixInfoFlags};
 
 pub use self::udp::{Packet as UdpPacket,
