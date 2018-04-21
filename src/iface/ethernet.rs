@@ -735,12 +735,13 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
     }
 
     #[cfg(feature = "proto-ipv6")]
-    fn process_icmpv6<'frame>(&self, _sockets: &mut SocketSet, ip_repr: IpRepr,
-                              ip_payload: &'frame [u8]) -> Result<Packet<'frame>>
+    fn process_icmpv6<'frame>(&mut self, _sockets: &mut SocketSet,
+                              ip_repr: IpRepr, ip_payload: &'frame [u8]) -> Result<Packet<'frame>>
     {
         let icmp_packet = Icmpv6Packet::new_checked(ip_payload)?;
         let checksum_caps = self.device_capabilities.checksum.clone();
-        let icmp_repr = Icmpv6Repr::parse(&icmp_packet, &checksum_caps)?;
+        let icmp_repr = Icmpv6Repr::parse(&ip_repr.src_addr(), &ip_repr.dst_addr(),
+                                          &icmp_packet, &checksum_caps)?;
 
         match icmp_repr {
             // Respond to echo requests.
@@ -971,8 +972,9 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
             #[cfg(feature = "proto-ipv6")]
             Packet::Icmpv6((ipv6_repr, icmpv6_repr)) => {
                 self.dispatch_ip(tx_token, timestamp, IpRepr::Ipv6(ipv6_repr),
-                                 |_ip_repr, payload| {
-                    icmpv6_repr.emit(&mut Icmpv6Packet::new(payload), &checksum_caps);
+                                 |ip_repr, payload| {
+                    icmpv6_repr.emit(&ip_repr.src_addr(), &ip_repr.dst_addr(),
+                                     &mut Icmpv6Packet::new(payload), &checksum_caps);
                 })
             }
             #[cfg(feature = "socket-raw")]
