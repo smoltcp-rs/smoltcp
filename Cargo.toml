@@ -58,7 +58,7 @@ required-features = ["std", "phy-tap_interface", "proto-ipv4", "socket-tcp"]
 
 [[example]]
 name = "ping"
-required-features = ["std", "phy-tap_interface", "proto-ipv4", "socket-icmp"]
+required-features = ["std", "phy-tap_interface", "proto-ipv4", "proto-ipv6", "socket-icmp"]
 
 [[example]]
 name = "server"
