@@ -32,7 +32,7 @@ The only supported medium is Ethernet.
 
 ### IP layer
 
-The only supported internetworking protocol is IPv4.
+#### IPv4
 
   * IPv4 header checksum is generated and validated.
   * IPv4 time-to-live value is configurable per socket, set to 64 by default.
@@ -41,7 +41,15 @@ The only supported internetworking protocol is IPv4.
   * IPv4 options are **not** supported and are silently ignored.
   * IPv4 routes (other than the default one) are **not** supported.
 
+#### IPv6
+
+  * IPv6 hop-limit value is configurable per socket, set to 64 by default.
+  * IPv6 default gateway is **not** supported.
+  * IPv6 extension headers are **not** supported.
+
 ### ICMP layer
+
+#### ICMPv4
 
 The ICMPv4 protocol is supported, and ICMP sockets are available.
 
@@ -51,6 +59,21 @@ The ICMPv4 protocol is supported, and ICMP sockets are available.
     a given IPv4 identifier field.
   * ICMPv4 protocol unreachable messages are **not** passed to higher layers when received.
   * ICMPv4 parameter problem messages are **not** generated.
+
+#### ICMPv6
+
+The ICMPv6 protocol is supported, but is **not** available via ICMP sockets.
+
+  * ICMPv6 header checksum is supported.
+  * ICMPv6 echo replies are generated in response to echo requests.
+  * ICMPv6 protocol unreachable messages are **not** passed to higher layers when received.
+
+#### NDISC
+
+  * Neighbor Advertisement messages are generated in response to Neighbor Solicitations.
+  * Router Advertisement messages are **not** generated or read.
+  * Router Solicitation messages are **not** generated or read.
+  * Redirected Header messages are **not** generated or read.
 
 ### UDP layer
 
