@@ -3657,8 +3657,8 @@ mod test {
     fn test_buffer_wraparound_tx() {
         let mut s = socket_established();
         s.tx_buffer = SocketBuffer::new(vec![b'.'; 9]);
-        assert_eq!(s.tx_buffer.enqueue_many(6).len(), 6);
-        assert_eq!(s.tx_buffer.dequeue_many(3).len(), 3);
+        assert_eq!(s.send_slice(b"xxxyyy"), Ok(6));
+        assert_eq!(s.tx_buffer.dequeue_many(3), &b"xxx"[..]);
         assert_eq!(s.tx_buffer.len(), 3);
 
         // "abcdef" not contiguous in tx buffer
@@ -3666,7 +3666,7 @@ mod test {
         recv!(s, Ok(TcpRepr {
             seq_number: LOCAL_SEQ + 1,
             ack_number: Some(REMOTE_SEQ + 1),
-            payload:    &b"...abc"[..],
+            payload:    &b"yyyabc"[..],
             ..RECV_TEMPL
         }));
         recv!(s, Ok(TcpRepr {
