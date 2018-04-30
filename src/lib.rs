@@ -96,7 +96,7 @@ extern crate managed;
 #[cfg(any(test, feature = "std"))]
 #[macro_use]
 extern crate std;
-#[cfg(any(feature = "phy-raw_socket", feature = "phy-tap_interface"))]
+#[cfg(any(feature = "phy-raw_socket", feature = "phy-tap_interface", feature = "phy-sel4", feature = "phy-client"))]
 extern crate libc;
 #[cfg(feature = "alloc")]
 extern crate alloc;
