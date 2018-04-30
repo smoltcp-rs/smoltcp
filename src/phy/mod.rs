@@ -97,8 +97,6 @@ mod pcap_writer;
 mod loopback;
 #[cfg(any(feature = "std", feature = "alloc"))]
 mod sel4;
-#[cfg(any(feature = "std", feature = "alloc"))]
-mod client;
 #[cfg(all(feature = "phy-raw_socket", target_os = "linux"))]
 mod raw_socket;
 #[cfg(all(feature = "phy-tap_interface", target_os = "linux"))]
