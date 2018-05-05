@@ -10,7 +10,6 @@ readme = "README.md"
 keywords = ["ip", "tcp", "udp", "ethernet", "network"]
 categories = ["embedded"]
 license = "0BSD"
-build = "build.rs"
 
 [dependencies]
 managed = { version = "0.5", default-features = false, features = ["map"] }
