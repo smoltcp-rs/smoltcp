@@ -103,6 +103,7 @@ The TCP protocol is supported over IPv4, and server and client TCP sockets are a
   * Congestion control is **not** implemented.
   * Timestamping is **not** supported.
   * Urgent pointer is **ignored**.
+  * Probing Zero Windows is **not** implemented.
 
 ## Installation
 
