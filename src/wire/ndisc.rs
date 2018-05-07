@@ -454,9 +454,10 @@ mod test {
     use phy::ChecksumCapabilities;
     use super::*;
     use wire::Icmpv6Repr;
+    use wire::ip::test::{MOCK_IP_ADDR_1, MOCK_IP_ADDR_2};
 
     static ROUTER_ADVERT_BYTES: [u8; 24] =
-        [0x86, 0x00, 0xa7, 0x35,
+        [0x86, 0x00, 0xa9, 0xde,
          0x40, 0x80, 0x03, 0x84,
          0x00, 0x00, 0x03, 0x84,
          0x00, 0x00, 0x03, 0x84,
@@ -504,14 +505,15 @@ mod test {
         packet.set_reachable_time(Duration::from_millis(900));
         packet.set_retrans_time(Duration::from_millis(900));
         packet.payload_mut().copy_from_slice(&SOURCE_LINK_LAYER_OPT[..]);
-        packet.fill_checksum();
+        packet.fill_checksum(&MOCK_IP_ADDR_1, &MOCK_IP_ADDR_2);
         assert_eq!(&packet.into_inner()[..], &ROUTER_ADVERT_BYTES[..]);
     }
 
     #[test]
     fn test_router_advert_repr_parse() {
         let packet = Packet::new(&ROUTER_ADVERT_BYTES[..]);
-        assert_eq!(Icmpv6Repr::parse(&packet, &ChecksumCapabilities::default()).unwrap(),
+        assert_eq!(Icmpv6Repr::parse(&MOCK_IP_ADDR_1, &MOCK_IP_ADDR_2,
+                                     &packet, &ChecksumCapabilities::default()).unwrap(),
                    create_repr());
     }
 
@@ -519,7 +521,8 @@ mod test {
     fn test_router_advert_repr_emit() {
         let mut bytes = vec![0x2a; 24];
         let mut packet = Packet::new(&mut bytes[..]);
-        create_repr().emit(&mut packet, &ChecksumCapabilities::default());
+        create_repr().emit(&MOCK_IP_ADDR_1, &MOCK_IP_ADDR_2,
+                           &mut packet, &ChecksumCapabilities::default());
         assert_eq!(&packet.into_inner()[..], &ROUTER_ADVERT_BYTES[..]);
     }
 }
