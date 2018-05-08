@@ -10,6 +10,9 @@ readme = "README.md"
 keywords = ["ip", "tcp", "udp", "ethernet", "network"]
 categories = ["embedded"]
 license = "0BSD"
+# Each example should have an explicit `[[example]]` section here to
+# ensure that the correct features are enabled.
+autoexamples = false
 
 [dependencies]
 managed = { version = "0.5", default-features = false, features = ["map"] }
