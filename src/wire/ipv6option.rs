@@ -21,6 +21,41 @@ impl fmt::Display for Type {
     }
 }
 
+enum_with_unknown! {
+    /// Action required when parsing the given IPv6 Extension
+    /// Header Option Type fails
+    pub doc enum FailureType(u8) {
+        /// Skip this option and continue processing the packet
+        Skip               = 0b00000000,
+        /// Discard the containing packet
+        Discard            = 0b01000000,
+        /// Discard the containing packet and notify the sender
+        DiscardSendAll     = 0b10000000,
+        /// Discard the containing packet and only notify the sender
+        /// if the sender is a unicast address
+        DiscardSendUnicast = 0b11000000,
+    }
+}
+
+impl fmt::Display for FailureType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            &FailureType::Skip               => write!(f, "skip"),
+            &FailureType::Discard            => write!(f, "discard"),
+            &FailureType::DiscardSendAll     => write!(f, "discard and send error"),
+            &FailureType::DiscardSendUnicast => write!(f, "discard and send error if unicast"),
+            &FailureType::Unknown(id)        => write!(f, "Unknown({})", id),
+        }
+    }
+}
+
+impl From<Type> for FailureType {
+    fn from(other: Type) -> FailureType {
+        let raw: u8 = other.into();
+        Self::from(raw & 0b11000000u8)
+    }
+}
+
 /// A read/write wrapper around an IPv6 Extension Header Option.
 #[derive(Debug, PartialEq)]
 pub struct Ipv6Option<T: AsRef<[u8]>> {
@@ -373,5 +408,19 @@ mod test {
         let mut opt = Ipv6Option::new(&mut bytes);
         repr.emit(&mut opt);
         assert_eq!(opt.into_inner(), &IPV6OPTION_BYTES_UNKNOWN);
+    }
+
+    #[test]
+    fn test_failure_type() {
+        let mut failure_type: FailureType = Type::Pad1.into();
+        assert_eq!(failure_type, FailureType::Skip);
+        failure_type = Type::PadN.into();
+        assert_eq!(failure_type, FailureType::Skip);
+        failure_type = Type::Unknown(0b01000001).into();
+        assert_eq!(failure_type, FailureType::Discard);
+        failure_type = Type::Unknown(0b10100000).into();
+        assert_eq!(failure_type, FailureType::DiscardSendAll);
+        failure_type = Type::Unknown(0b11000100).into();
+        assert_eq!(failure_type, FailureType::DiscardSendUnicast);
     }
 }
