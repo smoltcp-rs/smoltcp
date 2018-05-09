@@ -95,6 +95,8 @@ mod ipv6fragment;
 mod icmpv4;
 #[cfg(feature = "proto-ipv6")]
 mod icmpv6;
+#[cfg(any(feature = "proto-ipv4", feature = "proto-ipv6"))]
+mod icmp;
 #[cfg(feature = "proto-ipv4")]
 mod igmp;
 #[cfg(feature = "proto-ipv6")]
@@ -174,6 +176,8 @@ pub use self::icmpv6::{Message as Icmpv6Message,
                        ParamProblem as Icmpv6ParamProblem,
                        Packet as Icmpv6Packet,
                        Repr as Icmpv6Repr};
+#[cfg(any(feature = "proto-ipv4", feature = "proto-ipv6"))]
+pub use self::icmp::Repr as IcmpRepr;
 
 #[cfg(feature = "proto-ipv6")]
 pub use self::icmpv6::{RouterFlags as NdiscRouterFlags,
