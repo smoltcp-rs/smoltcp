@@ -20,6 +20,8 @@ use wire::{ArpPacket, ArpRepr, ArpOperation};
 use wire::{Icmpv4Packet, Icmpv4Repr, Icmpv4DstUnreachable};
 #[cfg(feature = "proto-ipv6")]
 use wire::{Icmpv6Packet, Icmpv6Repr, Icmpv6ParamProblem};
+#[cfg(all(feature = "socket-icmp", any(feature = "proto-ipv4", feature = "proto-ipv6")))]
+use wire::IcmpRepr;
 #[cfg(feature = "proto-ipv6")]
 use wire::{NdiscNeighborFlags, NdiscRepr};
 #[cfg(all(feature = "proto-ipv6", feature = "socket-udp"))]
@@ -32,7 +34,7 @@ use wire::{TcpPacket, TcpRepr, TcpControl};
 use socket::{Socket, SocketSet, AnySocket};
 #[cfg(feature = "socket-raw")]
 use socket::RawSocket;
-#[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
+#[cfg(all(feature = "socket-icmp", any(feature = "proto-ipv4", feature = "proto-ipv6")))]
 use socket::IcmpSocket;
 #[cfg(feature = "socket-udp")]
 use socket::UdpSocket;
@@ -424,13 +426,16 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
                     Socket::Raw(ref mut socket) =>
                         socket.dispatch(&caps.checksum, |response|
                             respond!(Packet::Raw(response))),
-                    #[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
+                    #[cfg(all(feature = "socket-icmp", any(feature = "proto-ipv4", feature = "proto-ipv6")))]
                     Socket::Icmp(ref mut socket) =>
                         socket.dispatch(&caps, |response| {
                             match response {
                                 #[cfg(feature = "proto-ipv4")]
-                                (IpRepr::Ipv4(ipv4_repr), icmpv4_repr) =>
+                                (IpRepr::Ipv4(ipv4_repr), IcmpRepr::Ipv4(icmpv4_repr)) =>
                                     respond!(Packet::Icmpv4((ipv4_repr, icmpv4_repr))),
+                                #[cfg(feature = "proto-ipv6")]
+                                (IpRepr::Ipv6(ipv6_repr), IcmpRepr::Ipv6(icmpv6_repr)) =>
+                                    respond!(Packet::Icmpv6((ipv6_repr, icmpv6_repr))),
                                 _ => Err(Error::Unaddressable)
                             }
                         }),
@@ -746,6 +751,23 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         let icmp_repr = Icmpv6Repr::parse(&ip_repr.src_addr(), &ip_repr.dst_addr(),
                                           &icmp_packet, &checksum_caps)?;
 
+        #[cfg(feature = "socket-icmp")]
+        let mut handled_by_icmp_socket = false;
+
+        #[cfg(all(feature = "socket-icmp", feature = "proto-ipv6"))]
+        for mut icmp_socket in _sockets.iter_mut().filter_map(IcmpSocket::downcast) {
+            if !icmp_socket.accepts(&ip_repr, &icmp_repr.into(), &checksum_caps) { continue }
+
+            match icmp_socket.process(&ip_repr, &icmp_repr.into(), &checksum_caps) {
+                // The packet is valid and handled by socket.
+                Ok(()) => handled_by_icmp_socket = true,
+                // The socket buffer is full.
+                Err(Error::Exhausted) => (),
+                // ICMP sockets don't validate the packets in any way.
+                Err(_) => unreachable!(),
+            }
+        }
+
         match icmp_repr {
             // Respond to echo requests.
             Icmpv6Repr::EchoRequest { ident, seq_no, data } => {
@@ -770,6 +792,11 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
                 IpRepr::Ipv6(ipv6_repr) => self.process_ndisc(timestamp, ipv6_repr, repr),
                 _ => Ok(Packet::None)
             },
+
+            // Don't report an error if a packet with unknown type
+            // has been handled by an ICMP socket
+            #[cfg(feature = "socket-icmp")]
+            _ if handled_by_icmp_socket => Ok(Packet::None),
 
             // FIXME: do something correct here?
             _ => Err(Error::Unrecognized),
@@ -839,9 +866,9 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
 
         #[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
         for mut icmp_socket in _sockets.iter_mut().filter_map(IcmpSocket::downcast) {
-            if !icmp_socket.accepts(&ip_repr, &icmp_repr, &checksum_caps) { continue }
+            if !icmp_socket.accepts(&ip_repr, &icmp_repr.into(), &checksum_caps) { continue }
 
-            match icmp_socket.process(&ip_repr, &icmp_repr, &checksum_caps) {
+            match icmp_socket.process(&ip_repr, &icmp_repr.into(), &checksum_caps) {
                 // The packet is valid and handled by socket.
                 Ok(()) => handled_by_icmp_socket = true,
                 // The socket buffer is full.
@@ -853,6 +880,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
 
         match icmp_repr {
             // Respond to echo requests.
+            #[cfg(feature = "proto-ipv4")]
             Icmpv4Repr::EchoRequest { ident, seq_no, data } => {
                 let icmp_reply_repr = Icmpv4Repr::EchoReply {
                     ident:  ident,
@@ -863,7 +891,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
                     IpRepr::Ipv4(ipv4_repr) => Ok(self.icmpv4_reply(ipv4_repr, icmp_reply_repr)),
                     _ => Err(Error::Unrecognized),
                 }
-            }
+            },
 
             // Ignore any echo replies.
             Icmpv4Repr::EchoReply { .. } => Ok(Packet::None),
