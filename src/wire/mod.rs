@@ -145,7 +145,8 @@ pub use self::ipv6::{Address as Ipv6Address,
 #[cfg(feature = "proto-ipv6")]
 pub use self::ipv6option::{Ipv6Option,
                            Repr as Ipv6OptionRepr,
-                           Type as Ipv6OptionType};
+                           Type as Ipv6OptionType,
+                           FailureType as Ipv6OptionFailureType};
 
 #[cfg(feature = "proto-ipv6")]
 pub use self::ipv6hopbyhop::{Header as Ipv6HopByHopHeader,
