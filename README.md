@@ -6,7 +6,7 @@ include complicated compile-time computations, such as macro or type tricks, eve
 at cost of performance degradation.
 
 _smoltcp_ does not need heap allocation *at all*, is [extensively documented][docs],
-and compiles on stable Rust 1.20 and later.
+and compiles on stable Rust 1.25 and later.
 
 _smoltcp_ achieves [~Gbps of throughput](#examplesbenchmarkrs) when tested against
 the Linux TCP stack in loopback mode.
@@ -336,15 +336,15 @@ that do. Because of this, only one such example is provided.
 ### examples/loopback.rs
 
 _examples/loopback.rs_ sets up _smoltcp_ to talk with itself via a loopback interface.
-Although it does not require `std`, this example still requires the `alloc` feature to run.
+Although it does not require `std`, this example still requires the `alloc` feature to run, as well as `log`, `proto-ipv4` and `socket-tcp`.
 
 Read its [source code](/examples/loopback.rs), then run it without `std`:
 
 ```sh
-cargo run --example loopback --no-default-features --features alloc
+cargo run --example loopback --no-default-features --features="log proto-ipv4  socket-tcp alloc"
 ```
 
-... or with `std`:
+... or with `std` (in this case the features don't have to be explicitly listed):
 
 ```sh
 cargo run --example loopback -- --pcap loopback.pcap
