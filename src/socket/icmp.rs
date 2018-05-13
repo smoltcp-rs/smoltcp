@@ -341,7 +341,7 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
                     let ip_repr = IpRepr::Ipv6(Ipv6Repr {
                         src_addr:    src_addr,
                         dst_addr:    ipv6_addr,
-                        next_header: IpProtocol::Icmp,
+                        next_header: IpProtocol::Icmpv6,
                         payload_len: repr.buffer_len(),
                         hop_limit:   hop_limit,
                     });
@@ -609,7 +609,7 @@ mod test_ipv6 {
     static LOCAL_IPV6_REPR: IpRepr = IpRepr::Ipv6(Ipv6Repr {
         src_addr: Ipv6Address::UNSPECIFIED,
         dst_addr: REMOTE_IPV6,
-        next_header: IpProtocol::Icmp,
+        next_header: IpProtocol::Icmpv6,
         payload_len: 24,
         hop_limit: 0x40
     });
@@ -617,7 +617,7 @@ mod test_ipv6 {
     static REMOTE_IPV6_REPR: IpRepr = IpRepr::Ipv6(Ipv6Repr {
         src_addr: REMOTE_IPV6,
         dst_addr: LOCAL_IPV6,
-        next_header: IpProtocol::Icmp,
+        next_header: IpProtocol::Icmpv6,
         payload_len: 24,
         hop_limit: 0x40
     });
@@ -683,7 +683,7 @@ mod test_ipv6 {
             assert_eq!(ip_repr, IpRepr::Ipv6(Ipv6Repr {
                 src_addr: Ipv6Address::UNSPECIFIED,
                 dst_addr: REMOTE_IPV6,
-                next_header: IpProtocol::Icmp,
+                next_header: IpProtocol::Icmpv6,
                 payload_len: ECHOV6_REPR.buffer_len(),
                 hop_limit: 0x2a,
             }));
@@ -757,7 +757,7 @@ mod test_ipv6 {
             header: Ipv6Repr {
                 src_addr: LOCAL_IPV6,
                 dst_addr: REMOTE_IPV6,
-                next_header: IpProtocol::Icmp,
+                next_header: IpProtocol::Icmpv6,
                 payload_len: 12,
                 hop_limit: 0x40
             },
@@ -766,7 +766,7 @@ mod test_ipv6 {
         let ip_repr = IpRepr::Unspecified {
             src_addr: REMOTE_IPV6.into(),
             dst_addr: LOCAL_IPV6.into(),
-            protocol: IpProtocol::Icmp,
+            protocol: IpProtocol::Icmpv6,
             payload_len: icmp_repr.buffer_len(),
             hop_limit: 0x40
         };
