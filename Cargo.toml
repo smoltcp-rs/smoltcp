@@ -57,7 +57,7 @@ required-features = ["std", "phy-raw_socket", "proto-ipv4"]
 
 [[example]]
 name = "httpclient"
-required-features = ["std", "phy-tap_interface", "proto-ipv4", "socket-tcp"]
+required-features = ["std", "phy-tap_interface", "proto-ipv4", "proto-ipv6", "socket-tcp"]
 
 [[example]]
 name = "ping"
