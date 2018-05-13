@@ -190,6 +190,10 @@ a specific user:
 sudo ip tuntap add name tap0 mode tap user $USER
 sudo ip link set tap0 up
 sudo ip addr add 192.168.69.100/24 dev tap0
+sudo ip -6 addr add fe80::100/64 dev tap0
+sudo ip -6 addr add fdaa::100/64 dev tap0
+sudo ip -6 route add fe80::/64 dev tap0
+sudo ip -6 route add fdaa::/64 dev tap0
 ```
 
 It's possible to let _smoltcp_ access Internet by enabling routing for the tap interface:
@@ -197,6 +201,8 @@ It's possible to let _smoltcp_ access Internet by enabling routing for the tap i
 ```sh
 sudo iptables -t nat -A POSTROUTING -s 192.168.69.0/24 -j MASQUERADE
 sudo sysctl net.ipv4.ip_forward=1
+sudo ip6tables -t nat -A POSTROUTING -s fdaa::/64 -j MASQUERADE
+sudo sysctl -w net.ipv6.conf.all.forwarding=1
 ```
 
 ### Fault injection
@@ -245,7 +251,7 @@ sudo ./target/debug/examples/tcpdump eth0
 
 _examples/httpclient.rs_ emulates a network host that can initiate HTTP requests.
 
-The host is assigned the hardware address `02-00-00-00-00-02` and IPv4 address `192.168.69.1`.
+The host is assigned the hardware address `02-00-00-00-00-02`, IPv4 address `192.168.69.1`, and IPv6 address `fdaa::1`.
 
 Read its [source code](/examples/httpclient.rs), then run it as:
 
@@ -257,6 +263,12 @@ For example:
 
 ```sh
 cargo run --example httpclient -- tap0 93.184.216.34 http://example.org/
+```
+
+or:
+
+```sh
+cargo run --example httpclient -- tap0 2606:2800:220:1:248:1893:25c8:1946 http://example.org/
 ```
 
 It connects to the given address (not a hostname) and URL, and prints any returned response data.

@@ -65,6 +65,8 @@ struct InterfaceInner<'b, 'c> {
     ip_addrs:               ManagedSlice<'c, IpCidr>,
     #[cfg(feature = "proto-ipv4")]
     ipv4_gateway:           Option<Ipv4Address>,
+    #[cfg(feature = "proto-ipv6")]
+    ipv6_gateway:           Option<Ipv6Address>,
     device_capabilities:    DeviceCapabilities,
 }
 
@@ -77,6 +79,8 @@ pub struct InterfaceBuilder <'b, 'c, DeviceT: for<'d> Device<'d>> {
     ip_addrs:            ManagedSlice<'c, IpCidr>,
     #[cfg(feature = "proto-ipv4")]
     ipv4_gateway:        Option<Ipv4Address>,
+    #[cfg(feature = "proto-ipv6")]
+    ipv6_gateway:        Option<Ipv6Address>,
 }
 
 impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
@@ -113,7 +117,9 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
             neighbor_cache:      None,
             ip_addrs:            ManagedSlice::Borrowed(&mut []),
             #[cfg(feature = "proto-ipv4")]
-            ipv4_gateway:        None
+            ipv4_gateway:        None,
+            #[cfg(feature = "proto-ipv6")]
+            ipv6_gateway:        None,
         }
     }
 
@@ -158,8 +164,25 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
         where T: Into<Ipv4Address>
     {
         let addr = gateway.into();
-        InterfaceInner::check_gateway_addr(&addr);
+        InterfaceInner::check_ipv4_gateway_addr(&addr);
         self.ipv4_gateway = Some(addr);
+        self
+    }
+
+    /// Set the IPv6 gateway the interface will use. See also
+    /// [ipv6_gateway].
+    ///
+    /// # Panics
+    /// This function panics if the given address is not unicast.
+    ///
+    /// [ipv6_gateway]: struct.EthernetInterface.html#method.ipv6_gateway
+    #[cfg(feature = "proto-ipv6")]
+    pub fn ipv6_gateway<T>(mut self, gateway: T) -> InterfaceBuilder<'b, 'c, DeviceT>
+        where T: Into<Ipv6Address>
+    {
+        let addr = gateway.into();
+        InterfaceInner::check_ipv6_gateway_addr(&addr);
+        self.ipv6_gateway = Some(addr);
         self
     }
 
@@ -192,6 +215,8 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
                         ip_addrs: self.ip_addrs,
                         #[cfg(feature = "proto-ipv4")]
                         ipv4_gateway: self.ipv4_gateway,
+                        #[cfg(feature = "proto-ipv6")]
+                        ipv6_gateway: self.ipv6_gateway,
                     }
                 }
             },
@@ -299,7 +324,24 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
     pub fn set_ipv4_gateway<GatewayAddrT>(&mut self, gateway: GatewayAddrT)
             where GatewayAddrT: Into<Option<Ipv4Address>> {
         self.inner.ipv4_gateway = gateway.into();
-        self.inner.ipv4_gateway.map(|addr| InterfaceInner::check_gateway_addr(&addr));
+        self.inner.ipv4_gateway.map(|addr| InterfaceInner::check_ipv4_gateway_addr(&addr));
+    }
+
+    /// Get the IPv6 gateway of the interface.
+    #[cfg(feature = "proto-ipv6")]
+    pub fn ipv6_gateway(&self) -> Option<Ipv6Address> {
+        self.inner.ipv6_gateway
+    }
+
+    /// Set the IPv6 gateway of the interface.
+    ///
+    /// # Panics
+    /// This function panics if the given address is not unicast.
+    #[cfg(feature = "proto-ipv6")]
+    pub fn set_ipv6_gateway<GatewayAddrT>(&mut self, gateway: GatewayAddrT)
+            where GatewayAddrT: Into<Option<Ipv6Address>> {
+        self.inner.ipv6_gateway = gateway.into();
+        self.inner.ipv6_gateway.map(|addr| InterfaceInner::check_ipv6_gateway_addr(&addr));
     }
 
     /// Transmit packets queued in the given sockets, and receive packets queued
@@ -490,7 +532,14 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
     }
 
     #[cfg(feature = "proto-ipv4")]
-    fn check_gateway_addr(addr: &Ipv4Address) {
+    fn check_ipv4_gateway_addr(addr: &Ipv4Address) {
+        if !addr.is_unicast() {
+            panic!("gateway IP address {} is not unicast", addr);
+        }
+    }
+
+    #[cfg(feature = "proto-ipv6")]
+    fn check_ipv6_gateway_addr(addr: &Ipv6Address) {
         if !addr.is_unicast() {
             panic!("gateway IP address {} is not unicast", addr);
         }
@@ -1143,6 +1192,11 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         match addr {
             #[cfg(feature = "proto-ipv4")]
             &IpAddress::Ipv4(_) => match self.ipv4_gateway {
+                Some(gateway) => Ok(gateway.into()),
+                None => Err(Error::Unaddressable),
+            }
+            #[cfg(feature = "proto-ipv6")]
+            &IpAddress::Ipv6(_) => match self.ipv6_gateway {
                 Some(gateway) => Ok(gateway.into()),
                 None => Err(Error::Unaddressable),
             }

@@ -15,11 +15,46 @@ use smoltcp::time::{Duration, Instant};
 use smoltcp::phy::Device;
 use smoltcp::phy::wait as phy_wait;
 use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr,
+                    Ipv6Address, Icmpv6Repr, Icmpv6Packet,
                     Ipv4Address, Icmpv4Repr, Icmpv4Packet};
 use smoltcp::iface::{NeighborCache, EthernetInterfaceBuilder};
 use smoltcp::socket::{SocketSet, IcmpSocket, IcmpSocketBuffer, IcmpPacketMetadata, IcmpEndpoint};
 use std::collections::HashMap;
 use byteorder::{ByteOrder, NetworkEndian};
+
+macro_rules! send_icmp_ping {
+    ( $repr_type:ident, $packet_type:ident, $ident:expr, $seq_no:expr,
+      $echo_payload:expr, $socket:expr, $remote_addr:expr ) => {{
+        let icmp_repr = $repr_type::EchoRequest {
+            ident: $ident,
+            seq_no: $seq_no,
+            data: &$echo_payload,
+        };
+
+        let icmp_payload = $socket
+            .send(icmp_repr.buffer_len(), $remote_addr)
+            .unwrap();
+
+        let mut icmp_packet = $packet_type::new(icmp_payload);
+        (icmp_repr, icmp_packet)
+    }}
+}
+
+macro_rules! get_icmp_pong {
+    ( $repr_type:ident, $repr:expr, $payload:expr, $waiting_queue:expr, $remote_addr:expr,
+      $timestamp:expr, $received:expr ) => {{
+        if let $repr_type::EchoReply { seq_no, data, .. } = $repr {
+            if let Some(_) = $waiting_queue.get(&seq_no) {
+                let packet_timestamp_ms = NetworkEndian::read_i64(data);
+                println!("{} bytes from {}: icmp_seq={}, time={}ms",
+                         data.len(), $remote_addr, seq_no,
+                         $timestamp.total_millis() - packet_timestamp_ms);
+                $waiting_queue.remove(&seq_no);
+                $received += 1;
+            }
+        }
+    }}
+}
 
 fn main() {
     utils::setup_logging("warn");
@@ -40,7 +75,7 @@ fn main() {
     let fd = device.as_raw_fd();
     let device = utils::parse_middleware_options(&mut matches, device, /*loopback=*/false);
     let device_caps = device.capabilities();
-    let address  = Ipv4Address::from_str(&matches.free[0]).expect("invalid address format");
+    let address  = IpAddress::from_str(&matches.free[0]).expect("invalid address format");
     let count    = matches.opt_str("count").map(|s| usize::from_str(&s).unwrap()).unwrap_or(4);
     let interval = matches.opt_str("interval")
         .map(|s| Duration::from_secs(u64::from_str(&s).unwrap()))
@@ -52,19 +87,23 @@ fn main() {
     let neighbor_cache = NeighborCache::new(BTreeMap::new());
 
     let remote_addr = address;
-    let local_addr  = Ipv4Address::new(192, 168, 69, 1);
 
     let icmp_rx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketMetadata::EMPTY], vec![0; 256]);
     let icmp_tx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketMetadata::EMPTY], vec![0; 256]);
     let icmp_socket = IcmpSocket::new(icmp_rx_buffer, icmp_tx_buffer);
 
     let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x02]);
-    let ip_addr = IpCidr::new(IpAddress::from(local_addr), 24);
+    let src_ipv6 = IpAddress::v6(0xfdaa, 0, 0, 0, 0, 0, 0, 1);
+    let ip_addrs = [IpCidr::new(IpAddress::v4(192, 168, 69, 1), 24),
+                    IpCidr::new(src_ipv6, 64),
+                    IpCidr::new(IpAddress::v6(0xfe80, 0, 0, 0, 0, 0, 0, 1), 64)];
     let default_v4_gw = Ipv4Address::new(192, 168, 69, 100);
+    let default_v6_gw = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 0x100);
     let mut iface = EthernetInterfaceBuilder::new(device)
             .ethernet_addr(ethernet_addr)
-            .ip_addrs([ip_addr])
+            .ip_addrs(ip_addrs)
             .ipv4_gateway(default_v4_gw)
+            .ipv6_gateway(default_v6_gw)
             .neighbor_cache(neighbor_cache)
             .finalize();
 
@@ -77,7 +116,6 @@ fn main() {
     let mut echo_payload = [0xffu8; 40];
     let mut waiting_queue = HashMap::new();
     let ident = 0x22b;
-    let endpoint = IpAddress::Ipv4(remote_addr);
 
     loop {
         iface.poll(&mut sockets, Instant::now()).unwrap();
@@ -93,18 +131,23 @@ fn main() {
             if socket.can_send() && seq_no < count as u16 &&
                     send_at <= timestamp {
                 NetworkEndian::write_i64(&mut echo_payload, timestamp.total_millis());
-                let icmp_repr = Icmpv4Repr::EchoRequest {
-                    ident: ident,
-                    seq_no,
-                    data: &echo_payload,
-                };
 
-                let icmp_payload = socket
-                    .send(icmp_repr.buffer_len(), endpoint)
-                    .unwrap();
-
-                let mut icmp_packet = Icmpv4Packet::new(icmp_payload);
-                icmp_repr.emit(&mut icmp_packet, &device_caps.checksum);
+                match remote_addr {
+                    IpAddress::Ipv4(_) => {
+                        let (icmp_repr, mut icmp_packet) = send_icmp_ping!(
+                                Icmpv4Repr, Icmpv4Packet, ident, seq_no,
+                                echo_payload, socket, remote_addr);
+                        icmp_repr.emit(&mut icmp_packet, &device_caps.checksum);
+                    },
+                    IpAddress::Ipv6(_) => {
+                        let (icmp_repr, mut icmp_packet) = send_icmp_ping!(
+                                Icmpv6Repr, Icmpv6Packet, ident, seq_no,
+                                echo_payload, socket, remote_addr);
+                        icmp_repr.emit(&src_ipv6, &remote_addr,
+                                       &mut icmp_packet, &device_caps.checksum);
+                    },
+                    _ => unimplemented!()
+                }
 
                 waiting_queue.insert(seq_no, timestamp);
                 seq_no += 1;
@@ -113,18 +156,22 @@ fn main() {
 
             if socket.can_recv() {
                 let (payload, _) = socket.recv().unwrap();
-                let icmp_packet = Icmpv4Packet::new(&payload);
-                let icmp_repr = Icmpv4Repr::parse(&icmp_packet, &device_caps.checksum).unwrap();
 
-                if let Icmpv4Repr::EchoReply { seq_no, data, .. } = icmp_repr {
-                    if let Some(_) = waiting_queue.get(&seq_no) {
-                        let packet_timestamp_ms = NetworkEndian::read_i64(data);
-                        println!("{} bytes from {}: icmp_seq={}, time={}ms",
-                                 data.len(), remote_addr, seq_no,
-                                 timestamp.total_millis() - packet_timestamp_ms);
-                        waiting_queue.remove(&seq_no);
-                        received += 1;
+                match remote_addr {
+                    IpAddress::Ipv4(_) => {
+                        let icmp_packet = Icmpv4Packet::new(&payload);
+                        let icmp_repr = Icmpv4Repr::parse(&icmp_packet, &device_caps.checksum).unwrap();
+                        get_icmp_pong!(Icmpv4Repr, icmp_repr, payload,
+                                waiting_queue, remote_addr, timestamp, received);
                     }
+                    IpAddress::Ipv6(_) => {
+                        let icmp_packet = Icmpv6Packet::new(&payload);
+                        let icmp_repr = Icmpv6Repr::parse(&remote_addr, &src_ipv6,
+                                &icmp_packet, &device_caps.checksum).unwrap();
+                        get_icmp_pong!(Icmpv6Repr, icmp_repr, payload,
+                                waiting_queue, remote_addr, timestamp, received);
+                    },
+                    _ => unimplemented!()
                 }
             }
 
