@@ -5,33 +5,22 @@ use {Error, Result};
 use phy::ChecksumCapabilities;
 use super::ip::checksum;
 use super::{Ipv6Packet, Ipv6Repr};
-use super::NdiscRepr;
 
 enum_with_unknown! {
     /// Internet protocol control message type.
     pub doc enum Message(u8) {
         /// Destination Unreachable.
-        DstUnreachable  = 0x01,
+        DstUnreachable = 0x01,
         /// Packet Too Big.
-        PktTooBig       = 0x02,
+        PktTooBig      = 0x02,
         /// Time Exceeded.
-        TimeExceeded    = 0x03,
+        TimeExceeded   = 0x03,
         /// Parameter Problem.
-        ParamProblem    = 0x04,
+        ParamProblem   = 0x04,
         /// Echo Request
-        EchoRequest     = 0x80,
+        EchoRequest    = 0x80,
         /// Echo Reply
-        EchoReply       = 0x81,
-        /// Router Solicitation
-        RouterSolicit   = 0x85,
-        /// Router Advertisement
-        RouterAdvert    = 0x86,
-        /// Neighbor Solicitation
-        NeighborSolicit = 0x87,
-        /// Neighbor Advertisement
-        NeighborAdvert  = 0x88,
-        /// Redirect
-        Redirect        = 0x89
+        EchoReply      = 0x81
     }
 }
 
@@ -44,35 +33,18 @@ impl Message {
     pub fn is_error(&self) -> bool {
         (u8::from(*self) & 0x80) != 0x80
     }
-
-    /// Return a boolean value indicating if the given message type
-    /// is an [NDISC] message type.
-    ///
-    /// [NDISC]: https://tools.ietf.org/html/rfc4861
-    pub fn is_ndisc(&self) -> bool {
-        match *self {
-            Message::RouterSolicit | Message::RouterAdvert | Message::NeighborSolicit |
-            Message::NeighborAdvert | Message::Redirect => true,
-            _ => false,
-        }
-    }
 }
 
 impl fmt::Display for Message {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            &Message::DstUnreachable  => write!(f, "destination unreachable"),
-            &Message::PktTooBig       => write!(f, "packet too big"),
-            &Message::TimeExceeded    => write!(f, "time exceeded"),
-            &Message::ParamProblem    => write!(f, "parameter problem"),
-            &Message::EchoReply       => write!(f, "echo reply"),
-            &Message::EchoRequest     => write!(f, "echo request"),
-            &Message::RouterSolicit   => write!(f, "router solicitation"),
-            &Message::RouterAdvert    => write!(f, "router advertisement"),
-            &Message::NeighborSolicit => write!(f, "neighbor solicitation"),
-            &Message::NeighborAdvert  => write!(f, "neighbor advert"),
-            &Message::Redirect        => write!(f, "redirect"),
-            &Message::Unknown(id)     => write!(f, "{}", id)
+            &Message::DstUnreachable => write!(f, "destination unreachable"),
+            &Message::PktTooBig      => write!(f, "packet too big"),
+            &Message::TimeExceeded   => write!(f, "time exceeded"),
+            &Message::ParamProblem   => write!(f, "parameter problem"),
+            &Message::EchoReply      => write!(f, "echo reply"),
+            &Message::EchoRequest    => write!(f, "echo request"),
+            &Message::Unknown(id) => write!(f, "{}", id)
         }
     }
 }
@@ -173,56 +145,25 @@ impl fmt::Display for TimeExceeded {
 /// A read/write wrapper around an Internet Control Message Protocol version 6 packet buffer.
 #[derive(Debug, PartialEq, Clone)]
 pub struct Packet<T: AsRef<[u8]>> {
-    pub(super) buffer: T
+    buffer: T
 }
 
 // Ranges and constants describing key boundaries in the ICMPv6 header.
 // See https://tools.ietf.org/html/rfc4443 for details.
-pub(super) mod field {
+mod field {
     use wire::field::*;
 
-    pub const TYPE:          usize = 0;
-    pub const CODE:          usize = 1;
-    pub const CHECKSUM:      Field = 2..4;
+    pub const TYPE:       usize = 0;
+    pub const CODE:       usize = 1;
+    pub const CHECKSUM:   Field = 2..4;
 
-    pub const UNUSED:        Field = 4..8;
-    pub const MTU:           Field = 4..8;
-    pub const POINTER:       Field = 4..8;
-    pub const ECHO_IDENT:    Field = 4..6;
-    pub const ECHO_SEQNO:    Field = 6..8;
+    pub const UNUSED:     Field = 4..8;
+    pub const MTU:        Field = 4..8;
+    pub const POINTER:    Field = 4..8;
+    pub const ECHO_IDENT: Field = 4..6;
+    pub const ECHO_SEQNO: Field = 6..8;
 
-    pub const HEADER_END:    usize = 8;
-
-    // Router Advertisement message offsets
-    pub const CUR_HOP_LIMIT: usize = 4;
-    pub const ROUTER_FLAGS:  usize = 5;
-    pub const ROUTER_LT:     Field = 6..8;
-    pub const REACHABLE_TM:  Field = 8..12;
-    pub const RETRANS_TM:    Field = 12..16;
-
-    // Neighbor Solicitation message offsets
-    pub const TARGET_ADDR:   Field = 8..24;
-
-    // Neighbor Advertisement message offsets
-    pub const NEIGH_FLAGS:   usize = 4;
-
-    // Redirected Header message offsets
-    pub const DEST_ADDR:     Field = 24..40;
-}
-
-bitflags! {
-    pub struct RouterFlags: u8 {
-        const MANAGED = 0b10000000;
-        const OTHER   = 0b01000000;
-    }
-}
-
-bitflags! {
-    pub struct NeighborFlags: u8 {
-        const ROUTER    = 0b10000000;
-        const SOLICITED = 0b01000000;
-        const OVERRIDE  = 0b00100000;
-    }
+    pub const HEADER_END: usize = 8;
 }
 
 impl<T: AsRef<[u8]>> Packet<T> {
@@ -248,11 +189,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
         if len < field::HEADER_END {
             Err(Error::Truncated)
         } else {
-            if len < self.header_len() {
-                Err(Error::Truncated)
-            } else {
-                Ok(())
-            }
+            Ok(())
         }
     }
 
@@ -314,17 +251,12 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// the message type field.
     pub fn header_len(&self) -> usize {
         match self.msg_type() {
-            Message::DstUnreachable  => field::UNUSED.end,
-            Message::PktTooBig       => field::MTU.end,
-            Message::TimeExceeded    => field::UNUSED.end,
-            Message::ParamProblem    => field::POINTER.end,
-            Message::EchoRequest     => field::ECHO_SEQNO.end,
-            Message::EchoReply       => field::ECHO_SEQNO.end,
-            Message::RouterSolicit   => field::UNUSED.end,
-            Message::RouterAdvert    => field::RETRANS_TM.end,
-            Message::NeighborSolicit => field::TARGET_ADDR.end,
-            Message::NeighborAdvert  => field::TARGET_ADDR.end,
-            Message::Redirect        => field::DEST_ADDR.end,
+            Message::DstUnreachable => field::UNUSED.end,
+            Message::PktTooBig      => field::MTU.end,
+            Message::TimeExceeded   => field::UNUSED.end,
+            Message::ParamProblem   => field::POINTER.end,
+            Message::EchoRequest    => field::ECHO_SEQNO.end,
+            Message::EchoReply      => field::ECHO_SEQNO.end,
             // For packets that are not included in RFC 4443, do not
             // include the last 32 bits of the ICMPv6 header in
             // `header_bytes`. This must be done so that these bytes
@@ -475,7 +407,6 @@ pub enum Repr<'a> {
         seq_no: u16,
         data:   &'a [u8]
     },
-    Ndisc(NdiscRepr<'a>),
     #[doc(hidden)]
     __Nonexhaustive
 }
@@ -553,9 +484,6 @@ impl<'a> Repr<'a> {
                     data:   packet.payload()
                 })
             },
-            (msg_type, 0) if msg_type.is_ndisc() => {
-                NdiscRepr::parse(packet).map(|repr| Repr::Ndisc(repr))
-            },
             _ => Err(Error::Unrecognized)
         }
     }
@@ -570,9 +498,6 @@ impl<'a> Repr<'a> {
             &Repr::EchoRequest { data, .. } |
             &Repr::EchoReply { data, .. } => {
                 field::ECHO_SEQNO.end + data.len()
-            },
-            &Repr::Ndisc(ndisc) => {
-                ndisc.buffer_len()
             },
             &Repr::__Nonexhaustive => unreachable!()
         }
@@ -636,10 +561,6 @@ impl<'a> Repr<'a> {
                 packet.set_echo_seq_no(seq_no);
                 let data_len = cmp::min(packet.payload_mut().len(), data.len());
                 packet.payload_mut()[..data_len].copy_from_slice(&data[..data_len])
-            },
-
-            &Repr::Ndisc(ndisc) => {
-                ndisc.emit(packet)
             },
 
             &Repr::__Nonexhaustive => unreachable!(),

@@ -15,9 +15,7 @@ license = "0BSD"
 managed = { version = "0.5", default-features = false, features = ["map"] }
 byteorder = { version = "1.0", default-features = false }
 log = { version = "0.3", default-features = false, optional = true }
-#libc = { version = "0.2.18", optional = true }
-# for the sel4-specific liblibc definitions
-libc = { optional = true, git = "https://github.com/GaloisInc/rs_liblibc.git" }
+libc = { version = "0.2.18", optional = true }
 bitflags = { version = "1.0", default-features = false }
 
 [dev-dependencies]
@@ -32,8 +30,6 @@ alloc = ["managed/alloc"]
 verbose = []
 "phy-raw_socket" = ["std", "libc"]
 "phy-tap_interface" = ["std", "libc"]
-"phy-sel4" = ["std", "libc"]
-"phy-client" = ["std", "libc"]
 "proto-ipv4" = []
 "fragmentation-ipv4" = []
 "proto-ipv6" = []
@@ -71,8 +67,8 @@ name = "server"
 required-features = ["std", "phy-tap_interface", "proto-ipv4", "socket-tcp", "socket-udp"]
 
 [[example]]
-name = "server_sel4"
-required-features = ["std", "phy-client", "proto-ipv4", "socket-tcp", "socket-udp"]
+name = "server_fragmented"
+required-features = ["std", "phy-tap_interface", "proto-ipv4", "socket-tcp", "socket-udp", "fragmentation-ipv4"]
 
 [[example]]
 name = "client"

@@ -391,28 +391,23 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for NdiscOption<&'a T> {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub struct PrefixInformation {
-    pub prefix_len: u8,
-    pub flags: PrefixInfoFlags,
-    pub valid_lifetime: Duration,
-    pub preferred_lifetime: Duration,
-    pub prefix: Ipv6Address
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub struct RedirectedHeader<'a> {
-    pub header: Ipv6Repr,
-    pub data: &'a [u8]
-}
 
 /// A high-level representation of an NDISC Option.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Repr<'a> {
     SourceLinkLayerAddr(EthernetAddress),
     TargetLinkLayerAddr(EthernetAddress),
-    PrefixInformation(PrefixInformation),
-    RedirectedHeader(RedirectedHeader<'a>),
+    PrefixInformation {
+        prefix_len: u8,
+        flags: PrefixInfoFlags,
+        valid_lifetime: Duration,
+        preferred_lifetime: Duration,
+        prefix: Ipv6Address
+    },
+    RedirectedHeader {
+        header: Ipv6Repr,
+        data: &'a [u8]
+    },
     Mtu(u32),
     Unknown {
         type_:  u8,
@@ -442,13 +437,13 @@ impl<'a> Repr<'a> {
             },
             Type::PrefixInformation => {
                 if opt.data_len() == 4 {
-                    Ok(Repr::PrefixInformation(PrefixInformation {
+                    Ok(Repr::PrefixInformation {
                         prefix_len: opt.prefix_len(),
                         flags: opt.prefix_flags(),
                         valid_lifetime: opt.valid_lifetime(),
                         preferred_lifetime: opt.preferred_lifetime(),
                         prefix: opt.prefix()
-                    }))
+                    })
                 } else {
                     Err(Error::Malformed)
                 }
@@ -462,10 +457,10 @@ impl<'a> Repr<'a> {
                 } else {
                     let ip_packet = Ipv6Packet::new(&opt.data()[field::IP_DATA..]);
                     let ip_repr = Ipv6Repr::parse(&ip_packet)?;
-                    Ok(Repr::RedirectedHeader(RedirectedHeader {
+                    Ok(Repr::RedirectedHeader {
                         header: ip_repr,
                         data: &opt.data()[field::IP_DATA + ip_repr.buffer_len()..]
-                    }))
+                    })
                 }
             },
             Type::Mtu => {
@@ -490,9 +485,9 @@ impl<'a> Repr<'a> {
         match self {
             &Repr::SourceLinkLayerAddr(_) | &Repr::TargetLinkLayerAddr(_) =>
                 field::LL_ADDR.end,
-            &Repr::PrefixInformation(_) =>
+            &Repr::PrefixInformation { .. } =>
                 field::PREFIX.end,
-            &Repr::RedirectedHeader(RedirectedHeader { header, data }) =>
+            &Repr::RedirectedHeader { header, data } =>
                 field::IP_DATA + header.buffer_len() + data.len(),
             &Repr::Mtu(_) =>
                 field::MTU.end,
@@ -515,10 +510,10 @@ impl<'a> Repr<'a> {
                 opt.set_data_len(1);
                 opt.set_link_layer_addr(addr);
             },
-            &Repr::PrefixInformation(PrefixInformation {
+            &Repr::PrefixInformation {
                 prefix_len, flags, valid_lifetime,
                 preferred_lifetime, prefix
-            }) => {
+            } => {
                 opt.clear_prefix_reserved();
                 opt.set_option_type(Type::PrefixInformation);
                 opt.set_data_len(4);
@@ -528,9 +523,9 @@ impl<'a> Repr<'a> {
                 opt.set_preferred_lifetime(preferred_lifetime);
                 opt.set_prefix(prefix);
             },
-            &Repr::RedirectedHeader(RedirectedHeader {
+            &Repr::RedirectedHeader {
                 header, data
-            }) => {
+            } => {
                 let data_len = data.len() / 8;
                 opt.clear_redirected_reserved();
                 opt.set_option_type(Type::RedirectedHeader);
@@ -564,16 +559,16 @@ impl<'a> fmt::Display for Repr<'a> {
             &Repr::TargetLinkLayerAddr(addr) => {
                 write!(f, "TargetLinkLayer addr={}", addr)
             },
-            &Repr::PrefixInformation(PrefixInformation {
+            &Repr::PrefixInformation {
                 prefix, prefix_len,
                 ..
-            }) => {
+            } => {
                 write!(f, "PrefixInformation prefix={}/{}", prefix, prefix_len)
             },
-            &Repr::RedirectedHeader(RedirectedHeader {
+            &Repr::RedirectedHeader {
                 header,
                 ..
-            }) => {
+            } => {
                 write!(f, "RedirectedHeader header={}", header)
             },
             &Repr::Mtu(mtu) => {
@@ -610,7 +605,7 @@ mod test {
     use Error;
     use time::Duration;
     use wire::{EthernetAddress, Ipv6Address};
-    use super::{NdiscOption, Type, PrefixInfoFlags, PrefixInformation, Repr};
+    use super::{NdiscOption, Type, PrefixInfoFlags, Repr};
 
     static PREFIX_OPT_BYTES: [u8; 32] = [
         0x03, 0x04, 0x40, 0xc0,
@@ -676,26 +671,26 @@ mod test {
 
     #[test]
     fn test_repr_parse_prefix_info() {
-        let repr = Repr::PrefixInformation(PrefixInformation {
+        let repr = Repr::PrefixInformation {
             prefix_len: 64,
             flags: PrefixInfoFlags::ON_LINK | PrefixInfoFlags::ADDRCONF,
             valid_lifetime: Duration::from_secs(900),
             preferred_lifetime: Duration::from_secs(1000),
             prefix: Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1)
-        });
+        };
         assert_eq!(Repr::parse(&NdiscOption::new(&PREFIX_OPT_BYTES)), Ok(repr));
     }
 
     #[test]
     fn test_repr_emit_prefix_info() {
         let mut bytes = [0x2a; 32];
-        let repr = Repr::PrefixInformation(PrefixInformation {
+        let repr = Repr::PrefixInformation {
             prefix_len: 64,
             flags: PrefixInfoFlags::ON_LINK | PrefixInfoFlags::ADDRCONF,
             valid_lifetime: Duration::from_secs(900),
             preferred_lifetime: Duration::from_secs(1000),
             prefix: Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1)
-        });
+        };
         let mut opt = NdiscOption::new(&mut bytes);
         repr.emit(&mut opt);
         assert_eq!(&opt.into_inner()[..], &PREFIX_OPT_BYTES[..]);
