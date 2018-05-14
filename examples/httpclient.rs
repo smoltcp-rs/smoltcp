@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 use std::os::unix::io::AsRawFd;
 use url::Url;
 use smoltcp::phy::wait as phy_wait;
-use smoltcp::wire::{EthernetAddress, Ipv4Address, IpAddress, IpCidr};
+use smoltcp::wire::{EthernetAddress, Ipv4Address, Ipv6Address, IpAddress, IpCidr};
 use smoltcp::iface::{NeighborCache, EthernetInterfaceBuilder};
 use smoltcp::socket::{SocketSet, TcpSocket, TcpSocketBuffer};
 use smoltcp::time::Instant;
@@ -42,13 +42,17 @@ fn main() {
     let tcp_socket = TcpSocket::new(tcp_rx_buffer, tcp_tx_buffer);
 
     let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x02]);
-    let ip_addrs = [IpCidr::new(IpAddress::v4(192, 168, 69, 1), 24)];
+    let ip_addrs = [IpCidr::new(IpAddress::v4(192, 168, 69, 1), 24),
+                    IpCidr::new(IpAddress::v6(0xfdaa, 0, 0, 0, 0, 0, 0, 1), 64),
+                    IpCidr::new(IpAddress::v6(0xfe80, 0, 0, 0, 0, 0, 0, 1), 64)];
     let default_v4_gw = Ipv4Address::new(192, 168, 69, 100);
+    let default_v6_gw = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 0x100);
     let mut iface = EthernetInterfaceBuilder::new(device)
             .ethernet_addr(ethernet_addr)
             .neighbor_cache(neighbor_cache)
             .ip_addrs(ip_addrs)
             .ipv4_gateway(default_v4_gw)
+            .ipv6_gateway(default_v6_gw)
             .finalize();
 
     let mut sockets = SocketSet::new(vec![]);

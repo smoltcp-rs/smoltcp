@@ -53,7 +53,11 @@ fn main() {
     let tcp4_socket = TcpSocket::new(tcp4_rx_buffer, tcp4_tx_buffer);
 
     let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
-    let ip_addrs = [IpCidr::new(IpAddress::v4(192, 168, 69, 1), 24)];
+    let ip_addrs = [
+        IpCidr::new(IpAddress::v4(192, 168, 69, 1), 24),
+        IpCidr::new(IpAddress::v6(0xfdbe, 0x0000, 0x0000, 0x0000,
+                                  0x0000, 0x0000, 0x0000, 0x002a), 64)
+    ];
 
     let mut iface = EthernetInterfaceBuilder::new(device)
             .ethernet_addr(ethernet_addr)

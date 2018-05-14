@@ -20,6 +20,10 @@ use wire::{ArpPacket, ArpRepr, ArpOperation};
 use wire::{Icmpv4Packet, Icmpv4Repr, Icmpv4DstUnreachable};
 #[cfg(feature = "proto-ipv6")]
 use wire::{Icmpv6Packet, Icmpv6Repr, Icmpv6ParamProblem};
+#[cfg(all(feature = "socket-icmp", any(feature = "proto-ipv4", feature = "proto-ipv6")))]
+use wire::IcmpRepr;
+#[cfg(feature = "proto-ipv6")]
+use wire::{NdiscNeighborFlags, NdiscRepr};
 #[cfg(all(feature = "proto-ipv6", feature = "socket-udp"))]
 use wire::Icmpv6DstUnreachable;
 #[cfg(feature = "socket-udp")]
@@ -30,7 +34,7 @@ use wire::{TcpPacket, TcpRepr, TcpControl};
 use socket::{Socket, SocketSet, AnySocket};
 #[cfg(feature = "socket-raw")]
 use socket::RawSocket;
-#[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
+#[cfg(all(feature = "socket-icmp", any(feature = "proto-ipv4", feature = "proto-ipv6")))]
 use socket::IcmpSocket;
 #[cfg(feature = "socket-udp")]
 use socket::UdpSocket;
@@ -62,6 +66,8 @@ struct InterfaceInner<'b, 'c, 'e> {
     ip_addrs:               ManagedSlice<'c, IpCidr>,
     #[cfg(feature = "proto-ipv4")]
     ipv4_gateway:           Option<Ipv4Address>,
+    #[cfg(feature = "proto-ipv6")]
+    ipv6_gateway:           Option<Ipv6Address>,
     device_capabilities:    DeviceCapabilities,
     fragments:              Option<FragmentSet<'e>>,
 }
@@ -73,9 +79,11 @@ pub struct InterfaceBuilder <'b, 'c, 'e, DeviceT: for<'d> Device<'d>> {
     ethernet_addr:       Option<EthernetAddress>,
     neighbor_cache:      Option<NeighborCache<'b>>,
     ip_addrs:            ManagedSlice<'c, IpCidr>,
+    fragments:           Option<FragmentSet<'e>>,
     #[cfg(feature = "proto-ipv4")]
     ipv4_gateway:        Option<Ipv4Address>,
-    fragments:           Option<FragmentSet<'e>>,
+    #[cfg(feature = "proto-ipv6")]
+    ipv6_gateway:        Option<Ipv6Address>,
 }
 
 impl<'b, 'c, 'e, DeviceT> InterfaceBuilder<'b, 'c, 'e, DeviceT>
@@ -114,6 +122,8 @@ impl<'b, 'c, 'e, DeviceT> InterfaceBuilder<'b, 'c, 'e, DeviceT>
             #[cfg(feature = "proto-ipv4")]
             ipv4_gateway:        None,
             fragments:        None,
+            #[cfg(feature = "proto-ipv6")]
+            ipv6_gateway:        None,
         }
     }
 
@@ -158,8 +168,25 @@ impl<'b, 'c, 'e, DeviceT> InterfaceBuilder<'b, 'c, 'e, DeviceT>
         where T: Into<Ipv4Address>
     {
         let addr = gateway.into();
-        InterfaceInner::check_gateway_addr(&addr);
+        InterfaceInner::check_ipv4_gateway_addr(&addr);
         self.ipv4_gateway = Some(addr);
+        self
+    }
+
+    /// Set the IPv6 gateway the interface will use. See also
+    /// [ipv6_gateway].
+    ///
+    /// # Panics
+    /// This function panics if the given address is not unicast.
+    ///
+    /// [ipv6_gateway]: struct.EthernetInterface.html#method.ipv6_gateway
+    #[cfg(feature = "proto-ipv6")]
+    pub fn ipv6_gateway<T>(mut self, gateway: T) -> InterfaceBuilder<'b, 'c, DeviceT>
+        where T: Into<Ipv6Address>
+    {
+        let addr = gateway.into();
+        InterfaceInner::check_ipv6_gateway_addr(&addr);
+        self.ipv6_gateway = Some(addr);
         self
     }
 
@@ -201,6 +228,8 @@ impl<'b, 'c, 'e, DeviceT> InterfaceBuilder<'b, 'c, 'e, DeviceT>
                         #[cfg(feature = "proto-ipv4")]
                         ipv4_gateway: self.ipv4_gateway,
                         fragments: self.fragments,
+                        #[cfg(feature = "proto-ipv6")]
+                        ipv6_gateway: self.ipv6_gateway,
                     }
                 }
             },
@@ -280,25 +309,6 @@ impl<'b, 'c, 'e, DeviceT> Interface<'b, 'c, 'e, DeviceT>
         self.inner.ip_addrs.as_ref()
     }
 
-    /// Determine if the given `Ipv6Address` is the solicited node
-    /// multicast address for a IPv6 addresses assigned to the interface.
-    /// See [RFC 4291 § 2.7.1] for more details.
-    ///
-    /// [RFC 4291 § 2.7.1]: https://tools.ietf.org/html/rfc4291#section-2.7.1
-    #[cfg(feature = "proto-ipv6")]
-    pub fn has_solicited_node(&self, addr: Ipv6Address) -> bool {
-        self.inner.ip_addrs.iter().find(|cidr| {
-            match *cidr {
-                &IpCidr::Ipv6(cidr) if cidr.address() != Ipv6Address::LOOPBACK=> {
-                    // Take the lower order 24 bits of the IPv6 address and
-                    // append those bits to FF02:0:0:0:0:1:FF00::/104.
-                    addr.as_bytes()[14..] == cidr.address().as_bytes()[14..]
-                }
-                _ => false,
-            }
-        }).is_some()
-    }
-
     /// Update the IP addresses of the interface.
     ///
     /// # Panics
@@ -327,7 +337,24 @@ impl<'b, 'c, 'e, DeviceT> Interface<'b, 'c, 'e, DeviceT>
     pub fn set_ipv4_gateway<GatewayAddrT>(&mut self, gateway: GatewayAddrT)
             where GatewayAddrT: Into<Option<Ipv4Address>> {
         self.inner.ipv4_gateway = gateway.into();
-        self.inner.ipv4_gateway.map(|addr| InterfaceInner::check_gateway_addr(&addr));
+        self.inner.ipv4_gateway.map(|addr| InterfaceInner::check_ipv4_gateway_addr(&addr));
+    }
+
+    /// Get the IPv6 gateway of the interface.
+    #[cfg(feature = "proto-ipv6")]
+    pub fn ipv6_gateway(&self) -> Option<Ipv6Address> {
+        self.inner.ipv6_gateway
+    }
+
+    /// Set the IPv6 gateway of the interface.
+    ///
+    /// # Panics
+    /// This function panics if the given address is not unicast.
+    #[cfg(feature = "proto-ipv6")]
+    pub fn set_ipv6_gateway<GatewayAddrT>(&mut self, gateway: GatewayAddrT)
+            where GatewayAddrT: Into<Option<Ipv6Address>> {
+        self.inner.ipv6_gateway = gateway.into();
+        self.inner.ipv6_gateway.map(|addr| InterfaceInner::check_ipv6_gateway_addr(&addr));
     }
 
     /// Transmit packets queued in the given sockets, and receive packets queued
@@ -459,13 +486,16 @@ impl<'b, 'c, 'e, DeviceT> Interface<'b, 'c, 'e, DeviceT>
                     Socket::Raw(ref mut socket) =>
                         socket.dispatch(&caps.checksum, |response|
                             respond!(Packet::Raw(response))),
-                    #[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
+                    #[cfg(all(feature = "socket-icmp", any(feature = "proto-ipv4", feature = "proto-ipv6")))]
                     Socket::Icmp(ref mut socket) =>
                         socket.dispatch(&caps, |response| {
                             match response {
                                 #[cfg(feature = "proto-ipv4")]
-                                (IpRepr::Ipv4(ipv4_repr), icmpv4_repr) =>
+                                (IpRepr::Ipv4(ipv4_repr), IcmpRepr::Ipv4(icmpv4_repr)) =>
                                     respond!(Packet::Icmpv4((ipv4_repr, icmpv4_repr))),
+                                #[cfg(feature = "proto-ipv6")]
+                                (IpRepr::Ipv6(ipv6_repr), IcmpRepr::Ipv6(icmpv6_repr)) =>
+                                    respond!(Packet::Icmpv6((ipv6_repr, icmpv6_repr))),
                                 _ => Err(Error::Unaddressable)
                             }
                         }),
@@ -520,10 +550,36 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
     }
 
     #[cfg(feature = "proto-ipv4")]
-    fn check_gateway_addr(addr: &Ipv4Address) {
+    fn check_ipv4_gateway_addr(addr: &Ipv4Address) {
         if !addr.is_unicast() {
             panic!("gateway IP address {} is not unicast", addr);
         }
+    }
+
+    #[cfg(feature = "proto-ipv6")]
+    fn check_ipv6_gateway_addr(addr: &Ipv6Address) {
+        if !addr.is_unicast() {
+            panic!("gateway IP address {} is not unicast", addr);
+        }
+    }
+
+    /// Determine if the given `Ipv6Address` is the solicited node
+    /// multicast address for a IPv6 addresses assigned to the interface.
+    /// See [RFC 4291 § 2.7.1] for more details.
+    ///
+    /// [RFC 4291 § 2.7.1]: https://tools.ietf.org/html/rfc4291#section-2.7.1
+    #[cfg(feature = "proto-ipv6")]
+    pub fn has_solicited_node(&self, addr: Ipv6Address) -> bool {
+        self.ip_addrs.iter().find(|cidr| {
+            match *cidr {
+                &IpCidr::Ipv6(cidr) if cidr.address() != Ipv6Address::LOOPBACK=> {
+                    // Take the lower order 24 bits of the IPv6 address and
+                    // append those bits to FF02:0:0:0:0:1:FF00::/104.
+                    addr.as_bytes()[14..] == cidr.address().as_bytes()[14..]
+                }
+                _ => false,
+            }
+        }).is_some()
     }
 
     /// Check whether the interface has the given IP address assigned.
@@ -643,7 +699,8 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
         if eth_frame.src_addr().is_unicast() {
             // Fill the neighbor cache from IP header of unicast frames.
             let ip_addr = IpAddress::Ipv6(ipv6_repr.src_addr);
-            if self.in_same_network(&ip_addr) {
+            if self.in_same_network(&ip_addr) &&
+                    self.neighbor_cache.lookup_pure(&ip_addr, timestamp).is_none() {
                 self.neighbor_cache.fill(ip_addr, eth_frame.src_addr(), timestamp);
             }
         }
@@ -656,7 +713,7 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
 
         match ipv6_repr.next_header {
             IpProtocol::Icmpv6 =>
-                self.process_icmpv6(sockets, ip_repr, ip_payload),
+                self.process_icmpv6(sockets, timestamp, ip_repr, ip_payload),
 
             #[cfg(feature = "socket-udp")]
             IpProtocol::Udp =>
@@ -842,12 +899,30 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
     }
 
     #[cfg(feature = "proto-ipv6")]
-    fn process_icmpv6<'frame>(&self, _sockets: &mut SocketSet, ip_repr: IpRepr,
-                              ip_payload: &'frame [u8]) -> Result<Packet<'frame>>
+    fn process_icmpv6<'frame>(&mut self, _sockets: &mut SocketSet, timestamp: Instant,
+                              ip_repr: IpRepr, ip_payload: &'frame [u8]) -> Result<Packet<'frame>>
     {
         let icmp_packet = Icmpv6Packet::new_checked(ip_payload)?;
         let checksum_caps = self.device_capabilities.checksum.clone();
-        let icmp_repr = Icmpv6Repr::parse(&icmp_packet, &checksum_caps)?;
+        let icmp_repr = Icmpv6Repr::parse(&ip_repr.src_addr(), &ip_repr.dst_addr(),
+                                          &icmp_packet, &checksum_caps)?;
+
+        #[cfg(feature = "socket-icmp")]
+        let mut handled_by_icmp_socket = false;
+
+        #[cfg(all(feature = "socket-icmp", feature = "proto-ipv6"))]
+        for mut icmp_socket in _sockets.iter_mut().filter_map(IcmpSocket::downcast) {
+            if !icmp_socket.accepts(&ip_repr, &icmp_repr.into(), &checksum_caps) { continue }
+
+            match icmp_socket.process(&ip_repr, &icmp_repr.into(), &checksum_caps) {
+                // The packet is valid and handled by socket.
+                Ok(()) => handled_by_icmp_socket = true,
+                // The socket buffer is full.
+                Err(Error::Exhausted) => (),
+                // ICMP sockets don't validate the packets in any way.
+                Err(_) => unreachable!(),
+            }
+        }
 
         match icmp_repr {
             // Respond to echo requests.
@@ -868,9 +943,70 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
             // Ignore any echo replies.
             Icmpv6Repr::EchoReply { .. } => Ok(Packet::None),
 
+            // Forward any NDISC packets to the ndisc packet handler
+            Icmpv6Repr::Ndisc(repr) if ip_repr.hop_limit() == 0xff => match ip_repr {
+                IpRepr::Ipv6(ipv6_repr) => self.process_ndisc(timestamp, ipv6_repr, repr),
+                _ => Ok(Packet::None)
+            },
+
+            // Don't report an error if a packet with unknown type
+            // has been handled by an ICMP socket
+            #[cfg(feature = "socket-icmp")]
+            _ if handled_by_icmp_socket => Ok(Packet::None),
+
             // FIXME: do something correct here?
             _ => Err(Error::Unrecognized),
         }
+    }
+
+    #[cfg(feature = "proto-ipv6")]
+    fn process_ndisc<'frame>(&mut self, timestamp: Instant, ip_repr: Ipv6Repr,
+                             repr: NdiscRepr<'frame>) -> Result<Packet<'frame>> {
+        let packet = match repr {
+            NdiscRepr::NeighborAdvert { lladdr, target_addr, flags } => {
+                let ip_addr = ip_repr.src_addr.into();
+                match lladdr {
+                    Some(lladdr) if lladdr.is_unicast() && target_addr.is_unicast() => {
+                        if flags.contains(NdiscNeighborFlags::OVERRIDE) {
+                            self.neighbor_cache.fill(ip_addr, lladdr, timestamp)
+                        } else {
+                            if self.neighbor_cache.lookup_pure(&ip_addr, timestamp).is_none() {
+                                    self.neighbor_cache.fill(ip_addr, lladdr, timestamp)
+                            }
+                        }
+                    },
+                    _ => (),
+                }
+                Ok(Packet::None)
+            }
+            NdiscRepr::NeighborSolicit { target_addr, lladdr, .. } => {
+                match lladdr {
+                    Some(lladdr) if lladdr.is_unicast() && target_addr.is_unicast() => {
+                        self.neighbor_cache.fill(ip_repr.src_addr.into(), lladdr, timestamp)
+                    },
+                    _ => (),
+                }
+                if self.has_solicited_node(ip_repr.dst_addr) && self.has_ip_addr(target_addr) {
+                    let advert = Icmpv6Repr::Ndisc(NdiscRepr::NeighborAdvert {
+                        flags: NdiscNeighborFlags::SOLICITED,
+                        target_addr: target_addr,
+                        lladdr: Some(self.ethernet_addr)
+                    });
+                    let ip_repr = Ipv6Repr {
+                        src_addr: target_addr,
+                        dst_addr: ip_repr.src_addr,
+                        next_header: IpProtocol::Icmpv6,
+                        hop_limit: 0xff,
+                        payload_len: advert.buffer_len()
+                    };
+                    Ok(Packet::Icmpv6((ip_repr, advert)))
+                } else {
+                    Ok(Packet::None)
+                }
+            }
+            _ => Ok(Packet::None)
+        };
+        packet
     }
 
     #[cfg(feature = "proto-ipv4")]
@@ -886,9 +1022,9 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
 
         #[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
         for mut icmp_socket in _sockets.iter_mut().filter_map(IcmpSocket::downcast) {
-            if !icmp_socket.accepts(&ip_repr, &icmp_repr, &checksum_caps) { continue }
+            if !icmp_socket.accepts(&ip_repr, &icmp_repr.into(), &checksum_caps) { continue }
 
-            match icmp_socket.process(&ip_repr, &icmp_repr, &checksum_caps) {
+            match icmp_socket.process(&ip_repr, &icmp_repr.into(), &checksum_caps) {
                 // The packet is valid and handled by socket.
                 Ok(()) => handled_by_icmp_socket = true,
                 // The socket buffer is full.
@@ -900,6 +1036,7 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
 
         match icmp_repr {
             // Respond to echo requests.
+            #[cfg(feature = "proto-ipv4")]
             Icmpv4Repr::EchoRequest { ident, seq_no, data } => {
                 let icmp_reply_repr = Icmpv4Repr::EchoReply {
                     ident:  ident,
@@ -910,7 +1047,7 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
                     IpRepr::Ipv4(ipv4_repr) => Ok(self.icmpv4_reply(ipv4_repr, icmp_reply_repr)),
                     _ => Err(Error::Unrecognized),
                 }
-            }
+            },
 
             // Ignore any echo replies.
             Icmpv4Repr::EchoReply { .. } => Ok(Packet::None),
@@ -1078,8 +1215,9 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
             #[cfg(feature = "proto-ipv6")]
             Packet::Icmpv6((ipv6_repr, icmpv6_repr)) => {
                 self.dispatch_ip(tx_token, timestamp, IpRepr::Ipv6(ipv6_repr),
-                                 |_ip_repr, payload| {
-                    icmpv6_repr.emit(&mut Icmpv6Packet::new(payload), &checksum_caps);
+                                 |ip_repr, payload| {
+                    icmpv6_repr.emit(&ip_repr.src_addr(), &ip_repr.dst_addr(),
+                                     &mut Icmpv6Packet::new(payload), &checksum_caps);
                 })
             }
             #[cfg(feature = "socket-raw")]
@@ -1161,6 +1299,11 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
         match addr {
             #[cfg(feature = "proto-ipv4")]
             &IpAddress::Ipv4(_) => match self.ipv4_gateway {
+                Some(gateway) => Ok(gateway.into()),
+                None => Err(Error::Unaddressable),
+            }
+            #[cfg(feature = "proto-ipv6")]
+            &IpAddress::Ipv6(_) => match self.ipv6_gateway {
                 Some(gateway) => Ok(gateway.into()),
                 None => Err(Error::Unaddressable),
             }
@@ -1250,6 +1393,35 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
 
                 Err(Error::Unaddressable)
             }
+
+            #[cfg(feature = "proto-ipv6")]
+            (&IpAddress::Ipv6(src_addr), IpAddress::Ipv6(dst_addr)) => {
+                net_debug!("address {} not in neighbor cache, sending Neighbor Solicitation",
+                           dst_addr);
+
+                let checksum_caps = self.device_capabilities.checksum.clone();
+
+                let solicit = Icmpv6Repr::Ndisc(NdiscRepr::NeighborSolicit {
+                    target_addr: src_addr,
+                    lladdr: Some(self.ethernet_addr),
+                });
+
+                let ip_repr = IpRepr::Ipv6(Ipv6Repr {
+                    src_addr: src_addr,
+                    dst_addr: dst_addr.solicited_node(),
+                    next_header: IpProtocol::Icmpv6,
+                    payload_len: solicit.buffer_len(),
+                    hop_limit: 0xff
+                });
+
+                self.dispatch_ip(tx_token, timestamp, ip_repr, |ip_repr, payload| {
+                    solicit.emit(&ip_repr.src_addr(), &ip_repr.dst_addr(),
+                                 &mut Icmpv6Packet::new(payload), &checksum_caps);
+                })?;
+
+                Err(Error::Unaddressable)
+            }
+
             _ => Err(Error::Unaddressable)
         }
     }
@@ -1306,7 +1478,9 @@ mod test {
     #[cfg(feature = "proto-ipv6")]
     use wire::{Ipv6Address, Ipv6Repr};
     #[cfg(feature = "proto-ipv6")]
-    use wire::{Icmpv6Repr, Icmpv6ParamProblem};
+    use wire::{Icmpv6Packet, Icmpv6Repr, Icmpv6ParamProblem};
+    #[cfg(feature = "proto-ipv6")]
+    use wire::{NdiscNeighborFlags, NdiscRepr};
     use iface::{FragmentSet,FragmentedPacket};
     use super::Packet;
 
@@ -1318,7 +1492,9 @@ mod test {
             #[cfg(feature = "proto-ipv4")]
             IpCidr::new(IpAddress::v4(127, 0, 0, 1), 8),
             #[cfg(feature = "proto-ipv6")]
-            IpCidr::new(IpAddress::v6(0, 0, 0, 0, 0, 0, 0, 1), 128)
+            IpCidr::new(IpAddress::v6(0, 0, 0, 0, 0, 0, 0, 1), 128),
+            #[cfg(feature = "proto-ipv6")]
+            IpCidr::new(IpAddress::v6(0xfdbe, 0, 0, 0, 0, 0, 0, 1), 64),
         ];
 
         let iface = InterfaceBuilder::new(device)
@@ -1686,6 +1862,65 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "proto-ipv6")]
+    fn test_handle_valid_ndisc_request() {
+        let (mut iface, mut socket_set) = create_loopback();
+
+        let mut eth_bytes = vec![0u8; 86];
+
+        let local_ip_addr = Ipv6Address::new(0xfdbe, 0, 0, 0, 0, 0, 0, 1);
+        let remote_ip_addr = Ipv6Address::new(0xfdbe, 0, 0, 0, 0, 0, 0, 2);
+        let local_hw_addr = EthernetAddress([0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+        let remote_hw_addr = EthernetAddress([0x52, 0x54, 0x00, 0x00, 0x00, 0x00]);
+
+        let solicit = Icmpv6Repr::Ndisc(NdiscRepr::NeighborSolicit {
+            target_addr: local_ip_addr,
+            lladdr: Some(remote_hw_addr),
+        });
+        let ip_repr = IpRepr::Ipv6(Ipv6Repr {
+            src_addr: remote_ip_addr,
+            dst_addr: local_ip_addr.solicited_node(),
+            next_header: IpProtocol::Icmpv6,
+            hop_limit: 0xff,
+            payload_len: solicit.buffer_len()
+        });
+
+        let mut frame = EthernetFrame::new(&mut eth_bytes);
+        frame.set_dst_addr(EthernetAddress([0x33, 0x33, 0x00, 0x00, 0x00, 0x00]));
+        frame.set_src_addr(remote_hw_addr);
+        frame.set_ethertype(EthernetProtocol::Ipv6);
+        {
+            ip_repr.emit(frame.payload_mut(), &ChecksumCapabilities::default());
+            solicit.emit(&remote_ip_addr.into(), &local_ip_addr.solicited_node().into(),
+                         &mut Icmpv6Packet::new(&mut frame.payload_mut()[ip_repr.buffer_len()..]),
+                         &ChecksumCapabilities::default());
+        }
+
+        let icmpv6_expected = Icmpv6Repr::Ndisc(NdiscRepr::NeighborAdvert {
+            flags: NdiscNeighborFlags::SOLICITED,
+            target_addr: local_ip_addr,
+            lladdr: Some(local_hw_addr)
+        });
+
+        let ipv6_expected = Ipv6Repr {
+            src_addr: local_ip_addr,
+            dst_addr: remote_ip_addr,
+            next_header: IpProtocol::Icmpv6,
+            hop_limit: 0xff,
+            payload_len: icmpv6_expected.buffer_len()
+        };
+
+        // Ensure an Neighbor Solicitation triggers a Neighbor Advertisement
+        assert_eq!(iface.inner.process_ethernet(&mut socket_set, Instant::from_millis(0), frame.into_inner()),
+                   Ok(Packet::Icmpv6((ipv6_expected, icmpv6_expected))));
+
+        // Ensure the address of the requestor was entered in the cache
+        assert_eq!(iface.inner.lookup_hardware_addr(MockTxToken, Instant::from_secs(0),
+            &IpAddress::Ipv6(local_ip_addr), &IpAddress::Ipv6(remote_ip_addr)),
+            Ok((remote_hw_addr, MockTxToken)));
+    }
+
+    #[test]
     #[cfg(feature = "proto-ipv4")]
     fn test_handle_other_arp_request() {
         let (mut iface, mut socket_set) = create_loopback();
@@ -1799,9 +2034,9 @@ mod test {
             new_addrs.extend(addrs.to_vec());
             *addrs = From::from(new_addrs);
         });
-        assert!(iface.has_solicited_node(Ipv6Address::new(0xff02, 0, 0, 0, 0, 1, 0xff00, 0x0002)));
-        assert!(iface.has_solicited_node(Ipv6Address::new(0xff02, 0, 0, 0, 0, 1, 0xff00, 0xffff)));
-        assert!(!iface.has_solicited_node(Ipv6Address::new(0xff02, 0, 0, 0, 0, 1, 0xff00, 0x0001)));
+        assert!(iface.inner.has_solicited_node(Ipv6Address::new(0xff02, 0, 0, 0, 0, 1, 0xff00, 0x0002)));
+        assert!(iface.inner.has_solicited_node(Ipv6Address::new(0xff02, 0, 0, 0, 0, 1, 0xff00, 0xffff)));
+        assert!(!iface.inner.has_solicited_node(Ipv6Address::new(0xff02, 0, 0, 0, 0, 1, 0xff00, 0x0003)));
     }
 
     #[test]

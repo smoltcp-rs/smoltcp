@@ -782,7 +782,7 @@ impl<'a> TcpSocket<'a> {
         (ip_reply_repr, reply_repr)
     }
 
-    fn ack_reply(&self, ip_repr: &IpRepr, repr: &TcpRepr) -> (IpRepr, TcpRepr<'static>) {
+    fn ack_reply(&mut self, ip_repr: &IpRepr, repr: &TcpRepr) -> (IpRepr, TcpRepr<'static>) {
         let (ip_reply_repr, mut reply_repr) = Self::reply(ip_repr, repr);
 
         // From RFC 793:
@@ -792,6 +792,7 @@ impl<'a> TcpSocket<'a> {
         reply_repr.seq_number = self.remote_last_seq;
         reply_repr.ack_number = self.remote_last_ack;
         reply_repr.window_len = self.rx_buffer.window() as u16;
+        self.remote_last_win = reply_repr.window_len;
 
         (ip_reply_repr, reply_repr)
     }
@@ -3338,6 +3339,66 @@ mod test {
             payload:    &b"!@#$%^"[..],
             ..RECV_TEMPL
         }]);
+    }
+
+    #[test]
+    fn test_announce_window_after_read() {
+        let mut s = socket_established();
+        s.rx_buffer = SocketBuffer::new(vec![0; 6]);
+        s.assembler = Assembler::new(s.rx_buffer.capacity());
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            payload:    &b"abc"[..],
+            ..SEND_TEMPL
+        });
+        recv!(s, [TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1 + 3),
+            window_len: 3,
+            ..RECV_TEMPL
+        }]);
+        // Test that `dispatch` updates `remote_last_win`
+        assert_eq!(s.remote_last_win, s.rx_buffer.window() as u16);
+        s.recv(|buffer| {
+            (buffer.len(), ())
+        }).unwrap();
+        assert!(s.window_to_update());
+        recv!(s, [TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1 + 3),
+            window_len: 6,
+            ..RECV_TEMPL
+        }]);
+        assert_eq!(s.remote_last_win, s.rx_buffer.window() as u16);
+        // Provoke immediate ACK to test that `process` updates `remote_last_win`
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1 + 6,
+            ack_number: Some(LOCAL_SEQ + 1),
+            payload:    &b"def"[..],
+            ..SEND_TEMPL
+        }, Ok(Some(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1 + 3),
+            window_len: 6,
+            ..RECV_TEMPL
+        })));
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1 + 3,
+            ack_number: Some(LOCAL_SEQ + 1),
+            payload:    &b"abc"[..],
+            ..SEND_TEMPL
+        }, Ok(Some(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1 + 9),
+            window_len: 0,
+            ..RECV_TEMPL
+        })));
+        assert_eq!(s.remote_last_win, s.rx_buffer.window() as u16);
+        s.recv(|buffer| {
+            (buffer.len(), ())
+        }).unwrap();
+        assert!(s.window_to_update());
     }
 
     // =========================================================================================//

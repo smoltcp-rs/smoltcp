@@ -169,6 +169,19 @@ impl Address {
         }
         bytes
     }
+
+    /// The solicited node for the given unicast address.
+    ///
+    /// # Panics
+    /// This function panics if the given address is not
+    /// unicast.
+    pub fn solicited_node(&self) -> Address {
+        assert!(self.is_unicast());
+        let mut bytes = [0xff, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+        bytes[14..].copy_from_slice(&self.0[14..]);
+        Address(bytes)
+    }
 }
 
 #[cfg(feature = "std")]

@@ -32,7 +32,7 @@ The only supported medium is Ethernet.
 
 ### IP layer
 
-The only supported internetworking protocol is IPv4.
+#### IPv4
 
   * IPv4 header checksum is generated and validated.
   * IPv4 time-to-live value is configurable per socket, set to 64 by default.
@@ -41,7 +41,15 @@ The only supported internetworking protocol is IPv4.
   * IPv4 options are **not** supported and are silently ignored.
   * IPv4 routes (other than the default one) are **not** supported.
 
+#### IPv6
+
+  * IPv6 hop-limit value is configurable per socket, set to 64 by default.
+  * IPv6 default gateway is **not** supported.
+  * IPv6 extension headers are **not** supported.
+
 ### ICMP layer
+
+#### ICMPv4
 
 The ICMPv4 protocol is supported, and ICMP sockets are available.
 
@@ -51,6 +59,21 @@ The ICMPv4 protocol is supported, and ICMP sockets are available.
     a given IPv4 identifier field.
   * ICMPv4 protocol unreachable messages are **not** passed to higher layers when received.
   * ICMPv4 parameter problem messages are **not** generated.
+
+#### ICMPv6
+
+The ICMPv6 protocol is supported, but is **not** available via ICMP sockets.
+
+  * ICMPv6 header checksum is supported.
+  * ICMPv6 echo replies are generated in response to echo requests.
+  * ICMPv6 protocol unreachable messages are **not** passed to higher layers when received.
+
+#### NDISC
+
+  * Neighbor Advertisement messages are generated in response to Neighbor Solicitations.
+  * Router Advertisement messages are **not** generated or read.
+  * Router Solicitation messages are **not** generated or read.
+  * Redirected Header messages are **not** generated or read.
 
 ### UDP layer
 
@@ -80,6 +103,7 @@ The TCP protocol is supported over IPv4, and server and client TCP sockets are a
   * Congestion control is **not** implemented.
   * Timestamping is **not** supported.
   * Urgent pointer is **ignored**.
+  * Probing Zero Windows is **not** implemented.
 
 ## Installation
 
@@ -166,6 +190,10 @@ a specific user:
 sudo ip tuntap add name tap0 mode tap user $USER
 sudo ip link set tap0 up
 sudo ip addr add 192.168.69.100/24 dev tap0
+sudo ip -6 addr add fe80::100/64 dev tap0
+sudo ip -6 addr add fdaa::100/64 dev tap0
+sudo ip -6 route add fe80::/64 dev tap0
+sudo ip -6 route add fdaa::/64 dev tap0
 ```
 
 It's possible to let _smoltcp_ access Internet by enabling routing for the tap interface:
@@ -173,6 +201,8 @@ It's possible to let _smoltcp_ access Internet by enabling routing for the tap i
 ```sh
 sudo iptables -t nat -A POSTROUTING -s 192.168.69.0/24 -j MASQUERADE
 sudo sysctl net.ipv4.ip_forward=1
+sudo ip6tables -t nat -A POSTROUTING -s fdaa::/64 -j MASQUERADE
+sudo sysctl -w net.ipv6.conf.all.forwarding=1
 ```
 
 ### Fault injection
@@ -221,7 +251,7 @@ sudo ./target/debug/examples/tcpdump eth0
 
 _examples/httpclient.rs_ emulates a network host that can initiate HTTP requests.
 
-The host is assigned the hardware address `02-00-00-00-00-02` and IPv4 address `192.168.69.1`.
+The host is assigned the hardware address `02-00-00-00-00-02`, IPv4 address `192.168.69.1`, and IPv6 address `fdaa::1`.
 
 Read its [source code](/examples/httpclient.rs), then run it as:
 
@@ -233,6 +263,12 @@ For example:
 
 ```sh
 cargo run --example httpclient -- tap0 93.184.216.34 http://example.org/
+```
+
+or:
+
+```sh
+cargo run --example httpclient -- tap0 2606:2800:220:1:248:1893:25c8:1946 http://example.org/
 ```
 
 It connects to the given address (not a hostname) and URL, and prints any returned response data.
