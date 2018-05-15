@@ -1264,7 +1264,7 @@ impl<'a> TcpSocket<'a> {
         } else if !self.seq_to_transmit() {
             if let Some(retransmit_delta) = self.timer.should_retransmit(timestamp) {
                 // If a retransmit timer expired, we should resend data starting at the last ACK.
-                net_debug!("{}:{}:{}: retransmitting at t+{}ms",
+                net_debug!("{}:{}:{}: retransmitting at t+{}",
                            self.meta.handle, self.local_endpoint, self.remote_endpoint,
                            retransmit_delta);
                 self.remote_last_seq = self.local_seq_no;

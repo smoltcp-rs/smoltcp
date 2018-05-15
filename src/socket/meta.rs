@@ -78,7 +78,7 @@ impl Meta {
     }
 
     pub(crate) fn neighbor_missing(&mut self, timestamp: Instant, neighbor: IpAddress) {
-        net_trace!("{}: neighbor {} missing, silencing until t+{}ms",
+        net_trace!("{}: neighbor {} missing, silencing until t+{}",
                    self.handle, neighbor, Self::DISCOVERY_SILENT_TIME);
         self.neighbor_state = NeighborState::Waiting {
             neighbor, silent_until: timestamp + Self::DISCOVERY_SILENT_TIME
