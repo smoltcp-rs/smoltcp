@@ -55,6 +55,26 @@ pub use self::set::{Iter as SocketSetIter, IterMut as SocketSetIterMut};
 pub use self::ref_::Ref as SocketRef;
 pub(crate) use self::ref_::Session as SocketSession;
 
+/// Gives an indication on when the socket should be polled
+#[derive(Debug, PartialOrd, Ord, PartialEq, Eq, Clone, Copy)]
+pub(crate) enum PollAt {
+    /// Should be polled immidiately
+    Now,
+    /// Should be polled at given [Instant][struct.Instant]
+    Time(Instant),
+    /// Should be polled on incoming packet
+    Ingress,
+}
+
+impl PollAt {
+    fn is_ingress(&self) -> bool {
+        match self {
+            &PollAt::Ingress => true,
+            _ => false,
+        }
+    }
+}
+
 /// A network socket.
 ///
 /// This enumeration abstracts the various types of sockets based on the IP protocol.
@@ -116,7 +136,7 @@ impl<'a, 'b> Socket<'a, 'b> {
         dispatch_socket!(mut self, |socket| &mut socket.meta)
     }
 
-    pub(crate) fn poll_at(&self) -> Option<Instant> {
+    pub(crate) fn poll_at(&self) -> PollAt {
         dispatch_socket!(self, |socket| socket.poll_at())
     }
 }

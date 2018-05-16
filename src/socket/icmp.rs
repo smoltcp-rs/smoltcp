@@ -2,9 +2,8 @@ use core::cmp;
 
 use {Error, Result};
 use phy::{ChecksumCapabilities, DeviceCapabilities};
-use socket::{Socket, SocketMeta, SocketHandle};
+use socket::{Socket, SocketMeta, SocketHandle, PollAt};
 use storage::{PacketBuffer, PacketMetadata};
-use time::Instant;
 use wire::{IpAddress, IpEndpoint, IpProtocol, IpRepr};
 
 #[cfg(feature = "proto-ipv4")]
@@ -352,11 +351,11 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
         })
     }
 
-    pub(crate) fn poll_at(&self) -> Option<Instant> {
+    pub(crate) fn poll_at(&self) -> PollAt {
         if self.tx_buffer.is_empty() {
-            None
+            PollAt::Ingress
         } else {
-            Some(Instant::from_millis(0))
+            PollAt::Now
         }
     }
 }
