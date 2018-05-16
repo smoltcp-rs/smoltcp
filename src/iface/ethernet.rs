@@ -31,7 +31,7 @@ use wire::{UdpPacket, UdpRepr};
 #[cfg(feature = "socket-tcp")]
 use wire::{TcpPacket, TcpRepr, TcpControl};
 
-use socket::{Socket, SocketSet, AnySocket};
+use socket::{Socket, SocketSet, AnySocket, PollAt};
 #[cfg(feature = "socket-raw")]
 use socket::RawSocket;
 #[cfg(all(feature = "socket-icmp", any(feature = "proto-ipv4", feature = "proto-ipv6")))]
@@ -386,8 +386,12 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
     pub fn poll_at(&self, sockets: &SocketSet, timestamp: Instant) -> Option<Instant> {
         sockets.iter().filter_map(|socket| {
             let socket_poll_at = socket.poll_at();
-            socket.meta().poll_at(socket_poll_at, |ip_addr|
-                self.inner.has_neighbor(&ip_addr, timestamp))
+            match socket.meta().poll_at(socket_poll_at, |ip_addr|
+                self.inner.has_neighbor(&ip_addr, timestamp)) {
+                    PollAt::Ingress => None,
+                    PollAt::Time(instant) => Some(instant),
+                    PollAt::Now => Some(Instant::from_millis(0)),
+            }
         }).min()
     }
 
