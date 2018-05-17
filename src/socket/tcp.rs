@@ -59,6 +59,7 @@ enum Timer {
         expires_at: Instant,
         delay:      Duration
     },
+    FastRetransmit,
     Close {
         expires_at: Instant
     }
@@ -89,7 +90,8 @@ impl Timer {
             Timer::Retransmit { expires_at, delay }
                     if timestamp >= expires_at => {
                 Some(timestamp - expires_at + delay)
-            }
+            },
+            Timer::FastRetransmit => Some(Duration::from_millis(0)),
             _ => None
         }
     }
@@ -109,6 +111,7 @@ impl Timer {
             Timer::Idle { keep_alive_at: Some(keep_alive_at) } => PollAt::Time(keep_alive_at),
             Timer::Idle { keep_alive_at: None } => PollAt::Ingress,
             Timer::Retransmit { expires_at, .. } => PollAt::Time(expires_at),
+            Timer::FastRetransmit => PollAt::Now,
             Timer::Close { expires_at } => PollAt::Time(expires_at),
         }
     }
@@ -154,8 +157,13 @@ impl Timer {
                 }
             }
             Timer::Retransmit { .. } => (),
+            Timer::FastRetransmit { .. } => (),
             Timer::Close { .. } => ()
         }
+    }
+
+    fn set_for_fast_retransmit(&mut self) {
+        *self = Timer::FastRetransmit
     }
 
     fn set_for_close(&mut self, timestamp: Instant) {
@@ -166,7 +174,7 @@ impl Timer {
 
     fn is_retransmit(&self) -> bool {
         match *self {
-            Timer::Retransmit {..} => true,
+            Timer::Retransmit {..} | Timer::FastRetransmit => true,
             _ => false,
         }
     }
@@ -226,6 +234,11 @@ pub struct TcpSocket<'a> {
     remote_mss:      usize,
     /// The timestamp of the last packet received.
     remote_last_ts:  Option<Instant>,
+    /// The ACK number of the last packet recived. 
+    local_rx_last_ack: Option<TcpSeqNumber>,
+    /// The number of packets recived directly after 
+    /// each other which have the same ACK number.
+    local_rx_dup_acks: u8,
 }
 
 const DEFAULT_MSS: usize = 536;
@@ -261,6 +274,8 @@ impl<'a> TcpSocket<'a> {
             remote_win_len:  0,
             remote_mss:      DEFAULT_MSS,
             remote_last_ts:  None,
+            local_rx_last_ack: None,
+            local_rx_dup_acks: 0,
         }
     }
 
@@ -872,12 +887,10 @@ impl<'a> TcpSocket<'a> {
             // Every acknowledgement must be for transmitted but unacknowledged data.
             (_, &TcpRepr { ack_number: Some(ack_number), .. }) => {
                 let unacknowledged = self.tx_buffer.len() + control_len;
-
                 if ack_number < self.local_seq_no {
                     net_debug!("{}:{}:{}: duplicate ACK ({} not in {}...{})",
                                self.meta.handle, self.local_endpoint, self.remote_endpoint,
                                ack_number, self.local_seq_no, self.local_seq_no + unacknowledged);
-                    // FIXME: implement fast retransmit
                     return Err(Error::Dropped)
                 }
 
@@ -887,6 +900,29 @@ impl<'a> TcpSocket<'a> {
                                ack_number, self.local_seq_no, self.local_seq_no + unacknowledged);
                     return Ok(Some(self.ack_reply(ip_repr, &repr)))
                 }
+
+                // 1. Check if duplicate ACK, and change self.local_rx_dup_acks accordingly
+                // 2. Update the last received ACK (self.local_rx_last_ack)
+                match self.local_rx_last_ack {
+                    // We have a duplicate ACK -> Increment dup ACKs count and 
+                    // set for retransmit if we just recived the third dup ACK
+                    Some(ref mut last_rx_ack) if *last_rx_ack == ack_number => {
+                        net_debug!("{}:{}:{}: duplicate ACK number {} for seq {}",
+                                 self.meta.handle, self.local_endpoint, self.remote_endpoint, 
+                                 self.local_rx_dup_acks, ack_number);
+                        self.local_rx_dup_acks += 1;
+                        if self.local_rx_dup_acks == 3 {
+                            self.timer.set_for_fast_retransmit();
+                            net_debug!("{}:{}:{}: set a fast retransmit for seq {}",
+                                     self.meta.handle, self.local_endpoint, self.remote_endpoint, ack_number);
+                        }
+                    },
+                    // We do not have a duplicate ACK -> Reset state
+                    _ => {
+                        self.local_rx_last_ack = Some(ack_number);
+                        self.local_rx_dup_acks = 1;
+                    }
+                };
             }
         }
 
@@ -3165,6 +3201,82 @@ mod test {
             payload:    &b"ABCDEF"[..],
             ..RECV_TEMPL
         }));
+    }
+
+    #[test]
+    fn test_fast_retransmit_after_triple_duplicate_ack() {
+        let mut s = socket_established();
+        s.remote_win_len = 6;
+        
+        s.send_slice(b"xxxxxxabcdef123456ABCDEFZYXWVU").unwrap();
+
+        recv!(s, time 1000, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"xxxxxx"[..],
+            ..RECV_TEMPL
+        }));
+        // This packet is lost
+        recv!(s, time 1005, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1 + 6,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"abcdef"[..],
+            ..RECV_TEMPL
+        }));
+        recv!(s, time 1010, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1 + 6 + 6,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"123456"[..],
+            ..RECV_TEMPL
+        }));
+        recv!(s, time 1015, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1 + 6 + 6 + 6,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"ABCDEF"[..],
+            ..RECV_TEMPL
+        }));
+        recv!(s, time 1020, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1 + 6 + 6 + 6 + 6,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"ZYXWVU"[..],
+            ..RECV_TEMPL
+        }));
+        // First ACK
+        send!(s, time 1025, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1 + 6),
+            window_len: 6,
+            ..SEND_TEMPL
+        });
+        // Second (duplicate) ACK
+        send!(s, time 1030, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1 + 6),
+            window_len: 6,
+            ..SEND_TEMPL
+        });
+        // Third (duplicate) ACK
+        // Should trigger a fast retransmit of dropped packet
+        send!(s, time 1035, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1 + 6),
+            window_len: 6,
+            ..SEND_TEMPL
+        });
+        // Fast retransmit packet
+        recv!(s, time 1040, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1 + 6,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"abcdef"[..],
+            ..RECV_TEMPL
+        }));
+        // ACK all recived segments
+        send!(s, time 1045, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1 + (6 * 5)),
+            window_len: 6,
+            ..SEND_TEMPL
+        });
     }
 
     // =========================================================================================//
