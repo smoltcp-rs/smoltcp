@@ -55,14 +55,14 @@ pub use self::set::{Iter as SocketSetIter, IterMut as SocketSetIterMut};
 pub use self::ref_::Ref as SocketRef;
 pub(crate) use self::ref_::Session as SocketSession;
 
-/// Gives an indication on when the socket should be polled
+/// Gives an indication on the next time the socket should be polled.
 #[derive(Debug, PartialOrd, Ord, PartialEq, Eq, Clone, Copy)]
 pub(crate) enum PollAt {
-    /// Should be polled immidiately
+    /// The socket needs to be polled immidiately.
     Now,
-    /// Should be polled at given [Instant][struct.Instant]
+    /// The socket needs to be polled at given [Instant][struct.Instant].
     Time(Instant),
-    /// Should be polled on incoming packet
+    /// The socket does not need to be polled unless there are external changes.
     Ingress,
 }
 
