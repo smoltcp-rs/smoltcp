@@ -105,19 +105,6 @@ impl<T: AsRef<[u8]>> Packet<T> {
     }
 }
 
-/// Setters for the Router Solicitation message header.
-/// See [RFC 4861 § 4.1].
-///
-/// [RFC 4861 § 4.1]: https://tools.ietf.org/html/rfc4861#section-4.1
-impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
-    /// Clear the reserved field.
-    #[inline]
-    pub fn clear_reserved(&mut self) {
-        let data = self.buffer.as_mut();
-        NetworkEndian::write_u32(&mut data[field::UNUSED], 0);
-    }
-}
-
 /// Setters for the Router Advertisement message header.
 /// See [RFC 4861 § 4.2].
 ///
