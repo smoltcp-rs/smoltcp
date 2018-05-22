@@ -91,6 +91,8 @@ mod ipv6option;
 mod ipv6hopbyhop;
 #[cfg(feature = "proto-ipv6")]
 mod ipv6fragment;
+#[cfg(feature = "proto-ipv6")]
+mod ipv6routing;
 #[cfg(feature = "proto-ipv4")]
 mod icmpv4;
 #[cfg(feature = "proto-ipv6")]
@@ -154,6 +156,10 @@ pub use self::ipv6hopbyhop::{Header as Ipv6HopByHopHeader,
 #[cfg(feature = "proto-ipv6")]
 pub use self::ipv6fragment::{Header as Ipv6FragmentHeader,
                              Repr as Ipv6FragmentRepr};
+
+#[cfg(feature = "proto-ipv6")]
+pub use self::ipv6routing::{Header as Ipv6RoutingHeader,
+                            Repr as Ipv6RoutingRepr};
 
 #[cfg(feature = "proto-ipv4")]
 pub use self::icmpv4::{Message as Icmpv4Message,
