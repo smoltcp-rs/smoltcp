@@ -1,8 +1,8 @@
 use core::fmt;
 use {Error, Result};
 
-pub use super::IpProtocol as Protocol;
-pub use super::Ipv6Address as Address;
+use super::IpProtocol as Protocol;
+use super::Ipv6Address as Address;
 
 enum_with_unknown! {
     /// IPv6 Extension Routing Header Routing Type
@@ -315,7 +315,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Header<T> {
                 data[7] = 0;
             }
 
-            _ => {}
+            _ => panic!("Unrecognized routing type when clearing reserved fields.")
         }
     }
 }
