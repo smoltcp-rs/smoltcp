@@ -9,7 +9,7 @@ enum_with_unknown! {
     pub doc enum Type(u8) {
         /// Source Route (DEPRECATED)
         ///
-        /// See http://www.iana.org/go/rfc5095 for details.
+        /// See https://tools.ietf.org/html/rfc5095 for details.
         Type0 = 0,
         /// Nimrod (DEPRECATED 2009-05-06)
         Nimrod = 1,
@@ -19,15 +19,15 @@ enum_with_unknown! {
         Type2 = 2,
         /// RPL Source Routing Header
         ///
-        /// See http://www.iana.org/go/rfc6554 for details.
+        /// See https://tools.ietf.org/html/rfc6554 for details.
         Rpl = 3,
         /// RFC3692-style Experiment 1
         ///
-        /// See http://www.iana.org/go/rfc4727 for details.
+        /// See https://tools.ietf.org/html/rfc4727 for details.
         Experiment1 = 253,
         /// RFC3692-style Experiment 2
         ///
-        /// See http://www.iana.org/go/rfc4727 for details.
+        /// See https://tools.ietf.org/html/rfc4727 for details.
         Experiment2 = 254,
         /// Reserved for future use
         Reserved = 252
@@ -208,7 +208,10 @@ impl<T: AsRef<[u8]>> Header<T> {
         let data = self.buffer.as_ref();
         data[field::SEG_LEFT]
     }
+}
 
+/// Getter methods for the Type 2 Routing Header routing type.
+impl<T: AsRef<[u8]>> Header<T> {
     /// Return the IPv6 Home Address
     ///
     /// # Panics
@@ -217,7 +220,10 @@ impl<T: AsRef<[u8]>> Header<T> {
         let data = self.buffer.as_ref();
         Address::from_bytes(&data[field::HOME_ADDRESS])
     }
+}
 
+/// Getter methods for the RPL Source Routing Header routing type.
+impl<T: AsRef<[u8]>> Header<T> {
     /// Return the number of prefix octects elided from addresses[1..n-1].
     ///
     /// # Panics
@@ -226,6 +232,7 @@ impl<T: AsRef<[u8]>> Header<T> {
         let data = self.buffer.as_ref();
         data[field::CMPR] >> 4
     }
+
 
     /// Return the number of prefix octects elided from the last address (addresses[n]).
     ///
@@ -252,15 +259,6 @@ impl<T: AsRef<[u8]>> Header<T> {
     pub fn addresses(&self) -> &[u8] {
         let data = self.buffer.as_ref();
         &data[field::ADDRESSES(data[field::LENGTH])]
-    }
-}
-
-impl<'a, T: AsRef<[u8]> + ?Sized> Header<&'a T> {
-    /// Return type specific data
-    #[inline]
-    pub fn data(&self) -> &'a[u8] {
-        let data = self.buffer.as_ref();
-        &data[field::DATA(data[field::LENGTH])]
     }
 }
 
@@ -320,7 +318,10 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Header<T> {
             _ => {}
         }
     }
+}
 
+/// Setter methods for the RPL Source Routing Header routing type.
+impl<T: AsRef<[u8]> + AsMut<[u8]>> Header<T> {
     /// Set the Ipv6 Home Address
     ///
     /// # Panics
@@ -329,7 +330,10 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Header<T> {
         let data = self.buffer.as_mut();
         data[field::HOME_ADDRESS].copy_from_slice(value.as_bytes());
     }
+}
 
+/// Setter methods for the RPL Source Routing Header routing type.
+impl<T: AsRef<[u8]> + AsMut<[u8]>> Header<T> {
     /// Set the number of prefix octects elided from addresses[1..n-1].
     ///
     /// # Panics
@@ -368,16 +372,6 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Header<T> {
         let len = data[field::LENGTH];
         let addresses = &mut data[field::ADDRESSES(len)];
         addresses.copy_from_slice(value);
-    }
-}
-
-impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Header<&'a mut T> {
-    /// Return a mutable pointer to the option data.
-    #[inline]
-    pub fn data_mut(&mut self) -> &mut [u8] {
-        let data = self.buffer.as_mut();
-        let len = data[field::LENGTH];
-        &mut data[field::DATA(len)]
     }
 }
 
@@ -612,14 +606,14 @@ mod test {
         assert_eq!(header.header_len(), 4);
         assert_eq!(header.routing_type(), Type::Rpl);
         assert_eq!(header.segments_left(), 2);
-        assert_eq!(header.data(), &BYTES_SRH_FULL[4..]);
+        assert_eq!(header.addresses(), &BYTES_SRH_FULL[8..]);
 
         let header = Header::new(&BYTES_SRH_ELIDED[..]);
         assert_eq!(header.next_header(), Protocol::Tcp);
         assert_eq!(header.header_len(), 1);
         assert_eq!(header.routing_type(), Type::Rpl);
         assert_eq!(header.segments_left(), 2);
-        assert_eq!(header.data(), &BYTES_SRH_ELIDED[4..]);
+        assert_eq!(header.addresses(), &BYTES_SRH_ELIDED[8..]);
     }
 
     #[test]
