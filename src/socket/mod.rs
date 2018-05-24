@@ -17,7 +17,7 @@ use time::Instant;
 mod meta;
 #[cfg(feature = "socket-raw")]
 mod raw;
-#[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
+#[cfg(all(feature = "socket-icmp", any(feature = "proto-ipv4", feature = "proto-ipv6")))]
 mod icmp;
 #[cfg(feature = "socket-udp")]
 mod udp;
@@ -33,7 +33,7 @@ pub use self::raw::{RawPacketMetadata,
                     RawSocketBuffer,
                     RawSocket};
 
-#[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
+#[cfg(all(feature = "socket-icmp", any(feature = "proto-ipv4", feature = "proto-ipv6")))]
 pub use self::icmp::{IcmpPacketMetadata,
                      IcmpSocketBuffer,
                      Endpoint as IcmpEndpoint,
@@ -55,6 +55,27 @@ pub use self::set::{Iter as SocketSetIter, IterMut as SocketSetIterMut};
 pub use self::ref_::Ref as SocketRef;
 pub(crate) use self::ref_::Session as SocketSession;
 
+/// Gives an indication on the next time the socket should be polled.
+#[derive(Debug, PartialOrd, Ord, PartialEq, Eq, Clone, Copy)]
+pub(crate) enum PollAt {
+    /// The socket needs to be polled immidiately.
+    Now,
+    /// The socket needs to be polled at given [Instant][struct.Instant].
+    Time(Instant),
+    /// The socket does not need to be polled unless there are external changes.
+    Ingress,
+}
+
+impl PollAt {
+    #[cfg(feature = "socket-tcp")]
+    fn is_ingress(&self) -> bool {
+        match self {
+            &PollAt::Ingress => true,
+            _ => false,
+        }
+    }
+}
+
 /// A network socket.
 ///
 /// This enumeration abstracts the various types of sockets based on the IP protocol.
@@ -69,7 +90,7 @@ pub(crate) use self::ref_::Session as SocketSession;
 pub enum Socket<'a, 'b: 'a> {
     #[cfg(feature = "socket-raw")]
     Raw(RawSocket<'a, 'b>),
-    #[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
+    #[cfg(all(feature = "socket-icmp", any(feature = "proto-ipv4", feature = "proto-ipv6")))]
     Icmp(IcmpSocket<'a, 'b>),
     #[cfg(feature = "socket-udp")]
     Udp(UdpSocket<'a, 'b>),
@@ -90,7 +111,7 @@ macro_rules! dispatch_socket {
         match $self_ {
             #[cfg(feature = "socket-raw")]
             &$( $mut_ )* Socket::Raw(ref $( $mut_ )* $socket) => $code,
-            #[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
+            #[cfg(all(feature = "socket-icmp", any(feature = "proto-ipv4", feature = "proto-ipv6")))]
             &$( $mut_ )* Socket::Icmp(ref $( $mut_ )* $socket) => $code,
             #[cfg(feature = "socket-udp")]
             &$( $mut_ )* Socket::Udp(ref $( $mut_ )* $socket) => $code,
@@ -116,7 +137,7 @@ impl<'a, 'b> Socket<'a, 'b> {
         dispatch_socket!(mut self, |socket| &mut socket.meta)
     }
 
-    pub(crate) fn poll_at(&self) -> Option<Instant> {
+    pub(crate) fn poll_at(&self) -> PollAt {
         dispatch_socket!(self, |socket| socket.poll_at())
     }
 }
@@ -149,7 +170,7 @@ macro_rules! from_socket {
 
 #[cfg(feature = "socket-raw")]
 from_socket!(RawSocket<'a, 'b>, Raw);
-#[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
+#[cfg(all(feature = "socket-icmp", any(feature = "proto-ipv4", feature = "proto-ipv6")))]
 from_socket!(IcmpSocket<'a, 'b>, Icmp);
 #[cfg(feature = "socket-udp")]
 from_socket!(UdpSocket<'a, 'b>, Udp);

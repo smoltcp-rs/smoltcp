@@ -10,6 +10,9 @@ readme = "README.md"
 keywords = ["ip", "tcp", "udp", "ethernet", "network"]
 categories = ["embedded"]
 license = "0BSD"
+# Each example should have an explicit `[[example]]` section here to
+# ensure that the correct features are enabled.
+autoexamples = false
 
 [dependencies]
 managed = { version = "0.5", default-features = false, features = ["map"] }
@@ -54,11 +57,11 @@ required-features = ["std", "phy-raw_socket", "proto-ipv4"]
 
 [[example]]
 name = "httpclient"
-required-features = ["std", "phy-tap_interface", "proto-ipv4", "socket-tcp"]
+required-features = ["std", "phy-tap_interface", "proto-ipv4", "proto-ipv6", "socket-tcp"]
 
 [[example]]
 name = "ping"
-required-features = ["std", "phy-tap_interface", "proto-ipv4", "socket-icmp"]
+required-features = ["std", "phy-tap_interface", "proto-ipv4", "proto-ipv6", "socket-icmp"]
 
 [[example]]
 name = "server"

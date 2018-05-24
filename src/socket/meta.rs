@@ -1,5 +1,5 @@
 use wire::IpAddress;
-use super::SocketHandle;
+use super::{SocketHandle, PollAt};
 use time::{Duration, Instant};
 
 /// Neighbor dependency.
@@ -44,7 +44,7 @@ impl Meta {
     /// See also `iface::NeighborCache::SILENT_TIME`.
     pub(crate) const DISCOVERY_SILENT_TIME: Duration = Duration { millis: 3_000 };
 
-    pub(crate) fn poll_at<F>(&self, socket_poll_at: Option<Instant>, has_neighbor: F) -> Option<Instant>
+    pub(crate) fn poll_at<F>(&self, socket_poll_at: PollAt, has_neighbor: F) -> PollAt 
         where F: Fn(IpAddress) -> bool
     {
         match self.neighbor_state {
@@ -54,7 +54,7 @@ impl Meta {
                     if has_neighbor(neighbor) =>
                 socket_poll_at,
             NeighborState::Waiting { silent_until, .. } =>
-                Some(silent_until)
+                PollAt::Time(silent_until)
         }
     }
 
@@ -78,7 +78,7 @@ impl Meta {
     }
 
     pub(crate) fn neighbor_missing(&mut self, timestamp: Instant, neighbor: IpAddress) {
-        net_trace!("{}: neighbor {} missing, silencing until t+{}ms",
+        net_trace!("{}: neighbor {} missing, silencing until t+{}",
                    self.handle, neighbor, Self::DISCOVERY_SILENT_TIME);
         self.neighbor_state = NeighborState::Waiting {
             neighbor, silent_until: timestamp + Self::DISCOVERY_SILENT_TIME

@@ -311,13 +311,13 @@ mod test {
     #[test]
     #[should_panic(expected = "overflow when subtracting durations")]
     fn test_sub_from_zero_overflow() {
-        Duration::from_millis(0) - Duration::from_millis(1);
+        let _ = Duration::from_millis(0) - Duration::from_millis(1);
     }
 
     #[test]
     #[should_panic(expected = "attempt to divide by zero")]
     fn test_div_by_zero() {
-        Duration::from_millis(4) / 0;
+        let _ = Duration::from_millis(4) / 0;
     }
 
     #[test]

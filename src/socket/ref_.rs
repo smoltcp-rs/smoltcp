@@ -2,7 +2,7 @@ use core::ops::{Deref, DerefMut};
 
 #[cfg(feature = "socket-raw")]
 use socket::RawSocket;
-#[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
+#[cfg(all(feature = "socket-icmp", any(feature = "proto-ipv4", feature = "proto-ipv6")))]
 use socket::IcmpSocket;
 #[cfg(feature = "socket-udp")]
 use socket::UdpSocket;
@@ -21,7 +21,7 @@ pub trait Session {
 
 #[cfg(feature = "socket-raw")]
 impl<'a, 'b> Session for RawSocket<'a, 'b> {}
-#[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
+#[cfg(all(feature = "socket-icmp", any(feature = "proto-ipv4", feature = "proto-ipv6")))]
 impl<'a, 'b> Session for IcmpSocket<'a, 'b> {}
 #[cfg(feature = "socket-udp")]
 impl<'a, 'b> Session for UdpSocket<'a, 'b> {}
