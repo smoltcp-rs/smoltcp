@@ -3830,31 +3830,23 @@ mod test {
     #[test]
     fn test_buffer_wraparound_tx() {
         let mut s = socket_established();
-        s.tx_buffer = SocketBuffer::new(vec![0; 6]);
-        assert_eq!(s.send_slice(b"abc"), Ok(3));
+        s.tx_buffer = SocketBuffer::new(vec![b'.'; 9]);
+        assert_eq!(s.send_slice(b"xxxyyy"), Ok(6));
+        assert_eq!(s.tx_buffer.dequeue_many(3), &b"xxx"[..]);
+        assert_eq!(s.tx_buffer.len(), 3);
+
+        // "abcdef" not contiguous in tx buffer
+        assert_eq!(s.send_slice(b"abcdef"), Ok(6));
         recv!(s, Ok(TcpRepr {
             seq_number: LOCAL_SEQ + 1,
             ack_number: Some(REMOTE_SEQ + 1),
-            payload:    &b"abc"[..],
+            payload:    &b"yyyabc"[..],
             ..RECV_TEMPL
         }));
-        send!(s, TcpRepr {
-            seq_number: REMOTE_SEQ + 1,
-            ack_number: Some(LOCAL_SEQ + 1 + 3),
-            ..SEND_TEMPL
-        });
-        assert_eq!(s.send_slice(b"defghi"), Ok(6));
         recv!(s, Ok(TcpRepr {
-            seq_number: LOCAL_SEQ + 1 + 3,
+            seq_number: LOCAL_SEQ + 1 + 6,
             ack_number: Some(REMOTE_SEQ + 1),
             payload:    &b"def"[..],
-            ..RECV_TEMPL
-        }));
-        // "defghi" not contiguous in tx buffer
-        recv!(s, Ok(TcpRepr {
-            seq_number: LOCAL_SEQ + 1 + 3 + 3,
-            ack_number: Some(REMOTE_SEQ + 1),
-            payload:    &b"ghi"[..],
             ..RECV_TEMPL
         }));
     }

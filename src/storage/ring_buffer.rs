@@ -170,6 +170,12 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
     /// than the size of the slice passed into it.
     pub fn enqueue_many_with<'b, R, F>(&'b mut self, f: F) -> (usize, R)
             where F: FnOnce(&'b mut [T]) -> (usize, R) {
+        if self.length == 0 {
+            // Ring is currently empty. Reset `read_at` to optimize
+            // for contiguous space.
+            self.read_at = 0;
+        }
+
         let write_at = self.get_idx(self.length);
         let max_size = self.contiguous_window();
         let (size, result) = f(&mut self.storage[write_at..write_at + max_size]);
@@ -659,13 +665,13 @@ mod test {
         ring.dequeue_many(6).copy_from_slice(b"ABCDEF");
 
         assert_eq!(ring.write_unallocated(0, b"ghi"), 3);
-        assert_eq!(&ring.storage[..], b"ABCDEFghi...");
+        assert_eq!(ring.get_unallocated(0, 3), b"ghi");
 
         assert_eq!(ring.write_unallocated(3, b"jklmno"), 6);
-        assert_eq!(&ring.storage[..], b"mnoDEFghijkl");
+        assert_eq!(ring.get_unallocated(3, 3), b"jkl");
 
         assert_eq!(ring.write_unallocated(9, b"pqrstu"), 3);
-        assert_eq!(&ring.storage[..], b"mnopqrghijkl");
+        assert_eq!(ring.get_unallocated(9, 3), b"pqr");
     }
 
     #[test]
@@ -720,5 +726,21 @@ mod test {
         assert_eq!(no_capacity.enqueue_many(0), &[]);
         assert_eq!(no_capacity.enqueue_one(), Err(Error::Exhausted));
         assert_eq!(no_capacity.contiguous_window(), 0);
+    }
+
+    /// Use the buffer a bit. Then empty it and put in an item of
+    /// maximum size. By detecting a length of 0, the implementation
+    /// can reset the current buffer position.
+    #[test]
+    fn test_buffer_write_wholly() {
+        let mut ring = RingBuffer::new(vec![b'.'; 8]);
+        ring.enqueue_many(2).copy_from_slice(b"xx");
+        ring.enqueue_many(2).copy_from_slice(b"xx");
+        assert_eq!(ring.len(), 4);
+        ring.dequeue_many(4);
+        assert_eq!(ring.len(), 0);
+
+        let large = ring.enqueue_many(8);
+        assert_eq!(large.len(), 8);
     }
 }
