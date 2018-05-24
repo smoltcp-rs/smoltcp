@@ -102,8 +102,6 @@ mod icmp;
 #[cfg(feature = "proto-ipv4")]
 mod igmp;
 #[cfg(feature = "proto-ipv6")]
-mod ndisc;
-#[cfg(feature = "proto-ipv6")]
 mod ndiscoption;
 mod udp;
 mod tcp;
@@ -186,18 +184,9 @@ pub use self::icmpv6::{Message as Icmpv6Message,
 pub use self::icmp::Repr as IcmpRepr;
 
 #[cfg(feature = "proto-ipv6")]
-pub use self::icmpv6::{RouterFlags as NdiscRouterFlags,
-                       NeighborFlags as NdiscNeighborFlags};
-
-#[cfg(feature = "proto-ipv6")]
-pub use self::ndisc::Repr as NdiscRepr;
-
-#[cfg(feature = "proto-ipv6")]
 pub use self::ndiscoption::{NdiscOption,
                             Repr as NdiscOptionRepr,
                             Type as NdiscOptionType,
-                            PrefixInformation as NdiscPrefixInformation,
-                            RedirectedHeader as NdiscRedirectedHeader,
                             PrefixInfoFlags as NdiscPrefixInfoFlags};
 
 pub use self::udp::{Packet as UdpPacket,

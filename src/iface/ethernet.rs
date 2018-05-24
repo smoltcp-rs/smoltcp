@@ -41,15 +41,16 @@ use socket::UdpSocket;
 #[cfg(feature = "socket-tcp")]
 use socket::TcpSocket;
 use super::{NeighborCache, NeighborAnswer};
+use super::FragmentSet;
 
 /// An Ethernet network interface.
 ///
 /// The network interface logically owns a number of other data structures; to avoid
 /// a dependency on heap allocation, it instead owns a `BorrowMut<[T]>`, which can be
 /// a `&mut [T]`, or `Vec<T>` if a heap is available.
-pub struct Interface<'b, 'c, DeviceT: for<'d> Device<'d>> {
+pub struct Interface<'b, 'c, 'e, DeviceT: for<'d> Device<'d>> {
     device: DeviceT,
-    inner:  InterfaceInner<'b, 'c>,
+    inner:  InterfaceInner<'b, 'c, 'e>,
 }
 
 /// The device independent part of an Ethernet network interface.
@@ -59,7 +60,7 @@ pub struct Interface<'b, 'c, DeviceT: for<'d> Device<'d>> {
 /// the `device` mutably until they're used, which makes it impossible to call other
 /// methods on the `Interface` in this time (since its `device` field is borrowed
 /// exclusively). However, it is still possible to call methods on its `inner` field.
-struct InterfaceInner<'b, 'c> {
+struct InterfaceInner<'b, 'c, 'e> {
     neighbor_cache:         NeighborCache<'b>,
     ethernet_addr:          EthernetAddress,
     ip_addrs:               ManagedSlice<'c, IpCidr>,
@@ -68,22 +69,24 @@ struct InterfaceInner<'b, 'c> {
     #[cfg(feature = "proto-ipv6")]
     ipv6_gateway:           Option<Ipv6Address>,
     device_capabilities:    DeviceCapabilities,
+    fragments:              Option<FragmentSet<'e>>,
 }
 
 /// A builder structure used for creating a Ethernet network
 /// interface.
-pub struct InterfaceBuilder <'b, 'c, DeviceT: for<'d> Device<'d>> {
+pub struct InterfaceBuilder <'b, 'c, 'e, DeviceT: for<'d> Device<'d>> {
     device:              DeviceT,
     ethernet_addr:       Option<EthernetAddress>,
     neighbor_cache:      Option<NeighborCache<'b>>,
     ip_addrs:            ManagedSlice<'c, IpCidr>,
+    fragments:           Option<FragmentSet<'e>>,
     #[cfg(feature = "proto-ipv4")]
     ipv4_gateway:        Option<Ipv4Address>,
     #[cfg(feature = "proto-ipv6")]
     ipv6_gateway:        Option<Ipv6Address>,
 }
 
-impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
+impl<'b, 'c, 'e, DeviceT> InterfaceBuilder<'b, 'c, 'e, DeviceT>
         where DeviceT: for<'d> Device<'d> {
     /// Create a builder used for creating a network interface using the
     /// given device and address.
@@ -110,7 +113,7 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
     ///         .ip_addrs(ip_addrs)
     ///         .finalize();
     /// ```
-    pub fn new(device: DeviceT) -> InterfaceBuilder<'b, 'c, DeviceT> {
+    pub fn new(device: DeviceT) -> InterfaceBuilder<'b, 'c, 'e, DeviceT> {
         InterfaceBuilder {
             device:              device,
             ethernet_addr:       None,
@@ -118,6 +121,7 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
             ip_addrs:            ManagedSlice::Borrowed(&mut []),
             #[cfg(feature = "proto-ipv4")]
             ipv4_gateway:        None,
+            fragments:        None,
             #[cfg(feature = "proto-ipv6")]
             ipv6_gateway:        None,
         }
@@ -130,7 +134,7 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
     /// This function panics if the address is not unicast.
     ///
     /// [ethernet_addr]: struct.EthernetInterface.html#method.ethernet_addr
-    pub fn ethernet_addr(mut self, addr: EthernetAddress) -> InterfaceBuilder<'b, 'c, DeviceT> {
+    pub fn ethernet_addr(mut self, addr: EthernetAddress) -> InterfaceBuilder<'b, 'c, 'e, DeviceT> {
         InterfaceInner::check_ethernet_addr(&addr);
         self.ethernet_addr = Some(addr);
         self
@@ -143,7 +147,7 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
     /// This function panics if any of the addresses are not unicast.
     ///
     /// [ip_addrs]: struct.EthernetInterface.html#method.ip_addrs
-    pub fn ip_addrs<T>(mut self, ip_addrs: T) -> InterfaceBuilder<'b, 'c, DeviceT>
+    pub fn ip_addrs<T>(mut self, ip_addrs: T) -> InterfaceBuilder<'b, 'c, 'e, DeviceT>
         where T: Into<ManagedSlice<'c, IpCidr>>
     {
         let ip_addrs = ip_addrs.into();
@@ -160,7 +164,7 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
     ///
     /// [ipv4_gateway]: struct.EthernetInterface.html#method.ipv4_gateway
     #[cfg(feature = "proto-ipv4")]
-    pub fn ipv4_gateway<T>(mut self, gateway: T) -> InterfaceBuilder<'b, 'c, DeviceT>
+    pub fn ipv4_gateway<T>(mut self, gateway: T) -> InterfaceBuilder<'b, 'c, 'e, DeviceT>
         where T: Into<Ipv4Address>
     {
         let addr = gateway.into();
@@ -188,8 +192,16 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
 
     /// Set the Neighbor Cache the interface will use.
     pub fn neighbor_cache(mut self, neighbor_cache: NeighborCache<'b>) ->
-                         InterfaceBuilder<'b, 'c, DeviceT> {
+                         InterfaceBuilder<'b, 'c, 'e, DeviceT> {
         self.neighbor_cache = Some(neighbor_cache);
+        self
+    }
+
+    /// Set the fragment set
+    #[cfg(feature = "fragmentation-ipv4")]
+    pub fn fragments_set(mut self, fragments: FragmentSet<'e>) ->
+                        InterfaceBuilder<'b, 'c, 'e, DeviceT> {
+        self.fragments = Some(fragments);
         self
     }
 
@@ -204,7 +216,7 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
     ///
     /// [ethernet_addr]: #method.ethernet_addr
     /// [neighbor_cache]: #method.neighbor_cache
-    pub fn finalize(self) -> Interface<'b, 'c, DeviceT> {
+    pub fn finalize(self) -> Interface<'b, 'c, 'e, DeviceT> {
         match (self.ethernet_addr, self.neighbor_cache) {
             (Some(ethernet_addr), Some(neighbor_cache)) => {
                 let device_capabilities = self.device.capabilities();
@@ -215,6 +227,7 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
                         ip_addrs: self.ip_addrs,
                         #[cfg(feature = "proto-ipv4")]
                         ipv4_gateway: self.ipv4_gateway,
+                        fragments: self.fragments,
                         #[cfg(feature = "proto-ipv6")]
                         ipv6_gateway: self.ipv6_gateway,
                     }
@@ -275,7 +288,7 @@ fn icmp_reply_payload_len(len: usize, mtu: usize, header_len: usize) -> usize {
     cmp::min(len, mtu - header_len * 2 - 8)
 }
 
-impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
+impl<'b, 'c, 'e, DeviceT> Interface<'b, 'c, 'e, DeviceT>
         where DeviceT: for<'d> Device<'d> {
     /// Get the Ethernet address of the interface.
     pub fn ethernet_addr(&self) -> EthernetAddress {
@@ -424,7 +437,9 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
                 Some(tokens) => tokens,
             };
             rx_token.consume(timestamp, |frame| {
-                inner.process_ethernet(sockets, timestamp, &frame).map_err(|err| {
+                let mut fragments = ::core::mem::replace(&mut inner.fragments, None);
+                // this corresponds to `let mut fragments = inner.fragments; && inner.fragments = None;`
+                let r = inner.process_ethernet(sockets, timestamp, &frame, &mut fragments).map_err(|err| {
                     net_debug!("cannot process ingress packet: {}", err);
                     net_debug!("packet dump follows:\n{}",
                                PrettyPrinter::<EthernetFrame<&[u8]>>::new("", &frame));
@@ -435,7 +450,10 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
                         net_debug!("cannot dispatch response packet: {}", err);
                         err
                     })
-                })
+                });
+                // Restore inner.fragments
+                inner.fragments = fragments;
+                r
             })?;
         }
         Ok(processed_any)
@@ -520,7 +538,7 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
     }
 }
 
-impl<'b, 'c> InterfaceInner<'b, 'c> {
+impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
     fn check_ethernet_addr(addr: &EthernetAddress) {
         if addr.is_multicast() {
             panic!("Ethernet address {} is not unicast", addr)
@@ -574,9 +592,10 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         self.ip_addrs.iter().any(|probe| probe.address() == addr)
     }
 
-    fn process_ethernet<'frame, T: AsRef<[u8]>>
-                       (&mut self, sockets: &mut SocketSet, timestamp: Instant, frame: &'frame T) ->
-                       Result<Packet<'frame>>
+    fn process_ethernet<'frame, 'r: 'frame, T: AsRef<[u8]>>
+                       (&mut self, sockets: &mut SocketSet, timestamp: Instant,
+                        frame: &'frame T, fragments: &'r mut Option<FragmentSet<'e>>) ->
+                        Result<Packet<'frame>>
     {
         let eth_frame = EthernetFrame::new_checked(frame)?;
 
@@ -593,7 +612,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
                 self.process_arp(timestamp, &eth_frame),
             #[cfg(feature = "proto-ipv4")]
             EthernetProtocol::Ipv4 =>
-                self.process_ipv4(sockets, timestamp, &eth_frame),
+                self.process_ipv4(sockets, timestamp, &eth_frame, fragments),
             #[cfg(feature = "proto-ipv6")]
             EthernetProtocol::Ipv6 =>
                 self.process_ipv6(sockets, timestamp, &eth_frame),
@@ -728,14 +747,102 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
         }
     }
 
+    /// Process an IPv4 fragment
+    /// Returns etiher an assembled packet, or nothing (if no packet is available),
+    /// or an error caused by processing a packet.
+    #[cfg(feature = "fragmentation-ipv4")]
+    fn process_ipv4_fragment<'frame, 'r>
+            (&mut self,
+              ipv4_packet: Ipv4Packet<&'frame [u8]>,
+                        timestamp: Instant,
+              fragments: &'r mut Option<FragmentSet<'e>>
+            ) ->
+                     Result<Option<Ipv4Packet<&'r [u8]>>> 
+    {
+        match *fragments {
+            Some(ref mut fragments) => {
+                // get an existing fragment or attempt to get a new one
+                let fragment = match fragments.get_packet(ipv4_packet.ident(),
+                                                          ipv4_packet.src_addr(),
+                                                          ipv4_packet.dst_addr(),
+                                                          timestamp) {
+                    Some(frag) => frag,
+                    None => return Err(Error::FragmentSetFull),
+                };
+
+                if fragment.is_empty() {
+                    // this is a new packet
+                    fragment.start(ipv4_packet.ident(),
+                                   ipv4_packet.src_addr(),
+                                   ipv4_packet.dst_addr());
+                }
+
+                if !ipv4_packet.more_frags() {
+                    // last fragment, remember data length
+                    fragment.set_total_len(ipv4_packet.frag_offset() as usize +
+                                           ipv4_packet.total_len() as usize);
+                }
+
+                match fragment.add(ipv4_packet.header_len() as usize,
+                             ipv4_packet.frag_offset() as usize,
+                             ipv4_packet.payload().len(),
+                             ipv4_packet.into_inner(),
+                             timestamp) {
+                    Ok(_) => {},
+                    Err(_) => {
+                        fragment.reset();
+                        return Err(Error::TooManyFragments);
+                    }
+                }
+
+                if fragment.check_contig_range() {
+                    // this is the last packet, attempt reassembly
+                    let front = fragment.front().unwrap();
+                    {
+                        // because the different mutability of the underlying buffers, we have to do this exercise
+                        let mut ipv4_packet = Ipv4Packet::new_checked(fragment.get_buffer_mut(0,front))?;
+                        ipv4_packet.set_total_len(front as u16);
+                        ipv4_packet.fill_checksum();
+                    }
+                    return Ok(Some(Ipv4Packet::new_checked(fragment.get_buffer(0,front))?));
+                }
+
+                // not the last fragment
+                return Ok(None);
+            },
+            None => {
+                return Err(Error::NoFragmentSet);
+            }
+        }
+    }
+
     #[cfg(feature = "proto-ipv4")]
-    fn process_ipv4<'frame, T: AsRef<[u8]>>
+    fn process_ipv4<'frame, 'r : 'frame, T: AsRef<[u8]>>
                    (&mut self, sockets: &mut SocketSet, timestamp: Instant,
-                    eth_frame: &EthernetFrame<&'frame T>) ->
+                    eth_frame: &EthernetFrame<&'frame T>,
+                    _fragments: &'r mut Option<FragmentSet<'e>>
+                   ) ->
                    Result<Packet<'frame>>
     {
-        let ipv4_packet = Ipv4Packet::new_checked(eth_frame.payload())?;
+        let ipv4_packet_in = Ipv4Packet::new_checked(eth_frame.payload())?;
         let checksum_caps = self.device_capabilities.checksum.clone();
+
+        let ipv4_packet;
+        if ipv4_packet_in.more_frags() || ipv4_packet_in.frag_offset() > 0{
+            #[cfg(feature = "fragmentation-ipv4")]
+            match self.process_ipv4_fragment(ipv4_packet_in, timestamp, _fragments)? {
+                Some(assembled_packet) => {
+                    ipv4_packet = assembled_packet;
+                },
+                None => return Ok(Packet::None),
+            }
+            #[cfg(not(feature = "fragmentation-ipv4"))]
+            return Err(Error::Fragmented)
+        } else {
+            // non-fragmented packet
+            ipv4_packet = ipv4_packet_in;
+        }
+
         let ipv4_repr = Ipv4Repr::parse(&ipv4_packet, &checksum_caps)?;
 
         if !ipv4_repr.src_addr.is_unicast() {
@@ -1367,7 +1474,7 @@ mod test {
     use wire::{EthernetAddress, EthernetFrame, EthernetProtocol};
     use wire::{IpAddress, IpCidr, IpProtocol, IpRepr};
     #[cfg(feature = "proto-ipv4")]
-    use wire::{Ipv4Address, Ipv4Repr};
+    use wire::{Ipv4Address, Ipv4Repr, Ipv4Packet};
     #[cfg(feature = "proto-ipv4")]
     use wire::{Icmpv4Repr, Icmpv4DstUnreachable};
     #[cfg(all(feature = "socket-udp", feature = "proto-ipv4"))]
@@ -1378,10 +1485,10 @@ mod test {
     use wire::{Icmpv6Packet, Icmpv6Repr, Icmpv6ParamProblem};
     #[cfg(feature = "proto-ipv6")]
     use wire::{NdiscNeighborFlags, NdiscRepr};
-
+    use iface::{FragmentSet,FragmentedPacket};
     use super::Packet;
 
-    fn create_loopback<'a, 'b>() -> (EthernetInterface<'static, 'b, Loopback>,
+    fn create_loopback<'a, 'b, 'e>() -> (EthernetInterface<'static, 'b, 'e, Loopback>,
                                      SocketSet<'static, 'a, 'b>) {
         // Create a basic device
         let device = Loopback::new();
@@ -1451,7 +1558,7 @@ mod test {
         // Ensure that the unknown protocol frame does not trigger an
         // ICMP error response when the destination address is a
         // broadcast address
-        assert_eq!(iface.inner.process_ipv4(&mut socket_set, Instant::from_millis(0), &frame),
+        assert_eq!(iface.inner.process_ipv4(&mut socket_set, Instant::from_millis(0), &frame, &mut None),
                    Ok(Packet::None));
     }
 
@@ -1509,7 +1616,7 @@ mod test {
 
         // Ensure that the unknown protocol triggers an error response.
         // And we correctly handle no payload.
-        assert_eq!(iface.inner.process_ipv4(&mut socket_set, Instant::from_millis(0), &frame),
+        assert_eq!(iface.inner.process_ipv4(&mut socket_set, Instant::from_millis(0), &frame, &mut None),
                    Ok(expected_repr));
     }
 
@@ -1743,7 +1850,7 @@ mod test {
         }
 
         // Ensure an ARP Request for us triggers an ARP Reply
-        assert_eq!(iface.inner.process_ethernet(&mut socket_set, Instant::from_millis(0), frame.into_inner()),
+        assert_eq!(iface.inner.process_ethernet(&mut socket_set, Instant::from_millis(0), frame.into_inner(), &mut None),
                    Ok(Packet::Arp(ArpRepr::EthernetIpv4 {
                        operation: ArpOperation::Reply,
                        source_hardware_addr: local_hw_addr,
@@ -1845,7 +1952,7 @@ mod test {
         }
 
         // Ensure an ARP Request for someone else does not trigger an ARP Reply
-        assert_eq!(iface.inner.process_ethernet(&mut socket_set, Instant::from_millis(0), frame.into_inner()),
+        assert_eq!(iface.inner.process_ethernet(&mut socket_set, Instant::from_millis(0), frame.into_inner(), &mut None),
                    Ok(Packet::None));
 
         // Ensure the address of the requestor was entered in the cache
@@ -1991,5 +2098,206 @@ mod test {
             &IpAddress::Ipv6(Ipv6Address::LOOPBACK),
             &IpAddress::Ipv6(remote_ip_addr)),
             Ok((remote_hw_addr, MockTxToken)));
+    }
+
+   #[cfg(feature = "std")]
+   use std::vec::Vec;
+   fn create_loopback_with_fragments<'a, 'b>() -> (EthernetInterface<'static, 'b, 'static, Loopback>,
+                                     Vec<u8>, Vec<u8>, Vec<u8>) {
+        // Create a basic device
+        let device = Loopback::new();
+        let ip_addrs = [
+            #[cfg(feature = "proto-ipv4")]
+            IpCidr::new(IpAddress::v4(127, 0, 0, 1), 8),
+            #[cfg(feature = "proto-ipv6")]
+            IpCidr::new(IpAddress::v6(0, 0, 0, 0, 0, 0, 0, 1), 128)
+        ];
+
+        // A simple fragments set
+        let mut fragments = FragmentSet::new(vec![]);
+        let fragment = FragmentedPacket::new(vec![0; 65535]);
+        fragments.add(fragment);
+
+        let iface = InterfaceBuilder::new(device)
+                .ethernet_addr(EthernetAddress::default())
+                .neighbor_cache(NeighborCache::new(BTreeMap::new()))
+                .ip_addrs(ip_addrs)
+                .fragments_set(fragments)
+                .finalize();
+
+        // create 3 packets representing a large UDP packet
+        let mut packet1 = vec![
+                              0x45, 0x0, 0x5, 0xdc, 0xd4, 0xba, 0x20, 0x0, 0x40, 0x11, 0x75, 0x2,
+                              0xc0, 0xa8, 0x45, 0x2, 0xc0, 0xa8, 0x45, 0x1, 0x15, 0xb3, 0x1b, 0x39,
+                              0x10, 0x8, 0x43, 0x3d
+                              ];
+
+        packet1.extend_from_slice(&vec![0xc; 1472]);
+
+        let mut packet2 = vec![
+                              0x45, 0x00, 0x05, 0xdc, 0xd4, 0xba, 0x20, 0xb9, 0x40, 0x11, 0x74, 0x49,
+                              0xc0, 0xa8, 0x45, 0x02, 0xc0, 0xa8, 0x45, 0x01
+                              ];
+
+        packet2.extend_from_slice(&vec![0xc; 1480]);
+
+        let mut packet3 = vec![
+                              0x45, 0x00, 0x04, 0x8c, 0xd4, 0xba, 0x01, 0x72, 0x40, 0x11, 0x94, 0xe0,
+                              0xc0, 0xa8, 0x45, 0x02, 0xc0, 0xa8, 0x45, 0x01
+                              ];
+
+        packet3.extend_from_slice(&vec![0xc; 1144]);
+
+        (iface, packet1, packet2, packet3)
+    }
+
+    #[test]
+    #[cfg(all(feature = "fragmentation-ipv4", feature = "proto-ipv4", feature = "std"))]
+    fn test_fragmentation_ipv4_123() {
+        let (mut iface, packet1, packet2, packet3) = create_loopback_with_fragments();
+
+        let packet = Ipv4Packet::new_checked(packet1.as_slice()).unwrap();
+        let mut fragments = ::std::mem::replace(&mut iface.inner.fragments, None);
+        assert_eq!(iface.inner.process_ipv4_fragment(packet, Instant::from_millis(1), &mut fragments),
+                   Ok(None));
+        iface.inner.fragments = fragments;
+
+        let packet = Ipv4Packet::new_checked(packet2.as_slice()).unwrap();
+        let mut fragments = ::std::mem::replace(&mut iface.inner.fragments, None);
+        assert_eq!(iface.inner.process_ipv4_fragment(packet, Instant::from_millis(2), &mut fragments),
+                   Ok(None));
+        iface.inner.fragments = fragments;
+
+        let packet = Ipv4Packet::new_checked(packet3.as_slice()).unwrap();
+        let mut fragments = ::std::mem::replace(&mut iface.inner.fragments, None);
+        assert_ne!(iface.inner.process_ipv4_fragment(packet, Instant::from_millis(3), &mut fragments),
+                   Ok(None));
+        iface.inner.fragments = fragments;
+    }
+
+    #[test]
+    #[cfg(all(feature = "fragmentation-ipv4", feature = "proto-ipv4", feature = "std"))]
+    fn test_fragmentation_ipv4_321() {
+        let (mut iface, packet1, packet2, packet3) = create_loopback_with_fragments();
+
+        let packet = Ipv4Packet::new_checked(packet3.as_slice()).unwrap();
+        let mut fragments = ::std::mem::replace(&mut iface.inner.fragments, None);
+        assert_eq!(iface.inner.process_ipv4_fragment(packet, Instant::from_millis(1), &mut fragments),
+                   Ok(None));
+        iface.inner.fragments = fragments;
+
+        let packet = Ipv4Packet::new_checked(packet2.as_slice()).unwrap();
+        let mut fragments = ::std::mem::replace(&mut iface.inner.fragments, None);
+        assert_eq!(iface.inner.process_ipv4_fragment(packet, Instant::from_millis(2), &mut fragments),
+                   Ok(None));
+        iface.inner.fragments = fragments;
+
+        let packet = Ipv4Packet::new_checked(packet1.as_slice()).unwrap();
+        let mut fragments = ::std::mem::replace(&mut iface.inner.fragments, None);
+        assert_ne!(iface.inner.process_ipv4_fragment(packet, Instant::from_millis(3), &mut fragments),
+                   Ok(None));
+        iface.inner.fragments = fragments;
+    }
+
+    #[test]
+    #[cfg(all(feature = "fragmentation-ipv4", feature = "proto-ipv4", feature = "std"))]
+    fn test_fragmentation_ipv4_231() {
+        let (mut iface, packet1, packet2, packet3) = create_loopback_with_fragments();
+
+        let packet = Ipv4Packet::new_checked(packet2.as_slice()).unwrap();
+        let mut fragments = ::std::mem::replace(&mut iface.inner.fragments, None);
+        assert_eq!(iface.inner.process_ipv4_fragment(packet, Instant::from_millis(1), &mut fragments),
+                   Ok(None));
+        iface.inner.fragments = fragments;
+
+        let packet = Ipv4Packet::new_checked(packet3.as_slice()).unwrap();
+        let mut fragments = ::std::mem::replace(&mut iface.inner.fragments, None);
+        assert_eq!(iface.inner.process_ipv4_fragment(packet, Instant::from_millis(2), &mut fragments),
+                   Ok(None));
+        iface.inner.fragments = fragments;
+
+        let packet = Ipv4Packet::new_checked(packet1.as_slice()).unwrap();
+        let mut fragments = ::std::mem::replace(&mut iface.inner.fragments, None);
+        assert_ne!(iface.inner.process_ipv4_fragment(packet, Instant::from_millis(3), &mut fragments),
+                   Ok(None));
+        iface.inner.fragments = fragments;
+    }
+
+    #[test]
+    #[cfg(all(feature = "fragmentation-ipv4", feature = "proto-ipv4", feature = "std"))]
+    fn test_fragmentation_ipv4_213() {
+        let (mut iface, packet1, packet2, packet3) = create_loopback_with_fragments();
+
+        let packet = Ipv4Packet::new_checked(packet2.as_slice()).unwrap();
+        let mut fragments = ::std::mem::replace(&mut iface.inner.fragments, None);
+        assert_eq!(iface.inner.process_ipv4_fragment(packet, Instant::from_millis(1), &mut fragments),
+                   Ok(None));
+        iface.inner.fragments = fragments;
+
+        let packet = Ipv4Packet::new_checked(packet1.as_slice()).unwrap();
+        let mut fragments = ::std::mem::replace(&mut iface.inner.fragments, None);
+        assert_eq!(iface.inner.process_ipv4_fragment(packet, Instant::from_millis(2), &mut fragments),
+                   Ok(None));
+        iface.inner.fragments = fragments;
+
+        let packet = Ipv4Packet::new_checked(packet3.as_slice()).unwrap();
+        let mut fragments = ::std::mem::replace(&mut iface.inner.fragments, None);
+        assert_ne!(iface.inner.process_ipv4_fragment(packet, Instant::from_millis(3), &mut fragments),
+                   Ok(None));
+        iface.inner.fragments = fragments;
+    }
+
+    #[test]
+    #[cfg(all(feature = "fragmentation-ipv4", feature = "proto-ipv4", feature = "std"))]
+    fn test_fragmentation_ipv4_duplicate() {
+        let (mut iface, packet1, packet2, packet3) = create_loopback_with_fragments();
+
+        let packet = Ipv4Packet::new_checked(packet2.as_slice()).unwrap();
+        let mut fragments = ::std::mem::replace(&mut iface.inner.fragments, None);
+        assert_eq!(iface.inner.process_ipv4_fragment(packet, Instant::from_millis(1), &mut fragments),
+                   Ok(None));
+        iface.inner.fragments = fragments;
+
+        let packet = Ipv4Packet::new_checked(packet2.as_slice()).unwrap();
+        let mut fragments = ::std::mem::replace(&mut iface.inner.fragments, None);
+        assert_eq!(iface.inner.process_ipv4_fragment(packet, Instant::from_millis(2), &mut fragments),
+                   Ok(None));
+        iface.inner.fragments = fragments;
+
+        let packet = Ipv4Packet::new_checked(packet1.as_slice()).unwrap();
+        let mut fragments = ::std::mem::replace(&mut iface.inner.fragments, None);
+        assert_eq!(iface.inner.process_ipv4_fragment(packet, Instant::from_millis(2), &mut fragments),
+                   Ok(None));
+        iface.inner.fragments = fragments;
+
+        let packet = Ipv4Packet::new_checked(packet3.as_slice()).unwrap();
+        let mut fragments = ::std::mem::replace(&mut iface.inner.fragments, None);
+        assert_ne!(iface.inner.process_ipv4_fragment(packet, Instant::from_millis(3), &mut fragments),
+                   Ok(None));
+        iface.inner.fragments = fragments;
+    }
+
+    #[test]
+    #[cfg(all(feature = "fragmentation-ipv4", feature = "proto-ipv4", feature = "std"))]
+    fn test_fragmentation_ipv4_timeout() {
+        let (mut iface, packet1, packet2, packet3) = create_loopback_with_fragments();
+
+        let packet = Ipv4Packet::new_checked(packet1.as_slice()).unwrap();
+        let mut fragments = ::std::mem::replace(&mut iface.inner.fragments, None);
+        assert_eq!(iface.inner.process_ipv4_fragment(packet, Instant::from_millis(1), &mut fragments),
+                   Ok(None));
+        iface.inner.fragments = fragments;
+
+        let packet = Ipv4Packet::new_checked(packet2.as_slice()).unwrap();
+        let mut fragments = ::std::mem::replace(&mut iface.inner.fragments, None);
+        assert_eq!(iface.inner.process_ipv4_fragment(packet, Instant::from_millis(2), &mut fragments),
+                   Ok(None));
+        iface.inner.fragments = fragments;
+
+        let packet = Ipv4Packet::new_checked(packet3.as_slice()).unwrap();
+        let mut fragments = ::std::mem::replace(&mut iface.inner.fragments, None);
+        assert_eq!(iface.inner.process_ipv4_fragment(packet, Instant::from_millis(1000), &mut fragments),
+                   Ok(None));
+        iface.inner.fragments = fragments;
     }
 }

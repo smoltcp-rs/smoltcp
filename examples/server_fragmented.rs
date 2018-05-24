@@ -17,6 +17,7 @@ use smoltcp::socket::SocketSet;
 use smoltcp::socket::{UdpSocket, UdpSocketBuffer, UdpPacketMetadata};
 use smoltcp::socket::{TcpSocket, TcpSocketBuffer};
 use smoltcp::time::{Duration, Instant};
+use smoltcp::iface::{FragmentSet, FragmentedPacket};
 
 fn main() {
     utils::setup_logging("");
@@ -32,8 +33,8 @@ fn main() {
 
     let neighbor_cache = NeighborCache::new(BTreeMap::new());
 
-    let udp_rx_buffer = UdpSocketBuffer::new(vec![UdpPacketMetadata::EMPTY], vec![0; 64]);
-    let udp_tx_buffer = UdpSocketBuffer::new(vec![UdpPacketMetadata::EMPTY], vec![0; 128]);
+    let udp_rx_buffer = UdpSocketBuffer::new(vec![UdpPacketMetadata::EMPTY], vec![0; 9000]);
+    let udp_tx_buffer = UdpSocketBuffer::new(vec![UdpPacketMetadata::EMPTY], vec![0; 9000]);
     let udp_socket = UdpSocket::new(udp_rx_buffer, udp_tx_buffer);
 
     let tcp1_rx_buffer = TcpSocketBuffer::new(vec![0; 64]);
@@ -52,17 +53,18 @@ fn main() {
     let tcp4_tx_buffer = TcpSocketBuffer::new(vec![0; 65535]);
     let tcp4_socket = TcpSocket::new(tcp4_rx_buffer, tcp4_tx_buffer);
 
+    let mut fragments = FragmentSet::new(vec![]);
+    let fragment = FragmentedPacket::new(vec![0; 65535]);
+    fragments.add(fragment);
+
     let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
-    let ip_addrs = [
-        IpCidr::new(IpAddress::v4(192, 168, 69, 1), 24),
-        IpCidr::new(IpAddress::v6(0xfdaa, 0, 0, 0, 0, 0, 0, 1), 64),
-        IpCidr::new(IpAddress::v6(0xfe80, 0, 0, 0, 0, 0, 0, 1), 64)
-    ];
+    let ip_addrs = [IpCidr::new(IpAddress::v4(192, 168, 69, 1), 24)];
 
     let mut iface = EthernetInterfaceBuilder::new(device)
             .ethernet_addr(ethernet_addr)
             .neighbor_cache(neighbor_cache)
             .ip_addrs(ip_addrs)
+            .fragments_set(fragments)
             .finalize();
 
     let mut sockets = SocketSet::new(vec![]);
