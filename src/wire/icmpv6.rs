@@ -210,21 +210,6 @@ pub(super) mod field {
     pub const DEST_ADDR:     Field = 24..40;
 }
 
-bitflags! {
-    pub struct RouterFlags: u8 {
-        const MANAGED = 0b10000000;
-        const OTHER   = 0b01000000;
-    }
-}
-
-bitflags! {
-    pub struct NeighborFlags: u8 {
-        const ROUTER    = 0b10000000;
-        const SOLICITED = 0b01000000;
-        const OVERRIDE  = 0b00100000;
-    }
-}
-
 impl<T: AsRef<[u8]>> Packet<T> {
     /// Imbue a raw octet buffer with ICMPv6 packet structure.
     pub fn new(buffer: T) -> Packet<T> {

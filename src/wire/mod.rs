@@ -179,12 +179,11 @@ pub use self::icmpv6::{Message as Icmpv6Message,
 #[cfg(any(feature = "proto-ipv4", feature = "proto-ipv6"))]
 pub use self::icmp::Repr as IcmpRepr;
 
-#[cfg(feature = "proto-ipv6")]
-pub use self::icmpv6::{RouterFlags as NdiscRouterFlags,
-                       NeighborFlags as NdiscNeighborFlags};
 
 #[cfg(feature = "proto-ipv6")]
-pub use self::ndisc::Repr as NdiscRepr;
+pub use self::ndisc::{Repr as NdiscRepr,
+                      RouterFlags as NdiscRouterFlags,
+                      NeighborFlags as NdiscNeighborFlags};
 
 #[cfg(feature = "proto-ipv6")]
 pub use self::ndiscoption::{NdiscOption,

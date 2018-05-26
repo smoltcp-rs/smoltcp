@@ -1,11 +1,26 @@
 use byteorder::{ByteOrder, NetworkEndian};
 
 use {Error, Result};
-use super::icmpv6::{field, Message, NeighborFlags, Packet, RouterFlags};
+use super::icmpv6::{field, Message, Packet};
 use wire::{EthernetAddress, Ipv6Repr, Ipv6Packet};
 use wire::{NdiscOption, NdiscOptionRepr, NdiscOptionType, NdiscPrefixInformation, NdiscRedirectedHeader};
 use time::Duration;
 use super::Ipv6Address;
+
+bitflags! {
+    pub struct RouterFlags: u8 {
+        const MANAGED = 0b10000000;
+        const OTHER   = 0b01000000;
+    }
+}
+
+bitflags! {
+    pub struct NeighborFlags: u8 {
+        const ROUTER    = 0b10000000;
+        const SOLICITED = 0b01000000;
+        const OVERRIDE  = 0b00100000;
+    }
+}
 
 /// Getters for the Router Advertisement message header.
 /// See [RFC 4861 § 4.2].
