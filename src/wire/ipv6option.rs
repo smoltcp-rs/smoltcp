@@ -229,7 +229,7 @@ pub enum Repr<'a> {
 
 impl<'a> Repr<'a> {
     /// Parse an IPv6 Extension Header Option and return a high-level representation.
-    pub fn parse<T>(opt: &'a Ipv6Option<&'a T>) -> Result<Repr<'a>> where T: AsRef<[u8]> + ?Sized {
+    pub fn parse<T>(opt: &Ipv6Option<&'a T>) -> Result<Repr<'a>> where T: AsRef<[u8]> + ?Sized {
         match opt.option_type() {
             Type::Pad1 =>
                 Ok(Repr::Pad1),
@@ -278,6 +278,57 @@ impl<'a> Repr<'a> {
             }
 
             &Repr::__Nonexhaustive => unreachable!()
+        }
+    }
+}
+
+/// A iterator for IPv6 options.
+#[derive(Debug)]
+pub struct Ipv6OptionsIterator<'a> {
+    pos: usize,
+    length: usize,
+    data: &'a [u8],
+    hit_error: bool
+}
+
+impl<'a> Ipv6OptionsIterator<'a> {
+    pub fn new(data: &'a [u8], length: usize) -> Ipv6OptionsIterator<'a> {
+        Ipv6OptionsIterator {
+            pos: 0,
+            hit_error: false,
+            length, data
+        }
+    }
+}
+
+impl<'a> Iterator for Ipv6OptionsIterator<'a> {
+    type Item = Result<Repr<'a>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.pos < self.length && !self.hit_error {
+            // If we still have data to parse and we have not previously
+            // hit an error, attempt to parse the next option.
+            match Ipv6Option::new_checked(&self.data[self.pos..]) {
+                Ok(hdr) => {
+                    match Repr::parse(&hdr) {
+                        Ok(repr) => {
+                            self.pos += repr.buffer_len();
+                            Some(Ok(repr))
+                        }
+                        err => {
+                            self.hit_error = true;
+                            Some(err)
+                        }
+                    }
+                }
+                Err(e) => {
+                    self.hit_error = true;
+                    Some(Err(e))
+                }
+            }
+        } else {
+            // If we failed to parse an option we do
+            None
         }
     }
 }
@@ -422,5 +473,30 @@ mod test {
         assert_eq!(failure_type, FailureType::DiscardSendAll);
         failure_type = Type::Unknown(0b11000100).into();
         assert_eq!(failure_type, FailureType::DiscardSendUnicast);
+    }
+
+    #[test]
+    fn test_options_iter() {
+        let options = [0x00, 0x01, 0x01, 0x00,
+                       0x01, 0x02, 0x00, 0x00,
+                       0x01, 0x00, 0x00, 0x11,
+                       0x00, 0x01, 0x08, 0x00];
+
+        let mut iterator = Ipv6OptionsIterator::new(&options, 0);
+        assert_eq!(iterator.next(), None);
+
+        iterator = Ipv6OptionsIterator::new(&options, 16);
+        for (i, opt) in iterator.enumerate() {
+            match (i, opt) {
+                (0, Ok(Repr::Pad1)) => continue,
+                (1, Ok(Repr::PadN(1))) => continue,
+                (2, Ok(Repr::PadN(2))) => continue,
+                (3, Ok(Repr::PadN(0))) => continue,
+                (4, Ok(Repr::Pad1)) => continue,
+                (5, Ok(Repr::Unknown { type_: 0x11, length: 0, .. })) => continue,
+                (6, Err(Error::Truncated)) => continue,
+                (i, res) => panic!("Unexpected option `{:?}` at index {}", res, i),
+            }
+        }
     }
 }
