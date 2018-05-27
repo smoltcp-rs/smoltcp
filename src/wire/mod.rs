@@ -147,7 +147,8 @@ pub use self::ipv6::{Address as Ipv6Address,
 #[cfg(feature = "proto-ipv6")]
 pub use self::ipv6option::{Ipv6Option,
                            Repr as Ipv6OptionRepr,
-                           Type as Ipv6OptionType};
+                           Type as Ipv6OptionType,
+                           FailureType as Ipv6OptionFailureType};
 
 #[cfg(feature = "proto-ipv6")]
 pub use self::ipv6hopbyhop::{Header as Ipv6HopByHopHeader,
@@ -185,12 +186,11 @@ pub use self::icmpv6::{Message as Icmpv6Message,
 #[cfg(any(feature = "proto-ipv4", feature = "proto-ipv6"))]
 pub use self::icmp::Repr as IcmpRepr;
 
-#[cfg(feature = "proto-ipv6")]
-pub use self::icmpv6::{RouterFlags as NdiscRouterFlags,
-                       NeighborFlags as NdiscNeighborFlags};
 
 #[cfg(feature = "proto-ipv6")]
-pub use self::ndisc::Repr as NdiscRepr;
+pub use self::ndisc::{Repr as NdiscRepr,
+                      RouterFlags as NdiscRouterFlags,
+                      NeighborFlags as NdiscNeighborFlags};
 
 #[cfg(feature = "proto-ipv6")]
 pub use self::ndiscoption::{NdiscOption,

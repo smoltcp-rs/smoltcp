@@ -1,6 +1,7 @@
 use core::fmt;
 use {Error, Result};
 
+use super::ipv6option::Ipv6OptionsIterator;
 pub use super::IpProtocol as Protocol;
 
 /// A read/write wrapper around an IPv6 Hop-by-Hop Options Header.
@@ -156,19 +157,22 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Header<&'a T> {
 
 /// A high-level representation of an IPv6 Hop-by-Hop Options header.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub struct Repr {
+pub struct Repr<'a> {
     /// The type of header immediately following the Hop-by-Hop Options header.
     pub next_header: Protocol,
     /// Length of the Hop-by-Hop Options header in 8-octet units, not including the first 8 octets.
     pub length:      u8,
+    /// The options contained in the Hop-by-Hop Options header.
+    pub options:     &'a [u8]
 }
 
-impl Repr {
+impl<'a> Repr<'a> {
     /// Parse an IPv6 Hop-by-Hop Options Header and return a high-level representation.
-    pub fn parse<T>(header: &Header<&T>) -> Result<Repr> where T: AsRef<[u8]> + ?Sized {
+    pub fn parse<T>(header: &Header<&'a T>) -> Result<Repr<'a>> where T: AsRef<[u8]> + ?Sized {
         Ok(Repr {
             next_header: header.next_header(),
-            length: header.header_len()
+            length: header.header_len(),
+            options: header.options()
         })
     }
 
@@ -182,10 +186,16 @@ impl Repr {
     pub fn emit<T: AsRef<[u8]> + AsMut<[u8]> + ?Sized>(&self, header: &mut Header<&mut T>) {
         header.set_next_header(self.next_header);
         header.set_header_len(self.length);
+        header.options_mut().copy_from_slice(self.options);
+    }
+
+    /// Return an `Iterator` for the contained options.
+    pub fn options(&self) -> Ipv6OptionsIterator {
+        Ipv6OptionsIterator::new(self.options, self.buffer_len() - 2)
     }
 }
 
-impl<'a> fmt::Display for Repr {
+impl<'a> fmt::Display for Repr<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "IPv6 Hop-by-Hop Options next_hdr={} length={} ", self.next_header, self.length)
     }
@@ -273,26 +283,26 @@ mod test {
     fn test_repr_parse_valid() {
         let header = Header::new(&REPR_PACKET_PAD4);
         let repr = Repr::parse(&header).unwrap();
-        assert_eq!(repr, Repr{ next_header: Protocol::Tcp, length: 0 });
+        assert_eq!(repr, Repr{ next_header: Protocol::Tcp, length: 0, options: &REPR_PACKET_PAD4[2..] });
 
         let header = Header::new(&REPR_PACKET_PAD12);
         let repr = Repr::parse(&header).unwrap();
-        assert_eq!(repr, Repr{ next_header: Protocol::Tcp, length: 1 });
+        assert_eq!(repr, Repr{ next_header: Protocol::Tcp, length: 1, options: &REPR_PACKET_PAD12[2..] });
     }
 
     #[test]
     fn test_repr_emit() {
-        let repr = Repr{ next_header: Protocol::Tcp, length: 0 };
-        let mut bytes = [0u8; 2];
+        let repr = Repr{ next_header: Protocol::Tcp, length: 0, options: &REPR_PACKET_PAD4[2..] };
+        let mut bytes = [0u8; 8];
         let mut header = Header::new(&mut bytes);
         repr.emit(&mut header);
-        assert_eq!(header.into_inner(), &REPR_PACKET_PAD4[0..2]);
+        assert_eq!(header.into_inner(), &REPR_PACKET_PAD4[..]);
 
-        let repr = Repr{ next_header: Protocol::Tcp, length: 1 };
-        let mut bytes = [0u8; 2];
+        let repr = Repr{ next_header: Protocol::Tcp, length: 1, options: &REPR_PACKET_PAD12[2..] };
+        let mut bytes = [0u8; 16];
         let mut header = Header::new(&mut bytes);
         repr.emit(&mut header);
-        assert_eq!(header.into_inner(), &REPR_PACKET_PAD12[0..2]);
+        assert_eq!(header.into_inner(), &REPR_PACKET_PAD12[..]);
     }
 
     #[test]

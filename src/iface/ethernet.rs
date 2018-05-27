@@ -1,5 +1,6 @@
 // Heads up! Before working on this file you should read the parts
-// of RFC 1122 that discuss Ethernet, ARP and IP.
+// of RFC 1122 that discuss Ethernet, ARP and IP for any IPv4 work
+// and RFCs 8200 and 4861 for any IPv6 and NDISC work.
 
 use core::cmp;
 use managed::ManagedSlice;
@@ -22,6 +23,10 @@ use wire::{Icmpv4Packet, Icmpv4Repr, Icmpv4DstUnreachable};
 use wire::{Icmpv6Packet, Icmpv6Repr, Icmpv6ParamProblem};
 #[cfg(all(feature = "socket-icmp", any(feature = "proto-ipv4", feature = "proto-ipv6")))]
 use wire::IcmpRepr;
+#[cfg(feature = "proto-ipv6")]
+use wire::{Ipv6HopByHopHeader, Ipv6HopByHopRepr};
+#[cfg(feature = "proto-ipv6")]
+use wire::{Ipv6OptionRepr, Ipv6OptionFailureType};
 #[cfg(feature = "proto-ipv6")]
 use wire::{NdiscNeighborFlags, NdiscRepr};
 #[cfg(all(feature = "proto-ipv6", feature = "socket-udp"))]
@@ -690,23 +695,39 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
             }
         }
 
-        let ip_repr = IpRepr::Ipv6(ipv6_repr);
         let ip_payload = ipv6_packet.payload();
 
         #[cfg(feature = "socket-raw")]
-        let handled_by_raw_socket = self.raw_socket_filter(sockets, &ip_repr, ip_payload);
+        let handled_by_raw_socket = self.raw_socket_filter(sockets, &ipv6_repr.into(), ip_payload);
+        #[cfg(not(feature = "socket-raw"))]
+        let handled_by_raw_socket = false;
 
-        match ipv6_repr.next_header {
+        self.process_nxt_hdr(sockets, timestamp, ipv6_repr, ipv6_repr.next_header,
+                             handled_by_raw_socket, ip_payload)
+    }
+
+    /// Given the next header value forward the payload onto the correct process
+    /// function.
+    #[cfg(feature = "proto-ipv6")]
+    fn process_nxt_hdr<'frame>
+                   (&mut self, sockets: &mut SocketSet, timestamp: Instant, ipv6_repr: Ipv6Repr,
+                    nxt_hdr: IpProtocol, handled_by_raw_socket: bool, ip_payload: &'frame [u8])
+                   -> Result<Packet<'frame>>
+    {
+        match nxt_hdr {
             IpProtocol::Icmpv6 =>
-                self.process_icmpv6(sockets, timestamp, ip_repr, ip_payload),
+                self.process_icmpv6(sockets, timestamp, ipv6_repr.into(), ip_payload),
 
             #[cfg(feature = "socket-udp")]
             IpProtocol::Udp =>
-                self.process_udp(sockets, ip_repr, ip_payload),
+                self.process_udp(sockets, ipv6_repr.into(), ip_payload),
 
             #[cfg(feature = "socket-tcp")]
             IpProtocol::Tcp =>
-                self.process_tcp(sockets, timestamp, ip_repr, ip_payload),
+                self.process_tcp(sockets, timestamp, ipv6_repr.into(), ip_payload),
+
+            IpProtocol::HopByHop =>
+                self.process_hopbyhop(sockets, timestamp, ipv6_repr, handled_by_raw_socket, ip_payload),
 
             #[cfg(feature = "socket-raw")]
             _ if handled_by_raw_socket =>
@@ -904,6 +925,37 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
             _ => Ok(Packet::None)
         };
         packet
+    }
+
+    #[cfg(feature = "proto-ipv6")]
+    fn process_hopbyhop<'frame>(&mut self, sockets: &mut SocketSet, timestamp: Instant,
+                                ipv6_repr: Ipv6Repr, handled_by_raw_socket: bool,
+                                ip_payload: &'frame [u8]) -> Result<Packet<'frame>>
+    {
+        let hbh_pkt = Ipv6HopByHopHeader::new_checked(ip_payload)?;
+        let hbh_repr = Ipv6HopByHopRepr::parse(&hbh_pkt)?;
+        for result in hbh_repr.options() {
+            let opt_repr = result?;
+            match opt_repr {
+                Ipv6OptionRepr::Pad1 | Ipv6OptionRepr::PadN(_) => (),
+                Ipv6OptionRepr::Unknown { type_, .. } => {
+                    match Ipv6OptionFailureType::from(type_) {
+                        Ipv6OptionFailureType::Skip => (),
+                        Ipv6OptionFailureType::Discard => {
+                            return Ok(Packet::None);
+                        },
+                        _ => {
+                            // FIXME(dlrobertson): Send an ICMPv6 parameter problem message
+                            // here.
+                            return Err(Error::Unrecognized);
+                        }
+                    }
+                }
+                _ => return Err(Error::Unrecognized),
+            }
+        }
+        self.process_nxt_hdr(sockets, timestamp, ipv6_repr, hbh_repr.next_header,
+                             handled_by_raw_socket, &ip_payload[hbh_repr.buffer_len()..])
     }
 
     #[cfg(feature = "proto-ipv4")]
@@ -1378,6 +1430,8 @@ mod test {
     use wire::{Icmpv6Packet, Icmpv6Repr, Icmpv6ParamProblem};
     #[cfg(feature = "proto-ipv6")]
     use wire::{NdiscNeighborFlags, NdiscRepr};
+    #[cfg(feature = "proto-ipv6")]
+    use wire::{Ipv6HopByHopHeader, Ipv6Option, Ipv6OptionRepr};
 
     use super::Packet;
 
@@ -1944,25 +1998,40 @@ mod test {
         let remote_ip_addr = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
         let remote_hw_addr = EthernetAddress([0x52, 0x54, 0x00, 0x00, 0x00, 0x01]);
 
-        let mut eth_bytes = vec![0; 58];
+        let mut eth_bytes = vec![0; 66];
         let payload = [0x12, 0x34, 0x56, 0x78];
 
         let ipv6_repr = Ipv6Repr {
             src_addr:    remote_ip_addr,
             dst_addr:    Ipv6Address::LOOPBACK,
-            next_header: IpProtocol::Unknown(0x0c),
-            payload_len: 4,
+            next_header: IpProtocol::HopByHop,
+            payload_len: 12,
             hop_limit:   0x40,
         };
-        let ip_repr = IpRepr::Ipv6(ipv6_repr);
 
         let frame = {
             let mut frame = EthernetFrame::new(&mut eth_bytes);
+            let ip_repr = IpRepr::Ipv6(ipv6_repr);
             frame.set_dst_addr(EthernetAddress([0x52, 0x54, 0x00, 0x00, 0x00, 0x00]));
             frame.set_src_addr(remote_hw_addr);
             frame.set_ethertype(EthernetProtocol::Ipv6);
             ip_repr.emit(frame.payload_mut(), &ChecksumCapabilities::default());
-            frame.payload_mut()[ip_repr.buffer_len()..].copy_from_slice(&payload);
+            let mut offset = ipv6_repr.buffer_len();
+            {
+                let mut hbh_pkt = Ipv6HopByHopHeader::new(&mut frame.payload_mut()[offset..]);
+                hbh_pkt.set_next_header(IpProtocol::Unknown(0x0c));
+                hbh_pkt.set_header_len(0);
+                offset += 8;
+                {
+                    let mut pad_pkt = Ipv6Option::new(&mut hbh_pkt.options_mut()[..]);
+                    Ipv6OptionRepr::PadN(3).emit(&mut pad_pkt);
+                }
+                {
+                    let mut pad_pkt = Ipv6Option::new(&mut hbh_pkt.options_mut()[5..]);
+                    Ipv6OptionRepr::Pad1.emit(&mut pad_pkt);
+                }
+            }
+            frame.payload_mut()[offset..].copy_from_slice(&payload);
             EthernetFrame::new(&*frame.into_inner())
         };
 
