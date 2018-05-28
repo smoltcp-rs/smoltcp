@@ -658,7 +658,7 @@ impl<'a> Repr<'a> {
         if packet.src_port() == 0 { return Err(Error::Malformed) }
         if packet.dst_port() == 0 { return Err(Error::Malformed) }
         // Valid checksum is expected.
-        if checksum_caps.tcpv4.rx() && !packet.verify_checksum(src_addr, dst_addr) {
+        if checksum_caps.tcp.rx() && !packet.verify_checksum(src_addr, dst_addr) {
             return Err(Error::Checksum)
         }
 
@@ -752,7 +752,7 @@ impl<'a> Repr<'a> {
         packet.set_urgent_at(0);
         packet.payload_mut().copy_from_slice(self.payload);
 
-        if checksum_caps.tcpv4.tx() {
+        if checksum_caps.tcp.tx() {
             packet.fill_checksum(src_addr, dst_addr)
         } else {
             // make sure we get a consistently zeroed checksum,
