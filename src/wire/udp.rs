@@ -212,7 +212,7 @@ impl<'a> Repr<'a> {
         // Destination port cannot be omitted (but source port can be).
         if packet.dst_port() == 0 { return Err(Error::Malformed) }
         // Valid checksum is expected...
-        if checksum_caps.udpv4.rx() && !packet.verify_checksum(src_addr, dst_addr) {
+        if checksum_caps.udp.rx() && !packet.verify_checksum(src_addr, dst_addr) {
             match (src_addr, dst_addr) {
                 #[cfg(feature = "proto-ipv4")]
                 (&IpAddress::Ipv4(_), &IpAddress::Ipv4(_))
@@ -249,7 +249,7 @@ impl<'a> Repr<'a> {
         packet.set_len((field::CHECKSUM.end + self.payload.len()) as u16);
         packet.payload_mut().copy_from_slice(self.payload);
 
-        if checksum_caps.udpv4.tx() {
+        if checksum_caps.udp.tx() {
             packet.fill_checksum(src_addr, dst_addr)
         } else {
             // make sure we get a consistently zeroed checksum,
