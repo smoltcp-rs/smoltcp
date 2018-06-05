@@ -74,7 +74,12 @@ fn main() {
     let mut tcp_6970_active = false;
     loop {
         let timestamp = Instant::now();
-        iface.poll(&mut sockets, timestamp).expect("poll error");
+        match iface.poll(&mut sockets, timestamp) {
+            Ok(_) => {},
+            Err(e) => {
+                debug!("poll error: {}",e);
+            }
+        }
 
         // udp:6969: respond "hello"
         {
