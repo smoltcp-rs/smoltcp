@@ -218,7 +218,7 @@ pub enum Repr<'a> {
     Pad1,
     PadN(u8),
     Unknown {
-        type_:  u8,
+        type_:  Type,
         length: u8,
         data:   &'a [u8]
     },
@@ -235,9 +235,9 @@ impl<'a> Repr<'a> {
                 Ok(Repr::Pad1),
             Type::PadN =>
                 Ok(Repr::PadN(opt.data_len())),
-            Type::Unknown(type_) => {
+            unknown_type @ Type::Unknown(_) => {
                 Ok(Repr::Unknown {
-                    type_:  type_,
+                    type_:  unknown_type,
                     length: opt.data_len(),
                     data:   opt.data(),
                 })
@@ -272,7 +272,7 @@ impl<'a> Repr<'a> {
                 }
             }
             &Repr::Unknown{ type_, length, data } => {
-                opt.set_option_type(Type::Unknown(type_));
+                opt.set_option_type(type_);
                 opt.set_data_len(length);
                 opt.data_mut().copy_from_slice(&data[..length as usize]);
             }
@@ -342,7 +342,7 @@ impl<'a> fmt::Display for Repr<'a> {
             &Repr::PadN(len) =>
                 write!(f, "{} length={} ", Type::PadN, len),
             &Repr::Unknown{ type_, length, .. } =>
-                write!(f, "{} length={} ", Type::Unknown(type_), length),
+                write!(f, "{} length={} ", type_, length),
 
             &Repr::__Nonexhaustive => unreachable!()
         }
@@ -436,7 +436,7 @@ mod test {
         let data = [0u8; 3];
         let opt = Ipv6Option::new(&IPV6OPTION_BYTES_UNKNOWN);
         let unknown = Repr::parse(&opt).unwrap();
-        assert_eq!(unknown, Repr::Unknown { type_: 255, length: 3, data: &data});
+        assert_eq!(unknown, Repr::Unknown { type_: Type::Unknown(255), length: 3, data: &data});
     }
 
     #[test]
@@ -454,7 +454,7 @@ mod test {
         assert_eq!(opt.into_inner(), &IPV6OPTION_BYTES_PADN);
 
         let data = [0u8; 3];
-        let repr = Repr::Unknown { type_: 255, length: 3, data: &data };
+        let repr = Repr::Unknown { type_: Type::Unknown(255), length: 3, data: &data };
         let mut bytes = [254u8; 5]; // don't assume bytes are initialized to zero
         let mut opt = Ipv6Option::new(&mut bytes);
         repr.emit(&mut opt);
@@ -493,7 +493,8 @@ mod test {
                 (2, Ok(Repr::PadN(2))) => continue,
                 (3, Ok(Repr::PadN(0))) => continue,
                 (4, Ok(Repr::Pad1)) => continue,
-                (5, Ok(Repr::Unknown { type_: 0x11, length: 0, .. })) => continue,
+                (5, Ok(Repr::Unknown { type_: Type::Unknown(0x11), length: 0, .. })) =>
+                    continue,
                 (6, Err(Error::Truncated)) => continue,
                 (i, res) => panic!("Unexpected option `{:?}` at index {}", res, i),
             }
