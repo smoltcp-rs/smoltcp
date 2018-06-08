@@ -234,9 +234,9 @@ pub struct TcpSocket<'a> {
     remote_mss:      usize,
     /// The timestamp of the last packet received.
     remote_last_ts:  Option<Instant>,
-    /// The ACK number of the last packet recived. 
+    /// The ACK number of the last packet recived.
     local_rx_last_ack: Option<TcpSeqNumber>,
-    /// The number of packets recived directly after 
+    /// The number of packets recived directly after
     /// each other which have the same ACK number.
     local_rx_dup_acks: u8,
 }
@@ -900,29 +900,6 @@ impl<'a> TcpSocket<'a> {
                                ack_number, self.local_seq_no, self.local_seq_no + unacknowledged);
                     return Ok(Some(self.ack_reply(ip_repr, &repr)))
                 }
-
-                // 1. Check if duplicate ACK, and change self.local_rx_dup_acks accordingly
-                // 2. Update the last received ACK (self.local_rx_last_ack)
-                match self.local_rx_last_ack {
-                    // We have a duplicate ACK -> Increment dup ACKs count and 
-                    // set for retransmit if we just recived the third dup ACK
-                    Some(ref mut last_rx_ack) if *last_rx_ack == ack_number => {
-                        net_debug!("{}:{}:{}: duplicate ACK number {} for seq {}",
-                                 self.meta.handle, self.local_endpoint, self.remote_endpoint, 
-                                 self.local_rx_dup_acks, ack_number);
-                        self.local_rx_dup_acks += 1;
-                        if self.local_rx_dup_acks == 3 {
-                            self.timer.set_for_fast_retransmit();
-                            net_debug!("{}:{}:{}: set a fast retransmit for seq {}",
-                                     self.meta.handle, self.local_endpoint, self.remote_endpoint, ack_number);
-                        }
-                    },
-                    // We do not have a duplicate ACK -> Reset state
-                    _ => {
-                        self.local_rx_last_ack = Some(ack_number);
-                        self.local_rx_dup_acks = 1;
-                    }
-                };
             }
         }
 
@@ -1170,6 +1147,43 @@ impl<'a> TcpSocket<'a> {
         }
 
         if let Some(ack_number) = repr.ack_number {
+            // TODO: When flow control is implemented,
+            // refractor the following block within that implementation
+
+            // Detect and react to duplicate ACKs by:
+            // 1. Check if duplicate ACK and change self.local_rx_dup_acks accordingly
+            // 2. If exactly 3 duplicate ACKs recived, set for fast retransmit
+            // 3. Update the last received ACK (self.local_rx_last_ack)
+            match self.local_rx_last_ack {
+                // Duplicate ACK if payload empty and ACK doesn't move send window ->
+                // Increment duplicate ACK count and set for retransmit if we just recived
+                // the third duplicate ACK
+                Some(ref mut last_rx_ack) if
+                    repr.payload.len() == 0 &&
+                    *last_rx_ack == ack_number => {
+                    // Increment duplicate ACK count
+                    self.local_rx_dup_acks = self.local_rx_dup_acks.saturating_add(1);
+
+                    net_debug!("{}:{}:{}: received duplicate ACK for seq {} (duplicate nr {}{})",
+                            self.meta.handle, self.local_endpoint, self.remote_endpoint, ack_number,
+                            self.local_rx_dup_acks, if self.local_rx_dup_acks == u8::max_value() { "+" } else { "" });
+
+                    if self.local_rx_dup_acks == 3 {
+                        self.timer.set_for_fast_retransmit();
+                        net_debug!("{}:{}:{}: started fast retransmit",
+                                self.meta.handle, self.local_endpoint, self.remote_endpoint);
+                    }
+                },
+                // No duplicate ACK -> Reset state and update last recived ACK
+                _ => {
+                    if self.local_rx_dup_acks > 0 {
+                        self.local_rx_dup_acks = 0;
+                        net_debug!("{}:{}:{}: reset duplicate ACK count",
+                                self.meta.handle, self.local_endpoint, self.remote_endpoint);
+                    }
+                    self.local_rx_last_ack = Some(ack_number);
+                }
+            };
             // We've processed everything in the incoming segment, so advance the local
             // sequence number past it.
             self.local_seq_no = ack_number;
@@ -3206,77 +3220,233 @@ mod test {
     #[test]
     fn test_fast_retransmit_after_triple_duplicate_ack() {
         let mut s = socket_established();
-        s.remote_win_len = 6;
-        
-        s.send_slice(b"xxxxxxabcdef123456ABCDEFZYXWVU").unwrap();
 
+        // Normal ACK of previously recived segment
+        send!(s, time 0, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            window_len: 6,
+            ..SEND_TEMPL
+        });
+
+        // Send a long string of text divided into several packets
+        // because of previously recieved "window_len"
+        s.send_slice(b"xxxxxxyyyyyywwwwwwzzzzzz").unwrap();
+        // This packet is lost
         recv!(s, time 1000, Ok(TcpRepr {
             seq_number: LOCAL_SEQ + 1,
             ack_number: Some(REMOTE_SEQ + 1),
             payload:    &b"xxxxxx"[..],
             ..RECV_TEMPL
         }));
-        // This packet is lost
         recv!(s, time 1005, Ok(TcpRepr {
             seq_number: LOCAL_SEQ + 1 + 6,
             ack_number: Some(REMOTE_SEQ + 1),
-            payload:    &b"abcdef"[..],
+            payload:    &b"yyyyyy"[..],
             ..RECV_TEMPL
         }));
         recv!(s, time 1010, Ok(TcpRepr {
-            seq_number: LOCAL_SEQ + 1 + 6 + 6,
+            seq_number: LOCAL_SEQ + 1 + (6 * 2),
             ack_number: Some(REMOTE_SEQ + 1),
-            payload:    &b"123456"[..],
+            payload:    &b"wwwwww"[..],
             ..RECV_TEMPL
         }));
         recv!(s, time 1015, Ok(TcpRepr {
-            seq_number: LOCAL_SEQ + 1 + 6 + 6 + 6,
+            seq_number: LOCAL_SEQ + 1 + (6 * 3),
             ack_number: Some(REMOTE_SEQ + 1),
-            payload:    &b"ABCDEF"[..],
+            payload:    &b"zzzzzz"[..],
             ..RECV_TEMPL
         }));
-        recv!(s, time 1020, Ok(TcpRepr {
-            seq_number: LOCAL_SEQ + 1 + 6 + 6 + 6 + 6,
-            ack_number: Some(REMOTE_SEQ + 1),
-            payload:    &b"ZYXWVU"[..],
-            ..RECV_TEMPL
-        }));
-        // First ACK
-        send!(s, time 1025, TcpRepr {
+
+        // First duplicate ACK
+        send!(s, time 1050, TcpRepr {
             seq_number: REMOTE_SEQ + 1,
-            ack_number: Some(LOCAL_SEQ + 1 + 6),
+            ack_number: Some(LOCAL_SEQ + 1),
             window_len: 6,
             ..SEND_TEMPL
         });
-        // Second (duplicate) ACK
-        send!(s, time 1030, TcpRepr {
+        // Second duplicate ACK
+        send!(s, time 1055, TcpRepr {
             seq_number: REMOTE_SEQ + 1,
-            ack_number: Some(LOCAL_SEQ + 1 + 6),
+            ack_number: Some(LOCAL_SEQ + 1),
             window_len: 6,
             ..SEND_TEMPL
         });
-        // Third (duplicate) ACK
+        // Third duplicate ACK
         // Should trigger a fast retransmit of dropped packet
-        send!(s, time 1035, TcpRepr {
+        send!(s, time 1060, TcpRepr {
             seq_number: REMOTE_SEQ + 1,
-            ack_number: Some(LOCAL_SEQ + 1 + 6),
+            ack_number: Some(LOCAL_SEQ + 1),
             window_len: 6,
             ..SEND_TEMPL
         });
+
         // Fast retransmit packet
-        recv!(s, time 1040, Ok(TcpRepr {
+        recv!(s, time 1100, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"xxxxxx"[..],
+            ..RECV_TEMPL
+        }));
+
+        // ACK all recived segments
+        send!(s, time 1120, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1 + (6 * 4)),
+            ..SEND_TEMPL
+        });
+    }
+
+    #[test]
+    fn test_fast_retransmit_duplicate_detection_with_data() {
+        let mut s = socket_established();
+
+        // Normal ACK of previously recieved segment
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            ..SEND_TEMPL
+        });
+        // First duplicate
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            ..SEND_TEMPL
+        });
+        // Second duplicate
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            ..SEND_TEMPL
+        });
+
+        // This packet has content, hence should not be detected
+        // as a duplicate ACK and should reset the duplicate ACK count
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            payload: &b"xxxxxx"[..],
+            ..SEND_TEMPL
+        });
+
+        recv!(s, [TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1 + 6),
+            window_len: 58,
+            ..RECV_TEMPL
+        }]);
+
+        assert_eq!(s.local_rx_dup_acks, 0,
+            "duplicate ACK counter is not reset when reciving data");
+    }
+
+    #[test]
+    fn test_fast_retransmit_duplicate_detection() {
+        let mut s = socket_established();
+
+        // Normal ACK of previously recived segment
+        send!(s, time 0, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            window_len: 6,
+            ..SEND_TEMPL
+        });
+
+        // Send a long string of text divided into several packets
+        // because of previously recieved "window_len"
+        s.send_slice(b"xxxxxxyyyyyywwwwwwzzzzzz").unwrap();
+
+        // This packet is reordered in network
+        recv!(s, time 1000, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"xxxxxx"[..],
+            ..RECV_TEMPL
+        }));
+        recv!(s, time 1005, Ok(TcpRepr {
             seq_number: LOCAL_SEQ + 1 + 6,
             ack_number: Some(REMOTE_SEQ + 1),
-            payload:    &b"abcdef"[..],
+            payload:    &b"yyyyyy"[..],
             ..RECV_TEMPL
         }));
-        // ACK all recived segments
-        send!(s, time 1045, TcpRepr {
+        recv!(s, time 1010, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1 + (6 * 2),
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"wwwwww"[..],
+            ..RECV_TEMPL
+        }));
+        recv!(s, time 1015, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1 + (6 * 3),
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"zzzzzz"[..],
+            ..RECV_TEMPL
+        }));
+
+        // First duplicate ACK
+        send!(s, time 1050, TcpRepr {
             seq_number: REMOTE_SEQ + 1,
-            ack_number: Some(LOCAL_SEQ + 1 + (6 * 5)),
+            ack_number: Some(LOCAL_SEQ + 1),
             window_len: 6,
             ..SEND_TEMPL
         });
+        // Second duplicate ACK
+        send!(s, time 1055, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            window_len: 6,
+            ..SEND_TEMPL
+        });
+        // Reordered packet arrives which should reset duplicate ACK count
+        send!(s, time 1060, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1 + (6 * 3)),
+            window_len: 6,
+            ..SEND_TEMPL
+        });
+
+        assert_eq!(s.local_rx_dup_acks, 0,
+            "duplicate ACK counter is not reset when reciving ACK which updates send window");
+
+        // ACK all recived segments
+        send!(s, time 1120, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1 + (6 * 4)),
+            ..SEND_TEMPL
+        });
+    }
+
+    #[test]
+    fn test_fast_retransmit_dup_acks_counter() {
+        let mut s = socket_established();
+
+        send!(s, time 0, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            ..SEND_TEMPL
+        });
+
+        // A lot of retransmits happen here
+        s.local_rx_dup_acks = u8::max_value() - 1;
+
+        // Send 3 more ACKs, which could overflow local_rx_dup_acks,
+        // but intended behaviour is that we saturate the bounds 
+        // of local_rx_dup_acks
+        send!(s, time 0, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            ..SEND_TEMPL
+        });
+        send!(s, time 0, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            ..SEND_TEMPL
+        });
+        send!(s, time 0, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            ..SEND_TEMPL
+        });
+        assert_eq!(s.local_rx_dup_acks, u8::max_value(), "duplicate ACK count should not overflow but saturate");
     }
 
     // =========================================================================================//
