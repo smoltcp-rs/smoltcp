@@ -228,7 +228,7 @@ impl<'a> Repr<'a> {
                     let opt = NdiscOption::new_checked(packet.payload())?;
                     match opt.option_type() {
                         NdiscOptionType::SourceLinkLayerAddr => Some(opt.link_layer_addr()),
-                        _ => None,
+                        _ => { return Err(Error::Unrecognized); }
                     }
                 } else {
                     None
@@ -245,7 +245,7 @@ impl<'a> Repr<'a> {
                         NdiscOptionRepr::SourceLinkLayerAddr(addr) => lladdr = Some(addr),
                         NdiscOptionRepr::Mtu(val) => mtu = Some(val),
                         NdiscOptionRepr::PrefixInformation(info) => prefix_info = Some(info),
-                        _ => ()
+                        _ => { return Err(Error::Unrecognized); }
                     }
                     offset += opt.buffer_len();
                 }
@@ -263,7 +263,7 @@ impl<'a> Repr<'a> {
                     let opt = NdiscOption::new_checked(packet.payload())?;
                     match opt.option_type() {
                         NdiscOptionType::SourceLinkLayerAddr => Some(opt.link_layer_addr()),
-                        _ => None,
+                        _ => { return Err(Error::Unrecognized); }
                     }
                 } else {
                     None
@@ -277,7 +277,7 @@ impl<'a> Repr<'a> {
                     let opt = NdiscOption::new_checked(packet.payload())?;
                     match opt.option_type() {
                         NdiscOptionType::TargetLinkLayerAddr => Some(opt.link_layer_addr()),
-                        _ => None,
+                        _ => { return Err(Error::Unrecognized); }
                     }
                 } else {
                     None
@@ -311,7 +311,7 @@ impl<'a> Repr<'a> {
                                 offset += 8 + ip_repr.buffer_len() + data.len();
                             }
                         }
-                        _ => ()
+                        _ => { return Err(Error::Unrecognized); }
                     }
                 }
                 Ok(Repr::Redirect {

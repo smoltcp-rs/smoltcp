@@ -325,6 +325,20 @@ impl Cidr {
     }
 }
 
+#[cfg(feature = "proto-ipv4")]
+impl From<Ipv4Cidr> for Cidr {
+    fn from(addr: Ipv4Cidr) -> Self {
+        Cidr::Ipv4(addr)
+    }
+}
+
+#[cfg(feature = "proto-ipv6")]
+impl From<Ipv6Cidr> for Cidr {
+    fn from(addr: Ipv6Cidr) -> Self {
+        Cidr::Ipv6(addr)
+    }
+}
+
 impl fmt::Display for Cidr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
