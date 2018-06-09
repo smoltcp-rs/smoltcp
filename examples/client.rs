@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use std::os::unix::io::AsRawFd;
 use smoltcp::phy::wait as phy_wait;
 use smoltcp::wire::{EthernetAddress, Ipv4Address, IpAddress, IpCidr};
-use smoltcp::iface::{NeighborCache, EthernetInterfaceBuilder};
+use smoltcp::iface::{NeighborCache, EthernetInterfaceBuilder, Routes};
 use smoltcp::socket::{SocketSet, TcpSocket, TcpSocketBuffer};
 use smoltcp::time::Instant;
 
@@ -40,11 +40,14 @@ fn main() {
     let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x02]);
     let ip_addrs = [IpCidr::new(IpAddress::v4(192, 168, 69, 2), 24)];
     let default_v4_gw = Ipv4Address::new(192, 168, 69, 100);
+    let mut routes_storage = [None; 1];
+    let mut routes = Routes::new(&mut routes_storage[..]);
+    routes.add_default_ipv4_route(default_v4_gw).unwrap();
     let mut iface = EthernetInterfaceBuilder::new(device)
             .ethernet_addr(ethernet_addr)
             .neighbor_cache(neighbor_cache)
             .ip_addrs(ip_addrs)
-            .ipv4_gateway(default_v4_gw)
+            .routes(routes)
             .finalize();
 
     let mut sockets = SocketSet::new(vec![]);
