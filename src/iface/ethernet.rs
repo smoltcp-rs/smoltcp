@@ -3,7 +3,7 @@
 // and RFCs 8200 and 4861 for any IPv6 and NDISC work.
 
 use core::cmp;
-use managed::ManagedSlice;
+use managed::{ManagedSlice, ManagedMap};
 
 use {Error, Result};
 use phy::{Device, DeviceCapabilities, RxToken, TxToken};
@@ -14,7 +14,7 @@ use wire::{IpAddress, IpProtocol, IpRepr, IpCidr};
 #[cfg(feature = "proto-ipv6")]
 use wire::{Ipv6Address, Ipv6Packet, Ipv6Repr, IPV6_MIN_MTU};
 #[cfg(feature = "proto-ipv4")]
-use wire::{Ipv4Address, Ipv4Packet, Ipv4Repr, IPV4_MIN_MTU};
+use wire::{Ipv4Packet, Ipv4Repr, IPV4_MIN_MTU};
 #[cfg(feature = "proto-ipv4")]
 use wire::{ArpPacket, ArpRepr, ArpOperation};
 #[cfg(feature = "proto-ipv4")]
@@ -46,15 +46,16 @@ use socket::UdpSocket;
 #[cfg(feature = "socket-tcp")]
 use socket::TcpSocket;
 use super::{NeighborCache, NeighborAnswer};
+use super::Routes;
 
 /// An Ethernet network interface.
 ///
 /// The network interface logically owns a number of other data structures; to avoid
 /// a dependency on heap allocation, it instead owns a `BorrowMut<[T]>`, which can be
 /// a `&mut [T]`, or `Vec<T>` if a heap is available.
-pub struct Interface<'b, 'c, DeviceT: for<'d> Device<'d>> {
+pub struct Interface<'b, 'c, 'e, DeviceT: for<'d> Device<'d>> {
     device: DeviceT,
-    inner:  InterfaceInner<'b, 'c>,
+    inner:  InterfaceInner<'b, 'c, 'e>,
 }
 
 /// The device independent part of an Ethernet network interface.
@@ -64,31 +65,25 @@ pub struct Interface<'b, 'c, DeviceT: for<'d> Device<'d>> {
 /// the `device` mutably until they're used, which makes it impossible to call other
 /// methods on the `Interface` in this time (since its `device` field is borrowed
 /// exclusively). However, it is still possible to call methods on its `inner` field.
-struct InterfaceInner<'b, 'c> {
+struct InterfaceInner<'b, 'c, 'e> {
     neighbor_cache:         NeighborCache<'b>,
     ethernet_addr:          EthernetAddress,
     ip_addrs:               ManagedSlice<'c, IpCidr>,
-    #[cfg(feature = "proto-ipv4")]
-    ipv4_gateway:           Option<Ipv4Address>,
-    #[cfg(feature = "proto-ipv6")]
-    ipv6_gateway:           Option<Ipv6Address>,
+    routes:                 Routes<'e>,
     device_capabilities:    DeviceCapabilities,
 }
 
 /// A builder structure used for creating a Ethernet network
 /// interface.
-pub struct InterfaceBuilder <'b, 'c, DeviceT: for<'d> Device<'d>> {
+pub struct InterfaceBuilder <'b, 'c, 'e, DeviceT: for<'d> Device<'d>> {
     device:              DeviceT,
     ethernet_addr:       Option<EthernetAddress>,
     neighbor_cache:      Option<NeighborCache<'b>>,
     ip_addrs:            ManagedSlice<'c, IpCidr>,
-    #[cfg(feature = "proto-ipv4")]
-    ipv4_gateway:        Option<Ipv4Address>,
-    #[cfg(feature = "proto-ipv6")]
-    ipv6_gateway:        Option<Ipv6Address>,
+    routes:              Routes<'e>,
 }
 
-impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
+impl<'b, 'c, 'e, DeviceT> InterfaceBuilder<'b, 'c, 'e, DeviceT>
         where DeviceT: for<'d> Device<'d> {
     /// Create a builder used for creating a network interface using the
     /// given device and address.
@@ -115,16 +110,13 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
     ///         .ip_addrs(ip_addrs)
     ///         .finalize();
     /// ```
-    pub fn new(device: DeviceT) -> InterfaceBuilder<'b, 'c, DeviceT> {
+    pub fn new(device: DeviceT) -> InterfaceBuilder<'b, 'c, 'e, DeviceT> {
         InterfaceBuilder {
             device:              device,
             ethernet_addr:       None,
             neighbor_cache:      None,
             ip_addrs:            ManagedSlice::Borrowed(&mut []),
-            #[cfg(feature = "proto-ipv4")]
-            ipv4_gateway:        None,
-            #[cfg(feature = "proto-ipv6")]
-            ipv6_gateway:        None,
+            routes:              Routes::new(ManagedMap::Borrowed(&mut [])),
         }
     }
 
@@ -135,7 +127,7 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
     /// This function panics if the address is not unicast.
     ///
     /// [ethernet_addr]: struct.EthernetInterface.html#method.ethernet_addr
-    pub fn ethernet_addr(mut self, addr: EthernetAddress) -> InterfaceBuilder<'b, 'c, DeviceT> {
+    pub fn ethernet_addr(mut self, addr: EthernetAddress) -> InterfaceBuilder<'b, 'c, 'e, DeviceT> {
         InterfaceInner::check_ethernet_addr(&addr);
         self.ethernet_addr = Some(addr);
         self
@@ -148,7 +140,7 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
     /// This function panics if any of the addresses are not unicast.
     ///
     /// [ip_addrs]: struct.EthernetInterface.html#method.ip_addrs
-    pub fn ip_addrs<T>(mut self, ip_addrs: T) -> InterfaceBuilder<'b, 'c, DeviceT>
+    pub fn ip_addrs<T>(mut self, ip_addrs: T) -> InterfaceBuilder<'b, 'c, 'e, DeviceT>
         where T: Into<ManagedSlice<'c, IpCidr>>
     {
         let ip_addrs = ip_addrs.into();
@@ -157,43 +149,20 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
         self
     }
 
-    /// Set the IPv4 gateway the interface will use. See also
-    /// [ipv4_gateway].
+    /// Set the IP routes the interface will use. See also
+    /// [routes].
     ///
-    /// # Panics
-    /// This function panics if the given address is not unicast.
-    ///
-    /// [ipv4_gateway]: struct.EthernetInterface.html#method.ipv4_gateway
-    #[cfg(feature = "proto-ipv4")]
-    pub fn ipv4_gateway<T>(mut self, gateway: T) -> InterfaceBuilder<'b, 'c, DeviceT>
-        where T: Into<Ipv4Address>
+    /// [routes]: struct.EthernetInterface.html#method.routes
+    pub fn routes<T>(mut self, routes: T) -> InterfaceBuilder<'b, 'c, 'e, DeviceT>
+        where T: Into<Routes<'e>>
     {
-        let addr = gateway.into();
-        InterfaceInner::check_ipv4_gateway_addr(&addr);
-        self.ipv4_gateway = Some(addr);
-        self
-    }
-
-    /// Set the IPv6 gateway the interface will use. See also
-    /// [ipv6_gateway].
-    ///
-    /// # Panics
-    /// This function panics if the given address is not unicast.
-    ///
-    /// [ipv6_gateway]: struct.EthernetInterface.html#method.ipv6_gateway
-    #[cfg(feature = "proto-ipv6")]
-    pub fn ipv6_gateway<T>(mut self, gateway: T) -> InterfaceBuilder<'b, 'c, DeviceT>
-        where T: Into<Ipv6Address>
-    {
-        let addr = gateway.into();
-        InterfaceInner::check_ipv6_gateway_addr(&addr);
-        self.ipv6_gateway = Some(addr);
+        self.routes = routes.into();
         self
     }
 
     /// Set the Neighbor Cache the interface will use.
     pub fn neighbor_cache(mut self, neighbor_cache: NeighborCache<'b>) ->
-                         InterfaceBuilder<'b, 'c, DeviceT> {
+                         InterfaceBuilder<'b, 'c, 'e, DeviceT> {
         self.neighbor_cache = Some(neighbor_cache);
         self
     }
@@ -209,7 +178,7 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
     ///
     /// [ethernet_addr]: #method.ethernet_addr
     /// [neighbor_cache]: #method.neighbor_cache
-    pub fn finalize(self) -> Interface<'b, 'c, DeviceT> {
+    pub fn finalize(self) -> Interface<'b, 'c, 'e, DeviceT> {
         match (self.ethernet_addr, self.neighbor_cache) {
             (Some(ethernet_addr), Some(neighbor_cache)) => {
                 let device_capabilities = self.device.capabilities();
@@ -218,10 +187,7 @@ impl<'b, 'c, DeviceT> InterfaceBuilder<'b, 'c, DeviceT>
                     inner: InterfaceInner {
                         ethernet_addr, device_capabilities, neighbor_cache,
                         ip_addrs: self.ip_addrs,
-                        #[cfg(feature = "proto-ipv4")]
-                        ipv4_gateway: self.ipv4_gateway,
-                        #[cfg(feature = "proto-ipv6")]
-                        ipv6_gateway: self.ipv6_gateway,
+                        routes: self.routes,
                     }
                 }
             },
@@ -280,7 +246,7 @@ fn icmp_reply_payload_len(len: usize, mtu: usize, header_len: usize) -> usize {
     cmp::min(len, mtu - header_len * 2 - 8)
 }
 
-impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
+impl<'b, 'c, 'e, DeviceT> Interface<'b, 'c, 'e, DeviceT>
         where DeviceT: for<'d> Device<'d> {
     /// Get the Ethernet address of the interface.
     pub fn ethernet_addr(&self) -> EthernetAddress {
@@ -315,38 +281,12 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
         self.inner.has_ip_addr(addr)
     }
 
-    /// Get the IPv4 gateway of the interface.
-    #[cfg(feature = "proto-ipv4")]
-    pub fn ipv4_gateway(&self) -> Option<Ipv4Address> {
-        self.inner.ipv4_gateway
+    pub fn routes(&self) -> &'e Routes {
+        &self.inner.routes
     }
 
-    /// Set the IPv4 gateway of the interface.
-    ///
-    /// # Panics
-    /// This function panics if the given address is not unicast.
-    #[cfg(feature = "proto-ipv4")]
-    pub fn set_ipv4_gateway<GatewayAddrT>(&mut self, gateway: GatewayAddrT)
-            where GatewayAddrT: Into<Option<Ipv4Address>> {
-        self.inner.ipv4_gateway = gateway.into();
-        self.inner.ipv4_gateway.map(|addr| InterfaceInner::check_ipv4_gateway_addr(&addr));
-    }
-
-    /// Get the IPv6 gateway of the interface.
-    #[cfg(feature = "proto-ipv6")]
-    pub fn ipv6_gateway(&self) -> Option<Ipv6Address> {
-        self.inner.ipv6_gateway
-    }
-
-    /// Set the IPv6 gateway of the interface.
-    ///
-    /// # Panics
-    /// This function panics if the given address is not unicast.
-    #[cfg(feature = "proto-ipv6")]
-    pub fn set_ipv6_gateway<GatewayAddrT>(&mut self, gateway: GatewayAddrT)
-            where GatewayAddrT: Into<Option<Ipv6Address>> {
-        self.inner.ipv6_gateway = gateway.into();
-        self.inner.ipv6_gateway.map(|addr| InterfaceInner::check_ipv6_gateway_addr(&addr));
+    pub fn routes_mut(&mut self) -> &'e mut Routes {
+        &mut self.inner.routes
     }
 
     /// Transmit packets queued in the given sockets, and receive packets queued
@@ -525,7 +465,7 @@ impl<'b, 'c, DeviceT> Interface<'b, 'c, DeviceT>
     }
 }
 
-impl<'b, 'c> InterfaceInner<'b, 'c> {
+impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
     fn check_ethernet_addr(addr: &EthernetAddress) {
         if addr.is_multicast() {
             panic!("Ethernet address {} is not unicast", addr)
@@ -537,20 +477,6 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
             if !cidr.address().is_unicast() {
                 panic!("IP address {} is not unicast", cidr.address())
             }
-        }
-    }
-
-    #[cfg(feature = "proto-ipv4")]
-    fn check_ipv4_gateway_addr(addr: &Ipv4Address) {
-        if !addr.is_unicast() {
-            panic!("gateway IP address {} is not unicast", addr);
-        }
-    }
-
-    #[cfg(feature = "proto-ipv6")]
-    fn check_ipv6_gateway_addr(addr: &Ipv6Address) {
-        if !addr.is_unicast() {
-            panic!("gateway IP address {} is not unicast", addr);
         }
     }
 
@@ -1238,30 +1164,21 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
             .is_some()
     }
 
-    fn route(&self, addr: &IpAddress) -> Result<IpAddress> {
+    fn route(&self, addr: &IpAddress, timestamp: Instant) -> Result<IpAddress> {
         // Send directly.
         if self.in_same_network(addr) || addr.is_broadcast() {
             return Ok(addr.clone())
         }
 
-        // Route via a gateway.
-        match addr {
-            #[cfg(feature = "proto-ipv4")]
-            &IpAddress::Ipv4(_) => match self.ipv4_gateway {
-                Some(gateway) => Ok(gateway.into()),
-                None => Err(Error::Unaddressable),
-            }
-            #[cfg(feature = "proto-ipv6")]
-            &IpAddress::Ipv6(_) => match self.ipv6_gateway {
-                Some(gateway) => Ok(gateway.into()),
-                None => Err(Error::Unaddressable),
-            }
-            _ => Err(Error::Unaddressable)
+        // Route via a router.
+        match self.routes.lookup(addr, timestamp) {
+            Some(router_addr) => Ok(router_addr),
+            None => Err(Error::Unaddressable),
         }
     }
 
     fn has_neighbor<'a>(&self, addr: &'a IpAddress, timestamp: Instant) -> bool {
-        match self.route(addr) {
+        match self.route(addr, timestamp) {
             Ok(routed_addr) => {
                 self.neighbor_cache
                     .lookup_pure(&routed_addr, timestamp)
@@ -1309,7 +1226,7 @@ impl<'b, 'c> InterfaceInner<'b, 'c> {
             }
         }
 
-        let dst_addr = self.route(dst_addr)?;
+        let dst_addr = self.route(dst_addr, timestamp)?;
 
         match self.neighbor_cache.lookup(&dst_addr, timestamp) {
             NeighborAnswer::Found(hardware_addr) =>
@@ -1435,8 +1352,8 @@ mod test {
 
     use super::Packet;
 
-    fn create_loopback<'a, 'b>() -> (EthernetInterface<'static, 'b, Loopback>,
-                                     SocketSet<'static, 'a, 'b>) {
+    fn create_loopback<'a, 'b, 'c>() -> (EthernetInterface<'static, 'b, 'c, Loopback>,
+                                         SocketSet<'static, 'a, 'b>) {
         // Create a basic device
         let device = Loopback::new();
         let ip_addrs = [
