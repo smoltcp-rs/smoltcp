@@ -143,7 +143,7 @@ impl Timer {
 
     fn set_for_retransmit(&mut self, timestamp: Instant) {
         match *self {
-            Timer::Idle { .. } => {
+            Timer::Idle { .. } | Timer::FastRetransmit { .. } => {
                 *self = Timer::Retransmit {
                     expires_at: timestamp + RETRANSMIT_DELAY,
                     delay:      RETRANSMIT_DELAY,
@@ -157,7 +157,6 @@ impl Timer {
                 }
             }
             Timer::Retransmit { .. } => (),
-            Timer::FastRetransmit { .. } => (),
             Timer::Close { .. } => ()
         }
     }
@@ -3288,6 +3287,32 @@ mod test {
             payload:    &b"xxxxxx"[..],
             ..RECV_TEMPL
         }));
+
+        recv!(s, time 1105, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1 + 6,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"yyyyyy"[..],
+            ..RECV_TEMPL
+        }));
+        recv!(s, time 1110, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1 + (6 * 2),
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"wwwwww"[..],
+            ..RECV_TEMPL
+        }));
+        recv!(s, time 1115, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1 + (6 * 3),
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"zzzzzz"[..],
+            ..RECV_TEMPL
+        }));
+
+        // After all was send out, enter *normal* retransmission,
+        // don't stay in fast retransmission.
+        assert!(match s.timer {
+            Timer::Retransmit { expires_at, .. } => expires_at > Instant::from_millis(1115),
+            _ => false,
+        });
 
         // ACK all recived segments
         send!(s, time 1120, TcpRepr {
