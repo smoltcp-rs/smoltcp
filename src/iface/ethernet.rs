@@ -1434,15 +1434,12 @@ mod test {
     use phy::{self, Loopback, ChecksumCapabilities};
     use time::Instant;
     use socket::SocketSet;
-    //use iface::FragmentSet;
-    //#[cfg(feature = "fragmentation-ipv4")]
-    //use iface::FragmentedPacket};
     #[cfg(feature = "proto-ipv4")]
     use wire::{ArpOperation, ArpPacket, ArpRepr};
     use wire::{EthernetAddress, EthernetFrame, EthernetProtocol};
     use wire::{IpAddress, IpCidr, IpProtocol, IpRepr};
     #[cfg(feature = "proto-ipv4")]
-    use wire::{Ipv4Address, Ipv4Repr, Ipv4Packet};
+    use wire::{Ipv4Address, Ipv4Repr};
     #[cfg(feature = "proto-ipv4")]
     use wire::{Icmpv4Repr, Icmpv4DstUnreachable};
     #[cfg(all(feature = "socket-udp", feature = "proto-ipv4"))]
@@ -1458,7 +1455,7 @@ mod test {
 
     use super::Packet;
 
-    fn create_loopback<'a, 'b, 'c>() -> (EthernetInterface<'static, 'b, 'c, Loopback>,
+    fn create_loopback<'a, 'b, 'c, 'd>() -> (EthernetInterface<'static, 'b, 'c, 'd, Loopback>,
                                          SocketSet<'static, 'a, 'b>) {
         // Create a basic device
         let device = Loopback::new();
@@ -1528,7 +1525,7 @@ mod test {
         // Ensure that the unknown protocol frame does not trigger an
         // ICMP error response when the destination address is a
         // broadcast address
-        assert_eq!(iface.inner.process_ipv4(&mut socket_set, Instant::from_millis(0), &frame),
+        assert_eq!(iface.inner.process_ipv4(&mut socket_set, Instant::from_millis(0), &frame, &mut None),
                    Ok(Packet::None));
     }
 
@@ -1586,7 +1583,7 @@ mod test {
 
         // Ensure that the unknown protocol triggers an error response.
         // And we correctly handle no payload.
-        assert_eq!(iface.inner.process_ipv4(&mut socket_set, Instant::from_millis(0), &frame),
+        assert_eq!(iface.inner.process_ipv4(&mut socket_set, Instant::from_millis(0), &frame, &mut None),
                    Ok(expected_repr));
     }
 
@@ -1820,7 +1817,7 @@ mod test {
         }
 
         // Ensure an ARP Request for us triggers an ARP Reply
-        assert_eq!(iface.inner.process_ethernet(&mut socket_set, Instant::from_millis(0), frame.into_inner()),
+        assert_eq!(iface.inner.process_ethernet(&mut socket_set, Instant::from_millis(0), frame.into_inner(), &mut None),
                    Ok(Packet::Arp(ArpRepr::EthernetIpv4 {
                        operation: ArpOperation::Reply,
                        source_hardware_addr: local_hw_addr,
@@ -1885,7 +1882,7 @@ mod test {
         };
 
         // Ensure an Neighbor Solicitation triggers a Neighbor Advertisement
-        assert_eq!(iface.inner.process_ethernet(&mut socket_set, Instant::from_millis(0), frame.into_inner()),
+        assert_eq!(iface.inner.process_ethernet(&mut socket_set, Instant::from_millis(0), frame.into_inner(), &mut None),
                    Ok(Packet::Icmpv6((ipv6_expected, icmpv6_expected))));
 
         // Ensure the address of the requestor was entered in the cache
@@ -1922,7 +1919,7 @@ mod test {
         }
 
         // Ensure an ARP Request for someone else does not trigger an ARP Reply
-        assert_eq!(iface.inner.process_ethernet(&mut socket_set, Instant::from_millis(0), frame.into_inner()),
+        assert_eq!(iface.inner.process_ethernet(&mut socket_set, Instant::from_millis(0), frame.into_inner(), &mut None),
                    Ok(Packet::None));
 
         // Ensure the address of the requestor was entered in the cache
