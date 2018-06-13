@@ -47,15 +47,16 @@ use socket::UdpSocket;
 use socket::TcpSocket;
 use super::{NeighborCache, NeighborAnswer};
 use super::Routes;
+use super::FragmentSet;
 
 /// An Ethernet network interface.
 ///
 /// The network interface logically owns a number of other data structures; to avoid
 /// a dependency on heap allocation, it instead owns a `BorrowMut<[T]>`, which can be
 /// a `&mut [T]`, or `Vec<T>` if a heap is available.
-pub struct Interface<'b, 'c, 'e, DeviceT: for<'d> Device<'d>> {
+pub struct Interface<'b, 'c, 'e, 'f, DeviceT: for<'d> Device<'d>> {
     device: DeviceT,
-    inner:  InterfaceInner<'b, 'c, 'e>,
+    inner:  InterfaceInner<'b, 'c, 'e, 'f>,
 }
 
 /// The device independent part of an Ethernet network interface.
@@ -65,25 +66,27 @@ pub struct Interface<'b, 'c, 'e, DeviceT: for<'d> Device<'d>> {
 /// the `device` mutably until they're used, which makes it impossible to call other
 /// methods on the `Interface` in this time (since its `device` field is borrowed
 /// exclusively). However, it is still possible to call methods on its `inner` field.
-struct InterfaceInner<'b, 'c, 'e> {
+struct InterfaceInner<'b, 'c, 'e, 'f> {
     neighbor_cache:         NeighborCache<'b>,
     ethernet_addr:          EthernetAddress,
     ip_addrs:               ManagedSlice<'c, IpCidr>,
     routes:                 Routes<'e>,
     device_capabilities:    DeviceCapabilities,
+    fragments:              Option<FragmentSet<'f>>,
 }
 
 /// A builder structure used for creating a Ethernet network
 /// interface.
-pub struct InterfaceBuilder <'b, 'c, 'e, DeviceT: for<'d> Device<'d>> {
+pub struct InterfaceBuilder <'b, 'c, 'e, 'f, DeviceT: for<'d> Device<'d>> {
     device:              DeviceT,
     ethernet_addr:       Option<EthernetAddress>,
     neighbor_cache:      Option<NeighborCache<'b>>,
     ip_addrs:            ManagedSlice<'c, IpCidr>,
     routes:              Routes<'e>,
+    fragments:           Option<FragmentSet<'f>>,
 }
 
-impl<'b, 'c, 'e, DeviceT> InterfaceBuilder<'b, 'c, 'e, DeviceT>
+impl<'b, 'c, 'e, 'f, DeviceT> InterfaceBuilder<'b, 'c, 'e, 'f, DeviceT>
         where DeviceT: for<'d> Device<'d> {
     /// Create a builder used for creating a network interface using the
     /// given device and address.
@@ -110,13 +113,14 @@ impl<'b, 'c, 'e, DeviceT> InterfaceBuilder<'b, 'c, 'e, DeviceT>
     ///         .ip_addrs(ip_addrs)
     ///         .finalize();
     /// ```
-    pub fn new(device: DeviceT) -> InterfaceBuilder<'b, 'c, 'e, DeviceT> {
+    pub fn new(device: DeviceT) -> InterfaceBuilder<'b, 'c, 'e, 'f, DeviceT> {
         InterfaceBuilder {
             device:              device,
             ethernet_addr:       None,
             neighbor_cache:      None,
             ip_addrs:            ManagedSlice::Borrowed(&mut []),
             routes:              Routes::new(ManagedMap::Borrowed(&mut [])),
+            fragments:           None,
         }
     }
 
@@ -127,7 +131,7 @@ impl<'b, 'c, 'e, DeviceT> InterfaceBuilder<'b, 'c, 'e, DeviceT>
     /// This function panics if the address is not unicast.
     ///
     /// [ethernet_addr]: struct.EthernetInterface.html#method.ethernet_addr
-    pub fn ethernet_addr(mut self, addr: EthernetAddress) -> InterfaceBuilder<'b, 'c, 'e, DeviceT> {
+    pub fn ethernet_addr(mut self, addr: EthernetAddress) -> InterfaceBuilder<'b, 'c, 'e, 'f, DeviceT> {
         InterfaceInner::check_ethernet_addr(&addr);
         self.ethernet_addr = Some(addr);
         self
@@ -140,7 +144,7 @@ impl<'b, 'c, 'e, DeviceT> InterfaceBuilder<'b, 'c, 'e, DeviceT>
     /// This function panics if any of the addresses are not unicast.
     ///
     /// [ip_addrs]: struct.EthernetInterface.html#method.ip_addrs
-    pub fn ip_addrs<T>(mut self, ip_addrs: T) -> InterfaceBuilder<'b, 'c, 'e, DeviceT>
+    pub fn ip_addrs<T>(mut self, ip_addrs: T) -> InterfaceBuilder<'b, 'c, 'e, 'f, DeviceT>
         where T: Into<ManagedSlice<'c, IpCidr>>
     {
         let ip_addrs = ip_addrs.into();
@@ -153,7 +157,7 @@ impl<'b, 'c, 'e, DeviceT> InterfaceBuilder<'b, 'c, 'e, DeviceT>
     /// [routes].
     ///
     /// [routes]: struct.EthernetInterface.html#method.routes
-    pub fn routes<T>(mut self, routes: T) -> InterfaceBuilder<'b, 'c, 'e, DeviceT>
+    pub fn routes<T>(mut self, routes: T) -> InterfaceBuilder<'b, 'c, 'e, 'f, DeviceT>
         where T: Into<Routes<'e>>
     {
         self.routes = routes.into();
@@ -162,10 +166,19 @@ impl<'b, 'c, 'e, DeviceT> InterfaceBuilder<'b, 'c, 'e, DeviceT>
 
     /// Set the Neighbor Cache the interface will use.
     pub fn neighbor_cache(mut self, neighbor_cache: NeighborCache<'b>) ->
-                         InterfaceBuilder<'b, 'c, 'e, DeviceT> {
+                         InterfaceBuilder<'b, 'c, 'e, 'f, DeviceT> {
         self.neighbor_cache = Some(neighbor_cache);
         self
     }
+
+    /// Set the fragment set
+    #[cfg(feature = "fragmentation-ipv4")]
+    pub fn fragments_set(mut self, fragments: FragmentSet<'f>) ->
+                        InterfaceBuilder<'b, 'c, 'e, 'f, DeviceT> {
+        self.fragments = Some(fragments);
+        self
+    }
+
 
     /// Create a network interface using the previously provided configuration.
     ///
@@ -178,7 +191,7 @@ impl<'b, 'c, 'e, DeviceT> InterfaceBuilder<'b, 'c, 'e, DeviceT>
     ///
     /// [ethernet_addr]: #method.ethernet_addr
     /// [neighbor_cache]: #method.neighbor_cache
-    pub fn finalize(self) -> Interface<'b, 'c, 'e, DeviceT> {
+    pub fn finalize(self) -> Interface<'b, 'c, 'e, 'f, DeviceT> {
         match (self.ethernet_addr, self.neighbor_cache) {
             (Some(ethernet_addr), Some(neighbor_cache)) => {
                 let device_capabilities = self.device.capabilities();
@@ -188,6 +201,7 @@ impl<'b, 'c, 'e, DeviceT> InterfaceBuilder<'b, 'c, 'e, DeviceT>
                         ethernet_addr, device_capabilities, neighbor_cache,
                         ip_addrs: self.ip_addrs,
                         routes: self.routes,
+                        fragments: self.fragments,
                     }
                 }
             },
@@ -246,7 +260,7 @@ fn icmp_reply_payload_len(len: usize, mtu: usize, header_len: usize) -> usize {
     cmp::min(len, mtu - header_len * 2 - 8)
 }
 
-impl<'b, 'c, 'e, DeviceT> Interface<'b, 'c, 'e, DeviceT>
+impl<'b, 'c, 'e, 'f, DeviceT> Interface<'b, 'c, 'e, 'f, DeviceT>
         where DeviceT: for<'d> Device<'d> {
     /// Get the Ethernet address of the interface.
     pub fn ethernet_addr(&self) -> EthernetAddress {
@@ -369,7 +383,9 @@ impl<'b, 'c, 'e, DeviceT> Interface<'b, 'c, 'e, DeviceT>
                 Some(tokens) => tokens,
             };
             rx_token.consume(timestamp, |frame| {
-                inner.process_ethernet(sockets, timestamp, &frame).map_err(|err| {
+                let mut fragments = ::core::mem::replace(&mut inner.fragments, None);
+                // this corresponds to `let mut fragments = inner.fragments; && inner.fragments = None;`
+                let r = inner.process_ethernet(sockets, timestamp, &frame, &mut fragments).map_err(|err| {
                     net_debug!("cannot process ingress packet: {}", err);
                     net_debug!("packet dump follows:\n{}",
                                PrettyPrinter::<EthernetFrame<&[u8]>>::new("", &frame));
@@ -380,7 +396,10 @@ impl<'b, 'c, 'e, DeviceT> Interface<'b, 'c, 'e, DeviceT>
                         net_debug!("cannot dispatch response packet: {}", err);
                         err
                     })
-                })
+                });
+                // Restore inner.fragments
+                inner.fragments = fragments;
+                r
             })?;
         }
         Ok(processed_any)
@@ -465,7 +484,7 @@ impl<'b, 'c, 'e, DeviceT> Interface<'b, 'c, 'e, DeviceT>
     }
 }
 
-impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
+impl<'b, 'c, 'e, 'f> InterfaceInner<'b, 'c, 'e, 'f> {
     fn check_ethernet_addr(addr: &EthernetAddress) {
         if addr.is_multicast() {
             panic!("Ethernet address {} is not unicast", addr)
@@ -505,8 +524,9 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
         self.ip_addrs.iter().any(|probe| probe.address() == addr)
     }
 
-    fn process_ethernet<'frame, T: AsRef<[u8]>>
-                       (&mut self, sockets: &mut SocketSet, timestamp: Instant, frame: &'frame T) ->
+    fn process_ethernet<'frame, 'r : 'frame, T: AsRef<[u8]>>
+                       (&mut self, sockets: &mut SocketSet, timestamp: Instant, frame: &'frame T,
+                       fragments: &'r mut Option<FragmentSet<'f>>) ->
                        Result<Packet<'frame>>
     {
         let eth_frame = EthernetFrame::new_checked(frame)?;
@@ -524,7 +544,7 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
                 self.process_arp(timestamp, &eth_frame),
             #[cfg(feature = "proto-ipv4")]
             EthernetProtocol::Ipv4 =>
-                self.process_ipv4(sockets, timestamp, &eth_frame),
+                self.process_ipv4(sockets, timestamp, &eth_frame, fragments),
             #[cfg(feature = "proto-ipv6")]
             EthernetProtocol::Ipv6 =>
                 self.process_ipv6(sockets, timestamp, &eth_frame),
@@ -675,14 +695,97 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
         }
     }
 
+/// Process an IPv4 fragment
+    /// Returns etiher an assembled packet, or nothing (if no packet is available),
+    /// or an error caused by processing a packet.
+    #[cfg(feature = "fragmentation-ipv4")]
+    fn process_ipv4_fragment<'frame, 'r>
+            (&mut self, ipv4_packet: Ipv4Packet<&'frame [u8]>, timestamp: Instant,
+             fragments: &'r mut Option<FragmentSet<'f>>) -> Result<Option<Ipv4Packet<&'r [u8]>>>
+    {
+        match *fragments {
+            Some(ref mut fragments) => {
+                // get an existing fragment or attempt to get a new one
+                let fragment = match fragments.get_packet(ipv4_packet.ident(),
+                                                          ipv4_packet.src_addr(),
+                                                          ipv4_packet.dst_addr(),
+                                                          timestamp) {
+                    Some(frag) => frag,
+                    None => return Err(Error::FragmentSetFull),
+                };
+
+                if fragment.is_empty() {
+                    // this is a new packet
+                    fragment.start(ipv4_packet.ident(),
+                                   ipv4_packet.src_addr(),
+                                   ipv4_packet.dst_addr());
+                }
+
+                if !ipv4_packet.more_frags() {
+                    // last fragment, remember data length
+                    fragment.set_total_len(ipv4_packet.frag_offset() as usize +
+                                           ipv4_packet.total_len() as usize);
+                }
+
+                match fragment.add(ipv4_packet.header_len() as usize,
+                             ipv4_packet.frag_offset() as usize,
+                             ipv4_packet.payload().len(),
+                             ipv4_packet.into_inner(),
+                             timestamp) {
+                    Ok(_) => {},
+                    Err(_) => {
+                        fragment.reset();
+                        return Err(Error::TooManyFragments);
+                    }
+                }
+
+                if fragment.check_contig_range() {
+                    // this is the last packet, attempt reassembly
+                    let front = fragment.front().unwrap();
+                    {
+                        // because the different mutability of the underlying buffers, we have to do this exercise
+                        let mut ipv4_packet = Ipv4Packet::new_checked(fragment.get_buffer_mut(0,front))?;
+                        ipv4_packet.set_total_len(front as u16);
+                        ipv4_packet.fill_checksum();
+                    }
+                    return Ok(Some(Ipv4Packet::new_checked(fragment.get_buffer_and_reset(0,front))?));
+                }
+
+                // not the last fragment
+                return Ok(None);
+            },
+            None => {
+                return Err(Error::NoFragmentSet);
+            }
+        }
+    }
+
     #[cfg(feature = "proto-ipv4")]
-    fn process_ipv4<'frame, T: AsRef<[u8]>>
+    fn process_ipv4<'frame, 'r : 'frame, T: AsRef<[u8]>>
                    (&mut self, sockets: &mut SocketSet, timestamp: Instant,
-                    eth_frame: &EthernetFrame<&'frame T>) ->
+                    eth_frame: &EthernetFrame<&'frame T>,
+                    _fragments: &'r mut Option<FragmentSet<'f>>) ->
                    Result<Packet<'frame>>
     {
-        let ipv4_packet = Ipv4Packet::new_checked(eth_frame.payload())?;
+        let ipv4_packet_in = Ipv4Packet::new_checked(eth_frame.payload())?;
         let checksum_caps = self.device_capabilities.checksum.clone();
+
+        let ipv4_packet;
+        if ipv4_packet_in.more_frags() || ipv4_packet_in.frag_offset() > 0{
+            #[cfg(feature = "fragmentation-ipv4")]
+            match self.process_ipv4_fragment(ipv4_packet_in, timestamp, _fragments)? {
+                Some(assembled_packet) => {
+                    ipv4_packet = assembled_packet;
+                },
+                None => return Ok(Packet::None),
+            }
+            #[cfg(not(feature = "fragmentation-ipv4"))]
+            return Err(Error::Fragmented)
+        } else {
+            // non-fragmented packet
+            ipv4_packet = ipv4_packet_in;
+        }
+
         let ipv4_repr = Ipv4Repr::parse(&ipv4_packet, &checksum_caps)?;
 
         if !ipv4_repr.src_addr.is_unicast() {
@@ -1331,12 +1434,15 @@ mod test {
     use phy::{self, Loopback, ChecksumCapabilities};
     use time::Instant;
     use socket::SocketSet;
+    //use iface::FragmentSet;
+    //#[cfg(feature = "fragmentation-ipv4")]
+    //use iface::FragmentedPacket};
     #[cfg(feature = "proto-ipv4")]
     use wire::{ArpOperation, ArpPacket, ArpRepr};
     use wire::{EthernetAddress, EthernetFrame, EthernetProtocol};
     use wire::{IpAddress, IpCidr, IpProtocol, IpRepr};
     #[cfg(feature = "proto-ipv4")]
-    use wire::{Ipv4Address, Ipv4Repr};
+    use wire::{Ipv4Address, Ipv4Repr, Ipv4Packet};
     #[cfg(feature = "proto-ipv4")]
     use wire::{Icmpv4Repr, Icmpv4DstUnreachable};
     #[cfg(all(feature = "socket-udp", feature = "proto-ipv4"))]
