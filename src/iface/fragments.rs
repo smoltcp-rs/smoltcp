@@ -1,14 +1,21 @@
+#[cfg(feature = "fragmentation-ipv4")]
 use storage::Assembler;
+#[cfg(feature = "fragmentation-ipv4")]
 use time::Instant;
+#[cfg(feature = "fragmentation-ipv4")]
 use managed::ManagedSlice;
-#[cfg(feature = "proto-ipv4")]
+#[cfg(feature = "fragmentation-ipv4")]
 use wire::Ipv4Address;
+#[cfg(not(feature = "fragmentation-ipv4"))]
+use core::marker::PhantomData;
 
+#[cfg(feature = "fragmentation-ipv4")]
 pub struct Packet<'a> {
     rx_buffer: ManagedSlice<'a, u8>,
     state: PacketState,
 }
 
+#[cfg(feature = "fragmentation-ipv4")]
 #[derive(Debug)]
 enum PacketState {
     Empty,
@@ -24,6 +31,7 @@ enum PacketState {
     }
 }
 
+#[cfg(feature = "fragmentation-ipv4")]
 impl<'a> Packet<'a> {
     /// Create a new empty packet
     pub fn new<S>(storage: S) -> Packet<'a>
@@ -170,10 +178,15 @@ impl<'a> Packet<'a> {
     }
 }
 
+
 pub struct Set<'a> {
+    #[cfg(feature = "fragmentation-ipv4")]
 	packets: ManagedSlice<'a, Packet<'a>>,
+	#[cfg(not(feature = "fragmentation-ipv4"))]
+	_packets: PhantomData<&'a ()>,
 }
 
+#[cfg(feature = "fragmentation-ipv4")]
 impl<'a> Set<'a> {
     /// Default timeout duration
     pub(crate) const FRAGMENTATION_TIMEOUT_MS: i64 = 500;

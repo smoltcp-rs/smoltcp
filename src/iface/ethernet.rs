@@ -526,7 +526,7 @@ impl<'b, 'c, 'e, 'f> InterfaceInner<'b, 'c, 'e, 'f> {
 
     fn process_ethernet<'frame, 'r : 'frame, T: AsRef<[u8]>>
                        (&mut self, sockets: &mut SocketSet, timestamp: Instant, frame: &'frame T,
-                       fragments: &'r mut Option<FragmentSet<'f>>) ->
+                       _fragments: &'r mut Option<FragmentSet<'f>>) ->
                        Result<Packet<'frame>>
     {
         let eth_frame = EthernetFrame::new_checked(frame)?;
@@ -544,7 +544,7 @@ impl<'b, 'c, 'e, 'f> InterfaceInner<'b, 'c, 'e, 'f> {
                 self.process_arp(timestamp, &eth_frame),
             #[cfg(feature = "proto-ipv4")]
             EthernetProtocol::Ipv4 =>
-                self.process_ipv4(sockets, timestamp, &eth_frame, fragments),
+                self.process_ipv4(sockets, timestamp, &eth_frame, _fragments),
             #[cfg(feature = "proto-ipv6")]
             EthernetProtocol::Ipv6 =>
                 self.process_ipv6(sockets, timestamp, &eth_frame),
