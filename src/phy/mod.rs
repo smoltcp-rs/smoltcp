@@ -113,6 +113,10 @@ pub use self::raw_socket::RawSocket;
 #[cfg(all(feature = "phy-tap_interface", target_os = "linux"))]
 pub use self::tap_interface::TapInterface;
 
+/// Ethernet header length to be added to the MTU, since the header is not counted into MTU
+/// 6 bytes src addr, 6 bytes dst addr, 2 bytes EthType, (optional) 4 bytes IEEE 802.1Q Header
+pub const ETHERNET_HAEDER_MAX_LEN: usize = 18;
+
 /// A tracer device for Ethernet frames.
 pub type EthernetTracer<T> = Tracer<T, super::wire::EthernetFrame<&'static [u8]>>;
 
