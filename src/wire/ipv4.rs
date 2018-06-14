@@ -563,7 +563,7 @@ impl Repr {
             // We do not support fragmentation.
             if packet.more_frags() || packet.frag_offset() != 0 { return Err(Error::Fragmented) }
         }
-        if packet.more_frags() || packet.frag_offset() != 0 { return Err(Error::Fragmented) }
+
         // Since the packet is not fragmented, it must include the entire payload.
         let payload_len = packet.total_len() as usize - packet.header_len() as usize;
         if packet.payload().len() < payload_len  { return Err(Error::Truncated) }
