@@ -1452,6 +1452,10 @@ mod test {
     use wire::{NdiscNeighborFlags, NdiscRepr};
     #[cfg(feature = "proto-ipv6")]
     use wire::{Ipv6HopByHopHeader, Ipv6Option, Ipv6OptionRepr};
+    #[cfg(feature = "fragmentation-ipv4")]
+    use iface::{FragmentSet, FragmentedPacket};
+    #[cfg(feature = "fragmentation-ipv4")]
+    use wire::{Ipv4Packet};
 
     use super::Packet;
 
@@ -2081,4 +2085,206 @@ mod test {
             &IpAddress::Ipv6(remote_ip_addr)),
             Ok((remote_hw_addr, MockTxToken)));
     }
+
+    #[cfg(feature = "std")]
+    use std::vec::Vec;
+    fn create_loopback_with_fragments<'a, 'b>() -> (EthernetInterface<'static, 'b, 'static, 'static, Loopback>,
+                                     Vec<u8>, Vec<u8>, Vec<u8>) {
+        // Create a basic device
+        let device = Loopback::new();
+        let ip_addrs = [
+            #[cfg(feature = "proto-ipv4")]
+            IpCidr::new(IpAddress::v4(127, 0, 0, 1), 8),
+            #[cfg(feature = "proto-ipv6")]
+            IpCidr::new(IpAddress::v6(0, 0, 0, 0, 0, 0, 0, 1), 128)
+        ];
+
+        // A simple fragments set
+        let mut fragments = FragmentSet::new(vec![]);
+        let fragment = FragmentedPacket::new(vec![0; 65535]);
+        fragments.add(fragment);
+
+        let iface = InterfaceBuilder::new(device)
+                .ethernet_addr(EthernetAddress::default())
+                .neighbor_cache(NeighborCache::new(BTreeMap::new()))
+                .ip_addrs(ip_addrs)
+                .fragments_set(fragments)
+                .finalize();
+
+        // create 3 packets representing a large UDP packet
+        let mut packet1 = vec![
+                              0x45, 0x0, 0x5, 0xdc, 0xd4, 0xba, 0x20, 0x0, 0x40, 0x11, 0x75, 0x2,
+                              0xc0, 0xa8, 0x45, 0x2, 0xc0, 0xa8, 0x45, 0x1, 0x15, 0xb3, 0x1b, 0x39,
+                              0x10, 0x8, 0x43, 0x3d
+                              ];
+
+        packet1.extend_from_slice(&vec![0xc; 1472]);
+
+        let mut packet2 = vec![
+                              0x45, 0x00, 0x05, 0xdc, 0xd4, 0xba, 0x20, 0xb9, 0x40, 0x11, 0x74, 0x49,
+                              0xc0, 0xa8, 0x45, 0x02, 0xc0, 0xa8, 0x45, 0x01
+                              ];
+
+        packet2.extend_from_slice(&vec![0xc; 1480]);
+
+        let mut packet3 = vec![
+                              0x45, 0x00, 0x04, 0x8c, 0xd4, 0xba, 0x01, 0x72, 0x40, 0x11, 0x94, 0xe0,
+                              0xc0, 0xa8, 0x45, 0x02, 0xc0, 0xa8, 0x45, 0x01
+                              ];
+
+        packet3.extend_from_slice(&vec![0xc; 1144]);
+
+        (iface, packet1, packet2, packet3)
+    }
+
+    #[test]
+    #[cfg(all(feature = "fragmentation-ipv4", feature = "proto-ipv4", feature = "std"))]
+    fn test_fragmentation_ipv4_udp_123() {
+        let (mut iface, packet1, packet2, packet3) = create_loopback_with_fragments();
+
+        let packet = Ipv4Packet::new_checked(packet1.as_slice()).unwrap();
+        let mut fragments = ::std::mem::replace(&mut iface.inner.fragments, None);
+        assert_eq!(iface.inner.process_ipv4_fragment(packet, Instant::from_millis(1), &mut fragments),
+                   Ok(None));
+        iface.inner.fragments = fragments;
+
+        let packet = Ipv4Packet::new_checked(packet2.as_slice()).unwrap();
+        let mut fragments = ::std::mem::replace(&mut iface.inner.fragments, None);
+        assert_eq!(iface.inner.process_ipv4_fragment(packet, Instant::from_millis(2), &mut fragments),
+                   Ok(None));
+        iface.inner.fragments = fragments;
+
+        let packet = Ipv4Packet::new_checked(packet3.as_slice()).unwrap();
+        let mut fragments = ::std::mem::replace(&mut iface.inner.fragments, None);
+        assert_ne!(iface.inner.process_ipv4_fragment(packet, Instant::from_millis(3), &mut fragments),
+                   Ok(None));
+        iface.inner.fragments = fragments;
+    }
+
+    #[test]
+    #[cfg(all(feature = "fragmentation-ipv4", feature = "proto-ipv4", feature = "std"))]
+    fn test_fragmentation_ipv4_udp_321() {
+        let (mut iface, packet1, packet2, packet3) = create_loopback_with_fragments();
+
+        let packet = Ipv4Packet::new_checked(packet3.as_slice()).unwrap();
+        let mut fragments = ::std::mem::replace(&mut iface.inner.fragments, None);
+        assert_eq!(iface.inner.process_ipv4_fragment(packet, Instant::from_millis(1), &mut fragments),
+                   Ok(None));
+        iface.inner.fragments = fragments;
+
+        let packet = Ipv4Packet::new_checked(packet2.as_slice()).unwrap();
+        let mut fragments = ::std::mem::replace(&mut iface.inner.fragments, None);
+        assert_eq!(iface.inner.process_ipv4_fragment(packet, Instant::from_millis(2), &mut fragments),
+                   Ok(None));
+        iface.inner.fragments = fragments;
+
+        let packet = Ipv4Packet::new_checked(packet1.as_slice()).unwrap();
+        let mut fragments = ::std::mem::replace(&mut iface.inner.fragments, None);
+        assert_ne!(iface.inner.process_ipv4_fragment(packet, Instant::from_millis(3), &mut fragments),
+                   Ok(None));
+        iface.inner.fragments = fragments;
+    }
+
+    #[test]
+    #[cfg(all(feature = "fragmentation-ipv4", feature = "proto-ipv4", feature = "std"))]
+    fn test_fragmentation_ipv4_udp_231() {
+        let (mut iface, packet1, packet2, packet3) = create_loopback_with_fragments();
+
+        let packet = Ipv4Packet::new_checked(packet2.as_slice()).unwrap();
+        let mut fragments = ::std::mem::replace(&mut iface.inner.fragments, None);
+        assert_eq!(iface.inner.process_ipv4_fragment(packet, Instant::from_millis(1), &mut fragments),
+                   Ok(None));
+        iface.inner.fragments = fragments;
+
+        let packet = Ipv4Packet::new_checked(packet3.as_slice()).unwrap();
+        let mut fragments = ::std::mem::replace(&mut iface.inner.fragments, None);
+        assert_eq!(iface.inner.process_ipv4_fragment(packet, Instant::from_millis(2), &mut fragments),
+                   Ok(None));
+        iface.inner.fragments = fragments;
+
+        let packet = Ipv4Packet::new_checked(packet1.as_slice()).unwrap();
+        let mut fragments = ::std::mem::replace(&mut iface.inner.fragments, None);
+        assert_ne!(iface.inner.process_ipv4_fragment(packet, Instant::from_millis(3), &mut fragments),
+                   Ok(None));
+        iface.inner.fragments = fragments;
+    }
+
+    #[test]
+    #[cfg(all(feature = "fragmentation-ipv4", feature = "proto-ipv4", feature = "std"))]
+    fn test_fragmentation_ipv4_udp_213() {
+        let (mut iface, packet1, packet2, packet3) = create_loopback_with_fragments();
+
+        let packet = Ipv4Packet::new_checked(packet2.as_slice()).unwrap();
+        let mut fragments = ::std::mem::replace(&mut iface.inner.fragments, None);
+        assert_eq!(iface.inner.process_ipv4_fragment(packet, Instant::from_millis(1), &mut fragments),
+                   Ok(None));
+        iface.inner.fragments = fragments;
+
+        let packet = Ipv4Packet::new_checked(packet1.as_slice()).unwrap();
+        let mut fragments = ::std::mem::replace(&mut iface.inner.fragments, None);
+        assert_eq!(iface.inner.process_ipv4_fragment(packet, Instant::from_millis(2), &mut fragments),
+                   Ok(None));
+        iface.inner.fragments = fragments;
+
+        let packet = Ipv4Packet::new_checked(packet3.as_slice()).unwrap();
+        let mut fragments = ::std::mem::replace(&mut iface.inner.fragments, None);
+        assert_ne!(iface.inner.process_ipv4_fragment(packet, Instant::from_millis(3), &mut fragments),
+                   Ok(None));
+        iface.inner.fragments = fragments;
+    }
+
+    #[test]
+    #[cfg(all(feature = "fragmentation-ipv4", feature = "proto-ipv4", feature = "std"))]
+    fn test_fragmentation_ipv4_udp_duplicate() {
+        let (mut iface, packet1, packet2, packet3) = create_loopback_with_fragments();
+
+        let packet = Ipv4Packet::new_checked(packet2.as_slice()).unwrap();
+        let mut fragments = ::std::mem::replace(&mut iface.inner.fragments, None);
+        assert_eq!(iface.inner.process_ipv4_fragment(packet, Instant::from_millis(1), &mut fragments),
+                   Ok(None));
+        iface.inner.fragments = fragments;
+
+        let packet = Ipv4Packet::new_checked(packet2.as_slice()).unwrap();
+        let mut fragments = ::std::mem::replace(&mut iface.inner.fragments, None);
+        assert_eq!(iface.inner.process_ipv4_fragment(packet, Instant::from_millis(2), &mut fragments),
+                   Ok(None));
+        iface.inner.fragments = fragments;
+
+        let packet = Ipv4Packet::new_checked(packet1.as_slice()).unwrap();
+        let mut fragments = ::std::mem::replace(&mut iface.inner.fragments, None);
+        assert_eq!(iface.inner.process_ipv4_fragment(packet, Instant::from_millis(2), &mut fragments),
+                   Ok(None));
+        iface.inner.fragments = fragments;
+
+        let packet = Ipv4Packet::new_checked(packet3.as_slice()).unwrap();
+        let mut fragments = ::std::mem::replace(&mut iface.inner.fragments, None);
+        assert_ne!(iface.inner.process_ipv4_fragment(packet, Instant::from_millis(3), &mut fragments),
+                   Ok(None));
+        iface.inner.fragments = fragments;
+    }
+
+    #[test]
+    #[cfg(all(feature = "fragmentation-ipv4", feature = "proto-ipv4", feature = "std"))]
+    fn test_fragmentation_ipv4_udp_timeout() {
+        let (mut iface, packet1, packet2, packet3) = create_loopback_with_fragments();
+
+        let packet = Ipv4Packet::new_checked(packet1.as_slice()).unwrap();
+        let mut fragments = ::std::mem::replace(&mut iface.inner.fragments, None);
+        assert_eq!(iface.inner.process_ipv4_fragment(packet, Instant::from_millis(1), &mut fragments),
+                   Ok(None));
+        iface.inner.fragments = fragments;
+
+        let packet = Ipv4Packet::new_checked(packet2.as_slice()).unwrap();
+        let mut fragments = ::std::mem::replace(&mut iface.inner.fragments, None);
+        assert_eq!(iface.inner.process_ipv4_fragment(packet, Instant::from_millis(2), &mut fragments),
+                   Ok(None));
+        iface.inner.fragments = fragments;
+
+        let packet = Ipv4Packet::new_checked(packet3.as_slice()).unwrap();
+        let mut fragments = ::std::mem::replace(&mut iface.inner.fragments, None);
+        assert_eq!(iface.inner.process_ipv4_fragment(packet, Instant::from_millis(1000), &mut fragments),
+                   Ok(None));
+        iface.inner.fragments = fragments;
+    }
+
 }
