@@ -1452,9 +1452,9 @@ mod test {
     use wire::{NdiscNeighborFlags, NdiscRepr};
     #[cfg(feature = "proto-ipv6")]
     use wire::{Ipv6HopByHopHeader, Ipv6Option, Ipv6OptionRepr};
-    #[cfg(feature = "fragmentation-ipv4")]
+    #[cfg(all(feature = "fragmentation-ipv4", feature = "std"))]
     use iface::{FragmentSet, FragmentedPacket};
-    #[cfg(feature = "fragmentation-ipv4")]
+    #[cfg(all(feature = "fragmentation-ipv4", feature = "std"))]
     use wire::{Ipv4Packet};
 
     use super::Packet;
@@ -2086,8 +2086,9 @@ mod test {
             Ok((remote_hw_addr, MockTxToken)));
     }
 
-    #[cfg(feature = "std")]
+    #[cfg(all(feature = "fragmentation-ipv4", feature = "std"))]
     use std::vec::Vec;
+    #[cfg(all(feature = "fragmentation-ipv4", feature = "std"))]
     fn create_loopback_with_fragments<'a, 'b>() -> (EthernetInterface<'static, 'b, 'static, 'static, Loopback>,
                                      Vec<u8>, Vec<u8>, Vec<u8>) {
         // Create a basic device
@@ -2138,7 +2139,7 @@ mod test {
     }
 
     #[test]
-    #[cfg(all(feature = "fragmentation-ipv4", feature = "proto-ipv4", feature = "std"))]
+    #[cfg(all(feature = "fragmentation-ipv4", feature = "std"))]
     fn test_fragmentation_ipv4_udp_123() {
         let (mut iface, packet1, packet2, packet3) = create_loopback_with_fragments();
 
@@ -2162,7 +2163,7 @@ mod test {
     }
 
     #[test]
-    #[cfg(all(feature = "fragmentation-ipv4", feature = "proto-ipv4", feature = "std"))]
+    #[cfg(all(feature = "fragmentation-ipv4", feature = "std"))]
     fn test_fragmentation_ipv4_udp_321() {
         let (mut iface, packet1, packet2, packet3) = create_loopback_with_fragments();
 
@@ -2186,7 +2187,7 @@ mod test {
     }
 
     #[test]
-    #[cfg(all(feature = "fragmentation-ipv4", feature = "proto-ipv4", feature = "std"))]
+    #[cfg(all(feature = "fragmentation-ipv4", feature = "std"))]
     fn test_fragmentation_ipv4_udp_231() {
         let (mut iface, packet1, packet2, packet3) = create_loopback_with_fragments();
 
@@ -2210,7 +2211,7 @@ mod test {
     }
 
     #[test]
-    #[cfg(all(feature = "fragmentation-ipv4", feature = "proto-ipv4", feature = "std"))]
+    #[cfg(all(feature = "fragmentation-ipv4", feature = "std"))]
     fn test_fragmentation_ipv4_udp_213() {
         let (mut iface, packet1, packet2, packet3) = create_loopback_with_fragments();
 
@@ -2234,7 +2235,7 @@ mod test {
     }
 
     #[test]
-    #[cfg(all(feature = "fragmentation-ipv4", feature = "proto-ipv4", feature = "std"))]
+    #[cfg(all(feature = "fragmentation-ipv4", feature = "std"))]
     fn test_fragmentation_ipv4_udp_duplicate() {
         let (mut iface, packet1, packet2, packet3) = create_loopback_with_fragments();
 
@@ -2264,7 +2265,7 @@ mod test {
     }
 
     #[test]
-    #[cfg(all(feature = "fragmentation-ipv4", feature = "proto-ipv4", feature = "std"))]
+    #[cfg(all(feature = "fragmentation-ipv4", feature = "std"))]
     fn test_fragmentation_ipv4_udp_timeout() {
         let (mut iface, packet1, packet2, packet3) = create_loopback_with_fragments();
 
