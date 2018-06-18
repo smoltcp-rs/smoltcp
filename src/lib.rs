@@ -88,6 +88,9 @@
                feature = "socket-tcp")))]
 compile_error!("at least one socket needs to be enabled"); */
 
+// FIXME(dlrobertson): clippy fails with this lint
+#![cfg_attr(feature = "cargo-clippy", allow(if_same_then_else))]
+
 #[cfg(feature = "proto-ipv6")]
 #[macro_use]
 extern crate bitflags;
