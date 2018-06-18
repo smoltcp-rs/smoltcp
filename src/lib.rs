@@ -72,7 +72,7 @@
 //!  | ARP      | Yes    | Yes            |
 //!  | IPv4     | Yes    | Yes            |
 //!  | ICMPv4   | Yes    | Yes            |
-//!  | IGMPv1/2 | Yes    | No             |
+//!  | IGMPv1/2 | Yes    | Yes            |
 //!  | IPv6     | Yes    | Yes            |
 //!  | ICMPv6   | Yes    | Yes            |
 //!  | TCP      | Yes    | Yes            |
