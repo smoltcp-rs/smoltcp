@@ -38,15 +38,15 @@ impl Default for Endpoint {
     fn default() -> Endpoint { Endpoint::Unspecified }
 }
 
-/// An ICMPv4 packet metadata.
+/// An ICMP packet metadata.
 pub type IcmpPacketMetadata = PacketMetadata<IpAddress>;
 
-/// An ICMPv4 packet ring buffer.
+/// An ICMP packet ring buffer.
 pub type IcmpSocketBuffer<'a, 'b> = PacketBuffer<'a, 'b, IpAddress>;
 
-/// An ICMPv4 socket
+/// A ICMP socket
 ///
-/// An ICMPv4 socket is bound to a specific [IcmpEndpoint] which may
+/// An ICMP socket is bound to a specific [IcmpEndpoint] which may
 /// be a sepecific UDP port to listen for ICMP error messages related
 /// to the port or a specific ICMP identifier value. See [bind] for
 /// more details.
@@ -65,7 +65,7 @@ pub struct IcmpSocket<'a, 'b: 'a> {
 }
 
 impl<'a, 'b> IcmpSocket<'a, 'b> {
-    /// Create an ICMPv4 socket with the given buffers.
+    /// Create an ICMP socket with the given buffers.
     pub fn new(rx_buffer: IcmpSocketBuffer<'a, 'b>,
                tx_buffer: IcmpSocketBuffer<'a, 'b>) -> IcmpSocket<'a, 'b> {
         IcmpSocket {

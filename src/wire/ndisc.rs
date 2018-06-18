@@ -63,7 +63,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     }
 }
 
-/// Getters for the [Neighbor Solicitation], [Neighbor Advertisement], and
+/// Common getters for the [Neighbor Solicitation], [Neighbor Advertisement], and
 /// [Redirect] message types.
 ///
 /// [Neighbor Solicitation]: https://tools.ietf.org/html/rfc4861#section-4.3
@@ -158,7 +158,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     }
 }
 
-/// Setters for the [Neighbor Solicitation], [Neighbor Advertisement], and
+/// Common setters for the [Neighbor Solicitation], [Neighbor Advertisement], and
 /// [Redirect] message types.
 ///
 /// [Neighbor Solicitation]: https://tools.ietf.org/html/rfc4861#section-4.3

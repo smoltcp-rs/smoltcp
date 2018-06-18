@@ -398,7 +398,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// Set the pointer field (for parameter problem messages).
     ///
     /// # Panics
-    /// This function may panic if this packet
+    /// This function may panic if this packet is not a parameter problem message.
     #[inline]
     pub fn set_param_problem_ptr(&mut self, value: u32) {
         let data = self.buffer.as_mut();
