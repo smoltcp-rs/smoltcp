@@ -143,7 +143,7 @@ impl Timer {
 
     fn set_for_retransmit(&mut self, timestamp: Instant) {
         match *self {
-            Timer::Idle { .. } => {
+            Timer::Idle { .. } | Timer::FastRetransmit { .. } => {
                 *self = Timer::Retransmit {
                     expires_at: timestamp + RETRANSMIT_DELAY,
                     delay:      RETRANSMIT_DELAY,
@@ -157,7 +157,6 @@ impl Timer {
                 }
             }
             Timer::Retransmit { .. } => (),
-            Timer::FastRetransmit { .. } => (),
             Timer::Close { .. } => ()
         }
     }
@@ -1158,9 +1157,10 @@ impl<'a> TcpSocket<'a> {
                 // Duplicate ACK if payload empty and ACK doesn't move send window ->
                 // Increment duplicate ACK count and set for retransmit if we just recived
                 // the third duplicate ACK
-                Some(ref mut last_rx_ack) if
+                Some(ref last_rx_ack) if
                     repr.payload.len() == 0 &&
-                    *last_rx_ack == ack_number => {
+                    *last_rx_ack == ack_number &&
+                    ack_number < self.remote_last_seq => {
                     // Increment duplicate ACK count
                     self.local_rx_dup_acks = self.local_rx_dup_acks.saturating_add(1);
 
@@ -3289,6 +3289,32 @@ mod test {
             ..RECV_TEMPL
         }));
 
+        recv!(s, time 1105, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1 + 6,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"yyyyyy"[..],
+            ..RECV_TEMPL
+        }));
+        recv!(s, time 1110, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1 + (6 * 2),
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"wwwwww"[..],
+            ..RECV_TEMPL
+        }));
+        recv!(s, time 1115, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1 + (6 * 3),
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"zzzzzz"[..],
+            ..RECV_TEMPL
+        }));
+
+        // After all was send out, enter *normal* retransmission,
+        // don't stay in fast retransmission.
+        assert!(match s.timer {
+            Timer::Retransmit { expires_at, .. } => expires_at > Instant::from_millis(1115),
+            _ => false,
+        });
+
         // ACK all recived segments
         send!(s, time 1120, TcpRepr {
             seq_number: REMOTE_SEQ + 1,
@@ -3300,6 +3326,14 @@ mod test {
     #[test]
     fn test_fast_retransmit_duplicate_detection_with_data() {
         let mut s = socket_established();
+
+        s.send_slice(b"abc").unwrap(); // This is lost
+        recv!(s, time 1000, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"abc"[..],
+            ..RECV_TEMPL
+        }));
 
         // Normal ACK of previously recieved segment
         send!(s, TcpRepr {
@@ -3320,6 +3354,9 @@ mod test {
             ..SEND_TEMPL
         });
 
+       assert_eq!(s.local_rx_dup_acks, 2,
+            "duplicate ACK counter is not set");
+
         // This packet has content, hence should not be detected
         // as a duplicate ACK and should reset the duplicate ACK count
         send!(s, TcpRepr {
@@ -3330,7 +3367,7 @@ mod test {
         });
 
         recv!(s, [TcpRepr {
-            seq_number: LOCAL_SEQ + 1,
+            seq_number: LOCAL_SEQ + 1 + 3,
             ack_number: Some(REMOTE_SEQ + 1 + 6),
             window_len: 58,
             ..RECV_TEMPL
@@ -3351,6 +3388,17 @@ mod test {
             window_len: 6,
             ..SEND_TEMPL
         });
+
+        // First duplicate, should not be counted as there is nothing to resend
+        send!(s, time 0, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            window_len: 6,
+            ..SEND_TEMPL
+        });
+
+        assert_eq!(s.local_rx_dup_acks, 0,
+            "duplicate ACK counter is set but wound not transmit data");
 
         // Send a long string of text divided into several packets
         // because of previously recieved "window_len"
@@ -3418,6 +3466,14 @@ mod test {
     #[test]
     fn test_fast_retransmit_dup_acks_counter() {
         let mut s = socket_established();
+
+        s.send_slice(b"abc").unwrap(); // This is lost
+        recv!(s, time 0, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"abc"[..],
+            ..RECV_TEMPL
+        }));
 
         send!(s, time 0, TcpRepr {
             seq_number: REMOTE_SEQ + 1,
