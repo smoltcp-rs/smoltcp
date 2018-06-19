@@ -281,11 +281,11 @@ impl<'b, 'c, 'e, DeviceT> Interface<'b, 'c, 'e, DeviceT>
         self.inner.has_ip_addr(addr)
     }
 
-    pub fn routes(&self) -> &'e Routes {
+    pub fn routes(&self) -> &Routes<'e> {
         &self.inner.routes
     }
 
-    pub fn routes_mut(&mut self) -> &'e mut Routes {
+    pub fn routes_mut(&mut self) -> &mut Routes<'e> {
         &mut self.inner.routes
     }
 
