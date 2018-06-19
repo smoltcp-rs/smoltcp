@@ -101,7 +101,7 @@ fn main() {
     let default_v6_gw = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 0x100);
     let mut routes_storage = [None; 2];
     let mut routes = Routes::new(&mut routes_storage[..]);
-    routes.add_default_ipv4_route(default_v4_gw).unwrap();
+    routes.set_default_ipv4_route(default_v4_gw).unwrap();
     routes.add_default_ipv6_route(default_v6_gw).unwrap();
     let mut iface = EthernetInterfaceBuilder::new(device)
             .ethernet_addr(ethernet_addr)
