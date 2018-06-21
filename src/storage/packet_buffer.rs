@@ -84,13 +84,21 @@ impl<'a, 'b, H> PacketBuffer<'a, 'b, H> {
         let window = self.payload_ring.window();
         let contig_window = self.payload_ring.contiguous_window();
 
-        if window < size || (window != contig_window && window - contig_window < size) {
+        if window < size {
             return Err(Error::Exhausted)
-        }
-
-        if contig_window < size {
-            *self.metadata_ring.enqueue_one()? = PacketMetadata::padding(size);
-            self.payload_ring.enqueue_many(size);
+        } else if contig_window < size {
+            if window - contig_window < size {
+                // The buffer length is larger than the current contiguous window
+                // and is larger than the contiguous window will be after adding
+                // the padding necessary to circle around to the beginning of the
+                // ring buffer.
+                return Err(Error::Exhausted)
+            } else {
+                // Add padding to the end of the ring buffer so that the
+                // contiguous window is at the beginning of the ring buffer.
+                *self.metadata_ring.enqueue_one()? = PacketMetadata::padding(size);
+                self.payload_ring.enqueue_many(size);
+            }
         }
 
         *self.metadata_ring.enqueue_one()? = PacketMetadata::packet(size, header);
@@ -243,5 +251,13 @@ mod test {
     fn test_capacity_too_small() {
         let mut buffer = buffer();
         assert_eq!(buffer.enqueue(32, ()), Err(Error::Truncated));
+    }
+
+    #[test]
+    fn test_contig_window_prioritized() {
+        let mut buffer = buffer();
+        assert!(buffer.enqueue(4, ()).is_ok());
+        assert!(buffer.dequeue().is_ok());
+        assert!(buffer.enqueue(5, ()).is_ok());
     }
 }
