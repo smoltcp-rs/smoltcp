@@ -1570,6 +1570,49 @@ mod test {
 
     #[test]
     #[cfg(all(feature = "socket-udp", feature = "proto-ipv4"))]
+    fn test_udp_buffer_exhaustion() {
+        use socket::{UdpSocket, UdpSocketBuffer, UdpPacketMetadata};
+        use wire::IpEndpoint;
+
+        let (mut iface, mut socket_set) = create_loopback();
+
+        let udp_rx_buffer = UdpSocketBuffer::new(vec![UdpPacketMetadata::EMPTY], vec![0; 64]);
+        let udp_tx_buffer = UdpSocketBuffer::new(vec![UdpPacketMetadata::EMPTY], vec![0; 128]);
+        let udp_socket = UdpSocket::new(udp_rx_buffer, udp_tx_buffer);
+
+        let udp_handle  = socket_set.add(udp_socket);
+
+        loop {
+            let timestamp = Instant::now();
+            iface.poll(&mut socket_set, timestamp).expect("poll error");
+
+            {
+                let mut socket = socket_set.get::<UdpSocket>(udp_handle);
+                if !socket.is_open() {
+                    println!("Binding socket");
+                    socket.bind(6969).unwrap()
+                }
+
+                if socket.can_send() {
+                    println!("udp:6969 send greeting");
+                    let data = b"hello\n";
+                    let endpoint = IpEndpoint::new(IpAddress::v4(127, 0, 0, 1), 6969);
+                    socket.send_slice(data, endpoint).unwrap();
+                }
+
+                match socket.recv() {
+                    Ok((data, endpoint)) => {
+                        println!("udp:6969 recv data: {:?} from {}", data.len(), endpoint);
+                        Some(endpoint)
+                    }
+                    Err(_) => None
+                };
+            }
+        }
+    }
+
+    #[test]
+    #[cfg(all(feature = "socket-udp", feature = "proto-ipv4"))]
     fn test_handle_udp_broadcast() {
         use socket::{UdpSocket, UdpSocketBuffer, UdpPacketMetadata};
         use wire::IpEndpoint;
