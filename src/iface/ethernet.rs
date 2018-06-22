@@ -267,13 +267,16 @@ impl<'b, 'c, 'e, DeviceT> Interface<'b, 'c, 'e, DeviceT>
         self.inner.ip_addrs.as_ref()
     }
 
-    /// Update the IP addresses of the interface.
+    /// Replace the set of IP addresses.
     ///
     /// # Panics
     /// This function panics if any of the addresses are not unicast.
-    pub fn update_ip_addrs<F: FnOnce(&mut ManagedSlice<'c, IpCidr>)>(&mut self, f: F) {
-        f(&mut self.inner.ip_addrs);
-        InterfaceInner::check_ip_addrs(&self.inner.ip_addrs)
+    pub fn set_ip_addrs<S>(&mut self, ips: S)
+        where S: Into<ManagedSlice<'c, IpCidr>>
+    {
+        let ips = ips.into();
+        InterfaceInner::check_ip_addrs(&ips);
+        self.inner.ip_addrs = ips;
     }
 
     /// Check whether the interface has the given IP address assigned.
@@ -1898,10 +1901,9 @@ mod test {
         let (mut iface, _) = create_loopback();
         let mut new_addrs = vec![IpCidr::new(IpAddress::v6(0xfe80, 0, 0, 0, 1, 2, 0, 2), 64),
                                  IpCidr::new(IpAddress::v6(0xfe80, 0, 0, 0, 3, 4, 0, 0xffff), 64)];
-        iface.update_ip_addrs(|addrs| {
-            new_addrs.extend(addrs.to_vec());
-            *addrs = From::from(new_addrs);
-        });
+        new_addrs.extend(iface.ip_addrs());
+        iface.set_ip_addrs(new_addrs);
+
         assert!(iface.inner.has_solicited_node(Ipv6Address::new(0xff02, 0, 0, 0, 0, 1, 0xff00, 0x0002)));
         assert!(iface.inner.has_solicited_node(Ipv6Address::new(0xff02, 0, 0, 0, 0, 1, 0xff00, 0xffff)));
         assert!(!iface.inner.has_solicited_node(Ipv6Address::new(0xff02, 0, 0, 0, 0, 1, 0xff00, 0x0003)));
