@@ -121,7 +121,13 @@ fn main() {
     let ident = 0x22b;
 
     loop {
-        iface.poll(&mut sockets, Instant::now()).unwrap();
+        let timestamp = Instant::now();
+        match iface.poll(&mut sockets, timestamp) {
+            Ok(_) => {},
+            Err(e) => {
+                debug!("poll error: {}",e);
+            }
+        }
 
         {
             let timestamp = Instant::now();
