@@ -22,6 +22,8 @@ enum_with_unknown! {
         EchoRequest     = 0x80,
         /// Echo Reply
         EchoReply       = 0x81,
+        /// Multicast Listener Query
+        MldQuery        = 0x82,
         /// Router Solicitation
         RouterSolicit   = 0x85,
         /// Router Advertisement
@@ -31,7 +33,9 @@ enum_with_unknown! {
         /// Neighbor Advertisement
         NeighborAdvert  = 0x88,
         /// Redirect
-        Redirect        = 0x89
+        Redirect        = 0x89,
+        /// Multicast Listener Report
+        MldReport       = 0x8f
     }
 }
 
@@ -56,6 +60,17 @@ impl Message {
             _ => false,
         }
     }
+
+    /// Return a boolean value indicating if the given message type
+    /// is an [MLD] message type.
+    ///
+    /// [MLD]: https://tools.ietf.org/html/rfc3810
+    pub fn is_mld(&self) -> bool {
+        match *self {
+            Message::MldQuery | Message::MldReport => true,
+            _ => false,
+        }
+    }
 }
 
 impl fmt::Display for Message {
@@ -72,6 +87,8 @@ impl fmt::Display for Message {
             &Message::NeighborSolicit => write!(f, "neighbor solicitation"),
             &Message::NeighborAdvert  => write!(f, "neighbor advert"),
             &Message::Redirect        => write!(f, "redirect"),
+            &Message::MldQuery        => write!(f, "multicast listener query"),
+            &Message::MldReport       => write!(f, "multicast listener report"),
             &Message::Unknown(id)     => write!(f, "{}", id)
         }
     }
@@ -177,37 +194,59 @@ pub struct Packet<T: AsRef<[u8]>> {
 }
 
 // Ranges and constants describing key boundaries in the ICMPv6 header.
-// See https://tools.ietf.org/html/rfc4443 for details.
 pub(super) mod field {
     use wire::field::*;
 
-    pub const TYPE:          usize = 0;
-    pub const CODE:          usize = 1;
-    pub const CHECKSUM:      Field = 2..4;
+    // ICMPv6: See https://tools.ietf.org/html/rfc4443
+    pub const TYPE:              usize = 0;
+    pub const CODE:              usize = 1;
+    pub const CHECKSUM:          Field = 2..4;
 
-    pub const UNUSED:        Field = 4..8;
-    pub const MTU:           Field = 4..8;
-    pub const POINTER:       Field = 4..8;
-    pub const ECHO_IDENT:    Field = 4..6;
-    pub const ECHO_SEQNO:    Field = 6..8;
+    pub const UNUSED:            Field = 4..8;
+    pub const MTU:               Field = 4..8;
+    pub const POINTER:           Field = 4..8;
+    pub const ECHO_IDENT:        Field = 4..6;
+    pub const ECHO_SEQNO:        Field = 6..8;
 
-    pub const HEADER_END:    usize = 8;
+    pub const HEADER_END:        usize = 8;
 
+    // NDISC: See https://tools.ietf.org/html/rfc4861
     // Router Advertisement message offsets
-    pub const CUR_HOP_LIMIT: usize = 4;
-    pub const ROUTER_FLAGS:  usize = 5;
-    pub const ROUTER_LT:     Field = 6..8;
-    pub const REACHABLE_TM:  Field = 8..12;
-    pub const RETRANS_TM:    Field = 12..16;
+    pub const CUR_HOP_LIMIT:     usize = 4;
+    pub const ROUTER_FLAGS:      usize = 5;
+    pub const ROUTER_LT:         Field = 6..8;
+    pub const REACHABLE_TM:      Field = 8..12;
+    pub const RETRANS_TM:        Field = 12..16;
 
     // Neighbor Solicitation message offsets
-    pub const TARGET_ADDR:   Field = 8..24;
+    pub const TARGET_ADDR:       Field = 8..24;
 
     // Neighbor Advertisement message offsets
-    pub const NEIGH_FLAGS:   usize = 4;
+    pub const NEIGH_FLAGS:       usize = 4;
 
     // Redirected Header message offsets
-    pub const DEST_ADDR:     Field = 24..40;
+    pub const DEST_ADDR:         Field = 24..40;
+
+    // MLD:
+    //   - https://tools.ietf.org/html/rfc3810
+    //   - https://tools.ietf.org/html/rfc3810
+    // Multicast Listener Query message
+    pub const MAX_RESP_CODE:     Field = 4..6;
+    pub const QUERY_RESV:        Field = 6..8;
+    pub const QUERY_MCAST_ADDR:  Field = 8..24;
+    pub const SQRV:              usize = 24;
+    pub const QQIC:              usize = 25;
+    pub const QUERY_NUM_SRCS:    Field = 26..28;
+
+    // Multicast Listener Report Message
+    pub const RECORD_RESV:       Field = 4..6;
+    pub const NR_MCAST_RCRDS:    Field = 6..8;
+
+    // Multicast Address Record Offsets
+    pub const RECORD_TYPE:       usize = 0;
+    pub const AUX_DATA_LEN:      usize = 1;
+    pub const RECORD_NUM_SRCS:   Field = 2..4;
+    pub const RECORD_MCAST_ADDR: Field = 4..20;
 }
 
 impl<T: AsRef<[u8]>> Packet<T> {
@@ -295,6 +334,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
         NetworkEndian::read_u32(&data[field::POINTER])
     }
 
+
     /// Return the header length. The result depends on the value of
     /// the message type field.
     pub fn header_len(&self) -> usize {
@@ -310,6 +350,8 @@ impl<T: AsRef<[u8]>> Packet<T> {
             Message::NeighborSolicit => field::TARGET_ADDR.end,
             Message::NeighborAdvert  => field::TARGET_ADDR.end,
             Message::Redirect        => field::DEST_ADDR.end,
+            Message::MldQuery        => field::QUERY_NUM_SRCS.end,
+            Message::MldReport       => field::NR_MCAST_RCRDS.end,
             // For packets that are not included in RFC 4443, do not
             // include the last 32 bits of the ICMPv6 header in
             // `header_bytes`. This must be done so that these bytes
@@ -358,7 +400,34 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
         data[field::CODE] = value
     }
 
-    /// Set the checksum field.
+    /// Clear any reserved fields in the message header.
+    ///
+    /// # Panics
+    /// This function panics if the message type has not been set.
+    /// See [set_msg_type].
+    ///
+    /// [set_msg_type]: #method.set_msg_type
+    #[inline]
+    pub fn clear_reserved(&mut self) {
+        match self.msg_type() {
+            Message::RouterSolicit | Message::NeighborSolicit |
+            Message::NeighborAdvert | Message::Redirect => {
+                let data = self.buffer.as_mut();
+                NetworkEndian::write_u32(&mut data[field::UNUSED], 0);
+            },
+            Message::MldQuery => {
+                let data = self.buffer.as_mut();
+                NetworkEndian::write_u16(&mut data[field::QUERY_RESV], 0);
+                data[field::SQRV] = data[field::SQRV] & 0xf;
+            },
+            Message::MldReport => {
+                let data = self.buffer.as_mut();
+                NetworkEndian::write_u16(&mut data[field::RECORD_RESV], 0);
+            }
+            ty => panic!("Message type `{}` does not have any reserved fields.", ty),
+        }
+    }
+
     #[inline]
     pub fn set_checksum(&mut self, value: u16) {
         let data = self.buffer.as_mut();
