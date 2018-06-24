@@ -645,6 +645,7 @@ pub struct Repr<'a> {
     pub seq_number:   SeqNumber,
     pub ack_number:   Option<SeqNumber>,
     pub window_len:   u16,
+    pub window_scale: Option<u8>,
     pub max_seg_size: Option<u16>,
     pub payload:      &'a [u8]
 }
@@ -682,6 +683,7 @@ impl<'a> Repr<'a> {
         // cut the byte at the urgent pointer from the stream.
 
         let mut max_seg_size = None;
+        let mut window_scale = None;
         let mut options = packet.options();
         while options.len() > 0 {
             let (next_options, option) = TcpOption::parse(options)?;
@@ -690,7 +692,19 @@ impl<'a> Repr<'a> {
                 TcpOption::NoOperation => (),
                 TcpOption::MaxSegmentSize(value) =>
                     max_seg_size = Some(value),
-                _ => ()
+                TcpOption::WindowScale(value) => {
+                    // RFC 1323: Thus, the shift count must be limited to 14 (which allows windows
+                    // of 2**30 = 1 Gbyte). If a Window Scale option is received with a shift.cnt
+                    // value exceeding 14, the TCP should log the error but use 14 instead of the
+                    // specified value.
+                    window_scale = if value > 14 {
+                        net_debug!("{}:{}:{}:{}: parsed window scaling factor >14, setting to 14", src_addr, packet.src_port(), dst_addr, packet.dst_port());
+                        Some(14)
+                    } else {
+                        Some(value)
+                    };
+                }
+                _ => (),
             }
             options = next_options;
         }
@@ -702,18 +716,32 @@ impl<'a> Repr<'a> {
             seq_number:   packet.seq_number(),
             ack_number:   ack_number,
             window_len:   packet.window_len(),
+            window_scale: window_scale,
             max_seg_size: max_seg_size,
             payload:      packet.payload()
         })
     }
 
     /// Return the length of a header that will be emitted from this high-level representation.
+    ///
+    /// This should be used for buffer space calculations.
     pub fn header_len(&self) -> usize {
         let mut length = field::URGENT.end;
         if self.max_seg_size.is_some() {
             length += 4
         }
+        if self.window_scale.is_some() {
+            length += 3
+        }
         length
+    }
+
+    /// Return the length of the header for the TCP protocol.
+    ///
+    /// Per RFC 6691, this should be used for MSS calculations. It may be smaller than the buffer
+    /// space required to accomodate this packet's data.
+    pub fn mss_header_len(&self) -> usize {
+        field::URGENT.end
     }
 
     /// Return the length of a packet that will be emitted from this high-level representation.
@@ -742,6 +770,9 @@ impl<'a> Repr<'a> {
         packet.set_ack(self.ack_number.is_some());
         {
             let mut options = packet.options_mut();
+            if let Some(value) = self.window_scale {
+                let tmp = options; options = TcpOption::WindowScale(value).emit(tmp);
+            }
             if let Some(value) = self.max_seg_size {
                 let tmp = options; options = TcpOption::MaxSegmentSize(value).emit(tmp);
             }
@@ -967,6 +998,7 @@ mod test {
             seq_number:   SeqNumber(0x01234567),
             ack_number:   None,
             window_len:   0x0123,
+            window_scale: None,
             control:      Control::Syn,
             max_seg_size: None,
             payload:      &PAYLOAD_BYTES
