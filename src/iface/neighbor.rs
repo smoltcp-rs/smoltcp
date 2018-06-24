@@ -6,6 +6,9 @@ use managed::ManagedMap;
 use wire::{EthernetAddress, IpAddress};
 use time::{Duration, Instant};
 
+#[cfg(any(feature = "std", feature = "alloc"))]
+use core::mem;
+
 /// A cached neighbor.
 ///
 /// A neighbor mapping translates from a protocol address to a hardware address,
@@ -51,6 +54,8 @@ pub(crate) enum Answer {
 pub struct Cache<'a> {
     storage:      ManagedMap<'a, IpAddress, Neighbor>,
     silent_until: Instant,
+    gc_threshold: usize
+
 }
 
 impl<'a> Cache<'a> {
@@ -60,16 +65,25 @@ impl<'a> Cache<'a> {
     /// Neighbor entry lifetime, in milliseconds.
     pub(crate) const ENTRY_LIFETIME: Duration = Duration { millis: 60_000 };
 
+    /// Default number of entries in the cache before GC kicks in
+    pub(crate) const GC_THRESHOLD: usize = 1024;
+
     /// Create a cache. The backing storage is cleared upon creation.
     ///
     /// # Panics
     /// This function panics if `storage.len() == 0`.
     pub fn new<T>(storage: T) -> Cache<'a>
             where T: Into<ManagedMap<'a, IpAddress, Neighbor>> {
+
+        Cache::new_with_limit(storage, Cache::GC_THRESHOLD)
+    }
+
+    pub fn new_with_limit<T>(storage: T, gc_threshold: usize) -> Cache<'a>
+            where T: Into<ManagedMap<'a, IpAddress, Neighbor>> {
         let mut storage = storage.into();
         storage.clear();
 
-        Cache { storage, silent_until: Instant::from_millis(0) }
+        Cache { storage, gc_threshold, silent_until: Instant::from_millis(0) }
     }
 
     pub(crate) fn fill(&mut self, protocol_addr: IpAddress, hardware_addr: EthernetAddress,
@@ -77,6 +91,23 @@ impl<'a> Cache<'a> {
         debug_assert!(protocol_addr.is_unicast());
         debug_assert!(hardware_addr.is_unicast());
 
+        #[cfg(any(feature = "std", feature = "alloc"))]
+        let current_storage_size = self.storage.len();
+
+        match self.storage {
+            ManagedMap::Borrowed(_) =>  (),
+            #[cfg(any(feature = "std", feature = "alloc"))]
+            ManagedMap::Owned(ref mut map) => {
+                if current_storage_size >= self.gc_threshold {
+                    let new_btree_map = map.into_iter()
+                        .map(|(key, value)| (*key, *value))
+                        .filter(|(_, v)| timestamp < v.expires_at)
+                        .collect();
+
+                    mem::replace(map, new_btree_map);
+                }
+            }
+        };
         let neighbor = Neighbor {
             expires_at: timestamp + Self::ENTRY_LIFETIME, hardware_addr
         };
@@ -161,7 +192,9 @@ impl<'a> Cache<'a> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use std::collections::BTreeMap;
     use wire::ip::test::{MOCK_IP_ADDR_1, MOCK_IP_ADDR_2, MOCK_IP_ADDR_3, MOCK_IP_ADDR_4};
+
 
     const HADDR_A: EthernetAddress = EthernetAddress([0, 0, 0, 0, 0, 1]);
     const HADDR_B: EthernetAddress = EthernetAddress([0, 0, 0, 0, 0, 2]);
@@ -206,6 +239,19 @@ mod test {
         assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_1, Instant::from_millis(0)), Some(HADDR_A));
         cache.fill(MOCK_IP_ADDR_1, HADDR_B, Instant::from_millis(0));
         assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_1, Instant::from_millis(0)), Some(HADDR_B));
+    }
+
+    #[test]
+    fn test_cache_gc() {
+        let mut cache = Cache::new_with_limit(BTreeMap::new(), 2);
+        cache.fill(MOCK_IP_ADDR_1, HADDR_A, Instant::from_millis(100));
+        cache.fill(MOCK_IP_ADDR_2, HADDR_B, Instant::from_millis(50));
+        // Adding third item after the expiration of the previous
+        // two should garbage collect
+        cache.fill(MOCK_IP_ADDR_3, HADDR_C, Instant::from_millis(50) + Cache::ENTRY_LIFETIME * 2);
+
+        assert_eq!(cache.storage.len(), 1);
+        assert_eq!(cache.lookup_pure(&MOCK_IP_ADDR_3, Instant::from_millis(50) + Cache::ENTRY_LIFETIME * 2), Some(HADDR_C));
     }
 
     #[test]
