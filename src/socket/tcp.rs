@@ -230,6 +230,8 @@ pub struct TcpSocket<'a> {
     /// The speculative remote window size.
     /// I.e. the actual remote window size minus the count of in-flight octets.
     remote_win_len:  usize,
+    /// The receive window scaling factor for remotes which support RFC 1323, None if unsupported.
+    remote_win_scale: Option<u8>,
     /// The maximum number of data octets that the remote side may receive.
     remote_mss:      usize,
     /// The timestamp of the last packet received.
@@ -272,6 +274,7 @@ impl<'a> TcpSocket<'a> {
             remote_last_ack: None,
             remote_last_win: 0,
             remote_win_len:  0,
+            remote_win_scale: None,
             remote_mss:      DEFAULT_MSS,
             remote_last_ts:  None,
             local_rx_last_ack: None,
@@ -398,6 +401,7 @@ impl<'a> TcpSocket<'a> {
         self.remote_last_ack = None;
         self.remote_last_win = 0;
         self.remote_win_len  = 0;
+        self.remote_win_scale = None;
         self.remote_mss      = DEFAULT_MSS;
         self.remote_last_ts  = None;
     }
@@ -769,6 +773,7 @@ impl<'a> TcpSocket<'a> {
             seq_number:   TcpSeqNumber(0),
             ack_number:   None,
             window_len:   0,
+            window_scale: None,
             max_seg_size: None,
             payload:      &[]
         };
@@ -1025,6 +1030,7 @@ impl<'a> TcpSocket<'a> {
                 if let Some(max_seg_size) = repr.max_seg_size {
                     self.remote_mss = max_seg_size as usize
                 }
+                self.remote_win_scale = repr.window_scale;
                 self.set_state(State::SynReceived);
                 self.timer.set_for_idle(timestamp, self.keep_alive);
             }
@@ -1135,7 +1141,10 @@ impl<'a> TcpSocket<'a> {
 
         // Update remote state.
         self.remote_last_ts = Some(timestamp);
-        self.remote_win_len = repr.window_len as usize;
+
+        // RFC 1323: The window field (SEG.WND) in the header of every incoming segment, with the
+        // exception of SYN segments, is left-shifted by Snd.Wind.Scale bits before updating SND.WND.
+        self.remote_win_len = (repr.window_len as usize) << (self.remote_win_scale.unwrap_or(0) as usize);
 
         if ack_len > 0 {
             // Dequeue acknowledged octets.
@@ -1376,6 +1385,7 @@ impl<'a> TcpSocket<'a> {
             seq_number:   self.remote_last_seq,
             ack_number:   Some(self.remote_seq_no + self.rx_buffer.len()),
             window_len:   self.rx_buffer.window() as u16,
+            window_scale: None,
             max_seg_size: None,
             payload:      &[]
         };
@@ -1396,6 +1406,9 @@ impl<'a> TcpSocket<'a> {
                 repr.control = TcpControl::Syn;
                 if self.state == State::SynSent {
                     repr.ack_number = None;
+                    repr.window_scale = Some(0);
+                } else {
+                    repr.window_scale = self.remote_win_scale.map(|_| 0);
                 }
             }
 
@@ -1471,7 +1484,7 @@ impl<'a> TcpSocket<'a> {
             // Fill the MSS option. See RFC 6691 for an explanation of this calculation.
             let mut max_segment_size = caps.max_transmission_unit;
             max_segment_size -= ip_repr.buffer_len();
-            max_segment_size -= repr.header_len();
+            max_segment_size -= repr.mss_header_len();
             repr.max_seg_size = Some(max_segment_size as u16);
         }
 
@@ -1589,7 +1602,8 @@ mod test {
         src_port: REMOTE_PORT, dst_port: LOCAL_PORT,
         control: TcpControl::None,
         seq_number: TcpSeqNumber(0), ack_number: Some(TcpSeqNumber(0)),
-        window_len: 256, max_seg_size: None,
+        window_len: 256, window_scale: None,
+        max_seg_size: None,
         payload: &[]
     };
     const _RECV_IP_TEMPL: IpRepr = IpRepr::Unspecified {
@@ -1601,7 +1615,8 @@ mod test {
         src_port: LOCAL_PORT, dst_port: REMOTE_PORT,
         control: TcpControl::None,
         seq_number: TcpSeqNumber(0), ack_number: Some(TcpSeqNumber(0)),
-        window_len: 64, max_seg_size: None,
+        window_len: 64, window_scale: None,
+        max_seg_size: None,
         payload: &[]
     };
 
@@ -2021,6 +2036,35 @@ mod test {
     }
 
     #[test]
+    fn test_syn_received_no_window_scaling() {
+        let mut s = socket_listen();
+        send!(s, TcpRepr {
+            control: TcpControl::Syn,
+            seq_number: REMOTE_SEQ,
+            ack_number: None,
+            ..SEND_TEMPL
+        });
+        assert_eq!(s.state(), State::SynReceived);
+        assert_eq!(s.local_endpoint(), LOCAL_END);
+        assert_eq!(s.remote_endpoint(), REMOTE_END);
+        recv!(s, [TcpRepr {
+            control: TcpControl::Syn,
+            seq_number: LOCAL_SEQ,
+            ack_number: Some(REMOTE_SEQ + 1),
+            max_seg_size: Some(BASE_MSS),
+            window_scale: None,
+            ..RECV_TEMPL
+        }]);
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            window_scale: None,
+            ..SEND_TEMPL
+        });
+        assert_eq!(s.remote_win_scale, None);
+    }
+
+    #[test]
     fn test_syn_received_close() {
         let mut s = socket_syn_received();
         s.close();
@@ -2055,6 +2099,7 @@ mod test {
             seq_number: LOCAL_SEQ,
             ack_number: None,
             max_seg_size: Some(BASE_MSS),
+            window_scale: Some(0),
             ..RECV_TEMPL
         }]);
         send!(s, TcpRepr {
@@ -2062,6 +2107,7 @@ mod test {
             seq_number: REMOTE_SEQ,
             ack_number: Some(LOCAL_SEQ + 1),
             max_seg_size: Some(BASE_MSS - 80),
+            window_scale: Some(0),
             ..SEND_TEMPL
         });
         assert_eq!(s.local_endpoint, LOCAL_END);
@@ -2110,6 +2156,7 @@ mod test {
             seq_number: LOCAL_SEQ,
             ack_number: None,
             max_seg_size: Some(BASE_MSS),
+            window_scale: Some(0),
             ..RECV_TEMPL
         }]);
         send!(s, TcpRepr {
@@ -2117,6 +2164,7 @@ mod test {
             seq_number: REMOTE_SEQ,
             ack_number: Some(LOCAL_SEQ + 1),
             max_seg_size: Some(BASE_MSS - 80),
+            window_scale: Some(0),
             ..SEND_TEMPL
         });
         recv!(s, [TcpRepr {
@@ -3706,6 +3754,7 @@ mod test {
             seq_number: LOCAL_SEQ,
             ack_number: None,
             max_seg_size: Some(BASE_MSS),
+            window_scale: Some(0),
             ..RECV_TEMPL
         }));
         assert_eq!(s.state, State::SynSent);
@@ -3714,6 +3763,7 @@ mod test {
             control:    TcpControl::Rst,
             seq_number: LOCAL_SEQ + 1,
             ack_number: Some(TcpSeqNumber(0)),
+            window_scale: None,
             ..RECV_TEMPL
         }));
         assert_eq!(s.state, State::Closed);
