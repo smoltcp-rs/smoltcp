@@ -695,7 +695,7 @@ impl<'b, 'c, 'e, 'f> InterfaceInner<'b, 'c, 'e, 'f> {
         }
     }
 
-/// Process an IPv4 fragment
+    /// Process an IPv4 fragment
     /// Returns etiher an assembled packet, or nothing (if no packet is available),
     /// or an error caused by processing a packet.
     #[cfg(feature = "fragmentation-ipv4")]
