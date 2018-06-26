@@ -307,9 +307,7 @@ impl<'a> Ipv6OptionsIterator<'a> {
             length, data
         }
     }
-}
 
-impl<'a> Ipv6OptionsIterator<'a> {
     /// Helper function to return an error in the implementation
     /// of `Iterator`.
     #[inline]
@@ -343,7 +341,8 @@ impl<'a> Iterator for Ipv6OptionsIterator<'a> {
                 }
             }
         } else {
-            // If we failed to parse an option we do
+            // If we failed to parse a previous option or hit the end of the
+            // buffer, we do not continue to iterate.
             None
         }
     }
