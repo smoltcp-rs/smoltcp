@@ -5,7 +5,7 @@ use {Error, Result};
 use phy::ChecksumCapabilities;
 use super::ip::checksum;
 use super::{IpAddress, IpProtocol, Ipv6Packet, Ipv6Repr};
-use super::NdiscRepr;
+use super::{MldRepr, NdiscRepr};
 
 enum_with_unknown! {
     /// Internet protocol control message type.
@@ -538,6 +538,7 @@ pub enum Repr<'a> {
         data:   &'a [u8]
     },
     Ndisc(NdiscRepr<'a>),
+    Mld(MldRepr<'a>),
     #[doc(hidden)]
     __Nonexhaustive
 }
@@ -621,6 +622,9 @@ impl<'a> Repr<'a> {
             (msg_type, 0) if msg_type.is_ndisc() => {
                 NdiscRepr::parse(packet).map(|repr| Repr::Ndisc(repr))
             },
+            (msg_type, 0) if msg_type.is_mld() => {
+                MldRepr::parse(packet).map(|repr| Repr::Mld(repr))
+            },
             _ => Err(Error::Unrecognized)
         }
     }
@@ -638,6 +642,9 @@ impl<'a> Repr<'a> {
             },
             &Repr::Ndisc(ndisc) => {
                 ndisc.buffer_len()
+            },
+            &Repr::Mld(mld) => {
+                mld.buffer_len()
             },
             &Repr::__Nonexhaustive => unreachable!()
         }
@@ -706,6 +713,10 @@ impl<'a> Repr<'a> {
 
             &Repr::Ndisc(ndisc) => {
                 ndisc.emit(packet)
+            },
+
+            &Repr::Mld(mld) => {
+                mld.emit(packet)
             },
 
             &Repr::__Nonexhaustive => unreachable!(),
