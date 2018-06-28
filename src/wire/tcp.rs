@@ -576,7 +576,10 @@ impl<'a> TcpOption<'a> {
         match self {
             &TcpOption::EndOfList => {
                 length    = 1;
-                buffer[0] = field::OPT_END;
+                // There may be padding space which also should be initialized.
+                for p in buffer.iter_mut() {
+                    *p = field::OPT_END;
+                }
             }
             &TcpOption::NoOperation => {
                 length    = 1;
@@ -725,6 +728,7 @@ impl<'a> Repr<'a> {
     /// Return the length of a header that will be emitted from this high-level representation.
     ///
     /// This should be used for buffer space calculations.
+    /// The TCP header length is a multiple of 4.
     pub fn header_len(&self) -> usize {
         let mut length = field::URGENT.end;
         if self.max_seg_size.is_some() {
@@ -732,6 +736,9 @@ impl<'a> Repr<'a> {
         }
         if self.window_scale.is_some() {
             length += 3
+        }
+        if length % 4 != 0 {
+            length += 4 - length % 4;
         }
         length
     }
@@ -1021,6 +1028,14 @@ mod test {
         let mut packet = Packet::new(&mut bytes);
         repr.emit(&mut packet, &SRC_ADDR.into(), &DST_ADDR.into(), &ChecksumCapabilities::default());
         assert_eq!(&packet.into_inner()[..], &SYN_PACKET_BYTES[..]);
+    }
+
+    #[test]
+    #[cfg(feature = "proto-ipv4")]
+    fn test_header_len_multiple_of_4() {
+        let mut repr = packet_repr();
+        repr.window_scale = Some(0); // This TCP Option needs 3 bytes.
+        assert_eq!(repr.header_len() % 4, 0); // Should e.g. be 28 instead of 27.
     }
 
     macro_rules! assert_option_parses {
