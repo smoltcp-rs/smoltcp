@@ -188,16 +188,16 @@ mod field {
 
 impl<T: AsRef<[u8]>> Packet<T> {
     /// Imbue a raw octet buffer with ICMPv4 packet structure.
-    pub fn new(buffer: T) -> Packet<T> {
+    pub fn new_unchecked(buffer: T) -> Packet<T> {
         Packet { buffer }
     }
 
-    /// Shorthand for a combination of [new] and [check_len].
+    /// Shorthand for a combination of [new_unchecked] and [check_len].
     ///
-    /// [new]: #method.new
+    /// [new_unchecked]: #method.new_unchecked
     /// [check_len]: #method.check_len
     pub fn new_checked(buffer: T) -> Result<Packet<T>> {
-        let packet = Self::new(buffer);
+        let packet = Self::new_unchecked(buffer);
         packet.check_len()?;
         Ok(packet)
     }
@@ -478,7 +478,7 @@ impl<'a> Repr<'a> {
                 packet.set_msg_type(Message::DstUnreachable);
                 packet.set_msg_code(reason.into());
 
-                let mut ip_packet = Ipv4Packet::new(packet.data_mut());
+                let mut ip_packet = Ipv4Packet::new_unchecked(packet.data_mut());
                 header.emit(&mut ip_packet, checksum_caps);
                 let payload = &mut ip_packet.into_inner()[header.buffer_len()..];
                 payload.copy_from_slice(&data[..])
@@ -566,7 +566,7 @@ mod test {
 
     #[test]
     fn test_echo_deconstruct() {
-        let packet = Packet::new(&ECHO_PACKET_BYTES[..]);
+        let packet = Packet::new_unchecked(&ECHO_PACKET_BYTES[..]);
         assert_eq!(packet.msg_type(), Message::EchoRequest);
         assert_eq!(packet.msg_code(), 0);
         assert_eq!(packet.checksum(), 0x8efe);
@@ -579,7 +579,7 @@ mod test {
     #[test]
     fn test_echo_construct() {
         let mut bytes = vec![0xa5; 12];
-        let mut packet = Packet::new(&mut bytes);
+        let mut packet = Packet::new_unchecked(&mut bytes);
         packet.set_msg_type(Message::EchoRequest);
         packet.set_msg_code(0);
         packet.set_echo_ident(0x1234);
@@ -599,7 +599,7 @@ mod test {
 
     #[test]
     fn test_echo_parse() {
-        let packet = Packet::new(&ECHO_PACKET_BYTES[..]);
+        let packet = Packet::new_unchecked(&ECHO_PACKET_BYTES[..]);
         let repr = Repr::parse(&packet, &ChecksumCapabilities::default()).unwrap();
         assert_eq!(repr, echo_packet_repr());
     }
@@ -608,7 +608,7 @@ mod test {
     fn test_echo_emit() {
         let repr = echo_packet_repr();
         let mut bytes = vec![0xa5; repr.buffer_len()];
-        let mut packet = Packet::new(&mut bytes);
+        let mut packet = Packet::new_unchecked(&mut bytes);
         repr.emit(&mut packet, &ChecksumCapabilities::default());
         assert_eq!(&packet.into_inner()[..], &ECHO_PACKET_BYTES[..]);
     }

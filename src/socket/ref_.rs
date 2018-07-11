@@ -55,7 +55,7 @@ impl<'a, T: Session + 'a> Ref<'a, T> {
     /// map a `&mut SocketRef<'a, XSocket>` to a `&'a mut XSocket` (note the lifetimes);
     /// be sure to call [new] afterwards.
     ///
-    /// [new]: #method.new
+    /// [new_unchecked]: #method.new_unchecked
     pub fn into_inner(mut ref_: Self) -> &'a mut T {
         ref_.consumed = true;
         ref_.socket

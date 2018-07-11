@@ -35,7 +35,7 @@ macro_rules! send_icmp_ping {
             .send(icmp_repr.buffer_len(), $remote_addr)
             .unwrap();
 
-        let mut icmp_packet = $packet_type::new(icmp_payload);
+        let mut icmp_packet = $packet_type::new_unchecked(icmp_payload);
         (icmp_repr, icmp_packet)
     }}
 }
@@ -168,13 +168,14 @@ fn main() {
 
                 match remote_addr {
                     IpAddress::Ipv4(_) => {
-                        let icmp_packet = Icmpv4Packet::new(&payload);
-                        let icmp_repr = Icmpv4Repr::parse(&icmp_packet, &device_caps.checksum).unwrap();
+                        let icmp_packet = Icmpv4Packet::new_checked(&payload).unwrap();
+                        let icmp_repr =
+                            Icmpv4Repr::parse(&icmp_packet, &device_caps.checksum).unwrap();
                         get_icmp_pong!(Icmpv4Repr, icmp_repr, payload,
                                 waiting_queue, remote_addr, timestamp, received);
                     }
                     IpAddress::Ipv6(_) => {
-                        let icmp_packet = Icmpv6Packet::new(&payload);
+                        let icmp_packet = Icmpv6Packet::new_checked(&payload).unwrap();
                         let icmp_repr = Icmpv6Repr::parse(&remote_addr, &src_ipv6,
                                 &icmp_packet, &device_caps.checksum).unwrap();
                         get_icmp_pong!(Icmpv6Repr, icmp_repr, payload,
