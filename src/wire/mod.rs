@@ -23,8 +23,8 @@ returned `Ok(())`, then no accessor or setter method will panic; however, the gu
 provided by `Packet::check_len()` may no longer hold after changing certain fields,
 which are listed in the documentation for the specific packet.
 
-The `Packet::new_checked` method is a shorthand for a combination of `Packet::new` and
-`Packet::check_len`.
+The `Packet::new_checked` method is a shorthand for a combination of `Packet::new_unchecked`
+and `Packet::check_len`.
 When parsing untrusted input, it is *necessary* to use `Packet::new_checked()`;
 so long as the buffer is not modified, no accessor will fail.
 When emitting output, though, it is *incorrect* to use `Packet::new_checked()`;
@@ -56,7 +56,7 @@ let repr = Ipv4Repr {
 };
 let mut buffer = vec![0; repr.buffer_len() + repr.payload_len];
 { // emission
-    let mut packet = Ipv4Packet::new(&mut buffer);
+    let mut packet = Ipv4Packet::new_unchecked(&mut buffer);
     repr.emit(&mut packet, &ChecksumCapabilities::default());
 }
 { // parsing

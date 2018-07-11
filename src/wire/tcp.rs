@@ -107,16 +107,16 @@ mod field {
 
 impl<T: AsRef<[u8]>> Packet<T> {
     /// Imbue a raw octet buffer with TCP packet structure.
-    pub fn new(buffer: T) -> Packet<T> {
+    pub fn new_unchecked(buffer: T) -> Packet<T> {
         Packet { buffer }
     }
 
-    /// Shorthand for a combination of [new] and [check_len].
+    /// Shorthand for a combination of [new_unchecked] and [check_len].
     ///
-    /// [new]: #method.new
+    /// [new_unchecked]: #method.new_unchecked
     /// [check_len]: #method.check_len
     pub fn new_checked(buffer: T) -> Result<Packet<T>> {
-        let packet = Self::new(buffer);
+        let packet = Self::new_unchecked(buffer);
         packet.check_len()?;
         Ok(packet)
     }
@@ -927,7 +927,7 @@ mod test {
     #[test]
     #[cfg(feature = "proto-ipv4")]
     fn test_deconstruct() {
-        let packet = Packet::new(&PACKET_BYTES[..]);
+        let packet = Packet::new_unchecked(&PACKET_BYTES[..]);
         assert_eq!(packet.src_port(), 48896);
         assert_eq!(packet.dst_port(), 80);
         assert_eq!(packet.seq_number(), SeqNumber(0x01234567));
@@ -951,7 +951,7 @@ mod test {
     #[cfg(feature = "proto-ipv4")]
     fn test_construct() {
         let mut bytes = vec![0xa5; PACKET_BYTES.len()];
-        let mut packet = Packet::new(&mut bytes);
+        let mut packet = Packet::new_unchecked(&mut bytes);
         packet.set_src_port(48896);
         packet.set_dst_port(80);
         packet.set_seq_number(SeqNumber(0x01234567));
@@ -976,14 +976,14 @@ mod test {
     #[test]
     #[cfg(feature = "proto-ipv4")]
     fn test_truncated() {
-        let packet = Packet::new(&PACKET_BYTES[..23]);
+        let packet = Packet::new_unchecked(&PACKET_BYTES[..23]);
         assert_eq!(packet.check_len(), Err(Error::Truncated));
     }
 
     #[test]
     fn test_impossible_len() {
         let mut bytes = vec![0; 20];
-        let mut packet = Packet::new(&mut bytes);
+        let mut packet = Packet::new_unchecked(&mut bytes);
         packet.set_header_len(10);
         assert_eq!(packet.check_len(), Err(Error::Malformed));
     }
@@ -1015,7 +1015,7 @@ mod test {
     #[test]
     #[cfg(feature = "proto-ipv4")]
     fn test_parse() {
-        let packet = Packet::new(&SYN_PACKET_BYTES[..]);
+        let packet = Packet::new_unchecked(&SYN_PACKET_BYTES[..]);
         let repr = Repr::parse(&packet, &SRC_ADDR.into(), &DST_ADDR.into(), &ChecksumCapabilities::default()).unwrap();
         assert_eq!(repr, packet_repr());
     }
@@ -1025,7 +1025,7 @@ mod test {
     fn test_emit() {
         let repr = packet_repr();
         let mut bytes = vec![0xa5; repr.buffer_len()];
-        let mut packet = Packet::new(&mut bytes);
+        let mut packet = Packet::new_unchecked(&mut bytes);
         repr.emit(&mut packet, &SRC_ADDR.into(), &DST_ADDR.into(), &ChecksumCapabilities::default());
         assert_eq!(&packet.into_inner()[..], &SYN_PACKET_BYTES[..]);
     }

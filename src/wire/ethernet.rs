@@ -93,16 +93,16 @@ mod field {
 
 impl<T: AsRef<[u8]>> Frame<T> {
     /// Imbue a raw octet buffer with Ethernet frame structure.
-    pub fn new(buffer: T) -> Frame<T> {
+    pub fn new_unchecked(buffer: T) -> Frame<T> {
         Frame { buffer }
     }
 
-    /// Shorthand for a combination of [new] and [check_len].
+    /// Shorthand for a combination of [new_unchecked] and [check_len].
     ///
-    /// [new]: #method.new
+    /// [new_unchecked]: #method.new_unchecked
     /// [check_len]: #method.check_len
     pub fn new_checked(buffer: T) -> Result<Frame<T>> {
-        let packet = Self::new(buffer);
+        let packet = Self::new_unchecked(buffer);
         packet.check_len()?;
         Ok(packet)
     }
@@ -317,7 +317,7 @@ mod test_ipv4 {
 
     #[test]
     fn test_deconstruct() {
-        let frame = Frame::new(&FRAME_BYTES[..]);
+        let frame = Frame::new_unchecked(&FRAME_BYTES[..]);
         assert_eq!(frame.dst_addr(), Address([0x01, 0x02, 0x03, 0x04, 0x05, 0x06]));
         assert_eq!(frame.src_addr(), Address([0x11, 0x12, 0x13, 0x14, 0x15, 0x16]));
         assert_eq!(frame.ethertype(), EtherType::Ipv4);
@@ -327,7 +327,7 @@ mod test_ipv4 {
     #[test]
     fn test_construct() {
         let mut bytes = vec![0xa5; 64];
-        let mut frame = Frame::new(&mut bytes);
+        let mut frame = Frame::new_unchecked(&mut bytes);
         frame.set_dst_addr(Address([0x01, 0x02, 0x03, 0x04, 0x05, 0x06]));
         frame.set_src_addr(Address([0x11, 0x12, 0x13, 0x14, 0x15, 0x16]));
         frame.set_ethertype(EtherType::Ipv4);
@@ -361,7 +361,7 @@ mod test_ipv6 {
 
     #[test]
     fn test_deconstruct() {
-        let frame = Frame::new(&FRAME_BYTES[..]);
+        let frame = Frame::new_unchecked(&FRAME_BYTES[..]);
         assert_eq!(frame.dst_addr(), Address([0x01, 0x02, 0x03, 0x04, 0x05, 0x06]));
         assert_eq!(frame.src_addr(), Address([0x11, 0x12, 0x13, 0x14, 0x15, 0x16]));
         assert_eq!(frame.ethertype(), EtherType::Ipv6);
@@ -371,7 +371,7 @@ mod test_ipv6 {
     #[test]
     fn test_construct() {
         let mut bytes = vec![0xa5; 54];
-        let mut frame = Frame::new(&mut bytes);
+        let mut frame = Frame::new_unchecked(&mut bytes);
         frame.set_dst_addr(Address([0x01, 0x02, 0x03, 0x04, 0x05, 0x06]));
         frame.set_src_addr(Address([0x11, 0x12, 0x13, 0x14, 0x15, 0x16]));
         frame.set_ethertype(EtherType::Ipv6);
