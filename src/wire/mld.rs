@@ -172,16 +172,16 @@ pub struct AddressRecord<T: AsRef<[u8]>> {
 
 impl<T: AsRef<[u8]>> AddressRecord<T> {
     /// Imbue a raw octet buffer with a Address Record structure.
-    pub fn new(buffer: T) -> Self {
+    pub fn new_unchecked(buffer: T) -> Self {
         Self { buffer }
     }
 
-    /// Shorthand for a combination of [new] and [check_len].
+    /// Shorthand for a combination of [new_unchecked] and [check_len].
     ///
-    /// [new]: #method.new
+    /// [new_unchecked]: #method.new_unchecked
     /// [check_len]: #method.check_len
     pub fn new_checked(buffer: T) -> Result<Self> {
-        let packet = Self::new(buffer);
+        let packet = Self::new_unchecked(buffer);
         packet.check_len()?;
         Ok(packet)
     }
@@ -459,7 +459,7 @@ mod test {
 
     #[test]
     fn test_query_deconstruct() {
-        let packet = Packet::new(&QUERY_PACKET_BYTES[..]);
+        let packet = Packet::new_unchecked(&QUERY_PACKET_BYTES[..]);
         assert_eq!(packet.msg_type(), Message::MldQuery);
         assert_eq!(packet.msg_code(), 0);
         assert_eq!(packet.checksum(), 0x7374);
@@ -476,7 +476,7 @@ mod test {
     #[test]
     fn test_query_construct() {
         let mut bytes = vec![0xff; 44];
-        let mut packet = Packet::new(&mut bytes[..]);
+        let mut packet = Packet::new_unchecked(&mut bytes[..]);
         packet.set_msg_type(Message::MldQuery);
         packet.set_msg_code(0);
         packet.set_max_resp_code(0x0400);
@@ -494,12 +494,12 @@ mod test {
 
     #[test]
     fn test_record_deconstruct() {
-        let packet = Packet::new(&REPORT_PACKET_BYTES[..]);
+        let packet = Packet::new_unchecked(&REPORT_PACKET_BYTES[..]);
         assert_eq!(packet.msg_type(), Message::MldReport);
         assert_eq!(packet.msg_code(), 0);
         assert_eq!(packet.checksum(), 0x7385);
         assert_eq!(packet.nr_mcast_addr_rcrds(), 0x01);
-        let addr_rcrd = AddressRecord::new(packet.payload());
+        let addr_rcrd = AddressRecord::new_unchecked(packet.payload());
         assert_eq!(addr_rcrd.record_type(), RecordType::ModeIsInclude);
         assert_eq!(addr_rcrd.aux_data_len(), 0x00);
         assert_eq!(addr_rcrd.num_srcs(), 0x01);
@@ -511,13 +511,13 @@ mod test {
     #[test]
     fn test_record_construct() {
         let mut bytes = vec![0xff; 44];
-        let mut packet = Packet::new(&mut bytes[..]);
+        let mut packet = Packet::new_unchecked(&mut bytes[..]);
         packet.set_msg_type(Message::MldReport);
         packet.set_msg_code(0);
         packet.clear_reserved();
         packet.set_nr_mcast_addr_rcrds(1);
         {
-            let mut addr_rcrd = AddressRecord::new(packet.payload_mut());
+            let mut addr_rcrd = AddressRecord::new_unchecked(packet.payload_mut());
             addr_rcrd.set_record_type(RecordType::ModeIsInclude);
             addr_rcrd.set_aux_data_len(0);
             addr_rcrd.set_num_srcs(1);
@@ -532,7 +532,7 @@ mod test {
 
     #[test]
     fn test_query_repr_parse() {
-        let packet = Packet::new(&QUERY_PACKET_BYTES[..]);
+        let packet = Packet::new_unchecked(&QUERY_PACKET_BYTES[..]);
         let repr = Icmpv6Repr::parse(&Ipv6Address::LINK_LOCAL_ALL_NODES.into(),
                                      &Ipv6Address::LINK_LOCAL_ALL_ROUTERS.into(),
                                      &packet,
@@ -542,7 +542,7 @@ mod test {
 
     #[test]
     fn test_report_repr_parse() {
-        let packet = Packet::new(&REPORT_PACKET_BYTES[..]);
+        let packet = Packet::new_unchecked(&REPORT_PACKET_BYTES[..]);
         let repr = Icmpv6Repr::parse(&Ipv6Address::LINK_LOCAL_ALL_NODES.into(),
                                      &Ipv6Address::LINK_LOCAL_ALL_ROUTERS.into(),
                                      &packet,
@@ -553,7 +553,7 @@ mod test {
     #[test]
     fn test_query_repr_emit() {
         let mut bytes = [0x2a; 44];
-        let mut packet = Packet::new(&mut bytes[..]);
+        let mut packet = Packet::new_unchecked(&mut bytes[..]);
         let repr = create_repr(Message::MldQuery);
         repr.emit(&Ipv6Address::LINK_LOCAL_ALL_NODES.into(),
                   &Ipv6Address::LINK_LOCAL_ALL_ROUTERS.into(),
@@ -565,7 +565,7 @@ mod test {
     #[test]
     fn test_report_repr_emit() {
         let mut bytes = [0x2a; 44];
-        let mut packet = Packet::new(&mut bytes[..]);
+        let mut packet = Packet::new_unchecked(&mut bytes[..]);
         let repr = create_repr(Message::MldReport);
         repr.emit(&Ipv6Address::LINK_LOCAL_ALL_NODES.into(),
                   &Ipv6Address::LINK_LOCAL_ALL_ROUTERS.into(),

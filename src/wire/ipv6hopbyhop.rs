@@ -49,16 +49,16 @@ mod field {
 
 impl<T: AsRef<[u8]>> Header<T> {
     /// Create a raw octet buffer with an IPv6 Hop-by-Hop Options Header structure.
-    pub fn new(buffer: T) -> Header<T> {
+    pub fn new_unchecked(buffer: T) -> Header<T> {
         Header { buffer }
     }
 
-    /// Shorthand for a combination of [new] and [check_len].
+    /// Shorthand for a combination of [new_unchecked] and [check_len].
     ///
-    /// [new]: #method.new
+    /// [new_unchecked]: #method.new_unchecked
     /// [check_len]: #method.check_len
     pub fn new_checked(buffer: T) -> Result<Header<T>> {
-        let header = Self::new(buffer);
+        let header = Self::new_unchecked(buffer);
         header.check_len()?;
         Ok(header)
     }
@@ -218,28 +218,34 @@ mod test {
     #[test]
     fn test_check_len() {
         // zero byte buffer
-        assert_eq!(Err(Error::Truncated), Header::new(&REPR_PACKET_PAD4[..0]).check_len());
+        assert_eq!(Err(Error::Truncated),
+                   Header::new_unchecked(&REPR_PACKET_PAD4[..0]).check_len());
         // no length field
-        assert_eq!(Err(Error::Truncated), Header::new(&REPR_PACKET_PAD4[..1]).check_len());
+        assert_eq!(Err(Error::Truncated),
+                   Header::new_unchecked(&REPR_PACKET_PAD4[..1]).check_len());
         // less than 8 bytes
-        assert_eq!(Err(Error::Truncated), Header::new(&REPR_PACKET_PAD4[..7]).check_len());
+        assert_eq!(Err(Error::Truncated),
+                   Header::new_unchecked(&REPR_PACKET_PAD4[..7]).check_len());
         // valid
-        assert_eq!(Ok(()), Header::new(&REPR_PACKET_PAD4).check_len());
+        assert_eq!(Ok(()),
+                   Header::new_unchecked(&REPR_PACKET_PAD4).check_len());
         // valid
-        assert_eq!(Ok(()), Header::new(&REPR_PACKET_PAD12).check_len());
+        assert_eq!(Ok(()),
+                   Header::new_unchecked(&REPR_PACKET_PAD12).check_len());
         // length field value greater than number of bytes
         let header: [u8; 8] = [0x06, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0];
-        assert_eq!(Err(Error::Truncated), Header::new(&header).check_len());
+        assert_eq!(Err(Error::Truncated),
+                   Header::new_unchecked(&header).check_len());
     }
 
     #[test]
     fn test_header_deconstruct() {
-        let header = Header::new(&REPR_PACKET_PAD4);
+        let header = Header::new_unchecked(&REPR_PACKET_PAD4);
         assert_eq!(header.next_header(), Protocol::Tcp);
         assert_eq!(header.header_len(), 0);
         assert_eq!(header.options(), &REPR_PACKET_PAD4[2..]);
 
-        let header = Header::new(&REPR_PACKET_PAD12);
+        let header = Header::new_unchecked(&REPR_PACKET_PAD12);
         assert_eq!(header.next_header(), Protocol::Tcp);
         assert_eq!(header.header_len(), 1);
         assert_eq!(header.options(), &REPR_PACKET_PAD12[2..]);
@@ -251,15 +257,19 @@ mod test {
         bytes.extend(&REPR_PACKET_PAD4[..]);
         bytes.push(0);
 
-        assert_eq!(Header::new(&bytes).options().len(), REPR_PACKET_PAD4[2..].len());
-        assert_eq!(Header::new(&mut bytes).options_mut().len(), REPR_PACKET_PAD4[2..].len());
+        assert_eq!(Header::new_unchecked(&bytes).options().len(),
+                   REPR_PACKET_PAD4[2..].len());
+        assert_eq!(Header::new_unchecked(&mut bytes).options_mut().len(),
+                   REPR_PACKET_PAD4[2..].len());
 
         let mut bytes = vec![];
         bytes.extend(&REPR_PACKET_PAD12[..]);
         bytes.push(0);
 
-        assert_eq!(Header::new(&bytes).options().len(), REPR_PACKET_PAD12[2..].len());
-        assert_eq!(Header::new(&mut bytes).options_mut().len(), REPR_PACKET_PAD12[2..].len());
+        assert_eq!(Header::new_unchecked(&bytes).options().len(),
+                   REPR_PACKET_PAD12[2..].len());
+        assert_eq!(Header::new_unchecked(&mut bytes).options_mut().len(),
+                   REPR_PACKET_PAD12[2..].len());
     }
 
     #[test]
@@ -267,51 +277,55 @@ mod test {
         let mut bytes = vec![];
         bytes.extend(&REPR_PACKET_PAD4);
         let len = bytes.len() as u8;
-        Header::new(&mut bytes).set_header_len(len + 1);
+        Header::new_unchecked(&mut bytes).set_header_len(len + 1);
 
         assert_eq!(Header::new_checked(&bytes).unwrap_err(), Error::Truncated);
 
         let mut bytes = vec![];
         bytes.extend(&REPR_PACKET_PAD12);
         let len = bytes.len() as u8;
-        Header::new(&mut bytes).set_header_len(len + 1);
+        Header::new_unchecked(&mut bytes).set_header_len(len + 1);
 
         assert_eq!(Header::new_checked(&bytes).unwrap_err(), Error::Truncated);
     }
 
     #[test]
     fn test_repr_parse_valid() {
-        let header = Header::new(&REPR_PACKET_PAD4);
+        let header = Header::new_unchecked(&REPR_PACKET_PAD4);
         let repr = Repr::parse(&header).unwrap();
-        assert_eq!(repr, Repr{ next_header: Protocol::Tcp, length: 0, options: &REPR_PACKET_PAD4[2..] });
+        assert_eq!(repr, Repr {
+            next_header: Protocol::Tcp, length: 0, options: &REPR_PACKET_PAD4[2..]
+        });
 
-        let header = Header::new(&REPR_PACKET_PAD12);
+        let header = Header::new_unchecked(&REPR_PACKET_PAD12);
         let repr = Repr::parse(&header).unwrap();
-        assert_eq!(repr, Repr{ next_header: Protocol::Tcp, length: 1, options: &REPR_PACKET_PAD12[2..] });
+        assert_eq!(repr, Repr {
+            next_header: Protocol::Tcp, length: 1, options: &REPR_PACKET_PAD12[2..]
+        });
     }
 
     #[test]
     fn test_repr_emit() {
         let repr = Repr{ next_header: Protocol::Tcp, length: 0, options: &REPR_PACKET_PAD4[2..] };
         let mut bytes = [0u8; 8];
-        let mut header = Header::new(&mut bytes);
+        let mut header = Header::new_unchecked(&mut bytes);
         repr.emit(&mut header);
         assert_eq!(header.into_inner(), &REPR_PACKET_PAD4[..]);
 
         let repr = Repr{ next_header: Protocol::Tcp, length: 1, options: &REPR_PACKET_PAD12[2..] };
         let mut bytes = [0u8; 16];
-        let mut header = Header::new(&mut bytes);
+        let mut header = Header::new_unchecked(&mut bytes);
         repr.emit(&mut header);
         assert_eq!(header.into_inner(), &REPR_PACKET_PAD12[..]);
     }
 
     #[test]
     fn test_buffer_len() {
-        let header = Header::new(&REPR_PACKET_PAD4);
+        let header = Header::new_unchecked(&REPR_PACKET_PAD4);
         let repr = Repr::parse(&header).unwrap();
         assert_eq!(repr.buffer_len(), REPR_PACKET_PAD4.len());
 
-        let header = Header::new(&REPR_PACKET_PAD12);
+        let header = Header::new_unchecked(&REPR_PACKET_PAD12);
         let repr = Repr::parse(&header).unwrap();
         assert_eq!(repr.buffer_len(), REPR_PACKET_PAD12.len());
     }

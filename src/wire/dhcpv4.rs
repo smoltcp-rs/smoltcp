@@ -280,16 +280,16 @@ mod field {
 
 impl<T: AsRef<[u8]>> Packet<T> {
     /// Imbue a raw octet buffer with DHCP packet structure.
-    pub fn new(buffer: T) -> Packet<T> {
+    pub fn new_unchecked(buffer: T) -> Packet<T> {
         Packet { buffer }
     }
 
-    /// Shorthand for a combination of [new] and [check_len].
+    /// Shorthand for a combination of [new_unchecked] and [check_len].
     ///
-    /// [new]: #method.new
+    /// [new_unchecked]: #method.new_unchecked
     /// [check_len]: #method.check_len
     pub fn new_checked(buffer: T) -> Result<Packet<T>> {
-        let packet = Self::new(buffer);
+        let packet = Self::new_unchecked(buffer);
         packet.check_len()?;
         Ok(packet)
     }
@@ -792,7 +792,7 @@ mod test {
 
     #[test]
     fn test_deconstruct_discover() {
-        let packet = Packet::new(DISCOVER_BYTES);
+        let packet = Packet::new_unchecked(DISCOVER_BYTES);
         assert_eq!(packet.magic_number(), MAGIC_COOKIE);
         assert_eq!(packet.opcode(), OpCode::Request);
         assert_eq!(packet.hardware_type(), Hardware::Ethernet);
@@ -834,7 +834,7 @@ mod test {
     #[test]
     fn test_construct_discover() {
         let mut bytes = vec![0xa5; 272];
-        let mut packet = Packet::new(&mut bytes);
+        let mut packet = Packet::new_unchecked(&mut bytes);
         packet.set_magic_number(MAGIC_COOKIE);
         packet.set_sname_and_boot_file_to_zero();
         packet.set_opcode(OpCode::Request);
@@ -889,7 +889,7 @@ mod test {
 
     #[test]
     fn test_parse_discover() {
-        let packet = Packet::new(DISCOVER_BYTES);
+        let packet = Packet::new_unchecked(DISCOVER_BYTES);
         let repr = Repr::parse(&packet).unwrap();
         assert_eq!(repr, discover_repr());
     }
@@ -898,7 +898,7 @@ mod test {
     fn test_emit_discover() {
         let repr = discover_repr();
         let mut bytes = vec![0xa5; repr.buffer_len()];
-        let mut packet = Packet::new(&mut bytes);
+        let mut packet = Packet::new_unchecked(&mut bytes);
         repr.emit(&mut packet).unwrap();
         let packet = &packet.into_inner()[..];
         let packet_len = packet.len();

@@ -53,16 +53,16 @@ impl fmt::Display for Message {
 /// [RFC 2236]: https://tools.ietf.org/html/rfc2236
 impl<T: AsRef<[u8]>> Packet<T> {
     /// Imbue a raw octet buffer with IGMPv2 packet structure.
-    pub fn new(buffer: T) -> Packet<T> {
+    pub fn new_unchecked(buffer: T) -> Packet<T> {
         Packet { buffer }
     }
 
-    /// Shorthand for a combination of [new] and [check_len].
+    /// Shorthand for a combination of [new_unchecked] and [check_len].
     ///
-    /// [new]: #method.new
+    /// [new_unchecked]: #method.new_unchecked
     /// [check_len]: #method.check_len
     pub fn new_checked(buffer: T) -> Result<Packet<T>> {
-        let packet = Self::new(buffer);
+        let packet = Self::new_unchecked(buffer);
         packet.check_len()?;
         Ok(packet)
     }
@@ -379,7 +379,7 @@ mod test {
 
     #[test]
     fn test_leave_group_deconstruct() {
-        let packet = Packet::new(&LEAVE_PACKET_BYTES[..]);
+        let packet = Packet::new_unchecked(&LEAVE_PACKET_BYTES[..]);
         assert_eq!(packet.msg_type(), Message::LeaveGroup);
         assert_eq!(packet.max_resp_code(), 0);
         assert_eq!(packet.checksum(), 0x269);
@@ -390,7 +390,7 @@ mod test {
 
     #[test]
     fn test_report_deconstruct() {
-        let packet = Packet::new(&REPORT_PACKET_BYTES[..]);
+        let packet = Packet::new_unchecked(&REPORT_PACKET_BYTES[..]);
         assert_eq!(packet.msg_type(), Message::MembershipReportV2);
         assert_eq!(packet.max_resp_code(), 0);
         assert_eq!(packet.checksum(), 0x08da);
@@ -402,7 +402,7 @@ mod test {
     #[test]
     fn test_leave_construct() {
         let mut bytes = vec![0xa5; 8];
-        let mut packet = Packet::new(&mut bytes);
+        let mut packet = Packet::new_unchecked(&mut bytes);
         packet.set_msg_type(Message::LeaveGroup);
         packet.set_max_resp_code(0);
         packet.set_group_address(Ipv4Address::from_bytes(&[224, 0, 6, 150]));
@@ -413,7 +413,7 @@ mod test {
     #[test]
     fn test_report_construct() {
         let mut bytes = vec![0xa5; 8];
-        let mut packet = Packet::new(&mut bytes);
+        let mut packet = Packet::new_unchecked(&mut bytes);
         packet.set_msg_type(Message::MembershipReportV2);
         packet.set_max_resp_code(0);
         packet.set_group_address(Ipv4Address::from_bytes(&[225, 0, 0, 37]));
