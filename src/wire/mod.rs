@@ -204,7 +204,8 @@ pub use self::ndiscoption::{NdiscOption,
                             PrefixInfoFlags as NdiscPrefixInfoFlags};
 
 #[cfg(feature = "proto-ipv6")]
-pub use self::mld::AddressRecord as MldAddressRecord;
+pub use self::mld::{AddressRecord as MldAddressRecord,
+                    Repr as MldRepr};
 
 pub use self::udp::{Packet as UdpPacket,
                     Repr as UdpRepr};

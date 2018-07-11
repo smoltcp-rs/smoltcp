@@ -3,7 +3,8 @@ use byteorder::{ByteOrder, NetworkEndian};
 use {Error, Result};
 use super::icmpv6::{field, Message, Packet};
 use wire::{EthernetAddress, Ipv6Repr, Ipv6Packet};
-use wire::{NdiscOption, NdiscOptionRepr, NdiscOptionType, NdiscPrefixInformation, NdiscRedirectedHeader};
+use wire::{NdiscOption, NdiscOptionRepr, NdiscOptionType};
+use wire::{NdiscPrefixInformation, NdiscRedirectedHeader};
 use time::Duration;
 use super::Ipv6Address;
 

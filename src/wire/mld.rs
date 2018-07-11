@@ -7,7 +7,7 @@
 use byteorder::{ByteOrder, NetworkEndian};
 
 use {Error, Result};
-use super::icmpv6::{field, Packet};
+use super::icmpv6::{field, Message, Packet};
 use super::Ipv6Address;
 
 enum_with_unknown! {
@@ -131,6 +131,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// Set the Querier's Robustness Variable.
     #[inline]
     pub fn set_qrv(&mut self, value: u8) {
+        assert!(value < 8);
         let data = self.buffer.as_mut();
         data[field::SQRV] = (data[field::SQRV] & 0x8) | value & 0x7;
     }
@@ -292,8 +293,98 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> AddressRecord<T> {
     }
 }
 
+/// A high-level representation of an MLDv2 packet header.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum Repr<'a> {
+    Query {
+        max_resp_code: u16,
+        mcast_addr: Ipv6Address,
+        s_flag: bool,
+        qrv: u8,
+        qqic: u8,
+        num_srcs: u16,
+        data: &'a [u8]
+    },
+    Report {
+        nr_mcast_addr_rcrds: u16,
+        data: &'a [u8]
+    }
+}
+
+impl<'a> Repr<'a> {
+    /// Parse an MLDv2 packet and return a high-level representation.
+    pub fn parse<T>(packet: &Packet<&'a T>) -> Result<Repr<'a>>
+            where T: AsRef<[u8]> + ?Sized {
+        match packet.msg_type() {
+            Message::MldQuery => {
+                Ok(Repr::Query {
+                    max_resp_code: packet.max_resp_code(),
+                    mcast_addr: packet.mcast_addr(),
+                    s_flag: packet.s_flag(),
+                    qrv: packet.qrv(),
+                    qqic: packet.qqic(),
+                    num_srcs: packet.num_srcs(),
+                    data: packet.payload()
+                })
+            },
+            Message::MldReport => {
+                Ok(Repr::Report {
+                    nr_mcast_addr_rcrds: packet.nr_mcast_addr_rcrds(),
+                    data: packet.payload()
+                })
+            },
+            _ => Err(Error::Unrecognized)
+        }
+    }
+
+    /// Return the length of a packet that will be emitted from this high-level representation.
+    pub fn buffer_len(&self) -> usize {
+        match self {
+            Repr::Query { .. } => {
+                field::QUERY_NUM_SRCS.end
+            }
+            Repr::Report { .. } => {
+                field::NR_MCAST_RCRDS.end
+            }
+        }
+    }
+
+    /// Emit a high-level representation into an MLDv2 packet.
+    pub fn emit<T>(&self, packet: &mut Packet<&mut T>)
+            where T: AsRef<[u8]> + AsMut<[u8]> + ?Sized {
+        match self {
+            Repr::Query { max_resp_code, mcast_addr, s_flag,
+                          qrv, qqic, num_srcs, data } => {
+                packet.set_msg_type(Message::MldQuery);
+                packet.set_msg_code(0);
+                packet.clear_reserved();
+                packet.set_max_resp_code(*max_resp_code);
+                packet.set_mcast_addr(*mcast_addr);
+                if *s_flag {
+                    packet.set_s_flag();
+                } else {
+                    packet.clear_s_flag();
+                }
+                packet.set_qrv(*qrv);
+                packet.set_qqic(*qqic);
+                packet.set_num_srcs(*num_srcs);
+                packet.payload_mut().copy_from_slice(&data[..]);
+            },
+            Repr::Report { nr_mcast_addr_rcrds, data } => {
+                packet.set_msg_type(Message::MldReport);
+                packet.set_msg_code(0);
+                packet.clear_reserved();
+                packet.set_nr_mcast_addr_rcrds(*nr_mcast_addr_rcrds);
+                packet.payload_mut().copy_from_slice(&data[..]);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
+    use phy::ChecksumCapabilities;
+    use wire::Icmpv6Repr;
     use wire::icmpv6::Message;
     use super::*;
 
@@ -310,6 +401,12 @@ mod test {
          0x00, 0x00, 0x00, 0x00,
          0x00, 0x00, 0x00, 0x02];
 
+    static QUERY_PACKET_PAYLOAD: [u8; 16] =
+        [0xff, 0x02, 0x00, 0x00,
+         0x00, 0x00, 0x00, 0x00,
+         0x00, 0x00, 0x00, 0x00,
+         0x00, 0x00, 0x00, 0x02];
+
     static REPORT_PACKET_BYTES: [u8; 44] =
         [0x8f, 0x00, 0x73, 0x85,
          0x00, 0x00, 0x00, 0x01,
@@ -322,6 +419,43 @@ mod test {
          0x00, 0x00, 0x00, 0x00,
          0x00, 0x00, 0x00, 0x00,
          0x00, 0x00, 0x00, 0x02];
+
+    static REPORT_PACKET_PAYLOAD: [u8; 36] =
+        [0x01, 0x00, 0x00, 0x01,
+         0xff, 0x02, 0x00, 0x00,
+         0x00, 0x00, 0x00, 0x00,
+         0x00, 0x00, 0x00, 0x00,
+         0x00, 0x00, 0x00, 0x01,
+         0xff, 0x02, 0x00, 0x00,
+         0x00, 0x00, 0x00, 0x00,
+         0x00, 0x00, 0x00, 0x00,
+         0x00, 0x00, 0x00, 0x02];
+
+
+    fn create_repr<'a>(ty: Message) -> Icmpv6Repr<'a> {
+        match ty {
+            Message::MldQuery => {
+                Icmpv6Repr::Mld(Repr::Query {
+                    max_resp_code: 0x400,
+                    mcast_addr: Ipv6Address::LINK_LOCAL_ALL_NODES,
+                    s_flag: true,
+                    qrv: 0x02,
+                    qqic: 0x12,
+                    num_srcs: 0x01,
+                    data: &QUERY_PACKET_PAYLOAD
+                })
+            },
+            Message::MldReport => {
+                Icmpv6Repr::Mld(Repr::Report {
+                    nr_mcast_addr_rcrds: 1,
+                    data: &REPORT_PACKET_PAYLOAD
+                })
+            },
+            _ => {
+                panic!("Message type must be a MLDv2 message type");
+            }
+        }
+    }
 
     #[test]
     fn test_query_deconstruct() {
@@ -363,7 +497,7 @@ mod test {
         let packet = Packet::new(&REPORT_PACKET_BYTES[..]);
         assert_eq!(packet.msg_type(), Message::MldReport);
         assert_eq!(packet.msg_code(), 0);
-        //assert_eq!(packet.checksum(), 0x7374);
+        assert_eq!(packet.checksum(), 0x7385);
         assert_eq!(packet.nr_mcast_addr_rcrds(), 0x01);
         let addr_rcrd = AddressRecord::new(packet.payload());
         assert_eq!(addr_rcrd.record_type(), RecordType::ModeIsInclude);
@@ -393,6 +527,50 @@ mod test {
         }
         packet.fill_checksum(&Ipv6Address::LINK_LOCAL_ALL_NODES.into(),
                              &Ipv6Address::LINK_LOCAL_ALL_ROUTERS.into());
+        assert_eq!(&packet.into_inner()[..], &REPORT_PACKET_BYTES[..]);
+    }
+
+    #[test]
+    fn test_query_repr_parse() {
+        let packet = Packet::new(&QUERY_PACKET_BYTES[..]);
+        let repr = Icmpv6Repr::parse(&Ipv6Address::LINK_LOCAL_ALL_NODES.into(),
+                                     &Ipv6Address::LINK_LOCAL_ALL_ROUTERS.into(),
+                                     &packet,
+                                     &ChecksumCapabilities::default());
+        assert_eq!(repr, Ok(create_repr(Message::MldQuery)));
+    }
+
+    #[test]
+    fn test_report_repr_parse() {
+        let packet = Packet::new(&REPORT_PACKET_BYTES[..]);
+        let repr = Icmpv6Repr::parse(&Ipv6Address::LINK_LOCAL_ALL_NODES.into(),
+                                     &Ipv6Address::LINK_LOCAL_ALL_ROUTERS.into(),
+                                     &packet,
+                                     &ChecksumCapabilities::default());
+        assert_eq!(repr, Ok(create_repr(Message::MldReport)));
+    }
+
+    #[test]
+    fn test_query_repr_emit() {
+        let mut bytes = [0x2a; 44];
+        let mut packet = Packet::new(&mut bytes[..]);
+        let repr = create_repr(Message::MldQuery);
+        repr.emit(&Ipv6Address::LINK_LOCAL_ALL_NODES.into(),
+                  &Ipv6Address::LINK_LOCAL_ALL_ROUTERS.into(),
+                  &mut packet,
+                  &ChecksumCapabilities::default());
+        assert_eq!(&packet.into_inner()[..], &QUERY_PACKET_BYTES[..]);
+    }
+
+    #[test]
+    fn test_report_repr_emit() {
+        let mut bytes = [0x2a; 44];
+        let mut packet = Packet::new(&mut bytes[..]);
+        let repr = create_repr(Message::MldReport);
+        repr.emit(&Ipv6Address::LINK_LOCAL_ALL_NODES.into(),
+                  &Ipv6Address::LINK_LOCAL_ALL_ROUTERS.into(),
+                  &mut packet,
+                  &ChecksumCapabilities::default());
         assert_eq!(&packet.into_inner()[..], &REPORT_PACKET_BYTES[..]);
     }
 }
