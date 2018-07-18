@@ -684,10 +684,10 @@ impl Repr {
                 panic!("unspecified IP representation"),
             #[cfg(feature = "proto-ipv4")]
             &Repr::Ipv4(repr) =>
-                repr.emit(&mut Ipv4Packet::new(buffer), &_checksum_caps),
+                repr.emit(&mut Ipv4Packet::new_unchecked(buffer), &_checksum_caps),
             #[cfg(feature = "proto-ipv6")]
             &Repr::Ipv6(repr) =>
-                repr.emit(&mut Ipv6Packet::new(buffer)),
+                repr.emit(&mut Ipv6Packet::new_unchecked(buffer)),
             &Repr::__Nonexhaustive =>
                 unreachable!()
         }

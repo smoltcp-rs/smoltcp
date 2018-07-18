@@ -72,7 +72,7 @@
 //!  | ARP      | Yes    | Yes            |
 //!  | IPv4     | Yes    | Yes            |
 //!  | ICMPv4   | Yes    | Yes            |
-//!  | IGMPv1/2 | Yes    | No             |
+//!  | IGMPv1/2 | Yes    | Yes            |
 //!  | IPv6     | Yes    | Yes            |
 //!  | ICMPv6   | Yes    | Yes            |
 //!  | TCP      | Yes    | Yes            |
@@ -87,6 +87,9 @@
                feature = "socket-udp",
                feature = "socket-tcp")))]
 compile_error!("at least one socket needs to be enabled"); */
+
+// FIXME(dlrobertson): clippy fails with this lint
+#![cfg_attr(feature = "cargo-clippy", allow(if_same_then_else))]
 
 #[cfg(feature = "proto-ipv6")]
 #[macro_use]

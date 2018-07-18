@@ -146,9 +146,9 @@ impl<T: AsRef<[u8]>> Header<T> {
         Header { buffer }
     }
 
-    /// Shorthand for a combination of [new] and [check_len].
+    /// Shorthand for a combination of [new_unchecked] and [check_len].
     ///
-    /// [new]: #method.new
+    /// [new_unchecked]: #method.new_unchecked
     /// [check_len]: #method.check_len
     pub fn new_checked(buffer: T) -> Result<Header<T>> {
         let header = Self::new(buffer);
@@ -234,7 +234,7 @@ impl<T: AsRef<[u8]>> Header<T> {
     }
 
 
-    /// Return the number of prefix octects elided from the last address (addresses[n]).
+    /// Return the number of prefix octects elided from the last address (`addresses[n]`).
     ///
     /// # Panics
     /// This function may panic if this header is not the RPL Source Routing Header routing type.
@@ -243,7 +243,7 @@ impl<T: AsRef<[u8]>> Header<T> {
         data[field::CMPR] & 0xf
     }
 
-    /// Return the number of octects used for padding after addresses[n].
+    /// Return the number of octects used for padding after `addresses[n]`.
     ///
     /// # Panics
     /// This function may panic if this header is not the RPL Source Routing Header routing type.
@@ -344,7 +344,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Header<T> {
         data[field::CMPR] = raw;
     }
 
-    /// Set the number of prefix octects elided from the last address (addresses[n]).
+    /// Set the number of prefix octects elided from the last address (`addresses[n]`).
     ///
     /// # Panics
     /// This function may panic if this header is not the RPL Source Routing Header routing type.
@@ -354,7 +354,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Header<T> {
         data[field::CMPR] = raw;
     }
 
-    /// Set the number of octects used for padding after addresses[n].
+    /// Set the number of octects used for padding after `addresses[n]`.
     ///
     /// # Panics
     /// This function may panic if this header is not the RPL Source Routing Header routing type.
@@ -411,10 +411,10 @@ pub enum Repr<'a> {
         cmpr_i:         u8,
         /// Number of prefix octets from the last segment that are elided.
         cmpr_e:         u8,
-        /// Number of octets that are used for padding after Address[n] at the end of the
+        /// Number of octets that are used for padding after `address[n]` at the end of the
         /// RPL Source Route Header.
         pad:            u8,
-        /// Vector of addresses, numbered 1 to n.
+        /// Vector of addresses, numbered 1 to `n`.
         addresses:      &'a[u8],
     },
 

@@ -5,7 +5,7 @@ use {Error, Result};
 use phy::ChecksumCapabilities;
 use super::ip::checksum;
 use super::{IpAddress, IpProtocol, Ipv6Packet, Ipv6Repr};
-use super::NdiscRepr;
+use super::{MldRepr, NdiscRepr};
 
 enum_with_unknown! {
     /// Internet protocol control message type.
@@ -22,6 +22,8 @@ enum_with_unknown! {
         EchoRequest     = 0x80,
         /// Echo Reply
         EchoReply       = 0x81,
+        /// Multicast Listener Query
+        MldQuery        = 0x82,
         /// Router Solicitation
         RouterSolicit   = 0x85,
         /// Router Advertisement
@@ -31,7 +33,9 @@ enum_with_unknown! {
         /// Neighbor Advertisement
         NeighborAdvert  = 0x88,
         /// Redirect
-        Redirect        = 0x89
+        Redirect        = 0x89,
+        /// Multicast Listener Report
+        MldReport       = 0x8f
     }
 }
 
@@ -56,6 +60,17 @@ impl Message {
             _ => false,
         }
     }
+
+    /// Return a boolean value indicating if the given message type
+    /// is an [MLD] message type.
+    ///
+    /// [MLD]: https://tools.ietf.org/html/rfc3810
+    pub fn is_mld(&self) -> bool {
+        match *self {
+            Message::MldQuery | Message::MldReport => true,
+            _ => false,
+        }
+    }
 }
 
 impl fmt::Display for Message {
@@ -72,6 +87,8 @@ impl fmt::Display for Message {
             &Message::NeighborSolicit => write!(f, "neighbor solicitation"),
             &Message::NeighborAdvert  => write!(f, "neighbor advert"),
             &Message::Redirect        => write!(f, "redirect"),
+            &Message::MldQuery        => write!(f, "multicast listener query"),
+            &Message::MldReport       => write!(f, "multicast listener report"),
             &Message::Unknown(id)     => write!(f, "{}", id)
         }
     }
@@ -177,51 +194,73 @@ pub struct Packet<T: AsRef<[u8]>> {
 }
 
 // Ranges and constants describing key boundaries in the ICMPv6 header.
-// See https://tools.ietf.org/html/rfc4443 for details.
 pub(super) mod field {
     use wire::field::*;
 
-    pub const TYPE:          usize = 0;
-    pub const CODE:          usize = 1;
-    pub const CHECKSUM:      Field = 2..4;
+    // ICMPv6: See https://tools.ietf.org/html/rfc4443
+    pub const TYPE:              usize = 0;
+    pub const CODE:              usize = 1;
+    pub const CHECKSUM:          Field = 2..4;
 
-    pub const UNUSED:        Field = 4..8;
-    pub const MTU:           Field = 4..8;
-    pub const POINTER:       Field = 4..8;
-    pub const ECHO_IDENT:    Field = 4..6;
-    pub const ECHO_SEQNO:    Field = 6..8;
+    pub const UNUSED:            Field = 4..8;
+    pub const MTU:               Field = 4..8;
+    pub const POINTER:           Field = 4..8;
+    pub const ECHO_IDENT:        Field = 4..6;
+    pub const ECHO_SEQNO:        Field = 6..8;
 
-    pub const HEADER_END:    usize = 8;
+    pub const HEADER_END:        usize = 8;
 
+    // NDISC: See https://tools.ietf.org/html/rfc4861
     // Router Advertisement message offsets
-    pub const CUR_HOP_LIMIT: usize = 4;
-    pub const ROUTER_FLAGS:  usize = 5;
-    pub const ROUTER_LT:     Field = 6..8;
-    pub const REACHABLE_TM:  Field = 8..12;
-    pub const RETRANS_TM:    Field = 12..16;
+    pub const CUR_HOP_LIMIT:     usize = 4;
+    pub const ROUTER_FLAGS:      usize = 5;
+    pub const ROUTER_LT:         Field = 6..8;
+    pub const REACHABLE_TM:      Field = 8..12;
+    pub const RETRANS_TM:        Field = 12..16;
 
     // Neighbor Solicitation message offsets
-    pub const TARGET_ADDR:   Field = 8..24;
+    pub const TARGET_ADDR:       Field = 8..24;
 
     // Neighbor Advertisement message offsets
-    pub const NEIGH_FLAGS:   usize = 4;
+    pub const NEIGH_FLAGS:       usize = 4;
 
     // Redirected Header message offsets
-    pub const DEST_ADDR:     Field = 24..40;
+    pub const DEST_ADDR:         Field = 24..40;
+
+    // MLD:
+    //   - https://tools.ietf.org/html/rfc3810
+    //   - https://tools.ietf.org/html/rfc3810
+    // Multicast Listener Query message
+    pub const MAX_RESP_CODE:     Field = 4..6;
+    pub const QUERY_RESV:        Field = 6..8;
+    pub const QUERY_MCAST_ADDR:  Field = 8..24;
+    pub const SQRV:              usize = 24;
+    pub const QQIC:              usize = 25;
+    pub const QUERY_NUM_SRCS:    Field = 26..28;
+
+    // Multicast Listener Report Message
+    pub const RECORD_RESV:       Field = 4..6;
+    pub const NR_MCAST_RCRDS:    Field = 6..8;
+
+    // Multicast Address Record Offsets
+    pub const RECORD_TYPE:       usize = 0;
+    pub const AUX_DATA_LEN:      usize = 1;
+    pub const RECORD_NUM_SRCS:   Field = 2..4;
+    pub const RECORD_MCAST_ADDR: Field = 4..20;
 }
 
 impl<T: AsRef<[u8]>> Packet<T> {
     /// Imbue a raw octet buffer with ICMPv6 packet structure.
-    pub fn new(buffer: T) -> Packet<T> {
+    pub fn new_unchecked(buffer: T) -> Packet<T> {
         Packet { buffer }
     }
 
-    /// Shorthand for a combination of [new] and [check_len].
+    /// Shorthand for a combination of [new_unchecked] and [check_len].
     ///
-    /// [new]: #method.new
+    /// [new_unchecked]: #method.new_unchecked
     /// [check_len]: #method.check_len
     pub fn new_checked(buffer: T) -> Result<Packet<T>> {
-        let packet = Self::new(buffer);
+        let packet = Self::new_unchecked(buffer);
         packet.check_len()?;
         Ok(packet)
     }
@@ -295,6 +334,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
         NetworkEndian::read_u32(&data[field::POINTER])
     }
 
+
     /// Return the header length. The result depends on the value of
     /// the message type field.
     pub fn header_len(&self) -> usize {
@@ -310,6 +350,8 @@ impl<T: AsRef<[u8]>> Packet<T> {
             Message::NeighborSolicit => field::TARGET_ADDR.end,
             Message::NeighborAdvert  => field::TARGET_ADDR.end,
             Message::Redirect        => field::DEST_ADDR.end,
+            Message::MldQuery        => field::QUERY_NUM_SRCS.end,
+            Message::MldReport       => field::NR_MCAST_RCRDS.end,
             // For packets that are not included in RFC 4443, do not
             // include the last 32 bits of the ICMPv6 header in
             // `header_bytes`. This must be done so that these bytes
@@ -358,7 +400,34 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
         data[field::CODE] = value
     }
 
-    /// Set the checksum field.
+    /// Clear any reserved fields in the message header.
+    ///
+    /// # Panics
+    /// This function panics if the message type has not been set.
+    /// See [set_msg_type].
+    ///
+    /// [set_msg_type]: #method.set_msg_type
+    #[inline]
+    pub fn clear_reserved(&mut self) {
+        match self.msg_type() {
+            Message::RouterSolicit | Message::NeighborSolicit |
+            Message::NeighborAdvert | Message::Redirect => {
+                let data = self.buffer.as_mut();
+                NetworkEndian::write_u32(&mut data[field::UNUSED], 0);
+            },
+            Message::MldQuery => {
+                let data = self.buffer.as_mut();
+                NetworkEndian::write_u16(&mut data[field::QUERY_RESV], 0);
+                data[field::SQRV] = data[field::SQRV] & 0xf;
+            },
+            Message::MldReport => {
+                let data = self.buffer.as_mut();
+                NetworkEndian::write_u16(&mut data[field::RECORD_RESV], 0);
+            }
+            ty => panic!("Message type `{}` does not have any reserved fields.", ty),
+        }
+    }
+
     #[inline]
     pub fn set_checksum(&mut self, value: u16) {
         let data = self.buffer.as_mut();
@@ -398,7 +467,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// Set the pointer field (for parameter problem messages).
     ///
     /// # Panics
-    /// This function may panic if this packet
+    /// This function may panic if this packet is not a parameter problem message.
     #[inline]
     pub fn set_param_problem_ptr(&mut self, value: u32) {
         let data = self.buffer.as_mut();
@@ -469,6 +538,7 @@ pub enum Repr<'a> {
         data:   &'a [u8]
     },
     Ndisc(NdiscRepr<'a>),
+    Mld(MldRepr<'a>),
     #[doc(hidden)]
     __Nonexhaustive
 }
@@ -552,6 +622,9 @@ impl<'a> Repr<'a> {
             (msg_type, 0) if msg_type.is_ndisc() => {
                 NdiscRepr::parse(packet).map(|repr| Repr::Ndisc(repr))
             },
+            (msg_type, 0) if msg_type.is_mld() => {
+                MldRepr::parse(packet).map(|repr| Repr::Mld(repr))
+            },
             _ => Err(Error::Unrecognized)
         }
     }
@@ -570,6 +643,9 @@ impl<'a> Repr<'a> {
             &Repr::Ndisc(ndisc) => {
                 ndisc.buffer_len()
             },
+            &Repr::Mld(mld) => {
+                mld.buffer_len()
+            },
             &Repr::__Nonexhaustive => unreachable!()
         }
     }
@@ -580,7 +656,7 @@ impl<'a> Repr<'a> {
                    packet: &mut Packet<&mut T>, checksum_caps: &ChecksumCapabilities)
             where T: AsRef<[u8]> + AsMut<[u8]> + ?Sized {
         fn emit_contained_packet(buffer: &mut [u8], header: Ipv6Repr, data: &[u8]) {
-            let mut ip_packet = Ipv6Packet::new(buffer);
+            let mut ip_packet = Ipv6Packet::new_unchecked(buffer);
             header.emit(&mut ip_packet);
             let payload = &mut ip_packet.into_inner()[header.buffer_len()..];
             payload.copy_from_slice(&data[..]);
@@ -637,6 +713,10 @@ impl<'a> Repr<'a> {
 
             &Repr::Ndisc(ndisc) => {
                 ndisc.emit(packet)
+            },
+
+            &Repr::Mld(mld) => {
+                mld.emit(packet)
             },
 
             &Repr::__Nonexhaustive => unreachable!(),
@@ -732,7 +812,7 @@ mod test {
 
     #[test]
     fn test_echo_deconstruct() {
-        let packet = Packet::new(&ECHO_PACKET_BYTES[..]);
+        let packet = Packet::new_unchecked(&ECHO_PACKET_BYTES[..]);
         assert_eq!(packet.msg_type(), Message::EchoRequest);
         assert_eq!(packet.msg_code(), 0);
         assert_eq!(packet.checksum(), 0x19b3);
@@ -746,7 +826,7 @@ mod test {
     #[test]
     fn test_echo_construct() {
         let mut bytes = vec![0xa5; 12];
-        let mut packet = Packet::new(&mut bytes);
+        let mut packet = Packet::new_unchecked(&mut bytes);
         packet.set_msg_type(Message::EchoRequest);
         packet.set_msg_code(0);
         packet.set_echo_ident(0x1234);
@@ -758,7 +838,7 @@ mod test {
 
     #[test]
     fn test_echo_repr_parse() {
-        let packet = Packet::new(&ECHO_PACKET_BYTES[..]);
+        let packet = Packet::new_unchecked(&ECHO_PACKET_BYTES[..]);
         let repr = Repr::parse(&MOCK_IP_ADDR_1, &MOCK_IP_ADDR_2,
                                &packet, &ChecksumCapabilities::default()).unwrap();
         assert_eq!(repr, echo_packet_repr());
@@ -768,7 +848,7 @@ mod test {
     fn test_echo_emit() {
         let repr = echo_packet_repr();
         let mut bytes = vec![0xa5; repr.buffer_len()];
-        let mut packet = Packet::new(&mut bytes);
+        let mut packet = Packet::new_unchecked(&mut bytes);
         repr.emit(&MOCK_IP_ADDR_1, &MOCK_IP_ADDR_2,
                   &mut packet, &ChecksumCapabilities::default());
         assert_eq!(&packet.into_inner()[..], &ECHO_PACKET_BYTES[..]);
@@ -776,7 +856,7 @@ mod test {
 
     #[test]
     fn test_too_big_deconstruct() {
-        let packet = Packet::new(&PKT_TOO_BIG_BYTES[..]);
+        let packet = Packet::new_unchecked(&PKT_TOO_BIG_BYTES[..]);
         assert_eq!(packet.msg_type(), Message::PktTooBig);
         assert_eq!(packet.msg_code(), 0);
         assert_eq!(packet.checksum(), 0x0fc9);
@@ -789,7 +869,7 @@ mod test {
     #[test]
     fn test_too_big_construct() {
         let mut bytes = vec![0xa5; 60];
-        let mut packet = Packet::new(&mut bytes);
+        let mut packet = Packet::new_unchecked(&mut bytes);
         packet.set_msg_type(Message::PktTooBig);
         packet.set_msg_code(0);
         packet.set_pkt_too_big_mtu(1500);
@@ -800,7 +880,7 @@ mod test {
 
     #[test]
     fn test_too_big_repr_parse() {
-        let packet = Packet::new(&PKT_TOO_BIG_BYTES[..]);
+        let packet = Packet::new_unchecked(&PKT_TOO_BIG_BYTES[..]);
         let repr = Repr::parse(&MOCK_IP_ADDR_1, &MOCK_IP_ADDR_2,
                                &packet, &ChecksumCapabilities::default()).unwrap();
         assert_eq!(repr, too_big_packet_repr());
@@ -810,7 +890,7 @@ mod test {
     fn test_too_big_emit() {
         let repr = too_big_packet_repr();
         let mut bytes = vec![0xa5; repr.buffer_len()];
-        let mut packet = Packet::new(&mut bytes);
+        let mut packet = Packet::new_unchecked(&mut bytes);
         repr.emit(&MOCK_IP_ADDR_1, &MOCK_IP_ADDR_2,
                   &mut packet, &ChecksumCapabilities::default());
         assert_eq!(&packet.into_inner()[..], &PKT_TOO_BIG_BYTES[..]);

@@ -241,16 +241,16 @@ mod field {
 
 impl<T: AsRef<[u8]>> Packet<T> {
     /// Imbue a raw octet buffer with IPv4 packet structure.
-    pub fn new(buffer: T) -> Packet<T> {
+    pub fn new_unchecked(buffer: T) -> Packet<T> {
         Packet { buffer }
     }
 
-    /// Shorthand for a combination of [new] and [check_len].
+    /// Shorthand for a combination of [new_unchecked] and [check_len].
     ///
-    /// [new]: #method.new
+    /// [new_unchecked]: #method.new_unchecked
     /// [check_len]: #method.check_len
     pub fn new_checked(buffer: T) -> Result<Packet<T>> {
-        let packet = Self::new(buffer);
+        let packet = Self::new_unchecked(buffer);
         packet.check_len()?;
         Ok(packet)
     }
@@ -708,7 +708,7 @@ mod test {
 
     #[test]
     fn test_deconstruct() {
-        let packet = Packet::new(&PACKET_BYTES[..]);
+        let packet = Packet::new_unchecked(&PACKET_BYTES[..]);
         assert_eq!(packet.version(), 4);
         assert_eq!(packet.header_len(), 20);
         assert_eq!(packet.dscp(), 0);
@@ -730,7 +730,7 @@ mod test {
     #[test]
     fn test_construct() {
         let mut bytes = vec![0xa5; 30];
-        let mut packet = Packet::new(&mut bytes);
+        let mut packet = Packet::new_unchecked(&mut bytes);
         packet.set_version(4);
         packet.set_header_len(20);
         packet.clear_flags();
@@ -756,9 +756,9 @@ mod test {
         bytes.extend(&PACKET_BYTES[..]);
         bytes.push(0);
 
-        assert_eq!(Packet::new(&bytes).payload().len(),
+        assert_eq!(Packet::new_unchecked(&bytes).payload().len(),
                    PAYLOAD_BYTES.len());
-        assert_eq!(Packet::new(&mut bytes).payload_mut().len(),
+        assert_eq!(Packet::new_unchecked(&mut bytes).payload_mut().len(),
                    PAYLOAD_BYTES.len());
     }
 
@@ -766,7 +766,7 @@ mod test {
     fn test_total_len_overflow() {
         let mut bytes = vec![];
         bytes.extend(&PACKET_BYTES[..]);
-        Packet::new(&mut bytes).set_total_len(128);
+        Packet::new_unchecked(&mut bytes).set_total_len(128);
 
         assert_eq!(Packet::new_checked(&bytes).unwrap_err(),
                    Error::Truncated);
@@ -795,7 +795,7 @@ mod test {
 
     #[test]
     fn test_parse() {
-        let packet = Packet::new(&REPR_PACKET_BYTES[..]);
+        let packet = Packet::new_unchecked(&REPR_PACKET_BYTES[..]);
         let repr = Repr::parse(&packet, &ChecksumCapabilities::default()).unwrap();
         assert_eq!(repr, packet_repr());
     }
@@ -804,10 +804,10 @@ mod test {
     fn test_parse_bad_version() {
         let mut bytes = vec![0; 24];
         bytes.copy_from_slice(&REPR_PACKET_BYTES[..]);
-        let mut packet = Packet::new(&mut bytes);
+        let mut packet = Packet::new_unchecked(&mut bytes);
         packet.set_version(6);
         packet.fill_checksum();
-        let packet = Packet::new(&*packet.into_inner());
+        let packet = Packet::new_unchecked(&*packet.into_inner());
         assert_eq!(Repr::parse(&packet, &ChecksumCapabilities::default()), Err(Error::Malformed));
     }
 
@@ -822,7 +822,7 @@ mod test {
     fn test_emit() {
         let repr = packet_repr();
         let mut bytes = vec![0xa5; repr.buffer_len() + REPR_PAYLOAD_BYTES.len()];
-        let mut packet = Packet::new(&mut bytes);
+        let mut packet = Packet::new_unchecked(&mut bytes);
         repr.emit(&mut packet, &ChecksumCapabilities::default());
         packet.payload_mut().copy_from_slice(&REPR_PAYLOAD_BYTES);
         assert_eq!(&packet.into_inner()[..], &REPR_PACKET_BYTES[..]);

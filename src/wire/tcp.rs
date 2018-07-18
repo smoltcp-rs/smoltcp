@@ -107,16 +107,16 @@ mod field {
 
 impl<T: AsRef<[u8]>> Packet<T> {
     /// Imbue a raw octet buffer with TCP packet structure.
-    pub fn new(buffer: T) -> Packet<T> {
+    pub fn new_unchecked(buffer: T) -> Packet<T> {
         Packet { buffer }
     }
 
-    /// Shorthand for a combination of [new] and [check_len].
+    /// Shorthand for a combination of [new_unchecked] and [check_len].
     ///
-    /// [new]: #method.new
+    /// [new_unchecked]: #method.new_unchecked
     /// [check_len]: #method.check_len
     pub fn new_checked(buffer: T) -> Result<Packet<T>> {
-        let packet = Self::new(buffer);
+        let packet = Self::new_unchecked(buffer);
         packet.check_len()?;
         Ok(packet)
     }
@@ -576,7 +576,10 @@ impl<'a> TcpOption<'a> {
         match self {
             &TcpOption::EndOfList => {
                 length    = 1;
-                buffer[0] = field::OPT_END;
+                // There may be padding space which also should be initialized.
+                for p in buffer.iter_mut() {
+                    *p = field::OPT_END;
+                }
             }
             &TcpOption::NoOperation => {
                 length    = 1;
@@ -645,6 +648,7 @@ pub struct Repr<'a> {
     pub seq_number:   SeqNumber,
     pub ack_number:   Option<SeqNumber>,
     pub window_len:   u16,
+    pub window_scale: Option<u8>,
     pub max_seg_size: Option<u16>,
     pub payload:      &'a [u8]
 }
@@ -682,6 +686,7 @@ impl<'a> Repr<'a> {
         // cut the byte at the urgent pointer from the stream.
 
         let mut max_seg_size = None;
+        let mut window_scale = None;
         let mut options = packet.options();
         while options.len() > 0 {
             let (next_options, option) = TcpOption::parse(options)?;
@@ -690,7 +695,19 @@ impl<'a> Repr<'a> {
                 TcpOption::NoOperation => (),
                 TcpOption::MaxSegmentSize(value) =>
                     max_seg_size = Some(value),
-                _ => ()
+                TcpOption::WindowScale(value) => {
+                    // RFC 1323: Thus, the shift count must be limited to 14 (which allows windows
+                    // of 2**30 = 1 Gbyte). If a Window Scale option is received with a shift.cnt
+                    // value exceeding 14, the TCP should log the error but use 14 instead of the
+                    // specified value.
+                    window_scale = if value > 14 {
+                        net_debug!("{}:{}:{}:{}: parsed window scaling factor >14, setting to 14", src_addr, packet.src_port(), dst_addr, packet.dst_port());
+                        Some(14)
+                    } else {
+                        Some(value)
+                    };
+                }
+                _ => (),
             }
             options = next_options;
         }
@@ -702,18 +719,36 @@ impl<'a> Repr<'a> {
             seq_number:   packet.seq_number(),
             ack_number:   ack_number,
             window_len:   packet.window_len(),
+            window_scale: window_scale,
             max_seg_size: max_seg_size,
             payload:      packet.payload()
         })
     }
 
     /// Return the length of a header that will be emitted from this high-level representation.
+    ///
+    /// This should be used for buffer space calculations.
+    /// The TCP header length is a multiple of 4.
     pub fn header_len(&self) -> usize {
         let mut length = field::URGENT.end;
         if self.max_seg_size.is_some() {
             length += 4
         }
+        if self.window_scale.is_some() {
+            length += 3
+        }
+        if length % 4 != 0 {
+            length += 4 - length % 4;
+        }
         length
+    }
+
+    /// Return the length of the header for the TCP protocol.
+    ///
+    /// Per RFC 6691, this should be used for MSS calculations. It may be smaller than the buffer
+    /// space required to accomodate this packet's data.
+    pub fn mss_header_len(&self) -> usize {
+        field::URGENT.end
     }
 
     /// Return the length of a packet that will be emitted from this high-level representation.
@@ -742,6 +777,9 @@ impl<'a> Repr<'a> {
         packet.set_ack(self.ack_number.is_some());
         {
             let mut options = packet.options_mut();
+            if let Some(value) = self.window_scale {
+                let tmp = options; options = TcpOption::WindowScale(value).emit(tmp);
+            }
             if let Some(value) = self.max_seg_size {
                 let tmp = options; options = TcpOption::MaxSegmentSize(value).emit(tmp);
             }
@@ -889,7 +927,7 @@ mod test {
     #[test]
     #[cfg(feature = "proto-ipv4")]
     fn test_deconstruct() {
-        let packet = Packet::new(&PACKET_BYTES[..]);
+        let packet = Packet::new_unchecked(&PACKET_BYTES[..]);
         assert_eq!(packet.src_port(), 48896);
         assert_eq!(packet.dst_port(), 80);
         assert_eq!(packet.seq_number(), SeqNumber(0x01234567));
@@ -913,7 +951,7 @@ mod test {
     #[cfg(feature = "proto-ipv4")]
     fn test_construct() {
         let mut bytes = vec![0xa5; PACKET_BYTES.len()];
-        let mut packet = Packet::new(&mut bytes);
+        let mut packet = Packet::new_unchecked(&mut bytes);
         packet.set_src_port(48896);
         packet.set_dst_port(80);
         packet.set_seq_number(SeqNumber(0x01234567));
@@ -938,14 +976,14 @@ mod test {
     #[test]
     #[cfg(feature = "proto-ipv4")]
     fn test_truncated() {
-        let packet = Packet::new(&PACKET_BYTES[..23]);
+        let packet = Packet::new_unchecked(&PACKET_BYTES[..23]);
         assert_eq!(packet.check_len(), Err(Error::Truncated));
     }
 
     #[test]
     fn test_impossible_len() {
         let mut bytes = vec![0; 20];
-        let mut packet = Packet::new(&mut bytes);
+        let mut packet = Packet::new_unchecked(&mut bytes);
         packet.set_header_len(10);
         assert_eq!(packet.check_len(), Err(Error::Malformed));
     }
@@ -967,6 +1005,7 @@ mod test {
             seq_number:   SeqNumber(0x01234567),
             ack_number:   None,
             window_len:   0x0123,
+            window_scale: None,
             control:      Control::Syn,
             max_seg_size: None,
             payload:      &PAYLOAD_BYTES
@@ -976,7 +1015,7 @@ mod test {
     #[test]
     #[cfg(feature = "proto-ipv4")]
     fn test_parse() {
-        let packet = Packet::new(&SYN_PACKET_BYTES[..]);
+        let packet = Packet::new_unchecked(&SYN_PACKET_BYTES[..]);
         let repr = Repr::parse(&packet, &SRC_ADDR.into(), &DST_ADDR.into(), &ChecksumCapabilities::default()).unwrap();
         assert_eq!(repr, packet_repr());
     }
@@ -986,9 +1025,17 @@ mod test {
     fn test_emit() {
         let repr = packet_repr();
         let mut bytes = vec![0xa5; repr.buffer_len()];
-        let mut packet = Packet::new(&mut bytes);
+        let mut packet = Packet::new_unchecked(&mut bytes);
         repr.emit(&mut packet, &SRC_ADDR.into(), &DST_ADDR.into(), &ChecksumCapabilities::default());
         assert_eq!(&packet.into_inner()[..], &SYN_PACKET_BYTES[..]);
+    }
+
+    #[test]
+    #[cfg(feature = "proto-ipv4")]
+    fn test_header_len_multiple_of_4() {
+        let mut repr = packet_repr();
+        repr.window_scale = Some(0); // This TCP Option needs 3 bytes.
+        assert_eq!(repr.header_len() % 4, 0); // Should e.g. be 28 instead of 27.
     }
 
     macro_rules! assert_option_parses {

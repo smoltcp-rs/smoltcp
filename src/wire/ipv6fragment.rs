@@ -35,16 +35,16 @@ mod field {
 
 impl<T: AsRef<[u8]>> Header<T> {
     /// Create a raw octet buffer with an IPv6 Fragment Header structure.
-    pub fn new(buffer: T) -> Header<T> {
+    pub fn new_unchecked(buffer: T) -> Header<T> {
         Header { buffer }
     }
 
-    /// Shorthand for a combination of [new] and [check_len].
+    /// Shorthand for a combination of [new_unchecked] and [check_len].
     ///
-    /// [new]: #method.new
+    /// [new_unchecked]: #method.new_unchecked
     /// [check_len]: #method.check_len
     pub fn new_checked(buffer: T) -> Result<Header<T>> {
-        let header = Self::new(buffer);
+        let header = Self::new_unchecked(buffer);
         header.check_len()?;
         Ok(header)
     }
@@ -220,20 +220,22 @@ mod test {
     #[test]
     fn test_check_len() {
         // less than 8 bytes
-        assert_eq!(Err(Error::Truncated), Header::new(&BYTES_HEADER_MORE_FRAG[..7]).check_len());
+        assert_eq!(Err(Error::Truncated),
+                   Header::new_unchecked(&BYTES_HEADER_MORE_FRAG[..7]).check_len());
         // valid
-        assert_eq!(Ok(()), Header::new(&BYTES_HEADER_MORE_FRAG).check_len());
+        assert_eq!(Ok(()),
+                   Header::new_unchecked(&BYTES_HEADER_MORE_FRAG).check_len());
     }
 
     #[test]
     fn test_header_deconstruct() {
-        let header = Header::new(&BYTES_HEADER_MORE_FRAG);
+        let header = Header::new_unchecked(&BYTES_HEADER_MORE_FRAG);
         assert_eq!(header.next_header(), Protocol::Tcp);
         assert_eq!(header.frag_offset(), 0);
         assert_eq!(header.more_frags(), true);
         assert_eq!(header.ident(), 12345);
 
-        let header = Header::new(&BYTES_HEADER_LAST_FRAG);
+        let header = Header::new_unchecked(&BYTES_HEADER_LAST_FRAG);
         assert_eq!(header.next_header(), Protocol::Tcp);
         assert_eq!(header.frag_offset(), 320);
         assert_eq!(header.more_frags(), false);
@@ -242,12 +244,12 @@ mod test {
 
     #[test]
     fn test_repr_parse_valid() {
-        let header = Header::new(&BYTES_HEADER_MORE_FRAG);
+        let header = Header::new_unchecked(&BYTES_HEADER_MORE_FRAG);
         let repr = Repr::parse(&header).unwrap();
         assert_eq!(repr,
             Repr{ next_header: Protocol::Tcp, frag_offset: 0, more_frags: true, ident: 12345 });
 
-        let header = Header::new(&BYTES_HEADER_LAST_FRAG);
+        let header = Header::new_unchecked(&BYTES_HEADER_LAST_FRAG);
         let repr = Repr::parse(&header).unwrap();
         assert_eq!(repr,
             Repr{ next_header: Protocol::Tcp, frag_offset: 320, more_frags: false, ident: 67890 });
@@ -257,20 +259,20 @@ mod test {
     fn test_repr_emit() {
         let repr = Repr{ next_header: Protocol::Tcp, frag_offset: 0, more_frags: true, ident: 12345 };
         let mut bytes = [0u8; 8];
-        let mut header = Header::new(&mut bytes);
+        let mut header = Header::new_unchecked(&mut bytes);
         repr.emit(&mut header);
         assert_eq!(header.into_inner(), &BYTES_HEADER_MORE_FRAG[0..8]);
 
         let repr = Repr{ next_header: Protocol::Tcp, frag_offset: 320, more_frags: false, ident: 67890 };
         let mut bytes = [0u8; 8];
-        let mut header = Header::new(&mut bytes);
+        let mut header = Header::new_unchecked(&mut bytes);
         repr.emit(&mut header);
         assert_eq!(header.into_inner(), &BYTES_HEADER_LAST_FRAG[0..8]);
     }
 
     #[test]
     fn test_buffer_len() {
-        let header = Header::new(&BYTES_HEADER_MORE_FRAG);
+        let header = Header::new_unchecked(&BYTES_HEADER_MORE_FRAG);
         let repr = Repr::parse(&header).unwrap();
         assert_eq!(repr.buffer_len(), BYTES_HEADER_MORE_FRAG.len());
     }

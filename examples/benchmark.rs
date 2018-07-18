@@ -108,7 +108,13 @@ fn main() {
     let mut processed = 0;
     while !CLIENT_DONE.load(Ordering::SeqCst) {
         let timestamp = Instant::now();
-        iface.poll(&mut sockets, timestamp).expect("poll error");
+        match iface.poll(&mut sockets, timestamp) {
+            Ok(_) => {},
+            Err(e) => {
+                debug!("poll error: {}",e);
+            }
+        }
+
 
         // tcp:1234: emit data
         {

@@ -38,15 +38,15 @@ impl Default for Endpoint {
     fn default() -> Endpoint { Endpoint::Unspecified }
 }
 
-/// An ICMPv4 packet metadata.
+/// An ICMP packet metadata.
 pub type IcmpPacketMetadata = PacketMetadata<IpAddress>;
 
-/// An ICMPv4 packet ring buffer.
+/// An ICMP packet ring buffer.
 pub type IcmpSocketBuffer<'a, 'b> = PacketBuffer<'a, 'b, IpAddress>;
 
-/// An ICMPv4 socket
+/// A ICMP socket
 ///
-/// An ICMPv4 socket is bound to a specific [IcmpEndpoint] which may
+/// An ICMP socket is bound to a specific [IcmpEndpoint] which may
 /// be a sepecific UDP port to listen for ICMP error messages related
 /// to the port or a specific ICMP identifier value. See [bind] for
 /// more details.
@@ -65,7 +65,7 @@ pub struct IcmpSocket<'a, 'b: 'a> {
 }
 
 impl<'a, 'b> IcmpSocket<'a, 'b> {
-    /// Create an ICMPv4 socket with the given buffers.
+    /// Create an ICMP socket with the given buffers.
     pub fn new(rx_buffer: IcmpSocketBuffer<'a, 'b>,
                tx_buffer: IcmpSocketBuffer<'a, 'b>) -> IcmpSocket<'a, 'b> {
         IcmpSocket {
@@ -256,7 +256,7 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
             #[cfg(feature = "proto-ipv4")]
             (&Endpoint::Udp(endpoint), &IcmpRepr::Ipv4(Icmpv4Repr::DstUnreachable { data, .. }))
                     if endpoint.addr.is_unspecified() || endpoint.addr == ip_repr.dst_addr() => {
-                let packet = UdpPacket::new(data);
+                let packet = UdpPacket::new_unchecked(data);
                 match UdpRepr::parse(&packet, &ip_repr.src_addr(), &ip_repr.dst_addr(), cksum) {
                     Ok(repr) => endpoint.port == repr.src_port,
                     Err(_) => false,
@@ -265,7 +265,7 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
             #[cfg(feature = "proto-ipv6")]
             (&Endpoint::Udp(endpoint), &IcmpRepr::Ipv6(Icmpv6Repr::DstUnreachable { data, .. }))
                     if endpoint.addr.is_unspecified() || endpoint.addr == ip_repr.dst_addr() => {
-                let packet = UdpPacket::new(data);
+                let packet = UdpPacket::new_unchecked(data);
                 match UdpRepr::parse(&packet, &ip_repr.src_addr(), &ip_repr.dst_addr(), cksum) {
                     Ok(repr) => endpoint.port == repr.src_port,
                     Err(_) => false,
@@ -275,12 +275,16 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
             // Echo Request/Reply with the identifier field matching the endpoint
             // port.
             #[cfg(feature = "proto-ipv4")]
-            (&Endpoint::Ident(bound_ident), &IcmpRepr::Ipv4(Icmpv4Repr::EchoRequest { ident, .. })) |
-            (&Endpoint::Ident(bound_ident), &IcmpRepr::Ipv4(Icmpv4Repr::EchoReply { ident, .. })) =>
+            (&Endpoint::Ident(bound_ident),
+             &IcmpRepr::Ipv4(Icmpv4Repr::EchoRequest { ident, .. })) |
+            (&Endpoint::Ident(bound_ident),
+             &IcmpRepr::Ipv4(Icmpv4Repr::EchoReply { ident, .. })) =>
                 ident == bound_ident,
             #[cfg(feature = "proto-ipv6")]
-            (&Endpoint::Ident(bound_ident), &IcmpRepr::Ipv6(Icmpv6Repr::EchoRequest { ident, .. })) |
-            (&Endpoint::Ident(bound_ident), &IcmpRepr::Ipv6(Icmpv6Repr::EchoReply { ident, .. })) =>
+            (&Endpoint::Ident(bound_ident),
+             &IcmpRepr::Ipv6(Icmpv6Repr::EchoRequest { ident, .. })) |
+            (&Endpoint::Ident(bound_ident),
+             &IcmpRepr::Ipv6(Icmpv6Repr::EchoReply { ident, .. })) =>
                 ident == bound_ident,
             _ => false,
         }
@@ -291,17 +295,21 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
         match icmp_repr {
             #[cfg(feature = "proto-ipv4")]
             &IcmpRepr::Ipv4(ref icmp_repr) => {
-                let packet_buf = self.rx_buffer.enqueue(icmp_repr.buffer_len(), ip_repr.src_addr())?;
-                icmp_repr.emit(&mut Icmpv4Packet::new(packet_buf), &ChecksumCapabilities::default());
+                let packet_buf = self.rx_buffer.enqueue(icmp_repr.buffer_len(),
+                                                        ip_repr.src_addr())?;
+                icmp_repr.emit(&mut Icmpv4Packet::new_unchecked(packet_buf),
+                               &ChecksumCapabilities::default());
 
                 net_trace!("{}:{}: receiving {} octets",
                            self.meta.handle, icmp_repr.buffer_len(), packet_buf.len());
             },
             #[cfg(feature = "proto-ipv6")]
             &IcmpRepr::Ipv6(ref icmp_repr) => {
-                let packet_buf = self.rx_buffer.enqueue(icmp_repr.buffer_len(), ip_repr.src_addr())?;
+                let packet_buf = self.rx_buffer.enqueue(icmp_repr.buffer_len(),
+                                                        ip_repr.src_addr())?;
                 icmp_repr.emit(&ip_repr.src_addr(), &ip_repr.dst_addr(),
-                               &mut Icmpv6Packet::new(packet_buf), &ChecksumCapabilities::default());
+                               &mut Icmpv6Packet::new_unchecked(packet_buf),
+                               &ChecksumCapabilities::default());
 
                 net_trace!("{}:{}: receiving {} octets",
                            self.meta.handle, icmp_repr.buffer_len(), packet_buf.len());
@@ -321,7 +329,7 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
             match *remote_endpoint {
                 #[cfg(feature = "proto-ipv4")]
                 IpAddress::Ipv4(ipv4_addr) => {
-                    let packet = Icmpv4Packet::new(&*packet_buf);
+                    let packet = Icmpv4Packet::new_unchecked(&*packet_buf);
                     let repr = Icmpv4Repr::parse(&packet, &ChecksumCapabilities::ignored())?;
                     let ip_repr = IpRepr::Ipv4(Ipv4Repr {
                         src_addr:    Ipv4Address::default(),
@@ -334,7 +342,7 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
                 },
                 #[cfg(feature = "proto-ipv6")]
                 IpAddress::Ipv6(ipv6_addr) => {
-                    let packet = Icmpv6Packet::new(&*packet_buf);
+                    let packet = Icmpv6Packet::new_unchecked(&*packet_buf);
                     let src_addr = Ipv6Address::default();
                     let repr = Icmpv6Repr::parse(&src_addr.into(), &ipv6_addr.into(), &packet, &ChecksumCapabilities::ignored())?;
                     let ip_repr = IpRepr::Ipv6(Ipv6Repr {
@@ -443,7 +451,7 @@ mod test_ipv4 {
         assert!(socket.can_send());
 
         let mut bytes = [0xff; 24];
-        let mut packet = Icmpv4Packet::new(&mut bytes);
+        let mut packet = Icmpv4Packet::new_unchecked(&mut bytes);
         ECHOV4_REPR.emit(&mut packet, &caps.checksum);
 
         assert_eq!(socket.send_slice(&packet.into_inner()[..], REMOTE_IPV4.into()), Ok(()));
@@ -473,7 +481,7 @@ mod test_ipv4 {
         let caps = DeviceCapabilities::default();
 
         let mut bytes = [0xff; 24];
-        let mut packet = Icmpv4Packet::new(&mut bytes);
+        let mut packet = Icmpv4Packet::new_unchecked(&mut bytes);
         ECHOV4_REPR.emit(&mut packet, &caps.checksum);
 
         s.set_hop_limit(Some(0x2a));
@@ -502,7 +510,7 @@ mod test_ipv4 {
         let caps = DeviceCapabilities::default();
 
         let mut bytes = [0xff; 24];
-        let mut packet = Icmpv4Packet::new(&mut bytes);
+        let mut packet = Icmpv4Packet::new_unchecked(&mut bytes);
         ECHOV4_REPR.emit(&mut packet, &caps.checksum);
         let data = &packet.into_inner()[..];
 
@@ -526,7 +534,7 @@ mod test_ipv4 {
 
         let caps = DeviceCapabilities::default();
         let mut bytes = [0xff; 20];
-        let mut packet = Icmpv4Packet::new(&mut bytes);
+        let mut packet = Icmpv4Packet::new_unchecked(&mut bytes);
         let icmp_repr = Icmpv4Repr::EchoRequest {
             ident:  0x4321,
             seq_no: 0x5678,
@@ -547,7 +555,7 @@ mod test_ipv4 {
         let caps = DeviceCapabilities::default();
 
         let mut bytes = [0xff; 18];
-        let mut packet = UdpPacket::new(&mut bytes);
+        let mut packet = UdpPacket::new_unchecked(&mut bytes);
         UDP_REPR.emit(&mut packet, &REMOTE_IPV4.into(), &LOCAL_IPV4.into(), &caps.checksum);
 
         let data = &packet.into_inner()[..];
@@ -581,7 +589,7 @@ mod test_ipv4 {
         assert!(socket.can_recv());
 
         let mut bytes = [0x00; 46];
-        let mut packet = Icmpv4Packet::new(&mut bytes[..]);
+        let mut packet = Icmpv4Packet::new_unchecked(&mut bytes[..]);
         icmp_repr.emit(&mut packet, &caps.checksum);
         assert_eq!(socket.recv(), Ok((&packet.into_inner()[..], REMOTE_IPV4.into())));
         assert!(!socket.can_recv());
@@ -642,7 +650,7 @@ mod test_ipv6 {
         assert!(socket.can_send());
 
         let mut bytes = vec![0xff; 24];
-        let mut packet = Icmpv6Packet::new(&mut bytes);
+        let mut packet = Icmpv6Packet::new_unchecked(&mut bytes);
         ECHOV6_REPR.emit(&LOCAL_IPV6.into(), &REMOTE_IPV6.into(), &mut packet, &caps.checksum);
 
         assert_eq!(socket.send_slice(&packet.into_inner()[..], REMOTE_IPV6.into()), Ok(()));
@@ -672,7 +680,7 @@ mod test_ipv6 {
         let caps = DeviceCapabilities::default();
 
         let mut bytes = vec![0xff; 24];
-        let mut packet = Icmpv6Packet::new(&mut bytes);
+        let mut packet = Icmpv6Packet::new_unchecked(&mut bytes);
         ECHOV6_REPR.emit(&LOCAL_IPV6.into(), &REMOTE_IPV6.into(), &mut packet, &caps.checksum);
 
         s.set_hop_limit(Some(0x2a));
@@ -701,7 +709,7 @@ mod test_ipv6 {
         let caps = DeviceCapabilities::default();
 
         let mut bytes = [0xff; 24];
-        let mut packet = Icmpv6Packet::new(&mut bytes);
+        let mut packet = Icmpv6Packet::new_unchecked(&mut bytes);
         ECHOV6_REPR.emit(&LOCAL_IPV6.into(), &REMOTE_IPV6.into(), &mut packet, &caps.checksum);
         let data = &packet.into_inner()[..];
 
@@ -725,7 +733,7 @@ mod test_ipv6 {
 
         let caps = DeviceCapabilities::default();
         let mut bytes = [0xff; 20];
-        let mut packet = Icmpv6Packet::new(&mut bytes);
+        let mut packet = Icmpv6Packet::new_unchecked(&mut bytes);
         let icmp_repr = Icmpv6Repr::EchoRequest {
             ident:  0x4321,
             seq_no: 0x5678,
@@ -746,7 +754,7 @@ mod test_ipv6 {
         let caps = DeviceCapabilities::default();
 
         let mut bytes = [0xff; 18];
-        let mut packet = UdpPacket::new(&mut bytes);
+        let mut packet = UdpPacket::new_unchecked(&mut bytes);
         UDP_REPR.emit(&mut packet, &REMOTE_IPV6.into(), &LOCAL_IPV6.into(), &caps.checksum);
 
         let data = &packet.into_inner()[..];
@@ -780,7 +788,7 @@ mod test_ipv6 {
         assert!(socket.can_recv());
 
         let mut bytes = [0x00; 66];
-        let mut packet = Icmpv6Packet::new(&mut bytes[..]);
+        let mut packet = Icmpv6Packet::new_unchecked(&mut bytes[..]);
         icmp_repr.emit(&LOCAL_IPV6.into(), &REMOTE_IPV6.into(), &mut packet, &caps.checksum);
         assert_eq!(socket.recv(), Ok((&packet.into_inner()[..], REMOTE_IPV6.into())));
         assert!(!socket.can_recv());

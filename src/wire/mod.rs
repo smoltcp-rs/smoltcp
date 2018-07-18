@@ -23,8 +23,8 @@ returned `Ok(())`, then no accessor or setter method will panic; however, the gu
 provided by `Packet::check_len()` may no longer hold after changing certain fields,
 which are listed in the documentation for the specific packet.
 
-The `Packet::new_checked` method is a shorthand for a combination of `Packet::new` and
-`Packet::check_len`.
+The `Packet::new_checked` method is a shorthand for a combination of `Packet::new_unchecked`
+and `Packet::check_len`.
 When parsing untrusted input, it is *necessary* to use `Packet::new_checked()`;
 so long as the buffer is not modified, no accessor will fail.
 When emitting output, though, it is *incorrect* to use `Packet::new_checked()`;
@@ -56,7 +56,7 @@ let repr = Ipv4Repr {
 };
 let mut buffer = vec![0; repr.buffer_len() + repr.payload_len];
 { // emission
-    let mut packet = Ipv4Packet::new(&mut buffer);
+    let mut packet = Ipv4Packet::new_unchecked(&mut buffer);
     repr.emit(&mut packet, &ChecksumCapabilities::default());
 }
 { // parsing
@@ -105,6 +105,8 @@ mod igmp;
 mod ndisc;
 #[cfg(feature = "proto-ipv6")]
 mod ndiscoption;
+#[cfg(feature = "proto-ipv6")]
+mod mld;
 mod udp;
 mod tcp;
 #[cfg(feature = "proto-ipv4")]
@@ -183,6 +185,7 @@ pub use self::icmpv6::{Message as Icmpv6Message,
                        ParamProblem as Icmpv6ParamProblem,
                        Packet as Icmpv6Packet,
                        Repr as Icmpv6Repr};
+
 #[cfg(any(feature = "proto-ipv4", feature = "proto-ipv6"))]
 pub use self::icmp::Repr as IcmpRepr;
 
@@ -199,6 +202,10 @@ pub use self::ndiscoption::{NdiscOption,
                             PrefixInformation as NdiscPrefixInformation,
                             RedirectedHeader as NdiscRedirectedHeader,
                             PrefixInfoFlags as NdiscPrefixInfoFlags};
+
+#[cfg(feature = "proto-ipv6")]
+pub use self::mld::{AddressRecord as MldAddressRecord,
+                    Repr as MldRepr};
 
 pub use self::udp::{Packet as UdpPacket,
                     Repr as UdpRepr};

@@ -3,7 +3,9 @@ use std::vec::Vec;
 #[cfg(feature = "std")]
 use std::collections::VecDeque;
 #[cfg(feature = "alloc")]
-use alloc::{Vec, VecDeque};
+use alloc::vec::Vec;
+#[cfg(feature = "alloc")]
+use alloc::collections::VecDeque;
 
 use Result;
 use phy::{self, Device, DeviceCapabilities};

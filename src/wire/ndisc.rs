@@ -3,7 +3,8 @@ use byteorder::{ByteOrder, NetworkEndian};
 use {Error, Result};
 use super::icmpv6::{field, Message, Packet};
 use wire::{EthernetAddress, Ipv6Repr, Ipv6Packet};
-use wire::{NdiscOption, NdiscOptionRepr, NdiscOptionType, NdiscPrefixInformation, NdiscRedirectedHeader};
+use wire::{NdiscOption, NdiscOptionRepr, NdiscOptionType};
+use wire::{NdiscPrefixInformation, NdiscRedirectedHeader};
 use time::Duration;
 use super::Ipv6Address;
 
@@ -63,7 +64,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     }
 }
 
-/// Getters for the [Neighbor Solicitation], [Neighbor Advertisement], and
+/// Common getters for the [Neighbor Solicitation], [Neighbor Advertisement], and
 /// [Redirect] message types.
 ///
 /// [Neighbor Solicitation]: https://tools.ietf.org/html/rfc4861#section-4.3
@@ -102,19 +103,6 @@ impl<T: AsRef<[u8]>> Packet<T> {
     pub fn dest_addr(&self) -> Ipv6Address {
         let data = self.buffer.as_ref();
         Ipv6Address::from_bytes(&data[field::DEST_ADDR])
-    }
-}
-
-/// Setters for the Router Solicitation message header.
-/// See [RFC 4861 § 4.1].
-///
-/// [RFC 4861 § 4.1]: https://tools.ietf.org/html/rfc4861#section-4.1
-impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
-    /// Clear the reserved field.
-    #[inline]
-    pub fn clear_reserved(&mut self) {
-        let data = self.buffer.as_mut();
-        NetworkEndian::write_u32(&mut data[field::UNUSED], 0);
     }
 }
 
@@ -158,7 +146,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     }
 }
 
-/// Setters for the [Neighbor Solicitation], [Neighbor Advertisement], and
+/// Common setters for the [Neighbor Solicitation], [Neighbor Advertisement], and
 /// [Redirect] message types.
 ///
 /// [Neighbor Solicitation]: https://tools.ietf.org/html/rfc4861#section-4.3
@@ -317,7 +305,8 @@ impl<'a> Repr<'a> {
                             if opt.data_len() < 6 {
                                 return Err(Error::Truncated)
                             } else {
-                                let ip_packet = Ipv6Packet::new(&opt.data()[offset + 8..]);
+                                let ip_packet =
+                                    Ipv6Packet::new_unchecked(&opt.data()[offset + 8..]);
                                 let ip_repr = Ipv6Repr::parse(&ip_packet)?;
                                 let data = &opt.data()[offset + 8 + ip_repr.buffer_len()..];
                                 redirected_hdr = Some(NdiscRedirectedHeader {
@@ -387,7 +376,7 @@ impl<'a> Repr<'a> {
                 packet.set_msg_code(0);
                 packet.clear_reserved();
                 if let Some(lladdr) = lladdr {
-                    let mut opt_pkt = NdiscOption::new(packet.payload_mut());
+                    let mut opt_pkt = NdiscOption::new_unchecked(packet.payload_mut());
                     NdiscOptionRepr::SourceLinkLayerAddr(lladdr).emit(&mut opt_pkt);
                 }
             },
@@ -403,17 +392,20 @@ impl<'a> Repr<'a> {
                 packet.set_retrans_time(retrans_time);
                 let mut offset = 0;
                 if let Some(lladdr) = lladdr {
-                    let mut opt_pkt = NdiscOption::new(packet.payload_mut());
+                    let mut opt_pkt =
+                        NdiscOption::new_unchecked(packet.payload_mut());
                     NdiscOptionRepr::SourceLinkLayerAddr(lladdr).emit(&mut opt_pkt);
                     offset += 8;
                 }
                 if let Some(mtu) = mtu {
-                    let mut opt_pkt = NdiscOption::new(&mut packet.payload_mut()[offset..]);
+                    let mut opt_pkt =
+                        NdiscOption::new_unchecked(&mut packet.payload_mut()[offset..]);
                     NdiscOptionRepr::Mtu(mtu).emit(&mut opt_pkt);
                     offset += 8;
                 }
                 if let Some(prefix_info) = prefix_info {
-                    let mut opt_pkt = NdiscOption::new(&mut packet.payload_mut()[offset..]);
+                    let mut opt_pkt =
+                        NdiscOption::new_unchecked(&mut packet.payload_mut()[offset..]);
                     NdiscOptionRepr::PrefixInformation(prefix_info).emit(&mut opt_pkt)
                 }
             },
@@ -424,7 +416,8 @@ impl<'a> Repr<'a> {
                 packet.clear_reserved();
                 packet.set_target_addr(target_addr);
                 if let Some(lladdr) = lladdr {
-                    let mut opt_pkt = NdiscOption::new(packet.payload_mut());
+                    let mut opt_pkt =
+                        NdiscOption::new_unchecked(packet.payload_mut());
                     NdiscOptionRepr::SourceLinkLayerAddr(lladdr).emit(&mut opt_pkt);
                 }
             },
@@ -436,7 +429,8 @@ impl<'a> Repr<'a> {
                 packet.set_neighbor_flags(flags);
                 packet.set_target_addr(target_addr);
                 if let Some(lladdr) = lladdr {
-                    let mut opt_pkt = NdiscOption::new(packet.payload_mut());
+                    let mut opt_pkt =
+                        NdiscOption::new_unchecked(packet.payload_mut());
                     NdiscOptionRepr::TargetLinkLayerAddr(lladdr).emit(&mut opt_pkt);
                 }
             },
@@ -449,14 +443,16 @@ impl<'a> Repr<'a> {
                 packet.set_dest_addr(dest_addr);
                 let offset = match lladdr {
                     Some(lladdr) => {
-                        let mut opt_pkt = NdiscOption::new(packet.payload_mut());
+                        let mut opt_pkt =
+                            NdiscOption::new_unchecked(packet.payload_mut());
                         NdiscOptionRepr::TargetLinkLayerAddr(lladdr).emit(&mut opt_pkt);
                         8
                     },
                     None => 0,
                 };
                 if let Some(redirected_hdr) = redirected_hdr {
-                    let mut opt_pkt = NdiscOption::new(&mut packet.payload_mut()[offset..]);
+                    let mut opt_pkt =
+                        NdiscOption::new_unchecked(&mut packet.payload_mut()[offset..]);
                     NdiscOptionRepr::RedirectedHeader(redirected_hdr).emit(&mut opt_pkt);
                 }
             },
@@ -497,7 +493,7 @@ mod test {
 
     #[test]
     fn test_router_advert_deconstruct() {
-        let packet = Packet::new(&ROUTER_ADVERT_BYTES[..]);
+        let packet = Packet::new_unchecked(&ROUTER_ADVERT_BYTES[..]);
         assert_eq!(packet.msg_type(), Message::RouterAdvert);
         assert_eq!(packet.msg_code(), 0);
         assert_eq!(packet.current_hop_limit(), 64);
@@ -511,7 +507,7 @@ mod test {
     #[test]
     fn test_router_advert_construct() {
         let mut bytes = vec![0x0; 24];
-        let mut packet = Packet::new(&mut bytes);
+        let mut packet = Packet::new_unchecked(&mut bytes);
         packet.set_msg_type(Message::RouterAdvert);
         packet.set_msg_code(0);
         packet.set_current_hop_limit(64);
@@ -526,7 +522,7 @@ mod test {
 
     #[test]
     fn test_router_advert_repr_parse() {
-        let packet = Packet::new(&ROUTER_ADVERT_BYTES[..]);
+        let packet = Packet::new_unchecked(&ROUTER_ADVERT_BYTES[..]);
         assert_eq!(Icmpv6Repr::parse(&MOCK_IP_ADDR_1, &MOCK_IP_ADDR_2,
                                      &packet, &ChecksumCapabilities::default()).unwrap(),
                    create_repr());
@@ -535,7 +531,7 @@ mod test {
     #[test]
     fn test_router_advert_repr_emit() {
         let mut bytes = vec![0x2a; 24];
-        let mut packet = Packet::new(&mut bytes[..]);
+        let mut packet = Packet::new_unchecked(&mut bytes[..]);
         create_repr().emit(&MOCK_IP_ADDR_1, &MOCK_IP_ADDR_2,
                            &mut packet, &ChecksumCapabilities::default());
         assert_eq!(&packet.into_inner()[..], &ROUTER_ADVERT_BYTES[..]);

@@ -295,11 +295,11 @@ impl<'b, 'c, 'e, 'f, DeviceT> Interface<'b, 'c, 'e, 'f, DeviceT>
         self.inner.has_ip_addr(addr)
     }
 
-    pub fn routes(&self) -> &'e Routes {
+    pub fn routes(&self) -> &Routes<'e> {
         &self.inner.routes
     }
 
-    pub fn routes_mut(&mut self) -> &'e mut Routes {
+    pub fn routes_mut(&mut self) -> &mut Routes<'e> {
         &mut self.inner.routes
     }
 
@@ -1179,7 +1179,7 @@ impl<'b, 'c, 'e, 'f> InterfaceInner<'b, 'c, 'e, 'f> {
                     frame.set_dst_addr(dst_hardware_addr);
                     frame.set_ethertype(EthernetProtocol::Arp);
 
-                    let mut packet = ArpPacket::new(frame.payload_mut());
+                    let mut packet = ArpPacket::new_unchecked(frame.payload_mut());
                     arp_repr.emit(&mut packet);
                 })
             },
@@ -1187,7 +1187,7 @@ impl<'b, 'c, 'e, 'f> InterfaceInner<'b, 'c, 'e, 'f> {
             Packet::Icmpv4((ipv4_repr, icmpv4_repr)) => {
                 self.dispatch_ip(tx_token, timestamp, IpRepr::Ipv4(ipv4_repr),
                                  |_ip_repr, payload| {
-                    icmpv4_repr.emit(&mut Icmpv4Packet::new(payload), &checksum_caps);
+                    icmpv4_repr.emit(&mut Icmpv4Packet::new_unchecked(payload), &checksum_caps);
                 })
             }
             #[cfg(feature = "proto-ipv6")]
@@ -1195,7 +1195,7 @@ impl<'b, 'c, 'e, 'f> InterfaceInner<'b, 'c, 'e, 'f> {
                 self.dispatch_ip(tx_token, timestamp, IpRepr::Ipv6(ipv6_repr),
                                  |ip_repr, payload| {
                     icmpv6_repr.emit(&ip_repr.src_addr(), &ip_repr.dst_addr(),
-                                     &mut Icmpv6Packet::new(payload), &checksum_caps);
+                                     &mut Icmpv6Packet::new_unchecked(payload), &checksum_caps);
                 })
             }
             #[cfg(feature = "socket-raw")]
@@ -1207,7 +1207,7 @@ impl<'b, 'c, 'e, 'f> InterfaceInner<'b, 'c, 'e, 'f> {
             #[cfg(feature = "socket-udp")]
             Packet::Udp((ip_repr, udp_repr)) => {
                 self.dispatch_ip(tx_token, timestamp, ip_repr, |ip_repr, payload| {
-                    udp_repr.emit(&mut UdpPacket::new(payload),
+                    udp_repr.emit(&mut UdpPacket::new_unchecked(payload),
                                   &ip_repr.src_addr(), &ip_repr.dst_addr(),
                                   &checksum_caps);
                 })
@@ -1235,7 +1235,7 @@ impl<'b, 'c, 'e, 'f> InterfaceInner<'b, 'c, 'e, 'f> {
                         }
                     }
 
-                    tcp_repr.emit(&mut TcpPacket::new(payload),
+                    tcp_repr.emit(&mut TcpPacket::new_unchecked(payload),
                                   &ip_repr.src_addr(), &ip_repr.dst_addr(),
                                   &checksum_caps);
                 })
@@ -1251,7 +1251,7 @@ impl<'b, 'c, 'e, 'f> InterfaceInner<'b, 'c, 'e, 'f> {
         let tx_len = EthernetFrame::<&[u8]>::buffer_len(buffer_len);
         tx_token.consume(timestamp, tx_len, |tx_buffer| {
             debug_assert!(tx_buffer.as_ref().len() == tx_len);
-            let mut frame = EthernetFrame::new(tx_buffer.as_mut());
+            let mut frame = EthernetFrame::new_unchecked(tx_buffer.as_mut());
             frame.set_src_addr(self.ethernet_addr);
 
             f(frame);
@@ -1357,7 +1357,7 @@ impl<'b, 'c, 'e, 'f> InterfaceInner<'b, 'c, 'e, 'f> {
                     frame.set_dst_addr(EthernetAddress::BROADCAST);
                     frame.set_ethertype(EthernetProtocol::Arp);
 
-                    arp_repr.emit(&mut ArpPacket::new(frame.payload_mut()))
+                    arp_repr.emit(&mut ArpPacket::new_unchecked(frame.payload_mut()))
                 })?;
 
                 Err(Error::Unaddressable)
@@ -1385,7 +1385,7 @@ impl<'b, 'c, 'e, 'f> InterfaceInner<'b, 'c, 'e, 'f> {
 
                 self.dispatch_ip(tx_token, timestamp, ip_repr, |ip_repr, payload| {
                     solicit.emit(&ip_repr.src_addr(), &ip_repr.dst_addr(),
-                                 &mut Icmpv6Packet::new(payload), &checksum_caps);
+                                 &mut Icmpv6Packet::new_unchecked(payload), &checksum_caps);
                 })?;
 
                 Err(Error::Unaddressable)
@@ -1442,7 +1442,7 @@ mod test {
     use wire::{Ipv4Address, Ipv4Repr};
     #[cfg(feature = "proto-ipv4")]
     use wire::{Icmpv4Repr, Icmpv4DstUnreachable};
-    #[cfg(all(feature = "socket-udp", feature = "proto-ipv4"))]
+    #[cfg(all(feature = "socket-udp", any(feature = "proto-ipv4", feature = "proto-ipv6")))]
     use wire::{UdpPacket, UdpRepr};
     #[cfg(feature = "proto-ipv6")]
     use wire::{Ipv6Address, Ipv6Repr};
@@ -1498,17 +1498,17 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "proto-ipv4")]
-    fn test_no_icmp_to_broadcast() {
+    fn test_no_icmp_no_unicast() {
         let (mut iface, mut socket_set) = create_loopback();
 
-        let mut eth_bytes = vec![0u8; 34];
+        let mut eth_bytes = vec![0u8; 54];
 
         // Unknown Ipv4 Protocol
         //
         // Because the destination is the broadcast address
         // this should not trigger and Destination Unreachable
         // response. See RFC 1122 § 3.2.2.
+        #[cfg(all(feature = "proto-ipv4", not(feature = "proto-ipv6")))]
         let repr = IpRepr::Ipv4(Ipv4Repr {
             src_addr:    Ipv4Address([0x7f, 0x00, 0x00, 0x01]),
             dst_addr:    Ipv4Address::BROADCAST,
@@ -1516,20 +1516,32 @@ mod test {
             payload_len: 0,
             hop_limit:   0x40
         });
+        #[cfg(feature = "proto-ipv6")]
+        let repr = IpRepr::Ipv6(Ipv6Repr {
+            src_addr:    Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1),
+            dst_addr:    Ipv6Address::LINK_LOCAL_ALL_NODES,
+            next_header: IpProtocol::Unknown(0x0c),
+            payload_len: 0,
+            hop_limit:   0x40
+        });
 
         let frame = {
-            let mut frame = EthernetFrame::new(&mut eth_bytes);
+            let mut frame = EthernetFrame::new_unchecked(&mut eth_bytes);
             frame.set_dst_addr(EthernetAddress::BROADCAST);
             frame.set_src_addr(EthernetAddress([0x52, 0x54, 0x00, 0x00, 0x00, 0x00]));
             frame.set_ethertype(EthernetProtocol::Ipv4);
             repr.emit(frame.payload_mut(), &ChecksumCapabilities::default());
-            EthernetFrame::new(&*frame.into_inner())
+            EthernetFrame::new_unchecked(&*frame.into_inner())
         };
 
         // Ensure that the unknown protocol frame does not trigger an
         // ICMP error response when the destination address is a
         // broadcast address
+        #[cfg(all(feature = "proto-ipv4", not(feature = "proto-ipv6")))]
         assert_eq!(iface.inner.process_ipv4(&mut socket_set, Instant::from_millis(0), &frame, &mut None),
+                   Ok(Packet::None));
+        #[cfg(feature = "proto-ipv6")]
+        assert_eq!(iface.inner.process_ipv6(&mut socket_set, Instant::from_millis(0), &frame),
                    Ok(Packet::None));
     }
 
@@ -1552,12 +1564,12 @@ mod test {
 
         // emit the above repr to a frame
         let frame = {
-            let mut frame = EthernetFrame::new(&mut eth_bytes);
+            let mut frame = EthernetFrame::new_unchecked(&mut eth_bytes);
             frame.set_dst_addr(EthernetAddress([0x00, 0x00, 0x00, 0x00, 0x00, 0x00]));
             frame.set_src_addr(EthernetAddress([0x52, 0x54, 0x00, 0x00, 0x00, 0x00]));
             frame.set_ethertype(EthernetProtocol::Ipv4);
             repr.emit(frame.payload_mut(), &ChecksumCapabilities::default());
-            EthernetFrame::new(&*frame.into_inner())
+            EthernetFrame::new_unchecked(&*frame.into_inner())
         };
 
         // The expected Destination Unreachable response due to the
@@ -1603,8 +1615,8 @@ mod test {
 
         let mut udp_bytes_unicast = vec![0u8; 20];
         let mut udp_bytes_broadcast = vec![0u8; 20];
-        let mut packet_unicast = UdpPacket::new(&mut udp_bytes_unicast);
-        let mut packet_broadcast = UdpPacket::new(&mut udp_bytes_broadcast);
+        let mut packet_unicast = UdpPacket::new_unchecked(&mut udp_bytes_unicast);
+        let mut packet_broadcast = UdpPacket::new_unchecked(&mut udp_bytes_broadcast);
 
         let udp_repr = UdpRepr {
             src_port: 67,
@@ -1676,7 +1688,7 @@ mod test {
     }
 
     #[test]
-    #[cfg(all(feature = "socket-udp", feature = "proto-ipv4"))]
+    #[cfg(feature = "socket-udp")]
     fn test_handle_udp_broadcast() {
         use socket::{UdpSocket, UdpSocketBuffer, UdpPacketMetadata};
         use wire::IpEndpoint;
@@ -1691,11 +1703,14 @@ mod test {
         let udp_socket = UdpSocket::new(rx_buffer, tx_buffer);
 
         let mut udp_bytes = vec![0u8; 13];
-        let mut packet = UdpPacket::new(&mut udp_bytes);
+        let mut packet = UdpPacket::new_unchecked(&mut udp_bytes);
 
         let socket_handle = socket_set.add(udp_socket);
 
-        let src_ip = Ipv4Address([0x7f, 0x00, 0x00, 0x02]);
+        #[cfg(feature = "proto-ipv6")]
+        let src_ip = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
+        #[cfg(all(not(feature = "proto-ipv6"), feature = "proto-ipv4"))]
+        let src_ip = Ipv4Address::new(0x7f, 0x00, 0x00, 0x02);
 
         let udp_repr = UdpRepr {
             src_port: 67,
@@ -1703,6 +1718,15 @@ mod test {
             payload:  &UDP_PAYLOAD
         };
 
+        #[cfg(feature = "proto-ipv6")]
+        let ip_repr = IpRepr::Ipv6(Ipv6Repr {
+            src_addr:    src_ip,
+            dst_addr:    Ipv6Address::LINK_LOCAL_ALL_NODES,
+            next_header: IpProtocol::Udp,
+            payload_len: udp_repr.buffer_len(),
+            hop_limit:   0x40
+        });
+        #[cfg(all(not(feature = "proto-ipv6"), feature = "proto-ipv4"))]
         let ip_repr = IpRepr::Ipv4(Ipv4Repr {
             src_addr:    src_ip,
             dst_addr:    Ipv4Address::BROADCAST,
@@ -1736,46 +1760,82 @@ mod test {
     }
 
     #[test]
-    #[cfg(all(feature = "socket-udp", feature = "proto-ipv4"))]
-    fn test_icmpv4_reply_size() {
-        use wire::IPV4_MIN_MTU;
+    #[cfg(feature = "socket-udp")]
+    fn test_icmp_reply_size() {
+        #[cfg(all(feature = "proto-ipv4", not(feature = "proto-ipv6")))]
+        use wire::IPV4_MIN_MTU as MIN_MTU;
+        #[cfg(feature = "proto-ipv6")]
+        use wire::Icmpv6DstUnreachable;
+        #[cfg(feature = "proto-ipv6")]
+        use wire::IPV6_MIN_MTU as MIN_MTU;
+
+        #[cfg(all(feature = "proto-ipv4", not(feature = "proto-ipv6")))]
+        const MAX_PAYLOAD_LEN: usize = 528;
+        #[cfg(feature = "proto-ipv6")]
+        const MAX_PAYLOAD_LEN: usize = 1192;
 
         let (iface, mut socket_set) = create_loopback();
 
+        #[cfg(all(feature = "proto-ipv4", not(feature = "proto-ipv6")))]
         let src_addr = Ipv4Address([192, 168, 1, 1]);
+        #[cfg(all(feature = "proto-ipv4", not(feature = "proto-ipv6")))]
         let dst_addr = Ipv4Address([192, 168, 1, 2]);
+        #[cfg(feature = "proto-ipv6")]
+        let src_addr = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
+        #[cfg(feature = "proto-ipv6")]
+        let dst_addr = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 2);
 
         // UDP packet that if not tructated will cause a icmp port unreachable reply
-        // to exeed 576 bytes in length.
+        // to exeed the minimum mtu bytes in length.
         let udp_repr = UdpRepr {
             src_port: 67,
             dst_port: 68,
-            payload: &[0x2a; 524]
+            payload: &[0x2a; MAX_PAYLOAD_LEN]
         };
         let mut bytes = vec![0xff; udp_repr.buffer_len()];
-        let mut packet = UdpPacket::new(&mut bytes[..]);
+        let mut packet = UdpPacket::new_unchecked(&mut bytes[..]);
         udp_repr.emit(&mut packet, &src_addr.into(), &dst_addr.into(), &ChecksumCapabilities::default());
-        let ipv4_repr = Ipv4Repr {
+        #[cfg(all(feature = "proto-ipv4", not(feature = "proto-ipv6")))]
+        let ip_repr = Ipv4Repr {
             src_addr: src_addr,
             dst_addr: dst_addr,
             protocol: IpProtocol::Udp,
             hop_limit: 64,
             payload_len: udp_repr.buffer_len()
         };
+        #[cfg(feature = "proto-ipv6")]
+        let ip_repr = Ipv6Repr {
+            src_addr: src_addr,
+            dst_addr: dst_addr,
+            next_header: IpProtocol::Udp,
+            hop_limit: 64,
+            payload_len: udp_repr.buffer_len()
+        };
         let payload = packet.into_inner();
 
         // Expected packets
-        let expected_icmpv4_repr = Icmpv4Repr::DstUnreachable {
-            reason: Icmpv4DstUnreachable::PortUnreachable,
-            header: ipv4_repr,
-            // We only include 520 bytes of the original payload
-            // in the expected packets payload. We must only send
-            // ICMPv4 replies that do not exceed 576 bytes in length.
-            //
-            // 528 + 2 * sizeof(IPv4 Header) + sizeof(DstUnreachable Header) = 576
-            data:   &payload[..528]
+        #[cfg(feature = "proto-ipv6")]
+        let expected_icmp_repr = Icmpv6Repr::DstUnreachable {
+            reason: Icmpv6DstUnreachable::PortUnreachable,
+            header: ip_repr,
+            data:   &payload[..MAX_PAYLOAD_LEN]
         };
-        let expected_ipv4_repr = Ipv4Repr {
+        #[cfg(feature = "proto-ipv6")]
+        let expected_ip_repr = Ipv6Repr {
+            src_addr: dst_addr,
+            dst_addr: src_addr,
+            next_header: IpProtocol::Icmpv6,
+            hop_limit: 64,
+            payload_len: expected_icmp_repr.buffer_len()
+        };
+        #[cfg(all(feature = "proto-ipv4", not(feature = "proto-ipv6")))]
+        let expected_icmp_repr = Icmpv4Repr::DstUnreachable {
+            reason: Icmpv4DstUnreachable::PortUnreachable,
+            header: ip_repr,
+            data:   &payload[..MAX_PAYLOAD_LEN]
+        };
+        #[cfg(all(feature = "proto-ipv4", not(feature = "proto-ipv6")))]
+        let expected_ip_repr = Ipv4Repr {
             src_addr: dst_addr,
             dst_addr: src_addr,
             protocol: IpProtocol::Icmp,
@@ -1784,11 +1844,14 @@ mod test {
         };
 
         // The expected packet does not exceed the IPV4_MIN_MTU
-        assert_eq!(expected_ipv4_repr.buffer_len() + expected_icmpv4_repr.buffer_len(),
-                   IPV4_MIN_MTU);
+        assert_eq!(expected_ip_repr.buffer_len() + expected_icmp_repr.buffer_len(), MIN_MTU);
         // The expected packet and the generated packet are equal
-        assert_eq!(iface.inner.process_udp(&mut socket_set, ipv4_repr.into(), payload),
-                   Ok(Packet::Icmpv4((expected_ipv4_repr, expected_icmpv4_repr))));
+        #[cfg(all(feature = "proto-ipv4", not(feature = "proto-ipv6")))]
+        assert_eq!(iface.inner.process_udp(&mut socket_set, ip_repr.into(), payload),
+                   Ok(Packet::Icmpv4((expected_ip_repr, expected_icmp_repr))));
+        #[cfg(feature = "proto-ipv6")]
+        assert_eq!(iface.inner.process_udp(&mut socket_set, ip_repr.into(), payload),
+                   Ok(Packet::Icmpv6((expected_ip_repr, expected_icmp_repr))));
     }
 
     #[test]
@@ -1811,12 +1874,12 @@ mod test {
             target_protocol_addr: local_ip_addr,
         };
 
-        let mut frame = EthernetFrame::new(&mut eth_bytes);
+        let mut frame = EthernetFrame::new_unchecked(&mut eth_bytes);
         frame.set_dst_addr(EthernetAddress::BROADCAST);
         frame.set_src_addr(remote_hw_addr);
         frame.set_ethertype(EthernetProtocol::Arp);
         {
-            let mut packet = ArpPacket::new(frame.payload_mut());
+            let mut packet = ArpPacket::new_unchecked(frame.payload_mut());
             repr.emit(&mut packet);
         }
 
@@ -1860,14 +1923,15 @@ mod test {
             payload_len: solicit.buffer_len()
         });
 
-        let mut frame = EthernetFrame::new(&mut eth_bytes);
+        let mut frame = EthernetFrame::new_unchecked(&mut eth_bytes);
         frame.set_dst_addr(EthernetAddress([0x33, 0x33, 0x00, 0x00, 0x00, 0x00]));
         frame.set_src_addr(remote_hw_addr);
         frame.set_ethertype(EthernetProtocol::Ipv6);
         {
             ip_repr.emit(frame.payload_mut(), &ChecksumCapabilities::default());
             solicit.emit(&remote_ip_addr.into(), &local_ip_addr.solicited_node().into(),
-                         &mut Icmpv6Packet::new(&mut frame.payload_mut()[ip_repr.buffer_len()..]),
+                         &mut Icmpv6Packet::new_unchecked(
+                            &mut frame.payload_mut()[ip_repr.buffer_len()..]),
                          &ChecksumCapabilities::default());
         }
 
@@ -1913,12 +1977,12 @@ mod test {
             target_protocol_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x03]),
         };
 
-        let mut frame = EthernetFrame::new(&mut eth_bytes);
+        let mut frame = EthernetFrame::new_unchecked(&mut eth_bytes);
         frame.set_dst_addr(EthernetAddress::BROADCAST);
         frame.set_src_addr(remote_hw_addr);
         frame.set_ethertype(EthernetProtocol::Arp);
         {
-            let mut packet = ArpPacket::new(frame.payload_mut());
+            let mut packet = ArpPacket::new_unchecked(frame.payload_mut());
             repr.emit(&mut packet);
         }
 
@@ -1960,7 +2024,7 @@ mod test {
 
         // Ensure the ident we bound to and the ident of the packet are the same.
         let mut bytes = [0xff; 24];
-        let mut packet = Icmpv4Packet::new(&mut bytes);
+        let mut packet = Icmpv4Packet::new_unchecked(&mut bytes);
         let echo_repr = Icmpv4Repr::EchoRequest{ ident, seq_no, data: echo_data };
         echo_repr.emit(&mut packet, &ChecksumCapabilities::default());
         let icmp_data = &packet.into_inner()[..];
@@ -2034,7 +2098,7 @@ mod test {
         };
 
         let frame = {
-            let mut frame = EthernetFrame::new(&mut eth_bytes);
+            let mut frame = EthernetFrame::new_unchecked(&mut eth_bytes);
             let ip_repr = IpRepr::Ipv6(ipv6_repr);
             frame.set_dst_addr(EthernetAddress([0x52, 0x54, 0x00, 0x00, 0x00, 0x00]));
             frame.set_src_addr(remote_hw_addr);
@@ -2042,21 +2106,22 @@ mod test {
             ip_repr.emit(frame.payload_mut(), &ChecksumCapabilities::default());
             let mut offset = ipv6_repr.buffer_len();
             {
-                let mut hbh_pkt = Ipv6HopByHopHeader::new(&mut frame.payload_mut()[offset..]);
+                let mut hbh_pkt =
+                    Ipv6HopByHopHeader::new_unchecked(&mut frame.payload_mut()[offset..]);
                 hbh_pkt.set_next_header(IpProtocol::Unknown(0x0c));
                 hbh_pkt.set_header_len(0);
                 offset += 8;
                 {
-                    let mut pad_pkt = Ipv6Option::new(&mut hbh_pkt.options_mut()[..]);
+                    let mut pad_pkt = Ipv6Option::new_unchecked(&mut hbh_pkt.options_mut()[..]);
                     Ipv6OptionRepr::PadN(3).emit(&mut pad_pkt);
                 }
                 {
-                    let mut pad_pkt = Ipv6Option::new(&mut hbh_pkt.options_mut()[5..]);
+                    let mut pad_pkt = Ipv6Option::new_unchecked(&mut hbh_pkt.options_mut()[5..]);
                     Ipv6OptionRepr::Pad1.emit(&mut pad_pkt);
                 }
             }
             frame.payload_mut()[offset..].copy_from_slice(&payload);
-            EthernetFrame::new(&*frame.into_inner())
+            EthernetFrame::new_unchecked(&*frame.into_inner())
         };
 
         let reply_icmp_repr = Icmpv6Repr::ParamProblem {
