@@ -45,6 +45,8 @@ use socket::IcmpSocket;
 use socket::UdpSocket;
 #[cfg(feature = "socket-tcp")]
 use socket::TcpSocket;
+#[cfg(feature = "fragmentation-ipv4")]
+use super::{FragmentKey,FragmentedPacket};
 use super::{NeighborCache, NeighborAnswer};
 use super::Routes;
 use super::FragmentSet;
@@ -705,11 +707,17 @@ impl<'b, 'c, 'e, 'f> InterfaceInner<'b, 'c, 'e, 'f> {
     {
         match *fragments {
             Some(ref mut fragments) => {
+                let key = FragmentKey::new(ipv4_packet.ident(),
+                                           ipv4_packet.src_addr(),
+                                           ipv4_packet.dst_addr());
                 // get an existing fragment or attempt to get a new one
-                let fragment = match fragments.get_packet(ipv4_packet.ident(),
-                                                          ipv4_packet.src_addr(),
-                                                          ipv4_packet.dst_addr(),
-                                                          timestamp) {
+                if !fragments.contains_key(&key) {
+                    // attempt to insert an empty fragment
+                    let fragment = FragmentedPacket::new(vec![0; 65535]);
+                    fragments.insert(key.clone(), fragment);
+                }
+
+                let fragment = match fragments.get_packet(key, timestamp) {
                     Some(frag) => frag,
                     None => return Err(Error::FragmentSetFull),
                 };
@@ -748,6 +756,7 @@ impl<'b, 'c, 'e, 'f> InterfaceInner<'b, 'c, 'e, 'f> {
                         ipv4_packet.set_total_len(front as u16);
                         ipv4_packet.fill_checksum();
                     }
+                    // TODO: handle removing elements, this way the map just grows indefinitely...
                     return Ok(Some(Ipv4Packet::new_checked(fragment.get_buffer_and_reset(0,front))?));
                 }
 
@@ -1453,7 +1462,7 @@ mod test {
     #[cfg(feature = "proto-ipv6")]
     use wire::{Ipv6HopByHopHeader, Ipv6Option, Ipv6OptionRepr};
     #[cfg(all(feature = "fragmentation-ipv4", feature = "std"))]
-    use iface::{FragmentSet, FragmentedPacket};
+    use iface::{FragmentSet};
     #[cfg(all(feature = "fragmentation-ipv4", feature = "std"))]
     use wire::{Ipv4Packet};
 
@@ -2166,9 +2175,12 @@ mod test {
         ];
 
         // A simple fragments set
+        /*
         let mut fragments = FragmentSet::new(vec![]);
         let fragment = FragmentedPacket::new(vec![0; 65535]);
         fragments.add(fragment);
+        */
+        let fragments = FragmentSet::new(BTreeMap::new());
 
         let iface = InterfaceBuilder::new(device)
                 .ethernet_addr(EthernetAddress::default())

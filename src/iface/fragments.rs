@@ -1,14 +1,20 @@
+#[cfg(not(feature = "fragmentation-ipv4"))]
+use core::marker::PhantomData;
+#[cfg(feature = "fragmentation-ipv4")]
+use managed::ManagedSlice;
+#[cfg(feature = "fragmentation-ipv4")]
+use managed::ManagedMap;
 #[cfg(feature = "fragmentation-ipv4")]
 use storage::Assembler;
 #[cfg(feature = "fragmentation-ipv4")]
 use time::Instant;
 #[cfg(feature = "fragmentation-ipv4")]
-use managed::ManagedSlice;
-#[cfg(feature = "fragmentation-ipv4")]
 use wire::Ipv4Address;
-#[cfg(not(feature = "fragmentation-ipv4"))]
-use core::marker::PhantomData;
 
+/// Struct for reassembling fragmented packets,
+/// it holds individual fragments and once all
+/// fragments are present, the final packet can
+/// be assembled
 #[cfg(feature = "fragmentation-ipv4")]
 pub struct Packet<'a> {
     rx_buffer: ManagedSlice<'a, u8>,
@@ -28,14 +34,15 @@ enum PacketState {
         has_header: bool,
         header_len: usize,
         total_len: usize,
-    }
+    },
 }
 
 #[cfg(feature = "fragmentation-ipv4")]
 impl<'a> Packet<'a> {
     /// Create a new empty packet
     pub fn new<S>(storage: S) -> Packet<'a>
-        where S: Into<ManagedSlice<'a, u8>>,
+    where
+        S: Into<ManagedSlice<'a, u8>>,
     {
         let s = storage.into();
         Packet {
@@ -50,13 +57,25 @@ impl<'a> Packet<'a> {
     }
 
     /// Add a fragment into the packet that is being reassembled
-    pub fn add(&mut self, new_header_len: usize, offset: usize, payload_len: usize, data: &[u8], time: Instant) -> Result<(), ()>
-    {
+    pub fn add(
+        &mut self,
+        new_header_len: usize,
+        offset: usize,
+        payload_len: usize,
+        data: &[u8],
+        time: Instant,
+    ) -> Result<(),()> {
         match self.state {
             PacketState::Empty => {
                 panic!("Packet is empty, cannot add a new fragment");
-            },
-            PacketState::Assembling{ref mut assembler, ref mut last_used, ref mut has_header, ref mut header_len, ..} => {
+            }
+            PacketState::Assembling {
+                ref mut assembler,
+                ref mut last_used,
+                ref mut has_header,
+                ref mut header_len,
+                ..
+            } => {
                 debug_assert!(time >= *last_used);
                 *last_used = time;
 
@@ -69,7 +88,7 @@ impl<'a> Packet<'a> {
                 }
 
                 assembler.add(offset + *header_len, payload_len)?;
-                let range = (offset + *header_len) .. (offset + payload_len + *header_len);
+                let range = (offset + *header_len)..(offset + payload_len + *header_len);
                 self.rx_buffer[range].clone_from_slice(&data[*header_len..]);
             }
         }
@@ -82,8 +101,12 @@ impl<'a> Packet<'a> {
         match self.state {
             PacketState::Empty => {
                 panic!("Packet is empty, cannot check contig range");
-            },
-            PacketState::Assembling{ref assembler, ref total_len,..} => {
+            }
+            PacketState::Assembling {
+                ref assembler,
+                ref total_len,
+                ..
+            } => {
                 if *total_len != 0 {
                     if let Some(front) = assembler.peek_front() {
                         if front == *total_len {
@@ -101,22 +124,18 @@ impl<'a> Packet<'a> {
         match self.state {
             PacketState::Empty => {
                 panic!("Packet is empty, cannot return front");
-            },
-            PacketState::Assembling{ref mut assembler, ..} => {
-                assembler.remove_front()
             }
+            PacketState::Assembling {
+                ref mut assembler, ..
+            } => assembler.remove_front(),
         }
     }
 
     /// Is the packet empty?
     pub fn is_empty(&self) -> bool {
         match self.state {
-            PacketState::Empty => {
-                true
-            },
-            PacketState::Assembling{..} => {
-                false
-            }
+            PacketState::Empty => true,
+            PacketState::Assembling { .. } => false,
         }
     }
 
@@ -134,8 +153,8 @@ impl<'a> Packet<'a> {
                     header_len: 0,
                     total_len: 0,
                 }
-            },
-            PacketState::Assembling{..} => {
+            }
+            PacketState::Assembling { .. } => {
                 panic!("Attempting to start an assembling packet");
             }
         }
@@ -146,8 +165,10 @@ impl<'a> Packet<'a> {
         match self.state {
             PacketState::Empty => {
                 panic!("Packet is empty, cannot set total length of the fragment");
-            },
-            PacketState::Assembling{ref mut total_len, ..} => {
+            }
+            PacketState::Assembling {
+                ref mut total_len, ..
+            } => {
                 *total_len = len;
             }
         }
@@ -158,8 +179,8 @@ impl<'a> Packet<'a> {
         match self.state {
             PacketState::Empty => {
                 panic!("Packet is empty, cannot access its buffer");
-            },
-            PacketState::Assembling{..} => {}
+            }
+            PacketState::Assembling { .. } => {}
         }
         self.state = PacketState::Empty;
         &self.rx_buffer[start..end]
@@ -170,22 +191,80 @@ impl<'a> Packet<'a> {
         match self.state {
             PacketState::Empty => {
                 panic!("Packet is empty, cannot access its buffer");
-            },
-            PacketState::Assembling{..} => {
-                &mut self.rx_buffer[start..end]
             }
+            PacketState::Assembling { .. } => &mut self.rx_buffer[start..end],
         }
     }
 }
 
+#[cfg(feature = "fragmentation-ipv4")]
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone)]
+pub struct Key {
+    id: u16,
+    src_addr: Ipv4Address,
+    dst_addr: Ipv4Address,
+}
+
+#[cfg(feature = "fragmentation-ipv4")]
+impl Key {
+    pub fn new(id: u16, src_addr: Ipv4Address, dst_addr: Ipv4Address) -> Key {
+        Key {
+            id: id,
+            src_addr: src_addr,
+            dst_addr: dst_addr,
+        }
+    }
+}
 
 pub struct Set<'a> {
     #[cfg(feature = "fragmentation-ipv4")]
-	packets: ManagedSlice<'a, Packet<'a>>,
-	#[cfg(not(feature = "fragmentation-ipv4"))]
-	_packets: PhantomData<&'a ()>,
+    packets: ManagedMap<'a, Key, Packet<'a>>,
+    #[cfg(not(feature = "fragmentation-ipv4"))]
+    _packets: PhantomData<&'a ()>,
 }
 
+#[cfg(feature = "fragmentation-ipv4")]
+impl<'a> Set<'a> {
+    /// Default timeout duration
+    //pub(crate) const FRAGMENTATION_TIMEOUT_MS: i64 = 500;
+
+    /// Create a new set of packets
+    pub fn new<S>(storage: S) -> Set<'a>
+    where
+        S: Into<ManagedMap<'a, Key, Packet<'a>>>,
+    {
+        Set {
+            packets: storage.into(),
+        }
+    }
+
+    /// Add new packet into the set
+    pub fn insert(&mut self, key: Key, packet: Packet<'a>) {
+        match self.packets.insert(key, packet) {
+            Ok(_) => {},
+            Err(_) => {},
+        }
+    }
+
+    /// Contains given key? Equivalent of `contains_key` from `std::collections`
+    pub fn contains_key(&self, key: &Key) -> bool {
+        match self.packets.get(key) {
+            Some(_) => true,
+            None => false,
+        }
+    }
+
+    /// Get a packet with given key (id+src_addr+dst_addr)
+    /// If the map doesn't contain the key, create a new packet, insert it
+    /// and return a reference to it.
+    pub fn get_packet(&mut self, key: Key, _time: Instant) -> Option<&mut Packet<'a>> {
+        // TODO: when should we clear the entry?
+        //self.purge_old_packets(time);
+        self.packets.get_mut(&key)
+    }
+}
+
+/*
 #[cfg(feature = "fragmentation-ipv4")]
 impl<'a> Set<'a> {
     /// Default timeout duration
@@ -289,3 +368,4 @@ impl<'a> Set<'a> {
         }
     }
 }
+*/
