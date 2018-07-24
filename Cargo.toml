@@ -39,6 +39,7 @@ verbose = []
 "socket-udp" = []
 "socket-tcp" = []
 "socket-icmp" = []
+"proto-dhcpv4" = ["proto-ipv4"]
 default = [
   "std", "log", # needed for `cargo test --no-default-features --features default` :/
   "phy-raw_socket", "phy-tap_interface",

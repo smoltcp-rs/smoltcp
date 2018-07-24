@@ -109,8 +109,8 @@ mod ndiscoption;
 mod mld;
 mod udp;
 mod tcp;
-#[cfg(feature = "proto-ipv4")]
-mod dhcpv4;
+#[cfg(feature = "proto-dhcpv4")]
+pub(crate) mod dhcpv4;
 
 pub use self::pretty_print::PrettyPrinter;
 
@@ -216,6 +216,7 @@ pub use self::tcp::{SeqNumber as TcpSeqNumber,
                     Repr as TcpRepr,
                     Control as TcpControl};
 
-#[cfg(feature = "proto-ipv4")]
+#[cfg(feature = "proto-dhcpv4")]
 pub use self::dhcpv4::{Packet as DhcpPacket,
-                       Repr as DhcpRepr};
+                       Repr as DhcpRepr,
+                       MessageType as DhcpMessageType};
