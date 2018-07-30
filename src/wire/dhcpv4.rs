@@ -243,8 +243,9 @@ mod field {
     pub const OPT_NIS_DOMAIN: u8 = 40;
     pub const OPT_NIS_SERVERS: u8 = 41;
     pub const OPT_NTP_SERVERS: u8 = 42;
-    pub const OPT_VENDOR_SPECIFIC_INFO: u8 = 44;
-    pub const OPT_NETBIOS_SERVER: u8 = 45;
+    pub const OPT_VENDOR_SPECIFIC_INFO: u8 = 43;
+    pub const OPT_NETBIOS_NAME_SERVER: u8 = 44;
+    pub const OPT_NETBIOS_DISTRIBUTION_SERVER: u8 = 45;
     pub const OPT_NETBIOS_NODE_TYPE: u8 = 46;
     pub const OPT_NETBIOS_SCOPE: u8 = 47;
     pub const OPT_X_WINDOW_FONT_SERVER: u8 = 48;
