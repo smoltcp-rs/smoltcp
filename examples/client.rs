@@ -42,7 +42,7 @@ fn main() {
     let default_v4_gw = Ipv4Address::new(192, 168, 69, 100);
     let mut routes_storage = [None; 1];
     let mut routes = Routes::new(&mut routes_storage[..]);
-    routes.add_default_ipv4_route(default_v4_gw).unwrap();
+    routes.set_default_ipv4_route(default_v4_gw).unwrap();
     let mut iface = EthernetInterfaceBuilder::new(device)
             .ethernet_addr(ethernet_addr)
             .neighbor_cache(neighbor_cache)

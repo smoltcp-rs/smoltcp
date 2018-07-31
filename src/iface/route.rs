@@ -74,22 +74,58 @@ impl<'a> Routes<'a> {
         Routes { storage }
     }
 
-    /// Update the routes of this node.
-    pub fn update<F: FnOnce(&mut ManagedMap<'a, IpCidr, Route>)>(&mut self, f: F) {
-        f(&mut self.storage);
+    /// Add a new route.
+    ///
+    /// On success, return the previous route, if any.
+    pub fn add_route(&mut self, cidr: IpCidr, route: Route) -> Result<Option<Route>> {
+        // TODO: Validate
+        match self.storage.insert(cidr, route) {
+            Ok(route) => Ok(route),
+            Err((_cidr, _route)) => Err(Error::Exhausted)
+        }
+    }
+    /// Returns a route registered on cidr
+    pub fn get_route(&mut self, cidr: &IpCidr) -> Option<&Route> {
+        self.storage.get(cidr)
+    }
+    /// Returns a mutable reference to the route registered by cidr
+    pub fn get_route_mut(&mut self, cidr: &IpCidr) -> Option<&mut Route> {
+        self.storage.get_mut(cidr)
+    }
+    /// Delete a route.
+    ///
+    /// On success, returns the value it deleted, if any.
+    pub fn del_route(&mut self, cidr: &IpCidr) -> Option<Route> {
+        self.storage.remove(&cidr)
     }
 
-    /// Add a default ipv4 gateway (ie. "ip route add 0.0.0.0/0 via `gateway`").
+    /// Set the default ipv4 gateway (ie. "ip route add 0.0.0.0/0 via `gateway`").
     ///
     /// On success, returns the previous default route, if any.
     #[cfg(feature = "proto-ipv4")]
-    pub fn add_default_ipv4_route(&mut self, gateway: Ipv4Address) -> Result<Option<Route>> {
+    pub fn set_default_ipv4_route(&mut self, gateway: Ipv4Address) -> Result<Option<Route>> {
         let cidr = IpCidr::new(IpAddress::v4(0, 0, 0, 0), 0);
         let route = Route::new_ipv4_gateway(gateway);
         match self.storage.insert(cidr, route) {
             Ok(route) => Ok(route),
             Err((_cidr, _route)) => Err(Error::Exhausted)
         }
+    }
+
+    /// Get the current default ipv4 gateway, if any
+    #[cfg(feature = "proto-ipv4")]
+    pub fn get_default_ipv4_route(&mut self) -> Option<&Route> {
+        let cidr = IpCidr::new(IpAddress::v4(0, 0, 0, 0), 0);
+        self.storage.get(&cidr)
+    }
+
+    /// Remove default ipv4 gateway.
+    ///
+    /// Returns the removed route, if any.
+    #[cfg(feature = "proto-ipv4")]
+    pub fn remove_default_ipv4_route(&mut self) -> Option<Route> {
+        let cidr = IpCidr::new(IpAddress::v4(0, 0, 0, 0), 0);
+        self.storage.remove(&cidr)
     }
 
     /// Add a default ipv6 gateway (ie. "ip -6 route add ::/0 via `gateway`").
@@ -103,6 +139,23 @@ impl<'a> Routes<'a> {
             Ok(route) => Ok(route),
             Err((_cidr, _route)) => Err(Error::Exhausted)
         }
+    }
+
+    /// Get the current default ipv6 gateways, if any
+    #[cfg(feature = "proto-ipv6")]
+    pub fn get_default_ipv6_routes(&mut self) -> impl Iterator<Item = &Route> {
+        let cidr = IpCidr::new(IpAddress::v6(0, 0, 0, 0, 0, 0, 0, 0), 0);
+        // TODO: Support multiple default ipv6 gateways
+        self.storage.get(&cidr).into_iter()
+    }
+
+    /// Clear default ipv6 gateways.
+    ///
+    /// On success, returns the cleared routes, if any.
+    #[cfg(feature = "proto-ipv6")]
+    pub fn clear_default_ipv6_routes(&mut self) -> Option<Route> {
+        let cidr = IpCidr::new(IpAddress::v6(0, 0, 0, 0, 0, 0, 0, 0), 0);
+        self.storage.remove(&cidr)
     }
 
     pub(crate) fn lookup(&self, addr: &IpAddress, timestamp: Instant) ->
@@ -195,9 +248,7 @@ mod test {
             via_router: ADDR_1A.into(),
             preferred_until: None, expires_at: None,
         };
-        routes.update(|storage| {
-            storage.insert(cidr_1().into(), route).unwrap();
-        });
+        routes.add_route(cidr_1().into(), route).unwrap();
 
         assert_eq!(routes.lookup(&ADDR_1A.into(), Instant::from_millis(0)), Some(ADDR_1A.into()));
         assert_eq!(routes.lookup(&ADDR_1B.into(), Instant::from_millis(0)), Some(ADDR_1A.into()));
@@ -210,9 +261,7 @@ mod test {
             preferred_until: Some(Instant::from_millis(10)),
             expires_at: Some(Instant::from_millis(10)),
         };
-        routes.update(|storage| {
-            storage.insert(cidr_2().into(), route2).unwrap();
-        });
+        routes.add_route(cidr_2().into(), route2).unwrap();
 
         assert_eq!(routes.lookup(&ADDR_1A.into(), Instant::from_millis(0)), Some(ADDR_1A.into()));
         assert_eq!(routes.lookup(&ADDR_1B.into(), Instant::from_millis(0)), Some(ADDR_1A.into()));
