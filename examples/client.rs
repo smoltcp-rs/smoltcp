@@ -61,7 +61,12 @@ fn main() {
     let mut tcp_active = false;
     loop {
         let timestamp = Instant::now();
-        iface.poll(&mut sockets, timestamp).expect("poll error");
+        match iface.poll(&mut sockets, timestamp) {
+            Ok(_) => {},
+            Err(e) => {
+                debug!("poll error: {}", e);
+            }
+        }
 
         {
             let mut socket = sockets.get::<TcpSocket>(tcp_handle);
