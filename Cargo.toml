@@ -48,6 +48,9 @@ default = [
   "socket-raw", "socket-icmp", "socket-udp", "socket-tcp"
 ]
 
+# experimental; do not use; no guarantees provided that this feature will be kept
+"rust-1.28" = []
+
 [[example]]
 name = "packet2pcap"
 path = "utils/packet2pcap.rs"
