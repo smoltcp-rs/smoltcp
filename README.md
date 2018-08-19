@@ -99,13 +99,13 @@ The TCP protocol is supported over IPv4, and server and client TCP sockets are a
 
   * Header checksum is generated and validated.
   * Maximum segment size is negotiated.
+  * Window scaling is negotiated.
   * Multiple packets are transmitted without waiting for an acknowledgement.
   * Reassembly of out-of-order segments is supported, with no more than 4 gaps in sequence space.
   * Keep-alive packets may be sent at a configurable interval.
   * Retransmission timeout starts at a fixed interval of 100 ms and doubles every time.
   * Time-wait timeout has a fixed interval of 10 s.
   * User timeout has a configurable interval.
-  * Window scaling is **not** supported, and the maximum buffer size is 65536.
   * Selective acknowledgements are **not** implemented.
   * Delayed acknowledgements are **not** implemented.
   * Silly window syndrome avoidance is **not** implemented.
