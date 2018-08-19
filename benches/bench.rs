@@ -39,6 +39,7 @@ mod wire {
             window_len:   0x0123,
             control:      TcpControl::Syn,
             max_seg_size: None,
+            window_scale: None,
             payload:      &PAYLOAD_BYTES
         };
         let mut bytes = vec![0xa5; repr.buffer_len()];
