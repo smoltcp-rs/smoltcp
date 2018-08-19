@@ -154,13 +154,13 @@ impl<'a, 'b> RawSocket<'a, 'b> {
                              Result<()>
             where F: FnOnce((IpRepr, &[u8])) -> Result<()> {
         fn prepare<'a>(protocol: IpProtocol, buffer: &'a mut [u8],
-                   checksum_caps: &ChecksumCapabilities) -> Result<(IpRepr, &'a [u8])> {
+                   _checksum_caps: &ChecksumCapabilities) -> Result<(IpRepr, &'a [u8])> {
             match IpVersion::of_packet(buffer.as_ref())? {
                 #[cfg(feature = "proto-ipv4")]
                 IpVersion::Ipv4 => {
                     let mut packet = Ipv4Packet::new_checked(buffer.as_mut())?;
                     if packet.protocol() != protocol { return Err(Error::Unaddressable) }
-                    if checksum_caps.ipv4.tx() {
+                    if _checksum_caps.ipv4.tx() {
                         packet.fill_checksum();
                     } else {
                         // make sure we get a consistently zeroed checksum,
@@ -168,15 +168,15 @@ impl<'a, 'b> RawSocket<'a, 'b> {
                         packet.set_checksum(0);
                     }
 
-                    let packet = Ipv4Packet::new(&*packet.into_inner());
-                    let ipv4_repr = Ipv4Repr::parse(&packet, checksum_caps)?;
+                    let packet = Ipv4Packet::new_checked(&*packet.into_inner())?;
+                    let ipv4_repr = Ipv4Repr::parse(&packet, _checksum_caps)?;
                     Ok((IpRepr::Ipv4(ipv4_repr), packet.payload()))
                 }
                 #[cfg(feature = "proto-ipv6")]
                 IpVersion::Ipv6 => {
                     let mut packet = Ipv6Packet::new_checked(buffer.as_mut())?;
                     if packet.next_header() != protocol { return Err(Error::Unaddressable) }
-                    let packet = Ipv6Packet::new(&*packet.into_inner());
+                    let packet = Ipv6Packet::new_unchecked(&*packet.into_inner());
                     let ipv6_repr = Ipv6Repr::parse(&packet)?;
                     Ok((IpRepr::Ipv6(ipv6_repr), packet.payload()))
                 }
@@ -393,14 +393,14 @@ mod test {
             let mut socket = ipv4_locals::socket(buffer(0), buffer(2));
 
             let mut wrong_version = ipv4_locals::PACKET_BYTES.clone();
-            Ipv4Packet::new(&mut wrong_version).set_version(6);
+            Ipv4Packet::new_unchecked(&mut wrong_version).set_version(6);
 
             assert_eq!(socket.send_slice(&wrong_version[..]), Ok(()));
             assert_eq!(socket.dispatch(&checksum_caps, |_| unreachable!()),
                        Ok(()));
 
             let mut wrong_protocol = ipv4_locals::PACKET_BYTES.clone();
-            Ipv4Packet::new(&mut wrong_protocol).set_protocol(IpProtocol::Tcp);
+            Ipv4Packet::new_unchecked(&mut wrong_protocol).set_protocol(IpProtocol::Tcp);
 
             assert_eq!(socket.send_slice(&wrong_protocol[..]), Ok(()));
             assert_eq!(socket.dispatch(&checksum_caps, |_| unreachable!()),
@@ -411,14 +411,14 @@ mod test {
             let mut socket = ipv6_locals::socket(buffer(0), buffer(2));
 
             let mut wrong_version = ipv6_locals::PACKET_BYTES.clone();
-            Ipv6Packet::new(&mut wrong_version[..]).set_version(4);
+            Ipv6Packet::new_unchecked(&mut wrong_version[..]).set_version(4);
 
             assert_eq!(socket.send_slice(&wrong_version[..]), Ok(()));
             assert_eq!(socket.dispatch(&checksum_caps, |_| unreachable!()),
                        Ok(()));
 
             let mut wrong_protocol = ipv6_locals::PACKET_BYTES.clone();
-            Ipv6Packet::new(&mut wrong_protocol[..]).set_next_header(IpProtocol::Tcp);
+            Ipv6Packet::new_unchecked(&mut wrong_protocol[..]).set_next_header(IpProtocol::Tcp);
 
             assert_eq!(socket.send_slice(&wrong_protocol[..]), Ok(()));
             assert_eq!(socket.dispatch(&checksum_caps, |_| unreachable!()),
@@ -434,7 +434,7 @@ mod test {
             assert!(!socket.can_recv());
 
             let mut cksumd_packet = ipv4_locals::PACKET_BYTES.clone();
-            Ipv4Packet::new(&mut cksumd_packet).fill_checksum();
+            Ipv4Packet::new_unchecked(&mut cksumd_packet).fill_checksum();
 
             assert_eq!(socket.recv(), Err(Error::Exhausted));
             assert!(socket.accepts(&ipv4_locals::HEADER_REPR));

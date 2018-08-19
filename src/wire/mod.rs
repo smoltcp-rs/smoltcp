@@ -23,8 +23,8 @@ returned `Ok(())`, then no accessor or setter method will panic; however, the gu
 provided by `Packet::check_len()` may no longer hold after changing certain fields,
 which are listed in the documentation for the specific packet.
 
-The `Packet::new_checked` method is a shorthand for a combination of `Packet::new` and
-`Packet::check_len`.
+The `Packet::new_checked` method is a shorthand for a combination of `Packet::new_unchecked`
+and `Packet::check_len`.
 When parsing untrusted input, it is *necessary* to use `Packet::new_checked()`;
 so long as the buffer is not modified, no accessor will fail.
 When emitting output, though, it is *incorrect* to use `Packet::new_checked()`;
@@ -56,7 +56,7 @@ let repr = Ipv4Repr {
 };
 let mut buffer = vec![0; repr.buffer_len() + repr.payload_len];
 { // emission
-    let mut packet = Ipv4Packet::new(&mut buffer);
+    let mut packet = Ipv4Packet::new_unchecked(&mut buffer);
     repr.emit(&mut packet, &ChecksumCapabilities::default());
 }
 { // parsing
@@ -99,7 +99,7 @@ mod icmpv4;
 mod icmpv6;
 #[cfg(any(feature = "proto-ipv4", feature = "proto-ipv6"))]
 mod icmp;
-#[cfg(feature = "proto-ipv4")]
+#[cfg(feature = "proto-igmp")]
 mod igmp;
 #[cfg(feature = "proto-ipv6")]
 mod ndisc;
@@ -109,8 +109,8 @@ mod ndiscoption;
 mod mld;
 mod udp;
 mod tcp;
-#[cfg(feature = "proto-ipv4")]
-mod dhcpv4;
+#[cfg(feature = "proto-dhcpv4")]
+pub(crate) mod dhcpv4;
 
 pub use self::pretty_print::PrettyPrinter;
 
@@ -173,7 +173,7 @@ pub use self::icmpv4::{Message as Icmpv4Message,
                        Packet as Icmpv4Packet,
                        Repr as Icmpv4Repr};
 
-#[cfg(feature = "proto-ipv4")]
+#[cfg(feature = "proto-igmp")]
 pub use self::igmp::{Packet as IgmpPacket,
                      Repr as IgmpRepr,
                      IgmpVersion};
@@ -204,7 +204,8 @@ pub use self::ndiscoption::{NdiscOption,
                             PrefixInfoFlags as NdiscPrefixInfoFlags};
 
 #[cfg(feature = "proto-ipv6")]
-pub use self::mld::AddressRecord as MldAddressRecord;
+pub use self::mld::{AddressRecord as MldAddressRecord,
+                    Repr as MldRepr};
 
 pub use self::udp::{Packet as UdpPacket,
                     Repr as UdpRepr};
@@ -215,6 +216,7 @@ pub use self::tcp::{SeqNumber as TcpSeqNumber,
                     Repr as TcpRepr,
                     Control as TcpControl};
 
-#[cfg(feature = "proto-ipv4")]
+#[cfg(feature = "proto-dhcpv4")]
 pub use self::dhcpv4::{Packet as DhcpPacket,
-                       Repr as DhcpRepr};
+                       Repr as DhcpRepr,
+                       MessageType as DhcpMessageType};

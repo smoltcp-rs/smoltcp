@@ -145,16 +145,16 @@ mod field {
 /// Core getter methods relevant to any type of NDISC option.
 impl<T: AsRef<[u8]>> NdiscOption<T> {
     /// Create a raw octet buffer with an NDISC Option structure.
-    pub fn new(buffer: T) -> NdiscOption<T> {
+    pub fn new_unchecked(buffer: T) -> NdiscOption<T> {
         NdiscOption { buffer }
     }
 
-    /// Shorthand for a combination of [new] and [check_len].
+    /// Shorthand for a combination of [new_unchecked] and [check_len].
     ///
-    /// [new]: #method.new
+    /// [new_unchecked]: #method.new_unchecked
     /// [check_len]: #method.check_len
     pub fn new_checked(buffer: T) -> Result<NdiscOption<T>> {
-        let opt = Self::new(buffer);
+        let opt = Self::new_unchecked(buffer);
         opt.check_len()?;
         Ok(opt)
     }
@@ -460,7 +460,7 @@ impl<'a> Repr<'a> {
                 if opt.data_len() < 6 {
                     Err(Error::Truncated)
                 } else {
-                    let ip_packet = Ipv6Packet::new(&opt.data()[field::IP_DATA..]);
+                    let ip_packet = Ipv6Packet::new_unchecked(&opt.data()[field::IP_DATA..]);
                     let ip_repr = Ipv6Repr::parse(&ip_packet)?;
                     Ok(Repr::RedirectedHeader(RedirectedHeader {
                         header: ip_repr,
@@ -535,7 +535,8 @@ impl<'a> Repr<'a> {
                 opt.clear_redirected_reserved();
                 opt.set_option_type(Type::RedirectedHeader);
                 opt.set_data_len((header.buffer_len() + 1 + data_len) as u8);
-                let mut ip_packet = Ipv6Packet::new(&mut opt.data_mut()[field::IP_DATA..]);
+                let mut ip_packet =
+                    Ipv6Packet::new_unchecked(&mut opt.data_mut()[field::IP_DATA..]);
                 header.emit(&mut ip_packet);
                 let payload = &mut ip_packet.into_inner()[header.buffer_len()..];
                 payload.copy_from_slice(&data[..data_len]);
@@ -625,7 +626,7 @@ mod test {
 
     #[test]
     fn test_deconstruct() {
-        let opt = NdiscOption::new(&PREFIX_OPT_BYTES[..]);
+        let opt = NdiscOption::new_unchecked(&PREFIX_OPT_BYTES[..]);
         assert_eq!(opt.option_type(), Type::PrefixInformation);
         assert_eq!(opt.data_len(), 4);
         assert_eq!(opt.prefix_len(), 64);
@@ -638,7 +639,7 @@ mod test {
     #[test]
     fn test_construct() {
         let mut bytes = [0x00; 32];
-        let mut opt = NdiscOption::new(&mut bytes[..]);
+        let mut opt = NdiscOption::new_unchecked(&mut bytes[..]);
         opt.set_option_type(Type::PrefixInformation);
         opt.set_data_len(4);
         opt.set_prefix_len(64);
@@ -664,12 +665,12 @@ mod test {
         let mut bytes = [0x01, 0x01, 0x54, 0x52, 0x00, 0x12, 0x23, 0x34];
         let addr = EthernetAddress([0x54, 0x52, 0x00, 0x12, 0x23, 0x34]);
         {
-            assert_eq!(Repr::parse(&NdiscOption::new(&bytes)),
+            assert_eq!(Repr::parse(&NdiscOption::new_unchecked(&bytes)),
                        Ok(Repr::SourceLinkLayerAddr(addr)));
         }
         bytes[0] = 0x02;
         {
-            assert_eq!(Repr::parse(&NdiscOption::new(&bytes)),
+            assert_eq!(Repr::parse(&NdiscOption::new_unchecked(&bytes)),
                        Ok(Repr::TargetLinkLayerAddr(addr)));
         }
     }
@@ -683,7 +684,7 @@ mod test {
             preferred_lifetime: Duration::from_secs(1000),
             prefix: Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1)
         });
-        assert_eq!(Repr::parse(&NdiscOption::new(&PREFIX_OPT_BYTES)), Ok(repr));
+        assert_eq!(Repr::parse(&NdiscOption::new_unchecked(&PREFIX_OPT_BYTES)), Ok(repr));
     }
 
     #[test]
@@ -696,7 +697,7 @@ mod test {
             preferred_lifetime: Duration::from_secs(1000),
             prefix: Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1)
         });
-        let mut opt = NdiscOption::new(&mut bytes);
+        let mut opt = NdiscOption::new_unchecked(&mut bytes);
         repr.emit(&mut opt);
         assert_eq!(&opt.into_inner()[..], &PREFIX_OPT_BYTES[..]);
     }
@@ -704,6 +705,6 @@ mod test {
     #[test]
     fn test_repr_parse_mtu() {
         let bytes = [0x05, 0x01, 0x00, 0x00, 0x00, 0x00, 0x05, 0xdc];
-        assert_eq!(Repr::parse(&NdiscOption::new(&bytes)), Ok(Repr::Mtu(1500)));
+        assert_eq!(Repr::parse(&NdiscOption::new_unchecked(&bytes)), Ok(Repr::Mtu(1500)));
     }
 }

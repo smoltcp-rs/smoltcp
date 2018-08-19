@@ -77,7 +77,7 @@ fn main() {
         match iface.poll(&mut sockets, timestamp) {
             Ok(_) => {},
             Err(e) => {
-                debug!("poll error: {}",e);
+                debug!("poll error: {}", e);
             }
         }
 

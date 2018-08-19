@@ -3,7 +3,11 @@ use std::vec::Vec;
 #[cfg(feature = "std")]
 use std::collections::VecDeque;
 #[cfg(feature = "alloc")]
-use alloc::{Vec, VecDeque};
+use alloc::vec::Vec;
+#[cfg(all(feature = "alloc", not(feature = "rust-1.28")))]
+use alloc::collections::VecDeque;
+#[cfg(all(feature = "alloc", feature = "rust-1.28"))]
+use alloc::VecDeque;
 
 use Result;
 use phy::{self, Device, DeviceCapabilities};

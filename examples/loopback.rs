@@ -127,7 +127,12 @@ fn main() {
     let mut did_connect = false;
     let mut done = false;
     while !done && clock.elapsed() < Instant::from_millis(10_000) {
-        iface.poll(&mut socket_set, clock.elapsed()).expect("poll error");
+        match iface.poll(&mut socket_set, clock.elapsed()) {
+            Ok(_) => {},
+            Err(e) => {
+                debug!("poll error: {}", e);
+            }
+        }
 
         {
             let mut socket = socket_set.get::<TcpSocket>(server_handle);

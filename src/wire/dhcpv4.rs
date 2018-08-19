@@ -50,6 +50,8 @@ pub enum DhcpOption<'a> {
     RequestedIp(Ipv4Address),
     ClientIdentifier(EthernetAddress),
     ServerIdentifier(Ipv4Address),
+    Router(Ipv4Address),
+    SubnetMask(Ipv4Address),
     Other { kind: u8, data: &'a [u8] }
 }
 
@@ -91,6 +93,12 @@ impl<'a> DhcpOption<'a> {
                     (field::OPT_SERVER_IDENTIFIER, 4) => {
                         option = DhcpOption::ServerIdentifier(Ipv4Address::from_bytes(data));
                     }
+                    (field::OPT_ROUTER, 4) => {
+                        option = DhcpOption::Router(Ipv4Address::from_bytes(data));
+                    }
+                    (field::OPT_SUBNET_MASK, 4) => {
+                        option = DhcpOption::SubnetMask(Ipv4Address::from_bytes(data));
+                    }
                     (_, _) => {
                         option = DhcpOption::Other { kind: kind, data: data };
                     }
@@ -108,7 +116,10 @@ impl<'a> DhcpOption<'a> {
             &DhcpOption::ClientIdentifier(eth_addr) => {
                 3 + eth_addr.as_bytes().len()
             }
-            &DhcpOption::RequestedIp(ip) | &DhcpOption::ServerIdentifier(ip) => {
+            &DhcpOption::RequestedIp(ip) |
+            &DhcpOption::ServerIdentifier(ip) |
+            &DhcpOption::Router(ip) |
+            &DhcpOption::SubnetMask(ip) => {
                 2 + ip.as_bytes().len()
             },
             &DhcpOption::Other { data, .. } => 2 + data.len()
@@ -148,6 +159,14 @@ impl<'a> DhcpOption<'a> {
                         buffer[0] = field::OPT_SERVER_IDENTIFIER;
                         buffer[2..6].copy_from_slice(ip.as_bytes());
                     }
+                    &DhcpOption::Router(ip)  => {
+                        buffer[0] = field::OPT_ROUTER;
+                        buffer[2..6].copy_from_slice(ip.as_bytes());
+                    }
+                    &DhcpOption::SubnetMask(mask)  => {
+                        buffer[0] = field::OPT_SUBNET_MASK;
+                        buffer[2..6].copy_from_slice(mask.as_bytes());
+                    }
                     &DhcpOption::Other { kind, data: provided } => {
                         buffer[0] = kind;
                         buffer[2..skip_length].copy_from_slice(provided);
@@ -165,7 +184,7 @@ pub struct Packet<T: AsRef<[u8]>> {
     buffer: T
 }
 
-mod field {
+pub(crate) mod field {
     #![allow(non_snake_case)]
     #![allow(unused)]
 
@@ -243,8 +262,9 @@ mod field {
     pub const OPT_NIS_DOMAIN: u8 = 40;
     pub const OPT_NIS_SERVERS: u8 = 41;
     pub const OPT_NTP_SERVERS: u8 = 42;
-    pub const OPT_VENDOR_SPECIFIC_INFO: u8 = 44;
-    pub const OPT_NETBIOS_SERVER: u8 = 45;
+    pub const OPT_VENDOR_SPECIFIC_INFO: u8 = 43;
+    pub const OPT_NETBIOS_NAME_SERVER: u8 = 44;
+    pub const OPT_NETBIOS_DISTRIBUTION_SERVER: u8 = 45;
     pub const OPT_NETBIOS_NODE_TYPE: u8 = 46;
     pub const OPT_NETBIOS_SCOPE: u8 = 47;
     pub const OPT_X_WINDOW_FONT_SERVER: u8 = 48;
@@ -280,16 +300,16 @@ mod field {
 
 impl<T: AsRef<[u8]>> Packet<T> {
     /// Imbue a raw octet buffer with DHCP packet structure.
-    pub fn new(buffer: T) -> Packet<T> {
+    pub fn new_unchecked(buffer: T) -> Packet<T> {
         Packet { buffer }
     }
 
-    /// Shorthand for a combination of [new] and [check_len].
+    /// Shorthand for a combination of [new_unchecked] and [check_len].
     ///
-    /// [new]: #method.new
+    /// [new_unchecked]: #method.new_unchecked
     /// [check_len]: #method.check_len
     pub fn new_checked(buffer: T) -> Result<Packet<T>> {
-        let packet = Self::new(buffer);
+        let packet = Self::new_unchecked(buffer);
         packet.check_len()?;
         Ok(packet)
     }
@@ -603,6 +623,10 @@ pub struct Repr<'a> {
     /// This field is also known as `siaddr` in the RFC. It may be set by the server in DHCPOFFER
     /// and DHCPACK messages, and represent the address of the next server to use in bootstrap.
     pub server_ip: Ipv4Address,
+    /// Default gateway
+    pub router: Option<Ipv4Address>,
+    /// This field comes from a corresponding DhcpOption.
+    pub subnet_mask: Option<Ipv4Address>,
     /// This field is also known as `giaddr` in the RFC. In order to allow DHCP clients on subnets
     /// not directly served by DHCP servers to communicate with DHCP servers, DHCP relay agents can
     /// be installed on these subnets. The DHCP client broadcasts on the local link; the relay
@@ -635,6 +659,8 @@ pub struct Repr<'a> {
     /// The parameter request list informs the server about which configuration parameters
     /// the client is interested in.
     pub parameter_request_list: Option<&'a [u8]>,
+    /// DNS servers
+    pub dns_servers: Option<[Option<Ipv4Address>; 3]>,
 }
 
 impl<'a> Repr<'a> {
@@ -680,7 +706,10 @@ impl<'a> Repr<'a> {
         let mut requested_ip = None;
         let mut client_identifier = None;
         let mut server_identifier = None;
+        let mut router = None;
+        let mut subnet_mask = None;
         let mut parameter_request_list = None;
+        let mut dns_servers = None;
 
         let mut options = packet.options()?;
         while options.len() > 0 {
@@ -702,8 +731,24 @@ impl<'a> Repr<'a> {
                 DhcpOption::ServerIdentifier(ip) => {
                     server_identifier = Some(ip);
                 }
+                DhcpOption::Router(ip) => {
+                    router = Some(ip);
+                }
+                DhcpOption::SubnetMask(mask) => {
+                    subnet_mask = Some(mask);
+                }
                 DhcpOption::Other {kind: field::OPT_PARAMETER_REQUEST_LIST, data} => {
                     parameter_request_list = Some(data);
+                }
+                DhcpOption::Other {kind: field::OPT_DOMAIN_NAME_SERVER, data} => {
+                    let mut dns_servers_inner = [None; 3];
+                    for i in 0.. {
+                        let offset = 4 * i;
+                        let end = offset + 4;
+                        if end > data.len() { break }
+                        dns_servers_inner[i] = Some(Ipv4Address::from_bytes(&data[offset..end]));
+                    }
+                    dns_servers = Some(dns_servers_inner);
                 }
                 DhcpOption::Other {..} => {}
             }
@@ -714,7 +759,8 @@ impl<'a> Repr<'a> {
 
         Ok(Repr {
             transaction_id, client_hardware_address, client_ip, your_ip, server_ip, relay_agent_ip,
-            broadcast, requested_ip, server_identifier, client_identifier, parameter_request_list,
+            broadcast, requested_ip, server_identifier, router,
+            subnet_mask, client_identifier, parameter_request_list, dns_servers,
             message_type: message_type?,
         })
     }
@@ -745,6 +791,12 @@ impl<'a> Repr<'a> {
             }
             if let Some(ip) = self.server_identifier {
                 let tmp = options; options = DhcpOption::ServerIdentifier(ip).emit(tmp);
+            }
+            if let Some(ip) = self.router {
+                let tmp = options; options = DhcpOption::Router(ip).emit(tmp);
+            }
+            if let Some(ip) = self.subnet_mask {
+                let tmp = options; options = DhcpOption::SubnetMask(ip).emit(tmp);
             }
             if let Some(ip) = self.requested_ip {
                 let tmp = options; options = DhcpOption::RequestedIp(ip).emit(tmp);
@@ -792,7 +844,7 @@ mod test {
 
     #[test]
     fn test_deconstruct_discover() {
-        let packet = Packet::new(DISCOVER_BYTES);
+        let packet = Packet::new_unchecked(DISCOVER_BYTES);
         assert_eq!(packet.magic_number(), MAGIC_COOKIE);
         assert_eq!(packet.opcode(), OpCode::Request);
         assert_eq!(packet.hardware_type(), Hardware::Ethernet);
@@ -834,7 +886,7 @@ mod test {
     #[test]
     fn test_construct_discover() {
         let mut bytes = vec![0xa5; 272];
-        let mut packet = Packet::new(&mut bytes);
+        let mut packet = Packet::new_unchecked(&mut bytes);
         packet.set_magic_number(MAGIC_COOKIE);
         packet.set_sname_and_boot_file_to_zero();
         packet.set_opcode(OpCode::Request);
@@ -878,18 +930,21 @@ mod test {
             client_ip: IP_NULL,
             your_ip: IP_NULL,
             server_ip: IP_NULL,
+            router: None,
+            subnet_mask: None,
             relay_agent_ip: IP_NULL,
             broadcast: false,
             requested_ip: Some(IP_NULL),
             client_identifier: Some(CLIENT_MAC),
             server_identifier: None,
             parameter_request_list: Some(&[1, 3, 6, 42]),
+            dns_servers: None,
         }
     }
 
     #[test]
     fn test_parse_discover() {
-        let packet = Packet::new(DISCOVER_BYTES);
+        let packet = Packet::new_unchecked(DISCOVER_BYTES);
         let repr = Repr::parse(&packet).unwrap();
         assert_eq!(repr, discover_repr());
     }
@@ -898,7 +953,7 @@ mod test {
     fn test_emit_discover() {
         let repr = discover_repr();
         let mut bytes = vec![0xa5; repr.buffer_len()];
-        let mut packet = Packet::new(&mut bytes);
+        let mut packet = Packet::new_unchecked(&mut bytes);
         repr.emit(&mut packet).unwrap();
         let packet = &packet.into_inner()[..];
         let packet_len = packet.len();

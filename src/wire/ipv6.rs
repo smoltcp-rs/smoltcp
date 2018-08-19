@@ -378,17 +378,17 @@ mod field {
 impl<T: AsRef<[u8]>> Packet<T> {
     /// Create a raw octet buffer with an IPv6 packet structure.
     #[inline]
-    pub fn new(buffer: T) -> Packet<T> {
+    pub fn new_unchecked(buffer: T) -> Packet<T> {
         Packet { buffer }
     }
 
-    /// Shorthand for a combination of [new] and [check_len].
+    /// Shorthand for a combination of [new_unchecked] and [check_len].
     ///
-    /// [new]: #method.new
+    /// [new_unchecked]: #method.new_unchecked
     /// [check_len]: #method.check_len
     #[inline]
     pub fn new_checked(buffer: T) -> Result<Packet<T>> {
-        let packet = Self::new(buffer);
+        let packet = Self::new_unchecked(buffer);
         packet.check_len()?;
         Ok(packet)
     }
@@ -930,7 +930,7 @@ mod test {
 
     #[test]
     fn test_packet_deconstruction() {
-        let packet = Packet::new(&REPR_PACKET_BYTES[..]);
+        let packet = Packet::new_unchecked(&REPR_PACKET_BYTES[..]);
         assert_eq!(packet.check_len(), Ok(()));
         assert_eq!(packet.version(), 6);
         assert_eq!(packet.traffic_class(), 0);
@@ -950,7 +950,7 @@ mod test {
     #[test]
     fn test_packet_construction() {
         let mut bytes = [0xff; 52];
-        let mut packet = Packet::new(&mut bytes[..]);
+        let mut packet = Packet::new_unchecked(&mut bytes[..]);
         // Version, Traffic Class, and Flow Label are not
         // byte aligned. make sure the setters and getters
         // do not interfere with each other.
@@ -989,9 +989,9 @@ mod test {
         bytes.extend(&REPR_PACKET_BYTES[..]);
         bytes.push(0);
 
-        assert_eq!(Packet::new(&bytes).payload().len(),
+        assert_eq!(Packet::new_unchecked(&bytes).payload().len(),
                    REPR_PAYLOAD_BYTES.len());
-        assert_eq!(Packet::new(&mut bytes).payload_mut().len(),
+        assert_eq!(Packet::new_unchecked(&mut bytes).payload_mut().len(),
                    REPR_PAYLOAD_BYTES.len());
     }
 
@@ -999,7 +999,7 @@ mod test {
     fn test_total_len_overflow() {
         let mut bytes = vec![];
         bytes.extend(&REPR_PACKET_BYTES[..]);
-        Packet::new(&mut bytes).set_payload_len(0x80);
+        Packet::new_unchecked(&mut bytes).set_payload_len(0x80);
 
         assert_eq!(Packet::new_checked(&bytes).unwrap_err(),
                    Error::Truncated);
@@ -1007,7 +1007,7 @@ mod test {
 
     #[test]
     fn test_repr_parse_valid() {
-        let packet = Packet::new(&REPR_PACKET_BYTES[..]);
+        let packet = Packet::new_unchecked(&REPR_PACKET_BYTES[..]);
         let repr = Repr::parse(&packet).unwrap();
         assert_eq!(repr, packet_repr());
     }
@@ -1015,30 +1015,30 @@ mod test {
     #[test]
     fn test_repr_parse_bad_version() {
         let mut bytes = vec![0; 40];
-        let mut packet = Packet::new(&mut bytes[..]);
+        let mut packet = Packet::new_unchecked(&mut bytes[..]);
         packet.set_version(4);
         packet.set_payload_len(0);
-        let packet = Packet::new(&*packet.into_inner());
+        let packet = Packet::new_unchecked(&*packet.into_inner());
         assert_eq!(Repr::parse(&packet), Err(Error::Malformed));
     }
 
     #[test]
     fn test_repr_parse_smaller_than_header() {
         let mut bytes = vec![0; 40];
-        let mut packet = Packet::new(&mut bytes[..]);
+        let mut packet = Packet::new_unchecked(&mut bytes[..]);
         packet.set_version(6);
         packet.set_payload_len(39);
-        let packet = Packet::new(&*packet.into_inner());
+        let packet = Packet::new_unchecked(&*packet.into_inner());
         assert_eq!(Repr::parse(&packet), Err(Error::Truncated));
     }
 
     #[test]
     fn test_repr_parse_smaller_than_payload() {
         let mut bytes = vec![0; 40];
-        let mut packet = Packet::new(&mut bytes[..]);
+        let mut packet = Packet::new_unchecked(&mut bytes[..]);
         packet.set_version(6);
         packet.set_payload_len(1);
-        let packet = Packet::new(&*packet.into_inner());
+        let packet = Packet::new_unchecked(&*packet.into_inner());
         assert_eq!(Repr::parse(&packet), Err(Error::Truncated));
     }
 
@@ -1046,7 +1046,7 @@ mod test {
     fn test_basic_repr_emit() {
         let repr = packet_repr();
         let mut bytes = vec![0xff; repr.buffer_len() + REPR_PAYLOAD_BYTES.len()];
-        let mut packet = Packet::new(&mut bytes);
+        let mut packet = Packet::new_unchecked(&mut bytes);
         repr.emit(&mut packet);
         packet.payload_mut().copy_from_slice(&REPR_PAYLOAD_BYTES);
         assert_eq!(&packet.into_inner()[..], &REPR_PACKET_BYTES[..]);

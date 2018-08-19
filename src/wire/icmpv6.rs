@@ -5,7 +5,7 @@ use {Error, Result};
 use phy::ChecksumCapabilities;
 use super::ip::checksum;
 use super::{IpAddress, IpProtocol, Ipv6Packet, Ipv6Repr};
-use super::NdiscRepr;
+use super::{MldRepr, NdiscRepr};
 
 enum_with_unknown! {
     /// Internet protocol control message type.
@@ -251,16 +251,16 @@ pub(super) mod field {
 
 impl<T: AsRef<[u8]>> Packet<T> {
     /// Imbue a raw octet buffer with ICMPv6 packet structure.
-    pub fn new(buffer: T) -> Packet<T> {
+    pub fn new_unchecked(buffer: T) -> Packet<T> {
         Packet { buffer }
     }
 
-    /// Shorthand for a combination of [new] and [check_len].
+    /// Shorthand for a combination of [new_unchecked] and [check_len].
     ///
-    /// [new]: #method.new
+    /// [new_unchecked]: #method.new_unchecked
     /// [check_len]: #method.check_len
     pub fn new_checked(buffer: T) -> Result<Packet<T>> {
-        let packet = Self::new(buffer);
+        let packet = Self::new_unchecked(buffer);
         packet.check_len()?;
         Ok(packet)
     }
@@ -538,6 +538,7 @@ pub enum Repr<'a> {
         data:   &'a [u8]
     },
     Ndisc(NdiscRepr<'a>),
+    Mld(MldRepr<'a>),
     #[doc(hidden)]
     __Nonexhaustive
 }
@@ -621,6 +622,9 @@ impl<'a> Repr<'a> {
             (msg_type, 0) if msg_type.is_ndisc() => {
                 NdiscRepr::parse(packet).map(|repr| Repr::Ndisc(repr))
             },
+            (msg_type, 0) if msg_type.is_mld() => {
+                MldRepr::parse(packet).map(|repr| Repr::Mld(repr))
+            },
             _ => Err(Error::Unrecognized)
         }
     }
@@ -639,6 +643,9 @@ impl<'a> Repr<'a> {
             &Repr::Ndisc(ndisc) => {
                 ndisc.buffer_len()
             },
+            &Repr::Mld(mld) => {
+                mld.buffer_len()
+            },
             &Repr::__Nonexhaustive => unreachable!()
         }
     }
@@ -649,7 +656,7 @@ impl<'a> Repr<'a> {
                    packet: &mut Packet<&mut T>, checksum_caps: &ChecksumCapabilities)
             where T: AsRef<[u8]> + AsMut<[u8]> + ?Sized {
         fn emit_contained_packet(buffer: &mut [u8], header: Ipv6Repr, data: &[u8]) {
-            let mut ip_packet = Ipv6Packet::new(buffer);
+            let mut ip_packet = Ipv6Packet::new_unchecked(buffer);
             header.emit(&mut ip_packet);
             let payload = &mut ip_packet.into_inner()[header.buffer_len()..];
             payload.copy_from_slice(&data[..]);
@@ -706,6 +713,10 @@ impl<'a> Repr<'a> {
 
             &Repr::Ndisc(ndisc) => {
                 ndisc.emit(packet)
+            },
+
+            &Repr::Mld(mld) => {
+                mld.emit(packet)
             },
 
             &Repr::__Nonexhaustive => unreachable!(),
@@ -801,7 +812,7 @@ mod test {
 
     #[test]
     fn test_echo_deconstruct() {
-        let packet = Packet::new(&ECHO_PACKET_BYTES[..]);
+        let packet = Packet::new_unchecked(&ECHO_PACKET_BYTES[..]);
         assert_eq!(packet.msg_type(), Message::EchoRequest);
         assert_eq!(packet.msg_code(), 0);
         assert_eq!(packet.checksum(), 0x19b3);
@@ -815,7 +826,7 @@ mod test {
     #[test]
     fn test_echo_construct() {
         let mut bytes = vec![0xa5; 12];
-        let mut packet = Packet::new(&mut bytes);
+        let mut packet = Packet::new_unchecked(&mut bytes);
         packet.set_msg_type(Message::EchoRequest);
         packet.set_msg_code(0);
         packet.set_echo_ident(0x1234);
@@ -827,7 +838,7 @@ mod test {
 
     #[test]
     fn test_echo_repr_parse() {
-        let packet = Packet::new(&ECHO_PACKET_BYTES[..]);
+        let packet = Packet::new_unchecked(&ECHO_PACKET_BYTES[..]);
         let repr = Repr::parse(&MOCK_IP_ADDR_1, &MOCK_IP_ADDR_2,
                                &packet, &ChecksumCapabilities::default()).unwrap();
         assert_eq!(repr, echo_packet_repr());
@@ -837,7 +848,7 @@ mod test {
     fn test_echo_emit() {
         let repr = echo_packet_repr();
         let mut bytes = vec![0xa5; repr.buffer_len()];
-        let mut packet = Packet::new(&mut bytes);
+        let mut packet = Packet::new_unchecked(&mut bytes);
         repr.emit(&MOCK_IP_ADDR_1, &MOCK_IP_ADDR_2,
                   &mut packet, &ChecksumCapabilities::default());
         assert_eq!(&packet.into_inner()[..], &ECHO_PACKET_BYTES[..]);
@@ -845,7 +856,7 @@ mod test {
 
     #[test]
     fn test_too_big_deconstruct() {
-        let packet = Packet::new(&PKT_TOO_BIG_BYTES[..]);
+        let packet = Packet::new_unchecked(&PKT_TOO_BIG_BYTES[..]);
         assert_eq!(packet.msg_type(), Message::PktTooBig);
         assert_eq!(packet.msg_code(), 0);
         assert_eq!(packet.checksum(), 0x0fc9);
@@ -858,7 +869,7 @@ mod test {
     #[test]
     fn test_too_big_construct() {
         let mut bytes = vec![0xa5; 60];
-        let mut packet = Packet::new(&mut bytes);
+        let mut packet = Packet::new_unchecked(&mut bytes);
         packet.set_msg_type(Message::PktTooBig);
         packet.set_msg_code(0);
         packet.set_pkt_too_big_mtu(1500);
@@ -869,7 +880,7 @@ mod test {
 
     #[test]
     fn test_too_big_repr_parse() {
-        let packet = Packet::new(&PKT_TOO_BIG_BYTES[..]);
+        let packet = Packet::new_unchecked(&PKT_TOO_BIG_BYTES[..]);
         let repr = Repr::parse(&MOCK_IP_ADDR_1, &MOCK_IP_ADDR_2,
                                &packet, &ChecksumCapabilities::default()).unwrap();
         assert_eq!(repr, too_big_packet_repr());
@@ -879,7 +890,7 @@ mod test {
     fn test_too_big_emit() {
         let repr = too_big_packet_repr();
         let mut bytes = vec![0xa5; repr.buffer_len()];
-        let mut packet = Packet::new(&mut bytes);
+        let mut packet = Packet::new_unchecked(&mut bytes);
         repr.emit(&MOCK_IP_ADDR_1, &MOCK_IP_ADDR_2,
                   &mut packet, &ChecksumCapabilities::default());
         assert_eq!(&packet.into_inner()[..], &PKT_TOO_BIG_BYTES[..]);
