@@ -23,7 +23,7 @@ To set expectations right, both implemented and omitted features are listed.
 The only supported medium is Ethernet.
 
   * Regular Ethernet II frames are supported.
-  * Unicast and broadcast packets are supported, multicast packets are **not** supported.
+  * Unicast, broadcast and multicast packets are supported.
   * ARP packets (including gratuitous requests and replies) are supported.
   * ARP requests are sent at a rate not exceeding one per second.
   * Cached ARP entries expire after one minute.
@@ -37,15 +37,18 @@ The only supported medium is Ethernet.
   * IPv4 header checksum is generated and validated.
   * IPv4 time-to-live value is configurable per socket, set to 64 by default.
   * IPv4 default gateway is supported.
+  * Routing outgoing IPv4 packets is supported, through a default gateway or a CIDR route table.
   * IPv4 fragmentation is **not** supported.
   * IPv4 options are **not** supported and are silently ignored.
-  * IPv4 routes (other than the default one) are **not** supported.
 
 #### IPv6
 
   * IPv6 hop-limit value is configurable per socket, set to 64 by default.
-  * IPv6 default gateway is **not** supported.
-  * IPv6 extension headers are **not** supported.
+  * Routing outgoing IPv6 packets is supported, through a default gateway or a CIDR route table.
+  * IPv6 hop-by-hop header is supported.
+  * ICMPv6 parameter problem message is generated in response to an unrecognized IPv6 next header.
+  * ICMPv6 parameter problem message is **not** generated in response to an unknown IPv6
+    hop-by-hop option.
 
 ### IP multicast
 
@@ -87,7 +90,7 @@ The ICMPv6 protocol is supported, but is **not** available via ICMP sockets.
 
 ### UDP layer
 
-The UDP protocol is supported over IPv4, and UDP sockets are available.
+The UDP protocol is supported over IPv4 and IPv6, and UDP sockets are available.
 
   * Header checksum is always generated and validated.
   * In response to a packet arriving at a port without a listening socket,
@@ -95,7 +98,7 @@ The UDP protocol is supported over IPv4, and UDP sockets are available.
 
 ### TCP layer
 
-The TCP protocol is supported over IPv4, and server and client TCP sockets are available.
+The TCP protocol is supported over IPv4 and IPv6, and server and client TCP sockets are available.
 
   * Header checksum is generated and validated.
   * Maximum segment size is negotiated.
