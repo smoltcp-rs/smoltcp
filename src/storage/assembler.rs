@@ -216,6 +216,61 @@ impl Assembler {
             Some(front.data_size)
         }
     }
+
+    /// Iterate over all of the contiguous data ranges.
+    ///
+    /// This is used in calculating what data ranges have been received. The offset indicates the
+    /// number of bytes of contiguous data received before the beginnings of this Assembler.
+    ///
+    ///    Data        Hole        Data
+    /// |--- 100 ---|--- 200 ---|--- 100 ---|
+    ///
+    /// An offset of 1500 would return the ranges: ``(1500, 1600), (1800, 1900)``
+    pub fn iter_data<'a>(&'a self, first_offset: usize) -> AssemblerIter<'a> {
+        AssemblerIter::new(self, first_offset)
+    }
+}
+
+pub struct AssemblerIter<'a> {
+    assembler: &'a Assembler,
+    offset: usize,
+    index: usize,
+    left: usize,
+    right: usize
+}
+
+impl<'a> AssemblerIter<'a> {
+    fn new(assembler: &'a Assembler, offset: usize) -> AssemblerIter<'a> {
+        AssemblerIter {
+            assembler: assembler,
+            offset: offset,
+            index: 0,
+            left: 0,
+            right: 0
+        }
+    }
+}
+
+impl<'a> Iterator for AssemblerIter<'a> {
+    type Item = (usize, usize);
+
+    fn next(&mut self) -> Option<(usize, usize)> {
+        let mut data_range = None;
+        while data_range.is_none() && self.index < self.assembler.contigs.len() {
+            let contig = self.assembler.contigs[self.index];
+            self.left = self.left + contig.hole_size;
+            self.right = self.left + contig.data_size;
+            data_range = if self.left < self.right {
+                let data_range = (self.left + self.offset, self.right + self.offset);
+                self.left = self.right;
+                Some(data_range)
+            } else {
+                None
+            };
+            self.index += 1;
+        }
+        data_range
+    }
 }
 
 #[cfg(test)]
@@ -348,5 +403,74 @@ mod test {
         let mut assr = contigs![(0, 4), (4, 4)];
         assert_eq!(assr.remove_front(), Some(4));
         assert_eq!(assr, contigs![(4, 4), (4, 0)]);
+
+    }
+
+    #[test]
+    fn test_iter_empty() {
+        let assr = Assembler::new(16);
+        let segments: Vec<_> = assr.iter_data(10).collect();
+        assert_eq!(segments, vec![]);
+    }
+
+    #[test]
+    fn test_iter_full() {
+        let mut assr = Assembler::new(16);
+        assert_eq!(assr.add(0, 16), Ok(()));
+        let segments: Vec<_> = assr.iter_data(10).collect();
+        assert_eq!(segments, vec![(10, 26)]);
+    }
+
+    #[test]
+    fn test_iter_offset() {
+        let mut assr = Assembler::new(16);
+        assert_eq!(assr.add(0, 16), Ok(()));
+        let segments: Vec<_> = assr.iter_data(100).collect();
+        assert_eq!(segments, vec![(100, 116)]);
+    }
+
+    #[test]
+    fn test_iter_one_front() {
+        let mut assr = Assembler::new(16);
+        assert_eq!(assr.add(0, 4), Ok(()));
+        let segments: Vec<_> = assr.iter_data(10).collect();
+        assert_eq!(segments, vec![(10, 14)]);
+    }
+
+    #[test]
+    fn test_iter_one_back() {
+        let mut assr = Assembler::new(16);
+        assert_eq!(assr.add(12, 4), Ok(()));
+        let segments: Vec<_> = assr.iter_data(10).collect();
+        assert_eq!(segments, vec![(22, 26)]);
+    }
+
+    #[test]
+    fn test_iter_one_mid() {
+        let mut assr = Assembler::new(16);
+        assert_eq!(assr.add(4, 8), Ok(()));
+        let segments: Vec<_> = assr.iter_data(10).collect();
+        assert_eq!(segments, vec![(14, 22)]);
+    }
+
+    #[test]
+    fn test_iter_one_trailing_gap() {
+        let assr = contigs![(4, 8), (4, 0)];
+        let segments: Vec<_> = assr.iter_data(100).collect();
+        assert_eq!(segments, vec![(104, 112)]);
+    }
+
+    #[test]
+    fn test_iter_two_split() {
+        let assr = contigs![(2, 6), (4, 1), (1, 0)];
+        let segments: Vec<_> = assr.iter_data(100).collect();
+        assert_eq!(segments, vec![(102, 108), (112, 113)]);
+    }
+
+    #[test]
+    fn test_iter_three_split() {
+        let assr = contigs![(2, 6), (2, 1), (2, 2), (1, 0)];
+        let segments: Vec<_> = assr.iter_data(100).collect();
+        assert_eq!(segments, vec![(102, 108), (110, 111), (113, 115)]);
     }
 }
