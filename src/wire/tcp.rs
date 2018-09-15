@@ -788,7 +788,7 @@ impl<'a> Repr<'a> {
             }
         }
         packet.set_urgent_at(0);
-        packet.payload_mut().copy_from_slice(self.payload);
+        packet.payload_mut()[..self.payload.len()].copy_from_slice(self.payload);
 
         if checksum_caps.tcp.tx() {
             packet.fill_checksum(src_addr, dst_addr)
