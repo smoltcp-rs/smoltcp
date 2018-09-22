@@ -68,7 +68,7 @@ const CONTIG_COUNT: usize = 4;
 ///
 /// Currently, up to a hardcoded limit of four holes can be tracked in the buffer.
 #[derive(Debug)]
-#[cfg_attr(test, derive(PartialEq, Eq))]
+#[cfg_attr(test, derive(PartialEq, Eq, Clone))]
 pub struct Assembler {
     contigs: [Contig; CONTIG_COUNT]
 }
@@ -181,9 +181,12 @@ impl Assembler {
             } else if offset + size < contig.hole_size {
                 // The range being added covers a part of the hole but not of the data
                 // in this contig, add a new contig containing the range.
-                self.contigs[index].shrink_hole_by(offset + size);
-                let inserted = self.add_contig_at(index)?;
-                *inserted = Contig::hole_and_data(offset, size);
+                {
+                  let inserted = self.add_contig_at(index)?;
+                  *inserted = Contig::hole_and_data(offset, size);
+                }
+                // Previous contigs[index] got moved to contigs[index+1]
+                self.contigs[index+1].shrink_hole_by(offset + size);
                 index += 2;
             } else {
                 unreachable!()
@@ -383,6 +386,18 @@ mod test {
         let mut assr = contigs![(4, 8), (4, 0)];
         assert_eq!(assr.add(2, 12), Ok(()));
         assert_eq!(assr, contigs![(2, 12), (2, 0)]);
+    }
+
+    #[test]
+    fn test_rejected_add_keeps_state() {
+        let mut assr = Assembler::new(CONTIG_COUNT*20);
+        for c in 1..=CONTIG_COUNT-1 {
+          assert_eq!(assr.add(c*10, 3), Ok(()));
+        }
+        // Maximum of allowed holes is reached
+        let assr_before = assr.clone();
+        assert_eq!(assr.add(1, 3), Err(()));
+        assert_eq!(assr_before, assr);
     }
 
     #[test]
