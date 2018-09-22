@@ -62,15 +62,26 @@ impl Contig {
     }
 }
 
+#[cfg(feature = "std")]
+use std::boxed::Box;
+#[cfg(all(feature = "alloc", not(feature = "std")))]
+use alloc::boxed::Box;
+#[cfg(any(feature = "std", feature = "alloc"))]
+const CONTIG_COUNT: usize = 32;
+
+#[cfg(not(any(feature = "std", feature = "alloc")))]
 const CONTIG_COUNT: usize = 4;
 
 /// A buffer (re)assembler.
 ///
-/// Currently, up to a hardcoded limit of four holes can be tracked in the buffer.
+/// Currently, up to a hardcoded limit of 4 or 32 holes can be tracked in the buffer.
 #[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq, Eq, Clone))]
 pub struct Assembler {
-    contigs: [Contig; CONTIG_COUNT]
+    #[cfg(not(any(feature = "std", feature = "alloc")))]
+    contigs: [Contig; CONTIG_COUNT],
+    #[cfg(any(feature = "std", feature = "alloc"))]
+    contigs: Box<[Contig; CONTIG_COUNT]>,
 }
 
 impl fmt::Display for Assembler {
@@ -88,7 +99,10 @@ impl fmt::Display for Assembler {
 impl Assembler {
     /// Create a new buffer assembler for buffers of the given size.
     pub fn new(size: usize) -> Assembler {
+        #[cfg(not(any(feature = "std", feature = "alloc")))]
         let mut contigs = [Contig::empty(); CONTIG_COUNT];
+        #[cfg(any(feature = "std", feature = "alloc"))]
+        let mut contigs = Box::new([Contig::empty(); CONTIG_COUNT]);
         contigs[0] = Contig::hole(size);
         Assembler { contigs }
     }
@@ -283,7 +297,10 @@ mod test {
 
     impl From<Vec<(usize, usize)>> for Assembler {
         fn from(vec: Vec<(usize, usize)>) -> Assembler {
+            #[cfg(not(any(feature = "std", feature = "alloc")))]
             let mut contigs = [Contig::empty(); CONTIG_COUNT];
+            #[cfg(any(feature = "std", feature = "alloc"))]
+            let mut contigs = Box::new([Contig::empty(); CONTIG_COUNT]);
             for (i, &(hole_size, data_size)) in vec.iter().enumerate() {
                 contigs[i] = Contig { hole_size, data_size };
             }

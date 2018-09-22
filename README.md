@@ -104,7 +104,7 @@ The TCP protocol is supported over IPv4 and IPv6, and server and client TCP sock
   * Maximum segment size is negotiated.
   * Window scaling is negotiated.
   * Multiple packets are transmitted without waiting for an acknowledgement.
-  * Reassembly of out-of-order segments is supported, with no more than 4 gaps in sequence space.
+  * Reassembly of out-of-order segments is supported, with no more than 4 or 32 gaps in sequence space.
   * Keep-alive packets may be sent at a configurable interval.
   * Retransmission timeout starts at a fixed interval of 100 ms and doubles every time.
   * Time-wait timeout has a fixed interval of 10 s.
