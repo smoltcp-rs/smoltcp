@@ -4,9 +4,9 @@ use std::vec::Vec;
 use std::collections::VecDeque;
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;
-#[cfg(all(feature = "alloc", not(feature = "rust-1.28")))]
+#[cfg(all(feature = "alloc", not(feature = "rust-1_28")))]
 use alloc::collections::VecDeque;
-#[cfg(all(feature = "alloc", feature = "rust-1.28"))]
+#[cfg(all(feature = "alloc", feature = "rust-1_28"))]
 use alloc::VecDeque;
 
 use Result;

@@ -49,7 +49,7 @@ default = [
 ]
 
 # experimental; do not use; no guarantees provided that this feature will be kept
-"rust-1.28" = []
+"rust-1_28" = []
 
 [[example]]
 name = "packet2pcap"
