@@ -95,7 +95,7 @@ mod fault_injector;
 mod pcap_writer;
 #[cfg(any(feature = "std", feature = "alloc"))]
 mod loopback;
-#[cfg(all(feature = "phy-raw_socket", target_os = "linux"))]
+#[cfg(all(feature = "phy-raw_socket", unix))]
 mod raw_socket;
 #[cfg(all(feature = "phy-tap_interface", target_os = "linux"))]
 mod tap_interface;
@@ -108,7 +108,7 @@ pub use self::fault_injector::FaultInjector;
 pub use self::pcap_writer::{PcapLinkType, PcapMode, PcapSink, PcapWriter};
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use self::loopback::Loopback;
-#[cfg(all(feature = "phy-raw_socket", target_os = "linux"))]
+#[cfg(all(feature = "phy-raw_socket", unix))]
 pub use self::raw_socket::RawSocket;
 #[cfg(all(feature = "phy-tap_interface", target_os = "linux"))]
 pub use self::tap_interface::TapInterface;
