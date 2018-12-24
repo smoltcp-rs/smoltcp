@@ -37,25 +37,24 @@ impl AsRawFd for BpfDevice {
     }
 }
 
+fn open_device() -> io::Result<libc::c_int> {
+    unsafe {
+        for i in 0..256 {
+            let dev = format!("/dev/bpf{}", i).as_ptr() as *const libc::c_char;
+            match libc::open(dev, libc::O_RDWR) {
+                -1 => continue,
+                fd => return Ok(fd),
+            };
+        }
+    }
+    // at this point, all 256 BPF devices were busy and we weren't able to open any
+    Err(io::Error::last_os_error())
+}
+
 impl BpfDevice {
     pub fn new(name: &str) -> io::Result<BpfDevice> {
-        let fd = unsafe {
-            let mut fd = -1;
-            for i in 0..100 {
-                let dev = format!("/dev/bpf{}", i).as_ptr() as *const libc::c_char;
-                fd = libc::open(dev, libc::O_RDWR);
-                if fd != -1 {
-                    break;
-                }
-            }
-            match fd {
-                -1 => return Err(io::Error::last_os_error()),
-                _ => fd,
-            }
-        };
-
         Ok(BpfDevice {
-            fd,
+            fd: open_device()?,
             ifreq: ifreq_for(name),
         })
     }
@@ -117,6 +116,14 @@ impl BpfDevice {
             }
 
             Ok(len as usize)
+        }
+    }
+}
+
+impl Drop for BpfDevice {
+    fn drop(&mut self) {
+        unsafe {
+            libc::close(self.fd);
         }
     }
 }

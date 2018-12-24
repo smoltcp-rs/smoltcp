@@ -11,7 +11,7 @@ mod imp;
 
 #[cfg(all(feature = "phy-raw_socket", target_os = "linux"))]
 pub mod raw_socket;
-#[cfg(all(feature = "phy-raw_socket", any(target_os = "freebsd", target_os = "macos")))]
+#[cfg(all(feature = "phy-raw_socket", not(target_os = "linux"), unix))]
 pub mod bpf;
 #[cfg(all(feature = "phy-tap_interface", target_os = "linux"))]
 pub mod tap_interface;
