@@ -6,13 +6,16 @@ use libc;
 use super::{ifreq, ifreq_for};
 
 /// set interface
+#[cfg(target_os = "macos")]
 const BIOCSETIF: libc::c_ulong = 0x8020426c;
 /// get buffer length
+#[cfg(target_os = "macos")]
 const BIOCGBLEN: libc::c_ulong = 0x40044266;
 /// set immediate/nonblocking read
+#[cfg(target_os = "macos")]
 const BIOCIMMEDIATE: libc::c_ulong = 0x80044270;
-
 // TODO: check if this is same for OSes other than macos
+#[cfg(target_os = "macos")]
 const BPF_HDRLEN: usize = 18;
 
 macro_rules! try_ioctl {
@@ -69,8 +72,23 @@ impl BpfDevice {
     /// but it returns the size of the buffer that the app needs to allocate
     /// for the BPF device
     ///
-    /// The SIOGIFMTU cant be called on a BPF descriptor. There is a workaround
+    /// The `SIOGIFMTU` cant be called on a BPF descriptor. There is a workaround
     /// to get the actual interface mtu, but this should work better
+    ///
+    /// To get the interface MTU, you would need to create a raw socket first,
+    /// and then call `SIOGIFMTU` for the same interface your BPF device is "bound" to.
+    /// This MTU that you would get would not include the length of `struct bpf_hdr`
+    /// which gets prepended to every packet by BPF,
+    /// and your packet will be truncated if it has the length of the MTU.
+    ///
+    /// The buffer size for BPF is usually 4096 bytes, MTU is typically 1500 bytes.
+    /// You could do something like `mtu += BPF_HDRLEN`,
+    /// but you must change the buffer size the BPF device expects using `BIOCSBLEN` accordingly,
+    /// and you must set it before setting the interface with the `BIOCSETIF` ioctl.
+    ///
+    /// The reason I said this should work better is because you might see some unexpected behavior,
+    /// truncated/unaligned packets, I/O errors on read()
+    /// if you change the buffer size to the actual MTU of the interface.
     pub fn interface_mtu(&mut self) -> io::Result<usize> {
         let mut bufsize: libc::c_int = 1;
         try_ioctl!(self.fd, BIOCIMMEDIATE, &mut bufsize as *mut libc::c_int);
