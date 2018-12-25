@@ -18,7 +18,7 @@ pub mod tap_interface;
 
 #[cfg(all(feature = "phy-raw_socket", target_os = "linux"))]
 pub use self::raw_socket::RawSocketDesc;
-#[cfg(all(feature = "phy-raw_socket", any(target_os = "freebsd", target_os = "macos")))]
+#[cfg(all(feature = "phy-raw_socket", not(target_os = "linux"), unix))]
 pub use self::bpf::BpfDevice as RawSocketDesc;
 #[cfg(all(feature = "phy-tap_interface", target_os = "linux"))]
 pub use self::tap_interface::TapInterfaceDesc;
