@@ -39,6 +39,9 @@ matrix:
       env: MODE='fuzz run' ARGS='packet_parser -- -max_len=1536 -max_total_time=30'
     - rust: nightly
       env: FEATURES='default' MODE='clippy'
+    - os: osx
+      rust: nightly
+      env: FEATURES='default' MODE='build'
   allow_failures:
     # something's screwy with Travis (as usual) and cargo-fuzz dies with a LeakSanitizer error
     # even when it's successful. Keep this in .travis.yml in case it starts working some day.
