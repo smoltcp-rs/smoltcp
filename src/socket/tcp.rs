@@ -234,10 +234,14 @@ pub struct TcpSocket<'a> {
     remote_win_len:  usize,
     /// The receive window scaling factor for remotes which support RFC 1323, None if unsupported.
     remote_win_scale: Option<u8>,
+    /// Whether or not the remote supports selective ACK as described in RFC 2018.
+    remote_has_sack: bool,
     /// The maximum number of data octets that the remote side may receive.
     remote_mss:      usize,
     /// The timestamp of the last packet received.
     remote_last_ts:  Option<Instant>,
+    /// The sequence number of the last packet recived, used for sACK
+    local_rx_last_seq: Option<TcpSeqNumber>,
     /// The ACK number of the last packet recived.
     local_rx_last_ack: Option<TcpSeqNumber>,
     /// The number of packets recived directly after
@@ -286,9 +290,11 @@ impl<'a> TcpSocket<'a> {
             remote_win_len:  0,
             remote_win_shift: rx_cap_log2.saturating_sub(16) as u8,
             remote_win_scale: None,
+            remote_has_sack: false,
             remote_mss:      DEFAULT_MSS,
             remote_last_ts:  None,
             local_rx_last_ack: None,
+            local_rx_last_seq: None,
             local_rx_dup_acks: 0,
         }
     }
@@ -800,6 +806,8 @@ impl<'a> TcpSocket<'a> {
             window_len:   0,
             window_scale: None,
             max_seg_size: None,
+            sack_permitted: false,
+            sack_ranges:  [None, None, None],
             payload:      &[]
         };
         let ip_reply_repr = IpRepr::Unspecified {
@@ -829,7 +837,7 @@ impl<'a> TcpSocket<'a> {
     }
 
     fn ack_reply(&mut self, ip_repr: &IpRepr, repr: &TcpRepr) -> (IpRepr, TcpRepr<'static>) {
-        let (ip_reply_repr, mut reply_repr) = Self::reply(ip_repr, repr);
+        let (mut ip_reply_repr, mut reply_repr) = Self::reply(ip_repr, repr);
 
         // From RFC 793:
         // [...] an empty acknowledgment segment containing the current send-sequence number
@@ -844,6 +852,42 @@ impl<'a> TcpSocket<'a> {
         reply_repr.window_len = self.scaled_window();
         self.remote_last_win = reply_repr.window_len;
 
+        // If the remote supports selective acknowledgement, add the option to the outgoing
+        // segment.
+        if self.remote_has_sack {
+            net_debug!("sending sACK option with current assembler ranges");
+
+            // RFC 2018: The first SACK block (i.e., the one immediately following the kind and
+            // length fields in the option) MUST specify the contiguous block of data containing
+            // the segment which triggered this ACK, unless that segment advanced the
+            // Acknowledgment Number field in the header.
+            reply_repr.sack_ranges[0] = None;
+
+            if let Some(last_seg_seq) = self.local_rx_last_seq.map(|s| s.0 as u32) {
+                reply_repr.sack_ranges[0] = self.assembler.iter_data(
+                    reply_repr.ack_number.map(|s| s.0 as usize).unwrap_or(0))
+                    .map(|(left, right)| (left as u32, right as u32))
+                    .skip_while(|(left, right)| *left > last_seg_seq || *right < last_seg_seq)
+                    .next();
+            }
+
+            if reply_repr.sack_ranges[0].is_none() {
+                // The matching segment was removed from the assembler, meaning the acknowledgement
+                // number has advanced, or there was no previous sACK.
+                //
+                // While the RFC says we SHOULD keep a list of reported sACK ranges, and iterate
+                // through those, that is currently infeasable. Instead, we offer the range with
+                // the lowest sequence number (if one exists) to hint at what segments would
+                // most quickly advance the acknowledgement number.
+                reply_repr.sack_ranges[0] = self.assembler.iter_data(
+                    reply_repr.ack_number.map(|s| s.0 as usize).unwrap_or(0))
+                    .map(|(left, right)| (left as u32, right as u32))
+                    .next();
+            }
+        }
+
+        // Since the sACK option may have changed the length of the payload, update that.
+        ip_reply_repr.set_payload_len(reply_repr.buffer_len());
         (ip_reply_repr, reply_repr)
     }
 
@@ -975,6 +1019,7 @@ impl<'a> TcpSocket<'a> {
                 if segment_in_window {
                     // We've checked that segment_start >= window_start above.
                     payload_offset = (segment_start - window_start) as usize;
+                    self.local_rx_last_seq = Some(repr.seq_number);
                 } else {
                     // If we're in the TIME-WAIT state, restart the TIME-WAIT timeout, since
                     // the remote end may not have realized we've closed the connection.
@@ -1056,6 +1101,7 @@ impl<'a> TcpSocket<'a> {
                 self.local_seq_no    = TcpSeqNumber(-repr.seq_number.0);
                 self.remote_seq_no   = repr.seq_number + 1;
                 self.remote_last_seq = self.local_seq_no;
+                self.remote_has_sack = repr.sack_permitted;
                 if let Some(max_seg_size) = repr.max_seg_size {
                     self.remote_mss = max_seg_size as usize
                 }
@@ -1422,6 +1468,8 @@ impl<'a> TcpSocket<'a> {
             window_len:   self.scaled_window(),
             window_scale: None,
             max_seg_size: None,
+            sack_permitted: false,
+            sack_ranges:  [None, None, None],
             payload:      &[]
         };
 
@@ -1442,7 +1490,9 @@ impl<'a> TcpSocket<'a> {
                 if self.state == State::SynSent {
                     repr.ack_number = None;
                     repr.window_scale = Some(self.remote_win_shift);
+                    repr.sack_permitted = true;
                 } else {
+                    repr.sack_permitted = self.remote_has_sack;
                     repr.window_scale = self.remote_win_scale.map(
                         |_| self.remote_win_shift);
                 }
@@ -1641,6 +1691,8 @@ mod test {
         seq_number: TcpSeqNumber(0), ack_number: Some(TcpSeqNumber(0)),
         window_len: 256, window_scale: None,
         max_seg_size: None,
+        sack_permitted: false,
+        sack_ranges: [None, None, None],
         payload: &[]
     };
     const _RECV_IP_TEMPL: IpRepr = IpRepr::Unspecified {
@@ -1654,6 +1706,8 @@ mod test {
         seq_number: TcpSeqNumber(0), ack_number: Some(TcpSeqNumber(0)),
         window_len: 64, window_scale: None,
         max_seg_size: None,
+        sack_permitted: false,
+        sack_ranges: [None, None, None],
         payload: &[]
     };
 
@@ -1795,8 +1849,11 @@ mod test {
         TcpSocket::new(rx_buffer, tx_buffer)
     }
 
-    fn socket_syn_received() -> TcpSocket<'static> {
-        let mut s = socket();
+    fn socket_syn_received_with_buffer_sizes(
+        tx_len: usize,
+        rx_len: usize
+    ) -> TcpSocket<'static> {
+        let mut s = socket_with_buffer_sizes(tx_len, rx_len);
         s.state           = State::SynReceived;
         s.local_endpoint  = LOCAL_END;
         s.remote_endpoint = REMOTE_END;
@@ -1805,6 +1862,10 @@ mod test {
         s.remote_last_seq = LOCAL_SEQ;
         s.remote_win_len  = 256;
         s
+    }
+
+    fn socket_syn_received() -> TcpSocket<'static> {
+        socket_syn_received_with_buffer_sizes(64, 64)
     }
 
     fn socket_syn_sent() -> TcpSocket<'static> {
@@ -1817,14 +1878,18 @@ mod test {
         s
     }
 
-    fn socket_established() -> TcpSocket<'static> {
-        let mut s = socket_syn_received();
+    fn socket_established_with_buffer_sizes(tx_len: usize, rx_len: usize) -> TcpSocket<'static> {
+        let mut s = socket_syn_received_with_buffer_sizes(tx_len, rx_len);
         s.state           = State::Established;
         s.local_seq_no    = LOCAL_SEQ + 1;
         s.remote_last_seq = LOCAL_SEQ + 1;
         s.remote_last_ack = Some(REMOTE_SEQ + 1);
         s.remote_last_win = 64;
         s
+    }
+
+    fn socket_established() -> TcpSocket<'static> {
+        socket_established_with_buffer_sizes(64, 64)
     }
 
     fn socket_fin_wait_1() -> TcpSocket<'static> {
@@ -1934,6 +1999,44 @@ mod test {
         s.state           = State::Listen;
         s.local_endpoint  = IpEndpoint::new(IpAddress::default(), LOCAL_PORT);
         s
+    }
+
+    #[test]
+    fn test_listen_sack_option() {
+        let mut s = socket_listen();
+        send!(s, TcpRepr {
+            control:    TcpControl::Syn,
+            seq_number: REMOTE_SEQ,
+            ack_number: None,
+            sack_permitted: false,
+            ..SEND_TEMPL
+        });
+        assert!(!s.remote_has_sack);
+        recv!(s, [TcpRepr {
+            control: TcpControl::Syn,
+            seq_number: LOCAL_SEQ,
+            ack_number: Some(REMOTE_SEQ + 1),
+            max_seg_size: Some(BASE_MSS),
+            ..RECV_TEMPL
+        }]);
+
+        let mut s = socket_listen();
+        send!(s, TcpRepr {
+            control:    TcpControl::Syn,
+            seq_number: REMOTE_SEQ,
+            ack_number: None,
+            sack_permitted: true,
+            ..SEND_TEMPL
+        });
+        assert!(s.remote_has_sack);
+        recv!(s, [TcpRepr {
+            control: TcpControl::Syn,
+            seq_number: LOCAL_SEQ,
+            ack_number: Some(REMOTE_SEQ + 1),
+            max_seg_size: Some(BASE_MSS),
+            sack_permitted: true,
+            ..RECV_TEMPL
+        }]);
     }
 
     #[test]
@@ -2213,6 +2316,7 @@ mod test {
             ack_number: None,
             max_seg_size: Some(BASE_MSS),
             window_scale: Some(0),
+            sack_permitted: true,
             ..RECV_TEMPL
         }]);
         send!(s, TcpRepr {
@@ -2270,6 +2374,7 @@ mod test {
             ack_number: None,
             max_seg_size: Some(BASE_MSS),
             window_scale: Some(0),
+            sack_permitted: true,
             ..RECV_TEMPL
         }]);
         send!(s, TcpRepr {
@@ -2358,6 +2463,7 @@ mod test {
                 max_seg_size: Some(BASE_MSS),
                 window_scale: Some(*shift_amt),
                 window_len: cmp::min(*buffer_size >> *shift_amt, 65535) as u16,
+                sack_permitted: true,
                 ..RECV_TEMPL
             }]);
         }
@@ -2383,6 +2489,88 @@ mod test {
             ..RECV_TEMPL
         }]);
         assert_eq!(s.rx_buffer.dequeue_many(6), &b"abcdef"[..]);
+    }
+
+    fn setup_rfc2018_cases() -> (TcpSocket<'static>, Vec<u8>) {
+        // This is a utility function used by the tests for RFC 2018 cases. It configures a socket
+        // in a particular way suitable for those cases.
+        //
+        // RFC 2018: Assume the left window edge is 5000 and that the data transmitter sends [...]
+        // segments, each containing 500 data bytes.
+        let mut s = socket_established_with_buffer_sizes(4000, 4000);
+        s.remote_has_sack = true;
+
+        // create a segment that is 500 bytes long
+        let mut segment: Vec<u8> = Vec::with_capacity(500);
+
+        // move the last ack to 5000 by sending ten of them
+        for _ in 0..50 { segment.extend_from_slice(b"abcdefghij") }
+        for offset in (0..5000).step_by(500) {
+            send!(s, TcpRepr {
+                seq_number: REMOTE_SEQ + 1 + offset,
+                ack_number: Some(LOCAL_SEQ + 1),
+                payload: &segment,
+                ..SEND_TEMPL
+            });
+            recv!(s, [TcpRepr {
+                seq_number: LOCAL_SEQ + 1,
+                ack_number: Some(REMOTE_SEQ + 1 + offset + 500),
+                window_len: 3500,
+                ..RECV_TEMPL
+            }]);
+            s.recv(|data| {
+                assert_eq!(data.len(), 500);
+                assert_eq!(data, segment.as_slice());
+                (500, ())
+            }).unwrap();
+        }
+        assert_eq!(s.remote_last_win, 3500);
+        (s, segment)
+    }
+
+    #[test]
+    fn test_established_rfc2018_cases() {
+        // This test case verifies the exact scenarios described on pages 8-9 of RFC 2018. Please
+        // ensure its behavior does not deviate from those scenarios.
+
+        let (mut s, segment) = setup_rfc2018_cases();
+        // RFC 2018:
+        //
+        // Case 2: The first segment is dropped but the remaining 7 are received.
+        //
+        // Upon receiving each of the last seven packets, the data receiver will return a TCP ACK
+        // segment that acknowledges sequence number 5000 and contains a SACK option specifying one
+        // block of queued data:
+        //
+        //   Triggering   ACK      Left Edge  Right Edge
+        //   Segment
+        //
+        //   5000         (lost)
+        //   5500         5000     5500       6000
+        //   6000         5000     5500       6500
+        //   6500         5000     5500       7000
+        //   7000         5000     5500       7500
+        //   7500         5000     5500       8000
+        //   8000         5000     5500       8500
+        //   8500         5000     5500       9000
+        //
+        for offset in (500..3500).step_by(500) {
+            send!(s, TcpRepr {
+                seq_number: REMOTE_SEQ + 1 + offset + 5000,
+                ack_number: Some(LOCAL_SEQ + 1),
+                payload: &segment,
+                ..SEND_TEMPL
+            }, Ok(Some(TcpRepr {
+                seq_number: LOCAL_SEQ + 1,
+                ack_number: Some(REMOTE_SEQ + 1 + 5000),
+                window_len: 4000,
+                sack_ranges: [
+                    Some((REMOTE_SEQ.0 as u32 + 1 + 5500,
+                          REMOTE_SEQ.0 as u32 + 1 + 5500 + offset as u32)),
+                    None, None],
+                ..RECV_TEMPL
+            })));
+        }
     }
 
     #[test]
@@ -3987,6 +4175,7 @@ mod test {
             ack_number: None,
             max_seg_size: Some(BASE_MSS),
             window_scale: Some(0),
+            sack_permitted: true,
             ..RECV_TEMPL
         }));
         assert_eq!(s.state, State::SynSent);
