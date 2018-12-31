@@ -103,6 +103,8 @@ mod field {
     pub const OPT_NOP: u8 = 0x01;
     pub const OPT_MSS: u8 = 0x02;
     pub const OPT_WS:  u8 = 0x03;
+    pub const OPT_SACKPERM: u8 = 0x04;
+    pub const OPT_SACKRNG:  u8 = 0x05;
 }
 
 impl<T: AsRef<[u8]>> Packet<T> {
@@ -286,6 +288,44 @@ impl<T: AsRef<[u8]>> Packet<T> {
         if self.syn() { length += 1 }
         if self.fin() { length += 1 }
         length
+    }
+
+    /// Returns whether the selective acknowledgement SYN flag is set or not.
+    pub fn selective_ack_permitted(&self) -> Result<bool> {
+        let data = self.buffer.as_ref();
+        let mut options = &data[field::OPTIONS(self.header_len())];
+        while options.len() > 0 {
+            let (next_options, option) = TcpOption::parse(options)?;
+            match option {
+                TcpOption::SackPermitted => {
+                    return Ok(true);
+                },
+                _ => {},
+            }
+            options = next_options;
+        }
+        Ok(false)
+    }
+
+    /// Return the selective acknowledgement ranges, if any. If there are none in the packet, an
+    /// array of ``None`` values will be returned.
+    ///
+    pub fn selective_ack_ranges<'s>(
+        &'s self
+    ) -> Result<[Option<(u32, u32)>; 3]> {
+        let data = self.buffer.as_ref();
+        let mut options = &data[field::OPTIONS(self.header_len())];
+        while options.len() > 0 {
+            let (next_options, option) = TcpOption::parse(options)?;
+            match option {
+                TcpOption::SackRange(slice) => {
+                    return Ok(slice);
+                },
+                _ => {},
+            }
+            options = next_options;
+        }
+        Ok([None, None, None])
     }
 
     /// Validate the packet checksum.
@@ -523,6 +563,8 @@ pub enum TcpOption<'a> {
     NoOperation,
     MaxSegmentSize(u16),
     WindowScale(u8),
+    SackPermitted,
+    SackRange([Option<(u32, u32)>; 3]),
     Unknown { kind: u8, data: &'a [u8] }
 }
 
@@ -553,6 +595,47 @@ impl<'a> TcpOption<'a> {
                         option = TcpOption::WindowScale(data[0]),
                     (field::OPT_WS, _) =>
                         return Err(Error::Malformed),
+                    (field::OPT_SACKPERM, 2) =>
+                        option = TcpOption::SackPermitted,
+                    (field::OPT_SACKPERM, _) =>
+                        return Err(Error::Malformed),
+                    (field::OPT_SACKRNG, n) => {
+                        if n < 10 || (n-2) % 8 != 0 {
+                            return Err(Error::Malformed)
+                        }
+                        if n > 26 {
+                            // It's possible for a remote to send 4 SACK blocks, but extremely rare.
+                            // Better to "lose" that 4th block and save the extra RAM and CPU
+                            // cycles in the vastly more common case.
+                            //
+                            // RFC 2018: SACK option that specifies n blocks will have a length of
+                            // 8*n+2 bytes, so the 40 bytes available for TCP options can specify a
+                            // maximum of 4 blocks.  It is expected that SACK will often be used in
+                            // conjunction with the Timestamp option used for RTTM [...] thus a
+                            // maximum of 3 SACK blocks will be allowed in this case.
+                            net_debug!("sACK with >3 blocks, truncating to 3");
+                        }
+                        let mut sack_ranges: [Option<(u32, u32)>; 3] = [None; 3];
+
+                        // RFC 2018: Each contiguous block of data queued at the data receiver is
+                        // defined in the SACK option by two 32-bit unsigned integers in network
+                        // byte order[...]
+                        sack_ranges.iter_mut().enumerate().for_each(|(i, nmut)| {
+                            let left = i * 8;
+                            *nmut = if left < data.len() {
+                                let mid = left + 4;
+                                let right = mid + 4;
+                                let range_left = NetworkEndian::read_u32(
+                                    &data[left..mid]);
+                                let range_right = NetworkEndian::read_u32(
+                                    &data[mid..right]);
+                                Some((range_left, range_right))
+                            } else {
+                                None
+                            };
+                        });
+                        option = TcpOption::SackRange(sack_ranges);
+                    },
                     (_, _) =>
                         option = TcpOption::Unknown { kind: kind, data: data }
                 }
@@ -567,6 +650,8 @@ impl<'a> TcpOption<'a> {
             &TcpOption::NoOperation => 1,
             &TcpOption::MaxSegmentSize(_) => 4,
             &TcpOption::WindowScale(_) => 3,
+            &TcpOption::SackPermitted => 2,
+            &TcpOption::SackRange(s) => s.iter().filter(|s| s.is_some()).count() * 8 + 2,
             &TcpOption::Unknown { data, .. } => 2 + data.len()
         }
     }
@@ -599,6 +684,18 @@ impl<'a> TcpOption<'a> {
                     &TcpOption::WindowScale(value) => {
                         buffer[0] = field::OPT_WS;
                         buffer[2] = value;
+                    }
+                    &TcpOption::SackPermitted => {
+                        buffer[0] = field::OPT_SACKPERM;
+                    }
+                    &TcpOption::SackRange(slice) => {
+                        buffer[0] = field::OPT_SACKRNG;
+                        slice.iter().filter(|s| s.is_some()).enumerate().for_each(|(i, s)| {
+                            let (first, second) = *s.as_ref().unwrap();
+                            let pos = i * 8 + 2;
+                            NetworkEndian::write_u32(&mut buffer[pos..], first);
+                            NetworkEndian::write_u32(&mut buffer[pos+4..], second);
+                        });
                     }
                     &TcpOption::Unknown { kind, data: provided } => {
                         buffer[0] = kind;
@@ -650,6 +747,8 @@ pub struct Repr<'a> {
     pub window_len:   u16,
     pub window_scale: Option<u8>,
     pub max_seg_size: Option<u16>,
+    pub sack_permitted: bool,
+    pub sack_ranges:  [Option<(u32, u32)>; 3],
     pub payload:      &'a [u8]
 }
 
@@ -688,6 +787,8 @@ impl<'a> Repr<'a> {
         let mut max_seg_size = None;
         let mut window_scale = None;
         let mut options = packet.options();
+        let mut sack_permitted = false;
+        let mut sack_ranges = [None, None, None];
         while options.len() > 0 {
             let (next_options, option) = TcpOption::parse(options)?;
             match option {
@@ -706,7 +807,11 @@ impl<'a> Repr<'a> {
                     } else {
                         Some(value)
                     };
-                }
+                },
+                TcpOption::SackPermitted =>
+                    sack_permitted = true,
+                TcpOption::SackRange(slice) =>
+                    sack_ranges = slice,
                 _ => (),
             }
             options = next_options;
@@ -721,6 +826,8 @@ impl<'a> Repr<'a> {
             window_len:   packet.window_len(),
             window_scale: window_scale,
             max_seg_size: max_seg_size,
+            sack_permitted: sack_permitted,
+            sack_ranges:   sack_ranges,
             payload:      packet.payload()
         })
     }
@@ -736,6 +843,15 @@ impl<'a> Repr<'a> {
         }
         if self.window_scale.is_some() {
             length += 3
+        }
+        if self.sack_permitted {
+            length += 2;
+        }
+        let sack_range_len: usize = self.sack_ranges.iter().map(
+            |o| o.map(|_| 8).unwrap_or(0)
+            ).sum();
+        if sack_range_len > 0 {
+            length += sack_range_len + 2;
         }
         if length % 4 != 0 {
             length += 4 - length % 4;
@@ -783,6 +899,12 @@ impl<'a> Repr<'a> {
             if let Some(value) = self.max_seg_size {
                 let tmp = options; options = TcpOption::MaxSegmentSize(value).emit(tmp);
             }
+            if self.sack_permitted {
+                let tmp = options; options = TcpOption::SackPermitted.emit(tmp);
+            } else if self.ack_number.is_some() && self.sack_ranges.iter().any(|s| s.is_some()) {
+                let tmp = options; options = TcpOption::SackRange(self.sack_ranges).emit(tmp);
+            }
+
             if options.len() > 0 {
                 TcpOption::EndOfList.emit(options);
             }
@@ -850,6 +972,10 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
                     write!(f, " mss={}", value)?,
                 TcpOption::WindowScale(value) =>
                     write!(f, " ws={}", value)?,
+                TcpOption::SackPermitted =>
+                    write!(f, " sACK")?,
+                TcpOption::SackRange(slice) =>
+                    write!(f, " sACKr{:?}", slice)?, // debug print conveniently includes the []s
                 TcpOption::Unknown { kind, .. } =>
                     write!(f, " opt({})", kind)?,
             }
@@ -1008,6 +1134,8 @@ mod test {
             window_scale: None,
             control:      Control::Syn,
             max_seg_size: None,
+            sack_permitted: false,
+            sack_ranges:  [None, None, None],
             payload:      &PAYLOAD_BYTES
         }
     }
@@ -1041,7 +1169,7 @@ mod test {
     macro_rules! assert_option_parses {
         ($opt:expr, $data:expr) => ({
             assert_eq!(TcpOption::parse($data), Ok((&[][..], $opt)));
-            let buffer = &mut [0; 20][..$opt.buffer_len()];
+            let buffer = &mut [0; 40][..$opt.buffer_len()];
             assert_eq!($opt.emit(buffer), &mut []);
             assert_eq!(&*buffer, $data);
         })
@@ -1057,6 +1185,22 @@ mod test {
                               &[0x02, 0x04, 0x05, 0xdc]);
         assert_option_parses!(TcpOption::WindowScale(12),
                               &[0x03, 0x03, 0x0c]);
+        assert_option_parses!(TcpOption::SackPermitted,
+                              &[0x4, 0x02]);
+        assert_option_parses!(TcpOption::SackRange([Some((500, 1500)), None, None]),
+                              &[0x05, 0x0a,
+                                0x00, 0x00, 0x01, 0xf4, 0x00, 0x00, 0x05, 0xdc]);
+        assert_option_parses!(TcpOption::SackRange([Some((875, 1225)), Some((1500, 2500)), None]),
+                              &[0x05, 0x12,
+                                0x00, 0x00, 0x03, 0x6b, 0x00, 0x00, 0x04, 0xc9,
+                                0x00, 0x00, 0x05, 0xdc, 0x00, 0x00, 0x09, 0xc4]);
+        assert_option_parses!(TcpOption::SackRange([Some((875000, 1225000)),
+                                                    Some((1500000, 2500000)),
+                                                    Some((876543210, 876654320))]),
+                              &[0x05, 0x1a,
+                                0x00, 0x0d, 0x59, 0xf8, 0x00, 0x12, 0xb1, 0x28,
+                                0x00, 0x16, 0xe3, 0x60, 0x00, 0x26, 0x25, 0xa0,
+                                0x34, 0x3e, 0xfc, 0xea, 0x34, 0x40, 0xae, 0xf0]);
         assert_option_parses!(TcpOption::Unknown { kind: 12, data: &[1, 2, 3][..] },
                               &[0x0c, 0x05, 0x01, 0x02, 0x03])
     }
