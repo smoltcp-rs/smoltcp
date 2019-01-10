@@ -73,6 +73,8 @@ struct InterfaceInner<'b, 'c, 'e> {
     neighbor_cache:         NeighborCache<'b>,
     ethernet_addr:          EthernetAddress,
     ip_addrs:               ManagedSlice<'c, IpCidr>,
+    #[cfg(feature = "proto-ipv4")]
+    any_ip:                 bool,
     routes:                 Routes<'e>,
     #[cfg(feature = "proto-igmp")]
     ipv4_multicast_groups:  ManagedMap<'e, Ipv4Address, ()>,
@@ -91,6 +93,8 @@ pub struct InterfaceBuilder <'b, 'c, 'e, DeviceT: for<'d> Device<'d>> {
     ethernet_addr:          Option<EthernetAddress>,
     neighbor_cache:         Option<NeighborCache<'b>>,
     ip_addrs:               ManagedSlice<'c, IpCidr>,
+    #[cfg(feature = "proto-ipv4")]
+    any_ip:                 bool,
     routes:                 Routes<'e>,
     /// Does not share storage with `ipv6_multicast_groups` to avoid IPv6 size overhead.
     #[cfg(feature = "proto-igmp")]
@@ -132,6 +136,8 @@ impl<'b, 'c, 'e, DeviceT> InterfaceBuilder<'b, 'c, 'e, DeviceT>
             ethernet_addr:       None,
             neighbor_cache:      None,
             ip_addrs:            ManagedSlice::Borrowed(&mut []),
+            #[cfg(feature = "proto-ipv4")]
+            any_ip:              false,
             routes:              Routes::new(ManagedMap::Borrowed(&mut [])),
             #[cfg(feature = "proto-igmp")]
             ipv4_multicast_groups:   ManagedMap::Borrowed(&mut []),
@@ -166,6 +172,25 @@ impl<'b, 'c, 'e, DeviceT> InterfaceBuilder<'b, 'c, 'e, DeviceT>
         let ip_addrs = ip_addrs.into();
         InterfaceInner::check_ip_addrs(&ip_addrs);
         self.ip_addrs = ip_addrs;
+        self
+    }
+
+    /// Enable or disable the AnyIP capability, allowing packets to be received
+    /// locally on IPv4 addresses other than the interface's configured [ip_addrs].
+    /// When AnyIP is enabled and a route prefix in [routes] specifies one of
+    /// the interface's [ip_addrs] as its gateway, the interface will accept
+    /// packets addressed to that prefix.
+    ///
+    /// # IPv6
+    ///
+    /// This option is not available or required for IPv6 as packets sent to
+    /// the interface are not filtered by IPv6 address.
+    ///
+    /// [routes]: struct.EthernetInterface.html#method.routes
+    /// [ip_addrs]: struct.EthernetInterface.html#method.ip_addrs
+    #[cfg(feature = "proto-ipv4")]
+    pub fn any_ip(mut self, enabled: bool) -> Self {
+        self.any_ip = enabled;
         self
     }
 
@@ -225,6 +250,8 @@ impl<'b, 'c, 'e, DeviceT> InterfaceBuilder<'b, 'c, 'e, DeviceT>
                     inner: InterfaceInner {
                         ethernet_addr, device_capabilities, neighbor_cache,
                         ip_addrs: self.ip_addrs,
+                        #[cfg(feature = "proto-ipv4")]
+                        any_ip: self.any_ip,
                         routes: self.routes,
                         #[cfg(feature = "proto-igmp")]
                         ipv4_multicast_groups: self.ipv4_multicast_groups,
@@ -916,7 +943,15 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
 
         if !self.has_ip_addr(ipv4_repr.dst_addr) && !self.has_multicast_group(ipv4_repr.dst_addr) {
             // Ignore IP packets not directed at us or any of the multicast groups
-            return Ok(Packet::None)
+            // If AnyIP is enabled, also check if the packet is routed locally.
+            if !self.any_ip {
+                return Ok(Packet::None);
+            } else if match self.routes.lookup(&IpAddress::Ipv4(ipv4_repr.dst_addr), timestamp) {
+                Some(router_addr) => !self.has_ip_addr(router_addr),
+                None => true,
+            } {
+                return Ok(Packet::None);
+            }
         }
 
         match ipv4_repr.protocol {
