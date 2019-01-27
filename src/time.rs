@@ -28,13 +28,13 @@ pub struct Instant {
 
 impl Instant {
     /// Create a new `Instant` from a number of milliseconds.
-    pub fn from_millis(millis: i64) -> Instant {
-        Instant { millis }
+    pub fn from_millis<T: Into<i64>>(millis: T) -> Instant {
+        Instant { millis: millis.into() }
     }
 
     /// Create a new `Instant` from a number of seconds.
-    pub fn from_secs(secs: i64) -> Instant {
-        Instant { millis: secs * 1000 }
+    pub fn from_secs<T: Into<i64>>(secs: T) -> Instant {
+        Instant { millis: secs.into() * 1000 }
     }
 
     /// Create a new `Instant` from the current [std::time::SystemTime].
@@ -279,7 +279,7 @@ mod test {
         assert_eq!(Instant::from(::std::time::UNIX_EPOCH),
                    Instant::from_millis(0));
         assert_eq!(epoc, ::std::time::UNIX_EPOCH);
-        epoc = Instant::from_millis(2085955200 * 1000).into();
+        epoc = Instant::from_millis(2085955200i64 * 1000).into();
         assert_eq!(epoc, ::std::time::UNIX_EPOCH + ::std::time::Duration::from_secs(2085955200));
     }
 
