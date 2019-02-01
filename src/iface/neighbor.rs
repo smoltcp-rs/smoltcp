@@ -87,7 +87,7 @@ impl<'a> Cache<'a> {
     }
 
     pub fn fill(&mut self, protocol_addr: IpAddress, hardware_addr: EthernetAddress,
-                       timestamp: Instant) {
+                timestamp: Instant) {
         debug_assert!(protocol_addr.is_unicast());
         debug_assert!(hardware_addr.is_unicast());
 
