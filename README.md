@@ -117,6 +117,7 @@ The TCP protocol is supported over IPv4 and IPv6, and server and client TCP sock
   * Timestamping is **not** supported.
   * Urgent pointer is **ignored**.
   * Probing Zero Windows is **not** implemented.
+  * Packetization Layer Path MTU Discovery [PLPMTU](https://tools.ietf.org/rfc/rfc4821.txt) is **not** implemented.
 
 ## Installation
 
