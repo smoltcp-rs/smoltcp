@@ -154,6 +154,20 @@ impl<'a, 'b, H> PacketBuffer<'a, 'b, H> {
         debug_assert!(payload_buf.len() == size);
         Ok((header.take().unwrap(), payload_buf))
     }
+
+    /// Peek at a single packet from the buffer without removing it, and return a reference to
+    /// its payload as well as its header, or return `Err(Error:Exhaused)` if the buffer is empty.
+    ///
+    /// This function otherwise behaves identically to [dequeue](#method.dequeue).
+    pub fn peek(&mut self) -> Result<(&H, &[u8])> {
+        self.dequeue_padding();
+
+        if let Some(metadata) = self.metadata_ring.get_allocated(0, 1).first() {
+            Ok((metadata.header.as_ref().unwrap(), self.payload_ring.get_allocated(0, metadata.size)))
+        } else {
+            Err(Error::Exhausted)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -173,6 +187,17 @@ mod test {
         assert_eq!(buffer.metadata_ring.len(), 1);
         assert_eq!(buffer.dequeue().unwrap().1, &b"abcdef"[..]);
         assert_eq!(buffer.dequeue(), Err(Error::Exhausted));
+    }
+
+    #[test]
+    fn test_peek() {
+        let mut buffer = buffer();
+        assert_eq!(buffer.peek(), Err(Error::Exhausted));
+        buffer.enqueue(6, ()).unwrap().copy_from_slice(b"abcdef");
+        assert_eq!(buffer.metadata_ring.len(), 1);
+        assert_eq!(buffer.peek().unwrap().1, &b"abcdef"[..]);
+        assert_eq!(buffer.dequeue().unwrap().1, &b"abcdef"[..]);
+        assert_eq!(buffer.peek(), Err(Error::Exhausted));
     }
 
     #[test]
