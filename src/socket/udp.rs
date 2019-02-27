@@ -160,6 +160,35 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
         Ok((length, endpoint))
     }
 
+    /// Peek at a packet received from a remote endpoint, and return the endpoint as well
+    /// as a pointer to the payload without removing the packet from the receive buffer.
+    /// This function otherwise behaves identically to [recv](#method.recv).
+    ///
+    /// It returns `Err(Error::Exhausted)` if the receive buffer is empty.
+    pub fn peek(&mut self) -> Result<(&[u8], &IpEndpoint)> {
+        let handle = self.meta.handle;
+        let endpoint = self.endpoint;
+        self.rx_buffer.peek().map(|(remote_endpoint, payload_buf)| {
+            net_trace!("{}:{}:{}: peek {} buffered octets",
+                       handle, endpoint,
+                       remote_endpoint, payload_buf.len());
+           (payload_buf, remote_endpoint)
+        })
+    }
+
+    /// Peek at a packet received from a remote endpoint, copy the payload into the given slice,
+    /// and return the amount of octets copied as well as the endpoint without removing the
+    /// packet from the receive buffer.
+    /// This function otherwise behaves identically to [recv_slice](#method.recv_slice).
+    ///
+    /// See also [peek](#method.peek).
+    pub fn peek_slice(&mut self, data: &mut [u8]) -> Result<(usize, &IpEndpoint)> {
+        let (buffer, endpoint) = self.peek()?;
+        let length = min(data.len(), buffer.len());
+        data[..length].copy_from_slice(&buffer[..length]);
+        Ok((length, endpoint))
+    }
+
     pub(crate) fn accepts(&self, ip_repr: &IpRepr, repr: &UdpRepr) -> bool {
         if self.endpoint.port != repr.dst_port { return false }
         if !self.endpoint.addr.is_unspecified() &&
@@ -377,6 +406,20 @@ mod test {
     }
 
     #[test]
+    fn test_peek_process() {
+        let mut socket = socket(buffer(1), buffer(0));
+        assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
+
+        assert_eq!(socket.peek(), Err(Error::Exhausted));
+
+        assert_eq!(socket.process(&remote_ip_repr(), &REMOTE_UDP_REPR),
+                   Ok(()));
+        assert_eq!(socket.peek(), Ok((&b"abcdef"[..], &REMOTE_END)));
+        assert_eq!(socket.recv(), Ok((&b"abcdef"[..], REMOTE_END)));
+        assert_eq!(socket.peek(), Err(Error::Exhausted));
+    }
+
+    #[test]
     fn test_recv_truncated_slice() {
         let mut socket = socket(buffer(1), buffer(0));
         assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
@@ -388,6 +431,22 @@ mod test {
         let mut slice = [0; 4];
         assert_eq!(socket.recv_slice(&mut slice[..]), Ok((4, REMOTE_END)));
         assert_eq!(&slice, b"abcd");
+    }
+
+    #[test]
+    fn test_peek_truncated_slice() {
+        let mut socket = socket(buffer(1), buffer(0));
+        assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
+
+        assert_eq!(socket.process(&remote_ip_repr(), &REMOTE_UDP_REPR),
+                   Ok(()));
+
+        let mut slice = [0; 4];
+        assert_eq!(socket.peek_slice(&mut slice[..]), Ok((4, &REMOTE_END)));
+        assert_eq!(&slice, b"abcd");
+        assert_eq!(socket.recv_slice(&mut slice[..]), Ok((4, REMOTE_END)));
+        assert_eq!(&slice, b"abcd");
+        assert_eq!(socket.peek_slice(&mut slice[..]), Err(Error::Exhausted));
     }
 
     #[test]
