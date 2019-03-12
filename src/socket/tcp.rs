@@ -247,6 +247,8 @@ pub struct TcpSocket<'a> {
     /// The number of packets recived directly after
     /// each other which have the same ACK number.
     local_rx_dup_acks: u8,
+    /// Whether or not a FIN packet was sent after closing the transmit half of the socket.
+    sent_fin: bool,
 }
 
 const DEFAULT_MSS: usize = 536;
@@ -296,6 +298,7 @@ impl<'a> TcpSocket<'a> {
             local_rx_last_ack: None,
             local_rx_last_seq: None,
             local_rx_dup_acks: 0,
+            sent_fin:        false,
         }
     }
 
@@ -1174,7 +1177,13 @@ impl<'a> TcpSocket<'a> {
             // if they also acknowledge our FIN.
             (State::FinWait1, TcpControl::Fin) => {
                 self.remote_seq_no  += 1;
-                if ack_of_fin {
+                if !self.sent_fin {
+                    // According to RFC we don't go from ESTABLISHED to FIN-WAIT-1 until we
+                    // send a FIN, so we're really still ESTABLISHED. Just hope nobody is
+                    // paying close attention to the FSM.
+                    self.set_state(State::LastAck);
+                    self.timer.set_for_idle(timestamp, self.keep_alive);
+                } else if ack_of_fin {
                     self.set_state(State::TimeWait);
                     self.timer.set_for_close(timestamp);
                 } else {
@@ -1513,8 +1522,10 @@ impl<'a> TcpSocket<'a> {
                 // flags, depending on whether the transmit half of the connection is open.
                 if offset + repr.payload.len() == self.tx_buffer.len() {
                     match self.state {
-                        State::FinWait1 | State::LastAck =>
-                            repr.control = TcpControl::Fin,
+                        State::FinWait1 | State::LastAck => {
+                            repr.control = TcpControl::Fin;
+                            self.sent_fin = true;
+                        }
                         State::Established | State::CloseWait if repr.payload.len() > 0 =>
                             repr.control = TcpControl::Psh,
                         _ => ()
@@ -2903,6 +2914,29 @@ mod test {
     }
 
     #[test]
+    fn test_fin_wait_1_fin_fin_swapped() {
+        let mut s = socket_fin_wait_1();
+        send!(s, TcpRepr {
+            control: TcpControl::Fin,
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            ..SEND_TEMPL
+        });
+        // LAST_ACK is intended here. It goes against the TCP FSM,
+        // but so does ESTABLISHED->FIN-WAIT-1 before you send a FIN.
+        // Since both sides closing a socket simultaneously is rare,
+        // this state change is a convenient fiction.
+        assert_eq!(s.state, State::LastAck);
+        recv!(s, [TcpRepr {
+            control: TcpControl::Fin,
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1 + 1),
+            ..RECV_TEMPL
+        }]);
+        assert_eq!(s.state, State::LastAck);
+    }
+
+    #[test]
     fn test_fin_wait_1_fin_with_data_queued() {
         let mut s = socket_established();
         s.remote_win_len = 6;
@@ -3325,6 +3359,48 @@ mod test {
             ..RECV_TEMPL
         }]);
         assert_eq!(s.state, State::TimeWait);
+    }
+
+    #[test]
+    fn test_mutual_close_with_data_3() {
+        let mut s = socket_established();
+        s.send_slice(b"abcdef").unwrap();
+        s.close();
+        assert_eq!(s.state, State::FinWait1);
+        send!(
+            s,
+            TcpRepr {
+                control: TcpControl::Fin,
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                ..SEND_TEMPL
+            }
+        );
+        // LAST_ACK is intended here. It goes against the TCP FSM,
+        // but so does ESTABLISHED->FIN-WAIT-1 before you send a FIN.
+        // Since both sides closing a socket simultaneously is rare,
+        // this state change is a convenient fiction.
+        assert_eq!(s.state, State::LastAck);
+        recv!(
+            s,
+            [TcpRepr {
+                control: TcpControl::Fin,
+                seq_number: LOCAL_SEQ + 1,
+                ack_number: Some(REMOTE_SEQ + 1 + 1),
+                payload: &b"abcdef"[..],
+                ..RECV_TEMPL
+            }]
+        );
+        assert_eq!(s.state, State::LastAck);
+        send!(
+            s,
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1 + 1,
+                ack_number: Some(LOCAL_SEQ + 1 + 1 + 6),
+                ..SEND_TEMPL
+            }
+        );
+        assert_eq!(s.state, State::Closed);
     }
 
     // =========================================================================================//
