@@ -1152,7 +1152,7 @@ impl<'a> TcpSocket<'a> {
             // ACK packets in ESTABLISHED state reset the retransmit timer,
             // except for duplicate ACK packets which preserve it.
             (State::Established, TcpControl::None) => {
-                if !self.timer.is_retransmit() || ack_len != 0 {
+                if !self.timer.is_retransmit() || ack_len >= self.tx_buffer.len() {
                     self.timer.set_for_idle(timestamp, self.keep_alive);
                 }
             },
@@ -1165,12 +1165,15 @@ impl<'a> TcpSocket<'a> {
             }
 
             // ACK packets in FIN-WAIT-1 state change it to FIN-WAIT-2, if we've already
-            // sent everything in the transmit buffer. If not, they reset the retransmit timer.
+            // sent everything in the transmit buffer. If not, they reset the retransmit timer,
+            // except for duplicate ACK packets which preserve it.
             (State::FinWait1, TcpControl::None) => {
                 if ack_of_fin {
                     self.set_state(State::FinWait2);
                 }
-                self.timer.set_for_idle(timestamp, self.keep_alive);
+                if !self.timer.is_retransmit() || ack_len >= self.tx_buffer.len() {
+                    self.timer.set_for_idle(timestamp, self.keep_alive);
+                }
             }
 
             // FIN packets in FIN-WAIT-1 state change it to CLOSING, or to TIME-WAIT
@@ -1211,7 +1214,9 @@ impl<'a> TcpSocket<'a> {
 
             // ACK packets in CLOSE-WAIT state reset the retransmit timer.
             (State::CloseWait, TcpControl::None) => {
-                self.timer.set_for_idle(timestamp, self.keep_alive);
+                if !self.timer.is_retransmit() || ack_len >= self.tx_buffer.len() {
+                    self.timer.set_for_idle(timestamp, self.keep_alive);
+                }
             }
 
             // ACK packets in LAST-ACK state change it to CLOSED.
