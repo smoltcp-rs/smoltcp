@@ -3498,7 +3498,27 @@ mod test {
             ..RECV_TEMPL
         }), exact);
         s.remote_win_len = 6;
-        recv!(s, time 150, Ok(TcpRepr {
+        recv!(s, time 100, Ok(TcpRepr {
+            control:    TcpControl::Psh,
+            seq_number: LOCAL_SEQ + 1 + 6,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"012345"[..],
+            ..RECV_TEMPL
+        }), exact);
+        s.remote_win_len = 6;
+        recv!(s, time 100, Err(Error::Exhausted));
+
+        recv!(s, time 150, Err(Error::Exhausted));
+
+        recv!(s, time 200, Ok(TcpRepr {
+            control:    TcpControl::None,
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"abcdef"[..],
+            ..RECV_TEMPL
+        }), exact);
+        s.remote_win_len = 6;
+        recv!(s, time 200, Ok(TcpRepr {
             control:    TcpControl::Psh,
             seq_number: LOCAL_SEQ + 1 + 6,
             ack_number: Some(REMOTE_SEQ + 1),
@@ -3507,6 +3527,10 @@ mod test {
         }), exact);
         s.remote_win_len = 6;
         recv!(s, time 200, Err(Error::Exhausted));
+
+        recv!(s, time 300, Err(Error::Exhausted));
+
+        recv!(s, time 350, Err(Error::Exhausted));
     }
 
     #[test]
