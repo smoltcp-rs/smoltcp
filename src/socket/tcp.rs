@@ -1149,9 +1149,10 @@ impl<'a> TcpSocket<'a> {
                 self.timer.set_for_idle(timestamp, self.keep_alive);
             }
 
-            // ACK packets in ESTABLISHED state reset the retransmit timer,
+            // ACK packets in ESTABLISHED and FIN-WAIT-2 state reset the retransmit timer,
             // except for duplicate ACK packets which preserve it.
-            (State::Established, TcpControl::None) => {
+            (State::Established, TcpControl::None) |
+                (State::FinWait2, TcpControl::None) => {
                 if !self.timer.is_retransmit() || ack_len >= self.tx_buffer.len() {
                     self.timer.set_for_idle(timestamp, self.keep_alive);
                 }
@@ -1538,12 +1539,9 @@ impl<'a> TcpSocket<'a> {
                 }
             }
 
-            // We do not transmit anything in the FIN-WAIT-2 state.
-            State::FinWait2 => return Err(Error::Exhausted),
-
-            // We do not transmit data or control flags in the CLOSING or TIME-WAIT states,
+            // We do not transmit data or control flags in the FIN-WAIT-2, CLOSING or TIME-WAIT states,
             // but we may retransmit an ACK.
-            State::Closing | State::TimeWait => ()
+            State::FinWait2 | State::Closing | State::TimeWait => ()
         }
 
         // There might be more than one reason to send a packet. E.g. the keep-alive timer
@@ -2983,6 +2981,24 @@ mod test {
         });
         assert_eq!(s.state, State::TimeWait);
         sanity!(s, socket_time_wait(false));
+    }
+
+    #[test]
+    fn test_fin_wait_2_recv() {
+        let mut s = socket_fin_wait_2();
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1 + 1),
+            payload: &b"abcdef"[..],
+            ..SEND_TEMPL
+        });
+        recv!(s, [TcpRepr {
+            seq_number: LOCAL_SEQ + 1 + 1,
+            ack_number: Some(REMOTE_SEQ + 1 + 6),
+            window_len: 58,
+            ..RECV_TEMPL
+        }]);
+        assert_eq!(s.rx_buffer.dequeue_many(6), &b"abcdef"[..]);
     }
 
     #[test]
