@@ -8,7 +8,7 @@ homepage = "https://github.com/m-labs/smoltcp"
 repository = "https://github.com/m-labs/smoltcp.git"
 readme = "README.md"
 keywords = ["ip", "tcp", "udp", "ethernet", "network"]
-categories = ["embedded"]
+categories = ["embedded", "network-programming"]
 license = "0BSD"
 # Each example should have an explicit `[[example]]` section here to
 # ensure that the correct features are enabled.
