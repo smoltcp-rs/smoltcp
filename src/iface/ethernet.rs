@@ -490,18 +490,14 @@ impl<'b, 'c, 'e, DeviceT> Interface<'b, 'c, 'e, DeviceT>
     /// be logged.
     pub fn poll(&mut self, sockets: &mut SocketSet, timestamp: Instant) -> Result<bool> {
         let mut readiness_may_have_changed = false;
-        loop {
-            let processed_any = self.socket_ingress(sockets, timestamp)?;
-            let emitted_any   = self.socket_egress(sockets, timestamp)?;
+        let processed_any = self.socket_ingress(sockets, timestamp)?;
+        let emitted_any   = self.socket_egress(sockets, timestamp)?;
 
-            #[cfg(feature = "proto-igmp")]
-            self.igmp_egress(timestamp)?;
+        #[cfg(feature = "proto-igmp")]
+        self.igmp_egress(timestamp)?;
 
-            if processed_any || emitted_any {
-                readiness_may_have_changed = true;
-            } else {
-                break
-            }
+        if processed_any || emitted_any {
+            readiness_may_have_changed = true;
         }
         Ok(readiness_may_have_changed)
     }
