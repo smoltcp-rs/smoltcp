@@ -1,8 +1,9 @@
 use core::cmp::min;
+use core::mem::replace;
 
 use {Error, Result};
 use socket::{Socket, SocketMeta, SocketHandle, PollAt};
-use storage::{PacketBuffer, PacketMetadata};
+use storage::{ErrorBuffer, PacketBuffer, PacketMetadata};
 use wire::{IpProtocol, IpRepr, IpEndpoint, UdpRepr};
 
 /// A UDP packet metadata.
@@ -22,7 +23,8 @@ pub struct UdpSocket<'a, 'b: 'a> {
     rx_buffer: UdpSocketBuffer<'a, 'b>,
     tx_buffer: UdpSocketBuffer<'a, 'b>,
     /// The time-to-live (IPv4) or hop limit (IPv6) value used in outgoing packets.
-    hop_limit: Option<u8>
+    hop_limit: Option<u8>,
+    errors: ErrorBuffer<'a>,
 }
 
 impl<'a, 'b> UdpSocket<'a, 'b> {
@@ -34,6 +36,7 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
             endpoint:  IpEndpoint::default(),
             rx_buffer: rx_buffer,
             tx_buffer: tx_buffer,
+            errors:    ErrorBuffer::no_errors(),
             hop_limit: None
         }
     }
@@ -48,6 +51,15 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     #[inline]
     pub fn endpoint(&self) -> IpEndpoint {
         self.endpoint
+    }
+
+    /// Install a new error buffer.
+    ///
+    /// Returns the previous buffer, which initially is created as a buffer with zero capacity that
+    /// contains no information. The information within the argument buffer is discarded.
+    pub fn set_error_buffer(&mut self, mut buffer: ErrorBuffer<'a>) -> ErrorBuffer<'a> {
+        buffer.clear();
+        replace(&mut self.errors, buffer)
     }
 
     /// Return the time-to-live (IPv4) or hop limit (IPv6) value used in outgoing packets.

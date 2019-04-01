@@ -6,10 +6,12 @@ or `alloc` crates being available, and heap-allocated memory.
 */
 
 mod assembler;
+mod error;
 mod ring_buffer;
 mod packet_buffer;
 
 pub use self::assembler::Assembler;
+pub use self::error::ErrorBuffer;
 pub use self::ring_buffer::RingBuffer;
 pub use self::packet_buffer::{PacketBuffer, PacketMetadata};
 
