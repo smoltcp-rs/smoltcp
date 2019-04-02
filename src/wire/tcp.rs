@@ -312,7 +312,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     ///
     pub fn selective_ack_ranges<'s>(
         &'s self
-    ) -> Result<[Option<(u32, u32)>; 3]> {
+    ) -> Result<[Option<(u32, u32)>; 4]> {
         let data = self.buffer.as_ref();
         let mut options = &data[field::OPTIONS(self.header_len())];
         while options.len() > 0 {
@@ -325,7 +325,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
             }
             options = next_options;
         }
-        Ok([None, None, None])
+        Ok([None, None, None, None])
     }
 
     /// Validate the packet checksum.
@@ -564,7 +564,7 @@ pub enum TcpOption<'a> {
     MaxSegmentSize(u16),
     WindowScale(u8),
     SackPermitted,
-    SackRange([Option<(u32, u32)>; 3]),
+    SackRange([Option<(u32, u32)>; 4]),
     Unknown { kind: u8, data: &'a [u8] }
 }
 
@@ -603,7 +603,7 @@ impl<'a> TcpOption<'a> {
                         if n < 10 || (n-2) % 8 != 0 {
                             return Err(Error::Malformed)
                         }
-                        if n > 26 {
+                        if n > 34 {
                             // It's possible for a remote to send 4 SACK blocks, but extremely rare.
                             // Better to "lose" that 4th block and save the extra RAM and CPU
                             // cycles in the vastly more common case.
@@ -613,9 +613,9 @@ impl<'a> TcpOption<'a> {
                             // maximum of 4 blocks.  It is expected that SACK will often be used in
                             // conjunction with the Timestamp option used for RTTM [...] thus a
                             // maximum of 3 SACK blocks will be allowed in this case.
-                            net_debug!("sACK with >3 blocks, truncating to 3");
+                            net_debug!("sACK with >4 blocks, truncating to 4");
                         }
-                        let mut sack_ranges: [Option<(u32, u32)>; 3] = [None; 3];
+                        let mut sack_ranges: [Option<(u32, u32)>; 4] = [None; 4];
 
                         // RFC 2018: Each contiguous block of data queued at the data receiver is
                         // defined in the SACK option by two 32-bit unsigned integers in network
@@ -748,7 +748,7 @@ pub struct Repr<'a> {
     pub window_scale: Option<u8>,
     pub max_seg_size: Option<u16>,
     pub sack_permitted: bool,
-    pub sack_ranges:  [Option<(u32, u32)>; 3],
+    pub sack_ranges:  [Option<(u32, u32)>; 4],
     pub payload:      &'a [u8]
 }
 
@@ -788,7 +788,7 @@ impl<'a> Repr<'a> {
         let mut window_scale = None;
         let mut options = packet.options();
         let mut sack_permitted = false;
-        let mut sack_ranges = [None, None, None];
+        let mut sack_ranges = [None, None, None, None];
         while options.len() > 0 {
             let (next_options, option) = TcpOption::parse(options)?;
             match option {
@@ -1135,7 +1135,7 @@ mod test {
             control:      Control::Syn,
             max_seg_size: None,
             sack_permitted: false,
-            sack_ranges:  [None, None, None],
+            sack_ranges:  [None, None, None, None],
             payload:      &PAYLOAD_BYTES
         }
     }

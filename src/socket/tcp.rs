@@ -847,7 +847,7 @@ impl<'a> TcpSocket<'a> {
             window_scale: None,
             max_seg_size: None,
             sack_permitted: false,
-            sack_ranges:  [None, None, None],
+            sack_ranges:  [None, None, None, None],
             payload:      &[]
         };
         let ip_reply_repr = IpRepr::Unspecified {
@@ -1535,7 +1535,7 @@ impl<'a> TcpSocket<'a> {
             window_scale: None,
             max_seg_size: None,
             sack_permitted: false,
-            sack_ranges:  [None, None, None],
+            sack_ranges:  [None, None, None, None],
             payload:      &[]
         };
 
@@ -1763,7 +1763,7 @@ mod test {
         window_len: 256, window_scale: None,
         max_seg_size: None,
         sack_permitted: false,
-        sack_ranges: [None, None, None],
+        sack_ranges: [None, None, None, None],
         payload: &[]
     };
     const _RECV_IP_TEMPL: IpRepr = IpRepr::Unspecified {
@@ -1778,7 +1778,7 @@ mod test {
         window_len: 64, window_scale: None,
         max_seg_size: None,
         sack_permitted: false,
-        sack_ranges: [None, None, None],
+        sack_ranges: [None, None, None, None],
         payload: &[]
     };
 
@@ -2640,7 +2640,7 @@ mod test {
                 sack_ranges: [
                     Some((REMOTE_SEQ.0 as u32 + 1 + 5500,
                           REMOTE_SEQ.0 as u32 + 1 + 5500 + offset as u32)),
-                    None, None],
+                    None, None, None],
                 ..RECV_TEMPL
             })));
         }
