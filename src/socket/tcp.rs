@@ -56,10 +56,10 @@ enum Timer {
         keep_alive_at: Option<Instant>,
     },
     Retransmit {
-        expires_at: Instant,
-        delay:      Duration
+        expires_at:      Instant,
+        delay:           Duration,
+        fast_retransmit: bool,
     },
-    FastRetransmit,
     Close {
         expires_at: Instant
     }
@@ -87,11 +87,11 @@ impl Timer {
 
     fn should_retransmit(&self, timestamp: Instant) -> Option<Duration> {
         match *self {
-            Timer::Retransmit { expires_at, delay }
+            Timer::Retransmit { fast_retransmit: true, .. } => Some(Duration::from_millis(0)),
+            Timer::Retransmit { expires_at, delay, .. }
                     if timestamp >= expires_at => {
                 Some(timestamp - expires_at + delay)
             },
-            Timer::FastRetransmit => Some(Duration::from_millis(0)),
             _ => None
         }
     }
@@ -110,8 +110,8 @@ impl Timer {
         match *self {
             Timer::Idle { keep_alive_at: Some(keep_alive_at) } => PollAt::Time(keep_alive_at),
             Timer::Idle { keep_alive_at: None } => PollAt::Ingress,
+            Timer::Retransmit { fast_retransmit: true, .. } => PollAt::Now,
             Timer::Retransmit { expires_at, .. } => PollAt::Time(expires_at),
-            Timer::FastRetransmit => PollAt::Now,
             Timer::Close { expires_at } => PollAt::Time(expires_at),
         }
     }
@@ -143,17 +143,19 @@ impl Timer {
 
     fn set_for_retransmit(&mut self, timestamp: Instant) {
         match *self {
-            Timer::Idle { .. } | Timer::FastRetransmit { .. } => {
+            Timer::Idle { .. } | Timer::Retransmit { fast_retransmit: true, .. } => {
                 *self = Timer::Retransmit {
-                    expires_at: timestamp + RETRANSMIT_DELAY,
-                    delay:      RETRANSMIT_DELAY,
+                    expires_at:      timestamp + RETRANSMIT_DELAY,
+                    delay:           RETRANSMIT_DELAY,
+                    fast_retransmit: false,
                 }
             }
-            Timer::Retransmit { expires_at, delay }
+            Timer::Retransmit { expires_at, delay, .. }
                     if timestamp >= expires_at => {
                 *self = Timer::Retransmit {
-                    expires_at: timestamp + delay,
-                    delay:      delay * 2
+                    expires_at:      timestamp + delay,
+                    delay:           delay * 2,
+                    fast_retransmit: false,
                 }
             }
             Timer::Retransmit { .. } => (),
@@ -161,8 +163,34 @@ impl Timer {
         }
     }
 
-    fn set_for_fast_retransmit(&mut self) {
-        *self = Timer::FastRetransmit
+    fn set_for_fast_retransmit(&mut self, timestamp: Instant) {
+        match *self {
+            Timer::Retransmit { fast_retransmit: true, .. } => (),
+            Timer::Retransmit { expires_at, delay, .. } => {
+                *self = Timer::Retransmit {
+                    expires_at, delay, fast_retransmit: true,
+                }
+            }
+            Timer::Idle { .. } => {
+                *self = Timer::Retransmit {
+                    expires_at:      timestamp + RETRANSMIT_DELAY,
+                    delay:           RETRANSMIT_DELAY,
+                    fast_retransmit: true,
+                }
+            }
+            Timer::Close { .. } => ()
+        }
+    }
+
+    fn clear_fast_retransmit(&mut self) {
+        match *self {
+            Timer::Retransmit { expires_at, delay, fast_retransmit: true, .. } => {
+                *self = Timer::Retransmit {
+                    expires_at, delay, fast_retransmit: false,
+                }
+            }
+            _ => (),
+        }
     }
 
     fn set_for_close(&mut self, timestamp: Instant) {
@@ -173,7 +201,14 @@ impl Timer {
 
     fn is_retransmit(&self) -> bool {
         match *self {
-            Timer::Retransmit {..} | Timer::FastRetransmit => true,
+            Timer::Retransmit {..} => true,
+            _ => false,
+        }
+    }
+
+    fn is_fast_retransmit(&self) -> bool {
+        match *self {
+            Timer::Retransmit { fast_retransmit: true, .. } => true,
             _ => false,
         }
     }
@@ -1275,7 +1310,7 @@ impl<'a> TcpSocket<'a> {
                             self.local_rx_dup_acks, if self.local_rx_dup_acks == u8::max_value() { "+" } else { "" });
 
                     if self.local_rx_dup_acks == 3 {
-                        self.timer.set_for_fast_retransmit();
+                        self.timer.set_for_fast_retransmit(timestamp);
                         net_debug!("{}:{}:{}: started fast retransmit",
                                 self.meta.handle, self.local_endpoint, self.remote_endpoint);
                     }
@@ -1288,6 +1323,14 @@ impl<'a> TcpSocket<'a> {
                                 self.meta.handle, self.local_endpoint, self.remote_endpoint);
                     }
                     self.local_rx_last_ack = Some(ack_number);
+                    if ack_len > 0 && self.timer.is_retransmit() {
+                        // RFC6298: when new data has been acknowledged, restart the retransmission timer.
+                        // If all outstanding data has been acknowledged, turn it off instead.
+                        self.timer.set_for_idle(timestamp, self.keep_alive);
+                        if ack_number < self.remote_seq_no {
+                            self.timer.set_for_retransmit(timestamp);
+                        }
+                    }
                 }
             };
             // We've processed everything in the incoming segment, so advance the local
@@ -1413,6 +1456,8 @@ impl<'a> TcpSocket<'a> {
             self.remote_last_ts = Some(timestamp);
         }
 
+        let mut remote_last_seq = self.remote_last_seq;
+
         // Check if any state needs to be changed because of a timer.
         if self.timed_out(timestamp) {
             // If a timeout expires, we should abort the connection.
@@ -1420,12 +1465,16 @@ impl<'a> TcpSocket<'a> {
                        self.meta.handle, self.local_endpoint, self.remote_endpoint);
             self.set_state(State::Closed);
         } else if !self.seq_to_transmit() {
-            if let Some(retransmit_delta) = self.timer.should_retransmit(timestamp) {
+            if self.timer.is_fast_retransmit() {
+                // If we are performing a fast retransmission, resend just the missing segment of data.
+                remote_last_seq = self.local_seq_no;
+            } else if let Some(retransmit_delta) = self.timer.should_retransmit(timestamp) {
                 // If a retransmit timer expired, we should resend data starting at the last ACK.
                 net_debug!("{}:{}:{}: retransmitting at t+{}",
                            self.meta.handle, self.local_endpoint, self.remote_endpoint,
                            retransmit_delta);
                 self.remote_last_seq = self.local_seq_no;
+                remote_last_seq = self.local_seq_no;
             }
         }
 
@@ -1480,7 +1529,7 @@ impl<'a> TcpSocket<'a> {
             src_port:     self.local_endpoint.port,
             dst_port:     self.remote_endpoint.port,
             control:      TcpControl::None,
-            seq_number:   self.remote_last_seq,
+            seq_number:   remote_last_seq,
             ack_number:   Some(self.remote_seq_no + self.rx_buffer.len()),
             window_len:   self.scaled_window(),
             window_scale: None,
@@ -1521,7 +1570,7 @@ impl<'a> TcpSocket<'a> {
             State::Established | State::FinWait1 | State::CloseWait | State::LastAck => {
                 // Extract as much data as the remote side can receive in this packet
                 // from the transmit buffer.
-                let offset = self.remote_last_seq - self.local_seq_no;
+                let offset = remote_last_seq - self.local_seq_no;
                 let size = cmp::min(self.remote_win_len, self.remote_mss);
                 repr.payload = self.tx_buffer.get_allocated(offset, size);
                 // If we've sent everything we had in the buffer, follow it with the PSH or FIN
@@ -1564,7 +1613,7 @@ impl<'a> TcpSocket<'a> {
         } else if repr.payload.len() > 0 {
             net_trace!("{}:{}:{}: tx buffer: sending {} octets at offset {}",
                        self.meta.handle, self.local_endpoint, self.remote_endpoint,
-                       repr.payload.len(), self.remote_last_seq - self.local_seq_no);
+                       repr.payload.len(), remote_last_seq - self.local_seq_no);
         }
         if repr.control != TcpControl::None || repr.payload.len() == 0 {
             let flags =
@@ -1609,7 +1658,13 @@ impl<'a> TcpSocket<'a> {
         if is_keep_alive { return Ok(()) }
 
         // We've sent a packet successfully, so we can update the internal state now.
-        self.remote_last_seq = repr.seq_number + repr.segment_len();
+        if !self.timer.is_fast_retransmit() {
+            self.remote_last_seq = repr.seq_number + repr.segment_len();
+        } else {
+            // Restore the retransmission timer after a successful fast retransmit.
+            // Don't update the sequence number.
+            self.timer.clear_fast_retransmit();
+        }
         self.remote_last_ack = repr.ack_number;
         self.remote_last_win = repr.window_len;
 
@@ -3817,6 +3872,7 @@ mod test {
             window_len: 6,
             ..SEND_TEMPL
         });
+        assert!(s.timer.is_fast_retransmit());
 
         // Fast retransmit packet
         recv!(s, time 1100, Ok(TcpRepr {
@@ -3826,29 +3882,9 @@ mod test {
             ..RECV_TEMPL
         }));
 
-        recv!(s, time 1105, Ok(TcpRepr {
-            seq_number: LOCAL_SEQ + 1 + 6,
-            ack_number: Some(REMOTE_SEQ + 1),
-            payload:    &b"yyyyyy"[..],
-            ..RECV_TEMPL
-        }));
-        recv!(s, time 1110, Ok(TcpRepr {
-            seq_number: LOCAL_SEQ + 1 + (6 * 2),
-            ack_number: Some(REMOTE_SEQ + 1),
-            payload:    &b"wwwwww"[..],
-            ..RECV_TEMPL
-        }));
-        recv!(s, time 1115, Ok(TcpRepr {
-            seq_number: LOCAL_SEQ + 1 + (6 * 3),
-            ack_number: Some(REMOTE_SEQ + 1),
-            payload:    &b"zzzzzz"[..],
-            ..RECV_TEMPL
-        }));
-
-        // After all was send out, enter *normal* retransmission,
-        // don't stay in fast retransmission.
+        // RFC6298: enter *normal* retransmission after retransmitting the dropped segment.
         assert!(match s.timer {
-            Timer::Retransmit { expires_at, .. } => expires_at > Instant::from_millis(1115),
+            Timer::Retransmit { expires_at, .. } => expires_at > Instant::from_millis(1100),
             _ => false,
         });
 
