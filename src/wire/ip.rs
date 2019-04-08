@@ -224,6 +224,20 @@ impl From<::std::net::IpAddr> for Address {
     }
 }
 
+#[cfg(all(feature = "std", feature = "proto-ipv4"))]
+impl From<::std::net::Ipv4Addr> for Address {
+    fn from(ipv4: ::std::net::Ipv4Addr) -> Address {
+        Address::Ipv4(ipv4.into())
+    }
+}
+
+#[cfg(all(feature = "std", feature = "proto-ipv6"))]
+impl From<::std::net::Ipv6Addr> for Address {
+    fn from(ipv6: ::std::net::Ipv6Addr) -> Address {
+        Address::Ipv6(ipv6.into())
+    }
+}
+
 impl Default for Address {
     fn default() -> Address {
         Address::Unspecified
@@ -408,6 +422,26 @@ impl From<::std::net::SocketAddr> for Endpoint {
     fn from(x: ::std::net::SocketAddr) -> Endpoint {
         Endpoint {
             addr: x.ip().into(),
+            port: x.port(),
+        }
+    }
+}
+
+#[cfg(all(feature = "std", feature = "proto-ipv4"))]
+impl From<::std::net::SocketAddrV4> for Endpoint {
+    fn from(x: ::std::net::SocketAddrV4) -> Endpoint {
+        Endpoint {
+            addr: x.ip().clone().into(),
+            port: x.port(),
+        }
+    }
+}
+
+#[cfg(all(feature = "std", feature = "proto-ipv6"))]
+impl From<::std::net::SocketAddrV6> for Endpoint {
+    fn from(x: ::std::net::SocketAddrV6) -> Endpoint {
+        Endpoint {
+            addr: x.ip().clone().into(),
             port: x.port(),
         }
     }
