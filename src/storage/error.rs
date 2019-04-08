@@ -26,6 +26,17 @@ impl<'a> ErrorBuffer<'a> {
         }
     }
 
+    /// Create a buffer that stores the last few errors in a slice.
+    pub fn new<T>(buffer: T) -> Self
+        where T: Into<ManagedSlice<'a, Error>>
+    {
+        ErrorBuffer {
+            storage: RingBuffer::new(buffer),
+            discarded: 0,
+            number: 0,
+        }
+    }
+
     pub fn push(&mut self, error: Error) {
         self.number += 1;
         match next_slot(&mut self.storage) {

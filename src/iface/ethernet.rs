@@ -6,6 +6,7 @@ use core::cmp;
 use managed::{ManagedSlice, ManagedMap};
 #[cfg(not(feature = "proto-igmp"))]
 use core::marker::PhantomData;
+use storage::ErrorBuffer;
 
 use {Error, Result};
 use phy::{Device, DeviceCapabilities, RxToken, TxToken};
@@ -84,6 +85,7 @@ struct InterfaceInner<'b, 'c, 'e> {
     #[cfg(feature = "proto-igmp")]
     igmp_report_state:      IgmpReportState,
     device_capabilities:    DeviceCapabilities,
+    errors:                 ErrorBuffer<'e>,
 }
 
 /// A builder structure used for creating a Ethernet network
@@ -101,6 +103,8 @@ pub struct InterfaceBuilder <'b, 'c, 'e, DeviceT: for<'d> Device<'d>> {
     ipv4_multicast_groups:  ManagedMap<'e, Ipv4Address, ()>,
     #[cfg(not(feature = "proto-igmp"))]
     _ipv4_multicast_groups: PhantomData<&'e ()>,
+    /// Errors in reception that were not related to a specific socket.
+    errors:                 ErrorBuffer<'e>,
 }
 
 impl<'b, 'c, 'e, DeviceT> InterfaceBuilder<'b, 'c, 'e, DeviceT>
@@ -143,6 +147,7 @@ impl<'b, 'c, 'e, DeviceT> InterfaceBuilder<'b, 'c, 'e, DeviceT>
             ipv4_multicast_groups:   ManagedMap::Borrowed(&mut []),
             #[cfg(not(feature = "proto-igmp"))]
             _ipv4_multicast_groups:  PhantomData,
+            errors:              ErrorBuffer::no_errors(),
         }
     }
 
@@ -229,6 +234,14 @@ impl<'b, 'c, 'e, DeviceT> InterfaceBuilder<'b, 'c, 'e, DeviceT>
         self
     }
 
+    /// Set the error buffer to use.
+    pub fn error_buffer<T>(mut self, errors: T) -> Self
+        where T: Into<ManagedSlice<'e, Error>>
+    {
+        self.errors = ErrorBuffer::new(errors.into());
+        self
+    }
+
     /// Create a network interface using the previously provided configuration.
     ///
     /// # Panics
@@ -259,6 +272,7 @@ impl<'b, 'c, 'e, DeviceT> InterfaceBuilder<'b, 'c, 'e, DeviceT>
                         _ipv4_multicast_groups:  PhantomData,
                         #[cfg(feature = "proto-igmp")]
                         igmp_report_state: IgmpReportState::Inactive,
+                        errors: self.errors,
                     }
                 }
             },
@@ -443,6 +457,18 @@ impl<'b, 'c, 'e, DeviceT> Interface<'b, 'c, 'e, DeviceT>
 
     pub fn routes_mut(&mut self) -> &mut Routes<'e> {
         &mut self.inner.routes
+    }
+
+    /// The error buffer for errors that were not related to a specific socket.
+    pub fn errors(&self) -> &ErrorBuffer<'e> {
+        &self.inner.errors
+    }
+
+    /// The error buffer for errors that were not related to a specific socket.
+    ///
+    /// The mutable buffer can be used to also consume the errors or change the underlying buffer.
+    pub fn errors_mut(&mut self) -> &mut ErrorBuffer<'e> {
+        &mut self.inner.errors
     }
 
     /// Transmit packets queued in the given sockets, and receive packets queued
