@@ -214,6 +214,157 @@ impl Timer {
     }
 }
 
+/// Implementation of TCP NewReno congestion control.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct CongestionControl {
+    /// The congestion window size in octets.
+    /// I.e. the maximum amount of data that can be sent at once if the remote has a
+    /// sufficient window size.
+    cwnd:            usize,
+    cwnd_undo:       usize,
+    /// The slow-start threshold in octets.
+    /// Controls the rate of increase in cwnd.
+    ssthresh:        usize,
+    ssthresh_undo:   usize,
+    /// The end of the send window at the time a lost segment is detected.
+    /// This is used to detect multiple lost segments in a window.
+    recover:         TcpSeqNumber,
+    /// The temporary cwnd increase due to a duplicate ACK.
+    cwnd_dup_boost:  usize,
+    /// Used to detect unnecessary retransmissions during fast recovery.
+    last_ack_len:    usize,
+    /// True if the fast recovery algorithm is active.
+    fast_recovery:   bool,
+    partial_ack:     bool,
+    has_retransmitted: bool,
+}
+
+impl Default for CongestionControl {
+    fn default() -> CongestionControl {
+        CongestionControl {
+            cwnd: DEFAULT_MSS,
+            cwnd_undo: 0,
+            ssthresh: std::usize::MAX,
+            ssthresh_undo: 0,
+            recover: TcpSeqNumber::default(),
+            cwnd_dup_boost: 0,
+            last_ack_len: 0,
+            fast_recovery: false,
+            partial_ack: false,
+            has_retransmitted: false,
+        }
+    }
+}
+
+impl CongestionControl {
+    pub fn cwnd(&self) -> usize {
+        self.cwnd + self.cwnd_dup_boost
+    }
+
+    pub fn set_initial_cwnd(&mut self, mss: usize) {
+        self.cwnd = if mss > 2190 {
+                2 * mss
+            } else if mss > 1095 {
+                3 * mss
+            } else {
+                4 * mss
+            };
+    }
+
+    pub fn set_initial_seq(&mut self, seq: TcpSeqNumber) {
+        self.recover = seq;
+    }
+
+    pub fn ack_received(&mut self, ack_len: usize, ack_num: TcpSeqNumber, mss: usize) -> (bool, bool) {
+        self.cwnd_dup_boost = 0;
+        self.last_ack_len = ack_len;
+        if self.fast_recovery {
+            if !self.has_retransmitted {
+                // Packet reordering detected before we did a fast
+                // retransmit. Pretend it never happened and carry on.
+                self.cwnd = self.cwnd_undo;
+                self.ssthresh = self.ssthresh_undo;
+                self.recover = ack_num;
+                self.fast_recovery = false;
+            } else if ack_num >= self.recover {
+                // Full acknowledgement of the entire window at the time
+                // of fast retransmission
+                self.fast_recovery = false;
+                self.cwnd = self.ssthresh;
+                net_trace!("fast recovery complete, cwnd={}", self.cwnd);
+                return (false, true)
+            } else {
+                // Partial acknowledgement, indicating another lost segment
+                self.cwnd -= ack_len;
+                if ack_len >= mss {
+                    self.cwnd += mss;
+                }
+                // Trigger a fast retransmit for the lost segment
+                let reset_timer = !self.partial_ack;
+                self.partial_ack = true;
+                return (true, reset_timer)
+            }
+        }
+        if self.is_initial_slow_start() {
+            // Compensate for delayed ACKs per RFC 3465's suggestion
+            self.cwnd += std::cmp::min(ack_len, mss * 2);
+        } else if self.is_slow_start() {
+            self.cwnd += std::cmp::min(ack_len, mss);
+        } else {
+            // RFC 5681, equation 3
+            self.cwnd += std::cmp::max((mss*mss) / self.cwnd, 1);
+        }
+        (false, true)
+    }
+
+    pub fn dup_ack_rx(&mut self, mss: usize) {
+        self.cwnd_dup_boost += mss;
+    }
+
+    pub fn dup_ack_rx3(&mut self, mss: usize) {
+        self.cwnd += mss;
+    }
+
+    pub fn loss_detected(&mut self, snd_una: TcpSeqNumber, snd_nxt: TcpSeqNumber, mss: usize) {
+        net_trace!("retransmitting, ssthresh={}, cwnd={}, recover={}",
+                    self.ssthresh, self.cwnd, self.recover);
+        self.ssthresh = std::cmp::max((snd_nxt - snd_una) / 2, mss * 2);
+        self.recover = snd_nxt;
+        self.cwnd = mss;
+        self.fast_recovery = false;
+    }
+
+    pub fn enter_fast_retransmit(&mut self, snd_una: TcpSeqNumber, snd_nxt: TcpSeqNumber, mss: usize) -> bool {
+        if (snd_una - 1) > self.recover {
+            self.ssthresh_undo = self.ssthresh;
+            self.ssthresh = std::cmp::max((snd_nxt - snd_una) / 2, mss * 2);
+            self.recover = snd_nxt;
+            self.cwnd_undo = self.cwnd;
+            self.cwnd = self.ssthresh + mss * 3;
+            self.cwnd_dup_boost = 0;
+            self.fast_recovery = true;
+            self.has_retransmitted = false;
+            net_trace!("entering fast recovery, ssthresh={}, cwnd={}, recover={}",
+                       self.ssthresh, self.cwnd, self.recover);
+            true
+        } else {
+            self.cwnd > mss && self.last_ack_len <= 4 * mss
+        }
+    }
+
+    pub fn has_retransmitted(&mut self) {
+        self.has_retransmitted = true
+    }
+
+    fn is_initial_slow_start(&self) -> bool {
+        self.ssthresh == std::usize::MAX
+    }
+
+    fn is_slow_start(&self) -> bool {
+        self.cwnd < self.ssthresh
+    }
+}
+
 /// A Transmission Control Protocol socket.
 ///
 /// A TCP socket may passively listen for connections or actively connect to another endpoint.
@@ -225,6 +376,7 @@ pub struct TcpSocket<'a> {
     pub(crate) meta: SocketMeta,
     state:           State,
     timer:           Timer,
+    congestion_control: CongestionControl,
     assembler:       Assembler,
     rx_buffer:       SocketBuffer<'a>,
     tx_buffer:       SocketBuffer<'a>,
@@ -324,6 +476,7 @@ impl<'a> TcpSocket<'a> {
             remote_last_seq: TcpSeqNumber::default(),
             remote_last_ack: None,
             remote_last_win: 0,
+            congestion_control: CongestionControl::default(),
             remote_win_len:  0,
             remote_win_shift: rx_cap_log2.saturating_sub(16) as u8,
             remote_win_scale: None,
@@ -468,6 +621,7 @@ impl<'a> TcpSocket<'a> {
         self.remote_last_seq = TcpSeqNumber::default();
         self.remote_last_ack = None;
         self.remote_last_win = 0;
+        self.congestion_control = CongestionControl::default();
         self.remote_win_len  = 0;
         self.remote_win_scale = None;
         self.remote_win_shift = rx_cap_log2.saturating_sub(16) as u8;
@@ -1139,11 +1293,13 @@ impl<'a> TcpSocket<'a> {
                 self.remote_endpoint = IpEndpoint::new(ip_repr.src_addr(), repr.src_port);
                 // FIXME: use something more secure here
                 self.local_seq_no    = TcpSeqNumber(-repr.seq_number.0);
+                self.congestion_control.set_initial_seq(self.local_seq_no);
                 self.remote_seq_no   = repr.seq_number + 1;
                 self.remote_last_seq = self.local_seq_no;
                 self.remote_has_sack = repr.sack_permitted;
                 if let Some(max_seg_size) = repr.max_seg_size {
-                    self.remote_mss = max_seg_size as usize
+                    self.remote_mss = max_seg_size as usize;
+                    self.congestion_control.set_initial_cwnd(self.remote_mss);
                 }
                 self.remote_win_scale = repr.window_scale;
                 // No window scaling means don't do any window shifting
@@ -1179,6 +1335,7 @@ impl<'a> TcpSocket<'a> {
                 self.remote_last_ack = Some(repr.seq_number);
                 if let Some(max_seg_size) = repr.max_seg_size {
                     self.remote_mss = max_seg_size as usize;
+                    self.congestion_control.set_initial_cwnd(self.remote_mss);
                 }
                 self.set_state(State::Established);
                 self.timer.set_for_idle(timestamp, self.keep_alive);
@@ -1277,12 +1434,20 @@ impl<'a> TcpSocket<'a> {
         // exception of SYN segments, is left-shifted by Snd.Wind.Scale bits before updating SND.WND.
         self.remote_win_len = (repr.window_len as usize) << (self.remote_win_scale.unwrap_or(0) as usize);
 
+        let mut ack_resets_timer = true;
         if ack_len > 0 {
             // Dequeue acknowledged octets.
             debug_assert!(self.tx_buffer.len() >= ack_len);
-            net_trace!("{}:{}:{}: tx buffer: dequeueing {} octets (now {})",
+            let (retransmit, reset_timer) = self.congestion_control.ack_received(ack_len, repr.ack_number.unwrap(), self.remote_mss);
+            if retransmit {
+                self.timer.set_for_fast_retransmit(timestamp);
+                ack_resets_timer = reset_timer;
+                net_trace!("{}:{}:{}: restarted fast transmit for seq {}",
+                        self.meta.handle, self.local_endpoint, self.remote_endpoint, repr.ack_number.unwrap());
+            }
+            net_trace!("{}:{}:{}: tx buffer: dequeueing {} octets (now {}) from {}, new cwnd {}",
                        self.meta.handle, self.local_endpoint, self.remote_endpoint,
-                       ack_len, self.tx_buffer.len() - ack_len);
+                       ack_len, self.tx_buffer.len() - ack_len, repr.ack_number.unwrap(), self.congestion_control.cwnd());
             self.tx_buffer.dequeue_allocated(ack_len);
         }
 
@@ -1310,9 +1475,15 @@ impl<'a> TcpSocket<'a> {
                             self.local_rx_dup_acks, if self.local_rx_dup_acks == u8::max_value() { "+" } else { "" });
 
                     if self.local_rx_dup_acks == 3 {
-                        self.timer.set_for_fast_retransmit(timestamp);
-                        net_debug!("{}:{}:{}: started fast retransmit",
-                                self.meta.handle, self.local_endpoint, self.remote_endpoint);
+                        if self.congestion_control.enter_fast_retransmit(self.local_seq_no, self.remote_last_seq, self.remote_mss) {
+                            net_debug!("{}:{}:{}: started fast retransmit",
+                                    self.meta.handle, self.local_endpoint, self.remote_endpoint);
+                            self.timer.set_for_fast_retransmit(timestamp);
+                        }
+                    } else if self.local_rx_dup_acks < 3 {
+                        self.congestion_control.dup_ack_rx(self.remote_mss);
+                    } else {
+                        self.congestion_control.dup_ack_rx3(self.remote_mss);
                     }
                 },
                 // No duplicate ACK -> Reset state and update last recived ACK
@@ -1323,7 +1494,7 @@ impl<'a> TcpSocket<'a> {
                                 self.meta.handle, self.local_endpoint, self.remote_endpoint);
                     }
                     self.local_rx_last_ack = Some(ack_number);
-                    if ack_len > 0 && self.timer.is_retransmit() {
+                    if ack_len > 0 && self.timer.is_retransmit() && ack_resets_timer {
                         // RFC6298: when new data has been acknowledged, restart the retransmission timer.
                         // If all outstanding data has been acknowledged, turn it off instead.
                         self.timer.set_for_idle(timestamp, self.keep_alive);
@@ -1421,7 +1592,7 @@ impl<'a> TcpSocket<'a> {
         }
 
         if self.remote_win_len > 0 {
-            self.remote_last_seq < self.local_seq_no + self.tx_buffer.len() + control.len()
+            self.remote_last_seq < self.local_seq_no + std::cmp::min(self.tx_buffer.len() + control.len(), self.congestion_control.cwnd())
         } else {
             false
         }
@@ -1464,15 +1635,17 @@ impl<'a> TcpSocket<'a> {
             net_debug!("{}:{}:{}: timeout exceeded",
                        self.meta.handle, self.local_endpoint, self.remote_endpoint);
             self.set_state(State::Closed);
+        } else if self.timer.is_fast_retransmit() {
+            // If we are performing a fast retransmission, resend just the missing segment of data.
+            // This is prioritised over transmitting unsent data
+            remote_last_seq = self.local_seq_no;
         } else if !self.seq_to_transmit() {
-            if self.timer.is_fast_retransmit() {
-                // If we are performing a fast retransmission, resend just the missing segment of data.
-                remote_last_seq = self.local_seq_no;
-            } else if let Some(retransmit_delta) = self.timer.should_retransmit(timestamp) {
+            if let Some(retransmit_delta) = self.timer.should_retransmit(timestamp) {
                 // If a retransmit timer expired, we should resend data starting at the last ACK.
-                net_debug!("{}:{}:{}: retransmitting at t+{}",
+                self.congestion_control.loss_detected(self.local_seq_no, self.remote_last_seq, self.remote_mss);
+                net_debug!("{}:{}:{}: retransmitting at t+{}, new cwnd {}",
                            self.meta.handle, self.local_endpoint, self.remote_endpoint,
-                           retransmit_delta);
+                           retransmit_delta, self.congestion_control.cwnd());
                 self.remote_last_seq = self.local_seq_no;
                 remote_last_seq = self.local_seq_no;
             }
@@ -1481,8 +1654,8 @@ impl<'a> TcpSocket<'a> {
         // Decide whether we're sending a packet.
         if self.seq_to_transmit() {
             // If we have data to transmit and it fits into partner's window, do it.
-            net_trace!("{}:{}:{}: outgoing segment will send data or flags",
-                       self.meta.handle, self.local_endpoint, self.remote_endpoint);
+            net_trace!("{}:{}:{}: outgoing segment will send data or flags @ {}",
+                       self.meta.handle, self.local_endpoint, self.remote_endpoint, remote_last_seq);
         } else if self.ack_to_transmit() {
             // If we have data to acknowledge, do it.
             net_trace!("{}:{}:{}: outgoing segment will acknowledge",
@@ -1658,8 +1831,15 @@ impl<'a> TcpSocket<'a> {
         if is_keep_alive { return Ok(()) }
 
         // We've sent a packet successfully, so we can update the internal state now.
+        self.remote_last_ack = repr.ack_number;
+        self.remote_last_win = repr.window_len;
         if !self.timer.is_fast_retransmit() {
             self.remote_last_seq = repr.seq_number + repr.segment_len();
+            if !self.seq_to_transmit() && repr.segment_len() > 0 {
+                // If we've transmitted all data we could (and there was something at all,
+                // data or flag, to transmit, not just an ACK), wind up the retransmit timer.
+                self.timer.set_for_retransmit(timestamp);
+            }
         } else {
             // Restore the retransmission timer after a successful fast retransmit.
             // Don't update the sequence number.
@@ -1672,6 +1852,7 @@ impl<'a> TcpSocket<'a> {
             // If we've transmitted all data we could (and there was something at all,
             // data or flag, to transmit, not just an ACK), wind up the retransmit timer.
             self.timer.set_for_retransmit(timestamp);
+            self.congestion_control.has_retransmitted();
         }
 
         if self.state == State::Closed {
