@@ -43,6 +43,21 @@ impl<'a> ErrorBuffer<'a> {
         self.storage.dequeue_one().ok().cloned()
     }
 
+    /// Handle all remaining errors.
+    pub fn consume_with<F>(&mut self, mut f: F)
+        where F: FnMut(Error, usize),
+    {
+        let mut start = self.number - self.storage.len();
+        while !self.storage.is_empty() {
+            let (dequeued, ()) = self.storage.dequeue_many_with(|slice| {
+                let all = slice.len();
+                slice.iter().cloned().zip(start..).for_each(|(err, num)| f(err, num));
+                (all, ())
+            });
+            start += dequeued;
+        }
+    }
+
     /// Reset the underlying ring buffer and all other counters.
     pub fn clear(&mut self) {
         self.storage.clear();
