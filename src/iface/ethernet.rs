@@ -6,7 +6,7 @@ use core::cmp;
 use managed::{ManagedSlice, ManagedMap};
 #[cfg(not(feature = "proto-igmp"))]
 use core::marker::PhantomData;
-use storage::ErrorBuffer;
+use storage::{BufferedError, ErrorBuffer};
 
 use {Error, Result};
 use phy::{Device, DeviceCapabilities, RxToken, TxToken};
@@ -770,7 +770,13 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
                        (&mut self, sockets: &mut SocketSet, timestamp: Instant, frame: &'frame T) ->
                        Result<Packet<'frame>>
     {
-        let eth_frame = EthernetFrame::new_checked(frame)?;
+        let eth_frame = EthernetFrame::new_checked(frame)
+            .ok_in(&mut self.errors);
+
+        let eth_frame = match eth_frame {
+            Some(eth_frame) => eth_frame,
+            None => return Ok(Packet::None),
+        };
 
         // Ignore any packets not directed to our hardware address or any of the multicast groups.
         if !eth_frame.dst_addr().is_broadcast() &&
@@ -791,7 +797,10 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
             EthernetProtocol::Ipv6 =>
                 self.process_ipv6(sockets, timestamp, &eth_frame),
             // Drop all other traffic.
-            _ => Err(Error::Unrecognized),
+            _ => {
+                self.errors.push(Error::Unrecognized);
+                Ok(Packet::None)
+            }
         }
     }
 
@@ -938,10 +947,8 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
     }
 
     #[cfg(feature = "proto-ipv4")]
-    fn process_ipv4<'frame, T: AsRef<[u8]>>
-                   (&mut self, sockets: &mut SocketSet, timestamp: Instant,
-                    eth_frame: &EthernetFrame<&'frame T>) ->
-                   Result<Packet<'frame>>
+    fn parse_ipv4<'frame, T: AsRef<[u8]>>(&self, eth_frame: &EthernetFrame<&'frame T>)
+        -> Result<(Ipv4Packet<&'frame [u8]>, Ipv4Repr)>
     {
         let ipv4_packet = Ipv4Packet::new_checked(eth_frame.payload())?;
         let checksum_caps = self.device_capabilities.checksum.clone();
@@ -952,6 +959,23 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
             net_debug!("non-unicast source address");
             return Err(Error::Malformed)
         }
+
+        Ok((ipv4_packet, ipv4_repr))
+    }
+
+    #[cfg(feature = "proto-ipv4")]
+    fn process_ipv4<'frame, T: AsRef<[u8]>>
+                   (&mut self, sockets: &mut SocketSet, timestamp: Instant,
+                    eth_frame: &EthernetFrame<&'frame T>) ->
+                   Result<Packet<'frame>>
+    {
+        let (ipv4_packet, ipv4_repr) = match self.parse_ipv4(eth_frame) {
+            Ok(packet) => packet,
+            Err(err) => {
+                self.errors.push(err);
+                return Ok(Packet::None);
+            },
+        };
 
         if eth_frame.src_addr().is_unicast() {
             // Fill the neighbor cache from IP header of unicast frames.
@@ -1304,24 +1328,39 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
     }
 
     #[cfg(feature = "socket-udp")]
-    fn process_udp<'frame>(&self, sockets: &mut SocketSet,
-                           ip_repr: IpRepr, ip_payload: &'frame [u8]) ->
-                          Result<Packet<'frame>>
+    fn parse_udp<'frame>(&self, ip_repr: IpRepr, ip_payload: &'frame [u8])
+        -> Result<(UdpPacket<&'frame [u8]>, UdpRepr<'frame>)>
     {
         let (src_addr, dst_addr) = (ip_repr.src_addr(), ip_repr.dst_addr());
         let udp_packet = UdpPacket::new_checked(ip_payload)?;
         let checksum_caps = self.device_capabilities.checksum.clone();
         let udp_repr = UdpRepr::parse(&udp_packet, &src_addr, &dst_addr, &checksum_caps)?;
+        Ok((udp_packet, udp_repr))
+    }
 
-        for mut udp_socket in sockets.iter_mut().filter_map(UdpSocket::downcast) {
-            if !udp_socket.accepts(&ip_repr, &udp_repr) { continue }
+    #[cfg(feature = "socket-udp")]
+    fn process_udp<'frame>(&mut self, sockets: &mut SocketSet,
+                           ip_repr: IpRepr, ip_payload: &'frame [u8]) ->
+                          Result<Packet<'frame>>
+    {
+        let (_, udp_repr) = match self.parse_udp(ip_repr.clone(), ip_payload) {
+            Ok(packet) => packet,
+            Err(err) => {
+                self.errors.push(err);
+                return Ok(Packet::None);
+            },
+        };
 
-            match udp_socket.process(&ip_repr, &udp_repr) {
-                // The packet is valid and handled by socket.
-                Ok(()) => return Ok(Packet::None),
-                // The packet is malformed, or the socket buffer is full.
-                Err(e) => return Err(e)
-            }
+        // Get the first accepting udp socket.
+        let accepting = sockets
+            .iter_mut()
+            .filter_map(UdpSocket::downcast)
+            .filter(|udp_socket| udp_socket.accepts(&ip_repr, &udp_repr))
+            .nth(0);
+
+        if let Some(mut udp_socket) = accepting {
+            udp_socket.process(&ip_repr, &udp_repr);
+            return Ok(Packet::None);
         }
 
         // The packet wasn't handled by a socket, send an ICMP port unreachable packet.

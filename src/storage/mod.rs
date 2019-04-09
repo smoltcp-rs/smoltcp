@@ -11,7 +11,7 @@ mod ring_buffer;
 mod packet_buffer;
 
 pub use self::assembler::Assembler;
-pub use self::error::ErrorBuffer;
+pub use self::error::{ErrorBuffer, Buffered as BufferedError};
 pub use self::ring_buffer::RingBuffer;
 pub use self::packet_buffer::{PacketBuffer, PacketMetadata};
 

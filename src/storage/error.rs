@@ -16,6 +16,14 @@ pub struct ErrorBuffer<'a> {
     number: usize,
 }
 
+pub trait Buffered {
+    type Item;
+
+    fn ok_in(self, _: &mut ErrorBuffer) -> Option<Self::Item>;
+
+    fn catch_in(self, _: &mut ErrorBuffer) where Self::Item: Into<()>;
+}
+
 impl<'a> ErrorBuffer<'a> {
     /// Create a buffer that doesn't record any events.
     pub fn no_errors() -> Self {
@@ -50,7 +58,7 @@ impl<'a> ErrorBuffer<'a> {
     }
 
     /// Absorbing the error and return the `ok` value.
-    pub fn ok<T, E>(&mut self, result: Result<T, E>) -> Option<T> 
+    pub fn ok<T, E>(&mut self, result: Result<T, E>) -> Option<T>
         where E: Into<Error>
     {
         result.map_err(|err| self.push(err.into())).ok()
@@ -131,4 +139,16 @@ fn next_slot<'a: 'b, 'b, T>(storage: &'b mut RingBuffer<'a, T>)
     storage.enqueue_one()
         .ok()
         .map(constructor)
+}
+
+impl<T, E: Into<Error>> Buffered for Result<T, E> {
+    type Item = T;
+
+    fn ok_in(self, buf: &mut ErrorBuffer) -> Option<Self::Item> {
+        buf.ok(self)
+    }
+
+    fn catch_in(self, buf: &mut ErrorBuffer) where Self::Item: Into<()> {
+        buf.catch(self.map(Into::into))
+    }
 }

@@ -3,7 +3,7 @@ use core::mem::replace;
 
 use {Error, Result};
 use socket::{Socket, SocketMeta, SocketHandle, PollAt};
-use storage::{ErrorBuffer, PacketBuffer, PacketMetadata};
+use storage::{BufferedError, ErrorBuffer, PacketBuffer, PacketMetadata};
 use wire::{IpProtocol, IpRepr, IpEndpoint, UdpRepr};
 
 /// A UDP packet metadata.
@@ -211,18 +211,20 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
         true
     }
 
-    pub(crate) fn process(&mut self, ip_repr: &IpRepr, repr: &UdpRepr) -> Result<()> {
+    pub(crate) fn process(&mut self, ip_repr: &IpRepr, repr: &UdpRepr) {
         debug_assert!(self.accepts(ip_repr, repr));
 
         let size = repr.payload.len();
 
         let endpoint = IpEndpoint { addr: ip_repr.src_addr(), port: repr.src_port };
-        self.rx_buffer.enqueue(size, endpoint)?.copy_from_slice(repr.payload);
+        match self.rx_buffer.enqueue(size, endpoint).ok_in(&mut self.errors) {
+            Some(buffer) => buffer.copy_from_slice(repr.payload),
+            None => return,
+        }
 
         net_trace!("{}:{}:{}: receiving {} octets",
                    self.meta.handle, self.endpoint,
                    endpoint, size);
-        Ok(())
     }
 
     pub(crate) fn dispatch<F>(&mut self, emit: F) -> Result<()>
