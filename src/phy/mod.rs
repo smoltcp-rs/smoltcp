@@ -92,6 +92,7 @@ mod sys;
 
 mod tracer;
 mod fault_injector;
+mod fuzz_injector;
 mod pcap_writer;
 #[cfg(any(feature = "std", feature = "alloc"))]
 mod loopback;
@@ -105,6 +106,7 @@ pub use self::sys::wait;
 
 pub use self::tracer::Tracer;
 pub use self::fault_injector::FaultInjector;
+pub use self::fuzz_injector::{Fuzzer, FuzzInjector};
 pub use self::pcap_writer::{PcapLinkType, PcapMode, PcapSink, PcapWriter};
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use self::loopback::Loopback;
