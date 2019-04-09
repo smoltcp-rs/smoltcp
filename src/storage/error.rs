@@ -49,6 +49,20 @@ impl<'a> ErrorBuffer<'a> {
         }
     }
 
+    /// Absorbing the error and return the `ok` value.
+    pub fn ok<T, E>(&mut self, result: Result<T, E>) -> Option<T> 
+        where E: Into<Error>
+    {
+        result.map_err(|err| self.push(err.into())).ok()
+    }
+
+    /// Handle the error and otherwise just continue.
+    pub fn catch<E>(&mut self, result: Result<(), E>)
+        where E: Into<Error>
+    {
+        result.unwrap_or_else(|err| self.push(err.into()))
+    }
+
     /// Retrieve the oldest error.
     pub fn pop(&mut self) -> Option<Error> {
         self.storage.dequeue_one().ok().cloned()
