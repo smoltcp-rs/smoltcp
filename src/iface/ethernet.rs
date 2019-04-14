@@ -941,8 +941,10 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
         #[cfg(feature = "socket-raw")]
         let handled_by_raw_socket = self.raw_socket_filter(sockets, &ip_repr, ip_payload);
 
-        if !self.has_ip_addr(ipv4_repr.dst_addr) && !self.has_multicast_group(ipv4_repr.dst_addr) {
-            // Ignore IP packets not directed at us or any of the multicast groups
+        if !self.has_ip_addr(ipv4_repr.dst_addr) &&
+           !ipv4_repr.dst_addr.is_broadcast() &&
+           !self.has_multicast_group(ipv4_repr.dst_addr) {
+            // Ignore IP packets not directed at us, or broadcast, or any of the multicast groups.
             // If AnyIP is enabled, also check if the packet is routed locally.
             if !self.any_ip {
                 return Ok(Packet::None);
@@ -1242,7 +1244,11 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
                    (&self, ipv4_repr: Ipv4Repr, icmp_repr: Icmpv4Repr<'icmp>) ->
                    Packet<'frame>
     {
-        if ipv4_repr.dst_addr.is_unicast() {
+        if !ipv4_repr.src_addr.is_unicast() {
+            // Do not send ICMP replies to non-unicast sources
+            Packet::None
+        } else if ipv4_repr.dst_addr.is_unicast() {
+            // Reply as normal when src_addr and dst_addr are both unicast
             let ipv4_reply_repr = Ipv4Repr {
                 src_addr:    ipv4_repr.dst_addr,
                 dst_addr:    ipv4_repr.src_addr,
@@ -1251,8 +1257,25 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
                 hop_limit:   64
             };
             Packet::Icmpv4((ipv4_reply_repr, icmp_repr))
+        } else if ipv4_repr.dst_addr.is_broadcast() {
+            // Only reply to broadcasts for echo replies and not other ICMP messages
+            match icmp_repr {
+                Icmpv4Repr::EchoReply {..} => match self.ipv4_address() {
+                    Some(src_addr) => {
+                        let ipv4_reply_repr = Ipv4Repr {
+                            src_addr:    src_addr,
+                            dst_addr:    ipv4_repr.src_addr,
+                            protocol:    IpProtocol::Icmp,
+                            payload_len: icmp_repr.buffer_len(),
+                            hop_limit:   64
+                        };
+                        Packet::Icmpv4((ipv4_reply_repr, icmp_repr))
+                    },
+                    None => Packet::None,
+                },
+                _ => Packet::None,
+            }
         } else {
-            // Do not send any ICMP replies to a broadcast destination address.
             Packet::None
         }
     }
@@ -2015,6 +2038,64 @@ mod test {
             assert!(socket.can_recv());
             assert_eq!(socket.recv(), Ok((&UDP_PAYLOAD[..], IpEndpoint::new(src_ip.into(), 67))));
         }
+    }
+
+    #[test]
+    #[cfg(feature = "proto-ipv4")]
+    fn test_handle_ipv4_broadcast() {
+        use wire::{Ipv4Packet, Icmpv4Repr, Icmpv4Packet};
+
+        let (mut iface, mut socket_set) = create_loopback();
+
+        let our_ipv4_addr = iface.ipv4_address().unwrap();
+        let src_ipv4_addr = Ipv4Address([127, 0, 0, 2]);
+
+        // ICMPv4 echo request
+        let icmpv4_data: [u8; 4] = [0xaa, 0x00, 0x00, 0xff];
+        let icmpv4_repr = Icmpv4Repr::EchoRequest {
+            ident: 0x1234, seq_no: 0xabcd, data: &icmpv4_data
+        };
+
+        // Send to IPv4 broadcast address
+        let ipv4_repr = Ipv4Repr {
+            src_addr:    src_ipv4_addr,
+            dst_addr:    Ipv4Address::BROADCAST,
+            protocol:    IpProtocol::Icmp,
+            hop_limit:   64,
+            payload_len: icmpv4_repr.buffer_len(),
+        };
+
+        // Emit to ethernet frame
+        let mut eth_bytes = vec![0u8;
+            EthernetFrame::<&[u8]>::header_len() +
+            ipv4_repr.buffer_len() + icmpv4_repr.buffer_len()
+        ];
+        let frame = {
+            let mut frame = EthernetFrame::new_unchecked(&mut eth_bytes);
+            ipv4_repr.emit(
+                &mut Ipv4Packet::new_unchecked(frame.payload_mut()),
+                &ChecksumCapabilities::default());
+            icmpv4_repr.emit(
+                &mut Icmpv4Packet::new_unchecked(
+                    &mut frame.payload_mut()[ipv4_repr.buffer_len()..]),
+                &ChecksumCapabilities::default());
+            EthernetFrame::new_unchecked(&*frame.into_inner())
+        };
+
+        // Expected ICMPv4 echo reply
+        let expected_icmpv4_repr = Icmpv4Repr::EchoReply {
+            ident: 0x1234, seq_no: 0xabcd, data: &icmpv4_data };
+        let expected_ipv4_repr = Ipv4Repr {
+            src_addr: our_ipv4_addr,
+            dst_addr: src_ipv4_addr,
+            protocol: IpProtocol::Icmp,
+            hop_limit: 64,
+            payload_len: expected_icmpv4_repr.buffer_len(),
+        };
+        let expected_packet = Packet::Icmpv4((expected_ipv4_repr, expected_icmpv4_repr));
+
+        assert_eq!(iface.inner.process_ipv4(&mut socket_set, Instant::from_millis(0), &frame),
+                   Ok(expected_packet));
     }
 
     #[test]
