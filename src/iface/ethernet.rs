@@ -1934,7 +1934,7 @@ mod test {
             0x6f, 0x2c, 0x20, 0x57,
             0x6f, 0x6c, 0x64, 0x21
         ];
-        let (iface, mut socket_set) = create_loopback();
+        let (mut iface, mut socket_set) = create_loopback();
 
         let mut udp_bytes_unicast = vec![0u8; 20];
         let mut udp_bytes_broadcast = vec![0u8; 20];
@@ -2018,7 +2018,7 @@ mod test {
 
         static UDP_PAYLOAD: [u8; 5] = [0x48, 0x65, 0x6c, 0x6c, 0x6f];
 
-        let (iface, mut socket_set) = create_loopback();
+        let (mut iface, mut socket_set) = create_loopback();
 
         let rx_buffer = UdpSocketBuffer::new(vec![UdpPacketMetadata::EMPTY], vec![0; 15]);
         let tx_buffer = UdpSocketBuffer::new(vec![UdpPacketMetadata::EMPTY], vec![0; 15]);
@@ -2097,7 +2097,7 @@ mod test {
         #[cfg(feature = "proto-ipv6")]
         const MAX_PAYLOAD_LEN: usize = 1192;
 
-        let (iface, mut socket_set) = create_loopback();
+        let (mut iface, mut socket_set) = create_loopback();
 
         #[cfg(all(feature = "proto-ipv4", not(feature = "proto-ipv6")))]
         let src_addr = Ipv4Address([192, 168, 1, 1]);
