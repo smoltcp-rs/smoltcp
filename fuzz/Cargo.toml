@@ -7,11 +7,17 @@ publish = false
 [package.metadata]
 cargo-fuzz = true
 
+[dependencies]
+getopts = "0.2"
+
 [dependencies.smoltcp]
 path = ".."
 
 [dependencies.libfuzzer-sys]
 git = "https://github.com/rust-fuzz/libfuzzer-sys.git"
+
+[profile.release]
+codegen-units = 1 # needed to prevent weird linker error about sancov guards
 
 # Prevent this from interfering with workspaces
 [workspace]
@@ -20,3 +26,7 @@ members = ["."]
 [[bin]]
 name = "packet_parser"
 path = "fuzz_targets/packet_parser.rs"
+
+[[bin]]
+name = "tcp_headers"
+path = "fuzz_targets/tcp_headers.rs"
