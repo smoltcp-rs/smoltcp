@@ -353,6 +353,22 @@ impl<'b, 'c, 'e, DeviceT> Interface<'b, 'c, 'e, DeviceT>
         InterfaceInner::check_ethernet_addr(&self.inner.ethernet_addr);
     }
 
+    /// Get a reference to the inner device.
+    pub fn device(&self) -> &DeviceT {
+        &self.device
+    }
+
+    /// Get a mutable reference to the inner device.
+    ///
+    /// There are no invariants imposed on the device by the interface itself. Furthermore the
+    /// trait implementations, required for references of all lifetimes, guarantees that the
+    /// mutable reference can not invalidate the device as such. For some devices, such access may
+    /// still allow modifications with adverse effects on the usability as a `phy` device. You
+    /// should not use them this way.
+    pub fn device_mut(&mut self) -> &mut DeviceT {
+        &mut self.device
+    }
+
     /// Add an address to a list of subscribed multicast IP addresses.
     ///
     /// Returns `Ok(announce_sent)` if the address was added successfully, where `annouce_sent`
