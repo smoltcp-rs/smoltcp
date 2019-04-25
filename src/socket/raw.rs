@@ -174,7 +174,7 @@ impl<'a, 'b> RawSocket<'a, 'b> {
                 }
                 #[cfg(feature = "proto-ipv6")]
                 IpVersion::Ipv6 => {
-                    let mut packet = Ipv6Packet::new_checked(buffer.as_mut())?;
+                    let packet = Ipv6Packet::new_checked(buffer.as_mut())?;
                     if packet.next_header() != protocol { return Err(Error::Unaddressable) }
                     let packet = Ipv6Packet::new_unchecked(&*packet.into_inner());
                     let ipv6_repr = Ipv6Repr::parse(&packet)?;
