@@ -18,6 +18,8 @@ matrix:
     - rust: nightly
       env: FEATURES='std proto-ipv4 proto-igmp socket-raw' MODE='test'
     - rust: nightly
+      env: FEATURES='std proto-ipv4 socket-udp socket-tcp' MODE='test'
+    - rust: nightly
       env: FEATURES='std proto-ipv6 socket-udp' MODE='test'
     - rust: nightly
       env: FEATURES='std proto-ipv6 socket-tcp' MODE='test'
