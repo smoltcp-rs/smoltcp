@@ -2195,7 +2195,7 @@ mod test {
             dst_addr: src_addr,
             protocol: IpProtocol::Icmp,
             hop_limit: 64,
-            payload_len: expected_icmpv4_repr.buffer_len()
+            payload_len: expected_icmp_repr.buffer_len()
         };
 
         // The expected packet does not exceed the IPV4_MIN_MTU
