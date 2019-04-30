@@ -876,12 +876,13 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
         let ip_payload = ipv6_packet.payload();
 
         #[cfg(feature = "socket-raw")]
-        let handled_by_raw_socket = self.raw_socket_filter(sockets, &ipv6_repr.into(), ip_payload);
-        #[cfg(not(feature = "socket-raw"))]
-        let handled_by_raw_socket = false;
+        {
+            if self.raw_socket_filter(sockets, &ipv6_repr.into(), ip_payload) {
+                return Ok(Packet::None);
+            }
+        }
 
-        self.process_nxt_hdr(sockets, timestamp, ipv6_repr, ipv6_repr.next_header,
-                             handled_by_raw_socket, ip_payload)
+        self.process_nxt_hdr(sockets, timestamp, ipv6_repr, ipv6_repr.next_header, ip_payload)
     }
 
     /// Given the next header value forward the payload onto the correct process
@@ -889,7 +890,7 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
     #[cfg(feature = "proto-ipv6")]
     fn process_nxt_hdr<'frame>
                    (&mut self, sockets: &mut SocketSet, timestamp: Instant, ipv6_repr: Ipv6Repr,
-                    nxt_hdr: IpProtocol, handled_by_raw_socket: bool, ip_payload: &'frame [u8])
+                    nxt_hdr: IpProtocol, ip_payload: &'frame [u8])
                    -> Result<Packet<'frame>>
     {
         match nxt_hdr {
@@ -905,11 +906,7 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
                 self.process_tcp(sockets, timestamp, ipv6_repr.into(), ip_payload),
 
             IpProtocol::HopByHop =>
-                self.process_hopbyhop(sockets, timestamp, ipv6_repr, handled_by_raw_socket, ip_payload),
-
-            #[cfg(feature = "socket-raw")]
-            _ if handled_by_raw_socket =>
-                Ok(Packet::None),
+                self.process_hopbyhop(sockets, timestamp, ipv6_repr, ip_payload),
 
             _ => {
                 // Send back as much of the original payload as we can.
@@ -973,6 +970,10 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
         }
 
         match ipv4_repr.protocol {
+            #[cfg(feature = "socket-raw")]
+            _ if handled_by_raw_socket =>
+                Ok(Packet::None),
+
             IpProtocol::Icmp =>
                 self.process_icmpv4(sockets, ip_repr, ip_payload),
 
@@ -987,10 +988,6 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
             #[cfg(feature = "socket-tcp")]
             IpProtocol::Tcp =>
                 self.process_tcp(sockets, timestamp, ip_repr, ip_payload),
-
-            #[cfg(feature = "socket-raw")]
-            _ if handled_by_raw_socket =>
-                Ok(Packet::None),
 
             _ => {
                 // Send back as much of the original payload as we can.
@@ -1173,8 +1170,7 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
 
     #[cfg(feature = "proto-ipv6")]
     fn process_hopbyhop<'frame>(&mut self, sockets: &mut SocketSet, timestamp: Instant,
-                                ipv6_repr: Ipv6Repr, handled_by_raw_socket: bool,
-                                ip_payload: &'frame [u8]) -> Result<Packet<'frame>>
+                                ipv6_repr: Ipv6Repr, ip_payload: &'frame [u8]) -> Result<Packet<'frame>>
     {
         let hbh_pkt = Ipv6HopByHopHeader::new_checked(ip_payload)?;
         let hbh_repr = Ipv6HopByHopRepr::parse(&hbh_pkt)?;
@@ -1199,7 +1195,7 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
             }
         }
         self.process_nxt_hdr(sockets, timestamp, ipv6_repr, hbh_repr.next_header,
-                             handled_by_raw_socket, &ip_payload[hbh_repr.buffer_len()..])
+                             &ip_payload[hbh_repr.buffer_len()..])
     }
 
     #[cfg(feature = "proto-ipv4")]
@@ -2592,5 +2588,61 @@ mod test {
             assert_eq!(leaves[i].0.dst_addr, Ipv4Address::MULTICAST_ALL_ROUTERS);
             assert_eq!(leaves[i].1, IgmpRepr::LeaveGroup { group_addr });
         }
+    }
+
+    #[test]
+    #[cfg(all(feature = "proto-ipv4", feature = "socket-raw"))]
+    fn test_raw_socket_no_reply() {
+        use socket::{RawSocket, RawSocketBuffer, RawPacketMetadata};
+        use wire::{IpVersion, Ipv4Packet, UdpPacket, UdpRepr};
+
+        let (mut iface, mut socket_set) = create_loopback();
+
+        let packets = 1;
+        let rx_buffer = RawSocketBuffer::new(vec![RawPacketMetadata::EMPTY; packets], vec![0; 48 * 1]);
+        let tx_buffer = RawSocketBuffer::new(vec![RawPacketMetadata::EMPTY; packets], vec![0; 48 * packets]);
+        let raw_socket = RawSocket::new(IpVersion::Ipv4, IpProtocol::Udp, rx_buffer, tx_buffer);
+        socket_set.add(raw_socket);
+
+        let src_addr = Ipv4Address([127, 0, 0, 2]);
+        let dst_addr = Ipv4Address([127, 0, 0, 1]);
+
+        let udp_repr = UdpRepr {
+            src_port: 67,
+            dst_port: 68,
+            payload: &[0x2a; 10]
+        };
+        let mut bytes = vec![0xff; udp_repr.buffer_len()];
+        let mut packet = UdpPacket::new_unchecked(&mut bytes[..]);
+        udp_repr.emit(&mut packet, &src_addr.into(), &dst_addr.into(), &ChecksumCapabilities::default());
+        let ipv4_repr = Ipv4Repr {
+            src_addr: src_addr,
+            dst_addr: dst_addr,
+            protocol: IpProtocol::Udp,
+            hop_limit: 64,
+            payload_len: udp_repr.buffer_len()
+        };
+
+        // Emit to ethernet frame
+        let mut eth_bytes = vec![0u8;
+            EthernetFrame::<&[u8]>::header_len() +
+            ipv4_repr.buffer_len() + udp_repr.buffer_len()
+        ];
+        let frame = {
+            let mut frame = EthernetFrame::new_unchecked(&mut eth_bytes);
+            ipv4_repr.emit(
+                &mut Ipv4Packet::new_unchecked(frame.payload_mut()),
+                &ChecksumCapabilities::default());
+            udp_repr.emit(
+                &mut UdpPacket::new_unchecked(
+                    &mut frame.payload_mut()[ipv4_repr.buffer_len()..]),
+                &src_addr.into(),
+                &dst_addr.into(),
+                &ChecksumCapabilities::default());
+            EthernetFrame::new_unchecked(&*frame.into_inner())
+        };
+
+        assert_eq!(iface.inner.process_ipv4(&mut socket_set, Instant::from_millis(0), &frame),
+                   Ok(Packet::None));
     }
 }
