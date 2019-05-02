@@ -63,8 +63,10 @@ pub struct RxToken {
 }
 
 impl phy::RxToken for RxToken {
-    fn consume<R, F: FnOnce(&[u8]) -> Result<R>>(self, _timestamp: Instant, f: F) -> Result<R> {
-        f(&self.buffer)
+    fn consume<R, F>(mut self, _timestamp: Instant, f: F) -> Result<R>
+        where F: FnOnce(&mut [u8]) -> Result<R>
+    {
+        f(&mut self.buffer)
     }
 }
 

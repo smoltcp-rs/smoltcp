@@ -74,7 +74,7 @@ pub struct RxToken<Rx: phy::RxToken, P: PrettyPrint> {
 
 impl<Rx: phy::RxToken, P: PrettyPrint> phy::RxToken for RxToken<Rx, P> {
     fn consume<R, F>(self, timestamp: Instant, f: F) -> Result<R>
-        where F: FnOnce(&[u8]) -> Result<R>
+        where F: FnOnce(&mut [u8]) -> Result<R>
     {
         let Self { token, writer } = self;
         token.consume(timestamp, |buffer| {
