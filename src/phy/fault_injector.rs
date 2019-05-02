@@ -240,7 +240,7 @@ pub struct RxToken<'a, Rx: phy::RxToken> {
 
 impl<'a, Rx: phy::RxToken> phy::RxToken for RxToken<'a, Rx> {
     fn consume<R, F>(self, timestamp: Instant, f: F) -> Result<R>
-        where F: FnOnce(&[u8]) -> Result<R>
+        where F: FnOnce(&mut [u8]) -> Result<R>
     {
         if self.state.borrow_mut().maybe(self.config.drop_pct) {
             net_trace!("rx: randomly dropping a packet");

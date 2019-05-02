@@ -168,7 +168,7 @@ pub struct RxToken<Rx: phy::RxToken, S: PcapSink> {
 }
 
 impl<Rx: phy::RxToken, S: PcapSink> phy::RxToken for RxToken<Rx, S> {
-    fn consume<R, F: FnOnce(&[u8]) -> Result<R>>(self, timestamp: Instant, f: F) -> Result<R> {
+    fn consume<R, F: FnOnce(&mut [u8]) -> Result<R>>(self, timestamp: Instant, f: F) -> Result<R> {
         let Self { token, sink, mode } = self;
         token.consume(timestamp, |buffer| {
             match mode {

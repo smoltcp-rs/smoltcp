@@ -56,14 +56,14 @@ impl<'a> phy::Device<'a> for StmPhy {
     }
 }
 
-struct StmPhyRxToken<'a>(&'a [u8]);
+struct StmPhyRxToken<'a>(&'a mut [u8]);
 
 impl<'a> phy::RxToken for StmPhyRxToken<'a> {
-    fn consume<R, F>(self, _timestamp: Instant, f: F) -> Result<R>
-        where F: FnOnce(&[u8]) -> Result<R>
+    fn consume<R, F>(mut self, _timestamp: Instant, f: F) -> Result<R>
+        where F: FnOnce(&mut [u8]) -> Result<R>
     {
         // TODO: receive packet into buffer
-        let result = f(self.0);
+        let result = f(&mut self.0);
         println!("rx called");
         result
     }
@@ -248,7 +248,7 @@ pub trait RxToken {
     /// The timestamp must be a number of milliseconds, monotonically increasing since an
     /// arbitrary moment in time, such as system startup.
     fn consume<R, F>(self, timestamp: Instant, f: F) -> Result<R>
-        where F: FnOnce(&[u8]) -> Result<R>;
+        where F: FnOnce(&mut [u8]) -> Result<R>;
 }
 
 /// A token to transmit a single network packet.
