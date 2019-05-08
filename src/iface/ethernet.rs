@@ -956,6 +956,8 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
 
         #[cfg(feature = "socket-raw")]
         let handled_by_raw_socket = self.raw_socket_filter(sockets, &ip_repr, ip_payload);
+        #[cfg(not(feature = "socket-raw"))]
+        let handled_by_raw_socket = false;
 
         if !self.has_ip_addr(ipv4_repr.dst_addr) &&
            !ipv4_repr.dst_addr.is_broadcast() &&
@@ -988,7 +990,6 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
             IpProtocol::Tcp =>
                 self.process_tcp(sockets, timestamp, ip_repr, ip_payload),
 
-            #[cfg(feature = "socket-raw")]
             _ if handled_by_raw_socket =>
                 Ok(Packet::None),
 
