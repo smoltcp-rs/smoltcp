@@ -671,6 +671,29 @@ pub struct Repr<'a> {
     pub ip_lease_time: Option<u32>,
 }
 
+impl<'a> Default for Repr<'a> {
+    fn default() -> Self {
+        Self {
+            message_type: MessageType::Unknown(0),
+            transaction_id: 0,
+            client_hardware_address: Default::default(),
+            client_ip: Ipv4Address::UNSPECIFIED,
+            your_ip: Ipv4Address::UNSPECIFIED,
+            server_ip: Ipv4Address::UNSPECIFIED,
+            router: None,
+            subnet_mask: None,
+            relay_agent_ip: Ipv4Address::UNSPECIFIED,
+            broadcast: false,
+            requested_ip: None,
+            client_identifier: None,
+            server_identifier: None,
+            parameter_request_list: None,
+            dns_servers: None,
+            ip_lease_time: None,
+        }
+    }
+ }
+
 impl<'a> Repr<'a> {
     /// Return the length of a packet that will be emitted from this high-level representation.
     pub fn buffer_len(&self) -> usize {
