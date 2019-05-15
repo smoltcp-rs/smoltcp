@@ -707,6 +707,9 @@ impl<'a> Repr<'a> {
             len += DhcpOption::IpLeaseTime(value).buffer_len();
         }
         if let Some(list) = self.parameter_request_list { len += list.len() + 2; }
+        if let Some(servers) = self.dns_servers {
+            len += servers.iter().filter(|s| s.is_some()).count() * 4 + 2;
+        }
 
         len
     }
@@ -843,6 +846,24 @@ impl<'a> Repr<'a> {
             if let Some(list) = self.parameter_request_list {
                 let option = DhcpOption::Other{ kind: field::OPT_PARAMETER_REQUEST_LIST, data: list };
                 let tmp = options; options = option.emit(tmp);
+            }
+            if let Some(dns_servers) = self.dns_servers {
+                let mut data: [u8; 3 * 4] = Default::default();
+                let mut i = 0;
+                while i < dns_servers.len() {
+                    if let Some(dns_server) = dns_servers[i] {
+                        data[i * 4..(i + 1) * 4].copy_from_slice(dns_server.as_bytes());
+                    } else {
+                        break;
+                    }
+                    i += 1;
+                }
+                let option = DhcpOption::Other {
+                    kind: field::OPT_DOMAIN_NAME_SERVER,
+                    data: &data[0..i * 4],
+                };
+                let tmp = options;
+                options = option.emit(tmp);
             }
             if let Some(value) = self.ip_lease_time {
                 let tmp = options;
