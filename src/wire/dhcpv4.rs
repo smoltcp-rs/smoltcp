@@ -703,6 +703,10 @@ impl<'a> Repr<'a> {
         if self.requested_ip.is_some() { len += 6; }
         if self.client_identifier.is_some() { len += 9; }
         if self.server_identifier.is_some() { len += 6; }
+        if self.subnet_mask.is_some() { len += 6; }
+        if let Some(value) = self.router {
+            len += DhcpOption::Router(value).buffer_len();
+        }
         if let Some(value) = self.ip_lease_time {
             len += DhcpOption::IpLeaseTime(value).buffer_len();
         }
