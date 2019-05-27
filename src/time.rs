@@ -168,7 +168,7 @@ impl Duration {
 
 impl fmt::Display for Duration {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}.{}s", self.secs(), self.millis())
+        write!(f, "{}.{:03}s", self.secs(), self.millis())
     }
 }
 
