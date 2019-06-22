@@ -683,7 +683,7 @@ impl<'a> TcpSocket<'a> {
 
     /// Enqueue a sequence of octets to be sent, and fill it from a slice.
     ///
-    /// This function returns the amount of bytes actually enqueued, which is limited
+    /// This function returns the amount of octets actually enqueued, which is limited
     /// by the amount of free space in the transmit buffer; down to zero.
     ///
     /// See also [send](#method.send).
@@ -727,8 +727,8 @@ impl<'a> TcpSocket<'a> {
 
     /// Dequeue a sequence of received octets, and fill a slice from it.
     ///
-    /// This function returns the amount of bytes actually dequeued, which is limited
-    /// by the amount of free space in the transmit buffer; down to zero.
+    /// This function returns the amount of octets actually dequeued, which is limited
+    /// by the amount of occupied space in the receive buffer; down to zero.
     ///
     /// See also [recv](#method.recv).
     pub fn recv_slice(&mut self, data: &mut [u8]) -> Result<usize> {
