@@ -85,7 +85,7 @@ pub trait PcapSink {
     }
 }
 
-impl<T: AsRef<PcapSink>> PcapSink for T {
+impl<T: AsRef<dyn PcapSink>> PcapSink for T {
     fn write(&self, data: &[u8]) {
         self.as_ref().write(data)
     }

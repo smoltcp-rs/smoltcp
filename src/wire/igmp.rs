@@ -358,7 +358,7 @@ impl<'a> fmt::Display for Repr {
 use super::pretty_print::{PrettyIndent, PrettyPrint};
 
 impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
-    fn pretty_print(buffer: &AsRef<[u8]>,
+    fn pretty_print(buffer: &dyn AsRef<[u8]>,
                     f: &mut fmt::Formatter,
                     indent: &mut PrettyIndent)
                     -> fmt::Result {

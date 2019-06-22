@@ -71,20 +71,20 @@ pub trait PrettyPrint {
     ///
     /// `pretty_print` accepts a buffer and not a packet wrapper because the packet might
     /// be truncated, and so it might not be possible to create the packet wrapper.
-    fn pretty_print(buffer: &AsRef<[u8]>, fmt: &mut fmt::Formatter,
+    fn pretty_print(buffer: &dyn AsRef<[u8]>, fmt: &mut fmt::Formatter,
                     indent: &mut PrettyIndent) -> fmt::Result;
 }
 
 /// Wrapper for using a `PrettyPrint` where a `Display` is expected.
 pub struct PrettyPrinter<'a, T: PrettyPrint> {
     prefix:  &'static str,
-    buffer:  &'a AsRef<[u8]>,
+    buffer:  &'a dyn AsRef<[u8]>,
     phantom: PhantomData<T>
 }
 
 impl<'a, T: PrettyPrint> PrettyPrinter<'a, T> {
     /// Format the listing with the recorded parameters when Display::fmt is called.
-    pub fn new(prefix: &'static str, buffer: &'a AsRef<[u8]>) -> PrettyPrinter<'a, T> {
+    pub fn new(prefix: &'static str, buffer: &'a dyn AsRef<[u8]>) -> PrettyPrinter<'a, T> {
         PrettyPrinter {
             prefix:  prefix,
             buffer:  buffer,

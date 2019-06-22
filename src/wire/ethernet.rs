@@ -212,7 +212,7 @@ impl<T: AsRef<[u8]>> fmt::Display for Frame<T> {
 use super::pretty_print::{PrettyPrint, PrettyIndent};
 
 impl<T: AsRef<[u8]>> PrettyPrint for Frame<T> {
-    fn pretty_print(buffer: &AsRef<[u8]>, f: &mut fmt::Formatter,
+    fn pretty_print(buffer: &dyn AsRef<[u8]>, f: &mut fmt::Formatter,
                     indent: &mut PrettyIndent) -> fmt::Result {
         let frame = match Frame::new_checked(buffer) {
             Err(err)  => return write!(f, "{}({})", indent, err),

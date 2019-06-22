@@ -652,7 +652,7 @@ use super::pretty_print::{PrettyPrint, PrettyIndent};
 // TODO: This is very similar to the implementation for IPv4. Make
 // a way to have less copy and pasted code here.
 impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
-    fn pretty_print(buffer: &AsRef<[u8]>, f: &mut fmt::Formatter,
+    fn pretty_print(buffer: &dyn AsRef<[u8]>, f: &mut fmt::Formatter,
                     indent: &mut PrettyIndent) -> fmt::Result {
         let (ip_repr, payload) = match Packet::new_checked(buffer) {
             Err(err) => return write!(f, "{}({})", indent, err),

@@ -665,7 +665,7 @@ impl fmt::Display for Repr {
 use super::pretty_print::{PrettyPrint, PrettyIndent};
 
 impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
-    fn pretty_print(buffer: &AsRef<[u8]>, f: &mut fmt::Formatter,
+    fn pretty_print(buffer: &dyn AsRef<[u8]>, f: &mut fmt::Formatter,
                     indent: &mut PrettyIndent) -> fmt::Result {
         use wire::ip::checksum::format_checksum;
 

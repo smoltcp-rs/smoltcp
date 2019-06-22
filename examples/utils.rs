@@ -106,7 +106,7 @@ pub fn add_middleware_options(opts: &mut Options, _free: &mut Vec<&str>) {
 }
 
 pub fn parse_middleware_options<D>(matches: &mut Matches, device: D, loopback: bool)
-        -> FaultInjector<EthernetTracer<PcapWriter<D, Rc<PcapSink>>>>
+        -> FaultInjector<EthernetTracer<PcapWriter<D, Rc<dyn PcapSink>>>>
     where D: for<'a> Device<'a>
 {
     let drop_chance      = matches.opt_str("drop-chance").map(|s| u8::from_str(&s).unwrap())
@@ -122,7 +122,7 @@ pub fn parse_middleware_options<D>(matches: &mut Matches, device: D, loopback: b
     let shaping_interval = matches.opt_str("shaping-interval").map(|s| u64::from_str(&s).unwrap())
                                   .unwrap_or(0);
 
-    let pcap_writer: Box<io::Write>;
+    let pcap_writer: Box<dyn io::Write>;
     if let Some(pcap_filename) = matches.opt_str("pcap") {
         pcap_writer = Box::new(File::create(pcap_filename).expect("cannot open file"))
     } else {
@@ -131,7 +131,7 @@ pub fn parse_middleware_options<D>(matches: &mut Matches, device: D, loopback: b
 
     let seed = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().subsec_nanos();
 
-    let device = PcapWriter::new(device, Rc::new(RefCell::new(pcap_writer)) as Rc<PcapSink>,
+    let device = PcapWriter::new(device, Rc::new(RefCell::new(pcap_writer)) as Rc<dyn PcapSink>,
                                  if loopback { PcapMode::TxOnly } else { PcapMode::Both },
                                  PcapLinkType::Ethernet);
     let device = EthernetTracer::new(device, |_timestamp, _printer| {

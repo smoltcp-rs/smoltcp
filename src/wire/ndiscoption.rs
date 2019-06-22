@@ -590,7 +590,7 @@ impl<'a> fmt::Display for Repr<'a> {
 use super::pretty_print::{PrettyPrint, PrettyIndent};
 
 impl<T: AsRef<[u8]>> PrettyPrint for NdiscOption<T> {
-    fn pretty_print(buffer: &AsRef<[u8]>, f: &mut fmt::Formatter,
+    fn pretty_print(buffer: &dyn AsRef<[u8]>, f: &mut fmt::Formatter,
                     indent: &mut PrettyIndent) -> fmt::Result {
         match NdiscOption::new_checked(buffer) {
             Err(err) => return write!(f, "{}({})", indent, err),
