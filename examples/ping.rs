@@ -35,7 +35,7 @@ macro_rules! send_icmp_ping {
             .send(icmp_repr.buffer_len(), $remote_addr)
             .unwrap();
 
-        let mut icmp_packet = $packet_type::new_unchecked(icmp_payload);
+        let icmp_packet = $packet_type::new_unchecked(icmp_payload);
         (icmp_repr, icmp_packet)
     }}
 }
