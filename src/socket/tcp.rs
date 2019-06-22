@@ -716,7 +716,7 @@ impl<'a> TcpSocket<'a> {
     /// Call `f` with the largest contiguous slice of octets in the receive buffer,
     /// and dequeue the amount of elements returned by `f`.
     ///
-    /// This function returns `Err(Error::Illegal) if the receive half of
+    /// This function returns `Err(Error::Illegal)` if the receive half of
     /// the connection is not open; see [may_recv](#method.may_recv).
     pub fn recv<'b, F, R>(&'b mut self, f: F) -> Result<R>
             where F: FnOnce(&'b mut [u8]) -> (usize, R) {
@@ -3897,7 +3897,7 @@ mod test {
         s.local_rx_dup_acks = u8::max_value() - 1;
 
         // Send 3 more ACKs, which could overflow local_rx_dup_acks,
-        // but intended behaviour is that we saturate the bounds 
+        // but intended behaviour is that we saturate the bounds
         // of local_rx_dup_acks
         send!(s, time 0, TcpRepr {
             seq_number: REMOTE_SEQ + 1,
