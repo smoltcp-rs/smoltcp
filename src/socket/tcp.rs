@@ -1833,7 +1833,8 @@ mod test {
             }
         }
 
-        log::set_logger(&LOGGER).unwrap();
+        // If it fails, that just means we've already set it to the same value.
+        let _ = log::set_logger(&LOGGER);
         log::set_max_level(log::LevelFilter::Trace);
 
         println!("");
