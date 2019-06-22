@@ -32,8 +32,7 @@ impl<'a> Session for TcpSocket<'a> {}
 ///
 /// Allows the network stack to efficiently determine if the socket state was changed in any way.
 pub struct Ref<'a, T: Session + 'a> {
-    socket:   &'a mut T,
-    consumed: bool,
+    socket: &'a mut T
 }
 
 impl<'a, T: Session + 'a> Ref<'a, T> {
@@ -43,7 +42,7 @@ impl<'a, T: Session + 'a> Ref<'a, T> {
     ///
     /// [into_inner]: #method.into_inner
     pub fn new(socket: &'a mut T) -> Self {
-        Ref { socket, consumed: false }
+        Ref { socket }
     }
 
     /// Unwrap a smart pointer to a socket.
@@ -56,8 +55,7 @@ impl<'a, T: Session + 'a> Ref<'a, T> {
     /// be sure to call [new] afterwards.
     ///
     /// [new]: #method.new
-    pub fn into_inner(mut ref_: Self) -> &'a mut T {
-        ref_.consumed = true;
+    pub fn into_inner(ref_: Self) -> &'a mut T {
         ref_.socket
     }
 }
@@ -76,10 +74,15 @@ impl<'a, T: Session> DerefMut for Ref<'a, T> {
     }
 }
 
-impl<'a, T: Session> Drop for Ref<'a, T> {
-    fn drop(&mut self) {
-        if !self.consumed {
-            Session::finish(self.socket);
-        }
-    }
-}
+// FIXME: `Session::finish` currently does not do anything, but if it did, this would be a problem,
+// because `SocketRef::into_inner` would have to use unsafe code, and there's currently no unsafe
+// code in smoltcp at all (other than the `phy` module). The reason it would need unsafe code is
+// that it is currently an error to destructure a value that implements Drop (or move out its
+// fields in any other way), so it'd have to be transmuted away. This is a deficiency in Rust:
+// it is always safe to ignore the Drop impl during destructuring.
+//
+// impl<'a, T: Session> Drop for Ref<'a, T> {
+//     fn drop(&mut self) {
+//         Session::finish(self.socket);
+//     }
+// }
