@@ -17,12 +17,12 @@ autoexamples = false
 [dependencies]
 managed = { version = "0.7", default-features = false, features = ["map"] }
 byteorder = { version = "1.0", default-features = false }
-log = { version = "0.3", default-features = false, optional = true }
+log = { version = "0.4", default-features = false, optional = true }
 libc = { version = "0.2.18", optional = true }
 bitflags = { version = "1.0", default-features = false }
 
 [dev-dependencies]
-env_logger = "0.4"
+env_logger = "0.5"
 getopts = "0.2"
 rand = "0.3"
 url = "1.0"

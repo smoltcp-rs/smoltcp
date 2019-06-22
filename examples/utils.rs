@@ -3,15 +3,15 @@
 use std::cell::RefCell;
 use std::str::{self, FromStr};
 use std::rc::Rc;
-use std::io;
+use std::io::{self, Write};
 use std::fs::File;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::env;
 use std::process;
 #[cfg(feature = "log")]
-use log::{LogLevel, LogLevelFilter, LogRecord};
+use log::{Level, LevelFilter};
 #[cfg(feature = "log")]
-use env_logger::LogBuilder;
+use env_logger::Builder;
 use getopts::{Options, Matches};
 
 use smoltcp::phy::{Device, EthernetTracer, FaultInjector};
@@ -24,27 +24,26 @@ use smoltcp::time::{Duration, Instant};
 #[cfg(feature = "log")]
 pub fn setup_logging_with_clock<F>(filter: &str, since_startup: F)
         where F: Fn() -> Instant + Send + Sync + 'static {
-    LogBuilder::new()
-        .format(move |record: &LogRecord| {
+    Builder::new()
+        .format(move |buf, record| {
             let elapsed = since_startup();
             let timestamp = format!("[{}]", elapsed);
             if record.target().starts_with("smoltcp::") {
-                format!("\x1b[0m{} ({}): {}\x1b[0m", timestamp,
-                        record.target().replace("smoltcp::", ""), record.args())
-            } else if record.level() == LogLevel::Trace {
+                writeln!(buf, "\x1b[0m{} ({}): {}\x1b[0m", timestamp,
+                         record.target().replace("smoltcp::", ""), record.args())
+            } else if record.level() == Level::Trace {
                 let message = format!("{}", record.args());
-                format!("\x1b[37m{} {}\x1b[0m", timestamp,
-                        message.replace("\n", "\n             "))
+                writeln!(buf, "\x1b[37m{} {}\x1b[0m", timestamp,
+                         message.replace("\n", "\n             "))
             } else {
-                format!("\x1b[32m{} ({}): {}\x1b[0m", timestamp,
-                        record.target(), record.args())
+                writeln!(buf, "\x1b[32m{} ({}): {}\x1b[0m", timestamp,
+                         record.target(), record.args())
             }
         })
-        .filter(None, LogLevelFilter::Trace)
+        .filter(None, LevelFilter::Trace)
         .parse(filter)
         .parse(&env::var("RUST_LOG").unwrap_or("".to_owned()))
-        .init()
-        .unwrap();
+        .init();
 }
 
 #[cfg(feature = "log")]

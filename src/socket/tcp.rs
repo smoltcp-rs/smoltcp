@@ -1816,24 +1816,25 @@ mod test {
     #[cfg(feature = "log")]
     fn init_logger() {
         extern crate log;
-        use std::boxed::Box;
 
-        struct Logger(());
+        struct Logger;
+        static LOGGER: Logger = Logger;
 
         impl log::Log for Logger {
-            fn enabled(&self, _metadata: &log::LogMetadata) -> bool {
+            fn enabled(&self, _metadata: &log::Metadata) -> bool {
                 true
             }
 
-            fn log(&self, record: &log::LogRecord) {
+            fn log(&self, record: &log::Record) {
                 println!("{}", record.args());
+            }
+
+            fn flush(&self) {
             }
         }
 
-        let _ = log::set_logger(|max_level| {
-            max_level.set(log::LogLevelFilter::Trace);
-            Box::new(Logger(()))
-        });
+        log::set_logger(&LOGGER).unwrap();
+        log::set_max_level(log::LevelFilter::Trace);
 
         println!("");
     }
