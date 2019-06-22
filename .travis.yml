@@ -59,9 +59,3 @@ before_script:
   - if [ "$MODE" == "clippy" ]; then cargo install clippy; fi
 script:
   - cargo $MODE --no-default-features --features "$FEATURES" $ARGS
-notifications:
-  irc:
-    channels:
-      - "chat.freenode.net#m-labs"
-    use_notice: true
-    skip_join: true
