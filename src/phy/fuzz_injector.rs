@@ -78,9 +78,9 @@ impl<'a, D, FTx, FRx> Device<'a> for FuzzInjector<D, FTx, FRx>
 }
 
 #[doc(hidden)]
-pub struct RxToken<'a, Rx: phy::RxToken, F: Fuzzer>{
+pub struct RxToken<'a, Rx: phy::RxToken, F: Fuzzer + 'a>{
     fuzzer: &'a F,
-    token:   Rx,
+    token:  Rx,
 }
 
 impl<'a, Rx: phy::RxToken, FRx: Fuzzer> phy::RxToken for RxToken<'a, Rx, FRx> {
@@ -96,7 +96,7 @@ impl<'a, Rx: phy::RxToken, FRx: Fuzzer> phy::RxToken for RxToken<'a, Rx, FRx> {
 }
 
 #[doc(hidden)]
-pub struct TxToken<'a, Tx: phy::TxToken, F: Fuzzer> {
+pub struct TxToken<'a, Tx: phy::TxToken, F: Fuzzer + 'a> {
     fuzzer: &'a F,
     token:  Tx,
 }
