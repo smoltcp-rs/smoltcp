@@ -32,7 +32,12 @@ impl<'a> Session for TcpSocket<'a> {}
 ///
 /// Allows the network stack to efficiently determine if the socket state was changed in any way.
 pub struct Ref<'a, T: Session + 'a> {
-    socket: &'a mut T
+    /// Reference to the socket.
+    ///
+    /// This is almost always `Some` except when dropped in `into_inner` which removes the socket
+    /// reference. This properly tracks the initialization state without any additional bytes as
+    /// the `None` variant occupies the `0` pattern which is invalid for the reference.
+    socket: Option<&'a mut T>,
 }
 
 impl<'a, T: Session + 'a> Ref<'a, T> {
@@ -42,7 +47,7 @@ impl<'a, T: Session + 'a> Ref<'a, T> {
     ///
     /// [into_inner]: #method.into_inner
     pub fn new(socket: &'a mut T) -> Self {
-        Ref { socket }
+        Ref { socket: Some(socket) }
     }
 
     /// Unwrap a smart pointer to a socket.
@@ -55,8 +60,8 @@ impl<'a, T: Session + 'a> Ref<'a, T> {
     /// be sure to call [new] afterwards.
     ///
     /// [new]: #method.new
-    pub fn into_inner(ref_: Self) -> &'a mut T {
-        ref_.socket
+    pub fn into_inner(mut ref_: Self) -> &'a mut T {
+        ref_.socket.take().unwrap()
     }
 }
 
@@ -64,25 +69,21 @@ impl<'a, T: Session> Deref for Ref<'a, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        self.socket
+        // Deref is only used while the socket is still in place (into inner has not been called).
+        self.socket.as_ref().unwrap()
     }
 }
 
 impl<'a, T: Session> DerefMut for Ref<'a, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.socket
+        self.socket.as_mut().unwrap()
     }
 }
 
-// FIXME: `Session::finish` currently does not do anything, but if it did, this would be a problem,
-// because `SocketRef::into_inner` would have to use unsafe code, and there's currently no unsafe
-// code in smoltcp at all (other than the `phy` module). The reason it would need unsafe code is
-// that it is currently an error to destructure a value that implements Drop (or move out its
-// fields in any other way), so it'd have to be transmuted away. This is a deficiency in Rust:
-// it is always safe to ignore the Drop impl during destructuring.
-//
-// impl<'a, T: Session> Drop for Ref<'a, T> {
-//     fn drop(&mut self) {
-//         Session::finish(self.socket);
-//     }
-// }
+impl<'a, T: Session> Drop for Ref<'a, T> {
+    fn drop(&mut self) {
+        if let Some(socket) = self.socket.take() {
+            Session::finish(socket);
+        }
+    }
+}
