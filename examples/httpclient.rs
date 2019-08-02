@@ -18,6 +18,12 @@ use smoltcp::iface::{NeighborCache, EthernetInterfaceBuilder, Routes};
 use smoltcp::socket::{SocketSet, TcpSocket, TcpSocketBuffer};
 use smoltcp::time::Instant;
 
+#[cfg(not(all(feature = "phy-tap_interface", target_os = "linux")))]
+fn main() {
+    panic!("Linux only")
+}
+
+#[cfg(all(feature = "phy-tap_interface", target_os = "linux"))]
 fn main() {
     utils::setup_logging("");
 

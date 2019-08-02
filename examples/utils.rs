@@ -15,7 +15,7 @@ use env_logger::Builder;
 use getopts::{Options, Matches};
 
 use smoltcp::phy::{Device, EthernetTracer, FaultInjector};
-#[cfg(feature = "phy-tap_interface")]
+#[cfg(all(feature = "phy-tap_interface", target_os = "linux"))]
 use smoltcp::phy::TapInterface;
 use smoltcp::phy::{PcapWriter, PcapSink, PcapMode, PcapLinkType};
 use smoltcp::phy::RawSocket;
@@ -81,7 +81,7 @@ pub fn add_tap_options(_opts: &mut Options, free: &mut Vec<&str>) {
     free.push("INTERFACE");
 }
 
-#[cfg(feature = "phy-tap_interface")]
+#[cfg(all(feature = "phy-tap_interface", target_os = "linux"))]
 pub fn parse_tap_options(matches: &mut Matches) -> TapInterface {
     let interface = matches.free.remove(0);
     TapInterface::new(&interface).unwrap()

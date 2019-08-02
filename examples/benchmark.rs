@@ -61,6 +61,12 @@ fn client(kind: Client) {
 
 static CLIENT_DONE: AtomicBool = ATOMIC_BOOL_INIT;
 
+#[cfg(not(all(feature = "phy-tap_interface", target_os = "linux")))]
+fn main() {
+    panic!("Linux only")
+}
+
+#[cfg(all(feature = "phy-tap_interface", target_os = "linux"))]
 fn main() {
     #[cfg(feature = "log")]
     utils::setup_logging("info");

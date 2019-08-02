@@ -56,6 +56,12 @@ macro_rules! get_icmp_pong {
     }}
 }
 
+#[cfg(not(all(feature = "phy-tap_interface", target_os = "linux")))]
+fn main() {
+    panic!("Linux only")
+}
+
+#[cfg(all(feature = "phy-tap_interface", target_os = "linux"))]
 fn main() {
     utils::setup_logging("warn");
 

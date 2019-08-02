@@ -21,6 +21,12 @@ use smoltcp::time::Instant;
 const MDNS_PORT: u16 = 5353;
 const MDNS_GROUP: [u8; 4] = [224, 0, 0, 251];
 
+#[cfg(not(all(feature = "phy-tap_interface", target_os = "linux")))]
+fn main() {
+    panic!("Linux only")
+}
+
+#[cfg(all(feature = "phy-tap_interface", target_os = "linux"))]
 fn main() {
     utils::setup_logging("warn");
 
