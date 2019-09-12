@@ -742,7 +742,7 @@ impl<'a> Repr<'a> {
                 }
                 DhcpOption::Other {kind: field::OPT_DOMAIN_NAME_SERVER, data} => {
                     let mut dns_servers_inner = [None; 3];
-                    for i in 0.. {
+                    for i in 0..3 {
                         let offset = 4 * i;
                         let end = offset + 4;
                         if end > data.len() { break }
