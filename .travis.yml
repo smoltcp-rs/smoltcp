@@ -12,32 +12,35 @@ matrix:
       env: FEATURES='default' MODE='test'
     ### Test select feature permutations, chosen to be as orthogonal as possible
     - rust: nightly
-      env: FEATURES='std phy-raw_socket proto-ipv6 socket-udp' MODE='test'
+      env: FEATURES='std ethernet phy-raw_socket proto-ipv6 socket-udp' MODE='test'
     - rust: nightly
-      env: FEATURES='std phy-tap_interface proto-ipv6 socket-udp' MODE='test'
+      env: FEATURES='std ethernet phy-tap_interface proto-ipv6 socket-udp' MODE='test'
     - rust: nightly
-      env: FEATURES='std proto-ipv4 proto-igmp socket-raw' MODE='test'
+      env: FEATURES='std ethernet proto-ipv4 proto-igmp socket-raw' MODE='test'
     - rust: nightly
-      env: FEATURES='std proto-ipv4 socket-udp socket-tcp' MODE='test'
+      env: FEATURES='std ethernet proto-ipv4 socket-udp socket-tcp' MODE='test'
     - rust: nightly
-      env: FEATURES='std proto-ipv4 proto-dhcpv4 socket-udp' MODE='test'
+      env: FEATURES='std ethernet proto-ipv4 proto-dhcpv4 socket-udp' MODE='test'
     - rust: nightly
-      env: FEATURES='std proto-ipv6 socket-udp' MODE='test'
+      env: FEATURES='std ethernet proto-ipv6 socket-udp' MODE='test'
     - rust: nightly
-      env: FEATURES='std proto-ipv6 socket-tcp' MODE='test'
+      env: FEATURES='std ethernet proto-ipv6 socket-tcp' MODE='test'
     - rust: nightly
-      env: FEATURES='std proto-ipv4 socket-icmp socket-tcp' MODE='test'
+      env: FEATURES='std ethernet proto-ipv4 socket-icmp socket-tcp' MODE='test'
     - rust: nightly
-      env: FEATURES='std proto-ipv6 socket-icmp socket-tcp' MODE='test'
+      env: FEATURES='std ethernet proto-ipv6 socket-icmp socket-tcp' MODE='test'
     ### Test select feature permutations, chosen to be as aggressive as possible
     - rust: nightly
-      env: FEATURES='proto-ipv4 proto-ipv6 socket-raw socket-udp socket-tcp socket-icmp std'
+      env: FEATURES='ethernet proto-ipv4 proto-ipv6 socket-raw socket-udp socket-tcp socket-icmp std'
+        MODE='test'
+    - rust: nightly
+      env: FEATURES='ethernet proto-ipv4 proto-ipv6 socket-raw socket-udp socket-tcp socket-icmp alloc'
         MODE='test'
     - rust: nightly
       env: FEATURES='proto-ipv4 proto-ipv6 socket-raw socket-udp socket-tcp socket-icmp alloc'
         MODE='test'
     - rust: nightly
-      env: FEATURES='proto-ipv4 proto-ipv6 proto-igmp proto-dhcpv4 socket-raw socket-udp socket-tcp socket-icmp'
+      env: FEATURES='ethernet proto-ipv4 proto-ipv6 proto-igmp proto-dhcpv4 socket-raw socket-udp socket-tcp socket-icmp'
         MODE='build'
     - rust: nightly
       env: MODE='fuzz run' ARGS='packet_parser -- -max_len=1536 -max_total_time=30'
