@@ -34,6 +34,7 @@ struct RequestState {
     retry: u16,
     endpoint_ip: Ipv4Address,
     server_identifier: Ipv4Address,
+    requested_ip: Ipv4Address,
 }
 
 #[derive(Debug)]
@@ -118,8 +119,7 @@ impl Client {
     /// DHCP requests when timeouts are ready.
     ///
     /// Applying the obtained network configuration is left to the
-    /// user. You must configure the new IPv4 address from the
-    /// returned `Config`. Otherwise, DHCP will not work.
+    /// user.
     ///
     /// A Config can be returned from any valid DHCP reply. The client
     /// performs no bookkeeping on configuration or their changes.
@@ -198,9 +198,8 @@ impl Client {
         };
         net_debug!("DHCP recv {:?} from {} ({})", dhcp_repr.message_type, src_ip, server_identifier);
 
-        let config = if (dhcp_repr.message_type == DhcpMessageType::Offer ||
-                         dhcp_repr.message_type == DhcpMessageType::Ack) &&
-                      dhcp_repr.your_ip != Ipv4Address::UNSPECIFIED {
+        // once we recieve the ack, we can pass the config to the user
+        let config = if dhcp_repr.message_type == DhcpMessageType::Ack {
                let address = dhcp_repr.subnet_mask
                    .and_then(|mask| IpAddress::Ipv4(mask).to_prefix_len())
                    .map(|prefix_len| Ipv4Cidr::new(dhcp_repr.your_ip, prefix_len));
@@ -221,6 +220,7 @@ impl Client {
                     retry: 0,
                     endpoint_ip: *src_ip,
                     server_identifier,
+                    requested_ip: dhcp_repr.your_ip // use the offered ip
                 };
                 Some(ClientState::Requesting(r_state))
             }
@@ -321,15 +321,9 @@ impl Client {
                     addr: Ipv4Address::BROADCAST.into(),
                     port: UDP_SERVER_PORT,
                 };
-                let requested_ip = match iface.ipv4_addr() {
-                    Some(addr) if !addr.is_unspecified() =>
-                        Some(addr),
-                    _ =>
-                        None,
-                };
                 dhcp_repr.message_type = DhcpMessageType::Request;
                 dhcp_repr.broadcast = false;
-                dhcp_repr.requested_ip = requested_ip;
+                dhcp_repr.requested_ip = Some(r_state.requested_ip);
                 dhcp_repr.server_identifier = Some(r_state.server_identifier);
                 dhcp_repr.parameter_request_list = Some(PARAMETER_REQUEST_LIST);
                 net_trace!("DHCP send request to {} = {:?}", endpoint, dhcp_repr);
