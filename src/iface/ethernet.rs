@@ -850,8 +850,8 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
             match raw_socket.process(&ip_repr, ip_payload, &checksum_caps) {
                 // The packet is valid and handled by socket.
                 Ok(()) => handled_by_raw_socket = true,
-                // The socket buffer is full.
-                Err(Error::Exhausted) => (),
+                // The socket buffer is full or the packet was truncated
+                Err(Error::Exhausted) | Err(Error::Truncated) => (),
                 // Raw sockets don't validate the packets in any way.
                 Err(_) => unreachable!(),
             }
