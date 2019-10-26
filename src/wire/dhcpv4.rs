@@ -980,7 +980,7 @@ mod test {
             subnet_mask: None,
             relay_agent_ip: IP_NULL,
             broadcast: false,
-            max_size: 1500,
+            max_size: Some(1500),
             requested_ip: Some(IP_NULL),
             client_identifier: Some(CLIENT_MAC),
             server_identifier: None,
