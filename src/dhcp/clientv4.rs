@@ -294,6 +294,7 @@ impl Client {
             client_identifier: Some(mac),
             server_identifier: None,
             parameter_request_list: None,
+            max_size: Some(raw_socket.recv_capacity() as u16),
             dns_servers: None,
         };
         let mut send_packet = |iface, endpoint, dhcp_repr| {
@@ -305,7 +306,6 @@ impl Client {
         match self.state {
             ClientState::Discovering => {
                 self.next_egress = now + Duration::from_secs(DISCOVER_TIMEOUT);
-
                 let endpoint = IpEndpoint {
                     addr: Ipv4Address::BROADCAST.into(),
                     port: UDP_SERVER_PORT,

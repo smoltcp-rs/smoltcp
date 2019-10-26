@@ -52,6 +52,7 @@ pub enum DhcpOption<'a> {
     ServerIdentifier(Ipv4Address),
     Router(Ipv4Address),
     SubnetMask(Ipv4Address),
+    MaximumDhcpMessageSize(u16),
     Other { kind: u8, data: &'a [u8] }
 }
 
@@ -99,6 +100,9 @@ impl<'a> DhcpOption<'a> {
                     (field::OPT_SUBNET_MASK, 4) => {
                         option = DhcpOption::SubnetMask(Ipv4Address::from_bytes(data));
                     }
+                    (field::OPT_MAX_DHCP_MESSAGE_SIZE, 2) => {
+                        option = DhcpOption::MaximumDhcpMessageSize(u16::from_be_bytes([data[0], data[1]]));
+                    }
                     (_, _) => {
                         option = DhcpOption::Other { kind: kind, data: data };
                     }
@@ -122,6 +126,9 @@ impl<'a> DhcpOption<'a> {
             &DhcpOption::SubnetMask(ip) => {
                 2 + ip.as_bytes().len()
             },
+            &DhcpOption::MaximumDhcpMessageSize(_) => {
+                4
+            }
             &DhcpOption::Other { data, .. } => 2 + data.len()
         }
     }
@@ -166,6 +173,10 @@ impl<'a> DhcpOption<'a> {
                     &DhcpOption::SubnetMask(mask)  => {
                         buffer[0] = field::OPT_SUBNET_MASK;
                         buffer[2..6].copy_from_slice(mask.as_bytes());
+                    }
+                    &DhcpOption::MaximumDhcpMessageSize(size) => {
+                        buffer[0] = field::OPT_MAX_DHCP_MESSAGE_SIZE;
+                        buffer[2..4].copy_from_slice(&size.to_be_bytes()[..]);
                     }
                     &DhcpOption::Other { kind, data: provided } => {
                         buffer[0] = kind;
@@ -661,6 +672,8 @@ pub struct Repr<'a> {
     pub parameter_request_list: Option<&'a [u8]>,
     /// DNS servers
     pub dns_servers: Option<[Option<Ipv4Address>; 3]>,
+    /// The maximum size dhcp packet the interface can receive
+    pub max_size: Option<u16>,
 }
 
 impl<'a> Repr<'a> {
@@ -672,6 +685,7 @@ impl<'a> Repr<'a> {
         if self.requested_ip.is_some() { len += 6; }
         if self.client_identifier.is_some() { len += 9; }
         if self.server_identifier.is_some() { len += 6; }
+        if self.max_size.is_some() { len += 4; }
         if let Some(list) = self.parameter_request_list { len += list.len() + 2; }
 
         len
@@ -710,6 +724,7 @@ impl<'a> Repr<'a> {
         let mut subnet_mask = None;
         let mut parameter_request_list = None;
         let mut dns_servers = None;
+        let mut max_size = None;
 
         let mut options = packet.options()?;
         while options.len() > 0 {
@@ -736,6 +751,9 @@ impl<'a> Repr<'a> {
                 }
                 DhcpOption::SubnetMask(mask) => {
                     subnet_mask = Some(mask);
+                },
+                DhcpOption::MaximumDhcpMessageSize(size) => {
+                    max_size = Some(size);
                 }
                 DhcpOption::Other {kind: field::OPT_PARAMETER_REQUEST_LIST, data} => {
                     parameter_request_list = Some(data);
@@ -760,7 +778,7 @@ impl<'a> Repr<'a> {
         Ok(Repr {
             transaction_id, client_hardware_address, client_ip, your_ip, server_ip, relay_agent_ip,
             broadcast, requested_ip, server_identifier, router,
-            subnet_mask, client_identifier, parameter_request_list, dns_servers,
+            subnet_mask, client_identifier, parameter_request_list, dns_servers, max_size,
             message_type: message_type?,
         })
     }
@@ -801,6 +819,9 @@ impl<'a> Repr<'a> {
             }
             if let Some(ip) = self.requested_ip {
                 let tmp = options; options = DhcpOption::RequestedIp(ip).emit(tmp);
+            }
+            if let Some(size) = self.max_size {
+                let tmp = options; options = DhcpOption::MaximumDhcpMessageSize(size).emit(tmp);
             }
             if let Some(list) = self.parameter_request_list {
                 let option = DhcpOption::Other{ kind: field::OPT_PARAMETER_REQUEST_LIST, data: list };
@@ -959,6 +980,7 @@ mod test {
             subnet_mask: None,
             relay_agent_ip: IP_NULL,
             broadcast: false,
+            max_size: 1500,
             requested_ip: Some(IP_NULL),
             client_identifier: Some(CLIENT_MAC),
             server_identifier: None,

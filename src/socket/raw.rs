@@ -74,6 +74,18 @@ impl<'a, 'b> RawSocket<'a, 'b> {
         !self.rx_buffer.is_empty()
     }
 
+    /// Return the maximum number of elements inside the recv buffer
+    #[inline]
+    pub fn recv_capacity(&self) -> usize {
+        self.rx_buffer.capacity()
+    }
+
+    /// Return the maximum number of elements inside the transmit buffer
+    #[inline]
+    pub fn send_capacity(&self) -> usize {
+        self.tx_buffer.capacity()
+    }
+
     /// Enqueue a packet to send, and return a pointer to its payload.
     ///
     /// This function returns `Err(Error::Exhausted)` if the transmit buffer is full,
