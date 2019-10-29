@@ -168,6 +168,11 @@ impl<'a, 'b, H> PacketBuffer<'a, 'b, H> {
             Err(Error::Exhausted)
         }
     }
+
+    /// Return the maximum number of elements in the payload ring buffer
+    pub fn capacity(&self) -> usize {
+        self.payload_ring.capacity()
+    }
 }
 
 #[cfg(test)]
