@@ -189,6 +189,18 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
         !self.rx_buffer.is_empty()
     }
 
+    /// Return the maximum number of elements inside the recv buffer
+    #[inline]
+    pub fn recv_capacity(&self) -> usize {
+        self.rx_buffer.capacity()
+    }
+
+    /// Return the maximum number of elements inside the transmit buffer
+    #[inline]
+    pub fn send_capacity(&self) -> usize {
+        self.tx_buffer.capacity()
+    }
+
     /// Check whether the socket is open.
     #[inline]
     pub fn is_open(&self) -> bool {

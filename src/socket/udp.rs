@@ -110,6 +110,18 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
         !self.rx_buffer.is_empty()
     }
 
+    /// Return the maximum number of elements inside the recv buffer
+    #[inline]
+    pub fn recv_capacity(&self) -> usize {
+        self.rx_buffer.capacity()
+    }
+
+    /// Return the maximum number of elements inside the transmit buffer
+    #[inline]
+    pub fn send_capacity(&self) -> usize {
+        self.tx_buffer.capacity()
+    }
+
     /// Enqueue a packet to be sent to a given remote endpoint, and return a pointer
     /// to its payload.
     ///
