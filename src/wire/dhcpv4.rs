@@ -858,7 +858,7 @@ mod test {
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x63, 0x82, 0x53, 0x63,
         0x35, 0x01, 0x01, 0x3d, 0x07, 0x01, 0x00, 0x0b, 0x82, 0x01, 0xfc, 0x42, 0x32, 0x04, 0x00, 0x00,
-        0x00, 0x00, 0x37, 0x04, 0x01, 0x03, 0x06, 0x2a, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x39, 0x2, 0x5, 0xdc, 0x37, 0x04, 0x01, 0x03, 0x06, 0x2a, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     ];
 
     static ACK_BYTES: &[u8] = &[
@@ -887,6 +887,7 @@ mod test {
 
     const IP_NULL: Ipv4Address = Ipv4Address([0, 0, 0, 0]);
     const CLIENT_MAC: EthernetAddress = EthernetAddress([0x0, 0x0b, 0x82, 0x01, 0xfc, 0x42]);
+    const DHCP_SIZE: u16 = 1500;
 
     #[test]
     fn test_deconstruct_discover() {
@@ -904,18 +905,22 @@ mod test {
         assert_eq!(packet.relay_agent_ip(), IP_NULL);
         assert_eq!(packet.client_hardware_address(), CLIENT_MAC);
         let options = packet.options().unwrap();
-        assert_eq!(options.len(), 3 + 9 + 6 + 6 + 1 + 7);
+        assert_eq!(options.len(), 3 + 9 + 6 + 4 + 6 + 1 + 7);
 
         let (options, message_type) = DhcpOption::parse(options).unwrap();
         assert_eq!(message_type, DhcpOption::MessageType(MessageType::Discover));
-        assert_eq!(options.len(), 9 + 6 + 6 + 1 + 7);
+        assert_eq!(options.len(), 9 + 6 + 4 + 6 + 1 + 7);
 
         let (options, client_id) = DhcpOption::parse(options).unwrap();
         assert_eq!(client_id, DhcpOption::ClientIdentifier(CLIENT_MAC));
-        assert_eq!(options.len(), 6 + 6 + 1 + 7);
+        assert_eq!(options.len(), 6 + 4 + 6 + 1 + 7);
 
         let (options, client_id) = DhcpOption::parse(options).unwrap();
         assert_eq!(client_id, DhcpOption::RequestedIp(IP_NULL));
+        assert_eq!(options.len(), 4 + 6 + 1 + 7);
+
+        let (options, msg_size) = DhcpOption::parse(options).unwrap();
+        assert_eq!(msg_size, DhcpOption::MaximumDhcpMessageSize(DHCP_SIZE));
         assert_eq!(options.len(), 6 + 1 + 7);
 
         let (options, client_id) = DhcpOption::parse(options).unwrap();
@@ -931,7 +936,7 @@ mod test {
 
     #[test]
     fn test_construct_discover() {
-        let mut bytes = vec![0xa5; 272];
+        let mut bytes = vec![0xa5; 276];
         let mut packet = Packet::new_unchecked(&mut bytes);
         packet.set_magic_number(MAGIC_COOKIE);
         packet.set_sname_and_boot_file_to_zero();
@@ -953,6 +958,7 @@ mod test {
             let tmp = options; options = DhcpOption::MessageType(MessageType::Discover).emit(tmp);
             let tmp = options; options = DhcpOption::ClientIdentifier(CLIENT_MAC).emit(tmp);
             let tmp = options; options = DhcpOption::RequestedIp(IP_NULL).emit(tmp);
+            let tmp = options; options = DhcpOption::MaximumDhcpMessageSize(DHCP_SIZE).emit(tmp);
             let option = DhcpOption::Other {
                 kind: field::OPT_PARAMETER_REQUEST_LIST, data: &[1, 3, 6, 42],
             };
@@ -961,7 +967,7 @@ mod test {
         }
 
         let packet = &mut packet.into_inner()[..];
-        for byte in &mut packet[265..272] {
+        for byte in &mut packet[269..276] {
             *byte = 0; // padding bytes
         }
 
@@ -980,7 +986,7 @@ mod test {
             subnet_mask: None,
             relay_agent_ip: IP_NULL,
             broadcast: false,
-            max_size: Some(1500),
+            max_size: Some(DHCP_SIZE),
             requested_ip: Some(IP_NULL),
             client_identifier: Some(CLIENT_MAC),
             server_identifier: None,
