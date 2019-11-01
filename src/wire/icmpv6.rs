@@ -5,7 +5,9 @@ use {Error, Result};
 use phy::ChecksumCapabilities;
 use super::ip::checksum;
 use super::{IpAddress, IpProtocol, Ipv6Packet, Ipv6Repr};
-use super::{MldRepr, NdiscRepr};
+use super::MldRepr;
+#[cfg(feature = "ethernet")]
+use super::NdiscRepr;
 
 enum_with_unknown! {
     /// Internet protocol control message type.
@@ -537,6 +539,7 @@ pub enum Repr<'a> {
         seq_no: u16,
         data:   &'a [u8]
     },
+    #[cfg(feature = "ethernet")]
     Ndisc(NdiscRepr<'a>),
     Mld(MldRepr<'a>),
     #[doc(hidden)]
@@ -619,6 +622,7 @@ impl<'a> Repr<'a> {
                     data:   packet.payload()
                 })
             },
+            #[cfg(feature = "ethernet")]
             (msg_type, 0) if msg_type.is_ndisc() => {
                 NdiscRepr::parse(packet).map(|repr| Repr::Ndisc(repr))
             },
@@ -640,6 +644,7 @@ impl<'a> Repr<'a> {
             &Repr::EchoReply { data, .. } => {
                 field::ECHO_SEQNO.end + data.len()
             },
+            #[cfg(feature = "ethernet")]
             &Repr::Ndisc(ndisc) => {
                 ndisc.buffer_len()
             },
@@ -711,6 +716,7 @@ impl<'a> Repr<'a> {
                 packet.payload_mut()[..data_len].copy_from_slice(&data[..data_len])
             },
 
+            #[cfg(feature = "ethernet")]
             &Repr::Ndisc(ndisc) => {
                 ndisc.emit(packet)
             },
