@@ -10,7 +10,7 @@ mod utils;
 
 use std::cmp;
 use std::collections::BTreeMap;
-use std::sync::atomic::{Ordering, AtomicBool, ATOMIC_BOOL_INIT};
+use std::sync::atomic::{Ordering, AtomicBool};
 use std::thread;
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -59,7 +59,7 @@ fn client(kind: Client) {
     CLIENT_DONE.store(true, Ordering::SeqCst);
 }
 
-static CLIENT_DONE: AtomicBool = ATOMIC_BOOL_INIT;
+static CLIENT_DONE: AtomicBool = AtomicBool::new(false);
 
 fn main() {
     #[cfg(feature = "log")]
