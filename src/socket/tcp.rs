@@ -640,13 +640,13 @@ impl<'a> TcpSocket<'a> {
         !self.tx_buffer.is_full()
     }
 
-    /// Return the maximum number of elements inside the recv buffer
+    /// Return the maximum number of bytes inside the recv buffer.
     #[inline]
     pub fn recv_capacity(&self) -> usize {
         self.rx_buffer.capacity()
     }
 
-    /// Return the maximum number of elements inside the transmit buffer
+    /// Return the maximum number of bytes inside the transmit buffer.
     #[inline]
     pub fn send_capacity(&self) -> usize {
         self.tx_buffer.capacity()
