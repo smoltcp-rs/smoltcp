@@ -294,7 +294,7 @@ impl Client {
             client_identifier: Some(mac),
             server_identifier: None,
             parameter_request_list: None,
-            max_size: Some(raw_socket.recv_capacity() as u16),
+            max_size: Some(raw_socket.payload_recv_capacity() as u16),
             dns_servers: None,
         };
         let mut send_packet = |iface, endpoint, dhcp_repr| {

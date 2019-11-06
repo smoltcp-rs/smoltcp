@@ -169,8 +169,13 @@ impl<'a, 'b, H> PacketBuffer<'a, 'b, H> {
         }
     }
 
-    /// Return the maximum number of elements in the payload ring buffer
-    pub fn capacity(&self) -> usize {
+    /// Return the maximum number packets that can be stored.
+    pub fn packet_capacity(&self) -> usize {
+        self.metadata_ring.capacity()
+    }
+
+    /// Return the maximum number of bytes in the payload ring buffer.
+    pub fn payload_capacity(&self) -> usize {
         self.payload_ring.capacity()
     }
 }
