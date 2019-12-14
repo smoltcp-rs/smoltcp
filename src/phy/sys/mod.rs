@@ -75,7 +75,7 @@ fn ifreq_for(name: &str) -> ifreq {
 fn ifreq_ioctl(lower: libc::c_int, ifreq: &mut ifreq,
                cmd: libc::c_ulong) -> io::Result<libc::c_int> {
     unsafe {
-        let res = libc::ioctl(lower, cmd, ifreq as *mut ifreq);
+        let res = libc::ioctl(lower, cmd as _, ifreq as *mut ifreq);
         if res == -1 { return Err(io::Error::last_os_error()) }
     }
 
