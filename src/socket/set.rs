@@ -16,7 +16,7 @@ pub struct Item<'a, 'b: 'a> {
 }
 
 /// A handle, identifying a socket in a set.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
 pub struct Handle(usize);
 
 impl fmt::Display for Handle {
