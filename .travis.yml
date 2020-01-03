@@ -46,6 +46,8 @@ matrix:
       env: MODE='fuzz run' ARGS='packet_parser -- -max_len=1536 -max_total_time=30'
     - rust: nightly
       env: FEATURES='default' MODE='clippy'
+    - rust: nightly
+      env: FEATURES='default' MODE='check --bench bench'
     - os: osx
       rust: nightly
       env: FEATURES='default' MODE='build'
@@ -57,6 +59,9 @@ matrix:
     # Clippy sometimes fails to compile and this shouldn't gate merges
     - rust: nightly
       env: FEATURES='default' MODE='clippy'
+    # See if the bench actually breaks
+    - rust: nightly
+      env: FEATURES='default' MODE='check --bench bench'
 before_script:
   - if [ "$MODE" == "fuzz run" ]; then cargo install cargo-fuzz; fi
   - if [ "$MODE" == "clippy" ]; then cargo install clippy; fi
