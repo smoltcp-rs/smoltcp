@@ -198,7 +198,7 @@ impl Client {
         };
         net_debug!("DHCP recv {:?} from {} ({})", dhcp_repr.message_type, src_ip, server_identifier);
 
-        // once we recieve the ack, we can pass the config to the user
+        // once we receive the ack, we can pass the config to the user
         let config = if dhcp_repr.message_type == DhcpMessageType::Ack {
                let address = dhcp_repr.subnet_mask
                    .and_then(|mask| IpAddress::Ipv4(mask).to_prefix_len())
