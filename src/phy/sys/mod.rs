@@ -26,14 +26,14 @@ pub use self::tap_interface::TapInterfaceDesc;
 /// Wait until given file descriptor becomes readable, but no longer than given timeout.
 pub fn wait(fd: RawFd, duration: Option<Duration>) -> io::Result<()> {
     unsafe {
-        let mut readfds = mem::uninitialized::<libc::fd_set>();
+        let mut readfds: libc::fd_set = mem::MaybeUninit::uninit().assume_init();
         libc::FD_ZERO(&mut readfds);
         libc::FD_SET(fd, &mut readfds);
 
-        let mut writefds = mem::uninitialized::<libc::fd_set>();
+        let mut writefds: libc::fd_set = mem::MaybeUninit::uninit().assume_init();
         libc::FD_ZERO(&mut writefds);
 
-        let mut exceptfds = mem::uninitialized::<libc::fd_set>();
+        let mut exceptfds: libc::fd_set = mem::MaybeUninit::uninit().assume_init();
         libc::FD_ZERO(&mut exceptfds);
 
         let mut timeout = libc::timeval { tv_sec: 0, tv_usec: 0 };
