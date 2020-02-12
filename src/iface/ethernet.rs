@@ -971,7 +971,9 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
 
         if !self.has_ip_addr(ipv4_repr.dst_addr) &&
            !ipv4_repr.dst_addr.is_broadcast() &&
-           !self.has_multicast_group(ipv4_repr.dst_addr) {
+           !self.has_multicast_group(ipv4_repr.dst_addr) &&
+           !self.is_local_broadcast(IpAddress::Ipv4(ipv4_repr.dst_addr)) {
+
             // Ignore IP packets not directed at us, or broadcast, or any of the multicast groups.
             // If AnyIP is enabled, also check if the packet is routed locally.
             if !self.any_ip {
@@ -1016,6 +1018,28 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
             }
         }
     }
+
+    /// Checks if an incoming packet had a subnet local broadcast address
+    fn is_local_broadcast(&self, address: IpAddress) -> bool {
+        match address {
+            #[cfg(feature = "proto-ipv4")]
+            IpAddress::Ipv4(addr) => {
+                let own_cidr = self.ip_addrs.iter()
+                .filter_map(|cidr| match cidr {
+                    IpCidr::Ipv4(ipv4) => Some(ipv4),
+                    _ => None,
+                }).next();
+
+                if let Some(broadcast) = own_cidr.map_or(None, |c| c.broadcast()) {
+                    if addr == broadcast {
+                        return true
+                    }
+                }
+                false
+            },
+            _ => false
+        }
+    } 
 
     /// Host duties of the **IGMPv2** protocol.
     ///
