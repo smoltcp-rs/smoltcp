@@ -1759,7 +1759,7 @@ mod test {
     #[cfg(feature = "proto-ipv4")]
     use wire::{ArpOperation, ArpPacket, ArpRepr};
     use wire::{EthernetAddress, EthernetFrame, EthernetProtocol};
-    use wire::{IpAddress, IpCidr, IpProtocol, IpRepr};
+    use wire::{IpAddress, IpCidr, IpProtocol, IpRepr, Ipv4Cidr};
     #[cfg(feature = "proto-ipv4")]
     use wire::{Ipv4Address, Ipv4Repr};
     #[cfg(feature = "proto-igmp")]
@@ -1939,6 +1939,39 @@ mod test {
         // And we correctly handle no payload.
         assert_eq!(iface.inner.process_ipv4(&mut socket_set, Instant::from_millis(0), &frame),
                    Ok(expected_repr));
+    }
+
+    #[test]
+    fn test_local_subnet_broadcasts() {
+        let (mut iface, _) = create_loopback();
+        iface.update_ip_addrs(|addrs| {
+            addrs.iter_mut().nth(0).map(|addr| {
+                *addr = IpCidr::Ipv4(Ipv4Cidr::new(Ipv4Address([192, 168, 1, 23]), 24));
+            });
+        });
+
+        assert_eq!(iface.inner.is_local_broadcast(IpAddress::Ipv4(Ipv4Address([192, 168, 1, 255]))), true);
+        assert_eq!(iface.inner.is_local_broadcast(IpAddress::Ipv4(Ipv4Address([192, 168, 1, 254]))), false);
+
+        iface.update_ip_addrs(|addrs| {
+            addrs.iter_mut().nth(0).map(|addr| {
+                *addr = IpCidr::Ipv4(Ipv4Cidr::new(Ipv4Address([192, 168, 23, 24]), 16));
+            });
+        });
+        assert_eq!(iface.inner.is_local_broadcast(IpAddress::Ipv4(Ipv4Address([192, 168, 23, 255]))), false);
+        assert_eq!(iface.inner.is_local_broadcast(IpAddress::Ipv4(Ipv4Address([192, 168, 23, 254]))), false);
+        assert_eq!(iface.inner.is_local_broadcast(IpAddress::Ipv4(Ipv4Address([192, 168, 255, 254]))), false);
+        assert_eq!(iface.inner.is_local_broadcast(IpAddress::Ipv4(Ipv4Address([192, 168, 255, 255]))), true);
+
+        iface.update_ip_addrs(|addrs| {
+            addrs.iter_mut().nth(0).map(|addr| {
+                *addr = IpCidr::Ipv4(Ipv4Cidr::new(Ipv4Address([192, 168, 23, 24]), 8));
+            });
+        });
+        assert_eq!(iface.inner.is_local_broadcast(IpAddress::Ipv4(Ipv4Address([192, 23, 1, 255]))), false);
+        assert_eq!(iface.inner.is_local_broadcast(IpAddress::Ipv4(Ipv4Address([192, 23, 1, 254]))), false);
+        assert_eq!(iface.inner.is_local_broadcast(IpAddress::Ipv4(Ipv4Address([192, 255, 255, 254]))), false);
+        assert_eq!(iface.inner.is_local_broadcast(IpAddress::Ipv4(Ipv4Address([192, 255, 255, 255]))), true);
     }
 
     #[test]
