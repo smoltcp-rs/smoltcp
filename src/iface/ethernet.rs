@@ -972,7 +972,7 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
         if !self.has_ip_addr(ipv4_repr.dst_addr) &&
            !ipv4_repr.dst_addr.is_broadcast() &&
            !self.has_multicast_group(ipv4_repr.dst_addr) &&
-           !self.is_local_broadcast(IpAddress::Ipv4(ipv4_repr.dst_addr)) {
+           !self.is_subnet_broadcast(IpAddress::Ipv4(ipv4_repr.dst_addr)) {
 
             // Ignore IP packets not directed at us, or broadcast, or any of the multicast groups.
             // If AnyIP is enabled, also check if the packet is routed locally.
@@ -1019,8 +1019,9 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
         }
     }
 
-    /// Checks if an incoming packet had a subnet local broadcast address
-    fn is_local_broadcast(&self, address: IpAddress) -> bool {
+    /// Checks if an incoming packet has a broadcast address for the interfaces
+    /// first ip address
+    fn is_subnet_broadcast(&self, address: IpAddress) -> bool {
         match address {
             #[cfg(feature = "proto-ipv4")]
             IpAddress::Ipv4(addr) => {
@@ -1950,28 +1951,28 @@ mod test {
             });
         });
 
-        assert_eq!(iface.inner.is_local_broadcast(IpAddress::Ipv4(Ipv4Address([192, 168, 1, 255]))), true);
-        assert_eq!(iface.inner.is_local_broadcast(IpAddress::Ipv4(Ipv4Address([192, 168, 1, 254]))), false);
+        assert_eq!(iface.inner.is_subnet_broadcast(IpAddress::Ipv4(Ipv4Address([192, 168, 1, 255]))), true);
+        assert_eq!(iface.inner.is_subnet_broadcast(IpAddress::Ipv4(Ipv4Address([192, 168, 1, 254]))), false);
 
         iface.update_ip_addrs(|addrs| {
             addrs.iter_mut().nth(0).map(|addr| {
                 *addr = IpCidr::Ipv4(Ipv4Cidr::new(Ipv4Address([192, 168, 23, 24]), 16));
             });
         });
-        assert_eq!(iface.inner.is_local_broadcast(IpAddress::Ipv4(Ipv4Address([192, 168, 23, 255]))), false);
-        assert_eq!(iface.inner.is_local_broadcast(IpAddress::Ipv4(Ipv4Address([192, 168, 23, 254]))), false);
-        assert_eq!(iface.inner.is_local_broadcast(IpAddress::Ipv4(Ipv4Address([192, 168, 255, 254]))), false);
-        assert_eq!(iface.inner.is_local_broadcast(IpAddress::Ipv4(Ipv4Address([192, 168, 255, 255]))), true);
+        assert_eq!(iface.inner.is_subnet_broadcast(IpAddress::Ipv4(Ipv4Address([192, 168, 23, 255]))), false);
+        assert_eq!(iface.inner.is_subnet_broadcast(IpAddress::Ipv4(Ipv4Address([192, 168, 23, 254]))), false);
+        assert_eq!(iface.inner.is_subnet_broadcast(IpAddress::Ipv4(Ipv4Address([192, 168, 255, 254]))), false);
+        assert_eq!(iface.inner.is_subnet_broadcast(IpAddress::Ipv4(Ipv4Address([192, 168, 255, 255]))), true);
 
         iface.update_ip_addrs(|addrs| {
             addrs.iter_mut().nth(0).map(|addr| {
                 *addr = IpCidr::Ipv4(Ipv4Cidr::new(Ipv4Address([192, 168, 23, 24]), 8));
             });
         });
-        assert_eq!(iface.inner.is_local_broadcast(IpAddress::Ipv4(Ipv4Address([192, 23, 1, 255]))), false);
-        assert_eq!(iface.inner.is_local_broadcast(IpAddress::Ipv4(Ipv4Address([192, 23, 1, 254]))), false);
-        assert_eq!(iface.inner.is_local_broadcast(IpAddress::Ipv4(Ipv4Address([192, 255, 255, 254]))), false);
-        assert_eq!(iface.inner.is_local_broadcast(IpAddress::Ipv4(Ipv4Address([192, 255, 255, 255]))), true);
+        assert_eq!(iface.inner.is_subnet_broadcast(IpAddress::Ipv4(Ipv4Address([192, 23, 1, 255]))), false);
+        assert_eq!(iface.inner.is_subnet_broadcast(IpAddress::Ipv4(Ipv4Address([192, 23, 1, 254]))), false);
+        assert_eq!(iface.inner.is_subnet_broadcast(IpAddress::Ipv4(Ipv4Address([192, 255, 255, 254]))), false);
+        assert_eq!(iface.inner.is_subnet_broadcast(IpAddress::Ipv4(Ipv4Address([192, 255, 255, 255]))), true);
     }
 
     #[test]
