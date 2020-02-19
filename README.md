@@ -11,7 +11,15 @@ and compiles on stable Rust 1.28 and later.
 _smoltcp_ achieves [~Gbps of throughput](#examplesbenchmarkrs) when tested against
 the Linux TCP stack in loopback mode.
 
+This project is developed and maintained by the [smoltcp team][team].
+
+Contribution to this crate is organized under the terms of the [Rust Code of
+Conduct][CoC], the maintainer of this crate, the [smoltcp team][team], promises
+to intervene to uphold that code of conduct.
+
 [docs]: https://docs.rs/smoltcp/
+[CoC]: CODE_OF_CONDUCT.md
+[team]: https://github.com/smoltcp-rs
 
 ## Features
 
