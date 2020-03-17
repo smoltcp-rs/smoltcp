@@ -1894,6 +1894,16 @@ mod test {
         s
     }
 
+    fn socket_syn_sent_with_local_ipendpoint(local: IpEndpoint) -> TcpSocket<'static> {
+        let mut s = socket();
+        s.state           = State::SynSent;
+        s.local_endpoint  = local;
+        s.remote_endpoint = REMOTE_END;
+        s.local_seq_no    = LOCAL_SEQ;
+        s.remote_last_seq = LOCAL_SEQ;
+        s
+    }
+
     fn socket_established_with_buffer_sizes(tx_len: usize, rx_len: usize) -> TcpSocket<'static> {
         let mut s = socket_syn_received_with_buffer_sizes(tx_len, rx_len);
         s.state           = State::Established;
@@ -2318,6 +2328,9 @@ mod test {
                    Err(Error::Unaddressable));
         assert_eq!(s.connect((IpAddress::Unspecified, 80), LOCAL_END),
                    Err(Error::Unaddressable));
+        s.connect(REMOTE_END, LOCAL_END).expect("Connect failed with valid parameters");
+        assert_eq!(s.local_endpoint(), LOCAL_END);
+        assert_eq!(s.remote_endpoint(), REMOTE_END);
     }
 
     #[test]
@@ -2378,7 +2391,7 @@ mod test {
         let mut s = socket();
         s.local_seq_no    = LOCAL_SEQ;
         s.connect(REMOTE_END, LOCAL_END).unwrap();
-        sanity!(s, socket_syn_sent());
+        sanity!(s, socket_syn_sent_with_local_ipendpoint(LOCAL_END));
     }
 
     #[test]
