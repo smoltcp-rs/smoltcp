@@ -483,9 +483,9 @@ impl<'a> TcpSocket<'a> {
         // If local address is not provided, use an unspecified address but a specified protocol.
         // This lets us lower IpRepr later to determine IP header size and calculate MSS,
         // but without committing to a specific address right away.
-        let local_addr = match remote_endpoint.addr {
-            IpAddress::Unspecified => return Err(Error::Unaddressable),
-            _ => remote_endpoint.addr.to_unspecified(),
+        let local_addr = match local_endpoint.addr {
+            IpAddress::Unspecified => remote_endpoint.addr.to_unspecified(),
+            ip => ip,
         };
         let local_endpoint = IpEndpoint { addr: local_addr, ..local_endpoint };
 
