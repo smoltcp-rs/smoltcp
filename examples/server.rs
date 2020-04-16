@@ -135,6 +135,7 @@ fn main() {
 
             if socket.may_recv() {
                 let data = socket.recv(|buffer| {
+                    let recvd_len = buffer.len();
                     let mut data = buffer.to_owned();
                     if data.len() > 0 {
                         debug!("tcp:6970 recv data: {:?}",
@@ -143,7 +144,7 @@ fn main() {
                         data.reverse();
                         data.extend(b"\n");
                     }
-                    (data.len(), data)
+                    (recvd_len, data)
                 }).unwrap();
                 if socket.can_send() && data.len() > 0 {
                     debug!("tcp:6970 send data: {:?}",
