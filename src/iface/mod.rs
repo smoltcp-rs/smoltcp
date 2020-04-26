@@ -9,6 +9,7 @@ mod neighbor;
 mod route;
 #[cfg(feature = "ethernet")]
 mod ethernet;
+mod ip;
 
 #[cfg(feature = "ethernet")]
 pub use self::neighbor::Neighbor as Neighbor;
