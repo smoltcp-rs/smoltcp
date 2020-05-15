@@ -117,7 +117,7 @@ impl<'a> Routes<'a> {
             _ => unimplemented!()
         };
 
-        for (prefix, route) in self.storage.range((Bound::Unbounded, Bound::Included(cidr))).rev() {
+        for (prefix, route) in self.storage.range((Bound::Unbounded::<IpCidr>, Bound::Included(cidr))).rev() {
             // TODO: do something with route.preferred_until
             if let Some(expires_at) = route.expires_at {
                 if timestamp > expires_at {
