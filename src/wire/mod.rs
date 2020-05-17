@@ -113,6 +113,9 @@ mod tcp;
 #[cfg(feature = "proto-dhcpv4")]
 pub(crate) mod dhcpv4;
 
+#[cfg(feature = "app-sntp")]
+mod sntp;
+
 pub use self::pretty_print::PrettyPrinter;
 
 #[cfg(feature = "ethernet")]
@@ -222,3 +225,11 @@ pub use self::tcp::{SeqNumber as TcpSeqNumber,
 pub use self::dhcpv4::{Packet as DhcpPacket,
                        Repr as DhcpRepr,
                        MessageType as DhcpMessageType};
+
+#[cfg(feature = "app-sntp")]
+pub use self::sntp::{Packet as SntpPacket,
+                     Repr as SntpRepr,
+                     LeapIndicator as SntpLeapIndicator,
+                     ProtocolMode as SntpProtocolMode,
+                     Timestamp as SntpTimestamp,
+                     Stratum as SntpStratum};

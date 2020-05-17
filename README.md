@@ -119,6 +119,12 @@ The TCP protocol is supported over IPv4 and IPv6, and server and client TCP sock
   * Probing Zero Windows is **not** implemented.
   * Packetization Layer Path MTU Discovery [PLPMTU](https://tools.ietf.org/rfc/rfc4821.txt) is **not** implemented.
 
+### Application layer
+
+The following application protocols are implemented:
+
+  * Simple Network Time Protocol (SNTP)
+
 ## Installation
 
 To use the _smoltcp_ library in your project, add the following to `Cargo.toml`:
@@ -189,6 +195,12 @@ Enable [IPv4] and [IPv6] respectively.
 
 [IPv4]: https://tools.ietf.org/rfc/rfc791.txt
 [IPv6]: https://tools.ietf.org/rfc/rfc8200.txt
+
+### Feature `app-sntp`
+
+Enables `smoltcp::apps::sntp::Client`.
+
+This feature is disabled by default.
 
 ## Hosted usage examples
 
@@ -377,6 +389,23 @@ throughput: 2.556 Gbps
 $ cargo run -q --release --example benchmark tap0 writer
 throughput: 5.301 Gbps
 ```
+
+### examples/sntp.rs
+
+_examples/sntp.rs_ implements a Simple Network Time Protocol client.
+
+The host is assigned the hardware address `02-00-00-00-00-02` and IPv4 address `192.168.69.1`.
+
+Read its [source code](/examples/sntp.rs), then run it as:
+
+```sh
+cargo run --example sntp --features app-sntp -- tap0 SERVER
+```
+
+where `SERVER` is a valid NTP server (eg. `62.112.134.4`).
+
+The SNTP client will send a unicast SNTP request to the server, and if a valid response
+is received, it will print out the timestamp received, converted in Unix seconds.
 
 ## Bare-metal usage examples
 

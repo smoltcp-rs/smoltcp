@@ -42,6 +42,7 @@ ethernet = []
 "socket-udp" = []
 "socket-tcp" = []
 "socket-icmp" = []
+"app-sntp" = ["socket-udp"]
 default = [
   "std", "log", # needed for `cargo test --no-default-features --features default` :/
   "ethernet",
@@ -93,6 +94,10 @@ required-features = ["std", "phy-tap_interface", "proto-ipv4", "socket-raw", "so
 [[example]]
 name = "dhcp_client"
 required-features = ["std", "phy-tap_interface", "proto-ipv4", "proto-dhcpv4", "socket-raw"]
+
+[[example]]
+name = "sntp"
+required-features = ["std", "phy-tap_interface", "proto-ipv4", "app-sntp"]
 
 [profile.release]
 debug = 2

@@ -113,6 +113,7 @@ use core::fmt;
 mod macros;
 mod parsers;
 
+pub mod apps;
 pub mod storage;
 pub mod phy;
 pub mod wire;
