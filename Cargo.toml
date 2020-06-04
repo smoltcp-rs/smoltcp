@@ -95,5 +95,9 @@ required-features = ["std", "phy-tap_interface", "proto-ipv4", "socket-raw", "so
 name = "dhcp_client"
 required-features = ["std", "phy-tap_interface", "proto-ipv4", "proto-dhcpv4", "socket-raw"]
 
+[[example]]
+name = "tunhttpclient"
+required-features = ["std", "phy-tun_interface", "proto-ipv4", "proto-ipv6", "socket-tcp"]
+
 [profile.release]
 debug = 2
