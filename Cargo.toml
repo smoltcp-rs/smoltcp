@@ -34,6 +34,7 @@ verbose = []
 ethernet = []
 "phy-raw_socket" = ["std", "libc"]
 "phy-tap_interface" = ["std", "libc"]
+"phy-tun_interface" = ["std", "libc"]
 "proto-ipv4" = []
 "proto-igmp" = ["proto-ipv4"]
 "proto-dhcpv4" = ["proto-ipv4", "socket-raw"]
@@ -45,7 +46,7 @@ ethernet = []
 default = [
   "std", "log", # needed for `cargo test --no-default-features --features default` :/
   "ethernet",
-  "phy-raw_socket", "phy-tap_interface",
+  "phy-raw_socket", "phy-tap_interface", "phy-tun_interface",
   "proto-ipv4", "proto-igmp", "proto-ipv6",
   "socket-raw", "socket-icmp", "socket-udp", "socket-tcp"
 ]

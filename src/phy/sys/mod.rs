@@ -15,6 +15,8 @@ pub mod raw_socket;
 pub mod bpf;
 #[cfg(all(feature = "phy-tap_interface", target_os = "linux"))]
 pub mod tap_interface;
+#[cfg(all(feature = "phy-tun_interface", target_os = "linux"))]
+pub mod tun_interface;
 
 #[cfg(all(feature = "phy-raw_socket", target_os = "linux"))]
 pub use self::raw_socket::RawSocketDesc;
@@ -22,6 +24,8 @@ pub use self::raw_socket::RawSocketDesc;
 pub use self::bpf::BpfDevice as RawSocketDesc;
 #[cfg(all(feature = "phy-tap_interface", target_os = "linux"))]
 pub use self::tap_interface::TapInterfaceDesc;
+#[cfg(all(feature = "phy-tun_interface", target_os = "linux"))]
+pub use self::tun_interface::TunInterfaceDesc;
 
 /// Wait until given file descriptor becomes readable, but no longer than given timeout.
 pub fn wait(fd: RawFd, duration: Option<Duration>) -> io::Result<()> {
