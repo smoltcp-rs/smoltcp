@@ -14,7 +14,7 @@ use std::os::unix::io::AsRawFd;
 use url::Url;
 use smoltcp::phy::wait as phy_wait;
 use smoltcp::wire::{EthernetAddress, Ipv4Address, Ipv6Address, IpAddress, IpCidr};
-use smoltcp::iface::{NeighborCache, EthernetInterfaceBuilder, Routes};
+use smoltcp::iface::{NeighborCache, InterfaceBuilder, Routes};
 use smoltcp::socket::{SocketSet, TcpSocket, TcpSocketBuffer};
 use smoltcp::time::Instant;
 
@@ -51,7 +51,7 @@ fn main() {
     let mut routes = Routes::new(&mut routes_storage[..]);
     routes.add_default_ipv4_route(default_v4_gw).unwrap();
     routes.add_default_ipv6_route(default_v6_gw).unwrap();
-    let mut iface = EthernetInterfaceBuilder::new(device)
+    let mut iface = InterfaceBuilder::new(device)
             .ethernet_addr(ethernet_addr)
             .neighbor_cache(neighbor_cache)
             .ip_addrs(ip_addrs)

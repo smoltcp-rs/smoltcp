@@ -6,7 +6,7 @@ use wire::{IpVersion, IpProtocol, IpEndpoint, IpAddress,
 use wire::dhcpv4::field as dhcpv4_field;
 use socket::{SocketSet, SocketHandle, RawSocket, RawSocketBuffer};
 use phy::{Device, ChecksumCapabilities};
-use iface::EthernetInterface as Interface;
+use iface::Interface as Interface;
 use time::{Instant, Duration};
 use super::{UDP_SERVER_PORT, UDP_CLIENT_PORT};
 

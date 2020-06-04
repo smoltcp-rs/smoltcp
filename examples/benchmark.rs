@@ -17,7 +17,7 @@ use std::net::TcpStream;
 use std::os::unix::io::AsRawFd;
 use smoltcp::phy::wait as phy_wait;
 use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr};
-use smoltcp::iface::{NeighborCache, EthernetInterfaceBuilder};
+use smoltcp::iface::{NeighborCache, InterfaceBuilder};
 use smoltcp::socket::SocketSet;
 use smoltcp::socket::{TcpSocket, TcpSocketBuffer};
 use smoltcp::time::{Duration, Instant};
@@ -94,7 +94,7 @@ fn main() {
 
     let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
     let ip_addrs = [IpCidr::new(IpAddress::v4(192, 168, 69, 1), 24)];
-    let mut iface = EthernetInterfaceBuilder::new(device)
+    let mut iface = InterfaceBuilder::new(device)
             .ethernet_addr(ethernet_addr)
             .neighbor_cache(neighbor_cache)
             .ip_addrs(ip_addrs)
