@@ -6,7 +6,7 @@ use crate::wire::{IpVersion, IpProtocol, IpEndpoint, IpAddress,
 use crate::wire::dhcpv4::field as dhcpv4_field;
 use crate::socket::{SocketSet, SocketHandle, RawSocket, RawSocketBuffer};
 use crate::phy::{Device, ChecksumCapabilities};
-use crate::iface::EthernetInterface as Interface;
+use crate::iface::Interface;
 use crate::time::{Instant, Duration};
 use super::{UDP_SERVER_PORT, UDP_CLIENT_PORT};
 

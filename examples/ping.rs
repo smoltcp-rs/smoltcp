@@ -14,7 +14,7 @@ use smoltcp::phy::wait as phy_wait;
 use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr,
                     Ipv6Address, Icmpv6Repr, Icmpv6Packet,
                     Ipv4Address, Icmpv4Repr, Icmpv4Packet};
-use smoltcp::iface::{NeighborCache, EthernetInterfaceBuilder, Routes};
+use smoltcp::iface::{NeighborCache, InterfaceBuilder, Routes};
 use smoltcp::socket::{SocketSet, IcmpSocket, IcmpSocketBuffer, IcmpPacketMetadata, IcmpEndpoint};
 
 macro_rules! send_icmp_ping {
@@ -98,7 +98,7 @@ fn main() {
     let mut routes = Routes::new(&mut routes_storage[..]);
     routes.add_default_ipv4_route(default_v4_gw).unwrap();
     routes.add_default_ipv6_route(default_v6_gw).unwrap();
-    let mut iface = EthernetInterfaceBuilder::new(device)
+    let mut iface = InterfaceBuilder::new(device)
             .ethernet_addr(ethernet_addr)
             .ip_addrs(ip_addrs)
             .routes(routes)

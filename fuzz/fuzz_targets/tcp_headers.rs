@@ -9,7 +9,7 @@ use core::cmp;
 use smoltcp::phy::Loopback;
 use smoltcp::wire::{EthernetAddress, EthernetFrame, EthernetProtocol};
 use smoltcp::wire::{IpAddress, IpCidr, Ipv4Packet, Ipv6Packet, TcpPacket};
-use smoltcp::iface::{NeighborCache, EthernetInterfaceBuilder};
+use smoltcp::iface::{NeighborCache, InterfaceBuilder};
 use smoltcp::socket::{SocketSet, TcpSocket, TcpSocketBuffer};
 use smoltcp::time::{Duration, Instant};
 
@@ -130,7 +130,7 @@ fuzz_target!(|data: &[u8]| {
     let neighbor_cache = NeighborCache::new(&mut neighbor_cache_entries[..]);
 
     let ip_addrs = [IpCidr::new(IpAddress::v4(127, 0, 0, 1), 8)];
-    let mut iface = EthernetInterfaceBuilder::new(device)
+    let mut iface = InterfaceBuilder::new(device)
             .ethernet_addr(EthernetAddress::default())
             .neighbor_cache(neighbor_cache)
             .ip_addrs(ip_addrs)
