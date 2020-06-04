@@ -5,7 +5,7 @@ use std::io;
 use std::os::unix::io::{RawFd, AsRawFd};
 
 use crate::Result;
-use crate::phy::{self, sys, DeviceCapabilities, Device};
+use crate::phy::{self, sys, DeviceCapabilities, Device, Medium};
 use crate::time::Instant;
 
 /// A virtual Ethernet interface.
@@ -45,6 +45,7 @@ impl<'a> Device<'a> for TapInterface {
     fn capabilities(&self) -> DeviceCapabilities {
         DeviceCapabilities {
             max_transmission_unit: self.mtu,
+            medium: Medium::Ethernet,
             ..DeviceCapabilities::default()
         }
     }

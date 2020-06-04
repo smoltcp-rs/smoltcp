@@ -10,13 +10,14 @@ use alloc::collections::VecDeque;
 use alloc::VecDeque;
 
 use crate::Result;
-use crate::phy::{self, Device, DeviceCapabilities};
+use crate::phy::{self, Device, DeviceCapabilities, Medium};
 use crate::time::Instant;
 
 /// A loopback device.
 #[derive(Debug)]
 pub struct Loopback {
     queue: VecDeque<Vec<u8>>,
+    medium: Medium,
 }
 
 #[allow(clippy::new_without_default)]
@@ -25,9 +26,10 @@ impl Loopback {
     ///
     /// Every packet transmitted through this device will be received through it
     /// in FIFO order.
-    pub fn new() -> Loopback {
+    pub fn new(medium: Medium) -> Loopback {
         Loopback {
             queue: VecDeque::new(),
+            medium,
         }
     }
 }
@@ -39,6 +41,7 @@ impl<'a> Device<'a> for Loopback {
     fn capabilities(&self) -> DeviceCapabilities {
         DeviceCapabilities {
             max_transmission_unit: 65535,
+            medium: self.medium,
             ..DeviceCapabilities::default()
         }
     }
