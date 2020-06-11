@@ -1354,7 +1354,6 @@ impl<'a> TcpSocket<'a> {
             // packets for every packet it receives.
             net_trace!("{}:{}:{}: ACKing incoming segment",
                        self.meta.handle, self.local_endpoint, self.remote_endpoint);
-            self.remote_last_ack = Some(self.remote_seq_no + self.rx_buffer.len());
             Ok(Some(self.ack_reply(ip_repr, &repr)))
         } else {
             Ok(None)
