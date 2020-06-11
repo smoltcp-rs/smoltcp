@@ -742,8 +742,13 @@ impl<'a> TcpSocket<'a> {
     /// Call `f` with the largest contiguous slice of octets in the receive buffer,
     /// and dequeue the amount of elements returned by `f`.
     ///
-    /// This function returns `Err(Error::Illegal)` if the receive half of
-    /// the connection is not open; see [may_recv](#method.may_recv).
+    /// This function errors if the receive half of the connection is not open.
+    ///
+    /// If the receive half has been gracefully closed (with a FIN packet), `Err(Error::Finished)`
+    /// is returned. In this case, the previously received data is guaranteed to be complete.
+    ///
+    /// In all other cases, `Err(Error::Illegal)` is returned and previously received data (if any)
+    /// may be incomplete (truncated).
     pub fn recv<'b, F, R>(&'b mut self, f: F) -> Result<R>
             where F: FnOnce(&'b mut [u8]) -> (usize, R) {
         self.recv_impl(|rx_buffer| {
