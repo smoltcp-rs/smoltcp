@@ -858,7 +858,8 @@ impl<'a> TcpSocket<'a> {
         // and an acknowledgment indicating the next sequence number expected
         // to be received.
         reply_repr.seq_number = self.remote_last_seq;
-        reply_repr.ack_number = self.remote_last_ack;
+        reply_repr.ack_number = Some(self.remote_seq_no + self.rx_buffer.len());
+        self.remote_last_ack = reply_repr.ack_number;
 
         // From RFC 1323:
         // The window field [...] of every outgoing segment, with the exception of SYN
@@ -2890,6 +2891,47 @@ mod test {
             ..RECV_TEMPL
         }]);
     }
+
+    #[test]
+    fn test_established_rst_bad_seq() {
+        let mut s = socket_established();
+        send!(s, TcpRepr {
+            control: TcpControl::Rst,
+            seq_number: REMOTE_SEQ, // Wrong seq
+            ack_number: None,
+            ..SEND_TEMPL
+        }, Ok(Some(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            ..RECV_TEMPL
+        })));
+
+        assert_eq!(s.state, State::Established);
+
+        // Send something to advance seq by 1
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1, // correct seq
+            ack_number: Some(LOCAL_SEQ + 1),
+            payload:    &b"a"[..],
+            ..SEND_TEMPL
+        });
+
+        // Send wrong rst again, check that the challenge ack is correctly updated
+        // The ack number must be updated even if we don't call dispatch on the socket
+        // See https://github.com/smoltcp-rs/smoltcp/issues/338
+        send!(s, TcpRepr {
+            control: TcpControl::Rst,
+            seq_number: REMOTE_SEQ, // Wrong seq
+            ack_number: None,
+            ..SEND_TEMPL
+        }, Ok(Some(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 2), // this has changed
+            window_len: 63,
+            ..RECV_TEMPL
+        })));
+    }
+
 
     // =========================================================================================//
     // Tests for the FIN-WAIT-1 state.
