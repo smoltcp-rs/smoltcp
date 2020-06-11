@@ -1195,6 +1195,11 @@ impl<'a> TcpSocket<'a> {
                 }
             }
 
+            // Data packets in FIN-WAIT-2 reset the idle timer.
+            (State::FinWait2, TcpControl::None) => {
+                self.timer.set_for_idle(timestamp, self.keep_alive);
+            }
+
             // FIN packets in FIN-WAIT-2 state change it to TIME-WAIT.
             (State::FinWait2, TcpControl::Fin) => {
                 self.remote_seq_no  += 1;
@@ -2948,6 +2953,22 @@ mod test {
     }
 
     #[test]
+    fn test_fin_wait_1_recv() {
+        let mut s = socket_fin_wait_1();
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            payload:    &b"abc"[..],
+            ..SEND_TEMPL
+        });
+        assert_eq!(s.state, State::FinWait1);
+        s.recv(|data| {
+            assert_eq!(data, b"abc");
+            (3, ())
+        }).unwrap();
+    }
+
+    #[test]
     fn test_fin_wait_1_close() {
         let mut s = socket_fin_wait_1();
         s.close();
@@ -2969,6 +2990,22 @@ mod test {
         });
         assert_eq!(s.state, State::TimeWait);
         sanity!(s, socket_time_wait(false));
+    }
+
+    #[test]
+    fn test_fin_wait_2_recv() {
+        let mut s = socket_fin_wait_2();
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1 + 1),
+            payload:    &b"abc"[..],
+            ..SEND_TEMPL
+        });
+        assert_eq!(s.state, State::FinWait2);
+        s.recv(|data| {
+            assert_eq!(data, b"abc");
+            (3, ())
+        }).unwrap();
     }
 
     #[test]
