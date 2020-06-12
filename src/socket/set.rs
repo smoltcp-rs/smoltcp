@@ -19,6 +19,12 @@ pub struct Item<'a, 'b: 'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
 pub struct Handle(usize);
 
+impl Handle {
+    pub fn value(self) -> usize {
+        self.0
+    }
+}
+
 impl fmt::Display for Handle {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "#{}", self.0)
