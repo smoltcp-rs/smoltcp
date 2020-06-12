@@ -134,6 +134,11 @@ pub enum Error {
     /// or a TCP connection attempt was made to an unspecified endpoint.
     Unaddressable,
 
+    /// The operation is finished.
+    /// E.g. when reading from a TCP socket, there's no more data to read because the remote
+    /// has closed the connection.
+    Finished,
+
     /// An incoming packet could not be parsed because some of its fields were out of bounds
     /// of the received data.
     Truncated,
@@ -165,6 +170,7 @@ impl fmt::Display for Error {
             &Error::Exhausted     => write!(f, "buffer space exhausted"),
             &Error::Illegal       => write!(f, "illegal operation"),
             &Error::Unaddressable => write!(f, "unaddressable destination"),
+            &Error::Finished      => write!(f, "operation finished"),
             &Error::Truncated     => write!(f, "truncated packet"),
             &Error::Checksum      => write!(f, "checksum error"),
             &Error::Unrecognized  => write!(f, "unrecognized packet"),
