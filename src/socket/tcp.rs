@@ -192,6 +192,7 @@ pub struct TcpSocket<'a> {
     timer:           Timer,
     assembler:       Assembler,
     rx_buffer:       SocketBuffer<'a>,
+    rx_fin_received: bool,
     tx_buffer:       SocketBuffer<'a>,
     /// Interval after which, if no inbound packets are received, the connection is aborted.
     timeout:         Option<Duration>,
@@ -276,6 +277,7 @@ impl<'a> TcpSocket<'a> {
             assembler:       Assembler::new(rx_buffer.capacity()),
             tx_buffer:       tx_buffer,
             rx_buffer:       rx_buffer,
+            rx_fin_received: false,
             timeout:         None,
             keep_alive:      None,
             hop_limit:       None,
@@ -419,6 +421,7 @@ impl<'a> TcpSocket<'a> {
         self.assembler       = Assembler::new(self.rx_buffer.capacity());
         self.tx_buffer.clear();
         self.rx_buffer.clear();
+        self.rx_fin_received = false;
         self.keep_alive      = None;
         self.timeout         = None;
         self.hop_limit       = None;
@@ -483,9 +486,9 @@ impl<'a> TcpSocket<'a> {
         // If local address is not provided, use an unspecified address but a specified protocol.
         // This lets us lower IpRepr later to determine IP header size and calculate MSS,
         // but without committing to a specific address right away.
-        let local_addr = match remote_endpoint.addr {
-            IpAddress::Unspecified => return Err(Error::Unaddressable),
-            _ => remote_endpoint.addr.to_unspecified(),
+        let local_addr = match local_endpoint.addr {
+            IpAddress::Unspecified => remote_endpoint.addr.to_unspecified(),
+            ip => ip,
         };
         let local_endpoint = IpEndpoint { addr: local_addr, ..local_endpoint };
 
@@ -706,12 +709,23 @@ impl<'a> TcpSocket<'a> {
         })
     }
 
-    fn recv_impl<'b, F, R>(&'b mut self, f: F) -> Result<R>
-            where F: FnOnce(&'b mut SocketBuffer<'a>) -> (usize, R) {
+    fn recv_error_check(&mut self) -> Result<()> {
         // We may have received some data inside the initial SYN, but until the connection
         // is fully open we must not dequeue any data, as it may be overwritten by e.g.
         // another (stale) SYN. (We do not support TCP Fast Open.)
-        if !self.may_recv() { return Err(Error::Illegal) }
+        if !self.may_recv() {
+            if self.rx_fin_received {
+                return Err(Error::Finished)
+            }
+            return Err(Error::Illegal)
+        }
+
+        Ok(())
+    }
+
+    fn recv_impl<'b, F, R>(&'b mut self, f: F) -> Result<R>
+            where F: FnOnce(&'b mut SocketBuffer<'a>) -> (usize, R) {
+        self.recv_error_check()?;
 
         let _old_length = self.rx_buffer.len();
         let (size, result) = f(&mut self.rx_buffer);
@@ -728,8 +742,13 @@ impl<'a> TcpSocket<'a> {
     /// Call `f` with the largest contiguous slice of octets in the receive buffer,
     /// and dequeue the amount of elements returned by `f`.
     ///
-    /// This function returns `Err(Error::Illegal)` if the receive half of
-    /// the connection is not open; see [may_recv](#method.may_recv).
+    /// This function errors if the receive half of the connection is not open.
+    ///
+    /// If the receive half has been gracefully closed (with a FIN packet), `Err(Error::Finished)`
+    /// is returned. In this case, the previously received data is guaranteed to be complete.
+    ///
+    /// In all other cases, `Err(Error::Illegal)` is returned and previously received data (if any)
+    /// may be incomplete (truncated).
     pub fn recv<'b, F, R>(&'b mut self, f: F) -> Result<R>
             where F: FnOnce(&'b mut [u8]) -> (usize, R) {
         self.recv_impl(|rx_buffer| {
@@ -755,8 +774,7 @@ impl<'a> TcpSocket<'a> {
     ///
     /// This function otherwise behaves identically to [recv](#method.recv).
     pub fn peek(&mut self, size: usize) -> Result<&[u8]> {
-        // See recv() above.
-        if !self.may_recv() { return Err(Error::Illegal) }
+        self.recv_error_check()?;
 
         let buffer = self.rx_buffer.get_allocated(0, size);
         if buffer.len() > 0 {
@@ -858,7 +876,8 @@ impl<'a> TcpSocket<'a> {
         // and an acknowledgment indicating the next sequence number expected
         // to be received.
         reply_repr.seq_number = self.remote_last_seq;
-        reply_repr.ack_number = self.remote_last_ack;
+        reply_repr.ack_number = Some(self.remote_seq_no + self.rx_buffer.len());
+        self.remote_last_ack = reply_repr.ack_number;
 
         // From RFC 1323:
         // The window field [...] of every outgoing segment, with the exception of SYN
@@ -1139,6 +1158,7 @@ impl<'a> TcpSocket<'a> {
             // 7th and 8th steps in the "SEGMENT ARRIVES" event describe this behavior.
             (State::SynReceived, TcpControl::Fin) => {
                 self.remote_seq_no  += 1;
+                self.rx_fin_received = true;
                 self.set_state(State::CloseWait);
                 self.timer.set_for_idle(timestamp, self.keep_alive);
             }
@@ -1169,6 +1189,7 @@ impl<'a> TcpSocket<'a> {
             // FIN packets in ESTABLISHED state indicate the remote side has closed.
             (State::Established, TcpControl::Fin) => {
                 self.remote_seq_no  += 1;
+                self.rx_fin_received = true;
                 self.set_state(State::CloseWait);
                 self.timer.set_for_idle(timestamp, self.keep_alive);
             }
@@ -1186,6 +1207,7 @@ impl<'a> TcpSocket<'a> {
             // if they also acknowledge our FIN.
             (State::FinWait1, TcpControl::Fin) => {
                 self.remote_seq_no  += 1;
+                self.rx_fin_received = true;
                 if ack_of_fin {
                     self.set_state(State::TimeWait);
                     self.timer.set_for_close(timestamp);
@@ -1195,9 +1217,15 @@ impl<'a> TcpSocket<'a> {
                 }
             }
 
+            // Data packets in FIN-WAIT-2 reset the idle timer.
+            (State::FinWait2, TcpControl::None) => {
+                self.timer.set_for_idle(timestamp, self.keep_alive);
+            }
+
             // FIN packets in FIN-WAIT-2 state change it to TIME-WAIT.
             (State::FinWait2, TcpControl::Fin) => {
                 self.remote_seq_no  += 1;
+                self.rx_fin_received = true;
                 self.set_state(State::TimeWait);
                 self.timer.set_for_close(timestamp);
             }
@@ -1348,7 +1376,6 @@ impl<'a> TcpSocket<'a> {
             // packets for every packet it receives.
             net_trace!("{}:{}:{}: ACKing incoming segment",
                        self.meta.handle, self.local_endpoint, self.remote_endpoint);
-            self.remote_last_ack = Some(self.remote_seq_no + self.rx_buffer.len());
             Ok(Some(self.ack_reply(ip_repr, &repr)))
         } else {
             Ok(None)
@@ -1894,6 +1921,16 @@ mod test {
         s
     }
 
+    fn socket_syn_sent_with_local_ipendpoint(local: IpEndpoint) -> TcpSocket<'static> {
+        let mut s = socket();
+        s.state           = State::SynSent;
+        s.local_endpoint  = local;
+        s.remote_endpoint = REMOTE_END;
+        s.local_seq_no    = LOCAL_SEQ;
+        s.remote_last_seq = LOCAL_SEQ;
+        s
+    }
+
     fn socket_established_with_buffer_sizes(tx_len: usize, rx_len: usize) -> TcpSocket<'static> {
         let mut s = socket_syn_received_with_buffer_sizes(tx_len, rx_len);
         s.state           = State::Established;
@@ -2318,6 +2355,9 @@ mod test {
                    Err(Error::Unaddressable));
         assert_eq!(s.connect((IpAddress::Unspecified, 80), LOCAL_END),
                    Err(Error::Unaddressable));
+        s.connect(REMOTE_END, LOCAL_END).expect("Connect failed with valid parameters");
+        assert_eq!(s.local_endpoint(), LOCAL_END);
+        assert_eq!(s.remote_endpoint(), REMOTE_END);
     }
 
     #[test]
@@ -2378,7 +2418,7 @@ mod test {
         let mut s = socket();
         s.local_seq_no    = LOCAL_SEQ;
         s.connect(REMOTE_END, LOCAL_END).unwrap();
-        sanity!(s, socket_syn_sent());
+        sanity!(s, socket_syn_sent_with_local_ipendpoint(LOCAL_END));
     }
 
     #[test]
@@ -2873,6 +2913,47 @@ mod test {
         }]);
     }
 
+    #[test]
+    fn test_established_rst_bad_seq() {
+        let mut s = socket_established();
+        send!(s, TcpRepr {
+            control: TcpControl::Rst,
+            seq_number: REMOTE_SEQ, // Wrong seq
+            ack_number: None,
+            ..SEND_TEMPL
+        }, Ok(Some(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            ..RECV_TEMPL
+        })));
+
+        assert_eq!(s.state, State::Established);
+
+        // Send something to advance seq by 1
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1, // correct seq
+            ack_number: Some(LOCAL_SEQ + 1),
+            payload:    &b"a"[..],
+            ..SEND_TEMPL
+        });
+
+        // Send wrong rst again, check that the challenge ack is correctly updated
+        // The ack number must be updated even if we don't call dispatch on the socket
+        // See https://github.com/smoltcp-rs/smoltcp/issues/338
+        send!(s, TcpRepr {
+            control: TcpControl::Rst,
+            seq_number: REMOTE_SEQ, // Wrong seq
+            ack_number: None,
+            ..SEND_TEMPL
+        }, Ok(Some(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 2), // this has changed
+            window_len: 63,
+            ..RECV_TEMPL
+        })));
+    }
+
+
     // =========================================================================================//
     // Tests for the FIN-WAIT-1 state.
     // =========================================================================================//
@@ -2935,6 +3016,22 @@ mod test {
     }
 
     #[test]
+    fn test_fin_wait_1_recv() {
+        let mut s = socket_fin_wait_1();
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            payload:    &b"abc"[..],
+            ..SEND_TEMPL
+        });
+        assert_eq!(s.state, State::FinWait1);
+        s.recv(|data| {
+            assert_eq!(data, b"abc");
+            (3, ())
+        }).unwrap();
+    }
+
+    #[test]
     fn test_fin_wait_1_close() {
         let mut s = socket_fin_wait_1();
         s.close();
@@ -2956,6 +3053,22 @@ mod test {
         });
         assert_eq!(s.state, State::TimeWait);
         sanity!(s, socket_time_wait(false));
+    }
+
+    #[test]
+    fn test_fin_wait_2_recv() {
+        let mut s = socket_fin_wait_2();
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1 + 1),
+            payload:    &b"abc"[..],
+            ..SEND_TEMPL
+        });
+        assert_eq!(s.state, State::FinWait2);
+        s.recv(|data| {
+            assert_eq!(data, b"abc");
+            (3, ())
+        }).unwrap();
     }
 
     #[test]
@@ -4506,6 +4619,160 @@ mod test {
             payload:    &b"def"[..],
             ..RECV_TEMPL
         }));
+    }
+
+    // =========================================================================================//
+    // Tests for graceful vs ungraceful rx close
+    // =========================================================================================//
+
+    #[test]
+    fn test_rx_close_fin() {
+        let mut s = socket_established();
+        send!(s, TcpRepr {
+            control:    TcpControl::Fin,
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            payload:    &b"abc"[..],
+            ..SEND_TEMPL
+        });
+        s.recv(|data| {
+            assert_eq!(data, b"abc");
+            (3, ())
+        }).unwrap();
+        assert_eq!(s.recv(|_| (0, ())), Err(Error::Finished));
+    }
+
+    #[test]
+    fn test_rx_close_fin_in_fin_wait_1() {
+        let mut s = socket_fin_wait_1();
+        send!(s, TcpRepr {
+            control:    TcpControl::Fin,
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            payload:    &b"abc"[..],
+            ..SEND_TEMPL
+        });
+        assert_eq!(s.state, State::Closing);
+        s.recv(|data| {
+            assert_eq!(data, b"abc");
+            (3, ())
+        }).unwrap();
+        assert_eq!(s.recv(|_| (0, ())), Err(Error::Finished));
+    }
+
+    #[test]
+    fn test_rx_close_fin_in_fin_wait_2() {
+        let mut s = socket_fin_wait_2();
+        send!(s, TcpRepr {
+            control:    TcpControl::Fin,
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1 + 1),
+            payload:    &b"abc"[..],
+            ..SEND_TEMPL
+        });
+        assert_eq!(s.state, State::TimeWait);
+        s.recv(|data| {
+            assert_eq!(data, b"abc");
+            (3, ())
+        }).unwrap();
+        assert_eq!(s.recv(|_| (0, ())), Err(Error::Finished));
+    }
+
+
+
+    #[test]
+    fn test_rx_close_fin_with_hole() {
+        let mut s = socket_established();
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            payload:    &b"abc"[..],
+            ..SEND_TEMPL
+        });
+        send!(s, TcpRepr {
+            control:    TcpControl::Fin,
+            seq_number: REMOTE_SEQ + 1 + 6,
+            ack_number: Some(LOCAL_SEQ + 1),
+            payload:    &b"ghi"[..],
+            ..SEND_TEMPL
+        }, Ok(Some(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1 + 3),
+            window_len: 61,
+            ..RECV_TEMPL
+        })));
+        s.recv(|data| {
+            assert_eq!(data, b"abc");
+            (3, ())
+        }).unwrap();
+        s.recv(|data| {
+            assert_eq!(data, b"");
+            (0, ())
+        }).unwrap();
+        send!(s, TcpRepr {
+            control:    TcpControl::Rst,
+            seq_number: REMOTE_SEQ + 1 + 9,
+            ack_number: Some(LOCAL_SEQ + 1),
+            ..SEND_TEMPL
+        });
+        // Error must be `Illegal` even if we've received a FIN,
+        // because we are missing data.
+        assert_eq!(s.recv(|_| (0, ())), Err(Error::Illegal));
+    }
+
+    #[test]
+    fn test_rx_close_rst() {
+        let mut s = socket_established();
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            payload:    &b"abc"[..],
+            ..SEND_TEMPL
+        });
+        send!(s, TcpRepr {
+            control:    TcpControl::Rst,
+            seq_number: REMOTE_SEQ + 1 + 3,
+            ack_number: Some(LOCAL_SEQ + 1),
+            ..SEND_TEMPL
+        });
+        s.recv(|data| {
+            assert_eq!(data, b"abc");
+            (3, ())
+        }).unwrap();
+        assert_eq!(s.recv(|_| (0, ())), Err(Error::Illegal));
+    }
+
+    #[test]
+    fn test_rx_close_rst_with_hole() {
+        let mut s = socket_established();
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            payload:    &b"abc"[..],
+            ..SEND_TEMPL
+        });
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1 + 6,
+            ack_number: Some(LOCAL_SEQ + 1),
+            payload:    &b"ghi"[..],
+            ..SEND_TEMPL
+        }, Ok(Some(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1 + 3),
+            window_len: 61,
+            ..RECV_TEMPL
+        })));
+        send!(s, TcpRepr {
+            control:    TcpControl::Rst,
+            seq_number: REMOTE_SEQ + 1 + 9,
+            ack_number: Some(LOCAL_SEQ + 1),
+            ..SEND_TEMPL
+        });
+        s.recv(|data| {
+            assert_eq!(data, b"abc");
+            (3, ())
+        }).unwrap();
+        assert_eq!(s.recv(|_| (0, ())), Err(Error::Illegal));
     }
 
     // =========================================================================================//
