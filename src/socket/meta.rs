@@ -71,7 +71,7 @@ impl Meta {
                     self.neighbor_state = NeighborState::Active;
                     true
                 } else if timestamp > silent_until {
-                    net_trace!("{}: Retrying egress for neighbor {}", self.handle, neighbor);
+                    net_trace!("{}: neighbor {} silence timer expired, rediscovering", self.handle, neighbor);
                     true
                 } else {
                     false
