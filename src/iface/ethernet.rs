@@ -578,7 +578,7 @@ impl<'b, 'c, 'e, DeviceT> Interface<'b, 'c, 'e, DeviceT>
 
         let mut emitted_any = false;
         for mut socket in sockets.iter_mut() {
-            if !socket.meta_mut().egress_permitted(|ip_addr|
+            if !socket.meta_mut().egress_permitted(timestamp, |ip_addr|
                     self.inner.has_neighbor(&ip_addr, timestamp)) {
                 continue
             }
