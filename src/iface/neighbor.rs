@@ -172,17 +172,20 @@ impl<'a> Cache<'a> {
         None
     }
 
-    pub(crate) fn lookup(&mut self, protocol_addr: &IpAddress, timestamp: Instant) -> Answer {
+    pub(crate) fn lookup(&self, protocol_addr: &IpAddress, timestamp: Instant) -> Answer {
         match self.lookup_pure(protocol_addr, timestamp) {
             Some(hardware_addr) =>
                 Answer::Found(hardware_addr),
             None if timestamp < self.silent_until =>
                 Answer::RateLimited,
             None => {
-                self.silent_until = timestamp + Self::SILENT_TIME;
                 Answer::NotFound
             }
         }
+    }
+
+    pub(crate) fn limit_rate(&mut self, timestamp: Instant) {
+        self.silent_until = timestamp + Self::SILENT_TIME;
     }
 }
 
@@ -273,6 +276,8 @@ mod test {
         let mut cache = Cache::new(&mut cache_storage[..]);
 
         assert_eq!(cache.lookup(&MOCK_IP_ADDR_1, Instant::from_millis(0)), Answer::NotFound);
+
+        cache.limit_rate(Instant::from_millis(0));
         assert_eq!(cache.lookup(&MOCK_IP_ADDR_1, Instant::from_millis(100)), Answer::RateLimited);
         assert_eq!(cache.lookup(&MOCK_IP_ADDR_1, Instant::from_millis(2000)), Answer::NotFound);
     }
