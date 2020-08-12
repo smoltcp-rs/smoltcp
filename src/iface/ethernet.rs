@@ -1618,8 +1618,6 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
 
                     arp_repr.emit(&mut ArpPacket::new_unchecked(frame.payload_mut()))
                 })?;
-
-                Err(Error::Unaddressable)
             }
 
             #[cfg(feature = "proto-ipv6")]
@@ -1646,12 +1644,13 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
                     solicit.emit(&ip_repr.src_addr(), &ip_repr.dst_addr(),
                                  &mut Icmpv6Packet::new_unchecked(payload), &checksum_caps);
                 })?;
-
-                Err(Error::Unaddressable)
             }
 
-            _ => Err(Error::Unaddressable)
+            _ => ()
         }
+        // The request got dispatched, limit the rate on the cache.
+        self.neighbor_cache.limit_rate(timestamp);
+        Err(Error::Unaddressable)
     }
 
     fn dispatch_ip<Tx, F>(&mut self, tx_token: Tx, timestamp: Instant,
