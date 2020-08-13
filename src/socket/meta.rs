@@ -70,7 +70,7 @@ impl Meta {
                                self.handle, neighbor);
                     self.neighbor_state = NeighborState::Active;
                     true
-                } else if timestamp > silent_until {
+                } else if timestamp >= silent_until {
                     net_trace!("{}: neighbor {} silence timer expired, rediscovering", self.handle, neighbor);
                     true
                 } else {
