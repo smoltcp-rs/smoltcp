@@ -2500,6 +2500,18 @@ mod test {
     }
 
     #[test]
+    fn test_syn_sent_bad_ack() {
+        let mut s = socket_syn_sent();
+        send!(s, TcpRepr {
+            control: TcpControl::None,
+            seq_number: REMOTE_SEQ,
+            ack_number: Some(TcpSeqNumber(1)),
+            ..SEND_TEMPL
+        }, Err(Error::Dropped));
+        assert_eq!(s.state, State::Closed);
+    }
+
+    #[test]
     fn test_syn_sent_close() {
         let mut s = socket();
         s.close();
