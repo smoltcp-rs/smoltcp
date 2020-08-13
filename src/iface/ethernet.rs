@@ -878,7 +878,7 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
             // Fill the neighbor cache from IP header of unicast frames.
             let ip_addr = IpAddress::Ipv6(ipv6_repr.src_addr);
             if self.in_same_network(&ip_addr) &&
-                    self.neighbor_cache.lookup_pure(&ip_addr, timestamp).is_none() {
+                    !self.neighbor_cache.lookup(&ip_addr, timestamp).found() {
                 self.neighbor_cache.fill(ip_addr, eth_frame.src_addr(), timestamp);
             }
         }
@@ -1143,7 +1143,7 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
                         if flags.contains(NdiscNeighborFlags::OVERRIDE) {
                             self.neighbor_cache.fill(ip_addr, lladdr, timestamp)
                         } else {
-                            if self.neighbor_cache.lookup_pure(&ip_addr, timestamp).is_none() {
+                            if !self.neighbor_cache.lookup(&ip_addr, timestamp).found() {
                                     self.neighbor_cache.fill(ip_addr, lladdr, timestamp)
                             }
                         }
@@ -1543,8 +1543,8 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
         match self.route(addr, timestamp) {
             Ok(routed_addr) => {
                 self.neighbor_cache
-                    .lookup_pure(&routed_addr, timestamp)
-                    .is_some()
+                    .lookup(&routed_addr, timestamp)
+                    .found()
             }
             Err(_) => false
         }
