@@ -2504,7 +2504,6 @@ mod test {
         let mut s = socket_syn_sent();
         send!(s, TcpRepr {
             control: TcpControl::None,
-            seq_number: REMOTE_SEQ,
             ack_number: Some(TcpSeqNumber(1)),
             ..SEND_TEMPL
         }, Err(Error::Dropped));
