@@ -887,7 +887,7 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "destination and source slices have different lengths")]
+    #[should_panic(expected = "length")]
     fn test_from_bytes_too_long() {
         let _ = Address::from_bytes(&[0u8; 15]);
     }
