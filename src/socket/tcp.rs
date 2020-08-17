@@ -995,6 +995,15 @@ impl<'a> TcpSocket<'a> {
                            self.meta.handle, self.local_endpoint, self.remote_endpoint);
                 return Err(Error::Dropped)
             }
+            // Any ACK in the SYN-SENT state must have the SYN flag set.
+            (State::SynSent, &TcpRepr {
+                control: TcpControl::None, ack_number: Some(_), ..
+            }) => {
+                net_debug!("{}:{}:{}: expecting a SYN|ACK",
+                           self.meta.handle, self.local_endpoint, self.remote_endpoint);
+                self.abort();
+                return Err(Error::Dropped)
+            }
             // Every acknowledgement must be for transmitted but unacknowledged data.
             (_, &TcpRepr { ack_number: Some(ack_number), .. }) => {
                 let unacknowledged = self.tx_buffer.len() + control_len;
@@ -2488,6 +2497,17 @@ mod test {
             ..SEND_TEMPL
         }, Err(Error::Dropped));
         assert_eq!(s.state, State::SynSent);
+    }
+
+    #[test]
+    fn test_syn_sent_bad_ack() {
+        let mut s = socket_syn_sent();
+        send!(s, TcpRepr {
+            control: TcpControl::None,
+            ack_number: Some(TcpSeqNumber(1)),
+            ..SEND_TEMPL
+        }, Err(Error::Dropped));
+        assert_eq!(s.state, State::Closed);
     }
 
     #[test]
