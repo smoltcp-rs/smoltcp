@@ -578,7 +578,7 @@ impl<'b, 'c, 'e, DeviceT> Interface<'b, 'c, 'e, DeviceT>
 
         let mut emitted_any = false;
         for mut socket in sockets.iter_mut() {
-            if !socket.meta_mut().egress_permitted(|ip_addr|
+            if !socket.meta_mut().egress_permitted(timestamp, |ip_addr|
                     self.inner.has_neighbor(&ip_addr, timestamp)) {
                 continue
             }
@@ -878,7 +878,7 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
             // Fill the neighbor cache from IP header of unicast frames.
             let ip_addr = IpAddress::Ipv6(ipv6_repr.src_addr);
             if self.in_same_network(&ip_addr) &&
-                    self.neighbor_cache.lookup_pure(&ip_addr, timestamp).is_none() {
+                    !self.neighbor_cache.lookup(&ip_addr, timestamp).found() {
                 self.neighbor_cache.fill(ip_addr, eth_frame.src_addr(), timestamp);
             }
         }
@@ -1143,7 +1143,7 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
                         if flags.contains(NdiscNeighborFlags::OVERRIDE) {
                             self.neighbor_cache.fill(ip_addr, lladdr, timestamp)
                         } else {
-                            if self.neighbor_cache.lookup_pure(&ip_addr, timestamp).is_none() {
+                            if !self.neighbor_cache.lookup(&ip_addr, timestamp).found() {
                                     self.neighbor_cache.fill(ip_addr, lladdr, timestamp)
                             }
                         }
@@ -1543,8 +1543,8 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
         match self.route(addr, timestamp) {
             Ok(routed_addr) => {
                 self.neighbor_cache
-                    .lookup_pure(&routed_addr, timestamp)
-                    .is_some()
+                    .lookup(&routed_addr, timestamp)
+                    .found()
             }
             Err(_) => false
         }
@@ -1618,8 +1618,6 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
 
                     arp_repr.emit(&mut ArpPacket::new_unchecked(frame.payload_mut()))
                 })?;
-
-                Err(Error::Unaddressable)
             }
 
             #[cfg(feature = "proto-ipv6")]
@@ -1646,12 +1644,13 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
                     solicit.emit(&ip_repr.src_addr(), &ip_repr.dst_addr(),
                                  &mut Icmpv6Packet::new_unchecked(payload), &checksum_caps);
                 })?;
-
-                Err(Error::Unaddressable)
             }
 
-            _ => Err(Error::Unaddressable)
+            _ => ()
         }
+        // The request got dispatched, limit the rate on the cache.
+        self.neighbor_cache.limit_rate(timestamp);
+        Err(Error::Unaddressable)
     }
 
     fn dispatch_ip<Tx, F>(&mut self, tx_token: Tx, timestamp: Instant,
