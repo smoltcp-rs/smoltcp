@@ -999,7 +999,7 @@ impl<'a> TcpSocket<'a> {
             (State::SynSent, &TcpRepr {
                 control: TcpControl::None, ack_number: Some(_), ..
             }) => {
-                net_debug!("{}:{}:{}: expecting a SYN,ACK",
+                net_debug!("{}:{}:{}: expecting a SYN|ACK",
                            self.meta.handle, self.local_endpoint, self.remote_endpoint);
                 self.abort();
                 return Err(Error::Dropped)
