@@ -130,7 +130,7 @@ impl Client {
     where
         DeviceT: for<'d> Device<'d>,
     {
-        let checksum_caps = ChecksumCapabilities::default();  // ?
+        let checksum_caps = iface.device().capabilities().checksum;
         let mut raw_socket = sockets.get::<RawSocket>(self.raw_handle);
 
         // Process incoming
