@@ -25,6 +25,13 @@ impl fmt::Display for Handle {
     }
 }
 
+impl Handle {
+    /// Return a numeric value of the handle.
+    pub fn inner(&self) -> usize {
+        self.0
+    }
+}
+
 /// An extensible set of sockets.
 ///
 /// The lifetimes `'b` and `'c` are used when storing a `Socket<'b, 'c>`.
