@@ -7,6 +7,7 @@ use std::os::unix::io::{RawFd, AsRawFd};
 use Result;
 use phy::{self, sys, DeviceCapabilities, Device};
 use time::Instant;
+use wire::EthernetFrame;
 
 /// A socket that captures or transmits the complete frame.
 #[derive(Debug)]
@@ -50,7 +51,7 @@ impl<'a> Device<'a> for RawSocket {
 
     fn receive(&'a mut self) -> Option<(Self::RxToken, Self::TxToken)> {
         let mut lower = self.lower.borrow_mut();
-        let mut buffer = vec![0; self.mtu];
+        let mut buffer = vec![0; self.mtu + EthernetFrame::<&[u8]>::header_len()];
         match lower.recv(&mut buffer[..]) {
             Ok(size) => {
                 buffer.resize(size, 0);
