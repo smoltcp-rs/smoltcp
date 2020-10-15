@@ -32,7 +32,8 @@ url = "1.0"
 std = ["managed/std"]
 alloc = ["managed/alloc"]
 verbose = []
-ethernet = []
+"medium-ethernet" = []
+"medium-ip" = []
 "phy-raw_socket" = ["std", "libc"]
 "phy-tap_interface" = ["std", "libc"]
 "phy-tun_interface" = ["std", "libc"]
@@ -47,7 +48,7 @@ ethernet = []
 "async" = []
 default = [
   "std", "log", # needed for `cargo test --no-default-features --features default` :/
-  "ethernet",
+  "medium-ethernet", "medium-ip",
   "phy-raw_socket", "phy-tap_interface", "phy-tun_interface",
   "proto-ipv4", "proto-igmp", "proto-dhcpv4", "proto-ipv6",
   "socket-raw", "socket-icmp", "socket-udp", "socket-tcp",

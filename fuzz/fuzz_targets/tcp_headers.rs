@@ -6,7 +6,7 @@ use std as core;
 extern crate getopts;
 
 use core::cmp;
-use smoltcp::phy::Loopback;
+use smoltcp::phy::{Loopback, Medium};
 use smoltcp::wire::{EthernetAddress, EthernetFrame, EthernetProtocol};
 use smoltcp::wire::{IpAddress, IpCidr, Ipv4Packet, Ipv6Packet, TcpPacket};
 use smoltcp::iface::{NeighborCache, InterfaceBuilder};
@@ -118,7 +118,7 @@ fuzz_target!(|data: &[u8]| {
         utils::add_middleware_options(&mut opts, &mut free);
 
         let mut matches = utils::parse_options(&opts, free);
-        let device = utils::parse_middleware_options(&mut matches, Loopback::new(),
+        let device = utils::parse_middleware_options(&mut matches, Loopback::new(Medium::Ethernet),
                                                      /*loopback=*/true);
 
         smoltcp::phy::FuzzInjector::new(device,
