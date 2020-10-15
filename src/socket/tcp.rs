@@ -5,7 +5,6 @@
 use core::{cmp, fmt, mem};
 
 use {Error, Result};
-use phy::DeviceCapabilities;
 use time::{Duration, Instant};
 use socket::{Socket, SocketMeta, SocketHandle, PollAt};
 use storage::{Assembler, RingBuffer};
@@ -1433,7 +1432,7 @@ impl<'a> TcpSocket<'a> {
         }
     }
 
-    pub(crate) fn dispatch<F>(&mut self, timestamp: Instant, caps: &DeviceCapabilities,
+    pub(crate) fn dispatch<F>(&mut self, timestamp: Instant, mtu: usize,
                               emit: F) -> Result<()>
             where F: FnOnce((IpRepr, TcpRepr)) -> Result<()> {
         if !self.remote_endpoint.is_specified() { return Err(Error::Exhausted) }
@@ -1621,7 +1620,7 @@ impl<'a> TcpSocket<'a> {
 
         if repr.control == TcpControl::Syn {
             // Fill the MSS option. See RFC 6691 for an explanation of this calculation.
-            let mut max_segment_size = caps.max_transmission_unit;
+            let mut max_segment_size = mtu;
             max_segment_size -= ip_repr.buffer_len();
             max_segment_size -= repr.mss_header_len();
             repr.max_seg_size = Some(max_segment_size as u16);
@@ -1797,9 +1796,8 @@ mod test {
 
     fn recv<F>(socket: &mut TcpSocket, timestamp: Instant, mut f: F)
             where F: FnMut(Result<TcpRepr>) {
-        let mut caps = DeviceCapabilities::default();
-        caps.max_transmission_unit = 1520;
-        let result = socket.dispatch(timestamp, &caps, |(ip_repr, tcp_repr)| {
+        let mtu = 1520;
+        let result = socket.dispatch(timestamp, mtu, |(ip_repr, tcp_repr)| {
             let ip_repr = ip_repr.lower(&[IpCidr::new(LOCAL_END.addr, 24)]).unwrap();
 
             assert_eq!(ip_repr.protocol(), IpProtocol::Tcp);
@@ -4593,11 +4591,10 @@ mod test {
     #[test]
     fn test_set_hop_limit() {
         let mut s = socket_syn_received();
-        let mut caps = DeviceCapabilities::default();
-        caps.max_transmission_unit = 1520;
+        let mtu = 1520;
 
         s.set_hop_limit(Some(0x2a));
-        assert_eq!(s.dispatch(Instant::from_millis(0), &caps, |(ip_repr, _)| {
+        assert_eq!(s.dispatch(Instant::from_millis(0), mtu, |(ip_repr, _)| {
             assert_eq!(ip_repr.hop_limit(), 0x2a);
             Ok(())
         }), Ok(()));

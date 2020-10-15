@@ -1,7 +1,7 @@
 #![cfg_attr(feature = "alloc", feature(alloc))]
 #![no_std]
 #![deny(unsafe_code)]
-#![cfg_attr(all(any(feature = "proto-ipv4", feature = "proto-ipv6"), feature = "ethernet"), deny(unused))]
+#![cfg_attr(all(any(feature = "proto-ipv4", feature = "proto-ipv6"), feature = "medium-ethernet"), deny(unused))]
 
 //! The _smoltcp_ library is built in a layered structure, with the layers corresponding
 //! to the levels of API abstraction. Only the highest layers would be used by a typical
@@ -91,7 +91,7 @@ compile_error!("at least one socket needs to be enabled"); */
 // FIXME(dlrobertson): clippy fails with this lint
 #![cfg_attr(feature = "cargo-clippy", allow(if_same_then_else))]
 
-#[cfg(all(feature = "proto-ipv6", feature = "ethernet"))]
+#[cfg(all(feature = "proto-ipv6", feature = "medium-ethernet"))]
 #[macro_use]
 extern crate bitflags;
 extern crate byteorder;
