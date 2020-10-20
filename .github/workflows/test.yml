@@ -34,7 +34,7 @@ jobs:
           - std ethernet proto-ipv6 socket-icmp socket-tcp
 
           # Test features chosen to be as aggressive as possible.
-          - std ethernet proto-ipv4 proto-ipv6 socket-raw socket-udp socket-tcp socket-icmp
+          - std ethernet proto-ipv4 proto-ipv6 socket-raw socket-udp socket-tcp socket-icmp async
 
         include:
           # Test alloc feature which requires nightly.
@@ -66,7 +66,7 @@ jobs:
 
         features:
           # These feature sets cannot run tests, so we only check they build.
-          - ethernet proto-ipv6 proto-ipv6 proto-igmp proto-dhcpv4 socket-raw socket-udp socket-tcp socket-icmp
+          - ethernet proto-ipv6 proto-ipv6 proto-igmp proto-dhcpv4 socket-raw socket-udp socket-tcp socket-icmp async
 
     steps:
       - uses: actions/checkout@v2

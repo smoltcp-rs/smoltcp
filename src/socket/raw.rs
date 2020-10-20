@@ -9,6 +9,10 @@ use wire::{IpVersion, IpRepr, IpProtocol};
 use wire::{Ipv4Repr, Ipv4Packet};
 #[cfg(feature = "proto-ipv6")]
 use wire::{Ipv6Repr, Ipv6Packet};
+#[cfg(feature = "async")]
+use socket::WakerRegistration;
+#[cfg(feature = "async")]
+use core::task::Waker;
 
 /// A UDP packet metadata.
 pub type RawPacketMetadata = PacketMetadata<()>;
@@ -27,6 +31,10 @@ pub struct RawSocket<'a, 'b: 'a> {
     ip_protocol: IpProtocol,
     rx_buffer:   RawSocketBuffer<'a, 'b>,
     tx_buffer:   RawSocketBuffer<'a, 'b>,
+    #[cfg(feature = "async")]
+    rx_waker: WakerRegistration,
+    #[cfg(feature = "async")]
+    tx_waker: WakerRegistration,
 }
 
 impl<'a, 'b> RawSocket<'a, 'b> {
@@ -41,7 +49,46 @@ impl<'a, 'b> RawSocket<'a, 'b> {
             ip_protocol,
             rx_buffer,
             tx_buffer,
+            #[cfg(feature = "async")]
+            rx_waker: WakerRegistration::new(),
+            #[cfg(feature = "async")]
+            tx_waker: WakerRegistration::new(),
         }
+    }
+
+    /// Register a waker for receive operations.
+    ///
+    /// The waker is woken on state changes that might affect the return value
+    /// of `recv` method calls, such as receiving data, or the socket closing.
+    /// 
+    /// Notes:
+    ///
+    /// - Only one waker can be registered at a time. If another waker was previously registered,
+    ///   it is overwritten and will no longer be woken.
+    /// - The Waker is woken only once. Once woken, you must register it again to receive more wakes. 
+    /// - "Spurious wakes" are allowed: a wake doesn't guarantee the result of `recv` has
+    ///   necessarily changed.
+    #[cfg(feature = "async")]
+    pub fn register_recv_waker(&mut self, waker: &Waker) {
+        self.rx_waker.register(waker)
+    }
+
+    /// Register a waker for send operations.
+    ///
+    /// The waker is woken on state changes that might affect the return value
+    /// of `send` method calls, such as space becoming available in the transmit
+    /// buffer, or the socket closing.
+    /// 
+    /// Notes:
+    ///
+    /// - Only one waker can be registered at a time. If another waker was previously registered,
+    ///   it is overwritten and will no longer be woken.
+    /// - The Waker is woken only once. Once woken, you must register it again to receive more wakes. 
+    /// - "Spurious wakes" are allowed: a wake doesn't guarantee the result of `send` has
+    ///   necessarily changed.
+    #[cfg(feature = "async")]
+    pub fn register_send_waker(&mut self, waker: &Waker) {
+        self.tx_waker.register(waker)
     }
 
     /// Return the socket handle.
@@ -171,6 +218,10 @@ impl<'a, 'b> RawSocket<'a, 'b> {
         net_trace!("{}:{}:{}: receiving {} octets",
                    self.meta.handle, self.ip_version, self.ip_protocol,
                    packet_buf.len());
+
+        #[cfg(feature = "async")]
+        self.rx_waker.wake();
+
         Ok(())
     }
 
@@ -228,7 +279,12 @@ impl<'a, 'b> RawSocket<'a, 'b> {
                     Ok(())
                 }
             }
-        })
+        })?;
+
+        #[cfg(feature = "async")]
+        self.tx_waker.wake();
+
+        Ok(())
     }
 
     pub(crate) fn poll_at(&self) -> PollAt {
