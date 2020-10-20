@@ -26,7 +26,12 @@ mod tcp;
 mod set;
 mod ref_;
 
+#[cfg(feature = "async")]
+mod waker_store;
+
 pub(crate) use self::meta::Meta as SocketMeta;
+#[cfg(feature = "async")]
+pub(crate) use self::waker_store::WakerStore;
 
 #[cfg(feature = "socket-raw")]
 pub use self::raw::{RawPacketMetadata,
