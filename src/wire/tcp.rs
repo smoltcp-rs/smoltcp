@@ -893,11 +893,11 @@ impl<'a> Repr<'a> {
         packet.set_ack(self.ack_number.is_some());
         {
             let mut options = packet.options_mut();
-            if let Some(value) = self.window_scale {
-                let tmp = options; options = TcpOption::WindowScale(value).emit(tmp);
-            }
             if let Some(value) = self.max_seg_size {
                 let tmp = options; options = TcpOption::MaxSegmentSize(value).emit(tmp);
+            }
+            if let Some(value) = self.window_scale {
+                let tmp = options; options = TcpOption::WindowScale(value).emit(tmp);
             }
             if self.sack_permitted {
                 let tmp = options; options = TcpOption::SackPermitted.emit(tmp);

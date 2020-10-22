@@ -578,7 +578,7 @@ impl<'b, 'c, 'e, DeviceT> Interface<'b, 'c, 'e, DeviceT>
 
         let mut emitted_any = false;
         for mut socket in sockets.iter_mut() {
-            if !socket.meta_mut().egress_permitted(|ip_addr|
+            if !socket.meta_mut().egress_permitted(timestamp, |ip_addr|
                     self.inner.has_neighbor(&ip_addr, timestamp)) {
                 continue
             }
@@ -850,8 +850,8 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
             match raw_socket.process(&ip_repr, ip_payload, &checksum_caps) {
                 // The packet is valid and handled by socket.
                 Ok(()) => handled_by_raw_socket = true,
-                // The socket buffer is full.
-                Err(Error::Exhausted) => (),
+                // The socket buffer is full or the packet was truncated
+                Err(Error::Exhausted) | Err(Error::Truncated) => (),
                 // Raw sockets don't validate the packets in any way.
                 Err(_) => unreachable!(),
             }
@@ -878,7 +878,7 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
             // Fill the neighbor cache from IP header of unicast frames.
             let ip_addr = IpAddress::Ipv6(ipv6_repr.src_addr);
             if self.in_same_network(&ip_addr) &&
-                    self.neighbor_cache.lookup_pure(&ip_addr, timestamp).is_none() {
+                    !self.neighbor_cache.lookup(&ip_addr, timestamp).found() {
                 self.neighbor_cache.fill(ip_addr, eth_frame.src_addr(), timestamp);
             }
         }
@@ -1143,7 +1143,7 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
                         if flags.contains(NdiscNeighborFlags::OVERRIDE) {
                             self.neighbor_cache.fill(ip_addr, lladdr, timestamp)
                         } else {
-                            if self.neighbor_cache.lookup_pure(&ip_addr, timestamp).is_none() {
+                            if !self.neighbor_cache.lookup(&ip_addr, timestamp).found() {
                                     self.neighbor_cache.fill(ip_addr, lladdr, timestamp)
                             }
                         }
@@ -1543,8 +1543,8 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
         match self.route(addr, timestamp) {
             Ok(routed_addr) => {
                 self.neighbor_cache
-                    .lookup_pure(&routed_addr, timestamp)
-                    .is_some()
+                    .lookup(&routed_addr, timestamp)
+                    .found()
             }
             Err(_) => false
         }
@@ -1618,8 +1618,6 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
 
                     arp_repr.emit(&mut ArpPacket::new_unchecked(frame.payload_mut()))
                 })?;
-
-                Err(Error::Unaddressable)
             }
 
             #[cfg(feature = "proto-ipv6")]
@@ -1646,12 +1644,13 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
                     solicit.emit(&ip_repr.src_addr(), &ip_repr.dst_addr(),
                                  &mut Icmpv6Packet::new_unchecked(payload), &checksum_caps);
                 })?;
-
-                Err(Error::Unaddressable)
             }
 
-            _ => Err(Error::Unaddressable)
+            _ => ()
         }
+        // The request got dispatched, limit the rate on the cache.
+        self.neighbor_cache.limit_rate(timestamp);
+        Err(Error::Unaddressable)
     }
 
     fn dispatch_ip<Tx, F>(&mut self, tx_token: Tx, timestamp: Instant,
@@ -2665,6 +2664,67 @@ mod test {
 
         assert_eq!(iface.inner.process_ipv4(&mut socket_set, Instant::from_millis(0), &frame),
                    Ok(Packet::None));
+    }
+
+    #[test]
+    #[cfg(all(feature = "proto-ipv4", feature = "socket-raw"))]
+    fn test_raw_socket_truncated_packet() {
+        use socket::{RawSocket, RawSocketBuffer, RawPacketMetadata};
+        use wire::{IpVersion, Ipv4Packet, UdpPacket, UdpRepr};
+
+        let (mut iface, mut socket_set) = create_loopback();
+
+        let packets = 1;
+        let rx_buffer = RawSocketBuffer::new(vec![RawPacketMetadata::EMPTY; packets], vec![0; 48 * 1]);
+        let tx_buffer = RawSocketBuffer::new(vec![RawPacketMetadata::EMPTY; packets], vec![0; 48 * packets]);
+        let raw_socket = RawSocket::new(IpVersion::Ipv4, IpProtocol::Udp, rx_buffer, tx_buffer);
+        socket_set.add(raw_socket);
+
+        let src_addr = Ipv4Address([127, 0, 0, 2]);
+        let dst_addr = Ipv4Address([127, 0, 0, 1]);
+
+        let udp_repr = UdpRepr {
+            src_port: 67,
+            dst_port: 68,
+            payload: &[0x2a; 49] // 49 > 48, hence packet will be truncated
+        };
+        let mut bytes = vec![0xff; udp_repr.buffer_len()];
+        let mut packet = UdpPacket::new_unchecked(&mut bytes[..]);
+        udp_repr.emit(&mut packet, &src_addr.into(), &dst_addr.into(), &ChecksumCapabilities::default());
+        let ipv4_repr = Ipv4Repr {
+            src_addr: src_addr,
+            dst_addr: dst_addr,
+            protocol: IpProtocol::Udp,
+            hop_limit: 64,
+            payload_len: udp_repr.buffer_len()
+        };
+
+        // Emit to ethernet frame
+        let mut eth_bytes = vec![0u8;
+            EthernetFrame::<&[u8]>::header_len() +
+            ipv4_repr.buffer_len() + udp_repr.buffer_len()
+        ];
+        let frame = {
+            let mut frame = EthernetFrame::new_unchecked(&mut eth_bytes);
+            ipv4_repr.emit(
+                &mut Ipv4Packet::new_unchecked(frame.payload_mut()),
+                &ChecksumCapabilities::default());
+            udp_repr.emit(
+                &mut UdpPacket::new_unchecked(
+                    &mut frame.payload_mut()[ipv4_repr.buffer_len()..]),
+                &src_addr.into(),
+                &dst_addr.into(),
+                &ChecksumCapabilities::default());
+            EthernetFrame::new_unchecked(&*frame.into_inner())
+        };
+
+        let frame = iface.inner.process_ipv4(&mut socket_set, Instant::from_millis(0), &frame);
+
+        // because the packet could not be handled we should send an Icmp message
+        assert!(match frame {  
+            Ok(Packet::Icmpv4(_)) => true,
+            _ => false,
+        });
     }
 
     #[test]

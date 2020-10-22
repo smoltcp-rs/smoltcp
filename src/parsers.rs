@@ -3,7 +3,9 @@
 use core::str::FromStr;
 use core::result;
 
-use wire::{EthernetAddress, IpAddress, IpCidr, IpEndpoint};
+#[cfg(feature = "ethernet")]
+use wire::EthernetAddress;
+use wire::{IpAddress, IpCidr, IpEndpoint};
 #[cfg(feature = "proto-ipv4")]
 use wire::{Ipv4Address, Ipv4Cidr};
 #[cfg(feature = "proto-ipv6")]
@@ -116,6 +118,7 @@ impl<'a> Parser<'a> {
         }
     }
 
+    #[cfg(feature = "ethernet")]
     fn accept_mac_joined_with(&mut self, separator: u8) -> Result<EthernetAddress> {
         let mut octets = [0u8; 6];
         for n in 0..6 {
@@ -127,6 +130,7 @@ impl<'a> Parser<'a> {
         Ok(EthernetAddress(octets))
     }
 
+    #[cfg(feature = "ethernet")]
     fn accept_mac(&mut self) -> Result<EthernetAddress> {
         if let Some(mac) = self.try(|p| p.accept_mac_joined_with(b'-')) {
             return Ok(mac)
@@ -344,6 +348,7 @@ impl<'a> Parser<'a> {
     }
 }
 
+#[cfg(feature = "ethernet")]
 impl FromStr for EthernetAddress {
     type Err = ();
 
@@ -462,7 +467,7 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "proto-ipv4")]
+    #[cfg(all(feature = "proto-ipv4", feature = "ethernet"))]
     fn test_mac() {
         assert_eq!(EthernetAddress::from_str(""), Err(()));
         assert_eq!(EthernetAddress::from_str("02:00:00:00:00:00"),

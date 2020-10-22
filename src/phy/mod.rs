@@ -115,6 +115,7 @@ pub use self::raw_socket::RawSocket;
 #[cfg(all(feature = "phy-tap_interface", target_os = "linux"))]
 pub use self::tap_interface::TapInterface;
 
+#[cfg(feature = "ethernet")]
 /// A tracer device for Ethernet frames.
 pub type EthernetTracer<T> = Tracer<T, super::wire::EthernetFrame<&'static [u8]>>;
 
@@ -208,7 +209,10 @@ pub struct DeviceCapabilities {
     /// dynamically allocated.
     pub max_burst_size: Option<usize>,
 
-    /// The set of protocols for which checksum can be computed in hardware.
+    /// Checksum behavior.
+    ///
+    /// If the network device is capable of verifying or computing checksums for some protocols,
+    /// it can request that the stack not do so in software to improve performance.
     pub checksum: ChecksumCapabilities,
 
     /// Only present to prevent people from trying to initialize every field of DeviceLimits,

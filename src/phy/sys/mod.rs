@@ -26,15 +26,24 @@ pub use self::tap_interface::TapInterfaceDesc;
 /// Wait until given file descriptor becomes readable, but no longer than given timeout.
 pub fn wait(fd: RawFd, duration: Option<Duration>) -> io::Result<()> {
     unsafe {
-        let mut readfds = mem::uninitialized::<libc::fd_set>();
-        libc::FD_ZERO(&mut readfds);
-        libc::FD_SET(fd, &mut readfds);
+        let mut readfds = {
+            let mut readfds = mem::MaybeUninit::<libc::fd_set>::uninit();
+            libc::FD_ZERO(readfds.as_mut_ptr());
+            libc::FD_SET(fd, readfds.as_mut_ptr());
+            readfds.assume_init()
+        };
 
-        let mut writefds = mem::uninitialized::<libc::fd_set>();
-        libc::FD_ZERO(&mut writefds);
+        let mut writefds = {
+            let mut writefds = mem::MaybeUninit::<libc::fd_set>::uninit();
+            libc::FD_ZERO(writefds.as_mut_ptr());
+            writefds.assume_init()
+        };
 
-        let mut exceptfds = mem::uninitialized::<libc::fd_set>();
-        libc::FD_ZERO(&mut exceptfds);
+        let mut exceptfds = {
+            let mut exceptfds = mem::MaybeUninit::<libc::fd_set>::uninit();
+            libc::FD_ZERO(exceptfds.as_mut_ptr());
+            exceptfds.assume_init()
+        };
 
         let mut timeout = libc::timeval { tv_sec: 0, tv_usec: 0 };
         let timeout_ptr =
@@ -75,7 +84,7 @@ fn ifreq_for(name: &str) -> ifreq {
 fn ifreq_ioctl(lower: libc::c_int, ifreq: &mut ifreq,
                cmd: libc::c_ulong) -> io::Result<libc::c_int> {
     unsafe {
-        let res = libc::ioctl(lower, cmd, ifreq as *mut ifreq);
+        let res = libc::ioctl(lower, cmd as _, ifreq as *mut ifreq);
         if res == -1 { return Err(io::Error::last_os_error()) }
     }
 

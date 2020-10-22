@@ -96,8 +96,8 @@ impl<'a, 'b, H> PacketBuffer<'a, 'b, H> {
             } else {
                 // Add padding to the end of the ring buffer so that the
                 // contiguous window is at the beginning of the ring buffer.
-                *self.metadata_ring.enqueue_one()? = PacketMetadata::padding(size);
-                self.payload_ring.enqueue_many(size);
+                *self.metadata_ring.enqueue_one()? = PacketMetadata::padding(contig_window);
+                self.payload_ring.enqueue_many(contig_window);
             }
         }
 
@@ -168,6 +168,16 @@ impl<'a, 'b, H> PacketBuffer<'a, 'b, H> {
             Err(Error::Exhausted)
         }
     }
+
+    /// Return the maximum number packets that can be stored.
+    pub fn packet_capacity(&self) -> usize {
+        self.metadata_ring.capacity()
+    }
+
+    /// Return the maximum number of bytes in the payload ring buffer.
+    pub fn payload_capacity(&self) -> usize {
+        self.payload_ring.capacity()
+    }
 }
 
 #[cfg(test)]
@@ -212,6 +222,14 @@ mod test {
 
         assert_eq!(buffer.dequeue().unwrap().1, &b"abcd"[..]);
         assert_eq!(buffer.metadata_ring.len(), 0);
+    }
+
+    #[test]
+    fn test_padding_with_large_payload() {
+        let mut buffer = buffer();
+        assert!(buffer.enqueue(12, ()).is_ok());
+        assert!(buffer.dequeue().is_ok());
+        buffer.enqueue(12, ()).unwrap().copy_from_slice(b"abcdefghijkl");
     }
 
     #[test]

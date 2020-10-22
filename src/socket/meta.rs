@@ -58,17 +58,20 @@ impl Meta {
         }
     }
 
-    pub(crate) fn egress_permitted<F>(&mut self, has_neighbor: F) -> bool
+    pub(crate) fn egress_permitted<F>(&mut self, timestamp: Instant, has_neighbor: F) -> bool
         where F: Fn(IpAddress) -> bool
     {
         match self.neighbor_state {
             NeighborState::Active =>
                 true,
-            NeighborState::Waiting { neighbor, .. } => {
+            NeighborState::Waiting { neighbor, silent_until } => {
                 if has_neighbor(neighbor) {
                     net_trace!("{}: neighbor {} discovered, unsilencing",
                                self.handle, neighbor);
                     self.neighbor_state = NeighborState::Active;
+                    true
+                } else if timestamp >= silent_until {
+                    net_trace!("{}: neighbor {} silence timer expired, rediscovering", self.handle, neighbor);
                     true
                 } else {
                     false

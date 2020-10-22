@@ -289,22 +289,22 @@ impl Repr {
 
 fn max_resp_code_to_duration(value: u8) -> Duration {
     let value: u64 = value.into();
-    let centisecs = if value < 128 {
+    let decisecs = if value < 128 {
         value
     } else {
         let mant = value & 0xF;
         let exp = (value >> 4) & 0x7;
         (mant | 0x10) << (exp + 3)
     };
-    Duration::from_millis(centisecs * 100)
+    Duration::from_millis(decisecs * 100)
 }
 
 fn duration_to_max_resp_code(duration: Duration) -> u8 {
-    let centisecs = duration.total_millis() / 100;
-    if centisecs < 128 {
-        centisecs as u8
-    } else if centisecs < 31744 {
-        let mut mant = centisecs >> 3;
+    let decisecs = duration.total_millis() / 100;
+    if decisecs < 128 {
+        decisecs as u8
+    } else if decisecs < 31744 {
+        let mut mant = decisecs >> 3;
         let mut exp = 0u8;
         while mant > 0x1F && exp < 0x8 {
             mant >>= 1;

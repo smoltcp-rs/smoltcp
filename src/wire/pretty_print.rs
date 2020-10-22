@@ -7,7 +7,7 @@ easily human readable packet listings.
 
 A packet can be formatted using the `PrettyPrinter` wrapper:
 
-```rust
+```rust,ignore
 use smoltcp::wire::*;
 let buffer = vec![
     // Ethernet II

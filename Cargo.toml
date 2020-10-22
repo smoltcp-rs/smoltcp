@@ -1,6 +1,6 @@
 [package]
 name = "smoltcp"
-version = "0.5.0"
+version = "0.6.0"
 authors = ["whitequark <whitequark@whitequark.org>"]
 description = "A TCP/IP stack designed for bare-metal, real-time systems without a heap."
 documentation = "https://docs.rs/smoltcp/"
@@ -31,6 +31,7 @@ url = "1.0"
 std = ["managed/std"]
 alloc = ["managed/alloc"]
 verbose = []
+ethernet = []
 "phy-raw_socket" = ["std", "libc"]
 "phy-tap_interface" = ["std", "libc"]
 "proto-ipv4" = []
@@ -43,6 +44,7 @@ verbose = []
 "socket-icmp" = []
 default = [
   "std", "log", # needed for `cargo test --no-default-features --features default` :/
+  "ethernet",
   "phy-raw_socket", "phy-tap_interface",
   "proto-ipv4", "proto-igmp", "proto-ipv6",
   "socket-raw", "socket-icmp", "socket-udp", "socket-tcp"
