@@ -1558,7 +1558,8 @@ impl<'a> TcpSocket<'a> {
                 // Extract as much data as the remote side can receive in this packet
                 // from the transmit buffer.
                 let offset = self.remote_last_seq - self.local_seq_no;
-                let size = cmp::min(self.remote_win_len, self.remote_mss);
+                let size = cmp::min(cmp::min(self.remote_win_len, self.remote_mss),
+                     caps.max_transmission_unit);
                 repr.payload = self.tx_buffer.get_allocated(offset, size);
                 // If we've sent everything we had in the buffer, follow it with the PSH or FIN
                 // flags, depending on whether the transmit half of the connection is open.
