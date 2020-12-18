@@ -230,8 +230,8 @@ pub struct TcpSocket<'a> {
     /// The sending window scaling factor advertised to remotes which support RFC 1323.
     /// It is zero if the window <= 64KiB and/or the remote does not support it.
     remote_win_shift: u8,
-    /// The speculative remote window size.
-    /// I.e. the actual remote window size minus the count of in-flight octets.
+    /// The remote window size, relative to local_seq_no
+    /// I.e. we're allowed to send octets until local_seq_no+remote_win_len
     remote_win_len:  usize,
     /// The receive window scaling factor for remotes which support RFC 1323, None if unsupported.
     remote_win_scale: Option<u8>,
@@ -1410,11 +1410,11 @@ impl<'a> TcpSocket<'a> {
             _ => control = TcpControl::None
         }
 
-        if self.remote_win_len > 0 {
-            self.remote_last_seq < self.local_seq_no + self.tx_buffer.len() + control.len()
-        } else {
-            false
-        }
+        self.remote_last_seq <
+            self.local_seq_no + core::cmp::min(
+                self.remote_win_len,
+                self.tx_buffer.len()
+            ) + control.len()
     }
 
     fn ack_to_transmit(&self) -> bool {
@@ -1558,7 +1558,8 @@ impl<'a> TcpSocket<'a> {
                 // Extract as much data as the remote side can receive in this packet
                 // from the transmit buffer.
                 let offset = self.remote_last_seq - self.local_seq_no;
-                let size = cmp::min(cmp::min(self.remote_win_len, self.remote_mss),
+                let win_limit = self.local_seq_no + self.remote_win_len - self.remote_last_seq;
+                let size = cmp::min(cmp::min(win_limit, self.remote_mss),
                      caps.max_transmission_unit - ip_repr.buffer_len() - repr.mss_header_len());
                 repr.payload = self.tx_buffer.get_allocated(offset, size);
                 // If we've sent everything we had in the buffer, follow it with the PSH or FIN
@@ -2755,11 +2756,6 @@ mod test {
             ack_number: Some(REMOTE_SEQ + 1),
             payload: &data[0..16],
             ..RECV_TEMPL
-        }, TcpRepr {
-            seq_number: LOCAL_SEQ + 1 + 16,
-            ack_number: Some(REMOTE_SEQ + 1),
-            payload: &data[16..32],
-            ..RECV_TEMPL
         }]);
     }
 
@@ -3525,7 +3521,7 @@ mod test {
     #[test]
     fn test_data_retransmit_bursts() {
         let mut s = socket_established();
-        s.remote_win_len = 6;
+        s.remote_mss = 6;
         s.send_slice(b"abcdef012345").unwrap();
 
         recv!(s, time 0, Ok(TcpRepr {
@@ -3535,7 +3531,6 @@ mod test {
             payload:    &b"abcdef"[..],
             ..RECV_TEMPL
         }), exact);
-        s.remote_win_len = 6;
         recv!(s, time 0, Ok(TcpRepr {
             control:    TcpControl::Psh,
             seq_number: LOCAL_SEQ + 1 + 6,
@@ -3543,7 +3538,6 @@ mod test {
             payload:    &b"012345"[..],
             ..RECV_TEMPL
         }), exact);
-        s.remote_win_len = 6;
         recv!(s, time 0, Err(Error::Exhausted));
 
         recv!(s, time 50, Err(Error::Exhausted));
@@ -3555,7 +3549,6 @@ mod test {
             payload:    &b"abcdef"[..],
             ..RECV_TEMPL
         }), exact);
-        s.remote_win_len = 6;
         recv!(s, time 150, Ok(TcpRepr {
             control:    TcpControl::Psh,
             seq_number: LOCAL_SEQ + 1 + 6,
@@ -3563,7 +3556,6 @@ mod test {
             payload:    &b"012345"[..],
             ..RECV_TEMPL
         }), exact);
-        s.remote_win_len = 6;
         recv!(s, time 200, Err(Error::Exhausted));
     }
 
@@ -3791,12 +3783,12 @@ mod test {
     #[test]
     fn test_fast_retransmit_after_triple_duplicate_ack() {
         let mut s = socket_established();
+        s.remote_mss = 6;
 
         // Normal ACK of previously recived segment
         send!(s, time 0, TcpRepr {
             seq_number: REMOTE_SEQ + 1,
             ack_number: Some(LOCAL_SEQ + 1),
-            window_len: 6,
             ..SEND_TEMPL
         });
 
@@ -3833,14 +3825,12 @@ mod test {
         send!(s, time 1050, TcpRepr {
             seq_number: REMOTE_SEQ + 1,
             ack_number: Some(LOCAL_SEQ + 1),
-            window_len: 6,
             ..SEND_TEMPL
         });
         // Second duplicate ACK
         send!(s, time 1055, TcpRepr {
             seq_number: REMOTE_SEQ + 1,
             ack_number: Some(LOCAL_SEQ + 1),
-            window_len: 6,
             ..SEND_TEMPL
         });
         // Third duplicate ACK
@@ -3848,7 +3838,6 @@ mod test {
         send!(s, time 1060, TcpRepr {
             seq_number: REMOTE_SEQ + 1,
             ack_number: Some(LOCAL_SEQ + 1),
-            window_len: 6,
             ..SEND_TEMPL
         });
 
@@ -3951,12 +3940,12 @@ mod test {
     #[test]
     fn test_fast_retransmit_duplicate_detection() {
         let mut s = socket_established();
+        s.remote_mss = 6;
 
         // Normal ACK of previously recived segment
         send!(s, time 0, TcpRepr {
             seq_number: REMOTE_SEQ + 1,
             ack_number: Some(LOCAL_SEQ + 1),
-            window_len: 6,
             ..SEND_TEMPL
         });
 
@@ -3964,7 +3953,6 @@ mod test {
         send!(s, time 0, TcpRepr {
             seq_number: REMOTE_SEQ + 1,
             ack_number: Some(LOCAL_SEQ + 1),
-            window_len: 6,
             ..SEND_TEMPL
         });
 
@@ -3972,7 +3960,7 @@ mod test {
             "duplicate ACK counter is set but wound not transmit data");
 
         // Send a long string of text divided into several packets
-        // because of previously recieved "window_len"
+        // because of small remote_mss
         s.send_slice(b"xxxxxxyyyyyywwwwwwzzzzzz").unwrap();
 
         // This packet is reordered in network
@@ -4005,21 +3993,18 @@ mod test {
         send!(s, time 1050, TcpRepr {
             seq_number: REMOTE_SEQ + 1,
             ack_number: Some(LOCAL_SEQ + 1),
-            window_len: 6,
             ..SEND_TEMPL
         });
         // Second duplicate ACK
         send!(s, time 1055, TcpRepr {
             seq_number: REMOTE_SEQ + 1,
             ack_number: Some(LOCAL_SEQ + 1),
-            window_len: 6,
             ..SEND_TEMPL
         });
         // Reordered packet arrives which should reset duplicate ACK count
         send!(s, time 1060, TcpRepr {
             seq_number: REMOTE_SEQ + 1,
             ack_number: Some(LOCAL_SEQ + 1 + (6 * 3)),
-            window_len: 6,
             ..SEND_TEMPL
         });
 
@@ -4174,7 +4159,7 @@ mod test {
     #[test]
     fn test_psh_transmit() {
         let mut s = socket_established();
-        s.remote_win_len = 6;
+        s.remote_mss = 6;
         s.send_slice(b"abcdef").unwrap();
         s.send_slice(b"123456").unwrap();
         recv!(s, time 0, Ok(TcpRepr {
