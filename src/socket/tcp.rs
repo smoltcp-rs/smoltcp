@@ -1575,8 +1575,9 @@ impl<'a> TcpSocket<'a> {
                 }
             }
 
-            // We do not transmit anything in the FIN-WAIT-2 state.
-            State::FinWait2 => return Err(Error::Exhausted),
+            // We do not transmit data in the FIN-WAIT-2 state, but we may transmit
+            // ACKs for incoming data.
+            State::FinWait2 => {}
 
             // We do not transmit data or control flags in the CLOSING or TIME-WAIT states,
             // but we may retransmit an ACK.
@@ -3089,6 +3090,11 @@ mod test {
             assert_eq!(data, b"abc");
             (3, ())
         }).unwrap();
+        recv!(s, [TcpRepr {
+            seq_number: LOCAL_SEQ + 1 + 1,
+            ack_number: Some(REMOTE_SEQ + 1 + 3),
+            ..RECV_TEMPL
+        }]);
     }
 
     #[test]
