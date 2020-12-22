@@ -1,0 +1,21 @@
+on:
+  push:
+    branches: [ staging, trying, master ]
+  pull_request:
+
+name: Fuzz
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: nightly
+          override: true
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz
+      - name: Fuzz
+        run: cargo fuzz run packet_parser -- -max_len=1536 -max_total_time=30
