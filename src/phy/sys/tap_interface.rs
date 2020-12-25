@@ -2,6 +2,7 @@ use std::io;
 use std::os::unix::io::{RawFd, AsRawFd};
 use libc;
 use super::*;
+use crate::wire::EthernetFrame;
 
 #[derive(Debug)]
 pub struct TapInterfaceDesc {
@@ -42,11 +43,13 @@ impl TapInterfaceDesc {
             lower
         };
 
-        let mtu = ifreq_ioctl(lower, &mut self.ifreq, imp::SIOCGIFMTU).map(|mtu| mtu as usize);
+        let ip_mtu = ifreq_ioctl(lower, &mut self.ifreq, imp::SIOCGIFMTU).map(|mtu| mtu as usize);
 
         unsafe { libc::close(lower); }
 
-        mtu
+        // SIOCGIFMTU returns the IP MTU (typically 1500 bytes.)
+        // smoltcp counts the entire Ethernet packet in the MTU, so add the Ethernet header size to it.
+        Ok(ip_mtu? + EthernetFrame::<&[u8]>::header_len())
     }
 
     pub fn recv(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
