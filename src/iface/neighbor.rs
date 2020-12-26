@@ -106,7 +106,7 @@ impl<'a> Cache<'a> {
             #[cfg(any(feature = "std", feature = "alloc"))]
             ManagedMap::Owned(ref mut map) => {
                 if current_storage_size >= self.gc_threshold {
-                    let new_btree_map = map.into_iter()
+                    let new_btree_map = map.iter_mut()
                         .map(|(key, value)| (*key, *value))
                         .filter(|(_, v)| timestamp < v.expires_at)
                         .collect();
