@@ -1510,7 +1510,7 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
         let tx_len = EthernetFrame::<&[u8]>::buffer_len(buffer_len);
         tx_token.consume(timestamp, tx_len, |tx_buffer| {
             debug_assert!(tx_buffer.as_ref().len() == tx_len);
-            let mut frame = EthernetFrame::new_unchecked(tx_buffer.as_mut());
+            let mut frame = EthernetFrame::new_unchecked(tx_buffer);
             frame.set_src_addr(self.ethernet_addr);
 
             f(frame);

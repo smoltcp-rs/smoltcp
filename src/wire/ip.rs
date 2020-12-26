@@ -879,11 +879,11 @@ pub fn pretty_print_ip_payload<T: Into<Repr>>(f: &mut fmt::Formatter, indent: &m
         #[cfg(feature = "proto-ipv4")]
         Protocol::Icmp => {
             indent.increase(f)?;
-            Icmpv4Packet::<&[u8]>::pretty_print(&payload.as_ref(), f, indent)
+            Icmpv4Packet::<&[u8]>::pretty_print(&payload, f, indent)
         }
         Protocol::Udp => {
             indent.increase(f)?;
-            match UdpPacket::<&[u8]>::new_checked(payload.as_ref()) {
+            match UdpPacket::<&[u8]>::new_checked(payload) {
                 Err(err) => write!(f, "{}({})", indent, err),
                 Ok(udp_packet) => {
                     match UdpRepr::parse(&udp_packet, &repr.src_addr(),
@@ -901,7 +901,7 @@ pub fn pretty_print_ip_payload<T: Into<Repr>>(f: &mut fmt::Formatter, indent: &m
         }
         Protocol::Tcp => {
             indent.increase(f)?;
-            match TcpPacket::<&[u8]>::new_checked(payload.as_ref()) {
+            match TcpPacket::<&[u8]>::new_checked(payload) {
                 Err(err) => write!(f, "{}({})", indent, err),
                 Ok(tcp_packet) => {
                     match TcpRepr::parse(&tcp_packet, &repr.src_addr(),
