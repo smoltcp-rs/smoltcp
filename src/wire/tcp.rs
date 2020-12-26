@@ -294,7 +294,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     pub fn selective_ack_permitted(&self) -> Result<bool> {
         let data = self.buffer.as_ref();
         let mut options = &data[field::OPTIONS(self.header_len())];
-        while options.len() > 0 {
+        while !options.is_empty() {
             let (next_options, option) = TcpOption::parse(options)?;
             match option {
                 TcpOption::SackPermitted => {
@@ -315,7 +315,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     ) -> Result<[Option<(u32, u32)>; 3]> {
         let data = self.buffer.as_ref();
         let mut options = &data[field::OPTIONS(self.header_len())];
-        while options.len() > 0 {
+        while !options.is_empty() {
             let (next_options, option) = TcpOption::parse(options)?;
             match option {
                 TcpOption::SackRange(slice) => {
@@ -789,7 +789,7 @@ impl<'a> Repr<'a> {
         let mut options = packet.options();
         let mut sack_permitted = false;
         let mut sack_ranges = [None, None, None];
-        while options.len() > 0 {
+        while !options.is_empty() {
             let (next_options, option) = TcpOption::parse(options)?;
             match option {
                 TcpOption::EndOfList => break,
@@ -905,7 +905,7 @@ impl<'a> Repr<'a> {
                 let tmp = options; options = TcpOption::SackRange(self.sack_ranges).emit(tmp);
             }
 
-            if options.len() > 0 {
+            if !options.is_empty() {
                 TcpOption::EndOfList.emit(options);
             }
         }
@@ -929,7 +929,7 @@ impl<'a> Repr<'a> {
     /// Return whether the segment has no flags set (except PSH) and no data.
     pub fn is_empty(&self) -> bool {
         match self.control {
-            _ if self.payload.len() != 0 => false,
+            _ if !self.payload.is_empty() => false,
             Control::Syn  | Control::Fin | Control::Rst => false,
             Control::None | Control::Psh => true
         }
@@ -959,7 +959,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
         write!(f, " len={}", self.payload().len())?;
 
         let mut options = self.options();
-        while options.len() > 0 {
+        while !options.is_empty() {
             let (next_options, option) =
                 match TcpOption::parse(options) {
                     Ok(res) => res,

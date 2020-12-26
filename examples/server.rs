@@ -133,7 +133,7 @@ fn main() {
                 let data = socket.recv(|buffer| {
                     let recvd_len = buffer.len();
                     let mut data = buffer.to_owned();
-                    if data.len() > 0 {
+                    if !data.is_empty() {
                         debug!("tcp:6970 recv data: {:?}",
                                str::from_utf8(data.as_ref()).unwrap_or("(invalid utf8)"));
                         data = data.split(|&b| b == b'\n').collect::<Vec<_>>().concat();
@@ -142,7 +142,7 @@ fn main() {
                     }
                     (recvd_len, data)
                 }).unwrap();
-                if socket.can_send() && data.len() > 0 {
+                if socket.can_send() && !data.is_empty() {
                     debug!("tcp:6970 send data: {:?}",
                            str::from_utf8(data.as_ref()).unwrap_or("(invalid utf8)"));
                     socket.send_slice(&data[..]).unwrap();
@@ -164,7 +164,7 @@ fn main() {
 
             if socket.may_recv() {
                 socket.recv(|buffer| {
-                    if buffer.len() > 0 {
+                    if !buffer.is_empty() {
                         debug!("tcp:6971 recv {:?} octets", buffer.len());
                     }
                     (buffer.len(), ())
@@ -183,7 +183,7 @@ fn main() {
 
             if socket.may_send() {
                 socket.send(|data| {
-                    if data.len() > 0 {
+                    if !data.is_empty() {
                         debug!("tcp:6972 send {:?} octets", data.len());
                         for (i, b) in data.iter_mut().enumerate() {
                             *b = (i % 256) as u8;

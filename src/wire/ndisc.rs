@@ -228,7 +228,7 @@ impl<'a> Repr<'a> {
                 where T: AsRef<[u8]> + ?Sized {
         match packet.msg_type() {
             Message::RouterSolicit => {
-                let lladdr = if packet.payload().len() > 0 {
+                let lladdr = if !packet.payload().is_empty() {
                     let opt = NdiscOption::new_checked(packet.payload())?;
                     match opt.option_type() {
                         NdiscOptionType::SourceLinkLayerAddr => Some(opt.link_layer_addr()),
@@ -263,7 +263,7 @@ impl<'a> Repr<'a> {
                 })
             },
             Message::NeighborSolicit => {
-                let lladdr = if packet.payload().len() > 0 {
+                let lladdr = if !packet.payload().is_empty() {
                     let opt = NdiscOption::new_checked(packet.payload())?;
                     match opt.option_type() {
                         NdiscOptionType::SourceLinkLayerAddr => Some(opt.link_layer_addr()),
@@ -277,7 +277,7 @@ impl<'a> Repr<'a> {
                 })
             },
             Message::NeighborAdvert => {
-                let lladdr = if packet.payload().len() > 0 {
+                let lladdr = if !packet.payload().is_empty() {
                     let opt = NdiscOption::new_checked(packet.payload())?;
                     match opt.option_type() {
                         NdiscOptionType::TargetLinkLayerAddr => Some(opt.link_layer_addr()),

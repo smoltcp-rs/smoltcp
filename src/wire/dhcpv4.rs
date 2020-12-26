@@ -727,7 +727,7 @@ impl<'a> Repr<'a> {
         let mut max_size = None;
 
         let mut options = packet.options()?;
-        while options.len() > 0 {
+        while !options.is_empty() {
             let (next_options, option) = DhcpOption::parse(options)?;
             match option {
                 DhcpOption::EndOfList => break,

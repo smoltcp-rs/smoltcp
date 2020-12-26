@@ -685,7 +685,7 @@ impl<'a> TcpSocket<'a> {
             // we still can receive indefinitely.
             State::FinWait1 | State::FinWait2 => true,
             // If we have something in the receive buffer, we can receive that.
-            _ if self.rx_buffer.len() > 0 => true,
+            _ if !self.rx_buffer.is_empty() => true,
             _ => false
         }
     }
@@ -833,7 +833,7 @@ impl<'a> TcpSocket<'a> {
         self.recv_error_check()?;
 
         let buffer = self.rx_buffer.get_allocated(0, size);
-        if buffer.len() > 0 {
+        if !buffer.is_empty() {
             #[cfg(any(test, feature = "verbose"))]
             net_trace!("{}:{}:{}: rx buffer: peeking at {} octets",
                        self.meta.handle, self.local_endpoint, self.remote_endpoint,
@@ -1368,7 +1368,7 @@ impl<'a> TcpSocket<'a> {
                 // Increment duplicate ACK count and set for retransmit if we just recived
                 // the third duplicate ACK
                 Some(ref last_rx_ack) if
-                    repr.payload.len() == 0 &&
+                    repr.payload.is_empty() &&
                     *last_rx_ack == ack_number &&
                     ack_number < self.remote_last_seq => {
                     // Increment duplicate ACK count
@@ -1649,7 +1649,7 @@ impl<'a> TcpSocket<'a> {
                     match self.state {
                         State::FinWait1 | State::LastAck =>
                             repr.control = TcpControl::Fin,
-                        State::Established | State::CloseWait if repr.payload.len() > 0 =>
+                        State::Established | State::CloseWait if !repr.payload.is_empty() =>
                             repr.control = TcpControl::Psh,
                         _ => ()
                     }
@@ -1682,12 +1682,12 @@ impl<'a> TcpSocket<'a> {
         if is_keep_alive {
             net_trace!("{}:{}:{}: sending a keep-alive",
                        self.meta.handle, self.local_endpoint, self.remote_endpoint);
-        } else if repr.payload.len() > 0 {
+        } else if !repr.payload.is_empty() {
             net_trace!("{}:{}:{}: tx buffer: sending {} octets at offset {}",
                        self.meta.handle, self.local_endpoint, self.remote_endpoint,
                        repr.payload.len(), self.remote_last_seq - self.local_seq_no);
         }
-        if repr.control != TcpControl::None || repr.payload.len() == 0 {
+        if repr.control != TcpControl::None || repr.payload.is_empty() {
             let flags =
                 match (repr.control, repr.ack_number) {
                     (TcpControl::Syn,  None)    => "SYN",
