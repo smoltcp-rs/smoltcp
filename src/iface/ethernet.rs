@@ -1676,14 +1676,13 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
     fn igmp_leave_packet<'any>(&self, group_addr: Ipv4Address) -> Option<IpPacket<'any>> {
         self.ipv4_address().map(|iface_addr| {
             let igmp_repr = IgmpRepr::LeaveGroup { group_addr };
-            let pkt = IpPacket::Igmp((Ipv4Repr {
+            IpPacket::Igmp((Ipv4Repr {
                 src_addr:    iface_addr,
                 dst_addr:    Ipv4Address::MULTICAST_ALL_ROUTERS,
                 protocol:    IpProtocol::Igmp,
                 payload_len: igmp_repr.buffer_len(),
                 hop_limit:   1,
-            }, igmp_repr));
-            pkt
+            }, igmp_repr))
         })
     }
 }

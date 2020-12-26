@@ -1,6 +1,5 @@
 use std::io;
 use std::os::unix::io::{RawFd, AsRawFd};
-use libc;
 use super::*;
 use crate::wire::EthernetFrame;
 
