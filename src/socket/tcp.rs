@@ -1891,7 +1891,7 @@ mod test {
         let _ = log::set_logger(&LOGGER);
         log::set_max_level(log::LevelFilter::Trace);
 
-        println!("");
+        println!();
     }
 
     fn socket() -> TcpSocket<'static> {
