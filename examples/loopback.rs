@@ -1,5 +1,6 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![allow(unused_mut)]
+#![allow(clippy::collapsible_if)]
 
 #[cfg(feature = "std")]
 #[allow(dead_code)]

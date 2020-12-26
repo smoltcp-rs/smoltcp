@@ -271,14 +271,10 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// Returns `Err(Error::Truncated)` if the buffer is too short.
     pub fn check_len(&self) -> Result<()> {
         let len = self.buffer.as_ref().len();
-        if len < field::HEADER_END {
+        if len < field::HEADER_END || len < self.header_len() {
             Err(Error::Truncated)
         } else {
-            if len < self.header_len() {
-                Err(Error::Truncated)
-            } else {
-                Ok(())
-            }
+            Ok(())
         }
     }
 

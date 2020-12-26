@@ -1192,10 +1192,8 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
                     Some(lladdr) if lladdr.is_unicast() && target_addr.is_unicast() => {
                         if flags.contains(NdiscNeighborFlags::OVERRIDE) {
                             self.neighbor_cache.fill(ip_addr, lladdr, timestamp)
-                        } else {
-                            if !self.neighbor_cache.lookup(&ip_addr, timestamp).found() {
-                                    self.neighbor_cache.fill(ip_addr, lladdr, timestamp)
-                            }
+                        } else if !self.neighbor_cache.lookup(&ip_addr, timestamp).found() {
+                                self.neighbor_cache.fill(ip_addr, lladdr, timestamp)
                         }
                     },
                     _ => (),

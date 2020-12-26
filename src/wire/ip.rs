@@ -201,11 +201,9 @@ impl Address {
                     } else {
                         ones = false;
                     }
-                } else {
-                    if one {
-                        // 1 where 0 was expected
-                        return None
-                    }
+                } else if one {
+                    // 1 where 0 was expected
+                    return None
                 }
                 mask >>= 1;
             }

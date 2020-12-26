@@ -1,3 +1,5 @@
+#![allow(clippy::collapsible_if)]
+
 mod utils;
 
 use std::cmp;
