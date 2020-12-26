@@ -1578,13 +1578,8 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
                     IpAddress::__Nonexhaustive =>
                         unreachable!()
                 };
-            match hardware_addr {
-                Some(hardware_addr) =>
-                    // Destination is multicast
-                    return Ok((hardware_addr, tx_token)),
-                None =>
-                    // Continue
-                    (),
+            if let Some(hardware_addr) = hardware_addr {
+                return Ok((hardware_addr, tx_token))
             }
         }
 

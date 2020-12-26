@@ -127,21 +127,16 @@ impl Timer {
     }
 
     fn set_keep_alive(&mut self) {
-        match *self {
-            Timer::Idle { ref mut keep_alive_at }
-                    if keep_alive_at.is_none() => {
+        if let Timer::Idle { ref mut keep_alive_at } = *self {
+            if keep_alive_at.is_none() {
                 *keep_alive_at = Some(Instant::from_millis(0))
             }
-            _ => ()
         }
     }
 
     fn rewind_keep_alive(&mut self, timestamp: Instant, interval: Option<Duration>) {
-        match self {
-            &mut Timer::Idle { ref mut keep_alive_at } => {
-                *keep_alive_at = interval.map(|interval| timestamp + interval)
-            }
-            _ => ()
+        if let Timer::Idle { ref mut keep_alive_at } = *self {
+            *keep_alive_at = interval.map(|interval| timestamp + interval)
         }
     }
 

@@ -296,11 +296,8 @@ impl<T: AsRef<[u8]>> Packet<T> {
         let mut options = &data[field::OPTIONS(self.header_len())];
         while !options.is_empty() {
             let (next_options, option) = TcpOption::parse(options)?;
-            match option {
-                TcpOption::SackPermitted => {
-                    return Ok(true);
-                },
-                _ => {},
+            if option == TcpOption::SackPermitted {
+                return Ok(true);
             }
             options = next_options;
         }
@@ -317,11 +314,8 @@ impl<T: AsRef<[u8]>> Packet<T> {
         let mut options = &data[field::OPTIONS(self.header_len())];
         while !options.is_empty() {
             let (next_options, option) = TcpOption::parse(options)?;
-            match option {
-                TcpOption::SackRange(slice) => {
-                    return Ok(slice);
-                },
-                _ => {},
+            if let TcpOption::SackRange(slice) = option {
+                return Ok(slice);
             }
             options = next_options;
         }

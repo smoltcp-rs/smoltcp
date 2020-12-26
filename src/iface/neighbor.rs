@@ -169,13 +169,11 @@ impl<'a> Cache<'a> {
             return Answer::Found(EthernetAddress::BROADCAST);
         }
 
-        match self.storage.get(protocol_addr) {
-            Some(&Neighbor { expires_at, hardware_addr }) => {
-                if timestamp < expires_at {
-                    return Answer::Found(hardware_addr)
-                }
+        if let Some(&Neighbor { expires_at, hardware_addr }) =
+                self.storage.get(protocol_addr) {
+            if timestamp < expires_at {
+                return Answer::Found(hardware_addr)
             }
-            None => ()
         }
 
         if timestamp < self.silent_until {
