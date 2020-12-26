@@ -1401,20 +1401,23 @@ impl<'a> TcpSocket<'a> {
     }
 
     fn seq_to_transmit(&self) -> bool {
-        let control;
-        match self.state {
-            State::SynSent  | State::SynReceived =>
-                control = TcpControl::Syn,
-            State::FinWait1 | State::LastAck =>
-                control = TcpControl::Fin,
-            _ => control = TcpControl::None
-        }
+        // We can send data if we have data that:
+        // - hasn't been sent before
+        // - fits in the remote window
+        let can_data = self.remote_last_seq
+            < self.local_seq_no + core::cmp::min(self.remote_win_len, self.tx_buffer.len());
 
-        self.remote_last_seq <
-            self.local_seq_no + core::cmp::min(
-                self.remote_win_len,
-                self.tx_buffer.len()
-            ) + control.len()
+        // Do we have to send a FIN?
+        let want_fin = matches!(self.state, State::FinWait1 | State::LastAck);
+
+        // Can we actually send the FIN? We can send it if:
+        // 1. We have unsent data that fits in the remote window.
+        // 2. We have no unsent data.
+        // This condition matches only if #2, because #1 is already covered by can_data and we're ORing them.
+        let can_fin =
+            want_fin && self.remote_last_seq == self.local_seq_no + self.tx_buffer.len();
+
+        can_data || can_fin
     }
 
     fn ack_to_transmit(&self) -> bool {
