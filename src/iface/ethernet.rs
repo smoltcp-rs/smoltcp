@@ -288,22 +288,22 @@ enum Packet<'a> {
 
 impl<'a> Packet<'a> {
     fn neighbor_addr(&self) -> Option<IpAddress> {
-        match self {
-            &Packet::None => None,
+        match *self {
+            Packet::None => None,
             #[cfg(feature = "proto-ipv4")]
-            &Packet::Arp(_) => None,
+            Packet::Arp(_) => None,
             #[cfg(feature = "proto-ipv4")]
-            &Packet::Icmpv4((ref ipv4_repr, _)) => Some(ipv4_repr.dst_addr.into()),
+            Packet::Icmpv4((ref ipv4_repr, _)) => Some(ipv4_repr.dst_addr.into()),
             #[cfg(feature = "proto-igmp")]
-            &Packet::Igmp((ref ipv4_repr, _)) => Some(ipv4_repr.dst_addr.into()),
+            Packet::Igmp((ref ipv4_repr, _)) => Some(ipv4_repr.dst_addr.into()),
             #[cfg(feature = "proto-ipv6")]
-            &Packet::Icmpv6((ref ipv6_repr, _)) => Some(ipv6_repr.dst_addr.into()),
+            Packet::Icmpv6((ref ipv6_repr, _)) => Some(ipv6_repr.dst_addr.into()),
             #[cfg(feature = "socket-raw")]
-            &Packet::Raw((ref ip_repr, _)) => Some(ip_repr.dst_addr()),
+            Packet::Raw((ref ip_repr, _)) => Some(ip_repr.dst_addr()),
             #[cfg(feature = "socket-udp")]
-            &Packet::Udp((ref ip_repr, _)) => Some(ip_repr.dst_addr()),
+            Packet::Udp((ref ip_repr, _)) => Some(ip_repr.dst_addr()),
             #[cfg(feature = "socket-tcp")]
-            &Packet::Tcp((ref ip_repr, _)) => Some(ip_repr.dst_addr())
+            Packet::Tcp((ref ip_repr, _)) => Some(ip_repr.dst_addr())
         }
     }
 }
@@ -723,7 +723,7 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
     pub fn has_solicited_node(&self, addr: Ipv6Address) -> bool {
         self.ip_addrs.iter().find(|cidr| {
             match *cidr {
-                &IpCidr::Ipv6(cidr) if cidr.address() != Ipv6Address::LOOPBACK=> {
+                IpCidr::Ipv6(cidr) if cidr.address() != Ipv6Address::LOOPBACK=> {
                     // Take the lower order 24 bits of the IPv6 address and
                     // append those bits to FF02:0:0:0:0:1:FF00::/104.
                     addr.as_bytes()[14..] == cidr.address().as_bytes()[14..]
@@ -744,8 +744,8 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
     pub fn ipv4_address(&self) -> Option<Ipv4Address> {
         self.ip_addrs.iter()
             .filter_map(
-                |addr| match addr {
-                    &IpCidr::Ipv4(cidr) => Some(cidr.address()),
+                |addr| match *addr {
+                    IpCidr::Ipv4(cidr) => Some(cidr.address()),
                     _ => None,
                 })
             .next()
@@ -1558,24 +1558,24 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
         if dst_addr.is_multicast() {
             let b = dst_addr.as_bytes();
             let hardware_addr =
-                match dst_addr {
-                    &IpAddress::Unspecified =>
+                match *dst_addr {
+                    IpAddress::Unspecified =>
                         None,
                     #[cfg(feature = "proto-ipv4")]
-                    &IpAddress::Ipv4(_addr) =>
+                    IpAddress::Ipv4(_addr) =>
                         Some(EthernetAddress::from_bytes(&[
                             0x01, 0x00,
                             0x5e, b[1] & 0x7F,
                             b[2], b[3],
                         ])),
                     #[cfg(feature = "proto-ipv6")]
-                    &IpAddress::Ipv6(_addr) =>
+                    IpAddress::Ipv6(_addr) =>
                         Some(EthernetAddress::from_bytes(&[
                             0x33, 0x33,
                             b[12], b[13],
                             b[14], b[15],
                         ])),
-                    &IpAddress::__Nonexhaustive =>
+                    IpAddress::__Nonexhaustive =>
                         unreachable!()
                 };
             match hardware_addr {

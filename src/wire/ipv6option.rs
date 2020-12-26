@@ -13,10 +13,10 @@ enum_with_unknown! {
 
 impl fmt::Display for Type {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            &Type::Pad1        => write!(f, "Pad1"),
-            &Type::PadN        => write!(f, "PadN"),
-            &Type::Unknown(id) => write!(f, "{}", id)
+        match *self {
+            Type::Pad1        => write!(f, "Pad1"),
+            Type::PadN        => write!(f, "PadN"),
+            Type::Unknown(id) => write!(f, "{}", id)
         }
     }
 }
@@ -39,12 +39,12 @@ enum_with_unknown! {
 
 impl fmt::Display for FailureType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            &FailureType::Skip               => write!(f, "skip"),
-            &FailureType::Discard            => write!(f, "discard"),
-            &FailureType::DiscardSendAll     => write!(f, "discard and send error"),
-            &FailureType::DiscardSendUnicast => write!(f, "discard and send error if unicast"),
-            &FailureType::Unknown(id)        => write!(f, "Unknown({})", id),
+        match *self {
+            FailureType::Skip               => write!(f, "skip"),
+            FailureType::Discard            => write!(f, "discard"),
+            FailureType::DiscardSendAll     => write!(f, "discard and send error"),
+            FailureType::DiscardSendUnicast => write!(f, "discard and send error if unicast"),
+            FailureType::Unknown(id)        => write!(f, "Unknown({})", id),
         }
     }
 }
@@ -247,23 +247,23 @@ impl<'a> Repr<'a> {
 
     /// Return the length of a header that will be emitted from this high-level representation.
     pub fn buffer_len(&self) -> usize {
-        match self {
-            &Repr::Pad1 => 1,
-            &Repr::PadN(length) =>
-                field::DATA(length).end,
-            &Repr::Unknown{ length, .. } =>
-                field::DATA(length).end,
+        match *self {
+            Repr::Pad1 => 1,
+            Repr::PadN(length) =>
+               field::DATA(length).end,
+            Repr::Unknown{ length, .. } =>
+               field::DATA(length).end,
 
-            &Repr::__Nonexhaustive => unreachable!()
+            Repr::__Nonexhaustive => unreachable!()
         }
     }
 
     /// Emit a high-level representation into an IPv6 Extension Header Option.
     pub fn emit<T: AsRef<[u8]> + AsMut<[u8]> + ?Sized>(&self, opt: &mut Ipv6Option<&'a mut T>) {
-        match self {
-            &Repr::Pad1 =>
+        match *self {
+            Repr::Pad1 =>
                 opt.set_option_type(Type::Pad1),
-            &Repr::PadN(len) => {
+            Repr::PadN(len) => {
                 opt.set_option_type(Type::PadN);
                 opt.set_data_len(len);
                 // Ensure all padding bytes are set to zero.
@@ -271,13 +271,13 @@ impl<'a> Repr<'a> {
                     *x = 0
                 }
             }
-            &Repr::Unknown{ type_, length, data } => {
+            Repr::Unknown{ type_, length, data } => {
                 opt.set_option_type(type_);
                 opt.set_data_len(length);
                 opt.data_mut().copy_from_slice(&data[..length as usize]);
             }
 
-            &Repr::__Nonexhaustive => unreachable!()
+            Repr::__Nonexhaustive => unreachable!()
         }
     }
 }
@@ -351,15 +351,15 @@ impl<'a> Iterator for Ipv6OptionsIterator<'a> {
 impl<'a> fmt::Display for Repr<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "IPv6 Option ")?;
-        match self {
-            &Repr::Pad1 =>
-                write!(f, "{} ", Type::Pad1),
-            &Repr::PadN(len) =>
-                write!(f, "{} length={} ", Type::PadN, len),
-            &Repr::Unknown{ type_, length, .. } =>
-                write!(f, "{} length={} ", type_, length),
+        match *self {
+            Repr::Pad1 =>
+               write!(f, "{} ", Type::Pad1),
+            Repr::PadN(len) =>
+               write!(f, "{} length={} ", Type::PadN, len),
+            Repr::Unknown{ type_, length, .. } =>
+               write!(f, "{} length={} ", type_, length),
 
-            &Repr::__Nonexhaustive => unreachable!()
+            Repr::__Nonexhaustive => unreachable!()
         }
     }
 }

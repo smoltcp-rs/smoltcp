@@ -36,15 +36,15 @@ enum_with_unknown! {
 
 impl fmt::Display for Type {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            &Type::Type0            => write!(f, "Type0"),
-            &Type::Nimrod           => write!(f, "Nimrod"),
-            &Type::Type2            => write!(f, "Type2"),
-            &Type::Rpl              => write!(f, "Rpl"),
-            &Type::Experiment1      => write!(f, "Experiment1"),
-            &Type::Experiment2      => write!(f, "Experiment2"),
-            &Type::Reserved         => write!(f, "Reserved"),
-            &Type::Unknown(id)      => write!(f, "{}", id)
+        match *self {
+            Type::Type0            => write!(f, "Type0"),
+            Type::Nimrod           => write!(f, "Nimrod"),
+            Type::Type2            => write!(f, "Type2"),
+            Type::Rpl              => write!(f, "Rpl"),
+            Type::Experiment1      => write!(f, "Experiment1"),
+            Type::Experiment2      => write!(f, "Experiment2"),
+            Type::Reserved         => write!(f, "Reserved"),
+            Type::Unknown(id)      => write!(f, "{}", id)
         }
     }
 }
@@ -465,8 +465,8 @@ impl<'a> Repr<'a> {
 
     /// Emit a high-level representation into an IPv6 Routing Header.
     pub fn emit<T: AsRef<[u8]> + AsMut<[u8]> + ?Sized>(&self, header: &mut Header<&mut T>) {
-        match self {
-            &Repr::Type2 { next_header, length, segments_left, home_address } => {
+        match *self {
+            Repr::Type2 { next_header, length, segments_left, home_address } => {
                 header.set_next_header(next_header);
                 header.set_header_len(length);
                 header.set_routing_type(Type::Type2);
@@ -474,7 +474,7 @@ impl<'a> Repr<'a> {
                 header.clear_reserved();
                 header.set_home_address(home_address);
             }
-            &Repr::Rpl { next_header, length, segments_left, cmpr_i, cmpr_e, pad, addresses } => {
+            Repr::Rpl { next_header, length, segments_left, cmpr_i, cmpr_e, pad, addresses } => {
                 header.set_next_header(next_header);
                 header.set_header_len(length);
                 header.set_routing_type(Type::Rpl);
@@ -486,24 +486,24 @@ impl<'a> Repr<'a> {
                 header.set_addresses(addresses);
             }
 
-            &Repr::__Nonexhaustive => unreachable!(),
+            Repr::__Nonexhaustive => unreachable!(),
         }
     }
 }
 
 impl<'a> fmt::Display for Repr<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            &Repr::Type2 { next_header, length, segments_left, home_address } => {
+        match *self {
+            Repr::Type2 { next_header, length, segments_left, home_address } => {
                 write!(f, "IPv6 Routing next_hdr={} length={} type={} seg_left={} home_address={}",
                        next_header, length, Type::Type2, segments_left, home_address)
             }
-            &Repr::Rpl { next_header, length, segments_left, cmpr_i, cmpr_e, pad, .. } => {
+            Repr::Rpl { next_header, length, segments_left, cmpr_i, cmpr_e, pad, .. } => {
                 write!(f, "IPv6 Routing next_hdr={} length={} type={} seg_left={} cmpr_i={} cmpr_e={} pad={}",
                        next_header, length, Type::Rpl, segments_left, cmpr_i, cmpr_e, pad)
             }
 
-            &Repr::__Nonexhaustive => unreachable!(),
+            Repr::__Nonexhaustive => unreachable!(),
         }
     }
 }

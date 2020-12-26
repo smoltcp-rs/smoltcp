@@ -290,16 +290,16 @@ impl Repr {
 
     /// Return the length of a packet that will be emitted from this high-level representation.
     pub fn buffer_len(&self) -> usize {
-        match self {
-            &Repr::EthernetIpv4 { .. } => field::TPA(6, 4).end,
-            &Repr::__Nonexhaustive => unreachable!()
+        match *self {
+            Repr::EthernetIpv4 { .. } => field::TPA(6, 4).end,
+            Repr::__Nonexhaustive => unreachable!()
         }
     }
 
     /// Emit a high-level representation into an Address Resolution Protocol packet.
     pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(&self, packet: &mut Packet<T>) {
-        match self {
-            &Repr::EthernetIpv4 {
+        match *self {
+            Repr::EthernetIpv4 {
                 operation,
                 source_hardware_addr, source_protocol_addr,
                 target_hardware_addr, target_protocol_addr
@@ -314,7 +314,7 @@ impl Repr {
                 packet.set_target_hardware_addr(target_hardware_addr.as_bytes());
                 packet.set_target_protocol_addr(target_protocol_addr.as_bytes());
             },
-            &Repr::__Nonexhaustive => unreachable!()
+            Repr::__Nonexhaustive => unreachable!()
         }
     }
 }
@@ -340,8 +340,8 @@ impl<T: AsRef<[u8]>> fmt::Display for Packet<T> {
 
 impl fmt::Display for Repr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            &Repr::EthernetIpv4 {
+        match *self {
+            Repr::EthernetIpv4 {
                 operation,
                 source_hardware_addr, source_protocol_addr,
                 target_hardware_addr, target_protocol_addr
@@ -351,7 +351,7 @@ impl fmt::Display for Repr {
                        target_hardware_addr, target_protocol_addr,
                        operation)
             },
-            &Repr::__Nonexhaustive => unreachable!()
+            Repr::__Nonexhaustive => unreachable!()
         }
     }
 }

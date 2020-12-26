@@ -316,9 +316,9 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
 
     pub(crate) fn process(&mut self, ip_repr: &IpRepr, icmp_repr: &IcmpRepr,
                           _cksum: &ChecksumCapabilities) -> Result<()> {
-        match icmp_repr {
+        match *icmp_repr {
             #[cfg(feature = "proto-ipv4")]
-            &IcmpRepr::Ipv4(ref icmp_repr) => {
+            IcmpRepr::Ipv4(ref icmp_repr) => {
                 let packet_buf = self.rx_buffer.enqueue(icmp_repr.buffer_len(),
                                                         ip_repr.src_addr())?;
                 icmp_repr.emit(&mut Icmpv4Packet::new_unchecked(packet_buf),
@@ -328,7 +328,7 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
                            self.meta.handle, icmp_repr.buffer_len(), packet_buf.len());
             },
             #[cfg(feature = "proto-ipv6")]
-            &IcmpRepr::Ipv6(ref icmp_repr) => {
+            IcmpRepr::Ipv6(ref icmp_repr) => {
                 let packet_buf = self.rx_buffer.enqueue(icmp_repr.buffer_len(),
                                                         ip_repr.src_addr())?;
                 icmp_repr.emit(&ip_repr.src_addr(), &ip_repr.dst_addr(),
