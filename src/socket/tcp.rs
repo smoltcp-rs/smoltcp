@@ -1408,7 +1408,11 @@ impl<'a> TcpSocket<'a> {
             < self.local_seq_no + core::cmp::min(self.remote_win_len, self.tx_buffer.len());
 
         // Do we have to send a FIN?
-        let want_fin = matches!(self.state, State::FinWait1 | State::LastAck);
+        let want_fin = match self.state {
+            State::FinWait1 => true,
+            State::LastAck => true,
+            _ => false,
+        };
 
         // Can we actually send the FIN? We can send it if:
         // 1. We have unsent data that fits in the remote window.
