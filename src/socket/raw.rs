@@ -115,7 +115,7 @@ impl<'a, 'b> RawSocket<'a, 'b> {
         net_trace!("{}:{}:{}: buffer to send {} octets",
                    self.meta.handle, self.ip_version, self.ip_protocol,
                    packet_buf.len());
-        Ok(packet_buf.as_mut())
+        Ok(packet_buf)
     }
 
     /// Enqueue a packet to send, and fill it from a slice.
@@ -165,8 +165,8 @@ impl<'a, 'b> RawSocket<'a, 'b> {
         let header_len = ip_repr.buffer_len();
         let total_len  = header_len + payload.len();
         let packet_buf = self.rx_buffer.enqueue(total_len, ())?;
-        ip_repr.emit(&mut packet_buf.as_mut()[..header_len], &checksum_caps);
-        packet_buf.as_mut()[header_len..].copy_from_slice(payload);
+        ip_repr.emit(&mut packet_buf[..header_len], &checksum_caps);
+        packet_buf[header_len..].copy_from_slice(payload);
 
         net_trace!("{}:{}:{}: receiving {} octets",
                    self.meta.handle, self.ip_version, self.ip_protocol,
@@ -179,10 +179,10 @@ impl<'a, 'b> RawSocket<'a, 'b> {
             where F: FnOnce((IpRepr, &[u8])) -> Result<()> {
         fn prepare<'a>(protocol: IpProtocol, buffer: &'a mut [u8],
                    _checksum_caps: &ChecksumCapabilities) -> Result<(IpRepr, &'a [u8])> {
-            match IpVersion::of_packet(buffer.as_ref())? {
+            match IpVersion::of_packet(buffer)? {
                 #[cfg(feature = "proto-ipv4")]
                 IpVersion::Ipv4 => {
-                    let mut packet = Ipv4Packet::new_checked(buffer.as_mut())?;
+                    let mut packet = Ipv4Packet::new_checked(buffer)?;
                     if packet.protocol() != protocol { return Err(Error::Unaddressable) }
                     if _checksum_caps.ipv4.tx() {
                         packet.fill_checksum();
@@ -198,7 +198,7 @@ impl<'a, 'b> RawSocket<'a, 'b> {
                 }
                 #[cfg(feature = "proto-ipv6")]
                 IpVersion::Ipv6 => {
-                    let packet = Ipv6Packet::new_checked(buffer.as_mut())?;
+                    let packet = Ipv6Packet::new_checked(buffer)?;
                     if packet.next_header() != protocol { return Err(Error::Unaddressable) }
                     let packet = Ipv6Packet::new_unchecked(&*packet.into_inner());
                     let ipv6_repr = Ipv6Repr::parse(&packet)?;
@@ -213,7 +213,7 @@ impl<'a, 'b> RawSocket<'a, 'b> {
         let ip_protocol = self.ip_protocol;
         let ip_version  = self.ip_version;
         self.tx_buffer.dequeue_with(|&mut (), packet_buf| {
-            match prepare(ip_protocol, packet_buf.as_mut(), &checksum_caps) {
+            match prepare(ip_protocol, packet_buf, &checksum_caps) {
                 Ok((ip_repr, raw_packet)) => {
                     net_trace!("{}:{}:{}: sending {} octets",
                                handle, ip_version, ip_protocol,

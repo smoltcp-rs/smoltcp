@@ -645,28 +645,28 @@ impl<'a> TcpOption<'a> {
     }
 
     pub fn buffer_len(&self) -> usize {
-        match self {
-            &TcpOption::EndOfList => 1,
-            &TcpOption::NoOperation => 1,
-            &TcpOption::MaxSegmentSize(_) => 4,
-            &TcpOption::WindowScale(_) => 3,
-            &TcpOption::SackPermitted => 2,
-            &TcpOption::SackRange(s) => s.iter().filter(|s| s.is_some()).count() * 8 + 2,
-            &TcpOption::Unknown { data, .. } => 2 + data.len()
+        match *self {
+            TcpOption::EndOfList => 1,
+            TcpOption::NoOperation => 1,
+            TcpOption::MaxSegmentSize(_) => 4,
+            TcpOption::WindowScale(_) => 3,
+            TcpOption::SackPermitted => 2,
+            TcpOption::SackRange(s) => s.iter().filter(|s| s.is_some()).count() * 8 + 2,
+            TcpOption::Unknown { data, .. } => 2 + data.len()
         }
     }
 
     pub fn emit<'b>(&self, buffer: &'b mut [u8]) -> &'b mut [u8] {
         let length;
-        match self {
-            &TcpOption::EndOfList => {
+        match *self {
+            TcpOption::EndOfList => {
                 length    = 1;
                 // There may be padding space which also should be initialized.
                 for p in buffer.iter_mut() {
                     *p = field::OPT_END;
                 }
             }
-            &TcpOption::NoOperation => {
+            TcpOption::NoOperation => {
                 length    = 1;
                 buffer[0] = field::OPT_NOP;
             }

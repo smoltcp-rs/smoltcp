@@ -48,7 +48,7 @@ impl PrettyIndent {
 
     /// Increase indentation level.
     pub fn increase(&mut self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "\n")?;
+        writeln!(f)?;
         self.level += 1;
         Ok(())
     }

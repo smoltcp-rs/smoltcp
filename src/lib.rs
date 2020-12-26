@@ -166,18 +166,18 @@ pub type Result<T> = core::result::Result<T, Error>;
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            &Error::Exhausted     => write!(f, "buffer space exhausted"),
-            &Error::Illegal       => write!(f, "illegal operation"),
-            &Error::Unaddressable => write!(f, "unaddressable destination"),
-            &Error::Finished      => write!(f, "operation finished"),
-            &Error::Truncated     => write!(f, "truncated packet"),
-            &Error::Checksum      => write!(f, "checksum error"),
-            &Error::Unrecognized  => write!(f, "unrecognized packet"),
-            &Error::Fragmented    => write!(f, "fragmented packet"),
-            &Error::Malformed     => write!(f, "malformed packet"),
-            &Error::Dropped       => write!(f, "dropped by socket"),
-            &Error::__Nonexhaustive => unreachable!()
+        match *self {
+            Error::Exhausted     => write!(f, "buffer space exhausted"),
+            Error::Illegal       => write!(f, "illegal operation"),
+            Error::Unaddressable => write!(f, "unaddressable destination"),
+            Error::Finished      => write!(f, "operation finished"),
+            Error::Truncated     => write!(f, "truncated packet"),
+            Error::Checksum      => write!(f, "checksum error"),
+            Error::Unrecognized  => write!(f, "unrecognized packet"),
+            Error::Fragmented    => write!(f, "fragmented packet"),
+            Error::Malformed     => write!(f, "malformed packet"),
+            Error::Dropped       => write!(f, "dropped by socket"),
+            Error::__Nonexhaustive => unreachable!()
         }
     }
 }

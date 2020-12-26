@@ -24,12 +24,12 @@ enum_with_unknown! {
 impl fmt::Display for Type {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            &Type::SourceLinkLayerAddr => write!(f, "source link-layer address"),
-            &Type::TargetLinkLayerAddr => write!(f, "target link-layer address"),
-            &Type::PrefixInformation   => write!(f, "prefix information"),
-            &Type::RedirectedHeader    => write!(f, "redirected header"),
-            &Type::Mtu                 => write!(f, "mtu"),
-            &Type::Unknown(id) => write!(f, "{}", id)
+            Type::SourceLinkLayerAddr => write!(f, "source link-layer address"),
+            Type::TargetLinkLayerAddr => write!(f, "target link-layer address"),
+            Type::PrefixInformation   => write!(f, "prefix information"),
+            Type::RedirectedHeader    => write!(f, "redirected header"),
+            Type::Mtu                 => write!(f, "mtu"),
+            Type::Unknown(id) => write!(f, "{}", id)
         }
     }
 }
@@ -504,18 +504,18 @@ impl<'a> Repr<'a> {
     /// Emit a high-level representation into an NDISC Option.
     pub fn emit<T>(&self, opt: &mut NdiscOption<&'a mut T>)
             where T: AsRef<[u8]> + AsMut<[u8]> + ?Sized {
-        match self {
-            &Repr::SourceLinkLayerAddr(addr) => {
+        match *self {
+            Repr::SourceLinkLayerAddr(addr) => {
                 opt.set_option_type(Type::SourceLinkLayerAddr);
                 opt.set_data_len(1);
                 opt.set_link_layer_addr(addr);
             },
-            &Repr::TargetLinkLayerAddr(addr) => {
+            Repr::TargetLinkLayerAddr(addr) => {
                 opt.set_option_type(Type::TargetLinkLayerAddr);
                 opt.set_data_len(1);
                 opt.set_link_layer_addr(addr);
             },
-            &Repr::PrefixInformation(PrefixInformation {
+            Repr::PrefixInformation(PrefixInformation {
                 prefix_len, flags, valid_lifetime,
                 preferred_lifetime, prefix
             }) => {
@@ -528,7 +528,7 @@ impl<'a> Repr<'a> {
                 opt.set_preferred_lifetime(preferred_lifetime);
                 opt.set_prefix(prefix);
             },
-            &Repr::RedirectedHeader(RedirectedHeader {
+            Repr::RedirectedHeader(RedirectedHeader {
                 header, data
             }) => {
                 let data_len = data.len() / 8;
@@ -541,12 +541,12 @@ impl<'a> Repr<'a> {
                 let payload = &mut ip_packet.into_inner()[header.buffer_len()..];
                 payload.copy_from_slice(&data[..data_len]);
             }
-            &Repr::Mtu(mtu) => {
+            Repr::Mtu(mtu) => {
                 opt.set_option_type(Type::Mtu);
                 opt.set_data_len(1);
                 opt.set_mtu(mtu);
             }
-            &Repr::Unknown { type_: id, length, data } => {
+            Repr::Unknown { type_: id, length, data } => {
                 opt.set_option_type(Type::Unknown(id));
                 opt.set_data_len(length);
                 opt.data_mut().copy_from_slice(data);
@@ -558,29 +558,29 @@ impl<'a> Repr<'a> {
 impl<'a> fmt::Display for Repr<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "NDISC Option: ")?;
-        match self {
-            &Repr::SourceLinkLayerAddr(addr) => {
+        match *self {
+            Repr::SourceLinkLayerAddr(addr) => {
                 write!(f, "SourceLinkLayer addr={}", addr)
             },
-            &Repr::TargetLinkLayerAddr(addr) => {
+            Repr::TargetLinkLayerAddr(addr) => {
                 write!(f, "TargetLinkLayer addr={}", addr)
             },
-            &Repr::PrefixInformation(PrefixInformation {
+            Repr::PrefixInformation(PrefixInformation {
                 prefix, prefix_len,
                 ..
             }) => {
                 write!(f, "PrefixInformation prefix={}/{}", prefix, prefix_len)
             },
-            &Repr::RedirectedHeader(RedirectedHeader {
+            Repr::RedirectedHeader(RedirectedHeader {
                 header,
                 ..
             }) => {
                 write!(f, "RedirectedHeader header={}", header)
             },
-            &Repr::Mtu(mtu) => {
+            Repr::Mtu(mtu) => {
                 write!(f, "MTU mtu={}", mtu)
             },
-            &Repr::Unknown { type_: id, length, .. } => {
+            Repr::Unknown { type_: id, length, .. } => {
                 write!(f, "Unknown({}) length={}", id, length)
             }
         }
@@ -596,7 +596,7 @@ impl<T: AsRef<[u8]>> PrettyPrint for NdiscOption<T> {
             Err(err) => return write!(f, "{}({})", indent, err),
             Ok(ndisc) => {
                 match Repr::parse(&ndisc) {
-                    Err(_) => return Ok(()),
+                    Err(_) => Ok(()),
                     Ok(repr) => {
                         write!(f, "{}{}", indent, repr)
                     }

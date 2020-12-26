@@ -91,7 +91,7 @@ fn main() {
             let client = match socket.recv() {
                 Ok((data, endpoint)) => {
                     debug!("udp:6969 recv data: {:?} from {}",
-                           str::from_utf8(data.as_ref()).unwrap(), endpoint);
+                           str::from_utf8(data).unwrap(), endpoint);
                     Some(endpoint)
                 }
                 Err(_) => None

@@ -34,18 +34,18 @@ pub enum State {
 
 impl fmt::Display for State {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            &State::Closed      => write!(f, "CLOSED"),
-            &State::Listen      => write!(f, "LISTEN"),
-            &State::SynSent     => write!(f, "SYN-SENT"),
-            &State::SynReceived => write!(f, "SYN-RECEIVED"),
-            &State::Established => write!(f, "ESTABLISHED"),
-            &State::FinWait1    => write!(f, "FIN-WAIT-1"),
-            &State::FinWait2    => write!(f, "FIN-WAIT-2"),
-            &State::CloseWait   => write!(f, "CLOSE-WAIT"),
-            &State::Closing     => write!(f, "CLOSING"),
-            &State::LastAck     => write!(f, "LAST-ACK"),
-            &State::TimeWait    => write!(f, "TIME-WAIT")
+        match *self {
+            State::Closed      => write!(f, "CLOSED"),
+            State::Listen      => write!(f, "LISTEN"),
+            State::SynSent     => write!(f, "SYN-SENT"),
+            State::SynReceived => write!(f, "SYN-RECEIVED"),
+            State::Established => write!(f, "ESTABLISHED"),
+            State::FinWait1    => write!(f, "FIN-WAIT-1"),
+            State::FinWait2    => write!(f, "FIN-WAIT-2"),
+            State::CloseWait   => write!(f, "CLOSE-WAIT"),
+            State::Closing     => write!(f, "CLOSING"),
+            State::LastAck     => write!(f, "LAST-ACK"),
+            State::TimeWait    => write!(f, "TIME-WAIT")
         }
     }
 }
@@ -1898,7 +1898,7 @@ mod test {
         let _ = log::set_logger(&LOGGER);
         log::set_max_level(log::LevelFilter::Trace);
 
-        println!("");
+        println!();
     }
 
     fn socket() -> TcpSocket<'static> {

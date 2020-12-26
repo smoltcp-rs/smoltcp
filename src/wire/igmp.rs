@@ -38,12 +38,12 @@ mod field {
 
 impl fmt::Display for Message {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            &Message::MembershipQuery => write!(f, "membership query"),
-            &Message::MembershipReportV2 => write!(f, "version 2 membership report"),
-            &Message::LeaveGroup => write!(f, "leave group"),
-            &Message::MembershipReportV1 => write!(f, "version 1 membership report"),
-            &Message::Unknown(id) => write!(f, "{}", id),
+        match *self {
+            Message::MembershipQuery => write!(f, "membership query"),
+            Message::MembershipReportV2 => write!(f, "version 2 membership report"),
+            Message::LeaveGroup => write!(f, "leave group"),
+            Message::MembershipReportV1 => write!(f, "version 1 membership report"),
+            Message::Unknown(id) => write!(f, "{}", id),
         }
     }
 }
@@ -251,8 +251,8 @@ impl Repr {
     pub fn emit<T>(&self, packet: &mut Packet<&mut T>)
         where T: AsRef<[u8]> + AsMut<[u8]> + ?Sized
     {
-        match self {
-            &Repr::MembershipQuery {
+        match *self {
+            Repr::MembershipQuery {
                 max_resp_time,
                 group_addr,
                 version
@@ -266,7 +266,7 @@ impl Repr {
                 }
                 packet.set_group_address(group_addr);
             }
-            &Repr::MembershipReport {
+            Repr::MembershipReport {
                 group_addr,
                 version,
             } => {
@@ -277,7 +277,7 @@ impl Repr {
                 packet.set_max_resp_code(0);
                 packet.set_group_address(group_addr);
             }
-            &Repr::LeaveGroup { group_addr } => {
+            Repr::LeaveGroup { group_addr } => {
                 packet.set_msg_type(Message::LeaveGroup);
                 packet.set_group_address(group_addr);
             }
@@ -327,8 +327,8 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
 
 impl<'a> fmt::Display for Repr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            &Repr::MembershipQuery {
+        match *self {
+            Repr::MembershipQuery {
                 max_resp_time,
                 group_addr,
                 version,
@@ -339,7 +339,7 @@ impl<'a> fmt::Display for Repr {
                        group_addr,
                        version)
             }
-            &Repr::MembershipReport {
+            Repr::MembershipReport {
                 group_addr,
                 version,
             } => {
@@ -348,7 +348,7 @@ impl<'a> fmt::Display for Repr {
                        group_addr,
                        version)
             }
-            &Repr::LeaveGroup { group_addr } => {
+            Repr::LeaveGroup { group_addr } => {
                 write!(f, "IGMP leave group group_addr={})", group_addr)
             }
         }
@@ -363,8 +363,8 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
                     indent: &mut PrettyIndent)
                     -> fmt::Result {
         match Packet::new_checked(buffer) {
-            Err(err) => write!(f, "{}({})\n", indent, err),
-            Ok(packet) => write!(f, "{}{}\n", indent, packet),
+            Err(err) => writeln!(f, "{}({})", indent, err),
+            Ok(packet) => writeln!(f, "{}{}", indent, packet),
         }
     }
 }

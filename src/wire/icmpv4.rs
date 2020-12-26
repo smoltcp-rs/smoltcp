@@ -34,18 +34,18 @@ enum_with_unknown! {
 
 impl fmt::Display for Message {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            &Message::EchoReply      => write!(f, "echo reply"),
-            &Message::DstUnreachable => write!(f, "destination unreachable"),
-            &Message::Redirect       => write!(f, "message redirect"),
-            &Message::EchoRequest    => write!(f, "echo request"),
-            &Message::RouterAdvert   => write!(f, "router advertisement"),
-            &Message::RouterSolicit  => write!(f, "router solicitation"),
-            &Message::TimeExceeded   => write!(f, "time exceeded"),
-            &Message::ParamProblem   => write!(f, "parameter problem"),
-            &Message::Timestamp      => write!(f, "timestamp"),
-            &Message::TimestampReply => write!(f, "timestamp reply"),
-            &Message::Unknown(id) => write!(f, "{}", id)
+        match *self {
+            Message::EchoReply      => write!(f, "echo reply"),
+            Message::DstUnreachable => write!(f, "destination unreachable"),
+            Message::Redirect       => write!(f, "message redirect"),
+            Message::EchoRequest    => write!(f, "echo request"),
+            Message::RouterAdvert   => write!(f, "router advertisement"),
+            Message::RouterSolicit  => write!(f, "router solicitation"),
+            Message::TimeExceeded   => write!(f, "time exceeded"),
+            Message::ParamProblem   => write!(f, "parameter problem"),
+            Message::Timestamp      => write!(f, "timestamp"),
+            Message::TimestampReply => write!(f, "timestamp reply"),
+            Message::Unknown(id) => write!(f, "{}", id)
         }
     }
 }
@@ -90,40 +90,40 @@ enum_with_unknown! {
 
 impl fmt::Display for DstUnreachable {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            &DstUnreachable::NetUnreachable =>
-                write!(f, "destination network unreachable"),
-            &DstUnreachable::HostUnreachable =>
-                write!(f, "destination host unreachable"),
-            &DstUnreachable::ProtoUnreachable =>
-                write!(f, "destination protocol unreachable"),
-            &DstUnreachable::PortUnreachable =>
-                write!(f, "destination port unreachable"),
-            &DstUnreachable::FragRequired =>
-                write!(f, "fragmentation required, and DF flag set"),
-            &DstUnreachable::SrcRouteFailed =>
-                write!(f, "source route failed"),
-            &DstUnreachable::DstNetUnknown =>
-                write!(f, "destination network unknown"),
-            &DstUnreachable::DstHostUnknown =>
-                write!(f, "destination host unknown"),
-            &DstUnreachable::SrcHostIsolated =>
-                write!(f, "source host isolated"),
-            &DstUnreachable::NetProhibited =>
-                write!(f, "network administratively prohibited"),
-            &DstUnreachable::HostProhibited =>
-                write!(f, "host administratively prohibited"),
-            &DstUnreachable::NetUnreachToS =>
-                write!(f, "network unreachable for ToS"),
-            &DstUnreachable::HostUnreachToS =>
-                write!(f, "host unreachable for ToS"),
-            &DstUnreachable::CommProhibited =>
-                write!(f, "communication administratively prohibited"),
-            &DstUnreachable::HostPrecedViol =>
-                write!(f, "host precedence violation"),
-            &DstUnreachable::PrecedCutoff =>
-                write!(f, "precedence cutoff in effect"),
-            &DstUnreachable::Unknown(id) =>
+        match *self {
+            DstUnreachable::NetUnreachable =>
+               write!(f, "destination network unreachable"),
+            DstUnreachable::HostUnreachable =>
+               write!(f, "destination host unreachable"),
+            DstUnreachable::ProtoUnreachable =>
+               write!(f, "destination protocol unreachable"),
+            DstUnreachable::PortUnreachable =>
+               write!(f, "destination port unreachable"),
+            DstUnreachable::FragRequired =>
+               write!(f, "fragmentation required, and DF flag set"),
+            DstUnreachable::SrcRouteFailed =>
+               write!(f, "source route failed"),
+            DstUnreachable::DstNetUnknown =>
+               write!(f, "destination network unknown"),
+            DstUnreachable::DstHostUnknown =>
+               write!(f, "destination host unknown"),
+            DstUnreachable::SrcHostIsolated =>
+               write!(f, "source host isolated"),
+            DstUnreachable::NetProhibited =>
+               write!(f, "network administratively prohibited"),
+            DstUnreachable::HostProhibited =>
+               write!(f, "host administratively prohibited"),
+            DstUnreachable::NetUnreachToS =>
+               write!(f, "network unreachable for ToS"),
+            DstUnreachable::HostUnreachToS =>
+               write!(f, "host unreachable for ToS"),
+            DstUnreachable::CommProhibited =>
+               write!(f, "communication administratively prohibited"),
+            DstUnreachable::HostPrecedViol =>
+               write!(f, "host precedence violation"),
+            DstUnreachable::PrecedCutoff =>
+               write!(f, "precedence cutoff in effect"),
+            DstUnreachable::Unknown(id) =>
                 write!(f, "{}", id)
         }
     }
@@ -455,8 +455,8 @@ impl<'a> Repr<'a> {
     pub fn emit<T>(&self, packet: &mut Packet<&mut T>, checksum_caps: &ChecksumCapabilities)
             where T: AsRef<[u8]> + AsMut<[u8]> + ?Sized {
         packet.set_msg_code(0);
-        match self {
-            &Repr::EchoRequest { ident, seq_no, data } => {
+        match *self {
+            Repr::EchoRequest { ident, seq_no, data } => {
                 packet.set_msg_type(Message::EchoRequest);
                 packet.set_msg_code(0);
                 packet.set_echo_ident(ident);
@@ -465,7 +465,7 @@ impl<'a> Repr<'a> {
                 packet.data_mut()[..data_len].copy_from_slice(&data[..data_len])
             },
 
-            &Repr::EchoReply { ident, seq_no, data } => {
+            Repr::EchoReply { ident, seq_no, data } => {
                 packet.set_msg_type(Message::EchoReply);
                 packet.set_msg_code(0);
                 packet.set_echo_ident(ident);
@@ -474,7 +474,7 @@ impl<'a> Repr<'a> {
                 packet.data_mut()[..data_len].copy_from_slice(&data[..data_len])
             },
 
-            &Repr::DstUnreachable { reason, header, data } => {
+            Repr::DstUnreachable { reason, header, data } => {
                 packet.set_msg_type(Message::DstUnreachable);
                 packet.set_msg_code(reason.into());
 
@@ -484,7 +484,7 @@ impl<'a> Repr<'a> {
                 payload.copy_from_slice(&data[..])
             }
 
-            &Repr::__Nonexhaustive => unreachable!()
+            Repr::__Nonexhaustive => unreachable!()
         }
 
         if checksum_caps.icmpv4.tx() {
@@ -516,17 +516,17 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
 
 impl<'a> fmt::Display for Repr<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            &Repr::EchoRequest { ident, seq_no, data } =>
-                write!(f, "ICMPv4 echo request id={} seq={} len={}",
-                       ident, seq_no, data.len()),
-            &Repr::EchoReply { ident, seq_no, data } =>
-                write!(f, "ICMPv4 echo reply id={} seq={} len={}",
-                       ident, seq_no, data.len()),
-            &Repr::DstUnreachable { reason, .. } =>
-                write!(f, "ICMPv4 destination unreachable ({})",
-                       reason),
-            &Repr::__Nonexhaustive => unreachable!()
+        match *self {
+            Repr::EchoRequest { ident, seq_no, data } =>
+               write!(f, "ICMPv4 echo request id={} seq={} len={}",
+                      ident, seq_no, data.len()),
+            Repr::EchoReply { ident, seq_no, data } =>
+               write!(f, "ICMPv4 echo reply id={} seq={} len={}",
+                      ident, seq_no, data.len()),
+            Repr::DstUnreachable { reason, .. } =>
+               write!(f, "ICMPv4 destination unreachable ({})",
+                      reason),
+            Repr::__Nonexhaustive => unreachable!()
         }
     }
 }

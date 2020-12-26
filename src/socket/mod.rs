@@ -69,8 +69,8 @@ pub(crate) enum PollAt {
 impl PollAt {
     #[cfg(feature = "socket-tcp")]
     fn is_ingress(&self) -> bool {
-        match self {
-            &PollAt::Ingress => true,
+        match *self {
+            PollAt::Ingress => true,
             _ => false,
         }
     }
