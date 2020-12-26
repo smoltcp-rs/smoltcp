@@ -46,7 +46,7 @@ default = [
   "std", "log", # needed for `cargo test --no-default-features --features default` :/
   "ethernet",
   "phy-raw_socket", "phy-tap_interface",
-  "proto-ipv4", "proto-igmp", "proto-ipv6",
+  "proto-ipv4", "proto-igmp", "proto-dhcpv4", "proto-ipv6",
   "socket-raw", "socket-icmp", "socket-udp", "socket-tcp"
 ]
 
