@@ -125,7 +125,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     #[inline]
     pub fn clear_s_flag(&mut self) {
         let data = self.buffer.as_mut();
-        data[field::SQRV] = data[field::SQRV] & 0x7;
+        data[field::SQRV] &= 0x7;
     }
 
     /// Set the Querier's Robustness Variable.

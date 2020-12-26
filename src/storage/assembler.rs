@@ -275,7 +275,7 @@ impl<'a> Iterator for AssemblerIter<'a> {
         let mut data_range = None;
         while data_range.is_none() && self.index < self.assembler.contigs.len() {
             let contig = self.assembler.contigs[self.index];
-            self.left = self.left + contig.hole_size;
+            self.left += contig.hole_size;
             self.right = self.left + contig.data_size;
             data_range = if self.left < self.right {
                 let data_range = (self.left + self.offset, self.right + self.offset);

@@ -420,7 +420,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
             Message::MldQuery => {
                 let data = self.buffer.as_mut();
                 NetworkEndian::write_u16(&mut data[field::QUERY_RESV], 0);
-                data[field::SQRV] = data[field::SQRV] & 0xf;
+                data[field::SQRV] &= 0xf;
             },
             Message::MldReport => {
                 let data = self.buffer.as_mut();

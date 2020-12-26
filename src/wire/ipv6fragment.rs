@@ -115,7 +115,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Header<T> {
         data[field::RESERVED] = 0;
 
         // Retain the higher order 5 bits and lower order 1 bit
-        data[3] = data[3] & 0xf9;
+        data[3] &= 0xf9;
     }
 
     /// Set the fragment offset field.
