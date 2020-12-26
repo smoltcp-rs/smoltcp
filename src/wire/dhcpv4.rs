@@ -2,9 +2,9 @@
 
 use byteorder::{ByteOrder, NetworkEndian};
 
-use {Error, Result};
-use super::{EthernetAddress, Ipv4Address};
-use super::arp::Hardware;
+use crate::{Error, Result};
+use crate::wire::{EthernetAddress, Ipv4Address};
+use crate::wire::arp::Hardware;
 
 const DHCP_MAGIC_NUMBER: u32 = 0x63825363;
 
@@ -199,7 +199,7 @@ pub(crate) mod field {
     #![allow(non_snake_case)]
     #![allow(unused)]
 
-    use wire::field::*;
+    use crate::wire::field::*;
 
     pub const OP: usize = 0;
     pub const HTYPE: usize = 1;
@@ -836,7 +836,7 @@ impl<'a> Repr<'a> {
 
 #[cfg(test)]
 mod test {
-    use wire::Ipv4Address;
+    use crate::wire::Ipv4Address;
     use super::*;
 
     const MAGIC_COOKIE: u32 = 0x63825363;

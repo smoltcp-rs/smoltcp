@@ -9,9 +9,9 @@ use alloc::collections::VecDeque;
 #[cfg(all(feature = "alloc", feature = "rust-1_28"))]
 use alloc::VecDeque;
 
-use Result;
-use phy::{self, Device, DeviceCapabilities};
-use time::Instant;
+use crate::Result;
+use crate::phy::{self, Device, DeviceCapabilities};
+use crate::time::Instant;
 
 /// A loopback device.
 #[derive(Debug)]

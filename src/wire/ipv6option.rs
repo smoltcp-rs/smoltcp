@@ -1,5 +1,5 @@
 use core::fmt;
-use {Error, Result};
+use crate::{Error, Result};
 
 enum_with_unknown! {
     /// IPv6 Extension Header Option Type
@@ -73,7 +73,7 @@ pub struct Ipv6Option<T: AsRef<[u8]>> {
 mod field {
     #![allow(non_snake_case)]
 
-    use wire::field::*;
+    use crate::wire::field::*;
 
     // 8-bit identifier of the type of option.
     pub const TYPE:     usize = 0;

@@ -1,7 +1,7 @@
-use Result;
-use wire::pretty_print::{PrettyPrint, PrettyPrinter};
-use phy::{self, DeviceCapabilities, Device};
-use time::Instant;
+use crate::Result;
+use crate::wire::pretty_print::{PrettyPrint, PrettyPrinter};
+use crate::phy::{self, DeviceCapabilities, Device};
+use crate::time::Instant;
 
 /// A tracer device.
 ///

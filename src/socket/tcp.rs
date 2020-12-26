@@ -3,17 +3,17 @@
 // a new feature.
 
 use core::{cmp, fmt, mem};
-
-use {Error, Result};
-use phy::DeviceCapabilities;
-use time::{Duration, Instant};
-use socket::{Socket, SocketMeta, SocketHandle, PollAt};
-use storage::{Assembler, RingBuffer};
-use wire::{IpProtocol, IpRepr, IpAddress, IpEndpoint, TcpSeqNumber, TcpRepr, TcpControl};
-#[cfg(feature = "async")]
-use socket::WakerRegistration;
 #[cfg(feature = "async")]
 use core::task::Waker;
+
+use crate::{Error, Result};
+use crate::phy::DeviceCapabilities;
+use crate::time::{Duration, Instant};
+use crate::socket::{Socket, SocketMeta, SocketHandle, PollAt};
+use crate::storage::{Assembler, RingBuffer};
+#[cfg(feature = "async")]
+use crate::socket::WakerRegistration;
+use crate::wire::{IpProtocol, IpRepr, IpAddress, IpEndpoint, TcpSeqNumber, TcpRepr, TcpControl};
 
 /// A TCP socket ring buffer.
 pub type SocketBuffer<'a> = RingBuffer<'a, u8>;
@@ -1802,8 +1802,8 @@ impl<'a> fmt::Write for TcpSocket<'a> {
 mod test {
     use core::i32;
     use std::vec::Vec;
-    use wire::{IpAddress, IpRepr, IpCidr};
-    use wire::ip::test::{MOCK_IP_ADDR_1, MOCK_IP_ADDR_2, MOCK_IP_ADDR_3, MOCK_UNSPECIFIED};
+    use crate::wire::{IpAddress, IpRepr, IpCidr};
+    use crate::wire::ip::test::{MOCK_IP_ADDR_1, MOCK_IP_ADDR_2, MOCK_IP_ADDR_3, MOCK_UNSPECIFIED};
     use super::*;
 
     // =========================================================================================//
@@ -1950,8 +1950,6 @@ mod test {
 
     #[cfg(feature = "log")]
     fn init_logger() {
-        extern crate log;
-
         struct Logger;
         static LOGGER: Logger = Logger;
 

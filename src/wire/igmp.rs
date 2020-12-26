@@ -1,11 +1,11 @@
 use core::fmt;
 use byteorder::{ByteOrder, NetworkEndian};
 
-use {Error, Result};
-use super::ip::checksum;
-use time::Duration;
+use crate::{Error, Result};
+use crate::wire::ip::checksum;
+use crate::time::Duration;
 
-use wire::Ipv4Address;
+use crate::wire::Ipv4Address;
 
 enum_with_unknown! {
     /// Internet Group Management Protocol v1/v2 message version/type.
@@ -28,7 +28,7 @@ pub struct Packet<T: AsRef<[u8]>> {
 }
 
 mod field {
-    use wire::field::*;
+    use crate::wire::field::*;
 
     pub const TYPE: usize = 0;
     pub const MAX_RESP_CODE: usize = 1;
@@ -355,7 +355,7 @@ impl<'a> fmt::Display for Repr {
     }
 }
 
-use super::pretty_print::{PrettyIndent, PrettyPrint};
+use crate::wire::pretty_print::{PrettyIndent, PrettyPrint};
 
 impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
     fn pretty_print(buffer: &dyn AsRef<[u8]>,

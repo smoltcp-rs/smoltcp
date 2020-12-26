@@ -1,10 +1,10 @@
 use core::{cmp, fmt};
 use byteorder::{ByteOrder, NetworkEndian};
 
-use {Error, Result};
-use phy::ChecksumCapabilities;
-use super::ip::checksum;
-use super::{Ipv4Packet, Ipv4Repr};
+use crate::{Error, Result};
+use crate::phy::ChecksumCapabilities;
+use crate::wire::ip::checksum;
+use crate::wire::{Ipv4Packet, Ipv4Repr};
 
 enum_with_unknown! {
     /// Internet protocol control message type.
@@ -172,7 +172,7 @@ pub struct Packet<T: AsRef<[u8]>> {
 }
 
 mod field {
-    use wire::field::*;
+    use crate::wire::field::*;
 
     pub const TYPE:       usize = 0;
     pub const CODE:       usize = 1;
@@ -531,7 +531,7 @@ impl<'a> fmt::Display for Repr<'a> {
     }
 }
 
-use super::pretty_print::{PrettyPrint, PrettyIndent};
+use crate::wire::pretty_print::{PrettyPrint, PrettyIndent};
 
 impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
     fn pretty_print(buffer: &dyn AsRef<[u8]>, f: &mut fmt::Formatter,

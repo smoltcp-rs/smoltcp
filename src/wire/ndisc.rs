@@ -1,12 +1,13 @@
 use byteorder::{ByteOrder, NetworkEndian};
+use bitflags::bitflags;
 
-use {Error, Result};
-use super::icmpv6::{field, Message, Packet};
-use wire::{EthernetAddress, Ipv6Repr, Ipv6Packet};
-use wire::{NdiscOption, NdiscOptionRepr, NdiscOptionType};
-use wire::{NdiscPrefixInformation, NdiscRedirectedHeader};
-use time::Duration;
-use super::Ipv6Address;
+use crate::{Error, Result};
+use crate::wire::icmpv6::{field, Message, Packet};
+use crate::wire::{EthernetAddress, Ipv6Repr, Ipv6Packet};
+use crate::wire::{NdiscOption, NdiscOptionRepr, NdiscOptionType};
+use crate::wire::{NdiscPrefixInformation, NdiscRedirectedHeader};
+use crate::time::Duration;
+use crate::wire::Ipv6Address;
 
 bitflags! {
     pub struct RouterFlags: u8 {
@@ -462,10 +463,10 @@ impl<'a> Repr<'a> {
 
 #[cfg(test)]
 mod test {
-    use phy::ChecksumCapabilities;
+    use crate::phy::ChecksumCapabilities;
     use super::*;
-    use wire::Icmpv6Repr;
-    use wire::ip::test::{MOCK_IP_ADDR_1, MOCK_IP_ADDR_2};
+    use crate::wire::Icmpv6Repr;
+    use crate::wire::ip::test::{MOCK_IP_ADDR_1, MOCK_IP_ADDR_2};
 
     static ROUTER_ADVERT_BYTES: [u8; 24] =
         [0x86, 0x00, 0xa9, 0xde,

@@ -1,21 +1,21 @@
 use core::cmp;
-
-use {Error, Result};
-use phy::{ChecksumCapabilities, DeviceCapabilities};
-use socket::{Socket, SocketMeta, SocketHandle, PollAt};
-use storage::{PacketBuffer, PacketMetadata};
-use wire::{IpAddress, IpEndpoint, IpProtocol, IpRepr};
-#[cfg(feature = "async")]
-use socket::WakerRegistration;
 #[cfg(feature = "async")]
 use core::task::Waker;
 
+use crate::{Error, Result};
+use crate::phy::{ChecksumCapabilities, DeviceCapabilities};
+use crate::socket::{Socket, SocketMeta, SocketHandle, PollAt};
+use crate::storage::{PacketBuffer, PacketMetadata};
+#[cfg(feature = "async")]
+use crate::socket::WakerRegistration;
+
 #[cfg(feature = "proto-ipv4")]
-use wire::{Ipv4Address, Ipv4Repr, Icmpv4Packet, Icmpv4Repr};
+use crate::wire::{Ipv4Address, Ipv4Repr, Icmpv4Packet, Icmpv4Repr};
 #[cfg(feature = "proto-ipv6")]
-use wire::{Ipv6Address, Ipv6Repr, Icmpv6Packet, Icmpv6Repr};
-use wire::IcmpRepr;
-use wire::{UdpPacket, UdpRepr};
+use crate::wire::{Ipv6Address, Ipv6Repr, Icmpv6Packet, Icmpv6Repr};
+use crate::wire::IcmpRepr;
+use crate::wire::{UdpPacket, UdpRepr};
+use crate::wire::{IpAddress, IpEndpoint, IpProtocol, IpRepr};
 
 /// Type of endpoint to bind the ICMP socket to. See [IcmpSocket::bind] for
 /// more details.
@@ -463,8 +463,8 @@ impl<'a, 'b> Into<Socket<'a, 'b>> for IcmpSocket<'a, 'b> {
 
 #[cfg(test)]
 mod tests_common {
-    pub use phy::DeviceCapabilities;
-    pub use wire::IpAddress;
+    pub use crate::phy::DeviceCapabilities;
+    pub use crate::wire::IpAddress;
     pub use super::*;
 
     pub fn buffer(packets: usize) -> IcmpSocketBuffer<'static, 'static> {
@@ -489,7 +489,7 @@ mod tests_common {
 mod test_ipv4 {
     use super::tests_common::*;
 
-    use wire::Icmpv4DstUnreachable;
+    use crate::wire::Icmpv4DstUnreachable;
 
     const REMOTE_IPV4: Ipv4Address = Ipv4Address([0x7f, 0x00, 0x00, 0x02]);
     const LOCAL_IPV4:  Ipv4Address = Ipv4Address([0x7f, 0x00, 0x00, 0x01]);
@@ -687,7 +687,7 @@ mod test_ipv4 {
 mod test_ipv6 {
     use super::tests_common::*;
 
-    use wire::Icmpv6DstUnreachable;
+    use crate::wire::Icmpv6DstUnreachable;
 
     const REMOTE_IPV6: Ipv6Address = Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0,
                                                   0, 0, 0, 0, 0, 0, 0, 1]);

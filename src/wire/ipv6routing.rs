@@ -1,8 +1,8 @@
 use core::fmt;
-use {Error, Result};
+use crate::{Error, Result};
 
-use super::IpProtocol as Protocol;
-use super::Ipv6Address as Address;
+use crate::wire::IpProtocol as Protocol;
+use crate::wire::Ipv6Address as Address;
 
 enum_with_unknown! {
     /// IPv6 Extension Routing Header Routing Type
@@ -72,7 +72,7 @@ pub struct Header<T: AsRef<[u8]>> {
 mod field {
     #![allow(non_snake_case)]
 
-    use wire::field::*;
+    use crate::wire::field::*;
 
     // Minimum size of the header.
     pub const MIN_HEADER_SIZE:  usize = 4;

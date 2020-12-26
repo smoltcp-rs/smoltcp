@@ -1,7 +1,7 @@
 use core::fmt;
-use {Error, Result};
+use crate::{Error, Result};
 
-use super::ipv6option::Ipv6OptionsIterator;
+use crate::wire::ipv6option::Ipv6OptionsIterator;
 pub use super::IpProtocol as Protocol;
 
 /// A read/write wrapper around an IPv6 Hop-by-Hop Options Header.
@@ -27,7 +27,7 @@ pub struct Header<T: AsRef<[u8]>> {
 mod field {
     #![allow(non_snake_case)]
 
-    use wire::field::*;
+    use crate::wire::field::*;
 
     // Minimum size of the header.
     pub const MIN_HEADER_SIZE:  usize = 8;

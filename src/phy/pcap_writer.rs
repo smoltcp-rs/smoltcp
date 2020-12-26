@@ -4,9 +4,9 @@ use std::cell::RefCell;
 use std::io::Write;
 use byteorder::{ByteOrder, NativeEndian};
 
-use Result;
-use phy::{self, DeviceCapabilities, Device};
-use time::Instant;
+use crate::Result;
+use crate::phy::{self, DeviceCapabilities, Device};
+use crate::time::Instant;
 
 enum_with_unknown! {
     /// Captured packet header type.

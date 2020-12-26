@@ -6,9 +6,9 @@
 
 use byteorder::{ByteOrder, NetworkEndian};
 
-use {Error, Result};
-use super::icmpv6::{field, Message, Packet};
-use super::Ipv6Address;
+use crate::{Error, Result};
+use crate::wire::icmpv6::{field, Message, Packet};
+use crate::wire::Ipv6Address;
 
 enum_with_unknown! {
     /// MLDv2 Multicast Listener Report Record Type. See [RFC 3810 § 5.2.12] for
@@ -383,9 +383,9 @@ impl<'a> Repr<'a> {
 
 #[cfg(test)]
 mod test {
-    use phy::ChecksumCapabilities;
-    use wire::Icmpv6Repr;
-    use wire::icmpv6::Message;
+    use crate::phy::ChecksumCapabilities;
+    use crate::wire::Icmpv6Repr;
+    use crate::wire::icmpv6::Message;
     use super::*;
 
     static QUERY_PACKET_BYTES: [u8; 44] =

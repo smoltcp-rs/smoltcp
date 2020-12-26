@@ -1,10 +1,10 @@
 use core::fmt;
 use byteorder::{ByteOrder, NetworkEndian};
 
-use {Error, Result};
-use phy::ChecksumCapabilities;
-use super::{IpProtocol, IpAddress};
-use super::ip::checksum;
+use crate::{Error, Result};
+use crate::phy::ChecksumCapabilities;
+use crate::wire::{IpProtocol, IpAddress};
+use crate::wire::ip::checksum;
 
 /// A read/write wrapper around an User Datagram Protocol packet buffer.
 #[derive(Debug, PartialEq, Clone)]
@@ -15,7 +15,7 @@ pub struct Packet<T: AsRef<[u8]>> {
 mod field {
     #![allow(non_snake_case)]
 
-    use wire::field::*;
+    use crate::wire::field::*;
 
     pub const SRC_PORT: Field = 0..2;
     pub const DST_PORT: Field = 2..4;
@@ -272,7 +272,7 @@ impl<'a> fmt::Display for Repr<'a> {
     }
 }
 
-use super::pretty_print::{PrettyPrint, PrettyIndent};
+use crate::wire::pretty_print::{PrettyPrint, PrettyIndent};
 
 impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
     fn pretty_print(buffer: &dyn AsRef<[u8]>, f: &mut fmt::Formatter,
@@ -287,7 +287,7 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
 #[cfg(test)]
 mod test {
     #[cfg(feature = "proto-ipv4")]
-    use wire::Ipv4Address;
+    use crate::wire::Ipv4Address;
     use super::*;
 
     #[cfg(feature = "proto-ipv4")]

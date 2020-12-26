@@ -1,6 +1,6 @@
-use wire::IpAddress;
-use super::{SocketHandle, PollAt};
-use time::{Duration, Instant};
+use crate::wire::IpAddress;
+use crate::socket::{SocketHandle, PollAt};
+use crate::time::{Duration, Instant};
 
 /// Neighbor dependency.
 ///

@@ -1,9 +1,10 @@
 use core::fmt;
 use byteorder::{NetworkEndian, ByteOrder};
+use bitflags::bitflags;
 
-use {Error, Result};
-use time::Duration;
-use wire::{EthernetAddress, Ipv6Address, Ipv6Packet, Ipv6Repr};
+use crate::{Error, Result};
+use crate::time::Duration;
+use crate::wire::{EthernetAddress, Ipv6Address, Ipv6Packet, Ipv6Repr};
 
 enum_with_unknown! {
     /// NDISC Option Type
@@ -61,7 +62,7 @@ pub struct NdiscOption<T: AsRef<[u8]>> {
 mod field {
     #![allow(non_snake_case)]
 
-    use wire::field::*;
+    use crate::wire::field::*;
 
     // 8-bit identifier of the type of option.
     pub const TYPE:          usize = 0;
@@ -587,7 +588,7 @@ impl<'a> fmt::Display for Repr<'a> {
     }
 }
 
-use super::pretty_print::{PrettyPrint, PrettyIndent};
+use crate::wire::pretty_print::{PrettyPrint, PrettyIndent};
 
 impl<T: AsRef<[u8]>> PrettyPrint for NdiscOption<T> {
     fn pretty_print(buffer: &dyn AsRef<[u8]>, f: &mut fmt::Formatter,
@@ -608,9 +609,9 @@ impl<T: AsRef<[u8]>> PrettyPrint for NdiscOption<T> {
 
 #[cfg(test)]
 mod test {
-    use Error;
-    use time::Duration;
-    use wire::{EthernetAddress, Ipv6Address};
+    use crate::Error;
+    use crate::time::Duration;
+    use crate::wire::{EthernetAddress, Ipv6Address};
     use super::{NdiscOption, Type, PrefixInfoFlags, PrefixInformation, Repr};
 
     static PREFIX_OPT_BYTES: [u8; 32] = [

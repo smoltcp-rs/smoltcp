@@ -1,9 +1,9 @@
 use core::{fmt, slice};
 use managed::ManagedSlice;
 
-use super::{Socket, SocketRef, AnySocket};
+use crate::socket::{Socket, SocketRef, AnySocket};
 #[cfg(feature = "socket-tcp")]
-use super::TcpState;
+use crate::socket::TcpState;
 
 /// An item of a socket set.
 ///

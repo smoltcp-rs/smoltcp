@@ -4,9 +4,9 @@ use std::rc::Rc;
 use std::io;
 use std::os::unix::io::{RawFd, AsRawFd};
 
-use Result;
-use phy::{self, sys, DeviceCapabilities, Device};
-use time::Instant;
+use crate::Result;
+use crate::phy::{self, sys, DeviceCapabilities, Device};
+use crate::time::Instant;
 
 /// A virtual Ethernet interface.
 #[derive(Debug)]

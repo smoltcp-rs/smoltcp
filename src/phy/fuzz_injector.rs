@@ -1,6 +1,6 @@
-use Result;
-use phy::{self, DeviceCapabilities, Device};
-use time::Instant;
+use crate::Result;
+use crate::phy::{self, DeviceCapabilities, Device};
+use crate::time::Instant;
 
 // This could be fixed once associated consts are stable.
 const MTU: usize = 1536;

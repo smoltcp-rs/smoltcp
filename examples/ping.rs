@@ -1,16 +1,13 @@
-#[macro_use]
-extern crate log;
-extern crate env_logger;
-extern crate getopts;
-extern crate smoltcp;
-extern crate byteorder;
-
 mod utils;
 
 use std::str::FromStr;
 use std::collections::BTreeMap;
 use std::cmp;
 use std::os::unix::io::AsRawFd;
+use std::collections::HashMap;
+use log::debug;
+use byteorder::{ByteOrder, NetworkEndian};
+
 use smoltcp::time::{Duration, Instant};
 use smoltcp::phy::Device;
 use smoltcp::phy::wait as phy_wait;
@@ -19,8 +16,6 @@ use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr,
                     Ipv4Address, Icmpv4Repr, Icmpv4Packet};
 use smoltcp::iface::{NeighborCache, EthernetInterfaceBuilder, Routes};
 use smoltcp::socket::{SocketSet, IcmpSocket, IcmpSocketBuffer, IcmpPacketMetadata, IcmpEndpoint};
-use std::collections::HashMap;
-use byteorder::{ByteOrder, NetworkEndian};
 
 macro_rules! send_icmp_ping {
     ( $repr_type:ident, $packet_type:ident, $ident:expr, $seq_no:expr,

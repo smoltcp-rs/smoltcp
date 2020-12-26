@@ -1,18 +1,14 @@
+
 #[cfg(feature = "log")]
-#[macro_use]
-mod log {
-    macro_rules! net_log {
-        (trace, $($arg:expr),*) => { trace!($($arg),*); };
-        (debug, $($arg:expr),*) => { debug!($($arg),*); };
-    }
+macro_rules! net_log {
+    (trace, $($arg:expr),*) => { log::trace!($($arg),*); };
+    (debug, $($arg:expr),*) => { log::debug!($($arg),*); };
 }
 
 #[cfg(not(feature = "log"))]
 #[macro_use]
-mod log {
-    macro_rules! net_log {
-        ($level:ident, $($arg:expr),*) => { $( let _ = $arg; )* }
-    }
+macro_rules! net_log {
+    ($level:ident, $($arg:expr),*) => { $( let _ = $arg; )* }
 }
 
 macro_rules! net_trace {
