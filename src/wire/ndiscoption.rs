@@ -596,7 +596,7 @@ impl<T: AsRef<[u8]>> PrettyPrint for NdiscOption<T> {
             Err(err) => return write!(f, "{}({})", indent, err),
             Ok(ndisc) => {
                 match Repr::parse(&ndisc) {
-                    Err(_) => return Ok(()),
+                    Err(_) => Ok(()),
                     Ok(repr) => {
                         write!(f, "{}{}", indent, repr)
                     }

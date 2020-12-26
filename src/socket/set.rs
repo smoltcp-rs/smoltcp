@@ -75,7 +75,7 @@ impl<'a, 'b: 'a, 'c: 'a + 'b> Set<'a, 'b, 'c> {
             ManagedSlice::Owned(ref mut sockets) => {
                 sockets.push(None);
                 let index = sockets.len() - 1;
-                return put(index, &mut sockets[index], socket)
+                put(index, &mut sockets[index], socket)
             }
         }
     }
