@@ -88,7 +88,8 @@
 compile_error!("at least one socket needs to be enabled"); */
 
 // FIXME(dlrobertson): clippy fails with this lint
-#![cfg_attr(feature = "cargo-clippy", allow(if_same_then_else))]
+#![allow(clippy::if_same_then_else)]
+#![allow(clippy::manual_non_exhaustive)]
 
 #[cfg(feature = "alloc")]
 extern crate alloc;
