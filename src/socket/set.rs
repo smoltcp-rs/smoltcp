@@ -38,9 +38,7 @@ impl<'a, 'b: 'a, 'c: 'a + 'b> Set<'a, 'b, 'c> {
     pub fn new<SocketsT>(sockets: SocketsT) -> Set<'a, 'b, 'c>
             where SocketsT: Into<ManagedSlice<'a, Option<Item<'b, 'c>>>> {
         let sockets = sockets.into();
-        Set {
-            sockets: sockets
-        }
+        Set { sockets }
     }
 
     /// Add a socket to the set with the reference count 1, and return its handle.
@@ -55,7 +53,7 @@ impl<'a, 'b: 'a, 'c: 'a + 'b> Set<'a, 'b, 'c> {
             net_trace!("[{}]: adding", index);
             let handle = Handle(index);
             socket.meta_mut().handle = handle;
-            *slot = Some(Item { socket: socket, refs: 1 });
+            *slot = Some(Item { socket, refs: 1 });
             handle
         }
 

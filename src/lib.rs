@@ -91,6 +91,7 @@ compile_error!("at least one socket needs to be enabled"); */
 #![allow(clippy::if_same_then_else)]
 #![allow(clippy::manual_non_exhaustive)]
 #![allow(clippy::match_like_matches_macro)]
+#![allow(clippy::redundant_field_names)]
 
 #[cfg(feature = "alloc")]
 extern crate alloc;

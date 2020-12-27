@@ -52,8 +52,8 @@ impl<'a, D, P> Device<'a> for Tracer<D, P>
     fn receive(&'a mut self) -> Option<(Self::RxToken, Self::TxToken)> {
         let &mut Self { ref mut inner, writer, .. } = self;
         inner.receive().map(|(rx_token, tx_token)| {
-            let rx = RxToken { token: rx_token, writer: writer };
-            let tx = TxToken { token: tx_token, writer: writer };
+            let rx = RxToken { token: rx_token, writer };
+            let tx = TxToken { token: tx_token, writer };
             (rx, tx)
         })
     }
@@ -61,7 +61,7 @@ impl<'a, D, P> Device<'a> for Tracer<D, P>
     fn transmit(&'a mut self) -> Option<Self::TxToken> {
         let &mut Self { ref mut inner, writer } = self;
         inner.transmit().map(|tx_token| {
-            TxToken { token: tx_token, writer: writer }
+            TxToken { token: tx_token, writer }
         })
     }
 }

@@ -43,7 +43,7 @@ impl PrettyIndent {
     /// Create an indentation state. The entire listing will be indented by the width
     /// of `prefix`, and `prefix` will appear at the start of the first line.
     pub fn new(prefix: &'static str) -> PrettyIndent {
-        PrettyIndent { prefix: prefix, level: 0 }
+        PrettyIndent { prefix, level: 0 }
     }
 
     /// Increase indentation level.

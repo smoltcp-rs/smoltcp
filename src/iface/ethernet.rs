@@ -1156,11 +1156,7 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
             Icmpv6Repr::EchoRequest { ident, seq_no, data } => {
                 match ip_repr {
                     IpRepr::Ipv6(ipv6_repr) => {
-                        let icmp_reply_repr = Icmpv6Repr::EchoReply {
-                            ident:  ident,
-                            seq_no: seq_no,
-                            data:   data
-                        };
+                        let icmp_reply_repr = Icmpv6Repr::EchoReply { ident, seq_no, data };
                         Ok(self.icmpv6_reply(ipv6_repr, icmp_reply_repr))
                     },
                     _ => Err(Error::Unrecognized),
@@ -1295,11 +1291,7 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
             // Respond to echo requests.
             #[cfg(feature = "proto-ipv4")]
             Icmpv4Repr::EchoRequest { ident, seq_no, data } => {
-                let icmp_reply_repr = Icmpv4Repr::EchoReply {
-                    ident:  ident,
-                    seq_no: seq_no,
-                    data:   data
-                };
+                let icmp_reply_repr = Icmpv4Repr::EchoReply { ident, seq_no, data };
                 match ip_repr {
                     IpRepr::Ipv4(ipv4_repr) => Ok(self.icmpv4_reply(ipv4_repr, icmp_reply_repr)),
                     _ => Err(Error::Unrecognized),

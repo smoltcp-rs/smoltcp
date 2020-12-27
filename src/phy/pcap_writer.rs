@@ -146,8 +146,8 @@ impl<'a, D, S> Device<'a> for PcapWriter<D, S>
     fn receive(&'a mut self) -> Option<(Self::RxToken, Self::TxToken)> {
         let &mut Self { ref mut lower, ref sink, mode, .. } = self;
         lower.receive().map(|(rx_token, tx_token)| {
-            let rx = RxToken { token: rx_token, sink: sink.clone(), mode: mode };
-            let tx = TxToken { token: tx_token, sink: sink.clone(), mode: mode };
+            let rx = RxToken { token: rx_token, sink: sink.clone(), mode };
+            let tx = TxToken { token: tx_token, sink: sink.clone(), mode };
             (rx, tx)
         })
     }
@@ -155,7 +155,7 @@ impl<'a, D, S> Device<'a> for PcapWriter<D, S>
     fn transmit(&'a mut self) -> Option<Self::TxToken> {
         let &mut Self { ref mut lower, ref sink, mode } = self;
         lower.transmit().map(|token| {
-            TxToken { token, sink: sink.clone(), mode: mode }
+            TxToken { token, sink: sink.clone(), mode }
         })
     }
 }

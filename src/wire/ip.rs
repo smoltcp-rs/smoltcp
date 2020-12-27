@@ -408,7 +408,7 @@ impl Endpoint {
 
     /// Create an endpoint address from given address and port.
     pub fn new(addr: Address, port: u16) -> Endpoint {
-        Endpoint { addr: addr, port: port }
+        Endpoint { addr, port }
     }
 
     /// Query whether the endpoint has a specified address and port.
@@ -455,13 +455,13 @@ impl fmt::Display for Endpoint {
 
 impl From<u16> for Endpoint {
     fn from(port: u16) -> Endpoint {
-        Endpoint { addr: Address::Unspecified, port: port }
+        Endpoint { addr: Address::Unspecified, port }
     }
 }
 
 impl<T: Into<Address>> From<(T, u16)> for Endpoint {
     fn from((addr, port): (T, u16)) -> Endpoint {
-        Endpoint { addr: addr.into(), port: port }
+        Endpoint { addr: addr.into(), port }
     }
 }
 
