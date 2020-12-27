@@ -7,7 +7,6 @@ use core::{cmp, fmt, mem};
 use core::task::Waker;
 
 use crate::{Error, Result};
-use crate::phy::DeviceCapabilities;
 use crate::time::{Duration, Instant};
 use crate::socket::{Socket, SocketMeta, SocketHandle, PollAt};
 use crate::storage::{Assembler, RingBuffer};
@@ -1662,7 +1661,7 @@ impl<'a> TcpSocket<'a> {
         }
     }
 
-    pub(crate) fn dispatch<F>(&mut self, timestamp: Instant, caps: &DeviceCapabilities,
+    pub(crate) fn dispatch<F>(&mut self, timestamp: Instant, ip_mtu: usize,
                               emit: F) -> Result<()>
             where F: FnOnce((IpRepr, TcpRepr)) -> Result<()> {
         if !self.remote_endpoint.is_specified() { return Err(Error::Exhausted) }
@@ -1789,7 +1788,7 @@ impl<'a> TcpSocket<'a> {
                 let offset = self.remote_last_seq - self.local_seq_no;
                 let win_limit = self.local_seq_no + self.remote_win_len - self.remote_last_seq;
                 let size = cmp::min(cmp::min(win_limit, self.remote_mss),
-                     caps.max_transmission_unit - ip_repr.buffer_len() - repr.mss_header_len());
+                     ip_mtu - ip_repr.buffer_len() - repr.mss_header_len());
                 repr.payload = self.tx_buffer.get_allocated(offset, size);
                 // If we've sent everything we had in the buffer, follow it with the PSH or FIN
                 // flags, depending on whether the transmit half of the connection is open.
@@ -1848,7 +1847,7 @@ impl<'a> TcpSocket<'a> {
 
         if repr.control == TcpControl::Syn {
             // Fill the MSS option. See RFC 6691 for an explanation of this calculation.
-            let mut max_segment_size = caps.max_transmission_unit;
+            let mut max_segment_size = ip_mtu;
             max_segment_size -= ip_repr.buffer_len();
             max_segment_size -= repr.mss_header_len();
             repr.max_seg_size = Some(max_segment_size as u16);
@@ -2044,11 +2043,8 @@ mod test {
 
     fn recv<F>(socket: &mut TcpSocket, timestamp: Instant, mut f: F)
             where F: FnMut(Result<TcpRepr>) {
-        let caps = DeviceCapabilities {
-            max_transmission_unit: 1520,
-            ..Default::default()
-        };
-        let result = socket.dispatch(timestamp, &caps, |(ip_repr, tcp_repr)| {
+        let mtu = 1520;
+        let result = socket.dispatch(timestamp, mtu, |(ip_repr, tcp_repr)| {
             let ip_repr = ip_repr.lower(&[IpCidr::new(LOCAL_END.addr, 24)]).unwrap();
 
             assert_eq!(ip_repr.protocol(), IpProtocol::Tcp);
@@ -4897,13 +4893,10 @@ mod test {
     #[test]
     fn test_set_hop_limit() {
         let mut s = socket_syn_received();
-        let caps = DeviceCapabilities {
-            max_transmission_unit: 1520,
-            ..Default::default()
-        };
+        let mtu = 1520;
 
         s.set_hop_limit(Some(0x2a));
-        assert_eq!(s.dispatch(Instant::from_millis(0), &caps, |(ip_repr, _)| {
+        assert_eq!(s.dispatch(Instant::from_millis(0), mtu, |(ip_repr, _)| {
             assert_eq!(ip_repr.hop_limit(), 0x2a);
             Ok(())
         }), Ok(()));
