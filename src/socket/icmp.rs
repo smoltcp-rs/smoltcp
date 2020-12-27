@@ -5,6 +5,10 @@ use phy::{ChecksumCapabilities, DeviceCapabilities};
 use socket::{Socket, SocketMeta, SocketHandle, PollAt};
 use storage::{PacketBuffer, PacketMetadata};
 use wire::{IpAddress, IpEndpoint, IpProtocol, IpRepr};
+#[cfg(feature = "async")]
+use socket::WakerRegistration;
+#[cfg(feature = "async")]
+use core::task::Waker;
 
 #[cfg(feature = "proto-ipv4")]
 use wire::{Ipv4Address, Ipv4Repr, Icmpv4Packet, Icmpv4Repr};
@@ -61,7 +65,11 @@ pub struct IcmpSocket<'a, 'b: 'a> {
     /// The endpoint this socket is communicating with
     endpoint:  Endpoint,
     /// The time-to-live (IPv4) or hop limit (IPv6) value used in outgoing packets.
-    hop_limit: Option<u8>
+    hop_limit: Option<u8>,
+    #[cfg(feature = "async")]
+    rx_waker: WakerRegistration,
+    #[cfg(feature = "async")]
+    tx_waker: WakerRegistration,
 }
 
 impl<'a, 'b> IcmpSocket<'a, 'b> {
@@ -73,8 +81,47 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
             rx_buffer: rx_buffer,
             tx_buffer: tx_buffer,
             endpoint:  Endpoint::default(),
-            hop_limit: None
+            hop_limit: None,
+            #[cfg(feature = "async")]
+            rx_waker: WakerRegistration::new(),
+            #[cfg(feature = "async")]
+            tx_waker: WakerRegistration::new(),
         }
+    }
+
+    /// Register a waker for receive operations.
+    ///
+    /// The waker is woken on state changes that might affect the return value
+    /// of `recv` method calls, such as receiving data, or the socket closing.
+    /// 
+    /// Notes:
+    ///
+    /// - Only one waker can be registered at a time. If another waker was previously registered,
+    ///   it is overwritten and will no longer be woken.
+    /// - The Waker is woken only once. Once woken, you must register it again to receive more wakes. 
+    /// - "Spurious wakes" are allowed: a wake doesn't guarantee the result of `recv` has
+    ///   necessarily changed.
+    #[cfg(feature = "async")]
+    pub fn register_recv_waker(&mut self, waker: &Waker) {
+        self.rx_waker.register(waker)
+    }
+
+    /// Register a waker for send operations.
+    ///
+    /// The waker is woken on state changes that might affect the return value
+    /// of `send` method calls, such as space becoming available in the transmit
+    /// buffer, or the socket closing.
+    /// 
+    /// Notes:
+    ///
+    /// - Only one waker can be registered at a time. If another waker was previously registered,
+    ///   it is overwritten and will no longer be woken.
+    /// - The Waker is woken only once. Once woken, you must register it again to receive more wakes. 
+    /// - "Spurious wakes" are allowed: a wake doesn't guarantee the result of `send` has
+    ///   necessarily changed.
+    #[cfg(feature = "async")]
+    pub fn register_send_waker(&mut self, waker: &Waker) {
+        self.tx_waker.register(waker)
     }
 
     /// Return the socket handle.
@@ -174,6 +221,13 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
         if self.is_open() { return Err(Error::Illegal) }
 
         self.endpoint = endpoint;
+
+        #[cfg(feature = "async")]
+        {
+            self.rx_waker.wake();
+            self.tx_waker.wake();
+        }
+
         Ok(())
     }
 
@@ -339,6 +393,10 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
                            self.meta.handle, icmp_repr.buffer_len(), packet_buf.len());
             },
         }
+
+        #[cfg(feature = "async")]
+        self.rx_waker.wake();
+
         Ok(())
     }
 
@@ -380,7 +438,12 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
                 },
                 _ => Err(Error::Unaddressable)
             }
-        })
+        })?;
+        
+        #[cfg(feature = "async")]
+        self.tx_waker.wake();
+
+        Ok(())
     }
 
     pub(crate) fn poll_at(&self) -> PollAt {
