@@ -624,10 +624,10 @@ impl<'a> Repr<'a> {
             },
             #[cfg(feature = "ethernet")]
             (msg_type, 0) if msg_type.is_ndisc() => {
-                NdiscRepr::parse(packet).map(|repr| Repr::Ndisc(repr))
+                NdiscRepr::parse(packet).map(Repr::Ndisc)
             },
             (msg_type, 0) if msg_type.is_mld() => {
-                MldRepr::parse(packet).map(|repr| Repr::Mld(repr))
+                MldRepr::parse(packet).map(Repr::Mld)
             },
             _ => Err(Error::Unrecognized)
         }
