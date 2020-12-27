@@ -307,9 +307,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// Return the selective acknowledgement ranges, if any. If there are none in the packet, an
     /// array of ``None`` values will be returned.
     ///
-    pub fn selective_ack_ranges<'s>(
-        &'s self
-    ) -> Result<[Option<(u32, u32)>; 3]> {
+    pub fn selective_ack_ranges(&self) -> Result<[Option<(u32, u32)>; 3]> {
         let data = self.buffer.as_ref();
         let mut options = &data[field::OPTIONS(self.header_len())];
         while !options.is_empty() {
