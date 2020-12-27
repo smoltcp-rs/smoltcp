@@ -135,50 +135,50 @@ impl<'a> DhcpOption<'a> {
 
     pub fn emit<'b>(&self, buffer: &'b mut [u8]) -> &'b mut [u8] {
         let skip_length;
-        match self {
-            &DhcpOption::EndOfList => {
+        match *self {
+            DhcpOption::EndOfList => {
                 skip_length = 1;
                 buffer[0] = field::OPT_END;
             }
-            &DhcpOption::Pad => {
+            DhcpOption::Pad => {
                 skip_length = 1;
                 buffer[0] = field::OPT_PAD;
             }
             _ => {
                 skip_length = self.buffer_len();
                 buffer[1] = (skip_length - 2) as u8;
-                match self {
-                    &DhcpOption::EndOfList | &DhcpOption::Pad => unreachable!(),
-                    &DhcpOption::MessageType(value) => {
+                match *self {
+                    DhcpOption::EndOfList | DhcpOption::Pad => unreachable!(),
+                    DhcpOption::MessageType(value) => {
                         buffer[0] = field::OPT_DHCP_MESSAGE_TYPE;
                         buffer[2] = value.into();
                     }
-                    &DhcpOption::ClientIdentifier(eth_addr) => {
+                    DhcpOption::ClientIdentifier(eth_addr) => {
                         buffer[0] = field::OPT_CLIENT_ID;
                         buffer[2] = u16::from(Hardware::Ethernet) as u8;
                         buffer[3..9].copy_from_slice(eth_addr.as_bytes());
                     }
-                    &DhcpOption::RequestedIp(ip)  => {
+                    DhcpOption::RequestedIp(ip)  => {
                         buffer[0] = field::OPT_REQUESTED_IP;
                         buffer[2..6].copy_from_slice(ip.as_bytes());
                     }
-                    &DhcpOption::ServerIdentifier(ip)  => {
+                    DhcpOption::ServerIdentifier(ip)  => {
                         buffer[0] = field::OPT_SERVER_IDENTIFIER;
                         buffer[2..6].copy_from_slice(ip.as_bytes());
                     }
-                    &DhcpOption::Router(ip)  => {
+                    DhcpOption::Router(ip)  => {
                         buffer[0] = field::OPT_ROUTER;
                         buffer[2..6].copy_from_slice(ip.as_bytes());
                     }
-                    &DhcpOption::SubnetMask(mask)  => {
+                    DhcpOption::SubnetMask(mask)  => {
                         buffer[0] = field::OPT_SUBNET_MASK;
                         buffer[2..6].copy_from_slice(mask.as_bytes());
                     }
-                    &DhcpOption::MaximumDhcpMessageSize(size) => {
+                    DhcpOption::MaximumDhcpMessageSize(size) => {
                         buffer[0] = field::OPT_MAX_DHCP_MESSAGE_SIZE;
                         buffer[2..4].copy_from_slice(&size.to_be_bytes()[..]);
                     }
-                    &DhcpOption::Other { kind, data: provided } => {
+                    DhcpOption::Other { kind, data: provided } => {
                         buffer[0] = kind;
                         buffer[2..skip_length].copy_from_slice(provided);
                     }
