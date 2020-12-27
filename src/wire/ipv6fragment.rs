@@ -1,5 +1,5 @@
 use core::fmt;
-use {Error, Result};
+use crate::{Error, Result};
 
 use byteorder::{ByteOrder, NetworkEndian};
 
@@ -21,7 +21,7 @@ pub struct Header<T: AsRef<[u8]>> {
 //
 // See https://tools.ietf.org/html/rfc8200#section-4.5 for details.
 mod field {
-    use wire::field::*;
+    use crate::wire::field::*;
 
     // 8-bit identifier of the header immediately following this header.
     pub const NXT_HDR:          usize = 0;

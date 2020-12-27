@@ -1,7 +1,7 @@
 use managed::ManagedSlice;
 
-use {Error, Result};
-use super::RingBuffer;
+use crate::{Error, Result};
+use crate::storage::RingBuffer;
 
 /// Size and header of a packet.
 #[derive(Debug, Clone, Copy)]

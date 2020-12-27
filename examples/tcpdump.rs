@@ -1,5 +1,3 @@
-extern crate smoltcp;
-
 use std::env;
 use std::os::unix::io::AsRawFd;
 use smoltcp::phy::wait as phy_wait;

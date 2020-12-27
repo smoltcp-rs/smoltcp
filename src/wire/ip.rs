@@ -1,12 +1,12 @@
 use core::fmt;
 use core::convert::From;
 
-use {Error, Result};
-use phy::ChecksumCapabilities;
+use crate::{Error, Result};
+use crate::phy::ChecksumCapabilities;
 #[cfg(feature = "proto-ipv4")]
-use super::{Ipv4Address, Ipv4Packet, Ipv4Repr, Ipv4Cidr};
+use crate::wire::{Ipv4Address, Ipv4Packet, Ipv4Repr, Ipv4Cidr};
 #[cfg(feature = "proto-ipv6")]
-use super::{Ipv6Address, Ipv6Cidr, Ipv6Packet, Ipv6Repr};
+use crate::wire::{Ipv6Address, Ipv6Cidr, Ipv6Packet, Ipv6Repr};
 
 /// Internet protocol version.
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
@@ -862,16 +862,16 @@ pub mod checksum {
     }
 }
 
-use super::pretty_print::PrettyIndent;
+use crate::wire::pretty_print::PrettyIndent;
 
 pub fn pretty_print_ip_payload<T: Into<Repr>>(f: &mut fmt::Formatter, indent: &mut PrettyIndent,
                                               ip_repr: T, payload: &[u8]) -> fmt::Result {
     #[cfg(feature = "proto-ipv4")]
-    use wire::Icmpv4Packet;
+    use crate::wire::Icmpv4Packet;
     #[cfg(feature = "proto-ipv4")]
     use super::pretty_print::PrettyPrint;
-    use wire::{TcpPacket, TcpRepr, UdpPacket, UdpRepr};
-    use wire::ip::checksum::format_checksum;
+    use crate::wire::{TcpPacket, TcpRepr, UdpPacket, UdpRepr};
+    use crate::wire::ip::checksum::format_checksum;
 
     let checksum_caps = ChecksumCapabilities::ignored();
     let repr = ip_repr.into();
@@ -953,9 +953,9 @@ pub(crate) mod test {
 
 
     use super::*;
-    use wire::{IpAddress, IpProtocol,IpCidr};
+    use crate::wire::{IpAddress, IpProtocol,IpCidr};
     #[cfg(feature = "proto-ipv4")]
-    use wire::{Ipv4Address, Ipv4Repr};
+    use crate::wire::{Ipv4Address, Ipv4Repr};
 
     macro_rules! generate_common_tests {
         ($name:ident, $repr:ident, $ip_repr:path, $ip_addr:path,

@@ -7,50 +7,50 @@ use managed::{ManagedSlice, ManagedMap};
 #[cfg(not(feature = "proto-igmp"))]
 use core::marker::PhantomData;
 
-use {Error, Result};
-use phy::{Device, DeviceCapabilities, RxToken, TxToken};
-use time::{Duration, Instant};
-use wire::pretty_print::PrettyPrinter;
-use wire::{EthernetAddress, EthernetProtocol, EthernetFrame};
-use wire::{IpAddress, IpProtocol, IpRepr, IpCidr};
+use crate::{Error, Result};
+use crate::phy::{Device, DeviceCapabilities, RxToken, TxToken};
+use crate::time::{Duration, Instant};
+use crate::wire::pretty_print::PrettyPrinter;
+use crate::wire::{EthernetAddress, EthernetProtocol, EthernetFrame};
+use crate::wire::{IpAddress, IpProtocol, IpRepr, IpCidr};
 #[cfg(feature = "proto-ipv6")]
-use wire::{Ipv6Address, Ipv6Packet, Ipv6Repr, IPV6_MIN_MTU};
+use crate::wire::{Ipv6Address, Ipv6Packet, Ipv6Repr, IPV6_MIN_MTU};
 #[cfg(feature = "proto-ipv4")]
-use wire::{Ipv4Address, Ipv4Packet, Ipv4Repr, IPV4_MIN_MTU};
+use crate::wire::{Ipv4Address, Ipv4Packet, Ipv4Repr, IPV4_MIN_MTU};
 #[cfg(feature = "proto-ipv4")]
-use wire::{ArpPacket, ArpRepr, ArpOperation};
+use crate::wire::{ArpPacket, ArpRepr, ArpOperation};
 #[cfg(feature = "proto-ipv4")]
-use wire::{Icmpv4Packet, Icmpv4Repr, Icmpv4DstUnreachable};
+use crate::wire::{Icmpv4Packet, Icmpv4Repr, Icmpv4DstUnreachable};
 #[cfg(feature = "proto-igmp")]
-use wire::{IgmpPacket, IgmpRepr, IgmpVersion};
+use crate::wire::{IgmpPacket, IgmpRepr, IgmpVersion};
 #[cfg(feature = "proto-ipv6")]
-use wire::{Icmpv6Packet, Icmpv6Repr, Icmpv6ParamProblem};
+use crate::wire::{Icmpv6Packet, Icmpv6Repr, Icmpv6ParamProblem};
 #[cfg(all(feature = "socket-icmp", any(feature = "proto-ipv4", feature = "proto-ipv6")))]
-use wire::IcmpRepr;
+use crate::wire::IcmpRepr;
 #[cfg(feature = "proto-ipv6")]
-use wire::{Ipv6HopByHopHeader, Ipv6HopByHopRepr};
+use crate::wire::{Ipv6HopByHopHeader, Ipv6HopByHopRepr};
 #[cfg(feature = "proto-ipv6")]
-use wire::{Ipv6OptionRepr, Ipv6OptionFailureType};
+use crate::wire::{Ipv6OptionRepr, Ipv6OptionFailureType};
 #[cfg(feature = "proto-ipv6")]
-use wire::{NdiscNeighborFlags, NdiscRepr};
+use crate::wire::{NdiscNeighborFlags, NdiscRepr};
 #[cfg(all(feature = "proto-ipv6", feature = "socket-udp"))]
-use wire::Icmpv6DstUnreachable;
+use crate::wire::Icmpv6DstUnreachable;
 #[cfg(feature = "socket-udp")]
-use wire::{UdpPacket, UdpRepr};
+use crate::wire::{UdpPacket, UdpRepr};
 #[cfg(feature = "socket-tcp")]
-use wire::{TcpPacket, TcpRepr, TcpControl};
+use crate::wire::{TcpPacket, TcpRepr, TcpControl};
 
-use socket::{Socket, SocketSet, AnySocket, PollAt};
+use crate::socket::{Socket, SocketSet, AnySocket, PollAt};
 #[cfg(feature = "socket-raw")]
-use socket::RawSocket;
+use crate::socket::RawSocket;
 #[cfg(all(feature = "socket-icmp", any(feature = "proto-ipv4", feature = "proto-ipv6")))]
-use socket::IcmpSocket;
+use crate::socket::IcmpSocket;
 #[cfg(feature = "socket-udp")]
-use socket::UdpSocket;
+use crate::socket::UdpSocket;
 #[cfg(feature = "socket-tcp")]
-use socket::TcpSocket;
-use super::{NeighborCache, NeighborAnswer};
-use super::Routes;
+use crate::socket::TcpSocket;
+use crate::iface::{NeighborCache, NeighborAnswer};
+use crate::iface::Routes;
 
 /// An Ethernet network interface.
 ///
@@ -1722,37 +1722,37 @@ mod test {
     #[cfg(feature = "proto-igmp")]
     use std::vec::Vec;
     use std::collections::BTreeMap;
-    use {Result, Error};
 
+    use crate::{Result, Error};
     use super::InterfaceBuilder;
-    use iface::{NeighborCache, EthernetInterface};
-    use phy::{self, Loopback, ChecksumCapabilities};
+    use crate::iface::{NeighborCache, EthernetInterface};
+    use crate::phy::{self, Loopback, ChecksumCapabilities};
     #[cfg(feature = "proto-igmp")]
-    use phy::{Device, RxToken, TxToken};
-    use time::Instant;
-    use socket::SocketSet;
+    use crate::phy::{Device, RxToken, TxToken};
+    use crate::time::Instant;
+    use crate::socket::SocketSet;
     #[cfg(feature = "proto-ipv4")]
-    use wire::{ArpOperation, ArpPacket, ArpRepr};
-    use wire::{EthernetAddress, EthernetFrame, EthernetProtocol};
-    use wire::{IpAddress, IpCidr, IpProtocol, IpRepr};
+    use crate::wire::{ArpOperation, ArpPacket, ArpRepr};
+    use crate::wire::{EthernetAddress, EthernetFrame, EthernetProtocol};
+    use crate::wire::{IpAddress, IpCidr, IpProtocol, IpRepr};
     #[cfg(feature = "proto-ipv4")]
-    use wire::{Ipv4Address, Ipv4Repr};
+    use crate::wire::{Ipv4Address, Ipv4Repr};
     #[cfg(feature = "proto-igmp")]
-    use wire::Ipv4Packet;
+    use crate::wire::Ipv4Packet;
     #[cfg(feature = "proto-ipv4")]
-    use wire::{Icmpv4Repr, Icmpv4DstUnreachable};
+    use crate::wire::{Icmpv4Repr, Icmpv4DstUnreachable};
     #[cfg(feature = "proto-igmp")]
-    use wire::{IgmpPacket, IgmpRepr, IgmpVersion};
+    use crate::wire::{IgmpPacket, IgmpRepr, IgmpVersion};
     #[cfg(all(feature = "socket-udp", any(feature = "proto-ipv4", feature = "proto-ipv6")))]
-    use wire::{UdpPacket, UdpRepr};
+    use crate::wire::{UdpPacket, UdpRepr};
     #[cfg(feature = "proto-ipv6")]
-    use wire::{Ipv6Address, Ipv6Repr};
+    use crate::wire::{Ipv6Address, Ipv6Repr};
     #[cfg(feature = "proto-ipv6")]
-    use wire::{Icmpv6Packet, Icmpv6Repr, Icmpv6ParamProblem};
+    use crate::wire::{Icmpv6Packet, Icmpv6Repr, Icmpv6ParamProblem};
     #[cfg(feature = "proto-ipv6")]
-    use wire::{NdiscNeighborFlags, NdiscRepr};
+    use crate::wire::{NdiscNeighborFlags, NdiscRepr};
     #[cfg(feature = "proto-ipv6")]
-    use wire::{Ipv6HopByHopHeader, Ipv6Option, Ipv6OptionRepr};
+    use crate::wire::{Ipv6HopByHopHeader, Ipv6Option, Ipv6OptionRepr};
 
     use super::Packet;
 
@@ -2003,8 +2003,8 @@ mod test {
     #[test]
     #[cfg(feature = "socket-udp")]
     fn test_handle_udp_broadcast() {
-        use socket::{UdpSocket, UdpSocketBuffer, UdpPacketMetadata};
-        use wire::IpEndpoint;
+        use crate::socket::{UdpSocket, UdpSocketBuffer, UdpPacketMetadata};
+        use crate::wire::IpEndpoint;
 
         static UDP_PAYLOAD: [u8; 5] = [0x48, 0x65, 0x6c, 0x6c, 0x6f];
 
@@ -2075,7 +2075,7 @@ mod test {
     #[test]
     #[cfg(feature = "proto-ipv4")]
     fn test_handle_ipv4_broadcast() {
-        use wire::{Ipv4Packet, Icmpv4Repr, Icmpv4Packet};
+        use crate::wire::{Ipv4Packet, Icmpv4Repr, Icmpv4Packet};
 
         let (mut iface, mut socket_set) = create_loopback();
 
@@ -2134,11 +2134,11 @@ mod test {
     #[cfg(feature = "socket-udp")]
     fn test_icmp_reply_size() {
         #[cfg(all(feature = "proto-ipv4", not(feature = "proto-ipv6")))]
-        use wire::IPV4_MIN_MTU as MIN_MTU;
+        use crate::wire::IPV4_MIN_MTU as MIN_MTU;
         #[cfg(feature = "proto-ipv6")]
-        use wire::Icmpv6DstUnreachable;
+        use crate::wire::Icmpv6DstUnreachable;
         #[cfg(feature = "proto-ipv6")]
-        use wire::IPV6_MIN_MTU as MIN_MTU;
+        use crate::wire::IPV6_MIN_MTU as MIN_MTU;
 
         #[cfg(all(feature = "proto-ipv4", not(feature = "proto-ipv6")))]
         const MAX_PAYLOAD_LEN: usize = 528;
@@ -2371,8 +2371,8 @@ mod test {
     #[test]
     #[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
     fn test_icmpv4_socket() {
-        use socket::{IcmpSocket, IcmpEndpoint, IcmpSocketBuffer, IcmpPacketMetadata};
-        use wire::Icmpv4Packet;
+        use crate::socket::{IcmpSocket, IcmpEndpoint, IcmpSocketBuffer, IcmpPacketMetadata};
+        use crate::wire::Icmpv4Packet;
 
         let (iface, mut socket_set) = create_loopback();
 
@@ -2613,8 +2613,8 @@ mod test {
     #[test]
     #[cfg(all(feature = "proto-ipv4", feature = "socket-raw"))]
     fn test_raw_socket_no_reply() {
-        use socket::{RawSocket, RawSocketBuffer, RawPacketMetadata};
-        use wire::{IpVersion, Ipv4Packet, UdpPacket, UdpRepr};
+        use crate::socket::{RawSocket, RawSocketBuffer, RawPacketMetadata};
+        use crate::wire::{IpVersion, Ipv4Packet, UdpPacket, UdpRepr};
 
         let (mut iface, mut socket_set) = create_loopback();
 
@@ -2669,8 +2669,8 @@ mod test {
     #[test]
     #[cfg(all(feature = "proto-ipv4", feature = "socket-raw"))]
     fn test_raw_socket_truncated_packet() {
-        use socket::{RawSocket, RawSocketBuffer, RawPacketMetadata};
-        use wire::{IpVersion, Ipv4Packet, UdpPacket, UdpRepr};
+        use crate::socket::{RawSocket, RawSocketBuffer, RawPacketMetadata};
+        use crate::wire::{IpVersion, Ipv4Packet, UdpPacket, UdpRepr};
 
         let (mut iface, mut socket_set) = create_loopback();
 
@@ -2730,9 +2730,9 @@ mod test {
     #[test]
     #[cfg(all(feature = "proto-ipv4", feature = "socket-raw", feature = "socket-udp"))]
     fn test_raw_socket_with_udp_socket() {
-        use socket::{UdpSocket, UdpSocketBuffer, UdpPacketMetadata,
+        use crate::socket::{UdpSocket, UdpSocketBuffer, UdpPacketMetadata,
                      RawSocket, RawSocketBuffer, RawPacketMetadata};
-        use wire::{IpVersion, IpEndpoint, Ipv4Packet, UdpPacket, UdpRepr};
+        use crate::wire::{IpVersion, IpEndpoint, Ipv4Packet, UdpPacket, UdpRepr};
 
         static UDP_PAYLOAD: [u8; 5] = [0x48, 0x65, 0x6c, 0x6c, 0x6f];
 

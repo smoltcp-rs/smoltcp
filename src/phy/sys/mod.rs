@@ -3,7 +3,7 @@
 use libc;
 use std::{mem, ptr, io};
 use std::os::unix::io::RawFd;
-use time::Duration;
+use crate::time::Duration;
 
 #[cfg(target_os = "linux")]
 #[path = "linux.rs"]

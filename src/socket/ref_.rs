@@ -1,13 +1,13 @@
 use core::ops::{Deref, DerefMut};
 
 #[cfg(feature = "socket-raw")]
-use socket::RawSocket;
+use crate::socket::RawSocket;
 #[cfg(all(feature = "socket-icmp", any(feature = "proto-ipv4", feature = "proto-ipv6")))]
-use socket::IcmpSocket;
+use crate::socket::IcmpSocket;
 #[cfg(feature = "socket-udp")]
-use socket::UdpSocket;
+use crate::socket::UdpSocket;
 #[cfg(feature = "socket-tcp")]
-use socket::TcpSocket;
+use crate::socket::TcpSocket;
 
 /// A trait for tracking a socket usage session.
 ///

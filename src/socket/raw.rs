@@ -1,18 +1,19 @@
 use core::cmp::min;
-
-use {Error, Result};
-use phy::ChecksumCapabilities;
-use socket::{Socket, SocketMeta, SocketHandle, PollAt};
-use storage::{PacketBuffer, PacketMetadata};
-use wire::{IpVersion, IpRepr, IpProtocol};
-#[cfg(feature = "proto-ipv4")]
-use wire::{Ipv4Repr, Ipv4Packet};
-#[cfg(feature = "proto-ipv6")]
-use wire::{Ipv6Repr, Ipv6Packet};
-#[cfg(feature = "async")]
-use socket::WakerRegistration;
 #[cfg(feature = "async")]
 use core::task::Waker;
+
+use crate::{Error, Result};
+use crate::phy::ChecksumCapabilities;
+use crate::socket::{Socket, SocketMeta, SocketHandle, PollAt};
+use crate::storage::{PacketBuffer, PacketMetadata};
+#[cfg(feature = "async")]
+use crate::socket::WakerRegistration;
+
+use crate::wire::{IpVersion, IpRepr, IpProtocol};
+#[cfg(feature = "proto-ipv4")]
+use crate::wire::{Ipv4Repr, Ipv4Packet};
+#[cfg(feature = "proto-ipv6")]
+use crate::wire::{Ipv6Repr, Ipv6Packet};
 
 /// A UDP packet metadata.
 pub type RawPacketMetadata = PacketMetadata<()>;
@@ -304,11 +305,11 @@ impl<'a, 'b> Into<Socket<'a, 'b>> for RawSocket<'a, 'b> {
 
 #[cfg(test)]
 mod test {
-    use wire::IpRepr;
+    use crate::wire::IpRepr;
     #[cfg(feature = "proto-ipv4")]
-    use wire::{Ipv4Address, Ipv4Repr};
+    use crate::wire::{Ipv4Address, Ipv4Repr};
     #[cfg(feature = "proto-ipv6")]
-    use wire::{Ipv6Address, Ipv6Repr};
+    use crate::wire::{Ipv6Address, Ipv6Repr};
     use super::*;
 
     fn buffer(packets: usize) -> RawSocketBuffer<'static, 'static> {

@@ -1,13 +1,13 @@
-use {Result, Error};
-use wire::{IpVersion, IpProtocol, IpEndpoint, IpAddress,
+use crate::{Result, Error};
+use crate::wire::{IpVersion, IpProtocol, IpEndpoint, IpAddress,
            Ipv4Cidr, Ipv4Address, Ipv4Packet, Ipv4Repr,
            UdpPacket, UdpRepr,
            DhcpPacket, DhcpRepr, DhcpMessageType};
-use wire::dhcpv4::field as dhcpv4_field;
-use socket::{SocketSet, SocketHandle, RawSocket, RawSocketBuffer};
-use phy::{Device, ChecksumCapabilities};
-use iface::EthernetInterface as Interface;
-use time::{Instant, Duration};
+use crate::wire::dhcpv4::field as dhcpv4_field;
+use crate::socket::{SocketSet, SocketHandle, RawSocket, RawSocketBuffer};
+use crate::phy::{Device, ChecksumCapabilities};
+use crate::iface::EthernetInterface as Interface;
+use crate::time::{Instant, Duration};
 use super::{UDP_SERVER_PORT, UDP_CLIENT_PORT};
 
 const DISCOVER_TIMEOUT: u64 = 10;

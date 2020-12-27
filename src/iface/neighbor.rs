@@ -3,8 +3,8 @@
 
 use managed::ManagedMap;
 
-use wire::{EthernetAddress, IpAddress};
-use time::{Duration, Instant};
+use crate::wire::{EthernetAddress, IpAddress};
+use crate::time::{Duration, Instant};
 
 /// A cached neighbor.
 ///
@@ -194,7 +194,7 @@ impl<'a> Cache<'a> {
 mod test {
     use super::*;
     use std::collections::BTreeMap;
-    use wire::ip::test::{MOCK_IP_ADDR_1, MOCK_IP_ADDR_2, MOCK_IP_ADDR_3, MOCK_IP_ADDR_4};
+    use crate::wire::ip::test::{MOCK_IP_ADDR_1, MOCK_IP_ADDR_2, MOCK_IP_ADDR_3, MOCK_IP_ADDR_4};
 
 
     const HADDR_A: EthernetAddress = EthernetAddress([0, 0, 0, 0, 0, 1]);

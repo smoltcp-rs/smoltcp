@@ -9,7 +9,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use std::env;
 use std::process;
 #[cfg(feature = "log")]
-use log::{Level, LevelFilter};
+use log::{Level, LevelFilter, trace};
 #[cfg(feature = "log")]
 use env_logger::Builder;
 use getopts::{Options, Matches};

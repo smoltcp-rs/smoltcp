@@ -1,13 +1,13 @@
 use core::cmp::min;
-
-use {Error, Result};
-use socket::{Socket, SocketMeta, SocketHandle, PollAt};
-use storage::{PacketBuffer, PacketMetadata};
-use wire::{IpProtocol, IpRepr, IpEndpoint, UdpRepr};
-#[cfg(feature = "async")]
-use socket::WakerRegistration;
 #[cfg(feature = "async")]
 use core::task::Waker;
+
+use crate::{Error, Result};
+use crate::socket::{Socket, SocketMeta, SocketHandle, PollAt};
+use crate::storage::{PacketBuffer, PacketMetadata};
+use crate::wire::{IpProtocol, IpRepr, IpEndpoint, UdpRepr};
+#[cfg(feature = "async")]
+use crate::socket::WakerRegistration;
 
 /// A UDP packet metadata.
 pub type UdpPacketMetadata = PacketMetadata<IpEndpoint>;
@@ -344,12 +344,12 @@ impl<'a, 'b> Into<Socket<'a, 'b>> for UdpSocket<'a, 'b> {
 
 #[cfg(test)]
 mod test {
-    use wire::{IpAddress, IpRepr, UdpRepr};
+    use crate::wire::{IpAddress, IpRepr, UdpRepr};
     #[cfg(feature = "proto-ipv4")]
-    use wire::Ipv4Repr;
+    use crate::wire::Ipv4Repr;
     #[cfg(feature = "proto-ipv6")]
-    use wire::Ipv6Repr;
-    use wire::ip::test::{MOCK_IP_ADDR_1, MOCK_IP_ADDR_2, MOCK_IP_ADDR_3};
+    use crate::wire::Ipv6Repr;
+    use crate::wire::ip::test::{MOCK_IP_ADDR_1, MOCK_IP_ADDR_2, MOCK_IP_ADDR_3};
     use super::*;
 
     fn buffer(packets: usize) -> UdpSocketBuffer<'static, 'static> {

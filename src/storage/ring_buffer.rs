@@ -4,8 +4,8 @@
 use core::cmp;
 use managed::ManagedSlice;
 
-use {Error, Result};
-use super::Resettable;
+use crate::{Error, Result};
+use crate::storage::Resettable;
 
 /// A ring buffer.
 ///

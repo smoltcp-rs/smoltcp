@@ -1,13 +1,13 @@
 use core::{cmp, fmt};
 use byteorder::{ByteOrder, NetworkEndian};
 
-use {Error, Result};
-use phy::ChecksumCapabilities;
-use super::ip::checksum;
-use super::{IpAddress, IpProtocol, Ipv6Packet, Ipv6Repr};
-use super::MldRepr;
+use crate::{Error, Result};
+use crate::phy::ChecksumCapabilities;
+use crate::wire::ip::checksum;
+use crate::wire::{IpAddress, IpProtocol, Ipv6Packet, Ipv6Repr};
+use crate::wire::MldRepr;
 #[cfg(feature = "ethernet")]
-use super::NdiscRepr;
+use crate::wire::NdiscRepr;
 
 enum_with_unknown! {
     /// Internet protocol control message type.
@@ -197,7 +197,7 @@ pub struct Packet<T: AsRef<[u8]>> {
 
 // Ranges and constants describing key boundaries in the ICMPv6 header.
 pub(super) mod field {
-    use wire::field::*;
+    use crate::wire::field::*;
 
     // ICMPv6: See https://tools.ietf.org/html/rfc4443
     pub const TYPE:              usize = 0;
@@ -739,8 +739,8 @@ impl<'a> Repr<'a> {
 
 #[cfg(test)]
 mod test {
-    use wire::{Ipv6Address, Ipv6Repr, IpProtocol};
-    use wire::ip::test::{MOCK_IP_ADDR_1, MOCK_IP_ADDR_2};
+    use crate::wire::{Ipv6Address, Ipv6Repr, IpProtocol};
+    use crate::wire::ip::test::{MOCK_IP_ADDR_1, MOCK_IP_ADDR_2};
     use super::*;
 
     static ECHO_PACKET_BYTES: [u8; 12] =

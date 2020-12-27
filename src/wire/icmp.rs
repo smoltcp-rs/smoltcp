@@ -1,7 +1,7 @@
 #[cfg(feature = "proto-ipv4")]
-use super::icmpv4;
+use crate::wire::icmpv4;
 #[cfg(feature = "proto-ipv6")]
-use super::icmpv6;
+use crate::wire::icmpv6;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Repr<'a> {

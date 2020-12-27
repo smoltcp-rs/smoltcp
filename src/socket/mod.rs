@@ -12,7 +12,7 @@ size for a buffer, allocate it, and let the networking stack use it.
 */
 
 use core::marker::PhantomData;
-use time::Instant;
+use crate::time::Instant;
 
 mod meta;
 #[cfg(feature = "socket-raw")]

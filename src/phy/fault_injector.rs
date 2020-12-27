@@ -1,8 +1,8 @@
 use core::cell::RefCell;
 
-use {Error, Result};
-use phy::{self, DeviceCapabilities, Device};
-use time::{Duration, Instant};
+use crate::{Error, Result};
+use crate::phy::{self, DeviceCapabilities, Device};
+use crate::time::{Duration, Instant};
 
 // We use our own RNG to stay compatible with #![no_std].
 // The use of the RNG below has a slight bias, but it doesn't matter.

@@ -1,8 +1,5 @@
 #![feature(test)]
 
-extern crate test;
-extern crate smoltcp;
-
 mod wire {
     use test;
     #[cfg(feature = "proto-ipv6")]

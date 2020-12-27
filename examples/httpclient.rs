@@ -1,17 +1,11 @@
-#[macro_use]
-extern crate log;
-extern crate env_logger;
-extern crate getopts;
-extern crate rand;
-extern crate url;
-extern crate smoltcp;
-
 mod utils;
 
 use std::str::{self, FromStr};
 use std::collections::BTreeMap;
 use std::os::unix::io::AsRawFd;
 use url::Url;
+use log::debug;
+
 use smoltcp::phy::wait as phy_wait;
 use smoltcp::wire::{EthernetAddress, Ipv4Address, Ipv6Address, IpAddress, IpCidr};
 use smoltcp::iface::{NeighborCache, EthernetInterfaceBuilder, Routes};

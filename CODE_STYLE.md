@@ -16,8 +16,8 @@ to most specific, but it's not very important.
 ```rust
 use core::cell::RefCell;
 
-use {Error, Result};
-use phy::{self, DeviceCapabilities, Device};
+use crate::{Error, Result};
+use crate::phy::{self, DeviceCapabilities, Device};
 ```
 
 ## Wrapping function calls

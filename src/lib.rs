@@ -1,5 +1,4 @@
-#![cfg_attr(feature = "alloc", feature(alloc))]
-#![no_std]
+#![cfg_attr(not(any(test, feature = "std")), no_std)]
 #![deny(unsafe_code)]
 #![cfg_attr(all(any(feature = "proto-ipv4", feature = "proto-ipv6"), feature = "ethernet"), deny(unused))]
 
@@ -91,21 +90,8 @@ compile_error!("at least one socket needs to be enabled"); */
 // FIXME(dlrobertson): clippy fails with this lint
 #![cfg_attr(feature = "cargo-clippy", allow(if_same_then_else))]
 
-#[cfg(all(feature = "proto-ipv6", feature = "ethernet"))]
-#[macro_use]
-extern crate bitflags;
-extern crate byteorder;
-extern crate managed;
-#[cfg(any(test, feature = "std"))]
-#[macro_use]
-extern crate std;
-#[cfg(any(feature = "phy-raw_socket", feature = "phy-tap_interface"))]
-extern crate libc;
 #[cfg(feature = "alloc")]
 extern crate alloc;
-#[cfg(feature = "log")]
-#[macro_use(trace, debug)]
-extern crate log;
 
 use core::fmt;
 

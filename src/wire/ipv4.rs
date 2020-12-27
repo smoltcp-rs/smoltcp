@@ -1,9 +1,9 @@
 use core::fmt;
 use byteorder::{ByteOrder, NetworkEndian};
 
-use {Error, Result};
-use phy::ChecksumCapabilities;
-use super::ip::{checksum, pretty_print_ip_payload};
+use crate::{Error, Result};
+use crate::phy::ChecksumCapabilities;
+use crate::wire::ip::{checksum, pretty_print_ip_payload};
 
 pub use super::IpProtocol as Protocol;
 
@@ -231,7 +231,7 @@ pub struct Packet<T: AsRef<[u8]>> {
 }
 
 mod field {
-    use wire::field::*;
+    use crate::wire::field::*;
 
     pub const VER_IHL:  usize = 0;
     pub const DSCP_ECN: usize = 1;
@@ -662,12 +662,12 @@ impl fmt::Display for Repr {
     }
 }
 
-use super::pretty_print::{PrettyPrint, PrettyIndent};
+use crate::wire::pretty_print::{PrettyPrint, PrettyIndent};
 
 impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
     fn pretty_print(buffer: &dyn AsRef<[u8]>, f: &mut fmt::Formatter,
                     indent: &mut PrettyIndent) -> fmt::Result {
-        use wire::ip::checksum::format_checksum;
+        use crate::wire::ip::checksum::format_checksum;
 
         let checksum_caps = ChecksumCapabilities::ignored();
 
