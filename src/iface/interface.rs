@@ -10,7 +10,7 @@ use crate::phy::{Device, DeviceCapabilities, RxToken, TxToken, Medium};
 use crate::time::{Duration, Instant};
 use crate::wire::*;
 use crate::socket::*;
-#[cfg(feature = "ethernet")]
+#[cfg(feature = "medium-ethernet")]
 use crate::iface::{NeighborCache, NeighborAnswer};
 use crate::iface::Routes;
 
@@ -32,9 +32,9 @@ pub struct Interface<'a, DeviceT: for<'d> Device<'d>> {
 /// methods on the `Interface` in this time (since its `device` field is borrowed
 /// exclusively). However, it is still possible to call methods on its `inner` field.
 struct InterfaceInner<'a> {
-    #[cfg(feature = "ethernet")]
+    #[cfg(feature = "medium-ethernet")]
     neighbor_cache:         Option<NeighborCache<'a>>,
-    #[cfg(feature = "ethernet")]
+    #[cfg(feature = "medium-ethernet")]
     ethernet_addr:          Option<EthernetAddress>,
     ip_addrs:               ManagedSlice<'a, IpCidr>,
     #[cfg(feature = "proto-ipv4")]
@@ -51,9 +51,9 @@ struct InterfaceInner<'a> {
 /// A builder structure used for creating a network interface.
 pub struct InterfaceBuilder <'a, DeviceT: for<'d> Device<'d>> {
     device:                 DeviceT,
-    #[cfg(feature = "ethernet")]
+    #[cfg(feature = "medium-ethernet")]
     ethernet_addr:          Option<EthernetAddress>,
-    #[cfg(feature = "ethernet")]
+    #[cfg(feature = "medium-ethernet")]
     neighbor_cache:         Option<NeighborCache<'a>>,
     ip_addrs:               ManagedSlice<'a, IpCidr>,
     #[cfg(feature = "proto-ipv4")]
@@ -68,7 +68,7 @@ impl<'a, DeviceT> InterfaceBuilder<'a, DeviceT>
         where DeviceT: for<'d> Device<'d> {
     /// Create a builder used for creating a network interface using the
     /// given device and address.
-    #[cfg_attr(feature = "ethernet", doc = r##"
+    #[cfg_attr(feature = "medium-ethernet", doc = r##"
 # Examples
 
 ```
@@ -95,9 +95,9 @@ let iface = InterfaceBuilder::new(device)
     pub fn new(device: DeviceT) -> Self {
         InterfaceBuilder {
             device:              device,
-            #[cfg(feature = "ethernet")]
+            #[cfg(feature = "medium-ethernet")]
             ethernet_addr:       None,
-            #[cfg(feature = "ethernet")]
+            #[cfg(feature = "medium-ethernet")]
             neighbor_cache:      None,
             ip_addrs:            ManagedSlice::Borrowed(&mut []),
             #[cfg(feature = "proto-ipv4")]
@@ -115,7 +115,7 @@ let iface = InterfaceBuilder::new(device)
     /// This function panics if the address is not unicast.
     ///
     /// [ethernet_addr]: struct.Interface.html#method.ethernet_addr
-    #[cfg(feature = "ethernet")]
+    #[cfg(feature = "medium-ethernet")]
     pub fn ethernet_addr(mut self, addr: EthernetAddress) -> Self {
         InterfaceInner::check_ethernet_addr(&addr);
         self.ethernet_addr = Some(addr);
@@ -187,7 +187,7 @@ let iface = InterfaceBuilder::new(device)
     }
 
     /// Set the Neighbor Cache the interface will use.
-    #[cfg(feature = "ethernet")]
+    #[cfg(feature = "medium-ethernet")]
     pub fn neighbor_cache(mut self, neighbor_cache: NeighborCache<'a>) -> Self {
         self.neighbor_cache = Some(neighbor_cache);
         self
@@ -207,35 +207,31 @@ let iface = InterfaceBuilder::new(device)
     pub fn finalize(self) -> Interface<'a, DeviceT> {
         let device_capabilities = self.device.capabilities();
 
-        #[cfg(feature = "ethernet")]
-        let mut ethernet_addr = None;
-        #[cfg(feature = "ethernet")]
-        let mut neighbor_cache = None;
-        match device_capabilities.medium {
-            #[cfg(feature = "ethernet")]
-            Medium::Ethernet => {
-                ethernet_addr = Some(self.ethernet_addr.expect("ethernet_addr required option was not set"));
-                neighbor_cache = Some(self.neighbor_cache.expect("neighbor_cache required option was not set"));
-            }
+        #[cfg(feature = "medium-ethernet")]
+        let (ethernet_addr, neighbor_cache) = match device_capabilities.medium {
+            Medium::Ethernet => (
+                Some(self.ethernet_addr.expect("ethernet_addr required option was not set")),
+                Some(self.neighbor_cache.expect("neighbor_cache required option was not set"))
+            ),
+            #[cfg(feature = "medium-ip")]
             Medium::Ip => {
-                #[cfg(feature = "ethernet")]
                 assert!(self.ethernet_addr.is_none(), "ethernet_addr is set, but device medium is IP");
-                #[cfg(feature = "ethernet")]
                 assert!(self.neighbor_cache.is_none(), "neighbor_cache is set, but device medium is IP");
+                (None, None)
             }
-        }
+        };
 
         Interface {
             device: self.device,
             inner: InterfaceInner {
-                #[cfg(feature = "ethernet")]
+                #[cfg(feature = "medium-ethernet")]
                 ethernet_addr,
                 ip_addrs: self.ip_addrs,
                 #[cfg(feature = "proto-ipv4")]
                 any_ip: self.any_ip,
                 routes: self.routes,
                 device_capabilities,
-                #[cfg(feature = "ethernet")]
+                #[cfg(feature = "medium-ethernet")]
                 neighbor_cache,
                 #[cfg(feature = "proto-igmp")]
                 ipv4_multicast_groups: self.ipv4_multicast_groups,
@@ -247,7 +243,7 @@ let iface = InterfaceBuilder::new(device)
 }
 
 #[derive(Debug, PartialEq)]
-#[cfg(feature = "ethernet")]
+#[cfg(feature = "medium-ethernet")]
 enum EthernetPacket<'a> {
     #[cfg(feature = "proto-ipv4")]
     Arp(ArpRepr),
@@ -371,7 +367,7 @@ impl<'a, DeviceT> Interface<'a, DeviceT>
     /// # Panics
     /// This function panics if if the interface's medium is not Ethernet.
 
-    #[cfg(feature = "ethernet")]
+    #[cfg(feature = "medium-ethernet")]
     pub fn ethernet_addr(&self) -> EthernetAddress {
         self.inner.ethernet_addr.unwrap()
     }
@@ -381,7 +377,7 @@ impl<'a, DeviceT> Interface<'a, DeviceT>
     /// # Panics
     /// This function panics if the address is not unicast, or if the
     /// interface's medium is not Ethernet.
-    #[cfg(feature = "ethernet")]
+    #[cfg(feature = "medium-ethernet")]
     pub fn set_ethernet_addr(&mut self, addr: EthernetAddress) {
         assert!(self.device.capabilities().medium == Medium::Ethernet);
         InterfaceInner::check_ethernet_addr(&addr);
@@ -591,7 +587,7 @@ impl<'a, DeviceT> Interface<'a, DeviceT>
             };
             rx_token.consume(timestamp, |frame| {
                 match inner.device_capabilities.medium {
-                    #[cfg(feature = "ethernet")]
+                    #[cfg(feature = "medium-ethernet")]
                     Medium::Ethernet => {
                         inner.process_ethernet(sockets, timestamp, &frame).map_err(|err| {
                             net_debug!("cannot process ingress packet: {}", err);
@@ -611,6 +607,7 @@ impl<'a, DeviceT> Interface<'a, DeviceT>
                             }
                         })
                     }
+                    #[cfg(feature = "medium-ip")]
                     Medium::Ip => {
                         inner.process_ip(sockets, timestamp, &frame).map_err(|err| {
                             net_debug!("cannot process ingress packet: {}", err);
@@ -638,12 +635,12 @@ impl<'a, DeviceT> Interface<'a, DeviceT>
 
     fn socket_egress(&mut self, sockets: &mut SocketSet, timestamp: Instant) -> Result<bool> {
         let mut caps = self.device.capabilities();
-        match caps.medium {
-            #[cfg(feature = "ethernet")]
-            Medium::Ethernet => 
-                caps.max_transmission_unit -= EthernetFrame::<&[u8]>::header_len(),
-            _ => {}
-        }
+        caps.max_transmission_unit = match caps.medium {
+            #[cfg(feature = "medium-ethernet")]
+            Medium::Ethernet => caps.max_transmission_unit - EthernetFrame::<&[u8]>::header_len(),
+            #[cfg(feature = "medium-ip")]
+            Medium::Ip => caps.max_transmission_unit,
+        };
 
         let mut emitted_any = false;
         for mut socket in sockets.iter_mut() {
@@ -768,7 +765,7 @@ impl<'a, DeviceT> Interface<'a, DeviceT>
 }
 
 impl<'a> InterfaceInner<'a> {
-    #[cfg(feature = "ethernet")]
+    #[cfg(feature = "medium-ethernet")]
     fn check_ethernet_addr(addr: &EthernetAddress) {
         if addr.is_multicast() {
             panic!("Ethernet address {} is not unicast", addr)
@@ -836,7 +833,7 @@ impl<'a> InterfaceInner<'a> {
         }
     }
 
-    #[cfg(feature = "ethernet")]
+    #[cfg(feature = "medium-ethernet")]
     fn process_ethernet<'frame, T: AsRef<[u8]>>
                        (&mut self, sockets: &mut SocketSet, timestamp: Instant, frame: &'frame T) ->
                        Result<Option<EthernetPacket<'frame>>>
@@ -887,6 +884,7 @@ impl<'a> InterfaceInner<'a> {
         }
     }
 
+    #[cfg(feature = "medium-ip")]
     fn process_ip<'frame, T: AsRef<[u8]>>
                   (&mut self, sockets: &mut SocketSet, timestamp: Instant, ip_payload: &'frame T) ->
                   Result<Option<IpPacket<'frame>>>
@@ -907,7 +905,7 @@ impl<'a> InterfaceInner<'a> {
         }
     }
 
-    #[cfg(all(feature = "ethernet", feature = "proto-ipv4"))]
+    #[cfg(all(feature = "medium-ethernet", feature = "proto-ipv4"))]
     fn process_arp<'frame, T: AsRef<[u8]>>
                   (&mut self, timestamp: Instant, eth_frame: &EthernetFrame<&'frame T>) ->
                   Result<Option<EthernetPacket<'frame>>>
@@ -1215,7 +1213,7 @@ impl<'a> InterfaceInner<'a> {
             Icmpv6Repr::EchoReply { .. } => Ok(None),
 
             // Forward any NDISC packets to the ndisc packet handler
-            #[cfg(feature = "ethernet")]
+            #[cfg(feature = "medium-ethernet")]
             Icmpv6Repr::Ndisc(repr) if ip_repr.hop_limit() == 0xff => match ip_repr {
                 IpRepr::Ipv6(ipv6_repr) => self.process_ndisc(_timestamp, ipv6_repr, repr),
                 _ => Ok(None)
@@ -1231,7 +1229,7 @@ impl<'a> InterfaceInner<'a> {
         }
     }
 
-    #[cfg(all(feature = "ethernet", feature = "proto-ipv6"))]
+    #[cfg(all(feature = "medium-ethernet", feature = "proto-ipv6"))]
     fn process_ndisc<'frame>(&mut self, timestamp: Instant, ip_repr: Ipv6Repr,
                              repr: NdiscRepr<'frame>) -> Result<Option<IpPacket<'frame>>> {
         match repr {
@@ -1503,7 +1501,7 @@ impl<'a> InterfaceInner<'a> {
         }
     }
 
-    #[cfg(feature = "ethernet")]
+    #[cfg(feature = "medium-ethernet")]
     fn dispatch<Tx>(&mut self, tx_token: Tx, timestamp: Instant,
                     packet: EthernetPacket) -> Result<()>
         where Tx: TxToken
@@ -1530,7 +1528,7 @@ impl<'a> InterfaceInner<'a> {
         }
     }
 
-    #[cfg(feature = "ethernet")]
+    #[cfg(feature = "medium-ethernet")]
     fn dispatch_ethernet<Tx, F>(&mut self, tx_token: Tx, timestamp: Instant,
                                 buffer_len: usize, f: F) -> Result<()>
         where Tx: TxToken, F: FnOnce(EthernetFrame<&mut [u8]>)
@@ -1570,10 +1568,11 @@ impl<'a> InterfaceInner<'a> {
         match self.route(addr, timestamp) {
             Ok(_routed_addr) => {
                 match self.device_capabilities.medium {
-                    #[cfg(feature = "ethernet")]
+                    #[cfg(feature = "medium-ethernet")]
                     Medium::Ethernet => self.neighbor_cache.as_ref().unwrap()
                         .lookup(&_routed_addr, timestamp)
                         .found(),
+                    #[cfg(feature = "medium-ip")]
                     Medium::Ip => true,
                 }
             }
@@ -1581,7 +1580,7 @@ impl<'a> InterfaceInner<'a> {
         }
     }
 
-    #[cfg(feature = "ethernet")]
+    #[cfg(feature = "medium-ethernet")]
     fn lookup_hardware_addr<Tx>(&mut self, tx_token: Tx, timestamp: Instant,
                                 src_addr: &IpAddress, dst_addr: &IpAddress) ->
                                Result<(EthernetAddress, Tx)>
@@ -1682,7 +1681,7 @@ impl<'a> InterfaceInner<'a> {
         let caps = self.device_capabilities.clone();
 
         match self.device_capabilities.medium {
-            #[cfg(feature = "ethernet")]
+            #[cfg(feature = "medium-ethernet")]
             Medium::Ethernet => {
                 let (dst_hardware_addr, tx_token) =
                     self.lookup_hardware_addr(tx_token, timestamp,
@@ -1704,6 +1703,7 @@ impl<'a> InterfaceInner<'a> {
                     packet.emit_payload(ip_repr, payload, &caps);
                 })
             }
+            #[cfg(feature = "medium-ip")]
             Medium::Ip => {
                 let tx_len = ip_repr.total_len();
                 tx_token.consume(timestamp, tx_len, |mut tx_buffer| {
@@ -1773,6 +1773,15 @@ mod test {
     use crate::phy::{Loopback, ChecksumCapabilities};
 
     fn create_loopback<'a>() -> (Interface<'a, Loopback>, SocketSet<'a>) {
+        #[cfg(feature = "medium-ethernet")]
+        return create_loopback_ethernet();
+        #[cfg(not(feature = "medium-ethernet"))]
+        return create_loopback_ip();
+    }
+
+    #[cfg(all(feature = "medium-ip"))]
+    #[allow(unused)]
+    fn create_loopback_ip<'a>() -> (Interface<'a, Loopback>, SocketSet<'a>) {
         // Create a basic device
         let device = Loopback::new(Medium::Ip);
         let ip_addrs = [
@@ -1795,7 +1804,7 @@ mod test {
         (iface, SocketSet::new(vec![]))
     }
 
-    #[cfg(all(feature = "ethernet"))]
+    #[cfg(all(feature = "medium-ethernet"))]
     fn create_loopback_ethernet<'a>() -> (Interface<'a, Loopback>, SocketSet<'a>) {
         // Create a basic device
         let device = Loopback::new(Medium::Ethernet);
@@ -1845,7 +1854,7 @@ mod test {
 
     #[test]
     #[should_panic(expected = "ethernet_addr required option was not set")]
-    #[cfg(all(feature = "ethernet"))]
+    #[cfg(all(feature = "medium-ethernet"))]
     fn test_builder_initialization_panic() {
         InterfaceBuilder::new(Loopback::new(Medium::Ethernet)).finalize();
     }
@@ -2300,7 +2309,7 @@ mod test {
     }
 
     #[test]
-    #[cfg(all(feature = "ethernet", feature = "proto-ipv4"))]
+    #[cfg(all(feature = "medium-ethernet", feature = "proto-ipv4"))]
     fn test_handle_valid_arp_request() {
         let (mut iface, mut socket_set) = create_loopback_ethernet();
 
@@ -2345,7 +2354,7 @@ mod test {
     }
 
     #[test]
-    #[cfg(all(feature = "ethernet", feature = "proto-ipv6"))]
+    #[cfg(all(feature = "medium-ethernet", feature = "proto-ipv6"))]
     fn test_handle_valid_ndisc_request() {
         let (mut iface, mut socket_set) = create_loopback_ethernet();
 
@@ -2405,7 +2414,7 @@ mod test {
     }
 
     #[test]
-    #[cfg(all(feature = "ethernet", feature = "proto-ipv4"))]
+    #[cfg(all(feature = "medium-ethernet", feature = "proto-ipv4"))]
     fn test_handle_other_arp_request() {
         let (mut iface, mut socket_set) = create_loopback_ethernet();
 
@@ -2589,11 +2598,21 @@ mod test {
     #[cfg(feature = "proto-igmp")]
     fn test_handle_igmp() {
         fn recv_igmp(mut iface: &mut Interface<'_, Loopback>, timestamp: Instant) -> Vec<(Ipv4Repr, IgmpRepr)> {
-            let checksum_caps = &iface.device.capabilities().checksum;
+            let caps = iface.device.capabilities();
+            let checksum_caps = &caps.checksum;
             recv_all(&mut iface, timestamp)
                 .iter()
                 .filter_map(|frame| {
-                    let ipv4_packet = Ipv4Packet::new_checked(frame).ok()?;
+                    
+                    let ipv4_packet = match caps.medium {
+                        #[cfg(feature = "medium-ethernet")]
+                        Medium::Ethernet => {
+                            let eth_frame = EthernetFrame::new_checked(frame).ok()?;
+                            Ipv4Packet::new_checked(eth_frame.payload()).ok()?
+                        }
+                        #[cfg(feature = "medium-ip")]
+                        Medium::Ip => Ipv4Packet::new_checked(&frame[..]).ok()?
+                    };
                     let ipv4_repr = Ipv4Repr::parse(&ipv4_packet, &checksum_caps).ok()?;
                     let ip_payload = ipv4_packet.payload();
                     let igmp_packet = IgmpPacket::new_checked(ip_payload).ok()?;

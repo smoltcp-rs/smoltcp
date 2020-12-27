@@ -11,7 +11,7 @@ and implementations of it:
     [TapInterface](struct.TapInterface.html), to transmit and receive frames
     on the host OS.
 */
-#![cfg_attr(feature = "ethernet", doc = r##"
+#![cfg_attr(feature = "medium-ethernet", doc = r##"
 # Examples
 
 An implementation of the [Device](trait.Device.html) trait for a simple hardware
@@ -117,7 +117,7 @@ pub use self::raw_socket::RawSocket;
 #[cfg(all(feature = "phy-tap_interface", any(target_os = "linux", target_os = "android")))]
 pub use self::tap_interface::TapInterface;
 
-#[cfg(feature = "ethernet")]
+#[cfg(feature = "medium-ethernet")]
 /// A tracer device for Ethernet frames.
 pub type EthernetTracer<T> = Tracer<T, super::wire::EthernetFrame<&'static [u8]>>;
 
@@ -238,23 +238,26 @@ pub enum Medium {
     /// and interfaces using it must do neighbor discovery via ARP or NDISC.
     ///
     /// Examples of devices of this type are Ethernet, WiFi (802.11), Linux `tap`, and VPNs in tap (layer 2) mode.
-    #[cfg(feature = "ethernet")]
+    #[cfg(feature = "medium-ethernet")]
     Ethernet,
 
     /// IP medium. Devices of this type send and receive IP frames, without an
     /// Ethernet header. MAC addresses are not used, and no neighbor discovery (ARP, NDISC) is done.
     ///
     /// Examples of devices of this type are the Linux `tun`, PPP interfaces, VPNs in tun (layer 3) mode.
+    #[cfg(feature = "medium-ip")]
     Ip,
 }
 
 
 impl Default for Medium {
     fn default() -> Medium {
-        #[cfg(feature = "ethernet")]
+        #[cfg(feature = "medium-ethernet")]
         return Medium::Ethernet;
-        #[cfg(not(feature = "ethernet"))]
+        #[cfg(all(feature = "medium-ip", not(feature = "medium-ethernet")))]
         return Medium::Ip;
+        #[cfg(all(not(feature = "medium-ip"), not(feature = "medium-ethernet")))]
+        panic!("No medium enabled");
     }
 }
 

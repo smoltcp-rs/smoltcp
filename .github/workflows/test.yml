@@ -26,23 +26,23 @@ jobs:
           - std proto-ipv4
 
           # Test features chosen to be as orthogonal as possible.
-          - std ethernet phy-raw_socket proto-ipv6 socket-udp
-          - std ethernet phy-tap_interface proto-ipv6 socket-udp
-          - std ethernet proto-ipv4 proto-igmp socket-raw
-          - std ethernet proto-ipv4 socket-udp socket-tcp
-          - std ethernet proto-ipv4 proto-dhcpv4 socket-udp
-          - std ethernet proto-ipv6 socket-udp
-          - std ethernet proto-ipv6 socket-tcp
-          - std ethernet proto-ipv4 socket-icmp socket-tcp
-          - std ethernet proto-ipv6 socket-icmp socket-tcp
+          - std medium-ethernet phy-raw_socket proto-ipv6 socket-udp
+          - std medium-ethernet phy-tap_interface proto-ipv6 socket-udp
+          - std medium-ethernet proto-ipv4 proto-igmp socket-raw
+          - std medium-ethernet proto-ipv4 socket-udp socket-tcp
+          - std medium-ethernet proto-ipv4 proto-dhcpv4 socket-udp
+          - std medium-ethernet proto-ipv6 socket-udp
+          - std medium-ethernet proto-ipv6 socket-tcp
+          - std medium-ethernet proto-ipv4 socket-icmp socket-tcp
+          - std medium-ethernet proto-ipv6 socket-icmp socket-tcp
 
           # Test features chosen to be as aggressive as possible.
-          - std ethernet proto-ipv4 proto-ipv6 socket-raw socket-udp socket-tcp socket-icmp async
+          - std medium-ethernet proto-ipv4 proto-ipv6 socket-raw socket-udp socket-tcp socket-icmp async
 
         include:
           # Test alloc feature which requires nightly.
           - rust: nightly
-            features: alloc ethernet proto-ipv4 proto-ipv6 socket-raw socket-udp socket-tcp socket-icmp
+            features: alloc medium-ethernet proto-ipv4 proto-ipv6 socket-raw socket-udp socket-tcp socket-icmp
           - rust: nightly
             features: alloc proto-ipv4 proto-ipv6 socket-raw socket-udp socket-tcp socket-icmp
     steps:
@@ -69,7 +69,7 @@ jobs:
 
         features:
           # These feature sets cannot run tests, so we only check they build.
-          - ethernet proto-ipv6 proto-ipv6 proto-igmp proto-dhcpv4 socket-raw socket-udp socket-tcp socket-icmp async
+          - medium-ip medium-ethernet proto-ipv6 proto-ipv6 proto-igmp proto-dhcpv4 socket-raw socket-udp socket-tcp socket-icmp async
 
     steps:
       - uses: actions/checkout@v2
