@@ -712,6 +712,7 @@ pub enum Control {
     Rst
 }
 
+#[allow(clippy::len_without_is_empty)]
 impl Control {
     /// Return the length of a control flag, in terms of sequence space.
     pub fn len(self) -> usize {

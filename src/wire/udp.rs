@@ -27,6 +27,7 @@ mod field {
     }
 }
 
+#[allow(clippy::len_without_is_empty)]
 impl<T: AsRef<[u8]>> Packet<T> {
     /// Imbue a raw octet buffer with UDP packet structure.
     pub fn new_unchecked(buffer: T) -> Packet<T> {
