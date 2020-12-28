@@ -1478,6 +1478,7 @@ impl<'a> TcpSocket<'a> {
         // Do we have to send a FIN?
         let want_fin = match self.state {
             State::FinWait1 => true,
+            State::Closing => true,
             State::LastAck => true,
             _ => false,
         };
@@ -1627,9 +1628,8 @@ impl<'a> TcpSocket<'a> {
             }
 
             // We transmit data in all states where we may have data in the buffer,
-            // or the transmit half of the connection is still open:
-            // the ESTABLISHED, FIN-WAIT-1, CLOSE-WAIT and LAST-ACK states.
-            State::Established | State::FinWait1 | State::CloseWait | State::LastAck => {
+            // or the transmit half of the connection is still open.
+            State::Established | State::FinWait1 | State::Closing | State::CloseWait | State::LastAck => {
                 // Extract as much data as the remote side can receive in this packet
                 // from the transmit buffer.
                 let offset = self.remote_last_seq - self.local_seq_no;
@@ -1641,7 +1641,7 @@ impl<'a> TcpSocket<'a> {
                 // flags, depending on whether the transmit half of the connection is open.
                 if offset + repr.payload.len() == self.tx_buffer.len() {
                     match self.state {
-                        State::FinWait1 | State::LastAck =>
+                        State::FinWait1 | State::LastAck | State::Closing =>
                             repr.control = TcpControl::Fin,
                         State::Established | State::CloseWait if !repr.payload.is_empty() =>
                             repr.control = TcpControl::Psh,
@@ -1650,13 +1650,8 @@ impl<'a> TcpSocket<'a> {
                 }
             }
 
-            // We do not transmit data in the FIN-WAIT-2 state, but we may transmit
-            // ACKs for incoming data.
-            State::FinWait2 => {}
-
-            // We do not transmit data or control flags in the CLOSING or TIME-WAIT states,
-            // but we may retransmit an ACK.
-            State::Closing | State::TimeWait => ()
+            // In FIN-WAIT-2 and TIME-WAIT states we may only transmit ACKs for incoming data or FIN
+            State::FinWait2 | State::TimeWait => {}
         }
 
         // There might be more than one reason to send a packet. E.g. the keep-alive timer
@@ -3481,6 +3476,74 @@ mod test {
             ack_number: Some(REMOTE_SEQ + 1 + 1),
             ..RECV_TEMPL
         }]);
+    }
+
+    #[test]
+    fn test_simultaneous_close_raced() {
+        let mut s = socket_established();
+        s.close();
+        assert_eq!(s.state, State::FinWait1);
+
+        // Socket receives FIN before it has a chance to send its own FIN
+        send!(s, TcpRepr {
+            control: TcpControl::Fin,
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            ..SEND_TEMPL
+        });
+        assert_eq!(s.state, State::Closing);
+
+        // FIN + ack-of-FIN
+        recv!(s, [TcpRepr {
+            control: TcpControl::Fin,
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1 + 1),
+            ..RECV_TEMPL
+        }]);
+        assert_eq!(s.state, State::Closing);
+
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1 + 1,
+            ack_number: Some(LOCAL_SEQ + 1 + 1),
+            ..SEND_TEMPL
+        });
+        assert_eq!(s.state, State::TimeWait);
+        recv!(s, []);
+    }
+
+    #[test]
+    fn test_simultaneous_close_raced_with_data() {
+        let mut s = socket_established();
+        s.send_slice(b"abcdef").unwrap();
+        s.close();
+        assert_eq!(s.state, State::FinWait1);
+
+        // Socket receives FIN before it has a chance to send its own data+FIN
+        send!(s, TcpRepr {
+            control: TcpControl::Fin,
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            ..SEND_TEMPL
+        });
+        assert_eq!(s.state, State::Closing);
+
+        // data + FIN + ack-of-FIN
+        recv!(s, [TcpRepr {
+            control: TcpControl::Fin,
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1 + 1),
+            payload:    &b"abcdef"[..],
+            ..RECV_TEMPL
+        }]);
+        assert_eq!(s.state, State::Closing);
+
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1 + 1,
+            ack_number: Some(LOCAL_SEQ + 1 + 6 + 1),
+            ..SEND_TEMPL
+        });
+        assert_eq!(s.state, State::TimeWait);
+        recv!(s, []);
     }
 
     #[test]
