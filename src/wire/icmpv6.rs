@@ -420,7 +420,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
             Message::MldQuery => {
                 let data = self.buffer.as_mut();
                 NetworkEndian::write_u16(&mut data[field::QUERY_RESV], 0);
-                data[field::SQRV] = data[field::SQRV] & 0xf;
+                data[field::SQRV] &= 0xf;
             },
             Message::MldReport => {
                 let data = self.buffer.as_mut();
@@ -624,10 +624,10 @@ impl<'a> Repr<'a> {
             },
             #[cfg(feature = "ethernet")]
             (msg_type, 0) if msg_type.is_ndisc() => {
-                NdiscRepr::parse(packet).map(|repr| Repr::Ndisc(repr))
+                NdiscRepr::parse(packet).map(Repr::Ndisc)
             },
             (msg_type, 0) if msg_type.is_mld() => {
-                MldRepr::parse(packet).map(|repr| Repr::Mld(repr))
+                MldRepr::parse(packet).map(Repr::Mld)
             },
             _ => Err(Error::Unrecognized)
         }

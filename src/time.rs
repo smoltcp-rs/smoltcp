@@ -71,7 +71,7 @@ impl Instant {
 impl From<::std::time::Instant> for Instant {
     fn from(other: ::std::time::Instant) -> Instant {
         let elapsed = other.elapsed();
-        Instant::from_millis((elapsed.as_secs() * 1_000) as i64 + (elapsed.subsec_nanos() / 1_000_000) as i64)
+        Instant::from_millis((elapsed.as_secs() * 1_000) as i64 + elapsed.subsec_millis() as i64)
     }
 }
 
@@ -80,7 +80,7 @@ impl From<::std::time::SystemTime> for Instant {
     fn from(other: ::std::time::SystemTime) -> Instant {
         let n = other.duration_since(::std::time::UNIX_EPOCH)
             .expect("start time must not be before the unix epoch");
-        Self::from_millis(n.as_secs() as i64 * 1000 + (n.subsec_nanos() / 1000000) as i64)
+        Self::from_millis(n.as_secs() as i64 * 1000 + n.subsec_millis() as i64)
     }
 }
 
@@ -233,7 +233,7 @@ impl ops::DivAssign<u32> for Duration {
 impl From<::core::time::Duration> for Duration {
     fn from(other: ::core::time::Duration) -> Duration {
         Duration::from_millis(
-            other.as_secs() * 1000 + (other.subsec_nanos() / 1_000_000) as u64
+            other.as_secs() * 1000 + other.subsec_millis() as u64
         )
     }
 }

@@ -310,7 +310,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Header<T> {
             }
             Type::Rpl => {
                 // Retain the higher order 4 bits of the padding field
-                data[field::PAD] = data[field::PAD] & 0xF0;
+                data[field::PAD] &= 0xF0;
                 data[6] = 0;
                 data[7] = 0;
             }

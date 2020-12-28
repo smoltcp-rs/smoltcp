@@ -721,7 +721,7 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
     /// [RFC 4291 § 2.7.1]: https://tools.ietf.org/html/rfc4291#section-2.7.1
     #[cfg(feature = "proto-ipv6")]
     pub fn has_solicited_node(&self, addr: Ipv6Address) -> bool {
-        self.ip_addrs.iter().find(|cidr| {
+        self.ip_addrs.iter().any(|cidr| {
             match *cidr {
                 IpCidr::Ipv6(cidr) if cidr.address() != Ipv6Address::LOOPBACK=> {
                     // Take the lower order 24 bits of the IPv6 address and
@@ -730,7 +730,7 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
                 }
                 _ => false,
             }
-        }).is_some()
+        })
     }
 
     /// Check whether the interface has the given IP address assigned.
@@ -1522,8 +1522,7 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
     fn in_same_network(&self, addr: &IpAddress) -> bool {
         self.ip_addrs
             .iter()
-            .find(|cidr| cidr.contains_addr(addr))
-            .is_some()
+            .any(|cidr| cidr.contains_addr(addr))
     }
 
     fn route(&self, addr: &IpAddress, timestamp: Instant) -> Result<IpAddress> {
@@ -1578,13 +1577,8 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
                     IpAddress::__Nonexhaustive =>
                         unreachable!()
                 };
-            match hardware_addr {
-                Some(hardware_addr) =>
-                    // Destination is multicast
-                    return Ok((hardware_addr, tx_token)),
-                None =>
-                    // Continue
-                    (),
+            if let Some(hardware_addr) = hardware_addr {
+                return Ok((hardware_addr, tx_token))
             }
         }
 

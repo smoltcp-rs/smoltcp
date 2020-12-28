@@ -127,21 +127,16 @@ impl Timer {
     }
 
     fn set_keep_alive(&mut self) {
-        match *self {
-            Timer::Idle { ref mut keep_alive_at }
-                    if keep_alive_at.is_none() => {
+        if let Timer::Idle { ref mut keep_alive_at } = *self {
+            if keep_alive_at.is_none() {
                 *keep_alive_at = Some(Instant::from_millis(0))
             }
-            _ => ()
         }
     }
 
     fn rewind_keep_alive(&mut self, timestamp: Instant, interval: Option<Duration>) {
-        match self {
-            &mut Timer::Idle { ref mut keep_alive_at } => {
-                *keep_alive_at = interval.map(|interval| timestamp + interval)
-            }
-            _ => ()
+        if let Timer::Idle { ref mut keep_alive_at } = *self {
+            *keep_alive_at = interval.map(|interval| timestamp + interval)
         }
     }
 
@@ -685,7 +680,7 @@ impl<'a> TcpSocket<'a> {
             // we still can receive indefinitely.
             State::FinWait1 | State::FinWait2 => true,
             // If we have something in the receive buffer, we can receive that.
-            _ if self.rx_buffer.len() > 0 => true,
+            _ if !self.rx_buffer.is_empty() => true,
             _ => false
         }
     }
@@ -833,7 +828,7 @@ impl<'a> TcpSocket<'a> {
         self.recv_error_check()?;
 
         let buffer = self.rx_buffer.get_allocated(0, size);
-        if buffer.len() > 0 {
+        if !buffer.is_empty() {
             #[cfg(any(test, feature = "verbose"))]
             net_trace!("{}:{}:{}: rx buffer: peeking at {} octets",
                        self.meta.handle, self.local_endpoint, self.remote_endpoint,
@@ -966,8 +961,7 @@ impl<'a> TcpSocket<'a> {
                 reply_repr.sack_ranges[0] = self.assembler.iter_data(
                     reply_repr.ack_number.map(|s| s.0 as usize).unwrap_or(0))
                     .map(|(left, right)| (left as u32, right as u32))
-                    .skip_while(|(left, right)| *left > last_seg_seq || *right < last_seg_seq)
-                    .next();
+                    .find(|(left, right)| *left <= last_seg_seq && *right >= last_seg_seq);
             }
 
             if reply_repr.sack_ranges[0].is_none() {
@@ -1368,7 +1362,7 @@ impl<'a> TcpSocket<'a> {
                 // Increment duplicate ACK count and set for retransmit if we just recived
                 // the third duplicate ACK
                 Some(ref last_rx_ack) if
-                    repr.payload.len() == 0 &&
+                    repr.payload.is_empty() &&
                     *last_rx_ack == ack_number &&
                     ack_number < self.remote_last_seq => {
                     // Increment duplicate ACK count
@@ -1649,7 +1643,7 @@ impl<'a> TcpSocket<'a> {
                     match self.state {
                         State::FinWait1 | State::LastAck =>
                             repr.control = TcpControl::Fin,
-                        State::Established | State::CloseWait if repr.payload.len() > 0 =>
+                        State::Established | State::CloseWait if !repr.payload.is_empty() =>
                             repr.control = TcpControl::Psh,
                         _ => ()
                     }
@@ -1682,12 +1676,12 @@ impl<'a> TcpSocket<'a> {
         if is_keep_alive {
             net_trace!("{}:{}:{}: sending a keep-alive",
                        self.meta.handle, self.local_endpoint, self.remote_endpoint);
-        } else if repr.payload.len() > 0 {
+        } else if !repr.payload.is_empty() {
             net_trace!("{}:{}:{}: tx buffer: sending {} octets at offset {}",
                        self.meta.handle, self.local_endpoint, self.remote_endpoint,
                        repr.payload.len(), self.remote_last_seq - self.local_seq_no);
         }
-        if repr.control != TcpControl::None || repr.payload.len() == 0 {
+        if repr.control != TcpControl::None || repr.payload.is_empty() {
             let flags =
                 match (repr.control, repr.ack_number) {
                     (TcpControl::Syn,  None)    => "SYN",

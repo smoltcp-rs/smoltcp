@@ -287,12 +287,14 @@ impl<'a> Parser<'a> {
 
     fn accept_ip(&mut self) -> Result<IpAddress> {
         #[cfg(feature = "proto-ipv4")]
+        #[allow(clippy::single_match)]
         match self.try_do(|p| p.accept_ipv4()) {
             Some(ipv4) => return Ok(IpAddress::Ipv4(ipv4)),
             None => ()
         }
 
         #[cfg(feature = "proto-ipv6")]
+        #[allow(clippy::single_match)]
         match self.try_do(|p| p.accept_ipv6(false)) {
             Some(ipv6) => return Ok(IpAddress::Ipv6(ipv6)),
             None => ()
@@ -333,12 +335,14 @@ impl<'a> Parser<'a> {
 
     fn accept_ip_endpoint(&mut self) -> Result<IpEndpoint> {
         #[cfg(feature = "proto-ipv4")]
+        #[allow(clippy::single_match)]
         match self.try_do(|p| p.accept_ipv4_endpoint()) {
             Some(ipv4) => return Ok(ipv4),
             None => ()
         }
 
         #[cfg(feature = "proto-ipv6")]
+        #[allow(clippy::single_match)]
         match self.try_do(|p| p.accept_ipv6_endpoint()) {
             Some(ipv6) => return Ok(ipv6),
             None => ()
@@ -424,12 +428,14 @@ impl FromStr for IpCidr {
     /// Parse a string representation of an IP CIDR.
     fn from_str(s: &str) -> Result<IpCidr> {
         #[cfg(feature = "proto-ipv4")]
+        #[allow(clippy::single_match)]
         match Ipv4Cidr::from_str(s) {
             Ok(cidr) => return Ok(IpCidr::Ipv4(cidr)),
             Err(_) => ()
         }
 
         #[cfg(feature = "proto-ipv6")]
+        #[allow(clippy::single_match)]
         match Ipv6Cidr::from_str(s) {
             Ok(cidr) => return Ok(IpCidr::Ipv6(cidr)),
             Err(_) => ()

@@ -106,7 +106,7 @@ impl<'a> Cache<'a> {
             #[cfg(any(feature = "std", feature = "alloc"))]
             ManagedMap::Owned(ref mut map) => {
                 if current_storage_size >= self.gc_threshold {
-                    let new_btree_map = map.into_iter()
+                    let new_btree_map = map.iter_mut()
                         .map(|(key, value)| (*key, *value))
                         .filter(|(_, v)| timestamp < v.expires_at)
                         .collect();
@@ -169,13 +169,11 @@ impl<'a> Cache<'a> {
             return Answer::Found(EthernetAddress::BROADCAST);
         }
 
-        match self.storage.get(protocol_addr) {
-            Some(&Neighbor { expires_at, hardware_addr }) => {
-                if timestamp < expires_at {
-                    return Answer::Found(hardware_addr)
-                }
+        if let Some(&Neighbor { expires_at, hardware_addr }) =
+                self.storage.get(protocol_addr) {
+            if timestamp < expires_at {
+                return Answer::Found(hardware_addr)
             }
-            None => ()
         }
 
         if timestamp < self.silent_until {
