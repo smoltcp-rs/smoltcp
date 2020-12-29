@@ -295,11 +295,11 @@ impl<'a> IpPacket<'a> {
     pub(crate) fn ip_repr(&self) -> IpRepr {
         match self {
             #[cfg(feature = "proto-ipv4")]
-            IpPacket::Icmpv4((ipv4_repr, _)) => IpRepr::Ipv4(ipv4_repr.clone()),
+            IpPacket::Icmpv4((ipv4_repr, _)) => IpRepr::Ipv4(*ipv4_repr),
             #[cfg(feature = "proto-igmp")]
-            IpPacket::Igmp((ipv4_repr, _)) => IpRepr::Ipv4(ipv4_repr.clone()),
+            IpPacket::Igmp((ipv4_repr, _)) => IpRepr::Ipv4(*ipv4_repr),
             #[cfg(feature = "proto-ipv6")]
-            IpPacket::Icmpv6((ipv6_repr, _)) => IpRepr::Ipv6(ipv6_repr.clone()),
+            IpPacket::Icmpv6((ipv6_repr, _)) => IpRepr::Ipv6(*ipv6_repr),
             #[cfg(feature = "socket-raw")]
             IpPacket::Raw((ip_repr, _)) => ip_repr.clone(),
             #[cfg(feature = "socket-udp")]
