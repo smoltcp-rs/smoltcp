@@ -1441,7 +1441,7 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
 
             match tcp_socket.process(timestamp, &ip_repr, &tcp_repr) {
                 // The packet is valid and handled by socket.
-                Ok(reply) => return Ok(reply.map(|x| IpPacket::Tcp(x))),
+                Ok(reply) => return Ok(reply.map(IpPacket::Tcp)),
                 // The packet is malformed, or doesn't match the socket state,
                 // or the socket buffer is full.
                 Err(e) => return Err(e)
