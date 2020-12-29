@@ -759,14 +759,11 @@ impl<'a> Repr<'a> {
                     parameter_request_list = Some(data);
                 }
                 DhcpOption::Other {kind: field::OPT_DOMAIN_NAME_SERVER, data} => {
-                    let mut dns_servers_inner = [None; 3];
-                    for i in 0..3 {
-                        let offset = 4 * i;
-                        let end = offset + 4;
-                        if end > data.len() { break }
-                        dns_servers_inner[i] = Some(Ipv4Address::from_bytes(&data[offset..end]));
+                    let mut servers = [None; 3];
+                    for (server, chunk) in servers.iter_mut().zip(data.chunks(4)) {
+                        *server = Some(Ipv4Address::from_bytes(chunk));
                     }
-                    dns_servers = Some(dns_servers_inner);
+                    dns_servers = Some(servers);
                 }
                 DhcpOption::Other {..} => {}
             }

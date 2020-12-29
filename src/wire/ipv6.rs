@@ -47,6 +47,7 @@ impl Address {
                  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01]);
 
     /// Construct an IPv6 address from parts.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(a0: u16, a1: u16, a2: u16, a3: u16,
                a4: u16, a5: u16, a6: u16, a7: u16) -> Address {
         let mut addr = [0u8; 16];
@@ -78,9 +79,8 @@ impl Address {
     pub fn from_parts(data: &[u16]) -> Address {
         assert!(data.len() >= 8);
         let mut bytes = [0; 16];
-        for word_idx in 0..8 {
-            let byte_idx = word_idx * 2;
-            NetworkEndian::write_u16(&mut bytes[byte_idx..(byte_idx + 2)], data[word_idx]);
+        for (word_idx, chunk) in bytes.chunks_mut(2).enumerate() {
+            NetworkEndian::write_u16(chunk, data[word_idx]);
         }
         Address(bytes)
     }
@@ -91,9 +91,8 @@ impl Address {
     /// The function panics if `data` is not 8 words long.
     pub fn write_parts(&self, data: &mut [u16]) {
         assert!(data.len() >= 8);
-        for i in 0..8 {
-            let byte_idx = i * 2;
-            data[i] = NetworkEndian::read_u16(&self.0[byte_idx..(byte_idx + 2)]);
+        for (i, chunk) in self.0.chunks(2).enumerate() {
+            data[i] = NetworkEndian::read_u16(chunk);
         }
     }
 

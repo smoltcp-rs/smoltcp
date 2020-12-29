@@ -108,6 +108,7 @@ impl Address {
 
     /// Create an address wrapping an IPv6 address with the given octets.
     #[cfg(feature = "proto-ipv6")]
+    #[allow(clippy::too_many_arguments)]
     pub fn v6(a0: u16, a1: u16, a2: u16, a3: u16,
               a4: u16, a5: u16, a6: u16, a7: u16) -> Address {
         Address::Ipv6(Ipv6Address::new(a0, a1, a2, a3, a4, a5, a6, a7))
@@ -201,11 +202,9 @@ impl Address {
                     } else {
                         ones = false;
                     }
-                } else {
-                    if one {
-                        // 1 where 0 was expected
-                        return None
-                    }
+                } else if one {
+                    // 1 where 0 was expected
+                    return None
                 }
                 mask >>= 1;
             }
@@ -408,7 +407,7 @@ impl Endpoint {
 
     /// Create an endpoint address from given address and port.
     pub fn new(addr: Address, port: u16) -> Endpoint {
-        Endpoint { addr: addr, port: port }
+        Endpoint { addr, port }
     }
 
     /// Query whether the endpoint has a specified address and port.
@@ -455,13 +454,13 @@ impl fmt::Display for Endpoint {
 
 impl From<u16> for Endpoint {
     fn from(port: u16) -> Endpoint {
-        Endpoint { addr: Address::Unspecified, port: port }
+        Endpoint { addr: Address::Unspecified, port }
     }
 }
 
 impl<T: Into<Address>> From<(T, u16)> for Endpoint {
     fn from((addr, port): (T, u16)) -> Endpoint {
-        Endpoint { addr: addr.into(), port: port }
+        Endpoint { addr: addr.into(), port }
     }
 }
 

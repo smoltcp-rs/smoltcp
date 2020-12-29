@@ -1,5 +1,3 @@
-use libc;
-
 #[cfg(any(feature = "phy-raw_socket",
           feature = "phy-tap_interface"))]
 pub const SIOCGIFMTU:   libc::c_ulong = 0x8921;
@@ -14,4 +12,3 @@ pub const TUNSETIFF:    libc::c_ulong = 0x400454CA;
 pub const IFF_TAP:      libc::c_int   = 0x0002;
 #[cfg(feature = "phy-tap_interface")]
 pub const IFF_NO_PI:    libc::c_int   = 0x1000;
-

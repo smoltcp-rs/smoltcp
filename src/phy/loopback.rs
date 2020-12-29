@@ -19,6 +19,7 @@ pub struct Loopback {
     queue: VecDeque<Vec<u8>>,
 }
 
+#[allow(clippy::new_without_default)]
 impl Loopback {
     /// Creates a loopback device.
     ///
@@ -44,7 +45,7 @@ impl<'a> Device<'a> for Loopback {
 
     fn receive(&'a mut self) -> Option<(Self::RxToken, Self::TxToken)> {
         self.queue.pop_front().map(move |buffer| {
-            let rx = RxToken { buffer: buffer };
+            let rx = RxToken { buffer };
             let tx = TxToken { queue: &mut self.queue };
             (rx, tx)
         })

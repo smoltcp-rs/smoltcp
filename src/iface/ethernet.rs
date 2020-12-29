@@ -295,11 +295,11 @@ impl<'a> IpPacket<'a> {
     pub(crate) fn ip_repr(&self) -> IpRepr {
         match self {
             #[cfg(feature = "proto-ipv4")]
-            IpPacket::Icmpv4((ipv4_repr, _)) => IpRepr::Ipv4(ipv4_repr.clone()),
+            IpPacket::Icmpv4((ipv4_repr, _)) => IpRepr::Ipv4(*ipv4_repr),
             #[cfg(feature = "proto-igmp")]
-            IpPacket::Igmp((ipv4_repr, _)) => IpRepr::Ipv4(ipv4_repr.clone()),
+            IpPacket::Igmp((ipv4_repr, _)) => IpRepr::Ipv4(*ipv4_repr),
             #[cfg(feature = "proto-ipv6")]
-            IpPacket::Icmpv6((ipv6_repr, _)) => IpRepr::Ipv6(ipv6_repr.clone()),
+            IpPacket::Icmpv6((ipv6_repr, _)) => IpRepr::Ipv6(*ipv6_repr),
             #[cfg(feature = "socket-raw")]
             IpPacket::Raw((ip_repr, _)) => ip_repr.clone(),
             #[cfg(feature = "socket-udp")]
@@ -1156,11 +1156,7 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
             Icmpv6Repr::EchoRequest { ident, seq_no, data } => {
                 match ip_repr {
                     IpRepr::Ipv6(ipv6_repr) => {
-                        let icmp_reply_repr = Icmpv6Repr::EchoReply {
-                            ident:  ident,
-                            seq_no: seq_no,
-                            data:   data
-                        };
+                        let icmp_reply_repr = Icmpv6Repr::EchoReply { ident, seq_no, data };
                         Ok(self.icmpv6_reply(ipv6_repr, icmp_reply_repr))
                     },
                     _ => Err(Error::Unrecognized),
@@ -1196,10 +1192,8 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
                     Some(lladdr) if lladdr.is_unicast() && target_addr.is_unicast() => {
                         if flags.contains(NdiscNeighborFlags::OVERRIDE) {
                             self.neighbor_cache.fill(ip_addr, lladdr, timestamp)
-                        } else {
-                            if !self.neighbor_cache.lookup(&ip_addr, timestamp).found() {
-                                    self.neighbor_cache.fill(ip_addr, lladdr, timestamp)
-                            }
+                        } else if !self.neighbor_cache.lookup(&ip_addr, timestamp).found() {
+                                self.neighbor_cache.fill(ip_addr, lladdr, timestamp)
                         }
                     },
                     _ => (),
@@ -1295,11 +1289,7 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
             // Respond to echo requests.
             #[cfg(feature = "proto-ipv4")]
             Icmpv4Repr::EchoRequest { ident, seq_no, data } => {
-                let icmp_reply_repr = Icmpv4Repr::EchoReply {
-                    ident:  ident,
-                    seq_no: seq_no,
-                    data:   data
-                };
+                let icmp_reply_repr = Icmpv4Repr::EchoReply { ident, seq_no, data };
                 match ip_repr {
                     IpRepr::Ipv4(ipv4_repr) => Ok(self.icmpv4_reply(ipv4_repr, icmp_reply_repr)),
                     _ => Err(Error::Unrecognized),
@@ -1451,7 +1441,7 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
 
             match tcp_socket.process(timestamp, &ip_repr, &tcp_repr) {
                 // The packet is valid and handled by socket.
-                Ok(reply) => return Ok(reply.map(|x| IpPacket::Tcp(x))),
+                Ok(reply) => return Ok(reply.map(IpPacket::Tcp)),
                 // The packet is malformed, or doesn't match the socket state,
                 // or the socket buffer is full.
                 Err(e) => return Err(e)
@@ -1686,14 +1676,13 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
     fn igmp_leave_packet<'any>(&self, group_addr: Ipv4Address) -> Option<IpPacket<'any>> {
         self.ipv4_address().map(|iface_addr| {
             let igmp_repr = IgmpRepr::LeaveGroup { group_addr };
-            let pkt = IpPacket::Igmp((Ipv4Repr {
+            IpPacket::Igmp((Ipv4Repr {
                 src_addr:    iface_addr,
                 dst_addr:    Ipv4Address::MULTICAST_ALL_ROUTERS,
                 protocol:    IpProtocol::Igmp,
                 payload_len: igmp_repr.buffer_len(),
                 hop_limit:   1,
-            }, igmp_repr));
-            pkt
+            }, igmp_repr))
         })
     }
 }

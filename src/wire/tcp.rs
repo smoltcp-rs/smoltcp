@@ -629,7 +629,7 @@ impl<'a> TcpOption<'a> {
                         option = TcpOption::SackRange(sack_ranges);
                     },
                     (_, _) =>
-                        option = TcpOption::Unknown { kind: kind, data: data }
+                        option = TcpOption::Unknown { kind, data }
                 }
             }
         }
