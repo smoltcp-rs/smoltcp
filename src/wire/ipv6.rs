@@ -47,6 +47,7 @@ impl Address {
                  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01]);
 
     /// Construct an IPv6 address from parts.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(a0: u16, a1: u16, a2: u16, a3: u16,
                a4: u16, a5: u16, a6: u16, a7: u16) -> Address {
         let mut addr = [0u8; 16];

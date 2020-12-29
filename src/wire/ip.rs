@@ -108,6 +108,7 @@ impl Address {
 
     /// Create an address wrapping an IPv6 address with the given octets.
     #[cfg(feature = "proto-ipv6")]
+    #[allow(clippy::too_many_arguments)]
     pub fn v6(a0: u16, a1: u16, a2: u16, a3: u16,
               a4: u16, a5: u16, a6: u16, a7: u16) -> Address {
         Address::Ipv6(Ipv6Address::new(a0, a1, a2, a3, a4, a5, a6, a7))

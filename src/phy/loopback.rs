@@ -19,6 +19,7 @@ pub struct Loopback {
     queue: VecDeque<Vec<u8>>,
 }
 
+#[allow(clippy::new_without_default)]
 impl Loopback {
     /// Creates a loopback device.
     ///
