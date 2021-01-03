@@ -71,16 +71,6 @@ pub(crate) enum PollAt {
     Ingress,
 }
 
-impl PollAt {
-    #[cfg(feature = "socket-tcp")]
-    fn is_ingress(&self) -> bool {
-        match *self {
-            PollAt::Ingress => true,
-            _ => false,
-        }
-    }
-}
-
 /// A network socket.
 ///
 /// This enumeration abstracts the various types of sockets based on the IP protocol.
