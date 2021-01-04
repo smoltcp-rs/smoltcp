@@ -1757,7 +1757,7 @@ mod test {
         let mut pkts = Vec::new();
         while let Some((rx, _tx)) = iface.device.receive() {
             rx.consume(timestamp, |pkt| {
-                pkts.push(pkt.iter().cloned().collect());
+                pkts.push(pkt.to_vec());
                 Ok(())
             }).unwrap();
         }
@@ -2567,7 +2567,7 @@ mod test {
         // Leave multicast groups
         let timestamp = Instant::now();
         for group in &groups {
-            iface.leave_multicast_group(group.clone(), timestamp)
+            iface.leave_multicast_group(*group, timestamp)
                 .unwrap();
         }
 

@@ -74,7 +74,7 @@ fn main() {
     let count    = matches.opt_str("count").map(|s| usize::from_str(&s).unwrap()).unwrap_or(4);
     let interval = matches.opt_str("interval")
         .map(|s| Duration::from_secs(u64::from_str(&s).unwrap()))
-        .unwrap_or(Duration::from_secs(1));
+        .unwrap_or_else(|| Duration::from_secs(1));
     let timeout  = Duration::from_secs(
         matches.opt_str("timeout").map(|s| u64::from_str(&s).unwrap()).unwrap_or(5)
     );

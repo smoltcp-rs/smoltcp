@@ -405,7 +405,7 @@ mod test {
         assert_eq!(ring.dequeue_one_with(|_| unreachable!()) as Result<()>,
                    Err(Error::Exhausted));
 
-        ring.enqueue_one_with(|e| Ok(e)).unwrap();
+        ring.enqueue_one_with(Ok).unwrap();
         assert!(!ring.is_empty());
         assert!(!ring.is_full());
 

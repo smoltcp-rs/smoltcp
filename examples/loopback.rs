@@ -76,9 +76,7 @@ fn main() {
         utils::add_middleware_options(&mut opts, &mut free);
 
         let mut matches = utils::parse_options(&opts, free);
-        let device = utils::parse_middleware_options(&mut matches, device, /*loopback=*/true);
-
-        device
+        utils::parse_middleware_options(&mut matches, device, /*loopback=*/true)
     };
 
     let mut neighbor_cache_entries = [None; 8];

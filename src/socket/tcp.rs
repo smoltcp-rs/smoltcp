@@ -1972,8 +1972,10 @@ mod test {
 
     fn recv<F>(socket: &mut TcpSocket, timestamp: Instant, mut f: F)
             where F: FnMut(Result<TcpRepr>) {
-        let mut caps = DeviceCapabilities::default();
-        caps.max_transmission_unit = 1520;
+        let caps = DeviceCapabilities {
+            max_transmission_unit: 1520,
+            ..Default::default()
+        };
         let result = socket.dispatch(timestamp, &caps, |(ip_repr, tcp_repr)| {
             let ip_repr = ip_repr.lower(&[IpCidr::new(LOCAL_END.addr, 24)]).unwrap();
 
@@ -4821,8 +4823,10 @@ mod test {
     #[test]
     fn test_set_hop_limit() {
         let mut s = socket_syn_received();
-        let mut caps = DeviceCapabilities::default();
-        caps.max_transmission_unit = 1520;
+        let caps = DeviceCapabilities {
+            max_transmission_unit: 1520,
+            ..Default::default()
+        };
 
         s.set_hop_limit(Some(0x2a));
         assert_eq!(s.dispatch(Instant::from_millis(0), &caps, |(ip_repr, _)| {
