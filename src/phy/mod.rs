@@ -217,7 +217,7 @@ pub struct DeviceCapabilities {
 
     /// Only present to prevent people from trying to initialize every field of DeviceLimits,
     /// which would not let us add new fields in the future.
-    dummy: ()
+    pub(crate) dummy: ()
 }
 
 /// An interface for sending and receiving raw network frames.
