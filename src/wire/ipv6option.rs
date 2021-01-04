@@ -307,14 +307,6 @@ impl<'a> Ipv6OptionsIterator<'a> {
             length, data
         }
     }
-
-    /// Helper function to return an error in the implementation
-    /// of `Iterator`.
-    #[inline]
-    fn return_err(&mut self, err: Error) -> Option<Result<Repr<'a>>> {
-        self.hit_error = true;
-        Some(Err(err))
-    }
 }
 
 impl<'a> Iterator for Ipv6OptionsIterator<'a> {
@@ -332,12 +324,14 @@ impl<'a> Iterator for Ipv6OptionsIterator<'a> {
                             Some(Ok(repr))
                         }
                         Err(e) => {
-                            self.return_err(e)
+                            self.hit_error = true;
+                            Some(Err(e))
                         }
                     }
                 }
                 Err(e) => {
-                    self.return_err(e)
+                    self.hit_error = true;
+                    Some(Err(e))
                 }
             }
         } else {
