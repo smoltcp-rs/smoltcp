@@ -50,19 +50,19 @@ impl Instant {
 
     /// The fractional number of milliseconds that have passed
     /// since the beginning of time.
-    pub fn millis(&self) -> i64 {
+    pub const fn millis(&self) -> i64 {
         self.millis % 1000
     }
 
     /// The number of whole seconds that have passed since the
     /// beginning of time.
-    pub fn secs(&self) -> i64 {
+    pub const fn secs(&self) -> i64 {
         self.millis / 1000
     }
 
     /// The total number of milliseconds that have passed since
     /// the biginning of time.
-    pub fn total_millis(&self) -> i64 {
+    pub const fn total_millis(&self) -> i64 {
         self.millis
     }
 }
@@ -141,27 +141,27 @@ pub struct Duration {
 
 impl Duration {
     /// Create a new `Duration` from a number of milliseconds.
-    pub fn from_millis(millis: u64) -> Duration {
+    pub const fn from_millis(millis: u64) -> Duration {
         Duration { millis }
     }
 
     /// Create a new `Instant` from a number of seconds.
-    pub fn from_secs(secs: u64) -> Duration {
+    pub const fn from_secs(secs: u64) -> Duration {
         Duration { millis: secs * 1000 }
     }
 
     /// The fractional number of milliseconds in this `Duration`.
-    pub fn millis(&self) -> u64 {
+    pub const fn millis(&self) -> u64 {
         self.millis % 1000
     }
 
     /// The number of whole seconds in this `Duration`.
-    pub fn secs(&self) -> u64 {
+    pub const fn secs(&self) -> u64 {
         self.millis / 1000
     }
 
     /// The total number of milliseconds in this `Duration`.
-    pub fn total_millis(&self) -> u64 {
+    pub const fn total_millis(&self) -> u64 {
         self.millis
     }
 }
