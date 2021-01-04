@@ -1416,7 +1416,7 @@ impl<'a> TcpSocket<'a> {
                            payload_len, payload_offset);
                 self.rx_buffer.write_unallocated(payload_offset, repr.payload);
             }
-            Err(()) => {
+            Err(_) => {
                 net_debug!("{}:{}:{}: assembler: too many holes to add {} octets at offset {}",
                            self.meta.handle, self.local_endpoint, self.remote_endpoint,
                            payload_len, payload_offset);

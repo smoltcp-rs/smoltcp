@@ -1,5 +1,8 @@
 use core::fmt;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TooManyHolesError;
+
 /// A contiguous chunk of absent data, followed by a contiguous chunk of present data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Contig {
@@ -148,10 +151,10 @@ impl Assembler {
     }
 
     /// Add a contig at the given index, and return a pointer to it.
-    fn add_contig_at(&mut self, at: usize) -> Result<&mut Contig, ()> {
+    fn add_contig_at(&mut self, at: usize) -> Result<&mut Contig, TooManyHolesError> {
         debug_assert!(!self.contigs[at].is_empty());
 
-        if !self.back().is_empty() { return Err(()) }
+        if !self.back().is_empty() { return Err(TooManyHolesError) }
 
         for i in (at + 1..self.contigs.len()).rev() {
             self.contigs[i] = self.contigs[i - 1];
@@ -163,7 +166,7 @@ impl Assembler {
 
     /// Add a new contiguous range to the assembler, and return `Ok(())`,
     /// or return `Err(())` if too many discontiguities are already recorded.
-    pub fn add(&mut self, mut offset: usize, mut size: usize) -> Result<(), ()> {
+    pub fn add(&mut self, mut offset: usize, mut size: usize) -> Result<(), TooManyHolesError> {
         let mut index = 0;
         while index != self.contigs.len() && size != 0 {
             let contig = self.contigs[index];
@@ -413,7 +416,7 @@ mod test {
         }
         // Maximum of allowed holes is reached
         let assr_before = assr.clone();
-        assert_eq!(assr.add(1, 3), Err(()));
+        assert_eq!(assr.add(1, 3), Err(TooManyHolesError));
         assert_eq!(assr_before, assr);
     }
 

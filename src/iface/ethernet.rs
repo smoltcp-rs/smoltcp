@@ -1519,7 +1519,7 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
         }
     }
 
-    fn has_neighbor<'a>(&self, addr: &'a IpAddress, timestamp: Instant) -> bool {
+    fn has_neighbor(&self, addr: &IpAddress, timestamp: Instant) -> bool {
         match self.route(addr, timestamp) {
             Ok(routed_addr) => {
                 self.neighbor_cache
