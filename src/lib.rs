@@ -116,6 +116,7 @@ pub mod dhcp;
 
 /// The error type for the networking stack.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Error {
     /// An operation cannot proceed because a buffer is empty or full.
     Exhausted,
@@ -148,9 +149,6 @@ pub enum Error {
     /// An incoming packet was recognized but contradicted internal state.
     /// E.g. a TCP packet addressed to a socket that doesn't exist.
     Dropped,
-
-    #[doc(hidden)]
-    __Nonexhaustive
 }
 
 /// The result type for the networking stack.
@@ -169,7 +167,6 @@ impl fmt::Display for Error {
             Error::Fragmented    => write!(f, "fragmented packet"),
             Error::Malformed     => write!(f, "malformed packet"),
             Error::Dropped       => write!(f, "dropped by socket"),
-            Error::__Nonexhaustive => unreachable!()
         }
     }
 }

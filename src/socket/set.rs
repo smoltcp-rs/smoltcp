@@ -155,7 +155,6 @@ impl<'a, 'b: 'a> Set<'a, 'b> {
                         } else {
                             socket.close()
                         },
-                    Socket::__Nonexhaustive(_) => unreachable!()
                 }
             }
             if may_remove {

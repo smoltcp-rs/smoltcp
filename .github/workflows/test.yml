@@ -11,11 +11,11 @@ jobs:
     continue-on-error: ${{ matrix.rust == 'nightly' }}
     strategy:
       matrix:
-        # Test on stable, MSRV 1.36, and nightly.
+        # Test on stable, MSRV 1.40, and nightly.
         # Failure is permitted on nightly.
         rust:
           - stable
-          - 1.36.0
+          - 1.40.0
           - nightly
 
         features:
@@ -57,11 +57,11 @@ jobs:
     continue-on-error: ${{ matrix.rust == 'nightly' }}
     strategy:
       matrix:
-        # Test on stable, MSRV 1.36, and nightly.
+        # Test on stable, MSRV 1.40, and nightly.
         # Failure is permitted on nightly.
         rust:
           - stable
-          - 1.36.0
+          - 1.40.0
           - nightly
 
         features:

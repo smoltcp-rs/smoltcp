@@ -257,7 +257,6 @@ impl<'a> RawSocket<'a> {
                     Ok((IpRepr::Ipv6(ipv6_repr), packet.payload()))
                 }
                 IpVersion::Unspecified => unreachable!(),
-                IpVersion::__Nonexhaustive => unreachable!()
             }
         }
 

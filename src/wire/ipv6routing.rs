@@ -389,6 +389,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Header<&'a T> {
 
 /// A high-level representation of an IPv6 Routing Header.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[non_exhaustive]
 pub enum Repr<'a> {
     Type2 {
         /// The type of header immediately following the Routing header.
@@ -417,9 +418,6 @@ pub enum Repr<'a> {
         /// Vector of addresses, numbered 1 to `n`.
         addresses:      &'a[u8],
     },
-
-    #[doc(hidden)]
-    __Nonexhaustive
 }
 
 
@@ -458,8 +456,6 @@ impl<'a> Repr<'a> {
             &Repr::Rpl { length, .. } | &Repr::Type2 { length, .. } => {
                 field::DATA(length).end
             }
-
-            &Repr::__Nonexhaustive => unreachable!()
         }
     }
 
@@ -485,8 +481,6 @@ impl<'a> Repr<'a> {
                 header.clear_reserved();
                 header.set_addresses(addresses);
             }
-
-            Repr::__Nonexhaustive => unreachable!(),
         }
     }
 }
@@ -502,8 +496,6 @@ impl<'a> fmt::Display for Repr<'a> {
                 write!(f, "IPv6 Routing next_hdr={} length={} type={} seg_left={} cmpr_i={} cmpr_e={} pad={}",
                        next_header, length, Type::Rpl, segments_left, cmpr_i, cmpr_e, pad)
             }
-
-            Repr::__Nonexhaustive => unreachable!(),
         }
     }
 }
