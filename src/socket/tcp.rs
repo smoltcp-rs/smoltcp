@@ -1943,8 +1943,8 @@ impl<'a> TcpSocket<'a> {
     }
 }
 
-impl<'a, 'b> Into<Socket<'a, 'b>> for TcpSocket<'a> {
-    fn into(self) -> Socket<'a, 'b> {
+impl<'a> Into<Socket<'a>> for TcpSocket<'a> {
+    fn into(self) -> Socket<'a> {
         Socket::Tcp(self)
     }
 }

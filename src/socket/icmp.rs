@@ -46,7 +46,7 @@ impl Default for Endpoint {
 pub type IcmpPacketMetadata = PacketMetadata<IpAddress>;
 
 /// An ICMP packet ring buffer.
-pub type IcmpSocketBuffer<'a, 'b> = PacketBuffer<'a, 'b, IpAddress>;
+pub type IcmpSocketBuffer<'a> = PacketBuffer<'a, IpAddress>;
 
 /// A ICMP socket
 ///
@@ -58,10 +58,10 @@ pub type IcmpSocketBuffer<'a, 'b> = PacketBuffer<'a, 'b, IpAddress>;
 /// [IcmpEndpoint]: enum.IcmpEndpoint.html
 /// [bind]: #method.bind
 #[derive(Debug)]
-pub struct IcmpSocket<'a, 'b: 'a> {
+pub struct IcmpSocket<'a> {
     pub(crate) meta: SocketMeta,
-    rx_buffer: IcmpSocketBuffer<'a, 'b>,
-    tx_buffer: IcmpSocketBuffer<'a, 'b>,
+    rx_buffer: IcmpSocketBuffer<'a>,
+    tx_buffer: IcmpSocketBuffer<'a>,
     /// The endpoint this socket is communicating with
     endpoint:  Endpoint,
     /// The time-to-live (IPv4) or hop limit (IPv6) value used in outgoing packets.
@@ -72,10 +72,10 @@ pub struct IcmpSocket<'a, 'b: 'a> {
     tx_waker: WakerRegistration,
 }
 
-impl<'a, 'b> IcmpSocket<'a, 'b> {
+impl<'a> IcmpSocket<'a> {
     /// Create an ICMP socket with the given buffers.
-    pub fn new(rx_buffer: IcmpSocketBuffer<'a, 'b>,
-               tx_buffer: IcmpSocketBuffer<'a, 'b>) -> IcmpSocket<'a, 'b> {
+    pub fn new(rx_buffer: IcmpSocketBuffer<'a>,
+               tx_buffer: IcmpSocketBuffer<'a>) -> IcmpSocket<'a> {
         IcmpSocket {
             meta:      SocketMeta::default(),
             rx_buffer: rx_buffer,
@@ -455,8 +455,8 @@ impl<'a, 'b> IcmpSocket<'a, 'b> {
     }
 }
 
-impl<'a, 'b> Into<Socket<'a, 'b>> for IcmpSocket<'a, 'b> {
-    fn into(self) -> Socket<'a, 'b> {
+impl<'a> Into<Socket<'a>> for IcmpSocket<'a> {
+    fn into(self) -> Socket<'a> {
         Socket::Icmp(self)
     }
 }
@@ -467,12 +467,12 @@ mod tests_common {
     pub use crate::wire::IpAddress;
     pub use super::*;
 
-    pub fn buffer(packets: usize) -> IcmpSocketBuffer<'static, 'static> {
+    pub fn buffer(packets: usize) -> IcmpSocketBuffer<'static> {
         IcmpSocketBuffer::new(vec![IcmpPacketMetadata::EMPTY; packets], vec![0; 66 * packets])
     }
 
-    pub fn socket(rx_buffer: IcmpSocketBuffer<'static, 'static>,
-              tx_buffer: IcmpSocketBuffer<'static, 'static>) -> IcmpSocket<'static, 'static> {
+    pub fn socket(rx_buffer: IcmpSocketBuffer<'static>,
+              tx_buffer: IcmpSocketBuffer<'static>) -> IcmpSocket<'static> {
         IcmpSocket::new(rx_buffer, tx_buffer)
     }
 

@@ -35,19 +35,19 @@ impl<H> PacketMetadata<H> {
 
 /// An UDP packet ring buffer.
 #[derive(Debug)]
-pub struct PacketBuffer<'a, 'b, H: 'a> {
+pub struct PacketBuffer<'a,  H: 'a> {
     metadata_ring: RingBuffer<'a, PacketMetadata<H>>,
-    payload_ring:  RingBuffer<'b, u8>,
+    payload_ring:  RingBuffer<'a, u8>,
 }
 
-impl<'a, 'b, H> PacketBuffer<'a, 'b, H> {
+impl<'a, H> PacketBuffer<'a, H> {
     /// Create a new packet buffer with the provided metadata and payload storage.
     ///
     /// Metadata storage limits the maximum _number_ of packets in the buffer and payload
     /// storage limits the maximum _total size_ of packets.
-    pub fn new<MS, PS>(metadata_storage: MS, payload_storage: PS) -> PacketBuffer<'a, 'b, H>
+    pub fn new<MS, PS>(metadata_storage: MS, payload_storage: PS) -> PacketBuffer<'a, H>
         where MS: Into<ManagedSlice<'a, PacketMetadata<H>>>,
-              PS: Into<ManagedSlice<'b, u8>>,
+              PS: Into<ManagedSlice<'a, u8>>,
     {
         PacketBuffer {
             metadata_ring: RingBuffer::new(metadata_storage),
@@ -184,7 +184,7 @@ impl<'a, 'b, H> PacketBuffer<'a, 'b, H> {
 mod test {
     use super::*;
 
-    fn buffer() -> PacketBuffer<'static, 'static, ()> {
+    fn buffer() -> PacketBuffer<'static, ()> {
         PacketBuffer::new(vec![PacketMetadata::EMPTY; 4],
                           vec![0u8; 16])
     }
