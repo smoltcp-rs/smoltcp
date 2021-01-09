@@ -214,6 +214,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Ipv6Option<&'a T> {
 
 /// A high-level representation of an IPv6 Extension Header Option.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[non_exhaustive]
 pub enum Repr<'a> {
     Pad1,
     PadN(u8),
@@ -222,9 +223,6 @@ pub enum Repr<'a> {
         length: u8,
         data:   &'a [u8]
     },
-
-    #[doc(hidden)]
-    __Nonexhaustive
 }
 
 impl<'a> Repr<'a> {
@@ -253,8 +251,6 @@ impl<'a> Repr<'a> {
                field::DATA(length).end,
             Repr::Unknown{ length, .. } =>
                field::DATA(length).end,
-
-            Repr::__Nonexhaustive => unreachable!()
         }
     }
 
@@ -276,8 +272,6 @@ impl<'a> Repr<'a> {
                 opt.set_data_len(length);
                 opt.data_mut().copy_from_slice(&data[..length as usize]);
             }
-
-            Repr::__Nonexhaustive => unreachable!()
         }
     }
 }
@@ -352,8 +346,6 @@ impl<'a> fmt::Display for Repr<'a> {
                write!(f, "{} length={} ", Type::PadN, len),
             Repr::Unknown{ type_, length, .. } =>
                write!(f, "{} length={} ", type_, length),
-
-            Repr::__Nonexhaustive => unreachable!()
         }
     }
 }

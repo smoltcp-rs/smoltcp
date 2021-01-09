@@ -11,7 +11,6 @@ The interface implemented by this module uses explicit buffering: you decide on 
 size for a buffer, allocate it, and let the networking stack use it.
 */
 
-use core::marker::PhantomData;
 use crate::time::Instant;
 
 mod meta;
@@ -91,8 +90,6 @@ pub enum Socket<'a> {
     Udp(UdpSocket<'a>),
     #[cfg(feature = "socket-tcp")]
     Tcp(TcpSocket<'a>),
-    #[doc(hidden)]
-    __Nonexhaustive(PhantomData<&'a ()>)
 }
 
 macro_rules! dispatch_socket {
@@ -112,7 +109,6 @@ macro_rules! dispatch_socket {
             &$( $mut_ )* Socket::Udp(ref $( $mut_ )* $socket) => $code,
             #[cfg(feature = "socket-tcp")]
             &$( $mut_ )* Socket::Tcp(ref $( $mut_ )* $socket) => $code,
-            &$( $mut_ )* Socket::__Nonexhaustive(_) => unreachable!()
         }
     };
 }
@@ -154,9 +150,10 @@ macro_rules! from_socket {
         impl<'a> AnySocket<'a> for $socket {
             fn downcast<'c>(ref_: SocketRef<'c, Socket<'a>>) ->
                            Option<SocketRef<'c, Self>> {
-                match SocketRef::into_inner(ref_) {
-                    &mut Socket::$variant(ref mut socket) => Some(SocketRef::new(socket)),
-                    _ => None,
+                if let Socket::$variant(ref mut socket) = SocketRef::into_inner(ref_) {
+                    Some(SocketRef::new(socket))
+                } else {
+                    None
                 }
             }
         }

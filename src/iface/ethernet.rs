@@ -678,7 +678,6 @@ impl<'b, 'c, 'e, DeviceT> Interface<'b, 'c, 'e, DeviceT>
                     Socket::Tcp(ref mut socket) =>
                         socket.dispatch(timestamp, &caps, |response|
                             respond!(IpPacket::Tcp(response))),
-                    Socket::__Nonexhaustive(_) => unreachable!()
                 };
 
             match (device_result, socket_result) {
@@ -800,7 +799,8 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
             .filter_map(
                 |addr| match *addr {
                     IpCidr::Ipv4(cidr) => Some(cidr.address()),
-                    _ => None,
+                    #[cfg(feature = "proto-ipv6")]
+                    IpCidr::Ipv6(_) => None
                 })
             .next()
     }
@@ -886,8 +886,6 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
                     Ok(None)
                 }
             }
-
-            _ => Err(Error::Unrecognized)
         }
     }
 
@@ -1253,7 +1251,6 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
                         }
                     }
                 }
-                _ => return Err(Error::Unrecognized),
             }
         }
         self.process_nxt_hdr(sockets, timestamp, ipv6_repr, hbh_repr.next_header,
@@ -1421,8 +1418,7 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
                 };
                 Ok(self.icmpv6_reply(ipv6_repr, icmpv6_reply_repr))
             },
-            IpRepr::Unspecified { .. } |
-            IpRepr::__Nonexhaustive => Err(Error::Unaddressable),
+            IpRepr::Unspecified { .. } => Err(Error::Unaddressable),
         }
     }
 
@@ -1467,7 +1463,6 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
                 let dst_hardware_addr =
                     match arp_repr {
                         ArpRepr::EthernetIpv4 { target_hardware_addr, .. } => target_hardware_addr,
-                        _ => unreachable!()
                     };
 
                 self.dispatch_ethernet(tx_token, timestamp, arp_repr.buffer_len(), |mut frame| {
@@ -1555,8 +1550,6 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
                             b[12], b[13],
                             b[14], b[15],
                         ])),
-                    IpAddress::__Nonexhaustive =>
-                        unreachable!()
                 };
             if let Some(hardware_addr) = hardware_addr {
                 return Ok((hardware_addr, tx_token))
@@ -1770,7 +1763,7 @@ mod test {
     impl phy::TxToken for MockTxToken {
         fn consume<R, F>(self, _: Instant, _: usize, _: F) -> Result<R>
                 where F: FnOnce(&mut [u8]) -> Result<R> {
-            Err(Error::__Nonexhaustive)
+            Err(Error::Unaddressable)
         }
     }
 

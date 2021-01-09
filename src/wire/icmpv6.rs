@@ -503,6 +503,7 @@ impl<T: AsRef<[u8]>> AsRef<[u8]> for Packet<T> {
 
 /// A high-level representation of an Internet Control Message Protocol version 6 packet header.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[non_exhaustive]
 pub enum Repr<'a> {
     DstUnreachable {
         reason: DstUnreachable,
@@ -538,8 +539,6 @@ pub enum Repr<'a> {
     #[cfg(feature = "ethernet")]
     Ndisc(NdiscRepr<'a>),
     Mld(MldRepr<'a>),
-    #[doc(hidden)]
-    __Nonexhaustive
 }
 
 impl<'a> Repr<'a> {
@@ -647,7 +646,6 @@ impl<'a> Repr<'a> {
             &Repr::Mld(mld) => {
                 mld.buffer_len()
             },
-            &Repr::__Nonexhaustive => unreachable!()
         }
     }
 
@@ -720,8 +718,6 @@ impl<'a> Repr<'a> {
             Repr::Mld(mld) => {
                 mld.emit(packet)
             },
-
-            Repr::__Nonexhaustive => unreachable!(),
         }
 
         if checksum_caps.icmpv6.tx() {

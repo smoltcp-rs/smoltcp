@@ -366,6 +366,7 @@ impl<T: AsRef<[u8]>> AsRef<[u8]> for Packet<T> {
 
 /// A high-level representation of an Internet Control Message Protocol version 4 packet header.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[non_exhaustive]
 pub enum Repr<'a> {
     EchoRequest {
         ident:  u16,
@@ -382,8 +383,6 @@ pub enum Repr<'a> {
         header: Ipv4Repr,
         data:   &'a [u8]
     },
-    #[doc(hidden)]
-    __Nonexhaustive
 }
 
 impl<'a> Repr<'a> {
@@ -446,7 +445,6 @@ impl<'a> Repr<'a> {
             &Repr::DstUnreachable { header, data, .. } => {
                 field::UNUSED.end + header.buffer_len() + data.len()
             }
-            &Repr::__Nonexhaustive => unreachable!()
         }
     }
 
@@ -483,8 +481,6 @@ impl<'a> Repr<'a> {
                 let payload = &mut ip_packet.into_inner()[header.buffer_len()..];
                 payload.copy_from_slice(&data[..])
             }
-
-            Repr::__Nonexhaustive => unreachable!()
         }
 
         if checksum_caps.icmpv4.tx() {
@@ -526,7 +522,6 @@ impl<'a> fmt::Display for Repr<'a> {
             Repr::DstUnreachable { reason, .. } =>
                write!(f, "ICMPv4 destination unreachable ({})",
                       reason),
-            Repr::__Nonexhaustive => unreachable!()
         }
     }
 }
