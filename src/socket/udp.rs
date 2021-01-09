@@ -13,18 +13,18 @@ use crate::socket::WakerRegistration;
 pub type UdpPacketMetadata = PacketMetadata<IpEndpoint>;
 
 /// A UDP packet ring buffer.
-pub type UdpSocketBuffer<'a, 'b> = PacketBuffer<'a, 'b, IpEndpoint>;
+pub type UdpSocketBuffer<'a> = PacketBuffer<'a, IpEndpoint>;
 
 /// A User Datagram Protocol socket.
 ///
 /// A UDP socket is bound to a specific endpoint, and owns transmit and receive
 /// packet buffers.
 #[derive(Debug)]
-pub struct UdpSocket<'a, 'b: 'a> {
+pub struct UdpSocket<'a> {
     pub(crate) meta: SocketMeta,
     endpoint:  IpEndpoint,
-    rx_buffer: UdpSocketBuffer<'a, 'b>,
-    tx_buffer: UdpSocketBuffer<'a, 'b>,
+    rx_buffer: UdpSocketBuffer<'a>,
+    tx_buffer: UdpSocketBuffer<'a>,
     /// The time-to-live (IPv4) or hop limit (IPv6) value used in outgoing packets.
     hop_limit: Option<u8>,
     #[cfg(feature = "async")]
@@ -33,10 +33,10 @@ pub struct UdpSocket<'a, 'b: 'a> {
     tx_waker: WakerRegistration,
 }
 
-impl<'a, 'b> UdpSocket<'a, 'b> {
+impl<'a> UdpSocket<'a> {
     /// Create an UDP socket with the given buffers.
-    pub fn new(rx_buffer: UdpSocketBuffer<'a, 'b>,
-               tx_buffer: UdpSocketBuffer<'a, 'b>) -> UdpSocket<'a, 'b> {
+    pub fn new(rx_buffer: UdpSocketBuffer<'a>,
+               tx_buffer: UdpSocketBuffer<'a>) -> UdpSocket<'a> {
         UdpSocket {
             meta:      SocketMeta::default(),
             endpoint:  IpEndpoint::default(),
@@ -336,8 +336,8 @@ impl<'a, 'b> UdpSocket<'a, 'b> {
     }
 }
 
-impl<'a, 'b> Into<Socket<'a, 'b>> for UdpSocket<'a, 'b> {
-    fn into(self) -> Socket<'a, 'b> {
+impl<'a> Into<Socket<'a>> for UdpSocket<'a> {
+    fn into(self) -> Socket<'a> {
         Socket::Udp(self)
     }
 }
@@ -352,13 +352,13 @@ mod test {
     use crate::wire::ip::test::{MOCK_IP_ADDR_1, MOCK_IP_ADDR_2, MOCK_IP_ADDR_3};
     use super::*;
 
-    fn buffer(packets: usize) -> UdpSocketBuffer<'static, 'static> {
+    fn buffer(packets: usize) -> UdpSocketBuffer<'static> {
         UdpSocketBuffer::new(vec![UdpPacketMetadata::EMPTY; packets], vec![0; 16 * packets])
     }
 
-    fn socket(rx_buffer: UdpSocketBuffer<'static, 'static>,
-              tx_buffer: UdpSocketBuffer<'static, 'static>)
-            -> UdpSocket<'static, 'static> {
+    fn socket(rx_buffer: UdpSocketBuffer<'static>,
+              tx_buffer: UdpSocketBuffer<'static>)
+            -> UdpSocket<'static> {
         UdpSocket::new(rx_buffer, tx_buffer)
     }
 

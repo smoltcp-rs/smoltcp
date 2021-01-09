@@ -20,11 +20,11 @@ pub trait Session {
 }
 
 #[cfg(feature = "socket-raw")]
-impl<'a, 'b> Session for RawSocket<'a, 'b> {}
+impl<'a> Session for RawSocket<'a> {}
 #[cfg(all(feature = "socket-icmp", any(feature = "proto-ipv4", feature = "proto-ipv6")))]
-impl<'a, 'b> Session for IcmpSocket<'a, 'b> {}
+impl<'a> Session for IcmpSocket<'a> {}
 #[cfg(feature = "socket-udp")]
-impl<'a, 'b> Session for UdpSocket<'a, 'b> {}
+impl<'a> Session for UdpSocket<'a> {}
 #[cfg(feature = "socket-tcp")]
 impl<'a> Session for TcpSocket<'a> {}
 
