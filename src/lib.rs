@@ -87,8 +87,6 @@
                feature = "socket-tcp")))]
 compile_error!("at least one socket needs to be enabled"); */
 
-// FIXME(dlrobertson): clippy fails with this lint
-#![allow(clippy::if_same_then_else)]
 #![allow(clippy::match_like_matches_macro)]
 #![allow(clippy::redundant_field_names)]
 #![allow(clippy::identity_op)]

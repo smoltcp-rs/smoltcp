@@ -271,6 +271,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     ///
     /// [set_header_len]: #method.set_header_len
     /// [set_total_len]: #method.set_total_len
+    #[allow(clippy::if_same_then_else)]
     pub fn check_len(&self) -> Result<()> {
         let len = self.buffer.as_ref().len();
         if len < field::DST_ADDR.end {

@@ -1905,6 +1905,7 @@ impl<'a> TcpSocket<'a> {
         Ok(())
     }
 
+    #[allow(clippy::if_same_then_else)]
     pub(crate) fn poll_at(&self) -> PollAt {
         // The logic here mirrors the beginning of dispatch() closely.
         if !self.remote_endpoint.is_specified() {

@@ -86,6 +86,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     ///
     /// [set_hardware_len]: #method.set_hardware_len
     /// [set_protocol_len]: #method.set_protocol_len
+    #[allow(clippy::if_same_then_else)]
     pub fn check_len(&self) -> Result<()> {
         let len = self.buffer.as_ref().len();
         if len < field::OPER.end {
