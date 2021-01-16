@@ -1023,7 +1023,9 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
 
         if !self.has_ip_addr(ipv4_repr.dst_addr) &&
            !ipv4_repr.dst_addr.is_broadcast() &&
-           !self.has_multicast_group(ipv4_repr.dst_addr) {
+           !self.has_multicast_group(ipv4_repr.dst_addr) &&
+           !self.is_subnet_broadcast(ipv4_repr.dst_addr) {
+
             // Ignore IP packets not directed at us, or broadcast, or any of the multicast groups.
             // If AnyIP is enabled, also check if the packet is routed locally.
             if !self.any_ip ||
@@ -1065,6 +1067,19 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
             }
         }
     }
+
+    /// Checks if an incoming packet has a broadcast address for the interfaces
+    /// associated ipv4 addresses.
+    #[cfg(feature = "proto-ipv4")]
+    fn is_subnet_broadcast(&self, address: Ipv4Address) -> bool {
+        self.ip_addrs.iter()
+            .filter_map(|own_cidr| match own_cidr {
+                IpCidr::Ipv4(own_ip) => Some(own_ip.broadcast()?),
+                #[cfg(feature = "proto-ipv6")]
+                IpCidr::Ipv6(_) => None
+            })
+            .any(|broadcast_address| address == broadcast_address)
+    } 
 
     /// Host duties of the **IGMPv2** protocol.
     ///
@@ -1695,7 +1710,7 @@ mod test {
     use crate::wire::{EthernetAddress, EthernetFrame, EthernetProtocol};
     use crate::wire::{IpAddress, IpCidr, IpProtocol, IpRepr};
     #[cfg(feature = "proto-ipv4")]
-    use crate::wire::{Ipv4Address, Ipv4Repr};
+    use crate::wire::{Ipv4Address, Ipv4Repr, Ipv4Cidr};
     #[cfg(feature = "proto-igmp")]
     use crate::wire::Ipv4Packet;
     #[cfg(feature = "proto-ipv4")]
@@ -1873,6 +1888,40 @@ mod test {
         // And we correctly handle no payload.
         assert_eq!(iface.inner.process_ipv4(&mut socket_set, Instant::from_millis(0), &frame),
                    Ok(Some(expected_repr)));
+    }
+
+    #[test]
+    #[cfg(feature = "proto-ipv4")]
+    fn test_local_subnet_broadcasts() {
+        let (mut iface, _) = create_loopback();
+        iface.update_ip_addrs(|addrs| {
+            addrs.iter_mut().next().map(|addr| {
+                *addr = IpCidr::Ipv4(Ipv4Cidr::new(Ipv4Address([192, 168, 1, 23]), 24));
+            });
+        });
+
+        assert_eq!(iface.inner.is_subnet_broadcast(Ipv4Address([192, 168, 1, 255])), true);
+        assert_eq!(iface.inner.is_subnet_broadcast(Ipv4Address([192, 168, 1, 254])), false);
+
+        iface.update_ip_addrs(|addrs| {
+            addrs.iter_mut().next().map(|addr| {
+                *addr = IpCidr::Ipv4(Ipv4Cidr::new(Ipv4Address([192, 168, 23, 24]), 16));
+            });
+        });
+        assert_eq!(iface.inner.is_subnet_broadcast(Ipv4Address([192, 168, 23, 255])), false);
+        assert_eq!(iface.inner.is_subnet_broadcast(Ipv4Address([192, 168, 23, 254])), false);
+        assert_eq!(iface.inner.is_subnet_broadcast(Ipv4Address([192, 168, 255, 254])), false);
+        assert_eq!(iface.inner.is_subnet_broadcast(Ipv4Address([192, 168, 255, 255])), true);
+
+        iface.update_ip_addrs(|addrs| {
+            addrs.iter_mut().next().map(|addr| {
+                *addr = IpCidr::Ipv4(Ipv4Cidr::new(Ipv4Address([192, 168, 23, 24]), 8));
+            });
+        });
+        assert_eq!(iface.inner.is_subnet_broadcast(Ipv4Address([192, 23, 1, 255])), false);
+        assert_eq!(iface.inner.is_subnet_broadcast(Ipv4Address([192, 23, 1, 254])), false);
+        assert_eq!(iface.inner.is_subnet_broadcast(Ipv4Address([192, 255, 255, 254])), false);
+        assert_eq!(iface.inner.is_subnet_broadcast(Ipv4Address([192, 255, 255, 255])), true);
     }
 
     #[test]
