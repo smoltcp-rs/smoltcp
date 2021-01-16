@@ -1026,12 +1026,9 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
            !self.has_multicast_group(ipv4_repr.dst_addr) {
             // Ignore IP packets not directed at us, or broadcast, or any of the multicast groups.
             // If AnyIP is enabled, also check if the packet is routed locally.
-            if !self.any_ip {
-                return Ok(None);
-            } else if match self.routes.lookup(&IpAddress::Ipv4(ipv4_repr.dst_addr), timestamp) {
-                Some(router_addr) => !self.has_ip_addr(router_addr),
-                None => true,
-            } {
+            if !self.any_ip ||
+                    self.routes.lookup(&IpAddress::Ipv4(ipv4_repr.dst_addr), timestamp)
+                        .map_or(true, |router_addr| !self.has_ip_addr(router_addr)) {
                 return Ok(None);
             }
         }
@@ -1188,10 +1185,9 @@ impl<'b, 'c, 'e> InterfaceInner<'b, 'c, 'e> {
                 let ip_addr = ip_repr.src_addr.into();
                 match lladdr {
                     Some(lladdr) if lladdr.is_unicast() && target_addr.is_unicast() => {
-                        if flags.contains(NdiscNeighborFlags::OVERRIDE) {
+                        if flags.contains(NdiscNeighborFlags::OVERRIDE) ||
+                                !self.neighbor_cache.lookup(&ip_addr, timestamp).found() {
                             self.neighbor_cache.fill(ip_addr, lladdr, timestamp)
-                        } else if !self.neighbor_cache.lookup(&ip_addr, timestamp).found() {
-                                self.neighbor_cache.fill(ip_addr, lladdr, timestamp)
                         }
                     },
                     _ => (),

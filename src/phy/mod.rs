@@ -158,6 +158,7 @@ impl Checksum {
 
 /// A description of checksum behavior for every supported protocol.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct ChecksumCapabilities {
     pub ipv4: Checksum,
     pub udp: Checksum,
@@ -166,7 +167,6 @@ pub struct ChecksumCapabilities {
     pub icmpv4: Checksum,
     #[cfg(feature = "proto-ipv6")]
     pub icmpv6: Checksum,
-    dummy: (),
 }
 
 impl ChecksumCapabilities {
@@ -181,7 +181,6 @@ impl ChecksumCapabilities {
             icmpv4: Checksum::None,
             #[cfg(feature = "proto-ipv6")]
             icmpv6: Checksum::None,
-            ..Self::default()
         }
     }
 }
@@ -191,6 +190,7 @@ impl ChecksumCapabilities {
 /// Higher-level protocols may achieve higher throughput or lower latency if they consider
 /// the bandwidth or packet size limitations.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct DeviceCapabilities {
     /// Maximum transmission unit.
     ///
@@ -214,10 +214,6 @@ pub struct DeviceCapabilities {
     /// If the network device is capable of verifying or computing checksums for some protocols,
     /// it can request that the stack not do so in software to improve performance.
     pub checksum: ChecksumCapabilities,
-
-    /// Only present to prevent people from trying to initialize every field of DeviceLimits,
-    /// which would not let us add new fields in the future.
-    pub(crate) dummy: ()
 }
 
 /// An interface for sending and receiving raw network frames.
