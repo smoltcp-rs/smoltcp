@@ -27,16 +27,16 @@ impl fmt::Display for Handle {
 
 /// An extensible set of sockets.
 ///
-/// The lifetime `'b` is used when storing a `Socket<'b>`.
+/// The lifetime `'a` is used when storing a `Socket<'a>`.
 #[derive(Debug)]
-pub struct Set<'a, 'b: 'a> {
-    sockets: ManagedSlice<'a, Option<Item<'b>>>
+pub struct Set<'a> {
+    sockets: ManagedSlice<'a, Option<Item<'a>>>
 }
 
-impl<'a, 'b: 'a> Set<'a, 'b> {
+impl<'a> Set<'a> {
     /// Create a socket set using the provided storage.
-    pub fn new<SocketsT>(sockets: SocketsT) -> Set<'a, 'b>
-            where SocketsT: Into<ManagedSlice<'a, Option<Item<'b>>>> {
+    pub fn new<SocketsT>(sockets: SocketsT) -> Set<'a>
+            where SocketsT: Into<ManagedSlice<'a, Option<Item<'a>>>> {
         let sockets = sockets.into();
         Set { sockets }
     }
@@ -46,10 +46,10 @@ impl<'a, 'b: 'a> Set<'a, 'b> {
     /// # Panics
     /// This function panics if the storage is fixed-size (not a `Vec`) and is full.
     pub fn add<T>(&mut self, socket: T) -> Handle
-        where T: Into<Socket<'b>>
+        where T: Into<Socket<'a>>
     {
-        fn put<'b>(index: usize, slot: &mut Option<Item<'b>>,
-                       mut socket: Socket<'b>) -> Handle {
+        fn put<'a>(index: usize, slot: &mut Option<Item<'a>>,
+                       mut socket: Socket<'a>) -> Handle {
             net_trace!("[{}]: adding", index);
             let handle = Handle(index);
             socket.meta_mut().handle = handle;
@@ -83,7 +83,7 @@ impl<'a, 'b: 'a> Set<'a, 'b> {
     /// # Panics
     /// This function may panic if the handle does not belong to this socket set
     /// or the socket has the wrong type.
-    pub fn get<T: AnySocket<'b>>(&mut self, handle: Handle) -> SocketRef<T> {
+    pub fn get<T: AnySocket<'a>>(&mut self, handle: Handle) -> SocketRef<T> {
         match self.sockets[handle.0].as_mut() {
             Some(item) => {
                 T::downcast(SocketRef::new(&mut item.socket))
@@ -97,7 +97,7 @@ impl<'a, 'b: 'a> Set<'a, 'b> {
     ///
     /// # Panics
     /// This function may panic if the handle does not belong to this socket set.
-    pub fn remove(&mut self, handle: Handle) -> Socket<'b> {
+    pub fn remove(&mut self, handle: Handle) -> Socket<'a> {
         net_trace!("[{}]: removing", handle.0);
         match self.sockets[handle.0].take() {
             Some(item) => item.socket,
@@ -165,12 +165,12 @@ impl<'a, 'b: 'a> Set<'a, 'b> {
     }
 
     /// Iterate every socket in this set.
-    pub fn iter<'d>(&'d self) -> Iter<'d, 'b> {
+    pub fn iter<'d>(&'d self) -> Iter<'d, 'a> {
         Iter { lower: self.sockets.iter() }
     }
 
     /// Iterate every socket in this set, as SocketRef.
-    pub fn iter_mut<'d>(&'d mut self) -> IterMut<'d, 'b> {
+    pub fn iter_mut<'d>(&'d mut self) -> IterMut<'d, 'a> {
         IterMut { lower: self.sockets.iter_mut() }
     }
 }

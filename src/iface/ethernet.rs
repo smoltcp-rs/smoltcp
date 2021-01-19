@@ -1731,7 +1731,7 @@ mod test {
     use super::{EthernetPacket, IpPacket};
 
     fn create_loopback<'a, 'b, 'c>() -> (EthernetInterface<'static, 'b, 'c, Loopback>,
-                                         SocketSet<'static, 'a>) {
+                                         SocketSet<'a>) {
         // Create a basic device
         let device = Loopback::new();
         let ip_addrs = [
