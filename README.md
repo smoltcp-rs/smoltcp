@@ -106,11 +106,11 @@ The TCP protocol is supported over IPv4 and IPv6, and server and client TCP sock
   * Multiple packets are transmitted without waiting for an acknowledgement.
   * Reassembly of out-of-order segments is supported, with no more than 4 or 32 gaps in sequence space.
   * Keep-alive packets may be sent at a configurable interval.
-  * Retransmission timeout starts at a fixed interval of 100 ms and doubles every time.
+  * Retransmission timeout starts at at an estimate of RTT, and doubles every time.
   * Time-wait timeout has a fixed interval of 10 s.
   * User timeout has a configurable interval.
+  * Delayed acknowledgements are supported, with configurable delay.
   * Selective acknowledgements are **not** implemented.
-  * Delayed acknowledgements are **not** implemented.
   * Silly window syndrome avoidance is **not** implemented.
   * Nagle's algorithm is **not** implemented.
   * Congestion control is **not** implemented.
