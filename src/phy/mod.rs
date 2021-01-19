@@ -197,7 +197,13 @@ pub struct DeviceCapabilities {
     /// The network device is unable to send or receive frames larger than the value returned
     /// by this function.
     ///
-    /// For Ethernet, MTU will fall between 576 (for IPv4) or 1280 (for IPv6) and 9216 octets.
+    /// For Ethernet devices, this is the maximum Ethernet frame size, including the Ethernet header (14 octets), but
+    /// *not* including the Ethernet FCS (4 octets). Therefore, Ethernet MTU = IP MTU + 14.
+    ///
+    /// Note that in Linux and other OSes, "MTU" is the IP MTU, not the Ethernet MTU, even for Ethernet
+    /// devices. This is a common source of confusion.
+    ///
+    /// Most common IP MTU is 1500. Minimum is 576 (for IPv4) or 1280 (for IPv6). Maximum is 9216 octets.
     pub max_transmission_unit: usize,
 
     /// Maximum burst size, in terms of MTU.
