@@ -10,6 +10,8 @@ No unreleased changes yet
 
 ## [0.7.0] - 2021-01-20
 
+Minimum Supported Rust Version (MSRV) **bumped** from 1.36 to 1.40
+
 ### New features
 - tcp: Allow distinguishing between graceful (FIN) and ungraceful (RST) close. On graceful close, `recv()` now returns `Error::Finished`. On ungraceful close, `Error::Illegal` is returned, as before. ([351](https://github.com/smoltcp-rs/smoltcp/pull/351))
 - sockets: Add support for attaching async/await Wakers to sockets. Wakers are woken on socket state changes. ([394](https://github.com/smoltcp-rs/smoltcp/pull/394))
