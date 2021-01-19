@@ -1,12 +1,12 @@
 [package]
 name = "smoltcp"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2018"
 authors = ["whitequark <whitequark@whitequark.org>"]
 description = "A TCP/IP stack designed for bare-metal, real-time systems without a heap."
 documentation = "https://docs.rs/smoltcp/"
-homepage = "https://github.com/m-labs/smoltcp"
-repository = "https://github.com/m-labs/smoltcp.git"
+homepage = "https://github.com/smoltcp-rs/smoltcp"
+repository = "https://github.com/smoltcp-rs/smoltcp.git"
 readme = "README.md"
 keywords = ["ip", "tcp", "udp", "ethernet", "network"]
 categories = ["embedded", "network-programming"]
