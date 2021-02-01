@@ -22,6 +22,9 @@ jobs:
           # Test default features.
           - default
 
+          # Test minimal featureset
+          - std proto-ipv4
+
           # Test features chosen to be as orthogonal as possible.
           - std ethernet phy-raw_socket proto-ipv6 socket-udp
           - std ethernet phy-tap_interface proto-ipv6 socket-udp
