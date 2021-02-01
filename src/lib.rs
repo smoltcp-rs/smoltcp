@@ -106,6 +106,7 @@ pub mod storage;
 pub mod phy;
 pub mod wire;
 pub mod iface;
+#[cfg(feature = "socket")]
 pub mod socket;
 pub mod time;
 #[cfg(feature = "proto-dhcpv4")]
