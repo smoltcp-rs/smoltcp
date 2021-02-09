@@ -1595,7 +1595,7 @@ impl<'a> InterfaceInner<'a> {
                            dst_addr);
 
                 let solicit = Icmpv6Repr::Ndisc(NdiscRepr::NeighborSolicit {
-                    target_addr: src_addr,
+                    target_addr: dst_addr,
                     lladdr: Some(self.ethernet_addr),
                 });
 
