@@ -54,7 +54,7 @@ impl Address {
     }
 
     /// Return an IPv4 address as a sequence of octets, in big-endian.
-    pub const fn as_bytes(&self) -> &[u8] {
+    pub fn as_bytes(&self) -> &[u8] {
         &self.0
     }
 
@@ -125,6 +125,7 @@ impl Cidr {
     ///
     /// # Panics
     /// This function panics if the prefix length is larger than 32.
+    #[allow(clippy::no_effect)]
     pub const fn new(address: Address, prefix_len: u8) -> Cidr {
         // Replace with const panic (or assert) when stabilized
         // see: https://github.com/rust-lang/rust/issues/51999
@@ -153,7 +154,7 @@ impl Cidr {
     }
 
     /// Return the network mask of this IPv4 CIDR.
-    pub const fn netmask(&self) -> Address {
+    pub fn netmask(&self) -> Address {
         if self.prefix_len == 0 {
             return Address([0, 0, 0, 0]);
         }
@@ -190,7 +191,7 @@ impl Cidr {
     }
 
     /// Return the network block of this IPv4 CIDR.
-    pub const fn network(&self) -> Cidr {
+    pub fn network(&self) -> Cidr {
         let mask = self.netmask().0;
         let network = [
             self.address.0[0] & mask[0],
