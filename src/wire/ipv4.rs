@@ -39,7 +39,7 @@ impl Address {
     pub const MULTICAST_ALL_ROUTERS: Address = Address([224, 0, 0, 2]);
 
     /// Construct an IPv4 address from parts.
-    pub fn new(a0: u8, a1: u8, a2: u8, a3: u8) -> Address {
+    pub const fn new(a0: u8, a1: u8, a2: u8, a3: u8) -> Address {
         Address([a0, a1, a2, a3])
     }
 
@@ -71,12 +71,12 @@ impl Address {
     }
 
     /// Query whether the address is a multicast address.
-    pub fn is_multicast(&self) -> bool {
+    pub const fn is_multicast(&self) -> bool {
         self.0[0] & 0xf0 == 224
     }
 
     /// Query whether the address falls into the "unspecified" range.
-    pub fn is_unspecified(&self) -> bool {
+    pub const fn is_unspecified(&self) -> bool {
         self.0[0] == 0
     }
 
@@ -86,7 +86,7 @@ impl Address {
     }
 
     /// Query whether the address falls into the "loopback" range.
-    pub fn is_loopback(&self) -> bool {
+    pub const fn is_loopback(&self) -> bool {
         self.0[0] == 127
     }
 }
@@ -125,8 +125,11 @@ impl Cidr {
     ///
     /// # Panics
     /// This function panics if the prefix length is larger than 32.
-    pub fn new(address: Address, prefix_len: u8) -> Cidr {
-        assert!(prefix_len <= 32);
+    #[allow(clippy::no_effect)]
+    pub const fn new(address: Address, prefix_len: u8) -> Cidr {
+        // Replace with const panic (or assert) when stabilized
+        // see: https://github.com/rust-lang/rust/issues/51999
+        ["Prefix length should be <= 32"][(prefix_len > 32) as usize];
         Cidr { address, prefix_len }
     }
 
@@ -141,12 +144,12 @@ impl Cidr {
     }
 
     /// Return the address of this IPv4 CIDR block.
-    pub fn address(&self) -> Address {
+    pub const fn address(&self) -> Address {
         self.address
     }
 
     /// Return the prefix length of this IPv4 CIDR block.
-    pub fn prefix_len(&self) -> u8 {
+    pub const fn prefix_len(&self) -> u8 {
         self.prefix_len
     }
 
