@@ -6,16 +6,16 @@ use libc;
 use super::{ifreq, ifreq_for};
 
 /// set interface
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "openbsd"))]
 const BIOCSETIF: libc::c_ulong = 0x8020426c;
 /// get buffer length
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "openbsd"))]
 const BIOCGBLEN: libc::c_ulong = 0x40044266;
 /// set immediate/nonblocking read
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "openbsd"))]
 const BIOCIMMEDIATE: libc::c_ulong = 0x80044270;
 // TODO: check if this is same for OSes other than macos
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "openbsd"))]
 const BPF_HDRLEN: usize = 18;
 
 macro_rules! try_ioctl {
@@ -43,8 +43,8 @@ impl AsRawFd for BpfDevice {
 fn open_device() -> io::Result<libc::c_int> {
     unsafe {
         for i in 0..256 {
-            let dev = format!("/dev/bpf{}\0", i).as_ptr() as *const libc::c_char;
-            match libc::open(dev, libc::O_RDWR) {
+            let dev = format!("/dev/bpf{}\0", i);
+            match libc::open(dev.as_ptr() as *const libc::c_char, libc::O_RDWR) {
                 -1 => continue,
                 fd => return Ok(fd),
             };
