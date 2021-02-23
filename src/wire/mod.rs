@@ -121,6 +121,15 @@ pub use self::ethernet::{EtherType as EthernetProtocol,
                          Frame as EthernetFrame,
                          Repr as EthernetRepr};
 
+pub fn ethernet_header_len() -> usize {
+    #[cfg(feature = "ethernet")] {
+        EthernetFrame::<&[u8]>::header_len()
+    }
+    #[cfg(not(feature = "ethernet"))] {
+        14
+    }
+}
+
 #[cfg(all(feature = "proto-ipv4", feature = "ethernet"))]
 pub use self::arp::{Hardware as ArpHardware,
                     Operation as ArpOperation,
