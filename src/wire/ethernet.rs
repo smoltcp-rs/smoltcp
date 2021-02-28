@@ -91,6 +91,9 @@ mod field {
     pub const PAYLOAD:     Rest  = 14..;
 }
 
+/// The Ethernet header length
+pub const HEADER_LEN: usize = field::PAYLOAD.start;
+
 impl<T: AsRef<[u8]>> Frame<T> {
     /// Imbue a raw octet buffer with Ethernet frame structure.
     pub fn new_unchecked(buffer: T) -> Frame<T> {
@@ -111,7 +114,7 @@ impl<T: AsRef<[u8]>> Frame<T> {
     /// Returns `Err(Error::Truncated)` if the buffer is too short.
     pub fn check_len(&self) -> Result<()> {
         let len = self.buffer.as_ref().len();
-        if len < field::PAYLOAD.start {
+        if len < HEADER_LEN {
             Err(Error::Truncated)
         } else {
             Ok(())
@@ -125,13 +128,13 @@ impl<T: AsRef<[u8]>> Frame<T> {
 
     /// Return the length of a frame header.
     pub fn header_len() -> usize {
-        field::PAYLOAD.start
+        HEADER_LEN
     }
 
     /// Return the length of a buffer required to hold a packet with the payload
     /// of a given length.
     pub fn buffer_len(payload_len: usize) -> usize {
-        field::PAYLOAD.start + payload_len
+        HEADER_LEN + payload_len
     }
 
     /// Return the destination address field.
@@ -262,7 +265,7 @@ impl Repr {
 
     /// Return the length of a header that will be emitted from this high-level representation.
     pub fn buffer_len(&self) -> usize {
-        field::PAYLOAD.start
+        HEADER_LEN
     }
 
     /// Emit a high-level representation into an Ethernet II frame.

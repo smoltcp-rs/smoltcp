@@ -119,6 +119,7 @@ pub use self::pretty_print::PrettyPrinter;
 pub use self::ethernet::{EtherType as EthernetProtocol,
                          Address as EthernetAddress,
                          Frame as EthernetFrame,
+                         HEADER_LEN as ETHERNET_HEADER_LEN,
                          Repr as EthernetRepr};
 
 #[cfg(all(feature = "proto-ipv4", feature = "ethernet"))]
