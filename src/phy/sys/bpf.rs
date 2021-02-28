@@ -157,3 +157,20 @@ impl Drop for BpfDevice {
         }
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_aligned_bpf_hdr_len() {
+        assert_eq!(18, BPF_HDRLEN);
+    }
+
+    #[test]
+    #[cfg(target_os = "openbsd")]
+    fn test_aligned_bpf_hdr_len() {
+        assert_eq!(26, BPF_HDRLEN);
+    }
+}
