@@ -752,7 +752,7 @@ impl<'a> TcpSocket<'a> {
     /// If a connection is established, [abort](#method.close) will send a reset to
     /// the remote endpoint.
     ///
-    /// In terms of the TCP state machine, the socket must be in the `CLOSED`, `TIME-WAIT`,
+    /// In terms of the TCP state machine, the socket must not be in the `CLOSED`, `TIME-WAIT`,
     /// or `LISTEN` state.
     #[inline]
     pub fn is_active(&self) -> bool {
