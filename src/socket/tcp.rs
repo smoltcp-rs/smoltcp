@@ -858,7 +858,7 @@ impl<'a> TcpSocket<'a> {
     /// Call `f` with the largest contiguous slice of octets in the transmit buffer,
     /// and enqueue the amount of elements returned by `f`.
     ///
-    /// This function returns `Err(Error::Illegal) if the transmit half of
+    /// This function returns `Err(Error::Illegal)` if the transmit half of
     /// the connection is not open; see [may_send](#method.may_send).
     pub fn send<'b, F, R>(&'b mut self, f: F) -> Result<R>
             where F: FnOnce(&'b mut [u8]) -> (usize, R) {
