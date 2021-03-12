@@ -6,7 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-No unreleased changes yet
+### New features
+* dhcp: Updated DHCP client to respect lease times provided by the server.
 
 ## [0.7.0] - 2021-01-20
 
