@@ -98,7 +98,7 @@ mod pcap_writer;
 mod loopback;
 #[cfg(all(feature = "phy-raw_socket", unix))]
 mod raw_socket;
-#[cfg(all(feature = "phy-tap_interface", target_os = "linux"))]
+#[cfg(all(feature = "phy-tap_interface", any(target_os = "linux", target_os = "android")))]
 mod tap_interface;
 
 #[cfg(all(any(feature = "phy-raw_socket", feature = "phy-tap_interface"), unix))]
@@ -112,7 +112,7 @@ pub use self::pcap_writer::{PcapLinkType, PcapMode, PcapSink, PcapWriter};
 pub use self::loopback::Loopback;
 #[cfg(all(feature = "phy-raw_socket", unix))]
 pub use self::raw_socket::RawSocket;
-#[cfg(all(feature = "phy-tap_interface", target_os = "linux"))]
+#[cfg(all(feature = "phy-tap_interface", any(target_os = "linux", target_os = "android")))]
 pub use self::tap_interface::TapInterface;
 
 #[cfg(feature = "ethernet")]
