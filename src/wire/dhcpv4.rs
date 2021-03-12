@@ -50,6 +50,7 @@ pub enum DhcpOption<'a> {
     RequestedIp(Ipv4Address),
     ClientIdentifier(EthernetAddress),
     ServerIdentifier(Ipv4Address),
+    IpLeaseTime(u32),
     Router(Ipv4Address),
     SubnetMask(Ipv4Address),
     MaximumDhcpMessageSize(u16),
@@ -103,6 +104,9 @@ impl<'a> DhcpOption<'a> {
                     (field::OPT_MAX_DHCP_MESSAGE_SIZE, 2) => {
                         option = DhcpOption::MaximumDhcpMessageSize(u16::from_be_bytes([data[0], data[1]]));
                     }
+                    (field::OPT_IP_LEASE_TIME, 4) => {
+                        option = DhcpOption::IpLeaseTime(u32::from_be_bytes([data[0], data[1], data[2], data[3]]))
+                    }
                     (_, _) => {
                         option = DhcpOption::Other { kind: kind, data: data };
                     }
@@ -129,6 +133,7 @@ impl<'a> DhcpOption<'a> {
             &DhcpOption::MaximumDhcpMessageSize(_) => {
                 4
             }
+            &DhcpOption::IpLeaseTime(_) => 6,
             &DhcpOption::Other { data, .. } => 2 + data.len()
         }
     }
@@ -177,6 +182,10 @@ impl<'a> DhcpOption<'a> {
                     DhcpOption::MaximumDhcpMessageSize(size) => {
                         buffer[0] = field::OPT_MAX_DHCP_MESSAGE_SIZE;
                         buffer[2..4].copy_from_slice(&size.to_be_bytes()[..]);
+                    }
+                    DhcpOption::IpLeaseTime(lease_time) => {
+                        buffer[0] = field::OPT_IP_LEASE_TIME;
+                        buffer[2..6].copy_from_slice(&lease_time.to_be_bytes()[..]);
                     }
                     DhcpOption::Other { kind, data: provided } => {
                         buffer[0] = kind;
@@ -674,6 +683,8 @@ pub struct Repr<'a> {
     pub dns_servers: Option<[Option<Ipv4Address>; 3]>,
     /// The maximum size dhcp packet the interface can receive
     pub max_size: Option<u16>,
+    /// The DHCP IP lease duration, specified in seconds.
+    pub lease_duration: Option<u32>
 }
 
 impl<'a> Repr<'a> {
@@ -725,6 +736,7 @@ impl<'a> Repr<'a> {
         let mut parameter_request_list = None;
         let mut dns_servers = None;
         let mut max_size = None;
+        let mut lease_duration = None;
 
         let mut options = packet.options()?;
         while !options.is_empty() {
@@ -755,6 +767,9 @@ impl<'a> Repr<'a> {
                 DhcpOption::MaximumDhcpMessageSize(size) => {
                     max_size = Some(size);
                 }
+                DhcpOption::IpLeaseTime(duration) => {
+                    lease_duration = Some(duration);
+                }
                 DhcpOption::Other {kind: field::OPT_PARAMETER_REQUEST_LIST, data} => {
                     parameter_request_list = Some(data);
                 }
@@ -776,6 +791,7 @@ impl<'a> Repr<'a> {
             transaction_id, client_hardware_address, client_ip, your_ip, server_ip, relay_agent_ip,
             broadcast, requested_ip, server_identifier, router,
             subnet_mask, client_identifier, parameter_request_list, dns_servers, max_size,
+            lease_duration,
             message_type: message_type?,
         })
     }
@@ -819,6 +835,9 @@ impl<'a> Repr<'a> {
             }
             if let Some(size) = self.max_size {
                 let tmp = options; options = DhcpOption::MaximumDhcpMessageSize(size).emit(tmp);
+            }
+            if let Some(duration) = self.lease_duration {
+                let tmp = options; options = DhcpOption::IpLeaseTime(duration).emit(tmp);
             }
             if let Some(list) = self.parameter_request_list {
                 let option = DhcpOption::Other{ kind: field::OPT_PARAMETER_REQUEST_LIST, data: list };
@@ -984,6 +1003,7 @@ mod test {
             relay_agent_ip: IP_NULL,
             broadcast: false,
             max_size: Some(DHCP_SIZE),
+            lease_duration: None,
             requested_ip: Some(IP_NULL),
             client_identifier: Some(CLIENT_MAC),
             server_identifier: None,
