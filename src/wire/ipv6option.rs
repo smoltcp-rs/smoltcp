@@ -3,7 +3,7 @@ use crate::{Error, Result};
 
 enum_with_unknown! {
     /// IPv6 Extension Header Option Type
-    pub doc enum Type(u8) {
+    pub enum Type(u8) {
         /// 1 byte of padding
         Pad1 =  0,
         /// Multiple bytes of padding
@@ -24,7 +24,7 @@ impl fmt::Display for Type {
 enum_with_unknown! {
     /// Action required when parsing the given IPv6 Extension
     /// Header Option Type fails
-    pub doc enum FailureType(u8) {
+    pub enum FailureType(u8) {
         /// Skip this option and continue processing the packet
         Skip               = 0b00000000,
         /// Discard the containing packet

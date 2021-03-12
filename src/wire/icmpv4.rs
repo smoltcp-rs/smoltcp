@@ -8,7 +8,7 @@ use crate::wire::{Ipv4Packet, Ipv4Repr};
 
 enum_with_unknown! {
     /// Internet protocol control message type.
-    pub doc enum Message(u8) {
+    pub enum Message(u8) {
         /// Echo reply
         EchoReply      =  0,
         /// Destination unreachable
@@ -52,7 +52,7 @@ impl fmt::Display for Message {
 
 enum_with_unknown! {
     /// Internet protocol control message subtype for type "Destination Unreachable".
-    pub doc enum DstUnreachable(u8) {
+    pub enum DstUnreachable(u8) {
         /// Destination network unreachable
         NetUnreachable   =  0,
         /// Destination host unreachable
@@ -131,7 +131,7 @@ impl fmt::Display for DstUnreachable {
 
 enum_with_unknown! {
     /// Internet protocol control message subtype for type "Redirect Message".
-    pub doc enum Redirect(u8) {
+    pub enum Redirect(u8) {
         /// Redirect Datagram for the Network
         Net     = 0,
         /// Redirect Datagram for the Host
@@ -145,7 +145,7 @@ enum_with_unknown! {
 
 enum_with_unknown! {
     /// Internet protocol control message subtype for type "Time Exceeded".
-    pub doc enum TimeExceeded(u8) {
+    pub enum TimeExceeded(u8) {
         /// TTL expired in transit
         TtlExpired  = 0,
         /// Fragment reassembly time exceeded
@@ -155,7 +155,7 @@ enum_with_unknown! {
 
 enum_with_unknown! {
     /// Internet protocol control message subtype for type "Parameter Problem".
-    pub doc enum ParamProblem(u8) {
+    pub enum ParamProblem(u8) {
         /// Pointer indicates the error
         AtPointer     = 0,
         /// Missing a required option

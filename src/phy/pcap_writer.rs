@@ -10,7 +10,7 @@ use crate::time::Instant;
 
 enum_with_unknown! {
     /// Captured packet header type.
-    pub doc enum PcapLinkType(u32) {
+    pub enum PcapLinkType(u32) {
         /// Ethernet frames
         Ethernet =   1,
         /// IPv4 or IPv6 packets (depending on the version field)

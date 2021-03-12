@@ -8,7 +8,7 @@ use crate::wire::{EthernetAddress, Ipv6Address, Ipv6Packet, Ipv6Repr};
 
 enum_with_unknown! {
     /// NDISC Option Type
-    pub doc enum Type(u8) {
+    pub enum Type(u8) {
         /// Source Link-layer Address
         SourceLinkLayerAddr = 0x1,
         /// Target Link-layer Address
