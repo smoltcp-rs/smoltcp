@@ -58,7 +58,7 @@ pub struct Client {
     /// When to send next request
     next_egress: Instant,
     /// When any existing DHCP address will expire.
-    lease_expiration: Instant,
+    lease_expiration: Option<Instant>,
     transaction_id: u32,
 }
 
@@ -104,7 +104,7 @@ impl Client {
             raw_handle,
             next_egress: now,
             transaction_id: 1,
-            lease_expiration: now,
+            lease_expiration: None,
         }
     }
 
@@ -201,7 +201,7 @@ impl Client {
         // once we receive the ack, we can pass the config to the user
         let config = if dhcp_repr.message_type == DhcpMessageType::Ack {
             let lease_duration = dhcp_repr.lease_duration.unwrap_or(DEFAULT_RENEW_INTERVAL * 2);
-            self.lease_expiration = now + Duration::from_secs(lease_duration.into());
+            self.lease_expiration = Some(now + Duration::from_secs(lease_duration.into()));
 
             // RFC 2131 indicates clients should renew a lease halfway through its expiration.
             self.next_egress = now + Duration::from_secs((lease_duration / 2).into());
@@ -256,8 +256,9 @@ impl Client {
             _ => false
         };
 
-        if now >= self.lease_expiration || retries_exceeded {
-            net_debug!("DHCP lease expiration / retries exceeded");
+        let lease_expired = self.lease_expiration.map_or(false, |expiration| now >= expiration);
+
+        if lease_expired || retries_exceeded {
             self.reset(now);
             // Return a config now so that user code assigns the
             // 0.0.0.0/0 address, which will be used sending a DHCP
@@ -292,11 +293,11 @@ impl Client {
             lease_duration: None,
             dns_servers: None,
         };
-
         let mut send_packet = |iface, endpoint, dhcp_repr| {
             send_packet(iface, raw_socket, &endpoint, &dhcp_repr, checksum_caps)
                 .map(|()| None)
         };
+
 
         match self.state {
             ClientState::Discovering => {
@@ -352,6 +353,7 @@ impl Client {
         net_trace!("DHCP reset");
         self.state = ClientState::Discovering;
         self.next_egress = now;
+        self.lease_expiration = None;
     }
 }
 
