@@ -4,22 +4,22 @@ use std::{mem, ptr, io};
 use std::os::unix::io::RawFd;
 use crate::time::Duration;
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 #[path = "linux.rs"]
 mod imp;
 
-#[cfg(all(feature = "phy-raw_socket", target_os = "linux"))]
+#[cfg(all(feature = "phy-raw_socket", any(target_os = "linux", target_os = "android")))]
 pub mod raw_socket;
-#[cfg(all(feature = "phy-raw_socket", not(target_os = "linux"), unix))]
+#[cfg(all(feature = "phy-raw_socket", not(any(target_os = "linux", target_os = "android")), unix))]
 pub mod bpf;
-#[cfg(all(feature = "phy-tap_interface", target_os = "linux"))]
+#[cfg(all(feature = "phy-tap_interface", any(target_os = "linux", target_os = "android")))]
 pub mod tap_interface;
 
-#[cfg(all(feature = "phy-raw_socket", target_os = "linux"))]
+#[cfg(all(feature = "phy-raw_socket", any(target_os = "linux", target_os = "android")))]
 pub use self::raw_socket::RawSocketDesc;
-#[cfg(all(feature = "phy-raw_socket", not(target_os = "linux"), unix))]
+#[cfg(all(feature = "phy-raw_socket", not(any(target_os = "linux", target_os = "android")), unix))]
 pub use self::bpf::BpfDevice as RawSocketDesc;
-#[cfg(all(feature = "phy-tap_interface", target_os = "linux"))]
+#[cfg(all(feature = "phy-tap_interface", any(target_os = "linux", target_os = "android")))]
 pub use self::tap_interface::TapInterfaceDesc;
 
 /// Wait until given file descriptor becomes readable, but no longer than given timeout.
@@ -79,7 +79,8 @@ fn ifreq_for(name: &str) -> ifreq {
     ifreq
 }
 
-#[cfg(all(target_os = "linux", any(feature = "phy-tap_interface", feature = "phy-raw_socket")))]
+#[cfg(all(any(target_os = "linux", target_os = "android"),
+          any(feature = "phy-tap_interface", feature = "phy-raw_socket")))]
 fn ifreq_ioctl(lower: libc::c_int, ifreq: &mut ifreq,
                cmd: libc::c_ulong) -> io::Result<libc::c_int> {
     unsafe {
