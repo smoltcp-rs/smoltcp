@@ -9,7 +9,7 @@ use crate::wire::Ipv4Address;
 
 enum_with_unknown! {
     /// Internet Group Management Protocol v1/v2 message version/type.
-    pub doc enum Message(u8) {
+    pub enum Message(u8) {
         /// Membership Query
         MembershipQuery = 0x11,
         /// Version 2 Membership Report
