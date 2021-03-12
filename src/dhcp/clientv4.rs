@@ -14,7 +14,6 @@ const DISCOVER_TIMEOUT: u64 = 10;
 const REQUEST_TIMEOUT: u64 = 1;
 const REQUEST_RETRIES: u16 = 15;
 const DEFAULT_RENEW_INTERVAL: u32 = 60;
-const RENEW_RETRIES: u16 = 3;
 const PARAMETER_REQUEST_LIST: &[u8] = &[
     dhcpv4_field::OPT_SUBNET_MASK,
     dhcpv4_field::OPT_ROUTER,
@@ -39,7 +38,6 @@ struct RequestState {
 
 #[derive(Debug)]
 struct RenewState {
-    retry: u16,
     endpoint_ip: Ipv4Address,
     server_identifier: Ipv4Address,
 }
@@ -60,7 +58,7 @@ pub struct Client {
     /// When to send next request
     next_egress: Instant,
     /// When any existing DHCP address will expire.
-    lease_expiration: Option<Instant>,
+    lease_expiration: Instant,
     transaction_id: u32,
 }
 
@@ -106,7 +104,7 @@ impl Client {
             raw_handle,
             next_egress: now,
             transaction_id: 1,
-            lease_expiration: None,
+            lease_expiration: now,
         }
     }
 
@@ -115,25 +113,6 @@ impl Client {
     /// Useful for suspending execution after polling.
     pub fn next_poll(&self, now: Instant) -> Duration {
         self.next_egress - now
-    }
-
-    /// Check if the existing IP address lease has expired.
-    ///
-    /// # Note
-    /// RC 2131 requires that a client immediately cease usage of an
-    /// address once the lease has expired.
-    ///
-    /// # Args
-    /// * `now` - The current network time instant.
-    ///
-    /// # Returns
-    /// True if a lease exists and it has expired. False otherwise.
-    pub fn lease_expired(&self, now: Instant) -> bool {
-        if let Some(expiration) = self.lease_expiration {
-            return now > expiration
-        }
-
-        false
     }
 
     /// Process incoming packets on the contained RawSocket, and send
@@ -222,7 +201,7 @@ impl Client {
         // once we receive the ack, we can pass the config to the user
         let config = if dhcp_repr.message_type == DhcpMessageType::Ack {
             let lease_duration = dhcp_repr.lease_duration.unwrap_or(DEFAULT_RENEW_INTERVAL * 2);
-            self.lease_expiration = Some(now + Duration::from_secs(lease_duration.into()));
+            self.lease_expiration = now + Duration::from_secs(lease_duration.into());
 
             // RFC 2131 indicates clients should renew a lease halfway through its expiration.
             self.next_egress = now + Duration::from_secs((lease_duration / 2).into());
@@ -256,19 +235,10 @@ impl Client {
                    server_identifier == r_state.server_identifier =>
             {
                 let p_state = RenewState {
-                    retry: 0,
                     endpoint_ip: *src_ip,
                     server_identifier,
                 };
                 Some(ClientState::Renew(p_state))
-            }
-            ClientState::Renew(ref mut p_state)
-                if dhcp_repr.message_type == DhcpMessageType::Ack &&
-                server_identifier == p_state.server_identifier =>
-            {
-                self.next_egress = now + Duration::from_secs(DEFAULT_RENEW_INTERVAL.into());
-                p_state.retry = 0;
-                None
             }
             _ => None
         }.map(|new_state| self.state = new_state);
@@ -283,13 +253,11 @@ impl Client {
                 net_debug!("DHCP request retries exceeded, restarting discovery");
                 true
             }
-            ClientState::Renew(ref mut r_state) if r_state.retry >= RENEW_RETRIES => {
-                net_debug!("DHCP renew retries exceeded, restarting discovery");
-                true
-            }
             _ => false
         };
-        if retries_exceeded {
+
+        if now >= self.lease_expiration || retries_exceeded {
+            net_debug!("DHCP lease expiration / retries exceeded");
             self.reset(now);
             // Return a config now so that user code assigns the
             // 0.0.0.0/0 address, which will be used sending a DHCP
@@ -324,11 +292,11 @@ impl Client {
             lease_duration: None,
             dns_servers: None,
         };
+
         let mut send_packet = |iface, endpoint, dhcp_repr| {
             send_packet(iface, raw_socket, &endpoint, &dhcp_repr, checksum_caps)
                 .map(|()| None)
         };
-
 
         match self.state {
             ClientState::Discovering => {
@@ -357,7 +325,6 @@ impl Client {
                 send_packet(iface, endpoint, dhcp_repr)
             }
             ClientState::Renew(ref mut p_state) => {
-                p_state.retry += 1;
                 self.next_egress = now + Duration::from_secs(DEFAULT_RENEW_INTERVAL.into());
 
                 let endpoint = IpEndpoint {
