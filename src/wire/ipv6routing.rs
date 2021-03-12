@@ -6,7 +6,7 @@ use crate::wire::Ipv6Address as Address;
 
 enum_with_unknown! {
     /// IPv6 Extension Routing Header Routing Type
-    pub doc enum Type(u8) {
+    pub enum Type(u8) {
         /// Source Route (DEPRECATED)
         ///
         /// See https://tools.ietf.org/html/rfc5095 for details.

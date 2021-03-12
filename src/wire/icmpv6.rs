@@ -11,7 +11,7 @@ use crate::wire::NdiscRepr;
 
 enum_with_unknown! {
     /// Internet protocol control message type.
-    pub doc enum Message(u8) {
+    pub enum Message(u8) {
         /// Destination Unreachable.
         DstUnreachable  = 0x01,
         /// Packet Too Big.
@@ -98,7 +98,7 @@ impl fmt::Display for Message {
 
 enum_with_unknown! {
     /// Internet protocol control message subtype for type "Destination Unreachable".
-    pub doc enum DstUnreachable(u8) {
+    pub enum DstUnreachable(u8) {
         /// No Route to destination.
         NoRoute         = 0,
         /// Communication with destination administratively prohibited.
@@ -141,7 +141,7 @@ impl fmt::Display for DstUnreachable {
 
 enum_with_unknown! {
     /// Internet protocol control message subtype for the type "Parameter Problem".
-    pub doc enum ParamProblem(u8) {
+    pub enum ParamProblem(u8) {
         /// Erroneous header field encountered.
         ErroneousHdrField  = 0,
         /// Unrecognized Next Header type encountered.
@@ -168,7 +168,7 @@ impl fmt::Display for ParamProblem {
 
 enum_with_unknown! {
     /// Internet protocol control message subtype for the type "Time Exceeded".
-    pub doc enum TimeExceeded(u8) {
+    pub enum TimeExceeded(u8) {
         /// Hop limit exceeded in transit.
         HopLimitExceeded    = 0,
         /// Fragment reassembly time exceeded.

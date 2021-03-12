@@ -15,7 +15,7 @@ enum_with_unknown! {
     /// more details.
     ///
     /// [RFC 3810 § 5.2.12]: https://tools.ietf.org/html/rfc3010#section-5.2.12
-    pub doc enum RecordType(u8) {
+    pub enum RecordType(u8) {
         /// Interface has a filter mode of INCLUDE for the specified multicast address.
         ModeIsInclude   = 0x01,
         /// Interface has a filter mode of EXCLUDE for the specified multicast address.
