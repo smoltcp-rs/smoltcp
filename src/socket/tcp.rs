@@ -353,6 +353,7 @@ pub struct TcpSocket<'a> {
     #[cfg(feature = "async")]
     tx_waker: WakerRegistration,
 
+    previous_sack_ranges: [Option<(u32, u32)>; 3],
 }
 
 const DEFAULT_MSS: usize = 536;
@@ -411,6 +412,8 @@ impl<'a> TcpSocket<'a> {
             rx_waker: WakerRegistration::new(),
             #[cfg(feature = "async")]
             tx_waker: WakerRegistration::new(),
+
+            previous_sack_ranges: [None; 3],
         }
     }
 
@@ -1069,35 +1072,70 @@ impl<'a> TcpSocket<'a> {
         // If the remote supports selective acknowledgement, add the option to the outgoing
         // segment.
         if self.remote_has_sack {
+            // sACK is only relevant if we've received data
+            if let Some(last_seg_seq) = self.local_rx_last_seq.map(|s| s.0 as u32) {
             net_debug!("sending sACK option with current assembler ranges");
 
-            // RFC 2018: The first SACK block (i.e., the one immediately following the kind and
+            // From RFC 2018:
+            // The first SACK block (i.e., the one immediately following the kind and
             // length fields in the option) MUST specify the contiguous block of data containing
             // the segment which triggered this ACK, unless that segment advanced the
             // Acknowledgment Number field in the header.
-            reply_repr.sack_ranges[0] = None;
 
-            if let Some(last_seg_seq) = self.local_rx_last_seq.map(|s| s.0 as u32) {
-                reply_repr.sack_ranges[0] = self.assembler.iter_data(
-                    reply_repr.ack_number.map(|s| s.0 as usize).unwrap_or(0))
-                    .map(|(left, right)| (left as u32, right as u32))
-                    .find(|(left, right)| *left <= last_seg_seq && *right >= last_seg_seq);
+                let ack_number = reply_repr.ack_number.map(|s| s.0 as usize).unwrap_or(0);
+                for (start, end) in self.assembler.iter_data(ack_number) {
+                    let (start, end) = (start as u32, end as u32);
+
+                    if start <= last_seg_seq && last_seg_seq <= end {
+                        reply_repr.sack_ranges[0] = Some((start, end));
+                        break;
             }
+                }
 
-            if reply_repr.sack_ranges[0].is_none() {
-                // The matching segment was removed from the assembler, meaning the acknowledgement
-                // number has advanced, or there was no previous sACK.
+                // From RFC 2018:
+                // The SACK option SHOULD be filled out by repeating the most
+                // recently reported SACK blocks (based on first SACK blocks in
+                // previous SACK options) that are not subsets of a SACK block
+                // already included in the SACK option being constructed.
+
+                if let Some((latest_left, latest_right)) = reply_repr.sack_ranges[0] {
+                    // The new segment can update self.previous_sack_ranges in 3 ways
+                    // TODO(plorio) ensure assembler.put is only called iff ack_reply is called
+                    // 1. Provides a new independent contiguous chunk
+                    // 2. Extends a sACK in self.previous_sack_ranges
+                    // 3. Merges two sACK in self.previous_sack_ranges
                 //
-                // While the RFC says we SHOULD keep a list of reported sACK ranges, and iterate
-                // through those, that is currently infeasable. Instead, we offer the range with
-                // the lowest sequence number (if one exists) to hint at what segments would
-                // most quickly advance the acknowledgement number.
-                reply_repr.sack_ranges[0] = self.assembler.iter_data(
-                    reply_repr.ack_number.map(|s| s.0 as usize).unwrap_or(0))
-                    .map(|(left, right)| (left as u32, right as u32))
-                    .next();
+                    // In case 1 we want new_chunk, previous_sack_ranges[0], previous_sack_ranges[1]
+                    // In case 2 & 3, affected ranges are inside of reply_repr.sack_ranges[1] and should be excluded
+
+                    if let Some((left, right)) = self.previous_sack_ranges[0] {
+                        if right < latest_left || latest_right < left {
+                            reply_repr.sack_ranges[1] = Some((left, right));
+                        }
+
+                        if let Some((left, right)) = self.previous_sack_ranges[1] {
+                            if right < latest_left || latest_right < left {
+                                if reply_repr.sack_ranges[1].is_some() {
+                                    reply_repr.sack_ranges[2] = Some((left, right));
+                                } else {
+                                    reply_repr.sack_ranges[1] = Some((left, right));
+
+                                    if let Some((left, right)) = self.previous_sack_ranges[2] {
+                                        if right < latest_left || latest_right < left {
+                                            reply_repr.sack_ranges[2] = Some((left, right));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    reply_repr.sack_ranges = self.previous_sack_ranges;
+                }
             }
         }
+
+        self.previous_sack_ranges = reply_repr.sack_ranges;
 
         // Since the sACK option may have changed the length of the payload, update that.
         ip_reply_repr.set_payload_len(reply_repr.buffer_len());
@@ -2899,6 +2937,133 @@ mod test {
                 ..RECV_TEMPL
             })));
         }
+    }
+
+    #[test]
+    fn test_established_rfc2018_case_3() {
+        // This test case verifies the exact scenarios described on pages 8-9 of RFC 2018. Please
+        // ensure its behavior does not deviate from those scenarios.
+
+        let (mut s, segment) = setup_rfc2018_cases();
+        // RFC 2018:
+        //
+        // Case 3:  The 2nd, 4th, 6th, and 8th (last) segments are
+        //       dropped.
+        //
+        //       The data receiver ACKs the first packet normally.  The
+        //       third, fifth, and seventh packets trigger SACK options as
+        //       follows:
+        //
+        //             Triggering  ACK    First Block   2nd Block     3rd Block
+        //             Segment            Left   Right  Left   Right  Left   Right
+        //                                Edge   Edge   Edge   Edge   Edge   Edge
+        //
+        //       1.    5000       5500
+        //       2.    5500       (lost)
+        //       3.    6000       5500    6000   6500
+        //       4.    6500       (lost)
+        //       5.    7000       5500    7000   7500   6000   6500
+        //       6.    7500       (lost)
+        //       7.    8000       5500    8000   8500   7000   7500   6000   6500
+        //       8.    8500       (lost)
+        //
+
+        // 1st transmits
+        send!(s, TcpRepr {
+                seq_number: REMOTE_SEQ + 5000 + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                payload: &segment,
+                ..SEND_TEMPL
+            });
+
+        recv!(s, [TcpRepr {
+                seq_number: LOCAL_SEQ + 1,
+                ack_number: Some(REMOTE_SEQ + 1 + 5500),
+                window_len: 3500,
+                sack_ranges: [ None, None, None ],
+                ..RECV_TEMPL
+            }]);
+
+        // 2nd lost
+        // send!(s, TcpRepr {
+        //         seq_number: REMOTE_SEQ + 5500 + 1,
+        //         ack_number: Some(LOCAL_SEQ + 1),
+        //         payload: &segment,
+        //         ..SEND_TEMPL
+        //     });
+
+        // 3rd transmits
+        send!(s, TcpRepr {
+                seq_number: REMOTE_SEQ + 6000 + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                payload: &segment,
+                ..SEND_TEMPL
+            }, Ok(Some(TcpRepr {
+                seq_number: LOCAL_SEQ + 1,
+                ack_number: Some(REMOTE_SEQ + 1 + 5500),
+                window_len: 3500,
+                sack_ranges: [
+                    Some((REMOTE_SEQ.0 as u32 + 1 + 6000,
+                          REMOTE_SEQ.0 as u32 + 1 + 6500)),
+                    None, None],
+                ..RECV_TEMPL
+            })));
+
+        // 4th lost
+        // send!(s, TcpRepr {
+        //         seq_number: REMOTE_SEQ + 6500 + 1,
+        //         ack_number: Some(LOCAL_SEQ + 1),
+        //         payload: &segment,
+        //         ..SEND_TEMPL
+        //     });
+
+        // 5th transmits
+        send!(s, TcpRepr {
+                seq_number: REMOTE_SEQ + 7000 + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                payload: &segment,
+                ..SEND_TEMPL
+            }, Ok(Some(TcpRepr {
+                seq_number: LOCAL_SEQ + 1,
+                ack_number: Some(REMOTE_SEQ + 1 + 5500),
+                window_len: 3500,
+                sack_ranges: [
+                    Some((REMOTE_SEQ.0 as u32 + 1 + 7000,
+                          REMOTE_SEQ.0 as u32 + 1 + 7500)),
+                    Some((REMOTE_SEQ.0 as u32 + 1 + 6000,
+                          REMOTE_SEQ.0 as u32 + 1 + 6500)),
+                    None],
+                ..RECV_TEMPL
+            })));
+
+        // 6th lost
+        // send!(s, TcpRepr {
+        //         seq_number: REMOTE_SEQ + 7500 + 1,
+        //         ack_number: Some(LOCAL_SEQ + 1),
+        //         payload: &segment,
+        //         ..SEND_TEMPL
+        //     });
+
+        // 7th transmits
+        send!(s, TcpRepr {
+                seq_number: REMOTE_SEQ + 8000 + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                payload: &segment,
+                ..SEND_TEMPL
+            }, Ok(Some(TcpRepr {
+                seq_number: LOCAL_SEQ + 1,
+                ack_number: Some(REMOTE_SEQ + 1 + 5500),
+                window_len: 3500,
+                sack_ranges: [
+                    Some((REMOTE_SEQ.0 as u32 + 1 + 8000,
+                          REMOTE_SEQ.0 as u32 + 1 + 8500)),
+                    Some((REMOTE_SEQ.0 as u32 + 1 + 7000,
+                          REMOTE_SEQ.0 as u32 + 1 + 7500)),
+                    Some((REMOTE_SEQ.0 as u32 + 1 + 6000,
+                          REMOTE_SEQ.0 as u32 + 1 + 6500))
+                ],
+                ..RECV_TEMPL
+            })));
     }
 
     #[test]
