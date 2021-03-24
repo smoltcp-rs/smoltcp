@@ -64,19 +64,6 @@
 //! feature ever defined, to ensure that, when the representation layer is unable to make sense
 //! of a packet, it is still logged correctly and in full.
 //!
-//! ## Packet and representation layer support
-//! | Protocol | Packet | Representation |
-//! |----------|--------|----------------|
-//! | Ethernet | Yes    | Yes            |
-//! | ARP      | Yes    | Yes            |
-//! | IPv4     | Yes    | Yes            |
-//! | ICMPv4   | Yes    | Yes            |
-//! | IGMPv1/2 | Yes    | Yes            |
-//! | IPv6     | Yes    | Yes            |
-//! | ICMPv6   | Yes    | Yes            |
-//! | TCP      | Yes    | Yes            |
-//! | UDP      | Yes    | Yes            |
-//!
 //! [wire]: wire/index.html
 //! [osi]: https://en.wikipedia.org/wiki/OSI_model
 //! [berk]: https://en.wikipedia.org/wiki/Berkeley_sockets
