@@ -117,11 +117,6 @@ pub use self::raw_socket::RawSocket;
 #[cfg(all(feature = "phy-tuntap_interface", any(target_os = "linux", target_os = "android")))]
 pub use self::tuntap_interface::TunTapInterface;
 
-
-#[cfg(feature = "medium-ethernet")]
-/// A tracer device for Ethernet frames.
-pub type EthernetTracer<T> = Tracer<T, super::wire::EthernetFrame<&'static [u8]>>;
-
 /// A description of checksum behavior for a particular protocol.
 #[derive(Debug, Clone, Copy)]
 pub enum Checksum {
