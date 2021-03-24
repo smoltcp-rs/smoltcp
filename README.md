@@ -170,9 +170,9 @@ or `BufWriter` is used, which are of course not available on heap-less systems.
 
 This feature is disabled by default.
 
-### Features `phy-raw_socket` and `phy-tap_interface`
+### Features `phy-raw_socket` and `phy-tuntap_interface`
 
-Enable `smoltcp::phy::RawSocket` and `smoltcp::phy::TapInterface`, respectively.
+Enable `smoltcp::phy::RawSocket` and `smoltcp::phy::TunTapInterface`, respectively.
 
 These features are enabled by default.
 

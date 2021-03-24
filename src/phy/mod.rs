@@ -8,7 +8,7 @@ and implementations of it:
   * _middleware_ [Tracer](struct.Tracer.html) and
     [FaultInjector](struct.FaultInjector.html), to facilitate debugging;
   * _adapters_ [RawSocket](struct.RawSocket.html) and
-    [TapInterface](struct.TapInterface.html), to transmit and receive frames
+    [TunTapInterface](struct.TunTapInterface.html), to transmit and receive frames
     on the host OS.
 */
 #![cfg_attr(feature = "medium-ethernet", doc = r##"
@@ -89,7 +89,7 @@ impl<'a> phy::TxToken for StmPhyTxToken<'a> {
 use crate::Result;
 use crate::time::Instant;
 
-#[cfg(all(any(feature = "phy-raw_socket", feature = "phy-tap_interface"), unix))]
+#[cfg(all(any(feature = "phy-raw_socket", feature = "phy-tuntap_interface"), unix))]
 mod sys;
 
 mod tracer;
@@ -100,10 +100,10 @@ mod pcap_writer;
 mod loopback;
 #[cfg(all(feature = "phy-raw_socket", unix))]
 mod raw_socket;
-#[cfg(all(feature = "phy-tap_interface", any(target_os = "linux", target_os = "android")))]
-mod tap_interface;
+#[cfg(all(feature = "phy-tuntap_interface", any(target_os = "linux", target_os = "android")))]
+mod tuntap_interface;
 
-#[cfg(all(any(feature = "phy-raw_socket", feature = "phy-tap_interface"), unix))]
+#[cfg(all(any(feature = "phy-raw_socket", feature = "phy-tuntap_interface"), unix))]
 pub use self::sys::wait;
 
 pub use self::tracer::Tracer;
@@ -114,8 +114,9 @@ pub use self::pcap_writer::{PcapLinkType, PcapMode, PcapSink, PcapWriter};
 pub use self::loopback::Loopback;
 #[cfg(all(feature = "phy-raw_socket", unix))]
 pub use self::raw_socket::RawSocket;
-#[cfg(all(feature = "phy-tap_interface", any(target_os = "linux", target_os = "android")))]
-pub use self::tap_interface::TapInterface;
+#[cfg(all(feature = "phy-tuntap_interface", any(target_os = "linux", target_os = "android")))]
+pub use self::tuntap_interface::TunTapInterface;
+
 
 #[cfg(feature = "medium-ethernet")]
 /// A tracer device for Ethernet frames.

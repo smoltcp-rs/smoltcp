@@ -1,22 +1,23 @@
 use std::io;
 use std::os::unix::io::{RawFd, AsRawFd};
 use super::*;
-use crate::wire::EthernetFrame;
+use crate::{phy::Medium, wire::EthernetFrame};
 
 #[derive(Debug)]
-pub struct TapInterfaceDesc {
+pub struct TunTapInterfaceDesc {
     lower: libc::c_int,
-    ifreq: ifreq
+    ifreq: ifreq,
+    medium: Medium,
 }
 
-impl AsRawFd for TapInterfaceDesc {
+impl AsRawFd for TunTapInterfaceDesc {
     fn as_raw_fd(&self) -> RawFd {
         self.lower
     }
 }
 
-impl TapInterfaceDesc {
-    pub fn new(name: &str) -> io::Result<TapInterfaceDesc> {
+impl TunTapInterfaceDesc {
+    pub fn new(name: &str, medium: Medium) -> io::Result<TunTapInterfaceDesc> {
         let lower = unsafe {
             let lower = libc::open("/dev/net/tun\0".as_ptr() as *const libc::c_char,
                                    libc::O_RDWR | libc::O_NONBLOCK);
@@ -24,14 +25,21 @@ impl TapInterfaceDesc {
             lower
         };
 
-        Ok(TapInterfaceDesc {
-            lower: lower,
-            ifreq: ifreq_for(name)
+        Ok(TunTapInterfaceDesc {
+            lower,
+            ifreq: ifreq_for(name),
+            medium,
         })
     }
 
     pub fn attach_interface(&mut self) -> io::Result<()> {
-        self.ifreq.ifr_data = imp::IFF_TAP | imp::IFF_NO_PI;
+        let mode = match self.medium {
+            #[cfg(feature = "medium-ip")]
+            Medium::Ip => imp::IFF_TUN,
+            #[cfg(feature = "medium-ethernet")]
+            Medium::Ethernet => imp::IFF_TAP,
+        };
+        self.ifreq.ifr_data = mode | imp::IFF_NO_PI;
         ifreq_ioctl(self.lower, &mut self.ifreq, imp::TUNSETIFF).map(|_| ())
     }
 
@@ -46,9 +54,19 @@ impl TapInterfaceDesc {
 
         unsafe { libc::close(lower); }
 
+        // Propagate error after close, to ensure we always close.
+        let ip_mtu = ip_mtu?;
+
         // SIOCGIFMTU returns the IP MTU (typically 1500 bytes.)
         // smoltcp counts the entire Ethernet packet in the MTU, so add the Ethernet header size to it.
-        Ok(ip_mtu? + EthernetFrame::<&[u8]>::header_len())
+        let mtu = match self.medium {
+            #[cfg(feature = "medium-ip")]
+            Medium::Ip => ip_mtu,
+            #[cfg(feature = "medium-ethernet")]
+            Medium::Ethernet => ip_mtu + EthernetFrame::<&[u8]>::header_len(),
+        };
+
+        Ok(mtu)
     }
 
     pub fn recv(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
@@ -70,7 +88,7 @@ impl TapInterfaceDesc {
     }
 }
 
-impl Drop for TapInterfaceDesc {
+impl Drop for TunTapInterfaceDesc {
     fn drop(&mut self) {
         unsafe { libc::close(self.lower); }
     }

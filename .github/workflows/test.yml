@@ -27,7 +27,7 @@ jobs:
 
           # Test features chosen to be as orthogonal as possible.
           - std medium-ethernet phy-raw_socket proto-ipv6 socket-udp
-          - std medium-ethernet phy-tap_interface proto-ipv6 socket-udp
+          - std medium-ethernet phy-tuntap_interface proto-ipv6 socket-udp
           - std medium-ethernet proto-ipv4 proto-igmp socket-raw
           - std medium-ethernet proto-ipv4 socket-udp socket-tcp
           - std medium-ethernet proto-ipv4 proto-dhcpv4 socket-udp

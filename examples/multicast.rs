@@ -20,11 +20,11 @@ fn main() {
     utils::setup_logging("warn");
 
     let (mut opts, mut free) = utils::create_options();
-    utils::add_tap_options(&mut opts, &mut free);
+    utils::add_tuntap_options(&mut opts, &mut free);
     utils::add_middleware_options(&mut opts, &mut free);
 
     let mut matches = utils::parse_options(&opts, free);
-    let device = utils::parse_tap_options(&mut matches);
+    let device = utils::parse_tuntap_options(&mut matches);
     let fd = device.as_raw_fd();
     let device = utils::parse_middleware_options(&mut matches,
                                                  device,

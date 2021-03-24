@@ -34,11 +34,11 @@ alloc = ["managed/alloc"]
 verbose = []
 "medium-ethernet" = ["socket"]
 "medium-ip" = ["socket"]
-"phy-raw_socket" = ["std", "libc", "ethernet"]
-"phy-tap_interface" = ["std", "libc", "ethernet"]
+"phy-raw_socket" = ["std", "libc", "medium-ethernet"]
+"phy-tuntap_interface" = ["std", "libc", "medium-ethernet"]
 "proto-ipv4" = []
 "proto-igmp" = ["proto-ipv4"]
-"proto-dhcpv4" = ["proto-ipv4", "socket-raw", "ethernet"]
+"proto-dhcpv4" = ["proto-ipv4", "socket-raw", "medium-ethernet"]
 "proto-ipv6" = []
 "socket" = []
 "socket-raw" = ["socket"]
@@ -49,7 +49,7 @@ verbose = []
 default = [
   "std", "log", # needed for `cargo test --no-default-features --features default` :/
   "medium-ethernet", "medium-ip",
-  "phy-raw_socket", "phy-tap_interface",
+  "phy-raw_socket", "phy-tuntap_interface",
   "proto-ipv4", "proto-igmp", "proto-dhcpv4", "proto-ipv6",
   "socket-raw", "socket-icmp", "socket-udp", "socket-tcp",
   "async"
@@ -69,35 +69,35 @@ required-features = ["std", "phy-raw_socket", "proto-ipv4"]
 
 [[example]]
 name = "httpclient"
-required-features = ["std", "phy-tap_interface", "proto-ipv4", "proto-ipv6", "socket-tcp"]
+required-features = ["std", "medium-ethernet", "medium-ip", "phy-tuntap_interface", "proto-ipv4", "proto-ipv6", "socket-tcp"]
 
 [[example]]
 name = "ping"
-required-features = ["std", "phy-tap_interface", "proto-ipv4", "proto-ipv6", "socket-icmp"]
+required-features = ["std", "medium-ethernet", "medium-ip", "phy-tuntap_interface", "proto-ipv4", "proto-ipv6", "socket-icmp"]
 
 [[example]]
 name = "server"
-required-features = ["std", "phy-tap_interface", "proto-ipv4", "socket-tcp", "socket-udp"]
+required-features = ["std", "medium-ethernet", "medium-ip", "phy-tuntap_interface", "proto-ipv4", "socket-tcp", "socket-udp"]
 
 [[example]]
 name = "client"
-required-features = ["std", "phy-tap_interface", "proto-ipv4", "socket-tcp", "socket-udp"]
+required-features = ["std", "medium-ethernet", "medium-ip", "phy-tuntap_interface", "proto-ipv4", "socket-tcp", "socket-udp"]
 
 [[example]]
 name = "loopback"
-required-features = ["log", "proto-ipv4", "socket-tcp"]
+required-features = ["log", "medium-ethernet", "proto-ipv4", "socket-tcp"]
 
 [[example]]
 name = "multicast"
-required-features = ["std", "phy-tap_interface", "proto-ipv4", "proto-igmp", "socket-udp"]
+required-features = ["std", "medium-ethernet", "medium-ip", "phy-tuntap_interface", "proto-ipv4", "proto-igmp", "socket-udp"]
 
 [[example]]
 name = "benchmark"
-required-features = ["std", "phy-tap_interface", "proto-ipv4", "socket-raw", "socket-udp"]
+required-features = ["std", "medium-ethernet", "medium-ip", "phy-tuntap_interface", "proto-ipv4", "socket-raw", "socket-udp"]
 
 [[example]]
 name = "dhcp_client"
-required-features = ["std", "phy-tap_interface", "proto-ipv4", "proto-dhcpv4", "socket-raw"]
+required-features = ["std", "medium-ethernet", "medium-ip", "phy-tuntap_interface", "proto-ipv4", "proto-dhcpv4", "socket-raw"]
 
 [profile.release]
 debug = 2
