@@ -25,8 +25,8 @@ macro_rules! enum_with_unknown {
         pub enum $name:ident($ty:ty) {
             $(
               $( #[$variant_attr:meta] )*
-              $variant:ident = $value:expr $(,)*
-            ),+
+              $variant:ident = $value:expr
+            ),+ $(,)?
         }
     ) => {
         #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
