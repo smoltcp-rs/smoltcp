@@ -83,6 +83,20 @@ compile_error!("at least one socket needs to be enabled"); */
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
+#[cfg(not(any(feature = "proto-ipv4", feature = "proto-ipv6")))]
+compile_error!("You must enable at least one of the following features: proto-ipv4, proto-ipv6");
+
+#[cfg(all(
+    feature = "socket",
+    not(any(
+        feature = "socket-raw",
+        feature = "socket-udp",
+        feature = "socket-tcp",
+        feature = "socket-icmp",
+    ))
+))]
+compile_error!("If you enable the socket feature, you must enable at least one of the following features: socket-raw, socket-udp, socket-tcp, socket-icmp");
+
 use core::fmt;
 
 #[macro_use]
