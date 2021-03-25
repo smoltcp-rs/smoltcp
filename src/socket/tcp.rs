@@ -283,6 +283,7 @@ pub struct TcpSocket<'a> {
     state:           State,
     timer:           Timer,
     rtte:            RttEstimator,
+    /// is relative to remote_seq_no (the start of the rx_buffer) + rx_buffer.len()
     assembler:       Assembler,
     rx_buffer:       SocketBuffer<'a>,
     rx_fin_received: bool,
@@ -353,7 +354,10 @@ pub struct TcpSocket<'a> {
     #[cfg(feature = "async")]
     tx_waker: WakerRegistration,
 
+    /// The sACK ranges send in the latest TCP header
     previous_sack_ranges: [Option<(u32, u32)>; 3],
+    /// Suggestions for ranges that do not need retransmission from peer (via sACK)
+    tx_buffer_sack_ranges: Assembler,
 }
 
 const DEFAULT_MSS: usize = 536;
@@ -375,6 +379,8 @@ impl<'a> TcpSocket<'a> {
         }
         let rx_cap_log2 = mem::size_of::<usize>() * 8 -
             rx_capacity.leading_zeros() as usize;
+
+        let tx_buffer_capacity = tx_buffer.capacity();
 
         TcpSocket {
             meta:            SocketMeta::default(),
@@ -414,6 +420,7 @@ impl<'a> TcpSocket<'a> {
             tx_waker: WakerRegistration::new(),
 
             previous_sack_ranges: [None; 3],
+            tx_buffer_sack_ranges: Assembler::new(tx_buffer_capacity),
         }
     }
 
@@ -1074,13 +1081,13 @@ impl<'a> TcpSocket<'a> {
         if self.remote_has_sack {
             // sACK is only relevant if we've received data
             if let Some(last_seg_seq) = self.local_rx_last_seq.map(|s| s.0 as u32) {
-            net_debug!("sending sACK option with current assembler ranges");
+                net_debug!("sending sACK option with current assembler ranges");
 
-            // From RFC 2018:
-            // The first SACK block (i.e., the one immediately following the kind and
-            // length fields in the option) MUST specify the contiguous block of data containing
-            // the segment which triggered this ACK, unless that segment advanced the
-            // Acknowledgment Number field in the header.
+                // From RFC 2018:
+                // The first SACK block (i.e., the one immediately following the kind and
+                // length fields in the option) MUST specify the contiguous block of data containing
+                // the segment which triggered this ACK, unless that segment advanced the
+                // Acknowledgment Number field in the header.
 
                 let ack_number = reply_repr.ack_number.map(|s| s.0 as usize).unwrap_or(0);
                 for (start, end) in self.assembler.iter_data(ack_number) {
@@ -1089,7 +1096,7 @@ impl<'a> TcpSocket<'a> {
                     if start <= last_seg_seq && last_seg_seq <= end {
                         reply_repr.sack_ranges[0] = Some((start, end));
                         break;
-            }
+                    }
                 }
 
                 // From RFC 2018:
@@ -1104,7 +1111,7 @@ impl<'a> TcpSocket<'a> {
                     // 1. Provides a new independent contiguous chunk
                     // 2. Extends a sACK in self.previous_sack_ranges
                     // 3. Merges two sACK in self.previous_sack_ranges
-                //
+
                     // In case 1 we want new_chunk, previous_sack_ranges[0], previous_sack_ranges[1]
                     // In case 2 & 3, affected ranges are inside of reply_repr.sack_ranges[1] and should be excluded
 
@@ -1548,6 +1555,11 @@ impl<'a> TcpSocket<'a> {
                     self.local_rx_last_ack = Some(ack_number);
                 }
             };
+
+            // sACKs are stored relative to local_seq_no so fill in different to keep consistent
+            let local_seq_no_update = (ack_number.0 - self.local_seq_no.0) as usize;
+            self.tx_buffer_sack_ranges.shift_offset(local_seq_no_update);
+
             // We've processed everything in the incoming segment, so advance the local
             // sequence number past it.
             self.local_seq_no = ack_number;
@@ -1561,13 +1573,31 @@ impl<'a> TcpSocket<'a> {
             }
         }
 
+        // Mark sACKs as received in tx_buffer_sack_ranges relative to local_seq_no
+        for sack in &repr.sack_ranges {
+            if let Some((left, right)) = sack {
+                if right < left {
+                    continue;
+                }
+
+                let offset = (self.local_seq_no.0 - (*left as i32)) as usize;
+                let len = (right - left) + 1 /* sACK is inclusive so (+1) */;
+
+                if len > 0 {
+                    // Note, don't care about failure to insert as sACKs are advisory
+                    let _ = self.tx_buffer_sack_ranges.add(offset, len as usize);
+                }
+            }
+        }
+
         let payload_len = repr.payload.len();
         if payload_len == 0 { return Ok(None) }
 
         let assembler_was_empty = self.assembler.is_empty();
 
-        // Try adding payload octets to the assembler.
-        match self.assembler.add(payload_offset, payload_len) {
+        // Try adding payload octets to the assembler while reserving space for segments of offset 0
+        let only_extend_assembler = self.assembler.could_saturate() && payload_offset != 0;
+        match self.assembler.add_or_extend(payload_offset, payload_len, only_extend_assembler) {
             Ok(()) => {
                 debug_assert!(self.assembler.total_size() == self.rx_buffer.capacity());
                 // Place payload octets into the buffer.
@@ -1584,7 +1614,7 @@ impl<'a> TcpSocket<'a> {
             }
         }
 
-        if let Some(contig_len) = self.assembler.remove_front() {
+        if let Some(contig_len) = self.assembler.shift_remove_contig_data() {
             debug_assert!(self.assembler.total_size() == self.rx_buffer.capacity());
             // Enqueue the contiguous data octets in front of the buffer.
             net_trace!("{}:{}:{}: rx buffer: enqueueing {} octets (now {})",
@@ -1823,12 +1853,31 @@ impl<'a> TcpSocket<'a> {
             // or the transmit half of the connection is still open.
             State::Established | State::FinWait1 | State::Closing | State::CloseWait | State::LastAck => {
                 // Extract as much data as the remote side can receive in this packet
-                // from the transmit buffer.
-                let offset = self.remote_last_seq - self.local_seq_no;
-                let win_limit = self.local_seq_no + self.remote_win_len - self.remote_last_seq;
-                let size = cmp::min(cmp::min(win_limit, self.remote_mss),
+                // from the transmit buffer. Skip over or truncate data based on sACKs.
+                let mut offset = self.remote_last_seq - self.local_seq_no;
+                let mut send_till_offset = self.remote_win_len;
+
+                for (left, right) in self.tx_buffer_sack_ranges.iter_data(0) {
+                    // there is chunk of ACK'd data to the right of what we want to send
+                    if offset < left {
+                        send_till_offset = cmp::min(left, self.remote_win_len);
+                        break;
+                    }
+
+                    // data already received, move offset to next contig
+                    if offset <= right {
+                        offset = right + 1;
+                    }
+                }
+
+                let size = cmp::min(cmp::min(send_till_offset - offset, self.remote_mss),
                      caps.max_transmission_unit - ip_repr.buffer_len() - repr.mss_header_len());
                 repr.payload = self.tx_buffer.get_allocated(offset, size);
+
+                // Remove sACKs that were used because on next retransmit timeout we don't want to
+                // use them.
+                self.tx_buffer_sack_ranges.replace_start_with_hole(offset + size);
+
                 // If we've sent everything we had in the buffer, follow it with the PSH or FIN
                 // flags, depending on whether the transmit half of the connection is open.
                 if offset + repr.payload.len() == self.tx_buffer.len() {
