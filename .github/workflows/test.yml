@@ -1,6 +1,6 @@
 on:
   push:
-    branches: [ staging, trying, master ]
+    branches: [ staging, trying, master, v0.* ]
   pull_request:
 
 name: Test
