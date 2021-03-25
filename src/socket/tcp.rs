@@ -1870,7 +1870,7 @@ impl<'a> TcpSocket<'a> {
                     }
                 }
 
-                let size = cmp::min(cmp::min(send_till_offset - offset, self.remote_mss),
+                let size = cmp::min(cmp::min(send_till_offset.max(offset) - offset, self.remote_mss),
                      caps.max_transmission_unit - ip_repr.buffer_len() - repr.mss_header_len());
                 repr.payload = self.tx_buffer.get_allocated(offset, size);
 
