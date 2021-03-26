@@ -1854,7 +1854,8 @@ impl<'a> TcpSocket<'a> {
             State::Established | State::FinWait1 | State::Closing | State::CloseWait | State::LastAck => {
                 // Extract as much data as the remote side can receive in this packet
                 // from the transmit buffer. Skip over or truncate data based on sACKs.
-                let mut offset = self.remote_last_seq - self.local_seq_no;
+                let original_offset = self.remote_last_seq - self.local_seq_no;
+                let mut offset = original_offset;
                 let mut send_till_offset = self.remote_win_len;
 
                 for (left, right) in self.tx_buffer_sack_ranges.iter_data(0) {
@@ -1868,6 +1869,12 @@ impl<'a> TcpSocket<'a> {
                     if offset <= right {
                         offset = right + 1;
                     }
+                }
+
+                // advance sequence
+                if offset != original_offset {
+                    self.remote_last_seq += offset - original_offset;
+                    repr.seq_number = self.remote_last_seq;
                 }
 
                 let size = cmp::min(cmp::min(send_till_offset.max(offset) - offset, self.remote_mss),
