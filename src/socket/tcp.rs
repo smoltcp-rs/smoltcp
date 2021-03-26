@@ -1614,7 +1614,7 @@ impl<'a> TcpSocket<'a> {
             }
         }
 
-        if let Some(contig_len) = self.assembler.shift_remove_contig_data() {
+        if let Some(contig_len) = self.assembler.remove_front() {
             debug_assert!(self.assembler.total_size() == self.rx_buffer.capacity());
             // Enqueue the contiguous data octets in front of the buffer.
             net_trace!("{}:{}:{}: rx buffer: enqueueing {} octets (now {})",
@@ -5599,4 +5599,76 @@ mod test {
         }
     }
 
+
+    #[test]
+    fn test_out_of_order_sequence() {
+        let mut s = socket_established();
+
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            payload:    &b"A"[..],
+            ..SEND_TEMPL
+        });
+
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1 + (&b"AB"[..]).len(),
+            ack_number: Some(LOCAL_SEQ + 1),
+            payload:    &b"C"[..],
+            ..SEND_TEMPL
+        }, Ok(Some(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1 + (&b"A"[..]).len()),
+            window_len: 63,
+             ..RECV_TEMPL
+        })));
+
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1 + (&b"ABCD"[..]).len(),
+            ack_number: Some(LOCAL_SEQ + 1),
+            payload:    &b"E"[..],
+            ..SEND_TEMPL
+        }, Ok(Some(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1 + (&b"A"[..]).len()),
+            window_len: 63,
+             ..RECV_TEMPL
+        })));
+
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1 + (&b"A"[..]).len(),
+            ack_number: Some(LOCAL_SEQ + 1),
+            payload:    &b"B"[..],
+            ..SEND_TEMPL
+        }, Ok(Some(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1 + (&b"ABC"[..]).len()),
+            window_len: 61,
+             ..RECV_TEMPL
+        })));
+
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1 + (&b"ABC"[..]).len(),
+            ack_number: Some(LOCAL_SEQ + 1),
+            payload:    &b"D"[..],
+            ..SEND_TEMPL
+        }, Ok(Some(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1 + (&b"ABCDE"[..]).len()),
+            window_len: 59,
+             ..RECV_TEMPL
+        })));
+
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1 + (&b"ABCDE"[..]).len(),
+            ack_number: Some(LOCAL_SEQ + 1),
+            payload:    &b"F"[..],
+            ..SEND_TEMPL
+        });
+
+        let mut buf = [0u8; 1024];
+        let len = s.recv_slice(&mut buf).unwrap();
+        let str_data = std::str::from_utf8(&buf[..len]).unwrap();
+        assert_eq!(str_data, "ABCDEF");
+    }
 }

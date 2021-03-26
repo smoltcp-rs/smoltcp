@@ -7,14 +7,14 @@ pub struct TooManyHolesError;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Contig {
     hole_size: usize,
-    data_size: usize,
+    data_size: usize
 }
 
 impl fmt::Display for Contig {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if self.has_hole() { write!(f, "({})", self.hole_size)?; }
         if self.has_hole() && self.has_data() { write!(f, " ")?; }
-        if self.has_data() { write!(f, "{}", self.data_size)?; }
+        if self.has_data() { write!(f, "{}",   self.data_size)?; }
         Ok(())
     }
 }
@@ -69,7 +69,6 @@ impl Contig {
 use std::boxed::Box;
 #[cfg(all(feature = "alloc", not(feature = "std")))]
 use alloc::boxed::Box;
-
 #[cfg(any(feature = "std", feature = "alloc"))]
 const CONTIG_COUNT: usize = 32;
 
@@ -92,7 +91,7 @@ impl fmt::Display for Assembler {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "[ ")?;
         for contig in self.contigs.iter() {
-            if contig.is_empty() { break; }
+            if contig.is_empty() { break }
             write!(f, "{} ", contig)?;
         }
         write!(f, "]")?;
@@ -104,9 +103,9 @@ impl Assembler {
     /// Create a new buffer assembler for buffers of the given size.
     pub fn new(size: usize) -> Assembler {
         #[cfg(not(any(feature = "std", feature = "alloc")))]
-            let mut contigs = [Contig::empty(); CONTIG_COUNT];
+        let mut contigs = [Contig::empty(); CONTIG_COUNT];
         #[cfg(any(feature = "std", feature = "alloc"))]
-            let mut contigs = Box::new([Contig::empty(); CONTIG_COUNT]);
+        let mut contigs = Box::new([Contig::empty(); CONTIG_COUNT]);
         contigs[0] = Contig::hole(size);
         Assembler { contigs }
     }
@@ -148,7 +147,7 @@ impl Assembler {
             self.contigs[i] = self.contigs[i + 1];
             if !self.contigs[i].has_data() {
                 self.contigs[i + 1] = Contig::empty();
-                return &mut self.contigs[i];
+                return &mut self.contigs[i]
             }
         }
 
@@ -161,7 +160,7 @@ impl Assembler {
     fn add_contig_at(&mut self, at: usize) -> Result<&mut Contig, TooManyHolesError> {
         debug_assert!(!self.contigs[at].is_empty());
 
-        if !self.back().is_empty() { return Err(TooManyHolesError); }
+        if !self.back().is_empty() { return Err(TooManyHolesError) }
 
         for i in (at + 1..self.contigs.len()).rev() {
             self.contigs[i] = self.contigs[i - 1];
@@ -291,11 +290,11 @@ impl Assembler {
                 // The range being added covers a part of the hole but not of the data
                 // in this contig, add a new contig containing the range.
                 {
-                    let inserted = self.add_contig_at(index)?;
-                    *inserted = Contig::hole_and_data(offset, size);
+                  let inserted = self.add_contig_at(index)?;
+                  *inserted = Contig::hole_and_data(offset, size);
                 }
                 // Previous contigs[index] got moved to contigs[index+1]
-                self.contigs[index + 1].shrink_hole_by(offset + size);
+                self.contigs[index+1].shrink_hole_by(offset + size);
                 index += 2;
             } else {
                 unreachable!()
@@ -305,7 +304,7 @@ impl Assembler {
             if offset >= contig.total_size() {
                 offset = offset.saturating_sub(contig.total_size());
             } else {
-                size = (offset + size).saturating_sub(contig.total_size());
+                size   = (offset + size).saturating_sub(contig.total_size());
                 offset = 0;
             }
         }
@@ -314,22 +313,17 @@ impl Assembler {
         Ok(())
     }
 
-    /// Remove a contiguous range from the front of the assembler and `Some(data_size)` and adjusts
-    /// offset by removed amount, or return `None` if there is no such range.
-    pub fn shift_remove_contig_data(&mut self) -> Option<usize> {
+    /// Remove a contiguous range from the front of the assembler and `Some(data_size)`,
+    /// or return `None` if there is no such range.
+    pub fn remove_front(&mut self) -> Option<usize> {
         let front = self.front();
         if front.has_hole() {
             None
         } else {
-            debug_assert!(front.data_size > 0);
+            let last_hole = self.remove_contig_at(0);
+            last_hole.hole_size += front.data_size;
 
-            let _ = self.remove_contig_at(0);
-            for i in 0..self.contigs.len() {
-                if !self.contigs[i].has_data() {
-                    self.contigs[i].hole_size += front.data_size;
-                    break;
-                }
-            }
+            debug_assert!(front.data_size > 0);
             Some(front.data_size)
         }
     }
@@ -353,7 +347,7 @@ pub struct AssemblerIter<'a> {
     offset: usize,
     index: usize,
     left: usize,
-    right: usize,
+    right: usize
 }
 
 impl<'a> AssemblerIter<'a> {
@@ -363,7 +357,7 @@ impl<'a> AssemblerIter<'a> {
             offset: offset,
             index: 0,
             left: 0,
-            right: 0,
+            right: 0
         }
     }
 }
@@ -398,9 +392,9 @@ mod test {
     impl From<Vec<(usize, usize)>> for Assembler {
         fn from(vec: Vec<(usize, usize)>) -> Assembler {
             #[cfg(not(any(feature = "std", feature = "alloc")))]
-                let mut contigs = [Contig::empty(); CONTIG_COUNT];
+            let mut contigs = [Contig::empty(); CONTIG_COUNT];
             #[cfg(any(feature = "std", feature = "alloc"))]
-                let mut contigs = Box::new([Contig::empty(); CONTIG_COUNT]);
+            let mut contigs = Box::new([Contig::empty(); CONTIG_COUNT]);
             for (i, &(hole_size, data_size)) in vec.iter().enumerate() {
                 contigs[i] = Contig { hole_size, data_size };
             }
@@ -507,9 +501,9 @@ mod test {
 
     #[test]
     fn test_rejected_add_keeps_state() {
-        let mut assr = Assembler::new(CONTIG_COUNT * 20);
-        for c in 1..=CONTIG_COUNT - 1 {
-            assert_eq!(assr.add(c * 10, 3), Ok(()));
+        let mut assr = Assembler::new(CONTIG_COUNT*20);
+        for c in 1..=CONTIG_COUNT-1 {
+          assert_eq!(assr.add(c*10, 3), Ok(()));
         }
         // Maximum of allowed holes is reached
         let assr_before = assr.clone();
@@ -520,21 +514,22 @@ mod test {
     #[test]
     fn test_empty_remove_front() {
         let mut assr = contigs![(12, 0)];
-        assert_eq!(assr.shift_remove_contig_data(), None);
+        assert_eq!(assr.remove_front(), None);
     }
 
     #[test]
     fn test_trailing_hole_remove_front() {
         let mut assr = contigs![(0, 4), (8, 0)];
-        assert_eq!(assr.shift_remove_contig_data(), Some(4));
-        assert_eq!(assr, contigs![(8, 0)]);
+        assert_eq!(assr.remove_front(), Some(4));
+        assert_eq!(assr, contigs![(12, 0)]);
     }
 
     #[test]
     fn test_trailing_data_remove_front() {
         let mut assr = contigs![(0, 4), (4, 4)];
-        assert_eq!(assr.shift_remove_contig_data(), Some(4));
-        assert_eq!(assr, contigs![(4, 4)]);
+        assert_eq!(assr.remove_front(), Some(4));
+        assert_eq!(assr, contigs![(4, 4), (4, 0)]);
+
     }
 
     #[test]
