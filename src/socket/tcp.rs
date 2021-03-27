@@ -100,7 +100,7 @@ impl RttEstimator {
         self.rtt = (self.rtt * 7 + new_rtt + 7) / 8;
         let diff = (self.rtt as i32 - new_rtt as i32 ).abs() as u32;
         self.deviation = (self.deviation * 3 + diff + 3) / 4;
-        
+
         self.rto_count = 0;
 
         let rto = self.retransmission_timeout().millis();
@@ -358,9 +358,20 @@ pub struct TcpSocket<'a> {
     previous_sack_ranges: [Option<(u32, u32)>; 3],
     /// Suggestions for ranges that do not need retransmission from peer (via sACK)
     tx_buffer_sack_ranges: Assembler,
+
+    /// Window size maintained by congestion control algorithm
+    congestion_window_size: usize,
+
+    /// Use to determine when we should increase congestion_window_size in linear growth
+    congestion_acks_received: usize,
+
+    /// Threshold for when to use linear growth for congestion_window_size
+    congestion_slow_start_threshold: usize,
 }
 
 const DEFAULT_MSS: usize = 536;
+const CCA_START_SIZE: usize = 3;
+const CCA_SLOW_START_THRESHOLD: usize = 10;
 
 impl<'a> TcpSocket<'a> {
     #[allow(unused_comparisons)] // small usize platforms always pass rx_capacity check
@@ -421,6 +432,9 @@ impl<'a> TcpSocket<'a> {
 
             previous_sack_ranges: [None; 3],
             tx_buffer_sack_ranges: Assembler::new(tx_buffer_capacity),
+            congestion_window_size: DEFAULT_MSS * CCA_START_SIZE,
+            congestion_acks_received: 0,
+            congestion_slow_start_threshold: DEFAULT_MSS * CCA_SLOW_START_THRESHOLD,
         }
     }
 
@@ -1409,6 +1423,8 @@ impl<'a> TcpSocket<'a> {
                 self.remote_last_ack = Some(repr.seq_number);
                 if let Some(max_seg_size) = repr.max_seg_size {
                     self.remote_mss = max_seg_size as usize;
+                    self.congestion_window_size = max_seg_size as usize * CCA_START_SIZE;
+                    self.congestion_slow_start_threshold = max_seg_size as usize * CCA_SLOW_START_THRESHOLD;
                 }
                 self.set_state(State::Established);
                 self.timer.set_for_idle(timestamp, self.keep_alive);
@@ -1543,6 +1559,15 @@ impl<'a> TcpSocket<'a> {
                         self.timer.set_for_fast_retransmit();
                         net_debug!("{}:{}:{}: started fast retransmit",
                                 self.meta.handle, self.local_endpoint, self.remote_endpoint);
+
+                        /* update congestion control use Reno (fast recovery) */
+                        self.congestion_window_size = self.congestion_window_size / 2;
+                        self.congestion_slow_start_threshold = self.congestion_window_size;
+                        self.congestion_acks_received = 0;
+
+                        net_debug!("{}:{}:{}: update congestion window and ss threshold to {}",
+                            self.meta.handle, self.local_endpoint, self.remote_endpoint,
+                            self.congestion_window_size);
                     }
                 },
                 // No duplicate ACK -> Reset state and update last recived ACK
@@ -1556,9 +1581,23 @@ impl<'a> TcpSocket<'a> {
                 }
             };
 
-            // sACKs are stored relative to local_seq_no so fill in different to keep consistent
-            let local_seq_no_update = (ack_number.0 - self.local_seq_no.0) as usize;
-            self.tx_buffer_sack_ranges.shift_offset(local_seq_no_update);
+            if ack_number.0 >= self.local_seq_no.0 {
+                // sACKs are stored relative to local_seq_no so fill in different to keep consistent
+                let ack_update = (ack_number.0 - self.local_seq_no.0) as usize;
+                self.tx_buffer_sack_ranges.shift_offset(ack_update);
+
+                // Update congestion window
+                if self.congestion_window_size < self.congestion_slow_start_threshold {
+                    self.congestion_window_size += self.remote_mss;
+                } else {
+                    self.congestion_acks_received += ack_update;
+
+                    if self.congestion_acks_received >= self.congestion_window_size {
+                        self.congestion_acks_received -= self.congestion_window_size;
+                        self.congestion_window_size += self.remote_mss;
+                    }
+                }
+            }
 
             // We've processed everything in the incoming segment, so advance the local
             // sequence number past it.
@@ -1686,8 +1725,11 @@ impl<'a> TcpSocket<'a> {
         // We can send data if we have data that:
         // - hasn't been sent before
         // - fits in the remote window
-        let can_data = self.remote_last_seq
-            < self.local_seq_no + core::cmp::min(self.remote_win_len, self.tx_buffer.len());
+        let byte_sendable = core::cmp::min(
+            self.congestion_window_size,
+            core::cmp::min(self.remote_win_len, self.tx_buffer.len())
+        );
+        let can_data = self.remote_last_seq < self.local_seq_no + byte_sendable;
 
         // Do we have to send a FIN?
         let want_fin = match self.state {
@@ -1856,7 +1898,7 @@ impl<'a> TcpSocket<'a> {
                 // from the transmit buffer. Skip over or truncate data based on sACKs.
                 let original_offset = self.remote_last_seq - self.local_seq_no;
                 let mut offset = original_offset;
-                let mut send_till_offset = self.remote_win_len;
+                let mut send_till_offset = cmp::min(self.remote_win_len, self.congestion_window_size);
 
                 for (left, right) in self.tx_buffer_sack_ranges.iter_data(0) {
                     // there is chunk of ACK'd data to the right of what we want to send
