@@ -1561,7 +1561,7 @@ impl<'a> TcpSocket<'a> {
                                 self.meta.handle, self.local_endpoint, self.remote_endpoint);
 
                         /* update congestion control use Reno (fast recovery) */
-                        self.congestion_window_size = cmp::min(self.remote_win_len, self.congestion_window_size) / 2;
+                        self.congestion_window_size = cmp::max(self.remote_mss, cmp::min(self.remote_win_len, self.congestion_window_size) / 2);
                         self.congestion_slow_start_threshold = self.congestion_window_size;
                         self.congestion_acks_received = 0;
 
