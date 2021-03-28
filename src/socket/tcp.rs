@@ -1555,11 +1555,7 @@ impl<'a> TcpSocket<'a> {
                             self.meta.handle, self.local_endpoint, self.remote_endpoint, ack_number,
                             self.local_rx_dup_acks, if self.local_rx_dup_acks == u8::max_value() { "+" } else { "" });
 
-                    if self.local_rx_dup_acks == 3 {
-                        self.timer.set_for_fast_retransmit();
-                        net_debug!("{}:{}:{}: started fast retransmit",
-                                self.meta.handle, self.local_endpoint, self.remote_endpoint);
-
+                    if self.local_rx_dup_acks == 2 {
                         /* update congestion control use Reno (fast recovery) */
                         self.congestion_window_size = cmp::max(self.remote_mss, cmp::min(self.remote_win_len, self.congestion_window_size) / 2);
                         self.congestion_slow_start_threshold = self.congestion_window_size;
@@ -1568,6 +1564,10 @@ impl<'a> TcpSocket<'a> {
                         net_debug!("{}:{}:{}: update congestion window and ss threshold to {}",
                             self.meta.handle, self.local_endpoint, self.remote_endpoint,
                             self.congestion_window_size);
+                    } else if self.local_rx_dup_acks == 3 {
+                        self.timer.set_for_fast_retransmit();
+                        net_debug!("{}:{}:{}: started fast retransmit",
+                                self.meta.handle, self.local_endpoint, self.remote_endpoint);
                     }
                 },
                 // No duplicate ACK -> Reset state and update last recived ACK
