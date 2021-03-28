@@ -1555,7 +1555,7 @@ impl<'a> TcpSocket<'a> {
                             self.meta.handle, self.local_endpoint, self.remote_endpoint, ack_number,
                             self.local_rx_dup_acks, if self.local_rx_dup_acks == u8::max_value() { "+" } else { "" });
 
-                    if self.local_rx_dup_acks == 2 {
+                    if self.local_rx_dup_acks == 1 {
                         /* update congestion control use Reno (fast recovery) */
                         self.congestion_window_size = cmp::max(self.remote_mss, cmp::min(self.remote_win_len, self.congestion_window_size) / 2);
                         self.congestion_slow_start_threshold = self.congestion_window_size;
@@ -1619,8 +1619,12 @@ impl<'a> TcpSocket<'a> {
                     continue;
                 }
 
-                let offset = (self.local_seq_no.0 - (*left as i32)) as usize;
-                let len = (right - left) + 1 /* sACK is inclusive so (+1) */;
+                let offset = ((*left as i32) - self.local_seq_no.0) as usize;
+                if offset >= self.tx_buffer.len() {
+                    continue;
+                }
+
+                let len = right - left;
 
                 if len > 0 {
                     // Note, don't care about failure to insert as sACKs are advisory
@@ -1908,8 +1912,8 @@ impl<'a> TcpSocket<'a> {
                     }
 
                     // data already received, move offset to next contig
-                    if offset <= right {
-                        offset = right + 1;
+                    if offset < right {
+                        offset = right;
                     }
                 }
 
@@ -3168,6 +3172,122 @@ mod test {
     fn test_sack_tx_skip() {
         let mut s = socket_established_with_buffer_sizes(4000, 4000);
         s.remote_has_sack = true;
+        s.remote_mss = 5;
+
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            ..SEND_TEMPL
+        });
+
+        s.send_slice("123456789x12345678906789c6789d".as_bytes()).unwrap();
+
+        recv!(s, time 1000, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1 + 5 * 0,
+            ack_number: Some(REMOTE_SEQ + 1),
+            window_len: 4000,
+            payload: "12345".as_bytes(),
+            ..RECV_TEMPL
+        }));
+        recv!(s, time 1005, Ok(TcpRepr { // dropped
+            seq_number: LOCAL_SEQ + 1 + 5 * 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            window_len: 4000,
+            payload: "6789x".as_bytes(),
+            ..RECV_TEMPL
+        }));
+        recv!(s, time 1010, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1 + 5 * 2,
+            ack_number: Some(REMOTE_SEQ + 1),
+            window_len: 4000,
+            payload: "12345".as_bytes(),
+            ..RECV_TEMPL
+        }));
+        recv!(s, time 1015, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1 + 5 * 3,
+            ack_number: Some(REMOTE_SEQ + 1),
+            window_len: 4000,
+            payload: "67890".as_bytes(),
+            ..RECV_TEMPL
+        }));
+        recv!(s, time 1020, Ok(TcpRepr { // dropped
+            seq_number: LOCAL_SEQ + 1 + 5 * 4,
+            ack_number: Some(REMOTE_SEQ + 1),
+            window_len: 4000,
+            payload: "6789c".as_bytes(),
+            ..RECV_TEMPL
+        }));
+        recv!(s, time 1020, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1 + 5 * 5,
+            ack_number: Some(REMOTE_SEQ + 1),
+            window_len: 4000,
+            payload: "6789d".as_bytes(),
+            ..RECV_TEMPL
+        }));
+
+        // OG ACK
+        send!(s, time 1020, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1 + 5 * 1),
+            sack_ranges: [
+                None,
+                None,
+                None
+            ],
+            ..SEND_TEMPL
+        });
+
+        // First duplicate ACK
+        send!(s, time 1020, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1 + 5 * 1),
+            sack_ranges: [
+                None,
+                None,
+                None
+            ],
+            ..SEND_TEMPL
+        });
+
+        // Second duplicate ACK
+        send!(s, time 1025, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1 + 5 * 1),
+            sack_ranges: [
+                Some((LOCAL_SEQ.0 as u32 + 1 + 5 * 2, LOCAL_SEQ.0 as u32 + 1 + 5 * 3)),
+                None,
+                None,
+            ],
+            ..SEND_TEMPL
+        });
+
+        // Third duplicate ACK, trigger fast retransmit
+        send!(s, time 1030, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1 + 5 * 1),
+            sack_ranges: [
+                Some((LOCAL_SEQ.0 as u32 + 1 + 5 * 2, LOCAL_SEQ.0 as u32 + 1 + 5 * 4)),
+                Some((LOCAL_SEQ.0 as u32 + 1 + 5 * 5, LOCAL_SEQ.0 as u32 + 1 + 5 * 6)),
+                None,
+            ],
+            ..SEND_TEMPL
+        });
+
+        recv!(s, time 1100, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1 + 5 * 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            window_len: 4000,
+            payload: "6789x".as_bytes(),
+            ..RECV_TEMPL
+        }));
+
+        recv!(s, time 1100, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1 + 5 * 4,
+            ack_number: Some(REMOTE_SEQ + 1),
+            window_len: 4000,
+            payload: "6789c".as_bytes(),
+            ..RECV_TEMPL
+        }));
     }
 
     #[test]
