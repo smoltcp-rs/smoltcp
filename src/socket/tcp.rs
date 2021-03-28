@@ -1913,19 +1913,19 @@ impl<'a> TcpSocket<'a> {
                     }
                 }
 
-                // advance sequence
-                if offset != original_offset {
-                    self.remote_last_seq += offset - original_offset;
-                    repr.seq_number = self.remote_last_seq;
-                }
-
                 let size = cmp::min(cmp::min(send_till_offset.max(offset) - offset, self.remote_mss),
                      caps.max_transmission_unit - ip_repr.buffer_len() - repr.mss_header_len());
                 repr.payload = self.tx_buffer.get_allocated(offset, size);
 
-                // Remove sACKs that were used because on next retransmit timeout we don't want to
-                // use them.
-                self.tx_buffer_sack_ranges.replace_start_with_hole(offset + size);
+                // sACK was used
+                if offset != original_offset {
+                    self.remote_last_seq += offset - original_offset;
+                    repr.seq_number = self.remote_last_seq;
+
+                    // Remove sACKs that were used because on next retransmit timeout we don't want to
+                    // use them.
+                    self.tx_buffer_sack_ranges.replace_start_with_hole(offset + size);
+                }
 
                 // If we've sent everything we had in the buffer, follow it with the PSH or FIN
                 // flags, depending on whether the transmit half of the connection is open.
@@ -3162,6 +3162,12 @@ mod test {
                 ],
                 ..RECV_TEMPL
             })));
+    }
+
+    #[test]
+    fn test_sack_tx_skip() {
+        let mut s = socket_established_with_buffer_sizes(4000, 4000);
+        s.remote_has_sack = true;
     }
 
     #[test]
