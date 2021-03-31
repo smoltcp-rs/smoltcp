@@ -170,9 +170,9 @@ or `BufWriter` is used, which are of course not available on heap-less systems.
 
 This feature is disabled by default.
 
-### Features `phy-raw_socket` and `phy-tap_interface`
+### Features `phy-raw_socket` and `phy-tuntap_interface`
 
-Enable `smoltcp::phy::RawSocket` and `smoltcp::phy::TapInterface`, respectively.
+Enable `smoltcp::phy::RawSocket` and `smoltcp::phy::TunTapInterface`, respectively.
 
 These features are enabled by default.
 
@@ -270,19 +270,19 @@ The host is assigned the hardware address `02-00-00-00-00-02`, IPv4 address `192
 Read its [source code](/examples/httpclient.rs), then run it as:
 
 ```sh
-cargo run --example httpclient -- tap0 ADDRESS URL
+cargo run --example httpclient -- --tap tap0 ADDRESS URL
 ```
 
 For example:
 
 ```sh
-cargo run --example httpclient -- tap0 93.184.216.34 http://example.org/
+cargo run --example httpclient -- --tap tap0 93.184.216.34 http://example.org/
 ```
 
 or:
 
 ```sh
-cargo run --example httpclient -- tap0 2606:2800:220:1:248:1893:25c8:1946 http://example.org/
+cargo run --example httpclient -- --tap tap0 2606:2800:220:1:248:1893:25c8:1946 http://example.org/
 ```
 
 It connects to the given address (not a hostname) and URL, and prints any returned response data.
@@ -297,7 +297,7 @@ The host is assigned the hardware address `02-00-00-00-00-02` and IPv4 address `
 Read its [source code](/examples/ping.rs), then run it as:
 
 ```sh
-cargo run --example ping -- tap0 ADDRESS
+cargo run --example ping -- --tap tap0 ADDRESS
 ```
 
 It sends a series of 4 ICMP ECHO\_REQUEST packets to the given address at one second intervals and
@@ -319,7 +319,7 @@ The host is assigned the hardware address `02-00-00-00-00-01` and IPv4 address `
 Read its [source code](/examples/server.rs), then run it as:
 
 ```sh
-cargo run --example server -- tap0
+cargo run --example server -- --tap tap0
 ```
 
 It responds to:
@@ -349,7 +349,7 @@ The host is assigned the hardware address `02-00-00-00-00-02` and IPv4 address `
 Read its [source code](/examples/client.rs), then run it as:
 
 ```sh
-cargo run --example client -- tap0 ADDRESS PORT
+cargo run --example client -- --tap tap0 ADDRESS PORT
 ```
 
 It connects to the given address (not a hostname) and port (e.g. `socat stdio tcp4-listen:1234`),
@@ -362,7 +362,7 @@ _examples/benchmark.rs_ implements a simple throughput benchmark.
 Read its [source code](/examples/benchmark.rs), then run it as:
 
 ```sh
-cargo run --release --example benchmark -- tap0 [reader|writer]
+cargo run --release --example benchmark -- --tap tap0 [reader|writer]
 ```
 
 It establishes a connection to itself from a different thread and reads or writes a large amount
@@ -372,9 +372,9 @@ A typical result (achieved on a Intel Core i7-7500U CPU and a Linux 4.9.65 x86_6
 on a Dell XPS 13 9360 laptop) is as follows:
 
 ```
-$ cargo run -q --release --example benchmark tap0 reader
+$ cargo run -q --release --example benchmark -- --tap tap0 reader
 throughput: 2.556 Gbps
-$ cargo run -q --release --example benchmark tap0 writer
+$ cargo run -q --release --example benchmark -- --tap tap0 writer
 throughput: 5.301 Gbps
 ```
 
@@ -391,7 +391,7 @@ Although it does not require `std`, this example still requires the `alloc` feat
 Read its [source code](/examples/loopback.rs), then run it without `std`:
 
 ```sh
-cargo run --example loopback --no-default-features --features="log proto-ipv4  socket-tcp alloc"
+cargo run --example loopback --no-default-features --features="log proto-ipv4 socket-tcp alloc"
 ```
 
 ... or with `std` (in this case the features don't have to be explicitly listed):

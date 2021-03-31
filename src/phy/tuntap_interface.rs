@@ -5,46 +5,49 @@ use std::io;
 use std::os::unix::io::{RawFd, AsRawFd};
 
 use crate::Result;
-use crate::phy::{self, sys, DeviceCapabilities, Device};
+use crate::phy::{self, sys, DeviceCapabilities, Device, Medium};
 use crate::time::Instant;
 
-/// A virtual Ethernet interface.
+/// A virtual TUN (IP) or TAP (Ethernet) interface.
 #[derive(Debug)]
-pub struct TapInterface {
-    lower:  Rc<RefCell<sys::TapInterfaceDesc>>,
-    mtu:    usize
+pub struct TunTapInterface {
+    lower:  Rc<RefCell<sys::TunTapInterfaceDesc>>,
+    mtu:    usize,
+    medium: Medium,
 }
 
-impl AsRawFd for TapInterface {
+impl AsRawFd for TunTapInterface {
     fn as_raw_fd(&self) -> RawFd {
         self.lower.borrow().as_raw_fd()
     }
 }
 
-impl TapInterface {
-    /// Attaches to a TAP interface called `name`, or creates it if it does not exist.
+impl TunTapInterface {
+    /// Attaches to a TUN/TAP interface called `name`, or creates it if it does not exist.
     ///
     /// If `name` is a persistent interface configured with UID of the current user,
     /// no special privileges are needed. Otherwise, this requires superuser privileges
     /// or a corresponding capability set on the executable.
-    pub fn new(name: &str) -> io::Result<TapInterface> {
-        let mut lower = sys::TapInterfaceDesc::new(name)?;
+    pub fn new(name: &str, medium: Medium) -> io::Result<TunTapInterface> {
+        let mut lower = sys::TunTapInterfaceDesc::new(name, medium)?;
         lower.attach_interface()?;
         let mtu = lower.interface_mtu()?;
-        Ok(TapInterface {
+        Ok(TunTapInterface {
             lower: Rc::new(RefCell::new(lower)),
-            mtu:   mtu
+            mtu,
+            medium,
         })
     }
 }
 
-impl<'a> Device<'a> for TapInterface {
+impl<'a> Device<'a> for TunTapInterface {
     type RxToken = RxToken;
     type TxToken = TxToken;
 
     fn capabilities(&self) -> DeviceCapabilities {
         DeviceCapabilities {
             max_transmission_unit: self.mtu,
+            medium: self.medium,
             ..DeviceCapabilities::default()
         }
     }
@@ -88,7 +91,7 @@ impl phy::RxToken for RxToken {
 
 #[doc(hidden)]
 pub struct TxToken {
-    lower: Rc<RefCell<sys::TapInterfaceDesc>>,
+    lower: Rc<RefCell<sys::TunTapInterfaceDesc>>,
 }
 
 impl phy::TxToken for TxToken {

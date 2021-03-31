@@ -3,9 +3,9 @@ mod utils;
 
 use std::collections::BTreeMap;
 use std::os::unix::io::AsRawFd;
-use smoltcp::phy::wait as phy_wait;
+use smoltcp::phy::{Device, Medium, wait as phy_wait};
 use smoltcp::wire::{EthernetAddress, Ipv4Address, IpCidr, Ipv4Cidr};
-use smoltcp::iface::{NeighborCache, EthernetInterfaceBuilder, Routes};
+use smoltcp::iface::{NeighborCache, InterfaceBuilder, Routes};
 use smoltcp::socket::{SocketSet, RawSocketBuffer, RawPacketMetadata};
 use smoltcp::time::Instant;
 use smoltcp::dhcp::Dhcpv4Client;
@@ -15,11 +15,11 @@ fn main() {
     utils::setup_logging("");
 
     let (mut opts, mut free) = utils::create_options();
-    utils::add_tap_options(&mut opts, &mut free);
+    utils::add_tuntap_options(&mut opts, &mut free);
     utils::add_middleware_options(&mut opts, &mut free);
 
     let mut matches = utils::parse_options(&opts, free);
-    let device = utils::parse_tap_options(&mut matches);
+    let device = utils::parse_tuntap_options(&mut matches);
     let fd = device.as_raw_fd();
     let device = utils::parse_middleware_options(&mut matches, device, /*loopback=*/false);
 
@@ -28,12 +28,17 @@ fn main() {
     let ip_addrs = [IpCidr::new(Ipv4Address::UNSPECIFIED.into(), 0)];
     let mut routes_storage = [None; 1];
     let routes = Routes::new(&mut routes_storage[..]);
-    let mut iface = EthernetInterfaceBuilder::new(device)
-            .ethernet_addr(ethernet_addr)
-            .neighbor_cache(neighbor_cache)
+
+    let medium = device.capabilities().medium;
+    let mut builder = InterfaceBuilder::new(device)
             .ip_addrs(ip_addrs)
-            .routes(routes)
-            .finalize();
+            .routes(routes);
+    if medium == Medium::Ethernet {
+        builder = builder
+            .ethernet_addr(ethernet_addr)
+            .neighbor_cache(neighbor_cache);
+    }
+    let mut iface = builder.finalize();
 
     let mut sockets = SocketSet::new(vec![]);
     let dhcp_rx_buffer = RawSocketBuffer::new(

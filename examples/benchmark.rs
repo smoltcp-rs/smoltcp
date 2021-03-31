@@ -11,9 +11,9 @@ use std::net::TcpStream;
 use std::os::unix::io::AsRawFd;
 use log::debug;
 
-use smoltcp::phy::wait as phy_wait;
+use smoltcp::phy::{Device, Medium, wait as phy_wait};
 use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr};
-use smoltcp::iface::{NeighborCache, EthernetInterfaceBuilder};
+use smoltcp::iface::{NeighborCache, InterfaceBuilder};
 use smoltcp::socket::SocketSet;
 use smoltcp::socket::{TcpSocket, TcpSocketBuffer};
 use smoltcp::time::{Duration, Instant};
@@ -62,12 +62,12 @@ fn main() {
     utils::setup_logging("info");
 
     let (mut opts, mut free) = utils::create_options();
-    utils::add_tap_options(&mut opts, &mut free);
+    utils::add_tuntap_options(&mut opts, &mut free);
     utils::add_middleware_options(&mut opts, &mut free);
     free.push("MODE");
 
     let mut matches = utils::parse_options(&opts, free);
-    let device = utils::parse_tap_options(&mut matches);
+    let device = utils::parse_tuntap_options(&mut matches);
     let fd = device.as_raw_fd();
     let device = utils::parse_middleware_options(&mut matches, device, /*loopback=*/false);
     let mode = match matches.free[0].as_ref() {
@@ -90,11 +90,15 @@ fn main() {
 
     let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
     let ip_addrs = [IpCidr::new(IpAddress::v4(192, 168, 69, 1), 24)];
-    let mut iface = EthernetInterfaceBuilder::new(device)
+    let medium = device.capabilities().medium;
+    let mut builder = InterfaceBuilder::new(device)
+            .ip_addrs(ip_addrs);
+    if medium == Medium::Ethernet {
+        builder = builder
             .ethernet_addr(ethernet_addr)
-            .neighbor_cache(neighbor_cache)
-            .ip_addrs(ip_addrs)
-            .finalize();
+            .neighbor_cache(neighbor_cache);
+    }
+    let mut iface = builder.finalize();
 
     let mut sockets = SocketSet::new(vec![]);
     let tcp1_handle = sockets.add(tcp1_socket);

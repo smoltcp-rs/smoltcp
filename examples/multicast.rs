@@ -7,7 +7,7 @@ use log::debug;
 use smoltcp::phy::wait as phy_wait;
 use smoltcp::wire::{EthernetAddress, IpVersion, IpProtocol, IpAddress, IpCidr, Ipv4Address,
                     Ipv4Packet, IgmpPacket, IgmpRepr};
-use smoltcp::iface::{NeighborCache, EthernetInterfaceBuilder};
+use smoltcp::iface::{NeighborCache, InterfaceBuilder};
 use smoltcp::socket::{SocketSet,
                       RawSocket, RawSocketBuffer, RawPacketMetadata,
                       UdpSocket, UdpSocketBuffer, UdpPacketMetadata};
@@ -20,11 +20,11 @@ fn main() {
     utils::setup_logging("warn");
 
     let (mut opts, mut free) = utils::create_options();
-    utils::add_tap_options(&mut opts, &mut free);
+    utils::add_tuntap_options(&mut opts, &mut free);
     utils::add_middleware_options(&mut opts, &mut free);
 
     let mut matches = utils::parse_options(&opts, free);
-    let device = utils::parse_tap_options(&mut matches);
+    let device = utils::parse_tuntap_options(&mut matches);
     let fd = device.as_raw_fd();
     let device = utils::parse_middleware_options(&mut matches,
                                                  device,
@@ -37,7 +37,7 @@ fn main() {
     let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x02]);
     let ip_addr = IpCidr::new(IpAddress::from(local_addr), 24);
     let mut ipv4_multicast_storage = [None; 1];
-    let mut iface = EthernetInterfaceBuilder::new(device)
+    let mut iface = InterfaceBuilder::new(device)
             .ethernet_addr(ethernet_addr)
             .neighbor_cache(neighbor_cache)
             .ip_addrs([ip_addr])

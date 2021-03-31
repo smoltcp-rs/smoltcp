@@ -8,9 +8,10 @@ and implementations of it:
   * _middleware_ [Tracer](struct.Tracer.html) and
     [FaultInjector](struct.FaultInjector.html), to facilitate debugging;
   * _adapters_ [RawSocket](struct.RawSocket.html) and
-    [TapInterface](struct.TapInterface.html), to transmit and receive frames
+    [TunTapInterface](struct.TunTapInterface.html), to transmit and receive frames
     on the host OS.
-
+*/
+#![cfg_attr(feature = "medium-ethernet", doc = r##"
 # Examples
 
 An implementation of the [Device](trait.Device.html) trait for a simple hardware
@@ -18,7 +19,7 @@ Ethernet controller could look as follows:
 
 ```rust
 use smoltcp::Result;
-use smoltcp::phy::{self, DeviceCapabilities, Device};
+use smoltcp::phy::{self, DeviceCapabilities, Device, Medium};
 use smoltcp::time::Instant;
 
 struct StmPhy {
@@ -52,6 +53,7 @@ impl<'a> phy::Device<'a> for StmPhy {
         let mut caps = DeviceCapabilities::default();
         caps.max_transmission_unit = 1536;
         caps.max_burst_size = Some(1);
+        caps.medium = Medium::Ethernet;
         caps
     }
 }
@@ -82,12 +84,12 @@ impl<'a> phy::TxToken for StmPhyTxToken<'a> {
     }
 }
 ```
-*/
+"##)]
 
 use crate::Result;
 use crate::time::Instant;
 
-#[cfg(all(any(feature = "phy-raw_socket", feature = "phy-tap_interface"), unix))]
+#[cfg(all(any(feature = "phy-raw_socket", feature = "phy-tuntap_interface"), unix))]
 mod sys;
 
 mod tracer;
@@ -98,10 +100,10 @@ mod pcap_writer;
 mod loopback;
 #[cfg(all(feature = "phy-raw_socket", unix))]
 mod raw_socket;
-#[cfg(all(feature = "phy-tap_interface", any(target_os = "linux", target_os = "android")))]
-mod tap_interface;
+#[cfg(all(feature = "phy-tuntap_interface", any(target_os = "linux", target_os = "android")))]
+mod tuntap_interface;
 
-#[cfg(all(any(feature = "phy-raw_socket", feature = "phy-tap_interface"), unix))]
+#[cfg(all(any(feature = "phy-raw_socket", feature = "phy-tuntap_interface"), unix))]
 pub use self::sys::wait;
 
 pub use self::tracer::Tracer;
@@ -112,12 +114,8 @@ pub use self::pcap_writer::{PcapLinkType, PcapMode, PcapSink, PcapWriter};
 pub use self::loopback::Loopback;
 #[cfg(all(feature = "phy-raw_socket", unix))]
 pub use self::raw_socket::RawSocket;
-#[cfg(all(feature = "phy-tap_interface", any(target_os = "linux", target_os = "android")))]
-pub use self::tap_interface::TapInterface;
-
-#[cfg(feature = "ethernet")]
-/// A tracer device for Ethernet frames.
-pub type EthernetTracer<T> = Tracer<T, super::wire::EthernetFrame<&'static [u8]>>;
+#[cfg(all(feature = "phy-tuntap_interface", any(target_os = "linux", target_os = "android")))]
+pub use self::tuntap_interface::TunTapInterface;
 
 /// A description of checksum behavior for a particular protocol.
 #[derive(Debug, Clone, Copy)]
@@ -192,6 +190,13 @@ impl ChecksumCapabilities {
 #[derive(Debug, Clone, Default)]
 #[non_exhaustive]
 pub struct DeviceCapabilities {
+    /// Medium of the device.
+    ///
+    /// This indicates what kind of packet the sent/received bytes are, and determines
+    /// some behaviors of Interface. For example, ARP/NDISC address resolution is only done
+    /// for Ethernet mediums.
+    pub medium: Medium,
+
     /// Maximum transmission unit.
     ///
     /// The network device is unable to send or receive frames larger than the value returned
@@ -220,6 +225,36 @@ pub struct DeviceCapabilities {
     /// If the network device is capable of verifying or computing checksums for some protocols,
     /// it can request that the stack not do so in software to improve performance.
     pub checksum: ChecksumCapabilities,
+}
+
+/// Type of medium of a device.
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
+pub enum Medium {
+    /// Ethernet medium. Devices of this type send and receive Ethernet frames,
+    /// and interfaces using it must do neighbor discovery via ARP or NDISC.
+    ///
+    /// Examples of devices of this type are Ethernet, WiFi (802.11), Linux `tap`, and VPNs in tap (layer 2) mode.
+    #[cfg(feature = "medium-ethernet")]
+    Ethernet,
+
+    /// IP medium. Devices of this type send and receive IP frames, without an
+    /// Ethernet header. MAC addresses are not used, and no neighbor discovery (ARP, NDISC) is done.
+    ///
+    /// Examples of devices of this type are the Linux `tun`, PPP interfaces, VPNs in tun (layer 3) mode.
+    #[cfg(feature = "medium-ip")]
+    Ip,
+}
+
+
+impl Default for Medium {
+    fn default() -> Medium {
+        #[cfg(feature = "medium-ethernet")]
+        return Medium::Ethernet;
+        #[cfg(all(feature = "medium-ip", not(feature = "medium-ethernet")))]
+        return Medium::Ip;
+        #[cfg(all(not(feature = "medium-ip"), not(feature = "medium-ethernet")))]
+        panic!("No medium enabled");
+    }
 }
 
 /// An interface for sending and receiving raw network frames.

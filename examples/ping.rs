@@ -8,13 +8,13 @@ use std::collections::HashMap;
 use log::debug;
 use byteorder::{ByteOrder, NetworkEndian};
 
-use smoltcp::time::{Duration, Instant};
+use smoltcp::{phy::Medium, time::{Duration, Instant}};
 use smoltcp::phy::Device;
 use smoltcp::phy::wait as phy_wait;
 use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr,
                     Ipv6Address, Icmpv6Repr, Icmpv6Packet,
                     Ipv4Address, Icmpv4Repr, Icmpv4Packet};
-use smoltcp::iface::{NeighborCache, EthernetInterfaceBuilder, Routes};
+use smoltcp::iface::{NeighborCache, InterfaceBuilder, Routes};
 use smoltcp::socket::{SocketSet, IcmpSocket, IcmpSocketBuffer, IcmpPacketMetadata, IcmpEndpoint};
 
 macro_rules! send_icmp_ping {
@@ -55,7 +55,7 @@ fn main() {
     utils::setup_logging("warn");
 
     let (mut opts, mut free) = utils::create_options();
-    utils::add_tap_options(&mut opts, &mut free);
+    utils::add_tuntap_options(&mut opts, &mut free);
     utils::add_middleware_options(&mut opts, &mut free);
     opts.optopt("c", "count", "Amount of echo request packets to send (default: 4)", "COUNT");
     opts.optopt("i", "interval",
@@ -66,7 +66,7 @@ fn main() {
     free.push("ADDRESS");
 
     let mut matches = utils::parse_options(&opts, free);
-    let device = utils::parse_tap_options(&mut matches);
+    let device = utils::parse_tuntap_options(&mut matches);
     let fd = device.as_raw_fd();
     let device = utils::parse_middleware_options(&mut matches, device, /*loopback=*/false);
     let device_caps = device.capabilities();
@@ -98,12 +98,17 @@ fn main() {
     let mut routes = Routes::new(&mut routes_storage[..]);
     routes.add_default_ipv4_route(default_v4_gw).unwrap();
     routes.add_default_ipv6_route(default_v6_gw).unwrap();
-    let mut iface = EthernetInterfaceBuilder::new(device)
-            .ethernet_addr(ethernet_addr)
+
+    let medium = device.capabilities().medium;
+    let mut builder = InterfaceBuilder::new(device)
             .ip_addrs(ip_addrs)
-            .routes(routes)
-            .neighbor_cache(neighbor_cache)
-            .finalize();
+            .routes(routes);
+    if medium == Medium::Ethernet {
+        builder = builder
+            .ethernet_addr(ethernet_addr)
+            .neighbor_cache(neighbor_cache);
+    }
+    let mut iface = builder.finalize();
 
     let mut sockets = SocketSet::new(vec![]);
     let icmp_handle = sockets.add(icmp_socket);

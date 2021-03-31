@@ -5,9 +5,9 @@ use std::collections::BTreeMap;
 use std::os::unix::io::AsRawFd;
 use log::debug;
 
-use smoltcp::phy::wait as phy_wait;
+use smoltcp::phy::{Device, Medium, wait as phy_wait};
 use smoltcp::wire::{EthernetAddress, Ipv4Address, IpAddress, IpCidr};
-use smoltcp::iface::{NeighborCache, EthernetInterfaceBuilder, Routes};
+use smoltcp::iface::{NeighborCache, InterfaceBuilder, Routes};
 use smoltcp::socket::{SocketSet, TcpSocket, TcpSocketBuffer};
 use smoltcp::time::Instant;
 
@@ -15,13 +15,14 @@ fn main() {
     utils::setup_logging("");
 
     let (mut opts, mut free) = utils::create_options();
-    utils::add_tap_options(&mut opts, &mut free);
+    utils::add_tuntap_options(&mut opts, &mut free);
     utils::add_middleware_options(&mut opts, &mut free);
     free.push("ADDRESS");
     free.push("PORT");
 
     let mut matches = utils::parse_options(&opts, free);
-    let device = utils::parse_tap_options(&mut matches);
+    let device = utils::parse_tuntap_options(&mut matches);
+
     let fd = device.as_raw_fd();
     let device = utils::parse_middleware_options(&mut matches, device, /*loopback=*/false);
     let address = IpAddress::from_str(&matches.free[0]).expect("invalid address format");
@@ -39,12 +40,17 @@ fn main() {
     let mut routes_storage = [None; 1];
     let mut routes = Routes::new(&mut routes_storage[..]);
     routes.add_default_ipv4_route(default_v4_gw).unwrap();
-    let mut iface = EthernetInterfaceBuilder::new(device)
-            .ethernet_addr(ethernet_addr)
-            .neighbor_cache(neighbor_cache)
+    
+    let medium = device.capabilities().medium;
+    let mut builder = InterfaceBuilder::new(device)
             .ip_addrs(ip_addrs)
-            .routes(routes)
-            .finalize();
+            .routes(routes);
+    if medium == Medium::Ethernet {
+        builder = builder
+            .ethernet_addr(ethernet_addr)
+            .neighbor_cache(neighbor_cache);
+    }
+    let mut iface = builder.finalize();
 
     let mut sockets = SocketSet::new(vec![]);
     let tcp_handle = sockets.add(tcp_socket);

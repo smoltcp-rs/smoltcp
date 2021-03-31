@@ -3,7 +3,7 @@
 use core::str::FromStr;
 use core::result;
 
-#[cfg(feature = "ethernet")]
+#[cfg(feature = "medium-ethernet")]
 use crate::wire::EthernetAddress;
 use crate::wire::{IpAddress, IpCidr, IpEndpoint};
 #[cfg(feature = "proto-ipv4")]
@@ -118,7 +118,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    #[cfg(feature = "ethernet")]
+    #[cfg(feature = "medium-ethernet")]
     fn accept_mac_joined_with(&mut self, separator: u8) -> Result<EthernetAddress> {
         let mut octets = [0u8; 6];
         for (n, octet) in octets.iter_mut().enumerate() {
@@ -130,7 +130,7 @@ impl<'a> Parser<'a> {
         Ok(EthernetAddress(octets))
     }
 
-    #[cfg(feature = "ethernet")]
+    #[cfg(feature = "medium-ethernet")]
     fn accept_mac(&mut self) -> Result<EthernetAddress> {
         if let Some(mac) = self.try_do(|p| p.accept_mac_joined_with(b'-')) {
             return Ok(mac)
@@ -352,7 +352,7 @@ impl<'a> Parser<'a> {
     }
 }
 
-#[cfg(feature = "ethernet")]
+#[cfg(feature = "medium-ethernet")]
 impl FromStr for EthernetAddress {
     type Err = ();
 
@@ -473,7 +473,7 @@ mod test {
     }
 
     #[test]
-    #[cfg(all(feature = "proto-ipv4", feature = "ethernet"))]
+    #[cfg(all(feature = "proto-ipv4", feature = "medium-ethernet"))]
     fn test_mac() {
         assert_eq!(EthernetAddress::from_str(""), Err(()));
         assert_eq!(EthernetAddress::from_str("02:00:00:00:00:00"),

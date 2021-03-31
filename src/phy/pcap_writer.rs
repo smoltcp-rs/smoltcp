@@ -3,6 +3,7 @@ use std::cell::RefCell;
 #[cfg(feature = "std")]
 use std::io::Write;
 use byteorder::{ByteOrder, NativeEndian};
+use phy::Medium;
 
 use crate::Result;
 use crate::phy::{self, DeviceCapabilities, Device};
@@ -14,7 +15,7 @@ enum_with_unknown! {
         /// Ethernet frames
         Ethernet =   1,
         /// IPv4 or IPv6 packets (depending on the version field)
-        Ip       = 101
+        Ip       = 101,
     }
 }
 
@@ -128,7 +129,14 @@ pub struct PcapWriter<D, S>
 
 impl<D: for<'a> Device<'a>, S: PcapSink + Clone> PcapWriter<D, S> {
     /// Creates a packet capture writer.
-    pub fn new(lower: D, sink: S, mode: PcapMode, link_type: PcapLinkType) -> PcapWriter<D, S> {
+    pub fn new(lower: D, sink: S, mode: PcapMode) -> PcapWriter<D, S> {
+        let medium = lower.capabilities().medium;
+        let link_type = match medium {
+            #[cfg(feature = "medium-ip")]
+            Medium::Ip => PcapLinkType::Ip,
+            #[cfg(feature = "medium-ethernet")]
+            Medium::Ethernet => PcapLinkType::Ethernet,
+        };
         sink.global_header(link_type);
         PcapWriter { lower, sink, mode }
     }

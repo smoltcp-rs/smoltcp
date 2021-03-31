@@ -14,10 +14,10 @@ use log::{Level, LevelFilter, trace};
 use env_logger::Builder;
 use getopts::{Options, Matches};
 
-use smoltcp::phy::{Device, EthernetTracer, FaultInjector};
-#[cfg(feature = "phy-tap_interface")]
-use smoltcp::phy::TapInterface;
-use smoltcp::phy::{PcapWriter, PcapSink, PcapMode, PcapLinkType};
+use smoltcp::phy::{Device, Tracer, FaultInjector, Medium};
+#[cfg(feature = "phy-tuntap_interface")]
+use smoltcp::phy::TunTapInterface;
+use smoltcp::phy::{PcapWriter, PcapSink, PcapMode};
 use smoltcp::phy::RawSocket;
 use smoltcp::time::{Duration, Instant};
 
@@ -77,14 +77,20 @@ pub fn parse_options(options: &Options, free: Vec<&str>) -> Matches {
     }
 }
 
-pub fn add_tap_options(_opts: &mut Options, free: &mut Vec<&str>) {
-    free.push("INTERFACE");
+pub fn add_tuntap_options(opts: &mut Options, _free: &mut Vec<&str>) {
+    opts.optopt("", "tun", "TUN interface to use", "tun0");
+    opts.optopt("", "tap", "TAP interface to use", "tap0");
 }
 
-#[cfg(feature = "phy-tap_interface")]
-pub fn parse_tap_options(matches: &mut Matches) -> TapInterface {
-    let interface = matches.free.remove(0);
-    TapInterface::new(&interface).unwrap()
+#[cfg(feature = "phy-tuntap_interface")]
+pub fn parse_tuntap_options(matches: &mut Matches) -> TunTapInterface {
+    let tun = matches.opt_str("tun");
+    let tap = matches.opt_str("tap");
+    match(tun,tap) {
+        (Some(tun), None) => TunTapInterface::new(&tun, Medium::Ip).unwrap(),
+        (None, Some(tap)) => TunTapInterface::new(&tap, Medium::Ethernet).unwrap(),
+        _ => panic!("You must specify exactly one of --tun or --tap"),
+    }
 }
 
 pub fn parse_raw_socket_options(matches: &mut Matches) -> RawSocket {
@@ -105,7 +111,7 @@ pub fn add_middleware_options(opts: &mut Options, _free: &mut Vec<&str>) {
 }
 
 pub fn parse_middleware_options<D>(matches: &mut Matches, device: D, loopback: bool)
-        -> FaultInjector<EthernetTracer<PcapWriter<D, Rc<dyn PcapSink>>>>
+        -> FaultInjector<Tracer<PcapWriter<D, Rc<dyn PcapSink>>>>
     where D: for<'a> Device<'a>
 {
     let drop_chance      = matches.opt_str("drop-chance").map(|s| u8::from_str(&s).unwrap())
@@ -130,13 +136,17 @@ pub fn parse_middleware_options<D>(matches: &mut Matches, device: D, loopback: b
 
     let seed = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().subsec_nanos();
 
-    let device = PcapWriter::new(device, Rc::new(RefCell::new(pcap_writer)) as Rc<dyn PcapSink>,
-                                 if loopback { PcapMode::TxOnly } else { PcapMode::Both },
-                                 PcapLinkType::Ethernet);
-    let device = EthernetTracer::new(device, |_timestamp, _printer| {
+    let device = PcapWriter::new(
+        device,
+        Rc::new(RefCell::new(pcap_writer)) as Rc<dyn PcapSink>,
+        if loopback { PcapMode::TxOnly } else { PcapMode::Both },
+    );
+
+    let device = Tracer::new(device, |_timestamp, _printer| {
         #[cfg(feature = "log")]
         trace!("{}", _printer);
     });
+
     let mut device = FaultInjector::new(device, seed);
     device.set_drop_chance(drop_chance);
     device.set_corrupt_chance(corrupt_chance);
