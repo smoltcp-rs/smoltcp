@@ -97,6 +97,9 @@ compile_error!("You must enable at least one of the following features: proto-ip
 ))]
 compile_error!("If you enable the socket feature, you must enable at least one of the following features: socket-raw, socket-udp, socket-tcp, socket-icmp");
 
+#[cfg(all(feature = "defmt", feature = "log"))]
+compile_error!("You must enable at most one of the following features: defmt, log");
+
 use core::fmt;
 
 #[macro_use]
@@ -116,6 +119,7 @@ pub mod dhcp;
 /// The error type for the networking stack.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     /// An operation cannot proceed because a buffer is empty or full.
     Exhausted,

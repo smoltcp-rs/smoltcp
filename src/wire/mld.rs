@@ -166,6 +166,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
 
 /// A read/write wrapper around an MLDv2 Listener Report Message Address Record.
 #[derive(Debug, PartialEq, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct AddressRecord<T: AsRef<[u8]>> {
     buffer: T
 }
@@ -295,6 +296,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> AddressRecord<T> {
 
 /// A high-level representation of an MLDv2 packet header.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Repr<'a> {
     Query {
         max_resp_code: u16,

@@ -36,6 +36,7 @@ impl fmt::Display for Type {
 }
 
 bitflags! {
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub struct PrefixInfoFlags: u8 {
         const ON_LINK  = 0b10000000;
         const ADDRCONF = 0b01000000;
@@ -46,6 +47,7 @@ bitflags! {
 ///
 /// [NDISC Option]: https://tools.ietf.org/html/rfc4861#section-4.6
 #[derive(Debug, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct NdiscOption<T: AsRef<[u8]>> {
     buffer: T
 }
@@ -393,6 +395,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for NdiscOption<&'a T> {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct PrefixInformation {
     pub prefix_len: u8,
     pub flags: PrefixInfoFlags,
@@ -402,6 +405,7 @@ pub struct PrefixInformation {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct RedirectedHeader<'a> {
     pub header: Ipv6Repr,
     pub data: &'a [u8]
@@ -409,6 +413,7 @@ pub struct RedirectedHeader<'a> {
 
 /// A high-level representation of an NDISC Option.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Repr<'a> {
     SourceLinkLayerAddr(EthernetAddress),
     TargetLinkLayerAddr(EthernetAddress),

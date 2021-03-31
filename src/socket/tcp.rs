@@ -21,6 +21,7 @@ pub type SocketBuffer<'a> = RingBuffer<'a, u8>;
 ///
 /// [RFC 793]: https://tools.ietf.org/html/rfc793
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum State {
     Closed,
     Listen,
@@ -147,6 +148,7 @@ impl RttEstimator {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 enum Timer {
     Idle {
         keep_alive_at: Option<Instant>,

@@ -24,6 +24,7 @@ mod mock {
 
     // should be AtomicU64 but that's unstable
     #[derive(Debug, Clone)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub struct Clock(Arc<AtomicUsize>);
 
     impl Clock {

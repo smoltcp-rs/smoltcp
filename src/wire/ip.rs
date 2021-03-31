@@ -10,6 +10,7 @@ use crate::wire::{Ipv6Address, Ipv6Cidr, Ipv6Packet, Ipv6Repr};
 
 /// Internet protocol version.
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Version {
     Unspecified,
@@ -260,6 +261,19 @@ impl fmt::Display for Address {
     }
 }
 
+#[cfg(feature = "defmt")]
+impl defmt::Format for Address {
+    fn format(&self, f: defmt::Formatter) {
+        match self {
+            &Address::Unspecified     => defmt::write!(f, "{:?}", "*"),
+            #[cfg(feature = "proto-ipv4")]
+            &Address::Ipv4(addr)      => defmt::write!(f, "{:?}", addr),
+            #[cfg(feature = "proto-ipv6")]
+            &Address::Ipv6(addr)      => defmt::write!(f, "{:?}", addr),
+        }
+    }
+}
+
 /// A specification of a CIDR block, containing an address and a variable-length
 /// subnet masking prefix length.
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
@@ -370,6 +384,18 @@ impl fmt::Display for Cidr {
     }
 }
 
+#[cfg(feature = "defmt")]
+impl defmt::Format for Cidr {
+    fn format(&self, f: defmt::Formatter) {
+        match self {
+            #[cfg(feature = "proto-ipv4")]
+            &Cidr::Ipv4(cidr)      => defmt::write!(f, "{:?}", cidr),
+            #[cfg(feature = "proto-ipv6")]
+            &Cidr::Ipv6(cidr)      => defmt::write!(f, "{:?}", cidr),
+        }
+    }
+}
+
 /// An internet endpoint address.
 ///
 /// An endpoint can be constructed from a port, in which case the address is unspecified.
@@ -430,6 +456,13 @@ impl fmt::Display for Endpoint {
     }
 }
 
+#[cfg(feature = "defmt")]
+impl defmt::Format for Endpoint {
+    fn format(&self, f: defmt::Formatter) {
+        defmt::write!(f, "{:?}:{=u16}", self.addr, self.port);
+    }
+}
+
 impl From<u16> for Endpoint {
     fn from(port: u16) -> Endpoint {
         Endpoint { addr: Address::Unspecified, port }
@@ -448,6 +481,7 @@ impl<T: Into<Address>> From<(T, u16)> for Endpoint {
 /// high-level representation for some IP protocol version, or an unspecified representation,
 /// which permits the `IpAddress::Unspecified` addresses.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Repr {
     Unspecified {

@@ -43,6 +43,7 @@ impl MessageType {
 
 /// A representation of a single DHCP option.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum DhcpOption<'a> {
     EndOfList,
     Pad,
@@ -200,6 +201,7 @@ impl<'a> DhcpOption<'a> {
 
 /// A read/write wrapper around a Dynamic Host Configuration Protocol packet buffer.
 #[derive(Debug, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Packet<T: AsRef<[u8]>> {
     buffer: T
 }
@@ -624,6 +626,7 @@ impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Packet<&'a mut T> {
 ///
 /// The `options` field has a variable length.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Repr<'a> {
     /// This field is also known as `op` in the RFC. It indicates the type of DHCP message this
     /// packet represents.

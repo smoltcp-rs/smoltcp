@@ -17,6 +17,7 @@ pub const MIN_MTU: usize = 1280;
 
 /// A sixteen-octet IPv6 address.
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Address(pub [u8; 16]);
 
 impl Address {
@@ -267,6 +268,7 @@ impl From<ipv4::Address> for Address {
 /// A specification of an IPv6 CIDR block, containing an address and a variable-length
 /// subnet masking prefix length.
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Cidr {
     address:    Address,
     prefix_len: u8,
@@ -328,6 +330,7 @@ impl fmt::Display for Cidr {
 
 /// A read/write wrapper around an Internet Protocol version 6 packet buffer.
 #[derive(Debug, PartialEq, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Packet<T: AsRef<[u8]>> {
     buffer: T
 }
@@ -593,6 +596,7 @@ impl<T: AsRef<[u8]>> AsRef<[u8]> for Packet<T> {
 
 /// A high-level representation of an Internet Protocol version 6 packet header.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Repr {
     /// IPv6 address of the source node.
     pub src_addr:    Address,

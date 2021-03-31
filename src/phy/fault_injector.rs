@@ -19,6 +19,7 @@ fn xorshift32(state: &mut u32) -> u32 {
 const MTU: usize = 1536;
 
 #[derive(Debug, Default, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 struct Config {
     corrupt_pct: u8,
     drop_pct:    u8,
@@ -30,6 +31,7 @@ struct Config {
 }
 
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 struct State {
     rng_seed:    u32,
     refilled_at: Instant,

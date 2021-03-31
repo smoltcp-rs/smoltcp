@@ -22,6 +22,7 @@ enum_with_unknown! {
 
 /// A read/write wrapper around an Address Resolution Protocol packet buffer.
 #[derive(Debug, PartialEq, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Packet<T: AsRef<[u8]>> {
     buffer: T
 }
@@ -253,6 +254,7 @@ use crate::wire::{EthernetAddress, Ipv4Address};
 
 /// A high-level representation of an Address Resolution Protocol packet.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Repr {
     /// An Ethernet and IPv4 Address Resolution Protocol packet.

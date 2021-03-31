@@ -5,6 +5,7 @@ use crate::storage::RingBuffer;
 
 /// Size and header of a packet.
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct PacketMetadata<H> {
     size:   usize,
     header: Option<H>

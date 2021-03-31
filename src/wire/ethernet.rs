@@ -25,6 +25,7 @@ impl fmt::Display for EtherType {
 
 /// A six-octet Ethernet II address.
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Address(pub [u8; 6]);
 
 impl Address {
@@ -78,6 +79,7 @@ impl fmt::Display for Address {
 
 /// A read/write wrapper around an Ethernet II frame buffer.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Frame<T: AsRef<[u8]>> {
     buffer: T
 }
@@ -246,6 +248,7 @@ impl<T: AsRef<[u8]>> PrettyPrint for Frame<T> {
 
 /// A high-level representation of an Internet Protocol version 4 packet header.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Repr {
     pub src_addr:    Address,
     pub dst_addr:    Address,
