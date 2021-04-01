@@ -1,9 +1,9 @@
-use crate::{Result, Error};
+use crate::{Error, Result};
 use crate::wire::{IpVersion, IpProtocol, IpEndpoint, IpAddress,
            Ipv4Cidr, Ipv4Address, Ipv4Packet, Ipv4Repr,
            UdpPacket, UdpRepr,
            DhcpPacket, DhcpRepr, DhcpMessageType};
-use crate::wire::dhcpv4::field as dhcpv4_field;
+use crate::wire::dhcpv4::{field as dhcpv4_field, Packet as Dhcpv4Packet};
 use crate::socket::{SocketSet, SocketHandle, RawSocket, RawSocketBuffer};
 use crate::phy::{Device, ChecksumCapabilities};
 use crate::iface::Interface;
@@ -361,18 +361,10 @@ impl Client {
 }
 
 fn send_packet<DeviceT: for<'d> Device<'d>>(iface: &mut Interface<DeviceT>, raw_socket: &mut RawSocket, endpoint: &IpEndpoint, dhcp_repr: &DhcpRepr, checksum_caps: &ChecksumCapabilities) -> Result<()> {
-    let mut dhcp_payload_buf = [0; 320];
-    assert!(dhcp_repr.buffer_len() <= dhcp_payload_buf.len());
-    let dhcp_payload = &mut dhcp_payload_buf[0..dhcp_repr.buffer_len()];
-    {
-        let mut dhcp_packet = DhcpPacket::new_checked(&mut dhcp_payload[..])?;
-        dhcp_repr.emit(&mut dhcp_packet)?;
-    }
 
     let udp_repr = UdpRepr {
         src_port: UDP_CLIENT_PORT,
         dst_port: endpoint.port,
-        payload: dhcp_payload,
     };
 
     let src_addr = iface.ipv4_addr().unwrap();
@@ -384,12 +376,12 @@ fn send_packet<DeviceT: for<'d> Device<'d>>(iface: &mut Interface<DeviceT>, raw_
         src_addr,
         dst_addr,
         protocol: IpProtocol::Udp,
-        payload_len: udp_repr.buffer_len(),
+        payload_len: udp_repr.header_len() + dhcp_repr.buffer_len(),
         hop_limit: 64,
     };
 
     let mut packet = raw_socket.send(
-        ipv4_repr.buffer_len() + udp_repr.buffer_len()
+        ipv4_repr.buffer_len() + udp_repr.header_len() + dhcp_repr.buffer_len()
     )?;
     {
         let mut ipv4_packet = Ipv4Packet::new_unchecked(&mut packet);
@@ -401,6 +393,8 @@ fn send_packet<DeviceT: for<'d> Device<'d>>(iface: &mut Interface<DeviceT>, raw_
         );
         udp_repr.emit(&mut udp_packet,
                       &src_addr.into(), &dst_addr.into(),
+                      dhcp_repr.buffer_len(),
+                      |buf| dhcp_repr.emit(&mut Dhcpv4Packet::new_unchecked(buf)).unwrap(),
                       checksum_caps);
     }
     Ok(())
@@ -423,6 +417,6 @@ fn parse_udp<'a>(data: &'a [u8], checksum_caps: &ChecksumCapabilities) -> Result
         addr: ipv4_repr.dst_addr.into(),
         port: udp_repr.dst_port,
     };
-    let data = udp_repr.payload;
+    let data = udp_packet.payload();
     Ok((src, dst, data))
 }

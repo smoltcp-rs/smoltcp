@@ -263,7 +263,7 @@ pub(crate) enum IpPacket<'a> {
     #[cfg(feature = "socket-raw")]
     Raw((IpRepr, &'a [u8])),
     #[cfg(feature = "socket-udp")]
-    Udp((IpRepr, UdpRepr<'a>)),
+    Udp((IpRepr, UdpRepr, &'a [u8])),
     #[cfg(feature = "socket-tcp")]
     Tcp((IpRepr, TcpRepr<'a>))
 }
@@ -280,7 +280,7 @@ impl<'a> IpPacket<'a> {
             #[cfg(feature = "socket-raw")]
             IpPacket::Raw((ip_repr, _)) => ip_repr.clone(),
             #[cfg(feature = "socket-udp")]
-            IpPacket::Udp((ip_repr, _)) => ip_repr.clone(),
+            IpPacket::Udp((ip_repr, _, _)) => ip_repr.clone(),
             #[cfg(feature = "socket-tcp")]
             IpPacket::Tcp((ip_repr, _)) => ip_repr.clone(),
         }
@@ -289,7 +289,7 @@ impl<'a> IpPacket<'a> {
     pub(crate) fn emit_payload(&self, _ip_repr: IpRepr, payload: &mut [u8], caps: &DeviceCapabilities) {
         match self {
             #[cfg(feature = "proto-ipv4")]
-            IpPacket::Icmpv4((_, icmpv4_repr)) => 
+            IpPacket::Icmpv4((_, icmpv4_repr)) =>
                 icmpv4_repr.emit(&mut Icmpv4Packet::new_unchecked(payload), &caps.checksum),
             #[cfg(feature = "proto-igmp")]
             IpPacket::Igmp((_, igmp_repr)) =>
@@ -302,9 +302,11 @@ impl<'a> IpPacket<'a> {
             IpPacket::Raw((_, raw_packet)) =>
                 payload.copy_from_slice(raw_packet),
             #[cfg(feature = "socket-udp")]
-            IpPacket::Udp((_, udp_repr)) =>
+            IpPacket::Udp((_, udp_repr, inner_payload)) =>
                 udp_repr.emit(&mut UdpPacket::new_unchecked(payload),
-                              &_ip_repr.src_addr(), &_ip_repr.dst_addr(), &caps.checksum),
+                              &_ip_repr.src_addr(), &_ip_repr.dst_addr(),
+                              inner_payload.len(), |buf| buf.copy_from_slice(inner_payload),
+                              &caps.checksum),
             #[cfg(feature = "socket-tcp")]
             IpPacket::Tcp((_, mut tcp_repr)) => {
                 // This is a terrible hack to make TCP performance more acceptable on systems
@@ -880,7 +882,7 @@ impl<'a> InterfaceInner<'a> {
                         self.neighbor_cache.as_mut().unwrap().fill(ip_addr, eth_frame.src_addr(), timestamp);
                     }
                 }
-        
+
                 self.process_ipv6(sockets, timestamp, &ipv6_packet).map(|o| o.map(EthernetPacket::Ip))
             }
             // Drop all other traffic.
@@ -1439,11 +1441,12 @@ impl<'a> InterfaceInner<'a> {
         let udp_packet = UdpPacket::new_checked(ip_payload)?;
         let checksum_caps = self.device_capabilities.checksum.clone();
         let udp_repr = UdpRepr::parse(&udp_packet, &src_addr, &dst_addr, &checksum_caps)?;
+        let udp_payload = udp_packet.payload();
 
         for mut udp_socket in sockets.iter_mut().filter_map(UdpSocket::downcast) {
             if !udp_socket.accepts(&ip_repr, &udp_repr) { continue }
 
-            match udp_socket.process(&ip_repr, &udp_repr) {
+            match udp_socket.process(&ip_repr, &udp_repr, udp_payload) {
                 // The packet is valid and handled by socket.
                 Ok(()) => return Ok(None),
                 // The packet is malformed, or the socket buffer is full.
@@ -1787,6 +1790,13 @@ mod test {
     use crate::socket::SocketSet;
     use crate::phy::{Loopback, ChecksumCapabilities};
 
+    #[allow(unused)]
+    fn fill_slice(s: &mut [u8], val: u8) {
+        for x in s.iter_mut() {
+            *x = val
+        }
+    }
+
     fn create_loopback<'a>() -> (Interface<'a, Loopback>, SocketSet<'a>) {
         #[cfg(feature = "medium-ethernet")]
         return create_loopback_ethernet();
@@ -2035,20 +2045,21 @@ mod test {
         let udp_repr = UdpRepr {
             src_port: 67,
             dst_port: 68,
-            payload:  &UDP_PAYLOAD
         };
 
         let ip_repr = IpRepr::Ipv4(Ipv4Repr {
             src_addr:    Ipv4Address([0x7f, 0x00, 0x00, 0x02]),
             dst_addr:    Ipv4Address([0x7f, 0x00, 0x00, 0x01]),
             protocol:    IpProtocol::Udp,
-            payload_len: udp_repr.buffer_len(),
+            payload_len: udp_repr.header_len() + UDP_PAYLOAD.len(),
             hop_limit:   64
         });
 
         // Emit the representations to a packet
         udp_repr.emit(&mut packet_unicast, &ip_repr.src_addr(),
-                      &ip_repr.dst_addr(), &ChecksumCapabilities::default());
+                      &ip_repr.dst_addr(),
+                      UDP_PAYLOAD.len(), |buf| buf.copy_from_slice( &UDP_PAYLOAD),
+                      &ChecksumCapabilities::default());
 
         let data = packet_unicast.into_inner();
 
@@ -2060,7 +2071,7 @@ mod test {
                 src_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x02]),
                 dst_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x01]),
                 protocol: IpProtocol::Udp,
-                payload_len: udp_repr.buffer_len(),
+                payload_len: udp_repr.header_len() + UDP_PAYLOAD.len(),
                 hop_limit: 64
             },
             data: &data
@@ -2085,13 +2096,14 @@ mod test {
             src_addr:    Ipv4Address([0x7f, 0x00, 0x00, 0x02]),
             dst_addr:    Ipv4Address::BROADCAST,
             protocol:    IpProtocol::Udp,
-            payload_len: udp_repr.buffer_len(),
+            payload_len: udp_repr.header_len() + UDP_PAYLOAD.len(),
             hop_limit:   64
         });
 
         // Emit the representations to a packet
         udp_repr.emit(&mut packet_broadcast, &ip_repr.src_addr(),
                       &IpAddress::Ipv4(Ipv4Address::BROADCAST),
+                      UDP_PAYLOAD.len(), |buf| buf.copy_from_slice( &UDP_PAYLOAD),
                       &ChecksumCapabilities::default());
 
         // Ensure that the port unreachable error does not trigger an
@@ -2129,7 +2141,6 @@ mod test {
         let udp_repr = UdpRepr {
             src_port: 67,
             dst_port: 68,
-            payload:  &UDP_PAYLOAD
         };
 
         #[cfg(feature = "proto-ipv6")]
@@ -2137,7 +2148,7 @@ mod test {
             src_addr:    src_ip,
             dst_addr:    Ipv6Address::LINK_LOCAL_ALL_NODES,
             next_header: IpProtocol::Udp,
-            payload_len: udp_repr.buffer_len(),
+            payload_len: udp_repr.header_len() + UDP_PAYLOAD.len(),
             hop_limit:   0x40
         });
         #[cfg(all(not(feature = "proto-ipv6"), feature = "proto-ipv4"))]
@@ -2145,7 +2156,7 @@ mod test {
             src_addr:    src_ip,
             dst_addr:    Ipv4Address::BROADCAST,
             protocol:    IpProtocol::Udp,
-            payload_len: udp_repr.buffer_len(),
+            payload_len: udp_repr.header_len() + UDP_PAYLOAD.len(),
             hop_limit:   0x40
         });
 
@@ -2158,6 +2169,7 @@ mod test {
         }
 
         udp_repr.emit(&mut packet, &ip_repr.src_addr(), &ip_repr.dst_addr(),
+                      UDP_PAYLOAD.len(), |buf| buf.copy_from_slice( &UDP_PAYLOAD),
                       &ChecksumCapabilities::default());
 
         // Packet should be handled by bound UDP socket
@@ -2260,18 +2272,19 @@ mod test {
         let udp_repr = UdpRepr {
             src_port: 67,
             dst_port: 68,
-            payload: &[0x2a; MAX_PAYLOAD_LEN]
         };
-        let mut bytes = vec![0xff; udp_repr.buffer_len()];
+        let mut bytes = vec![0xff; udp_repr.header_len() + MAX_PAYLOAD_LEN];
         let mut packet = UdpPacket::new_unchecked(&mut bytes[..]);
-        udp_repr.emit(&mut packet, &src_addr.into(), &dst_addr.into(), &ChecksumCapabilities::default());
+        udp_repr.emit(&mut packet, &src_addr.into(), &dst_addr.into(),
+                      MAX_PAYLOAD_LEN, |buf| fill_slice(buf, 0x2a),
+                      &ChecksumCapabilities::default());
         #[cfg(all(feature = "proto-ipv4", not(feature = "proto-ipv6")))]
         let ip_repr = Ipv4Repr {
             src_addr: src_addr,
             dst_addr: dst_addr,
             protocol: IpProtocol::Udp,
             hop_limit: 64,
-            payload_len: udp_repr.buffer_len()
+            payload_len: udp_repr.header_len() + MAX_PAYLOAD_LEN
         };
         #[cfg(feature = "proto-ipv6")]
         let ip_repr = Ipv6Repr {
@@ -2279,7 +2292,7 @@ mod test {
             dst_addr: dst_addr,
             next_header: IpProtocol::Udp,
             hop_limit: 64,
-            payload_len: udp_repr.buffer_len()
+            payload_len: udp_repr.header_len() + MAX_PAYLOAD_LEN
         };
         let payload = packet.into_inner();
 
@@ -2619,7 +2632,7 @@ mod test {
             recv_all(&mut iface, timestamp)
                 .iter()
                 .filter_map(|frame| {
-                    
+
                     let ipv4_packet = match caps.medium {
                         #[cfg(feature = "medium-ethernet")]
                         Medium::Ethernet => {
@@ -2666,11 +2679,11 @@ mod test {
         // General query
         let timestamp = Instant::now();
         const GENERAL_QUERY_BYTES: &[u8] = &[
-            0x46, 0xc0, 0x00, 0x24, 0xed, 0xb4, 0x00, 0x00, 
-            0x01, 0x02, 0x47, 0x43, 0xac, 0x16, 0x63, 0x04, 
-            0xe0, 0x00, 0x00, 0x01, 0x94, 0x04, 0x00, 0x00, 
-            0x11, 0x64, 0xec, 0x8f, 0x00, 0x00, 0x00, 0x00, 
-            0x02, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+            0x46, 0xc0, 0x00, 0x24, 0xed, 0xb4, 0x00, 0x00,
+            0x01, 0x02, 0x47, 0x43, 0xac, 0x16, 0x63, 0x04,
+            0xe0, 0x00, 0x00, 0x01, 0x94, 0x04, 0x00, 0x00,
+            0x11, 0x64, 0xec, 0x8f, 0x00, 0x00, 0x00, 0x00,
+            0x02, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00
         ];
         {
@@ -2722,25 +2735,28 @@ mod test {
         let src_addr = Ipv4Address([127, 0, 0, 2]);
         let dst_addr = Ipv4Address([127, 0, 0, 1]);
 
+        const PAYLOAD_LEN: usize = 10;
+
         let udp_repr = UdpRepr {
             src_port: 67,
             dst_port: 68,
-            payload: &[0x2a; 10]
         };
-        let mut bytes = vec![0xff; udp_repr.buffer_len()];
+        let mut bytes = vec![0xff; udp_repr.header_len() + PAYLOAD_LEN];
         let mut packet = UdpPacket::new_unchecked(&mut bytes[..]);
-        udp_repr.emit(&mut packet, &src_addr.into(), &dst_addr.into(), &ChecksumCapabilities::default());
+        udp_repr.emit(&mut packet, &src_addr.into(), &dst_addr.into(),
+                      PAYLOAD_LEN, |buf| fill_slice(buf, 0x2a),
+                      &ChecksumCapabilities::default());
         let ipv4_repr = Ipv4Repr {
             src_addr: src_addr,
             dst_addr: dst_addr,
             protocol: IpProtocol::Udp,
             hop_limit: 64,
-            payload_len: udp_repr.buffer_len()
+            payload_len: udp_repr.header_len() + PAYLOAD_LEN
         };
 
         // Emit to frame
         let mut bytes = vec![0u8;
-            ipv4_repr.buffer_len() + udp_repr.buffer_len()
+            ipv4_repr.buffer_len() + udp_repr.header_len() + PAYLOAD_LEN
         ];
         let frame = {
             ipv4_repr.emit(
@@ -2751,6 +2767,7 @@ mod test {
                     &mut bytes[ipv4_repr.buffer_len()..]),
                 &src_addr.into(),
                 &dst_addr.into(),
+                PAYLOAD_LEN, |buf| fill_slice(buf, 0x2a),
                 &ChecksumCapabilities::default());
             Ipv4Packet::new_unchecked(&bytes)
         };
@@ -2776,25 +2793,28 @@ mod test {
         let src_addr = Ipv4Address([127, 0, 0, 2]);
         let dst_addr = Ipv4Address([127, 0, 0, 1]);
 
+        const PAYLOAD_LEN: usize = 49; // 49 > 48, hence packet will be truncated
+
         let udp_repr = UdpRepr {
             src_port: 67,
             dst_port: 68,
-            payload: &[0x2a; 49] // 49 > 48, hence packet will be truncated
         };
-        let mut bytes = vec![0xff; udp_repr.buffer_len()];
+        let mut bytes = vec![0xff; udp_repr.header_len() + PAYLOAD_LEN];
         let mut packet = UdpPacket::new_unchecked(&mut bytes[..]);
-        udp_repr.emit(&mut packet, &src_addr.into(), &dst_addr.into(), &ChecksumCapabilities::default());
+        udp_repr.emit(&mut packet, &src_addr.into(), &dst_addr.into(),
+                      PAYLOAD_LEN, |buf| fill_slice(buf, 0x2a),
+                      &ChecksumCapabilities::default());
         let ipv4_repr = Ipv4Repr {
             src_addr: src_addr,
             dst_addr: dst_addr,
             protocol: IpProtocol::Udp,
             hop_limit: 64,
-            payload_len: udp_repr.buffer_len()
+            payload_len: udp_repr.header_len() + PAYLOAD_LEN
         };
 
         // Emit to frame
         let mut bytes = vec![0u8;
-            ipv4_repr.buffer_len() + udp_repr.buffer_len()
+            ipv4_repr.buffer_len() + udp_repr.header_len() + PAYLOAD_LEN
         ];
         let frame = {
             ipv4_repr.emit(
@@ -2802,9 +2822,10 @@ mod test {
                 &ChecksumCapabilities::default());
             udp_repr.emit(
                 &mut UdpPacket::new_unchecked(
-                    &mut bytes[ipv4_repr.buffer_len()..]),
+                &mut bytes[ipv4_repr.buffer_len()..]),
                 &src_addr.into(),
                 &dst_addr.into(),
+                PAYLOAD_LEN, |buf| fill_slice(buf, 0x2a),
                 &ChecksumCapabilities::default());
             Ipv4Packet::new_unchecked(&bytes)
         };
@@ -2812,7 +2833,7 @@ mod test {
         let frame = iface.inner.process_ipv4(&mut socket_set, Instant::from_millis(0), &frame);
 
         // because the packet could not be handled we should send an Icmp message
-        assert!(match frame {  
+        assert!(match frame {
             Ok(Some(IpPacket::Icmpv4(_))) => true,
             _ => false,
         });
@@ -2853,22 +2874,23 @@ mod test {
         let udp_repr = UdpRepr {
             src_port: 67,
             dst_port: 68,
-            payload: &UDP_PAYLOAD
         };
-        let mut bytes = vec![0xff; udp_repr.buffer_len()];
+        let mut bytes = vec![0xff; udp_repr.header_len() + UDP_PAYLOAD.len()];
         let mut packet = UdpPacket::new_unchecked(&mut bytes[..]);
-        udp_repr.emit(&mut packet, &src_addr.into(), &dst_addr.into(), &ChecksumCapabilities::default());
+        udp_repr.emit(&mut packet, &src_addr.into(), &dst_addr.into(),
+                      UDP_PAYLOAD.len(), |buf| buf.copy_from_slice( &UDP_PAYLOAD),
+                      &ChecksumCapabilities::default());
         let ipv4_repr = Ipv4Repr {
             src_addr: src_addr,
             dst_addr: dst_addr,
             protocol: IpProtocol::Udp,
             hop_limit: 64,
-            payload_len: udp_repr.buffer_len()
+            payload_len: udp_repr.header_len() + UDP_PAYLOAD.len()
         };
 
         // Emit to frame
         let mut bytes = vec![0u8;
-            ipv4_repr.buffer_len() + udp_repr.buffer_len()
+            ipv4_repr.buffer_len() + udp_repr.header_len() + UDP_PAYLOAD.len()
         ];
         let frame = {
             ipv4_repr.emit(
@@ -2876,9 +2898,10 @@ mod test {
                 &ChecksumCapabilities::default());
             udp_repr.emit(
                 &mut UdpPacket::new_unchecked(
-                    &mut bytes[ipv4_repr.buffer_len()..]),
+                &mut bytes[ipv4_repr.buffer_len()..]),
                 &src_addr.into(),
                 &dst_addr.into(),
+                UDP_PAYLOAD.len(), |buf| buf.copy_from_slice( &UDP_PAYLOAD),
                 &ChecksumCapabilities::default());
             Ipv4Packet::new_unchecked(&bytes)
         };

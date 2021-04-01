@@ -887,7 +887,7 @@ pub fn pretty_print_ip_payload<T: Into<Repr>>(f: &mut fmt::Formatter, indent: &m
                                          &repr.dst_addr(), &checksum_caps) {
                         Err(err) => write!(f, "{}{} ({})", indent, udp_packet, err),
                         Ok(udp_repr) => {
-                            write!(f, "{}{}", indent, udp_repr)?;
+                            write!(f, "{}{} len={}", indent, udp_repr, udp_packet.payload().len())?;
                             let valid = udp_packet.verify_checksum(&repr.src_addr(),
                                                                    &repr.dst_addr());
                             format_checksum(f, valid)
