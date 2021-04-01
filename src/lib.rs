@@ -64,6 +64,14 @@
 //! feature ever defined, to ensure that, when the representation layer is unable to make sense
 //! of a packet, it is still logged correctly and in full.
 //!
+//! # Minimum Supported Rust Version (MSRV)
+//!
+//! This crate is guaranteed to compile on stable Rust 1.40 and up with any valid set of features.
+//! It *might* compile on older versions but that may change in any new patch release.
+//!
+//! The exception is when using the `defmt` feature, in which case `defmt`'s MSRV applies, which
+//! is higher than 1.40.
+//!
 //! [wire]: wire/index.html
 //! [osi]: https://en.wikipedia.org/wiki/OSI_model
 //! [berk]: https://en.wikipedia.org/wiki/Berkeley_sockets
