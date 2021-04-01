@@ -356,6 +356,7 @@ impl Client {
         net_trace!("DHCP reset");
         self.state = ClientState::Discovering;
         self.next_egress = now;
+        self.lease_expiration = None;
     }
 }
 
