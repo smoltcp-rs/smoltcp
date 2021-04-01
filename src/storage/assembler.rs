@@ -5,6 +5,7 @@ pub struct TooManyHolesError;
 
 /// A contiguous chunk of absent data, followed by a contiguous chunk of present data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 struct Contig {
     hole_size: usize,
     data_size: usize
@@ -80,6 +81,7 @@ const CONTIG_COUNT: usize = 4;
 /// Currently, up to a hardcoded limit of 4 or 32 holes can be tracked in the buffer.
 #[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq, Eq, Clone))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Assembler {
     #[cfg(not(any(feature = "std", feature = "alloc")))]
     contigs: [Contig; CONTIG_COUNT],

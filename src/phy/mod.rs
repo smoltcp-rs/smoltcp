@@ -119,6 +119,7 @@ pub use self::tuntap_interface::TunTapInterface;
 
 /// A description of checksum behavior for a particular protocol.
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Checksum {
     /// Verify checksum when receiving and compute checksum when sending.
     Both,
@@ -156,6 +157,7 @@ impl Checksum {
 
 /// A description of checksum behavior for every supported protocol.
 #[derive(Debug, Clone, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub struct ChecksumCapabilities {
     pub ipv4: Checksum,
@@ -188,6 +190,7 @@ impl ChecksumCapabilities {
 /// Higher-level protocols may achieve higher throughput or lower latency if they consider
 /// the bandwidth or packet size limitations.
 #[derive(Debug, Clone, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub struct DeviceCapabilities {
     /// Medium of the device.
@@ -229,6 +232,7 @@ pub struct DeviceCapabilities {
 
 /// Type of medium of a device.
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Medium {
     /// Ethernet medium. Devices of this type send and receive Ethernet frames,
     /// and interfaces using it must do neighbor discovery via ARP or NDISC.

@@ -21,6 +21,7 @@ byteorder = { version = "1.0", default-features = false }
 log = { version = "0.4.4", default-features = false, optional = true }
 libc = { version = "0.2.18", optional = true }
 bitflags = { version = "1.0", default-features = false }
+defmt = { version = "0.2.0", optional = true }
 
 [dev-dependencies]
 env_logger = "0.5"
@@ -46,6 +47,13 @@ verbose = []
 "socket-tcp" = ["socket"]
 "socket-icmp" = ["socket"]
 "async" = []
+
+defmt-trace = []
+defmt-debug = []
+defmt-info = []
+defmt-warn = []
+defmt-error = []
+
 default = [
   "std", "log", # needed for `cargo test --no-default-features --features default` :/
   "medium-ethernet", "medium-ip",

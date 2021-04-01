@@ -22,6 +22,7 @@ const PARAMETER_REQUEST_LIST: &[u8] = &[
 
 /// IPv4 configuration data returned by `client.poll()`
 #[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Config {
     pub address: Option<Ipv4Cidr>,
     pub router: Option<Ipv4Address>,
@@ -29,6 +30,7 @@ pub struct Config {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 struct RequestState {
     retry: u16,
     endpoint_ip: Ipv4Address,
@@ -37,12 +39,14 @@ struct RequestState {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 struct RenewState {
     endpoint_ip: Ipv4Address,
     server_identifier: Ipv4Address,
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 enum ClientState {
     /// Discovering the DHCP server
     Discovering,

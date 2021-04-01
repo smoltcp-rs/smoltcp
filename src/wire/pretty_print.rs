@@ -34,6 +34,7 @@ use core::marker::PhantomData;
 
 /// Indentation state.
 #[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct PrettyIndent {
     prefix: &'static str,
     level:  usize

@@ -22,6 +22,7 @@ use crate::wire::{IpAddress, IpEndpoint, IpProtocol, IpRepr};
 ///
 /// [IcmpSocket::bind]: struct.IcmpSocket.html#method.bind
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Endpoint {
     Unspecified,
     Ident(u16),

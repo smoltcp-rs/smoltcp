@@ -17,6 +17,7 @@ pub struct Item<'a> {
 
 /// A handle, identifying a socket in a set.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Handle(usize);
 
 impl fmt::Display for Handle {

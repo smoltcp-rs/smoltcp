@@ -11,6 +11,7 @@ use crate::time::{Duration, Instant};
 /// A neighbor mapping translates from a protocol address to a hardware address,
 /// and contains the timestamp past which the mapping should be discarded.
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Neighbor {
     hardware_addr: EthernetAddress,
     expires_at:    Instant,
@@ -18,6 +19,7 @@ pub struct Neighbor {
 
 /// An answer to a neighbor cache lookup.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub(crate) enum Answer {
     /// The neighbor address is in the cache and not expired.
     Found(EthernetAddress),

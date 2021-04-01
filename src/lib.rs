@@ -64,6 +64,14 @@
 //! feature ever defined, to ensure that, when the representation layer is unable to make sense
 //! of a packet, it is still logged correctly and in full.
 //!
+//! # Minimum Supported Rust Version (MSRV)
+//!
+//! This crate is guaranteed to compile on stable Rust 1.40 and up with any valid set of features.
+//! It *might* compile on older versions but that may change in any new patch release.
+//!
+//! The exception is when using the `defmt` feature, in which case `defmt`'s MSRV applies, which
+//! is higher than 1.40.
+//!
 //! [wire]: wire/index.html
 //! [osi]: https://en.wikipedia.org/wiki/OSI_model
 //! [berk]: https://en.wikipedia.org/wiki/Berkeley_sockets
@@ -97,6 +105,9 @@ compile_error!("You must enable at least one of the following features: proto-ip
 ))]
 compile_error!("If you enable the socket feature, you must enable at least one of the following features: socket-raw, socket-udp, socket-tcp, socket-icmp");
 
+#[cfg(all(feature = "defmt", feature = "log"))]
+compile_error!("You must enable at most one of the following features: defmt, log");
+
 use core::fmt;
 
 #[macro_use]
@@ -116,6 +127,7 @@ pub mod dhcp;
 /// The error type for the networking stack.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     /// An operation cannot proceed because a buffer is empty or full.
     Exhausted,

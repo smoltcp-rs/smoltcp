@@ -4,6 +4,7 @@ use crate::wire::icmpv4;
 use crate::wire::icmpv6;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Repr<'a> {
     #[cfg(feature = "proto-ipv4")]
     Ipv4(icmpv4::Repr<'a>),

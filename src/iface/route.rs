@@ -11,6 +11,7 @@ use crate::wire::{Ipv6Address, Ipv6Cidr};
 
 /// A prefix of addresses that should be routed via a router
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Route {
     pub via_router: IpAddress,
     /// `None` means "forever".

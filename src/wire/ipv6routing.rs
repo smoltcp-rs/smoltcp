@@ -51,6 +51,7 @@ impl fmt::Display for Type {
 
 /// A read/write wrapper around an IPv6 Routing Header buffer.
 #[derive(Debug, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Header<T: AsRef<[u8]>> {
     buffer: T
 }
@@ -389,6 +390,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Header<&'a T> {
 
 /// A high-level representation of an IPv6 Routing Header.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Repr<'a> {
     Type2 {

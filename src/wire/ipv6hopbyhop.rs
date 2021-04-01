@@ -6,6 +6,7 @@ pub use super::IpProtocol as Protocol;
 
 /// A read/write wrapper around an IPv6 Hop-by-Hop Options Header.
 #[derive(Debug, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Header<T: AsRef<[u8]>> {
     buffer: T
 }
@@ -157,6 +158,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Header<&'a T> {
 
 /// A high-level representation of an IPv6 Hop-by-Hop Options header.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Repr<'a> {
     /// The type of header immediately following the Hop-by-Hop Options header.
     pub next_header: Protocol,

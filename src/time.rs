@@ -22,6 +22,7 @@ use core::{ops, fmt};
 /// * A value less than `0` indicates a time before the starting
 ///   point.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Instant {
     pub millis: i64,
 }
@@ -135,6 +136,7 @@ impl ops::Sub<Instant> for Instant {
 
 /// A relative amount of time.
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Duration {
     pub millis: u64,
 }

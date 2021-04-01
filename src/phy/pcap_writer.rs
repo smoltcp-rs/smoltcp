@@ -21,6 +21,7 @@ enum_with_unknown! {
 
 /// Packet capture mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum PcapMode {
     /// Capture both received and transmitted packets.
     Both,
@@ -118,6 +119,7 @@ impl<T: Write> PcapSink for RefCell<T> {
 /// [libpcap]: https://wiki.wireshark.org/Development/LibpcapFileFormat
 /// [sink]: trait.PcapSink.html
 #[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct PcapWriter<D, S>
     where D: for<'a> Device<'a>,
           S: PcapSink + Clone,

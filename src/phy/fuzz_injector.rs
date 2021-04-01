@@ -18,6 +18,7 @@ pub trait Fuzzer {
 /// smoltcp, and is not for production use.
 #[allow(unused)]
 #[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FuzzInjector<D: for<'a> Device<'a>, FTx: Fuzzer, FRx: Fuzzer> {
     inner:   D,
     fuzz_tx: FTx,

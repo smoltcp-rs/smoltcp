@@ -10,6 +10,7 @@ use crate::time::Duration;
 use crate::wire::Ipv6Address;
 
 bitflags! {
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub struct RouterFlags: u8 {
         const MANAGED = 0b10000000;
         const OTHER   = 0b01000000;
@@ -17,6 +18,7 @@ bitflags! {
 }
 
 bitflags! {
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub struct NeighborFlags: u8 {
         const ROUTER    = 0b10000000;
         const SOLICITED = 0b01000000;
@@ -189,6 +191,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
 
 /// A high-level representation of an Neighbor Discovery packet header.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Repr<'a> {
     RouterSolicit {
         lladdr: Option<EthernetAddress>

@@ -11,6 +11,7 @@ use crate::wire::ip::checksum;
 /// A sequence number is a monotonically advancing integer modulo 2<sup>32</sup>.
 /// Sequence numbers do not have a discontiguity when compared pairwise across a signed overflow.
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct SeqNumber(pub i32);
 
 impl fmt::Display for SeqNumber {
@@ -67,6 +68,7 @@ impl cmp::PartialOrd for SeqNumber {
 
 /// A read/write wrapper around a Transmission Control Protocol packet buffer.
 #[derive(Debug, PartialEq, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Packet<T: AsRef<[u8]>> {
     buffer: T
 }
@@ -550,6 +552,7 @@ impl<T: AsRef<[u8]>> AsRef<[u8]> for Packet<T> {
 
 /// A representation of a single TCP option.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum TcpOption<'a> {
     EndOfList,
     NoOperation,
@@ -702,6 +705,7 @@ impl<'a> TcpOption<'a> {
 
 /// The possible control flags of a Transmission Control Protocol packet.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Control {
     None,
     Psh,
@@ -731,6 +735,7 @@ impl Control {
 
 /// A high-level representation of a Transmission Control Protocol packet.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Repr<'a> {
     pub src_port:     u16,
     pub dst_port:     u16,

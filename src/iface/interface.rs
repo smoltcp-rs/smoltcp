@@ -243,6 +243,7 @@ let iface = InterfaceBuilder::new(device)
 }
 
 #[derive(Debug, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[cfg(feature = "medium-ethernet")]
 enum EthernetPacket<'a> {
     #[cfg(feature = "proto-ipv4")]
@@ -251,6 +252,7 @@ enum EthernetPacket<'a> {
 }
 
 #[derive(Debug, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub(crate) enum IpPacket<'a> {
     #[cfg(feature = "proto-ipv4")]
     Icmpv4((Ipv4Repr, Icmpv4Repr<'a>)),
@@ -591,6 +593,7 @@ impl<'a, DeviceT> Interface<'a, DeviceT>
                     Medium::Ethernet => {
                         inner.process_ethernet(sockets, timestamp, &frame).map_err(|err| {
                             net_debug!("cannot process ingress packet: {}", err);
+                            #[cfg(not(feature = "defmt"))]
                             net_debug!("packet dump follows:\n{}",
                                     PrettyPrinter::<EthernetFrame<&[u8]>>::new("", &frame));
                             err
@@ -1844,6 +1847,7 @@ mod test {
     }
 
     #[derive(Debug, PartialEq)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     struct MockTxToken;
 
     impl TxToken for MockTxToken {
