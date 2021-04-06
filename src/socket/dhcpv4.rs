@@ -206,6 +206,9 @@ impl Dhcpv4Socket {
                     });
                 }
             }
+            (ClientState::Requesting(_), DhcpMessageType::Nak) => {
+                self.reset();
+            }
             (ClientState::Renewing(state), DhcpMessageType::Ack) => {
                 if let Some((config, renew_at, expires_at)) = Self::parse_ack(now, ip_repr, &dhcp_repr) {
                     state.renew_at = renew_at;
@@ -215,6 +218,9 @@ impl Dhcpv4Socket {
                         state.config = config;
                     }
                 }
+            }
+            (ClientState::Renewing(_), DhcpMessageType::Nak) => {
+                self.reset();
             }
             _ => {
                 net_debug!("DHCP ignoring {:?}: unexpected in current state", dhcp_repr.message_type);
