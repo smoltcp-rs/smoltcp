@@ -6,6 +6,9 @@ use crate::{Error, Result};
 use crate::wire::{EthernetAddress, Ipv4Address};
 use crate::wire::arp::Hardware;
 
+pub const SERVER_PORT: u16 = 67;
+pub const CLIENT_PORT: u16 = 68;
+
 const DHCP_MAGIC_NUMBER: u32 = 0x63825363;
 
 enum_with_unknown! {

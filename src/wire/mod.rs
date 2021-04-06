@@ -211,7 +211,8 @@ pub use self::mld::{AddressRecord as MldAddressRecord,
                     Repr as MldRepr};
 
 pub use self::udp::{Packet as UdpPacket,
-                    Repr as UdpRepr};
+                    Repr as UdpRepr,
+                    HEADER_LEN as UDP_HEADER_LEN};
 
 pub use self::tcp::{SeqNumber as TcpSeqNumber,
                     Packet as TcpPacket,
@@ -222,4 +223,6 @@ pub use self::tcp::{SeqNumber as TcpSeqNumber,
 #[cfg(feature = "proto-dhcpv4")]
 pub use self::dhcpv4::{Packet as DhcpPacket,
                        Repr as DhcpRepr,
-                       MessageType as DhcpMessageType};
+                       MessageType as DhcpMessageType,
+                       CLIENT_PORT as DHCP_CLIENT_PORT,
+                       SERVER_PORT as DHCP_SERVER_PORT};

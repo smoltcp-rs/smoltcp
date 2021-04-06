@@ -22,6 +22,8 @@ mod icmp;
 mod udp;
 #[cfg(feature = "socket-tcp")]
 mod tcp;
+#[cfg(feature = "socket-dhcpv4")]
+mod dhcpv4;
 mod set;
 mod ref_;
 
@@ -52,6 +54,9 @@ pub use self::udp::{UdpPacketMetadata,
 pub use self::tcp::{SocketBuffer as TcpSocketBuffer,
                     State as TcpState,
                     TcpSocket};
+
+#[cfg(feature = "socket-dhcpv4")]
+pub use self::dhcpv4::{Dhcpv4Socket, Config as Dhcpv4Config, Event as Dhcpv4Event};
 
 pub use self::set::{Set as SocketSet, Item as SocketSetItem, Handle as SocketHandle};
 pub use self::set::{Iter as SocketSetIter, IterMut as SocketSetIterMut};
@@ -91,6 +96,8 @@ pub enum Socket<'a> {
     Udp(UdpSocket<'a>),
     #[cfg(feature = "socket-tcp")]
     Tcp(TcpSocket<'a>),
+    #[cfg(feature = "socket-dhcpv4")]
+    Dhcpv4(Dhcpv4Socket),
 }
 
 macro_rules! dispatch_socket {
@@ -110,6 +117,8 @@ macro_rules! dispatch_socket {
             &$( $mut_ )* Socket::Udp(ref $( $mut_ )* $socket) => $code,
             #[cfg(feature = "socket-tcp")]
             &$( $mut_ )* Socket::Tcp(ref $( $mut_ )* $socket) => $code,
+            #[cfg(feature = "socket-dhcpv4")]
+            &$( $mut_ )* Socket::Dhcpv4(ref $( $mut_ )* $socket) => $code,
         }
     };
 }
@@ -169,3 +178,5 @@ from_socket!(IcmpSocket<'a>, Icmp);
 from_socket!(UdpSocket<'a>, Udp);
 #[cfg(feature = "socket-tcp")]
 from_socket!(TcpSocket<'a>, Tcp);
+#[cfg(feature = "socket-dhcpv4")]
+from_socket!(Dhcpv4Socket, Dhcpv4);

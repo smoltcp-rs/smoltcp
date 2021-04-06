@@ -265,7 +265,9 @@ pub(crate) enum IpPacket<'a> {
     #[cfg(feature = "socket-udp")]
     Udp((IpRepr, UdpRepr, &'a [u8])),
     #[cfg(feature = "socket-tcp")]
-    Tcp((IpRepr, TcpRepr<'a>))
+    Tcp((IpRepr, TcpRepr<'a>)),
+    #[cfg(feature = "socket-dhcpv4")]
+    Dhcpv4((Ipv4Repr, UdpRepr, DhcpRepr<'a>)),
 }
 
 impl<'a> IpPacket<'a> {
@@ -283,6 +285,8 @@ impl<'a> IpPacket<'a> {
             IpPacket::Udp((ip_repr, _, _)) => ip_repr.clone(),
             #[cfg(feature = "socket-tcp")]
             IpPacket::Tcp((ip_repr, _)) => ip_repr.clone(),
+            #[cfg(feature = "socket-dhcpv4")]
+            IpPacket::Dhcpv4((ipv4_repr, _, _)) => IpRepr::Ipv4(*ipv4_repr),
         }
     }
 
@@ -331,6 +335,13 @@ impl<'a> IpPacket<'a> {
                                 &_ip_repr.src_addr(), &_ip_repr.dst_addr(),
                                 &caps.checksum);
             }
+            #[cfg(feature = "socket-dhcpv4")]
+            IpPacket::Dhcpv4((_, udp_repr, dhcp_repr)) =>
+                udp_repr.emit(&mut UdpPacket::new_unchecked(payload),
+                              &_ip_repr.src_addr(), &_ip_repr.dst_addr(),
+                              dhcp_repr.buffer_len(),
+                              |buf| dhcp_repr.emit(&mut DhcpPacket::new_unchecked(buf)).unwrap(),
+                              &caps.checksum),
         }
     }
 }
@@ -662,6 +673,14 @@ impl<'a, DeviceT> Interface<'a, DeviceT>
                 })
             }
 
+            let _ip_mtu = match _caps.medium {
+                #[cfg(feature = "medium-ethernet")]
+                Medium::Ethernet => _caps.max_transmission_unit - EthernetFrame::<&[u8]>::header_len(),
+                #[cfg(feature = "medium-ip")]
+                Medium::Ip => _caps.max_transmission_unit,
+            };
+
+
             let socket_result =
                 match *socket {
                     #[cfg(feature = "socket-raw")]
@@ -687,15 +706,14 @@ impl<'a, DeviceT> Interface<'a, DeviceT>
                             respond!(IpPacket::Udp(response))),
                     #[cfg(feature = "socket-tcp")]
                     Socket::Tcp(ref mut socket) => {
-                        let ip_mtu = match _caps.medium {
-                            #[cfg(feature = "medium-ethernet")]
-                            Medium::Ethernet => _caps.max_transmission_unit - EthernetFrame::<&[u8]>::header_len(),
-                            #[cfg(feature = "medium-ip")]
-                            Medium::Ip => _caps.max_transmission_unit,
-                        };
-                        socket.dispatch(timestamp, ip_mtu, |response|
+                        socket.dispatch(timestamp, _ip_mtu, |response|
                             respond!(IpPacket::Tcp(response)))
                     }
+                    #[cfg(feature = "socket-dhcpv4")]
+                    Socket::Dhcpv4(ref mut socket) =>
+                        // todo don't unwrap
+                        socket.dispatch(timestamp, inner.ethernet_addr.unwrap(), _ip_mtu, |response|
+                            respond!(IpPacket::Dhcpv4(response))),
                 };
 
             match (device_result, socket_result) {
@@ -1062,6 +1080,34 @@ impl<'a> InterfaceInner<'a> {
         let handled_by_raw_socket = self.raw_socket_filter(sockets, &ip_repr, ip_payload);
         #[cfg(not(feature = "socket-raw"))]
         let handled_by_raw_socket = false;
+
+
+        #[cfg(feature = "socket-dhcpv4")]
+        {
+            if ipv4_repr.protocol == IpProtocol::Udp && self.ethernet_addr.is_some() {
+                // First check for source and dest ports, then do `UdpRepr::parse` if they match.
+                // This way we avoid validating the UDP checksum twice for all non-DHCP UDP packets (one here, one in `process_udp`)
+                let udp_packet = UdpPacket::new_checked(ip_payload)?;
+                if udp_packet.src_port() == DHCP_SERVER_PORT && udp_packet.dst_port() == DHCP_CLIENT_PORT {
+                    if let Some(mut dhcp_socket) = sockets.iter_mut().filter_map(Dhcpv4Socket::downcast).next() {
+                        let (src_addr, dst_addr) = (ip_repr.src_addr(), ip_repr.dst_addr());
+                        let checksum_caps = self.device_capabilities.checksum.clone();
+                        let udp_repr = UdpRepr::parse(&udp_packet, &src_addr, &dst_addr, &checksum_caps)?;
+                        let udp_payload = udp_packet.payload();
+
+                        // NOTE(unwrap): we checked for is_some above.
+                        let ethernet_addr = self.ethernet_addr.unwrap();
+
+                        match dhcp_socket.process(timestamp, ethernet_addr, &ipv4_repr, &udp_repr, udp_payload) {
+                            // The packet is valid and handled by socket.
+                            Ok(()) => return Ok(None),
+                            // The packet is malformed, or the socket buffer is full.
+                            Err(e) => return Err(e)
+                        }
+                    }
+                }
+            }
+        }
 
         if !self.has_ip_addr(ipv4_repr.dst_addr) &&
            !self.has_multicast_group(ipv4_repr.dst_addr) &&

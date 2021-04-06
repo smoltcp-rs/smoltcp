@@ -28,6 +28,8 @@ mod field {
     }
 }
 
+pub const HEADER_LEN: usize = field::CHECKSUM.end;
+
 #[allow(clippy::len_without_is_empty)]
 impl<T: AsRef<[u8]>> Packet<T> {
     /// Imbue a raw octet buffer with UDP packet structure.

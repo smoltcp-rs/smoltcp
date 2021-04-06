@@ -39,13 +39,14 @@ verbose = []
 "phy-tuntap_interface" = ["std", "libc", "medium-ethernet"]
 "proto-ipv4" = []
 "proto-igmp" = ["proto-ipv4"]
-"proto-dhcpv4" = ["proto-ipv4", "socket-raw", "medium-ethernet"]
+"proto-dhcpv4" = ["proto-ipv4"]
 "proto-ipv6" = []
 "socket" = []
 "socket-raw" = ["socket"]
 "socket-udp" = ["socket"]
 "socket-tcp" = ["socket"]
 "socket-icmp" = ["socket"]
+"socket-dhcpv4" = ["socket", "medium-ethernet", "proto-dhcpv4"]
 "async" = []
 
 defmt-trace = []
@@ -59,7 +60,7 @@ default = [
   "medium-ethernet", "medium-ip",
   "phy-raw_socket", "phy-tuntap_interface",
   "proto-ipv4", "proto-igmp", "proto-dhcpv4", "proto-ipv6",
-  "socket-raw", "socket-icmp", "socket-udp", "socket-tcp",
+  "socket-raw", "socket-icmp", "socket-udp", "socket-tcp", "socket-dhcpv4",
   "async"
 ]
 
