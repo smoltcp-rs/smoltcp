@@ -292,7 +292,7 @@ impl Client {
             requested_ip: None,
             client_identifier: Some(mac),
             server_identifier: None,
-            parameter_request_list: None,
+            parameter_request_list: Some(PARAMETER_REQUEST_LIST),
             max_size: Some(raw_socket.payload_recv_capacity() as u16),
             lease_duration: None,
             dns_servers: None,
@@ -325,7 +325,6 @@ impl Client {
                 dhcp_repr.broadcast = false;
                 dhcp_repr.requested_ip = Some(r_state.requested_ip);
                 dhcp_repr.server_identifier = Some(r_state.server_identifier);
-                dhcp_repr.parameter_request_list = Some(PARAMETER_REQUEST_LIST);
                 net_trace!("DHCP send request to {} = {:?}", endpoint, dhcp_repr);
                 send_packet(iface, endpoint, dhcp_repr)
             }
@@ -357,6 +356,7 @@ impl Client {
         net_trace!("DHCP reset");
         self.state = ClientState::Discovering;
         self.next_egress = now;
+        self.lease_expiration = None;
     }
 }
 
