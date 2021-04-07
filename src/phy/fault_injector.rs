@@ -297,7 +297,7 @@ impl<'a, Tx: phy::TxToken> phy::TxToken for TxToken<'a, Tx> {
         };
 
         if drop {
-            return f(&mut self.junk);
+            return f(&mut self.junk[..len]);
         }
 
         let Self { token, state, config, .. } = self;
