@@ -232,6 +232,34 @@ impl ops::DivAssign<u32> for Duration {
     }
 }
 
+impl ops::Shl<u32> for Duration {
+    type Output = Duration;
+    
+    fn shl(self, rhs: u32) -> Duration {
+        Duration::from_millis(self.millis << rhs)
+    }
+}
+
+impl ops::ShlAssign<u32> for Duration {
+    fn shl_assign(&mut self, rhs: u32) {
+        self.millis <<= rhs;
+    }
+}
+
+impl ops::Shr<u32> for Duration {
+    type Output = Duration;
+    
+    fn shr(self, rhs: u32) -> Duration {
+        Duration::from_millis(self.millis >> rhs)
+    }
+}
+
+impl ops::ShrAssign<u32> for Duration {
+    fn shr_assign(&mut self, rhs: u32) {
+        self.millis >>= rhs;
+    }
+}
+
 impl From<::core::time::Duration> for Duration {
     fn from(other: ::core::time::Duration) -> Duration {
         Duration::from_millis(

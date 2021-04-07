@@ -11,8 +11,10 @@ use super::{PollAt, Socket};
 
 const DISCOVER_TIMEOUT: Duration = Duration::from_secs(10);
 
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(1);
-const REQUEST_RETRIES: u16 = 15;
+// timeout doubles every 2 tries.
+// total time 5 + 5 + 10 + 10 + 20 = 50s
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+const REQUEST_RETRIES: u16 = 5;
 
 const MIN_RENEW_TIMEOUT: Duration = Duration::from_secs(60);
 
@@ -348,8 +350,8 @@ impl Dhcpv4Socket {
                 ipv4_repr.payload_len = udp_repr.header_len() + dhcp_repr.buffer_len();
                 emit((ipv4_repr, udp_repr, dhcp_repr))?;
 
-                // Exponential backoff
-                state.retry_at = now + REQUEST_TIMEOUT;
+                // Exponential backoff: Double every 2 retries.
+                state.retry_at = now + (REQUEST_TIMEOUT << (state.retry as u32 / 2));
                 state.retry += 1;
 
                 self.transaction_id = next_transaction_id;
