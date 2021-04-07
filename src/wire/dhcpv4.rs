@@ -8,6 +8,7 @@ use crate::wire::arp::Hardware;
 
 pub const SERVER_PORT: u16 = 67;
 pub const CLIENT_PORT: u16 = 68;
+pub const MAX_DNS_SERVER_COUNT: usize = 3;
 
 const DHCP_MAGIC_NUMBER: u32 = 0x63825363;
 
@@ -686,7 +687,7 @@ pub struct Repr<'a> {
     /// the client is interested in.
     pub parameter_request_list: Option<&'a [u8]>,
     /// DNS servers
-    pub dns_servers: Option<[Option<Ipv4Address>; 3]>,
+    pub dns_servers: Option<[Option<Ipv4Address>; MAX_DNS_SERVER_COUNT]>,
     /// The maximum size dhcp packet the interface can receive
     pub max_size: Option<u16>,
     /// The DHCP IP lease duration, specified in seconds.
@@ -780,7 +781,7 @@ impl<'a> Repr<'a> {
                     parameter_request_list = Some(data);
                 }
                 DhcpOption::Other {kind: field::OPT_DOMAIN_NAME_SERVER, data} => {
-                    let mut servers = [None; 3];
+                    let mut servers = [None; MAX_DNS_SERVER_COUNT];
                     for (server, chunk) in servers.iter_mut().zip(data.chunks(4)) {
                         *server = Some(Ipv4Address::from_bytes(chunk));
                     }

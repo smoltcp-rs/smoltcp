@@ -2,7 +2,7 @@ use crate::{Error, Result};
 use crate::wire::{EthernetAddress, IpProtocol, IpAddress,
            Ipv4Cidr, Ipv4Address, Ipv4Repr,
            UdpRepr, UDP_HEADER_LEN,
-           DhcpPacket, DhcpRepr, DhcpMessageType, DHCP_CLIENT_PORT, DHCP_SERVER_PORT};
+           DhcpPacket, DhcpRepr, DhcpMessageType, DHCP_CLIENT_PORT, DHCP_SERVER_PORT, DHCP_MAX_DNS_SERVER_COUNT};
 use crate::wire::dhcpv4::{field as dhcpv4_field};
 use crate::socket::SocketMeta;
 use crate::time::{Instant, Duration};
@@ -36,7 +36,7 @@ pub struct Config {
     /// match the DHCP server's address.
     pub router: Option<Ipv4Address>,
     /// DNS servers
-    pub dns_servers: [Option<Ipv4Address>; 3],
+    pub dns_servers: [Option<Ipv4Address>; DHCP_MAX_DNS_SERVER_COUNT],
 }
 
 /// Information on how to reach a DHCP server.
@@ -256,10 +256,25 @@ impl Dhcpv4Socket {
 
         let lease_duration = dhcp_repr.lease_duration.unwrap_or(DEFAULT_LEASE_DURATION);
 
+        // Cleanup the DNS servers list, keeping only unicasts/
+        // TP-Link TD-W8970 sends 0.0.0.0 as second DNS server if there's only one configured :(
+        let mut dns_servers = [None; DHCP_MAX_DNS_SERVER_COUNT];
+        if let Some(received) = dhcp_repr.dns_servers {
+            let mut i = 0;
+            for addr in received.iter() {
+                if let Some(addr) = addr{
+                    if addr.is_unicast() {
+                        // This can never be out-of-bounds since both arrays have length DHCP_MAX_DNS_SERVER_COUNT
+                        dns_servers[i] = Some(*addr);
+                        i += 1;
+                    }
+                }
+            }
+        }
         let config = Config{
             address: Ipv4Cidr::new(dhcp_repr.your_ip, prefix_len),
             router: dhcp_repr.router,
-            dns_servers: dhcp_repr.dns_servers.unwrap_or([None; 3]),
+            dns_servers: dns_servers
         };
 
         // RFC 2131 indicates clients should renew a lease halfway through its expiration.
