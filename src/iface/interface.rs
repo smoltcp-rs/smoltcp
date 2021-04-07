@@ -1047,7 +1047,7 @@ impl<'a> InterfaceInner<'a> {
         let checksum_caps = self.device_capabilities.checksum.clone();
         let ipv4_repr = Ipv4Repr::parse(&ipv4_packet, &checksum_caps)?;
 
-        if !ipv4_repr.src_addr.is_unicast() {
+        if !self.is_unicast_v4(ipv4_repr.src_addr) {
             // Discard packets with non-unicast source addresses.
             net_debug!("non-unicast source address");
             return Err(Error::Malformed)
@@ -1062,9 +1062,8 @@ impl<'a> InterfaceInner<'a> {
         let handled_by_raw_socket = false;
 
         if !self.has_ip_addr(ipv4_repr.dst_addr) &&
-           !ipv4_repr.dst_addr.is_broadcast() &&
            !self.has_multicast_group(ipv4_repr.dst_addr) &&
-           !self.is_subnet_broadcast(ipv4_repr.dst_addr) {
+           !self.is_broadcast_v4(ipv4_repr.dst_addr) {
 
             // Ignore IP packets not directed at us, or broadcast, or any of the multicast groups.
             // If AnyIP is enabled, also check if the packet is routed locally.
@@ -1120,6 +1119,18 @@ impl<'a> InterfaceInner<'a> {
             })
             .any(|broadcast_address| address == broadcast_address)
     } 
+    
+    /// Checks if an ipv4 address is broadcast, taking into account subnet broadcast addresses
+    #[cfg(feature = "proto-ipv4")]
+    fn is_broadcast_v4(&self, address: Ipv4Address) -> bool {
+        address.is_broadcast() || self.is_subnet_broadcast(address)
+    }
+
+    /// Checks if an ipv4 address is unicast, taking into account subnet broadcast addresses
+    #[cfg(feature = "proto-ipv4")]
+    fn is_unicast_v4(&self, address: Ipv4Address) -> bool {
+        address.is_unicast() && !self.is_subnet_broadcast(address)
+    }
 
     /// Host duties of the **IGMPv2** protocol.
     ///
@@ -1363,10 +1374,10 @@ impl<'a> InterfaceInner<'a> {
                    (&self, ipv4_repr: Ipv4Repr, icmp_repr: Icmpv4Repr<'icmp>) ->
                    Option<IpPacket<'frame>>
     {
-        if !ipv4_repr.src_addr.is_unicast() {
+        if !self.is_unicast_v4(ipv4_repr.src_addr) {
             // Do not send ICMP replies to non-unicast sources
             None
-        } else if ipv4_repr.dst_addr.is_unicast() {
+        } else if self.is_unicast_v4(ipv4_repr.dst_addr) {
             // Reply as normal when src_addr and dst_addr are both unicast
             let ipv4_reply_repr = Ipv4Repr {
                 src_addr:    ipv4_repr.dst_addr,
@@ -1376,7 +1387,7 @@ impl<'a> InterfaceInner<'a> {
                 hop_limit:   64
             };
             Some(IpPacket::Icmpv4((ipv4_reply_repr, icmp_repr)))
-        } else if ipv4_repr.dst_addr.is_broadcast() {
+        } else if self.is_broadcast_v4(ipv4_repr.dst_addr) {
             // Only reply to broadcasts for echo replies and not other ICMP messages
             match icmp_repr {
                 Icmpv4Repr::EchoReply {..} => match self.ipv4_address() {
