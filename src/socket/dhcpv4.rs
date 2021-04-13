@@ -117,6 +117,10 @@ pub struct Dhcpv4Socket {
     config_changed: bool,
     /// xid of the last sent message.
     transaction_id: u32,
+
+    /// Max lease duration. If set, it sets a maximum cap to the server-provided lease duration.
+    /// Useful to react faster to IP configuration changes and to test whether renews work correctly.
+    max_lease_duration: Option<Duration>,
 }
 
 /// DHCP client socket.
@@ -135,7 +139,16 @@ impl Dhcpv4Socket {
             }),
             config_changed: true,
             transaction_id: 1,
+            max_lease_duration: None,
         }
+    }
+
+    pub fn max_lease_duration(&self) -> Option<Duration> {
+        self.max_lease_duration
+    }
+
+    pub fn set_max_lease_duration(&mut self, max_lease_duration: Option<Duration>) {
+        self.max_lease_duration = max_lease_duration;
     }
 
     pub(crate) fn poll_at(&self) -> PollAt {
@@ -198,7 +211,7 @@ impl Dhcpv4Socket {
                 });
             }
             (ClientState::Requesting(state), DhcpMessageType::Ack) => {
-                if let Some((config, renew_at, expires_at)) = Self::parse_ack(now, ip_repr, &dhcp_repr) {
+                if let Some((config, renew_at, expires_at)) = Self::parse_ack(now, ip_repr, &dhcp_repr, self.max_lease_duration) {
                     self.config_changed = true;
                     self.state = ClientState::Renewing(RenewState{
                         server: state.server,
@@ -212,7 +225,7 @@ impl Dhcpv4Socket {
                 self.reset();
             }
             (ClientState::Renewing(state), DhcpMessageType::Ack) => {
-                if let Some((config, renew_at, expires_at)) = Self::parse_ack(now, ip_repr, &dhcp_repr) {
+                if let Some((config, renew_at, expires_at)) = Self::parse_ack(now, ip_repr, &dhcp_repr, self.max_lease_duration) {
                     state.renew_at = renew_at;
                     state.expires_at = expires_at;
                     if state.config != config {
@@ -232,7 +245,7 @@ impl Dhcpv4Socket {
         Ok(())
     }
 
-    fn parse_ack(now: Instant, _ip_repr: &Ipv4Repr, dhcp_repr: &DhcpRepr) -> Option<(Config, Instant, Instant)> {
+    fn parse_ack(now: Instant, _ip_repr: &Ipv4Repr, dhcp_repr: &DhcpRepr, max_lease_duration: Option<Duration>) -> Option<(Config, Instant, Instant)> {
         let subnet_mask = match dhcp_repr.subnet_mask {
             Some(subnet_mask) => subnet_mask,
             None => {
@@ -255,6 +268,10 @@ impl Dhcpv4Socket {
         }
 
         let lease_duration = dhcp_repr.lease_duration.unwrap_or(DEFAULT_LEASE_DURATION);
+        let mut lease_duration = Duration::from_secs(lease_duration as _);
+        if let Some(max_lease_duration) = max_lease_duration {
+            lease_duration = lease_duration.min(max_lease_duration);
+        }
 
         // Cleanup the DNS servers list, keeping only unicasts/
         // TP-Link TD-W8970 sends 0.0.0.0 as second DNS server if there's only one configured :(
@@ -278,8 +295,8 @@ impl Dhcpv4Socket {
         };
 
         // RFC 2131 indicates clients should renew a lease halfway through its expiration.
-        let renew_at = now + Duration::from_secs((lease_duration / 2).into());
-        let expires_at = now + Duration::from_secs(lease_duration.into());
+        let renew_at = now + lease_duration / 2;
+        let expires_at = now + lease_duration;
 
         Some((config, renew_at, expires_at))
     }

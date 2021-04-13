@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use std::os::unix::io::AsRawFd;
 use log::*;
 
-use smoltcp::phy::{Device, Medium, wait as phy_wait};
+use smoltcp::{phy::{Device, Medium, wait as phy_wait}, time::Duration};
 use smoltcp::wire::{EthernetAddress, Ipv4Address, IpCidr, Ipv4Cidr};
 use smoltcp::iface::{NeighborCache, InterfaceBuilder, Interface, Routes};
 use smoltcp::socket::{SocketSet, Dhcpv4Socket, Dhcpv4Event};
@@ -42,7 +42,15 @@ fn main() {
     let mut iface = builder.finalize();
 
     let mut sockets = SocketSet::new(vec![]);
-    let dhcp_handle = sockets.add(Dhcpv4Socket::new());
+    let mut dhcp_socket = Dhcpv4Socket::new();
+
+    // Set a ridiculously short max lease time to show DHCP renews work properly.
+    // This will cause the DHCP client to start renewing after 5 seconds, and give up the
+    // lease after 10 seconds if renew hasn't succeeded.
+    // IMPORTANT: This should be removed in production.
+    dhcp_socket.set_max_lease_duration(Some(Duration::from_secs(10)));
+
+    let dhcp_handle = sockets.add(dhcp_socket);
 
     loop {
         let timestamp = Instant::now();
