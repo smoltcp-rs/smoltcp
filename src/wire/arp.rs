@@ -357,17 +357,15 @@ impl fmt::Display for Repr {
                 source_protocol_addr,
                 target_hardware_addr,
                 target_protocol_addr,
-            } => {
-                write!(
-                    f,
-                    "ARP type=Ethernet+IPv4 src={}/{} tgt={}/{} op={:?}",
-                    source_hardware_addr,
-                    source_protocol_addr,
-                    target_hardware_addr,
-                    target_protocol_addr,
-                    operation
-                )
-            }
+            } => write!(
+                f,
+                "ARP type=Ethernet+IPv4 src={}/{} tgt={}/{} op={:?}",
+                source_hardware_addr,
+                source_protocol_addr,
+                target_hardware_addr,
+                target_protocol_addr,
+                operation
+            ),
         }
     }
 }

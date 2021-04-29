@@ -18,10 +18,17 @@ impl AsRawFd for RawSocketDesc {
 impl RawSocketDesc {
     pub fn new(name: &str) -> io::Result<RawSocketDesc> {
         let lower = unsafe {
+            // TODO(thvdveld)
+            //#[cfg(feature = "medium-ieee802154")]
+            //let protocol = imp::ETH_P_IEEE802154;
+
+            #[cfg(feature = "medium-ethernet")]
+            let protocol = imp::ETH_P_ALL;
+
             let lower = libc::socket(
                 libc::AF_PACKET,
                 libc::SOCK_RAW | libc::SOCK_NONBLOCK,
-                imp::ETH_P_ALL.to_be() as i32,
+                protocol.to_be() as i32,
             );
             if lower == -1 {
                 return Err(io::Error::last_os_error());
@@ -44,9 +51,16 @@ impl RawSocketDesc {
     }
 
     pub fn bind_interface(&mut self) -> io::Result<()> {
+        // TODO(thvdveld)
+        //#[cfg(feature = "medium-ieee802154")]
+        //let protocol = imp::ETH_P_IEEE802154;
+
+        #[cfg(feature = "medium-ethernet")]
+        let protocol = imp::ETH_P_ALL;
+
         let sockaddr = libc::sockaddr_ll {
             sll_family: libc::AF_PACKET as u16,
-            sll_protocol: imp::ETH_P_ALL.to_be() as u16,
+            sll_protocol: protocol.to_be() as u16,
             sll_ifindex: ifreq_ioctl(self.lower, &mut self.ifreq, imp::SIOCGIFINDEX)?,
             sll_hatype: 1,
             sll_pkttype: 0,

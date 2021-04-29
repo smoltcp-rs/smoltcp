@@ -2,6 +2,7 @@ use crate::socket::SocketHandle;
 use crate::socket::{Context, SocketMeta};
 use crate::time::{Duration, Instant};
 use crate::wire::dhcpv4::field as dhcpv4_field;
+use crate::wire::HardwareAddress;
 use crate::wire::{
     DhcpMessageType, DhcpPacket, DhcpRepr, IpAddress, IpProtocol, Ipv4Address, Ipv4Cidr, Ipv4Repr,
     UdpRepr, DHCP_CLIENT_PORT, DHCP_MAX_DNS_SERVER_COUNT, DHCP_SERVER_PORT, UDP_HEADER_LEN,
@@ -218,7 +219,13 @@ impl Dhcpv4Socket {
                 return Ok(());
             }
         };
-        if dhcp_repr.client_hardware_address != cx.ethernet_address.unwrap() {
+        let hardware_addr = if let Some(HardwareAddress::Ethernet(addr)) = cx.hardware_addr {
+            addr
+        } else {
+            return Err(Error::Malformed);
+        };
+
+        if dhcp_repr.client_hardware_address != hardware_addr {
             return Ok(());
         }
         if dhcp_repr.transaction_id != self.transaction_id {
@@ -381,7 +388,11 @@ impl Dhcpv4Socket {
     {
         // note: Dhcpv4Socket is only usable in ethernet mediums, so the
         // unwrap can never fail.
-        let ethernet_addr = cx.ethernet_address.unwrap();
+        let ethernet_addr = if let Some(HardwareAddress::Ethernet(addr)) = cx.hardware_addr {
+            addr
+        } else {
+            return Err(Error::Malformed);
+        };
 
         // Worst case biggest IPv4 header length.
         // 0x0f * 4 = 60 bytes.

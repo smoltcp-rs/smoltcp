@@ -69,9 +69,7 @@ impl<'a> Set<'a> {
         }
 
         match self.sockets {
-            ManagedSlice::Borrowed(_) => {
-                panic!("adding a socket to a full SocketSet")
-            }
+            ManagedSlice::Borrowed(_) => panic!("adding a socket to a full SocketSet"),
             #[cfg(any(feature = "std", feature = "alloc"))]
             ManagedSlice::Owned(ref mut sockets) => {
                 sockets.push(None);

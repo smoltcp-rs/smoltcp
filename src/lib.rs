@@ -97,8 +97,12 @@ compile_error!("at least one socket needs to be enabled"); */
 #[cfg(any(feature = "std", feature = "alloc"))]
 extern crate alloc;
 
-#[cfg(not(any(feature = "proto-ipv4", feature = "proto-ipv6")))]
-compile_error!("You must enable at least one of the following features: proto-ipv4, proto-ipv6");
+#[cfg(not(any(
+    feature = "proto-ipv4",
+    feature = "proto-ipv6",
+    feature = "proto-sixlowpan"
+)))]
+compile_error!("You must enable at least one of the following features: proto-ipv4, proto-ipv6, proto-sixlowpan");
 
 #[cfg(all(
     feature = "socket",
@@ -113,9 +117,13 @@ compile_error!("If you enable the socket feature, you must enable at least one o
 
 #[cfg(all(
     feature = "socket",
-    not(any(feature = "medium-ethernet", feature = "medium-ip",))
+    not(any(
+        feature = "medium-ethernet",
+        feature = "medium-ip",
+        feature = "medium-ieee802154",
+    ))
 ))]
-compile_error!("If you enable the socket feature, you must enable at least one of the following features: medium-ip, medium-ethernet");
+compile_error!("If you enable the socket feature, you must enable at least one of the following features: medium-ip, medium-ethernet, medium-ieee802154");
 
 #[cfg(all(feature = "defmt", feature = "log"))]
 compile_error!("You must enable at most one of the following features: defmt, log");
@@ -174,6 +182,10 @@ pub enum Error {
     /// An incoming packet was recognized but contradicted internal state.
     /// E.g. a TCP packet addressed to a socket that doesn't exist.
     Dropped,
+
+    /// An incoming packet was recognized but some parts are not supported by smoltcp.
+    /// E.g. some bit configuration in a packet header is not supported, but is defined in an RFC.
+    NotSupported,
 }
 
 #[cfg(feature = "std")]
@@ -195,6 +207,7 @@ impl fmt::Display for Error {
             Error::Fragmented => write!(f, "fragmented packet"),
             Error::Malformed => write!(f, "malformed packet"),
             Error::Dropped => write!(f, "dropped by socket"),
+            Error::NotSupported => write!(f, "not supported by smoltcp"),
         }
     }
 }

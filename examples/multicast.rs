@@ -38,7 +38,7 @@ fn main() {
     let ip_addr = IpCidr::new(IpAddress::from(local_addr), 24);
     let mut ipv4_multicast_storage = [None; 1];
     let mut iface = InterfaceBuilder::new(device)
-        .ethernet_addr(ethernet_addr)
+        .hardware_addr(ethernet_addr.into())
         .neighbor_cache(neighbor_cache)
         .ip_addrs([ip_addr])
         .ipv4_multicast_groups(&mut ipv4_multicast_storage[..])

@@ -187,8 +187,15 @@ from_socket!(Dhcpv4Socket, Dhcpv4);
 #[derive(Clone, Debug)]
 pub(crate) struct Context {
     pub now: Instant,
-    #[cfg(all(feature = "medium-ethernet", feature = "socket-dhcpv4"))]
-    pub ethernet_address: Option<crate::wire::EthernetAddress>,
+    #[cfg(all(
+        any(feature = "medium-ethernet", feature = "medium-ieee802154"),
+        feature = "socket-dhcpv4"
+    ))]
+    pub hardware_addr: Option<crate::wire::HardwareAddress>,
+    #[cfg(feature = "medium-ieee802154")]
+    pub src_pan_id: Option<crate::wire::Ieee802154Pan>,
+    #[cfg(feature = "medium-ieee802154")]
+    pub dst_pan_id: Option<crate::wire::Ieee802154Pan>,
     pub caps: DeviceCapabilities,
 }
 
@@ -215,10 +222,18 @@ impl Context {
             #[cfg(not(feature = "medium-ethernet"))]
             max_transmission_unit: 1500,
         },
-        #[cfg(all(feature = "medium-ethernet", feature = "socket-dhcpv4"))]
-        ethernet_address: Some(crate::wire::EthernetAddress([
-            0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
-        ])),
+        #[cfg(all(
+            any(feature = "medium-ethernet", feature = "medium-ieee802154"),
+            feature = "socket-dhcpv4"
+        ))]
+        hardware_addr: Some(crate::wire::HardwareAddress::Ethernet(
+            crate::wire::EthernetAddress([0x02, 0x02, 0x02, 0x02, 0x02, 0x02]),
+        )),
         now: Instant::from_millis_const(0),
+
+        #[cfg(feature = "medium-ieee802154")]
+        src_pan_id: Some(crate::wire::Ieee802154Pan(0xabcd)),
+        #[cfg(feature = "medium-ieee802154")]
+        dst_pan_id: Some(crate::wire::Ieee802154Pan(0xabcd)),
     };
 }

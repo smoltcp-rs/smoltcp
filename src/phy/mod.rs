@@ -254,6 +254,8 @@ impl DeviceCapabilities {
             }
             #[cfg(feature = "medium-ip")]
             Medium::Ip => self.max_transmission_unit,
+            #[cfg(feature = "medium-ieee802154")]
+            Medium::Ieee802154 => self.max_transmission_unit, // TODO(thvdveld): what is the MTU for Medium::IEEE802
         }
     }
 }
@@ -275,15 +277,32 @@ pub enum Medium {
     /// Examples of devices of this type are the Linux `tun`, PPP interfaces, VPNs in tun (layer 3) mode.
     #[cfg(feature = "medium-ip")]
     Ip,
+
+    #[cfg(feature = "medium-ieee802154")]
+    Ieee802154,
 }
 
 impl Default for Medium {
     fn default() -> Medium {
         #[cfg(feature = "medium-ethernet")]
         return Medium::Ethernet;
-        #[cfg(all(feature = "medium-ip", not(feature = "medium-ethernet")))]
+        #[cfg(all(
+            feature = "medium-ip",
+            not(feature = "medium-ethernet"),
+            not(feature = "medium-ieee802154")
+        ))]
         return Medium::Ip;
-        #[cfg(all(not(feature = "medium-ip"), not(feature = "medium-ethernet")))]
+        #[cfg(all(
+            feature = "medium-ieee802154",
+            not(feature = "medium-ip"),
+            not(feature = "medium-ethernet")
+        ))]
+        return Medium::Ieee802154;
+        #[cfg(all(
+            not(feature = "medium-ip"),
+            not(feature = "medium-ethernet"),
+            not(feature = "medium-ieee802154")
+        ))]
         panic!("No medium enabled");
     }
 }

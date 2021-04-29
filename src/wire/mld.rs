@@ -532,6 +532,7 @@ mod test {
             &Ipv6Address::LINK_LOCAL_ALL_ROUTERS.into(),
             &packet,
             &ChecksumCapabilities::default(),
+            &crate::phy::Medium::Ethernet,
         );
         assert_eq!(repr, Ok(create_repr(Message::MldQuery)));
     }
@@ -544,6 +545,7 @@ mod test {
             &Ipv6Address::LINK_LOCAL_ALL_ROUTERS.into(),
             &packet,
             &ChecksumCapabilities::default(),
+            &crate::phy::Medium::Ethernet,
         );
         assert_eq!(repr, Ok(create_repr(Message::MldReport)));
     }
@@ -558,6 +560,7 @@ mod test {
             &Ipv6Address::LINK_LOCAL_ALL_ROUTERS.into(),
             &mut packet,
             &ChecksumCapabilities::default(),
+            &crate::phy::Medium::Ethernet,
         );
         assert_eq!(&packet.into_inner()[..], &QUERY_PACKET_BYTES[..]);
     }
@@ -572,6 +575,7 @@ mod test {
             &Ipv6Address::LINK_LOCAL_ALL_ROUTERS.into(),
             &mut packet,
             &ChecksumCapabilities::default(),
+            &crate::phy::Medium::Ethernet,
         );
         assert_eq!(&packet.into_inner()[..], &REPORT_PACKET_BYTES[..]);
     }

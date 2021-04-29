@@ -100,7 +100,7 @@ fn main() {
     let mut builder = InterfaceBuilder::new(device).ip_addrs(ip_addrs);
     if medium == Medium::Ethernet {
         builder = builder
-            .ethernet_addr(ethernet_addr)
+            .hardware_addr(ethernet_addr.into())
             .neighbor_cache(neighbor_cache);
     }
     let mut iface = builder.finalize();

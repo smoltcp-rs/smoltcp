@@ -95,7 +95,7 @@ fn main() {
 
     let mut ip_addrs = [IpCidr::new(IpAddress::v4(127, 0, 0, 1), 8)];
     let mut iface = InterfaceBuilder::new(device)
-        .ethernet_addr(EthernetAddress::default())
+        .hardware_addr(EthernetAddress::default().into())
         .neighbor_cache(neighbor_cache)
         .ip_addrs(ip_addrs)
         .finalize();

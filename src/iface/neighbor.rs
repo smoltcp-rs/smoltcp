@@ -4,7 +4,7 @@
 use managed::ManagedMap;
 
 use crate::time::{Duration, Instant};
-use crate::wire::{EthernetAddress, IpAddress};
+use crate::wire::{HardwareAddress, IpAddress};
 
 /// A cached neighbor.
 ///
@@ -13,7 +13,7 @@ use crate::wire::{EthernetAddress, IpAddress};
 #[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Neighbor {
-    hardware_addr: EthernetAddress,
+    hardware_addr: HardwareAddress,
     expires_at: Instant,
 }
 
@@ -22,7 +22,7 @@ pub struct Neighbor {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub(crate) enum Answer {
     /// The neighbor address is in the cache and not expired.
-    Found(EthernetAddress),
+    Found(HardwareAddress),
     /// The neighbor address is not in the cache, or has expired.
     NotFound,
     /// The neighbor address is not in the cache, or has expired,
@@ -115,7 +115,7 @@ impl<'a> Cache<'a> {
     pub fn fill(
         &mut self,
         protocol_addr: IpAddress,
-        hardware_addr: EthernetAddress,
+        hardware_addr: HardwareAddress,
         timestamp: Instant,
     ) {
         debug_assert!(protocol_addr.is_unicast());
@@ -197,7 +197,7 @@ impl<'a> Cache<'a> {
 
     pub(crate) fn lookup(&self, protocol_addr: &IpAddress, timestamp: Instant) -> Answer {
         if protocol_addr.is_broadcast() {
-            return Answer::Found(EthernetAddress::BROADCAST);
+            return Answer::Found(HardwareAddress::BROADCAST);
         }
 
         if let Some(&Neighbor {
@@ -228,10 +228,12 @@ mod test {
     use crate::wire::ip::test::{MOCK_IP_ADDR_1, MOCK_IP_ADDR_2, MOCK_IP_ADDR_3, MOCK_IP_ADDR_4};
     use std::collections::BTreeMap;
 
-    const HADDR_A: EthernetAddress = EthernetAddress([0, 0, 0, 0, 0, 1]);
-    const HADDR_B: EthernetAddress = EthernetAddress([0, 0, 0, 0, 0, 2]);
-    const HADDR_C: EthernetAddress = EthernetAddress([0, 0, 0, 0, 0, 3]);
-    const HADDR_D: EthernetAddress = EthernetAddress([0, 0, 0, 0, 0, 4]);
+    use crate::wire::EthernetAddress;
+
+    const HADDR_A: HardwareAddress = HardwareAddress::Ethernet(EthernetAddress([0, 0, 0, 0, 0, 1]));
+    const HADDR_B: HardwareAddress = HardwareAddress::Ethernet(EthernetAddress([0, 0, 0, 0, 0, 2]));
+    const HADDR_C: HardwareAddress = HardwareAddress::Ethernet(EthernetAddress([0, 0, 0, 0, 0, 3]));
+    const HADDR_D: HardwareAddress = HardwareAddress::Ethernet(EthernetAddress([0, 0, 0, 0, 0, 4]));
 
     #[test]
     fn test_fill() {

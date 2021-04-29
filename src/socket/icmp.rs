@@ -427,18 +427,19 @@ impl<'a> IcmpSocket<'a> {
             IcmpRepr::Ipv6(ref icmp_repr) => {
                 let packet_buf = self
                     .rx_buffer
-                    .enqueue(icmp_repr.buffer_len(), ip_repr.src_addr())?;
+                    .enqueue(icmp_repr.buffer_len(&_cx.caps.medium), ip_repr.src_addr())?;
                 icmp_repr.emit(
                     &ip_repr.src_addr(),
                     &ip_repr.dst_addr(),
                     &mut Icmpv6Packet::new_unchecked(packet_buf),
                     &ChecksumCapabilities::default(),
+                    &_cx.caps.medium,
                 );
 
                 net_trace!(
                     "{}:{}: receiving {} octets",
                     self.meta.handle,
-                    icmp_repr.buffer_len(),
+                    icmp_repr.buffer_len(&_cx.caps.medium),
                     packet_buf.len()
                 );
             }
@@ -486,12 +487,13 @@ impl<'a> IcmpSocket<'a> {
                         &ipv6_addr.into(),
                         &packet,
                         &ChecksumCapabilities::ignored(),
+                        &_cx.caps.medium,
                     )?;
                     let ip_repr = IpRepr::Ipv6(Ipv6Repr {
                         src_addr: src_addr,
                         dst_addr: ipv6_addr,
                         next_header: IpProtocol::Icmpv6,
-                        payload_len: repr.buffer_len(),
+                        payload_len: repr.buffer_len(&_cx.caps.medium),
                         hop_limit: hop_limit,
                     });
                     emit((ip_repr, IcmpRepr::Ipv6(repr)))
@@ -866,6 +868,7 @@ mod test_ipv6 {
             &REMOTE_IPV6.into(),
             &mut packet,
             &checksum,
+            &crate::phy::Medium::Ethernet,
         );
 
         assert_eq!(
@@ -913,6 +916,7 @@ mod test_ipv6 {
             &REMOTE_IPV6.into(),
             &mut packet,
             &checksum,
+            &crate::phy::Medium::Ethernet,
         );
 
         s.set_hop_limit(Some(0x2a));
@@ -929,7 +933,7 @@ mod test_ipv6 {
                         src_addr: Ipv6Address::UNSPECIFIED,
                         dst_addr: REMOTE_IPV6,
                         next_header: IpProtocol::Icmpv6,
-                        payload_len: ECHOV6_REPR.buffer_len(),
+                        payload_len: ECHOV6_REPR.buffer_len(&crate::phy::Medium::Ethernet),
                         hop_limit: 0x2a,
                     })
                 );
@@ -956,6 +960,7 @@ mod test_ipv6 {
             &REMOTE_IPV6.into(),
             &mut packet,
             &checksum,
+            &crate::phy::Medium::Ethernet,
         );
         let data = &packet.into_inner()[..];
 
@@ -994,6 +999,7 @@ mod test_ipv6 {
             &REMOTE_IPV6.into(),
             &mut packet,
             &checksum,
+            &crate::phy::Medium::Ethernet,
         );
 
         // Ensure that a packet with an identifier that isn't the bound
@@ -1036,7 +1042,7 @@ mod test_ipv6 {
             src_addr: REMOTE_IPV6.into(),
             dst_addr: LOCAL_IPV6.into(),
             protocol: IpProtocol::Icmpv6,
-            payload_len: icmp_repr.buffer_len(),
+            payload_len: icmp_repr.buffer_len(&crate::phy::Medium::Ethernet),
             hop_limit: 0x40,
         };
 
@@ -1058,6 +1064,7 @@ mod test_ipv6 {
             &REMOTE_IPV6.into(),
             &mut packet,
             &checksum,
+            &crate::phy::Medium::Ethernet,
         );
         assert_eq!(
             socket.recv(),
