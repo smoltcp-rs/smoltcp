@@ -1439,10 +1439,14 @@ impl<'a> TcpSocket<'a> {
 
             // ACK packets in LAST-ACK state change it to CLOSED.
             (State::LastAck, TcpControl::None) => {
-                // Clear the remote endpoint, or we'll send an RST there.
-                self.set_state(State::Closed);
-                self.local_endpoint  = IpEndpoint::default();
-                self.remote_endpoint = IpEndpoint::default();
+                if ack_of_fin {
+                    // Clear the remote endpoint, or we'll send an RST there.
+                    self.set_state(State::Closed);
+                    self.local_endpoint  = IpEndpoint::default();
+                    self.remote_endpoint = IpEndpoint::default();
+                } else {
+                    self.timer.set_for_idle(timestamp, self.keep_alive);
+                }
             }
 
             _ => {
@@ -3479,6 +3483,34 @@ mod test {
             ..RECV_TEMPL
         }]);
         assert_eq!(s.state, State::LastAck);
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1 + 1,
+            ack_number: Some(LOCAL_SEQ + 1 + 1),
+            ..SEND_TEMPL
+        });
+        assert_eq!(s.state, State::Closed);
+    }
+
+    #[test]
+    fn test_last_ack_ack_not_of_fin() {
+        let mut s = socket_last_ack();
+        recv!(s, [TcpRepr {
+            control: TcpControl::Fin,
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1 + 1),
+            ..RECV_TEMPL
+        }]);
+        assert_eq!(s.state, State::LastAck);
+
+        // ACK received that doesn't ack the FIN: socket should stay in LastAck.
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1 + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            ..SEND_TEMPL
+        });
+        assert_eq!(s.state, State::LastAck);
+
+        // ACK received of fin: socket should change to Closed.
         send!(s, TcpRepr {
             seq_number: REMOTE_SEQ + 1 + 1,
             ack_number: Some(LOCAL_SEQ + 1 + 1),
