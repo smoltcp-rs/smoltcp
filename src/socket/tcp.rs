@@ -140,7 +140,7 @@ impl RttEstimator {
             // all packets sent would incur a retransmit. To avoid this, force an estimate
             // increase if we see 3 consecutive retransmissions without any successful sample.
             self.rto_count = 0;
-            self.rtt *= 2;
+            self.rtt = RTTE_MAX_RTO.min(self.rtt*2);
             let rto = self.retransmission_timeout().millis();
             net_trace!("rtte: too many retransmissions, increasing: rtt={:?} dev={:?} rto={:?}", self.rtt, self.deviation, rto);
         }
