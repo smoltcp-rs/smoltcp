@@ -704,6 +704,9 @@ impl<'a> Repr<'a> {
         if self.client_identifier.is_some() { len += 9; }
         if self.server_identifier.is_some() { len += 6; }
         if self.max_size.is_some() { len += 4; }
+        if self.router.is_some() { len += 6; }
+        if self.subnet_mask.is_some() { len += 6; }
+        if self.lease_duration.is_some() { len += 6; }
         if let Some(list) = self.parameter_request_list { len += list.len() + 2; }
 
         len
@@ -1019,6 +1022,28 @@ mod test {
         assert_eq!(packet, DISCOVER_BYTES);
     }
 
+    fn offer_repr() -> Repr<'static> {
+        Repr {
+            message_type: MessageType::Offer,
+            transaction_id: 0x3d1d,
+            client_hardware_address: CLIENT_MAC,
+            client_ip: IP_NULL,
+            your_ip: IP_NULL,
+            server_ip: IP_NULL,
+            router: Some(IP_NULL),
+            subnet_mask: Some(IP_NULL),
+            relay_agent_ip: IP_NULL,
+            broadcast: false,
+            requested_ip: None,
+            client_identifier: Some(CLIENT_MAC),
+            server_identifier: None,
+            parameter_request_list: None,
+            dns_servers: None,
+            max_size: None,
+            lease_duration: Some(u32::MAX), // Infinite lease
+        }
+    }
+
     fn discover_repr() -> Repr<'static> {
         Repr {
             message_type: MessageType::Discover,
@@ -1060,6 +1085,14 @@ mod test {
         for byte in &DISCOVER_BYTES[packet_len..] {
             assert_eq!(*byte, 0); // padding bytes
         }
+    }
+
+    #[test]
+    fn test_emit_offer() {
+        let repr = offer_repr();
+        let mut bytes = vec![0xa5; repr.buffer_len()];
+        let mut packet = Packet::new_unchecked(&mut bytes);
+        repr.emit(&mut packet).unwrap();
     }
 
     #[test]
