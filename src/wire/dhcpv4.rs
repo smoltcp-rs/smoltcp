@@ -1040,7 +1040,7 @@ mod test {
             parameter_request_list: None,
             dns_servers: None,
             max_size: None,
-            lease_duration: Some(u32::MAX), // Infinite lease
+            lease_duration: Some(0xffff_ffff), // Infinite lease
         }
     }
 
