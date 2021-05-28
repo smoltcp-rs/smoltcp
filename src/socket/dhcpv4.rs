@@ -161,9 +161,8 @@ impl Dhcpv4Socket {
     pub(crate) fn process(&mut self, now: Instant, ethernet_addr: EthernetAddress, ip_repr: &Ipv4Repr, repr: &UdpRepr, payload: &[u8]) -> Result<()> {
         let src_ip = ip_repr.src_addr;
 
-        if repr.src_port != DHCP_SERVER_PORT || repr.dst_port != DHCP_CLIENT_PORT {
-            return Ok(())
-        }
+        // This is enforced in interface.rs.
+        assert!(repr.src_port == DHCP_SERVER_PORT && repr.dst_port == DHCP_CLIENT_PORT);
 
         let dhcp_packet = match DhcpPacket::new_checked(payload) {
             Ok(dhcp_packet) => dhcp_packet,
