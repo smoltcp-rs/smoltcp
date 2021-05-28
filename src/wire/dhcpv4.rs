@@ -827,31 +827,30 @@ impl<'a> Repr<'a> {
 
         {
             let mut options = packet.options_mut()?;
-            let tmp = options; options = DhcpOption::MessageType(self.message_type).emit(tmp);
+            options = DhcpOption::MessageType(self.message_type).emit(options);
             if let Some(eth_addr) = self.client_identifier {
-                let tmp = options; options = DhcpOption::ClientIdentifier(eth_addr).emit(tmp);
+                options = DhcpOption::ClientIdentifier(eth_addr).emit(options);
             }
             if let Some(ip) = self.server_identifier {
-                let tmp = options; options = DhcpOption::ServerIdentifier(ip).emit(tmp);
+                options = DhcpOption::ServerIdentifier(ip).emit(options);
             }
             if let Some(ip) = self.router {
-                let tmp = options; options = DhcpOption::Router(ip).emit(tmp);
+                options = DhcpOption::Router(ip).emit(options);
             }
             if let Some(ip) = self.subnet_mask {
-                let tmp = options; options = DhcpOption::SubnetMask(ip).emit(tmp);
+                options = DhcpOption::SubnetMask(ip).emit(options);
             }
             if let Some(ip) = self.requested_ip {
-                let tmp = options; options = DhcpOption::RequestedIp(ip).emit(tmp);
+                options = DhcpOption::RequestedIp(ip).emit(options);
             }
             if let Some(size) = self.max_size {
-                let tmp = options; options = DhcpOption::MaximumDhcpMessageSize(size).emit(tmp);
+                options = DhcpOption::MaximumDhcpMessageSize(size).emit(options);
             }
             if let Some(duration) = self.lease_duration {
-                let tmp = options; options = DhcpOption::IpLeaseTime(duration).emit(tmp);
+                options = DhcpOption::IpLeaseTime(duration).emit(options);
             }
             if let Some(list) = self.parameter_request_list {
-                let option = DhcpOption::Other{ kind: field::OPT_PARAMETER_REQUEST_LIST, data: list };
-                let tmp = options; options = option.emit(tmp);
+                options = DhcpOption::Other{ kind: field::OPT_PARAMETER_REQUEST_LIST, data: list }.emit(options);
             }
             DhcpOption::EndOfList.emit(options);
         }
@@ -1003,14 +1002,14 @@ mod test {
 
         {
             let mut options = packet.options_mut().unwrap();
-            let tmp = options; options = DhcpOption::MessageType(MessageType::Discover).emit(tmp);
-            let tmp = options; options = DhcpOption::ClientIdentifier(CLIENT_MAC).emit(tmp);
-            let tmp = options; options = DhcpOption::RequestedIp(IP_NULL).emit(tmp);
-            let tmp = options; options = DhcpOption::MaximumDhcpMessageSize(DHCP_SIZE).emit(tmp);
+            options = DhcpOption::MessageType(MessageType::Discover).emit(options);
+            options = DhcpOption::ClientIdentifier(CLIENT_MAC).emit(options);
+            options = DhcpOption::RequestedIp(IP_NULL).emit(options);
+            options = DhcpOption::MaximumDhcpMessageSize(DHCP_SIZE).emit(options);
             let option = DhcpOption::Other {
                 kind: field::OPT_PARAMETER_REQUEST_LIST, data: &[1, 3, 6, 42],
             };
-            let tmp = options; options = option.emit(tmp);
+            options = option.emit(options);
             DhcpOption::EndOfList.emit(options);
         }
 
