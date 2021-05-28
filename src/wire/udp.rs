@@ -57,13 +57,13 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// [set_len]: #method.set_len
     pub fn check_len(&self) -> Result<()> {
         let buffer_len = self.buffer.as_ref().len();
-        if buffer_len < field::CHECKSUM.end {
+        if buffer_len < HEADER_LEN {
             Err(Error::Truncated)
         } else {
             let field_len = self.len() as usize;
             if buffer_len < field_len {
                 Err(Error::Truncated)
-            } else if field_len < field::CHECKSUM.end {
+            } else if field_len < HEADER_LEN {
                 Err(Error::Malformed)
             } else {
                 Ok(())
@@ -234,9 +234,9 @@ impl Repr {
         })
     }
 
-    /// Return the length of a packet that will be emitted from this high-level representation.
+    /// Return the length of the packet header that will be emitted from this high-level representation.
     pub fn header_len(&self) -> usize {
-        field::CHECKSUM.end
+        HEADER_LEN
     }
 
     /// Emit a high-level representation into an User Datagram Protocol packet.
@@ -249,7 +249,7 @@ impl Repr {
             where T: AsRef<[u8]> + AsMut<[u8]> {
         packet.set_src_port(self.src_port);
         packet.set_dst_port(self.dst_port);
-        packet.set_len((field::CHECKSUM.end + payload_len) as u16);
+        packet.set_len((HEADER_LEN + payload_len) as u16);
         emit_payload(packet.payload_mut());
 
         if checksum_caps.udp.tx() {
