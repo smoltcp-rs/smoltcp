@@ -59,8 +59,8 @@ fn main() {
         }
 
         match sockets.get::<Dhcpv4Socket>(dhcp_handle).poll() {
-            Dhcpv4Event::NoChange => {}
-            Dhcpv4Event::Configured(config) => {
+            None => {}
+            Some(Dhcpv4Event::Configured(config)) => {
                 debug!("DHCP config acquired!");
 
                 debug!("IP address:      {}", config.address);
@@ -80,7 +80,7 @@ fn main() {
                     }
                 }
             }
-            Dhcpv4Event::Deconfigured => {
+            Some(Dhcpv4Event::Deconfigured) => {
                 debug!("DHCP lost config!");
                 set_ipv4_addr(&mut iface, Ipv4Cidr::new(Ipv4Address::UNSPECIFIED, 0));
                 iface.routes_mut().remove_default_ipv4_route();

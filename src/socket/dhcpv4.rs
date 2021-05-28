@@ -18,7 +18,7 @@ const REQUEST_RETRIES: u16 = 5;
 
 const MIN_RENEW_TIMEOUT: Duration = Duration::from_secs(60);
 
-const DEFAULT_LEASE_DURATION: u32 = 120;
+const DEFAULT_LEASE_DURATION: Duration = Duration::from_secs(120);
 
 const PARAMETER_REQUEST_LIST: &[u8] = &[
     dhcpv4_field::OPT_SUBNET_MASK,
@@ -75,7 +75,7 @@ struct RequestState {
 struct RenewState {
     /// Server that gave us the lease
     server: ServerInfo,
-    /// Active networkc config
+    /// Active network config
     config: Config,
 
     /// Renew timer. When reached, we will start attempting
@@ -100,8 +100,6 @@ enum ClientState {
 
 /// Return value for the `Dhcpv4Socket::poll` function
 pub enum Event<'a> {
-    /// No change has occured to the configuration.
-    NoChange,
     /// Configuration has been lost (for example, the lease has expired)
     Deconfigured,
     /// Configuration has been newly acquired, or modified.
@@ -211,7 +209,7 @@ impl Dhcpv4Socket {
                 });
             }
             (ClientState::Requesting(state), DhcpMessageType::Ack) => {
-                if let Some((config, renew_at, expires_at)) = Self::parse_ack(now, ip_repr, &dhcp_repr, self.max_lease_duration) {
+                if let Some((config, renew_at, expires_at)) = Self::parse_ack(now, &dhcp_repr, self.max_lease_duration) {
                     self.config_changed = true;
                     self.state = ClientState::Renewing(RenewState{
                         server: state.server,
@@ -225,7 +223,7 @@ impl Dhcpv4Socket {
                 self.reset();
             }
             (ClientState::Renewing(state), DhcpMessageType::Ack) => {
-                if let Some((config, renew_at, expires_at)) = Self::parse_ack(now, ip_repr, &dhcp_repr, self.max_lease_duration) {
+                if let Some((config, renew_at, expires_at)) = Self::parse_ack(now, &dhcp_repr, self.max_lease_duration) {
                     state.renew_at = renew_at;
                     state.expires_at = expires_at;
                     if state.config != config {
@@ -245,7 +243,7 @@ impl Dhcpv4Socket {
         Ok(())
     }
 
-    fn parse_ack(now: Instant, _ip_repr: &Ipv4Repr, dhcp_repr: &DhcpRepr, max_lease_duration: Option<Duration>) -> Option<(Config, Instant, Instant)> {
+    fn parse_ack(now: Instant, dhcp_repr: &DhcpRepr, max_lease_duration: Option<Duration>) -> Option<(Config, Instant, Instant)> {
         let subnet_mask = match dhcp_repr.subnet_mask {
             Some(subnet_mask) => subnet_mask,
             None => {
@@ -267,8 +265,7 @@ impl Dhcpv4Socket {
             return None
         }
 
-        let lease_duration = dhcp_repr.lease_duration.unwrap_or(DEFAULT_LEASE_DURATION);
-        let mut lease_duration = Duration::from_secs(lease_duration as _);
+        let mut lease_duration = dhcp_repr.lease_duration.map(|d| Duration::from_secs(d as _)).unwrap_or(DEFAULT_LEASE_DURATION);
         if let Some(max_lease_duration) = max_lease_duration {
             lease_duration = lease_duration.min(max_lease_duration);
         }
@@ -442,15 +439,15 @@ impl Dhcpv4Socket {
     ///
     /// The socket has an internal "configuration changed" flag. If
     /// set, this function returns the configuration and resets the flag.
-    pub fn poll(&mut self) -> Event<'_> {
+    pub fn poll(&mut self) -> Option<Event<'_>> {
         if !self.config_changed {
-            Event::NoChange
+            None
         } else if let ClientState::Renewing(state) = &self.state {
             self.config_changed = false;
-            Event::Configured(&state.config)
+            Some(Event::Configured(&state.config))
         } else {
             self.config_changed = false;
-            Event::Deconfigured
+            Some(Event::Deconfigured)
         }
     }
 }
