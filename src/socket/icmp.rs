@@ -94,12 +94,12 @@ impl<'a> IcmpSocket<'a> {
     ///
     /// The waker is woken on state changes that might affect the return value
     /// of `recv` method calls, such as receiving data, or the socket closing.
-    /// 
+    ///
     /// Notes:
     ///
     /// - Only one waker can be registered at a time. If another waker was previously registered,
     ///   it is overwritten and will no longer be woken.
-    /// - The Waker is woken only once. Once woken, you must register it again to receive more wakes. 
+    /// - The Waker is woken only once. Once woken, you must register it again to receive more wakes.
     /// - "Spurious wakes" are allowed: a wake doesn't guarantee the result of `recv` has
     ///   necessarily changed.
     #[cfg(feature = "async")]
@@ -112,12 +112,12 @@ impl<'a> IcmpSocket<'a> {
     /// The waker is woken on state changes that might affect the return value
     /// of `send` method calls, such as space becoming available in the transmit
     /// buffer, or the socket closing.
-    /// 
+    ///
     /// Notes:
     ///
     /// - Only one waker can be registered at a time. If another waker was previously registered,
     ///   it is overwritten and will no longer be woken.
-    /// - The Waker is woken only once. Once woken, you must register it again to receive more wakes. 
+    /// - The Waker is woken only once. Once woken, you must register it again to receive more wakes.
     /// - "Spurious wakes" are allowed: a wake doesn't guarantee the result of `send` has
     ///   necessarily changed.
     #[cfg(feature = "async")]
@@ -440,7 +440,7 @@ impl<'a> IcmpSocket<'a> {
                 _ => Err(Error::Unaddressable)
             }
         })?;
-        
+
         #[cfg(feature = "async")]
         self.tx_waker.wake();
 
@@ -482,8 +482,9 @@ mod tests_common {
     pub static UDP_REPR: UdpRepr = UdpRepr {
         src_port: 53,
         dst_port: 9090,
-        payload:  &[0xff; 10]
     };
+
+    pub static UDP_PAYLOAD: &[u8] = &[0xff; 10];
 }
 
 #[cfg(all(test, feature = "proto-ipv4"))]
@@ -644,7 +645,13 @@ mod test_ipv4 {
 
         let mut bytes = [0xff; 18];
         let mut packet = UdpPacket::new_unchecked(&mut bytes);
-        UDP_REPR.emit(&mut packet, &REMOTE_IPV4.into(), &LOCAL_IPV4.into(), &checksum);
+        UDP_REPR.emit(
+            &mut packet,
+            &REMOTE_IPV4.into(),
+            &LOCAL_IPV4.into(),
+            UDP_PAYLOAD.len(),
+            |buf| buf.copy_from_slice(UDP_PAYLOAD),
+            &checksum);
 
         let data = &packet.into_inner()[..];
 
@@ -843,7 +850,13 @@ mod test_ipv6 {
 
         let mut bytes = [0xff; 18];
         let mut packet = UdpPacket::new_unchecked(&mut bytes);
-        UDP_REPR.emit(&mut packet, &REMOTE_IPV6.into(), &LOCAL_IPV6.into(), &checksum);
+        UDP_REPR.emit(
+            &mut packet,
+            &REMOTE_IPV6.into(),
+            &LOCAL_IPV6.into(),
+            UDP_PAYLOAD.len(),
+            |buf| buf.copy_from_slice(UDP_PAYLOAD),
+            &checksum);
 
         let data = &packet.into_inner()[..];
 

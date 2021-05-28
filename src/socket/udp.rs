@@ -54,12 +54,12 @@ impl<'a> UdpSocket<'a> {
     ///
     /// The waker is woken on state changes that might affect the return value
     /// of `recv` method calls, such as receiving data, or the socket closing.
-    /// 
+    ///
     /// Notes:
     ///
     /// - Only one waker can be registered at a time. If another waker was previously registered,
     ///   it is overwritten and will no longer be woken.
-    /// - The Waker is woken only once. Once woken, you must register it again to receive more wakes. 
+    /// - The Waker is woken only once. Once woken, you must register it again to receive more wakes.
     /// - "Spurious wakes" are allowed: a wake doesn't guarantee the result of `recv` has
     ///   necessarily changed.
     #[cfg(feature = "async")]
@@ -72,12 +72,12 @@ impl<'a> UdpSocket<'a> {
     /// The waker is woken on state changes that might affect the return value
     /// of `send` method calls, such as space becoming available in the transmit
     /// buffer, or the socket closing.
-    /// 
+    ///
     /// Notes:
     ///
     /// - Only one waker can be registered at a time. If another waker was previously registered,
     ///   it is overwritten and will no longer be woken.
-    /// - The Waker is woken only once. Once woken, you must register it again to receive more wakes. 
+    /// - The Waker is woken only once. Once woken, you must register it again to receive more wakes.
     /// - "Spurious wakes" are allowed: a wake doesn't guarantee the result of `send` has
     ///   necessarily changed.
     #[cfg(feature = "async")]
@@ -277,13 +277,13 @@ impl<'a> UdpSocket<'a> {
         true
     }
 
-    pub(crate) fn process(&mut self, ip_repr: &IpRepr, repr: &UdpRepr) -> Result<()> {
+    pub(crate) fn process(&mut self, ip_repr: &IpRepr, repr: &UdpRepr, payload: &[u8]) -> Result<()> {
         debug_assert!(self.accepts(ip_repr, repr));
 
-        let size = repr.payload.len();
+        let size = payload.len();
 
         let endpoint = IpEndpoint { addr: ip_repr.src_addr(), port: repr.src_port };
-        self.rx_buffer.enqueue(size, endpoint)?.copy_from_slice(repr.payload);
+        self.rx_buffer.enqueue(size, endpoint)?.copy_from_slice(payload);
 
         net_trace!("{}:{}:{}: receiving {} octets",
                    self.meta.handle, self.endpoint,
@@ -296,7 +296,7 @@ impl<'a> UdpSocket<'a> {
     }
 
     pub(crate) fn dispatch<F>(&mut self, emit: F) -> Result<()>
-            where F: FnOnce((IpRepr, UdpRepr)) -> Result<()> {
+            where F: FnOnce((IpRepr, UdpRepr, &[u8])) -> Result<()> {
         let handle    = self.handle();
         let endpoint  = self.endpoint;
         let hop_limit = self.hop_limit.unwrap_or(64);
@@ -309,16 +309,15 @@ impl<'a> UdpSocket<'a> {
             let repr = UdpRepr {
                 src_port: endpoint.port,
                 dst_port: remote_endpoint.port,
-                payload:  payload_buf,
             };
             let ip_repr = IpRepr::Unspecified {
                 src_addr:    endpoint.addr,
                 dst_addr:    remote_endpoint.addr,
                 protocol:    IpProtocol::Udp,
-                payload_len: repr.buffer_len(),
+                payload_len: repr.header_len() + payload_buf.len(),
                 hop_limit:   hop_limit,
             };
-            emit((ip_repr, repr))
+            emit((ip_repr, repr, payload_buf))
         })?;
 
         #[cfg(feature = "async")]
@@ -379,14 +378,14 @@ mod test {
     const LOCAL_UDP_REPR: UdpRepr = UdpRepr {
         src_port: LOCAL_PORT,
         dst_port: REMOTE_PORT,
-        payload: b"abcdef"
     };
 
     const REMOTE_UDP_REPR: UdpRepr = UdpRepr {
         src_port: REMOTE_PORT,
         dst_port: LOCAL_PORT,
-        payload: b"abcdef"
     };
+
+    const PAYLOAD: &[u8] = b"abcdef";
 
     fn remote_ip_repr() -> IpRepr {
         match (MOCK_IP_ADDR_2, MOCK_IP_ADDR_1) {
@@ -457,16 +456,18 @@ mod test {
         assert_eq!(socket.send_slice(b"123456", REMOTE_END), Err(Error::Exhausted));
         assert!(!socket.can_send());
 
-        assert_eq!(socket.dispatch(|(ip_repr, udp_repr)| {
+        assert_eq!(socket.dispatch(|(ip_repr, udp_repr, payload)| {
             assert_eq!(ip_repr, LOCAL_IP_REPR);
             assert_eq!(udp_repr, LOCAL_UDP_REPR);
+            assert_eq!(payload, PAYLOAD);
             Err(Error::Unaddressable)
         }), Err(Error::Unaddressable));
         assert!(!socket.can_send());
 
-        assert_eq!(socket.dispatch(|(ip_repr, udp_repr)| {
+        assert_eq!(socket.dispatch(|(ip_repr, udp_repr, payload)| {
             assert_eq!(ip_repr, LOCAL_IP_REPR);
             assert_eq!(udp_repr, LOCAL_UDP_REPR);
+            assert_eq!(payload, PAYLOAD);
             Ok(())
         }), Ok(()));
         assert!(socket.can_send());
@@ -481,12 +482,12 @@ mod test {
         assert_eq!(socket.recv(), Err(Error::Exhausted));
 
         assert!(socket.accepts(&remote_ip_repr(), &REMOTE_UDP_REPR));
-        assert_eq!(socket.process(&remote_ip_repr(), &REMOTE_UDP_REPR),
+        assert_eq!(socket.process(&remote_ip_repr(), &REMOTE_UDP_REPR, PAYLOAD),
                    Ok(()));
         assert!(socket.can_recv());
 
         assert!(socket.accepts(&remote_ip_repr(), &REMOTE_UDP_REPR));
-        assert_eq!(socket.process(&remote_ip_repr(), &REMOTE_UDP_REPR),
+        assert_eq!(socket.process(&remote_ip_repr(), &REMOTE_UDP_REPR, PAYLOAD),
                    Err(Error::Exhausted));
         assert_eq!(socket.recv(), Ok((&b"abcdef"[..], REMOTE_END)));
         assert!(!socket.can_recv());
@@ -499,7 +500,7 @@ mod test {
 
         assert_eq!(socket.peek(), Err(Error::Exhausted));
 
-        assert_eq!(socket.process(&remote_ip_repr(), &REMOTE_UDP_REPR),
+        assert_eq!(socket.process(&remote_ip_repr(), &REMOTE_UDP_REPR, PAYLOAD),
                    Ok(()));
         assert_eq!(socket.peek(), Ok((&b"abcdef"[..], &REMOTE_END)));
         assert_eq!(socket.recv(), Ok((&b"abcdef"[..], REMOTE_END)));
@@ -512,7 +513,7 @@ mod test {
         assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
 
         assert!(socket.accepts(&remote_ip_repr(), &REMOTE_UDP_REPR));
-        assert_eq!(socket.process(&remote_ip_repr(), &REMOTE_UDP_REPR),
+        assert_eq!(socket.process(&remote_ip_repr(), &REMOTE_UDP_REPR, PAYLOAD),
                    Ok(()));
 
         let mut slice = [0; 4];
@@ -525,7 +526,7 @@ mod test {
         let mut socket = socket(buffer(1), buffer(0));
         assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
 
-        assert_eq!(socket.process(&remote_ip_repr(), &REMOTE_UDP_REPR),
+        assert_eq!(socket.process(&remote_ip_repr(), &REMOTE_UDP_REPR, PAYLOAD),
                    Ok(()));
 
         let mut slice = [0; 4];
@@ -543,7 +544,7 @@ mod test {
 
         s.set_hop_limit(Some(0x2a));
         assert_eq!(s.send_slice(b"abcdef", REMOTE_END), Ok(()));
-        assert_eq!(s.dispatch(|(ip_repr, _)| {
+        assert_eq!(s.dispatch(|(ip_repr, _, _)| {
             assert_eq!(ip_repr, IpRepr::Unspecified{
                 src_addr: MOCK_IP_ADDR_1,
                 dst_addr: MOCK_IP_ADDR_2,
@@ -619,9 +620,8 @@ mod test {
         let repr = UdpRepr {
             src_port: REMOTE_PORT,
             dst_port: LOCAL_PORT,
-            payload: &[]
         };
-        assert_eq!(socket.process(&remote_ip_repr(), &repr), Ok(()));
+        assert_eq!(socket.process(&remote_ip_repr(), &repr, &[]), Ok(()));
         assert_eq!(socket.recv(), Ok((&[][..], REMOTE_END)));
     }
 }

@@ -28,6 +28,8 @@ mod field {
     }
 }
 
+pub const HEADER_LEN: usize = field::CHECKSUM.end;
+
 #[allow(clippy::len_without_is_empty)]
 impl<T: AsRef<[u8]>> Packet<T> {
     /// Imbue a raw octet buffer with UDP packet structure.
@@ -55,13 +57,13 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// [set_len]: #method.set_len
     pub fn check_len(&self) -> Result<()> {
         let buffer_len = self.buffer.as_ref().len();
-        if buffer_len < field::CHECKSUM.end {
+        if buffer_len < HEADER_LEN {
             Err(Error::Truncated)
         } else {
             let field_len = self.len() as usize;
             if buffer_len < field_len {
                 Err(Error::Truncated)
-            } else if field_len < field::CHECKSUM.end {
+            } else if field_len < HEADER_LEN {
                 Err(Error::Malformed)
             } else {
                 Ok(())
@@ -201,16 +203,15 @@ impl<T: AsRef<[u8]>> AsRef<[u8]> for Packet<T> {
 /// A high-level representation of an User Datagram Protocol packet.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct Repr<'a> {
+pub struct Repr {
     pub src_port: u16,
     pub dst_port: u16,
-    pub payload:  &'a [u8]
 }
 
-impl<'a> Repr<'a> {
+impl Repr {
     /// Parse an User Datagram Protocol packet and return a high-level representation.
-    pub fn parse<T>(packet: &Packet<&'a T>, src_addr: &IpAddress, dst_addr: &IpAddress,
-                    checksum_caps: &ChecksumCapabilities) -> Result<Repr<'a>>
+    pub fn parse<T>(packet: &Packet<&T>, src_addr: &IpAddress, dst_addr: &IpAddress,
+                    checksum_caps: &ChecksumCapabilities) -> Result<Repr>
             where T: AsRef<[u8]> + ?Sized {
         // Destination port cannot be omitted (but source port can be).
         if packet.dst_port() == 0 { return Err(Error::Malformed) }
@@ -230,25 +231,26 @@ impl<'a> Repr<'a> {
         Ok(Repr {
             src_port: packet.src_port(),
             dst_port: packet.dst_port(),
-            payload:  packet.payload()
         })
     }
 
-    /// Return the length of a packet that will be emitted from this high-level representation.
-    pub fn buffer_len(&self) -> usize {
-        field::CHECKSUM.end + self.payload.len()
+    /// Return the length of the packet header that will be emitted from this high-level representation.
+    pub fn header_len(&self) -> usize {
+        HEADER_LEN
     }
 
     /// Emit a high-level representation into an User Datagram Protocol packet.
     pub fn emit<T: ?Sized>(&self, packet: &mut Packet<&mut T>,
                            src_addr: &IpAddress,
                            dst_addr: &IpAddress,
+                           payload_len: usize,
+                           emit_payload: impl FnOnce(&mut [u8]),
                            checksum_caps: &ChecksumCapabilities)
             where T: AsRef<[u8]> + AsMut<[u8]> {
         packet.set_src_port(self.src_port);
         packet.set_dst_port(self.dst_port);
-        packet.set_len((field::CHECKSUM.end + self.payload.len()) as u16);
-        packet.payload_mut().copy_from_slice(self.payload);
+        packet.set_len((HEADER_LEN + payload_len) as u16);
+        emit_payload(packet.payload_mut());
 
         if checksum_caps.udp.tx() {
             packet.fill_checksum(src_addr, dst_addr)
@@ -268,10 +270,9 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
     }
 }
 
-impl<'a> fmt::Display for Repr<'a> {
+impl fmt::Display for Repr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "UDP src={} dst={} len={}",
-               self.src_port, self.dst_port, self.payload.len())
+        write!(f, "UDP src={} dst={}", self.src_port, self.dst_port)
     }
 }
 
@@ -361,11 +362,10 @@ mod test {
     }
 
     #[cfg(feature = "proto-ipv4")]
-    fn packet_repr() -> Repr<'static> {
+    fn packet_repr() -> Repr {
         Repr {
             src_port: 48896,
             dst_port: 53,
-            payload:  &PAYLOAD_BYTES
         }
     }
 
@@ -382,9 +382,11 @@ mod test {
     #[cfg(feature = "proto-ipv4")]
     fn test_emit() {
         let repr = packet_repr();
-        let mut bytes = vec![0xa5; repr.buffer_len()];
+        let mut bytes = vec![0xa5; repr.header_len() + PAYLOAD_BYTES.len()];
         let mut packet = Packet::new_unchecked(&mut bytes);
         repr.emit(&mut packet, &SRC_ADDR.into(), &DST_ADDR.into(),
+                  PAYLOAD_BYTES.len(),
+                  |payload| payload.copy_from_slice(&PAYLOAD_BYTES),
                   &ChecksumCapabilities::default());
         assert_eq!(&packet.into_inner()[..], &PACKET_BYTES[..]);
     }

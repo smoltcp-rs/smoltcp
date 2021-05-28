@@ -156,6 +156,9 @@ impl<'a> Set<'a> {
                         } else {
                             socket.close()
                         },
+                    #[cfg(feature = "socket-dhcpv4")]
+                    Socket::Dhcpv4(_) =>
+                        may_remove = true,
                 }
             }
             if may_remove {
