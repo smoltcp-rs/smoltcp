@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Update `managed` from 0.7 to 0.8 ([442](https://github.com/smoltcp-rs/smoltcp/pull/442))
 
+## [0.7.3] - 2021-05-29
+
+- Fix "unused attribute" error in recent nightlies.
+
 ## [0.7.2] - 2021-05-29
 
 - iface: check for ipv4 subnet broadcast addrs everywhere (#462)
@@ -67,5 +71,7 @@ only processed when directed to the 255.255.255.255 address. ([377](https://gith
 - Simplify lifetime parameters of sockets, SocketSet, EthernetInterface ([410](https://github.com/smoltcp-rs/smoltcp/pull/410), [413](https://github.com/smoltcp-rs/smoltcp/pull/413))
 
 [Unreleased]: https://github.com/smoltcp-rs/smoltcp/compare/v0.7.0...HEAD
+[0.7.3]: https://github.com/smoltcp-rs/smoltcp/compare/v0.7.2...v0.7.3
+[0.7.2]: https://github.com/smoltcp-rs/smoltcp/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/smoltcp-rs/smoltcp/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/smoltcp-rs/smoltcp/compare/v0.6.0...v0.7.0
