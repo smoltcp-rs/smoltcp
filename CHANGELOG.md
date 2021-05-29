@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Update `managed` from 0.7 to 0.8 ([442](https://github.com/smoltcp-rs/smoltcp/pull/442))
 
+## [0.7.2] - 2021-05-29
+
+- iface: check for ipv4 subnet broadcast addrs everywhere (#462)
+- dhcp: always send parameter_request_list. (#456)
+- dhcp: Clear expiration time on reset. (#456)
+- phy: fix FaultInjector returning a too big buffer when simulating a drop on tx (#463)
+- tcp rtte: fix "attempt to multiply with overflow". (#476)
+- tcp: LastAck should only change to Closed on ack of fin. (#477)
+- wire/dhcpv4: account for lease time, router and subnet options in DhcpRepr::buffer_len (#478)
+
 ## [0.7.1] - 2021-03-27
 
 - ndisc: Fix NeighborSolicit incorrectly asking for src addr instead of dst addr ([419](https://github.com/smoltcp-rs/smoltcp/pull/419))
