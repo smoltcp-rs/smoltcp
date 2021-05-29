@@ -6,7 +6,6 @@ macro_rules! net_log {
 }
 
 #[cfg(not(feature = "log"))]
-#[macro_use]
 macro_rules! net_log {
     ($level:ident, $($arg:expr),*) => { $( let _ = $arg; )* }
 }
