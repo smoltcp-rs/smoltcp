@@ -608,7 +608,10 @@ impl<'a, DeviceT> Interface<'a, DeviceT>
                             Ok(response) => {
                                 processed_any = true;
                                 if let Some(packet) = response {
-                                    inner.dispatch(tx_token, timestamp, packet);
+                                    match inner.dispatch(tx_token, timestamp, packet) {
+                                        Err(err) => net_debug!("Failed to send response: {}", err),
+                                        _ => {},
+                                    };
                                 }
                             }
                             Err(err) => {
@@ -1563,7 +1566,7 @@ impl<'a> InterfaceInner<'a> {
 
     #[cfg(feature = "medium-ethernet")]
     fn dispatch<Tx>(&mut self, tx_token: Tx, timestamp: Instant,
-                    packet: EthernetPacket)
+                    packet: EthernetPacket) -> Result<()>
         where Tx: TxToken
     {
         match packet {
@@ -1580,34 +1583,29 @@ impl<'a> InterfaceInner<'a> {
 
                     let mut packet = ArpPacket::new_unchecked(frame.payload_mut());
                     arp_repr.emit(&mut packet);
-                });
+                })
             },
             EthernetPacket::Ip(packet) => {
-                match self.dispatch_ip(tx_token, timestamp, packet) {
-                    Err(err) => net_debug!("Failed to egress: {}", err),
-                    _ => {},
-                };
+                self.dispatch_ip(tx_token, timestamp, packet)
             },
         }
     }
 
     #[cfg(feature = "medium-ethernet")]
     fn dispatch_ethernet<Tx, F>(&mut self, tx_token: Tx, timestamp: Instant,
-                                buffer_len: usize, f: F) -> ()
+                                buffer_len: usize, f: F) -> Result<()>
         where Tx: TxToken, F: FnOnce(EthernetFrame<&mut [u8]>)
     {
         let tx_len = EthernetFrame::<&[u8]>::buffer_len(buffer_len);
-        match tx_token.consume(timestamp, tx_len, |tx_buffer| {
+        tx_token.consume(timestamp, tx_len, |tx_buffer| {
             debug_assert!(tx_buffer.as_ref().len() == tx_len);
             let mut frame = EthernetFrame::new_unchecked(tx_buffer);
             frame.set_src_addr(self.ethernet_addr.unwrap());
 
             f(frame);
+
             Ok(())
-        }) {
-            Err(err) => net_debug!("Failed to consume TX token: {}", err),
-            Ok(_) => {},
-        };
+        })
     }
 
     fn in_same_network(&self, addr: &IpAddress) -> bool {
@@ -1706,7 +1704,7 @@ impl<'a> InterfaceInner<'a> {
                     frame.set_ethertype(EthernetProtocol::Arp);
 
                     arp_repr.emit(&mut ArpPacket::new_unchecked(frame.payload_mut()))
-                });
+                })?;
             }
 
             #[cfg(feature = "proto-ipv6")]
@@ -1766,8 +1764,7 @@ impl<'a> InterfaceInner<'a> {
 
                     let payload = &mut frame.payload_mut()[ip_repr.buffer_len()..];
                     packet.emit_payload(ip_repr, payload, &caps);
-                });
-                Ok(())
+                })
             }
             #[cfg(feature = "medium-ip")]
             Medium::Ip => {
@@ -1779,6 +1776,7 @@ impl<'a> InterfaceInner<'a> {
 
                     let payload = &mut tx_buffer[ip_repr.buffer_len()..];
                     packet.emit_payload(ip_repr, payload, &caps);
+
                     Ok(())
                 })
             }
