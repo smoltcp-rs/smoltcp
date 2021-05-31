@@ -148,7 +148,18 @@ impl<'a> UdpSocket<'a> {
 
     /// Close the socket.
     pub fn close(&mut self) {
+        // Clear the bound endpoint of the socket.
         self.endpoint = IpEndpoint::default();
+
+        // Reset the RX and TX buffers of the socket.
+        self.tx_buffer.reset();
+        self.rx_buffer.reset();
+
+        #[cfg(feature = "async")]
+        {
+            self.rx_waker.wake();
+            self.tx_waker.wake();
+        }
     }
 
     /// Check whether the socket is open.
