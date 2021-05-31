@@ -402,7 +402,7 @@ impl<'a> IcmpSocket<'a> {
     }
 
     pub(crate) fn dispatch<F>(&mut self, emit: F) -> Result<()>
-        where F: FnOnce((IpRepr, IcmpRepr))
+        where F: FnOnce((IpRepr, IcmpRepr)) -> Result<()>
     {
         let handle    = self.meta.handle;
         let hop_limit = self.hop_limit.unwrap_or(64);
@@ -413,13 +413,7 @@ impl<'a> IcmpSocket<'a> {
                 #[cfg(feature = "proto-ipv4")]
                 IpAddress::Ipv4(ipv4_addr) => {
                     let packet = Icmpv4Packet::new_unchecked(&*packet_buf);
-                    let repr = match Icmpv4Repr::parse(&packet, &ChecksumCapabilities::ignored()) {
-                        Ok(repr) => repr,
-                        Err(err) => {
-                            net_debug!("ICMPv4 represnetation invalid: {}", err);
-                            return
-                        },
-                    };
+                    let repr = Icmpv4Repr::parse(&packet, &ChecksumCapabilities::ignored())?;
                     let ip_repr = IpRepr::Ipv4(Ipv4Repr {
                         src_addr:    Ipv4Address::default(),
                         dst_addr:    ipv4_addr,
@@ -433,14 +427,7 @@ impl<'a> IcmpSocket<'a> {
                 IpAddress::Ipv6(ipv6_addr) => {
                     let packet = Icmpv6Packet::new_unchecked(&*packet_buf);
                     let src_addr = Ipv6Address::default();
-                    let repr = match Icmpv6Repr::parse(&src_addr.into(), &ipv6_addr.into(), &packet,
-                            &ChecksumCapabilities::ignored()) {
-                        Ok(repr) => repr,
-                        Err(err) => {
-                            net_debug!("ICMPv6 represnetation invalid: {}", err);
-                            return
-                        },
-                    };
+                    let repr = Icmpv6Repr::parse(&src_addr.into(), &ipv6_addr.into(), &packet, &ChecksumCapabilities::ignored())?;
                     let ip_repr = IpRepr::Ipv6(Ipv6Repr {
                         src_addr:    src_addr,
                         dst_addr:    ipv6_addr,
@@ -450,7 +437,7 @@ impl<'a> IcmpSocket<'a> {
                     });
                     emit((ip_repr, IcmpRepr::Ipv6(repr)))
                 },
-                _ => net_debug!("ICMP destination unaddressable"),
+                _ => Err(Error::Unaddressable)
             }
         })?;
 

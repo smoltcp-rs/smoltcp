@@ -1669,7 +1669,7 @@ impl<'a> TcpSocket<'a> {
 
     pub(crate) fn dispatch<F>(&mut self, timestamp: Instant, ip_mtu: usize,
                               emit: F) -> Result<()>
-            where F: FnOnce((IpRepr, TcpRepr)) {
+            where F: FnOnce((IpRepr, TcpRepr)) -> Result<()> {
         if !self.remote_endpoint.is_specified() { return Err(Error::Exhausted) }
 
         if self.remote_last_ts.is_none() {
@@ -1867,7 +1867,7 @@ impl<'a> TcpSocket<'a> {
         // to not waste time waiting for the retransmit timer on packets that we know
         // for sure will not be successfully transmitted.
         ip_repr.set_payload_len(repr.buffer_len());
-        emit((ip_repr, repr));
+        emit((ip_repr, repr))?;
 
         // We've sent something, whether useful data or a keep-alive packet, so rewind
         // the keep-alive timer.

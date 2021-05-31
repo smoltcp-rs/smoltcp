@@ -667,6 +667,7 @@ impl<'a, DeviceT> Interface<'a, DeviceT>
                     let response = $response;
                     neighbor_addr = Some(response.ip_repr().dst_addr());
                     device_result = inner.dispatch_ip(tx_token, timestamp, response);
+                    device_result
                 })
             }
 
@@ -694,7 +695,7 @@ impl<'a, DeviceT> Interface<'a, DeviceT>
                                 #[cfg(feature = "proto-ipv6")]
                                 (IpRepr::Ipv6(ipv6_repr), IcmpRepr::Ipv6(icmpv6_repr)) =>
                                     respond!(IpPacket::Icmpv6((ipv6_repr, icmpv6_repr))),
-                                _ => panic!("Invalid ICMP represnetation"),
+                                _ => Err(Error::Unaddressable),
                             }
                         }),
                     #[cfg(feature = "socket-udp")]

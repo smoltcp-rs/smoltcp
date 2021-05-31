@@ -125,7 +125,7 @@ impl<'a, H> PacketBuffer<'a, H> {
     /// Call `f` with a single packet from the buffer, and dequeue the packet if `f`
     /// returns successfully, or return `Err(Error::Exhausted)` if the buffer is empty.
     pub fn dequeue_with<'c, R, F>(&'c mut self, f: F) -> Result<R>
-            where F: FnOnce(&mut H, &'c mut [u8]) -> R {
+            where F: FnOnce(&mut H, &'c mut [u8]) -> Result<R> {
         self.dequeue_padding();
 
         let Self { ref mut metadata_ring, ref mut payload_ring } = *self;
@@ -136,9 +136,12 @@ impl<'a, H> PacketBuffer<'a, H> {
             payload_ring.dequeue_many_with(|payload_buf| {
                 debug_assert!(payload_buf.len() >= size);
 
-                (size, Ok(f(header.as_mut().unwrap(), &mut payload_buf[..size])))
+                match f(header.as_mut().unwrap(), &mut payload_buf[..size]) {
+                    Ok(val)  => (size, Ok(val)),
+                    Err(err) => (0,    Err(err)),
+                }
             }).1
-        })?
+        })
     }
 
     /// Dequeue a single packet from the buffer, and return a reference to its payload

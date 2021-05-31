@@ -298,7 +298,7 @@ impl Dhcpv4Socket {
     }
 
     pub(crate) fn dispatch<F>(&mut self, now: Instant, ethernet_addr: EthernetAddress, ip_mtu: usize, emit: F) -> Result<()>
-            where F: FnOnce((Ipv4Repr, UdpRepr, DhcpRepr)) {
+            where F: FnOnce((Ipv4Repr, UdpRepr, DhcpRepr)) -> Result<()> {
 
         // Worst case biggest IPv4 header length.
         // 0x0f * 4 = 60 bytes.
@@ -350,7 +350,7 @@ impl Dhcpv4Socket {
                 // send packet
                 net_debug!("DHCP send DISCOVER to {}: {:?}", ipv4_repr.dst_addr, dhcp_repr);
                 ipv4_repr.payload_len = udp_repr.header_len() + dhcp_repr.buffer_len();
-                emit((ipv4_repr, udp_repr, dhcp_repr));
+                emit((ipv4_repr, udp_repr, dhcp_repr))?;
 
                 // Update state AFTER the packet has been successfully sent.
                 state.retry_at = now + DISCOVER_TIMEOUT;
@@ -376,7 +376,7 @@ impl Dhcpv4Socket {
 
                 net_debug!("DHCP send request to {}: {:?}", ipv4_repr.dst_addr, dhcp_repr);
                 ipv4_repr.payload_len = udp_repr.header_len() + dhcp_repr.buffer_len();
-                emit((ipv4_repr, udp_repr, dhcp_repr));
+                emit((ipv4_repr, udp_repr, dhcp_repr))?;
 
                 // Exponential backoff: Double every 2 retries.
                 state.retry_at = now + (REQUEST_TIMEOUT << (state.retry as u32 / 2));
@@ -405,7 +405,7 @@ impl Dhcpv4Socket {
 
                 net_debug!("DHCP send renew to {}: {:?}", ipv4_repr.dst_addr, dhcp_repr);
                 ipv4_repr.payload_len = udp_repr.header_len() + dhcp_repr.buffer_len();
-                emit((ipv4_repr, udp_repr, dhcp_repr));
+                emit((ipv4_repr, udp_repr, dhcp_repr))?;
         
                 // In both RENEWING and REBINDING states, if the client receives no
                 // response to its DHCPREQUEST message, the client SHOULD wait one-half
