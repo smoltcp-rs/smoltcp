@@ -242,7 +242,7 @@ pub struct RxToken<'a, Rx: phy::RxToken> {
 
 impl<'a, Rx: phy::RxToken> phy::RxToken for RxToken<'a, Rx> {
     fn consume<R, F>(self, timestamp: Instant, f: F) -> Result<R>
-        where F: FnOnce(&mut [u8]) -> Result<R>
+        where F: FnOnce(&mut [u8]) -> R
     {
         if self.state.borrow_mut().maybe(self.config.drop_pct) {
             net_trace!("rx: randomly dropping a packet");
@@ -254,10 +254,11 @@ impl<'a, Rx: phy::RxToken> phy::RxToken for RxToken<'a, Rx> {
         }
         let Self { token, config, state, mut corrupt } = self;
         token.consume(timestamp, |buffer| {
-            if config.max_size > 0 && buffer.as_ref().len() > config.max_size {
-                net_trace!("rx: dropping a packet that is too large");
-                return Err(Error::Exhausted)
-            }
+            // TODO: Implement this in a new mechanism. Token consumption is infallible.
+            //if config.max_size > 0 && buffer.as_ref().len() > config.max_size {
+            //    net_trace!("rx: dropping a packet that is too large");
+            //    return Error::Exhausted
+            //}
             if state.borrow_mut().maybe(config.corrupt_pct) {
                 net_trace!("rx: randomly corrupting a packet");
                 let mut corrupt = &mut corrupt[..buffer.len()];
@@ -281,7 +282,7 @@ pub struct TxToken<'a, Tx: phy::TxToken> {
 
 impl<'a, Tx: phy::TxToken> phy::TxToken for TxToken<'a, Tx> {
     fn consume<R, F>(mut self, timestamp: Instant, len: usize, f: F) -> Result<R>
-        where F: FnOnce(&mut [u8]) -> Result<R>
+        where F: FnOnce(&mut [u8]) -> R
     {
         let drop = if self.state.borrow_mut().maybe(self.config.drop_pct) {
             net_trace!("tx: randomly dropping a packet");
@@ -297,7 +298,7 @@ impl<'a, Tx: phy::TxToken> phy::TxToken for TxToken<'a, Tx> {
         };
 
         if drop {
-            return f(&mut self.junk[..len]);
+            return Ok(f(&mut self.junk[..len]));
         }
 
         let Self { token, state, config, .. } = self;

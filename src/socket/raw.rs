@@ -228,7 +228,7 @@ impl<'a> RawSocket<'a> {
 
     pub(crate) fn dispatch<F>(&mut self, checksum_caps: &ChecksumCapabilities, emit: F) ->
                              Result<()>
-            where F: FnOnce((IpRepr, &[u8])) -> Result<()> {
+            where F: FnOnce((IpRepr, &[u8])) {
         fn prepare<'a>(protocol: IpProtocol, buffer: &'a mut [u8],
                    _checksum_caps: &ChecksumCapabilities) -> Result<(IpRepr, &'a [u8])> {
             match IpVersion::of_packet(buffer)? {
@@ -275,8 +275,6 @@ impl<'a> RawSocket<'a> {
                     net_debug!("{}:{}:{}: dropping outgoing packet ({})",
                                handle, ip_version, ip_protocol,
                                error);
-                    // Return Ok(()) so the packet is dequeued.
-                    Ok(())
                 }
             }
         })?;

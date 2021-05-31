@@ -136,18 +136,14 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
     /// Call `f` with a single buffer element, and dequeue the element if `f`
     /// returns successfully, or return `Err(Error::Exhausted)` if the buffer is empty.
     pub fn dequeue_one_with<'b, R, F>(&'b mut self, f: F) -> Result<R>
-            where F: FnOnce(&'b mut T) -> Result<R> {
+            where F: FnOnce(&'b mut T) -> R {
         if self.is_empty() { return Err(Error::Exhausted) }
 
         let next_at = self.get_idx_unchecked(1);
-        match f(&mut self.storage[self.read_at]) {
-            Ok(result) => {
-                self.length -= 1;
-                self.read_at = next_at;
-                Ok(result)
-            }
-            Err(error) => Err(error)
-        }
+        let result = f(&mut self.storage[self.read_at]);
+        self.length -= 1;
+        self.read_at = next_at;
+        Ok(result)
     }
 
     /// Dequeue an element from the buffer, and return a reference to it,
@@ -155,7 +151,7 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
     ///
     /// This function is a shortcut for `ring_buf.dequeue_one_with(Ok)`.
     pub fn dequeue_one(&mut self) -> Result<&mut T> {
-        self.dequeue_one_with(Ok)
+        self.dequeue_one_with(|buf| buf)
     }
 }
 

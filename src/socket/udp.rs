@@ -296,7 +296,7 @@ impl<'a> UdpSocket<'a> {
     }
 
     pub(crate) fn dispatch<F>(&mut self, emit: F) -> Result<()>
-            where F: FnOnce((IpRepr, UdpRepr, &[u8])) -> Result<()> {
+            where F: FnOnce((IpRepr, UdpRepr, &[u8])) {
         let handle    = self.handle();
         let endpoint  = self.endpoint;
         let hop_limit = self.hop_limit.unwrap_or(64);

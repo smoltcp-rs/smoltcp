@@ -86,7 +86,7 @@ pub struct RxToken<'a, Rx: phy::RxToken, F: Fuzzer + 'a>{
 
 impl<'a, Rx: phy::RxToken, FRx: Fuzzer> phy::RxToken for RxToken<'a, Rx, FRx> {
     fn consume<R, F>(self, timestamp: Instant, f: F) -> Result<R>
-        where F: FnOnce(&mut [u8]) -> Result<R>
+        where F: FnOnce(&mut [u8]) -> R
     {
         let Self { fuzzer, token } = self;
         token.consume(timestamp, |buffer| {
@@ -104,7 +104,7 @@ pub struct TxToken<'a, Tx: phy::TxToken, F: Fuzzer + 'a> {
 
 impl<'a, Tx: phy::TxToken, FTx: Fuzzer> phy::TxToken for TxToken<'a, Tx, FTx> {
     fn consume<R, F>(self, timestamp: Instant, len: usize, f: F) -> Result<R>
-        where F: FnOnce(&mut [u8]) -> Result<R>
+        where F: FnOnce(&mut [u8]) -> R
     {
         let Self { fuzzer, token } = self;
         token.consume(timestamp, len, |mut buf| {
