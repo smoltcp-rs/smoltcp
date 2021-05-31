@@ -146,6 +146,11 @@ impl<'a> UdpSocket<'a> {
         Ok(())
     }
 
+    /// Close the socket.
+    pub fn close(&mut self) {
+        self.endpoint = IpEndpoint::default();
+    }
+
     /// Check whether the socket is open.
     #[inline]
     pub fn is_open(&self) -> bool {
@@ -623,5 +628,16 @@ mod test {
         };
         assert_eq!(socket.process(&remote_ip_repr(), &repr, &[]), Ok(()));
         assert_eq!(socket.recv(), Ok((&[][..], REMOTE_END)));
+    }
+
+    #[test]
+    fn test_closing() {
+        let recv_buffer = UdpSocketBuffer::new(vec![UdpPacketMetadata::EMPTY; 1], vec![]);
+        let mut socket = socket(recv_buffer, buffer(0));
+        assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
+
+        assert!(socket.is_open());
+        socket.close();
+        assert!(!socket.is_open());
     }
 }
