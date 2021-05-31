@@ -594,12 +594,8 @@ impl<'a, DeviceT> Interface<'a, DeviceT>
 
     fn socket_ingress(&mut self, sockets: &mut SocketSet, timestamp: Instant) -> bool {
         let mut processed_any = false;
-        loop {
-            let &mut Self { ref mut device, ref mut inner } = self;
-            let (rx_token, tx_token) = match device.receive() {
-                None => break,
-                Some(tokens) => tokens,
-            };
+        let &mut Self { ref mut device, ref mut inner } = self;
+        while let Some((rx_token, tx_token)) = device.receive() {
             match rx_token.consume(timestamp, |frame| {
                 match inner.device_capabilities.medium {
                     #[cfg(feature = "medium-ethernet")]
@@ -645,6 +641,7 @@ impl<'a, DeviceT> Interface<'a, DeviceT>
                 Ok(_) => {},
             };
         }
+
         processed_any
     }
 
