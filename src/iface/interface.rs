@@ -538,12 +538,12 @@ impl<'a, DeviceT> Interface<'a, DeviceT>
         let mut readiness_may_have_changed = false;
         loop {
             let processed_any = self.socket_ingress(sockets, timestamp);
-            let emitted_any   = self.socket_egress(sockets, timestamp);
+            let emitted_any   = self.socket_egress(sockets, timestamp)?;
 
             #[cfg(feature = "proto-igmp")]
-            self.igmp_egress(timestamp);
+            self.igmp_egress(timestamp)?;
 
-            if processed_any || emitted_any? {
+            if processed_any || emitted_any {
                 readiness_may_have_changed = true;
             } else {
                 break
@@ -657,15 +657,11 @@ impl<'a, DeviceT> Interface<'a, DeviceT>
             let mut device_result = Ok(());
             let &mut Self { ref mut device, ref mut inner } = self;
 
-            let tx_token = match device.transmit() {
-                Some(token) => token,
-                None =>  break,
-            };
-
             macro_rules! respond {
                 ($response:expr) => ({
                     let response = $response;
                     neighbor_addr = Some(response.ip_repr().dst_addr());
+                    let tx_token = device.transmit().ok_or(Error::Exhausted)?;
                     device_result = inner.dispatch_ip(tx_token, timestamp, response);
                     device_result
                 })
@@ -695,7 +691,7 @@ impl<'a, DeviceT> Interface<'a, DeviceT>
                                 #[cfg(feature = "proto-ipv6")]
                                 (IpRepr::Ipv6(ipv6_repr), IcmpRepr::Ipv6(icmpv6_repr)) =>
                                     respond!(IpPacket::Icmpv6((ipv6_repr, icmpv6_repr))),
-                                _ => Err(Error::Unaddressable),
+                                _ => Err(Error::Unaddressable)
                             }
                         }),
                     #[cfg(feature = "socket-udp")]
@@ -740,27 +736,18 @@ impl<'a, DeviceT> Interface<'a, DeviceT>
     /// Depending on `igmp_report_state` and the therein contained
     /// timeouts, send IGMP membership reports.
     #[cfg(feature = "proto-igmp")]
-    fn igmp_egress(&mut self, timestamp: Instant) -> bool {
+    fn igmp_egress(&mut self, timestamp: Instant) -> Result<bool> {
         match self.inner.igmp_report_state {
             IgmpReportState::ToSpecificQuery { version, timeout, group }
                     if timestamp >= timeout => {
                 if let Some(pkt) = self.inner.igmp_report_packet(version, group) {
                     // Send initial membership report
-                    let tx_token = match self.device.transmit() {
-                        Some(token) => token,
-                        None => {
-                            net_debug!("IGMP egress failure: Exhausted");
-                            return false
-                        }
-                    };
-                    match self.inner.dispatch_ip(tx_token, timestamp, pkt) {
-                        Err(err) => net_debug!("Failed to egress IGMP: {}", err),
-                        _ => {},
-                    };
+                    let tx_token = self.device.transmit().ok_or(Error::Exhausted)?;
+                    self.inner.dispatch_ip(tx_token, timestamp, pkt)?;
                 }
 
                 self.inner.igmp_report_state = IgmpReportState::Inactive;
-                true
+                Ok(true)
             }
             IgmpReportState::ToGeneralQuery { version, timeout, interval, next_index }
                     if timestamp >= timeout => {
@@ -773,34 +760,24 @@ impl<'a, DeviceT> Interface<'a, DeviceT>
                     Some(addr) => {
                         if let Some(pkt) = self.inner.igmp_report_packet(version, addr) {
                             // Send initial membership report
-                            let tx_token = match self.device.transmit() {
-                                Some(token) => token,
-                                None => {
-                                    net_debug!("IGMP egress failure: Exhausted");
-                                    return false
-                                }
-                            };
-
-                            match self.inner.dispatch_ip(tx_token, timestamp, pkt) {
-                                Err(err) => net_debug!("Failed to egress IGMP: {}", err),
-                                _ => {},
-                            };
+                            let tx_token = self.device.transmit().ok_or(Error::Exhausted)?;
+                            self.inner.dispatch_ip(tx_token, timestamp, pkt)?;
                         }
 
                         let next_timeout = (timeout + interval).max(timestamp);
                         self.inner.igmp_report_state = IgmpReportState::ToGeneralQuery {
                             version, timeout: next_timeout, interval, next_index: next_index + 1
                         };
-                        true
+                        Ok(true)
                     }
 
                     None => {
                         self.inner.igmp_report_state = IgmpReportState::Inactive;
-                        false
+                        Ok(false)
                     }
                 }
             }
-            _ => false
+            _ => Ok(false)
         }
     }
 }
