@@ -635,6 +635,8 @@ impl<'a, DeviceT> Interface<'a, DeviceT>
                         }
                     }
                 }
+
+                Ok(())
             }) {
                 Err(err) => net_debug!("Failed to consume RX token: {}", err),
                 Ok(_) => {},
@@ -1601,6 +1603,7 @@ impl<'a> InterfaceInner<'a> {
             frame.set_src_addr(self.ethernet_addr.unwrap());
 
             f(frame);
+            Ok(())
         }) {
             Err(err) => net_debug!("Failed to consume TX token: {}", err),
             Ok(_) => {},
@@ -1776,6 +1779,7 @@ impl<'a> InterfaceInner<'a> {
 
                     let payload = &mut tx_buffer[ip_repr.buffer_len()..];
                     packet.emit_payload(ip_repr, payload, &caps);
+                    Ok(())
                 })
             }
         }

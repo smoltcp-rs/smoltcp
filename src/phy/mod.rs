@@ -295,7 +295,7 @@ pub trait RxToken {
     /// The timestamp must be a number of milliseconds, monotonically increasing since an
     /// arbitrary moment in time, such as system startup.
     fn consume<R, F>(self, timestamp: Instant, f: F) -> Result<R>
-        where F: FnOnce(&mut [u8]) -> R;
+        where F: FnOnce(&mut [u8]) -> Result<R>;
 }
 
 /// A token to transmit a single network packet.
@@ -310,5 +310,5 @@ pub trait TxToken {
     /// The timestamp must be a number of milliseconds, monotonically increasing since an
     /// arbitrary moment in time, such as system startup.
     fn consume<R, F>(self, timestamp: Instant, len: usize, f: F) -> Result<R>
-        where F: FnOnce(&mut [u8]) -> R;
+        where F: FnOnce(&mut [u8]) -> Result<R>;
 }

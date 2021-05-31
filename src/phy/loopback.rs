@@ -68,9 +68,9 @@ pub struct RxToken {
 
 impl phy::RxToken for RxToken {
     fn consume<R, F>(mut self, _timestamp: Instant, f: F) -> Result<R>
-        where F: FnOnce(&mut [u8]) -> R
+        where F: FnOnce(&mut [u8]) -> Result<R>
     {
-        Ok(f(&mut self.buffer))
+        f(&mut self.buffer)
     }
 }
 
@@ -81,12 +81,12 @@ pub struct TxToken<'a> {
 
 impl<'a> phy::TxToken for TxToken<'a> {
     fn consume<R, F>(self, _timestamp: Instant, len: usize, f: F) -> Result<R>
-        where F: FnOnce(&mut [u8]) -> R
+        where F: FnOnce(&mut [u8]) -> Result<R>
     {
         let mut buffer = Vec::new();
         buffer.resize(len, 0);
         let result = f(&mut buffer);
         self.queue.push_back(buffer);
-        Ok(result)
+        result
     }
 }
