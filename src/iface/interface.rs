@@ -596,7 +596,7 @@ impl<'a, DeviceT> Interface<'a, DeviceT>
         let mut processed_any = false;
         let &mut Self { ref mut device, ref mut inner } = self;
         while let Some((rx_token, tx_token)) = device.receive() {
-            match rx_token.consume(timestamp, |frame| {
+            if let Err(err) = rx_token.consume(timestamp, |frame| {
                 match inner.device_capabilities.medium {
                     #[cfg(feature = "medium-ethernet")]
                     Medium::Ethernet => {
@@ -604,10 +604,9 @@ impl<'a, DeviceT> Interface<'a, DeviceT>
                             Ok(response) => {
                                 processed_any = true;
                                 if let Some(packet) = response {
-                                    match inner.dispatch(tx_token, timestamp, packet) {
-                                        Err(err) => net_debug!("Failed to send response: {}", err),
-                                        _ => {},
-                                    };
+                                    if let Err(err) = inner.dispatch(tx_token, timestamp, packet) {
+                                        net_debug!("Failed to send response: {}", err);
+                                    }
                                 }
                             }
                             Err(err) => {
@@ -624,10 +623,9 @@ impl<'a, DeviceT> Interface<'a, DeviceT>
                             Ok(response) => {
                                 processed_any = true;
                                 if let Some(packet) = response {
-                                    match inner.dispatch_ip(tx_token, timestamp, packet) {
-                                        Err(err) => net_debug!("Failed to send response: {}", err),
-                                        _ => {},
-                                    };
+                                    if let Err(err) = inner.dispatch_ip(tx_token, timestamp, packet) {
+                                        net_debug!("Failed to send response: {}", err);
+                                    }
                                 }
                             }
                             Err(err) => net_debug!("cannot process ingress packet: {}", err),
@@ -637,9 +635,8 @@ impl<'a, DeviceT> Interface<'a, DeviceT>
 
                 Ok(())
             }) {
-                Err(err) => net_debug!("Failed to consume RX token: {}", err),
-                Ok(_) => {},
-            };
+                net_debug!("Failed to consume RX token: {}", err);
+            }
         }
 
         processed_any
