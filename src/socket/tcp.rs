@@ -906,7 +906,7 @@ impl<'a> TcpSocket<'a> {
             #[cfg(any(test, feature = "verbose"))]
             net_trace!("{}:{}:{}: rx buffer: dequeueing {} octets (now {})",
                        self.meta.handle, self.local_endpoint, self.remote_endpoint,
-                       size, _old_length - size);
+                       size, _old_length as isize - size as isize);
         }
         Ok(result)
     }
