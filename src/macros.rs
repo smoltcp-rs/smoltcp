@@ -13,7 +13,7 @@ macro_rules! net_log {
 
 #[cfg(not(any(feature = "log", feature = "defmt")))]
 macro_rules! net_log {
-    ($level:ident, $($arg:expr),*) => { $( let _ = $arg; )* }
+    ($level:ident, $($arg:expr),*) => {{ $( let _ = $arg; )* }}
 }
 
 macro_rules! net_trace {
