@@ -537,7 +537,7 @@ impl<'a, DeviceT> Interface<'a, DeviceT>
     pub fn poll(&mut self, sockets: &mut SocketSet, timestamp: Instant) -> Result<bool> {
         let mut readiness_may_have_changed = false;
         loop {
-            let processed_any = self.socket_ingress(sockets, timestamp)?;
+            let processed_any = self.socket_ingress(sockets, timestamp);
             let emitted_any   = self.socket_egress(sockets, timestamp)?;
 
             #[cfg(feature = "proto-igmp")]
@@ -592,61 +592,54 @@ impl<'a, DeviceT> Interface<'a, DeviceT>
         }
     }
 
-    fn socket_ingress(&mut self, sockets: &mut SocketSet, timestamp: Instant) -> Result<bool> {
+    fn socket_ingress(&mut self, sockets: &mut SocketSet, timestamp: Instant) -> bool {
         let mut processed_any = false;
-        loop {
-            let &mut Self { ref mut device, ref mut inner } = self;
-            let (rx_token, tx_token) = match device.receive() {
-                None => break,
-                Some(tokens) => tokens,
-            };
-            rx_token.consume(timestamp, |frame| {
+        let &mut Self { ref mut device, ref mut inner } = self;
+        while let Some((rx_token, tx_token)) = device.receive() {
+            if let Err(err) = rx_token.consume(timestamp, |frame| {
                 match inner.device_capabilities.medium {
                     #[cfg(feature = "medium-ethernet")]
                     Medium::Ethernet => {
-                        inner.process_ethernet(sockets, timestamp, &frame).map_err(|err| {
-                            net_debug!("cannot process ingress packet: {}", err);
-                            #[cfg(not(feature = "defmt"))]
-                            net_debug!("packet dump follows:\n{}",
-                                    PrettyPrinter::<EthernetFrame<&[u8]>>::new("", &frame));
-                            err
-                        }).and_then(|response| {
-                            processed_any = true;
-                            match response {
-                                Some(packet) => {
-                                    inner.dispatch(tx_token, timestamp, packet).map_err(|err| {
-                                        net_debug!("cannot dispatch response packet: {}", err);
-                                        err
-                                    })
+                        match inner.process_ethernet(sockets, timestamp, &frame) {
+                            Ok(response) => {
+                                processed_any = true;
+                                if let Some(packet) = response {
+                                    if let Err(err) = inner.dispatch(tx_token, timestamp, packet) {
+                                        net_debug!("Failed to send response: {}", err);
+                                    }
                                 }
-                                None => Ok(())
                             }
-                        })
+                            Err(err) => {
+                                net_debug!("cannot process ingress packet: {}", err);
+                                #[cfg(not(feature = "defmt"))]
+                                net_debug!("packet dump follows:\n{}",
+                                        PrettyPrinter::<EthernetFrame<&[u8]>>::new("", &frame));
+                            }
+                        }
                     }
                     #[cfg(feature = "medium-ip")]
                     Medium::Ip => {
-                        inner.process_ip(sockets, timestamp, &frame).map_err(|err| {
-                            net_debug!("cannot process ingress packet: {}", err);
-                            //net_debug!("packet dump follows:\n{}",
-                            //        PrettyPrinter::<IpFrame<&[u8]>>::new("", &frame));
-                            err
-                        }).and_then(|response| {
-                            processed_any = true;
-                            match response {
-                                Some(packet) => {
-                                    inner.dispatch_ip(tx_token, timestamp, packet).map_err(|err| {
-                                        net_debug!("cannot dispatch response packet: {}", err);
-                                        err
-                                    })
+                        match inner.process_ip(sockets, timestamp, &frame) {
+                            Ok(response) => {
+                                processed_any = true;
+                                if let Some(packet) = response {
+                                    if let Err(err) = inner.dispatch_ip(tx_token, timestamp, packet) {
+                                        net_debug!("Failed to send response: {}", err);
+                                    }
                                 }
-                                None => Ok(())
                             }
-                        })
+                            Err(err) => net_debug!("cannot process ingress packet: {}", err),
+                        }
                     }
                 }
-            })?;
+
+                Ok(())
+            }) {
+                net_debug!("Failed to consume RX token: {}", err);
+            }
         }
-        Ok(processed_any)
+
+        processed_any
     }
 
     fn socket_egress(&mut self, sockets: &mut SocketSet, timestamp: Instant) -> Result<bool> {
@@ -2746,7 +2739,7 @@ mod test {
         // loopback have been processed, including responses to
         // GENERAL_QUERY_BYTES. Therefore `recv_all()` would return 0
         // pkts that could be checked.
-        iface.socket_ingress(&mut socket_set, timestamp).unwrap();
+        iface.socket_ingress(&mut socket_set, timestamp);
 
         // Leave multicast groups
         let timestamp = Instant::now();
