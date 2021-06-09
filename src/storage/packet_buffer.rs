@@ -179,6 +179,13 @@ impl<'a, H> PacketBuffer<'a, H> {
     pub fn payload_capacity(&self) -> usize {
         self.payload_ring.capacity()
     }
+
+    /// Reset the packet buffer and clear any staged.
+    #[allow(unused)]
+    pub(crate) fn reset(&mut self) {
+        self.payload_ring.clear();
+        self.metadata_ring.clear();
+    }
 }
 
 #[cfg(test)]
@@ -303,5 +310,19 @@ mod test {
         assert!(buffer.enqueue(4, ()).is_ok());
         assert!(buffer.dequeue().is_ok());
         assert!(buffer.enqueue(5, ()).is_ok());
+    }
+
+    #[test]
+    fn clear() {
+        let mut buffer = buffer();
+
+        // Ensure enqueuing data in teh buffer fills it somewhat.
+        assert!(buffer.is_empty());
+        assert!(buffer.enqueue(6, ()).is_ok());
+
+        // Ensure that resetting the buffer causes it to be empty.
+        assert!(!buffer.is_empty());
+        buffer.reset();
+        assert!(buffer.is_empty());
     }
 }
