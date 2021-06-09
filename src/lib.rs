@@ -160,6 +160,9 @@ pub enum Error {
     Dropped,
 }
 
+#[cfg(feature = "std")]
+impl std::error::Error for Error {}
+
 /// The result type for the networking stack.
 pub type Result<T> = core::result::Result<T, Error>;
 
