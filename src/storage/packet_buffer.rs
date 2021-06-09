@@ -181,7 +181,7 @@ impl<'a, H> PacketBuffer<'a, H> {
     }
 
     /// Reset the packet buffer and clear any staged.
-    #[cfg(feature(socket-udp))]
+    #[cfg(feature = "socket-udp")]
     pub(crate) fn reset(&mut self) {
         self.payload_ring.clear();
         self.metadata_ring.clear();
