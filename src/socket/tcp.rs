@@ -1188,17 +1188,22 @@ impl<'a> TcpSocket<'a> {
             // Every acknowledgement must be for transmitted but unacknowledged data.
             (_, &TcpRepr { ack_number: Some(ack_number), .. }) => {
                 let unacknowledged = self.tx_buffer.len() + control_len;
-                if ack_number < self.local_seq_no {
+
+                // Acceptable ACK range (both inclusive)
+                let ack_min = self.local_seq_no;
+                let ack_max = self.local_seq_no + unacknowledged;
+
+                if ack_number < ack_min {
                     net_debug!("{}:{}:{}: duplicate ACK ({} not in {}...{})",
                                self.meta.handle, self.local_endpoint, self.remote_endpoint,
-                               ack_number, self.local_seq_no, self.local_seq_no + unacknowledged);
+                               ack_number, ack_min, ack_max);
                     return Err(Error::Dropped)
                 }
 
-                if ack_number > self.local_seq_no + unacknowledged {
+                if ack_number > ack_max {
                     net_debug!("{}:{}:{}: unacceptable ACK ({} not in {}...{})",
                                self.meta.handle, self.local_endpoint, self.remote_endpoint,
-                               ack_number, self.local_seq_no, self.local_seq_no + unacknowledged);
+                               ack_number, ack_min, ack_max);
                     return Ok(Some(self.ack_reply(ip_repr, &repr)))
                 }
             }
