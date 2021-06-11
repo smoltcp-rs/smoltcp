@@ -1791,11 +1791,33 @@ impl<'a> TcpSocket<'a> {
             State::Established | State::FinWait1 | State::Closing | State::CloseWait | State::LastAck => {
                 // Extract as much data as the remote side can receive in this packet
                 // from the transmit buffer.
+
+                // Right edge of window, ie the max sequence number we're allowed to send.
+                let win_right_edge = self.local_seq_no + self.remote_win_len;
+
+                // Max amount of octets we're allowed to send according to the remote window.
+                let win_limit = if win_right_edge >= self.remote_last_seq {
+                    win_right_edge - self.remote_last_seq
+                } else {
+                    // This can happen if we've sent some data and later the remote side
+                    // has shrunk its window so that data is no longer inside the window.
+                    // This should be very rare and is strongly discouraged by the RFCs,
+                    // but it does happen in practice.
+                    // http://www.tcpipguide.com/free/t_TCPWindowManagementIssues.htm
+                    0
+                };
+
+                // Maximum size we're allowed to send. This can be limited by 3 factors:
+                // 1. remote window
+                // 2. MSS the remote is willing to accept, probably determined by their MTU
+                // 3. MSS we can send, determined by our MTU.
+                let size = win_limit
+                    .min(self.remote_mss)
+                    .min(ip_mtu - ip_repr.buffer_len() - repr.mss_header_len());
+
                 let offset = self.remote_last_seq - self.local_seq_no;
-                let win_limit = self.local_seq_no + self.remote_win_len - self.remote_last_seq;
-                let size = cmp::min(cmp::min(win_limit, self.remote_mss),
-                     ip_mtu - ip_repr.buffer_len() - repr.mss_header_len());
                 repr.payload = self.tx_buffer.get_allocated(offset, size);
+
                 // If we've sent everything we had in the buffer, follow it with the PSH or FIN
                 // flags, depending on whether the transmit half of the connection is open.
                 if offset + repr.payload.len() == self.tx_buffer.len() {
@@ -3006,6 +3028,48 @@ mod test {
             ..RECV_TEMPL
         }]);
     }
+
+    #[test]
+    fn test_established_send_window_shrink() {
+        let mut s = socket_established();
+
+        // 6 octets fit on the remote side's window, so we send them.
+        s.send_slice(b"abcdef").unwrap();
+        recv!(s, [TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload: &b"abcdef"[..],
+            ..RECV_TEMPL
+        }]);
+        assert_eq!(s.tx_buffer.len(), 6);
+
+        println!("local_seq_no={} remote_win_len={} remote_last_seq={}", s.local_seq_no, s.remote_win_len, s.remote_last_seq);
+
+        // - Peer doesn't ack them yet
+        // - Sends data so we need to reply with an ACK
+        // - ...AND and sends a window announcement that SHRINKS the window, so data we've
+        //   previously sent is now outside the window. Yes, this is allowed by TCP.
+        send!(s, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            window_len: 3,
+            payload: &b"xyzxyz"[..],
+            ..SEND_TEMPL
+        });
+        assert_eq!(s.tx_buffer.len(), 6);
+
+        println!("local_seq_no={} remote_win_len={} remote_last_seq={}", s.local_seq_no, s.remote_win_len, s.remote_last_seq);
+
+        // More data should not get sent since it doesn't fit in the window
+        s.send_slice(b"foobar").unwrap();
+        recv!(s, [TcpRepr {
+            seq_number: LOCAL_SEQ + 1 + 6,
+            ack_number: Some(REMOTE_SEQ + 1 + 6),
+            window_len: 64 - 6,
+            ..RECV_TEMPL
+        }]);
+    }
+
 
     #[test]
     fn test_established_send_wrap() {
