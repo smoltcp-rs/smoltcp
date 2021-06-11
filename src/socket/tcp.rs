@@ -54,6 +54,11 @@ impl fmt::Display for State {
     }
 }
 
+/// Initial sequence number. This used to be 0, but some servers don't behave correctly
+/// with that, so we use a non-zero starting sequence number. TODO: randomize instead.
+/// https://github.com/smoltcp-rs/smoltcp/issues/489
+const INITIAL_SEQ_NO: TcpSeqNumber = TcpSeqNumber(42);
+
 // Conservative initial RTT estimate.
 const RTTE_INITIAL_RTT: u32 = 300;
 const RTTE_INITIAL_DEV: u32 = 100;
@@ -391,7 +396,7 @@ impl<'a> TcpSocket<'a> {
             listen_address:  IpAddress::default(),
             local_endpoint:  IpEndpoint::default(),
             remote_endpoint: IpEndpoint::default(),
-            local_seq_no:    TcpSeqNumber::default(),
+            local_seq_no:    INITIAL_SEQ_NO,
             remote_seq_no:   TcpSeqNumber::default(),
             remote_last_seq: TcpSeqNumber::default(),
             remote_last_ack: None,
@@ -592,7 +597,7 @@ impl<'a> TcpSocket<'a> {
         self.listen_address  = IpAddress::default();
         self.local_endpoint  = IpEndpoint::default();
         self.remote_endpoint = IpEndpoint::default();
-        self.local_seq_no    = TcpSeqNumber::default();
+        self.local_seq_no    = INITIAL_SEQ_NO;
         self.remote_seq_no   = TcpSeqNumber::default();
         self.remote_last_seq = TcpSeqNumber::default();
         self.remote_last_ack = None;
@@ -2845,10 +2850,12 @@ mod test {
             (1048576, 5),
         ] {
             let mut s = socket_with_buffer_sizes(64, *buffer_size);
+            s.local_seq_no = LOCAL_SEQ;
             assert_eq!(s.remote_win_shift, *shift_amt);
             s.connect(REMOTE_END, LOCAL_END).unwrap();
             recv!(s, [TcpRepr {
                 control: TcpControl::Syn,
+                seq_number: LOCAL_SEQ,
                 ack_number: None,
                 max_seg_size: Some(BASE_MSS),
                 window_scale: Some(*shift_amt),
