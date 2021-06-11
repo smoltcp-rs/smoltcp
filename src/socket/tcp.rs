@@ -1185,6 +1185,16 @@ impl<'a> TcpSocket<'a> {
                 self.abort();
                 return Err(Error::Dropped)
             }
+            // SYN|ACK in the SYN-SENT state must have the exact ACK number.
+            (State::SynSent, &TcpRepr {
+                control: TcpControl::Syn, ack_number: Some(ack_number), ..
+            }) => {
+                if ack_number != self.local_seq_no + 1 {
+                    net_debug!("{}:{}:{}: unacceptable SYN|ACK in response to initial SYN",
+                               self.meta.handle, self.local_endpoint, self.remote_endpoint);
+                    return Err(Error::Dropped)
+                }
+            }
             // Every acknowledgement must be for transmitted but unacknowledged data.
             (_, &TcpRepr { ack_number: Some(ack_number), .. }) => {
                 let unacknowledged = self.tx_buffer.len() + control_len;
@@ -2739,6 +2749,29 @@ mod test {
         recv!(s, time 1000, Err(Error::Exhausted));
         assert_eq!(s.state, State::Established);
         sanity!(s, socket_established());
+    }
+
+    #[test]
+    fn test_syn_sent_syn_ack_not_incremented() {
+        let mut s = socket_syn_sent();
+        recv!(s, [TcpRepr {
+            control:    TcpControl::Syn,
+            seq_number: LOCAL_SEQ,
+            ack_number: None,
+            max_seg_size: Some(BASE_MSS),
+            window_scale: Some(0),
+            sack_permitted: true,
+            ..RECV_TEMPL
+        }]);
+        send!(s, TcpRepr {
+            control:    TcpControl::Syn,
+            seq_number: REMOTE_SEQ,
+            ack_number: Some(LOCAL_SEQ), // WRONG
+            max_seg_size: Some(BASE_MSS - 80),
+            window_scale: Some(0),
+            ..SEND_TEMPL
+        }, Err(Error::Dropped));
+        assert_eq!(s.state, State::SynSent);
     }
 
     #[test]
