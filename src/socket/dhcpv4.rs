@@ -6,6 +6,7 @@ use crate::wire::{EthernetAddress, IpProtocol, IpAddress,
 use crate::wire::dhcpv4::{field as dhcpv4_field};
 use crate::socket::SocketMeta;
 use crate::time::{Instant, Duration};
+use crate::socket::SocketHandle;
 
 use super::{PollAt, Socket};
 
@@ -418,6 +419,12 @@ impl Dhcpv4Socket {
                 Ok(())
             }
         }
+    }
+
+    /// Return the socket handle.
+    #[inline]
+    pub fn handle(&self) -> SocketHandle {
+        self.meta.handle
     }
 
     /// Reset state and restart discovery phase.
