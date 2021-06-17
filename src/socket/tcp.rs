@@ -1411,6 +1411,7 @@ impl<'a> TcpSocket<'a> {
                 self.remote_seq_no   = repr.seq_number + 1;
                 self.remote_last_seq = self.local_seq_no + 1;
                 self.remote_last_ack = Some(repr.seq_number);
+                self.remote_win_scale = repr.window_scale;
                 if let Some(max_seg_size) = repr.max_seg_size {
                     self.remote_mss = max_seg_size as usize;
                 }
@@ -2923,6 +2924,32 @@ mod test {
                 ..RECV_TEMPL
             }]);
         }
+    }
+
+
+    #[test]
+    fn test_syn_sent_syn_ack_window_scaling() {
+        let mut s = socket_syn_sent();
+        recv!(s, [TcpRepr {
+            control:    TcpControl::Syn,
+            seq_number: LOCAL_SEQ,
+            ack_number: None,
+            max_seg_size: Some(BASE_MSS),
+            window_scale: Some(0),
+            sack_permitted: true,
+            ..RECV_TEMPL
+        }]);
+        send!(s, TcpRepr {
+            control:    TcpControl::Syn,
+            seq_number: REMOTE_SEQ,
+            ack_number: Some(LOCAL_SEQ + 1),
+            max_seg_size: Some(BASE_MSS - 80),
+            window_scale: Some(7),
+            window_len: 42,
+            ..SEND_TEMPL
+        });
+        assert_eq!(s.state, State::Established);
+        assert_eq!(s.remote_win_scale, Some(7));
     }
 
     // =========================================================================================//
