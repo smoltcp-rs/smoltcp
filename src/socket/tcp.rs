@@ -1379,7 +1379,7 @@ impl<'a> TcpSocket<'a> {
                     self.remote_mss = max_seg_size as usize
                 }
                 self.remote_win_scale = repr.window_scale;
-                // No window scaling means don't do any window shifting
+                // Remote doesn't support window scaling, don't do it.
                 if self.remote_win_scale.is_none() {
                     self.remote_win_shift = 0;
                 }
@@ -1412,6 +1412,11 @@ impl<'a> TcpSocket<'a> {
                 self.remote_last_seq = self.local_seq_no + 1;
                 self.remote_last_ack = Some(repr.seq_number);
                 self.remote_win_scale = repr.window_scale;
+                // Remote doesn't support window scaling, don't do it.
+                if self.remote_win_scale.is_none() {
+                    self.remote_win_shift = 0;
+                }
+
                 if let Some(max_seg_size) = repr.max_seg_size {
                     self.remote_mss = max_seg_size as usize;
                 }
@@ -2276,14 +2281,21 @@ mod test {
         socket_syn_received_with_buffer_sizes(64, 64)
     }
 
-    fn socket_syn_sent() -> TcpSocket<'static> {
-        let mut s = socket();
+    fn socket_syn_sent_with_buffer_sizes(
+        tx_len: usize,
+        rx_len: usize
+    ) -> TcpSocket<'static> {
+        let mut s = socket_with_buffer_sizes(tx_len, rx_len);
         s.state           = State::SynSent;
         s.local_endpoint  = IpEndpoint::new(MOCK_UNSPECIFIED, LOCAL_PORT);
         s.remote_endpoint = REMOTE_END;
         s.local_seq_no    = LOCAL_SEQ;
         s.remote_last_seq = LOCAL_SEQ;
         s
+    }
+
+    fn socket_syn_sent() -> TcpSocket<'static> {
+        socket_syn_sent_with_buffer_sizes(64, 64)
     }
 
     fn socket_syn_sent_with_local_ipendpoint(local: IpEndpoint) -> TcpSocket<'static> {
@@ -2663,6 +2675,7 @@ mod test {
             window_scale: None,
             ..SEND_TEMPL
         });
+        assert_eq!(s.remote_win_shift, 0);
         assert_eq!(s.remote_win_scale, None);
     }
 
@@ -2926,6 +2939,33 @@ mod test {
         }
     }
 
+    #[test]
+    fn test_syn_sent_syn_ack_no_window_scaling() {
+        let mut s = socket_syn_sent_with_buffer_sizes(1048576, 1048576);
+        recv!(s, [TcpRepr {
+            control:    TcpControl::Syn,
+            seq_number: LOCAL_SEQ,
+            ack_number: None,
+            max_seg_size: Some(BASE_MSS),
+            window_len: 32768,
+            window_scale: Some(5),
+            sack_permitted: true,
+            ..RECV_TEMPL
+        }]);
+        assert_eq!(s.remote_win_shift, 5);
+        send!(s, TcpRepr {
+            control:    TcpControl::Syn,
+            seq_number: REMOTE_SEQ,
+            ack_number: Some(LOCAL_SEQ + 1),
+            max_seg_size: Some(BASE_MSS - 80),
+            window_scale: None,
+            window_len: 42,
+            ..SEND_TEMPL
+        });
+        assert_eq!(s.state, State::Established);
+        assert_eq!(s.remote_win_shift, 0);
+        assert_eq!(s.remote_win_scale, None);
+    }
 
     #[test]
     fn test_syn_sent_syn_ack_window_scaling() {
