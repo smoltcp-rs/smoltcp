@@ -140,13 +140,15 @@ pub use self::ipv4::{Address as Ipv4Address,
                      Packet as Ipv4Packet,
                      Repr as Ipv4Repr,
                      Cidr as Ipv4Cidr,
-                     MIN_MTU as IPV4_MIN_MTU};
+                         HEADER_LEN as IPV4_HEADER_LEN,
+                         MIN_MTU as IPV4_MIN_MTU};
 
 #[cfg(feature = "proto-ipv6")]
 pub use self::ipv6::{Address as Ipv6Address,
                      Packet as Ipv6Packet,
                      Repr as Ipv6Repr,
                      Cidr as Ipv6Cidr,
+                     HEADER_LEN as IPV6_HEADER_LEN,
                      MIN_MTU as IPV6_MIN_MTU};
 
 #[cfg(feature = "proto-ipv6")]
@@ -218,7 +220,8 @@ pub use self::tcp::{SeqNumber as TcpSeqNumber,
                     Packet as TcpPacket,
                     TcpOption,
                     Repr as TcpRepr,
-                    Control as TcpControl};
+                    Control as TcpControl,
+                    HEADER_LEN as TCP_HEADER_LEN};
 
 #[cfg(feature = "proto-dhcpv4")]
 pub use self::dhcpv4::{Packet as DhcpPacket,

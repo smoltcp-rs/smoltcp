@@ -263,6 +263,9 @@ mod field {
     pub const DST_ADDR: Field = 16..20;
 }
 
+pub const HEADER_LEN: usize = field::DST_ADDR.end;
+
+
 impl<T: AsRef<[u8]>> Packet<T> {
     /// Imbue a raw octet buffer with IPv4 packet structure.
     pub fn new_unchecked(buffer: T) -> Packet<T> {

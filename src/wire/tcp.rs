@@ -109,6 +109,8 @@ mod field {
     pub const OPT_SACKRNG:  u8 = 0x05;
 }
 
+pub const HEADER_LEN: usize = field::URGENT.end;
+
 impl<T: AsRef<[u8]>> Packet<T> {
     /// Imbue a raw octet buffer with TCP packet structure.
     pub fn new_unchecked(buffer: T) -> Packet<T> {
@@ -855,14 +857,6 @@ impl<'a> Repr<'a> {
             length += 4 - length % 4;
         }
         length
-    }
-
-    /// Return the length of the header for the TCP protocol.
-    ///
-    /// Per RFC 6691, this should be used for MSS calculations. It may be smaller than the buffer
-    /// space required to accomodate this packet's data.
-    pub fn mss_header_len(&self) -> usize {
-        field::URGENT.end
     }
 
     /// Return the length of a packet that will be emitted from this high-level representation.

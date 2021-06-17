@@ -380,6 +380,9 @@ mod field {
     pub const DST_ADDR:    Field = 24..40;
 }
 
+/// Length of an IPv6 header.
+pub const HEADER_LEN: usize = field::DST_ADDR.end;
+
 impl<T: AsRef<[u8]>> Packet<T> {
     /// Create a raw octet buffer with an IPv6 packet structure.
     #[inline]
