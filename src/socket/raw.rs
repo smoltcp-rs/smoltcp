@@ -4,7 +4,7 @@ use core::task::Waker;
 
 use crate::{Error, Result};
 use crate::phy::ChecksumCapabilities;
-use crate::socket::{Socket, SocketMeta, SocketHandle, PollAt};
+use crate::socket::{Socket, SocketMeta, SocketHandle, PollAt, Context};
 use crate::storage::{PacketBuffer, PacketMetadata};
 #[cfg(feature = "async")]
 use crate::socket::WakerRegistration;
@@ -206,14 +206,13 @@ impl<'a> RawSocket<'a> {
         true
     }
 
-    pub(crate) fn process(&mut self, ip_repr: &IpRepr, payload: &[u8],
-                          checksum_caps: &ChecksumCapabilities) -> Result<()> {
+    pub(crate) fn process(&mut self, cx: &Context, ip_repr: &IpRepr, payload: &[u8]) -> Result<()> {
         debug_assert!(self.accepts(ip_repr));
 
         let header_len = ip_repr.buffer_len();
         let total_len  = header_len + payload.len();
         let packet_buf = self.rx_buffer.enqueue(total_len, ())?;
-        ip_repr.emit(&mut packet_buf[..header_len], &checksum_caps);
+        ip_repr.emit(&mut packet_buf[..header_len], &cx.caps.checksum);
         packet_buf[header_len..].copy_from_slice(payload);
 
         net_trace!("{}:{}:{}: receiving {} octets",
@@ -226,8 +225,7 @@ impl<'a> RawSocket<'a> {
         Ok(())
     }
 
-    pub(crate) fn dispatch<F>(&mut self, checksum_caps: &ChecksumCapabilities, emit: F) ->
-                             Result<()>
+    pub(crate) fn dispatch<F>(&mut self, cx: &Context, emit: F) -> Result<()>
             where F: FnOnce((IpRepr, &[u8])) -> Result<()> {
         fn prepare<'a>(protocol: IpProtocol, buffer: &'a mut [u8],
                    _checksum_caps: &ChecksumCapabilities) -> Result<(IpRepr, &'a [u8])> {
@@ -264,7 +262,7 @@ impl<'a> RawSocket<'a> {
         let ip_protocol = self.ip_protocol;
         let ip_version  = self.ip_version;
         self.tx_buffer.dequeue_with(|&mut (), packet_buf| {
-            match prepare(ip_protocol, packet_buf, &checksum_caps) {
+            match prepare(ip_protocol, packet_buf, &cx.caps.checksum) {
                 Ok((ip_repr, raw_packet)) => {
                     net_trace!("{}:{}:{}: sending {} octets",
                                handle, ip_version, ip_protocol,
@@ -287,7 +285,7 @@ impl<'a> RawSocket<'a> {
         Ok(())
     }
 
-    pub(crate) fn poll_at(&self) -> PollAt {
+    pub(crate) fn poll_at(&self, _cx: &Context) -> PollAt {
         if self.tx_buffer.is_empty() {
             PollAt::Ingress
         } else {
@@ -401,25 +399,24 @@ mod test {
 
                 #[test]
                 fn test_send_dispatch() {
-                    let checksum_caps = &ChecksumCapabilities::default();
                     let mut socket = $socket(buffer(0), buffer(1));
 
                     assert!(socket.can_send());
-                    assert_eq!(socket.dispatch(&checksum_caps, |_| unreachable!()),
+                    assert_eq!(socket.dispatch(&Context::DUMMY, |_| unreachable!()),
                                Err(Error::Exhausted));
 
                     assert_eq!(socket.send_slice(&$packet[..]), Ok(()));
                     assert_eq!(socket.send_slice(b""), Err(Error::Exhausted));
                     assert!(!socket.can_send());
 
-                    assert_eq!(socket.dispatch(&checksum_caps, |(ip_repr, ip_payload)| {
+                    assert_eq!(socket.dispatch(&Context::DUMMY, |(ip_repr, ip_payload)| {
                         assert_eq!(ip_repr, $hdr);
                         assert_eq!(ip_payload, &$payload);
                         Err(Error::Unaddressable)
                     }), Err(Error::Unaddressable));
                     assert!(!socket.can_send());
 
-                    assert_eq!(socket.dispatch(&checksum_caps, |(ip_repr, ip_payload)| {
+                    assert_eq!(socket.dispatch(&Context::DUMMY, |(ip_repr, ip_payload)| {
                         assert_eq!(ip_repr, $hdr);
                         assert_eq!(ip_payload, &$payload);
                         Ok(())
@@ -432,8 +429,7 @@ mod test {
                     let mut socket = $socket(buffer(1), buffer(0));
 
                     assert!(socket.accepts(&$hdr));
-                    assert_eq!(socket.process(&$hdr, &$payload,
-                                              &ChecksumCapabilities::default()), Ok(()));
+                    assert_eq!(socket.process(&Context::DUMMY, &$hdr, &$payload), Ok(()));
 
                     let mut slice = [0; 4];
                     assert_eq!(socket.recv_slice(&mut slice[..]), Ok(4));
@@ -448,8 +444,7 @@ mod test {
                     buffer[..$packet.len()].copy_from_slice(&$packet[..]);
 
                     assert!(socket.accepts(&$hdr));
-                    assert_eq!(socket.process(&$hdr, &buffer, &ChecksumCapabilities::default()),
-                               Err(Error::Truncated));
+                    assert_eq!(socket.process(&Context::DUMMY, &$hdr, &buffer), Err(Error::Truncated));
                 }
             }
         }
@@ -467,7 +462,6 @@ mod test {
     #[test]
     #[cfg(feature = "proto-ipv4")]
     fn test_send_illegal() {
-        let checksum_caps = &ChecksumCapabilities::default();
         #[cfg(feature = "proto-ipv4")]
         {
             let mut socket = ipv4_locals::socket(buffer(0), buffer(2));
@@ -476,14 +470,14 @@ mod test {
             Ipv4Packet::new_unchecked(&mut wrong_version).set_version(6);
 
             assert_eq!(socket.send_slice(&wrong_version[..]), Ok(()));
-            assert_eq!(socket.dispatch(&checksum_caps, |_| unreachable!()),
+            assert_eq!(socket.dispatch(&Context::DUMMY, |_| unreachable!()),
                        Ok(()));
 
             let mut wrong_protocol = ipv4_locals::PACKET_BYTES;
             Ipv4Packet::new_unchecked(&mut wrong_protocol).set_protocol(IpProtocol::Tcp);
 
             assert_eq!(socket.send_slice(&wrong_protocol[..]), Ok(()));
-            assert_eq!(socket.dispatch(&checksum_caps, |_| unreachable!()),
+            assert_eq!(socket.dispatch(&Context::DUMMY, |_| unreachable!()),
                        Ok(()));
         }
         #[cfg(feature = "proto-ipv6")]
@@ -494,14 +488,14 @@ mod test {
             Ipv6Packet::new_unchecked(&mut wrong_version[..]).set_version(4);
 
             assert_eq!(socket.send_slice(&wrong_version[..]), Ok(()));
-            assert_eq!(socket.dispatch(&checksum_caps, |_| unreachable!()),
+            assert_eq!(socket.dispatch(&Context::DUMMY, |_| unreachable!()),
                        Ok(()));
 
             let mut wrong_protocol = ipv6_locals::PACKET_BYTES;
             Ipv6Packet::new_unchecked(&mut wrong_protocol[..]).set_next_header(IpProtocol::Tcp);
 
             assert_eq!(socket.send_slice(&wrong_protocol[..]), Ok(()));
-            assert_eq!(socket.dispatch(&checksum_caps, |_| unreachable!()),
+            assert_eq!(socket.dispatch(&Context::DUMMY, |_| unreachable!()),
                        Ok(()));
         }
     }
@@ -518,14 +512,12 @@ mod test {
 
             assert_eq!(socket.recv(), Err(Error::Exhausted));
             assert!(socket.accepts(&ipv4_locals::HEADER_REPR));
-            assert_eq!(socket.process(&ipv4_locals::HEADER_REPR, &ipv4_locals::PACKET_PAYLOAD,
-                                      &ChecksumCapabilities::default()),
+            assert_eq!(socket.process(&Context::DUMMY, &ipv4_locals::HEADER_REPR, &ipv4_locals::PACKET_PAYLOAD),
                        Ok(()));
             assert!(socket.can_recv());
 
             assert!(socket.accepts(&ipv4_locals::HEADER_REPR));
-            assert_eq!(socket.process(&ipv4_locals::HEADER_REPR, &ipv4_locals::PACKET_PAYLOAD,
-                                      &ChecksumCapabilities::default()),
+            assert_eq!(socket.process(&Context::DUMMY, &ipv4_locals::HEADER_REPR, &ipv4_locals::PACKET_PAYLOAD),
                        Err(Error::Exhausted));
             assert_eq!(socket.recv(), Ok(&cksumd_packet[..]));
             assert!(!socket.can_recv());
@@ -537,14 +529,12 @@ mod test {
 
             assert_eq!(socket.recv(), Err(Error::Exhausted));
             assert!(socket.accepts(&ipv6_locals::HEADER_REPR));
-            assert_eq!(socket.process(&ipv6_locals::HEADER_REPR, &ipv6_locals::PACKET_PAYLOAD,
-                                      &ChecksumCapabilities::default()),
+            assert_eq!(socket.process(&Context::DUMMY, &ipv6_locals::HEADER_REPR, &ipv6_locals::PACKET_PAYLOAD),
                        Ok(()));
             assert!(socket.can_recv());
 
             assert!(socket.accepts(&ipv6_locals::HEADER_REPR));
-            assert_eq!(socket.process(&ipv6_locals::HEADER_REPR, &ipv6_locals::PACKET_PAYLOAD,
-                                      &ChecksumCapabilities::default()),
+            assert_eq!(socket.process(&Context::DUMMY, &ipv6_locals::HEADER_REPR, &ipv6_locals::PACKET_PAYLOAD),
                        Err(Error::Exhausted));
             assert_eq!(socket.recv(), Ok(&ipv6_locals::PACKET_BYTES[..]));
             assert!(!socket.can_recv());

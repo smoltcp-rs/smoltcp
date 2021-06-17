@@ -1,10 +1,10 @@
 use crate::{Error, Result};
-use crate::wire::{EthernetAddress, IpProtocol, IpAddress,
+use crate::wire::{IpProtocol, IpAddress,
            Ipv4Cidr, Ipv4Address, Ipv4Repr,
            UdpRepr, UDP_HEADER_LEN,
            DhcpPacket, DhcpRepr, DhcpMessageType, DHCP_CLIENT_PORT, DHCP_SERVER_PORT, DHCP_MAX_DNS_SERVER_COUNT};
 use crate::wire::dhcpv4::{field as dhcpv4_field};
-use crate::socket::SocketMeta;
+use crate::socket::{SocketMeta, Context};
 use crate::time::{Instant, Duration};
 use crate::socket::SocketHandle;
 
@@ -150,7 +150,7 @@ impl Dhcpv4Socket {
         self.max_lease_duration = max_lease_duration;
     }
 
-    pub(crate) fn poll_at(&self) -> PollAt {
+    pub(crate) fn poll_at(&self, _cx: &Context) -> PollAt {
         let t = match &self.state {
             ClientState::Discovering(state) => state.retry_at,
             ClientState::Requesting(state) => state.retry_at,
@@ -159,7 +159,7 @@ impl Dhcpv4Socket {
         PollAt::Time(t)
     }
 
-    pub(crate) fn process(&mut self, now: Instant, ethernet_addr: EthernetAddress, ip_repr: &Ipv4Repr, repr: &UdpRepr, payload: &[u8]) -> Result<()> {
+    pub(crate) fn process(&mut self, cx: &Context, ip_repr: &Ipv4Repr, repr: &UdpRepr, payload: &[u8]) -> Result<()> {
         let src_ip = ip_repr.src_addr;
 
         // This is enforced in interface.rs.
@@ -179,7 +179,7 @@ impl Dhcpv4Socket {
                 return Ok(());
             }
         };
-        if dhcp_repr.client_hardware_address != ethernet_addr { return Ok(()) }
+        if dhcp_repr.client_hardware_address != cx.ethernet_address.unwrap() { return Ok(()) }
         if dhcp_repr.transaction_id != self.transaction_id { return Ok(()) }
         let server_identifier = match dhcp_repr.server_identifier {
             Some(server_identifier) => server_identifier,
@@ -199,7 +199,7 @@ impl Dhcpv4Socket {
                 }
                 
                 self.state = ClientState::Requesting(RequestState {
-                    retry_at: now,
+                    retry_at: cx.now,
                     retry: 0,
                     server: ServerInfo {
                         address: src_ip,
@@ -209,7 +209,7 @@ impl Dhcpv4Socket {
                 });
             }
             (ClientState::Requesting(state), DhcpMessageType::Ack) => {
-                if let Some((config, renew_at, expires_at)) = Self::parse_ack(now, &dhcp_repr, self.max_lease_duration) {
+                if let Some((config, renew_at, expires_at)) = Self::parse_ack(cx.now, &dhcp_repr, self.max_lease_duration) {
                     self.config_changed = true;
                     self.state = ClientState::Renewing(RenewState{
                         server: state.server,
@@ -223,7 +223,7 @@ impl Dhcpv4Socket {
                 self.reset();
             }
             (ClientState::Renewing(state), DhcpMessageType::Ack) => {
-                if let Some((config, renew_at, expires_at)) = Self::parse_ack(now, &dhcp_repr, self.max_lease_duration) {
+                if let Some((config, renew_at, expires_at)) = Self::parse_ack(cx.now, &dhcp_repr, self.max_lease_duration) {
                     state.renew_at = renew_at;
                     state.expires_at = expires_at;
                     if state.config != config {
@@ -298,8 +298,12 @@ impl Dhcpv4Socket {
         Some((config, renew_at, expires_at))
     }
 
-    pub(crate) fn dispatch<F>(&mut self, now: Instant, ethernet_addr: EthernetAddress, ip_mtu: usize, emit: F) -> Result<()>
+    pub(crate) fn dispatch<F>(&mut self, cx: &Context, emit: F) -> Result<()>
             where F: FnOnce((Ipv4Repr, UdpRepr, DhcpRepr)) -> Result<()> {
+
+        // note: Dhcpv4Socket is only usable in ethernet mediums, so the 
+        // unwrap can never fail.
+        let ethernet_addr = cx.ethernet_address.unwrap();
 
         // Worst case biggest IPv4 header length.
         // 0x0f * 4 = 60 bytes.
@@ -324,7 +328,7 @@ impl Dhcpv4Socket {
             client_identifier: Some(ethernet_addr),
             server_identifier: None,
             parameter_request_list: Some(PARAMETER_REQUEST_LIST),
-            max_size: Some((ip_mtu - MAX_IPV4_HEADER_LEN - UDP_HEADER_LEN) as u16),
+            max_size: Some((cx.caps.ip_mtu() - MAX_IPV4_HEADER_LEN - UDP_HEADER_LEN) as u16),
             lease_duration: None,
             dns_servers: None,
         };
@@ -344,7 +348,7 @@ impl Dhcpv4Socket {
 
         match &mut self.state {
             ClientState::Discovering(state) => {
-                if now < state.retry_at {
+                if cx.now < state.retry_at {
                     return Err(Error::Exhausted)
                 }
 
@@ -354,12 +358,12 @@ impl Dhcpv4Socket {
                 emit((ipv4_repr, udp_repr, dhcp_repr))?;
 
                 // Update state AFTER the packet has been successfully sent.
-                state.retry_at = now + DISCOVER_TIMEOUT;
+                state.retry_at = cx.now + DISCOVER_TIMEOUT;
                 self.transaction_id = next_transaction_id;
                 Ok(())
             }
             ClientState::Requesting(state) => {
-                if now < state.retry_at {
+                if cx.now < state.retry_at {
                     return Err(Error::Exhausted)
                 }
 
@@ -380,21 +384,21 @@ impl Dhcpv4Socket {
                 emit((ipv4_repr, udp_repr, dhcp_repr))?;
 
                 // Exponential backoff: Double every 2 retries.
-                state.retry_at = now + (REQUEST_TIMEOUT << (state.retry as u32 / 2));
+                state.retry_at = cx.now + (REQUEST_TIMEOUT << (state.retry as u32 / 2));
                 state.retry += 1;
 
                 self.transaction_id = next_transaction_id;
                 Ok(())
             }
             ClientState::Renewing(state) => {
-                if state.expires_at <= now {
+                if state.expires_at <= cx.now {
                     net_debug!("DHCP lease expired");
                     self.reset();
                     // return Ok so we get polled again
                     return Ok(())
                 }
     
-                if now < state.renew_at {
+                if cx.now < state.renew_at {
                     return Err(Error::Exhausted)
                 }
 
@@ -413,7 +417,7 @@ impl Dhcpv4Socket {
                 // of the remaining time until T2 (in RENEWING state) and one-half of
                 // the remaining lease time (in REBINDING state), down to a minimum of
                 // 60 seconds, before retransmitting the DHCPREQUEST message.
-                state.renew_at = now + MIN_RENEW_TIMEOUT.max((state.expires_at - now) / 2);
+                state.renew_at = cx.now + MIN_RENEW_TIMEOUT.max((state.expires_at - cx.now) / 2);
 
                 self.transaction_id = next_transaction_id;
                 Ok(())

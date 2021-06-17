@@ -43,8 +43,6 @@ jobs:
           # Test alloc feature which requires nightly.
           - rust: nightly
             features: alloc medium-ethernet proto-ipv4 proto-ipv6 socket-raw socket-udp socket-tcp socket-icmp
-          - rust: nightly
-            features: alloc proto-ipv4 proto-ipv6 socket-raw socket-udp socket-tcp socket-icmp
     steps:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
