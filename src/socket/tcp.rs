@@ -1515,7 +1515,11 @@ impl<'a> TcpSocket<'a> {
 
         // RFC 1323: The window field (SEG.WND) in the header of every incoming segment, with the
         // exception of SYN segments, is left-shifted by Snd.Wind.Scale bits before updating SND.WND.
-        self.remote_win_len = (repr.window_len as usize) << (self.remote_win_scale.unwrap_or(0) as usize);
+        let scale = match repr.control {
+            TcpControl::Syn => 0,
+            _ => self.remote_win_scale.unwrap_or(0),
+        };
+        self.remote_win_len = (repr.window_len as usize) << (scale as usize);
 
         if ack_len > 0 {
             // Dequeue acknowledged octets.
@@ -1746,7 +1750,7 @@ impl<'a> TcpSocket<'a> {
     fn window_to_update(&self) -> bool {
         match self.state {
             State::SynSent | State::SynReceived | State::Established | State::FinWait1 | State::FinWait2 =>
-                (self.rx_buffer.window() >> self.remote_win_shift) as u16 > self.remote_last_win,
+                self.scaled_window() > self.remote_last_win,
             _ => false,
         }
     }
@@ -1858,6 +1862,8 @@ impl<'a> TcpSocket<'a> {
             // We transmit a SYN|ACK in the SYN-RECEIVED state.
             State::SynSent | State::SynReceived => {
                 repr.control = TcpControl::Syn;
+                // window len must NOT be scaled in SYNs.
+                repr.window_len = self.rx_buffer.window().min((1<<16)-1) as u16;
                 if self.state == State::SynSent {
                     repr.ack_number = None;
                     repr.window_scale = Some(self.remote_win_shift);
@@ -2503,7 +2509,7 @@ mod test {
                 ack_number: Some(REMOTE_SEQ + 1),
                 max_seg_size: Some(BASE_MSS),
                 window_scale: Some(*shift_amt),
-                window_len: cmp::min(*buffer_size >> *shift_amt, 65535) as u16,
+                window_len: cmp::min(*buffer_size, 65535) as u16,
                 ..RECV_TEMPL
             }]);
         }
@@ -2932,7 +2938,7 @@ mod test {
                 ack_number: None,
                 max_seg_size: Some(BASE_MSS),
                 window_scale: Some(*shift_amt),
-                window_len: cmp::min(*buffer_size >> *shift_amt, 65535) as u16,
+                window_len: cmp::min(*buffer_size, 65535) as u16,
                 sack_permitted: true,
                 ..RECV_TEMPL
             }]);
@@ -2947,7 +2953,8 @@ mod test {
             seq_number: LOCAL_SEQ,
             ack_number: None,
             max_seg_size: Some(BASE_MSS),
-            window_len: 32768,
+            // scaling does NOT apply to the window value in SYN packets
+            window_len: 65535,
             window_scale: Some(5),
             sack_permitted: true,
             ..RECV_TEMPL
@@ -2965,6 +2972,7 @@ mod test {
         assert_eq!(s.state, State::Established);
         assert_eq!(s.remote_win_shift, 0);
         assert_eq!(s.remote_win_scale, None);
+        assert_eq!(s.remote_win_len, 42);
     }
 
     #[test]
@@ -2990,6 +2998,8 @@ mod test {
         });
         assert_eq!(s.state, State::Established);
         assert_eq!(s.remote_win_scale, Some(7));
+        // scaling does NOT apply to the window value in SYN packets
+        assert_eq!(s.remote_win_len, 42);
     }
 
     // =========================================================================================//
