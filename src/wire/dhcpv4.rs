@@ -857,7 +857,6 @@ impl<'a> Repr<'a> {
                     .map(|(i, ip)| {
                         servers[(i * IP_SIZE)..((i + 1) * IP_SIZE)]
                             .copy_from_slice(ip.as_bytes());
-                        ()
                     }).count() * IP_SIZE;
                 let option = DhcpOption::Other{ kind: field::OPT_DOMAIN_NAME_SERVER, data: &servers[..data_len] };
                 let tmp = options; options = option.emit(tmp);
