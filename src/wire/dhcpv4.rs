@@ -8,6 +8,8 @@ use crate::wire::arp::Hardware;
 
 const DHCP_MAGIC_NUMBER: u32 = 0x63825363;
 
+pub const MAX_DNS_SERVERS: usize = 3;
+
 enum_with_unknown! {
     /// The possible opcodes of a DHCP packet.
     pub enum OpCode(u8) {
@@ -680,7 +682,7 @@ pub struct Repr<'a> {
     /// the client is interested in.
     pub parameter_request_list: Option<&'a [u8]>,
     /// DNS servers
-    pub dns_servers: Option<[Option<Ipv4Address>; 3]>,
+    pub dns_servers: Option<[Option<Ipv4Address>; MAX_DNS_SERVERS]>,
     /// The maximum size dhcp packet the interface can receive
     pub max_size: Option<u16>,
     /// The DHCP IP lease duration, specified in seconds.
@@ -782,7 +784,7 @@ impl<'a> Repr<'a> {
                     parameter_request_list = Some(data);
                 }
                 DhcpOption::Other {kind: field::OPT_DOMAIN_NAME_SERVER, data} => {
-                    let mut servers = [None; 3];
+                    let mut servers = [None; MAX_DNS_SERVERS];
                     for (server, chunk) in servers.iter_mut().zip(data.chunks(4)) {
                         *server = Some(Ipv4Address::from_bytes(chunk));
                     }
@@ -848,11 +850,17 @@ impl<'a> Repr<'a> {
                 let tmp = options; options = DhcpOption::IpLeaseTime(duration).emit(tmp);
             }
             if let Some(dns_servers) = self.dns_servers {
-                let data = dns_servers.iter().filter(|o| o.is_some())
-                    .map(|ip| ip.unwrap().as_bytes().to_owned())
-                    .flatten()
-                    .collect::<Vec<_>>();
-                let option = DhcpOption::Other{ kind: field::OPT_DOMAIN_NAME_SERVER, data: &data[..] };
+                const IP_SIZE: usize = core::mem::size_of::<u32>();
+                let mut servers = [0; MAX_DNS_SERVERS * IP_SIZE];
+
+                let data_len = dns_servers.iter().filter(|o| o.is_some())
+                    .enumerate()
+                    .map(|(i, ip)| {
+                        servers[(i * IP_SIZE)..((i + 1) * IP_SIZE)]
+                            .copy_from_slice(ip.unwrap().as_bytes());
+                        i + 1
+                    }).last().unwrap_or(0);
+                let option = DhcpOption::Other{ kind: field::OPT_DOMAIN_NAME_SERVER, data: &servers[..IP_SIZE * data_len] };
                 let tmp = options; options = option.emit(tmp);
             }
             if let Some(list) = self.parameter_request_list {
