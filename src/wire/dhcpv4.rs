@@ -704,8 +704,7 @@ impl<'a> Repr<'a> {
         if self.lease_duration.is_some() { len += 6; }
         if let Some(dns_servers) = self.dns_servers {
             len += 2;
-            len += dns_servers.iter()
-                .filter(|d| d.is_some()).map(|_| 4).sum::<usize>();
+            len += dns_servers.iter().flatten().count() * core::mem::size_of::<u32>();
         }
         if let Some(list) = self.parameter_request_list { len += list.len() + 2; }
 
@@ -853,14 +852,14 @@ impl<'a> Repr<'a> {
                 const IP_SIZE: usize = core::mem::size_of::<u32>();
                 let mut servers = [0; MAX_DNS_SERVERS * IP_SIZE];
 
-                let data_len = dns_servers.iter().filter(|o| o.is_some())
+                let data_len = dns_servers.iter().flatten()
                     .enumerate()
                     .map(|(i, ip)| {
                         servers[(i * IP_SIZE)..((i + 1) * IP_SIZE)]
-                            .copy_from_slice(ip.unwrap().as_bytes());
-                        i + 1
-                    }).last().unwrap_or(0);
-                let option = DhcpOption::Other{ kind: field::OPT_DOMAIN_NAME_SERVER, data: &servers[..IP_SIZE * data_len] };
+                            .copy_from_slice(ip.as_bytes());
+                        ()
+                    }).count() * IP_SIZE;
+                let option = DhcpOption::Other{ kind: field::OPT_DOMAIN_NAME_SERVER, data: &servers[..data_len] };
                 let tmp = options; options = option.emit(tmp);
             }
             if let Some(list) = self.parameter_request_list {
