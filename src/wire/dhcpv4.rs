@@ -700,6 +700,11 @@ impl<'a> Repr<'a> {
         if self.router.is_some() { len += 6; }
         if self.subnet_mask.is_some() { len += 6; }
         if self.lease_duration.is_some() { len += 6; }
+        if let Some(dns_servers) = self.dns_servers {
+            len += 2;
+            len += dns_servers.iter()
+                .filter(|d| d.is_some()).map(|_| 4).sum::<usize>();
+        }
         if let Some(list) = self.parameter_request_list { len += list.len() + 2; }
 
         len
@@ -841,6 +846,14 @@ impl<'a> Repr<'a> {
             }
             if let Some(duration) = self.lease_duration {
                 let tmp = options; options = DhcpOption::IpLeaseTime(duration).emit(tmp);
+            }
+            if let Some(dns_servers) = self.dns_servers {
+                let data = dns_servers.iter().filter(|o| o.is_some())
+                    .map(|ip| ip.unwrap().as_bytes().to_owned())
+                    .flatten()
+                    .collect::<Vec<_>>();
+                let option = DhcpOption::Other{ kind: field::OPT_DOMAIN_NAME_SERVER, data: &data[..] };
+                let tmp = options; options = option.emit(tmp);
             }
             if let Some(list) = self.parameter_request_list {
                 let option = DhcpOption::Other{ kind: field::OPT_PARAMETER_REQUEST_LIST, data: list };
@@ -1086,6 +1099,29 @@ mod test {
         let mut bytes = vec![0xa5; repr.buffer_len()];
         let mut packet = Packet::new_unchecked(&mut bytes);
         repr.emit(&mut packet).unwrap();
+    }
+
+    #[test]
+    fn test_emit_offer_dns() {
+        let repr = {
+            let mut repr = offer_repr();
+            repr.dns_servers = Some([
+            Some(Ipv4Address([163, 1, 74, 6])),
+            Some(Ipv4Address([163, 1, 74, 7])),
+            Some(Ipv4Address([163, 1, 74, 3]))]);
+            repr
+        };
+        let mut bytes = vec![0xa5; repr.buffer_len()];
+        let mut packet = Packet::new_unchecked(&mut bytes);
+        repr.emit(&mut packet).unwrap();
+
+        let packet = Packet::new_unchecked(&bytes);
+        let repr_parsed = Repr::parse(&packet).unwrap();
+
+        assert_eq!(repr_parsed.dns_servers,  Some([
+            Some(Ipv4Address([163, 1, 74, 6])),
+            Some(Ipv4Address([163, 1, 74, 7])),
+            Some(Ipv4Address([163, 1, 74, 3]))]));
     }
 
     #[test]
