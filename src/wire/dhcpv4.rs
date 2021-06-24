@@ -854,7 +854,7 @@ impl<'a> Repr<'a> {
 
                 let data_len = dns_servers.iter().flatten()
                     .enumerate()
-                    .map(|(i, ip)| {
+                    .inspect(|(i, ip)| {
                         servers[(i * IP_SIZE)..((i + 1) * IP_SIZE)]
                             .copy_from_slice(ip.as_bytes());
                     }).count() * IP_SIZE;
