@@ -11,7 +11,9 @@ and implementations of it:
     [TunTapInterface](struct.TunTapInterface.html), to transmit and receive frames
     on the host OS.
 */
-#![cfg_attr(feature = "medium-ethernet", doc = r##"
+#![cfg_attr(
+    feature = "medium-ethernet",
+    doc = r##"
 # Examples
 
 An implementation of the [Device](trait.Device.html) trait for a simple hardware
@@ -84,37 +86,50 @@ impl<'a> phy::TxToken for StmPhyTxToken<'a> {
     }
 }
 ```
-"##)]
+"##
+)]
 
-use crate::Result;
 use crate::time::Instant;
+use crate::Result;
 
-#[cfg(all(any(feature = "phy-raw_socket", feature = "phy-tuntap_interface"), unix))]
+#[cfg(all(
+    any(feature = "phy-raw_socket", feature = "phy-tuntap_interface"),
+    unix
+))]
 mod sys;
 
-mod tracer;
 mod fault_injector;
 mod fuzz_injector;
-mod pcap_writer;
 #[cfg(any(feature = "std", feature = "alloc"))]
 mod loopback;
+mod pcap_writer;
 #[cfg(all(feature = "phy-raw_socket", unix))]
 mod raw_socket;
-#[cfg(all(feature = "phy-tuntap_interface", any(target_os = "linux", target_os = "android")))]
+mod tracer;
+#[cfg(all(
+    feature = "phy-tuntap_interface",
+    any(target_os = "linux", target_os = "android")
+))]
 mod tuntap_interface;
 
-#[cfg(all(any(feature = "phy-raw_socket", feature = "phy-tuntap_interface"), unix))]
+#[cfg(all(
+    any(feature = "phy-raw_socket", feature = "phy-tuntap_interface"),
+    unix
+))]
 pub use self::sys::wait;
 
-pub use self::tracer::Tracer;
 pub use self::fault_injector::FaultInjector;
-pub use self::fuzz_injector::{Fuzzer, FuzzInjector};
-pub use self::pcap_writer::{PcapLinkType, PcapMode, PcapSink, PcapWriter};
+pub use self::fuzz_injector::{FuzzInjector, Fuzzer};
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use self::loopback::Loopback;
+pub use self::pcap_writer::{PcapLinkType, PcapMode, PcapSink, PcapWriter};
 #[cfg(all(feature = "phy-raw_socket", unix))]
 pub use self::raw_socket::RawSocket;
-#[cfg(all(feature = "phy-tuntap_interface", any(target_os = "linux", target_os = "android")))]
+pub use self::tracer::Tracer;
+#[cfg(all(
+    feature = "phy-tuntap_interface",
+    any(target_os = "linux", target_os = "android")
+))]
 pub use self::tuntap_interface::TunTapInterface;
 
 /// A description of checksum behavior for a particular protocol.
@@ -142,7 +157,7 @@ impl Checksum {
     pub fn rx(&self) -> bool {
         match *self {
             Checksum::Both | Checksum::Rx => true,
-            _ => false
+            _ => false,
         }
     }
 
@@ -150,7 +165,7 @@ impl Checksum {
     pub fn tx(&self) -> bool {
         match *self {
             Checksum::Both | Checksum::Tx => true,
-            _ => false
+            _ => false,
         }
     }
 }
@@ -234,7 +249,9 @@ impl DeviceCapabilities {
     pub fn ip_mtu(&self) -> usize {
         match self.medium {
             #[cfg(feature = "medium-ethernet")]
-            Medium::Ethernet => self.max_transmission_unit - crate::wire::EthernetFrame::<&[u8]>::header_len(),
+            Medium::Ethernet => {
+                self.max_transmission_unit - crate::wire::EthernetFrame::<&[u8]>::header_len()
+            }
             #[cfg(feature = "medium-ip")]
             Medium::Ip => self.max_transmission_unit,
         }
@@ -259,7 +276,6 @@ pub enum Medium {
     #[cfg(feature = "medium-ip")]
     Ip,
 }
-
 
 impl Default for Medium {
     fn default() -> Medium {
@@ -306,7 +322,8 @@ pub trait RxToken {
     /// The timestamp must be a number of milliseconds, monotonically increasing since an
     /// arbitrary moment in time, such as system startup.
     fn consume<R, F>(self, timestamp: Instant, f: F) -> Result<R>
-        where F: FnOnce(&mut [u8]) -> Result<R>;
+    where
+        F: FnOnce(&mut [u8]) -> Result<R>;
 }
 
 /// A token to transmit a single network packet.
@@ -321,5 +338,6 @@ pub trait TxToken {
     /// The timestamp must be a number of milliseconds, monotonically increasing since an
     /// arbitrary moment in time, such as system startup.
     fn consume<R, F>(self, timestamp: Instant, len: usize, f: F) -> Result<R>
-        where F: FnOnce(&mut [u8]) -> Result<R>;
+    where
+        F: FnOnce(&mut [u8]) -> Result<R>;
 }

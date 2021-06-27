@@ -1,13 +1,13 @@
+use byteorder::{ByteOrder, NativeEndian};
+use phy::Medium;
 #[cfg(feature = "std")]
 use std::cell::RefCell;
 #[cfg(feature = "std")]
 use std::io::Write;
-use byteorder::{ByteOrder, NativeEndian};
-use phy::Medium;
 
-use crate::Result;
-use crate::phy::{self, DeviceCapabilities, Device};
+use crate::phy::{self, Device, DeviceCapabilities};
 use crate::time::Instant;
+use crate::Result;
 
 enum_with_unknown! {
     /// Captured packet header type.
@@ -28,7 +28,7 @@ pub enum PcapMode {
     /// Capture only received packets.
     RxOnly,
     /// Capture only transmitted packets.
-    TxOnly
+    TxOnly,
 }
 
 /// A packet capture sink.
@@ -54,12 +54,12 @@ pub trait PcapSink {
     ///
     /// This method may be overridden e.g. if special synchronization is necessary.
     fn global_header(&self, link_type: PcapLinkType) {
-        self.write_u32(0xa1b2c3d4);       // magic number
-        self.write_u16(2);                // major version
-        self.write_u16(4);                // minor version
-        self.write_u32(0);                // timezone (= UTC)
-        self.write_u32(0);                // accuracy (not used)
-        self.write_u32(65535);            // maximum packet length
+        self.write_u32(0xa1b2c3d4); // magic number
+        self.write_u16(2); // major version
+        self.write_u16(4); // minor version
+        self.write_u32(0); // timezone (= UTC)
+        self.write_u32(0); // accuracy (not used)
+        self.write_u32(65535); // maximum packet length
         self.write_u32(link_type.into()); // link-layer header type
     }
 
@@ -72,10 +72,10 @@ pub trait PcapSink {
     fn packet_header(&self, timestamp: Instant, length: usize) {
         assert!(length <= 65535);
 
-        self.write_u32(timestamp.secs() as u32);   // timestamp seconds
-        self.write_u32(timestamp.millis() as u32);   // timestamp microseconds
-        self.write_u32(length  as u32);   // captured length
-        self.write_u32(length  as u32);   // original length
+        self.write_u32(timestamp.secs() as u32); // timestamp seconds
+        self.write_u32(timestamp.millis() as u32); // timestamp microseconds
+        self.write_u32(length as u32); // captured length
+        self.write_u32(length as u32); // original length
     }
 
     /// Write the libpcap packet header followed by packet data into the sink.
@@ -121,12 +121,13 @@ impl<T: Write> PcapSink for RefCell<T> {
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct PcapWriter<D, S>
-    where D: for<'a> Device<'a>,
-          S: PcapSink + Clone,
+where
+    D: for<'a> Device<'a>,
+    S: PcapSink + Clone,
 {
     lower: D,
-    sink:  S,
-    mode:  PcapMode,
+    sink: S,
+    mode: PcapMode,
 }
 
 impl<D: for<'a> Device<'a>, S: PcapSink + Clone> PcapWriter<D, S> {
@@ -145,27 +146,49 @@ impl<D: for<'a> Device<'a>, S: PcapSink + Clone> PcapWriter<D, S> {
 }
 
 impl<'a, D, S> Device<'a> for PcapWriter<D, S>
-    where D: for<'b> Device<'b>,
-          S: PcapSink + Clone + 'a,
+where
+    D: for<'b> Device<'b>,
+    S: PcapSink + Clone + 'a,
 {
     type RxToken = RxToken<<D as Device<'a>>::RxToken, S>;
     type TxToken = TxToken<<D as Device<'a>>::TxToken, S>;
 
-    fn capabilities(&self) -> DeviceCapabilities { self.lower.capabilities() }
+    fn capabilities(&self) -> DeviceCapabilities {
+        self.lower.capabilities()
+    }
 
     fn receive(&'a mut self) -> Option<(Self::RxToken, Self::TxToken)> {
-        let &mut Self { ref mut lower, ref sink, mode, .. } = self;
+        let &mut Self {
+            ref mut lower,
+            ref sink,
+            mode,
+            ..
+        } = self;
         lower.receive().map(|(rx_token, tx_token)| {
-            let rx = RxToken { token: rx_token, sink: sink.clone(), mode };
-            let tx = TxToken { token: tx_token, sink: sink.clone(), mode };
+            let rx = RxToken {
+                token: rx_token,
+                sink: sink.clone(),
+                mode,
+            };
+            let tx = TxToken {
+                token: tx_token,
+                sink: sink.clone(),
+                mode,
+            };
             (rx, tx)
         })
     }
 
     fn transmit(&'a mut self) -> Option<Self::TxToken> {
-        let &mut Self { ref mut lower, ref sink, mode } = self;
-        lower.transmit().map(|token| {
-            TxToken { token, sink: sink.clone(), mode }
+        let &mut Self {
+            ref mut lower,
+            ref sink,
+            mode,
+        } = self;
+        lower.transmit().map(|token| TxToken {
+            token,
+            sink: sink.clone(),
+            mode,
         })
     }
 }
@@ -173,8 +196,8 @@ impl<'a, D, S> Device<'a> for PcapWriter<D, S>
 #[doc(hidden)]
 pub struct RxToken<Rx: phy::RxToken, S: PcapSink> {
     token: Rx,
-    sink:  S,
-    mode:  PcapMode,
+    sink: S,
+    mode: PcapMode,
 }
 
 impl<Rx: phy::RxToken, S: PcapSink> phy::RxToken for RxToken<Rx, S> {
@@ -182,9 +205,8 @@ impl<Rx: phy::RxToken, S: PcapSink> phy::RxToken for RxToken<Rx, S> {
         let Self { token, sink, mode } = self;
         token.consume(timestamp, |buffer| {
             match mode {
-                PcapMode::Both | PcapMode::RxOnly =>
-                    sink.packet(timestamp, buffer.as_ref()),
-                PcapMode::TxOnly => ()
+                PcapMode::Both | PcapMode::RxOnly => sink.packet(timestamp, buffer.as_ref()),
+                PcapMode::TxOnly => (),
             }
             f(buffer)
         })
@@ -194,21 +216,21 @@ impl<Rx: phy::RxToken, S: PcapSink> phy::RxToken for RxToken<Rx, S> {
 #[doc(hidden)]
 pub struct TxToken<Tx: phy::TxToken, S: PcapSink> {
     token: Tx,
-    sink:  S,
-    mode:  PcapMode
+    sink: S,
+    mode: PcapMode,
 }
 
 impl<Tx: phy::TxToken, S: PcapSink> phy::TxToken for TxToken<Tx, S> {
     fn consume<R, F>(self, timestamp: Instant, len: usize, f: F) -> Result<R>
-        where F: FnOnce(&mut [u8]) -> Result<R>
+    where
+        F: FnOnce(&mut [u8]) -> Result<R>,
     {
         let Self { token, sink, mode } = self;
         token.consume(timestamp, len, |buffer| {
             let result = f(buffer);
             match mode {
-                PcapMode::Both | PcapMode::TxOnly =>
-                    sink.packet(timestamp, &buffer),
-                PcapMode::RxOnly => ()
+                PcapMode::Both | PcapMode::TxOnly => sink.packet(timestamp, &buffer),
+                PcapMode::RxOnly => (),
             };
             result
         })

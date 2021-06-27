@@ -1,15 +1,15 @@
 mod utils;
 
-use std::str::{self, FromStr};
+use log::debug;
 use std::collections::BTreeMap;
 use std::os::unix::io::AsRawFd;
-use log::debug;
+use std::str::{self, FromStr};
 
-use smoltcp::phy::{Device, Medium, wait as phy_wait};
-use smoltcp::wire::{EthernetAddress, Ipv4Address, IpAddress, IpCidr};
-use smoltcp::iface::{NeighborCache, InterfaceBuilder, Routes};
+use smoltcp::iface::{InterfaceBuilder, NeighborCache, Routes};
+use smoltcp::phy::{wait as phy_wait, Device, Medium};
 use smoltcp::socket::{SocketSet, TcpSocket, TcpSocketBuffer};
 use smoltcp::time::Instant;
+use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr, Ipv4Address};
 
 fn main() {
     utils::setup_logging("");
@@ -24,7 +24,7 @@ fn main() {
     let device = utils::parse_tuntap_options(&mut matches);
 
     let fd = device.as_raw_fd();
-    let device = utils::parse_middleware_options(&mut matches, device, /*loopback=*/false);
+    let device = utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
     let address = IpAddress::from_str(&matches.free[0]).expect("invalid address format");
     let port = u16::from_str(&matches.free[1]).expect("invalid port format");
 
@@ -40,11 +40,11 @@ fn main() {
     let mut routes_storage = [None; 1];
     let mut routes = Routes::new(&mut routes_storage[..]);
     routes.add_default_ipv4_route(default_v4_gw).unwrap();
-    
+
     let medium = device.capabilities().medium;
     let mut builder = InterfaceBuilder::new(device)
-            .ip_addrs(ip_addrs)
-            .routes(routes);
+        .ip_addrs(ip_addrs)
+        .routes(routes);
     if medium == Medium::Ethernet {
         builder = builder
             .ethernet_addr(ethernet_addr)
@@ -64,7 +64,7 @@ fn main() {
     loop {
         let timestamp = Instant::now();
         match iface.poll(&mut sockets, timestamp) {
-            Ok(_) => {},
+            Ok(_) => {}
             Err(e) => {
                 debug!("poll error: {}", e);
             }
@@ -76,25 +76,31 @@ fn main() {
                 debug!("connected");
             } else if !socket.is_active() && tcp_active {
                 debug!("disconnected");
-                break
+                break;
             }
             tcp_active = socket.is_active();
 
             if socket.may_recv() {
-                let data = socket.recv(|data| {
-                    let mut data = data.to_owned();
-                    if !data.is_empty() {
-                        debug!("recv data: {:?}",
-                               str::from_utf8(data.as_ref()).unwrap_or("(invalid utf8)"));
-                        data = data.split(|&b| b == b'\n').collect::<Vec<_>>().concat();
-                        data.reverse();
-                        data.extend(b"\n");
-                    }
-                    (data.len(), data)
-                }).unwrap();
+                let data = socket
+                    .recv(|data| {
+                        let mut data = data.to_owned();
+                        if !data.is_empty() {
+                            debug!(
+                                "recv data: {:?}",
+                                str::from_utf8(data.as_ref()).unwrap_or("(invalid utf8)")
+                            );
+                            data = data.split(|&b| b == b'\n').collect::<Vec<_>>().concat();
+                            data.reverse();
+                            data.extend(b"\n");
+                        }
+                        (data.len(), data)
+                    })
+                    .unwrap();
                 if socket.can_send() && !data.is_empty() {
-                    debug!("send data: {:?}",
-                           str::from_utf8(data.as_ref()).unwrap_or("(invalid utf8)"));
+                    debug!(
+                        "send data: {:?}",
+                        str::from_utf8(data.as_ref()).unwrap_or("(invalid utf8)")
+                    );
                     socket.send_slice(&data[..]).unwrap();
                 }
             } else if socket.may_send() {

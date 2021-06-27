@@ -1,18 +1,18 @@
 mod utils;
 
-use std::str;
+use log::debug;
 use std::collections::BTreeMap;
 use std::fmt::Write;
 use std::os::unix::io::AsRawFd;
-use log::debug;
+use std::str;
 
-use smoltcp::phy::{Device, Medium, wait as phy_wait};
-use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr};
-use smoltcp::iface::{NeighborCache, InterfaceBuilder};
+use smoltcp::iface::{InterfaceBuilder, NeighborCache};
+use smoltcp::phy::{wait as phy_wait, Device, Medium};
 use smoltcp::socket::SocketSet;
-use smoltcp::socket::{UdpSocket, UdpSocketBuffer, UdpPacketMetadata};
 use smoltcp::socket::{TcpSocket, TcpSocketBuffer};
+use smoltcp::socket::{UdpPacketMetadata, UdpSocket, UdpSocketBuffer};
 use smoltcp::time::{Duration, Instant};
+use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr};
 
 fn main() {
     utils::setup_logging("");
@@ -24,7 +24,7 @@ fn main() {
     let mut matches = utils::parse_options(&opts, free);
     let device = utils::parse_tuntap_options(&mut matches);
     let fd = device.as_raw_fd();
-    let device = utils::parse_middleware_options(&mut matches, device, /*loopback=*/false);
+    let device = utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
 
     let neighbor_cache = NeighborCache::new(BTreeMap::new());
 
@@ -52,12 +52,11 @@ fn main() {
     let ip_addrs = [
         IpCidr::new(IpAddress::v4(192, 168, 69, 1), 24),
         IpCidr::new(IpAddress::v6(0xfdaa, 0, 0, 0, 0, 0, 0, 1), 64),
-        IpCidr::new(IpAddress::v6(0xfe80, 0, 0, 0, 0, 0, 0, 1), 64)
+        IpCidr::new(IpAddress::v6(0xfe80, 0, 0, 0, 0, 0, 0, 1), 64),
     ];
 
     let medium = device.capabilities().medium;
-    let mut builder = InterfaceBuilder::new(device)
-            .ip_addrs(ip_addrs);
+    let mut builder = InterfaceBuilder::new(device).ip_addrs(ip_addrs);
     if medium == Medium::Ethernet {
         builder = builder
             .ethernet_addr(ethernet_addr)
@@ -66,7 +65,7 @@ fn main() {
     let mut iface = builder.finalize();
 
     let mut sockets = SocketSet::new(vec![]);
-    let udp_handle  = sockets.add(udp_socket);
+    let udp_handle = sockets.add(udp_socket);
     let tcp1_handle = sockets.add(tcp1_socket);
     let tcp2_handle = sockets.add(tcp2_socket);
     let tcp3_handle = sockets.add(tcp3_socket);
@@ -76,7 +75,7 @@ fn main() {
     loop {
         let timestamp = Instant::now();
         match iface.poll(&mut sockets, timestamp) {
-            Ok(_) => {},
+            Ok(_) => {}
             Err(e) => {
                 debug!("poll error: {}", e);
             }
@@ -91,16 +90,21 @@ fn main() {
 
             let client = match socket.recv() {
                 Ok((data, endpoint)) => {
-                    debug!("udp:6969 recv data: {:?} from {}",
-                           str::from_utf8(data).unwrap(), endpoint);
+                    debug!(
+                        "udp:6969 recv data: {:?} from {}",
+                        str::from_utf8(data).unwrap(),
+                        endpoint
+                    );
                     Some(endpoint)
                 }
-                Err(_) => None
+                Err(_) => None,
             };
             if let Some(endpoint) = client {
                 let data = b"hello\n";
-                debug!("udp:6969 send data: {:?}",
-                       str::from_utf8(data.as_ref()).unwrap());
+                debug!(
+                    "udp:6969 send data: {:?}",
+                    str::from_utf8(data.as_ref()).unwrap()
+                );
                 socket.send_slice(data, endpoint).unwrap();
             }
         }
@@ -135,21 +139,27 @@ fn main() {
             tcp_6970_active = socket.is_active();
 
             if socket.may_recv() {
-                let data = socket.recv(|buffer| {
-                    let recvd_len = buffer.len();
-                    let mut data = buffer.to_owned();
-                    if !data.is_empty() {
-                        debug!("tcp:6970 recv data: {:?}",
-                               str::from_utf8(data.as_ref()).unwrap_or("(invalid utf8)"));
-                        data = data.split(|&b| b == b'\n').collect::<Vec<_>>().concat();
-                        data.reverse();
-                        data.extend(b"\n");
-                    }
-                    (recvd_len, data)
-                }).unwrap();
+                let data = socket
+                    .recv(|buffer| {
+                        let recvd_len = buffer.len();
+                        let mut data = buffer.to_owned();
+                        if !data.is_empty() {
+                            debug!(
+                                "tcp:6970 recv data: {:?}",
+                                str::from_utf8(data.as_ref()).unwrap_or("(invalid utf8)")
+                            );
+                            data = data.split(|&b| b == b'\n').collect::<Vec<_>>().concat();
+                            data.reverse();
+                            data.extend(b"\n");
+                        }
+                        (recvd_len, data)
+                    })
+                    .unwrap();
                 if socket.can_send() && !data.is_empty() {
-                    debug!("tcp:6970 send data: {:?}",
-                           str::from_utf8(data.as_ref()).unwrap_or("(invalid utf8)"));
+                    debug!(
+                        "tcp:6970 send data: {:?}",
+                        str::from_utf8(data.as_ref()).unwrap_or("(invalid utf8)")
+                    );
                     socket.send_slice(&data[..]).unwrap();
                 }
             } else if socket.may_send() {
@@ -168,12 +178,14 @@ fn main() {
             }
 
             if socket.may_recv() {
-                socket.recv(|buffer| {
-                    if !buffer.is_empty() {
-                        debug!("tcp:6971 recv {:?} octets", buffer.len());
-                    }
-                    (buffer.len(), ())
-                }).unwrap();
+                socket
+                    .recv(|buffer| {
+                        if !buffer.is_empty() {
+                            debug!("tcp:6971 recv {:?} octets", buffer.len());
+                        }
+                        (buffer.len(), ())
+                    })
+                    .unwrap();
             } else if socket.may_send() {
                 socket.close();
             }
@@ -187,15 +199,17 @@ fn main() {
             }
 
             if socket.may_send() {
-                socket.send(|data| {
-                    if !data.is_empty() {
-                        debug!("tcp:6972 send {:?} octets", data.len());
-                        for (i, b) in data.iter_mut().enumerate() {
-                            *b = (i % 256) as u8;
+                socket
+                    .send(|data| {
+                        if !data.is_empty() {
+                            debug!("tcp:6972 send {:?} octets", data.len());
+                            for (i, b) in data.iter_mut().enumerate() {
+                                *b = (i % 256) as u8;
+                            }
                         }
-                    }
-                    (data.len(), ())
-                }).unwrap();
+                        (data.len(), ())
+                    })
+                    .unwrap();
             }
         }
 

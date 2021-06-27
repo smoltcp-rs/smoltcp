@@ -2,28 +2,34 @@
 
 mod utils;
 
+use log::debug;
 use std::cmp;
 use std::collections::BTreeMap;
-use std::sync::atomic::{Ordering, AtomicBool};
-use std::thread;
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::os::unix::io::AsRawFd;
-use log::debug;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
 
-use smoltcp::phy::{Device, Medium, wait as phy_wait};
-use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr};
-use smoltcp::iface::{NeighborCache, InterfaceBuilder};
+use smoltcp::iface::{InterfaceBuilder, NeighborCache};
+use smoltcp::phy::{wait as phy_wait, Device, Medium};
 use smoltcp::socket::SocketSet;
 use smoltcp::socket::{TcpSocket, TcpSocketBuffer};
 use smoltcp::time::{Duration, Instant};
+use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr};
 
 const AMOUNT: usize = 1_000_000_000;
 
-enum Client { Reader, Writer }
+enum Client {
+    Reader,
+    Writer,
+}
 
 fn client(kind: Client) {
-    let port = match kind { Client::Reader => 1234, Client::Writer => 1235 };
+    let port = match kind {
+        Client::Reader => 1234,
+        Client::Writer => 1235,
+    };
     let mut stream = TcpStream::connect(("192.168.69.1", port)).unwrap();
     let mut buffer = vec![0; 1_000_000];
 
@@ -42,7 +48,7 @@ fn client(kind: Client) {
                 // print!("(P:{})", result);
                 processed += result
             }
-            Err(err) => panic!("cannot process: {}", err)
+            Err(err) => panic!("cannot process: {}", err),
         }
     }
 
@@ -69,11 +75,11 @@ fn main() {
     let mut matches = utils::parse_options(&opts, free);
     let device = utils::parse_tuntap_options(&mut matches);
     let fd = device.as_raw_fd();
-    let device = utils::parse_middleware_options(&mut matches, device, /*loopback=*/false);
+    let device = utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
     let mode = match matches.free[0].as_ref() {
         "reader" => Client::Reader,
         "writer" => Client::Writer,
-        _ => panic!("invalid mode")
+        _ => panic!("invalid mode"),
     };
 
     thread::spawn(move || client(mode));
@@ -91,8 +97,7 @@ fn main() {
     let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
     let ip_addrs = [IpCidr::new(IpAddress::v4(192, 168, 69, 1), 24)];
     let medium = device.capabilities().medium;
-    let mut builder = InterfaceBuilder::new(device)
-            .ip_addrs(ip_addrs);
+    let mut builder = InterfaceBuilder::new(device).ip_addrs(ip_addrs);
     if medium == Medium::Ethernet {
         builder = builder
             .ethernet_addr(ethernet_addr)
@@ -109,12 +114,11 @@ fn main() {
     while !CLIENT_DONE.load(Ordering::SeqCst) {
         let timestamp = Instant::now();
         match iface.poll(&mut sockets, timestamp) {
-            Ok(_) => {},
+            Ok(_) => {}
             Err(e) => {
-                debug!("poll error: {}",e);
+                debug!("poll error: {}", e);
             }
         }
-
 
         // tcp:1234: emit data
         {
@@ -125,10 +129,12 @@ fn main() {
 
             if socket.can_send() {
                 if processed < AMOUNT {
-                    let length = socket.send(|buffer| {
-                        let length = cmp::min(buffer.len(), AMOUNT - processed);
-                        (length, length)
-                    }).unwrap();
+                    let length = socket
+                        .send(|buffer| {
+                            let length = cmp::min(buffer.len(), AMOUNT - processed);
+                            (length, length)
+                        })
+                        .unwrap();
                     processed += length;
                 }
             }
@@ -143,10 +149,12 @@ fn main() {
 
             if socket.can_recv() {
                 if processed < AMOUNT {
-                    let length = socket.recv(|buffer| {
-                        let length = cmp::min(buffer.len(), AMOUNT - processed);
-                        (length, length)
-                    }).unwrap();
+                    let length = socket
+                        .recv(|buffer| {
+                            let length = cmp::min(buffer.len(), AMOUNT - processed);
+                            (length, length)
+                        })
+                        .unwrap();
                     processed += length;
                 }
             }
@@ -155,7 +163,7 @@ fn main() {
         match iface.poll_at(&sockets, timestamp) {
             Some(poll_at) if timestamp < poll_at => {
                 phy_wait(fd, Some(poll_at - timestamp)).expect("wait error");
-            },
+            }
             Some(_) => (),
             None => {
                 phy_wait(fd, default_timeout).expect("wait error");

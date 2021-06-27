@@ -1,16 +1,16 @@
-use core::fmt;
 use byteorder::{ByteOrder, NetworkEndian};
+use core::fmt;
 
-use crate::{Error, Result};
 use crate::phy::ChecksumCapabilities;
-use crate::wire::{IpProtocol, IpAddress};
 use crate::wire::ip::checksum;
+use crate::wire::{IpAddress, IpProtocol};
+use crate::{Error, Result};
 
 /// A read/write wrapper around an User Datagram Protocol packet buffer.
 #[derive(Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Packet<T: AsRef<[u8]>> {
-    buffer: T
+    buffer: T,
 }
 
 mod field {
@@ -20,7 +20,7 @@ mod field {
 
     pub const SRC_PORT: Field = 0..2;
     pub const DST_PORT: Field = 2..4;
-    pub const LENGTH:   Field = 4..6;
+    pub const LENGTH: Field = 4..6;
     pub const CHECKSUM: Field = 6..8;
 
     pub fn PAYLOAD(length: u16) -> Field {
@@ -113,13 +113,14 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// # Fuzzing
     /// This function always returns `true` when fuzzing.
     pub fn verify_checksum(&self, src_addr: &IpAddress, dst_addr: &IpAddress) -> bool {
-        if cfg!(fuzzing) { return true }
+        if cfg!(fuzzing) {
+            return true;
+        }
 
         let data = self.buffer.as_ref();
         checksum::combine(&[
-            checksum::pseudo_header(src_addr, dst_addr, IpProtocol::Udp,
-                                    self.len() as u32),
-            checksum::data(&data[..self.len() as usize])
+            checksum::pseudo_header(src_addr, dst_addr, IpProtocol::Udp, self.len() as u32),
+            checksum::data(&data[..self.len() as usize]),
         ]) == !0
     }
 }
@@ -173,9 +174,8 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
         let checksum = {
             let data = self.buffer.as_ref();
             !checksum::combine(&[
-                checksum::pseudo_header(src_addr, dst_addr, IpProtocol::Udp,
-                                        self.len() as u32),
-                checksum::data(&data[..self.len() as usize])
+                checksum::pseudo_header(src_addr, dst_addr, IpProtocol::Udp, self.len() as u32),
+                checksum::data(&data[..self.len() as usize]),
             ])
         };
         // UDP checksum value of 0 means no checksum; if the checksum really is zero,
@@ -210,21 +210,26 @@ pub struct Repr {
 
 impl Repr {
     /// Parse an User Datagram Protocol packet and return a high-level representation.
-    pub fn parse<T>(packet: &Packet<&T>, src_addr: &IpAddress, dst_addr: &IpAddress,
-                    checksum_caps: &ChecksumCapabilities) -> Result<Repr>
-            where T: AsRef<[u8]> + ?Sized {
+    pub fn parse<T>(
+        packet: &Packet<&T>,
+        src_addr: &IpAddress,
+        dst_addr: &IpAddress,
+        checksum_caps: &ChecksumCapabilities,
+    ) -> Result<Repr>
+    where
+        T: AsRef<[u8]> + ?Sized,
+    {
         // Destination port cannot be omitted (but source port can be).
-        if packet.dst_port() == 0 { return Err(Error::Malformed) }
+        if packet.dst_port() == 0 {
+            return Err(Error::Malformed);
+        }
         // Valid checksum is expected...
         if checksum_caps.udp.rx() && !packet.verify_checksum(src_addr, dst_addr) {
             match (src_addr, dst_addr) {
                 // ... except on UDP-over-IPv4, where it can be omitted.
                 #[cfg(feature = "proto-ipv4")]
-                (&IpAddress::Ipv4(_), &IpAddress::Ipv4(_))
-                    if packet.checksum() == 0 => (),
-                _ => {
-                    return Err(Error::Checksum)
-                }
+                (&IpAddress::Ipv4(_), &IpAddress::Ipv4(_)) if packet.checksum() == 0 => (),
+                _ => return Err(Error::Checksum),
             }
         }
 
@@ -240,13 +245,17 @@ impl Repr {
     }
 
     /// Emit a high-level representation into an User Datagram Protocol packet.
-    pub fn emit<T: ?Sized>(&self, packet: &mut Packet<&mut T>,
-                           src_addr: &IpAddress,
-                           dst_addr: &IpAddress,
-                           payload_len: usize,
-                           emit_payload: impl FnOnce(&mut [u8]),
-                           checksum_caps: &ChecksumCapabilities)
-            where T: AsRef<[u8]> + AsMut<[u8]> {
+    pub fn emit<T: ?Sized>(
+        &self,
+        packet: &mut Packet<&mut T>,
+        src_addr: &IpAddress,
+        dst_addr: &IpAddress,
+        payload_len: usize,
+        emit_payload: impl FnOnce(&mut [u8]),
+        checksum_caps: &ChecksumCapabilities,
+    ) where
+        T: AsRef<[u8]> + AsMut<[u8]>,
+    {
         packet.set_src_port(self.src_port);
         packet.set_dst_port(self.dst_port);
         packet.set_len((HEADER_LEN + payload_len) as u16);
@@ -265,8 +274,13 @@ impl Repr {
 impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // Cannot use Repr::parse because we don't have the IP addresses.
-        write!(f, "UDP src={} dst={} len={}",
-               self.src_port(), self.dst_port(), self.payload().len())
+        write!(
+            f,
+            "UDP src={} dst={} len={}",
+            self.src_port(),
+            self.dst_port(),
+            self.payload().len()
+        )
     }
 }
 
@@ -276,23 +290,26 @@ impl fmt::Display for Repr {
     }
 }
 
-use crate::wire::pretty_print::{PrettyPrint, PrettyIndent};
+use crate::wire::pretty_print::{PrettyIndent, PrettyPrint};
 
 impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
-    fn pretty_print(buffer: &dyn AsRef<[u8]>, f: &mut fmt::Formatter,
-                    indent: &mut PrettyIndent) -> fmt::Result {
+    fn pretty_print(
+        buffer: &dyn AsRef<[u8]>,
+        f: &mut fmt::Formatter,
+        indent: &mut PrettyIndent,
+    ) -> fmt::Result {
         match Packet::new_checked(buffer) {
-            Err(err)   => write!(f, "{}({})", indent, err),
-            Ok(packet) => write!(f, "{}{}", indent, packet)
+            Err(err) => write!(f, "{}({})", indent, err),
+            Ok(packet) => write!(f, "{}{}", indent, packet),
         }
     }
 }
 
 #[cfg(test)]
 mod test {
+    use super::*;
     #[cfg(feature = "proto-ipv4")]
     use crate::wire::Ipv4Address;
-    use super::*;
 
     #[cfg(feature = "proto-ipv4")]
     const SRC_ADDR: Ipv4Address = Ipv4Address([192, 168, 1, 1]);
@@ -300,20 +317,17 @@ mod test {
     const DST_ADDR: Ipv4Address = Ipv4Address([192, 168, 1, 2]);
 
     #[cfg(feature = "proto-ipv4")]
-    static PACKET_BYTES: [u8; 12] =
-        [0xbf, 0x00, 0x00, 0x35,
-         0x00, 0x0c, 0x12, 0x4d,
-         0xaa, 0x00, 0x00, 0xff];
+    static PACKET_BYTES: [u8; 12] = [
+        0xbf, 0x00, 0x00, 0x35, 0x00, 0x0c, 0x12, 0x4d, 0xaa, 0x00, 0x00, 0xff,
+    ];
 
     #[cfg(feature = "proto-ipv4")]
-    static NO_CHECKSUM_PACKET: [u8; 12] =
-        [0xbf, 0x00, 0x00, 0x35,
-         0x00, 0x0c, 0x00, 0x00,
-         0xaa, 0x00, 0x00, 0xff];
+    static NO_CHECKSUM_PACKET: [u8; 12] = [
+        0xbf, 0x00, 0x00, 0x35, 0x00, 0x0c, 0x00, 0x00, 0xaa, 0x00, 0x00, 0xff,
+    ];
 
     #[cfg(feature = "proto-ipv4")]
-    static PAYLOAD_BYTES: [u8; 4] =
-        [0xaa, 0x00, 0x00, 0xff];
+    static PAYLOAD_BYTES: [u8; 4] = [0xaa, 0x00, 0x00, 0xff];
 
     #[test]
     #[cfg(feature = "proto-ipv4")]
@@ -324,7 +338,10 @@ mod test {
         assert_eq!(packet.len(), 12);
         assert_eq!(packet.checksum(), 0x124d);
         assert_eq!(packet.payload(), &PAYLOAD_BYTES[..]);
-        assert_eq!(packet.verify_checksum(&SRC_ADDR.into(), &DST_ADDR.into()), true);
+        assert_eq!(
+            packet.verify_checksum(&SRC_ADDR.into(), &DST_ADDR.into()),
+            true
+        );
     }
 
     #[test]
@@ -373,8 +390,13 @@ mod test {
     #[cfg(feature = "proto-ipv4")]
     fn test_parse() {
         let packet = Packet::new_unchecked(&PACKET_BYTES[..]);
-        let repr = Repr::parse(&packet, &SRC_ADDR.into(), &DST_ADDR.into(),
-                               &ChecksumCapabilities::default()).unwrap();
+        let repr = Repr::parse(
+            &packet,
+            &SRC_ADDR.into(),
+            &DST_ADDR.into(),
+            &ChecksumCapabilities::default(),
+        )
+        .unwrap();
         assert_eq!(repr, packet_repr());
     }
 
@@ -384,10 +406,14 @@ mod test {
         let repr = packet_repr();
         let mut bytes = vec![0xa5; repr.header_len() + PAYLOAD_BYTES.len()];
         let mut packet = Packet::new_unchecked(&mut bytes);
-        repr.emit(&mut packet, &SRC_ADDR.into(), &DST_ADDR.into(),
-                  PAYLOAD_BYTES.len(),
-                  |payload| payload.copy_from_slice(&PAYLOAD_BYTES),
-                  &ChecksumCapabilities::default());
+        repr.emit(
+            &mut packet,
+            &SRC_ADDR.into(),
+            &DST_ADDR.into(),
+            PAYLOAD_BYTES.len(),
+            |payload| payload.copy_from_slice(&PAYLOAD_BYTES),
+            &ChecksumCapabilities::default(),
+        );
         assert_eq!(&packet.into_inner()[..], &PACKET_BYTES[..]);
     }
 
@@ -395,8 +421,13 @@ mod test {
     #[cfg(feature = "proto-ipv4")]
     fn test_checksum_omitted() {
         let packet = Packet::new_unchecked(&NO_CHECKSUM_PACKET[..]);
-        let repr = Repr::parse(&packet, &SRC_ADDR.into(), &DST_ADDR.into(),
-                               &ChecksumCapabilities::default()).unwrap();
+        let repr = Repr::parse(
+            &packet,
+            &SRC_ADDR.into(),
+            &DST_ADDR.into(),
+            &ChecksumCapabilities::default(),
+        )
+        .unwrap();
         assert_eq!(repr, packet_repr());
     }
 }

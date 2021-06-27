@@ -1,5 +1,5 @@
-use core::fmt;
 use crate::{Error, Result};
+use core::fmt;
 
 use byteorder::{ByteOrder, NetworkEndian};
 
@@ -9,7 +9,7 @@ pub use super::IpProtocol as Protocol;
 #[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Header<T: AsRef<[u8]>> {
-    buffer: T
+    buffer: T,
 }
 
 // Format of the Fragment Header
@@ -25,13 +25,13 @@ mod field {
     use crate::wire::field::*;
 
     // 8-bit identifier of the header immediately following this header.
-    pub const NXT_HDR:          usize = 0;
+    pub const NXT_HDR: usize = 0;
     // 8-bit reserved field.
-    pub const RESERVED:         usize = 1;
+    pub const RESERVED: usize = 1;
     // 16-bit field containing the fragment offset, reserved and more fragments values.
-    pub const FR_OF_M:          Field = 2..4;
+    pub const FR_OF_M: Field = 2..4;
     // 32-bit field identifying the fragmented packet
-    pub const IDENT:            Field = 4..8;
+    pub const IDENT: Field = 4..8;
 }
 
 impl<T: AsRef<[u8]>> Header<T> {
@@ -170,17 +170,19 @@ pub struct Repr {
     pub more_frags: bool,
     /// The identification for every packet that is fragmented.
     pub ident: u32,
-
 }
 
 impl Repr {
     /// Parse an IPv6 Fragment Header and return a high-level representation.
-    pub fn parse<T>(header: &Header<&T>) -> Result<Repr> where T: AsRef<[u8]> + ?Sized {
+    pub fn parse<T>(header: &Header<&T>) -> Result<Repr>
+    where
+        T: AsRef<[u8]> + ?Sized,
+    {
         Ok(Repr {
             next_header: header.next_header(),
             frag_offset: header.frag_offset(),
             more_frags: header.more_frags(),
-            ident: header.ident()
+            ident: header.ident(),
         })
     }
 
@@ -202,8 +204,11 @@ impl Repr {
 
 impl<'a> fmt::Display for Repr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "IPv6 Fragment next_hdr={} offset={} more={} ident={}",
-               self.next_header, self.frag_offset, self.more_frags, self.ident)
+        write!(
+            f,
+            "IPv6 Fragment next_hdr={} offset={} more={} ident={}",
+            self.next_header, self.frag_offset, self.more_frags, self.ident
+        )
     }
 }
 
@@ -212,21 +217,23 @@ mod test {
     use super::*;
 
     // A Fragment Header with more fragments remaining
-    static BYTES_HEADER_MORE_FRAG: [u8; 8] = [0x6, 0x0, 0x0,  0x1,
-                                              0x0, 0x0, 0x30, 0x39];
+    static BYTES_HEADER_MORE_FRAG: [u8; 8] = [0x6, 0x0, 0x0, 0x1, 0x0, 0x0, 0x30, 0x39];
 
     // A Fragment Header with no more fragments remaining
-    static BYTES_HEADER_LAST_FRAG: [u8; 8] = [0x6, 0x0, 0xa, 0x0,
-                                              0x0, 0x1, 0x9, 0x32];
+    static BYTES_HEADER_LAST_FRAG: [u8; 8] = [0x6, 0x0, 0xa, 0x0, 0x0, 0x1, 0x9, 0x32];
 
     #[test]
     fn test_check_len() {
         // less than 8 bytes
-        assert_eq!(Err(Error::Truncated),
-                   Header::new_unchecked(&BYTES_HEADER_MORE_FRAG[..7]).check_len());
+        assert_eq!(
+            Err(Error::Truncated),
+            Header::new_unchecked(&BYTES_HEADER_MORE_FRAG[..7]).check_len()
+        );
         // valid
-        assert_eq!(Ok(()),
-                   Header::new_unchecked(&BYTES_HEADER_MORE_FRAG).check_len());
+        assert_eq!(
+            Ok(()),
+            Header::new_unchecked(&BYTES_HEADER_MORE_FRAG).check_len()
+        );
     }
 
     #[test]
@@ -248,24 +255,48 @@ mod test {
     fn test_repr_parse_valid() {
         let header = Header::new_unchecked(&BYTES_HEADER_MORE_FRAG);
         let repr = Repr::parse(&header).unwrap();
-        assert_eq!(repr,
-            Repr{ next_header: Protocol::Tcp, frag_offset: 0, more_frags: true, ident: 12345 });
+        assert_eq!(
+            repr,
+            Repr {
+                next_header: Protocol::Tcp,
+                frag_offset: 0,
+                more_frags: true,
+                ident: 12345
+            }
+        );
 
         let header = Header::new_unchecked(&BYTES_HEADER_LAST_FRAG);
         let repr = Repr::parse(&header).unwrap();
-        assert_eq!(repr,
-            Repr{ next_header: Protocol::Tcp, frag_offset: 320, more_frags: false, ident: 67890 });
+        assert_eq!(
+            repr,
+            Repr {
+                next_header: Protocol::Tcp,
+                frag_offset: 320,
+                more_frags: false,
+                ident: 67890
+            }
+        );
     }
 
     #[test]
     fn test_repr_emit() {
-        let repr = Repr{ next_header: Protocol::Tcp, frag_offset: 0, more_frags: true, ident: 12345 };
+        let repr = Repr {
+            next_header: Protocol::Tcp,
+            frag_offset: 0,
+            more_frags: true,
+            ident: 12345,
+        };
         let mut bytes = [0u8; 8];
         let mut header = Header::new_unchecked(&mut bytes);
         repr.emit(&mut header);
         assert_eq!(header.into_inner(), &BYTES_HEADER_MORE_FRAG[0..8]);
 
-        let repr = Repr{ next_header: Protocol::Tcp, frag_offset: 320, more_frags: false, ident: 67890 };
+        let repr = Repr {
+            next_header: Protocol::Tcp,
+            frag_offset: 320,
+            more_frags: false,
+            ident: 67890,
+        };
         let mut bytes = [0u8; 8];
         let mut header = Header::new_unchecked(&mut bytes);
         repr.emit(&mut header);

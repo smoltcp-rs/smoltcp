@@ -4,8 +4,8 @@ use std::os::unix::io::{AsRawFd, RawFd};
 
 use libc;
 
-use crate::wire::ETHERNET_HEADER_LEN;
 use super::{ifreq, ifreq_for};
+use crate::wire::ETHERNET_HEADER_LEN;
 
 /// set interface
 #[cfg(any(target_os = "macos", target_os = "openbsd"))]

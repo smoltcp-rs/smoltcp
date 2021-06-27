@@ -1,21 +1,25 @@
 mod utils;
 
-use std::str::FromStr;
-use std::collections::BTreeMap;
-use std::cmp;
-use std::os::unix::io::AsRawFd;
-use std::collections::HashMap;
-use log::debug;
 use byteorder::{ByteOrder, NetworkEndian};
+use log::debug;
+use std::cmp;
+use std::collections::BTreeMap;
+use std::collections::HashMap;
+use std::os::unix::io::AsRawFd;
+use std::str::FromStr;
 
-use smoltcp::{phy::Medium, time::{Duration, Instant}};
-use smoltcp::phy::Device;
+use smoltcp::iface::{InterfaceBuilder, NeighborCache, Routes};
 use smoltcp::phy::wait as phy_wait;
-use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr,
-                    Ipv6Address, Icmpv6Repr, Icmpv6Packet,
-                    Ipv4Address, Icmpv4Repr, Icmpv4Packet};
-use smoltcp::iface::{NeighborCache, InterfaceBuilder, Routes};
-use smoltcp::socket::{SocketSet, IcmpSocket, IcmpSocketBuffer, IcmpPacketMetadata, IcmpEndpoint};
+use smoltcp::phy::Device;
+use smoltcp::socket::{IcmpEndpoint, IcmpPacketMetadata, IcmpSocket, IcmpSocketBuffer, SocketSet};
+use smoltcp::wire::{
+    EthernetAddress, Icmpv4Packet, Icmpv4Repr, Icmpv6Packet, Icmpv6Repr, IpAddress, IpCidr,
+    Ipv4Address, Ipv6Address,
+};
+use smoltcp::{
+    phy::Medium,
+    time::{Duration, Instant},
+};
 
 macro_rules! send_icmp_ping {
     ( $repr_type:ident, $packet_type:ident, $ident:expr, $seq_no:expr,
@@ -26,13 +30,11 @@ macro_rules! send_icmp_ping {
             data: &$echo_payload,
         };
 
-        let icmp_payload = $socket
-            .send(icmp_repr.buffer_len(), $remote_addr)
-            .unwrap();
+        let icmp_payload = $socket.send(icmp_repr.buffer_len(), $remote_addr).unwrap();
 
         let icmp_packet = $packet_type::new_unchecked(icmp_payload);
         (icmp_repr, icmp_packet)
-    }}
+    }};
 }
 
 macro_rules! get_icmp_pong {
@@ -41,14 +43,18 @@ macro_rules! get_icmp_pong {
         if let $repr_type::EchoReply { seq_no, data, .. } = $repr {
             if let Some(_) = $waiting_queue.get(&seq_no) {
                 let packet_timestamp_ms = NetworkEndian::read_i64(data);
-                println!("{} bytes from {}: icmp_seq={}, time={}ms",
-                         data.len(), $remote_addr, seq_no,
-                         $timestamp.total_millis() - packet_timestamp_ms);
+                println!(
+                    "{} bytes from {}: icmp_seq={}, time={}ms",
+                    data.len(),
+                    $remote_addr,
+                    seq_no,
+                    $timestamp.total_millis() - packet_timestamp_ms
+                );
                 $waiting_queue.remove(&seq_no);
                 $received += 1;
             }
         }
-    }}
+    }};
 }
 
 fn main() {
@@ -57,26 +63,45 @@ fn main() {
     let (mut opts, mut free) = utils::create_options();
     utils::add_tuntap_options(&mut opts, &mut free);
     utils::add_middleware_options(&mut opts, &mut free);
-    opts.optopt("c", "count", "Amount of echo request packets to send (default: 4)", "COUNT");
-    opts.optopt("i", "interval",
-                "Interval between successive packets sent (seconds) (default: 1)", "INTERVAL");
-    opts.optopt("", "timeout",
-                "Maximum wait duration for an echo response packet (seconds) (default: 5)",
-                "TIMEOUT");
+    opts.optopt(
+        "c",
+        "count",
+        "Amount of echo request packets to send (default: 4)",
+        "COUNT",
+    );
+    opts.optopt(
+        "i",
+        "interval",
+        "Interval between successive packets sent (seconds) (default: 1)",
+        "INTERVAL",
+    );
+    opts.optopt(
+        "",
+        "timeout",
+        "Maximum wait duration for an echo response packet (seconds) (default: 5)",
+        "TIMEOUT",
+    );
     free.push("ADDRESS");
 
     let mut matches = utils::parse_options(&opts, free);
     let device = utils::parse_tuntap_options(&mut matches);
     let fd = device.as_raw_fd();
-    let device = utils::parse_middleware_options(&mut matches, device, /*loopback=*/false);
+    let device = utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
     let device_caps = device.capabilities();
-    let address  = IpAddress::from_str(&matches.free[0]).expect("invalid address format");
-    let count    = matches.opt_str("count").map(|s| usize::from_str(&s).unwrap()).unwrap_or(4);
-    let interval = matches.opt_str("interval")
+    let address = IpAddress::from_str(&matches.free[0]).expect("invalid address format");
+    let count = matches
+        .opt_str("count")
+        .map(|s| usize::from_str(&s).unwrap())
+        .unwrap_or(4);
+    let interval = matches
+        .opt_str("interval")
         .map(|s| Duration::from_secs(u64::from_str(&s).unwrap()))
         .unwrap_or_else(|| Duration::from_secs(1));
-    let timeout  = Duration::from_secs(
-        matches.opt_str("timeout").map(|s| u64::from_str(&s).unwrap()).unwrap_or(5)
+    let timeout = Duration::from_secs(
+        matches
+            .opt_str("timeout")
+            .map(|s| u64::from_str(&s).unwrap())
+            .unwrap_or(5),
     );
 
     let neighbor_cache = NeighborCache::new(BTreeMap::new());
@@ -89,9 +114,11 @@ fn main() {
 
     let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x02]);
     let src_ipv6 = IpAddress::v6(0xfdaa, 0, 0, 0, 0, 0, 0, 1);
-    let ip_addrs = [IpCidr::new(IpAddress::v4(192, 168, 69, 1), 24),
-                    IpCidr::new(src_ipv6, 64),
-                    IpCidr::new(IpAddress::v6(0xfe80, 0, 0, 0, 0, 0, 0, 1), 64)];
+    let ip_addrs = [
+        IpCidr::new(IpAddress::v4(192, 168, 69, 1), 24),
+        IpCidr::new(src_ipv6, 64),
+        IpCidr::new(IpAddress::v6(0xfe80, 0, 0, 0, 0, 0, 0, 1), 64),
+    ];
     let default_v4_gw = Ipv4Address::new(192, 168, 69, 100);
     let default_v6_gw = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 0x100);
     let mut routes_storage = [None; 2];
@@ -101,8 +128,8 @@ fn main() {
 
     let medium = device.capabilities().medium;
     let mut builder = InterfaceBuilder::new(device)
-            .ip_addrs(ip_addrs)
-            .routes(routes);
+        .ip_addrs(ip_addrs)
+        .routes(routes);
     if medium == Medium::Ethernet {
         builder = builder
             .ethernet_addr(ethernet_addr)
@@ -123,7 +150,7 @@ fn main() {
     loop {
         let timestamp = Instant::now();
         match iface.poll(&mut sockets, timestamp) {
-            Ok(_) => {},
+            Ok(_) => {}
             Err(e) => {
                 debug!("poll error: {}", e);
             }
@@ -137,25 +164,40 @@ fn main() {
                 send_at = timestamp;
             }
 
-            if socket.can_send() && seq_no < count as u16 &&
-                    send_at <= timestamp {
+            if socket.can_send() && seq_no < count as u16 && send_at <= timestamp {
                 NetworkEndian::write_i64(&mut echo_payload, timestamp.total_millis());
 
                 match remote_addr {
                     IpAddress::Ipv4(_) => {
                         let (icmp_repr, mut icmp_packet) = send_icmp_ping!(
-                                Icmpv4Repr, Icmpv4Packet, ident, seq_no,
-                                echo_payload, socket, remote_addr);
+                            Icmpv4Repr,
+                            Icmpv4Packet,
+                            ident,
+                            seq_no,
+                            echo_payload,
+                            socket,
+                            remote_addr
+                        );
                         icmp_repr.emit(&mut icmp_packet, &device_caps.checksum);
-                    },
+                    }
                     IpAddress::Ipv6(_) => {
                         let (icmp_repr, mut icmp_packet) = send_icmp_ping!(
-                                Icmpv6Repr, Icmpv6Packet, ident, seq_no,
-                                echo_payload, socket, remote_addr);
-                        icmp_repr.emit(&src_ipv6, &remote_addr,
-                                       &mut icmp_packet, &device_caps.checksum);
-                    },
-                    _ => unimplemented!()
+                            Icmpv6Repr,
+                            Icmpv6Packet,
+                            ident,
+                            seq_no,
+                            echo_payload,
+                            socket,
+                            remote_addr
+                        );
+                        icmp_repr.emit(
+                            &src_ipv6,
+                            &remote_addr,
+                            &mut icmp_packet,
+                            &device_caps.checksum,
+                        );
+                    }
+                    _ => unimplemented!(),
                 }
 
                 waiting_queue.insert(seq_no, timestamp);
@@ -171,17 +213,36 @@ fn main() {
                         let icmp_packet = Icmpv4Packet::new_checked(&payload).unwrap();
                         let icmp_repr =
                             Icmpv4Repr::parse(&icmp_packet, &device_caps.checksum).unwrap();
-                        get_icmp_pong!(Icmpv4Repr, icmp_repr, payload,
-                                waiting_queue, remote_addr, timestamp, received);
+                        get_icmp_pong!(
+                            Icmpv4Repr,
+                            icmp_repr,
+                            payload,
+                            waiting_queue,
+                            remote_addr,
+                            timestamp,
+                            received
+                        );
                     }
                     IpAddress::Ipv6(_) => {
                         let icmp_packet = Icmpv6Packet::new_checked(&payload).unwrap();
-                        let icmp_repr = Icmpv6Repr::parse(&remote_addr, &src_ipv6,
-                                &icmp_packet, &device_caps.checksum).unwrap();
-                        get_icmp_pong!(Icmpv6Repr, icmp_repr, payload,
-                                waiting_queue, remote_addr, timestamp, received);
-                    },
-                    _ => unimplemented!()
+                        let icmp_repr = Icmpv6Repr::parse(
+                            &remote_addr,
+                            &src_ipv6,
+                            &icmp_packet,
+                            &device_caps.checksum,
+                        )
+                        .unwrap();
+                        get_icmp_pong!(
+                            Icmpv6Repr,
+                            icmp_repr,
+                            payload,
+                            waiting_queue,
+                            remote_addr,
+                            timestamp,
+                            received
+                        );
+                    }
+                    _ => unimplemented!(),
                 }
             }
 
@@ -195,7 +256,7 @@ fn main() {
             });
 
             if seq_no == count as u16 && waiting_queue.is_empty() {
-                break
+                break;
             }
         }
 
@@ -204,7 +265,7 @@ fn main() {
             Some(poll_at) if timestamp < poll_at => {
                 let resume_at = cmp::min(poll_at, send_at);
                 phy_wait(fd, Some(resume_at - timestamp)).expect("wait error");
-            },
+            }
             Some(_) => (),
             None => {
                 phy_wait(fd, Some(send_at - timestamp)).expect("wait error");
@@ -213,6 +274,10 @@ fn main() {
     }
 
     println!("--- {} ping statistics ---", remote_addr);
-    println!("{} packets transmitted, {} received, {:.0}% packet loss",
-             seq_no, received, 100.0 * (seq_no - received) as f64 / seq_no as f64);
+    println!(
+        "{} packets transmitted, {} received, {:.0}% packet loss",
+        seq_no,
+        received,
+        100.0 * (seq_no - received) as f64 / seq_no as f64
+    );
 }

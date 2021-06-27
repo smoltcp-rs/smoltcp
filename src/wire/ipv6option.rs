@@ -1,5 +1,5 @@
-use core::fmt;
 use crate::{Error, Result};
+use core::fmt;
 
 enum_with_unknown! {
     /// IPv6 Extension Header Option Type
@@ -14,9 +14,9 @@ enum_with_unknown! {
 impl fmt::Display for Type {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Type::Pad1        => write!(f, "Pad1"),
-            Type::PadN        => write!(f, "PadN"),
-            Type::Unknown(id) => write!(f, "{}", id)
+            Type::Pad1 => write!(f, "Pad1"),
+            Type::PadN => write!(f, "PadN"),
+            Type::Unknown(id) => write!(f, "{}", id),
         }
     }
 }
@@ -40,11 +40,11 @@ enum_with_unknown! {
 impl fmt::Display for FailureType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            FailureType::Skip               => write!(f, "skip"),
-            FailureType::Discard            => write!(f, "discard"),
-            FailureType::DiscardSendAll     => write!(f, "discard and send error"),
+            FailureType::Skip => write!(f, "skip"),
+            FailureType::Discard => write!(f, "discard"),
+            FailureType::DiscardSendAll => write!(f, "discard and send error"),
             FailureType::DiscardSendUnicast => write!(f, "discard and send error if unicast"),
-            FailureType::Unknown(id)        => write!(f, "Unknown({})", id),
+            FailureType::Unknown(id) => write!(f, "Unknown({})", id),
         }
     }
 }
@@ -60,7 +60,7 @@ impl From<Type> for FailureType {
 #[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Ipv6Option<T: AsRef<[u8]>> {
-    buffer: T
+    buffer: T,
 }
 
 // Format of Option
@@ -77,9 +77,9 @@ mod field {
     use crate::wire::field::*;
 
     // 8-bit identifier of the type of option.
-    pub const TYPE:     usize = 0;
+    pub const TYPE: usize = 0;
     // 8-bit unsigned integer. Length of the DATA field of this option, in octets.
-    pub const LENGTH:   usize = 1;
+    pub const LENGTH: usize = 1;
     // Variable-length field. Option-Type-specific data.
     pub fn DATA(length: u8) -> Field {
         2..length as usize + 2
@@ -221,27 +221,26 @@ pub enum Repr<'a> {
     Pad1,
     PadN(u8),
     Unknown {
-        type_:  Type,
+        type_: Type,
         length: u8,
-        data:   &'a [u8]
+        data: &'a [u8],
     },
 }
 
 impl<'a> Repr<'a> {
     /// Parse an IPv6 Extension Header Option and return a high-level representation.
-    pub fn parse<T>(opt: &Ipv6Option<&'a T>) -> Result<Repr<'a>> where T: AsRef<[u8]> + ?Sized {
+    pub fn parse<T>(opt: &Ipv6Option<&'a T>) -> Result<Repr<'a>>
+    where
+        T: AsRef<[u8]> + ?Sized,
+    {
         match opt.option_type() {
-            Type::Pad1 =>
-                Ok(Repr::Pad1),
-            Type::PadN =>
-                Ok(Repr::PadN(opt.data_len())),
-            unknown_type @ Type::Unknown(_) => {
-                Ok(Repr::Unknown {
-                    type_:  unknown_type,
-                    length: opt.data_len(),
-                    data:   opt.data(),
-                })
-            }
+            Type::Pad1 => Ok(Repr::Pad1),
+            Type::PadN => Ok(Repr::PadN(opt.data_len())),
+            unknown_type @ Type::Unknown(_) => Ok(Repr::Unknown {
+                type_: unknown_type,
+                length: opt.data_len(),
+                data: opt.data(),
+            }),
         }
     }
 
@@ -249,18 +248,15 @@ impl<'a> Repr<'a> {
     pub fn buffer_len(&self) -> usize {
         match *self {
             Repr::Pad1 => 1,
-            Repr::PadN(length) =>
-               field::DATA(length).end,
-            Repr::Unknown{ length, .. } =>
-               field::DATA(length).end,
+            Repr::PadN(length) => field::DATA(length).end,
+            Repr::Unknown { length, .. } => field::DATA(length).end,
         }
     }
 
     /// Emit a high-level representation into an IPv6 Extension Header Option.
     pub fn emit<T: AsRef<[u8]> + AsMut<[u8]> + ?Sized>(&self, opt: &mut Ipv6Option<&'a mut T>) {
         match *self {
-            Repr::Pad1 =>
-                opt.set_option_type(Type::Pad1),
+            Repr::Pad1 => opt.set_option_type(Type::Pad1),
             Repr::PadN(len) => {
                 opt.set_option_type(Type::PadN);
                 opt.set_data_len(len);
@@ -269,7 +265,11 @@ impl<'a> Repr<'a> {
                     *x = 0
                 }
             }
-            Repr::Unknown{ type_, length, data } => {
+            Repr::Unknown {
+                type_,
+                length,
+                data,
+            } => {
                 opt.set_option_type(type_);
                 opt.set_data_len(length);
                 opt.data_mut().copy_from_slice(&data[..length as usize]);
@@ -285,7 +285,7 @@ pub struct Ipv6OptionsIterator<'a> {
     pos: usize,
     length: usize,
     data: &'a [u8],
-    hit_error: bool
+    hit_error: bool,
 }
 
 impl<'a> Ipv6OptionsIterator<'a> {
@@ -301,7 +301,8 @@ impl<'a> Ipv6OptionsIterator<'a> {
         Ipv6OptionsIterator {
             pos: 0,
             hit_error: false,
-            length, data
+            length,
+            data,
         }
     }
 }
@@ -314,18 +315,16 @@ impl<'a> Iterator for Ipv6OptionsIterator<'a> {
             // If we still have data to parse and we have not previously
             // hit an error, attempt to parse the next option.
             match Ipv6Option::new_checked(&self.data[self.pos..]) {
-                Ok(hdr) => {
-                    match Repr::parse(&hdr) {
-                        Ok(repr) => {
-                            self.pos += repr.buffer_len();
-                            Some(Ok(repr))
-                        }
-                        Err(e) => {
-                            self.hit_error = true;
-                            Some(Err(e))
-                        }
+                Ok(hdr) => match Repr::parse(&hdr) {
+                    Ok(repr) => {
+                        self.pos += repr.buffer_len();
+                        Some(Ok(repr))
                     }
-                }
+                    Err(e) => {
+                        self.hit_error = true;
+                        Some(Err(e))
+                    }
+                },
                 Err(e) => {
                     self.hit_error = true;
                     Some(Err(e))
@@ -343,12 +342,9 @@ impl<'a> fmt::Display for Repr<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "IPv6 Option ")?;
         match *self {
-            Repr::Pad1 =>
-               write!(f, "{} ", Type::Pad1),
-            Repr::PadN(len) =>
-               write!(f, "{} length={} ", Type::PadN, len),
-            Repr::Unknown{ type_, length, .. } =>
-               write!(f, "{} length={} ", type_, length),
+            Repr::Pad1 => write!(f, "{} ", Type::Pad1),
+            Repr::PadN(len) => write!(f, "{} length={} ", Type::PadN, len),
+            Repr::Unknown { type_, length, .. } => write!(f, "{} length={} ", type_, length),
         }
     }
 }
@@ -357,35 +353,49 @@ impl<'a> fmt::Display for Repr<'a> {
 mod test {
     use super::*;
 
-    static IPV6OPTION_BYTES_PAD1:    [u8; 1] = [0x0];
-    static IPV6OPTION_BYTES_PADN:    [u8; 3] = [0x1, 0x1, 0x0];
+    static IPV6OPTION_BYTES_PAD1: [u8; 1] = [0x0];
+    static IPV6OPTION_BYTES_PADN: [u8; 3] = [0x1, 0x1, 0x0];
     static IPV6OPTION_BYTES_UNKNOWN: [u8; 5] = [0xff, 0x3, 0x0, 0x0, 0x0];
 
     #[test]
     fn test_check_len() {
         let bytes = [0u8];
         // zero byte buffer
-        assert_eq!(Err(Error::Truncated),
-                   Ipv6Option::new_unchecked(&bytes[..0]).check_len());
+        assert_eq!(
+            Err(Error::Truncated),
+            Ipv6Option::new_unchecked(&bytes[..0]).check_len()
+        );
         // pad1
-        assert_eq!(Ok(()),
-                   Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_PAD1).check_len());
+        assert_eq!(
+            Ok(()),
+            Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_PAD1).check_len()
+        );
 
         // padn with truncated data
-        assert_eq!(Err(Error::Truncated),
-                   Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_PADN[..2]).check_len());
+        assert_eq!(
+            Err(Error::Truncated),
+            Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_PADN[..2]).check_len()
+        );
         // padn
-        assert_eq!(Ok(()),
-                   Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_PADN).check_len());
+        assert_eq!(
+            Ok(()),
+            Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_PADN).check_len()
+        );
 
         // unknown option type with truncated data
-        assert_eq!(Err(Error::Truncated),
-                   Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_UNKNOWN[..4]).check_len());
-        assert_eq!(Err(Error::Truncated),
-                   Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_UNKNOWN[..1]).check_len());
+        assert_eq!(
+            Err(Error::Truncated),
+            Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_UNKNOWN[..4]).check_len()
+        );
+        assert_eq!(
+            Err(Error::Truncated),
+            Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_UNKNOWN[..1]).check_len()
+        );
         // unknown type
-        assert_eq!(Ok(()),
-                   Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_UNKNOWN).check_len());
+        assert_eq!(
+            Ok(()),
+            Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_UNKNOWN).check_len()
+        );
     }
 
     #[test]
@@ -402,7 +412,7 @@ mod test {
         assert_eq!(opt.option_type(), Type::Pad1);
 
         // two octets of padding
-        let bytes:  [u8; 2] = [0x1, 0x0];
+        let bytes: [u8; 2] = [0x1, 0x0];
         let opt = Ipv6Option::new_unchecked(&bytes);
         assert_eq!(opt.option_type(), Type::PadN);
         assert_eq!(opt.data_len(), 0);
@@ -414,14 +424,14 @@ mod test {
         assert_eq!(opt.data(), &[0]);
 
         // extra bytes in buffer
-        let bytes:  [u8; 10] = [0x1, 0x7, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0xff];
+        let bytes: [u8; 10] = [0x1, 0x7, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0xff];
         let opt = Ipv6Option::new_unchecked(&bytes);
         assert_eq!(opt.option_type(), Type::PadN);
         assert_eq!(opt.data_len(), 7);
         assert_eq!(opt.data(), &[0, 0, 0, 0, 0, 0, 0]);
 
         // unrecognized option
-        let bytes:  [u8; 1] = [0xff];
+        let bytes: [u8; 1] = [0xff];
         let opt = Ipv6Option::new_unchecked(&bytes);
         assert_eq!(opt.option_type(), Type::Unknown(255));
 
@@ -447,7 +457,14 @@ mod test {
         let data = [0u8; 3];
         let opt = Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_UNKNOWN);
         let unknown = Repr::parse(&opt).unwrap();
-        assert_eq!(unknown, Repr::Unknown { type_: Type::Unknown(255), length: 3, data: &data });
+        assert_eq!(
+            unknown,
+            Repr::Unknown {
+                type_: Type::Unknown(255),
+                length: 3,
+                data: &data
+            }
+        );
     }
 
     #[test]
@@ -465,7 +482,11 @@ mod test {
         assert_eq!(opt.into_inner(), &IPV6OPTION_BYTES_PADN);
 
         let data = [0u8; 3];
-        let repr = Repr::Unknown { type_: Type::Unknown(255), length: 3, data: &data };
+        let repr = Repr::Unknown {
+            type_: Type::Unknown(255),
+            length: 3,
+            data: &data,
+        };
         let mut bytes = [254u8; 5]; // don't assume bytes are initialized to zero
         let mut opt = Ipv6Option::new_unchecked(&mut bytes);
         repr.emit(&mut opt);
@@ -488,10 +509,10 @@ mod test {
 
     #[test]
     fn test_options_iter() {
-        let options = [0x00, 0x01, 0x01, 0x00,
-                       0x01, 0x02, 0x00, 0x00,
-                       0x01, 0x00, 0x00, 0x11,
-                       0x00, 0x01, 0x08, 0x00];
+        let options = [
+            0x00, 0x01, 0x01, 0x00, 0x01, 0x02, 0x00, 0x00, 0x01, 0x00, 0x00, 0x11, 0x00, 0x01,
+            0x08, 0x00,
+        ];
 
         let mut iterator = Ipv6OptionsIterator::new(&options, 0);
         assert_eq!(iterator.next(), None);
@@ -504,8 +525,14 @@ mod test {
                 (2, Ok(Repr::PadN(2))) => continue,
                 (3, Ok(Repr::PadN(0))) => continue,
                 (4, Ok(Repr::Pad1)) => continue,
-                (5, Ok(Repr::Unknown { type_: Type::Unknown(0x11), length: 0, .. })) =>
-                    continue,
+                (
+                    5,
+                    Ok(Repr::Unknown {
+                        type_: Type::Unknown(0x11),
+                        length: 0,
+                        ..
+                    }),
+                ) => continue,
                 (6, Err(Error::Truncated)) => continue,
                 (i, res) => panic!("Unexpected option `{:?}` at index {}", res, i),
             }

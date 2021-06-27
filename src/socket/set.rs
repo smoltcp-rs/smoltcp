@@ -1,9 +1,9 @@
 use core::{fmt, slice};
 use managed::ManagedSlice;
 
-use crate::socket::{Socket, SocketRef, AnySocket};
 #[cfg(feature = "socket-tcp")]
 use crate::socket::TcpState;
+use crate::socket::{AnySocket, Socket, SocketRef};
 
 /// An item of a socket set.
 ///
@@ -12,7 +12,7 @@ use crate::socket::TcpState;
 #[derive(Debug)]
 pub struct Item<'a> {
     socket: Socket<'a>,
-    refs:   usize
+    refs: usize,
 }
 
 /// A handle, identifying a socket in a set.
@@ -31,13 +31,15 @@ impl fmt::Display for Handle {
 /// The lifetime `'a` is used when storing a `Socket<'a>`.
 #[derive(Debug)]
 pub struct Set<'a> {
-    sockets: ManagedSlice<'a, Option<Item<'a>>>
+    sockets: ManagedSlice<'a, Option<Item<'a>>>,
 }
 
 impl<'a> Set<'a> {
     /// Create a socket set using the provided storage.
     pub fn new<SocketsT>(sockets: SocketsT) -> Set<'a>
-            where SocketsT: Into<ManagedSlice<'a, Option<Item<'a>>>> {
+    where
+        SocketsT: Into<ManagedSlice<'a, Option<Item<'a>>>>,
+    {
         let sockets = sockets.into();
         Set { sockets }
     }
@@ -47,10 +49,10 @@ impl<'a> Set<'a> {
     /// # Panics
     /// This function panics if the storage is fixed-size (not a `Vec`) and is full.
     pub fn add<T>(&mut self, socket: T) -> Handle
-        where T: Into<Socket<'a>>
+    where
+        T: Into<Socket<'a>>,
     {
-        fn put<'a>(index: usize, slot: &mut Option<Item<'a>>,
-                       mut socket: Socket<'a>) -> Handle {
+        fn put<'a>(index: usize, slot: &mut Option<Item<'a>>, mut socket: Socket<'a>) -> Handle {
             net_trace!("[{}]: adding", index);
             let handle = Handle(index);
             socket.meta_mut().handle = handle;
@@ -62,7 +64,7 @@ impl<'a> Set<'a> {
 
         for (index, slot) in self.sockets.iter_mut().enumerate() {
             if slot.is_none() {
-                return put(index, slot, socket)
+                return put(index, slot, socket);
             }
         }
 
@@ -86,11 +88,9 @@ impl<'a> Set<'a> {
     /// or the socket has the wrong type.
     pub fn get<T: AnySocket<'a>>(&mut self, handle: Handle) -> SocketRef<T> {
         match self.sockets[handle.0].as_mut() {
-            Some(item) => {
-                T::downcast(SocketRef::new(&mut item.socket))
-                  .expect("handle refers to a socket of a wrong type")
-            }
-            None => panic!("handle does not refer to a valid socket")
+            Some(item) => T::downcast(SocketRef::new(&mut item.socket))
+                .expect("handle refers to a socket of a wrong type"),
+            None => panic!("handle does not refer to a valid socket"),
         }
     }
 
@@ -102,7 +102,7 @@ impl<'a> Set<'a> {
         net_trace!("[{}]: removing", handle.0);
         match self.sockets[handle.0].take() {
             Some(item) => item.socket,
-            None => panic!("handle does not refer to a valid socket")
+            None => panic!("handle does not refer to a valid socket"),
         }
     }
 
@@ -124,10 +124,12 @@ impl<'a> Set<'a> {
     /// or if the reference count is already zero.
     pub fn release(&mut self, handle: Handle) {
         let refs = &mut self.sockets[handle.0]
-                            .as_mut()
-                            .expect("handle does not refer to a valid socket")
-                            .refs;
-        if *refs == 0 { panic!("decreasing reference count past zero") }
+            .as_mut()
+            .expect("handle does not refer to a valid socket")
+            .refs;
+        if *refs == 0 {
+            panic!("decreasing reference count past zero")
+        }
         *refs -= 1
     }
 
@@ -138,27 +140,31 @@ impl<'a> Set<'a> {
     pub fn prune(&mut self) {
         for (index, item) in self.sockets.iter_mut().enumerate() {
             let mut may_remove = false;
-            if let Some(Item { refs: 0, ref mut socket }) = *item {
+            if let Some(Item {
+                refs: 0,
+                ref mut socket,
+            }) = *item
+            {
                 match *socket {
                     #[cfg(feature = "socket-raw")]
-                    Socket::Raw(_) =>
-                        may_remove = true,
-                    #[cfg(all(feature = "socket-icmp", any(feature = "proto-ipv4", feature = "proto-ipv6")))]
-                    Socket::Icmp(_) =>
-                        may_remove = true,
+                    Socket::Raw(_) => may_remove = true,
+                    #[cfg(all(
+                        feature = "socket-icmp",
+                        any(feature = "proto-ipv4", feature = "proto-ipv6")
+                    ))]
+                    Socket::Icmp(_) => may_remove = true,
                     #[cfg(feature = "socket-udp")]
-                    Socket::Udp(_) =>
-                        may_remove = true,
+                    Socket::Udp(_) => may_remove = true,
                     #[cfg(feature = "socket-tcp")]
-                    Socket::Tcp(ref mut socket) =>
+                    Socket::Tcp(ref mut socket) => {
                         if socket.state() == TcpState::Closed {
                             may_remove = true
                         } else {
                             socket.close()
-                        },
+                        }
+                    }
                     #[cfg(feature = "socket-dhcpv4")]
-                    Socket::Dhcpv4(_) =>
-                        may_remove = true,
+                    Socket::Dhcpv4(_) => may_remove = true,
                 }
             }
             if may_remove {
@@ -170,12 +176,16 @@ impl<'a> Set<'a> {
 
     /// Iterate every socket in this set.
     pub fn iter<'d>(&'d self) -> Iter<'d, 'a> {
-        Iter { lower: self.sockets.iter() }
+        Iter {
+            lower: self.sockets.iter(),
+        }
     }
 
     /// Iterate every socket in this set, as SocketRef.
     pub fn iter_mut<'d>(&'d mut self) -> IterMut<'d, 'a> {
-        IterMut { lower: self.sockets.iter_mut() }
+        IterMut {
+            lower: self.sockets.iter_mut(),
+        }
     }
 }
 
@@ -184,7 +194,7 @@ impl<'a> Set<'a> {
 /// This struct is created by the [iter](struct.SocketSet.html#method.iter)
 /// on [socket sets](struct.SocketSet.html).
 pub struct Iter<'a, 'b: 'a> {
-    lower: slice::Iter<'a, Option<Item<'b>>>
+    lower: slice::Iter<'a, Option<Item<'b>>>,
 }
 
 impl<'a, 'b: 'a> Iterator for Iter<'a, 'b> {
@@ -193,7 +203,7 @@ impl<'a, 'b: 'a> Iterator for Iter<'a, 'b> {
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(item_opt) = self.lower.next() {
             if let Some(item) = item_opt.as_ref() {
-                return Some(&item.socket)
+                return Some(&item.socket);
             }
         }
         None
@@ -214,7 +224,7 @@ impl<'a, 'b: 'a> Iterator for IterMut<'a, 'b> {
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(item_opt) = self.lower.next() {
             if let Some(item) = item_opt.as_mut() {
-                return Some(SocketRef::new(&mut item.socket))
+                return Some(SocketRef::new(&mut item.socket));
             }
         }
         None

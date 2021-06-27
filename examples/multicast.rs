@@ -1,17 +1,20 @@
 mod utils;
 
+use log::debug;
 use std::collections::BTreeMap;
 use std::os::unix::io::AsRawFd;
-use log::debug;
 
+use smoltcp::iface::{InterfaceBuilder, NeighborCache};
 use smoltcp::phy::wait as phy_wait;
-use smoltcp::wire::{EthernetAddress, IpVersion, IpProtocol, IpAddress, IpCidr, Ipv4Address,
-                    Ipv4Packet, IgmpPacket, IgmpRepr};
-use smoltcp::iface::{NeighborCache, InterfaceBuilder};
-use smoltcp::socket::{SocketSet,
-                      RawSocket, RawSocketBuffer, RawPacketMetadata,
-                      UdpSocket, UdpSocketBuffer, UdpPacketMetadata};
+use smoltcp::socket::{
+    RawPacketMetadata, RawSocket, RawSocketBuffer, SocketSet, UdpPacketMetadata, UdpSocket,
+    UdpSocketBuffer,
+};
 use smoltcp::time::Instant;
+use smoltcp::wire::{
+    EthernetAddress, IgmpPacket, IgmpRepr, IpAddress, IpCidr, IpProtocol, IpVersion, Ipv4Address,
+    Ipv4Packet,
+};
 
 const MDNS_PORT: u16 = 5353;
 const MDNS_GROUP: [u8; 4] = [224, 0, 0, 251];
@@ -26,10 +29,7 @@ fn main() {
     let mut matches = utils::parse_options(&opts, free);
     let device = utils::parse_tuntap_options(&mut matches);
     let fd = device.as_raw_fd();
-    let device = utils::parse_middleware_options(&mut matches,
-                                                 device,
-                                                 /*loopback=*/
-                                                 false);
+    let device = utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
     let neighbor_cache = NeighborCache::new(BTreeMap::new());
 
     let local_addr = Ipv4Address::new(192, 168, 69, 2);
@@ -38,15 +38,17 @@ fn main() {
     let ip_addr = IpCidr::new(IpAddress::from(local_addr), 24);
     let mut ipv4_multicast_storage = [None; 1];
     let mut iface = InterfaceBuilder::new(device)
-            .ethernet_addr(ethernet_addr)
-            .neighbor_cache(neighbor_cache)
-            .ip_addrs([ip_addr])
-            .ipv4_multicast_groups(&mut ipv4_multicast_storage[..])
-            .finalize();
+        .ethernet_addr(ethernet_addr)
+        .neighbor_cache(neighbor_cache)
+        .ip_addrs([ip_addr])
+        .ipv4_multicast_groups(&mut ipv4_multicast_storage[..])
+        .finalize();
 
     let now = Instant::now();
     // Join a multicast group to receive mDNS traffic
-    iface.join_multicast_group(Ipv4Address::from_bytes(&MDNS_GROUP), now).unwrap();
+    iface
+        .join_multicast_group(Ipv4Address::from_bytes(&MDNS_GROUP), now)
+        .unwrap();
 
     let mut sockets = SocketSet::new(vec![]);
 
@@ -55,8 +57,10 @@ fn main() {
     // Will not send IGMP
     let raw_tx_buffer = RawSocketBuffer::new(vec![], vec![]);
     let raw_socket = RawSocket::new(
-        IpVersion::Ipv4, IpProtocol::Igmp,
-        raw_rx_buffer, raw_tx_buffer
+        IpVersion::Ipv4,
+        IpProtocol::Igmp,
+        raw_rx_buffer,
+        raw_tx_buffer,
     );
     let raw_handle = sockets.add(raw_socket);
 
@@ -70,9 +74,9 @@ fn main() {
     loop {
         let timestamp = Instant::now();
         match iface.poll(&mut sockets, timestamp) {
-            Ok(_) => {},
+            Ok(_) => {}
             Err(e) => {
-                debug!("poll error: {}",e);
+                debug!("poll error: {}", e);
             }
         }
 
@@ -82,7 +86,8 @@ fn main() {
             if socket.can_recv() {
                 // For display purposes only - normally we wouldn't process incoming IGMP packets
                 // in the application layer
-                socket.recv()
+                socket
+                    .recv()
                     .and_then(Ipv4Packet::new_checked)
                     .and_then(|ipv4_packet| IgmpPacket::new_checked(ipv4_packet.payload()))
                     .and_then(|igmp_packet| IgmpRepr::parse(&igmp_packet))
@@ -97,8 +102,11 @@ fn main() {
             }
 
             if socket.can_recv() {
-                socket.recv()
-                    .map(|(data, sender)| println!("mDNS traffic: {} UDP bytes from {}", data.len(), sender))
+                socket
+                    .recv()
+                    .map(|(data, sender)| {
+                        println!("mDNS traffic: {} UDP bytes from {}", data.len(), sender)
+                    })
                     .unwrap_or_else(|e| println!("Recv UDP error: {:?}", e));
             }
         }

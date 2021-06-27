@@ -1,12 +1,12 @@
 #![deny(missing_docs)]
 
-use core::fmt;
 use byteorder::{ByteOrder, NetworkEndian};
+use core::fmt;
 
-use crate::{Error, Result};
 use crate::wire::ip::pretty_print_ip_payload;
 #[cfg(feature = "proto-ipv4")]
 use crate::wire::ipv4;
+use crate::{Error, Result};
 
 pub use super::IpProtocol as Protocol;
 
@@ -29,28 +29,30 @@ impl Address {
     /// The link-local [all routers multicast address].
     ///
     /// [all routers multicast address]: https://tools.ietf.org/html/rfc4291#section-2.7.1
-    pub const LINK_LOCAL_ALL_NODES: Address =
-        Address([0xff, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01]);
+    pub const LINK_LOCAL_ALL_NODES: Address = Address([
+        0xff, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x01,
+    ]);
 
     /// The link-local [all nodes multicast address].
     ///
     /// [all nodes multicast address]: https://tools.ietf.org/html/rfc4291#section-2.7.1
-    pub const LINK_LOCAL_ALL_ROUTERS: Address =
-        Address([0xff, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02]);
+    pub const LINK_LOCAL_ALL_ROUTERS: Address = Address([
+        0xff, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x02,
+    ]);
 
     /// The [loopback address].
     ///
     /// [loopback address]: https://tools.ietf.org/html/rfc4291#section-2.5.3
-    pub const LOOPBACK: Address =
-        Address([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01]);
+    pub const LOOPBACK: Address = Address([
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x01,
+    ]);
 
     /// Construct an IPv6 address from parts.
     #[allow(clippy::too_many_arguments)]
-    pub fn new(a0: u16, a1: u16, a2: u16, a3: u16,
-               a4: u16, a5: u16, a6: u16, a7: u16) -> Address {
+    pub fn new(a0: u16, a1: u16, a2: u16, a3: u16, a4: u16, a5: u16, a6: u16, a7: u16) -> Address {
         let mut addr = [0u8; 16];
         NetworkEndian::write_u16(&mut addr[0..2], a0);
         NetworkEndian::write_u16(&mut addr[2..4], a1);
@@ -127,8 +129,7 @@ impl Address {
     ///
     /// [link-local]: https://tools.ietf.org/html/rfc4291#section-2.5.6
     pub fn is_link_local(&self) -> bool {
-        self.0[0..8] == [0xfe, 0x80, 0x00, 0x00,
-                         0x00, 0x00, 0x00, 0x00]
+        self.0[0..8] == [0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
     }
 
     /// Query whether the IPv6 address is the [loopback address].
@@ -149,7 +150,9 @@ impl Address {
     /// Convert an IPv4 mapped IPv6 address to an IPv4 address.
     pub fn as_ipv4(&self) -> Option<ipv4::Address> {
         if self.is_ipv4_mapped() {
-            Some(ipv4::Address::new(self.0[12], self.0[13], self.0[14], self.0[15]))
+            Some(ipv4::Address::new(
+                self.0[12], self.0[13], self.0[14], self.0[15],
+            ))
         } else {
             None
         }
@@ -180,8 +183,10 @@ impl Address {
     /// unicast.
     pub fn solicited_node(&self) -> Address {
         assert!(self.is_unicast());
-        let mut bytes = [0xff, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+        let mut bytes = [
+            0xff, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ];
         bytes[14..].copy_from_slice(&self.0[14..]);
         Address(bytes)
     }
@@ -204,7 +209,11 @@ impl From<Address> for ::std::net::Ipv6Addr {
 impl fmt::Display for Address {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if self.is_ipv4_mapped() {
-            return write!(f, "::ffff:{}.{}.{}.{}", self.0[12], self.0[13], self.0[14], self.0[15])
+            return write!(
+                f,
+                "::ffff:{}.{}.{}.{}",
+                self.0[12], self.0[13], self.0[14], self.0[15]
+            );
         }
 
         // The string representation of an IPv6 address should
@@ -217,7 +226,7 @@ impl fmt::Display for Address {
             Head,
             HeadBody,
             Tail,
-            TailBody
+            TailBody,
         }
         let mut words = [0u16; 8];
         self.write_parts(&mut words);
@@ -229,7 +238,7 @@ impl fmt::Display for Address {
                 (0, &State::Head) | (0, &State::HeadBody) => {
                     write!(f, "::")?;
                     State::Tail
-                },
+                }
                 // Continue iterating without writing any characters until
                 // we hit anothing non-zero value.
                 (0, &State::Tail) => State::Tail,
@@ -238,11 +247,11 @@ impl fmt::Display for Address {
                 (_, &State::Head) => {
                     write!(f, "{:x}", word)?;
                     State::HeadBody
-                },
+                }
                 (_, &State::Tail) => {
                     write!(f, "{:x}", word)?;
                     State::TailBody
-                },
+                }
                 // Write the u16 with a leading colon when parsing a value
                 // that isn't the first in a section
                 (_, &State::HeadBody) | (_, &State::TailBody) => {
@@ -260,8 +269,9 @@ impl fmt::Display for Address {
 impl From<ipv4::Address> for Address {
     fn from(address: ipv4::Address) -> Self {
         let octets = address.0;
-        Address([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff,
-                octets[0], octets[1], octets[2], octets[3]])
+        Address([
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, octets[0], octets[1], octets[2], octets[3],
+        ])
     }
 }
 
@@ -270,7 +280,7 @@ impl From<ipv4::Address> for Address {
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Cidr {
-    address:    Address,
+    address: Address,
     prefix_len: u8,
 }
 
@@ -278,12 +288,13 @@ impl Cidr {
     /// The [solicited node prefix].
     ///
     /// [solicited node prefix]: https://tools.ietf.org/html/rfc4291#section-2.7.1
-    pub const SOLICITED_NODE_PREFIX: Cidr =
-        Cidr {
-            address: Address([0xff, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                              0x00, 0x00, 0x00, 0x01, 0xff, 0x00, 0x00, 0x00]),
-            prefix_len: 104
-        };
+    pub const SOLICITED_NODE_PREFIX: Cidr = Cidr {
+        address: Address([
+            0xff, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0xff, 0x00,
+            0x00, 0x00,
+        ]),
+        prefix_len: 104,
+    };
 
     /// Create an IPv6 CIDR block from the given address and prefix length.
     ///
@@ -291,7 +302,10 @@ impl Cidr {
     /// This function panics if the prefix length is larger than 128.
     pub fn new(address: Address, prefix_len: u8) -> Cidr {
         assert!(prefix_len <= 128);
-        Cidr { address, prefix_len }
+        Cidr {
+            address,
+            prefix_len,
+        }
     }
 
     /// Return the address of this IPv6 CIDR block.
@@ -308,7 +322,9 @@ impl Cidr {
     /// the given address.
     pub fn contains_addr(&self, addr: &Address) -> bool {
         // right shift by 128 is not legal
-        if self.prefix_len == 0 { return true }
+        if self.prefix_len == 0 {
+            return true;
+        }
 
         let shift = 128 - self.prefix_len;
         self.address.mask(shift) == addr.mask(shift)
@@ -332,7 +348,7 @@ impl fmt::Display for Cidr {
 #[derive(Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Packet<T: AsRef<[u8]>> {
-    buffer: T
+    buffer: T,
 }
 
 // Ranges and constants describing the IPv6 header
@@ -367,17 +383,17 @@ mod field {
     pub const VER_TC_FLOW: Field = 0..4;
     // 16-bit value representing the length of the payload.
     // Note: Options are included in this length.
-    pub const LENGTH:      Field = 4..6;
+    pub const LENGTH: Field = 4..6;
     // 8-bit value identifying the type of header following this
     // one. Note: The same numbers are used in IPv4.
-    pub const NXT_HDR:     usize = 6;
+    pub const NXT_HDR: usize = 6;
     // 8-bit value decremented by each node that forwards this
     // packet. The packet is discarded when the value is 0.
-    pub const HOP_LIMIT:   usize = 7;
+    pub const HOP_LIMIT: usize = 7;
     // IPv6 address of the source node.
-    pub const SRC_ADDR:    Field = 8..24;
+    pub const SRC_ADDR: Field = 8..24;
     // IPv6 address of the destination node.
-    pub const DST_ADDR:    Field = 24..40;
+    pub const DST_ADDR: Field = 24..40;
 }
 
 /// Length of an IPv6 header.
@@ -602,15 +618,15 @@ impl<T: AsRef<[u8]>> AsRef<[u8]> for Packet<T> {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Repr {
     /// IPv6 address of the source node.
-    pub src_addr:    Address,
+    pub src_addr: Address,
     /// IPv6 address of the destination node.
-    pub dst_addr:    Address,
+    pub dst_addr: Address,
     /// Protocol contained in the next header.
     pub next_header: Protocol,
     /// Length of the payload including the extension headers.
     pub payload_len: usize,
     /// The 8-bit hop limit field.
-    pub hop_limit:   u8
+    pub hop_limit: u8,
 }
 
 impl Repr {
@@ -618,13 +634,15 @@ impl Repr {
     pub fn parse<T: AsRef<[u8]> + ?Sized>(packet: &Packet<&T>) -> Result<Repr> {
         // Ensure basic accessors will work
         packet.check_len()?;
-        if packet.version() != 6 { return Err(Error::Malformed); }
+        if packet.version() != 6 {
+            return Err(Error::Malformed);
+        }
         Ok(Repr {
-            src_addr:    packet.src_addr(),
-            dst_addr:    packet.dst_addr(),
+            src_addr: packet.src_addr(),
+            dst_addr: packet.dst_addr(),
             next_header: packet.next_header(),
             payload_len: packet.payload_len() as usize,
-            hop_limit:   packet.hop_limit()
+            hop_limit: packet.hop_limit(),
         })
     }
 
@@ -651,29 +669,33 @@ impl Repr {
 
 impl fmt::Display for Repr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "IPv6 src={} dst={} nxt_hdr={} hop_limit={}",
-               self.src_addr, self.dst_addr, self.next_header, self.hop_limit)
+        write!(
+            f,
+            "IPv6 src={} dst={} nxt_hdr={} hop_limit={}",
+            self.src_addr, self.dst_addr, self.next_header, self.hop_limit
+        )
     }
 }
 
-use crate::wire::pretty_print::{PrettyPrint, PrettyIndent};
+use crate::wire::pretty_print::{PrettyIndent, PrettyPrint};
 
 // TODO: This is very similar to the implementation for IPv4. Make
 // a way to have less copy and pasted code here.
 impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
-    fn pretty_print(buffer: &dyn AsRef<[u8]>, f: &mut fmt::Formatter,
-                    indent: &mut PrettyIndent) -> fmt::Result {
+    fn pretty_print(
+        buffer: &dyn AsRef<[u8]>,
+        f: &mut fmt::Formatter,
+        indent: &mut PrettyIndent,
+    ) -> fmt::Result {
         let (ip_repr, payload) = match Packet::new_checked(buffer) {
             Err(err) => return write!(f, "{}({})", indent, err),
-            Ok(ip_packet) => {
-                match Repr::parse(&ip_packet) {
-                    Err(_) => return Ok(()),
-                    Ok(ip_repr) => {
-                        write!(f, "{}{}", indent, ip_repr)?;
-                        (ip_repr, ip_packet.payload())
-                    }
+            Ok(ip_packet) => match Repr::parse(&ip_packet) {
+                Err(_) => return Ok(()),
+                Ok(ip_repr) => {
+                    write!(f, "{}{}", indent, ip_repr)?;
+                    (ip_repr, ip_packet.payload())
                 }
-            }
+            },
         };
 
         pretty_print_ip_payload(f, indent, ip_repr, payload)
@@ -682,18 +704,18 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
 
 #[cfg(test)]
 mod test {
-    use crate::Error;
     use super::{Address, Cidr};
     use super::{Packet, Protocol, Repr};
-    use crate::wire::pretty_print::{PrettyPrinter};
+    use crate::wire::pretty_print::PrettyPrinter;
+    use crate::Error;
 
     #[cfg(feature = "proto-ipv4")]
     use crate::wire::ipv4::Address as Ipv4Address;
 
-    static LINK_LOCAL_ADDR: Address = Address([0xfe, 0x80, 0x00, 0x00,
-                                               0x00, 0x00, 0x00, 0x00,
-                                               0x00, 0x00, 0x00, 0x00,
-                                               0x00, 0x00, 0x00, 0x01]);
+    static LINK_LOCAL_ADDR: Address = Address([
+        0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x01,
+    ]);
     #[test]
     fn test_basic_multicast() {
         assert!(!Address::LINK_LOCAL_ALL_ROUTERS.is_unspecified());
@@ -724,48 +746,62 @@ mod test {
 
     #[test]
     fn test_address_format() {
-        assert_eq!("ff02::1",
-                   format!("{}", Address::LINK_LOCAL_ALL_NODES));
-        assert_eq!("fe80::1",
-                   format!("{}", LINK_LOCAL_ADDR));
-        assert_eq!("fe80::7f00:0:1",
-                   format!("{}", Address::new(0xfe80, 0, 0, 0, 0, 0x7f00, 0x0000, 0x0001)));
-        assert_eq!("::",
-                   format!("{}", Address::UNSPECIFIED));
-        assert_eq!("::1",
-                   format!("{}", Address::LOOPBACK));
+        assert_eq!("ff02::1", format!("{}", Address::LINK_LOCAL_ALL_NODES));
+        assert_eq!("fe80::1", format!("{}", LINK_LOCAL_ADDR));
+        assert_eq!(
+            "fe80::7f00:0:1",
+            format!(
+                "{}",
+                Address::new(0xfe80, 0, 0, 0, 0, 0x7f00, 0x0000, 0x0001)
+            )
+        );
+        assert_eq!("::", format!("{}", Address::UNSPECIFIED));
+        assert_eq!("::1", format!("{}", Address::LOOPBACK));
 
         #[cfg(feature = "proto-ipv4")]
-        assert_eq!("::ffff:192.168.1.1",
-                   format!("{}", Address::from(Ipv4Address::new(192, 168, 1, 1))));
+        assert_eq!(
+            "::ffff:192.168.1.1",
+            format!("{}", Address::from(Ipv4Address::new(192, 168, 1, 1)))
+        );
     }
 
     #[test]
     fn test_new() {
-        assert_eq!(Address::new(0xff02, 0, 0, 0, 0, 0, 0, 1),
-                   Address::LINK_LOCAL_ALL_NODES);
-        assert_eq!(Address::new(0xff02, 0, 0, 0, 0, 0, 0, 2),
-                   Address::LINK_LOCAL_ALL_ROUTERS);
-        assert_eq!(Address::new(0, 0, 0, 0, 0, 0, 0, 1),
-                   Address::LOOPBACK);
-        assert_eq!(Address::new(0, 0, 0, 0, 0, 0, 0, 0),
-                   Address::UNSPECIFIED);
-        assert_eq!(Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1),
-                   LINK_LOCAL_ADDR);
+        assert_eq!(
+            Address::new(0xff02, 0, 0, 0, 0, 0, 0, 1),
+            Address::LINK_LOCAL_ALL_NODES
+        );
+        assert_eq!(
+            Address::new(0xff02, 0, 0, 0, 0, 0, 0, 2),
+            Address::LINK_LOCAL_ALL_ROUTERS
+        );
+        assert_eq!(Address::new(0, 0, 0, 0, 0, 0, 0, 1), Address::LOOPBACK);
+        assert_eq!(Address::new(0, 0, 0, 0, 0, 0, 0, 0), Address::UNSPECIFIED);
+        assert_eq!(Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1), LINK_LOCAL_ADDR);
     }
 
     #[test]
     fn test_from_parts() {
-        assert_eq!(Address::from_parts(&[0xff02, 0, 0, 0, 0, 0, 0, 1]),
-                   Address::LINK_LOCAL_ALL_NODES);
-        assert_eq!(Address::from_parts(&[0xff02, 0, 0, 0, 0, 0, 0, 2]),
-                   Address::LINK_LOCAL_ALL_ROUTERS);
-        assert_eq!(Address::from_parts(&[0, 0, 0, 0, 0, 0, 0, 1]),
-                   Address::LOOPBACK);
-        assert_eq!(Address::from_parts(&[0, 0, 0, 0, 0, 0, 0, 0]),
-                   Address::UNSPECIFIED);
-        assert_eq!(Address::from_parts(&[0xfe80, 0, 0, 0, 0, 0, 0, 1]),
-                   LINK_LOCAL_ADDR);
+        assert_eq!(
+            Address::from_parts(&[0xff02, 0, 0, 0, 0, 0, 0, 1]),
+            Address::LINK_LOCAL_ALL_NODES
+        );
+        assert_eq!(
+            Address::from_parts(&[0xff02, 0, 0, 0, 0, 0, 0, 2]),
+            Address::LINK_LOCAL_ALL_ROUTERS
+        );
+        assert_eq!(
+            Address::from_parts(&[0, 0, 0, 0, 0, 0, 0, 1]),
+            Address::LOOPBACK
+        );
+        assert_eq!(
+            Address::from_parts(&[0, 0, 0, 0, 0, 0, 0, 0]),
+            Address::UNSPECIFIED
+        );
+        assert_eq!(
+            Address::from_parts(&[0xfe80, 0, 0, 0, 0, 0, 0, 1]),
+            LINK_LOCAL_ADDR
+        );
     }
 
     #[test]
@@ -788,18 +824,36 @@ mod test {
     #[test]
     fn test_mask() {
         let addr = Address::new(0x0123, 0x4567, 0x89ab, 0, 0, 0, 0, 1);
-        assert_eq!(addr.mask(11), [0x01, 0x20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-        assert_eq!(addr.mask(15), [0x01, 0x22, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-        assert_eq!(addr.mask(26), [0x01, 0x23, 0x45, 0x40, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-        assert_eq!(addr.mask(128), [0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
-        assert_eq!(addr.mask(127), [0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(
+            addr.mask(11),
+            [0x01, 0x20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        );
+        assert_eq!(
+            addr.mask(15),
+            [0x01, 0x22, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        );
+        assert_eq!(
+            addr.mask(26),
+            [0x01, 0x23, 0x45, 0x40, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        );
+        assert_eq!(
+            addr.mask(128),
+            [0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
+        );
+        assert_eq!(
+            addr.mask(127),
+            [0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        );
     }
 
     #[cfg(feature = "proto-ipv4")]
     #[test]
     fn test_is_ipv4_mapped() {
         assert_eq!(false, Address::UNSPECIFIED.is_ipv4_mapped());
-        assert_eq!(true, Address::from(Ipv4Address::new(192, 168, 1, 1)).is_ipv4_mapped());
+        assert_eq!(
+            true,
+            Address::from(Ipv4Address::new(192, 168, 1, 1)).is_ipv4_mapped()
+        );
     }
 
     #[cfg(feature = "proto-ipv4")]
@@ -814,10 +868,14 @@ mod test {
     #[cfg(feature = "proto-ipv4")]
     #[test]
     fn test_from_ipv4_address() {
-        assert_eq!(Address([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 192, 168, 1, 1]),
-            Address::from(Ipv4Address::new(192, 168, 1, 1)));
-        assert_eq!(Address([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 222, 1, 41, 90]),
-            Address::from(Ipv4Address::new(222, 1, 41, 90)));
+        assert_eq!(
+            Address([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 192, 168, 1, 1]),
+            Address::from(Ipv4Address::new(192, 168, 1, 1))
+        );
+        assert_eq!(
+            Address([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 222, 1, 41, 90]),
+            Address::from(Ipv4Address::new(222, 1, 41, 90))
+        );
     }
 
     #[test]
@@ -825,52 +883,96 @@ mod test {
         let cidr = Cidr::new(LINK_LOCAL_ADDR, 64);
 
         let inside_subnet = [
-            [0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02],
-            [0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-             0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
-            [0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-             0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
-            [0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff]
+            [
+                0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x02,
+            ],
+            [
+                0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66,
+                0x77, 0x88,
+            ],
+            [
+                0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00,
+            ],
+            [
+                0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0xff,
+            ],
         ];
 
         let outside_subnet = [
-            [0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
-             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01],
-            [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01],
-            [0xff, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01],
-            [0xff, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02]
+            [
+                0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x01,
+            ],
+            [
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x01,
+            ],
+            [
+                0xff, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x01,
+            ],
+            [
+                0xff, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x02,
+            ],
         ];
 
         let subnets = [
-            ([0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-              0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff],
-             65),
-            ([0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-              0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01],
-             128),
-            ([0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-              0x00, 0x00, 0x00, 0x00, 0x12, 0x34, 0x56, 0x78],
-             96)
+            (
+                [
+                    0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff,
+                    0xff, 0xff, 0xff,
+                ],
+                65,
+            ),
+            (
+                [
+                    0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x01,
+                ],
+                128,
+            ),
+            (
+                [
+                    0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x12,
+                    0x34, 0x56, 0x78,
+                ],
+                96,
+            ),
         ];
 
         let not_subnets = [
-            ([0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-              0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff],
-             63),
-            ([0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
-              0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff],
-             64),
-            ([0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
-              0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff],
-             65),
-            ([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-              0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01],
-             128)
+            (
+                [
+                    0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff,
+                    0xff, 0xff, 0xff,
+                ],
+                63,
+            ),
+            (
+                [
+                    0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0xff, 0xff, 0xff, 0xff, 0xff,
+                    0xff, 0xff, 0xff,
+                ],
+                64,
+            ),
+            (
+                [
+                    0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0xff, 0xff, 0xff, 0xff, 0xff,
+                    0xff, 0xff, 0xff,
+                ],
+                65,
+            ),
+            (
+                [
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x01,
+                ],
+                128,
+            ),
         ];
 
         for addr in inside_subnet.iter().map(|a| Address::from_bytes(a)) {
@@ -881,13 +983,11 @@ mod test {
             assert!(!cidr.contains_addr(&addr));
         }
 
-        for subnet in subnets.iter().map(
-            |&(a, p)| Cidr::new(Address(a), p)) {
+        for subnet in subnets.iter().map(|&(a, p)| Cidr::new(Address(a), p)) {
             assert!(cidr.contains_subnet(&subnet));
         }
 
-        for subnet in not_subnets.iter().map(
-            |&(a, p)| Cidr::new(Address(a), p)) {
+        for subnet in not_subnets.iter().map(|&(a, p)| Cidr::new(Address(a), p)) {
             assert!(!cidr.contains_subnet(&subnet));
         }
 
@@ -907,33 +1007,26 @@ mod test {
         let _ = Address::from_parts(&[0u16; 7]);
     }
 
-    static REPR_PACKET_BYTES: [u8; 52] = [0x60, 0x00, 0x00, 0x00,
-                                          0x00, 0x0c, 0x11, 0x40,
-                                          0xfe, 0x80, 0x00, 0x00,
-                                          0x00, 0x00, 0x00, 0x00,
-                                          0x00, 0x00, 0x00, 0x00,
-                                          0x00, 0x00, 0x00, 0x01,
-                                          0xff, 0x02, 0x00, 0x00,
-                                          0x00, 0x00, 0x00, 0x00,
-                                          0x00, 0x00, 0x00, 0x00,
-                                          0x00, 0x00, 0x00, 0x01,
-                                          0x00, 0x01, 0x00, 0x02,
-                                          0x00, 0x0c, 0x02, 0x4e,
-                                          0xff, 0xff, 0xff, 0xff];
-    static REPR_PAYLOAD_BYTES: [u8; 12] = [0x00, 0x01, 0x00, 0x02,
-                                           0x00, 0x0c, 0x02, 0x4e,
-                                           0xff, 0xff, 0xff, 0xff];
+    static REPR_PACKET_BYTES: [u8; 52] = [
+        0x60, 0x00, 0x00, 0x00, 0x00, 0x0c, 0x11, 0x40, 0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0xff, 0x02, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x02, 0x00,
+        0x0c, 0x02, 0x4e, 0xff, 0xff, 0xff, 0xff,
+    ];
+    static REPR_PAYLOAD_BYTES: [u8; 12] = [
+        0x00, 0x01, 0x00, 0x02, 0x00, 0x0c, 0x02, 0x4e, 0xff, 0xff, 0xff, 0xff,
+    ];
 
     fn packet_repr() -> Repr {
         Repr {
-            src_addr:    Address([0xfe, 0x80, 0x00, 0x00,
-                                  0x00, 0x00, 0x00, 0x00,
-                                  0x00, 0x00, 0x00, 0x00,
-                                  0x00, 0x00, 0x00, 0x01]),
-            dst_addr:    Address::LINK_LOCAL_ALL_NODES,
+            src_addr: Address([
+                0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x01,
+            ]),
+            dst_addr: Address::LINK_LOCAL_ALL_NODES,
             next_header: Protocol::Udp,
             payload_len: 12,
-            hop_limit:   64
+            hop_limit: 64,
         }
     }
 
@@ -948,10 +1041,13 @@ mod test {
         assert_eq!(packet.payload_len() as usize, REPR_PAYLOAD_BYTES.len());
         assert_eq!(packet.next_header(), Protocol::Udp);
         assert_eq!(packet.hop_limit(), 0x40);
-        assert_eq!(packet.src_addr(), Address([0xfe, 0x80, 0x00, 0x00,
-                                               0x00, 0x00, 0x00, 0x00,
-                                               0x00, 0x00, 0x00, 0x00,
-                                               0x00, 0x00, 0x00, 0x01]));
+        assert_eq!(
+            packet.src_addr(),
+            Address([
+                0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x01
+            ])
+        );
         assert_eq!(packet.dst_addr(), Address::LINK_LOCAL_ALL_NODES);
         assert_eq!(packet.payload(), &REPR_PAYLOAD_BYTES[..]);
     }
@@ -976,15 +1072,14 @@ mod test {
         packet.set_hop_limit(0xfe);
         packet.set_src_addr(Address::LINK_LOCAL_ALL_ROUTERS);
         packet.set_dst_addr(Address::LINK_LOCAL_ALL_NODES);
-        packet.payload_mut().copy_from_slice(&REPR_PAYLOAD_BYTES[..]);
+        packet
+            .payload_mut()
+            .copy_from_slice(&REPR_PAYLOAD_BYTES[..]);
         let mut expected_bytes = [
-            0x69, 0x95, 0x43, 0x21, 0x00, 0x0c, 0x11, 0xfe,
-            0xff, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02,
-            0xff, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00
+            0x69, 0x95, 0x43, 0x21, 0x00, 0x0c, 0x11, 0xfe, 0xff, 0x02, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x02, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         ];
         let start = expected_bytes.len() - REPR_PAYLOAD_BYTES.len();
         expected_bytes[start..].copy_from_slice(&REPR_PAYLOAD_BYTES[..]);
@@ -998,10 +1093,14 @@ mod test {
         bytes.extend(&REPR_PACKET_BYTES[..]);
         bytes.push(0);
 
-        assert_eq!(Packet::new_unchecked(&bytes).payload().len(),
-                   REPR_PAYLOAD_BYTES.len());
-        assert_eq!(Packet::new_unchecked(&mut bytes).payload_mut().len(),
-                   REPR_PAYLOAD_BYTES.len());
+        assert_eq!(
+            Packet::new_unchecked(&bytes).payload().len(),
+            REPR_PAYLOAD_BYTES.len()
+        );
+        assert_eq!(
+            Packet::new_unchecked(&mut bytes).payload_mut().len(),
+            REPR_PAYLOAD_BYTES.len()
+        );
     }
 
     #[test]
@@ -1010,8 +1109,7 @@ mod test {
         bytes.extend(&REPR_PACKET_BYTES[..]);
         Packet::new_unchecked(&mut bytes).set_payload_len(0x80);
 
-        assert_eq!(Packet::new_checked(&bytes).unwrap_err(),
-                   Error::Truncated);
+        assert_eq!(Packet::new_checked(&bytes).unwrap_err(), Error::Truncated);
     }
 
     #[test]
@@ -1063,7 +1161,12 @@ mod test {
 
     #[test]
     fn test_pretty_print() {
-        assert_eq!(format!("{}", PrettyPrinter::<Packet<&'static [u8]>>::new("\n", &&REPR_PACKET_BYTES[..])),
-                   "\nIPv6 src=fe80::1 dst=ff02::1 nxt_hdr=UDP hop_limit=64\n \\ UDP src=1 dst=2 len=4");
+        assert_eq!(
+            format!(
+                "{}",
+                PrettyPrinter::<Packet<&'static [u8]>>::new("\n", &&REPR_PACKET_BYTES[..])
+            ),
+            "\nIPv6 src=fe80::1 dst=ff02::1 nxt_hdr=UDP hop_limit=64\n \\ UDP src=1 dst=2 len=4"
+        );
     }
 }
