@@ -1424,7 +1424,7 @@ impl<'a> TcpSocket<'a> {
                         ack_min,
                         ack_max
                     );
-                    return Ok(Some(self.ack_reply(ip_repr, &repr)));
+                    return Ok(Some(self.ack_reply(ip_repr, repr)));
                 }
             }
         }

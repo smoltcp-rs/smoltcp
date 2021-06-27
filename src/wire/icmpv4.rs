@@ -485,7 +485,7 @@ impl<'a> Repr<'a> {
                 let mut ip_packet = Ipv4Packet::new_unchecked(packet.data_mut());
                 header.emit(&mut ip_packet, checksum_caps);
                 let payload = &mut ip_packet.into_inner()[header.buffer_len()..];
-                payload.copy_from_slice(&data[..])
+                payload.copy_from_slice(data)
             }
         }
 

@@ -201,7 +201,7 @@ impl<'a, 'b: 'a> Iterator for Iter<'a, 'b> {
     type Item = &'a Socket<'b>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some(item_opt) = self.lower.next() {
+        for item_opt in &mut self.lower {
             if let Some(item) = item_opt.as_ref() {
                 return Some(&item.socket);
             }
@@ -222,7 +222,7 @@ impl<'a, 'b: 'a> Iterator for IterMut<'a, 'b> {
     type Item = SocketRef<'a, Socket<'b>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some(item_opt) = self.lower.next() {
+        for item_opt in &mut self.lower {
             if let Some(item) = item_opt.as_mut() {
                 return Some(SocketRef::new(&mut item.socket));
             }

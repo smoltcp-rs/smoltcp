@@ -433,7 +433,7 @@ impl From<::std::net::SocketAddr> for Endpoint {
 impl From<::std::net::SocketAddrV4> for Endpoint {
     fn from(x: ::std::net::SocketAddrV4) -> Endpoint {
         Endpoint {
-            addr: x.ip().clone().into(),
+            addr: (*x.ip()).into(),
             port: x.port(),
         }
     }
@@ -443,7 +443,7 @@ impl From<::std::net::SocketAddrV4> for Endpoint {
 impl From<::std::net::SocketAddrV6> for Endpoint {
     fn from(x: ::std::net::SocketAddrV6) -> Endpoint {
         Endpoint {
-            addr: x.ip().clone().into(),
+            addr: (*x.ip()).into(),
             port: x.port(),
         }
     }
@@ -772,7 +772,7 @@ impl Repr {
         match *self {
             Repr::Unspecified { .. } => panic!("unspecified IP representation"),
             #[cfg(feature = "proto-ipv4")]
-            Repr::Ipv4(repr) => repr.emit(&mut Ipv4Packet::new_unchecked(buffer), &_checksum_caps),
+            Repr::Ipv4(repr) => repr.emit(&mut Ipv4Packet::new_unchecked(buffer), _checksum_caps),
             #[cfg(feature = "proto-ipv6")]
             Repr::Ipv6(repr) => repr.emit(&mut Ipv6Packet::new_unchecked(buffer)),
         }

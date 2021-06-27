@@ -1082,7 +1082,7 @@ impl<'a> InterfaceInner<'a> {
 
         // Pass every IP packet to all raw sockets we have registered.
         for mut raw_socket in sockets.iter_mut().filter_map(RawSocket::downcast) {
-            if !raw_socket.accepts(&ip_repr) {
+            if !raw_socket.accepts(ip_repr) {
                 continue;
             }
 
@@ -1105,7 +1105,7 @@ impl<'a> InterfaceInner<'a> {
         sockets: &mut SocketSet,
         ipv6_packet: &Ipv6Packet<&'frame T>,
     ) -> Result<Option<IpPacket<'frame>>> {
-        let ipv6_repr = Ipv6Repr::parse(&ipv6_packet)?;
+        let ipv6_repr = Ipv6Repr::parse(ipv6_packet)?;
 
         if !ipv6_repr.src_addr.is_unicast() {
             // Discard packets with non-unicast source addresses.

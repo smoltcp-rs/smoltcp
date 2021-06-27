@@ -657,7 +657,7 @@ impl<'a> Repr<'a> {
             let mut ip_packet = Ipv6Packet::new_unchecked(buffer);
             header.emit(&mut ip_packet);
             let payload = &mut ip_packet.into_inner()[header.buffer_len()..];
-            payload.copy_from_slice(&data[..]);
+            payload.copy_from_slice(data);
         }
 
         match *self {
@@ -669,7 +669,7 @@ impl<'a> Repr<'a> {
                 packet.set_msg_type(Message::DstUnreachable);
                 packet.set_msg_code(reason.into());
 
-                emit_contained_packet(packet.payload_mut(), header, &data);
+                emit_contained_packet(packet.payload_mut(), header, data);
             }
 
             Repr::PktTooBig { mtu, header, data } => {
@@ -677,7 +677,7 @@ impl<'a> Repr<'a> {
                 packet.set_msg_code(0);
                 packet.set_pkt_too_big_mtu(mtu);
 
-                emit_contained_packet(packet.payload_mut(), header, &data);
+                emit_contained_packet(packet.payload_mut(), header, data);
             }
 
             Repr::TimeExceeded {
@@ -688,7 +688,7 @@ impl<'a> Repr<'a> {
                 packet.set_msg_type(Message::TimeExceeded);
                 packet.set_msg_code(reason.into());
 
-                emit_contained_packet(packet.payload_mut(), header, &data);
+                emit_contained_packet(packet.payload_mut(), header, data);
             }
 
             Repr::ParamProblem {
@@ -701,7 +701,7 @@ impl<'a> Repr<'a> {
                 packet.set_msg_code(reason.into());
                 packet.set_param_problem_ptr(pointer);
 
-                emit_contained_packet(packet.payload_mut(), header, &data);
+                emit_contained_packet(packet.payload_mut(), header, data);
             }
 
             Repr::EchoRequest {

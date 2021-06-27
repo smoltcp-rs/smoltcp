@@ -168,7 +168,7 @@ impl Address {
         let idx = (mask as usize) / 8;
         let modulus = (mask as usize) % 8;
         let (first, second) = self.0.split_at(idx);
-        bytes[0..idx].copy_from_slice(&first);
+        bytes[0..idx].copy_from_slice(first);
         if idx < 16 {
             let part = second[0];
             bytes[idx] = part & (!(0xff >> modulus) as u8);

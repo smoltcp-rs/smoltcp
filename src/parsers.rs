@@ -472,7 +472,7 @@ impl FromStr for IpEndpoint {
     type Err = ();
 
     fn from_str(s: &str) -> Result<IpEndpoint> {
-        Parser::new(s).until_eof(|p| Ok(p.accept_ip_endpoint()?))
+        Parser::new(s).until_eof(|p| p.accept_ip_endpoint())
     }
 }
 

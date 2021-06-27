@@ -171,7 +171,7 @@ impl<'a> fmt::Display for Packet<'a> {
                 &mut indent,
             ),
             #[cfg(feature = "medium-ip")]
-            Medium::Ip => match crate::wire::IpVersion::of_packet(&self.buffer) {
+            Medium::Ip => match crate::wire::IpVersion::of_packet(self.buffer) {
                 #[cfg(feature = "proto-ipv4")]
                 Ok(crate::wire::IpVersion::Ipv4) => {
                     crate::wire::Ipv4Packet::<&'static [u8]>::pretty_print(

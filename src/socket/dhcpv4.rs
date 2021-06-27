@@ -307,13 +307,11 @@ impl Dhcpv4Socket {
         let mut dns_servers = [None; DHCP_MAX_DNS_SERVER_COUNT];
         if let Some(received) = dhcp_repr.dns_servers {
             let mut i = 0;
-            for addr in received.iter() {
-                if let Some(addr) = addr {
-                    if addr.is_unicast() {
-                        // This can never be out-of-bounds since both arrays have length DHCP_MAX_DNS_SERVER_COUNT
-                        dns_servers[i] = Some(*addr);
-                        i += 1;
-                    }
+            for addr in received.iter().flatten() {
+                if addr.is_unicast() {
+                    // This can never be out-of-bounds since both arrays have length DHCP_MAX_DNS_SERVER_COUNT
+                    dns_servers[i] = Some(*addr);
+                    i += 1;
                 }
             }
         }
