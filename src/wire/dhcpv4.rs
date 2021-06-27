@@ -8,6 +8,8 @@ use crate::wire::arp::Hardware;
 
 const DHCP_MAGIC_NUMBER: u32 = 0x63825363;
 
+pub const MAX_DNS_SERVERS: usize = 3;
+
 enum_with_unknown! {
     /// The possible opcodes of a DHCP packet.
     pub enum OpCode(u8) {
@@ -680,7 +682,7 @@ pub struct Repr<'a> {
     /// the client is interested in.
     pub parameter_request_list: Option<&'a [u8]>,
     /// DNS servers
-    pub dns_servers: Option<[Option<Ipv4Address>; 3]>,
+    pub dns_servers: Option<[Option<Ipv4Address>; MAX_DNS_SERVERS]>,
     /// The maximum size dhcp packet the interface can receive
     pub max_size: Option<u16>,
     /// The DHCP IP lease duration, specified in seconds.
@@ -700,6 +702,10 @@ impl<'a> Repr<'a> {
         if self.router.is_some() { len += 6; }
         if self.subnet_mask.is_some() { len += 6; }
         if self.lease_duration.is_some() { len += 6; }
+        if let Some(dns_servers) = self.dns_servers {
+            len += 2;
+            len += dns_servers.iter().flatten().count() * core::mem::size_of::<u32>();
+        }
         if let Some(list) = self.parameter_request_list { len += list.len() + 2; }
 
         len
@@ -777,7 +783,7 @@ impl<'a> Repr<'a> {
                     parameter_request_list = Some(data);
                 }
                 DhcpOption::Other {kind: field::OPT_DOMAIN_NAME_SERVER, data} => {
-                    let mut servers = [None; 3];
+                    let mut servers = [None; MAX_DNS_SERVERS];
                     for (server, chunk) in servers.iter_mut().zip(data.chunks(4)) {
                         *server = Some(Ipv4Address::from_bytes(chunk));
                     }
@@ -841,6 +847,19 @@ impl<'a> Repr<'a> {
             }
             if let Some(duration) = self.lease_duration {
                 let tmp = options; options = DhcpOption::IpLeaseTime(duration).emit(tmp);
+            }
+            if let Some(dns_servers) = self.dns_servers {
+                const IP_SIZE: usize = core::mem::size_of::<u32>();
+                let mut servers = [0; MAX_DNS_SERVERS * IP_SIZE];
+
+                let data_len = dns_servers.iter().flatten()
+                    .enumerate()
+                    .inspect(|(i, ip)| {
+                        servers[(i * IP_SIZE)..((i + 1) * IP_SIZE)]
+                            .copy_from_slice(ip.as_bytes());
+                    }).count() * IP_SIZE;
+                let option = DhcpOption::Other{ kind: field::OPT_DOMAIN_NAME_SERVER, data: &servers[..data_len] };
+                let tmp = options; options = option.emit(tmp);
             }
             if let Some(list) = self.parameter_request_list {
                 let option = DhcpOption::Other{ kind: field::OPT_PARAMETER_REQUEST_LIST, data: list };
@@ -1086,6 +1105,29 @@ mod test {
         let mut bytes = vec![0xa5; repr.buffer_len()];
         let mut packet = Packet::new_unchecked(&mut bytes);
         repr.emit(&mut packet).unwrap();
+    }
+
+    #[test]
+    fn test_emit_offer_dns() {
+        let repr = {
+            let mut repr = offer_repr();
+            repr.dns_servers = Some([
+            Some(Ipv4Address([163, 1, 74, 6])),
+            Some(Ipv4Address([163, 1, 74, 7])),
+            Some(Ipv4Address([163, 1, 74, 3]))]);
+            repr
+        };
+        let mut bytes = vec![0xa5; repr.buffer_len()];
+        let mut packet = Packet::new_unchecked(&mut bytes);
+        repr.emit(&mut packet).unwrap();
+
+        let packet = Packet::new_unchecked(&bytes);
+        let repr_parsed = Repr::parse(&packet).unwrap();
+
+        assert_eq!(repr_parsed.dns_servers,  Some([
+            Some(Ipv4Address([163, 1, 74, 6])),
+            Some(Ipv4Address([163, 1, 74, 7])),
+            Some(Ipv4Address([163, 1, 74, 3]))]));
     }
 
     #[test]
