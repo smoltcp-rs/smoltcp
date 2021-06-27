@@ -1,12 +1,12 @@
-use core::fmt;
 use core::convert::From;
+use core::fmt;
 
-use crate::{Error, Result};
 use crate::phy::ChecksumCapabilities;
 #[cfg(feature = "proto-ipv4")]
-use crate::wire::{Ipv4Address, Ipv4Packet, Ipv4Repr, Ipv4Cidr};
+use crate::wire::{Ipv4Address, Ipv4Cidr, Ipv4Packet, Ipv4Repr};
 #[cfg(feature = "proto-ipv6")]
 use crate::wire::{Ipv6Address, Ipv6Cidr, Ipv6Packet, Ipv6Repr};
+use crate::{Error, Result};
 
 /// Internet protocol version.
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
@@ -31,7 +31,7 @@ impl Version {
             4 => Ok(Version::Ipv4),
             #[cfg(feature = "proto-ipv6")]
             6 => Ok(Version::Ipv6),
-            _ => Err(Error::Unrecognized)
+            _ => Err(Error::Unrecognized),
         }
     }
 }
@@ -67,17 +67,17 @@ enum_with_unknown! {
 impl fmt::Display for Protocol {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Protocol::HopByHop    => write!(f, "Hop-by-Hop"),
-            Protocol::Icmp        => write!(f, "ICMP"),
-            Protocol::Igmp        => write!(f, "IGMP"),
-            Protocol::Tcp         => write!(f, "TCP"),
-            Protocol::Udp         => write!(f, "UDP"),
-            Protocol::Ipv6Route   => write!(f, "IPv6-Route"),
-            Protocol::Ipv6Frag    => write!(f, "IPv6-Frag"),
-            Protocol::Icmpv6      => write!(f, "ICMPv6"),
-            Protocol::Ipv6NoNxt   => write!(f, "IPv6-NoNxt"),
-            Protocol::Ipv6Opts    => write!(f, "IPv6-Opts"),
-            Protocol::Unknown(id) => write!(f, "0x{:02x}", id)
+            Protocol::HopByHop => write!(f, "Hop-by-Hop"),
+            Protocol::Icmp => write!(f, "ICMP"),
+            Protocol::Igmp => write!(f, "IGMP"),
+            Protocol::Tcp => write!(f, "TCP"),
+            Protocol::Udp => write!(f, "UDP"),
+            Protocol::Ipv6Route => write!(f, "IPv6-Route"),
+            Protocol::Ipv6Frag => write!(f, "IPv6-Frag"),
+            Protocol::Icmpv6 => write!(f, "ICMPv6"),
+            Protocol::Ipv6NoNxt => write!(f, "IPv6-NoNxt"),
+            Protocol::Ipv6Opts => write!(f, "IPv6-Opts"),
+            Protocol::Unknown(id) => write!(f, "0x{:02x}", id),
         }
     }
 }
@@ -107,74 +107,73 @@ impl Address {
     /// Create an address wrapping an IPv6 address with the given octets.
     #[cfg(feature = "proto-ipv6")]
     #[allow(clippy::too_many_arguments)]
-    pub fn v6(a0: u16, a1: u16, a2: u16, a3: u16,
-              a4: u16, a5: u16, a6: u16, a7: u16) -> Address {
+    pub fn v6(a0: u16, a1: u16, a2: u16, a3: u16, a4: u16, a5: u16, a6: u16, a7: u16) -> Address {
         Address::Ipv6(Ipv6Address::new(a0, a1, a2, a3, a4, a5, a6, a7))
     }
 
     /// Return an address as a sequence of octets, in big-endian.
     pub fn as_bytes(&self) -> &[u8] {
         match *self {
-            Address::Unspecified     => &[],
+            Address::Unspecified => &[],
             #[cfg(feature = "proto-ipv4")]
-            Address::Ipv4(ref addr)      => addr.as_bytes(),
+            Address::Ipv4(ref addr) => addr.as_bytes(),
             #[cfg(feature = "proto-ipv6")]
-            Address::Ipv6(ref addr)      => addr.as_bytes(),
+            Address::Ipv6(ref addr) => addr.as_bytes(),
         }
     }
 
     /// Query whether the address is a valid unicast address.
     pub fn is_unicast(&self) -> bool {
         match *self {
-            Address::Unspecified     => false,
+            Address::Unspecified => false,
             #[cfg(feature = "proto-ipv4")]
-            Address::Ipv4(addr)      => addr.is_unicast(),
+            Address::Ipv4(addr) => addr.is_unicast(),
             #[cfg(feature = "proto-ipv6")]
-            Address::Ipv6(addr)      => addr.is_unicast(),
+            Address::Ipv6(addr) => addr.is_unicast(),
         }
     }
 
     /// Query whether the address is a valid multicast address.
     pub fn is_multicast(&self) -> bool {
         match *self {
-            Address::Unspecified     => false,
+            Address::Unspecified => false,
             #[cfg(feature = "proto-ipv4")]
-            Address::Ipv4(addr)      => addr.is_multicast(),
+            Address::Ipv4(addr) => addr.is_multicast(),
             #[cfg(feature = "proto-ipv6")]
-            Address::Ipv6(addr)      => addr.is_multicast(),
+            Address::Ipv6(addr) => addr.is_multicast(),
         }
     }
 
     /// Query whether the address is the broadcast address.
     pub fn is_broadcast(&self) -> bool {
         match *self {
-            Address::Unspecified     => false,
+            Address::Unspecified => false,
             #[cfg(feature = "proto-ipv4")]
-            Address::Ipv4(addr)      => addr.is_broadcast(),
+            Address::Ipv4(addr) => addr.is_broadcast(),
             #[cfg(feature = "proto-ipv6")]
-            Address::Ipv6(_)         => false,
+            Address::Ipv6(_) => false,
         }
     }
 
     /// Query whether the address falls into the "unspecified" range.
     pub fn is_unspecified(&self) -> bool {
         match *self {
-            Address::Unspecified     => true,
+            Address::Unspecified => true,
             #[cfg(feature = "proto-ipv4")]
-            Address::Ipv4(addr)      => addr.is_unspecified(),
+            Address::Ipv4(addr) => addr.is_unspecified(),
             #[cfg(feature = "proto-ipv6")]
-            Address::Ipv6(addr)      => addr.is_unspecified(),
+            Address::Ipv6(addr) => addr.is_unspecified(),
         }
     }
 
     /// Return an unspecified address that has the same IP version as `self`.
     pub fn to_unspecified(&self) -> Address {
         match *self {
-            Address::Unspecified     => Address::Unspecified,
+            Address::Unspecified => Address::Unspecified,
             #[cfg(feature = "proto-ipv4")]
-            Address::Ipv4(_)         => Address::Ipv4(Ipv4Address::UNSPECIFIED),
+            Address::Ipv4(_) => Address::Ipv4(Ipv4Address::UNSPECIFIED),
             #[cfg(feature = "proto-ipv6")]
-            Address::Ipv6(_)         => Address::Ipv6(Ipv6Address::UNSPECIFIED),
+            Address::Ipv6(_) => Address::Ipv6(Ipv6Address::UNSPECIFIED),
         }
     }
 
@@ -196,7 +195,7 @@ impl Address {
                     }
                 } else if one {
                     // 1 where 0 was expected
-                    return None
+                    return None;
                 }
                 mask >>= 1;
             }
@@ -252,11 +251,11 @@ impl From<Ipv6Address> for Address {
 impl fmt::Display for Address {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Address::Unspecified     => write!(f, "*"),
+            Address::Unspecified => write!(f, "*"),
             #[cfg(feature = "proto-ipv4")]
-            Address::Ipv4(addr)      => write!(f, "{}", addr),
+            Address::Ipv4(addr) => write!(f, "{}", addr),
             #[cfg(feature = "proto-ipv6")]
-            Address::Ipv6(addr)      => write!(f, "{}", addr),
+            Address::Ipv6(addr) => write!(f, "{}", addr),
         }
     }
 }
@@ -265,11 +264,11 @@ impl fmt::Display for Address {
 impl defmt::Format for Address {
     fn format(&self, f: defmt::Formatter) {
         match self {
-            &Address::Unspecified     => defmt::write!(f, "{:?}", "*"),
+            &Address::Unspecified => defmt::write!(f, "{:?}", "*"),
             #[cfg(feature = "proto-ipv4")]
-            &Address::Ipv4(addr)      => defmt::write!(f, "{:?}", addr),
+            &Address::Ipv4(addr) => defmt::write!(f, "{:?}", addr),
             #[cfg(feature = "proto-ipv6")]
-            &Address::Ipv6(addr)      => defmt::write!(f, "{:?}", addr),
+            &Address::Ipv6(addr) => defmt::write!(f, "{:?}", addr),
         }
     }
 }
@@ -297,8 +296,9 @@ impl Cidr {
             Address::Ipv4(addr) => Cidr::Ipv4(Ipv4Cidr::new(addr, prefix_len)),
             #[cfg(feature = "proto-ipv6")]
             Address::Ipv6(addr) => Cidr::Ipv6(Ipv6Cidr::new(addr, prefix_len)),
-            Address::Unspecified =>
-                panic!("a CIDR block cannot be based on an unspecified address"),
+            Address::Unspecified => {
+                panic!("a CIDR block cannot be based on an unspecified address")
+            }
         }
     }
 
@@ -306,9 +306,9 @@ impl Cidr {
     pub fn address(&self) -> Address {
         match *self {
             #[cfg(feature = "proto-ipv4")]
-            Cidr::Ipv4(cidr)      => Address::Ipv4(cidr.address()),
+            Cidr::Ipv4(cidr) => Address::Ipv4(cidr.address()),
             #[cfg(feature = "proto-ipv6")]
-            Cidr::Ipv6(cidr)      => Address::Ipv6(cidr.address()),
+            Cidr::Ipv6(cidr) => Address::Ipv6(cidr.address()),
         }
     }
 
@@ -316,9 +316,9 @@ impl Cidr {
     pub fn prefix_len(&self) -> u8 {
         match *self {
             #[cfg(feature = "proto-ipv4")]
-            Cidr::Ipv4(cidr)      => cidr.prefix_len(),
+            Cidr::Ipv4(cidr) => cidr.prefix_len(),
             #[cfg(feature = "proto-ipv6")]
-            Cidr::Ipv6(cidr)      => cidr.prefix_len(),
+            Cidr::Ipv6(cidr) => cidr.prefix_len(),
         }
     }
 
@@ -327,18 +327,17 @@ impl Cidr {
     pub fn contains_addr(&self, addr: &Address) -> bool {
         match (self, addr) {
             #[cfg(feature = "proto-ipv4")]
-            (&Cidr::Ipv4(ref cidr), &Address::Ipv4(ref addr)) =>
-                cidr.contains_addr(addr),
+            (&Cidr::Ipv4(ref cidr), &Address::Ipv4(ref addr)) => cidr.contains_addr(addr),
             #[cfg(feature = "proto-ipv6")]
-            (&Cidr::Ipv6(ref cidr), &Address::Ipv6(ref addr)) =>
-                cidr.contains_addr(addr),
+            (&Cidr::Ipv6(ref cidr), &Address::Ipv6(ref addr)) => cidr.contains_addr(addr),
             #[cfg(all(feature = "proto-ipv6", feature = "proto-ipv4"))]
-            (&Cidr::Ipv4(_), &Address::Ipv6(_)) | (&Cidr::Ipv6(_), &Address::Ipv4(_)) =>
-                false,
+            (&Cidr::Ipv4(_), &Address::Ipv6(_)) | (&Cidr::Ipv6(_), &Address::Ipv4(_)) => false,
             (_, &Address::Unspecified) =>
-                // a fully unspecified address covers both IPv4 and IPv6,
-                // and no CIDR block can do that.
-                false,
+            // a fully unspecified address covers both IPv4 and IPv6,
+            // and no CIDR block can do that.
+            {
+                false
+            }
         }
     }
 
@@ -347,14 +346,11 @@ impl Cidr {
     pub fn contains_subnet(&self, subnet: &Cidr) -> bool {
         match (self, subnet) {
             #[cfg(feature = "proto-ipv4")]
-            (&Cidr::Ipv4(ref cidr), &Cidr::Ipv4(ref other)) =>
-                cidr.contains_subnet(other),
+            (&Cidr::Ipv4(ref cidr), &Cidr::Ipv4(ref other)) => cidr.contains_subnet(other),
             #[cfg(feature = "proto-ipv6")]
-            (&Cidr::Ipv6(ref cidr), &Cidr::Ipv6(ref other)) =>
-                cidr.contains_subnet(other),
+            (&Cidr::Ipv6(ref cidr), &Cidr::Ipv6(ref other)) => cidr.contains_subnet(other),
             #[cfg(all(feature = "proto-ipv6", feature = "proto-ipv4"))]
-            (&Cidr::Ipv4(_), &Cidr::Ipv6(_)) | (&Cidr::Ipv6(_), &Cidr::Ipv4(_)) =>
-                false,
+            (&Cidr::Ipv4(_), &Cidr::Ipv6(_)) | (&Cidr::Ipv6(_), &Cidr::Ipv4(_)) => false,
         }
     }
 }
@@ -377,9 +373,9 @@ impl fmt::Display for Cidr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             #[cfg(feature = "proto-ipv4")]
-            Cidr::Ipv4(cidr)      => write!(f, "{}", cidr),
+            Cidr::Ipv4(cidr) => write!(f, "{}", cidr),
             #[cfg(feature = "proto-ipv6")]
-            Cidr::Ipv6(cidr)      => write!(f, "{}", cidr),
+            Cidr::Ipv6(cidr) => write!(f, "{}", cidr),
         }
     }
 }
@@ -389,9 +385,9 @@ impl defmt::Format for Cidr {
     fn format(&self, f: defmt::Formatter) {
         match self {
             #[cfg(feature = "proto-ipv4")]
-            &Cidr::Ipv4(cidr)      => defmt::write!(f, "{:?}", cidr),
+            &Cidr::Ipv4(cidr) => defmt::write!(f, "{:?}", cidr),
             #[cfg(feature = "proto-ipv6")]
-            &Cidr::Ipv6(cidr)      => defmt::write!(f, "{:?}", cidr),
+            &Cidr::Ipv6(cidr) => defmt::write!(f, "{:?}", cidr),
         }
     }
 }
@@ -402,12 +398,15 @@ impl defmt::Format for Cidr {
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
 pub struct Endpoint {
     pub addr: Address,
-    pub port: u16
+    pub port: u16,
 }
 
 impl Endpoint {
     /// An endpoint with unspecified address and port.
-    pub const UNSPECIFIED: Endpoint = Endpoint { addr: Address::Unspecified, port: 0 };
+    pub const UNSPECIFIED: Endpoint = Endpoint {
+        addr: Address::Unspecified,
+        port: 0,
+    };
 
     /// Create an endpoint address from given address and port.
     pub fn new(addr: Address, port: u16) -> Endpoint {
@@ -434,7 +433,7 @@ impl From<::std::net::SocketAddr> for Endpoint {
 impl From<::std::net::SocketAddrV4> for Endpoint {
     fn from(x: ::std::net::SocketAddrV4) -> Endpoint {
         Endpoint {
-            addr: x.ip().clone().into(),
+            addr: (*x.ip()).into(),
             port: x.port(),
         }
     }
@@ -444,7 +443,7 @@ impl From<::std::net::SocketAddrV4> for Endpoint {
 impl From<::std::net::SocketAddrV6> for Endpoint {
     fn from(x: ::std::net::SocketAddrV6) -> Endpoint {
         Endpoint {
-            addr: x.ip().clone().into(),
+            addr: (*x.ip()).into(),
             port: x.port(),
         }
     }
@@ -465,13 +464,19 @@ impl defmt::Format for Endpoint {
 
 impl From<u16> for Endpoint {
     fn from(port: u16) -> Endpoint {
-        Endpoint { addr: Address::Unspecified, port }
+        Endpoint {
+            addr: Address::Unspecified,
+            port,
+        }
     }
 }
 
 impl<T: Into<Address>> From<(T, u16)> for Endpoint {
     fn from((addr, port): (T, u16)) -> Endpoint {
-        Endpoint { addr: addr.into(), port }
+        Endpoint {
+            addr: addr.into(),
+            port,
+        }
     }
 }
 
@@ -485,11 +490,11 @@ impl<T: Into<Address>> From<(T, u16)> for Endpoint {
 #[non_exhaustive]
 pub enum Repr {
     Unspecified {
-        src_addr:    Address,
-        dst_addr:    Address,
-        protocol:    Protocol,
+        src_addr: Address,
+        dst_addr: Address,
+        protocol: Protocol,
         payload_len: usize,
-        hop_limit:   u8
+        hop_limit: u8,
     },
     #[cfg(feature = "proto-ipv4")]
     Ipv4(Ipv4Repr),
@@ -570,25 +575,31 @@ impl Repr {
     /// Set the payload length.
     pub fn set_payload_len(&mut self, length: usize) {
         match *self {
-            Repr::Unspecified { ref mut payload_len, .. } =>
-                *payload_len = length,
+            Repr::Unspecified {
+                ref mut payload_len,
+                ..
+            } => *payload_len = length,
             #[cfg(feature = "proto-ipv4")]
-            Repr::Ipv4(Ipv4Repr { ref mut payload_len, .. }) =>
-                *payload_len = length,
+            Repr::Ipv4(Ipv4Repr {
+                ref mut payload_len,
+                ..
+            }) => *payload_len = length,
             #[cfg(feature = "proto-ipv6")]
-            Repr::Ipv6(Ipv6Repr { ref mut payload_len, .. }) =>
-                *payload_len = length,
+            Repr::Ipv6(Ipv6Repr {
+                ref mut payload_len,
+                ..
+            }) => *payload_len = length,
         }
     }
 
     /// Return the TTL value.
     pub fn hop_limit(&self) -> u8 {
         match *self {
-            Repr::Unspecified { hop_limit, .. }    => hop_limit,
+            Repr::Unspecified { hop_limit, .. } => hop_limit,
             #[cfg(feature = "proto-ipv4")]
             Repr::Ipv4(Ipv4Repr { hop_limit, .. }) => hop_limit,
             #[cfg(feature = "proto-ipv6")]
-            Repr::Ipv6(Ipv6Repr { hop_limit, ..})  => hop_limit,
+            Repr::Ipv6(Ipv6Repr { hop_limit, .. }) => hop_limit,
         }
     }
 
@@ -607,15 +618,15 @@ impl Repr {
                             $ipty(addr) => {
                                 $iprepr.src_addr = addr;
                                 return Ok($reprty($iprepr));
-                            },
-                            _ => ()
+                            }
+                            _ => (),
                         }
                     }
                     Err(Error::Unaddressable)
                 } else {
                     Ok($reprty($iprepr))
                 }
-            }
+            };
         }
 
         match self {
@@ -623,12 +634,16 @@ impl Repr {
             &Repr::Unspecified {
                 src_addr: src_addr @ Address::Unspecified,
                 dst_addr: Address::Ipv4(dst_addr),
-                protocol, payload_len, hop_limit
-            } |
-            &Repr::Unspecified {
+                protocol,
+                payload_len,
+                hop_limit,
+            }
+            | &Repr::Unspecified {
                 src_addr: src_addr @ Address::Ipv4(_),
                 dst_addr: Address::Ipv4(dst_addr),
-                protocol, payload_len, hop_limit
+                protocol,
+                payload_len,
+                hop_limit,
             } if src_addr.is_unspecified() => {
                 let mut src_addr = if let Address::Ipv4(src_ipv4_addr) = src_addr {
                     Some(src_ipv4_addr)
@@ -642,8 +657,11 @@ impl Repr {
                     }
                 }
                 Ok(Repr::Ipv4(Ipv4Repr {
-                    src_addr:    src_addr.ok_or(Error::Unaddressable)?,
-                    dst_addr, protocol, payload_len, hop_limit
+                    src_addr: src_addr.ok_or(Error::Unaddressable)?,
+                    dst_addr,
+                    protocol,
+                    payload_len,
+                    hop_limit,
                 }))
             }
 
@@ -651,12 +669,16 @@ impl Repr {
             &Repr::Unspecified {
                 src_addr: src_addr @ Address::Unspecified,
                 dst_addr: Address::Ipv6(dst_addr),
-                protocol, payload_len, hop_limit
-            } |
-            &Repr::Unspecified {
+                protocol,
+                payload_len,
+                hop_limit,
+            }
+            | &Repr::Unspecified {
                 src_addr: src_addr @ Address::Ipv6(_),
                 dst_addr: Address::Ipv6(dst_addr),
-                protocol, payload_len, hop_limit
+                protocol,
+                payload_len,
+                hop_limit,
             } if src_addr.is_unspecified() => {
                 let mut src_addr = if let Address::Ipv6(src_ipv6_addr) = src_addr {
                     Some(src_ipv6_addr)
@@ -670,9 +692,11 @@ impl Repr {
                     }
                 }
                 Ok(Repr::Ipv6(Ipv6Repr {
-                    src_addr:    src_addr.ok_or(Error::Unaddressable)?,
+                    src_addr: src_addr.ok_or(Error::Unaddressable)?,
                     next_header: protocol,
-                    dst_addr, payload_len, hop_limit
+                    dst_addr,
+                    payload_len,
+                    hop_limit,
                 }))
             }
 
@@ -680,41 +704,45 @@ impl Repr {
             &Repr::Unspecified {
                 src_addr: Address::Ipv4(src_addr),
                 dst_addr: Address::Ipv4(dst_addr),
-                protocol, payload_len, hop_limit
-            } => {
-                Ok(Repr::Ipv4(Ipv4Repr {
-                    src_addr:    src_addr,
-                    dst_addr:    dst_addr,
-                    protocol:    protocol,
-                    payload_len: payload_len, hop_limit
-                }))
-            }
+                protocol,
+                payload_len,
+                hop_limit,
+            } => Ok(Repr::Ipv4(Ipv4Repr {
+                src_addr: src_addr,
+                dst_addr: dst_addr,
+                protocol: protocol,
+                payload_len: payload_len,
+                hop_limit,
+            })),
 
             #[cfg(feature = "proto-ipv6")]
             &Repr::Unspecified {
                 src_addr: Address::Ipv6(src_addr),
                 dst_addr: Address::Ipv6(dst_addr),
-                protocol, payload_len, hop_limit
-            } => {
-                Ok(Repr::Ipv6(Ipv6Repr {
-                    src_addr:    src_addr,
-                    dst_addr:    dst_addr,
-                    next_header: protocol,
-                    payload_len: payload_len,
-                    hop_limit:   hop_limit
-                }))
-            }
+                protocol,
+                payload_len,
+                hop_limit,
+            } => Ok(Repr::Ipv6(Ipv6Repr {
+                src_addr: src_addr,
+                dst_addr: dst_addr,
+                next_header: protocol,
+                payload_len: payload_len,
+                hop_limit: hop_limit,
+            })),
 
             #[cfg(feature = "proto-ipv4")]
-            &Repr::Ipv4(mut repr) =>
-                resolve_unspecified!(Repr::Ipv4, Address::Ipv4, repr, fallback_src_addrs),
+            &Repr::Ipv4(mut repr) => {
+                resolve_unspecified!(Repr::Ipv4, Address::Ipv4, repr, fallback_src_addrs)
+            }
 
             #[cfg(feature = "proto-ipv6")]
-            &Repr::Ipv6(mut repr) =>
-                resolve_unspecified!(Repr::Ipv6, Address::Ipv6, repr, fallback_src_addrs),
+            &Repr::Ipv6(mut repr) => {
+                resolve_unspecified!(Repr::Ipv6, Address::Ipv6, repr, fallback_src_addrs)
+            }
 
-            &Repr::Unspecified { .. } =>
-                panic!("source and destination IP address families do not match"),
+            &Repr::Unspecified { .. } => {
+                panic!("source and destination IP address families do not match")
+            }
         }
     }
 
@@ -724,14 +752,11 @@ impl Repr {
     /// This function panics if invoked on an unspecified representation.
     pub fn buffer_len(&self) -> usize {
         match *self {
-            Repr::Unspecified { .. } =>
-                panic!("unspecified IP representation"),
+            Repr::Unspecified { .. } => panic!("unspecified IP representation"),
             #[cfg(feature = "proto-ipv4")]
-            Repr::Ipv4(repr) =>
-                repr.buffer_len(),
+            Repr::Ipv4(repr) => repr.buffer_len(),
             #[cfg(feature = "proto-ipv6")]
-            Repr::Ipv6(repr) =>
-                repr.buffer_len(),
+            Repr::Ipv6(repr) => repr.buffer_len(),
         }
     }
 
@@ -739,16 +764,17 @@ impl Repr {
     ///
     /// # Panics
     /// This function panics if invoked on an unspecified representation.
-    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(&self, buffer: T, _checksum_caps: &ChecksumCapabilities) {
+    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(
+        &self,
+        buffer: T,
+        _checksum_caps: &ChecksumCapabilities,
+    ) {
         match *self {
-            Repr::Unspecified { .. } =>
-                panic!("unspecified IP representation"),
+            Repr::Unspecified { .. } => panic!("unspecified IP representation"),
             #[cfg(feature = "proto-ipv4")]
-            Repr::Ipv4(repr) =>
-                repr.emit(&mut Ipv4Packet::new_unchecked(buffer), &_checksum_caps),
+            Repr::Ipv4(repr) => repr.emit(&mut Ipv4Packet::new_unchecked(buffer), _checksum_caps),
             #[cfg(feature = "proto-ipv6")]
-            Repr::Ipv6(repr) =>
-                repr.emit(&mut Ipv6Packet::new_unchecked(buffer)),
+            Repr::Ipv6(repr) => repr.emit(&mut Ipv6Packet::new_unchecked(buffer)),
         }
     }
 
@@ -816,8 +842,12 @@ pub mod checksum {
     }
 
     /// Compute an IP pseudo header checksum.
-    pub fn pseudo_header(src_addr: &Address, dst_addr: &Address,
-                         protocol: Protocol, length: u32) -> u16 {
+    pub fn pseudo_header(
+        src_addr: &Address,
+        dst_addr: &Address,
+        protocol: Protocol,
+        length: u32,
+    ) -> u16 {
         match (src_addr, dst_addr) {
             #[cfg(feature = "proto-ipv4")]
             (&Address::Ipv4(src_addr), &Address::Ipv4(dst_addr)) => {
@@ -828,9 +858,9 @@ pub mod checksum {
                 combine(&[
                     data(src_addr.as_bytes()),
                     data(dst_addr.as_bytes()),
-                    data(&proto_len[..])
+                    data(&proto_len[..]),
                 ])
-            },
+            }
 
             #[cfg(feature = "proto-ipv6")]
             (&Address::Ipv6(src_addr), &Address::Ipv6(dst_addr)) => {
@@ -840,12 +870,14 @@ pub mod checksum {
                 combine(&[
                     data(src_addr.as_bytes()),
                     data(dst_addr.as_bytes()),
-                    data(&proto_len[..])
+                    data(&proto_len[..]),
                 ])
             }
 
-            _ => panic!("Unexpected pseudo header addresses: {}, {}",
-                        src_addr, dst_addr)
+            _ => panic!(
+                "Unexpected pseudo header addresses: {}, {}",
+                src_addr, dst_addr
+            ),
         }
     }
 
@@ -861,14 +893,18 @@ pub mod checksum {
 
 use crate::wire::pretty_print::PrettyIndent;
 
-pub fn pretty_print_ip_payload<T: Into<Repr>>(f: &mut fmt::Formatter, indent: &mut PrettyIndent,
-                                              ip_repr: T, payload: &[u8]) -> fmt::Result {
-    #[cfg(feature = "proto-ipv4")]
-    use crate::wire::Icmpv4Packet;
+pub fn pretty_print_ip_payload<T: Into<Repr>>(
+    f: &mut fmt::Formatter,
+    indent: &mut PrettyIndent,
+    ip_repr: T,
+    payload: &[u8],
+) -> fmt::Result {
     #[cfg(feature = "proto-ipv4")]
     use super::pretty_print::PrettyPrint;
-    use crate::wire::{TcpPacket, TcpRepr, UdpPacket, UdpRepr};
     use crate::wire::ip::checksum::format_checksum;
+    #[cfg(feature = "proto-ipv4")]
+    use crate::wire::Icmpv4Packet;
+    use crate::wire::{TcpPacket, TcpRepr, UdpPacket, UdpRepr};
 
     let checksum_caps = ChecksumCapabilities::ignored();
     let repr = ip_repr.into();
@@ -883,13 +919,23 @@ pub fn pretty_print_ip_payload<T: Into<Repr>>(f: &mut fmt::Formatter, indent: &m
             match UdpPacket::<&[u8]>::new_checked(payload) {
                 Err(err) => write!(f, "{}({})", indent, err),
                 Ok(udp_packet) => {
-                    match UdpRepr::parse(&udp_packet, &repr.src_addr(),
-                                         &repr.dst_addr(), &checksum_caps) {
+                    match UdpRepr::parse(
+                        &udp_packet,
+                        &repr.src_addr(),
+                        &repr.dst_addr(),
+                        &checksum_caps,
+                    ) {
                         Err(err) => write!(f, "{}{} ({})", indent, udp_packet, err),
                         Ok(udp_repr) => {
-                            write!(f, "{}{} len={}", indent, udp_repr, udp_packet.payload().len())?;
-                            let valid = udp_packet.verify_checksum(&repr.src_addr(),
-                                                                   &repr.dst_addr());
+                            write!(
+                                f,
+                                "{}{} len={}",
+                                indent,
+                                udp_repr,
+                                udp_packet.payload().len()
+                            )?;
+                            let valid =
+                                udp_packet.verify_checksum(&repr.src_addr(), &repr.dst_addr());
                             format_checksum(f, valid)
                         }
                     }
@@ -901,20 +947,24 @@ pub fn pretty_print_ip_payload<T: Into<Repr>>(f: &mut fmt::Formatter, indent: &m
             match TcpPacket::<&[u8]>::new_checked(payload) {
                 Err(err) => write!(f, "{}({})", indent, err),
                 Ok(tcp_packet) => {
-                    match TcpRepr::parse(&tcp_packet, &repr.src_addr(),
-                                         &repr.dst_addr(), &checksum_caps) {
+                    match TcpRepr::parse(
+                        &tcp_packet,
+                        &repr.src_addr(),
+                        &repr.dst_addr(),
+                        &checksum_caps,
+                    ) {
                         Err(err) => write!(f, "{}{} ({})", indent, tcp_packet, err),
                         Ok(tcp_repr) => {
                             write!(f, "{}{}", indent, tcp_repr)?;
-                            let valid = tcp_packet.verify_checksum(&repr.src_addr(),
-                                                                   &repr.dst_addr());
+                            let valid =
+                                tcp_packet.verify_checksum(&repr.src_addr(), &repr.dst_addr());
                             format_checksum(f, valid)
                         }
                     }
                 }
             }
         }
-        _ => Ok(())
+        _ => Ok(()),
     }
 }
 
@@ -923,17 +973,21 @@ pub(crate) mod test {
     #![allow(unused)]
 
     #[cfg(feature = "proto-ipv6")]
-    pub(crate) const MOCK_IP_ADDR_1: IpAddress = IpAddress::Ipv6(Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0,
-                                                                              0, 0, 0, 0, 0, 0, 0, 1]));
+    pub(crate) const MOCK_IP_ADDR_1: IpAddress = IpAddress::Ipv6(Ipv6Address([
+        0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+    ]));
     #[cfg(feature = "proto-ipv6")]
-    pub(crate) const MOCK_IP_ADDR_2: IpAddress = IpAddress::Ipv6(Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0,
-                                                                              0, 0, 0, 0, 0, 0, 0, 2]));
+    pub(crate) const MOCK_IP_ADDR_2: IpAddress = IpAddress::Ipv6(Ipv6Address([
+        0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2,
+    ]));
     #[cfg(feature = "proto-ipv6")]
-    pub(crate) const MOCK_IP_ADDR_3: IpAddress = IpAddress::Ipv6(Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0,
-                                                                              0, 0, 0, 0, 0, 0, 0, 3]));
+    pub(crate) const MOCK_IP_ADDR_3: IpAddress = IpAddress::Ipv6(Ipv6Address([
+        0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3,
+    ]));
     #[cfg(feature = "proto-ipv6")]
-    pub(crate) const MOCK_IP_ADDR_4: IpAddress = IpAddress::Ipv6(Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0,
-                                                                              0, 0, 0, 0, 0, 0, 0, 4]));
+    pub(crate) const MOCK_IP_ADDR_4: IpAddress = IpAddress::Ipv6(Ipv6Address([
+        0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4,
+    ]));
     #[cfg(feature = "proto-ipv6")]
     pub(crate) const MOCK_UNSPECIFIED: IpAddress = IpAddress::Ipv6(Ipv6Address::UNSPECIFIED);
 
@@ -948,9 +1002,8 @@ pub(crate) mod test {
     #[cfg(all(feature = "proto-ipv4", not(feature = "proto-ipv6")))]
     pub(crate) const MOCK_UNSPECIFIED: IpAddress = IpAddress::Ipv4(Ipv4Address::UNSPECIFIED);
 
-
     use super::*;
-    use crate::wire::{IpAddress, IpProtocol,IpCidr};
+    use crate::wire::{IpAddress, IpCidr, IpProtocol};
     #[cfg(feature = "proto-ipv4")]
     use crate::wire::{Ipv4Address, Ipv4Repr};
 
@@ -969,124 +1022,132 @@ pub(crate) mod test {
                     let payload_len = 10;
 
                     assert_eq!(
-                        Repr::Unspecified{
-                            src_addr:  $ip_addr(ip_addr_a),
-                            dst_addr:  $ip_addr(ip_addr_b),
-                            protocol:  proto,
+                        Repr::Unspecified {
+                            src_addr: $ip_addr(ip_addr_a),
+                            dst_addr: $ip_addr(ip_addr_b),
+                            protocol: proto,
                             hop_limit: 0x2a,
                             payload_len,
-                        }.lower(&[]),
-                        Ok($ip_repr($repr{
-                            src_addr:  ip_addr_a,
-                            dst_addr:  ip_addr_b,
-                            $nxthdr:   proto,
+                        }
+                        .lower(&[]),
+                        Ok($ip_repr($repr {
+                            src_addr: ip_addr_a,
+                            dst_addr: ip_addr_b,
+                            $nxthdr: proto,
                             hop_limit: 0x2a,
                             payload_len
                         }))
                     );
 
                     assert_eq!(
-                        Repr::Unspecified{
-                            src_addr:  IpAddress::Unspecified,
-                            dst_addr:  $ip_addr(ip_addr_b),
-                            protocol:  proto,
+                        Repr::Unspecified {
+                            src_addr: IpAddress::Unspecified,
+                            dst_addr: $ip_addr(ip_addr_b),
+                            protocol: proto,
                             hop_limit: 64,
                             payload_len
-                        }.lower(&[]),
+                        }
+                        .lower(&[]),
                         Err(Error::Unaddressable)
                     );
 
                     assert_eq!(
-                        Repr::Unspecified{
-                            src_addr:  IpAddress::Unspecified,
-                            dst_addr:  $ip_addr(ip_addr_b),
-                            protocol:  proto,
+                        Repr::Unspecified {
+                            src_addr: IpAddress::Unspecified,
+                            dst_addr: $ip_addr(ip_addr_b),
+                            protocol: proto,
                             hop_limit: 64,
                             payload_len
-                        }.lower(&[IpCidr::new($ip_addr(ip_addr_a), 24)]),
-                        Ok($ip_repr($repr{
-                            src_addr:  ip_addr_a,
-                            dst_addr:  ip_addr_b,
-                            $nxthdr:   proto,
-                            hop_limit: 64,
-                            payload_len
-                        }))
-                    );
-
-                    assert_eq!(
-                        Repr::Unspecified{
-                            src_addr:  $ip_addr($unspecified),
-                            dst_addr:  $ip_addr(ip_addr_b),
-                            protocol:  proto,
-                            hop_limit: 64,
-                            payload_len
-                        }.lower(&[IpCidr::new($ip_addr(ip_addr_a), 24)]),
-                        Ok($ip_repr($repr{
-                            src_addr:  ip_addr_a,
-                            dst_addr:  ip_addr_b,
-                            $nxthdr:   proto,
+                        }
+                        .lower(&[IpCidr::new($ip_addr(ip_addr_a), 24)]),
+                        Ok($ip_repr($repr {
+                            src_addr: ip_addr_a,
+                            dst_addr: ip_addr_b,
+                            $nxthdr: proto,
                             hop_limit: 64,
                             payload_len
                         }))
                     );
 
                     assert_eq!(
-                        Repr::Unspecified{
-                            src_addr:  $ip_addr($unspecified),
-                            dst_addr:  $ip_addr(ip_addr_b),
-                            protocol:  proto,
+                        Repr::Unspecified {
+                            src_addr: $ip_addr($unspecified),
+                            dst_addr: $ip_addr(ip_addr_b),
+                            protocol: proto,
                             hop_limit: 64,
                             payload_len
-                        }.lower(&[]),
-                        Ok($ip_repr($repr{
-                            src_addr:  $unspecified,
-                            dst_addr:  ip_addr_b,
-                            $nxthdr:   proto,
+                        }
+                        .lower(&[IpCidr::new($ip_addr(ip_addr_a), 24)]),
+                        Ok($ip_repr($repr {
+                            src_addr: ip_addr_a,
+                            dst_addr: ip_addr_b,
+                            $nxthdr: proto,
                             hop_limit: 64,
                             payload_len
                         }))
                     );
 
                     assert_eq!(
-                        $ip_repr($repr{
-                            src_addr:  ip_addr_a,
-                            dst_addr:  ip_addr_b,
-                            $nxthdr:   proto,
+                        Repr::Unspecified {
+                            src_addr: $ip_addr($unspecified),
+                            dst_addr: $ip_addr(ip_addr_b),
+                            protocol: proto,
+                            hop_limit: 64,
+                            payload_len
+                        }
+                        .lower(&[]),
+                        Ok($ip_repr($repr {
+                            src_addr: $unspecified,
+                            dst_addr: ip_addr_b,
+                            $nxthdr: proto,
+                            hop_limit: 64,
+                            payload_len
+                        }))
+                    );
+
+                    assert_eq!(
+                        $ip_repr($repr {
+                            src_addr: ip_addr_a,
+                            dst_addr: ip_addr_b,
+                            $nxthdr: proto,
                             hop_limit: 255,
                             payload_len
-                        }).lower(&[]),
-                        Ok($ip_repr($repr{
-                            src_addr:  ip_addr_a,
-                            dst_addr:  ip_addr_b,
-                            $nxthdr:   proto,
+                        })
+                        .lower(&[]),
+                        Ok($ip_repr($repr {
+                            src_addr: ip_addr_a,
+                            dst_addr: ip_addr_b,
+                            $nxthdr: proto,
                             hop_limit: 255,
                             payload_len
                         }))
                     );
 
                     assert_eq!(
-                        $ip_repr($repr{
-                            src_addr:  $unspecified,
-                            dst_addr:  ip_addr_b,
-                            $nxthdr:   proto,
+                        $ip_repr($repr {
+                            src_addr: $unspecified,
+                            dst_addr: ip_addr_b,
+                            $nxthdr: proto,
                             hop_limit: 255,
                             payload_len
-                        }).lower(&[]),
+                        })
+                        .lower(&[]),
                         Err(Error::Unaddressable)
                     );
 
                     assert_eq!(
-                        $ip_repr($repr{
-                            src_addr:  $unspecified,
-                            dst_addr:  ip_addr_b,
-                            $nxthdr:   proto,
+                        $ip_repr($repr {
+                            src_addr: $unspecified,
+                            dst_addr: ip_addr_b,
+                            $nxthdr: proto,
                             hop_limit: 64,
                             payload_len
-                        }).lower(&[IpCidr::new($ip_addr(ip_addr_a), 24)]),
-                        Ok($ip_repr($repr{
-                            src_addr:  ip_addr_a,
-                            dst_addr:  ip_addr_b,
-                            $nxthdr:   proto,
+                        })
+                        .lower(&[IpCidr::new($ip_addr(ip_addr_a), 24)]),
+                        Ok($ip_repr($repr {
+                            src_addr: ip_addr_a,
+                            dst_addr: ip_addr_b,
+                            $nxthdr: proto,
                             hop_limit: 64,
                             payload_len
                         }))
@@ -1095,15 +1156,31 @@ pub(crate) mod test {
             }
         };
         (ipv4 $addr_bytes_a:expr, $addr_bytes_b:expr) => {
-            generate_common_tests!(ipv4, Ipv4Repr, Repr::Ipv4, IpAddress::Ipv4,
-                                   Ipv4Address::from_bytes, protocol, $addr_bytes_a,
-                                   $addr_bytes_b, Ipv4Address::UNSPECIFIED);
+            generate_common_tests!(
+                ipv4,
+                Ipv4Repr,
+                Repr::Ipv4,
+                IpAddress::Ipv4,
+                Ipv4Address::from_bytes,
+                protocol,
+                $addr_bytes_a,
+                $addr_bytes_b,
+                Ipv4Address::UNSPECIFIED
+            );
         };
         (ipv6 $addr_bytes_a:expr, $addr_bytes_b:expr) => {
-            generate_common_tests!(ipv6, Ipv6Repr, Repr::Ipv6, IpAddress::Ipv6,
-                                   Ipv6Address::from_bytes, next_header, $addr_bytes_a,
-                                   $addr_bytes_b, Ipv6Address::UNSPECIFIED);
-        }
+            generate_common_tests!(
+                ipv6,
+                Ipv6Repr,
+                Repr::Ipv6,
+                IpAddress::Ipv6,
+                Ipv6Address::from_bytes,
+                next_header,
+                $addr_bytes_a,
+                $addr_bytes_b,
+                Ipv6Address::UNSPECIFIED
+            );
+        };
     }
 
     #[cfg(feature = "proto-ipv4")]
@@ -1121,12 +1198,13 @@ pub(crate) mod test {
     #[should_panic(expected = "source and destination IP address families do not match")]
     fn test_lower_between_families() {
         Repr::Unspecified {
-            src_addr:  Address::Ipv6(Ipv6Address::UNSPECIFIED),
-            dst_addr:  Address::Ipv4(Ipv4Address::UNSPECIFIED),
-            protocol:  IpProtocol::Icmpv6,
+            src_addr: Address::Ipv6(Ipv6Address::UNSPECIFIED),
+            dst_addr: Address::Ipv4(Ipv4Address::UNSPECIFIED),
+            protocol: IpProtocol::Icmpv6,
             hop_limit: 0xff,
-            payload_len: 0
-        }.lower(&[]);
+            payload_len: 0,
+        }
+        .lower(&[]);
     }
 
     #[test]
@@ -1138,10 +1216,7 @@ pub(crate) mod test {
     #[cfg(feature = "proto-ipv4")]
     fn to_prefix_len_ipv4() {
         fn test_eq<A: Into<Address>>(prefix_len: u8, mask: A) {
-            assert_eq!(
-                Some(prefix_len),
-                mask.into().to_prefix_len()
-            );
+            assert_eq!(Some(prefix_len), mask.into().to_prefix_len());
         }
 
         test_eq(0, Ipv4Address::new(0, 0, 0, 0));
@@ -1181,25 +1256,36 @@ pub(crate) mod test {
 
     #[cfg(feature = "proto-ipv4")]
     fn to_prefix_len_ipv4_error() {
-        assert_eq!(None, IpAddress::from(Ipv4Address::new(255,255,255,1)).to_prefix_len());
+        assert_eq!(
+            None,
+            IpAddress::from(Ipv4Address::new(255, 255, 255, 1)).to_prefix_len()
+        );
     }
 
     #[test]
     #[cfg(feature = "proto-ipv6")]
     fn to_prefix_len_ipv6() {
         fn test_eq<A: Into<Address>>(prefix_len: u8, mask: A) {
-            assert_eq!(
-                Some(prefix_len),
-                mask.into().to_prefix_len()
-            );
+            assert_eq!(Some(prefix_len), mask.into().to_prefix_len());
         }
 
         test_eq(0, Ipv6Address::new(0, 0, 0, 0, 0, 0, 0, 0));
-        test_eq(128, Ipv6Address::new(0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff));
+        test_eq(
+            128,
+            Ipv6Address::new(
+                0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff,
+            ),
+        );
     }
 
     #[cfg(feature = "proto-ipv6")]
     fn to_prefix_len_ipv6_error() {
-        assert_eq!(None, IpAddress::from(Ipv6Address::new(0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0, 1)).to_prefix_len());
+        assert_eq!(
+            None,
+            IpAddress::from(Ipv6Address::new(
+                0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0, 1
+            ))
+            .to_prefix_len()
+        );
     }
 }

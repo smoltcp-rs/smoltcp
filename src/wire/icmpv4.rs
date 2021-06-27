@@ -1,10 +1,10 @@
-use core::{cmp, fmt};
 use byteorder::{ByteOrder, NetworkEndian};
+use core::{cmp, fmt};
 
-use crate::{Error, Result};
 use crate::phy::ChecksumCapabilities;
 use crate::wire::ip::checksum;
 use crate::wire::{Ipv4Packet, Ipv4Repr};
+use crate::{Error, Result};
 
 enum_with_unknown! {
     /// Internet protocol control message type.
@@ -35,17 +35,17 @@ enum_with_unknown! {
 impl fmt::Display for Message {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Message::EchoReply      => write!(f, "echo reply"),
+            Message::EchoReply => write!(f, "echo reply"),
             Message::DstUnreachable => write!(f, "destination unreachable"),
-            Message::Redirect       => write!(f, "message redirect"),
-            Message::EchoRequest    => write!(f, "echo request"),
-            Message::RouterAdvert   => write!(f, "router advertisement"),
-            Message::RouterSolicit  => write!(f, "router solicitation"),
-            Message::TimeExceeded   => write!(f, "time exceeded"),
-            Message::ParamProblem   => write!(f, "parameter problem"),
-            Message::Timestamp      => write!(f, "timestamp"),
+            Message::Redirect => write!(f, "message redirect"),
+            Message::EchoRequest => write!(f, "echo request"),
+            Message::RouterAdvert => write!(f, "router advertisement"),
+            Message::RouterSolicit => write!(f, "router solicitation"),
+            Message::TimeExceeded => write!(f, "time exceeded"),
+            Message::ParamProblem => write!(f, "parameter problem"),
+            Message::Timestamp => write!(f, "timestamp"),
             Message::TimestampReply => write!(f, "timestamp reply"),
-            Message::Unknown(id) => write!(f, "{}", id)
+            Message::Unknown(id) => write!(f, "{}", id),
         }
     }
 }
@@ -91,40 +91,25 @@ enum_with_unknown! {
 impl fmt::Display for DstUnreachable {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            DstUnreachable::NetUnreachable =>
-               write!(f, "destination network unreachable"),
-            DstUnreachable::HostUnreachable =>
-               write!(f, "destination host unreachable"),
-            DstUnreachable::ProtoUnreachable =>
-               write!(f, "destination protocol unreachable"),
-            DstUnreachable::PortUnreachable =>
-               write!(f, "destination port unreachable"),
-            DstUnreachable::FragRequired =>
-               write!(f, "fragmentation required, and DF flag set"),
-            DstUnreachable::SrcRouteFailed =>
-               write!(f, "source route failed"),
-            DstUnreachable::DstNetUnknown =>
-               write!(f, "destination network unknown"),
-            DstUnreachable::DstHostUnknown =>
-               write!(f, "destination host unknown"),
-            DstUnreachable::SrcHostIsolated =>
-               write!(f, "source host isolated"),
-            DstUnreachable::NetProhibited =>
-               write!(f, "network administratively prohibited"),
-            DstUnreachable::HostProhibited =>
-               write!(f, "host administratively prohibited"),
-            DstUnreachable::NetUnreachToS =>
-               write!(f, "network unreachable for ToS"),
-            DstUnreachable::HostUnreachToS =>
-               write!(f, "host unreachable for ToS"),
-            DstUnreachable::CommProhibited =>
-               write!(f, "communication administratively prohibited"),
-            DstUnreachable::HostPrecedViol =>
-               write!(f, "host precedence violation"),
-            DstUnreachable::PrecedCutoff =>
-               write!(f, "precedence cutoff in effect"),
-            DstUnreachable::Unknown(id) =>
-                write!(f, "{}", id)
+            DstUnreachable::NetUnreachable => write!(f, "destination network unreachable"),
+            DstUnreachable::HostUnreachable => write!(f, "destination host unreachable"),
+            DstUnreachable::ProtoUnreachable => write!(f, "destination protocol unreachable"),
+            DstUnreachable::PortUnreachable => write!(f, "destination port unreachable"),
+            DstUnreachable::FragRequired => write!(f, "fragmentation required, and DF flag set"),
+            DstUnreachable::SrcRouteFailed => write!(f, "source route failed"),
+            DstUnreachable::DstNetUnknown => write!(f, "destination network unknown"),
+            DstUnreachable::DstHostUnknown => write!(f, "destination host unknown"),
+            DstUnreachable::SrcHostIsolated => write!(f, "source host isolated"),
+            DstUnreachable::NetProhibited => write!(f, "network administratively prohibited"),
+            DstUnreachable::HostProhibited => write!(f, "host administratively prohibited"),
+            DstUnreachable::NetUnreachToS => write!(f, "network unreachable for ToS"),
+            DstUnreachable::HostUnreachToS => write!(f, "host unreachable for ToS"),
+            DstUnreachable::CommProhibited => {
+                write!(f, "communication administratively prohibited")
+            }
+            DstUnreachable::HostPrecedViol => write!(f, "host precedence violation"),
+            DstUnreachable::PrecedCutoff => write!(f, "precedence cutoff in effect"),
+            DstUnreachable::Unknown(id) => write!(f, "{}", id),
         }
     }
 }
@@ -169,17 +154,17 @@ enum_with_unknown! {
 #[derive(Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Packet<T: AsRef<[u8]>> {
-    buffer: T
+    buffer: T,
 }
 
 mod field {
     use crate::wire::field::*;
 
-    pub const TYPE:       usize = 0;
-    pub const CODE:       usize = 1;
-    pub const CHECKSUM:   Field = 2..4;
+    pub const TYPE: usize = 0;
+    pub const CODE: usize = 1;
+    pub const CHECKSUM: Field = 2..4;
 
-    pub const UNUSED:     Field = 4..8;
+    pub const UNUSED: Field = 4..8;
 
     pub const ECHO_IDENT: Field = 4..6;
     pub const ECHO_SEQNO: Field = 6..8;
@@ -268,10 +253,10 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// The result depends on the value of the message type field.
     pub fn header_len(&self) -> usize {
         match self.msg_type() {
-            Message::EchoRequest    => field::ECHO_SEQNO.end,
-            Message::EchoReply      => field::ECHO_SEQNO.end,
+            Message::EchoRequest => field::ECHO_SEQNO.end,
+            Message::EchoReply => field::ECHO_SEQNO.end,
             Message::DstUnreachable => field::UNUSED.end,
-            _ => field::UNUSED.end // make a conservative assumption
+            _ => field::UNUSED.end, // make a conservative assumption
         }
     }
 
@@ -280,7 +265,9 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// # Fuzzing
     /// This function always returns `true` when fuzzing.
     pub fn verify_checksum(&self) -> bool {
-        if cfg!(fuzzing) { return true }
+        if cfg!(fuzzing) {
+            return true;
+        }
 
         let data = self.buffer.as_ref();
         checksum::data(data) == !0
@@ -371,47 +358,49 @@ impl<T: AsRef<[u8]>> AsRef<[u8]> for Packet<T> {
 #[non_exhaustive]
 pub enum Repr<'a> {
     EchoRequest {
-        ident:  u16,
+        ident: u16,
         seq_no: u16,
-        data:   &'a [u8]
+        data: &'a [u8],
     },
     EchoReply {
-        ident:  u16,
+        ident: u16,
         seq_no: u16,
-        data:   &'a [u8]
+        data: &'a [u8],
     },
     DstUnreachable {
         reason: DstUnreachable,
         header: Ipv4Repr,
-        data:   &'a [u8]
+        data: &'a [u8],
     },
 }
 
 impl<'a> Repr<'a> {
     /// Parse an Internet Control Message Protocol version 4 packet and return
     /// a high-level representation.
-    pub fn parse<T>(packet: &Packet<&'a T>, checksum_caps: &ChecksumCapabilities)
-                   -> Result<Repr<'a>>
-                where T: AsRef<[u8]> + ?Sized {
+    pub fn parse<T>(
+        packet: &Packet<&'a T>,
+        checksum_caps: &ChecksumCapabilities,
+    ) -> Result<Repr<'a>>
+    where
+        T: AsRef<[u8]> + ?Sized,
+    {
         // Valid checksum is expected.
-        if checksum_caps.icmpv4.rx() && !packet.verify_checksum() { return Err(Error::Checksum) }
+        if checksum_caps.icmpv4.rx() && !packet.verify_checksum() {
+            return Err(Error::Checksum);
+        }
 
         match (packet.msg_type(), packet.msg_code()) {
-            (Message::EchoRequest, 0) => {
-                Ok(Repr::EchoRequest {
-                    ident:  packet.echo_ident(),
-                    seq_no: packet.echo_seq_no(),
-                    data:   packet.data()
-                })
-            },
+            (Message::EchoRequest, 0) => Ok(Repr::EchoRequest {
+                ident: packet.echo_ident(),
+                seq_no: packet.echo_seq_no(),
+                data: packet.data(),
+            }),
 
-            (Message::EchoReply, 0) => {
-                Ok(Repr::EchoReply {
-                    ident:  packet.echo_ident(),
-                    seq_no: packet.echo_seq_no(),
-                    data:   packet.data()
-                })
-            },
+            (Message::EchoReply, 0) => Ok(Repr::EchoReply {
+                ident: packet.echo_ident(),
+                seq_no: packet.echo_seq_no(),
+                data: packet.data(),
+            }),
 
             (Message::DstUnreachable, code) => {
                 let ip_packet = Ipv4Packet::new_checked(packet.data())?;
@@ -419,7 +408,9 @@ impl<'a> Repr<'a> {
                 let payload = &packet.data()[ip_packet.header_len() as usize..];
                 // RFC 792 requires exactly eight bytes to be returned.
                 // We allow more, since there isn't a reason not to, but require at least eight.
-                if payload.len() < 8 { return Err(Error::Truncated) }
+                if payload.len() < 8 {
+                    return Err(Error::Truncated);
+                }
 
                 Ok(Repr::DstUnreachable {
                     reason: DstUnreachable::from(code),
@@ -428,22 +419,21 @@ impl<'a> Repr<'a> {
                         dst_addr: ip_packet.dst_addr(),
                         protocol: ip_packet.protocol(),
                         payload_len: payload.len(),
-                        hop_limit: ip_packet.hop_limit()
+                        hop_limit: ip_packet.hop_limit(),
                     },
-                    data: payload
+                    data: payload,
                 })
             }
-            _ => Err(Error::Unrecognized)
+            _ => Err(Error::Unrecognized),
         }
     }
 
     /// Return the length of a packet that will be emitted from this high-level representation.
     pub fn buffer_len(&self) -> usize {
         match self {
-            &Repr::EchoRequest { data, .. } |
-            &Repr::EchoReply { data, .. } => {
+            &Repr::EchoRequest { data, .. } | &Repr::EchoReply { data, .. } => {
                 field::ECHO_SEQNO.end + data.len()
-            },
+            }
             &Repr::DstUnreachable { header, data, .. } => {
                 field::UNUSED.end + header.buffer_len() + data.len()
             }
@@ -453,35 +443,49 @@ impl<'a> Repr<'a> {
     /// Emit a high-level representation into an Internet Control Message Protocol version 4
     /// packet.
     pub fn emit<T>(&self, packet: &mut Packet<&mut T>, checksum_caps: &ChecksumCapabilities)
-            where T: AsRef<[u8]> + AsMut<[u8]> + ?Sized {
+    where
+        T: AsRef<[u8]> + AsMut<[u8]> + ?Sized,
+    {
         packet.set_msg_code(0);
         match *self {
-            Repr::EchoRequest { ident, seq_no, data } => {
+            Repr::EchoRequest {
+                ident,
+                seq_no,
+                data,
+            } => {
                 packet.set_msg_type(Message::EchoRequest);
                 packet.set_msg_code(0);
                 packet.set_echo_ident(ident);
                 packet.set_echo_seq_no(seq_no);
                 let data_len = cmp::min(packet.data_mut().len(), data.len());
                 packet.data_mut()[..data_len].copy_from_slice(&data[..data_len])
-            },
+            }
 
-            Repr::EchoReply { ident, seq_no, data } => {
+            Repr::EchoReply {
+                ident,
+                seq_no,
+                data,
+            } => {
                 packet.set_msg_type(Message::EchoReply);
                 packet.set_msg_code(0);
                 packet.set_echo_ident(ident);
                 packet.set_echo_seq_no(seq_no);
                 let data_len = cmp::min(packet.data_mut().len(), data.len());
                 packet.data_mut()[..data_len].copy_from_slice(&data[..data_len])
-            },
+            }
 
-            Repr::DstUnreachable { reason, header, data } => {
+            Repr::DstUnreachable {
+                reason,
+                header,
+                data,
+            } => {
                 packet.set_msg_type(Message::DstUnreachable);
                 packet.set_msg_code(reason.into());
 
                 let mut ip_packet = Ipv4Packet::new_unchecked(packet.data_mut());
                 header.emit(&mut ip_packet, checksum_caps);
                 let payload = &mut ip_packet.into_inner()[header.buffer_len()..];
-                payload.copy_from_slice(&data[..])
+                payload.copy_from_slice(data)
             }
         }
 
@@ -503,9 +507,10 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
                 write!(f, "ICMPv4 ({})", err)?;
                 write!(f, " type={:?}", self.msg_type())?;
                 match self.msg_type() {
-                    Message::DstUnreachable =>
-                        write!(f, " code={:?}", DstUnreachable::from(self.msg_code())),
-                    _ => write!(f, " code={}", self.msg_code())
+                    Message::DstUnreachable => {
+                        write!(f, " code={:?}", DstUnreachable::from(self.msg_code()))
+                    }
+                    _ => write!(f, " code={}", self.msg_code()),
                 }
             }
         }
@@ -515,27 +520,46 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
 impl<'a> fmt::Display for Repr<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Repr::EchoRequest { ident, seq_no, data } =>
-               write!(f, "ICMPv4 echo request id={} seq={} len={}",
-                      ident, seq_no, data.len()),
-            Repr::EchoReply { ident, seq_no, data } =>
-               write!(f, "ICMPv4 echo reply id={} seq={} len={}",
-                      ident, seq_no, data.len()),
-            Repr::DstUnreachable { reason, .. } =>
-               write!(f, "ICMPv4 destination unreachable ({})",
-                      reason),
+            Repr::EchoRequest {
+                ident,
+                seq_no,
+                data,
+            } => write!(
+                f,
+                "ICMPv4 echo request id={} seq={} len={}",
+                ident,
+                seq_no,
+                data.len()
+            ),
+            Repr::EchoReply {
+                ident,
+                seq_no,
+                data,
+            } => write!(
+                f,
+                "ICMPv4 echo reply id={} seq={} len={}",
+                ident,
+                seq_no,
+                data.len()
+            ),
+            Repr::DstUnreachable { reason, .. } => {
+                write!(f, "ICMPv4 destination unreachable ({})", reason)
+            }
         }
     }
 }
 
-use crate::wire::pretty_print::{PrettyPrint, PrettyIndent};
+use crate::wire::pretty_print::{PrettyIndent, PrettyPrint};
 
 impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
-    fn pretty_print(buffer: &dyn AsRef<[u8]>, f: &mut fmt::Formatter,
-                    indent: &mut PrettyIndent) -> fmt::Result {
+    fn pretty_print(
+        buffer: &dyn AsRef<[u8]>,
+        f: &mut fmt::Formatter,
+        indent: &mut PrettyIndent,
+    ) -> fmt::Result {
         let packet = match Packet::new_checked(buffer) {
-            Err(err)   => return write!(f, "{}({})", indent, err),
-            Ok(packet) => packet
+            Err(err) => return write!(f, "{}({})", indent, err),
+            Ok(packet) => packet,
         };
         write!(f, "{}{}", indent, packet)?;
 
@@ -544,7 +568,7 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
                 indent.increase(f)?;
                 super::Ipv4Packet::<&[u8]>::pretty_print(&packet.data(), f, indent)
             }
-            _ => Ok(())
+            _ => Ok(()),
         }
     }
 }
@@ -553,13 +577,11 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
 mod test {
     use super::*;
 
-    static ECHO_PACKET_BYTES: [u8; 12] =
-        [0x08, 0x00, 0x8e, 0xfe,
-         0x12, 0x34, 0xab, 0xcd,
-         0xaa, 0x00, 0x00, 0xff];
+    static ECHO_PACKET_BYTES: [u8; 12] = [
+        0x08, 0x00, 0x8e, 0xfe, 0x12, 0x34, 0xab, 0xcd, 0xaa, 0x00, 0x00, 0xff,
+    ];
 
-    static ECHO_DATA_BYTES: [u8; 4] =
-        [0xaa, 0x00, 0x00, 0xff];
+    static ECHO_DATA_BYTES: [u8; 4] = [0xaa, 0x00, 0x00, 0xff];
 
     #[test]
     fn test_echo_deconstruct() {
@@ -590,7 +612,7 @@ mod test {
         Repr::EchoRequest {
             ident: 0x1234,
             seq_no: 0xabcd,
-            data: &ECHO_DATA_BYTES
+            data: &ECHO_DATA_BYTES,
         }
     }
 
@@ -612,8 +634,7 @@ mod test {
 
     #[test]
     fn test_check_len() {
-        let bytes = [0x0b, 0x00, 0x00, 0x00,
-                     0x00, 0x00, 0x00, 0x00];
+        let bytes = [0x0b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
         assert_eq!(Packet::new_checked(&[]), Err(Error::Truncated));
         assert_eq!(Packet::new_checked(&bytes[..4]), Err(Error::Truncated));
         assert!(Packet::new_checked(&bytes[..]).is_ok());

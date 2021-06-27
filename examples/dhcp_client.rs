@@ -1,15 +1,18 @@
 #![allow(clippy::option_map_unit_fn)]
 mod utils;
 
+use log::*;
 use std::collections::BTreeMap;
 use std::os::unix::io::AsRawFd;
-use log::*;
 
-use smoltcp::{phy::{Device, Medium, wait as phy_wait}, time::Duration};
-use smoltcp::wire::{EthernetAddress, Ipv4Address, IpCidr, Ipv4Cidr};
-use smoltcp::iface::{NeighborCache, InterfaceBuilder, Interface, Routes};
-use smoltcp::socket::{SocketSet, Dhcpv4Socket, Dhcpv4Event};
+use smoltcp::iface::{Interface, InterfaceBuilder, NeighborCache, Routes};
+use smoltcp::socket::{Dhcpv4Event, Dhcpv4Socket, SocketSet};
 use smoltcp::time::Instant;
+use smoltcp::wire::{EthernetAddress, IpCidr, Ipv4Address, Ipv4Cidr};
+use smoltcp::{
+    phy::{wait as phy_wait, Device, Medium},
+    time::Duration,
+};
 
 fn main() {
     #[cfg(feature = "log")]
@@ -22,7 +25,7 @@ fn main() {
     let mut matches = utils::parse_options(&opts, free);
     let device = utils::parse_tuntap_options(&mut matches);
     let fd = device.as_raw_fd();
-    let device = utils::parse_middleware_options(&mut matches, device, /*loopback=*/false);
+    let device = utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
 
     let neighbor_cache = NeighborCache::new(BTreeMap::new());
     let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
@@ -32,8 +35,8 @@ fn main() {
 
     let medium = device.capabilities().medium;
     let mut builder = InterfaceBuilder::new(device)
-            .ip_addrs(ip_addrs)
-            .routes(routes);
+        .ip_addrs(ip_addrs)
+        .routes(routes);
     if medium == Medium::Ethernet {
         builder = builder
             .ethernet_addr(ethernet_addr)
@@ -92,11 +95,11 @@ fn main() {
 }
 
 fn set_ipv4_addr<DeviceT>(iface: &mut Interface<'_, DeviceT>, cidr: Ipv4Cidr)
-    where DeviceT: for<'d> Device<'d>
+where
+    DeviceT: for<'d> Device<'d>,
 {
     iface.update_ip_addrs(|addrs| {
         let dest = addrs.iter_mut().next().unwrap();
         *dest = IpCidr::Ipv4(cidr);
     });
 }
-

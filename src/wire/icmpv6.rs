@@ -1,13 +1,13 @@
-use core::{cmp, fmt};
 use byteorder::{ByteOrder, NetworkEndian};
+use core::{cmp, fmt};
 
-use crate::{Error, Result};
 use crate::phy::ChecksumCapabilities;
 use crate::wire::ip::checksum;
-use crate::wire::{IpAddress, IpProtocol, Ipv6Packet, Ipv6Repr};
 use crate::wire::MldRepr;
 #[cfg(feature = "medium-ethernet")]
 use crate::wire::NdiscRepr;
+use crate::wire::{IpAddress, IpProtocol, Ipv6Packet, Ipv6Repr};
+use crate::{Error, Result};
 
 enum_with_unknown! {
     /// Internet protocol control message type.
@@ -57,8 +57,11 @@ impl Message {
     /// [NDISC]: https://tools.ietf.org/html/rfc4861
     pub fn is_ndisc(&self) -> bool {
         match *self {
-            Message::RouterSolicit | Message::RouterAdvert | Message::NeighborSolicit |
-            Message::NeighborAdvert | Message::Redirect => true,
+            Message::RouterSolicit
+            | Message::RouterAdvert
+            | Message::NeighborSolicit
+            | Message::NeighborAdvert
+            | Message::Redirect => true,
             _ => false,
         }
     }
@@ -78,20 +81,20 @@ impl Message {
 impl fmt::Display for Message {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Message::DstUnreachable  => write!(f, "destination unreachable"),
-            Message::PktTooBig       => write!(f, "packet too big"),
-            Message::TimeExceeded    => write!(f, "time exceeded"),
-            Message::ParamProblem    => write!(f, "parameter problem"),
-            Message::EchoReply       => write!(f, "echo reply"),
-            Message::EchoRequest     => write!(f, "echo request"),
-            Message::RouterSolicit   => write!(f, "router solicitation"),
-            Message::RouterAdvert    => write!(f, "router advertisement"),
+            Message::DstUnreachable => write!(f, "destination unreachable"),
+            Message::PktTooBig => write!(f, "packet too big"),
+            Message::TimeExceeded => write!(f, "time exceeded"),
+            Message::ParamProblem => write!(f, "parameter problem"),
+            Message::EchoReply => write!(f, "echo reply"),
+            Message::EchoRequest => write!(f, "echo request"),
+            Message::RouterSolicit => write!(f, "router solicitation"),
+            Message::RouterAdvert => write!(f, "router advertisement"),
             Message::NeighborSolicit => write!(f, "neighbor solicitation"),
-            Message::NeighborAdvert  => write!(f, "neighbor advert"),
-            Message::Redirect        => write!(f, "redirect"),
-            Message::MldQuery        => write!(f, "multicast listener query"),
-            Message::MldReport       => write!(f, "multicast listener report"),
-            Message::Unknown(id)     => write!(f, "{}", id)
+            Message::NeighborAdvert => write!(f, "neighbor advert"),
+            Message::Redirect => write!(f, "redirect"),
+            Message::MldQuery => write!(f, "multicast listener query"),
+            Message::MldReport => write!(f, "multicast listener report"),
+            Message::Unknown(id) => write!(f, "{}", id),
         }
     }
 }
@@ -119,22 +122,19 @@ enum_with_unknown! {
 impl fmt::Display for DstUnreachable {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            DstUnreachable::NoRoute =>
-               write!(f, "no route to destination"),
-            DstUnreachable::AdminProhibit =>
-               write!(f, "communication with destination administratively prohibited"),
-            DstUnreachable::BeyondScope =>
-               write!(f, "beyond scope of source address"),
-            DstUnreachable::AddrUnreachable =>
-               write!(f, "address unreachable"),
-            DstUnreachable::PortUnreachable =>
-               write!(f, "port unreachable"),
-            DstUnreachable::FailedPolicy =>
-               write!(f, "source address failed ingress/egress policy"),
-            DstUnreachable::RejectRoute =>
-               write!(f, "reject route to destination"),
-            DstUnreachable::Unknown(id) =>
-                write!(f, "{}", id)
+            DstUnreachable::NoRoute => write!(f, "no route to destination"),
+            DstUnreachable::AdminProhibit => write!(
+                f,
+                "communication with destination administratively prohibited"
+            ),
+            DstUnreachable::BeyondScope => write!(f, "beyond scope of source address"),
+            DstUnreachable::AddrUnreachable => write!(f, "address unreachable"),
+            DstUnreachable::PortUnreachable => write!(f, "port unreachable"),
+            DstUnreachable::FailedPolicy => {
+                write!(f, "source address failed ingress/egress policy")
+            }
+            DstUnreachable::RejectRoute => write!(f, "reject route to destination"),
+            DstUnreachable::Unknown(id) => write!(f, "{}", id),
         }
     }
 }
@@ -154,14 +154,10 @@ enum_with_unknown! {
 impl fmt::Display for ParamProblem {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            ParamProblem::ErroneousHdrField  =>
-               write!(f, "erroneous header field."),
-            ParamProblem::UnrecognizedNxtHdr =>
-               write!(f, "unrecognized next header type."),
-            ParamProblem::UnrecognizedOption =>
-               write!(f, "unrecognized IPv6 option."),
-            ParamProblem::Unknown(id) =>
-                write!(f, "{}", id)
+            ParamProblem::ErroneousHdrField => write!(f, "erroneous header field."),
+            ParamProblem::UnrecognizedNxtHdr => write!(f, "unrecognized next header type."),
+            ParamProblem::UnrecognizedOption => write!(f, "unrecognized IPv6 option."),
+            ParamProblem::Unknown(id) => write!(f, "{}", id),
         }
     }
 }
@@ -179,12 +175,9 @@ enum_with_unknown! {
 impl fmt::Display for TimeExceeded {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            TimeExceeded::HopLimitExceeded =>
-               write!(f, "hop limit exceeded in transit"),
-            TimeExceeded::FragReassemExceeded =>
-               write!(f, "fragment reassembly time exceeded"),
-            TimeExceeded::Unknown(id) =>
-                write!(f, "{}", id)
+            TimeExceeded::HopLimitExceeded => write!(f, "hop limit exceeded in transit"),
+            TimeExceeded::FragReassemExceeded => write!(f, "fragment reassembly time exceeded"),
+            TimeExceeded::Unknown(id) => write!(f, "{}", id),
         }
     }
 }
@@ -193,7 +186,7 @@ impl fmt::Display for TimeExceeded {
 #[derive(Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Packet<T: AsRef<[u8]>> {
-    pub(super) buffer: T
+    pub(super) buffer: T,
 }
 
 // Ranges and constants describing key boundaries in the ICMPv6 header.
@@ -201,54 +194,54 @@ pub(super) mod field {
     use crate::wire::field::*;
 
     // ICMPv6: See https://tools.ietf.org/html/rfc4443
-    pub const TYPE:              usize = 0;
-    pub const CODE:              usize = 1;
-    pub const CHECKSUM:          Field = 2..4;
+    pub const TYPE: usize = 0;
+    pub const CODE: usize = 1;
+    pub const CHECKSUM: Field = 2..4;
 
-    pub const UNUSED:            Field = 4..8;
-    pub const MTU:               Field = 4..8;
-    pub const POINTER:           Field = 4..8;
-    pub const ECHO_IDENT:        Field = 4..6;
-    pub const ECHO_SEQNO:        Field = 6..8;
+    pub const UNUSED: Field = 4..8;
+    pub const MTU: Field = 4..8;
+    pub const POINTER: Field = 4..8;
+    pub const ECHO_IDENT: Field = 4..6;
+    pub const ECHO_SEQNO: Field = 6..8;
 
-    pub const HEADER_END:        usize = 8;
+    pub const HEADER_END: usize = 8;
 
     // NDISC: See https://tools.ietf.org/html/rfc4861
     // Router Advertisement message offsets
-    pub const CUR_HOP_LIMIT:     usize = 4;
-    pub const ROUTER_FLAGS:      usize = 5;
-    pub const ROUTER_LT:         Field = 6..8;
-    pub const REACHABLE_TM:      Field = 8..12;
-    pub const RETRANS_TM:        Field = 12..16;
+    pub const CUR_HOP_LIMIT: usize = 4;
+    pub const ROUTER_FLAGS: usize = 5;
+    pub const ROUTER_LT: Field = 6..8;
+    pub const REACHABLE_TM: Field = 8..12;
+    pub const RETRANS_TM: Field = 12..16;
 
     // Neighbor Solicitation message offsets
-    pub const TARGET_ADDR:       Field = 8..24;
+    pub const TARGET_ADDR: Field = 8..24;
 
     // Neighbor Advertisement message offsets
-    pub const NEIGH_FLAGS:       usize = 4;
+    pub const NEIGH_FLAGS: usize = 4;
 
     // Redirected Header message offsets
-    pub const DEST_ADDR:         Field = 24..40;
+    pub const DEST_ADDR: Field = 24..40;
 
     // MLD:
     //   - https://tools.ietf.org/html/rfc3810
     //   - https://tools.ietf.org/html/rfc3810
     // Multicast Listener Query message
-    pub const MAX_RESP_CODE:     Field = 4..6;
-    pub const QUERY_RESV:        Field = 6..8;
-    pub const QUERY_MCAST_ADDR:  Field = 8..24;
-    pub const SQRV:              usize = 24;
-    pub const QQIC:              usize = 25;
-    pub const QUERY_NUM_SRCS:    Field = 26..28;
+    pub const MAX_RESP_CODE: Field = 4..6;
+    pub const QUERY_RESV: Field = 6..8;
+    pub const QUERY_MCAST_ADDR: Field = 8..24;
+    pub const SQRV: usize = 24;
+    pub const QQIC: usize = 25;
+    pub const QUERY_NUM_SRCS: Field = 26..28;
 
     // Multicast Listener Report Message
-    pub const RECORD_RESV:       Field = 4..6;
-    pub const NR_MCAST_RCRDS:    Field = 6..8;
+    pub const RECORD_RESV: Field = 4..6;
+    pub const NR_MCAST_RCRDS: Field = 6..8;
 
     // Multicast Address Record Offsets
-    pub const RECORD_TYPE:       usize = 0;
-    pub const AUX_DATA_LEN:      usize = 1;
-    pub const RECORD_NUM_SRCS:   Field = 2..4;
+    pub const RECORD_TYPE: usize = 0;
+    pub const AUX_DATA_LEN: usize = 1;
+    pub const RECORD_NUM_SRCS: Field = 2..4;
     pub const RECORD_MCAST_ADDR: Field = 4..20;
 }
 
@@ -333,29 +326,28 @@ impl<T: AsRef<[u8]>> Packet<T> {
         NetworkEndian::read_u32(&data[field::POINTER])
     }
 
-
     /// Return the header length. The result depends on the value of
     /// the message type field.
     pub fn header_len(&self) -> usize {
         match self.msg_type() {
-            Message::DstUnreachable  => field::UNUSED.end,
-            Message::PktTooBig       => field::MTU.end,
-            Message::TimeExceeded    => field::UNUSED.end,
-            Message::ParamProblem    => field::POINTER.end,
-            Message::EchoRequest     => field::ECHO_SEQNO.end,
-            Message::EchoReply       => field::ECHO_SEQNO.end,
-            Message::RouterSolicit   => field::UNUSED.end,
-            Message::RouterAdvert    => field::RETRANS_TM.end,
+            Message::DstUnreachable => field::UNUSED.end,
+            Message::PktTooBig => field::MTU.end,
+            Message::TimeExceeded => field::UNUSED.end,
+            Message::ParamProblem => field::POINTER.end,
+            Message::EchoRequest => field::ECHO_SEQNO.end,
+            Message::EchoReply => field::ECHO_SEQNO.end,
+            Message::RouterSolicit => field::UNUSED.end,
+            Message::RouterAdvert => field::RETRANS_TM.end,
             Message::NeighborSolicit => field::TARGET_ADDR.end,
-            Message::NeighborAdvert  => field::TARGET_ADDR.end,
-            Message::Redirect        => field::DEST_ADDR.end,
-            Message::MldQuery        => field::QUERY_NUM_SRCS.end,
-            Message::MldReport       => field::NR_MCAST_RCRDS.end,
+            Message::NeighborAdvert => field::TARGET_ADDR.end,
+            Message::Redirect => field::DEST_ADDR.end,
+            Message::MldQuery => field::QUERY_NUM_SRCS.end,
+            Message::MldReport => field::NR_MCAST_RCRDS.end,
             // For packets that are not included in RFC 4443, do not
             // include the last 32 bits of the ICMPv6 header in
             // `header_bytes`. This must be done so that these bytes
             // can be accessed in the `payload`.
-            _ => field::CHECKSUM.end
+            _ => field::CHECKSUM.end,
         }
     }
 
@@ -364,13 +356,14 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// # Fuzzing
     /// This function always returns `true` when fuzzing.
     pub fn verify_checksum(&self, src_addr: &IpAddress, dst_addr: &IpAddress) -> bool {
-        if cfg!(fuzzing) { return true }
+        if cfg!(fuzzing) {
+            return true;
+        }
 
         let data = self.buffer.as_ref();
         checksum::combine(&[
-            checksum::pseudo_header(src_addr, dst_addr, IpProtocol::Icmpv6,
-                                    data.len() as u32),
-            checksum::data(data)
+            checksum::pseudo_header(src_addr, dst_addr, IpProtocol::Icmpv6, data.len() as u32),
+            checksum::data(data),
         ]) == !0
     }
 }
@@ -409,16 +402,18 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     #[inline]
     pub fn clear_reserved(&mut self) {
         match self.msg_type() {
-            Message::RouterSolicit | Message::NeighborSolicit |
-            Message::NeighborAdvert | Message::Redirect => {
+            Message::RouterSolicit
+            | Message::NeighborSolicit
+            | Message::NeighborAdvert
+            | Message::Redirect => {
                 let data = self.buffer.as_mut();
                 NetworkEndian::write_u32(&mut data[field::UNUSED], 0);
-            },
+            }
             Message::MldQuery => {
                 let data = self.buffer.as_mut();
                 NetworkEndian::write_u16(&mut data[field::QUERY_RESV], 0);
                 data[field::SQRV] &= 0xf;
-            },
+            }
             Message::MldReport => {
                 let data = self.buffer.as_mut();
                 NetworkEndian::write_u16(&mut data[field::RECORD_RESV], 0);
@@ -479,9 +474,8 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
         let checksum = {
             let data = self.buffer.as_ref();
             !checksum::combine(&[
-                checksum::pseudo_header(src_addr, dst_addr, IpProtocol::Icmpv6,
-                                        data.len() as u32),
-                checksum::data(data)
+                checksum::pseudo_header(src_addr, dst_addr, IpProtocol::Icmpv6, data.len() as u32),
+                checksum::data(data),
             ])
         };
         self.set_checksum(checksum)
@@ -510,33 +504,33 @@ pub enum Repr<'a> {
     DstUnreachable {
         reason: DstUnreachable,
         header: Ipv6Repr,
-        data:   &'a [u8]
+        data: &'a [u8],
     },
     PktTooBig {
         mtu: u32,
         header: Ipv6Repr,
-        data:   &'a [u8]
+        data: &'a [u8],
     },
     TimeExceeded {
         reason: TimeExceeded,
         header: Ipv6Repr,
-        data:   &'a [u8]
+        data: &'a [u8],
     },
     ParamProblem {
-        reason:  ParamProblem,
+        reason: ParamProblem,
         pointer: u32,
-        header:  Ipv6Repr,
-        data:    &'a [u8]
+        header: Ipv6Repr,
+        data: &'a [u8],
     },
     EchoRequest {
-        ident:  u16,
+        ident: u16,
         seq_no: u16,
-        data:   &'a [u8]
+        data: &'a [u8],
     },
     EchoReply {
-        ident:  u16,
+        ident: u16,
         seq_no: u16,
-        data:   &'a [u8]
+        data: &'a [u8],
     },
     #[cfg(feature = "medium-ethernet")]
     Ndisc(NdiscRepr<'a>),
@@ -546,29 +540,37 @@ pub enum Repr<'a> {
 impl<'a> Repr<'a> {
     /// Parse an Internet Control Message Protocol version 6 packet and return
     /// a high-level representation.
-    pub fn parse<T>(src_addr: &IpAddress, dst_addr: &IpAddress,
-                    packet: &Packet<&'a T>, checksum_caps: &ChecksumCapabilities)
-                   -> Result<Repr<'a>>
-                where T: AsRef<[u8]> + ?Sized {
-        fn create_packet_from_payload<'a, T>(packet: &Packet<&'a T>)
-                                            -> Result<(&'a [u8], Ipv6Repr)>
-                where T: AsRef<[u8]> + ?Sized {
+    pub fn parse<T>(
+        src_addr: &IpAddress,
+        dst_addr: &IpAddress,
+        packet: &Packet<&'a T>,
+        checksum_caps: &ChecksumCapabilities,
+    ) -> Result<Repr<'a>>
+    where
+        T: AsRef<[u8]> + ?Sized,
+    {
+        fn create_packet_from_payload<'a, T>(packet: &Packet<&'a T>) -> Result<(&'a [u8], Ipv6Repr)>
+        where
+            T: AsRef<[u8]> + ?Sized,
+        {
             let ip_packet = Ipv6Packet::new_checked(packet.payload())?;
 
             let payload = &packet.payload()[ip_packet.header_len() as usize..];
-            if payload.len() < 8 { return Err(Error::Truncated) }
+            if payload.len() < 8 {
+                return Err(Error::Truncated);
+            }
             let repr = Ipv6Repr {
                 src_addr: ip_packet.src_addr(),
                 dst_addr: ip_packet.dst_addr(),
                 next_header: ip_packet.next_header(),
                 payload_len: payload.len(),
-                hop_limit: ip_packet.hop_limit()
+                hop_limit: ip_packet.hop_limit(),
             };
             Ok((payload, repr))
         }
         // Valid checksum is expected.
         if checksum_caps.icmpv6.rx() && !packet.verify_checksum(src_addr, dst_addr) {
-            return Err(Error::Checksum)
+            return Err(Error::Checksum);
         }
 
         match (packet.msg_type(), packet.msg_code()) {
@@ -577,149 +579,161 @@ impl<'a> Repr<'a> {
                 Ok(Repr::DstUnreachable {
                     reason: DstUnreachable::from(code),
                     header: repr,
-                    data: payload
+                    data: payload,
                 })
-            },
+            }
             (Message::PktTooBig, 0) => {
                 let (payload, repr) = create_packet_from_payload(packet)?;
                 Ok(Repr::PktTooBig {
                     mtu: packet.pkt_too_big_mtu(),
                     header: repr,
-                    data: payload
+                    data: payload,
                 })
-            },
+            }
             (Message::TimeExceeded, code) => {
                 let (payload, repr) = create_packet_from_payload(packet)?;
                 Ok(Repr::TimeExceeded {
                     reason: TimeExceeded::from(code),
                     header: repr,
-                    data: payload
+                    data: payload,
                 })
-            },
+            }
             (Message::ParamProblem, code) => {
                 let (payload, repr) = create_packet_from_payload(packet)?;
                 Ok(Repr::ParamProblem {
                     reason: ParamProblem::from(code),
                     pointer: packet.param_problem_ptr(),
                     header: repr,
-                    data: payload
+                    data: payload,
                 })
-            },
-            (Message::EchoRequest, 0) => {
-                Ok(Repr::EchoRequest {
-                    ident:  packet.echo_ident(),
-                    seq_no: packet.echo_seq_no(),
-                    data:   packet.payload()
-                })
-            },
-            (Message::EchoReply, 0) => {
-                Ok(Repr::EchoReply {
-                    ident:  packet.echo_ident(),
-                    seq_no: packet.echo_seq_no(),
-                    data:   packet.payload()
-                })
-            },
+            }
+            (Message::EchoRequest, 0) => Ok(Repr::EchoRequest {
+                ident: packet.echo_ident(),
+                seq_no: packet.echo_seq_no(),
+                data: packet.payload(),
+            }),
+            (Message::EchoReply, 0) => Ok(Repr::EchoReply {
+                ident: packet.echo_ident(),
+                seq_no: packet.echo_seq_no(),
+                data: packet.payload(),
+            }),
             #[cfg(feature = "medium-ethernet")]
-            (msg_type, 0) if msg_type.is_ndisc() => {
-                NdiscRepr::parse(packet).map(Repr::Ndisc)
-            },
-            (msg_type, 0) if msg_type.is_mld() => {
-                MldRepr::parse(packet).map(Repr::Mld)
-            },
-            _ => Err(Error::Unrecognized)
+            (msg_type, 0) if msg_type.is_ndisc() => NdiscRepr::parse(packet).map(Repr::Ndisc),
+            (msg_type, 0) if msg_type.is_mld() => MldRepr::parse(packet).map(Repr::Mld),
+            _ => Err(Error::Unrecognized),
         }
     }
 
     /// Return the length of a packet that will be emitted from this high-level representation.
     pub fn buffer_len(&self) -> usize {
         match self {
-            &Repr::DstUnreachable { header, data, .. } | &Repr::PktTooBig { header, data, .. } |
-            &Repr::TimeExceeded { header, data, .. } | &Repr::ParamProblem { header, data, .. } => {
+            &Repr::DstUnreachable { header, data, .. }
+            | &Repr::PktTooBig { header, data, .. }
+            | &Repr::TimeExceeded { header, data, .. }
+            | &Repr::ParamProblem { header, data, .. } => {
                 field::UNUSED.end + header.buffer_len() + data.len()
             }
-            &Repr::EchoRequest { data, .. } |
-            &Repr::EchoReply { data, .. } => {
+            &Repr::EchoRequest { data, .. } | &Repr::EchoReply { data, .. } => {
                 field::ECHO_SEQNO.end + data.len()
-            },
+            }
             #[cfg(feature = "medium-ethernet")]
-            &Repr::Ndisc(ndisc) => {
-                ndisc.buffer_len()
-            },
-            &Repr::Mld(mld) => {
-                mld.buffer_len()
-            },
+            &Repr::Ndisc(ndisc) => ndisc.buffer_len(),
+            &Repr::Mld(mld) => mld.buffer_len(),
         }
     }
 
     /// Emit a high-level representation into an Internet Control Message Protocol version 6
     /// packet.
-    pub fn emit<T>(&self, src_addr: &IpAddress, dst_addr: &IpAddress,
-                   packet: &mut Packet<&mut T>, checksum_caps: &ChecksumCapabilities)
-            where T: AsRef<[u8]> + AsMut<[u8]> + ?Sized {
+    pub fn emit<T>(
+        &self,
+        src_addr: &IpAddress,
+        dst_addr: &IpAddress,
+        packet: &mut Packet<&mut T>,
+        checksum_caps: &ChecksumCapabilities,
+    ) where
+        T: AsRef<[u8]> + AsMut<[u8]> + ?Sized,
+    {
         fn emit_contained_packet(buffer: &mut [u8], header: Ipv6Repr, data: &[u8]) {
             let mut ip_packet = Ipv6Packet::new_unchecked(buffer);
             header.emit(&mut ip_packet);
             let payload = &mut ip_packet.into_inner()[header.buffer_len()..];
-            payload.copy_from_slice(&data[..]);
+            payload.copy_from_slice(data);
         }
 
         match *self {
-            Repr::DstUnreachable { reason, header, data } => {
+            Repr::DstUnreachable {
+                reason,
+                header,
+                data,
+            } => {
                 packet.set_msg_type(Message::DstUnreachable);
                 packet.set_msg_code(reason.into());
 
-                emit_contained_packet(packet.payload_mut(), header, &data);
-            },
+                emit_contained_packet(packet.payload_mut(), header, data);
+            }
 
             Repr::PktTooBig { mtu, header, data } => {
                 packet.set_msg_type(Message::PktTooBig);
                 packet.set_msg_code(0);
                 packet.set_pkt_too_big_mtu(mtu);
 
-                emit_contained_packet(packet.payload_mut(), header, &data);
-            },
+                emit_contained_packet(packet.payload_mut(), header, data);
+            }
 
-            Repr::TimeExceeded { reason, header, data } => {
+            Repr::TimeExceeded {
+                reason,
+                header,
+                data,
+            } => {
                 packet.set_msg_type(Message::TimeExceeded);
                 packet.set_msg_code(reason.into());
 
-                emit_contained_packet(packet.payload_mut(), header, &data);
-            },
+                emit_contained_packet(packet.payload_mut(), header, data);
+            }
 
-            Repr::ParamProblem { reason, pointer, header, data } => {
+            Repr::ParamProblem {
+                reason,
+                pointer,
+                header,
+                data,
+            } => {
                 packet.set_msg_type(Message::ParamProblem);
                 packet.set_msg_code(reason.into());
                 packet.set_param_problem_ptr(pointer);
 
-                emit_contained_packet(packet.payload_mut(), header, &data);
-            },
+                emit_contained_packet(packet.payload_mut(), header, data);
+            }
 
-            Repr::EchoRequest { ident, seq_no, data } => {
+            Repr::EchoRequest {
+                ident,
+                seq_no,
+                data,
+            } => {
                 packet.set_msg_type(Message::EchoRequest);
                 packet.set_msg_code(0);
                 packet.set_echo_ident(ident);
                 packet.set_echo_seq_no(seq_no);
                 let data_len = cmp::min(packet.payload_mut().len(), data.len());
                 packet.payload_mut()[..data_len].copy_from_slice(&data[..data_len])
-            },
+            }
 
-            Repr::EchoReply { ident, seq_no, data } => {
+            Repr::EchoReply {
+                ident,
+                seq_no,
+                data,
+            } => {
                 packet.set_msg_type(Message::EchoReply);
                 packet.set_msg_code(0);
                 packet.set_echo_ident(ident);
                 packet.set_echo_seq_no(seq_no);
                 let data_len = cmp::min(packet.payload_mut().len(), data.len());
                 packet.payload_mut()[..data_len].copy_from_slice(&data[..data_len])
-            },
+            }
 
             #[cfg(feature = "medium-ethernet")]
-            Repr::Ndisc(ndisc) => {
-                ndisc.emit(packet)
-            },
+            Repr::Ndisc(ndisc) => ndisc.emit(packet),
 
-            Repr::Mld(mld) => {
-                mld.emit(packet)
-            },
+            Repr::Mld(mld) => mld.emit(packet),
         }
 
         if checksum_caps.icmpv6.tx() {
@@ -733,60 +747,39 @@ impl<'a> Repr<'a> {
 
 #[cfg(test)]
 mod test {
-    use crate::wire::{Ipv6Address, Ipv6Repr, IpProtocol};
-    use crate::wire::ip::test::{MOCK_IP_ADDR_1, MOCK_IP_ADDR_2};
     use super::*;
+    use crate::wire::ip::test::{MOCK_IP_ADDR_1, MOCK_IP_ADDR_2};
+    use crate::wire::{IpProtocol, Ipv6Address, Ipv6Repr};
 
-    static ECHO_PACKET_BYTES: [u8; 12] =
-        [0x80, 0x00, 0x19, 0xb3,
-         0x12, 0x34, 0xab, 0xcd,
-         0xaa, 0x00, 0x00, 0xff];
+    static ECHO_PACKET_BYTES: [u8; 12] = [
+        0x80, 0x00, 0x19, 0xb3, 0x12, 0x34, 0xab, 0xcd, 0xaa, 0x00, 0x00, 0xff,
+    ];
 
-    static ECHO_PACKET_PAYLOAD: [u8; 4] =
-        [0xaa, 0x00, 0x00, 0xff];
+    static ECHO_PACKET_PAYLOAD: [u8; 4] = [0xaa, 0x00, 0x00, 0xff];
 
-    static PKT_TOO_BIG_BYTES: [u8; 60] =
-        [0x02, 0x00, 0x0f, 0xc9,
-         0x00, 0x00, 0x05, 0xdc,
-         0x60, 0x00, 0x00, 0x00,
-         0x00, 0x0c, 0x11, 0x40,
-         0xfe, 0x80, 0x00, 0x00,
-         0x00, 0x00, 0x00, 0x00,
-         0x00, 0x00, 0x00, 0x00,
-         0x00, 0x00, 0x00, 0x01,
-         0xfe, 0x80, 0x00, 0x00,
-         0x00, 0x00, 0x00, 0x00,
-         0x00, 0x00, 0x00, 0x00,
-         0x00, 0x00, 0x00, 0x02,
-         0xbf, 0x00, 0x00, 0x35,
-         0x00, 0x0c, 0x12, 0x4d,
-         0xaa, 0x00, 0x00, 0xff];
+    static PKT_TOO_BIG_BYTES: [u8; 60] = [
+        0x02, 0x00, 0x0f, 0xc9, 0x00, 0x00, 0x05, 0xdc, 0x60, 0x00, 0x00, 0x00, 0x00, 0x0c, 0x11,
+        0x40, 0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x01, 0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x02, 0xbf, 0x00, 0x00, 0x35, 0x00, 0x0c, 0x12, 0x4d, 0xaa, 0x00, 0x00, 0xff,
+    ];
 
-    static PKT_TOO_BIG_IP_PAYLOAD: [u8; 52] =
-        [0x60, 0x00, 0x00, 0x00,
-         0x00, 0x0c, 0x11, 0x40,
-         0xfe, 0x80, 0x00, 0x00,
-         0x00, 0x00, 0x00, 0x00,
-         0x00, 0x00, 0x00, 0x00,
-         0x00, 0x00, 0x00, 0x01,
-         0xfe, 0x80, 0x00, 0x00,
-         0x00, 0x00, 0x00, 0x00,
-         0x00, 0x00, 0x00, 0x00,
-         0x00, 0x00, 0x00, 0x02,
-         0xbf, 0x00, 0x00, 0x35,
-         0x00, 0x0c, 0x12, 0x4d,
-         0xaa, 0x00, 0x00, 0xff];
+    static PKT_TOO_BIG_IP_PAYLOAD: [u8; 52] = [
+        0x60, 0x00, 0x00, 0x00, 0x00, 0x0c, 0x11, 0x40, 0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0xfe, 0x80, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xbf, 0x00, 0x00, 0x35, 0x00,
+        0x0c, 0x12, 0x4d, 0xaa, 0x00, 0x00, 0xff,
+    ];
 
-    static PKT_TOO_BIG_UDP_PAYLOAD: [u8; 12] =
-        [0xbf, 0x00, 0x00, 0x35,
-         0x00, 0x0c, 0x12, 0x4d,
-         0xaa, 0x00, 0x00, 0xff];
+    static PKT_TOO_BIG_UDP_PAYLOAD: [u8; 12] = [
+        0xbf, 0x00, 0x00, 0x35, 0x00, 0x0c, 0x12, 0x4d, 0xaa, 0x00, 0x00, 0xff,
+    ];
 
     fn echo_packet_repr() -> Repr<'static> {
         Repr::EchoRequest {
             ident: 0x1234,
             seq_no: 0xabcd,
-            data: &ECHO_PACKET_PAYLOAD
+            data: &ECHO_PACKET_PAYLOAD,
         }
     }
 
@@ -794,17 +787,17 @@ mod test {
         Repr::PktTooBig {
             mtu: 1500,
             header: Ipv6Repr {
-                src_addr: Ipv6Address([0xfe, 0x80, 0x00, 0x00,
-                                       0x00, 0x00, 0x00, 0x00,
-                                       0x00, 0x00, 0x00, 0x00,
-                                       0x00, 0x00, 0x00, 0x01]),
-                dst_addr: Ipv6Address([0xfe, 0x80, 0x00, 0x00,
-                                       0x00, 0x00, 0x00, 0x00,
-                                       0x00, 0x00, 0x00, 0x00,
-                                       0x00, 0x00, 0x00, 0x02]),
+                src_addr: Ipv6Address([
+                    0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x01,
+                ]),
+                dst_addr: Ipv6Address([
+                    0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x02,
+                ]),
                 next_header: IpProtocol::Udp,
                 payload_len: 12,
-                hop_limit: 0x40
+                hop_limit: 0x40,
             },
             data: &PKT_TOO_BIG_UDP_PAYLOAD,
         }
@@ -819,7 +812,10 @@ mod test {
         assert_eq!(packet.echo_ident(), 0x1234);
         assert_eq!(packet.echo_seq_no(), 0xabcd);
         assert_eq!(packet.payload(), &ECHO_PACKET_PAYLOAD[..]);
-        assert_eq!(packet.verify_checksum(&MOCK_IP_ADDR_1, &MOCK_IP_ADDR_2), true);
+        assert_eq!(
+            packet.verify_checksum(&MOCK_IP_ADDR_1, &MOCK_IP_ADDR_2),
+            true
+        );
         assert!(!packet.msg_type().is_error());
     }
 
@@ -831,7 +827,9 @@ mod test {
         packet.set_msg_code(0);
         packet.set_echo_ident(0x1234);
         packet.set_echo_seq_no(0xabcd);
-        packet.payload_mut().copy_from_slice(&ECHO_PACKET_PAYLOAD[..]);
+        packet
+            .payload_mut()
+            .copy_from_slice(&ECHO_PACKET_PAYLOAD[..]);
         packet.fill_checksum(&MOCK_IP_ADDR_1, &MOCK_IP_ADDR_2);
         assert_eq!(&packet.into_inner()[..], &ECHO_PACKET_BYTES[..]);
     }
@@ -839,8 +837,13 @@ mod test {
     #[test]
     fn test_echo_repr_parse() {
         let packet = Packet::new_unchecked(&ECHO_PACKET_BYTES[..]);
-        let repr = Repr::parse(&MOCK_IP_ADDR_1, &MOCK_IP_ADDR_2,
-                               &packet, &ChecksumCapabilities::default()).unwrap();
+        let repr = Repr::parse(
+            &MOCK_IP_ADDR_1,
+            &MOCK_IP_ADDR_2,
+            &packet,
+            &ChecksumCapabilities::default(),
+        )
+        .unwrap();
         assert_eq!(repr, echo_packet_repr());
     }
 
@@ -849,8 +852,12 @@ mod test {
         let repr = echo_packet_repr();
         let mut bytes = vec![0xa5; repr.buffer_len()];
         let mut packet = Packet::new_unchecked(&mut bytes);
-        repr.emit(&MOCK_IP_ADDR_1, &MOCK_IP_ADDR_2,
-                  &mut packet, &ChecksumCapabilities::default());
+        repr.emit(
+            &MOCK_IP_ADDR_1,
+            &MOCK_IP_ADDR_2,
+            &mut packet,
+            &ChecksumCapabilities::default(),
+        );
         assert_eq!(&packet.into_inner()[..], &ECHO_PACKET_BYTES[..]);
     }
 
@@ -862,7 +869,10 @@ mod test {
         assert_eq!(packet.checksum(), 0x0fc9);
         assert_eq!(packet.pkt_too_big_mtu(), 1500);
         assert_eq!(packet.payload(), &PKT_TOO_BIG_IP_PAYLOAD[..]);
-        assert_eq!(packet.verify_checksum(&MOCK_IP_ADDR_1, &MOCK_IP_ADDR_2), true);
+        assert_eq!(
+            packet.verify_checksum(&MOCK_IP_ADDR_1, &MOCK_IP_ADDR_2),
+            true
+        );
         assert!(packet.msg_type().is_error());
     }
 
@@ -873,7 +883,9 @@ mod test {
         packet.set_msg_type(Message::PktTooBig);
         packet.set_msg_code(0);
         packet.set_pkt_too_big_mtu(1500);
-        packet.payload_mut().copy_from_slice(&PKT_TOO_BIG_IP_PAYLOAD[..]);
+        packet
+            .payload_mut()
+            .copy_from_slice(&PKT_TOO_BIG_IP_PAYLOAD[..]);
         packet.fill_checksum(&MOCK_IP_ADDR_1, &MOCK_IP_ADDR_2);
         assert_eq!(&packet.into_inner()[..], &PKT_TOO_BIG_BYTES[..]);
     }
@@ -881,8 +893,13 @@ mod test {
     #[test]
     fn test_too_big_repr_parse() {
         let packet = Packet::new_unchecked(&PKT_TOO_BIG_BYTES[..]);
-        let repr = Repr::parse(&MOCK_IP_ADDR_1, &MOCK_IP_ADDR_2,
-                               &packet, &ChecksumCapabilities::default()).unwrap();
+        let repr = Repr::parse(
+            &MOCK_IP_ADDR_1,
+            &MOCK_IP_ADDR_2,
+            &packet,
+            &ChecksumCapabilities::default(),
+        )
+        .unwrap();
         assert_eq!(repr, too_big_packet_repr());
     }
 
@@ -891,8 +908,12 @@ mod test {
         let repr = too_big_packet_repr();
         let mut bytes = vec![0xa5; repr.buffer_len()];
         let mut packet = Packet::new_unchecked(&mut bytes);
-        repr.emit(&MOCK_IP_ADDR_1, &MOCK_IP_ADDR_2,
-                  &mut packet, &ChecksumCapabilities::default());
+        repr.emit(
+            &MOCK_IP_ADDR_1,
+            &MOCK_IP_ADDR_2,
+            &mut packet,
+            &ChecksumCapabilities::default(),
+        );
         assert_eq!(&packet.into_inner()[..], &PKT_TOO_BIG_BYTES[..]);
     }
 }

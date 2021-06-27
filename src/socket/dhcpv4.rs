@@ -1,12 +1,12 @@
-use crate::{Error, Result};
-use crate::wire::{IpProtocol, IpAddress,
-           Ipv4Cidr, Ipv4Address, Ipv4Repr,
-           UdpRepr, UDP_HEADER_LEN,
-           DhcpPacket, DhcpRepr, DhcpMessageType, DHCP_CLIENT_PORT, DHCP_SERVER_PORT, DHCP_MAX_DNS_SERVER_COUNT};
-use crate::wire::dhcpv4::{field as dhcpv4_field};
-use crate::socket::{SocketMeta, Context};
-use crate::time::{Instant, Duration};
 use crate::socket::SocketHandle;
+use crate::socket::{Context, SocketMeta};
+use crate::time::{Duration, Instant};
+use crate::wire::dhcpv4::field as dhcpv4_field;
+use crate::wire::{
+    DhcpMessageType, DhcpPacket, DhcpRepr, IpAddress, IpProtocol, Ipv4Address, Ipv4Cidr, Ipv4Repr,
+    UdpRepr, DHCP_CLIENT_PORT, DHCP_MAX_DNS_SERVER_COUNT, DHCP_SERVER_PORT, UDP_HEADER_LEN,
+};
+use crate::{Error, Result};
 
 use super::{PollAt, Socket};
 
@@ -31,7 +31,7 @@ const PARAMETER_REQUEST_LIST: &[u8] = &[
 #[derive(Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Config {
-    /// IP address 
+    /// IP address
     pub address: Ipv4Cidr,
     /// Router address, also known as default gateway. Does not necessarily
     /// match the DHCP server's address.
@@ -133,7 +133,7 @@ impl Dhcpv4Socket {
     pub fn new() -> Self {
         Dhcpv4Socket {
             meta: SocketMeta::default(),
-            state: ClientState::Discovering(DiscoverState{
+            state: ClientState::Discovering(DiscoverState {
                 retry_at: Instant::from_millis(0),
             }),
             config_changed: true,
@@ -159,7 +159,13 @@ impl Dhcpv4Socket {
         PollAt::Time(t)
     }
 
-    pub(crate) fn process(&mut self, cx: &Context, ip_repr: &Ipv4Repr, repr: &UdpRepr, payload: &[u8]) -> Result<()> {
+    pub(crate) fn process(
+        &mut self,
+        cx: &Context,
+        ip_repr: &Ipv4Repr,
+        repr: &UdpRepr,
+        payload: &[u8],
+    ) -> Result<()> {
         let src_ip = ip_repr.src_addr;
 
         // This is enforced in interface.rs.
@@ -179,25 +185,37 @@ impl Dhcpv4Socket {
                 return Ok(());
             }
         };
-        if dhcp_repr.client_hardware_address != cx.ethernet_address.unwrap() { return Ok(()) }
-        if dhcp_repr.transaction_id != self.transaction_id { return Ok(()) }
+        if dhcp_repr.client_hardware_address != cx.ethernet_address.unwrap() {
+            return Ok(());
+        }
+        if dhcp_repr.transaction_id != self.transaction_id {
+            return Ok(());
+        }
         let server_identifier = match dhcp_repr.server_identifier {
             Some(server_identifier) => server_identifier,
             None => {
-                net_debug!("DHCP ignoring {:?} because missing server_identifier", dhcp_repr.message_type);
+                net_debug!(
+                    "DHCP ignoring {:?} because missing server_identifier",
+                    dhcp_repr.message_type
+                );
                 return Ok(());
             }
         };
 
-        net_debug!("DHCP recv {:?} from {} ({})", dhcp_repr.message_type, src_ip, server_identifier);
-        
-        match (&mut self.state, dhcp_repr.message_type){
+        net_debug!(
+            "DHCP recv {:?} from {} ({})",
+            dhcp_repr.message_type,
+            src_ip,
+            server_identifier
+        );
+
+        match (&mut self.state, dhcp_repr.message_type) {
             (ClientState::Discovering(_state), DhcpMessageType::Offer) => {
                 if !dhcp_repr.your_ip.is_unicast() {
                     net_debug!("DHCP ignoring OFFER because your_ip is not unicast");
-                    return Ok(())
+                    return Ok(());
                 }
-                
+
                 self.state = ClientState::Requesting(RequestState {
                     retry_at: cx.now,
                     retry: 0,
@@ -205,13 +223,15 @@ impl Dhcpv4Socket {
                         address: src_ip,
                         identifier: server_identifier,
                     },
-                    requested_ip: dhcp_repr.your_ip // use the offered ip
+                    requested_ip: dhcp_repr.your_ip, // use the offered ip
                 });
             }
             (ClientState::Requesting(state), DhcpMessageType::Ack) => {
-                if let Some((config, renew_at, expires_at)) = Self::parse_ack(cx.now, &dhcp_repr, self.max_lease_duration) {
+                if let Some((config, renew_at, expires_at)) =
+                    Self::parse_ack(cx.now, &dhcp_repr, self.max_lease_duration)
+                {
                     self.config_changed = true;
-                    self.state = ClientState::Renewing(RenewState{
+                    self.state = ClientState::Renewing(RenewState {
                         server: state.server,
                         config,
                         renew_at,
@@ -223,7 +243,9 @@ impl Dhcpv4Socket {
                 self.reset();
             }
             (ClientState::Renewing(state), DhcpMessageType::Ack) => {
-                if let Some((config, renew_at, expires_at)) = Self::parse_ack(cx.now, &dhcp_repr, self.max_lease_duration) {
+                if let Some((config, renew_at, expires_at)) =
+                    Self::parse_ack(cx.now, &dhcp_repr, self.max_lease_duration)
+                {
                     state.renew_at = renew_at;
                     state.expires_at = expires_at;
                     if state.config != config {
@@ -236,19 +258,26 @@ impl Dhcpv4Socket {
                 self.reset();
             }
             _ => {
-                net_debug!("DHCP ignoring {:?}: unexpected in current state", dhcp_repr.message_type);
+                net_debug!(
+                    "DHCP ignoring {:?}: unexpected in current state",
+                    dhcp_repr.message_type
+                );
             }
         }
 
         Ok(())
     }
 
-    fn parse_ack(now: Instant, dhcp_repr: &DhcpRepr, max_lease_duration: Option<Duration>) -> Option<(Config, Instant, Instant)> {
+    fn parse_ack(
+        now: Instant,
+        dhcp_repr: &DhcpRepr,
+        max_lease_duration: Option<Duration>,
+    ) -> Option<(Config, Instant, Instant)> {
         let subnet_mask = match dhcp_repr.subnet_mask {
             Some(subnet_mask) => subnet_mask,
             None => {
                 net_debug!("DHCP ignoring ACK because missing subnet_mask");
-                return None
+                return None;
             }
         };
 
@@ -256,16 +285,19 @@ impl Dhcpv4Socket {
             Some(prefix_len) => prefix_len,
             None => {
                 net_debug!("DHCP ignoring ACK because subnet_mask is not a valid mask");
-                return None
+                return None;
             }
         };
 
         if !dhcp_repr.your_ip.is_unicast() {
             net_debug!("DHCP ignoring ACK because your_ip is not unicast");
-            return None
+            return None;
         }
 
-        let mut lease_duration = dhcp_repr.lease_duration.map(|d| Duration::from_secs(d as _)).unwrap_or(DEFAULT_LEASE_DURATION);
+        let mut lease_duration = dhcp_repr
+            .lease_duration
+            .map(|d| Duration::from_secs(d as _))
+            .unwrap_or(DEFAULT_LEASE_DURATION);
         if let Some(max_lease_duration) = max_lease_duration {
             lease_duration = lease_duration.min(max_lease_duration);
         }
@@ -275,20 +307,18 @@ impl Dhcpv4Socket {
         let mut dns_servers = [None; DHCP_MAX_DNS_SERVER_COUNT];
         if let Some(received) = dhcp_repr.dns_servers {
             let mut i = 0;
-            for addr in received.iter() {
-                if let Some(addr) = addr{
-                    if addr.is_unicast() {
-                        // This can never be out-of-bounds since both arrays have length DHCP_MAX_DNS_SERVER_COUNT
-                        dns_servers[i] = Some(*addr);
-                        i += 1;
-                    }
+            for addr in received.iter().flatten() {
+                if addr.is_unicast() {
+                    // This can never be out-of-bounds since both arrays have length DHCP_MAX_DNS_SERVER_COUNT
+                    dns_servers[i] = Some(*addr);
+                    i += 1;
                 }
             }
         }
-        let config = Config{
+        let config = Config {
             address: Ipv4Cidr::new(dhcp_repr.your_ip, prefix_len),
             router: dhcp_repr.router,
-            dns_servers: dns_servers
+            dns_servers: dns_servers,
         };
 
         // RFC 2131 indicates clients should renew a lease halfway through its expiration.
@@ -299,9 +329,10 @@ impl Dhcpv4Socket {
     }
 
     pub(crate) fn dispatch<F>(&mut self, cx: &Context, emit: F) -> Result<()>
-            where F: FnOnce((Ipv4Repr, UdpRepr, DhcpRepr)) -> Result<()> {
-
-        // note: Dhcpv4Socket is only usable in ethernet mediums, so the 
+    where
+        F: FnOnce((Ipv4Repr, UdpRepr, DhcpRepr)) -> Result<()>,
+    {
+        // note: Dhcpv4Socket is only usable in ethernet mediums, so the
         // unwrap can never fail.
         let ethernet_addr = cx.ethernet_address.unwrap();
 
@@ -337,7 +368,7 @@ impl Dhcpv4Socket {
             src_port: DHCP_CLIENT_PORT,
             dst_port: DHCP_SERVER_PORT,
         };
-    
+
         let mut ipv4_repr = Ipv4Repr {
             src_addr: Ipv4Address::UNSPECIFIED,
             dst_addr: Ipv4Address::BROADCAST,
@@ -349,11 +380,15 @@ impl Dhcpv4Socket {
         match &mut self.state {
             ClientState::Discovering(state) => {
                 if cx.now < state.retry_at {
-                    return Err(Error::Exhausted)
+                    return Err(Error::Exhausted);
                 }
 
                 // send packet
-                net_debug!("DHCP send DISCOVER to {}: {:?}", ipv4_repr.dst_addr, dhcp_repr);
+                net_debug!(
+                    "DHCP send DISCOVER to {}: {:?}",
+                    ipv4_repr.dst_addr,
+                    dhcp_repr
+                );
                 ipv4_repr.payload_len = udp_repr.header_len() + dhcp_repr.buffer_len();
                 emit((ipv4_repr, udp_repr, dhcp_repr))?;
 
@@ -364,14 +399,14 @@ impl Dhcpv4Socket {
             }
             ClientState::Requesting(state) => {
                 if cx.now < state.retry_at {
-                    return Err(Error::Exhausted)
+                    return Err(Error::Exhausted);
                 }
 
                 if state.retry >= REQUEST_RETRIES {
                     net_debug!("DHCP request retries exceeded, restarting discovery");
                     self.reset();
                     // return Ok so we get polled again
-                    return Ok(())
+                    return Ok(());
                 }
 
                 dhcp_repr.message_type = DhcpMessageType::Request;
@@ -379,7 +414,11 @@ impl Dhcpv4Socket {
                 dhcp_repr.requested_ip = Some(state.requested_ip);
                 dhcp_repr.server_identifier = Some(state.server.identifier);
 
-                net_debug!("DHCP send request to {}: {:?}", ipv4_repr.dst_addr, dhcp_repr);
+                net_debug!(
+                    "DHCP send request to {}: {:?}",
+                    ipv4_repr.dst_addr,
+                    dhcp_repr
+                );
                 ipv4_repr.payload_len = udp_repr.header_len() + dhcp_repr.buffer_len();
                 emit((ipv4_repr, udp_repr, dhcp_repr))?;
 
@@ -395,11 +434,11 @@ impl Dhcpv4Socket {
                     net_debug!("DHCP lease expired");
                     self.reset();
                     // return Ok so we get polled again
-                    return Ok(())
+                    return Ok(());
                 }
-    
+
                 if cx.now < state.renew_at {
-                    return Err(Error::Exhausted)
+                    return Err(Error::Exhausted);
                 }
 
                 ipv4_repr.src_addr = state.config.address.address();
@@ -411,7 +450,7 @@ impl Dhcpv4Socket {
                 net_debug!("DHCP send renew to {}: {:?}", ipv4_repr.dst_addr, dhcp_repr);
                 ipv4_repr.payload_len = udp_repr.header_len() + dhcp_repr.buffer_len();
                 emit((ipv4_repr, udp_repr, dhcp_repr))?;
-        
+
                 // In both RENEWING and REBINDING states, if the client receives no
                 // response to its DHCPREQUEST message, the client SHOULD wait one-half
                 // of the remaining time until T2 (in RENEWING state) and one-half of
@@ -440,7 +479,7 @@ impl Dhcpv4Socket {
         if let ClientState::Renewing(_) = &self.state {
             self.config_changed = true;
         }
-        self.state = ClientState::Discovering(DiscoverState{
+        self.state = ClientState::Discovering(DiscoverState {
             retry_at: Instant::from_millis(0),
         });
     }

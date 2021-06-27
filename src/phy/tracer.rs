@@ -1,8 +1,11 @@
 use core::fmt;
 
-use crate::{Result, wire::pretty_print::{PrettyIndent, PrettyPrint}};
-use crate::phy::{self, DeviceCapabilities, Device, Medium};
+use crate::phy::{self, Device, DeviceCapabilities, Medium};
 use crate::time::Instant;
+use crate::{
+    wire::pretty_print::{PrettyIndent, PrettyPrint},
+    Result,
+};
 
 /// A tracer device.
 ///
@@ -10,7 +13,7 @@ use crate::time::Instant;
 /// using the provided writer function, and then passes them to another
 /// device.
 pub struct Tracer<D: for<'a> Device<'a>> {
-    inner:  D,
+    inner: D,
     writer: fn(Instant, Packet),
 }
 
@@ -42,50 +45,78 @@ impl<D: for<'a> Device<'a>> Tracer<D> {
 }
 
 impl<'a, D> Device<'a> for Tracer<D>
-    where D: for<'b> Device<'b>,
+where
+    D: for<'b> Device<'b>,
 {
     type RxToken = RxToken<<D as Device<'a>>::RxToken>;
     type TxToken = TxToken<<D as Device<'a>>::TxToken>;
 
-    fn capabilities(&self) -> DeviceCapabilities { self.inner.capabilities() }
+    fn capabilities(&self) -> DeviceCapabilities {
+        self.inner.capabilities()
+    }
 
     fn receive(&'a mut self) -> Option<(Self::RxToken, Self::TxToken)> {
-        let &mut Self { ref mut inner, writer, .. } = self;
+        let &mut Self {
+            ref mut inner,
+            writer,
+            ..
+        } = self;
         let medium = inner.capabilities().medium;
         inner.receive().map(|(rx_token, tx_token)| {
-            let rx = RxToken { token: rx_token, writer, medium };
-            let tx = TxToken { token: tx_token, writer, medium };
+            let rx = RxToken {
+                token: rx_token,
+                writer,
+                medium,
+            };
+            let tx = TxToken {
+                token: tx_token,
+                writer,
+                medium,
+            };
             (rx, tx)
         })
     }
 
     fn transmit(&'a mut self) -> Option<Self::TxToken> {
-        let &mut Self { ref mut inner, writer } = self;
+        let &mut Self {
+            ref mut inner,
+            writer,
+        } = self;
         let medium = inner.capabilities().medium;
-        inner.transmit().map(|tx_token| {
-            TxToken { token: tx_token, medium, writer }
+        inner.transmit().map(|tx_token| TxToken {
+            token: tx_token,
+            medium,
+            writer,
         })
     }
 }
 
 #[doc(hidden)]
 pub struct RxToken<Rx: phy::RxToken> {
-    token:     Rx,
-    writer:    fn(Instant, Packet),
-    medium:    Medium,
+    token: Rx,
+    writer: fn(Instant, Packet),
+    medium: Medium,
 }
 
 impl<Rx: phy::RxToken> phy::RxToken for RxToken<Rx> {
     fn consume<R, F>(self, timestamp: Instant, f: F) -> Result<R>
-        where F: FnOnce(&mut [u8]) -> Result<R>
+    where
+        F: FnOnce(&mut [u8]) -> Result<R>,
     {
-        let Self { token, writer, medium } = self;
+        let Self {
+            token,
+            writer,
+            medium,
+        } = self;
         token.consume(timestamp, |buffer| {
-            writer(timestamp, Packet{
-                buffer,
-                medium,
-                prefix: "<- ",
-            });
+            writer(
+                timestamp,
+                Packet {
+                    buffer,
+                    medium,
+                    prefix: "<- ",
+                },
+            );
             f(buffer)
         })
     }
@@ -93,23 +124,31 @@ impl<Rx: phy::RxToken> phy::RxToken for RxToken<Rx> {
 
 #[doc(hidden)]
 pub struct TxToken<Tx: phy::TxToken> {
-    token:     Tx,
-    writer:    fn(Instant, Packet),
-    medium:    Medium,
+    token: Tx,
+    writer: fn(Instant, Packet),
+    medium: Medium,
 }
 
 impl<Tx: phy::TxToken> phy::TxToken for TxToken<Tx> {
     fn consume<R, F>(self, timestamp: Instant, len: usize, f: F) -> Result<R>
-        where F: FnOnce(&mut [u8]) -> Result<R>
+    where
+        F: FnOnce(&mut [u8]) -> Result<R>,
     {
-        let Self { token, writer, medium } = self;
+        let Self {
+            token,
+            writer,
+            medium,
+        } = self;
         token.consume(timestamp, len, |buffer| {
             let result = f(buffer);
-            writer(timestamp, Packet{
-                buffer,
-                medium,
-                prefix: "-> ",
-            });
+            writer(
+                timestamp,
+                Packet {
+                    buffer,
+                    medium,
+                    prefix: "-> ",
+                },
+            );
             result
         })
     }
@@ -126,15 +165,31 @@ impl<'a> fmt::Display for Packet<'a> {
         let mut indent = PrettyIndent::new(self.prefix);
         match self.medium {
             #[cfg(feature = "medium-ethernet")]
-            Medium::Ethernet => crate::wire::EthernetFrame::<&'static [u8]>::pretty_print(&self.buffer, f, &mut indent),
+            Medium::Ethernet => crate::wire::EthernetFrame::<&'static [u8]>::pretty_print(
+                &self.buffer,
+                f,
+                &mut indent,
+            ),
             #[cfg(feature = "medium-ip")]
-            Medium::Ip => match crate::wire::IpVersion::of_packet(&self.buffer) {
+            Medium::Ip => match crate::wire::IpVersion::of_packet(self.buffer) {
                 #[cfg(feature = "proto-ipv4")]
-                Ok(crate::wire::IpVersion::Ipv4) => crate::wire::Ipv4Packet::<&'static [u8]>::pretty_print(&self.buffer, f, &mut indent),
+                Ok(crate::wire::IpVersion::Ipv4) => {
+                    crate::wire::Ipv4Packet::<&'static [u8]>::pretty_print(
+                        &self.buffer,
+                        f,
+                        &mut indent,
+                    )
+                }
                 #[cfg(feature = "proto-ipv6")]
-                Ok(crate::wire::IpVersion::Ipv6) => crate::wire::Ipv6Packet::<&'static [u8]>::pretty_print(&self.buffer, f, &mut indent),
-                _ => f.write_str("unrecognized IP version")
-            }
+                Ok(crate::wire::IpVersion::Ipv6) => {
+                    crate::wire::Ipv6Packet::<&'static [u8]>::pretty_print(
+                        &self.buffer,
+                        f,
+                        &mut indent,
+                    )
+                }
+                _ => f.write_str("unrecognized IP version"),
+            },
         }
     }
 }

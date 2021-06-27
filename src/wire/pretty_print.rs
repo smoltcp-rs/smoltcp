@@ -37,7 +37,7 @@ use core::marker::PhantomData;
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct PrettyIndent {
     prefix: &'static str,
-    level:  usize
+    level: usize,
 }
 
 impl PrettyIndent {
@@ -72,24 +72,27 @@ pub trait PrettyPrint {
     ///
     /// `pretty_print` accepts a buffer and not a packet wrapper because the packet might
     /// be truncated, and so it might not be possible to create the packet wrapper.
-    fn pretty_print(buffer: &dyn AsRef<[u8]>, fmt: &mut fmt::Formatter,
-                    indent: &mut PrettyIndent) -> fmt::Result;
+    fn pretty_print(
+        buffer: &dyn AsRef<[u8]>,
+        fmt: &mut fmt::Formatter,
+        indent: &mut PrettyIndent,
+    ) -> fmt::Result;
 }
 
 /// Wrapper for using a `PrettyPrint` where a `Display` is expected.
 pub struct PrettyPrinter<'a, T: PrettyPrint> {
-    prefix:  &'static str,
-    buffer:  &'a dyn AsRef<[u8]>,
-    phantom: PhantomData<T>
+    prefix: &'static str,
+    buffer: &'a dyn AsRef<[u8]>,
+    phantom: PhantomData<T>,
 }
 
 impl<'a, T: PrettyPrint> PrettyPrinter<'a, T> {
     /// Format the listing with the recorded parameters when Display::fmt is called.
     pub fn new(prefix: &'static str, buffer: &'a dyn AsRef<[u8]>) -> PrettyPrinter<'a, T> {
         PrettyPrinter {
-            prefix:  prefix,
-            buffer:  buffer,
-            phantom: PhantomData
+            prefix: prefix,
+            buffer: buffer,
+            phantom: PhantomData,
         }
     }
 }

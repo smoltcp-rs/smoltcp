@@ -1,4 +1,3 @@
-
 #[cfg(feature = "log")]
 macro_rules! net_log {
     (trace, $($arg:expr),*) => { log::trace!($($arg),*); };
