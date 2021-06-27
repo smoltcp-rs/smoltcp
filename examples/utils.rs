@@ -64,7 +64,7 @@ where
 
 #[cfg(feature = "log")]
 pub fn setup_logging(filter: &str) {
-    setup_logging_with_clock(filter, move || Instant::now())
+    setup_logging_with_clock(filter, Instant::now)
 }
 
 pub fn create_options() -> (Options, Vec<&'static str>) {
