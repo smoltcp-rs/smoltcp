@@ -11,6 +11,7 @@ The interface implemented by this module uses explicit buffering: you decide on 
 size for a buffer, allocate it, and let the networking stack use it.
 */
 
+use crate::phy::DeviceCapabilities;
 use crate::time::Instant;
 
 mod meta;
@@ -138,8 +139,8 @@ impl<'a> Socket<'a> {
         dispatch_socket!(mut self, |socket| &mut socket.meta)
     }
 
-    pub(crate) fn poll_at(&self) -> PollAt {
-        dispatch_socket!(self, |socket| socket.poll_at())
+    pub(crate) fn poll_at(&self, cx: &Context) -> PollAt {
+        dispatch_socket!(self, |socket| socket.poll_at(cx))
     }
 }
 
@@ -180,3 +181,42 @@ from_socket!(UdpSocket<'a>, Udp);
 from_socket!(TcpSocket<'a>, Tcp);
 #[cfg(feature = "socket-dhcpv4")]
 from_socket!(Dhcpv4Socket, Dhcpv4);
+
+/// Data passed to sockets when processing.
+#[derive(Clone, Debug)]
+pub(crate) struct Context {
+    pub now: Instant,
+    #[cfg(feature = "medium-ethernet")]
+    pub ethernet_address: Option<crate::wire::EthernetAddress>,
+    pub caps: DeviceCapabilities,
+}
+
+#[cfg(test)]
+impl Context {
+
+    pub(crate) const DUMMY: Context = Context {
+        caps: DeviceCapabilities {
+            #[cfg(feature = "medium-ethernet")]
+            medium: crate::phy::Medium::Ethernet,
+            #[cfg(not(feature = "medium-ethernet"))]
+            medium: crate::phy::Medium::Ip,
+            checksum: crate::phy::ChecksumCapabilities{
+                #[cfg(feature = "proto-ipv4")]
+                icmpv4: crate::phy::Checksum::Both,
+                #[cfg(feature = "proto-ipv6")]
+                icmpv6: crate::phy::Checksum::Both,
+                ipv4: crate::phy::Checksum::Both,
+                tcp: crate::phy::Checksum::Both,
+                udp: crate::phy::Checksum::Both,
+            },
+            max_burst_size: None,
+            #[cfg(feature = "medium-ethernet")]
+            max_transmission_unit: 1514,
+            #[cfg(not(feature = "medium-ethernet"))]
+            max_transmission_unit: 1500,
+        },
+        ethernet_address: None,
+        now: Instant{millis: 0},
+    };
+
+}

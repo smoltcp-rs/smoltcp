@@ -105,6 +105,15 @@ compile_error!("You must enable at least one of the following features: proto-ip
 ))]
 compile_error!("If you enable the socket feature, you must enable at least one of the following features: socket-raw, socket-udp, socket-tcp, socket-icmp");
 
+#[cfg(all(
+    feature = "socket",
+    not(any(
+        feature = "medium-ethernet",
+        feature = "medium-ip",
+    ))
+))]
+compile_error!("If you enable the socket feature, you must enable at least one of the following features: medium-ip, medium-ethernet");
+
 #[cfg(all(feature = "defmt", feature = "log"))]
 compile_error!("You must enable at most one of the following features: defmt, log");
 

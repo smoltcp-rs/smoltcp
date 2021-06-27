@@ -230,6 +230,17 @@ pub struct DeviceCapabilities {
     pub checksum: ChecksumCapabilities,
 }
 
+impl DeviceCapabilities {
+    pub fn ip_mtu(&self) -> usize {
+        match self.medium {
+            #[cfg(feature = "medium-ethernet")]
+            Medium::Ethernet => self.max_transmission_unit - crate::wire::EthernetFrame::<&[u8]>::header_len(),
+            #[cfg(feature = "medium-ip")]
+            Medium::Ip => self.max_transmission_unit,
+        }
+    }
+}
+
 /// Type of medium of a device.
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
