@@ -12,7 +12,7 @@ jobs:
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
-          protile: minimal
+          profile: minimal
           components: rustfmt
       - name: Check fmt
         run: cargo fmt -- --check
