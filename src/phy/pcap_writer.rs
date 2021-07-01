@@ -73,7 +73,7 @@ pub trait PcapSink {
         assert!(length <= 65535);
 
         self.write_u32(timestamp.secs() as u32); // timestamp seconds
-        self.write_u32(timestamp.millis() as u32); // timestamp microseconds
+        self.write_u32(timestamp.micros() as u32); // timestamp microseconds
         self.write_u32(length as u32); // captured length
         self.write_u32(length as u32); // original length
     }

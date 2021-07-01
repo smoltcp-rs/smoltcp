@@ -59,6 +59,12 @@ impl Instant {
         self.millis % 1000
     }
 
+    /// The fractional number of microseconds that have passed
+    /// since the beginning of time.
+    pub const fn micros(&self) -> i64 {
+        self.millis % 1000 * 1000
+    }
+
     /// The number of whole seconds that have passed since the
     /// beginning of time.
     pub const fn secs(&self) -> i64 {
