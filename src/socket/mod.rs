@@ -217,6 +217,6 @@ impl Context {
         },
         #[cfg(all(feature = "medium-ethernet", feature = "socket-dhcpv4"))]
         ethernet_address: None,
-        now: Instant { millis: 0 },
+        now: Instant::from_millis_const(0),
     };
 }
