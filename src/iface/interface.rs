@@ -2296,68 +2296,48 @@ mod test {
             });
         });
 
-        assert!(
-            iface
-                .inner
-                .is_subnet_broadcast(Ipv4Address([192, 168, 1, 255])),
-        );
-        assert!(
-            !iface
-                .inner
-                .is_subnet_broadcast(Ipv4Address([192, 168, 1, 254])),
-        );
+        assert!(iface
+            .inner
+            .is_subnet_broadcast(Ipv4Address([192, 168, 1, 255])),);
+        assert!(!iface
+            .inner
+            .is_subnet_broadcast(Ipv4Address([192, 168, 1, 254])),);
 
         iface.update_ip_addrs(|addrs| {
             addrs.iter_mut().next().map(|addr| {
                 *addr = IpCidr::Ipv4(Ipv4Cidr::new(Ipv4Address([192, 168, 23, 24]), 16));
             });
         });
-        assert!(
-            !iface
-                .inner
-                .is_subnet_broadcast(Ipv4Address([192, 168, 23, 255])),
-        );
-        assert!(
-            !iface
-                .inner
-                .is_subnet_broadcast(Ipv4Address([192, 168, 23, 254])),
-        );
-        assert!(
-            !iface
-                .inner
-                .is_subnet_broadcast(Ipv4Address([192, 168, 255, 254])),
-        );
-        assert!(
-            iface
-                .inner
-                .is_subnet_broadcast(Ipv4Address([192, 168, 255, 255])),
-        );
+        assert!(!iface
+            .inner
+            .is_subnet_broadcast(Ipv4Address([192, 168, 23, 255])),);
+        assert!(!iface
+            .inner
+            .is_subnet_broadcast(Ipv4Address([192, 168, 23, 254])),);
+        assert!(!iface
+            .inner
+            .is_subnet_broadcast(Ipv4Address([192, 168, 255, 254])),);
+        assert!(iface
+            .inner
+            .is_subnet_broadcast(Ipv4Address([192, 168, 255, 255])),);
 
         iface.update_ip_addrs(|addrs| {
             addrs.iter_mut().next().map(|addr| {
                 *addr = IpCidr::Ipv4(Ipv4Cidr::new(Ipv4Address([192, 168, 23, 24]), 8));
             });
         });
-        assert!(
-            !iface
-                .inner
-                .is_subnet_broadcast(Ipv4Address([192, 23, 1, 255])),
-        );
-        assert!(
-            !iface
-                .inner
-                .is_subnet_broadcast(Ipv4Address([192, 23, 1, 254])),
-        );
-        assert!(
-            !iface
-                .inner
-                .is_subnet_broadcast(Ipv4Address([192, 255, 255, 254])),
-        );
-        assert!(
-            iface
-                .inner
-                .is_subnet_broadcast(Ipv4Address([192, 255, 255, 255])),
-        );
+        assert!(!iface
+            .inner
+            .is_subnet_broadcast(Ipv4Address([192, 23, 1, 255])),);
+        assert!(!iface
+            .inner
+            .is_subnet_broadcast(Ipv4Address([192, 23, 1, 254])),);
+        assert!(!iface
+            .inner
+            .is_subnet_broadcast(Ipv4Address([192, 255, 255, 254])),);
+        assert!(iface
+            .inner
+            .is_subnet_broadcast(Ipv4Address([192, 255, 255, 255])),);
     }
 
     #[test]
