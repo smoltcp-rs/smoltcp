@@ -812,10 +812,7 @@ mod test {
         assert_eq!(packet.echo_ident(), 0x1234);
         assert_eq!(packet.echo_seq_no(), 0xabcd);
         assert_eq!(packet.payload(), &ECHO_PACKET_PAYLOAD[..]);
-        assert_eq!(
-            packet.verify_checksum(&MOCK_IP_ADDR_1, &MOCK_IP_ADDR_2),
-            true
-        );
+        assert!(packet.verify_checksum(&MOCK_IP_ADDR_1, &MOCK_IP_ADDR_2));
         assert!(!packet.msg_type().is_error());
     }
 
@@ -869,10 +866,7 @@ mod test {
         assert_eq!(packet.checksum(), 0x0fc9);
         assert_eq!(packet.pkt_too_big_mtu(), 1500);
         assert_eq!(packet.payload(), &PKT_TOO_BIG_IP_PAYLOAD[..]);
-        assert_eq!(
-            packet.verify_checksum(&MOCK_IP_ADDR_1, &MOCK_IP_ADDR_2),
-            true
-        );
+        assert!(packet.verify_checksum(&MOCK_IP_ADDR_1, &MOCK_IP_ADDR_2));
         assert!(packet.msg_type().is_error());
     }
 

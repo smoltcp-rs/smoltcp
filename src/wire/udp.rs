@@ -338,10 +338,7 @@ mod test {
         assert_eq!(packet.len(), 12);
         assert_eq!(packet.checksum(), 0x124d);
         assert_eq!(packet.payload(), &PAYLOAD_BYTES[..]);
-        assert_eq!(
-            packet.verify_checksum(&SRC_ADDR.into(), &DST_ADDR.into()),
-            true
-        );
+        assert!(packet.verify_checksum(&SRC_ADDR.into(), &DST_ADDR.into()));
     }
 
     #[test]

@@ -292,17 +292,17 @@ mod test {
     #[test]
     fn test_metadata_full_empty() {
         let mut buffer = buffer();
-        assert_eq!(buffer.is_empty(), true);
-        assert_eq!(buffer.is_full(), false);
+        assert!(buffer.is_empty());
+        assert!(!buffer.is_full());
         assert!(buffer.enqueue(1, ()).is_ok());
-        assert_eq!(buffer.is_empty(), false);
+        assert!(!buffer.is_empty());
         assert!(buffer.enqueue(1, ()).is_ok());
         assert!(buffer.enqueue(1, ()).is_ok());
-        assert_eq!(buffer.is_full(), false);
-        assert_eq!(buffer.is_empty(), false);
+        assert!(!buffer.is_full());
+        assert!(!buffer.is_empty());
         assert!(buffer.enqueue(1, ()).is_ok());
-        assert_eq!(buffer.is_full(), true);
-        assert_eq!(buffer.is_empty(), false);
+        assert!(buffer.is_full());
+        assert!(!buffer.is_empty());
         assert_eq!(buffer.metadata_ring.len(), 4);
         assert_eq!(buffer.enqueue(1, ()), Err(Error::Exhausted));
     }

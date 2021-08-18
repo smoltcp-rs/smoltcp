@@ -501,8 +501,8 @@ impl Dhcpv4Socket {
     }
 }
 
-impl<'a> Into<Socket<'a>> for Dhcpv4Socket {
-    fn into(self) -> Socket<'a> {
-        Socket::Dhcpv4(self)
+impl<'a> From<Dhcpv4Socket> for Socket<'a> {
+    fn from(val: Dhcpv4Socket) -> Self {
+        Socket::Dhcpv4(val)
     }
 }

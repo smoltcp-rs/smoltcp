@@ -773,15 +773,15 @@ mod test {
         assert_eq!(packet.ecn(), 0);
         assert_eq!(packet.total_len(), 30);
         assert_eq!(packet.ident(), 0x102);
-        assert_eq!(packet.more_frags(), true);
-        assert_eq!(packet.dont_frag(), true);
+        assert!(packet.more_frags());
+        assert!(packet.dont_frag());
         assert_eq!(packet.frag_offset(), 0x203 * 8);
         assert_eq!(packet.hop_limit(), 0x1a);
         assert_eq!(packet.protocol(), Protocol::Icmp);
         assert_eq!(packet.checksum(), 0xd56e);
         assert_eq!(packet.src_addr(), Address([0x11, 0x12, 0x13, 0x14]));
         assert_eq!(packet.dst_addr(), Address([0x21, 0x22, 0x23, 0x24]));
-        assert_eq!(packet.verify_checksum(), true);
+        assert!(packet.verify_checksum());
         assert_eq!(packet.payload(), &PAYLOAD_BYTES[..]);
     }
 
@@ -969,14 +969,8 @@ mod test {
 
     #[test]
     fn test_cidr_from_netmask() {
-        assert_eq!(
-            Cidr::from_netmask(Address([0, 0, 0, 0]), Address([1, 0, 2, 0])).is_err(),
-            true
-        );
-        assert_eq!(
-            Cidr::from_netmask(Address([0, 0, 0, 0]), Address([0, 0, 0, 0])).is_err(),
-            true
-        );
+        assert!(Cidr::from_netmask(Address([0, 0, 0, 0]), Address([1, 0, 2, 0])).is_err());
+        assert!(Cidr::from_netmask(Address([0, 0, 0, 0]), Address([0, 0, 0, 0])).is_err());
         assert_eq!(
             Cidr::from_netmask(Address([0, 0, 0, 1]), Address([255, 255, 255, 0])).unwrap(),
             Cidr::new(Address([0, 0, 0, 1]), 24)

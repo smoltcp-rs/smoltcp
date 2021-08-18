@@ -592,7 +592,7 @@ mod test {
         assert_eq!(packet.echo_ident(), 0x1234);
         assert_eq!(packet.echo_seq_no(), 0xabcd);
         assert_eq!(packet.data(), &ECHO_DATA_BYTES[..]);
-        assert_eq!(packet.verify_checksum(), true);
+        assert!(packet.verify_checksum());
     }
 
     #[test]

@@ -849,11 +849,8 @@ mod test {
     #[cfg(feature = "proto-ipv4")]
     #[test]
     fn test_is_ipv4_mapped() {
-        assert_eq!(false, Address::UNSPECIFIED.is_ipv4_mapped());
-        assert_eq!(
-            true,
-            Address::from(Ipv4Address::new(192, 168, 1, 1)).is_ipv4_mapped()
-        );
+        assert!(!Address::UNSPECIFIED.is_ipv4_mapped());
+        assert!(Address::from(Ipv4Address::new(192, 168, 1, 1)).is_ipv4_mapped());
     }
 
     #[cfg(feature = "proto-ipv4")]

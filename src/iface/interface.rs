@@ -1086,7 +1086,7 @@ impl<'a> InterfaceInner<'a> {
                 continue;
             }
 
-            match raw_socket.process(cx, &ip_repr, ip_payload) {
+            match raw_socket.process(cx, ip_repr, ip_payload) {
                 // The packet is valid and handled by socket.
                 Ok(()) => handled_by_raw_socket = true,
                 // The socket buffer is full or the packet was truncated
@@ -1188,7 +1188,7 @@ impl<'a> InterfaceInner<'a> {
         sockets: &mut SocketSet,
         ipv4_packet: &Ipv4Packet<&'frame T>,
     ) -> Result<Option<IpPacket<'frame>>> {
-        let ipv4_repr = Ipv4Repr::parse(&ipv4_packet, &cx.caps.checksum)?;
+        let ipv4_repr = Ipv4Repr::parse(ipv4_packet, &cx.caps.checksum)?;
 
         if !self.is_unicast_v4(ipv4_repr.src_addr) {
             // Discard packets with non-unicast source addresses.
@@ -2296,17 +2296,15 @@ mod test {
             });
         });
 
-        assert_eq!(
+        assert!(
             iface
                 .inner
                 .is_subnet_broadcast(Ipv4Address([192, 168, 1, 255])),
-            true
         );
-        assert_eq!(
-            iface
+        assert!(
+            !iface
                 .inner
                 .is_subnet_broadcast(Ipv4Address([192, 168, 1, 254])),
-            false
         );
 
         iface.update_ip_addrs(|addrs| {
@@ -2314,29 +2312,25 @@ mod test {
                 *addr = IpCidr::Ipv4(Ipv4Cidr::new(Ipv4Address([192, 168, 23, 24]), 16));
             });
         });
-        assert_eq!(
-            iface
+        assert!(
+            !iface
                 .inner
                 .is_subnet_broadcast(Ipv4Address([192, 168, 23, 255])),
-            false
         );
-        assert_eq!(
-            iface
+        assert!(
+            !iface
                 .inner
                 .is_subnet_broadcast(Ipv4Address([192, 168, 23, 254])),
-            false
         );
-        assert_eq!(
-            iface
+        assert!(
+            !iface
                 .inner
                 .is_subnet_broadcast(Ipv4Address([192, 168, 255, 254])),
-            false
         );
-        assert_eq!(
+        assert!(
             iface
                 .inner
                 .is_subnet_broadcast(Ipv4Address([192, 168, 255, 255])),
-            true
         );
 
         iface.update_ip_addrs(|addrs| {
@@ -2344,29 +2338,25 @@ mod test {
                 *addr = IpCidr::Ipv4(Ipv4Cidr::new(Ipv4Address([192, 168, 23, 24]), 8));
             });
         });
-        assert_eq!(
-            iface
+        assert!(
+            !iface
                 .inner
                 .is_subnet_broadcast(Ipv4Address([192, 23, 1, 255])),
-            false
         );
-        assert_eq!(
-            iface
+        assert!(
+            !iface
                 .inner
                 .is_subnet_broadcast(Ipv4Address([192, 23, 1, 254])),
-            false
         );
-        assert_eq!(
-            iface
+        assert!(
+            !iface
                 .inner
                 .is_subnet_broadcast(Ipv4Address([192, 255, 255, 254])),
-            false
         );
-        assert_eq!(
+        assert!(
             iface
                 .inner
                 .is_subnet_broadcast(Ipv4Address([192, 255, 255, 255])),
-            true
         );
     }
 
@@ -2419,7 +2409,7 @@ mod test {
                 payload_len: udp_repr.header_len() + UDP_PAYLOAD.len(),
                 hop_limit: 64,
             },
-            data: &data,
+            data: data,
         };
         let expected_repr = IpPacket::Icmpv4((
             Ipv4Repr {
@@ -3002,7 +2992,7 @@ mod test {
             assert_eq!(
                 socket.recv(),
                 Ok((
-                    &icmp_data[..],
+                    icmp_data,
                     IpAddress::Ipv4(Ipv4Address::new(0x7f, 0x00, 0x00, 0x02))
                 ))
             );
@@ -3060,7 +3050,7 @@ mod test {
                 hbh_pkt.set_header_len(0);
                 offset += 8;
                 {
-                    let mut pad_pkt = Ipv6Option::new_unchecked(&mut hbh_pkt.options_mut()[..]);
+                    let mut pad_pkt = Ipv6Option::new_unchecked(&mut *hbh_pkt.options_mut());
                     Ipv6OptionRepr::PadN(3).emit(&mut pad_pkt);
                 }
                 {
@@ -3118,7 +3108,7 @@ mod test {
                         #[cfg(feature = "medium-ip")]
                         Medium::Ip => Ipv4Packet::new_checked(&frame[..]).ok()?,
                     };
-                    let ipv4_repr = Ipv4Repr::parse(&ipv4_packet, &checksum_caps).ok()?;
+                    let ipv4_repr = Ipv4Repr::parse(&ipv4_packet, checksum_caps).ok()?;
                     let ip_payload = ipv4_packet.payload();
                     let igmp_packet = IgmpPacket::new_checked(ip_payload).ok()?;
                     let igmp_repr = IgmpRepr::parse(&igmp_packet).ok()?;

@@ -515,9 +515,9 @@ impl<'a> IcmpSocket<'a> {
     }
 }
 
-impl<'a> Into<Socket<'a>> for IcmpSocket<'a> {
-    fn into(self) -> Socket<'a> {
-        Socket::Icmp(self)
+impl<'a> From<IcmpSocket<'a>> for Socket<'a> {
+    fn from(val: IcmpSocket<'a>) -> Self {
+        Socket::Icmp(val)
     }
 }
 
@@ -711,7 +711,7 @@ mod test_ipv4 {
             Err(Error::Exhausted)
         );
 
-        assert_eq!(socket.recv(), Ok((&data[..], REMOTE_IPV4.into())));
+        assert_eq!(socket.recv(), Ok((data, REMOTE_IPV4.into())));
         assert!(!socket.can_recv());
     }
 
@@ -972,7 +972,7 @@ mod test_ipv6 {
             Err(Error::Exhausted)
         );
 
-        assert_eq!(socket.recv(), Ok((&data[..], REMOTE_IPV6.into())));
+        assert_eq!(socket.recv(), Ok((data, REMOTE_IPV6.into())));
         assert!(!socket.can_recv());
     }
 
