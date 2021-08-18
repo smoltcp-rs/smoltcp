@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 - Version bumped to 0.8
+- Minimum Supported Rust Version (MSRV) **bumped** from 1.40 to 1.46
 - Update `managed` from 0.7 to 0.8 ([442](https://github.com/smoltcp-rs/smoltcp/pull/442))
 - udp: Add `close()` method to unbind socket.
 
@@ -46,7 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.7.0] - 2021-01-20
 
-Minimum Supported Rust Version (MSRV) **bumped** from 1.36 to 1.40
+- Minimum Supported Rust Version (MSRV) **bumped** from 1.36 to 1.40
 
 ### New features
 - tcp: Allow distinguishing between graceful (FIN) and ungraceful (RST) close. On graceful close, `recv()` now returns `Error::Finished`. On ungraceful close, `Error::Illegal` is returned, as before. ([351](https://github.com/smoltcp-rs/smoltcp/pull/351))
