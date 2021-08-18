@@ -11,11 +11,11 @@ jobs:
     continue-on-error: ${{ matrix.rust == 'nightly' }}
     strategy:
       matrix:
-        # Test on stable, MSRV 1.40, and nightly.
+        # Test on stable, MSRV 1.46, and nightly.
         # Failure is permitted on nightly.
         rust:
           - stable
-          - 1.40.0
+          - 1.46.0
           - nightly
 
         features:
@@ -58,18 +58,18 @@ jobs:
     continue-on-error: ${{ matrix.rust == 'nightly' }}
     strategy:
       matrix:
-        # Test on stable, MSRV 1.40, and nightly.
+        # Test on stable, MSRV 1.46, and nightly.
         # Failure is permitted on nightly.
         rust:
           - stable
-          - 1.40.0
+          - 1.46.0
           - nightly
 
         features:
           # These feature sets cannot run tests, so we only check they build.
           - medium-ip medium-ethernet proto-ipv6 proto-ipv6 proto-igmp proto-dhcpv4 socket-raw socket-udp socket-tcp socket-icmp async
         include:
-          # defmt doesn't support 1.40
+          # defmt doesn't support 1.46
           - rust: stable
             features: defmt defmt-trace medium-ip medium-ethernet proto-ipv6 proto-ipv6 proto-igmp proto-dhcpv4 socket-raw socket-udp socket-tcp socket-icmp async
           - rust: nightly
