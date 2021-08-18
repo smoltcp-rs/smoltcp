@@ -398,9 +398,9 @@ impl<'a> UdpSocket<'a> {
     }
 }
 
-impl<'a> Into<Socket<'a>> for UdpSocket<'a> {
-    fn into(self) -> Socket<'a> {
-        Socket::Udp(self)
+impl<'a> From<UdpSocket<'a>> for Socket<'a> {
+    fn from(val: UdpSocket<'a>) -> Self {
+        Socket::Udp(val)
     }
 }
 

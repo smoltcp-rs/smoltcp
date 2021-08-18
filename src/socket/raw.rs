@@ -330,9 +330,9 @@ impl<'a> RawSocket<'a> {
     }
 }
 
-impl<'a> Into<Socket<'a>> for RawSocket<'a> {
-    fn into(self) -> Socket<'a> {
-        Socket::Raw(self)
+impl<'a> From<RawSocket<'a>> for Socket<'a> {
+    fn from(val: RawSocket<'a>) -> Self {
+        Socket::Raw(val)
     }
 }
 

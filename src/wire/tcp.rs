@@ -1113,21 +1113,18 @@ mod test {
         assert_eq!(packet.seq_number(), SeqNumber(0x01234567));
         assert_eq!(packet.ack_number(), SeqNumber(0x89abcdefu32 as i32));
         assert_eq!(packet.header_len(), 24);
-        assert_eq!(packet.fin(), true);
-        assert_eq!(packet.syn(), false);
-        assert_eq!(packet.rst(), true);
-        assert_eq!(packet.psh(), false);
-        assert_eq!(packet.ack(), true);
-        assert_eq!(packet.urg(), true);
+        assert!(packet.fin());
+        assert!(!packet.syn());
+        assert!(packet.rst());
+        assert!(!packet.psh());
+        assert!(packet.ack());
+        assert!(packet.urg());
         assert_eq!(packet.window_len(), 0x0123);
         assert_eq!(packet.urgent_at(), 0x0201);
         assert_eq!(packet.checksum(), 0x01b6);
         assert_eq!(packet.options(), &OPTION_BYTES[..]);
         assert_eq!(packet.payload(), &PAYLOAD_BYTES[..]);
-        assert_eq!(
-            packet.verify_checksum(&SRC_ADDR.into(), &DST_ADDR.into()),
-            true
-        );
+        assert!(packet.verify_checksum(&SRC_ADDR.into(), &DST_ADDR.into()));
     }
 
     #[test]

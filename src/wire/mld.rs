@@ -448,7 +448,7 @@ mod test {
         assert_eq!(packet.checksum(), 0x7374);
         assert_eq!(packet.max_resp_code(), 0x0400);
         assert_eq!(packet.mcast_addr(), Ipv6Address::LINK_LOCAL_ALL_NODES);
-        assert_eq!(packet.s_flag(), true);
+        assert!(packet.s_flag());
         assert_eq!(packet.qrv(), 0x02);
         assert_eq!(packet.qqic(), 0x12);
         assert_eq!(packet.num_srcs(), 0x01);

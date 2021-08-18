@@ -393,7 +393,7 @@ mod test {
             packet.group_addr(),
             Ipv4Address::from_bytes(&[224, 0, 6, 150])
         );
-        assert_eq!(packet.verify_checksum(), true);
+        assert!(packet.verify_checksum());
     }
 
     #[test]
@@ -406,7 +406,7 @@ mod test {
             packet.group_addr(),
             Ipv4Address::from_bytes(&[225, 0, 0, 37])
         );
-        assert_eq!(packet.verify_checksum(), true);
+        assert!(packet.verify_checksum());
     }
 
     #[test]

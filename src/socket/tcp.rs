@@ -1490,7 +1490,7 @@ impl<'a> TcpSocket<'a> {
                         self.timer.set_for_close(cx.now);
                     }
 
-                    return Ok(Some(self.ack_reply(ip_repr, &repr)));
+                    return Ok(Some(self.ack_reply(ip_repr, repr)));
                 }
             }
         }
@@ -1929,7 +1929,7 @@ impl<'a> TcpSocket<'a> {
                 self.local_endpoint,
                 self.remote_endpoint
             );
-            Ok(Some(self.ack_reply(ip_repr, &repr)))
+            Ok(Some(self.ack_reply(ip_repr, repr)))
         } else {
             Ok(None)
         }
@@ -2392,9 +2392,9 @@ impl<'a> TcpSocket<'a> {
     }
 }
 
-impl<'a> Into<Socket<'a>> for TcpSocket<'a> {
-    fn into(self) -> Socket<'a> {
-        Socket::Tcp(self)
+impl<'a> From<TcpSocket<'a>> for Socket<'a> {
+    fn from(val: TcpSocket<'a>) -> Self {
+        Socket::Tcp(val)
     }
 }
 

@@ -97,9 +97,9 @@ impl From<::std::time::SystemTime> for Instant {
 }
 
 #[cfg(feature = "std")]
-impl Into<::std::time::SystemTime> for Instant {
-    fn into(self) -> ::std::time::SystemTime {
-        ::std::time::UNIX_EPOCH + ::std::time::Duration::from_millis(self.millis as u64)
+impl From<Instant> for ::std::time::SystemTime {
+    fn from(val: Instant) -> Self {
+        ::std::time::UNIX_EPOCH + ::std::time::Duration::from_millis(val.millis as u64)
     }
 }
 
@@ -284,9 +284,9 @@ impl From<::core::time::Duration> for Duration {
     }
 }
 
-impl Into<::core::time::Duration> for Duration {
-    fn into(self) -> ::core::time::Duration {
-        ::core::time::Duration::from_millis(self.total_millis())
+impl From<Duration> for ::core::time::Duration {
+    fn from(val: Duration) -> Self {
+        ::core::time::Duration::from_millis(val.total_millis())
     }
 }
 

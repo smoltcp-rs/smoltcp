@@ -241,13 +241,13 @@ mod test {
         let header = Header::new_unchecked(&BYTES_HEADER_MORE_FRAG);
         assert_eq!(header.next_header(), Protocol::Tcp);
         assert_eq!(header.frag_offset(), 0);
-        assert_eq!(header.more_frags(), true);
+        assert!(header.more_frags());
         assert_eq!(header.ident(), 12345);
 
         let header = Header::new_unchecked(&BYTES_HEADER_LAST_FRAG);
         assert_eq!(header.next_header(), Protocol::Tcp);
         assert_eq!(header.frag_offset(), 320);
-        assert_eq!(header.more_frags(), false);
+        assert!(!header.more_frags());
         assert_eq!(header.ident(), 67890);
     }
 
