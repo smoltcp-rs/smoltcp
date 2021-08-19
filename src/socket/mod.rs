@@ -103,10 +103,10 @@ pub enum Socket<'a> {
 
 macro_rules! dispatch_socket {
     ($self_:expr, |$socket:ident| $code:expr) => {
-        dispatch_socket!(@inner $self_, |$socket| $code);
+        dispatch_socket!(@inner $self_, |$socket| $code)
     };
     (mut $self_:expr, |$socket:ident| $code:expr) => {
-        dispatch_socket!(@inner mut $self_, |$socket| $code);
+        dispatch_socket!(@inner mut $self_, |$socket| $code)
     };
     (@inner $( $mut_:ident )* $self_:expr, |$socket:ident| $code:expr) => {
         match $self_ {
