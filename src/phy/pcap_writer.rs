@@ -143,6 +143,21 @@ impl<D: for<'a> Device<'a>, S: PcapSink + Clone> PcapWriter<D, S> {
         sink.global_header(link_type);
         PcapWriter { lower, sink, mode }
     }
+
+    /// Get a reference to the underlying device.
+    ///
+    /// Even if the device offers reading through a standard reference, it is inadvisable to
+    /// directly read from the device as doing so will circumvent the packet capture.
+    pub fn get_ref(&self) -> &D {
+        &self.lower
+    }
+
+    /// Get a mutable reference to the underlying device.
+    ///
+    /// It is inadvisable to directly read from the device as doing so will circumvent the packet capture.
+    pub fn get_mut(&mut self) -> &mut D {
+        &mut self.lower
+    }
 }
 
 impl<'a, D, S> Device<'a> for PcapWriter<D, S>
