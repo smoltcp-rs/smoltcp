@@ -9,7 +9,8 @@ mod wire {
     use smoltcp::wire::{Ipv6Address, Ipv6Packet, Ipv6Repr};
     use smoltcp::wire::{TcpControl, TcpPacket, TcpRepr, TcpSeqNumber};
     use smoltcp::wire::{UdpPacket, UdpRepr};
-    use test;
+
+    extern crate test;
 
     #[cfg(feature = "proto-ipv6")]
     const SRC_ADDR: IpAddress = IpAddress::Ipv6(Ipv6Address([
@@ -32,18 +33,20 @@ mod wire {
         let repr = TcpRepr {
             src_port: 48896,
             dst_port: 80,
+            control: TcpControl::Syn,
             seq_number: TcpSeqNumber(0x01234567),
             ack_number: None,
             window_len: 0x0123,
-            control: TcpControl::Syn,
-            max_seg_size: None,
             window_scale: None,
+            max_seg_size: None,
+            sack_permitted: false,
+            sack_ranges: [None, None, None],
             payload: &PAYLOAD_BYTES,
         };
         let mut bytes = vec![0xa5; repr.buffer_len()];
 
         b.iter(|| {
-            let mut packet = TcpPacket::new(&mut bytes);
+            let mut packet = TcpPacket::new_unchecked(&mut bytes);
             repr.emit(
                 &mut packet,
                 &SRC_ADDR,
@@ -60,16 +63,17 @@ mod wire {
         let repr = UdpRepr {
             src_port: 48896,
             dst_port: 80,
-            payload: &PAYLOAD_BYTES,
         };
-        let mut bytes = vec![0xa5; repr.buffer_len()];
+        let mut bytes = vec![0xa5; repr.header_len() + PAYLOAD_BYTES.len()];
 
         b.iter(|| {
-            let mut packet = UdpPacket::new(&mut bytes);
+            let mut packet = UdpPacket::new_unchecked(&mut bytes);
             repr.emit(
                 &mut packet,
                 &SRC_ADDR,
                 &DST_ADDR,
+                PAYLOAD_BYTES.len(),
+                |buf| buf.copy_from_slice(&PAYLOAD_BYTES),
                 &ChecksumCapabilities::default(),
             );
         });
@@ -88,7 +92,7 @@ mod wire {
         let mut bytes = vec![0xa5; repr.buffer_len()];
 
         b.iter(|| {
-            let mut packet = Ipv4Packet::new(&mut bytes);
+            let mut packet = Ipv4Packet::new_unchecked(&mut bytes);
             repr.emit(&mut packet, &ChecksumCapabilities::default());
         });
     }
@@ -106,7 +110,7 @@ mod wire {
         let mut bytes = vec![0xa5; repr.buffer_len()];
 
         b.iter(|| {
-            let mut packet = Ipv6Packet::new(&mut bytes);
+            let mut packet = Ipv6Packet::new_unchecked(&mut bytes);
             repr.emit(&mut packet);
         });
     }
