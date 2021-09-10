@@ -6,7 +6,7 @@ include complicated compile-time computations, such as macro or type tricks, eve
 at cost of performance degradation.
 
 _smoltcp_ does not need heap allocation *at all*, is [extensively documented][docs],
-and compiles on stable Rust 1.46 and later.
+and compiles on stable Rust 1.53 and later.
 
 _smoltcp_ achieves [~Gbps of throughput](#examplesbenchmarkrs) when tested against
 the Linux TCP stack in loopback mode.
@@ -125,7 +125,7 @@ To use the _smoltcp_ library in your project, add the following to `Cargo.toml`:
 
 ```toml
 [dependencies]
-smoltcp = "0.5"
+smoltcp = "0.7.5"
 ```
 
 The default configuration assumes a hosted environment, for ease of evaluation.
@@ -133,7 +133,7 @@ You probably want to disable default features and configure them one by one:
 
 ```toml
 [dependencies]
-smoltcp = { version = "0.5", default-features = false, features = ["log"] }
+smoltcp = { version = "0.7.5", default-features = false, features = ["log"] }
 ```
 
 ### Feature `std`
