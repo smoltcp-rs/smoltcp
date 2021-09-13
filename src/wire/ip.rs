@@ -167,7 +167,7 @@ impl Address {
     }
 
     /// Return an unspecified address that has the same IP version as `self`.
-    pub fn to_unspecified(&self) -> Address {
+    pub fn as_unspecified(&self) -> Address {
         match *self {
             Address::Unspecified => Address::Unspecified,
             #[cfg(feature = "proto-ipv4")]
@@ -179,7 +179,7 @@ impl Address {
 
     /// If `self` is a CIDR-compatible subnet mask, return `Some(prefix_len)`,
     /// where `prefix_len` is the number of leading zeroes. Return `None` otherwise.
-    pub fn to_prefix_len(&self) -> Option<u8> {
+    pub fn prefix_len(&self) -> Option<u8> {
         let mut ones = true;
         let mut prefix_len = 0;
         for byte in self.as_bytes() {
@@ -1216,7 +1216,7 @@ pub(crate) mod test {
     #[cfg(feature = "proto-ipv4")]
     fn to_prefix_len_ipv4() {
         fn test_eq<A: Into<Address>>(prefix_len: u8, mask: A) {
-            assert_eq!(Some(prefix_len), mask.into().to_prefix_len());
+            assert_eq!(Some(prefix_len), mask.into().prefix_len());
         }
 
         test_eq(0, Ipv4Address::new(0, 0, 0, 0));
@@ -1258,7 +1258,7 @@ pub(crate) mod test {
     fn to_prefix_len_ipv4_error() {
         assert_eq!(
             None,
-            IpAddress::from(Ipv4Address::new(255, 255, 255, 1)).to_prefix_len()
+            IpAddress::from(Ipv4Address::new(255, 255, 255, 1)).prefix_len()
         );
     }
 
@@ -1266,7 +1266,7 @@ pub(crate) mod test {
     #[cfg(feature = "proto-ipv6")]
     fn to_prefix_len_ipv6() {
         fn test_eq<A: Into<Address>>(prefix_len: u8, mask: A) {
-            assert_eq!(Some(prefix_len), mask.into().to_prefix_len());
+            assert_eq!(Some(prefix_len), mask.into().prefix_len());
         }
 
         test_eq(0, Ipv6Address::new(0, 0, 0, 0, 0, 0, 0, 0));
@@ -1285,7 +1285,7 @@ pub(crate) mod test {
             IpAddress::from(Ipv6Address::new(
                 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0, 1
             ))
-            .to_prefix_len()
+            .prefix_len()
         );
     }
 }

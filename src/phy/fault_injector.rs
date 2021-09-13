@@ -23,7 +23,6 @@ const MTU: usize = 1536;
 struct Config {
     corrupt_pct: u8,
     drop_pct: u8,
-    reorder_pct: u8,
     max_size: usize,
     max_tx_rate: u64,
     max_rx_rate: u64,
