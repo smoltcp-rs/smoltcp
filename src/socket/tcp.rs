@@ -883,7 +883,7 @@ impl<'a> TcpSocket<'a> {
     }
 
     /// Check whether the transmit half of the full-duplex connection is open
-    /// (see [may_send](#method.may_send), and the transmit buffer is not full.
+    /// (see [may_send](#method.may_send)), and the transmit buffer is not full.
     #[inline]
     pub fn can_send(&self) -> bool {
         if !self.may_send() {
@@ -906,7 +906,7 @@ impl<'a> TcpSocket<'a> {
     }
 
     /// Check whether the receive half of the full-duplex connection buffer is open
-    /// (see [may_recv](#method.may_recv), and the receive buffer is not empty.
+    /// (see [may_recv](#method.may_recv)), and the receive buffer is not empty.
     #[inline]
     pub fn can_recv(&self) -> bool {
         if !self.may_recv() {
