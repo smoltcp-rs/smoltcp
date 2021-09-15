@@ -300,6 +300,13 @@ impl Timer {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+enum AckDelayTimer {
+    Idle,
+    Waiting(Instant),
+    Immediate,
+}
+
 /// A Transmission Control Protocol socket.
 ///
 /// A TCP socket may passively listen for connections or actively connect to another endpoint.
@@ -375,7 +382,7 @@ pub struct TcpSocket<'a> {
     ack_delay: Option<Duration>,
     /// Delayed ack timer. If set, packets containing exclusively
     /// ACK or window updates (ie, no data) won't be sent until expiry.
-    ack_delay_until: Option<Instant>,
+    ack_delay_timer: AckDelayTimer,
 
     /// Nagle's Algorithm enabled.
     nagle: bool,
@@ -437,7 +444,7 @@ impl<'a> TcpSocket<'a> {
             local_rx_last_seq: None,
             local_rx_dup_acks: 0,
             ack_delay: Some(ACK_DELAY_DEFAULT),
-            ack_delay_until: None,
+            ack_delay_timer: AckDelayTimer::Idle,
             nagle: true,
 
             #[cfg(feature = "async")]
@@ -660,7 +667,7 @@ impl<'a> TcpSocket<'a> {
         self.remote_mss = DEFAULT_MSS;
         self.remote_last_ts = None;
         self.ack_delay = Some(ACK_DELAY_DEFAULT);
-        self.ack_delay_until = None;
+        self.ack_delay_timer = AckDelayTimer::Idle;
         self.nagle = true;
 
         #[cfg(feature = "async")]
@@ -1889,8 +1896,8 @@ impl<'a> TcpSocket<'a> {
         // Handle delayed acks
         if let Some(ack_delay) = self.ack_delay {
             if self.ack_to_transmit() || self.window_to_update() {
-                self.ack_delay_until = match self.ack_delay_until {
-                    None => {
+                self.ack_delay_timer = match self.ack_delay_timer {
+                    AckDelayTimer::Idle => {
                         net_trace!(
                             "{}:{}:{}: starting delayed ack timer",
                             self.meta.handle,
@@ -1898,19 +1905,28 @@ impl<'a> TcpSocket<'a> {
                             self.remote_endpoint
                         );
 
-                        Some(cx.now + ack_delay)
+                        AckDelayTimer::Waiting(cx.now + ack_delay)
                     }
                     // RFC1122 says "in a stream of full-sized segments there SHOULD be an ACK
                     // for at least every second segment".
                     // For now, we send an ACK every second received packet, full-sized or not.
-                    Some(_) => {
+                    AckDelayTimer::Waiting(_) => {
                         net_trace!(
                             "{}:{}:{}: delayed ack timer already started, forcing expiry",
                             self.meta.handle,
                             self.local_endpoint,
                             self.remote_endpoint
                         );
-                        None
+                        AckDelayTimer::Immediate
+                    }
+                    AckDelayTimer::Immediate => {
+                        net_trace!(
+                            "{}:{}:{}: delayed ack timer already force-expired",
+                            self.meta.handle,
+                            self.local_endpoint,
+                            self.remote_endpoint
+                        );
+                        AckDelayTimer::Immediate
                     }
                 };
             }
@@ -1998,9 +2014,10 @@ impl<'a> TcpSocket<'a> {
     }
 
     fn delayed_ack_expired(&self, timestamp: Instant) -> bool {
-        match self.ack_delay_until {
-            None => true,
-            Some(t) => t <= timestamp,
+        match self.ack_delay_timer {
+            AckDelayTimer::Idle => true,
+            AckDelayTimer::Waiting(t) => t <= timestamp,
+            AckDelayTimer::Immediate => true,
         }
     }
 
@@ -2309,16 +2326,26 @@ impl<'a> TcpSocket<'a> {
         self.timer.rewind_keep_alive(cx.now, self.keep_alive);
 
         // Reset delayed-ack timer
-        if self.ack_delay_until.is_some() {
-            net_trace!(
-                "{}:{}:{}: stop delayed ack timer",
-                self.meta.handle,
-                self.local_endpoint,
-                self.remote_endpoint
-            );
-
-            self.ack_delay_until = None;
+        match self.ack_delay_timer {
+            AckDelayTimer::Idle => {}
+            AckDelayTimer::Waiting(_) => {
+                net_trace!(
+                    "{}:{}:{}: stop delayed ack timer",
+                    self.meta.handle,
+                    self.local_endpoint,
+                    self.remote_endpoint
+                )
+            }
+            AckDelayTimer::Immediate => {
+                net_trace!(
+                    "{}:{}:{}: stop delayed ack timer (was force-expired)",
+                    self.meta.handle,
+                    self.local_endpoint,
+                    self.remote_endpoint
+                )
+            }
         }
+        self.ack_delay_timer = AckDelayTimer::Idle;
 
         // Leave the rest of the state intact if sending a keep-alive packet, since those
         // carry a fake segment.
@@ -2369,10 +2396,12 @@ impl<'a> TcpSocket<'a> {
             PollAt::Now
         } else {
             let want_ack = self.ack_to_transmit() || self.window_to_update();
-            let delayed_ack_poll_at = match (want_ack, self.ack_delay_until) {
+
+            let delayed_ack_poll_at = match (want_ack, self.ack_delay_timer) {
                 (false, _) => PollAt::Ingress,
-                (true, None) => PollAt::Now,
-                (true, Some(t)) => PollAt::Time(t),
+                (true, AckDelayTimer::Idle) => PollAt::Now,
+                (true, AckDelayTimer::Waiting(t)) => PollAt::Time(t),
+                (true, AckDelayTimer::Immediate) => PollAt::Now,
             };
 
             let timeout_poll_at = match (self.remote_last_ts, self.timeout) {
@@ -6539,6 +6568,55 @@ mod test {
                 seq_number: LOCAL_SEQ + 1,
                 ack_number: Some(REMOTE_SEQ + 1 + 6),
                 window_len: 58,
+                ..RECV_TEMPL
+            })
+        );
+    }
+
+    #[test]
+    fn test_delayed_ack_three_packets() {
+        let mut s = socket_established();
+        s.set_ack_delay(Some(ACK_DELAY_DEFAULT));
+        send!(
+            s,
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                payload: &b"abc"[..],
+                ..SEND_TEMPL
+            }
+        );
+
+        // No ACK is immediately sent.
+        recv!(s, Err(Error::Exhausted));
+
+        send!(
+            s,
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1 + 3,
+                ack_number: Some(LOCAL_SEQ + 1),
+                payload: &b"def"[..],
+                ..SEND_TEMPL
+            }
+        );
+
+        send!(
+            s,
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1 + 6,
+                ack_number: Some(LOCAL_SEQ + 1),
+                payload: &b"ghi"[..],
+                ..SEND_TEMPL
+            }
+        );
+
+        // Every 2nd (or more) packet, ACK is sent without delay.
+        recv!(
+            s,
+            Ok(TcpRepr {
+                seq_number: LOCAL_SEQ + 1,
+                ack_number: Some(REMOTE_SEQ + 1 + 9),
+                window_len: 55,
                 ..RECV_TEMPL
             })
         );
