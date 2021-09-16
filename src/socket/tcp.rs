@@ -732,7 +732,7 @@ impl<'a> TcpSocket<'a> {
         // This lets us lower IpRepr later to determine IP header size and calculate MSS,
         // but without committing to a specific address right away.
         let local_addr = match local_endpoint.addr {
-            IpAddress::Unspecified => remote_endpoint.addr.to_unspecified(),
+            IpAddress::Unspecified => remote_endpoint.addr.as_unspecified(),
             ip => ip,
         };
         let local_endpoint = IpEndpoint {

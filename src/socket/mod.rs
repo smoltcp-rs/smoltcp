@@ -187,7 +187,7 @@ from_socket!(Dhcpv4Socket, Dhcpv4);
 #[derive(Clone, Debug)]
 pub(crate) struct Context {
     pub now: Instant,
-    #[cfg(feature = "medium-ethernet")]
+    #[cfg(all(feature = "medium-ethernet", feature = "socket-dhcpv4"))]
     pub ethernet_address: Option<crate::wire::EthernetAddress>,
     pub caps: DeviceCapabilities,
 }
@@ -215,6 +215,7 @@ impl Context {
             #[cfg(not(feature = "medium-ethernet"))]
             max_transmission_unit: 1500,
         },
+        #[cfg(all(feature = "medium-ethernet", feature = "socket-dhcpv4"))]
         ethernet_address: None,
         now: Instant { millis: 0 },
     };

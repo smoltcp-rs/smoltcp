@@ -63,6 +63,7 @@ impl Answer {
 pub struct Cache<'a> {
     storage: ManagedMap<'a, IpAddress, Neighbor>,
     silent_until: Instant,
+    #[cfg(any(feature = "std", feature = "alloc"))]
     gc_threshold: usize,
 }
 
@@ -74,6 +75,7 @@ impl<'a> Cache<'a> {
     pub(crate) const ENTRY_LIFETIME: Duration = Duration { millis: 60_000 };
 
     /// Default number of entries in the cache before GC kicks in
+    #[cfg(any(feature = "std", feature = "alloc"))]
     pub(crate) const GC_THRESHOLD: usize = 1024;
 
     /// Create a cache. The backing storage is cleared upon creation.
@@ -84,9 +86,18 @@ impl<'a> Cache<'a> {
     where
         T: Into<ManagedMap<'a, IpAddress, Neighbor>>,
     {
-        Cache::new_with_limit(storage, Cache::GC_THRESHOLD)
+        let mut storage = storage.into();
+        storage.clear();
+
+        Cache {
+            storage,
+            #[cfg(any(feature = "std", feature = "alloc"))]
+            gc_threshold: Self::GC_THRESHOLD,
+            silent_until: Instant::from_millis(0),
+        }
     }
 
+    #[cfg(any(feature = "std", feature = "alloc"))]
     pub fn new_with_limit<T>(storage: T, gc_threshold: usize) -> Cache<'a>
     where
         T: Into<ManagedMap<'a, IpAddress, Neighbor>>,

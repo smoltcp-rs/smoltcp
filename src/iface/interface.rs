@@ -854,7 +854,7 @@ where
         Context {
             now,
             caps: self.device.capabilities(),
-            #[cfg(feature = "medium-ethernet")]
+            #[cfg(all(feature = "medium-ethernet", feature = "socket-dhcpv4"))]
             ethernet_address: self.inner.ethernet_addr,
         }
     }

@@ -281,7 +281,7 @@ impl Dhcpv4Socket {
             }
         };
 
-        let prefix_len = match IpAddress::Ipv4(subnet_mask).to_prefix_len() {
+        let prefix_len = match IpAddress::Ipv4(subnet_mask).prefix_len() {
             Some(prefix_len) => prefix_len,
             None => {
                 net_debug!("DHCP ignoring ACK because subnet_mask is not a valid mask");
