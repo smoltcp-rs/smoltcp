@@ -16,6 +16,9 @@ jobs:
           toolchain: nightly
           override: true
       - name: Install cargo-fuzz
-        run: cargo install cargo-fuzz
+        # Fix for cargo-fuzz on latest nightly: https://github.com/rust-fuzz/cargo-fuzz/issues/276
+        # Switch back to installing from crates.io when it's released.
+        #run: cargo install cargo-fuzz
+        run: cargo install --git https://github.com/rust-fuzz/cargo-fuzz --rev b4df3e58f767b5cad8d1aa6753961003f56f3609
       - name: Fuzz
         run: cargo fuzz run packet_parser -- -max_len=1536 -max_total_time=30
