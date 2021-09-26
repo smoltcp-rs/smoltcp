@@ -1239,6 +1239,7 @@ impl<'a> InterfaceInner<'a> {
             // Ignore IP packets not directed at us, or broadcast, or any of the multicast groups.
             // If AnyIP is enabled, also check if the packet is routed locally.
             if !self.any_ip
+                || !ipv4_repr.dst_addr.is_unicast()
                 || self
                     .routes
                     .lookup(&IpAddress::Ipv4(ipv4_repr.dst_addr), cx.now)
