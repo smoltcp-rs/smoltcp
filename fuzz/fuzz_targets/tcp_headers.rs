@@ -1,26 +1,20 @@
 #![no_main]
-#[macro_use] extern crate libfuzzer_sys;
-extern crate smoltcp;
-
-use std as core;
-extern crate getopts;
-
-use core::cmp;
+use libfuzzer_sys::fuzz_target;
+use smoltcp::iface::{InterfaceBuilder, NeighborCache};
 use smoltcp::phy::{Loopback, Medium};
-use smoltcp::wire::{EthernetAddress, EthernetFrame, EthernetProtocol};
-use smoltcp::wire::{IpAddress, IpCidr, Ipv4Packet, Ipv6Packet, TcpPacket};
-use smoltcp::iface::{NeighborCache, InterfaceBuilder};
 use smoltcp::socket::{SocketSet, TcpSocket, TcpSocketBuffer};
 use smoltcp::time::{Duration, Instant};
+use smoltcp::wire::{EthernetAddress, EthernetFrame, EthernetProtocol};
+use smoltcp::wire::{IpAddress, IpCidr, Ipv4Packet, Ipv6Packet, TcpPacket};
+use std::cmp;
 
-mod utils {
-    include!("../utils.rs");
-}
+#[path = "../utils.rs"]
+mod utils;
 
 mod mock {
+    use smoltcp::time::{Duration, Instant};
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
-    use std::sync::atomic::{Ordering, AtomicUsize};
-	use smoltcp::time::{Duration, Instant};
 
     // should be AtomicU64 but that's unstable
     #[derive(Debug, Clone)]
@@ -33,7 +27,8 @@ mod mock {
         }
 
         pub fn advance(&self, duration: Duration) {
-            self.0.fetch_add(duration.total_millis() as usize, Ordering::SeqCst);
+            self.0
+                .fetch_add(duration.total_millis() as usize, Ordering::SeqCst);
         }
 
         pub fn elapsed(&self) -> Instant {
@@ -52,7 +47,10 @@ impl TcpHeaderFuzzer {
     //
     // Otherwise, it replaces the entire rest of the TCP header with the fuzzer's output.
     pub fn new(data: &[u8]) -> TcpHeaderFuzzer {
-        let copy_len = cmp::min(data.len(), 56 /* max TCP header length without port numbers*/);
+        let copy_len = cmp::min(
+            data.len(),
+            56, /* max TCP header length without port numbers*/
+        );
 
         let mut fuzzer = TcpHeaderFuzzer([0; 56], copy_len);
         fuzzer.0[..copy_len].copy_from_slice(&data[..copy_len]);
@@ -68,13 +66,16 @@ impl smoltcp::phy::Fuzzer for TcpHeaderFuzzer {
 
         let tcp_packet_offset = {
             let eth_frame = EthernetFrame::new_unchecked(&frame_data);
-            EthernetFrame::<&mut [u8]>::header_len() + match eth_frame.ethertype() {
-                EthernetProtocol::Ipv4 =>
-                    Ipv4Packet::new_unchecked(eth_frame.payload()).header_len() as usize,
-                EthernetProtocol::Ipv6 =>
-                    Ipv6Packet::new_unchecked(eth_frame.payload()).header_len() as usize,
-                _ => return
-            }
+            EthernetFrame::<&mut [u8]>::header_len()
+                + match eth_frame.ethertype() {
+                    EthernetProtocol::Ipv4 => {
+                        Ipv4Packet::new_unchecked(eth_frame.payload()).header_len() as usize
+                    }
+                    EthernetProtocol::Ipv6 => {
+                        Ipv6Packet::new_unchecked(eth_frame.payload()).header_len() as usize
+                    }
+                    _ => return,
+                }
         };
 
         let tcp_is_syn = {
@@ -95,7 +96,7 @@ impl smoltcp::phy::Fuzzer for TcpHeaderFuzzer {
             (tcp_packet[12] as usize >> 4) * 4
         };
 
-        let tcp_packet = &mut frame_data[tcp_packet_offset+4..];
+        let tcp_packet = &mut frame_data[tcp_packet_offset + 4..];
 
         let replacement_data = &self.0[..self.1];
         let copy_len = cmp::min(replacement_data.len(), tcp_header_len);
@@ -114,17 +115,17 @@ fuzz_target!(|data: &[u8]| {
     let clock = mock::Clock::new();
 
     let device = {
-
         let (mut opts, mut free) = utils::create_options();
         utils::add_middleware_options(&mut opts, &mut free);
 
         let mut matches = utils::parse_options(&opts, free);
-        let device = utils::parse_middleware_options(&mut matches, Loopback::new(Medium::Ethernet),
-                                                     /*loopback=*/true);
+        let device = utils::parse_middleware_options(
+            &mut matches,
+            Loopback::new(Medium::Ethernet),
+            /*loopback=*/ true,
+        );
 
-        smoltcp::phy::FuzzInjector::new(device,
-                                        EmptyFuzzer(),
-                                        TcpHeaderFuzzer::new(data))
+        smoltcp::phy::FuzzInjector::new(device, EmptyFuzzer(), TcpHeaderFuzzer::new(data))
     };
 
     let mut neighbor_cache_entries = [None; 8];
@@ -132,10 +133,10 @@ fuzz_target!(|data: &[u8]| {
 
     let ip_addrs = [IpCidr::new(IpAddress::v4(127, 0, 0, 1), 8)];
     let mut iface = InterfaceBuilder::new(device)
-            .ethernet_addr(EthernetAddress::default())
-            .neighbor_cache(neighbor_cache)
-            .ip_addrs(ip_addrs)
-            .finalize();
+        .ethernet_addr(EthernetAddress::default())
+        .neighbor_cache(neighbor_cache)
+        .ip_addrs(ip_addrs)
+        .finalize();
 
     let server_socket = {
         // It is not strictly necessary to use a `static mut` and unsafe code here, but
@@ -162,7 +163,7 @@ fuzz_target!(|data: &[u8]| {
     let server_handle = socket_set.add(server_socket);
     let client_handle = socket_set.add(client_socket);
 
-    let mut did_listen  = false;
+    let mut did_listen = false;
     let mut did_connect = false;
     let mut done = false;
     while !done && clock.elapsed() < Instant::from_millis(4_000) {
@@ -187,24 +188,28 @@ fuzz_target!(|data: &[u8]| {
             let mut socket = socket_set.get::<TcpSocket>(client_handle);
             if !socket.is_open() {
                 if !did_connect {
-                    socket.connect((IpAddress::v4(127, 0, 0, 1), 1234),
-                                   (IpAddress::Unspecified, 65000)).unwrap();
+                    socket
+                        .connect(
+                            (IpAddress::v4(127, 0, 0, 1), 1234),
+                            (IpAddress::Unspecified, 65000),
+                        )
+                        .unwrap();
                     did_connect = true;
                 }
             }
 
             if socket.can_send() {
-                socket.send_slice(b"0123456789abcdef0123456789abcdef0123456789abcdef").unwrap();
+                socket
+                    .send_slice(b"0123456789abcdef0123456789abcdef0123456789abcdef")
+                    .unwrap();
                 socket.close();
             }
         }
 
         match iface.poll_delay(&socket_set, clock.elapsed()) {
-            Some(Duration { millis: 0 }) => {},
-            Some(delay) => {
-                clock.advance(delay)
-            },
-            None => clock.advance(Duration::from_millis(1))
+            Some(Duration { millis: 0 }) => {}
+            Some(delay) => clock.advance(delay),
+            None => clock.advance(Duration::from_millis(1)),
         }
     }
 });
