@@ -289,7 +289,7 @@ impl<'a, Rx: phy::RxToken> phy::RxToken for RxToken<'a, Rx> {
                 let mut corrupt = &mut corrupt[..buffer.len()];
                 corrupt.copy_from_slice(buffer);
                 state.borrow_mut().corrupt(&mut corrupt);
-                f(&mut corrupt)
+                f(corrupt)
             } else {
                 f(buffer)
             }

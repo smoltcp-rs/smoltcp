@@ -5,12 +5,10 @@ use env_logger::Builder;
 use getopts::{Matches, Options};
 #[cfg(feature = "log")]
 use log::{trace, Level, LevelFilter};
-use std::cell::RefCell;
 use std::env;
 use std::fs::File;
 use std::io::{self, Write};
 use std::process;
-use std::rc::Rc;
 use std::str::{self, FromStr};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -18,7 +16,7 @@ use smoltcp::phy::RawSocket;
 #[cfg(feature = "phy-tuntap_interface")]
 use smoltcp::phy::TunTapInterface;
 use smoltcp::phy::{Device, FaultInjector, Medium, Tracer};
-use smoltcp::phy::{PcapMode, PcapSink, PcapWriter};
+use smoltcp::phy::{PcapMode, PcapWriter};
 use smoltcp::time::{Duration, Instant};
 
 #[cfg(feature = "log")]
@@ -165,7 +163,7 @@ pub fn parse_middleware_options<D>(
     matches: &mut Matches,
     device: D,
     loopback: bool,
-) -> FaultInjector<Tracer<PcapWriter<D, Rc<dyn PcapSink>>>>
+) -> FaultInjector<Tracer<PcapWriter<D, Box<dyn io::Write>>>>
 where
     D: for<'a> Device<'a>,
 {
@@ -208,7 +206,7 @@ where
 
     let device = PcapWriter::new(
         device,
-        Rc::new(RefCell::new(pcap_writer)) as Rc<dyn PcapSink>,
+        pcap_writer,
         if loopback {
             PcapMode::TxOnly
         } else {
