@@ -952,43 +952,12 @@ impl<'a> InterfaceInner<'a> {
             #[cfg(feature = "proto-ipv4")]
             EthernetProtocol::Ipv4 => {
                 let ipv4_packet = Ipv4Packet::new_checked(eth_frame.payload())?;
-                if eth_frame.src_addr().is_unicast() && ipv4_packet.src_addr().is_unicast() {
-                    // Fill the neighbor cache from IP header of unicast frames.
-                    let ip_addr = IpAddress::Ipv4(ipv4_packet.src_addr());
-                    if self.in_same_network(&ip_addr) {
-                        self.neighbor_cache.as_mut().unwrap().fill(
-                            ip_addr,
-                            eth_frame.src_addr(),
-                            cx.now,
-                        );
-                    }
-                }
-
                 self.process_ipv4(cx, sockets, &ipv4_packet)
                     .map(|o| o.map(EthernetPacket::Ip))
             }
             #[cfg(feature = "proto-ipv6")]
             EthernetProtocol::Ipv6 => {
                 let ipv6_packet = Ipv6Packet::new_checked(eth_frame.payload())?;
-                if eth_frame.src_addr().is_unicast() && ipv6_packet.src_addr().is_unicast() {
-                    // Fill the neighbor cache from IP header of unicast frames.
-                    let ip_addr = IpAddress::Ipv6(ipv6_packet.src_addr());
-                    if self.in_same_network(&ip_addr)
-                        && self
-                            .neighbor_cache
-                            .as_mut()
-                            .unwrap()
-                            .lookup(&ip_addr, cx.now)
-                            .found()
-                    {
-                        self.neighbor_cache.as_mut().unwrap().fill(
-                            ip_addr,
-                            eth_frame.src_addr(),
-                            cx.now,
-                        );
-                    }
-                }
-
                 self.process_ipv6(cx, sockets, &ipv6_packet)
                     .map(|o| o.map(EthernetPacket::Ip))
             }
