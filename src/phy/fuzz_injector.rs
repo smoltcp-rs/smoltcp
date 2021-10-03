@@ -123,8 +123,9 @@ impl<'a, Tx: phy::TxToken, FTx: Fuzzer> phy::TxToken for TxToken<'a, Tx, FTx> {
     {
         let Self { fuzzer, token } = self;
         token.consume(timestamp, len, |buf| {
+            let result = f(buf);
             fuzzer.fuzz_packet(buf);
-            f(buf)
+            result
         })
     }
 }
