@@ -3073,6 +3073,37 @@ mod test {
     }
 
     #[test]
+    fn test_syn_received_ack_too_high() {
+        let mut s = socket_syn_received();
+        recv!(
+            s,
+            [TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: LOCAL_SEQ,
+                ack_number: Some(REMOTE_SEQ + 1),
+                max_seg_size: Some(BASE_MSS),
+                ..RECV_TEMPL
+            }]
+        );
+        send!(
+            s,
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 2), // wrong
+                ..SEND_TEMPL
+            },
+            // TODO is this correct? probably not
+            Ok(Some(TcpRepr {
+                control: TcpControl::None,
+                seq_number: LOCAL_SEQ + 1,
+                ack_number: Some(REMOTE_SEQ + 1),
+                ..RECV_TEMPL
+            }))
+        );
+        assert_eq!(s.state, State::SynReceived);
+    }
+
+    #[test]
     fn test_syn_received_fin() {
         let mut s = socket_syn_received();
         recv!(
