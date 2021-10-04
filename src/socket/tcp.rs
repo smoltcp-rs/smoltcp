@@ -188,15 +188,13 @@ enum Timer {
 const ACK_DELAY_DEFAULT: Duration = Duration { millis: 10 };
 const CLOSE_DELAY: Duration = Duration { millis: 10_000 };
 
-impl Default for Timer {
-    fn default() -> Timer {
+impl Timer {
+    fn new() -> Timer {
         Timer::Idle {
             keep_alive_at: None,
         }
     }
-}
 
-impl Timer {
     fn should_keep_alive(&self, timestamp: Instant) -> bool {
         match *self {
             Timer::Idle {
@@ -417,7 +415,7 @@ impl<'a> TcpSocket<'a> {
         TcpSocket {
             meta: SocketMeta::default(),
             state: State::Closed,
-            timer: Timer::default(),
+            timer: Timer::new(),
             rtte: RttEstimator::default(),
             assembler: Assembler::new(rx_buffer.capacity()),
             tx_buffer: tx_buffer,
@@ -644,7 +642,7 @@ impl<'a> TcpSocket<'a> {
             mem::size_of::<usize>() * 8 - self.rx_buffer.capacity().leading_zeros() as usize;
 
         self.state = State::Closed;
-        self.timer = Timer::default();
+        self.timer = Timer::new();
         self.rtte = RttEstimator::default();
         self.assembler = Assembler::new(self.rx_buffer.capacity());
         self.tx_buffer.clear();
@@ -6761,7 +6759,7 @@ mod test {
     #[test]
     fn test_timer_retransmit() {
         const RTO: Duration = Duration::from_millis(100);
-        let mut r = Timer::default();
+        let mut r = Timer::new();
         assert_eq!(r.should_retransmit(Instant::from_secs(1)), None);
         r.set_for_retransmit(Instant::from_millis(1000), RTO);
         assert_eq!(r.should_retransmit(Instant::from_millis(1000)), None);

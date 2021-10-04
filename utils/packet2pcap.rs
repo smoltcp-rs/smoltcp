@@ -1,10 +1,9 @@
 use getopts::Options;
 use smoltcp::phy::{PcapLinkType, PcapSink};
 use smoltcp::time::Instant;
-use std::cell::RefCell;
 use std::env;
 use std::fs::File;
-use std::io::{self, Read, Write};
+use std::io::{self, Read};
 use std::path::Path;
 use std::process::exit;
 
@@ -17,12 +16,9 @@ fn convert(
     let mut packet = Vec::new();
     packet_file.read_to_end(&mut packet)?;
 
-    let pcap = RefCell::new(Vec::new());
-    PcapSink::global_header(&pcap, link_type);
-    PcapSink::packet(&pcap, Instant::from_millis(0), &packet[..]);
-
     let mut pcap_file = File::create(pcap_filename)?;
-    pcap_file.write_all(&pcap.borrow()[..])?;
+    PcapSink::global_header(&mut pcap_file, link_type);
+    PcapSink::packet(&mut pcap_file, Instant::from_millis(0), &packet[..]);
 
     Ok(())
 }
