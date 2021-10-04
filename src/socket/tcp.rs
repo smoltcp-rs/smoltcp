@@ -1575,6 +1575,19 @@ impl<'a> TcpSocket<'a> {
             // SYN packets in the LISTEN state change it to SYN-RECEIVED.
             (State::Listen, TcpControl::Syn) => {
                 net_trace!("{}:{}: received SYN", self.meta.handle, self.local_endpoint);
+                if let Some(max_seg_size) = repr.max_seg_size {
+                    if max_seg_size == 0 {
+                        net_trace!(
+                            "{}:{}:{}: received SYNACK with zero MSS, ignoring",
+                            self.meta.handle,
+                            self.local_endpoint,
+                            self.remote_endpoint
+                        );
+                        return Ok(None);
+                    }
+                    self.remote_mss = max_seg_size as usize
+                }
+
                 self.local_endpoint = IpEndpoint::new(ip_repr.dst_addr(), repr.dst_port);
                 self.remote_endpoint = IpEndpoint::new(ip_repr.src_addr(), repr.src_port);
                 // FIXME: use something more secure here
@@ -1582,9 +1595,6 @@ impl<'a> TcpSocket<'a> {
                 self.remote_seq_no = repr.seq_number + 1;
                 self.remote_last_seq = self.local_seq_no;
                 self.remote_has_sack = repr.sack_permitted;
-                if let Some(max_seg_size) = repr.max_seg_size {
-                    self.remote_mss = max_seg_size as usize
-                }
                 self.remote_win_scale = repr.window_scale;
                 // Remote doesn't support window scaling, don't do it.
                 if self.remote_win_scale.is_none() {
@@ -1618,6 +1628,19 @@ impl<'a> TcpSocket<'a> {
                     self.local_endpoint,
                     self.remote_endpoint
                 );
+                if let Some(max_seg_size) = repr.max_seg_size {
+                    if max_seg_size == 0 {
+                        net_trace!(
+                            "{}:{}:{}: received SYNACK with zero MSS, ignoring",
+                            self.meta.handle,
+                            self.local_endpoint,
+                            self.remote_endpoint
+                        );
+                        return Ok(None);
+                    }
+                    self.remote_mss = max_seg_size as usize;
+                }
+
                 self.local_endpoint = IpEndpoint::new(ip_repr.dst_addr(), repr.dst_port);
                 self.remote_seq_no = repr.seq_number + 1;
                 self.remote_last_seq = self.local_seq_no + 1;
@@ -1628,9 +1651,6 @@ impl<'a> TcpSocket<'a> {
                     self.remote_win_shift = 0;
                 }
 
-                if let Some(max_seg_size) = repr.max_seg_size {
-                    self.remote_mss = max_seg_size as usize;
-                }
                 self.set_state(State::Established);
                 self.timer.set_for_idle(cx.now, self.keep_alive);
             }
