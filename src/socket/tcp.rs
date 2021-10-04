@@ -1994,6 +1994,11 @@ impl<'a> TcpSocket<'a> {
         // Have we sent data that hasn't been ACKed yet?
         let data_in_flight = self.remote_last_seq != self.local_seq_no;
 
+        // If we want to send a SYN and we haven't done so, do it!
+        if matches!(self.state, State::SynSent | State::SynReceived) && !data_in_flight {
+            return true;
+        }
+
         // max sequence number we can send.
         let max_send_seq =
             self.local_seq_no + core::cmp::min(self.remote_win_len, self.tx_buffer.len());
@@ -2097,7 +2102,19 @@ impl<'a> TcpSocket<'a> {
                     self.remote_endpoint,
                     retransmit_delta
                 );
+
+                // Rewind "last sequence number sent", as if we never
+                // had sent them. This will cause all data in the queue
+                // to be sent again.
                 self.remote_last_seq = self.local_seq_no;
+
+                // Clear the `should_retransmit` state. If we can't retransmit right
+                // now for whatever reason (like zero window), this avoids an
+                // infinite polling loop where `poll_at` returns `Now` but `dispatch`
+                // can't actually do anything.
+                self.timer.set_for_idle(cx.now, self.keep_alive);
+
+                // Inform RTTE, so that it can avoid bogus measurements.
                 self.rtte.on_retransmit();
             }
         }
@@ -2131,14 +2148,6 @@ impl<'a> TcpSocket<'a> {
             // If we need to abort the connection, do it.
             net_trace!(
                 "{}:{}:{}: outgoing segment will abort connection",
-                self.meta.handle,
-                self.local_endpoint,
-                self.remote_endpoint
-            );
-        } else if self.timer.should_retransmit(cx.now).is_some() {
-            // If we have packets to retransmit, do it.
-            net_trace!(
-                "{}:{}:{}: retransmit timer expired",
                 self.meta.handle,
                 self.local_endpoint,
                 self.remote_endpoint
@@ -5504,6 +5513,48 @@ mod test {
             u8::max_value(),
             "duplicate ACK count should not overflow but saturate"
         );
+    }
+
+    #[test]
+    fn test_fast_retransmit_zero_window() {
+        let mut s = socket_established();
+
+        send!(s, time 1000, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            ..SEND_TEMPL
+        });
+
+        s.send_slice(b"abc").unwrap();
+
+        recv!(s, time 0, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"abc"[..],
+            ..RECV_TEMPL
+        }));
+
+        // 3 dup acks
+        send!(s, time 1050, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            ..SEND_TEMPL
+        });
+        send!(s, time 1050, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            ..SEND_TEMPL
+        });
+        send!(s, time 1050, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            window_len: 0, // boom
+            ..SEND_TEMPL
+        });
+
+        // even though we're in "fast retransmit", we shouldn't
+        // force-send anything because the remote's window is full.
+        recv!(s, Err(Error::Exhausted));
     }
 
     // =========================================================================================//
