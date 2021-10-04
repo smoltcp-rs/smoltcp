@@ -110,7 +110,7 @@ impl RttEstimator {
 
         self.rto_count = 0;
 
-        let rto = self.retransmission_timeout().millis();
+        let rto = self.retransmission_timeout().total_millis();
         net_trace!(
             "rtte: sample={:?} rtt={:?} dev={:?} rto={:?}",
             new_rtt,
@@ -137,7 +137,7 @@ impl RttEstimator {
     fn on_ack(&mut self, timestamp: Instant, seq: TcpSeqNumber) {
         if let Some((sent_timestamp, sent_seq)) = self.timestamp {
             if seq >= sent_seq {
-                self.sample((timestamp - sent_timestamp).millis() as u32);
+                self.sample((timestamp - sent_timestamp).total_millis() as u32);
                 self.timestamp = None;
             }
         }
@@ -158,7 +158,7 @@ impl RttEstimator {
             // increase if we see 3 consecutive retransmissions without any successful sample.
             self.rto_count = 0;
             self.rtt = RTTE_MAX_RTO.min(self.rtt * 2);
-            let rto = self.retransmission_timeout().millis();
+            let rto = self.retransmission_timeout().total_millis();
             net_trace!(
                 "rtte: too many retransmissions, increasing: rtt={:?} dev={:?} rto={:?}",
                 self.rtt,
