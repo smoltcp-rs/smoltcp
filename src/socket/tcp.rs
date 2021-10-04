@@ -1396,8 +1396,13 @@ impl<'a> TcpSocket<'a> {
                 let unacknowledged = self.tx_buffer.len() + control_len;
 
                 // Acceptable ACK range (both inclusive)
-                let ack_min = self.local_seq_no;
+                let mut ack_min = self.local_seq_no;
                 let ack_max = self.local_seq_no + unacknowledged;
+
+                // If we have sent a SYN, it MUST be acknowledged.
+                if sent_syn {
+                    ack_min += 1;
+                }
 
                 if ack_number < ack_min {
                     net_debug!(
@@ -3061,8 +3066,10 @@ mod test {
                 seq_number: REMOTE_SEQ + 1,
                 ack_number: Some(LOCAL_SEQ), // wrong
                 ..SEND_TEMPL
-            }
+            },
+            Err(Error::Dropped)
         );
+        assert_eq!(s.state, State::SynReceived);
     }
 
     #[test]
