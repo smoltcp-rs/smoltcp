@@ -1499,23 +1499,26 @@ impl<'a> TcpSocket<'a> {
         let mut ack_of_fin = false;
         if repr.control != TcpControl::Rst {
             if let Some(ack_number) = repr.ack_number {
-                ack_len = ack_number - self.local_seq_no;
-                // There could have been no data sent before the SYN, so we always remove it
-                // from the sequence space.
-                if sent_syn {
-                    ack_len -= 1
-                }
-                // We could've sent data before the FIN, so only remove FIN from the sequence
-                // space if all of that data is acknowledged.
-                if sent_fin && self.tx_buffer.len() + 1 == ack_len {
-                    ack_len -= 1;
-                    net_trace!(
-                        "{}:{}:{}: received ACK of FIN",
-                        self.meta.handle,
-                        self.local_endpoint,
-                        self.remote_endpoint
-                    );
-                    ack_of_fin = true;
+                // Sequence number corresponding to the first byte in `tx_buffer`.
+                // This normally equals `local_seq_no`, but is 1 higher if we ahve sent a SYN,
+                // as the SYN occupies 1 sequence number "before" the data.
+                let tx_buffer_start_seq = self.local_seq_no + (sent_syn as usize);
+
+                if ack_number >= tx_buffer_start_seq {
+                    ack_len = ack_number - tx_buffer_start_seq;
+
+                    // We could've sent data before the FIN, so only remove FIN from the sequence
+                    // space if all of that data is acknowledged.
+                    if sent_fin && self.tx_buffer.len() + 1 == ack_len {
+                        ack_len -= 1;
+                        net_trace!(
+                            "{}:{}:{}: received ACK of FIN",
+                            self.meta.handle,
+                            self.local_endpoint,
+                            self.remote_endpoint
+                        );
+                        ack_of_fin = true;
+                    }
                 }
 
                 self.rtte.on_ack(cx.now, ack_number);
@@ -3037,6 +3040,29 @@ mod test {
         );
         assert_eq!(s.state, State::Established);
         sanity!(s, socket_established());
+    }
+
+    #[test]
+    fn test_syn_received_ack_too_low() {
+        let mut s = socket_syn_received();
+        recv!(
+            s,
+            [TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: LOCAL_SEQ,
+                ack_number: Some(REMOTE_SEQ + 1),
+                max_seg_size: Some(BASE_MSS),
+                ..RECV_TEMPL
+            }]
+        );
+        send!(
+            s,
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ), // wrong
+                ..SEND_TEMPL
+            }
+        );
     }
 
     #[test]
