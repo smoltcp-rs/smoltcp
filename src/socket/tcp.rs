@@ -1592,7 +1592,7 @@ impl<'a> TcpSocket<'a> {
                 self.local_endpoint = IpEndpoint::new(ip_repr.dst_addr(), repr.dst_port);
                 self.remote_endpoint = IpEndpoint::new(ip_repr.src_addr(), repr.src_port);
                 // FIXME: use something more secure here
-                self.local_seq_no = TcpSeqNumber(-repr.seq_number.0);
+                self.local_seq_no = TcpSeqNumber(!repr.seq_number.0);
                 self.remote_seq_no = repr.seq_number + 1;
                 self.remote_last_seq = self.local_seq_no;
                 self.remote_has_sack = repr.sack_permitted;
@@ -2489,7 +2489,7 @@ mod test {
         port: REMOTE_PORT,
     };
     const LOCAL_SEQ: TcpSeqNumber = TcpSeqNumber(10000);
-    const REMOTE_SEQ: TcpSeqNumber = TcpSeqNumber(-10000);
+    const REMOTE_SEQ: TcpSeqNumber = TcpSeqNumber(-10001);
 
     const SEND_IP_TEMPL: IpRepr = IpRepr::Unspecified {
         src_addr: MOCK_IP_ADDR_1,
