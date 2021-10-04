@@ -1355,24 +1355,6 @@ impl<'a> TcpSocket<'a> {
                 );
                 return Err(Error::Dropped);
             }
-            // Any ACK in the SYN-SENT state must have the SYN flag set.
-            (
-                State::SynSent,
-                &TcpRepr {
-                    control: TcpControl::None,
-                    ack_number: Some(_),
-                    ..
-                },
-            ) => {
-                net_debug!(
-                    "{}:{}:{}: expecting a SYN|ACK",
-                    self.meta.handle,
-                    self.local_endpoint,
-                    self.remote_endpoint
-                );
-                self.abort();
-                return Err(Error::Dropped);
-            }
             // SYN|ACK in the SYN-SENT state must have the exact ACK number.
             (
                 State::SynSent,
@@ -1391,6 +1373,17 @@ impl<'a> TcpSocket<'a> {
                     );
                     return Err(Error::Dropped);
                 }
+            }
+            // Anything else in the SYN-SENT state is invalid.
+            (State::SynSent, _) => {
+                net_debug!(
+                    "{}:{}:{}: expecting a SYN|ACK",
+                    self.meta.handle,
+                    self.local_endpoint,
+                    self.remote_endpoint
+                );
+                self.abort();
+                return Err(Error::Dropped);
             }
             // Every acknowledgement must be for transmitted but unacknowledged data.
             (
