@@ -207,7 +207,7 @@ fuzz_target!(|data: &[u8]| {
         }
 
         match iface.poll_delay(&socket_set, clock.elapsed()) {
-            Some(Duration { millis: 0 }) => {}
+            Some(Duration::ZERO) => {}
             Some(delay) => clock.advance(delay),
             None => clock.advance(Duration::from_millis(1)),
         }
