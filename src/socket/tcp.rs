@@ -1307,7 +1307,7 @@ impl<'a> TcpSocket<'a> {
             (_, TcpControl::Rst, _) => (),
             // The initial SYN cannot contain an acknowledgement.
             (State::Listen, _, None) => (),
-            // This case is handled above.
+            // This case is handled in `accepts()`.
             (State::Listen, _, Some(_)) => unreachable!(),
             // Every packet after the initial SYN must be an acknowledgement.
             (_, _, None) => {
