@@ -382,6 +382,9 @@ pub struct TcpSocket<'a> {
     /// ACK or window updates (ie, no data) won't be sent until expiry.
     ack_delay_timer: AckDelayTimer,
 
+    /// Used for rate-limiting: No more challenge ACKs will be sent until this instant.
+    challenge_ack_timer: Instant,
+
     /// Nagle's Algorithm enabled.
     nagle: bool,
 
@@ -443,6 +446,7 @@ impl<'a> TcpSocket<'a> {
             local_rx_dup_acks: 0,
             ack_delay: Some(ACK_DELAY_DEFAULT),
             ack_delay_timer: AckDelayTimer::Idle,
+            challenge_ack_timer: Instant::from_secs(0),
             nagle: true,
 
             #[cfg(feature = "async")]
@@ -573,7 +577,7 @@ impl<'a> TcpSocket<'a> {
 
     /// Set the keep-alive interval.
     ///
-    /// An idle socket with a keep-alive interval set will transmit a "challenge ACK" packet
+    /// An idle socket with a keep-alive interval set will transmit a "keep-alive ACK" packet
     /// every time it receives no communication during that interval. As a result, three things
     /// may happen:
     ///
@@ -666,6 +670,8 @@ impl<'a> TcpSocket<'a> {
         self.remote_last_ts = None;
         self.ack_delay = Some(ACK_DELAY_DEFAULT);
         self.ack_delay_timer = AckDelayTimer::Idle;
+        self.challenge_ack_timer = Instant::from_secs(0);
+
         self.nagle = true;
 
         #[cfg(feature = "async")]
@@ -1223,6 +1229,22 @@ impl<'a> TcpSocket<'a> {
         (ip_reply_repr, reply_repr)
     }
 
+    fn challenge_ack_reply(
+        &mut self,
+        cx: &Context,
+        ip_repr: &IpRepr,
+        repr: &TcpRepr,
+    ) -> Option<(IpRepr, TcpRepr<'static>)> {
+        if cx.now < self.challenge_ack_timer {
+            return None;
+        }
+
+        // Rate-limit to 1 per second max.
+        self.challenge_ack_timer = cx.now + Duration::from_secs(1);
+
+        return Some(self.ack_reply(ip_repr, repr));
+    }
+
     pub(crate) fn accepts(&self, ip_repr: &IpRepr, repr: &TcpRepr) -> bool {
         if self.state == State::Closed {
             return false;
@@ -1378,7 +1400,7 @@ impl<'a> TcpSocket<'a> {
                         ack_min,
                         ack_max
                     );
-                    return Ok(Some(self.ack_reply(ip_repr, repr)));
+                    return Ok(self.challenge_ack_reply(cx, ip_repr, repr));
                 }
             }
         }
@@ -1444,7 +1466,7 @@ impl<'a> TcpSocket<'a> {
                         self.timer.set_for_close(cx.now);
                     }
 
-                    return Ok(Some(self.ack_reply(ip_repr, repr)));
+                    return Ok(self.challenge_ack_reply(cx, ip_repr, repr));
                 }
             }
         }
@@ -3949,6 +3971,35 @@ mod test {
             }))
         );
         assert_eq!(s.remote_seq_no, REMOTE_SEQ + 1);
+
+        // Challenge ACKs are rate-limited, we don't get a second one immediately.
+        send!(
+            s,
+            time 100,
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1 + 256,
+                ack_number: Some(LOCAL_SEQ + 1),
+                ..SEND_TEMPL
+            },
+            Ok(None)
+        );
+
+        // If we wait a bit, we do get a new one.
+        send!(
+            s,
+            time 2000,
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1 + 256,
+                ack_number: Some(LOCAL_SEQ + 1),
+                ..SEND_TEMPL
+            },
+            Ok(Some(TcpRepr {
+                seq_number: LOCAL_SEQ + 1,
+                ack_number: Some(REMOTE_SEQ + 1),
+                ..RECV_TEMPL
+            }))
+        );
+        assert_eq!(s.remote_seq_no, REMOTE_SEQ + 1);
     }
 
     #[test]
@@ -4127,6 +4178,7 @@ mod test {
         // See https://github.com/smoltcp-rs/smoltcp/issues/338
         send!(
             s,
+            time 2000,
             TcpRepr {
                 control: TcpControl::Rst,
                 seq_number: REMOTE_SEQ, // Wrong seq
