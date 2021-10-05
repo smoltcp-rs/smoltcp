@@ -1,5 +1,10 @@
 # smoltcp
 
+[![docs.rs](https://docs.rs/smoltcp/badge.svg)](https://docs.rs/smoltcp)
+[![crates.io](https://img.shields.io/crates/v/smoltcp.svg)](https://crates.io/crates/smoltcp)
+[![crates.io](https://img.shields.io/crates/d/smoltcp.svg)](https://crates.io/crates/smoltcp)
+[![crates.io](https://img.shields.io/matrix/smoltcp:matrix.org)](https://matrix.to/#/#smoltcp:matrix.org)
+
 _smoltcp_ is a standalone, event-driven TCP/IP stack that is designed for bare-metal,
 real-time systems. Its design goals are simplicity and robustness. Its design anti-goals
 include complicated compile-time computations, such as macro or type tricks, even
