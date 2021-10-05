@@ -6,6 +6,12 @@ on:
 name: Test
 
 jobs:
+  tests:
+    runs-on: ubuntu-20.04
+    needs: [test, check]
+    steps:
+      - name: Done
+        run: exit 0
   test:
     runs-on: ubuntu-20.04
     continue-on-error: ${{ matrix.rust == 'nightly' }}
