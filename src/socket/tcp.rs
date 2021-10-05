@@ -1279,17 +1279,10 @@ impl<'a> TcpSocket<'a> {
         let control_len = (sent_syn as usize) + (sent_fin as usize);
 
         // Reject unacceptable acknowledgements.
-        match (self.state, repr) {
+        match (self.state, repr.control, repr.ack_number) {
             // An RST received in response to initial SYN is acceptable if it acknowledges
             // the initial SYN.
-            (
-                State::SynSent,
-                &TcpRepr {
-                    control: TcpControl::Rst,
-                    ack_number: None,
-                    ..
-                },
-            ) => {
+            (State::SynSent, TcpControl::Rst, None) => {
                 net_debug!(
                     "{}:{}:{}: unacceptable RST (expecting RST|ACK) \
                             in response to initial SYN",
@@ -1299,14 +1292,7 @@ impl<'a> TcpSocket<'a> {
                 );
                 return Err(Error::Dropped);
             }
-            (
-                State::SynSent,
-                &TcpRepr {
-                    control: TcpControl::Rst,
-                    ack_number: Some(ack_number),
-                    ..
-                },
-            ) => {
+            (State::SynSent, TcpControl::Rst, Some(ack_number)) => {
                 if ack_number != self.local_seq_no + 1 {
                     net_debug!(
                         "{}:{}:{}: unacceptable RST|ACK in response to initial SYN",
@@ -1318,35 +1304,13 @@ impl<'a> TcpSocket<'a> {
                 }
             }
             // Any other RST need only have a valid sequence number.
-            (
-                _,
-                &TcpRepr {
-                    control: TcpControl::Rst,
-                    ..
-                },
-            ) => (),
+            (_, TcpControl::Rst, _) => (),
             // The initial SYN cannot contain an acknowledgement.
-            (
-                State::Listen,
-                &TcpRepr {
-                    ack_number: None, ..
-                },
-            ) => (),
+            (State::Listen, _, None) => (),
             // This case is handled above.
-            (
-                State::Listen,
-                &TcpRepr {
-                    ack_number: Some(_),
-                    ..
-                },
-            ) => unreachable!(),
+            (State::Listen, _, Some(_)) => unreachable!(),
             // Every packet after the initial SYN must be an acknowledgement.
-            (
-                _,
-                &TcpRepr {
-                    ack_number: None, ..
-                },
-            ) => {
+            (_, _, None) => {
                 net_debug!(
                     "{}:{}:{}: expecting an ACK",
                     self.meta.handle,
@@ -1356,14 +1320,7 @@ impl<'a> TcpSocket<'a> {
                 return Err(Error::Dropped);
             }
             // SYN|ACK in the SYN-SENT state must have the exact ACK number.
-            (
-                State::SynSent,
-                &TcpRepr {
-                    control: TcpControl::Syn,
-                    ack_number: Some(ack_number),
-                    ..
-                },
-            ) => {
+            (State::SynSent, TcpControl::Syn, Some(ack_number)) => {
                 if ack_number != self.local_seq_no + 1 {
                     net_debug!(
                         "{}:{}:{}: unacceptable SYN|ACK in response to initial SYN",
@@ -1375,7 +1332,7 @@ impl<'a> TcpSocket<'a> {
                 }
             }
             // Anything else in the SYN-SENT state is invalid.
-            (State::SynSent, _) => {
+            (State::SynSent, _, _) => {
                 net_debug!(
                     "{}:{}:{}: expecting a SYN|ACK",
                     self.meta.handle,
@@ -1386,13 +1343,7 @@ impl<'a> TcpSocket<'a> {
                 return Err(Error::Dropped);
             }
             // Every acknowledgement must be for transmitted but unacknowledged data.
-            (
-                _,
-                &TcpRepr {
-                    ack_number: Some(ack_number),
-                    ..
-                },
-            ) => {
+            (_, _, Some(ack_number)) => {
                 let unacknowledged = self.tx_buffer.len() + control_len;
 
                 // Acceptable ACK range (both inclusive)
