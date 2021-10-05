@@ -5689,6 +5689,8 @@ mod test {
                 ..RECV_TEMPL
             }))
         );
+
+        panic!("booo");
     }
 
     #[test]
