@@ -1011,6 +1011,12 @@ impl<'a> InterfaceInner<'a> {
                     return Ok(None);
                 }
 
+                // Only process REQUEST and RESPONSE.
+                if let ArpOperation::Unknown(_) = operation {
+                    net_debug!("arp: unknown operation code");
+                    return Err(Error::Malformed);
+                }
+
                 // Discard packets with non-unicast source addresses.
                 if !source_protocol_addr.is_unicast() || !source_hardware_addr.is_unicast() {
                     net_debug!("arp: non-unicast source address");
