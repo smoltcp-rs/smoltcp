@@ -382,6 +382,9 @@ pub struct TcpSocket<'a> {
     /// ACK or window updates (ie, no data) won't be sent until expiry.
     ack_delay_timer: AckDelayTimer,
 
+    /// Used for rate-limiting: No more challenge ACKs will be sent until this instant.
+    challenge_ack_timer: Instant,
+
     /// Nagle's Algorithm enabled.
     nagle: bool,
 
@@ -443,6 +446,7 @@ impl<'a> TcpSocket<'a> {
             local_rx_dup_acks: 0,
             ack_delay: Some(ACK_DELAY_DEFAULT),
             ack_delay_timer: AckDelayTimer::Idle,
+            challenge_ack_timer: Instant::from_secs(0),
             nagle: true,
 
             #[cfg(feature = "async")]
@@ -573,7 +577,7 @@ impl<'a> TcpSocket<'a> {
 
     /// Set the keep-alive interval.
     ///
-    /// An idle socket with a keep-alive interval set will transmit a "challenge ACK" packet
+    /// An idle socket with a keep-alive interval set will transmit a "keep-alive ACK" packet
     /// every time it receives no communication during that interval. As a result, three things
     /// may happen:
     ///
@@ -666,6 +670,8 @@ impl<'a> TcpSocket<'a> {
         self.remote_last_ts = None;
         self.ack_delay = Some(ACK_DELAY_DEFAULT);
         self.ack_delay_timer = AckDelayTimer::Idle;
+        self.challenge_ack_timer = Instant::from_secs(0);
+
         self.nagle = true;
 
         #[cfg(feature = "async")]
@@ -1159,7 +1165,7 @@ impl<'a> TcpSocket<'a> {
         // of why we sometimes send an RST and sometimes an RST|ACK
         reply_repr.control = TcpControl::Rst;
         reply_repr.seq_number = repr.ack_number.unwrap_or_default();
-        if repr.control == TcpControl::Syn {
+        if repr.control == TcpControl::Syn && repr.ack_number.is_none() {
             reply_repr.ack_number = Some(repr.seq_number + repr.segment_len());
         }
 
@@ -1223,6 +1229,22 @@ impl<'a> TcpSocket<'a> {
         (ip_reply_repr, reply_repr)
     }
 
+    fn challenge_ack_reply(
+        &mut self,
+        cx: &Context,
+        ip_repr: &IpRepr,
+        repr: &TcpRepr,
+    ) -> Option<(IpRepr, TcpRepr<'static>)> {
+        if cx.now < self.challenge_ack_timer {
+            return None;
+        }
+
+        // Rate-limit to 1 per second max.
+        self.challenge_ack_timer = cx.now + Duration::from_secs(1);
+
+        return Some(self.ack_reply(ip_repr, repr));
+    }
+
     pub(crate) fn accepts(&self, ip_repr: &IpRepr, repr: &TcpRepr) -> bool {
         if self.state == State::Closed {
             return false;
@@ -1279,17 +1301,10 @@ impl<'a> TcpSocket<'a> {
         let control_len = (sent_syn as usize) + (sent_fin as usize);
 
         // Reject unacceptable acknowledgements.
-        match (self.state, repr) {
+        match (self.state, repr.control, repr.ack_number) {
             // An RST received in response to initial SYN is acceptable if it acknowledges
             // the initial SYN.
-            (
-                State::SynSent,
-                &TcpRepr {
-                    control: TcpControl::Rst,
-                    ack_number: None,
-                    ..
-                },
-            ) => {
+            (State::SynSent, TcpControl::Rst, None) => {
                 net_debug!(
                     "{}:{}:{}: unacceptable RST (expecting RST|ACK) \
                             in response to initial SYN",
@@ -1299,14 +1314,7 @@ impl<'a> TcpSocket<'a> {
                 );
                 return Err(Error::Dropped);
             }
-            (
-                State::SynSent,
-                &TcpRepr {
-                    control: TcpControl::Rst,
-                    ack_number: Some(ack_number),
-                    ..
-                },
-            ) => {
+            (State::SynSent, TcpControl::Rst, Some(ack_number)) => {
                 if ack_number != self.local_seq_no + 1 {
                     net_debug!(
                         "{}:{}:{}: unacceptable RST|ACK in response to initial SYN",
@@ -1318,35 +1326,13 @@ impl<'a> TcpSocket<'a> {
                 }
             }
             // Any other RST need only have a valid sequence number.
-            (
-                _,
-                &TcpRepr {
-                    control: TcpControl::Rst,
-                    ..
-                },
-            ) => (),
+            (_, TcpControl::Rst, _) => (),
             // The initial SYN cannot contain an acknowledgement.
-            (
-                State::Listen,
-                &TcpRepr {
-                    ack_number: None, ..
-                },
-            ) => (),
-            // This case is handled above.
-            (
-                State::Listen,
-                &TcpRepr {
-                    ack_number: Some(_),
-                    ..
-                },
-            ) => unreachable!(),
+            (State::Listen, _, None) => (),
+            // This case is handled in `accepts()`.
+            (State::Listen, _, Some(_)) => unreachable!(),
             // Every packet after the initial SYN must be an acknowledgement.
-            (
-                _,
-                &TcpRepr {
-                    ack_number: None, ..
-                },
-            ) => {
+            (_, _, None) => {
                 net_debug!(
                     "{}:{}:{}: expecting an ACK",
                     self.meta.handle,
@@ -1356,14 +1342,7 @@ impl<'a> TcpSocket<'a> {
                 return Err(Error::Dropped);
             }
             // SYN|ACK in the SYN-SENT state must have the exact ACK number.
-            (
-                State::SynSent,
-                &TcpRepr {
-                    control: TcpControl::Syn,
-                    ack_number: Some(ack_number),
-                    ..
-                },
-            ) => {
+            (State::SynSent, TcpControl::Syn, Some(ack_number)) => {
                 if ack_number != self.local_seq_no + 1 {
                     net_debug!(
                         "{}:{}:{}: unacceptable SYN|ACK in response to initial SYN",
@@ -1371,28 +1350,33 @@ impl<'a> TcpSocket<'a> {
                         self.local_endpoint,
                         self.remote_endpoint
                     );
-                    return Err(Error::Dropped);
+                    return Ok(Some(Self::rst_reply(ip_repr, repr)));
                 }
             }
             // Anything else in the SYN-SENT state is invalid.
-            (State::SynSent, _) => {
+            (State::SynSent, _, _) => {
                 net_debug!(
                     "{}:{}:{}: expecting a SYN|ACK",
                     self.meta.handle,
                     self.local_endpoint,
                     self.remote_endpoint
                 );
-                self.abort();
                 return Err(Error::Dropped);
             }
+            // ACK in the SYN-RECEIVED state must have the exact ACK number, or we RST it.
+            (State::SynReceived, _, Some(ack_number)) => {
+                if ack_number != self.local_seq_no + 1 {
+                    net_debug!(
+                        "{}:{}:{}: unacceptable ACK in response to SYN|ACK",
+                        self.meta.handle,
+                        self.local_endpoint,
+                        self.remote_endpoint
+                    );
+                    return Ok(Some(Self::rst_reply(ip_repr, repr)));
+                }
+            }
             // Every acknowledgement must be for transmitted but unacknowledged data.
-            (
-                _,
-                &TcpRepr {
-                    ack_number: Some(ack_number),
-                    ..
-                },
-            ) => {
+            (_, _, Some(ack_number)) => {
                 let unacknowledged = self.tx_buffer.len() + control_len;
 
                 // Acceptable ACK range (both inclusive)
@@ -1427,7 +1411,7 @@ impl<'a> TcpSocket<'a> {
                         ack_min,
                         ack_max
                     );
-                    return Ok(Some(self.ack_reply(ip_repr, repr)));
+                    return Ok(self.challenge_ack_reply(cx, ip_repr, repr));
                 }
             }
         }
@@ -1493,7 +1477,7 @@ impl<'a> TcpSocket<'a> {
                         self.timer.set_for_close(cx.now);
                     }
 
-                    return Ok(Some(self.ack_reply(ip_repr, repr)));
+                    return Ok(self.challenge_ack_reply(cx, ip_repr, repr));
                 }
             }
         }
@@ -3067,7 +3051,13 @@ mod test {
                 ack_number: Some(LOCAL_SEQ), // wrong
                 ..SEND_TEMPL
             },
-            Err(Error::Dropped)
+            Ok(Some(TcpRepr {
+                control: TcpControl::Rst,
+                seq_number: LOCAL_SEQ,
+                ack_number: None,
+                window_len: 0,
+                ..RECV_TEMPL
+            }))
         );
         assert_eq!(s.state, State::SynReceived);
     }
@@ -3092,11 +3082,11 @@ mod test {
                 ack_number: Some(LOCAL_SEQ + 2), // wrong
                 ..SEND_TEMPL
             },
-            // TODO is this correct? probably not
             Ok(Some(TcpRepr {
-                control: TcpControl::None,
-                seq_number: LOCAL_SEQ + 1,
-                ack_number: Some(REMOTE_SEQ + 1),
+                control: TcpControl::Rst,
+                seq_number: LOCAL_SEQ + 2,
+                ack_number: None,
+                window_len: 0,
                 ..RECV_TEMPL
             }))
         );
@@ -3424,7 +3414,13 @@ mod test {
                 window_scale: Some(0),
                 ..SEND_TEMPL
             },
-            Err(Error::Dropped)
+            Ok(Some(TcpRepr {
+                control: TcpControl::Rst,
+                seq_number: LOCAL_SEQ,
+                ack_number: None,
+                window_len: 0,
+                ..RECV_TEMPL
+            }))
         );
         assert_eq!(s.state, State::SynSent);
     }
@@ -3488,7 +3484,7 @@ mod test {
             },
             Err(Error::Dropped)
         );
-        assert_eq!(s.state, State::Closed);
+        assert_eq!(s.state, State::SynSent);
     }
 
     #[test]
@@ -3998,6 +3994,35 @@ mod test {
             }))
         );
         assert_eq!(s.remote_seq_no, REMOTE_SEQ + 1);
+
+        // Challenge ACKs are rate-limited, we don't get a second one immediately.
+        send!(
+            s,
+            time 100,
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1 + 256,
+                ack_number: Some(LOCAL_SEQ + 1),
+                ..SEND_TEMPL
+            },
+            Ok(None)
+        );
+
+        // If we wait a bit, we do get a new one.
+        send!(
+            s,
+            time 2000,
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1 + 256,
+                ack_number: Some(LOCAL_SEQ + 1),
+                ..SEND_TEMPL
+            },
+            Ok(Some(TcpRepr {
+                seq_number: LOCAL_SEQ + 1,
+                ack_number: Some(REMOTE_SEQ + 1),
+                ..RECV_TEMPL
+            }))
+        );
+        assert_eq!(s.remote_seq_no, REMOTE_SEQ + 1);
     }
 
     #[test]
@@ -4176,6 +4201,7 @@ mod test {
         // See https://github.com/smoltcp-rs/smoltcp/issues/338
         send!(
             s,
+            time 2000,
             TcpRepr {
                 control: TcpControl::Rst,
                 seq_number: REMOTE_SEQ, // Wrong seq
