@@ -1017,6 +1017,11 @@ impl<'a> InterfaceInner<'a> {
                     return Err(Error::Malformed);
                 }
 
+                if !self.in_same_network(&IpAddress::Ipv4(source_protocol_addr)) {
+                    net_debug!("arp: source IP address not in same network as us");
+                    return Err(Error::Malformed);
+                }
+
                 // Fill the ARP cache from any ARP packet aimed at us (both request or response).
                 // We fill from requests too because if someone is requesting our address they
                 // are probably going to talk to us, so we avoid having to request their address
