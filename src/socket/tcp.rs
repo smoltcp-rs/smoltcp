@@ -1364,6 +1364,18 @@ impl<'a> TcpSocket<'a> {
                 self.abort();
                 return Err(Error::Dropped);
             }
+            // ACK in the SYN-RECEIVED state must have the exact ACK number, or we RST it.
+            (State::SynReceived, _, Some(ack_number)) => {
+                if ack_number != self.local_seq_no + 1 {
+                    net_debug!(
+                        "{}:{}:{}: unacceptable ACK in response to SYN|ACK",
+                        self.meta.handle,
+                        self.local_endpoint,
+                        self.remote_endpoint
+                    );
+                    return Ok(Some(Self::rst_reply(ip_repr, repr)));
+                }
+            }
             // Every acknowledgement must be for transmitted but unacknowledged data.
             (_, _, Some(ack_number)) => {
                 let unacknowledged = self.tx_buffer.len() + control_len;
@@ -3040,7 +3052,13 @@ mod test {
                 ack_number: Some(LOCAL_SEQ), // wrong
                 ..SEND_TEMPL
             },
-            Err(Error::Dropped)
+            Ok(Some(TcpRepr {
+                control: TcpControl::Rst,
+                seq_number: LOCAL_SEQ,
+                ack_number: None,
+                window_len: 0,
+                ..RECV_TEMPL
+            }))
         );
         assert_eq!(s.state, State::SynReceived);
     }
@@ -3065,11 +3083,11 @@ mod test {
                 ack_number: Some(LOCAL_SEQ + 2), // wrong
                 ..SEND_TEMPL
             },
-            // TODO is this correct? probably not
             Ok(Some(TcpRepr {
-                control: TcpControl::None,
-                seq_number: LOCAL_SEQ + 1,
-                ack_number: Some(REMOTE_SEQ + 1),
+                control: TcpControl::Rst,
+                seq_number: LOCAL_SEQ + 2,
+                ack_number: None,
+                window_len: 0,
                 ..RECV_TEMPL
             }))
         );
