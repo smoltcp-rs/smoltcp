@@ -1361,7 +1361,6 @@ impl<'a> TcpSocket<'a> {
                     self.local_endpoint,
                     self.remote_endpoint
                 );
-                self.abort();
                 return Err(Error::Dropped);
             }
             // ACK in the SYN-RECEIVED state must have the exact ACK number, or we RST it.
@@ -3479,7 +3478,7 @@ mod test {
             },
             Err(Error::Dropped)
         );
-        assert_eq!(s.state, State::Closed);
+        assert_eq!(s.state, State::SynSent);
     }
 
     #[test]
