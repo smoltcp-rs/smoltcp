@@ -999,9 +999,6 @@ impl<'a> InterfaceInner<'a> {
         let arp_repr = ArpRepr::parse(&arp_packet)?;
 
         match arp_repr {
-            // Respond to ARP requests aimed at us, and fill the ARP cache from all ARP
-            // requests and replies, to minimize the chance that we have to perform
-            // an explicit ARP request.
             ArpRepr::EthernetIpv4 {
                 operation,
                 source_hardware_addr,
@@ -1009,19 +1006,28 @@ impl<'a> InterfaceInner<'a> {
                 target_protocol_addr,
                 ..
             } => {
-                if source_protocol_addr.is_unicast() && source_hardware_addr.is_unicast() {
-                    self.neighbor_cache.as_mut().unwrap().fill(
-                        source_protocol_addr.into(),
-                        source_hardware_addr,
-                        timestamp,
-                    );
-                } else {
-                    // Discard packets with non-unicast source addresses.
-                    net_debug!("non-unicast source address");
+                // Only process ARP packets for us.
+                if !self.has_ip_addr(target_protocol_addr) {
+                    return Ok(None);
+                }
+
+                // Discard packets with non-unicast source addresses.
+                if !source_protocol_addr.is_unicast() || !source_hardware_addr.is_unicast() {
+                    net_debug!("arp: non-unicast source address");
                     return Err(Error::Malformed);
                 }
 
-                if operation == ArpOperation::Request && self.has_ip_addr(target_protocol_addr) {
+                // Fill the ARP cache from any ARP packet aimed at us (both request or response).
+                // We fill from requests too because if someone is requesting our address they
+                // are probably going to talk to us, so we avoid having to request their address
+                // when we later reply to them.
+                self.neighbor_cache.as_mut().unwrap().fill(
+                    source_protocol_addr.into(),
+                    source_hardware_addr,
+                    timestamp,
+                );
+
+                if operation == ArpOperation::Request {
                     Ok(Some(EthernetPacket::Arp(ArpRepr::EthernetIpv4 {
                         operation: ArpOperation::Reply,
                         source_hardware_addr: self.ethernet_addr.unwrap(),
@@ -2854,7 +2860,7 @@ mod test {
             Ok(None)
         );
 
-        // Ensure the address of the requestor was entered in the cache
+        // Ensure the address of the requestor was NOT entered in the cache
         assert_eq!(
             iface.inner.lookup_hardware_addr(
                 &cx,
@@ -2862,7 +2868,7 @@ mod test {
                 &IpAddress::Ipv4(Ipv4Address([0x7f, 0x00, 0x00, 0x01])),
                 &IpAddress::Ipv4(remote_ip_addr)
             ),
-            Ok((remote_hw_addr, MockTxToken))
+            Err(Error::Unaddressable)
         );
     }
 
