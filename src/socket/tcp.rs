@@ -1165,7 +1165,7 @@ impl<'a> TcpSocket<'a> {
         // of why we sometimes send an RST and sometimes an RST|ACK
         reply_repr.control = TcpControl::Rst;
         reply_repr.seq_number = repr.ack_number.unwrap_or_default();
-        if repr.control == TcpControl::Syn {
+        if repr.control == TcpControl::Syn && repr.ack_number.is_none() {
             reply_repr.ack_number = Some(repr.seq_number + repr.segment_len());
         }
 
@@ -1350,7 +1350,7 @@ impl<'a> TcpSocket<'a> {
                         self.local_endpoint,
                         self.remote_endpoint
                     );
-                    return Err(Error::Dropped);
+                    return Ok(Some(Self::rst_reply(ip_repr, repr)));
                 }
             }
             // Anything else in the SYN-SENT state is invalid.
@@ -3414,7 +3414,13 @@ mod test {
                 window_scale: Some(0),
                 ..SEND_TEMPL
             },
-            Err(Error::Dropped)
+            Ok(Some(TcpRepr {
+                control: TcpControl::Rst,
+                seq_number: LOCAL_SEQ,
+                ack_number: None,
+                window_len: 0,
+                ..RECV_TEMPL
+            }))
         );
         assert_eq!(s.state, State::SynSent);
     }
