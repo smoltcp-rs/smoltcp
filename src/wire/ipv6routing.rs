@@ -503,15 +503,17 @@ impl<'a> fmt::Display for Repr<'a> {
                 length,
                 segments_left,
                 home_address,
-            } => write!(
-                f,
-                "IPv6 Routing next_hdr={} length={} type={} seg_left={} home_address={}",
-                next_header,
-                length,
-                Type::Type2,
-                segments_left,
-                home_address
-            ),
+            } => {
+                write!(
+                    f,
+                    "IPv6 Routing next_hdr={} length={} type={} seg_left={} home_address={}",
+                    next_header,
+                    length,
+                    Type::Type2,
+                    segments_left,
+                    home_address
+                )
+            }
             Repr::Rpl {
                 next_header,
                 length,
@@ -520,17 +522,10 @@ impl<'a> fmt::Display for Repr<'a> {
                 cmpr_e,
                 pad,
                 ..
-            } => write!(
-                f,
-                "IPv6 Routing next_hdr={} length={} type={} seg_left={} cmpr_i={} cmpr_e={} pad={}",
-                next_header,
-                length,
-                Type::Rpl,
-                segments_left,
-                cmpr_i,
-                cmpr_e,
-                pad
-            ),
+            } => {
+                write!(f, "IPv6 Routing next_hdr={} length={} type={} seg_left={} cmpr_i={} cmpr_e={} pad={}",
+                       next_header, length, Type::Rpl, segments_left, cmpr_i, cmpr_e, pad)
+            }
         }
     }
 }

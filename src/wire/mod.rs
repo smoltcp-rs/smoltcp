@@ -123,6 +123,8 @@ mod sixlowpan;
 mod tcp;
 mod udp;
 
+use crate::{phy::Medium, Error};
+
 pub use self::pretty_print::PrettyPrinter;
 
 #[cfg(feature = "medium-ethernet")]
@@ -308,5 +310,96 @@ impl From<EthernetAddress> for HardwareAddress {
 impl From<Ieee802154Address> for HardwareAddress {
     fn from(addr: Ieee802154Address) -> Self {
         HardwareAddress::Ieee802154(addr)
+    }
+}
+
+#[cfg(not(feature = "medium-ieee802154"))]
+pub const MAX_HARDWARE_ADDRESS_LEN: usize = 6;
+#[cfg(feature = "medium-ieee802154")]
+pub const MAX_HARDWARE_ADDRESS_LEN: usize = 8;
+
+/// Unparsed hardware address.
+///
+/// Used to make NDISC parsing agnostic of the hardware medium in use.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct RawHardwareAddress {
+    len: u8,
+    data: [u8; MAX_HARDWARE_ADDRESS_LEN],
+}
+
+impl RawHardwareAddress {
+    pub fn from_bytes(addr: &[u8]) -> Self {
+        let mut data = [0u8; MAX_HARDWARE_ADDRESS_LEN];
+        data[..addr.len()].copy_from_slice(addr);
+
+        Self {
+            len: addr.len() as u8,
+            data,
+        }
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.data[..self.len as usize]
+    }
+
+    pub fn len(&self) -> usize {
+        self.len as usize
+    }
+
+    pub fn parse(&self, medium: Medium) -> Result<HardwareAddress, Error> {
+        match medium {
+            #[cfg(feature = "medium-ethernet")]
+            Medium::Ethernet => {
+                if self.len() < 6 {
+                    return Err(Error::Malformed);
+                }
+                Ok(HardwareAddress::Ethernet(EthernetAddress::from_bytes(
+                    self.as_bytes(),
+                )))
+            }
+            #[cfg(feature = "medium-ieee802154")]
+            Medium::Ieee802154 => {
+                if self.len() < 8 {
+                    return Err(Error::Malformed);
+                }
+                Ok(HardwareAddress::Ieee802154(Ieee802154Address::from_bytes(
+                    self.as_bytes(),
+                )))
+            }
+            #[cfg(feature = "medium-ip")]
+            Medium::Ip => unreachable!(),
+        }
+    }
+}
+
+impl core::fmt::Display for RawHardwareAddress {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        for (i, &b) in self.as_bytes().iter().enumerate() {
+            if i != 0 {
+                write!(f, ":")?;
+            }
+            write!(f, "{:02x}", b)?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(feature = "medium-ethernet")]
+impl From<EthernetAddress> for RawHardwareAddress {
+    fn from(addr: EthernetAddress) -> Self {
+        Self::from_bytes(addr.as_bytes())
+    }
+}
+
+#[cfg(feature = "medium-ieee802154")]
+impl From<Ieee802154Address> for RawHardwareAddress {
+    fn from(addr: Ieee802154Address) -> Self {
+        Self::from_bytes(addr.as_bytes())
+    }
+}
+
+impl From<HardwareAddress> for RawHardwareAddress {
+    fn from(addr: HardwareAddress) -> Self {
+        Self::from_bytes(addr.as_bytes())
     }
 }

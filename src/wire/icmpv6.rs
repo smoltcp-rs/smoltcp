@@ -2,7 +2,6 @@ use byteorder::{ByteOrder, NetworkEndian};
 use core::{cmp, fmt};
 
 use crate::phy::ChecksumCapabilities;
-use crate::phy::Medium;
 use crate::wire::ip::checksum;
 use crate::wire::MldRepr;
 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
@@ -546,7 +545,6 @@ impl<'a> Repr<'a> {
         dst_addr: &IpAddress,
         packet: &Packet<&'a T>,
         checksum_caps: &ChecksumCapabilities,
-        medium: &Medium,
     ) -> Result<Repr<'a>>
     where
         T: AsRef<[u8]> + ?Sized,
@@ -620,16 +618,14 @@ impl<'a> Repr<'a> {
                 data: packet.payload(),
             }),
             #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
-            (msg_type, 0) if msg_type.is_ndisc() => {
-                NdiscRepr::parse(packet, medium).map(Repr::Ndisc)
-            }
+            (msg_type, 0) if msg_type.is_ndisc() => NdiscRepr::parse(packet).map(Repr::Ndisc),
             (msg_type, 0) if msg_type.is_mld() => MldRepr::parse(packet).map(Repr::Mld),
             _ => Err(Error::Unrecognized),
         }
     }
 
     /// Return the length of a packet that will be emitted from this high-level representation.
-    pub fn buffer_len(&self, medium: &Medium) -> usize {
+    pub fn buffer_len(&self) -> usize {
         match self {
             &Repr::DstUnreachable { header, data, .. }
             | &Repr::PktTooBig { header, data, .. }
@@ -641,7 +637,7 @@ impl<'a> Repr<'a> {
                 field::ECHO_SEQNO.end + data.len()
             }
             #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
-            &Repr::Ndisc(ndisc) => ndisc.buffer_len(medium),
+            &Repr::Ndisc(ndisc) => ndisc.buffer_len(),
             &Repr::Mld(mld) => mld.buffer_len(),
         }
     }
@@ -654,7 +650,6 @@ impl<'a> Repr<'a> {
         dst_addr: &IpAddress,
         packet: &mut Packet<&mut T>,
         checksum_caps: &ChecksumCapabilities,
-        medium: &Medium,
     ) where
         T: AsRef<[u8]> + AsMut<[u8]> + ?Sized,
     {
@@ -736,7 +731,7 @@ impl<'a> Repr<'a> {
             }
 
             #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
-            Repr::Ndisc(ndisc) => ndisc.emit(packet, medium),
+            Repr::Ndisc(ndisc) => ndisc.emit(packet),
 
             Repr::Mld(mld) => mld.emit(packet),
         }
@@ -844,7 +839,6 @@ mod test {
             &MOCK_IP_ADDR_2,
             &packet,
             &ChecksumCapabilities::default(),
-            &Medium::Ethernet,
         )
         .unwrap();
         assert_eq!(repr, echo_packet_repr());
@@ -853,14 +847,13 @@ mod test {
     #[test]
     fn test_echo_emit() {
         let repr = echo_packet_repr();
-        let mut bytes = vec![0xa5; repr.buffer_len(&Medium::Ethernet)];
+        let mut bytes = vec![0xa5; repr.buffer_len()];
         let mut packet = Packet::new_unchecked(&mut bytes);
         repr.emit(
             &MOCK_IP_ADDR_1,
             &MOCK_IP_ADDR_2,
             &mut packet,
             &ChecksumCapabilities::default(),
-            &Medium::Ethernet,
         );
         assert_eq!(&packet.into_inner()[..], &ECHO_PACKET_BYTES[..]);
     }
@@ -899,7 +892,6 @@ mod test {
             &MOCK_IP_ADDR_2,
             &packet,
             &ChecksumCapabilities::default(),
-            &Medium::Ethernet,
         )
         .unwrap();
         assert_eq!(repr, too_big_packet_repr());
@@ -908,14 +900,13 @@ mod test {
     #[test]
     fn test_too_big_emit() {
         let repr = too_big_packet_repr();
-        let mut bytes = vec![0xa5; repr.buffer_len(&Medium::Ethernet)];
+        let mut bytes = vec![0xa5; repr.buffer_len()];
         let mut packet = Packet::new_unchecked(&mut bytes);
         repr.emit(
             &MOCK_IP_ADDR_1,
             &MOCK_IP_ADDR_2,
             &mut packet,
             &ChecksumCapabilities::default(),
-            &Medium::Ethernet,
         );
         assert_eq!(&packet.into_inner()[..], &PKT_TOO_BIG_BYTES[..]);
     }

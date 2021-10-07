@@ -389,7 +389,6 @@ impl<'a> IpPacket<'a> {
                 &_ip_repr.dst_addr(),
                 &mut Icmpv6Packet::new_unchecked(payload),
                 &caps.checksum,
-                &caps.medium,
             ),
             #[cfg(feature = "socket-raw")]
             IpPacket::Raw((_, raw_packet)) => payload.copy_from_slice(raw_packet),
@@ -1198,7 +1197,7 @@ impl<'a> InterfaceInner<'a> {
                                     header: ipv6_repr,
                                     data: &payload[0..payload_len],
                                 };
-                                Ok(self.icmpv6_reply(cx, ipv6_repr, icmpv6_reply_repr))
+                                Ok(self.icmpv6_reply(ipv6_repr, icmpv6_reply_repr))
                             }
                             IpRepr::Unspecified { .. } => Err(Error::Unaddressable),
                             IpRepr::Sixlowpan(_) => Err(Error::Malformed), // XXX(thvdveld): this is just wrong;
@@ -1394,7 +1393,7 @@ impl<'a> InterfaceInner<'a> {
                     header: ipv6_repr,
                     data: &ip_payload[0..payload_len],
                 };
-                Ok(self.icmpv6_reply(cx, ipv6_repr, icmp_reply_repr))
+                Ok(self.icmpv6_reply(ipv6_repr, icmp_reply_repr))
             }
         }
     }
@@ -1604,7 +1603,6 @@ impl<'a> InterfaceInner<'a> {
             &ip_repr.dst_addr(),
             &icmp_packet,
             &cx.caps.checksum,
-            &cx.caps.medium,
         )?;
 
         #[cfg(feature = "socket-icmp")]
@@ -1639,7 +1637,7 @@ impl<'a> InterfaceInner<'a> {
                         seq_no,
                         data,
                     };
-                    Ok(self.icmpv6_reply(cx, ipv6_repr, icmp_reply_repr))
+                    Ok(self.icmpv6_reply(ipv6_repr, icmp_reply_repr))
                 }
                 #[cfg(feature = "medium-ieee802154")]
                 IpRepr::Sixlowpan(sixlowpan_repr) => {
@@ -1649,7 +1647,6 @@ impl<'a> InterfaceInner<'a> {
                         data,
                     };
                     Ok(self.icmpv6_reply(
-                        cx,
                         Ipv6Repr {
                             src_addr: sixlowpan_repr.src_addr,
                             dst_addr: sixlowpan_repr.dst_addr,
@@ -1714,23 +1711,24 @@ impl<'a> InterfaceInner<'a> {
                 flags,
             } => {
                 let ip_addr = ip_repr.src_addr.into();
-                match lladdr {
-                    Some(lladdr) if lladdr.is_unicast() && target_addr.is_unicast() => {
-                        if flags.contains(NdiscNeighborFlags::OVERRIDE)
-                            || !self
-                                .neighbor_cache
-                                .as_mut()
-                                .unwrap()
-                                .lookup(&ip_addr, cx.now)
-                                .found()
-                        {
-                            self.neighbor_cache
-                                .as_mut()
-                                .unwrap()
-                                .fill(ip_addr, lladdr, cx.now)
-                        }
+                if let Some(lladdr) = lladdr {
+                    let lladdr = lladdr.parse(cx.caps.medium)?;
+                    if !lladdr.is_unicast() || !target_addr.is_unicast() {
+                        return Err(Error::Malformed);
                     }
-                    _ => (),
+                    if flags.contains(NdiscNeighborFlags::OVERRIDE)
+                        || !self
+                            .neighbor_cache
+                            .as_mut()
+                            .unwrap()
+                            .lookup(&ip_addr, cx.now)
+                            .found()
+                    {
+                        self.neighbor_cache
+                            .as_mut()
+                            .unwrap()
+                            .fill(ip_addr, lladdr, cx.now)
+                    }
                 }
                 Ok(None)
             }
@@ -1739,27 +1737,31 @@ impl<'a> InterfaceInner<'a> {
                 lladdr,
                 ..
             } => {
-                match lladdr {
-                    Some(lladdr) if lladdr.is_unicast() && target_addr.is_unicast() => self
-                        .neighbor_cache
-                        .as_mut()
-                        .unwrap()
-                        .fill(ip_repr.src_addr.into(), lladdr, cx.now),
-                    _ => (),
+                if let Some(lladdr) = lladdr {
+                    let lladdr = lladdr.parse(cx.caps.medium)?;
+                    if !lladdr.is_unicast() || !target_addr.is_unicast() {
+                        return Err(Error::Malformed);
+                    }
+                    self.neighbor_cache.as_mut().unwrap().fill(
+                        ip_repr.src_addr.into(),
+                        lladdr,
+                        cx.now,
+                    );
                 }
+
                 if self.has_solicited_node(ip_repr.dst_addr) && self.has_ip_addr(target_addr) {
                     let advert = Icmpv6Repr::Ndisc(NdiscRepr::NeighborAdvert {
                         flags: NdiscNeighborFlags::SOLICITED,
                         target_addr,
                         #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
-                        lladdr: Some(self.hardware_addr.unwrap()),
+                        lladdr: Some(self.hardware_addr.unwrap().into()),
                     });
                     let ip_repr = Ipv6Repr {
                         src_addr: target_addr,
                         dst_addr: ip_repr.src_addr,
                         next_header: IpProtocol::Icmpv6,
                         hop_limit: 0xff,
-                        payload_len: advert.buffer_len(&cx.caps.medium),
+                        payload_len: advert.buffer_len(),
                     };
                     Ok(Some(IpPacket::Icmpv6((ip_repr, advert))))
                 } else {
@@ -1917,7 +1919,6 @@ impl<'a> InterfaceInner<'a> {
     #[cfg(feature = "proto-ipv6")]
     fn icmpv6_reply<'frame, 'icmp: 'frame>(
         &self,
-        cx: &Context,
         ipv6_repr: Ipv6Repr,
         icmp_repr: Icmpv6Repr<'icmp>,
     ) -> Option<IpPacket<'frame>> {
@@ -1926,7 +1927,7 @@ impl<'a> InterfaceInner<'a> {
                 src_addr: ipv6_repr.dst_addr,
                 dst_addr: ipv6_repr.src_addr,
                 next_header: IpProtocol::Icmpv6,
-                payload_len: icmp_repr.buffer_len(&cx.caps.medium),
+                payload_len: icmp_repr.buffer_len(),
                 hop_limit: 64,
             };
             Some(IpPacket::Icmpv6((ipv6_reply_repr, icmp_repr)))
@@ -1989,7 +1990,7 @@ impl<'a> InterfaceInner<'a> {
                     header: ipv6_repr,
                     data: &ip_payload[0..payload_len],
                 };
-                Ok(self.icmpv6_reply(cx, ipv6_repr, icmpv6_reply_repr))
+                Ok(self.icmpv6_reply(ipv6_repr, icmpv6_reply_repr))
             }
             #[cfg(feature = "proto-sixlowpan")]
             IpRepr::Sixlowpan(sixlowpan_repr) => {
@@ -2011,7 +2012,7 @@ impl<'a> InterfaceInner<'a> {
                     header: ipv6_repr,
                     data: &ip_payload[0..payload_len],
                 };
-                Ok(self.icmpv6_reply(cx, ipv6_repr, icmpv6_reply_repr))
+                Ok(self.icmpv6_reply(ipv6_repr, icmpv6_reply_repr))
             }
             IpRepr::Unspecified { .. } => Err(Error::Unaddressable),
         }
@@ -2254,7 +2255,7 @@ impl<'a> InterfaceInner<'a> {
 
                 let solicit = Icmpv6Repr::Ndisc(NdiscRepr::NeighborSolicit {
                     target_addr: dst_addr,
-                    lladdr: self.hardware_addr,
+                    lladdr: Some(self.hardware_addr.unwrap().into()),
                 });
 
                 let packet = IpPacket::Icmpv6((
@@ -2262,7 +2263,7 @@ impl<'a> InterfaceInner<'a> {
                         src_addr,
                         dst_addr: dst_addr.solicited_node(),
                         next_header: IpProtocol::Icmpv6,
-                        payload_len: solicit.buffer_len(&cx.caps.medium),
+                        payload_len: solicit.buffer_len(),
                         hop_limit: 0xff,
                     },
                     solicit,
@@ -2422,7 +2423,7 @@ impl<'a> InterfaceInner<'a> {
                         tx_len += udp_repr.header_len() + payload.len();
                     }
                     IpPacket::Icmpv6((_, icmp)) => {
-                        tx_len += icmp.buffer_len(&cx.caps.medium);
+                        tx_len += icmp.buffer_len();
                     }
                     _ => return Err(Error::Unrecognized),
                 }
@@ -2466,7 +2467,6 @@ impl<'a> InterfaceInner<'a> {
                                 &iphc_repr.dst_addr.into(),
                                 &mut icmp_packet,
                                 &cx.caps.checksum,
-                                &cx.caps.medium,
                             );
                         }
                         _ => return Err(Error::Unrecognized),
@@ -3135,7 +3135,7 @@ mod test {
             dst_addr: src_addr,
             next_header: IpProtocol::Icmpv6,
             hop_limit: 64,
-            payload_len: expected_icmp_repr.buffer_len(&Medium::Ethernet),
+            payload_len: expected_icmp_repr.buffer_len(),
         };
         #[cfg(all(feature = "proto-ipv4", not(feature = "proto-ipv6")))]
         let expected_icmp_repr = Icmpv4Repr::DstUnreachable {
@@ -3157,7 +3157,7 @@ mod test {
         // The expected packet does not exceed the IPV4_MIN_MTU
         #[cfg(feature = "proto-ipv6")]
         assert_eq!(
-            expected_ip_repr.buffer_len() + expected_icmp_repr.buffer_len(&Medium::Ethernet),
+            expected_ip_repr.buffer_len() + expected_icmp_repr.buffer_len(),
             MIN_MTU
         );
         // The expected packet does not exceed the IPV4_MIN_MTU
@@ -3267,7 +3267,7 @@ mod test {
             dst_addr: local_ip_addr.solicited_node(),
             next_header: IpProtocol::Icmpv6,
             hop_limit: 0xff,
-            payload_len: solicit.buffer_len(&Medium::Ethernet),
+            payload_len: solicit.buffer_len(),
         });
 
         let mut frame = EthernetFrame::new_unchecked(&mut eth_bytes);
@@ -3281,7 +3281,6 @@ mod test {
                 &local_ip_addr.solicited_node().into(),
                 &mut Icmpv6Packet::new_unchecked(&mut frame.payload_mut()[ip_repr.buffer_len()..]),
                 &ChecksumCapabilities::default(),
-                &iface.device().capabilities().medium,
             );
         }
 
@@ -3296,7 +3295,7 @@ mod test {
             dst_addr: remote_ip_addr,
             next_header: IpProtocol::Icmpv6,
             hop_limit: 0xff,
-            payload_len: icmpv6_expected.buffer_len(&Medium::Ethernet),
+            payload_len: icmpv6_expected.buffer_len(),
         };
 
         let cx = iface.context(Instant::from_secs(0));
@@ -3530,7 +3529,7 @@ mod test {
             src_addr: Ipv6Address::LOOPBACK,
             dst_addr: remote_ip_addr,
             next_header: IpProtocol::Icmpv6,
-            payload_len: reply_icmp_repr.buffer_len(&Medium::Ethernet),
+            payload_len: reply_icmp_repr.buffer_len(),
             hop_limit: 0x40,
         };
 

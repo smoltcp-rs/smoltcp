@@ -1,11 +1,10 @@
 use bitflags::bitflags;
 use byteorder::{ByteOrder, NetworkEndian};
 
-use crate::phy::Medium;
 use crate::time::Duration;
 use crate::wire::icmpv6::{field, Message, Packet};
-use crate::wire::HardwareAddress;
 use crate::wire::Ipv6Address;
+use crate::wire::RawHardwareAddress;
 use crate::wire::{Ipv6Packet, Ipv6Repr};
 use crate::wire::{NdiscOption, NdiscOptionRepr, NdiscOptionType};
 use crate::wire::{NdiscPrefixInformation, NdiscRedirectedHeader};
@@ -195,7 +194,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Repr<'a> {
     RouterSolicit {
-        lladdr: Option<HardwareAddress>,
+        lladdr: Option<RawHardwareAddress>,
     },
     RouterAdvert {
         hop_limit: u8,
@@ -203,23 +202,23 @@ pub enum Repr<'a> {
         router_lifetime: Duration,
         reachable_time: Duration,
         retrans_time: Duration,
-        lladdr: Option<HardwareAddress>,
+        lladdr: Option<RawHardwareAddress>,
         mtu: Option<u32>,
         prefix_info: Option<NdiscPrefixInformation>,
     },
     NeighborSolicit {
         target_addr: Ipv6Address,
-        lladdr: Option<HardwareAddress>,
+        lladdr: Option<RawHardwareAddress>,
     },
     NeighborAdvert {
         flags: NeighborFlags,
         target_addr: Ipv6Address,
-        lladdr: Option<HardwareAddress>,
+        lladdr: Option<RawHardwareAddress>,
     },
     Redirect {
         target_addr: Ipv6Address,
         dest_addr: Ipv6Address,
-        lladdr: Option<HardwareAddress>,
+        lladdr: Option<RawHardwareAddress>,
         redirected_hdr: Option<NdiscRedirectedHeader<'a>>,
     },
 }
@@ -227,7 +226,7 @@ pub enum Repr<'a> {
 impl<'a> Repr<'a> {
     /// Parse an NDISC packet and return a high-level representation of the
     /// packet.
-    pub fn parse<T>(packet: &Packet<&'a T>, medium: &Medium) -> Result<Repr<'a>>
+    pub fn parse<T>(packet: &Packet<&'a T>) -> Result<Repr<'a>>
     where
         T: AsRef<[u8]> + ?Sized,
     {
@@ -236,7 +235,7 @@ impl<'a> Repr<'a> {
                 let lladdr = if !packet.payload().is_empty() {
                     let opt = NdiscOption::new_checked(packet.payload())?;
                     match opt.option_type() {
-                        NdiscOptionType::SourceLinkLayerAddr => Some(opt.link_layer_addr(medium)),
+                        NdiscOptionType::SourceLinkLayerAddr => Some(opt.link_layer_addr()),
                         _ => {
                             return Err(Error::Unrecognized);
                         }
@@ -251,7 +250,7 @@ impl<'a> Repr<'a> {
                 let (mut lladdr, mut mtu, mut prefix_info) = (None, None, None);
                 while packet.payload().len() - offset > 0 {
                     let pkt = NdiscOption::new_checked(&packet.payload()[offset..])?;
-                    let opt = NdiscOptionRepr::parse(&pkt, medium)?;
+                    let opt = NdiscOptionRepr::parse(&pkt)?;
                     match opt {
                         NdiscOptionRepr::SourceLinkLayerAddr(addr) => lladdr = Some(addr),
                         NdiscOptionRepr::Mtu(val) => mtu = Some(val),
@@ -260,7 +259,7 @@ impl<'a> Repr<'a> {
                             return Err(Error::Unrecognized);
                         }
                     }
-                    offset += opt.buffer_len(medium);
+                    offset += opt.buffer_len();
                 }
                 Ok(Repr::RouterAdvert {
                     hop_limit: packet.current_hop_limit(),
@@ -277,7 +276,7 @@ impl<'a> Repr<'a> {
                 let lladdr = if !packet.payload().is_empty() {
                     let opt = NdiscOption::new_checked(packet.payload())?;
                     match opt.option_type() {
-                        NdiscOptionType::SourceLinkLayerAddr => Some(opt.link_layer_addr(medium)),
+                        NdiscOptionType::SourceLinkLayerAddr => Some(opt.link_layer_addr()),
                         _ => {
                             return Err(Error::Unrecognized);
                         }
@@ -294,7 +293,7 @@ impl<'a> Repr<'a> {
                 let lladdr = if !packet.payload().is_empty() {
                     let opt = NdiscOption::new_checked(packet.payload())?;
                     match opt.option_type() {
-                        NdiscOptionType::TargetLinkLayerAddr => Some(opt.link_layer_addr(medium)),
+                        NdiscOptionType::TargetLinkLayerAddr => Some(opt.link_layer_addr()),
                         _ => {
                             return Err(Error::Unrecognized);
                         }
@@ -315,7 +314,7 @@ impl<'a> Repr<'a> {
                     let opt = NdiscOption::new_checked(&packet.payload()[offset..])?;
                     match opt.option_type() {
                         NdiscOptionType::SourceLinkLayerAddr => {
-                            lladdr = Some(opt.link_layer_addr(medium));
+                            lladdr = Some(opt.link_layer_addr());
                             offset += 8;
                         }
                         NdiscOptionType::RedirectedHeader => {
@@ -349,7 +348,7 @@ impl<'a> Repr<'a> {
         }
     }
 
-    pub fn buffer_len(&self, medium: &Medium) -> usize {
+    pub fn buffer_len(&self) -> usize {
         match self {
             &Repr::RouterSolicit { lladdr } => match lladdr {
                 Some(_) => field::UNUSED.end + 8,
@@ -374,34 +373,11 @@ impl<'a> Repr<'a> {
                 field::RETRANS_TM.end + offset
             }
             &Repr::NeighborSolicit { lladdr, .. } | &Repr::NeighborAdvert { lladdr, .. } => {
-                match lladdr {
-                    Some(_addr) => {
-                        match medium {
-                            #[cfg(feature = "medium-ethernet")]
-                            Medium::Ethernet => field::TARGET_ADDR.end + 8,
-                            #[cfg(feature = "medium-ieee802154")]
-                            Medium::Ieee802154 => {
-                                // XXX: This is for 6LoWPAN
-                                let mut len = field::TARGET_ADDR.end;
-                                len += 2;
-                                len += _addr.as_bytes().len();
-
-                                // A packet of len == 30 is a packet with an Ethernet address
-                                if len > 30 {
-                                    // TODO(thvdveld): find out why this padding is +4 and not +6
-                                    // WireShark wants a padding of +6, however, then the packet is not accepted when using ping
-                                    // When a padding of +4 is used, then WireShark complains and says that the packet is malformed,
-                                    // however, ping accepts this packet.
-                                    len += 4; // Padding
-                                }
-                                len
-                            }
-                            #[cfg(feature = "medium-ip")]
-                            Medium::Ip => unreachable!(),
-                        }
-                    }
-                    None => field::TARGET_ADDR.end,
+                let mut offset = field::TARGET_ADDR.end;
+                if let Some(lladdr) = lladdr {
+                    offset += NdiscOptionRepr::SourceLinkLayerAddr(lladdr).buffer_len();
                 }
+                offset
             }
             &Repr::Redirect {
                 lladdr,
@@ -420,7 +396,7 @@ impl<'a> Repr<'a> {
         }
     }
 
-    pub fn emit<T>(&self, packet: &mut Packet<&mut T>, medium: &Medium)
+    pub fn emit<T>(&self, packet: &mut Packet<&mut T>)
     where
         T: AsRef<[u8]> + AsMut<[u8]> + ?Sized,
     {
@@ -431,7 +407,7 @@ impl<'a> Repr<'a> {
                 packet.clear_reserved();
                 if let Some(lladdr) = lladdr {
                     let mut opt_pkt = NdiscOption::new_unchecked(packet.payload_mut());
-                    NdiscOptionRepr::SourceLinkLayerAddr(lladdr).emit(&mut opt_pkt, medium);
+                    NdiscOptionRepr::SourceLinkLayerAddr(lladdr).emit(&mut opt_pkt);
                 }
             }
 
@@ -455,26 +431,20 @@ impl<'a> Repr<'a> {
                 let mut offset = 0;
                 if let Some(lladdr) = lladdr {
                     let mut opt_pkt = NdiscOption::new_unchecked(packet.payload_mut());
-                    NdiscOptionRepr::SourceLinkLayerAddr(lladdr).emit(&mut opt_pkt, medium);
-                    match medium {
-                        #[cfg(feature = "medium-ethernet")]
-                        Medium::Ethernet => offset += 6,
-                        #[cfg(feature = "medium-ieee802154")]
-                        Medium::Ieee802154 => offset += 8,
-                        #[cfg(feature = "medium-ip")]
-                        _ => unreachable!(),
-                    }
+                    let opt = NdiscOptionRepr::SourceLinkLayerAddr(lladdr);
+                    opt.emit(&mut opt_pkt);
+                    offset += opt.buffer_len();
                 }
                 if let Some(mtu) = mtu {
                     let mut opt_pkt =
                         NdiscOption::new_unchecked(&mut packet.payload_mut()[offset..]);
-                    NdiscOptionRepr::Mtu(mtu).emit(&mut opt_pkt, medium);
+                    NdiscOptionRepr::Mtu(mtu).emit(&mut opt_pkt);
                     offset += 8;
                 }
                 if let Some(prefix_info) = prefix_info {
                     let mut opt_pkt =
                         NdiscOption::new_unchecked(&mut packet.payload_mut()[offset..]);
-                    NdiscOptionRepr::PrefixInformation(prefix_info).emit(&mut opt_pkt, medium)
+                    NdiscOptionRepr::PrefixInformation(prefix_info).emit(&mut opt_pkt)
                 }
             }
 
@@ -488,7 +458,7 @@ impl<'a> Repr<'a> {
                 packet.set_target_addr(target_addr);
                 if let Some(lladdr) = lladdr {
                     let mut opt_pkt = NdiscOption::new_unchecked(packet.payload_mut());
-                    NdiscOptionRepr::SourceLinkLayerAddr(lladdr).emit(&mut opt_pkt, medium);
+                    NdiscOptionRepr::SourceLinkLayerAddr(lladdr).emit(&mut opt_pkt);
                 }
             }
 
@@ -504,7 +474,7 @@ impl<'a> Repr<'a> {
                 packet.set_target_addr(target_addr);
                 if let Some(lladdr) = lladdr {
                     let mut opt_pkt = NdiscOption::new_unchecked(packet.payload_mut());
-                    NdiscOptionRepr::TargetLinkLayerAddr(lladdr).emit(&mut opt_pkt, medium);
+                    NdiscOptionRepr::TargetLinkLayerAddr(lladdr).emit(&mut opt_pkt);
                 }
             }
 
@@ -522,7 +492,7 @@ impl<'a> Repr<'a> {
                 let offset = match lladdr {
                     Some(lladdr) => {
                         let mut opt_pkt = NdiscOption::new_unchecked(packet.payload_mut());
-                        NdiscOptionRepr::TargetLinkLayerAddr(lladdr).emit(&mut opt_pkt, medium);
+                        NdiscOptionRepr::TargetLinkLayerAddr(lladdr).emit(&mut opt_pkt);
                         8
                     }
                     None => 0,
@@ -530,7 +500,7 @@ impl<'a> Repr<'a> {
                 if let Some(redirected_hdr) = redirected_hdr {
                     let mut opt_pkt =
                         NdiscOption::new_unchecked(&mut packet.payload_mut()[offset..]);
-                    NdiscOptionRepr::RedirectedHeader(redirected_hdr).emit(&mut opt_pkt, medium);
+                    NdiscOptionRepr::RedirectedHeader(redirected_hdr).emit(&mut opt_pkt);
                 }
             }
         }
@@ -543,7 +513,6 @@ mod test {
     use crate::phy::ChecksumCapabilities;
     use crate::wire::ip::test::{MOCK_IP_ADDR_1, MOCK_IP_ADDR_2};
     use crate::wire::EthernetAddress;
-    use crate::wire::HardwareAddress;
     use crate::wire::Icmpv6Repr;
 
     static ROUTER_ADVERT_BYTES: [u8; 24] = [
@@ -559,9 +528,7 @@ mod test {
             router_lifetime: Duration::from_secs(900),
             reachable_time: Duration::from_millis(900),
             retrans_time: Duration::from_millis(900),
-            lladdr: Some(HardwareAddress::Ethernet(EthernetAddress([
-                0x52, 0x54, 0x00, 0x12, 0x34, 0x56,
-            ]))),
+            lladdr: Some(EthernetAddress([0x52, 0x54, 0x00, 0x12, 0x34, 0x56]).into()),
             mtu: None,
             prefix_info: None,
         })
@@ -606,8 +573,7 @@ mod test {
                 &MOCK_IP_ADDR_1,
                 &MOCK_IP_ADDR_2,
                 &packet,
-                &ChecksumCapabilities::default(),
-                &Medium::Ethernet,
+                &ChecksumCapabilities::default()
             )
             .unwrap(),
             create_repr()
@@ -623,7 +589,6 @@ mod test {
             &MOCK_IP_ADDR_2,
             &mut packet,
             &ChecksumCapabilities::default(),
-            &Medium::Ethernet,
         );
         assert_eq!(&packet.into_inner()[..], &ROUTER_ADVERT_BYTES[..]);
     }

@@ -2,17 +2,11 @@ use bitflags::bitflags;
 use byteorder::{ByteOrder, NetworkEndian};
 use core::fmt;
 
-use crate::phy::Medium;
 use crate::time::Duration;
-use crate::wire::{Ipv6Address, Ipv6Packet, Ipv6Repr};
+use crate::wire::{Ipv6Address, Ipv6Packet, Ipv6Repr, MAX_HARDWARE_ADDRESS_LEN};
 use crate::{Error, Result};
 
-#[cfg(feature = "medium-ethernet")]
-use crate::wire::EthernetAddress;
-#[cfg(feature = "medium-ieee802154")]
-use crate::wire::Ieee802154Address;
-
-use crate::wire::HardwareAddress;
+use crate::wire::RawHardwareAddress;
 
 enum_with_unknown! {
     /// NDISC Option Type
@@ -89,12 +83,6 @@ mod field {
     // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
     // |     Type      |    Length     |    Link-Layer Address ...
     // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-
-    // Link-Layer Address
-    #[cfg(feature = "medium-ethernet")]
-    pub const LL_ADDR_ETHERNET: Field = 2..8;
-    #[cfg(feature = "medium-ieee802154")]
-    pub const LL_ADDR_IEEE802154: Field = 2..10;
 
     // Prefix Information Option fields.
     //  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -225,23 +213,10 @@ impl<T: AsRef<[u8]>> NdiscOption<T> {
 impl<T: AsRef<[u8]>> NdiscOption<T> {
     /// Return the Source/Target Link-layer Address.
     #[inline]
-    pub fn link_layer_addr(&self, medium: &Medium) -> HardwareAddress {
+    pub fn link_layer_addr(&self) -> RawHardwareAddress {
+        let len = MAX_HARDWARE_ADDRESS_LEN.min(self.data_len() as usize * 8 - 2);
         let data = self.buffer.as_ref();
-
-        match medium {
-            #[cfg(feature = "medium-ethernet")]
-            Medium::Ethernet => {
-                let addr = &data[field::LL_ADDR_ETHERNET];
-                HardwareAddress::Ethernet(EthernetAddress::from_bytes(addr))
-            }
-            #[cfg(feature = "medium-ieee802154")]
-            Medium::Ieee802154 => {
-                let addr = &data[field::LL_ADDR_IEEE802154];
-                HardwareAddress::Ieee802154(Ieee802154Address::from_bytes(addr))
-            }
-            #[cfg(feature = "medium-ip")]
-            _ => todo!(), // TODO(thvdveld)
-        }
+        RawHardwareAddress::from_bytes(&data[2..len + 2])
     }
 }
 
@@ -322,21 +297,9 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> NdiscOption<T> {
 impl<T: AsRef<[u8]> + AsMut<[u8]>> NdiscOption<T> {
     /// Set the Source/Target Link-layer Address.
     #[inline]
-    pub fn set_link_layer_addr(&mut self, addr: HardwareAddress) {
+    pub fn set_link_layer_addr(&mut self, addr: RawHardwareAddress) {
         let data = self.buffer.as_mut();
-        match addr {
-            #[cfg(feature = "medium-ethernet")]
-            HardwareAddress::Ethernet(addr) => {
-                let data = &mut data[field::LL_ADDR_ETHERNET];
-                data.copy_from_slice(addr.as_bytes());
-            }
-            #[cfg(feature = "medium-ieee802154")]
-            HardwareAddress::Ieee802154(addr) => {
-                let data = &mut data[field::LL_ADDR_IEEE802154];
-                data.copy_from_slice(addr.as_bytes());
-            }
-            _ => todo!(),
-        }
+        data[2..2 + addr.len()].copy_from_slice(addr.as_bytes())
     }
 }
 
@@ -413,18 +376,17 @@ impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> NdiscOption<&'a mut T> {
     }
 }
 
-//impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for NdiscOption<&'a T> {
-//fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-//// XXX(thvdveld): how do we pass the medium?
-//match Repr::parse(self, &Medium::Ethernet) {
-//Ok(repr) => write!(f, "{}", repr),
-//Err(err) => {
-//write!(f, "NDISC Option ({})", err)?;
-//Ok(())
-//}
-//}
-//}
-//}
+impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for NdiscOption<&'a T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match Repr::parse(self) {
+            Ok(repr) => write!(f, "{}", repr),
+            Err(err) => {
+                write!(f, "NDISC Option ({})", err)?;
+                Ok(())
+            }
+        }
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -447,8 +409,8 @@ pub struct RedirectedHeader<'a> {
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Repr<'a> {
-    SourceLinkLayerAddr(HardwareAddress),
-    TargetLinkLayerAddr(HardwareAddress),
+    SourceLinkLayerAddr(RawHardwareAddress),
+    TargetLinkLayerAddr(RawHardwareAddress),
     PrefixInformation(PrefixInformation),
     RedirectedHeader(RedirectedHeader<'a>),
     Mtu(u32),
@@ -461,21 +423,21 @@ pub enum Repr<'a> {
 
 impl<'a> Repr<'a> {
     /// Parse an NDISC Option and return a high-level representation.
-    pub fn parse<T>(opt: &'a NdiscOption<&'a T>, medium: &Medium) -> Result<Repr<'a>>
+    pub fn parse<T>(opt: &'a NdiscOption<&'a T>) -> Result<Repr<'a>>
     where
         T: AsRef<[u8]> + ?Sized,
     {
         match opt.option_type() {
             Type::SourceLinkLayerAddr => {
                 if opt.data_len() == 1 {
-                    Ok(Repr::SourceLinkLayerAddr(opt.link_layer_addr(medium)))
+                    Ok(Repr::SourceLinkLayerAddr(opt.link_layer_addr()))
                 } else {
                     Err(Error::Malformed)
                 }
             }
             Type::TargetLinkLayerAddr => {
                 if opt.data_len() == 1 {
-                    Ok(Repr::TargetLinkLayerAddr(opt.link_layer_addr(medium)))
+                    Ok(Repr::TargetLinkLayerAddr(opt.link_layer_addr()))
                 } else {
                     Err(Error::Malformed)
                 }
@@ -524,57 +486,38 @@ impl<'a> Repr<'a> {
     }
 
     /// Return the length of a header that will be emitted from this high-level representation.
-    pub fn buffer_len(&self, medium: &Medium) -> usize {
-        match (self, medium) {
-            #[cfg(feature = "medium-ethernet")]
-            (&Repr::SourceLinkLayerAddr(_) | &Repr::TargetLinkLayerAddr(_), Medium::Ethernet) => {
-                field::LL_ADDR_ETHERNET.end
+    pub fn buffer_len(&self) -> usize {
+        match self {
+            &Repr::SourceLinkLayerAddr(addr) | &Repr::TargetLinkLayerAddr(addr) => {
+                let len = 2 + addr.len();
+                // Round up to next multiple of 8
+                (len + 7) / 8 * 8
             }
-            #[cfg(feature = "medium-ieee802154")]
-            (&Repr::SourceLinkLayerAddr(_) | &Repr::TargetLinkLayerAddr(_), Medium::Ieee802154) => {
-                field::LL_ADDR_IEEE802154.end
-            }
-            #[cfg(feature = "medium-ip")]
-            (&Repr::SourceLinkLayerAddr(_) | &Repr::TargetLinkLayerAddr(_), _) => {
-                unreachable!()
-            }
-            (&Repr::PrefixInformation(_), _) => field::PREFIX.end,
-            (&Repr::RedirectedHeader(RedirectedHeader { header, data }), _) => {
+            &Repr::PrefixInformation(_) => field::PREFIX.end,
+            &Repr::RedirectedHeader(RedirectedHeader { header, data }) => {
                 field::IP_DATA + header.buffer_len() + data.len()
             }
-            (&Repr::Mtu(_), _) => field::MTU.end,
-            (&Repr::Unknown { length, .. }, _) => field::DATA(length).end,
+            &Repr::Mtu(_) => field::MTU.end,
+            &Repr::Unknown { length, .. } => field::DATA(length).end,
         }
     }
 
     /// Emit a high-level representation into an NDISC Option.
-    pub fn emit<T>(&self, opt: &mut NdiscOption<&'a mut T>, medium: &Medium)
+    pub fn emit<T>(&self, opt: &mut NdiscOption<&'a mut T>)
     where
         T: AsRef<[u8]> + AsMut<[u8]> + ?Sized,
     {
         match *self {
             Repr::SourceLinkLayerAddr(addr) => {
                 opt.set_option_type(Type::SourceLinkLayerAddr);
-                match medium {
-                    #[cfg(feature = "medium-ethernet")]
-                    Medium::Ethernet => opt.set_data_len(1),
-                    #[cfg(feature = "medium-ieee802154")]
-                    Medium::Ieee802154 => opt.set_data_len(2),
-                    #[cfg(feature = "medium-ip")]
-                    _ => unreachable!(),
-                }
+                let opt_len = addr.len() + 2;
+                opt.set_data_len(((opt_len + 7) / 8) as u8); // round to next multiple of 8.
                 opt.set_link_layer_addr(addr);
             }
             Repr::TargetLinkLayerAddr(addr) => {
                 opt.set_option_type(Type::TargetLinkLayerAddr);
-                match medium {
-                    #[cfg(feature = "medium-ethernet")]
-                    Medium::Ethernet => opt.set_data_len(1),
-                    #[cfg(feature = "medium-ieee802154")]
-                    Medium::Ieee802154 => opt.set_data_len(2),
-                    #[cfg(feature = "medium-ip")]
-                    _ => unreachable!(),
-                }
+                let opt_len = addr.len() + 2;
+                opt.set_data_len(((opt_len + 7) / 8) as u8); // round to next multiple of 8.
                 opt.set_link_layer_addr(addr);
             }
             Repr::PrefixInformation(PrefixInformation {
@@ -626,42 +569,51 @@ impl<'a> fmt::Display for Repr<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "NDISC Option: ")?;
         match *self {
-            Repr::SourceLinkLayerAddr(addr) => write!(f, "SourceLinkLayer addr={}", addr),
-            Repr::TargetLinkLayerAddr(addr) => write!(f, "TargetLinkLayer addr={}", addr),
+            Repr::SourceLinkLayerAddr(addr) => {
+                write!(f, "SourceLinkLayer addr={}", addr)
+            }
+            Repr::TargetLinkLayerAddr(addr) => {
+                write!(f, "TargetLinkLayer addr={}", addr)
+            }
             Repr::PrefixInformation(PrefixInformation {
                 prefix, prefix_len, ..
-            }) => write!(f, "PrefixInformation prefix={}/{}", prefix, prefix_len),
+            }) => {
+                write!(f, "PrefixInformation prefix={}/{}", prefix, prefix_len)
+            }
             Repr::RedirectedHeader(RedirectedHeader { header, .. }) => {
                 write!(f, "RedirectedHeader header={}", header)
             }
-            Repr::Mtu(mtu) => write!(f, "MTU mtu={}", mtu),
+            Repr::Mtu(mtu) => {
+                write!(f, "MTU mtu={}", mtu)
+            }
             Repr::Unknown {
                 type_: id, length, ..
-            } => write!(f, "Unknown({}) length={}", id, length),
+            } => {
+                write!(f, "Unknown({}) length={}", id, length)
+            }
         }
     }
 }
 
-//use crate::wire::pretty_print::{PrettyIndent, PrettyPrint};
+use crate::wire::pretty_print::{PrettyIndent, PrettyPrint};
 
-//impl<T: AsRef<[u8]>> PrettyPrint for NdiscOption<T> {
-//fn pretty_print(
-//buffer: &dyn AsRef<[u8]>,
-//f: &mut fmt::Formatter,
-//indent: &mut PrettyIndent,
-//) -> fmt::Result {
-//// TODO(thvdveld): how do we pass the medium?
-//match NdiscOption::new_checked(buffer) {
-//Err(err) => return write!(f, "{}({})", indent, err),
-//Ok(ndisc) => match Repr::parse(&ndisc, &Medium::Ethernet) {
-//Err(_) => Ok(()),
-//Ok(repr) => {
-//write!(f, "{}{}", indent, repr)
-//}
-//},
-//}
-//}
-//}
+impl<T: AsRef<[u8]>> PrettyPrint for NdiscOption<T> {
+    fn pretty_print(
+        buffer: &dyn AsRef<[u8]>,
+        f: &mut fmt::Formatter,
+        indent: &mut PrettyIndent,
+    ) -> fmt::Result {
+        match NdiscOption::new_checked(buffer) {
+            Err(err) => return write!(f, "{}({})", indent, err),
+            Ok(ndisc) => match Repr::parse(&ndisc) {
+                Err(_) => Ok(()),
+                Ok(repr) => {
+                    write!(f, "{}{}", indent, repr)
+                }
+            },
+        }
+    }
+}
 
 #[cfg(test)]
 mod test {
@@ -721,20 +673,14 @@ mod test {
         let addr = EthernetAddress([0x54, 0x52, 0x00, 0x12, 0x23, 0x34]);
         {
             assert_eq!(
-                Repr::parse(
-                    &NdiscOption::new_unchecked(&bytes),
-                    &crate::phy::Medium::Ethernet
-                ),
+                Repr::parse(&NdiscOption::new_unchecked(&bytes)),
                 Ok(Repr::SourceLinkLayerAddr(addr.into()))
             );
         }
         bytes[0] = 0x02;
         {
             assert_eq!(
-                Repr::parse(
-                    &NdiscOption::new_unchecked(&bytes),
-                    &crate::phy::Medium::Ethernet
-                ),
+                Repr::parse(&NdiscOption::new_unchecked(&bytes)),
                 Ok(Repr::TargetLinkLayerAddr(addr.into()))
             );
         }
@@ -750,10 +696,7 @@ mod test {
             prefix: Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1),
         });
         assert_eq!(
-            Repr::parse(
-                &NdiscOption::new_unchecked(&PREFIX_OPT_BYTES),
-                &crate::phy::Medium::Ethernet
-            ),
+            Repr::parse(&NdiscOption::new_unchecked(&PREFIX_OPT_BYTES)),
             Ok(repr)
         );
     }
@@ -769,7 +712,7 @@ mod test {
             prefix: Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1),
         });
         let mut opt = NdiscOption::new_unchecked(&mut bytes);
-        repr.emit(&mut opt, &crate::phy::Medium::Ethernet);
+        repr.emit(&mut opt);
         assert_eq!(&opt.into_inner()[..], &PREFIX_OPT_BYTES[..]);
     }
 
@@ -777,10 +720,7 @@ mod test {
     fn test_repr_parse_mtu() {
         let bytes = [0x05, 0x01, 0x00, 0x00, 0x00, 0x00, 0x05, 0xdc];
         assert_eq!(
-            Repr::parse(
-                &NdiscOption::new_unchecked(&bytes),
-                &crate::phy::Medium::Ethernet
-            ),
+            Repr::parse(&NdiscOption::new_unchecked(&bytes)),
             Ok(Repr::Mtu(1500))
         );
     }

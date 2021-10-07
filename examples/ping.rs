@@ -22,7 +22,7 @@ use smoltcp::{
 };
 
 macro_rules! send_icmp_ping {
-    (v4, $repr_type:ident, $packet_type:ident, $ident:expr, $seq_no:expr,
+    ( $repr_type:ident, $packet_type:ident, $ident:expr, $seq_no:expr,
       $echo_payload:expr, $socket:expr, $remote_addr:expr ) => {{
         let icmp_repr = $repr_type::EchoRequest {
             ident: $ident,
@@ -31,22 +31,6 @@ macro_rules! send_icmp_ping {
         };
 
         let icmp_payload = $socket.send(icmp_repr.buffer_len(), $remote_addr).unwrap();
-
-        let icmp_packet = $packet_type::new_unchecked(icmp_payload);
-        (icmp_repr, icmp_packet)
-    }};
-
-    (v6, $repr_type:ident, $packet_type:ident, $ident:expr, $seq_no:expr,
-      $echo_payload:expr, $socket:expr, $remote_addr:expr ) => {{
-        let icmp_repr = $repr_type::EchoRequest {
-            ident: $ident,
-            seq_no: $seq_no,
-            data: &$echo_payload,
-        };
-
-        let icmp_payload = $socket
-            .send(icmp_repr.buffer_len(&Medium::Ethernet), $remote_addr)
-            .unwrap();
 
         let icmp_packet = $packet_type::new_unchecked(icmp_payload);
         (icmp_repr, icmp_packet)
@@ -186,7 +170,6 @@ fn main() {
                 match remote_addr {
                     IpAddress::Ipv4(_) => {
                         let (icmp_repr, mut icmp_packet) = send_icmp_ping!(
-                            v4,
                             Icmpv4Repr,
                             Icmpv4Packet,
                             ident,
@@ -199,7 +182,6 @@ fn main() {
                     }
                     IpAddress::Ipv6(_) => {
                         let (icmp_repr, mut icmp_packet) = send_icmp_ping!(
-                            v6,
                             Icmpv6Repr,
                             Icmpv6Packet,
                             ident,
@@ -213,7 +195,6 @@ fn main() {
                             &remote_addr,
                             &mut icmp_packet,
                             &device_caps.checksum,
-                            &device_caps.medium,
                         );
                     }
                     _ => unimplemented!(),
@@ -249,7 +230,6 @@ fn main() {
                             &src_ipv6,
                             &icmp_packet,
                             &device_caps.checksum,
-                            &device_caps.medium,
                         )
                         .unwrap();
                         get_icmp_pong!(
