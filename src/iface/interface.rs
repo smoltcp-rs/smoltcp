@@ -2165,42 +2165,51 @@ impl<'a> InterfaceInner<'a> {
     where
         Tx: TxToken,
     {
+        if dst_addr.is_broadcast() {
+            let hardware_addr = match cx.caps.medium {
+                #[cfg(feature = "medium-ethernet")]
+                Medium::Ethernet => HardwareAddress::Ethernet(EthernetAddress::BROADCAST),
+                #[cfg(feature = "medium-ieee802154")]
+                Medium::Ieee802154 => HardwareAddress::Ieee802154(Ieee802154Address::BROADCAST),
+                #[cfg(feature = "medium-ip")]
+                Medium::Ip => unreachable!(),
+            };
+
+            return Ok((hardware_addr, tx_token));
+        }
+
         if dst_addr.is_multicast() {
             let b = dst_addr.as_bytes();
             let hardware_addr = match *dst_addr {
-                IpAddress::Unspecified => None,
+                IpAddress::Unspecified => unreachable!(),
                 #[cfg(feature = "proto-ipv4")]
                 IpAddress::Ipv4(_addr) => {
-                    Some(HardwareAddress::Ethernet(EthernetAddress::from_bytes(&[
+                    HardwareAddress::Ethernet(EthernetAddress::from_bytes(&[
                         0x01,
                         0x00,
                         0x5e,
                         b[1] & 0x7F,
                         b[2],
                         b[3],
-                    ])))
+                    ]))
                 }
                 #[cfg(feature = "proto-ipv6")]
                 IpAddress::Ipv6(_addr) => match cx.caps.medium {
                     #[cfg(feature = "medium-ethernet")]
-                    Medium::Ethernet => {
-                        Some(HardwareAddress::Ethernet(EthernetAddress::from_bytes(&[
-                            0x33, 0x33, b[12], b[13], b[14], b[15],
-                        ])))
-                    }
+                    Medium::Ethernet => HardwareAddress::Ethernet(EthernetAddress::from_bytes(&[
+                        0x33, 0x33, b[12], b[13], b[14], b[15],
+                    ])),
                     #[cfg(feature = "medium-ieee802154")]
                     Medium::Ieee802154 => {
                         // Not sure if this is correct
-                        Some(HardwareAddress::Ieee802154(Ieee802154Address::BROADCAST))
+                        HardwareAddress::Ieee802154(Ieee802154Address::BROADCAST)
                     }
                     #[cfg(feature = "medium-ip")]
                     Medium::Ip => unreachable!(),
                 },
             };
 
-            if let Some(hardware_addr) = hardware_addr {
-                return Ok((hardware_addr, tx_token));
-            }
+            return Ok((hardware_addr, tx_token));
         }
 
         let dst_addr = self.route(dst_addr, cx.now)?;

@@ -196,9 +196,7 @@ impl<'a> Cache<'a> {
     }
 
     pub(crate) fn lookup(&self, protocol_addr: &IpAddress, timestamp: Instant) -> Answer {
-        if protocol_addr.is_broadcast() {
-            return Answer::Found(HardwareAddress::BROADCAST);
-        }
+        assert!(protocol_addr.is_unicast());
 
         if let Some(&Neighbor {
             expires_at,

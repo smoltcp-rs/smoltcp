@@ -246,7 +246,6 @@ pub use self::dhcpv4::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum HardwareAddress {
-    BROADCAST,
     #[cfg(feature = "medium-ethernet")]
     Ethernet(EthernetAddress),
     #[cfg(feature = "medium-ieee802154")]
@@ -260,7 +259,6 @@ impl HardwareAddress {
             HardwareAddress::Ethernet(addr) => addr.as_bytes(),
             #[cfg(feature = "medium-ieee802154")]
             HardwareAddress::Ieee802154(addr) => addr.as_bytes(),
-            _ => todo!(),
         }
     }
 
@@ -271,7 +269,6 @@ impl HardwareAddress {
             HardwareAddress::Ethernet(addr) => addr.is_unicast(),
             #[cfg(feature = "medium-ieee802154")]
             HardwareAddress::Ieee802154(addr) => addr.is_unicast(),
-            _ => todo!(),
         }
     }
 
@@ -282,7 +279,6 @@ impl HardwareAddress {
             HardwareAddress::Ethernet(addr) => addr.is_broadcast(),
             #[cfg(feature = "medium-ieee802154")]
             HardwareAddress::Ieee802154(addr) => addr.is_broadcast(),
-            _ => todo!(),
         }
     }
 }
@@ -290,7 +286,6 @@ impl HardwareAddress {
 impl core::fmt::Display for HardwareAddress {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         match self {
-            HardwareAddress::BROADCAST => write!(f, "BROADCAST"),
             #[cfg(feature = "medium-ethernet")]
             HardwareAddress::Ethernet(addr) => write!(f, "{}", addr),
             #[cfg(feature = "medium-ieee802154")]
