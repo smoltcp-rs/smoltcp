@@ -1136,7 +1136,6 @@ impl<'a> InterfaceInner<'a> {
         let payload = iphc_packet.payload();
         let ip_repr = IpRepr::Sixlowpan(iphc_repr);
 
-
         // Currently we assume the next header is a UDP, so we mark all the rest with todo.
         match iphc_repr.next_header {
             SixlowpanNextHeader::Compressed => {
@@ -2421,8 +2420,6 @@ impl<'a> InterfaceInner<'a> {
                     _ => return Err(Error::Unrecognized),
                 }
 
-                //tx_len += 2; // XXX: FCS calculation not needed when doing it in hardware
-
                 tx_token.consume(cx.now, tx_len, |mut tx_buffer| {
                     // 1. Create the header of 802.15.4
                     let mut ieee_packet = Ieee802154Frame::new_unchecked(&mut tx_buffer);
@@ -2464,10 +2461,6 @@ impl<'a> InterfaceInner<'a> {
                         }
                         _ => return Err(Error::Unrecognized),
                     }
-
-                    //let fcs = crate::wire::ieee802154::calculate_crc(&tx_buffer[..tx_len-2]);
-                    //tx_buffer[tx_len-1] = ((fcs >> 8) & 0xff) as u8;
-                    //tx_buffer[tx_len-2] = (fcs & 0xff) as u8;
 
                     Ok(())
                 })

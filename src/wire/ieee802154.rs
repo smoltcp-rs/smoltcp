@@ -516,12 +516,6 @@ impl<T: AsRef<[u8]>> Frame<T> {
 
         todo!();
     }
-
-    /// Return the FCS fields
-    #[inline]
-    pub fn fcs(&self) -> &[u8] {
-        &self.buffer.as_ref()[self.buffer.as_ref().len() - 2..]
-    }
 }
 
 impl<'a, T: AsRef<[u8]> + ?Sized> Frame<&'a T> {
@@ -533,7 +527,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized> Frame<&'a T> {
                 let data = &self.buffer.as_ref()[field::ADDRESSING];
                 let offset = self.addressing_fields().unwrap().len();
 
-                Some(&data[offset..data.len() - 2]) // Remove the FCS field of the IEEE80.15.4 frame.
+                Some(&data[offset..])
             }
             _ => None,
         }
@@ -692,14 +686,13 @@ impl<T: AsRef<[u8]>> fmt::Display for Frame<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "IEEE802.15.4 frame type={} seq={:2x?} dst_pan={:x?} dest={:x?} src_pan={:?} src={:x?} fcs={:x?}",
+            "IEEE802.15.4 frame type={} seq={:2x?} dst_pan={:x?} dest={:x?} src_pan={:?} src={:x?}",
             self.frame_type(),
             self.sequence_number(),
             self.dst_pan_id(),
             self.dst_addr(),
             self.src_pan_id(),
             self.src_addr(),
-            self.fcs(),
         )
     }
 }
@@ -908,7 +901,6 @@ mod test {
             0xff, 0xff, // Short destination address
             0xc7, 0xd9, 0xb5, 0x14, 0x00, 0x4b, 0x12, 0x00, // Extended source address
             0x2b, 0x00, 0x00, 0x00, // payload
-            0xb3, 0x0d // FSM
         ];
         frame_type -> FrameType::Data,
         security_enabled -> false,
@@ -919,6 +911,5 @@ mod test {
         frame_version -> FrameVersion::Ieee802154_2006,
         src_addressing_mode -> AddressingMode::Extended,
         //payload -> Some(&[0x2b, 0x00, 0x00, 0x00]),
-        fcs -> [0xb3, 0x0d],
     }
 }
