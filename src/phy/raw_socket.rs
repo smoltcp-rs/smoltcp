@@ -11,6 +11,7 @@ use crate::Result;
 /// A socket that captures or transmits the complete frame.
 #[derive(Debug)]
 pub struct RawSocket {
+    medium: Medium,
     lower: Rc<RefCell<sys::RawSocketDesc>>,
     mtu: usize,
 }
@@ -27,7 +28,7 @@ impl RawSocket {
     /// This requires superuser privileges or a corresponding capability bit
     /// set on the executable.
     pub fn new(name: &str, medium: Medium) -> io::Result<RawSocket> {
-        let mut lower = sys::RawSocketDesc::new(name)?;
+        let mut lower = sys::RawSocketDesc::new(name, medium)?;
         lower.bind_interface()?;
 
         let mut mtu = lower.interface_mtu()?;
@@ -40,6 +41,7 @@ impl RawSocket {
         }
 
         Ok(RawSocket {
+            medium,
             lower: Rc::new(RefCell::new(lower)),
             mtu: mtu,
         })
@@ -53,7 +55,7 @@ impl<'a> Device<'a> for RawSocket {
     fn capabilities(&self) -> DeviceCapabilities {
         DeviceCapabilities {
             max_transmission_unit: self.mtu,
-            medium: Medium::Ethernet,
+            medium: self.medium,
             ..DeviceCapabilities::default()
         }
     }
