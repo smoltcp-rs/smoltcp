@@ -1136,22 +1136,6 @@ impl<'a> InterfaceInner<'a> {
         let payload = iphc_packet.payload();
         let ip_repr = IpRepr::Sixlowpan(iphc_repr);
 
-        // Fill the neighbor cache from IP header of unicast frames.
-        let ip_addr = ip_repr.src_addr();
-        if self.in_same_network(&ip_addr)
-            && self
-                .neighbor_cache
-                .as_mut()
-                .unwrap()
-                .lookup(&ip_addr, cx.now)
-                .found()
-        {
-            self.neighbor_cache.as_mut().unwrap().fill(
-                ip_addr,
-                ieee802154_repr.src_addr.unwrap().into(), // TODO(thvdveld): Add checks before calling unwrap
-                cx.now,
-            );
-        }
 
         // Currently we assume the next header is a UDP, so we mark all the rest with todo.
         match iphc_repr.next_header {
