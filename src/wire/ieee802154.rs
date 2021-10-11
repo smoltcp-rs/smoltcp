@@ -493,28 +493,8 @@ impl<T: AsRef<[u8]>> Frame<T> {
             return None;
         }
 
-        todo!();
-    }
-
-    /// Return the IE field (the header as well as the payload IE)
-    #[inline]
-    pub fn ie_field(&self) -> Option<&[u8]> {
-        match self.frame_type() {
-            FrameType::Data | FrameType::MacCommand | FrameType::Multipurpose => (),
-            FrameType::Beacon | FrameType::Acknowledgement
-                if self.frame_version() == FrameVersion::Ieee802154 => {}
-            FrameType::Beacon
-            | FrameType::Acknowledgement
-            | FrameType::Extended
-            | FrameType::FragmentOrFrak
-            | FrameType::Unknown(_) => return None,
-        }
-
-        if !self.ie_present() {
-            return None;
-        }
-
-        todo!();
+        net_debug!("Auxilliary security header is currently not supported.");
+        None
     }
 }
 
@@ -614,7 +594,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Frame<T> {
     #[inline]
     pub fn set_src_pan_id(&mut self, value: Pan) {
         let offset = match self.dst_addressing_mode() {
-            AddressingMode::Absent => todo!("{}", self.dst_addressing_mode()),
+            AddressingMode::Absent => 0,
             AddressingMode::Short => 2,
             AddressingMode::Extended => 8,
             _ => unreachable!(),
@@ -628,7 +608,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Frame<T> {
     #[inline]
     pub fn set_src_addr(&mut self, mut value: Address) {
         let offset = match self.dst_addressing_mode() {
-            AddressingMode::Absent => todo!("{}", self.dst_addressing_mode()),
+            AddressingMode::Absent => 0,
             AddressingMode::Short => 2,
             AddressingMode::Extended => 8,
             _ => unreachable!(),
