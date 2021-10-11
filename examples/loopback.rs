@@ -37,6 +37,14 @@ mod mock {
             self.0.get()
         }
     }
+
+    struct Rand;
+    smoltcp::rand_custom_impl!(Rand);
+    impl smoltcp::Rand for Rand {
+        fn rand_bytes(buf: &mut [u8]) {
+            buf.fill(0x42);
+        }
+    }
 }
 
 #[cfg(feature = "std")]

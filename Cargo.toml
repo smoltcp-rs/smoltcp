@@ -22,6 +22,7 @@ log = { version = "0.4.4", default-features = false, optional = true }
 libc = { version = "0.2.18", optional = true }
 bitflags = { version = "1.0", default-features = false }
 defmt = { version = "0.2.0", optional = true }
+rand_core = { version = "0.6.3", optional = true, default-features = false }
 
 [dev-dependencies]
 env_logger = "0.5"
@@ -30,9 +31,10 @@ rand = "0.3"
 url = "1.0"
 
 [features]
-std = ["managed/std"]
+std = ["managed/std", "rand_core/std"]
 alloc = ["managed/alloc"]
 verbose = []
+rand-custom-impl = []
 "medium-ethernet" = ["socket"]
 "medium-ip" = ["socket"]
 "phy-raw_socket" = ["std", "libc", "medium-ethernet"]
