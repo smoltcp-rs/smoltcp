@@ -39,9 +39,7 @@ struct InterfaceInner<'a> {
     #[cfg(feature = "medium-ieee802154")]
     sequence_no: u8,
     #[cfg(feature = "medium-ieee802154")]
-    src_pan_id: Option<Ieee802154Pan>,
-    #[cfg(feature = "medium-ieee802154")]
-    dst_pan_id: Option<Ieee802154Pan>,
+    pan_id: Option<Ieee802154Pan>,
     ip_addrs: ManagedSlice<'a, IpCidr>,
     #[cfg(feature = "proto-ipv4")]
     any_ip: bool,
@@ -63,9 +61,7 @@ pub struct InterfaceBuilder<'a, DeviceT: for<'d> Device<'d>> {
     #[cfg(feature = "medium-ieee802154")]
     sequence_no: u8,
     #[cfg(feature = "medium-ieee802154")]
-    src_pan_id: Option<Ieee802154Pan>,
-    #[cfg(feature = "medium-ieee802154")]
-    dst_pan_id: Option<Ieee802154Pan>,
+    pan_id: Option<Ieee802154Pan>,
     ip_addrs: ManagedSlice<'a, IpCidr>,
     #[cfg(feature = "proto-ipv4")]
     any_ip: bool,
@@ -119,9 +115,7 @@ let iface = InterfaceBuilder::new(device)
             #[cfg(feature = "medium-ieee802154")]
             sequence_no: 1,
             #[cfg(feature = "medium-ieee802154")]
-            src_pan_id: None,
-            #[cfg(feature = "medium-ieee802154")]
-            dst_pan_id: None,
+            pan_id: None,
 
             ip_addrs: ManagedSlice::Borrowed(&mut []),
             #[cfg(feature = "proto-ipv4")]
@@ -155,17 +149,12 @@ let iface = InterfaceBuilder::new(device)
         self
     }
 
-    /// Set the IEEE802.15.4 source PAN ID the interface will use.
+    /// Set the IEEE802.15.4 PAN ID the interface will use.
+    ///
+    /// **NOTE**: we use the same PAN ID for destination and source.
     #[cfg(feature = "medium-ieee802154")]
-    pub fn src_pan_id(mut self, pan_id: Ieee802154Pan) -> Self {
-        self.src_pan_id = Some(pan_id);
-        self
-    }
-
-    /// Set the IEEE802.15.4 destination PAN ID the interface will use.
-    #[cfg(feature = "medium-ieee802154")]
-    pub fn dst_pan_id(mut self, pan_id: Ieee802154Pan) -> Self {
-        self.dst_pan_id = Some(pan_id);
+    pub fn pan_id(mut self, pan_id: Ieee802154Pan) -> Self {
+        self.pan_id = Some(pan_id);
         self
     }
 
@@ -312,9 +301,7 @@ let iface = InterfaceBuilder::new(device)
                 #[cfg(feature = "medium-ieee802154")]
                 sequence_no: self.sequence_no,
                 #[cfg(feature = "medium-ieee802154")]
-                src_pan_id: self.src_pan_id,
-                #[cfg(feature = "medium-ieee802154")]
-                dst_pan_id: self.dst_pan_id,
+                pan_id: self.pan_id,
             },
         }
     }
@@ -958,9 +945,7 @@ where
             ))]
             hardware_addr: self.inner.hardware_addr,
             #[cfg(feature = "medium-ieee802154")]
-            src_pan_id: self.inner.src_pan_id,
-            #[cfg(feature = "medium-ieee802154")]
-            dst_pan_id: self.inner.dst_pan_id,
+            pan_id: self.inner.pan_id,
         }
     }
 }
@@ -1110,6 +1095,12 @@ impl<'a> InterfaceInner<'a> {
     ) -> Result<Option<IpPacket<'frame>>> {
         let ieee802154_frame = Ieee802154Frame::new_checked(sixlowpan_payload)?;
         let ieee802154_repr = Ieee802154Repr::parse(&ieee802154_frame)?;
+
+        if ieee802154_repr.dst_pan_id != cx.pan_id {
+            // We sillently drop frames that have the wrong PAN id.
+            // NOTE: this is most of the time already implememted in hardware.
+            return Ok(None);
+        }
 
         match ieee802154_frame.payload() {
             Some(payload) => self.process_sixlowpan(cx, sockets, &ieee802154_repr, payload),
@@ -2373,9 +2364,9 @@ impl<'a> InterfaceInner<'a> {
                     sequence_number: Some(self.get_sequence_number()),
                     pan_id_compression: true,
                     frame_version: Ieee802154FrameVersion::Ieee802154_2003,
-                    dst_pan_id: cx.dst_pan_id,
+                    dst_pan_id: cx.pan_id,
                     dst_addr: Some(dst_hardware_addr),
-                    src_pan_id: cx.src_pan_id,
+                    src_pan_id: cx.pan_id,
                     src_addr: ll_src_addr,
                 };
 

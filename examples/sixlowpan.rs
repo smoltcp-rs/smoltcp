@@ -83,8 +83,7 @@ fn main() {
 
     let mut builder = InterfaceBuilder::new(device)
         .ip_addrs(ip_addrs)
-        .dst_pan_id(Ieee802154Pan(0xbeef))
-        .src_pan_id(Ieee802154Pan(0xbeef));
+        .pan_id(Ieee802154Pan(0xbeef));
     builder = builder
         .hardware_addr(ieee802154_addr.into())
         .neighbor_cache(neighbor_cache);

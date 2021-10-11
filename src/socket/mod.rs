@@ -193,9 +193,7 @@ pub(crate) struct Context {
     ))]
     pub hardware_addr: Option<crate::wire::HardwareAddress>,
     #[cfg(feature = "medium-ieee802154")]
-    pub src_pan_id: Option<crate::wire::Ieee802154Pan>,
-    #[cfg(feature = "medium-ieee802154")]
-    pub dst_pan_id: Option<crate::wire::Ieee802154Pan>,
+    pub pan_id: Option<crate::wire::Ieee802154Pan>,
     pub caps: DeviceCapabilities,
 }
 
@@ -232,8 +230,6 @@ impl Context {
         now: Instant::from_millis_const(0),
 
         #[cfg(feature = "medium-ieee802154")]
-        src_pan_id: Some(crate::wire::Ieee802154Pan(0xabcd)),
-        #[cfg(feature = "medium-ieee802154")]
-        dst_pan_id: Some(crate::wire::Ieee802154Pan(0xabcd)),
+        pan_id: Some(crate::wire::Ieee802154Pan(0xabcd)),
     };
 }
