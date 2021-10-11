@@ -243,6 +243,7 @@ pub use self::dhcpv4::{
 };
 
 /// Representation of an hardware address, such as an Ethernet address or an IEEE802.15.4 address.
+#[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum HardwareAddress {
@@ -252,6 +253,7 @@ pub enum HardwareAddress {
     Ieee802154(Ieee802154Address),
 }
 
+#[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
 impl HardwareAddress {
     pub fn as_bytes(&self) -> &[u8] {
         match self {
@@ -283,6 +285,7 @@ impl HardwareAddress {
     }
 }
 
+#[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
 impl core::fmt::Display for HardwareAddress {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         match self {
@@ -316,12 +319,14 @@ pub const MAX_HARDWARE_ADDRESS_LEN: usize = 8;
 /// Unparsed hardware address.
 ///
 /// Used to make NDISC parsing agnostic of the hardware medium in use.
+#[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct RawHardwareAddress {
     len: u8,
     data: [u8; MAX_HARDWARE_ADDRESS_LEN],
 }
 
+#[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
 impl RawHardwareAddress {
     pub fn from_bytes(addr: &[u8]) -> Self {
         let mut data = [0u8; MAX_HARDWARE_ADDRESS_LEN];
@@ -371,6 +376,7 @@ impl RawHardwareAddress {
     }
 }
 
+#[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
 impl core::fmt::Display for RawHardwareAddress {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         for (i, &b) in self.as_bytes().iter().enumerate() {
@@ -397,6 +403,7 @@ impl From<Ieee802154Address> for RawHardwareAddress {
     }
 }
 
+#[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
 impl From<HardwareAddress> for RawHardwareAddress {
     fn from(addr: HardwareAddress) -> Self {
         Self::from_bytes(addr.as_bytes())
