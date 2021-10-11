@@ -1131,8 +1131,9 @@ impl<'a> InterfaceInner<'a> {
         match iphc_repr.next_header {
             SixlowpanNextHeader::Compressed => {
                 match SixlowpanNhcPacket::dispatch(payload)? {
-                    SixlowpanNhcPacket::ExtensionHeader(ext_header) => {
-                        todo!("{:?}", ext_header)
+                    SixlowpanNhcPacket::ExtensionHeader(_) => {
+                        net_debug!("Extension headers are currently not supported for 6LoWPAN");
+                        Ok(None)
                     }
                     SixlowpanNhcPacket::UdpHeader(udp_packet) => {
                         // Handle the UDP
@@ -1184,7 +1185,10 @@ impl<'a> InterfaceInner<'a> {
                 IpProtocol::Icmpv6 => {
                     self.process_icmpv6(cx, sockets, ip_repr, iphc_packet.payload())
                 }
-                hdr => todo!("{:?}", hdr),
+                _ => {
+                    net_debug!("Headers other than ICMPv6 and compressed headers are currently not supported for 6LoWPAN");
+                    Ok(None)
+                }
             },
         }
     }
