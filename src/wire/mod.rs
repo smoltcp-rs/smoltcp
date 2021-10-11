@@ -321,6 +321,7 @@ pub const MAX_HARDWARE_ADDRESS_LEN: usize = 8;
 /// Used to make NDISC parsing agnostic of the hardware medium in use.
 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct RawHardwareAddress {
     len: u8,
     data: [u8; MAX_HARDWARE_ADDRESS_LEN],
