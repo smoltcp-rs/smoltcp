@@ -528,11 +528,11 @@ pub mod iphc {
         set_field!(set_tf_field, 0b11, 11);
         set_field!(set_nh_field, 0b1, 10);
         set_field!(set_hlim_field, 0b11, 8);
-        //set_field!(set_cid_field, 0b1, 7);
+        set_field!(set_cid_field, 0b1, 7);
         set_field!(set_sac_field, 0b1, 6);
         set_field!(set_sam_field, 0b11, 4);
         set_field!(set_m_field, 0b1, 3);
-        //set_field!(set_dac_field, 0b1, 2);
+        set_field!(set_dac_field, 0b1, 2);
         set_field!(set_dam_field, 0b11, 0);
 
         fn set_field(&mut self, idx: usize, value: &[u8]) {
@@ -591,6 +591,9 @@ pub mod iphc {
             ll_src_addr: Option<LlAddress>,
             mut idx: usize,
         ) -> usize {
+            self.set_cid_field(0);
+            self.set_sac_field(0);
+            self.set_sam_field(0b11);
             let src = src_addr.as_bytes();
             if src_addr == ipv6::Address::UNSPECIFIED {
                 self.set_sac_field(1);
@@ -651,6 +654,9 @@ pub mod iphc {
             ll_dst_addr: Option<LlAddress>,
             mut idx: usize,
         ) -> usize {
+            self.set_dac_field(0);
+            self.set_dam_field(0);
+            self.set_m_field(0);
             let dst = dst_addr.as_bytes();
             if dst_addr.is_multicast() {
                 self.set_m_field(1);
