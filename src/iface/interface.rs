@@ -1158,26 +1158,36 @@ impl<'a> InterfaceInner<'a> {
                             }
                         }
 
-                        // The packet wasn't handled by a socket, send an ICMP port unreachable packet.
-                        match ip_repr {
-                            #[cfg(feature = "proto-ipv6")]
-                            IpRepr::Ipv6(ipv6_repr) => {
-                                let payload_len = icmp_reply_payload_len(
-                                    payload.len(),
-                                    IPV6_MIN_MTU,
-                                    ipv6_repr.buffer_len(),
-                                );
-                                let icmpv6_reply_repr = Icmpv6Repr::DstUnreachable {
-                                    reason: Icmpv6DstUnreachable::PortUnreachable,
-                                    header: ipv6_repr,
-                                    data: &payload[0..payload_len],
-                                };
-                                Ok(self.icmpv6_reply(ipv6_repr, icmpv6_reply_repr))
-                            }
-                            IpRepr::Unspecified { .. } => Err(Error::Unaddressable),
-                            IpRepr::Sixlowpan(_) => Err(Error::Malformed), // XXX(thvdveld): this is just wrong;
-                            r => todo!("{:?}", r),
-                        }
+                        // TODO(thvdveld): verify this implementation of sending an ICMP
+                        let src_addr = match ip_repr.src_addr() {
+                            IpAddress::Ipv6(addr) => addr,
+                            _ => unreachable!(),
+                        };
+
+                        let dst_addr = match ip_repr.dst_addr() {
+                            IpAddress::Ipv6(addr) => addr,
+                            _ => unreachable!(),
+                        };
+
+                        let ipv6_repr = Ipv6Repr {
+                            src_addr,
+                            dst_addr,
+                            hop_limit: ip_repr.hop_limit(),
+                            next_header: IpProtocol::Unknown(0),
+                            payload_len: ip_repr.payload_len(),
+                        };
+
+                        let payload_len = icmp_reply_payload_len(
+                            payload.len(),
+                            IPV6_MIN_MTU,
+                            ipv6_repr.buffer_len(),
+                        );
+                        let icmpv6_reply_repr = Icmpv6Repr::DstUnreachable {
+                            reason: Icmpv6DstUnreachable::PortUnreachable,
+                            header: ipv6_repr,
+                            data: &payload[0..payload_len],
+                        };
+                        Ok(self.icmpv6_reply(ipv6_repr, icmpv6_reply_repr))
                     }
                 }
             }
@@ -2284,7 +2294,8 @@ impl<'a> InterfaceInner<'a> {
                     &ip_repr.dst_addr(),
                 )? {
                     (HardwareAddress::Ethernet(addr), tx_token) => (addr, tx_token),
-                    _ => unreachable!(),
+                    #[cfg(feature = "medium-ieee802154")]
+                    (HardwareAddress::Ieee802154(_), _) => unreachable!(),
                 };
 
                 self.dispatch_ethernet(cx, tx_token, ip_repr.total_len(), |mut frame| {

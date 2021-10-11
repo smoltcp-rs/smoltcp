@@ -341,6 +341,10 @@ impl RawHardwareAddress {
         self.len as usize
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
     pub fn parse(&self, medium: Medium) -> Result<HardwareAddress, Error> {
         match medium {
             #[cfg(feature = "medium-ethernet")]
