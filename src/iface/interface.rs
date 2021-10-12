@@ -1125,7 +1125,13 @@ impl<'a> InterfaceInner<'a> {
         )?;
 
         let payload = iphc_packet.payload();
-        let ip_repr = IpRepr::Sixlowpan(iphc_repr);
+        let mut ipv6_repr = Ipv6Repr {
+            src_addr: iphc_repr.src_addr,
+            dst_addr: iphc_repr.dst_addr,
+            hop_limit: iphc_repr.hop_limit,
+            next_header: IpProtocol::Unknown(0),
+            payload_len: iphc_repr.buffer_len(),
+        };
 
         // Currently we assume the next header is a UDP, so we mark all the rest with todo.
         match iphc_repr.next_header {
@@ -1136,6 +1142,7 @@ impl<'a> InterfaceInner<'a> {
                         Ok(None)
                     }
                     SixlowpanNhcPacket::UdpHeader(udp_packet) => {
+                        ipv6_repr.next_header = IpProtocol::Udp;
                         // Handle the UDP
                         let udp_repr = SixlowpanUdpRepr::parse(
                             &udp_packet,
@@ -1147,35 +1154,20 @@ impl<'a> InterfaceInner<'a> {
                         // Look for UDP sockets that will accept the UDP packet.
                         // If it does not accept the packet, then send an ICMP message.
                         for mut udp_socket in sockets.iter_mut().filter_map(UdpSocket::downcast) {
-                            if !udp_socket.accepts(&ip_repr, &udp_repr) {
+                            if !udp_socket.accepts(&IpRepr::Ipv6(ipv6_repr), &udp_repr) {
                                 continue;
                             }
 
-                            match udp_socket.process(cx, &ip_repr, &udp_repr, udp_packet.payload())
-                            {
+                            match udp_socket.process(
+                                cx,
+                                &IpRepr::Ipv6(ipv6_repr),
+                                &udp_repr,
+                                udp_packet.payload(),
+                            ) {
                                 Ok(()) => return Ok(None),
                                 Err(e) => return Err(e),
                             }
                         }
-
-                        // TODO(thvdveld): verify this implementation of sending an ICMP
-                        let src_addr = match ip_repr.src_addr() {
-                            IpAddress::Ipv6(addr) => addr,
-                            _ => unreachable!(),
-                        };
-
-                        let dst_addr = match ip_repr.dst_addr() {
-                            IpAddress::Ipv6(addr) => addr,
-                            _ => unreachable!(),
-                        };
-
-                        let ipv6_repr = Ipv6Repr {
-                            src_addr,
-                            dst_addr,
-                            hop_limit: ip_repr.hop_limit(),
-                            next_header: IpProtocol::Unknown(0),
-                            payload_len: ip_repr.payload_len(),
-                        };
 
                         let payload_len = icmp_reply_payload_len(
                             payload.len(),
@@ -1193,7 +1185,8 @@ impl<'a> InterfaceInner<'a> {
             }
             SixlowpanNextHeader::Uncompressed(nxt_hdr) => match nxt_hdr {
                 IpProtocol::Icmpv6 => {
-                    self.process_icmpv6(cx, sockets, ip_repr, iphc_packet.payload())
+                    ipv6_repr.next_header = IpProtocol::Icmpv6;
+                    self.process_icmpv6(cx, sockets, IpRepr::Ipv6(ipv6_repr), iphc_packet.payload())
                 }
                 _ => {
                     net_debug!("Headers other than ICMPv6 and compressed headers are currently not supported for 6LoWPAN");
@@ -1627,24 +1620,6 @@ impl<'a> InterfaceInner<'a> {
                     };
                     Ok(self.icmpv6_reply(ipv6_repr, icmp_reply_repr))
                 }
-                #[cfg(feature = "medium-ieee802154")]
-                IpRepr::Sixlowpan(sixlowpan_repr) => {
-                    let icmp_reply_repr = Icmpv6Repr::EchoReply {
-                        ident,
-                        seq_no,
-                        data,
-                    };
-                    Ok(self.icmpv6_reply(
-                        Ipv6Repr {
-                            src_addr: sixlowpan_repr.src_addr,
-                            dst_addr: sixlowpan_repr.dst_addr,
-                            next_header: IpProtocol::Unknown(0),
-                            payload_len: data.len(),
-                            hop_limit: 64,
-                        },
-                        icmp_reply_repr,
-                    ))
-                }
                 _ => Err(Error::Unrecognized),
             },
 
@@ -1655,20 +1630,6 @@ impl<'a> InterfaceInner<'a> {
             #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
             Icmpv6Repr::Ndisc(repr) if ip_repr.hop_limit() == 0xff => match ip_repr {
                 IpRepr::Ipv6(ipv6_repr) => self.process_ndisc(cx, ipv6_repr, repr),
-                #[cfg(feature = "medium-ieee802154")]
-                IpRepr::Sixlowpan(sixlowpan_repr) => {
-                    self.process_ndisc(
-                        cx,
-                        Ipv6Repr {
-                            src_addr: sixlowpan_repr.src_addr,
-                            dst_addr: sixlowpan_repr.dst_addr,
-                            next_header: IpProtocol::Unknown(0),
-                            payload_len: 10, // 2 + 8
-                            hop_limit: sixlowpan_repr.hop_limit,
-                        },
-                        repr,
-                    )
-                }
                 _ => Ok(None),
             },
 
@@ -1973,28 +1934,6 @@ impl<'a> InterfaceInner<'a> {
             IpRepr::Ipv6(ipv6_repr) => {
                 let payload_len =
                     icmp_reply_payload_len(ip_payload.len(), IPV6_MIN_MTU, ipv6_repr.buffer_len());
-                let icmpv6_reply_repr = Icmpv6Repr::DstUnreachable {
-                    reason: Icmpv6DstUnreachable::PortUnreachable,
-                    header: ipv6_repr,
-                    data: &ip_payload[0..payload_len],
-                };
-                Ok(self.icmpv6_reply(ipv6_repr, icmpv6_reply_repr))
-            }
-            #[cfg(feature = "proto-sixlowpan")]
-            IpRepr::Sixlowpan(sixlowpan_repr) => {
-                let ipv6_repr = Ipv6Repr {
-                    src_addr: sixlowpan_repr.src_addr,
-                    dst_addr: sixlowpan_repr.dst_addr,
-                    next_header: IpProtocol::Udp, // XXX
-                    payload_len: ip_payload.len(),
-                    hop_limit: sixlowpan_repr.hop_limit,
-                };
-
-                let payload_len = icmp_reply_payload_len(
-                    ip_payload.len(),
-                    IPV6_MIN_MTU,
-                    sixlowpan_repr.buffer_len(),
-                );
                 let icmpv6_reply_repr = Icmpv6Repr::DstUnreachable {
                     reason: Icmpv6DstUnreachable::PortUnreachable,
                     header: ipv6_repr,

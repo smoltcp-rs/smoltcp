@@ -1381,7 +1381,7 @@ pub mod nhc {
     impl<'a, T: AsRef<[u8]> + AsMut<[u8]>> UdpPacket<T> {
         /// Return a mutable pointer to the payload.
         pub fn payload_mut(&mut self) -> &mut [u8] {
-            let start = 1 + self.ports_size() + self.checksum_size();
+            let start = 1 + self.ports_size() + 2; // XXX(thvdveld): we assume we put the checksum inlined.
             &mut self.buffer.as_mut()[start..]
         }
 

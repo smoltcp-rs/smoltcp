@@ -6,8 +6,6 @@ use crate::phy::ChecksumCapabilities;
 use crate::wire::{Ipv4Address, Ipv4Cidr, Ipv4Packet, Ipv4Repr};
 #[cfg(feature = "proto-ipv6")]
 use crate::wire::{Ipv6Address, Ipv6Cidr, Ipv6Packet, Ipv6Repr};
-#[cfg(feature = "proto-sixlowpan")]
-use crate::wire::{SixlowpanIphcPacket, SixlowpanIphcRepr};
 use crate::{Error, Result};
 
 /// Internet protocol version.
@@ -515,8 +513,6 @@ pub enum Repr {
     Ipv4(Ipv4Repr),
     #[cfg(feature = "proto-ipv6")]
     Ipv6(Ipv6Repr),
-    #[cfg(feature = "proto-sixlowpan")]
-    Sixlowpan(SixlowpanIphcRepr),
 }
 
 #[cfg(feature = "proto-ipv4")]
@@ -542,8 +538,6 @@ impl Repr {
             Repr::Ipv4(_) => Version::Ipv4,
             #[cfg(feature = "proto-ipv6")]
             Repr::Ipv6(_) => Version::Ipv6,
-            #[cfg(feature = "proto-sixlowpan")]
-            Repr::Sixlowpan(_) => Version::Ipv6,
         }
     }
 
@@ -555,8 +549,6 @@ impl Repr {
             Repr::Ipv4(repr) => Address::Ipv4(repr.src_addr),
             #[cfg(feature = "proto-ipv6")]
             Repr::Ipv6(repr) => Address::Ipv6(repr.src_addr),
-            #[cfg(feature = "proto-sixlowpan")]
-            Repr::Sixlowpan(repr) => Address::Ipv6(repr.src_addr),
         }
     }
 
@@ -568,8 +560,6 @@ impl Repr {
             Repr::Ipv4(repr) => Address::Ipv4(repr.dst_addr),
             #[cfg(feature = "proto-ipv6")]
             Repr::Ipv6(repr) => Address::Ipv6(repr.dst_addr),
-            #[cfg(feature = "proto-sixlowpan")]
-            Repr::Sixlowpan(repr) => Address::Ipv6(repr.dst_addr),
         }
     }
 
@@ -581,8 +571,6 @@ impl Repr {
             Repr::Ipv4(repr) => repr.protocol,
             #[cfg(feature = "proto-ipv6")]
             Repr::Ipv6(repr) => repr.next_header,
-            #[cfg(feature = "proto-sixlowpan")]
-            Repr::Sixlowpan(repr) => todo!("{:?}", repr),
         }
     }
 
@@ -594,8 +582,6 @@ impl Repr {
             Repr::Ipv4(repr) => repr.payload_len,
             #[cfg(feature = "proto-ipv6")]
             Repr::Ipv6(repr) => repr.payload_len,
-            #[cfg(feature = "proto-sixlowpan")]
-            Repr::Sixlowpan(repr) => todo!("{:?}", repr),
         }
     }
 
@@ -616,8 +602,6 @@ impl Repr {
                 ref mut payload_len,
                 ..
             }) => *payload_len = length,
-            #[cfg(feature = "proto-sixlowpan")]
-            Repr::Sixlowpan(_) => todo!(),
         }
     }
 
@@ -629,8 +613,6 @@ impl Repr {
             Repr::Ipv4(Ipv4Repr { hop_limit, .. }) => hop_limit,
             #[cfg(feature = "proto-ipv6")]
             Repr::Ipv6(Ipv6Repr { hop_limit, .. }) => hop_limit,
-            #[cfg(feature = "proto-sixlowpan")]
-            Repr::Sixlowpan(SixlowpanIphcRepr { hop_limit, .. }) => hop_limit,
         }
     }
 
@@ -771,9 +753,6 @@ impl Repr {
                 resolve_unspecified!(Repr::Ipv6, Address::Ipv6, repr, fallback_src_addrs)
             }
 
-            #[cfg(feature = "proto-sixlowpan")]
-            &Repr::Sixlowpan(_) => todo!(), // TODO(thvdveld): what do we need to do here?
-
             &Repr::Unspecified { .. } => {
                 panic!("source and destination IP address families do not match")
             }
@@ -791,8 +770,6 @@ impl Repr {
             Repr::Ipv4(repr) => repr.buffer_len(),
             #[cfg(feature = "proto-ipv6")]
             Repr::Ipv6(repr) => repr.buffer_len(),
-            #[cfg(feature = "proto-sixlowpan")]
-            Repr::Sixlowpan(repr) => repr.buffer_len(),
         }
     }
 
@@ -811,8 +788,6 @@ impl Repr {
             Repr::Ipv4(repr) => repr.emit(&mut Ipv4Packet::new_unchecked(buffer), _checksum_caps),
             #[cfg(feature = "proto-ipv6")]
             Repr::Ipv6(repr) => repr.emit(&mut Ipv6Packet::new_unchecked(buffer)),
-            #[cfg(feature = "proto-sixlowpan")]
-            Repr::Sixlowpan(repr) => repr.emit(&mut SixlowpanIphcPacket::new_unchecked(buffer)),
         }
     }
 
