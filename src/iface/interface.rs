@@ -1102,6 +1102,10 @@ impl<'a> InterfaceInner<'a> {
             return Ok(None);
         }
 
+        if ieee802154_repr.frame_type != Ieee802154FrameType::Data {
+            return Ok(None);
+        }
+
         match ieee802154_frame.payload() {
             Some(payload) => self.process_sixlowpan(cx, sockets, &ieee802154_repr, payload),
             None => Ok(None),
