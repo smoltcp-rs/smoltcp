@@ -340,9 +340,9 @@ impl Dhcpv4Socket {
         // 0x0f * 4 = 60 bytes.
         const MAX_IPV4_HEADER_LEN: usize = 60;
 
-        // We don't directly increment transaction_id because sending the packet
+        // We don't directly modify self.transaction_id because sending the packet
         // may fail. We only want to update state after succesfully sending.
-        let next_transaction_id = self.transaction_id + 1;
+        let next_transaction_id = crate::rand::rand_u32();
 
         let mut dhcp_repr = DhcpRepr {
             message_type: DhcpMessageType::Discover,
