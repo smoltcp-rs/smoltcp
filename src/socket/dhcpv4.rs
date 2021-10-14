@@ -203,10 +203,10 @@ impl Dhcpv4Socket {
         };
 
         net_debug!(
-            "DHCP recv {:?} from {} ({})",
+            "DHCP recv {:?} from {}: {:?}",
             dhcp_repr.message_type,
             src_ip,
-            server_identifier
+            dhcp_repr
         );
 
         match (&mut self.state, dhcp_repr.message_type) {
