@@ -455,7 +455,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// Returns true if the broadcast flag is set.
     pub fn broadcast_flag(&self) -> bool {
         let field = &self.buffer.as_ref()[field::FLAGS];
-        NetworkEndian::read_u16(field) & 0b1 == 0b1
+        NetworkEndian::read_u16(field) & 0x8000 == 0x8000
     }
 }
 
@@ -578,7 +578,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// Sets the broadcast flag to the specified value.
     pub fn set_broadcast_flag(&mut self, value: bool) {
         let field = &mut self.buffer.as_mut()[field::FLAGS];
-        NetworkEndian::write_u16(field, if value { 1 } else { 0 });
+        NetworkEndian::write_u16(field, if value { 0x8000 } else { 0 });
     }
 }
 
