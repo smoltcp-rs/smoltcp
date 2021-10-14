@@ -545,30 +545,43 @@ mod test {
         socket.process(&cx, &ip_repr, &udp_repr, &payload)
     }
 
-    fn recv<F>(socket: &mut Dhcpv4Socket, timestamp: Instant, mut f: F)
-    where
-        F: FnMut(Result<(Ipv4Repr, UdpRepr, DhcpRepr)>),
-    {
+    fn recv(
+        socket: &mut Dhcpv4Socket,
+        timestamp: Instant,
+        reprs: &[(Ipv4Repr, UdpRepr, DhcpRepr)],
+    ) {
         let mut cx = Context::DUMMY.clone();
         cx.now = timestamp;
-        let result = socket.dispatch(&cx, |(mut ip_repr, udp_repr, dhcp_repr)| {
-            assert_eq!(ip_repr.protocol, IpProtocol::Udp);
-            assert_eq!(
-                ip_repr.payload_len,
-                udp_repr.header_len() + dhcp_repr.buffer_len()
-            );
 
-            // We validated the payload len, change it to 0 to make equality testing easier
-            ip_repr.payload_len = 0;
+        let mut i = 0;
 
-            net_trace!("recv: {:?}", ip_repr);
-            net_trace!("      {:?}", udp_repr);
-            net_trace!("      {:?}", dhcp_repr);
-            Ok(f(Ok((ip_repr, udp_repr, dhcp_repr))))
-        });
-        match result {
-            Ok(()) => (),
-            Err(e) => f(Err(e)),
+        while socket.poll_at(&cx) <= PollAt::Time(timestamp) {
+            let _ = socket.dispatch(&cx, |(mut ip_repr, udp_repr, dhcp_repr)| {
+                assert_eq!(ip_repr.protocol, IpProtocol::Udp);
+                assert_eq!(
+                    ip_repr.payload_len,
+                    udp_repr.header_len() + dhcp_repr.buffer_len()
+                );
+
+                // We validated the payload len, change it to 0 to make equality testing easier
+                ip_repr.payload_len = 0;
+
+                net_trace!("recv: {:?}", ip_repr);
+                net_trace!("      {:?}", udp_repr);
+                net_trace!("      {:?}", dhcp_repr);
+
+                let got_repr = (ip_repr, udp_repr, dhcp_repr);
+                match reprs.get(i) {
+                    Some(want_repr) => assert_eq!(want_repr, &got_repr),
+                    None => panic!("Too many reprs emitted"),
+                }
+                i += 1;
+                Ok(())
+            });
+        }
+
+        if i != reprs.len() {
+            panic!("Too few reprs emitted. Wanted {}, got {}", reprs.len(), i);
         }
     }
 
@@ -584,20 +597,12 @@ mod test {
     }
 
     macro_rules! recv {
-        ($socket:ident, [$( $repr:expr ),*]) => ({
-            $( recv!($socket, Ok($repr)); )*
-            recv!($socket, Err(Error::Exhausted))
+        ($socket:ident, $reprs:expr) => ({
+            recv!($socket, time 0, $reprs);
         });
-        ($socket:ident, time $time:expr, [$( $repr:expr ),*]) => ({
-            $( recv!($socket, time $time, Ok($repr)); )*
-            recv!($socket, time $time, Err(Error::Exhausted))
+        ($socket:ident, time $time:expr, $reprs:expr) => ({
+            recv(&mut $socket, Instant::from_millis($time), &$reprs);
         });
-        ($socket:ident, $result:expr) =>
-            (recv!($socket, time 0, $result));
-        ($socket:ident, time $time:expr, $result:expr) =>
-            (recv(&mut $socket, Instant::from_millis($time), |result| {
-                assert_eq!(result, $result)
-            }));
     }
 
     #[cfg(feature = "log")]
@@ -710,7 +715,7 @@ mod test {
         router: Some(SERVER_IP),
         subnet_mask: Some(MASK_24),
         dns_servers: Some(DNS_IPS),
-        lease_duration: Some(60),
+        lease_duration: Some(1000),
 
         ..DHCP_DEFAULT
     };
@@ -735,7 +740,7 @@ mod test {
         router: Some(SERVER_IP),
         subnet_mask: Some(MASK_24),
         dns_servers: Some(DNS_IPS),
-        lease_duration: Some(60),
+        lease_duration: Some(1000),
 
         ..DHCP_DEFAULT
     };
@@ -776,8 +781,8 @@ mod test {
                 address: SERVER_IP,
                 identifier: SERVER_IP,
             },
-            renew_at: Instant::from_secs(30),
-            expires_at: Instant::from_secs(60),
+            renew_at: Instant::from_secs(500),
+            expires_at: Instant::from_secs(1000),
         });
 
         s
@@ -804,13 +809,75 @@ mod test {
             }))
         );
 
-        match s.state {
+        match &s.state {
             ClientState::Renewing(r) => {
-                assert_eq!(r.renew_at, Instant::from_secs(30));
-                assert_eq!(r.expires_at, Instant::from_secs(60));
+                assert_eq!(r.renew_at, Instant::from_secs(500));
+                assert_eq!(r.expires_at, Instant::from_secs(1000));
             }
             _ => panic!("Invalid state"),
         }
+    }
+
+    #[test]
+    fn test_discover_retransmit() {
+        let mut s = socket();
+
+        recv!(s, time 0, [(IP_BROADCAST, UDP_SEND, DHCP_DISCOVER)]);
+        recv!(s, time 1_000, []);
+        recv!(s, time 10_000, [(IP_BROADCAST, UDP_SEND, DHCP_DISCOVER)]);
+        recv!(s, time 11_000, []);
+        recv!(s, time 20_000, [(IP_BROADCAST, UDP_SEND, DHCP_DISCOVER)]);
+
+        // check after retransmits it still works
+        send!(s, time 20_000, (IP_RECV, UDP_RECV, DHCP_OFFER));
+        recv!(s, time 20_000, [(IP_BROADCAST, UDP_SEND, DHCP_REQUEST)]);
+    }
+
+    #[test]
+    fn test_request_retransmit() {
+        let mut s = socket();
+
+        recv!(s, time 0, [(IP_BROADCAST, UDP_SEND, DHCP_DISCOVER)]);
+        send!(s, time 0, (IP_RECV, UDP_RECV, DHCP_OFFER));
+        recv!(s, time 0, [(IP_BROADCAST, UDP_SEND, DHCP_REQUEST)]);
+        recv!(s, time 1_000, []);
+        recv!(s, time 5_000, [(IP_BROADCAST, UDP_SEND, DHCP_REQUEST)]);
+        recv!(s, time 6_000, []);
+        recv!(s, time 10_000, [(IP_BROADCAST, UDP_SEND, DHCP_REQUEST)]);
+        recv!(s, time 15_000, []);
+        recv!(s, time 20_000, [(IP_BROADCAST, UDP_SEND, DHCP_REQUEST)]);
+
+        // check after retransmits it still works
+        send!(s, time 20_000, (IP_RECV, UDP_RECV, DHCP_ACK));
+
+        match &s.state {
+            ClientState::Renewing(r) => {
+                assert_eq!(r.renew_at, Instant::from_secs(20 + 500));
+                assert_eq!(r.expires_at, Instant::from_secs(20 + 1000));
+            }
+            _ => panic!("Invalid state"),
+        }
+    }
+
+    #[test]
+    fn test_request_timeout() {
+        let mut s = socket();
+
+        recv!(s, time 0, [(IP_BROADCAST, UDP_SEND, DHCP_DISCOVER)]);
+        send!(s, time 0, (IP_RECV, UDP_RECV, DHCP_OFFER));
+        recv!(s, time 0, [(IP_BROADCAST, UDP_SEND, DHCP_REQUEST)]);
+        recv!(s, time 5_000, [(IP_BROADCAST, UDP_SEND, DHCP_REQUEST)]);
+        recv!(s, time 10_000, [(IP_BROADCAST, UDP_SEND, DHCP_REQUEST)]);
+        recv!(s, time 20_000, [(IP_BROADCAST, UDP_SEND, DHCP_REQUEST)]);
+        recv!(s, time 30_000, [(IP_BROADCAST, UDP_SEND, DHCP_REQUEST)]);
+
+        // After 5 tries and 70 seconds, it gives up.
+        // 5 + 5 + 10 + 10 + 20 = 70
+        recv!(s, time 70_000, [(IP_BROADCAST, UDP_SEND, DHCP_DISCOVER)]);
+
+        // check it still works
+        send!(s, time 60_000, (IP_RECV, UDP_RECV, DHCP_OFFER));
+        recv!(s, time 60_000, [(IP_BROADCAST, UDP_SEND, DHCP_REQUEST)]);
     }
 
     #[test]
@@ -819,27 +886,64 @@ mod test {
 
         recv!(s, []);
         assert_eq!(s.poll(), None);
-        recv!(s, time 40_000, [(IP_SEND, UDP_SEND, DHCP_RENEW)]);
+        recv!(s, time 500_000, [(IP_SEND, UDP_SEND, DHCP_RENEW)]);
         assert_eq!(s.poll(), None);
 
         match &s.state {
             ClientState::Renewing(r) => {
                 // the expiration still hasn't been bumped, because
                 // we haven't received the ACK yet
-                assert_eq!(r.expires_at, Instant::from_secs(60));
+                assert_eq!(r.expires_at, Instant::from_secs(1000));
             }
             _ => panic!("Invalid state"),
         }
 
-        send!(s, time 40_000, (IP_RECV, UDP_RECV, DHCP_ACK));
+        send!(s, time 500_000, (IP_RECV, UDP_RECV, DHCP_ACK));
         assert_eq!(s.poll(), None);
 
         match &s.state {
             ClientState::Renewing(r) => {
                 // NOW the expiration gets bumped
-                assert_eq!(r.renew_at, Instant::from_secs(40 + 30));
-                assert_eq!(r.expires_at, Instant::from_secs(40 + 60));
+                assert_eq!(r.renew_at, Instant::from_secs(500 + 500));
+                assert_eq!(r.expires_at, Instant::from_secs(500 + 1000));
             }
+            _ => panic!("Invalid state"),
+        }
+    }
+
+    #[test]
+    fn test_renew_retransmit() {
+        let mut s = socket_bound();
+
+        recv!(s, []);
+        recv!(s, time 500_000, [(IP_SEND, UDP_SEND, DHCP_RENEW)]);
+        recv!(s, time 749_000, []);
+        recv!(s, time 750_000, [(IP_SEND, UDP_SEND, DHCP_RENEW)]);
+        recv!(s, time 874_000, []);
+        recv!(s, time 875_000, [(IP_SEND, UDP_SEND, DHCP_RENEW)]);
+
+        // check it still works
+        send!(s, time 875_000, (IP_RECV, UDP_RECV, DHCP_ACK));
+        match &s.state {
+            ClientState::Renewing(r) => {
+                // NOW the expiration gets bumped
+                assert_eq!(r.renew_at, Instant::from_secs(875 + 500));
+                assert_eq!(r.expires_at, Instant::from_secs(875 + 1000));
+            }
+            _ => panic!("Invalid state"),
+        }
+    }
+
+    #[test]
+    fn test_renew_timeout() {
+        let mut s = socket_bound();
+
+        recv!(s, []);
+        recv!(s, time 500_000, [(IP_SEND, UDP_SEND, DHCP_RENEW)]);
+        recv!(s, time 999_000, [(IP_SEND, UDP_SEND, DHCP_RENEW)]);
+        recv!(s, time 1_000_000, [(IP_BROADCAST, UDP_SEND, DHCP_DISCOVER)]);
+        match &s.state {
+            ClientState::Discovering(_) => {}
             _ => panic!("Invalid state"),
         }
     }
