@@ -126,6 +126,10 @@ use core::fmt;
 mod macros;
 mod parsers;
 
+mod rand;
+#[cfg(feature = "rand-custom-impl")]
+pub use crate::rand::Rand;
+
 pub mod iface;
 pub mod phy;
 #[cfg(feature = "socket")]
