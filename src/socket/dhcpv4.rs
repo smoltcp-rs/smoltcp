@@ -740,6 +740,18 @@ mod test {
         ..DHCP_DEFAULT
     };
 
+    const DHCP_RENEW: DhcpRepr = DhcpRepr {
+        message_type: DhcpMessageType::Request,
+        client_identifier: Some(MY_MAC),
+        // NO server_identifier in renew requests, only in first one!
+        client_ip: MY_IP,
+        max_size: Some(1432),
+
+        requested_ip: None,
+        parameter_request_list: Some(&[1, 3, 6]),
+        ..DHCP_DEFAULT
+    };
+
     // =========================================================================================//
     // Tests
 
@@ -796,6 +808,37 @@ mod test {
             ClientState::Renewing(r) => {
                 assert_eq!(r.renew_at, Instant::from_secs(30));
                 assert_eq!(r.expires_at, Instant::from_secs(60));
+            }
+            _ => panic!("Invalid state"),
+        }
+    }
+
+    #[test]
+    fn test_renew() {
+        let mut s = socket_bound();
+
+        recv!(s, []);
+        assert_eq!(s.poll(), None);
+        recv!(s, time 40_000, [(IP_SEND, UDP_SEND, DHCP_RENEW)]);
+        assert_eq!(s.poll(), None);
+
+        match &s.state {
+            ClientState::Renewing(r) => {
+                // the expiration still hasn't been bumped, because
+                // we haven't received the ACK yet
+                assert_eq!(r.expires_at, Instant::from_secs(60));
+            }
+            _ => panic!("Invalid state"),
+        }
+
+        send!(s, time 40_000, (IP_RECV, UDP_RECV, DHCP_ACK));
+        assert_eq!(s.poll(), None);
+
+        match &s.state {
+            ClientState::Renewing(r) => {
+                // NOW the expiration gets bumped
+                assert_eq!(r.renew_at, Instant::from_secs(40 + 30));
+                assert_eq!(r.expires_at, Instant::from_secs(40 + 60));
             }
             _ => panic!("Invalid state"),
         }
