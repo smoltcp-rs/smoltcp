@@ -354,7 +354,7 @@ impl Dhcpv4Socket {
             router: None,
             subnet_mask: None,
             relay_agent_ip: Ipv4Address::UNSPECIFIED,
-            broadcast: true,
+            broadcast: false,
             requested_ip: None,
             client_identifier: Some(ethernet_addr),
             server_identifier: None,
@@ -410,7 +410,6 @@ impl Dhcpv4Socket {
                 }
 
                 dhcp_repr.message_type = DhcpMessageType::Request;
-                dhcp_repr.broadcast = false;
                 dhcp_repr.requested_ip = Some(state.requested_ip);
                 dhcp_repr.server_identifier = Some(state.server.identifier);
 
@@ -445,7 +444,6 @@ impl Dhcpv4Socket {
                 ipv4_repr.dst_addr = state.server.address;
                 dhcp_repr.message_type = DhcpMessageType::Request;
                 dhcp_repr.client_ip = state.config.address.address();
-                dhcp_repr.broadcast = false;
 
                 net_debug!("DHCP send renew to {}: {:?}", ipv4_repr.dst_addr, dhcp_repr);
                 ipv4_repr.payload_len = udp_repr.header_len() + dhcp_repr.buffer_len();
