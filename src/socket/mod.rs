@@ -216,7 +216,9 @@ impl Context {
             max_transmission_unit: 1500,
         },
         #[cfg(all(feature = "medium-ethernet", feature = "socket-dhcpv4"))]
-        ethernet_address: None,
+        ethernet_address: Some(crate::wire::EthernetAddress([
+            0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
+        ])),
         now: Instant::from_millis_const(0),
     };
 }
