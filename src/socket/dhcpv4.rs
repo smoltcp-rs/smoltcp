@@ -653,6 +653,14 @@ mod test {
         hop_limit: 64,
     };
 
+    const IP_SERVER_BROADCAST: Ipv4Repr = Ipv4Repr {
+        src_addr: SERVER_IP,
+        dst_addr: Ipv4Address::BROADCAST,
+        protocol: IpProtocol::Udp,
+        payload_len: 0,
+        hop_limit: 64,
+    };
+
     const IP_RECV: Ipv4Repr = Ipv4Repr {
         src_addr: SERVER_IP,
         dst_addr: MY_IP,
@@ -742,6 +750,13 @@ mod test {
         dns_servers: Some(DNS_IPS),
         lease_duration: Some(1000),
 
+        ..DHCP_DEFAULT
+    };
+
+    const DHCP_NAK: DhcpRepr = DhcpRepr {
+        message_type: DhcpMessageType::Nak,
+        server_ip: SERVER_IP,
+        server_identifier: Some(SERVER_IP),
         ..DHCP_DEFAULT
     };
 
@@ -881,6 +896,17 @@ mod test {
     }
 
     #[test]
+    fn test_request_nak() {
+        let mut s = socket();
+
+        recv!(s, time 0, [(IP_BROADCAST, UDP_SEND, DHCP_DISCOVER)]);
+        send!(s, time 0, (IP_RECV, UDP_RECV, DHCP_OFFER));
+        recv!(s, time 0, [(IP_BROADCAST, UDP_SEND, DHCP_REQUEST)]);
+        send!(s, time 0, (IP_SERVER_BROADCAST, UDP_RECV, DHCP_NAK));
+        recv!(s, time 0, [(IP_BROADCAST, UDP_SEND, DHCP_DISCOVER)]);
+    }
+
+    #[test]
     fn test_renew() {
         let mut s = socket_bound();
 
@@ -946,5 +972,14 @@ mod test {
             ClientState::Discovering(_) => {}
             _ => panic!("Invalid state"),
         }
+    }
+
+    #[test]
+    fn test_renew_nak() {
+        let mut s = socket_bound();
+
+        recv!(s, time 500_000, [(IP_SEND, UDP_SEND, DHCP_RENEW)]);
+        send!(s, time 500_000, (IP_SERVER_BROADCAST, UDP_RECV, DHCP_NAK));
+        recv!(s, time 500_000, [(IP_BROADCAST, UDP_SEND, DHCP_DISCOVER)]);
     }
 }
