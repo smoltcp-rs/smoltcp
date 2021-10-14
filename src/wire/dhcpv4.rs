@@ -1,5 +1,6 @@
 // See https://tools.ietf.org/html/rfc2131 for the DHCP specification.
 
+use bitflags::bitflags;
 use byteorder::{ByteOrder, NetworkEndian};
 
 use crate::wire::arp::Hardware;
@@ -31,6 +32,12 @@ enum_with_unknown! {
         Nak = 6,
         Release = 7,
         Inform = 8,
+    }
+}
+
+bitflags! {
+    pub struct Flags: u16 {
+        const BROADCAST = 0b1000_0000_0000_0000;
     }
 }
 
@@ -452,10 +459,9 @@ impl<T: AsRef<[u8]>> Packet<T> {
         Ipv4Address::from_bytes(field)
     }
 
-    /// Returns true if the broadcast flag is set.
-    pub fn broadcast_flag(&self) -> bool {
+    pub fn flags(&self) -> Flags {
         let field = &self.buffer.as_ref()[field::FLAGS];
-        NetworkEndian::read_u16(field) & 0x8000 == 0x8000
+        Flags::from_bits_truncate(NetworkEndian::read_u16(field))
     }
 }
 
@@ -575,10 +581,10 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
         field.copy_from_slice(value.as_bytes());
     }
 
-    /// Sets the broadcast flag to the specified value.
-    pub fn set_broadcast_flag(&mut self, value: bool) {
+    /// Sets the flags to the specified value.
+    pub fn set_flags(&mut self, val: Flags) {
         let field = &mut self.buffer.as_mut()[field::FLAGS];
-        NetworkEndian::write_u16(field, if value { 0x8000 } else { 0 });
+        NetworkEndian::write_u16(field, val.bits());
     }
 }
 
@@ -828,7 +834,7 @@ impl<'a> Repr<'a> {
             options = next_options;
         }
 
-        let broadcast = packet.broadcast_flag();
+        let broadcast = packet.flags().contains(Flags::BROADCAST);
 
         Ok(Repr {
             transaction_id,
@@ -870,7 +876,12 @@ impl<'a> Repr<'a> {
         packet.set_your_ip(self.your_ip);
         packet.set_server_ip(self.server_ip);
         packet.set_relay_agent_ip(self.relay_agent_ip);
-        packet.set_broadcast_flag(self.broadcast);
+
+        let mut flags = Flags::empty();
+        if self.broadcast {
+            flags |= Flags::BROADCAST;
+        }
+        packet.set_flags(flags);
 
         {
             let mut options = packet.options_mut()?;
@@ -1072,7 +1083,7 @@ mod test {
         packet.set_hops(0);
         packet.set_transaction_id(0x3d1d);
         packet.set_secs(0);
-        packet.set_broadcast_flag(false);
+        packet.set_flags(Flags::empty());
         packet.set_client_ip(IP_NULL);
         packet.set_your_ip(IP_NULL);
         packet.set_server_ip(IP_NULL);
