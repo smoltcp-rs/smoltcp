@@ -122,6 +122,9 @@ pub struct Dhcpv4Socket {
     /// Max lease duration. If set, it sets a maximum cap to the server-provided lease duration.
     /// Useful to react faster to IP configuration changes and to test whether renews work correctly.
     max_lease_duration: Option<Duration>,
+
+    /// Ignore NAKs.
+    ignore_naks: bool,
 }
 
 /// DHCP client socket.
@@ -141,15 +144,43 @@ impl Dhcpv4Socket {
             config_changed: true,
             transaction_id: 1,
             max_lease_duration: None,
+            ignore_naks: false,
         }
     }
 
+    /// Get the configured max lease duration.
+    ///
+    /// See also [`Self::set_max_lease_duration()`]
     pub fn max_lease_duration(&self) -> Option<Duration> {
         self.max_lease_duration
     }
 
+    /// Set the max lease duration.
+    ///
+    /// When set, the lease duration will be capped at the configured duration if the
+    /// DHCP server gives us a longer lease. This is generally not recommended, but
+    /// can be useful for debugging or reacting faster to network configuration changes.
+    ///
+    /// If None, no max is applied (the lease duration from the DHCP server is used.)
     pub fn set_max_lease_duration(&mut self, max_lease_duration: Option<Duration>) {
         self.max_lease_duration = max_lease_duration;
+    }
+
+    /// Get whether to ignore NAKs.
+    ///
+    /// See also [`Self::set_ignore_naks()`]
+    pub fn ignore_naks(&self) -> bool {
+        self.ignore_naks
+    }
+
+    /// Set whether to ignore NAKs.
+    ///
+    /// This is not compliant with the DHCP RFCs, since theoretically
+    /// we must stop using the assigned IP when receiving a NAK. This
+    /// can increase reliability on broken networks with buggy routers
+    /// or rogue DHCP servers, however.
+    pub fn set_ignore_naks(&mut self, ignore_naks: bool) {
+        self.ignore_naks = ignore_naks;
     }
 
     pub(crate) fn poll_at(&self, _cx: &Context) -> PollAt {
@@ -242,7 +273,9 @@ impl Dhcpv4Socket {
                 }
             }
             (ClientState::Requesting(_), DhcpMessageType::Nak) => {
-                self.reset();
+                if !self.ignore_naks {
+                    self.reset();
+                }
             }
             (ClientState::Renewing(state), DhcpMessageType::Ack) => {
                 if let Some((config, renew_at, expires_at)) =
@@ -257,7 +290,9 @@ impl Dhcpv4Socket {
                 }
             }
             (ClientState::Renewing(_), DhcpMessageType::Nak) => {
-                self.reset();
+                if !self.ignore_naks {
+                    self.reset();
+                }
             }
             _ => {
                 net_debug!(
