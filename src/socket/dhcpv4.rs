@@ -100,6 +100,8 @@ enum ClientState {
 }
 
 /// Return value for the `Dhcpv4Socket::poll` function
+#[derive(Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Event<'a> {
     /// Configuration has been lost (for example, the lease has expired)
     Deconfigured,
@@ -120,6 +122,9 @@ pub struct Dhcpv4Socket {
     /// Max lease duration. If set, it sets a maximum cap to the server-provided lease duration.
     /// Useful to react faster to IP configuration changes and to test whether renews work correctly.
     max_lease_duration: Option<Duration>,
+
+    /// Ignore NAKs.
+    ignore_naks: bool,
 }
 
 /// DHCP client socket.
@@ -139,15 +144,43 @@ impl Dhcpv4Socket {
             config_changed: true,
             transaction_id: 1,
             max_lease_duration: None,
+            ignore_naks: false,
         }
     }
 
+    /// Get the configured max lease duration.
+    ///
+    /// See also [`Self::set_max_lease_duration()`]
     pub fn max_lease_duration(&self) -> Option<Duration> {
         self.max_lease_duration
     }
 
+    /// Set the max lease duration.
+    ///
+    /// When set, the lease duration will be capped at the configured duration if the
+    /// DHCP server gives us a longer lease. This is generally not recommended, but
+    /// can be useful for debugging or reacting faster to network configuration changes.
+    ///
+    /// If None, no max is applied (the lease duration from the DHCP server is used.)
     pub fn set_max_lease_duration(&mut self, max_lease_duration: Option<Duration>) {
         self.max_lease_duration = max_lease_duration;
+    }
+
+    /// Get whether to ignore NAKs.
+    ///
+    /// See also [`Self::set_ignore_naks()`]
+    pub fn ignore_naks(&self) -> bool {
+        self.ignore_naks
+    }
+
+    /// Set whether to ignore NAKs.
+    ///
+    /// This is not compliant with the DHCP RFCs, since theoretically
+    /// we must stop using the assigned IP when receiving a NAK. This
+    /// can increase reliability on broken networks with buggy routers
+    /// or rogue DHCP servers, however.
+    pub fn set_ignore_naks(&mut self, ignore_naks: bool) {
+        self.ignore_naks = ignore_naks;
     }
 
     pub(crate) fn poll_at(&self, _cx: &Context) -> PollAt {
@@ -203,10 +236,10 @@ impl Dhcpv4Socket {
         };
 
         net_debug!(
-            "DHCP recv {:?} from {} ({})",
+            "DHCP recv {:?} from {}: {:?}",
             dhcp_repr.message_type,
             src_ip,
-            server_identifier
+            dhcp_repr
         );
 
         match (&mut self.state, dhcp_repr.message_type) {
@@ -240,7 +273,9 @@ impl Dhcpv4Socket {
                 }
             }
             (ClientState::Requesting(_), DhcpMessageType::Nak) => {
-                self.reset();
+                if !self.ignore_naks {
+                    self.reset();
+                }
             }
             (ClientState::Renewing(state), DhcpMessageType::Ack) => {
                 if let Some((config, renew_at, expires_at)) =
@@ -255,7 +290,9 @@ impl Dhcpv4Socket {
                 }
             }
             (ClientState::Renewing(_), DhcpMessageType::Nak) => {
-                self.reset();
+                if !self.ignore_naks {
+                    self.reset();
+                }
             }
             _ => {
                 net_debug!(
@@ -328,6 +365,16 @@ impl Dhcpv4Socket {
         Some((config, renew_at, expires_at))
     }
 
+    #[cfg(not(test))]
+    fn random_transaction_id() -> u32 {
+        crate::rand::rand_u32()
+    }
+
+    #[cfg(test)]
+    fn random_transaction_id() -> u32 {
+        0x12345678
+    }
+
     pub(crate) fn dispatch<F>(&mut self, cx: &Context, emit: F) -> Result<()>
     where
         F: FnOnce((Ipv4Repr, UdpRepr, DhcpRepr)) -> Result<()>,
@@ -340,9 +387,9 @@ impl Dhcpv4Socket {
         // 0x0f * 4 = 60 bytes.
         const MAX_IPV4_HEADER_LEN: usize = 60;
 
-        // We don't directly increment transaction_id because sending the packet
+        // We don't directly modify self.transaction_id because sending the packet
         // may fail. We only want to update state after succesfully sending.
-        let next_transaction_id = self.transaction_id + 1;
+        let next_transaction_id = Self::random_transaction_id();
 
         let mut dhcp_repr = DhcpRepr {
             message_type: DhcpMessageType::Discover,
@@ -354,7 +401,7 @@ impl Dhcpv4Socket {
             router: None,
             subnet_mask: None,
             relay_agent_ip: Ipv4Address::UNSPECIFIED,
-            broadcast: true,
+            broadcast: false,
             requested_ip: None,
             client_identifier: Some(ethernet_addr),
             server_identifier: None,
@@ -410,7 +457,6 @@ impl Dhcpv4Socket {
                 }
 
                 dhcp_repr.message_type = DhcpMessageType::Request;
-                dhcp_repr.broadcast = false;
                 dhcp_repr.requested_ip = Some(state.requested_ip);
                 dhcp_repr.server_identifier = Some(state.server.identifier);
 
@@ -445,7 +491,6 @@ impl Dhcpv4Socket {
                 ipv4_repr.dst_addr = state.server.address;
                 dhcp_repr.message_type = DhcpMessageType::Request;
                 dhcp_repr.client_ip = state.config.address.address();
-                dhcp_repr.broadcast = false;
 
                 net_debug!("DHCP send renew to {}: {:?}", ipv4_repr.dst_addr, dhcp_repr);
                 ipv4_repr.payload_len = udp_repr.header_len() + dhcp_repr.buffer_len();
@@ -504,5 +549,472 @@ impl Dhcpv4Socket {
 impl<'a> From<Dhcpv4Socket> for Socket<'a> {
     fn from(val: Dhcpv4Socket) -> Self {
         Socket::Dhcpv4(val)
+    }
+}
+
+#[cfg(test)]
+mod test {
+
+    use super::*;
+    use crate::wire::EthernetAddress;
+
+    // =========================================================================================//
+    // Helper functions
+
+    fn send(
+        socket: &mut Dhcpv4Socket,
+        timestamp: Instant,
+        (ip_repr, udp_repr, dhcp_repr): (Ipv4Repr, UdpRepr, DhcpRepr),
+    ) -> Result<()> {
+        net_trace!("send: {:?}", ip_repr);
+        net_trace!("      {:?}", udp_repr);
+        net_trace!("      {:?}", dhcp_repr);
+
+        let mut payload = vec![0; dhcp_repr.buffer_len()];
+        dhcp_repr
+            .emit(&mut DhcpPacket::new_unchecked(&mut payload))
+            .unwrap();
+
+        let mut cx = Context::DUMMY.clone();
+        cx.now = timestamp;
+        socket.process(&cx, &ip_repr, &udp_repr, &payload)
+    }
+
+    fn recv(
+        socket: &mut Dhcpv4Socket,
+        timestamp: Instant,
+        reprs: &[(Ipv4Repr, UdpRepr, DhcpRepr)],
+    ) {
+        let mut cx = Context::DUMMY.clone();
+        cx.now = timestamp;
+
+        let mut i = 0;
+
+        while socket.poll_at(&cx) <= PollAt::Time(timestamp) {
+            let _ = socket.dispatch(&cx, |(mut ip_repr, udp_repr, dhcp_repr)| {
+                assert_eq!(ip_repr.protocol, IpProtocol::Udp);
+                assert_eq!(
+                    ip_repr.payload_len,
+                    udp_repr.header_len() + dhcp_repr.buffer_len()
+                );
+
+                // We validated the payload len, change it to 0 to make equality testing easier
+                ip_repr.payload_len = 0;
+
+                net_trace!("recv: {:?}", ip_repr);
+                net_trace!("      {:?}", udp_repr);
+                net_trace!("      {:?}", dhcp_repr);
+
+                let got_repr = (ip_repr, udp_repr, dhcp_repr);
+                match reprs.get(i) {
+                    Some(want_repr) => assert_eq!(want_repr, &got_repr),
+                    None => panic!("Too many reprs emitted"),
+                }
+                i += 1;
+                Ok(())
+            });
+        }
+
+        if i != reprs.len() {
+            panic!("Too few reprs emitted. Wanted {}, got {}", reprs.len(), i);
+        }
+    }
+
+    macro_rules! send {
+        ($socket:ident, $repr:expr) =>
+            (send!($socket, time 0, $repr));
+        ($socket:ident, $repr:expr, $result:expr) =>
+            (send!($socket, time 0, $repr, $result));
+        ($socket:ident, time $time:expr, $repr:expr) =>
+            (send!($socket, time $time, $repr, Ok(( ))));
+        ($socket:ident, time $time:expr, $repr:expr, $result:expr) =>
+            (assert_eq!(send(&mut $socket, Instant::from_millis($time), $repr), $result));
+    }
+
+    macro_rules! recv {
+        ($socket:ident, $reprs:expr) => ({
+            recv!($socket, time 0, $reprs);
+        });
+        ($socket:ident, time $time:expr, $reprs:expr) => ({
+            recv(&mut $socket, Instant::from_millis($time), &$reprs);
+        });
+    }
+
+    #[cfg(feature = "log")]
+    fn init_logger() {
+        struct Logger;
+        static LOGGER: Logger = Logger;
+
+        impl log::Log for Logger {
+            fn enabled(&self, _metadata: &log::Metadata) -> bool {
+                true
+            }
+
+            fn log(&self, record: &log::Record) {
+                println!("{}", record.args());
+            }
+
+            fn flush(&self) {}
+        }
+
+        // If it fails, that just means we've already set it to the same value.
+        let _ = log::set_logger(&LOGGER);
+        log::set_max_level(log::LevelFilter::Trace);
+
+        println!();
+    }
+
+    // =========================================================================================//
+    // Constants
+
+    const TXID: u32 = 0x12345678;
+
+    const MY_IP: Ipv4Address = Ipv4Address([192, 168, 1, 42]);
+    const SERVER_IP: Ipv4Address = Ipv4Address([192, 168, 1, 1]);
+    const DNS_IP_1: Ipv4Address = Ipv4Address([1, 1, 1, 1]);
+    const DNS_IP_2: Ipv4Address = Ipv4Address([1, 1, 1, 2]);
+    const DNS_IP_3: Ipv4Address = Ipv4Address([1, 1, 1, 3]);
+    const DNS_IPS: [Option<Ipv4Address>; DHCP_MAX_DNS_SERVER_COUNT] =
+        [Some(DNS_IP_1), Some(DNS_IP_2), Some(DNS_IP_3)];
+    const MASK_24: Ipv4Address = Ipv4Address([255, 255, 255, 0]);
+
+    const MY_MAC: EthernetAddress = EthernetAddress([0x02, 0x02, 0x02, 0x02, 0x02, 0x02]);
+
+    const IP_BROADCAST: Ipv4Repr = Ipv4Repr {
+        src_addr: Ipv4Address::UNSPECIFIED,
+        dst_addr: Ipv4Address::BROADCAST,
+        protocol: IpProtocol::Udp,
+        payload_len: 0,
+        hop_limit: 64,
+    };
+
+    const IP_SERVER_BROADCAST: Ipv4Repr = Ipv4Repr {
+        src_addr: SERVER_IP,
+        dst_addr: Ipv4Address::BROADCAST,
+        protocol: IpProtocol::Udp,
+        payload_len: 0,
+        hop_limit: 64,
+    };
+
+    const IP_RECV: Ipv4Repr = Ipv4Repr {
+        src_addr: SERVER_IP,
+        dst_addr: MY_IP,
+        protocol: IpProtocol::Udp,
+        payload_len: 0,
+        hop_limit: 64,
+    };
+
+    const IP_SEND: Ipv4Repr = Ipv4Repr {
+        src_addr: MY_IP,
+        dst_addr: SERVER_IP,
+        protocol: IpProtocol::Udp,
+        payload_len: 0,
+        hop_limit: 64,
+    };
+
+    const UDP_SEND: UdpRepr = UdpRepr {
+        src_port: 68,
+        dst_port: 67,
+    };
+    const UDP_RECV: UdpRepr = UdpRepr {
+        src_port: 67,
+        dst_port: 68,
+    };
+
+    const DHCP_DEFAULT: DhcpRepr = DhcpRepr {
+        message_type: DhcpMessageType::Unknown(99),
+        transaction_id: TXID,
+        client_hardware_address: MY_MAC,
+        client_ip: Ipv4Address::UNSPECIFIED,
+        your_ip: Ipv4Address::UNSPECIFIED,
+        server_ip: Ipv4Address::UNSPECIFIED,
+        router: None,
+        subnet_mask: None,
+        relay_agent_ip: Ipv4Address::UNSPECIFIED,
+        broadcast: false,
+        requested_ip: None,
+        client_identifier: None,
+        server_identifier: None,
+        parameter_request_list: None,
+        dns_servers: None,
+        max_size: None,
+        lease_duration: None,
+    };
+
+    const DHCP_DISCOVER: DhcpRepr = DhcpRepr {
+        message_type: DhcpMessageType::Discover,
+        client_identifier: Some(MY_MAC),
+        parameter_request_list: Some(&[1, 3, 6]),
+        max_size: Some(1432),
+        ..DHCP_DEFAULT
+    };
+
+    const DHCP_OFFER: DhcpRepr = DhcpRepr {
+        message_type: DhcpMessageType::Offer,
+        server_ip: SERVER_IP,
+        server_identifier: Some(SERVER_IP),
+
+        your_ip: MY_IP,
+        router: Some(SERVER_IP),
+        subnet_mask: Some(MASK_24),
+        dns_servers: Some(DNS_IPS),
+        lease_duration: Some(1000),
+
+        ..DHCP_DEFAULT
+    };
+
+    const DHCP_REQUEST: DhcpRepr = DhcpRepr {
+        message_type: DhcpMessageType::Request,
+        client_identifier: Some(MY_MAC),
+        server_identifier: Some(SERVER_IP),
+        max_size: Some(1432),
+
+        requested_ip: Some(MY_IP),
+        parameter_request_list: Some(&[1, 3, 6]),
+        ..DHCP_DEFAULT
+    };
+
+    const DHCP_ACK: DhcpRepr = DhcpRepr {
+        message_type: DhcpMessageType::Ack,
+        server_ip: SERVER_IP,
+        server_identifier: Some(SERVER_IP),
+
+        your_ip: MY_IP,
+        router: Some(SERVER_IP),
+        subnet_mask: Some(MASK_24),
+        dns_servers: Some(DNS_IPS),
+        lease_duration: Some(1000),
+
+        ..DHCP_DEFAULT
+    };
+
+    const DHCP_NAK: DhcpRepr = DhcpRepr {
+        message_type: DhcpMessageType::Nak,
+        server_ip: SERVER_IP,
+        server_identifier: Some(SERVER_IP),
+        ..DHCP_DEFAULT
+    };
+
+    const DHCP_RENEW: DhcpRepr = DhcpRepr {
+        message_type: DhcpMessageType::Request,
+        client_identifier: Some(MY_MAC),
+        // NO server_identifier in renew requests, only in first one!
+        client_ip: MY_IP,
+        max_size: Some(1432),
+
+        requested_ip: None,
+        parameter_request_list: Some(&[1, 3, 6]),
+        ..DHCP_DEFAULT
+    };
+
+    // =========================================================================================//
+    // Tests
+
+    fn socket() -> Dhcpv4Socket {
+        #[cfg(feature = "log")]
+        init_logger();
+
+        let mut s = Dhcpv4Socket::new();
+        assert_eq!(s.poll(), Some(Event::Deconfigured));
+        s
+    }
+
+    fn socket_bound() -> Dhcpv4Socket {
+        let mut s = socket();
+        s.state = ClientState::Renewing(RenewState {
+            config: Config {
+                address: Ipv4Cidr::new(MY_IP, 24),
+                dns_servers: DNS_IPS,
+                router: Some(SERVER_IP),
+            },
+            server: ServerInfo {
+                address: SERVER_IP,
+                identifier: SERVER_IP,
+            },
+            renew_at: Instant::from_secs(500),
+            expires_at: Instant::from_secs(1000),
+        });
+
+        s
+    }
+
+    #[test]
+    fn test_bind() {
+        let mut s = socket();
+
+        recv!(s, [(IP_BROADCAST, UDP_SEND, DHCP_DISCOVER)]);
+        assert_eq!(s.poll(), None);
+        send!(s, (IP_RECV, UDP_RECV, DHCP_OFFER));
+        assert_eq!(s.poll(), None);
+        recv!(s, [(IP_BROADCAST, UDP_SEND, DHCP_REQUEST)]);
+        assert_eq!(s.poll(), None);
+        send!(s, (IP_RECV, UDP_RECV, DHCP_ACK));
+
+        assert_eq!(
+            s.poll(),
+            Some(Event::Configured(&Config {
+                address: Ipv4Cidr::new(MY_IP, 24),
+                dns_servers: DNS_IPS,
+                router: Some(SERVER_IP),
+            }))
+        );
+
+        match &s.state {
+            ClientState::Renewing(r) => {
+                assert_eq!(r.renew_at, Instant::from_secs(500));
+                assert_eq!(r.expires_at, Instant::from_secs(1000));
+            }
+            _ => panic!("Invalid state"),
+        }
+    }
+
+    #[test]
+    fn test_discover_retransmit() {
+        let mut s = socket();
+
+        recv!(s, time 0, [(IP_BROADCAST, UDP_SEND, DHCP_DISCOVER)]);
+        recv!(s, time 1_000, []);
+        recv!(s, time 10_000, [(IP_BROADCAST, UDP_SEND, DHCP_DISCOVER)]);
+        recv!(s, time 11_000, []);
+        recv!(s, time 20_000, [(IP_BROADCAST, UDP_SEND, DHCP_DISCOVER)]);
+
+        // check after retransmits it still works
+        send!(s, time 20_000, (IP_RECV, UDP_RECV, DHCP_OFFER));
+        recv!(s, time 20_000, [(IP_BROADCAST, UDP_SEND, DHCP_REQUEST)]);
+    }
+
+    #[test]
+    fn test_request_retransmit() {
+        let mut s = socket();
+
+        recv!(s, time 0, [(IP_BROADCAST, UDP_SEND, DHCP_DISCOVER)]);
+        send!(s, time 0, (IP_RECV, UDP_RECV, DHCP_OFFER));
+        recv!(s, time 0, [(IP_BROADCAST, UDP_SEND, DHCP_REQUEST)]);
+        recv!(s, time 1_000, []);
+        recv!(s, time 5_000, [(IP_BROADCAST, UDP_SEND, DHCP_REQUEST)]);
+        recv!(s, time 6_000, []);
+        recv!(s, time 10_000, [(IP_BROADCAST, UDP_SEND, DHCP_REQUEST)]);
+        recv!(s, time 15_000, []);
+        recv!(s, time 20_000, [(IP_BROADCAST, UDP_SEND, DHCP_REQUEST)]);
+
+        // check after retransmits it still works
+        send!(s, time 20_000, (IP_RECV, UDP_RECV, DHCP_ACK));
+
+        match &s.state {
+            ClientState::Renewing(r) => {
+                assert_eq!(r.renew_at, Instant::from_secs(20 + 500));
+                assert_eq!(r.expires_at, Instant::from_secs(20 + 1000));
+            }
+            _ => panic!("Invalid state"),
+        }
+    }
+
+    #[test]
+    fn test_request_timeout() {
+        let mut s = socket();
+
+        recv!(s, time 0, [(IP_BROADCAST, UDP_SEND, DHCP_DISCOVER)]);
+        send!(s, time 0, (IP_RECV, UDP_RECV, DHCP_OFFER));
+        recv!(s, time 0, [(IP_BROADCAST, UDP_SEND, DHCP_REQUEST)]);
+        recv!(s, time 5_000, [(IP_BROADCAST, UDP_SEND, DHCP_REQUEST)]);
+        recv!(s, time 10_000, [(IP_BROADCAST, UDP_SEND, DHCP_REQUEST)]);
+        recv!(s, time 20_000, [(IP_BROADCAST, UDP_SEND, DHCP_REQUEST)]);
+        recv!(s, time 30_000, [(IP_BROADCAST, UDP_SEND, DHCP_REQUEST)]);
+
+        // After 5 tries and 70 seconds, it gives up.
+        // 5 + 5 + 10 + 10 + 20 = 70
+        recv!(s, time 70_000, [(IP_BROADCAST, UDP_SEND, DHCP_DISCOVER)]);
+
+        // check it still works
+        send!(s, time 60_000, (IP_RECV, UDP_RECV, DHCP_OFFER));
+        recv!(s, time 60_000, [(IP_BROADCAST, UDP_SEND, DHCP_REQUEST)]);
+    }
+
+    #[test]
+    fn test_request_nak() {
+        let mut s = socket();
+
+        recv!(s, time 0, [(IP_BROADCAST, UDP_SEND, DHCP_DISCOVER)]);
+        send!(s, time 0, (IP_RECV, UDP_RECV, DHCP_OFFER));
+        recv!(s, time 0, [(IP_BROADCAST, UDP_SEND, DHCP_REQUEST)]);
+        send!(s, time 0, (IP_SERVER_BROADCAST, UDP_RECV, DHCP_NAK));
+        recv!(s, time 0, [(IP_BROADCAST, UDP_SEND, DHCP_DISCOVER)]);
+    }
+
+    #[test]
+    fn test_renew() {
+        let mut s = socket_bound();
+
+        recv!(s, []);
+        assert_eq!(s.poll(), None);
+        recv!(s, time 500_000, [(IP_SEND, UDP_SEND, DHCP_RENEW)]);
+        assert_eq!(s.poll(), None);
+
+        match &s.state {
+            ClientState::Renewing(r) => {
+                // the expiration still hasn't been bumped, because
+                // we haven't received the ACK yet
+                assert_eq!(r.expires_at, Instant::from_secs(1000));
+            }
+            _ => panic!("Invalid state"),
+        }
+
+        send!(s, time 500_000, (IP_RECV, UDP_RECV, DHCP_ACK));
+        assert_eq!(s.poll(), None);
+
+        match &s.state {
+            ClientState::Renewing(r) => {
+                // NOW the expiration gets bumped
+                assert_eq!(r.renew_at, Instant::from_secs(500 + 500));
+                assert_eq!(r.expires_at, Instant::from_secs(500 + 1000));
+            }
+            _ => panic!("Invalid state"),
+        }
+    }
+
+    #[test]
+    fn test_renew_retransmit() {
+        let mut s = socket_bound();
+
+        recv!(s, []);
+        recv!(s, time 500_000, [(IP_SEND, UDP_SEND, DHCP_RENEW)]);
+        recv!(s, time 749_000, []);
+        recv!(s, time 750_000, [(IP_SEND, UDP_SEND, DHCP_RENEW)]);
+        recv!(s, time 874_000, []);
+        recv!(s, time 875_000, [(IP_SEND, UDP_SEND, DHCP_RENEW)]);
+
+        // check it still works
+        send!(s, time 875_000, (IP_RECV, UDP_RECV, DHCP_ACK));
+        match &s.state {
+            ClientState::Renewing(r) => {
+                // NOW the expiration gets bumped
+                assert_eq!(r.renew_at, Instant::from_secs(875 + 500));
+                assert_eq!(r.expires_at, Instant::from_secs(875 + 1000));
+            }
+            _ => panic!("Invalid state"),
+        }
+    }
+
+    #[test]
+    fn test_renew_timeout() {
+        let mut s = socket_bound();
+
+        recv!(s, []);
+        recv!(s, time 500_000, [(IP_SEND, UDP_SEND, DHCP_RENEW)]);
+        recv!(s, time 999_000, [(IP_SEND, UDP_SEND, DHCP_RENEW)]);
+        recv!(s, time 1_000_000, [(IP_BROADCAST, UDP_SEND, DHCP_DISCOVER)]);
+        match &s.state {
+            ClientState::Discovering(_) => {}
+            _ => panic!("Invalid state"),
+        }
+    }
+
+    #[test]
+    fn test_renew_nak() {
+        let mut s = socket_bound();
+
+        recv!(s, time 500_000, [(IP_SEND, UDP_SEND, DHCP_RENEW)]);
+        send!(s, time 500_000, (IP_SERVER_BROADCAST, UDP_RECV, DHCP_NAK));
+        recv!(s, time 500_000, [(IP_BROADCAST, UDP_SEND, DHCP_DISCOVER)]);
     }
 }
