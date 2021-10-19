@@ -1096,13 +1096,17 @@ impl<'a> InterfaceInner<'a> {
         let ieee802154_frame = Ieee802154Frame::new_checked(sixlowpan_payload)?;
         let ieee802154_repr = Ieee802154Repr::parse(&ieee802154_frame)?;
 
-        if ieee802154_repr.dst_pan_id != cx.pan_id {
-            // We sillently drop frames that have the wrong PAN id.
-            // NOTE: this is most of the time already implememted in hardware.
+        if ieee802154_repr.frame_type != Ieee802154FrameType::Data {
             return Ok(None);
         }
 
-        if ieee802154_repr.frame_type != Ieee802154FrameType::Data {
+        // Drop frames when the user has set a PAN id and the PAN id from frame is not equal to this
+        // When the user didn't set a PAN id (so it is None), then we accept all PAN id's.
+        // We always accept the broadcast PAN id.
+        if cx.pan_id.is_some()
+            && ieee802154_repr.dst_pan_id != cx.pan_id
+            && ieee802154_repr.dst_pan_id != Some(Ieee802154Pan::BROADCAST)
+        {
             return Ok(None);
         }
 
@@ -3684,6 +3688,7 @@ mod test {
             |buf| fill_slice(buf, 0x2a),
             &ChecksumCapabilities::default(),
         );
+
         let ipv4_repr = Ipv4Repr {
             src_addr: src_addr,
             dst_addr: dst_addr,

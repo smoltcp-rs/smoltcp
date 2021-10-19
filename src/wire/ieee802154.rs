@@ -109,6 +109,8 @@ impl fmt::Display for AddressingMode {
 pub struct Pan(pub u16);
 
 impl Pan {
+    pub const BROADCAST: Self = Self(0xffff);
+
     /// Return the PAN ID as bytes.
     pub fn as_bytes(&self) -> [u8; 2] {
         let mut pan = [0u8; 2];
