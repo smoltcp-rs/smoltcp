@@ -23,6 +23,7 @@ libc = { version = "0.2.18", optional = true }
 bitflags = { version = "1.0", default-features = false }
 defmt = { version = "0.3", optional = true }
 cfg-if = "1.0.0"
+heapless = "0.7.7"
 
 [dev-dependencies]
 env_logger = "0.9"
@@ -54,6 +55,7 @@ verbose = []
 "socket-tcp" = ["socket"]
 "socket-icmp" = ["socket"]
 "socket-dhcpv4" = ["socket", "medium-ethernet", "proto-dhcpv4"]
+"socket-dns" = ["socket", "proto-dns"]
 
 "async" = []
 
@@ -62,7 +64,7 @@ default = [
   "medium-ethernet", "medium-ip", "medium-ieee802154",
   "phy-raw_socket", "phy-tuntap_interface",
   "proto-ipv4", "proto-igmp", "proto-dhcpv4", "proto-ipv6", "proto-sixlowpan", "proto-dns",
-  "socket-raw", "socket-icmp", "socket-udp", "socket-tcp", "socket-dhcpv4",
+  "socket-raw", "socket-icmp", "socket-udp", "socket-tcp", "socket-dhcpv4", "socket-dns",
   "async"
 ]
 
@@ -113,6 +115,10 @@ required-features = ["std", "medium-ethernet", "medium-ip", "phy-tuntap_interfac
 [[example]]
 name = "sixlowpan"
 required-features = ["std", "medium-ieee802154", "phy-raw_socket", "proto-sixlowpan", "socket-udp"]
+
+[[example]]
+name = "dns"
+required-features = ["std", "medium-ethernet", "medium-ip", "phy-tuntap_interface", "proto-ipv4", "socket-dns"]
 
 [profile.release]
 debug = 2
