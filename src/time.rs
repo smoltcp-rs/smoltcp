@@ -90,12 +90,12 @@ impl Instant {
     }
 
     /// The total number of milliseconds that have passed since
-    /// the biginning of time.
+    /// the beginning of time.
     pub const fn total_millis(&self) -> i64 {
         self.micros / 1000
     }
     /// The total number of milliseconds that have passed since
-    /// the biginning of time.
+    /// the beginning of time.
     pub const fn total_micros(&self) -> i64 {
         self.micros
     }
