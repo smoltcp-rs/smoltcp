@@ -1354,6 +1354,30 @@ impl<'a> TcpSocket<'a> {
                     return Ok(Some(Self::rst_reply(ip_repr, repr)));
                 }
             }
+            // ACKs in the SYN-SENT state are invalid.
+            (State::SynSent, TcpControl::None, Some(ack_number)) => {
+                // If the sequence number matches, ignore it instead of RSTing.
+                // I'm not sure why, I think it may be a workaround for broken TCP
+                // servers, or a defense against reordering. Either way, if Linux
+                // does it, we do too.
+                if ack_number == self.local_seq_no + 1 {
+                    net_debug!(
+                        "{}:{}:{}: expecting a SYN|ACK, received an ACK with the right ack_number, ignoring.",
+                        self.meta.handle,
+                        self.local_endpoint,
+                        self.remote_endpoint
+                    );
+                    return Err(Error::Dropped);
+                }
+
+                net_debug!(
+                    "{}:{}:{}: expecting a SYN|ACK, received an ACK with the wrong ack_number, sending RST.",
+                    self.meta.handle,
+                    self.local_endpoint,
+                    self.remote_endpoint
+                );
+                return Ok(Some(Self::rst_reply(ip_repr, repr)));
+            }
             // Anything else in the SYN-SENT state is invalid.
             (State::SynSent, _, _) => {
                 net_debug!(
@@ -3475,15 +3499,103 @@ mod test {
     #[test]
     fn test_syn_sent_bad_ack() {
         let mut s = socket_syn_sent();
+        recv!(
+            s,
+            [TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: LOCAL_SEQ,
+                ack_number: None,
+                max_seg_size: Some(BASE_MSS),
+                window_scale: Some(0),
+                sack_permitted: true,
+                ..RECV_TEMPL
+            }]
+        );
         send!(
             s,
             TcpRepr {
-                control: TcpControl::None,
-                ack_number: Some(TcpSeqNumber(1)),
+                control: TcpControl::None, // Unexpected
+                seq_number: REMOTE_SEQ,
+                ack_number: Some(LOCAL_SEQ + 1), // Correct
                 ..SEND_TEMPL
             },
             Err(Error::Dropped)
         );
+
+        // It should trigger no response and change no state
+        recv!(s, []);
+        assert_eq!(s.state, State::SynSent);
+    }
+
+    #[test]
+    fn test_syn_sent_bad_ack_seq_1() {
+        let mut s = socket_syn_sent();
+        recv!(
+            s,
+            [TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: LOCAL_SEQ,
+                ack_number: None,
+                max_seg_size: Some(BASE_MSS),
+                window_scale: Some(0),
+                sack_permitted: true,
+                ..RECV_TEMPL
+            }]
+        );
+        send!(
+            s,
+            TcpRepr {
+                control: TcpControl::None,
+                seq_number: REMOTE_SEQ,
+                ack_number: Some(LOCAL_SEQ), // WRONG
+                ..SEND_TEMPL
+            },
+            Ok(Some(TcpRepr {
+                control: TcpControl::Rst,
+                seq_number: LOCAL_SEQ, // matching the ack_number of the unexpected ack
+                ack_number: None,
+                window_len: 0,
+                ..RECV_TEMPL
+            }))
+        );
+
+        // It should trigger a RST, and change no state
+        assert_eq!(s.state, State::SynSent);
+    }
+
+    #[test]
+    fn test_syn_sent_bad_ack_seq_2() {
+        let mut s = socket_syn_sent();
+        recv!(
+            s,
+            [TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: LOCAL_SEQ,
+                ack_number: None,
+                max_seg_size: Some(BASE_MSS),
+                window_scale: Some(0),
+                sack_permitted: true,
+                ..RECV_TEMPL
+            }]
+        );
+        send!(
+            s,
+            TcpRepr {
+                control: TcpControl::None,
+                seq_number: REMOTE_SEQ,
+                ack_number: Some(LOCAL_SEQ + 123456), // WRONG
+                ..SEND_TEMPL
+            },
+            Ok(Some(TcpRepr {
+                control: TcpControl::Rst,
+                seq_number: LOCAL_SEQ + 123456, // matching the ack_number of the unexpected ack
+                ack_number: None,
+                window_len: 0,
+                ..RECV_TEMPL
+            }))
+        );
+
+        // It should trigger a RST, and change no state
         assert_eq!(s.state, State::SynSent);
     }
 
