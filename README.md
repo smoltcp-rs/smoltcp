@@ -222,6 +222,45 @@ sudo iptables -t nat -A POSTROUTING -s 192.168.69.0/24 -j MASQUERADE
 sudo sysctl net.ipv4.ip_forward=1
 sudo ip6tables -t nat -A POSTROUTING -s fdaa::/64 -j MASQUERADE
 sudo sysctl -w net.ipv6.conf.all.forwarding=1
+
+# Some distros have a default policy of DROP. This allows the traffic.
+sudo iptables -A FORWARD -i tap0 -s 192.168.69.0/24 -j ACCEPT
+sudo iptables -A FORWARD -o tap0 -d 192.168.69.0/24 -j ACCEPT
+```
+
+### Bridged connection
+
+Instead of the routed connection above, you may also set up a bridged (switched)
+connection. This will make smoltcp speak directly to your LAN, with real ARP, etc.
+It is needed to run the DHCP example.
+
+NOTE: In this case, the examples' IP configuration must match your LAN's!
+
+NOTE: this ONLY works with actual wired Ethernet connections. It
+will NOT work on a WiFi connection.
+
+```sh
+# Replace with your wired Ethernet interface name
+ETH=enp0s20f0u1u1
+
+sudo modprobe bridge
+sudo modprobe br_netfilter
+
+sudo sysctl -w net.bridge.bridge-nf-call-arptables=0
+sudo sysctl -w net.bridge.bridge-nf-call-ip6tables=0
+sudo sysctl -w net.bridge.bridge-nf-call-iptables=0
+
+sudo ip tuntap add name tap0 mode tap user $USER
+sudo brctl addbr br0
+sudo brctl addif br0 tap0
+sudo brctl addif br0 $ETH
+sudo ip link set tap0 up
+sudo ip link set $ETH up
+sudo ip link set br0 up
+
+# This connects your host system to the internet, so you can use it
+# at the same time you run the examples.
+sudo dhcpcd br0
 ```
 
 ### Fault injection
