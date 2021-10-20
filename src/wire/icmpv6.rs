@@ -4,7 +4,7 @@ use core::{cmp, fmt};
 use crate::phy::ChecksumCapabilities;
 use crate::wire::ip::checksum;
 use crate::wire::MldRepr;
-#[cfg(feature = "medium-ethernet")]
+#[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
 use crate::wire::NdiscRepr;
 use crate::wire::{IpAddress, IpProtocol, Ipv6Packet, Ipv6Repr};
 use crate::{Error, Result};
@@ -532,7 +532,7 @@ pub enum Repr<'a> {
         seq_no: u16,
         data: &'a [u8],
     },
-    #[cfg(feature = "medium-ethernet")]
+    #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
     Ndisc(NdiscRepr<'a>),
     Mld(MldRepr<'a>),
 }
@@ -617,7 +617,7 @@ impl<'a> Repr<'a> {
                 seq_no: packet.echo_seq_no(),
                 data: packet.payload(),
             }),
-            #[cfg(feature = "medium-ethernet")]
+            #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
             (msg_type, 0) if msg_type.is_ndisc() => NdiscRepr::parse(packet).map(Repr::Ndisc),
             (msg_type, 0) if msg_type.is_mld() => MldRepr::parse(packet).map(Repr::Mld),
             _ => Err(Error::Unrecognized),
@@ -636,7 +636,7 @@ impl<'a> Repr<'a> {
             &Repr::EchoRequest { data, .. } | &Repr::EchoReply { data, .. } => {
                 field::ECHO_SEQNO.end + data.len()
             }
-            #[cfg(feature = "medium-ethernet")]
+            #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
             &Repr::Ndisc(ndisc) => ndisc.buffer_len(),
             &Repr::Mld(mld) => mld.buffer_len(),
         }
@@ -730,7 +730,7 @@ impl<'a> Repr<'a> {
                 packet.payload_mut()[..data_len].copy_from_slice(&data[..data_len])
             }
 
-            #[cfg(feature = "medium-ethernet")]
+            #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
             Repr::Ndisc(ndisc) => ndisc.emit(packet),
 
             Repr::Mld(mld) => mld.emit(packet),

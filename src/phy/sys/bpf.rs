@@ -5,6 +5,7 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use libc;
 
 use super::{ifreq, ifreq_for};
+use crate::phy::Medium;
 use crate::wire::ETHERNET_HEADER_LEN;
 
 /// set interface
@@ -67,7 +68,7 @@ fn open_device() -> io::Result<libc::c_int> {
 }
 
 impl BpfDevice {
-    pub fn new(name: &str) -> io::Result<BpfDevice> {
+    pub fn new(name: &str, _medium: Medium) -> io::Result<BpfDevice> {
         Ok(BpfDevice {
             fd: open_device()?,
             ifreq: ifreq_for(name),

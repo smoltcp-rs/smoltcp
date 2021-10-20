@@ -42,6 +42,8 @@ impl TunTapInterfaceDesc {
             Medium::Ip => imp::IFF_TUN,
             #[cfg(feature = "medium-ethernet")]
             Medium::Ethernet => imp::IFF_TAP,
+            #[cfg(feature = "medium-ieee802154")]
+            Medium::Ieee802154 => todo!(),
         };
         self.ifreq.ifr_data = mode | imp::IFF_NO_PI;
         ifreq_ioctl(self.lower, &mut self.ifreq, imp::TUNSETIFF).map(|_| ())
@@ -72,6 +74,8 @@ impl TunTapInterfaceDesc {
             Medium::Ip => ip_mtu,
             #[cfg(feature = "medium-ethernet")]
             Medium::Ethernet => ip_mtu + EthernetFrame::<&[u8]>::header_len(),
+            #[cfg(feature = "medium-ieee802154")]
+            Medium::Ieee802154 => todo!(),
         };
 
         Ok(mtu)

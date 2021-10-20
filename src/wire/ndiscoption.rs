@@ -3,8 +3,10 @@ use byteorder::{ByteOrder, NetworkEndian};
 use core::fmt;
 
 use crate::time::Duration;
-use crate::wire::{EthernetAddress, Ipv6Address, Ipv6Packet, Ipv6Repr};
+use crate::wire::{Ipv6Address, Ipv6Packet, Ipv6Repr, MAX_HARDWARE_ADDRESS_LEN};
 use crate::{Error, Result};
+
+use crate::wire::RawHardwareAddress;
 
 enum_with_unknown! {
     /// NDISC Option Type
@@ -81,9 +83,6 @@ mod field {
     // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
     // |     Type      |    Length     |    Link-Layer Address ...
     // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-
-    // Link-Layer Address
-    pub const LL_ADDR: Field = 2..8;
 
     // Prefix Information Option fields.
     //  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -214,9 +213,10 @@ impl<T: AsRef<[u8]>> NdiscOption<T> {
 impl<T: AsRef<[u8]>> NdiscOption<T> {
     /// Return the Source/Target Link-layer Address.
     #[inline]
-    pub fn link_layer_addr(&self) -> EthernetAddress {
+    pub fn link_layer_addr(&self) -> RawHardwareAddress {
+        let len = MAX_HARDWARE_ADDRESS_LEN.min(self.data_len() as usize * 8 - 2);
         let data = self.buffer.as_ref();
-        EthernetAddress::from_bytes(&data[field::LL_ADDR])
+        RawHardwareAddress::from_bytes(&data[2..len + 2])
     }
 }
 
@@ -297,9 +297,9 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> NdiscOption<T> {
 impl<T: AsRef<[u8]> + AsMut<[u8]>> NdiscOption<T> {
     /// Set the Source/Target Link-layer Address.
     #[inline]
-    pub fn set_link_layer_addr(&mut self, addr: EthernetAddress) {
+    pub fn set_link_layer_addr(&mut self, addr: RawHardwareAddress) {
         let data = self.buffer.as_mut();
-        data[field::LL_ADDR].copy_from_slice(addr.as_bytes())
+        data[2..2 + addr.len()].copy_from_slice(addr.as_bytes())
     }
 }
 
@@ -409,8 +409,8 @@ pub struct RedirectedHeader<'a> {
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Repr<'a> {
-    SourceLinkLayerAddr(EthernetAddress),
-    TargetLinkLayerAddr(EthernetAddress),
+    SourceLinkLayerAddr(RawHardwareAddress),
+    TargetLinkLayerAddr(RawHardwareAddress),
     PrefixInformation(PrefixInformation),
     RedirectedHeader(RedirectedHeader<'a>),
     Mtu(u32),
@@ -488,7 +488,11 @@ impl<'a> Repr<'a> {
     /// Return the length of a header that will be emitted from this high-level representation.
     pub fn buffer_len(&self) -> usize {
         match self {
-            &Repr::SourceLinkLayerAddr(_) | &Repr::TargetLinkLayerAddr(_) => field::LL_ADDR.end,
+            &Repr::SourceLinkLayerAddr(addr) | &Repr::TargetLinkLayerAddr(addr) => {
+                let len = 2 + addr.len();
+                // Round up to next multiple of 8
+                (len + 7) / 8 * 8
+            }
             &Repr::PrefixInformation(_) => field::PREFIX.end,
             &Repr::RedirectedHeader(RedirectedHeader { header, data }) => {
                 field::IP_DATA + header.buffer_len() + data.len()
@@ -506,12 +510,14 @@ impl<'a> Repr<'a> {
         match *self {
             Repr::SourceLinkLayerAddr(addr) => {
                 opt.set_option_type(Type::SourceLinkLayerAddr);
-                opt.set_data_len(1);
+                let opt_len = addr.len() + 2;
+                opt.set_data_len(((opt_len + 7) / 8) as u8); // round to next multiple of 8.
                 opt.set_link_layer_addr(addr);
             }
             Repr::TargetLinkLayerAddr(addr) => {
                 opt.set_option_type(Type::TargetLinkLayerAddr);
-                opt.set_data_len(1);
+                let opt_len = addr.len() + 2;
+                opt.set_data_len(((opt_len + 7) / 8) as u8); // round to next multiple of 8.
                 opt.set_link_layer_addr(addr);
             }
             Repr::PrefixInformation(PrefixInformation {
@@ -668,14 +674,14 @@ mod test {
         {
             assert_eq!(
                 Repr::parse(&NdiscOption::new_unchecked(&bytes)),
-                Ok(Repr::SourceLinkLayerAddr(addr))
+                Ok(Repr::SourceLinkLayerAddr(addr.into()))
             );
         }
         bytes[0] = 0x02;
         {
             assert_eq!(
                 Repr::parse(&NdiscOption::new_unchecked(&bytes)),
-                Ok(Repr::TargetLinkLayerAddr(addr))
+                Ok(Repr::TargetLinkLayerAddr(addr.into()))
             );
         }
     }

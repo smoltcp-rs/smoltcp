@@ -190,6 +190,8 @@ impl<'a> fmt::Display for Packet<'a> {
                 }
                 _ => f.write_str("unrecognized IP version"),
             },
+            #[cfg(feature = "medium-ieee802154")]
+            Medium::Ieee802154 => Ok(()), // XXX
         }
     }
 }

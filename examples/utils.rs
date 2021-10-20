@@ -12,7 +12,6 @@ use std::process;
 use std::str::{self, FromStr};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use smoltcp::phy::RawSocket;
 #[cfg(feature = "phy-tuntap_interface")]
 use smoltcp::phy::TunTapInterface;
 use smoltcp::phy::{Device, FaultInjector, Medium, Tracer};
@@ -110,11 +109,6 @@ pub fn parse_tuntap_options(matches: &mut Matches) -> TunTapInterface {
         (None, Some(tap)) => TunTapInterface::new(&tap, Medium::Ethernet).unwrap(),
         _ => panic!("You must specify exactly one of --tun or --tap"),
     }
-}
-
-pub fn parse_raw_socket_options(matches: &mut Matches) -> RawSocket {
-    let interface = matches.free.remove(0);
-    RawSocket::new(&interface).unwrap()
 }
 
 pub fn add_middleware_options(opts: &mut Options, _free: &mut Vec<&str>) {

@@ -4,7 +4,8 @@ use byteorder::{ByteOrder, NetworkEndian};
 use crate::time::Duration;
 use crate::wire::icmpv6::{field, Message, Packet};
 use crate::wire::Ipv6Address;
-use crate::wire::{EthernetAddress, Ipv6Packet, Ipv6Repr};
+use crate::wire::RawHardwareAddress;
+use crate::wire::{Ipv6Packet, Ipv6Repr};
 use crate::wire::{NdiscOption, NdiscOptionRepr, NdiscOptionType};
 use crate::wire::{NdiscPrefixInformation, NdiscRedirectedHeader};
 use crate::{Error, Result};
@@ -193,7 +194,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Repr<'a> {
     RouterSolicit {
-        lladdr: Option<EthernetAddress>,
+        lladdr: Option<RawHardwareAddress>,
     },
     RouterAdvert {
         hop_limit: u8,
@@ -201,23 +202,23 @@ pub enum Repr<'a> {
         router_lifetime: Duration,
         reachable_time: Duration,
         retrans_time: Duration,
-        lladdr: Option<EthernetAddress>,
+        lladdr: Option<RawHardwareAddress>,
         mtu: Option<u32>,
         prefix_info: Option<NdiscPrefixInformation>,
     },
     NeighborSolicit {
         target_addr: Ipv6Address,
-        lladdr: Option<EthernetAddress>,
+        lladdr: Option<RawHardwareAddress>,
     },
     NeighborAdvert {
         flags: NeighborFlags,
         target_addr: Ipv6Address,
-        lladdr: Option<EthernetAddress>,
+        lladdr: Option<RawHardwareAddress>,
     },
     Redirect {
         target_addr: Ipv6Address,
         dest_addr: Ipv6Address,
-        lladdr: Option<EthernetAddress>,
+        lladdr: Option<RawHardwareAddress>,
         redirected_hdr: Option<NdiscRedirectedHeader<'a>>,
     },
 }
@@ -372,10 +373,11 @@ impl<'a> Repr<'a> {
                 field::RETRANS_TM.end + offset
             }
             &Repr::NeighborSolicit { lladdr, .. } | &Repr::NeighborAdvert { lladdr, .. } => {
-                match lladdr {
-                    Some(_) => field::TARGET_ADDR.end + 8,
-                    None => field::TARGET_ADDR.end,
+                let mut offset = field::TARGET_ADDR.end;
+                if let Some(lladdr) = lladdr {
+                    offset += NdiscOptionRepr::SourceLinkLayerAddr(lladdr).buffer_len();
                 }
+                offset
             }
             &Repr::Redirect {
                 lladdr,
@@ -429,8 +431,9 @@ impl<'a> Repr<'a> {
                 let mut offset = 0;
                 if let Some(lladdr) = lladdr {
                     let mut opt_pkt = NdiscOption::new_unchecked(packet.payload_mut());
-                    NdiscOptionRepr::SourceLinkLayerAddr(lladdr).emit(&mut opt_pkt);
-                    offset += 8;
+                    let opt = NdiscOptionRepr::SourceLinkLayerAddr(lladdr);
+                    opt.emit(&mut opt_pkt);
+                    offset += opt.buffer_len();
                 }
                 if let Some(mtu) = mtu {
                     let mut opt_pkt =
@@ -509,6 +512,7 @@ mod test {
     use super::*;
     use crate::phy::ChecksumCapabilities;
     use crate::wire::ip::test::{MOCK_IP_ADDR_1, MOCK_IP_ADDR_2};
+    use crate::wire::EthernetAddress;
     use crate::wire::Icmpv6Repr;
 
     static ROUTER_ADVERT_BYTES: [u8; 24] = [
@@ -524,7 +528,7 @@ mod test {
             router_lifetime: Duration::from_secs(900),
             reachable_time: Duration::from_millis(900),
             retrans_time: Duration::from_millis(900),
-            lladdr: Some(EthernetAddress([0x52, 0x54, 0x00, 0x12, 0x34, 0x56])),
+            lladdr: Some(EthernetAddress([0x52, 0x54, 0x00, 0x12, 0x34, 0x56]).into()),
             mtu: None,
             prefix_info: None,
         })

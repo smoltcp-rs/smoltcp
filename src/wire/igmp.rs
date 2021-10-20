@@ -337,23 +337,19 @@ impl<'a> fmt::Display for Repr {
                 max_resp_time,
                 group_addr,
                 version,
-            } => {
-                write!(
-                    f,
-                    "IGMP membership query max_resp_time={} group_addr={} version={:?}",
-                    max_resp_time, group_addr, version
-                )
-            }
+            } => write!(
+                f,
+                "IGMP membership query max_resp_time={} group_addr={} version={:?}",
+                max_resp_time, group_addr, version
+            ),
             Repr::MembershipReport {
                 group_addr,
                 version,
-            } => {
-                write!(
-                    f,
-                    "IGMP membership report group_addr={} version={:?}",
-                    group_addr, version
-                )
-            }
+            } => write!(
+                f,
+                "IGMP membership report group_addr={} version={:?}",
+                group_addr, version
+            ),
             Repr::LeaveGroup { group_addr } => {
                 write!(f, "IGMP leave group group_addr={})", group_addr)
             }
