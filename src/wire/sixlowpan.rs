@@ -1,3 +1,7 @@
+/// Implementation of [RFC 6282] which specifies a compression format for IPv6 datagrams over
+/// IEEE802.154-based networks.
+///
+/// [RFC 6282]: https://datatracker.ietf.org/doc/html/rfc6282
 use crate::wire::ieee802154::Address as LlAddress;
 use crate::wire::ipv6;
 use crate::wire::IpProtocol;
@@ -5,6 +9,7 @@ use crate::Error;
 use crate::Result;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum NextHeader {
     Compressed,
     Uncompressed(IpProtocol),
@@ -14,6 +19,7 @@ pub enum NextHeader {
 /// This requires some context to convert it the an IPv6 address in some cases.
 /// For 802.15.4 the context are the short/extended addresses.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Address<'a> {
     Complete(ipv6::Address),
     WithContext(&'a [u8]),
@@ -96,6 +102,7 @@ pub mod iphc {
 
     /// A read/write wrapper around a LOWPAN_IPHC frame buffer.
     #[derive(Debug, Clone)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub struct Packet<T: AsRef<[u8]>> {
         buffer: T,
     }
@@ -132,7 +139,7 @@ pub mod iphc {
             self.buffer
         }
 
-        /// Parse the next header field.
+        /// Return the Next Header field of this IPHC packet.
         pub fn next_header(&self) -> NextHeader {
             let nh = self.nh_field();
 
@@ -150,7 +157,7 @@ pub mod iphc {
             }
         }
 
-        /// Parse the hop limit field.
+        /// Return the Hop Limit of this IPHC packet.
         pub fn hop_limit(&self) -> u8 {
             match self.hlim_field() {
                 0b00 => {
@@ -168,7 +175,7 @@ pub mod iphc {
             }
         }
 
-        /// Return the source context identifier.
+        /// Return the Source Context Identifier of this IPHC packet.
         pub fn src_context_id(&self) -> Option<u8> {
             if self.cid_field() == 1 {
                 let data = self.buffer.as_ref();
@@ -178,7 +185,7 @@ pub mod iphc {
             }
         }
 
-        /// Return the destination context identifier.
+        /// Return the Destination Context Identifier of this IPHC packet.
         pub fn dst_context_id(&self) -> Option<u8> {
             if self.cid_field() == 1 {
                 let data = self.buffer.as_ref();
@@ -188,7 +195,7 @@ pub mod iphc {
             }
         }
 
-        /// Parse the source address field.
+        /// Return the Source Address of this IPHC packet.
         pub fn src_addr(&self) -> Result<Address> {
             let start = (self.ip_fields_start()
                 + self.traffic_class_size()
@@ -276,7 +283,7 @@ pub mod iphc {
             }
         }
 
-        /// Parse the destination address field.
+        /// Return the Destination Address of this IPHC packet.
         pub fn dst_addr(&self) -> Result<Address> {
             let start = (self.ip_fields_start()
                 + self.traffic_class_size()
@@ -540,22 +547,9 @@ pub mod iphc {
             raw[idx..idx + value.len()].copy_from_slice(value);
         }
 
-        /// Return a mutable pointer to the payload.
-        pub fn payload_mut(&mut self) -> &mut [u8] {
-            let mut len = self.ip_fields_start();
-
-            len += self.traffic_class_size();
-            len += self.next_header_size();
-            len += self.hop_limit_size();
-            len += self.src_address_size();
-            len += self.dst_address_size();
-
-            let len = len as usize;
-
-            let data = self.buffer.as_mut();
-            &mut data[len..]
-        }
-
+        /// Set the Next Header of this IPHC packet.
+        ///
+        /// **NOTE**: `idx` is the offset at which the Next Header needs to be written to.
         fn set_next_header(&mut self, nh: NextHeader, mut idx: usize) -> usize {
             match nh {
                 NextHeader::Uncompressed(nh) => {
@@ -569,6 +563,9 @@ pub mod iphc {
             idx
         }
 
+        /// Set the Hop Limit of this IPHC packet.
+        ///
+        /// **NOTE**: `idx` is the offset at which the Next Header needs to be written to.
         fn set_hop_limit(&mut self, hl: u8, mut idx: usize) -> usize {
             match hl {
                 255 => self.set_hlim_field(0b11),
@@ -584,7 +581,9 @@ pub mod iphc {
             idx
         }
 
-        /// Set the source address based on the IPv6 address and the Link-Local address.
+        /// Set the Source Address based on the IPv6 address and the Link-Local address.
+        ///
+        /// **NOTE**: `idx` is the offset at which the Next Header needs to be written to.
         fn set_src_address(
             &mut self,
             src_addr: ipv6::Address,
@@ -648,6 +647,9 @@ pub mod iphc {
             idx
         }
 
+        /// Set the Destination Address based on the IPv6 address and the Link-Local address.
+        ///
+        /// **NOTE**: `idx` is the offset at which the Next Header needs to be written to.
         fn set_dst_address(
             &mut self,
             dst_addr: ipv6::Address,
@@ -723,10 +725,27 @@ pub mod iphc {
 
             idx
         }
+
+        /// Return a mutable pointer to the payload.
+        pub fn payload_mut(&mut self) -> &mut [u8] {
+            let mut len = self.ip_fields_start();
+
+            len += self.traffic_class_size();
+            len += self.next_header_size();
+            len += self.hop_limit_size();
+            len += self.src_address_size();
+            len += self.dst_address_size();
+
+            let len = len as usize;
+
+            let data = self.buffer.as_mut();
+            &mut data[len..]
+        }
     }
 
     /// A high-level representation of a LOWPAN_IPHC header.
     #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub struct Repr {
         pub src_addr: ipv6::Address,
         pub ll_src_addr: Option<LlAddress>,
@@ -738,6 +757,9 @@ pub mod iphc {
 
     impl Repr {
         /// Parse a LOWPAN_IPHC packet and return a high-level representation.
+        ///
+        /// The `ll_src_addr` and `ll_dst_addr` are the link-local addresses used for resolving the
+        /// IPv6 packets.
         pub fn parse<T: AsRef<[u8]> + ?Sized>(
             packet: &Packet<&T>,
             ll_src_addr: Option<LlAddress>,
@@ -858,7 +880,7 @@ pub mod iphc {
 
             packet.set_dispatch_field();
 
-            // SETTING THE TRAFIX FLOW
+            // SETTING THE TRAFIC FLOW
             // TODO(thvdveld): needs more work.
             packet.set_tf_field(0b11);
 
@@ -971,6 +993,7 @@ pub mod nhc {
 
     /// A read/write wrapper around a LOWPAN_NHC frame buffer.
     #[derive(Debug, Clone)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum Packet<T: AsRef<[u8]>> {
         ExtensionHeader(ExtensionHeaderPacket<T>),
         UdpHeader(UdpPacket<T>),
@@ -998,6 +1021,7 @@ pub mod nhc {
     }
 
     #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum ExtensionHeaderId {
         HopByHopHeader,
         RoutingHeader,
@@ -1026,6 +1050,7 @@ pub mod nhc {
 
     /// A read/write wrapper around a LOWPAN_NHC Next Header frame buffer.
     #[derive(Debug, Clone)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub struct ExtensionHeaderPacket<T: AsRef<[u8]>> {
         buffer: T,
     }
@@ -1177,6 +1202,7 @@ pub mod nhc {
 
     /// A high-level representation of an LOWPAN_NHC Extension Header header.
     #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub struct ExtensionHeaderRepr {
         ext_header_id: ExtensionHeaderId,
         next_header: NextHeader,
@@ -1228,6 +1254,7 @@ pub mod nhc {
 
     /// A read/write wrapper around a 6LoWPAN_NHC_UDP frame buffer.
     #[derive(Debug, Clone)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub struct UdpPacket<T: AsRef<[u8]>> {
         buffer: T,
     }
@@ -1442,6 +1469,7 @@ pub mod nhc {
 
     /// A high-level representation of a LOWPAN_NHC UDP header.
     #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub struct UdpNhcRepr(pub UdpRepr);
 
     impl<'a> UdpNhcRepr {
