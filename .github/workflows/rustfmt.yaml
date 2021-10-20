@@ -1,6 +1,6 @@
 on:
   push:
-    branches: [ staging, trying, master ]
+    branches: [ staging, trying ]
   pull_request:
 
 name: Rustfmt check
