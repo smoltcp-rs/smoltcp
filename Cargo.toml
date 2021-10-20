@@ -37,7 +37,7 @@ verbose = []
 rand-custom-impl = []
 "medium-ethernet" = ["socket"]
 "medium-ip" = ["socket"]
-"medium-ieee802154" = ["socket"]
+"medium-ieee802154" = ["socket", "proto-sixlowpan"]
 
 "phy-raw_socket" = ["std", "libc"]
 "phy-tuntap_interface" = ["std", "libc", "medium-ethernet"]
