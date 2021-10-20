@@ -1107,6 +1107,10 @@ impl<'a> InterfaceInner<'a> {
             && ieee802154_repr.dst_pan_id != cx.pan_id
             && ieee802154_repr.dst_pan_id != Some(Ieee802154Pan::BROADCAST)
         {
+            net_debug!(
+                "dropping {:?} because not our PAN id (or not broadcast)",
+                ieee802154_repr
+            );
             return Ok(None);
         }
 
