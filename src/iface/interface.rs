@@ -841,9 +841,7 @@ where
                     socket.dispatch(cx, |response| respond!(IpPacket::Tcp(response)))
                 }
                 #[cfg(feature = "socket-dhcpv4")]
-                Socket::Dhcpv4(ref mut socket) =>
-                // todo don't unwrap
-                {
+                Socket::Dhcpv4(ref mut socket) => {
                     socket.dispatch(cx, |response| respond!(IpPacket::Dhcpv4(response)))
                 }
             };
@@ -1145,7 +1143,7 @@ impl<'a> InterfaceInner<'a> {
             payload_len: iphc_repr.buffer_len(),
         };
 
-        // Currently we assume the next header is a UDP, so we mark all the rest with todo.
+        // Currently we assume the next header is a UDP, so we ignore everything else.
         match iphc_repr.next_header {
             SixlowpanNextHeader::Compressed => {
                 match SixlowpanNhcPacket::dispatch(payload)? {
