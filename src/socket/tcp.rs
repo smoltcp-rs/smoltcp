@@ -15,6 +15,7 @@ use crate::wire::{
     IpAddress, IpEndpoint, IpProtocol, IpRepr, TcpControl, TcpRepr, TcpSeqNumber, TCP_HEADER_LEN,
 };
 use crate::{Error, Result};
+//use std::time::SystemTime;
 
 /// A TCP socket ring buffer.
 pub type SocketBuffer<'a> = RingBuffer<'a, u8>;
@@ -291,6 +292,170 @@ impl Timer {
             _ => false,
         }
     }
+
+    fn is_retransmission_timeout(&self) -> bool {
+        match *self {
+            Timer::Retransmit { .. } => true,
+            _ => false,
+        }
+    }
+}
+
+/// Congestion Controller: NewReno
+///
+/// Collection of parameters relating to NewReno congestion
+/// controller.
+///
+
+const INIT_CWND_FACTOR: usize = 4;
+
+/// Congestion controller states.
+#[derive(Debug, PartialEq)]
+enum CCState {
+    SlowStart,
+    CongAvoidance,
+    FastRetransmit,
+    Recovery,
+    PostRTO,
+}
+
+#[derive(Debug)]
+struct CongestionCtrlr {
+    /// Congestion controller state
+    cc_state: CCState,
+    /// Count of bytes in-flight
+    inflight_bytes: usize,
+    /// congestion window size
+    cwnd: usize,
+    /// Slow start threshold value
+    ssthresh: usize,
+    /// Maximum segment size
+    mss: usize,
+    /// Bytes than can be sent in recovery
+    recovery_inflight: usize,
+
+    //remove-later
+    //start_time: Option<SystemTime>,
+}
+
+impl CongestionCtrlr {
+    fn default() -> CongestionCtrlr {
+        CongestionCtrlr {
+            cc_state: CCState::SlowStart,
+            inflight_bytes: 0,
+            cwnd: INIT_CWND_FACTOR * DEFAULT_MSS,
+            ssthresh: std::usize::MAX,
+            mss: DEFAULT_MSS,
+            recovery_inflight: 0,
+
+           // start_time: None,
+        }
+    }
+
+    fn set_mss(&mut self, mss: usize) {
+        self.mss = mss;
+    }
+
+    fn get_init_cwnd(&self) -> usize {
+        INIT_CWND_FACTOR * self.mss
+    }
+
+    // Increment the inflight data whenever new data
+    // is sent and we are not in recovery mode.
+    fn on_pkt_sent(&mut self, sent_bytes: usize) {
+        if !self.in_recovery() {
+            self.inflight_bytes += sent_bytes;
+        } else {
+            self.recovery_inflight += sent_bytes;
+        }
+    }
+
+    // Gives size of the data that can be sent whenever
+    // we have chance to send.
+    fn available_cwnd(&self) -> usize {
+        if self.in_recovery() {
+            return self.cwnd.saturating_sub(self.recovery_inflight);
+        }
+        self.cwnd.saturating_sub(self.inflight_bytes)
+    }
+
+    // Update the congestion controller state upon receving
+    // an ACK (not duplicate).
+    fn on_ack_received(&mut self, ack_bytes: usize) {
+        self.inflight_bytes = self.inflight_bytes.saturating_sub(ack_bytes);
+
+        if self.in_recovery() {
+            self.recovery_inflight = self.recovery_inflight.saturating_sub(ack_bytes);
+        }
+
+        match self.cc_state {
+            CCState::SlowStart => {
+                self.cwnd += ack_bytes;
+
+                if self.cwnd >= self.ssthresh {
+                    self.cc_state = CCState::CongAvoidance;
+                }
+            },
+            CCState::CongAvoidance => {
+                self.cwnd += (self.mss * ack_bytes) / self.cwnd;
+            },
+            // Received new ACK in FastRetransmit state, move to
+            // Recovery.
+            CCState::FastRetransmit => {
+                self.cc_state = CCState::Recovery;
+            },
+            CCState::Recovery => {
+                // Out of 3-dup ACK Recovery.
+                if self.inflight_bytes <= self.ssthresh {
+                    self.cc_state = CCState::CongAvoidance;
+                } else {
+                    self.cwnd += (self.mss * ack_bytes) / self.cwnd;
+                }
+            },
+            CCState::PostRTO => {
+                // Out of Post RTO recovery state.
+                if self.inflight_bytes <= self.ssthresh {
+                    if self.cwnd >= self.ssthresh {
+                        self.cc_state = CCState::CongAvoidance;
+                    } else {
+                        self.cc_state = CCState::SlowStart;
+                    }
+                } else {
+                    self.cwnd += ack_bytes;
+                }
+            },
+        };
+
+    }
+
+    // Reset cwnd to INIT_CWND when retransmission timer fires.
+    fn on_rto(&mut self) {
+        self.cc_state = CCState::PostRTO;
+        self.ssthresh = std::cmp::max(self.inflight_bytes / 2, self.get_init_cwnd());
+        self.cwnd = self.get_init_cwnd();
+        self.recovery_inflight = 0;
+    }
+
+    // Start FastRetrasmit process when we receive 3-dup ACKs.
+    fn on_3dup_ack(&mut self) {
+        if self.cc_state != CCState::FastRetransmit {
+            self.cc_state = CCState::FastRetransmit;
+            self.ssthresh = std::cmp::max(self.inflight_bytes / 2, self.get_init_cwnd());
+            self.cwnd = self.ssthresh + self.mss;
+            self.recovery_inflight = self.ssthresh;
+        } else {
+            self.cwnd += self.mss;
+        }
+    }
+
+    fn in_recovery(&self) -> bool {
+        if self.cc_state == CCState::FastRetransmit ||
+            self.cc_state == CCState::Recovery ||
+            self.cc_state == CCState::PostRTO {
+                return true;
+        }
+        false
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -383,6 +548,9 @@ pub struct TcpSocket<'a> {
     /// Nagle's Algorithm enabled.
     nagle: bool,
 
+    /// Congestion controller.
+    cc: CongestionCtrlr,
+
     #[cfg(feature = "async")]
     rx_waker: WakerRegistration,
     #[cfg(feature = "async")]
@@ -443,6 +611,7 @@ impl<'a> TcpSocket<'a> {
             ack_delay_timer: AckDelayTimer::Idle,
             challenge_ack_timer: Instant::from_secs(0),
             nagle: true,
+            cc: CongestionCtrlr::default(),
 
             #[cfg(feature = "async")]
             rx_waker: WakerRegistration::new(),
@@ -1779,6 +1948,9 @@ impl<'a> TcpSocket<'a> {
             );
             self.tx_buffer.dequeue_allocated(ack_len);
 
+            // update congestion controller.
+            self.cc.on_ack_received(ack_len);
+
             // There's new room available in tx_buffer, wake the waiting task if any.
             #[cfg(feature = "async")]
             self.tx_waker.wake();
@@ -1818,7 +1990,10 @@ impl<'a> TcpSocket<'a> {
                         }
                     );
 
+                    // On receving three duplicate ACKs, signal congestion
+                    // controller.
                     if self.local_rx_dup_acks == 3 {
+                        self.cc.on_3dup_ack();
                         self.timer.set_for_fast_retransmit();
                         net_debug!(
                             "{}:{}:{}: started fast retransmit",
@@ -2036,6 +2211,10 @@ impl<'a> TcpSocket<'a> {
             can_send = false;
         }
 
+        if self.cc.cc_state == CCState::FastRetransmit || self.cc.available_cwnd() == 0 {
+            can_send = false;
+        }
+
         // Can we actually send the FIN? We can send it if:
         // 1. We have unsent data that fits in the remote window.
         // 2. We have no unsent data.
@@ -2076,6 +2255,16 @@ impl<'a> TcpSocket<'a> {
     where
         F: FnOnce((IpRepr, TcpRepr)) -> Result<()>,
     {
+
+        /*match self.cc.start_time {
+            Some(start) => {
+                println!("{:?},{:?},{:?},{:?},{:?},{:?}", self.rtte.rtt, self.cc.inflight_bytes, self.cc.cwnd, start.elapsed().unwrap().as_millis(), self.cc.cc_state, self.cc.recovery_inflight);
+            },
+            None => {
+                self.cc.start_time = Some(SystemTime::now());
+            },
+        };*/
+
         if !self.remote_endpoint.is_specified() {
             return Err(Error::Exhausted);
         }
@@ -2125,6 +2314,11 @@ impl<'a> TcpSocket<'a> {
 
                 // Inform RTTE, so that it can avoid bogus measurements.
                 self.rtte.on_retransmit();
+
+                // If RTO fires, signal congestion controller.
+                if self.timer.is_retransmission_timeout() {
+                    self.cc.on_rto();
+                }
             }
         }
 
@@ -2266,6 +2460,7 @@ impl<'a> TcpSocket<'a> {
                 // 2. MSS the remote is willing to accept, probably determined by their MTU
                 // 3. MSS we can send, determined by our MTU.
                 let size = win_limit
+                    .min(self.cc.available_cwnd())
                     .min(self.remote_mss)
                     .min(cx.caps.ip_mtu() - ip_repr.buffer_len() - TCP_HEADER_LEN);
 
@@ -2285,6 +2480,8 @@ impl<'a> TcpSocket<'a> {
                         _ => (),
                     }
                 }
+                // Update congestion controller
+                self.cc.on_pkt_sent(repr.payload.len());
             }
 
             // In FIN-WAIT-2 and TIME-WAIT states we may only transmit ACKs for incoming data or FIN
@@ -2345,6 +2542,8 @@ impl<'a> TcpSocket<'a> {
             // Fill the MSS option. See RFC 6691 for an explanation of this calculation.
             let max_segment_size = cx.caps.ip_mtu() - ip_repr.buffer_len() - TCP_HEADER_LEN;
             repr.max_seg_size = Some(max_segment_size as u16);
+            // Record MSS for congestion controller.
+            self.cc.set_mss(max_segment_size as usize);
         }
 
         // Actually send the packet. If this succeeds, it means the packet is in
