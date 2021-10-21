@@ -469,7 +469,7 @@ impl<'a, DeviceT> Interface<'a, DeviceT>
 where
     DeviceT: for<'d> Device<'d>,
 {
-    /// Add a socket to the interface with the reference count 1, and return its handle.
+    /// Add a socket to the interface, and return its handle.
     ///
     /// # Panics
     /// This function panics if the storage is fixed-size (not a `Vec`) and is full.

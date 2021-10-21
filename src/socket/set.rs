@@ -1,8 +1,6 @@
 use core::{fmt, slice};
 use managed::ManagedSlice;
 
-#[cfg(feature = "socket-tcp")]
-use crate::socket::TcpState;
 use crate::socket::{AnySocket, Socket};
 
 /// An item of a socket set.
@@ -12,7 +10,6 @@ use crate::socket::{AnySocket, Socket};
 #[derive(Debug)]
 pub struct Item<'a> {
     socket: Socket<'a>,
-    refs: usize,
 }
 
 /// A handle, identifying a socket in a set.
@@ -44,7 +41,7 @@ impl<'a> Set<'a> {
         Set { sockets }
     }
 
-    /// Add a socket to the set with the reference count 1, and return its handle.
+    /// Add a socket to the set, and return its handle.
     ///
     /// # Panics
     /// This function panics if the storage is fixed-size (not a `Vec`) and is full.
@@ -56,7 +53,7 @@ impl<'a> Set<'a> {
             net_trace!("[{}]: adding", index);
             let handle = Handle(index);
             socket.meta_mut().handle = handle;
-            *slot = Some(Item { socket, refs: 1 });
+            *slot = Some(Item { socket });
             handle
         }
 
@@ -102,74 +99,6 @@ impl<'a> Set<'a> {
         match self.sockets[handle.0].take() {
             Some(item) => item.socket,
             None => panic!("handle does not refer to a valid socket"),
-        }
-    }
-
-    /// Increase reference count by 1.
-    ///
-    /// # Panics
-    /// This function may panic if the handle does not belong to this socket set.
-    pub fn retain(&mut self, handle: Handle) {
-        self.sockets[handle.0]
-            .as_mut()
-            .expect("handle does not refer to a valid socket")
-            .refs += 1
-    }
-
-    /// Decrease reference count by 1.
-    ///
-    /// # Panics
-    /// This function may panic if the handle does not belong to this socket set,
-    /// or if the reference count is already zero.
-    pub fn release(&mut self, handle: Handle) {
-        let refs = &mut self.sockets[handle.0]
-            .as_mut()
-            .expect("handle does not refer to a valid socket")
-            .refs;
-        if *refs == 0 {
-            panic!("decreasing reference count past zero")
-        }
-        *refs -= 1
-    }
-
-    /// Prune the sockets in this set.
-    ///
-    /// Pruning affects sockets with reference count 0. Open sockets are closed.
-    /// Closed sockets are removed and dropped.
-    pub fn prune(&mut self) {
-        for (index, item) in self.sockets.iter_mut().enumerate() {
-            let mut may_remove = false;
-            if let Some(Item {
-                refs: 0,
-                ref mut socket,
-            }) = *item
-            {
-                match *socket {
-                    #[cfg(feature = "socket-raw")]
-                    Socket::Raw(_) => may_remove = true,
-                    #[cfg(all(
-                        feature = "socket-icmp",
-                        any(feature = "proto-ipv4", feature = "proto-ipv6")
-                    ))]
-                    Socket::Icmp(_) => may_remove = true,
-                    #[cfg(feature = "socket-udp")]
-                    Socket::Udp(_) => may_remove = true,
-                    #[cfg(feature = "socket-tcp")]
-                    Socket::Tcp(ref mut socket) => {
-                        if socket.state() == TcpState::Closed {
-                            may_remove = true
-                        } else {
-                            socket.close()
-                        }
-                    }
-                    #[cfg(feature = "socket-dhcpv4")]
-                    Socket::Dhcpv4(_) => may_remove = true,
-                }
-            }
-            if may_remove {
-                net_trace!("[{}]: pruning", index);
-                *item = None
-            }
         }
     }
 
