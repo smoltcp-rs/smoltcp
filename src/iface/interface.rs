@@ -2942,13 +2942,11 @@ mod test {
             hop_limit: 0x40,
         });
 
-        {
-            // Bind the socket to port 68
-            let socket = iface.get_socket::<UdpSocket>(socket_handle);
-            assert_eq!(socket.bind(68), Ok(()));
-            assert!(!socket.can_recv());
-            assert!(socket.can_send());
-        }
+        // Bind the socket to port 68
+        let socket = iface.get_socket::<UdpSocket>(socket_handle);
+        assert_eq!(socket.bind(68), Ok(()));
+        assert!(!socket.can_recv());
+        assert!(socket.can_send());
 
         udp_repr.emit(
             &mut packet,
@@ -2968,16 +2966,14 @@ mod test {
             Ok(None)
         );
 
-        {
-            // Make sure the payload to the UDP packet processed by process_udp is
-            // appended to the bound sockets rx_buffer
-            let socket = iface.get_socket::<UdpSocket>(socket_handle);
-            assert!(socket.can_recv());
-            assert_eq!(
-                socket.recv(),
-                Ok((&UDP_PAYLOAD[..], IpEndpoint::new(src_ip.into(), 67)))
-            );
-        }
+        // Make sure the payload to the UDP packet processed by process_udp is
+        // appended to the bound sockets rx_buffer
+        let socket = iface.get_socket::<UdpSocket>(socket_handle);
+        assert!(socket.can_recv());
+        assert_eq!(
+            socket.recv(),
+            Ok((&UDP_PAYLOAD[..], IpEndpoint::new(src_ip.into(), 67)))
+        );
     }
 
     #[test]
@@ -3194,10 +3190,8 @@ mod test {
         frame.set_dst_addr(EthernetAddress::BROADCAST);
         frame.set_src_addr(remote_hw_addr);
         frame.set_ethertype(EthernetProtocol::Arp);
-        {
-            let mut packet = ArpPacket::new_unchecked(frame.payload_mut());
-            repr.emit(&mut packet);
-        }
+        let mut packet = ArpPacket::new_unchecked(frame.payload_mut());
+        repr.emit(&mut packet);
 
         let cx = iface.context(Instant::from_secs(0));
 
@@ -3255,15 +3249,13 @@ mod test {
         frame.set_dst_addr(EthernetAddress([0x33, 0x33, 0x00, 0x00, 0x00, 0x00]));
         frame.set_src_addr(remote_hw_addr);
         frame.set_ethertype(EthernetProtocol::Ipv6);
-        {
-            ip_repr.emit(frame.payload_mut(), &ChecksumCapabilities::default());
-            solicit.emit(
-                &remote_ip_addr.into(),
-                &local_ip_addr.solicited_node().into(),
-                &mut Icmpv6Packet::new_unchecked(&mut frame.payload_mut()[ip_repr.buffer_len()..]),
-                &ChecksumCapabilities::default(),
-            );
-        }
+        ip_repr.emit(frame.payload_mut(), &ChecksumCapabilities::default());
+        solicit.emit(
+            &remote_ip_addr.into(),
+            &local_ip_addr.solicited_node().into(),
+            &mut Icmpv6Packet::new_unchecked(&mut frame.payload_mut()[ip_repr.buffer_len()..]),
+            &ChecksumCapabilities::default(),
+        );
 
         let icmpv6_expected = Icmpv6Repr::Ndisc(NdiscRepr::NeighborAdvert {
             flags: NdiscNeighborFlags::SOLICITED,
@@ -3326,10 +3318,8 @@ mod test {
         frame.set_dst_addr(EthernetAddress::BROADCAST);
         frame.set_src_addr(remote_hw_addr);
         frame.set_ethertype(EthernetProtocol::Arp);
-        {
-            let mut packet = ArpPacket::new_unchecked(frame.payload_mut());
-            repr.emit(&mut packet);
-        }
+        let mut packet = ArpPacket::new_unchecked(frame.payload_mut());
+        repr.emit(&mut packet);
 
         let cx = iface.context(Instant::from_secs(0));
 
@@ -3442,11 +3432,9 @@ mod test {
         let seq_no = 0x5432;
         let echo_data = &[0xff; 16];
 
-        {
-            let socket = iface.get_socket::<IcmpSocket>(socket_handle);
-            // Bind to the ID 0x1234
-            assert_eq!(socket.bind(IcmpEndpoint::Ident(ident)), Ok(()));
-        }
+        let socket = iface.get_socket::<IcmpSocket>(socket_handle);
+        // Bind to the ID 0x1234
+        assert_eq!(socket.bind(IcmpEndpoint::Ident(ident)), Ok(()));
 
         // Ensure the ident we bound to and the ident of the packet are the same.
         let mut bytes = [0xff; 24];
@@ -3470,9 +3458,7 @@ mod test {
 
         // Open a socket and ensure the packet is handled due to the listening
         // socket.
-        {
-            assert!(!iface.get_socket::<IcmpSocket>(socket_handle).can_recv());
-        }
+        assert!(!iface.get_socket::<IcmpSocket>(socket_handle).can_recv());
 
         // Confirm we still get EchoReply from `smoltcp` even with the ICMP socket listening
         let echo_reply = Icmpv4Repr::EchoReply {
@@ -3493,17 +3479,15 @@ mod test {
             Ok(Some(IpPacket::Icmpv4((ipv4_reply, echo_reply))))
         );
 
-        {
-            let socket = iface.get_socket::<IcmpSocket>(socket_handle);
-            assert!(socket.can_recv());
-            assert_eq!(
-                socket.recv(),
-                Ok((
-                    icmp_data,
-                    IpAddress::Ipv4(Ipv4Address::new(0x7f, 0x00, 0x00, 0x02))
-                ))
-            );
-        }
+        let socket = iface.get_socket::<IcmpSocket>(socket_handle);
+        assert!(socket.can_recv());
+        assert_eq!(
+            socket.recv(),
+            Ok((
+                icmp_data,
+                IpAddress::Ipv4(Ipv4Address::new(0x7f, 0x00, 0x00, 0x02))
+            ))
+        );
     }
 
     #[test]
@@ -3854,13 +3838,12 @@ mod test {
         let udp_tx_buffer = UdpSocketBuffer::new(vec![UdpPacketMetadata::EMPTY], vec![0; 15]);
         let udp_socket = UdpSocket::new(udp_rx_buffer, udp_tx_buffer);
         let udp_socket_handle = iface.add_socket(udp_socket);
-        {
-            // Bind the socket to port 68
-            let socket = iface.get_socket::<UdpSocket>(udp_socket_handle);
-            assert_eq!(socket.bind(68), Ok(()));
-            assert!(!socket.can_recv());
-            assert!(socket.can_send());
-        }
+
+        // Bind the socket to port 68
+        let socket = iface.get_socket::<UdpSocket>(udp_socket_handle);
+        assert_eq!(socket.bind(68), Ok(()));
+        assert!(!socket.can_recv());
+        assert!(socket.can_send());
 
         let packets = 1;
         let raw_rx_buffer =
@@ -3927,14 +3910,12 @@ mod test {
             Ok(None)
         );
 
-        {
-            // Make sure the UDP socket can still receive in presence of a Raw socket that handles UDP
-            let socket = iface.get_socket::<UdpSocket>(udp_socket_handle);
-            assert!(socket.can_recv());
-            assert_eq!(
-                socket.recv(),
-                Ok((&UDP_PAYLOAD[..], IpEndpoint::new(src_addr.into(), 67)))
-            );
-        }
+        // Make sure the UDP socket can still receive in presence of a Raw socket that handles UDP
+        let socket = iface.get_socket::<UdpSocket>(udp_socket_handle);
+        assert!(socket.can_recv());
+        assert_eq!(
+            socket.recv(),
+            Ok((&UDP_PAYLOAD[..], IpEndpoint::new(src_addr.into(), 67)))
+        );
     }
 }

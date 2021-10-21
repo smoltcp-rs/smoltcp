@@ -100,31 +100,29 @@ fn main() {
         }
 
         // udp:6969: respond "hello"
-        {
-            let socket = iface.get_socket::<UdpSocket>(udp_handle);
-            if !socket.is_open() {
-                socket.bind(6969).unwrap()
-            }
+        let socket = iface.get_socket::<UdpSocket>(udp_handle);
+        if !socket.is_open() {
+            socket.bind(6969).unwrap()
+        }
 
-            let client = match socket.recv() {
-                Ok((data, endpoint)) => {
-                    debug!(
-                        "udp:6969 recv data: {:?} from {}",
-                        str::from_utf8(data).unwrap(),
-                        endpoint
-                    );
-                    Some(endpoint)
-                }
-                Err(_) => None,
-            };
-            if let Some(endpoint) = client {
-                let data = b"hello\n";
+        let client = match socket.recv() {
+            Ok((data, endpoint)) => {
                 debug!(
-                    "udp:6969 send data: {:?}",
-                    str::from_utf8(data.as_ref()).unwrap()
+                    "udp:6969 recv data: {:?} from {}",
+                    str::from_utf8(data).unwrap(),
+                    endpoint
                 );
-                socket.send_slice(data, endpoint).unwrap();
+                Some(endpoint)
             }
+            Err(_) => None,
+        };
+        if let Some(endpoint) = client {
+            let data = b"hello\n";
+            debug!(
+                "udp:6969 send data: {:?}",
+                str::from_utf8(data.as_ref()).unwrap()
+            );
+            socket.send_slice(data, endpoint).unwrap();
         }
 
         phy_wait(fd, iface.poll_delay(timestamp)).expect("wait error");

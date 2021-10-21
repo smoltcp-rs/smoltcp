@@ -76,46 +76,44 @@ fn main() {
             }
         }
 
-        {
-            let socket = iface.get_socket::<TcpSocket>(tcp_handle);
+        let socket = iface.get_socket::<TcpSocket>(tcp_handle);
 
-            state = match state {
-                State::Connect if !socket.is_active() => {
-                    debug!("connecting");
-                    let local_port = 49152 + rand::random::<u16>() % 16384;
-                    socket
-                        .connect((address, url.port().unwrap_or(80)), local_port)
-                        .unwrap();
-                    State::Request
-                }
-                State::Request if socket.may_send() => {
-                    debug!("sending request");
-                    let http_get = "GET ".to_owned() + url.path() + " HTTP/1.1\r\n";
-                    socket.send_slice(http_get.as_ref()).expect("cannot send");
-                    let http_host = "Host: ".to_owned() + url.host_str().unwrap() + "\r\n";
-                    socket.send_slice(http_host.as_ref()).expect("cannot send");
-                    socket
-                        .send_slice(b"Connection: close\r\n")
-                        .expect("cannot send");
-                    socket.send_slice(b"\r\n").expect("cannot send");
-                    State::Response
-                }
-                State::Response if socket.can_recv() => {
-                    socket
-                        .recv(|data| {
-                            println!("{}", str::from_utf8(data).unwrap_or("(invalid utf8)"));
-                            (data.len(), ())
-                        })
-                        .unwrap();
-                    State::Response
-                }
-                State::Response if !socket.may_recv() => {
-                    debug!("received complete response");
-                    break;
-                }
-                _ => state,
+        state = match state {
+            State::Connect if !socket.is_active() => {
+                debug!("connecting");
+                let local_port = 49152 + rand::random::<u16>() % 16384;
+                socket
+                    .connect((address, url.port().unwrap_or(80)), local_port)
+                    .unwrap();
+                State::Request
             }
-        }
+            State::Request if socket.may_send() => {
+                debug!("sending request");
+                let http_get = "GET ".to_owned() + url.path() + " HTTP/1.1\r\n";
+                socket.send_slice(http_get.as_ref()).expect("cannot send");
+                let http_host = "Host: ".to_owned() + url.host_str().unwrap() + "\r\n";
+                socket.send_slice(http_host.as_ref()).expect("cannot send");
+                socket
+                    .send_slice(b"Connection: close\r\n")
+                    .expect("cannot send");
+                socket.send_slice(b"\r\n").expect("cannot send");
+                State::Response
+            }
+            State::Response if socket.can_recv() => {
+                socket
+                    .recv(|data| {
+                        println!("{}", str::from_utf8(data).unwrap_or("(invalid utf8)"));
+                        (data.len(), ())
+                    })
+                    .unwrap();
+                State::Response
+            }
+            State::Response if !socket.may_recv() => {
+                debug!("received complete response");
+                break;
+            }
+            _ => state,
+        };
 
         phy_wait(fd, iface.poll_delay(timestamp)).expect("wait error");
     }

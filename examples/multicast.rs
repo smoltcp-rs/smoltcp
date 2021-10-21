@@ -77,35 +77,32 @@ fn main() {
             }
         }
 
-        {
-            let socket = iface.get_socket::<RawSocket>(raw_handle);
+        let socket = iface.get_socket::<RawSocket>(raw_handle);
 
-            if socket.can_recv() {
-                // For display purposes only - normally we wouldn't process incoming IGMP packets
-                // in the application layer
-                socket
-                    .recv()
-                    .and_then(Ipv4Packet::new_checked)
-                    .and_then(|ipv4_packet| IgmpPacket::new_checked(ipv4_packet.payload()))
-                    .and_then(|igmp_packet| IgmpRepr::parse(&igmp_packet))
-                    .map(|igmp_repr| println!("IGMP packet: {:?}", igmp_repr))
-                    .unwrap_or_else(|e| println!("Recv IGMP error: {:?}", e));
-            }
+        if socket.can_recv() {
+            // For display purposes only - normally we wouldn't process incoming IGMP packets
+            // in the application layer
+            socket
+                .recv()
+                .and_then(Ipv4Packet::new_checked)
+                .and_then(|ipv4_packet| IgmpPacket::new_checked(ipv4_packet.payload()))
+                .and_then(|igmp_packet| IgmpRepr::parse(&igmp_packet))
+                .map(|igmp_repr| println!("IGMP packet: {:?}", igmp_repr))
+                .unwrap_or_else(|e| println!("Recv IGMP error: {:?}", e));
         }
-        {
-            let socket = iface.get_socket::<UdpSocket>(udp_handle);
-            if !socket.is_open() {
-                socket.bind(MDNS_PORT).unwrap()
-            }
 
-            if socket.can_recv() {
-                socket
-                    .recv()
-                    .map(|(data, sender)| {
-                        println!("mDNS traffic: {} UDP bytes from {}", data.len(), sender)
-                    })
-                    .unwrap_or_else(|e| println!("Recv UDP error: {:?}", e));
-            }
+        let socket = iface.get_socket::<UdpSocket>(udp_handle);
+        if !socket.is_open() {
+            socket.bind(MDNS_PORT).unwrap()
+        }
+
+        if socket.can_recv() {
+            socket
+                .recv()
+                .map(|(data, sender)| {
+                    println!("mDNS traffic: {} UDP bytes from {}", data.len(), sender)
+                })
+                .unwrap_or_else(|e| println!("Recv UDP error: {:?}", e));
         }
 
         phy_wait(fd, iface.poll_delay(timestamp)).expect("wait error");

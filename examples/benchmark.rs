@@ -119,42 +119,38 @@ fn main() {
         }
 
         // tcp:1234: emit data
-        {
-            let socket = iface.get_socket::<TcpSocket>(tcp1_handle);
-            if !socket.is_open() {
-                socket.listen(1234).unwrap();
-            }
+        let socket = iface.get_socket::<TcpSocket>(tcp1_handle);
+        if !socket.is_open() {
+            socket.listen(1234).unwrap();
+        }
 
-            if socket.can_send() {
-                if processed < AMOUNT {
-                    let length = socket
-                        .send(|buffer| {
-                            let length = cmp::min(buffer.len(), AMOUNT - processed);
-                            (length, length)
-                        })
-                        .unwrap();
-                    processed += length;
-                }
+        if socket.can_send() {
+            if processed < AMOUNT {
+                let length = socket
+                    .send(|buffer| {
+                        let length = cmp::min(buffer.len(), AMOUNT - processed);
+                        (length, length)
+                    })
+                    .unwrap();
+                processed += length;
             }
         }
 
         // tcp:1235: sink data
-        {
-            let socket = iface.get_socket::<TcpSocket>(tcp2_handle);
-            if !socket.is_open() {
-                socket.listen(1235).unwrap();
-            }
+        let socket = iface.get_socket::<TcpSocket>(tcp2_handle);
+        if !socket.is_open() {
+            socket.listen(1235).unwrap();
+        }
 
-            if socket.can_recv() {
-                if processed < AMOUNT {
-                    let length = socket
-                        .recv(|buffer| {
-                            let length = cmp::min(buffer.len(), AMOUNT - processed);
-                            (length, length)
-                        })
-                        .unwrap();
-                    processed += length;
-                }
+        if socket.can_recv() {
+            if processed < AMOUNT {
+                let length = socket
+                    .recv(|buffer| {
+                        let length = cmp::min(buffer.len(), AMOUNT - processed);
+                        (length, length)
+                    })
+                    .unwrap();
+                processed += length;
             }
         }
 

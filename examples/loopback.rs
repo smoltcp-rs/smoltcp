@@ -135,46 +135,42 @@ fn main() {
             }
         }
 
-        {
-            let mut socket = iface.get_socket::<TcpSocket>(server_handle);
-            if !socket.is_active() && !socket.is_listening() {
-                if !did_listen {
-                    debug!("listening");
-                    socket.listen(1234).unwrap();
-                    did_listen = true;
-                }
-            }
-
-            if socket.can_recv() {
-                debug!(
-                    "got {:?}",
-                    socket.recv(|buffer| { (buffer.len(), str::from_utf8(buffer).unwrap()) })
-                );
-                socket.close();
-                done = true;
+        let mut socket = iface.get_socket::<TcpSocket>(server_handle);
+        if !socket.is_active() && !socket.is_listening() {
+            if !did_listen {
+                debug!("listening");
+                socket.listen(1234).unwrap();
+                did_listen = true;
             }
         }
 
-        {
-            let mut socket = iface.get_socket::<TcpSocket>(client_handle);
-            if !socket.is_open() {
-                if !did_connect {
-                    debug!("connecting");
-                    socket
-                        .connect(
-                            (IpAddress::v4(127, 0, 0, 1), 1234),
-                            (IpAddress::Unspecified, 65000),
-                        )
-                        .unwrap();
-                    did_connect = true;
-                }
-            }
+        if socket.can_recv() {
+            debug!(
+                "got {:?}",
+                socket.recv(|buffer| { (buffer.len(), str::from_utf8(buffer).unwrap()) })
+            );
+            socket.close();
+            done = true;
+        }
 
-            if socket.can_send() {
-                debug!("sending");
-                socket.send_slice(b"0123456789abcdef").unwrap();
-                socket.close();
+        let mut socket = iface.get_socket::<TcpSocket>(client_handle);
+        if !socket.is_open() {
+            if !did_connect {
+                debug!("connecting");
+                socket
+                    .connect(
+                        (IpAddress::v4(127, 0, 0, 1), 1234),
+                        (IpAddress::Unspecified, 65000),
+                    )
+                    .unwrap();
+                did_connect = true;
             }
+        }
+
+        if socket.can_send() {
+            debug!("sending");
+            socket.send_slice(b"0123456789abcdef").unwrap();
+            socket.close();
         }
 
         match iface.poll_delay(clock.elapsed()) {
