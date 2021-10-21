@@ -101,7 +101,7 @@ fn main() {
 
         // udp:6969: respond "hello"
         {
-            let mut socket = iface.get_socket::<UdpSocket>(udp_handle);
+            let socket = iface.get_socket::<UdpSocket>(udp_handle);
             if !socket.is_open() {
                 socket.bind(6969).unwrap()
             }

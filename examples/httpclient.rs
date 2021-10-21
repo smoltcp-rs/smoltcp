@@ -77,7 +77,7 @@ fn main() {
         }
 
         {
-            let mut socket = iface.get_socket::<TcpSocket>(tcp_handle);
+            let socket = iface.get_socket::<TcpSocket>(tcp_handle);
 
             state = match state {
                 State::Connect if !socket.is_active() => {

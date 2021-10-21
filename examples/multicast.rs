@@ -78,7 +78,7 @@ fn main() {
         }
 
         {
-            let mut socket = iface.get_socket::<RawSocket>(raw_handle);
+            let socket = iface.get_socket::<RawSocket>(raw_handle);
 
             if socket.can_recv() {
                 // For display purposes only - normally we wouldn't process incoming IGMP packets
@@ -93,7 +93,7 @@ fn main() {
             }
         }
         {
-            let mut socket = iface.get_socket::<UdpSocket>(udp_handle);
+            let socket = iface.get_socket::<UdpSocket>(udp_handle);
             if !socket.is_open() {
                 socket.bind(MDNS_PORT).unwrap()
             }

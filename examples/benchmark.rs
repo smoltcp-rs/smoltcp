@@ -120,7 +120,7 @@ fn main() {
 
         // tcp:1234: emit data
         {
-            let mut socket = iface.get_socket::<TcpSocket>(tcp1_handle);
+            let socket = iface.get_socket::<TcpSocket>(tcp1_handle);
             if !socket.is_open() {
                 socket.listen(1234).unwrap();
             }
@@ -140,7 +140,7 @@ fn main() {
 
         // tcp:1235: sink data
         {
-            let mut socket = iface.get_socket::<TcpSocket>(tcp2_handle);
+            let socket = iface.get_socket::<TcpSocket>(tcp2_handle);
             if !socket.is_open() {
                 socket.listen(1235).unwrap();
             }

@@ -157,7 +157,7 @@ fn main() {
 
         {
             let timestamp = Instant::now();
-            let mut socket = iface.get_socket::<IcmpSocket>(icmp_handle);
+            let socket = iface.get_socket::<IcmpSocket>(icmp_handle);
             if !socket.is_open() {
                 socket.bind(IcmpEndpoint::Ident(ident)).unwrap();
                 send_at = timestamp;

@@ -485,7 +485,7 @@ where
     /// # Panics
     /// This function may panic if the handle does not belong to this socket set
     /// or the socket has the wrong type.
-    pub fn get_socket<T: AnySocket<'a>>(&mut self, handle: SocketHandle) -> SocketRef<T> {
+    pub fn get_socket<T: AnySocket<'a>>(&mut self, handle: SocketHandle) -> &mut T {
         self.sockets.get(handle)
     }
 
@@ -830,7 +830,7 @@ where
         let _caps = device.capabilities();
 
         let mut emitted_any = false;
-        for mut socket in sockets.iter_mut() {
+        for socket in sockets.iter_mut() {
             if !socket
                 .meta_mut()
                 .egress_permitted(cx.now, |ip_addr| inner.has_neighbor(cx, &ip_addr))
@@ -1202,7 +1202,7 @@ impl<'a> InterfaceInner<'a> {
 
                         // Look for UDP sockets that will accept the UDP packet.
                         // If it does not accept the packet, then send an ICMP message.
-                        for mut udp_socket in sockets.iter_mut().filter_map(UdpSocket::downcast) {
+                        for udp_socket in sockets.iter_mut().filter_map(UdpSocket::downcast) {
                             if !udp_socket.accepts(&IpRepr::Ipv6(ipv6_repr), &udp_repr) {
                                 continue;
                             }
@@ -1328,7 +1328,7 @@ impl<'a> InterfaceInner<'a> {
         let mut handled_by_raw_socket = false;
 
         // Pass every IP packet to all raw sockets we have registered.
-        for mut raw_socket in sockets.iter_mut().filter_map(RawSocket::downcast) {
+        for raw_socket in sockets.iter_mut().filter_map(RawSocket::downcast) {
             if !raw_socket.accepts(ip_repr) {
                 continue;
             }
@@ -1460,7 +1460,7 @@ impl<'a> InterfaceInner<'a> {
                 if udp_packet.src_port() == DHCP_SERVER_PORT
                     && udp_packet.dst_port() == DHCP_CLIENT_PORT
                 {
-                    if let Some(mut dhcp_socket) =
+                    if let Some(dhcp_socket) =
                         sockets.iter_mut().filter_map(Dhcpv4Socket::downcast).next()
                     {
                         let (src_addr, dst_addr) = (ip_repr.src_addr(), ip_repr.dst_addr());
@@ -1639,7 +1639,7 @@ impl<'a> InterfaceInner<'a> {
         let mut handled_by_icmp_socket = false;
 
         #[cfg(all(feature = "socket-icmp", feature = "proto-ipv6"))]
-        for mut icmp_socket in _sockets.iter_mut().filter_map(IcmpSocket::downcast) {
+        for icmp_socket in _sockets.iter_mut().filter_map(IcmpSocket::downcast) {
             if !icmp_socket.accepts(cx, &ip_repr, &icmp_repr.into()) {
                 continue;
             }
@@ -1825,7 +1825,7 @@ impl<'a> InterfaceInner<'a> {
         let mut handled_by_icmp_socket = false;
 
         #[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
-        for mut icmp_socket in _sockets.iter_mut().filter_map(IcmpSocket::downcast) {
+        for icmp_socket in _sockets.iter_mut().filter_map(IcmpSocket::downcast) {
             if !icmp_socket.accepts(cx, &ip_repr, &icmp_repr.into()) {
                 continue;
             }
@@ -1949,7 +1949,7 @@ impl<'a> InterfaceInner<'a> {
         let udp_repr = UdpRepr::parse(&udp_packet, &src_addr, &dst_addr, &cx.caps.checksum)?;
         let udp_payload = udp_packet.payload();
 
-        for mut udp_socket in sockets.iter_mut().filter_map(UdpSocket::downcast) {
+        for udp_socket in sockets.iter_mut().filter_map(UdpSocket::downcast) {
             if !udp_socket.accepts(&ip_repr, &udp_repr) {
                 continue;
             }
@@ -2006,7 +2006,7 @@ impl<'a> InterfaceInner<'a> {
         let tcp_packet = TcpPacket::new_checked(ip_payload)?;
         let tcp_repr = TcpRepr::parse(&tcp_packet, &src_addr, &dst_addr, &cx.caps.checksum)?;
 
-        for mut tcp_socket in sockets.iter_mut().filter_map(TcpSocket::downcast) {
+        for tcp_socket in sockets.iter_mut().filter_map(TcpSocket::downcast) {
             if !tcp_socket.accepts(&ip_repr, &tcp_repr) {
                 continue;
             }
@@ -2944,7 +2944,7 @@ mod test {
 
         {
             // Bind the socket to port 68
-            let mut socket = iface.get_socket::<UdpSocket>(socket_handle);
+            let socket = iface.get_socket::<UdpSocket>(socket_handle);
             assert_eq!(socket.bind(68), Ok(()));
             assert!(!socket.can_recv());
             assert!(socket.can_send());
@@ -2971,7 +2971,7 @@ mod test {
         {
             // Make sure the payload to the UDP packet processed by process_udp is
             // appended to the bound sockets rx_buffer
-            let mut socket = iface.get_socket::<UdpSocket>(socket_handle);
+            let socket = iface.get_socket::<UdpSocket>(socket_handle);
             assert!(socket.can_recv());
             assert_eq!(
                 socket.recv(),
@@ -3443,7 +3443,7 @@ mod test {
         let echo_data = &[0xff; 16];
 
         {
-            let mut socket = iface.get_socket::<IcmpSocket>(socket_handle);
+            let socket = iface.get_socket::<IcmpSocket>(socket_handle);
             // Bind to the ID 0x1234
             assert_eq!(socket.bind(IcmpEndpoint::Ident(ident)), Ok(()));
         }
@@ -3494,7 +3494,7 @@ mod test {
         );
 
         {
-            let mut socket = iface.get_socket::<IcmpSocket>(socket_handle);
+            let socket = iface.get_socket::<IcmpSocket>(socket_handle);
             assert!(socket.can_recv());
             assert_eq!(
                 socket.recv(),
@@ -3856,7 +3856,7 @@ mod test {
         let udp_socket_handle = iface.add_socket(udp_socket);
         {
             // Bind the socket to port 68
-            let mut socket = iface.get_socket::<UdpSocket>(udp_socket_handle);
+            let socket = iface.get_socket::<UdpSocket>(udp_socket_handle);
             assert_eq!(socket.bind(68), Ok(()));
             assert!(!socket.can_recv());
             assert!(socket.can_send());
@@ -3929,7 +3929,7 @@ mod test {
 
         {
             // Make sure the UDP socket can still receive in presence of a Raw socket that handles UDP
-            let mut socket = iface.get_socket::<UdpSocket>(udp_socket_handle);
+            let socket = iface.get_socket::<UdpSocket>(udp_socket_handle);
             assert!(socket.can_recv());
             assert_eq!(
                 socket.recv(),

@@ -3,7 +3,7 @@ use managed::ManagedSlice;
 
 #[cfg(feature = "socket-tcp")]
 use crate::socket::TcpState;
-use crate::socket::{AnySocket, Socket, SocketRef};
+use crate::socket::{AnySocket, Socket};
 
 /// An item of a socket set.
 ///
@@ -84,10 +84,11 @@ impl<'a> Set<'a> {
     /// # Panics
     /// This function may panic if the handle does not belong to this socket set
     /// or the socket has the wrong type.
-    pub fn get<T: AnySocket<'a>>(&mut self, handle: Handle) -> SocketRef<T> {
+    pub fn get<T: AnySocket<'a>>(&mut self, handle: Handle) -> &mut T {
         match self.sockets[handle.0].as_mut() {
-            Some(item) => T::downcast(SocketRef::new(&mut item.socket))
-                .expect("handle refers to a socket of a wrong type"),
+            Some(item) => {
+                T::downcast(&mut item.socket).expect("handle refers to a socket of a wrong type")
+            }
             None => panic!("handle does not refer to a valid socket"),
         }
     }
@@ -179,7 +180,7 @@ impl<'a> Set<'a> {
         }
     }
 
-    /// Iterate every socket in this set, as SocketRef.
+    /// Iterate every socket in this set.
     pub fn iter_mut<'d>(&'d mut self) -> IterMut<'d, 'a> {
         IterMut {
             lower: self.sockets.iter_mut(),
@@ -217,12 +218,12 @@ pub struct IterMut<'a, 'b: 'a> {
 }
 
 impl<'a, 'b: 'a> Iterator for IterMut<'a, 'b> {
-    type Item = SocketRef<'a, Socket<'b>>;
+    type Item = &'a mut Socket<'b>;
 
     fn next(&mut self) -> Option<Self::Item> {
         for item_opt in &mut self.lower {
             if let Some(item) = item_opt.as_mut() {
-                return Some(SocketRef::new(&mut item.socket));
+                return Some(&mut item.socket);
             }
         }
         None
