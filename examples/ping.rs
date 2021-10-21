@@ -11,7 +11,7 @@ use std::str::FromStr;
 use smoltcp::iface::{InterfaceBuilder, NeighborCache, Routes};
 use smoltcp::phy::wait as phy_wait;
 use smoltcp::phy::Device;
-use smoltcp::socket::{IcmpEndpoint, IcmpPacketMetadata, IcmpSocket, IcmpSocketBuffer, SocketSet};
+use smoltcp::socket::{IcmpEndpoint, IcmpPacketMetadata, IcmpSocket, IcmpSocketBuffer};
 use smoltcp::wire::{
     EthernetAddress, Icmpv4Packet, Icmpv4Repr, Icmpv6Packet, Icmpv6Repr, IpAddress, IpCidr,
     Ipv4Address, Ipv6Address,
@@ -127,7 +127,7 @@ fn main() {
     routes.add_default_ipv6_route(default_v6_gw).unwrap();
 
     let medium = device.capabilities().medium;
-    let mut builder = InterfaceBuilder::new(device)
+    let mut builder = InterfaceBuilder::new(device, vec![])
         .ip_addrs(ip_addrs)
         .routes(routes);
     if medium == Medium::Ethernet {
@@ -137,8 +137,7 @@ fn main() {
     }
     let mut iface = builder.finalize();
 
-    let mut sockets = SocketSet::new(vec![]);
-    let icmp_handle = sockets.add(icmp_socket);
+    let icmp_handle = iface.add_socket(icmp_socket);
 
     let mut send_at = Instant::from_millis(0);
     let mut seq_no = 0;
@@ -149,7 +148,7 @@ fn main() {
 
     loop {
         let timestamp = Instant::now();
-        match iface.poll(&mut sockets, timestamp) {
+        match iface.poll(timestamp) {
             Ok(_) => {}
             Err(e) => {
                 debug!("poll error: {}", e);
@@ -158,7 +157,7 @@ fn main() {
 
         {
             let timestamp = Instant::now();
-            let mut socket = sockets.get::<IcmpSocket>(icmp_handle);
+            let mut socket = iface.get_socket::<IcmpSocket>(icmp_handle);
             if !socket.is_open() {
                 socket.bind(IcmpEndpoint::Ident(ident)).unwrap();
                 send_at = timestamp;
@@ -261,7 +260,7 @@ fn main() {
         }
 
         let timestamp = Instant::now();
-        match iface.poll_at(&sockets, timestamp) {
+        match iface.poll_at(timestamp) {
             Some(poll_at) if timestamp < poll_at => {
                 let resume_at = cmp::min(poll_at, send_at);
                 phy_wait(fd, Some(resume_at - timestamp)).expect("wait error");

@@ -8,7 +8,7 @@ use url::Url;
 
 use smoltcp::iface::{InterfaceBuilder, NeighborCache, Routes};
 use smoltcp::phy::{wait as phy_wait, Device, Medium};
-use smoltcp::socket::{SocketSet, TcpSocket, TcpSocketBuffer};
+use smoltcp::socket::{TcpSocket, TcpSocketBuffer};
 use smoltcp::time::Instant;
 use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr, Ipv4Address, Ipv6Address};
 
@@ -48,7 +48,7 @@ fn main() {
     routes.add_default_ipv6_route(default_v6_gw).unwrap();
 
     let medium = device.capabilities().medium;
-    let mut builder = InterfaceBuilder::new(device)
+    let mut builder = InterfaceBuilder::new(device, vec![])
         .ip_addrs(ip_addrs)
         .routes(routes);
     if medium == Medium::Ethernet {
@@ -58,8 +58,7 @@ fn main() {
     }
     let mut iface = builder.finalize();
 
-    let mut sockets = SocketSet::new(vec![]);
-    let tcp_handle = sockets.add(tcp_socket);
+    let tcp_handle = iface.add_socket(tcp_socket);
 
     enum State {
         Connect,
@@ -70,7 +69,7 @@ fn main() {
 
     loop {
         let timestamp = Instant::now();
-        match iface.poll(&mut sockets, timestamp) {
+        match iface.poll(timestamp) {
             Ok(_) => {}
             Err(e) => {
                 debug!("poll error: {}", e);
@@ -78,7 +77,7 @@ fn main() {
         }
 
         {
-            let mut socket = sockets.get::<TcpSocket>(tcp_handle);
+            let mut socket = iface.get_socket::<TcpSocket>(tcp_handle);
 
             state = match state {
                 State::Connect if !socket.is_active() => {
@@ -118,6 +117,6 @@ fn main() {
             }
         }
 
-        phy_wait(fd, iface.poll_delay(&sockets, timestamp)).expect("wait error");
+        phy_wait(fd, iface.poll_delay(timestamp)).expect("wait error");
     }
 }
