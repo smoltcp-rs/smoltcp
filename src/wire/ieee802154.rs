@@ -249,7 +249,8 @@ impl<T: AsRef<[u8]>> Frame<T> {
     /// Ensure that no accessor method will panic if called.
     /// Returns `Err(Error::Truncated)` if the buffer is too short.
     pub fn check_len(&self) -> Result<()> {
-        if self.buffer.as_ref().is_empty() {
+        // We need at least 3 bytes
+        if self.buffer.as_ref().len() < 3 {
             Err(Error::Truncated)
         } else {
             Ok(())
@@ -437,27 +438,118 @@ impl<T: AsRef<[u8]>> Frame<T> {
         }
     }
 
-    /// Return the Auxilliary Security Header Field
-    #[inline]
-    pub fn aux_security_header(&self) -> Option<&[u8]> {
-        match self.frame_type() {
-            FrameType::Beacon
-            | FrameType::Data
-            | FrameType::MacCommand
-            | FrameType::Multipurpose => (),
-            FrameType::Acknowledgement if self.frame_version() == FrameVersion::Ieee802154 => (),
-            FrameType::Acknowledgement
-            | FrameType::Extended
-            | FrameType::FragmentOrFrak
-            | FrameType::Unknown(_) => return None,
+    /// Return the index where the auxiliary security header starts.
+    fn aux_security_header_start(&self) -> usize {
+        // We start with 3, because 2 bytes for frame control and the sequence number.
+        let mut index = 3;
+        index += self.addressing_fields().unwrap().len();
+        index
+    }
+
+    /// Return the index where the payload starts.
+    fn payload_start(&self) -> usize {
+        let mut index = self.aux_security_header_start();
+
+        if self.security_enabled() {
+            // We add 5 because 1 byte for control bits and 4 bytes for frame counter.
+            index += 5;
+            index += if let Some(len) = self.key_identifier_length() {
+                len as usize
+            } else {
+                0
+            };
         }
 
-        if !self.security_enabled() {
-            return None;
-        }
+        index
+    }
 
-        net_debug!("Auxilliary security header is currently not supported.");
-        None
+    /// Return the lenght of the key identifier field.
+    fn key_identifier_length(&self) -> Option<u8> {
+        Some(match self.key_identifier_mode() {
+            0 => 0,
+            1 => 1,
+            2 => 5,
+            3 => 9,
+            _ => return None,
+        })
+    }
+
+    /// Return the security level of the auxiliary security header.
+    pub fn security_level(&self) -> u8 {
+        let index = self.aux_security_header_start();
+        let b = self.buffer.as_ref()[index..][0];
+        b & 0b111
+    }
+
+    /// Return the key identifier mode used by the auxiliary security header.
+    pub fn key_identifier_mode(&self) -> u8 {
+        let index = self.aux_security_header_start();
+        let b = self.buffer.as_ref()[index..][0];
+        (b >> 3) & 0b11
+    }
+
+    /// Return the frame counter field.
+    pub fn frame_counter(&self) -> u32 {
+        let index = self.aux_security_header_start();
+        let b = &self.buffer.as_ref()[index..];
+        LittleEndian::read_u32(&b[1..1 + 4])
+    }
+
+    /// Return the Key Identifier field.
+    fn key_identifier(&self) -> &[u8] {
+        let index = self.aux_security_header_start();
+        let b = &self.buffer.as_ref()[index..];
+        let length = if let Some(len) = self.key_identifier_length() {
+            len as usize
+        } else {
+            0
+        };
+        &b[5..][..length]
+    }
+
+    /// Return the Key Source field.
+    pub fn key_source(&self) -> Option<&[u8]> {
+        let ki = self.key_identifier();
+        let len = ki.len();
+        if len > 1 {
+            Some(&ki[..len - 1])
+        } else {
+            None
+        }
+    }
+
+    /// Return the Key Index field.
+    pub fn key_index(&self) -> Option<u8> {
+        let ki = self.key_identifier();
+        let len = ki.len();
+
+        if len > 0 {
+            Some(ki[len - 1])
+        } else {
+            None
+        }
+    }
+
+    /// Return the Message Integrity Code (MIC).
+    pub fn message_integrity_code(&self) -> Option<&[u8]> {
+        let mic_len = match self.security_level() {
+            0 | 4 => return None,
+            1 | 5 => 4,
+            2 | 6 => 8,
+            3 | 7 => 16,
+            _ => panic!(),
+        };
+
+        let data = &self.buffer.as_ref();
+        let len = data.len();
+
+        Some(&data[len - mic_len..])
+    }
+
+    /// Return the MAC header.
+    pub fn mac_header(&self) -> &[u8] {
+        let data = &self.buffer.as_ref();
+        &data[..self.payload_start()]
     }
 }
 
@@ -467,10 +559,10 @@ impl<'a, T: AsRef<[u8]> + ?Sized> Frame<&'a T> {
     pub fn payload(&self) -> Option<&'a [u8]> {
         match self.frame_type() {
             FrameType::Data => {
-                let data = &self.buffer.as_ref()[field::ADDRESSING];
-                let offset = self.addressing_fields().unwrap().len();
+                let index = self.payload_start();
+                let data = &self.buffer.as_ref();
 
-                Some(&data[offset..])
+                Some(&data[index..])
             }
             _ => None,
         }
@@ -613,12 +705,9 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Frame<T> {
     pub fn payload_mut(&mut self) -> Option<&mut [u8]> {
         match self.frame_type() {
             FrameType::Data => {
-                let mut start_offset = 3;
-                start_offset += self.addressing_fields().unwrap().len();
-
+                let index = self.payload_start();
                 let data = self.buffer.as_mut();
-                let end_offset = start_offset + data.len() - 2;
-                Some(&mut data[start_offset..end_offset])
+                Some(&mut data[index..])
             }
             _ => None,
         }
@@ -853,6 +942,49 @@ mod test {
         dst_addressing_mode -> AddressingMode::Short,
         frame_version -> FrameVersion::Ieee802154_2006,
         src_addressing_mode -> AddressingMode::Extended,
-        //payload -> Some(&[0x2b, 0x00, 0x00, 0x00]),
+        payload -> Some(&[0x2b, 0x00, 0x00, 0x00][..]),
+    }
+
+    vector_test! {
+        security
+        [
+            0x69,0xdc, // frame control
+            0x32, // sequence number
+            0xcd,0xab, // destination PAN id
+            0xbf,0x9b,0x15,0x06,0x00,0x4b,0x12,0x00, // extended destination address
+            0xc7,0xd9,0xb5,0x14,0x00,0x4b,0x12,0x00, // extended source address
+            0x05, // security control field
+            0x31,0x01,0x00,0x00, // frame counter
+            0x3e,0xe8,0xfb,0x85,0xe4,0xcc,0xf4,0x48,0x90,0xfe,0x56,0x66,0xf7,0x1c,0x65,0x9e,0xf9, // data
+            0x93,0xc8,0x34,0x2e,// MIC
+        ];
+        frame_type -> FrameType::Data,
+        security_enabled -> true,
+        frame_pending -> false,
+        ack_request -> true,
+        pan_id_compression -> true,
+        dst_addressing_mode -> AddressingMode::Extended,
+        frame_version -> FrameVersion::Ieee802154_2006,
+        src_addressing_mode -> AddressingMode::Extended,
+        dst_pan_id -> Some(Pan(0xabcd)),
+        dst_addr -> Some(Address::Extended([0x00,0x12,0x4b,0x00,0x06,0x15,0x9b,0xbf])),
+        src_pan_id -> None,
+        src_addr -> Some(Address::Extended([0x00,0x12,0x4b,0x00,0x14,0xb5,0xd9,0xc7])),
+        security_level -> 5,
+        key_identifier_mode -> 0,
+        frame_counter -> 305,
+        key_source -> None,
+        key_index -> None,
+        payload -> Some(&[0x3e,0xe8,0xfb,0x85,0xe4,0xcc,0xf4,0x48,0x90,0xfe,0x56,0x66,0xf7,0x1c,0x65,0x9e,0xf9,0x93,0xc8,0x34,0x2e][..]),
+        message_integrity_code -> Some(&[0x93, 0xC8, 0x34, 0x2E][..]),
+        mac_header -> &[
+            0x69,0xdc, // frame control
+            0x32, // sequence number
+            0xcd,0xab, // destination PAN id
+            0xbf,0x9b,0x15,0x06,0x00,0x4b,0x12,0x00, // extended destination address
+            0xc7,0xd9,0xb5,0x14,0x00,0x4b,0x12,0x00, // extended source address
+            0x05, // security control field
+            0x31,0x01,0x00,0x00, // frame counter
+        ][..],
     }
 }
