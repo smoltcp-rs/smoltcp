@@ -1,4 +1,4 @@
-// Some of the functions in ring buffer is marked as #[must_use]. It notes that 
+// Some of the functions in ring buffer is marked as #[must_use]. It notes that
 // these functions may have side effects, and it's implemented by [RFC 1940].
 // [RFC 1940]: https://github.com/rust-lang/rust/issues/43302
 

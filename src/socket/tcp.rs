@@ -1875,7 +1875,8 @@ impl<'a> TcpSocket<'a> {
                     payload_len,
                     payload_offset
                 );
-                let len_written = self.rx_buffer
+                let len_written = self
+                    .rx_buffer
                     .write_unallocated(payload_offset, repr.payload);
                 debug_assert!(len_written == payload_len);
             }
