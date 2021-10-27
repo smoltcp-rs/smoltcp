@@ -310,6 +310,7 @@ let iface = InterfaceBuilder::new(device)
 #[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[cfg(feature = "medium-ethernet")]
+#[allow(clippy::large_enum_variant)]
 enum EthernetPacket<'a> {
     #[cfg(feature = "proto-ipv4")]
     Arp(ArpRepr),

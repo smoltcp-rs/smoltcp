@@ -405,6 +405,9 @@ impl Dhcpv4Socket {
         let mut dhcp_repr = DhcpRepr {
             message_type: DhcpMessageType::Discover,
             transaction_id: next_transaction_id,
+            secs: 0,
+            sname: None,
+            boot_file: None,
             client_hardware_address: ethernet_addr,
             client_ip: Ipv4Address::UNSPECIFIED,
             your_ip: Ipv4Address::UNSPECIFIED,
@@ -420,6 +423,11 @@ impl Dhcpv4Socket {
             max_size: Some((cx.caps.ip_mtu() - MAX_IPV4_HEADER_LEN - UDP_HEADER_LEN) as u16),
             lease_duration: None,
             dns_servers: None,
+            time_offset: None,
+            client_arch_list: None,
+            client_interface_id: None,
+            client_machine_id: None,
+            vendor_class_id: None,
         };
 
         let udp_repr = UdpRepr {
@@ -735,6 +743,9 @@ mod test {
     const DHCP_DEFAULT: DhcpRepr = DhcpRepr {
         message_type: DhcpMessageType::Unknown(99),
         transaction_id: TXID,
+        secs: 0,
+        sname: None,
+        boot_file: None,
         client_hardware_address: MY_MAC,
         client_ip: Ipv4Address::UNSPECIFIED,
         your_ip: Ipv4Address::UNSPECIFIED,
@@ -750,6 +761,11 @@ mod test {
         dns_servers: None,
         max_size: None,
         lease_duration: None,
+        time_offset: None,
+        client_arch_list: None,
+        client_interface_id: None,
+        client_machine_id: None,
+        vendor_class_id: None,
     };
 
     const DHCP_DISCOVER: DhcpRepr = DhcpRepr {

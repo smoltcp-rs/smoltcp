@@ -237,9 +237,11 @@ pub use self::tcp::{
 
 #[cfg(feature = "proto-dhcpv4")]
 pub use self::dhcpv4::{
-    MessageType as DhcpMessageType, Packet as DhcpPacket, Repr as DhcpRepr,
-    CLIENT_PORT as DHCP_CLIENT_PORT, MAX_DNS_SERVER_COUNT as DHCP_MAX_DNS_SERVER_COUNT,
-    SERVER_PORT as DHCP_SERVER_PORT,
+    ClientArchType as PxeArchType, DhcpOption, Flags as DhcpFlags, MachineId as PxeMachineId,
+    MachineIdType as PxeMachineIdType, MessageType as DhcpMessageType,
+    NetworkInterfaceType as PxeInterfaceType, NetworkInterfaceVersion as PxeInterfaceVersion,
+    OpCode as DhcpOpCode, Packet as DhcpPacket, Repr as DhcpRepr, CLIENT_PORT as DHCP_CLIENT_PORT,
+    MAX_DNS_SERVER_COUNT as DHCP_MAX_DNS_SERVER_COUNT, SERVER_PORT as DHCP_SERVER_PORT,
 };
 
 /// Representation of an hardware address, such as an Ethernet address or an IEEE802.15.4 address.
