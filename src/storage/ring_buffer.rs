@@ -1,4 +1,5 @@
-// Uncomment the #[must_use]s here once [RFC 1940] hits stable.
+// Some of the functions in ring buffer is marked as #[must_use]. It notes that 
+// these functions may have side effects, and it's implemented by [RFC 1940].
 // [RFC 1940]: https://github.com/rust-lang/rust/issues/43302
 
 use core::cmp;
@@ -202,7 +203,7 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
     ///
     /// This function may return a slice smaller than the given size
     /// if the free space in the buffer is not contiguous.
-    // #[must_use]
+    #[must_use]
     pub fn enqueue_many(&mut self, size: usize) -> &mut [T] {
         self.enqueue_many_with(|buf| {
             let size = cmp::min(size, buf.len());
@@ -213,7 +214,7 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
 
     /// Enqueue as many elements from the given slice into the buffer as possible,
     /// and return the amount of elements that could fit.
-    // #[must_use]
+    #[must_use]
     pub fn enqueue_slice(&mut self, data: &[T]) -> usize
     where
         T: Copy,
@@ -259,7 +260,7 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
     ///
     /// This function may return a slice smaller than the given size
     /// if the allocated space in the buffer is not contiguous.
-    // #[must_use]
+    #[must_use]
     pub fn dequeue_many(&mut self, size: usize) -> &mut [T] {
         self.dequeue_many_with(|buf| {
             let size = cmp::min(size, buf.len());
@@ -270,7 +271,7 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
 
     /// Dequeue as many elements from the buffer into the given slice as possible,
     /// and return the amount of elements that could fit.
-    // #[must_use]
+    #[must_use]
     pub fn dequeue_slice(&mut self, data: &mut [T]) -> usize
     where
         T: Copy,
@@ -294,7 +295,7 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
 impl<'a, T: 'a> RingBuffer<'a, T> {
     /// Return the largest contiguous slice of unallocated buffer elements starting
     /// at the given offset past the last allocated element, and up to the given size.
-    // #[must_use]
+    #[must_use]
     pub fn get_unallocated(&mut self, offset: usize, mut size: usize) -> &mut [T] {
         let start_at = self.get_idx(self.length + offset);
         // We can't access past the end of unallocated data.
@@ -318,7 +319,7 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
     /// Write as many elements from the given slice into unallocated buffer elements
     /// starting at the given offset past the last allocated element, and return
     /// the amount written.
-    // #[must_use]
+    #[must_use]
     pub fn write_unallocated(&mut self, offset: usize, data: &[T]) -> usize
     where
         T: Copy,
@@ -349,7 +350,7 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
 
     /// Return the largest contiguous slice of allocated buffer elements starting
     /// at the given offset past the first allocated element, and up to the given size.
-    // #[must_use]
+    #[must_use]
     pub fn get_allocated(&self, offset: usize, mut size: usize) -> &[T] {
         let start_at = self.get_idx(offset);
         // We can't read past the end of the allocated data.
@@ -373,7 +374,7 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
     /// Read as many elements from allocated buffer elements into the given slice
     /// starting at the given offset past the first allocated element, and return
     /// the amount read.
-    // #[must_use]
+    #[must_use]
     pub fn read_allocated(&mut self, offset: usize, data: &mut [T]) -> usize
     where
         T: Copy,
@@ -686,7 +687,8 @@ mod test {
         }
         assert_eq!(&ring.storage[..], b"abcd........");
 
-        ring.enqueue_many(4);
+        let buf_enqueued = ring.enqueue_many(4);
+        assert_eq!(buf_enqueued.len(), 4);
         assert_eq!(ring.len(), 4);
 
         {
@@ -730,15 +732,18 @@ mod test {
         assert_eq!(ring.get_allocated(16, 4), b"");
         assert_eq!(ring.get_allocated(0, 4), b"");
 
-        ring.enqueue_slice(b"abcd");
+        let len_enqueued = ring.enqueue_slice(b"abcd");
         assert_eq!(ring.get_allocated(0, 8), b"abcd");
+        assert_eq!(len_enqueued, 4);
 
-        ring.enqueue_slice(b"efghijkl");
+        let len_enqueued = ring.enqueue_slice(b"efghijkl");
         ring.dequeue_many(4).copy_from_slice(b"....");
         assert_eq!(ring.get_allocated(4, 8), b"ijkl");
+        assert_eq!(len_enqueued, 8);
 
-        ring.enqueue_slice(b"abcd");
+        let len_enqueued = ring.enqueue_slice(b"abcd");
         assert_eq!(ring.get_allocated(4, 8), b"ijkl");
+        assert_eq!(len_enqueued, 4);
     }
 
     #[test]
@@ -782,10 +787,11 @@ mod test {
     #[test]
     fn test_buffer_write_wholly() {
         let mut ring = RingBuffer::new(vec![b'.'; 8]);
-        ring.enqueue_many(2).copy_from_slice(b"xx");
-        ring.enqueue_many(2).copy_from_slice(b"xx");
+        ring.enqueue_many(2).copy_from_slice(b"ab");
+        ring.enqueue_many(2).copy_from_slice(b"cd");
         assert_eq!(ring.len(), 4);
-        ring.dequeue_many(4);
+        let buf_dequeued = ring.dequeue_many(4);
+        assert_eq!(buf_dequeued, b"abcd");
         assert_eq!(ring.len(), 0);
 
         let large = ring.enqueue_many(8);

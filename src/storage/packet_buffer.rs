@@ -102,7 +102,9 @@ impl<'a, H> PacketBuffer<'a, H> {
                 // Add padding to the end of the ring buffer so that the
                 // contiguous window is at the beginning of the ring buffer.
                 *self.metadata_ring.enqueue_one()? = PacketMetadata::padding(contig_window);
-                self.payload_ring.enqueue_many(contig_window);
+                // note(discard): function does not write to the result 
+                // enqueued padding buffer location
+                let _buf_enqueued = self.payload_ring.enqueue_many(contig_window);
             }
         }
 
@@ -121,7 +123,8 @@ impl<'a, H> PacketBuffer<'a, H> {
 
         let _ = metadata_ring.dequeue_one_with(|metadata| {
             if metadata.is_padding() {
-                payload_ring.dequeue_many(metadata.size);
+                // note(discard): function does not use value of dequeued padding bytes
+                let _buf_dequeued = payload_ring.dequeue_many(metadata.size);
                 Ok(()) // dequeue metadata
             } else {
                 Err(Error::Exhausted) // don't dequeue metadata
