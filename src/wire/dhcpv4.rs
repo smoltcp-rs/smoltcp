@@ -6,6 +6,7 @@ use byteorder::{ByteOrder, NetworkEndian};
 use crate::wire::arp::Hardware;
 use crate::wire::{EthernetAddress, Ipv4Address};
 use crate::{Error, Result};
+use core::convert::TryFrom;
 
 pub const SERVER_PORT: u16 = 67;
 pub const CLIENT_PORT: u16 = 68;
@@ -19,6 +20,107 @@ enum_with_unknown! {
         Request = 1,
         Reply = 2,
     }
+}
+
+/// The possible system architecture types
+#[repr(u16)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[allow(unused)]
+pub enum ClientArchType {
+    /// Intel x86PC
+    X86PC = 0,
+    /// NEC/PC98
+    PC98 = 1,
+    /// EFI Itanium
+    EfiItanium = 2,
+    /// DEC Alpha
+    DecAlpha = 3,
+    /// Arc x86
+    ArcX86 = 4,
+    /// Intel Lean Client
+    IntelLeanClient = 5,
+    /// EFI IA32
+    EfiIA32 = 6,
+    /// EFI BC
+    EfiBc = 7,
+    /// EFI Xscale
+    EfiXscale = 8,
+    /// EFI x86-64
+    EfiX86_64 = 9,
+}
+
+impl TryFrom<u16> for ClientArchType {
+    type Error = Error;
+
+    fn try_from(value: u16) -> Result<Self> {
+        match value {
+            0 => Ok(Self::X86PC),
+            1 => Ok(Self::PC98),
+            2 => Ok(Self::EfiItanium),
+            3 => Ok(Self::DecAlpha),
+            4 => Ok(Self::ArcX86),
+            5 => Ok(Self::IntelLeanClient),
+            6 => Ok(Self::EfiIA32),
+            7 => Ok(Self::EfiBc),
+            8 => Ok(Self::EfiXscale),
+            9 => Ok(Self::EfiX86_64),
+            _ => Err(Error::Unrecognized),
+        }
+    }
+}
+
+#[repr(u8)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum NetworkInterfaceType {
+    /// Universal Network Device Interface
+    Undi = 1,
+}
+
+impl TryFrom<u8> for NetworkInterfaceType {
+    type Error = Error;
+
+    fn try_from(value: u8) -> Result<Self> {
+        match value {
+            1 => Ok(NetworkInterfaceType::Undi),
+            _ => Err(Error::Unrecognized),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct NetworkInterfaceVersion {
+    pub interface_type: NetworkInterfaceType,
+    pub major: u8,
+    pub minor: u8,
+}
+
+#[repr(u8)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum MachineIdType {
+    /// Globally Unique Identifier type
+    Guid = 0,
+}
+
+impl TryFrom<u8> for MachineIdType {
+    type Error = Error;
+
+    fn try_from(value: u8) -> Result<Self> {
+        match value {
+            0 => Ok(MachineIdType::Guid),
+            _ => Err(Error::Unrecognized),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct MachineId<'a> {
+    pub id_type: MachineIdType,
+    pub id: &'a [u8],
 }
 
 enum_with_unknown! {
@@ -69,6 +171,11 @@ pub enum DhcpOption<'a> {
     Router(Ipv4Address),
     SubnetMask(Ipv4Address),
     MaximumDhcpMessageSize(u16),
+    TimeOffset(u32),
+    ClientArchTypeList(&'a [u8]),
+    ClientNetworkInterfaceId(NetworkInterfaceVersion),
+    ClientMachineId(MachineId<'a>),
+    VendorClassId(&'a str),
     Other { kind: u8, data: &'a [u8] },
 }
 
@@ -97,6 +204,31 @@ impl<'a> DhcpOption<'a> {
                     }
                     (field::OPT_REQUESTED_IP, 4) => {
                         option = DhcpOption::RequestedIp(Ipv4Address::from_bytes(data));
+                    }
+                    (field::OPT_TIME_OFFSET, 4) => {
+                        option = DhcpOption::TimeOffset(u32::from_be_bytes([
+                            data[0], data[1], data[2], data[3],
+                        ]));
+                    }
+                    (field::OPT_CLIENT_ARCH, _) => option = DhcpOption::ClientArchTypeList(data),
+                    (field::OPT_CLIENT_MACHINE_ID, _) => {
+                        let id_type = MachineIdType::try_from(data[0])?;
+
+                        option = DhcpOption::ClientMachineId(MachineId {
+                            id_type: id_type,
+                            id: &data[1..],
+                        });
+                    }
+                    (field::OPT_VENDOR_CLASS_ID, _) => {
+                        let temp = core::str::from_utf8(data).map_err(|_| Error::Malformed)?;
+                        option = DhcpOption::VendorClassId(temp);
+                    }
+                    (field::OPT_CLIENT_INTERFACE_ID, 3) => {
+                        option = DhcpOption::ClientNetworkInterfaceId(NetworkInterfaceVersion {
+                            interface_type: TryFrom::try_from(data[0])?,
+                            major: data[1],
+                            minor: data[2],
+                        })
                     }
                     (field::OPT_CLIENT_ID, 7) => {
                         let hardware_type = Hardware::from(u16::from(data[0]));
@@ -141,6 +273,7 @@ impl<'a> DhcpOption<'a> {
         match self {
             &DhcpOption::EndOfList => 1,
             &DhcpOption::Pad => 1,
+            &DhcpOption::TimeOffset(_) => 6,
             &DhcpOption::MessageType(_) => 3,
             &DhcpOption::ClientIdentifier(eth_addr) => 3 + eth_addr.as_bytes().len(),
             &DhcpOption::RequestedIp(ip)
@@ -149,6 +282,10 @@ impl<'a> DhcpOption<'a> {
             | &DhcpOption::SubnetMask(ip) => 2 + ip.as_bytes().len(),
             &DhcpOption::MaximumDhcpMessageSize(_) => 4,
             &DhcpOption::IpLeaseTime(_) => 6,
+            &DhcpOption::ClientArchTypeList(list) => 2 + list.len(),
+            &DhcpOption::ClientMachineId(list) => 3 + list.id.len(),
+            &DhcpOption::ClientNetworkInterfaceId(_) => 5,
+            &DhcpOption::VendorClassId(list) => 2 + list.len(),
             &DhcpOption::Other { data, .. } => 2 + data.len(),
         }
     }
@@ -172,6 +309,29 @@ impl<'a> DhcpOption<'a> {
                     DhcpOption::MessageType(value) => {
                         buffer[0] = field::OPT_DHCP_MESSAGE_TYPE;
                         buffer[2] = value.into();
+                    }
+                    DhcpOption::VendorClassId(list) => {
+                        buffer[0] = field::OPT_VENDOR_CLASS_ID;
+                        buffer[2..skip_length].copy_from_slice(list.as_bytes());
+                    }
+                    DhcpOption::ClientArchTypeList(list) => {
+                        buffer[0] = field::OPT_CLIENT_ARCH;
+                        buffer[2..skip_length].copy_from_slice(list);
+                    }
+                    DhcpOption::ClientMachineId(list) => {
+                        buffer[0] = field::OPT_CLIENT_MACHINE_ID;
+                        buffer[2] = list.id_type as u8;
+                        buffer[3..skip_length].copy_from_slice(list.id);
+                    }
+                    DhcpOption::TimeOffset(value) => {
+                        buffer[0] = field::OPT_TIME_OFFSET;
+                        buffer[2..6].copy_from_slice(&value.to_be_bytes()[..]);
+                    }
+                    DhcpOption::ClientNetworkInterfaceId(id) => {
+                        buffer[0] = field::OPT_CLIENT_INTERFACE_ID;
+                        buffer[2] = id.interface_type as u8;
+                        buffer[3] = id.major;
+                        buffer[4] = id.minor;
                     }
                     DhcpOption::ClientIdentifier(eth_addr) => {
                         buffer[0] = field::OPT_CLIENT_ID;
@@ -240,8 +400,8 @@ pub(crate) mod field {
     pub const YIADDR: Field = 16..20;
     pub const SIADDR: Field = 20..24;
     pub const GIADDR: Field = 24..28;
-    pub const CHADDR: Field = 28..34;
-    pub const SNAME: Field = 34..108;
+    pub const CHADDR: Field = 28..44;
+    pub const SNAME: Field = 44..108;
     pub const FILE: Field = 108..236;
     pub const MAGIC_NUMBER: Field = 236..240;
     pub const OPTIONS: Rest = 240..;
@@ -335,6 +495,11 @@ pub(crate) mod field {
     pub const OPT_REBINDING_TIME_VALUE: u8 = 59;
     pub const OPT_VENDOR_CLASS_ID: u8 = 60;
     pub const OPT_CLIENT_ID: u8 = 61;
+
+    // PXE DHCP extensions
+    pub const OPT_CLIENT_ARCH: u8 = 93;
+    pub const OPT_CLIENT_INTERFACE_ID: u8 = 94;
+    pub const OPT_CLIENT_MACHINE_ID: u8 = 97;
 }
 
 impl<T: AsRef<[u8]>> Packet<T> {
@@ -403,7 +568,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// Only ethernet is supported by `smoltcp`, so this functions returns
     /// an `EthernetAddress`.
     pub fn client_hardware_address(&self) -> EthernetAddress {
-        let field = &self.buffer.as_ref()[field::CHADDR];
+        let field = &self.buffer.as_ref()[field::CHADDR][..core::mem::size_of::<EthernetAddress>()];
         EthernetAddress::from_bytes(field)
     }
 
@@ -472,6 +637,29 @@ impl<'a, T: AsRef<[u8]> + ?Sized> Packet<&'a T> {
         let data = self.buffer.as_ref();
         data.get(field::OPTIONS).ok_or(Error::Malformed)
     }
+
+    pub fn get_sname(&self) -> Result<&'a str> {
+        let data = self.buffer.as_ref();
+        let data = data.get(field::SNAME).ok_or(Error::Malformed)?;
+        let len = data.iter().position(|&x| x == 0).ok_or(Error::Malformed)?;
+        if len == 0 {
+            return Err(Error::Finished);
+        }
+
+        let data = core::str::from_utf8(&data[..len]).map_err(|_| Error::Malformed)?;
+        Ok(data)
+    }
+
+    pub fn get_boot_file(&self) -> Result<&'a str> {
+        let data = self.buffer.as_ref();
+        let data = data.get(field::FILE).ok_or(Error::Malformed)?;
+        let len = data.iter().position(|&x| x == 0).ok_or(Error::Malformed)?;
+        if len == 0 {
+            return Err(Error::Finished);
+        }
+        let data = core::str::from_utf8(&data[..len]).map_err(|_| Error::Malformed)?;
+        Ok(data)
+    }
 }
 
 impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
@@ -487,6 +675,22 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
         }
         for byte in &mut data[field::FILE] {
             *byte = 0;
+        }
+    }
+
+    pub fn set_boot_file(&mut self, value: &str) {
+        let data = self.buffer.as_mut();
+        data[field::FILE][..value.len()].copy_from_slice(value.as_bytes());
+        for i in data[field::FILE][value.len()..].iter_mut() {
+            *i = 0;
+        }
+    }
+
+    pub fn set_sname(&mut self, value: &str) {
+        let data = self.buffer.as_mut();
+        data[field::SNAME][..value.len()].copy_from_slice(value.as_bytes());
+        for i in data[field::SNAME][value.len()..].iter_mut() {
+            *i = 0;
         }
     }
 
@@ -526,7 +730,10 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// Sets the `chaddr` field.
     pub fn set_client_hardware_address(&mut self, value: EthernetAddress) {
         let field = &mut self.buffer.as_mut()[field::CHADDR];
-        field.copy_from_slice(value.as_bytes());
+        field[..core::mem::size_of::<EthernetAddress>()].copy_from_slice(value.as_bytes());
+        for i in field[core::mem::size_of::<EthernetAddress>()..].iter_mut() {
+            *i = 0;
+        }
     }
 
     /// Sets the hops field.
@@ -651,6 +858,10 @@ pub struct Repr<'a> {
     /// used by the client and server to associate messages and responses between a client and a
     /// server.
     pub transaction_id: u32,
+    /// seconds elapsed since client began address acquisition or renewal process
+    /// the DHCPREQUEST message MUST use the same value in the DHCP message header's 'secs' field and be sent to the
+    /// same IP broadcast address as the original DHCPDISCOVER message.
+    pub secs: u16,
     /// This field is also known as `chaddr` in the RFC and for networks where the access layer is
     /// ethernet, it is the client MAC address.
     pub client_hardware_address: EthernetAddress,
@@ -662,6 +873,11 @@ pub struct Repr<'a> {
     /// This field is also known as `siaddr` in the RFC. It may be set by the server in DHCPOFFER
     /// and DHCPACK messages, and represent the address of the next server to use in bootstrap.
     pub server_ip: Ipv4Address,
+    /// Boot file name, null terminated string; "generic"
+    /// name or null in DHCPDISCOVER, fully qualified
+    pub boot_file: Option<&'a str>,
+    /// Optional server host name, null terminated string.
+    pub sname: Option<&'a str>,
     /// Default gateway
     pub router: Option<Ipv4Address>,
     /// This field comes from a corresponding DhcpOption.
@@ -704,6 +920,17 @@ pub struct Repr<'a> {
     pub max_size: Option<u16>,
     /// The DHCP IP lease duration, specified in seconds.
     pub lease_duration: Option<u32>,
+    /// Describes the pre-boot runtime environment(s) of the client machine.
+    pub client_arch_list: Option<&'a [u8]>,
+    /// Describe the client interface revision
+    pub client_interface_id: Option<NetworkInterfaceVersion>,
+    /// Globally Unique Identifier for PXE client
+    pub client_machine_id: Option<MachineId<'a>>,
+    /// The time offset field specifies the offset of the client's subnet in
+    /// seconds from Coordinated Universal Time (UTC).
+    pub time_offset: Option<u32>,
+    /// A ascii string representing the vendor of the client
+    pub vendor_class_id: Option<&'a str>,
 }
 
 impl<'a> Repr<'a> {
@@ -733,6 +960,18 @@ impl<'a> Repr<'a> {
         if self.lease_duration.is_some() {
             len += 6;
         }
+        if self.time_offset.is_some() {
+            len += 6;
+        }
+        if self.client_interface_id.is_some() {
+            len += 5;
+        }
+        if let Some(list) = self.client_machine_id {
+            len += list.id.len() + 3;
+        }
+        if let Some(list) = self.client_arch_list {
+            len += list.len() + 2;
+        }
         if let Some(dns_servers) = self.dns_servers {
             len += 2;
             len += dns_servers.iter().flatten().count() * core::mem::size_of::<u32>();
@@ -755,6 +994,9 @@ impl<'a> Repr<'a> {
         let your_ip = packet.your_ip();
         let server_ip = packet.server_ip();
         let relay_agent_ip = packet.relay_agent_ip();
+        let sname = packet.get_sname().ok();
+        let boot_file = packet.get_boot_file().ok();
+        let secs = packet.secs();
 
         // only ethernet is supported right now
         match packet.hardware_type() {
@@ -780,6 +1022,11 @@ impl<'a> Repr<'a> {
         let mut dns_servers = None;
         let mut max_size = None;
         let mut lease_duration = None;
+        let mut time_offset = None;
+        let mut client_arch_list = None;
+        let mut client_interface_id = None;
+        let mut client_machine_id = None;
+        let mut vendor_class_id = None;
 
         let mut options = packet.options()?;
         while !options.is_empty() {
@@ -792,8 +1039,23 @@ impl<'a> Repr<'a> {
                         message_type = Ok(value);
                     }
                 }
+                DhcpOption::ClientMachineId(list) => {
+                    client_machine_id = Some(list);
+                }
+                DhcpOption::TimeOffset(offset) => {
+                    time_offset = Some(offset);
+                }
                 DhcpOption::RequestedIp(ip) => {
                     requested_ip = Some(ip);
+                }
+                DhcpOption::ClientNetworkInterfaceId(id) => {
+                    client_interface_id = Some(id);
+                }
+                DhcpOption::ClientArchTypeList(list) => {
+                    client_arch_list = Some(list);
+                }
+                DhcpOption::VendorClassId(id) => {
+                    vendor_class_id = Some(id);
                 }
                 DhcpOption::ClientIdentifier(eth_addr) => {
                     client_identifier = Some(eth_addr);
@@ -841,10 +1103,13 @@ impl<'a> Repr<'a> {
         let broadcast = packet.flags().contains(Flags::BROADCAST);
 
         Ok(Repr {
+            secs,
             transaction_id,
             client_hardware_address,
             client_ip,
             your_ip,
+            sname,
+            boot_file,
             server_ip,
             relay_agent_ip,
             broadcast,
@@ -857,6 +1122,11 @@ impl<'a> Repr<'a> {
             dns_servers,
             max_size,
             lease_duration,
+            time_offset,
+            client_arch_list,
+            client_interface_id,
+            client_machine_id,
+            vendor_class_id,
             message_type: message_type?,
         })
     }
@@ -867,14 +1137,36 @@ impl<'a> Repr<'a> {
     where
         T: AsRef<[u8]> + AsMut<[u8]> + ?Sized,
     {
-        packet.set_sname_and_boot_file_to_zero();
+        if let Some(sname) = self.sname {
+            if sname.len() + 1 < field::SNAME.len() {
+                packet.set_sname(sname);
+            } else {
+                return Err(Error::Illegal);
+            }
+        } else {
+            packet.set_sname(
+                core::str::from_utf8(&[0; field::SNAME.end - field::SNAME.start]).unwrap(),
+            );
+        }
+
+        if let Some(boot_file) = self.boot_file {
+            if boot_file.len() + 1 < field::FILE.len() {
+                packet.set_boot_file(boot_file);
+            } else {
+                return Err(Error::Illegal);
+            }
+        } else {
+            packet.set_boot_file(
+                core::str::from_utf8(&[0; field::FILE.end - field::FILE.start]).unwrap(),
+            );
+        }
         packet.set_opcode(self.message_type.opcode());
         packet.set_hardware_type(Hardware::Ethernet);
         packet.set_hardware_len(6);
         packet.set_transaction_id(self.transaction_id);
         packet.set_client_hardware_address(self.client_hardware_address);
         packet.set_hops(0);
-        packet.set_secs(0); // TODO
+        packet.set_secs(self.secs);
         packet.set_magic_number(0x63825363);
         packet.set_client_ip(self.client_ip);
         packet.set_your_ip(self.your_ip);
@@ -907,6 +1199,21 @@ impl<'a> Repr<'a> {
             }
             if let Some(size) = self.max_size {
                 options = DhcpOption::MaximumDhcpMessageSize(size).emit(options);
+            }
+            if let Some(client_arch_list) = self.client_arch_list {
+                options = DhcpOption::ClientArchTypeList(client_arch_list).emit(options);
+            }
+            if let Some(client_machine_id) = self.client_machine_id {
+                options = DhcpOption::ClientMachineId(client_machine_id).emit(options);
+            }
+            if let Some(vendor_class_id) = self.vendor_class_id {
+                options = DhcpOption::VendorClassId(vendor_class_id).emit(options);
+            }
+            if let Some(time_offset) = self.time_offset {
+                options = DhcpOption::TimeOffset(time_offset).emit(options);
+            }
+            if let Some(client_interface_id) = self.client_interface_id {
+                options = DhcpOption::ClientNetworkInterfaceId(client_interface_id).emit(options);
             }
             if let Some(duration) = self.lease_duration {
                 options = DhcpOption::IpLeaseTime(duration).emit(options);
@@ -950,6 +1257,34 @@ mod test {
     use crate::wire::Ipv4Address;
 
     const MAGIC_COOKIE: u32 = 0x63825363;
+
+    /* Frame (548 bytes) */
+    static PXE_DISCOVER_BYTES: &[u8] = &[
+        0x01, 0x01, 0x06, 0x00, 0x2f, 0x91, 0xf7, 0xfd, 0x00, 0x04, 0x80, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0b,
+        0x82, 0x01, 0xfc, 0x42, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x63, 0x82, 0x53, 0x63,
+        0x35, 0x01, 0x01, 0x37, 0x24, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x0b, 0x0c, 0x0d, 0x0f,
+        0x10, 0x11, 0x12, 0x16, 0x17, 0x1c, 0x28, 0x29, 0x2a, 0x2b, 0x32, 0x33, 0x36, 0x3a, 0x3b,
+        0x3c, 0x42, 0x43, 0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x39, 0x02, 0x04, 0xec,
+        0x61, 0x11, 0x00, 0x00, 0x02, 0x00, 0x03, 0x00, 0x04, 0x00, 0x05, 0x00, 0x06, 0x00, 0x07,
+        0x00, 0x08, 0x00, 0x09, 0x5d, 0x02, 0x00, 0x00, 0x5e, 0x03, 0x01, 0x02, 0x01, 0x3c, 0x20,
+        0x50, 0x58, 0x45, 0x43, 0x6c, 0x69, 0x65, 0x6e, 0x74, 0x3a, 0x41, 0x72, 0x63, 0x68, 0x3a,
+        0x30, 0x30, 0x30, 0x30, 0x30, 0x3a, 0x55, 0x4e, 0x44, 0x49, 0x3a, 0x30, 0x30, 0x32, 0x30,
+        0x30, 0x31, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ];
 
     static DISCOVER_BYTES: &[u8] = &[
         0x01, 0x01, 0x06, 0x00, 0x00, 0x00, 0x3d, 0x1d, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -1025,6 +1360,145 @@ mod test {
     const IP_NULL: Ipv4Address = Ipv4Address([0, 0, 0, 0]);
     const CLIENT_MAC: EthernetAddress = EthernetAddress([0x0, 0x0b, 0x82, 0x01, 0xfc, 0x42]);
     const DHCP_SIZE: u16 = 1500;
+
+    #[test]
+    fn test_construct_pxe_discover() {
+        let mut bytes = vec![0xa5; 360];
+        assert_eq!(bytes.len(), PXE_DISCOVER_BYTES.len());
+        let mut packet = Packet::new_unchecked(&mut bytes);
+        packet.set_magic_number(MAGIC_COOKIE);
+        packet.set_sname_and_boot_file_to_zero();
+        packet.set_opcode(OpCode::Request);
+        packet.set_hardware_type(Hardware::Ethernet);
+        packet.set_hardware_len(6);
+        packet.set_hops(0);
+        packet.set_transaction_id(0x2f91f7fd);
+        packet.set_secs(4);
+        packet.set_flags(Flags::BROADCAST);
+        packet.set_client_ip(IP_NULL);
+        packet.set_your_ip(IP_NULL);
+        packet.set_server_ip(IP_NULL);
+        packet.set_relay_agent_ip(IP_NULL);
+        packet.set_client_hardware_address(CLIENT_MAC);
+
+        {
+            let mut options = packet.options_mut().unwrap();
+            options = DhcpOption::MessageType(MessageType::Discover).emit(options);
+            options = DhcpOption::Other {
+                kind: field::OPT_PARAMETER_REQUEST_LIST,
+                data: &[
+                    0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x0b, 0x0c, 0x0d, 0x0f, 0x10, 0x11, 0x12,
+                    0x16, 0x17, 0x1c, 0x28, 0x29, 0x2a, 0x2b, 0x32, 0x33, 0x36, 0x3a, 0x3b, 0x3c,
+                    0x42, 0x43, 0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87,
+                ],
+            }
+            .emit(options);
+            options = DhcpOption::MaximumDhcpMessageSize(1260).emit(options);
+            options = DhcpOption::ClientMachineId(MachineId {
+                id_type: MachineIdType::Guid,
+                id: &[
+                    0x00, 0x02, 0x00, 0x03, 0x00, 0x04, 0x00, 0x05, 0x00, 0x06, 0x00, 0x07, 0x00,
+                    0x08, 0x00, 0x09,
+                ],
+            })
+            .emit(options);
+            options = DhcpOption::ClientArchTypeList(&(ClientArchType::X86PC as u16).to_be_bytes())
+                .emit(options);
+            options = DhcpOption::ClientNetworkInterfaceId(NetworkInterfaceVersion {
+                interface_type: NetworkInterfaceType::Undi,
+                major: 2,
+                minor: 1,
+            })
+            .emit(options);
+            options = DhcpOption::VendorClassId("PXEClient:Arch:00000:UNDI:002001").emit(options);
+
+            DhcpOption::EndOfList.emit(options);
+        }
+
+        let packet = &mut packet.into_inner()[..];
+        for byte in &mut packet[348..360] {
+            *byte = 0; // padding bytes
+        }
+
+        assert_eq!(packet, PXE_DISCOVER_BYTES);
+    }
+
+    #[test]
+    fn test_deconstruct_discover_pxe() {
+        use crate::wire::dhcpv4::field::*;
+        let packet = Packet::new_checked(PXE_DISCOVER_BYTES).unwrap();
+        assert_eq!(packet.magic_number(), MAGIC_COOKIE);
+        assert_eq!(packet.opcode(), OpCode::Request);
+        assert_eq!(packet.hardware_type(), Hardware::Ethernet);
+        assert_eq!(packet.hardware_len(), 6);
+        assert_eq!(packet.hops(), 0);
+        assert_eq!(packet.transaction_id(), 0x2f91f7fd);
+        assert_eq!(packet.secs(), 4);
+        assert_eq!(packet.client_ip(), IP_NULL);
+        assert_eq!(packet.your_ip(), IP_NULL);
+        assert_eq!(packet.server_ip(), IP_NULL);
+        assert_eq!(packet.relay_agent_ip(), IP_NULL);
+        assert_eq!(packet.client_hardware_address(), CLIENT_MAC);
+        let options = packet.options().unwrap();
+        assert_eq!(options.len(), 3 + 38 + 4 + 19 + 4 + 5 + 34 + 1 + 12);
+
+        let (options, message_type) = DhcpOption::parse(options).unwrap();
+        assert_eq!(message_type, DhcpOption::MessageType(MessageType::Discover));
+        assert_eq!(options.len(), 38 + 4 + 19 + 4 + 5 + 34 + 1 + 12);
+
+        let (options, message_type) = DhcpOption::parse(options).unwrap();
+        match message_type {
+            DhcpOption::Other {
+                kind: OPT_PARAMETER_REQUEST_LIST,
+                data: _,
+            } => (),
+            _ => panic!("Expected parameter request list here"),
+        }
+        assert_eq!(options.len(), 4 + 19 + 4 + 5 + 34 + 1 + 12);
+
+        let (options, msg_size) = DhcpOption::parse(options).unwrap();
+        assert_eq!(msg_size, DhcpOption::MaximumDhcpMessageSize(1260));
+        assert_eq!(options.len(), 19 + 4 + 5 + 34 + 1 + 12);
+
+        let (options, msg_size) = DhcpOption::parse(options).unwrap();
+        assert_eq!(
+            msg_size,
+            DhcpOption::ClientMachineId(MachineId {
+                id_type: MachineIdType::Guid,
+                id: &[
+                    0x00, 0x02, 0x00, 0x03, 0x00, 0x04, 0x00, 0x05, 0x00, 0x06, 0x00, 0x07, 0x00,
+                    0x08, 0x00, 0x09
+                ]
+            })
+        );
+        assert_eq!(options.len(), 4 + 5 + 34 + 1 + 12);
+
+        let (options, msg_size) = DhcpOption::parse(options).unwrap();
+        assert_eq!(msg_size, DhcpOption::ClientArchTypeList(&[0x00, 0x00]));
+        assert_eq!(options.len(), 5 + 34 + 1 + 12);
+
+        let (options, msg_size) = DhcpOption::parse(options).unwrap();
+        assert_eq!(
+            msg_size,
+            DhcpOption::ClientNetworkInterfaceId(NetworkInterfaceVersion {
+                interface_type: NetworkInterfaceType::Undi,
+                major: 2,
+                minor: 1
+            })
+        );
+        assert_eq!(options.len(), 34 + 1 + 12);
+
+        let (options, msg_size) = DhcpOption::parse(options).unwrap();
+        assert_eq!(
+            msg_size,
+            DhcpOption::VendorClassId("PXEClient:Arch:00000:UNDI:002001")
+        );
+        assert_eq!(options.len(), 1 + 12);
+
+        let (options, client_id) = DhcpOption::parse(options).unwrap();
+        assert_eq!(client_id, DhcpOption::EndOfList);
+        assert_eq!(options.len(), 12); // padding
+    }
 
     #[test]
     fn test_deconstruct_discover() {
@@ -1121,12 +1595,15 @@ mod test {
             message_type: MessageType::Offer,
             transaction_id: 0x3d1d,
             client_hardware_address: CLIENT_MAC,
+            sname: None,
+            boot_file: None,
             client_ip: IP_NULL,
             your_ip: IP_NULL,
             server_ip: IP_NULL,
             router: Some(IP_NULL),
             subnet_mask: Some(IP_NULL),
             relay_agent_ip: IP_NULL,
+            secs: 0,
             broadcast: false,
             requested_ip: None,
             client_identifier: Some(CLIENT_MAC),
@@ -1135,6 +1612,11 @@ mod test {
             dns_servers: None,
             max_size: None,
             lease_duration: Some(0xffff_ffff), // Infinite lease
+            time_offset: None,
+            client_arch_list: None,
+            client_interface_id: None,
+            client_machine_id: None,
+            vendor_class_id: None,
         }
     }
 
@@ -1143,6 +1625,8 @@ mod test {
             message_type: MessageType::Discover,
             transaction_id: 0x3d1d,
             client_hardware_address: CLIENT_MAC,
+            boot_file: None,
+            sname: None,
             client_ip: IP_NULL,
             your_ip: IP_NULL,
             server_ip: IP_NULL,
@@ -1150,6 +1634,7 @@ mod test {
             subnet_mask: None,
             relay_agent_ip: IP_NULL,
             broadcast: false,
+            secs: 0,
             max_size: Some(DHCP_SIZE),
             lease_duration: None,
             requested_ip: Some(IP_NULL),
@@ -1157,6 +1642,11 @@ mod test {
             server_identifier: None,
             parameter_request_list: Some(&[1, 3, 6, 42]),
             dns_servers: None,
+            time_offset: None,
+            client_arch_list: None,
+            client_interface_id: None,
+            client_machine_id: None,
+            vendor_class_id: None,
         }
     }
 
