@@ -824,7 +824,11 @@ impl<'a> Repr<'a> {
                     data,
                 } => {
                     let mut servers = [None; MAX_DNS_SERVER_COUNT];
-                    for (server, chunk) in servers.iter_mut().zip(data.chunks(4)) {
+                    let chunk_size = 4;
+                    for (server, chunk) in servers.iter_mut().zip(data.chunks(chunk_size)) {
+                        if chunk.len() != chunk_size {
+                            return Err(Error::Malformed);
+                        }
                         *server = Some(Ipv4Address::from_bytes(chunk));
                     }
                     dns_servers = Some(servers);

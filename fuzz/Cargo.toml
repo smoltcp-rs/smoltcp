@@ -28,3 +28,9 @@ name = "tcp_headers"
 path = "fuzz_targets/tcp_headers.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "dhcp_header"
+path = "fuzz_targets/dhcp_header.rs"
+test = false
+doc = false
