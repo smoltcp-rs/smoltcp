@@ -613,6 +613,7 @@ where
     /// This function panics if any of the addresses are not unicast.
     pub fn update_ip_addrs<F: FnOnce(&mut ManagedSlice<'a, IpCidr>)>(&mut self, f: F) {
         f(&mut self.inner.ip_addrs);
+        InterfaceInner::flush_cache(&mut self.inner);
         InterfaceInner::check_ip_addrs(&self.inner.ip_addrs)
     }
 
@@ -2225,6 +2226,12 @@ impl<'a> InterfaceInner<'a> {
         Err(Error::Unaddressable)
     }
 
+    fn flush_cache(&mut self) {
+        if let Some(cache) = self.neighbor_cache.as_mut() {
+            cache.flush()
+        }
+    }
+
     fn dispatch_ip<Tx: TxToken>(
         &mut self,
         cx: &Context,
@@ -3311,6 +3318,76 @@ mod test {
             ),
             Err(Error::Unaddressable)
         );
+    }
+
+    #[test]
+    #[cfg(all(feature = "medium-ethernet", feature = "proto-ipv4"))]
+    fn test_arp_flush_after_update_ip() {
+        let (mut iface, mut socket_set) = create_loopback_ethernet();
+
+        let mut eth_bytes = vec![0u8; 42];
+
+        let local_ip_addr = Ipv4Address([0x7f, 0x00, 0x00, 0x01]);
+        let remote_ip_addr = Ipv4Address([0x7f, 0x00, 0x00, 0x02]);
+        let local_hw_addr = EthernetAddress([0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+        let remote_hw_addr = EthernetAddress([0x52, 0x54, 0x00, 0x00, 0x00, 0x00]);
+
+        let repr = ArpRepr::EthernetIpv4 {
+            operation: ArpOperation::Request,
+            source_hardware_addr: remote_hw_addr,
+            source_protocol_addr: remote_ip_addr,
+            target_hardware_addr: EthernetAddress::default(),
+            target_protocol_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x01]),
+        };
+
+        let mut frame = EthernetFrame::new_unchecked(&mut eth_bytes);
+        frame.set_dst_addr(EthernetAddress::BROADCAST);
+        frame.set_src_addr(remote_hw_addr);
+        frame.set_ethertype(EthernetProtocol::Arp);
+        {
+            let mut packet = ArpPacket::new_unchecked(frame.payload_mut());
+            repr.emit(&mut packet);
+        }
+
+        let cx = iface.context(Instant::from_secs(0));
+
+        // Ensure an ARP Request for us triggers an ARP Reply
+        assert_eq!(
+            iface
+                .inner
+                .process_ethernet(&cx, &mut socket_set, frame.into_inner()),
+            Ok(Some(EthernetPacket::Arp(ArpRepr::EthernetIpv4 {
+                operation: ArpOperation::Reply,
+                source_hardware_addr: local_hw_addr,
+                source_protocol_addr: local_ip_addr,
+                target_hardware_addr: remote_hw_addr,
+                target_protocol_addr: remote_ip_addr
+            })))
+        );
+
+        // Ensure the address of the requestor was entered in the cache
+        assert_eq!(
+            iface.inner.lookup_hardware_addr(
+                &cx,
+                MockTxToken,
+                &IpAddress::Ipv4(local_ip_addr),
+                &IpAddress::Ipv4(remote_ip_addr)
+            ),
+            Ok((HardwareAddress::Ethernet(remote_hw_addr), MockTxToken))
+        );
+
+        // Update IP addrs to trigger ARP cache flush
+        let local_ip_addr_new = Ipv4Address([0x7f, 0x00, 0x00, 0x01]);
+        iface.update_ip_addrs(|addrs| {
+            addrs.iter_mut().next().map(|addr| {
+                *addr = IpCidr::Ipv4(Ipv4Cidr::new(local_ip_addr_new, 24));
+            });
+        });
+
+        // ARP cache flush after address change
+        assert!(!iface
+            .inner
+            .has_neighbor(&cx, &IpAddress::Ipv4(remote_ip_addr)));
     }
 
     #[test]
