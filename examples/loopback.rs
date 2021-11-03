@@ -11,7 +11,7 @@ use log::{debug, error, info};
 
 use smoltcp::iface::{InterfaceBuilder, NeighborCache};
 use smoltcp::phy::{Loopback, Medium};
-use smoltcp::socket::{SocketSet, TcpSocket, TcpSocketBuffer};
+use smoltcp::socket::{TcpSocket, TcpSocketBuffer};
 use smoltcp::time::{Duration, Instant};
 use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr};
 
@@ -94,7 +94,8 @@ fn main() {
     let mut neighbor_cache = NeighborCache::new(&mut neighbor_cache_entries[..]);
 
     let mut ip_addrs = [IpCidr::new(IpAddress::v4(127, 0, 0, 1), 8)];
-    let mut iface = InterfaceBuilder::new(device)
+    let mut sockets: [_; 2] = Default::default();
+    let mut iface = InterfaceBuilder::new(device, &mut sockets[..])
         .hardware_addr(EthernetAddress::default().into())
         .neighbor_cache(neighbor_cache)
         .ip_addrs(ip_addrs)
@@ -120,65 +121,59 @@ fn main() {
         TcpSocket::new(tcp_rx_buffer, tcp_tx_buffer)
     };
 
-    let mut socket_set_entries: [_; 2] = Default::default();
-    let mut socket_set = SocketSet::new(&mut socket_set_entries[..]);
-    let server_handle = socket_set.add(server_socket);
-    let client_handle = socket_set.add(client_socket);
+    let server_handle = iface.add_socket(server_socket);
+    let client_handle = iface.add_socket(client_socket);
 
     let mut did_listen = false;
     let mut did_connect = false;
     let mut done = false;
     while !done && clock.elapsed() < Instant::from_millis(10_000) {
-        match iface.poll(&mut socket_set, clock.elapsed()) {
+        match iface.poll(clock.elapsed()) {
             Ok(_) => {}
             Err(e) => {
                 debug!("poll error: {}", e);
             }
         }
 
-        {
-            let mut socket = socket_set.get::<TcpSocket>(server_handle);
-            if !socket.is_active() && !socket.is_listening() {
-                if !did_listen {
-                    debug!("listening");
-                    socket.listen(1234).unwrap();
-                    did_listen = true;
-                }
-            }
-
-            if socket.can_recv() {
-                debug!(
-                    "got {:?}",
-                    socket.recv(|buffer| { (buffer.len(), str::from_utf8(buffer).unwrap()) })
-                );
-                socket.close();
-                done = true;
+        let mut socket = iface.get_socket::<TcpSocket>(server_handle);
+        if !socket.is_active() && !socket.is_listening() {
+            if !did_listen {
+                debug!("listening");
+                socket.listen(1234).unwrap();
+                did_listen = true;
             }
         }
 
-        {
-            let mut socket = socket_set.get::<TcpSocket>(client_handle);
-            if !socket.is_open() {
-                if !did_connect {
-                    debug!("connecting");
-                    socket
-                        .connect(
-                            (IpAddress::v4(127, 0, 0, 1), 1234),
-                            (IpAddress::Unspecified, 65000),
-                        )
-                        .unwrap();
-                    did_connect = true;
-                }
-            }
+        if socket.can_recv() {
+            debug!(
+                "got {:?}",
+                socket.recv(|buffer| { (buffer.len(), str::from_utf8(buffer).unwrap()) })
+            );
+            socket.close();
+            done = true;
+        }
 
-            if socket.can_send() {
-                debug!("sending");
-                socket.send_slice(b"0123456789abcdef").unwrap();
-                socket.close();
+        let mut socket = iface.get_socket::<TcpSocket>(client_handle);
+        if !socket.is_open() {
+            if !did_connect {
+                debug!("connecting");
+                socket
+                    .connect(
+                        (IpAddress::v4(127, 0, 0, 1), 1234),
+                        (IpAddress::Unspecified, 65000),
+                    )
+                    .unwrap();
+                did_connect = true;
             }
         }
 
-        match iface.poll_delay(&socket_set, clock.elapsed()) {
+        if socket.can_send() {
+            debug!("sending");
+            socket.send_slice(b"0123456789abcdef").unwrap();
+            socket.close();
+        }
+
+        match iface.poll_delay(clock.elapsed()) {
             Some(Duration::ZERO) => debug!("resuming"),
             Some(delay) => {
                 debug!("sleeping for {} ms", delay);

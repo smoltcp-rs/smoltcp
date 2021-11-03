@@ -29,7 +29,7 @@ const PARAMETER_REQUEST_LIST: &[u8] = &[
 ];
 
 /// IPv4 configuration data provided by the DHCP server.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Config {
     /// IP address
@@ -103,11 +103,11 @@ enum ClientState {
 /// Return value for the `Dhcpv4Socket::poll` function
 #[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum Event<'a> {
+pub enum Event {
     /// Configuration has been lost (for example, the lease has expired)
     Deconfigured,
     /// Configuration has been newly acquired, or modified.
-    Configured(&'a Config),
+    Configured(Config),
 }
 
 #[derive(Debug)]
@@ -544,12 +544,12 @@ impl Dhcpv4Socket {
     ///
     /// The socket has an internal "configuration changed" flag. If
     /// set, this function returns the configuration and resets the flag.
-    pub fn poll(&mut self) -> Option<Event<'_>> {
+    pub fn poll(&mut self) -> Option<Event> {
         if !self.config_changed {
             None
         } else if let ClientState::Renewing(state) = &self.state {
             self.config_changed = false;
-            Some(Event::Configured(&state.config))
+            Some(Event::Configured(state.config))
         } else {
             self.config_changed = false;
             Some(Event::Deconfigured)
@@ -626,9 +626,7 @@ mod test {
             });
         }
 
-        if i != reprs.len() {
-            panic!("Too few reprs emitted. Wanted {}, got {}", reprs.len(), i);
-        }
+        assert_eq!(i, reprs.len());
     }
 
     macro_rules! send {
@@ -836,7 +834,7 @@ mod test {
 
         assert_eq!(
             s.poll(),
-            Some(Event::Configured(&Config {
+            Some(Event::Configured(Config {
                 address: Ipv4Cidr::new(MY_IP, 24),
                 dns_servers: DNS_IPS,
                 router: Some(SERVER_IP),

@@ -7,7 +7,7 @@ use std::str::{self, FromStr};
 
 use smoltcp::iface::{InterfaceBuilder, NeighborCache, Routes};
 use smoltcp::phy::{wait as phy_wait, Device, Medium};
-use smoltcp::socket::{SocketSet, TcpSocket, TcpSocketBuffer};
+use smoltcp::socket::{TcpSocket, TcpSocketBuffer};
 use smoltcp::time::Instant;
 use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr, Ipv4Address};
 
@@ -42,7 +42,7 @@ fn main() {
     routes.add_default_ipv4_route(default_v4_gw).unwrap();
 
     let medium = device.capabilities().medium;
-    let mut builder = InterfaceBuilder::new(device)
+    let mut builder = InterfaceBuilder::new(device, vec![])
         .ip_addrs(ip_addrs)
         .routes(routes);
     if medium == Medium::Ethernet {
@@ -52,63 +52,58 @@ fn main() {
     }
     let mut iface = builder.finalize();
 
-    let mut sockets = SocketSet::new(vec![]);
-    let tcp_handle = sockets.add(tcp_socket);
+    let tcp_handle = iface.add_socket(tcp_socket);
 
-    {
-        let mut socket = sockets.get::<TcpSocket>(tcp_handle);
-        socket.connect((address, port), 49500).unwrap();
-    }
+    let socket = iface.get_socket::<TcpSocket>(tcp_handle);
+    socket.connect((address, port), 49500).unwrap();
 
     let mut tcp_active = false;
     loop {
         let timestamp = Instant::now();
-        match iface.poll(&mut sockets, timestamp) {
+        match iface.poll(timestamp) {
             Ok(_) => {}
             Err(e) => {
                 debug!("poll error: {}", e);
             }
         }
 
-        {
-            let mut socket = sockets.get::<TcpSocket>(tcp_handle);
-            if socket.is_active() && !tcp_active {
-                debug!("connected");
-            } else if !socket.is_active() && tcp_active {
-                debug!("disconnected");
-                break;
-            }
-            tcp_active = socket.is_active();
+        let socket = iface.get_socket::<TcpSocket>(tcp_handle);
+        if socket.is_active() && !tcp_active {
+            debug!("connected");
+        } else if !socket.is_active() && tcp_active {
+            debug!("disconnected");
+            break;
+        }
+        tcp_active = socket.is_active();
 
-            if socket.may_recv() {
-                let data = socket
-                    .recv(|data| {
-                        let mut data = data.to_owned();
-                        if !data.is_empty() {
-                            debug!(
-                                "recv data: {:?}",
-                                str::from_utf8(data.as_ref()).unwrap_or("(invalid utf8)")
-                            );
-                            data = data.split(|&b| b == b'\n').collect::<Vec<_>>().concat();
-                            data.reverse();
-                            data.extend(b"\n");
-                        }
-                        (data.len(), data)
-                    })
-                    .unwrap();
-                if socket.can_send() && !data.is_empty() {
-                    debug!(
-                        "send data: {:?}",
-                        str::from_utf8(data.as_ref()).unwrap_or("(invalid utf8)")
-                    );
-                    socket.send_slice(&data[..]).unwrap();
-                }
-            } else if socket.may_send() {
-                debug!("close");
-                socket.close();
+        if socket.may_recv() {
+            let data = socket
+                .recv(|data| {
+                    let mut data = data.to_owned();
+                    if !data.is_empty() {
+                        debug!(
+                            "recv data: {:?}",
+                            str::from_utf8(data.as_ref()).unwrap_or("(invalid utf8)")
+                        );
+                        data = data.split(|&b| b == b'\n').collect::<Vec<_>>().concat();
+                        data.reverse();
+                        data.extend(b"\n");
+                    }
+                    (data.len(), data)
+                })
+                .unwrap();
+            if socket.can_send() && !data.is_empty() {
+                debug!(
+                    "send data: {:?}",
+                    str::from_utf8(data.as_ref()).unwrap_or("(invalid utf8)")
+                );
+                socket.send_slice(&data[..]).unwrap();
             }
+        } else if socket.may_send() {
+            debug!("close");
+            socket.close();
         }
 
-        phy_wait(fd, iface.poll_delay(&sockets, timestamp)).expect("wait error");
+        phy_wait(fd, iface.poll_delay(timestamp)).expect("wait error");
     }
 }
