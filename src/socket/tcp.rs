@@ -2650,38 +2650,11 @@ mod test {
         }};
     }
 
-    #[cfg(feature = "log")]
-    fn init_logger() {
-        struct Logger;
-        static LOGGER: Logger = Logger;
-
-        impl log::Log for Logger {
-            fn enabled(&self, _metadata: &log::Metadata) -> bool {
-                true
-            }
-
-            fn log(&self, record: &log::Record) {
-                println!("{}", record.args());
-            }
-
-            fn flush(&self) {}
-        }
-
-        // If it fails, that just means we've already set it to the same value.
-        let _ = log::set_logger(&LOGGER);
-        log::set_max_level(log::LevelFilter::Trace);
-
-        println!();
-    }
-
     fn socket() -> TcpSocket<'static> {
         socket_with_buffer_sizes(64, 64)
     }
 
     fn socket_with_buffer_sizes(tx_len: usize, rx_len: usize) -> TcpSocket<'static> {
-        #[cfg(feature = "log")]
-        init_logger();
-
         let rx_buffer = SocketBuffer::new(vec![0; rx_len]);
         let tx_buffer = SocketBuffer::new(vec![0; tx_len]);
         let mut socket = TcpSocket::new(rx_buffer, tx_buffer);
@@ -7050,9 +7023,6 @@ mod test {
 
     #[test]
     fn test_rtt_estimator() {
-        #[cfg(feature = "log")]
-        init_logger();
-
         let mut r = RttEstimator::default();
 
         let rtos = &[
