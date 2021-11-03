@@ -3582,12 +3582,12 @@ mod test {
     #[cfg(feature = "proto-igmp")]
     fn test_handle_igmp() {
         fn recv_igmp(
-            mut iface: &mut Interface<'_, Loopback>,
+            iface: &mut Interface<'_, Loopback>,
             timestamp: Instant,
         ) -> Vec<(Ipv4Repr, IgmpRepr)> {
             let caps = iface.device.capabilities();
             let checksum_caps = &caps.checksum;
-            recv_all(&mut iface, timestamp)
+            recv_all(iface, timestamp)
                 .iter()
                 .filter_map(|frame| {
                     let ipv4_packet = match caps.medium {

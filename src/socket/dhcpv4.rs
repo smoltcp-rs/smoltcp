@@ -626,9 +626,7 @@ mod test {
             });
         }
 
-        if i != reprs.len() {
-            panic!("Too few reprs emitted. Wanted {}, got {}", reprs.len(), i);
-        }
+        assert_eq!(i, reprs.len());
     }
 
     macro_rules! send {
