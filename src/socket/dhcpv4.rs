@@ -651,30 +651,6 @@ mod test {
         });
     }
 
-    #[cfg(feature = "log")]
-    fn init_logger() {
-        struct Logger;
-        static LOGGER: Logger = Logger;
-
-        impl log::Log for Logger {
-            fn enabled(&self, _metadata: &log::Metadata) -> bool {
-                true
-            }
-
-            fn log(&self, record: &log::Record) {
-                println!("{}", record.args());
-            }
-
-            fn flush(&self) {}
-        }
-
-        // If it fails, that just means we've already set it to the same value.
-        let _ = log::set_logger(&LOGGER);
-        log::set_max_level(log::LevelFilter::Trace);
-
-        println!();
-    }
-
     // =========================================================================================//
     // Constants
 
@@ -822,9 +798,6 @@ mod test {
     // Tests
 
     fn socket() -> Dhcpv4Socket {
-        #[cfg(feature = "log")]
-        init_logger();
-
         let mut s = Dhcpv4Socket::new();
         assert_eq!(s.poll(), Some(Event::Deconfigured));
         s
