@@ -10,6 +10,7 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
 getopts = "0.2"
 smoltcp = { path = "..", features = [ "medium-ethernet" ] }
 
@@ -38,5 +39,17 @@ doc = false
 [[bin]]
 name = "ieee802154_header"
 path = "fuzz_targets/ieee802154_header.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "sixlowpan_udp_header"
+path = "fuzz_targets/sixlowpan_udp_header.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "sixlowpan_iphc_header"
+path = "fuzz_targets/sixlowpan_iphc_header.rs"
 test = false
 doc = false

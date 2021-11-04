@@ -128,10 +128,21 @@ pub mod iphc {
         pub fn check_len(&self) -> Result<()> {
             let buffer = self.buffer.as_ref();
             if buffer.len() < 2 {
-                Err(Error::Truncated)
-            } else {
-                Ok(())
+                return Err(Error::Truncated);
             }
+
+            let mut offset = self.ip_fields_start()
+                + self.traffic_class_size()
+                + self.next_header_size()
+                + self.hop_limit_size();
+            offset += self.src_address_size();
+            offset += self.dst_address_size();
+
+            if offset as usize > buffer.len() {
+                return Err(Error::Truncated);
+            }
+
+            Ok(())
         }
 
         /// Consumes the frame, returning the underlying buffer.
@@ -797,6 +808,12 @@ pub mod iphc {
                 1 // The next header field is inlined
             };
 
+            // Hop Limit size
+            len += match self.hop_limit {
+                255 | 64 | 1 => 0, // We can inline the hop limit
+                _ => 1,
+            };
+
             // Add the lenght of the source address
             len += if self.src_addr == ipv6::Address::UNSPECIFIED {
                 0
@@ -1279,11 +1296,17 @@ pub mod nhc {
         /// Returns `Err(Error::Truncated)` if the buffer is too short.
         pub fn check_len(&self) -> Result<()> {
             let buffer = self.buffer.as_ref();
+
             if buffer.is_empty() {
-                Err(Error::Truncated)
-            } else {
-                Ok(())
+                return Err(Error::Truncated);
             }
+
+            let index = 1 + self.ports_size() + self.checksum_size();
+            if index > buffer.len() {
+                return Err(Error::Truncated);
+            }
+
+            Ok(())
         }
 
         /// Consumes the frame, returning the underlying buffer.
@@ -1357,7 +1380,7 @@ pub mod nhc {
                     let data = self.buffer.as_ref();
                     let start = self.nhc_fields_start();
 
-                    0xf0b0 + (NetworkEndian::read_u16(&data[start..start + 1]) & 0xff)
+                    0xf0b0 + (data[start] & 0xff) as u16
                 }
                 _ => unreachable!(),
             }
@@ -1501,10 +1524,14 @@ pub mod nhc {
                 checksum::data(packet.payload()),
             ]);
 
-            // TODO(thvdveld): remove the unwrap
-            if chk_sum != packet.checksum().unwrap() {
-                return Err(Error::Checksum);
-            }
+            if let Some(checksum) = packet.checksum() {
+                if chk_sum != checksum {
+                    return Err(Error::Checksum);
+                }
+            } else {
+                net_trace!("Currently we do not support ellided checksums.");
+                return Err(Error::Unrecognized);
+            };
 
             Ok(UdpNhcRepr(UdpRepr {
                 src_port: packet.src_port(),
