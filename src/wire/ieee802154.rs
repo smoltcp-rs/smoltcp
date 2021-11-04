@@ -251,10 +251,24 @@ impl<T: AsRef<[u8]>> Frame<T> {
     pub fn check_len(&self) -> Result<()> {
         // We need at least 3 bytes
         if self.buffer.as_ref().len() < 3 {
-            Err(Error::Truncated)
-        } else {
-            Ok(())
+            return Err(Error::Truncated);
         }
+
+        let mut offset = field::ADDRESSING.start + 2;
+
+        // Calculate the size of the addressing field.
+        offset += self.dst_addressing_mode().size();
+        offset += self.src_addressing_mode().size();
+
+        if !self.pan_id_compression() {
+            offset += 2;
+        }
+
+        if offset > self.buffer.as_ref().len() {
+            return Err(Error::Truncated);
+        }
+
+        Ok(())
     }
 
     /// Consumes the frame, returning the underlying buffer.

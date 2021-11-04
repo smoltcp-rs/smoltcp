@@ -34,3 +34,9 @@ name = "dhcp_header"
 path = "fuzz_targets/dhcp_header.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "ieee802154_header"
+path = "fuzz_targets/ieee802154_header.rs"
+test = false
+doc = false
