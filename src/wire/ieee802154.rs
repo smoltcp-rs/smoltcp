@@ -33,6 +33,7 @@ impl fmt::Display for FrameType {
         }
     }
 }
+
 enum_with_unknown! {
     /// IEEE 802.15.4 addressing mode for destination and source addresses.
     pub enum AddressingMode(u8) {
@@ -179,6 +180,33 @@ enum_with_unknown! {
         Ieee802154_2003 = 0b00,
         Ieee802154_2006 = 0b01,
         Ieee802154 = 0b10,
+    }
+}
+
+enum_with_unknown! {
+    /// IEEE 802.15.4 security level.
+    pub enum SecurityLevel(u8) {
+        None = 0b000,
+        Mic32 = 0b001,
+        Mic64 = 0b010,
+        Mic128 = 0b011,
+        Enc = 0b100,
+        EncMic32 = 0b101,
+        EncMic64 = 0b110,
+        EncMic128 = 0b111,
+    }
+}
+
+impl SecurityLevel {
+    /// Return the size in bytes of the encrypted authentication tag.
+    pub fn mic_len(&self) -> Option<u8> {
+        match self {
+            SecurityLevel::None | SecurityLevel::Enc => None,
+            SecurityLevel::Mic32 | SecurityLevel::EncMic32 => Some(4),
+            SecurityLevel::Mic64 | SecurityLevel::EncMic64 => Some(8),
+            SecurityLevel::Mic128 | SecurityLevel::EncMic128 => Some(16),
+            SecurityLevel::Unknown(_) => None,
+        }
     }
 }
 
@@ -489,10 +517,10 @@ impl<T: AsRef<[u8]>> Frame<T> {
     }
 
     /// Return the security level of the auxiliary security header.
-    pub fn security_level(&self) -> u8 {
+    pub fn security_level(&self) -> SecurityLevel {
         let index = self.aux_security_header_start();
         let b = self.buffer.as_ref()[index..][0];
-        b & 0b111
+        SecurityLevel::from(b & 0b111)
     }
 
     /// Return the key identifier mode used by the auxiliary security header.
@@ -546,12 +574,9 @@ impl<T: AsRef<[u8]>> Frame<T> {
 
     /// Return the Message Integrity Code (MIC).
     pub fn message_integrity_code(&self) -> Option<&[u8]> {
-        let mic_len = match self.security_level() {
-            0 | 4 => return None,
-            1 | 5 => 4,
-            2 | 6 => 8,
-            3 | 7 => 16,
-            _ => panic!(),
+        let mic_len = match self.security_level().mic_len() {
+            Some(len) => len as usize,
+            None => return None,
         };
 
         let data = &self.buffer.as_ref();
@@ -560,10 +585,127 @@ impl<T: AsRef<[u8]>> Frame<T> {
         Some(&data[len - mic_len..])
     }
 
+    pub fn message_integrity_code_index(&self) -> Option<usize> {
+        let data = &self.buffer.as_ref();
+
+        let end = match self.security_level().mic_len() {
+            Some(len) => len as usize,
+            None => return None,
+        };
+
+        let data = &data[self.payload_start()..];
+        Some(data.len() - end)
+    }
+
     /// Return the MAC header.
     pub fn mac_header(&self) -> &[u8] {
         let data = &self.buffer.as_ref();
         &data[..self.payload_start()]
+    }
+
+    /// Return the nonce, which is based on the extended source address, the frame counter and the
+    /// security level.
+    pub fn nonce(&self, source_address: &[u8]) -> Option<[u8; 13]> {
+        if source_address.len() != 8 {
+            net_debug!("Expected extended source address.");
+            return None;
+        }
+
+        match self.security_level() {
+            SecurityLevel::Unknown(_) => None,
+            level => {
+                let mut n = [0u8; 13];
+                n[0..8].copy_from_slice(source_address);
+                n[8..12].copy_from_slice(&self.frame_counter().to_be_bytes());
+                n[12] = level.into();
+                Some(n)
+            }
+        }
+    }
+
+    /// Unsecure a secured IEEE 802.15.4 frame into `buffer`.
+    /// The final resulting length of the frame is returned.
+    pub fn decrypt(&mut self, key: &[u8; 16], buffer: &mut [u8]) -> Result<usize> {
+        use aes::Aes128;
+        use ccm::{
+            aead::{
+                generic_array::{
+                    typenum::consts::{U13, U16, U4, U8},
+                    GenericArray,
+                },
+                AeadInPlace, NewAead,
+            },
+            Ccm,
+        };
+        pub use cipher::{BlockCipher, BlockEncrypt, NewBlockCipher};
+
+        if buffer.len() < self.buffer.as_ref().len() {
+            // Return the correct error
+            return Err(Error::Exhausted);
+        }
+
+        let inner = self.buffer.as_ref();
+        let buffer = &mut buffer[..inner.len()];
+        buffer.copy_from_slice(inner);
+
+        let src_addr = self.src_addr().unwrap();
+        let nonce = self.nonce(src_addr.as_bytes()).unwrap();
+        let nonce = GenericArray::from_slice(&nonce);
+
+        let mic_index = if let Some(index) = self.message_integrity_code_index() {
+            index
+        } else {
+            0
+        };
+
+        let payload = &mut buffer[self.payload_start()..];
+        let (auth_enc_part, tag) = payload.split_at_mut(mic_index);
+        let mhr = self.mac_header();
+
+        let authenticated = match self.security_level() {
+            SecurityLevel::None | SecurityLevel::Unknown(_) => todo!(),
+            SecurityLevel::Enc => return Err(Error::NotSupported),
+            SecurityLevel::Mic32 => {
+                let aead = Ccm::<Aes128, U4, U13>::new(key.into());
+                let tag = GenericArray::from_slice(tag);
+                aead.decrypt_in_place_detached(nonce, auth_enc_part, &mut [], tag)
+            }
+            SecurityLevel::EncMic32 => {
+                let aead = Ccm::<Aes128, U4, U13>::new(key.into());
+                let tag = GenericArray::from_slice(tag);
+                aead.decrypt_in_place_detached(nonce, mhr, auth_enc_part, tag)
+            }
+            SecurityLevel::Mic64 => {
+                let aead = Ccm::<Aes128, U8, U13>::new(key.into());
+                let tag = GenericArray::from_slice(tag);
+                aead.decrypt_in_place_detached(nonce, auth_enc_part, &mut [], tag)
+            }
+            SecurityLevel::EncMic64 => {
+                let aead = Ccm::<Aes128, U8, U13>::new(key.into());
+                let tag = GenericArray::from_slice(tag);
+                aead.decrypt_in_place_detached(nonce, mhr, auth_enc_part, tag)
+            }
+            SecurityLevel::Mic128 => {
+                let aead = Ccm::<Aes128, U16, U13>::new(key.into());
+                let tag = GenericArray::from_slice(tag);
+                aead.decrypt_in_place_detached(nonce, auth_enc_part, &mut [], tag)
+            }
+            SecurityLevel::EncMic128 => {
+                let aead = Ccm::<Aes128, U16, U13>::new(key.into());
+                let tag = GenericArray::from_slice(tag);
+                aead.decrypt_in_place_detached(nonce, mhr, auth_enc_part, tag)
+            }
+        };
+
+        let len = self.buffer.as_ref().len();
+
+        match authenticated {
+            Ok(()) => Ok(len),
+            Err(e) => {
+                net_debug!("Error decrypting: {:?}", e);
+                Err(Error::Malformed)
+            }
+        }
     }
 }
 
@@ -984,7 +1126,7 @@ mod test {
         dst_addr -> Some(Address::Extended([0x00,0x12,0x4b,0x00,0x06,0x15,0x9b,0xbf])),
         src_pan_id -> None,
         src_addr -> Some(Address::Extended([0x00,0x12,0x4b,0x00,0x14,0xb5,0xd9,0xc7])),
-        security_level -> 5,
+        security_level -> SecurityLevel::EncMic32,
         key_identifier_mode -> 0,
         frame_counter -> 305,
         key_source -> None,
@@ -1000,5 +1142,40 @@ mod test {
             0x05, // security control field
             0x31,0x01,0x00,0x00, // frame counter
         ][..],
+    }
+
+    #[test]
+    fn decryption() {
+        let mut buffer = [0u8; 128];
+
+        let frame = [
+            0x69, 0xdc, 0x2a, 0xcd, 0xab, 0xbf, 0x9b, 0x15, 0x06, 0x00, 0x4b, 0x12, 0x00, 0xc7,
+            0xd9, 0xb5, 0x14, 0x00, 0x4b, 0x12, 0x00, 0x05, 0x59, 0x00, 0x00, 0x00, 0x3f, 0x3b,
+            0xe8, 0xcd, 0xcb, 0xbb, 0xcc, 0x34, 0x00, 0xc5, 0x26, 0xb9, 0x4b, 0x59, 0x62, 0xb9,
+            0x5b, 0xda, 0xf9, 0x8d, 0xf1, 0xe4, 0x2c, 0x86, 0xb0, 0xb5,
+        ];
+        let len = frame.len();
+
+        let key = [
+            0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d,
+            0x1e, 0x1f,
+        ];
+
+        let mut frame = Frame::new_checked(&frame[..]).unwrap();
+
+        let res = frame.decrypt(&key, &mut buffer[..]);
+
+        assert_eq!(res, Ok(len));
+
+        if let Ok(len) = res {
+            let frame = Frame::new_checked(&buffer[..len]).unwrap();
+            println!("{:?}", Repr::parse(&frame));
+
+            // TODO(thvdveld): figure out why we need to slice this thing.
+            let payload = frame.payload().unwrap();
+            let payload = &payload[9..frame.message_integrity_code_index().unwrap()];
+
+            assert_eq!(String::from_utf8_lossy(payload), "Hello to Rust");
+        }
     }
 }

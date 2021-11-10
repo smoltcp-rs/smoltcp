@@ -24,6 +24,11 @@ bitflags = { version = "1.0", default-features = false }
 defmt = { version = "0.2.0", optional = true }
 rand_core = { version = "0.6.3", optional = true, default-features = false }
 
+ccm = "0.4.4"
+cipher = "0.3.0"
+aes = "0.7.5"
+
+
 [dev-dependencies]
 env_logger = "0.5"
 getopts = "0.2"

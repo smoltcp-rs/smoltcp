@@ -1151,6 +1151,12 @@ impl<'a> InterfaceInner<'a> {
             return Ok(None);
         }
 
+        if ieee802154_frame.security_enabled() {
+            // We need to unsecure the frame.
+            net_debug!("Dropping because secured frames are not supported");
+            return Ok(None);
+        }
+
         match ieee802154_frame.payload() {
             Some(payload) => self.process_sixlowpan(cx, sockets, &ieee802154_repr, payload),
             None => Ok(None),
