@@ -623,90 +623,6 @@ impl<T: AsRef<[u8]>> Frame<T> {
         }
     }
 
-    /// Unsecure a secured IEEE 802.15.4 frame into `buffer`.
-    /// The final resulting length of the frame is returned.
-    pub fn decrypt(&mut self, key: &[u8; 16], buffer: &mut [u8]) -> Result<usize> {
-        use aes::Aes128;
-        use ccm::{
-            aead::{
-                generic_array::{
-                    typenum::consts::{U13, U16, U4, U8},
-                    GenericArray,
-                },
-                AeadInPlace, NewAead,
-            },
-            Ccm,
-        };
-        pub use cipher::{BlockCipher, BlockEncrypt, NewBlockCipher};
-
-        if buffer.len() < self.buffer.as_ref().len() {
-            // Return the correct error
-            return Err(Error::Exhausted);
-        }
-
-        let inner = self.buffer.as_ref();
-        let buffer = &mut buffer[..inner.len()];
-        buffer.copy_from_slice(inner);
-
-        let src_addr = self.src_addr().unwrap();
-        let nonce = self.nonce(src_addr.as_bytes()).unwrap();
-        let nonce = GenericArray::from_slice(&nonce);
-
-        let mic_index = if let Some(index) = self.message_integrity_code_index() {
-            index
-        } else {
-            0
-        };
-
-        let payload = &mut buffer[self.payload_start()..];
-        let (auth_enc_part, tag) = payload.split_at_mut(mic_index);
-        let mhr = self.mac_header();
-
-        let authenticated = match self.security_level() {
-            SecurityLevel::None | SecurityLevel::Unknown(_) => todo!(),
-            SecurityLevel::Enc => return Err(Error::NotSupported),
-            SecurityLevel::Mic32 => {
-                let aead = Ccm::<Aes128, U4, U13>::new(key.into());
-                let tag = GenericArray::from_slice(tag);
-                aead.decrypt_in_place_detached(nonce, auth_enc_part, &mut [], tag)
-            }
-            SecurityLevel::EncMic32 => {
-                let aead = Ccm::<Aes128, U4, U13>::new(key.into());
-                let tag = GenericArray::from_slice(tag);
-                aead.decrypt_in_place_detached(nonce, mhr, auth_enc_part, tag)
-            }
-            SecurityLevel::Mic64 => {
-                let aead = Ccm::<Aes128, U8, U13>::new(key.into());
-                let tag = GenericArray::from_slice(tag);
-                aead.decrypt_in_place_detached(nonce, auth_enc_part, &mut [], tag)
-            }
-            SecurityLevel::EncMic64 => {
-                let aead = Ccm::<Aes128, U8, U13>::new(key.into());
-                let tag = GenericArray::from_slice(tag);
-                aead.decrypt_in_place_detached(nonce, mhr, auth_enc_part, tag)
-            }
-            SecurityLevel::Mic128 => {
-                let aead = Ccm::<Aes128, U16, U13>::new(key.into());
-                let tag = GenericArray::from_slice(tag);
-                aead.decrypt_in_place_detached(nonce, auth_enc_part, &mut [], tag)
-            }
-            SecurityLevel::EncMic128 => {
-                let aead = Ccm::<Aes128, U16, U13>::new(key.into());
-                let tag = GenericArray::from_slice(tag);
-                aead.decrypt_in_place_detached(nonce, mhr, auth_enc_part, tag)
-            }
-        };
-
-        let len = self.buffer.as_ref().len();
-
-        match authenticated {
-            Ok(()) => Ok(len),
-            Err(e) => {
-                net_debug!("Error decrypting: {:?}", e);
-                Err(Error::Malformed)
-            }
-        }
-    }
 }
 
 impl<'a, T: AsRef<[u8]> + ?Sized> Frame<&'a T> {
@@ -868,6 +784,88 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Frame<T> {
             _ => None,
         }
     }
+
+    /// Unsecure a secured IEEE 802.15.4 frame into `buffer`.
+    pub fn decrypt(&mut self, key: &[u8; 16]) -> Result<()> {
+        use aes::Aes128;
+        use ccm::{
+            aead::{
+                generic_array::{
+                    typenum::consts::{U13, U16, U4, U8},
+                    GenericArray,
+                },
+                AeadInPlace, NewAead,
+            },
+            Ccm,
+        };
+        pub use cipher::{BlockCipher, BlockEncrypt, NewBlockCipher};
+
+        let mut buffer = [0u8; 128];
+
+        let inner = self.buffer.as_ref();
+        let buffer = &mut buffer[..inner.len()];
+        buffer.copy_from_slice(inner);
+
+        let src_addr = self.src_addr().unwrap();
+        let nonce = self.nonce(src_addr.as_bytes()).unwrap();
+        let nonce = GenericArray::from_slice(&nonce);
+
+        let mic_index = if let Some(index) = self.message_integrity_code_index() {
+            index
+        } else {
+            0
+        };
+
+        let payload = &mut buffer[self.payload_start()..];
+        let (auth_enc_part, tag) = payload.split_at_mut(mic_index);
+        let mhr = self.mac_header();
+
+        let authenticated = match self.security_level() {
+            SecurityLevel::None | SecurityLevel::Unknown(_) => todo!(),
+            SecurityLevel::Enc => return Err(Error::NotSupported),
+            SecurityLevel::Mic32 => {
+                let aead = Ccm::<Aes128, U4, U13>::new(key.into());
+                let tag = GenericArray::from_slice(tag);
+                aead.decrypt_in_place_detached(nonce, auth_enc_part, &mut [], tag)
+            }
+            SecurityLevel::EncMic32 => {
+                let aead = Ccm::<Aes128, U4, U13>::new(key.into());
+                let tag = GenericArray::from_slice(tag);
+                aead.decrypt_in_place_detached(nonce, mhr, auth_enc_part, tag)
+            }
+            SecurityLevel::Mic64 => {
+                let aead = Ccm::<Aes128, U8, U13>::new(key.into());
+                let tag = GenericArray::from_slice(tag);
+                aead.decrypt_in_place_detached(nonce, auth_enc_part, &mut [], tag)
+            }
+            SecurityLevel::EncMic64 => {
+                let aead = Ccm::<Aes128, U8, U13>::new(key.into());
+                let tag = GenericArray::from_slice(tag);
+                aead.decrypt_in_place_detached(nonce, mhr, auth_enc_part, tag)
+            }
+            SecurityLevel::Mic128 => {
+                let aead = Ccm::<Aes128, U16, U13>::new(key.into());
+                let tag = GenericArray::from_slice(tag);
+                aead.decrypt_in_place_detached(nonce, auth_enc_part, &mut [], tag)
+            }
+            SecurityLevel::EncMic128 => {
+                let aead = Ccm::<Aes128, U16, U13>::new(key.into());
+                let tag = GenericArray::from_slice(tag);
+                aead.decrypt_in_place_detached(nonce, mhr, auth_enc_part, tag)
+            }
+        };
+
+        match authenticated {
+            Ok(()) => {
+                self.buffer.as_mut().copy_from_slice(&buffer[..]);
+                Ok(())
+            }
+            Err(e) => {
+                net_debug!("Error decrypting: {:?}", e);
+                Err(Error::Malformed)
+            }
+        }
+    }
 }
 
 impl<T: AsRef<[u8]>> fmt::Display for Frame<T> {
@@ -904,8 +902,6 @@ pub struct Repr {
 impl Repr {
     /// Parse an IEEE 802.15.4 frame and return a high-level representation.
     pub fn parse<T: AsRef<[u8]> + ?Sized>(packet: &Frame<&T>) -> Result<Repr> {
-        // Ensure the basic accessors will work.
-        packet.check_len()?;
 
         Ok(Repr {
             frame_type: packet.frame_type(),
@@ -1146,33 +1142,32 @@ mod test {
 
     #[test]
     fn decryption() {
-        let mut buffer = [0u8; 128];
-
-        let frame = [
+        let mut frame = [
             0x69, 0xdc, 0x2a, 0xcd, 0xab, 0xbf, 0x9b, 0x15, 0x06, 0x00, 0x4b, 0x12, 0x00, 0xc7,
             0xd9, 0xb5, 0x14, 0x00, 0x4b, 0x12, 0x00, 0x05, 0x59, 0x00, 0x00, 0x00, 0x3f, 0x3b,
             0xe8, 0xcd, 0xcb, 0xbb, 0xcc, 0x34, 0x00, 0xc5, 0x26, 0xb9, 0x4b, 0x59, 0x62, 0xb9,
             0x5b, 0xda, 0xf9, 0x8d, 0xf1, 0xe4, 0x2c, 0x86, 0xb0, 0xb5,
         ];
-        let len = frame.len();
 
         let key = [
             0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d,
             0x1e, 0x1f,
         ];
 
-        let mut frame = Frame::new_checked(&frame[..]).unwrap();
+        let mut frame = Frame::new_checked(&mut frame[..]).unwrap();
 
-        let res = frame.decrypt(&key, &mut buffer[..]);
+        let res = frame.decrypt(&key);
 
-        assert_eq!(res, Ok(len));
+        assert_eq!(res, Ok(()));
 
-        if let Ok(len) = res {
-            let frame = Frame::new_checked(&buffer[..len]).unwrap();
+        if res.is_ok() {
+            println!("{:?}", frame.payload());
+            let inner = frame.into_inner();
+            let frame = Frame::new_checked(&inner[..]).unwrap();
             println!("{:?}", Repr::parse(&frame));
 
-            // TODO(thvdveld): figure out why we need to slice this thing.
             let payload = frame.payload().unwrap();
+            // *NOTE*: we start at 9 because those are the headers bytes for 6LoWPAN.
             let payload = &payload[9..frame.message_integrity_code_index().unwrap()];
 
             assert_eq!(String::from_utf8_lossy(payload), "Hello to Rust");

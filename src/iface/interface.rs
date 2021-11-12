@@ -798,7 +798,7 @@ where
                     }
                 },
                 #[cfg(feature = "medium-ieee802154")]
-                Medium::Ieee802154 => match inner.process_ieee802154(cx, sockets, &frame) {
+                Medium::Ieee802154 => match inner.process_ieee802154(cx, sockets, frame) {
                     Ok(response) => {
                         processed_any = true;
                         if let Some(packet) = response {
@@ -1124,13 +1124,13 @@ impl<'a> InterfaceInner<'a> {
     }
 
     #[cfg(feature = "medium-ieee802154")]
-    fn process_ieee802154<'frame, T: AsRef<[u8]> + ?Sized>(
+    fn process_ieee802154<'frame, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized>(
         &mut self,
         cx: &Context,
         sockets: &mut SocketSet,
-        sixlowpan_payload: &'frame T,
+        sixlowpan_payload: &'frame mut T,
     ) -> Result<Option<IpPacket<'frame>>> {
-        let ieee802154_frame = Ieee802154Frame::new_checked(sixlowpan_payload)?;
+        let mut ieee802154_frame = Ieee802154Frame::new_checked(sixlowpan_payload)?;
         let ieee802154_repr = Ieee802154Repr::parse(&ieee802154_frame)?;
 
         if ieee802154_repr.frame_type != Ieee802154FrameType::Data {
@@ -1152,10 +1152,16 @@ impl<'a> InterfaceInner<'a> {
         }
 
         if ieee802154_frame.security_enabled() {
-            // We need to unsecure the frame.
-            net_debug!("Dropping because secured frames are not supported");
-            return Ok(None);
+            let key = [
+                0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d,
+                0x1e, 0x1f,
+            ];
+
+            ieee802154_frame.decrypt(&key)?;
         }
+
+        let inner = ieee802154_frame.into_inner() as &T;
+        let ieee802154_frame = Ieee802154Frame::new_unchecked(inner.as_ref());
 
         match ieee802154_frame.payload() {
             Some(payload) => self.process_sixlowpan(cx, sockets, &ieee802154_repr, payload),
