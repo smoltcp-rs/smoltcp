@@ -1130,7 +1130,7 @@ impl<'a> InterfaceInner<'a> {
         sockets: &mut SocketSet,
         sixlowpan_payload: &'frame mut T,
     ) -> Result<Option<IpPacket<'frame>>> {
-        let mut ieee802154_frame = Ieee802154Frame::new_checked(sixlowpan_payload)?;
+        let ieee802154_frame = Ieee802154Frame::new_checked(sixlowpan_payload)?;
         let ieee802154_repr = Ieee802154Repr::parse(&ieee802154_frame)?;
 
         if ieee802154_repr.frame_type != Ieee802154FrameType::Data {
@@ -1151,17 +1151,26 @@ impl<'a> InterfaceInner<'a> {
             return Ok(None);
         }
 
-        if ieee802154_frame.security_enabled() {
+        #[cfg(feature = "ieee802154-crypto")]
+        let ieee802154_frame: Ieee802154Frame<&T> = if ieee802154_frame.security_enabled() {
             let key = [
                 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d,
                 0x1e, 0x1f,
             ];
 
+            let inner = ieee802154_frame.into_inner() as &mut T;
+            let mut ieee802154_frame = Ieee802154Frame::new_checked(inner)?;
             ieee802154_frame.decrypt(&key)?;
-        }
+
+            let inner = ieee802154_frame.into_inner() as &T;
+            Ieee802154Frame::new_unchecked(inner)
+        } else {
+            let inner = ieee802154_frame.into_inner() as &T;
+            Ieee802154Frame::new_unchecked(inner)
+        };
 
         let inner = ieee802154_frame.into_inner() as &T;
-        let ieee802154_frame = Ieee802154Frame::new_unchecked(inner.as_ref());
+        let ieee802154_frame = Ieee802154Frame::new_unchecked(inner);
 
         match ieee802154_frame.payload() {
             Some(payload) => self.process_sixlowpan(cx, sockets, &ieee802154_repr, payload),

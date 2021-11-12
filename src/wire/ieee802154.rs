@@ -622,7 +622,6 @@ impl<T: AsRef<[u8]>> Frame<T> {
             }
         }
     }
-
 }
 
 impl<'a, T: AsRef<[u8]> + ?Sized> Frame<&'a T> {
@@ -786,6 +785,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Frame<T> {
     }
 
     /// Unsecure a secured IEEE 802.15.4 frame into `buffer`.
+    #[cfg(feature = "ieee802154-crypto")]
     pub fn decrypt(&mut self, key: &[u8; 16]) -> Result<()> {
         use aes::Aes128;
         use ccm::{
@@ -901,8 +901,7 @@ pub struct Repr {
 
 impl Repr {
     /// Parse an IEEE 802.15.4 frame and return a high-level representation.
-    pub fn parse<T: AsRef<[u8]> + ?Sized>(packet: &Frame<&T>) -> Result<Repr> {
-
+    pub fn parse<T: AsRef<[u8]>>(packet: &Frame<T>) -> Result<Repr> {
         Ok(Repr {
             frame_type: packet.frame_type(),
             security_enabled: packet.security_enabled(),
@@ -1140,6 +1139,7 @@ mod test {
         ][..],
     }
 
+    #[cfg(feature = "ieee802154-crypto")]
     #[test]
     fn decryption() {
         let mut frame = [

@@ -24,9 +24,9 @@ bitflags = { version = "1.0", default-features = false }
 defmt = { version = "0.2.0", optional = true }
 rand_core = { version = "0.6.3", optional = true, default-features = false }
 
-ccm = "0.4.4"
-cipher = "0.3.0"
-aes = "0.7.5"
+ccm = { version = "0.4.4", optional = true }
+cipher = { version = "0.3.0", optional = true }
+aes = { version = "0.7.5", optional = true }
 
 
 [dev-dependencies]
@@ -43,6 +43,7 @@ rand-custom-impl = []
 "medium-ethernet" = ["socket"]
 "medium-ip" = ["socket"]
 "medium-ieee802154" = ["socket", "proto-sixlowpan"]
+"ieee802154-crypto" = ["ccm", "cipher", "aes"]
 
 "phy-raw_socket" = ["std", "libc"]
 "phy-tuntap_interface" = ["std", "libc", "medium-ethernet"]
