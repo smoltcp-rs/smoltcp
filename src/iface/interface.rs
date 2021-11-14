@@ -555,6 +555,16 @@ where
         &mut self.device
     }
 
+    /// Get an iterator to the inner sockets.
+    pub fn sockets(&self) -> impl Iterator<Item = &Socket<'a>> {
+        self.sockets.iter()
+    }
+
+    /// Get a mutable iterator to the inner sockets.
+    pub fn sockets_mut(&mut self) -> impl Iterator<Item = &mut Socket<'a>> {
+        self.sockets.iter_mut()
+    }
+
     /// Add an address to a list of subscribed multicast IP addresses.
     ///
     /// Returns `Ok(announce_sent)` if the address was added successfully, where `annouce_sent`
