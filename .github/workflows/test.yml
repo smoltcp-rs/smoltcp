@@ -21,7 +21,7 @@ jobs:
         # Failure is permitted on nightly.
         rust:
           - stable
-          - 1.53.0
+          - 1.56.0
           - nightly
 
         features:
@@ -68,13 +68,13 @@ jobs:
         # Failure is permitted on nightly.
         rust:
           - stable
-          - 1.53.0
+          - 1.56.0
           - nightly
 
         features:
           # These feature sets cannot run tests, so we only check they build.
           - rand-custom-impl medium-ip medium-ethernet medium-ieee802154 proto-ipv6 proto-ipv6 proto-igmp proto-dhcpv4 socket-raw socket-udp socket-tcp socket-icmp async
-          - rand-custom-impl defmt defmt-trace medium-ip medium-ethernet proto-ipv6 proto-ipv6 proto-igmp proto-dhcpv4 socket-raw socket-udp socket-tcp socket-icmp async
+          - rand-custom-impl defmt medium-ip medium-ethernet proto-ipv6 proto-ipv6 proto-igmp proto-dhcpv4 socket-raw socket-udp socket-tcp socket-icmp async
 
     steps:
       - uses: actions/checkout@v2

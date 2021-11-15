@@ -67,6 +67,7 @@ impl fmt::Display for AddressingMode {
 
 /// A IEEE 802.15.4 PAN.
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Pan(pub u16);
 
 impl Pan {
@@ -82,6 +83,7 @@ impl Pan {
 
 /// A IEEE 802.15.4 address.
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Address {
     Absent,
     Short([u8; 2]),
@@ -745,6 +747,7 @@ impl<T: AsRef<[u8]>> fmt::Display for Frame<T> {
 
 /// A high-level representation of an IEEE802.15.4 frame.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Repr {
     pub frame_type: FrameType,
     pub security_enabled: bool,
