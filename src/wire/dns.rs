@@ -47,6 +47,7 @@ enum_with_unknown! {
 }
 
 bitflags! {
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub struct Flags: u16 {
         const RESPONSE            = 0b1000_0000_0000_0000;
         const AUTHORITATIVE       = 0b0000_0100_0000_0000;
@@ -284,6 +285,7 @@ fn parse_name_part<'a>(
 }
 
 #[derive(Debug, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Question<'a> {
     pub name: &'a [u8],
     pub type_: Type,
@@ -323,6 +325,7 @@ impl<'a> Question<'a> {
 }
 
 #[derive(Debug, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Record<'a> {
     pub name: &'a [u8],
     pub ttl: u32,
@@ -351,6 +354,7 @@ impl<'a> RecordData<'a> {
 }
 
 #[derive(Debug, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum RecordData<'a> {
     #[cfg(feature = "proto-ipv4")]
     A(Ipv4Address),
@@ -396,6 +400,7 @@ impl<'a> Record<'a> {
 ///
 /// Currently only supports query packets.
 #[derive(Debug, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Repr<'a> {
     pub transaction_id: u16,
     pub opcode: Opcode,

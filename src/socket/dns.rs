@@ -78,12 +78,18 @@ impl<'a> DnsSocket<'a> {
         }
     }
 
-    /// Update the managed slice with servers
+    /// Update the list of DNS servers, will replace all existing servers
     pub fn update_servers(&mut self, servers: &[IpAddress]) {
-        self.servers
-            .iter_mut()
+        let mut local_servers = self.servers.iter_mut();
+        local_servers
+            .by_ref()
             .zip(servers.iter())
             .for_each(|(a, b)| *a = *b);
+
+        // Fill the rest with no address
+        for s in local_servers {
+            *s = IpAddress::Unspecified;
+        }
     }
 
     /// Return the time-to-live (IPv4) or hop limit (IPv6) value used in outgoing packets.
