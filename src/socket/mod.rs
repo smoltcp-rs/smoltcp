@@ -33,7 +33,7 @@ mod waker;
 #[cfg(feature = "socket-dhcpv4")]
 pub use self::dhcpv4::{Config as Dhcpv4Config, Dhcpv4Socket, Event as Dhcpv4Event};
 #[cfg(feature = "socket-dns")]
-pub use self::dns::{DnsQuery, DnsSocket};
+pub use self::dns::{DnsQuery, DnsSocket, QueryHandle as DnsQueryHandle};
 #[cfg(feature = "socket-icmp")]
 pub use self::icmp::{Endpoint as IcmpEndpoint, IcmpPacketMetadata, IcmpSocket, IcmpSocketBuffer};
 #[cfg(feature = "socket-raw")]
