@@ -218,6 +218,10 @@ impl<'a> Cache<'a> {
     pub(crate) fn limit_rate(&mut self, timestamp: Instant) {
         self.silent_until = timestamp + Self::SILENT_TIME;
     }
+
+    pub(crate) fn flush(&mut self) {
+        self.storage.clear()
+    }
 }
 
 #[cfg(test)]
@@ -369,5 +373,28 @@ mod test {
             cache.lookup(&MOCK_IP_ADDR_1, Instant::from_millis(2000)),
             Answer::NotFound
         );
+    }
+
+    #[test]
+    fn test_flush() {
+        let mut cache_storage = [Default::default(); 3];
+        let mut cache = Cache::new(&mut cache_storage[..]);
+
+        cache.fill(MOCK_IP_ADDR_1, HADDR_A, Instant::from_millis(0));
+        assert_eq!(
+            cache.lookup(&MOCK_IP_ADDR_1, Instant::from_millis(0)),
+            Answer::Found(HADDR_A)
+        );
+        assert!(!cache
+            .lookup(&MOCK_IP_ADDR_2, Instant::from_millis(0))
+            .found());
+
+        cache.flush();
+        assert!(!cache
+            .lookup(&MOCK_IP_ADDR_1, Instant::from_millis(0))
+            .found());
+        assert!(!cache
+            .lookup(&MOCK_IP_ADDR_1, Instant::from_millis(0))
+            .found());
     }
 }

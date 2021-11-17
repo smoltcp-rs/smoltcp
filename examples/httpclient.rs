@@ -8,7 +8,7 @@ use url::Url;
 
 use smoltcp::iface::{InterfaceBuilder, NeighborCache, Routes};
 use smoltcp::phy::{wait as phy_wait, Device, Medium};
-use smoltcp::socket::{SocketSet, TcpSocket, TcpSocketBuffer};
+use smoltcp::socket::{TcpSocket, TcpSocketBuffer};
 use smoltcp::time::Instant;
 use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr, Ipv4Address, Ipv6Address};
 
@@ -48,7 +48,7 @@ fn main() {
     routes.add_default_ipv6_route(default_v6_gw).unwrap();
 
     let medium = device.capabilities().medium;
-    let mut builder = InterfaceBuilder::new(device)
+    let mut builder = InterfaceBuilder::new(device, vec![])
         .ip_addrs(ip_addrs)
         .routes(routes);
     if medium == Medium::Ethernet {
@@ -58,8 +58,7 @@ fn main() {
     }
     let mut iface = builder.finalize();
 
-    let mut sockets = SocketSet::new(vec![]);
-    let tcp_handle = sockets.add(tcp_socket);
+    let tcp_handle = iface.add_socket(tcp_socket);
 
     enum State {
         Connect,
@@ -70,54 +69,52 @@ fn main() {
 
     loop {
         let timestamp = Instant::now();
-        match iface.poll(&mut sockets, timestamp) {
+        match iface.poll(timestamp) {
             Ok(_) => {}
             Err(e) => {
                 debug!("poll error: {}", e);
             }
         }
 
-        {
-            let mut socket = sockets.get::<TcpSocket>(tcp_handle);
+        let socket = iface.get_socket::<TcpSocket>(tcp_handle);
 
-            state = match state {
-                State::Connect if !socket.is_active() => {
-                    debug!("connecting");
-                    let local_port = 49152 + rand::random::<u16>() % 16384;
-                    socket
-                        .connect((address, url.port().unwrap_or(80)), local_port)
-                        .unwrap();
-                    State::Request
-                }
-                State::Request if socket.may_send() => {
-                    debug!("sending request");
-                    let http_get = "GET ".to_owned() + url.path() + " HTTP/1.1\r\n";
-                    socket.send_slice(http_get.as_ref()).expect("cannot send");
-                    let http_host = "Host: ".to_owned() + url.host_str().unwrap() + "\r\n";
-                    socket.send_slice(http_host.as_ref()).expect("cannot send");
-                    socket
-                        .send_slice(b"Connection: close\r\n")
-                        .expect("cannot send");
-                    socket.send_slice(b"\r\n").expect("cannot send");
-                    State::Response
-                }
-                State::Response if socket.can_recv() => {
-                    socket
-                        .recv(|data| {
-                            println!("{}", str::from_utf8(data).unwrap_or("(invalid utf8)"));
-                            (data.len(), ())
-                        })
-                        .unwrap();
-                    State::Response
-                }
-                State::Response if !socket.may_recv() => {
-                    debug!("received complete response");
-                    break;
-                }
-                _ => state,
+        state = match state {
+            State::Connect if !socket.is_active() => {
+                debug!("connecting");
+                let local_port = 49152 + rand::random::<u16>() % 16384;
+                socket
+                    .connect((address, url.port().unwrap_or(80)), local_port)
+                    .unwrap();
+                State::Request
             }
-        }
+            State::Request if socket.may_send() => {
+                debug!("sending request");
+                let http_get = "GET ".to_owned() + url.path() + " HTTP/1.1\r\n";
+                socket.send_slice(http_get.as_ref()).expect("cannot send");
+                let http_host = "Host: ".to_owned() + url.host_str().unwrap() + "\r\n";
+                socket.send_slice(http_host.as_ref()).expect("cannot send");
+                socket
+                    .send_slice(b"Connection: close\r\n")
+                    .expect("cannot send");
+                socket.send_slice(b"\r\n").expect("cannot send");
+                State::Response
+            }
+            State::Response if socket.can_recv() => {
+                socket
+                    .recv(|data| {
+                        println!("{}", str::from_utf8(data).unwrap_or("(invalid utf8)"));
+                        (data.len(), ())
+                    })
+                    .unwrap();
+                State::Response
+            }
+            State::Response if !socket.may_recv() => {
+                debug!("received complete response");
+                break;
+            }
+            _ => state,
+        };
 
-        phy_wait(fd, iface.poll_delay(&sockets, timestamp)).expect("wait error");
+        phy_wait(fd, iface.poll_delay(timestamp)).expect("wait error");
     }
 }

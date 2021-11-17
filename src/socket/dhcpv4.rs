@@ -29,7 +29,7 @@ const PARAMETER_REQUEST_LIST: &[u8] = &[
 ];
 
 /// IPv4 configuration data provided by the DHCP server.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Config {
     /// IP address
@@ -103,11 +103,11 @@ enum ClientState {
 /// Return value for the `Dhcpv4Socket::poll` function
 #[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum Event<'a> {
+pub enum Event {
     /// Configuration has been lost (for example, the lease has expired)
     Deconfigured,
     /// Configuration has been newly acquired, or modified.
-    Configured(&'a Config),
+    Configured(Config),
 }
 
 #[derive(Debug)]
@@ -552,12 +552,12 @@ impl Dhcpv4Socket {
     ///
     /// The socket has an internal "configuration changed" flag. If
     /// set, this function returns the configuration and resets the flag.
-    pub fn poll(&mut self) -> Option<Event<'_>> {
+    pub fn poll(&mut self) -> Option<Event> {
         if !self.config_changed {
             None
         } else if let ClientState::Renewing(state) = &self.state {
             self.config_changed = false;
-            Some(Event::Configured(&state.config))
+            Some(Event::Configured(state.config))
         } else {
             self.config_changed = false;
             Some(Event::Deconfigured)
@@ -634,9 +634,7 @@ mod test {
             });
         }
 
-        if i != reprs.len() {
-            panic!("Too few reprs emitted. Wanted {}, got {}", reprs.len(), i);
-        }
+        assert_eq!(i, reprs.len());
     }
 
     macro_rules! send {
@@ -657,30 +655,6 @@ mod test {
         ($socket:ident, time $time:expr, $reprs:expr) => ({
             recv(&mut $socket, Instant::from_millis($time), &$reprs);
         });
-    }
-
-    #[cfg(feature = "log")]
-    fn init_logger() {
-        struct Logger;
-        static LOGGER: Logger = Logger;
-
-        impl log::Log for Logger {
-            fn enabled(&self, _metadata: &log::Metadata) -> bool {
-                true
-            }
-
-            fn log(&self, record: &log::Record) {
-                println!("{}", record.args());
-            }
-
-            fn flush(&self) {}
-        }
-
-        // If it fails, that just means we've already set it to the same value.
-        let _ = log::set_logger(&LOGGER);
-        log::set_max_level(log::LevelFilter::Trace);
-
-        println!();
     }
 
     // =========================================================================================//
@@ -838,9 +812,6 @@ mod test {
     // Tests
 
     fn socket() -> Dhcpv4Socket {
-        #[cfg(feature = "log")]
-        init_logger();
-
         let mut s = Dhcpv4Socket::new();
         assert_eq!(s.poll(), Some(Event::Deconfigured));
         s
@@ -879,7 +850,7 @@ mod test {
 
         assert_eq!(
             s.poll(),
-            Some(Event::Configured(&Config {
+            Some(Event::Configured(Config {
                 address: Ipv4Cidr::new(MY_IP, 24),
                 dns_servers: DNS_IPS,
                 router: Some(SERVER_IP),

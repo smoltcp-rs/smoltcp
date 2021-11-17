@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use std::os::unix::io::AsRawFd;
 
 use smoltcp::iface::{Interface, InterfaceBuilder, NeighborCache, Routes};
-use smoltcp::socket::{Dhcpv4Event, Dhcpv4Socket, SocketSet};
+use smoltcp::socket::{Dhcpv4Event, Dhcpv4Socket};
 use smoltcp::time::Instant;
 use smoltcp::wire::{EthernetAddress, IpCidr, Ipv4Address, Ipv4Cidr};
 use smoltcp::{
@@ -34,7 +34,7 @@ fn main() {
     let routes = Routes::new(&mut routes_storage[..]);
 
     let medium = device.capabilities().medium;
-    let mut builder = InterfaceBuilder::new(device)
+    let mut builder = InterfaceBuilder::new(device, vec![])
         .ip_addrs(ip_addrs)
         .routes(routes);
     if medium == Medium::Ethernet {
@@ -44,7 +44,6 @@ fn main() {
     }
     let mut iface = builder.finalize();
 
-    let mut sockets = SocketSet::new(vec![]);
     let mut dhcp_socket = Dhcpv4Socket::new();
 
     // Set a ridiculously short max lease time to show DHCP renews work properly.
@@ -53,15 +52,16 @@ fn main() {
     // IMPORTANT: This should be removed in production.
     dhcp_socket.set_max_lease_duration(Some(Duration::from_secs(10)));
 
-    let dhcp_handle = sockets.add(dhcp_socket);
+    let dhcp_handle = iface.add_socket(dhcp_socket);
 
     loop {
         let timestamp = Instant::now();
-        if let Err(e) = iface.poll(&mut sockets, timestamp) {
+        if let Err(e) = iface.poll(timestamp) {
             debug!("poll error: {}", e);
         }
 
-        match sockets.get::<Dhcpv4Socket>(dhcp_handle).poll() {
+        let event = iface.get_socket::<Dhcpv4Socket>(dhcp_handle).poll();
+        match event {
             None => {}
             Some(Dhcpv4Event::Configured(config)) => {
                 debug!("DHCP config acquired!");
@@ -90,7 +90,7 @@ fn main() {
             }
         }
 
-        phy_wait(fd, iface.poll_delay(&sockets, timestamp)).expect("wait error");
+        phy_wait(fd, iface.poll_delay(timestamp)).expect("wait error");
     }
 }
 

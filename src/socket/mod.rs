@@ -24,7 +24,6 @@ mod icmp;
 mod meta;
 #[cfg(feature = "socket-raw")]
 mod raw;
-mod ref_;
 mod set;
 #[cfg(feature = "socket-tcp")]
 mod tcp;
@@ -58,9 +57,6 @@ pub use self::dhcpv4::{Config as Dhcpv4Config, Dhcpv4Socket, Event as Dhcpv4Even
 
 pub use self::set::{Handle as SocketHandle, Item as SocketSetItem, Set as SocketSet};
 pub use self::set::{Iter as SocketSetIter, IterMut as SocketSetIterMut};
-
-pub use self::ref_::Ref as SocketRef;
-pub(crate) use self::ref_::Session as SocketSession;
 
 /// Gives an indication on the next time the socket should be polled.
 #[derive(Debug, PartialOrd, Ord, PartialEq, Eq, Clone, Copy)]
@@ -144,25 +140,19 @@ impl<'a> Socket<'a> {
     }
 }
 
-impl<'a> SocketSession for Socket<'a> {
-    fn finish(&mut self) {
-        dispatch_socket!(mut self, |socket| socket.finish())
-    }
-}
-
 /// A conversion trait for network sockets.
-pub trait AnySocket<'a>: SocketSession + Sized {
-    fn downcast<'c>(socket_ref: SocketRef<'c, Socket<'a>>) -> Option<SocketRef<'c, Self>>;
+pub trait AnySocket<'a>: Sized {
+    fn downcast<'c>(socket: &'c mut Socket<'a>) -> Option<&'c mut Self>;
 }
 
 macro_rules! from_socket {
     ($socket:ty, $variant:ident) => {
         impl<'a> AnySocket<'a> for $socket {
-            fn downcast<'c>(ref_: SocketRef<'c, Socket<'a>>) -> Option<SocketRef<'c, Self>> {
-                if let Socket::$variant(ref mut socket) = SocketRef::into_inner(ref_) {
-                    Some(SocketRef::new(socket))
-                } else {
-                    None
+            fn downcast<'c>(socket: &'c mut Socket<'a>) -> Option<&'c mut Self> {
+                #[allow(unreachable_patterns)]
+                match socket {
+                    Socket::$variant(socket) => Some(socket),
+                    _ => None,
                 }
             }
         }
