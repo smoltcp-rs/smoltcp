@@ -48,7 +48,7 @@ verbose = []
 "proto-ipv6" = []
 "proto-sixlowpan" = ["proto-ipv6"]
 "proto-dns" = []
- 
+
 "socket" = []
 "socket-raw" = ["socket"]
 "socket-udp" = ["socket"]
