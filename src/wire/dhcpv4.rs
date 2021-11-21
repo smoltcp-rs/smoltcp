@@ -28,45 +28,99 @@ enum_with_unknown! {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[allow(unused)]
 pub enum ClientArchType {
-    /// Intel x86PC
-    X86PC = 0,
-    /// NEC/PC98
+    X86Bios = 0,
     PC98 = 1,
-    /// EFI Itanium
     EfiItanium = 2,
-    /// DEC Alpha
     DecAlpha = 3,
-    /// Arc x86
     ArcX86 = 4,
-    /// Intel Lean Client
     IntelLeanClient = 5,
-    /// EFI IA32
-    EfiIA32 = 6,
-    /// EFI BC
-    EfiBc = 7,
-    /// EFI Xscale
+    X86Uefi = 6,
+    X64Uefi = 7,
     EfiXscale = 8,
-    /// EFI x86-64
-    EfiX86_64 = 9,
+    Ebc = 9,
+    Arm32Uefi = 10,
+    Arm64Uefi = 11,
+    PowerPcOpenFimware = 12,
+    PowerPcepapr = 13,
+    PowerOpalv3 = 14,
+    X86UefiHttp = 15,
+    X64UefiHttp = 16,
+    EbcFromHttp = 17,
+    Arm32UefiHttp = 18,
+    Arm64UefiHttp = 19,
+    X86BiosHttp = 20,
+    Arm32Uboot = 21,
+    Arm64Uboot = 22,
+    Arm32UbootHttp = 23,
+    Arm64UbootHttp = 24,
+    Riscv32Uefi = 25,
+    Riscv32UefiHttp = 26,
+    Riscv64Uefi = 27,
+    Riscv64UefiHttp = 28,
+    Riscv128Uefi = 29,
+    Riscv128UefiHttp = 30,
+    S390Basic = 31,
+    S390Extended = 32,
+    Mips32Uefi = 33,
+    Mips64Uefi = 34,
+    Sunway32Uefi = 35,
+    Sunway64Uefi = 36,
+    LoongArch32Uefi = 37,
+    LoongArch32UefiHttp = 38,
+    LoongArch64Uefi = 39,
+    LoongArch64UefiHttp = 40,
 }
 
 impl TryFrom<u16> for ClientArchType {
     type Error = Error;
 
     fn try_from(value: u16) -> Result<Self> {
-        match value {
-            0 => Ok(Self::X86PC),
-            1 => Ok(Self::PC98),
-            2 => Ok(Self::EfiItanium),
-            3 => Ok(Self::DecAlpha),
-            4 => Ok(Self::ArcX86),
-            5 => Ok(Self::IntelLeanClient),
-            6 => Ok(Self::EfiIA32),
-            7 => Ok(Self::EfiBc),
-            8 => Ok(Self::EfiXscale),
-            9 => Ok(Self::EfiX86_64),
-            _ => Err(Error::Unrecognized),
-        }
+        use ClientArchType::*;
+        let res = match value {
+            0 => X86Bios,
+            1 => PC98,
+            2 => EfiItanium,
+            3 => DecAlpha,
+            4 => ArcX86,
+            5 => IntelLeanClient,
+            6 => X86Uefi,
+            7 => X64Uefi,
+            8 => EfiXscale,
+            9 => Ebc,
+            10 => Arm32Uefi,
+            11 => Arm64Uefi,
+            12 => PowerPcOpenFimware,
+            13 => PowerPcepapr,
+            14 => PowerOpalv3,
+            15 => X86UefiHttp,
+            16 => X64UefiHttp,
+            17 => EbcFromHttp,
+            18 => Arm32UefiHttp,
+            19 => Arm64UefiHttp,
+            20 => X86BiosHttp,
+            21 => Arm32Uboot,
+            22 => Arm64Uboot,
+            23 => Arm32UbootHttp,
+            24 => Arm64UbootHttp,
+            25 => Riscv32Uefi,
+            26 => Riscv32UefiHttp,
+            27 => Riscv64Uefi,
+            28 => Riscv64UefiHttp,
+            29 => Riscv128Uefi,
+            30 => Riscv128UefiHttp,
+            31 => S390Basic,
+            32 => S390Extended,
+            33 => Mips32Uefi,
+            34 => Mips64Uefi,
+            35 => Sunway32Uefi,
+            36 => Sunway64Uefi,
+            37 => LoongArch32Uefi,
+            38 => LoongArch32UefiHttp,
+            39 => LoongArch64Uefi,
+            40 => LoongArch64UefiHttp,
+            _ => return Err(Error::Unrecognized),
+        };
+        Ok(res)
     }
 }
 
@@ -197,6 +251,7 @@ impl<'a> DhcpOption<'a> {
                 let length = *buffer.get(1).ok_or(Error::Truncated)? as usize;
                 skip_len = length + 2;
                 let data = buffer.get(2..skip_len).ok_or(Error::Truncated)?;
+
                 match (kind, length) {
                     (field::OPT_END, _) | (field::OPT_PAD, _) => unreachable!(),
                     (field::OPT_DHCP_MESSAGE_TYPE, 1) => {
@@ -212,6 +267,10 @@ impl<'a> DhcpOption<'a> {
                     }
                     (field::OPT_CLIENT_ARCH, _) => option = DhcpOption::ClientArchTypeList(data),
                     (field::OPT_CLIENT_MACHINE_ID, _) => {
+                        if data.len() < 2 {
+                            return Err(Error::Truncated);
+                        }
+
                         let id_type = MachineIdType::try_from(data[0])?;
 
                         option = DhcpOption::ClientMachineId(MachineId {
@@ -292,6 +351,8 @@ impl<'a> DhcpOption<'a> {
 
     pub fn emit<'b>(&self, buffer: &'b mut [u8]) -> &'b mut [u8] {
         let skip_length;
+        assert!(!buffer.is_empty());
+
         match *self {
             DhcpOption::EndOfList => {
                 skip_length = 1;
@@ -303,6 +364,12 @@ impl<'a> DhcpOption<'a> {
             }
             _ => {
                 skip_length = self.buffer_len();
+
+                assert!(skip_length <= buffer.len());
+                if skip_length > buffer.len() {
+                    return buffer;
+                }
+
                 buffer[1] = (skip_length - 2) as u8;
                 match *self {
                     DhcpOption::EndOfList | DhcpOption::Pad => unreachable!(),
@@ -1402,8 +1469,9 @@ mod test {
                 ],
             })
             .emit(options);
-            options = DhcpOption::ClientArchTypeList(&(ClientArchType::X86PC as u16).to_be_bytes())
-                .emit(options);
+            options =
+                DhcpOption::ClientArchTypeList(&(ClientArchType::X86Bios as u16).to_be_bytes())
+                    .emit(options);
             options = DhcpOption::ClientNetworkInterfaceId(NetworkInterfaceVersion {
                 interface_type: NetworkInterfaceType::Undi,
                 major: 2,
