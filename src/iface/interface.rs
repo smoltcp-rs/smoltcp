@@ -1198,6 +1198,12 @@ impl<'a> InterfaceInner<'a> {
                         net_debug!("Extension headers are currently not supported for 6LoWPAN");
                         Ok(None)
                     }
+                    #[cfg(not(feature = "socket-udp"))]
+                    SixlowpanNhcPacket::UdpHeader(_) => {
+                        net_debug!("UDP support is disabled, enable cargo feature `socket-udp`.");
+                        Ok(None)
+                    }
+                    #[cfg(feature = "socket-udp")]
                     SixlowpanNhcPacket::UdpHeader(udp_packet) => {
                         ipv6_repr.next_header = IpProtocol::Udp;
                         // Handle the UDP
@@ -2444,6 +2450,7 @@ impl<'a> InterfaceInner<'a> {
 
                     #[allow(unreachable_patterns)]
                     match packet {
+                        #[cfg(feature = "socket-udp")]
                         IpPacket::Udp((_, udp_repr, payload)) => {
                             // 3. Create the header for 6LoWPAN UDP
                             let mut udp_packet =
