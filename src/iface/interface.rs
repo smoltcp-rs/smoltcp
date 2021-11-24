@@ -5,6 +5,8 @@
 use core::cmp;
 use managed::{ManagedMap, ManagedSlice};
 
+use super::socket_set::SocketSet;
+use super::{SocketHandle, SocketStorage};
 use crate::iface::Routes;
 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
 use crate::iface::{NeighborAnswer, NeighborCache};
@@ -108,7 +110,7 @@ let iface = InterfaceBuilder::new(device, vec![])
     )]
     pub fn new<SocketsT>(device: DeviceT, sockets: SocketsT) -> Self
     where
-        SocketsT: Into<ManagedSlice<'a, Option<SocketSetItem<'a>>>>,
+        SocketsT: Into<ManagedSlice<'a, SocketStorage<'a>>>,
     {
         InterfaceBuilder {
             device: device,

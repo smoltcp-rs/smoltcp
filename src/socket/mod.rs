@@ -14,9 +14,6 @@ size for a buffer, allocate it, and let the networking stack use it.
 use crate::phy::DeviceCapabilities;
 use crate::time::Instant;
 
-mod meta;
-mod set;
-
 #[cfg(feature = "socket-dhcpv4")]
 mod dhcpv4;
 #[cfg(feature = "socket-icmp")]
@@ -30,8 +27,6 @@ mod udp;
 
 #[cfg(feature = "async")]
 mod waker;
-
-pub use self::set::{Handle as SocketHandle, Item as SocketSetItem, Set as SocketSet};
 
 #[cfg(feature = "socket-dhcpv4")]
 pub use self::dhcpv4::{Config as Dhcpv4Config, Dhcpv4Socket, Event as Dhcpv4Event};

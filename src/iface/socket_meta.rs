@@ -1,4 +1,5 @@
-use crate::socket::{PollAt, SocketHandle};
+use super::SocketHandle;
+use crate::socket::PollAt;
 use crate::time::{Duration, Instant};
 use crate::wire::IpAddress;
 
