@@ -1,5 +1,4 @@
-use crate::socket::SocketHandle;
-use crate::socket::{Context, SocketMeta};
+use crate::socket::Context;
 use crate::time::{Duration, Instant};
 use crate::wire::dhcpv4::field as dhcpv4_field;
 use crate::wire::HardwareAddress;
@@ -9,7 +8,7 @@ use crate::wire::{
 };
 use crate::{Error, Result};
 
-use super::{PollAt, Socket};
+use super::PollAt;
 
 const DISCOVER_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -112,7 +111,6 @@ pub enum Event {
 
 #[derive(Debug)]
 pub struct Dhcpv4Socket {
-    pub(crate) meta: SocketMeta,
     /// State of the DHCP client.
     state: ClientState,
     /// Set to true on config/state change, cleared back to false by the `config` function.
@@ -138,7 +136,6 @@ impl Dhcpv4Socket {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Dhcpv4Socket {
-            meta: SocketMeta::default(),
             state: ClientState::Discovering(DiscoverState {
                 retry_at: Instant::from_millis(0),
             }),
@@ -520,12 +517,6 @@ impl Dhcpv4Socket {
         }
     }
 
-    /// Return the socket handle.
-    #[inline]
-    pub fn handle(&self) -> SocketHandle {
-        self.meta.handle
-    }
-
     /// Reset state and restart discovery phase.
     ///
     /// Use this to speed up acquisition of an address in a new
@@ -554,12 +545,6 @@ impl Dhcpv4Socket {
             self.config_changed = false;
             Some(Event::Deconfigured)
         }
-    }
-}
-
-impl<'a> From<Dhcpv4Socket> for Socket<'a> {
-    fn from(val: Dhcpv4Socket) -> Self {
-        Socket::Dhcpv4(val)
     }
 }
 

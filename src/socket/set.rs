@@ -1,7 +1,9 @@
-use core::{fmt, slice};
+use core::fmt;
 use managed::ManagedSlice;
 
 use crate::socket::{AnySocket, Socket};
+
+use super::meta::Meta;
 
 /// An item of a socket set.
 ///
@@ -9,7 +11,8 @@ use crate::socket::{AnySocket, Socket};
 /// to be allocated externally.
 #[derive(Debug)]
 pub struct Item<'a> {
-    socket: Socket<'a>,
+    pub(crate) meta: Meta,
+    pub(crate) socket: Socket<'a>,
 }
 
 /// A handle, identifying a socket in a set.
@@ -45,19 +48,17 @@ impl<'a> Set<'a> {
     ///
     /// # Panics
     /// This function panics if the storage is fixed-size (not a `Vec`) and is full.
-    pub fn add<T>(&mut self, socket: T) -> Handle
-    where
-        T: Into<Socket<'a>>,
-    {
-        fn put<'a>(index: usize, slot: &mut Option<Item<'a>>, mut socket: Socket<'a>) -> Handle {
+    pub fn add<T: AnySocket<'a>>(&mut self, socket: T) -> Handle {
+        fn put<'a>(index: usize, slot: &mut Option<Item<'a>>, socket: Socket<'a>) -> Handle {
             net_trace!("[{}]: adding", index);
             let handle = Handle(index);
-            socket.meta_mut().handle = handle;
-            *slot = Some(Item { socket });
+            let mut meta = Meta::default();
+            meta.handle = handle;
+            *slot = Some(Item { socket, meta });
             handle
         }
 
-        let socket = socket.into();
+        let socket = socket.upcast();
 
         for (index, slot) in self.sockets.iter_mut().enumerate() {
             if slot.is_none() {
@@ -103,58 +104,12 @@ impl<'a> Set<'a> {
     }
 
     /// Iterate every socket in this set.
-    pub fn iter<'d>(&'d self) -> Iter<'d, 'a> {
-        Iter {
-            lower: self.sockets.iter(),
-        }
+    pub fn iter(&self) -> impl Iterator<Item = &Item<'a>> + '_ {
+        self.sockets.iter().filter_map(|x| x.as_ref())
     }
 
     /// Iterate every socket in this set.
-    pub fn iter_mut<'d>(&'d mut self) -> IterMut<'d, 'a> {
-        IterMut {
-            lower: self.sockets.iter_mut(),
-        }
-    }
-}
-
-/// Immutable socket set iterator.
-///
-/// This struct is created by the [iter](struct.SocketSet.html#method.iter)
-/// on [socket sets](struct.SocketSet.html).
-pub struct Iter<'a, 'b: 'a> {
-    lower: slice::Iter<'a, Option<Item<'b>>>,
-}
-
-impl<'a, 'b: 'a> Iterator for Iter<'a, 'b> {
-    type Item = &'a Socket<'b>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        for item_opt in &mut self.lower {
-            if let Some(item) = item_opt.as_ref() {
-                return Some(&item.socket);
-            }
-        }
-        None
-    }
-}
-
-/// Mutable socket set iterator.
-///
-/// This struct is created by the [iter_mut](struct.SocketSet.html#method.iter_mut)
-/// on [socket sets](struct.SocketSet.html).
-pub struct IterMut<'a, 'b: 'a> {
-    lower: slice::IterMut<'a, Option<Item<'b>>>,
-}
-
-impl<'a, 'b: 'a> Iterator for IterMut<'a, 'b> {
-    type Item = &'a mut Socket<'b>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        for item_opt in &mut self.lower {
-            if let Some(item) = item_opt.as_mut() {
-                return Some(&mut item.socket);
-            }
-        }
-        None
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Item<'a>> + '_ {
+        self.sockets.iter_mut().filter_map(|x| x.as_mut())
     }
 }

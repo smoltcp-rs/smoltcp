@@ -5,7 +5,7 @@ use core::task::Waker;
 use crate::phy::ChecksumCapabilities;
 #[cfg(feature = "async")]
 use crate::socket::WakerRegistration;
-use crate::socket::{Context, PollAt, Socket, SocketHandle, SocketMeta};
+use crate::socket::{Context, PollAt};
 use crate::storage::{PacketBuffer, PacketMetadata};
 use crate::{Error, Result};
 
@@ -62,7 +62,6 @@ pub type IcmpSocketBuffer<'a> = PacketBuffer<'a, IpAddress>;
 /// [bind]: #method.bind
 #[derive(Debug)]
 pub struct IcmpSocket<'a> {
-    pub(crate) meta: SocketMeta,
     rx_buffer: IcmpSocketBuffer<'a>,
     tx_buffer: IcmpSocketBuffer<'a>,
     /// The endpoint this socket is communicating with
@@ -79,7 +78,6 @@ impl<'a> IcmpSocket<'a> {
     /// Create an ICMP socket with the given buffers.
     pub fn new(rx_buffer: IcmpSocketBuffer<'a>, tx_buffer: IcmpSocketBuffer<'a>) -> IcmpSocket<'a> {
         IcmpSocket {
-            meta: SocketMeta::default(),
             rx_buffer: rx_buffer,
             tx_buffer: tx_buffer,
             endpoint: Endpoint::default(),
@@ -124,12 +122,6 @@ impl<'a> IcmpSocket<'a> {
     #[cfg(feature = "async")]
     pub fn register_send_waker(&mut self, waker: &Waker) {
         self.tx_waker.register(waker)
-    }
-
-    /// Return the socket handle.
-    #[inline]
-    pub fn handle(&self) -> SocketHandle {
-        self.meta.handle
     }
 
     /// Return the time-to-live (IPv4) or hop limit (IPv6) value used in outgoing packets.
@@ -290,12 +282,7 @@ impl<'a> IcmpSocket<'a> {
 
         let packet_buf = self.tx_buffer.enqueue(size, endpoint)?;
 
-        net_trace!(
-            "{}:{}: buffer to send {} octets",
-            self.meta.handle,
-            endpoint,
-            size
-        );
+        net_trace!("icmp:{}: buffer to send {} octets", endpoint, size);
         Ok(packet_buf)
     }
 
@@ -316,8 +303,7 @@ impl<'a> IcmpSocket<'a> {
         let (endpoint, packet_buf) = self.rx_buffer.dequeue()?;
 
         net_trace!(
-            "{}:{}: receive {} buffered octets",
-            self.meta.handle,
+            "icmp:{}: receive {} buffered octets",
             endpoint,
             packet_buf.len()
         );
@@ -417,8 +403,7 @@ impl<'a> IcmpSocket<'a> {
                 );
 
                 net_trace!(
-                    "{}:{}: receiving {} octets",
-                    self.meta.handle,
+                    "icmp:{}: receiving {} octets",
                     icmp_repr.buffer_len(),
                     packet_buf.len()
                 );
@@ -436,8 +421,7 @@ impl<'a> IcmpSocket<'a> {
                 );
 
                 net_trace!(
-                    "{}:{}: receiving {} octets",
-                    self.meta.handle,
+                    "icmp:{}: receiving {} octets",
                     icmp_repr.buffer_len(),
                     packet_buf.len()
                 );
@@ -454,12 +438,10 @@ impl<'a> IcmpSocket<'a> {
     where
         F: FnOnce((IpRepr, IcmpRepr)) -> Result<()>,
     {
-        let handle = self.meta.handle;
         let hop_limit = self.hop_limit.unwrap_or(64);
         self.tx_buffer.dequeue_with(|remote_endpoint, packet_buf| {
             net_trace!(
-                "{}:{}: sending {} octets",
-                handle,
+                "icmp:{}: sending {} octets",
                 remote_endpoint,
                 packet_buf.len()
             );
@@ -512,12 +494,6 @@ impl<'a> IcmpSocket<'a> {
         } else {
             PollAt::Now
         }
-    }
-}
-
-impl<'a> From<IcmpSocket<'a>> for Socket<'a> {
-    fn from(val: IcmpSocket<'a>) -> Self {
-        Socket::Icmp(val)
     }
 }
 

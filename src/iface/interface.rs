@@ -474,10 +474,7 @@ where
     ///
     /// # Panics
     /// This function panics if the storage is fixed-size (not a `Vec`) and is full.
-    pub fn add_socket<T>(&mut self, socket: T) -> SocketHandle
-    where
-        T: Into<Socket<'a>>,
-    {
+    pub fn add_socket<T: AnySocket<'a>>(&mut self, socket: T) -> SocketHandle {
         self.sockets.add(socket)
     }
 
@@ -558,12 +555,12 @@ where
 
     /// Get an iterator to the inner sockets.
     pub fn sockets(&self) -> impl Iterator<Item = &Socket<'a>> {
-        self.sockets.iter()
+        self.sockets.iter().map(|i| &i.socket)
     }
 
     /// Get a mutable iterator to the inner sockets.
     pub fn sockets_mut(&mut self) -> impl Iterator<Item = &mut Socket<'a>> {
-        self.sockets.iter_mut()
+        self.sockets.iter_mut().map(|i| &mut i.socket)
     }
 
     /// Add an address to a list of subscribed multicast IP addresses.
@@ -733,9 +730,9 @@ where
 
         self.sockets
             .iter()
-            .filter_map(|socket| {
-                let socket_poll_at = socket.poll_at(&cx);
-                match socket.meta().poll_at(socket_poll_at, |ip_addr| {
+            .filter_map(|item| {
+                let socket_poll_at = item.socket.poll_at(&cx);
+                match item.meta.poll_at(socket_poll_at, |ip_addr| {
                     self.inner.has_neighbor(&cx, &ip_addr)
                 }) {
                     PollAt::Ingress => None,
@@ -841,9 +838,9 @@ where
         let _caps = device.capabilities();
 
         let mut emitted_any = false;
-        for socket in sockets.iter_mut() {
-            if !socket
-                .meta_mut()
+        for item in sockets.iter_mut() {
+            if !item
+                .meta
                 .egress_permitted(cx.now, |ip_addr| inner.has_neighbor(cx, &ip_addr))
             {
                 continue;
@@ -862,13 +859,13 @@ where
                 }};
             }
 
-            let socket_result = match *socket {
+            let socket_result = match &mut item.socket {
                 #[cfg(feature = "socket-raw")]
-                Socket::Raw(ref mut socket) => {
+                Socket::Raw(socket) => {
                     socket.dispatch(cx, |response| respond!(IpPacket::Raw(response)))
                 }
                 #[cfg(feature = "socket-icmp")]
-                Socket::Icmp(ref mut socket) => socket.dispatch(cx, |response| match response {
+                Socket::Icmp(socket) => socket.dispatch(cx, |response| match response {
                     #[cfg(feature = "proto-ipv4")]
                     (IpRepr::Ipv4(ipv4_repr), IcmpRepr::Ipv4(icmpv4_repr)) => {
                         respond!(IpPacket::Icmpv4((ipv4_repr, icmpv4_repr)))
@@ -880,15 +877,15 @@ where
                     _ => Err(Error::Unaddressable),
                 }),
                 #[cfg(feature = "socket-udp")]
-                Socket::Udp(ref mut socket) => {
+                Socket::Udp(socket) => {
                     socket.dispatch(cx, |response| respond!(IpPacket::Udp(response)))
                 }
                 #[cfg(feature = "socket-tcp")]
-                Socket::Tcp(ref mut socket) => {
+                Socket::Tcp(socket) => {
                     socket.dispatch(cx, |response| respond!(IpPacket::Tcp(response)))
                 }
                 #[cfg(feature = "socket-dhcpv4")]
-                Socket::Dhcpv4(ref mut socket) => {
+                Socket::Dhcpv4(socket) => {
                     socket.dispatch(cx, |response| respond!(IpPacket::Dhcpv4(response)))
                 }
             };
@@ -901,15 +898,14 @@ where
                     // requests from the socket. However, without an additional rate limiting
                     // mechanism, we would spin on every socket that has yet to discover its
                     // neighboor.
-                    socket
-                        .meta_mut()
+                    item.meta
                         .neighbor_missing(cx.now, neighbor_addr.expect("non-IP response packet"));
                     break;
                 }
                 (Err(err), _) | (_, Err(err)) => {
                     net_debug!(
                         "{}: cannot dispatch egress packet: {}",
-                        socket.meta().handle,
+                        item.meta.handle,
                         err
                     );
                     return Err(err);
@@ -1216,7 +1212,10 @@ impl<'a> InterfaceInner<'a> {
 
                         // Look for UDP sockets that will accept the UDP packet.
                         // If it does not accept the packet, then send an ICMP message.
-                        for udp_socket in sockets.iter_mut().filter_map(UdpSocket::downcast) {
+                        for udp_socket in sockets
+                            .iter_mut()
+                            .filter_map(|i| UdpSocket::downcast(&mut i.socket))
+                        {
                             if !udp_socket.accepts(&IpRepr::Ipv6(ipv6_repr), &udp_repr) {
                                 continue;
                             }
@@ -1339,7 +1338,10 @@ impl<'a> InterfaceInner<'a> {
         let mut handled_by_raw_socket = false;
 
         // Pass every IP packet to all raw sockets we have registered.
-        for raw_socket in sockets.iter_mut().filter_map(RawSocket::downcast) {
+        for raw_socket in sockets
+            .iter_mut()
+            .filter_map(|i| RawSocket::downcast(&mut i.socket))
+        {
             if !raw_socket.accepts(ip_repr) {
                 continue;
             }
@@ -1471,8 +1473,10 @@ impl<'a> InterfaceInner<'a> {
                 if udp_packet.src_port() == DHCP_SERVER_PORT
                     && udp_packet.dst_port() == DHCP_CLIENT_PORT
                 {
-                    if let Some(dhcp_socket) =
-                        sockets.iter_mut().filter_map(Dhcpv4Socket::downcast).next()
+                    if let Some(dhcp_socket) = sockets
+                        .iter_mut()
+                        .filter_map(|i| Dhcpv4Socket::downcast(&mut i.socket))
+                        .next()
                     {
                         let (src_addr, dst_addr) = (ip_repr.src_addr(), ip_repr.dst_addr());
                         let udp_repr =
@@ -1650,7 +1654,10 @@ impl<'a> InterfaceInner<'a> {
         let mut handled_by_icmp_socket = false;
 
         #[cfg(all(feature = "socket-icmp", feature = "proto-ipv6"))]
-        for icmp_socket in _sockets.iter_mut().filter_map(IcmpSocket::downcast) {
+        for icmp_socket in _sockets
+            .iter_mut()
+            .filter_map(|i| IcmpSocket::downcast(&mut i.socket))
+        {
             if !icmp_socket.accepts(cx, &ip_repr, &icmp_repr.into()) {
                 continue;
             }
@@ -1836,7 +1843,10 @@ impl<'a> InterfaceInner<'a> {
         let mut handled_by_icmp_socket = false;
 
         #[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
-        for icmp_socket in _sockets.iter_mut().filter_map(IcmpSocket::downcast) {
+        for icmp_socket in _sockets
+            .iter_mut()
+            .filter_map(|i| IcmpSocket::downcast(&mut i.socket))
+        {
             if !icmp_socket.accepts(cx, &ip_repr, &icmp_repr.into()) {
                 continue;
             }
@@ -1960,7 +1970,10 @@ impl<'a> InterfaceInner<'a> {
         let udp_repr = UdpRepr::parse(&udp_packet, &src_addr, &dst_addr, &cx.caps.checksum)?;
         let udp_payload = udp_packet.payload();
 
-        for udp_socket in sockets.iter_mut().filter_map(UdpSocket::downcast) {
+        for udp_socket in sockets
+            .iter_mut()
+            .filter_map(|i| UdpSocket::downcast(&mut i.socket))
+        {
             if !udp_socket.accepts(&ip_repr, &udp_repr) {
                 continue;
             }
@@ -2017,7 +2030,10 @@ impl<'a> InterfaceInner<'a> {
         let tcp_packet = TcpPacket::new_checked(ip_payload)?;
         let tcp_repr = TcpRepr::parse(&tcp_packet, &src_addr, &dst_addr, &cx.caps.checksum)?;
 
-        for tcp_socket in sockets.iter_mut().filter_map(TcpSocket::downcast) {
+        for tcp_socket in sockets
+            .iter_mut()
+            .filter_map(|i| TcpSocket::downcast(&mut i.socket))
+        {
             if !tcp_socket.accepts(&ip_repr, &tcp_repr) {
                 continue;
             }

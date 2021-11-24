@@ -4,7 +4,7 @@ use core::task::Waker;
 
 #[cfg(feature = "async")]
 use crate::socket::WakerRegistration;
-use crate::socket::{Context, PollAt, Socket, SocketHandle, SocketMeta};
+use crate::socket::{Context, PollAt};
 use crate::storage::{PacketBuffer, PacketMetadata};
 use crate::wire::{IpEndpoint, IpProtocol, IpRepr, UdpRepr};
 use crate::{Error, Result};
@@ -21,7 +21,6 @@ pub type UdpSocketBuffer<'a> = PacketBuffer<'a, IpEndpoint>;
 /// packet buffers.
 #[derive(Debug)]
 pub struct UdpSocket<'a> {
-    pub(crate) meta: SocketMeta,
     endpoint: IpEndpoint,
     rx_buffer: UdpSocketBuffer<'a>,
     tx_buffer: UdpSocketBuffer<'a>,
@@ -37,7 +36,6 @@ impl<'a> UdpSocket<'a> {
     /// Create an UDP socket with the given buffers.
     pub fn new(rx_buffer: UdpSocketBuffer<'a>, tx_buffer: UdpSocketBuffer<'a>) -> UdpSocket<'a> {
         UdpSocket {
-            meta: SocketMeta::default(),
             endpoint: IpEndpoint::default(),
             rx_buffer: rx_buffer,
             tx_buffer: tx_buffer,
@@ -82,12 +80,6 @@ impl<'a> UdpSocket<'a> {
     #[cfg(feature = "async")]
     pub fn register_send_waker(&mut self, waker: &Waker) {
         self.tx_waker.register(waker)
-    }
-
-    /// Return the socket handle.
-    #[inline]
-    pub fn handle(&self) -> SocketHandle {
-        self.meta.handle
     }
 
     /// Return the bound endpoint.
@@ -225,8 +217,7 @@ impl<'a> UdpSocket<'a> {
         let payload_buf = self.tx_buffer.enqueue(size, endpoint)?;
 
         net_trace!(
-            "{}:{}:{}: buffer to send {} octets",
-            self.meta.handle,
+            "udp:{}:{}: buffer to send {} octets",
             self.endpoint,
             endpoint,
             size
@@ -250,8 +241,7 @@ impl<'a> UdpSocket<'a> {
         let (endpoint, payload_buf) = self.rx_buffer.dequeue()?;
 
         net_trace!(
-            "{}:{}:{}: receive {} buffered octets",
-            self.meta.handle,
+            "udp:{}:{}: receive {} buffered octets",
             self.endpoint,
             endpoint,
             payload_buf.len()
@@ -276,12 +266,10 @@ impl<'a> UdpSocket<'a> {
     ///
     /// It returns `Err(Error::Exhausted)` if the receive buffer is empty.
     pub fn peek(&mut self) -> Result<(&[u8], &IpEndpoint)> {
-        let handle = self.meta.handle;
         let endpoint = self.endpoint;
         self.rx_buffer.peek().map(|(remote_endpoint, payload_buf)| {
             net_trace!(
-                "{}:{}:{}: peek {} buffered octets",
-                handle,
+                "udp:{}:{}: peek {} buffered octets",
                 endpoint,
                 remote_endpoint,
                 payload_buf.len()
@@ -338,8 +326,7 @@ impl<'a> UdpSocket<'a> {
             .copy_from_slice(payload);
 
         net_trace!(
-            "{}:{}:{}: receiving {} octets",
-            self.meta.handle,
+            "udp:{}:{}: receiving {} octets",
             self.endpoint,
             endpoint,
             size
@@ -355,15 +342,13 @@ impl<'a> UdpSocket<'a> {
     where
         F: FnOnce((IpRepr, UdpRepr, &[u8])) -> Result<()>,
     {
-        let handle = self.handle();
         let endpoint = self.endpoint;
         let hop_limit = self.hop_limit.unwrap_or(64);
 
         self.tx_buffer
             .dequeue_with(|remote_endpoint, payload_buf| {
                 net_trace!(
-                    "{}:{}:{}: sending {} octets",
-                    handle,
+                    "udp:{}:{}: sending {} octets",
                     endpoint,
                     endpoint,
                     payload_buf.len()
@@ -395,12 +380,6 @@ impl<'a> UdpSocket<'a> {
         } else {
             PollAt::Now
         }
-    }
-}
-
-impl<'a> From<UdpSocket<'a>> for Socket<'a> {
-    fn from(val: UdpSocket<'a>) -> Self {
-        Socket::Udp(val)
     }
 }
 
