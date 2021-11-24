@@ -867,10 +867,7 @@ where
                 Socket::Raw(ref mut socket) => {
                     socket.dispatch(cx, |response| respond!(IpPacket::Raw(response)))
                 }
-                #[cfg(all(
-                    feature = "socket-icmp",
-                    any(feature = "proto-ipv4", feature = "proto-ipv6")
-                ))]
+                #[cfg(feature = "socket-icmp")]
                 Socket::Icmp(ref mut socket) => socket.dispatch(cx, |response| match response {
                     #[cfg(feature = "proto-ipv4")]
                     (IpRepr::Ipv4(ipv4_repr), IcmpRepr::Ipv4(icmpv4_repr)) => {
@@ -1325,10 +1322,7 @@ impl<'a> InterfaceInner<'a> {
         }
     }
 
-    #[cfg(all(
-        any(feature = "proto-ipv4", feature = "proto-ipv6"),
-        feature = "socket-raw"
-    ))]
+    #[cfg(feature = "socket-raw")]
     fn raw_socket_filter<'frame>(
         &mut self,
         cx: &Context,
