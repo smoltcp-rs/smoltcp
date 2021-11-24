@@ -94,13 +94,13 @@ impl State {
 /// adverse network conditions (such as random packet loss or corruption), or software
 /// or hardware limitations (such as a limited number or size of usable network buffers).
 #[derive(Debug)]
-pub struct FaultInjector<D: for<'a> Device<'a>> {
+pub struct FaultInjector<D: Device> {
     inner: D,
     state: RefCell<State>,
     config: Config,
 }
 
-impl<D: for<'a> Device<'a>> FaultInjector<D> {
+impl<D: Device> FaultInjector<D> {
     /// Create a fault injector device, using the given random number generator seed.
     pub fn new(inner: D, seed: u32) -> FaultInjector<D> {
         let state = State {
@@ -195,12 +195,13 @@ impl<D: for<'a> Device<'a>> FaultInjector<D> {
     }
 }
 
-impl<'a, D> Device<'a> for FaultInjector<D>
-where
-    D: for<'b> Device<'b>,
-{
-    type RxToken = RxToken<'a, <D as Device<'a>>::RxToken>;
-    type TxToken = TxToken<'a, <D as Device<'a>>::TxToken>;
+impl<D: Device> Device for FaultInjector<D> {
+    type RxToken<'a> = RxToken<'a, D::RxToken<'a>>
+    where
+        Self: 'a;
+    type TxToken<'a> = TxToken<'a, D::TxToken<'a>>
+    where
+        Self: 'a;
 
     fn capabilities(&self) -> DeviceCapabilities {
         let mut caps = self.inner.capabilities();
@@ -210,7 +211,7 @@ where
         caps
     }
 
-    fn receive(&'a mut self) -> Option<(Self::RxToken, Self::TxToken)> {
+    fn receive(&mut self) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
         let &mut Self {
             ref mut inner,
             ref state,
@@ -233,7 +234,7 @@ where
         })
     }
 
-    fn transmit(&'a mut self) -> Option<Self::TxToken> {
+    fn transmit(&mut self) -> Option<Self::TxToken<'_>> {
         let &mut Self {
             ref mut inner,
             ref state,
