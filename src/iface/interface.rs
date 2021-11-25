@@ -556,13 +556,15 @@ where
     }
 
     /// Get an iterator to the inner sockets.
-    pub fn sockets(&self) -> impl Iterator<Item = &Socket<'a>> {
-        self.sockets.iter().map(|i| &i.socket)
+    pub fn sockets(&self) -> impl Iterator<Item = (SocketHandle, &Socket<'a>)> {
+        self.sockets.iter().map(|i| (i.meta.handle, &i.socket))
     }
 
     /// Get a mutable iterator to the inner sockets.
-    pub fn sockets_mut(&mut self) -> impl Iterator<Item = &mut Socket<'a>> {
-        self.sockets.iter_mut().map(|i| &mut i.socket)
+    pub fn sockets_mut(&mut self) -> impl Iterator<Item = (SocketHandle, &mut Socket<'a>)> {
+        self.sockets
+            .iter_mut()
+            .map(|i| (i.meta.handle, &mut i.socket))
     }
 
     /// Add an address to a list of subscribed multicast IP addresses.
