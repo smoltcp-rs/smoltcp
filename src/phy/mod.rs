@@ -286,11 +286,7 @@ impl Default for Medium {
     fn default() -> Medium {
         #[cfg(feature = "medium-ethernet")]
         return Medium::Ethernet;
-        #[cfg(all(
-            feature = "medium-ip",
-            not(feature = "medium-ethernet"),
-            not(feature = "medium-ieee802154")
-        ))]
+        #[cfg(all(feature = "medium-ip", not(feature = "medium-ethernet")))]
         return Medium::Ip;
         #[cfg(all(
             feature = "medium-ieee802154",
@@ -303,7 +299,7 @@ impl Default for Medium {
             not(feature = "medium-ethernet"),
             not(feature = "medium-ieee802154")
         ))]
-        panic!("No medium enabled");
+        return panic!("No medium enabled");
     }
 }
 
