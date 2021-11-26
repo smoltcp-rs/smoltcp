@@ -2,10 +2,11 @@ use core::cmp::min;
 #[cfg(feature = "async")]
 use core::task::Waker;
 
+use crate::iface::Context;
 use crate::phy::ChecksumCapabilities;
+use crate::socket::PollAt;
 #[cfg(feature = "async")]
 use crate::socket::WakerRegistration;
-use crate::socket::{Context, PollAt};
 use crate::storage::{PacketBuffer, PacketMetadata};
 use crate::{Error, Result};
 
@@ -211,13 +212,18 @@ impl<'a> RawSocket<'a> {
         true
     }
 
-    pub(crate) fn process(&mut self, cx: &Context, ip_repr: &IpRepr, payload: &[u8]) -> Result<()> {
+    pub(crate) fn process(
+        &mut self,
+        cx: &mut Context,
+        ip_repr: &IpRepr,
+        payload: &[u8],
+    ) -> Result<()> {
         debug_assert!(self.accepts(ip_repr));
 
         let header_len = ip_repr.buffer_len();
         let total_len = header_len + payload.len();
         let packet_buf = self.rx_buffer.enqueue(total_len, ())?;
-        ip_repr.emit(&mut packet_buf[..header_len], &cx.caps.checksum);
+        ip_repr.emit(&mut packet_buf[..header_len], &cx.checksum_caps());
         packet_buf[header_len..].copy_from_slice(payload);
 
         net_trace!(
@@ -233,9 +239,9 @@ impl<'a> RawSocket<'a> {
         Ok(())
     }
 
-    pub(crate) fn dispatch<F>(&mut self, cx: &Context, emit: F) -> Result<()>
+    pub(crate) fn dispatch<F>(&mut self, cx: &mut Context, emit: F) -> Result<()>
     where
-        F: FnOnce((IpRepr, &[u8])) -> Result<()>,
+        F: FnOnce(&mut Context, (IpRepr, &[u8])) -> Result<()>,
     {
         fn prepare<'a>(
             protocol: IpProtocol,
@@ -278,7 +284,7 @@ impl<'a> RawSocket<'a> {
         let ip_protocol = self.ip_protocol;
         let ip_version = self.ip_version;
         self.tx_buffer.dequeue_with(|&mut (), packet_buf| {
-            match prepare(ip_protocol, packet_buf, &cx.caps.checksum) {
+            match prepare(ip_protocol, packet_buf, &cx.checksum_caps()) {
                 Ok((ip_repr, raw_packet)) => {
                     net_trace!(
                         "raw:{}:{}: sending {} octets",
@@ -286,7 +292,7 @@ impl<'a> RawSocket<'a> {
                         ip_protocol,
                         ip_repr.buffer_len() + raw_packet.len()
                     );
-                    emit((ip_repr, raw_packet))
+                    emit(cx, (ip_repr, raw_packet))
                 }
                 Err(error) => {
                     net_debug!(
@@ -307,7 +313,7 @@ impl<'a> RawSocket<'a> {
         Ok(())
     }
 
-    pub(crate) fn poll_at(&self, _cx: &Context) -> PollAt {
+    pub(crate) fn poll_at(&self, _cx: &mut Context) -> PollAt {
         if self.tx_buffer.is_empty() {
             PollAt::Ingress
         } else {
@@ -418,10 +424,11 @@ mod test {
                 #[test]
                 fn test_send_dispatch() {
                     let mut socket = $socket(buffer(0), buffer(1));
+                    let mut cx = Context::mock();
 
                     assert!(socket.can_send());
                     assert_eq!(
-                        socket.dispatch(&Context::DUMMY, |_| unreachable!()),
+                        socket.dispatch(&mut cx, |_, _| unreachable!()),
                         Err(Error::Exhausted)
                     );
 
@@ -430,7 +437,7 @@ mod test {
                     assert!(!socket.can_send());
 
                     assert_eq!(
-                        socket.dispatch(&Context::DUMMY, |(ip_repr, ip_payload)| {
+                        socket.dispatch(&mut cx, |_, (ip_repr, ip_payload)| {
                             assert_eq!(ip_repr, $hdr);
                             assert_eq!(ip_payload, &$payload);
                             Err(Error::Unaddressable)
@@ -440,7 +447,7 @@ mod test {
                     assert!(!socket.can_send());
 
                     assert_eq!(
-                        socket.dispatch(&Context::DUMMY, |(ip_repr, ip_payload)| {
+                        socket.dispatch(&mut cx, |_, (ip_repr, ip_payload)| {
                             assert_eq!(ip_repr, $hdr);
                             assert_eq!(ip_payload, &$payload);
                             Ok(())
@@ -453,9 +460,10 @@ mod test {
                 #[test]
                 fn test_recv_truncated_slice() {
                     let mut socket = $socket(buffer(1), buffer(0));
+                    let mut cx = Context::mock();
 
                     assert!(socket.accepts(&$hdr));
-                    assert_eq!(socket.process(&Context::DUMMY, &$hdr, &$payload), Ok(()));
+                    assert_eq!(socket.process(&mut cx, &$hdr, &$payload), Ok(()));
 
                     let mut slice = [0; 4];
                     assert_eq!(socket.recv_slice(&mut slice[..]), Ok(4));
@@ -465,13 +473,14 @@ mod test {
                 #[test]
                 fn test_recv_truncated_packet() {
                     let mut socket = $socket(buffer(1), buffer(0));
+                    let mut cx = Context::mock();
 
                     let mut buffer = vec![0; 128];
                     buffer[..$packet.len()].copy_from_slice(&$packet[..]);
 
                     assert!(socket.accepts(&$hdr));
                     assert_eq!(
-                        socket.process(&Context::DUMMY, &$hdr, &buffer),
+                        socket.process(&mut cx, &$hdr, &buffer),
                         Err(Error::Truncated)
                     );
                 }
@@ -503,34 +512,36 @@ mod test {
         #[cfg(feature = "proto-ipv4")]
         {
             let mut socket = ipv4_locals::socket(buffer(0), buffer(2));
+            let mut cx = Context::mock();
 
             let mut wrong_version = ipv4_locals::PACKET_BYTES;
             Ipv4Packet::new_unchecked(&mut wrong_version).set_version(6);
 
             assert_eq!(socket.send_slice(&wrong_version[..]), Ok(()));
-            assert_eq!(socket.dispatch(&Context::DUMMY, |_| unreachable!()), Ok(()));
+            assert_eq!(socket.dispatch(&mut cx, |_, _| unreachable!()), Ok(()));
 
             let mut wrong_protocol = ipv4_locals::PACKET_BYTES;
             Ipv4Packet::new_unchecked(&mut wrong_protocol).set_protocol(IpProtocol::Tcp);
 
             assert_eq!(socket.send_slice(&wrong_protocol[..]), Ok(()));
-            assert_eq!(socket.dispatch(&Context::DUMMY, |_| unreachable!()), Ok(()));
+            assert_eq!(socket.dispatch(&mut cx, |_, _| unreachable!()), Ok(()));
         }
         #[cfg(feature = "proto-ipv6")]
         {
             let mut socket = ipv6_locals::socket(buffer(0), buffer(2));
+            let mut cx = Context::mock();
 
             let mut wrong_version = ipv6_locals::PACKET_BYTES;
             Ipv6Packet::new_unchecked(&mut wrong_version[..]).set_version(4);
 
             assert_eq!(socket.send_slice(&wrong_version[..]), Ok(()));
-            assert_eq!(socket.dispatch(&Context::DUMMY, |_| unreachable!()), Ok(()));
+            assert_eq!(socket.dispatch(&mut cx, |_, _| unreachable!()), Ok(()));
 
             let mut wrong_protocol = ipv6_locals::PACKET_BYTES;
             Ipv6Packet::new_unchecked(&mut wrong_protocol[..]).set_next_header(IpProtocol::Tcp);
 
             assert_eq!(socket.send_slice(&wrong_protocol[..]), Ok(()));
-            assert_eq!(socket.dispatch(&Context::DUMMY, |_| unreachable!()), Ok(()));
+            assert_eq!(socket.dispatch(&mut cx, |_, _| unreachable!()), Ok(()));
         }
     }
 
@@ -540,6 +551,7 @@ mod test {
         {
             let mut socket = ipv4_locals::socket(buffer(1), buffer(0));
             assert!(!socket.can_recv());
+            let mut cx = Context::mock();
 
             let mut cksumd_packet = ipv4_locals::PACKET_BYTES;
             Ipv4Packet::new_unchecked(&mut cksumd_packet).fill_checksum();
@@ -548,7 +560,7 @@ mod test {
             assert!(socket.accepts(&ipv4_locals::HEADER_REPR));
             assert_eq!(
                 socket.process(
-                    &Context::DUMMY,
+                    &mut cx,
                     &ipv4_locals::HEADER_REPR,
                     &ipv4_locals::PACKET_PAYLOAD
                 ),
@@ -559,7 +571,7 @@ mod test {
             assert!(socket.accepts(&ipv4_locals::HEADER_REPR));
             assert_eq!(
                 socket.process(
-                    &Context::DUMMY,
+                    &mut cx,
                     &ipv4_locals::HEADER_REPR,
                     &ipv4_locals::PACKET_PAYLOAD
                 ),
@@ -572,12 +584,13 @@ mod test {
         {
             let mut socket = ipv6_locals::socket(buffer(1), buffer(0));
             assert!(!socket.can_recv());
+            let mut cx = Context::mock();
 
             assert_eq!(socket.recv(), Err(Error::Exhausted));
             assert!(socket.accepts(&ipv6_locals::HEADER_REPR));
             assert_eq!(
                 socket.process(
-                    &Context::DUMMY,
+                    &mut cx,
                     &ipv6_locals::HEADER_REPR,
                     &ipv6_locals::PACKET_PAYLOAD
                 ),
@@ -588,7 +601,7 @@ mod test {
             assert!(socket.accepts(&ipv6_locals::HEADER_REPR));
             assert_eq!(
                 socket.process(
-                    &Context::DUMMY,
+                    &mut cx,
                     &ipv6_locals::HEADER_REPR,
                     &ipv6_locals::PACKET_PAYLOAD
                 ),

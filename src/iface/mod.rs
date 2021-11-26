@@ -20,4 +20,4 @@ pub use self::neighbor::Neighbor;
 pub use self::route::{Route, Routes};
 pub use socket_set::{SocketHandle, SocketStorage};
 
-pub use self::interface::{Interface, InterfaceBuilder};
+pub use self::interface::{Interface, InterfaceBuilder, InterfaceInner as Context};

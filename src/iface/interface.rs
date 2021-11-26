@@ -10,7 +10,7 @@ use super::{SocketHandle, SocketStorage};
 use crate::iface::Routes;
 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
 use crate::iface::{NeighborAnswer, NeighborCache};
-use crate::phy::{Device, DeviceCapabilities, Medium, RxToken, TxToken};
+use crate::phy::{ChecksumCapabilities, Device, DeviceCapabilities, Medium, RxToken, TxToken};
 use crate::socket::*;
 use crate::time::{Duration, Instant};
 use crate::wire::*;
@@ -34,7 +34,9 @@ pub struct Interface<'a, DeviceT: for<'d> Device<'d>> {
 /// the `device` mutably until they're used, which makes it impossible to call other
 /// methods on the `Interface` in this time (since its `device` field is borrowed
 /// exclusively). However, it is still possible to call methods on its `inner` field.
-struct InterfaceInner<'a> {
+pub struct InterfaceInner<'a> {
+    caps: DeviceCapabilities,
+    now: Instant,
     #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
     neighbor_cache: Option<NeighborCache<'a>>,
     #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
@@ -136,12 +138,12 @@ let iface = InterfaceBuilder::new(device, vec![])
     }
 
     /// Set the Hardware address the interface will use. See also
-    /// [ethernet_addr].
+    /// [hardware_addr].
     ///
     /// # Panics
     /// This function panics if the address is not unicast.
     ///
-    /// [ethernet_addr]: struct.Interface.html#method.ethernet_addr
+    /// [hardware_addr]: struct.Interface.html#method.hardware_addr
     #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
     pub fn hardware_addr(mut self, addr: HardwareAddress) -> Self {
         InterfaceInner::check_hardware_addr(&addr);
@@ -293,10 +295,14 @@ let iface = InterfaceBuilder::new(device, vec![])
             ),
         };
 
+        let caps = self.device.capabilities();
+
         Interface {
             device: self.device,
             sockets: self.sockets,
             inner: InterfaceInner {
+                now: Instant::from_secs(0),
+                caps,
                 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
                 hardware_addr,
                 ip_addrs: self.ip_addrs,
@@ -574,8 +580,10 @@ where
     pub fn join_multicast_group<T: Into<IpAddress>>(
         &mut self,
         addr: T,
-        _timestamp: Instant,
+        timestamp: Instant,
     ) -> Result<bool> {
+        self.inner.now = timestamp;
+
         match addr.into() {
             #[cfg(feature = "proto-igmp")]
             IpAddress::Ipv4(addr) => {
@@ -589,10 +597,9 @@ where
                     Ok(false)
                 } else if let Some(pkt) = self.inner.igmp_report_packet(IgmpVersion::Version2, addr)
                 {
-                    let cx = self.context(_timestamp);
                     // Send initial membership report
                     let tx_token = self.device.transmit().ok_or(Error::Exhausted)?;
-                    self.inner.dispatch_ip(&cx, tx_token, pkt)?;
+                    self.inner.dispatch_ip(tx_token, pkt)?;
                     Ok(true)
                 } else {
                     Ok(false)
@@ -610,8 +617,10 @@ where
     pub fn leave_multicast_group<T: Into<IpAddress>>(
         &mut self,
         addr: T,
-        _timestamp: Instant,
+        timestamp: Instant,
     ) -> Result<bool> {
+        self.inner.now = timestamp;
+
         match addr.into() {
             #[cfg(feature = "proto-igmp")]
             IpAddress::Ipv4(addr) => {
@@ -619,10 +628,9 @@ where
                 if was_not_present {
                     Ok(false)
                 } else if let Some(pkt) = self.inner.igmp_leave_packet(addr) {
-                    let cx = self.context(_timestamp);
                     // Send group leave packet
                     let tx_token = self.device.transmit().ok_or(Error::Exhausted)?;
-                    self.inner.dispatch_ip(&cx, tx_token, pkt)?;
+                    self.inner.dispatch_ip(tx_token, pkt)?;
                     Ok(true)
                 } else {
                     Ok(false)
@@ -702,15 +710,15 @@ where
     /// a very common occurrence and on a production system it should not even
     /// be logged.
     pub fn poll(&mut self, timestamp: Instant) -> Result<bool> {
-        let cx = self.context(timestamp);
+        self.inner.now = timestamp;
 
         let mut readiness_may_have_changed = false;
         loop {
-            let processed_any = self.socket_ingress(&cx);
-            let emitted_any = self.socket_egress(&cx)?;
+            let processed_any = self.socket_ingress();
+            let emitted_any = self.socket_egress()?;
 
             #[cfg(feature = "proto-igmp")]
-            self.igmp_egress(&cx, timestamp)?;
+            self.igmp_egress()?;
 
             if processed_any || emitted_any {
                 readiness_may_have_changed = true;
@@ -729,16 +737,19 @@ where
     ///
     /// [poll]: #method.poll
     /// [Instant]: struct.Instant.html
-    pub fn poll_at(&self, timestamp: Instant) -> Option<Instant> {
-        let cx = self.context(timestamp);
+    pub fn poll_at(&mut self, timestamp: Instant) -> Option<Instant> {
+        self.inner.now = timestamp;
+
+        let inner = &mut self.inner;
 
         self.sockets
             .iter()
-            .filter_map(|item| {
-                let socket_poll_at = item.socket.poll_at(&cx);
-                match item.meta.poll_at(socket_poll_at, |ip_addr| {
-                    self.inner.has_neighbor(&cx, &ip_addr)
-                }) {
+            .filter_map(move |item| {
+                let socket_poll_at = item.socket.poll_at(inner);
+                match item
+                    .meta
+                    .poll_at(socket_poll_at, |ip_addr| inner.has_neighbor(&ip_addr))
+                {
                     PollAt::Ingress => None,
                     PollAt::Time(instant) => Some(instant),
                     PollAt::Now => Some(Instant::from_millis(0)),
@@ -755,7 +766,7 @@ where
     ///
     /// [poll]: #method.poll
     /// [Duration]: struct.Duration.html
-    pub fn poll_delay(&self, timestamp: Instant) -> Option<Duration> {
+    pub fn poll_delay(&mut self, timestamp: Instant) -> Option<Duration> {
         match self.poll_at(timestamp) {
             Some(poll_at) if timestamp < poll_at => Some(poll_at - timestamp),
             Some(_) => Some(Duration::from_millis(0)),
@@ -763,21 +774,22 @@ where
         }
     }
 
-    fn socket_ingress(&mut self, cx: &Context) -> bool {
+    fn socket_ingress(&mut self) -> bool {
         let mut processed_any = false;
         let Self {
             device,
             inner,
             sockets,
+            ..
         } = self;
         while let Some((rx_token, tx_token)) = device.receive() {
-            if let Err(err) = rx_token.consume(cx.now, |frame| match cx.caps.medium {
+            if let Err(err) = rx_token.consume(inner.now, |frame| match inner.caps.medium {
                 #[cfg(feature = "medium-ethernet")]
-                Medium::Ethernet => match inner.process_ethernet(cx, sockets, &frame) {
+                Medium::Ethernet => match inner.process_ethernet(sockets, &frame) {
                     Ok(response) => {
                         processed_any = true;
                         if let Some(packet) = response {
-                            if let Err(err) = inner.dispatch(cx, tx_token, packet) {
+                            if let Err(err) = inner.dispatch(tx_token, packet) {
                                 net_debug!("Failed to send response: {}", err);
                             }
                         }
@@ -794,11 +806,11 @@ where
                     }
                 },
                 #[cfg(feature = "medium-ip")]
-                Medium::Ip => match inner.process_ip(cx, sockets, &frame) {
+                Medium::Ip => match inner.process_ip(sockets, &frame) {
                     Ok(response) => {
                         processed_any = true;
                         if let Some(packet) = response {
-                            if let Err(err) = inner.dispatch_ip(cx, tx_token, packet) {
+                            if let Err(err) = inner.dispatch_ip(tx_token, packet) {
                                 net_debug!("Failed to send response: {}", err);
                             }
                         }
@@ -810,11 +822,11 @@ where
                     }
                 },
                 #[cfg(feature = "medium-ieee802154")]
-                Medium::Ieee802154 => match inner.process_ieee802154(cx, sockets, &frame) {
+                Medium::Ieee802154 => match inner.process_ieee802154(sockets, &frame) {
                     Ok(response) => {
                         processed_any = true;
                         if let Some(packet) = response {
-                            if let Err(err) = inner.dispatch_ieee802154(cx, tx_token, packet) {
+                            if let Err(err) = inner.dispatch_ieee802154(tx_token, packet) {
                                 net_debug!("Failed to send response: {}", err);
                             }
                         }
@@ -833,11 +845,12 @@ where
         processed_any
     }
 
-    fn socket_egress(&mut self, cx: &Context) -> Result<bool> {
+    fn socket_egress(&mut self) -> Result<bool> {
         let Self {
             device,
             inner,
             sockets,
+            ..
         } = self;
         let _caps = device.capabilities();
 
@@ -845,7 +858,7 @@ where
         for item in sockets.iter_mut() {
             if !item
                 .meta
-                .egress_permitted(cx.now, |ip_addr| inner.has_neighbor(cx, &ip_addr))
+                .egress_permitted(inner.now, |ip_addr| inner.has_neighbor(&ip_addr))
             {
                 continue;
             }
@@ -854,44 +867,44 @@ where
             let mut device_result = Ok(());
 
             macro_rules! respond {
-                ($response:expr) => {{
+                ($inner:expr, $response:expr) => {{
                     let response = $response;
                     neighbor_addr = Some(response.ip_repr().dst_addr());
                     let tx_token = device.transmit().ok_or(Error::Exhausted)?;
-                    device_result = inner.dispatch_ip(cx, tx_token, response);
+                    device_result = $inner.dispatch_ip(tx_token, response);
                     device_result
                 }};
             }
 
             let socket_result = match &mut item.socket {
                 #[cfg(feature = "socket-raw")]
-                Socket::Raw(socket) => {
-                    socket.dispatch(cx, |response| respond!(IpPacket::Raw(response)))
-                }
+                Socket::Raw(socket) => socket.dispatch(inner, |inner, response| {
+                    respond!(inner, IpPacket::Raw(response))
+                }),
                 #[cfg(feature = "socket-icmp")]
-                Socket::Icmp(socket) => socket.dispatch(cx, |response| match response {
+                Socket::Icmp(socket) => socket.dispatch(inner, |inner, response| match response {
                     #[cfg(feature = "proto-ipv4")]
                     (IpRepr::Ipv4(ipv4_repr), IcmpRepr::Ipv4(icmpv4_repr)) => {
-                        respond!(IpPacket::Icmpv4((ipv4_repr, icmpv4_repr)))
+                        respond!(inner, IpPacket::Icmpv4((ipv4_repr, icmpv4_repr)))
                     }
                     #[cfg(feature = "proto-ipv6")]
                     (IpRepr::Ipv6(ipv6_repr), IcmpRepr::Ipv6(icmpv6_repr)) => {
-                        respond!(IpPacket::Icmpv6((ipv6_repr, icmpv6_repr)))
+                        respond!(inner, IpPacket::Icmpv6((ipv6_repr, icmpv6_repr)))
                     }
                     _ => Err(Error::Unaddressable),
                 }),
                 #[cfg(feature = "socket-udp")]
-                Socket::Udp(socket) => {
-                    socket.dispatch(cx, |response| respond!(IpPacket::Udp(response)))
-                }
+                Socket::Udp(socket) => socket.dispatch(inner, |inner, response| {
+                    respond!(inner, IpPacket::Udp(response))
+                }),
                 #[cfg(feature = "socket-tcp")]
-                Socket::Tcp(socket) => {
-                    socket.dispatch(cx, |response| respond!(IpPacket::Tcp(response)))
-                }
+                Socket::Tcp(socket) => socket.dispatch(inner, |inner, response| {
+                    respond!(inner, IpPacket::Tcp(response))
+                }),
                 #[cfg(feature = "socket-dhcpv4")]
-                Socket::Dhcpv4(socket) => {
-                    socket.dispatch(cx, |response| respond!(IpPacket::Dhcpv4(response)))
-                }
+                Socket::Dhcpv4(socket) => socket.dispatch(inner, |inner, response| {
+                    respond!(inner, IpPacket::Dhcpv4(response))
+                }),
             };
 
             match (device_result, socket_result) {
@@ -902,8 +915,10 @@ where
                     // requests from the socket. However, without an additional rate limiting
                     // mechanism, we would spin on every socket that has yet to discover its
                     // neighboor.
-                    item.meta
-                        .neighbor_missing(cx.now, neighbor_addr.expect("non-IP response packet"));
+                    item.meta.neighbor_missing(
+                        inner.now,
+                        neighbor_addr.expect("non-IP response packet"),
+                    );
                     break;
                 }
                 (Err(err), _) | (_, Err(err)) => {
@@ -923,17 +938,17 @@ where
     /// Depending on `igmp_report_state` and the therein contained
     /// timeouts, send IGMP membership reports.
     #[cfg(feature = "proto-igmp")]
-    fn igmp_egress(&mut self, cx: &Context, timestamp: Instant) -> Result<bool> {
+    fn igmp_egress(&mut self) -> Result<bool> {
         match self.inner.igmp_report_state {
             IgmpReportState::ToSpecificQuery {
                 version,
                 timeout,
                 group,
-            } if timestamp >= timeout => {
+            } if self.inner.now >= timeout => {
                 if let Some(pkt) = self.inner.igmp_report_packet(version, group) {
                     // Send initial membership report
                     let tx_token = self.device.transmit().ok_or(Error::Exhausted)?;
-                    self.inner.dispatch_ip(cx, tx_token, pkt)?;
+                    self.inner.dispatch_ip(tx_token, pkt)?;
                 }
 
                 self.inner.igmp_report_state = IgmpReportState::Inactive;
@@ -944,7 +959,7 @@ where
                 timeout,
                 interval,
                 next_index,
-            } if timestamp >= timeout => {
+            } if self.inner.now >= timeout => {
                 let addr = self
                     .inner
                     .ipv4_multicast_groups
@@ -957,10 +972,10 @@ where
                         if let Some(pkt) = self.inner.igmp_report_packet(version, addr) {
                             // Send initial membership report
                             let tx_token = self.device.transmit().ok_or(Error::Exhausted)?;
-                            self.inner.dispatch_ip(cx, tx_token, pkt)?;
+                            self.inner.dispatch_ip(tx_token, pkt)?;
                         }
 
-                        let next_timeout = (timeout + interval).max(timestamp);
+                        let next_timeout = (timeout + interval).max(self.inner.now);
                         self.inner.igmp_report_state = IgmpReportState::ToGeneralQuery {
                             version,
                             timeout: next_timeout,
@@ -979,23 +994,86 @@ where
             _ => Ok(false),
         }
     }
-
-    fn context(&self, now: Instant) -> Context {
-        Context {
-            now,
-            caps: self.device.capabilities(),
-            #[cfg(all(
-                any(feature = "medium-ethernet", feature = "medium-ieee802154"),
-                feature = "socket-dhcpv4"
-            ))]
-            hardware_addr: self.inner.hardware_addr,
-            #[cfg(feature = "medium-ieee802154")]
-            pan_id: self.inner.pan_id,
-        }
-    }
 }
 
 impl<'a> InterfaceInner<'a> {
+    #[allow(unused)] // unused depending on which sockets are enabled
+    pub(crate) fn now(&self) -> Instant {
+        self.now
+    }
+
+    #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
+    #[allow(unused)] // unused depending on which sockets are enabled
+    pub(crate) fn hardware_addr(&self) -> Option<HardwareAddress> {
+        self.hardware_addr
+    }
+
+    #[allow(unused)] // unused depending on which sockets are enabled
+    pub(crate) fn checksum_caps(&self) -> ChecksumCapabilities {
+        self.caps.checksum.clone()
+    }
+
+    #[allow(unused)] // unused depending on which sockets are enabled
+    pub(crate) fn ip_mtu(&self) -> usize {
+        self.caps.ip_mtu()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn mock() -> Self {
+        Self {
+            caps: DeviceCapabilities {
+                #[cfg(feature = "medium-ethernet")]
+                medium: crate::phy::Medium::Ethernet,
+                #[cfg(not(feature = "medium-ethernet"))]
+                medium: crate::phy::Medium::Ip,
+                checksum: crate::phy::ChecksumCapabilities {
+                    #[cfg(feature = "proto-ipv4")]
+                    icmpv4: crate::phy::Checksum::Both,
+                    #[cfg(feature = "proto-ipv6")]
+                    icmpv6: crate::phy::Checksum::Both,
+                    ipv4: crate::phy::Checksum::Both,
+                    tcp: crate::phy::Checksum::Both,
+                    udp: crate::phy::Checksum::Both,
+                },
+                max_burst_size: None,
+                #[cfg(feature = "medium-ethernet")]
+                max_transmission_unit: 1514,
+                #[cfg(not(feature = "medium-ethernet"))]
+                max_transmission_unit: 1500,
+            },
+            now: Instant::from_millis_const(0),
+
+            ip_addrs: ManagedSlice::Owned(vec![]),
+            routes: Routes::new(&mut [][..]),
+
+            #[cfg(feature = "proto-ipv4")]
+            any_ip: false,
+
+            #[cfg(feature = "medium-ieee802154")]
+            pan_id: Some(crate::wire::Ieee802154Pan(0xabcd)),
+            #[cfg(feature = "medium-ieee802154")]
+            sequence_no: 0,
+
+            #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
+            hardware_addr: Some(crate::wire::HardwareAddress::Ethernet(
+                crate::wire::EthernetAddress([0x02, 0x02, 0x02, 0x02, 0x02, 0x02]),
+            )),
+            #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
+            neighbor_cache: None,
+
+            #[cfg(feature = "proto-igmp")]
+            igmp_report_state: IgmpReportState::Inactive,
+            #[cfg(feature = "proto-igmp")]
+            ipv4_multicast_groups: ManagedMap::Borrowed(&mut []),
+        }
+    }
+
+    #[cfg(test)]
+    #[allow(unused)] // unused depending on which sockets are enabled
+    pub(crate) fn set_now(&mut self, now: Instant) {
+        self.now = now
+    }
+
     #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
     fn check_hardware_addr(addr: &HardwareAddress) {
         if !addr.is_unicast() {
@@ -1074,7 +1152,6 @@ impl<'a> InterfaceInner<'a> {
     #[cfg(feature = "medium-ethernet")]
     fn process_ethernet<'frame, T: AsRef<[u8]>>(
         &mut self,
-        cx: &Context,
         sockets: &mut SocketSet,
         frame: &'frame T,
     ) -> Result<Option<EthernetPacket<'frame>>> {
@@ -1090,17 +1167,17 @@ impl<'a> InterfaceInner<'a> {
 
         match eth_frame.ethertype() {
             #[cfg(feature = "proto-ipv4")]
-            EthernetProtocol::Arp => self.process_arp(cx.now, &eth_frame),
+            EthernetProtocol::Arp => self.process_arp(self.now, &eth_frame),
             #[cfg(feature = "proto-ipv4")]
             EthernetProtocol::Ipv4 => {
                 let ipv4_packet = Ipv4Packet::new_checked(eth_frame.payload())?;
-                self.process_ipv4(cx, sockets, &ipv4_packet)
+                self.process_ipv4(sockets, &ipv4_packet)
                     .map(|o| o.map(EthernetPacket::Ip))
             }
             #[cfg(feature = "proto-ipv6")]
             EthernetProtocol::Ipv6 => {
                 let ipv6_packet = Ipv6Packet::new_checked(eth_frame.payload())?;
-                self.process_ipv6(cx, sockets, &ipv6_packet)
+                self.process_ipv6(sockets, &ipv6_packet)
                     .map(|o| o.map(EthernetPacket::Ip))
             }
             // Drop all other traffic.
@@ -1111,7 +1188,6 @@ impl<'a> InterfaceInner<'a> {
     #[cfg(feature = "medium-ip")]
     fn process_ip<'frame, T: AsRef<[u8]>>(
         &mut self,
-        cx: &Context,
         sockets: &mut SocketSet,
         ip_payload: &'frame T,
     ) -> Result<Option<IpPacket<'frame>>> {
@@ -1119,12 +1195,12 @@ impl<'a> InterfaceInner<'a> {
             #[cfg(feature = "proto-ipv4")]
             Ok(IpVersion::Ipv4) => {
                 let ipv4_packet = Ipv4Packet::new_checked(ip_payload)?;
-                self.process_ipv4(cx, sockets, &ipv4_packet)
+                self.process_ipv4(sockets, &ipv4_packet)
             }
             #[cfg(feature = "proto-ipv6")]
             Ok(IpVersion::Ipv6) => {
                 let ipv6_packet = Ipv6Packet::new_checked(ip_payload)?;
-                self.process_ipv6(cx, sockets, &ipv6_packet)
+                self.process_ipv6(sockets, &ipv6_packet)
             }
             // Drop all other traffic.
             _ => Err(Error::Unrecognized),
@@ -1134,7 +1210,6 @@ impl<'a> InterfaceInner<'a> {
     #[cfg(feature = "medium-ieee802154")]
     fn process_ieee802154<'frame, T: AsRef<[u8]> + ?Sized>(
         &mut self,
-        cx: &Context,
         sockets: &mut SocketSet,
         sixlowpan_payload: &'frame T,
     ) -> Result<Option<IpPacket<'frame>>> {
@@ -1148,8 +1223,8 @@ impl<'a> InterfaceInner<'a> {
         // Drop frames when the user has set a PAN id and the PAN id from frame is not equal to this
         // When the user didn't set a PAN id (so it is None), then we accept all PAN id's.
         // We always accept the broadcast PAN id.
-        if cx.pan_id.is_some()
-            && ieee802154_repr.dst_pan_id != cx.pan_id
+        if self.pan_id.is_some()
+            && ieee802154_repr.dst_pan_id != self.pan_id
             && ieee802154_repr.dst_pan_id != Some(Ieee802154Pan::BROADCAST)
         {
             net_debug!(
@@ -1160,7 +1235,7 @@ impl<'a> InterfaceInner<'a> {
         }
 
         match ieee802154_frame.payload() {
-            Some(payload) => self.process_sixlowpan(cx, sockets, &ieee802154_repr, payload),
+            Some(payload) => self.process_sixlowpan(sockets, &ieee802154_repr, payload),
             None => Ok(None),
         }
     }
@@ -1168,7 +1243,6 @@ impl<'a> InterfaceInner<'a> {
     #[cfg(feature = "proto-sixlowpan")]
     fn process_sixlowpan<'frame, T: AsRef<[u8]> + ?Sized>(
         &mut self,
-        cx: &Context,
         sockets: &mut SocketSet,
         ieee802154_repr: &Ieee802154Repr,
         payload: &'frame T,
@@ -1220,12 +1294,12 @@ impl<'a> InterfaceInner<'a> {
                             .iter_mut()
                             .filter_map(|i| UdpSocket::downcast(&mut i.socket))
                         {
-                            if !udp_socket.accepts(&IpRepr::Ipv6(ipv6_repr), &udp_repr) {
+                            if !udp_socket.accepts(self, &IpRepr::Ipv6(ipv6_repr), &udp_repr) {
                                 continue;
                             }
 
                             match udp_socket.process(
-                                cx,
+                                self,
                                 &IpRepr::Ipv6(ipv6_repr),
                                 &udp_repr,
                                 udp_packet.payload(),
@@ -1252,7 +1326,7 @@ impl<'a> InterfaceInner<'a> {
             SixlowpanNextHeader::Uncompressed(nxt_hdr) => match nxt_hdr {
                 IpProtocol::Icmpv6 => {
                     ipv6_repr.next_header = IpProtocol::Icmpv6;
-                    self.process_icmpv6(cx, sockets, IpRepr::Ipv6(ipv6_repr), iphc_packet.payload())
+                    self.process_icmpv6(sockets, IpRepr::Ipv6(ipv6_repr), iphc_packet.payload())
                 }
                 _ => {
                     net_debug!("Headers other than ICMPv6 and compressed headers are currently not supported for 6LoWPAN");
@@ -1334,7 +1408,6 @@ impl<'a> InterfaceInner<'a> {
     #[cfg(feature = "socket-raw")]
     fn raw_socket_filter<'frame>(
         &mut self,
-        cx: &Context,
         sockets: &mut SocketSet,
         ip_repr: &IpRepr,
         ip_payload: &'frame [u8],
@@ -1350,7 +1423,7 @@ impl<'a> InterfaceInner<'a> {
                 continue;
             }
 
-            match raw_socket.process(cx, ip_repr, ip_payload) {
+            match raw_socket.process(self, ip_repr, ip_payload) {
                 // The packet is valid and handled by socket.
                 Ok(()) => handled_by_raw_socket = true,
                 // The socket buffer is full or the packet was truncated
@@ -1365,7 +1438,6 @@ impl<'a> InterfaceInner<'a> {
     #[cfg(feature = "proto-ipv6")]
     fn process_ipv6<'frame, T: AsRef<[u8]> + ?Sized>(
         &mut self,
-        cx: &Context,
         sockets: &mut SocketSet,
         ipv6_packet: &Ipv6Packet<&'frame T>,
     ) -> Result<Option<IpPacket<'frame>>> {
@@ -1380,13 +1452,11 @@ impl<'a> InterfaceInner<'a> {
         let ip_payload = ipv6_packet.payload();
 
         #[cfg(feature = "socket-raw")]
-        let handled_by_raw_socket =
-            self.raw_socket_filter(cx, sockets, &ipv6_repr.into(), ip_payload);
+        let handled_by_raw_socket = self.raw_socket_filter(sockets, &ipv6_repr.into(), ip_payload);
         #[cfg(not(feature = "socket-raw"))]
         let handled_by_raw_socket = false;
 
         self.process_nxt_hdr(
-            cx,
             sockets,
             ipv6_repr,
             ipv6_repr.next_header,
@@ -1400,7 +1470,6 @@ impl<'a> InterfaceInner<'a> {
     #[cfg(feature = "proto-ipv6")]
     fn process_nxt_hdr<'frame>(
         &mut self,
-        cx: &Context,
         sockets: &mut SocketSet,
         ipv6_repr: Ipv6Repr,
         nxt_hdr: IpProtocol,
@@ -1408,22 +1477,18 @@ impl<'a> InterfaceInner<'a> {
         ip_payload: &'frame [u8],
     ) -> Result<Option<IpPacket<'frame>>> {
         match nxt_hdr {
-            IpProtocol::Icmpv6 => self.process_icmpv6(cx, sockets, ipv6_repr.into(), ip_payload),
+            IpProtocol::Icmpv6 => self.process_icmpv6(sockets, ipv6_repr.into(), ip_payload),
 
             #[cfg(feature = "socket-udp")]
-            IpProtocol::Udp => self.process_udp(
-                cx,
-                sockets,
-                ipv6_repr.into(),
-                handled_by_raw_socket,
-                ip_payload,
-            ),
+            IpProtocol::Udp => {
+                self.process_udp(sockets, ipv6_repr.into(), handled_by_raw_socket, ip_payload)
+            }
 
             #[cfg(feature = "socket-tcp")]
-            IpProtocol::Tcp => self.process_tcp(cx, sockets, ipv6_repr.into(), ip_payload),
+            IpProtocol::Tcp => self.process_tcp(sockets, ipv6_repr.into(), ip_payload),
 
             IpProtocol::HopByHop => {
-                self.process_hopbyhop(cx, sockets, ipv6_repr, handled_by_raw_socket, ip_payload)
+                self.process_hopbyhop(sockets, ipv6_repr, handled_by_raw_socket, ip_payload)
             }
 
             #[cfg(feature = "socket-raw")]
@@ -1448,11 +1513,10 @@ impl<'a> InterfaceInner<'a> {
     #[cfg(feature = "proto-ipv4")]
     fn process_ipv4<'frame, T: AsRef<[u8]> + ?Sized>(
         &mut self,
-        cx: &Context,
         sockets: &mut SocketSet,
         ipv4_packet: &Ipv4Packet<&'frame T>,
     ) -> Result<Option<IpPacket<'frame>>> {
-        let ipv4_repr = Ipv4Repr::parse(ipv4_packet, &cx.caps.checksum)?;
+        let ipv4_repr = Ipv4Repr::parse(ipv4_packet, &self.caps.checksum)?;
 
         if !self.is_unicast_v4(ipv4_repr.src_addr) {
             // Discard packets with non-unicast source addresses.
@@ -1464,7 +1528,7 @@ impl<'a> InterfaceInner<'a> {
         let ip_payload = ipv4_packet.payload();
 
         #[cfg(feature = "socket-raw")]
-        let handled_by_raw_socket = self.raw_socket_filter(cx, sockets, &ip_repr, ip_payload);
+        let handled_by_raw_socket = self.raw_socket_filter(sockets, &ip_repr, ip_payload);
         #[cfg(not(feature = "socket-raw"))]
         let handled_by_raw_socket = false;
 
@@ -1484,10 +1548,10 @@ impl<'a> InterfaceInner<'a> {
                     {
                         let (src_addr, dst_addr) = (ip_repr.src_addr(), ip_repr.dst_addr());
                         let udp_repr =
-                            UdpRepr::parse(&udp_packet, &src_addr, &dst_addr, &cx.caps.checksum)?;
+                            UdpRepr::parse(&udp_packet, &src_addr, &dst_addr, &self.caps.checksum)?;
                         let udp_payload = udp_packet.payload();
 
-                        match dhcp_socket.process(cx, &ipv4_repr, &udp_repr, udp_payload) {
+                        match dhcp_socket.process(self, &ipv4_repr, &udp_repr, udp_payload) {
                             // The packet is valid and handled by socket.
                             Ok(()) => return Ok(None),
                             // The packet is malformed, or the socket buffer is full.
@@ -1508,7 +1572,7 @@ impl<'a> InterfaceInner<'a> {
                 || !ipv4_repr.dst_addr.is_unicast()
                 || self
                     .routes
-                    .lookup(&IpAddress::Ipv4(ipv4_repr.dst_addr), cx.now)
+                    .lookup(&IpAddress::Ipv4(ipv4_repr.dst_addr), self.now)
                     .map_or(true, |router_addr| !self.has_ip_addr(router_addr))
             {
                 return Ok(None);
@@ -1516,18 +1580,18 @@ impl<'a> InterfaceInner<'a> {
         }
 
         match ipv4_repr.protocol {
-            IpProtocol::Icmp => self.process_icmpv4(cx, sockets, ip_repr, ip_payload),
+            IpProtocol::Icmp => self.process_icmpv4(sockets, ip_repr, ip_payload),
 
             #[cfg(feature = "proto-igmp")]
-            IpProtocol::Igmp => self.process_igmp(cx, ipv4_repr, ip_payload),
+            IpProtocol::Igmp => self.process_igmp(ipv4_repr, ip_payload),
 
             #[cfg(feature = "socket-udp")]
             IpProtocol::Udp => {
-                self.process_udp(cx, sockets, ip_repr, handled_by_raw_socket, ip_payload)
+                self.process_udp(sockets, ip_repr, handled_by_raw_socket, ip_payload)
             }
 
             #[cfg(feature = "socket-tcp")]
-            IpProtocol::Tcp => self.process_tcp(cx, sockets, ip_repr, ip_payload),
+            IpProtocol::Tcp => self.process_tcp(sockets, ip_repr, ip_payload),
 
             _ if handled_by_raw_socket => Ok(None),
 
@@ -1579,7 +1643,6 @@ impl<'a> InterfaceInner<'a> {
     #[cfg(feature = "proto-igmp")]
     fn process_igmp<'frame>(
         &mut self,
-        cx: &Context,
         ipv4_repr: Ipv4Repr,
         ip_payload: &'frame [u8],
     ) -> Result<Option<IpPacket<'frame>>> {
@@ -1611,7 +1674,7 @@ impl<'a> InterfaceInner<'a> {
                         };
                         self.igmp_report_state = IgmpReportState::ToGeneralQuery {
                             version,
-                            timeout: cx.now + interval,
+                            timeout: self.now + interval,
                             interval,
                             next_index: 0,
                         };
@@ -1623,7 +1686,7 @@ impl<'a> InterfaceInner<'a> {
                         let timeout = max_resp_time / 4;
                         self.igmp_report_state = IgmpReportState::ToSpecificQuery {
                             version,
-                            timeout: cx.now + timeout,
+                            timeout: self.now + timeout,
                             group: group_addr,
                         };
                     }
@@ -1641,7 +1704,6 @@ impl<'a> InterfaceInner<'a> {
     #[cfg(feature = "proto-ipv6")]
     fn process_icmpv6<'frame>(
         &mut self,
-        cx: &Context,
         _sockets: &mut SocketSet,
         ip_repr: IpRepr,
         ip_payload: &'frame [u8],
@@ -1651,7 +1713,7 @@ impl<'a> InterfaceInner<'a> {
             &ip_repr.src_addr(),
             &ip_repr.dst_addr(),
             &icmp_packet,
-            &cx.caps.checksum,
+            &self.caps.checksum,
         )?;
 
         #[cfg(feature = "socket-icmp")]
@@ -1662,11 +1724,11 @@ impl<'a> InterfaceInner<'a> {
             .iter_mut()
             .filter_map(|i| IcmpSocket::downcast(&mut i.socket))
         {
-            if !icmp_socket.accepts(cx, &ip_repr, &icmp_repr.into()) {
+            if !icmp_socket.accepts(self, &ip_repr, &icmp_repr.into()) {
                 continue;
             }
 
-            match icmp_socket.process(cx, &ip_repr, &icmp_repr.into()) {
+            match icmp_socket.process(self, &ip_repr, &icmp_repr.into()) {
                 // The packet is valid and handled by socket.
                 Ok(()) => handled_by_icmp_socket = true,
                 // The socket buffer is full.
@@ -1700,7 +1762,7 @@ impl<'a> InterfaceInner<'a> {
             // Forward any NDISC packets to the ndisc packet handler
             #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
             Icmpv6Repr::Ndisc(repr) if ip_repr.hop_limit() == 0xff => match ip_repr {
-                IpRepr::Ipv6(ipv6_repr) => self.process_ndisc(cx, ipv6_repr, repr),
+                IpRepr::Ipv6(ipv6_repr) => self.process_ndisc(ipv6_repr, repr),
                 _ => Ok(None),
             },
 
@@ -1720,7 +1782,6 @@ impl<'a> InterfaceInner<'a> {
     ))]
     fn process_ndisc<'frame>(
         &mut self,
-        cx: &Context,
         ip_repr: Ipv6Repr,
         repr: NdiscRepr<'frame>,
     ) -> Result<Option<IpPacket<'frame>>> {
@@ -1732,7 +1793,7 @@ impl<'a> InterfaceInner<'a> {
             } => {
                 let ip_addr = ip_repr.src_addr.into();
                 if let Some(lladdr) = lladdr {
-                    let lladdr = lladdr.parse(cx.caps.medium)?;
+                    let lladdr = lladdr.parse(self.caps.medium)?;
                     if !lladdr.is_unicast() || !target_addr.is_unicast() {
                         return Err(Error::Malformed);
                     }
@@ -1741,13 +1802,13 @@ impl<'a> InterfaceInner<'a> {
                             .neighbor_cache
                             .as_mut()
                             .unwrap()
-                            .lookup(&ip_addr, cx.now)
+                            .lookup(&ip_addr, self.now)
                             .found()
                     {
                         self.neighbor_cache
                             .as_mut()
                             .unwrap()
-                            .fill(ip_addr, lladdr, cx.now)
+                            .fill(ip_addr, lladdr, self.now)
                     }
                 }
                 Ok(None)
@@ -1758,14 +1819,14 @@ impl<'a> InterfaceInner<'a> {
                 ..
             } => {
                 if let Some(lladdr) = lladdr {
-                    let lladdr = lladdr.parse(cx.caps.medium)?;
+                    let lladdr = lladdr.parse(self.caps.medium)?;
                     if !lladdr.is_unicast() || !target_addr.is_unicast() {
                         return Err(Error::Malformed);
                     }
                     self.neighbor_cache.as_mut().unwrap().fill(
                         ip_repr.src_addr.into(),
                         lladdr,
-                        cx.now,
+                        self.now,
                     );
                 }
 
@@ -1795,7 +1856,6 @@ impl<'a> InterfaceInner<'a> {
     #[cfg(feature = "proto-ipv6")]
     fn process_hopbyhop<'frame>(
         &mut self,
-        cx: &Context,
         sockets: &mut SocketSet,
         ipv6_repr: Ipv6Repr,
         handled_by_raw_socket: bool,
@@ -1823,7 +1883,6 @@ impl<'a> InterfaceInner<'a> {
             }
         }
         self.process_nxt_hdr(
-            cx,
             sockets,
             ipv6_repr,
             hbh_repr.next_header,
@@ -1834,14 +1893,13 @@ impl<'a> InterfaceInner<'a> {
 
     #[cfg(feature = "proto-ipv4")]
     fn process_icmpv4<'frame>(
-        &self,
-        cx: &Context,
+        &mut self,
         _sockets: &mut SocketSet,
         ip_repr: IpRepr,
         ip_payload: &'frame [u8],
     ) -> Result<Option<IpPacket<'frame>>> {
         let icmp_packet = Icmpv4Packet::new_checked(ip_payload)?;
-        let icmp_repr = Icmpv4Repr::parse(&icmp_packet, &cx.caps.checksum)?;
+        let icmp_repr = Icmpv4Repr::parse(&icmp_packet, &self.caps.checksum)?;
 
         #[cfg(feature = "socket-icmp")]
         let mut handled_by_icmp_socket = false;
@@ -1851,11 +1909,11 @@ impl<'a> InterfaceInner<'a> {
             .iter_mut()
             .filter_map(|i| IcmpSocket::downcast(&mut i.socket))
         {
-            if !icmp_socket.accepts(cx, &ip_repr, &icmp_repr.into()) {
+            if !icmp_socket.accepts(self, &ip_repr, &icmp_repr.into()) {
                 continue;
             }
 
-            match icmp_socket.process(cx, &ip_repr, &icmp_repr.into()) {
+            match icmp_socket.process(self, &ip_repr, &icmp_repr.into()) {
                 // The packet is valid and handled by socket.
                 Ok(()) => handled_by_icmp_socket = true,
                 // The socket buffer is full.
@@ -1962,8 +2020,7 @@ impl<'a> InterfaceInner<'a> {
 
     #[cfg(feature = "socket-udp")]
     fn process_udp<'frame>(
-        &self,
-        cx: &Context,
+        &mut self,
         sockets: &mut SocketSet,
         ip_repr: IpRepr,
         handled_by_raw_socket: bool,
@@ -1971,18 +2028,18 @@ impl<'a> InterfaceInner<'a> {
     ) -> Result<Option<IpPacket<'frame>>> {
         let (src_addr, dst_addr) = (ip_repr.src_addr(), ip_repr.dst_addr());
         let udp_packet = UdpPacket::new_checked(ip_payload)?;
-        let udp_repr = UdpRepr::parse(&udp_packet, &src_addr, &dst_addr, &cx.caps.checksum)?;
+        let udp_repr = UdpRepr::parse(&udp_packet, &src_addr, &dst_addr, &self.caps.checksum)?;
         let udp_payload = udp_packet.payload();
 
         for udp_socket in sockets
             .iter_mut()
             .filter_map(|i| UdpSocket::downcast(&mut i.socket))
         {
-            if !udp_socket.accepts(&ip_repr, &udp_repr) {
+            if !udp_socket.accepts(self, &ip_repr, &udp_repr) {
                 continue;
             }
 
-            match udp_socket.process(cx, &ip_repr, &udp_repr, udp_payload) {
+            match udp_socket.process(self, &ip_repr, &udp_repr, udp_payload) {
                 // The packet is valid and handled by socket.
                 Ok(()) => return Ok(None),
                 // The packet is malformed, or the socket buffer is full.
@@ -2024,25 +2081,24 @@ impl<'a> InterfaceInner<'a> {
 
     #[cfg(feature = "socket-tcp")]
     fn process_tcp<'frame>(
-        &self,
-        cx: &Context,
+        &mut self,
         sockets: &mut SocketSet,
         ip_repr: IpRepr,
         ip_payload: &'frame [u8],
     ) -> Result<Option<IpPacket<'frame>>> {
         let (src_addr, dst_addr) = (ip_repr.src_addr(), ip_repr.dst_addr());
         let tcp_packet = TcpPacket::new_checked(ip_payload)?;
-        let tcp_repr = TcpRepr::parse(&tcp_packet, &src_addr, &dst_addr, &cx.caps.checksum)?;
+        let tcp_repr = TcpRepr::parse(&tcp_packet, &src_addr, &dst_addr, &self.caps.checksum)?;
 
         for tcp_socket in sockets
             .iter_mut()
             .filter_map(|i| TcpSocket::downcast(&mut i.socket))
         {
-            if !tcp_socket.accepts(&ip_repr, &tcp_repr) {
+            if !tcp_socket.accepts(self, &ip_repr, &tcp_repr) {
                 continue;
             }
 
-            match tcp_socket.process(cx, &ip_repr, &tcp_repr) {
+            match tcp_socket.process(self, &ip_repr, &tcp_repr) {
                 // The packet is valid and handled by socket.
                 Ok(reply) => return Ok(reply.map(IpPacket::Tcp)),
                 // The packet is malformed, or doesn't match the socket state,
@@ -2063,7 +2119,7 @@ impl<'a> InterfaceInner<'a> {
     }
 
     #[cfg(feature = "medium-ethernet")]
-    fn dispatch<Tx>(&mut self, cx: &Context, tx_token: Tx, packet: EthernetPacket) -> Result<()>
+    fn dispatch<Tx>(&mut self, tx_token: Tx, packet: EthernetPacket) -> Result<()>
     where
         Tx: TxToken,
     {
@@ -2077,7 +2133,7 @@ impl<'a> InterfaceInner<'a> {
                     } => target_hardware_addr,
                 };
 
-                self.dispatch_ethernet(cx, tx_token, arp_repr.buffer_len(), |mut frame| {
+                self.dispatch_ethernet(tx_token, arp_repr.buffer_len(), |mut frame| {
                     frame.set_dst_addr(dst_hardware_addr);
                     frame.set_ethertype(EthernetProtocol::Arp);
 
@@ -2085,24 +2141,18 @@ impl<'a> InterfaceInner<'a> {
                     arp_repr.emit(&mut packet);
                 })
             }
-            EthernetPacket::Ip(packet) => self.dispatch_ip(cx, tx_token, packet),
+            EthernetPacket::Ip(packet) => self.dispatch_ip(tx_token, packet),
         }
     }
 
     #[cfg(feature = "medium-ethernet")]
-    fn dispatch_ethernet<Tx, F>(
-        &mut self,
-        cx: &Context,
-        tx_token: Tx,
-        buffer_len: usize,
-        f: F,
-    ) -> Result<()>
+    fn dispatch_ethernet<Tx, F>(&mut self, tx_token: Tx, buffer_len: usize, f: F) -> Result<()>
     where
         Tx: TxToken,
         F: FnOnce(EthernetFrame<&mut [u8]>),
     {
         let tx_len = EthernetFrame::<&[u8]>::buffer_len(buffer_len);
-        tx_token.consume(cx.now, tx_len, |tx_buffer| {
+        tx_token.consume(self.now, tx_len, |tx_buffer| {
             debug_assert!(tx_buffer.as_ref().len() == tx_len);
             let mut frame = EthernetFrame::new_unchecked(tx_buffer);
 
@@ -2137,22 +2187,22 @@ impl<'a> InterfaceInner<'a> {
         }
     }
 
-    fn has_neighbor(&self, cx: &Context, addr: &IpAddress) -> bool {
-        match self.route(addr, cx.now) {
-            Ok(_routed_addr) => match cx.caps.medium {
+    fn has_neighbor(&self, addr: &IpAddress) -> bool {
+        match self.route(addr, self.now) {
+            Ok(_routed_addr) => match self.caps.medium {
                 #[cfg(feature = "medium-ethernet")]
                 Medium::Ethernet => self
                     .neighbor_cache
                     .as_ref()
                     .unwrap()
-                    .lookup(&_routed_addr, cx.now)
+                    .lookup(&_routed_addr, self.now)
                     .found(),
                 #[cfg(feature = "medium-ieee802154")]
                 Medium::Ieee802154 => self
                     .neighbor_cache
                     .as_ref()
                     .unwrap()
-                    .lookup(&_routed_addr, cx.now)
+                    .lookup(&_routed_addr, self.now)
                     .found(),
                 #[cfg(feature = "medium-ip")]
                 Medium::Ip => true,
@@ -2164,7 +2214,6 @@ impl<'a> InterfaceInner<'a> {
     #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
     fn lookup_hardware_addr<Tx>(
         &mut self,
-        cx: &Context,
         tx_token: Tx,
         src_addr: &IpAddress,
         dst_addr: &IpAddress,
@@ -2173,7 +2222,7 @@ impl<'a> InterfaceInner<'a> {
         Tx: TxToken,
     {
         if dst_addr.is_broadcast() {
-            let hardware_addr = match cx.caps.medium {
+            let hardware_addr = match self.caps.medium {
                 #[cfg(feature = "medium-ethernet")]
                 Medium::Ethernet => HardwareAddress::Ethernet(EthernetAddress::BROADCAST),
                 #[cfg(feature = "medium-ieee802154")]
@@ -2201,7 +2250,7 @@ impl<'a> InterfaceInner<'a> {
                     ]))
                 }
                 #[cfg(feature = "proto-ipv6")]
-                IpAddress::Ipv6(_addr) => match cx.caps.medium {
+                IpAddress::Ipv6(_addr) => match self.caps.medium {
                     #[cfg(feature = "medium-ethernet")]
                     Medium::Ethernet => HardwareAddress::Ethernet(EthernetAddress::from_bytes(&[
                         0x33, 0x33, b[12], b[13], b[14], b[15],
@@ -2219,13 +2268,13 @@ impl<'a> InterfaceInner<'a> {
             return Ok((hardware_addr, tx_token));
         }
 
-        let dst_addr = self.route(dst_addr, cx.now)?;
+        let dst_addr = self.route(dst_addr, self.now)?;
 
         match self
             .neighbor_cache
             .as_mut()
             .unwrap()
-            .lookup(&dst_addr, cx.now)
+            .lookup(&dst_addr, self.now)
         {
             NeighborAnswer::Found(hardware_addr) => return Ok((hardware_addr, tx_token)),
             NeighborAnswer::RateLimited => return Err(Error::Unaddressable),
@@ -2254,7 +2303,7 @@ impl<'a> InterfaceInner<'a> {
                     target_protocol_addr: dst_addr,
                 };
 
-                self.dispatch_ethernet(cx, tx_token, arp_repr.buffer_len(), |mut frame| {
+                self.dispatch_ethernet(tx_token, arp_repr.buffer_len(), |mut frame| {
                     frame.set_dst_addr(EthernetAddress::BROADCAST);
                     frame.set_ethertype(EthernetProtocol::Arp);
 
@@ -2285,13 +2334,13 @@ impl<'a> InterfaceInner<'a> {
                     solicit,
                 ));
 
-                self.dispatch_ip(cx, tx_token, packet)?;
+                self.dispatch_ip(tx_token, packet)?;
             }
 
             _ => (),
         }
         // The request got dispatched, limit the rate on the cache.
-        self.neighbor_cache.as_mut().unwrap().limit_rate(cx.now);
+        self.neighbor_cache.as_mut().unwrap().limit_rate(self.now);
         Err(Error::Unaddressable)
     }
 
@@ -2302,19 +2351,13 @@ impl<'a> InterfaceInner<'a> {
         }
     }
 
-    fn dispatch_ip<Tx: TxToken>(
-        &mut self,
-        cx: &Context,
-        tx_token: Tx,
-        packet: IpPacket,
-    ) -> Result<()> {
+    fn dispatch_ip<Tx: TxToken>(&mut self, tx_token: Tx, packet: IpPacket) -> Result<()> {
         let ip_repr = packet.ip_repr().lower(&self.ip_addrs)?;
 
-        match cx.caps.medium {
+        match self.caps.medium {
             #[cfg(feature = "medium-ethernet")]
             Medium::Ethernet => {
                 let (dst_hardware_addr, tx_token) = match self.lookup_hardware_addr(
-                    cx,
                     tx_token,
                     &ip_repr.src_addr(),
                     &ip_repr.dst_addr(),
@@ -2324,7 +2367,8 @@ impl<'a> InterfaceInner<'a> {
                     (HardwareAddress::Ieee802154(_), _) => unreachable!(),
                 };
 
-                self.dispatch_ethernet(cx, tx_token, ip_repr.total_len(), |mut frame| {
+                let caps = self.caps.clone();
+                self.dispatch_ethernet(tx_token, ip_repr.total_len(), |mut frame| {
                     frame.set_dst_addr(dst_hardware_addr);
                     match ip_repr {
                         #[cfg(feature = "proto-ipv4")]
@@ -2334,45 +2378,39 @@ impl<'a> InterfaceInner<'a> {
                         _ => return,
                     }
 
-                    ip_repr.emit(frame.payload_mut(), &cx.caps.checksum);
+                    ip_repr.emit(frame.payload_mut(), &caps.checksum);
 
                     let payload = &mut frame.payload_mut()[ip_repr.buffer_len()..];
-                    packet.emit_payload(ip_repr, payload, &cx.caps);
+                    packet.emit_payload(ip_repr, payload, &caps);
                 })
             }
             #[cfg(feature = "medium-ip")]
             Medium::Ip => {
                 let tx_len = ip_repr.total_len();
-                tx_token.consume(cx.now, tx_len, |mut tx_buffer| {
+                tx_token.consume(self.now, tx_len, |mut tx_buffer| {
                     debug_assert!(tx_buffer.as_ref().len() == tx_len);
 
-                    ip_repr.emit(&mut tx_buffer, &cx.caps.checksum);
+                    ip_repr.emit(&mut tx_buffer, &self.caps.checksum);
 
                     let payload = &mut tx_buffer[ip_repr.buffer_len()..];
-                    packet.emit_payload(ip_repr, payload, &cx.caps);
+                    packet.emit_payload(ip_repr, payload, &self.caps);
 
                     Ok(())
                 })
             }
             #[cfg(feature = "medium-ieee802154")]
-            Medium::Ieee802154 => self.dispatch_ieee802154(cx, tx_token, packet),
+            Medium::Ieee802154 => self.dispatch_ieee802154(tx_token, packet),
         }
     }
 
     #[cfg(feature = "medium-ieee802154")]
-    fn dispatch_ieee802154<Tx: TxToken>(
-        &mut self,
-        cx: &Context,
-        tx_token: Tx,
-        packet: IpPacket,
-    ) -> Result<()> {
+    fn dispatch_ieee802154<Tx: TxToken>(&mut self, tx_token: Tx, packet: IpPacket) -> Result<()> {
         let ip_repr = packet.ip_repr().lower(&self.ip_addrs)?;
 
-        match cx.caps.medium {
+        match self.caps.medium {
             #[cfg(feature = "medium-ieee802154")]
             Medium::Ieee802154 => {
                 let (dst_hardware_addr, tx_token) = match self.lookup_hardware_addr(
-                    cx,
                     tx_token,
                     &ip_repr.src_addr(),
                     &ip_repr.dst_addr(),
@@ -2405,9 +2443,9 @@ impl<'a> InterfaceInner<'a> {
                     sequence_number: Some(self.get_sequence_number()),
                     pan_id_compression: true,
                     frame_version: Ieee802154FrameVersion::Ieee802154_2003,
-                    dst_pan_id: cx.pan_id,
+                    dst_pan_id: self.pan_id,
                     dst_addr: Some(dst_hardware_addr),
-                    src_pan_id: cx.pan_id,
+                    src_pan_id: self.pan_id,
                     src_addr: ll_src_addr,
                 };
 
@@ -2455,7 +2493,7 @@ impl<'a> InterfaceInner<'a> {
                     _ => return Err(Error::Unrecognized),
                 }
 
-                tx_token.consume(cx.now, tx_len, |mut tx_buffer| {
+                tx_token.consume(self.now, tx_len, |mut tx_buffer| {
                     // 1. Create the header of 802.15.4
                     let mut ieee_packet = Ieee802154Frame::new_unchecked(&mut tx_buffer);
                     ieee_repr.emit(&mut ieee_packet);
@@ -2494,7 +2532,7 @@ impl<'a> InterfaceInner<'a> {
                                 &iphc_repr.src_addr.into(),
                                 &iphc_repr.dst_addr.into(),
                                 &mut icmp_packet,
-                                &cx.caps.checksum,
+                                &self.caps.checksum,
                             );
                         }
                         _ => return Err(Error::Unrecognized),
@@ -2682,9 +2720,8 @@ mod test {
         // Ensure that the unknown protocol frame does not trigger an
         // ICMP error response when the destination address is a
         // broadcast address
-        let cx = iface.context(Instant::from_secs(0));
         assert_eq!(
-            iface.inner.process_ipv4(&cx, &mut iface.sockets, &frame),
+            iface.inner.process_ipv4(&mut iface.sockets, &frame),
             Ok(None)
         );
     }
@@ -2714,9 +2751,8 @@ mod test {
         // Ensure that the unknown protocol frame does not trigger an
         // ICMP error response when the destination address is a
         // broadcast address
-        let cx = iface.context(Instant::from_secs(0));
         assert_eq!(
-            iface.inner.process_ipv6(&cx, &mut iface.sockets, &frame),
+            iface.inner.process_ipv6(&mut iface.sockets, &frame),
             Ok(None)
         );
     }
@@ -2767,9 +2803,8 @@ mod test {
 
         // Ensure that the unknown protocol triggers an error response.
         // And we correctly handle no payload.
-        let cx = iface.context(Instant::from_secs(0));
         assert_eq!(
-            iface.inner.process_ipv4(&cx, &mut iface.sockets, &frame),
+            iface.inner.process_ipv4(&mut iface.sockets, &frame),
             Ok(Some(expected_repr))
         );
     }
@@ -2892,11 +2927,10 @@ mod test {
 
         // Ensure that the unknown protocol triggers an error response.
         // And we correctly handle no payload.
-        let cx = iface.context(Instant::from_secs(0));
         assert_eq!(
             iface
                 .inner
-                .process_udp(&cx, &mut iface.sockets, ip_repr, false, data),
+                .process_udp(&mut iface.sockets, ip_repr, false, data),
             Ok(Some(expected_repr))
         );
 
@@ -2923,7 +2957,6 @@ mod test {
         // broadcast address and no socket is bound to the port.
         assert_eq!(
             iface.inner.process_udp(
-                &cx,
                 &mut iface.sockets,
                 ip_repr,
                 false,
@@ -2996,11 +3029,10 @@ mod test {
         );
 
         // Packet should be handled by bound UDP socket
-        let cx = iface.context(Instant::from_secs(0));
         assert_eq!(
             iface
                 .inner
-                .process_udp(&cx, &mut iface.sockets, ip_repr, false, packet.into_inner()),
+                .process_udp(&mut iface.sockets, ip_repr, false, packet.into_inner()),
             Ok(None)
         );
 
@@ -3070,9 +3102,8 @@ mod test {
         };
         let expected_packet = IpPacket::Icmpv4((expected_ipv4_repr, expected_icmpv4_repr));
 
-        let cx = iface.context(Instant::from_secs(0));
         assert_eq!(
-            iface.inner.process_ipv4(&cx, &mut iface.sockets, &frame),
+            iface.inner.process_ipv4(&mut iface.sockets, &frame),
             Ok(Some(expected_packet))
         );
     }
@@ -3167,8 +3198,6 @@ mod test {
             payload_len: expected_icmp_repr.buffer_len(),
         };
 
-        let cx = iface.context(Instant::from_secs(0));
-
         // The expected packet does not exceed the IPV4_MIN_MTU
         #[cfg(feature = "proto-ipv6")]
         assert_eq!(
@@ -3186,7 +3215,7 @@ mod test {
         assert_eq!(
             iface
                 .inner
-                .process_udp(&cx, &mut iface.sockets, ip_repr.into(), false, payload),
+                .process_udp(&mut iface.sockets, ip_repr.into(), false, payload),
             Ok(Some(IpPacket::Icmpv4((
                 expected_ip_repr,
                 expected_icmp_repr
@@ -3196,7 +3225,7 @@ mod test {
         assert_eq!(
             iface
                 .inner
-                .process_udp(&cx, &mut iface.sockets, ip_repr.into(), false, payload),
+                .process_udp(&mut iface.sockets, ip_repr.into(), false, payload),
             Ok(Some(IpPacket::Icmpv6((
                 expected_ip_repr,
                 expected_icmp_repr
@@ -3231,13 +3260,11 @@ mod test {
         let mut packet = ArpPacket::new_unchecked(frame.payload_mut());
         repr.emit(&mut packet);
 
-        let cx = iface.context(Instant::from_secs(0));
-
         // Ensure an ARP Request for us triggers an ARP Reply
         assert_eq!(
             iface
                 .inner
-                .process_ethernet(&cx, &mut iface.sockets, frame.into_inner()),
+                .process_ethernet(&mut iface.sockets, frame.into_inner()),
             Ok(Some(EthernetPacket::Arp(ArpRepr::EthernetIpv4 {
                 operation: ArpOperation::Reply,
                 source_hardware_addr: local_hw_addr,
@@ -3250,7 +3277,6 @@ mod test {
         // Ensure the address of the requestor was entered in the cache
         assert_eq!(
             iface.inner.lookup_hardware_addr(
-                &cx,
                 MockTxToken,
                 &IpAddress::Ipv4(local_ip_addr),
                 &IpAddress::Ipv4(remote_ip_addr)
@@ -3309,13 +3335,11 @@ mod test {
             payload_len: icmpv6_expected.buffer_len(),
         };
 
-        let cx = iface.context(Instant::from_secs(0));
-
         // Ensure an Neighbor Solicitation triggers a Neighbor Advertisement
         assert_eq!(
             iface
                 .inner
-                .process_ethernet(&cx, &mut iface.sockets, frame.into_inner()),
+                .process_ethernet(&mut iface.sockets, frame.into_inner()),
             Ok(Some(EthernetPacket::Ip(IpPacket::Icmpv6((
                 ipv6_expected,
                 icmpv6_expected
@@ -3325,7 +3349,6 @@ mod test {
         // Ensure the address of the requestor was entered in the cache
         assert_eq!(
             iface.inner.lookup_hardware_addr(
-                &cx,
                 MockTxToken,
                 &IpAddress::Ipv6(local_ip_addr),
                 &IpAddress::Ipv6(remote_ip_addr)
@@ -3359,20 +3382,17 @@ mod test {
         let mut packet = ArpPacket::new_unchecked(frame.payload_mut());
         repr.emit(&mut packet);
 
-        let cx = iface.context(Instant::from_secs(0));
-
         // Ensure an ARP Request for someone else does not trigger an ARP Reply
         assert_eq!(
             iface
                 .inner
-                .process_ethernet(&cx, &mut iface.sockets, frame.into_inner()),
+                .process_ethernet(&mut iface.sockets, frame.into_inner()),
             Ok(None)
         );
 
         // Ensure the address of the requestor was NOT entered in the cache
         assert_eq!(
             iface.inner.lookup_hardware_addr(
-                &cx,
                 MockTxToken,
                 &IpAddress::Ipv4(Ipv4Address([0x7f, 0x00, 0x00, 0x01])),
                 &IpAddress::Ipv4(remote_ip_addr)
@@ -3410,13 +3430,11 @@ mod test {
             repr.emit(&mut packet);
         }
 
-        let cx = iface.context(Instant::from_secs(0));
-
         // Ensure an ARP Request for us triggers an ARP Reply
         assert_eq!(
             iface
                 .inner
-                .process_ethernet(&cx, &mut iface.sockets, frame.into_inner()),
+                .process_ethernet(&mut iface.sockets, frame.into_inner()),
             Ok(Some(EthernetPacket::Arp(ArpRepr::EthernetIpv4 {
                 operation: ArpOperation::Reply,
                 source_hardware_addr: local_hw_addr,
@@ -3429,7 +3447,6 @@ mod test {
         // Ensure the address of the requestor was entered in the cache
         assert_eq!(
             iface.inner.lookup_hardware_addr(
-                &cx,
                 MockTxToken,
                 &IpAddress::Ipv4(local_ip_addr),
                 &IpAddress::Ipv4(remote_ip_addr)
@@ -3446,9 +3463,7 @@ mod test {
         });
 
         // ARP cache flush after address change
-        assert!(!iface
-            .inner
-            .has_neighbor(&cx, &IpAddress::Ipv4(remote_ip_addr)));
+        assert!(!iface.inner.has_neighbor(&IpAddress::Ipv4(remote_ip_addr)));
     }
 
     #[test]
@@ -3509,11 +3524,10 @@ mod test {
             dst_addr: ipv4_repr.src_addr,
             ..ipv4_repr
         };
-        let cx = iface.context(Instant::from_secs(0));
         assert_eq!(
             iface
                 .inner
-                .process_icmpv4(&cx, &mut iface.sockets, ip_repr, icmp_data),
+                .process_icmpv4(&mut iface.sockets, ip_repr, icmp_data),
             Ok(Some(IpPacket::Icmpv4((ipv4_reply, echo_reply))))
         );
 
@@ -3606,12 +3620,10 @@ mod test {
             hop_limit: 0x40,
         };
 
-        let cx = iface.context(Instant::from_secs(0));
-
         // Ensure the unknown next header causes a ICMPv6 Parameter Problem
         // error message to be sent to the sender.
         assert_eq!(
-            iface.inner.process_ipv6(&cx, &mut iface.sockets, &frame),
+            iface.inner.process_ipv6(&mut iface.sockets, &frame),
             Ok(Some(IpPacket::Icmpv6((reply_ipv6_repr, reply_icmp_repr))))
         );
     }
@@ -3697,8 +3709,7 @@ mod test {
         // loopback have been processed, including responses to
         // GENERAL_QUERY_BYTES. Therefore `recv_all()` would return 0
         // pkts that could be checked.
-        let cx = iface.context(timestamp);
-        iface.socket_ingress(&cx);
+        iface.socket_ingress();
 
         // Leave multicast groups
         let timestamp = Instant::now();
@@ -3778,9 +3789,8 @@ mod test {
             Ipv4Packet::new_unchecked(&bytes)
         };
 
-        let cx = iface.context(Instant::from_millis(0));
         assert_eq!(
-            iface.inner.process_ipv4(&cx, &mut iface.sockets, &frame),
+            iface.inner.process_ipv4(&mut iface.sockets, &frame),
             Ok(None)
         );
     }
@@ -3849,8 +3859,7 @@ mod test {
             Ipv4Packet::new_unchecked(&bytes)
         };
 
-        let cx = iface.context(Instant::from_millis(0));
-        let frame = iface.inner.process_ipv4(&cx, &mut iface.sockets, &frame);
+        let frame = iface.inner.process_ipv4(&mut iface.sockets, &frame);
 
         // because the packet could not be handled we should send an Icmp message
         assert!(match frame {
@@ -3942,9 +3951,8 @@ mod test {
             Ipv4Packet::new_unchecked(&bytes)
         };
 
-        let cx = iface.context(Instant::from_millis(0));
         assert_eq!(
-            iface.inner.process_ipv4(&cx, &mut iface.sockets, &frame),
+            iface.inner.process_ipv4(&mut iface.sockets, &frame),
             Ok(None)
         );
 

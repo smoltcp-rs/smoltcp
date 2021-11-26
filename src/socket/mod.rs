@@ -11,7 +11,7 @@ The interface implemented by this module uses explicit buffering: you decide on 
 size for a buffer, allocate it, and let the networking stack use it.
 */
 
-use crate::phy::DeviceCapabilities;
+use crate::iface::Context;
 use crate::time::Instant;
 
 #[cfg(feature = "socket-dhcpv4")]
@@ -79,7 +79,7 @@ pub enum Socket<'a> {
 }
 
 impl<'a> Socket<'a> {
-    pub(crate) fn poll_at(&self, cx: &Context) -> PollAt {
+    pub(crate) fn poll_at(&self, cx: &mut Context) -> PollAt {
         match self {
             #[cfg(feature = "socket-raw")]
             Socket::Raw(s) => s.poll_at(cx),
@@ -129,54 +129,3 @@ from_socket!(UdpSocket<'a>, Udp);
 from_socket!(TcpSocket<'a>, Tcp);
 #[cfg(feature = "socket-dhcpv4")]
 from_socket!(Dhcpv4Socket, Dhcpv4);
-
-/// Data passed to sockets when processing.
-#[derive(Clone, Debug)]
-pub(crate) struct Context {
-    pub now: Instant,
-    #[cfg(all(
-        any(feature = "medium-ethernet", feature = "medium-ieee802154"),
-        feature = "socket-dhcpv4"
-    ))]
-    pub hardware_addr: Option<crate::wire::HardwareAddress>,
-    #[cfg(feature = "medium-ieee802154")]
-    pub pan_id: Option<crate::wire::Ieee802154Pan>,
-    pub caps: DeviceCapabilities,
-}
-
-#[cfg(test)]
-impl Context {
-    pub(crate) const DUMMY: Context = Context {
-        caps: DeviceCapabilities {
-            #[cfg(feature = "medium-ethernet")]
-            medium: crate::phy::Medium::Ethernet,
-            #[cfg(not(feature = "medium-ethernet"))]
-            medium: crate::phy::Medium::Ip,
-            checksum: crate::phy::ChecksumCapabilities {
-                #[cfg(feature = "proto-ipv4")]
-                icmpv4: crate::phy::Checksum::Both,
-                #[cfg(feature = "proto-ipv6")]
-                icmpv6: crate::phy::Checksum::Both,
-                ipv4: crate::phy::Checksum::Both,
-                tcp: crate::phy::Checksum::Both,
-                udp: crate::phy::Checksum::Both,
-            },
-            max_burst_size: None,
-            #[cfg(feature = "medium-ethernet")]
-            max_transmission_unit: 1514,
-            #[cfg(not(feature = "medium-ethernet"))]
-            max_transmission_unit: 1500,
-        },
-        #[cfg(all(
-            any(feature = "medium-ethernet", feature = "medium-ieee802154"),
-            feature = "socket-dhcpv4"
-        ))]
-        hardware_addr: Some(crate::wire::HardwareAddress::Ethernet(
-            crate::wire::EthernetAddress([0x02, 0x02, 0x02, 0x02, 0x02, 0x02]),
-        )),
-        now: Instant::from_millis_const(0),
-
-        #[cfg(feature = "medium-ieee802154")]
-        pan_id: Some(crate::wire::Ieee802154Pan(0xabcd)),
-    };
-}
