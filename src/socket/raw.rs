@@ -5,7 +5,7 @@ use core::task::Waker;
 use crate::phy::ChecksumCapabilities;
 #[cfg(feature = "async")]
 use crate::socket::WakerRegistration;
-use crate::socket::{Context, PollAt, Socket, SocketHandle, SocketMeta};
+use crate::socket::{Context, PollAt};
 use crate::storage::{PacketBuffer, PacketMetadata};
 use crate::{Error, Result};
 
@@ -27,7 +27,6 @@ pub type RawSocketBuffer<'a> = PacketBuffer<'a, ()>;
 /// transmit and receive packet buffers.
 #[derive(Debug)]
 pub struct RawSocket<'a> {
-    pub(crate) meta: SocketMeta,
     ip_version: IpVersion,
     ip_protocol: IpProtocol,
     rx_buffer: RawSocketBuffer<'a>,
@@ -48,7 +47,6 @@ impl<'a> RawSocket<'a> {
         tx_buffer: RawSocketBuffer<'a>,
     ) -> RawSocket<'a> {
         RawSocket {
-            meta: SocketMeta::default(),
             ip_version,
             ip_protocol,
             rx_buffer,
@@ -93,12 +91,6 @@ impl<'a> RawSocket<'a> {
     #[cfg(feature = "async")]
     pub fn register_send_waker(&mut self, waker: &Waker) {
         self.tx_waker.register(waker)
-    }
-
-    /// Return the socket handle.
-    #[inline]
-    pub fn handle(&self) -> SocketHandle {
-        self.meta.handle
     }
 
     /// Return the IP version the socket is bound to.
@@ -164,8 +156,7 @@ impl<'a> RawSocket<'a> {
         let packet_buf = self.tx_buffer.enqueue(size, ())?;
 
         net_trace!(
-            "{}:{}:{}: buffer to send {} octets",
-            self.meta.handle,
+            "raw:{}:{}: buffer to send {} octets",
             self.ip_version,
             self.ip_protocol,
             packet_buf.len()
@@ -191,8 +182,7 @@ impl<'a> RawSocket<'a> {
         let ((), packet_buf) = self.rx_buffer.dequeue()?;
 
         net_trace!(
-            "{}:{}:{}: receive {} buffered octets",
-            self.meta.handle,
+            "raw:{}:{}: receive {} buffered octets",
             self.ip_version,
             self.ip_protocol,
             packet_buf.len()
@@ -231,8 +221,7 @@ impl<'a> RawSocket<'a> {
         packet_buf[header_len..].copy_from_slice(payload);
 
         net_trace!(
-            "{}:{}:{}: receiving {} octets",
-            self.meta.handle,
+            "raw:{}:{}: receiving {} octets",
             self.ip_version,
             self.ip_protocol,
             packet_buf.len()
@@ -286,15 +275,13 @@ impl<'a> RawSocket<'a> {
             }
         }
 
-        let handle = self.meta.handle;
         let ip_protocol = self.ip_protocol;
         let ip_version = self.ip_version;
         self.tx_buffer.dequeue_with(|&mut (), packet_buf| {
             match prepare(ip_protocol, packet_buf, &cx.caps.checksum) {
                 Ok((ip_repr, raw_packet)) => {
                     net_trace!(
-                        "{}:{}:{}: sending {} octets",
-                        handle,
+                        "raw:{}:{}: sending {} octets",
                         ip_version,
                         ip_protocol,
                         ip_repr.buffer_len() + raw_packet.len()
@@ -303,8 +290,7 @@ impl<'a> RawSocket<'a> {
                 }
                 Err(error) => {
                     net_debug!(
-                        "{}:{}:{}: dropping outgoing packet ({})",
-                        handle,
+                        "raw:{}:{}: dropping outgoing packet ({})",
                         ip_version,
                         ip_protocol,
                         error
@@ -327,12 +313,6 @@ impl<'a> RawSocket<'a> {
         } else {
             PollAt::Now
         }
-    }
-}
-
-impl<'a> From<RawSocket<'a>> for Socket<'a> {
-    fn from(val: RawSocket<'a>) -> Self {
-        Socket::Raw(val)
     }
 }
 

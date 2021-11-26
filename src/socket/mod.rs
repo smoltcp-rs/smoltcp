@@ -16,15 +16,10 @@ use crate::time::Instant;
 
 #[cfg(feature = "socket-dhcpv4")]
 mod dhcpv4;
-#[cfg(all(
-    feature = "socket-icmp",
-    any(feature = "proto-ipv4", feature = "proto-ipv6")
-))]
+#[cfg(feature = "socket-icmp")]
 mod icmp;
-mod meta;
 #[cfg(feature = "socket-raw")]
 mod raw;
-mod set;
 #[cfg(feature = "socket-tcp")]
 mod tcp;
 #[cfg(feature = "socket-udp")]
@@ -33,30 +28,19 @@ mod udp;
 #[cfg(feature = "async")]
 mod waker;
 
-pub(crate) use self::meta::Meta as SocketMeta;
-#[cfg(feature = "async")]
-pub(crate) use self::waker::WakerRegistration;
-
+#[cfg(feature = "socket-dhcpv4")]
+pub use self::dhcpv4::{Config as Dhcpv4Config, Dhcpv4Socket, Event as Dhcpv4Event};
+#[cfg(feature = "socket-icmp")]
+pub use self::icmp::{Endpoint as IcmpEndpoint, IcmpPacketMetadata, IcmpSocket, IcmpSocketBuffer};
 #[cfg(feature = "socket-raw")]
 pub use self::raw::{RawPacketMetadata, RawSocket, RawSocketBuffer};
-
-#[cfg(all(
-    feature = "socket-icmp",
-    any(feature = "proto-ipv4", feature = "proto-ipv6")
-))]
-pub use self::icmp::{Endpoint as IcmpEndpoint, IcmpPacketMetadata, IcmpSocket, IcmpSocketBuffer};
-
+#[cfg(feature = "socket-tcp")]
+pub use self::tcp::{SocketBuffer as TcpSocketBuffer, State as TcpState, TcpSocket};
 #[cfg(feature = "socket-udp")]
 pub use self::udp::{UdpPacketMetadata, UdpSocket, UdpSocketBuffer};
 
-#[cfg(feature = "socket-tcp")]
-pub use self::tcp::{SocketBuffer as TcpSocketBuffer, State as TcpState, TcpSocket};
-
-#[cfg(feature = "socket-dhcpv4")]
-pub use self::dhcpv4::{Config as Dhcpv4Config, Dhcpv4Socket, Event as Dhcpv4Event};
-
-pub use self::set::{Handle as SocketHandle, Item as SocketSetItem, Set as SocketSet};
-pub use self::set::{Iter as SocketSetIter, IterMut as SocketSetIterMut};
+#[cfg(feature = "async")]
+pub(crate) use self::waker::WakerRegistration;
 
 /// Gives an indication on the next time the socket should be polled.
 #[derive(Debug, PartialOrd, Ord, PartialEq, Eq, Clone, Copy)]
@@ -84,10 +68,7 @@ pub(crate) enum PollAt {
 pub enum Socket<'a> {
     #[cfg(feature = "socket-raw")]
     Raw(RawSocket<'a>),
-    #[cfg(all(
-        feature = "socket-icmp",
-        any(feature = "proto-ipv4", feature = "proto-ipv6")
-    ))]
+    #[cfg(feature = "socket-icmp")]
     Icmp(IcmpSocket<'a>),
     #[cfg(feature = "socket-udp")]
     Udp(UdpSocket<'a>),
@@ -97,57 +78,36 @@ pub enum Socket<'a> {
     Dhcpv4(Dhcpv4Socket),
 }
 
-macro_rules! dispatch_socket {
-    ($self_:expr, |$socket:ident| $code:expr) => {
-        dispatch_socket!(@inner $self_, |$socket| $code)
-    };
-    (mut $self_:expr, |$socket:ident| $code:expr) => {
-        dispatch_socket!(@inner mut $self_, |$socket| $code)
-    };
-    (@inner $( $mut_:ident )* $self_:expr, |$socket:ident| $code:expr) => {
-        match $self_ {
-            #[cfg(feature = "socket-raw")]
-            &$( $mut_ )* Socket::Raw(ref $( $mut_ )* $socket) => $code,
-            #[cfg(all(feature = "socket-icmp", any(feature = "proto-ipv4", feature = "proto-ipv6")))]
-            &$( $mut_ )* Socket::Icmp(ref $( $mut_ )* $socket) => $code,
-            #[cfg(feature = "socket-udp")]
-            &$( $mut_ )* Socket::Udp(ref $( $mut_ )* $socket) => $code,
-            #[cfg(feature = "socket-tcp")]
-            &$( $mut_ )* Socket::Tcp(ref $( $mut_ )* $socket) => $code,
-            #[cfg(feature = "socket-dhcpv4")]
-            &$( $mut_ )* Socket::Dhcpv4(ref $( $mut_ )* $socket) => $code,
-        }
-    };
-}
-
 impl<'a> Socket<'a> {
-    /// Return the socket handle.
-    #[inline]
-    pub fn handle(&self) -> SocketHandle {
-        self.meta().handle
-    }
-
-    pub(crate) fn meta(&self) -> &SocketMeta {
-        dispatch_socket!(self, |socket| &socket.meta)
-    }
-
-    pub(crate) fn meta_mut(&mut self) -> &mut SocketMeta {
-        dispatch_socket!(mut self, |socket| &mut socket.meta)
-    }
-
     pub(crate) fn poll_at(&self, cx: &Context) -> PollAt {
-        dispatch_socket!(self, |socket| socket.poll_at(cx))
+        match self {
+            #[cfg(feature = "socket-raw")]
+            Socket::Raw(s) => s.poll_at(cx),
+            #[cfg(feature = "socket-icmp")]
+            Socket::Icmp(s) => s.poll_at(cx),
+            #[cfg(feature = "socket-udp")]
+            Socket::Udp(s) => s.poll_at(cx),
+            #[cfg(feature = "socket-tcp")]
+            Socket::Tcp(s) => s.poll_at(cx),
+            #[cfg(feature = "socket-dhcpv4")]
+            Socket::Dhcpv4(s) => s.poll_at(cx),
+        }
     }
 }
 
 /// A conversion trait for network sockets.
 pub trait AnySocket<'a>: Sized {
+    fn upcast(self) -> Socket<'a>;
     fn downcast<'c>(socket: &'c mut Socket<'a>) -> Option<&'c mut Self>;
 }
 
 macro_rules! from_socket {
     ($socket:ty, $variant:ident) => {
         impl<'a> AnySocket<'a> for $socket {
+            fn upcast(self) -> Socket<'a> {
+                Socket::$variant(self)
+            }
+
             fn downcast<'c>(socket: &'c mut Socket<'a>) -> Option<&'c mut Self> {
                 #[allow(unreachable_patterns)]
                 match socket {
@@ -161,10 +121,7 @@ macro_rules! from_socket {
 
 #[cfg(feature = "socket-raw")]
 from_socket!(RawSocket<'a>, Raw);
-#[cfg(all(
-    feature = "socket-icmp",
-    any(feature = "proto-ipv4", feature = "proto-ipv6")
-))]
+#[cfg(feature = "socket-icmp")]
 from_socket!(IcmpSocket<'a>, Icmp);
 #[cfg(feature = "socket-udp")]
 from_socket!(UdpSocket<'a>, Udp);

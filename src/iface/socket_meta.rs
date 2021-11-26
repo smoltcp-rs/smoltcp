@@ -1,4 +1,5 @@
-use crate::socket::{PollAt, SocketHandle};
+use super::SocketHandle;
+use crate::socket::PollAt;
 use crate::time::{Duration, Instant};
 use crate::wire::IpAddress;
 
@@ -31,7 +32,7 @@ impl Default for NeighborState {
 /// is interested in, but which are more conveniently stored inside the socket itself.
 #[derive(Debug, Default)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct Meta {
+pub(crate) struct Meta {
     /// Handle of this socket within its enclosing `SocketSet`.
     /// Mainly useful for debug output.
     pub(crate) handle: SocketHandle,

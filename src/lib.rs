@@ -111,9 +111,10 @@ compile_error!("You must enable at least one of the following features: proto-ip
         feature = "socket-udp",
         feature = "socket-tcp",
         feature = "socket-icmp",
+        feature = "socket-dhcp",
     ))
 ))]
-compile_error!("If you enable the socket feature, you must enable at least one of the following features: socket-raw, socket-udp, socket-tcp, socket-icmp");
+compile_error!("If you enable the socket feature, you must enable at least one of the following features: socket-raw, socket-udp, socket-tcp, socket-icmp, socket-dhcp");
 
 #[cfg(all(
     feature = "socket",
@@ -138,7 +139,13 @@ mod rand;
 #[cfg(feature = "rand-custom-impl")]
 pub use crate::rand::Rand;
 
+#[cfg(any(
+    feature = "medium-ethernet",
+    feature = "medium-ip",
+    feature = "medium-ieee802154"
+))]
 pub mod iface;
+
 pub mod phy;
 #[cfg(feature = "socket")]
 pub mod socket;
