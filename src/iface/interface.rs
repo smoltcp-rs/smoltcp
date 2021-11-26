@@ -253,6 +253,7 @@ let iface = InterfaceBuilder::new(device, vec![])
     pub fn finalize(self) -> Interface<'a, DeviceT> {
         let device_capabilities = self.device.capabilities();
 
+        #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
         let (hardware_addr, neighbor_cache) = match device_capabilities.medium {
             #[cfg(feature = "medium-ethernet")]
             Medium::Ethernet => (
@@ -2275,6 +2276,7 @@ impl<'a> InterfaceInner<'a> {
     }
 
     fn flush_cache(&mut self) {
+        #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
         if let Some(cache) = self.neighbor_cache.as_mut() {
             cache.flush()
         }
@@ -2394,16 +2396,17 @@ impl<'a> InterfaceInner<'a> {
                     _ => return Err(Error::Unaddressable),
                 };
 
-                let next_header = match &packet {
-                    IpPacket::Udp(_) => SixlowpanNextHeader::Compressed,
-                    IpPacket::Icmpv6(_) => SixlowpanNextHeader::Uncompressed(IpProtocol::Icmpv6),
-                    _ => return Err(Error::Unrecognized),
-                };
-
-                let hop_limit = match packet {
-                    IpPacket::Icmpv6((_, Icmpv6Repr::Ndisc(_))) => 255,
-                    IpPacket::Icmpv6((_, Icmpv6Repr::EchoReply { .. })) => 64,
-                    IpPacket::Udp(..) => 64,
+                #[allow(unreachable_patterns)]
+                let (next_header, hop_limit) = match &packet {
+                    #[cfg(feature = "socket-udp")]
+                    IpPacket::Udp(_) => (SixlowpanNextHeader::Compressed, 64),
+                    IpPacket::Icmpv6((_, repr)) => (
+                        SixlowpanNextHeader::Uncompressed(IpProtocol::Icmpv6),
+                        match repr {
+                            Icmpv6Repr::Ndisc(_) => 255,
+                            _ => 64,
+                        },
+                    ),
                     _ => return Err(Error::Unrecognized),
                 };
 
@@ -2419,7 +2422,9 @@ impl<'a> InterfaceInner<'a> {
                 tx_len += ieee_repr.buffer_len();
                 tx_len += iphc_repr.buffer_len();
 
+                #[allow(unreachable_patterns)]
                 match &packet {
+                    #[cfg(feature = "socket-udp")]
                     IpPacket::Udp((_, udp_repr, payload)) => {
                         let udp_repr = SixlowpanUdpRepr(*udp_repr);
                         tx_len += udp_repr.header_len() + payload.len();
@@ -2443,6 +2448,7 @@ impl<'a> InterfaceInner<'a> {
                     iphc_repr.emit(&mut iphc_packet);
                     start += iphc_repr.buffer_len();
 
+                    #[allow(unreachable_patterns)]
                     match packet {
                         IpPacket::Udp((_, udp_repr, payload)) => {
                             // 3. Create the header for 6LoWPAN UDP
@@ -2457,6 +2463,7 @@ impl<'a> InterfaceInner<'a> {
                                 |buf| buf.copy_from_slice(payload),
                             );
                         }
+                        #[cfg(feature = "proto-ipv6")]
                         IpPacket::Icmpv6((_, icmp_repr)) => {
                             // 3. Create the header for ICMPv6
                             let mut icmp_packet =
