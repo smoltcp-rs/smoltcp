@@ -54,8 +54,8 @@ fn main() {
 
     let tcp_handle = iface.add_socket(tcp_socket);
 
-    let socket = iface.get_socket::<TcpSocket>(tcp_handle);
-    socket.connect((address, port), 49500).unwrap();
+    let (socket, cx) = iface.get_socket_and_context::<TcpSocket>(tcp_handle);
+    socket.connect(cx, (address, port), 49500).unwrap();
 
     let mut tcp_active = false;
     loop {

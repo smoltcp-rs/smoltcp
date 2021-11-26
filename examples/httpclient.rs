@@ -76,14 +76,14 @@ fn main() {
             }
         }
 
-        let socket = iface.get_socket::<TcpSocket>(tcp_handle);
+        let (socket, cx) = iface.get_socket_and_context::<TcpSocket>(tcp_handle);
 
         state = match state {
             State::Connect if !socket.is_active() => {
                 debug!("connecting");
                 let local_port = 49152 + rand::random::<u16>() % 16384;
                 socket
-                    .connect((address, url.port().unwrap_or(80)), local_port)
+                    .connect(cx, (address, url.port().unwrap_or(80)), local_port)
                     .unwrap();
                 State::Request
             }

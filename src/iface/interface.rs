@@ -11,6 +11,7 @@ use crate::iface::Routes;
 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
 use crate::iface::{NeighborAnswer, NeighborCache};
 use crate::phy::{ChecksumCapabilities, Device, DeviceCapabilities, Medium, RxToken, TxToken};
+use crate::rand::Rand;
 use crate::socket::*;
 use crate::time::{Duration, Instant};
 use crate::wire::*;
@@ -54,6 +55,7 @@ pub struct InterfaceInner<'a> {
     /// When to report for (all or) the next multicast group membership via IGMP
     #[cfg(feature = "proto-igmp")]
     igmp_report_state: IgmpReportState,
+    rand: Rand,
 }
 
 /// A builder structure used for creating a network interface.
@@ -75,6 +77,7 @@ pub struct InterfaceBuilder<'a, DeviceT: for<'d> Device<'d>> {
     /// Does not share storage with `ipv6_multicast_groups` to avoid IPv6 size overhead.
     #[cfg(feature = "proto-igmp")]
     ipv4_multicast_groups: ManagedMap<'a, Ipv4Address, ()>,
+    random_seed: u64,
 }
 
 impl<'a, DeviceT> InterfaceBuilder<'a, DeviceT>
@@ -134,7 +137,19 @@ let iface = InterfaceBuilder::new(device, vec![])
             routes: Routes::new(ManagedMap::Borrowed(&mut [])),
             #[cfg(feature = "proto-igmp")]
             ipv4_multicast_groups: ManagedMap::Borrowed(&mut []),
+            random_seed: 0,
         }
+    }
+
+    /// Set the random seed for this interface.
+    ///
+    /// It is strongly recommended that the random seed is different on each boot,
+    /// to avoid problems with TCP port/sequence collisions.
+    ///
+    /// The seed doesn't have to be cryptographically secure.
+    pub fn random_seed(mut self, random_seed: u64) -> Self {
+        self.random_seed = random_seed;
+        self
     }
 
     /// Set the Hardware address the interface will use. See also
@@ -319,6 +334,7 @@ let iface = InterfaceBuilder::new(device, vec![])
                 sequence_no: self.sequence_no,
                 #[cfg(feature = "medium-ieee802154")]
                 pan_id: self.pan_id,
+                rand: Rand::new(self.random_seed),
             },
         }
     }
@@ -493,6 +509,20 @@ where
     /// or the socket has the wrong type.
     pub fn get_socket<T: AnySocket<'a>>(&mut self, handle: SocketHandle) -> &mut T {
         self.sockets.get(handle)
+    }
+
+    /// Get a socket by handle, and the socket context.
+    ///
+    /// The context is needed for some socket methods.
+    ///
+    /// # Panics
+    /// This function may panic if the handle does not belong to this socket set
+    /// or the socket has the wrong type.
+    pub fn get_socket_and_context<T: AnySocket<'a>>(
+        &mut self,
+        handle: SocketHandle,
+    ) -> (&mut T, &mut InterfaceInner<'a>) {
+        (self.sockets.get(handle), &mut self.inner)
     }
 
     /// Remove a socket from the set, without changing its state.
@@ -1018,6 +1048,11 @@ impl<'a> InterfaceInner<'a> {
         self.caps.ip_mtu()
     }
 
+    #[allow(unused)] // unused depending on which sockets are enabled, and in tests
+    pub(crate) fn rand(&mut self) -> &mut Rand {
+        &mut self.rand
+    }
+
     #[cfg(test)]
     pub(crate) fn mock() -> Self {
         Self {
@@ -1044,6 +1079,7 @@ impl<'a> InterfaceInner<'a> {
             now: Instant::from_millis_const(0),
 
             ip_addrs: ManagedSlice::Owned(vec![]),
+            rand: Rand::new(1234),
             routes: Routes::new(&mut [][..]),
 
             #[cfg(feature = "proto-ipv4")]

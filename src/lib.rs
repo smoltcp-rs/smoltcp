@@ -134,10 +134,7 @@ use core::fmt;
 #[macro_use]
 mod macros;
 mod parsers;
-
 mod rand;
-#[cfg(feature = "rand-custom-impl")]
-pub use crate::rand::Rand;
 
 #[cfg(any(
     feature = "medium-ethernet",

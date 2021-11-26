@@ -34,7 +34,6 @@ url = "1.0"
 std = ["managed/std", "rand_core/std"]
 alloc = ["managed/alloc"]
 verbose = []
-rand-custom-impl = []
 "medium-ethernet" = ["socket"]
 "medium-ip" = ["socket"]
 "medium-ieee802154" = ["socket", "proto-sixlowpan"]

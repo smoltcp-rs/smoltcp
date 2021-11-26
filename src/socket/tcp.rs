@@ -708,7 +708,12 @@ impl<'a> TcpSocket<'a> {
     /// This function returns an error if the socket was open; see [is_open](#method.is_open).
     /// It also returns an error if the local or remote port is zero, or if the remote address
     /// is unspecified.
-    pub fn connect<T, U>(&mut self, remote_endpoint: T, local_endpoint: U) -> Result<()>
+    pub fn connect<T, U>(
+        &mut self,
+        cx: &mut Context,
+        remote_endpoint: T,
+        local_endpoint: U,
+    ) -> Result<()>
     where
         T: Into<IpEndpoint>,
         U: Into<IpEndpoint>,
@@ -743,17 +748,20 @@ impl<'a> TcpSocket<'a> {
         self.remote_endpoint = remote_endpoint;
         self.set_state(State::SynSent);
 
-        let seq = Self::random_seq_no();
+        let seq = Self::random_seq_no(cx);
         self.local_seq_no = seq;
         self.remote_last_seq = seq;
         Ok(())
     }
 
-    fn random_seq_no() -> TcpSeqNumber {
-        #[cfg(test)]
-        return TcpSeqNumber(10000);
-        #[cfg(not(test))]
-        return TcpSeqNumber(crate::rand::rand_u32() as i32);
+    #[cfg(test)]
+    fn random_seq_no(_cx: &mut Context) -> TcpSeqNumber {
+        TcpSeqNumber(10000)
+    }
+
+    #[cfg(not(test))]
+    fn random_seq_no(cx: &mut Context) -> TcpSeqNumber {
+        TcpSeqNumber(cx.rand().rand_u32() as i32)
     }
 
     /// Close the transmit half of the full-duplex connection.
@@ -1570,7 +1578,7 @@ impl<'a> TcpSocket<'a> {
 
                 self.local_endpoint = IpEndpoint::new(ip_repr.dst_addr(), repr.dst_port);
                 self.remote_endpoint = IpEndpoint::new(ip_repr.src_addr(), repr.src_port);
-                self.local_seq_no = Self::random_seq_no();
+                self.local_seq_no = Self::random_seq_no(cx);
                 self.remote_seq_no = repr.seq_number + 1;
                 self.remote_last_seq = self.local_seq_no;
                 self.remote_has_sack = repr.sack_permitted;
@@ -3215,23 +3223,27 @@ mod test {
     fn test_connect_validation() {
         let mut s = socket();
         assert_eq!(
-            s.socket.connect((IpAddress::Unspecified, 80), LOCAL_END),
+            s.socket
+                .connect(&mut s.cx, (IpAddress::Unspecified, 80), LOCAL_END),
             Err(Error::Unaddressable)
         );
         assert_eq!(
-            s.socket.connect(REMOTE_END, (MOCK_UNSPECIFIED, 0)),
+            s.socket
+                .connect(&mut s.cx, REMOTE_END, (MOCK_UNSPECIFIED, 0)),
             Err(Error::Unaddressable)
         );
         assert_eq!(
-            s.socket.connect((MOCK_UNSPECIFIED, 0), LOCAL_END),
+            s.socket
+                .connect(&mut s.cx, (MOCK_UNSPECIFIED, 0), LOCAL_END),
             Err(Error::Unaddressable)
         );
         assert_eq!(
-            s.socket.connect((IpAddress::Unspecified, 80), LOCAL_END),
+            s.socket
+                .connect(&mut s.cx, (IpAddress::Unspecified, 80), LOCAL_END),
             Err(Error::Unaddressable)
         );
         s.socket
-            .connect(REMOTE_END, LOCAL_END)
+            .connect(&mut s.cx, REMOTE_END, LOCAL_END)
             .expect("Connect failed with valid parameters");
         assert_eq!(s.local_endpoint(), LOCAL_END);
         assert_eq!(s.remote_endpoint(), REMOTE_END);
@@ -3241,7 +3253,9 @@ mod test {
     fn test_connect() {
         let mut s = socket();
         s.local_seq_no = LOCAL_SEQ;
-        s.socket.connect(REMOTE_END, LOCAL_END.port).unwrap();
+        s.socket
+            .connect(&mut s.cx, REMOTE_END, LOCAL_END.port)
+            .unwrap();
         assert_eq!(
             s.local_endpoint,
             IpEndpoint::new(MOCK_UNSPECIFIED, LOCAL_END.port)
@@ -3275,10 +3289,15 @@ mod test {
     #[test]
     fn test_connect_unspecified_local() {
         let mut s = socket();
-        assert_eq!(s.socket.connect(REMOTE_END, (MOCK_UNSPECIFIED, 80)), Ok(()));
+        assert_eq!(
+            s.socket
+                .connect(&mut s.cx, REMOTE_END, (MOCK_UNSPECIFIED, 80)),
+            Ok(())
+        );
         s.abort();
         assert_eq!(
-            s.socket.connect(REMOTE_END, (IpAddress::Unspecified, 80)),
+            s.socket
+                .connect(&mut s.cx, REMOTE_END, (IpAddress::Unspecified, 80)),
             Ok(())
         );
         s.abort();
@@ -3287,18 +3306,24 @@ mod test {
     #[test]
     fn test_connect_specified_local() {
         let mut s = socket();
-        assert_eq!(s.socket.connect(REMOTE_END, (MOCK_IP_ADDR_2, 80)), Ok(()));
+        assert_eq!(
+            s.socket
+                .connect(&mut s.cx, REMOTE_END, (MOCK_IP_ADDR_2, 80)),
+            Ok(())
+        );
     }
 
     #[test]
     fn test_connect_twice() {
         let mut s = socket();
         assert_eq!(
-            s.socket.connect(REMOTE_END, (IpAddress::Unspecified, 80)),
+            s.socket
+                .connect(&mut s.cx, REMOTE_END, (IpAddress::Unspecified, 80)),
             Ok(())
         );
         assert_eq!(
-            s.socket.connect(REMOTE_END, (IpAddress::Unspecified, 80)),
+            s.socket
+                .connect(&mut s.cx, REMOTE_END, (IpAddress::Unspecified, 80)),
             Err(Error::Illegal)
         );
     }
@@ -3307,7 +3332,7 @@ mod test {
     fn test_syn_sent_sanity() {
         let mut s = socket();
         s.local_seq_no = LOCAL_SEQ;
-        s.socket.connect(REMOTE_END, LOCAL_END).unwrap();
+        s.socket.connect(&mut s.cx, REMOTE_END, LOCAL_END).unwrap();
         sanity!(s, socket_syn_sent_with_local_ipendpoint(LOCAL_END));
     }
 
@@ -3562,7 +3587,7 @@ mod test {
             let mut s = socket_with_buffer_sizes(64, *buffer_size);
             s.local_seq_no = LOCAL_SEQ;
             assert_eq!(s.remote_win_shift, *shift_amt);
-            s.socket.connect(REMOTE_END, LOCAL_END).unwrap();
+            s.socket.connect(&mut s.cx, REMOTE_END, LOCAL_END).unwrap();
             recv!(
                 s,
                 [TcpRepr {
@@ -6061,7 +6086,9 @@ mod test {
     fn test_connect_timeout() {
         let mut s = socket();
         s.local_seq_no = LOCAL_SEQ;
-        s.socket.connect(REMOTE_END, LOCAL_END.port).unwrap();
+        s.socket
+            .connect(&mut s.cx, REMOTE_END, LOCAL_END.port)
+            .unwrap();
         s.set_timeout(Some(Duration::from_millis(100)));
         recv!(s, time 150, Ok(TcpRepr {
             control:    TcpControl::Syn,
