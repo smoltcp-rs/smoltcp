@@ -4,7 +4,7 @@ use managed::ManagedSlice;
 
 use crate::socket::{Context, PollAt, Socket};
 use crate::time::{Duration, Instant};
-use crate::wire::dns::{Flags, Opcode, Packet, Question, Record, RecordData, Repr, Type};
+use crate::wire::dns::{Flags, Opcode, Packet, Question, Rcode, Record, RecordData, Repr, Type};
 use crate::wire::{IpAddress, IpEndpoint, IpProtocol, IpRepr, Ipv4Address, UdpRepr};
 use crate::{rand, Error, Result};
 
@@ -235,6 +235,13 @@ impl<'a> DnsSocket<'a> {
         for q in self.queries.iter_mut().flatten() {
             if let State::Pending(pq) = &mut q.state {
                 if udp_repr.dst_port != pq.port || p.transaction_id() != pq.txid {
+                    continue;
+                }
+
+                if p.rcode() == Rcode::NXDomain {
+                    net_trace!("rcode NXDomain");
+
+                    q.state = State::Failure;
                     continue;
                 }
 
