@@ -66,8 +66,6 @@ pub struct InterfaceBuilder<'a, DeviceT: for<'d> Device<'d>> {
     #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
     neighbor_cache: Option<NeighborCache<'a>>,
     #[cfg(feature = "medium-ieee802154")]
-    sequence_no: u8,
-    #[cfg(feature = "medium-ieee802154")]
     pan_id: Option<Ieee802154Pan>,
     ip_addrs: ManagedSlice<'a, IpCidr>,
     sockets: SocketSet<'a>,
@@ -127,8 +125,6 @@ let iface = InterfaceBuilder::new(device, vec![])
             neighbor_cache: None,
 
             #[cfg(feature = "medium-ieee802154")]
-            sequence_no: 1,
-            #[cfg(feature = "medium-ieee802154")]
             pan_id: None,
 
             ip_addrs: ManagedSlice::Borrowed(&mut []),
@@ -163,15 +159,6 @@ let iface = InterfaceBuilder::new(device, vec![])
     pub fn hardware_addr(mut self, addr: HardwareAddress) -> Self {
         InterfaceInner::check_hardware_addr(&addr);
         self.hardware_addr = Some(addr);
-        self
-    }
-
-    /// Set the initial IEEE802.15.4 sequence number the interface will use.
-    ///
-    /// **NOTE**: this needs to be initailized randomly and not equal to 0.
-    #[cfg(feature = "medium-ieee802154")]
-    pub fn sequence_no(mut self, sequence_no: u8) -> Self {
-        self.sequence_no = sequence_no;
         self
     }
 
@@ -312,6 +299,21 @@ let iface = InterfaceBuilder::new(device, vec![])
 
         let caps = self.device.capabilities();
 
+        #[cfg(feature = "medium-ieee802154")]
+        let mut rand = Rand::new(self.random_seed);
+        #[cfg(not(feature = "medium-ieee802154"))]
+        let rand = Rand::new(self.random_seed);
+
+        #[cfg(feature = "medium-ieee802154")]
+        let mut sequence_no;
+        #[cfg(feature = "medium-ieee802154")]
+        loop {
+            sequence_no = (rand.rand_u32() & 0xff) as u8;
+            if sequence_no != 0 {
+                break;
+            }
+        }
+
         Interface {
             device: self.device,
             sockets: self.sockets,
@@ -331,10 +333,10 @@ let iface = InterfaceBuilder::new(device, vec![])
                 #[cfg(feature = "proto-igmp")]
                 igmp_report_state: IgmpReportState::Inactive,
                 #[cfg(feature = "medium-ieee802154")]
-                sequence_no: self.sequence_no,
+                sequence_no,
                 #[cfg(feature = "medium-ieee802154")]
                 pan_id: self.pan_id,
-                rand: Rand::new(self.random_seed),
+                rand,
             },
         }
     }
