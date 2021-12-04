@@ -2,9 +2,10 @@ use core::cmp::min;
 #[cfg(feature = "async")]
 use core::task::Waker;
 
+use crate::iface::Context;
+use crate::socket::PollAt;
 #[cfg(feature = "async")]
 use crate::socket::WakerRegistration;
-use crate::socket::{Context, PollAt};
 use crate::storage::{PacketBuffer, PacketMetadata};
 use crate::wire::{IpEndpoint, IpProtocol, IpRepr, UdpRepr};
 use crate::{Error, Result};
@@ -291,7 +292,7 @@ impl<'a> UdpSocket<'a> {
         Ok((length, endpoint))
     }
 
-    pub(crate) fn accepts(&self, ip_repr: &IpRepr, repr: &UdpRepr) -> bool {
+    pub(crate) fn accepts(&self, _cx: &mut Context, ip_repr: &IpRepr, repr: &UdpRepr) -> bool {
         if self.endpoint.port != repr.dst_port {
             return false;
         }
@@ -308,12 +309,12 @@ impl<'a> UdpSocket<'a> {
 
     pub(crate) fn process(
         &mut self,
-        _cx: &Context,
+        cx: &mut Context,
         ip_repr: &IpRepr,
         repr: &UdpRepr,
         payload: &[u8],
     ) -> Result<()> {
-        debug_assert!(self.accepts(ip_repr, repr));
+        debug_assert!(self.accepts(cx, ip_repr, repr));
 
         let size = payload.len();
 
@@ -338,9 +339,9 @@ impl<'a> UdpSocket<'a> {
         Ok(())
     }
 
-    pub(crate) fn dispatch<F>(&mut self, _cx: &Context, emit: F) -> Result<()>
+    pub(crate) fn dispatch<F>(&mut self, cx: &mut Context, emit: F) -> Result<()>
     where
-        F: FnOnce((IpRepr, UdpRepr, &[u8])) -> Result<()>,
+        F: FnOnce(&mut Context, (IpRepr, UdpRepr, &[u8])) -> Result<()>,
     {
         let endpoint = self.endpoint;
         let hop_limit = self.hop_limit.unwrap_or(64);
@@ -365,7 +366,7 @@ impl<'a> UdpSocket<'a> {
                     payload_len: repr.header_len() + payload_buf.len(),
                     hop_limit: hop_limit,
                 };
-                emit((ip_repr, repr, payload_buf))
+                emit(cx, (ip_repr, repr, payload_buf))
             })?;
 
         #[cfg(feature = "async")]
@@ -374,7 +375,7 @@ impl<'a> UdpSocket<'a> {
         Ok(())
     }
 
-    pub(crate) fn poll_at(&self, _cx: &Context) -> PollAt {
+    pub(crate) fn poll_at(&self, _cx: &mut Context) -> PollAt {
         if self.tx_buffer.is_empty() {
             PollAt::Ingress
         } else {
@@ -484,6 +485,7 @@ mod test {
     #[test]
     fn test_send_unaddressable() {
         let mut socket = socket(buffer(0), buffer(1));
+
         assert_eq!(
             socket.send_slice(b"abcdef", REMOTE_END),
             Err(Error::Unaddressable)
@@ -515,11 +517,13 @@ mod test {
     #[test]
     fn test_send_dispatch() {
         let mut socket = socket(buffer(0), buffer(1));
+        let mut cx = Context::mock();
+
         assert_eq!(socket.bind(LOCAL_END), Ok(()));
 
         assert!(socket.can_send());
         assert_eq!(
-            socket.dispatch(&Context::DUMMY, |_| unreachable!()),
+            socket.dispatch(&mut cx, |_, _| unreachable!()),
             Err(Error::Exhausted)
         );
 
@@ -531,7 +535,7 @@ mod test {
         assert!(!socket.can_send());
 
         assert_eq!(
-            socket.dispatch(&Context::DUMMY, |(ip_repr, udp_repr, payload)| {
+            socket.dispatch(&mut cx, |_, (ip_repr, udp_repr, payload)| {
                 assert_eq!(ip_repr, LOCAL_IP_REPR);
                 assert_eq!(udp_repr, LOCAL_UDP_REPR);
                 assert_eq!(payload, PAYLOAD);
@@ -542,7 +546,7 @@ mod test {
         assert!(!socket.can_send());
 
         assert_eq!(
-            socket.dispatch(&Context::DUMMY, |(ip_repr, udp_repr, payload)| {
+            socket.dispatch(&mut cx, |_, (ip_repr, udp_repr, payload)| {
                 assert_eq!(ip_repr, LOCAL_IP_REPR);
                 assert_eq!(udp_repr, LOCAL_UDP_REPR);
                 assert_eq!(payload, PAYLOAD);
@@ -556,31 +560,23 @@ mod test {
     #[test]
     fn test_recv_process() {
         let mut socket = socket(buffer(1), buffer(0));
+        let mut cx = Context::mock();
+
         assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
 
         assert!(!socket.can_recv());
         assert_eq!(socket.recv(), Err(Error::Exhausted));
 
-        assert!(socket.accepts(&remote_ip_repr(), &REMOTE_UDP_REPR));
+        assert!(socket.accepts(&mut cx, &remote_ip_repr(), &REMOTE_UDP_REPR));
         assert_eq!(
-            socket.process(
-                &Context::DUMMY,
-                &remote_ip_repr(),
-                &REMOTE_UDP_REPR,
-                PAYLOAD
-            ),
+            socket.process(&mut cx, &remote_ip_repr(), &REMOTE_UDP_REPR, PAYLOAD),
             Ok(())
         );
         assert!(socket.can_recv());
 
-        assert!(socket.accepts(&remote_ip_repr(), &REMOTE_UDP_REPR));
+        assert!(socket.accepts(&mut cx, &remote_ip_repr(), &REMOTE_UDP_REPR));
         assert_eq!(
-            socket.process(
-                &Context::DUMMY,
-                &remote_ip_repr(),
-                &REMOTE_UDP_REPR,
-                PAYLOAD
-            ),
+            socket.process(&mut cx, &remote_ip_repr(), &REMOTE_UDP_REPR, PAYLOAD),
             Err(Error::Exhausted)
         );
         assert_eq!(socket.recv(), Ok((&b"abcdef"[..], REMOTE_END)));
@@ -590,17 +586,14 @@ mod test {
     #[test]
     fn test_peek_process() {
         let mut socket = socket(buffer(1), buffer(0));
+        let mut cx = Context::mock();
+
         assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
 
         assert_eq!(socket.peek(), Err(Error::Exhausted));
 
         assert_eq!(
-            socket.process(
-                &Context::DUMMY,
-                &remote_ip_repr(),
-                &REMOTE_UDP_REPR,
-                PAYLOAD
-            ),
+            socket.process(&mut cx, &remote_ip_repr(), &REMOTE_UDP_REPR, PAYLOAD),
             Ok(())
         );
         assert_eq!(socket.peek(), Ok((&b"abcdef"[..], &REMOTE_END)));
@@ -611,16 +604,13 @@ mod test {
     #[test]
     fn test_recv_truncated_slice() {
         let mut socket = socket(buffer(1), buffer(0));
+        let mut cx = Context::mock();
+
         assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
 
-        assert!(socket.accepts(&remote_ip_repr(), &REMOTE_UDP_REPR));
+        assert!(socket.accepts(&mut cx, &remote_ip_repr(), &REMOTE_UDP_REPR));
         assert_eq!(
-            socket.process(
-                &Context::DUMMY,
-                &remote_ip_repr(),
-                &REMOTE_UDP_REPR,
-                PAYLOAD
-            ),
+            socket.process(&mut cx, &remote_ip_repr(), &REMOTE_UDP_REPR, PAYLOAD),
             Ok(())
         );
 
@@ -632,15 +622,12 @@ mod test {
     #[test]
     fn test_peek_truncated_slice() {
         let mut socket = socket(buffer(1), buffer(0));
+        let mut cx = Context::mock();
+
         assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
 
         assert_eq!(
-            socket.process(
-                &Context::DUMMY,
-                &remote_ip_repr(),
-                &REMOTE_UDP_REPR,
-                PAYLOAD
-            ),
+            socket.process(&mut cx, &remote_ip_repr(), &REMOTE_UDP_REPR, PAYLOAD),
             Ok(())
         );
 
@@ -655,12 +642,14 @@ mod test {
     #[test]
     fn test_set_hop_limit() {
         let mut s = socket(buffer(0), buffer(1));
+        let mut cx = Context::mock();
+
         assert_eq!(s.bind(LOCAL_END), Ok(()));
 
         s.set_hop_limit(Some(0x2a));
         assert_eq!(s.send_slice(b"abcdef", REMOTE_END), Ok(()));
         assert_eq!(
-            s.dispatch(&Context::DUMMY, |(ip_repr, _, _)| {
+            s.dispatch(&mut cx, |_, (ip_repr, _, _)| {
                 assert_eq!(
                     ip_repr,
                     IpRepr::Unspecified {
@@ -680,12 +669,14 @@ mod test {
     #[test]
     fn test_doesnt_accept_wrong_port() {
         let mut socket = socket(buffer(1), buffer(0));
+        let mut cx = Context::mock();
+
         assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
 
         let mut udp_repr = REMOTE_UDP_REPR;
-        assert!(socket.accepts(&remote_ip_repr(), &udp_repr));
+        assert!(socket.accepts(&mut cx, &remote_ip_repr(), &udp_repr));
         udp_repr.dst_port += 1;
-        assert!(!socket.accepts(&remote_ip_repr(), &udp_repr));
+        assert!(!socket.accepts(&mut cx, &remote_ip_repr(), &udp_repr));
     }
 
     #[test]
@@ -712,13 +703,15 @@ mod test {
             }
         }
 
+        let mut cx = Context::mock();
+
         let mut port_bound_socket = socket(buffer(1), buffer(0));
         assert_eq!(port_bound_socket.bind(LOCAL_PORT), Ok(()));
-        assert!(port_bound_socket.accepts(&generate_bad_repr(), &REMOTE_UDP_REPR));
+        assert!(port_bound_socket.accepts(&mut cx, &generate_bad_repr(), &REMOTE_UDP_REPR));
 
         let mut ip_bound_socket = socket(buffer(1), buffer(0));
         assert_eq!(ip_bound_socket.bind(LOCAL_END), Ok(()));
-        assert!(!ip_bound_socket.accepts(&generate_bad_repr(), &REMOTE_UDP_REPR));
+        assert!(!ip_bound_socket.accepts(&mut cx, &generate_bad_repr(), &REMOTE_UDP_REPR));
     }
 
     #[test]
@@ -739,6 +732,8 @@ mod test {
     fn test_process_empty_payload() {
         let recv_buffer = UdpSocketBuffer::new(vec![UdpPacketMetadata::EMPTY; 1], vec![]);
         let mut socket = socket(recv_buffer, buffer(0));
+        let mut cx = Context::mock();
+
         assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
 
         let repr = UdpRepr {
@@ -746,7 +741,7 @@ mod test {
             dst_port: LOCAL_PORT,
         };
         assert_eq!(
-            socket.process(&Context::DUMMY, &remote_ip_repr(), &repr, &[]),
+            socket.process(&mut cx, &remote_ip_repr(), &repr, &[]),
             Ok(())
         );
         assert_eq!(socket.recv(), Ok((&[][..], REMOTE_END)));

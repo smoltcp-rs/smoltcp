@@ -1,4 +1,4 @@
-use crate::socket::Context;
+use crate::iface::Context;
 use crate::time::{Duration, Instant};
 use crate::wire::dhcpv4::field as dhcpv4_field;
 use crate::wire::HardwareAddress;
@@ -181,7 +181,7 @@ impl Dhcpv4Socket {
         self.ignore_naks = ignore_naks;
     }
 
-    pub(crate) fn poll_at(&self, _cx: &Context) -> PollAt {
+    pub(crate) fn poll_at(&self, _cx: &mut Context) -> PollAt {
         let t = match &self.state {
             ClientState::Discovering(state) => state.retry_at,
             ClientState::Requesting(state) => state.retry_at,
@@ -192,7 +192,7 @@ impl Dhcpv4Socket {
 
     pub(crate) fn process(
         &mut self,
-        cx: &Context,
+        cx: &mut Context,
         ip_repr: &Ipv4Repr,
         repr: &UdpRepr,
         payload: &[u8],
@@ -216,7 +216,7 @@ impl Dhcpv4Socket {
                 return Ok(());
             }
         };
-        let hardware_addr = if let Some(HardwareAddress::Ethernet(addr)) = cx.hardware_addr {
+        let hardware_addr = if let Some(HardwareAddress::Ethernet(addr)) = cx.hardware_addr() {
             addr
         } else {
             return Err(Error::Malformed);
@@ -254,7 +254,7 @@ impl Dhcpv4Socket {
                 }
 
                 self.state = ClientState::Requesting(RequestState {
-                    retry_at: cx.now,
+                    retry_at: cx.now(),
                     retry: 0,
                     server: ServerInfo {
                         address: src_ip,
@@ -265,7 +265,7 @@ impl Dhcpv4Socket {
             }
             (ClientState::Requesting(state), DhcpMessageType::Ack) => {
                 if let Some((config, renew_at, expires_at)) =
-                    Self::parse_ack(cx.now, &dhcp_repr, self.max_lease_duration)
+                    Self::parse_ack(cx.now(), &dhcp_repr, self.max_lease_duration)
                 {
                     self.config_changed = true;
                     self.state = ClientState::Renewing(RenewState {
@@ -283,7 +283,7 @@ impl Dhcpv4Socket {
             }
             (ClientState::Renewing(state), DhcpMessageType::Ack) => {
                 if let Some((config, renew_at, expires_at)) =
-                    Self::parse_ack(cx.now, &dhcp_repr, self.max_lease_duration)
+                    Self::parse_ack(cx.now(), &dhcp_repr, self.max_lease_duration)
                 {
                     state.renew_at = renew_at;
                     state.expires_at = expires_at;
@@ -370,22 +370,22 @@ impl Dhcpv4Socket {
     }
 
     #[cfg(not(test))]
-    fn random_transaction_id() -> u32 {
-        crate::rand::rand_u32()
+    fn random_transaction_id(cx: &mut Context) -> u32 {
+        cx.rand().rand_u32()
     }
 
     #[cfg(test)]
-    fn random_transaction_id() -> u32 {
+    fn random_transaction_id(_cx: &mut Context) -> u32 {
         0x12345678
     }
 
-    pub(crate) fn dispatch<F>(&mut self, cx: &Context, emit: F) -> Result<()>
+    pub(crate) fn dispatch<F>(&mut self, cx: &mut Context, emit: F) -> Result<()>
     where
-        F: FnOnce((Ipv4Repr, UdpRepr, DhcpRepr)) -> Result<()>,
+        F: FnOnce(&mut Context, (Ipv4Repr, UdpRepr, DhcpRepr)) -> Result<()>,
     {
         // note: Dhcpv4Socket is only usable in ethernet mediums, so the
         // unwrap can never fail.
-        let ethernet_addr = if let Some(HardwareAddress::Ethernet(addr)) = cx.hardware_addr {
+        let ethernet_addr = if let Some(HardwareAddress::Ethernet(addr)) = cx.hardware_addr() {
             addr
         } else {
             return Err(Error::Malformed);
@@ -397,7 +397,7 @@ impl Dhcpv4Socket {
 
         // We don't directly modify self.transaction_id because sending the packet
         // may fail. We only want to update state after succesfully sending.
-        let next_transaction_id = Self::random_transaction_id();
+        let next_transaction_id = Self::random_transaction_id(cx);
 
         let mut dhcp_repr = DhcpRepr {
             message_type: DhcpMessageType::Discover,
@@ -414,7 +414,7 @@ impl Dhcpv4Socket {
             client_identifier: Some(ethernet_addr),
             server_identifier: None,
             parameter_request_list: Some(PARAMETER_REQUEST_LIST),
-            max_size: Some((cx.caps.ip_mtu() - MAX_IPV4_HEADER_LEN - UDP_HEADER_LEN) as u16),
+            max_size: Some((cx.ip_mtu() - MAX_IPV4_HEADER_LEN - UDP_HEADER_LEN) as u16),
             lease_duration: None,
             dns_servers: None,
         };
@@ -434,7 +434,7 @@ impl Dhcpv4Socket {
 
         match &mut self.state {
             ClientState::Discovering(state) => {
-                if cx.now < state.retry_at {
+                if cx.now() < state.retry_at {
                     return Err(Error::Exhausted);
                 }
 
@@ -445,15 +445,15 @@ impl Dhcpv4Socket {
                     dhcp_repr
                 );
                 ipv4_repr.payload_len = udp_repr.header_len() + dhcp_repr.buffer_len();
-                emit((ipv4_repr, udp_repr, dhcp_repr))?;
+                emit(cx, (ipv4_repr, udp_repr, dhcp_repr))?;
 
                 // Update state AFTER the packet has been successfully sent.
-                state.retry_at = cx.now + DISCOVER_TIMEOUT;
+                state.retry_at = cx.now() + DISCOVER_TIMEOUT;
                 self.transaction_id = next_transaction_id;
                 Ok(())
             }
             ClientState::Requesting(state) => {
-                if cx.now < state.retry_at {
+                if cx.now() < state.retry_at {
                     return Err(Error::Exhausted);
                 }
 
@@ -474,24 +474,24 @@ impl Dhcpv4Socket {
                     dhcp_repr
                 );
                 ipv4_repr.payload_len = udp_repr.header_len() + dhcp_repr.buffer_len();
-                emit((ipv4_repr, udp_repr, dhcp_repr))?;
+                emit(cx, (ipv4_repr, udp_repr, dhcp_repr))?;
 
                 // Exponential backoff: Double every 2 retries.
-                state.retry_at = cx.now + (REQUEST_TIMEOUT << (state.retry as u32 / 2));
+                state.retry_at = cx.now() + (REQUEST_TIMEOUT << (state.retry as u32 / 2));
                 state.retry += 1;
 
                 self.transaction_id = next_transaction_id;
                 Ok(())
             }
             ClientState::Renewing(state) => {
-                if state.expires_at <= cx.now {
+                if state.expires_at <= cx.now() {
                     net_debug!("DHCP lease expired");
                     self.reset();
                     // return Ok so we get polled again
                     return Ok(());
                 }
 
-                if cx.now < state.renew_at {
+                if cx.now() < state.renew_at {
                     return Err(Error::Exhausted);
                 }
 
@@ -502,14 +502,15 @@ impl Dhcpv4Socket {
 
                 net_debug!("DHCP send renew to {}: {:?}", ipv4_repr.dst_addr, dhcp_repr);
                 ipv4_repr.payload_len = udp_repr.header_len() + dhcp_repr.buffer_len();
-                emit((ipv4_repr, udp_repr, dhcp_repr))?;
+                emit(cx, (ipv4_repr, udp_repr, dhcp_repr))?;
 
                 // In both RENEWING and REBINDING states, if the client receives no
                 // response to its DHCPREQUEST message, the client SHOULD wait one-half
                 // of the remaining time until T2 (in RENEWING state) and one-half of
                 // the remaining lease time (in REBINDING state), down to a minimum of
                 // 60 seconds, before retransmitting the DHCPREQUEST message.
-                state.renew_at = cx.now + MIN_RENEW_TIMEOUT.max((state.expires_at - cx.now) / 2);
+                state.renew_at =
+                    cx.now() + MIN_RENEW_TIMEOUT.max((state.expires_at - cx.now()) / 2);
 
                 self.transaction_id = next_transaction_id;
                 Ok(())
@@ -551,17 +552,39 @@ impl Dhcpv4Socket {
 #[cfg(test)]
 mod test {
 
+    use std::ops::{Deref, DerefMut};
+
     use super::*;
     use crate::wire::EthernetAddress;
 
     // =========================================================================================//
     // Helper functions
 
+    struct TestSocket {
+        socket: Dhcpv4Socket,
+        cx: Context<'static>,
+    }
+
+    impl Deref for TestSocket {
+        type Target = Dhcpv4Socket;
+        fn deref(&self) -> &Self::Target {
+            &self.socket
+        }
+    }
+
+    impl DerefMut for TestSocket {
+        fn deref_mut(&mut self) -> &mut Self::Target {
+            &mut self.socket
+        }
+    }
+
     fn send(
-        socket: &mut Dhcpv4Socket,
+        s: &mut TestSocket,
         timestamp: Instant,
         (ip_repr, udp_repr, dhcp_repr): (Ipv4Repr, UdpRepr, DhcpRepr),
     ) -> Result<()> {
+        s.cx.set_now(timestamp);
+
         net_trace!("send: {:?}", ip_repr);
         net_trace!("      {:?}", udp_repr);
         net_trace!("      {:?}", dhcp_repr);
@@ -571,44 +594,39 @@ mod test {
             .emit(&mut DhcpPacket::new_unchecked(&mut payload))
             .unwrap();
 
-        let mut cx = Context::DUMMY.clone();
-        cx.now = timestamp;
-        socket.process(&cx, &ip_repr, &udp_repr, &payload)
+        s.socket.process(&mut s.cx, &ip_repr, &udp_repr, &payload)
     }
 
-    fn recv(
-        socket: &mut Dhcpv4Socket,
-        timestamp: Instant,
-        reprs: &[(Ipv4Repr, UdpRepr, DhcpRepr)],
-    ) {
-        let mut cx = Context::DUMMY.clone();
-        cx.now = timestamp;
+    fn recv(s: &mut TestSocket, timestamp: Instant, reprs: &[(Ipv4Repr, UdpRepr, DhcpRepr)]) {
+        s.cx.set_now(timestamp);
 
         let mut i = 0;
 
-        while socket.poll_at(&cx) <= PollAt::Time(timestamp) {
-            let _ = socket.dispatch(&cx, |(mut ip_repr, udp_repr, dhcp_repr)| {
-                assert_eq!(ip_repr.protocol, IpProtocol::Udp);
-                assert_eq!(
-                    ip_repr.payload_len,
-                    udp_repr.header_len() + dhcp_repr.buffer_len()
-                );
+        while s.socket.poll_at(&mut s.cx) <= PollAt::Time(timestamp) {
+            let _ = s
+                .socket
+                .dispatch(&mut s.cx, |_, (mut ip_repr, udp_repr, dhcp_repr)| {
+                    assert_eq!(ip_repr.protocol, IpProtocol::Udp);
+                    assert_eq!(
+                        ip_repr.payload_len,
+                        udp_repr.header_len() + dhcp_repr.buffer_len()
+                    );
 
-                // We validated the payload len, change it to 0 to make equality testing easier
-                ip_repr.payload_len = 0;
+                    // We validated the payload len, change it to 0 to make equality testing easier
+                    ip_repr.payload_len = 0;
 
-                net_trace!("recv: {:?}", ip_repr);
-                net_trace!("      {:?}", udp_repr);
-                net_trace!("      {:?}", dhcp_repr);
+                    net_trace!("recv: {:?}", ip_repr);
+                    net_trace!("      {:?}", udp_repr);
+                    net_trace!("      {:?}", dhcp_repr);
 
-                let got_repr = (ip_repr, udp_repr, dhcp_repr);
-                match reprs.get(i) {
-                    Some(want_repr) => assert_eq!(want_repr, &got_repr),
-                    None => panic!("Too many reprs emitted"),
-                }
-                i += 1;
-                Ok(())
-            });
+                    let got_repr = (ip_repr, udp_repr, dhcp_repr);
+                    match reprs.get(i) {
+                        Some(want_repr) => assert_eq!(want_repr, &got_repr),
+                        None => panic!("Too many reprs emitted"),
+                    }
+                    i += 1;
+                    Ok(())
+                });
         }
 
         assert_eq!(i, reprs.len());
@@ -780,13 +798,16 @@ mod test {
     // =========================================================================================//
     // Tests
 
-    fn socket() -> Dhcpv4Socket {
+    fn socket() -> TestSocket {
         let mut s = Dhcpv4Socket::new();
         assert_eq!(s.poll(), Some(Event::Deconfigured));
-        s
+        TestSocket {
+            socket: s,
+            cx: Context::mock(),
+        }
     }
 
-    fn socket_bound() -> Dhcpv4Socket {
+    fn socket_bound() -> TestSocket {
         let mut s = socket();
         s.state = ClientState::Renewing(RenewState {
             config: Config {

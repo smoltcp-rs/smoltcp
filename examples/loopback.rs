@@ -37,14 +37,6 @@ mod mock {
             self.0.get()
         }
     }
-
-    struct Rand;
-    smoltcp::rand_custom_impl!(Rand);
-    impl smoltcp::Rand for Rand {
-        fn rand_bytes(buf: &mut [u8]) {
-            buf.fill(0x42);
-        }
-    }
 }
 
 #[cfg(feature = "std")]
@@ -153,12 +145,13 @@ fn main() {
             done = true;
         }
 
-        let mut socket = iface.get_socket::<TcpSocket>(client_handle);
+        let (mut socket, cx) = iface.get_socket_and_context::<TcpSocket>(client_handle);
         if !socket.is_open() {
             if !did_connect {
                 debug!("connecting");
                 socket
                     .connect(
+                        cx,
                         (IpAddress::v4(127, 0, 0, 1), 1234),
                         (IpAddress::Unspecified, 65000),
                     )
