@@ -17,7 +17,7 @@ impl Rand {
         const M: u64 = 0xbb2efcec3c39611d;
         const A: u64 = 0x7590ef39;
 
-        let s = self.state * M + A;
+        let s = self.state.wrapping_mul(M).wrapping_add(A);
         self.state = s;
 
         let shift = 29 - (s >> 61);
