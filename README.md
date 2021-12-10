@@ -11,7 +11,7 @@ include complicated compile-time computations, such as macro or type tricks, eve
 at cost of performance degradation.
 
 _smoltcp_ does not need heap allocation *at all*, is [extensively documented][docs],
-and compiles on stable Rust 1.53 and later.
+and compiles on stable Rust 1.56 and later.
 
 _smoltcp_ achieves [~Gbps of throughput](#examplesbenchmarkrs) when tested against
 the Linux TCP stack in loopback mode.
@@ -25,8 +25,9 @@ To set expectations right, both implemented and omitted features are listed.
 
 ### Media layer
 
-The only supported medium is Ethernet.
+There are 3 supported mediums.
 
+* Ethernet
   * Regular Ethernet II frames are supported.
   * Unicast, broadcast and multicast packets are supported.
   * ARP packets (including gratuitous requests and replies) are supported.
@@ -34,6 +35,11 @@ The only supported medium is Ethernet.
   * Cached ARP entries expire after one minute.
   * 802.3 frames and 802.1Q are **not** supported.
   * Jumbo frames are **not** supported.
+* IP
+  * Unicast, broadcast and multicast packets are supported.
+* IEEE 802.15.4 + 6LoWPAN (experimental)
+  * Unicast, broadcast and multicast packets are supported.
+  * ONLY UDP packets are supported.
 
 ### IP layer
 
@@ -115,9 +121,9 @@ The TCP protocol is supported over IPv4 and IPv6, and server and client TCP sock
   * Time-wait timeout has a fixed interval of 10 s.
   * User timeout has a configurable interval.
   * Delayed acknowledgements are supported, with configurable delay.
+  * Nagle's algorithm is implemented.
   * Selective acknowledgements are **not** implemented.
   * Silly window syndrome avoidance is **not** implemented.
-  * Nagle's algorithm is **not** implemented.
   * Congestion control is **not** implemented.
   * Timestamping is **not** supported.
   * Urgent pointer is **ignored**.
@@ -130,7 +136,7 @@ To use the _smoltcp_ library in your project, add the following to `Cargo.toml`:
 
 ```toml
 [dependencies]
-smoltcp = "0.7.5"
+smoltcp = "0.8.0"
 ```
 
 The default configuration assumes a hosted environment, for ease of evaluation.
@@ -138,7 +144,7 @@ You probably want to disable default features and configure them one by one:
 
 ```toml
 [dependencies]
-smoltcp = { version = "0.7.5", default-features = false, features = ["log"] }
+smoltcp = { version = "0.8.0", default-features = false, features = ["log"] }
 ```
 
 ### Feature `std`
@@ -166,6 +172,14 @@ the DEBUG log level.
 
 This feature is enabled by default.
 
+### Feature `defmt`
+
+The `defmt` feature enables logging of events with the [defmt crate][defmt].
+
+[defmt]: https://crates.io/crates/defmt
+
+This feature is disabled by default, and cannot be used at the same time as `log`.
+
 ### Feature `verbose`
 
 The `verbose` feature enables logging of events where the logging itself may incur very high
@@ -181,10 +195,9 @@ Enable `smoltcp::phy::RawSocket` and `smoltcp::phy::TunTapInterface`, respective
 
 These features are enabled by default.
 
-### Features `socket-raw`, `socket-udp`, and `socket-tcp`
+### Features `socket-raw`, `socket-udp`, `socket-tcp`, `socket-icmp`, `socket-dhcpv4`
 
-Enable `smoltcp::socket::RawSocket`, `smoltcp::socket::UdpSocket`,
-and `smoltcp::socket::TcpSocket`, respectively.
+Enable the corresponding socket type.
 
 These features are enabled by default.
 
