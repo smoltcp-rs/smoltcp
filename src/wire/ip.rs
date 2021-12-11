@@ -111,6 +111,17 @@ impl Address {
         Address::Ipv6(Ipv6Address::new(a0, a1, a2, a3, a4, a5, a6, a7))
     }
 
+    /// Return the protocol version.
+    pub fn version(&self) -> Option<Version> {
+        match self {
+            Address::Unspecified => None,
+            #[cfg(feature = "proto-ipv4")]
+            Address::Ipv4(_) => Some(Version::Ipv4),
+            #[cfg(feature = "proto-ipv6")]
+            Address::Ipv6(_) => Some(Version::Ipv6),
+        }
+    }
+
     /// Return an address as a sequence of octets, in big-endian.
     pub fn as_bytes(&self) -> &[u8] {
         match *self {

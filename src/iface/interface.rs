@@ -1055,6 +1055,18 @@ impl<'a> InterfaceInner<'a> {
         &mut self.rand
     }
 
+    #[allow(unused)] // unused depending on which sockets are enabled
+    pub(crate) fn get_source_address(&mut self, dst_addr: IpAddress) -> Option<IpAddress> {
+        let v = dst_addr.version().unwrap();
+        for cidr in self.ip_addrs.iter() {
+            let addr = cidr.address();
+            if addr.version() == Some(v) {
+                return Some(addr);
+            }
+        }
+        None
+    }
+
     #[cfg(test)]
     pub(crate) fn mock() -> Self {
         Self {
@@ -1080,7 +1092,15 @@ impl<'a> InterfaceInner<'a> {
             },
             now: Instant::from_millis_const(0),
 
-            ip_addrs: ManagedSlice::Owned(vec![]),
+            ip_addrs: ManagedSlice::Owned(vec![
+                #[cfg(feature = "proto-ipv4")]
+                IpCidr::Ipv4(Ipv4Cidr::new(Ipv4Address::new(192, 168, 1, 1), 24)),
+                #[cfg(feature = "proto-ipv6")]
+                IpCidr::Ipv6(Ipv6Cidr::new(
+                    Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+                    64,
+                )),
+            ]),
             rand: Rand::new(1234),
             routes: Routes::new(&mut [][..]),
 

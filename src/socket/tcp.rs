@@ -718,8 +718,8 @@ impl<'a> TcpSocket<'a> {
         T: Into<IpEndpoint>,
         U: Into<IpEndpoint>,
     {
-        let remote_endpoint = remote_endpoint.into();
-        let local_endpoint = local_endpoint.into();
+        let remote_endpoint: IpEndpoint = remote_endpoint.into();
+        let mut local_endpoint: IpEndpoint = local_endpoint.into();
 
         if self.is_open() {
             return Err(Error::Illegal);
@@ -731,17 +731,12 @@ impl<'a> TcpSocket<'a> {
             return Err(Error::Unaddressable);
         }
 
-        // If local address is not provided, use an unspecified address but a specified protocol.
-        // This lets us lower IpRepr later to determine IP header size and calculate MSS,
-        // but without committing to a specific address right away.
-        let local_addr = match local_endpoint.addr {
-            IpAddress::Unspecified => remote_endpoint.addr.as_unspecified(),
-            ip => ip,
-        };
-        let local_endpoint = IpEndpoint {
-            addr: local_addr,
-            ..local_endpoint
-        };
+        // If local address is not provided, choose it automatically.
+        if local_endpoint.addr.is_unspecified() {
+            local_endpoint.addr = cx
+                .get_source_address(remote_endpoint.addr)
+                .ok_or(Error::Unaddressable)?;
+        }
 
         self.reset();
         self.local_endpoint = local_endpoint;
@@ -1626,7 +1621,6 @@ impl<'a> TcpSocket<'a> {
                     self.remote_mss = max_seg_size as usize;
                 }
 
-                self.local_endpoint = IpEndpoint::new(ip_repr.dst_addr(), repr.dst_port);
                 self.remote_seq_no = repr.seq_number + 1;
                 self.remote_last_seq = self.local_seq_no + 1;
                 self.remote_last_ack = Some(repr.seq_number);
@@ -3256,10 +3250,7 @@ mod test {
         s.socket
             .connect(&mut s.cx, REMOTE_END, LOCAL_END.port)
             .unwrap();
-        assert_eq!(
-            s.local_endpoint,
-            IpEndpoint::new(MOCK_UNSPECIFIED, LOCAL_END.port)
-        );
+        assert_eq!(s.local_endpoint, LOCAL_END);
         recv!(
             s,
             [TcpRepr {
