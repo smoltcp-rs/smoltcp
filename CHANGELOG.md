@@ -11,64 +11,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.8.0] - 2021-12-11
 
 - Minimum Supported Rust Version (MSRV) **bumped** from 1.40 to 1.56
-- Add support for IEEE 802.15.4 + 6LoWPAN medium (#469)
-- Add support for IP medium (#401)
-- Add `defmt` logging supprt (#455)
-- Add RNG infrastructure (#547, #573)
-- Add `Context` struct that must be passed to some socket methods (#500)
-- Remove `SocketSet`, sockets are owned by `Interface` now. (#557, #571)
-- TCP: Add Nagle's Algorithm. (#500)
+- Add support for IEEE 802.15.4 + 6LoWPAN medium ([#469](https://github.com/smoltcp-rs/smoltcp/pull/469))
+- Add support for IP medium ([#401](https://github.com/smoltcp-rs/smoltcp/pull/401))
+- Add `defmt` logging supprt ([#455](https://github.com/smoltcp-rs/smoltcp/pull/455))
+- Add RNG infrastructure ([#547](https://github.com/smoltcp-rs/smoltcp/pull/547), [#573](https://github.com/smoltcp-rs/smoltcp/pull/573))
+- Add `Context` struct that must be passed to some socket methods ([#500](https://github.com/smoltcp-rs/smoltcp/pull/500))
+- Remove `SocketSet`, sockets are owned by `Interface` now. ([#557](https://github.com/smoltcp-rs/smoltcp/pull/557), [#571](https://github.com/smoltcp-rs/smoltcp/pull/571))
+- TCP: Add Nagle's Algorithm. ([#500](https://github.com/smoltcp-rs/smoltcp/pull/500))
 - TCP crash and correctness fixes:
-    - Add Nagle's Algorithm. (#500)
-    - Window scaling fixes. (#500)
-    - Fix delayed ack causing ack not to be sent after 3 packets. (#530)
-    - Fix RTT estimation for RTTs longer than 1 second (#538)
-    - Fix infinite loop when remote side sets a MSS of 0 (#538)
-    - Fix infinite loop when retransmit when remote window is 0 (#538)
-    - Fix crash when receiving a FIN in SYN_SENT state (#538)
-    - Fix overflow crash when receiving a wrong ACK seq in SYN_RECEIVED state (#538)
-    - Fix overflow crash when initial sequence number is u32::MAX (#538)
-    - Fix infinite loop on challenge ACKs (#542)
-    - Reply with RST to invalid packets in SynReceived state.  (#542)
-    - Do not abort socket when receiving some invalid packets.  (#542)
-    - Make initial sequence number random.  (#547)
-    - Reply with RST to ACKs with invalid ackno in SYN_SENT. (#522)
+    - Add Nagle's Algorithm. ([#500](https://github.com/smoltcp-rs/smoltcp/pull/500))
+    - Window scaling fixes. ([#500](https://github.com/smoltcp-rs/smoltcp/pull/500))
+    - Fix delayed ack causing ack not to be sent after 3 packets. ([#530](https://github.com/smoltcp-rs/smoltcp/pull/530))
+    - Fix RTT estimation for RTTs longer than 1 second ([#538](https://github.com/smoltcp-rs/smoltcp/pull/538))
+    - Fix infinite loop when remote side sets a MSS of 0 ([#538](https://github.com/smoltcp-rs/smoltcp/pull/538))
+    - Fix infinite loop when retransmit when remote window is 0 ([#538](https://github.com/smoltcp-rs/smoltcp/pull/538))
+    - Fix crash when receiving a FIN in SYN_SENT state ([#538](https://github.com/smoltcp-rs/smoltcp/pull/538))
+    - Fix overflow crash when receiving a wrong ACK seq in SYN_RECEIVED state ([#538](https://github.com/smoltcp-rs/smoltcp/pull/538))
+    - Fix overflow crash when initial sequence number is u32::MAX ([#538](https://github.com/smoltcp-rs/smoltcp/pull/538))
+    - Fix infinite loop on challenge ACKs ([#542](https://github.com/smoltcp-rs/smoltcp/pull/542))
+    - Reply with RST to invalid packets in SynReceived state.  ([#542](https://github.com/smoltcp-rs/smoltcp/pull/542))
+    - Do not abort socket when receiving some invalid packets.  ([#542](https://github.com/smoltcp-rs/smoltcp/pull/542))
+    - Make initial sequence number random.  ([#547](https://github.com/smoltcp-rs/smoltcp/pull/547))
+    - Reply with RST to ACKs with invalid ackno in SYN_SENT. ([#522](https://github.com/smoltcp-rs/smoltcp/pull/522))
 - ARP fixes to deal better with broken networks:
-    - Fill cache only from ARP packets, not any packets. (#544)
-    - Fill cache only from ARP packets directed at us. (#544)
-    - Reject ARP packets with a source address not in the local network. (#536, #544)
-    - Ignore unknown ARP packets. (#544)
-    - Flush neighbor cache on IP change (#564)
-- UDP: Add `close()` method to unbind socket. (#475, #482)
+    - Fill cache only from ARP packets, not any packets. ([#544](https://github.com/smoltcp-rs/smoltcp/pull/544))
+    - Fill cache only from ARP packets directed at us. ([#544](https://github.com/smoltcp-rs/smoltcp/pull/544))
+    - Reject ARP packets with a source address not in the local network. ([#536](https://github.com/smoltcp-rs/smoltcp/pull/536), [#544](https://github.com/smoltcp-rs/smoltcp/pull/544))
+    - Ignore unknown ARP packets. ([#544](https://github.com/smoltcp-rs/smoltcp/pull/544))
+    - Flush neighbor cache on IP change ([#564](https://github.com/smoltcp-rs/smoltcp/pull/564))
+- UDP: Add `close()` method to unbind socket. ([#475](https://github.com/smoltcp-rs/smoltcp/pull/475), [#482](https://github.com/smoltcp-rs/smoltcp/pull/482))
 - DHCP client improvements:
-    - Refactored implementation to improve reliability and RFC compliance (#459)
-    - Convert to socket (#459)
-    - Added `max_lease_duration` option (#459)
-    - Do not set the BROADCAST flag (#548)
-    - Add option to ignore NAKs (#548)
+    - Refactored implementation to improve reliability and RFC compliance ([#459](https://github.com/smoltcp-rs/smoltcp/pull/459))
+    - Convert to socket ([#459](https://github.com/smoltcp-rs/smoltcp/pull/459))
+    - Added `max_lease_duration` option ([#459](https://github.com/smoltcp-rs/smoltcp/pull/459))
+    - Do not set the BROADCAST flag ([#548](https://github.com/smoltcp-rs/smoltcp/pull/548))
+    - Add option to ignore NAKs ([#548](https://github.com/smoltcp-rs/smoltcp/pull/548))
 - DHCP wire:
-    - Fix DhcpRepr::buffer_len not accounting for lease time, router and subnet options (#478)
-    - Emit DNS servers in DhcpRepr (#510)
-    - Fix incorrect bit for BROADCAST flag (#548)
-- Improve resilience against packet ingress processing errors (#281, #483)
-- Implement `std::error::Error` for `smoltcp::Error` (#485)
+    - Fix DhcpRepr::buffer_len not accounting for lease time, router and subnet options ([#478](https://github.com/smoltcp-rs/smoltcp/pull/478))
+    - Emit DNS servers in DhcpRepr ([#510](https://github.com/smoltcp-rs/smoltcp/pull/510))
+    - Fix incorrect bit for BROADCAST flag ([#548](https://github.com/smoltcp-rs/smoltcp/pull/548))
+- Improve resilience against packet ingress processing errors ([#281](https://github.com/smoltcp-rs/smoltcp/pull/281), [#483](https://github.com/smoltcp-rs/smoltcp/pull/483))
+- Implement `std::error::Error` for `smoltcp::Error` ([#485](https://github.com/smoltcp-rs/smoltcp/pull/485))
 - Update `managed` from 0.7 to 0.8 ([442](https://github.com/smoltcp-rs/smoltcp/pull/442))
-- Fix incorrect timestamp in PCAP captures (#513)
-- Use microseconds instead of milliseconds in Instant and Duration (#514)
-- Expose inner `Device` in `PcapWriter` (#524)
-- Fix assert with any_ip + broadcast dst_addr. (#533, #534)
-- Simplify PcapSink trait (#535)
-- Fix wrong operation order in FuzzInjector (#525, #535)
+- Fix incorrect timestamp in PCAP captures ([#513](https://github.com/smoltcp-rs/smoltcp/pull/513))
+- Use microseconds instead of milliseconds in Instant and Duration ([#514](https://github.com/smoltcp-rs/smoltcp/pull/514))
+- Expose inner `Device` in `PcapWriter` ([#524](https://github.com/smoltcp-rs/smoltcp/pull/524))
+- Fix assert with any_ip + broadcast dst_addr. ([#533](https://github.com/smoltcp-rs/smoltcp/pull/533), [#534](https://github.com/smoltcp-rs/smoltcp/pull/534))
+- Simplify PcapSink trait ([#535](https://github.com/smoltcp-rs/smoltcp/pull/535))
+- Fix wrong operation order in FuzzInjector ([#525](https://github.com/smoltcp-rs/smoltcp/pull/525), [#535](https://github.com/smoltcp-rs/smoltcp/pull/535))
 
 ## [0.7.5] - 2021-06-28
 
-- dhcpv4: emit DNS servers in repr (#505)
+- dhcpv4: emit DNS servers in repr ([#505](https://github.com/smoltcp-rs/smoltcp/pull/505))
 
 ## [0.7.4] - 2021-06-11
 
-- tcp: fix "subtract sequence numbers with underflow" on remote window shrink. (#490)
-- tcp: fix substract with overflow when receiving a SYNACK with unincremented ACK number. (#491)
-- tcp: use nonzero initial sequence number to workaround misbehaving servers. (#492)
+- tcp: fix "subtract sequence numbers with underflow" on remote window shrink. ([#490](https://github.com/smoltcp-rs/smoltcp/pull/490))
+- tcp: fix substract with overflow when receiving a SYNACK with unincremented ACK number. ([#491](https://github.com/smoltcp-rs/smoltcp/pull/491))
+- tcp: use nonzero initial sequence number to workaround misbehaving servers. ([#492](https://github.com/smoltcp-rs/smoltcp/pull/492))
 
 ## [0.7.3] - 2021-05-29
 
@@ -76,13 +76,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.7.2] - 2021-05-29
 
-- iface: check for ipv4 subnet broadcast addrs everywhere (#462)
-- dhcp: always send parameter_request_list. (#456)
-- dhcp: Clear expiration time on reset. (#456)
-- phy: fix FaultInjector returning a too big buffer when simulating a drop on tx (#463)
-- tcp rtte: fix "attempt to multiply with overflow". (#476)
-- tcp: LastAck should only change to Closed on ack of fin. (#477)
-- wire/dhcpv4: account for lease time, router and subnet options in DhcpRepr::buffer_len (#478)
+- iface: check for ipv4 subnet broadcast addrs everywhere ([#462](https://github.com/smoltcp-rs/smoltcp/pull/462))
+- dhcp: always send parameter_request_list. ([#456](https://github.com/smoltcp-rs/smoltcp/pull/456))
+- dhcp: Clear expiration time on reset. ([#456](https://github.com/smoltcp-rs/smoltcp/pull/456))
+- phy: fix FaultInjector returning a too big buffer when simulating a drop on tx ([#463](https://github.com/smoltcp-rs/smoltcp/pull/463))
+- tcp rtte: fix "attempt to multiply with overflow". ([#476](https://github.com/smoltcp-rs/smoltcp/pull/476))
+- tcp: LastAck should only change to Closed on ack of fin. ([#477](https://github.com/smoltcp-rs/smoltcp/pull/477))
+- wire/dhcpv4: account for lease time, router and subnet options in DhcpRepr::buffer_len ([#478](https://github.com/smoltcp-rs/smoltcp/pull/478))
 
 ## [0.7.1] - 2021-03-27
 
@@ -133,6 +133,7 @@ only processed when directed to the 255.255.255.255 address. ([377](https://gith
 - Simplify lifetime parameters of sockets, SocketSet, EthernetInterface ([410](https://github.com/smoltcp-rs/smoltcp/pull/410), [413](https://github.com/smoltcp-rs/smoltcp/pull/413))
 
 [Unreleased]: https://github.com/smoltcp-rs/smoltcp/compare/v0.7.0...HEAD
+[0.8.0]: https://github.com/smoltcp-rs/smoltcp/compare/v0.7.0...v0.8.0
 [0.7.5]: https://github.com/smoltcp-rs/smoltcp/compare/v0.7.4...v0.7.5
 [0.7.4]: https://github.com/smoltcp-rs/smoltcp/compare/v0.7.3...v0.7.4
 [0.7.3]: https://github.com/smoltcp-rs/smoltcp/compare/v0.7.2...v0.7.3
