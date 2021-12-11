@@ -506,20 +506,12 @@ impl<T: Into<Address>> From<(T, u16)> for Endpoint {
 
 /// An IP packet representation.
 ///
-/// This enum abstracts the various versions of IP packets. It either contains a concrete
-/// high-level representation for some IP protocol version, or an unspecified representation,
-/// which permits the `IpAddress::Unspecified` addresses.
+/// This enum abstracts the various versions of IP packets. It either contains an IPv4
+/// or IPv6 concrete high-level representation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Repr {
-    Unspecified {
-        src_addr: Address,
-        dst_addr: Address,
-        next_header: Protocol,
-        payload_len: usize,
-        hop_limit: u8,
-    },
     #[cfg(feature = "proto-ipv4")]
     Ipv4(Ipv4Repr),
     #[cfg(feature = "proto-ipv6")]
@@ -541,10 +533,42 @@ impl From<Ipv6Repr> for Repr {
 }
 
 impl Repr {
+    /// Create a new IpRepr, choosing the right IP version for the src/dst addrs.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `src_addr` and `dst_addr` are different IP version.
+    pub fn new(
+        src_addr: Address,
+        dst_addr: Address,
+        next_header: Protocol,
+        payload_len: usize,
+        hop_limit: u8,
+    ) -> Self {
+        match (src_addr, dst_addr) {
+            #[cfg(feature = "proto-ipv4")]
+            (Address::Ipv4(src_addr), Address::Ipv4(dst_addr)) => Self::Ipv4(Ipv4Repr {
+                src_addr,
+                dst_addr,
+                next_header,
+                payload_len,
+                hop_limit,
+            }),
+            #[cfg(feature = "proto-ipv6")]
+            (Address::Ipv6(src_addr), Address::Ipv6(dst_addr)) => Self::Ipv6(Ipv6Repr {
+                src_addr,
+                dst_addr,
+                next_header,
+                payload_len,
+                hop_limit,
+            }),
+            _ => panic!("IP version mismatch: src={:?} dst={:?}", src_addr, dst_addr),
+        }
+    }
+
     /// Return the protocol version.
     pub fn version(&self) -> Version {
         match *self {
-            Repr::Unspecified { .. } => Version::Unspecified,
             #[cfg(feature = "proto-ipv4")]
             Repr::Ipv4(_) => Version::Ipv4,
             #[cfg(feature = "proto-ipv6")]
@@ -555,7 +579,6 @@ impl Repr {
     /// Return the source address.
     pub fn src_addr(&self) -> Address {
         match *self {
-            Repr::Unspecified { src_addr, .. } => src_addr,
             #[cfg(feature = "proto-ipv4")]
             Repr::Ipv4(repr) => Address::Ipv4(repr.src_addr),
             #[cfg(feature = "proto-ipv6")]
@@ -566,7 +589,6 @@ impl Repr {
     /// Return the destination address.
     pub fn dst_addr(&self) -> Address {
         match *self {
-            Repr::Unspecified { dst_addr, .. } => dst_addr,
             #[cfg(feature = "proto-ipv4")]
             Repr::Ipv4(repr) => Address::Ipv4(repr.dst_addr),
             #[cfg(feature = "proto-ipv6")]
@@ -577,7 +599,6 @@ impl Repr {
     /// Return the next header (protocol).
     pub fn next_header(&self) -> Protocol {
         match *self {
-            Repr::Unspecified { next_header, .. } => next_header,
             #[cfg(feature = "proto-ipv4")]
             Repr::Ipv4(repr) => repr.next_header,
             #[cfg(feature = "proto-ipv6")]
@@ -588,7 +609,6 @@ impl Repr {
     /// Return the payload length.
     pub fn payload_len(&self) -> usize {
         match *self {
-            Repr::Unspecified { payload_len, .. } => payload_len,
             #[cfg(feature = "proto-ipv4")]
             Repr::Ipv4(repr) => repr.payload_len,
             #[cfg(feature = "proto-ipv6")]
@@ -599,10 +619,6 @@ impl Repr {
     /// Set the payload length.
     pub fn set_payload_len(&mut self, length: usize) {
         match *self {
-            Repr::Unspecified {
-                ref mut payload_len,
-                ..
-            } => *payload_len = length,
             #[cfg(feature = "proto-ipv4")]
             Repr::Ipv4(Ipv4Repr {
                 ref mut payload_len,
@@ -619,7 +635,6 @@ impl Repr {
     /// Return the TTL value.
     pub fn hop_limit(&self) -> u8 {
         match *self {
-            Repr::Unspecified { hop_limit, .. } => hop_limit,
             #[cfg(feature = "proto-ipv4")]
             Repr::Ipv4(Ipv4Repr { hop_limit, .. }) => hop_limit,
             #[cfg(feature = "proto-ipv6")]
@@ -627,156 +642,9 @@ impl Repr {
         }
     }
 
-    /// Convert an unspecified representation into a concrete one, or return
-    /// `Err(Error::Unaddressable)` if not possible.
-    ///
-    /// # Panics
-    /// This function panics if source and destination addresses belong to different families,
-    /// or the destination address is unspecified, since this indicates a logic error.
-    pub fn lower(&self, fallback_src_addrs: &[Cidr]) -> Result<Repr> {
-        macro_rules! resolve_unspecified {
-            ($reprty:path, $ipty:path, $iprepr:expr, $fallbacks:expr) => {
-                if $iprepr.src_addr.is_unspecified() {
-                    for cidr in $fallbacks {
-                        match cidr.address() {
-                            $ipty(addr) => {
-                                $iprepr.src_addr = addr;
-                                return Ok($reprty($iprepr));
-                            }
-                            _ => (),
-                        }
-                    }
-                    Err(Error::Unaddressable)
-                } else {
-                    Ok($reprty($iprepr))
-                }
-            };
-        }
-
-        match self {
-            #[cfg(feature = "proto-ipv4")]
-            &Repr::Unspecified {
-                src_addr: src_addr @ Address::Unspecified,
-                dst_addr: Address::Ipv4(dst_addr),
-                next_header,
-                payload_len,
-                hop_limit,
-            }
-            | &Repr::Unspecified {
-                src_addr: src_addr @ Address::Ipv4(_),
-                dst_addr: Address::Ipv4(dst_addr),
-                next_header,
-                payload_len,
-                hop_limit,
-            } if src_addr.is_unspecified() => {
-                let mut src_addr = if let Address::Ipv4(src_ipv4_addr) = src_addr {
-                    Some(src_ipv4_addr)
-                } else {
-                    None
-                };
-                for cidr in fallback_src_addrs {
-                    if let Address::Ipv4(addr) = cidr.address() {
-                        src_addr = Some(addr);
-                        break;
-                    }
-                }
-                Ok(Repr::Ipv4(Ipv4Repr {
-                    src_addr: src_addr.ok_or(Error::Unaddressable)?,
-                    dst_addr,
-                    next_header,
-                    payload_len,
-                    hop_limit,
-                }))
-            }
-
-            #[cfg(feature = "proto-ipv6")]
-            &Repr::Unspecified {
-                src_addr: src_addr @ Address::Unspecified,
-                dst_addr: Address::Ipv6(dst_addr),
-                next_header: protocol,
-                payload_len,
-                hop_limit,
-            }
-            | &Repr::Unspecified {
-                src_addr: src_addr @ Address::Ipv6(_),
-                dst_addr: Address::Ipv6(dst_addr),
-                next_header: protocol,
-                payload_len,
-                hop_limit,
-            } if src_addr.is_unspecified() => {
-                let mut src_addr = if let Address::Ipv6(src_ipv6_addr) = src_addr {
-                    Some(src_ipv6_addr)
-                } else {
-                    None
-                };
-                for cidr in fallback_src_addrs {
-                    if let Address::Ipv6(addr) = cidr.address() {
-                        src_addr = Some(addr);
-                        break;
-                    }
-                }
-                Ok(Repr::Ipv6(Ipv6Repr {
-                    src_addr: src_addr.ok_or(Error::Unaddressable)?,
-                    next_header: protocol,
-                    dst_addr,
-                    payload_len,
-                    hop_limit,
-                }))
-            }
-
-            #[cfg(feature = "proto-ipv4")]
-            &Repr::Unspecified {
-                src_addr: Address::Ipv4(src_addr),
-                dst_addr: Address::Ipv4(dst_addr),
-                next_header: protocol,
-                payload_len,
-                hop_limit,
-            } => Ok(Repr::Ipv4(Ipv4Repr {
-                src_addr: src_addr,
-                dst_addr: dst_addr,
-                next_header: protocol,
-                payload_len: payload_len,
-                hop_limit,
-            })),
-
-            #[cfg(feature = "proto-ipv6")]
-            &Repr::Unspecified {
-                src_addr: Address::Ipv6(src_addr),
-                dst_addr: Address::Ipv6(dst_addr),
-                next_header: protocol,
-                payload_len,
-                hop_limit,
-            } => Ok(Repr::Ipv6(Ipv6Repr {
-                src_addr: src_addr,
-                dst_addr: dst_addr,
-                next_header: protocol,
-                payload_len: payload_len,
-                hop_limit: hop_limit,
-            })),
-
-            #[cfg(feature = "proto-ipv4")]
-            &Repr::Ipv4(mut repr) => {
-                resolve_unspecified!(Repr::Ipv4, Address::Ipv4, repr, fallback_src_addrs)
-            }
-
-            #[cfg(feature = "proto-ipv6")]
-            &Repr::Ipv6(mut repr) => {
-                resolve_unspecified!(Repr::Ipv6, Address::Ipv6, repr, fallback_src_addrs)
-            }
-
-            &Repr::Unspecified { .. } => {
-                panic!("source and destination IP address families do not match")
-            }
-        }
-    }
-
     /// Return the length of a header that will be emitted from this high-level representation.
-    ///
-    /// # Panics
-    /// This function panics if invoked on an unspecified representation.
     pub fn buffer_len(&self) -> usize {
         match *self {
-            Repr::Unspecified { .. } => panic!("unspecified IP representation"),
             #[cfg(feature = "proto-ipv4")]
             Repr::Ipv4(repr) => repr.buffer_len(),
             #[cfg(feature = "proto-ipv6")]
@@ -785,16 +653,12 @@ impl Repr {
     }
 
     /// Emit this high-level representation into a buffer.
-    ///
-    /// # Panics
-    /// This function panics if invoked on an unspecified representation.
     pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(
         &self,
         buffer: T,
         _checksum_caps: &ChecksumCapabilities,
     ) {
         match *self {
-            Repr::Unspecified { .. } => panic!("unspecified IP representation"),
             #[cfg(feature = "proto-ipv4")]
             Repr::Ipv4(repr) => repr.emit(&mut Ipv4Packet::new_unchecked(buffer), _checksum_caps),
             #[cfg(feature = "proto-ipv6")]
@@ -806,9 +670,6 @@ impl Repr {
     /// high-level representation.
     ///
     /// This is the same as `repr.buffer_len() + repr.payload_len()`.
-    ///
-    /// # Panics
-    /// This function panics if invoked on an unspecified representation.
     pub fn total_len(&self) -> usize {
         self.buffer_len() + self.payload_len()
     }
@@ -1030,204 +891,6 @@ pub(crate) mod test {
     use crate::wire::{IpAddress, IpCidr, IpProtocol};
     #[cfg(feature = "proto-ipv4")]
     use crate::wire::{Ipv4Address, Ipv4Repr};
-
-    macro_rules! generate_common_tests {
-        ($name:ident, $repr:ident, $ip_repr:path, $ip_addr:path,
-         $addr_from:path, $bytes_a:expr, $bytes_b:expr,
-         $unspecified:expr) => {
-            mod $name {
-                use super::*;
-
-                #[test]
-                fn test_ip_repr_lower() {
-                    let ip_addr_a = $addr_from(&$bytes_a);
-                    let ip_addr_b = $addr_from(&$bytes_b);
-                    let proto = IpProtocol::Icmp;
-                    let payload_len = 10;
-
-                    assert_eq!(
-                        Repr::Unspecified {
-                            src_addr: $ip_addr(ip_addr_a),
-                            dst_addr: $ip_addr(ip_addr_b),
-                            next_header: proto,
-                            hop_limit: 0x2a,
-                            payload_len,
-                        }
-                        .lower(&[]),
-                        Ok($ip_repr($repr {
-                            src_addr: ip_addr_a,
-                            dst_addr: ip_addr_b,
-                            next_header: proto,
-                            hop_limit: 0x2a,
-                            payload_len
-                        }))
-                    );
-
-                    assert_eq!(
-                        Repr::Unspecified {
-                            src_addr: IpAddress::Unspecified,
-                            dst_addr: $ip_addr(ip_addr_b),
-                            next_header: proto,
-                            hop_limit: 64,
-                            payload_len
-                        }
-                        .lower(&[]),
-                        Err(Error::Unaddressable)
-                    );
-
-                    assert_eq!(
-                        Repr::Unspecified {
-                            src_addr: IpAddress::Unspecified,
-                            dst_addr: $ip_addr(ip_addr_b),
-                            next_header: proto,
-                            hop_limit: 64,
-                            payload_len
-                        }
-                        .lower(&[IpCidr::new($ip_addr(ip_addr_a), 24)]),
-                        Ok($ip_repr($repr {
-                            src_addr: ip_addr_a,
-                            dst_addr: ip_addr_b,
-                            next_header: proto,
-                            hop_limit: 64,
-                            payload_len
-                        }))
-                    );
-
-                    assert_eq!(
-                        Repr::Unspecified {
-                            src_addr: $ip_addr($unspecified),
-                            dst_addr: $ip_addr(ip_addr_b),
-                            next_header: proto,
-                            hop_limit: 64,
-                            payload_len
-                        }
-                        .lower(&[IpCidr::new($ip_addr(ip_addr_a), 24)]),
-                        Ok($ip_repr($repr {
-                            src_addr: ip_addr_a,
-                            dst_addr: ip_addr_b,
-                            next_header: proto,
-                            hop_limit: 64,
-                            payload_len
-                        }))
-                    );
-
-                    assert_eq!(
-                        Repr::Unspecified {
-                            src_addr: $ip_addr($unspecified),
-                            dst_addr: $ip_addr(ip_addr_b),
-                            next_header: proto,
-                            hop_limit: 64,
-                            payload_len
-                        }
-                        .lower(&[]),
-                        Ok($ip_repr($repr {
-                            src_addr: $unspecified,
-                            dst_addr: ip_addr_b,
-                            next_header: proto,
-                            hop_limit: 64,
-                            payload_len
-                        }))
-                    );
-
-                    assert_eq!(
-                        $ip_repr($repr {
-                            src_addr: ip_addr_a,
-                            dst_addr: ip_addr_b,
-                            next_header: proto,
-                            hop_limit: 255,
-                            payload_len
-                        })
-                        .lower(&[]),
-                        Ok($ip_repr($repr {
-                            src_addr: ip_addr_a,
-                            dst_addr: ip_addr_b,
-                            next_header: proto,
-                            hop_limit: 255,
-                            payload_len
-                        }))
-                    );
-
-                    assert_eq!(
-                        $ip_repr($repr {
-                            src_addr: $unspecified,
-                            dst_addr: ip_addr_b,
-                            next_header: proto,
-                            hop_limit: 255,
-                            payload_len
-                        })
-                        .lower(&[]),
-                        Err(Error::Unaddressable)
-                    );
-
-                    assert_eq!(
-                        $ip_repr($repr {
-                            src_addr: $unspecified,
-                            dst_addr: ip_addr_b,
-                            next_header: proto,
-                            hop_limit: 64,
-                            payload_len
-                        })
-                        .lower(&[IpCidr::new($ip_addr(ip_addr_a), 24)]),
-                        Ok($ip_repr($repr {
-                            src_addr: ip_addr_a,
-                            dst_addr: ip_addr_b,
-                            next_header: proto,
-                            hop_limit: 64,
-                            payload_len
-                        }))
-                    );
-                }
-            }
-        };
-        (ipv4 $addr_bytes_a:expr, $addr_bytes_b:expr) => {
-            generate_common_tests!(
-                ipv4,
-                Ipv4Repr,
-                Repr::Ipv4,
-                IpAddress::Ipv4,
-                Ipv4Address::from_bytes,
-                $addr_bytes_a,
-                $addr_bytes_b,
-                Ipv4Address::UNSPECIFIED
-            );
-        };
-        (ipv6 $addr_bytes_a:expr, $addr_bytes_b:expr) => {
-            generate_common_tests!(
-                ipv6,
-                Ipv6Repr,
-                Repr::Ipv6,
-                IpAddress::Ipv6,
-                Ipv6Address::from_bytes,
-                $addr_bytes_a,
-                $addr_bytes_b,
-                Ipv6Address::UNSPECIFIED
-            );
-        };
-    }
-
-    #[cfg(feature = "proto-ipv4")]
-    generate_common_tests!(ipv4
-                           [1, 2, 3, 4],
-                           [5, 6, 7, 8]);
-
-    #[cfg(feature = "proto-ipv6")]
-    generate_common_tests!(ipv6
-                           [0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-                           [0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]);
-
-    #[test]
-    #[cfg(all(feature = "proto-ipv4", feature = "proto-ipv6"))]
-    #[should_panic(expected = "source and destination IP address families do not match")]
-    fn test_lower_between_families() {
-        Repr::Unspecified {
-            src_addr: Address::Ipv6(Ipv6Address::UNSPECIFIED),
-            dst_addr: Address::Ipv4(Ipv4Address::UNSPECIFIED),
-            next_header: IpProtocol::Icmpv6,
-            hop_limit: 0xff,
-            payload_len: 0,
-        }
-        .lower(&[]);
-    }
 
     #[test]
     fn endpoint_unspecified() {

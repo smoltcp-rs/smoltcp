@@ -1137,13 +1137,13 @@ impl<'a> TcpSocket<'a> {
             sack_ranges: [None, None, None],
             payload: &[],
         };
-        let ip_reply_repr = IpRepr::Unspecified {
-            src_addr: ip_repr.dst_addr(),
-            dst_addr: ip_repr.src_addr(),
-            next_header: IpProtocol::Tcp,
-            payload_len: reply_repr.buffer_len(),
-            hop_limit: 64,
-        };
+        let ip_reply_repr = IpRepr::new(
+            ip_repr.dst_addr(),
+            ip_repr.src_addr(),
+            IpProtocol::Tcp,
+            reply_repr.buffer_len(),
+            64,
+        );
         (ip_reply_repr, reply_repr)
     }
 
@@ -2136,14 +2136,13 @@ impl<'a> TcpSocket<'a> {
 
         // Construct the lowered IP representation.
         // We might need this to calculate the MSS, so do it early.
-        let mut ip_repr = IpRepr::Unspecified {
-            src_addr: self.local_endpoint.addr,
-            dst_addr: self.remote_endpoint.addr,
-            next_header: IpProtocol::Tcp,
-            hop_limit: self.hop_limit.unwrap_or(64),
-            payload_len: 0,
-        }
-        .lower(&[])?;
+        let mut ip_repr = IpRepr::new(
+            self.local_endpoint.addr,
+            self.remote_endpoint.addr,
+            IpProtocol::Tcp,
+            0,
+            self.hop_limit.unwrap_or(64),
+        );
 
         // Construct the basic TCP representation, an empty ACK packet.
         // We'll adjust this to be more specific as needed.
@@ -2417,8 +2416,7 @@ impl<'a> fmt::Write for TcpSocket<'a> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::wire::ip::test::{MOCK_IP_ADDR_1, MOCK_IP_ADDR_2, MOCK_IP_ADDR_3, MOCK_UNSPECIFIED};
-    use crate::wire::{IpAddress, IpCidr, IpRepr};
+    use crate::wire::{IpAddress, IpRepr};
     use core::i32;
     use std::ops::{Deref, DerefMut};
     use std::vec::Vec;
@@ -2430,23 +2428,53 @@ mod test {
     const LOCAL_PORT: u16 = 80;
     const REMOTE_PORT: u16 = 49500;
     const LOCAL_END: IpEndpoint = IpEndpoint {
-        addr: MOCK_IP_ADDR_1,
+        addr: LOCAL_ADDR.into_address(),
         port: LOCAL_PORT,
     };
     const REMOTE_END: IpEndpoint = IpEndpoint {
-        addr: MOCK_IP_ADDR_2,
+        addr: REMOTE_ADDR.into_address(),
         port: REMOTE_PORT,
     };
     const LOCAL_SEQ: TcpSeqNumber = TcpSeqNumber(10000);
     const REMOTE_SEQ: TcpSeqNumber = TcpSeqNumber(-10001);
 
-    const SEND_IP_TEMPL: IpRepr = IpRepr::Unspecified {
-        src_addr: MOCK_IP_ADDR_1,
-        dst_addr: MOCK_IP_ADDR_2,
+    cfg_if::cfg_if! {
+        if #[cfg(feature = "proto-ipv4")] {
+            use crate::wire::Ipv4Address as IpvXAddress;
+            use crate::wire::Ipv4Repr as IpvXRepr;
+            use IpRepr::Ipv4 as IpReprIpvX;
+
+            const LOCAL_ADDR: IpvXAddress = IpvXAddress([192, 168, 1, 1]);
+            const REMOTE_ADDR: IpvXAddress = IpvXAddress([192, 168, 1, 2]);
+            const OTHER_ADDR: IpvXAddress = IpvXAddress([192, 168, 1, 3]);
+
+            const BASE_MSS: u16 = 1460;
+        } else {
+            use crate::wire::Ipv6Address as IpvXAddress;
+            use crate::wire::Ipv6Repr as IpvXRepr;
+            use IpRepr::Ipv6 as IpReprIpvX;
+
+            const LOCAL_ADDR: IpvXAddress = IpvXAddress([
+                0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+            ]);
+            const REMOTE_ADDR: IpvXAddress = IpvXAddress([
+                0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2,
+            ]);
+            const OTHER_ADDR: IpvXAddress = IpvXAddress([
+                0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3,
+            ]);
+
+            const BASE_MSS: u16 = 1440;
+        }
+    }
+
+    const SEND_IP_TEMPL: IpRepr = IpReprIpvX(IpvXRepr {
+        src_addr: LOCAL_ADDR,
+        dst_addr: REMOTE_ADDR,
         next_header: IpProtocol::Tcp,
         payload_len: 20,
         hop_limit: 64,
-    };
+    });
     const SEND_TEMPL: TcpRepr<'static> = TcpRepr {
         src_port: REMOTE_PORT,
         dst_port: LOCAL_PORT,
@@ -2460,13 +2488,13 @@ mod test {
         sack_ranges: [None, None, None],
         payload: &[],
     };
-    const _RECV_IP_TEMPL: IpRepr = IpRepr::Unspecified {
-        src_addr: MOCK_IP_ADDR_1,
-        dst_addr: MOCK_IP_ADDR_2,
+    const _RECV_IP_TEMPL: IpRepr = IpReprIpvX(IpvXRepr {
+        src_addr: LOCAL_ADDR,
+        dst_addr: REMOTE_ADDR,
         next_header: IpProtocol::Tcp,
         payload_len: 20,
         hop_limit: 64,
-    };
+    });
     const RECV_TEMPL: TcpRepr<'static> = TcpRepr {
         src_port: LOCAL_PORT,
         dst_port: REMOTE_PORT,
@@ -2480,11 +2508,6 @@ mod test {
         sack_ranges: [None, None, None],
         payload: &[],
     };
-
-    #[cfg(feature = "proto-ipv6")]
-    const BASE_MSS: u16 = 1440;
-    #[cfg(all(feature = "proto-ipv4", not(feature = "proto-ipv6")))]
-    const BASE_MSS: u16 = 1460;
 
     // =========================================================================================//
     // Helper functions
@@ -2515,13 +2538,13 @@ mod test {
     ) -> Result<Option<TcpRepr<'static>>> {
         socket.cx.set_now(timestamp);
 
-        let ip_repr = IpRepr::Unspecified {
-            src_addr: MOCK_IP_ADDR_2,
-            dst_addr: MOCK_IP_ADDR_1,
+        let ip_repr = IpReprIpvX(IpvXRepr {
+            src_addr: REMOTE_ADDR,
+            dst_addr: LOCAL_ADDR,
             next_header: IpProtocol::Tcp,
             payload_len: repr.buffer_len(),
             hop_limit: 64,
-        };
+        });
         net_trace!("send: {}", repr);
 
         assert!(socket.socket.accepts(&mut socket.cx, &ip_repr, repr));
@@ -2545,11 +2568,9 @@ mod test {
         let result = socket
             .socket
             .dispatch(&mut socket.cx, |_, (ip_repr, tcp_repr)| {
-                let ip_repr = ip_repr.lower(&[IpCidr::new(LOCAL_END.addr, 24)]).unwrap();
-
                 assert_eq!(ip_repr.next_header(), IpProtocol::Tcp);
-                assert_eq!(ip_repr.src_addr(), MOCK_IP_ADDR_1);
-                assert_eq!(ip_repr.dst_addr(), MOCK_IP_ADDR_2);
+                assert_eq!(ip_repr.src_addr(), LOCAL_ADDR.into());
+                assert_eq!(ip_repr.dst_addr(), REMOTE_ADDR.into());
                 assert_eq!(ip_repr.payload_len(), tcp_repr.buffer_len());
 
                 net_trace!("recv: {}", tcp_repr);
@@ -3223,12 +3244,12 @@ mod test {
         );
         assert_eq!(
             s.socket
-                .connect(&mut s.cx, REMOTE_END, (MOCK_UNSPECIFIED, 0)),
+                .connect(&mut s.cx, REMOTE_END, (IpvXAddress::UNSPECIFIED, 0)),
             Err(Error::Unaddressable)
         );
         assert_eq!(
             s.socket
-                .connect(&mut s.cx, (MOCK_UNSPECIFIED, 0), LOCAL_END),
+                .connect(&mut s.cx, (IpvXAddress::UNSPECIFIED, 0), LOCAL_END),
             Err(Error::Unaddressable)
         );
         assert_eq!(
@@ -3282,7 +3303,7 @@ mod test {
         let mut s = socket();
         assert_eq!(
             s.socket
-                .connect(&mut s.cx, REMOTE_END, (MOCK_UNSPECIFIED, 80)),
+                .connect(&mut s.cx, REMOTE_END, (IpvXAddress::UNSPECIFIED, 80)),
             Ok(())
         );
         s.abort();
@@ -3298,8 +3319,7 @@ mod test {
     fn test_connect_specified_local() {
         let mut s = socket();
         assert_eq!(
-            s.socket
-                .connect(&mut s.cx, REMOTE_END, (MOCK_IP_ADDR_2, 80)),
+            s.socket.connect(&mut s.cx, REMOTE_END, (REMOTE_ADDR, 80)),
             Ok(())
         );
     }
@@ -6945,31 +6965,31 @@ mod test {
             ..SEND_TEMPL
         };
 
-        let ip_repr = IpRepr::Unspecified {
-            src_addr: MOCK_IP_ADDR_2,
-            dst_addr: MOCK_IP_ADDR_1,
+        let ip_repr = IpReprIpvX(IpvXRepr {
+            src_addr: REMOTE_ADDR,
+            dst_addr: LOCAL_ADDR,
             next_header: IpProtocol::Tcp,
             payload_len: tcp_repr.buffer_len(),
             hop_limit: 64,
-        };
+        });
         assert!(s.socket.accepts(&mut s.cx, &ip_repr, &tcp_repr));
 
-        let ip_repr_wrong_src = IpRepr::Unspecified {
-            src_addr: MOCK_IP_ADDR_3,
-            dst_addr: MOCK_IP_ADDR_1,
+        let ip_repr_wrong_src = IpReprIpvX(IpvXRepr {
+            src_addr: OTHER_ADDR,
+            dst_addr: LOCAL_ADDR,
             next_header: IpProtocol::Tcp,
             payload_len: tcp_repr.buffer_len(),
             hop_limit: 64,
-        };
+        });
         assert!(!s.socket.accepts(&mut s.cx, &ip_repr_wrong_src, &tcp_repr));
 
-        let ip_repr_wrong_dst = IpRepr::Unspecified {
-            src_addr: MOCK_IP_ADDR_2,
-            dst_addr: MOCK_IP_ADDR_3,
+        let ip_repr_wrong_dst = IpReprIpvX(IpvXRepr {
+            src_addr: REMOTE_ADDR,
+            dst_addr: OTHER_ADDR,
             next_header: IpProtocol::Tcp,
             payload_len: tcp_repr.buffer_len(),
             hop_limit: 64,
-        };
+        });
         assert!(!s.socket.accepts(&mut s.cx, &ip_repr_wrong_dst, &tcp_repr));
     }
 

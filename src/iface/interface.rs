@@ -923,7 +923,8 @@ where
                     (IpRepr::Ipv6(ipv6_repr), IcmpRepr::Ipv6(icmpv6_repr)) => {
                         respond!(inner, IpPacket::Icmpv6((ipv6_repr, icmpv6_repr)))
                     }
-                    _ => Err(Error::Unaddressable),
+                    #[allow(unreachable_patterns)]
+                    _ => unreachable!(),
                 }),
                 #[cfg(feature = "socket-udp")]
                 Socket::Udp(socket) => socket.dispatch(inner, |inner, response| {
@@ -1811,7 +1812,8 @@ impl<'a> InterfaceInner<'a> {
                     };
                     Ok(self.icmpv6_reply(ipv6_repr, icmp_reply_repr))
                 }
-                _ => Err(Error::Unrecognized),
+                #[allow(unreachable_patterns)]
+                _ => unreachable!(),
             },
 
             // Ignore any echo replies.
@@ -1821,7 +1823,8 @@ impl<'a> InterfaceInner<'a> {
             #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
             Icmpv6Repr::Ndisc(repr) if ip_repr.hop_limit() == 0xff => match ip_repr {
                 IpRepr::Ipv6(ipv6_repr) => self.process_ndisc(ipv6_repr, repr),
-                _ => Ok(None),
+                #[allow(unreachable_patterns)]
+                _ => unreachable!(),
             },
 
             // Don't report an error if a packet with unknown type
@@ -1996,7 +1999,8 @@ impl<'a> InterfaceInner<'a> {
                 };
                 match ip_repr {
                     IpRepr::Ipv4(ipv4_repr) => Ok(self.icmpv4_reply(ipv4_repr, icmp_reply_repr)),
-                    _ => Err(Error::Unrecognized),
+                    #[allow(unreachable_patterns)]
+                    _ => unreachable!(),
                 }
             }
 
@@ -2133,7 +2137,6 @@ impl<'a> InterfaceInner<'a> {
                 };
                 Ok(self.icmpv6_reply(ipv6_repr, icmpv6_reply_repr))
             }
-            IpRepr::Unspecified { .. } => Err(Error::Unaddressable),
         }
     }
 
@@ -2410,7 +2413,9 @@ impl<'a> InterfaceInner<'a> {
     }
 
     fn dispatch_ip<Tx: TxToken>(&mut self, tx_token: Tx, packet: IpPacket) -> Result<()> {
-        let ip_repr = packet.ip_repr().lower(&self.ip_addrs)?;
+        let ip_repr = packet.ip_repr();
+        assert!(!ip_repr.src_addr().is_unspecified());
+        assert!(!ip_repr.dst_addr().is_unspecified());
 
         match self.caps.medium {
             #[cfg(feature = "medium-ethernet")]
@@ -2433,7 +2438,6 @@ impl<'a> InterfaceInner<'a> {
                         IpRepr::Ipv4(_) => frame.set_ethertype(EthernetProtocol::Ipv4),
                         #[cfg(feature = "proto-ipv6")]
                         IpRepr::Ipv6(_) => frame.set_ethertype(EthernetProtocol::Ipv6),
-                        _ => return,
                     }
 
                     ip_repr.emit(frame.payload_mut(), &caps.checksum);
@@ -2463,7 +2467,9 @@ impl<'a> InterfaceInner<'a> {
 
     #[cfg(feature = "medium-ieee802154")]
     fn dispatch_ieee802154<Tx: TxToken>(&mut self, tx_token: Tx, packet: IpPacket) -> Result<()> {
-        let ip_repr = packet.ip_repr().lower(&self.ip_addrs)?;
+        let ip_repr = packet.ip_repr();
+        assert!(!ip_repr.src_addr().is_unspecified());
+        assert!(!ip_repr.dst_addr().is_unspecified());
 
         match self.caps.medium {
             #[cfg(feature = "medium-ieee802154")]

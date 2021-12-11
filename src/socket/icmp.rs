@@ -747,13 +747,13 @@ mod test_ipv4 {
             },
             data: data,
         };
-        let ip_repr = IpRepr::Unspecified {
-            src_addr: REMOTE_IPV4.into(),
-            dst_addr: LOCAL_IPV4.into(),
+        let ip_repr = IpRepr::Ipv4(Ipv4Repr {
+            src_addr: REMOTE_IPV4,
+            dst_addr: LOCAL_IPV4,
             next_header: IpProtocol::Icmp,
             payload_len: icmp_repr.buffer_len(),
             hop_limit: 0x40,
-        };
+        });
 
         assert!(!socket.can_recv());
 
@@ -1015,13 +1015,13 @@ mod test_ipv6 {
             },
             data: data,
         };
-        let ip_repr = IpRepr::Unspecified {
-            src_addr: REMOTE_IPV6.into(),
-            dst_addr: LOCAL_IPV6.into(),
+        let ip_repr = IpRepr::Ipv6(Ipv6Repr {
+            src_addr: REMOTE_IPV6,
+            dst_addr: LOCAL_IPV6,
             next_header: IpProtocol::Icmpv6,
             payload_len: icmp_repr.buffer_len(),
             hop_limit: 0x40,
-        };
+        });
 
         assert!(!socket.can_recv());
 

@@ -87,6 +87,13 @@ impl Address {
     pub const fn is_loopback(&self) -> bool {
         self.0[0] == 127
     }
+
+    /// Convert to an `IpAddress`.
+    ///
+    /// Same as `.into()`, but works in `const`.
+    pub const fn into_address(self) -> super::IpAddress {
+        super::IpAddress::Ipv4(self)
+    }
 }
 
 #[cfg(feature = "std")]
