@@ -1592,7 +1592,7 @@ impl<'a> InterfaceInner<'a> {
 
         #[cfg(feature = "socket-dhcpv4")]
         {
-            if ipv4_repr.protocol == IpProtocol::Udp && self.hardware_addr.is_some() {
+            if ipv4_repr.next_header == IpProtocol::Udp && self.hardware_addr.is_some() {
                 // First check for source and dest ports, then do `UdpRepr::parse` if they match.
                 // This way we avoid validating the UDP checksum twice for all non-DHCP UDP packets (one here, one in `process_udp`)
                 let udp_packet = UdpPacket::new_checked(ip_payload)?;
@@ -1637,7 +1637,7 @@ impl<'a> InterfaceInner<'a> {
             }
         }
 
-        match ipv4_repr.protocol {
+        match ipv4_repr.next_header {
             IpProtocol::Icmp => self.process_icmpv4(sockets, ip_repr, ip_payload),
 
             #[cfg(feature = "proto-igmp")]
@@ -2027,7 +2027,7 @@ impl<'a> InterfaceInner<'a> {
             let ipv4_reply_repr = Ipv4Repr {
                 src_addr: ipv4_repr.dst_addr,
                 dst_addr: ipv4_repr.src_addr,
-                protocol: IpProtocol::Icmp,
+                next_header: IpProtocol::Icmp,
                 payload_len: icmp_repr.buffer_len(),
                 hop_limit: 64,
             };
@@ -2040,7 +2040,7 @@ impl<'a> InterfaceInner<'a> {
                         let ipv4_reply_repr = Ipv4Repr {
                             src_addr: src_addr,
                             dst_addr: ipv4_repr.src_addr,
-                            protocol: IpProtocol::Icmp,
+                            next_header: IpProtocol::Icmp,
                             payload_len: icmp_repr.buffer_len(),
                             hop_limit: 64,
                         };
@@ -2619,7 +2619,7 @@ impl<'a> InterfaceInner<'a> {
                 src_addr: iface_addr,
                 // Send to the group being reported
                 dst_addr: group_addr,
-                protocol: IpProtocol::Igmp,
+                next_header: IpProtocol::Igmp,
                 payload_len: igmp_repr.buffer_len(),
                 hop_limit: 1,
                 // TODO: add Router Alert IPv4 header option. See
@@ -2638,7 +2638,7 @@ impl<'a> InterfaceInner<'a> {
                 Ipv4Repr {
                     src_addr: iface_addr,
                     dst_addr: Ipv4Address::MULTICAST_ALL_ROUTERS,
-                    protocol: IpProtocol::Igmp,
+                    next_header: IpProtocol::Igmp,
                     payload_len: igmp_repr.buffer_len(),
                     hop_limit: 1,
                 },
@@ -2766,7 +2766,7 @@ mod test {
         let repr = IpRepr::Ipv4(Ipv4Repr {
             src_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x01]),
             dst_addr: Ipv4Address::BROADCAST,
-            protocol: IpProtocol::Unknown(0x0c),
+            next_header: IpProtocol::Unknown(0x0c),
             payload_len: 0,
             hop_limit: 0x40,
         });
@@ -2825,7 +2825,7 @@ mod test {
         let repr = IpRepr::Ipv4(Ipv4Repr {
             src_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x02]),
             dst_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x01]),
-            protocol: IpProtocol::Unknown(0x0c),
+            next_header: IpProtocol::Unknown(0x0c),
             payload_len: 0,
             hop_limit: 0x40,
         });
@@ -2841,7 +2841,7 @@ mod test {
             header: Ipv4Repr {
                 src_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x02]),
                 dst_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x01]),
-                protocol: IpProtocol::Unknown(12),
+                next_header: IpProtocol::Unknown(12),
                 payload_len: 0,
                 hop_limit: 64,
             },
@@ -2852,7 +2852,7 @@ mod test {
             Ipv4Repr {
                 src_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x01]),
                 dst_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x02]),
-                protocol: IpProtocol::Icmp,
+                next_header: IpProtocol::Icmp,
                 payload_len: icmp_repr.buffer_len(),
                 hop_limit: 64,
             },
@@ -2942,7 +2942,7 @@ mod test {
         let ip_repr = IpRepr::Ipv4(Ipv4Repr {
             src_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x02]),
             dst_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x01]),
-            protocol: IpProtocol::Udp,
+            next_header: IpProtocol::Udp,
             payload_len: udp_repr.header_len() + UDP_PAYLOAD.len(),
             hop_limit: 64,
         });
@@ -2966,7 +2966,7 @@ mod test {
             header: Ipv4Repr {
                 src_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x02]),
                 dst_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x01]),
-                protocol: IpProtocol::Udp,
+                next_header: IpProtocol::Udp,
                 payload_len: udp_repr.header_len() + UDP_PAYLOAD.len(),
                 hop_limit: 64,
             },
@@ -2976,7 +2976,7 @@ mod test {
             Ipv4Repr {
                 src_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x01]),
                 dst_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x02]),
-                protocol: IpProtocol::Icmp,
+                next_header: IpProtocol::Icmp,
                 payload_len: icmp_repr.buffer_len(),
                 hop_limit: 64,
             },
@@ -2995,7 +2995,7 @@ mod test {
         let ip_repr = IpRepr::Ipv4(Ipv4Repr {
             src_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x02]),
             dst_addr: Ipv4Address::BROADCAST,
-            protocol: IpProtocol::Udp,
+            next_header: IpProtocol::Udp,
             payload_len: udp_repr.header_len() + UDP_PAYLOAD.len(),
             hop_limit: 64,
         });
@@ -3066,7 +3066,7 @@ mod test {
         let ip_repr = IpRepr::Ipv4(Ipv4Repr {
             src_addr: src_ip,
             dst_addr: Ipv4Address::BROADCAST,
-            protocol: IpProtocol::Udp,
+            next_header: IpProtocol::Udp,
             payload_len: udp_repr.header_len() + UDP_PAYLOAD.len(),
             hop_limit: 0x40,
         });
@@ -3126,7 +3126,7 @@ mod test {
         let ipv4_repr = Ipv4Repr {
             src_addr: src_ipv4_addr,
             dst_addr: Ipv4Address::BROADCAST,
-            protocol: IpProtocol::Icmp,
+            next_header: IpProtocol::Icmp,
             hop_limit: 64,
             payload_len: icmpv4_repr.buffer_len(),
         };
@@ -3154,7 +3154,7 @@ mod test {
         let expected_ipv4_repr = Ipv4Repr {
             src_addr: our_ipv4_addr,
             dst_addr: src_ipv4_addr,
-            protocol: IpProtocol::Icmp,
+            next_header: IpProtocol::Icmp,
             hop_limit: 64,
             payload_len: expected_icmpv4_repr.buffer_len(),
         };
@@ -3212,7 +3212,7 @@ mod test {
         let ip_repr = Ipv4Repr {
             src_addr: src_addr,
             dst_addr: dst_addr,
-            protocol: IpProtocol::Udp,
+            next_header: IpProtocol::Udp,
             hop_limit: 64,
             payload_len: udp_repr.header_len() + MAX_PAYLOAD_LEN,
         };
@@ -3251,7 +3251,7 @@ mod test {
         let expected_ip_repr = Ipv4Repr {
             src_addr: dst_addr,
             dst_addr: src_addr,
-            protocol: IpProtocol::Icmp,
+            next_header: IpProtocol::Icmp,
             hop_limit: 64,
             payload_len: expected_icmp_repr.buffer_len(),
         };
@@ -3561,7 +3561,7 @@ mod test {
         let ipv4_repr = Ipv4Repr {
             src_addr: Ipv4Address::new(0x7f, 0x00, 0x00, 0x02),
             dst_addr: Ipv4Address::new(0x7f, 0x00, 0x00, 0x01),
-            protocol: IpProtocol::Icmp,
+            next_header: IpProtocol::Icmp,
             payload_len: 24,
             hop_limit: 64,
         };
@@ -3734,7 +3734,7 @@ mod test {
         let reports = recv_igmp(&mut iface, timestamp);
         assert_eq!(reports.len(), 2);
         for (i, group_addr) in groups.iter().enumerate() {
-            assert_eq!(reports[i].0.protocol, IpProtocol::Igmp);
+            assert_eq!(reports[i].0.next_header, IpProtocol::Igmp);
             assert_eq!(reports[i].0.dst_addr, *group_addr);
             assert_eq!(
                 reports[i].1,
@@ -3778,7 +3778,7 @@ mod test {
         let leaves = recv_igmp(&mut iface, timestamp);
         assert_eq!(leaves.len(), 2);
         for (i, group_addr) in groups.iter().cloned().enumerate() {
-            assert_eq!(leaves[i].0.protocol, IpProtocol::Igmp);
+            assert_eq!(leaves[i].0.next_header, IpProtocol::Igmp);
             assert_eq!(leaves[i].0.dst_addr, Ipv4Address::MULTICAST_ALL_ROUTERS);
             assert_eq!(leaves[i].1, IgmpRepr::LeaveGroup { group_addr });
         }
@@ -3824,7 +3824,7 @@ mod test {
         let ipv4_repr = Ipv4Repr {
             src_addr: src_addr,
             dst_addr: dst_addr,
-            protocol: IpProtocol::Udp,
+            next_header: IpProtocol::Udp,
             hop_limit: 64,
             payload_len: udp_repr.header_len() + PAYLOAD_LEN,
         };
@@ -3894,7 +3894,7 @@ mod test {
         let ipv4_repr = Ipv4Repr {
             src_addr: src_addr,
             dst_addr: dst_addr,
-            protocol: IpProtocol::Udp,
+            next_header: IpProtocol::Udp,
             hop_limit: 64,
             payload_len: udp_repr.header_len() + PAYLOAD_LEN,
         };
@@ -3985,7 +3985,7 @@ mod test {
         let ipv4_repr = Ipv4Repr {
             src_addr: src_addr,
             dst_addr: dst_addr,
-            protocol: IpProtocol::Udp,
+            next_header: IpProtocol::Udp,
             hop_limit: 64,
             payload_len: udp_repr.header_len() + UDP_PAYLOAD.len(),
         };

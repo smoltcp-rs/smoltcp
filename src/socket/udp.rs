@@ -362,7 +362,7 @@ impl<'a> UdpSocket<'a> {
                 let ip_repr = IpRepr::Unspecified {
                     src_addr: endpoint.addr,
                     dst_addr: remote_endpoint.addr,
-                    protocol: IpProtocol::Udp,
+                    next_header: IpProtocol::Udp,
                     payload_len: repr.header_len() + payload_buf.len(),
                     hop_limit: hop_limit,
                 };
@@ -423,7 +423,7 @@ mod test {
     pub const LOCAL_IP_REPR: IpRepr = IpRepr::Unspecified {
         src_addr: MOCK_IP_ADDR_1,
         dst_addr: MOCK_IP_ADDR_2,
-        protocol: IpProtocol::Udp,
+        next_header: IpProtocol::Udp,
         payload_len: 8 + 6,
         hop_limit: 64,
     };
@@ -446,7 +446,7 @@ mod test {
             (IpAddress::Ipv4(src), IpAddress::Ipv4(dst)) => IpRepr::Ipv4(Ipv4Repr {
                 src_addr: src,
                 dst_addr: dst,
-                protocol: IpProtocol::Udp,
+                next_header: IpProtocol::Udp,
                 payload_len: 8 + 6,
                 hop_limit: 64,
             }),
@@ -655,7 +655,7 @@ mod test {
                     IpRepr::Unspecified {
                         src_addr: MOCK_IP_ADDR_1,
                         dst_addr: MOCK_IP_ADDR_2,
-                        protocol: IpProtocol::Udp,
+                        next_header: IpProtocol::Udp,
                         payload_len: 8 + 6,
                         hop_limit: 0x2a,
                     }
@@ -687,7 +687,7 @@ mod test {
                 (IpAddress::Ipv4(src), IpAddress::Ipv4(dst)) => IpRepr::Ipv4(Ipv4Repr {
                     src_addr: src,
                     dst_addr: dst,
-                    protocol: IpProtocol::Udp,
+                    next_header: IpProtocol::Udp,
                     payload_len: 8 + 6,
                     hop_limit: 64,
                 }),

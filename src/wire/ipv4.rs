@@ -396,9 +396,9 @@ impl<T: AsRef<[u8]>> Packet<T> {
         data[field::TTL]
     }
 
-    /// Return the protocol field.
+    /// Return the next_header (protocol) field.
     #[inline]
-    pub fn protocol(&self) -> Protocol {
+    pub fn next_header(&self) -> Protocol {
         let data = self.buffer.as_ref();
         Protocol::from(data[field::PROTOCOL])
     }
@@ -532,9 +532,9 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
         data[field::TTL] = value
     }
 
-    /// Set the protocol field.
+    /// Set the next header (protocol) field.
     #[inline]
-    pub fn set_protocol(&mut self, value: Protocol) {
+    pub fn set_next_header(&mut self, value: Protocol) {
         let data = self.buffer.as_mut();
         data[field::PROTOCOL] = value.into()
     }
@@ -591,7 +591,7 @@ impl<T: AsRef<[u8]>> AsRef<[u8]> for Packet<T> {
 pub struct Repr {
     pub src_addr: Address,
     pub dst_addr: Address,
-    pub protocol: Protocol,
+    pub next_header: Protocol,
     pub payload_len: usize,
     pub hop_limit: u8,
 }
@@ -626,7 +626,7 @@ impl Repr {
         Ok(Repr {
             src_addr: packet.src_addr(),
             dst_addr: packet.dst_addr(),
-            protocol: packet.protocol(),
+            next_header: packet.next_header(),
             payload_len: payload_len,
             hop_limit: packet.hop_limit(),
         })
@@ -656,7 +656,7 @@ impl Repr {
         packet.set_dont_frag(true);
         packet.set_frag_offset(0);
         packet.set_hop_limit(self.hop_limit);
-        packet.set_protocol(self.protocol);
+        packet.set_next_header(self.next_header);
         packet.set_src_addr(self.src_addr);
         packet.set_dst_addr(self.dst_addr);
 
@@ -681,7 +681,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
                     " src={} dst={} proto={} hop_limit={}",
                     self.src_addr(),
                     self.dst_addr(),
-                    self.protocol(),
+                    self.next_header(),
                     self.hop_limit()
                 )?;
                 if self.version() != 4 {
@@ -720,7 +720,7 @@ impl fmt::Display for Repr {
         write!(
             f,
             "IPv4 src={} dst={} proto={}",
-            self.src_addr, self.dst_addr, self.protocol
+            self.src_addr, self.dst_addr, self.next_header
         )
     }
 }
@@ -777,7 +777,7 @@ mod test {
         assert!(packet.dont_frag());
         assert_eq!(packet.frag_offset(), 0x203 * 8);
         assert_eq!(packet.hop_limit(), 0x1a);
-        assert_eq!(packet.protocol(), Protocol::Icmp);
+        assert_eq!(packet.next_header(), Protocol::Icmp);
         assert_eq!(packet.checksum(), 0xd56e);
         assert_eq!(packet.src_addr(), Address([0x11, 0x12, 0x13, 0x14]));
         assert_eq!(packet.dst_addr(), Address([0x21, 0x22, 0x23, 0x24]));
@@ -800,7 +800,7 @@ mod test {
         packet.set_dont_frag(true);
         packet.set_frag_offset(0x203 * 8);
         packet.set_hop_limit(0x1a);
-        packet.set_protocol(Protocol::Icmp);
+        packet.set_next_header(Protocol::Icmp);
         packet.set_src_addr(Address([0x11, 0x12, 0x13, 0x14]));
         packet.set_dst_addr(Address([0x21, 0x22, 0x23, 0x24]));
         packet.fill_checksum();
@@ -844,7 +844,7 @@ mod test {
         Repr {
             src_addr: Address([0x11, 0x12, 0x13, 0x14]),
             dst_addr: Address([0x21, 0x22, 0x23, 0x24]),
-            protocol: Protocol::Icmp,
+            next_header: Protocol::Icmp,
             payload_len: 4,
             hop_limit: 64,
         }

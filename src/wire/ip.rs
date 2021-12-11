@@ -516,7 +516,7 @@ pub enum Repr {
     Unspecified {
         src_addr: Address,
         dst_addr: Address,
-        protocol: Protocol,
+        next_header: Protocol,
         payload_len: usize,
         hop_limit: u8,
     },
@@ -574,12 +574,12 @@ impl Repr {
         }
     }
 
-    /// Return the protocol.
-    pub fn protocol(&self) -> Protocol {
+    /// Return the next header (protocol).
+    pub fn next_header(&self) -> Protocol {
         match *self {
-            Repr::Unspecified { protocol, .. } => protocol,
+            Repr::Unspecified { next_header, .. } => next_header,
             #[cfg(feature = "proto-ipv4")]
-            Repr::Ipv4(repr) => repr.protocol,
+            Repr::Ipv4(repr) => repr.next_header,
             #[cfg(feature = "proto-ipv6")]
             Repr::Ipv6(repr) => repr.next_header,
         }
@@ -658,14 +658,14 @@ impl Repr {
             &Repr::Unspecified {
                 src_addr: src_addr @ Address::Unspecified,
                 dst_addr: Address::Ipv4(dst_addr),
-                protocol,
+                next_header,
                 payload_len,
                 hop_limit,
             }
             | &Repr::Unspecified {
                 src_addr: src_addr @ Address::Ipv4(_),
                 dst_addr: Address::Ipv4(dst_addr),
-                protocol,
+                next_header,
                 payload_len,
                 hop_limit,
             } if src_addr.is_unspecified() => {
@@ -683,7 +683,7 @@ impl Repr {
                 Ok(Repr::Ipv4(Ipv4Repr {
                     src_addr: src_addr.ok_or(Error::Unaddressable)?,
                     dst_addr,
-                    protocol,
+                    next_header,
                     payload_len,
                     hop_limit,
                 }))
@@ -693,14 +693,14 @@ impl Repr {
             &Repr::Unspecified {
                 src_addr: src_addr @ Address::Unspecified,
                 dst_addr: Address::Ipv6(dst_addr),
-                protocol,
+                next_header: protocol,
                 payload_len,
                 hop_limit,
             }
             | &Repr::Unspecified {
                 src_addr: src_addr @ Address::Ipv6(_),
                 dst_addr: Address::Ipv6(dst_addr),
-                protocol,
+                next_header: protocol,
                 payload_len,
                 hop_limit,
             } if src_addr.is_unspecified() => {
@@ -728,13 +728,13 @@ impl Repr {
             &Repr::Unspecified {
                 src_addr: Address::Ipv4(src_addr),
                 dst_addr: Address::Ipv4(dst_addr),
-                protocol,
+                next_header: protocol,
                 payload_len,
                 hop_limit,
             } => Ok(Repr::Ipv4(Ipv4Repr {
                 src_addr: src_addr,
                 dst_addr: dst_addr,
-                protocol: protocol,
+                next_header: protocol,
                 payload_len: payload_len,
                 hop_limit,
             })),
@@ -743,7 +743,7 @@ impl Repr {
             &Repr::Unspecified {
                 src_addr: Address::Ipv6(src_addr),
                 dst_addr: Address::Ipv6(dst_addr),
-                protocol,
+                next_header: protocol,
                 payload_len,
                 hop_limit,
             } => Ok(Repr::Ipv6(Ipv6Repr {
@@ -869,14 +869,14 @@ pub mod checksum {
     pub fn pseudo_header(
         src_addr: &Address,
         dst_addr: &Address,
-        protocol: Protocol,
+        next_header: Protocol,
         length: u32,
     ) -> u16 {
         match (src_addr, dst_addr) {
             #[cfg(feature = "proto-ipv4")]
             (&Address::Ipv4(src_addr), &Address::Ipv4(dst_addr)) => {
                 let mut proto_len = [0u8; 4];
-                proto_len[1] = protocol.into();
+                proto_len[1] = next_header.into();
                 NetworkEndian::write_u16(&mut proto_len[2..4], length as u16);
 
                 combine(&[
@@ -889,7 +889,7 @@ pub mod checksum {
             #[cfg(feature = "proto-ipv6")]
             (&Address::Ipv6(src_addr), &Address::Ipv6(dst_addr)) => {
                 let mut proto_len = [0u8; 8];
-                proto_len[7] = protocol.into();
+                proto_len[7] = next_header.into();
                 NetworkEndian::write_u32(&mut proto_len[0..4], length);
                 combine(&[
                     data(src_addr.as_bytes()),
@@ -932,7 +932,7 @@ pub fn pretty_print_ip_payload<T: Into<Repr>>(
 
     let checksum_caps = ChecksumCapabilities::ignored();
     let repr = ip_repr.into();
-    match repr.protocol() {
+    match repr.next_header() {
         #[cfg(feature = "proto-ipv4")]
         Protocol::Icmp => {
             indent.increase(f)?;
@@ -1033,7 +1033,7 @@ pub(crate) mod test {
 
     macro_rules! generate_common_tests {
         ($name:ident, $repr:ident, $ip_repr:path, $ip_addr:path,
-         $addr_from:path, $nxthdr:ident, $bytes_a:expr, $bytes_b:expr,
+         $addr_from:path, $bytes_a:expr, $bytes_b:expr,
          $unspecified:expr) => {
             mod $name {
                 use super::*;
@@ -1049,7 +1049,7 @@ pub(crate) mod test {
                         Repr::Unspecified {
                             src_addr: $ip_addr(ip_addr_a),
                             dst_addr: $ip_addr(ip_addr_b),
-                            protocol: proto,
+                            next_header: proto,
                             hop_limit: 0x2a,
                             payload_len,
                         }
@@ -1057,7 +1057,7 @@ pub(crate) mod test {
                         Ok($ip_repr($repr {
                             src_addr: ip_addr_a,
                             dst_addr: ip_addr_b,
-                            $nxthdr: proto,
+                            next_header: proto,
                             hop_limit: 0x2a,
                             payload_len
                         }))
@@ -1067,7 +1067,7 @@ pub(crate) mod test {
                         Repr::Unspecified {
                             src_addr: IpAddress::Unspecified,
                             dst_addr: $ip_addr(ip_addr_b),
-                            protocol: proto,
+                            next_header: proto,
                             hop_limit: 64,
                             payload_len
                         }
@@ -1079,7 +1079,7 @@ pub(crate) mod test {
                         Repr::Unspecified {
                             src_addr: IpAddress::Unspecified,
                             dst_addr: $ip_addr(ip_addr_b),
-                            protocol: proto,
+                            next_header: proto,
                             hop_limit: 64,
                             payload_len
                         }
@@ -1087,7 +1087,7 @@ pub(crate) mod test {
                         Ok($ip_repr($repr {
                             src_addr: ip_addr_a,
                             dst_addr: ip_addr_b,
-                            $nxthdr: proto,
+                            next_header: proto,
                             hop_limit: 64,
                             payload_len
                         }))
@@ -1097,7 +1097,7 @@ pub(crate) mod test {
                         Repr::Unspecified {
                             src_addr: $ip_addr($unspecified),
                             dst_addr: $ip_addr(ip_addr_b),
-                            protocol: proto,
+                            next_header: proto,
                             hop_limit: 64,
                             payload_len
                         }
@@ -1105,7 +1105,7 @@ pub(crate) mod test {
                         Ok($ip_repr($repr {
                             src_addr: ip_addr_a,
                             dst_addr: ip_addr_b,
-                            $nxthdr: proto,
+                            next_header: proto,
                             hop_limit: 64,
                             payload_len
                         }))
@@ -1115,7 +1115,7 @@ pub(crate) mod test {
                         Repr::Unspecified {
                             src_addr: $ip_addr($unspecified),
                             dst_addr: $ip_addr(ip_addr_b),
-                            protocol: proto,
+                            next_header: proto,
                             hop_limit: 64,
                             payload_len
                         }
@@ -1123,7 +1123,7 @@ pub(crate) mod test {
                         Ok($ip_repr($repr {
                             src_addr: $unspecified,
                             dst_addr: ip_addr_b,
-                            $nxthdr: proto,
+                            next_header: proto,
                             hop_limit: 64,
                             payload_len
                         }))
@@ -1133,7 +1133,7 @@ pub(crate) mod test {
                         $ip_repr($repr {
                             src_addr: ip_addr_a,
                             dst_addr: ip_addr_b,
-                            $nxthdr: proto,
+                            next_header: proto,
                             hop_limit: 255,
                             payload_len
                         })
@@ -1141,7 +1141,7 @@ pub(crate) mod test {
                         Ok($ip_repr($repr {
                             src_addr: ip_addr_a,
                             dst_addr: ip_addr_b,
-                            $nxthdr: proto,
+                            next_header: proto,
                             hop_limit: 255,
                             payload_len
                         }))
@@ -1151,7 +1151,7 @@ pub(crate) mod test {
                         $ip_repr($repr {
                             src_addr: $unspecified,
                             dst_addr: ip_addr_b,
-                            $nxthdr: proto,
+                            next_header: proto,
                             hop_limit: 255,
                             payload_len
                         })
@@ -1163,7 +1163,7 @@ pub(crate) mod test {
                         $ip_repr($repr {
                             src_addr: $unspecified,
                             dst_addr: ip_addr_b,
-                            $nxthdr: proto,
+                            next_header: proto,
                             hop_limit: 64,
                             payload_len
                         })
@@ -1171,7 +1171,7 @@ pub(crate) mod test {
                         Ok($ip_repr($repr {
                             src_addr: ip_addr_a,
                             dst_addr: ip_addr_b,
-                            $nxthdr: proto,
+                            next_header: proto,
                             hop_limit: 64,
                             payload_len
                         }))
@@ -1186,7 +1186,6 @@ pub(crate) mod test {
                 Repr::Ipv4,
                 IpAddress::Ipv4,
                 Ipv4Address::from_bytes,
-                protocol,
                 $addr_bytes_a,
                 $addr_bytes_b,
                 Ipv4Address::UNSPECIFIED
@@ -1199,7 +1198,6 @@ pub(crate) mod test {
                 Repr::Ipv6,
                 IpAddress::Ipv6,
                 Ipv6Address::from_bytes,
-                next_header,
                 $addr_bytes_a,
                 $addr_bytes_b,
                 Ipv6Address::UNSPECIFIED
@@ -1224,7 +1222,7 @@ pub(crate) mod test {
         Repr::Unspecified {
             src_addr: Address::Ipv6(Ipv6Address::UNSPECIFIED),
             dst_addr: Address::Ipv4(Ipv4Address::UNSPECIFIED),
-            protocol: IpProtocol::Icmpv6,
+            next_header: IpProtocol::Icmpv6,
             hop_limit: 0xff,
             payload_len: 0,
         }

@@ -1140,7 +1140,7 @@ impl<'a> TcpSocket<'a> {
         let ip_reply_repr = IpRepr::Unspecified {
             src_addr: ip_repr.dst_addr(),
             dst_addr: ip_repr.src_addr(),
-            protocol: IpProtocol::Tcp,
+            next_header: IpProtocol::Tcp,
             payload_len: reply_repr.buffer_len(),
             hop_limit: 64,
         };
@@ -2139,7 +2139,7 @@ impl<'a> TcpSocket<'a> {
         let mut ip_repr = IpRepr::Unspecified {
             src_addr: self.local_endpoint.addr,
             dst_addr: self.remote_endpoint.addr,
-            protocol: IpProtocol::Tcp,
+            next_header: IpProtocol::Tcp,
             hop_limit: self.hop_limit.unwrap_or(64),
             payload_len: 0,
         }
@@ -2443,7 +2443,7 @@ mod test {
     const SEND_IP_TEMPL: IpRepr = IpRepr::Unspecified {
         src_addr: MOCK_IP_ADDR_1,
         dst_addr: MOCK_IP_ADDR_2,
-        protocol: IpProtocol::Tcp,
+        next_header: IpProtocol::Tcp,
         payload_len: 20,
         hop_limit: 64,
     };
@@ -2463,7 +2463,7 @@ mod test {
     const _RECV_IP_TEMPL: IpRepr = IpRepr::Unspecified {
         src_addr: MOCK_IP_ADDR_1,
         dst_addr: MOCK_IP_ADDR_2,
-        protocol: IpProtocol::Tcp,
+        next_header: IpProtocol::Tcp,
         payload_len: 20,
         hop_limit: 64,
     };
@@ -2518,7 +2518,7 @@ mod test {
         let ip_repr = IpRepr::Unspecified {
             src_addr: MOCK_IP_ADDR_2,
             dst_addr: MOCK_IP_ADDR_1,
-            protocol: IpProtocol::Tcp,
+            next_header: IpProtocol::Tcp,
             payload_len: repr.buffer_len(),
             hop_limit: 64,
         };
@@ -2547,7 +2547,7 @@ mod test {
             .dispatch(&mut socket.cx, |_, (ip_repr, tcp_repr)| {
                 let ip_repr = ip_repr.lower(&[IpCidr::new(LOCAL_END.addr, 24)]).unwrap();
 
-                assert_eq!(ip_repr.protocol(), IpProtocol::Tcp);
+                assert_eq!(ip_repr.next_header(), IpProtocol::Tcp);
                 assert_eq!(ip_repr.src_addr(), MOCK_IP_ADDR_1);
                 assert_eq!(ip_repr.dst_addr(), MOCK_IP_ADDR_2);
                 assert_eq!(ip_repr.payload_len(), tcp_repr.buffer_len());
@@ -2641,7 +2641,7 @@ mod test {
     fn socket_syn_sent_with_buffer_sizes(tx_len: usize, rx_len: usize) -> TestSocket {
         let mut s = socket_with_buffer_sizes(tx_len, rx_len);
         s.state = State::SynSent;
-        s.local_endpoint = IpEndpoint::new(MOCK_UNSPECIFIED, LOCAL_PORT);
+        s.local_endpoint = LOCAL_END;
         s.remote_endpoint = REMOTE_END;
         s.local_seq_no = LOCAL_SEQ;
         s.remote_last_seq = LOCAL_SEQ;
@@ -6948,7 +6948,7 @@ mod test {
         let ip_repr = IpRepr::Unspecified {
             src_addr: MOCK_IP_ADDR_2,
             dst_addr: MOCK_IP_ADDR_1,
-            protocol: IpProtocol::Tcp,
+            next_header: IpProtocol::Tcp,
             payload_len: tcp_repr.buffer_len(),
             hop_limit: 64,
         };
@@ -6957,7 +6957,7 @@ mod test {
         let ip_repr_wrong_src = IpRepr::Unspecified {
             src_addr: MOCK_IP_ADDR_3,
             dst_addr: MOCK_IP_ADDR_1,
-            protocol: IpProtocol::Tcp,
+            next_header: IpProtocol::Tcp,
             payload_len: tcp_repr.buffer_len(),
             hop_limit: 64,
         };
@@ -6966,7 +6966,7 @@ mod test {
         let ip_repr_wrong_dst = IpRepr::Unspecified {
             src_addr: MOCK_IP_ADDR_2,
             dst_addr: MOCK_IP_ADDR_3,
-            protocol: IpProtocol::Tcp,
+            next_header: IpProtocol::Tcp,
             payload_len: tcp_repr.buffer_len(),
             hop_limit: 64,
         };

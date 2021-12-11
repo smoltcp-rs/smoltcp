@@ -453,7 +453,7 @@ impl<'a> IcmpSocket<'a> {
                     let ip_repr = IpRepr::Ipv4(Ipv4Repr {
                         src_addr: Ipv4Address::default(),
                         dst_addr: ipv4_addr,
-                        protocol: IpProtocol::Icmp,
+                        next_header: IpProtocol::Icmp,
                         payload_len: repr.buffer_len(),
                         hop_limit: hop_limit,
                     });
@@ -549,7 +549,7 @@ mod test_ipv4 {
     static LOCAL_IPV4_REPR: IpRepr = IpRepr::Ipv4(Ipv4Repr {
         src_addr: Ipv4Address::UNSPECIFIED,
         dst_addr: REMOTE_IPV4,
-        protocol: IpProtocol::Icmp,
+        next_header: IpProtocol::Icmp,
         payload_len: 24,
         hop_limit: 0x40,
     });
@@ -557,7 +557,7 @@ mod test_ipv4 {
     static REMOTE_IPV4_REPR: IpRepr = IpRepr::Ipv4(Ipv4Repr {
         src_addr: REMOTE_IPV4,
         dst_addr: LOCAL_IPV4,
-        protocol: IpProtocol::Icmp,
+        next_header: IpProtocol::Icmp,
         payload_len: 24,
         hop_limit: 0x40,
     });
@@ -650,7 +650,7 @@ mod test_ipv4 {
                     IpRepr::Ipv4(Ipv4Repr {
                         src_addr: Ipv4Address::UNSPECIFIED,
                         dst_addr: REMOTE_IPV4,
-                        protocol: IpProtocol::Icmp,
+                        next_header: IpProtocol::Icmp,
                         payload_len: ECHOV4_REPR.buffer_len(),
                         hop_limit: 0x2a,
                     })
@@ -741,7 +741,7 @@ mod test_ipv4 {
             header: Ipv4Repr {
                 src_addr: LOCAL_IPV4,
                 dst_addr: REMOTE_IPV4,
-                protocol: IpProtocol::Icmp,
+                next_header: IpProtocol::Icmp,
                 payload_len: 12,
                 hop_limit: 0x40,
             },
@@ -750,7 +750,7 @@ mod test_ipv4 {
         let ip_repr = IpRepr::Unspecified {
             src_addr: REMOTE_IPV4.into(),
             dst_addr: LOCAL_IPV4.into(),
-            protocol: IpProtocol::Icmp,
+            next_header: IpProtocol::Icmp,
             payload_len: icmp_repr.buffer_len(),
             hop_limit: 0x40,
         };
@@ -1018,7 +1018,7 @@ mod test_ipv6 {
         let ip_repr = IpRepr::Unspecified {
             src_addr: REMOTE_IPV6.into(),
             dst_addr: LOCAL_IPV6.into(),
-            protocol: IpProtocol::Icmpv6,
+            next_header: IpProtocol::Icmpv6,
             payload_len: icmp_repr.buffer_len(),
             hop_limit: 0x40,
         };

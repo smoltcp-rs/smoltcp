@@ -85,7 +85,7 @@ mod wire {
         let repr = Ipv4Repr {
             src_addr: Ipv4Address([192, 168, 1, 1]),
             dst_addr: Ipv4Address([192, 168, 1, 2]),
-            protocol: IpProtocol::Tcp,
+            next_header: IpProtocol::Tcp,
             payload_len: 100,
             hop_limit: 64,
         };

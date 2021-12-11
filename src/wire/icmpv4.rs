@@ -417,7 +417,7 @@ impl<'a> Repr<'a> {
                     header: Ipv4Repr {
                         src_addr: ip_packet.src_addr(),
                         dst_addr: ip_packet.dst_addr(),
-                        protocol: ip_packet.protocol(),
+                        next_header: ip_packet.next_header(),
                         payload_len: payload.len(),
                         hop_limit: ip_packet.hop_limit(),
                     },
