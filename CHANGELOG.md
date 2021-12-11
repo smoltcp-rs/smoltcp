@@ -6,10 +6,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- Version bumped to 0.8
-- Minimum Supported Rust Version (MSRV) **bumped** from 1.40 to 1.46
+- No unreleased changes.
+
+## [0.8.0] - 2021-12-11
+
+- Minimum Supported Rust Version (MSRV) **bumped** from 1.40 to 1.56
+- Add support for IEEE 802.15.4 + 6LoWPAN medium (#469)
+- Add support for IP medium (#401)
+- Add `defmt` logging supprt (#455)
+- Add RNG infrastructure (#547, #573)
+- Add `Context` struct that must be passed to some socket methods (#500)
+- Remove `SocketSet`, sockets are owned by `Interface` now. (#557, #571)
+- TCP: Add Nagle's Algorithm. (#500)
+- TCP crash and correctness fixes:
+    - Add Nagle's Algorithm. (#500)
+    - Window scaling fixes. (#500)
+    - Fix delayed ack causing ack not to be sent after 3 packets. (#530)
+    - Fix RTT estimation for RTTs longer than 1 second (#538)
+    - Fix infinite loop when remote side sets a MSS of 0 (#538)
+    - Fix infinite loop when retransmit when remote window is 0 (#538)
+    - Fix crash when receiving a FIN in SYN_SENT state (#538)
+    - Fix overflow crash when receiving a wrong ACK seq in SYN_RECEIVED state (#538)
+    - Fix overflow crash when initial sequence number is u32::MAX (#538)
+    - Fix infinite loop on challenge ACKs (#542)
+    - Reply with RST to invalid packets in SynReceived state.  (#542)
+    - Do not abort socket when receiving some invalid packets.  (#542)
+    - Make initial sequence number random.  (#547)
+    - Reply with RST to ACKs with invalid ackno in SYN_SENT. (#522)
+- ARP fixes to deal better with broken networks:
+    - Fill cache only from ARP packets, not any packets. (#544)
+    - Fill cache only from ARP packets directed at us. (#544)
+    - Reject ARP packets with a source address not in the local network. (#536, #544)
+    - Ignore unknown ARP packets. (#544)
+    - Flush neighbor cache on IP change (#564)
+- UDP: Add `close()` method to unbind socket. (#475, #482)
+- DHCP client improvements:
+    - Refactored implementation to improve reliability and RFC compliance (#459)
+    - Convert to socket (#459)
+    - Added `max_lease_duration` option (#459)
+    - Do not set the BROADCAST flag (#548)
+    - Add option to ignore NAKs (#548)
+- DHCP wire:
+    - Fix DhcpRepr::buffer_len not accounting for lease time, router and subnet options (#478)
+    - Emit DNS servers in DhcpRepr (#510)
+    - Fix incorrect bit for BROADCAST flag (#548)
+- Improve resilience against packet ingress processing errors (#281, #483)
+- Implement `std::error::Error` for `smoltcp::Error` (#485)
 - Update `managed` from 0.7 to 0.8 ([442](https://github.com/smoltcp-rs/smoltcp/pull/442))
-- udp: Add `close()` method to unbind socket.
+- Fix incorrect timestamp in PCAP captures (#513)
+- Use microseconds instead of milliseconds in Instant and Duration (#514)
+- Expose inner `Device` in `PcapWriter` (#524)
+- Fix assert with any_ip + broadcast dst_addr. (#533, #534)
+- Simplify PcapSink trait (#535)
+- Fix wrong operation order in FuzzInjector (#525, #535)
 
 ## [0.7.5] - 2021-06-28
 
