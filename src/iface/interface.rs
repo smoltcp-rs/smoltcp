@@ -549,7 +549,7 @@ where
         #[cfg(all(feature = "medium-ieee802154", feature = "medium-ethernet"))]
         assert!(
             self.device().capabilities().medium == Medium::Ethernet
-                || self.device().capabilities().medium == Medium::Ethernet
+                || self.device().capabilities().medium == Medium::Ieee802154
         );
 
         self.inner.hardware_addr.unwrap()
@@ -570,7 +570,7 @@ where
         #[cfg(all(feature = "medium-ieee802154", feature = "medium-ethernet"))]
         assert!(
             self.device().capabilities().medium == Medium::Ethernet
-                || self.device().capabilities().medium == Medium::Ethernet
+                || self.device().capabilities().medium == Medium::Ieee802154
         );
 
         InterfaceInner::check_hardware_addr(&addr);
