@@ -23,7 +23,7 @@ pub fn setup_logging_with_clock<F>(filter: &str, since_startup: F)
 where
     F: Fn() -> Instant + Send + Sync + 'static,
 {
-    Builder::new()
+    Builder::from_default_env()
         .format(move |buf, record| {
             let elapsed = since_startup();
             let timestamp = format!("[{}]", elapsed);
@@ -54,8 +54,7 @@ where
             }
         })
         .filter(None, LevelFilter::Trace)
-        .parse(filter)
-        .parse(&env::var("RUST_LOG").unwrap_or_else(|_| "".to_owned()))
+        .parse_filters(filter)
         .init();
 }
 
