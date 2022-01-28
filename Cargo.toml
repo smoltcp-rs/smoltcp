@@ -17,10 +17,10 @@ autoexamples = false
 
 [dependencies]
 managed = { version = "0.8", default-features = false, features = ["map"] }
-byteorder = { version = "1.4", default-features = false }
-log = { version = "0.4.14", default-features = false, optional = true }
-libc = { version = "0.2.115", optional = true }
-bitflags = { version = "1.3", default-features = false }
+byteorder = { version = "1.0", default-features = false }
+log = { version = "0.4.4", default-features = false, optional = true }
+libc = { version = "0.2.18", optional = true }
+bitflags = { version = "1.0", default-features = false }
 defmt = { version = "0.3", optional = true }
 rand_core = { version = "0.6.3", optional = true, default-features = false }
 
