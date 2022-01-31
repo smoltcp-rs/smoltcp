@@ -25,10 +25,10 @@ defmt = { version = "0.3", optional = true }
 rand_core = { version = "0.6.3", optional = true, default-features = false }
 
 [dev-dependencies]
-env_logger = "0.5"
+env_logger = "0.9"
 getopts = "0.2"
-rand = "0.3"
-url = "1.0"
+rand = "0.8"
+url = "2.0"
 
 [features]
 std = ["managed/std", "rand_core/std"]
