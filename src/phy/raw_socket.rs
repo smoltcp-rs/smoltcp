@@ -111,7 +111,12 @@ impl phy::TxToken for TxToken {
         let mut lower = self.lower.borrow_mut();
         let mut buffer = vec![0; len];
         let result = f(&mut buffer);
-        lower.send(&buffer[..]).unwrap();
+        if let Err(err) = lower.send(&buffer[..]) {
+            return match err.kind() {
+                io::ErrorKind::WouldBlock => Err(crate::Error::Exhausted),
+                _ => Err(crate::Error::Illegal),
+            };
+        }
         result
     }
 }
