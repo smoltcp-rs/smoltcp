@@ -5,6 +5,7 @@
 use core::cmp;
 use managed::{ManagedMap, ManagedSlice};
 
+#[allow(unused)]
 #[cfg(feature = "proto-sixlowpan")]
 use super::fragmentation::{sixlowpan::SixlowpanAssemblerInfo, PacketAssemblerSet};
 use super::socket_set::SocketSet;

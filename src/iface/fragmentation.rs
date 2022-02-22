@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use managed::{ManagedMap, ManagedSlice};
 
 use crate::storage::Assembler;
