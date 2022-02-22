@@ -144,13 +144,14 @@ pub use self::arp::{
 
 #[cfg(all(feature = "proto-sixlowpan", feature = "medium-ieee802154"))]
 pub use self::sixlowpan::{
+    frag::{Key as SixlowpanFragKey, Packet as SixlowpanFragPacket, Repr as SixlowpanFragRepr},
     iphc::{Packet as SixlowpanIphcPacket, Repr as SixlowpanIphcRepr},
     nhc::{
-        ExtensionHeaderPacket as SixlowpanExtHeaderPacket,
-        ExtensionHeaderRepr as SixlowpanExtHeaderRepr, Packet as SixlowpanNhcPacket,
-        UdpNhcRepr as SixlowpanUdpRepr, UdpPacket as SixlowpanUdpPacket,
+        ExtHeaderPacket as SixlowpanExtHeaderPacket, ExtHeaderRepr as SixlowpanExtHeaderRepr,
+        NhcPacket as SixlowpanNhcPacket, UdpNhcPacket as SixlowpanUdpNhcPacket,
+        UdpNhcRepr as SixlowpanUdpNhcRepr,
     },
-    NextHeader as SixlowpanNextHeader,
+    NextHeader as SixlowpanNextHeader, SixlowpanPacket,
 };
 
 #[cfg(feature = "medium-ieee802154")]

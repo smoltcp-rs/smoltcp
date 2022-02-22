@@ -1359,24 +1359,24 @@ impl<'a> InterfaceInner<'a> {
         match iphc_repr.next_header {
             SixlowpanNextHeader::Compressed => {
                 match check!(SixlowpanNhcPacket::dispatch(payload)) {
-                    SixlowpanNhcPacket::ExtensionHeader(_) => {
+                    SixlowpanNhcPacket::ExtHeader => {
                         net_debug!("Extension headers are currently not supported for 6LoWPAN");
                         None
                     }
                     #[cfg(not(feature = "socket-udp"))]
-                    SixlowpanNhcPacket::UdpHeader(_) => {
+                    SixlowpanNhcPacket::UdpHeader => {
                         net_debug!("UDP support is disabled, enable cargo feature `socket-udp`.");
                         None
                     }
                     #[cfg(feature = "socket-udp")]
-                    SixlowpanNhcPacket::UdpHeader(udp_packet) => {
+                    SixlowpanNhcPacket::UdpHeader => {
                         ipv6_repr.next_header = IpProtocol::Udp;
                         // Handle the UDP
-                        let udp_repr = check!(SixlowpanUdpRepr::parse(
+                        let udp_packet = check!(SixlowpanUdpNhcPacket::new_checked(payload));
+                        let udp_repr = check!(SixlowpanUdpNhcRepr::parse(
                             &udp_packet,
                             &iphc_repr.src_addr,
                             &iphc_repr.dst_addr,
-                            udp_packet.checksum(),
                         ));
 
                         // Look for UDP sockets that will accept the UDP packet.
@@ -2550,6 +2550,9 @@ impl<'a> InterfaceInner<'a> {
                     ll_dst_addr: Some(dst_hardware_addr),
                     next_header,
                     hop_limit,
+                    ecn: None,
+                    dscp: None,
+                    flow_label: None,
                 };
 
                 tx_len += ieee_repr.buffer_len();
@@ -2559,7 +2562,7 @@ impl<'a> InterfaceInner<'a> {
                 match &packet {
                     #[cfg(feature = "socket-udp")]
                     IpPacket::Udp((_, udp_repr, payload)) => {
-                        let udp_repr = SixlowpanUdpRepr(*udp_repr);
+                        let udp_repr = SixlowpanUdpNhcRepr(*udp_repr);
                         tx_len += udp_repr.header_len() + payload.len();
                     }
                     IpPacket::Icmpv6((_, icmp)) => {
@@ -2587,9 +2590,9 @@ impl<'a> InterfaceInner<'a> {
                         IpPacket::Udp((_, udp_repr, payload)) => {
                             // 3. Create the header for 6LoWPAN UDP
                             let mut udp_packet =
-                                SixlowpanUdpPacket::new_unchecked(&mut tx_buffer[start..tx_len]);
+                                SixlowpanUdpNhcPacket::new_unchecked(&mut tx_buffer[start..tx_len]);
 
-                            SixlowpanUdpRepr(udp_repr).emit(
+                            SixlowpanUdpNhcRepr(udp_repr).emit(
                                 &mut udp_packet,
                                 &iphc_repr.src_addr,
                                 &iphc_repr.dst_addr,
