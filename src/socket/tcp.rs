@@ -261,7 +261,7 @@ impl Timer {
             Timer::Idle { .. } | Timer::FastRetransmit { .. } => {
                 *self = Timer::Retransmit {
                     expires_at: timestamp + delay,
-                    delay: delay,
+                    delay,
                 }
             }
             Timer::Retransmit { expires_at, delay } if timestamp >= expires_at => {
@@ -414,8 +414,8 @@ impl<'a> TcpSocket<'a> {
             timer: Timer::new(),
             rtte: RttEstimator::default(),
             assembler: Assembler::new(rx_buffer.capacity()),
-            tx_buffer: tx_buffer,
-            rx_buffer: rx_buffer,
+            tx_buffer,
+            rx_buffer,
             rx_fin_received: false,
             timeout: None,
             keep_alive: None,
@@ -1829,7 +1829,7 @@ impl<'a> TcpSocket<'a> {
 
         // Try adding payload octets to the assembler.
         match self.assembler.add(payload_offset, payload_len) {
-            Ok(()) => {
+            Ok(_) => {
                 debug_assert!(self.assembler.total_size() == self.rx_buffer.capacity());
                 // Place payload octets into the buffer.
                 net_trace!(

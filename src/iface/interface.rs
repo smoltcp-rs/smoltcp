@@ -5,6 +5,8 @@
 use core::cmp;
 use managed::{ManagedMap, ManagedSlice};
 
+#[cfg(feature = "proto-sixlowpan")]
+use super::fragmentation::{sixlowpan::SixlowpanAssemblerInfo, PacketAssemblerSet};
 use super::socket_set::SocketSet;
 use super::{SocketHandle, SocketStorage};
 use crate::iface::Routes;

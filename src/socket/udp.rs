@@ -38,8 +38,8 @@ impl<'a> UdpSocket<'a> {
     pub fn new(rx_buffer: UdpSocketBuffer<'a>, tx_buffer: UdpSocketBuffer<'a>) -> UdpSocket<'a> {
         UdpSocket {
             endpoint: IpEndpoint::default(),
-            rx_buffer: rx_buffer,
-            tx_buffer: tx_buffer,
+            rx_buffer,
+            tx_buffer,
             hop_limit: None,
             #[cfg(feature = "async")]
             rx_waker: WakerRegistration::new(),
