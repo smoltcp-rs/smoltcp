@@ -2059,7 +2059,7 @@ mod test {
 
     #[test]
     fn sixlowpan_three_fragments() {
-        use crate::iface::{FragmentsCache, SixlowpanAssemblerInfo};
+        use crate::iface::FragmentsCache;
         use crate::time::Instant;
         use crate::wire::ieee802154::Frame as Ieee802154Frame;
         use crate::wire::ieee802154::Repr as Ieee802154Repr;
@@ -2106,8 +2106,8 @@ mod test {
             .unwrap()
             .start(
                 frag.datagram_size() as usize - uncompressed + compressed,
-                SixlowpanAssemblerInfo::new(uncompressed - compressed),
                 Instant::now(),
+                -((uncompressed - compressed) as isize),
             )
             .unwrap();
         frags_cache
