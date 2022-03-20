@@ -70,7 +70,7 @@ impl RawSocketDesc {
             let res = libc::bind(
                 self.lower,
                 &sockaddr as *const libc::sockaddr_ll as *const libc::sockaddr,
-                mem::size_of::<libc::sockaddr_ll>() as u32,
+                mem::size_of::<libc::sockaddr_ll>() as libc::socklen_t,
             );
             if res == -1 {
                 return Err(io::Error::last_os_error());
