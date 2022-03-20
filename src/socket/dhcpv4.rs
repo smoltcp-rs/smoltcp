@@ -427,7 +427,7 @@ impl Dhcpv4Socket {
         let mut ipv4_repr = Ipv4Repr {
             src_addr: Ipv4Address::UNSPECIFIED,
             dst_addr: Ipv4Address::BROADCAST,
-            protocol: IpProtocol::Udp,
+            next_header: IpProtocol::Udp,
             payload_len: 0, // filled right before emit
             hop_limit: 64,
         };
@@ -606,7 +606,7 @@ mod test {
             let _ = s
                 .socket
                 .dispatch(&mut s.cx, |_, (mut ip_repr, udp_repr, dhcp_repr)| {
-                    assert_eq!(ip_repr.protocol, IpProtocol::Udp);
+                    assert_eq!(ip_repr.next_header, IpProtocol::Udp);
                     assert_eq!(
                         ip_repr.payload_len,
                         udp_repr.header_len() + dhcp_repr.buffer_len()
@@ -671,7 +671,7 @@ mod test {
     const IP_BROADCAST: Ipv4Repr = Ipv4Repr {
         src_addr: Ipv4Address::UNSPECIFIED,
         dst_addr: Ipv4Address::BROADCAST,
-        protocol: IpProtocol::Udp,
+        next_header: IpProtocol::Udp,
         payload_len: 0,
         hop_limit: 64,
     };
@@ -679,7 +679,7 @@ mod test {
     const IP_SERVER_BROADCAST: Ipv4Repr = Ipv4Repr {
         src_addr: SERVER_IP,
         dst_addr: Ipv4Address::BROADCAST,
-        protocol: IpProtocol::Udp,
+        next_header: IpProtocol::Udp,
         payload_len: 0,
         hop_limit: 64,
     };
@@ -687,7 +687,7 @@ mod test {
     const IP_RECV: Ipv4Repr = Ipv4Repr {
         src_addr: SERVER_IP,
         dst_addr: MY_IP,
-        protocol: IpProtocol::Udp,
+        next_header: IpProtocol::Udp,
         payload_len: 0,
         hop_limit: 64,
     };
@@ -695,7 +695,7 @@ mod test {
     const IP_SEND: Ipv4Repr = Ipv4Repr {
         src_addr: MY_IP,
         dst_addr: SERVER_IP,
-        protocol: IpProtocol::Udp,
+        next_header: IpProtocol::Udp,
         payload_len: 0,
         hop_limit: 64,
     };

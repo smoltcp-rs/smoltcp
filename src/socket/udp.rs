@@ -359,13 +359,13 @@ impl<'a> UdpSocket<'a> {
                     src_port: endpoint.port,
                     dst_port: remote_endpoint.port,
                 };
-                let ip_repr = IpRepr::Unspecified {
-                    src_addr: endpoint.addr,
-                    dst_addr: remote_endpoint.addr,
-                    protocol: IpProtocol::Udp,
-                    payload_len: repr.header_len() + payload_buf.len(),
-                    hop_limit: hop_limit,
-                };
+                let ip_repr = IpRepr::new(
+                    endpoint.addr,
+                    remote_endpoint.addr,
+                    IpProtocol::Udp,
+                    repr.header_len() + payload_buf.len(),
+                    hop_limit,
+                );
                 emit(cx, (ip_repr, repr, payload_buf))
             })?;
 
@@ -387,11 +387,6 @@ impl<'a> UdpSocket<'a> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::wire::ip::test::{MOCK_IP_ADDR_1, MOCK_IP_ADDR_2, MOCK_IP_ADDR_3};
-    #[cfg(feature = "proto-ipv4")]
-    use crate::wire::Ipv4Repr;
-    #[cfg(feature = "proto-ipv6")]
-    use crate::wire::Ipv6Repr;
     use crate::wire::{IpAddress, IpRepr, UdpRepr};
 
     fn buffer(packets: usize) -> UdpSocketBuffer<'static> {
@@ -411,22 +406,64 @@ mod test {
     const LOCAL_PORT: u16 = 53;
     const REMOTE_PORT: u16 = 49500;
 
+    cfg_if::cfg_if! {
+        if #[cfg(feature = "proto-ipv4")] {
+            use crate::wire::Ipv4Address as IpvXAddress;
+            use crate::wire::Ipv4Repr as IpvXRepr;
+            use IpRepr::Ipv4 as IpReprIpvX;
+
+            const LOCAL_ADDR: IpvXAddress = IpvXAddress([192, 168, 1, 1]);
+            const REMOTE_ADDR: IpvXAddress = IpvXAddress([192, 168, 1, 2]);
+            const OTHER_ADDR: IpvXAddress = IpvXAddress([192, 168, 1, 3]);
+        } else {
+            use crate::wire::Ipv6Address as IpvXAddress;
+            use crate::wire::Ipv6Repr as IpvXRepr;
+            use IpRepr::Ipv6 as IpReprIpvX;
+
+            const LOCAL_ADDR: IpvXAddress = IpvXAddress([
+                0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+            ]);
+            const REMOTE_ADDR: IpvXAddress = IpvXAddress([
+                0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2,
+            ]);
+            const OTHER_ADDR: IpvXAddress = IpvXAddress([
+                0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3,
+            ]);
+        }
+    }
+
     pub const LOCAL_END: IpEndpoint = IpEndpoint {
-        addr: MOCK_IP_ADDR_1,
+        addr: LOCAL_ADDR.into_address(),
         port: LOCAL_PORT,
     };
     pub const REMOTE_END: IpEndpoint = IpEndpoint {
-        addr: MOCK_IP_ADDR_2,
+        addr: REMOTE_ADDR.into_address(),
         port: REMOTE_PORT,
     };
 
-    pub const LOCAL_IP_REPR: IpRepr = IpRepr::Unspecified {
-        src_addr: MOCK_IP_ADDR_1,
-        dst_addr: MOCK_IP_ADDR_2,
-        protocol: IpProtocol::Udp,
+    pub const LOCAL_IP_REPR: IpRepr = IpReprIpvX(IpvXRepr {
+        src_addr: LOCAL_ADDR,
+        dst_addr: REMOTE_ADDR,
+        next_header: IpProtocol::Udp,
         payload_len: 8 + 6,
         hop_limit: 64,
-    };
+    });
+
+    pub const REMOTE_IP_REPR: IpRepr = IpReprIpvX(IpvXRepr {
+        src_addr: REMOTE_ADDR,
+        dst_addr: LOCAL_ADDR,
+        next_header: IpProtocol::Udp,
+        payload_len: 8 + 6,
+        hop_limit: 64,
+    });
+
+    pub const BAD_IP_REPR: IpRepr = IpReprIpvX(IpvXRepr {
+        src_addr: REMOTE_ADDR,
+        dst_addr: OTHER_ADDR,
+        next_header: IpProtocol::Udp,
+        payload_len: 8 + 6,
+        hop_limit: 64,
+    });
 
     const LOCAL_UDP_REPR: UdpRepr = UdpRepr {
         src_port: LOCAL_PORT,
@@ -439,28 +476,6 @@ mod test {
     };
 
     const PAYLOAD: &[u8] = b"abcdef";
-
-    fn remote_ip_repr() -> IpRepr {
-        match (MOCK_IP_ADDR_2, MOCK_IP_ADDR_1) {
-            #[cfg(feature = "proto-ipv4")]
-            (IpAddress::Ipv4(src), IpAddress::Ipv4(dst)) => IpRepr::Ipv4(Ipv4Repr {
-                src_addr: src,
-                dst_addr: dst,
-                protocol: IpProtocol::Udp,
-                payload_len: 8 + 6,
-                hop_limit: 64,
-            }),
-            #[cfg(feature = "proto-ipv6")]
-            (IpAddress::Ipv6(src), IpAddress::Ipv6(dst)) => IpRepr::Ipv6(Ipv6Repr {
-                src_addr: src,
-                dst_addr: dst,
-                next_header: IpProtocol::Udp,
-                payload_len: 8 + 6,
-                hop_limit: 64,
-            }),
-            _ => unreachable!(),
-        }
-    }
 
     #[test]
     fn test_bind_unaddressable() {
@@ -567,16 +582,16 @@ mod test {
         assert!(!socket.can_recv());
         assert_eq!(socket.recv(), Err(Error::Exhausted));
 
-        assert!(socket.accepts(&mut cx, &remote_ip_repr(), &REMOTE_UDP_REPR));
+        assert!(socket.accepts(&mut cx, &REMOTE_IP_REPR, &REMOTE_UDP_REPR));
         assert_eq!(
-            socket.process(&mut cx, &remote_ip_repr(), &REMOTE_UDP_REPR, PAYLOAD),
+            socket.process(&mut cx, &REMOTE_IP_REPR, &REMOTE_UDP_REPR, PAYLOAD),
             Ok(())
         );
         assert!(socket.can_recv());
 
-        assert!(socket.accepts(&mut cx, &remote_ip_repr(), &REMOTE_UDP_REPR));
+        assert!(socket.accepts(&mut cx, &REMOTE_IP_REPR, &REMOTE_UDP_REPR));
         assert_eq!(
-            socket.process(&mut cx, &remote_ip_repr(), &REMOTE_UDP_REPR, PAYLOAD),
+            socket.process(&mut cx, &REMOTE_IP_REPR, &REMOTE_UDP_REPR, PAYLOAD),
             Err(Error::Exhausted)
         );
         assert_eq!(socket.recv(), Ok((&b"abcdef"[..], REMOTE_END)));
@@ -593,7 +608,7 @@ mod test {
         assert_eq!(socket.peek(), Err(Error::Exhausted));
 
         assert_eq!(
-            socket.process(&mut cx, &remote_ip_repr(), &REMOTE_UDP_REPR, PAYLOAD),
+            socket.process(&mut cx, &REMOTE_IP_REPR, &REMOTE_UDP_REPR, PAYLOAD),
             Ok(())
         );
         assert_eq!(socket.peek(), Ok((&b"abcdef"[..], &REMOTE_END)));
@@ -608,9 +623,9 @@ mod test {
 
         assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
 
-        assert!(socket.accepts(&mut cx, &remote_ip_repr(), &REMOTE_UDP_REPR));
+        assert!(socket.accepts(&mut cx, &REMOTE_IP_REPR, &REMOTE_UDP_REPR));
         assert_eq!(
-            socket.process(&mut cx, &remote_ip_repr(), &REMOTE_UDP_REPR, PAYLOAD),
+            socket.process(&mut cx, &REMOTE_IP_REPR, &REMOTE_UDP_REPR, PAYLOAD),
             Ok(())
         );
 
@@ -627,7 +642,7 @@ mod test {
         assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
 
         assert_eq!(
-            socket.process(&mut cx, &remote_ip_repr(), &REMOTE_UDP_REPR, PAYLOAD),
+            socket.process(&mut cx, &REMOTE_IP_REPR, &REMOTE_UDP_REPR, PAYLOAD),
             Ok(())
         );
 
@@ -652,13 +667,13 @@ mod test {
             s.dispatch(&mut cx, |_, (ip_repr, _, _)| {
                 assert_eq!(
                     ip_repr,
-                    IpRepr::Unspecified {
-                        src_addr: MOCK_IP_ADDR_1,
-                        dst_addr: MOCK_IP_ADDR_2,
-                        protocol: IpProtocol::Udp,
+                    IpReprIpvX(IpvXRepr {
+                        src_addr: LOCAL_ADDR,
+                        dst_addr: REMOTE_ADDR,
+                        next_header: IpProtocol::Udp,
                         payload_len: 8 + 6,
                         hop_limit: 0x2a,
-                    }
+                    })
                 );
                 Ok(())
             }),
@@ -674,44 +689,22 @@ mod test {
         assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
 
         let mut udp_repr = REMOTE_UDP_REPR;
-        assert!(socket.accepts(&mut cx, &remote_ip_repr(), &udp_repr));
+        assert!(socket.accepts(&mut cx, &REMOTE_IP_REPR, &udp_repr));
         udp_repr.dst_port += 1;
-        assert!(!socket.accepts(&mut cx, &remote_ip_repr(), &udp_repr));
+        assert!(!socket.accepts(&mut cx, &REMOTE_IP_REPR, &udp_repr));
     }
 
     #[test]
     fn test_doesnt_accept_wrong_ip() {
-        fn generate_bad_repr() -> IpRepr {
-            match (MOCK_IP_ADDR_2, MOCK_IP_ADDR_3) {
-                #[cfg(feature = "proto-ipv4")]
-                (IpAddress::Ipv4(src), IpAddress::Ipv4(dst)) => IpRepr::Ipv4(Ipv4Repr {
-                    src_addr: src,
-                    dst_addr: dst,
-                    protocol: IpProtocol::Udp,
-                    payload_len: 8 + 6,
-                    hop_limit: 64,
-                }),
-                #[cfg(feature = "proto-ipv6")]
-                (IpAddress::Ipv6(src), IpAddress::Ipv6(dst)) => IpRepr::Ipv6(Ipv6Repr {
-                    src_addr: src,
-                    dst_addr: dst,
-                    next_header: IpProtocol::Udp,
-                    payload_len: 8 + 6,
-                    hop_limit: 64,
-                }),
-                _ => unreachable!(),
-            }
-        }
-
         let mut cx = Context::mock();
 
         let mut port_bound_socket = socket(buffer(1), buffer(0));
         assert_eq!(port_bound_socket.bind(LOCAL_PORT), Ok(()));
-        assert!(port_bound_socket.accepts(&mut cx, &generate_bad_repr(), &REMOTE_UDP_REPR));
+        assert!(port_bound_socket.accepts(&mut cx, &BAD_IP_REPR, &REMOTE_UDP_REPR));
 
         let mut ip_bound_socket = socket(buffer(1), buffer(0));
         assert_eq!(ip_bound_socket.bind(LOCAL_END), Ok(()));
-        assert!(!ip_bound_socket.accepts(&mut cx, &generate_bad_repr(), &REMOTE_UDP_REPR));
+        assert!(!ip_bound_socket.accepts(&mut cx, &BAD_IP_REPR, &REMOTE_UDP_REPR));
     }
 
     #[test]
@@ -740,10 +733,7 @@ mod test {
             src_port: REMOTE_PORT,
             dst_port: LOCAL_PORT,
         };
-        assert_eq!(
-            socket.process(&mut cx, &remote_ip_repr(), &repr, &[]),
-            Ok(())
-        );
+        assert_eq!(socket.process(&mut cx, &REMOTE_IP_REPR, &repr, &[]), Ok(()));
         assert_eq!(socket.recv(), Ok((&[][..], REMOTE_END)));
     }
 

@@ -205,7 +205,7 @@ impl<'a> RawSocket<'a> {
         if ip_repr.version() != self.ip_version {
             return false;
         }
-        if ip_repr.protocol() != self.ip_protocol {
+        if ip_repr.next_header() != self.ip_protocol {
             return false;
         }
 
@@ -244,7 +244,7 @@ impl<'a> RawSocket<'a> {
         F: FnOnce(&mut Context, (IpRepr, &[u8])) -> Result<()>,
     {
         fn prepare<'a>(
-            protocol: IpProtocol,
+            next_header: IpProtocol,
             buffer: &'a mut [u8],
             _checksum_caps: &ChecksumCapabilities,
         ) -> Result<(IpRepr, &'a [u8])> {
@@ -252,7 +252,7 @@ impl<'a> RawSocket<'a> {
                 #[cfg(feature = "proto-ipv4")]
                 IpVersion::Ipv4 => {
                     let mut packet = Ipv4Packet::new_checked(buffer)?;
-                    if packet.protocol() != protocol {
+                    if packet.next_header() != next_header {
                         return Err(Error::Unaddressable);
                     }
                     if _checksum_caps.ipv4.tx() {
@@ -270,7 +270,7 @@ impl<'a> RawSocket<'a> {
                 #[cfg(feature = "proto-ipv6")]
                 IpVersion::Ipv6 => {
                     let packet = Ipv6Packet::new_checked(buffer)?;
-                    if packet.next_header() != protocol {
+                    if packet.next_header() != next_header {
                         return Err(Error::Unaddressable);
                     }
                     let packet = Ipv6Packet::new_unchecked(&*packet.into_inner());
@@ -358,7 +358,7 @@ mod test {
         pub const HEADER_REPR: IpRepr = IpRepr::Ipv4(Ipv4Repr {
             src_addr: Ipv4Address([10, 0, 0, 1]),
             dst_addr: Ipv4Address([10, 0, 0, 2]),
-            protocol: IpProtocol::Unknown(IP_PROTO),
+            next_header: IpProtocol::Unknown(IP_PROTO),
             payload_len: 4,
             hop_limit: 64,
         });
@@ -521,7 +521,7 @@ mod test {
             assert_eq!(socket.dispatch(&mut cx, |_, _| unreachable!()), Ok(()));
 
             let mut wrong_protocol = ipv4_locals::PACKET_BYTES;
-            Ipv4Packet::new_unchecked(&mut wrong_protocol).set_protocol(IpProtocol::Tcp);
+            Ipv4Packet::new_unchecked(&mut wrong_protocol).set_next_header(IpProtocol::Tcp);
 
             assert_eq!(socket.send_slice(&wrong_protocol[..]), Ok(()));
             assert_eq!(socket.dispatch(&mut cx, |_, _| unreachable!()), Ok(()));

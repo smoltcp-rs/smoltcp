@@ -188,6 +188,13 @@ impl Address {
             self.0[13], self.0[14], self.0[15],
         ])
     }
+
+    /// Convert to an `IpAddress`.
+    ///
+    /// Same as `.into()`, but works in `const`.
+    pub const fn into_address(self) -> super::IpAddress {
+        super::IpAddress::Ipv6(self)
+    }
 }
 
 #[cfg(feature = "std")]
