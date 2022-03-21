@@ -221,7 +221,7 @@ impl<'a, Info: PacketAssemblerInfo> PacketAssembler<'a, Info> {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct PacketAssemblerSet<'a, Key: Eq + Ord + Clone + Copy, Info: PacketAssemblerInfo> {
     packet_buffer: ManagedSlice<'a, PacketAssembler<'a, Info>>,
-    index_buffer: ManagedMap<'a, Key, u8>,
+    index_buffer: ManagedMap<'a, Key, usize>,
 }
 
 impl<'a, K: Eq + Ord + Clone + Copy, Info: PacketAssemblerInfo> PacketAssemblerSet<'a, K, Info> {
@@ -237,7 +237,7 @@ impl<'a, K: Eq + Ord + Clone + Copy, Info: PacketAssemblerInfo> PacketAssemblerS
     pub fn new<FB, IB>(packet_buffer: FB, index_buffer: IB) -> Self
     where
         FB: Into<ManagedSlice<'a, PacketAssembler<'a, Info>>>,
-        IB: Into<ManagedMap<'a, K, u8>>,
+        IB: Into<ManagedMap<'a, K, usize>>,
     {
         let packet_buffer = packet_buffer.into();
         let index_buffer = index_buffer.into();
@@ -278,15 +278,17 @@ impl<'a, K: Eq + Ord + Clone + Copy, Info: PacketAssemblerInfo> PacketAssemblerS
     /// - Returns [`Error::PacketAssemblerSetFull`] when every [`PacketAssembler`] in the buffer is used (only
     /// when the non allocating version of is used).
     pub(crate) fn reserve_with_key(&mut self, key: &K) -> Result<&mut PacketAssembler<'a, Info>> {
+        // Check how many WIP reassemblies we have.
+        // The limit is currently set to 255.
+        if self.index_buffer.len() == u8::MAX as usize {
+            return Err(Error::PacketAssemblerSetFull);
+        }
+
         if self.packet_buffer.len() == self.index_buffer.len() {
             match &mut self.packet_buffer {
                 ManagedSlice::Borrowed(_) => return Err(Error::PacketAssemblerSetFull),
                 #[cfg(any(feature = "std", feature = "alloc"))]
-                ManagedSlice::Owned(b) => {
-                    b.resize_with(self.index_buffer.len() + 1, || {
-                        PacketAssembler::new(Vec::new())
-                    });
-                }
+                ManagedSlice::Owned(b) => (),
             }
         }
 
@@ -295,7 +297,7 @@ impl<'a, K: Eq + Ord + Clone + Copy, Info: PacketAssemblerInfo> PacketAssemblerS
             .ok_or(Error::PacketAssemblerSetFull)?;
 
         // NOTE(thvdveld): this should not fail because we already checked the available space.
-        match self.index_buffer.insert(*key, i as u8) {
+        match self.index_buffer.insert(*key, i) {
             Ok(_) => Ok(&mut self.packet_buffer[i]),
             Err(_) => unreachable!(),
         }
