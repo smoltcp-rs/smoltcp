@@ -306,7 +306,13 @@ impl<'a, K: Eq + Ord + Clone + Copy, Info: PacketAssemblerInfo> PacketAssemblerS
     }
 
     /// Return the first free packet assembler available from the cache.
-    fn get_free_packet_assembler(&self) -> Option<usize> {
+    fn get_free_packet_assembler(&mut self) -> Option<usize> {
+        match &mut self.packet_buffer {
+            ManagedSlice::Borrowed(_) => (),
+            #[cfg(any(feature = "std", feature = "alloc"))]
+            ManagedSlice::Owned(b) => b.push(PacketAssembler::new(vec![])),
+        }
+
         self.packet_buffer
             .iter()
             .enumerate()
@@ -462,7 +468,7 @@ mod tests {
 
         assert_eq!(
             p_assembler.add(&data[..], 1, Instant::now()),
-            Err(Error::PacketAssemblerOverlap),
+            Ok(true),
         );
     }
 
