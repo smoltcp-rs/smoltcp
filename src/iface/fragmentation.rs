@@ -154,7 +154,6 @@ impl<'a, Info: PacketAssemblerInfo> PacketAssembler<'a, Info> {
                 }
             }
         };
-        self.assembler = AssemblerState::NotInit;
         Ok(b)
     }
 
