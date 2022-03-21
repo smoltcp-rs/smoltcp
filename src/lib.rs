@@ -186,6 +186,25 @@ pub enum Error {
     /// An incoming packet was recognized but contradicted internal state.
     /// E.g. a TCP packet addressed to a socket that doesn't exist.
     Dropped,
+    /// An incoming fragment arrived too late.
+    ReassemblyTimeout,
+
+    /// The packet assembler is not initialized, thus it cannot know what the final size of the
+    /// packet would be.
+    PacketAssemblerNotInit,
+    /// The buffer of the assembler is to small and thus the final packet wont fit into it.
+    PacketAssemblerBufferTooSmall,
+    /// The packet assembler did not receive all the fragments for assembling the final packet.
+    PacketAssemblerIncomplete,
+    /// There are too many holes in the packet assembler (should be fixed in the future?).
+    PacketAssemblerTooManyHoles,
+    /// There was an overlap when adding data to the packet assembler.
+    PacketAssemblerOverlap,
+
+    /// The packet assembler set has no place for assembling a new stream of fragments.
+    PacketAssemblerSetFull,
+    /// The key was not found in the packet assembler set.
+    PacketAssemblerSetKeyNotFound,
 
     /// An incoming packet was recognized but some parts are not supported by smoltcp.
     /// E.g. some bit configuration in a packet header is not supported, but is defined in an RFC.
@@ -211,6 +230,23 @@ impl fmt::Display for Error {
             Error::Fragmented => write!(f, "fragmented packet"),
             Error::Malformed => write!(f, "malformed packet"),
             Error::Dropped => write!(f, "dropped by socket"),
+            Error::ReassemblyTimeout => write!(f, "incoming fragment arrived too late"),
+            Error::PacketAssemblerNotInit => write!(f, "packet assembler was not initialized"),
+            Error::PacketAssemblerBufferTooSmall => {
+                write!(f, "packet assembler buffer too small for final packet")
+            }
+            Error::PacketAssemblerIncomplete => write!(f, "packet assembler incomplete"),
+            Error::PacketAssemblerTooManyHoles => write!(
+                f,
+                "packet assembler has too many holes (internal smoltcp error)"
+            ),
+            Error::PacketAssemblerOverlap => {
+                write!(f, "overlap when adding data to packet assembler")
+            }
+            Error::PacketAssemblerSetFull => write!(f, "packet assembler set is full"),
+            Error::PacketAssemblerSetKeyNotFound => {
+                write!(f, "packet assembler set does not find key")
+            }
             Error::NotSupported => write!(f, "not supported by smoltcp"),
         }
     }

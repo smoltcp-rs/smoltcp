@@ -4,6 +4,8 @@ The `iface` module deals with the *network interfaces*. It filters incoming fram
 provides lookup and caching of hardware addresses, and handles management packets.
 */
 
+#[cfg(feature = "proto-sixlowpan")]
+mod fragmentation;
 mod interface;
 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
 mod neighbor;
@@ -19,5 +21,8 @@ pub use self::neighbor::Cache as NeighborCache;
 pub use self::neighbor::Neighbor;
 pub use self::route::{Route, Routes};
 pub use socket_set::{SocketHandle, SocketStorage};
+
+#[cfg(feature = "proto-sixlowpan")]
+pub use self::fragmentation::{PacketAssembler, PacketAssemblerSet as FragmentsCache};
 
 pub use self::interface::{Interface, InterfaceBuilder, InterfaceInner as Context};
