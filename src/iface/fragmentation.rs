@@ -466,10 +466,7 @@ mod tests {
 
         p_assembler.add(&data[..], 0, Instant::now()).unwrap();
 
-        assert_eq!(
-            p_assembler.add(&data[..], 1, Instant::now()),
-            Ok(true),
-        );
+        assert_eq!(p_assembler.add(&data[..], 1, Instant::now()), Ok(true));
     }
 
     #[test]
