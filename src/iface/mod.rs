@@ -23,8 +23,6 @@ pub use self::route::{Route, Routes};
 pub use socket_set::{SocketHandle, SocketStorage};
 
 #[cfg(feature = "proto-sixlowpan")]
-pub use self::fragmentation::{
-    sixlowpan::SixlowpanAssemblerInfo, PacketAssembler, PacketAssemblerSet as FragmentsCache,
-};
+pub use self::fragmentation::{PacketAssembler, PacketAssemblerSet as FragmentsCache};
 
 pub use self::interface::{Interface, InterfaceBuilder, InterfaceInner as Context};

@@ -7,44 +7,28 @@ use crate::time::Instant;
 use crate::Error;
 use crate::Result;
 
-pub trait PacketAssemblerInfo: PartialEq {
-    /// Calculate a new offset based on some other information.
-    fn calc_offset(&self, offset: usize) -> usize;
-}
-
-#[derive(Debug, PartialEq)]
-pub struct NoInfo;
-
-impl PacketAssemblerInfo for NoInfo {
-    #[inline]
-    fn calc_offset(&self, offset: usize) -> usize {
-        offset
-    }
-}
-
 /// Holds different fragments of one packet, used for assembling fragmented packets.
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct PacketAssembler<'a, Info: PacketAssemblerInfo = NoInfo> {
+pub struct PacketAssembler<'a> {
     buffer: ManagedSlice<'a, u8>,
-    assembler: AssemblerState<Info>,
+    assembler: AssemblerState,
 }
 
 /// Holds the state of the assembling of one packet.
 #[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-enum AssemblerState<Info: PacketAssemblerInfo = NoInfo> {
+enum AssemblerState {
     NotInit,
     Assembling {
         assembler: Assembler,
         total_size: usize,
-        info: Info,
         last_updated: Instant,
         started_on: Instant,
     },
 }
 
-impl<'a, Info: PacketAssemblerInfo> PacketAssembler<'a, Info> {
+impl<'a> PacketAssembler<'a> {
     /// Create a new empty buffer for fragments.
     pub fn new<S>(storage: S) -> Self
     where
@@ -64,12 +48,7 @@ impl<'a, Info: PacketAssemblerInfo> PacketAssembler<'a, Info> {
     ///
     /// - Returns [`Error::PacketAssemblerBufferTooSmall`] when the buffer is too smal for holding all the
     /// fragments of a packet.
-    pub(crate) fn start(
-        &mut self,
-        total_size: usize,
-        info: Info,
-        start_time: Instant,
-    ) -> Result<()> {
+    pub(crate) fn start(&mut self, total_size: usize, start_time: Instant) -> Result<()> {
         match &mut self.buffer {
             ManagedSlice::Borrowed(b) if b.len() < total_size => {
                 return Err(Error::PacketAssemblerBufferTooSmall);
@@ -84,7 +63,6 @@ impl<'a, Info: PacketAssemblerInfo> PacketAssembler<'a, Info> {
         self.assembler = AssemblerState::Assembling {
             assembler: Assembler::new(total_size),
             total_size,
-            info,
             last_updated: start_time,
             started_on: start_time,
         };
@@ -107,12 +85,9 @@ impl<'a, Info: PacketAssemblerInfo> PacketAssembler<'a, Info> {
             AssemblerState::Assembling {
                 ref mut assembler,
                 total_size,
-                ref info,
                 ref mut last_updated,
                 ..
             } => {
-                let offset = info.calc_offset(offset);
-
                 if offset + data.len() > total_size {
                     return Err(Error::PacketAssemblerBufferTooSmall);
                 }
@@ -221,12 +196,12 @@ impl<'a, Info: PacketAssemblerInfo> PacketAssembler<'a, Info> {
 /// Set holding multiple [`PacketAssembler`].
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct PacketAssemblerSet<'a, Key: Eq + Ord + Clone + Copy, Info: PacketAssemblerInfo> {
-    packet_buffer: ManagedSlice<'a, PacketAssembler<'a, Info>>,
+pub struct PacketAssemblerSet<'a, Key: Eq + Ord + Clone + Copy> {
+    packet_buffer: ManagedSlice<'a, PacketAssembler<'a>>,
     index_buffer: ManagedMap<'a, Key, usize>,
 }
 
-impl<'a, K: Eq + Ord + Clone + Copy, Info: PacketAssemblerInfo> PacketAssemblerSet<'a, K, Info> {
+impl<'a, K: Eq + Ord + Clone + Copy> PacketAssemblerSet<'a, K> {
     /// Create a new set of packet assemblers.
     ///
     /// # Panics
@@ -238,7 +213,7 @@ impl<'a, K: Eq + Ord + Clone + Copy, Info: PacketAssemblerInfo> PacketAssemblerS
     ///   - The index buffer is empty (when only the index buffer is borrowed).
     pub fn new<FB, IB>(packet_buffer: FB, index_buffer: IB) -> Self
     where
-        FB: Into<ManagedSlice<'a, PacketAssembler<'a, Info>>>,
+        FB: Into<ManagedSlice<'a, PacketAssembler<'a>>>,
         IB: Into<ManagedMap<'a, K, usize>>,
     {
         let packet_buffer = packet_buffer.into();
@@ -279,7 +254,7 @@ impl<'a, K: Eq + Ord + Clone + Copy, Info: PacketAssemblerInfo> PacketAssemblerS
     ///
     /// - Returns [`Error::PacketAssemblerSetFull`] when every [`PacketAssembler`] in the buffer is used (only
     /// when the non allocating version of is used).
-    pub(crate) fn reserve_with_key(&mut self, key: &K) -> Result<&mut PacketAssembler<'a, Info>> {
+    pub(crate) fn reserve_with_key(&mut self, key: &K) -> Result<&mut PacketAssembler<'a>> {
         // Check how many WIP reassemblies we have.
         // The limit is currently set to 255.
         if self.index_buffer.len() == u8::MAX as usize {
@@ -325,10 +300,7 @@ impl<'a, K: Eq + Ord + Clone + Copy, Info: PacketAssemblerInfo> PacketAssemblerS
     /// # Errors
     ///
     /// - Returns [`Error::PacketAssemblerSetKeyNotFound`] when the key was not found in the set.
-    pub(crate) fn get_packet_assembler_mut(
-        &mut self,
-        key: &K,
-    ) -> Result<&mut PacketAssembler<'a, Info>> {
+    pub(crate) fn get_packet_assembler_mut(&mut self, key: &K) -> Result<&mut PacketAssembler<'a>> {
         if let Some(i) = self.index_buffer.get(key) {
             Ok(&mut self.packet_buffer[*i as usize])
         } else {
@@ -375,7 +347,7 @@ impl<'a, K: Eq + Ord + Clone + Copy, Info: PacketAssemblerInfo> PacketAssemblerS
     /// Remove all [`PacketAssembler`]s for which `f` returns `Ok(true)`.
     pub fn remove_when(
         &mut self,
-        f: impl Fn(&mut PacketAssembler<'_, Info>) -> Result<bool>,
+        f: impl Fn(&mut PacketAssembler<'_>) -> Result<bool>,
     ) -> Result<()> {
         for (_, i) in &mut self.index_buffer.iter() {
             let frag = &mut self.packet_buffer[*i as usize];
@@ -386,30 +358,6 @@ impl<'a, K: Eq + Ord + Clone + Copy, Info: PacketAssemblerInfo> PacketAssemblerS
         self.remove_discarded();
 
         Ok(())
-    }
-}
-
-#[cfg(feature = "proto-sixlowpan")]
-pub mod sixlowpan {
-    #[derive(Debug, PartialEq)]
-    pub struct SixlowpanAssemblerInfo {
-        header_size: usize,
-    }
-
-    impl SixlowpanAssemblerInfo {
-        pub fn new(header_size: usize) -> Self {
-            SixlowpanAssemblerInfo { header_size }
-        }
-    }
-
-    impl super::PacketAssemblerInfo for SixlowpanAssemblerInfo {
-        #[inline]
-        fn calc_offset(&self, offset: usize) -> usize {
-            match offset {
-                0 => 0,
-                offset => offset - self.header_size,
-            }
-        }
     }
 }
 
@@ -424,7 +372,7 @@ mod tests {
 
     #[test]
     fn packet_assembler_not_init() {
-        let mut p_assembler = PacketAssembler::<NoInfo>::new(vec![]);
+        let mut p_assembler = PacketAssembler::new(vec![]);
         let data = b"Hello World!";
         assert_eq!(
             p_assembler.add(&data[..], data.len(), Instant::now()),
@@ -441,13 +389,13 @@ mod tests {
     #[test]
     fn packet_assembler_buffer_too_small() {
         let mut storage = [0u8; 1];
-        let mut p_assembler = PacketAssembler::<NoInfo>::new(&mut storage[..]);
+        let mut p_assembler = PacketAssembler::new(&mut storage[..]);
 
         assert_eq!(
-            p_assembler.start(2, NoInfo, Instant::now()),
+            p_assembler.start(2, Instant::now()),
             Err(Error::PacketAssemblerBufferTooSmall)
         );
-        assert_eq!(p_assembler.start(1, NoInfo, Instant::now()), Ok(()));
+        assert_eq!(p_assembler.start(1, Instant::now()), Ok(()));
 
         let data = b"Hello World!";
         assert_eq!(
@@ -461,7 +409,7 @@ mod tests {
         let mut storage = [0u8; 5];
         let mut p_assembler = PacketAssembler::new(&mut storage[..]);
 
-        p_assembler.start(5, NoInfo, Instant::now()).unwrap();
+        p_assembler.start(5, Instant::now()).unwrap();
         let data = b"Rust";
 
         p_assembler.add(&data[..], 0, Instant::now()).unwrap();
@@ -476,9 +424,7 @@ mod tests {
 
         let data = b"Hello World!";
 
-        p_assembler
-            .start(data.len(), NoInfo, Instant::now())
-            .unwrap();
+        p_assembler.start(data.len(), Instant::now()).unwrap();
 
         p_assembler.add(b"Hello ", 0, Instant::now()).unwrap();
         assert_eq!(
@@ -497,8 +443,7 @@ mod tests {
     fn packet_assembler_set() {
         let key = Key { id: 1 };
 
-        let mut set =
-            PacketAssemblerSet::<'_, _, NoInfo>::new(vec![], std::collections::BTreeMap::new());
+        let mut set = PacketAssemblerSet::<'_, _>::new(vec![], std::collections::BTreeMap::new());
 
         if let Err(e) = set.get_packet_assembler_mut(&key) {
             assert_eq!(e, Error::PacketAssemblerSetKeyNotFound);
@@ -510,7 +455,7 @@ mod tests {
     #[test]
     fn packet_assembler_set_borrowed() {
         let mut buf = [0u8, 127];
-        let mut packet_assembler_cache = [PacketAssembler::<'_, NoInfo>::new(&mut buf[..])];
+        let mut packet_assembler_cache = [PacketAssembler::<'_>::new(&mut buf[..])];
         let mut packet_index_cache = [None];
 
         let key = Key { id: 1 };
@@ -538,7 +483,7 @@ mod tests {
         set.reserve_with_key(&key).unwrap();
         set.get_packet_assembler_mut(&key)
             .unwrap()
-            .start(0, NoInfo, Instant::now())
+            .start(0, Instant::now())
             .unwrap();
         set.get_assembled_packet(&key).unwrap();
 
@@ -546,7 +491,7 @@ mod tests {
         set.reserve_with_key(&key).unwrap();
         set.get_packet_assembler_mut(&key)
             .unwrap()
-            .start(0, NoInfo, Instant::now())
+            .start(0, Instant::now())
             .unwrap();
         set.get_assembled_packet(&key).unwrap();
 
@@ -554,7 +499,7 @@ mod tests {
         set.reserve_with_key(&key).unwrap();
         set.get_packet_assembler_mut(&key)
             .unwrap()
-            .start(0, NoInfo, Instant::now())
+            .start(0, Instant::now())
             .unwrap();
         set.get_assembled_packet(&key).unwrap();
     }
