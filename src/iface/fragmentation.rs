@@ -121,11 +121,13 @@ impl<'a, Info: PacketAssemblerInfo> PacketAssembler<'a, Info> {
                 self.buffer[offset..][..len].copy_from_slice(data);
 
                 match assembler.add(offset, data.len()) {
-                    Ok(false) => {
+                    Ok(overlap) => {
+                        if overlap {
+                            net_debug!("packet was added, but there was an overlap.");
+                        }
                         *last_updated = now;
                         self.is_complete()
                     }
-                    Ok(true) => Err(Error::PacketAssemblerOverlap),
                     // NOTE(thvdveld): hopefully we wont get too many holes errors I guess?
                     Err(_) => Err(Error::PacketAssemblerTooManyHoles),
                 }
