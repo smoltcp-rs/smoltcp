@@ -230,7 +230,8 @@ impl<'a> UdpSocket<'a> {
     ///
     /// See also [send](#method.send).
     pub fn send_slice(&mut self, data: &[u8], remote_endpoint: IpEndpoint) -> Result<()> {
-        self.send(data.len(), remote_endpoint)?.copy_from_slice(data);
+        self.send(data.len(), remote_endpoint)?
+            .copy_from_slice(data);
         Ok(())
     }
 
