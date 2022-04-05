@@ -207,20 +207,20 @@ impl<'a> UdpSocket<'a> {
     /// `Err(Error::Unaddressable)` if local or remote port, or remote address are unspecified,
     /// and `Err(Error::Truncated)` if there is not enough transmit buffer capacity
     /// to ever send this packet.
-    pub fn send(&mut self, size: usize, endpoint: IpEndpoint) -> Result<&mut [u8]> {
+    pub fn send(&mut self, size: usize, remote_endpoint: IpEndpoint) -> Result<&mut [u8]> {
         if self.endpoint.port == 0 {
             return Err(Error::Unaddressable);
         }
-        if !endpoint.is_specified() {
+        if !remote_endpoint.is_specified() {
             return Err(Error::Unaddressable);
         }
 
-        let payload_buf = self.tx_buffer.enqueue(size, endpoint)?;
+        let payload_buf = self.tx_buffer.enqueue(size, remote_endpoint)?;
 
         net_trace!(
             "udp:{}:{}: buffer to send {} octets",
             self.endpoint,
-            endpoint,
+            remote_endpoint,
             size
         );
         Ok(payload_buf)
@@ -229,8 +229,8 @@ impl<'a> UdpSocket<'a> {
     /// Enqueue a packet to be sent to a given remote endpoint, and fill it from a slice.
     ///
     /// See also [send](#method.send).
-    pub fn send_slice(&mut self, data: &[u8], endpoint: IpEndpoint) -> Result<()> {
-        self.send(data.len(), endpoint)?.copy_from_slice(data);
+    pub fn send_slice(&mut self, data: &[u8], remote_endpoint: IpEndpoint) -> Result<()> {
+        self.send(data.len(), remote_endpoint)?.copy_from_slice(data);
         Ok(())
     }
 
@@ -239,15 +239,15 @@ impl<'a> UdpSocket<'a> {
     ///
     /// This function returns `Err(Error::Exhausted)` if the receive buffer is empty.
     pub fn recv(&mut self) -> Result<(&[u8], IpEndpoint)> {
-        let (endpoint, payload_buf) = self.rx_buffer.dequeue()?;
+        let (remote_endpoint, payload_buf) = self.rx_buffer.dequeue()?;
 
         net_trace!(
             "udp:{}:{}: receive {} buffered octets",
             self.endpoint,
-            endpoint,
+            remote_endpoint,
             payload_buf.len()
         );
-        Ok((payload_buf, endpoint))
+        Ok((payload_buf, remote_endpoint))
     }
 
     /// Dequeue a packet received from a remote endpoint, copy the payload into the given slice,
@@ -318,18 +318,18 @@ impl<'a> UdpSocket<'a> {
 
         let size = payload.len();
 
-        let endpoint = IpEndpoint {
+        let remote_endpoint = IpEndpoint {
             addr: ip_repr.src_addr(),
             port: repr.src_port,
         };
         self.rx_buffer
-            .enqueue(size, endpoint)?
+            .enqueue(size, remote_endpoint)?
             .copy_from_slice(payload);
 
         net_trace!(
             "udp:{}:{}: receiving {} octets",
             self.endpoint,
-            endpoint,
+            remote_endpoint,
             size
         );
 
@@ -351,7 +351,7 @@ impl<'a> UdpSocket<'a> {
                 net_trace!(
                     "udp:{}:{}: sending {} octets",
                     endpoint,
-                    endpoint,
+                    remote_endpoint,
                     payload_buf.len()
                 );
 
