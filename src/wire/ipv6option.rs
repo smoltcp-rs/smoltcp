@@ -1,5 +1,7 @@
-use crate::{Error, Result};
+use byteorder::{ByteOrder, NetworkEndian};
 use core::fmt;
+
+use crate::{Error, Result};
 
 enum_with_unknown! {
     /// IPv6 Extension Header Option Type
@@ -7,7 +9,9 @@ enum_with_unknown! {
         /// 1 byte of padding
         Pad1 =  0,
         /// Multiple bytes of padding
-        PadN =  1
+        PadN =  1,
+        /// Router Alert
+        RouterAlert = 5
     }
 }
 
@@ -16,6 +20,7 @@ impl fmt::Display for Type {
         match *self {
             Type::Pad1 => write!(f, "Pad1"),
             Type::PadN => write!(f, "PadN"),
+            Type::RouterAlert => write!(f, "RouterAlert"),
             Type::Unknown(id) => write!(f, "{}", id),
         }
     }
@@ -213,6 +218,26 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Ipv6Option<&'a T> {
     }
 }
 
+enum_with_unknown! {
+    /// A high-level representation of an IPv6 Router Alert Header Option.
+    ///
+    /// Router Alert options always contain exactly one `u16`; see [RFC 2711 § 2.1].
+    ///
+    /// [RFC 2711 § 2.1]: https://tools.ietf.org/html/rfc2711#section-2.1
+    pub enum RouterAlert(u16) {
+        MulticastListenerDiscovery = 0,
+        Rsvp = 1,
+        ActiveNetworks = 2,
+    }
+}
+
+impl RouterAlert {
+    /// Per [RFC 2711 § 2.1], Router Alert options always have 2 bytes of data.
+    ///
+    /// [RFC 2711 § 2.1]: https://tools.ietf.org/html/rfc2711#section-2.1
+    pub const DATA_LEN: u8 = 2;
+}
+
 /// A high-level representation of an IPv6 Extension Header Option.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -220,6 +245,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Ipv6Option<&'a T> {
 pub enum Repr<'a> {
     Pad1,
     PadN(u8),
+    RouterAlert(RouterAlert),
     Unknown {
         type_: Type,
         length: u8,
@@ -236,6 +262,14 @@ impl<'a> Repr<'a> {
         match opt.option_type() {
             Type::Pad1 => Ok(Repr::Pad1),
             Type::PadN => Ok(Repr::PadN(opt.data_len())),
+            Type::RouterAlert => {
+                if opt.data_len() == RouterAlert::DATA_LEN {
+                    let raw = NetworkEndian::read_u16(opt.data());
+                    Ok(Repr::RouterAlert(RouterAlert::from(raw)))
+                } else {
+                    Err(Error::Malformed)
+                }
+            }
             unknown_type @ Type::Unknown(_) => Ok(Repr::Unknown {
                 type_: unknown_type,
                 length: opt.data_len(),
@@ -249,6 +283,7 @@ impl<'a> Repr<'a> {
         match *self {
             Repr::Pad1 => 1,
             Repr::PadN(length) => field::DATA(length).end,
+            Repr::RouterAlert(_) => field::DATA(RouterAlert::DATA_LEN).end,
             Repr::Unknown { length, .. } => field::DATA(length).end,
         }
     }
@@ -264,6 +299,11 @@ impl<'a> Repr<'a> {
                 for x in opt.data_mut().iter_mut() {
                     *x = 0
                 }
+            }
+            Repr::RouterAlert(router_alert) => {
+                opt.set_option_type(Type::RouterAlert);
+                opt.set_data_len(RouterAlert::DATA_LEN);
+                NetworkEndian::write_u16(opt.data_mut(), router_alert.into());
             }
             Repr::Unknown {
                 type_,
@@ -344,6 +384,7 @@ impl<'a> fmt::Display for Repr<'a> {
         match *self {
             Repr::Pad1 => write!(f, "{} ", Type::Pad1),
             Repr::PadN(len) => write!(f, "{} length={} ", Type::PadN, len),
+            Repr::RouterAlert(alert) => write!(f, "{} value={:?}", Type::RouterAlert, alert),
             Repr::Unknown { type_, length, .. } => write!(f, "{} length={} ", type_, length),
         }
     }
@@ -355,6 +396,10 @@ mod test {
 
     static IPV6OPTION_BYTES_PAD1: [u8; 1] = [0x0];
     static IPV6OPTION_BYTES_PADN: [u8; 3] = [0x1, 0x1, 0x0];
+    static IPV6OPTION_BYTES_ROUTER_ALERT_MLD: [u8; 4] = [0x05, 0x02, 0x00, 0x00];
+    static IPV6OPTION_BYTES_ROUTER_ALERT_RSVP: [u8; 4] = [0x05, 0x02, 0x00, 0x01];
+    static IPV6OPTION_BYTES_ROUTER_ALERT_ACTIVE_NETWORKS: [u8; 4] = [0x05, 0x02, 0x00, 0x02];
+    static IPV6OPTION_BYTES_ROUTER_ALERT_UNKNOWN: [u8; 4] = [0x05, 0x02, 0xbe, 0xef];
     static IPV6OPTION_BYTES_UNKNOWN: [u8; 5] = [0xff, 0x3, 0x0, 0x0, 0x0];
 
     #[test]
@@ -380,6 +425,17 @@ mod test {
         assert_eq!(
             Ok(()),
             Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_PADN).check_len()
+        );
+
+        // router alert with truncated data
+        assert_eq!(
+            Err(Error::Truncated),
+            Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_ROUTER_ALERT_MLD[..3]).check_len()
+        );
+        // router alert
+        assert_eq!(
+            Ok(()),
+            Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_ROUTER_ALERT_MLD).check_len()
         );
 
         // unknown option type with truncated data
@@ -430,6 +486,12 @@ mod test {
         assert_eq!(opt.data_len(), 7);
         assert_eq!(opt.data(), &[0, 0, 0, 0, 0, 0, 0]);
 
+        // router alert
+        let opt = Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_ROUTER_ALERT_MLD);
+        assert_eq!(opt.option_type(), Type::RouterAlert);
+        assert_eq!(opt.data_len(), 2);
+        assert_eq!(opt.data(), &[0, 0]);
+
         // unrecognized option
         let bytes: [u8; 1] = [0xff];
         let opt = Ipv6Option::new_unchecked(&bytes);
@@ -452,6 +514,38 @@ mod test {
         let padn = Repr::parse(&opt).unwrap();
         assert_eq!(padn, Repr::PadN(1));
         assert_eq!(padn.buffer_len(), 3);
+
+        // router alert (MLD)
+        let opt = Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_ROUTER_ALERT_MLD);
+        let alert = Repr::parse(&opt).unwrap();
+        assert_eq!(
+            alert,
+            Repr::RouterAlert(RouterAlert::MulticastListenerDiscovery)
+        );
+        assert_eq!(alert.buffer_len(), 4);
+
+        // router alert (RSVP)
+        let opt = Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_ROUTER_ALERT_RSVP);
+        let alert = Repr::parse(&opt).unwrap();
+        assert_eq!(alert, Repr::RouterAlert(RouterAlert::Rsvp));
+        assert_eq!(alert.buffer_len(), 4);
+
+        // router alert (active networks)
+        let opt = Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_ROUTER_ALERT_ACTIVE_NETWORKS);
+        let alert = Repr::parse(&opt).unwrap();
+        assert_eq!(alert, Repr::RouterAlert(RouterAlert::ActiveNetworks));
+        assert_eq!(alert.buffer_len(), 4);
+
+        // router alert (unknown)
+        let opt = Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_ROUTER_ALERT_UNKNOWN);
+        let alert = Repr::parse(&opt).unwrap();
+        assert_eq!(alert, Repr::RouterAlert(RouterAlert::Unknown(0xbeef)));
+        assert_eq!(alert.buffer_len(), 4);
+
+        // router alert (incorrect data length)
+        let opt = Ipv6Option::new_unchecked(&[0x05, 0x03, 0x00, 0x00, 0x00]);
+        let alert = Repr::parse(&opt);
+        assert_eq!(alert, Err(Error::Malformed));
 
         // unrecognized option type
         let data = [0u8; 3];
@@ -481,6 +575,12 @@ mod test {
         repr.emit(&mut opt);
         assert_eq!(opt.into_inner(), &IPV6OPTION_BYTES_PADN);
 
+        let repr = Repr::RouterAlert(RouterAlert::MulticastListenerDiscovery);
+        let mut bytes = [255u8; 4]; // don't assume bytes are initialized to zero
+        let mut opt = Ipv6Option::new_unchecked(&mut bytes);
+        repr.emit(&mut opt);
+        assert_eq!(opt.into_inner(), &IPV6OPTION_BYTES_ROUTER_ALERT_MLD);
+
         let data = [0u8; 3];
         let repr = Repr::Unknown {
             type_: Type::Unknown(255),
@@ -499,6 +599,8 @@ mod test {
         assert_eq!(failure_type, FailureType::Skip);
         failure_type = Type::PadN.into();
         assert_eq!(failure_type, FailureType::Skip);
+        failure_type = Type::RouterAlert.into();
+        assert_eq!(failure_type, FailureType::Skip);
         failure_type = Type::Unknown(0b01000001).into();
         assert_eq!(failure_type, FailureType::Discard);
         failure_type = Type::Unknown(0b10100000).into();
@@ -510,8 +612,8 @@ mod test {
     #[test]
     fn test_options_iter() {
         let options = [
-            0x00, 0x01, 0x01, 0x00, 0x01, 0x02, 0x00, 0x00, 0x01, 0x00, 0x00, 0x11, 0x00, 0x01,
-            0x08, 0x00,
+            0x00, 0x01, 0x01, 0x00, 0x01, 0x02, 0x00, 0x00, 0x01, 0x00, 0x00, 0x11, 0x00, 0x05,
+            0x02, 0x00, 0x01, 0x01, 0x08, 0x00,
         ];
 
         let mut iterator = Ipv6OptionsIterator::new(&options, 0);
@@ -533,7 +635,8 @@ mod test {
                         ..
                     }),
                 ) => continue,
-                (6, Err(Error::Truncated)) => continue,
+                (6, Ok(Repr::RouterAlert(RouterAlert::Rsvp))) => continue,
+                (7, Err(Error::Truncated)) => continue,
                 (i, res) => panic!("Unexpected option `{:?}` at index {}", res, i),
             }
         }

@@ -102,6 +102,10 @@ name = "multicast"
 required-features = ["std", "medium-ethernet", "medium-ip", "phy-tuntap_interface", "proto-ipv4", "proto-igmp", "socket-udp"]
 
 [[example]]
+name = "multicast6"
+required-features = ["std", "medium-ethernet", "medium-ip", "phy-tuntap_interface", "proto-ipv6", "socket-udp"]
+
+[[example]]
 name = "benchmark"
 required-features = ["std", "medium-ethernet", "medium-ip", "phy-tuntap_interface", "proto-ipv4", "socket-raw", "socket-udp"]
 

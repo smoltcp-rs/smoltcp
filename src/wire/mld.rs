@@ -294,6 +294,48 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> AddressRecord<T> {
     }
 }
 
+/// A high level representation of an MLDv2 Listener Report Message Address Record.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct AddressRecordRepr<'a> {
+    pub num_srcs: u16,
+    pub mcast_addr: Ipv6Address,
+    pub record_type: RecordType,
+    pub aux_data_len: u8,
+    pub payload: &'a [u8],
+}
+
+impl<'a> AddressRecordRepr<'a> {
+    /// Parse an MLDv2 address record and return a high-level representation.
+    pub fn parse<T>(record: &AddressRecord<&'a T>) -> Result<Self>
+    where
+        T: AsRef<[u8]> + ?Sized,
+    {
+        Ok(Self {
+            num_srcs: record.num_srcs(),
+            mcast_addr: record.mcast_addr(),
+            record_type: record.record_type(),
+            aux_data_len: record.aux_data_len(),
+            payload: record.payload(),
+        })
+    }
+
+    /// Return the length of a record that will be emitted from this high-level
+    /// representation, not including any payload data.
+    pub fn buffer_len(&self) -> usize {
+        field::RECORD_MCAST_ADDR.end
+    }
+
+    /// Emit a high-level representation into an MLDv2 address record.
+    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(&self, record: &mut AddressRecord<T>) {
+        record.set_record_type(self.record_type);
+        record.set_num_srcs(self.num_srcs);
+        record.set_mcast_addr(self.mcast_addr);
+        record.set_aux_data_len(self.aux_data_len);
+        record.payload_mut().copy_from_slice(self.payload);
+    }
+}
+
 /// A high-level representation of an MLDv2 packet header.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -311,6 +353,7 @@ pub enum Repr<'a> {
         nr_mcast_addr_rcrds: u16,
         data: &'a [u8],
     },
+    ReportRecordReprs(&'a [AddressRecordRepr<'a>]),
 }
 
 impl<'a> Repr<'a> {
@@ -341,7 +384,7 @@ impl<'a> Repr<'a> {
     pub fn buffer_len(&self) -> usize {
         match self {
             Repr::Query { .. } => field::QUERY_NUM_SRCS.end,
-            Repr::Report { .. } => field::NR_MCAST_RCRDS.end,
+            Repr::Report { .. } | Repr::ReportRecordReprs(_) => field::NR_MCAST_RCRDS.end,
         }
     }
 
@@ -384,6 +427,17 @@ impl<'a> Repr<'a> {
                 packet.clear_reserved();
                 packet.set_nr_mcast_addr_rcrds(*nr_mcast_addr_rcrds);
                 packet.payload_mut().copy_from_slice(&data[..]);
+            }
+            Repr::ReportRecordReprs(records) => {
+                packet.set_msg_type(Message::MldReport);
+                packet.set_msg_code(0);
+                packet.clear_reserved();
+                packet.set_nr_mcast_addr_rcrds(records.len() as u16);
+                let mut payload = packet.payload_mut();
+                for record in *records {
+                    record.emit(&mut AddressRecord::new_unchecked(&mut payload[..]));
+                    payload = &mut payload[record.buffer_len()..];
+                }
             }
         }
     }

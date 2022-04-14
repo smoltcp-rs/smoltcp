@@ -176,7 +176,7 @@ pub use self::ipv6::{
 #[cfg(feature = "proto-ipv6")]
 pub use self::ipv6option::{
     FailureType as Ipv6OptionFailureType, Ipv6Option, Repr as Ipv6OptionRepr,
-    Type as Ipv6OptionType,
+    RouterAlert as Ipv6OptionRouterAlert, Type as Ipv6OptionType,
 };
 
 #[cfg(feature = "proto-ipv6")]
@@ -226,7 +226,10 @@ pub use self::ndiscoption::{
 };
 
 #[cfg(feature = "proto-ipv6")]
-pub use self::mld::{AddressRecord as MldAddressRecord, Repr as MldRepr};
+pub use self::mld::{
+    AddressRecord as MldAddressRecord, AddressRecordRepr as MldAddressRecordRepr,
+    RecordType as MldRecordType, Repr as MldRepr,
+};
 
 pub use self::udp::{Packet as UdpPacket, Repr as UdpRepr, HEADER_LEN as UDP_HEADER_LEN};
 

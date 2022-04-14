@@ -55,6 +55,8 @@ pub struct InterfaceInner<'a> {
     routes: Routes<'a>,
     #[cfg(feature = "proto-igmp")]
     ipv4_multicast_groups: ManagedMap<'a, Ipv4Address, ()>,
+    #[cfg(feature = "proto-ipv6")]
+    ipv6_multicast_groups: ManagedMap<'a, Ipv6Address, ()>,
     /// When to report for (all or) the next multicast group membership via IGMP
     #[cfg(feature = "proto-igmp")]
     igmp_report_state: IgmpReportState,
@@ -78,6 +80,8 @@ pub struct InterfaceBuilder<'a, DeviceT: for<'d> Device<'d>> {
     /// Does not share storage with `ipv6_multicast_groups` to avoid IPv6 size overhead.
     #[cfg(feature = "proto-igmp")]
     ipv4_multicast_groups: ManagedMap<'a, Ipv4Address, ()>,
+    #[cfg(feature = "proto-ipv6")]
+    ipv6_multicast_groups: ManagedMap<'a, Ipv6Address, ()>,
     random_seed: u64,
 }
 
@@ -136,6 +140,8 @@ let iface = InterfaceBuilder::new(device, vec![])
             routes: Routes::new(ManagedMap::Borrowed(&mut [])),
             #[cfg(feature = "proto-igmp")]
             ipv4_multicast_groups: ManagedMap::Borrowed(&mut []),
+            #[cfg(feature = "proto-ipv6")]
+            ipv6_multicast_groups: ManagedMap::Borrowed(&mut []),
             random_seed: 0,
         }
     }
@@ -222,7 +228,7 @@ let iface = InterfaceBuilder::new(device, vec![])
         self
     }
 
-    /// Provide storage for multicast groups.
+    /// Provide storage for IPv4 multicast groups.
     ///
     /// Join multicast groups by calling [`join_multicast_group()`] on an `Interface`.
     /// Using [`join_multicast_group()`] will send initial membership reports.
@@ -238,6 +244,25 @@ let iface = InterfaceBuilder::new(device, vec![])
         T: Into<ManagedMap<'a, Ipv4Address, ()>>,
     {
         self.ipv4_multicast_groups = ipv4_multicast_groups.into();
+        self
+    }
+
+    /// Provide storage for IPv6 multicast groups.
+    ///
+    /// Join multicast groups by calling [`join_multicast_group()`] on an `Interface`.
+    /// Using [`join_multicast_group()`] will send initial membership reports.
+    ///
+    /// A previously destroyed interface can be recreated by reusing the multicast group
+    /// storage, i.e. providing a non-empty storage to `ipv6_multicast_groups()`.
+    /// Note that this way initial membership reports are **not** sent.
+    ///
+    /// [`join_multicast_group()`]: struct.Interface.html#method.join_multicast_group
+    #[cfg(feature = "proto-ipv6")]
+    pub fn ipv6_multicast_groups<T>(mut self, ipv6_multicast_groups: T) -> Self
+    where
+        T: Into<ManagedMap<'a, Ipv6Address, ()>>,
+    {
+        self.ipv6_multicast_groups = ipv6_multicast_groups.into();
         self
     }
 
@@ -333,6 +358,8 @@ let iface = InterfaceBuilder::new(device, vec![])
                 neighbor_cache,
                 #[cfg(feature = "proto-igmp")]
                 ipv4_multicast_groups: self.ipv4_multicast_groups,
+                #[cfg(feature = "proto-ipv6")]
+                ipv6_multicast_groups: self.ipv6_multicast_groups,
                 #[cfg(feature = "proto-igmp")]
                 igmp_report_state: IgmpReportState::Inactive,
                 #[cfg(feature = "medium-ieee802154")]
@@ -362,6 +389,8 @@ pub(crate) enum IpPacket<'a> {
     #[cfg(feature = "proto-igmp")]
     Igmp((Ipv4Repr, IgmpRepr)),
     #[cfg(feature = "proto-ipv6")]
+    HopByHopIcmpv6(Ipv6Repr, Ipv6HopByHopRepr<'a>, Icmpv6Repr<'a>),
+    #[cfg(feature = "proto-ipv6")]
     Icmpv6((Ipv6Repr, Icmpv6Repr<'a>)),
     #[cfg(feature = "socket-raw")]
     Raw((IpRepr, &'a [u8])),
@@ -380,6 +409,8 @@ impl<'a> IpPacket<'a> {
             IpPacket::Icmpv4((ipv4_repr, _)) => IpRepr::Ipv4(*ipv4_repr),
             #[cfg(feature = "proto-igmp")]
             IpPacket::Igmp((ipv4_repr, _)) => IpRepr::Ipv4(*ipv4_repr),
+            #[cfg(feature = "proto-ipv6")]
+            IpPacket::HopByHopIcmpv6(ipv6_repr, _, _) => IpRepr::Ipv6(*ipv6_repr),
             #[cfg(feature = "proto-ipv6")]
             IpPacket::Icmpv6((ipv6_repr, _)) => IpRepr::Ipv6(*ipv6_repr),
             #[cfg(feature = "socket-raw")]
@@ -407,6 +438,16 @@ impl<'a> IpPacket<'a> {
             #[cfg(feature = "proto-igmp")]
             IpPacket::Igmp((_, igmp_repr)) => {
                 igmp_repr.emit(&mut IgmpPacket::new_unchecked(payload))
+            }
+            #[cfg(feature = "proto-ipv6")]
+            IpPacket::HopByHopIcmpv6(_, hbh_repr, icmpv6_repr) => {
+                hbh_repr.emit(&mut Ipv6HopByHopHeader::new_unchecked(payload));
+                icmpv6_repr.emit(
+                    &_ip_repr.src_addr(),
+                    &_ip_repr.dst_addr(),
+                    &mut Icmpv6Packet::new_unchecked(&mut payload[hbh_repr.buffer_len()..]),
+                    &caps.checksum,
+                );
             }
             #[cfg(feature = "proto-ipv6")]
             IpPacket::Icmpv6((_, icmpv6_repr)) => icmpv6_repr.emit(
@@ -640,7 +681,33 @@ where
                     Ok(false)
                 }
             }
-            // Multicast is not yet implemented for other address families
+            #[cfg(feature = "proto-ipv6")]
+            IpAddress::Ipv6(addr) => {
+                let is_not_new = self
+                    .inner
+                    .ipv6_multicast_groups
+                    .insert(addr, ())
+                    .map_err(|_| Error::Exhausted)?
+                    .is_some();
+                if is_not_new {
+                    Ok(false)
+                } else {
+                    // build report packet containing this new address
+                    let records = &[MldAddressRecordRepr {
+                        num_srcs: 0,
+                        mcast_addr: addr,
+                        record_type: MldRecordType::ChangeToInclude,
+                        aux_data_len: 0,
+                        payload: &[],
+                    }];
+                    let pkt = self.inner.mldv2_report_packet(records);
+
+                    // Send initial membership report
+                    let tx_token = self.device.transmit().ok_or(Error::Exhausted)?;
+                    self.inner.dispatch_ip(tx_token, pkt)?;
+                    Ok(true)
+                }
+            }
             _ => Err(Error::Unaddressable),
         }
     }
@@ -1127,6 +1194,8 @@ impl<'a> InterfaceInner<'a> {
             igmp_report_state: IgmpReportState::Inactive,
             #[cfg(feature = "proto-igmp")]
             ipv4_multicast_groups: ManagedMap::Borrowed(&mut []),
+            #[cfg(feature = "proto-ipv6")]
+            ipv6_multicast_groups: ManagedMap::Borrowed(&mut []),
         }
     }
 
@@ -1196,6 +1265,24 @@ impl<'a> InterfaceInner<'a> {
             .next()
     }
 
+    /// Get the first link-local IPv6 address of the interface if present.
+    #[cfg(feature = "proto-ipv6")]
+    fn link_local_ipv6_address(&self) -> Option<Ipv6Address> {
+        self.ip_addrs.iter().find_map(|addr| match *addr {
+            #[cfg(feature = "proto-ipv4")]
+            IpCidr::Ipv4(_) => None,
+            #[cfg(feature = "proto-ipv6")]
+            IpCidr::Ipv6(cidr) => {
+                let addr = cidr.address();
+                if addr.is_link_local() {
+                    Some(addr)
+                } else {
+                    None
+                }
+            }
+        })
+    }
+
     /// Check whether the interface listens to given destination multicast IP address.
     ///
     /// If built without feature `proto-igmp` this function will
@@ -1206,6 +1293,11 @@ impl<'a> InterfaceInner<'a> {
             IpAddress::Ipv4(key) => {
                 key == Ipv4Address::MULTICAST_ALL_SYSTEMS
                     || self.ipv4_multicast_groups.get(&key).is_some()
+            }
+            #[cfg(feature = "proto-ipv6")]
+            IpAddress::Ipv6(key) => {
+                key == Ipv6Address::LINK_LOCAL_ALL_NODES
+                    || self.ipv6_multicast_groups.get(&key).is_some()
             }
             _ => false,
         }
@@ -1930,7 +2022,9 @@ impl<'a> InterfaceInner<'a> {
         for result in hbh_repr.options() {
             let opt_repr = result?;
             match opt_repr {
-                Ipv6OptionRepr::Pad1 | Ipv6OptionRepr::PadN(_) => (),
+                Ipv6OptionRepr::Pad1 | Ipv6OptionRepr::PadN(_) | Ipv6OptionRepr::RouterAlert(_) => {
+                    ()
+                }
                 Ipv6OptionRepr::Unknown { type_, .. } => {
                     match Ipv6OptionFailureType::from(type_) {
                         Ipv6OptionFailureType::Skip => (),
@@ -2655,6 +2749,39 @@ impl<'a> InterfaceInner<'a> {
             ))
         })
     }
+
+    #[cfg(feature = "proto-ipv6")]
+    fn mldv2_report_packet<'b>(&self, records: &'b [MldAddressRecordRepr<'b>]) -> IpPacket<'b> {
+        // Per [RFC 3810 § 5.2.13], source addresses must be link-local, falling
+        // back to the unspecified address if we haven't acquired one.
+        //
+        // [RFC 3810 § 5.2.13]: https://tools.ietf.org/html/rfc3810#section-5.2.13
+        let src_addr = self
+            .link_local_ipv6_address()
+            .unwrap_or(Ipv6Address::UNSPECIFIED);
+
+        // Per [RFC 3810 § 5.2.14], all MLDv2 reports are sent to ff02::16.
+        //
+        // [RFC 3810 § 5.2.14]: https://tools.ietf.org/html/rfc3810#section-5.2.14
+        let dst_addr = Ipv6Address::LINK_LOCAL_ALL_MLDV2_ROUTERS;
+
+        let hbh_repr = Ipv6HopByHopRepr::MLDV2_ROUTER_ALERT;
+        let mld_repr = MldRepr::ReportRecordReprs(records);
+        let records_len = records
+            .iter()
+            .map(MldAddressRecordRepr::buffer_len)
+            .sum::<usize>();
+
+        let ip_repr = Ipv6Repr {
+            src_addr,
+            dst_addr,
+            next_header: IpProtocol::HopByHop,
+            payload_len: hbh_repr.buffer_len() + mld_repr.buffer_len() + records_len,
+            hop_limit: 1,
+        };
+
+        IpPacket::HopByHopIcmpv6(ip_repr, hbh_repr, Icmpv6Repr::Mld(mld_repr))
+    }
 }
 
 #[cfg(test)]
@@ -2704,6 +2831,8 @@ mod test {
         let iface_builder = InterfaceBuilder::new(device, vec![]).ip_addrs(ip_addrs);
         #[cfg(feature = "proto-igmp")]
         let iface_builder = iface_builder.ipv4_multicast_groups(BTreeMap::new());
+        #[cfg(feature = "proto-ipv6")]
+        let iface_builder = iface_builder.ipv6_multicast_groups(BTreeMap::new());
         iface_builder.finalize()
     }
 
@@ -2726,6 +2855,8 @@ mod test {
             .ip_addrs(ip_addrs);
         #[cfg(feature = "proto-igmp")]
         let iface_builder = iface_builder.ipv4_multicast_groups(BTreeMap::new());
+        #[cfg(feature = "proto-ipv6")]
+        let iface_builder = iface_builder.ipv6_multicast_groups(BTreeMap::new());
         iface_builder.finalize()
     }
 
@@ -3350,6 +3481,102 @@ mod test {
             ),
             Ok((HardwareAddress::Ethernet(remote_hw_addr), MockTxToken))
         );
+    }
+
+    #[test]
+    #[cfg(feature = "proto-ipv6")]
+    fn test_join_ipv6_multicast_group() {
+        fn recv_icmpv6(
+            iface: &mut Interface<'_, Loopback>,
+            timestamp: Instant,
+        ) -> Vec<Ipv6Packet<Vec<u8>>> {
+            let caps = iface.device.capabilities();
+            recv_all(iface, timestamp)
+                .iter()
+                .filter_map(|frame| {
+                    let ipv6_packet = match caps.medium {
+                        #[cfg(feature = "medium-ethernet")]
+                        Medium::Ethernet => {
+                            let eth_frame = EthernetFrame::new_checked(frame).ok()?;
+                            Ipv6Packet::new_checked(eth_frame.payload()).ok()?
+                        }
+                        #[cfg(feature = "medium-ip")]
+                        Medium::Ip => Ipv6Packet::new_checked(&frame[..]).ok()?,
+                        #[cfg(feature = "medium-ieee802154")]
+                        Medium::Ieee802154 => todo!(),
+                    };
+                    let buf = ipv6_packet.into_inner().to_vec();
+                    Some(Ipv6Packet::new_unchecked(buf))
+                })
+                .collect::<Vec<_>>()
+        }
+
+        let mut iface = create_loopback();
+
+        let groups = [
+            Ipv6Address::from_parts(&[0xff05, 0, 0, 0, 0, 0, 0, 0x0001]),
+            Ipv6Address::from_parts(&[0xff0e, 0, 0, 0, 0, 0, 0, 0x0017]),
+        ];
+
+        let timestamp = Instant::now();
+
+        for &group in &groups {
+            iface.join_multicast_group(group, timestamp).unwrap();
+            assert!(iface.has_multicast_group(group));
+        }
+        assert!(iface.has_multicast_group(Ipv6Address::LINK_LOCAL_ALL_NODES));
+
+        let reports = recv_icmpv6(&mut iface, timestamp);
+        assert_eq!(reports.len(), 2);
+
+        let caps = iface.device.capabilities();
+        let checksum_caps = &caps.checksum;
+        for (&group_addr, ipv6_packet) in groups.iter().zip(reports) {
+            let buf = ipv6_packet.into_inner();
+            let ipv6_packet = Ipv6Packet::new_unchecked(buf.as_slice());
+
+            let _ipv6_repr = Ipv6Repr::parse(&ipv6_packet).unwrap();
+            let ip_payload = ipv6_packet.payload();
+            let hbh_header = Ipv6HopByHopHeader::new_checked(ip_payload).unwrap();
+            let hbh_repr = Ipv6HopByHopRepr::parse(&hbh_header).unwrap();
+
+            assert_eq!(hbh_repr, Ipv6HopByHopRepr::MLDV2_ROUTER_ALERT);
+
+            let icmpv6_packet =
+                Icmpv6Packet::new_checked(&ip_payload[hbh_repr.buffer_len()..]).unwrap();
+            let icmpv6_repr = Icmpv6Repr::parse(
+                &IpAddress::Ipv6(ipv6_packet.src_addr()),
+                &IpAddress::Ipv6(ipv6_packet.dst_addr()),
+                &icmpv6_packet,
+                &checksum_caps,
+            )
+            .unwrap();
+
+            let record_data = match icmpv6_repr {
+                Icmpv6Repr::Mld(MldRepr::Report {
+                    nr_mcast_addr_rcrds,
+                    data,
+                }) => {
+                    assert_eq!(nr_mcast_addr_rcrds, 1);
+                    data
+                }
+                other => panic!("unexpected icmpv6_repr: {:?}", other),
+            };
+
+            let record = MldAddressRecord::new_checked(record_data).unwrap();
+            let record_repr = MldAddressRecordRepr::parse(&record).unwrap();
+
+            assert_eq!(
+                record_repr,
+                MldAddressRecordRepr {
+                    num_srcs: 0,
+                    mcast_addr: group_addr,
+                    record_type: MldRecordType::ChangeToInclude,
+                    aux_data_len: 0,
+                    payload: &[],
+                }
+            );
+        }
     }
 
     #[test]
