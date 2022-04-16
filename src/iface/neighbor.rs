@@ -62,6 +62,7 @@ impl Answer {
 #[derive(Debug)]
 pub struct Cache<'a> {
     storage: ManagedMap<'a, IpAddress, Neighbor>,
+    broadcast: Option<HardwareAddress>,
     silent_until: Instant,
     #[cfg(any(feature = "std", feature = "alloc"))]
     gc_threshold: usize,
@@ -91,6 +92,7 @@ impl<'a> Cache<'a> {
 
         Cache {
             storage,
+            broadcast: None,
             #[cfg(any(feature = "std", feature = "alloc"))]
             gc_threshold: Self::GC_THRESHOLD,
             silent_until: Instant::from_millis(0),
@@ -107,9 +109,17 @@ impl<'a> Cache<'a> {
 
         Cache {
             storage,
+            broadcast: None,
             gc_threshold,
             silent_until: Instant::from_millis(0),
         }
+    }
+
+    pub fn set_broadcast(
+        &mut self,
+        hardware_addr: HardwareAddress,
+    ) {
+        self.broadcast = Some(hardware_addr);
     }
 
     pub fn fill(
@@ -196,9 +206,12 @@ impl<'a> Cache<'a> {
     }
 
     pub(crate) fn lookup(&self, protocol_addr: &IpAddress, timestamp: Instant) -> Answer {
-        if protocol_addr.is_unicast() == false {
-            return Answer::NotFound;
+        if protocol_addr.is_broadcast() {
+            if let Some(hardware_addr) = self.broadcast {
+                return Answer::Found(hardware_addr);
+            }
         }
+        assert!(protocol_addr.is_unicast());
 
         if let Some(&Neighbor {
             expires_at,
