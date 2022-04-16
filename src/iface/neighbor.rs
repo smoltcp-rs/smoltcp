@@ -196,6 +196,8 @@ impl<'a> Cache<'a> {
     }
 
     pub(crate) fn lookup(&self, protocol_addr: &IpAddress, timestamp: Instant) -> Answer {
+        assert!(protocol_addr.is_unicast());
+        
         if let Some(&Neighbor {
             expires_at,
             hardware_addr,
@@ -205,8 +207,6 @@ impl<'a> Cache<'a> {
                 return Answer::Found(hardware_addr);
             }
         }
-
-        assert!(protocol_addr.is_unicast());
 
         if timestamp < self.silent_until {
             Answer::RateLimited
