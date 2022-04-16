@@ -2417,7 +2417,6 @@ impl<'a> InterfaceInner<'a> {
 
     fn dispatch_ip<Tx: TxToken>(&mut self, tx_token: Tx, packet: IpPacket) -> Result<()> {
         let ip_repr = packet.ip_repr();
-        assert!(!ip_repr.src_addr().is_unspecified());
         assert!(!ip_repr.dst_addr().is_unspecified());
 
         match self.caps.medium {
