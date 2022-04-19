@@ -3516,7 +3516,7 @@ mod test {
             Ipv6Address::from_parts(&[0xff0e, 0, 0, 0, 0, 0, 0, 0x0017]),
         ];
 
-        let timestamp = Instant::now();
+        let timestamp = Instant::from_millis(0);
 
         for &group in &groups {
             iface.join_multicast_group(group, timestamp).unwrap();
