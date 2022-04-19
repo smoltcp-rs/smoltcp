@@ -435,7 +435,7 @@ impl<'a> Repr<'a> {
                 packet.set_nr_mcast_addr_rcrds(records.len() as u16);
                 let mut payload = packet.payload_mut();
                 for record in *records {
-                    record.emit(&mut AddressRecord::new_unchecked(&mut payload[..]));
+                    record.emit(&mut AddressRecord::new_unchecked(&mut *payload));
                     payload = &mut payload[record.buffer_len()..];
                 }
             }

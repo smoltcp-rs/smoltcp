@@ -2023,7 +2023,6 @@ impl<'a> InterfaceInner<'a> {
             let opt_repr = result?;
             match opt_repr {
                 Ipv6OptionRepr::Pad1 | Ipv6OptionRepr::PadN(_) | Ipv6OptionRepr::RouterAlert(_) => {
-                    ()
                 }
                 Ipv6OptionRepr::Unknown { type_, .. } => {
                     match Ipv6OptionFailureType::from(type_) {
@@ -2511,7 +2510,6 @@ impl<'a> InterfaceInner<'a> {
 
     fn dispatch_ip<Tx: TxToken>(&mut self, tx_token: Tx, packet: IpPacket) -> Result<()> {
         let ip_repr = packet.ip_repr();
-        assert!(!ip_repr.src_addr().is_unspecified());
         assert!(!ip_repr.dst_addr().is_unspecified());
 
         match self.caps.medium {
@@ -3548,7 +3546,7 @@ mod test {
                 &IpAddress::Ipv6(ipv6_packet.src_addr()),
                 &IpAddress::Ipv6(ipv6_packet.dst_addr()),
                 &icmpv6_packet,
-                &checksum_caps,
+                checksum_caps,
             )
             .unwrap();
 
