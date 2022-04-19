@@ -2858,7 +2858,7 @@ mod test {
         iface_builder.finalize()
     }
 
-    #[cfg(feature = "proto-igmp")]
+    #[cfg(any(feature = "proto-igmp", feature = "proto-ipv6"))]
     fn recv_all(iface: &mut Interface<'_, Loopback>, timestamp: Instant) -> Vec<Vec<u8>> {
         let mut pkts = Vec::new();
         while let Some((rx, _tx)) = iface.device.receive() {
