@@ -639,9 +639,6 @@ impl<'a> TcpSocket<'a> {
         self.tx_buffer.clear();
         self.rx_buffer.clear();
         self.rx_fin_received = false;
-        self.keep_alive = None;
-        self.timeout = None;
-        self.hop_limit = None;
         self.listen_address = IpAddress::default();
         self.local_endpoint = IpEndpoint::default();
         self.remote_endpoint = IpEndpoint::default();
@@ -655,11 +652,8 @@ impl<'a> TcpSocket<'a> {
         self.remote_win_shift = rx_cap_log2.saturating_sub(16) as u8;
         self.remote_mss = DEFAULT_MSS;
         self.remote_last_ts = None;
-        self.ack_delay = Some(ACK_DELAY_DEFAULT);
         self.ack_delay_timer = AckDelayTimer::Idle;
         self.challenge_ack_timer = Instant::from_secs(0);
-
-        self.nagle = true;
 
         #[cfg(feature = "async")]
         {
@@ -6360,6 +6354,11 @@ mod test {
             }),
             Ok(())
         );
+
+        // assert that user-configurable settings are kept,
+        // see https://github.com/smoltcp-rs/smoltcp/issues/601.
+        s.reset();
+        assert_eq!(s.hop_limit(), Some(0x2a));
     }
 
     #[test]
