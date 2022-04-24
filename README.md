@@ -214,7 +214,7 @@ _smoltcp_, being a freestanding networking stack, needs to be able to transmit a
 raw frames. For testing purposes, we will use a regular OS, and run _smoltcp_ in
 a userspace process. Only Linux is supported (right now).
 
-On \*nix OSes, transmiting and receiving raw frames normally requires superuser privileges, but
+On \*nix OSes, transmitting and receiving raw frames normally requires superuser privileges, but
 on Linux it is possible to create a _persistent tap interface_ that can be manipulated by
 a specific user:
 

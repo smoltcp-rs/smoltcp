@@ -180,7 +180,7 @@ impl<'a, H> PacketBuffer<'a, H> {
     }
 
     /// Peek at a single packet from the buffer without removing it, and return a reference to
-    /// its payload as well as its header, or return `Err(Error:Exhaused)` if the buffer is empty.
+    /// its payload as well as its header, or return `Err(Error:Exhausted)` if the buffer is empty.
     ///
     /// This function otherwise behaves identically to [dequeue](#method.dequeue).
     pub fn peek(&mut self) -> Result<(&H, &[u8])> {

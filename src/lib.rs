@@ -47,7 +47,7 @@
 //! Unlike the higher layers, the wire layer APIs will not be used by a typical application.
 //! They however are the bedrock of _smoltcp_, and everything else is built on top of them.
 //!
-//! The wire layer APIs are designed by the principle "make illegal states irrepresentable".
+//! The wire layer APIs are designed by the principle "make illegal states ir-representable".
 //! If a wire layer object can be constructed, then it can also be parsed from or emitted to
 //! a lower level.
 //!

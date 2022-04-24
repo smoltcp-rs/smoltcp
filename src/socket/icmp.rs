@@ -54,7 +54,7 @@ pub type IcmpSocketBuffer<'a> = PacketBuffer<'a, IpAddress>;
 /// A ICMP socket
 ///
 /// An ICMP socket is bound to a specific [IcmpEndpoint] which may
-/// be a sepecific UDP port to listen for ICMP error messages related
+/// be a specific UDP port to listen for ICMP error messages related
 /// to the port or a specific ICMP identifier value. See [bind] for
 /// more details.
 ///

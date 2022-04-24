@@ -46,7 +46,7 @@ pub(crate) use self::waker::WakerRegistration;
 #[derive(Debug, PartialOrd, Ord, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub(crate) enum PollAt {
-    /// The socket needs to be polled immidiately.
+    /// The socket needs to be polled immediately.
     Now,
     /// The socket needs to be polled at given [Instant][struct.Instant].
     Time(Instant),

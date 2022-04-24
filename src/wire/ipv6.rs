@@ -158,7 +158,7 @@ impl Address {
         }
     }
 
-    /// Helper function used to mask an addres given a prefix.
+    /// Helper function used to mask an address given a prefix.
     ///
     /// # Panics
     /// This function panics if `mask` is greater than 128.
@@ -245,7 +245,7 @@ impl fmt::Display for Address {
                     State::Tail
                 }
                 // Continue iterating without writing any characters until
-                // we hit anothing non-zero value.
+                // we hit a non-zero value.
                 (0, &State::Tail) => State::Tail,
                 // When the state is Head or Tail write a u16 in hexadecimal
                 // without the leading colon if the value is not 0.

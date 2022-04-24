@@ -46,7 +46,7 @@ impl<'a> PacketAssembler<'a> {
     ///
     /// # Errors
     ///
-    /// - Returns [`Error::PacketAssemblerBufferTooSmall`] when the buffer is too smal for holding all the
+    /// - Returns [`Error::PacketAssemblerBufferTooSmall`] when the buffer is too small for holding all the
     /// fragments of a packet.
     pub(crate) fn start(&mut self, total_size: usize, start_time: Instant) -> Result<()> {
         match &mut self.buffer {
@@ -325,7 +325,7 @@ impl<'a, K: Eq + Ord + Clone + Copy> PacketAssemblerSet<'a, K> {
         }
     }
 
-    /// Remove all [`PacketAssembler`]s that are marked as discared.
+    /// Remove all [`PacketAssembler`]s that are marked as discarded.
     pub fn remove_discarded(&mut self) {
         loop {
             let mut key = None;
