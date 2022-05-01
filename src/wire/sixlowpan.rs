@@ -325,7 +325,7 @@ pub mod frag {
         }
     }
 
-    impl<'a, T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
+    impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
         fn set_dispatch_field(&mut self, value: u8) {
             let raw = self.buffer.as_mut();
             raw[field::DISPATCH] = (raw[field::DISPATCH] & !(0b11111 << 3)) | (value << 3);
@@ -839,7 +839,7 @@ pub mod iphc {
         }
     }
 
-    impl<'a, T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
+    impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
         /// Set the dispatch field to `0b011`.
         fn set_dispatch_field(&mut self) {
             let data = &mut self.buffer.as_mut()[field::IPHC_FIELD];
@@ -1506,7 +1506,7 @@ pub mod nhc {
         }
     }
 
-    impl<'a, T: AsRef<[u8]> + AsMut<[u8]>> ExtHeaderPacket<T> {
+    impl<T: AsRef<[u8]> + AsMut<[u8]>> ExtHeaderPacket<T> {
         /// Return a mutable pointer to the payload.
         pub fn payload_mut(&mut self) -> &mut [u8] {
             let start = 2 + self.next_header_size();
@@ -1781,7 +1781,7 @@ pub mod nhc {
         }
     }
 
-    impl<'a, T: AsRef<[u8]> + AsMut<[u8]>> UdpNhcPacket<T> {
+    impl<T: AsRef<[u8]> + AsMut<[u8]>> UdpNhcPacket<T> {
         /// Return a mutable pointer to the payload.
         pub fn payload_mut(&mut self) -> &mut [u8] {
             let start = 1 + self.ports_size() + 2; // XXX(thvdveld): we assume we put the checksum inlined.

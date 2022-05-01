@@ -81,8 +81,6 @@ fn main() {
         _ => panic!("invalid mode"),
     };
 
-    thread::spawn(move || client(mode));
-
     let neighbor_cache = NeighborCache::new(BTreeMap::new());
 
     let tcp1_rx_buffer = tcp::SocketBuffer::new(vec![0; 65535]);
@@ -108,6 +106,7 @@ fn main() {
     let tcp2_handle = iface.add_socket(tcp2_socket);
     let default_timeout = Some(Duration::from_millis(1000));
 
+    thread::spawn(move || client(mode));
     let mut processed = 0;
     while !CLIENT_DONE.load(Ordering::SeqCst) {
         let timestamp = Instant::now();

@@ -115,6 +115,9 @@ required-features = ["std", "medium-ethernet", "medium-ip", "phy-tuntap_interfac
 [[example]]
 name = "sixlowpan"
 required-features = ["std", "medium-ieee802154", "phy-raw_socket", "proto-sixlowpan", "socket-udp"]
+[[example]]
+name = "sixlowpan_benchmark"
+required-features = ["std", "medium-ieee802154", "phy-raw_socket", "proto-sixlowpan", "socket-udp"]
 
 [[example]]
 name = "dns"

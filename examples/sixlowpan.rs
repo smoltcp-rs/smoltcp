@@ -49,11 +49,11 @@ use std::str;
 
 use smoltcp::iface::{FragmentsCache, InterfaceBuilder, NeighborCache};
 use smoltcp::phy::{wait as phy_wait, Medium, RawSocket};
+use smoltcp::socket::tcp;
 use smoltcp::socket::udp;
+use smoltcp::storage::RingBuffer;
 use smoltcp::time::Instant;
 use smoltcp::wire::{Ieee802154Pan, IpAddress, IpCidr};
-use smoltcp::socket::tcp;
-use smoltcp::storage::RingBuffer;
 
 fn main() {
     utils::setup_logging("");

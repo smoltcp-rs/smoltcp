@@ -979,17 +979,24 @@ where
             let mut neighbor_addr = None;
             let mut respond = |inner: &mut InterfaceInner, response: IpPacket| {
                 neighbor_addr = Some(response.ip_repr().dst_addr());
-                // FIXME(thvdveld): remove unwrap
-                let tx_token = device.transmit().ok_or(Error::Exhausted).unwrap();
-                #[cfg(feature = "proto-sixlowpan")]
-                {
-                    inner.dispatch_ip(tx_token, response, Some(out_fragments)).unwrap();
+                match device.transmit().ok_or(Error::Exhausted) {
+                    Ok(t) => {
+                        #[cfg(feature = "proto-sixlowpan")]
+                        if let Err(_e) = inner.dispatch_ip(t, response, Some(out_fragments)) {
+                            net_debug!("failed to dispatch IP: {}", _e);
+                        }
+
+                        #[cfg(not(feature = "proto-sixlowpan"))]
+                        if let Err(_e) = inner.dispatch_ip(t, response, None) {
+                            net_debug!("failed to dispatch IP: {}", _e);
+                        }
+                        emitted_any = true;
+                    }
+                    Err(e) => {
+                        net_debug!("failed to transmit IP: {}", e);
+                    }
                 }
-                #[cfg(not(feature = "proto-sixlowpan"))]
-                {
-                    check!(inner.dispatch_ip(tx_token, response, None));
-                }
-                emitted_any = true;
+
                 Ok(())
             };
 
@@ -2734,6 +2741,7 @@ impl<'a> InterfaceInner<'a> {
 
         let (src_addr, dst_addr) = match (ip_repr.src_addr(), ip_repr.dst_addr()) {
             (IpAddress::Ipv6(src_addr), IpAddress::Ipv6(dst_addr)) => (src_addr, dst_addr),
+            #[allow(unreachable_patterns)]
             _ => return Err(Error::Unaddressable),
         };
 
@@ -2905,32 +2913,36 @@ impl<'a> InterfaceInner<'a> {
 
             // We need to save the the rest of the packets into the `out_fragments` buffer.
             while written < total_size {
-                out_fragments.enqueue_one_with::<'_, (), Error, _>(|(len, tx_buf)| {
-                    let mut tx_buf = &mut tx_buf[..];
+                out_fragments
+                    .enqueue_one_with::<'_, (), Error, _>(|(len, tx_buf)| {
+                        let mut tx_buf = &mut tx_buf[..];
 
-                    // Modify the sequence number of the IEEE header
-                    ieee_repr.sequence_number = Some(self.get_sequence_number());
-                    let mut ieee_packet = Ieee802154Frame::new_unchecked(&mut tx_buf[..ieee_len]);
-                    ieee_repr.emit(&mut ieee_packet);
-                    tx_buf = &mut tx_buf[ieee_len..];
+                        // Modify the sequence number of the IEEE header
+                        ieee_repr.sequence_number = Some(self.get_sequence_number());
+                        let mut ieee_packet =
+                            Ieee802154Frame::new_unchecked(&mut tx_buf[..ieee_len]);
+                        ieee_repr.emit(&mut ieee_packet);
+                        tx_buf = &mut tx_buf[ieee_len..];
 
-                    // Add the next fragment header
-                    let datagram_offset = ((40 + written - ieee_len) / 8) as u8;
-                    fragn.set_offset(datagram_offset);
-                    let mut frag_packet =
-                        SixlowpanFragPacket::new_unchecked(&mut tx_buf[..fragn.buffer_len()]);
-                    fragn.emit(&mut frag_packet);
-                    tx_buf = &mut tx_buf[fragn.buffer_len()..];
+                        // Add the next fragment header
+                        let datagram_offset = ((40 + written - ieee_len) / 8) as u8;
+                        fragn.set_offset(datagram_offset);
+                        let mut frag_packet =
+                            SixlowpanFragPacket::new_unchecked(&mut tx_buf[..fragn.buffer_len()]);
+                        fragn.emit(&mut frag_packet);
+                        tx_buf = &mut tx_buf[fragn.buffer_len()..];
 
-                    // Add the buffer part
-                    let frag_size = (total_size - written).min(fragn_size);
-                    tx_buf[..frag_size].copy_from_slice(&buffer[written..][..frag_size]);
-                    written += frag_size;
+                        // Add the buffer part
+                        let frag_size = (total_size - written).min(fragn_size);
+                        tx_buf[..frag_size].copy_from_slice(&buffer[written..][..frag_size]);
+                        written += frag_size;
 
-                    // Save the lenght of this packet.
-                    *len = ieee_len + fragn.buffer_len() + frag_size;
-                    Ok(())
-                }).unwrap().unwrap();
+                        // Save the lenght of this packet.
+                        *len = ieee_len + fragn.buffer_len() + frag_size;
+                        Ok(())
+                    })
+                    .unwrap()
+                    .unwrap();
             }
 
             Ok(())
