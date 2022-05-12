@@ -322,6 +322,14 @@ impl<'a> UdpSocket<'a> {
             addr: ip_repr.src_addr(),
             port: repr.src_port,
         };
+
+        // If local address is not provided, choose it automatically.
+        if self.endpoint.addr.is_unspecified() {
+            self.endpoint.addr = cx
+                .get_source_address(endpoint.addr)
+                .ok_or(Error::Unaddressable)?;
+        }
+
         self.rx_buffer
             .enqueue(size, endpoint)?
             .copy_from_slice(payload);
