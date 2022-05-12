@@ -66,6 +66,8 @@ pub struct IcmpSocket<'a> {
     tx_buffer: IcmpSocketBuffer<'a>,
     /// The endpoint this socket is communicating with
     endpoint: Endpoint,
+    /// The originating IP address (for IPv4)
+    src_addr: Ipv4Address,
     /// The time-to-live (IPv4) or hop limit (IPv6) value used in outgoing packets.
     hop_limit: Option<u8>,
     #[cfg(feature = "async")]
@@ -81,6 +83,7 @@ impl<'a> IcmpSocket<'a> {
             rx_buffer: rx_buffer,
             tx_buffer: tx_buffer,
             endpoint: Endpoint::default(),
+            src_addr: Ipv4Address::UNSPECIFIED,
             hop_limit: None,
             #[cfg(feature = "async")]
             rx_waker: WakerRegistration::new(),
@@ -269,6 +272,16 @@ impl<'a> IcmpSocket<'a> {
         self.endpoint != Endpoint::Unspecified
     }
 
+    /// Return the source address.
+    #[inline]
+    pub fn src_ipv4addr(&self) -> Ipv4Address {
+        self.src_addr
+    }
+
+    pub fn set_src_ipv4addr(&mut self, address: Ipv4Address) {
+        self.src_addr = address;
+    }
+
     /// Enqueue a packet to be sent to a given remote address, and return a pointer
     /// to its payload.
     ///
@@ -439,6 +452,7 @@ impl<'a> IcmpSocket<'a> {
         F: FnOnce(&mut Context, (IpRepr, IcmpRepr)) -> Result<()>,
     {
         let hop_limit = self.hop_limit.unwrap_or(64);
+        let src_ipv4addr = self.src_ipv4addr();
         self.tx_buffer.dequeue_with(|remote_endpoint, packet_buf| {
             net_trace!(
                 "icmp:{}: sending {} octets",
@@ -451,7 +465,7 @@ impl<'a> IcmpSocket<'a> {
                     let packet = Icmpv4Packet::new_unchecked(&*packet_buf);
                     let repr = Icmpv4Repr::parse(&packet, &ChecksumCapabilities::ignored())?;
                     let ip_repr = IpRepr::Ipv4(Ipv4Repr {
-                        src_addr: Ipv4Address::default(),
+                        src_addr: src_ipv4addr,
                         dst_addr: ipv4_addr,
                         next_header: IpProtocol::Icmp,
                         payload_len: repr.buffer_len(),
