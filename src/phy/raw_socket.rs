@@ -43,7 +43,7 @@ impl RawSocket {
         Ok(RawSocket {
             medium,
             lower: Rc::new(RefCell::new(lower)),
-            mtu: mtu,
+            mtu,
         })
     }
 }
