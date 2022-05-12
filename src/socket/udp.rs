@@ -327,7 +327,7 @@ impl<'a> UdpSocket<'a> {
         // If local address is not provided, choose it automatically.
         if self.endpoint.addr.is_unspecified() {
             self.endpoint.addr = cx
-                .get_source_address(endpoint.addr)
+                .get_source_address(remote_endpoint.addr)
                 .ok_or(Error::Unaddressable)?;
         }
 
