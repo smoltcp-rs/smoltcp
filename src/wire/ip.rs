@@ -562,6 +562,22 @@ impl Repr {
                 payload_len,
                 hop_limit,
             }),
+            #[cfg(feature = "proto-ipv4")]
+            (Address::Unspecified, Address::Ipv4(dst_addr)) => Self::Ipv4(Ipv4Repr {
+                src_addr: Ipv4Address::UNSPECIFIED,
+                dst_addr,
+                next_header,
+                payload_len,
+                hop_limit,
+            }),
+            #[cfg(feature = "proto-ipv6")]
+            (Address::Unspecified, Address::Ipv6(dst_addr)) => Self::Ipv6(Ipv6Repr {
+                src_addr: Ipv6Address::UNSPECIFIED,
+                dst_addr,
+                next_header,
+                payload_len,
+                hop_limit,
+            }),
             _ => panic!("IP version mismatch: src={:?} dst={:?}", src_addr, dst_addr),
         }
     }
@@ -583,6 +599,21 @@ impl Repr {
             Repr::Ipv4(repr) => Address::Ipv4(repr.src_addr),
             #[cfg(feature = "proto-ipv6")]
             Repr::Ipv6(repr) => Address::Ipv6(repr.src_addr),
+        }
+    }
+
+    /// Set the source address.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the IP representation and the address don't have the same IP version.
+    pub(crate) fn set_src_addr(&mut self, src_addr: Address) {
+        match (self, src_addr) {
+            #[cfg(feature = "proto-ipv4")]
+            (Repr::Ipv4(repr), Address::Ipv4(addr)) => repr.src_addr = addr,
+            #[cfg(feature = "proto-ipv6")]
+            (Repr::Ipv6(repr), Address::Ipv6(addr)) => repr.src_addr = addr,
+            _ => panic!("source IP address does not match IP packet version"),
         }
     }
 
