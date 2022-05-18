@@ -168,6 +168,21 @@ pub struct Repr<'a> {
     pub options: &'a [u8],
 }
 
+impl Repr<'static> {
+    /// The hop-by-hop header containing only an [MLDv2 router alert option].
+    ///
+    /// [MLDv2 router alert option]: https://tools.ietf.org/html/rfc2711#section-2.1
+    pub const MLDV2_ROUTER_ALERT: Self = Self {
+        // MLDv2 packets are always ICMPv6
+        next_header: Protocol::Icmpv6,
+        length: 0,
+        options: &[
+            0x05, 0x02, 0x00, 0x00, // Router alert
+            0x01, 0x00, // PadN(0)
+        ],
+    };
+}
+
 impl<'a> Repr<'a> {
     /// Parse an IPv6 Hop-by-Hop Options Header and return a high-level representation.
     pub fn parse<T>(header: &Header<&'a T>) -> Result<Repr<'a>>
