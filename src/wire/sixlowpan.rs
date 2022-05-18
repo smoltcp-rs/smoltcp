@@ -814,7 +814,7 @@ pub mod iphc {
                 _ => 1,
             };
 
-            // Add the lenght of the source address
+            // Add the length of the source address
             len += if self.src_addr == ipv6::Address::UNSPECIFIED {
                 0
             } else if self.src_addr.is_link_local() {
@@ -897,7 +897,7 @@ pub mod iphc {
 
             packet.set_dispatch_field();
 
-            // SETTING THE TRAFIC FLOW
+            // SETTING THE TRAFFIC FLOW
             // TODO(thvdveld): needs more work.
             packet.set_tf_field(0b11);
 
@@ -1258,7 +1258,7 @@ pub mod nhc {
             len
         }
 
-        /// Emit a high-level representaiton into a LOWPAN_NHC Extension Header packet.
+        /// Emit a high-level representation into a LOWPAN_NHC Extension Header packet.
         pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(&self, packet: &mut ExtensionHeaderPacket<T>) {
             packet.set_dispatch_field();
             packet.set_extension_header_id(self.ext_header_id);
@@ -1394,7 +1394,7 @@ pub mod nhc {
                 let start = self.nhc_fields_start() + self.ports_size();
                 Some(NetworkEndian::read_u16(&data[start..start + 2]))
             } else {
-                // The checksum is ellided and needs to be recomputed on the 6LoWPAN termination point.
+                // The checksum is elided and needs to be recomputed on the 6LoWPAN termination point.
                 None
             }
         }
@@ -1529,7 +1529,7 @@ pub mod nhc {
                     return Err(Error::Checksum);
                 }
             } else {
-                net_trace!("Currently we do not support ellided checksums.");
+                net_trace!("Currently we do not support elided checksums.");
                 return Err(Error::Unrecognized);
             };
 
@@ -1726,7 +1726,7 @@ mod test {
 
     //match ext_packet.extension_header_id() {
     //nhc::ExtensionHeaderId::RoutingHeader => {
-    //// We are not intersted in the Next Header protocol.
+    //// We are not interested in the Next Header protocol.
     //let proto = ipv6::Protocol::Unknown(0);
     //let mut new_payload = [0; 8];
 

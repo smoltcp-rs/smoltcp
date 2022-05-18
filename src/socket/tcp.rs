@@ -362,11 +362,11 @@ pub struct TcpSocket<'a> {
     remote_mss: usize,
     /// The timestamp of the last packet received.
     remote_last_ts: Option<Instant>,
-    /// The sequence number of the last packet recived, used for sACK
+    /// The sequence number of the last packet received, used for sACK
     local_rx_last_seq: Option<TcpSeqNumber>,
-    /// The ACK number of the last packet recived.
+    /// The ACK number of the last packet received.
     local_rx_last_ack: Option<TcpSeqNumber>,
-    /// The number of packets recived directly after
+    /// The number of packets received directly after
     /// each other which have the same ACK number.
     local_rx_dup_acks: u8,
 
@@ -1198,7 +1198,7 @@ impl<'a> TcpSocket<'a> {
                 // number has advanced, or there was no previous sACK.
                 //
                 // While the RFC says we SHOULD keep a list of reported sACK ranges, and iterate
-                // through those, that is currently infeasable. Instead, we offer the range with
+                // through those, that is currently infeasible. Instead, we offer the range with
                 // the lowest sequence number (if one exists) to hint at what segments would
                 // most quickly advance the acknowledgement number.
                 reply_repr.sack_ranges[0] = self
@@ -1279,7 +1279,7 @@ impl<'a> TcpSocket<'a> {
             State::SynSent | State::SynReceived => (true, false),
             // In FIN-WAIT-1, LAST-ACK, or CLOSING, we've just sent a FIN.
             State::FinWait1 | State::LastAck | State::Closing => (false, true),
-            // In all other states we've already got acknowledgemetns for
+            // In all other states we've already got acknowledgements for
             // all of the control flags we sent.
             _ => (false, false),
         };
@@ -1485,7 +1485,7 @@ impl<'a> TcpSocket<'a> {
         if repr.control != TcpControl::Rst {
             if let Some(ack_number) = repr.ack_number {
                 // Sequence number corresponding to the first byte in `tx_buffer`.
-                // This normally equals `local_seq_no`, but is 1 higher if we ahve sent a SYN,
+                // This normally equals `local_seq_no`, but is 1 higher if we have sent a SYN,
                 // as the SYN occupies 1 sequence number "before" the data.
                 let tx_buffer_start_seq = self.local_seq_no + (sent_syn as usize);
 
@@ -1752,11 +1752,11 @@ impl<'a> TcpSocket<'a> {
 
             // Detect and react to duplicate ACKs by:
             // 1. Check if duplicate ACK and change self.local_rx_dup_acks accordingly
-            // 2. If exactly 3 duplicate ACKs recived, set for fast retransmit
+            // 2. If exactly 3 duplicate ACKs received, set for fast retransmit
             // 3. Update the last received ACK (self.local_rx_last_ack)
             match self.local_rx_last_ack {
                 // Duplicate ACK if payload empty and ACK doesn't move send window ->
-                // Increment duplicate ACK count and set for retransmit if we just recived
+                // Increment duplicate ACK count and set for retransmit if we just received
                 // the third duplicate ACK
                 Some(ref last_rx_ack)
                     if repr.payload.is_empty()
@@ -1788,7 +1788,7 @@ impl<'a> TcpSocket<'a> {
                         );
                     }
                 }
-                // No duplicate ACK -> Reset state and update last recived ACK
+                // No duplicate ACK -> Reset state and update last received ACK
                 _ => {
                     if self.local_rx_dup_acks > 0 {
                         self.local_rx_dup_acks = 0;
@@ -5385,7 +5385,7 @@ mod test {
         });
 
         // Send a long string of text divided into several packets
-        // because of previously recieved "window_len"
+        // because of previously received "window_len"
         s.send_slice(b"xxxxxxyyyyyywwwwwwzzzzzz").unwrap();
         // This packet is lost
         recv!(s, time 1000, Ok(TcpRepr {
@@ -5467,7 +5467,7 @@ mod test {
             _ => false,
         });
 
-        // ACK all recived segments
+        // ACK all received segments
         send!(s, time 1120, TcpRepr {
             seq_number: REMOTE_SEQ + 1,
             ack_number: Some(LOCAL_SEQ + 1 + (6 * 4)),
@@ -5487,7 +5487,7 @@ mod test {
             ..RECV_TEMPL
         }));
 
-        // Normal ACK of previously recieved segment
+        // Normal ACK of previously received segment
         send!(
             s,
             TcpRepr {
@@ -5541,7 +5541,7 @@ mod test {
 
         assert_eq!(
             s.local_rx_dup_acks, 0,
-            "duplicate ACK counter is not reset when reciving data"
+            "duplicate ACK counter is not reset when receiving data"
         );
     }
 
@@ -5550,7 +5550,7 @@ mod test {
         let mut s = socket_established();
         s.remote_mss = 6;
 
-        // Normal ACK of previously recived segment
+        // Normal ACK of previously received segment
         send!(s, time 0, TcpRepr {
             seq_number: REMOTE_SEQ + 1,
             ack_number: Some(LOCAL_SEQ + 1),
@@ -5620,10 +5620,10 @@ mod test {
 
         assert_eq!(
             s.local_rx_dup_acks, 0,
-            "duplicate ACK counter is not reset when reciving ACK which updates send window"
+            "duplicate ACK counter is not reset when receiving ACK which updates send window"
         );
 
-        // ACK all recived segments
+        // ACK all received segments
         send!(s, time 1120, TcpRepr {
             seq_number: REMOTE_SEQ + 1,
             ack_number: Some(LOCAL_SEQ + 1 + (6 * 4)),

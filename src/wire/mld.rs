@@ -216,7 +216,7 @@ impl<T: AsRef<[u8]>> AddressRecord<T> {
         RecordType::from(data[field::RECORD_TYPE])
     }
 
-    /// Return the length of the auxilary data.
+    /// Return the length of the auxiliary data.
     #[inline]
     pub fn aux_data_len(&self) -> u8 {
         let data = self.buffer.as_ref();
@@ -259,7 +259,7 @@ impl<T: AsMut<[u8]> + AsRef<[u8]>> AddressRecord<T> {
         data[field::RECORD_TYPE] = rty.into();
     }
 
-    /// Return the length of the auxilary data.
+    /// Return the length of the auxiliary data.
     #[inline]
     pub fn set_aux_data_len(&mut self, len: u8) {
         let data = self.buffer.as_mut();

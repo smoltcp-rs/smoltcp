@@ -33,7 +33,7 @@ pub struct Interface<'a, DeviceT: for<'d> Device<'d>> {
 
 /// The device independent part of an Ethernet network interface.
 ///
-/// Separating the device from the data required for prorcessing and dispatching makes
+/// Separating the device from the data required for processing and dispatching makes
 /// it possible to borrow them independently. For example, the tx and rx tokens borrow
 /// the `device` mutably until they're used, which makes it impossible to call other
 /// methods on the `Interface` in this time (since its `device` field is borrowed
@@ -472,7 +472,7 @@ fn icmp_reply_payload_len(len: usize, mtu: usize, header_len: usize) -> usize {
     // the minimum MTU required by IPv4. See RFC 1812 § 4.3.2.3 for
     // more details.
     //
-    // Since the entire network layer packet must fit within the minumum
+    // Since the entire network layer packet must fit within the minimum
     // MTU supported, the payload must not exceed the following:
     //
     // <min mtu> - IP Header Size * 2 - ICMPv4 DstUnreachable hdr size
@@ -950,7 +950,7 @@ where
                     // `NeighborCache` already takes care of rate limiting the neighbor discovery
                     // requests from the socket. However, without an additional rate limiting
                     // mechanism, we would spin on every socket that has yet to discover its
-                    // neighboor.
+                    // neighbor.
                     item.meta.neighbor_missing(
                         inner.now,
                         neighbor_addr.expect("non-IP response packet"),

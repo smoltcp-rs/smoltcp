@@ -70,7 +70,7 @@ mod field {
 
     // 8-bit identifier of the type of option.
     pub const TYPE: usize = 0;
-    // 8-bit unsigned integer. Length of the option, in units of 8 octests.
+    // 8-bit unsigned integer. Length of the option, in units of 8 octets.
     pub const LENGTH: usize = 1;
     // Minimum length of an option.
     pub const MIN_OPT_LEN: usize = 8;

@@ -225,7 +225,7 @@ impl<T: AsRef<[u8]>> Header<T> {
 
 /// Getter methods for the RPL Source Routing Header routing type.
 impl<T: AsRef<[u8]>> Header<T> {
-    /// Return the number of prefix octects elided from addresses[1..n-1].
+    /// Return the number of prefix octets elided from addresses[1..n-1].
     ///
     /// # Panics
     /// This function may panic if this header is not the RPL Source Routing Header routing type.
@@ -234,7 +234,7 @@ impl<T: AsRef<[u8]>> Header<T> {
         data[field::CMPR] >> 4
     }
 
-    /// Return the number of prefix octects elided from the last address (`addresses[n]`).
+    /// Return the number of prefix octets elided from the last address (`addresses[n]`).
     ///
     /// # Panics
     /// This function may panic if this header is not the RPL Source Routing Header routing type.
@@ -243,7 +243,7 @@ impl<T: AsRef<[u8]>> Header<T> {
         data[field::CMPR] & 0xf
     }
 
-    /// Return the number of octects used for padding after `addresses[n]`.
+    /// Return the number of octets used for padding after `addresses[n]`.
     ///
     /// # Panics
     /// This function may panic if this header is not the RPL Source Routing Header routing type.
@@ -334,7 +334,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Header<T> {
 
 /// Setter methods for the RPL Source Routing Header routing type.
 impl<T: AsRef<[u8]> + AsMut<[u8]>> Header<T> {
-    /// Set the number of prefix octects elided from addresses[1..n-1].
+    /// Set the number of prefix octets elided from addresses[1..n-1].
     ///
     /// # Panics
     /// This function may panic if this header is not the RPL Source Routing Header routing type.
@@ -344,7 +344,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Header<T> {
         data[field::CMPR] = raw;
     }
 
-    /// Set the number of prefix octects elided from the last address (`addresses[n]`).
+    /// Set the number of prefix octets elided from the last address (`addresses[n]`).
     ///
     /// # Panics
     /// This function may panic if this header is not the RPL Source Routing Header routing type.
@@ -354,7 +354,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Header<T> {
         data[field::CMPR] = raw;
     }
 
-    /// Set the number of octects used for padding after `addresses[n]`.
+    /// Set the number of octets used for padding after `addresses[n]`.
     ///
     /// # Panics
     /// This function may panic if this header is not the RPL Source Routing Header routing type.
@@ -600,7 +600,7 @@ mod test {
             Err(Error::Truncated),
             Header::new(&BYTES_SRH_ELIDED[..3]).check_len()
         );
-        // less than specfied length field
+        // less than specified length field
         assert_eq!(
             Err(Error::Truncated),
             Header::new(&BYTES_TYPE2[..23]).check_len()

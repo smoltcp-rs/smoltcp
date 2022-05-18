@@ -479,7 +479,7 @@ impl<T: AsRef<[u8]>> Frame<T> {
         index
     }
 
-    /// Return the lenght of the key identifier field.
+    /// Return the length of the key identifier field.
     fn key_identifier_length(&self) -> Option<u8> {
         Some(match self.key_identifier_mode() {
             0 => 0,

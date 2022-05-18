@@ -151,7 +151,7 @@ impl<'a> RawSocket<'a> {
     /// If the buffer is filled in a way that does not match the socket's
     /// IP version or protocol, the packet will be silently dropped.
     ///
-    /// **Note:** The IP header is parsed and reserialized, and may not match
+    /// **Note:** The IP header is parsed and re-serialized, and may not match
     /// the header actually transmitted bit for bit.
     pub fn send(&mut self, size: usize) -> Result<&mut [u8]> {
         let packet_buf = self.tx_buffer.enqueue(size, ())?;
@@ -177,7 +177,7 @@ impl<'a> RawSocket<'a> {
     ///
     /// This function returns `Err(Error::Exhausted)` if the receive buffer is empty.
     ///
-    /// **Note:** The IP header is parsed and reserialized, and may not match
+    /// **Note:** The IP header is parsed and re-serialized, and may not match
     /// the header actually received bit for bit.
     pub fn recv(&mut self) -> Result<&[u8]> {
         let ((), packet_buf) = self.rx_buffer.dequeue()?;

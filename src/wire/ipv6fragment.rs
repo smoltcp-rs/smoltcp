@@ -166,7 +166,7 @@ pub struct Repr {
     /// The offset of the data following this header, relative to the start of the Fragmentable
     /// Part of the original packet.
     pub frag_offset: u16,
-    /// Whethere are not there are more fragments following this header
+    /// When there are more fragments following this header
     pub more_frags: bool,
     /// The identification for every packet that is fragmented.
     pub ident: u32,

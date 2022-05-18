@@ -841,7 +841,7 @@ impl<'a> Repr<'a> {
                 TcpOption::MaxSegmentSize(value) => max_seg_size = Some(value),
                 TcpOption::WindowScale(value) => {
                     // RFC 1323: Thus, the shift count must be limited to 14 (which allows windows
-                    // of 2**30 = 1 Gbyte). If a Window Scale option is received with a shift.cnt
+                    // of 2**30 = 1 Gigabyte). If a Window Scale option is received with a shift.cnt
                     // value exceeding 14, the TCP should log the error but use 14 instead of the
                     // specified value.
                     window_scale = if value > 14 {
