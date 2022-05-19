@@ -1,4 +1,4 @@
-use crate::{Error, Result};
+use super::{Error, Result};
 use core::fmt;
 
 use crate::wire::IpProtocol as Protocol;
@@ -158,7 +158,7 @@ impl<T: AsRef<[u8]>> Header<T> {
     }
 
     /// Ensure that no accessor method will panic if called.
-    /// Returns `Err(Error::Truncated)` if the buffer is too short.
+    /// Returns `Err(Error)` if the buffer is too short.
     ///
     /// The result of this check is invalidated by calling [set_header_len].
     ///
@@ -166,11 +166,11 @@ impl<T: AsRef<[u8]>> Header<T> {
     pub fn check_len(&self) -> Result<()> {
         let len = self.buffer.as_ref().len();
         if len < field::MIN_HEADER_SIZE {
-            return Err(Error::Truncated);
+            return Err(Error);
         }
 
         if len < field::DATA(self.header_len()).end as usize {
-            return Err(Error::Truncated);
+            return Err(Error);
         }
 
         Ok(())
@@ -444,7 +444,7 @@ impl<'a> Repr<'a> {
                 addresses: header.addresses(),
             }),
 
-            _ => Err(Error::Unrecognized),
+            _ => Err(Error),
         }
     }
 
@@ -588,31 +588,13 @@ mod test {
     #[test]
     fn test_check_len() {
         // less than min header size
-        assert_eq!(
-            Err(Error::Truncated),
-            Header::new(&BYTES_TYPE2[..3]).check_len()
-        );
-        assert_eq!(
-            Err(Error::Truncated),
-            Header::new(&BYTES_SRH_FULL[..3]).check_len()
-        );
-        assert_eq!(
-            Err(Error::Truncated),
-            Header::new(&BYTES_SRH_ELIDED[..3]).check_len()
-        );
+        assert_eq!(Err(Error), Header::new(&BYTES_TYPE2[..3]).check_len());
+        assert_eq!(Err(Error), Header::new(&BYTES_SRH_FULL[..3]).check_len());
+        assert_eq!(Err(Error), Header::new(&BYTES_SRH_ELIDED[..3]).check_len());
         // less than specified length field
-        assert_eq!(
-            Err(Error::Truncated),
-            Header::new(&BYTES_TYPE2[..23]).check_len()
-        );
-        assert_eq!(
-            Err(Error::Truncated),
-            Header::new(&BYTES_SRH_FULL[..39]).check_len()
-        );
-        assert_eq!(
-            Err(Error::Truncated),
-            Header::new(&BYTES_SRH_ELIDED[..11]).check_len()
-        );
+        assert_eq!(Err(Error), Header::new(&BYTES_TYPE2[..23]).check_len());
+        assert_eq!(Err(Error), Header::new(&BYTES_SRH_FULL[..39]).check_len());
+        assert_eq!(Err(Error), Header::new(&BYTES_SRH_ELIDED[..11]).check_len());
         // valid
         assert_eq!(Ok(()), Header::new(&BYTES_TYPE2[..]).check_len());
         assert_eq!(Ok(()), Header::new(&BYTES_SRH_FULL[..]).check_len());

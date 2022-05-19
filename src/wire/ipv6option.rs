@@ -1,4 +1,4 @@
-use crate::{Error, Result};
+use super::{Error, Result};
 use core::fmt;
 
 enum_with_unknown! {
@@ -103,7 +103,7 @@ impl<T: AsRef<[u8]>> Ipv6Option<T> {
     }
 
     /// Ensure that no accessor method will panic if called.
-    /// Returns `Err(Error::Truncated)` if the buffer is too short.
+    /// Returns `Err(Error)` if the buffer is too short.
     ///
     /// The result of this check is invalidated by calling [set_data_len].
     ///
@@ -113,7 +113,7 @@ impl<T: AsRef<[u8]>> Ipv6Option<T> {
         let len = data.len();
 
         if len < field::LENGTH {
-            return Err(Error::Truncated);
+            return Err(Error);
         }
 
         if self.option_type() == Type::Pad1 {
@@ -121,13 +121,13 @@ impl<T: AsRef<[u8]>> Ipv6Option<T> {
         }
 
         if len == field::LENGTH {
-            return Err(Error::Truncated);
+            return Err(Error);
         }
 
         let df = field::DATA(data[field::LENGTH]);
 
         if len < df.end {
-            return Err(Error::Truncated);
+            return Err(Error);
         }
 
         Ok(())
@@ -362,7 +362,7 @@ mod test {
         let bytes = [0u8];
         // zero byte buffer
         assert_eq!(
-            Err(Error::Truncated),
+            Err(Error),
             Ipv6Option::new_unchecked(&bytes[..0]).check_len()
         );
         // pad1
@@ -373,7 +373,7 @@ mod test {
 
         // padn with truncated data
         assert_eq!(
-            Err(Error::Truncated),
+            Err(Error),
             Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_PADN[..2]).check_len()
         );
         // padn
@@ -384,11 +384,11 @@ mod test {
 
         // unknown option type with truncated data
         assert_eq!(
-            Err(Error::Truncated),
+            Err(Error),
             Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_UNKNOWN[..4]).check_len()
         );
         assert_eq!(
-            Err(Error::Truncated),
+            Err(Error),
             Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_UNKNOWN[..1]).check_len()
         );
         // unknown type
@@ -436,7 +436,7 @@ mod test {
         assert_eq!(opt.option_type(), Type::Unknown(255));
 
         // unrecognized option without length and data
-        assert_eq!(Ipv6Option::new_checked(&bytes), Err(Error::Truncated));
+        assert_eq!(Ipv6Option::new_checked(&bytes), Err(Error));
     }
 
     #[test]
@@ -533,7 +533,7 @@ mod test {
                         ..
                     }),
                 ) => continue,
-                (6, Err(Error::Truncated)) => continue,
+                (6, Err(Error)) => continue,
                 (i, res) => panic!("Unexpected option `{:?}` at index {}", res, i),
             }
         }

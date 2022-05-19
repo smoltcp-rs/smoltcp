@@ -1,4 +1,4 @@
-use crate::{Error, Result};
+use super::{Error, Result};
 use core::fmt;
 
 pub use super::IpProtocol as Protocol;
@@ -65,7 +65,7 @@ impl<T: AsRef<[u8]>> Header<T> {
     }
 
     /// Ensure that no accessor method will panic if called.
-    /// Returns `Err(Error::Truncated)` if the buffer is too short.
+    /// Returns `Err(Error)` if the buffer is too short.
     ///
     /// The result of this check is invalidated by calling [set_header_len].
     ///
@@ -75,13 +75,13 @@ impl<T: AsRef<[u8]>> Header<T> {
         let len = data.len();
 
         if len < field::MIN_HEADER_SIZE {
-            return Err(Error::Truncated);
+            return Err(Error);
         }
 
         let of = field::OPTIONS(data[field::LENGTH]);
 
         if len < of.end {
-            return Err(Error::Truncated);
+            return Err(Error);
         }
 
         Ok(())
@@ -226,17 +226,17 @@ mod test {
     fn test_check_len() {
         // zero byte buffer
         assert_eq!(
-            Err(Error::Truncated),
+            Err(Error),
             Header::new_unchecked(&REPR_PACKET_PAD4[..0]).check_len()
         );
         // no length field
         assert_eq!(
-            Err(Error::Truncated),
+            Err(Error),
             Header::new_unchecked(&REPR_PACKET_PAD4[..1]).check_len()
         );
         // less than 8 bytes
         assert_eq!(
-            Err(Error::Truncated),
+            Err(Error),
             Header::new_unchecked(&REPR_PACKET_PAD4[..7]).check_len()
         );
         // valid
@@ -248,10 +248,7 @@ mod test {
         );
         // length field value greater than number of bytes
         let header: [u8; 8] = [0x06, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0];
-        assert_eq!(
-            Err(Error::Truncated),
-            Header::new_unchecked(&header).check_len()
-        );
+        assert_eq!(Err(Error), Header::new_unchecked(&header).check_len());
     }
 
     #[test]
@@ -303,14 +300,14 @@ mod test {
         let len = bytes.len() as u8;
         Header::new_unchecked(&mut bytes).set_header_len(len + 1);
 
-        assert_eq!(Header::new_checked(&bytes).unwrap_err(), Error::Truncated);
+        assert_eq!(Header::new_checked(&bytes).unwrap_err(), Error);
 
         let mut bytes = vec![];
         bytes.extend(&REPR_PACKET_PAD12);
         let len = bytes.len() as u8;
         Header::new_unchecked(&mut bytes).set_header_len(len + 1);
 
-        assert_eq!(Header::new_checked(&bytes).unwrap_err(), Error::Truncated);
+        assert_eq!(Header::new_checked(&bytes).unwrap_err(), Error);
     }
 
     #[test]

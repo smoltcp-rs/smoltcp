@@ -1,12 +1,12 @@
 use core::convert::From;
 use core::fmt;
 
+use super::{Error, Result};
 use crate::phy::ChecksumCapabilities;
 #[cfg(feature = "proto-ipv4")]
 use crate::wire::{Ipv4Address, Ipv4Cidr, Ipv4Packet, Ipv4Repr};
 #[cfg(feature = "proto-ipv6")]
 use crate::wire::{Ipv6Address, Ipv6Cidr, Ipv6Packet, Ipv6Repr};
-use crate::{Error, Result};
 
 /// Internet protocol version.
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
@@ -22,14 +22,14 @@ impl Version {
     /// Return the version of an IP packet stored in the provided buffer.
     ///
     /// This function never returns `Ok(IpVersion::Unspecified)`; instead,
-    /// unknown versions result in `Err(Error::Unrecognized)`.
+    /// unknown versions result in `Err(Error)`.
     pub fn of_packet(data: &[u8]) -> Result<Version> {
         match data[0] >> 4 {
             #[cfg(feature = "proto-ipv4")]
             4 => Ok(Version::Ipv4),
             #[cfg(feature = "proto-ipv6")]
             6 => Ok(Version::Ipv6),
-            _ => Err(Error::Unrecognized),
+            _ => Err(Error),
         }
     }
 }

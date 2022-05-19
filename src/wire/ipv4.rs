@@ -1,9 +1,9 @@
 use byteorder::{ByteOrder, NetworkEndian};
 use core::fmt;
 
+use super::{Error, Result};
 use crate::phy::ChecksumCapabilities;
 use crate::wire::ip::{checksum, pretty_print_ip_payload};
-use crate::{Error, Result};
 
 pub use super::IpProtocol as Protocol;
 
@@ -164,7 +164,7 @@ impl Cidr {
                 prefix_len: netmask.count_ones() as u8,
             })
         } else {
-            Err(Error::Illegal)
+            Err(Error)
         }
     }
 
@@ -305,8 +305,8 @@ impl<T: AsRef<[u8]>> Packet<T> {
     }
 
     /// Ensure that no accessor method will panic if called.
-    /// Returns `Err(Error::Truncated)` if the buffer is too short.
-    /// Returns `Err(Error::Malformed)` if the header length is greater
+    /// Returns `Err(Error)` if the buffer is too short.
+    /// Returns `Err(Error)` if the header length is greater
     /// than total length.
     ///
     /// The result of this check is invalidated by calling [set_header_len]
@@ -318,13 +318,13 @@ impl<T: AsRef<[u8]>> Packet<T> {
     pub fn check_len(&self) -> Result<()> {
         let len = self.buffer.as_ref().len();
         if len < field::DST_ADDR.end {
-            Err(Error::Truncated)
+            Err(Error)
         } else if len < self.header_len() as usize {
-            Err(Error::Truncated)
+            Err(Error)
         } else if self.header_len() as u16 > self.total_len() {
-            Err(Error::Malformed)
+            Err(Error)
         } else if len < self.total_len() as usize {
-            Err(Error::Truncated)
+            Err(Error)
         } else {
             Ok(())
         }
@@ -611,20 +611,20 @@ impl Repr {
     ) -> Result<Repr> {
         // Version 4 is expected.
         if packet.version() != 4 {
-            return Err(Error::Malformed);
+            return Err(Error);
         }
         // Valid checksum is expected.
         if checksum_caps.ipv4.rx() && !packet.verify_checksum() {
-            return Err(Error::Checksum);
+            return Err(Error);
         }
         // We do not support fragmentation.
         if packet.more_frags() || packet.frag_offset() != 0 {
-            return Err(Error::Fragmented);
+            return Err(Error);
         }
         // Since the packet is not fragmented, it must include the entire payload.
         let payload_len = packet.total_len() as usize - packet.header_len() as usize;
         if packet.payload().len() < payload_len {
-            return Err(Error::Truncated);
+            return Err(Error);
         }
 
         // All DSCP values are acceptable, since they are of no concern to receiving endpoint.
@@ -837,7 +837,7 @@ mod test {
         bytes.extend(&PACKET_BYTES[..]);
         Packet::new_unchecked(&mut bytes).set_total_len(128);
 
-        assert_eq!(Packet::new_checked(&bytes).unwrap_err(), Error::Truncated);
+        assert_eq!(Packet::new_checked(&bytes).unwrap_err(), Error);
     }
 
     static REPR_PACKET_BYTES: [u8; 24] = [
@@ -874,7 +874,7 @@ mod test {
         let packet = Packet::new_unchecked(&*packet.into_inner());
         assert_eq!(
             Repr::parse(&packet, &ChecksumCapabilities::default()),
-            Err(Error::Malformed)
+            Err(Error)
         );
     }
 
@@ -882,7 +882,7 @@ mod test {
     fn test_parse_total_len_less_than_header_len() {
         let mut bytes = vec![0; 40];
         bytes[0] = 0x09;
-        assert_eq!(Packet::new_checked(&mut bytes), Err(Error::Malformed));
+        assert_eq!(Packet::new_checked(&mut bytes), Err(Error));
     }
 
     #[test]

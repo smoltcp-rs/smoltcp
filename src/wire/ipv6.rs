@@ -3,10 +3,10 @@
 use byteorder::{ByteOrder, NetworkEndian};
 use core::fmt;
 
+use super::{Error, Result};
 use crate::wire::ip::pretty_print_ip_payload;
 #[cfg(feature = "proto-ipv4")]
 use crate::wire::ipv4;
-use crate::{Error, Result};
 
 pub use super::IpProtocol as Protocol;
 
@@ -422,7 +422,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     }
 
     /// Ensure that no accessor method will panic if called.
-    /// Returns `Err(Error::Truncated)` if the buffer is too short.
+    /// Returns `Err(Error)` if the buffer is too short.
     ///
     /// The result of this check is invalidated by calling [set_payload_len].
     ///
@@ -431,7 +431,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     pub fn check_len(&self) -> Result<()> {
         let len = self.buffer.as_ref().len();
         if len < field::DST_ADDR.end || len < self.total_len() {
-            Err(Error::Truncated)
+            Err(Error)
         } else {
             Ok(())
         }
@@ -639,7 +639,7 @@ impl Repr {
         // Ensure basic accessors will work
         packet.check_len()?;
         if packet.version() != 6 {
-            return Err(Error::Malformed);
+            return Err(Error);
         }
         Ok(Repr {
             src_addr: packet.src_addr(),
@@ -708,10 +708,10 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
 
 #[cfg(test)]
 mod test {
+    use super::Error;
     use super::{Address, Cidr};
     use super::{Packet, Protocol, Repr};
     use crate::wire::pretty_print::PrettyPrinter;
-    use crate::Error;
 
     #[cfg(feature = "proto-ipv4")]
     use crate::wire::ipv4::Address as Ipv4Address;
@@ -1128,7 +1128,7 @@ mod test {
         bytes.extend(&REPR_PACKET_BYTES[..]);
         Packet::new_unchecked(&mut bytes).set_payload_len(0x80);
 
-        assert_eq!(Packet::new_checked(&bytes).unwrap_err(), Error::Truncated);
+        assert_eq!(Packet::new_checked(&bytes).unwrap_err(), Error);
     }
 
     #[test]
@@ -1145,7 +1145,7 @@ mod test {
         packet.set_version(4);
         packet.set_payload_len(0);
         let packet = Packet::new_unchecked(&*packet.into_inner());
-        assert_eq!(Repr::parse(&packet), Err(Error::Malformed));
+        assert_eq!(Repr::parse(&packet), Err(Error));
     }
 
     #[test]
@@ -1155,7 +1155,7 @@ mod test {
         packet.set_version(6);
         packet.set_payload_len(39);
         let packet = Packet::new_unchecked(&*packet.into_inner());
-        assert_eq!(Repr::parse(&packet), Err(Error::Truncated));
+        assert_eq!(Repr::parse(&packet), Err(Error));
     }
 
     #[test]
@@ -1165,7 +1165,7 @@ mod test {
         packet.set_version(6);
         packet.set_payload_len(1);
         let packet = Packet::new_unchecked(&*packet.into_inner());
-        assert_eq!(Repr::parse(&packet), Err(Error::Truncated));
+        assert_eq!(Repr::parse(&packet), Err(Error));
     }
 
     #[test]

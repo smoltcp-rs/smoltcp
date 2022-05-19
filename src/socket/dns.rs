@@ -7,7 +7,7 @@ use managed::ManagedSlice;
 use crate::socket::{Context, PollAt, Socket};
 use crate::time::{Duration, Instant};
 use crate::wire::dns::{Flags, Opcode, Packet, Question, Rcode, Record, RecordData, Repr, Type};
-use crate::wire::{IpAddress, IpProtocol, IpRepr, UdpRepr};
+use crate::wire::{self, IpAddress, IpProtocol, IpRepr, UdpRepr};
 use crate::{Error, Result};
 
 #[cfg(feature = "async")]
@@ -509,9 +509,9 @@ impl<'a> From<DnsSocket<'a>> for Socket<'a> {
 }
 
 fn eq_names<'a>(
-    mut a: impl Iterator<Item = Result<&'a [u8]>>,
-    mut b: impl Iterator<Item = Result<&'a [u8]>>,
-) -> Result<bool> {
+    mut a: impl Iterator<Item = wire::Result<&'a [u8]>>,
+    mut b: impl Iterator<Item = wire::Result<&'a [u8]>>,
+) -> wire::Result<bool> {
     loop {
         match (a.next(), b.next()) {
             // Handle errors
@@ -537,7 +537,7 @@ fn eq_names<'a>(
 
 fn copy_name<'a, const N: usize>(
     dest: &mut Vec<u8, N>,
-    name: impl Iterator<Item = Result<&'a [u8]>>,
+    name: impl Iterator<Item = wire::Result<&'a [u8]>>,
 ) -> Result<()> {
     dest.truncate(0);
 

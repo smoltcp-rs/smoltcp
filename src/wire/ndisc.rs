@@ -1,6 +1,7 @@
 use bitflags::bitflags;
 use byteorder::{ByteOrder, NetworkEndian};
 
+use super::{Error, Result};
 use crate::time::Duration;
 use crate::wire::icmpv6::{field, Message, Packet};
 use crate::wire::Ipv6Address;
@@ -8,7 +9,6 @@ use crate::wire::RawHardwareAddress;
 use crate::wire::{Ipv6Packet, Ipv6Repr};
 use crate::wire::{NdiscOption, NdiscOptionRepr, NdiscOptionType};
 use crate::wire::{NdiscPrefixInformation, NdiscRedirectedHeader};
-use crate::{Error, Result};
 
 bitflags! {
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -237,7 +237,7 @@ impl<'a> Repr<'a> {
                     match opt.option_type() {
                         NdiscOptionType::SourceLinkLayerAddr => Some(opt.link_layer_addr()),
                         _ => {
-                            return Err(Error::Unrecognized);
+                            return Err(Error);
                         }
                     }
                 } else {
@@ -256,7 +256,7 @@ impl<'a> Repr<'a> {
                         NdiscOptionRepr::Mtu(val) => mtu = Some(val),
                         NdiscOptionRepr::PrefixInformation(info) => prefix_info = Some(info),
                         _ => {
-                            return Err(Error::Unrecognized);
+                            return Err(Error);
                         }
                     }
                     offset += opt.buffer_len();
@@ -278,7 +278,7 @@ impl<'a> Repr<'a> {
                     match opt.option_type() {
                         NdiscOptionType::SourceLinkLayerAddr => Some(opt.link_layer_addr()),
                         _ => {
-                            return Err(Error::Unrecognized);
+                            return Err(Error);
                         }
                     }
                 } else {
@@ -295,7 +295,7 @@ impl<'a> Repr<'a> {
                     match opt.option_type() {
                         NdiscOptionType::TargetLinkLayerAddr => Some(opt.link_layer_addr()),
                         _ => {
-                            return Err(Error::Unrecognized);
+                            return Err(Error);
                         }
                     }
                 } else {
@@ -319,7 +319,7 @@ impl<'a> Repr<'a> {
                         }
                         NdiscOptionType::RedirectedHeader => {
                             if opt.data_len() < 6 {
-                                return Err(Error::Truncated);
+                                return Err(Error);
                             } else {
                                 let ip_packet =
                                     Ipv6Packet::new_unchecked(&opt.data()[offset + 8..]);
@@ -333,7 +333,7 @@ impl<'a> Repr<'a> {
                             }
                         }
                         _ => {
-                            return Err(Error::Unrecognized);
+                            return Err(Error);
                         }
                     }
                 }
@@ -344,7 +344,7 @@ impl<'a> Repr<'a> {
                     redirected_hdr,
                 })
             }
-            _ => Err(Error::Unrecognized),
+            _ => Err(Error),
         }
     }
 

@@ -82,13 +82,16 @@ fn main() {
         if socket.can_recv() {
             // For display purposes only - normally we wouldn't process incoming IGMP packets
             // in the application layer
-            socket
-                .recv()
-                .and_then(Ipv4Packet::new_checked)
-                .and_then(|ipv4_packet| IgmpPacket::new_checked(ipv4_packet.payload()))
-                .and_then(|igmp_packet| IgmpRepr::parse(&igmp_packet))
-                .map(|igmp_repr| println!("IGMP packet: {:?}", igmp_repr))
-                .unwrap_or_else(|e| println!("Recv IGMP error: {:?}", e));
+            match socket.recv() {
+                Err(e) => println!("Recv IGMP error: {:?}", e),
+                Ok(buf) => {
+                    Ipv4Packet::new_checked(buf)
+                        .and_then(|ipv4_packet| IgmpPacket::new_checked(ipv4_packet.payload()))
+                        .and_then(|igmp_packet| IgmpRepr::parse(&igmp_packet))
+                        .map(|igmp_repr| println!("IGMP packet: {:?}", igmp_repr))
+                        .unwrap_or_else(|e| println!("parse IGMP error: {:?}", e));
+                }
+            }
         }
 
         let socket = iface.get_socket::<UdpSocket>(udp_handle);

@@ -1,10 +1,10 @@
 use byteorder::{ByteOrder, NetworkEndian};
 use core::{cmp, fmt, i32, ops};
 
+use super::{Error, Result};
 use crate::phy::ChecksumCapabilities;
 use crate::wire::ip::checksum;
 use crate::wire::{IpAddress, IpProtocol};
-use crate::{Error, Result};
 
 /// A TCP sequence number.
 ///
@@ -128,8 +128,8 @@ impl<T: AsRef<[u8]>> Packet<T> {
     }
 
     /// Ensure that no accessor method will panic if called.
-    /// Returns `Err(Error::Truncated)` if the buffer is too short.
-    /// Returns `Err(Error::Malformed)` if the header length field has a value smaller
+    /// Returns `Err(Error)` if the buffer is too short.
+    /// Returns `Err(Error)` if the header length field has a value smaller
     /// than the minimal header length.
     ///
     /// The result of this check is invalidated by calling [set_header_len].
@@ -138,13 +138,11 @@ impl<T: AsRef<[u8]>> Packet<T> {
     pub fn check_len(&self) -> Result<()> {
         let len = self.buffer.as_ref().len();
         if len < field::URGENT.end {
-            Err(Error::Truncated)
+            Err(Error)
         } else {
             let header_len = self.header_len() as usize;
-            if len < header_len {
-                Err(Error::Truncated)
-            } else if header_len < field::URGENT.end {
-                Err(Error::Malformed)
+            if len < header_len || header_len < field::URGENT.end {
+                Err(Error)
             } else {
                 Ok(())
             }
@@ -608,7 +606,7 @@ pub enum TcpOption<'a> {
 impl<'a> TcpOption<'a> {
     pub fn parse(buffer: &'a [u8]) -> Result<(&'a [u8], TcpOption<'a>)> {
         let (length, option);
-        match *buffer.get(0).ok_or(Error::Truncated)? {
+        match *buffer.get(0).ok_or(Error)? {
             field::OPT_END => {
                 length = 1;
                 option = TcpOption::EndOfList;
@@ -618,21 +616,21 @@ impl<'a> TcpOption<'a> {
                 option = TcpOption::NoOperation;
             }
             kind => {
-                length = *buffer.get(1).ok_or(Error::Truncated)? as usize;
-                let data = buffer.get(2..length).ok_or(Error::Truncated)?;
+                length = *buffer.get(1).ok_or(Error)? as usize;
+                let data = buffer.get(2..length).ok_or(Error)?;
                 match (kind, length) {
                     (field::OPT_END, _) | (field::OPT_NOP, _) => unreachable!(),
                     (field::OPT_MSS, 4) => {
                         option = TcpOption::MaxSegmentSize(NetworkEndian::read_u16(data))
                     }
-                    (field::OPT_MSS, _) => return Err(Error::Malformed),
+                    (field::OPT_MSS, _) => return Err(Error),
                     (field::OPT_WS, 3) => option = TcpOption::WindowScale(data[0]),
-                    (field::OPT_WS, _) => return Err(Error::Malformed),
+                    (field::OPT_WS, _) => return Err(Error),
                     (field::OPT_SACKPERM, 2) => option = TcpOption::SackPermitted,
-                    (field::OPT_SACKPERM, _) => return Err(Error::Malformed),
+                    (field::OPT_SACKPERM, _) => return Err(Error),
                     (field::OPT_SACKRNG, n) => {
                         if n < 10 || (n - 2) % 8 != 0 {
-                            return Err(Error::Malformed);
+                            return Err(Error);
                         }
                         if n > 26 {
                             // It's possible for a remote to send 4 SACK blocks, but extremely rare.
@@ -801,14 +799,14 @@ impl<'a> Repr<'a> {
     {
         // Source and destination ports must be present.
         if packet.src_port() == 0 {
-            return Err(Error::Malformed);
+            return Err(Error);
         }
         if packet.dst_port() == 0 {
-            return Err(Error::Malformed);
+            return Err(Error);
         }
         // Valid checksum is expected.
         if checksum_caps.tcp.rx() && !packet.verify_checksum(src_addr, dst_addr) {
-            return Err(Error::Checksum);
+            return Err(Error);
         }
 
         let control = match (packet.syn(), packet.fin(), packet.rst(), packet.psh()) {
@@ -817,7 +815,7 @@ impl<'a> Repr<'a> {
             (true, false, false, _) => Control::Syn,
             (false, true, false, _) => Control::Fin,
             (false, false, true, _) => Control::Rst,
-            _ => return Err(Error::Malformed),
+            _ => return Err(Error),
         };
         let ack_number = match packet.ack() {
             true => Some(packet.ack_number()),
@@ -1157,7 +1155,7 @@ mod test {
     #[cfg(feature = "proto-ipv4")]
     fn test_truncated() {
         let packet = Packet::new_unchecked(&PACKET_BYTES[..23]);
-        assert_eq!(packet.check_len(), Err(Error::Truncated));
+        assert_eq!(packet.check_len(), Err(Error));
     }
 
     #[test]
@@ -1165,7 +1163,7 @@ mod test {
         let mut bytes = vec![0; 20];
         let mut packet = Packet::new_unchecked(&mut bytes);
         packet.set_header_len(10);
-        assert_eq!(packet.check_len(), Err(Error::Malformed));
+        assert_eq!(packet.check_len(), Err(Error));
     }
 
     #[cfg(feature = "proto-ipv4")]
@@ -1277,14 +1275,11 @@ mod test {
 
     #[test]
     fn test_malformed_tcp_options() {
-        assert_eq!(TcpOption::parse(&[]), Err(Error::Truncated));
-        assert_eq!(TcpOption::parse(&[0xc]), Err(Error::Truncated));
-        assert_eq!(
-            TcpOption::parse(&[0xc, 0x05, 0x01, 0x02]),
-            Err(Error::Truncated)
-        );
-        assert_eq!(TcpOption::parse(&[0xc, 0x01]), Err(Error::Truncated));
-        assert_eq!(TcpOption::parse(&[0x2, 0x02]), Err(Error::Malformed));
-        assert_eq!(TcpOption::parse(&[0x3, 0x02]), Err(Error::Malformed));
+        assert_eq!(TcpOption::parse(&[]), Err(Error));
+        assert_eq!(TcpOption::parse(&[0xc]), Err(Error));
+        assert_eq!(TcpOption::parse(&[0xc, 0x05, 0x01, 0x02]), Err(Error));
+        assert_eq!(TcpOption::parse(&[0xc, 0x01]), Err(Error));
+        assert_eq!(TcpOption::parse(&[0x2, 0x02]), Err(Error));
+        assert_eq!(TcpOption::parse(&[0x3, 0x02]), Err(Error));
     }
 }

@@ -1,9 +1,9 @@
 use byteorder::{ByteOrder, NetworkEndian};
 use core::fmt;
 
+use super::{Error, Result};
 use crate::time::Duration;
 use crate::wire::ip::checksum;
-use crate::{Error, Result};
 
 use crate::wire::Ipv4Address;
 
@@ -69,11 +69,11 @@ impl<T: AsRef<[u8]>> Packet<T> {
     }
 
     /// Ensure that no accessor method will panic if called.
-    /// Returns `Err(Error::Truncated)` if the buffer is too short.
+    /// Returns `Err(Error)` if the buffer is too short.
     pub fn check_len(&self) -> Result<()> {
         let len = self.buffer.as_ref().len();
         if len < field::GROUP_ADDRESS.end as usize {
-            Err(Error::Truncated)
+            Err(Error)
         } else {
             Ok(())
         }
@@ -208,7 +208,7 @@ impl Repr {
         // Check if the address is 0.0.0.0 or multicast
         let addr = packet.group_addr();
         if !addr.is_unspecified() && !addr.is_multicast() {
-            return Err(Error::Malformed);
+            return Err(Error);
         }
 
         // construct a packet based on the Type field
@@ -241,7 +241,7 @@ impl Repr {
                     version: IgmpVersion::Version1,
                 })
             }
-            _ => Err(Error::Unrecognized),
+            _ => Err(Error),
         }
     }
 

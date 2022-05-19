@@ -1,7 +1,7 @@
 use byteorder::{ByteOrder, NetworkEndian};
 use core::fmt;
 
-use crate::{Error, Result};
+use super::{Error, Result};
 
 enum_with_unknown! {
     /// Ethernet protocol type.
@@ -115,11 +115,11 @@ impl<T: AsRef<[u8]>> Frame<T> {
     }
 
     /// Ensure that no accessor method will panic if called.
-    /// Returns `Err(Error::Truncated)` if the buffer is too short.
+    /// Returns `Err(Error)` if the buffer is too short.
     pub fn check_len(&self) -> Result<()> {
         let len = self.buffer.as_ref().len();
         if len < HEADER_LEN {
-            Err(Error::Truncated)
+            Err(Error)
         } else {
             Ok(())
         }

@@ -252,3 +252,9 @@ impl fmt::Display for Error {
         }
     }
 }
+
+impl From<wire::Error> for Error {
+    fn from(_: wire::Error) -> Self {
+        Error::Malformed
+    }
+}
