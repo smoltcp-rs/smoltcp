@@ -11,6 +11,7 @@ use crate::{rand, Error, Result};
 const DNS_PORT: u16 = 53;
 const MAX_NAME_LEN: usize = 255;
 const MAX_ADDRESS_COUNT: usize = 4;
+const MAX_SERVER_COUNT: usize = 4;
 const RETRANSMIT_DELAY: Duration = Duration::from_millis(1_000);
 const MAX_RETRANSMIT_DELAY: Duration = Duration::from_millis(10_000);
 const RETRANSMIT_TIMEOUT: Duration = Duration::from_millis(10_000); // Should generally be 2-10 secs
@@ -62,7 +63,7 @@ pub struct QueryHandle(usize);
 /// packet buffers.
 #[derive(Debug)]
 pub struct DnsSocket<'a> {
-    servers: ManagedSlice<'a, IpAddress>,
+    servers: Vec<IpAddress, MAX_SERVER_COUNT>,
     queries: ManagedSlice<'a, Option<DnsQuery>>,
 
     /// The time-to-live (IPv4) or hop limit (IPv6) value used in outgoing packets.
@@ -70,31 +71,29 @@ pub struct DnsSocket<'a> {
 }
 
 impl<'a> DnsSocket<'a> {
-    /// Create a DNS socket with the given buffers.
-    pub fn new<Q, S>(servers: S, queries: Q) -> DnsSocket<'a>
+    /// Create a DNS socket.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `servers.len() > MAX_SERVER_COUNT`
+    pub fn new<Q>(servers: &[IpAddress], queries: Q) -> DnsSocket<'a>
     where
-        S: Into<ManagedSlice<'a, IpAddress>>,
         Q: Into<ManagedSlice<'a, Option<DnsQuery>>>,
     {
         DnsSocket {
-            servers: servers.into(),
+            servers: Vec::from_slice(servers).unwrap(),
             queries: queries.into(),
             hop_limit: None,
         }
     }
 
     /// Update the list of DNS servers, will replace all existing servers
+    ///
+    /// # Panics
+    ///
+    /// Panics if `servers.len() > MAX_SERVER_COUNT`
     pub fn update_servers(&mut self, servers: &[IpAddress]) {
-        let mut local_servers = self.servers.iter_mut();
-        local_servers
-            .by_ref()
-            .zip(servers.iter())
-            .for_each(|(a, b)| *a = *b);
-
-        // Fill the rest with no address
-        for s in local_servers {
-            *s = IpAddress::Ipv4(Ipv4Address::UNSPECIFIED); // TODO
-        }
+        self.servers = Vec::from_slice(servers).unwrap();
     }
 
     /// Return the time-to-live (IPv4) or hop limit (IPv6) value used in outgoing packets.

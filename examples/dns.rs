@@ -33,7 +33,7 @@ fn main() {
 
     let neighbor_cache = NeighborCache::new(BTreeMap::new());
 
-    let servers = vec![
+    let servers = &[
         Ipv4Address::new(8, 8, 4, 4).into(),
         Ipv4Address::new(8, 8, 8, 8).into(),
     ];
