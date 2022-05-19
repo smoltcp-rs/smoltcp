@@ -25,11 +25,13 @@ fn main() {
     let (mut opts, mut free) = utils::create_options();
     utils::add_tuntap_options(&mut opts, &mut free);
     utils::add_middleware_options(&mut opts, &mut free);
+    free.push("ADDRESS");
 
     let mut matches = utils::parse_options(&opts, free);
     let device = utils::parse_tuntap_options(&mut matches);
     let fd = device.as_raw_fd();
     let device = utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
+    let name = &matches.free[0];
 
     let neighbor_cache = NeighborCache::new(BTreeMap::new());
 
@@ -65,11 +67,6 @@ fn main() {
     let mut iface = builder.finalize();
 
     let dns_handle = iface.add_socket(dns_socket);
-
-    //let name = b"\x08facebook\x03com\x00";
-    //let name = b"\x03www\x08facebook\x03com\x00";
-    //let name = b"\x06reddit\x03com\x00";
-    let name = b"\x09rust-lang\x03org\x00";
 
     let (socket, cx) = iface.get_socket_and_context::<DnsSocket>(dns_handle);
     let query = socket.start_query(cx, name).unwrap();

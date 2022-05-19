@@ -141,12 +141,59 @@ impl<'a> DnsSocket<'a> {
         }
     }
 
-    pub fn start_query(&mut self, cx: &mut Context, name: &[u8]) -> Result<QueryHandle> {
+    /// Start a query.
+    ///
+    /// `name` is specified in human-friendly format, such as `"rust-lang.org"`.
+    /// It accepts names both with and without trailing dot, and they're treated
+    /// the same (there's no support for DNS search path).
+    pub fn start_query(&mut self, cx: &mut Context, name: &str) -> Result<QueryHandle> {
+        let mut name = name.as_bytes();
+
+        if name.is_empty() {
+            net_trace!("invalid name: zero length");
+            return Err(Error::Illegal);
+        }
+
+        // Remove trailing dot, if any
+        if name[name.len() - 1] == b'.' {
+            name = &name[..name.len() - 1];
+        }
+
+        let mut raw_name: Vec<u8, MAX_NAME_LEN> = Vec::new();
+
+        for s in name.split(|&c| c == b'.') {
+            if s.len() > 255 {
+                net_trace!("invalid name: too long label");
+                return Err(Error::Illegal);
+            }
+            if s.is_empty() {
+                net_trace!("invalid name: zero length label");
+                return Err(Error::Illegal);
+            }
+
+            // Push label
+            raw_name.push(s.len() as u8).map_err(|_| Error::Exhausted)?;
+            raw_name
+                .extend_from_slice(s)
+                .map_err(|_| Error::Exhausted)?;
+        }
+
+        // Push terminator.
+        raw_name.push(0x00).map_err(|_| Error::Exhausted)?;
+
+        self.start_query_raw(cx, &raw_name)
+    }
+
+    /// Start a query with a raw (wire-format) DNS name.
+    /// `b"\x09rust-lang\x03org\x00"`
+    ///
+    /// You probably want to use [`start_query`] instead.
+    pub fn start_query_raw(&mut self, cx: &mut Context, raw_name: &[u8]) -> Result<QueryHandle> {
         let handle = self.find_free_query()?;
 
         self.queries[handle.0] = Some(DnsQuery {
             state: State::Pending(PendingQuery {
-                name: Vec::from_slice(name).map_err(|_| Error::Truncated)?,
+                name: Vec::from_slice(raw_name).map_err(|_| Error::Exhausted)?,
                 type_: Type::A,
                 txid: cx.rand().rand_u16(),
                 port: cx.rand().rand_source_port(),
