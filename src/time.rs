@@ -164,7 +164,7 @@ impl ops::Sub<Instant> for Instant {
     type Output = Duration;
 
     fn sub(self, rhs: Instant) -> Duration {
-        Duration::from_micros((self.micros - rhs.micros).abs() as u64)
+        Duration::from_micros((self.micros - rhs.micros).unsigned_abs())
     }
 }
 

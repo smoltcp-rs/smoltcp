@@ -300,7 +300,7 @@ impl<'a> UdpSocket<'a> {
         if self.endpoint.port != repr.dst_port {
             return false;
         }
-        if !self.endpoint.addr.is_none()
+        if self.endpoint.addr.is_some()
             && self.endpoint.addr != Some(ip_repr.dst_addr())
             && !ip_repr.dst_addr().is_broadcast()
             && !ip_repr.dst_addr().is_multicast()

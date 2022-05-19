@@ -106,7 +106,7 @@ impl RttEstimator {
     fn sample(&mut self, new_rtt: u32) {
         // "Congestion Avoidance and Control", Van Jacobson, Michael J. Karels, 1988
         self.rtt = (self.rtt * 7 + new_rtt + 7) / 8;
-        let diff = (self.rtt as i32 - new_rtt as i32).abs() as u32;
+        let diff = (self.rtt as i32 - new_rtt as i32).unsigned_abs();
         self.deviation = (self.deviation * 3 + diff + 3) / 4;
 
         self.rto_count = 0;
