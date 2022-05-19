@@ -7,7 +7,7 @@ use crate::socket::PollAt;
 #[cfg(feature = "async")]
 use crate::socket::WakerRegistration;
 use crate::storage::{PacketBuffer, PacketMetadata};
-use crate::wire::{IpEndpoint, IpProtocol, IpRepr, UdpRepr};
+use crate::wire::{IpEndpoint, IpListenEndpoint, IpProtocol, IpRepr, UdpRepr};
 use crate::{Error, Result};
 
 /// A UDP packet metadata.
@@ -22,7 +22,7 @@ pub type UdpSocketBuffer<'a> = PacketBuffer<'a, IpEndpoint>;
 /// packet buffers.
 #[derive(Debug)]
 pub struct UdpSocket<'a> {
-    endpoint: IpEndpoint,
+    endpoint: IpListenEndpoint,
     rx_buffer: UdpSocketBuffer<'a>,
     tx_buffer: UdpSocketBuffer<'a>,
     /// The time-to-live (IPv4) or hop limit (IPv6) value used in outgoing packets.
@@ -37,7 +37,7 @@ impl<'a> UdpSocket<'a> {
     /// Create an UDP socket with the given buffers.
     pub fn new(rx_buffer: UdpSocketBuffer<'a>, tx_buffer: UdpSocketBuffer<'a>) -> UdpSocket<'a> {
         UdpSocket {
-            endpoint: IpEndpoint::default(),
+            endpoint: IpListenEndpoint::default(),
             rx_buffer,
             tx_buffer,
             hop_limit: None,
@@ -85,7 +85,7 @@ impl<'a> UdpSocket<'a> {
 
     /// Return the bound endpoint.
     #[inline]
-    pub fn endpoint(&self) -> IpEndpoint {
+    pub fn endpoint(&self) -> IpListenEndpoint {
         self.endpoint
     }
 
@@ -121,7 +121,7 @@ impl<'a> UdpSocket<'a> {
     /// This function returns `Err(Error::Illegal)` if the socket was open
     /// (see [is_open](#method.is_open)), and `Err(Error::Unaddressable)`
     /// if the port in the given endpoint is zero.
-    pub fn bind<T: Into<IpEndpoint>>(&mut self, endpoint: T) -> Result<()> {
+    pub fn bind<T: Into<IpListenEndpoint>>(&mut self, endpoint: T) -> Result<()> {
         let endpoint = endpoint.into();
         if endpoint.port == 0 {
             return Err(Error::Unaddressable);
@@ -145,7 +145,7 @@ impl<'a> UdpSocket<'a> {
     /// Close the socket.
     pub fn close(&mut self) {
         // Clear the bound endpoint of the socket.
-        self.endpoint = IpEndpoint::default();
+        self.endpoint = IpListenEndpoint::default();
 
         // Reset the RX and TX buffers of the socket.
         self.tx_buffer.reset();
@@ -211,7 +211,10 @@ impl<'a> UdpSocket<'a> {
         if self.endpoint.port == 0 {
             return Err(Error::Unaddressable);
         }
-        if !remote_endpoint.is_specified() {
+        if remote_endpoint.addr.is_unspecified() {
+            return Err(Error::Unaddressable);
+        }
+        if remote_endpoint.port == 0 {
             return Err(Error::Unaddressable);
         }
 
@@ -297,8 +300,8 @@ impl<'a> UdpSocket<'a> {
         if self.endpoint.port != repr.dst_port {
             return false;
         }
-        if !self.endpoint.addr.is_unspecified()
-            && self.endpoint.addr != ip_repr.dst_addr()
+        if !self.endpoint.addr.is_none()
+            && self.endpoint.addr != Some(ip_repr.dst_addr())
             && !ip_repr.dst_addr().is_broadcast()
             && !ip_repr.dst_addr().is_multicast()
         {
@@ -349,6 +352,14 @@ impl<'a> UdpSocket<'a> {
 
         self.tx_buffer
             .dequeue_with(|remote_endpoint, payload_buf| {
+                let src_addr = match endpoint.addr {
+                    Some(addr) => addr,
+                    None => match cx.get_source_address(remote_endpoint.addr) {
+                        Some(addr) => addr,
+                        None => return Err(Error::Unaddressable),
+                    },
+                };
+
                 net_trace!(
                     "udp:{}:{}: sending {} octets",
                     endpoint,
@@ -361,7 +372,7 @@ impl<'a> UdpSocket<'a> {
                     dst_port: remote_endpoint.port,
                 };
                 let ip_repr = IpRepr::new(
-                    endpoint.addr,
+                    src_addr,
                     remote_endpoint.addr,
                     IpProtocol::Udp,
                     repr.header_len() + payload_buf.len(),
@@ -388,7 +399,7 @@ impl<'a> UdpSocket<'a> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::wire::{IpAddress, IpRepr, UdpRepr};
+    use crate::wire::{IpRepr, UdpRepr};
 
     fn buffer(packets: usize) -> UdpSocketBuffer<'static> {
         UdpSocketBuffer::new(
@@ -511,7 +522,7 @@ mod test {
             socket.send_slice(
                 b"abcdef",
                 IpEndpoint {
-                    addr: IpAddress::Unspecified,
+                    addr: IpvXAddress::UNSPECIFIED.into(),
                     ..REMOTE_END
                 }
             ),

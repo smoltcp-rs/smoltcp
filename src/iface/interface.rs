@@ -641,6 +641,7 @@ where
                 }
             }
             // Multicast is not yet implemented for other address families
+            #[allow(unreachable_patterns)]
             _ => Err(Error::Unaddressable),
         }
     }
@@ -672,6 +673,7 @@ where
                 }
             }
             // Multicast is not yet implemented for other address families
+            #[allow(unreachable_patterns)]
             _ => Err(Error::Unaddressable),
         }
     }
@@ -693,6 +695,7 @@ where
             .iter()
             .filter_map(|cidr| match cidr.address() {
                 IpAddress::Ipv4(addr) => Some(addr),
+                #[allow(unreachable_patterns)]
                 _ => None,
             })
             .next()
@@ -1061,11 +1064,41 @@ impl<'a> InterfaceInner<'a> {
 
     #[allow(unused)] // unused depending on which sockets are enabled
     pub(crate) fn get_source_address(&mut self, dst_addr: IpAddress) -> Option<IpAddress> {
-        let v = dst_addr.version().unwrap();
+        let v = dst_addr.version();
         for cidr in self.ip_addrs.iter() {
             let addr = cidr.address();
-            if addr.version() == Some(v) {
+            if addr.version() == v {
                 return Some(addr);
+            }
+        }
+        None
+    }
+
+    #[cfg(feature = "proto-ipv4")]
+    #[allow(unused)]
+    pub(crate) fn get_source_address_ipv4(
+        &mut self,
+        _dst_addr: Ipv4Address,
+    ) -> Option<Ipv4Address> {
+        for cidr in self.ip_addrs.iter() {
+            #[allow(irrefutable_let_patterns)] // if only ipv4 is enabled
+            if let IpCidr::Ipv4(cidr) = cidr {
+                return Some(cidr.address());
+            }
+        }
+        None
+    }
+
+    #[cfg(feature = "proto-ipv6")]
+    #[allow(unused)]
+    pub(crate) fn get_source_address_ipv6(
+        &mut self,
+        _dst_addr: Ipv6Address,
+    ) -> Option<Ipv6Address> {
+        for cidr in self.ip_addrs.iter() {
+            #[allow(irrefutable_let_patterns)] // if only ipv6 is enabled
+            if let IpCidr::Ipv6(cidr) = cidr {
+                return Some(cidr.address());
             }
         }
         None
@@ -1207,6 +1240,7 @@ impl<'a> InterfaceInner<'a> {
                 key == Ipv4Address::MULTICAST_ALL_SYSTEMS
                     || self.ipv4_multicast_groups.get(&key).is_some()
             }
+            #[allow(unreachable_patterns)]
             _ => false,
         }
     }
@@ -2301,7 +2335,6 @@ impl<'a> InterfaceInner<'a> {
         if dst_addr.is_multicast() {
             let b = dst_addr.as_bytes();
             let hardware_addr = match *dst_addr {
-                IpAddress::Unspecified => unreachable!(),
                 #[cfg(feature = "proto-ipv4")]
                 IpAddress::Ipv4(_addr) => {
                     HardwareAddress::Ethernet(EthernetAddress::from_bytes(&[
@@ -2401,6 +2434,7 @@ impl<'a> InterfaceInner<'a> {
                 self.dispatch_ip(tx_token, packet)?;
             }
 
+            #[allow(unreachable_patterns)]
             _ => (),
         }
         // The request got dispatched, limit the rate on the cache.
@@ -2417,7 +2451,6 @@ impl<'a> InterfaceInner<'a> {
 
     fn dispatch_ip<Tx: TxToken>(&mut self, tx_token: Tx, packet: IpPacket) -> Result<()> {
         let ip_repr = packet.ip_repr();
-        assert!(!ip_repr.src_addr().is_unspecified());
         assert!(!ip_repr.dst_addr().is_unspecified());
 
         match self.caps.medium {
@@ -2471,7 +2504,6 @@ impl<'a> InterfaceInner<'a> {
     #[cfg(feature = "medium-ieee802154")]
     fn dispatch_ieee802154<Tx: TxToken>(&mut self, tx_token: Tx, packet: IpPacket) -> Result<()> {
         let ip_repr = packet.ip_repr();
-        assert!(!ip_repr.src_addr().is_unspecified());
         assert!(!ip_repr.dst_addr().is_unspecified());
 
         match self.caps.medium {
@@ -2518,6 +2550,7 @@ impl<'a> InterfaceInner<'a> {
 
                 let (src_addr, dst_addr) = match (ip_repr.src_addr(), ip_repr.dst_addr()) {
                     (IpAddress::Ipv6(src_addr), IpAddress::Ipv6(dst_addr)) => (src_addr, dst_addr),
+                    #[allow(unreachable_patterns)]
                     _ => return Err(Error::Unaddressable),
                 };
 
@@ -2608,6 +2641,7 @@ impl<'a> InterfaceInner<'a> {
                     Ok(())
                 })
             }
+            #[allow(unreachable_patterns)]
             _ => Err(Error::NotSupported),
         }
     }

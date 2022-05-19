@@ -6,7 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- No unreleased changes.
+- Remove IpRepr::Unspecified (#579)
+- Remove IpVersion::Unspecified
+- Remove IpAddress::Unspecified
+- When sending packets with a raw socket, the source IP address is sent unmodified (it was previously replaced with the interface's address if it was unspecified).
 
 ## [0.8.1] - 2022-05-12
 

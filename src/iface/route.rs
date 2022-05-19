@@ -134,7 +134,6 @@ impl<'a> Routes<'a> {
             IpAddress::Ipv4(addr) => IpCidr::Ipv4(Ipv4Cidr::new(*addr, 32)),
             #[cfg(feature = "proto-ipv6")]
             IpAddress::Ipv6(addr) => IpCidr::Ipv6(Ipv6Cidr::new(*addr, 128)),
-            _ => unimplemented!(),
         };
 
         for (prefix, route) in self

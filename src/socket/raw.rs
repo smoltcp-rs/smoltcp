@@ -277,7 +277,6 @@ impl<'a> RawSocket<'a> {
                     let ipv6_repr = Ipv6Repr::parse(&packet)?;
                     Ok((IpRepr::Ipv6(ipv6_repr), packet.payload()))
                 }
-                IpVersion::Unspecified => unreachable!(),
             }
         }
 
