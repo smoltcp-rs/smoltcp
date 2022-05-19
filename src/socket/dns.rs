@@ -330,16 +330,15 @@ impl<'a> DnsSocket<'a> {
                         }
                         RecordData::Cname(name) => {
                             net_trace!("CNAME: {:?}", name);
+
+                            // When faced with a CNAME, recursive resolvers are supposed to
+                            // resolve the CNAME and append the results for it.
+                            //
+                            // We update the query with the new name, so that we pick up the A/AAAA
+                            // records for the CNAME when we parse them later.
+                            // I believe it's mandatory the CNAME results MUST come *after* in the
+                            // packet, so it's enough to do one linear pass over it.
                             copy_name(&mut pq.name, p.parse_name(name))?;
-
-                            // Relaunch query with the new name.
-                            // If the server has bundled A records for the CNAME in the same packet,
-                            // we'll process them in next iterations, and cancel the query relaunch.
-                            pq.retransmit_at = Instant::ZERO;
-                            pq.delay = RETRANSMIT_DELAY;
-
-                            pq.txid = cx.rand().rand_u16();
-                            pq.port = cx.rand().rand_source_port();
                         }
                         RecordData::Other(type_, data) => {
                             net_trace!("unknown: {:?} {:?}", type_, data)
@@ -347,10 +346,10 @@ impl<'a> DnsSocket<'a> {
                     }
                 }
 
-                if !addresses.is_empty() {
-                    q.state = State::Completed(CompletedQuery { addresses })
-                } else {
+                if addresses.is_empty() {
                     q.state = State::Failure;
+                } else {
+                    q.state = State::Completed(CompletedQuery { addresses })
                 }
 
                 // If we get here, packet matched the current query, stop processing.
