@@ -1,3 +1,5 @@
 /target
+rust-toolchain
+.history
 Cargo.lock
 *.pcap
