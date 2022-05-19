@@ -384,7 +384,7 @@ impl<'a> IpPacket<'a> {
             IpPacket::Icmpv6((ipv6_repr, _)) => IpRepr::Ipv6(*ipv6_repr),
             #[cfg(feature = "socket-raw")]
             IpPacket::Raw((ip_repr, _)) => ip_repr.clone(),
-            #[cfg(feature = "socket-udp")]
+            #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
             IpPacket::Udp((ip_repr, _, _)) => ip_repr.clone(),
             #[cfg(feature = "socket-tcp")]
             IpPacket::Tcp((ip_repr, _)) => ip_repr.clone(),
@@ -1685,7 +1685,7 @@ impl<'a> InterfaceInner<'a> {
             #[cfg(feature = "proto-igmp")]
             IpProtocol::Igmp => self.process_igmp(ipv4_repr, ip_payload),
 
-            #[cfg(feature = "socket-udp")]
+            #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
             IpProtocol::Udp => {
                 self.process_udp(sockets, ip_repr, handled_by_raw_socket, ip_payload)
             }
@@ -2134,6 +2134,7 @@ impl<'a> InterfaceInner<'a> {
         let udp_repr = UdpRepr::parse(&udp_packet, &src_addr, &dst_addr, &self.caps.checksum)?;
         let udp_payload = udp_packet.payload();
 
+        #[cfg(feature = "socket-udp")]
         for udp_socket in sockets
             .iter_mut()
             .filter_map(|i| UdpSocket::downcast(&mut i.socket))

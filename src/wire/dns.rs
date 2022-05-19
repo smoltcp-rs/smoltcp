@@ -335,12 +335,14 @@ pub struct Record<'a> {
 impl<'a> RecordData<'a> {
     pub fn parse(type_: Type, data: &'a [u8]) -> Result<RecordData<'a>> {
         match type_ {
+            #[cfg(feature = "proto-ipv4")]
             Type::A => {
                 if data.len() != 4 {
                     return Err(Error::Malformed);
                 }
                 Ok(RecordData::A(Ipv4Address::from_bytes(data)))
             }
+            #[cfg(feature = "proto-ipv6")]
             Type::Aaaa => {
                 if data.len() != 16 {
                     return Err(Error::Malformed);

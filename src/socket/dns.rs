@@ -1,12 +1,11 @@
-#![allow(dead_code, unused)]
 use heapless::Vec;
 use managed::ManagedSlice;
 
 use crate::socket::{Context, PollAt, Socket};
 use crate::time::{Duration, Instant};
 use crate::wire::dns::{Flags, Opcode, Packet, Question, Rcode, Record, RecordData, Repr, Type};
-use crate::wire::{IpAddress, IpEndpoint, IpProtocol, IpRepr, Ipv4Address, UdpRepr};
-use crate::{rand, Error, Result};
+use crate::wire::{IpAddress, IpProtocol, IpRepr, UdpRepr};
+use crate::{Error, Result};
 
 const DNS_PORT: u16 = 53;
 const MAX_NAME_LEN: usize = 255;
@@ -230,7 +229,9 @@ impl<'a> DnsSocket<'a> {
 
     pub fn cancel_query(&mut self, handle: QueryHandle) -> Result<()> {
         let slot = self.queries.get_mut(handle.0).ok_or(Error::Illegal)?;
-        let q = slot.as_mut().ok_or(Error::Illegal)?;
+        if slot.is_none() {
+            return Err(Error::Illegal);
+        }
         *slot = None; // Free up the slot for recycling.
         Ok(())
     }
@@ -245,7 +246,7 @@ impl<'a> DnsSocket<'a> {
 
     pub(crate) fn process(
         &mut self,
-        cx: &mut Context,
+        _cx: &mut Context,
         ip_repr: &IpRepr,
         udp_repr: &UdpRepr,
         payload: &[u8],
@@ -316,12 +317,14 @@ impl<'a> DnsSocket<'a> {
                     }
 
                     match r.data {
+                        #[cfg(feature = "proto-ipv4")]
                         RecordData::A(addr) => {
                             net_trace!("A: {:?}", addr);
                             if addresses.push(addr.into()).is_err() {
                                 net_trace!("too many addresses in response, ignoring {:?}", addr);
                             }
                         }
+                        #[cfg(feature = "proto-ipv6")]
                         RecordData::Aaaa(addr) => {
                             net_trace!("AAAA: {:?}", addr);
                             if addresses.push(addr.into()).is_err() {
@@ -515,12 +518,13 @@ fn copy_name<'a, const N: usize>(
 
     for label in name {
         let label = label?;
-        dest.push(label.len() as u8).map_err(|_| Error::Truncated);
-        dest.extend_from_slice(label).map_err(|_| Error::Truncated);
+        dest.push(label.len() as u8).map_err(|_| Error::Truncated)?;
+        dest.extend_from_slice(label)
+            .map_err(|_| Error::Truncated)?;
     }
 
     // Write terminator 0x00
-    dest.push(0).map_err(|_| Error::Truncated);
+    dest.push(0).map_err(|_| Error::Truncated)?;
 
     Ok(())
 }
