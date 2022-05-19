@@ -78,6 +78,14 @@ impl<'a> DnsSocket<'a> {
         }
     }
 
+    /// Update the managed slice with servers
+    pub fn update_servers(&mut self, servers: &[IpAddress]) {
+        self.servers
+            .iter_mut()
+            .zip(servers.iter())
+            .for_each(|(a, b)| *a = *b);
+    }
+
     /// Return the time-to-live (IPv4) or hop limit (IPv6) value used in outgoing packets.
     ///
     /// See also the [set_hop_limit](#method.set_hop_limit) method
