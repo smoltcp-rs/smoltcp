@@ -28,6 +28,8 @@ pub struct Instant {
 }
 
 impl Instant {
+    pub const ZERO: Instant = Instant::from_micros_const(0);
+
     /// Create a new `Instant` from a number of microseconds.
     pub fn from_micros<T: Into<i64>>(micros: T) -> Instant {
         Instant {

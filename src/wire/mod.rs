@@ -81,6 +81,8 @@ pub mod pretty_print;
 mod arp;
 #[cfg(feature = "proto-dhcpv4")]
 pub(crate) mod dhcpv4;
+#[cfg(feature = "proto-dns")]
+pub(crate) mod dns;
 #[cfg(feature = "medium-ethernet")]
 mod ethernet;
 #[cfg(any(feature = "proto-ipv4", feature = "proto-ipv6"))]
