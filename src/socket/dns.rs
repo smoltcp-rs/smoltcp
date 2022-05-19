@@ -334,21 +334,25 @@ impl<'a> DnsSocket<'a> {
 
                 // Check timeout
                 if timeout < cx.now() {
+                    // DNS timeout
+                    pq.timeout_at = Some(cx.now() + RETRANSMIT_TIMEOUT);
+                    pq.retransmit_at = Instant::ZERO;
+                    pq.delay = RETRANSMIT_DELAY;
+
+                    // Try next server. We check below whether we've tried all servers.
                     pq.server_idx += 1;
-                    if pq.server_idx < self.servers.len() {
-                        // DNS timeout
-                        pq.timeout_at = Some(cx.now() + RETRANSMIT_TIMEOUT);
-                        pq.retransmit_at = Instant::ZERO;
-                        pq.delay = RETRANSMIT_DELAY;
-                    } else {
-                        // Query failure
-                        q.state = State::Failure;
-                        continue;
-                    }
+                }
+
+                // Check if we've run out of servers to try.
+                if pq.server_idx >= self.servers.len() {
+                    net_trace!("already tried all servers.");
+                    q.state = State::Failure;
+                    continue;
                 }
 
                 // Check so the IP address is valid
                 if self.servers[pq.server_idx].is_unspecified() {
+                    net_trace!("invalid unspecified DNS server addr.");
                     q.state = State::Failure;
                     continue;
                 }
