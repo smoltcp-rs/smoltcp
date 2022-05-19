@@ -276,6 +276,14 @@ sudo ip link set br0 up
 sudo dhcpcd br0
 ```
 
+To tear down:
+
+```
+sudo killall dhcpcd
+sudo ip link set br0 down
+sudo brctl delbr br0
+```
+
 ### Fault injection
 
 In order to demonstrate the response of _smoltcp_ to adverse network conditions, all examples
