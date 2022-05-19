@@ -195,7 +195,6 @@ fn main() {
                         &device_caps.checksum,
                     );
                 }
-                _ => unimplemented!(),
             }
 
             waiting_queue.insert(seq_no, timestamp);
@@ -239,7 +238,6 @@ fn main() {
                         received
                     );
                 }
-                _ => unimplemented!(),
             }
         }
 

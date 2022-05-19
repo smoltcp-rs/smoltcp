@@ -11,10 +11,10 @@ use crate::{Error, Result};
 
 use crate::wire::IcmpRepr;
 #[cfg(feature = "proto-ipv4")]
-use crate::wire::{Icmpv4Packet, Icmpv4Repr, Ipv4Address, Ipv4Repr};
+use crate::wire::{Icmpv4Packet, Icmpv4Repr, Ipv4Repr};
 #[cfg(feature = "proto-ipv6")]
-use crate::wire::{Icmpv6Packet, Icmpv6Repr, Ipv6Address, Ipv6Repr};
-use crate::wire::{IpAddress, IpEndpoint, IpProtocol, IpRepr};
+use crate::wire::{Icmpv6Packet, Icmpv6Repr, Ipv6Repr};
+use crate::wire::{IpAddress, IpListenEndpoint, IpProtocol, IpRepr};
 use crate::wire::{UdpPacket, UdpRepr};
 
 /// Type of endpoint to bind the ICMP socket to. See [IcmpSocket::bind] for
@@ -26,7 +26,7 @@ use crate::wire::{UdpPacket, UdpRepr};
 pub enum Endpoint {
     Unspecified,
     Ident(u16),
-    Udp(IpEndpoint),
+    Udp(IpListenEndpoint),
 }
 
 impl Endpoint {
@@ -80,7 +80,7 @@ impl<'a> IcmpSocket<'a> {
         IcmpSocket {
             rx_buffer: rx_buffer,
             tx_buffer: tx_buffer,
-            endpoint: Endpoint::default(),
+            endpoint: Default::default(),
             hop_limit: None,
             #[cfg(feature = "async")]
             rx_waker: WakerRegistration::new(),
@@ -170,14 +170,14 @@ impl<'a> IcmpSocket<'a> {
     /// # use smoltcp::socket::{Socket, IcmpSocket, IcmpSocketBuffer, IcmpPacketMetadata};
     /// # let rx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketMetadata::EMPTY], vec![0; 20]);
     /// # let tx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketMetadata::EMPTY], vec![0; 20]);
-    /// use smoltcp::wire::IpEndpoint;
+    /// use smoltcp::wire::IpListenEndpoint;
     /// use smoltcp::socket::IcmpEndpoint;
     ///
     /// let mut icmp_socket = // ...
     /// # IcmpSocket::new(rx_buffer, tx_buffer);
     ///
     /// // Bind to ICMP error responses for UDP packets sent from port 53.
-    /// let endpoint = IpEndpoint::from(53);
+    /// let endpoint = IpListenEndpoint::from(53);
     /// icmp_socket.bind(IcmpEndpoint::Udp(endpoint)).unwrap();
     /// ```
     ///
@@ -332,7 +332,7 @@ impl<'a> IcmpSocket<'a> {
             (
                 &Endpoint::Udp(endpoint),
                 &IcmpRepr::Ipv4(Icmpv4Repr::DstUnreachable { data, .. }),
-            ) if endpoint.addr.is_unspecified() || endpoint.addr == ip_repr.dst_addr() => {
+            ) if endpoint.addr.is_none() || endpoint.addr == Some(ip_repr.dst_addr()) => {
                 let packet = UdpPacket::new_unchecked(data);
                 match UdpRepr::parse(
                     &packet,
@@ -348,7 +348,7 @@ impl<'a> IcmpSocket<'a> {
             (
                 &Endpoint::Udp(endpoint),
                 &IcmpRepr::Ipv6(Icmpv6Repr::DstUnreachable { data, .. }),
-            ) if endpoint.addr.is_unspecified() || endpoint.addr == ip_repr.dst_addr() => {
+            ) if endpoint.addr.is_none() || endpoint.addr == Some(ip_repr.dst_addr()) => {
                 let packet = UdpPacket::new_unchecked(data);
                 match UdpRepr::parse(
                     &packet,
@@ -447,12 +447,16 @@ impl<'a> IcmpSocket<'a> {
             );
             match *remote_endpoint {
                 #[cfg(feature = "proto-ipv4")]
-                IpAddress::Ipv4(ipv4_addr) => {
+                IpAddress::Ipv4(dst_addr) => {
+                    let src_addr = match cx.get_source_address_ipv4(dst_addr) {
+                        Some(addr) => addr,
+                        None => return Err(Error::Unaddressable),
+                    };
                     let packet = Icmpv4Packet::new_unchecked(&*packet_buf);
                     let repr = Icmpv4Repr::parse(&packet, &ChecksumCapabilities::ignored())?;
                     let ip_repr = IpRepr::Ipv4(Ipv4Repr {
-                        src_addr: Ipv4Address::default(),
-                        dst_addr: ipv4_addr,
+                        src_addr,
+                        dst_addr,
                         next_header: IpProtocol::Icmp,
                         payload_len: repr.buffer_len(),
                         hop_limit: hop_limit,
@@ -460,25 +464,27 @@ impl<'a> IcmpSocket<'a> {
                     emit(cx, (ip_repr, IcmpRepr::Ipv4(repr)))
                 }
                 #[cfg(feature = "proto-ipv6")]
-                IpAddress::Ipv6(ipv6_addr) => {
+                IpAddress::Ipv6(dst_addr) => {
+                    let src_addr = match cx.get_source_address_ipv6(dst_addr) {
+                        Some(addr) => addr,
+                        None => return Err(Error::Unaddressable),
+                    };
                     let packet = Icmpv6Packet::new_unchecked(&*packet_buf);
-                    let src_addr = Ipv6Address::default();
                     let repr = Icmpv6Repr::parse(
                         &src_addr.into(),
-                        &ipv6_addr.into(),
+                        &dst_addr.into(),
                         &packet,
                         &ChecksumCapabilities::ignored(),
                     )?;
                     let ip_repr = IpRepr::Ipv6(Ipv6Repr {
-                        src_addr: src_addr,
-                        dst_addr: ipv6_addr,
+                        src_addr,
+                        dst_addr,
                         next_header: IpProtocol::Icmpv6,
                         payload_len: repr.buffer_len(),
                         hop_limit: hop_limit,
                     });
                     emit(cx, (ip_repr, IcmpRepr::Ipv6(repr)))
                 }
-                _ => Err(Error::Unaddressable),
             }
         })?;
 
@@ -531,10 +537,10 @@ mod tests_common {
 mod test_ipv4 {
     use super::tests_common::*;
 
-    use crate::wire::Icmpv4DstUnreachable;
+    use crate::wire::{Icmpv4DstUnreachable, IpEndpoint, Ipv4Address};
 
-    const REMOTE_IPV4: Ipv4Address = Ipv4Address([0x7f, 0x00, 0x00, 0x02]);
-    const LOCAL_IPV4: Ipv4Address = Ipv4Address([0x7f, 0x00, 0x00, 0x01]);
+    const REMOTE_IPV4: Ipv4Address = Ipv4Address([192, 168, 1, 2]);
+    const LOCAL_IPV4: Ipv4Address = Ipv4Address([192, 168, 1, 1]);
     const LOCAL_END_V4: IpEndpoint = IpEndpoint {
         addr: IpAddress::Ipv4(LOCAL_IPV4),
         port: LOCAL_PORT,
@@ -547,7 +553,7 @@ mod test_ipv4 {
     };
 
     static LOCAL_IPV4_REPR: IpRepr = IpRepr::Ipv4(Ipv4Repr {
-        src_addr: Ipv4Address::UNSPECIFIED,
+        src_addr: LOCAL_IPV4,
         dst_addr: REMOTE_IPV4,
         next_header: IpProtocol::Icmp,
         payload_len: 24,
@@ -566,7 +572,7 @@ mod test_ipv4 {
     fn test_send_unaddressable() {
         let mut socket = socket(buffer(0), buffer(1));
         assert_eq!(
-            socket.send_slice(b"abcdef", IpAddress::default()),
+            socket.send_slice(b"abcdef", IpAddress::Ipv4(Ipv4Address::default())),
             Err(Error::Unaddressable)
         );
         assert_eq!(socket.send_slice(b"abcdef", REMOTE_IPV4.into()), Ok(()));
@@ -648,7 +654,7 @@ mod test_ipv4 {
                 assert_eq!(
                     ip_repr,
                     IpRepr::Ipv4(Ipv4Repr {
-                        src_addr: Ipv4Address::UNSPECIFIED,
+                        src_addr: LOCAL_IPV4,
                         dst_addr: REMOTE_IPV4,
                         next_header: IpProtocol::Icmp,
                         payload_len: ECHOV4_REPR.buffer_len(),
@@ -719,7 +725,7 @@ mod test_ipv4 {
     fn test_accepts_udp() {
         let mut socket = socket(buffer(1), buffer(1));
         let mut cx = Context::mock();
-        assert_eq!(socket.bind(Endpoint::Udp(LOCAL_END_V4)), Ok(()));
+        assert_eq!(socket.bind(Endpoint::Udp(LOCAL_END_V4.into())), Ok(()));
 
         let checksum = ChecksumCapabilities::default();
 
@@ -778,12 +784,12 @@ mod test_ipv4 {
 mod test_ipv6 {
     use super::tests_common::*;
 
-    use crate::wire::Icmpv6DstUnreachable;
+    use crate::wire::{Icmpv6DstUnreachable, IpEndpoint, Ipv6Address};
 
     const REMOTE_IPV6: Ipv6Address =
-        Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
-    const LOCAL_IPV6: Ipv6Address =
         Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]);
+    const LOCAL_IPV6: Ipv6Address =
+        Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
     const LOCAL_END_V6: IpEndpoint = IpEndpoint {
         addr: IpAddress::Ipv6(LOCAL_IPV6),
         port: LOCAL_PORT,
@@ -795,7 +801,7 @@ mod test_ipv6 {
     };
 
     static LOCAL_IPV6_REPR: IpRepr = IpRepr::Ipv6(Ipv6Repr {
-        src_addr: Ipv6Address::UNSPECIFIED,
+        src_addr: LOCAL_IPV6,
         dst_addr: REMOTE_IPV6,
         next_header: IpProtocol::Icmpv6,
         payload_len: 24,
@@ -814,7 +820,7 @@ mod test_ipv6 {
     fn test_send_unaddressable() {
         let mut socket = socket(buffer(0), buffer(1));
         assert_eq!(
-            socket.send_slice(b"abcdef", IpAddress::default()),
+            socket.send_slice(b"abcdef", IpAddress::Ipv6(Ipv6Address::default())),
             Err(Error::Unaddressable)
         );
         assert_eq!(socket.send_slice(b"abcdef", REMOTE_IPV6.into()), Ok(()));
@@ -906,7 +912,7 @@ mod test_ipv6 {
                 assert_eq!(
                     ip_repr,
                     IpRepr::Ipv6(Ipv6Repr {
-                        src_addr: Ipv6Address::UNSPECIFIED,
+                        src_addr: LOCAL_IPV6,
                         dst_addr: REMOTE_IPV6,
                         next_header: IpProtocol::Icmpv6,
                         payload_len: ECHOV6_REPR.buffer_len(),
@@ -987,7 +993,7 @@ mod test_ipv6 {
     fn test_accepts_udp() {
         let mut socket = socket(buffer(1), buffer(1));
         let mut cx = Context::mock();
-        assert_eq!(socket.bind(Endpoint::Udp(LOCAL_END_V6)), Ok(()));
+        assert_eq!(socket.bind(Endpoint::Udp(LOCAL_END_V6.into())), Ok(()));
 
         let checksum = ChecksumCapabilities::default();
 

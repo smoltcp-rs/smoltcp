@@ -150,11 +150,7 @@ fn main() {
             if !did_connect {
                 debug!("connecting");
                 socket
-                    .connect(
-                        cx,
-                        (IpAddress::v4(127, 0, 0, 1), 1234),
-                        (IpAddress::Unspecified, 65000),
-                    )
+                    .connect(cx, (IpAddress::v4(127, 0, 0, 1), 1234), 65000)
                     .unwrap();
                 did_connect = true;
             }
