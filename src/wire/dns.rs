@@ -432,6 +432,7 @@ impl<'a> Repr<'a> {
     }
 }
 
+#[cfg(feature = "proto-ipv4")] // tests assume ipv4
 #[cfg(test)]
 mod test {
     use super::*;
