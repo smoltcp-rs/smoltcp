@@ -16,7 +16,6 @@ use crate::wire::{
     IpAddress, IpEndpoint, IpListenEndpoint, IpProtocol, IpRepr, TcpControl, TcpRepr, TcpSeqNumber,
     TCP_HEADER_LEN,
 };
-use crate::Error;
 
 macro_rules! tcp_trace {
     ($($arg:expr),*) => (net_log!(trace, $($arg),*));
@@ -1934,12 +1933,12 @@ impl<'a> Socket<'a> {
         }
     }
 
-    pub(crate) fn dispatch<F>(&mut self, cx: &mut Context, emit: F) -> Result<(), Error>
+    pub(crate) fn dispatch<F, E>(&mut self, cx: &mut Context, emit: F) -> Result<(), E>
     where
-        F: FnOnce(&mut Context, (IpRepr, TcpRepr)) -> Result<(), Error>,
+        F: FnOnce(&mut Context, (IpRepr, TcpRepr)) -> Result<(), E>,
     {
         if self.tuple.is_none() {
-            return Err(Error::Exhausted);
+            return Ok(());
         }
 
         if self.remote_last_ts.is_none() {
@@ -1999,9 +1998,9 @@ impl<'a> Socket<'a> {
             // If we have spent enough time in the TIME-WAIT state, close the socket.
             tcp_trace!("TIME-WAIT timer expired");
             self.reset();
-            return Err(Error::Exhausted);
+            return Ok(());
         } else {
-            return Err(Error::Exhausted);
+            return Ok(());
         }
 
         // NOTE(unwrap): we check tuple is not None the first thing in this function.
@@ -2041,7 +2040,7 @@ impl<'a> Socket<'a> {
             }
 
             // We never transmit anything in the LISTEN state.
-            State::Listen => return Err(Error::Exhausted),
+            State::Listen => return Ok(()),
 
             // We transmit a SYN in the SYN-SENT state.
             // We transmit a SYN|ACK in the SYN-RECEIVED state.
@@ -2270,6 +2269,7 @@ impl<'a> fmt::Write for Socket<'a> {
 mod test {
     use super::*;
     use crate::wire::IpRepr;
+    use crate::Error;
     use core::i32;
     use std::ops::{Deref, DerefMut};
     use std::vec::Vec;
@@ -6168,7 +6168,7 @@ mod test {
         assert_eq!(
             s.socket.dispatch(&mut s.cx, |_, (ip_repr, _)| {
                 assert_eq!(ip_repr.hop_limit(), 0x2a);
-                Ok(())
+                Ok::<_, Error>(())
             }),
             Ok(())
         );

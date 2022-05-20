@@ -3,12 +3,11 @@ use core::cmp::min;
 use core::task::Waker;
 
 use crate::iface::Context;
-use crate::phy::ChecksumCapabilities;
 use crate::socket::PollAt;
 #[cfg(feature = "async")]
 use crate::socket::WakerRegistration;
-use crate::Error;
 
+use crate::storage::Empty;
 use crate::wire::{IpProtocol, IpRepr, IpVersion};
 #[cfg(feature = "proto-ipv4")]
 use crate::wire::{Ipv4Packet, Ipv4Repr};
@@ -265,21 +264,27 @@ impl<'a> Socket<'a> {
         self.rx_waker.wake();
     }
 
-    pub(crate) fn dispatch<F>(&mut self, cx: &mut Context, emit: F) -> Result<(), Error>
+    pub(crate) fn dispatch<F, E>(&mut self, cx: &mut Context, emit: F) -> Result<(), E>
     where
-        F: FnOnce(&mut Context, (IpRepr, &[u8])) -> Result<(), Error>,
+        F: FnOnce(&mut Context, (IpRepr, &[u8])) -> Result<(), E>,
     {
-        fn prepare<'a>(
-            next_header: IpProtocol,
-            buffer: &'a mut [u8],
-            _checksum_caps: &ChecksumCapabilities,
-        ) -> Result<(IpRepr, &'a [u8]), Error> {
-            match IpVersion::of_packet(buffer)? {
+        let ip_protocol = self.ip_protocol;
+        let ip_version = self.ip_version;
+        let _checksum_caps = &cx.checksum_caps();
+        let res = self.tx_buffer.dequeue_with(|&mut (), buffer| {
+            match IpVersion::of_packet(buffer) {
                 #[cfg(feature = "proto-ipv4")]
-                IpVersion::Ipv4 => {
-                    let mut packet = Ipv4Packet::new_checked(buffer)?;
-                    if packet.next_header() != next_header {
-                        return Err(Error::Unaddressable);
+                Ok(IpVersion::Ipv4) => {
+                    let mut packet = match Ipv4Packet::new_checked(buffer) {
+                        Ok(x) => x,
+                        Err(_) => {
+                            net_trace!("raw: malformed ipv6 packet in queue, dropping.");
+                            return Ok(());
+                        }
+                    };
+                    if packet.next_header() != ip_protocol {
+                        net_trace!("raw: sent packet with wrong ip protocol, dropping.");
+                        return Ok(());
                     }
                     if _checksum_caps.ipv4.tx() {
                         packet.fill_checksum();
@@ -289,55 +294,57 @@ impl<'a> Socket<'a> {
                         packet.set_checksum(0);
                     }
 
-                    let packet = Ipv4Packet::new_checked(&*packet.into_inner())?;
-                    let ipv4_repr = Ipv4Repr::parse(&packet, _checksum_caps)?;
-                    Ok((IpRepr::Ipv4(ipv4_repr), packet.payload()))
+                    let packet = Ipv4Packet::new_unchecked(&*packet.into_inner());
+                    let ipv4_repr = match Ipv4Repr::parse(&packet, _checksum_caps) {
+                        Ok(x) => x,
+                        Err(_) => {
+                            net_trace!("raw: malformed ipv4 packet in queue, dropping.");
+                            return Ok(());
+                        }
+                    };
+                    net_trace!("raw:{}:{}: sending", ip_version, ip_protocol);
+                    emit(cx, (IpRepr::Ipv4(ipv4_repr), packet.payload()))
                 }
                 #[cfg(feature = "proto-ipv6")]
-                IpVersion::Ipv6 => {
-                    let packet = Ipv6Packet::new_checked(buffer)?;
-                    if packet.next_header() != next_header {
-                        return Err(Error::Unaddressable);
+                Ok(IpVersion::Ipv6) => {
+                    let packet = match Ipv6Packet::new_checked(buffer) {
+                        Ok(x) => x,
+                        Err(_) => {
+                            net_trace!("raw: malformed ipv6 packet in queue, dropping.");
+                            return Ok(());
+                        }
+                    };
+                    if packet.next_header() != ip_protocol {
+                        net_trace!("raw: sent ipv6 packet with wrong ip protocol, dropping.");
+                        return Ok(());
                     }
                     let packet = Ipv6Packet::new_unchecked(&*packet.into_inner());
-                    let ipv6_repr = Ipv6Repr::parse(&packet)?;
-                    Ok((IpRepr::Ipv6(ipv6_repr), packet.payload()))
+                    let ipv6_repr = match Ipv6Repr::parse(&packet) {
+                        Ok(x) => x,
+                        Err(_) => {
+                            net_trace!("raw: malformed ipv6 packet in queue, dropping.");
+                            return Ok(());
+                        }
+                    };
+
+                    net_trace!("raw:{}:{}: sending", ip_version, ip_protocol);
+                    emit(cx, (IpRepr::Ipv6(ipv6_repr), packet.payload()))
+                }
+                Err(_) => {
+                    net_trace!("raw: sent packet with invalid IP version, dropping.");
+                    Ok(())
                 }
             }
+        });
+        match res {
+            Err(Empty) => Ok(()),
+            Ok(Err(e)) => Err(e),
+            Ok(Ok(())) => {
+                #[cfg(feature = "async")]
+                self.tx_waker.wake();
+                Ok(())
+            }
         }
-
-        let ip_protocol = self.ip_protocol;
-        let ip_version = self.ip_version;
-        self.tx_buffer
-            .dequeue_with(|&mut (), packet_buf| {
-                match prepare(ip_protocol, packet_buf, &cx.checksum_caps()) {
-                    Ok((ip_repr, raw_packet)) => {
-                        net_trace!(
-                            "raw:{}:{}: sending {} octets",
-                            ip_version,
-                            ip_protocol,
-                            ip_repr.buffer_len() + raw_packet.len()
-                        );
-                        emit(cx, (ip_repr, raw_packet))
-                    }
-                    Err(error) => {
-                        net_debug!(
-                            "raw:{}:{}: dropping outgoing packet ({})",
-                            ip_version,
-                            ip_protocol,
-                            error
-                        );
-                        // Return Ok(()) so the packet is dequeued.
-                        Ok(())
-                    }
-                }
-            })
-            .map_err(|_| Error::Exhausted)??;
-
-        #[cfg(feature = "async")]
-        self.tx_waker.wake();
-
-        Ok(())
     }
 
     pub(crate) fn poll_at(&self, _cx: &mut Context) -> PollAt {
@@ -357,6 +364,7 @@ mod test {
     use crate::wire::{Ipv4Address, Ipv4Repr};
     #[cfg(feature = "proto-ipv6")]
     use crate::wire::{Ipv6Address, Ipv6Repr};
+    use crate::Error;
 
     fn buffer(packets: usize) -> PacketBuffer<'static> {
         PacketBuffer::new(vec![PacketMetadata::EMPTY; packets], vec![0; 48 * packets])
@@ -453,7 +461,7 @@ mod test {
                     assert!(socket.can_send());
                     assert_eq!(
                         socket.dispatch(&mut cx, |_, _| unreachable!()),
-                        Err(Error::Exhausted)
+                        Ok::<_, Error>(())
                     );
 
                     assert_eq!(socket.send_slice(&$packet[..]), Ok(()));
@@ -474,7 +482,7 @@ mod test {
                         socket.dispatch(&mut cx, |_, (ip_repr, ip_payload)| {
                             assert_eq!(ip_repr, $hdr);
                             assert_eq!(ip_payload, &$payload);
-                            Ok(())
+                            Ok::<_, Error>(())
                         }),
                         Ok(())
                     );
@@ -539,13 +547,19 @@ mod test {
             Ipv4Packet::new_unchecked(&mut wrong_version).set_version(6);
 
             assert_eq!(socket.send_slice(&wrong_version[..]), Ok(()));
-            assert_eq!(socket.dispatch(&mut cx, |_, _| unreachable!()), Ok(()));
+            assert_eq!(
+                socket.dispatch(&mut cx, |_, _| unreachable!()),
+                Ok::<_, Error>(())
+            );
 
             let mut wrong_protocol = ipv4_locals::PACKET_BYTES;
             Ipv4Packet::new_unchecked(&mut wrong_protocol).set_next_header(IpProtocol::Tcp);
 
             assert_eq!(socket.send_slice(&wrong_protocol[..]), Ok(()));
-            assert_eq!(socket.dispatch(&mut cx, |_, _| unreachable!()), Ok(()));
+            assert_eq!(
+                socket.dispatch(&mut cx, |_, _| unreachable!()),
+                Ok::<_, Error>(())
+            );
         }
         #[cfg(feature = "proto-ipv6")]
         {
@@ -556,13 +570,19 @@ mod test {
             Ipv6Packet::new_unchecked(&mut wrong_version[..]).set_version(4);
 
             assert_eq!(socket.send_slice(&wrong_version[..]), Ok(()));
-            assert_eq!(socket.dispatch(&mut cx, |_, _| unreachable!()), Ok(()));
+            assert_eq!(
+                socket.dispatch(&mut cx, |_, _| unreachable!()),
+                Ok::<_, Error>(())
+            );
 
             let mut wrong_protocol = ipv6_locals::PACKET_BYTES;
             Ipv6Packet::new_unchecked(&mut wrong_protocol[..]).set_next_header(IpProtocol::Tcp);
 
             assert_eq!(socket.send_slice(&wrong_protocol[..]), Ok(()));
-            assert_eq!(socket.dispatch(&mut cx, |_, _| unreachable!()), Ok(()));
+            assert_eq!(
+                socket.dispatch(&mut cx, |_, _| unreachable!()),
+                Ok::<_, Error>(())
+            );
         }
     }
 

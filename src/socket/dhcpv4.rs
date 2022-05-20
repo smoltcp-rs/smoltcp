@@ -6,7 +6,6 @@ use crate::wire::{
     DhcpMessageType, DhcpPacket, DhcpRepr, IpAddress, IpProtocol, Ipv4Address, Ipv4Cidr, Ipv4Repr,
     UdpRepr, DHCP_CLIENT_PORT, DHCP_MAX_DNS_SERVER_COUNT, DHCP_SERVER_PORT, UDP_HEADER_LEN,
 };
-use crate::{Error, Result};
 
 use super::PollAt;
 
@@ -376,16 +375,16 @@ impl Socket {
         0x12345678
     }
 
-    pub(crate) fn dispatch<F>(&mut self, cx: &mut Context, emit: F) -> Result<()>
+    pub(crate) fn dispatch<F, E>(&mut self, cx: &mut Context, emit: F) -> Result<(), E>
     where
-        F: FnOnce(&mut Context, (Ipv4Repr, UdpRepr, DhcpRepr)) -> Result<()>,
+        F: FnOnce(&mut Context, (Ipv4Repr, UdpRepr, DhcpRepr)) -> Result<(), E>,
     {
         // note: Dhcpv4Socket is only usable in ethernet mediums, so the
         // unwrap can never fail.
         let ethernet_addr = if let Some(HardwareAddress::Ethernet(addr)) = cx.hardware_addr() {
             addr
         } else {
-            return Err(Error::Malformed);
+            panic!("using DHCPv4 socket with a non-ethernet hardware address.");
         };
 
         // Worst case biggest IPv4 header length.
@@ -432,7 +431,7 @@ impl Socket {
         match &mut self.state {
             ClientState::Discovering(state) => {
                 if cx.now() < state.retry_at {
-                    return Err(Error::Exhausted);
+                    return Ok(());
                 }
 
                 // send packet
@@ -451,13 +450,12 @@ impl Socket {
             }
             ClientState::Requesting(state) => {
                 if cx.now() < state.retry_at {
-                    return Err(Error::Exhausted);
+                    return Ok(());
                 }
 
                 if state.retry >= REQUEST_RETRIES {
                     net_debug!("DHCP request retries exceeded, restarting discovery");
                     self.reset();
-                    // return Ok so we get polled again
                     return Ok(());
                 }
 
@@ -489,7 +487,7 @@ impl Socket {
                 }
 
                 if cx.now() < state.renew_at {
-                    return Err(Error::Exhausted);
+                    return Ok(());
                 }
 
                 ipv4_repr.src_addr = state.config.address.address();
@@ -553,6 +551,7 @@ mod test {
 
     use super::*;
     use crate::wire::EthernetAddress;
+    use crate::Error;
 
     // =========================================================================================//
     // Helper functions
@@ -622,7 +621,7 @@ mod test {
                         None => panic!("Too many reprs emitted"),
                     }
                     i += 1;
-                    Ok(())
+                    Ok::<_, Error>(())
                 });
         }
 

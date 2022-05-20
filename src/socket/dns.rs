@@ -8,7 +8,6 @@ use crate::socket::{Context, PollAt};
 use crate::time::{Duration, Instant};
 use crate::wire::dns::{Flags, Opcode, Packet, Question, Rcode, Record, RecordData, Repr, Type};
 use crate::wire::{self, IpAddress, IpProtocol, IpRepr, UdpRepr};
-use crate::Error;
 
 #[cfg(feature = "async")]
 use super::WakerRegistration;
@@ -474,9 +473,9 @@ impl<'a> Socket<'a> {
         net_trace!("no query matched");
     }
 
-    pub(crate) fn dispatch<F>(&mut self, cx: &mut Context, emit: F) -> Result<(), Error>
+    pub(crate) fn dispatch<F, E>(&mut self, cx: &mut Context, emit: F) -> Result<(), E>
     where
-        F: FnOnce(&mut Context, (IpRepr, UdpRepr, &[u8])) -> Result<(), Error>,
+        F: FnOnce(&mut Context, (IpRepr, UdpRepr, &[u8])) -> Result<(), E>,
     {
         let hop_limit = self.hop_limit.unwrap_or(64);
 
@@ -556,10 +555,7 @@ impl<'a> Socket<'a> {
                     udp_repr.src_port
                 );
 
-                if let Err(e) = emit(cx, (ip_repr, udp_repr, payload)) {
-                    net_trace!("DNS emit error {:?}", e);
-                    return Ok(());
-                }
+                emit(cx, (ip_repr, udp_repr, payload))?;
 
                 pq.retransmit_at = cx.now() + pq.delay;
                 pq.delay = MAX_RETRANSMIT_DELAY.min(pq.delay * 2);
@@ -569,7 +565,7 @@ impl<'a> Socket<'a> {
         }
 
         // Nothing to dispatch
-        Err(Error::Exhausted)
+        Ok(())
     }
 
     pub(crate) fn poll_at(&self, _cx: &Context) -> PollAt {

@@ -6,8 +6,8 @@ use crate::iface::Context;
 use crate::socket::PollAt;
 #[cfg(feature = "async")]
 use crate::socket::WakerRegistration;
+use crate::storage::Empty;
 use crate::wire::{IpEndpoint, IpListenEndpoint, IpProtocol, IpRepr, UdpRepr};
-use crate::Error;
 
 /// A UDP packet metadata.
 pub type PacketMetadata = crate::storage::PacketMetadata<IpEndpoint>;
@@ -383,49 +383,58 @@ impl<'a> Socket<'a> {
         self.rx_waker.wake();
     }
 
-    pub(crate) fn dispatch<F>(&mut self, cx: &mut Context, emit: F) -> Result<(), Error>
+    pub(crate) fn dispatch<F, E>(&mut self, cx: &mut Context, emit: F) -> Result<(), E>
     where
-        F: FnOnce(&mut Context, (IpRepr, UdpRepr, &[u8])) -> Result<(), Error>,
+        F: FnOnce(&mut Context, (IpRepr, UdpRepr, &[u8])) -> Result<(), E>,
     {
         let endpoint = self.endpoint;
         let hop_limit = self.hop_limit.unwrap_or(64);
 
-        self.tx_buffer
-            .dequeue_with(|remote_endpoint, payload_buf| {
-                let src_addr = match endpoint.addr {
+        let res = self.tx_buffer.dequeue_with(|remote_endpoint, payload_buf| {
+            let src_addr = match endpoint.addr {
+                Some(addr) => addr,
+                None => match cx.get_source_address(remote_endpoint.addr) {
                     Some(addr) => addr,
-                    None => match cx.get_source_address(remote_endpoint.addr) {
-                        Some(addr) => addr,
-                        None => return Err(Error::Unaddressable),
-                    },
-                };
+                    None => {
+                        net_trace!(
+                            "udp:{}:{}: cannot find suitable source address, dropping.",
+                            endpoint,
+                            remote_endpoint
+                        );
+                        return Ok(());
+                    }
+                },
+            };
 
-                net_trace!(
-                    "udp:{}:{}: sending {} octets",
-                    endpoint,
-                    remote_endpoint,
-                    payload_buf.len()
-                );
+            net_trace!(
+                "udp:{}:{}: sending {} octets",
+                endpoint,
+                remote_endpoint,
+                payload_buf.len()
+            );
 
-                let repr = UdpRepr {
-                    src_port: endpoint.port,
-                    dst_port: remote_endpoint.port,
-                };
-                let ip_repr = IpRepr::new(
-                    src_addr,
-                    remote_endpoint.addr,
-                    IpProtocol::Udp,
-                    repr.header_len() + payload_buf.len(),
-                    hop_limit,
-                );
-                emit(cx, (ip_repr, repr, payload_buf))
-            })
-            .map_err(|_| Error::Exhausted)??;
-
-        #[cfg(feature = "async")]
-        self.tx_waker.wake();
-
-        Ok(())
+            let repr = UdpRepr {
+                src_port: endpoint.port,
+                dst_port: remote_endpoint.port,
+            };
+            let ip_repr = IpRepr::new(
+                src_addr,
+                remote_endpoint.addr,
+                IpProtocol::Udp,
+                repr.header_len() + payload_buf.len(),
+                hop_limit,
+            );
+            emit(cx, (ip_repr, repr, payload_buf))
+        });
+        match res {
+            Err(Empty) => Ok(()),
+            Ok(Err(e)) => Err(e),
+            Ok(Ok(())) => {
+                #[cfg(feature = "async")]
+                self.tx_waker.wake();
+                Ok(())
+            }
+        }
     }
 
     pub(crate) fn poll_at(&self, _cx: &mut Context) -> PollAt {
@@ -441,6 +450,7 @@ impl<'a> Socket<'a> {
 mod test {
     use super::*;
     use crate::wire::{IpRepr, UdpRepr};
+    use crate::Error;
 
     fn buffer(packets: usize) -> PacketBuffer<'static> {
         PacketBuffer::new(vec![PacketMetadata::EMPTY; packets], vec![0; 16 * packets])
@@ -589,7 +599,7 @@ mod test {
         assert!(socket.can_send());
         assert_eq!(
             socket.dispatch(&mut cx, |_, _| unreachable!()),
-            Err(Error::Exhausted)
+            Ok::<_, Error>(())
         );
 
         assert_eq!(socket.send_slice(b"abcdef", REMOTE_END), Ok(()));
@@ -615,7 +625,7 @@ mod test {
                 assert_eq!(ip_repr, LOCAL_IP_REPR);
                 assert_eq!(udp_repr, LOCAL_UDP_REPR);
                 assert_eq!(payload, PAYLOAD);
-                Ok(())
+                Ok::<_, Error>(())
             }),
             Ok(())
         );
@@ -711,7 +721,7 @@ mod test {
                         hop_limit: 0x2a,
                     })
                 );
-                Ok(())
+                Ok::<_, Error>(())
             }),
             Ok(())
         );
