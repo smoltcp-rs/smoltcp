@@ -7,13 +7,36 @@ use crate::socket::PollAt;
 #[cfg(feature = "async")]
 use crate::socket::WakerRegistration;
 use crate::wire::{IpEndpoint, IpListenEndpoint, IpProtocol, IpRepr, UdpRepr};
-use crate::{Error, Result};
+use crate::Error;
 
 /// A UDP packet metadata.
 pub type PacketMetadata = crate::storage::PacketMetadata<IpEndpoint>;
 
 /// A UDP packet ring buffer.
 pub type PacketBuffer<'a> = crate::storage::PacketBuffer<'a, IpEndpoint>;
+
+/// Error returned by [`Socket::bind`]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum BindError {
+    InvalidState,
+    Unaddressable,
+}
+
+/// Error returned by [`Socket::send`]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum SendError {
+    Unaddressable,
+    BufferFull,
+}
+
+/// Error returned by [`Socket::recv`]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum RecvError {
+    Exhausted,
+}
 
 /// A User Datagram Protocol socket.
 ///
@@ -120,14 +143,14 @@ impl<'a> Socket<'a> {
     /// This function returns `Err(Error::Illegal)` if the socket was open
     /// (see [is_open](#method.is_open)), and `Err(Error::Unaddressable)`
     /// if the port in the given endpoint is zero.
-    pub fn bind<T: Into<IpListenEndpoint>>(&mut self, endpoint: T) -> Result<()> {
+    pub fn bind<T: Into<IpListenEndpoint>>(&mut self, endpoint: T) -> Result<(), BindError> {
         let endpoint = endpoint.into();
         if endpoint.port == 0 {
-            return Err(Error::Unaddressable);
+            return Err(BindError::Unaddressable);
         }
 
         if self.is_open() {
-            return Err(Error::Illegal);
+            return Err(BindError::InvalidState);
         }
 
         self.endpoint = endpoint;
@@ -206,18 +229,25 @@ impl<'a> Socket<'a> {
     /// `Err(Error::Unaddressable)` if local or remote port, or remote address are unspecified,
     /// and `Err(Error::Truncated)` if there is not enough transmit buffer capacity
     /// to ever send this packet.
-    pub fn send(&mut self, size: usize, remote_endpoint: IpEndpoint) -> Result<&mut [u8]> {
+    pub fn send(
+        &mut self,
+        size: usize,
+        remote_endpoint: IpEndpoint,
+    ) -> Result<&mut [u8], SendError> {
         if self.endpoint.port == 0 {
-            return Err(Error::Unaddressable);
+            return Err(SendError::Unaddressable);
         }
         if remote_endpoint.addr.is_unspecified() {
-            return Err(Error::Unaddressable);
+            return Err(SendError::Unaddressable);
         }
         if remote_endpoint.port == 0 {
-            return Err(Error::Unaddressable);
+            return Err(SendError::Unaddressable);
         }
 
-        let payload_buf = self.tx_buffer.enqueue(size, remote_endpoint)?;
+        let payload_buf = self
+            .tx_buffer
+            .enqueue(size, remote_endpoint)
+            .map_err(|_| SendError::BufferFull)?;
 
         net_trace!(
             "udp:{}:{}: buffer to send {} octets",
@@ -231,7 +261,11 @@ impl<'a> Socket<'a> {
     /// Enqueue a packet to be sent to a given remote endpoint, and fill it from a slice.
     ///
     /// See also [send](#method.send).
-    pub fn send_slice(&mut self, data: &[u8], remote_endpoint: IpEndpoint) -> Result<()> {
+    pub fn send_slice(
+        &mut self,
+        data: &[u8],
+        remote_endpoint: IpEndpoint,
+    ) -> Result<(), SendError> {
         self.send(data.len(), remote_endpoint)?
             .copy_from_slice(data);
         Ok(())
@@ -241,8 +275,9 @@ impl<'a> Socket<'a> {
     /// as a pointer to the payload.
     ///
     /// This function returns `Err(Error::Exhausted)` if the receive buffer is empty.
-    pub fn recv(&mut self) -> Result<(&[u8], IpEndpoint)> {
-        let (remote_endpoint, payload_buf) = self.rx_buffer.dequeue()?;
+    pub fn recv(&mut self) -> Result<(&[u8], IpEndpoint), RecvError> {
+        let (remote_endpoint, payload_buf) =
+            self.rx_buffer.dequeue().map_err(|_| RecvError::Exhausted)?;
 
         net_trace!(
             "udp:{}:{}: receive {} buffered octets",
@@ -257,8 +292,8 @@ impl<'a> Socket<'a> {
     /// and return the amount of octets copied as well as the endpoint.
     ///
     /// See also [recv](#method.recv).
-    pub fn recv_slice(&mut self, data: &mut [u8]) -> Result<(usize, IpEndpoint)> {
-        let (buffer, endpoint) = self.recv()?;
+    pub fn recv_slice(&mut self, data: &mut [u8]) -> Result<(usize, IpEndpoint), RecvError> {
+        let (buffer, endpoint) = self.recv().map_err(|_| RecvError::Exhausted)?;
         let length = min(data.len(), buffer.len());
         data[..length].copy_from_slice(&buffer[..length]);
         Ok((length, endpoint))
@@ -269,17 +304,19 @@ impl<'a> Socket<'a> {
     /// This function otherwise behaves identically to [recv](#method.recv).
     ///
     /// It returns `Err(Error::Exhausted)` if the receive buffer is empty.
-    pub fn peek(&mut self) -> Result<(&[u8], &IpEndpoint)> {
+    pub fn peek(&mut self) -> Result<(&[u8], &IpEndpoint), RecvError> {
         let endpoint = self.endpoint;
-        self.rx_buffer.peek().map(|(remote_endpoint, payload_buf)| {
-            net_trace!(
-                "udp:{}:{}: peek {} buffered octets",
-                endpoint,
-                remote_endpoint,
-                payload_buf.len()
-            );
-            (payload_buf, remote_endpoint)
-        })
+        self.rx_buffer.peek().map_err(|_| RecvError::Exhausted).map(
+            |(remote_endpoint, payload_buf)| {
+                net_trace!(
+                    "udp:{}:{}: peek {} buffered octets",
+                    endpoint,
+                    remote_endpoint,
+                    payload_buf.len()
+                );
+                (payload_buf, remote_endpoint)
+            },
+        )
     }
 
     /// Peek at a packet received from a remote endpoint, copy the payload into the given slice,
@@ -288,7 +325,7 @@ impl<'a> Socket<'a> {
     /// This function otherwise behaves identically to [recv_slice](#method.recv_slice).
     ///
     /// See also [peek](#method.peek).
-    pub fn peek_slice(&mut self, data: &mut [u8]) -> Result<(usize, &IpEndpoint)> {
+    pub fn peek_slice(&mut self, data: &mut [u8]) -> Result<(usize, &IpEndpoint), RecvError> {
         let (buffer, endpoint) = self.peek()?;
         let length = min(data.len(), buffer.len());
         data[..length].copy_from_slice(&buffer[..length]);
@@ -316,7 +353,7 @@ impl<'a> Socket<'a> {
         ip_repr: &IpRepr,
         repr: &UdpRepr,
         payload: &[u8],
-    ) -> Result<()> {
+    ) -> Result<(), Error> {
         debug_assert!(self.accepts(cx, ip_repr, repr));
 
         let size = payload.len();
@@ -326,7 +363,8 @@ impl<'a> Socket<'a> {
             port: repr.src_port,
         };
         self.rx_buffer
-            .enqueue(size, remote_endpoint)?
+            .enqueue(size, remote_endpoint)
+            .map_err(|_| Error::Exhausted)?
             .copy_from_slice(payload);
 
         net_trace!(
@@ -342,9 +380,9 @@ impl<'a> Socket<'a> {
         Ok(())
     }
 
-    pub(crate) fn dispatch<F>(&mut self, cx: &mut Context, emit: F) -> Result<()>
+    pub(crate) fn dispatch<F>(&mut self, cx: &mut Context, emit: F) -> Result<(), Error>
     where
-        F: FnOnce(&mut Context, (IpRepr, UdpRepr, &[u8])) -> Result<()>,
+        F: FnOnce(&mut Context, (IpRepr, UdpRepr, &[u8])) -> Result<(), Error>,
     {
         let endpoint = self.endpoint;
         let hop_limit = self.hop_limit.unwrap_or(64);
@@ -378,7 +416,8 @@ impl<'a> Socket<'a> {
                     hop_limit,
                 );
                 emit(cx, (ip_repr, repr, payload_buf))
-            })?;
+            })
+            .map_err(|_| Error::Exhausted)??;
 
         #[cfg(feature = "async")]
         self.tx_waker.wake();
@@ -488,14 +527,14 @@ mod test {
     #[test]
     fn test_bind_unaddressable() {
         let mut socket = socket(buffer(0), buffer(0));
-        assert_eq!(socket.bind(0), Err(Error::Unaddressable));
+        assert_eq!(socket.bind(0), Err(BindError::Unaddressable));
     }
 
     #[test]
     fn test_bind_twice() {
         let mut socket = socket(buffer(0), buffer(0));
         assert_eq!(socket.bind(1), Ok(()));
-        assert_eq!(socket.bind(2), Err(Error::Illegal));
+        assert_eq!(socket.bind(2), Err(BindError::InvalidState));
     }
 
     #[test]
@@ -511,7 +550,7 @@ mod test {
 
         assert_eq!(
             socket.send_slice(b"abcdef", REMOTE_END),
-            Err(Error::Unaddressable)
+            Err(SendError::Unaddressable)
         );
         assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
         assert_eq!(
@@ -522,7 +561,7 @@ mod test {
                     ..REMOTE_END
                 }
             ),
-            Err(Error::Unaddressable)
+            Err(SendError::Unaddressable)
         );
         assert_eq!(
             socket.send_slice(
@@ -532,7 +571,7 @@ mod test {
                     ..REMOTE_END
                 }
             ),
-            Err(Error::Unaddressable)
+            Err(SendError::Unaddressable)
         );
         assert_eq!(socket.send_slice(b"abcdef", REMOTE_END), Ok(()));
     }
@@ -553,7 +592,7 @@ mod test {
         assert_eq!(socket.send_slice(b"abcdef", REMOTE_END), Ok(()));
         assert_eq!(
             socket.send_slice(b"123456", REMOTE_END),
-            Err(Error::Exhausted)
+            Err(SendError::BufferFull)
         );
         assert!(!socket.can_send());
 
@@ -588,7 +627,7 @@ mod test {
         assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
 
         assert!(!socket.can_recv());
-        assert_eq!(socket.recv(), Err(Error::Exhausted));
+        assert_eq!(socket.recv(), Err(RecvError::Exhausted));
 
         assert!(socket.accepts(&mut cx, &REMOTE_IP_REPR, &REMOTE_UDP_REPR));
         assert_eq!(
@@ -613,7 +652,7 @@ mod test {
 
         assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
 
-        assert_eq!(socket.peek(), Err(Error::Exhausted));
+        assert_eq!(socket.peek(), Err(RecvError::Exhausted));
 
         assert_eq!(
             socket.process(&mut cx, &REMOTE_IP_REPR, &REMOTE_UDP_REPR, PAYLOAD),
@@ -621,7 +660,7 @@ mod test {
         );
         assert_eq!(socket.peek(), Ok((&b"abcdef"[..], &REMOTE_END)));
         assert_eq!(socket.recv(), Ok((&b"abcdef"[..], REMOTE_END)));
-        assert_eq!(socket.peek(), Err(Error::Exhausted));
+        assert_eq!(socket.peek(), Err(RecvError::Exhausted));
     }
 
     #[test]
@@ -659,7 +698,7 @@ mod test {
         assert_eq!(&slice, b"abcd");
         assert_eq!(socket.recv_slice(&mut slice[..]), Ok((4, REMOTE_END)));
         assert_eq!(&slice, b"abcd");
-        assert_eq!(socket.peek_slice(&mut slice[..]), Err(Error::Exhausted));
+        assert_eq!(socket.peek_slice(&mut slice[..]), Err(RecvError::Exhausted));
     }
 
     #[test]
@@ -724,7 +763,7 @@ mod test {
         let too_large = b"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdefx";
         assert_eq!(
             socket.send_slice(too_large, REMOTE_END),
-            Err(Error::Truncated)
+            Err(SendError::BufferFull)
         );
         assert_eq!(socket.send_slice(&too_large[..16 * 4], REMOTE_END), Ok(()));
     }
