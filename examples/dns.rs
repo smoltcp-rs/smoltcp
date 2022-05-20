@@ -10,12 +10,11 @@ mod utils;
 use smoltcp::iface::{InterfaceBuilder, NeighborCache, Routes};
 use smoltcp::phy::Device;
 use smoltcp::phy::{wait as phy_wait, Medium};
-use smoltcp::socket::dns;
+use smoltcp::socket::dns::{self, GetQueryResultError};
 use smoltcp::time::Instant;
 use smoltcp::wire::{
     EthernetAddress, HardwareAddress, IpAddress, IpCidr, Ipv4Address, Ipv6Address,
 };
-use smoltcp::Error;
 use std::collections::BTreeMap;
 use std::os::unix::io::AsRawFd;
 
@@ -90,7 +89,7 @@ fn main() {
                 println!("Query done: {:?}", addrs);
                 break;
             }
-            Err(Error::Exhausted) => {} // not done yet
+            Err(GetQueryResultError::Pending) => {} // not done yet
             Err(e) => panic!("query failed: {:?}", e),
         }
 
