@@ -353,7 +353,7 @@ impl<'a> Socket<'a> {
         ip_repr: &IpRepr,
         repr: &UdpRepr,
         payload: &[u8],
-    ) -> Result<(), Error> {
+    ) {
         debug_assert!(self.accepts(cx, ip_repr, repr));
 
         let size = payload.len();
@@ -362,10 +362,6 @@ impl<'a> Socket<'a> {
             addr: ip_repr.src_addr(),
             port: repr.src_port,
         };
-        self.rx_buffer
-            .enqueue(size, remote_endpoint)
-            .map_err(|_| Error::Exhausted)?
-            .copy_from_slice(payload);
 
         net_trace!(
             "udp:{}:{}: receiving {} octets",
@@ -374,10 +370,17 @@ impl<'a> Socket<'a> {
             size
         );
 
+        match self.rx_buffer.enqueue(size, remote_endpoint) {
+            Ok(buf) => buf.copy_from_slice(payload),
+            Err(_) => net_trace!(
+                "udp:{}:{}: buffer full, dropped incoming packet",
+                self.endpoint,
+                remote_endpoint
+            ),
+        }
+
         #[cfg(feature = "async")]
         self.rx_waker.wake();
-
-        Ok(())
     }
 
     pub(crate) fn dispatch<F>(&mut self, cx: &mut Context, emit: F) -> Result<(), Error>
@@ -630,17 +633,12 @@ mod test {
         assert_eq!(socket.recv(), Err(RecvError::Exhausted));
 
         assert!(socket.accepts(&mut cx, &REMOTE_IP_REPR, &REMOTE_UDP_REPR));
-        assert_eq!(
-            socket.process(&mut cx, &REMOTE_IP_REPR, &REMOTE_UDP_REPR, PAYLOAD),
-            Ok(())
-        );
+        socket.process(&mut cx, &REMOTE_IP_REPR, &REMOTE_UDP_REPR, PAYLOAD);
         assert!(socket.can_recv());
 
         assert!(socket.accepts(&mut cx, &REMOTE_IP_REPR, &REMOTE_UDP_REPR));
-        assert_eq!(
-            socket.process(&mut cx, &REMOTE_IP_REPR, &REMOTE_UDP_REPR, PAYLOAD),
-            Err(Error::Exhausted)
-        );
+        socket.process(&mut cx, &REMOTE_IP_REPR, &REMOTE_UDP_REPR, PAYLOAD);
+
         assert_eq!(socket.recv(), Ok((&b"abcdef"[..], REMOTE_END)));
         assert!(!socket.can_recv());
     }
@@ -654,10 +652,7 @@ mod test {
 
         assert_eq!(socket.peek(), Err(RecvError::Exhausted));
 
-        assert_eq!(
-            socket.process(&mut cx, &REMOTE_IP_REPR, &REMOTE_UDP_REPR, PAYLOAD),
-            Ok(())
-        );
+        socket.process(&mut cx, &REMOTE_IP_REPR, &REMOTE_UDP_REPR, PAYLOAD);
         assert_eq!(socket.peek(), Ok((&b"abcdef"[..], &REMOTE_END)));
         assert_eq!(socket.recv(), Ok((&b"abcdef"[..], REMOTE_END)));
         assert_eq!(socket.peek(), Err(RecvError::Exhausted));
@@ -671,10 +666,7 @@ mod test {
         assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
 
         assert!(socket.accepts(&mut cx, &REMOTE_IP_REPR, &REMOTE_UDP_REPR));
-        assert_eq!(
-            socket.process(&mut cx, &REMOTE_IP_REPR, &REMOTE_UDP_REPR, PAYLOAD),
-            Ok(())
-        );
+        socket.process(&mut cx, &REMOTE_IP_REPR, &REMOTE_UDP_REPR, PAYLOAD);
 
         let mut slice = [0; 4];
         assert_eq!(socket.recv_slice(&mut slice[..]), Ok((4, REMOTE_END)));
@@ -688,10 +680,7 @@ mod test {
 
         assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
 
-        assert_eq!(
-            socket.process(&mut cx, &REMOTE_IP_REPR, &REMOTE_UDP_REPR, PAYLOAD),
-            Ok(())
-        );
+        socket.process(&mut cx, &REMOTE_IP_REPR, &REMOTE_UDP_REPR, PAYLOAD);
 
         let mut slice = [0; 4];
         assert_eq!(socket.peek_slice(&mut slice[..]), Ok((4, &REMOTE_END)));
@@ -780,7 +769,7 @@ mod test {
             src_port: REMOTE_PORT,
             dst_port: LOCAL_PORT,
         };
-        assert_eq!(socket.process(&mut cx, &REMOTE_IP_REPR, &repr, &[]), Ok(()));
+        socket.process(&mut cx, &REMOTE_IP_REPR, &repr, &[]);
         assert_eq!(socket.recv(), Ok((&[][..], REMOTE_END)));
     }
 

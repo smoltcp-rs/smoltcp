@@ -1293,7 +1293,7 @@ impl<'a> Socket<'a> {
         cx: &mut Context,
         ip_repr: &IpRepr,
         repr: &TcpRepr,
-    ) -> Result<Option<(IpRepr, TcpRepr<'static>)>, Error> {
+    ) -> Option<(IpRepr, TcpRepr<'static>)> {
         debug_assert!(self.accepts(cx, ip_repr, repr));
 
         // Consider how much the sequence number space differs from the transmit buffer space.
@@ -1314,12 +1314,12 @@ impl<'a> Socket<'a> {
             // the initial SYN.
             (State::SynSent, TcpControl::Rst, None) => {
                 net_debug!("unacceptable RST (expecting RST|ACK) in response to initial SYN");
-                return Err(Error::Dropped);
+                return None;
             }
             (State::SynSent, TcpControl::Rst, Some(ack_number)) => {
                 if ack_number != self.local_seq_no + 1 {
                     net_debug!("unacceptable RST|ACK in response to initial SYN");
-                    return Err(Error::Dropped);
+                    return None;
                 }
             }
             // Any other RST need only have a valid sequence number.
@@ -1331,13 +1331,13 @@ impl<'a> Socket<'a> {
             // Every packet after the initial SYN must be an acknowledgement.
             (_, _, None) => {
                 net_debug!("expecting an ACK");
-                return Err(Error::Dropped);
+                return None;
             }
             // SYN|ACK in the SYN-SENT state must have the exact ACK number.
             (State::SynSent, TcpControl::Syn, Some(ack_number)) => {
                 if ack_number != self.local_seq_no + 1 {
                     net_debug!("unacceptable SYN|ACK in response to initial SYN");
-                    return Ok(Some(Self::rst_reply(ip_repr, repr)));
+                    return Some(Self::rst_reply(ip_repr, repr));
                 }
             }
             // ACKs in the SYN-SENT state are invalid.
@@ -1350,24 +1350,24 @@ impl<'a> Socket<'a> {
                     net_debug!(
                         "expecting a SYN|ACK, received an ACK with the right ack_number, ignoring."
                     );
-                    return Err(Error::Dropped);
+                    return None;
                 }
 
                 net_debug!(
                     "expecting a SYN|ACK, received an ACK with the wrong ack_number, sending RST."
                 );
-                return Ok(Some(Self::rst_reply(ip_repr, repr)));
+                return Some(Self::rst_reply(ip_repr, repr));
             }
             // Anything else in the SYN-SENT state is invalid.
             (State::SynSent, _, _) => {
                 net_debug!("expecting a SYN|ACK");
-                return Err(Error::Dropped);
+                return None;
             }
             // ACK in the SYN-RECEIVED state must have the exact ACK number, or we RST it.
             (State::SynReceived, _, Some(ack_number)) => {
                 if ack_number != self.local_seq_no + 1 {
                     net_debug!("unacceptable ACK in response to SYN|ACK");
-                    return Ok(Some(Self::rst_reply(ip_repr, repr)));
+                    return Some(Self::rst_reply(ip_repr, repr));
                 }
             }
             // Every acknowledgement must be for transmitted but unacknowledged data.
@@ -1390,7 +1390,7 @@ impl<'a> Socket<'a> {
                         ack_min,
                         ack_max
                     );
-                    return Err(Error::Dropped);
+                    return None;
                 }
 
                 if ack_number > ack_max {
@@ -1400,7 +1400,7 @@ impl<'a> Socket<'a> {
                         ack_min,
                         ack_max
                     );
-                    return Ok(self.challenge_ack_reply(cx, ip_repr, repr));
+                    return self.challenge_ack_reply(cx, ip_repr, repr);
                 }
             }
         }
@@ -1452,7 +1452,7 @@ impl<'a> Socket<'a> {
                         self.timer.set_for_close(cx.now());
                     }
 
-                    return Ok(self.challenge_ack_reply(cx, ip_repr, repr));
+                    return self.challenge_ack_reply(cx, ip_repr, repr);
                 }
             }
         }
@@ -1497,14 +1497,14 @@ impl<'a> Socket<'a> {
         // Validate and update the state.
         match (self.state, control) {
             // RSTs are not accepted in the LISTEN state.
-            (State::Listen, TcpControl::Rst) => return Err(Error::Dropped),
+            (State::Listen, TcpControl::Rst) => return None,
 
             // RSTs in SYN-RECEIVED flip the socket back to the LISTEN state.
             (State::SynReceived, TcpControl::Rst) => {
                 tcp_trace!("received RST");
                 self.tuple = None;
                 self.set_state(State::Listen);
-                return Ok(None);
+                return None;
             }
 
             // RSTs in any other state close the socket.
@@ -1512,7 +1512,7 @@ impl<'a> Socket<'a> {
                 tcp_trace!("received RST");
                 self.set_state(State::Closed);
                 self.tuple = None;
-                return Ok(None);
+                return None;
             }
 
             // SYN packets in the LISTEN state change it to SYN-RECEIVED.
@@ -1521,7 +1521,7 @@ impl<'a> Socket<'a> {
                 if let Some(max_seg_size) = repr.max_seg_size {
                     if max_seg_size == 0 {
                         tcp_trace!("received SYNACK with zero MSS, ignoring");
-                        return Ok(None);
+                        return None;
                     }
                     self.remote_mss = max_seg_size as usize
                 }
@@ -1565,7 +1565,7 @@ impl<'a> Socket<'a> {
                 if let Some(max_seg_size) = repr.max_seg_size {
                     if max_seg_size == 0 {
                         tcp_trace!("received SYNACK with zero MSS, ignoring");
-                        return Ok(None);
+                        return None;
                     }
                     self.remote_mss = max_seg_size as usize;
                 }
@@ -1663,7 +1663,7 @@ impl<'a> Socket<'a> {
 
             _ => {
                 net_debug!("unexpected packet {}", repr);
-                return Err(Error::Dropped);
+                return None;
             }
         }
 
@@ -1753,7 +1753,7 @@ impl<'a> Socket<'a> {
 
         let payload_len = repr.payload.len();
         if payload_len == 0 {
-            return Ok(None);
+            return None;
         }
 
         let assembler_was_empty = self.assembler.is_empty();
@@ -1779,7 +1779,7 @@ impl<'a> Socket<'a> {
                     payload_len,
                     payload_offset
                 );
-                return Err(Error::Dropped);
+                return None;
             }
         }
 
@@ -1835,9 +1835,9 @@ impl<'a> Socket<'a> {
             // This is fine because smoltcp assumes that it can always transmit zero or one
             // packets for every packet it receives.
             tcp_trace!("ACKing incoming segment");
-            Ok(Some(self.ack_reply(ip_repr, repr)))
+            Some(self.ack_reply(ip_repr, repr))
         } else {
-            Ok(None)
+            None
         }
     }
 
@@ -2396,7 +2396,7 @@ mod test {
         socket: &mut TestSocket,
         timestamp: Instant,
         repr: &TcpRepr,
-    ) -> Result<Option<TcpRepr<'static>>, Error> {
+    ) -> Option<TcpRepr<'static>> {
         socket.cx.set_now(timestamp);
 
         let ip_repr = IpReprIpvX(IpvXRepr {
@@ -2411,12 +2411,11 @@ mod test {
         assert!(socket.socket.accepts(&mut socket.cx, &ip_repr, repr));
 
         match socket.socket.process(&mut socket.cx, &ip_repr, repr) {
-            Ok(Some((_ip_repr, repr))) => {
+            Some((_ip_repr, repr)) => {
                 net_trace!("recv: {}", repr);
-                Ok(Some(repr))
+                Some(repr)
             }
-            Ok(None) => Ok(None),
-            Err(err) => Err(err),
+            None => None,
         }
     }
 
@@ -2449,7 +2448,7 @@ mod test {
         ($socket:ident, $repr:expr, $result:expr) =>
             (send!($socket, time 0, $repr, $result));
         ($socket:ident, time $time:expr, $repr:expr) =>
-            (send!($socket, time $time, $repr, Ok(None)));
+            (send!($socket, time $time, $repr, None));
         ($socket:ident, time $time:expr, $repr:expr, $result:expr) =>
             (assert_eq!(send(&mut $socket, Instant::from_millis($time), &$repr), $result));
     }
@@ -2817,9 +2816,9 @@ mod test {
                 seq_number: REMOTE_SEQ,
                 ack_number: None,
                 ..SEND_TEMPL
-            },
-            Err(Error::Dropped)
+            }
         );
+        assert_eq!(s.state, State::Listen);
     }
 
     #[test]
@@ -2878,13 +2877,13 @@ mod test {
                 ack_number: Some(LOCAL_SEQ), // wrong
                 ..SEND_TEMPL
             },
-            Ok(Some(TcpRepr {
+            Some(TcpRepr {
                 control: TcpControl::Rst,
                 seq_number: LOCAL_SEQ,
                 ack_number: None,
                 window_len: 0,
                 ..RECV_TEMPL
-            }))
+            })
         );
         assert_eq!(s.state, State::SynReceived);
     }
@@ -2909,13 +2908,13 @@ mod test {
                 ack_number: Some(LOCAL_SEQ + 2), // wrong
                 ..SEND_TEMPL
             },
-            Ok(Some(TcpRepr {
+            Some(TcpRepr {
                 control: TcpControl::Rst,
                 seq_number: LOCAL_SEQ + 2,
                 ack_number: None,
                 window_len: 0,
                 ..RECV_TEMPL
-            }))
+            })
         );
         assert_eq!(s.state, State::SynReceived);
     }
@@ -3232,13 +3231,13 @@ mod test {
                 window_scale: Some(0),
                 ..SEND_TEMPL
             },
-            Ok(Some(TcpRepr {
+            Some(TcpRepr {
                 control: TcpControl::Rst,
                 seq_number: LOCAL_SEQ,
                 ack_number: None,
                 window_len: 0,
                 ..RECV_TEMPL
-            }))
+            })
         );
         assert_eq!(s.state, State::SynSent);
     }
@@ -3268,8 +3267,7 @@ mod test {
                 seq_number: REMOTE_SEQ,
                 ack_number: None,
                 ..SEND_TEMPL
-            },
-            Err(Error::Dropped)
+            }
         );
         assert_eq!(s.state, State::SynSent);
     }
@@ -3284,8 +3282,7 @@ mod test {
                 seq_number: REMOTE_SEQ,
                 ack_number: Some(TcpSeqNumber(1234)),
                 ..SEND_TEMPL
-            },
-            Err(Error::Dropped)
+            }
         );
         assert_eq!(s.state, State::SynSent);
     }
@@ -3312,8 +3309,7 @@ mod test {
                 seq_number: REMOTE_SEQ,
                 ack_number: Some(LOCAL_SEQ + 1), // Correct
                 ..SEND_TEMPL
-            },
-            Err(Error::Dropped)
+            }
         );
 
         // It should trigger no response and change no state
@@ -3344,13 +3340,13 @@ mod test {
                 ack_number: Some(LOCAL_SEQ), // WRONG
                 ..SEND_TEMPL
             },
-            Ok(Some(TcpRepr {
+            Some(TcpRepr {
                 control: TcpControl::Rst,
                 seq_number: LOCAL_SEQ, // matching the ack_number of the unexpected ack
                 ack_number: None,
                 window_len: 0,
                 ..RECV_TEMPL
-            }))
+            })
         );
 
         // It should trigger a RST, and change no state
@@ -3380,13 +3376,13 @@ mod test {
                 ack_number: Some(LOCAL_SEQ + 123456), // WRONG
                 ..SEND_TEMPL
             },
-            Ok(Some(TcpRepr {
+            Some(TcpRepr {
                 control: TcpControl::Rst,
                 seq_number: LOCAL_SEQ + 123456, // matching the ack_number of the unexpected ack
                 ack_number: None,
                 window_len: 0,
                 ..RECV_TEMPL
-            }))
+            })
         );
 
         // It should trigger a RST, and change no state
@@ -3614,7 +3610,7 @@ mod test {
                     payload: &segment,
                     ..SEND_TEMPL
                 },
-                Ok(Some(TcpRepr {
+                Some(TcpRepr {
                     seq_number: LOCAL_SEQ + 1,
                     ack_number: Some(REMOTE_SEQ + 1 + 5000),
                     window_len: 4000,
@@ -3627,7 +3623,7 @@ mod test {
                         None
                     ],
                     ..RECV_TEMPL
-                }))
+                })
             );
         }
     }
@@ -3846,8 +3842,7 @@ mod test {
                 seq_number: REMOTE_SEQ + 1,
                 ack_number: None,
                 ..SEND_TEMPL
-            },
-            Err(Error::Dropped)
+            }
         );
     }
 
@@ -3861,8 +3856,7 @@ mod test {
                 seq_number: REMOTE_SEQ + 1,
                 ack_number: Some(TcpSeqNumber(LOCAL_SEQ.0 - 1)),
                 ..SEND_TEMPL
-            },
-            Err(Error::Dropped)
+            }
         );
         assert_eq!(s.local_seq_no, LOCAL_SEQ + 1);
         // Data not yet transmitted.
@@ -3873,11 +3867,11 @@ mod test {
                 ack_number: Some(LOCAL_SEQ + 10),
                 ..SEND_TEMPL
             },
-            Ok(Some(TcpRepr {
+            Some(TcpRepr {
                 seq_number: LOCAL_SEQ + 1,
                 ack_number: Some(REMOTE_SEQ + 1),
                 ..RECV_TEMPL
-            }))
+            })
         );
         assert_eq!(s.local_seq_no, LOCAL_SEQ + 1);
     }
@@ -3893,11 +3887,11 @@ mod test {
                 ack_number: Some(LOCAL_SEQ + 1),
                 ..SEND_TEMPL
             },
-            Ok(Some(TcpRepr {
+            Some(TcpRepr {
                 seq_number: LOCAL_SEQ + 1,
                 ack_number: Some(REMOTE_SEQ + 1),
                 ..RECV_TEMPL
-            }))
+            })
         );
         assert_eq!(s.remote_seq_no, REMOTE_SEQ + 1);
 
@@ -3909,8 +3903,7 @@ mod test {
                 seq_number: REMOTE_SEQ + 1 + 256,
                 ack_number: Some(LOCAL_SEQ + 1),
                 ..SEND_TEMPL
-            },
-            Ok(None)
+            }
         );
 
         // If we wait a bit, we do get a new one.
@@ -3922,11 +3915,11 @@ mod test {
                 ack_number: Some(LOCAL_SEQ + 1),
                 ..SEND_TEMPL
             },
-            Ok(Some(TcpRepr {
+            Some(TcpRepr {
                 seq_number: LOCAL_SEQ + 1,
                 ack_number: Some(REMOTE_SEQ + 1),
                 ..RECV_TEMPL
-            }))
+            })
         );
         assert_eq!(s.remote_seq_no, REMOTE_SEQ + 1);
     }
@@ -3967,11 +3960,11 @@ mod test {
                 payload: &b"123456"[..],
                 ..SEND_TEMPL
             },
-            Ok(Some(TcpRepr {
+            Some(TcpRepr {
                 seq_number: LOCAL_SEQ + 1,
                 ack_number: Some(REMOTE_SEQ + 1),
                 ..RECV_TEMPL
-            }))
+            })
         );
         assert_eq!(s.state, State::Established);
         send!(
@@ -3982,12 +3975,12 @@ mod test {
                 payload: &b"abcdef"[..],
                 ..SEND_TEMPL
             },
-            Ok(Some(TcpRepr {
+            Some(TcpRepr {
                 seq_number: LOCAL_SEQ + 1,
                 ack_number: Some(REMOTE_SEQ + 1 + 6 + 6),
                 window_len: 52,
                 ..RECV_TEMPL
-            }))
+            })
         );
         assert_eq!(s.state, State::Established);
     }
@@ -4082,11 +4075,11 @@ mod test {
                 ack_number: None,
                 ..SEND_TEMPL
             },
-            Ok(Some(TcpRepr {
+            Some(TcpRepr {
                 seq_number: LOCAL_SEQ + 1,
                 ack_number: Some(REMOTE_SEQ + 1),
                 ..RECV_TEMPL
-            }))
+            })
         );
 
         assert_eq!(s.state, State::Established);
@@ -4114,12 +4107,12 @@ mod test {
                 ack_number: None,
                 ..SEND_TEMPL
             },
-            Ok(Some(TcpRepr {
+            Some(TcpRepr {
                 seq_number: LOCAL_SEQ + 1,
                 ack_number: Some(REMOTE_SEQ + 2), // this has changed
                 window_len: 63,
                 ..RECV_TEMPL
-            }))
+            })
         );
     }
 
@@ -4358,11 +4351,11 @@ mod test {
             seq_number: REMOTE_SEQ + 1,
             ack_number: Some(LOCAL_SEQ + 1 + 1),
             ..SEND_TEMPL
-        }, Ok(Some(TcpRepr {
+        }, Some(TcpRepr {
             seq_number: LOCAL_SEQ + 1 + 1,
             ack_number: Some(REMOTE_SEQ + 1 + 1),
             ..RECV_TEMPL
-        })));
+        }));
         assert_eq!(
             s.timer,
             Timer::Close {
@@ -4898,12 +4891,12 @@ mod test {
                 payload: &b"abcdef"[..],
                 ..SEND_TEMPL
             },
-            Ok(Some(TcpRepr {
+            Some(TcpRepr {
                 seq_number: LOCAL_SEQ + 1,
                 ack_number: Some(REMOTE_SEQ + 1 + 6),
                 window_len: 58,
                 ..RECV_TEMPL
-            }))
+            })
         );
     }
 
@@ -5740,12 +5733,12 @@ mod test {
                 payload: &b"123456"[..],
                 ..SEND_TEMPL
             },
-            Ok(Some(TcpRepr {
+            Some(TcpRepr {
                 seq_number: LOCAL_SEQ + 1,
                 ack_number: Some(REMOTE_SEQ + 1 + 6),
                 window_len: 0,
                 ..RECV_TEMPL
-            }))
+            })
         );
     }
 
@@ -5874,12 +5867,12 @@ mod test {
                 payload: &b"def"[..],
                 ..SEND_TEMPL
             },
-            Ok(Some(TcpRepr {
+            Some(TcpRepr {
                 seq_number: LOCAL_SEQ + 1,
                 ack_number: Some(REMOTE_SEQ + 1 + 3),
                 window_len: 6,
                 ..RECV_TEMPL
-            }))
+            })
         );
         send!(
             s,
@@ -5889,12 +5882,12 @@ mod test {
                 payload: &b"abc"[..],
                 ..SEND_TEMPL
             },
-            Ok(Some(TcpRepr {
+            Some(TcpRepr {
                 seq_number: LOCAL_SEQ + 1,
                 ack_number: Some(REMOTE_SEQ + 1 + 9),
                 window_len: 0,
                 ..RECV_TEMPL
-            }))
+            })
         );
         assert_eq!(s.remote_last_win, s.rx_buffer.window() as u16);
         s.recv(|buffer| (buffer.len(), ())).unwrap();
@@ -6099,11 +6092,11 @@ mod test {
                 ack_number: Some(LOCAL_SEQ + 1),
                 ..SEND_TEMPL
             },
-            Ok(Some(TcpRepr {
+            Some(TcpRepr {
                 seq_number: LOCAL_SEQ + 1,
                 ack_number: Some(REMOTE_SEQ + 1),
                 ..RECV_TEMPL
-            }))
+            })
         );
     }
 
@@ -6208,11 +6201,11 @@ mod test {
                 payload: &b"def"[..],
                 ..SEND_TEMPL
             },
-            Ok(Some(TcpRepr {
+            Some(TcpRepr {
                 seq_number: LOCAL_SEQ + 1,
                 ack_number: Some(REMOTE_SEQ + 1),
                 ..RECV_TEMPL
-            }))
+            })
         );
         s.recv(|buffer| {
             assert_eq!(buffer, b"");
@@ -6227,12 +6220,12 @@ mod test {
                 payload: &b"abcdef"[..],
                 ..SEND_TEMPL
             },
-            Ok(Some(TcpRepr {
+            Some(TcpRepr {
                 seq_number: LOCAL_SEQ + 1,
                 ack_number: Some(REMOTE_SEQ + 1 + 6),
                 window_len: 58,
                 ..RECV_TEMPL
-            }))
+            })
         );
         s.recv(|buffer| {
             assert_eq!(buffer, b"abcdef");
@@ -6396,12 +6389,12 @@ mod test {
                 payload: &b"ghi"[..],
                 ..SEND_TEMPL
             },
-            Ok(Some(TcpRepr {
+            Some(TcpRepr {
                 seq_number: LOCAL_SEQ + 1,
                 ack_number: Some(REMOTE_SEQ + 1 + 3),
                 window_len: 61,
                 ..RECV_TEMPL
-            }))
+            })
         );
         s.recv(|data| {
             assert_eq!(data, b"abc");
@@ -6476,12 +6469,12 @@ mod test {
                 payload: &b"ghi"[..],
                 ..SEND_TEMPL
             },
-            Ok(Some(TcpRepr {
+            Some(TcpRepr {
                 seq_number: LOCAL_SEQ + 1,
                 ack_number: Some(REMOTE_SEQ + 1 + 3),
                 window_len: 61,
                 ..RECV_TEMPL
-            }))
+            })
         );
         send!(
             s,

@@ -409,55 +409,46 @@ impl<'a> Socket<'a> {
         }
     }
 
-    pub(crate) fn process(
-        &mut self,
-        _cx: &mut Context,
-        ip_repr: &IpRepr,
-        icmp_repr: &IcmpRepr,
-    ) -> Result<(), Error> {
+    pub(crate) fn process(&mut self, _cx: &mut Context, ip_repr: &IpRepr, icmp_repr: &IcmpRepr) {
         match *icmp_repr {
             #[cfg(feature = "proto-ipv4")]
             IcmpRepr::Ipv4(ref icmp_repr) => {
-                let packet_buf = self
+                net_trace!("icmp: receiving {} octets", icmp_repr.buffer_len());
+
+                match self
                     .rx_buffer
                     .enqueue(icmp_repr.buffer_len(), ip_repr.src_addr())
-                    .map_err(|_| Error::Exhausted)?;
-                icmp_repr.emit(
-                    &mut Icmpv4Packet::new_unchecked(packet_buf),
-                    &ChecksumCapabilities::default(),
-                );
-
-                net_trace!(
-                    "icmp:{}: receiving {} octets",
-                    icmp_repr.buffer_len(),
-                    packet_buf.len()
-                );
+                {
+                    Ok(packet_buf) => {
+                        icmp_repr.emit(
+                            &mut Icmpv4Packet::new_unchecked(packet_buf),
+                            &ChecksumCapabilities::default(),
+                        );
+                    }
+                    Err(_) => net_trace!("icmp: buffer full, dropped incoming packet"),
+                }
             }
             #[cfg(feature = "proto-ipv6")]
             IcmpRepr::Ipv6(ref icmp_repr) => {
-                let packet_buf = self
+                net_trace!("icmp: receiving {} octets", icmp_repr.buffer_len());
+
+                match self
                     .rx_buffer
                     .enqueue(icmp_repr.buffer_len(), ip_repr.src_addr())
-                    .map_err(|_| Error::Exhausted)?;
-                icmp_repr.emit(
-                    &ip_repr.src_addr(),
-                    &ip_repr.dst_addr(),
-                    &mut Icmpv6Packet::new_unchecked(packet_buf),
-                    &ChecksumCapabilities::default(),
-                );
-
-                net_trace!(
-                    "icmp:{}: receiving {} octets",
-                    icmp_repr.buffer_len(),
-                    packet_buf.len()
-                );
+                {
+                    Ok(packet_buf) => icmp_repr.emit(
+                        &ip_repr.src_addr(),
+                        &ip_repr.dst_addr(),
+                        &mut Icmpv6Packet::new_unchecked(packet_buf),
+                        &ChecksumCapabilities::default(),
+                    ),
+                    Err(_) => net_trace!("icmp: buffer full, dropped incoming packet"),
+                }
             }
         }
 
         #[cfg(feature = "async")]
         self.rx_waker.wake();
-
-        Ok(())
     }
 
     pub(crate) fn dispatch<F>(&mut self, cx: &mut Context, emit: F) -> Result<(), Error>
@@ -709,17 +700,11 @@ mod test_ipv4 {
         let data = &packet.into_inner()[..];
 
         assert!(socket.accepts(&mut cx, &REMOTE_IPV4_REPR, &ECHOV4_REPR.into()));
-        assert_eq!(
-            socket.process(&mut cx, &REMOTE_IPV4_REPR, &ECHOV4_REPR.into()),
-            Ok(())
-        );
+        socket.process(&mut cx, &REMOTE_IPV4_REPR, &ECHOV4_REPR.into());
         assert!(socket.can_recv());
 
         assert!(socket.accepts(&mut cx, &REMOTE_IPV4_REPR, &ECHOV4_REPR.into()));
-        assert_eq!(
-            socket.process(&mut cx, &REMOTE_IPV4_REPR, &ECHOV4_REPR.into()),
-            Err(Error::Exhausted)
-        );
+        socket.process(&mut cx, &REMOTE_IPV4_REPR, &ECHOV4_REPR.into());
 
         assert_eq!(socket.recv(), Ok((data, REMOTE_IPV4.into())));
         assert!(!socket.can_recv());
@@ -791,7 +776,7 @@ mod test_ipv4 {
         // Ensure we can accept ICMP error response to the bound
         // UDP port
         assert!(socket.accepts(&mut cx, &ip_repr, &icmp_repr.into()));
-        assert_eq!(socket.process(&mut cx, &ip_repr, &icmp_repr.into()), Ok(()));
+        socket.process(&mut cx, &ip_repr, &icmp_repr.into());
         assert!(socket.can_recv());
 
         let mut bytes = [0x00; 46];
@@ -972,17 +957,11 @@ mod test_ipv6 {
         let data = &packet.into_inner()[..];
 
         assert!(socket.accepts(&mut cx, &REMOTE_IPV6_REPR, &ECHOV6_REPR.into()));
-        assert_eq!(
-            socket.process(&mut cx, &REMOTE_IPV6_REPR, &ECHOV6_REPR.into()),
-            Ok(())
-        );
+        socket.process(&mut cx, &REMOTE_IPV6_REPR, &ECHOV6_REPR.into());
         assert!(socket.can_recv());
 
         assert!(socket.accepts(&mut cx, &REMOTE_IPV6_REPR, &ECHOV6_REPR.into()));
-        assert_eq!(
-            socket.process(&mut cx, &REMOTE_IPV6_REPR, &ECHOV6_REPR.into()),
-            Err(Error::Exhausted)
-        );
+        socket.process(&mut cx, &REMOTE_IPV6_REPR, &ECHOV6_REPR.into());
 
         assert_eq!(socket.recv(), Ok((data, REMOTE_IPV6.into())));
         assert!(!socket.can_recv());
@@ -1059,7 +1038,7 @@ mod test_ipv6 {
         // Ensure we can accept ICMP error response to the bound
         // UDP port
         assert!(socket.accepts(&mut cx, &ip_repr, &icmp_repr.into()));
-        assert_eq!(socket.process(&mut cx, &ip_repr, &icmp_repr.into()), Ok(()));
+        socket.process(&mut cx, &ip_repr, &icmp_repr.into());
         assert!(socket.can_recv());
 
         let mut bytes = [0x00; 66];

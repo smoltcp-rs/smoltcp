@@ -196,7 +196,7 @@ impl Socket {
         ip_repr: &Ipv4Repr,
         repr: &UdpRepr,
         payload: &[u8],
-    ) -> Result<()> {
+    ) {
         let src_ip = ip_repr.src_addr;
 
         // This is enforced in interface.rs.
@@ -206,27 +206,26 @@ impl Socket {
             Ok(dhcp_packet) => dhcp_packet,
             Err(e) => {
                 net_debug!("DHCP invalid pkt from {}: {:?}", src_ip, e);
-                return Ok(());
+                return;
             }
         };
         let dhcp_repr = match DhcpRepr::parse(&dhcp_packet) {
             Ok(dhcp_repr) => dhcp_repr,
             Err(e) => {
                 net_debug!("DHCP error parsing pkt from {}: {:?}", src_ip, e);
-                return Ok(());
+                return;
             }
         };
-        let hardware_addr = if let Some(HardwareAddress::Ethernet(addr)) = cx.hardware_addr() {
-            addr
-        } else {
-            return Err(Error::Malformed);
+        let hardware_addr = match cx.hardware_addr() {
+            Some(HardwareAddress::Ethernet(addr)) => addr,
+            _ => return,
         };
 
         if dhcp_repr.client_hardware_address != hardware_addr {
-            return Ok(());
+            return;
         }
         if dhcp_repr.transaction_id != self.transaction_id {
-            return Ok(());
+            return;
         }
         let server_identifier = match dhcp_repr.server_identifier {
             Some(server_identifier) => server_identifier,
@@ -235,7 +234,7 @@ impl Socket {
                     "DHCP ignoring {:?} because missing server_identifier",
                     dhcp_repr.message_type
                 );
-                return Ok(());
+                return;
             }
         };
 
@@ -250,7 +249,7 @@ impl Socket {
             (ClientState::Discovering(_state), DhcpMessageType::Offer) => {
                 if !dhcp_repr.your_ip.is_unicast() {
                     net_debug!("DHCP ignoring OFFER because your_ip is not unicast");
-                    return Ok(());
+                    return;
                 }
 
                 self.state = ClientState::Requesting(RequestState {
@@ -305,8 +304,6 @@ impl Socket {
                 );
             }
         }
-
-        Ok(())
     }
 
     fn parse_ack(
@@ -582,7 +579,7 @@ mod test {
         s: &mut TestSocket,
         timestamp: Instant,
         (ip_repr, udp_repr, dhcp_repr): (Ipv4Repr, UdpRepr, DhcpRepr),
-    ) -> Result<()> {
+    ) {
         s.cx.set_now(timestamp);
 
         net_trace!("send: {:?}", ip_repr);
@@ -636,9 +633,7 @@ mod test {
         ($socket:ident, $repr:expr) =>
             (send!($socket, time 0, $repr));
         ($socket:ident, time $time:expr, $repr:expr) =>
-            (send!($socket, time $time, $repr, Ok(( ))));
-        ($socket:ident, time $time:expr, $repr:expr, $result:expr) =>
-            (assert_eq!(send(&mut $socket, Instant::from_millis($time), $repr), $result));
+            (send(&mut $socket, Instant::from_millis($time), $repr));
     }
 
     macro_rules! recv {

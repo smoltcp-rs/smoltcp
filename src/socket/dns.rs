@@ -276,7 +276,7 @@ impl<'a> Socket<'a> {
         ip_repr: &IpRepr,
         udp_repr: &UdpRepr,
         payload: &[u8],
-    ) -> Result<()> {
+    ) {
         debug_assert!(self.accepts(ip_repr, udp_repr));
 
         let size = payload.len();
@@ -288,20 +288,26 @@ impl<'a> Socket<'a> {
             udp_repr.dst_port
         );
 
-        let p = Packet::new_checked(payload)?;
+        let p = match Packet::new_checked(payload) {
+            Ok(x) => x,
+            Err(_) => {
+                net_trace!("dns packet malformed");
+                return;
+            }
+        };
         if p.opcode() != Opcode::Query {
             net_trace!("unwanted opcode {:?}", p.opcode());
-            return Err(Error::Malformed);
+            return;
         }
 
         if !p.flags().contains(Flags::RESPONSE) {
             net_trace!("packet doesn't have response bit set");
-            return Err(Error::Malformed);
+            return;
         }
 
         if p.question_count() != 1 {
             net_trace!("bad question count {:?}", p.question_count());
-            return Err(Error::Malformed);
+            return;
         }
 
         // Find pending query
@@ -318,27 +324,53 @@ impl<'a> Socket<'a> {
                 }
 
                 let payload = p.payload();
-                let (mut payload, question) = Question::parse(payload)?;
+                let (mut payload, question) = match Question::parse(payload) {
+                    Ok(x) => x,
+                    Err(_) => {
+                        net_trace!("question malformed");
+                        return;
+                    }
+                };
 
                 if question.type_ != pq.type_ {
                     net_trace!("question type mismatch");
-                    return Err(Error::Malformed);
+                    return;
                 }
 
-                if !eq_names(p.parse_name(question.name), p.parse_name(&pq.name))? {
-                    net_trace!("question name mismatch");
-                    return Err(Error::Malformed);
+                match eq_names(p.parse_name(question.name), p.parse_name(&pq.name)) {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        net_trace!("question name mismatch");
+                        return;
+                    }
+                    Err(_) => {
+                        net_trace!("dns question name malformed");
+                        return;
+                    }
                 }
 
                 let mut addresses = Vec::new();
 
                 for _ in 0..p.answer_record_count() {
-                    let (payload2, r) = Record::parse(payload)?;
+                    let (payload2, r) = match Record::parse(payload) {
+                        Ok(x) => x,
+                        Err(_) => {
+                            net_trace!("dns answer record malformed");
+                            return;
+                        }
+                    };
                     payload = payload2;
 
-                    if !eq_names(p.parse_name(r.name), p.parse_name(&pq.name))? {
-                        net_trace!("answer name mismatch: {:?}", r);
-                        continue;
+                    match eq_names(p.parse_name(r.name), p.parse_name(&pq.name)) {
+                        Ok(true) => {}
+                        Ok(false) => {
+                            net_trace!("answer name mismatch: {:?}", r);
+                            continue;
+                        }
+                        Err(_) => {
+                            net_trace!("dns answer record name malformed");
+                            return;
+                        }
                     }
 
                     match r.data {
@@ -366,7 +398,10 @@ impl<'a> Socket<'a> {
                             // records for the CNAME when we parse them later.
                             // I believe it's mandatory the CNAME results MUST come *after* in the
                             // packet, so it's enough to do one linear pass over it.
-                            copy_name(&mut pq.name, p.parse_name(name))?;
+                            if copy_name(&mut pq.name, p.parse_name(name)).is_err() {
+                                net_trace!("dns answer cname malformed");
+                                return;
+                            }
                         }
                         RecordData::Other(type_, data) => {
                             net_trace!("unknown: {:?} {:?}", type_, data)
@@ -381,13 +416,12 @@ impl<'a> Socket<'a> {
                 });
 
                 // If we get here, packet matched the current query, stop processing.
-                return Ok(());
+                return;
             }
         }
 
         // If we get here, packet matched with no query.
         net_trace!("no query matched");
-        Ok(())
     }
 
     pub(crate) fn dispatch<F>(&mut self, cx: &mut Context, emit: F) -> Result<()>

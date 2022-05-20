@@ -236,34 +236,33 @@ impl<'a> Socket<'a> {
         true
     }
 
-    pub(crate) fn process(
-        &mut self,
-        cx: &mut Context,
-        ip_repr: &IpRepr,
-        payload: &[u8],
-    ) -> Result<(), Error> {
+    pub(crate) fn process(&mut self, cx: &mut Context, ip_repr: &IpRepr, payload: &[u8]) {
         debug_assert!(self.accepts(ip_repr));
 
         let header_len = ip_repr.buffer_len();
         let total_len = header_len + payload.len();
-        let packet_buf = self
-            .rx_buffer
-            .enqueue(total_len, ())
-            .map_err(|_| Error::Exhausted)?;
-        ip_repr.emit(&mut packet_buf[..header_len], &cx.checksum_caps());
-        packet_buf[header_len..].copy_from_slice(payload);
 
         net_trace!(
             "raw:{}:{}: receiving {} octets",
             self.ip_version,
             self.ip_protocol,
-            packet_buf.len()
+            total_len
         );
+
+        match self.rx_buffer.enqueue(total_len, ()) {
+            Ok(buf) => {
+                ip_repr.emit(&mut buf[..header_len], &cx.checksum_caps());
+                buf[header_len..].copy_from_slice(payload);
+            }
+            Err(_) => net_trace!(
+                "raw:{}:{}: buffer full, dropped incoming packet",
+                self.ip_version,
+                self.ip_protocol
+            ),
+        }
 
         #[cfg(feature = "async")]
         self.rx_waker.wake();
-
-        Ok(())
     }
 
     pub(crate) fn dispatch<F>(&mut self, cx: &mut Context, emit: F) -> Result<(), Error>
@@ -488,7 +487,7 @@ mod test {
                     let mut cx = Context::mock();
 
                     assert!(socket.accepts(&$hdr));
-                    assert_eq!(socket.process(&mut cx, &$hdr, &$payload), Ok(()));
+                    socket.process(&mut cx, &$hdr, &$payload);
 
                     let mut slice = [0; 4];
                     assert_eq!(socket.recv_slice(&mut slice[..]), Ok(4));
@@ -504,10 +503,7 @@ mod test {
                     buffer[..$packet.len()].copy_from_slice(&$packet[..]);
 
                     assert!(socket.accepts(&$hdr));
-                    assert_eq!(
-                        socket.process(&mut cx, &$hdr, &buffer),
-                        Err(Error::Exhausted)
-                    );
+                    socket.process(&mut cx, &$hdr, &buffer);
                 }
             }
         };
@@ -583,24 +579,18 @@ mod test {
 
             assert_eq!(socket.recv(), Err(RecvError::Exhausted));
             assert!(socket.accepts(&ipv4_locals::HEADER_REPR));
-            assert_eq!(
-                socket.process(
-                    &mut cx,
-                    &ipv4_locals::HEADER_REPR,
-                    &ipv4_locals::PACKET_PAYLOAD
-                ),
-                Ok(())
+            socket.process(
+                &mut cx,
+                &ipv4_locals::HEADER_REPR,
+                &ipv4_locals::PACKET_PAYLOAD,
             );
             assert!(socket.can_recv());
 
             assert!(socket.accepts(&ipv4_locals::HEADER_REPR));
-            assert_eq!(
-                socket.process(
-                    &mut cx,
-                    &ipv4_locals::HEADER_REPR,
-                    &ipv4_locals::PACKET_PAYLOAD
-                ),
-                Err(Error::Exhausted)
+            socket.process(
+                &mut cx,
+                &ipv4_locals::HEADER_REPR,
+                &ipv4_locals::PACKET_PAYLOAD,
             );
             assert_eq!(socket.recv(), Ok(&cksumd_packet[..]));
             assert!(!socket.can_recv());
@@ -613,24 +603,18 @@ mod test {
 
             assert_eq!(socket.recv(), Err(RecvError::Exhausted));
             assert!(socket.accepts(&ipv6_locals::HEADER_REPR));
-            assert_eq!(
-                socket.process(
-                    &mut cx,
-                    &ipv6_locals::HEADER_REPR,
-                    &ipv6_locals::PACKET_PAYLOAD
-                ),
-                Ok(())
+            socket.process(
+                &mut cx,
+                &ipv6_locals::HEADER_REPR,
+                &ipv6_locals::PACKET_PAYLOAD,
             );
             assert!(socket.can_recv());
 
             assert!(socket.accepts(&ipv6_locals::HEADER_REPR));
-            assert_eq!(
-                socket.process(
-                    &mut cx,
-                    &ipv6_locals::HEADER_REPR,
-                    &ipv6_locals::PACKET_PAYLOAD
-                ),
-                Err(Error::Exhausted)
+            socket.process(
+                &mut cx,
+                &ipv6_locals::HEADER_REPR,
+                &ipv6_locals::PACKET_PAYLOAD,
             );
             assert_eq!(socket.recv(), Ok(&ipv6_locals::PACKET_BYTES[..]));
             assert!(!socket.can_recv());

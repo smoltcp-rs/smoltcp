@@ -1398,18 +1398,14 @@ impl<'a> InterfaceInner<'a> {
                             .iter_mut()
                             .filter_map(|i| udp::Socket::downcast(&mut i.socket))
                         {
-                            if !udp_socket.accepts(self, &IpRepr::Ipv6(ipv6_repr), &udp_repr) {
-                                continue;
-                            }
-
-                            match udp_socket.process(
-                                self,
-                                &IpRepr::Ipv6(ipv6_repr),
-                                &udp_repr,
-                                udp_packet.payload(),
-                            ) {
-                                Ok(()) => return Ok(None),
-                                Err(e) => return Err(e),
+                            if udp_socket.accepts(self, &IpRepr::Ipv6(ipv6_repr), &udp_repr) {
+                                udp_socket.process(
+                                    self,
+                                    &IpRepr::Ipv6(ipv6_repr),
+                                    &udp_repr,
+                                    udp_packet.payload(),
+                                );
+                                return Ok(None);
                             }
                         }
 
@@ -1523,17 +1519,9 @@ impl<'a> InterfaceInner<'a> {
             .iter_mut()
             .filter_map(|i| raw::Socket::downcast(&mut i.socket))
         {
-            if !raw_socket.accepts(ip_repr) {
-                continue;
-            }
-
-            match raw_socket.process(self, ip_repr, ip_payload) {
-                // The packet is valid and handled by socket.
-                Ok(()) => handled_by_raw_socket = true,
-                // The socket buffer is full or the packet was truncated
-                Err(Error::Exhausted) | Err(Error::Truncated) => (),
-                // Raw sockets don't validate the packets in any way.
-                Err(_) => unreachable!(),
+            if raw_socket.accepts(ip_repr) {
+                raw_socket.process(self, ip_repr, ip_payload);
+                handled_by_raw_socket = true;
             }
         }
         handled_by_raw_socket
@@ -1655,12 +1643,8 @@ impl<'a> InterfaceInner<'a> {
                             UdpRepr::parse(&udp_packet, &src_addr, &dst_addr, &self.caps.checksum)?;
                         let udp_payload = udp_packet.payload();
 
-                        match dhcp_socket.process(self, &ipv4_repr, &udp_repr, udp_payload) {
-                            // The packet is valid and handled by socket.
-                            Ok(()) => return Ok(None),
-                            // The packet is malformed, or the socket buffer is full.
-                            Err(e) => return Err(e),
-                        }
+                        dhcp_socket.process(self, &ipv4_repr, &udp_repr, udp_payload);
+                        return Ok(None);
                     }
                 }
             }
@@ -1828,17 +1812,9 @@ impl<'a> InterfaceInner<'a> {
             .iter_mut()
             .filter_map(|i| icmp::Socket::downcast(&mut i.socket))
         {
-            if !icmp_socket.accepts(self, &ip_repr, &icmp_repr.into()) {
-                continue;
-            }
-
-            match icmp_socket.process(self, &ip_repr, &icmp_repr.into()) {
-                // The packet is valid and handled by socket.
-                Ok(()) => handled_by_icmp_socket = true,
-                // The socket buffer is full.
-                Err(Error::Exhausted) => (),
-                // ICMP sockets don't validate the packets in any way.
-                Err(_) => unreachable!(),
+            if icmp_socket.accepts(self, &ip_repr, &icmp_repr.into()) {
+                icmp_socket.process(self, &ip_repr, &icmp_repr.into());
+                handled_by_icmp_socket = true;
             }
         }
 
@@ -2015,17 +1991,9 @@ impl<'a> InterfaceInner<'a> {
             .iter_mut()
             .filter_map(|i| icmp::Socket::downcast(&mut i.socket))
         {
-            if !icmp_socket.accepts(self, &ip_repr, &icmp_repr.into()) {
-                continue;
-            }
-
-            match icmp_socket.process(self, &ip_repr, &icmp_repr.into()) {
-                // The packet is valid and handled by socket.
-                Ok(()) => handled_by_icmp_socket = true,
-                // The socket buffer is full.
-                Err(Error::Exhausted) => (),
-                // ICMP sockets don't validate the packets in any way.
-                Err(_) => unreachable!(),
+            if icmp_socket.accepts(self, &ip_repr, &icmp_repr.into()) {
+                icmp_socket.process(self, &ip_repr, &icmp_repr.into());
+                handled_by_icmp_socket = true;
             }
         }
 
@@ -2143,15 +2111,9 @@ impl<'a> InterfaceInner<'a> {
             .iter_mut()
             .filter_map(|i| udp::Socket::downcast(&mut i.socket))
         {
-            if !udp_socket.accepts(self, &ip_repr, &udp_repr) {
-                continue;
-            }
-
-            match udp_socket.process(self, &ip_repr, &udp_repr, udp_payload) {
-                // The packet is valid and handled by socket.
-                Ok(()) => return Ok(None),
-                // The packet is malformed, or the socket buffer is full.
-                Err(e) => return Err(e),
+            if udp_socket.accepts(self, &ip_repr, &udp_repr) {
+                udp_socket.process(self, &ip_repr, &udp_repr, udp_payload);
+                return Ok(None);
             }
         }
 
@@ -2160,15 +2122,9 @@ impl<'a> InterfaceInner<'a> {
             .iter_mut()
             .filter_map(|i| dns::Socket::downcast(&mut i.socket))
         {
-            if !dns_socket.accepts(&ip_repr, &udp_repr) {
-                continue;
-            }
-
-            match dns_socket.process(self, &ip_repr, &udp_repr, udp_payload) {
-                // The packet is valid and handled by socket.
-                Ok(()) => return Ok(None),
-                // The packet is malformed, or the socket buffer is full.
-                Err(e) => return Err(e),
+            if dns_socket.accepts(&ip_repr, &udp_repr) {
+                dns_socket.process(self, &ip_repr, &udp_repr, udp_payload);
+                return Ok(None);
             }
         }
 
@@ -2218,16 +2174,10 @@ impl<'a> InterfaceInner<'a> {
             .iter_mut()
             .filter_map(|i| tcp::Socket::downcast(&mut i.socket))
         {
-            if !tcp_socket.accepts(self, &ip_repr, &tcp_repr) {
-                continue;
-            }
-
-            match tcp_socket.process(self, &ip_repr, &tcp_repr) {
-                // The packet is valid and handled by socket.
-                Ok(reply) => return Ok(reply.map(IpPacket::Tcp)),
-                // The packet is malformed, or doesn't match the socket state,
-                // or the socket buffer is full.
-                Err(e) => return Err(e),
+            if tcp_socket.accepts(self, &ip_repr, &tcp_repr) {
+                return Ok(tcp_socket
+                    .process(self, &ip_repr, &tcp_repr)
+                    .map(IpPacket::Tcp));
             }
         }
 
@@ -3917,78 +3867,6 @@ mod test {
             iface.inner.process_ipv4(&mut iface.sockets, &frame),
             Ok(None)
         );
-    }
-
-    #[test]
-    #[cfg(all(feature = "proto-ipv4", feature = "socket-raw"))]
-    fn test_raw_socket_truncated_packet() {
-        use crate::wire::{IpVersion, Ipv4Packet, UdpPacket, UdpRepr};
-
-        let mut iface = create_loopback();
-
-        let packets = 1;
-        let rx_buffer =
-            raw::PacketBuffer::new(vec![raw::PacketMetadata::EMPTY; packets], vec![0; 48 * 1]);
-        let tx_buffer = raw::PacketBuffer::new(
-            vec![raw::PacketMetadata::EMPTY; packets],
-            vec![0; 48 * packets],
-        );
-        let raw_socket = raw::Socket::new(IpVersion::Ipv4, IpProtocol::Udp, rx_buffer, tx_buffer);
-        iface.add_socket(raw_socket);
-
-        let src_addr = Ipv4Address([127, 0, 0, 2]);
-        let dst_addr = Ipv4Address([127, 0, 0, 1]);
-
-        const PAYLOAD_LEN: usize = 49; // 49 > 48, hence packet will be truncated
-
-        let udp_repr = UdpRepr {
-            src_port: 67,
-            dst_port: 68,
-        };
-        let mut bytes = vec![0xff; udp_repr.header_len() + PAYLOAD_LEN];
-        let mut packet = UdpPacket::new_unchecked(&mut bytes[..]);
-        udp_repr.emit(
-            &mut packet,
-            &src_addr.into(),
-            &dst_addr.into(),
-            PAYLOAD_LEN,
-            |buf| fill_slice(buf, 0x2a),
-            &ChecksumCapabilities::default(),
-        );
-
-        let ipv4_repr = Ipv4Repr {
-            src_addr: src_addr,
-            dst_addr: dst_addr,
-            next_header: IpProtocol::Udp,
-            hop_limit: 64,
-            payload_len: udp_repr.header_len() + PAYLOAD_LEN,
-        };
-
-        // Emit to frame
-        let mut bytes = vec![0u8; ipv4_repr.buffer_len() + udp_repr.header_len() + PAYLOAD_LEN];
-        let frame = {
-            ipv4_repr.emit(
-                &mut Ipv4Packet::new_unchecked(&mut bytes),
-                &ChecksumCapabilities::default(),
-            );
-            udp_repr.emit(
-                &mut UdpPacket::new_unchecked(&mut bytes[ipv4_repr.buffer_len()..]),
-                &src_addr.into(),
-                &dst_addr.into(),
-                PAYLOAD_LEN,
-                |buf| fill_slice(buf, 0x2a),
-                &ChecksumCapabilities::default(),
-            );
-            Ipv4Packet::new_unchecked(&bytes)
-        };
-
-        let frame = iface.inner.process_ipv4(&mut iface.sockets, &frame);
-
-        // because the packet could not be handled we should send an Icmp message
-        assert!(match frame {
-            Ok(Some(IpPacket::Icmpv4(_))) => true,
-            _ => false,
-        });
     }
 
     #[test]
