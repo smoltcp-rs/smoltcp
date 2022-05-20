@@ -178,7 +178,7 @@ impl<'a> DnsSocket<'a> {
         let mut raw_name: Vec<u8, MAX_NAME_LEN> = Vec::new();
 
         for s in name.split(|&c| c == b'.') {
-            if s.len() > 255 {
+            if s.len() > 63 {
                 net_trace!("invalid name: too long label");
                 return Err(Error::Illegal);
             }
