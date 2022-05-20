@@ -6,25 +6,24 @@ use crate::iface::Context;
 use crate::socket::PollAt;
 #[cfg(feature = "async")]
 use crate::socket::WakerRegistration;
-use crate::storage::{PacketBuffer, PacketMetadata};
 use crate::wire::{IpEndpoint, IpListenEndpoint, IpProtocol, IpRepr, UdpRepr};
 use crate::{Error, Result};
 
 /// A UDP packet metadata.
-pub type UdpPacketMetadata = PacketMetadata<IpEndpoint>;
+pub type PacketMetadata = crate::storage::PacketMetadata<IpEndpoint>;
 
 /// A UDP packet ring buffer.
-pub type UdpSocketBuffer<'a> = PacketBuffer<'a, IpEndpoint>;
+pub type PacketBuffer<'a> = crate::storage::PacketBuffer<'a, IpEndpoint>;
 
 /// A User Datagram Protocol socket.
 ///
 /// A UDP socket is bound to a specific endpoint, and owns transmit and receive
 /// packet buffers.
 #[derive(Debug)]
-pub struct UdpSocket<'a> {
+pub struct Socket<'a> {
     endpoint: IpListenEndpoint,
-    rx_buffer: UdpSocketBuffer<'a>,
-    tx_buffer: UdpSocketBuffer<'a>,
+    rx_buffer: PacketBuffer<'a>,
+    tx_buffer: PacketBuffer<'a>,
     /// The time-to-live (IPv4) or hop limit (IPv6) value used in outgoing packets.
     hop_limit: Option<u8>,
     #[cfg(feature = "async")]
@@ -33,10 +32,10 @@ pub struct UdpSocket<'a> {
     tx_waker: WakerRegistration,
 }
 
-impl<'a> UdpSocket<'a> {
+impl<'a> Socket<'a> {
     /// Create an UDP socket with the given buffers.
-    pub fn new(rx_buffer: UdpSocketBuffer<'a>, tx_buffer: UdpSocketBuffer<'a>) -> UdpSocket<'a> {
-        UdpSocket {
+    pub fn new(rx_buffer: PacketBuffer<'a>, tx_buffer: PacketBuffer<'a>) -> Socket<'a> {
+        Socket {
             endpoint: IpListenEndpoint::default(),
             rx_buffer,
             tx_buffer,
@@ -401,18 +400,15 @@ mod test {
     use super::*;
     use crate::wire::{IpRepr, UdpRepr};
 
-    fn buffer(packets: usize) -> UdpSocketBuffer<'static> {
-        UdpSocketBuffer::new(
-            vec![UdpPacketMetadata::EMPTY; packets],
-            vec![0; 16 * packets],
-        )
+    fn buffer(packets: usize) -> PacketBuffer<'static> {
+        PacketBuffer::new(vec![PacketMetadata::EMPTY; packets], vec![0; 16 * packets])
     }
 
     fn socket(
-        rx_buffer: UdpSocketBuffer<'static>,
-        tx_buffer: UdpSocketBuffer<'static>,
-    ) -> UdpSocket<'static> {
-        UdpSocket::new(rx_buffer, tx_buffer)
+        rx_buffer: PacketBuffer<'static>,
+        tx_buffer: PacketBuffer<'static>,
+    ) -> Socket<'static> {
+        Socket::new(rx_buffer, tx_buffer)
     }
 
     const LOCAL_PORT: u16 = 53;
@@ -735,7 +731,7 @@ mod test {
 
     #[test]
     fn test_process_empty_payload() {
-        let recv_buffer = UdpSocketBuffer::new(vec![UdpPacketMetadata::EMPTY; 1], vec![]);
+        let recv_buffer = PacketBuffer::new(vec![PacketMetadata::EMPTY; 1], vec![]);
         let mut socket = socket(recv_buffer, buffer(0));
         let mut cx = Context::mock();
 
@@ -751,7 +747,7 @@ mod test {
 
     #[test]
     fn test_closing() {
-        let recv_buffer = UdpSocketBuffer::new(vec![UdpPacketMetadata::EMPTY; 1], vec![]);
+        let recv_buffer = PacketBuffer::new(vec![PacketMetadata::EMPTY; 1], vec![]);
         let mut socket = socket(recv_buffer, buffer(0));
         assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
 

@@ -6,7 +6,6 @@ use crate::phy::ChecksumCapabilities;
 #[cfg(feature = "async")]
 use crate::socket::WakerRegistration;
 use crate::socket::{Context, PollAt};
-use crate::storage::{PacketBuffer, PacketMetadata};
 use crate::{Error, Result};
 
 use crate::wire::IcmpRepr;
@@ -46,10 +45,10 @@ impl Default for Endpoint {
 }
 
 /// An ICMP packet metadata.
-pub type IcmpPacketMetadata = PacketMetadata<IpAddress>;
+pub type PacketMetadata = crate::storage::PacketMetadata<IpAddress>;
 
 /// An ICMP packet ring buffer.
-pub type IcmpSocketBuffer<'a> = PacketBuffer<'a, IpAddress>;
+pub type PacketBuffer<'a> = crate::storage::PacketBuffer<'a, IpAddress>;
 
 /// A ICMP socket
 ///
@@ -61,9 +60,9 @@ pub type IcmpSocketBuffer<'a> = PacketBuffer<'a, IpAddress>;
 /// [IcmpEndpoint]: enum.IcmpEndpoint.html
 /// [bind]: #method.bind
 #[derive(Debug)]
-pub struct IcmpSocket<'a> {
-    rx_buffer: IcmpSocketBuffer<'a>,
-    tx_buffer: IcmpSocketBuffer<'a>,
+pub struct Socket<'a> {
+    rx_buffer: PacketBuffer<'a>,
+    tx_buffer: PacketBuffer<'a>,
     /// The endpoint this socket is communicating with
     endpoint: Endpoint,
     /// The time-to-live (IPv4) or hop limit (IPv6) value used in outgoing packets.
@@ -74,10 +73,10 @@ pub struct IcmpSocket<'a> {
     tx_waker: WakerRegistration,
 }
 
-impl<'a> IcmpSocket<'a> {
+impl<'a> Socket<'a> {
     /// Create an ICMP socket with the given buffers.
-    pub fn new(rx_buffer: IcmpSocketBuffer<'a>, tx_buffer: IcmpSocketBuffer<'a>) -> IcmpSocket<'a> {
-        IcmpSocket {
+    pub fn new(rx_buffer: PacketBuffer<'a>, tx_buffer: PacketBuffer<'a>) -> Socket<'a> {
+        Socket {
             rx_buffer: rx_buffer,
             tx_buffer: tx_buffer,
             endpoint: Default::default(),
@@ -167,18 +166,17 @@ impl<'a> IcmpSocket<'a> {
     /// diagnose connection problems.
     ///
     /// ```
-    /// # use smoltcp::socket::{Socket, IcmpSocket, IcmpSocketBuffer, IcmpPacketMetadata};
-    /// # let rx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketMetadata::EMPTY], vec![0; 20]);
-    /// # let tx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketMetadata::EMPTY], vec![0; 20]);
     /// use smoltcp::wire::IpListenEndpoint;
-    /// use smoltcp::socket::IcmpEndpoint;
+    /// use smoltcp::socket::icmp;
+    /// # let rx_buffer = icmp::PacketBuffer::new(vec![icmp::PacketMetadata::EMPTY], vec![0; 20]);
+    /// # let tx_buffer = icmp::PacketBuffer::new(vec![icmp::PacketMetadata::EMPTY], vec![0; 20]);
     ///
     /// let mut icmp_socket = // ...
-    /// # IcmpSocket::new(rx_buffer, tx_buffer);
+    /// # icmp::Socket::new(rx_buffer, tx_buffer);
     ///
     /// // Bind to ICMP error responses for UDP packets sent from port 53.
     /// let endpoint = IpListenEndpoint::from(53);
-    /// icmp_socket.bind(IcmpEndpoint::Udp(endpoint)).unwrap();
+    /// icmp_socket.bind(icmp::Endpoint::Udp(endpoint)).unwrap();
     /// ```
     ///
     /// ## Bind to a specific ICMP identifier:
@@ -189,16 +187,16 @@ impl<'a> IcmpSocket<'a> {
     /// messages.
     ///
     /// ```
-    /// # use smoltcp::socket::{Socket, IcmpSocket, IcmpSocketBuffer, IcmpPacketMetadata};
-    /// # let rx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketMetadata::EMPTY], vec![0; 20]);
-    /// # let tx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketMetadata::EMPTY], vec![0; 20]);
-    /// use smoltcp::socket::IcmpEndpoint;
+    /// use smoltcp::wire::IpListenEndpoint;
+    /// use smoltcp::socket::icmp;
+    /// # let rx_buffer = icmp::PacketBuffer::new(vec![icmp::PacketMetadata::EMPTY], vec![0; 20]);
+    /// # let tx_buffer = icmp::PacketBuffer::new(vec![icmp::PacketMetadata::EMPTY], vec![0; 20]);
     ///
     /// let mut icmp_socket = // ...
-    /// # IcmpSocket::new(rx_buffer, tx_buffer);
+    /// # icmp::Socket::new(rx_buffer, tx_buffer);
     ///
     /// // Bind to ICMP messages with the ICMP identifier 0x1234
-    /// icmp_socket.bind(IcmpEndpoint::Ident(0x1234)).unwrap();
+    /// icmp_socket.bind(icmp::Endpoint::Ident(0x1234)).unwrap();
     /// ```
     ///
     /// [is_specified]: enum.IcmpEndpoint.html#method.is_specified
@@ -509,18 +507,15 @@ mod tests_common {
     pub use crate::phy::DeviceCapabilities;
     pub use crate::wire::IpAddress;
 
-    pub fn buffer(packets: usize) -> IcmpSocketBuffer<'static> {
-        IcmpSocketBuffer::new(
-            vec![IcmpPacketMetadata::EMPTY; packets],
-            vec![0; 66 * packets],
-        )
+    pub fn buffer(packets: usize) -> PacketBuffer<'static> {
+        PacketBuffer::new(vec![PacketMetadata::EMPTY; packets], vec![0; 66 * packets])
     }
 
     pub fn socket(
-        rx_buffer: IcmpSocketBuffer<'static>,
-        tx_buffer: IcmpSocketBuffer<'static>,
-    ) -> IcmpSocket<'static> {
-        IcmpSocket::new(rx_buffer, tx_buffer)
+        rx_buffer: PacketBuffer<'static>,
+        tx_buffer: PacketBuffer<'static>,
+    ) -> Socket<'static> {
+        Socket::new(rx_buffer, tx_buffer)
     }
 
     pub const LOCAL_PORT: u16 = 53;

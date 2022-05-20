@@ -10,7 +10,7 @@ mod utils;
 use smoltcp::iface::{InterfaceBuilder, NeighborCache, Routes};
 use smoltcp::phy::Device;
 use smoltcp::phy::{wait as phy_wait, Medium};
-use smoltcp::socket::DnsSocket;
+use smoltcp::socket::dns;
 use smoltcp::time::Instant;
 use smoltcp::wire::{
     EthernetAddress, HardwareAddress, IpAddress, IpCidr, Ipv4Address, Ipv6Address,
@@ -39,7 +39,7 @@ fn main() {
         Ipv4Address::new(8, 8, 4, 4).into(),
         Ipv4Address::new(8, 8, 8, 8).into(),
     ];
-    let dns_socket = DnsSocket::new(servers, vec![]);
+    let dns_socket = dns::Socket::new(servers, vec![]);
 
     let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x02]);
     let src_ipv6 = IpAddress::v6(0xfdaa, 0, 0, 0, 0, 0, 0, 1);
@@ -68,7 +68,7 @@ fn main() {
 
     let dns_handle = iface.add_socket(dns_socket);
 
-    let (socket, cx) = iface.get_socket_and_context::<DnsSocket>(dns_handle);
+    let (socket, cx) = iface.get_socket_and_context::<dns::Socket>(dns_handle);
     let query = socket.start_query(cx, name).unwrap();
 
     loop {
@@ -83,7 +83,7 @@ fn main() {
         }
 
         match iface
-            .get_socket::<DnsSocket>(dns_handle)
+            .get_socket::<dns::Socket>(dns_handle)
             .get_query_result(query)
         {
             Ok(addrs) => {

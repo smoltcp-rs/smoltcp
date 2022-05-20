@@ -110,7 +110,7 @@ pub enum Event {
 }
 
 #[derive(Debug)]
-pub struct Dhcpv4Socket {
+pub struct Socket {
     /// State of the DHCP client.
     state: ClientState,
     /// Set to true on config/state change, cleared back to false by the `config` function.
@@ -131,11 +131,11 @@ pub struct Dhcpv4Socket {
 /// The socket acquires an IP address configuration through DHCP autonomously.
 /// You must query the configuration with `.poll()` after every call to `Interface::poll()`,
 /// and apply the configuration to the `Interface`.
-impl Dhcpv4Socket {
+impl Socket {
     /// Create a DHCPv4 socket
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
-        Dhcpv4Socket {
+        Socket {
             state: ClientState::Discovering(DiscoverState {
                 retry_at: Instant::from_millis(0),
             }),
@@ -561,12 +561,12 @@ mod test {
     // Helper functions
 
     struct TestSocket {
-        socket: Dhcpv4Socket,
+        socket: Socket,
         cx: Context<'static>,
     }
 
     impl Deref for TestSocket {
-        type Target = Dhcpv4Socket;
+        type Target = Socket;
         fn deref(&self) -> &Self::Target {
             &self.socket
         }
@@ -797,7 +797,7 @@ mod test {
     // Tests
 
     fn socket() -> TestSocket {
-        let mut s = Dhcpv4Socket::new();
+        let mut s = Socket::new();
         assert_eq!(s.poll(), Some(Event::Deconfigured));
         TestSocket {
             socket: s,

@@ -4,7 +4,7 @@ use core::task::Waker;
 use heapless::Vec;
 use managed::ManagedSlice;
 
-use crate::socket::{Context, PollAt, Socket};
+use crate::socket::{Context, PollAt};
 use crate::time::{Duration, Instant};
 use crate::wire::dns::{Flags, Opcode, Packet, Question, Rcode, Record, RecordData, Repr, Type};
 use crate::wire::{self, IpAddress, IpProtocol, IpRepr, UdpRepr};
@@ -78,7 +78,7 @@ pub struct QueryHandle(usize);
 /// A UDP socket is bound to a specific endpoint, and owns transmit and receive
 /// packet buffers.
 #[derive(Debug)]
-pub struct DnsSocket<'a> {
+pub struct Socket<'a> {
     servers: Vec<IpAddress, MAX_SERVER_COUNT>,
     queries: ManagedSlice<'a, Option<DnsQuery>>,
 
@@ -86,17 +86,17 @@ pub struct DnsSocket<'a> {
     hop_limit: Option<u8>,
 }
 
-impl<'a> DnsSocket<'a> {
+impl<'a> Socket<'a> {
     /// Create a DNS socket.
     ///
     /// # Panics
     ///
     /// Panics if `servers.len() > MAX_SERVER_COUNT`
-    pub fn new<Q>(servers: &[IpAddress], queries: Q) -> DnsSocket<'a>
+    pub fn new<Q>(servers: &[IpAddress], queries: Q) -> Socket<'a>
     where
         Q: Into<ManagedSlice<'a, Option<DnsQuery>>>,
     {
-        DnsSocket {
+        Socket {
             servers: Vec::from_slice(servers).unwrap(),
             queries: queries.into(),
             hop_limit: None,
@@ -499,12 +499,6 @@ impl<'a> DnsSocket<'a> {
             })
             .min()
             .unwrap_or(PollAt::Ingress)
-    }
-}
-
-impl<'a> From<DnsSocket<'a>> for Socket<'a> {
-    fn from(val: DnsSocket<'a>) -> Self {
-        Socket::Dns(val)
     }
 }
 

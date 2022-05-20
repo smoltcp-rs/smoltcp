@@ -11,7 +11,7 @@ use log::{debug, error, info};
 
 use smoltcp::iface::{InterfaceBuilder, NeighborCache};
 use smoltcp::phy::{Loopback, Medium};
-use smoltcp::socket::{TcpSocket, TcpSocketBuffer};
+use smoltcp::socket::tcp;
 use smoltcp::time::{Duration, Instant};
 use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr};
 
@@ -100,17 +100,17 @@ fn main() {
         // when stack overflows.
         static mut TCP_SERVER_RX_DATA: [u8; 1024] = [0; 1024];
         static mut TCP_SERVER_TX_DATA: [u8; 1024] = [0; 1024];
-        let tcp_rx_buffer = TcpSocketBuffer::new(unsafe { &mut TCP_SERVER_RX_DATA[..] });
-        let tcp_tx_buffer = TcpSocketBuffer::new(unsafe { &mut TCP_SERVER_TX_DATA[..] });
-        TcpSocket::new(tcp_rx_buffer, tcp_tx_buffer)
+        let tcp_rx_buffer = tcp::SocketBuffer::new(unsafe { &mut TCP_SERVER_RX_DATA[..] });
+        let tcp_tx_buffer = tcp::SocketBuffer::new(unsafe { &mut TCP_SERVER_TX_DATA[..] });
+        tcp::Socket::new(tcp_rx_buffer, tcp_tx_buffer)
     };
 
     let client_socket = {
         static mut TCP_CLIENT_RX_DATA: [u8; 1024] = [0; 1024];
         static mut TCP_CLIENT_TX_DATA: [u8; 1024] = [0; 1024];
-        let tcp_rx_buffer = TcpSocketBuffer::new(unsafe { &mut TCP_CLIENT_RX_DATA[..] });
-        let tcp_tx_buffer = TcpSocketBuffer::new(unsafe { &mut TCP_CLIENT_TX_DATA[..] });
-        TcpSocket::new(tcp_rx_buffer, tcp_tx_buffer)
+        let tcp_rx_buffer = tcp::SocketBuffer::new(unsafe { &mut TCP_CLIENT_RX_DATA[..] });
+        let tcp_tx_buffer = tcp::SocketBuffer::new(unsafe { &mut TCP_CLIENT_TX_DATA[..] });
+        tcp::Socket::new(tcp_rx_buffer, tcp_tx_buffer)
     };
 
     let server_handle = iface.add_socket(server_socket);
@@ -127,7 +127,7 @@ fn main() {
             }
         }
 
-        let mut socket = iface.get_socket::<TcpSocket>(server_handle);
+        let mut socket = iface.get_socket::<tcp::Socket>(server_handle);
         if !socket.is_active() && !socket.is_listening() {
             if !did_listen {
                 debug!("listening");
@@ -145,7 +145,7 @@ fn main() {
             done = true;
         }
 
-        let (mut socket, cx) = iface.get_socket_and_context::<TcpSocket>(client_handle);
+        let (mut socket, cx) = iface.get_socket_and_context::<tcp::Socket>(client_handle);
         if !socket.is_open() {
             if !did_connect {
                 debug!("connecting");

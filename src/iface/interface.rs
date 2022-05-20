@@ -15,6 +15,10 @@ use crate::iface::Routes;
 use crate::iface::{NeighborAnswer, NeighborCache};
 use crate::phy::{ChecksumCapabilities, Device, DeviceCapabilities, Medium, RxToken, TxToken};
 use crate::rand::Rand;
+#[cfg(feature = "socket-dhcpv4")]
+use crate::socket::dhcpv4;
+#[cfg(feature = "socket-dns")]
+use crate::socket::dns;
 use crate::socket::*;
 use crate::time::{Duration, Instant};
 use crate::wire::*;
@@ -1392,7 +1396,7 @@ impl<'a> InterfaceInner<'a> {
                         // If it does not accept the packet, then send an ICMP message.
                         for udp_socket in sockets
                             .iter_mut()
-                            .filter_map(|i| UdpSocket::downcast(&mut i.socket))
+                            .filter_map(|i| udp::Socket::downcast(&mut i.socket))
                         {
                             if !udp_socket.accepts(self, &IpRepr::Ipv6(ipv6_repr), &udp_repr) {
                                 continue;
@@ -1517,7 +1521,7 @@ impl<'a> InterfaceInner<'a> {
         // Pass every IP packet to all raw sockets we have registered.
         for raw_socket in sockets
             .iter_mut()
-            .filter_map(|i| RawSocket::downcast(&mut i.socket))
+            .filter_map(|i| raw::Socket::downcast(&mut i.socket))
         {
             if !raw_socket.accepts(ip_repr) {
                 continue;
@@ -1643,7 +1647,7 @@ impl<'a> InterfaceInner<'a> {
                 {
                     if let Some(dhcp_socket) = sockets
                         .iter_mut()
-                        .filter_map(|i| Dhcpv4Socket::downcast(&mut i.socket))
+                        .filter_map(|i| dhcpv4::Socket::downcast(&mut i.socket))
                         .next()
                     {
                         let (src_addr, dst_addr) = (ip_repr.src_addr(), ip_repr.dst_addr());
@@ -1822,7 +1826,7 @@ impl<'a> InterfaceInner<'a> {
         #[cfg(all(feature = "socket-icmp", feature = "proto-ipv6"))]
         for icmp_socket in _sockets
             .iter_mut()
-            .filter_map(|i| IcmpSocket::downcast(&mut i.socket))
+            .filter_map(|i| icmp::Socket::downcast(&mut i.socket))
         {
             if !icmp_socket.accepts(self, &ip_repr, &icmp_repr.into()) {
                 continue;
@@ -2009,7 +2013,7 @@ impl<'a> InterfaceInner<'a> {
         #[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
         for icmp_socket in _sockets
             .iter_mut()
-            .filter_map(|i| IcmpSocket::downcast(&mut i.socket))
+            .filter_map(|i| icmp::Socket::downcast(&mut i.socket))
         {
             if !icmp_socket.accepts(self, &ip_repr, &icmp_repr.into()) {
                 continue;
@@ -2137,7 +2141,7 @@ impl<'a> InterfaceInner<'a> {
         #[cfg(feature = "socket-udp")]
         for udp_socket in sockets
             .iter_mut()
-            .filter_map(|i| UdpSocket::downcast(&mut i.socket))
+            .filter_map(|i| udp::Socket::downcast(&mut i.socket))
         {
             if !udp_socket.accepts(self, &ip_repr, &udp_repr) {
                 continue;
@@ -2154,7 +2158,7 @@ impl<'a> InterfaceInner<'a> {
         #[cfg(feature = "socket-dns")]
         for dns_socket in sockets
             .iter_mut()
-            .filter_map(|i| DnsSocket::downcast(&mut i.socket))
+            .filter_map(|i| dns::Socket::downcast(&mut i.socket))
         {
             if !dns_socket.accepts(&ip_repr, &udp_repr) {
                 continue;
@@ -2212,7 +2216,7 @@ impl<'a> InterfaceInner<'a> {
 
         for tcp_socket in sockets
             .iter_mut()
-            .filter_map(|i| TcpSocket::downcast(&mut i.socket))
+            .filter_map(|i| tcp::Socket::downcast(&mut i.socket))
         {
             if !tcp_socket.accepts(self, &ip_repr, &tcp_repr) {
                 continue;
@@ -2232,7 +2236,7 @@ impl<'a> InterfaceInner<'a> {
             Ok(None)
         } else {
             // The packet wasn't handled by a socket, send a TCP RST packet.
-            Ok(Some(IpPacket::Tcp(TcpSocket::rst_reply(
+            Ok(Some(IpPacket::Tcp(tcp::Socket::rst_reply(
                 &ip_repr, &tcp_repr,
             ))))
         }
@@ -3092,17 +3096,16 @@ mod test {
     #[test]
     #[cfg(feature = "socket-udp")]
     fn test_handle_udp_broadcast() {
-        use crate::socket::{UdpPacketMetadata, UdpSocket, UdpSocketBuffer};
         use crate::wire::IpEndpoint;
 
         static UDP_PAYLOAD: [u8; 5] = [0x48, 0x65, 0x6c, 0x6c, 0x6f];
 
         let mut iface = create_loopback();
 
-        let rx_buffer = UdpSocketBuffer::new(vec![UdpPacketMetadata::EMPTY], vec![0; 15]);
-        let tx_buffer = UdpSocketBuffer::new(vec![UdpPacketMetadata::EMPTY], vec![0; 15]);
+        let rx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 15]);
+        let tx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 15]);
 
-        let udp_socket = UdpSocket::new(rx_buffer, tx_buffer);
+        let udp_socket = udp::Socket::new(rx_buffer, tx_buffer);
 
         let mut udp_bytes = vec![0u8; 13];
         let mut packet = UdpPacket::new_unchecked(&mut udp_bytes);
@@ -3137,7 +3140,7 @@ mod test {
         });
 
         // Bind the socket to port 68
-        let socket = iface.get_socket::<UdpSocket>(socket_handle);
+        let socket = iface.get_socket::<udp::Socket>(socket_handle);
         assert_eq!(socket.bind(68), Ok(()));
         assert!(!socket.can_recv());
         assert!(socket.can_send());
@@ -3161,7 +3164,7 @@ mod test {
 
         // Make sure the payload to the UDP packet processed by process_udp is
         // appended to the bound sockets rx_buffer
-        let socket = iface.get_socket::<UdpSocket>(socket_handle);
+        let socket = iface.get_socket::<udp::Socket>(socket_handle);
         assert!(socket.can_recv());
         assert_eq!(
             socket.recv(),
@@ -3592,15 +3595,14 @@ mod test {
     #[test]
     #[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
     fn test_icmpv4_socket() {
-        use crate::socket::{IcmpEndpoint, IcmpPacketMetadata, IcmpSocket, IcmpSocketBuffer};
         use crate::wire::Icmpv4Packet;
 
         let mut iface = create_loopback();
 
-        let rx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketMetadata::EMPTY], vec![0; 24]);
-        let tx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketMetadata::EMPTY], vec![0; 24]);
+        let rx_buffer = icmp::PacketBuffer::new(vec![icmp::PacketMetadata::EMPTY], vec![0; 24]);
+        let tx_buffer = icmp::PacketBuffer::new(vec![icmp::PacketMetadata::EMPTY], vec![0; 24]);
 
-        let icmpv4_socket = IcmpSocket::new(rx_buffer, tx_buffer);
+        let icmpv4_socket = icmp::Socket::new(rx_buffer, tx_buffer);
 
         let socket_handle = iface.add_socket(icmpv4_socket);
 
@@ -3608,9 +3610,9 @@ mod test {
         let seq_no = 0x5432;
         let echo_data = &[0xff; 16];
 
-        let socket = iface.get_socket::<IcmpSocket>(socket_handle);
+        let socket = iface.get_socket::<icmp::Socket>(socket_handle);
         // Bind to the ID 0x1234
-        assert_eq!(socket.bind(IcmpEndpoint::Ident(ident)), Ok(()));
+        assert_eq!(socket.bind(icmp::Endpoint::Ident(ident)), Ok(()));
 
         // Ensure the ident we bound to and the ident of the packet are the same.
         let mut bytes = [0xff; 24];
@@ -3634,7 +3636,7 @@ mod test {
 
         // Open a socket and ensure the packet is handled due to the listening
         // socket.
-        assert!(!iface.get_socket::<IcmpSocket>(socket_handle).can_recv());
+        assert!(!iface.get_socket::<icmp::Socket>(socket_handle).can_recv());
 
         // Confirm we still get EchoReply from `smoltcp` even with the ICMP socket listening
         let echo_reply = Icmpv4Repr::EchoReply {
@@ -3654,7 +3656,7 @@ mod test {
             Ok(Some(IpPacket::Icmpv4((ipv4_reply, echo_reply))))
         );
 
-        let socket = iface.get_socket::<IcmpSocket>(socket_handle);
+        let socket = iface.get_socket::<icmp::Socket>(socket_handle);
         assert!(socket.can_recv());
         assert_eq!(
             socket.recv(),
@@ -3852,19 +3854,18 @@ mod test {
     #[test]
     #[cfg(all(feature = "proto-ipv4", feature = "socket-raw"))]
     fn test_raw_socket_no_reply() {
-        use crate::socket::{RawPacketMetadata, RawSocket, RawSocketBuffer};
         use crate::wire::{IpVersion, Ipv4Packet, UdpPacket, UdpRepr};
 
         let mut iface = create_loopback();
 
         let packets = 1;
         let rx_buffer =
-            RawSocketBuffer::new(vec![RawPacketMetadata::EMPTY; packets], vec![0; 48 * 1]);
-        let tx_buffer = RawSocketBuffer::new(
-            vec![RawPacketMetadata::EMPTY; packets],
+            raw::PacketBuffer::new(vec![raw::PacketMetadata::EMPTY; packets], vec![0; 48 * 1]);
+        let tx_buffer = raw::PacketBuffer::new(
+            vec![raw::PacketMetadata::EMPTY; packets],
             vec![0; 48 * packets],
         );
-        let raw_socket = RawSocket::new(IpVersion::Ipv4, IpProtocol::Udp, rx_buffer, tx_buffer);
+        let raw_socket = raw::Socket::new(IpVersion::Ipv4, IpProtocol::Udp, rx_buffer, tx_buffer);
         iface.add_socket(raw_socket);
 
         let src_addr = Ipv4Address([127, 0, 0, 2]);
@@ -3921,19 +3922,18 @@ mod test {
     #[test]
     #[cfg(all(feature = "proto-ipv4", feature = "socket-raw"))]
     fn test_raw_socket_truncated_packet() {
-        use crate::socket::{RawPacketMetadata, RawSocket, RawSocketBuffer};
         use crate::wire::{IpVersion, Ipv4Packet, UdpPacket, UdpRepr};
 
         let mut iface = create_loopback();
 
         let packets = 1;
         let rx_buffer =
-            RawSocketBuffer::new(vec![RawPacketMetadata::EMPTY; packets], vec![0; 48 * 1]);
-        let tx_buffer = RawSocketBuffer::new(
-            vec![RawPacketMetadata::EMPTY; packets],
+            raw::PacketBuffer::new(vec![raw::PacketMetadata::EMPTY; packets], vec![0; 48 * 1]);
+        let tx_buffer = raw::PacketBuffer::new(
+            vec![raw::PacketMetadata::EMPTY; packets],
             vec![0; 48 * packets],
         );
-        let raw_socket = RawSocket::new(IpVersion::Ipv4, IpProtocol::Udp, rx_buffer, tx_buffer);
+        let raw_socket = raw::Socket::new(IpVersion::Ipv4, IpProtocol::Udp, rx_buffer, tx_buffer);
         iface.add_socket(raw_socket);
 
         let src_addr = Ipv4Address([127, 0, 0, 2]);
@@ -3994,35 +3994,31 @@ mod test {
     #[test]
     #[cfg(all(feature = "proto-ipv4", feature = "socket-raw", feature = "socket-udp"))]
     fn test_raw_socket_with_udp_socket() {
-        use crate::socket::{
-            RawPacketMetadata, RawSocket, RawSocketBuffer, UdpPacketMetadata, UdpSocket,
-            UdpSocketBuffer,
-        };
         use crate::wire::{IpEndpoint, IpVersion, Ipv4Packet, UdpPacket, UdpRepr};
 
         static UDP_PAYLOAD: [u8; 5] = [0x48, 0x65, 0x6c, 0x6c, 0x6f];
 
         let mut iface = create_loopback();
 
-        let udp_rx_buffer = UdpSocketBuffer::new(vec![UdpPacketMetadata::EMPTY], vec![0; 15]);
-        let udp_tx_buffer = UdpSocketBuffer::new(vec![UdpPacketMetadata::EMPTY], vec![0; 15]);
-        let udp_socket = UdpSocket::new(udp_rx_buffer, udp_tx_buffer);
+        let udp_rx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 15]);
+        let udp_tx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 15]);
+        let udp_socket = udp::Socket::new(udp_rx_buffer, udp_tx_buffer);
         let udp_socket_handle = iface.add_socket(udp_socket);
 
         // Bind the socket to port 68
-        let socket = iface.get_socket::<UdpSocket>(udp_socket_handle);
+        let socket = iface.get_socket::<udp::Socket>(udp_socket_handle);
         assert_eq!(socket.bind(68), Ok(()));
         assert!(!socket.can_recv());
         assert!(socket.can_send());
 
         let packets = 1;
         let raw_rx_buffer =
-            RawSocketBuffer::new(vec![RawPacketMetadata::EMPTY; packets], vec![0; 48 * 1]);
-        let raw_tx_buffer = RawSocketBuffer::new(
-            vec![RawPacketMetadata::EMPTY; packets],
+            raw::PacketBuffer::new(vec![raw::PacketMetadata::EMPTY; packets], vec![0; 48 * 1]);
+        let raw_tx_buffer = raw::PacketBuffer::new(
+            vec![raw::PacketMetadata::EMPTY; packets],
             vec![0; 48 * packets],
         );
-        let raw_socket = RawSocket::new(
+        let raw_socket = raw::Socket::new(
             IpVersion::Ipv4,
             IpProtocol::Udp,
             raw_rx_buffer,
@@ -4080,7 +4076,7 @@ mod test {
         );
 
         // Make sure the UDP socket can still receive in presence of a Raw socket that handles UDP
-        let socket = iface.get_socket::<UdpSocket>(udp_socket_handle);
+        let socket = iface.get_socket::<udp::Socket>(udp_socket_handle);
         assert!(socket.can_recv());
         assert_eq!(
             socket.recv(),

@@ -326,7 +326,7 @@ impl Display for Tuple {
 /// accept several connections, as many sockets must be allocated, or any new connection
 /// attempts will be reset.
 #[derive(Debug)]
-pub struct TcpSocket<'a> {
+pub struct Socket<'a> {
     state: State,
     timer: Timer,
     rtte: RttEstimator,
@@ -401,10 +401,10 @@ pub struct TcpSocket<'a> {
 
 const DEFAULT_MSS: usize = 536;
 
-impl<'a> TcpSocket<'a> {
+impl<'a> Socket<'a> {
     #[allow(unused_comparisons)] // small usize platforms always pass rx_capacity check
     /// Create a socket using the given buffers.
-    pub fn new<T>(rx_buffer: T, tx_buffer: T) -> TcpSocket<'a>
+    pub fn new<T>(rx_buffer: T, tx_buffer: T) -> Socket<'a>
     where
         T: Into<SocketBuffer<'a>>,
     {
@@ -420,7 +420,7 @@ impl<'a> TcpSocket<'a> {
         }
         let rx_cap_log2 = mem::size_of::<usize>() * 8 - rx_capacity.leading_zeros() as usize;
 
-        TcpSocket {
+        Socket {
             state: State::Closed,
             timer: Timer::new(),
             rtte: RttEstimator::default(),
@@ -2224,7 +2224,7 @@ impl<'a> TcpSocket<'a> {
     }
 }
 
-impl<'a> fmt::Write for TcpSocket<'a> {
+impl<'a> fmt::Write for Socket<'a> {
     fn write_str(&mut self, slice: &str) -> fmt::Result {
         let slice = slice.as_bytes();
         if self.send_slice(slice) == Ok(slice.len()) {
@@ -2344,12 +2344,12 @@ mod test {
     // =========================================================================================//
 
     struct TestSocket {
-        socket: TcpSocket<'static>,
+        socket: Socket<'static>,
         cx: Context<'static>,
     }
 
     impl Deref for TestSocket {
-        type Target = TcpSocket<'static>;
+        type Target = Socket<'static>;
         fn deref(&self) -> &Self::Target {
             &self.socket
         }
@@ -2465,7 +2465,7 @@ mod test {
     fn socket_with_buffer_sizes(tx_len: usize, rx_len: usize) -> TestSocket {
         let rx_buffer = SocketBuffer::new(vec![0; rx_len]);
         let tx_buffer = SocketBuffer::new(vec![0; tx_len]);
-        let mut socket = TcpSocket::new(rx_buffer, tx_buffer);
+        let mut socket = Socket::new(rx_buffer, tx_buffer);
         socket.set_ack_delay(None);
         let cx = Context::mock();
         TestSocket { socket, cx }

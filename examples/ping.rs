@@ -11,7 +11,7 @@ use std::str::FromStr;
 use smoltcp::iface::{InterfaceBuilder, NeighborCache, Routes};
 use smoltcp::phy::wait as phy_wait;
 use smoltcp::phy::Device;
-use smoltcp::socket::{IcmpEndpoint, IcmpPacketMetadata, IcmpSocket, IcmpSocketBuffer};
+use smoltcp::socket::icmp;
 use smoltcp::wire::{
     EthernetAddress, Icmpv4Packet, Icmpv4Repr, Icmpv6Packet, Icmpv6Repr, IpAddress, IpCidr,
     Ipv4Address, Ipv6Address,
@@ -108,9 +108,9 @@ fn main() {
 
     let remote_addr = address;
 
-    let icmp_rx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketMetadata::EMPTY], vec![0; 256]);
-    let icmp_tx_buffer = IcmpSocketBuffer::new(vec![IcmpPacketMetadata::EMPTY], vec![0; 256]);
-    let icmp_socket = IcmpSocket::new(icmp_rx_buffer, icmp_tx_buffer);
+    let icmp_rx_buffer = icmp::PacketBuffer::new(vec![icmp::PacketMetadata::EMPTY], vec![0; 256]);
+    let icmp_tx_buffer = icmp::PacketBuffer::new(vec![icmp::PacketMetadata::EMPTY], vec![0; 256]);
+    let icmp_socket = icmp::Socket::new(icmp_rx_buffer, icmp_tx_buffer);
 
     let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x02]);
     let src_ipv6 = IpAddress::v6(0xfdaa, 0, 0, 0, 0, 0, 0, 1);
@@ -156,9 +156,9 @@ fn main() {
         }
 
         let timestamp = Instant::now();
-        let socket = iface.get_socket::<IcmpSocket>(icmp_handle);
+        let socket = iface.get_socket::<icmp::Socket>(icmp_handle);
         if !socket.is_open() {
-            socket.bind(IcmpEndpoint::Ident(ident)).unwrap();
+            socket.bind(icmp::Endpoint::Ident(ident)).unwrap();
             send_at = timestamp;
         }
 

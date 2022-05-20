@@ -7,7 +7,6 @@ use crate::phy::ChecksumCapabilities;
 use crate::socket::PollAt;
 #[cfg(feature = "async")]
 use crate::socket::WakerRegistration;
-use crate::storage::{PacketBuffer, PacketMetadata};
 use crate::{Error, Result};
 
 use crate::wire::{IpProtocol, IpRepr, IpVersion};
@@ -17,37 +16,37 @@ use crate::wire::{Ipv4Packet, Ipv4Repr};
 use crate::wire::{Ipv6Packet, Ipv6Repr};
 
 /// A UDP packet metadata.
-pub type RawPacketMetadata = PacketMetadata<()>;
+pub type PacketMetadata = crate::storage::PacketMetadata<()>;
 
 /// A UDP packet ring buffer.
-pub type RawSocketBuffer<'a> = PacketBuffer<'a, ()>;
+pub type PacketBuffer<'a> = crate::storage::PacketBuffer<'a, ()>;
 
 /// A raw IP socket.
 ///
 /// A raw socket is bound to a specific IP protocol, and owns
 /// transmit and receive packet buffers.
 #[derive(Debug)]
-pub struct RawSocket<'a> {
+pub struct Socket<'a> {
     ip_version: IpVersion,
     ip_protocol: IpProtocol,
-    rx_buffer: RawSocketBuffer<'a>,
-    tx_buffer: RawSocketBuffer<'a>,
+    rx_buffer: PacketBuffer<'a>,
+    tx_buffer: PacketBuffer<'a>,
     #[cfg(feature = "async")]
     rx_waker: WakerRegistration,
     #[cfg(feature = "async")]
     tx_waker: WakerRegistration,
 }
 
-impl<'a> RawSocket<'a> {
+impl<'a> Socket<'a> {
     /// Create a raw IP socket bound to the given IP version and datagram protocol,
     /// with the given buffers.
     pub fn new(
         ip_version: IpVersion,
         ip_protocol: IpProtocol,
-        rx_buffer: RawSocketBuffer<'a>,
-        tx_buffer: RawSocketBuffer<'a>,
-    ) -> RawSocket<'a> {
-        RawSocket {
+        rx_buffer: PacketBuffer<'a>,
+        tx_buffer: PacketBuffer<'a>,
+    ) -> Socket<'a> {
+        Socket {
             ip_version,
             ip_protocol,
             rx_buffer,
@@ -330,11 +329,8 @@ mod test {
     #[cfg(feature = "proto-ipv6")]
     use crate::wire::{Ipv6Address, Ipv6Repr};
 
-    fn buffer(packets: usize) -> RawSocketBuffer<'static> {
-        RawSocketBuffer::new(
-            vec![RawPacketMetadata::EMPTY; packets],
-            vec![0; 48 * packets],
-        )
+    fn buffer(packets: usize) -> PacketBuffer<'static> {
+        PacketBuffer::new(vec![PacketMetadata::EMPTY; packets], vec![0; 48 * packets])
     }
 
     #[cfg(feature = "proto-ipv4")]
@@ -342,10 +338,10 @@ mod test {
         use super::*;
 
         pub fn socket(
-            rx_buffer: RawSocketBuffer<'static>,
-            tx_buffer: RawSocketBuffer<'static>,
-        ) -> RawSocket<'static> {
-            RawSocket::new(
+            rx_buffer: PacketBuffer<'static>,
+            tx_buffer: PacketBuffer<'static>,
+        ) -> Socket<'static> {
+            Socket::new(
                 IpVersion::Ipv4,
                 IpProtocol::Unknown(IP_PROTO),
                 rx_buffer,
@@ -373,10 +369,10 @@ mod test {
         use super::*;
 
         pub fn socket(
-            rx_buffer: RawSocketBuffer<'static>,
-            tx_buffer: RawSocketBuffer<'static>,
-        ) -> RawSocket<'static> {
-            RawSocket::new(
+            rx_buffer: PacketBuffer<'static>,
+            tx_buffer: PacketBuffer<'static>,
+        ) -> Socket<'static> {
+            Socket::new(
                 IpVersion::Ipv6,
                 IpProtocol::Unknown(IP_PROTO),
                 rx_buffer,
@@ -615,7 +611,7 @@ mod test {
     fn test_doesnt_accept_wrong_proto() {
         #[cfg(feature = "proto-ipv4")]
         {
-            let socket = RawSocket::new(
+            let socket = Socket::new(
                 IpVersion::Ipv4,
                 IpProtocol::Unknown(ipv4_locals::IP_PROTO + 1),
                 buffer(1),
@@ -627,7 +623,7 @@ mod test {
         }
         #[cfg(feature = "proto-ipv6")]
         {
-            let socket = RawSocket::new(
+            let socket = Socket::new(
                 IpVersion::Ipv6,
                 IpProtocol::Unknown(ipv6_locals::IP_PROTO + 1),
                 buffer(1),
