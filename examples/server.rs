@@ -6,7 +6,7 @@ use std::fmt::Write;
 use std::os::unix::io::AsRawFd;
 use std::str;
 
-use smoltcp::iface::{InterfaceBuilder, NeighborCache};
+use smoltcp::iface::{InterfaceBuilder, NeighborCache, SocketSet};
 use smoltcp::phy::{wait as phy_wait, Device, Medium};
 use smoltcp::socket::{tcp, udp};
 use smoltcp::time::{Duration, Instant};
@@ -54,7 +54,7 @@ fn main() {
     ];
 
     let medium = device.capabilities().medium;
-    let mut builder = InterfaceBuilder::new(device, vec![]).ip_addrs(ip_addrs);
+    let mut builder = InterfaceBuilder::new(device).ip_addrs(ip_addrs);
     if medium == Medium::Ethernet {
         builder = builder
             .hardware_addr(ethernet_addr.into())
@@ -62,16 +62,17 @@ fn main() {
     }
     let mut iface = builder.finalize();
 
-    let udp_handle = iface.add_socket(udp_socket);
-    let tcp1_handle = iface.add_socket(tcp1_socket);
-    let tcp2_handle = iface.add_socket(tcp2_socket);
-    let tcp3_handle = iface.add_socket(tcp3_socket);
-    let tcp4_handle = iface.add_socket(tcp4_socket);
+    let mut sockets = SocketSet::new(vec![]);
+    let udp_handle = sockets.add(udp_socket);
+    let tcp1_handle = sockets.add(tcp1_socket);
+    let tcp2_handle = sockets.add(tcp2_socket);
+    let tcp3_handle = sockets.add(tcp3_socket);
+    let tcp4_handle = sockets.add(tcp4_socket);
 
     let mut tcp_6970_active = false;
     loop {
         let timestamp = Instant::now();
-        match iface.poll(timestamp) {
+        match iface.poll(timestamp, &mut sockets) {
             Ok(_) => {}
             Err(e) => {
                 debug!("poll error: {}", e);
@@ -79,7 +80,7 @@ fn main() {
         }
 
         // udp:6969: respond "hello"
-        let socket = iface.get_socket::<udp::Socket>(udp_handle);
+        let socket = sockets.get::<udp::Socket>(udp_handle);
         if !socket.is_open() {
             socket.bind(6969).unwrap()
         }
@@ -105,7 +106,7 @@ fn main() {
         }
 
         // tcp:6969: respond "hello"
-        let socket = iface.get_socket::<tcp::Socket>(tcp1_handle);
+        let socket = sockets.get::<tcp::Socket>(tcp1_handle);
         if !socket.is_open() {
             socket.listen(6969).unwrap();
         }
@@ -118,7 +119,7 @@ fn main() {
         }
 
         // tcp:6970: echo with reverse
-        let socket = iface.get_socket::<tcp::Socket>(tcp2_handle);
+        let socket = sockets.get::<tcp::Socket>(tcp2_handle);
         if !socket.is_open() {
             socket.listen(6970).unwrap()
         }
@@ -160,7 +161,7 @@ fn main() {
         }
 
         // tcp:6971: sinkhole
-        let socket = iface.get_socket::<tcp::Socket>(tcp3_handle);
+        let socket = sockets.get::<tcp::Socket>(tcp3_handle);
         if !socket.is_open() {
             socket.listen(6971).unwrap();
             socket.set_keep_alive(Some(Duration::from_millis(1000)));
@@ -181,7 +182,7 @@ fn main() {
         }
 
         // tcp:6972: fountain
-        let socket = iface.get_socket::<tcp::Socket>(tcp4_handle);
+        let socket = sockets.get::<tcp::Socket>(tcp4_handle);
         if !socket.is_open() {
             socket.listen(6972).unwrap()
         }
@@ -200,6 +201,6 @@ fn main() {
                 .unwrap();
         }
 
-        phy_wait(fd, iface.poll_delay(timestamp)).expect("wait error");
+        phy_wait(fd, iface.poll_delay(timestamp, &sockets)).expect("wait error");
     }
 }

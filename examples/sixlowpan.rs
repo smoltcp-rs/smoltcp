@@ -47,7 +47,7 @@ use std::collections::BTreeMap;
 use std::os::unix::io::AsRawFd;
 use std::str;
 
-use smoltcp::iface::{InterfaceBuilder, NeighborCache};
+use smoltcp::iface::{InterfaceBuilder, NeighborCache, SocketSet};
 use smoltcp::phy::{wait as phy_wait, Medium, RawSocket};
 use smoltcp::socket::udp;
 use smoltcp::time::Instant;
@@ -80,7 +80,7 @@ fn main() {
         64,
     )];
 
-    let mut builder = InterfaceBuilder::new(device, vec![])
+    let mut builder = InterfaceBuilder::new(device)
         .ip_addrs(ip_addrs)
         .pan_id(Ieee802154Pan(0xbeef));
     builder = builder
@@ -88,11 +88,12 @@ fn main() {
         .neighbor_cache(neighbor_cache);
     let mut iface = builder.finalize();
 
-    let udp_handle = iface.add_socket(udp_socket);
+    let mut sockets = SocketSet::new(vec![]);
+    let udp_handle = sockets.add(udp_socket);
 
     loop {
         let timestamp = Instant::now();
-        match iface.poll(timestamp) {
+        match iface.poll(timestamp, &mut sockets) {
             Ok(_) => {}
             Err(e) => {
                 debug!("poll error: {}", e);
@@ -100,7 +101,7 @@ fn main() {
         }
 
         // udp:6969: respond "hello"
-        let socket = iface.get_socket::<udp::Socket>(udp_handle);
+        let socket = sockets.get::<udp::Socket>(udp_handle);
         if !socket.is_open() {
             socket.bind(6969).unwrap()
         }
@@ -125,6 +126,6 @@ fn main() {
             socket.send_slice(data, endpoint).unwrap();
         }
 
-        phy_wait(fd, iface.poll_delay(timestamp)).expect("wait error");
+        phy_wait(fd, iface.poll_delay(timestamp, &sockets)).expect("wait error");
     }
 }
