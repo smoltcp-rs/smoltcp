@@ -5,7 +5,7 @@ use log::*;
 use std::collections::BTreeMap;
 use std::os::unix::io::AsRawFd;
 
-use smoltcp::iface::{Interface, InterfaceBuilder, NeighborCache, Routes};
+use smoltcp::iface::{Interface, InterfaceBuilder, NeighborCache, Routes, SocketSet};
 use smoltcp::socket::dhcpv4;
 use smoltcp::time::Instant;
 use smoltcp::wire::{EthernetAddress, IpCidr, Ipv4Address, Ipv4Cidr};
@@ -34,7 +34,7 @@ fn main() {
     let routes = Routes::new(&mut routes_storage[..]);
 
     let medium = device.capabilities().medium;
-    let mut builder = InterfaceBuilder::new(device, vec![])
+    let mut builder = InterfaceBuilder::new(device)
         .ip_addrs(ip_addrs)
         .routes(routes);
     if medium == Medium::Ethernet {
@@ -52,15 +52,16 @@ fn main() {
     // IMPORTANT: This should be removed in production.
     dhcp_socket.set_max_lease_duration(Some(Duration::from_secs(10)));
 
-    let dhcp_handle = iface.add_socket(dhcp_socket);
+    let mut sockets = SocketSet::new(vec![]);
+    let dhcp_handle = sockets.add(dhcp_socket);
 
     loop {
         let timestamp = Instant::now();
-        if let Err(e) = iface.poll(timestamp) {
+        if let Err(e) = iface.poll(timestamp, &mut sockets) {
             debug!("poll error: {}", e);
         }
 
-        let event = iface.get_socket::<dhcpv4::Socket>(dhcp_handle).poll();
+        let event = sockets.get::<dhcpv4::Socket>(dhcp_handle).poll();
         match event {
             None => {}
             Some(dhcpv4::Event::Configured(config)) => {
@@ -90,7 +91,7 @@ fn main() {
             }
         }
 
-        phy_wait(fd, iface.poll_delay(timestamp)).expect("wait error");
+        phy_wait(fd, iface.poll_delay(timestamp, &sockets)).expect("wait error");
     }
 }
 

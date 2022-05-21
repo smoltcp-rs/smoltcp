@@ -47,7 +47,7 @@ use std::collections::BTreeMap;
 use std::os::unix::io::AsRawFd;
 use std::str;
 
-use smoltcp::iface::{FragmentsCache, InterfaceBuilder, NeighborCache};
+use smoltcp::iface::{FragmentsCache, InterfaceBuilder, NeighborCache, SocketSet};
 use smoltcp::phy::{wait as phy_wait, Medium, RawSocket};
 use smoltcp::socket::tcp;
 use smoltcp::socket::udp;
@@ -89,7 +89,7 @@ fn main() {
 
     let mut out_packet_buffer = [0u8; 1280];
 
-    let mut builder = InterfaceBuilder::new(device, vec![])
+    let mut builder = InterfaceBuilder::new(device)
         .ip_addrs(ip_addrs)
         .pan_id(Ieee802154Pan(0xbeef));
     builder = builder
@@ -99,10 +99,11 @@ fn main() {
         .sixlowpan_out_packet_cache(&mut out_packet_buffer[..]);
     let mut iface = builder.finalize();
 
-    let udp_handle = iface.add_socket(udp_socket);
-    let tcp_handle = iface.add_socket(tcp_socket);
+    let mut sockets = SocketSet::new(vec![]);
+    let udp_handle = sockets.add(udp_socket);
+    let tcp_handle = sockets.add(tcp_socket);
 
-    let socket = iface.get_socket::<tcp::Socket>(tcp_handle);
+    let socket = sockets.get::<tcp::Socket>(tcp_handle);
     socket.listen(50000).unwrap();
 
     let mut tcp_active = false;
@@ -112,7 +113,7 @@ fn main() {
 
         let mut poll = true;
         while poll {
-            match iface.poll(timestamp) {
+            match iface.poll(timestamp, &mut sockets) {
                 Ok(r) => poll = r,
                 Err(e) => {
                     debug!("poll error: {}", e);
@@ -122,7 +123,7 @@ fn main() {
         }
 
         // udp:6969: respond "hello"
-        let socket = iface.get_socket::<udp::Socket>(udp_handle);
+        let socket = sockets.get::<udp::Socket>(udp_handle);
         if !socket.is_open() {
             socket.bind(6969).unwrap()
         }
@@ -148,7 +149,7 @@ fn main() {
             socket.send_slice(&buffer[..len], endpoint).unwrap();
         }
 
-        let socket = iface.get_socket::<tcp::Socket>(tcp_handle);
+        let socket = sockets.get::<tcp::Socket>(tcp_handle);
         if socket.is_active() && !tcp_active {
             debug!("connected");
         } else if !socket.is_active() && tcp_active {
@@ -182,6 +183,6 @@ fn main() {
             socket.close();
         }
 
-        phy_wait(fd, iface.poll_delay(timestamp)).expect("wait error");
+        phy_wait(fd, iface.poll_delay(timestamp, &sockets)).expect("wait error");
     }
 }

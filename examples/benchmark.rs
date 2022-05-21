@@ -11,7 +11,7 @@ use std::os::unix::io::AsRawFd;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 
-use smoltcp::iface::{InterfaceBuilder, NeighborCache};
+use smoltcp::iface::{InterfaceBuilder, NeighborCache, SocketSet};
 use smoltcp::phy::{wait as phy_wait, Device, Medium};
 use smoltcp::socket::tcp;
 use smoltcp::time::{Duration, Instant};
@@ -94,7 +94,7 @@ fn main() {
     let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
     let ip_addrs = [IpCidr::new(IpAddress::v4(192, 168, 69, 1), 24)];
     let medium = device.capabilities().medium;
-    let mut builder = InterfaceBuilder::new(device, vec![]).ip_addrs(ip_addrs);
+    let mut builder = InterfaceBuilder::new(device).ip_addrs(ip_addrs);
     if medium == Medium::Ethernet {
         builder = builder
             .hardware_addr(ethernet_addr.into())
@@ -102,15 +102,16 @@ fn main() {
     }
     let mut iface = builder.finalize();
 
-    let tcp1_handle = iface.add_socket(tcp1_socket);
-    let tcp2_handle = iface.add_socket(tcp2_socket);
+    let mut sockets = SocketSet::new(vec![]);
+    let tcp1_handle = sockets.add(tcp1_socket);
+    let tcp2_handle = sockets.add(tcp2_socket);
     let default_timeout = Some(Duration::from_millis(1000));
 
     thread::spawn(move || client(mode));
     let mut processed = 0;
     while !CLIENT_DONE.load(Ordering::SeqCst) {
         let timestamp = Instant::now();
-        match iface.poll(timestamp) {
+        match iface.poll(timestamp, &mut sockets) {
             Ok(_) => {}
             Err(e) => {
                 debug!("poll error: {}", e);
@@ -118,7 +119,7 @@ fn main() {
         }
 
         // tcp:1234: emit data
-        let socket = iface.get_socket::<tcp::Socket>(tcp1_handle);
+        let socket = sockets.get::<tcp::Socket>(tcp1_handle);
         if !socket.is_open() {
             socket.listen(1234).unwrap();
         }
@@ -136,7 +137,7 @@ fn main() {
         }
 
         // tcp:1235: sink data
-        let socket = iface.get_socket::<tcp::Socket>(tcp2_handle);
+        let socket = sockets.get::<tcp::Socket>(tcp2_handle);
         if !socket.is_open() {
             socket.listen(1235).unwrap();
         }
@@ -153,7 +154,7 @@ fn main() {
             }
         }
 
-        match iface.poll_at(timestamp) {
+        match iface.poll_at(timestamp, &sockets) {
             Some(poll_at) if timestamp < poll_at => {
                 phy_wait(fd, Some(poll_at - timestamp)).expect("wait error");
             }
