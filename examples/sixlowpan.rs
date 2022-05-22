@@ -65,7 +65,8 @@ fn main() {
     let device = RawSocket::new("wpan1", Medium::Ieee802154).unwrap();
 
     let fd = device.as_raw_fd();
-    let device = utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
+    let mut device =
+        utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
 
     let neighbor_cache = NeighborCache::new(BTreeMap::new());
 
@@ -89,7 +90,7 @@ fn main() {
 
     let mut out_packet_buffer = [0u8; 1280];
 
-    let mut builder = InterfaceBuilder::new(device)
+    let mut builder = InterfaceBuilder::new()
         .ip_addrs(ip_addrs)
         .pan_id(Ieee802154Pan(0xbeef));
     builder = builder
@@ -97,7 +98,7 @@ fn main() {
         .neighbor_cache(neighbor_cache)
         .sixlowpan_fragments_cache(cache)
         .sixlowpan_out_packet_cache(&mut out_packet_buffer[..]);
-    let mut iface = builder.finalize();
+    let mut iface = builder.finalize(&mut device);
 
     let mut sockets = SocketSet::new(vec![]);
     let udp_handle = sockets.add(udp_socket);
@@ -113,7 +114,7 @@ fn main() {
 
         let mut poll = true;
         while poll {
-            match iface.poll(timestamp, &mut sockets) {
+            match iface.poll(timestamp, &mut device, &mut sockets) {
                 Ok(r) => poll = r,
                 Err(e) => {
                     debug!("poll error: {}", e);

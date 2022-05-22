@@ -22,7 +22,8 @@ fn main() {
     let mut matches = utils::parse_options(&opts, free);
     let device = utils::parse_tuntap_options(&mut matches);
     let fd = device.as_raw_fd();
-    let device = utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
+    let mut device =
+        utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
 
     let neighbor_cache = NeighborCache::new(BTreeMap::new());
 
@@ -54,13 +55,13 @@ fn main() {
     ];
 
     let medium = device.capabilities().medium;
-    let mut builder = InterfaceBuilder::new(device).ip_addrs(ip_addrs);
+    let mut builder = InterfaceBuilder::new().ip_addrs(ip_addrs);
     if medium == Medium::Ethernet {
         builder = builder
             .hardware_addr(ethernet_addr.into())
             .neighbor_cache(neighbor_cache);
     }
-    let mut iface = builder.finalize();
+    let mut iface = builder.finalize(&mut device);
 
     let mut sockets = SocketSet::new(vec![]);
     let udp_handle = sockets.add(udp_socket);
@@ -72,7 +73,7 @@ fn main() {
     let mut tcp_6970_active = false;
     loop {
         let timestamp = Instant::now();
-        match iface.poll(timestamp, &mut sockets) {
+        match iface.poll(timestamp, &mut device, &mut sockets) {
             Ok(_) => {}
             Err(e) => {
                 debug!("poll error: {}", e);

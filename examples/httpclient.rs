@@ -24,7 +24,8 @@ fn main() {
     let mut matches = utils::parse_options(&opts, free);
     let device = utils::parse_tuntap_options(&mut matches);
     let fd = device.as_raw_fd();
-    let device = utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
+    let mut device =
+        utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
     let address = IpAddress::from_str(&matches.free[0]).expect("invalid address format");
     let url = Url::parse(&matches.free[1]).expect("invalid url format");
 
@@ -48,15 +49,13 @@ fn main() {
     routes.add_default_ipv6_route(default_v6_gw).unwrap();
 
     let medium = device.capabilities().medium;
-    let mut builder = InterfaceBuilder::new(device)
-        .ip_addrs(ip_addrs)
-        .routes(routes);
+    let mut builder = InterfaceBuilder::new().ip_addrs(ip_addrs).routes(routes);
     if medium == Medium::Ethernet {
         builder = builder
             .hardware_addr(ethernet_addr.into())
             .neighbor_cache(neighbor_cache);
     }
-    let mut iface = builder.finalize();
+    let mut iface = builder.finalize(&mut device);
 
     let mut sockets = SocketSet::new(vec![]);
     let tcp_handle = sockets.add(tcp_socket);
@@ -70,7 +69,7 @@ fn main() {
 
     loop {
         let timestamp = Instant::now();
-        match iface.poll(timestamp, &mut sockets) {
+        match iface.poll(timestamp, &mut device, &mut sockets) {
             Ok(_) => {}
             Err(e) => {
                 debug!("poll error: {}", e);

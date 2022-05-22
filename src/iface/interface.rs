@@ -96,8 +96,7 @@ macro_rules! check {
 /// The network interface logically owns a number of other data structures; to avoid
 /// a dependency on heap allocation, it instead owns a `BorrowMut<[T]>`, which can be
 /// a `&mut [T]`, or `Vec<T>` if a heap is available.
-pub struct Interface<'a, DeviceT: for<'d> Device<'d>> {
-    device: DeviceT,
+pub struct Interface<'a> {
     inner: InterfaceInner<'a>,
     fragments: FragmentsBuffer<'a>,
     out_packets: OutPackets<'a>,
@@ -137,8 +136,7 @@ pub struct InterfaceInner<'a> {
 }
 
 /// A builder structure used for creating a network interface.
-pub struct InterfaceBuilder<'a, DeviceT: for<'d> Device<'d>> {
-    device: DeviceT,
+pub struct InterfaceBuilder<'a> {
     #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
     hardware_addr: Option<HardwareAddress>,
     #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
@@ -159,10 +157,7 @@ pub struct InterfaceBuilder<'a, DeviceT: for<'d> Device<'d>> {
     sixlowpan_out_buffer: Option<ManagedSlice<'a, u8>>,
 }
 
-impl<'a, DeviceT> InterfaceBuilder<'a, DeviceT>
-where
-    DeviceT: for<'d> Device<'d>,
-{
+impl<'a> InterfaceBuilder<'a> {
     /// Create a builder used for creating a network interface using the
     /// given device and address.
     #[cfg_attr(
@@ -176,7 +171,7 @@ use smoltcp::iface::{InterfaceBuilder, NeighborCache};
 # use smoltcp::phy::{Loopback, Medium};
 use smoltcp::wire::{EthernetAddress, IpCidr, IpAddress};
 
-let device = // ...
+let mut device = // ...
 # Loopback::new(Medium::Ethernet);
 let hw_addr = // ...
 # EthernetAddress::default();
@@ -184,18 +179,16 @@ let neighbor_cache = // ...
 # NeighborCache::new(BTreeMap::new());
 let ip_addrs = // ...
 # [];
-let iface = InterfaceBuilder::new(device)
+let iface = InterfaceBuilder::new()
         .hardware_addr(hw_addr.into())
         .neighbor_cache(neighbor_cache)
         .ip_addrs(ip_addrs)
-        .finalize();
+        .finalize(&mut device);
 ```
     "##
     )]
-    pub fn new(device: DeviceT) -> Self {
+    pub fn new() -> Self {
         InterfaceBuilder {
-            device,
-
             #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
             hardware_addr: None,
             #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
@@ -293,7 +286,7 @@ let iface = InterfaceBuilder::new(device)
     /// [routes].
     ///
     /// [routes]: struct.Interface.html#method.routes
-    pub fn routes<T>(mut self, routes: T) -> InterfaceBuilder<'a, DeviceT>
+    pub fn routes<T>(mut self, routes: T) -> InterfaceBuilder<'a>
     where
         T: Into<Routes<'a>>,
     {
@@ -356,11 +349,14 @@ let iface = InterfaceBuilder::new(device)
     ///
     /// [ethernet_addr]: #method.ethernet_addr
     /// [neighbor_cache]: #method.neighbor_cache
-    pub fn finalize(self) -> Interface<'a, DeviceT> {
-        let device_capabilities = self.device.capabilities();
+    pub fn finalize<D>(self, device: &mut D) -> Interface<'a>
+    where
+        D: for<'d> Device<'d>,
+    {
+        let caps = device.capabilities();
 
         #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
-        let (hardware_addr, neighbor_cache) = match device_capabilities.medium {
+        let (hardware_addr, neighbor_cache) = match caps.medium {
             #[cfg(feature = "medium-ethernet")]
             Medium::Ethernet => (
                 Some(
@@ -397,8 +393,6 @@ let iface = InterfaceBuilder::new(device)
             ),
         };
 
-        let caps = self.device.capabilities();
-
         #[cfg(feature = "medium-ieee802154")]
         let mut rand = Rand::new(self.random_seed);
         #[cfg(not(feature = "medium-ieee802154"))]
@@ -426,7 +420,6 @@ let iface = InterfaceBuilder::new(device)
         }
 
         Interface {
-            device: self.device,
             fragments: FragmentsBuffer {
                 #[cfg(feature = "proto-sixlowpan")]
                 sixlowpan_fragments: self
@@ -623,10 +616,7 @@ enum IgmpReportState {
     },
 }
 
-impl<'a, DeviceT> Interface<'a, DeviceT>
-where
-    DeviceT: for<'d> Device<'d>,
-{
+impl<'a> Interface<'a> {
     /// Get the socket context.
     ///
     /// The context is needed for some socket methods.
@@ -641,14 +631,14 @@ where
     #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
     pub fn hardware_addr(&self) -> HardwareAddress {
         #[cfg(all(feature = "medium-ethernet", not(feature = "medium-ieee802154")))]
-        assert!(self.device().capabilities().medium == Medium::Ethernet);
+        assert!(self.inner.caps.medium == Medium::Ethernet);
         #[cfg(all(feature = "medium-ieee802154", not(feature = "medium-ethernet")))]
-        assert!(self.device().capabilities().medium == Medium::Ieee802154);
+        assert!(self.inner.caps.medium == Medium::Ieee802154);
 
         #[cfg(all(feature = "medium-ieee802154", feature = "medium-ethernet"))]
         assert!(
-            self.device().capabilities().medium == Medium::Ethernet
-                || self.device().capabilities().medium == Medium::Ieee802154
+            self.inner.caps.medium == Medium::Ethernet
+                || self.inner.caps.medium == Medium::Ieee802154
         );
 
         self.inner.hardware_addr.unwrap()
@@ -662,45 +652,33 @@ where
     #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
     pub fn set_hardware_addr(&mut self, addr: HardwareAddress) {
         #[cfg(all(feature = "medium-ethernet", not(feature = "medium-ieee802154")))]
-        assert!(self.device().capabilities().medium == Medium::Ethernet);
+        assert!(self.inner.caps.medium == Medium::Ethernet);
         #[cfg(all(feature = "medium-ieee802154", not(feature = "medium-ethernet")))]
-        assert!(self.device().capabilities().medium == Medium::Ieee802154);
+        assert!(self.inner.caps.medium == Medium::Ieee802154);
 
         #[cfg(all(feature = "medium-ieee802154", feature = "medium-ethernet"))]
         assert!(
-            self.device().capabilities().medium == Medium::Ethernet
-                || self.device().capabilities().medium == Medium::Ieee802154
+            self.inner.caps.medium == Medium::Ethernet
+                || self.inner.caps.medium == Medium::Ieee802154
         );
 
         InterfaceInner::check_hardware_addr(&addr);
         self.inner.hardware_addr = Some(addr);
     }
 
-    /// Get a reference to the inner device.
-    pub fn device(&self) -> &DeviceT {
-        &self.device
-    }
-
-    /// Get a mutable reference to the inner device.
-    ///
-    /// There are no invariants imposed on the device by the interface itself. Furthermore the
-    /// trait implementations, required for references of all lifetimes, guarantees that the
-    /// mutable reference can not invalidate the device as such. For some devices, such access may
-    /// still allow modifications with adverse effects on the usability as a `phy` device. You
-    /// should not use them this way.
-    pub fn device_mut(&mut self) -> &mut DeviceT {
-        &mut self.device
-    }
-
     /// Add an address to a list of subscribed multicast IP addresses.
     ///
     /// Returns `Ok(announce_sent)` if the address was added successfully, where `annouce_sent`
     /// indicates whether an initial immediate announcement has been sent.
-    pub fn join_multicast_group<T: Into<IpAddress>>(
+    pub fn join_multicast_group<D, T: Into<IpAddress>>(
         &mut self,
+        device: &mut D,
         addr: T,
         timestamp: Instant,
-    ) -> Result<bool> {
+    ) -> Result<bool>
+    where
+        D: for<'d> Device<'d>,
+    {
         self.inner.now = timestamp;
 
         match addr.into() {
@@ -717,7 +695,7 @@ where
                 } else if let Some(pkt) = self.inner.igmp_report_packet(IgmpVersion::Version2, addr)
                 {
                     // Send initial membership report
-                    let tx_token = self.device.transmit().ok_or(Error::Exhausted)?;
+                    let tx_token = device.transmit().ok_or(Error::Exhausted)?;
                     self.inner.dispatch_ip(tx_token, pkt, None)?;
                     Ok(true)
                 } else {
@@ -734,11 +712,15 @@ where
     ///
     /// Returns `Ok(leave_sent)` if the address was removed successfully, where `leave_sent`
     /// indicates whether an immediate leave packet has been sent.
-    pub fn leave_multicast_group<T: Into<IpAddress>>(
+    pub fn leave_multicast_group<D, T: Into<IpAddress>>(
         &mut self,
+        device: &mut D,
         addr: T,
         timestamp: Instant,
-    ) -> Result<bool> {
+    ) -> Result<bool>
+    where
+        D: for<'d> Device<'d>,
+    {
         self.inner.now = timestamp;
 
         match addr.into() {
@@ -749,7 +731,7 @@ where
                     Ok(false)
                 } else if let Some(pkt) = self.inner.igmp_leave_packet(addr) {
                     // Send group leave packet
-                    let tx_token = self.device.transmit().ok_or(Error::Exhausted)?;
+                    let tx_token = device.transmit().ok_or(Error::Exhausted)?;
                     self.inner.dispatch_ip(tx_token, pkt, None)?;
                     Ok(true)
                 } else {
@@ -831,7 +813,15 @@ where
     /// packets containing any unsupported protocol, option, or form, which is
     /// a very common occurrence and on a production system it should not even
     /// be logged.
-    pub fn poll(&mut self, timestamp: Instant, sockets: &mut SocketSet<'_>) -> Result<bool> {
+    pub fn poll<D>(
+        &mut self,
+        timestamp: Instant,
+        device: &mut D,
+        sockets: &mut SocketSet<'_>,
+    ) -> Result<bool>
+    where
+        D: for<'d> Device<'d>,
+    {
         self.inner.now = timestamp;
 
         let mut readiness_may_have_changed = false;
@@ -845,7 +835,7 @@ where
             } = &self.out_packets.sixlowpan_out_packet;
 
             if *packet_len > *sent_bytes {
-                match self.device.transmit().ok_or(Error::Exhausted) {
+                match device.transmit().ok_or(Error::Exhausted) {
                     Ok(tx_token) => {
                         if let Err(e) = self.inner.dispatch_ieee802154_out_packet(
                             tx_token,
@@ -864,11 +854,11 @@ where
         }
 
         loop {
-            let processed_any = self.socket_ingress(sockets);
-            let emitted_any = self.socket_egress(sockets);
+            let processed_any = self.socket_ingress(device, sockets);
+            let emitted_any = self.socket_egress(device, sockets);
 
             #[cfg(feature = "proto-igmp")]
-            self.igmp_egress()?;
+            self.igmp_egress(device)?;
 
             if processed_any || emitted_any {
                 readiness_may_have_changed = true;
@@ -925,10 +915,12 @@ where
         }
     }
 
-    fn socket_ingress(&mut self, sockets: &mut SocketSet<'_>) -> bool {
+    fn socket_ingress<D>(&mut self, device: &mut D, sockets: &mut SocketSet<'_>) -> bool
+    where
+        D: for<'d> Device<'d>,
+    {
         let mut processed_any = false;
         let Self {
-            device,
             inner,
             fragments: _fragments,
             out_packets: _out_packets,
@@ -979,9 +971,11 @@ where
         processed_any
     }
 
-    fn socket_egress(&mut self, sockets: &mut SocketSet<'_>) -> bool {
+    fn socket_egress<D>(&mut self, device: &mut D, sockets: &mut SocketSet<'_>) -> bool
+    where
+        D: for<'d> Device<'d>,
+    {
         let Self {
-            device,
             inner,
             out_packets: _out_packets,
             ..
@@ -1086,7 +1080,10 @@ where
     /// Depending on `igmp_report_state` and the therein contained
     /// timeouts, send IGMP membership reports.
     #[cfg(feature = "proto-igmp")]
-    fn igmp_egress(&mut self) -> Result<bool> {
+    fn igmp_egress<D>(&mut self, device: &mut D) -> Result<bool>
+    where
+        D: for<'d> Device<'d>,
+    {
         match self.inner.igmp_report_state {
             IgmpReportState::ToSpecificQuery {
                 version,
@@ -1095,7 +1092,7 @@ where
             } if self.inner.now >= timeout => {
                 if let Some(pkt) = self.inner.igmp_report_packet(version, group) {
                     // Send initial membership report
-                    let tx_token = self.device.transmit().ok_or(Error::Exhausted)?;
+                    let tx_token = device.transmit().ok_or(Error::Exhausted)?;
                     self.inner.dispatch_ip(tx_token, pkt, None)?;
                 }
 
@@ -1119,7 +1116,7 @@ where
                     Some(addr) => {
                         if let Some(pkt) = self.inner.igmp_report_packet(version, addr) {
                             // Send initial membership report
-                            let tx_token = self.device.transmit().ok_or(Error::Exhausted)?;
+                            let tx_token = device.transmit().ok_or(Error::Exhausted)?;
                             self.inner.dispatch_ip(tx_token, pkt, None)?;
                         }
 
@@ -3142,18 +3139,18 @@ mod test {
         }
     }
 
-    fn create_loopback<'a>() -> (Interface<'a, Loopback>, SocketSet<'a>) {
+    fn create<'a>() -> (Interface<'a>, SocketSet<'a>, Loopback) {
         #[cfg(feature = "medium-ethernet")]
-        return create_loopback_ethernet();
+        return create_ethernet();
         #[cfg(not(feature = "medium-ethernet"))]
-        return create_loopback_ip();
+        return create_ip();
     }
 
     #[cfg(all(feature = "medium-ip"))]
     #[allow(unused)]
-    fn create_loopback_ip<'a>() -> (Interface<'a, Loopback>, SocketSet<'a>) {
+    fn create_ip<'a>() -> (Interface<'a>, SocketSet<'a>, Loopback) {
         // Create a basic device
-        let device = Loopback::new(Medium::Ip);
+        let mut device = Loopback::new(Medium::Ip);
         let ip_addrs = [
             #[cfg(feature = "proto-ipv4")]
             IpCidr::new(IpAddress::v4(127, 0, 0, 1), 8),
@@ -3163,18 +3160,18 @@ mod test {
             IpCidr::new(IpAddress::v6(0xfdbe, 0, 0, 0, 0, 0, 0, 1), 64),
         ];
 
-        let iface_builder = InterfaceBuilder::new(device).ip_addrs(ip_addrs);
+        let iface_builder = InterfaceBuilder::new().ip_addrs(ip_addrs);
         #[cfg(feature = "proto-igmp")]
         let iface_builder = iface_builder.ipv4_multicast_groups(BTreeMap::new());
-        let iface = iface_builder.finalize();
+        let iface = iface_builder.finalize(&mut device);
 
-        (iface, SocketSet::new(vec![]))
+        (iface, SocketSet::new(vec![]), device)
     }
 
     #[cfg(all(feature = "medium-ethernet"))]
-    fn create_loopback_ethernet<'a>() -> (Interface<'a, Loopback>, SocketSet<'a>) {
+    fn create_ethernet<'a>() -> (Interface<'a>, SocketSet<'a>, Loopback) {
         // Create a basic device
-        let device = Loopback::new(Medium::Ethernet);
+        let mut device = Loopback::new(Medium::Ethernet);
         let ip_addrs = [
             #[cfg(feature = "proto-ipv4")]
             IpCidr::new(IpAddress::v4(127, 0, 0, 1), 8),
@@ -3185,7 +3182,7 @@ mod test {
         ];
 
         #[cfg(feature = "proto-sixlowpan")]
-        let iface_builder = InterfaceBuilder::new(device)
+        let iface_builder = InterfaceBuilder::new()
             .hardware_addr(EthernetAddress::default().into())
             .neighbor_cache(NeighborCache::new(BTreeMap::new()))
             .sixlowpan_fragments_cache(PacketAssemblerSet::new(vec![], BTreeMap::new()))
@@ -3193,22 +3190,22 @@ mod test {
             .ip_addrs(ip_addrs);
 
         #[cfg(not(feature = "proto-sixlowpan"))]
-        let iface_builder = InterfaceBuilder::new(device)
+        let iface_builder = InterfaceBuilder::new()
             .hardware_addr(EthernetAddress::default().into())
             .neighbor_cache(NeighborCache::new(BTreeMap::new()))
             .ip_addrs(ip_addrs);
 
         #[cfg(feature = "proto-igmp")]
         let iface_builder = iface_builder.ipv4_multicast_groups(BTreeMap::new());
-        let iface = iface_builder.finalize();
+        let iface = iface_builder.finalize(&mut device);
 
-        (iface, SocketSet::new(vec![]))
+        (iface, SocketSet::new(vec![]), device)
     }
 
     #[cfg(feature = "proto-igmp")]
-    fn recv_all(iface: &mut Interface<'_, Loopback>, timestamp: Instant) -> Vec<Vec<u8>> {
+    fn recv_all(device: &mut Loopback, timestamp: Instant) -> Vec<Vec<u8>> {
         let mut pkts = Vec::new();
-        while let Some((rx, _tx)) = iface.device.receive() {
+        while let Some((rx, _tx)) = device.receive() {
             rx.consume(timestamp, |pkt| {
                 pkts.push(pkt.to_vec());
                 Ok(())
@@ -3235,13 +3232,14 @@ mod test {
     #[should_panic(expected = "hardware_addr required option was not set")]
     #[cfg(all(feature = "medium-ethernet"))]
     fn test_builder_initialization_panic() {
-        InterfaceBuilder::new(Loopback::new(Medium::Ethernet)).finalize();
+        let mut device = Loopback::new(Medium::Ethernet);
+        InterfaceBuilder::new().finalize(&mut device);
     }
 
     #[test]
     #[cfg(feature = "proto-ipv4")]
     fn test_no_icmp_no_unicast_ipv4() {
-        let (mut iface, mut sockets) = create_loopback();
+        let (mut iface, mut sockets, _device) = create();
 
         // Unknown Ipv4 Protocol
         //
@@ -3269,7 +3267,7 @@ mod test {
     #[test]
     #[cfg(feature = "proto-ipv6")]
     fn test_no_icmp_no_unicast_ipv6() {
-        let (mut iface, mut sockets) = create_loopback();
+        let (mut iface, mut sockets, _device) = create();
 
         // Unknown Ipv6 Protocol
         //
@@ -3298,7 +3296,7 @@ mod test {
     #[cfg(feature = "proto-ipv4")]
     fn test_icmp_error_no_payload() {
         static NO_BYTES: [u8; 0] = [];
-        let (mut iface, mut sockets) = create_loopback();
+        let (mut iface, mut sockets, _device) = create();
 
         // Unknown Ipv4 Protocol with no payload
         let repr = IpRepr::Ipv4(Ipv4Repr {
@@ -3349,7 +3347,7 @@ mod test {
     #[test]
     #[cfg(feature = "proto-ipv4")]
     fn test_local_subnet_broadcasts() {
-        let (mut iface, _) = create_loopback();
+        let (mut iface, _, _device) = create();
         iface.update_ip_addrs(|addrs| {
             addrs.iter_mut().next().map(|addr| {
                 *addr = IpCidr::Ipv4(Ipv4Cidr::new(Ipv4Address([192, 168, 1, 23]), 24));
@@ -3406,7 +3404,7 @@ mod test {
         static UDP_PAYLOAD: [u8; 12] = [
             0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x2c, 0x20, 0x57, 0x6f, 0x6c, 0x64, 0x21,
         ];
-        let (mut iface, mut sockets) = create_loopback();
+        let (mut iface, mut sockets, _device) = create();
 
         let mut udp_bytes_unicast = vec![0u8; 20];
         let mut udp_bytes_broadcast = vec![0u8; 20];
@@ -3505,7 +3503,7 @@ mod test {
 
         static UDP_PAYLOAD: [u8; 5] = [0x48, 0x65, 0x6c, 0x6c, 0x6f];
 
-        let (mut iface, mut sockets) = create_loopback();
+        let (mut iface, mut sockets, _device) = create();
 
         let rx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 15]);
         let tx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 15]);
@@ -3582,7 +3580,7 @@ mod test {
     fn test_handle_ipv4_broadcast() {
         use crate::wire::{Icmpv4Packet, Icmpv4Repr, Ipv4Packet};
 
-        let (mut iface, mut sockets) = create_loopback();
+        let (mut iface, mut sockets, _device) = create();
 
         let our_ipv4_addr = iface.ipv4_address().unwrap();
         let src_ipv4_addr = Ipv4Address([127, 0, 0, 2]);
@@ -3654,7 +3652,7 @@ mod test {
         #[cfg(feature = "proto-ipv6")]
         const MAX_PAYLOAD_LEN: usize = 1192;
 
-        let (mut iface, mut sockets) = create_loopback();
+        let (mut iface, mut sockets, _device) = create();
 
         #[cfg(all(feature = "proto-ipv4", not(feature = "proto-ipv6")))]
         let src_addr = Ipv4Address([192, 168, 1, 1]);
@@ -3761,7 +3759,7 @@ mod test {
     #[test]
     #[cfg(all(feature = "medium-ethernet", feature = "proto-ipv4"))]
     fn test_handle_valid_arp_request() {
-        let (mut iface, mut sockets) = create_loopback_ethernet();
+        let (mut iface, mut sockets, _device) = create_ethernet();
 
         let mut eth_bytes = vec![0u8; 42];
 
@@ -3813,7 +3811,7 @@ mod test {
     #[test]
     #[cfg(all(feature = "medium-ethernet", feature = "proto-ipv6"))]
     fn test_handle_valid_ndisc_request() {
-        let (mut iface, mut sockets) = create_loopback_ethernet();
+        let (mut iface, mut sockets, _device) = create_ethernet();
 
         let mut eth_bytes = vec![0u8; 86];
 
@@ -3885,7 +3883,7 @@ mod test {
     #[test]
     #[cfg(all(feature = "medium-ethernet", feature = "proto-ipv4"))]
     fn test_handle_other_arp_request() {
-        let (mut iface, mut sockets) = create_loopback_ethernet();
+        let (mut iface, mut sockets, _device) = create_ethernet();
 
         let mut eth_bytes = vec![0u8; 42];
 
@@ -3933,7 +3931,7 @@ mod test {
         not(feature = "medium-ieee802154")
     ))]
     fn test_arp_flush_after_update_ip() {
-        let (mut iface, mut sockets) = create_loopback_ethernet();
+        let (mut iface, mut sockets, _device) = create_ethernet();
 
         let mut eth_bytes = vec![0u8; 42];
 
@@ -4000,7 +3998,7 @@ mod test {
     fn test_icmpv4_socket() {
         use crate::wire::Icmpv4Packet;
 
-        let (mut iface, mut sockets) = create_loopback();
+        let (mut iface, mut sockets, _device) = create();
 
         let rx_buffer = icmp::PacketBuffer::new(vec![icmp::PacketMetadata::EMPTY], vec![0; 24]);
         let tx_buffer = icmp::PacketBuffer::new(vec![icmp::PacketMetadata::EMPTY], vec![0; 24]);
@@ -4071,7 +4069,7 @@ mod test {
     #[test]
     #[cfg(feature = "proto-ipv6")]
     fn test_solicited_node_addrs() {
-        let (mut iface, _) = create_loopback();
+        let (mut iface, _, _device) = create();
         let mut new_addrs = vec![
             IpCidr::new(IpAddress::v6(0xfe80, 0, 0, 0, 1, 2, 0, 2), 64),
             IpCidr::new(IpAddress::v6(0xfe80, 0, 0, 0, 3, 4, 0, 0xffff), 64),
@@ -4094,7 +4092,7 @@ mod test {
     #[test]
     #[cfg(feature = "proto-ipv6")]
     fn test_icmpv6_nxthdr_unknown() {
-        let (mut iface, mut sockets) = create_loopback();
+        let (mut iface, mut sockets, _device) = create();
 
         let remote_ip_addr = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
 
@@ -4157,13 +4155,10 @@ mod test {
     #[test]
     #[cfg(feature = "proto-igmp")]
     fn test_handle_igmp() {
-        fn recv_igmp(
-            iface: &mut Interface<'_, Loopback>,
-            timestamp: Instant,
-        ) -> Vec<(Ipv4Repr, IgmpRepr)> {
-            let caps = iface.device.capabilities();
+        fn recv_igmp(device: &mut Loopback, timestamp: Instant) -> Vec<(Ipv4Repr, IgmpRepr)> {
+            let caps = device.capabilities();
             let checksum_caps = &caps.checksum;
-            recv_all(iface, timestamp)
+            recv_all(device, timestamp)
                 .iter()
                 .filter_map(|frame| {
                     let ipv4_packet = match caps.medium {
@@ -4191,15 +4186,17 @@ mod test {
             Ipv4Address::new(224, 0, 0, 56),
         ];
 
-        let (mut iface, mut sockets) = create_loopback();
+        let (mut iface, mut sockets, mut device) = create();
 
         // Join multicast groups
         let timestamp = Instant::now();
         for group in &groups {
-            iface.join_multicast_group(*group, timestamp).unwrap();
+            iface
+                .join_multicast_group(&mut device, *group, timestamp)
+                .unwrap();
         }
 
-        let reports = recv_igmp(&mut iface, timestamp);
+        let reports = recv_igmp(&mut device, timestamp);
         assert_eq!(reports.len(), 2);
         for (i, group_addr) in groups.iter().enumerate() {
             assert_eq!(reports[i].0.next_header, IpProtocol::Igmp);
@@ -4223,7 +4220,7 @@ mod test {
         ];
         {
             // Transmit GENERAL_QUERY_BYTES into loopback
-            let tx_token = iface.device.transmit().unwrap();
+            let tx_token = device.transmit().unwrap();
             tx_token
                 .consume(timestamp, GENERAL_QUERY_BYTES.len(), |buffer| {
                     buffer.copy_from_slice(GENERAL_QUERY_BYTES);
@@ -4235,15 +4232,17 @@ mod test {
         // loopback have been processed, including responses to
         // GENERAL_QUERY_BYTES. Therefore `recv_all()` would return 0
         // pkts that could be checked.
-        iface.socket_ingress(&mut sockets);
+        iface.socket_ingress(&mut device, &mut sockets);
 
         // Leave multicast groups
         let timestamp = Instant::now();
         for group in &groups {
-            iface.leave_multicast_group(*group, timestamp).unwrap();
+            iface
+                .leave_multicast_group(&mut device, *group, timestamp)
+                .unwrap();
         }
 
-        let leaves = recv_igmp(&mut iface, timestamp);
+        let leaves = recv_igmp(&mut device, timestamp);
         assert_eq!(leaves.len(), 2);
         for (i, group_addr) in groups.iter().cloned().enumerate() {
             assert_eq!(leaves[i].0.next_header, IpProtocol::Igmp);
@@ -4257,7 +4256,7 @@ mod test {
     fn test_raw_socket_no_reply() {
         use crate::wire::{IpVersion, Ipv4Packet, UdpPacket, UdpRepr};
 
-        let (mut iface, mut sockets) = create_loopback();
+        let (mut iface, mut sockets, _device) = create();
 
         let packets = 1;
         let rx_buffer =
@@ -4324,7 +4323,7 @@ mod test {
 
         static UDP_PAYLOAD: [u8; 5] = [0x48, 0x65, 0x6c, 0x6c, 0x6f];
 
-        let (mut iface, mut sockets) = create_loopback();
+        let (mut iface, mut sockets, _device) = create();
 
         let udp_rx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 15]);
         let udp_tx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 15]);

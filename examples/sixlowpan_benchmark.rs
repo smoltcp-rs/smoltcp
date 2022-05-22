@@ -139,7 +139,8 @@ fn main() {
     let device = RawSocket::new("wpan1", Medium::Ieee802154).unwrap();
 
     let fd = device.as_raw_fd();
-    let device = utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
+    let mut device =
+        utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
 
     let mode = match matches.free[0].as_ref() {
         "reader" => Client::Reader,
@@ -167,7 +168,7 @@ fn main() {
 
     let cache = FragmentsCache::new(vec![], BTreeMap::new());
 
-    let mut builder = InterfaceBuilder::new(device)
+    let mut builder = InterfaceBuilder::new()
         .ip_addrs(ip_addrs)
         .pan_id(Ieee802154Pan(0xbeef));
     builder = builder
@@ -175,7 +176,7 @@ fn main() {
         .neighbor_cache(neighbor_cache)
         .sixlowpan_fragments_cache(cache)
         .sixlowpan_out_packet_cache(vec![]);
-    let mut iface = builder.finalize();
+    let mut iface = builder.finalize(&mut device);
 
     let mut sockets = SocketSet::new(vec![]);
     let tcp1_handle = sockets.add(tcp1_socket);
@@ -188,7 +189,7 @@ fn main() {
 
     while !CLIENT_DONE.load(Ordering::SeqCst) {
         let timestamp = Instant::now();
-        match iface.poll(timestamp, &mut sockets) {
+        match iface.poll(timestamp, &mut device, &mut sockets) {
             Ok(_) => {}
             Err(e) => {
                 debug!("poll error: {}", e);

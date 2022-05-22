@@ -26,7 +26,8 @@ fn main() {
     let mut matches = utils::parse_options(&opts, free);
     let device = utils::parse_tuntap_options(&mut matches);
     let fd = device.as_raw_fd();
-    let device = utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
+    let mut device =
+        utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
     let neighbor_cache = NeighborCache::new(BTreeMap::new());
 
     let local_addr = Ipv4Address::new(192, 168, 69, 2);
@@ -34,17 +35,17 @@ fn main() {
     let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x02]);
     let ip_addr = IpCidr::new(IpAddress::from(local_addr), 24);
     let mut ipv4_multicast_storage = [None; 1];
-    let mut iface = InterfaceBuilder::new(device)
+    let mut iface = InterfaceBuilder::new()
         .hardware_addr(ethernet_addr.into())
         .neighbor_cache(neighbor_cache)
         .ip_addrs([ip_addr])
         .ipv4_multicast_groups(&mut ipv4_multicast_storage[..])
-        .finalize();
+        .finalize(&mut device);
 
     let now = Instant::now();
     // Join a multicast group to receive mDNS traffic
     iface
-        .join_multicast_group(Ipv4Address::from_bytes(&MDNS_GROUP), now)
+        .join_multicast_group(&mut device, Ipv4Address::from_bytes(&MDNS_GROUP), now)
         .unwrap();
 
     let mut sockets = SocketSet::new(vec![]);
@@ -70,7 +71,7 @@ fn main() {
 
     loop {
         let timestamp = Instant::now();
-        match iface.poll(timestamp, &mut sockets) {
+        match iface.poll(timestamp, &mut device, &mut sockets) {
             Ok(_) => {}
             Err(e) => {
                 debug!("poll error: {}", e);

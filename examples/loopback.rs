@@ -71,7 +71,7 @@ fn main() {
     let device = Loopback::new(Medium::Ethernet);
 
     #[cfg(feature = "std")]
-    let device = {
+    let mut device = {
         let clock = clock.clone();
         utils::setup_logging_with_clock("", move || clock.elapsed());
 
@@ -86,11 +86,11 @@ fn main() {
     let mut neighbor_cache = NeighborCache::new(&mut neighbor_cache_entries[..]);
 
     let mut ip_addrs = [IpCidr::new(IpAddress::v4(127, 0, 0, 1), 8)];
-    let mut iface = InterfaceBuilder::new(device)
+    let mut iface = InterfaceBuilder::new()
         .hardware_addr(EthernetAddress::default().into())
         .neighbor_cache(neighbor_cache)
         .ip_addrs(ip_addrs)
-        .finalize();
+        .finalize(&mut device);
 
     let server_socket = {
         // It is not strictly necessary to use a `static mut` and unsafe code here, but
@@ -121,7 +121,7 @@ fn main() {
     let mut did_connect = false;
     let mut done = false;
     while !done && clock.elapsed() < Instant::from_millis(10_000) {
-        match iface.poll(clock.elapsed(), &mut sockets) {
+        match iface.poll(clock.elapsed(), &mut device, &mut sockets) {
             Ok(_) => {}
             Err(e) => {
                 debug!("poll error: {}", e);
