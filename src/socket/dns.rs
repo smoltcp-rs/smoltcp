@@ -4,7 +4,7 @@ use core::task::Waker;
 use heapless::Vec;
 use managed::ManagedSlice;
 
-use crate::socket::{Context, PollAt};
+use crate::socket::{Interface, PollAt};
 use crate::time::{Duration, Instant};
 use crate::wire::dns::{Flags, Opcode, Packet, Question, Rcode, Record, RecordData, Repr, Type};
 use crate::wire::{self, IpAddress, IpProtocol, IpRepr, UdpRepr};
@@ -182,7 +182,7 @@ impl<'a> Socket<'a> {
     /// the same (there's no support for DNS search path).
     pub fn start_query(
         &mut self,
-        cx: &mut Context,
+        iface: &mut Interface,
         name: &str,
     ) -> Result<QueryHandle, StartQueryError> {
         let mut name = name.as_bytes();
@@ -223,7 +223,7 @@ impl<'a> Socket<'a> {
             .push(0x00)
             .map_err(|_| StartQueryError::NameTooLong)?;
 
-        self.start_query_raw(cx, &raw_name)
+        self.start_query_raw(iface, &raw_name)
     }
 
     /// Start a query with a raw (wire-format) DNS name.
@@ -232,7 +232,7 @@ impl<'a> Socket<'a> {
     /// You probably want to use [`start_query`] instead.
     pub fn start_query_raw(
         &mut self,
-        cx: &mut Context,
+        iface: &mut Interface,
         raw_name: &[u8],
     ) -> Result<QueryHandle, StartQueryError> {
         let handle = self.find_free_query().ok_or(StartQueryError::NoFreeSlot)?;
@@ -241,8 +241,8 @@ impl<'a> Socket<'a> {
             state: State::Pending(PendingQuery {
                 name: Vec::from_slice(raw_name).map_err(|_| StartQueryError::NameTooLong)?,
                 type_: Type::A,
-                txid: cx.rand().rand_u16(),
-                port: cx.rand().rand_source_port(),
+                txid: iface.rand().rand_u16(),
+                port: iface.rand().rand_source_port(),
                 delay: RETRANSMIT_DELAY,
                 timeout_at: None,
                 retransmit_at: Instant::ZERO,
@@ -321,7 +321,7 @@ impl<'a> Socket<'a> {
 
     pub(crate) fn process(
         &mut self,
-        _cx: &mut Context,
+        _iface: &mut Interface,
         ip_repr: &IpRepr,
         udp_repr: &UdpRepr,
         payload: &[u8],
@@ -473,9 +473,9 @@ impl<'a> Socket<'a> {
         net_trace!("no query matched");
     }
 
-    pub(crate) fn dispatch<F, E>(&mut self, cx: &mut Context, emit: F) -> Result<(), E>
+    pub(crate) fn dispatch<F, E>(&mut self, iface: &mut Interface, emit: F) -> Result<(), E>
     where
-        F: FnOnce(&mut Context, (IpRepr, UdpRepr, &[u8])) -> Result<(), E>,
+        F: FnOnce(&mut Interface, (IpRepr, UdpRepr, &[u8])) -> Result<(), E>,
     {
         let hop_limit = self.hop_limit.unwrap_or(64);
 
@@ -484,15 +484,15 @@ impl<'a> Socket<'a> {
                 let timeout = if let Some(timeout) = pq.timeout_at {
                     timeout
                 } else {
-                    let v = cx.now() + RETRANSMIT_TIMEOUT;
+                    let v = iface.now() + RETRANSMIT_TIMEOUT;
                     pq.timeout_at = Some(v);
                     v
                 };
 
                 // Check timeout
-                if timeout < cx.now() {
+                if timeout < iface.now() {
                     // DNS timeout
-                    pq.timeout_at = Some(cx.now() + RETRANSMIT_TIMEOUT);
+                    pq.timeout_at = Some(iface.now() + RETRANSMIT_TIMEOUT);
                     pq.retransmit_at = Instant::ZERO;
                     pq.delay = RETRANSMIT_DELAY;
 
@@ -514,7 +514,7 @@ impl<'a> Socket<'a> {
                     continue;
                 }
 
-                if pq.retransmit_at > cx.now() {
+                if pq.retransmit_at > iface.now() {
                     // query is waiting for retransmit
                     continue;
                 }
@@ -539,7 +539,7 @@ impl<'a> Socket<'a> {
                 };
 
                 let dst_addr = self.servers[pq.server_idx];
-                let src_addr = cx.get_source_address(dst_addr).unwrap(); // TODO remove unwrap
+                let src_addr = iface.get_source_address(dst_addr).unwrap(); // TODO remove unwrap
                 let ip_repr = IpRepr::new(
                     src_addr,
                     dst_addr,
@@ -555,9 +555,9 @@ impl<'a> Socket<'a> {
                     udp_repr.src_port
                 );
 
-                emit(cx, (ip_repr, udp_repr, payload))?;
+                emit(iface, (ip_repr, udp_repr, payload))?;
 
-                pq.retransmit_at = cx.now() + pq.delay;
+                pq.retransmit_at = iface.now() + pq.delay;
                 pq.delay = MAX_RETRANSMIT_DELAY.min(pq.delay * 2);
 
                 return Ok(());
@@ -568,7 +568,7 @@ impl<'a> Socket<'a> {
         Ok(())
     }
 
-    pub(crate) fn poll_at(&self, _cx: &Context) -> PollAt {
+    pub(crate) fn poll_at(&self, _cx: &Interface) -> PollAt {
         self.queries
             .iter()
             .flatten()

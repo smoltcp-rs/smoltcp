@@ -132,11 +132,11 @@ fuzz_target!(|data: &[u8]| {
     let neighbor_cache = NeighborCache::new(&mut neighbor_cache_entries[..]);
 
     let ip_addrs = [IpCidr::new(IpAddress::v4(127, 0, 0, 1), 8)];
-    let mut iface = InterfaceBuilder::new(device)
+    let mut iface = InterfaceBuilder::new()
         .ethernet_addr(EthernetAddress::default())
         .neighbor_cache(neighbor_cache)
         .ip_addrs(ip_addrs)
-        .finalize();
+        .finalize(&mut device);
 
     let server_socket = {
         // It is not strictly necessary to use a `static mut` and unsafe code here, but

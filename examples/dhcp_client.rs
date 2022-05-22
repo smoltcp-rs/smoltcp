@@ -25,7 +25,8 @@ fn main() {
     let mut matches = utils::parse_options(&opts, free);
     let device = utils::parse_tuntap_options(&mut matches);
     let fd = device.as_raw_fd();
-    let device = utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
+    let mut device =
+        utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
 
     let neighbor_cache = NeighborCache::new(BTreeMap::new());
     let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
@@ -34,15 +35,13 @@ fn main() {
     let routes = Routes::new(&mut routes_storage[..]);
 
     let medium = device.capabilities().medium;
-    let mut builder = InterfaceBuilder::new(device)
-        .ip_addrs(ip_addrs)
-        .routes(routes);
+    let mut builder = InterfaceBuilder::new().ip_addrs(ip_addrs).routes(routes);
     if medium == Medium::Ethernet {
         builder = builder
             .hardware_addr(ethernet_addr.into())
             .neighbor_cache(neighbor_cache);
     }
-    let mut iface = builder.finalize();
+    let mut iface = builder.finalize(&mut device);
 
     let mut dhcp_socket = dhcpv4::Socket::new();
 
@@ -57,7 +56,7 @@ fn main() {
 
     loop {
         let timestamp = Instant::now();
-        if let Err(e) = iface.poll(timestamp, &mut sockets) {
+        if let Err(e) = iface.poll(timestamp, &mut device, &mut sockets) {
             debug!("poll error: {}", e);
         }
 
@@ -95,10 +94,7 @@ fn main() {
     }
 }
 
-fn set_ipv4_addr<DeviceT>(iface: &mut Interface<'_, DeviceT>, cidr: Ipv4Cidr)
-where
-    DeviceT: for<'d> Device<'d>,
-{
+fn set_ipv4_addr(iface: &mut Interface<'_>, cidr: Ipv4Cidr) {
     iface.update_ip_addrs(|addrs| {
         let dest = addrs.iter_mut().next().unwrap();
         *dest = IpCidr::Ipv4(cidr);

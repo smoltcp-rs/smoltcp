@@ -1,4 +1,4 @@
-use crate::iface::Context;
+use crate::iface::Interface;
 use crate::time::{Duration, Instant};
 use crate::wire::dhcpv4::field as dhcpv4_field;
 use crate::wire::HardwareAddress;
@@ -180,7 +180,7 @@ impl Socket {
         self.ignore_naks = ignore_naks;
     }
 
-    pub(crate) fn poll_at(&self, _cx: &mut Context) -> PollAt {
+    pub(crate) fn poll_at(&self, _iface: &mut Interface) -> PollAt {
         let t = match &self.state {
             ClientState::Discovering(state) => state.retry_at,
             ClientState::Requesting(state) => state.retry_at,
@@ -191,7 +191,7 @@ impl Socket {
 
     pub(crate) fn process(
         &mut self,
-        cx: &mut Context,
+        iface: &mut Interface,
         ip_repr: &Ipv4Repr,
         repr: &UdpRepr,
         payload: &[u8],
@@ -215,8 +215,8 @@ impl Socket {
                 return;
             }
         };
-        let hardware_addr = match cx.hardware_addr() {
-            Some(HardwareAddress::Ethernet(addr)) => addr,
+        let hardware_addr = match iface.hardware_addr() {
+            HardwareAddress::Ethernet(addr) => addr,
             _ => return,
         };
 
@@ -252,7 +252,7 @@ impl Socket {
                 }
 
                 self.state = ClientState::Requesting(RequestState {
-                    retry_at: cx.now(),
+                    retry_at: iface.now(),
                     retry: 0,
                     server: ServerInfo {
                         address: src_ip,
@@ -263,7 +263,7 @@ impl Socket {
             }
             (ClientState::Requesting(state), DhcpMessageType::Ack) => {
                 if let Some((config, renew_at, expires_at)) =
-                    Self::parse_ack(cx.now(), &dhcp_repr, self.max_lease_duration)
+                    Self::parse_ack(iface.now(), &dhcp_repr, self.max_lease_duration)
                 {
                     self.config_changed = true;
                     self.state = ClientState::Renewing(RenewState {
@@ -281,7 +281,7 @@ impl Socket {
             }
             (ClientState::Renewing(state), DhcpMessageType::Ack) => {
                 if let Some((config, renew_at, expires_at)) =
-                    Self::parse_ack(cx.now(), &dhcp_repr, self.max_lease_duration)
+                    Self::parse_ack(iface.now(), &dhcp_repr, self.max_lease_duration)
                 {
                     state.renew_at = renew_at;
                     state.expires_at = expires_at;
@@ -366,22 +366,22 @@ impl Socket {
     }
 
     #[cfg(not(test))]
-    fn random_transaction_id(cx: &mut Context) -> u32 {
-        cx.rand().rand_u32()
+    fn random_transaction_id(iface: &mut Interface) -> u32 {
+        iface.rand().rand_u32()
     }
 
     #[cfg(test)]
-    fn random_transaction_id(_cx: &mut Context) -> u32 {
+    fn random_transaction_id(_iface: &mut Interface) -> u32 {
         0x12345678
     }
 
-    pub(crate) fn dispatch<F, E>(&mut self, cx: &mut Context, emit: F) -> Result<(), E>
+    pub(crate) fn dispatch<F, E>(&mut self, iface: &mut Interface, emit: F) -> Result<(), E>
     where
-        F: FnOnce(&mut Context, (Ipv4Repr, UdpRepr, DhcpRepr)) -> Result<(), E>,
+        F: FnOnce(&mut Interface, (Ipv4Repr, UdpRepr, DhcpRepr)) -> Result<(), E>,
     {
         // note: Dhcpv4Socket is only usable in ethernet mediums, so the
         // unwrap can never fail.
-        let ethernet_addr = if let Some(HardwareAddress::Ethernet(addr)) = cx.hardware_addr() {
+        let ethernet_addr = if let HardwareAddress::Ethernet(addr) = iface.hardware_addr() {
             addr
         } else {
             panic!("using DHCPv4 socket with a non-ethernet hardware address.");
@@ -393,7 +393,7 @@ impl Socket {
 
         // We don't directly modify self.transaction_id because sending the packet
         // may fail. We only want to update state after succesfully sending.
-        let next_transaction_id = Self::random_transaction_id(cx);
+        let next_transaction_id = Self::random_transaction_id(iface);
 
         let mut dhcp_repr = DhcpRepr {
             message_type: DhcpMessageType::Discover,
@@ -410,7 +410,7 @@ impl Socket {
             client_identifier: Some(ethernet_addr),
             server_identifier: None,
             parameter_request_list: Some(PARAMETER_REQUEST_LIST),
-            max_size: Some((cx.ip_mtu() - MAX_IPV4_HEADER_LEN - UDP_HEADER_LEN) as u16),
+            max_size: Some((iface.ip_mtu() - MAX_IPV4_HEADER_LEN - UDP_HEADER_LEN) as u16),
             lease_duration: None,
             dns_servers: None,
         };
@@ -430,7 +430,7 @@ impl Socket {
 
         match &mut self.state {
             ClientState::Discovering(state) => {
-                if cx.now() < state.retry_at {
+                if iface.now() < state.retry_at {
                     return Ok(());
                 }
 
@@ -441,15 +441,15 @@ impl Socket {
                     dhcp_repr
                 );
                 ipv4_repr.payload_len = udp_repr.header_len() + dhcp_repr.buffer_len();
-                emit(cx, (ipv4_repr, udp_repr, dhcp_repr))?;
+                emit(iface, (ipv4_repr, udp_repr, dhcp_repr))?;
 
                 // Update state AFTER the packet has been successfully sent.
-                state.retry_at = cx.now() + DISCOVER_TIMEOUT;
+                state.retry_at = iface.now() + DISCOVER_TIMEOUT;
                 self.transaction_id = next_transaction_id;
                 Ok(())
             }
             ClientState::Requesting(state) => {
-                if cx.now() < state.retry_at {
+                if iface.now() < state.retry_at {
                     return Ok(());
                 }
 
@@ -469,24 +469,24 @@ impl Socket {
                     dhcp_repr
                 );
                 ipv4_repr.payload_len = udp_repr.header_len() + dhcp_repr.buffer_len();
-                emit(cx, (ipv4_repr, udp_repr, dhcp_repr))?;
+                emit(iface, (ipv4_repr, udp_repr, dhcp_repr))?;
 
                 // Exponential backoff: Double every 2 retries.
-                state.retry_at = cx.now() + (REQUEST_TIMEOUT << (state.retry as u32 / 2));
+                state.retry_at = iface.now() + (REQUEST_TIMEOUT << (state.retry as u32 / 2));
                 state.retry += 1;
 
                 self.transaction_id = next_transaction_id;
                 Ok(())
             }
             ClientState::Renewing(state) => {
-                if state.expires_at <= cx.now() {
+                if state.expires_at <= iface.now() {
                     net_debug!("DHCP lease expired");
                     self.reset();
                     // return Ok so we get polled again
                     return Ok(());
                 }
 
-                if cx.now() < state.renew_at {
+                if iface.now() < state.renew_at {
                     return Ok(());
                 }
 
@@ -497,7 +497,7 @@ impl Socket {
 
                 net_debug!("DHCP send renew to {}: {:?}", ipv4_repr.dst_addr, dhcp_repr);
                 ipv4_repr.payload_len = udp_repr.header_len() + dhcp_repr.buffer_len();
-                emit(cx, (ipv4_repr, udp_repr, dhcp_repr))?;
+                emit(iface, (ipv4_repr, udp_repr, dhcp_repr))?;
 
                 // In both RENEWING and REBINDING states, if the client receives no
                 // response to its DHCPREQUEST message, the client SHOULD wait one-half
@@ -505,7 +505,7 @@ impl Socket {
                 // the remaining lease time (in REBINDING state), down to a minimum of
                 // 60 seconds, before retransmitting the DHCPREQUEST message.
                 state.renew_at =
-                    cx.now() + MIN_RENEW_TIMEOUT.max((state.expires_at - cx.now()) / 2);
+                    iface.now() + MIN_RENEW_TIMEOUT.max((state.expires_at - iface.now()) / 2);
 
                 self.transaction_id = next_transaction_id;
                 Ok(())
@@ -558,7 +558,7 @@ mod test {
 
     struct TestSocket {
         socket: Socket,
-        cx: Context<'static>,
+        cx: Interface<'static>,
     }
 
     impl Deref for TestSocket {
@@ -795,7 +795,7 @@ mod test {
         assert_eq!(s.poll(), Some(Event::Deconfigured));
         TestSocket {
             socket: s,
-            cx: Context::mock(),
+            cx: Interface::mock(),
         }
     }
 

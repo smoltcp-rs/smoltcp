@@ -5,7 +5,7 @@ use core::task::Waker;
 use crate::phy::ChecksumCapabilities;
 #[cfg(feature = "async")]
 use crate::socket::WakerRegistration;
-use crate::socket::{Context, PollAt};
+use crate::socket::{Interface, PollAt};
 
 use crate::storage::Empty;
 use crate::wire::IcmpRepr;
@@ -347,7 +347,12 @@ impl<'a> Socket<'a> {
 
     /// Filter determining which packets received by the interface are appended to
     /// the given sockets received buffer.
-    pub(crate) fn accepts(&self, cx: &mut Context, ip_repr: &IpRepr, icmp_repr: &IcmpRepr) -> bool {
+    pub(crate) fn accepts(
+        &self,
+        iface: &mut Interface,
+        ip_repr: &IpRepr,
+        icmp_repr: &IcmpRepr,
+    ) -> bool {
         match (&self.endpoint, icmp_repr) {
             // If we are bound to ICMP errors associated to a UDP port, only
             // accept Destination Unreachable messages with the data containing
@@ -362,7 +367,7 @@ impl<'a> Socket<'a> {
                     &packet,
                     &ip_repr.src_addr(),
                     &ip_repr.dst_addr(),
-                    &cx.checksum_caps(),
+                    &iface.checksum_caps(),
                 ) {
                     Ok(repr) => endpoint.port == repr.src_port,
                     Err(_) => false,
@@ -378,7 +383,7 @@ impl<'a> Socket<'a> {
                     &packet,
                     &ip_repr.src_addr(),
                     &ip_repr.dst_addr(),
-                    &cx.checksum_caps(),
+                    &iface.checksum_caps(),
                 ) {
                     Ok(repr) => endpoint.port == repr.src_port,
                     Err(_) => false,
@@ -409,7 +414,12 @@ impl<'a> Socket<'a> {
         }
     }
 
-    pub(crate) fn process(&mut self, _cx: &mut Context, ip_repr: &IpRepr, icmp_repr: &IcmpRepr) {
+    pub(crate) fn process(
+        &mut self,
+        _iface: &mut Interface,
+        ip_repr: &IpRepr,
+        icmp_repr: &IcmpRepr,
+    ) {
         match *icmp_repr {
             #[cfg(feature = "proto-ipv4")]
             IcmpRepr::Ipv4(ref icmp_repr) => {
@@ -451,9 +461,9 @@ impl<'a> Socket<'a> {
         self.rx_waker.wake();
     }
 
-    pub(crate) fn dispatch<F, E>(&mut self, cx: &mut Context, emit: F) -> Result<(), E>
+    pub(crate) fn dispatch<F, E>(&mut self, iface: &mut Interface, emit: F) -> Result<(), E>
     where
-        F: FnOnce(&mut Context, (IpRepr, IcmpRepr)) -> Result<(), E>,
+        F: FnOnce(&mut Interface, (IpRepr, IcmpRepr)) -> Result<(), E>,
     {
         let hop_limit = self.hop_limit.unwrap_or(64);
         let res = self.tx_buffer.dequeue_with(|remote_endpoint, packet_buf| {
@@ -465,7 +475,7 @@ impl<'a> Socket<'a> {
             match *remote_endpoint {
                 #[cfg(feature = "proto-ipv4")]
                 IpAddress::Ipv4(dst_addr) => {
-                    let src_addr = match cx.get_source_address_ipv4(dst_addr) {
+                    let src_addr = match iface.get_source_address_ipv4(dst_addr) {
                         Some(addr) => addr,
                         None => {
                             net_trace!(
@@ -493,11 +503,11 @@ impl<'a> Socket<'a> {
                         payload_len: repr.buffer_len(),
                         hop_limit: hop_limit,
                     });
-                    emit(cx, (ip_repr, IcmpRepr::Ipv4(repr)))
+                    emit(iface, (ip_repr, IcmpRepr::Ipv4(repr)))
                 }
                 #[cfg(feature = "proto-ipv6")]
                 IpAddress::Ipv6(dst_addr) => {
-                    let src_addr = match cx.get_source_address_ipv6(dst_addr) {
+                    let src_addr = match iface.get_source_address_ipv6(dst_addr) {
                         Some(addr) => addr,
                         None => {
                             net_trace!(
@@ -530,7 +540,7 @@ impl<'a> Socket<'a> {
                         payload_len: repr.buffer_len(),
                         hop_limit: hop_limit,
                     });
-                    emit(cx, (ip_repr, IcmpRepr::Ipv6(repr)))
+                    emit(iface, (ip_repr, IcmpRepr::Ipv6(repr)))
                 }
             }
         });
@@ -545,7 +555,7 @@ impl<'a> Socket<'a> {
         }
     }
 
-    pub(crate) fn poll_at(&self, _cx: &mut Context) -> PollAt {
+    pub(crate) fn poll_at(&self, _iface: &mut Interface) -> PollAt {
         if self.tx_buffer.is_empty() {
             PollAt::Ingress
         } else {
@@ -629,7 +639,7 @@ mod test_ipv4 {
     #[test]
     fn test_send_dispatch() {
         let mut socket = socket(buffer(0), buffer(1));
-        let mut cx = Context::mock();
+        let mut cx = Interface::mock();
         let checksum = ChecksumCapabilities::default();
 
         assert_eq!(
@@ -684,7 +694,7 @@ mod test_ipv4 {
     #[test]
     fn test_set_hop_limit_v4() {
         let mut s = socket(buffer(0), buffer(1));
-        let mut cx = Context::mock();
+        let mut cx = Interface::mock();
         let checksum = ChecksumCapabilities::default();
 
         let mut bytes = [0xff; 24];
@@ -718,7 +728,7 @@ mod test_ipv4 {
     #[test]
     fn test_recv_process() {
         let mut socket = socket(buffer(1), buffer(1));
-        let mut cx = Context::mock();
+        let mut cx = Interface::mock();
         assert_eq!(socket.bind(Endpoint::Ident(0x1234)), Ok(()));
 
         assert!(!socket.can_recv());
@@ -745,7 +755,7 @@ mod test_ipv4 {
     #[test]
     fn test_accept_bad_id() {
         let mut socket = socket(buffer(1), buffer(1));
-        let mut cx = Context::mock();
+        let mut cx = Interface::mock();
         assert_eq!(socket.bind(Endpoint::Ident(0x1234)), Ok(()));
 
         let checksum = ChecksumCapabilities::default();
@@ -766,7 +776,7 @@ mod test_ipv4 {
     #[test]
     fn test_accepts_udp() {
         let mut socket = socket(buffer(1), buffer(1));
-        let mut cx = Context::mock();
+        let mut cx = Interface::mock();
         assert_eq!(socket.bind(Endpoint::Udp(LOCAL_END_V4.into())), Ok(()));
 
         let checksum = ChecksumCapabilities::default();
@@ -872,7 +882,7 @@ mod test_ipv6 {
     #[test]
     fn test_send_dispatch() {
         let mut socket = socket(buffer(0), buffer(1));
-        let mut cx = Context::mock();
+        let mut cx = Interface::mock();
         let checksum = ChecksumCapabilities::default();
 
         assert_eq!(
@@ -932,7 +942,7 @@ mod test_ipv6 {
     #[test]
     fn test_set_hop_limit() {
         let mut s = socket(buffer(0), buffer(1));
-        let mut cx = Context::mock();
+        let mut cx = Interface::mock();
         let checksum = ChecksumCapabilities::default();
 
         let mut bytes = vec![0xff; 24];
@@ -971,7 +981,7 @@ mod test_ipv6 {
     #[test]
     fn test_recv_process() {
         let mut socket = socket(buffer(1), buffer(1));
-        let mut cx = Context::mock();
+        let mut cx = Interface::mock();
         assert_eq!(socket.bind(Endpoint::Ident(0x1234)), Ok(()));
 
         assert!(!socket.can_recv());
@@ -1003,7 +1013,7 @@ mod test_ipv6 {
     #[test]
     fn test_accept_bad_id() {
         let mut socket = socket(buffer(1), buffer(1));
-        let mut cx = Context::mock();
+        let mut cx = Interface::mock();
         assert_eq!(socket.bind(Endpoint::Ident(0x1234)), Ok(()));
 
         let checksum = ChecksumCapabilities::default();
@@ -1029,7 +1039,7 @@ mod test_ipv6 {
     #[test]
     fn test_accepts_udp() {
         let mut socket = socket(buffer(1), buffer(1));
-        let mut cx = Context::mock();
+        let mut cx = Interface::mock();
         assert_eq!(socket.bind(Endpoint::Udp(LOCAL_END_V6.into())), Ok(()));
 
         let checksum = ChecksumCapabilities::default();

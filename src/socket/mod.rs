@@ -11,7 +11,7 @@ The interface implemented by this module uses explicit buffering: you decide on 
 size for a buffer, allocate it, and let the networking stack use it.
 */
 
-use crate::iface::Context;
+use crate::iface::Interface;
 use crate::time::Instant;
 
 #[cfg(feature = "socket-dhcpv4")]
@@ -72,20 +72,20 @@ pub enum Socket<'a> {
 }
 
 impl<'a> Socket<'a> {
-    pub(crate) fn poll_at(&self, cx: &mut Context) -> PollAt {
+    pub(crate) fn poll_at(&self, iface: &mut Interface) -> PollAt {
         match self {
             #[cfg(feature = "socket-raw")]
-            Socket::Raw(s) => s.poll_at(cx),
+            Socket::Raw(s) => s.poll_at(iface),
             #[cfg(feature = "socket-icmp")]
-            Socket::Icmp(s) => s.poll_at(cx),
+            Socket::Icmp(s) => s.poll_at(iface),
             #[cfg(feature = "socket-udp")]
-            Socket::Udp(s) => s.poll_at(cx),
+            Socket::Udp(s) => s.poll_at(iface),
             #[cfg(feature = "socket-tcp")]
-            Socket::Tcp(s) => s.poll_at(cx),
+            Socket::Tcp(s) => s.poll_at(iface),
             #[cfg(feature = "socket-dhcpv4")]
-            Socket::Dhcpv4(s) => s.poll_at(cx),
+            Socket::Dhcpv4(s) => s.poll_at(iface),
             #[cfg(feature = "socket-dns")]
-            Socket::Dns(s) => s.poll_at(cx),
+            Socket::Dns(s) => s.poll_at(iface),
         }
     }
 }

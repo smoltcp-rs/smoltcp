@@ -2,7 +2,7 @@ use core::cmp::min;
 #[cfg(feature = "async")]
 use core::task::Waker;
 
-use crate::iface::Context;
+use crate::iface::Interface;
 use crate::socket::PollAt;
 #[cfg(feature = "async")]
 use crate::socket::WakerRegistration;
@@ -235,7 +235,7 @@ impl<'a> Socket<'a> {
         true
     }
 
-    pub(crate) fn process(&mut self, cx: &mut Context, ip_repr: &IpRepr, payload: &[u8]) {
+    pub(crate) fn process(&mut self, iface: &mut Interface, ip_repr: &IpRepr, payload: &[u8]) {
         debug_assert!(self.accepts(ip_repr));
 
         let header_len = ip_repr.buffer_len();
@@ -250,7 +250,7 @@ impl<'a> Socket<'a> {
 
         match self.rx_buffer.enqueue(total_len, ()) {
             Ok(buf) => {
-                ip_repr.emit(&mut buf[..header_len], &cx.checksum_caps());
+                ip_repr.emit(&mut buf[..header_len], &iface.checksum_caps());
                 buf[header_len..].copy_from_slice(payload);
             }
             Err(_) => net_trace!(
@@ -264,13 +264,13 @@ impl<'a> Socket<'a> {
         self.rx_waker.wake();
     }
 
-    pub(crate) fn dispatch<F, E>(&mut self, cx: &mut Context, emit: F) -> Result<(), E>
+    pub(crate) fn dispatch<F, E>(&mut self, iface: &mut Interface, emit: F) -> Result<(), E>
     where
-        F: FnOnce(&mut Context, (IpRepr, &[u8])) -> Result<(), E>,
+        F: FnOnce(&mut Interface, (IpRepr, &[u8])) -> Result<(), E>,
     {
         let ip_protocol = self.ip_protocol;
         let ip_version = self.ip_version;
-        let _checksum_caps = &cx.checksum_caps();
+        let _checksum_caps = &iface.checksum_caps();
         let res = self.tx_buffer.dequeue_with(|&mut (), buffer| {
             match IpVersion::of_packet(buffer) {
                 #[cfg(feature = "proto-ipv4")]
@@ -303,7 +303,7 @@ impl<'a> Socket<'a> {
                         }
                     };
                     net_trace!("raw:{}:{}: sending", ip_version, ip_protocol);
-                    emit(cx, (IpRepr::Ipv4(ipv4_repr), packet.payload()))
+                    emit(iface, (IpRepr::Ipv4(ipv4_repr), packet.payload()))
                 }
                 #[cfg(feature = "proto-ipv6")]
                 Ok(IpVersion::Ipv6) => {
@@ -328,7 +328,7 @@ impl<'a> Socket<'a> {
                     };
 
                     net_trace!("raw:{}:{}: sending", ip_version, ip_protocol);
-                    emit(cx, (IpRepr::Ipv6(ipv6_repr), packet.payload()))
+                    emit(iface, (IpRepr::Ipv6(ipv6_repr), packet.payload()))
                 }
                 Err(_) => {
                     net_trace!("raw: sent packet with invalid IP version, dropping.");
@@ -347,7 +347,7 @@ impl<'a> Socket<'a> {
         }
     }
 
-    pub(crate) fn poll_at(&self, _cx: &mut Context) -> PollAt {
+    pub(crate) fn poll_at(&self, _iface: &mut Interface) -> PollAt {
         if self.tx_buffer.is_empty() {
             PollAt::Ingress
         } else {
@@ -456,7 +456,7 @@ mod test {
                 #[test]
                 fn test_send_dispatch() {
                     let mut socket = $socket(buffer(0), buffer(1));
-                    let mut cx = Context::mock();
+                    let mut cx = Interface::mock();
 
                     assert!(socket.can_send());
                     assert_eq!(
@@ -492,7 +492,7 @@ mod test {
                 #[test]
                 fn test_recv_truncated_slice() {
                     let mut socket = $socket(buffer(1), buffer(0));
-                    let mut cx = Context::mock();
+                    let mut cx = Interface::mock();
 
                     assert!(socket.accepts(&$hdr));
                     socket.process(&mut cx, &$hdr, &$payload);
@@ -505,7 +505,7 @@ mod test {
                 #[test]
                 fn test_recv_truncated_packet() {
                     let mut socket = $socket(buffer(1), buffer(0));
-                    let mut cx = Context::mock();
+                    let mut cx = Interface::mock();
 
                     let mut buffer = vec![0; 128];
                     buffer[..$packet.len()].copy_from_slice(&$packet[..]);
@@ -541,7 +541,7 @@ mod test {
         #[cfg(feature = "proto-ipv4")]
         {
             let mut socket = ipv4_locals::socket(buffer(0), buffer(2));
-            let mut cx = Context::mock();
+            let mut cx = Interface::mock();
 
             let mut wrong_version = ipv4_locals::PACKET_BYTES;
             Ipv4Packet::new_unchecked(&mut wrong_version).set_version(6);
@@ -564,7 +564,7 @@ mod test {
         #[cfg(feature = "proto-ipv6")]
         {
             let mut socket = ipv6_locals::socket(buffer(0), buffer(2));
-            let mut cx = Context::mock();
+            let mut cx = Interface::mock();
 
             let mut wrong_version = ipv6_locals::PACKET_BYTES;
             Ipv6Packet::new_unchecked(&mut wrong_version[..]).set_version(4);
@@ -592,7 +592,7 @@ mod test {
         {
             let mut socket = ipv4_locals::socket(buffer(1), buffer(0));
             assert!(!socket.can_recv());
-            let mut cx = Context::mock();
+            let mut cx = Interface::mock();
 
             let mut cksumd_packet = ipv4_locals::PACKET_BYTES;
             Ipv4Packet::new_unchecked(&mut cksumd_packet).fill_checksum();
@@ -619,7 +619,7 @@ mod test {
         {
             let mut socket = ipv6_locals::socket(buffer(1), buffer(0));
             assert!(!socket.can_recv());
-            let mut cx = Context::mock();
+            let mut cx = Interface::mock();
 
             assert_eq!(socket.recv(), Err(RecvError::Exhausted));
             assert!(socket.accepts(&ipv6_locals::HEADER_REPR));
