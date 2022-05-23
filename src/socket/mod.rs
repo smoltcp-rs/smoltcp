@@ -93,7 +93,8 @@ impl<'a> Socket<'a> {
 /// A conversion trait for network sockets.
 pub trait AnySocket<'a>: Sized {
     fn upcast(self) -> Socket<'a>;
-    fn downcast<'c>(socket: &'c mut Socket<'a>) -> Option<&'c mut Self>;
+    fn downcast<'c>(socket: &'c Socket<'a>) -> Option<&'c Self>;
+    fn downcast_mut<'c>(socket: &'c mut Socket<'a>) -> Option<&'c mut Self>;
 }
 
 macro_rules! from_socket {
@@ -103,7 +104,15 @@ macro_rules! from_socket {
                 Socket::$variant(self)
             }
 
-            fn downcast<'c>(socket: &'c mut Socket<'a>) -> Option<&'c mut Self> {
+            fn downcast<'c>(socket: &'c Socket<'a>) -> Option<&'c Self> {
+                #[allow(unreachable_patterns)]
+                match socket {
+                    Socket::$variant(socket) => Some(socket),
+                    _ => None,
+                }
+            }
+
+            fn downcast_mut<'c>(socket: &'c mut Socket<'a>) -> Option<&'c mut Self> {
                 #[allow(unreachable_patterns)]
                 match socket {
                     Socket::$variant(socket) => Some(socket),

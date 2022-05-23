@@ -102,7 +102,7 @@ fn main() {
         }
 
         // udp:6969: respond "hello"
-        let socket = sockets.get::<udp::Socket>(udp_handle);
+        let socket = sockets.get_mut::<udp::Socket>(udp_handle);
         if !socket.is_open() {
             socket.bind(6969).unwrap()
         }
