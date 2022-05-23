@@ -78,7 +78,7 @@ fn main() {
             }
         }
 
-        let socket = sockets.get::<raw::Socket>(raw_handle);
+        let socket = sockets.get_mut::<raw::Socket>(raw_handle);
 
         if socket.can_recv() {
             // For display purposes only - normally we wouldn't process incoming IGMP packets
@@ -95,7 +95,7 @@ fn main() {
             }
         }
 
-        let socket = sockets.get::<udp::Socket>(udp_handle);
+        let socket = sockets.get_mut::<udp::Socket>(udp_handle);
         if !socket.is_open() {
             socket.bind(MDNS_PORT).unwrap()
         }

@@ -67,7 +67,7 @@ fn main() {
     let mut sockets = SocketSet::new(vec![]);
     let dns_handle = sockets.add(dns_socket);
 
-    let socket = sockets.get::<dns::Socket>(dns_handle);
+    let socket = sockets.get_mut::<dns::Socket>(dns_handle);
     let query = socket.start_query(iface.context(), name).unwrap();
 
     loop {
@@ -82,7 +82,7 @@ fn main() {
         }
 
         match sockets
-            .get::<dns::Socket>(dns_handle)
+            .get_mut::<dns::Socket>(dns_handle)
             .get_query_result(query)
         {
             Ok(addrs) => {

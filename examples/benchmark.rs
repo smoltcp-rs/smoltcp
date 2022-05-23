@@ -120,7 +120,7 @@ fn main() {
         }
 
         // tcp:1234: emit data
-        let socket = sockets.get::<tcp::Socket>(tcp1_handle);
+        let socket = sockets.get_mut::<tcp::Socket>(tcp1_handle);
         if !socket.is_open() {
             socket.listen(1234).unwrap();
         }
@@ -138,7 +138,7 @@ fn main() {
         }
 
         // tcp:1235: sink data
-        let socket = sockets.get::<tcp::Socket>(tcp2_handle);
+        let socket = sockets.get_mut::<tcp::Socket>(tcp2_handle);
         if !socket.is_open() {
             socket.listen(1235).unwrap();
         }

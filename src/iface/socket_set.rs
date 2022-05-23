@@ -93,11 +93,24 @@ impl<'a> SocketSet<'a> {
     /// # Panics
     /// This function may panic if the handle does not belong to this socket set
     /// or the socket has the wrong type.
-    pub fn get<T: AnySocket<'a>>(&mut self, handle: SocketHandle) -> &mut T {
-        match self.sockets[handle.0].inner.as_mut() {
+    pub fn get<T: AnySocket<'a>>(&self, handle: SocketHandle) -> &T {
+        match self.sockets[handle.0].inner.as_ref() {
             Some(item) => {
-                T::downcast(&mut item.socket).expect("handle refers to a socket of a wrong type")
+                T::downcast(&item.socket).expect("handle refers to a socket of a wrong type")
             }
+            None => panic!("handle does not refer to a valid socket"),
+        }
+    }
+
+    /// Get a mutable socket from the set by its handle, as mutable.
+    ///
+    /// # Panics
+    /// This function may panic if the handle does not belong to this socket set
+    /// or the socket has the wrong type.
+    pub fn get_mut<T: AnySocket<'a>>(&mut self, handle: SocketHandle) -> &mut T {
+        match self.sockets[handle.0].inner.as_mut() {
+            Some(item) => T::downcast_mut(&mut item.socket)
+                .expect("handle refers to a socket of a wrong type"),
             None => panic!("handle does not refer to a valid socket"),
         }
     }

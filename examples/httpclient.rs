@@ -76,7 +76,7 @@ fn main() {
             }
         }
 
-        let socket = sockets.get::<tcp::Socket>(tcp_handle);
+        let socket = sockets.get_mut::<tcp::Socket>(tcp_handle);
         let cx = iface.context();
 
         state = match state {

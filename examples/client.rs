@@ -54,7 +54,7 @@ fn main() {
     let mut sockets = SocketSet::new(vec![]);
     let tcp_handle = sockets.add(tcp_socket);
 
-    let socket = sockets.get::<tcp::Socket>(tcp_handle);
+    let socket = sockets.get_mut::<tcp::Socket>(tcp_handle);
     socket
         .connect(iface.context(), (address, port), 49500)
         .unwrap();
@@ -69,7 +69,7 @@ fn main() {
             }
         }
 
-        let socket = sockets.get::<tcp::Socket>(tcp_handle);
+        let socket = sockets.get_mut::<tcp::Socket>(tcp_handle);
         if socket.is_active() && !tcp_active {
             debug!("connected");
         } else if !socket.is_active() && tcp_active {

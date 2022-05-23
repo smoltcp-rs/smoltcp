@@ -60,7 +60,7 @@ fn main() {
             debug!("poll error: {}", e);
         }
 
-        let event = sockets.get::<dhcpv4::Socket>(dhcp_handle).poll();
+        let event = sockets.get_mut::<dhcpv4::Socket>(dhcp_handle).poll();
         match event {
             None => {}
             Some(dhcpv4::Event::Configured(config)) => {

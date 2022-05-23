@@ -104,7 +104,7 @@ fn main() {
     let udp_handle = sockets.add(udp_socket);
     let tcp_handle = sockets.add(tcp_socket);
 
-    let socket = sockets.get::<tcp::Socket>(tcp_handle);
+    let socket = sockets.get_mut::<tcp::Socket>(tcp_handle);
     socket.listen(50000).unwrap();
 
     let mut tcp_active = false;
@@ -124,7 +124,7 @@ fn main() {
         }
 
         // udp:6969: respond "hello"
-        let socket = sockets.get::<udp::Socket>(udp_handle);
+        let socket = sockets.get_mut::<udp::Socket>(udp_handle);
         if !socket.is_open() {
             socket.bind(6969).unwrap()
         }
@@ -150,7 +150,7 @@ fn main() {
             socket.send_slice(&buffer[..len], endpoint).unwrap();
         }
 
-        let socket = sockets.get::<tcp::Socket>(tcp_handle);
+        let socket = sockets.get_mut::<tcp::Socket>(tcp_handle);
         if socket.is_active() && !tcp_active {
             debug!("connected");
         } else if !socket.is_active() && tcp_active {
