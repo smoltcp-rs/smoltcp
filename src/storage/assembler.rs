@@ -192,7 +192,7 @@ impl Assembler {
     }
 
     /// Add a new contiguous range to the assembler, and return `Ok(bool)`,
-    /// or return `Err(())` if too many discontiguities are already recorded.
+    /// or return `Err(TooManyHolesError)` if too many discontiguities are already recorded.
     /// Returns `Ok(true)` when there was an overlap.
     pub fn add(&mut self, mut offset: usize, mut size: usize) -> Result<bool, TooManyHolesError> {
         let mut index = 0;

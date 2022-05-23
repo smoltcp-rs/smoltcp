@@ -5,11 +5,11 @@ use byteorder::{ByteOrder, NetworkEndian};
 use core::iter;
 use core::iter::Iterator;
 
+use super::{Error, Result};
 #[cfg(feature = "proto-ipv4")]
 use crate::wire::Ipv4Address;
 #[cfg(feature = "proto-ipv6")]
 use crate::wire::Ipv6Address;
-use crate::{Error, Result};
 
 enum_with_unknown! {
     /// DNS OpCodes
@@ -98,12 +98,12 @@ impl<T: AsRef<[u8]>> Packet<T> {
     }
 
     /// Ensure that no accessor method will panic if called.
-    /// Returns `Err(Error::Malformed)` if the buffer is smaller than
+    /// Returns `Err(Error)` if the buffer is smaller than
     /// the header length.
     pub fn check_len(&self) -> Result<()> {
         let len = self.buffer.as_ref().len();
         if len < field::HEADER_END {
-            Err(Error::Malformed)
+            Err(Error)
         } else {
             Ok(())
         }
@@ -166,14 +166,14 @@ impl<T: AsRef<[u8]>> Packet<T> {
 
         iter::from_fn(move || loop {
             if bytes.is_empty() {
-                return Some(Err(Error::Malformed));
+                return Some(Err(Error));
             }
             match bytes[0] {
                 0x00 => return None,
                 x if x & 0xC0 == 0x00 => {
                     let len = (x & 0x3F) as usize;
                     if bytes.len() < 1 + len {
-                        return Some(Err(Error::Malformed));
+                        return Some(Err(Error));
                     }
                     let label = &bytes[1..1 + len];
                     bytes = &bytes[1 + len..];
@@ -181,12 +181,12 @@ impl<T: AsRef<[u8]>> Packet<T> {
                 }
                 x if x & 0xC0 == 0xC0 => {
                     if bytes.len() < 2 {
-                        return Some(Err(Error::Malformed));
+                        return Some(Err(Error));
                     }
                     let y = bytes[1];
                     let ptr = ((x & 0x3F) as usize) << 8 | (y as usize);
                     if packet.len() <= ptr {
-                        return Some(Err(Error::Malformed));
+                        return Some(Err(Error));
                     }
 
                     // RFC1035 says: "In this scheme, an entire domain name or a list of labels at
@@ -204,7 +204,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
                     bytes = &packet[ptr..];
                     packet = &packet[..ptr];
                 }
-                _ => return Some(Err(Error::Malformed)),
+                _ => return Some(Err(Error)),
             }
         })
     }
@@ -262,24 +262,24 @@ fn parse_name_part<'a>(
     mut f: impl FnMut(&'a [u8]),
 ) -> Result<(&'a [u8], Option<usize>)> {
     loop {
-        let x = *bytes.get(0).ok_or(Error::Malformed)?;
+        let x = *bytes.get(0).ok_or(Error)?;
         bytes = &bytes[1..];
         match x {
             0x00 => return Ok((bytes, None)),
             x if x & 0xC0 == 0x00 => {
                 let len = (x & 0x3F) as usize;
-                let label = bytes.get(..len).ok_or(Error::Malformed)?;
+                let label = bytes.get(..len).ok_or(Error)?;
                 bytes = &bytes[len..];
                 f(label);
             }
             x if x & 0xC0 == 0xC0 => {
-                let y = *bytes.get(0).ok_or(Error::Malformed)?;
+                let y = *bytes.get(0).ok_or(Error)?;
                 bytes = &bytes[1..];
 
                 let ptr = ((x & 0x3F) as usize) << 8 | (y as usize);
                 return Ok((bytes, Some(ptr)));
             }
-            _ => return Err(Error::Malformed),
+            _ => return Err(Error),
         }
     }
 }
@@ -297,14 +297,14 @@ impl<'a> Question<'a> {
         let name = &buffer[..buffer.len() - rest.len()];
 
         if rest.len() < 4 {
-            return Err(Error::Malformed);
+            return Err(Error);
         }
         let type_ = NetworkEndian::read_u16(&rest[0..2]).into();
         let class = NetworkEndian::read_u16(&rest[2..4]);
         let rest = &rest[4..];
 
         if class != CLASS_IN {
-            return Err(Error::Malformed);
+            return Err(Error);
         }
 
         Ok((rest, Question { name, type_ }))
@@ -338,14 +338,14 @@ impl<'a> RecordData<'a> {
             #[cfg(feature = "proto-ipv4")]
             Type::A => {
                 if data.len() != 4 {
-                    return Err(Error::Malformed);
+                    return Err(Error);
                 }
                 Ok(RecordData::A(Ipv4Address::from_bytes(data)))
             }
             #[cfg(feature = "proto-ipv6")]
             Type::Aaaa => {
                 if data.len() != 16 {
-                    return Err(Error::Malformed);
+                    return Err(Error);
                 }
                 Ok(RecordData::Aaaa(Ipv6Address::from_bytes(data)))
             }
@@ -372,7 +372,7 @@ impl<'a> Record<'a> {
         let name = &buffer[..buffer.len() - rest.len()];
 
         if rest.len() < 10 {
-            return Err(Error::Malformed);
+            return Err(Error);
         }
         let type_ = NetworkEndian::read_u16(&rest[0..2]).into();
         let class = NetworkEndian::read_u16(&rest[2..4]);
@@ -381,10 +381,10 @@ impl<'a> Record<'a> {
         let rest = &rest[10..];
 
         if class != CLASS_IN {
-            return Err(Error::Malformed);
+            return Err(Error);
         }
 
-        let data = rest.get(..len).ok_or(Error::Malformed)?;
+        let data = rest.get(..len).ok_or(Error)?;
         let rest = &rest[len..];
 
         Ok((

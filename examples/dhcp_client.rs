@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use std::os::unix::io::AsRawFd;
 
 use smoltcp::iface::{Interface, InterfaceBuilder, NeighborCache, Routes};
-use smoltcp::socket::{Dhcpv4Event, Dhcpv4Socket};
+use smoltcp::socket::dhcpv4;
 use smoltcp::time::Instant;
 use smoltcp::wire::{EthernetAddress, IpCidr, Ipv4Address, Ipv4Cidr};
 use smoltcp::{
@@ -44,7 +44,7 @@ fn main() {
     }
     let mut iface = builder.finalize();
 
-    let mut dhcp_socket = Dhcpv4Socket::new();
+    let mut dhcp_socket = dhcpv4::Socket::new();
 
     // Set a ridiculously short max lease time to show DHCP renews work properly.
     // This will cause the DHCP client to start renewing after 5 seconds, and give up the
@@ -60,10 +60,10 @@ fn main() {
             debug!("poll error: {}", e);
         }
 
-        let event = iface.get_socket::<Dhcpv4Socket>(dhcp_handle).poll();
+        let event = iface.get_socket::<dhcpv4::Socket>(dhcp_handle).poll();
         match event {
             None => {}
-            Some(Dhcpv4Event::Configured(config)) => {
+            Some(dhcpv4::Event::Configured(config)) => {
                 debug!("DHCP config acquired!");
 
                 debug!("IP address:      {}", config.address);
@@ -83,7 +83,7 @@ fn main() {
                     }
                 }
             }
-            Some(Dhcpv4Event::Deconfigured) => {
+            Some(dhcpv4::Event::Deconfigured) => {
                 debug!("DHCP lost config!");
                 set_ipv4_addr(&mut iface, Ipv4Cidr::new(Ipv4Address::UNSPECIFIED, 0));
                 iface.routes_mut().remove_default_ipv4_route();

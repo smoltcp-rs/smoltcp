@@ -3,9 +3,9 @@
 use bitflags::bitflags;
 use byteorder::{ByteOrder, NetworkEndian};
 
+use super::{Error, Result};
 use crate::wire::arp::Hardware;
 use crate::wire::{EthernetAddress, Ipv4Address};
-use crate::{Error, Result};
 
 pub const SERVER_PORT: u16 = 67;
 pub const CLIENT_PORT: u16 = 68;
@@ -77,7 +77,7 @@ impl<'a> DhcpOption<'a> {
         // See https://tools.ietf.org/html/rfc2132 for all possible DHCP options.
 
         let (skip_len, option);
-        match *buffer.get(0).ok_or(Error::Truncated)? {
+        match *buffer.get(0).ok_or(Error)? {
             field::OPT_END => {
                 skip_len = 1;
                 option = DhcpOption::EndOfList;
@@ -87,9 +87,9 @@ impl<'a> DhcpOption<'a> {
                 option = DhcpOption::Pad;
             }
             kind => {
-                let length = *buffer.get(1).ok_or(Error::Truncated)? as usize;
+                let length = *buffer.get(1).ok_or(Error)? as usize;
                 skip_len = length + 2;
-                let data = buffer.get(2..skip_len).ok_or(Error::Truncated)?;
+                let data = buffer.get(2..skip_len).ok_or(Error)?;
                 match (kind, length) {
                     (field::OPT_END, _) | (field::OPT_PAD, _) => unreachable!(),
                     (field::OPT_DHCP_MESSAGE_TYPE, 1) => {
@@ -101,7 +101,7 @@ impl<'a> DhcpOption<'a> {
                     (field::OPT_CLIENT_ID, 7) => {
                         let hardware_type = Hardware::from(u16::from(data[0]));
                         if hardware_type != Hardware::Ethernet {
-                            return Err(Error::Unrecognized);
+                            return Err(Error);
                         }
                         option =
                             DhcpOption::ClientIdentifier(EthernetAddress::from_bytes(&data[1..]));
@@ -354,13 +354,13 @@ impl<T: AsRef<[u8]>> Packet<T> {
     }
 
     /// Ensure that no accessor method will panic if called.
-    /// Returns `Err(Error::Truncated)` if the buffer is too short.
+    /// Returns `Err(Error)` if the buffer is too short.
     ///
     /// [set_header_len]: #method.set_header_len
     pub fn check_len(&self) -> Result<()> {
         let len = self.buffer.as_ref().len();
         if len < field::MAGIC_NUMBER.end {
-            Err(Error::Truncated)
+            Err(Error)
         } else {
             Ok(())
         }
@@ -470,7 +470,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized> Packet<&'a T> {
     #[inline]
     pub fn options(&self) -> Result<&'a [u8]> {
         let data = self.buffer.as_ref();
-        data.get(field::OPTIONS).ok_or(Error::Malformed)
+        data.get(field::OPTIONS).ok_or(Error)
     }
 }
 
@@ -593,7 +593,7 @@ impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Packet<&'a mut T> {
     #[inline]
     pub fn options_mut(&mut self) -> Result<&mut [u8]> {
         let data = self.buffer.as_mut();
-        data.get_mut(field::OPTIONS).ok_or(Error::Truncated)
+        data.get_mut(field::OPTIONS).ok_or(Error)
     }
 }
 
@@ -760,17 +760,17 @@ impl<'a> Repr<'a> {
         match packet.hardware_type() {
             Hardware::Ethernet => {
                 if packet.hardware_len() != 6 {
-                    return Err(Error::Malformed);
+                    return Err(Error);
                 }
             }
-            Hardware::Unknown(_) => return Err(Error::Unrecognized), // unimplemented
+            Hardware::Unknown(_) => return Err(Error), // unimplemented
         }
 
         if packet.magic_number() != DHCP_MAGIC_NUMBER {
-            return Err(Error::Malformed);
+            return Err(Error);
         }
 
-        let mut message_type = Err(Error::Malformed);
+        let mut message_type = Err(Error);
         let mut requested_ip = None;
         let mut client_identifier = None;
         let mut server_identifier = None;
@@ -827,7 +827,7 @@ impl<'a> Repr<'a> {
                     let chunk_size = 4;
                     for (server, chunk) in servers.iter_mut().zip(data.chunks(chunk_size)) {
                         if chunk.len() != chunk_size {
-                            return Err(Error::Malformed);
+                            return Err(Error);
                         }
                         *server = Some(Ipv4Address::from_bytes(chunk));
                     }

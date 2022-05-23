@@ -6,9 +6,7 @@ use std::os::unix::io::AsRawFd;
 
 use smoltcp::iface::{InterfaceBuilder, NeighborCache};
 use smoltcp::phy::wait as phy_wait;
-use smoltcp::socket::{
-    RawPacketMetadata, RawSocket, RawSocketBuffer, UdpPacketMetadata, UdpSocket, UdpSocketBuffer,
-};
+use smoltcp::socket::{raw, udp};
 use smoltcp::time::Instant;
 use smoltcp::wire::{
     EthernetAddress, IgmpPacket, IgmpRepr, IpAddress, IpCidr, IpProtocol, IpVersion, Ipv4Address,
@@ -50,10 +48,10 @@ fn main() {
         .unwrap();
 
     // Must fit at least one IGMP packet
-    let raw_rx_buffer = RawSocketBuffer::new(vec![RawPacketMetadata::EMPTY; 2], vec![0; 512]);
+    let raw_rx_buffer = raw::PacketBuffer::new(vec![raw::PacketMetadata::EMPTY; 2], vec![0; 512]);
     // Will not send IGMP
-    let raw_tx_buffer = RawSocketBuffer::new(vec![], vec![]);
-    let raw_socket = RawSocket::new(
+    let raw_tx_buffer = raw::PacketBuffer::new(vec![], vec![]);
+    let raw_socket = raw::Socket::new(
         IpVersion::Ipv4,
         IpProtocol::Igmp,
         raw_rx_buffer,
@@ -62,10 +60,10 @@ fn main() {
     let raw_handle = iface.add_socket(raw_socket);
 
     // Must fit mDNS payload of at least one packet
-    let udp_rx_buffer = UdpSocketBuffer::new(vec![UdpPacketMetadata::EMPTY; 4], vec![0; 1024]);
+    let udp_rx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY; 4], vec![0; 1024]);
     // Will not send mDNS
-    let udp_tx_buffer = UdpSocketBuffer::new(vec![UdpPacketMetadata::EMPTY], vec![0; 0]);
-    let udp_socket = UdpSocket::new(udp_rx_buffer, udp_tx_buffer);
+    let udp_tx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 0]);
+    let udp_socket = udp::Socket::new(udp_rx_buffer, udp_tx_buffer);
     let udp_handle = iface.add_socket(udp_socket);
 
     loop {
@@ -77,21 +75,24 @@ fn main() {
             }
         }
 
-        let socket = iface.get_socket::<RawSocket>(raw_handle);
+        let socket = iface.get_socket::<raw::Socket>(raw_handle);
 
         if socket.can_recv() {
             // For display purposes only - normally we wouldn't process incoming IGMP packets
             // in the application layer
-            socket
-                .recv()
-                .and_then(Ipv4Packet::new_checked)
-                .and_then(|ipv4_packet| IgmpPacket::new_checked(ipv4_packet.payload()))
-                .and_then(|igmp_packet| IgmpRepr::parse(&igmp_packet))
-                .map(|igmp_repr| println!("IGMP packet: {:?}", igmp_repr))
-                .unwrap_or_else(|e| println!("Recv IGMP error: {:?}", e));
+            match socket.recv() {
+                Err(e) => println!("Recv IGMP error: {:?}", e),
+                Ok(buf) => {
+                    Ipv4Packet::new_checked(buf)
+                        .and_then(|ipv4_packet| IgmpPacket::new_checked(ipv4_packet.payload()))
+                        .and_then(|igmp_packet| IgmpRepr::parse(&igmp_packet))
+                        .map(|igmp_repr| println!("IGMP packet: {:?}", igmp_repr))
+                        .unwrap_or_else(|e| println!("parse IGMP error: {:?}", e));
+                }
+            }
         }
 
-        let socket = iface.get_socket::<UdpSocket>(udp_handle);
+        let socket = iface.get_socket::<udp::Socket>(udp_handle);
         if !socket.is_open() {
             socket.bind(MDNS_PORT).unwrap()
         }

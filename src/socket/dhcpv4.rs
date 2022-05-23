@@ -6,7 +6,6 @@ use crate::wire::{
     DhcpMessageType, DhcpPacket, DhcpRepr, IpAddress, IpProtocol, Ipv4Address, Ipv4Cidr, Ipv4Repr,
     UdpRepr, DHCP_CLIENT_PORT, DHCP_MAX_DNS_SERVER_COUNT, DHCP_SERVER_PORT, UDP_HEADER_LEN,
 };
-use crate::{Error, Result};
 
 use super::PollAt;
 
@@ -110,7 +109,7 @@ pub enum Event {
 }
 
 #[derive(Debug)]
-pub struct Dhcpv4Socket {
+pub struct Socket {
     /// State of the DHCP client.
     state: ClientState,
     /// Set to true on config/state change, cleared back to false by the `config` function.
@@ -131,11 +130,11 @@ pub struct Dhcpv4Socket {
 /// The socket acquires an IP address configuration through DHCP autonomously.
 /// You must query the configuration with `.poll()` after every call to `Interface::poll()`,
 /// and apply the configuration to the `Interface`.
-impl Dhcpv4Socket {
+impl Socket {
     /// Create a DHCPv4 socket
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
-        Dhcpv4Socket {
+        Socket {
             state: ClientState::Discovering(DiscoverState {
                 retry_at: Instant::from_millis(0),
             }),
@@ -196,7 +195,7 @@ impl Dhcpv4Socket {
         ip_repr: &Ipv4Repr,
         repr: &UdpRepr,
         payload: &[u8],
-    ) -> Result<()> {
+    ) {
         let src_ip = ip_repr.src_addr;
 
         // This is enforced in interface.rs.
@@ -206,27 +205,26 @@ impl Dhcpv4Socket {
             Ok(dhcp_packet) => dhcp_packet,
             Err(e) => {
                 net_debug!("DHCP invalid pkt from {}: {:?}", src_ip, e);
-                return Ok(());
+                return;
             }
         };
         let dhcp_repr = match DhcpRepr::parse(&dhcp_packet) {
             Ok(dhcp_repr) => dhcp_repr,
             Err(e) => {
                 net_debug!("DHCP error parsing pkt from {}: {:?}", src_ip, e);
-                return Ok(());
+                return;
             }
         };
-        let hardware_addr = if let Some(HardwareAddress::Ethernet(addr)) = cx.hardware_addr() {
-            addr
-        } else {
-            return Err(Error::Malformed);
+        let hardware_addr = match cx.hardware_addr() {
+            Some(HardwareAddress::Ethernet(addr)) => addr,
+            _ => return,
         };
 
         if dhcp_repr.client_hardware_address != hardware_addr {
-            return Ok(());
+            return;
         }
         if dhcp_repr.transaction_id != self.transaction_id {
-            return Ok(());
+            return;
         }
         let server_identifier = match dhcp_repr.server_identifier {
             Some(server_identifier) => server_identifier,
@@ -235,7 +233,7 @@ impl Dhcpv4Socket {
                     "DHCP ignoring {:?} because missing server_identifier",
                     dhcp_repr.message_type
                 );
-                return Ok(());
+                return;
             }
         };
 
@@ -250,7 +248,7 @@ impl Dhcpv4Socket {
             (ClientState::Discovering(_state), DhcpMessageType::Offer) => {
                 if !dhcp_repr.your_ip.is_unicast() {
                     net_debug!("DHCP ignoring OFFER because your_ip is not unicast");
-                    return Ok(());
+                    return;
                 }
 
                 self.state = ClientState::Requesting(RequestState {
@@ -305,8 +303,6 @@ impl Dhcpv4Socket {
                 );
             }
         }
-
-        Ok(())
     }
 
     fn parse_ack(
@@ -379,16 +375,16 @@ impl Dhcpv4Socket {
         0x12345678
     }
 
-    pub(crate) fn dispatch<F>(&mut self, cx: &mut Context, emit: F) -> Result<()>
+    pub(crate) fn dispatch<F, E>(&mut self, cx: &mut Context, emit: F) -> Result<(), E>
     where
-        F: FnOnce(&mut Context, (Ipv4Repr, UdpRepr, DhcpRepr)) -> Result<()>,
+        F: FnOnce(&mut Context, (Ipv4Repr, UdpRepr, DhcpRepr)) -> Result<(), E>,
     {
         // note: Dhcpv4Socket is only usable in ethernet mediums, so the
         // unwrap can never fail.
         let ethernet_addr = if let Some(HardwareAddress::Ethernet(addr)) = cx.hardware_addr() {
             addr
         } else {
-            return Err(Error::Malformed);
+            panic!("using DHCPv4 socket with a non-ethernet hardware address.");
         };
 
         // Worst case biggest IPv4 header length.
@@ -435,7 +431,7 @@ impl Dhcpv4Socket {
         match &mut self.state {
             ClientState::Discovering(state) => {
                 if cx.now() < state.retry_at {
-                    return Err(Error::Exhausted);
+                    return Ok(());
                 }
 
                 // send packet
@@ -454,13 +450,12 @@ impl Dhcpv4Socket {
             }
             ClientState::Requesting(state) => {
                 if cx.now() < state.retry_at {
-                    return Err(Error::Exhausted);
+                    return Ok(());
                 }
 
                 if state.retry >= REQUEST_RETRIES {
                     net_debug!("DHCP request retries exceeded, restarting discovery");
                     self.reset();
-                    // return Ok so we get polled again
                     return Ok(());
                 }
 
@@ -492,7 +487,7 @@ impl Dhcpv4Socket {
                 }
 
                 if cx.now() < state.renew_at {
-                    return Err(Error::Exhausted);
+                    return Ok(());
                 }
 
                 ipv4_repr.src_addr = state.config.address.address();
@@ -556,17 +551,18 @@ mod test {
 
     use super::*;
     use crate::wire::EthernetAddress;
+    use crate::Error;
 
     // =========================================================================================//
     // Helper functions
 
     struct TestSocket {
-        socket: Dhcpv4Socket,
+        socket: Socket,
         cx: Context<'static>,
     }
 
     impl Deref for TestSocket {
-        type Target = Dhcpv4Socket;
+        type Target = Socket;
         fn deref(&self) -> &Self::Target {
             &self.socket
         }
@@ -582,7 +578,7 @@ mod test {
         s: &mut TestSocket,
         timestamp: Instant,
         (ip_repr, udp_repr, dhcp_repr): (Ipv4Repr, UdpRepr, DhcpRepr),
-    ) -> Result<()> {
+    ) {
         s.cx.set_now(timestamp);
 
         net_trace!("send: {:?}", ip_repr);
@@ -625,7 +621,7 @@ mod test {
                         None => panic!("Too many reprs emitted"),
                     }
                     i += 1;
-                    Ok(())
+                    Ok::<_, Error>(())
                 });
         }
 
@@ -636,9 +632,7 @@ mod test {
         ($socket:ident, $repr:expr) =>
             (send!($socket, time 0, $repr));
         ($socket:ident, time $time:expr, $repr:expr) =>
-            (send!($socket, time $time, $repr, Ok(( ))));
-        ($socket:ident, time $time:expr, $repr:expr, $result:expr) =>
-            (assert_eq!(send(&mut $socket, Instant::from_millis($time), $repr), $result));
+            (send(&mut $socket, Instant::from_millis($time), $repr));
     }
 
     macro_rules! recv {
@@ -797,7 +791,7 @@ mod test {
     // Tests
 
     fn socket() -> TestSocket {
-        let mut s = Dhcpv4Socket::new();
+        let mut s = Socket::new();
         assert_eq!(s.poll(), Some(Event::Deconfigured));
         TestSocket {
             socket: s,

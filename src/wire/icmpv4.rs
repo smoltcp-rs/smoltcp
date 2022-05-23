@@ -1,10 +1,10 @@
 use byteorder::{ByteOrder, NetworkEndian};
 use core::{cmp, fmt};
 
+use super::{Error, Result};
 use crate::phy::ChecksumCapabilities;
 use crate::wire::ip::checksum;
 use crate::wire::{Ipv4Packet, Ipv4Repr};
-use crate::{Error, Result};
 
 enum_with_unknown! {
     /// Internet protocol control message type.
@@ -189,7 +189,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     }
 
     /// Ensure that no accessor method will panic if called.
-    /// Returns `Err(Error::Truncated)` if the buffer is too short.
+    /// Returns `Err(Error)` if the buffer is too short.
     ///
     /// The result of this check is invalidated by calling [set_header_len].
     ///
@@ -197,7 +197,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     pub fn check_len(&self) -> Result<()> {
         let len = self.buffer.as_ref().len();
         if len < field::HEADER_END {
-            Err(Error::Truncated)
+            Err(Error)
         } else {
             Ok(())
         }
@@ -386,7 +386,7 @@ impl<'a> Repr<'a> {
     {
         // Valid checksum is expected.
         if checksum_caps.icmpv4.rx() && !packet.verify_checksum() {
-            return Err(Error::Checksum);
+            return Err(Error);
         }
 
         match (packet.msg_type(), packet.msg_code()) {
@@ -409,7 +409,7 @@ impl<'a> Repr<'a> {
                 // RFC 792 requires exactly eight bytes to be returned.
                 // We allow more, since there isn't a reason not to, but require at least eight.
                 if payload.len() < 8 {
-                    return Err(Error::Truncated);
+                    return Err(Error);
                 }
 
                 Ok(Repr::DstUnreachable {
@@ -424,7 +424,7 @@ impl<'a> Repr<'a> {
                     data: payload,
                 })
             }
-            _ => Err(Error::Unrecognized),
+            _ => Err(Error),
         }
     }
 
@@ -635,8 +635,8 @@ mod test {
     #[test]
     fn test_check_len() {
         let bytes = [0x0b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
-        assert_eq!(Packet::new_checked(&[]), Err(Error::Truncated));
-        assert_eq!(Packet::new_checked(&bytes[..4]), Err(Error::Truncated));
+        assert_eq!(Packet::new_checked(&[]), Err(Error));
+        assert_eq!(Packet::new_checked(&bytes[..4]), Err(Error));
         assert!(Packet::new_checked(&bytes[..]).is_ok());
     }
 }

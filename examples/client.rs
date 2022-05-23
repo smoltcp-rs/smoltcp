@@ -7,7 +7,7 @@ use std::str::{self, FromStr};
 
 use smoltcp::iface::{InterfaceBuilder, NeighborCache, Routes};
 use smoltcp::phy::{wait as phy_wait, Device, Medium};
-use smoltcp::socket::{TcpSocket, TcpSocketBuffer};
+use smoltcp::socket::tcp;
 use smoltcp::time::Instant;
 use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr, Ipv4Address};
 
@@ -30,9 +30,9 @@ fn main() {
 
     let neighbor_cache = NeighborCache::new(BTreeMap::new());
 
-    let tcp_rx_buffer = TcpSocketBuffer::new(vec![0; 64]);
-    let tcp_tx_buffer = TcpSocketBuffer::new(vec![0; 128]);
-    let tcp_socket = TcpSocket::new(tcp_rx_buffer, tcp_tx_buffer);
+    let tcp_rx_buffer = tcp::SocketBuffer::new(vec![0; 64]);
+    let tcp_tx_buffer = tcp::SocketBuffer::new(vec![0; 128]);
+    let tcp_socket = tcp::Socket::new(tcp_rx_buffer, tcp_tx_buffer);
 
     let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x02]);
     let ip_addrs = [IpCidr::new(IpAddress::v4(192, 168, 69, 2), 24)];
@@ -54,7 +54,7 @@ fn main() {
 
     let tcp_handle = iface.add_socket(tcp_socket);
 
-    let (socket, cx) = iface.get_socket_and_context::<TcpSocket>(tcp_handle);
+    let (socket, cx) = iface.get_socket_and_context::<tcp::Socket>(tcp_handle);
     socket.connect(cx, (address, port), 49500).unwrap();
 
     let mut tcp_active = false;
@@ -67,7 +67,7 @@ fn main() {
             }
         }
 
-        let socket = iface.get_socket::<TcpSocket>(tcp_handle);
+        let socket = iface.get_socket::<tcp::Socket>(tcp_handle);
         if socket.is_active() && !tcp_active {
             debug!("connected");
         } else if !socket.is_active() && tcp_active {

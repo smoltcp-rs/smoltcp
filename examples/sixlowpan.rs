@@ -49,7 +49,7 @@ use std::str;
 
 use smoltcp::iface::{InterfaceBuilder, NeighborCache};
 use smoltcp::phy::{wait as phy_wait, Medium, RawSocket};
-use smoltcp::socket::{UdpPacketMetadata, UdpSocket, UdpSocketBuffer};
+use smoltcp::socket::udp;
 use smoltcp::time::Instant;
 use smoltcp::wire::{Ieee802154Pan, IpAddress, IpCidr};
 
@@ -68,9 +68,9 @@ fn main() {
 
     let neighbor_cache = NeighborCache::new(BTreeMap::new());
 
-    let udp_rx_buffer = UdpSocketBuffer::new(vec![UdpPacketMetadata::EMPTY], vec![0; 64]);
-    let udp_tx_buffer = UdpSocketBuffer::new(vec![UdpPacketMetadata::EMPTY], vec![0; 128]);
-    let udp_socket = UdpSocket::new(udp_rx_buffer, udp_tx_buffer);
+    let udp_rx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 64]);
+    let udp_tx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 128]);
+    let udp_socket = udp::Socket::new(udp_rx_buffer, udp_tx_buffer);
 
     let ieee802154_addr = smoltcp::wire::Ieee802154Address::Extended([
         0x1a, 0x0b, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42,
@@ -100,7 +100,7 @@ fn main() {
         }
 
         // udp:6969: respond "hello"
-        let socket = iface.get_socket::<UdpSocket>(udp_handle);
+        let socket = iface.get_socket::<udp::Socket>(udp_handle);
         if !socket.is_open() {
             socket.bind(6969).unwrap()
         }

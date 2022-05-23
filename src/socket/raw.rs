@@ -3,51 +3,71 @@ use core::cmp::min;
 use core::task::Waker;
 
 use crate::iface::Context;
-use crate::phy::ChecksumCapabilities;
 use crate::socket::PollAt;
 #[cfg(feature = "async")]
 use crate::socket::WakerRegistration;
-use crate::storage::{PacketBuffer, PacketMetadata};
-use crate::{Error, Result};
 
+use crate::storage::Empty;
 use crate::wire::{IpProtocol, IpRepr, IpVersion};
 #[cfg(feature = "proto-ipv4")]
 use crate::wire::{Ipv4Packet, Ipv4Repr};
 #[cfg(feature = "proto-ipv6")]
 use crate::wire::{Ipv6Packet, Ipv6Repr};
 
+/// Error returned by [`Socket::bind`]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum BindError {
+    InvalidState,
+    Unaddressable,
+}
+
+/// Error returned by [`Socket::send`]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum SendError {
+    BufferFull,
+}
+
+/// Error returned by [`Socket::recv`]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum RecvError {
+    Exhausted,
+}
+
 /// A UDP packet metadata.
-pub type RawPacketMetadata = PacketMetadata<()>;
+pub type PacketMetadata = crate::storage::PacketMetadata<()>;
 
 /// A UDP packet ring buffer.
-pub type RawSocketBuffer<'a> = PacketBuffer<'a, ()>;
+pub type PacketBuffer<'a> = crate::storage::PacketBuffer<'a, ()>;
 
 /// A raw IP socket.
 ///
 /// A raw socket is bound to a specific IP protocol, and owns
 /// transmit and receive packet buffers.
 #[derive(Debug)]
-pub struct RawSocket<'a> {
+pub struct Socket<'a> {
     ip_version: IpVersion,
     ip_protocol: IpProtocol,
-    rx_buffer: RawSocketBuffer<'a>,
-    tx_buffer: RawSocketBuffer<'a>,
+    rx_buffer: PacketBuffer<'a>,
+    tx_buffer: PacketBuffer<'a>,
     #[cfg(feature = "async")]
     rx_waker: WakerRegistration,
     #[cfg(feature = "async")]
     tx_waker: WakerRegistration,
 }
 
-impl<'a> RawSocket<'a> {
+impl<'a> Socket<'a> {
     /// Create a raw IP socket bound to the given IP version and datagram protocol,
     /// with the given buffers.
     pub fn new(
         ip_version: IpVersion,
         ip_protocol: IpProtocol,
-        rx_buffer: RawSocketBuffer<'a>,
-        tx_buffer: RawSocketBuffer<'a>,
-    ) -> RawSocket<'a> {
-        RawSocket {
+        rx_buffer: PacketBuffer<'a>,
+        tx_buffer: PacketBuffer<'a>,
+    ) -> Socket<'a> {
+        Socket {
             ip_version,
             ip_protocol,
             rx_buffer,
@@ -153,8 +173,11 @@ impl<'a> RawSocket<'a> {
     ///
     /// **Note:** The IP header is parsed and re-serialized, and may not match
     /// the header actually transmitted bit for bit.
-    pub fn send(&mut self, size: usize) -> Result<&mut [u8]> {
-        let packet_buf = self.tx_buffer.enqueue(size, ())?;
+    pub fn send(&mut self, size: usize) -> Result<&mut [u8], SendError> {
+        let packet_buf = self
+            .tx_buffer
+            .enqueue(size, ())
+            .map_err(|_| SendError::BufferFull)?;
 
         net_trace!(
             "raw:{}:{}: buffer to send {} octets",
@@ -168,7 +191,7 @@ impl<'a> RawSocket<'a> {
     /// Enqueue a packet to send, and fill it from a slice.
     ///
     /// See also [send](#method.send).
-    pub fn send_slice(&mut self, data: &[u8]) -> Result<()> {
+    pub fn send_slice(&mut self, data: &[u8]) -> Result<(), SendError> {
         self.send(data.len())?.copy_from_slice(data);
         Ok(())
     }
@@ -179,8 +202,8 @@ impl<'a> RawSocket<'a> {
     ///
     /// **Note:** The IP header is parsed and re-serialized, and may not match
     /// the header actually received bit for bit.
-    pub fn recv(&mut self) -> Result<&[u8]> {
-        let ((), packet_buf) = self.rx_buffer.dequeue()?;
+    pub fn recv(&mut self) -> Result<&[u8], RecvError> {
+        let ((), packet_buf) = self.rx_buffer.dequeue().map_err(|_| RecvError::Exhausted)?;
 
         net_trace!(
             "raw:{}:{}: receive {} buffered octets",
@@ -194,7 +217,7 @@ impl<'a> RawSocket<'a> {
     /// Dequeue a packet, and copy the payload into the given slice.
     ///
     /// See also [recv](#method.recv).
-    pub fn recv_slice(&mut self, data: &mut [u8]) -> Result<usize> {
+    pub fn recv_slice(&mut self, data: &mut [u8]) -> Result<usize, RecvError> {
         let buffer = self.recv()?;
         let length = min(data.len(), buffer.len());
         data[..length].copy_from_slice(&buffer[..length]);
@@ -212,48 +235,56 @@ impl<'a> RawSocket<'a> {
         true
     }
 
-    pub(crate) fn process(
-        &mut self,
-        cx: &mut Context,
-        ip_repr: &IpRepr,
-        payload: &[u8],
-    ) -> Result<()> {
+    pub(crate) fn process(&mut self, cx: &mut Context, ip_repr: &IpRepr, payload: &[u8]) {
         debug_assert!(self.accepts(ip_repr));
 
         let header_len = ip_repr.buffer_len();
         let total_len = header_len + payload.len();
-        let packet_buf = self.rx_buffer.enqueue(total_len, ())?;
-        ip_repr.emit(&mut packet_buf[..header_len], &cx.checksum_caps());
-        packet_buf[header_len..].copy_from_slice(payload);
 
         net_trace!(
             "raw:{}:{}: receiving {} octets",
             self.ip_version,
             self.ip_protocol,
-            packet_buf.len()
+            total_len
         );
+
+        match self.rx_buffer.enqueue(total_len, ()) {
+            Ok(buf) => {
+                ip_repr.emit(&mut buf[..header_len], &cx.checksum_caps());
+                buf[header_len..].copy_from_slice(payload);
+            }
+            Err(_) => net_trace!(
+                "raw:{}:{}: buffer full, dropped incoming packet",
+                self.ip_version,
+                self.ip_protocol
+            ),
+        }
 
         #[cfg(feature = "async")]
         self.rx_waker.wake();
-
-        Ok(())
     }
 
-    pub(crate) fn dispatch<F>(&mut self, cx: &mut Context, emit: F) -> Result<()>
+    pub(crate) fn dispatch<F, E>(&mut self, cx: &mut Context, emit: F) -> Result<(), E>
     where
-        F: FnOnce(&mut Context, (IpRepr, &[u8])) -> Result<()>,
+        F: FnOnce(&mut Context, (IpRepr, &[u8])) -> Result<(), E>,
     {
-        fn prepare<'a>(
-            next_header: IpProtocol,
-            buffer: &'a mut [u8],
-            _checksum_caps: &ChecksumCapabilities,
-        ) -> Result<(IpRepr, &'a [u8])> {
-            match IpVersion::of_packet(buffer)? {
+        let ip_protocol = self.ip_protocol;
+        let ip_version = self.ip_version;
+        let _checksum_caps = &cx.checksum_caps();
+        let res = self.tx_buffer.dequeue_with(|&mut (), buffer| {
+            match IpVersion::of_packet(buffer) {
                 #[cfg(feature = "proto-ipv4")]
-                IpVersion::Ipv4 => {
-                    let mut packet = Ipv4Packet::new_checked(buffer)?;
-                    if packet.next_header() != next_header {
-                        return Err(Error::Unaddressable);
+                Ok(IpVersion::Ipv4) => {
+                    let mut packet = match Ipv4Packet::new_checked(buffer) {
+                        Ok(x) => x,
+                        Err(_) => {
+                            net_trace!("raw: malformed ipv6 packet in queue, dropping.");
+                            return Ok(());
+                        }
+                    };
+                    if packet.next_header() != ip_protocol {
+                        net_trace!("raw: sent packet with wrong ip protocol, dropping.");
+                        return Ok(());
                     }
                     if _checksum_caps.ipv4.tx() {
                         packet.fill_checksum();
@@ -263,53 +294,57 @@ impl<'a> RawSocket<'a> {
                         packet.set_checksum(0);
                     }
 
-                    let packet = Ipv4Packet::new_checked(&*packet.into_inner())?;
-                    let ipv4_repr = Ipv4Repr::parse(&packet, _checksum_caps)?;
-                    Ok((IpRepr::Ipv4(ipv4_repr), packet.payload()))
+                    let packet = Ipv4Packet::new_unchecked(&*packet.into_inner());
+                    let ipv4_repr = match Ipv4Repr::parse(&packet, _checksum_caps) {
+                        Ok(x) => x,
+                        Err(_) => {
+                            net_trace!("raw: malformed ipv4 packet in queue, dropping.");
+                            return Ok(());
+                        }
+                    };
+                    net_trace!("raw:{}:{}: sending", ip_version, ip_protocol);
+                    emit(cx, (IpRepr::Ipv4(ipv4_repr), packet.payload()))
                 }
                 #[cfg(feature = "proto-ipv6")]
-                IpVersion::Ipv6 => {
-                    let packet = Ipv6Packet::new_checked(buffer)?;
-                    if packet.next_header() != next_header {
-                        return Err(Error::Unaddressable);
+                Ok(IpVersion::Ipv6) => {
+                    let packet = match Ipv6Packet::new_checked(buffer) {
+                        Ok(x) => x,
+                        Err(_) => {
+                            net_trace!("raw: malformed ipv6 packet in queue, dropping.");
+                            return Ok(());
+                        }
+                    };
+                    if packet.next_header() != ip_protocol {
+                        net_trace!("raw: sent ipv6 packet with wrong ip protocol, dropping.");
+                        return Ok(());
                     }
                     let packet = Ipv6Packet::new_unchecked(&*packet.into_inner());
-                    let ipv6_repr = Ipv6Repr::parse(&packet)?;
-                    Ok((IpRepr::Ipv6(ipv6_repr), packet.payload()))
-                }
-            }
-        }
+                    let ipv6_repr = match Ipv6Repr::parse(&packet) {
+                        Ok(x) => x,
+                        Err(_) => {
+                            net_trace!("raw: malformed ipv6 packet in queue, dropping.");
+                            return Ok(());
+                        }
+                    };
 
-        let ip_protocol = self.ip_protocol;
-        let ip_version = self.ip_version;
-        self.tx_buffer.dequeue_with(|&mut (), packet_buf| {
-            match prepare(ip_protocol, packet_buf, &cx.checksum_caps()) {
-                Ok((ip_repr, raw_packet)) => {
-                    net_trace!(
-                        "raw:{}:{}: sending {} octets",
-                        ip_version,
-                        ip_protocol,
-                        ip_repr.buffer_len() + raw_packet.len()
-                    );
-                    emit(cx, (ip_repr, raw_packet))
+                    net_trace!("raw:{}:{}: sending", ip_version, ip_protocol);
+                    emit(cx, (IpRepr::Ipv6(ipv6_repr), packet.payload()))
                 }
-                Err(error) => {
-                    net_debug!(
-                        "raw:{}:{}: dropping outgoing packet ({})",
-                        ip_version,
-                        ip_protocol,
-                        error
-                    );
-                    // Return Ok(()) so the packet is dequeued.
+                Err(_) => {
+                    net_trace!("raw: sent packet with invalid IP version, dropping.");
                     Ok(())
                 }
             }
-        })?;
-
-        #[cfg(feature = "async")]
-        self.tx_waker.wake();
-
-        Ok(())
+        });
+        match res {
+            Err(Empty) => Ok(()),
+            Ok(Err(e)) => Err(e),
+            Ok(Ok(())) => {
+                #[cfg(feature = "async")]
+                self.tx_waker.wake();
+                Ok(())
+            }
+        }
     }
 
     pub(crate) fn poll_at(&self, _cx: &mut Context) -> PollAt {
@@ -329,12 +364,10 @@ mod test {
     use crate::wire::{Ipv4Address, Ipv4Repr};
     #[cfg(feature = "proto-ipv6")]
     use crate::wire::{Ipv6Address, Ipv6Repr};
+    use crate::Error;
 
-    fn buffer(packets: usize) -> RawSocketBuffer<'static> {
-        RawSocketBuffer::new(
-            vec![RawPacketMetadata::EMPTY; packets],
-            vec![0; 48 * packets],
-        )
+    fn buffer(packets: usize) -> PacketBuffer<'static> {
+        PacketBuffer::new(vec![PacketMetadata::EMPTY; packets], vec![0; 48 * packets])
     }
 
     #[cfg(feature = "proto-ipv4")]
@@ -342,10 +375,10 @@ mod test {
         use super::*;
 
         pub fn socket(
-            rx_buffer: RawSocketBuffer<'static>,
-            tx_buffer: RawSocketBuffer<'static>,
-        ) -> RawSocket<'static> {
-            RawSocket::new(
+            rx_buffer: PacketBuffer<'static>,
+            tx_buffer: PacketBuffer<'static>,
+        ) -> Socket<'static> {
+            Socket::new(
                 IpVersion::Ipv4,
                 IpProtocol::Unknown(IP_PROTO),
                 rx_buffer,
@@ -373,10 +406,10 @@ mod test {
         use super::*;
 
         pub fn socket(
-            rx_buffer: RawSocketBuffer<'static>,
-            tx_buffer: RawSocketBuffer<'static>,
-        ) -> RawSocket<'static> {
-            RawSocket::new(
+            rx_buffer: PacketBuffer<'static>,
+            tx_buffer: PacketBuffer<'static>,
+        ) -> Socket<'static> {
+            Socket::new(
                 IpVersion::Ipv6,
                 IpProtocol::Unknown(IP_PROTO),
                 rx_buffer,
@@ -417,7 +450,7 @@ mod test {
                 #[test]
                 fn test_send_truncated() {
                     let mut socket = $socket(buffer(0), buffer(1));
-                    assert_eq!(socket.send_slice(&[0; 56][..]), Err(Error::Truncated));
+                    assert_eq!(socket.send_slice(&[0; 56][..]), Err(SendError::BufferFull));
                 }
 
                 #[test]
@@ -428,11 +461,11 @@ mod test {
                     assert!(socket.can_send());
                     assert_eq!(
                         socket.dispatch(&mut cx, |_, _| unreachable!()),
-                        Err(Error::Exhausted)
+                        Ok::<_, Error>(())
                     );
 
                     assert_eq!(socket.send_slice(&$packet[..]), Ok(()));
-                    assert_eq!(socket.send_slice(b""), Err(Error::Exhausted));
+                    assert_eq!(socket.send_slice(b""), Err(SendError::BufferFull));
                     assert!(!socket.can_send());
 
                     assert_eq!(
@@ -449,7 +482,7 @@ mod test {
                         socket.dispatch(&mut cx, |_, (ip_repr, ip_payload)| {
                             assert_eq!(ip_repr, $hdr);
                             assert_eq!(ip_payload, &$payload);
-                            Ok(())
+                            Ok::<_, Error>(())
                         }),
                         Ok(())
                     );
@@ -462,7 +495,7 @@ mod test {
                     let mut cx = Context::mock();
 
                     assert!(socket.accepts(&$hdr));
-                    assert_eq!(socket.process(&mut cx, &$hdr, &$payload), Ok(()));
+                    socket.process(&mut cx, &$hdr, &$payload);
 
                     let mut slice = [0; 4];
                     assert_eq!(socket.recv_slice(&mut slice[..]), Ok(4));
@@ -478,10 +511,7 @@ mod test {
                     buffer[..$packet.len()].copy_from_slice(&$packet[..]);
 
                     assert!(socket.accepts(&$hdr));
-                    assert_eq!(
-                        socket.process(&mut cx, &$hdr, &buffer),
-                        Err(Error::Truncated)
-                    );
+                    socket.process(&mut cx, &$hdr, &buffer);
                 }
             }
         };
@@ -517,13 +547,19 @@ mod test {
             Ipv4Packet::new_unchecked(&mut wrong_version).set_version(6);
 
             assert_eq!(socket.send_slice(&wrong_version[..]), Ok(()));
-            assert_eq!(socket.dispatch(&mut cx, |_, _| unreachable!()), Ok(()));
+            assert_eq!(
+                socket.dispatch(&mut cx, |_, _| unreachable!()),
+                Ok::<_, Error>(())
+            );
 
             let mut wrong_protocol = ipv4_locals::PACKET_BYTES;
             Ipv4Packet::new_unchecked(&mut wrong_protocol).set_next_header(IpProtocol::Tcp);
 
             assert_eq!(socket.send_slice(&wrong_protocol[..]), Ok(()));
-            assert_eq!(socket.dispatch(&mut cx, |_, _| unreachable!()), Ok(()));
+            assert_eq!(
+                socket.dispatch(&mut cx, |_, _| unreachable!()),
+                Ok::<_, Error>(())
+            );
         }
         #[cfg(feature = "proto-ipv6")]
         {
@@ -534,13 +570,19 @@ mod test {
             Ipv6Packet::new_unchecked(&mut wrong_version[..]).set_version(4);
 
             assert_eq!(socket.send_slice(&wrong_version[..]), Ok(()));
-            assert_eq!(socket.dispatch(&mut cx, |_, _| unreachable!()), Ok(()));
+            assert_eq!(
+                socket.dispatch(&mut cx, |_, _| unreachable!()),
+                Ok::<_, Error>(())
+            );
 
             let mut wrong_protocol = ipv6_locals::PACKET_BYTES;
             Ipv6Packet::new_unchecked(&mut wrong_protocol[..]).set_next_header(IpProtocol::Tcp);
 
             assert_eq!(socket.send_slice(&wrong_protocol[..]), Ok(()));
-            assert_eq!(socket.dispatch(&mut cx, |_, _| unreachable!()), Ok(()));
+            assert_eq!(
+                socket.dispatch(&mut cx, |_, _| unreachable!()),
+                Ok::<_, Error>(())
+            );
         }
     }
 
@@ -555,26 +597,20 @@ mod test {
             let mut cksumd_packet = ipv4_locals::PACKET_BYTES;
             Ipv4Packet::new_unchecked(&mut cksumd_packet).fill_checksum();
 
-            assert_eq!(socket.recv(), Err(Error::Exhausted));
+            assert_eq!(socket.recv(), Err(RecvError::Exhausted));
             assert!(socket.accepts(&ipv4_locals::HEADER_REPR));
-            assert_eq!(
-                socket.process(
-                    &mut cx,
-                    &ipv4_locals::HEADER_REPR,
-                    &ipv4_locals::PACKET_PAYLOAD
-                ),
-                Ok(())
+            socket.process(
+                &mut cx,
+                &ipv4_locals::HEADER_REPR,
+                &ipv4_locals::PACKET_PAYLOAD,
             );
             assert!(socket.can_recv());
 
             assert!(socket.accepts(&ipv4_locals::HEADER_REPR));
-            assert_eq!(
-                socket.process(
-                    &mut cx,
-                    &ipv4_locals::HEADER_REPR,
-                    &ipv4_locals::PACKET_PAYLOAD
-                ),
-                Err(Error::Exhausted)
+            socket.process(
+                &mut cx,
+                &ipv4_locals::HEADER_REPR,
+                &ipv4_locals::PACKET_PAYLOAD,
             );
             assert_eq!(socket.recv(), Ok(&cksumd_packet[..]));
             assert!(!socket.can_recv());
@@ -585,26 +621,20 @@ mod test {
             assert!(!socket.can_recv());
             let mut cx = Context::mock();
 
-            assert_eq!(socket.recv(), Err(Error::Exhausted));
+            assert_eq!(socket.recv(), Err(RecvError::Exhausted));
             assert!(socket.accepts(&ipv6_locals::HEADER_REPR));
-            assert_eq!(
-                socket.process(
-                    &mut cx,
-                    &ipv6_locals::HEADER_REPR,
-                    &ipv6_locals::PACKET_PAYLOAD
-                ),
-                Ok(())
+            socket.process(
+                &mut cx,
+                &ipv6_locals::HEADER_REPR,
+                &ipv6_locals::PACKET_PAYLOAD,
             );
             assert!(socket.can_recv());
 
             assert!(socket.accepts(&ipv6_locals::HEADER_REPR));
-            assert_eq!(
-                socket.process(
-                    &mut cx,
-                    &ipv6_locals::HEADER_REPR,
-                    &ipv6_locals::PACKET_PAYLOAD
-                ),
-                Err(Error::Exhausted)
+            socket.process(
+                &mut cx,
+                &ipv6_locals::HEADER_REPR,
+                &ipv6_locals::PACKET_PAYLOAD,
             );
             assert_eq!(socket.recv(), Ok(&ipv6_locals::PACKET_BYTES[..]));
             assert!(!socket.can_recv());
@@ -615,7 +645,7 @@ mod test {
     fn test_doesnt_accept_wrong_proto() {
         #[cfg(feature = "proto-ipv4")]
         {
-            let socket = RawSocket::new(
+            let socket = Socket::new(
                 IpVersion::Ipv4,
                 IpProtocol::Unknown(ipv4_locals::IP_PROTO + 1),
                 buffer(1),
@@ -627,7 +657,7 @@ mod test {
         }
         #[cfg(feature = "proto-ipv6")]
         {
-            let socket = RawSocket::new(
+            let socket = Socket::new(
                 IpVersion::Ipv6,
                 IpProtocol::Unknown(ipv6_locals::IP_PROTO + 1),
                 buffer(1),

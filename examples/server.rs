@@ -8,8 +8,7 @@ use std::str;
 
 use smoltcp::iface::{InterfaceBuilder, NeighborCache};
 use smoltcp::phy::{wait as phy_wait, Device, Medium};
-use smoltcp::socket::{TcpSocket, TcpSocketBuffer};
-use smoltcp::socket::{UdpPacketMetadata, UdpSocket, UdpSocketBuffer};
+use smoltcp::socket::{tcp, udp};
 use smoltcp::time::{Duration, Instant};
 use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr};
 
@@ -27,25 +26,25 @@ fn main() {
 
     let neighbor_cache = NeighborCache::new(BTreeMap::new());
 
-    let udp_rx_buffer = UdpSocketBuffer::new(vec![UdpPacketMetadata::EMPTY], vec![0; 64]);
-    let udp_tx_buffer = UdpSocketBuffer::new(vec![UdpPacketMetadata::EMPTY], vec![0; 128]);
-    let udp_socket = UdpSocket::new(udp_rx_buffer, udp_tx_buffer);
+    let udp_rx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 64]);
+    let udp_tx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 128]);
+    let udp_socket = udp::Socket::new(udp_rx_buffer, udp_tx_buffer);
 
-    let tcp1_rx_buffer = TcpSocketBuffer::new(vec![0; 64]);
-    let tcp1_tx_buffer = TcpSocketBuffer::new(vec![0; 128]);
-    let tcp1_socket = TcpSocket::new(tcp1_rx_buffer, tcp1_tx_buffer);
+    let tcp1_rx_buffer = tcp::SocketBuffer::new(vec![0; 64]);
+    let tcp1_tx_buffer = tcp::SocketBuffer::new(vec![0; 128]);
+    let tcp1_socket = tcp::Socket::new(tcp1_rx_buffer, tcp1_tx_buffer);
 
-    let tcp2_rx_buffer = TcpSocketBuffer::new(vec![0; 64]);
-    let tcp2_tx_buffer = TcpSocketBuffer::new(vec![0; 128]);
-    let tcp2_socket = TcpSocket::new(tcp2_rx_buffer, tcp2_tx_buffer);
+    let tcp2_rx_buffer = tcp::SocketBuffer::new(vec![0; 64]);
+    let tcp2_tx_buffer = tcp::SocketBuffer::new(vec![0; 128]);
+    let tcp2_socket = tcp::Socket::new(tcp2_rx_buffer, tcp2_tx_buffer);
 
-    let tcp3_rx_buffer = TcpSocketBuffer::new(vec![0; 65535]);
-    let tcp3_tx_buffer = TcpSocketBuffer::new(vec![0; 65535]);
-    let tcp3_socket = TcpSocket::new(tcp3_rx_buffer, tcp3_tx_buffer);
+    let tcp3_rx_buffer = tcp::SocketBuffer::new(vec![0; 65535]);
+    let tcp3_tx_buffer = tcp::SocketBuffer::new(vec![0; 65535]);
+    let tcp3_socket = tcp::Socket::new(tcp3_rx_buffer, tcp3_tx_buffer);
 
-    let tcp4_rx_buffer = TcpSocketBuffer::new(vec![0; 65535]);
-    let tcp4_tx_buffer = TcpSocketBuffer::new(vec![0; 65535]);
-    let tcp4_socket = TcpSocket::new(tcp4_rx_buffer, tcp4_tx_buffer);
+    let tcp4_rx_buffer = tcp::SocketBuffer::new(vec![0; 65535]);
+    let tcp4_tx_buffer = tcp::SocketBuffer::new(vec![0; 65535]);
+    let tcp4_socket = tcp::Socket::new(tcp4_rx_buffer, tcp4_tx_buffer);
 
     let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
     let ip_addrs = [
@@ -80,7 +79,7 @@ fn main() {
         }
 
         // udp:6969: respond "hello"
-        let socket = iface.get_socket::<UdpSocket>(udp_handle);
+        let socket = iface.get_socket::<udp::Socket>(udp_handle);
         if !socket.is_open() {
             socket.bind(6969).unwrap()
         }
@@ -106,7 +105,7 @@ fn main() {
         }
 
         // tcp:6969: respond "hello"
-        let socket = iface.get_socket::<TcpSocket>(tcp1_handle);
+        let socket = iface.get_socket::<tcp::Socket>(tcp1_handle);
         if !socket.is_open() {
             socket.listen(6969).unwrap();
         }
@@ -119,7 +118,7 @@ fn main() {
         }
 
         // tcp:6970: echo with reverse
-        let socket = iface.get_socket::<TcpSocket>(tcp2_handle);
+        let socket = iface.get_socket::<tcp::Socket>(tcp2_handle);
         if !socket.is_open() {
             socket.listen(6970).unwrap()
         }
@@ -161,7 +160,7 @@ fn main() {
         }
 
         // tcp:6971: sinkhole
-        let socket = iface.get_socket::<TcpSocket>(tcp3_handle);
+        let socket = iface.get_socket::<tcp::Socket>(tcp3_handle);
         if !socket.is_open() {
             socket.listen(6971).unwrap();
             socket.set_keep_alive(Some(Duration::from_millis(1000)));
@@ -182,7 +181,7 @@ fn main() {
         }
 
         // tcp:6972: fountain
-        let socket = iface.get_socket::<TcpSocket>(tcp4_handle);
+        let socket = iface.get_socket::<tcp::Socket>(tcp4_handle);
         if !socket.is_open() {
             socket.listen(6972).unwrap()
         }

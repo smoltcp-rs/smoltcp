@@ -1,12 +1,11 @@
-/// Implementation of [RFC 6282] which specifies a compression format for IPv6 datagrams over
-/// IEEE802.154-based networks.
-///
-/// [RFC 6282]: https://datatracker.ietf.org/doc/html/rfc6282
+//! Implementation of [RFC 6282] which specifies a compression format for IPv6 datagrams over
+//! IEEE802.154-based networks.
+//!
+//! [RFC 6282]: https://datatracker.ietf.org/doc/html/rfc6282
+use super::{Error, Result};
 use crate::wire::ieee802154::Address as LlAddress;
 use crate::wire::ipv6;
 use crate::wire::IpProtocol;
-use crate::Error;
-use crate::Result;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -46,23 +45,22 @@ impl<'a> Address<'a> {
                     Some(LlAddress::Extended(ll)) => {
                         bytes[8..].copy_from_slice(&LlAddress::Extended(ll).as_eui_64().unwrap());
                     }
-                    _ => return Err(Error::Malformed),
+                    _ => return Err(Error),
                 }
 
                 Ok(ipv6::Address::from_bytes(&bytes))
             }
-            Address::WithContext(_) => Err(Error::NotSupported),
-            Address::Reserved => Err(Error::Malformed),
+            Address::WithContext(_) => Err(Error),
+            Address::Reserved => Err(Error),
         }
     }
 }
 
 pub mod iphc {
+    use super::{Error, Result};
     use crate::wire::ieee802154::Address as LlAddress;
     use crate::wire::ipv6;
     use crate::wire::IpProtocol;
-    use crate::Error;
-    use crate::Result;
     use byteorder::{ByteOrder, NetworkEndian};
 
     use super::Address;
@@ -124,11 +122,11 @@ pub mod iphc {
         }
 
         /// Ensure that no accessor method will panic if called.
-        /// Returns `Err(Error::Truncated)` if the buffer is too short.
+        /// Returns `Err(Error)` if the buffer is too short.
         pub fn check_len(&self) -> Result<()> {
             let buffer = self.buffer.as_ref();
             if buffer.len() < 2 {
-                return Err(Error::Truncated);
+                return Err(Error);
             }
 
             let mut offset = self.ip_fields_start()
@@ -139,7 +137,7 @@ pub mod iphc {
             offset += self.dst_address_size();
 
             if offset as usize > buffer.len() {
-                return Err(Error::Truncated);
+                return Err(Error);
             }
 
             Ok(())
@@ -290,7 +288,7 @@ pub mod iphc {
                     // Any remaining bits are zero.
                     Ok(Address::WithContext(&[]))
                 }
-                _ => Err(Error::Malformed),
+                _ => Err(Error),
             }
         }
 
@@ -428,10 +426,10 @@ pub mod iphc {
                     // P are octets used to encode the prefix itself.
                     // L are octets used to encode the prefix length.
                     // The prefix information P and L is taken from the specified context.
-                    Err(Error::NotSupported)
+                    Err(Error)
                 }
                 (1, 1, 0b01 | 0b10 | 0b11) => Ok(Address::Reserved),
-                _ => Err(Error::Malformed),
+                _ => Err(Error),
             }
         }
 
@@ -781,7 +779,7 @@ pub mod iphc {
 
             if packet.dispatch_field() != DISPATCH {
                 // This is not an LOWPAN_IPHC packet.
-                return Err(Error::Malformed);
+                return Err(Error);
             }
 
             let src_addr = packet.src_addr()?.resolve(ll_src_addr)?;
@@ -975,13 +973,12 @@ pub mod iphc {
 }
 
 pub mod nhc {
+    use super::{Error, Result};
     use crate::wire::ip::checksum;
     use crate::wire::ip::Address as IpAddress;
     use crate::wire::ipv6;
     use crate::wire::udp::Repr as UdpRepr;
     use crate::wire::IpProtocol;
-    use crate::Error;
-    use crate::Result;
     use byteorder::{ByteOrder, NetworkEndian};
     use ipv6::Address;
 
@@ -1032,7 +1029,7 @@ pub mod nhc {
                 // We have a compressed UDP header.
                 Ok(Packet::UdpHeader(UdpPacket::new_checked(buffer)?))
             } else {
-                Err(Error::Unrecognized)
+                Err(Error)
             }
         }
     }
@@ -1089,11 +1086,11 @@ pub mod nhc {
         }
 
         /// Ensure that no accessor method will panic if called.
-        /// Returns `Err(Error::Truncated)` if the buffer is too short.
+        /// Returns `Err(Error)` if the buffer is too short.
         pub fn check_len(&self) -> Result<()> {
             let buffer = self.buffer.as_ref();
             if buffer.is_empty() {
-                Err(Error::Truncated)
+                Err(Error)
             } else {
                 Ok(())
             }
@@ -1235,7 +1232,7 @@ pub mod nhc {
             packet.check_len()?;
 
             if packet.dispatch_field() != EXT_HEADER_DISPATCH {
-                return Err(Error::Malformed);
+                return Err(Error);
             }
 
             Ok(ExtensionHeaderRepr {
@@ -1293,17 +1290,17 @@ pub mod nhc {
         }
 
         /// Ensure that no accessor method will panic if called.
-        /// Returns `Err(Error::Truncated)` if the buffer is too short.
+        /// Returns `Err(Error)` if the buffer is too short.
         pub fn check_len(&self) -> Result<()> {
             let buffer = self.buffer.as_ref();
 
             if buffer.is_empty() {
-                return Err(Error::Truncated);
+                return Err(Error);
             }
 
             let index = 1 + self.ports_size() + self.checksum_size();
             if index > buffer.len() {
-                return Err(Error::Truncated);
+                return Err(Error);
             }
 
             Ok(())
@@ -1507,7 +1504,7 @@ pub mod nhc {
             packet.check_len()?;
 
             if packet.dispatch_field() != UDP_DISPATCH {
-                return Err(Error::Malformed);
+                return Err(Error);
             }
 
             let payload_len = packet.payload().len();
@@ -1526,11 +1523,11 @@ pub mod nhc {
 
             if let Some(checksum) = packet.checksum() {
                 if chk_sum != checksum {
-                    return Err(Error::Checksum);
+                    return Err(Error);
                 }
             } else {
                 net_trace!("Currently we do not support elided checksums.");
-                return Err(Error::Unrecognized);
+                return Err(Error);
             };
 
             Ok(UdpNhcRepr(UdpRepr {

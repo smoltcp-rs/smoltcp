@@ -1,13 +1,13 @@
 use byteorder::{ByteOrder, NetworkEndian};
 use core::{cmp, fmt};
 
+use super::{Error, Result};
 use crate::phy::ChecksumCapabilities;
 use crate::wire::ip::checksum;
 use crate::wire::MldRepr;
 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
 use crate::wire::NdiscRepr;
 use crate::wire::{IpAddress, IpProtocol, Ipv6Packet, Ipv6Repr};
-use crate::{Error, Result};
 
 enum_with_unknown! {
     /// Internet protocol control message type.
@@ -262,11 +262,11 @@ impl<T: AsRef<[u8]>> Packet<T> {
     }
 
     /// Ensure that no accessor method will panic if called.
-    /// Returns `Err(Error::Truncated)` if the buffer is too short.
+    /// Returns `Err(Error)` if the buffer is too short.
     pub fn check_len(&self) -> Result<()> {
         let len = self.buffer.as_ref().len();
         if len < field::HEADER_END || len < self.header_len() {
-            Err(Error::Truncated)
+            Err(Error)
         } else {
             Ok(())
         }
@@ -557,7 +557,7 @@ impl<'a> Repr<'a> {
 
             let payload = &packet.payload()[ip_packet.header_len() as usize..];
             if payload.len() < 8 {
-                return Err(Error::Truncated);
+                return Err(Error);
             }
             let repr = Ipv6Repr {
                 src_addr: ip_packet.src_addr(),
@@ -570,7 +570,7 @@ impl<'a> Repr<'a> {
         }
         // Valid checksum is expected.
         if checksum_caps.icmpv6.rx() && !packet.verify_checksum(src_addr, dst_addr) {
-            return Err(Error::Checksum);
+            return Err(Error);
         }
 
         match (packet.msg_type(), packet.msg_code()) {
@@ -620,7 +620,7 @@ impl<'a> Repr<'a> {
             #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
             (msg_type, 0) if msg_type.is_ndisc() => NdiscRepr::parse(packet).map(Repr::Ndisc),
             (msg_type, 0) if msg_type.is_mld() => MldRepr::parse(packet).map(Repr::Mld),
-            _ => Err(Error::Unrecognized),
+            _ => Err(Error),
         }
     }
 

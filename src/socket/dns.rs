@@ -4,11 +4,10 @@ use core::task::Waker;
 use heapless::Vec;
 use managed::ManagedSlice;
 
-use crate::socket::{Context, PollAt, Socket};
+use crate::socket::{Context, PollAt};
 use crate::time::{Duration, Instant};
 use crate::wire::dns::{Flags, Opcode, Packet, Question, Rcode, Record, RecordData, Repr, Type};
-use crate::wire::{IpAddress, IpProtocol, IpRepr, UdpRepr};
-use crate::{Error, Result};
+use crate::wire::{self, IpAddress, IpProtocol, IpRepr, UdpRepr};
 
 #[cfg(feature = "async")]
 use super::WakerRegistration;
@@ -20,6 +19,25 @@ const MAX_SERVER_COUNT: usize = 4;
 const RETRANSMIT_DELAY: Duration = Duration::from_millis(1_000);
 const MAX_RETRANSMIT_DELAY: Duration = Duration::from_millis(10_000);
 const RETRANSMIT_TIMEOUT: Duration = Duration::from_millis(10_000); // Should generally be 2-10 secs
+
+/// Error returned by [`Socket::start_query`]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum StartQueryError {
+    NoFreeSlot,
+    InvalidName,
+    NameTooLong,
+}
+
+/// Error returned by [`Socket::get_query_result`]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum GetQueryResultError {
+    /// Query is not done yet.
+    Pending,
+    /// Query failed.
+    Failed,
+}
 
 /// State for an in-progress DNS query.
 ///
@@ -78,7 +96,7 @@ pub struct QueryHandle(usize);
 /// A UDP socket is bound to a specific endpoint, and owns transmit and receive
 /// packet buffers.
 #[derive(Debug)]
-pub struct DnsSocket<'a> {
+pub struct Socket<'a> {
     servers: Vec<IpAddress, MAX_SERVER_COUNT>,
     queries: ManagedSlice<'a, Option<DnsQuery>>,
 
@@ -86,17 +104,17 @@ pub struct DnsSocket<'a> {
     hop_limit: Option<u8>,
 }
 
-impl<'a> DnsSocket<'a> {
+impl<'a> Socket<'a> {
     /// Create a DNS socket.
     ///
     /// # Panics
     ///
     /// Panics if `servers.len() > MAX_SERVER_COUNT`
-    pub fn new<Q>(servers: &[IpAddress], queries: Q) -> DnsSocket<'a>
+    pub fn new<Q>(servers: &[IpAddress], queries: Q) -> Socket<'a>
     where
         Q: Into<ManagedSlice<'a, Option<DnsQuery>>>,
     {
-        DnsSocket {
+        Socket {
             servers: Vec::from_slice(servers).unwrap(),
             queries: queries.into(),
             hop_limit: None,
@@ -139,20 +157,20 @@ impl<'a> DnsSocket<'a> {
         self.hop_limit = hop_limit
     }
 
-    fn find_free_query(&mut self) -> Result<QueryHandle> {
+    fn find_free_query(&mut self) -> Option<QueryHandle> {
         for (i, q) in self.queries.iter().enumerate() {
             if q.is_none() {
-                return Ok(QueryHandle(i));
+                return Some(QueryHandle(i));
             }
         }
 
         match self.queries {
-            ManagedSlice::Borrowed(_) => Err(Error::Exhausted),
+            ManagedSlice::Borrowed(_) => None,
             #[cfg(any(feature = "std", feature = "alloc"))]
             ManagedSlice::Owned(ref mut queries) => {
                 queries.push(None);
                 let index = queries.len() - 1;
-                Ok(QueryHandle(index))
+                Some(QueryHandle(index))
             }
         }
     }
@@ -162,12 +180,16 @@ impl<'a> DnsSocket<'a> {
     /// `name` is specified in human-friendly format, such as `"rust-lang.org"`.
     /// It accepts names both with and without trailing dot, and they're treated
     /// the same (there's no support for DNS search path).
-    pub fn start_query(&mut self, cx: &mut Context, name: &str) -> Result<QueryHandle> {
+    pub fn start_query(
+        &mut self,
+        cx: &mut Context,
+        name: &str,
+    ) -> Result<QueryHandle, StartQueryError> {
         let mut name = name.as_bytes();
 
         if name.is_empty() {
             net_trace!("invalid name: zero length");
-            return Err(Error::Illegal);
+            return Err(StartQueryError::InvalidName);
         }
 
         // Remove trailing dot, if any
@@ -180,22 +202,26 @@ impl<'a> DnsSocket<'a> {
         for s in name.split(|&c| c == b'.') {
             if s.len() > 63 {
                 net_trace!("invalid name: too long label");
-                return Err(Error::Illegal);
+                return Err(StartQueryError::InvalidName);
             }
             if s.is_empty() {
                 net_trace!("invalid name: zero length label");
-                return Err(Error::Illegal);
+                return Err(StartQueryError::InvalidName);
             }
 
             // Push label
-            raw_name.push(s.len() as u8).map_err(|_| Error::Exhausted)?;
+            raw_name
+                .push(s.len() as u8)
+                .map_err(|_| StartQueryError::NameTooLong)?;
             raw_name
                 .extend_from_slice(s)
-                .map_err(|_| Error::Exhausted)?;
+                .map_err(|_| StartQueryError::NameTooLong)?;
         }
 
         // Push terminator.
-        raw_name.push(0x00).map_err(|_| Error::Exhausted)?;
+        raw_name
+            .push(0x00)
+            .map_err(|_| StartQueryError::NameTooLong)?;
 
         self.start_query_raw(cx, &raw_name)
     }
@@ -204,12 +230,16 @@ impl<'a> DnsSocket<'a> {
     /// `b"\x09rust-lang\x03org\x00"`
     ///
     /// You probably want to use [`start_query`] instead.
-    pub fn start_query_raw(&mut self, cx: &mut Context, raw_name: &[u8]) -> Result<QueryHandle> {
-        let handle = self.find_free_query()?;
+    pub fn start_query_raw(
+        &mut self,
+        cx: &mut Context,
+        raw_name: &[u8],
+    ) -> Result<QueryHandle, StartQueryError> {
+        let handle = self.find_free_query().ok_or(StartQueryError::NoFreeSlot)?;
 
         self.queries[handle.0] = Some(DnsQuery {
             state: State::Pending(PendingQuery {
-                name: Vec::from_slice(raw_name).map_err(|_| Error::Exhausted)?,
+                name: Vec::from_slice(raw_name).map_err(|_| StartQueryError::NameTooLong)?,
                 type_: Type::A,
                 txid: cx.rand().rand_u16(),
                 port: cx.rand().rand_source_port(),
@@ -224,15 +254,21 @@ impl<'a> DnsSocket<'a> {
         Ok(handle)
     }
 
+    /// Get the result of a query.
+    ///
+    /// If the query is completed, the query slot is automatically freed.
+    ///
+    /// # Panics
+    /// Panics if the QueryHandle corresponds to a free slot.
     pub fn get_query_result(
         &mut self,
         handle: QueryHandle,
-    ) -> Result<Vec<IpAddress, MAX_ADDRESS_COUNT>> {
-        let slot = self.queries.get_mut(handle.0).ok_or(Error::Illegal)?;
-        let q = slot.as_mut().ok_or(Error::Illegal)?;
+    ) -> Result<Vec<IpAddress, MAX_ADDRESS_COUNT>, GetQueryResultError> {
+        let slot = &mut self.queries[handle.0];
+        let q = slot.as_mut().unwrap();
         match &mut q.state {
             // Query is not done yet.
-            State::Pending(_) => Err(Error::Exhausted),
+            State::Pending(_) => Err(GetQueryResultError::Pending),
             // Query is done
             State::Completed(q) => {
                 let res = q.addresses.clone();
@@ -241,25 +277,38 @@ impl<'a> DnsSocket<'a> {
             }
             State::Failure => {
                 *slot = None; // Free up the slot for recycling.
-                Err(Error::Unaddressable)
+                Err(GetQueryResultError::Failed)
             }
         }
     }
 
-    pub fn cancel_query(&mut self, handle: QueryHandle) -> Result<()> {
-        let slot = self.queries.get_mut(handle.0).ok_or(Error::Illegal)?;
+    /// Cancels a query, freeing the slot.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the QueryHandle corresponds to an already free slot.
+    pub fn cancel_query(&mut self, handle: QueryHandle) {
+        let slot = &mut self.queries[handle.0];
         if slot.is_none() {
-            return Err(Error::Illegal);
+            panic!("Canceling query in a free slot.")
         }
         *slot = None; // Free up the slot for recycling.
-        Ok(())
     }
 
+    /// Assign a waker to a query slot
+    ///
+    /// The waker will be woken when the query completes, either successfully or failed.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the QueryHandle corresponds to an already free slot.
     #[cfg(feature = "async")]
-    pub fn register_query_waker(&mut self, handle: QueryHandle, waker: &Waker) -> Result<()> {
-        let slot = self.queries.get_mut(handle.0).ok_or(Error::Illegal)?;
-        slot.as_mut().ok_or(Error::Illegal)?.waker.register(waker);
-        Ok(())
+    pub fn register_query_waker(&mut self, handle: QueryHandle, waker: &Waker) {
+        self.queries[handle.0]
+            .as_mut()
+            .unwrap()
+            .waker
+            .register(waker);
     }
 
     pub(crate) fn accepts(&self, ip_repr: &IpRepr, udp_repr: &UdpRepr) -> bool {
@@ -276,7 +325,7 @@ impl<'a> DnsSocket<'a> {
         ip_repr: &IpRepr,
         udp_repr: &UdpRepr,
         payload: &[u8],
-    ) -> Result<()> {
+    ) {
         debug_assert!(self.accepts(ip_repr, udp_repr));
 
         let size = payload.len();
@@ -288,20 +337,26 @@ impl<'a> DnsSocket<'a> {
             udp_repr.dst_port
         );
 
-        let p = Packet::new_checked(payload)?;
+        let p = match Packet::new_checked(payload) {
+            Ok(x) => x,
+            Err(_) => {
+                net_trace!("dns packet malformed");
+                return;
+            }
+        };
         if p.opcode() != Opcode::Query {
             net_trace!("unwanted opcode {:?}", p.opcode());
-            return Err(Error::Malformed);
+            return;
         }
 
         if !p.flags().contains(Flags::RESPONSE) {
             net_trace!("packet doesn't have response bit set");
-            return Err(Error::Malformed);
+            return;
         }
 
         if p.question_count() != 1 {
             net_trace!("bad question count {:?}", p.question_count());
-            return Err(Error::Malformed);
+            return;
         }
 
         // Find pending query
@@ -318,27 +373,53 @@ impl<'a> DnsSocket<'a> {
                 }
 
                 let payload = p.payload();
-                let (mut payload, question) = Question::parse(payload)?;
+                let (mut payload, question) = match Question::parse(payload) {
+                    Ok(x) => x,
+                    Err(_) => {
+                        net_trace!("question malformed");
+                        return;
+                    }
+                };
 
                 if question.type_ != pq.type_ {
                     net_trace!("question type mismatch");
-                    return Err(Error::Malformed);
+                    return;
                 }
 
-                if !eq_names(p.parse_name(question.name), p.parse_name(&pq.name))? {
-                    net_trace!("question name mismatch");
-                    return Err(Error::Malformed);
+                match eq_names(p.parse_name(question.name), p.parse_name(&pq.name)) {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        net_trace!("question name mismatch");
+                        return;
+                    }
+                    Err(_) => {
+                        net_trace!("dns question name malformed");
+                        return;
+                    }
                 }
 
                 let mut addresses = Vec::new();
 
                 for _ in 0..p.answer_record_count() {
-                    let (payload2, r) = Record::parse(payload)?;
+                    let (payload2, r) = match Record::parse(payload) {
+                        Ok(x) => x,
+                        Err(_) => {
+                            net_trace!("dns answer record malformed");
+                            return;
+                        }
+                    };
                     payload = payload2;
 
-                    if !eq_names(p.parse_name(r.name), p.parse_name(&pq.name))? {
-                        net_trace!("answer name mismatch: {:?}", r);
-                        continue;
+                    match eq_names(p.parse_name(r.name), p.parse_name(&pq.name)) {
+                        Ok(true) => {}
+                        Ok(false) => {
+                            net_trace!("answer name mismatch: {:?}", r);
+                            continue;
+                        }
+                        Err(_) => {
+                            net_trace!("dns answer record name malformed");
+                            return;
+                        }
                     }
 
                     match r.data {
@@ -366,7 +447,10 @@ impl<'a> DnsSocket<'a> {
                             // records for the CNAME when we parse them later.
                             // I believe it's mandatory the CNAME results MUST come *after* in the
                             // packet, so it's enough to do one linear pass over it.
-                            copy_name(&mut pq.name, p.parse_name(name))?;
+                            if copy_name(&mut pq.name, p.parse_name(name)).is_err() {
+                                net_trace!("dns answer cname malformed");
+                                return;
+                            }
                         }
                         RecordData::Other(type_, data) => {
                             net_trace!("unknown: {:?} {:?}", type_, data)
@@ -381,18 +465,17 @@ impl<'a> DnsSocket<'a> {
                 });
 
                 // If we get here, packet matched the current query, stop processing.
-                return Ok(());
+                return;
             }
         }
 
         // If we get here, packet matched with no query.
         net_trace!("no query matched");
-        Ok(())
     }
 
-    pub(crate) fn dispatch<F>(&mut self, cx: &mut Context, emit: F) -> Result<()>
+    pub(crate) fn dispatch<F, E>(&mut self, cx: &mut Context, emit: F) -> Result<(), E>
     where
-        F: FnOnce(&mut Context, (IpRepr, UdpRepr, &[u8])) -> Result<()>,
+        F: FnOnce(&mut Context, (IpRepr, UdpRepr, &[u8])) -> Result<(), E>,
     {
         let hop_limit = self.hop_limit.unwrap_or(64);
 
@@ -472,10 +555,7 @@ impl<'a> DnsSocket<'a> {
                     udp_repr.src_port
                 );
 
-                if let Err(e) = emit(cx, (ip_repr, udp_repr, payload)) {
-                    net_trace!("DNS emit error {:?}", e);
-                    return Ok(());
-                }
+                emit(cx, (ip_repr, udp_repr, payload))?;
 
                 pq.retransmit_at = cx.now() + pq.delay;
                 pq.delay = MAX_RETRANSMIT_DELAY.min(pq.delay * 2);
@@ -485,7 +565,7 @@ impl<'a> DnsSocket<'a> {
         }
 
         // Nothing to dispatch
-        Err(Error::Exhausted)
+        Ok(())
     }
 
     pub(crate) fn poll_at(&self, _cx: &Context) -> PollAt {
@@ -502,16 +582,10 @@ impl<'a> DnsSocket<'a> {
     }
 }
 
-impl<'a> From<DnsSocket<'a>> for Socket<'a> {
-    fn from(val: DnsSocket<'a>) -> Self {
-        Socket::Dns(val)
-    }
-}
-
 fn eq_names<'a>(
-    mut a: impl Iterator<Item = Result<&'a [u8]>>,
-    mut b: impl Iterator<Item = Result<&'a [u8]>>,
-) -> Result<bool> {
+    mut a: impl Iterator<Item = wire::Result<&'a [u8]>>,
+    mut b: impl Iterator<Item = wire::Result<&'a [u8]>>,
+) -> wire::Result<bool> {
     loop {
         match (a.next(), b.next()) {
             // Handle errors
@@ -537,19 +611,18 @@ fn eq_names<'a>(
 
 fn copy_name<'a, const N: usize>(
     dest: &mut Vec<u8, N>,
-    name: impl Iterator<Item = Result<&'a [u8]>>,
-) -> Result<()> {
+    name: impl Iterator<Item = wire::Result<&'a [u8]>>,
+) -> Result<(), wire::Error> {
     dest.truncate(0);
 
     for label in name {
         let label = label?;
-        dest.push(label.len() as u8).map_err(|_| Error::Truncated)?;
-        dest.extend_from_slice(label)
-            .map_err(|_| Error::Truncated)?;
+        dest.push(label.len() as u8).map_err(|_| wire::Error)?;
+        dest.extend_from_slice(label).map_err(|_| wire::Error)?;
     }
 
     // Write terminator 0x00
-    dest.push(0).map_err(|_| Error::Truncated)?;
+    dest.push(0).map_err(|_| wire::Error)?;
 
     Ok(())
 }
