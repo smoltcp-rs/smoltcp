@@ -3,10 +3,11 @@
 use bitflags::bitflags;
 use byteorder::{ByteOrder, NetworkEndian};
 
-use crate::wire::arp::Hardware;
-use crate::wire::{EthernetAddress, Ipv4Address};
-use crate::{Error, Result};
-use core::convert::TryFrom;
+use crate::{
+    wire::{arp::Hardware, EthernetAddress, Ipv4Address},
+    Error, Result,
+};
+use core::convert::{TryFrom, TryInto};
 
 pub const SERVER_PORT: u16 = 67;
 pub const CLIENT_PORT: u16 = 68;
@@ -151,30 +152,10 @@ pub struct NetworkInterfaceVersion {
     pub minor: u8,
 }
 
-#[repr(u8)]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum MachineIdType {
-    /// Globally Unique Identifier type
-    Guid = 0,
-}
-
-impl TryFrom<u8> for MachineIdType {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Self> {
-        match value {
-            0 => Ok(MachineIdType::Guid),
-            _ => Err(Error::Unrecognized),
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct MachineId<'a> {
-    pub id_type: MachineIdType,
-    pub id: &'a [u8],
+pub enum MachineId<'a> {
+    Guid(&'a [u8; 16]),
 }
 
 enum_with_unknown! {
@@ -271,11 +252,9 @@ impl<'a> DhcpOption<'a> {
                             return Err(Error::Truncated);
                         }
 
-                        let id_type = MachineIdType::try_from(data[0])?;
-
-                        option = DhcpOption::ClientMachineId(MachineId {
-                            id_type: id_type,
-                            id: &data[1..],
+                        option = DhcpOption::ClientMachineId(match data[0] {
+                            0 => MachineId::Guid(data[1..].try_into().map_err(|_| Error::Illegal)?),
+                            _ => return Err(Error::Unrecognized),
                         });
                     }
                     (field::OPT_VENDOR_CLASS_ID, _) => {
@@ -342,7 +321,11 @@ impl<'a> DhcpOption<'a> {
             &DhcpOption::MaximumDhcpMessageSize(_) => 4,
             &DhcpOption::IpLeaseTime(_) => 6,
             &DhcpOption::ClientArchTypeList(list) => 2 + list.len(),
-            &DhcpOption::ClientMachineId(list) => 3 + list.id.len(),
+            &DhcpOption::ClientMachineId(id) => {
+                3 + match id {
+                    MachineId::Guid(_) => 16,
+                }
+            }
             &DhcpOption::ClientNetworkInterfaceId(_) => 5,
             &DhcpOption::VendorClassId(list) => 2 + list.len(),
             &DhcpOption::Other { data, .. } => 2 + data.len(),
@@ -385,10 +368,15 @@ impl<'a> DhcpOption<'a> {
                         buffer[0] = field::OPT_CLIENT_ARCH;
                         buffer[2..skip_length].copy_from_slice(list);
                     }
-                    DhcpOption::ClientMachineId(list) => {
+                    DhcpOption::ClientMachineId(id) => {
                         buffer[0] = field::OPT_CLIENT_MACHINE_ID;
-                        buffer[2] = list.id_type as u8;
-                        buffer[3..skip_length].copy_from_slice(list.id);
+                        match id {
+                            MachineId::Guid(guid) => {
+                                buffer[1] = 17;
+                                buffer[2] = 0;
+                                buffer[3..skip_length].copy_from_slice(guid);
+                            }
+                        }
                     }
                     DhcpOption::TimeOffset(value) => {
                         buffer[0] = field::OPT_TIME_OFFSET;
@@ -443,7 +431,8 @@ impl<'a> DhcpOption<'a> {
     }
 }
 
-/// A read/write wrapper around a Dynamic Host Configuration Protocol packet buffer.
+/// A read/write wrapper around a Dynamic Host Configuration Protocol packet
+/// buffer.
 #[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Packet<T: AsRef<[u8]>> {
@@ -622,15 +611,16 @@ impl<T: AsRef<[u8]>> Packet<T> {
 
     /// Returns the transaction ID.
     ///
-    /// The transaction ID (called `xid` in the specification) is a random number used to
-    /// associate messages and responses between client and server. The number is chosen by
-    /// the client.
+    /// The transaction ID (called `xid` in the specification) is a random
+    /// number used to associate messages and responses between client and
+    /// server. The number is chosen by the client.
     pub fn transaction_id(&self) -> u32 {
         let field = &self.buffer.as_ref()[field::XID];
         NetworkEndian::read_u32(field)
     }
 
-    /// Returns the hardware address of the client (called `chaddr` in the specification).
+    /// Returns the hardware address of the client (called `chaddr` in the
+    /// specification).
     ///
     /// Only ethernet is supported by `smoltcp`, so this functions returns
     /// an `EthernetAddress`.
@@ -641,15 +631,16 @@ impl<T: AsRef<[u8]>> Packet<T> {
 
     /// Returns the value of the `hops` field.
     ///
-    /// The `hops` field is set to zero by clients and optionally used by relay agents.
+    /// The `hops` field is set to zero by clients and optionally used by relay
+    /// agents.
     pub fn hops(&self) -> u8 {
         self.buffer.as_ref()[field::HOPS]
     }
 
     /// Returns the value of the `secs` field.
     ///
-    /// The secs field is filled by clients and describes the number of seconds elapsed
-    /// since client began process.
+    /// The secs field is filled by clients and describes the number of seconds
+    /// elapsed since client began process.
     pub fn secs(&self) -> u16 {
         let field = &self.buffer.as_ref()[field::SECS];
         NetworkEndian::read_u16(field)
@@ -665,9 +656,10 @@ impl<T: AsRef<[u8]>> Packet<T> {
 
     /// Returns the Ipv4 address of the client, zero if not set.
     ///
-    /// This corresponds to the `ciaddr` field in the DHCP specification. According to it,
-    /// this field is “only filled in if client is in `BOUND`, `RENEW` or `REBINDING` state
-    /// and can respond to ARP requests”.
+    /// This corresponds to the `ciaddr` field in the DHCP specification.
+    /// According to it, this field is “only filled in if client is in
+    /// `BOUND`, `RENEW` or `REBINDING` state and can respond to ARP
+    /// requests”.
     pub fn client_ip(&self) -> Ipv4Address {
         let field = &self.buffer.as_ref()[field::CIADDR];
         Ipv4Address::from_bytes(field)
@@ -730,11 +722,12 @@ impl<'a, T: AsRef<[u8]> + ?Sized> Packet<&'a T> {
 }
 
 impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
-    /// Sets the optional `sname` (“server name”) and `file` (“boot file name”) fields to zero.
+    /// Sets the optional `sname` (“server name”) and `file` (“boot file name”)
+    /// fields to zero.
     ///
-    /// The fields are not commonly used, so we set their value always to zero. **This method
-    /// must be called when creating a packet, otherwise the emitted values for these fields
-    /// are undefined!**
+    /// The fields are not commonly used, so we set their value always to zero.
+    /// **This method must be called when creating a packet, otherwise the
+    /// emitted values for these fields are undefined!**
     pub fn set_sname_and_boot_file_to_zero(&mut self) {
         let data = self.buffer.as_mut();
         for byte in &mut data[field::SNAME] {
@@ -777,16 +770,17 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
 
     /// Sets the hardware address length.
     ///
-    /// Only ethernet is supported, so this field should be set to the value `6`.
+    /// Only ethernet is supported, so this field should be set to the value
+    /// `6`.
     pub fn set_hardware_len(&mut self, value: u8) {
         self.buffer.as_mut()[field::HLEN] = value;
     }
 
     /// Sets the transaction ID.
     ///
-    /// The transaction ID (called `xid` in the specification) is a random number used to
-    /// associate messages and responses between client and server. The number is chosen by
-    /// the client.
+    /// The transaction ID (called `xid` in the specification) is a random
+    /// number used to associate messages and responses between client and
+    /// server. The number is chosen by the client.
     pub fn set_transaction_id(&mut self, value: u32) {
         let field = &mut self.buffer.as_mut()[field::XID];
         NetworkEndian::write_u32(field, value)
@@ -805,15 +799,16 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
 
     /// Sets the hops field.
     ///
-    /// The `hops` field is set to zero by clients and optionally used by relay agents.
+    /// The `hops` field is set to zero by clients and optionally used by relay
+    /// agents.
     pub fn set_hops(&mut self, value: u8) {
         self.buffer.as_mut()[field::HOPS] = value;
     }
 
     /// Sets the `secs` field.
     ///
-    /// The secs field is filled by clients and describes the number of seconds elapsed
-    /// since client began process.
+    /// The secs field is filled by clients and describes the number of seconds
+    /// elapsed since client began process.
     pub fn set_secs(&mut self, value: u16) {
         let field = &mut self.buffer.as_mut()[field::SECS];
         NetworkEndian::write_u16(field, value);
@@ -829,9 +824,10 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
 
     /// Sets the Ipv4 address of the client.
     ///
-    /// This corresponds to the `ciaddr` field in the DHCP specification. According to it,
-    /// this field is “only filled in if client is in `BOUND`, `RENEW` or `REBINDING` state
-    /// and can respond to ARP requests”.
+    /// This corresponds to the `ciaddr` field in the DHCP specification.
+    /// According to it, this field is “only filled in if client is in
+    /// `BOUND`, `RENEW` or `REBINDING` state and can respond to ARP
+    /// requests”.
     pub fn set_client_ip(&mut self, value: Ipv4Address) {
         let field = &mut self.buffer.as_mut()[field::CIADDR];
         field.copy_from_slice(value.as_bytes());
@@ -910,35 +906,38 @@ impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Packet<&'a mut T> {
 /// +---------------------------------------------------------------+
 /// ```
 ///
-/// It is assumed that the access layer is Ethernet, so `htype` (the field representing the
-/// hardware address type) is always set to `1`, and `hlen` (which represents the hardware address
-/// length) is set to `6`.
+/// It is assumed that the access layer is Ethernet, so `htype` (the field
+/// representing the hardware address type) is always set to `1`, and `hlen`
+/// (which represents the hardware address length) is set to `6`.
 ///
 /// The `options` field has a variable length.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Repr<'a> {
-    /// This field is also known as `op` in the RFC. It indicates the type of DHCP message this
-    /// packet represents.
+    /// This field is also known as `op` in the RFC. It indicates the type of
+    /// DHCP message this packet represents.
     pub message_type: MessageType,
-    /// This field is also known as `xid` in the RFC. It is a random number chosen by the client,
-    /// used by the client and server to associate messages and responses between a client and a
-    /// server.
+    /// This field is also known as `xid` in the RFC. It is a random number
+    /// chosen by the client, used by the client and server to associate
+    /// messages and responses between a client and a server.
     pub transaction_id: u32,
-    /// seconds elapsed since client began address acquisition or renewal process
-    /// the DHCPREQUEST message MUST use the same value in the DHCP message header's 'secs' field and be sent to the
-    /// same IP broadcast address as the original DHCPDISCOVER message.
+    /// seconds elapsed since client began address acquisition or renewal
+    /// process the DHCPREQUEST message MUST use the same value in the DHCP
+    /// message header's 'secs' field and be sent to the same IP broadcast
+    /// address as the original DHCPDISCOVER message.
     pub secs: u16,
-    /// This field is also known as `chaddr` in the RFC and for networks where the access layer is
-    /// ethernet, it is the client MAC address.
+    /// This field is also known as `chaddr` in the RFC and for networks where
+    /// the access layer is ethernet, it is the client MAC address.
     pub client_hardware_address: EthernetAddress,
-    /// This field is also known as `ciaddr` in the RFC. It is only filled in if client is in
-    /// BOUND, RENEW or REBINDING state and can respond to ARP requests.
+    /// This field is also known as `ciaddr` in the RFC. It is only filled in if
+    /// client is in BOUND, RENEW or REBINDING state and can respond to ARP
+    /// requests.
     pub client_ip: Ipv4Address,
     /// This field is also known as `yiaddr` in the RFC.
     pub your_ip: Ipv4Address,
-    /// This field is also known as `siaddr` in the RFC. It may be set by the server in DHCPOFFER
-    /// and DHCPACK messages, and represent the address of the next server to use in bootstrap.
+    /// This field is also known as `siaddr` in the RFC. It may be set by the
+    /// server in DHCPOFFER and DHCPACK messages, and represent the address
+    /// of the next server to use in bootstrap.
     pub server_ip: Ipv4Address,
     /// Boot file name, null terminated string; "generic"
     /// name or null in DHCPDISCOVER, fully qualified
@@ -949,37 +948,45 @@ pub struct Repr<'a> {
     pub router: Option<Ipv4Address>,
     /// This field comes from a corresponding DhcpOption.
     pub subnet_mask: Option<Ipv4Address>,
-    /// This field is also known as `giaddr` in the RFC. In order to allow DHCP clients on subnets
-    /// not directly served by DHCP servers to communicate with DHCP servers, DHCP relay agents can
-    /// be installed on these subnets. The DHCP client broadcasts on the local link; the relay
-    /// agent receives the broadcast and transmits it to one or more DHCP servers using unicast.
-    /// The relay agent stores its own IP address in the `relay_agent_ip` field of the DHCP packet.
-    /// The DHCP server uses the `relay_agent_ip` to determine the subnet on which the relay agent
-    /// received the broadcast, and allocates an IP address on that subnet. When the DHCP server
-    /// replies to the client, it sends the reply to the `relay_agent_ip` address, again using
-    /// unicast. The relay agent then retransmits the response on the local network
+    /// This field is also known as `giaddr` in the RFC. In order to allow DHCP
+    /// clients on subnets not directly served by DHCP servers to
+    /// communicate with DHCP servers, DHCP relay agents can be installed on
+    /// these subnets. The DHCP client broadcasts on the local link; the relay
+    /// agent receives the broadcast and transmits it to one or more DHCP
+    /// servers using unicast. The relay agent stores its own IP address in
+    /// the `relay_agent_ip` field of the DHCP packet. The DHCP server uses
+    /// the `relay_agent_ip` to determine the subnet on which the relay agent
+    /// received the broadcast, and allocates an IP address on that subnet. When
+    /// the DHCP server replies to the client, it sends the reply to the
+    /// `relay_agent_ip` address, again using unicast. The relay agent then
+    /// retransmits the response on the local network
     pub relay_agent_ip: Ipv4Address,
-    /// Broadcast flags. It can be set in DHCPDISCOVER, DHCPINFORM and DHCPREQUEST message if the
-    /// client requires the response to be broadcasted.
+    /// Broadcast flags. It can be set in DHCPDISCOVER, DHCPINFORM and
+    /// DHCPREQUEST message if the client requires the response to be
+    /// broadcasted.
     pub broadcast: bool,
-    /// The "requested IP address" option. It can be used by clients in DHCPREQUEST or DHCPDISCOVER
-    /// messages, or by servers in DHCPDECLINE messages.
+    /// The "requested IP address" option. It can be used by clients in
+    /// DHCPREQUEST or DHCPDISCOVER messages, or by servers in DHCPDECLINE
+    /// messages.
     pub requested_ip: Option<Ipv4Address>,
     /// The "client identifier" option.
     ///
-    /// The 'client identifier' is an opaque key, not to be interpreted by the server; for example,
-    /// the 'client identifier' may contain a hardware address, identical to the contents of the
-    /// 'chaddr' field, or it may contain another type of identifier, such as a DNS name.  The
-    /// 'client identifier' chosen by a DHCP client MUST be unique to that client within the subnet
-    /// to which the client is attached. If the client uses a 'client identifier' in one message,
-    /// it MUST use that same identifier in all subsequent messages, to ensure that all servers
+    /// The 'client identifier' is an opaque key, not to be interpreted by the
+    /// server; for example, the 'client identifier' may contain a hardware
+    /// address, identical to the contents of the 'chaddr' field, or it may
+    /// contain another type of identifier, such as a DNS name.  The 'client
+    /// identifier' chosen by a DHCP client MUST be unique to that client within
+    /// the subnet to which the client is attached. If the client uses a
+    /// 'client identifier' in one message, it MUST use that same identifier
+    /// in all subsequent messages, to ensure that all servers
     /// correctly identify the client.
     pub client_identifier: Option<EthernetAddress>,
-    /// The "server identifier" option. It is used both to identify a DHCP server
-    /// in a DHCP message and as a destination address from clients to servers.
+    /// The "server identifier" option. It is used both to identify a DHCP
+    /// server in a DHCP message and as a destination address from clients
+    /// to servers.
     pub server_identifier: Option<Ipv4Address>,
-    /// The parameter request list informs the server about which configuration parameters
-    /// the client is interested in.
+    /// The parameter request list informs the server about which configuration
+    /// parameters the client is interested in.
     pub parameter_request_list: Option<&'a [u8]>,
     /// DNS servers
     pub dns_servers: Option<[Option<Ipv4Address>; MAX_DNS_SERVER_COUNT]>,
@@ -1001,7 +1008,8 @@ pub struct Repr<'a> {
 }
 
 impl<'a> Repr<'a> {
-    /// Return the length of a packet that will be emitted from this high-level representation.
+    /// Return the length of a packet that will be emitted from this high-level
+    /// representation.
     pub fn buffer_len(&self) -> usize {
         let mut len = field::OPTIONS.start;
         // message type and end-of-options options
@@ -1033,8 +1041,10 @@ impl<'a> Repr<'a> {
         if self.client_interface_id.is_some() {
             len += 5;
         }
-        if let Some(list) = self.client_machine_id {
-            len += list.id.len() + 3;
+        if let Some(id) = self.client_machine_id {
+            len += 3 + match id {
+                MachineId::Guid(_) => 16,
+            }
         }
         if let Some(list) = self.client_arch_list {
             len += list.len() + 2;
@@ -1062,7 +1072,7 @@ impl<'a> Repr<'a> {
         let server_ip = packet.server_ip();
         let relay_agent_ip = packet.relay_agent_ip();
         let sname = packet.get_sname().ok();
-        let boot_file = packet.get_boot_file().ok();
+        let mut boot_file = packet.get_boot_file().ok();
         let secs = packet.secs();
 
         // only ethernet is supported right now
@@ -1161,6 +1171,14 @@ impl<'a> Repr<'a> {
                         *server = Some(Ipv4Address::from_bytes(chunk));
                     }
                     dns_servers = Some(servers);
+                }
+                DhcpOption::Other {
+                    kind: field::OPT_BOOTFILE_NAME,
+                    data,
+                } => {
+                    if let Ok(s) = core::str::from_utf8(data) {
+                        boot_file = Some(s);
+                    }
                 }
                 DhcpOption::Other { .. } => {}
             }
@@ -1325,7 +1343,7 @@ mod test {
 
     const MAGIC_COOKIE: u32 = 0x63825363;
 
-    /* Frame (548 bytes) */
+    // Frame (548 bytes)
     static PXE_DISCOVER_BYTES: &[u8] = &[
         0x01, 0x01, 0x06, 0x00, 0x2f, 0x91, 0xf7, 0xfd, 0x00, 0x04, 0x80, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0b,
@@ -1461,13 +1479,10 @@ mod test {
             }
             .emit(options);
             options = DhcpOption::MaximumDhcpMessageSize(1260).emit(options);
-            options = DhcpOption::ClientMachineId(MachineId {
-                id_type: MachineIdType::Guid,
-                id: &[
-                    0x00, 0x02, 0x00, 0x03, 0x00, 0x04, 0x00, 0x05, 0x00, 0x06, 0x00, 0x07, 0x00,
-                    0x08, 0x00, 0x09,
-                ],
-            })
+            options = DhcpOption::ClientMachineId(MachineId::Guid(&[
+                0x00, 0x02, 0x00, 0x03, 0x00, 0x04, 0x00, 0x05, 0x00, 0x06, 0x00, 0x07, 0x00, 0x08,
+                0x00, 0x09,
+            ]))
             .emit(options);
             options =
                 DhcpOption::ClientArchTypeList(&(ClientArchType::X86Bios as u16).to_be_bytes())
@@ -1531,13 +1546,10 @@ mod test {
         let (options, msg_size) = DhcpOption::parse(options).unwrap();
         assert_eq!(
             msg_size,
-            DhcpOption::ClientMachineId(MachineId {
-                id_type: MachineIdType::Guid,
-                id: &[
-                    0x00, 0x02, 0x00, 0x03, 0x00, 0x04, 0x00, 0x05, 0x00, 0x06, 0x00, 0x07, 0x00,
-                    0x08, 0x00, 0x09
-                ]
-            })
+            DhcpOption::ClientMachineId(MachineId::Guid(&[
+                0x00, 0x02, 0x00, 0x03, 0x00, 0x04, 0x00, 0x05, 0x00, 0x06, 0x00, 0x07, 0x00, 0x08,
+                0x00, 0x09
+            ]))
         );
         assert_eq!(options.len(), 4 + 5 + 34 + 1 + 12);
 
@@ -1817,8 +1829,8 @@ mod test {
         let packet = Packet::new_unchecked(ACK_LEASE_TIME_BYTES);
         let repr = Repr::parse(&packet).unwrap();
 
-        // Verify that the lease time in the ACK is properly parsed. The packet contains a lease
-        // duration of 598s.
+        // Verify that the lease time in the ACK is properly parsed. The packet contains
+        // a lease duration of 598s.
         assert_eq!(repr.lease_duration, Some(598));
     }
 }

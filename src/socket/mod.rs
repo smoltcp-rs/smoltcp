@@ -29,7 +29,9 @@ mod udp;
 mod waker;
 
 #[cfg(feature = "socket-dhcpv4")]
-pub use self::dhcpv4::{Config as Dhcpv4Config, Dhcpv4Socket, Event as Dhcpv4Event};
+pub use self::dhcpv4::{
+    Config as Dhcpv4Config, Dhcpv4Socket, Event as Dhcpv4Event, PxeBuffers as Dhcpv4PxeBuffers,
+};
 #[cfg(feature = "socket-icmp")]
 pub use self::icmp::{Endpoint as IcmpEndpoint, IcmpPacketMetadata, IcmpSocket, IcmpSocketBuffer};
 #[cfg(feature = "socket-raw")]
@@ -75,7 +77,7 @@ pub enum Socket<'a> {
     #[cfg(feature = "socket-tcp")]
     Tcp(TcpSocket<'a>),
     #[cfg(feature = "socket-dhcpv4")]
-    Dhcpv4(Dhcpv4Socket),
+    Dhcpv4(Dhcpv4Socket<'a>),
 }
 
 impl<'a> Socket<'a> {
@@ -128,4 +130,4 @@ from_socket!(UdpSocket<'a>, Udp);
 #[cfg(feature = "socket-tcp")]
 from_socket!(TcpSocket<'a>, Tcp);
 #[cfg(feature = "socket-dhcpv4")]
-from_socket!(Dhcpv4Socket, Dhcpv4);
+from_socket!(Dhcpv4Socket<'a>, Dhcpv4);

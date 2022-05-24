@@ -1,11 +1,11 @@
 use crate::iface::Context;
 use crate::time::{Duration, Instant};
 use crate::wire::dhcpv4::field as dhcpv4_field;
-use crate::wire::HardwareAddress;
 use crate::wire::{
     DhcpMessageType, DhcpPacket, DhcpRepr, IpAddress, IpProtocol, Ipv4Address, Ipv4Cidr, Ipv4Repr,
     UdpRepr, DHCP_CLIENT_PORT, DHCP_MAX_DNS_SERVER_COUNT, DHCP_SERVER_PORT, UDP_HEADER_LEN,
 };
+use crate::wire::{HardwareAddress, PxeMachineId};
 use crate::{Error, Result};
 
 use super::PollAt;
@@ -99,6 +99,23 @@ enum ClientState {
     Renewing(RenewState),
 }
 
+#[derive(Debug)]
+pub struct PxeBuffers<'a> {
+    id: &'a [u8; 16],
+    bootfile_name_len: usize,
+    bootfile_name_buf: [u8; 128],
+}
+
+impl<'a> PxeBuffers<'a> {
+    pub const fn new(id: &'a [u8; 16]) -> Self {
+        Self {
+            id,
+            bootfile_name_len: 0,
+            bootfile_name_buf: [0; 128],
+        }
+    }
+}
+
 /// Return value for the `Dhcpv4Socket::poll` function
 #[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -110,7 +127,7 @@ pub enum Event {
 }
 
 #[derive(Debug)]
-pub struct Dhcpv4Socket {
+pub struct Dhcpv4Socket<'a> {
     /// State of the DHCP client.
     state: ClientState,
     /// Set to true on config/state change, cleared back to false by the `config` function.
@@ -124,6 +141,8 @@ pub struct Dhcpv4Socket {
 
     /// Ignore NAKs.
     ignore_naks: bool,
+
+    pxe_buffers: Option<&'a mut PxeBuffers<'a>>,
 }
 
 /// DHCP client socket.
@@ -131,10 +150,10 @@ pub struct Dhcpv4Socket {
 /// The socket acquires an IP address configuration through DHCP autonomously.
 /// You must query the configuration with `.poll()` after every call to `Interface::poll()`,
 /// and apply the configuration to the `Interface`.
-impl Dhcpv4Socket {
+impl<'a> Dhcpv4Socket<'a> {
     /// Create a DHCPv4 socket
     #[allow(clippy::new_without_default)]
-    pub fn new() -> Self {
+    pub fn new() -> Dhcpv4Socket<'a> {
         Dhcpv4Socket {
             state: ClientState::Discovering(DiscoverState {
                 retry_at: Instant::from_millis(0),
@@ -143,6 +162,21 @@ impl Dhcpv4Socket {
             transaction_id: 1,
             max_lease_duration: None,
             ignore_naks: false,
+            pxe_buffers: None,
+        }
+    }
+
+    /// Create a DHCPv4 socket with support for PXE.
+    pub fn with_pxe(pxe_buffers: &'a mut PxeBuffers<'a>) -> Self {
+        Dhcpv4Socket {
+            state: ClientState::Discovering(DiscoverState {
+                retry_at: Instant::from_millis(0),
+            }),
+            config_changed: true,
+            transaction_id: 1,
+            max_lease_duration: None,
+            ignore_naks: false,
+            pxe_buffers: Some(pxe_buffers),
         }
     }
 
@@ -245,6 +279,16 @@ impl Dhcpv4Socket {
             src_ip,
             dhcp_repr
         );
+
+        if let (Some(bootfile_name), Some(pxe)) = (dhcp_repr.boot_file, self.pxe_buffers.as_mut()) {
+            let len = bootfile_name.len();
+            if len <= pxe.bootfile_name_buf.len() {
+                pxe.bootfile_name_buf[..len].copy_from_slice(bootfile_name.as_bytes());
+                pxe.bootfile_name_len = len;
+            } else {
+                pxe.bootfile_name_len = 0;
+            }
+        }
 
         match (&mut self.state, dhcp_repr.message_type) {
             (ClientState::Discovering(_state), DhcpMessageType::Offer) => {
@@ -359,7 +403,7 @@ impl Dhcpv4Socket {
         let config = Config {
             address: Ipv4Cidr::new(dhcp_repr.your_ip, prefix_len),
             router: dhcp_repr.router,
-            dns_servers: dns_servers,
+            dns_servers,
         };
 
         // RFC 2131 indicates clients should renew a lease halfway through its expiration.
@@ -439,6 +483,10 @@ impl Dhcpv4Socket {
             payload_len: 0, // filled right before emit
             hop_limit: 64,
         };
+
+        if let Some(id) = self.pxe_buffers.as_ref().map(|pxe| pxe.id) {
+            dhcp_repr.client_machine_id = Some(PxeMachineId::Guid(id));
+        }
 
         match &mut self.state {
             ClientState::Discovering(state) => {
@@ -540,6 +588,14 @@ impl Dhcpv4Socket {
         });
     }
 
+    pub fn bootfile_name(&self) -> Option<&str> {
+        self.pxe_buffers
+            .as_deref()
+            .filter(|pxe| pxe.bootfile_name_len != 0)
+            .map(|pxe| core::str::from_utf8(&pxe.bootfile_name_buf[..pxe.bootfile_name_len]).ok())
+            .flatten()
+    }
+
     /// Query the socket for configuration changes.
     ///
     /// The socket has an internal "configuration changed" flag. If
@@ -569,12 +625,12 @@ mod test {
     // Helper functions
 
     struct TestSocket {
-        socket: Dhcpv4Socket,
+        socket: Dhcpv4Socket<'static>,
         cx: Context<'static>,
     }
 
     impl Deref for TestSocket {
-        type Target = Dhcpv4Socket;
+        type Target = Dhcpv4Socket<'static>;
         fn deref(&self) -> &Self::Target {
             &self.socket
         }
