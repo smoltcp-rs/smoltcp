@@ -1,12 +1,13 @@
-use crate::iface::Context;
-use crate::time::{Duration, Instant};
-use crate::wire::dhcpv4::field as dhcpv4_field;
-use crate::wire::{
-    DhcpMessageType, DhcpPacket, DhcpRepr, IpAddress, IpProtocol, Ipv4Address, Ipv4Cidr, Ipv4Repr,
-    UdpRepr, DHCP_CLIENT_PORT, DHCP_MAX_DNS_SERVER_COUNT, DHCP_SERVER_PORT, UDP_HEADER_LEN,
+use crate::{
+    iface::Context,
+    time::{Duration, Instant},
+    wire::{
+        dhcpv4::field as dhcpv4_field, DhcpMessageType, DhcpPacket, DhcpRepr, HardwareAddress,
+        IpAddress, IpProtocol, Ipv4Address, Ipv4Cidr, Ipv4Repr, PxeMachineId, UdpRepr,
+        DHCP_CLIENT_PORT, DHCP_MAX_DNS_SERVER_COUNT, DHCP_SERVER_PORT, UDP_HEADER_LEN,
+    },
+    Error, Result,
 };
-use crate::wire::{HardwareAddress, PxeMachineId};
-use crate::{Error, Result};
 
 use super::PollAt;
 
@@ -46,8 +47,8 @@ pub struct Config {
 struct ServerInfo {
     /// IP address to use as destination in outgoing packets
     address: Ipv4Address,
-    /// Server identifier to use in outgoing packets. Usually equal to server_address,
-    /// but may differ in some situations (eg DHCP relays)
+    /// Server identifier to use in outgoing packets. Usually equal to
+    /// server_address, but may differ in some situations (eg DHCP relays)
     identifier: Ipv4Address,
 }
 
@@ -83,8 +84,8 @@ struct RenewState {
     /// to renew this lease with the DHCP server.
     /// Must be less or equal than `expires_at`.
     renew_at: Instant,
-    /// Expiration timer. When reached, this lease is no longer valid, so it must be
-    /// thrown away and the ethernet interface deconfigured.
+    /// Expiration timer. When reached, this lease is no longer valid, so it
+    /// must be thrown away and the ethernet interface deconfigured.
     expires_at: Instant,
 }
 
@@ -100,19 +101,27 @@ enum ClientState {
 }
 
 #[derive(Debug)]
-pub struct PxeBuffers<'a> {
-    id: &'a [u8; 16],
+pub struct PxeBuffers {
+    id: [u8; 16],
     bootfile_name_len: usize,
     bootfile_name_buf: [u8; 128],
 }
 
-impl<'a> PxeBuffers<'a> {
-    pub const fn new(id: &'a [u8; 16]) -> Self {
+impl PxeBuffers {
+    pub const fn new(id: [u8; 16]) -> Self {
         Self {
             id,
             bootfile_name_len: 0,
             bootfile_name_buf: [0; 128],
         }
+    }
+
+    pub fn id(&self) -> &[u8; 16] {
+        &self.id
+    }
+
+    pub fn id_mut(&mut self) -> &mut [u8; 16] {
+        &mut self.id
     }
 }
 
@@ -130,26 +139,28 @@ pub enum Event {
 pub struct Dhcpv4Socket<'a> {
     /// State of the DHCP client.
     state: ClientState,
-    /// Set to true on config/state change, cleared back to false by the `config` function.
+    /// Set to true on config/state change, cleared back to false by the
+    /// `config` function.
     config_changed: bool,
     /// xid of the last sent message.
     transaction_id: u32,
 
-    /// Max lease duration. If set, it sets a maximum cap to the server-provided lease duration.
-    /// Useful to react faster to IP configuration changes and to test whether renews work correctly.
+    /// Max lease duration. If set, it sets a maximum cap to the server-provided
+    /// lease duration. Useful to react faster to IP configuration changes
+    /// and to test whether renews work correctly.
     max_lease_duration: Option<Duration>,
 
     /// Ignore NAKs.
     ignore_naks: bool,
 
-    pxe_buffers: Option<&'a mut PxeBuffers<'a>>,
+    pxe_buffers: Option<&'a mut PxeBuffers>,
 }
 
 /// DHCP client socket.
 ///
 /// The socket acquires an IP address configuration through DHCP autonomously.
-/// You must query the configuration with `.poll()` after every call to `Interface::poll()`,
-/// and apply the configuration to the `Interface`.
+/// You must query the configuration with `.poll()` after every call to
+/// `Interface::poll()`, and apply the configuration to the `Interface`.
 impl<'a> Dhcpv4Socket<'a> {
     /// Create a DHCPv4 socket
     #[allow(clippy::new_without_default)]
@@ -167,7 +178,7 @@ impl<'a> Dhcpv4Socket<'a> {
     }
 
     /// Create a DHCPv4 socket with support for PXE.
-    pub fn with_pxe(pxe_buffers: &'a mut PxeBuffers<'a>) -> Self {
+    pub fn with_pxe(pxe_buffers: &'a mut PxeBuffers) -> Self {
         Dhcpv4Socket {
             state: ClientState::Discovering(DiscoverState {
                 retry_at: Instant::from_millis(0),
@@ -189,11 +200,13 @@ impl<'a> Dhcpv4Socket<'a> {
 
     /// Set the max lease duration.
     ///
-    /// When set, the lease duration will be capped at the configured duration if the
-    /// DHCP server gives us a longer lease. This is generally not recommended, but
-    /// can be useful for debugging or reacting faster to network configuration changes.
+    /// When set, the lease duration will be capped at the configured duration
+    /// if the DHCP server gives us a longer lease. This is generally not
+    /// recommended, but can be useful for debugging or reacting faster to
+    /// network configuration changes.
     ///
-    /// If None, no max is applied (the lease duration from the DHCP server is used.)
+    /// If None, no max is applied (the lease duration from the DHCP server is
+    /// used.)
     pub fn set_max_lease_duration(&mut self, max_lease_duration: Option<Duration>) {
         self.max_lease_duration = max_lease_duration;
     }
@@ -388,13 +401,15 @@ impl<'a> Dhcpv4Socket<'a> {
         }
 
         // Cleanup the DNS servers list, keeping only unicasts/
-        // TP-Link TD-W8970 sends 0.0.0.0 as second DNS server if there's only one configured :(
+        // TP-Link TD-W8970 sends 0.0.0.0 as second DNS server if there's only one
+        // configured :(
         let mut dns_servers = [None; DHCP_MAX_DNS_SERVER_COUNT];
         if let Some(received) = dhcp_repr.dns_servers {
             let mut i = 0;
             for addr in received.iter().flatten() {
                 if addr.is_unicast() {
-                    // This can never be out-of-bounds since both arrays have length DHCP_MAX_DNS_SERVER_COUNT
+                    // This can never be out-of-bounds since both arrays have length
+                    // DHCP_MAX_DNS_SERVER_COUNT
                     dns_servers[i] = Some(*addr);
                     i += 1;
                 }
@@ -406,7 +421,8 @@ impl<'a> Dhcpv4Socket<'a> {
             dns_servers,
         };
 
-        // RFC 2131 indicates clients should renew a lease halfway through its expiration.
+        // RFC 2131 indicates clients should renew a lease halfway through its
+        // expiration.
         let renew_at = now + lease_duration / 2;
         let expires_at = now + lease_duration;
 
@@ -484,7 +500,7 @@ impl<'a> Dhcpv4Socket<'a> {
             hop_limit: 64,
         };
 
-        if let Some(id) = self.pxe_buffers.as_ref().map(|pxe| pxe.id) {
+        if let Some(id) = self.pxe_buffers.as_ref().map(|pxe| &pxe.id) {
             dhcp_repr.client_machine_id = Some(PxeMachineId::Guid(id));
         }
 
