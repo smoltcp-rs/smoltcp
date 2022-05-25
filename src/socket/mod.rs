@@ -1,18 +1,17 @@
-/*! Communication between endpoints.
+//! Communication between endpoints.
+//!
+//! The `socket` module deals with *network endpoints* and *buffering*.
+//! It provides interfaces for accessing buffers of data, and protocol state
+//! machines for filling and emptying these buffers.
+//!
+//! The programming interface implemented here differs greatly from the common
+//! Berkeley socket interface. Specifically, in the Berkeley interface the
+//! buffering is implicit: the operating system decides on the good size for a
+//! buffer and manages it. The interface implemented by this module uses
+//! explicit buffering: you decide on the good size for a buffer, allocate it,
+//! and let the networking stack use it.
 
-The `socket` module deals with *network endpoints* and *buffering*.
-It provides interfaces for accessing buffers of data, and protocol state machines
-for filling and emptying these buffers.
-
-The programming interface implemented here differs greatly from the common Berkeley socket
-interface. Specifically, in the Berkeley interface the buffering is implicit:
-the operating system decides on the good size for a buffer and manages it.
-The interface implemented by this module uses explicit buffering: you decide on the good
-size for a buffer, allocate it, and let the networking stack use it.
-*/
-
-use crate::iface::Context;
-use crate::time::Instant;
+use crate::{iface::Context, time::Instant};
 
 #[cfg(feature = "socket-dhcpv4")]
 mod dhcpv4;
@@ -31,6 +30,7 @@ mod waker;
 #[cfg(feature = "socket-dhcpv4")]
 pub use self::dhcpv4::{
     Config as Dhcpv4Config, Dhcpv4Socket, Event as Dhcpv4Event, PxeBuffers as Dhcpv4PxeBuffers,
+    RetryConfig as Dhcpv4RetryConfig,
 };
 #[cfg(feature = "socket-icmp")]
 pub use self::icmp::{Endpoint as IcmpEndpoint, IcmpPacketMetadata, IcmpSocket, IcmpSocketBuffer};
@@ -58,9 +58,10 @@ pub(crate) enum PollAt {
 
 /// A network socket.
 ///
-/// This enumeration abstracts the various types of sockets based on the IP protocol.
-/// To downcast a `Socket` value to a concrete socket, use the [AnySocket] trait,
-/// e.g. to get `UdpSocket`, call `UdpSocket::downcast(socket)`.
+/// This enumeration abstracts the various types of sockets based on the IP
+/// protocol. To downcast a `Socket` value to a concrete socket, use the
+/// [AnySocket] trait, e.g. to get `UdpSocket`, call
+/// `UdpSocket::downcast(socket)`.
 ///
 /// It is usually more convenient to use [SocketSet::get] instead.
 ///

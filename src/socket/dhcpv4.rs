@@ -11,15 +11,6 @@ use crate::{
 
 use super::PollAt;
 
-const DISCOVER_TIMEOUT: Duration = Duration::from_secs(10);
-
-// timeout doubles every 2 tries.
-// total time 5 + 5 + 10 + 10 + 20 = 50s
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
-const REQUEST_RETRIES: u16 = 5;
-
-const MIN_RENEW_TIMEOUT: Duration = Duration::from_secs(60);
-
 const DEFAULT_LEASE_DURATION: Duration = Duration::from_secs(120);
 
 const PARAMETER_REQUEST_LIST: &[u8] = &[
@@ -125,6 +116,32 @@ impl PxeBuffers {
     }
 }
 
+/// Timeout and retry configuration.
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct RetryConfig {
+    pub discover_timeout: Duration,
+    /// The REQUEST timeout doubles every 2 tries.
+    pub initial_request_timeout: Duration,
+    pub request_retries: u16,
+    pub min_renew_timeout: Duration,
+}
+
+impl RetryConfig {
+    pub const DEFAULT: Self = Self {
+        discover_timeout: Duration::from_secs(10),
+        initial_request_timeout: Duration::from_secs(5),
+        request_retries: 5,
+        min_renew_timeout: Duration::from_secs(60),
+    };
+}
+
+impl Default for RetryConfig {
+    fn default() -> Self {
+        Self::DEFAULT
+    }
+}
+
 /// Return value for the `Dhcpv4Socket::poll` function
 #[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -150,6 +167,8 @@ pub struct Dhcpv4Socket<'a> {
     /// and to test whether renews work correctly.
     max_lease_duration: Option<Duration>,
 
+    retry_config: &'a RetryConfig,
+
     /// Ignore NAKs.
     ignore_naks: bool,
 
@@ -172,13 +191,18 @@ impl<'a> Dhcpv4Socket<'a> {
             config_changed: true,
             transaction_id: 1,
             max_lease_duration: None,
+            retry_config: &RetryConfig::DEFAULT,
             ignore_naks: false,
             pxe_buffers: None,
         }
     }
 
-    /// Create a DHCPv4 socket with support for PXE.
-    pub fn with_pxe(pxe_buffers: &'a mut PxeBuffers) -> Self {
+    /// Create a DHCPv4 socket with retry
+    /// configuration and optional support for PXE.
+    pub fn with_configs(
+        pxe_buffers: Option<&'a mut PxeBuffers>,
+        retry_config: &'a RetryConfig,
+    ) -> Self {
         Dhcpv4Socket {
             state: ClientState::Discovering(DiscoverState {
                 retry_at: Instant::from_millis(0),
@@ -186,8 +210,9 @@ impl<'a> Dhcpv4Socket<'a> {
             config_changed: true,
             transaction_id: 1,
             max_lease_duration: None,
+            retry_config: retry_config,
             ignore_naks: false,
-            pxe_buffers: Some(pxe_buffers),
+            pxe_buffers,
         }
     }
 
@@ -520,7 +545,7 @@ impl<'a> Dhcpv4Socket<'a> {
                 emit(cx, (ipv4_repr, udp_repr, dhcp_repr))?;
 
                 // Update state AFTER the packet has been successfully sent.
-                state.retry_at = cx.now() + DISCOVER_TIMEOUT;
+                state.retry_at = cx.now() + self.retry_config.discover_timeout;
                 self.transaction_id = next_transaction_id;
                 Ok(())
             }
@@ -529,7 +554,7 @@ impl<'a> Dhcpv4Socket<'a> {
                     return Err(Error::Exhausted);
                 }
 
-                if state.retry >= REQUEST_RETRIES {
+                if state.retry >= self.retry_config.request_retries {
                     net_debug!("DHCP request retries exceeded, restarting discovery");
                     self.reset();
                     // return Ok so we get polled again
@@ -549,7 +574,8 @@ impl<'a> Dhcpv4Socket<'a> {
                 emit(cx, (ipv4_repr, udp_repr, dhcp_repr))?;
 
                 // Exponential backoff: Double every 2 retries.
-                state.retry_at = cx.now() + (REQUEST_TIMEOUT << (state.retry as u32 / 2));
+                state.retry_at = cx.now()
+                    + (self.retry_config.initial_request_timeout << (state.retry as u32 / 2));
                 state.retry += 1;
 
                 self.transaction_id = next_transaction_id;
@@ -581,8 +607,11 @@ impl<'a> Dhcpv4Socket<'a> {
                 // of the remaining time until T2 (in RENEWING state) and one-half of
                 // the remaining lease time (in REBINDING state), down to a minimum of
                 // 60 seconds, before retransmitting the DHCPREQUEST message.
-                state.renew_at =
-                    cx.now() + MIN_RENEW_TIMEOUT.max((state.expires_at - cx.now()) / 2);
+                state.renew_at = cx.now()
+                    + self
+                        .retry_config
+                        .min_renew_timeout
+                        .max((state.expires_at - cx.now()) / 2);
 
                 self.transaction_id = next_transaction_id;
                 Ok(())
