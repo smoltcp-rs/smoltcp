@@ -51,7 +51,6 @@ use std::str;
 use smoltcp::iface::{FragmentsCache, InterfaceBuilder, NeighborCache};
 use smoltcp::phy::{wait as phy_wait, Medium, RawSocket};
 use smoltcp::socket::tcp;
-use smoltcp::storage::RingBuffer;
 use smoltcp::wire::{Ieee802154Pan, IpAddress, IpCidr};
 
 //For benchmark
@@ -168,13 +167,6 @@ fn main() {
 
     let cache = FragmentsCache::new(vec![], BTreeMap::new());
 
-    let buffer: Vec<(usize, managed::ManagedSlice<'_, u8>)> = (0..12)
-        .into_iter()
-        .map(|_| (0_usize, managed::ManagedSlice::from(vec![0; 1_000_000_000])))
-        .collect();
-
-    let out_fragments_cache = RingBuffer::new(buffer);
-
     let mut builder = InterfaceBuilder::new(device, vec![])
         .ip_addrs(ip_addrs)
         .pan_id(Ieee802154Pan(0xbeef));
@@ -182,7 +174,7 @@ fn main() {
         .hardware_addr(ieee802154_addr.into())
         .neighbor_cache(neighbor_cache)
         .sixlowpan_fragments_cache(cache)
-        .out_fragments_cache(out_fragments_cache);
+        .sixlowpan_out_packet_cache(vec![]);
     let mut iface = builder.finalize();
 
     let tcp1_handle = iface.add_socket(tcp1_socket);

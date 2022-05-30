@@ -51,7 +51,6 @@ use smoltcp::iface::{FragmentsCache, InterfaceBuilder, NeighborCache};
 use smoltcp::phy::{wait as phy_wait, Medium, RawSocket};
 use smoltcp::socket::tcp;
 use smoltcp::socket::udp;
-use smoltcp::storage::RingBuffer;
 use smoltcp::time::Instant;
 use smoltcp::wire::{Ieee802154Pan, IpAddress, IpCidr};
 
@@ -70,8 +69,8 @@ fn main() {
 
     let neighbor_cache = NeighborCache::new(BTreeMap::new());
 
-    let udp_rx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 64]);
-    let udp_tx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 128]);
+    let udp_rx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 1280]);
+    let udp_tx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 1280]);
     let udp_socket = udp::Socket::new(udp_rx_buffer, udp_tx_buffer);
 
     let tcp_rx_buffer = tcp::SocketBuffer::new(vec![0; 4096]);
@@ -88,12 +87,7 @@ fn main() {
 
     let cache = FragmentsCache::new(vec![], BTreeMap::new());
 
-    let buffer: Vec<(usize, managed::ManagedSlice<'_, u8>)> = (0..12)
-        .into_iter()
-        .map(|_| (0_usize, managed::ManagedSlice::from(vec![0; 127])))
-        .collect();
-
-    let out_fragments_cache = RingBuffer::new(buffer);
+    let mut out_packet_buffer = [0u8; 1280];
 
     let mut builder = InterfaceBuilder::new(device, vec![])
         .ip_addrs(ip_addrs)
@@ -102,7 +96,7 @@ fn main() {
         .hardware_addr(ieee802154_addr.into())
         .neighbor_cache(neighbor_cache)
         .sixlowpan_fragments_cache(cache)
-        .out_fragments_cache(out_fragments_cache);
+        .sixlowpan_out_packet_cache(&mut out_packet_buffer[..]);
     let mut iface = builder.finalize();
 
     let udp_handle = iface.add_socket(udp_socket);
