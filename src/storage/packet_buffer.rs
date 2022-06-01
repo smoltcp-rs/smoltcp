@@ -111,6 +111,56 @@ impl<'a, H> PacketBuffer<'a, H> {
         Ok(payload_buf)
     }
 
+    /// Call `f` with a packet from the buffer large enough to fit `max_size` bytes. The packet
+    /// is shrunk to the size returned from `f` and enqueued into the buffer.
+    pub fn enqueue_with_infallible<'b, R, F>(
+        &'b mut self,
+        max_size: usize,
+        header: H,
+        f: F,
+    ) -> Result<(usize, R)>
+    where
+        F: FnOnce(&'b mut [u8]) -> (usize, R),
+    {
+        if self.payload_ring.capacity() < max_size {
+            return Err(Error::Truncated);
+        }
+
+        if self.metadata_ring.is_full() {
+            return Err(Error::Exhausted);
+        }
+
+        let window = self.payload_ring.window();
+        let contig_window = self.payload_ring.contiguous_window();
+
+        if window < max_size {
+            return Err(Error::Exhausted);
+        } else if contig_window < max_size {
+            if window - contig_window < max_size {
+                // The buffer length is larger than the current contiguous window
+                // and is larger than the contiguous window will be after adding
+                // the padding necessary to circle around to the beginning of the
+                // ring buffer.
+                return Err(Error::Exhausted);
+            } else {
+                // Add padding to the end of the ring buffer so that the
+                // contiguous window is at the beginning of the ring buffer.
+                *self.metadata_ring.enqueue_one()? = PacketMetadata::padding(contig_window);
+                // note(discard): function does not write to the result
+                // enqueued padding buffer location
+                let _buf_enqueued = self.payload_ring.enqueue_many(contig_window);
+            }
+        }
+
+        let (size, r) = self
+            .payload_ring
+            .enqueue_many_with(|data| f(&mut data[..max_size]));
+
+        *self.metadata_ring.enqueue_one()? = PacketMetadata::packet(size, header);
+
+        Ok((size, r))
+    }
+
     fn dequeue_padding(&mut self) {
         let Self {
             ref mut metadata_ring,

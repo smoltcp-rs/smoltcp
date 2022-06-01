@@ -258,6 +258,46 @@ impl<'a> Socket<'a> {
         Ok(payload_buf)
     }
 
+    /// Enqueue a packet to be send to a given remote endpoint and pass the buffer
+    /// to the provided closure. The closure then returns the size of the data written
+    /// into the buffer.
+    ///
+    /// Also see [send](#method.send).
+    pub fn send_with<F>(
+        &mut self,
+        max_size: usize,
+        remote_endpoint: IpEndpoint,
+        f: F,
+    ) -> Result<&mut [u8]>
+    where
+        F: FnOnce(&mut [u8]) -> usize,
+    {
+        if self.endpoint.port == 0 {
+            return Err(Error::Unaddressable);
+        }
+        if remote_endpoint.addr.is_unspecified() {
+            return Err(Error::Unaddressable);
+        }
+        if remote_endpoint.port == 0 {
+            return Err(Error::Unaddressable);
+        }
+
+        let (size, payload_buf) =
+            self.tx_buffer
+                .enqueue_with_infallible(max_size, remote_endpoint, |data| {
+                    let size = f(data);
+                    (size, &mut data[..size])
+                })?;
+
+        net_trace!(
+            "udp:{}:{}: buffer to send {} octets",
+            self.endpoint,
+            remote_endpoint,
+            size
+        );
+        Ok(payload_buf)
+    }
+
     /// Enqueue a packet to be sent to a given remote endpoint, and fill it from a slice.
     ///
     /// See also [send](#method.send).
