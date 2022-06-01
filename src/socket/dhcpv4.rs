@@ -1,3 +1,6 @@
+#[cfg(feature = "async")]
+use core::task::Waker;
+
 use crate::iface::Context;
 use crate::time::{Duration, Instant};
 use crate::wire::dhcpv4::field as dhcpv4_field;
@@ -6,6 +9,9 @@ use crate::wire::{
     DhcpMessageType, DhcpPacket, DhcpRepr, IpAddress, IpProtocol, Ipv4Address, Ipv4Cidr, Ipv4Repr,
     UdpRepr, DHCP_CLIENT_PORT, DHCP_MAX_DNS_SERVER_COUNT, DHCP_SERVER_PORT, UDP_HEADER_LEN,
 };
+
+#[cfg(feature = "async")]
+use super::WakerRegistration;
 
 use super::PollAt;
 
@@ -123,6 +129,10 @@ pub struct Socket {
 
     /// Ignore NAKs.
     ignore_naks: bool,
+
+    /// Waker registration
+    #[cfg(feature = "async")]
+    waker: WakerRegistration,
 }
 
 /// DHCP client socket.
@@ -142,6 +152,8 @@ impl Socket {
             transaction_id: 1,
             max_lease_duration: None,
             ignore_naks: false,
+            #[cfg(feature = "async")]
+            waker: WakerRegistration::new(),
         }
     }
 
@@ -265,13 +277,13 @@ impl Socket {
                 if let Some((config, renew_at, expires_at)) =
                     Self::parse_ack(cx.now(), &dhcp_repr, self.max_lease_duration)
                 {
-                    self.config_changed = true;
                     self.state = ClientState::Renewing(RenewState {
                         server: state.server,
                         config,
                         renew_at,
                         expires_at,
                     });
+                    self.config_changed();
                 }
             }
             (ClientState::Requesting(_), DhcpMessageType::Nak) => {
@@ -286,8 +298,8 @@ impl Socket {
                     state.renew_at = renew_at;
                     state.expires_at = expires_at;
                     if state.config != config {
-                        self.config_changed = true;
                         state.config = config;
+                        self.config_changed();
                     }
                 }
             }
@@ -520,7 +532,7 @@ impl Socket {
     pub fn reset(&mut self) {
         net_trace!("DHCP reset");
         if let ClientState::Renewing(_) = &self.state {
-            self.config_changed = true;
+            self.config_changed();
         }
         self.state = ClientState::Discovering(DiscoverState {
             retry_at: Instant::from_millis(0),
@@ -541,6 +553,31 @@ impl Socket {
             self.config_changed = false;
             Some(Event::Deconfigured)
         }
+    }
+
+    /// This function _must_ be called when the configuration provided to the
+    /// interface, by this DHCP socket, changes. It will update the `config_changed` field
+    /// so that a subsequent call to `poll` will yield an event, and wake a possible waker.
+    pub(crate) fn config_changed(&mut self) {
+        self.config_changed = true;
+        #[cfg(feature = "async")]
+        self.waker.wake();
+    }
+
+    /// Register a waker.
+    ///
+    /// The waker is woken on state changes that might affect the return value
+    /// of `poll` method calls, which indicates a new state in the DHCP configuration
+    /// provided by this DHCP socket.
+    ///
+    /// Notes:
+    ///
+    /// - Only one waker can be registered at a time. If another waker was previously registered,
+    ///   it is overwritten and will no longer be woken.
+    /// - The Waker is woken only once. Once woken, you must register it again to receive more wakes.
+    #[cfg(feature = "async")]
+    pub fn register_waker(&mut self, waker: &Waker) {
+        self.waker.register(waker)
     }
 }
 
