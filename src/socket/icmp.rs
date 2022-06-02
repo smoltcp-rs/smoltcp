@@ -315,20 +315,26 @@ impl<'a> Socket<'a> {
     /// into the buffer.
     ///
     /// Also see [send](#method.send).
-    pub fn send_with<F>(&mut self, max_size: usize, endpoint: IpAddress, f: F) -> Result<&mut [u8]>
+    pub fn send_with<F>(
+        &mut self,
+        max_size: usize,
+        endpoint: IpAddress,
+        f: F,
+    ) -> Result<&mut [u8], SendError>
     where
         F: FnOnce(&mut [u8]) -> usize,
     {
         if endpoint.is_unspecified() {
-            return Err(Error::Unaddressable);
+            return Err(SendError::Unaddressable);
         }
 
-        let (size, packet_buf) =
-            self.tx_buffer
-                .enqueue_with_infallible(max_size, endpoint, |data| {
-                    let size = f(data);
-                    (size, &mut data[..size])
-                })?;
+        let (size, packet_buf) = self
+            .tx_buffer
+            .enqueue_with_infallible(max_size, endpoint, |data| {
+                let size = f(data);
+                (size, &mut data[..size])
+            })
+            .map_err(|_| SendError::BufferFull)?;
 
         net_trace!("icmp:{}: buffer to send {} octets", endpoint, size);
         Ok(packet_buf)

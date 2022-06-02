@@ -268,26 +268,27 @@ impl<'a> Socket<'a> {
         max_size: usize,
         remote_endpoint: IpEndpoint,
         f: F,
-    ) -> Result<&mut [u8]>
+    ) -> Result<&mut [u8], SendError>
     where
         F: FnOnce(&mut [u8]) -> usize,
     {
         if self.endpoint.port == 0 {
-            return Err(Error::Unaddressable);
+            return Err(SendError::Unaddressable);
         }
         if remote_endpoint.addr.is_unspecified() {
-            return Err(Error::Unaddressable);
+            return Err(SendError::Unaddressable);
         }
         if remote_endpoint.port == 0 {
-            return Err(Error::Unaddressable);
+            return Err(SendError::Unaddressable);
         }
 
-        let (size, payload_buf) =
-            self.tx_buffer
-                .enqueue_with_infallible(max_size, remote_endpoint, |data| {
-                    let size = f(data);
-                    (size, &mut data[..size])
-                })?;
+        let (size, payload_buf) = self
+            .tx_buffer
+            .enqueue_with_infallible(max_size, remote_endpoint, |data| {
+                let size = f(data);
+                (size, &mut data[..size])
+            })
+            .map_err(|_| SendError::BufferFull)?;
 
         net_trace!(
             "udp:{}:{}: buffer to send {} octets",

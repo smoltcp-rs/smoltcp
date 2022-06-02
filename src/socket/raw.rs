@@ -192,7 +192,7 @@ impl<'a> Socket<'a> {
     /// The closure then returns the size of the data written into the buffer.
     ///
     /// Also see [send](#method.send).
-    pub fn send_with<F>(&mut self, max_size: usize, f: F) -> Result<&mut [u8]>
+    pub fn send_with<F>(&mut self, max_size: usize, f: F) -> Result<&mut [u8], SendError>
     where
         F: FnOnce(&mut [u8]) -> usize,
     {
@@ -201,7 +201,8 @@ impl<'a> Socket<'a> {
             .enqueue_with_infallible(max_size, (), |data| {
                 let size = f(data);
                 (size, &mut data[..size])
-            })?;
+            })
+            .map_err(|_| SendError::BufferFull)?;
 
         net_trace!(
             "raw:{}:{}: buffer to send {} octets",

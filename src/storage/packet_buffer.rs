@@ -118,30 +118,26 @@ impl<'a, H> PacketBuffer<'a, H> {
         max_size: usize,
         header: H,
         f: F,
-    ) -> Result<(usize, R)>
+    ) -> Result<(usize, R), Full>
     where
         F: FnOnce(&'b mut [u8]) -> (usize, R),
     {
-        if self.payload_ring.capacity() < max_size {
-            return Err(Error::Truncated);
-        }
-
-        if self.metadata_ring.is_full() {
-            return Err(Error::Exhausted);
+        if self.payload_ring.capacity() < max_size || self.metadata_ring.is_full() {
+            return Err(Full);
         }
 
         let window = self.payload_ring.window();
         let contig_window = self.payload_ring.contiguous_window();
 
         if window < max_size {
-            return Err(Error::Exhausted);
+            return Err(Full);
         } else if contig_window < max_size {
             if window - contig_window < max_size {
                 // The buffer length is larger than the current contiguous window
                 // and is larger than the contiguous window will be after adding
                 // the padding necessary to circle around to the beginning of the
                 // ring buffer.
-                return Err(Error::Exhausted);
+                return Err(Full);
             } else {
                 // Add padding to the end of the ring buffer so that the
                 // contiguous window is at the beginning of the ring buffer.
