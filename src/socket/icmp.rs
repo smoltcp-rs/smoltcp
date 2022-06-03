@@ -350,18 +350,22 @@ impl<'a> Socket<'a> {
     pub(crate) fn accepts(&self, cx: &mut Context, ip_repr: &IpRepr, icmp_repr: &IcmpRepr) -> bool {
         match (&self.endpoint, icmp_repr) {
             // If we are bound to ICMP errors associated to a UDP port, only
-            // accept Destination Unreachable messages with the data containing
-            // a UDP packet send from the local port we are bound to.
+            // accept Destination Unreachable or Time Exceeded messages with
+            // the data containing a UDP packet send from the local port we
+            // are bound to.
             #[cfg(feature = "proto-ipv4")]
             (
                 &Endpoint::Udp(endpoint),
-                &IcmpRepr::Ipv4(Icmpv4Repr::DstUnreachable { data, .. }),
+                &IcmpRepr::Ipv4(
+                    Icmpv4Repr::DstUnreachable { data, header, .. }
+                    | Icmpv4Repr::TimeExceeded { data, header, .. },
+                ),
             ) if endpoint.addr.is_none() || endpoint.addr == Some(ip_repr.dst_addr()) => {
                 let packet = UdpPacket::new_unchecked(data);
                 match UdpRepr::parse(
                     &packet,
-                    &ip_repr.src_addr(),
-                    &ip_repr.dst_addr(),
+                    &header.src_addr.into(),
+                    &header.dst_addr.into(),
                     &cx.checksum_caps(),
                 ) {
                     Ok(repr) => endpoint.port == repr.src_port,
@@ -371,13 +375,16 @@ impl<'a> Socket<'a> {
             #[cfg(feature = "proto-ipv6")]
             (
                 &Endpoint::Udp(endpoint),
-                &IcmpRepr::Ipv6(Icmpv6Repr::DstUnreachable { data, .. }),
+                &IcmpRepr::Ipv6(
+                    Icmpv6Repr::DstUnreachable { data, header, .. }
+                    | Icmpv6Repr::TimeExceeded { data, header, .. },
+                ),
             ) if endpoint.addr.is_none() || endpoint.addr == Some(ip_repr.dst_addr()) => {
                 let packet = UdpPacket::new_unchecked(data);
                 match UdpRepr::parse(
                     &packet,
-                    &ip_repr.src_addr(),
-                    &ip_repr.dst_addr(),
+                    &header.src_addr.into(),
+                    &header.dst_addr.into(),
                     &cx.checksum_caps(),
                 ) {
                     Ok(repr) => endpoint.port == repr.src_port,
