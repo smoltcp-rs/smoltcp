@@ -268,7 +268,7 @@ impl<'a> Socket<'a> {
         max_size: usize,
         remote_endpoint: IpEndpoint,
         f: F,
-    ) -> Result<&mut [u8], SendError>
+    ) -> Result<usize, SendError>
     where
         F: FnOnce(&mut [u8]) -> usize,
     {
@@ -282,12 +282,9 @@ impl<'a> Socket<'a> {
             return Err(SendError::Unaddressable);
         }
 
-        let (size, payload_buf) = self
+        let size = self
             .tx_buffer
-            .enqueue_with_infallible(max_size, remote_endpoint, |data| {
-                let size = f(data);
-                (size, &mut data[..size])
-            })
+            .enqueue_with_infallible(max_size, remote_endpoint, f)
             .map_err(|_| SendError::BufferFull)?;
 
         net_trace!(
@@ -296,7 +293,7 @@ impl<'a> Socket<'a> {
             remote_endpoint,
             size
         );
-        Ok(payload_buf)
+        Ok(size)
     }
 
     /// Enqueue a packet to be sent to a given remote endpoint, and fill it from a slice.

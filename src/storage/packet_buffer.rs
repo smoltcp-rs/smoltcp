@@ -113,14 +113,14 @@ impl<'a, H> PacketBuffer<'a, H> {
 
     /// Call `f` with a packet from the buffer large enough to fit `max_size` bytes. The packet
     /// is shrunk to the size returned from `f` and enqueued into the buffer.
-    pub fn enqueue_with_infallible<'b, R, F>(
+    pub fn enqueue_with_infallible<'b, F>(
         &'b mut self,
         max_size: usize,
         header: H,
         f: F,
-    ) -> Result<(usize, R), Full>
+    ) -> Result<usize, Full>
     where
-        F: FnOnce(&'b mut [u8]) -> (usize, R),
+        F: FnOnce(&'b mut [u8]) -> usize,
     {
         if self.payload_ring.capacity() < max_size || self.metadata_ring.is_full() {
             return Err(Full);
@@ -148,13 +148,13 @@ impl<'a, H> PacketBuffer<'a, H> {
             }
         }
 
-        let (size, r) = self
+        let (size, _) = self
             .payload_ring
-            .enqueue_many_with(|data| f(&mut data[..max_size]));
+            .enqueue_many_with(|data| (f(&mut data[..max_size]), ()));
 
         *self.metadata_ring.enqueue_one()? = PacketMetadata::packet(size, header);
 
-        Ok((size, r))
+        Ok(size)
     }
 
     fn dequeue_padding(&mut self) {

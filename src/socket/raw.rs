@@ -192,16 +192,13 @@ impl<'a> Socket<'a> {
     /// The closure then returns the size of the data written into the buffer.
     ///
     /// Also see [send](#method.send).
-    pub fn send_with<F>(&mut self, max_size: usize, f: F) -> Result<&mut [u8], SendError>
+    pub fn send_with<F>(&mut self, max_size: usize, f: F) -> Result<usize, SendError>
     where
         F: FnOnce(&mut [u8]) -> usize,
     {
-        let (size, packet_buf) = self
+        let size = self
             .tx_buffer
-            .enqueue_with_infallible(max_size, (), |data| {
-                let size = f(data);
-                (size, &mut data[..size])
-            })
+            .enqueue_with_infallible(max_size, (), f)
             .map_err(|_| SendError::BufferFull)?;
 
         net_trace!(
@@ -211,7 +208,7 @@ impl<'a> Socket<'a> {
             size
         );
 
-        Ok(packet_buf)
+        Ok(size)
     }
 
     /// Enqueue a packet to send, and fill it from a slice.
