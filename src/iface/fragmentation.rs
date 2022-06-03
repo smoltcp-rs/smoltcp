@@ -25,6 +25,7 @@ enum AssemblerState {
         total_size: usize,
         last_updated: Instant,
         started_on: Instant,
+        offset_correction: isize,
     },
 }
 
@@ -48,7 +49,12 @@ impl<'a> PacketAssembler<'a> {
     ///
     /// - Returns [`Error::PacketAssemblerBufferTooSmall`] when the buffer is too small for holding all the
     /// fragments of a packet.
-    pub(crate) fn start(&mut self, total_size: usize, start_time: Instant) -> Result<()> {
+    pub(crate) fn start(
+        &mut self,
+        total_size: usize,
+        start_time: Instant,
+        offset_correction: isize,
+    ) -> Result<()> {
         match &mut self.buffer {
             ManagedSlice::Borrowed(b) if b.len() < total_size => {
                 return Err(Error::PacketAssemblerBufferTooSmall);
@@ -65,6 +71,7 @@ impl<'a> PacketAssembler<'a> {
             total_size,
             last_updated: start_time,
             started_on: start_time,
+            offset_correction,
         };
 
         Ok(())
@@ -86,8 +93,12 @@ impl<'a> PacketAssembler<'a> {
                 ref mut assembler,
                 total_size,
                 ref mut last_updated,
+                offset_correction,
                 ..
             } => {
+                let offset = offset as isize + offset_correction;
+                let offset = if offset <= 0 { 0 } else { offset as usize };
+
                 if offset + data.len() > total_size {
                     return Err(Error::PacketAssemblerBufferTooSmall);
                 }
@@ -392,10 +403,10 @@ mod tests {
         let mut p_assembler = PacketAssembler::new(&mut storage[..]);
 
         assert_eq!(
-            p_assembler.start(2, Instant::now()),
+            p_assembler.start(2, Instant::now(), 0),
             Err(Error::PacketAssemblerBufferTooSmall)
         );
-        assert_eq!(p_assembler.start(1, Instant::now()), Ok(()));
+        assert_eq!(p_assembler.start(1, Instant::now(), 0), Ok(()));
 
         let data = b"Hello World!";
         assert_eq!(
@@ -409,7 +420,7 @@ mod tests {
         let mut storage = [0u8; 5];
         let mut p_assembler = PacketAssembler::new(&mut storage[..]);
 
-        p_assembler.start(5, Instant::now()).unwrap();
+        p_assembler.start(5, Instant::now(), 0).unwrap();
         let data = b"Rust";
 
         p_assembler.add(&data[..], 0, Instant::now()).unwrap();
@@ -424,7 +435,7 @@ mod tests {
 
         let data = b"Hello World!";
 
-        p_assembler.start(data.len(), Instant::now()).unwrap();
+        p_assembler.start(data.len(), Instant::now(), 0).unwrap();
 
         p_assembler.add(b"Hello ", 0, Instant::now()).unwrap();
         assert_eq!(
@@ -483,7 +494,7 @@ mod tests {
         set.reserve_with_key(&key).unwrap();
         set.get_packet_assembler_mut(&key)
             .unwrap()
-            .start(0, Instant::now())
+            .start(0, Instant::now(), 0)
             .unwrap();
         set.get_assembled_packet(&key).unwrap();
 
@@ -491,7 +502,7 @@ mod tests {
         set.reserve_with_key(&key).unwrap();
         set.get_packet_assembler_mut(&key)
             .unwrap()
-            .start(0, Instant::now())
+            .start(0, Instant::now(), 0)
             .unwrap();
         set.get_assembled_packet(&key).unwrap();
 
@@ -499,7 +510,7 @@ mod tests {
         set.reserve_with_key(&key).unwrap();
         set.get_packet_assembler_mut(&key)
             .unwrap()
-            .start(0, Instant::now())
+            .start(0, Instant::now(), 0)
             .unwrap();
         set.get_assembled_packet(&key).unwrap();
     }
