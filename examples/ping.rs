@@ -2,6 +2,7 @@ mod utils;
 
 use byteorder::{ByteOrder, NetworkEndian};
 use log::debug;
+use smoltcp::iface::SocketSet;
 use std::cmp;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
@@ -86,7 +87,8 @@ fn main() {
     let mut matches = utils::parse_options(&opts, free);
     let device = utils::parse_tuntap_options(&mut matches);
     let fd = device.as_raw_fd();
-    let device = utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
+    let mut device =
+        utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
     let device_caps = device.capabilities();
     let address = IpAddress::from_str(&matches.free[0]).expect("invalid address format");
     let count = matches
@@ -127,17 +129,16 @@ fn main() {
     routes.add_default_ipv6_route(default_v6_gw).unwrap();
 
     let medium = device.capabilities().medium;
-    let mut builder = InterfaceBuilder::new(device, vec![])
-        .ip_addrs(ip_addrs)
-        .routes(routes);
+    let mut builder = InterfaceBuilder::new().ip_addrs(ip_addrs).routes(routes);
     if medium == Medium::Ethernet {
         builder = builder
             .hardware_addr(ethernet_addr.into())
             .neighbor_cache(neighbor_cache);
     }
-    let mut iface = builder.finalize();
+    let mut iface = builder.finalize(&mut device);
 
-    let icmp_handle = iface.add_socket(icmp_socket);
+    let mut sockets = SocketSet::new(vec![]);
+    let icmp_handle = sockets.add(icmp_socket);
 
     let mut send_at = Instant::from_millis(0);
     let mut seq_no = 0;
@@ -148,7 +149,7 @@ fn main() {
 
     loop {
         let timestamp = Instant::now();
-        match iface.poll(timestamp) {
+        match iface.poll(timestamp, &mut device, &mut sockets) {
             Ok(_) => {}
             Err(e) => {
                 debug!("poll error: {}", e);
@@ -156,7 +157,7 @@ fn main() {
         }
 
         let timestamp = Instant::now();
-        let socket = iface.get_socket::<icmp::Socket>(icmp_handle);
+        let socket = sockets.get_mut::<icmp::Socket>(icmp_handle);
         if !socket.is_open() {
             socket.bind(icmp::Endpoint::Ident(ident)).unwrap();
             send_at = timestamp;
@@ -255,7 +256,7 @@ fn main() {
         }
 
         let timestamp = Instant::now();
-        match iface.poll_at(timestamp) {
+        match iface.poll_at(timestamp, &sockets) {
             Some(poll_at) if timestamp < poll_at => {
                 let resume_at = cmp::min(poll_at, send_at);
                 phy_wait(fd, Some(resume_at - timestamp)).expect("wait error");

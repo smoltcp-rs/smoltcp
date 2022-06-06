@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use std::os::unix::io::AsRawFd;
 use std::str::{self, FromStr};
 
-use smoltcp::iface::{InterfaceBuilder, NeighborCache, Routes};
+use smoltcp::iface::{InterfaceBuilder, NeighborCache, Routes, SocketSet};
 use smoltcp::phy::{wait as phy_wait, Device, Medium};
 use smoltcp::socket::tcp;
 use smoltcp::time::Instant;
@@ -24,7 +24,8 @@ fn main() {
     let device = utils::parse_tuntap_options(&mut matches);
 
     let fd = device.as_raw_fd();
-    let device = utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
+    let mut device =
+        utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
     let address = IpAddress::from_str(&matches.free[0]).expect("invalid address format");
     let port = u16::from_str(&matches.free[1]).expect("invalid port format");
 
@@ -42,32 +43,33 @@ fn main() {
     routes.add_default_ipv4_route(default_v4_gw).unwrap();
 
     let medium = device.capabilities().medium;
-    let mut builder = InterfaceBuilder::new(device, vec![])
-        .ip_addrs(ip_addrs)
-        .routes(routes);
+    let mut builder = InterfaceBuilder::new().ip_addrs(ip_addrs).routes(routes);
     if medium == Medium::Ethernet {
         builder = builder
             .hardware_addr(ethernet_addr.into())
             .neighbor_cache(neighbor_cache);
     }
-    let mut iface = builder.finalize();
+    let mut iface = builder.finalize(&mut device);
 
-    let tcp_handle = iface.add_socket(tcp_socket);
+    let mut sockets = SocketSet::new(vec![]);
+    let tcp_handle = sockets.add(tcp_socket);
 
-    let (socket, cx) = iface.get_socket_and_context::<tcp::Socket>(tcp_handle);
-    socket.connect(cx, (address, port), 49500).unwrap();
+    let socket = sockets.get_mut::<tcp::Socket>(tcp_handle);
+    socket
+        .connect(iface.context(), (address, port), 49500)
+        .unwrap();
 
     let mut tcp_active = false;
     loop {
         let timestamp = Instant::now();
-        match iface.poll(timestamp) {
+        match iface.poll(timestamp, &mut device, &mut sockets) {
             Ok(_) => {}
             Err(e) => {
                 debug!("poll error: {}", e);
             }
         }
 
-        let socket = iface.get_socket::<tcp::Socket>(tcp_handle);
+        let socket = sockets.get_mut::<tcp::Socket>(tcp_handle);
         if socket.is_active() && !tcp_active {
             debug!("connected");
         } else if !socket.is_active() && tcp_active {
@@ -104,6 +106,6 @@ fn main() {
             socket.close();
         }
 
-        phy_wait(fd, iface.poll_delay(timestamp)).expect("wait error");
+        phy_wait(fd, iface.poll_delay(timestamp, &sockets)).expect("wait error");
     }
 }

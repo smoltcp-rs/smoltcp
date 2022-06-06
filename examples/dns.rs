@@ -7,7 +7,7 @@ extern crate smoltcp;
 
 mod utils;
 
-use smoltcp::iface::{InterfaceBuilder, NeighborCache, Routes};
+use smoltcp::iface::{InterfaceBuilder, NeighborCache, Routes, SocketSet};
 use smoltcp::phy::Device;
 use smoltcp::phy::{wait as phy_wait, Medium};
 use smoltcp::socket::dns::{self, GetQueryResultError};
@@ -29,7 +29,8 @@ fn main() {
     let mut matches = utils::parse_options(&opts, free);
     let device = utils::parse_tuntap_options(&mut matches);
     let fd = device.as_raw_fd();
-    let device = utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
+    let mut device =
+        utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
     let name = &matches.free[0];
 
     let neighbor_cache = NeighborCache::new(BTreeMap::new());
@@ -55,34 +56,33 @@ fn main() {
     routes.add_default_ipv6_route(default_v6_gw).unwrap();
 
     let medium = device.capabilities().medium;
-    let mut builder = InterfaceBuilder::new(device, vec![])
-        .ip_addrs(ip_addrs)
-        .routes(routes);
+    let mut builder = InterfaceBuilder::new().ip_addrs(ip_addrs).routes(routes);
     if medium == Medium::Ethernet {
         builder = builder
             .hardware_addr(HardwareAddress::Ethernet(ethernet_addr))
             .neighbor_cache(neighbor_cache);
     }
-    let mut iface = builder.finalize();
+    let mut iface = builder.finalize(&mut device);
 
-    let dns_handle = iface.add_socket(dns_socket);
+    let mut sockets = SocketSet::new(vec![]);
+    let dns_handle = sockets.add(dns_socket);
 
-    let (socket, cx) = iface.get_socket_and_context::<dns::Socket>(dns_handle);
-    let query = socket.start_query(cx, name).unwrap();
+    let socket = sockets.get_mut::<dns::Socket>(dns_handle);
+    let query = socket.start_query(iface.context(), name).unwrap();
 
     loop {
         let timestamp = Instant::now();
         debug!("timestamp {:?}", timestamp);
 
-        match iface.poll(timestamp) {
+        match iface.poll(timestamp, &mut device, &mut sockets) {
             Ok(_) => {}
             Err(e) => {
                 debug!("poll error: {}", e);
             }
         }
 
-        match iface
-            .get_socket::<dns::Socket>(dns_handle)
+        match sockets
+            .get_mut::<dns::Socket>(dns_handle)
             .get_query_result(query)
         {
             Ok(addrs) => {
@@ -93,6 +93,6 @@ fn main() {
             Err(e) => panic!("query failed: {:?}", e),
         }
 
-        phy_wait(fd, iface.poll_delay(timestamp)).expect("wait error");
+        phy_wait(fd, iface.poll_delay(timestamp, &sockets)).expect("wait error");
     }
 }

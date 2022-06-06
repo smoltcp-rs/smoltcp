@@ -9,7 +9,7 @@ mod utils;
 use core::str;
 use log::{debug, error, info};
 
-use smoltcp::iface::{InterfaceBuilder, NeighborCache};
+use smoltcp::iface::{InterfaceBuilder, NeighborCache, SocketSet};
 use smoltcp::phy::{Loopback, Medium};
 use smoltcp::socket::tcp;
 use smoltcp::time::{Duration, Instant};
@@ -71,7 +71,7 @@ fn main() {
     let device = Loopback::new(Medium::Ethernet);
 
     #[cfg(feature = "std")]
-    let device = {
+    let mut device = {
         let clock = clock.clone();
         utils::setup_logging_with_clock("", move || clock.elapsed());
 
@@ -86,12 +86,11 @@ fn main() {
     let mut neighbor_cache = NeighborCache::new(&mut neighbor_cache_entries[..]);
 
     let mut ip_addrs = [IpCidr::new(IpAddress::v4(127, 0, 0, 1), 8)];
-    let mut sockets: [_; 2] = Default::default();
-    let mut iface = InterfaceBuilder::new(device, &mut sockets[..])
+    let mut iface = InterfaceBuilder::new()
         .hardware_addr(EthernetAddress::default().into())
         .neighbor_cache(neighbor_cache)
         .ip_addrs(ip_addrs)
-        .finalize();
+        .finalize(&mut device);
 
     let server_socket = {
         // It is not strictly necessary to use a `static mut` and unsafe code here, but
@@ -113,21 +112,23 @@ fn main() {
         tcp::Socket::new(tcp_rx_buffer, tcp_tx_buffer)
     };
 
-    let server_handle = iface.add_socket(server_socket);
-    let client_handle = iface.add_socket(client_socket);
+    let mut sockets: [_; 2] = Default::default();
+    let mut sockets = SocketSet::new(&mut sockets[..]);
+    let server_handle = sockets.add(server_socket);
+    let client_handle = sockets.add(client_socket);
 
     let mut did_listen = false;
     let mut did_connect = false;
     let mut done = false;
     while !done && clock.elapsed() < Instant::from_millis(10_000) {
-        match iface.poll(clock.elapsed()) {
+        match iface.poll(clock.elapsed(), &mut device, &mut sockets) {
             Ok(_) => {}
             Err(e) => {
                 debug!("poll error: {}", e);
             }
         }
 
-        let mut socket = iface.get_socket::<tcp::Socket>(server_handle);
+        let mut socket = sockets.get_mut::<tcp::Socket>(server_handle);
         if !socket.is_active() && !socket.is_listening() {
             if !did_listen {
                 debug!("listening");
@@ -145,7 +146,8 @@ fn main() {
             done = true;
         }
 
-        let (mut socket, cx) = iface.get_socket_and_context::<tcp::Socket>(client_handle);
+        let mut socket = sockets.get_mut::<tcp::Socket>(client_handle);
+        let cx = iface.context();
         if !socket.is_open() {
             if !did_connect {
                 debug!("connecting");
@@ -162,7 +164,7 @@ fn main() {
             socket.close();
         }
 
-        match iface.poll_delay(clock.elapsed()) {
+        match iface.poll_delay(clock.elapsed(), &sockets) {
             Some(Duration::ZERO) => debug!("resuming"),
             Some(delay) => {
                 debug!("sleeping for {} ms", delay);

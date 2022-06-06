@@ -4,7 +4,7 @@ use log::debug;
 use std::collections::BTreeMap;
 use std::os::unix::io::AsRawFd;
 
-use smoltcp::iface::{InterfaceBuilder, NeighborCache};
+use smoltcp::iface::{InterfaceBuilder, NeighborCache, SocketSet};
 use smoltcp::phy::wait as phy_wait;
 use smoltcp::socket::{raw, udp};
 use smoltcp::time::Instant;
@@ -26,7 +26,8 @@ fn main() {
     let mut matches = utils::parse_options(&opts, free);
     let device = utils::parse_tuntap_options(&mut matches);
     let fd = device.as_raw_fd();
-    let device = utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
+    let mut device =
+        utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
     let neighbor_cache = NeighborCache::new(BTreeMap::new());
 
     let local_addr = Ipv4Address::new(192, 168, 69, 2);
@@ -34,18 +35,20 @@ fn main() {
     let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x02]);
     let ip_addr = IpCidr::new(IpAddress::from(local_addr), 24);
     let mut ipv4_multicast_storage = [None; 1];
-    let mut iface = InterfaceBuilder::new(device, vec![])
+    let mut iface = InterfaceBuilder::new()
         .hardware_addr(ethernet_addr.into())
         .neighbor_cache(neighbor_cache)
         .ip_addrs([ip_addr])
         .ipv4_multicast_groups(&mut ipv4_multicast_storage[..])
-        .finalize();
+        .finalize(&mut device);
 
     let now = Instant::now();
     // Join a multicast group to receive mDNS traffic
     iface
-        .join_multicast_group(Ipv4Address::from_bytes(&MDNS_GROUP), now)
+        .join_multicast_group(&mut device, Ipv4Address::from_bytes(&MDNS_GROUP), now)
         .unwrap();
+
+    let mut sockets = SocketSet::new(vec![]);
 
     // Must fit at least one IGMP packet
     let raw_rx_buffer = raw::PacketBuffer::new(vec![raw::PacketMetadata::EMPTY; 2], vec![0; 512]);
@@ -57,25 +60,25 @@ fn main() {
         raw_rx_buffer,
         raw_tx_buffer,
     );
-    let raw_handle = iface.add_socket(raw_socket);
+    let raw_handle = sockets.add(raw_socket);
 
     // Must fit mDNS payload of at least one packet
     let udp_rx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY; 4], vec![0; 1024]);
     // Will not send mDNS
     let udp_tx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 0]);
     let udp_socket = udp::Socket::new(udp_rx_buffer, udp_tx_buffer);
-    let udp_handle = iface.add_socket(udp_socket);
+    let udp_handle = sockets.add(udp_socket);
 
     loop {
         let timestamp = Instant::now();
-        match iface.poll(timestamp) {
+        match iface.poll(timestamp, &mut device, &mut sockets) {
             Ok(_) => {}
             Err(e) => {
                 debug!("poll error: {}", e);
             }
         }
 
-        let socket = iface.get_socket::<raw::Socket>(raw_handle);
+        let socket = sockets.get_mut::<raw::Socket>(raw_handle);
 
         if socket.can_recv() {
             // For display purposes only - normally we wouldn't process incoming IGMP packets
@@ -92,7 +95,7 @@ fn main() {
             }
         }
 
-        let socket = iface.get_socket::<udp::Socket>(udp_handle);
+        let socket = sockets.get_mut::<udp::Socket>(udp_handle);
         if !socket.is_open() {
             socket.bind(MDNS_PORT).unwrap()
         }
@@ -106,6 +109,6 @@ fn main() {
                 .unwrap_or_else(|e| println!("Recv UDP error: {:?}", e));
         }
 
-        phy_wait(fd, iface.poll_delay(timestamp)).expect("wait error");
+        phy_wait(fd, iface.poll_delay(timestamp, &sockets)).expect("wait error");
     }
 }

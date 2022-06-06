@@ -20,7 +20,7 @@ pub use self::neighbor::Cache as NeighborCache;
 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
 pub use self::neighbor::Neighbor;
 pub use self::route::{Route, Routes};
-pub use socket_set::{SocketHandle, SocketStorage};
+pub use socket_set::{SocketHandle, SocketSet, SocketStorage};
 
 #[cfg(feature = "proto-sixlowpan")]
 pub use self::fragmentation::{PacketAssembler, PacketAssemblerSet as FragmentsCache};

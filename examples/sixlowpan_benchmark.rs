@@ -48,7 +48,7 @@ use std::collections::BTreeMap;
 use std::os::unix::io::AsRawFd;
 use std::str;
 
-use smoltcp::iface::{FragmentsCache, InterfaceBuilder, NeighborCache};
+use smoltcp::iface::{FragmentsCache, InterfaceBuilder, NeighborCache, SocketSet};
 use smoltcp::phy::{wait as phy_wait, Medium, RawSocket};
 use smoltcp::socket::tcp;
 use smoltcp::wire::{Ieee802154Pan, IpAddress, IpCidr};
@@ -139,7 +139,8 @@ fn main() {
     let device = RawSocket::new("wpan1", Medium::Ieee802154).unwrap();
 
     let fd = device.as_raw_fd();
-    let device = utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
+    let mut device =
+        utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
 
     let mode = match matches.free[0].as_ref() {
         "reader" => Client::Reader,
@@ -167,7 +168,7 @@ fn main() {
 
     let cache = FragmentsCache::new(vec![], BTreeMap::new());
 
-    let mut builder = InterfaceBuilder::new(device, vec![])
+    let mut builder = InterfaceBuilder::new()
         .ip_addrs(ip_addrs)
         .pan_id(Ieee802154Pan(0xbeef));
     builder = builder
@@ -175,10 +176,11 @@ fn main() {
         .neighbor_cache(neighbor_cache)
         .sixlowpan_fragments_cache(cache)
         .sixlowpan_out_packet_cache(vec![]);
-    let mut iface = builder.finalize();
+    let mut iface = builder.finalize(&mut device);
 
-    let tcp1_handle = iface.add_socket(tcp1_socket);
-    let tcp2_handle = iface.add_socket(tcp2_socket);
+    let mut sockets = SocketSet::new(vec![]);
+    let tcp1_handle = sockets.add(tcp1_socket);
+    let tcp2_handle = sockets.add(tcp2_socket);
 
     let default_timeout = Some(Duration::from_millis(1000));
 
@@ -187,7 +189,7 @@ fn main() {
 
     while !CLIENT_DONE.load(Ordering::SeqCst) {
         let timestamp = Instant::now();
-        match iface.poll(timestamp) {
+        match iface.poll(timestamp, &mut device, &mut sockets) {
             Ok(_) => {}
             Err(e) => {
                 debug!("poll error: {}", e);
@@ -195,7 +197,7 @@ fn main() {
         }
 
         // tcp:1234: emit data
-        let socket = iface.get_socket::<tcp::Socket>(tcp1_handle);
+        let socket = sockets.get_mut::<tcp::Socket>(tcp1_handle);
         if !socket.is_open() {
             socket.listen(1234).unwrap();
         }
@@ -211,7 +213,7 @@ fn main() {
         }
 
         // tcp:1235: sink data
-        let socket = iface.get_socket::<tcp::Socket>(tcp2_handle);
+        let socket = sockets.get_mut::<tcp::Socket>(tcp2_handle);
         if !socket.is_open() {
             socket.listen(1235).unwrap();
         }
@@ -226,7 +228,7 @@ fn main() {
             processed += length;
         }
 
-        match iface.poll_at(timestamp) {
+        match iface.poll_at(timestamp, &sockets) {
             Some(poll_at) if timestamp < poll_at => {
                 phy_wait(fd, Some(poll_at - timestamp)).expect("wait error");
             }
