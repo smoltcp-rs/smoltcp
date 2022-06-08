@@ -21,6 +21,13 @@ pub use super::IpProtocol as Protocol;
 // accept a packet of the following size.
 pub const MIN_MTU: usize = 576;
 
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone, Copy)]
+pub struct Key {
+    id: u16,
+    src_addr: Address,
+    dst_addr: Address,
+}
+
 /// A four-octet IPv4 address.
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
 pub struct Address(pub [u8; 4]);
@@ -443,6 +450,15 @@ impl<T: AsRef<[u8]>> Packet<T> {
         let data = self.buffer.as_ref();
         checksum::data(&data[..self.header_len() as usize]) == !0
     }
+
+    /// Returns the key for identifying the packet.
+    pub fn get_key(&self) -> Key {
+        Key {
+            id: self.ident(),
+            src_addr: self.src_addr(),
+            dst_addr: self.dst_addr(),
+        }
+    }
 }
 
 impl<'a, T: AsRef<[u8]> + ?Sized> Packet<&'a T> {
@@ -617,15 +633,14 @@ impl Repr {
         if checksum_caps.ipv4.rx() && !packet.verify_checksum() {
             return Err(Error);
         }
+
+        #[cfg(not(feature = "proto-ipv4-fragmentation"))]
         // We do not support fragmentation.
         if packet.more_frags() || packet.frag_offset() != 0 {
             return Err(Error);
         }
-        // Since the packet is not fragmented, it must include the entire payload.
+
         let payload_len = packet.total_len() as usize - packet.header_len() as usize;
-        if packet.payload().len() < payload_len {
-            return Err(Error);
-        }
 
         // All DSCP values are acceptable, since they are of no concern to receiving endpoint.
         // All ECN values are acceptable, since ECN requires opt-in from both endpoints.
@@ -634,7 +649,7 @@ impl Repr {
             src_addr: packet.src_addr(),
             dst_addr: packet.dst_addr(),
             next_header: packet.next_header(),
-            payload_len: payload_len,
+            payload_len,
             hop_limit: packet.hop_limit(),
         })
     }
@@ -749,9 +764,20 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
             Ok(ip_packet) => match Repr::parse(&ip_packet, &checksum_caps) {
                 Err(_) => return Ok(()),
                 Ok(ip_repr) => {
-                    write!(f, "{}{}", indent, ip_repr)?;
-                    format_checksum(f, ip_packet.verify_checksum())?;
-                    (ip_repr, ip_packet.payload())
+                    if ip_packet.more_frags() || ip_packet.frag_offset() != 0 {
+                        write!(
+                            f,
+                            "{}IPv4 Fragment more_frags={} offset={}",
+                            indent,
+                            ip_packet.more_frags(),
+                            ip_packet.frag_offset()
+                        )?;
+                        return Ok(());
+                    } else {
+                        write!(f, "{}{}", indent, ip_repr)?;
+                        format_checksum(f, ip_packet.verify_checksum())?;
+                        (ip_repr, ip_packet.payload())
+                    }
                 }
             },
         };

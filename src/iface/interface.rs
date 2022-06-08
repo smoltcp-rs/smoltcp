@@ -5,7 +5,7 @@
 use core::cmp;
 use managed::{ManagedMap, ManagedSlice};
 
-#[cfg(feature = "proto-sixlowpan")]
+#[cfg(any(feature = "proto-ipv4", feature = "proto-sixlowpan"))]
 use super::fragmentation::PacketAssemblerSet;
 use super::socket_set::SocketSet;
 use crate::iface::Routes;
@@ -23,19 +23,27 @@ use crate::wire::*;
 use crate::{Error, Result};
 
 pub(crate) struct FragmentsBuffer<'a> {
-    #[cfg(feature = "proto-sixlowpan")]
+    #[cfg(feature = "proto-ipv4-fragmentation")]
+    ipv4_fragments: PacketAssemblerSet<'a, Ipv4FragKey>,
+    #[cfg(feature = "proto-sixlowpan-fragmentation")]
     sixlowpan_fragments: PacketAssemblerSet<'a, SixlowpanFragKey>,
-    #[cfg(not(feature = "proto-sixlowpan"))]
+
+    #[cfg(not(any(
+        feature = "proto-ipv4-fragmentation",
+        feature = "proto-sixlowpan-fragmentation"
+    )))]
     _lifetime: core::marker::PhantomData<&'a ()>,
 }
 
 pub(crate) struct OutPackets<'a> {
-    #[cfg(feature = "proto-sixlowpan")]
+    #[cfg(feature = "proto-sixlowpan-fragmentation")]
     sixlowpan_out_packet: SixlowpanOutPacket<'a>,
-    #[cfg(not(feature = "proto-sixlowpan"))]
+
+    #[cfg(not(feature = "proto-sixlowpan-fragmentation"))]
     _lifetime: core::marker::PhantomData<&'a ()>,
 }
 
+#[allow(unused)]
 #[cfg(feature = "proto-sixlowpan")]
 pub(crate) struct SixlowpanOutPacket<'a> {
     /// The buffer that holds the unfragmented 6LoWPAN packet.
@@ -59,7 +67,7 @@ pub(crate) struct SixlowpanOutPacket<'a> {
     ll_src_addr: Ieee802154Address,
 }
 
-#[cfg(feature = "proto-sixlowpan")]
+#[cfg(feature = "proto-sixlowpan-fragmentation")]
 impl<'a> SixlowpanOutPacket<'a> {
     pub(crate) fn new(buffer: ManagedSlice<'a, u8>) -> Self {
         Self {
@@ -121,7 +129,7 @@ pub struct InterfaceInner<'a> {
     sequence_no: u8,
     #[cfg(feature = "medium-ieee802154")]
     pan_id: Option<Ieee802154Pan>,
-    #[cfg(feature = "proto-sixlowpan")]
+    #[cfg(feature = "proto-sixlowpan-fragmentation")]
     tag: u16,
     ip_addrs: ManagedSlice<'a, IpCidr>,
     #[cfg(feature = "proto-ipv4")]
@@ -151,9 +159,13 @@ pub struct InterfaceBuilder<'a> {
     #[cfg(feature = "proto-igmp")]
     ipv4_multicast_groups: ManagedMap<'a, Ipv4Address, ()>,
     random_seed: u64,
-    #[cfg(feature = "proto-sixlowpan")]
+
+    #[cfg(feature = "proto-ipv4-fragmentation")]
+    ipv4_fragments: Option<PacketAssemblerSet<'a, Ipv4FragKey>>,
+
+    #[cfg(feature = "proto-sixlowpan-fragmentation")]
     sixlowpan_fragments: Option<PacketAssemblerSet<'a, SixlowpanFragKey>>,
-    #[cfg(feature = "proto-sixlowpan")]
+    #[cfg(feature = "proto-sixlowpan-fragmentation")]
     sixlowpan_out_buffer: Option<ManagedSlice<'a, u8>>,
 }
 
@@ -167,6 +179,8 @@ impl<'a> InterfaceBuilder<'a> {
 
 ```
 # use std::collections::BTreeMap;
+#[cfg(feature = "proto-ipv4-fragmentation")]
+use smoltcp::iface::FragmentsCache;
 use smoltcp::iface::{InterfaceBuilder, NeighborCache};
 # use smoltcp::phy::{Loopback, Medium};
 use smoltcp::wire::{EthernetAddress, IpCidr, IpAddress};
@@ -177,13 +191,20 @@ let hw_addr = // ...
 # EthernetAddress::default();
 let neighbor_cache = // ...
 # NeighborCache::new(BTreeMap::new());
+# #[cfg(feature = "proto-ipv4-fragmentation")]
+# let ipv4_frag_cache = // ...
+# FragmentsCache::new(vec![], BTreeMap::new());
 let ip_addrs = // ...
 # [];
-let iface = InterfaceBuilder::new()
+let builder = InterfaceBuilder::new()
         .hardware_addr(hw_addr.into())
         .neighbor_cache(neighbor_cache)
-        .ip_addrs(ip_addrs)
-        .finalize(&mut device);
+        .ip_addrs(ip_addrs);
+
+# #[cfg(feature = "proto-ipv4-fragmentation")]
+let builder = builder.ipv4_fragments_cache(ipv4_frag_cache);
+
+let iface = builder.finalize(&mut device);
 ```
     "##
     )]
@@ -206,9 +227,12 @@ let iface = InterfaceBuilder::new()
             ipv4_multicast_groups: ManagedMap::Borrowed(&mut []),
             random_seed: 0,
 
-            #[cfg(feature = "proto-sixlowpan")]
+            #[cfg(feature = "proto-ipv4-fragmentation")]
+            ipv4_fragments: None,
+
+            #[cfg(feature = "proto-sixlowpan-fragmentation")]
             sixlowpan_fragments: None,
-            #[cfg(feature = "proto-sixlowpan")]
+            #[cfg(feature = "proto-sixlowpan-fragmentation")]
             sixlowpan_out_buffer: None,
         }
     }
@@ -321,7 +345,13 @@ let iface = InterfaceBuilder::new()
         self
     }
 
-    #[cfg(feature = "proto-sixlowpan")]
+    #[cfg(feature = "proto-ipv4-fragmentation")]
+    pub fn ipv4_fragments_cache(mut self, storage: PacketAssemblerSet<'a, Ipv4FragKey>) -> Self {
+        self.ipv4_fragments = Some(storage);
+        self
+    }
+
+    #[cfg(feature = "proto-sixlowpan-fragmentation")]
     pub fn sixlowpan_fragments_cache(
         mut self,
         storage: PacketAssemblerSet<'a, SixlowpanFragKey>,
@@ -330,7 +360,7 @@ let iface = InterfaceBuilder::new()
         self
     }
 
-    #[cfg(feature = "proto-sixlowpan")]
+    #[cfg(feature = "proto-sixlowpan-fragmentation")]
     pub fn sixlowpan_out_packet_cache<T>(mut self, storage: T) -> Self
     where
         T: Into<ManagedSlice<'a, u8>>,
@@ -422,22 +452,29 @@ let iface = InterfaceBuilder::new()
 
         Interface {
             fragments: FragmentsBuffer {
-                #[cfg(feature = "proto-sixlowpan")]
+                #[cfg(feature = "proto-ipv4-fragmentation")]
+                ipv4_fragments: self
+                    .ipv4_fragments
+                    .expect("Cache for incoming IPv4 fragments is required"),
+                #[cfg(feature = "proto-sixlowpan-fragmentation")]
                 sixlowpan_fragments: self
                     .sixlowpan_fragments
                     .expect("Cache for incoming 6LoWPAN fragments is required"),
 
-                #[cfg(not(feature = "proto-sixlowpan"))]
+                #[cfg(not(any(
+                    feature = "proto-ipv4-fragmentation",
+                    feature = "proto-sixlowpan-fragmentation"
+                )))]
                 _lifetime: core::marker::PhantomData,
             },
             out_packets: OutPackets {
-                #[cfg(feature = "proto-sixlowpan")]
+                #[cfg(feature = "proto-sixlowpan-fragmentation")]
                 sixlowpan_out_packet: SixlowpanOutPacket::new(
                     self.sixlowpan_out_buffer
-                        .expect("Cache for outgoing fragments is required"),
+                        .expect("Cache for outgoing 6LoWPAN fragments is required"),
                 ),
 
-                #[cfg(not(feature = "proto-sixlowpan"))]
+                #[cfg(not(feature = "proto-sixlowpan-fragmentation"))]
                 _lifetime: core::marker::PhantomData,
             },
             inner: InterfaceInner {
@@ -459,7 +496,7 @@ let iface = InterfaceBuilder::new()
                 sequence_no,
                 #[cfg(feature = "medium-ieee802154")]
                 pan_id: self.pan_id,
-                #[cfg(feature = "proto-sixlowpan")]
+                #[cfg(feature = "proto-sixlowpan-fragmentation")]
                 tag,
                 rand,
             },
@@ -760,12 +797,11 @@ impl<'a> Interface<'a> {
     pub fn ipv4_addr(&self) -> Option<Ipv4Address> {
         self.ip_addrs()
             .iter()
-            .filter_map(|cidr| match cidr.address() {
+            .find_map(|cidr| match cidr.address() {
                 IpAddress::Ipv4(addr) => Some(addr),
                 #[allow(unreachable_patterns)]
                 _ => None,
             })
-            .next()
     }
 
     /// Update the IP addresses of the interface.
@@ -825,34 +861,32 @@ impl<'a> Interface<'a> {
     {
         self.inner.now = timestamp;
 
-        let mut readiness_may_have_changed = false;
-
-        #[cfg(feature = "proto-sixlowpan")]
+        #[cfg(feature = "proto-ipv4-fragmentation")]
+        if let Err(e) = self
+            .fragments
+            .ipv4_fragments
+            .remove_when(|frag| Ok(timestamp >= frag.expires_at()?))
         {
-            let SixlowpanOutPacket {
-                packet_len,
-                sent_bytes,
-                ..
-            } = &self.out_packets.sixlowpan_out_packet;
-
-            if *packet_len > *sent_bytes {
-                match device.transmit().ok_or(Error::Exhausted) {
-                    Ok(tx_token) => {
-                        if let Err(e) = self.inner.dispatch_ieee802154_out_packet(
-                            tx_token,
-                            &mut self.out_packets.sixlowpan_out_packet,
-                        ) {
-                            net_debug!("failed to transmit: {}", e);
-                        }
-                    }
-                    Err(e) => {
-                        net_debug!("failed to transmit: {}", e);
-                    }
-                }
-
-                return Ok(true);
-            }
+            return Err(e);
         }
+
+        #[cfg(feature = "proto-sixlowpan-fragmentation")]
+        if let Err(e) = self
+            .fragments
+            .sixlowpan_fragments
+            .remove_when(|frag| Ok(timestamp >= frag.expires_at()?))
+        {
+            return Err(e);
+        }
+
+        #[cfg(feature = "proto-sixlowpan-fragmentation")]
+        match self.sixlowpan_egress(device) {
+            Ok(true) => return Ok(true),
+            Err(e) => return Err(e),
+            _ => (),
+        }
+
+        let mut readiness_may_have_changed = false;
 
         loop {
             let processed_any = self.socket_ingress(device, sockets);
@@ -923,15 +957,16 @@ impl<'a> Interface<'a> {
         let mut processed_any = false;
         let Self {
             inner,
-            fragments: _fragments,
+            fragments: ref mut _fragments,
             out_packets: _out_packets,
         } = self;
+
         while let Some((rx_token, tx_token)) = device.receive() {
             let res = rx_token.consume(inner.now, |frame| {
                 match inner.caps.medium {
                     #[cfg(feature = "medium-ethernet")]
                     Medium::Ethernet => {
-                        if let Some(packet) = inner.process_ethernet(sockets, &frame) {
+                        if let Some(packet) = inner.process_ethernet(sockets, &frame, _fragments) {
                             if let Err(err) = inner.dispatch(tx_token, packet) {
                                 net_debug!("Failed to send response: {}", err);
                             }
@@ -939,7 +974,7 @@ impl<'a> Interface<'a> {
                     }
                     #[cfg(feature = "medium-ip")]
                     Medium::Ip => {
-                        if let Some(packet) = inner.process_ip(sockets, &frame) {
+                        if let Some(packet) = inner.process_ip(sockets, &frame, _fragments) {
                             if let Err(err) = inner.dispatch_ip(tx_token, packet, None) {
                                 net_debug!("Failed to send response: {}", err);
                             }
@@ -947,11 +982,8 @@ impl<'a> Interface<'a> {
                     }
                     #[cfg(feature = "medium-ieee802154")]
                     Medium::Ieee802154 => {
-                        if let Some(packet) = inner.process_ieee802154(
-                            sockets,
-                            &frame,
-                            &mut _fragments.sixlowpan_fragments,
-                        ) {
+                        if let Some(packet) = inner.process_ieee802154(sockets, &frame, _fragments)
+                        {
                             if let Err(err) =
                                 inner.dispatch_ip(tx_token, packet, Some(_out_packets))
                             {
@@ -996,14 +1028,14 @@ impl<'a> Interface<'a> {
             let mut respond = |inner: &mut InterfaceInner, response: IpPacket| {
                 neighbor_addr = Some(response.ip_repr().dst_addr());
                 match device.transmit().ok_or(Error::Exhausted) {
-                    Ok(t) => {
-                        #[cfg(feature = "proto-sixlowpan")]
-                        if let Err(_e) = inner.dispatch_ip(t, response, Some(_out_packets)) {
+                    Ok(_t) => {
+                        #[cfg(feature = "proto-sixlowpan-fragmentation")]
+                        if let Err(_e) = inner.dispatch_ip(_t, response, Some(_out_packets)) {
                             net_debug!("failed to dispatch IP: {}", _e);
                         }
 
-                        #[cfg(not(feature = "proto-sixlowpan"))]
-                        if let Err(_e) = inner.dispatch_ip(t, response, None) {
+                        #[cfg(not(feature = "proto-sixlowpan-fragmentation"))]
+                        if let Err(_e) = inner.dispatch_ip(_t, response, None) {
                             net_debug!("failed to dispatch IP: {}", _e);
                         }
                         emitted_any = true;
@@ -1140,6 +1172,41 @@ impl<'a> Interface<'a> {
             _ => Ok(false),
         }
     }
+
+    #[cfg(feature = "proto-sixlowpan-fragmentation")]
+    fn sixlowpan_egress<D>(&mut self, device: &mut D) -> Result<bool>
+    where
+        D: for<'d> Device<'d>,
+    {
+        let SixlowpanOutPacket {
+            packet_len,
+            sent_bytes,
+            ..
+        } = &self.out_packets.sixlowpan_out_packet;
+
+        if *packet_len == 0 {
+            return Ok(false);
+        }
+
+        if *packet_len >= *sent_bytes {
+            match device.transmit().ok_or(Error::Exhausted) {
+                Ok(tx_token) => {
+                    if let Err(e) = self.inner.dispatch_ieee802154_out_packet(
+                        tx_token,
+                        &mut self.out_packets.sixlowpan_out_packet,
+                    ) {
+                        net_debug!("failed to transmit: {}", e);
+                    }
+                }
+                Err(e) => {
+                    net_debug!("failed to transmit: {}", e);
+                }
+            }
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
 }
 
 impl<'a> InterfaceInner<'a> {
@@ -1256,7 +1323,7 @@ impl<'a> InterfaceInner<'a> {
             #[cfg(feature = "medium-ieee802154")]
             sequence_no: 1,
 
-            #[cfg(feature = "proto-sixlowpan")]
+            #[cfg(feature = "proto-sixlowpan-fragmentation")]
             tag: 1,
 
             #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
@@ -1301,7 +1368,7 @@ impl<'a> InterfaceInner<'a> {
         no
     }
 
-    #[cfg(feature = "proto-sixlowpan")]
+    #[cfg(feature = "proto-sixlowpan-fragmentation")]
     fn get_sixlowpan_fragment_tag(&mut self) -> u16 {
         let tag = self.tag;
         self.tag = self.tag.wrapping_add(1);
@@ -1336,14 +1403,11 @@ impl<'a> InterfaceInner<'a> {
     /// Get the first IPv4 address of the interface.
     #[cfg(feature = "proto-ipv4")]
     pub fn ipv4_address(&self) -> Option<Ipv4Address> {
-        self.ip_addrs
-            .iter()
-            .filter_map(|addr| match *addr {
-                IpCidr::Ipv4(cidr) => Some(cidr.address()),
-                #[cfg(feature = "proto-ipv6")]
-                IpCidr::Ipv6(_) => None,
-            })
-            .next()
+        self.ip_addrs.iter().find_map(|addr| match *addr {
+            IpCidr::Ipv4(cidr) => Some(cidr.address()),
+            #[cfg(feature = "proto-ipv6")]
+            IpCidr::Ipv6(_) => None,
+        })
     }
 
     /// Check whether the interface listens to given destination multicast IP address.
@@ -1367,6 +1431,7 @@ impl<'a> InterfaceInner<'a> {
         &mut self,
         sockets: &mut SocketSet,
         frame: &'frame T,
+        _fragments: &'frame mut FragmentsBuffer<'a>,
     ) -> Option<EthernetPacket<'frame>> {
         let eth_frame = check!(EthernetFrame::new_checked(frame));
 
@@ -1384,8 +1449,14 @@ impl<'a> InterfaceInner<'a> {
             #[cfg(feature = "proto-ipv4")]
             EthernetProtocol::Ipv4 => {
                 let ipv4_packet = check!(Ipv4Packet::new_checked(eth_frame.payload()));
-                self.process_ipv4(sockets, &ipv4_packet)
-                    .map(EthernetPacket::Ip)
+
+                cfg_if::cfg_if! {
+                if #[cfg(feature = "proto-ipv4-fragmentation")] {
+                    self.process_ipv4(sockets, &ipv4_packet, Some(&mut _fragments.ipv4_fragments))
+                    .map(EthernetPacket::Ip) } else {
+                    self.process_ipv4(sockets, &ipv4_packet, None).map(EthernetPacket::Ip)
+                }
+                }
             }
             #[cfg(feature = "proto-ipv6")]
             EthernetProtocol::Ipv6 => {
@@ -1403,12 +1474,20 @@ impl<'a> InterfaceInner<'a> {
         &mut self,
         sockets: &mut SocketSet,
         ip_payload: &'frame T,
+        _fragments: &'frame mut FragmentsBuffer<'a>,
     ) -> Option<IpPacket<'frame>> {
         match IpVersion::of_packet(ip_payload.as_ref()) {
             #[cfg(feature = "proto-ipv4")]
             Ok(IpVersion::Ipv4) => {
                 let ipv4_packet = check!(Ipv4Packet::new_checked(ip_payload));
-                self.process_ipv4(sockets, &ipv4_packet)
+                cfg_if::cfg_if! {
+                    if #[cfg(feature = "proto-ipv4-fragmentation")] {
+                        self.process_ipv4(sockets, &ipv4_packet, Some(&mut _fragments.ipv4_fragments))
+                    } else {
+                        self.process_ipv4(sockets, &ipv4_packet, None)
+
+                    }
+                }
             }
             #[cfg(feature = "proto-ipv6")]
             Ok(IpVersion::Ipv6) => {
@@ -1425,7 +1504,7 @@ impl<'a> InterfaceInner<'a> {
         &mut self,
         sockets: &mut SocketSet,
         sixlowpan_payload: &'payload T,
-        fragments: &'output mut PacketAssemblerSet<'a, SixlowpanFragKey>,
+        _fragments: &'output mut FragmentsBuffer<'a>,
     ) -> Option<IpPacket<'output>> {
         let ieee802154_frame = check!(Ieee802154Frame::new_checked(sixlowpan_payload));
         let ieee802154_repr = check!(Ieee802154Repr::parse(&ieee802154_frame));
@@ -1449,7 +1528,15 @@ impl<'a> InterfaceInner<'a> {
         }
 
         match ieee802154_frame.payload() {
-            Some(payload) => self.process_sixlowpan(sockets, &ieee802154_repr, payload, fragments),
+            Some(payload) => {
+                cfg_if::cfg_if! {
+                    if #[cfg(feature = "proto-sixlowpan-fragmentation")] {
+                        self.process_sixlowpan(sockets, &ieee802154_repr, payload, Some(&mut _fragments.sixlowpan_fragments))
+                    } else {
+                        self.process_sixlowpan(sockets, &ieee802154_repr, payload, None)
+                    }
+                }
+            }
             None => None,
         }
     }
@@ -1460,15 +1547,18 @@ impl<'a> InterfaceInner<'a> {
         sockets: &mut SocketSet,
         ieee802154_repr: &Ieee802154Repr,
         payload: &'payload T,
-        fragments: &'output mut PacketAssemblerSet<'a, SixlowpanFragKey>,
+        _fragments: Option<&'output mut PacketAssemblerSet<'a, SixlowpanFragKey>>,
     ) -> Option<IpPacket<'output>> {
-        check!(fragments.remove_when(|frag| Ok(
-            self.now - frag.start_time().unwrap() > Duration::from_secs(60)
-        )));
-        fragments.remove_discarded();
-
         let payload = match check!(SixlowpanPacket::dispatch(payload)) {
+            #[cfg(not(feature = "proto-sixlowpan-fragmentation"))]
             SixlowpanPacket::FragmentHeader => {
+                net_debug!("Fragmentation is not supported, use the `proto-sixlowpan-fragmentation` feature to add support.");
+                return None;
+            }
+            #[cfg(feature = "proto-sixlowpan-fragmentation")]
+            SixlowpanPacket::FragmentHeader => {
+                let fragments = _fragments.unwrap();
+
                 // We have a fragment header, which means we cannot process the 6LoWPAN packet,
                 // unless we have a complete one after processing this fragment.
                 let frag = check!(SixlowpanFragPacket::new_checked(payload));
@@ -1528,25 +1618,21 @@ impl<'a> InterfaceInner<'a> {
                     // We also pass the header size, since this is needed when other fragments
                     // (other than the first one) are added.
                     check!(check!(fragments.reserve_with_key(&key)).start(
-                        frag.datagram_size() as usize - uncompressed_header_size
-                            + compressed_header_size,
-                        self.now,
+                        Some(
+                            frag.datagram_size() as usize - uncompressed_header_size
+                                + compressed_header_size
+                        ),
+                        self.now + Duration::from_secs(60),
                         -((uncompressed_header_size - compressed_header_size) as isize),
                     ));
                 }
 
                 let frags = check!(fragments.get_packet_assembler_mut(&key));
 
-                // Check if 60 seconds have passed since the start of the first fragment.
-                if self.now - frags.start_time().unwrap() > Duration::from_secs(60) {
-                    frags.mark_discarded();
-                    return None;
-                }
-
                 net_trace!("6LoWPAN: received packet fragment");
 
                 // Add the fragment to the packet assembler.
-                match frags.add(frag.payload(), offset, self.now) {
+                match frags.add(frag.payload(), offset) {
                     Ok(true) => {
                         net_trace!("6LoWPAN: fragmented packet now complete");
                         check!(fragments.get_assembled_packet(&key))
@@ -1830,21 +1916,75 @@ impl<'a> InterfaceInner<'a> {
     }
 
     #[cfg(feature = "proto-ipv4")]
-    fn process_ipv4<'frame, T: AsRef<[u8]> + ?Sized>(
+    fn process_ipv4<'output, 'payload: 'output, T: AsRef<[u8]> + ?Sized>(
         &mut self,
         sockets: &mut SocketSet,
-        ipv4_packet: &Ipv4Packet<&'frame T>,
-    ) -> Option<IpPacket<'frame>> {
+        ipv4_packet: &Ipv4Packet<&'payload T>,
+        _fragments: Option<&'output mut PacketAssemblerSet<'a, Ipv4FragKey>>,
+    ) -> Option<IpPacket<'output>> {
         let ipv4_repr = check!(Ipv4Repr::parse(ipv4_packet, &self.caps.checksum));
-
         if !self.is_unicast_v4(ipv4_repr.src_addr) {
             // Discard packets with non-unicast source addresses.
             net_debug!("non-unicast source address");
             return None;
         }
 
-        let ip_repr = IpRepr::Ipv4(ipv4_repr);
+        #[cfg(feature = "proto-ipv4-fragmentation")]
+        let ip_payload = {
+            const REASSEMBLY_TIMEOUT: u64 = 90;
+
+            let fragments = _fragments.unwrap();
+
+            if ipv4_packet.more_frags() || ipv4_packet.frag_offset() != 0 {
+                let key = ipv4_packet.get_key();
+
+                let f = match fragments.get_packet_assembler_mut(&key) {
+                    Ok(f) => f,
+                    Err(_) => {
+                        check!(check!(fragments.reserve_with_key(&key)).start(
+                            None,
+                            self.now + Duration::from_secs(REASSEMBLY_TIMEOUT),
+                            0,
+                        ));
+                        check!(fragments.get_packet_assembler_mut(&key))
+                    }
+                };
+
+                if !ipv4_packet.more_frags() {
+                    // This is the last fragment, so we know the total size
+                    check!(f.set_total_size(
+                        ipv4_packet.total_len() as usize - ipv4_packet.header_len() as usize
+                            + ipv4_packet.frag_offset() as usize,
+                    ));
+                }
+
+                match f.add(ipv4_packet.payload(), ipv4_packet.frag_offset() as usize) {
+                    Ok(true) => {
+                        // NOTE: according to the standard, the total length needs to be
+                        // recomputed, as well as the checksum. However, we don't really use
+                        // the IPv4 header after the packet is reassembled.
+                        check!(fragments.get_assembled_packet(&key))
+                    }
+                    Ok(false) => {
+                        return None;
+                    }
+                    Err(Error::PacketAssemblerOverlap) => {
+                        return None;
+                    }
+                    Err(e) => {
+                        net_debug!("fragmentation error: {}", e);
+                        return None;
+                    }
+                }
+            } else {
+                ipv4_packet.payload()
+            }
+        };
+
+        #[cfg(not(feature = "proto-ipv4-fragmentation"))]
         let ip_payload = ipv4_packet.payload();
+
+        let ip_repr = IpRepr::Ipv4(ipv4_repr);
 
         #[cfg(feature = "socket-raw")]
         let handled_by_raw_socket = self.raw_socket_filter(sockets, &ip_repr, ip_payload);
@@ -1862,8 +2002,7 @@ impl<'a> InterfaceInner<'a> {
                 {
                     if let Some(dhcp_socket) = sockets
                         .items_mut()
-                        .filter_map(|i| dhcpv4::Socket::downcast_mut(&mut i.socket))
-                        .next()
+                        .find_map(|i| dhcpv4::Socket::downcast_mut(&mut i.socket))
                     {
                         let (src_addr, dst_addr) = (ip_repr.src_addr(), ip_repr.dst_addr());
                         let udp_repr = check!(UdpRepr::parse(
@@ -2732,14 +2871,14 @@ impl<'a> InterfaceInner<'a> {
         }
     }
 
-    #[cfg(feature = "medium-ieee802154")]
+    #[cfg(all(feature = "medium-ieee802154", feature = "proto-sixlowpan"))]
     fn dispatch_ieee802154<Tx: TxToken>(
         &mut self,
         ll_dst_a: Ieee802154Address,
         ip_repr: &IpRepr,
         tx_token: Tx,
         packet: IpPacket,
-        out_packet: Option<&mut OutPackets>,
+        _out_packet: Option<&mut OutPackets>,
     ) -> Result<()> {
         // We first need to convert the IPv6 packet to a 6LoWPAN compressed packet.
         // Whenever this packet is to big to fit in the IEEE802.15.4 packet, then we need to
@@ -2798,14 +2937,14 @@ impl<'a> InterfaceInner<'a> {
         // We need to know this, such that we know when to do the fragmentation.
         let mut total_size = 0;
         total_size += iphc_repr.buffer_len();
-        let mut compressed_headers_len = iphc_repr.buffer_len();
+        let mut _compressed_headers_len = iphc_repr.buffer_len();
 
         #[allow(unreachable_patterns)]
         match packet {
             #[cfg(feature = "socket-udp")]
             IpPacket::Udp((_, udpv6_repr, payload)) => {
                 let udp_repr = SixlowpanUdpNhcRepr(udpv6_repr);
-                compressed_headers_len += udp_repr.header_len();
+                _compressed_headers_len += udp_repr.header_len();
                 total_size += udp_repr.header_len() + payload.len();
             }
             #[cfg(feature = "socket-tcp")]
@@ -2822,130 +2961,139 @@ impl<'a> InterfaceInner<'a> {
         let ieee_len = ieee_repr.buffer_len();
 
         if total_size + ieee_len > 125 {
-            // The packet does not fit in one Ieee802154 frame, so we need fragmentation.
-            // We do this by emitting everything in the `out_packet.buffer` from the interface.
-            // After emitting everything into that buffer, we send the first fragment heere.
-            // When `poll` is called again, we check if out_packet was fully sent, otherwise we
-            // call `dispatch_ieee802154_out_packet`, which will transmit the other fragments.
+            cfg_if::cfg_if! {
+                if #[cfg(feature = "proto-sixlowpan-fragmentation")] {
+                    // The packet does not fit in one Ieee802154 frame, so we need fragmentation.
+                    // We do this by emitting everything in the `out_packet.buffer` from the interface.
+                    // After emitting everything into that buffer, we send the first fragment heere.
+                    // When `poll` is called again, we check if out_packet was fully sent, otherwise we
+                    // call `dispatch_ieee802154_out_packet`, which will transmit the other fragments.
 
-            // `dispatch_ieee802154_out_packet` requires some information about the total packet size,
-            // the link local source and destination address...
-            let SixlowpanOutPacket {
-                buffer,
-                packet_len,
-                datagram_size,
-                datagram_tag,
-                sent_bytes,
-                fragn_size,
-                ll_dst_addr,
-                ll_src_addr,
-                ..
-            } = &mut out_packet.unwrap().sixlowpan_out_packet;
+                    // `dispatch_ieee802154_out_packet` requires some information about the total packet size,
+                    // the link local source and destination address...
+                    let SixlowpanOutPacket {
+                        buffer,
+                        packet_len,
+                        datagram_size,
+                        datagram_tag,
+                        sent_bytes,
+                        fragn_size,
+                        ll_dst_addr,
+                        ll_src_addr,
+                        ..
+                    } = &mut _out_packet.unwrap().sixlowpan_out_packet;
 
-            *ll_dst_addr = ll_dst_a;
-            *ll_src_addr = ll_src_a;
+                    *ll_dst_addr = ll_dst_a;
+                    *ll_src_addr = ll_src_a;
 
-            let mut iphc_packet =
-                SixlowpanIphcPacket::new_unchecked(&mut buffer[..iphc_repr.buffer_len()]);
-            iphc_repr.emit(&mut iphc_packet);
+                    let mut iphc_packet =
+                        SixlowpanIphcPacket::new_unchecked(&mut buffer[..iphc_repr.buffer_len()]);
+                    iphc_repr.emit(&mut iphc_packet);
 
-            let b = &mut buffer[iphc_repr.buffer_len()..];
+                    let b = &mut buffer[iphc_repr.buffer_len()..];
 
-            #[allow(unreachable_patterns)]
-            match packet {
-                #[cfg(feature = "socket-udp")]
-                IpPacket::Udp((_, udpv6_repr, payload)) => {
-                    let udp_repr = SixlowpanUdpNhcRepr(udpv6_repr);
-                    let mut udp_packet = SixlowpanUdpNhcPacket::new_unchecked(
-                        &mut b[..udp_repr.header_len() + payload.len()],
-                    );
-                    udp_repr.emit(
-                        &mut udp_packet,
-                        &iphc_repr.src_addr,
-                        &iphc_repr.dst_addr,
-                        payload.len(),
-                        |buf| buf.copy_from_slice(payload),
-                    );
-                }
-                #[cfg(feature = "socket-tcp")]
-                IpPacket::Tcp((_, tcp_repr)) => {
-                    let mut tcp_packet = TcpPacket::new_unchecked(&mut b[..tcp_repr.buffer_len()]);
-                    tcp_repr.emit(
-                        &mut tcp_packet,
-                        &iphc_repr.src_addr.into(),
-                        &iphc_repr.dst_addr.into(),
-                        &self.caps.checksum,
-                    );
-                }
-                #[cfg(feature = "proto-ipv6")]
-                IpPacket::Icmpv6((_, icmp_repr)) => {
-                    let mut icmp_packet =
-                        Icmpv6Packet::new_unchecked(&mut b[..icmp_repr.buffer_len()]);
-                    icmp_repr.emit(
-                        &iphc_repr.src_addr.into(),
-                        &iphc_repr.dst_addr.into(),
-                        &mut icmp_packet,
-                        &self.caps.checksum,
-                    );
-                }
-                _ => return Err(Error::Unrecognized),
-            }
+                    #[allow(unreachable_patterns)]
+                    match packet {
+                        #[cfg(feature = "socket-udp")]
+                        IpPacket::Udp((_, udpv6_repr, payload)) => {
+                            let udp_repr = SixlowpanUdpNhcRepr(udpv6_repr);
+                            let mut udp_packet = SixlowpanUdpNhcPacket::new_unchecked(
+                                &mut b[..udp_repr.header_len() + payload.len()],
+                            );
+                            udp_repr.emit(
+                                &mut udp_packet,
+                                &iphc_repr.src_addr,
+                                &iphc_repr.dst_addr,
+                                payload.len(),
+                                |buf| buf.copy_from_slice(payload),
+                            );
+                        }
+                        #[cfg(feature = "socket-tcp")]
+                        IpPacket::Tcp((_, tcp_repr)) => {
+                            let mut tcp_packet =
+                                TcpPacket::new_unchecked(&mut b[..tcp_repr.buffer_len()]);
+                            tcp_repr.emit(
+                                &mut tcp_packet,
+                                &iphc_repr.src_addr.into(),
+                                &iphc_repr.dst_addr.into(),
+                                &self.caps.checksum,
+                            );
+                        }
+                        #[cfg(feature = "proto-ipv6")]
+                        IpPacket::Icmpv6((_, icmp_repr)) => {
+                            let mut icmp_packet =
+                                Icmpv6Packet::new_unchecked(&mut b[..icmp_repr.buffer_len()]);
+                            icmp_repr.emit(
+                                &iphc_repr.src_addr.into(),
+                                &iphc_repr.dst_addr.into(),
+                                &mut icmp_packet,
+                                &self.caps.checksum,
+                            );
+                        }
+                        _ => return Err(Error::Unrecognized),
+                    }
 
-            *packet_len = total_size;
+                    *packet_len = total_size;
 
-            // The datagram size that we need to set in the first fragment header is equal to the
-            // IPv6 payload length + 40.
-            *datagram_size = (packet.ip_repr().payload_len() + 40) as u16;
+                    // The datagram size that we need to set in the first fragment header is equal to the
+                    // IPv6 payload length + 40.
+                    *datagram_size = (packet.ip_repr().payload_len() + 40) as u16;
 
-            // We generate a random tag.
-            let tag = self.get_sixlowpan_fragment_tag();
-            // We save the tag for the other fragments that will be created when calling `poll`
-            // multiple times.
-            *datagram_tag = tag;
+                    // We generate a random tag.
+                    let tag = self.get_sixlowpan_fragment_tag();
+                    // We save the tag for the other fragments that will be created when calling `poll`
+                    // multiple times.
+                    *datagram_tag = tag;
 
-            let frag1 = SixlowpanFragRepr::FirstFragment {
-                size: *datagram_size,
-                tag,
-            };
-            let fragn = SixlowpanFragRepr::Fragment {
-                size: *datagram_size,
-                tag,
-                offset: 0,
-            };
+                    let frag1 = SixlowpanFragRepr::FirstFragment {
+                        size: *datagram_size,
+                        tag,
+                    };
+                    let fragn = SixlowpanFragRepr::Fragment {
+                        size: *datagram_size,
+                        tag,
+                        offset: 0,
+                    };
 
-            // We calculate how much data we can send in the first fragment and the other
-            // fragments. The eventual IPv6 sizes of these fragments need to be a multiple of eight
-            // (except for the last fragment) since the offset field in the fragment is an offset
-            // in multiples of 8 octets. This is explained in [RFC 4944 § 5.3].
-            //
-            // [RFC 4944 § 5.3]: https://datatracker.ietf.org/doc/html/rfc4944#section-5.3
-            let frag1_size = ((125 - ieee_len - frag1.buffer_len() - compressed_headers_len)
-                & 0xffff_fff8)
-                + compressed_headers_len;
-            *fragn_size = (125 - ieee_len - fragn.buffer_len()) & 0xffff_fff8;
+                    // We calculate how much data we can send in the first fragment and the other
+                    // fragments. The eventual IPv6 sizes of these fragments need to be a multiple of eight
+                    // (except for the last fragment) since the offset field in the fragment is an offset
+                    // in multiples of 8 octets. This is explained in [RFC 4944 § 5.3].
+                    //
+                    // [RFC 4944 § 5.3]: https://datatracker.ietf.org/doc/html/rfc4944#section-5.3
+                    let frag1_size = ((125 - ieee_len - frag1.buffer_len() - _compressed_headers_len)
+                        & 0xffff_fff8)
+                        + _compressed_headers_len;
+                    *fragn_size = (125 - ieee_len - fragn.buffer_len()) & 0xffff_fff8;
 
-            *sent_bytes = frag1_size;
+                    *sent_bytes = frag1_size;
 
-            tx_token.consume(
-                self.now,
-                ieee_len + frag1.buffer_len() + frag1_size,
-                |mut tx_buf| {
-                    // Add the IEEE header.
-                    let mut ieee_packet = Ieee802154Frame::new_unchecked(&mut tx_buf[..ieee_len]);
-                    ieee_repr.emit(&mut ieee_packet);
-                    tx_buf = &mut tx_buf[ieee_len..];
+                    tx_token.consume(
+                        self.now,
+                        ieee_len + frag1.buffer_len() + frag1_size,
+                        |mut tx_buf| {
+                            // Add the IEEE header.
+                            let mut ieee_packet =
+                                Ieee802154Frame::new_unchecked(&mut tx_buf[..ieee_len]);
+                            ieee_repr.emit(&mut ieee_packet);
+                            tx_buf = &mut tx_buf[ieee_len..];
 
-                    // Add the first fragment header
-                    let mut frag1_packet = SixlowpanFragPacket::new_unchecked(&mut tx_buf);
-                    frag1.emit(&mut frag1_packet);
-                    tx_buf = &mut tx_buf[frag1.buffer_len()..];
+                            // Add the first fragment header
+                            let mut frag1_packet = SixlowpanFragPacket::new_unchecked(&mut tx_buf);
+                            frag1.emit(&mut frag1_packet);
+                            tx_buf = &mut tx_buf[frag1.buffer_len()..];
 
-                    // Add the buffer part.
-                    tx_buf[..frag1_size].copy_from_slice(&buffer[..frag1_size]);
+                            // Add the buffer part.
+                            tx_buf[..frag1_size].copy_from_slice(&buffer[..frag1_size]);
 
+                            Ok(())
+                        },
+                    )
+                } else {
+                    net_debug!("Enable the `proto-sixlowpan-fragmentation` feature for fragmentation support.");
                     Ok(())
-                },
-            )
+                }
+            }
         } else {
             // We don't need fragmentation, so we emit everything to the TX token.
             tx_token.consume(self.now, total_size + ieee_len, |mut tx_buf| {
@@ -3003,7 +3151,10 @@ impl<'a> InterfaceInner<'a> {
         }
     }
 
-    #[cfg(feature = "medium-ieee802154")]
+    #[cfg(all(
+        feature = "medium-ieee802154",
+        feature = "proto-sixlowpan-fragmentation"
+    ))]
     fn dispatch_ieee802154_out_packet<Tx: TxToken>(
         &mut self,
         tx_token: Tx,
@@ -3162,6 +3313,11 @@ mod test {
         ];
 
         let iface_builder = InterfaceBuilder::new().ip_addrs(ip_addrs);
+
+        #[cfg(feature = "proto-ipv4-fragmentation")]
+        let iface_builder =
+            iface_builder.ipv4_fragments_cache(PacketAssemblerSet::new(vec![], BTreeMap::new()));
+
         #[cfg(feature = "proto-igmp")]
         let iface_builder = iface_builder.ipv4_multicast_groups(BTreeMap::new());
         let iface = iface_builder.finalize(&mut device);
@@ -3182,19 +3338,19 @@ mod test {
             IpCidr::new(IpAddress::v6(0xfdbe, 0, 0, 0, 0, 0, 0, 1), 64),
         ];
 
-        #[cfg(feature = "proto-sixlowpan")]
         let iface_builder = InterfaceBuilder::new()
             .hardware_addr(EthernetAddress::default().into())
             .neighbor_cache(NeighborCache::new(BTreeMap::new()))
-            .sixlowpan_fragments_cache(PacketAssemblerSet::new(vec![], BTreeMap::new()))
-            .sixlowpan_out_packet_cache(vec![])
             .ip_addrs(ip_addrs);
 
-        #[cfg(not(feature = "proto-sixlowpan"))]
-        let iface_builder = InterfaceBuilder::new()
-            .hardware_addr(EthernetAddress::default().into())
-            .neighbor_cache(NeighborCache::new(BTreeMap::new()))
-            .ip_addrs(ip_addrs);
+        #[cfg(feature = "proto-sixlowpan-fragmentation")]
+        let iface_builder = iface_builder
+            .sixlowpan_fragments_cache(PacketAssemblerSet::new(vec![], BTreeMap::new()))
+            .sixlowpan_out_packet_cache(vec![]);
+
+        #[cfg(feature = "proto-ipv4-fragmentation")]
+        let iface_builder =
+            iface_builder.ipv4_fragments_cache(PacketAssemblerSet::new(vec![], BTreeMap::new()));
 
         #[cfg(feature = "proto-igmp")]
         let iface_builder = iface_builder.ipv4_multicast_groups(BTreeMap::new());
@@ -3262,7 +3418,18 @@ mod test {
         // Ensure that the unknown protocol frame does not trigger an
         // ICMP error response when the destination address is a
         // broadcast address
-        assert_eq!(iface.inner.process_ipv4(&mut sockets, &frame), None);
+
+        #[cfg(not(feature = "proto-ipv4-fragmentation"))]
+        assert_eq!(iface.inner.process_ipv4(&mut sockets, &frame, None), None);
+        #[cfg(feature = "proto-ipv4-fragmentation")]
+        assert_eq!(
+            iface.inner.process_ipv4(
+                &mut sockets,
+                &frame,
+                Some(&mut iface.fragments.ipv4_fragments)
+            ),
+            None
+        );
     }
 
     #[test]
@@ -3339,8 +3506,20 @@ mod test {
 
         // Ensure that the unknown protocol triggers an error response.
         // And we correctly handle no payload.
+
+        #[cfg(not(feature = "proto-ipv4-fragmentation"))]
         assert_eq!(
-            iface.inner.process_ipv4(&mut sockets, &frame),
+            iface.inner.process_ipv4(&mut sockets, &frame, None),
+            Some(expected_repr)
+        );
+
+        #[cfg(feature = "proto-ipv4-fragmentation")]
+        assert_eq!(
+            iface.inner.process_ipv4(
+                &mut sockets,
+                &frame,
+                Some(&mut iface.fragments.ipv4_fragments)
+            ),
             Some(expected_repr)
         );
     }
@@ -3632,8 +3811,19 @@ mod test {
         };
         let expected_packet = IpPacket::Icmpv4((expected_ipv4_repr, expected_icmpv4_repr));
 
+        #[cfg(not(feature = "proto-ipv4-fragmentation"))]
         assert_eq!(
-            iface.inner.process_ipv4(&mut sockets, &frame),
+            iface.inner.process_ipv4(&mut sockets, &frame, None),
+            Some(expected_packet)
+        );
+
+        #[cfg(feature = "proto-ipv4-fragmentation")]
+        assert_eq!(
+            iface.inner.process_ipv4(
+                &mut sockets,
+                &frame,
+                Some(&mut iface.fragments.ipv4_fragments)
+            ),
             Some(expected_packet)
         );
     }
@@ -3682,8 +3872,8 @@ mod test {
         );
         #[cfg(all(feature = "proto-ipv4", not(feature = "proto-ipv6")))]
         let ip_repr = Ipv4Repr {
-            src_addr: src_addr,
-            dst_addr: dst_addr,
+            src_addr,
+            dst_addr,
             next_header: IpProtocol::Udp,
             hop_limit: 64,
             payload_len: udp_repr.header_len() + MAX_PAYLOAD_LEN,
@@ -3788,7 +3978,7 @@ mod test {
         assert_eq!(
             iface
                 .inner
-                .process_ethernet(&mut sockets, frame.into_inner()),
+                .process_ethernet(&mut sockets, frame.into_inner(), &mut iface.fragments),
             Some(EthernetPacket::Arp(ArpRepr::EthernetIpv4 {
                 operation: ArpOperation::Reply,
                 source_hardware_addr: local_hw_addr,
@@ -3863,7 +4053,7 @@ mod test {
         assert_eq!(
             iface
                 .inner
-                .process_ethernet(&mut sockets, frame.into_inner()),
+                .process_ethernet(&mut sockets, frame.into_inner(), &mut iface.fragments),
             Some(EthernetPacket::Ip(IpPacket::Icmpv6((
                 ipv6_expected,
                 icmpv6_expected
@@ -3910,7 +4100,7 @@ mod test {
         assert_eq!(
             iface
                 .inner
-                .process_ethernet(&mut sockets, frame.into_inner()),
+                .process_ethernet(&mut sockets, frame.into_inner(), &mut iface.fragments),
             None
         );
 
@@ -3962,7 +4152,7 @@ mod test {
         assert_eq!(
             iface
                 .inner
-                .process_ethernet(&mut sockets, frame.into_inner()),
+                .process_ethernet(&mut sockets, frame.into_inner(), &mut iface.fragments),
             Some(EthernetPacket::Arp(ArpRepr::EthernetIpv4 {
                 operation: ArpOperation::Reply,
                 source_hardware_addr: local_hw_addr,
@@ -4289,8 +4479,8 @@ mod test {
             &ChecksumCapabilities::default(),
         );
         let ipv4_repr = Ipv4Repr {
-            src_addr: src_addr,
-            dst_addr: dst_addr,
+            src_addr,
+            dst_addr,
             next_header: IpProtocol::Udp,
             hop_limit: 64,
             payload_len: udp_repr.header_len() + PAYLOAD_LEN,
@@ -4314,7 +4504,17 @@ mod test {
             Ipv4Packet::new_unchecked(&bytes)
         };
 
-        assert_eq!(iface.inner.process_ipv4(&mut sockets, &frame), None);
+        #[cfg(not(feature = "proto-ipv4-fragmentation"))]
+        assert_eq!(iface.inner.process_ipv4(&mut sockets, &frame, None), None);
+        #[cfg(feature = "proto-ipv4-fragmentation")]
+        assert_eq!(
+            iface.inner.process_ipv4(
+                &mut sockets,
+                &frame,
+                Some(&mut iface.fragments.ipv4_fragments)
+            ),
+            None
+        );
     }
 
     #[test]
@@ -4370,8 +4570,8 @@ mod test {
             &ChecksumCapabilities::default(),
         );
         let ipv4_repr = Ipv4Repr {
-            src_addr: src_addr,
-            dst_addr: dst_addr,
+            src_addr,
+            dst_addr,
             next_header: IpProtocol::Udp,
             hop_limit: 64,
             payload_len: udp_repr.header_len() + UDP_PAYLOAD.len(),
@@ -4396,7 +4596,17 @@ mod test {
             Ipv4Packet::new_unchecked(&bytes)
         };
 
-        assert_eq!(iface.inner.process_ipv4(&mut sockets, &frame), None);
+        #[cfg(not(feature = "proto-ipv4-fragmentation"))]
+        assert_eq!(iface.inner.process_ipv4(&mut sockets, &frame, None), None);
+        #[cfg(feature = "proto-ipv4-fragmentation")]
+        assert_eq!(
+            iface.inner.process_ipv4(
+                &mut sockets,
+                &frame,
+                Some(&mut iface.fragments.ipv4_fragments)
+            ),
+            None
+        );
 
         // Make sure the UDP socket can still receive in presence of a Raw socket that handles UDP
         let socket = sockets.get_mut::<udp::Socket>(udp_socket_handle);

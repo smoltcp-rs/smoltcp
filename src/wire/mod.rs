@@ -169,8 +169,8 @@ pub use self::ip::{
 
 #[cfg(feature = "proto-ipv4")]
 pub use self::ipv4::{
-    Address as Ipv4Address, Cidr as Ipv4Cidr, Packet as Ipv4Packet, Repr as Ipv4Repr,
-    HEADER_LEN as IPV4_HEADER_LEN, MIN_MTU as IPV4_MIN_MTU,
+    Address as Ipv4Address, Cidr as Ipv4Cidr, Key as Ipv4FragKey, Packet as Ipv4Packet,
+    Repr as Ipv4Repr, HEADER_LEN as IPV4_HEADER_LEN, MIN_MTU as IPV4_MIN_MTU,
 };
 
 #[cfg(feature = "proto-ipv6")]

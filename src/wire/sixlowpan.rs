@@ -359,6 +359,7 @@ pub mod frag {
     }
 
     impl Repr {
+        #[cfg(feature = "proto-sixlowpan-fragmentation")]
         pub(crate) fn set_offset(&mut self, value: u8) {
             match self {
                 Repr::FirstFragment { .. } => (),
@@ -2105,15 +2106,15 @@ mod test {
             .reserve_with_key(&key)
             .unwrap()
             .start(
-                frag.datagram_size() as usize - uncompressed + compressed,
-                Instant::now(),
+                Some(frag.datagram_size() as usize - uncompressed + compressed),
+                Instant::now() + crate::time::Duration::from_secs(60),
                 -((uncompressed - compressed) as isize),
             )
             .unwrap();
         frags_cache
             .get_packet_assembler_mut(&key)
             .unwrap()
-            .add(frag.payload(), 0, Instant::now())
+            .add(frag.payload(), 0)
             .unwrap();
 
         let frame2: &[u8] = &[
@@ -2149,11 +2150,7 @@ mod test {
         frags_cache
             .get_packet_assembler_mut(&key)
             .unwrap()
-            .add(
-                frag.payload(),
-                frag.datagram_offset() as usize * 8,
-                Instant::now(),
-            )
+            .add(frag.payload(), frag.datagram_offset() as usize * 8)
             .unwrap();
 
         let frame3: &[u8] = &[
@@ -2188,11 +2185,7 @@ mod test {
         frags_cache
             .get_packet_assembler_mut(&key)
             .unwrap()
-            .add(
-                frag.payload(),
-                frag.datagram_offset() as usize * 8,
-                Instant::now(),
-            )
+            .add(frag.payload(), frag.datagram_offset() as usize * 8)
             .unwrap();
 
         let assembled_packet = frags_cache.get_assembled_packet(&key).unwrap();
