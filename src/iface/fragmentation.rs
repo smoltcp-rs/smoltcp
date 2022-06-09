@@ -3,13 +3,12 @@
 use managed::{ManagedMap, ManagedSlice};
 
 use crate::storage::Assembler;
-use crate::time::Instant;
+use crate::time::{Duration, Instant};
 use crate::Error;
 use crate::Result;
 
 /// Holds different fragments of one packet, used for assembling fragmented packets.
 #[derive(Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct PacketAssembler<'a> {
     buffer: ManagedSlice<'a, u8>,
     assembler: AssemblerState,
@@ -17,14 +16,12 @@ pub struct PacketAssembler<'a> {
 
 /// Holds the state of the assembling of one packet.
 #[derive(Debug, PartialEq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 enum AssemblerState {
     NotInit,
     Assembling {
         assembler: Assembler,
-        total_size: usize,
-        last_updated: Instant,
-        started_on: Instant,
+        total_size: Option<usize>,
+        expires_at: Instant,
         offset_correction: isize,
     },
 }
@@ -51,30 +48,69 @@ impl<'a> PacketAssembler<'a> {
     /// fragments of a packet.
     pub(crate) fn start(
         &mut self,
-        total_size: usize,
-        start_time: Instant,
+        total_size: Option<usize>,
+        expires_at: Instant,
         offset_correction: isize,
     ) -> Result<()> {
         match &mut self.buffer {
-            ManagedSlice::Borrowed(b) if b.len() < total_size => {
-                return Err(Error::PacketAssemblerBufferTooSmall);
+            ManagedSlice::Borrowed(b) => {
+                if let Some(total_size) = total_size {
+                    if b.len() < total_size {
+                        return Err(Error::PacketAssemblerBufferTooSmall);
+                    }
+                }
             }
-            ManagedSlice::Borrowed(_) => (),
             #[cfg(any(feature = "std", feature = "alloc"))]
             ManagedSlice::Owned(b) => {
-                b.resize(total_size, 0);
+                if let Some(total_size) = total_size {
+                    b.resize(total_size, 0);
+                }
             }
         }
 
         self.assembler = AssemblerState::Assembling {
-            assembler: Assembler::new(total_size),
+            assembler: Assembler::new(if let Some(total_size) = total_size {
+                total_size
+            } else {
+                usize::MAX
+            }),
             total_size,
-            last_updated: start_time,
-            started_on: start_time,
+            expires_at,
             offset_correction,
         };
 
         Ok(())
+    }
+
+    /// Set the total size of the packet assembler.
+    ///
+    /// # Errors
+    ///
+    /// - Returns [`Error::PacketAssemblerNotInit`] when the assembler was not initialized (try initializing the
+    /// assembler with [Self::start]).
+    pub(crate) fn set_total_size(&mut self, size: usize) -> Result<()> {
+        match self.assembler {
+            AssemblerState::NotInit => Err(Error::PacketAssemblerNotInit),
+            AssemblerState::Assembling {
+                ref mut total_size, ..
+            } => {
+                *total_size = Some(size);
+                Ok(())
+            }
+        }
+    }
+
+    /// Return the instant when the assembler expires.
+    ///
+    /// # Errors
+    ///
+    /// - Returns [`Error::PacketAssemblerNotInit`] when the assembler was not initialized (try initializing the
+    /// assembler with [Self::start]).
+    pub(crate) fn expires_at(&self) -> Result<Instant> {
+        match self.assembler {
+            AssemblerState::NotInit => Err(Error::PacketAssemblerNotInit),
+            AssemblerState::Assembling { expires_at, .. } => Ok(expires_at),
+        }
     }
 
     /// Add a fragment into the packet that is being reassembled.
@@ -86,21 +122,30 @@ impl<'a> PacketAssembler<'a> {
     /// - Returns [`Error::PacketAssemblerBufferTooSmall`] when trying to add data into the buffer at a non-existing
     /// place.
     /// - Returns [`Error::PacketAssemblerOverlap`] when there was an overlap when adding data.
-    pub(crate) fn add(&mut self, data: &[u8], offset: usize, now: Instant) -> Result<bool> {
+    pub(crate) fn add(&mut self, data: &[u8], offset: usize) -> Result<bool> {
         match self.assembler {
             AssemblerState::NotInit => Err(Error::PacketAssemblerNotInit),
             AssemblerState::Assembling {
                 ref mut assembler,
                 total_size,
-                ref mut last_updated,
                 offset_correction,
                 ..
             } => {
                 let offset = offset as isize + offset_correction;
                 let offset = if offset <= 0 { 0 } else { offset as usize };
 
-                if offset + data.len() > total_size {
-                    return Err(Error::PacketAssemblerBufferTooSmall);
+                match &mut self.buffer {
+                    ManagedSlice::Borrowed(b) => {
+                        if offset + data.len() > b.len() {
+                            return Err(Error::PacketAssemblerBufferTooSmall);
+                        }
+                    }
+                    #[cfg(any(feature = "std", feature = "alloc"))]
+                    ManagedSlice::Owned(b) => {
+                        if offset + data.len() > b.len() {
+                            b.resize(offset + data.len(), 0);
+                        }
+                    }
                 }
 
                 let len = data.len();
@@ -111,7 +156,6 @@ impl<'a> PacketAssembler<'a> {
                         if overlap {
                             net_debug!("packet was added, but there was an overlap.");
                         }
-                        *last_updated = now;
                         self.is_complete()
                     }
                     // NOTE(thvdveld): hopefully we wont get too many holes errors I guess?
@@ -134,6 +178,8 @@ impl<'a> PacketAssembler<'a> {
             AssemblerState::NotInit => return Err(Error::PacketAssemblerNotInit),
             AssemblerState::Assembling { total_size, .. } => {
                 if self.is_complete()? {
+                    // NOTE: we can unwrap because `is_complete` already checks this.
+                    let total_size = total_size.unwrap();
                     let a = &self.buffer[..total_size];
                     self.assembler = AssemblerState::NotInit;
                     a
@@ -158,13 +204,10 @@ impl<'a> PacketAssembler<'a> {
                 assembler,
                 total_size,
                 ..
-            } => {
-                if let Some(front) = assembler.peek_front() {
-                    Ok(front == *total_size)
-                } else {
-                    Ok(false)
-                }
-            }
+            } => match (total_size, assembler.peek_front()) {
+                (Some(total_size), Some(front)) => Ok(front == *total_size),
+                _ => Ok(false),
+            },
         }
     }
 
@@ -173,40 +216,20 @@ impl<'a> PacketAssembler<'a> {
         self.assembler == AssemblerState::NotInit
     }
 
-    /// Returns the [`Instant`] when the packet assembler was started.
-    ///
-    /// # Errors
-    ///
-    /// - Returns [`Error::PacketAssemblerNotInit`] when the packet assembler was not initialized.
-    pub fn start_time(&self) -> Result<Instant> {
-        match self.assembler {
-            AssemblerState::NotInit => Err(Error::PacketAssemblerNotInit),
-            AssemblerState::Assembling { started_on, .. } => Ok(started_on),
-        }
-    }
-
-    /// Returns the [`Instant`] when the packet assembler was last updated.
-    ///
-    /// # Errors
-    ///
-    /// - Returns [`Error::PacketAssemblerNotInit`] when the packet assembler was not initialized.
-    pub fn last_update_time(&self) -> Result<Instant> {
-        match self.assembler {
-            AssemblerState::NotInit => Err(Error::PacketAssemblerNotInit),
-            AssemblerState::Assembling { last_updated, .. } => Ok(last_updated),
-        }
-    }
-
     /// Mark this assembler as [`AssemblerState::NotInit`].
     /// This is then cleaned up by the [`PacketAssemblerSet`].
     pub fn mark_discarded(&mut self) {
         self.assembler = AssemblerState::NotInit;
     }
+
+    /// Returns `true` when the [`AssemblerState`] is discarded.
+    pub fn is_discarded(&self) -> bool {
+        matches!(self.assembler, AssemblerState::NotInit)
+    }
 }
 
 /// Set holding multiple [`PacketAssembler`].
 #[derive(Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct PacketAssemblerSet<'a, Key: Eq + Ord + Clone + Copy> {
     packet_buffer: ManagedSlice<'a, PacketAssembler<'a>>,
     index_buffer: ManagedMap<'a, Key, usize>,
@@ -296,7 +319,7 @@ impl<'a, K: Eq + Ord + Clone + Copy> PacketAssemblerSet<'a, K> {
         match &mut self.packet_buffer {
             ManagedSlice::Borrowed(_) => (),
             #[cfg(any(feature = "std", feature = "alloc"))]
-            ManagedSlice::Owned(b) => b.push(PacketAssembler::new(vec![])),
+            ManagedSlice::Owned(b) => b.push(PacketAssembler::new(alloc::vec![])),
         }
 
         self.packet_buffer
@@ -341,7 +364,10 @@ impl<'a, K: Eq + Ord + Clone + Copy> PacketAssemblerSet<'a, K> {
         loop {
             let mut key = None;
             for (k, i) in self.index_buffer.iter() {
-                if self.packet_buffer[*i as usize].assembler == AssemblerState::NotInit {
+                if matches!(
+                    self.packet_buffer[*i as usize].assembler,
+                    AssemblerState::NotInit
+                ) {
                     key = Some(*k);
                     break;
                 }
@@ -355,17 +381,28 @@ impl<'a, K: Eq + Ord + Clone + Copy> PacketAssemblerSet<'a, K> {
         }
     }
 
-    /// Remove all [`PacketAssembler`]s for which `f` returns `Ok(true)`.
-    pub fn remove_when(
-        &mut self,
-        f: impl Fn(&mut PacketAssembler<'_>) -> Result<bool>,
-    ) -> Result<()> {
+    /// Mark all [`PacketAssembler`]s as discarded for which `f` returns `Ok(true)`.
+    /// This does not remove them from the buffer.
+    pub fn mark_discarded_when<F>(&mut self, f: F) -> Result<()>
+    where
+        F: Fn(&mut PacketAssembler<'_>) -> Result<bool>,
+    {
         for (_, i) in &mut self.index_buffer.iter() {
             let frag = &mut self.packet_buffer[*i as usize];
             if f(frag)? {
                 frag.mark_discarded();
             }
         }
+
+        Ok(())
+    }
+
+    /// Remove all [`PacketAssembler`]s for which `f` returns `Ok(true)`.
+    pub fn remove_when<F>(&mut self, f: F) -> Result<()>
+    where
+        F: Fn(&mut PacketAssembler<'_>) -> Result<bool>,
+    {
+        self.mark_discarded_when(f)?;
         self.remove_discarded();
 
         Ok(())
@@ -386,7 +423,7 @@ mod tests {
         let mut p_assembler = PacketAssembler::new(vec![]);
         let data = b"Hello World!";
         assert_eq!(
-            p_assembler.add(&data[..], data.len(), Instant::now()),
+            p_assembler.add(&data[..], data.len()),
             Err(Error::PacketAssemblerNotInit)
         );
 
@@ -403,14 +440,14 @@ mod tests {
         let mut p_assembler = PacketAssembler::new(&mut storage[..]);
 
         assert_eq!(
-            p_assembler.start(2, Instant::now(), 0),
+            p_assembler.start(Some(2), Instant::from_secs(0), 0),
             Err(Error::PacketAssemblerBufferTooSmall)
         );
-        assert_eq!(p_assembler.start(1, Instant::now(), 0), Ok(()));
+        assert_eq!(p_assembler.start(Some(1), Instant::from_secs(0), 0), Ok(()));
 
         let data = b"Hello World!";
         assert_eq!(
-            p_assembler.add(&data[..], data.len(), Instant::now()),
+            p_assembler.add(&data[..], data.len()),
             Err(Error::PacketAssemblerBufferTooSmall)
         );
     }
@@ -420,12 +457,14 @@ mod tests {
         let mut storage = [0u8; 5];
         let mut p_assembler = PacketAssembler::new(&mut storage[..]);
 
-        p_assembler.start(5, Instant::now(), 0).unwrap();
+        p_assembler
+            .start(Some(5), Instant::from_secs(0), 0)
+            .unwrap();
         let data = b"Rust";
 
-        p_assembler.add(&data[..], 0, Instant::now()).unwrap();
+        p_assembler.add(&data[..], 0).unwrap();
 
-        assert_eq!(p_assembler.add(&data[..], 1, Instant::now()), Ok(true));
+        assert_eq!(p_assembler.add(&data[..], 1), Ok(true));
     }
 
     #[test]
@@ -435,17 +474,39 @@ mod tests {
 
         let data = b"Hello World!";
 
-        p_assembler.start(data.len(), Instant::now(), 0).unwrap();
+        p_assembler
+            .start(Some(data.len()), Instant::from_secs(0), 0)
+            .unwrap();
 
-        p_assembler.add(b"Hello ", 0, Instant::now()).unwrap();
+        p_assembler.add(b"Hello ", 0).unwrap();
         assert_eq!(
             p_assembler.assemble(),
             Err(Error::PacketAssemblerIncomplete)
         );
 
+        p_assembler.add(b"World!", b"Hello ".len()).unwrap();
+
+        assert_eq!(p_assembler.assemble(), Ok(&b"Hello World!"[..]));
+    }
+
+    #[test]
+    fn packet_assembler_out_of_order_assemble() {
+        let mut storage = [0u8; 12];
+        let mut p_assembler = PacketAssembler::new(&mut storage[..]);
+
+        let data = b"Hello World!";
+
         p_assembler
-            .add(b"World!", b"Hello ".len(), Instant::now())
+            .start(Some(data.len()), Instant::from_secs(0), 0)
             .unwrap();
+
+        p_assembler.add(b"World!", b"Hello ".len()).unwrap();
+        assert_eq!(
+            p_assembler.assemble(),
+            Err(Error::PacketAssemblerIncomplete)
+        );
+
+        p_assembler.add(b"Hello ", 0).unwrap();
 
         assert_eq!(p_assembler.assemble(), Ok(&b"Hello World!"[..]));
     }
@@ -494,7 +555,7 @@ mod tests {
         set.reserve_with_key(&key).unwrap();
         set.get_packet_assembler_mut(&key)
             .unwrap()
-            .start(0, Instant::now(), 0)
+            .start(Some(0), Instant::from_secs(0), 0)
             .unwrap();
         set.get_assembled_packet(&key).unwrap();
 
@@ -502,7 +563,7 @@ mod tests {
         set.reserve_with_key(&key).unwrap();
         set.get_packet_assembler_mut(&key)
             .unwrap()
-            .start(0, Instant::now(), 0)
+            .start(Some(0), Instant::from_secs(0), 0)
             .unwrap();
         set.get_assembled_packet(&key).unwrap();
 
@@ -510,7 +571,7 @@ mod tests {
         set.reserve_with_key(&key).unwrap();
         set.get_packet_assembler_mut(&key)
             .unwrap()
-            .start(0, Instant::now(), 0)
+            .start(Some(0), Instant::from_secs(0), 0)
             .unwrap();
         set.get_assembled_packet(&key).unwrap();
     }
