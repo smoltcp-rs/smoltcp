@@ -115,6 +115,14 @@ impl<T: AsRef<[u8]>> Packet<T> {
             return true;
         }
 
+        // From the RFC:
+        // > An all zero transmitted checksum value means that the transmitter
+        // > generated no checksum (for debugging or for higher level protocols
+        // > that don't care).
+        if self.checksum() == 0 {
+            return true;
+        }
+
         let data = self.buffer.as_ref();
         checksum::combine(&[
             checksum::pseudo_header(src_addr, dst_addr, IpProtocol::Udp, self.len() as u32),
@@ -371,6 +379,18 @@ mod test {
         packet.set_len(8);
         packet.fill_checksum(&SRC_ADDR.into(), &DST_ADDR.into());
         assert_eq!(packet.checksum(), 0xffff);
+    }
+
+    #[test]
+    #[cfg(feature = "proto-ipv4")]
+    fn test_no_checksum() {
+        let mut bytes = vec![0; 8];
+        let mut packet = Packet::new_unchecked(&mut bytes);
+        packet.set_src_port(1);
+        packet.set_dst_port(31881);
+        packet.set_len(8);
+        packet.set_checksum(0);
+        assert!(packet.verify_checksum(&SRC_ADDR.into(), &DST_ADDR.into()));
     }
 
     #[cfg(feature = "proto-ipv4")]
