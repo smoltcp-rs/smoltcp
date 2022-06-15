@@ -26,17 +26,17 @@ impl Address {
     /// [unspecified address]: https://tools.ietf.org/html/rfc4291#section-2.5.2
     pub const UNSPECIFIED: Address = Address([0x00; 16]);
 
-    /// The link-local [all routers multicast address].
+    /// The link-local [all nodes multicast address].
     ///
-    /// [all routers multicast address]: https://tools.ietf.org/html/rfc4291#section-2.7.1
+    /// [all nodes multicast address]: https://tools.ietf.org/html/rfc4291#section-2.7.1
     pub const LINK_LOCAL_ALL_NODES: Address = Address([
         0xff, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x01,
     ]);
 
-    /// The link-local [all nodes multicast address].
+    /// The link-local [all routers multicast address].
     ///
-    /// [all nodes multicast address]: https://tools.ietf.org/html/rfc4291#section-2.7.1
+    /// [all routers multicast address]: https://tools.ietf.org/html/rfc4291#section-2.7.1
     pub const LINK_LOCAL_ALL_ROUTERS: Address = Address([
         0xff, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x02,
