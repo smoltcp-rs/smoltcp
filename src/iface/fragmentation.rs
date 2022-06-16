@@ -1,5 +1,7 @@
 #![allow(unused)]
 
+use core::fmt;
+
 use managed::{ManagedMap, ManagedSlice};
 
 use crate::storage::Assembler;
@@ -24,6 +26,23 @@ enum AssemblerState {
         expires_at: Instant,
         offset_correction: isize,
     },
+}
+
+impl fmt::Display for AssemblerState {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            AssemblerState::NotInit => write!(f, "Not init")?,
+            AssemblerState::Assembling {
+                assembler,
+                total_size,
+                expires_at,
+                offset_correction,
+            } => {
+                write!(f, "{} expires at {}", assembler, expires_at)?;
+            }
+        }
+        Ok(())
+    }
 }
 
 impl<'a> PacketAssembler<'a> {
@@ -151,8 +170,16 @@ impl<'a> PacketAssembler<'a> {
                 let len = data.len();
                 self.buffer[offset..][..len].copy_from_slice(data);
 
+                net_debug!(
+                    "frag assembler: receiving {} octests at offset {}",
+                    len,
+                    offset
+                );
+
                 match assembler.add(offset, data.len()) {
                     Ok(overlap) => {
+                        net_debug!("assembler: {}", self.assembler);
+
                         if overlap {
                             net_debug!("packet was added, but there was an overlap.");
                         }
