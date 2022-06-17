@@ -261,7 +261,7 @@ impl<'a> Socket<'a> {
     pub(crate) fn process(&mut self, cx: &mut Context, ip_repr: &IpRepr, payload: &[u8]) {
         debug_assert!(self.accepts(ip_repr));
 
-        let header_len = ip_repr.buffer_len();
+        let header_len = ip_repr.header_len();
         let total_len = header_len + payload.len();
 
         net_trace!(

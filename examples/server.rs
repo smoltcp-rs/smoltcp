@@ -4,7 +4,6 @@ use log::debug;
 use std::collections::BTreeMap;
 use std::fmt::Write;
 use std::os::unix::io::AsRawFd;
-use std::str;
 
 #[cfg(any(
     feature = "proto-sixlowpan-fragmentation",
@@ -32,8 +31,14 @@ fn main() {
 
     let neighbor_cache = NeighborCache::new(BTreeMap::new());
 
-    let udp_rx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 65535]);
-    let udp_tx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 65535]);
+    let udp_rx_buffer = udp::PacketBuffer::new(
+        vec![udp::PacketMetadata::EMPTY, udp::PacketMetadata::EMPTY],
+        vec![0; 65535],
+    );
+    let udp_tx_buffer = udp::PacketBuffer::new(
+        vec![udp::PacketMetadata::EMPTY, udp::PacketMetadata::EMPTY],
+        vec![0; 65535],
+    );
     let udp_socket = udp::Socket::new(udp_rx_buffer, udp_tx_buffer);
 
     let tcp1_rx_buffer = tcp::SocketBuffer::new(vec![0; 64]);
@@ -62,20 +67,31 @@ fn main() {
     let medium = device.capabilities().medium;
     let mut builder = InterfaceBuilder::new().ip_addrs(ip_addrs);
 
+    builder = builder.random_seed(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs(),
+    );
+
+    #[cfg(feature = "proto-ipv4-fragmentation")]
+    let mut ipv4_out_packet_cache = [0u8; 10_000];
     #[cfg(feature = "proto-ipv4-fragmentation")]
     {
         let ipv4_frag_cache = FragmentsCache::new(vec![], BTreeMap::new());
-        builder = builder.ipv4_fragments_cache(ipv4_frag_cache);
+        builder = builder
+            .ipv4_fragments_cache(ipv4_frag_cache)
+            .ipv4_out_packet_cache(&mut ipv4_out_packet_cache[..]);
     }
 
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
-    let mut out_packet_buffer = [0u8; 1280];
+    let mut sixlowpan_out_packet_cache = [0u8; 1280];
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
     {
         let sixlowpan_frag_cache = FragmentsCache::new(vec![], BTreeMap::new());
         builder = builder
             .sixlowpan_fragments_cache(sixlowpan_frag_cache)
-            .sixlowpan_out_packet_cache(&mut out_packet_buffer[..]);
+            .sixlowpan_out_packet_cache(&mut sixlowpan_out_packet_cache[..]);
     }
 
     if medium == Medium::Ethernet {
@@ -110,22 +126,16 @@ fn main() {
 
         let client = match socket.recv() {
             Ok((data, endpoint)) => {
-                debug!(
-                    "udp:6969 recv data: {:?} from {}",
-                    str::from_utf8(data).unwrap(),
-                    endpoint
-                );
-                Some(endpoint)
+                debug!("udp:6969 recv data: {:?} from {}", data, endpoint);
+                let mut data = data.to_vec();
+                data.reverse();
+                Some((endpoint, data))
             }
             Err(_) => None,
         };
-        if let Some(endpoint) = client {
-            let data = b"hello\n";
-            debug!(
-                "udp:6969 send data: {:?}",
-                str::from_utf8(data.as_ref()).unwrap()
-            );
-            socket.send_slice(data, endpoint).unwrap();
+        if let Some((endpoint, data)) = client {
+            debug!("udp:6969 send data: {:?} to {}", data, endpoint,);
+            socket.send_slice(&data, endpoint).unwrap();
         }
 
         // tcp:6969: respond "hello"
@@ -160,10 +170,7 @@ fn main() {
                     let recvd_len = buffer.len();
                     let mut data = buffer.to_owned();
                     if !data.is_empty() {
-                        debug!(
-                            "tcp:6970 recv data: {:?}",
-                            str::from_utf8(data.as_ref()).unwrap_or("(invalid utf8)")
-                        );
+                        debug!("tcp:6970 recv data: {:?}", data);
                         data = data.split(|&b| b == b'\n').collect::<Vec<_>>().concat();
                         data.reverse();
                         data.extend(b"\n");
@@ -172,10 +179,7 @@ fn main() {
                 })
                 .unwrap();
             if socket.can_send() && !data.is_empty() {
-                debug!(
-                    "tcp:6970 send data: {:?}",
-                    str::from_utf8(data.as_ref()).unwrap_or("(invalid utf8)")
-                );
+                debug!("tcp:6970 send data: {:?}", data);
                 socket.send_slice(&data[..]).unwrap();
             }
         } else if socket.may_send() {

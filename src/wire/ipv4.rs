@@ -26,6 +26,7 @@ pub struct Key {
     id: u16,
     src_addr: Address,
     dst_addr: Address,
+    protocol: Protocol,
 }
 
 /// A four-octet IPv4 address.
@@ -457,6 +458,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
             id: self.ident(),
             src_addr: self.src_addr(),
             dst_addr: self.dst_addr(),
+            protocol: self.next_header(),
         }
     }
 }
