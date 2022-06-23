@@ -29,8 +29,7 @@ mod waker;
 
 #[cfg(feature = "socket-dhcpv4")]
 pub use self::dhcpv4::{
-    Config as Dhcpv4Config, Dhcpv4Socket, Event as Dhcpv4Event, PxeBuffers as Dhcpv4PxeBuffers,
-    RetryConfig as Dhcpv4RetryConfig,
+    Config as Dhcpv4Config, Dhcpv4Socket, Event as Dhcpv4Event, RetryConfig as Dhcpv4RetryConfig,
 };
 #[cfg(feature = "socket-icmp")]
 pub use self::icmp::{Endpoint as IcmpEndpoint, IcmpPacketMetadata, IcmpSocket, IcmpSocketBuffer};

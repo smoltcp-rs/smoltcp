@@ -7,7 +7,10 @@ use crate::{
     wire::{arp::Hardware, EthernetAddress, Ipv4Address},
     Error, Result,
 };
-use core::convert::{TryFrom, TryInto};
+use core::{
+    convert::{TryFrom, TryInto},
+    iter,
+};
 
 pub const SERVER_PORT: u16 = 67;
 pub const CLIENT_PORT: u16 = 68;
@@ -189,6 +192,52 @@ impl MessageType {
             MessageType::Offer | MessageType::Ack | MessageType::Nak => OpCode::Reply,
             MessageType::Unknown(_) => OpCode::Unknown(0),
         }
+    }
+}
+
+/// A buffer for DHCP options.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct DhcpOptionsRepr<T> {
+    /// The underlying buffer, directly from the DHCP packet representation.
+    buffer: T,
+}
+
+impl<T: AsRef<[u8]>> DhcpOptionsRepr<T> {
+    pub fn new(buffer: T) -> Self {
+        Self { buffer }
+    }
+
+    pub fn parse(&self) -> impl Iterator<Item = DhcpOption> {
+        let mut buf = self.buffer.as_ref();
+        iter::from_fn(move || match DhcpOption::parse(buf) {
+            Ok((_, DhcpOption::EndOfList)) | Err(_) => None,
+            Ok((new_buf, option)) => {
+                buf = new_buf;
+                Some(option)
+            }
+        })
+    }
+
+    pub fn inner(self) -> T {
+        self.buffer
+    }
+}
+
+impl<T: AsMut<[u8]>> DhcpOptionsRepr<T> {
+    pub fn emit<'a, I>(&mut self, options: I) -> Result<()>
+    where
+        I: IntoIterator<Item = DhcpOption<'a>>,
+    {
+        let mut buf = self.buffer.as_mut();
+        for option in options.into_iter().chain(iter::once(DhcpOption::EndOfList)) {
+            if option.buffer_len() > buf.len() {
+                return Err(Error::Truncated);
+            }
+            buf = option.emit(buf);
+        }
+
+        Ok(())
     }
 }
 
@@ -1005,6 +1054,10 @@ pub struct Repr<'a> {
     pub time_offset: Option<u32>,
     /// A ascii string representing the vendor of the client
     pub vendor_class_id: Option<&'a str>,
+    /// When returned from [`Repr::parse`], this field contains all DHCP options
+    /// present in that packet. However, when calling [`Repr::emit`], this field
+    /// should contain only additional DHCP options not known to smoltcp.
+    pub options: Option<DhcpOptionsRepr<&'a [u8]>>,
 }
 
 impl<'a> Repr<'a> {
@@ -1105,7 +1158,8 @@ impl<'a> Repr<'a> {
         let mut client_machine_id = None;
         let mut vendor_class_id = None;
 
-        let mut options = packet.options()?;
+        let all_options = packet.options()?;
+        let mut options = all_options;
         while !options.is_empty() {
             let (next_options, option) = DhcpOption::parse(options)?;
             match option {
@@ -1213,6 +1267,9 @@ impl<'a> Repr<'a> {
             client_machine_id,
             vendor_class_id,
             message_type: message_type?,
+            options: Some(DhcpOptionsRepr {
+                buffer: all_options,
+            }),
         })
     }
 
@@ -1328,6 +1385,11 @@ impl<'a> Repr<'a> {
                     data: list,
                 }
                 .emit(options);
+            }
+            if let Some(additional_options) = self.options {
+                for option in additional_options.parse() {
+                    option.emit(options);
+                }
             }
             DhcpOption::EndOfList.emit(options);
         }
@@ -1697,6 +1759,7 @@ mod test {
             client_interface_id: None,
             client_machine_id: None,
             vendor_class_id: None,
+            options: None,
         }
     }
 
@@ -1727,6 +1790,7 @@ mod test {
             client_interface_id: None,
             client_machine_id: None,
             vendor_class_id: None,
+            options: None,
         }
     }
 

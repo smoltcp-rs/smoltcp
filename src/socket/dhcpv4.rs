@@ -2,9 +2,10 @@ use crate::{
     iface::Context,
     time::{Duration, Instant},
     wire::{
-        dhcpv4::field as dhcpv4_field, DhcpMessageType, DhcpPacket, DhcpRepr, HardwareAddress,
-        IpAddress, IpProtocol, Ipv4Address, Ipv4Cidr, Ipv4Repr, PxeMachineId, UdpRepr,
-        DHCP_CLIENT_PORT, DHCP_MAX_DNS_SERVER_COUNT, DHCP_SERVER_PORT, UDP_HEADER_LEN,
+        dhcpv4::{field as dhcpv4_field, DhcpOptionsRepr},
+        DhcpMessageType, DhcpOption, DhcpPacket, DhcpRepr, HardwareAddress, IpAddress, IpProtocol,
+        Ipv4Address, Ipv4Cidr, Ipv4Repr, UdpRepr, DHCP_CLIENT_PORT, DHCP_MAX_DNS_SERVER_COUNT,
+        DHCP_SERVER_PORT, UDP_HEADER_LEN,
     },
     Error, Result,
 };
@@ -91,31 +92,6 @@ enum ClientState {
     Renewing(RenewState),
 }
 
-#[derive(Debug)]
-pub struct PxeBuffers {
-    id: [u8; 16],
-    bootfile_name_len: usize,
-    bootfile_name_buf: [u8; 128],
-}
-
-impl PxeBuffers {
-    pub const fn new(id: [u8; 16]) -> Self {
-        Self {
-            id,
-            bootfile_name_len: 0,
-            bootfile_name_buf: [0; 128],
-        }
-    }
-
-    pub fn id(&self) -> &[u8; 16] {
-        &self.id
-    }
-
-    pub fn id_mut(&mut self) -> &mut [u8; 16] {
-        &mut self.id
-    }
-}
-
 /// Timeout and retry configuration.
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -172,7 +148,10 @@ pub struct Dhcpv4Socket<'a> {
     /// Ignore NAKs.
     ignore_naks: bool,
 
-    pxe_buffers: Option<&'a mut PxeBuffers>,
+    /// A buffer for the bootfile name to be written to.
+    bootfile_name_buffer: Option<(usize, &'a mut [u8])>,
+    outbox_options: Option<DhcpOptionsRepr<&'a [u8]>>,
+    inbox_options: Option<DhcpOptionsRepr<&'a mut [u8]>>,
 }
 
 /// DHCP client socket.
@@ -193,14 +172,18 @@ impl<'a> Dhcpv4Socket<'a> {
             max_lease_duration: None,
             retry_config: &RetryConfig::DEFAULT,
             ignore_naks: false,
-            pxe_buffers: None,
+            bootfile_name_buffer: None,
+            outbox_options: None,
+            inbox_options: None,
         }
     }
 
     /// Create a DHCPv4 socket with retry
     /// configuration and optional support for PXE.
     pub fn with_configs(
-        pxe_buffers: Option<&'a mut PxeBuffers>,
+        bootfile_name_buffer: Option<&'a mut [u8]>,
+        outbox_options: Option<DhcpOptionsRepr<&'a [u8]>>,
+        inbox_options: Option<DhcpOptionsRepr<&'a mut [u8]>>,
         retry_config: &'a RetryConfig,
     ) -> Self {
         Dhcpv4Socket {
@@ -212,7 +195,9 @@ impl<'a> Dhcpv4Socket<'a> {
             max_lease_duration: None,
             retry_config: retry_config,
             ignore_naks: false,
-            pxe_buffers,
+            bootfile_name_buffer: bootfile_name_buffer.map(|b| (0, b)),
+            outbox_options,
+            inbox_options,
         }
     }
 
@@ -318,14 +303,18 @@ impl<'a> Dhcpv4Socket<'a> {
             dhcp_repr
         );
 
-        if let (Some(bootfile_name), Some(pxe)) = (dhcp_repr.boot_file, self.pxe_buffers.as_mut()) {
-            let len = bootfile_name.len();
-            if len <= pxe.bootfile_name_buf.len() {
-                pxe.bootfile_name_buf[..len].copy_from_slice(bootfile_name.as_bytes());
-                pxe.bootfile_name_len = len;
-            } else {
-                pxe.bootfile_name_len = 0;
-            }
+        if let (Some(bootfile_name), Some((bootfile_name_len, bootfile_name_buffer))) =
+            (dhcp_repr.boot_file, self.bootfile_name_buffer.as_mut())
+        {
+            let len = bootfile_name.len().min(bootfile_name_buffer.len());
+            bootfile_name_buffer[..len].copy_from_slice(&bootfile_name.as_bytes()[..len]);
+            *bootfile_name_len = len;
+        }
+
+        if let (Some(inbox_options), Some(received_options)) =
+            (self.inbox_options.as_mut(), dhcp_repr.options)
+        {
+            inbox_options.emit(received_options.parse())?;
         }
 
         match (&mut self.state, dhcp_repr.message_type) {
@@ -510,6 +499,7 @@ impl<'a> Dhcpv4Socket<'a> {
             client_interface_id: None,
             client_machine_id: None,
             vendor_class_id: None,
+            options: self.outbox_options,
         };
 
         let udp_repr = UdpRepr {
@@ -524,10 +514,6 @@ impl<'a> Dhcpv4Socket<'a> {
             payload_len: 0, // filled right before emit
             hop_limit: 64,
         };
-
-        if let Some(id) = self.pxe_buffers.as_ref().map(|pxe| &pxe.id) {
-            dhcp_repr.client_machine_id = Some(PxeMachineId::Guid(id));
-        }
 
         match &mut self.state {
             ClientState::Discovering(state) => {
@@ -634,10 +620,17 @@ impl<'a> Dhcpv4Socket<'a> {
     }
 
     pub fn bootfile_name(&self) -> Option<&str> {
-        self.pxe_buffers
-            .as_deref()
-            .filter(|pxe| pxe.bootfile_name_len != 0)
-            .map(|pxe| core::str::from_utf8(&pxe.bootfile_name_buf[..pxe.bootfile_name_len]).ok())
+        self.bootfile_name_buffer
+            .as_ref()
+            .map(|(len, buf)| core::str::from_utf8(&buf[..*len]).ok())
+            .flatten()
+    }
+
+    pub fn options(&self) -> impl Iterator<Item = DhcpOption> {
+        self.inbox_options
+            .as_ref()
+            .map(|options| options.parse())
+            .into_iter()
             .flatten()
     }
 
@@ -842,6 +835,7 @@ mod test {
         client_interface_id: None,
         client_machine_id: None,
         vendor_class_id: None,
+        options: None,
     };
 
     const DHCP_DISCOVER: DhcpRepr = DhcpRepr {
