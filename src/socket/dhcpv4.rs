@@ -3,9 +3,9 @@ use crate::{
     time::{Duration, Instant},
     wire::{
         dhcpv4::{field as dhcpv4_field, DhcpOptionsRepr},
-        DhcpMessageType, DhcpOption, DhcpPacket, DhcpRepr, HardwareAddress, IpAddress, IpProtocol,
-        Ipv4Address, Ipv4Cidr, Ipv4Repr, UdpRepr, DHCP_CLIENT_PORT, DHCP_MAX_DNS_SERVER_COUNT,
-        DHCP_SERVER_PORT, UDP_HEADER_LEN,
+        DhcpMessageType, DhcpPacket, DhcpRepr, HardwareAddress, IpAddress, IpProtocol, Ipv4Address,
+        Ipv4Cidr, Ipv4Repr, UdpRepr, DHCP_CLIENT_PORT, DHCP_MAX_DNS_SERVER_COUNT, DHCP_SERVER_PORT,
+        UDP_HEADER_LEN,
     },
     Error, Result,
 };
@@ -14,7 +14,7 @@ use super::PollAt;
 
 const DEFAULT_LEASE_DURATION: Duration = Duration::from_secs(120);
 
-const PARAMETER_REQUEST_LIST: &[u8] = &[
+const DEFAULT_PARAMETER_REQUEST_LIST: &[u8] = &[
     dhcpv4_field::OPT_SUBNET_MASK,
     dhcpv4_field::OPT_ROUTER,
     dhcpv4_field::OPT_DOMAIN_NAME_SERVER,
@@ -23,7 +23,7 @@ const PARAMETER_REQUEST_LIST: &[u8] = &[
 /// IPv4 configuration data provided by the DHCP server.
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct Config {
+pub struct Config<'a> {
     /// IP address
     pub address: Ipv4Cidr,
     /// Router address, also known as default gateway. Does not necessarily
@@ -31,6 +31,10 @@ pub struct Config {
     pub router: Option<Ipv4Address>,
     /// DNS servers
     pub dns_servers: [Option<Ipv4Address>; DHCP_MAX_DNS_SERVER_COUNT],
+    /// Bootfile name
+    pub bootfile: Option<&'a str>,
+    /// Received DHCP options
+    pub options: Option<DhcpOptionsRepr<&'a [u8]>>,
 }
 
 /// Information on how to reach a DHCP server.
@@ -70,7 +74,7 @@ struct RenewState {
     /// Server that gave us the lease
     server: ServerInfo,
     /// Active network config
-    config: Config,
+    config: Config<'static>,
 
     /// Renew timer. When reached, we will start attempting
     /// to renew this lease with the DHCP server.
@@ -121,11 +125,11 @@ impl Default for RetryConfig {
 /// Return value for the `Dhcpv4Socket::poll` function
 #[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum Event {
+pub enum Event<'a> {
     /// Configuration has been lost (for example, the lease has expired)
     Deconfigured,
     /// Configuration has been newly acquired, or modified.
-    Configured(Config),
+    Configured(Config<'a>),
 }
 
 #[derive(Debug)]
@@ -150,8 +154,12 @@ pub struct Dhcpv4Socket<'a> {
 
     /// A buffer for the bootfile name to be written to.
     bootfile_name_buffer: Option<(usize, &'a mut [u8])>,
+    /// A buffer contains options additional to be added to outgoing DHCP packets.
     outbox_options: Option<DhcpOptionsRepr<&'a [u8]>>,
+    /// A buffer to be filled with options from incoming DHCP packets.
     inbox_options: Option<DhcpOptionsRepr<&'a mut [u8]>>,
+    /// A buffer containing all requested
+    parameter_request_list: Option<&'a [u8]>,
 }
 
 /// DHCP client socket.
@@ -175,16 +183,17 @@ impl<'a> Dhcpv4Socket<'a> {
             bootfile_name_buffer: None,
             outbox_options: None,
             inbox_options: None,
+            parameter_request_list: None,
         }
     }
 
-    /// Create a DHCPv4 socket with retry
-    /// configuration and optional support for PXE.
-    pub fn with_configs(
+    /// Create a DHCPv4 socket with retry and DHCP option configuration.
+    pub fn with_config(
+        retry_config: &'a RetryConfig,
         bootfile_name_buffer: Option<&'a mut [u8]>,
         outbox_options: Option<DhcpOptionsRepr<&'a [u8]>>,
         inbox_options: Option<DhcpOptionsRepr<&'a mut [u8]>>,
-        retry_config: &'a RetryConfig,
+        parameter_request_list: Option<&'a [u8]>,
     ) -> Self {
         Dhcpv4Socket {
             state: ClientState::Discovering(DiscoverState {
@@ -198,6 +207,7 @@ impl<'a> Dhcpv4Socket<'a> {
             bootfile_name_buffer: bootfile_name_buffer.map(|b| (0, b)),
             outbox_options,
             inbox_options,
+            parameter_request_list,
         }
     }
 
@@ -384,7 +394,7 @@ impl<'a> Dhcpv4Socket<'a> {
         now: Instant,
         dhcp_repr: &DhcpRepr,
         max_lease_duration: Option<Duration>,
-    ) -> Option<(Config, Instant, Instant)> {
+    ) -> Option<(Config<'static>, Instant, Instant)> {
         let subnet_mask = match dhcp_repr.subnet_mask {
             Some(subnet_mask) => subnet_mask,
             None => {
@@ -433,6 +443,8 @@ impl<'a> Dhcpv4Socket<'a> {
             address: Ipv4Cidr::new(dhcp_repr.your_ip, prefix_len),
             router: dhcp_repr.router,
             dns_servers,
+            bootfile: None,
+            options: None,
         };
 
         // RFC 2131 indicates clients should renew a lease halfway through its
@@ -490,15 +502,14 @@ impl<'a> Dhcpv4Socket<'a> {
             requested_ip: None,
             client_identifier: Some(ethernet_addr),
             server_identifier: None,
-            parameter_request_list: Some(PARAMETER_REQUEST_LIST),
+            parameter_request_list: Some(
+                self.parameter_request_list
+                    .unwrap_or(DEFAULT_PARAMETER_REQUEST_LIST),
+            ),
             max_size: Some((cx.ip_mtu() - MAX_IPV4_HEADER_LEN - UDP_HEADER_LEN) as u16),
             lease_duration: None,
             dns_servers: None,
             time_offset: None,
-            client_arch_list: None,
-            client_interface_id: None,
-            client_machine_id: None,
-            vendor_class_id: None,
             options: self.outbox_options,
         };
 
@@ -619,21 +630,6 @@ impl<'a> Dhcpv4Socket<'a> {
         });
     }
 
-    pub fn bootfile_name(&self) -> Option<&str> {
-        self.bootfile_name_buffer
-            .as_ref()
-            .map(|(len, buf)| core::str::from_utf8(&buf[..*len]).ok())
-            .flatten()
-    }
-
-    pub fn options(&self) -> impl Iterator<Item = DhcpOption> {
-        self.inbox_options
-            .as_ref()
-            .map(|options| options.parse())
-            .into_iter()
-            .flatten()
-    }
-
     /// Query the socket for configuration changes.
     ///
     /// The socket has an internal "configuration changed" flag. If
@@ -642,8 +638,25 @@ impl<'a> Dhcpv4Socket<'a> {
         if !self.config_changed {
             None
         } else if let ClientState::Renewing(state) = &self.state {
+            let bootfile = self
+                .bootfile_name_buffer
+                .take()
+                .map(|(len, buf)| core::str::from_utf8(&buf[..len]).ok())
+                .flatten();
+
+            let options = self
+                .inbox_options
+                .as_ref()
+                .map(|options| options.as_slice());
+
             self.config_changed = false;
-            Some(Event::Configured(state.config))
+            Some(Event::Configured(Config {
+                address: state.config.address,
+                router: state.config.router,
+                dns_servers: state.config.dns_servers,
+                bootfile,
+                options,
+            }))
         } else {
             self.config_changed = false;
             Some(Event::Deconfigured)
@@ -831,10 +844,6 @@ mod test {
         max_size: None,
         lease_duration: None,
         time_offset: None,
-        client_arch_list: None,
-        client_interface_id: None,
-        client_machine_id: None,
-        vendor_class_id: None,
         options: None,
     };
 
@@ -923,6 +932,8 @@ mod test {
                 address: Ipv4Cidr::new(MY_IP, 24),
                 dns_servers: DNS_IPS,
                 router: Some(SERVER_IP),
+                bootfile: None,
+                options: None,
             },
             server: ServerInfo {
                 address: SERVER_IP,
@@ -953,6 +964,8 @@ mod test {
                 address: Ipv4Cidr::new(MY_IP, 24),
                 dns_servers: DNS_IPS,
                 router: Some(SERVER_IP),
+                bootfile: None,
+                options: None,
             }))
         );
 
