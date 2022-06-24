@@ -509,7 +509,6 @@ impl<'a> Dhcpv4Socket<'a> {
             max_size: Some((cx.ip_mtu() - MAX_IPV4_HEADER_LEN - UDP_HEADER_LEN) as u16),
             lease_duration: None,
             dns_servers: None,
-            time_offset: None,
             options: self.outbox_options,
         };
 
@@ -843,7 +842,6 @@ mod test {
         dns_servers: None,
         max_size: None,
         lease_duration: None,
-        time_offset: None,
         options: None,
     };
 

@@ -123,7 +123,6 @@ pub enum DhcpOption<'a> {
     Router(Ipv4Address),
     SubnetMask(Ipv4Address),
     MaximumDhcpMessageSize(u16),
-    TimeOffset(u32),
     Other { kind: u8, data: &'a [u8] },
 }
 
@@ -153,11 +152,6 @@ impl<'a> DhcpOption<'a> {
                     }
                     (field::OPT_REQUESTED_IP, 4) => {
                         option = DhcpOption::RequestedIp(Ipv4Address::from_bytes(data));
-                    }
-                    (field::OPT_TIME_OFFSET, 4) => {
-                        option = DhcpOption::TimeOffset(u32::from_be_bytes([
-                            data[0], data[1], data[2], data[3],
-                        ]));
                     }
                     (field::OPT_CLIENT_ID, 7) => {
                         let hardware_type = Hardware::from(u16::from(data[0]));
@@ -202,7 +196,6 @@ impl<'a> DhcpOption<'a> {
         match self {
             &DhcpOption::EndOfList => 1,
             &DhcpOption::Pad => 1,
-            &DhcpOption::TimeOffset(_) => 6,
             &DhcpOption::MessageType(_) => 3,
             &DhcpOption::ClientIdentifier(eth_addr) => 3 + eth_addr.as_bytes().len(),
             &DhcpOption::RequestedIp(ip)
@@ -242,10 +235,6 @@ impl<'a> DhcpOption<'a> {
                     DhcpOption::MessageType(value) => {
                         buffer[0] = field::OPT_DHCP_MESSAGE_TYPE;
                         buffer[2] = value.into();
-                    }
-                    DhcpOption::TimeOffset(value) => {
-                        buffer[0] = field::OPT_TIME_OFFSET;
-                        buffer[2..6].copy_from_slice(&value.to_be_bytes()[..]);
                     }
                     DhcpOption::ClientIdentifier(eth_addr) => {
                         buffer[0] = field::OPT_CLIENT_ID;
@@ -853,9 +842,6 @@ pub struct Repr<'a> {
     pub max_size: Option<u16>,
     /// The DHCP IP lease duration, specified in seconds.
     pub lease_duration: Option<u32>,
-    /// The time offset field specifies the offset of the client's subnet in
-    /// seconds from Coordinated Universal Time (UTC).
-    pub time_offset: Option<u32>,
     /// When returned from [`Repr::parse`], this field contains all DHCP options
     /// present in that packet. However, when calling [`Repr::emit`], this field
     /// should contain only additional DHCP options not known to smoltcp.
@@ -888,9 +874,6 @@ impl<'a> Repr<'a> {
             len += 6;
         }
         if self.lease_duration.is_some() {
-            len += 6;
-        }
-        if self.time_offset.is_some() {
             len += 6;
         }
         if let Some(dns_servers) = self.dns_servers {
@@ -943,7 +926,6 @@ impl<'a> Repr<'a> {
         let mut dns_servers = None;
         let mut max_size = None;
         let mut lease_duration = None;
-        let mut time_offset = None;
 
         let all_options = packet.options()?;
         let mut options = all_options;
@@ -956,9 +938,6 @@ impl<'a> Repr<'a> {
                     if value.opcode() == packet.opcode() {
                         message_type = Ok(value);
                     }
-                }
-                DhcpOption::TimeOffset(offset) => {
-                    time_offset = Some(offset);
                 }
                 DhcpOption::RequestedIp(ip) => {
                     requested_ip = Some(ip);
@@ -1036,7 +1015,6 @@ impl<'a> Repr<'a> {
             dns_servers,
             max_size,
             lease_duration,
-            time_offset,
             message_type: message_type?,
             options: Some(DhcpOptionsRepr {
                 buffer: all_options,
@@ -1112,9 +1090,6 @@ impl<'a> Repr<'a> {
             }
             if let Some(size) = self.max_size {
                 options = DhcpOption::MaximumDhcpMessageSize(size).emit(options);
-            }
-            if let Some(time_offset) = self.time_offset {
-                options = DhcpOption::TimeOffset(time_offset).emit(options);
             }
             if let Some(duration) = self.lease_duration {
                 options = DhcpOption::IpLeaseTime(duration).emit(options);
@@ -1351,7 +1326,6 @@ mod test {
             dns_servers: None,
             max_size: None,
             lease_duration: Some(0xffff_ffff), // Infinite lease
-            time_offset: None,
             options: None,
         }
     }
@@ -1378,7 +1352,6 @@ mod test {
             server_identifier: None,
             parameter_request_list: Some(&[1, 3, 6, 42]),
             dns_servers: None,
-            time_offset: None,
             options: None,
         }
     }
