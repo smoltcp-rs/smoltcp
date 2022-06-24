@@ -39,7 +39,7 @@ impl fmt::Display for SocketHandle {
 ///
 /// The lifetime `'a` is used when storing a `Socket<'a>`.
 #[derive(Debug)]
-pub(crate) struct SocketSet<'a> {
+pub struct SocketSet<'a> {
     sockets: ManagedSlice<'a, SocketStorage<'a>>,
 }
 
@@ -93,11 +93,24 @@ impl<'a> SocketSet<'a> {
     /// # Panics
     /// This function may panic if the handle does not belong to this socket set
     /// or the socket has the wrong type.
-    pub fn get<T: AnySocket<'a>>(&mut self, handle: SocketHandle) -> &mut T {
-        match self.sockets[handle.0].inner.as_mut() {
+    pub fn get<T: AnySocket<'a>>(&self, handle: SocketHandle) -> &T {
+        match self.sockets[handle.0].inner.as_ref() {
             Some(item) => {
-                T::downcast(&mut item.socket).expect("handle refers to a socket of a wrong type")
+                T::downcast(&item.socket).expect("handle refers to a socket of a wrong type")
             }
+            None => panic!("handle does not refer to a valid socket"),
+        }
+    }
+
+    /// Get a mutable socket from the set by its handle, as mutable.
+    ///
+    /// # Panics
+    /// This function may panic if the handle does not belong to this socket set
+    /// or the socket has the wrong type.
+    pub fn get_mut<T: AnySocket<'a>>(&mut self, handle: SocketHandle) -> &mut T {
+        match self.sockets[handle.0].inner.as_mut() {
+            Some(item) => T::downcast_mut(&mut item.socket)
+                .expect("handle refers to a socket of a wrong type"),
             None => panic!("handle does not refer to a valid socket"),
         }
     }
@@ -114,13 +127,23 @@ impl<'a> SocketSet<'a> {
         }
     }
 
+    /// Get an iterator to the inner sockets.
+    pub fn iter(&self) -> impl Iterator<Item = (SocketHandle, &Socket<'a>)> {
+        self.items().map(|i| (i.meta.handle, &i.socket))
+    }
+
+    /// Get a mutable iterator to the inner sockets.
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (SocketHandle, &mut Socket<'a>)> {
+        self.items_mut().map(|i| (i.meta.handle, &mut i.socket))
+    }
+
     /// Iterate every socket in this set.
-    pub fn iter(&self) -> impl Iterator<Item = &Item<'a>> + '_ {
+    pub(crate) fn items(&self) -> impl Iterator<Item = &Item<'a>> + '_ {
         self.sockets.iter().filter_map(|x| x.inner.as_ref())
     }
 
     /// Iterate every socket in this set.
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Item<'a>> + '_ {
+    pub(crate) fn items_mut(&mut self) -> impl Iterator<Item = &mut Item<'a>> + '_ {
         self.sockets.iter_mut().filter_map(|x| x.inner.as_mut())
     }
 }

@@ -47,9 +47,10 @@ use std::collections::BTreeMap;
 use std::os::unix::io::AsRawFd;
 use std::str;
 
-use smoltcp::iface::{InterfaceBuilder, NeighborCache};
+use smoltcp::iface::{FragmentsCache, InterfaceBuilder, NeighborCache, SocketSet};
 use smoltcp::phy::{wait as phy_wait, Medium, RawSocket};
-use smoltcp::socket::{UdpPacketMetadata, UdpSocket, UdpSocketBuffer};
+use smoltcp::socket::tcp;
+use smoltcp::socket::udp;
 use smoltcp::time::Instant;
 use smoltcp::wire::{Ieee802154Pan, IpAddress, IpCidr};
 
@@ -64,13 +65,18 @@ fn main() {
     let device = RawSocket::new("wpan1", Medium::Ieee802154).unwrap();
 
     let fd = device.as_raw_fd();
-    let device = utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
+    let mut device =
+        utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
 
     let neighbor_cache = NeighborCache::new(BTreeMap::new());
 
-    let udp_rx_buffer = UdpSocketBuffer::new(vec![UdpPacketMetadata::EMPTY], vec![0; 64]);
-    let udp_tx_buffer = UdpSocketBuffer::new(vec![UdpPacketMetadata::EMPTY], vec![0; 128]);
-    let udp_socket = UdpSocket::new(udp_rx_buffer, udp_tx_buffer);
+    let udp_rx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 1280]);
+    let udp_tx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 1280]);
+    let udp_socket = udp::Socket::new(udp_rx_buffer, udp_tx_buffer);
+
+    let tcp_rx_buffer = tcp::SocketBuffer::new(vec![0; 4096]);
+    let tcp_tx_buffer = tcp::SocketBuffer::new(vec![0; 4096]);
+    let tcp_socket = tcp::Socket::new(tcp_rx_buffer, tcp_tx_buffer);
 
     let ieee802154_addr = smoltcp::wire::Ieee802154Address::Extended([
         0x1a, 0x0b, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42,
@@ -80,31 +86,50 @@ fn main() {
         64,
     )];
 
-    let mut builder = InterfaceBuilder::new(device, vec![])
+    let cache = FragmentsCache::new(vec![], BTreeMap::new());
+
+    let mut out_packet_buffer = [0u8; 1280];
+
+    let mut builder = InterfaceBuilder::new()
         .ip_addrs(ip_addrs)
         .pan_id(Ieee802154Pan(0xbeef));
     builder = builder
         .hardware_addr(ieee802154_addr.into())
-        .neighbor_cache(neighbor_cache);
-    let mut iface = builder.finalize();
+        .neighbor_cache(neighbor_cache)
+        .sixlowpan_fragments_cache(cache)
+        .sixlowpan_out_packet_cache(&mut out_packet_buffer[..]);
+    let mut iface = builder.finalize(&mut device);
 
-    let udp_handle = iface.add_socket(udp_socket);
+    let mut sockets = SocketSet::new(vec![]);
+    let udp_handle = sockets.add(udp_socket);
+    let tcp_handle = sockets.add(tcp_socket);
+
+    let socket = sockets.get_mut::<tcp::Socket>(tcp_handle);
+    socket.listen(50000).unwrap();
+
+    let mut tcp_active = false;
 
     loop {
         let timestamp = Instant::now();
-        match iface.poll(timestamp) {
-            Ok(_) => {}
-            Err(e) => {
-                debug!("poll error: {}", e);
+
+        let mut poll = true;
+        while poll {
+            match iface.poll(timestamp, &mut device, &mut sockets) {
+                Ok(r) => poll = r,
+                Err(e) => {
+                    debug!("poll error: {}", e);
+                    break;
+                }
             }
         }
 
         // udp:6969: respond "hello"
-        let socket = iface.get_socket::<UdpSocket>(udp_handle);
+        let socket = sockets.get_mut::<udp::Socket>(udp_handle);
         if !socket.is_open() {
             socket.bind(6969).unwrap()
         }
 
+        let mut buffer = vec![0; 1500];
         let client = match socket.recv() {
             Ok((data, endpoint)) => {
                 debug!(
@@ -112,19 +137,53 @@ fn main() {
                     str::from_utf8(data).unwrap(),
                     endpoint
                 );
-                Some(endpoint)
+                buffer[..data.len()].copy_from_slice(data);
+                Some((data.len(), endpoint))
             }
             Err(_) => None,
         };
-        if let Some(endpoint) = client {
-            let data = b"hello\n";
+        if let Some((len, endpoint)) = client {
             debug!(
                 "udp:6969 send data: {:?}",
-                str::from_utf8(data.as_ref()).unwrap()
+                str::from_utf8(&buffer[..len]).unwrap()
             );
-            socket.send_slice(data, endpoint).unwrap();
+            socket.send_slice(&buffer[..len], endpoint).unwrap();
         }
 
-        phy_wait(fd, iface.poll_delay(timestamp)).expect("wait error");
+        let socket = sockets.get_mut::<tcp::Socket>(tcp_handle);
+        if socket.is_active() && !tcp_active {
+            debug!("connected");
+        } else if !socket.is_active() && tcp_active {
+            debug!("disconnected");
+        }
+        tcp_active = socket.is_active();
+
+        if socket.may_recv() {
+            let data = socket
+                .recv(|data| {
+                    let data = data.to_owned();
+                    if !data.is_empty() {
+                        debug!(
+                            "recv data: {:?}",
+                            str::from_utf8(data.as_ref()).unwrap_or("(invalid utf8)")
+                        );
+                    }
+                    (data.len(), data)
+                })
+                .unwrap();
+
+            if socket.can_send() && !data.is_empty() {
+                debug!(
+                    "send data: {:?}",
+                    str::from_utf8(data.as_ref()).unwrap_or("(invalid utf8)")
+                );
+                socket.send_slice(&data[..]).unwrap();
+            }
+        } else if socket.may_send() {
+            debug!("close");
+            socket.close();
+        }
+
+        phy_wait(fd, iface.poll_delay(timestamp, &sockets)).expect("wait error");
     }
 }

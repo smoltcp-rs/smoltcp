@@ -1,12 +1,5 @@
 #![cfg_attr(not(any(test, feature = "std")), no_std)]
 #![deny(unsafe_code)]
-#![cfg_attr(
-    all(
-        any(feature = "proto-ipv4", feature = "proto-ipv6"),
-        feature = "medium-ethernet"
-    ),
-    deny(unused)
-)]
 
 //! The _smoltcp_ library is built in a layered structure, with the layers corresponding
 //! to the levels of API abstraction. Only the highest layers would be used by a typical
@@ -112,9 +105,10 @@ compile_error!("You must enable at least one of the following features: proto-ip
         feature = "socket-tcp",
         feature = "socket-icmp",
         feature = "socket-dhcp",
+        feature = "socket-dns",
     ))
 ))]
-compile_error!("If you enable the socket feature, you must enable at least one of the following features: socket-raw, socket-udp, socket-tcp, socket-icmp, socket-dhcp");
+compile_error!("If you enable the socket feature, you must enable at least one of the following features: socket-raw, socket-udp, socket-tcp, socket-icmp, socket-dhcp, socket-dns");
 
 #[cfg(all(
     feature = "socket",
@@ -249,5 +243,11 @@ impl fmt::Display for Error {
             }
             Error::NotSupported => write!(f, "not supported by smoltcp"),
         }
+    }
+}
+
+impl From<wire::Error> for Error {
+    fn from(_: wire::Error) -> Self {
+        Error::Malformed
     }
 }

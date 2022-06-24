@@ -6,9 +6,9 @@
 
 use byteorder::{ByteOrder, NetworkEndian};
 
+use super::{Error, Result};
 use crate::wire::icmpv6::{field, Message, Packet};
 use crate::wire::Ipv6Address;
-use crate::{Error, Result};
 
 enum_with_unknown! {
     /// MLDv2 Multicast Listener Report Record Type. See [RFC 3810 § 5.2.12] for
@@ -192,7 +192,7 @@ impl<T: AsRef<[u8]>> AddressRecord<T> {
     pub fn check_len(&self) -> Result<()> {
         let len = self.buffer.as_ref().len();
         if len < field::RECORD_MCAST_ADDR.end {
-            Err(Error::Truncated)
+            Err(Error)
         } else {
             Ok(())
         }
@@ -333,7 +333,7 @@ impl<'a> Repr<'a> {
                 nr_mcast_addr_rcrds: packet.nr_mcast_addr_rcrds(),
                 data: packet.payload(),
             }),
-            _ => Err(Error::Unrecognized),
+            _ => Err(Error),
         }
     }
 

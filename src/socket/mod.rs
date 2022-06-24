@@ -14,31 +14,20 @@
 use crate::{iface::Context, time::Instant};
 
 #[cfg(feature = "socket-dhcpv4")]
-mod dhcpv4;
+pub mod dhcpv4;
+#[cfg(feature = "socket-dns")]
+pub mod dns;
 #[cfg(feature = "socket-icmp")]
-mod icmp;
+pub mod icmp;
 #[cfg(feature = "socket-raw")]
-mod raw;
+pub mod raw;
 #[cfg(feature = "socket-tcp")]
-mod tcp;
+pub mod tcp;
 #[cfg(feature = "socket-udp")]
-mod udp;
+pub mod udp;
 
 #[cfg(feature = "async")]
 mod waker;
-
-#[cfg(feature = "socket-dhcpv4")]
-pub use self::dhcpv4::{
-    Config as Dhcpv4Config, Dhcpv4Socket, Event as Dhcpv4Event, RetryConfig as Dhcpv4RetryConfig,
-};
-#[cfg(feature = "socket-icmp")]
-pub use self::icmp::{Endpoint as IcmpEndpoint, IcmpPacketMetadata, IcmpSocket, IcmpSocketBuffer};
-#[cfg(feature = "socket-raw")]
-pub use self::raw::{RawPacketMetadata, RawSocket, RawSocketBuffer};
-#[cfg(feature = "socket-tcp")]
-pub use self::tcp::{SocketBuffer as TcpSocketBuffer, State as TcpState, TcpSocket};
-#[cfg(feature = "socket-udp")]
-pub use self::udp::{UdpPacketMetadata, UdpSocket, UdpSocketBuffer};
 
 #[cfg(feature = "async")]
 pub(crate) use self::waker::WakerRegistration;
@@ -57,10 +46,9 @@ pub(crate) enum PollAt {
 
 /// A network socket.
 ///
-/// This enumeration abstracts the various types of sockets based on the IP
-/// protocol. To downcast a `Socket` value to a concrete socket, use the
-/// [AnySocket] trait, e.g. to get `UdpSocket`, call
-/// `UdpSocket::downcast(socket)`.
+/// This enumeration abstracts the various types of sockets based on the IP protocol.
+/// To downcast a `Socket` value to a concrete socket, use the [AnySocket] trait,
+/// e.g. to get `udp::Socket`, call `udp::Socket::downcast(socket)`.
 ///
 /// It is usually more convenient to use [SocketSet::get] instead.
 ///
@@ -69,15 +57,17 @@ pub(crate) enum PollAt {
 #[derive(Debug)]
 pub enum Socket<'a> {
     #[cfg(feature = "socket-raw")]
-    Raw(RawSocket<'a>),
+    Raw(raw::Socket<'a>),
     #[cfg(feature = "socket-icmp")]
-    Icmp(IcmpSocket<'a>),
+    Icmp(icmp::Socket<'a>),
     #[cfg(feature = "socket-udp")]
-    Udp(UdpSocket<'a>),
+    Udp(udp::Socket<'a>),
     #[cfg(feature = "socket-tcp")]
-    Tcp(TcpSocket<'a>),
+    Tcp(tcp::Socket<'a>),
     #[cfg(feature = "socket-dhcpv4")]
-    Dhcpv4(Dhcpv4Socket<'a>),
+    Dhcpv4(dhcpv4::Socket<'a>),
+    #[cfg(feature = "socket-dns")]
+    Dns(dns::Socket<'a>),
 }
 
 impl<'a> Socket<'a> {
@@ -93,6 +83,8 @@ impl<'a> Socket<'a> {
             Socket::Tcp(s) => s.poll_at(cx),
             #[cfg(feature = "socket-dhcpv4")]
             Socket::Dhcpv4(s) => s.poll_at(cx),
+            #[cfg(feature = "socket-dns")]
+            Socket::Dns(s) => s.poll_at(cx),
         }
     }
 }
@@ -100,7 +92,8 @@ impl<'a> Socket<'a> {
 /// A conversion trait for network sockets.
 pub trait AnySocket<'a>: Sized {
     fn upcast(self) -> Socket<'a>;
-    fn downcast<'c>(socket: &'c mut Socket<'a>) -> Option<&'c mut Self>;
+    fn downcast<'c>(socket: &'c Socket<'a>) -> Option<&'c Self>;
+    fn downcast_mut<'c>(socket: &'c mut Socket<'a>) -> Option<&'c mut Self>;
 }
 
 macro_rules! from_socket {
@@ -110,7 +103,15 @@ macro_rules! from_socket {
                 Socket::$variant(self)
             }
 
-            fn downcast<'c>(socket: &'c mut Socket<'a>) -> Option<&'c mut Self> {
+            fn downcast<'c>(socket: &'c Socket<'a>) -> Option<&'c Self> {
+                #[allow(unreachable_patterns)]
+                match socket {
+                    Socket::$variant(socket) => Some(socket),
+                    _ => None,
+                }
+            }
+
+            fn downcast_mut<'c>(socket: &'c mut Socket<'a>) -> Option<&'c mut Self> {
                 #[allow(unreachable_patterns)]
                 match socket {
                     Socket::$variant(socket) => Some(socket),
@@ -122,12 +123,14 @@ macro_rules! from_socket {
 }
 
 #[cfg(feature = "socket-raw")]
-from_socket!(RawSocket<'a>, Raw);
+from_socket!(raw::Socket<'a>, Raw);
 #[cfg(feature = "socket-icmp")]
-from_socket!(IcmpSocket<'a>, Icmp);
+from_socket!(icmp::Socket<'a>, Icmp);
 #[cfg(feature = "socket-udp")]
-from_socket!(UdpSocket<'a>, Udp);
+from_socket!(udp::Socket<'a>, Udp);
 #[cfg(feature = "socket-tcp")]
-from_socket!(TcpSocket<'a>, Tcp);
+from_socket!(tcp::Socket<'a>, Tcp);
 #[cfg(feature = "socket-dhcpv4")]
-from_socket!(Dhcpv4Socket<'a>, Dhcpv4);
+from_socket!(dhcpv4::Socket<'a>, Dhcpv4);
+#[cfg(feature = "socket-dns")]
+from_socket!(dns::Socket<'a>, Dns);

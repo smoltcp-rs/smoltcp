@@ -2,9 +2,8 @@ use core::fmt;
 
 use byteorder::{ByteOrder, LittleEndian};
 
+use super::{Error, Result};
 use crate::wire::ipv6::Address as Ipv6Address;
-use crate::Error;
-use crate::Result;
 
 enum_with_unknown! {
     /// IEEE 802.15.4 frame type.
@@ -238,22 +237,22 @@ impl<T: AsRef<[u8]>> Frame<T> {
         packet.check_len()?;
 
         if matches!(packet.dst_addressing_mode(), AddressingMode::Unknown(_)) {
-            return Err(Error::Malformed);
+            return Err(Error);
         }
 
         if matches!(packet.src_addressing_mode(), AddressingMode::Unknown(_)) {
-            return Err(Error::Malformed);
+            return Err(Error);
         }
 
         Ok(packet)
     }
 
     /// Ensure that no accessor method will panic if called.
-    /// Returns `Err(Error::Truncated)` if the buffer is too short.
+    /// Returns `Err(Error)` if the buffer is too short.
     pub fn check_len(&self) -> Result<()> {
         // We need at least 3 bytes
         if self.buffer.as_ref().len() < 3 {
-            return Err(Error::Truncated);
+            return Err(Error);
         }
 
         let mut offset = field::ADDRESSING.start + 2;
@@ -267,7 +266,7 @@ impl<T: AsRef<[u8]>> Frame<T> {
         }
 
         if offset > self.buffer.as_ref().len() {
-            return Err(Error::Truncated);
+            return Err(Error);
         }
 
         Ok(())

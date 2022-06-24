@@ -1,7 +1,7 @@
 use byteorder::{ByteOrder, NetworkEndian};
 use core::fmt;
 
-use crate::{Error, Result};
+use super::{Error, Result};
 
 pub use super::EthernetProtocol as Protocol;
 
@@ -80,7 +80,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     }
 
     /// Ensure that no accessor method will panic if called.
-    /// Returns `Err(Error::Truncated)` if the buffer is too short.
+    /// Returns `Err(Error)` if the buffer is too short.
     ///
     /// The result of this check is invalidated by calling [set_hardware_len] or
     /// [set_protocol_len].
@@ -91,9 +91,9 @@ impl<T: AsRef<[u8]>> Packet<T> {
     pub fn check_len(&self) -> Result<()> {
         let len = self.buffer.as_ref().len();
         if len < field::OPER.end {
-            Err(Error::Truncated)
+            Err(Error)
         } else if len < field::TPA(self.hardware_len(), self.protocol_len()).end {
-            Err(Error::Truncated)
+            Err(Error)
         } else {
             Ok(())
         }
@@ -269,7 +269,7 @@ pub enum Repr {
 
 impl Repr {
     /// Parse an Address Resolution Protocol packet and return a high-level representation,
-    /// or return `Err(Error::Unrecognized)` if the packet is not recognized.
+    /// or return `Err(Error)` if the packet is not recognized.
     pub fn parse<T: AsRef<[u8]>>(packet: &Packet<T>) -> Result<Repr> {
         match (
             packet.hardware_type(),
@@ -284,7 +284,7 @@ impl Repr {
                 target_hardware_addr: EthernetAddress::from_bytes(packet.target_hardware_addr()),
                 target_protocol_addr: Ipv4Address::from_bytes(packet.target_protocol_addr()),
             }),
-            _ => Err(Error::Unrecognized),
+            _ => Err(Error),
         }
     }
 

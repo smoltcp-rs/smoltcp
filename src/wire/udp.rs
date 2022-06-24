@@ -1,10 +1,10 @@
 use byteorder::{ByteOrder, NetworkEndian};
 use core::fmt;
 
+use super::{Error, Result};
 use crate::phy::ChecksumCapabilities;
 use crate::wire::ip::checksum;
 use crate::wire::{IpAddress, IpProtocol};
-use crate::{Error, Result};
 
 /// A read/write wrapper around an User Datagram Protocol packet buffer.
 #[derive(Debug, PartialEq, Clone)]
@@ -48,8 +48,8 @@ impl<T: AsRef<[u8]>> Packet<T> {
     }
 
     /// Ensure that no accessor method will panic if called.
-    /// Returns `Err(Error::Truncated)` if the buffer is too short.
-    /// Returns `Err(Error::Malformed)` if the length field has a value smaller
+    /// Returns `Err(Error)` if the buffer is too short.
+    /// Returns `Err(Error)` if the length field has a value smaller
     /// than the header length.
     ///
     /// The result of this check is invalidated by calling [set_len].
@@ -58,13 +58,11 @@ impl<T: AsRef<[u8]>> Packet<T> {
     pub fn check_len(&self) -> Result<()> {
         let buffer_len = self.buffer.as_ref().len();
         if buffer_len < HEADER_LEN {
-            Err(Error::Truncated)
+            Err(Error)
         } else {
             let field_len = self.len() as usize;
-            if buffer_len < field_len {
-                Err(Error::Truncated)
-            } else if field_len < HEADER_LEN {
-                Err(Error::Malformed)
+            if buffer_len < field_len || field_len < HEADER_LEN {
+                Err(Error)
             } else {
                 Ok(())
             }
@@ -221,7 +219,7 @@ impl Repr {
     {
         // Destination port cannot be omitted (but source port can be).
         if packet.dst_port() == 0 {
-            return Err(Error::Malformed);
+            return Err(Error);
         }
         // Valid checksum is expected...
         if checksum_caps.udp.rx() && !packet.verify_checksum(src_addr, dst_addr) {
@@ -229,7 +227,7 @@ impl Repr {
                 // ... except on UDP-over-IPv4, where it can be omitted.
                 #[cfg(feature = "proto-ipv4")]
                 (&IpAddress::Ipv4(_), &IpAddress::Ipv4(_)) if packet.checksum() == 0 => (),
-                _ => return Err(Error::Checksum),
+                _ => return Err(Error),
             }
         }
 
@@ -360,7 +358,7 @@ mod test {
         let mut bytes = vec![0; 12];
         let mut packet = Packet::new_unchecked(&mut bytes);
         packet.set_len(4);
-        assert_eq!(packet.check_len(), Err(Error::Malformed));
+        assert_eq!(packet.check_len(), Err(Error));
     }
 
     #[test]
