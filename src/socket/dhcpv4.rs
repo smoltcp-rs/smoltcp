@@ -46,8 +46,8 @@ pub struct Config<'a> {
 struct ServerInfo {
     /// IP address to use as destination in outgoing packets
     address: Ipv4Address,
-    /// Server identifier to use in outgoing packets. Usually equal to
-    /// server_address, but may differ in some situations (eg DHCP relays)
+    /// Server identifier to use in outgoing packets. Usually equal to server_address,
+    /// but may differ in some situations (eg DHCP relays)
     identifier: Ipv4Address,
 }
 
@@ -83,8 +83,8 @@ struct RenewState {
     /// to renew this lease with the DHCP server.
     /// Must be less or equal than `expires_at`.
     renew_at: Instant,
-    /// Expiration timer. When reached, this lease is no longer valid, so it
-    /// must be thrown away and the ethernet interface deconfigured.
+    /// Expiration timer. When reached, this lease is no longer valid, so it must be
+    /// thrown away and the ethernet interface deconfigured.
     expires_at: Instant,
 }
 
@@ -110,18 +110,14 @@ pub struct RetryConfig {
     pub min_renew_timeout: Duration,
 }
 
-impl RetryConfig {
-    pub const DEFAULT: Self = Self {
-        discover_timeout: Duration::from_secs(10),
-        initial_request_timeout: Duration::from_secs(5),
-        request_retries: 5,
-        min_renew_timeout: Duration::from_secs(60),
-    };
-}
-
 impl Default for RetryConfig {
     fn default() -> Self {
-        Self::DEFAULT
+        Self {
+            discover_timeout: Duration::from_secs(10),
+            initial_request_timeout: Duration::from_secs(5),
+            request_retries: 5,
+            min_renew_timeout: Duration::from_secs(60),
+        }
     }
 }
 
@@ -145,12 +141,11 @@ pub struct Socket<'a> {
     /// xid of the last sent message.
     transaction_id: u32,
 
-    /// Max lease duration. If set, it sets a maximum cap to the server-provided
-    /// lease duration. Useful to react faster to IP configuration changes
-    /// and to test whether renews work correctly.
+    /// Max lease duration. If set, it sets a maximum cap to the server-provided lease duration.
+    /// Useful to react faster to IP configuration changes and to test whether renews work correctly.
     max_lease_duration: Option<Duration>,
 
-    retry_config: &'a RetryConfig,
+    retry_config: RetryConfig,
 
     /// Ignore NAKs.
     ignore_naks: bool,
@@ -185,7 +180,7 @@ impl<'a> Socket<'a> {
             config_changed: true,
             transaction_id: 1,
             max_lease_duration: None,
-            retry_config: &RetryConfig::DEFAULT,
+            retry_config: RetryConfig::default(),
             ignore_naks: false,
             bootfile_name_buffer: None,
             outbox_options: None,
@@ -198,7 +193,7 @@ impl<'a> Socket<'a> {
 
     /// Create a DHCPv4 socket with retry and DHCP option configuration.
     pub fn with_config(
-        retry_config: &'a RetryConfig,
+        retry_config: RetryConfig,
         bootfile_name_buffer: Option<&'a mut [u8]>,
         outbox_options: Option<DhcpOptionsRepr<&'a [u8]>>,
         inbox_options: Option<DhcpOptionsRepr<&'a mut [u8]>>,
@@ -231,13 +226,11 @@ impl<'a> Socket<'a> {
 
     /// Set the max lease duration.
     ///
-    /// When set, the lease duration will be capped at the configured duration
-    /// if the DHCP server gives us a longer lease. This is generally not
-    /// recommended, but can be useful for debugging or reacting faster to
-    /// network configuration changes.
+    /// When set, the lease duration will be capped at the configured duration if the
+    /// DHCP server gives us a longer lease. This is generally not recommended, but
+    /// can be useful for debugging or reacting faster to network configuration changes.
     ///
-    /// If None, no max is applied (the lease duration from the DHCP server is
-    /// used.)
+    /// If None, no max is applied (the lease duration from the DHCP server is used.)
     pub fn set_max_lease_duration(&mut self, max_lease_duration: Option<Duration>) {
         self.max_lease_duration = max_lease_duration;
     }
@@ -433,15 +426,13 @@ impl<'a> Socket<'a> {
         }
 
         // Cleanup the DNS servers list, keeping only unicasts/
-        // TP-Link TD-W8970 sends 0.0.0.0 as second DNS server if there's only one
-        // configured :(
+        // TP-Link TD-W8970 sends 0.0.0.0 as second DNS server if there's only one configured :(
         let mut dns_servers = [None; DHCP_MAX_DNS_SERVER_COUNT];
         if let Some(received) = dhcp_repr.dns_servers {
             let mut i = 0;
             for addr in received.iter().flatten() {
                 if addr.is_unicast() {
-                    // This can never be out-of-bounds since both arrays have length
-                    // DHCP_MAX_DNS_SERVER_COUNT
+                    // This can never be out-of-bounds since both arrays have length DHCP_MAX_DNS_SERVER_COUNT
                     dns_servers[i] = Some(*addr);
                     i += 1;
                 }
@@ -455,8 +446,7 @@ impl<'a> Socket<'a> {
             options: None,
         };
 
-        // RFC 2131 indicates clients should renew a lease halfway through its
-        // expiration.
+        // RFC 2131 indicates clients should renew a lease halfway through its expiration.
         let renew_at = now + lease_duration / 2;
         let expires_at = now + lease_duration;
 
