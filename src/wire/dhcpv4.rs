@@ -766,11 +766,10 @@ pub struct Repr<'a> {
     /// address as the original DHCPDISCOVER message.
     pub secs: u16,
     /// This field is also known as `chaddr` in the RFC and for networks where the access layer is
-     /// ethernet, it is the client MAC address.
+    /// ethernet, it is the client MAC address.
     pub client_hardware_address: EthernetAddress,
-    /// This field is also known as `ciaddr` in the RFC. It is only filled in if
-    /// client is in BOUND, RENEW or REBINDING state and can respond to ARP
-    /// requests.
+    /// This field is also known as `ciaddr` in the RFC. It is only filled in if client is in
+    /// BOUND, RENEW or REBINDING state and can respond to ARP requests.
     pub client_ip: Ipv4Address,
     /// This field is also known as `yiaddr` in the RFC.
     pub your_ip: Ipv4Address,
