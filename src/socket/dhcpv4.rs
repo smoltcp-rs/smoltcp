@@ -191,30 +191,26 @@ impl<'a> Socket<'a> {
         }
     }
 
-    /// Create a DHCPv4 socket with retry and DHCP option configuration.
-    pub fn with_config(
-        retry_config: RetryConfig,
-        bootfile_name_buffer: Option<&'a mut [u8]>,
-        outbox_options: Option<DhcpOptionsRepr<&'a [u8]>>,
-        inbox_options: Option<DhcpOptionsRepr<&'a mut [u8]>>,
-        parameter_request_list: Option<&'a [u8]>,
-    ) -> Self {
-        Socket {
-            state: ClientState::Discovering(DiscoverState {
-                retry_at: Instant::from_millis(0),
-            }),
-            config_changed: true,
-            transaction_id: 1,
-            max_lease_duration: None,
-            retry_config: retry_config,
-            ignore_naks: false,
-            bootfile_name_buffer: bootfile_name_buffer.map(|b| (0, b)),
-            outbox_options,
-            inbox_options,
-            parameter_request_list,
-            #[cfg(feature = "async")]
-            waker: WakerRegistration::new(),
-        }
+    /// Set the retry/timeouts configuration.
+    pub fn set_retry_config(&mut self, config: RetryConfig) {
+        self.retry_config = config;
+    }
+
+    /// Set the outgoing options buffer.
+    pub fn set_outgoing_options_buffer(&mut self, options_buffer: DhcpOptionsRepr<&'a [u8]>) {
+        self.outbox_options = Some(options_buffer);
+    }
+
+    /// Set the incoming options buffer.
+    pub fn set_incoming_options_buffer(&mut self, options_buffer: DhcpOptionsRepr<&'a mut [u8]>) {
+        self.inbox_options = Some(options_buffer);
+    }
+
+    /// Set the parameter request list.
+    /// 
+    /// This should contain at least `OPT_SUBNET_MASK` (`1`), `OPT_ROUTER` (`3`), and `OPT_DOMAIN_NAME_SERVER` (`6`).
+    pub fn set_parameter_request_list(&mut self, parameter_request_list: &'a [u8]) {
+        self.parameter_request_list = Some(parameter_request_list);
     }
 
     /// Get the configured max lease duration.
