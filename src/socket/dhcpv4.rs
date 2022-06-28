@@ -206,8 +206,13 @@ impl<'a> Socket<'a> {
         self.inbox_options = Some(options_buffer);
     }
 
+    /// Set the buffer in which the bootfile name is stored.
+    pub fn set_bootfile_name_buffer(&mut self, bootfile_buffer: &'a mut [u8]) {
+        self.bootfile_name_buffer = Some((0, bootfile_buffer));
+    }
+
     /// Set the parameter request list.
-    /// 
+    ///
     /// This should contain at least `OPT_SUBNET_MASK` (`1`), `OPT_ROUTER` (`3`), and `OPT_DOMAIN_NAME_SERVER` (`6`).
     pub fn set_parameter_request_list(&mut self, parameter_request_list: &'a [u8]) {
         self.parameter_request_list = Some(parameter_request_list);
