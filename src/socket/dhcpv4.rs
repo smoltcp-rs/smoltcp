@@ -8,7 +8,7 @@ use crate::wire::{
     DhcpMessageType, DhcpPacket, DhcpRepr, IpAddress, IpProtocol, Ipv4Address, Ipv4Cidr, Ipv4Repr,
     UdpRepr, DHCP_CLIENT_PORT, DHCP_MAX_DNS_SERVER_COUNT, DHCP_SERVER_PORT, UDP_HEADER_LEN,
 };
-use crate::wire::{DhcpOptionsRepr, HardwareAddress};
+use crate::wire::{DhcpOptionsBuffer, HardwareAddress};
 
 #[cfg(feature = "async")]
 use super::WakerRegistration;
@@ -37,7 +37,7 @@ pub struct Config<'a> {
     /// Bootfile name
     pub bootfile: Option<&'a str>,
     /// Received DHCP options
-    pub options: Option<DhcpOptionsRepr<&'a [u8]>>,
+    pub options: Option<DhcpOptionsBuffer<&'a [u8]>>,
 }
 
 /// Information on how to reach a DHCP server.
@@ -153,9 +153,9 @@ pub struct Socket<'a> {
     /// A buffer for the bootfile name to be written to.
     bootfile_name_buffer: Option<(usize, &'a mut [u8])>,
     /// A buffer contains options additional to be added to outgoing DHCP packets.
-    outbox_options: Option<DhcpOptionsRepr<&'a [u8]>>,
+    outbox_options: Option<DhcpOptionsBuffer<&'a [u8]>>,
     /// A buffer to be filled with options from incoming DHCP packets.
-    inbox_options: Option<DhcpOptionsRepr<&'a mut [u8]>>,
+    inbox_options: Option<DhcpOptionsBuffer<&'a mut [u8]>>,
     /// A buffer containing all requested
     parameter_request_list: Option<&'a [u8]>,
 
@@ -197,12 +197,12 @@ impl<'a> Socket<'a> {
     }
 
     /// Set the outgoing options buffer.
-    pub fn set_outgoing_options_buffer(&mut self, options_buffer: DhcpOptionsRepr<&'a [u8]>) {
+    pub fn set_outgoing_options_buffer(&mut self, options_buffer: DhcpOptionsBuffer<&'a [u8]>) {
         self.outbox_options = Some(options_buffer);
     }
 
     /// Set the incoming options buffer.
-    pub fn set_incoming_options_buffer(&mut self, options_buffer: DhcpOptionsRepr<&'a mut [u8]>) {
+    pub fn set_incoming_options_buffer(&mut self, options_buffer: DhcpOptionsBuffer<&'a mut [u8]>) {
         self.inbox_options = Some(options_buffer);
     }
 

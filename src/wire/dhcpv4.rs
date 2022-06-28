@@ -60,12 +60,12 @@ impl MessageType {
 /// A buffer for DHCP options.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct DhcpOptionsRepr<T> {
+pub struct DhcpOptionsBuffer<T> {
     /// The underlying buffer, directly from the DHCP packet representation.
     buffer: T,
 }
 
-impl<T: AsRef<[u8]>> DhcpOptionsRepr<T> {
+impl<T: AsRef<[u8]>> DhcpOptionsBuffer<T> {
     pub fn new(buffer: T) -> Self {
         Self { buffer }
     }
@@ -86,9 +86,9 @@ impl<T: AsRef<[u8]>> DhcpOptionsRepr<T> {
     }
 }
 
-impl<T: AsMut<[u8]> + AsRef<[u8]>> DhcpOptionsRepr<T> {
-    pub fn as_slice(&self) -> DhcpOptionsRepr<&[u8]> {
-        DhcpOptionsRepr {
+impl<T: AsMut<[u8]> + AsRef<[u8]>> DhcpOptionsBuffer<T> {
+    pub fn as_slice(&self) -> DhcpOptionsBuffer<&[u8]> {
+        DhcpOptionsBuffer {
             buffer: self.buffer.as_ref(),
         }
     }
@@ -826,7 +826,7 @@ pub struct Repr<'a> {
     /// When returned from [`Repr::parse`], this field contains all DHCP options
     /// present in that packet. However, when calling [`Repr::emit`], this field
     /// should contain only additional DHCP options not known to smoltcp.
-    pub options: Option<DhcpOptionsRepr<&'a [u8]>>,
+    pub options: Option<DhcpOptionsBuffer<&'a [u8]>>,
 }
 
 impl<'a> Repr<'a> {
@@ -996,7 +996,7 @@ impl<'a> Repr<'a> {
             max_size,
             lease_duration,
             message_type: message_type?,
-            options: Some(DhcpOptionsRepr {
+            options: Some(DhcpOptionsBuffer {
                 buffer: all_options,
             }),
         })
