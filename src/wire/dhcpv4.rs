@@ -458,8 +458,8 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// Returns the transaction ID.
     ///
     /// The transaction ID (called `xid` in the specification) is a random number used to
-     /// associate messages and responses between client and server. The number is chosen by
-     /// the client.
+    /// associate messages and responses between client and server. The number is chosen by
+    /// the client.
     pub fn transaction_id(&self) -> u32 {
         let field = &self.buffer.as_ref()[field::XID];
         NetworkEndian::read_u32(field)
