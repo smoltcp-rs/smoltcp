@@ -1332,7 +1332,12 @@ mod test {
             server_identifier: None,
             parameter_request_list: Some(&[1, 3, 6, 42]),
             dns_servers: None,
-            options: None,
+            options: Some(DhcpOptionsBuffer {
+                buffer: &[
+                    53, 1, 1, 61, 7, 1, 0, 11, 130, 1, 252, 66, 50, 4, 0, 0, 0, 0, 57, 2, 5, 220,
+                    55, 4, 1, 3, 6, 42, 255, 0, 0, 0, 0, 0, 0, 0,
+                ],
+            }),
         }
     }
 

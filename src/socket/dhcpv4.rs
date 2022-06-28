@@ -27,6 +27,8 @@ const DEFAULT_PARAMETER_REQUEST_LIST: &[u8] = &[
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Config<'a> {
+    /// Information on how to reach the DHCP server that responded with DHCP configuration.
+    pub server: ServerInfo,
     /// IP address
     pub address: Ipv4Cidr,
     /// Router address, also known as default gateway. Does not necessarily
@@ -41,14 +43,14 @@ pub struct Config<'a> {
 }
 
 /// Information on how to reach a DHCP server.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-struct ServerInfo {
+pub struct ServerInfo {
     /// IP address to use as destination in outgoing packets
-    address: Ipv4Address,
+    pub address: Ipv4Address,
     /// Server identifier to use in outgoing packets. Usually equal to server_address,
     /// but may differ in some situations (eg DHCP relays)
-    identifier: Ipv4Address,
+    pub identifier: Ipv4Address,
 }
 
 #[derive(Debug)]
@@ -74,8 +76,6 @@ struct RequestState {
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 struct RenewState {
-    /// Server that gave us the lease
-    server: ServerInfo,
     /// Active network config
     config: Config<'static>,
 
@@ -350,10 +350,9 @@ impl<'a> Socket<'a> {
             }
             (ClientState::Requesting(state), DhcpMessageType::Ack) => {
                 if let Some((config, renew_at, expires_at)) =
-                    Self::parse_ack(cx.now(), &dhcp_repr, self.max_lease_duration)
+                    Self::parse_ack(cx.now(), &dhcp_repr, self.max_lease_duration, state.server)
                 {
                     self.state = ClientState::Renewing(RenewState {
-                        server: state.server,
                         config,
                         renew_at,
                         expires_at,
@@ -367,9 +366,12 @@ impl<'a> Socket<'a> {
                 }
             }
             (ClientState::Renewing(state), DhcpMessageType::Ack) => {
-                if let Some((config, renew_at, expires_at)) =
-                    Self::parse_ack(cx.now(), &dhcp_repr, self.max_lease_duration)
-                {
+                if let Some((config, renew_at, expires_at)) = Self::parse_ack(
+                    cx.now(),
+                    &dhcp_repr,
+                    self.max_lease_duration,
+                    state.config.server,
+                ) {
                     state.renew_at = renew_at;
                     state.expires_at = expires_at;
                     if state.config != config {
@@ -396,6 +398,7 @@ impl<'a> Socket<'a> {
         now: Instant,
         dhcp_repr: &DhcpRepr,
         max_lease_duration: Option<Duration>,
+        server: ServerInfo,
     ) -> Option<(Config<'static>, Instant, Instant)> {
         let subnet_mask = match dhcp_repr.subnet_mask {
             Some(subnet_mask) => subnet_mask,
@@ -440,6 +443,7 @@ impl<'a> Socket<'a> {
             }
         }
         let config = Config {
+            server,
             address: Ipv4Cidr::new(dhcp_repr.your_ip, prefix_len),
             router: dhcp_repr.router,
             dns_servers,
@@ -588,7 +592,7 @@ impl<'a> Socket<'a> {
                 }
 
                 ipv4_repr.src_addr = state.config.address.address();
-                ipv4_repr.dst_addr = state.server.address;
+                ipv4_repr.dst_addr = state.config.server.address;
                 dhcp_repr.message_type = DhcpMessageType::Request;
                 dhcp_repr.client_ip = state.config.address.address();
 
@@ -648,6 +652,7 @@ impl<'a> Socket<'a> {
 
             self.config_changed = false;
             Some(Event::Configured(Config {
+                server: state.config.server,
                 address: state.config.address,
                 router: state.config.router,
                 dns_servers: state.config.dns_servers,
@@ -949,15 +954,15 @@ mod test {
         let mut s = socket();
         s.state = ClientState::Renewing(RenewState {
             config: Config {
+                server: ServerInfo {
+                    address: SERVER_IP,
+                    identifier: SERVER_IP,
+                },
                 address: Ipv4Cidr::new(MY_IP, 24),
                 dns_servers: DNS_IPS,
                 router: Some(SERVER_IP),
                 bootfile: None,
                 options: None,
-            },
-            server: ServerInfo {
-                address: SERVER_IP,
-                identifier: SERVER_IP,
             },
             renew_at: Instant::from_secs(500),
             expires_at: Instant::from_secs(1000),
@@ -981,6 +986,10 @@ mod test {
         assert_eq!(
             s.poll(),
             Some(Event::Configured(Config {
+                server: ServerInfo {
+                    address: SERVER_IP,
+                    identifier: SERVER_IP,
+                },
                 address: Ipv4Cidr::new(MY_IP, 24),
                 dns_servers: DNS_IPS,
                 router: Some(SERVER_IP),
