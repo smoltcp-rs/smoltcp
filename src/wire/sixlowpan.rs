@@ -616,17 +616,15 @@ pub mod iphc {
         }
 
         /// Return the flow label field (when it is inlined).
-        pub fn flow_label_field(&self) -> Option<u32> {
+        pub fn flow_label_field(&self) -> Option<u16> {
             match self.tf_field() {
                 0b00 => {
                     let start = self.ip_fields_start() as usize;
-                    let raw = NetworkEndian::read_u32(&self.buffer.as_ref()[start..][..4]);
-                    Some(raw & 0xfffff)
+                    Some(NetworkEndian::read_u16(&self.buffer.as_ref()[start..][2..4]))
                 }
                 0b01 => {
                     let start = self.ip_fields_start() as usize;
-                    let raw = NetworkEndian::read_u32(&self.buffer.as_ref()[start..][..4]) >> 8;
-                    Some(raw & 0xfffff)
+                    Some(NetworkEndian::read_u16(&self.buffer.as_ref()[start..][1..3]))
                 }
                 0b10 | 0b11 => None,
                 _ => unreachable!(),
@@ -1075,7 +1073,7 @@ pub mod iphc {
         // TODO(thvdveld): refactor the following fields into something else
         pub ecn: Option<u8>,
         pub dscp: Option<u8>,
-        pub flow_label: Option<u32>,
+        pub flow_label: Option<u16>,
     }
 
     impl Repr {
