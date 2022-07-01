@@ -193,18 +193,13 @@ impl<'a> Socket<'a> {
     /// into the buffer or an error. If an error is returned, no packet is enqueued.
     ///
     /// Also see [send](#method.send).
-    pub fn send_with<F, E>(
-        &mut self,
-        at_least: usize,
-        request: usize,
-        f: F,
-    ) -> Result<Result<usize, E>, SendError>
+    pub fn send_with<F, E>(&mut self, at_least: usize, f: F) -> Result<Result<usize, E>, SendError>
     where
         F: FnOnce(&mut [u8]) -> Result<usize, E>,
     {
         let res = self
             .tx_buffer
-            .enqueue_with(at_least, request, (), f)
+            .enqueue_with(at_least, (), f)
             .map_err(|_| SendError::BufferFull)?;
 
         if let Ok(size) = res {

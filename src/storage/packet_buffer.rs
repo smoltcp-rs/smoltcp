@@ -108,14 +108,13 @@ impl<'a, H> PacketBuffer<'a, H> {
         Ok(payload_buf)
     }
 
-    /// Call `f` with a packet from the buffer that's at least `at_least` bytes and no more than `request` bytes.
+    /// Call `f` with a packet from the buffer that's at least `at_least` bytes.
     ///
     /// If `f` returns `Ok(size)`, the packet is shrunk to `size` and enqueued.
     /// If `f` returns `Err`, the internal state of the packet buffer is rolled back and no data is enqueued.
     pub fn enqueue_with<F, E>(
         &mut self,
         at_least: usize,
-        request: usize,
         header: H,
         f: F,
     ) -> Result<Result<usize, E>, Full>
@@ -125,8 +124,6 @@ impl<'a, H> PacketBuffer<'a, H> {
         if self.payload_ring.capacity() < at_least || self.metadata_ring.is_full() {
             return Err(Full);
         }
-
-        let request = request.clamp(at_least, request);
 
         let window = self.payload_ring.window();
         let contig_window = self.payload_ring.contiguous_window();
@@ -158,13 +155,10 @@ impl<'a, H> PacketBuffer<'a, H> {
         assert!(new_contig_window >= at_least);
 
         // Retrieve as many bytes as we can.
-        let size = new_contig_window.clamp(at_least, request);
-        let (used_size, res) =
-            self.payload_ring
-                .enqueue_many_with(|data| match f(&mut data[..size]) {
-                    Ok(used_size) => (used_size, Ok(())),
-                    Err(e) => (0, Err(e)),
-                });
+        let (used_size, res) = self.payload_ring.enqueue_many_with(|data| match f(data) {
+            Ok(used_size) => (used_size, Ok(())),
+            Err(e) => (0, Err(e)),
+        });
 
         if let Err(e) = res {
             // We made sure to enqueue zero items in the payload ring if `f` failed, so only the
@@ -387,8 +381,8 @@ mod test {
     fn test_enqueue_with() {
         let mut buffer = buffer();
         assert!(matches!(
-            buffer.enqueue_with::<_, ()>(3, 4, (), |data| {
-                assert_eq!(data.len(), 4);
+            buffer.enqueue_with::<_, ()>(3, (), |data| {
+                assert_eq!(data.len(), 16);
                 Ok(4)
             }),
             Ok(Ok(_))
@@ -397,8 +391,8 @@ mod test {
         assert_eq!(buffer.payload_ring.len(), 4);
 
         assert!(matches!(
-            buffer.enqueue_with(3, 4, (), |data| {
-                assert_eq!(data.len(), 4);
+            buffer.enqueue_with(3, (), |data| {
+                assert_eq!(data.len(), 12);
                 Err(())
             }),
             Ok(Err(_))
@@ -407,7 +401,7 @@ mod test {
         assert_eq!(buffer.payload_ring.len(), 4);
 
         assert!(matches!(
-            buffer.enqueue_with::<_, ()>(3, 32, (), |data| {
+            buffer.enqueue_with::<_, ()>(3, (), |data| {
                 assert_eq!(data.len(), 12);
                 Ok(4)
             }),

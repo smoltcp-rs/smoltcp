@@ -266,7 +266,6 @@ impl<'a> Socket<'a> {
     pub fn send_with<F, E>(
         &mut self,
         at_least: usize,
-        request: usize,
         remote_endpoint: IpEndpoint,
         f: F,
     ) -> Result<Result<usize, E>, SendError>
@@ -285,7 +284,7 @@ impl<'a> Socket<'a> {
 
         let res = self
             .tx_buffer
-            .enqueue_with(at_least, request, remote_endpoint, f)
+            .enqueue_with(at_least, remote_endpoint, f)
             .map_err(|_| SendError::BufferFull)?;
 
         if let Ok(size) = res {
