@@ -158,6 +158,12 @@ impl<T: AsRef<[u8]>> NdiscOption<T> {
     pub fn new_checked(buffer: T) -> Result<NdiscOption<T>> {
         let opt = Self::new_unchecked(buffer);
         opt.check_len()?;
+
+        // A data length field of 0 is invalid.
+        if opt.data_len() == 0 {
+            return Err(Error);
+        }
+
         Ok(opt)
     }
 
