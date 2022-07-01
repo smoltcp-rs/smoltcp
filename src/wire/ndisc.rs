@@ -319,19 +319,21 @@ impl<'a> Repr<'a> {
                             lladdr = Some(addr);
                         }
                         NdiscOptionType::RedirectedHeader => {
-                            if opt.data_len() < 6 {
+                            let opt_data = opt.data();
+
+                            if opt.data_len() < 6 || opt_data.len() < offset + 8 {
                                 return Err(Error);
-                            } else {
-                                let ip_packet =
-                                    Ipv6Packet::new_unchecked(&opt.data()[offset + 8..]);
-                                let ip_repr = Ipv6Repr::parse(&ip_packet)?;
-                                let data = &opt.data()[offset + 8 + ip_repr.buffer_len()..];
-                                redirected_hdr = Some(NdiscRedirectedHeader {
-                                    header: ip_repr,
-                                    data,
-                                });
-                                offset += 8 + ip_repr.buffer_len() + data.len();
-                            }
+                            };
+
+                            let ip_packet = Ipv6Packet::new_checked(&opt_data[offset + 8..])?;
+                            let ip_repr = Ipv6Repr::parse(&ip_packet)?;
+                            let data = ip_packet.payload();
+                            let redirected = NdiscRedirectedHeader {
+                                header: ip_repr,
+                                data,
+                            };
+                            offset += NdiscOptionRepr::RedirectedHeader(redirected).buffer_len();
+                            redirected_hdr = Some(redirected);
                         }
                         _ => {
                             return Err(Error);
@@ -367,11 +369,11 @@ impl<'a> Repr<'a> {
                 if let Some(lladdr) = lladdr {
                     offset += NdiscOptionRepr::TargetLinkLayerAddr(lladdr).buffer_len();
                 }
-                if mtu.is_some() {
-                    offset += 8;
+                if let Some(mtu) = mtu {
+                    offset += NdiscOptionRepr::Mtu(mtu).buffer_len();
                 }
-                if prefix_info.is_some() {
-                    offset += 32;
+                if let Some(prefix_info) = prefix_info {
+                    offset += NdiscOptionRepr::PrefixInformation(prefix_info).buffer_len();
                 }
                 field::RETRANS_TM.end + offset
             }
@@ -387,14 +389,16 @@ impl<'a> Repr<'a> {
                 redirected_hdr,
                 ..
             } => {
-                let mut offset = 0;
+                let mut offset = field::DEST_ADDR.end;
                 if let Some(lladdr) = lladdr {
                     offset += NdiscOptionRepr::TargetLinkLayerAddr(lladdr).buffer_len();
                 }
                 if let Some(NdiscRedirectedHeader { header, data }) = redirected_hdr {
-                    offset += 8 + header.buffer_len() + data.len();
+                    offset +=
+                        NdiscOptionRepr::RedirectedHeader(NdiscRedirectedHeader { header, data })
+                            .buffer_len();
                 }
-                field::DEST_ADDR.end + offset
+                offset
             }
         }
     }
