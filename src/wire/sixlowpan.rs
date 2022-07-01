@@ -626,11 +626,15 @@ pub mod iphc {
             match self.tf_field() {
                 0b00 => {
                     let start = self.ip_fields_start() as usize;
-                    Some(NetworkEndian::read_u16(&self.buffer.as_ref()[start..][2..4]))
+                    Some(NetworkEndian::read_u16(
+                        &self.buffer.as_ref()[start..][2..4],
+                    ))
                 }
                 0b01 => {
                     let start = self.ip_fields_start() as usize;
-                    Some(NetworkEndian::read_u16(&self.buffer.as_ref()[start..][1..3]))
+                    Some(NetworkEndian::read_u16(
+                        &self.buffer.as_ref()[start..][1..3],
+                    ))
                 }
                 0b10 | 0b11 => None,
                 _ => unreachable!(),
@@ -1375,6 +1379,9 @@ pub mod nhc {
         /// dispatch is recognized.
         pub fn dispatch(buffer: impl AsRef<[u8]>) -> Result<Self> {
             let raw = buffer.as_ref();
+            if raw.is_empty() {
+                return Err(Error);
+            }
 
             if raw[0] >> 4 == DISPATCH_EXT_HEADER {
                 // We have a compressed IPv6 Extension Header.
@@ -1434,6 +1441,11 @@ pub mod nhc {
         pub fn new_checked(buffer: T) -> Result<Self> {
             let packet = Self::new_unchecked(buffer);
             packet.check_len()?;
+
+            if packet.eid_field() > 7 {
+                return Err(Error);
+            }
+
             Ok(packet)
         }
 
@@ -1441,10 +1453,18 @@ pub mod nhc {
         /// Returns `Err(Error)` if the buffer is too short.
         pub fn check_len(&self) -> Result<()> {
             let buffer = self.buffer.as_ref();
+
             if buffer.is_empty() {
-                Err(Error)
-            } else {
+                return Err(Error);
+            }
+
+            let mut len = 1;
+            len += self.next_header_size();
+
+            if len <= buffer.len() {
                 Ok(())
+            } else {
+                Err(Error)
             }
         }
 
@@ -1469,14 +1489,6 @@ pub mod nhc {
                 7 => ExtHeaderId::Header,
                 _ => unreachable!(),
             }
-        }
-
-        /// Return the length field.
-        pub fn length_field(&self) -> u8 {
-            let start = 1 + self.next_header_size();
-
-            let data = self.buffer.as_ref();
-            data[start]
         }
 
         /// Parse the next header field.
@@ -1507,7 +1519,7 @@ pub mod nhc {
     impl<'a, T: AsRef<[u8]> + ?Sized> ExtHeaderPacket<&'a T> {
         /// Return a pointer to the payload.
         pub fn payload(&self) -> &'a [u8] {
-            let start = 2 + self.next_header_size();
+            let start = 1 + self.next_header_size();
             &self.buffer.as_ref()[start..]
         }
     }
@@ -1536,8 +1548,8 @@ pub mod nhc {
                 ExtHeaderId::FragmentHeader => 2,
                 ExtHeaderId::DestinationOptionsHeader => 3,
                 ExtHeaderId::MobilityHeader => 4,
+                ExtHeaderId::Reserved => 5,
                 ExtHeaderId::Header => 7,
-                _ => unreachable!(),
             };
 
             self.set_eid_field(id);
@@ -1963,11 +1975,11 @@ pub mod nhc {
             let bytes = [0xe3, 0x06, 0x03, 0x00, 0xff, 0x00, 0x00, 0x00];
 
             let packet = ExtHeaderPacket::new_checked(&bytes[..]).unwrap();
+            assert_eq!(packet.next_header_size(), 0);
             assert_eq!(packet.dispatch_field(), DISPATCH_EXT_HEADER);
-            assert_eq!(packet.length_field(), 6);
             assert_eq!(packet.extension_header_id(), ExtHeaderId::RoutingHeader);
 
-            assert_eq!(packet.payload(), [0x03, 0x00, 0xff, 0x00, 0x00, 0x00]);
+            assert_eq!(packet.payload(), [0x06, 0x03, 0x00, 0xff, 0x00, 0x00, 0x00]);
         }
 
         #[test]
@@ -1985,7 +1997,6 @@ pub mod nhc {
 
             assert_eq!(packet.dispatch_field(), DISPATCH_EXT_HEADER);
             assert_eq!(packet.next_header(), NextHeader::Compressed);
-            assert_eq!(packet.length_field(), 6);
             assert_eq!(packet.extension_header_id(), ExtHeaderId::RoutingHeader);
         }
 
