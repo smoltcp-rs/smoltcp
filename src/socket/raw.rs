@@ -188,27 +188,35 @@ impl<'a> Socket<'a> {
         Ok(packet_buf)
     }
 
-    /// Enqueue a packet to be send and pass the buffer to the provided closure.
-    /// The closure then returns the size of the data written into the buffer.
+    /// Enqueue a packet to be send to a given remote endpoint and pass the buffer
+    /// to the provided closure. The closure then returns the either size of the data written
+    /// into the buffer or an error. If an error is returned, no packet is enqueued.
     ///
     /// Also see [send](#method.send).
-    pub fn send_with<F>(&mut self, max_size: usize, f: F) -> Result<usize, SendError>
+    pub fn send_with<F, E>(
+        &mut self,
+        at_least: usize,
+        request: usize,
+        f: F,
+    ) -> Result<Result<usize, E>, SendError>
     where
-        F: FnOnce(&mut [u8]) -> usize,
+        F: FnOnce(&mut [u8]) -> Result<usize, E>,
     {
-        let size = self
+        let res = self
             .tx_buffer
-            .enqueue_with_infallible(max_size, (), f)
+            .enqueue_with(at_least, request, (), f)
             .map_err(|_| SendError::BufferFull)?;
 
-        net_trace!(
-            "raw:{}:{}: buffer to send {} octets",
-            self.ip_version,
-            self.ip_protocol,
-            size
-        );
+        if let Ok(size) = res {
+            net_trace!(
+                "raw:{}:{}: buffer to send {} octets",
+                self.ip_version,
+                self.ip_protocol,
+                size
+            );
+        }
 
-        Ok(size)
+        Ok(res)
     }
 
     /// Enqueue a packet to send, and fill it from a slice.

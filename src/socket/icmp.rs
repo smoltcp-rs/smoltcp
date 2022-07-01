@@ -310,31 +310,35 @@ impl<'a> Socket<'a> {
         Ok(packet_buf)
     }
 
-    /// Enqueue a packet to be send to a given remote address and pass the buffer
-    /// to the provided closure. The closure then returns the size of the data written
-    /// into the buffer.
+    /// Enqueue a packet to be send to a given remote endpoint and pass the buffer
+    /// to the provided closure. The closure then returns the either size of the data written
+    /// into the buffer or an error. If an error is returned, no packet is enqueued.
     ///
     /// Also see [send](#method.send).
-    pub fn send_with<F>(
+    pub fn send_with<F, E>(
         &mut self,
-        max_size: usize,
+        at_least: usize,
+        request: usize,
         endpoint: IpAddress,
         f: F,
-    ) -> Result<usize, SendError>
+    ) -> Result<Result<usize, E>, SendError>
     where
-        F: FnOnce(&mut [u8]) -> usize,
+        F: FnOnce(&mut [u8]) -> Result<usize, E>,
     {
         if endpoint.is_unspecified() {
             return Err(SendError::Unaddressable);
         }
 
-        let size = self
+        let res = self
             .tx_buffer
-            .enqueue_with_infallible(max_size, endpoint, f)
+            .enqueue_with(at_least, request, endpoint, f)
             .map_err(|_| SendError::BufferFull)?;
 
-        net_trace!("icmp:{}: buffer to send {} octets", endpoint, size);
-        Ok(size)
+        if let Ok(size) = res {
+            net_trace!("icmp:{}: buffer to send {} octets", endpoint, size);
+        }
+
+        Ok(res)
     }
 
     /// Enqueue a packet to be sent to a given remote address, and fill it from a slice.
