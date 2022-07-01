@@ -43,8 +43,8 @@ mod field {
     // Length of the header is in 8-octet units, not including the first 8 octets. The first two
     // octets are the next header type and the header length.
     pub fn OPTIONS(length_field: u8) -> Field {
-        let bytes = length_field * 8 + 8;
-        2..bytes as usize
+        let bytes = length_field as usize * 8 + 8;
+        2..bytes
     }
 }
 

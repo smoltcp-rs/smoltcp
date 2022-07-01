@@ -92,8 +92,8 @@ mod field {
     // Length of the header is in 8-octet units, not including the first 8 octets. The first four
     // octets are the next header type, the header length, routing type and segments left.
     pub fn DATA(length_field: u8) -> Field {
-        let bytes = length_field * 8 + 8;
-        4..bytes as usize
+        let bytes = length_field as usize * 8 + 8;
+        4..bytes
     }
 
     // The Type 2 Routing Header has the following format:
