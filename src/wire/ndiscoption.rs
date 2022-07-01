@@ -477,11 +477,18 @@ impl<'a> Repr<'a> {
                     Err(Error)
                 }
             }
-            Type::Unknown(id) => Ok(Repr::Unknown {
-                type_: id,
-                length: opt.data_len(),
-                data: opt.data(),
-            }),
+            Type::Unknown(id) => {
+                // A length of 0 is invalid.
+                if opt.data_len() != 0 {
+                    Ok(Repr::Unknown {
+                        type_: id,
+                        length: opt.data_len(),
+                        data: opt.data(),
+                    })
+                } else {
+                    Err(Error)
+                }
+            }
         }
     }
 
