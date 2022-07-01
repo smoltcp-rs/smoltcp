@@ -69,15 +69,17 @@ impl<'a> UnresolvedAddress<'a> {
                 }
                 AddressMode::FullyElided => {
                     bytes[0..2].copy_from_slice(&LINK_LOCAL_PREFIX[..]);
-                    match ll_address.unwrap() {
-                        LlAddress::Short(ll) => {
+                    match ll_address {
+                        Some(LlAddress::Short(ll)) => {
                             bytes[11..13].copy_from_slice(&EUI64_MIDDLE_VALUE[..]);
                             bytes[14..].copy_from_slice(&ll);
                         }
-                        LlAddress::Extended(_) => {
-                            bytes[8..].copy_from_slice(&ll_address.unwrap().as_eui_64().unwrap());
-                        }
-                        LlAddress::Absent => return Err(Error),
+                        Some(addr @ LlAddress::Extended(_)) => match addr.as_eui_64() {
+                            Some(addr) => bytes[8..].copy_from_slice(&addr),
+                            None => return Err(Error),
+                        },
+                        Some(LlAddress::Absent) => return Err(Error),
+                        None => return Err(Error),
                     }
                     Ok(ipv6::Address::from_bytes(&bytes[..]))
                 }
@@ -133,6 +135,10 @@ impl SixlowpanPacket {
     /// dispatch is recognized.
     pub fn dispatch(buffer: impl AsRef<[u8]>) -> Result<Self> {
         let raw = buffer.as_ref();
+
+        if raw.is_empty() {
+            return Err(Error);
+        }
 
         if raw[0] >> 3 == DISPATCH_FIRST_FRAGMENT_HEADER || raw[0] >> 3 == DISPATCH_FRAGMENT_HEADER
         {
