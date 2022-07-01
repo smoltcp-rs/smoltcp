@@ -258,7 +258,7 @@ impl<'a> Socket<'a> {
         Ok(payload_buf)
     }
 
-    /// Enqueue a packet to be send to a given remote endpoint and pass the buffer
+    /// Enqueue a packet to be sent to a given remote endpoint and pass the buffer
     /// to the provided closure. The closure then returns the either size of the data written
     /// into the buffer or an error. If an error is returned, no packet is enqueued.
     ///

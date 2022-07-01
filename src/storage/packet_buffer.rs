@@ -71,9 +71,6 @@ impl<'a, H> PacketBuffer<'a, H> {
         self.metadata_ring.is_full()
     }
 
-    // There is currently no enqueue_with() because of the complexity of managing padding
-    // in case of failure.
-
     /// Enqueue a single packet with the given header into the buffer, and
     /// return a reference to its payload, or return `Err(Full)`
     /// if the buffer is full.
