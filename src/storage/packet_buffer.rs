@@ -111,6 +111,76 @@ impl<'a, H> PacketBuffer<'a, H> {
         Ok(payload_buf)
     }
 
+    /// Call `f` with a packet from the buffer that's at least `at_least` bytes and no more than `request` bytes.
+    /// 
+    /// If `f` returns `Ok(size)`, the packet is shrunk to `size` and enqueued.
+    /// If `f` returns `Err`, the internal state of the packet buffer is rolled back and no data is enqueued.
+    pub fn enqueue_with<F, E>(&mut self, at_least: usize, request: usize, header: H, f: F) -> Result<Result<usize, E>, Full>
+    where
+        F: FnOnce(&mut [u8]) -> Result<usize, E>
+    {
+        if self.payload_ring.capacity() < at_least || self.metadata_ring.is_full() {
+            return Err(Full);
+        }
+
+        let request = request.clamp(at_least, request);
+
+        let window = self.payload_ring.window();
+        let contig_window = self.payload_ring.contiguous_window();
+
+        let mut padding = None;
+
+        if window < at_least {
+            return Err(Full);
+        } else if contig_window < at_least {
+            if window - contig_window < at_least {
+                // The buffer length is larger than the current contiguous window
+                // and is larger than the contiguous window will be after adding
+                // the padding necessary to circle around to the beginning of the
+                // ring buffer.
+                return Err(Full);
+            } else {
+                // Add padding to the end of the ring buffer so that the
+                // contiguous window is at the beginning of the ring buffer.
+                *self.metadata_ring.enqueue_one()? = PacketMetadata::padding(contig_window);
+                // note(discard): function does not write to the result
+                // enqueued padding buffer location
+                let padding_data = self.payload_ring.enqueue_many(contig_window);
+                padding = Some(padding_data.len());
+            }
+        }
+
+        // At this point, we have at least enough space for `at_least` bytes.
+        let new_contig_window = self.payload_ring.contiguous_window();
+        assert!(new_contig_window >= at_least);
+
+        // Retrieve as many bytes as we can.
+        let size = new_contig_window.clamp(at_least, request);
+        let (used_size, res) = self.payload_ring.enqueue_many_with(|data| {
+            match f(&mut data[..size]) {
+                Ok(used_size) => (used_size, Ok(())),
+                Err(e) => (0, Err(e)),
+            }
+        });
+
+        if let Err(e) = res {
+            // We made sure to enqueue zero items in the payload ring if `f` failed, so only the
+            // padding, if present needs to be rolled back.
+            if let Some(padding) = padding {
+                assert!(self.metadata_ring.dequeue_one().is_ok());
+                let _padding_dequeued = self.payload_ring.dequeue_many(padding);
+                assert_eq!(_padding_dequeued.len(), padding);
+            }
+
+            Ok(Err(e))
+        } else {
+            // Now that everything worked, enqueue the metadata header.
+            *self.metadata_ring.enqueue_one()? = PacketMetadata::packet(used_size, header);
+
+            Ok(Ok(used_size))
+        }
+    }
+
     /// Call `f` with a packet from the buffer large enough to fit `max_size` bytes. The packet
     /// is shrunk to the size returned from `f` and enqueued into the buffer.
     pub fn enqueue_with_infallible<'b, F>(
@@ -308,6 +378,31 @@ mod test {
             .enqueue(12, ())
             .unwrap()
             .copy_from_slice(b"abcdefghijkl");
+    }
+
+    #[test]
+    fn test_enqueue_with() {
+        let mut buffer = buffer();
+        assert!(matches!(buffer.enqueue_with::<_, ()>(3, 4, (), |data| {
+            assert_eq!(data.len(), 4);
+            Ok(4)
+        }), Ok(Ok(_))));
+        assert_eq!(buffer.metadata_ring.len(), 1);
+        assert_eq!(buffer.payload_ring.len(), 4);
+
+        assert!(matches!(buffer.enqueue_with(3, 4, (), |data| {
+            assert_eq!(data.len(), 4);
+            Err(())
+        }), Ok(Err(_))));
+        assert_eq!(buffer.metadata_ring.len(), 1);
+        assert_eq!(buffer.payload_ring.len(), 4);
+
+        assert!(matches!(buffer.enqueue_with::<_, ()>(3, 32, (), |data| {
+            assert_eq!(data.len(), 12);
+            Ok(4)
+        }), Ok(Ok(_))));
+        assert_eq!(buffer.metadata_ring.len(), 2);
+        assert_eq!(buffer.payload_ring.len(), 8);
     }
 
     #[test]
