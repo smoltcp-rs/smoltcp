@@ -173,6 +173,13 @@ impl<T: AsRef<[u8]>> Header<T> {
             return Err(Error);
         }
 
+        // The header lenght field could be wrong and thus we need to check this as well:
+        if matches!(self.routing_type(), Type::Type2)
+            && field::DATA(self.header_len()).end != field::HOME_ADDRESS.end
+        {
+            return Err(Error);
+        }
+
         Ok(())
     }
 
