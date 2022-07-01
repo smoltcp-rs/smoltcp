@@ -340,8 +340,8 @@ impl<'a> Repr<'a> {
     /// Return the length of a packet that will be emitted from this high-level representation.
     pub fn buffer_len(&self) -> usize {
         match self {
-            Repr::Query { .. } => field::QUERY_NUM_SRCS.end,
-            Repr::Report { .. } => field::NR_MCAST_RCRDS.end,
+            Repr::Query { data, .. } => field::QUERY_NUM_SRCS.end + data.len(),
+            Repr::Report { data, .. } => field::NR_MCAST_RCRDS.end + data.len(),
         }
     }
 
