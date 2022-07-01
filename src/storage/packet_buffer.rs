@@ -109,12 +109,18 @@ impl<'a, H> PacketBuffer<'a, H> {
     }
 
     /// Call `f` with a packet from the buffer that's at least `at_least` bytes and no more than `request` bytes.
-    /// 
+    ///
     /// If `f` returns `Ok(size)`, the packet is shrunk to `size` and enqueued.
     /// If `f` returns `Err`, the internal state of the packet buffer is rolled back and no data is enqueued.
-    pub fn enqueue_with<F, E>(&mut self, at_least: usize, request: usize, header: H, f: F) -> Result<Result<usize, E>, Full>
+    pub fn enqueue_with<F, E>(
+        &mut self,
+        at_least: usize,
+        request: usize,
+        header: H,
+        f: F,
+    ) -> Result<Result<usize, E>, Full>
     where
-        F: FnOnce(&mut [u8]) -> Result<usize, E>
+        F: FnOnce(&mut [u8]) -> Result<usize, E>,
     {
         if self.payload_ring.capacity() < at_least || self.metadata_ring.is_full() {
             return Err(Full);
@@ -153,12 +159,12 @@ impl<'a, H> PacketBuffer<'a, H> {
 
         // Retrieve as many bytes as we can.
         let size = new_contig_window.clamp(at_least, request);
-        let (used_size, res) = self.payload_ring.enqueue_many_with(|data| {
-            match f(&mut data[..size]) {
-                Ok(used_size) => (used_size, Ok(())),
-                Err(e) => (0, Err(e)),
-            }
-        });
+        let (used_size, res) =
+            self.payload_ring
+                .enqueue_many_with(|data| match f(&mut data[..size]) {
+                    Ok(used_size) => (used_size, Ok(())),
+                    Err(e) => (0, Err(e)),
+                });
 
         if let Err(e) = res {
             // We made sure to enqueue zero items in the payload ring if `f` failed, so only the
@@ -380,24 +386,33 @@ mod test {
     #[test]
     fn test_enqueue_with() {
         let mut buffer = buffer();
-        assert!(matches!(buffer.enqueue_with::<_, ()>(3, 4, (), |data| {
-            assert_eq!(data.len(), 4);
-            Ok(4)
-        }), Ok(Ok(_))));
+        assert!(matches!(
+            buffer.enqueue_with::<_, ()>(3, 4, (), |data| {
+                assert_eq!(data.len(), 4);
+                Ok(4)
+            }),
+            Ok(Ok(_))
+        ));
         assert_eq!(buffer.metadata_ring.len(), 1);
         assert_eq!(buffer.payload_ring.len(), 4);
 
-        assert!(matches!(buffer.enqueue_with(3, 4, (), |data| {
-            assert_eq!(data.len(), 4);
-            Err(())
-        }), Ok(Err(_))));
+        assert!(matches!(
+            buffer.enqueue_with(3, 4, (), |data| {
+                assert_eq!(data.len(), 4);
+                Err(())
+            }),
+            Ok(Err(_))
+        ));
         assert_eq!(buffer.metadata_ring.len(), 1);
         assert_eq!(buffer.payload_ring.len(), 4);
 
-        assert!(matches!(buffer.enqueue_with::<_, ()>(3, 32, (), |data| {
-            assert_eq!(data.len(), 12);
-            Ok(4)
-        }), Ok(Ok(_))));
+        assert!(matches!(
+            buffer.enqueue_with::<_, ()>(3, 32, (), |data| {
+                assert_eq!(data.len(), 12);
+                Ok(4)
+            }),
+            Ok(Ok(_))
+        ));
         assert_eq!(buffer.metadata_ring.len(), 2);
         assert_eq!(buffer.payload_ring.len(), 8);
     }
