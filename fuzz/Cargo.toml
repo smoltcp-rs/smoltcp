@@ -43,13 +43,7 @@ test = false
 doc = false
 
 [[bin]]
-name = "sixlowpan_udp_header"
-path = "fuzz_targets/sixlowpan_udp_header.rs"
-test = false
-doc = false
-
-[[bin]]
-name = "sixlowpan_iphc_header"
-path = "fuzz_targets/sixlowpan_iphc_header.rs"
+name = "sixlowpan_packet"
+path = "fuzz_targets/sixlowpan_packet.rs"
 test = false
 doc = false
