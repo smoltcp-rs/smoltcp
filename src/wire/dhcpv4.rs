@@ -6,8 +6,7 @@ use bitflags::bitflags;
 use byteorder::{ByteOrder, NetworkEndian};
 
 use super::{Error, Result};
-use crate::wire::arp::Hardware;
-use crate::wire::{EthernetAddress, Ipv4Address};
+use crate::wire::{arp::Hardware, EthernetAddress, Ipv4Address};
 
 pub const SERVER_PORT: u16 = 67;
 pub const CLIENT_PORT: u16 = 68;
@@ -58,20 +57,29 @@ impl MessageType {
 }
 
 /// A buffer for DHCP options.
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct DhcpOptionsBuffer<T> {
     /// The underlying buffer, directly from the DHCP packet representation.
     buffer: T,
+    len: usize,
 }
+
+impl<T: AsRef<[u8]>> PartialEq for DhcpOptionsBuffer<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.len == other.len
+        && self.buffer.as_ref().get(..self.len) == other.buffer.as_ref().get(..other.len)
+    }
+}
+impl<T: AsRef<[u8]>> Eq for DhcpOptionsBuffer<T> {}
 
 impl<T: AsRef<[u8]>> DhcpOptionsBuffer<T> {
     pub fn new(buffer: T) -> Self {
-        Self { buffer }
+        Self { buffer, len: 0 }
     }
 
     pub fn parse(&self) -> impl Iterator<Item = DhcpOption> {
-        let mut buf = self.buffer.as_ref();
+        let mut buf = &self.buffer.as_ref()[..self.len];
         iter::from_fn(move || match DhcpOption::parse(buf) {
             Ok((_, DhcpOption::EndOfList)) | Err(_) => None,
             Ok((new_buf, option)) => {
@@ -81,28 +89,48 @@ impl<T: AsRef<[u8]>> DhcpOptionsBuffer<T> {
         })
     }
 
-    pub fn inner(self) -> T {
-        self.buffer
+    pub fn buffer_len(&self) -> usize {
+        self.len
+    }
+
+    pub fn map<F, U>(self, f: F) -> DhcpOptionsBuffer<U>
+    where
+        F: FnOnce(T) -> U,
+    {
+        DhcpOptionsBuffer {
+            buffer: f(self.buffer),
+            len: self.len,
+        }
+    }
+
+    pub fn map_ref<'a, F, U>(&'a self, f: F) -> DhcpOptionsBuffer<U>
+    where
+        F: FnOnce(&'a T) -> U,
+    {
+        DhcpOptionsBuffer {
+            buffer: f(&self.buffer),
+            len: self.len,
+        }
     }
 }
 
 impl<T: AsMut<[u8]> + AsRef<[u8]>> DhcpOptionsBuffer<T> {
-    pub fn as_slice(&self) -> DhcpOptionsBuffer<&[u8]> {
-        DhcpOptionsBuffer {
-            buffer: self.buffer.as_ref(),
-        }
-    }
-
     pub fn emit<'a, I>(&mut self, options: I) -> Result<()>
     where
         I: IntoIterator<Item = DhcpOption<'a>>,
     {
-        let mut buf = self.buffer.as_mut();
-        for option in options.into_iter().chain(iter::once(DhcpOption::EndOfList)) {
-            if option.buffer_len() > buf.len() {
+        let mut buf = self.buffer.as_mut().get_mut(self.len..).unwrap_or(&mut []);
+        self.len = 0;
+        for option in options.into_iter() {
+            let option_size = option.buffer_len();
+            let buf_len = buf.len();
+            if option_size > buf_len {
                 return Err(Error);
             }
             buf = option.emit(buf);
+            if buf.len() != buf_len {
+                self.len += option_size;
+            }
         }
 
         Ok(())
@@ -223,7 +251,6 @@ impl<'a> DhcpOption<'a> {
             _ => {
                 skip_length = self.buffer_len();
 
-                assert!(skip_length <= buffer.len());
                 if skip_length > buffer.len() {
                     return buffer;
                 }
@@ -278,7 +305,8 @@ impl<'a> DhcpOption<'a> {
     }
 }
 
-/// A read/write wrapper around a Dynamic Host Configuration Protocol packet buffer.
+/// A read/write wrapper around a Dynamic Host Configuration Protocol packet
+/// buffer.
 #[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Packet<T: AsRef<[u8]>> {
@@ -863,6 +891,9 @@ impl<'a> Repr<'a> {
         if let Some(list) = self.parameter_request_list {
             len += list.len() + 2;
         }
+        if let Some(additional_options) = self.options {
+            len += additional_options.buffer_len();
+        }
 
         len
     }
@@ -998,6 +1029,7 @@ impl<'a> Repr<'a> {
             message_type: message_type?,
             options: Some(DhcpOptionsBuffer {
                 buffer: all_options,
+                len: all_options.len(),
             }),
         })
     }
@@ -1102,7 +1134,7 @@ impl<'a> Repr<'a> {
             }
             if let Some(additional_options) = self.options {
                 for option in additional_options.parse() {
-                    option.emit(options);
+                    options = option.emit(options);
                 }
             }
             DhcpOption::EndOfList.emit(options);
@@ -1332,12 +1364,7 @@ mod test {
             server_identifier: None,
             parameter_request_list: Some(&[1, 3, 6, 42]),
             dns_servers: None,
-            options: Some(DhcpOptionsBuffer {
-                buffer: &[
-                    53, 1, 1, 61, 7, 1, 0, 11, 130, 1, 252, 66, 50, 4, 0, 0, 0, 0, 57, 2, 5, 220,
-                    55, 4, 1, 3, 6, 42, 255, 0, 0, 0, 0, 0, 0, 0,
-                ],
-            }),
+            options: Some(DhcpOptionsBuffer::new(&[])),
         }
     }
 

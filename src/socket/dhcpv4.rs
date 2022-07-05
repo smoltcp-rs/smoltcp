@@ -1,14 +1,15 @@
 #[cfg(feature = "async")]
 use core::task::Waker;
 
-use crate::iface::Context;
-use crate::time::{Duration, Instant};
-use crate::wire::dhcpv4::field as dhcpv4_field;
-use crate::wire::{
-    DhcpMessageType, DhcpPacket, DhcpRepr, IpAddress, IpProtocol, Ipv4Address, Ipv4Cidr, Ipv4Repr,
-    UdpRepr, DHCP_CLIENT_PORT, DHCP_MAX_DNS_SERVER_COUNT, DHCP_SERVER_PORT, UDP_HEADER_LEN,
+use crate::{
+    iface::Context,
+    time::{Duration, Instant},
+    wire::{
+        dhcpv4::field as dhcpv4_field, DhcpMessageType, DhcpOptionsBuffer, DhcpPacket, DhcpRepr,
+        HardwareAddress, IpAddress, IpProtocol, Ipv4Address, Ipv4Cidr, Ipv4Repr, UdpRepr,
+        DHCP_CLIENT_PORT, DHCP_MAX_DNS_SERVER_COUNT, DHCP_SERVER_PORT, UDP_HEADER_LEN,
+    },
 };
-use crate::wire::{DhcpOptionsBuffer, HardwareAddress};
 
 #[cfg(feature = "async")]
 use super::WakerRegistration;
@@ -27,7 +28,8 @@ const DEFAULT_PARAMETER_REQUEST_LIST: &[u8] = &[
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Config<'a> {
-    /// Information on how to reach the DHCP server that responded with DHCP configuration.
+    /// Information on how to reach the DHCP server that responded with DHCP
+    /// configuration.
     pub server: ServerInfo,
     /// IP address
     pub address: Ipv4Cidr,
@@ -48,8 +50,8 @@ pub struct Config<'a> {
 pub struct ServerInfo {
     /// IP address to use as destination in outgoing packets
     pub address: Ipv4Address,
-    /// Server identifier to use in outgoing packets. Usually equal to server_address,
-    /// but may differ in some situations (eg DHCP relays)
+    /// Server identifier to use in outgoing packets. Usually equal to
+    /// server_address, but may differ in some situations (eg DHCP relays)
     pub identifier: Ipv4Address,
 }
 
@@ -83,8 +85,8 @@ struct RenewState {
     /// to renew this lease with the DHCP server.
     /// Must be less or equal than `expires_at`.
     renew_at: Instant,
-    /// Expiration timer. When reached, this lease is no longer valid, so it must be
-    /// thrown away and the ethernet interface deconfigured.
+    /// Expiration timer. When reached, this lease is no longer valid, so it
+    /// must be thrown away and the ethernet interface deconfigured.
     expires_at: Instant,
 }
 
@@ -141,8 +143,9 @@ pub struct Socket<'a> {
     /// xid of the last sent message.
     transaction_id: u32,
 
-    /// Max lease duration. If set, it sets a maximum cap to the server-provided lease duration.
-    /// Useful to react faster to IP configuration changes and to test whether renews work correctly.
+    /// Max lease duration. If set, it sets a maximum cap to the server-provided
+    /// lease duration. Useful to react faster to IP configuration changes
+    /// and to test whether renews work correctly.
     max_lease_duration: Option<Duration>,
 
     retry_config: RetryConfig,
@@ -152,7 +155,8 @@ pub struct Socket<'a> {
 
     /// A buffer for the bootfile name to be written to.
     bootfile_name_buffer: Option<(usize, &'a mut [u8])>,
-    /// A buffer contains options additional to be added to outgoing DHCP packets.
+    /// A buffer contains options additional to be added to outgoing DHCP
+    /// packets.
     outbox_options: Option<DhcpOptionsBuffer<&'a [u8]>>,
     /// A buffer to be filled with options from incoming DHCP packets.
     inbox_options: Option<DhcpOptionsBuffer<&'a mut [u8]>>,
@@ -167,8 +171,8 @@ pub struct Socket<'a> {
 /// DHCP client socket.
 ///
 /// The socket acquires an IP address configuration through DHCP autonomously.
-/// You must query the configuration with `.poll()` after every call to `Interface::poll()`,
-/// and apply the configuration to the `Interface`.
+/// You must query the configuration with `.poll()` after every call to
+/// `Interface::poll()`, and apply the configuration to the `Interface`.
 impl<'a> Socket<'a> {
     /// Create a DHCPv4 socket
     #[allow(clippy::new_without_default)]
@@ -213,7 +217,8 @@ impl<'a> Socket<'a> {
 
     /// Set the parameter request list.
     ///
-    /// This should contain at least `OPT_SUBNET_MASK` (`1`), `OPT_ROUTER` (`3`), and `OPT_DOMAIN_NAME_SERVER` (`6`).
+    /// This should contain at least `OPT_SUBNET_MASK` (`1`), `OPT_ROUTER`
+    /// (`3`), and `OPT_DOMAIN_NAME_SERVER` (`6`).
     pub fn set_parameter_request_list(&mut self, parameter_request_list: &'a [u8]) {
         self.parameter_request_list = Some(parameter_request_list);
     }
@@ -227,11 +232,13 @@ impl<'a> Socket<'a> {
 
     /// Set the max lease duration.
     ///
-    /// When set, the lease duration will be capped at the configured duration if the
-    /// DHCP server gives us a longer lease. This is generally not recommended, but
-    /// can be useful for debugging or reacting faster to network configuration changes.
+    /// When set, the lease duration will be capped at the configured duration
+    /// if the DHCP server gives us a longer lease. This is generally not
+    /// recommended, but can be useful for debugging or reacting faster to
+    /// network configuration changes.
     ///
-    /// If None, no max is applied (the lease duration from the DHCP server is used.)
+    /// If None, no max is applied (the lease duration from the DHCP server is
+    /// used.)
     pub fn set_max_lease_duration(&mut self, max_lease_duration: Option<Duration>) {
         self.max_lease_duration = max_lease_duration;
     }
@@ -430,13 +437,15 @@ impl<'a> Socket<'a> {
         }
 
         // Cleanup the DNS servers list, keeping only unicasts/
-        // TP-Link TD-W8970 sends 0.0.0.0 as second DNS server if there's only one configured :(
+        // TP-Link TD-W8970 sends 0.0.0.0 as second DNS server if there's only one
+        // configured :(
         let mut dns_servers = [None; DHCP_MAX_DNS_SERVER_COUNT];
         if let Some(received) = dhcp_repr.dns_servers {
             let mut i = 0;
             for addr in received.iter().flatten() {
                 if addr.is_unicast() {
-                    // This can never be out-of-bounds since both arrays have length DHCP_MAX_DNS_SERVER_COUNT
+                    // This can never be out-of-bounds since both arrays have length
+                    // DHCP_MAX_DNS_SERVER_COUNT
                     dns_servers[i] = Some(*addr);
                     i += 1;
                 }
@@ -451,7 +460,8 @@ impl<'a> Socket<'a> {
             options: None,
         };
 
-        // RFC 2131 indicates clients should renew a lease halfway through its expiration.
+        // RFC 2131 indicates clients should renew a lease halfway through its
+        // expiration.
         let renew_at = now + lease_duration / 2;
         let expires_at = now + lease_duration;
 
@@ -648,7 +658,7 @@ impl<'a> Socket<'a> {
             let options = self
                 .inbox_options
                 .as_ref()
-                .map(|options| options.as_slice());
+                .map(|options| options.map_ref(|mutable| &mutable[..]));
 
             self.config_changed = false;
             Some(Event::Configured(Config {
@@ -666,8 +676,9 @@ impl<'a> Socket<'a> {
     }
 
     /// This function _must_ be called when the configuration provided to the
-    /// interface, by this DHCP socket, changes. It will update the `config_changed` field
-    /// so that a subsequent call to `poll` will yield an event, and wake a possible waker.
+    /// interface, by this DHCP socket, changes. It will update the
+    /// `config_changed` field so that a subsequent call to `poll` will
+    /// yield an event, and wake a possible waker.
     pub(crate) fn config_changed(&mut self) {
         self.config_changed = true;
         #[cfg(feature = "async")]
@@ -677,14 +688,15 @@ impl<'a> Socket<'a> {
     /// Register a waker.
     ///
     /// The waker is woken on state changes that might affect the return value
-    /// of `poll` method calls, which indicates a new state in the DHCP configuration
-    /// provided by this DHCP socket.
+    /// of `poll` method calls, which indicates a new state in the DHCP
+    /// configuration provided by this DHCP socket.
     ///
     /// Notes:
     ///
-    /// - Only one waker can be registered at a time. If another waker was previously registered,
-    ///   it is overwritten and will no longer be woken.
-    /// - The Waker is woken only once. Once woken, you must register it again to receive more wakes.
+    /// - Only one waker can be registered at a time. If another waker was
+    ///   previously registered, it is overwritten and will no longer be woken.
+    /// - The Waker is woken only once. Once woken, you must register it again
+    ///   to receive more wakes.
     #[cfg(feature = "async")]
     pub fn register_waker(&mut self, waker: &Waker) {
         self.waker.register(waker)
@@ -697,8 +709,7 @@ mod test {
     use std::ops::{Deref, DerefMut};
 
     use super::*;
-    use crate::wire::EthernetAddress;
-    use crate::Error;
+    use crate::{wire::EthernetAddress, Error};
 
     // =========================================================================================//
     // Helper functions
