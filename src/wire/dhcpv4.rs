@@ -67,8 +67,12 @@ pub struct DhcpOptionsBuffer<T> {
 
 impl<T: AsRef<[u8]>> PartialEq for DhcpOptionsBuffer<T> {
     fn eq(&self, other: &Self) -> bool {
-        self.len == other.len
-        && self.buffer.as_ref().get(..self.len) == other.buffer.as_ref().get(..other.len)
+        let mut lhs = self.parse();
+        let mut rhs = other.parse();
+        (&mut lhs).zip(&mut rhs).all(|(a, b)| a == b)
+        // Verify that both iterators are spent.
+        && lhs.next().is_none()
+        && rhs.next().is_none()
     }
 }
 impl<T: AsRef<[u8]>> Eq for DhcpOptionsBuffer<T> {}
@@ -86,7 +90,22 @@ impl<T: AsRef<[u8]>> DhcpOptionsBuffer<T> {
                 buf = new_buf;
                 Some(option)
             }
-        })
+        }).filter(|opt| !matches!(
+            opt,
+            DhcpOption::EndOfList
+            | DhcpOption::Pad
+            | DhcpOption::MessageType(_)
+            | DhcpOption::RequestedIp(_)
+            | DhcpOption::ClientIdentifier(_)
+            | DhcpOption::ServerIdentifier(_)
+            | DhcpOption::Router(_)
+            | DhcpOption::SubnetMask(_)
+            | DhcpOption::MaximumDhcpMessageSize(_)
+            | DhcpOption::IpLeaseTime(_)
+            | DhcpOption::Other { kind: field::OPT_PARAMETER_REQUEST_LIST, .. }
+            | DhcpOption::Other { kind: field::OPT_DOMAIN_NAME_SERVER, .. }
+            | DhcpOption::Other { kind: field::OPT_BOOTFILE_NAME, .. }
+        ))
     }
 
     pub fn buffer_len(&self) -> usize {
