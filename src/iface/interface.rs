@@ -1188,7 +1188,7 @@ impl<'a> Interface<'a> {
             return Ok(false);
         }
 
-        if *packet_len >= *sent_bytes {
+        if *packet_len > *sent_bytes {
             match device.transmit().ok_or(Error::Exhausted) {
                 Ok(tx_token) => {
                     if let Err(e) = self.inner.dispatch_ieee802154_out_packet(
