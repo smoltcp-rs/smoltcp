@@ -90,22 +90,34 @@ impl<T: AsRef<[u8]>> DhcpOptionsBuffer<T> {
                 buf = new_buf;
                 Some(option)
             }
-        }).filter(|opt| !matches!(
-            opt,
-            DhcpOption::EndOfList
-            | DhcpOption::Pad
-            | DhcpOption::MessageType(_)
-            | DhcpOption::RequestedIp(_)
-            | DhcpOption::ClientIdentifier(_)
-            | DhcpOption::ServerIdentifier(_)
-            | DhcpOption::Router(_)
-            | DhcpOption::SubnetMask(_)
-            | DhcpOption::MaximumDhcpMessageSize(_)
-            | DhcpOption::IpLeaseTime(_)
-            | DhcpOption::Other { kind: field::OPT_PARAMETER_REQUEST_LIST, .. }
-            | DhcpOption::Other { kind: field::OPT_DOMAIN_NAME_SERVER, .. }
-            | DhcpOption::Other { kind: field::OPT_BOOTFILE_NAME, .. }
-        ))
+        })
+        .filter(|opt| {
+            !matches!(
+                opt,
+                DhcpOption::EndOfList
+                    | DhcpOption::Pad
+                    | DhcpOption::MessageType(_)
+                    | DhcpOption::RequestedIp(_)
+                    | DhcpOption::ClientIdentifier(_)
+                    | DhcpOption::ServerIdentifier(_)
+                    | DhcpOption::Router(_)
+                    | DhcpOption::SubnetMask(_)
+                    | DhcpOption::MaximumDhcpMessageSize(_)
+                    | DhcpOption::IpLeaseTime(_)
+                    | DhcpOption::Other {
+                        kind: field::OPT_PARAMETER_REQUEST_LIST,
+                        ..
+                    }
+                    | DhcpOption::Other {
+                        kind: field::OPT_DOMAIN_NAME_SERVER,
+                        ..
+                    }
+                    | DhcpOption::Other {
+                        kind: field::OPT_BOOTFILE_NAME,
+                        ..
+                    }
+            )
+        })
     }
 
     pub fn buffer_len(&self) -> usize {
