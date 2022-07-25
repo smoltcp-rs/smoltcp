@@ -541,8 +541,8 @@ impl<'a> Socket<'a> {
     /// Return whether Nagle's Algorithm is enabled.
     ///
     /// See also the [set_nagle_enabled](#method.set_nagle_enabled) method.
-    pub fn nagle_enabled(&self) -> Option<Duration> {
-        self.ack_delay
+    pub fn nagle_enabled(&self) -> bool {
+        self.nagle
     }
 
     /// Return the current window field value, including scaling according to RFC 1323.
