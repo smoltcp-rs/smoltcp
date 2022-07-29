@@ -128,9 +128,7 @@ mod field {
     //  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 
     // Reserved bits.
-    pub const IP_RESERVED: Field = 4..8;
-    // Redirected header IP header + data.
-    pub const IP_DATA: usize = 8;
+    pub const REDIRECTED_RESERVED: Field = 2..8;
     pub const REDIR_MIN_SZ: usize = 48;
 
     // MTU Option fields
@@ -158,6 +156,12 @@ impl<T: AsRef<[u8]>> NdiscOption<T> {
     pub fn new_checked(buffer: T) -> Result<NdiscOption<T>> {
         let opt = Self::new_unchecked(buffer);
         opt.check_len()?;
+
+        // A data length field of 0 is invalid.
+        if opt.data_len() == 0 {
+            return Err(Error);
+        }
+
         Ok(opt)
     }
 
@@ -362,7 +366,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> NdiscOption<T> {
     #[inline]
     pub fn clear_redirected_reserved(&mut self) {
         let data = self.buffer.as_mut();
-        NetworkEndian::write_u32(&mut data[field::IP_RESERVED], 0);
+        data[field::REDIRECTED_RESERVED].fill_with(|| 0);
     }
 }
 
@@ -462,11 +466,13 @@ impl<'a> Repr<'a> {
                 if opt.data_len() < 6 {
                     Err(Error)
                 } else {
-                    let ip_packet = Ipv6Packet::new_unchecked(&opt.data()[field::IP_DATA..]);
+                    let ip_packet =
+                        Ipv6Packet::new_unchecked(&opt.data()[field::REDIRECTED_RESERVED.len()..]);
                     let ip_repr = Ipv6Repr::parse(&ip_packet)?;
                     Ok(Repr::RedirectedHeader(RedirectedHeader {
                         header: ip_repr,
-                        data: &opt.data()[field::IP_DATA + ip_repr.buffer_len()..],
+                        data: &opt.data()
+                            [field::REDIRECTED_RESERVED.len() + ip_repr.buffer_len()..],
                     }))
                 }
             }
@@ -477,11 +483,18 @@ impl<'a> Repr<'a> {
                     Err(Error)
                 }
             }
-            Type::Unknown(id) => Ok(Repr::Unknown {
-                type_: id,
-                length: opt.data_len(),
-                data: opt.data(),
-            }),
+            Type::Unknown(id) => {
+                // A length of 0 is invalid.
+                if opt.data_len() != 0 {
+                    Ok(Repr::Unknown {
+                        type_: id,
+                        length: opt.data_len(),
+                        data: opt.data(),
+                    })
+                } else {
+                    Err(Error)
+                }
+            }
         }
     }
 
@@ -495,7 +508,7 @@ impl<'a> Repr<'a> {
             }
             &Repr::PrefixInformation(_) => field::PREFIX.end,
             &Repr::RedirectedHeader(RedirectedHeader { header, data }) => {
-                field::IP_DATA + header.buffer_len() + data.len()
+                (8 + header.buffer_len() + data.len() + 7) / 8 * 8
             }
             &Repr::Mtu(_) => field::MTU.end,
             &Repr::Unknown { length, .. } => field::DATA(length).end,
@@ -537,15 +550,15 @@ impl<'a> Repr<'a> {
                 opt.set_prefix(prefix);
             }
             Repr::RedirectedHeader(RedirectedHeader { header, data }) => {
-                let data_len = data.len() / 8;
+                // TODO(thvdveld): I think we need to check if the data we are sending is not
+                // exceeding the MTU.
                 opt.clear_redirected_reserved();
                 opt.set_option_type(Type::RedirectedHeader);
-                opt.set_data_len((header.buffer_len() + 1 + data_len) as u8);
-                let mut ip_packet =
-                    Ipv6Packet::new_unchecked(&mut opt.data_mut()[field::IP_DATA..]);
+                opt.set_data_len((((8 + header.buffer_len() + data.len()) + 7) / 8) as u8);
+                let mut packet = &mut opt.data_mut()[field::REDIRECTED_RESERVED.end - 2..];
+                let mut ip_packet = Ipv6Packet::new_unchecked(&mut packet);
                 header.emit(&mut ip_packet);
-                let payload = &mut ip_packet.into_inner()[header.buffer_len()..];
-                payload.copy_from_slice(&data[..data_len]);
+                ip_packet.payload_mut().copy_from_slice(data);
             }
             Repr::Mtu(mtu) => {
                 opt.set_option_type(Type::Mtu);
