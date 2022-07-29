@@ -43,6 +43,14 @@ pub(crate) struct OutPackets<'a> {
     _lifetime: core::marker::PhantomData<&'a ()>,
 }
 
+impl<'a> OutPackets<'a> {
+    #[cfg(feature = "proto-sixlowpan-fragmentation")]
+    /// Returns `true` when all the data of the outgoing buffers are transmitted.
+    fn all_transmitted(&self) -> bool {
+        self.sixlowpan_out_packet.finished() || self.sixlowpan_out_packet.is_empty()
+    }
+}
+
 #[allow(unused)]
 #[cfg(feature = "proto-sixlowpan")]
 pub(crate) struct SixlowpanOutPacket<'a> {
@@ -80,6 +88,29 @@ impl<'a> SixlowpanOutPacket<'a> {
             ll_dst_addr: Ieee802154Address::Absent,
             ll_src_addr: Ieee802154Address::Absent,
         }
+    }
+
+    /// Return `true` when everything is transmitted.
+    #[inline]
+    fn finished(&self) -> bool {
+        self.packet_len == self.sent_bytes
+    }
+
+    /// Returns `true` when there is nothing to transmit.
+    #[inline]
+    fn is_empty(&self) -> bool {
+        self.packet_len == 0
+    }
+
+    // Reset the buffer.
+    fn reset(&mut self) {
+        self.packet_len = 0;
+        self.datagram_size = 0;
+        self.datagram_tag = 0;
+        self.sent_bytes = 0;
+        self.fragn_size = 0;
+        self.ll_dst_addr = Ieee802154Address::Absent;
+        self.ll_src_addr = Ieee802154Address::Absent;
     }
 }
 
@@ -916,6 +947,11 @@ impl<'a> Interface<'a> {
     pub fn poll_at(&mut self, timestamp: Instant, sockets: &SocketSet<'_>) -> Option<Instant> {
         self.inner.now = timestamp;
 
+        #[cfg(feature = "proto-sixlowpan-fragmentation")]
+        if !self.out_packets.all_transmitted() {
+            return Some(Instant::from_millis(0));
+        }
+
         let inner = &mut self.inner;
 
         sockets
@@ -1196,6 +1232,11 @@ impl<'a> Interface<'a> {
                         &mut self.out_packets.sixlowpan_out_packet,
                     ) {
                         net_debug!("failed to transmit: {}", e);
+                    }
+
+                    // Reset the buffer when we transmitted everything.
+                    if self.out_packets.sixlowpan_out_packet.finished() {
+                        self.out_packets.sixlowpan_out_packet.reset();
                     }
                 }
                 Err(e) => {

@@ -86,18 +86,29 @@ fn main() {
         64,
     )];
 
-    let cache = FragmentsCache::new(vec![], BTreeMap::new());
-
-    let mut out_packet_buffer = [0u8; 1280];
-
     let mut builder = InterfaceBuilder::new()
         .ip_addrs(ip_addrs)
         .pan_id(Ieee802154Pan(0xbeef));
     builder = builder
         .hardware_addr(ieee802154_addr.into())
-        .neighbor_cache(neighbor_cache)
-        .sixlowpan_fragments_cache(cache)
-        .sixlowpan_out_packet_cache(&mut out_packet_buffer[..]);
+        .neighbor_cache(neighbor_cache);
+
+    #[cfg(feature = "proto-ipv4-fragmentation")]
+    {
+        let ipv4_frag_cache = FragmentsCache::new(vec![], BTreeMap::new());
+        builder = builder.ipv4_fragments_cache(ipv4_frag_cache);
+    }
+
+    #[cfg(feature = "proto-sixlowpan-fragmentation")]
+    let mut out_packet_buffer = [0u8; 1280];
+    #[cfg(feature = "proto-sixlowpan-fragmentation")]
+    {
+        let sixlowpan_frag_cache = FragmentsCache::new(vec![], BTreeMap::new());
+        builder = builder
+            .sixlowpan_fragments_cache(sixlowpan_frag_cache)
+            .sixlowpan_out_packet_cache(&mut out_packet_buffer[..]);
+    }
+
     let mut iface = builder.finalize(&mut device);
 
     let mut sockets = SocketSet::new(vec![]);

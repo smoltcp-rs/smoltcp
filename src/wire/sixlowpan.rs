@@ -910,7 +910,6 @@ pub mod iphc {
         ) -> usize {
             self.set_cid_field(0);
             self.set_sac_field(0);
-            self.set_sam_field(0b00);
             let src = src_addr.as_bytes();
             if src_addr == ipv6::Address::UNSPECIFIED {
                 self.set_sac_field(1);
