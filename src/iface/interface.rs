@@ -3206,7 +3206,7 @@ impl<'a> InterfaceInner<'a> {
                 tx_buf = &mut tx_buf[ieee_len..];
 
                 // Add the next fragment header
-                let datagram_offset = ((40 + *sent_bytes) / 8) as u8;
+                let datagram_offset = ((8 + *sent_bytes) / 8) as u8;
                 fragn.set_offset(datagram_offset);
                 let mut frag_packet =
                     SixlowpanFragPacket::new_unchecked(&mut tx_buf[..fragn.buffer_len()]);
