@@ -67,12 +67,7 @@ pub struct DhcpOptionsBuffer<T> {
 
 impl<T: AsRef<[u8]>> PartialEq for DhcpOptionsBuffer<T> {
     fn eq(&self, other: &Self) -> bool {
-        let mut lhs = self.parse();
-        let mut rhs = other.parse();
-        (&mut lhs).zip(&mut rhs).all(|(a, b)| a == b)
-        // Verify that both iterators are spent.
-        && lhs.next().is_none()
-        && rhs.next().is_none()
+        self.buffer.as_ref()[..self.len] == other.buffer.as_ref()[..other.len]
     }
 }
 impl<T: AsRef<[u8]>> Eq for DhcpOptionsBuffer<T> {}

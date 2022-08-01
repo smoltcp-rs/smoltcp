@@ -1,15 +1,28 @@
-//! Communication between endpoints.
-//!
-//! The `socket` module deals with *network endpoints* and *buffering*.
-//! It provides interfaces for accessing buffers of data, and protocol state
-//! machines for filling and emptying these buffers.
-//!
-//! The programming interface implemented here differs greatly from the common
-//! Berkeley socket interface. Specifically, in the Berkeley interface the
-//! buffering is implicit: the operating system decides on the good size for a
-//! buffer and manages it. The interface implemented by this module uses
-//! explicit buffering: you decide on the good size for a buffer, allocate it,
-//! and let the networking stack use it.
+/*! Communication between endpoints.
+ //! Communication between endpoints.
+ //!
+ //! The `socket` module deals with *network endpoints* and *buffering*.
+ //! It provides interfaces for accessing buffers of data, and protocol state
+ //! machines for filling and emptying these buffers.
+ //!
+ //! The programming interface implemented here differs greatly from the common
+ //! Berkeley socket interface. Specifically, in the Berkeley interface the
+ //! buffering is implicit: the operating system decides on the good size for a
+ //! buffer and manages it. The interface implemented by this module uses
+ //! explicit buffering: you decide on the good size for a buffer, allocate it,
+ //! and let the networking stack use it.
+
+The `socket` module deals with *network endpoints* and *buffering*.
+It provides interfaces for accessing buffers of data, and protocol state machines
+for filling and emptying these buffers.
+
+The programming interface implemented here differs greatly from the common Berkeley socket
+interface. Specifically, in the Berkeley interface the buffering is implicit:
+the operating system decides on the good size for a buffer and manages it.
+The interface implemented by this module uses explicit buffering: you decide on the good
+size for a buffer, allocate it, and let the networking stack use it.
+*/
+
 
 use crate::{iface::Context, time::Instant};
 
