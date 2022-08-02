@@ -17,6 +17,7 @@ pub struct PacketAssembler<'a> {
 }
 
 /// Holds the state of the assembling of one packet.
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Debug, PartialEq)]
 enum AssemblerState {
     NotInit,
