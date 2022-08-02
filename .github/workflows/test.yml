@@ -21,7 +21,7 @@ jobs:
         # Failure is permitted on nightly.
         rust:
           - stable
-          - 1.56.0
+          - 1.60.0
           - nightly
 
         features:
@@ -68,7 +68,7 @@ jobs:
         # Failure is permitted on nightly.
         rust:
           - stable
-          - 1.56.0
+          - 1.60.0
           - nightly
 
         features:
