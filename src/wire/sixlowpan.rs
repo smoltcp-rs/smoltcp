@@ -365,14 +365,6 @@ pub mod frag {
     }
 
     impl Repr {
-        #[cfg(feature = "proto-sixlowpan-fragmentation")]
-        pub(crate) fn set_offset(&mut self, value: u8) {
-            match self {
-                Repr::FirstFragment { .. } => (),
-                Repr::Fragment { offset, .. } => *offset = value,
-            }
-        }
-
         /// Parse a 6LoWPAN Fragment header.
         pub fn parse<T: AsRef<[u8]>>(packet: &Packet<T>) -> Result<Self> {
             let size = packet.datagram_size();

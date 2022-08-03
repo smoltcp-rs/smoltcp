@@ -65,6 +65,7 @@ pub(crate) struct SixlowpanOutPacket<'a> {
     datagram_size: u16,
     /// The datagram tag that is used for the fragmentation headers.
     datagram_tag: u16,
+    datagram_offset: usize,
 
     /// The size of the FRAG_N packets.
     fragn_size: usize,
@@ -83,6 +84,7 @@ impl<'a> SixlowpanOutPacket<'a> {
             packet_len: 0,
             datagram_size: 0,
             datagram_tag: 0,
+            datagram_offset: 0,
             sent_bytes: 0,
             fragn_size: 0,
             ll_dst_addr: Ieee802154Address::Absent,
@@ -1224,7 +1226,7 @@ impl<'a> Interface<'a> {
             return Ok(false);
         }
 
-        if *packet_len >= *sent_bytes {
+        if *packet_len > *sent_bytes {
             match device.transmit().ok_or(Error::Exhausted) {
                 Ok(tx_token) => {
                     if let Err(e) = self.inner.dispatch_ieee802154_out_packet(
@@ -2979,6 +2981,7 @@ impl<'a> InterfaceInner<'a> {
         let mut total_size = 0;
         total_size += iphc_repr.buffer_len();
         let mut _compressed_headers_len = iphc_repr.buffer_len();
+        let mut _uncompressed_headers_len = ip_repr.buffer_len();
 
         #[allow(unreachable_patterns)]
         match packet {
@@ -2986,6 +2989,7 @@ impl<'a> InterfaceInner<'a> {
             IpPacket::Udp((_, udpv6_repr, payload)) => {
                 let udp_repr = SixlowpanUdpNhcRepr(udpv6_repr);
                 _compressed_headers_len += udp_repr.header_len();
+                _uncompressed_headers_len += udpv6_repr.header_len();
                 total_size += udp_repr.header_len() + payload.len();
             }
             #[cfg(feature = "socket-tcp")]
@@ -3021,6 +3025,7 @@ impl<'a> InterfaceInner<'a> {
                         fragn_size,
                         ll_dst_addr,
                         ll_src_addr,
+                        datagram_offset,
                         ..
                     } = &mut _out_packet.unwrap().sixlowpan_out_packet;
 
@@ -3051,8 +3056,7 @@ impl<'a> InterfaceInner<'a> {
                         }
                         #[cfg(feature = "socket-tcp")]
                         IpPacket::Tcp((_, tcp_repr)) => {
-                            let mut tcp_packet =
-                                TcpPacket::new_unchecked(&mut b[..tcp_repr.buffer_len()]);
+                            let mut tcp_packet = TcpPacket::new_unchecked(&mut b[..tcp_repr.buffer_len()]);
                             tcp_repr.emit(
                                 &mut tcp_packet,
                                 &iphc_repr.src_addr.into(),
@@ -3102,20 +3106,22 @@ impl<'a> InterfaceInner<'a> {
                     // in multiples of 8 octets. This is explained in [RFC 4944 § 5.3].
                     //
                     // [RFC 4944 § 5.3]: https://datatracker.ietf.org/doc/html/rfc4944#section-5.3
-                    let frag1_size = ((125 - ieee_len - frag1.buffer_len() - _compressed_headers_len)
-                        & 0xffff_fff8)
-                        + _compressed_headers_len;
-                    *fragn_size = (125 - ieee_len - fragn.buffer_len()) & 0xffff_fff8;
+
+                    let header_diff = _uncompressed_headers_len - _compressed_headers_len;
+                    let frag1_size =
+                        (125 - ieee_len - frag1.buffer_len() + header_diff) / 8 * 8 - (header_diff);
+
+                    *fragn_size = (125 - ieee_len - fragn.buffer_len()) / 8 * 8;
 
                     *sent_bytes = frag1_size;
+                    *datagram_offset = frag1_size + header_diff;
 
                     tx_token.consume(
                         self.now,
                         ieee_len + frag1.buffer_len() + frag1_size,
                         |mut tx_buf| {
                             // Add the IEEE header.
-                            let mut ieee_packet =
-                                Ieee802154Frame::new_unchecked(&mut tx_buf[..ieee_len]);
+                            let mut ieee_packet = Ieee802154Frame::new_unchecked(&mut tx_buf[..ieee_len]);
                             ieee_repr.emit(&mut ieee_packet);
                             tx_buf = &mut tx_buf[ieee_len..];
 
@@ -3206,6 +3212,7 @@ impl<'a> InterfaceInner<'a> {
             packet_len,
             datagram_size,
             datagram_tag,
+            datagram_offset,
             sent_bytes,
             fragn_size,
             ll_dst_addr,
@@ -3229,10 +3236,10 @@ impl<'a> InterfaceInner<'a> {
         };
 
         // Create the FRAG_N header.
-        let mut fragn = SixlowpanFragRepr::Fragment {
+        let fragn = SixlowpanFragRepr::Fragment {
             size: *datagram_size,
             tag: *datagram_tag,
-            offset: 0,
+            offset: (*datagram_offset / 8) as u8,
         };
 
         let ieee_len = ieee_repr.buffer_len();
@@ -3246,9 +3253,6 @@ impl<'a> InterfaceInner<'a> {
                 ieee_repr.emit(&mut ieee_packet);
                 tx_buf = &mut tx_buf[ieee_len..];
 
-                // Add the next fragment header
-                let datagram_offset = ((40 + *sent_bytes) / 8) as u8;
-                fragn.set_offset(datagram_offset);
                 let mut frag_packet =
                     SixlowpanFragPacket::new_unchecked(&mut tx_buf[..fragn.buffer_len()]);
                 fragn.emit(&mut frag_packet);
@@ -3258,6 +3262,7 @@ impl<'a> InterfaceInner<'a> {
                 tx_buf[..frag_size].copy_from_slice(&buffer[*sent_bytes..][..frag_size]);
 
                 *sent_bytes += frag_size;
+                *datagram_offset += frag_size;
 
                 Ok(())
             },
