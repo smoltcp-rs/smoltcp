@@ -10,6 +10,10 @@ use crate::Error;
 use crate::Result;
 
 /// Holds different fragments of one packet, used for assembling fragmented packets.
+///
+/// The buffer used for the `PacketAssembler` should either be dynamically sized (ex: Vec<u8>)
+/// or should be statically allocated based upon the MTU of the type of packet being
+/// assembled (ex: 1280 for a IPv6 frame).
 #[derive(Debug)]
 pub struct PacketAssembler<'a> {
     buffer: ManagedSlice<'a, u8>,
