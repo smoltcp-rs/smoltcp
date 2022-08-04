@@ -1665,7 +1665,7 @@ impl<'a> InterfaceInner<'a> {
                             frag.datagram_size() as usize - uncompressed_header_size
                                 + compressed_header_size
                         ),
-                        self.now + Duration::from_secs(60),
+                        self.now + Duration::from_secs(5),
                         -((uncompressed_header_size - compressed_header_size) as isize),
                     ));
                 }
