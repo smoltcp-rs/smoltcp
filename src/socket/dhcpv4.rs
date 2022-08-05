@@ -352,9 +352,12 @@ impl<'a> Socket<'a> {
                 }
             }
             (ClientState::Renewing(state), DhcpMessageType::Ack) => {
-                if let Some((config, renew_at, expires_at)) =
-                    Self::parse_ack(cx.now(), &dhcp_repr, self.max_lease_duration, state.config.server)
-                {
+                if let Some((config, renew_at, expires_at)) = Self::parse_ack(
+                    cx.now(),
+                    &dhcp_repr,
+                    self.max_lease_duration,
+                    state.config.server,
+                ) {
                     state.renew_at = renew_at;
                     state.expires_at = expires_at;
                     if state.config != config {
@@ -625,7 +628,10 @@ impl<'a> Socket<'a> {
                 address: state.config.address,
                 router: state.config.router,
                 dns_servers: state.config.dns_servers,
-                packet: self.receive_packet_buffer.as_deref().map(DhcpPacket::new_unchecked),
+                packet: self
+                    .receive_packet_buffer
+                    .as_deref()
+                    .map(DhcpPacket::new_unchecked),
             }))
         } else {
             self.config_changed = false;
