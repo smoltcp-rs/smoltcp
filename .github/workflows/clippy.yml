@@ -1,3 +1,11 @@
+# When bumping the toolchain version, note that it must be done in two pull
+# requests - the first one being the version bump itself and the second one the
+# necessary code changes based on the updated clippy lints (if any). This is due
+# to the fact that actions-rs/clippy-check requires a GitHub API token with
+# write permission on the "check" scope. A token of this type is only available
+# when triggering on `pull_request_target`, but this runs the action using the
+# configuration from the base of the pull request rather than the merge commit.
+
 on:
   push:
     branches: [ staging, trying ]
