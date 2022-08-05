@@ -57,7 +57,7 @@ impl From<Type> for FailureType {
 }
 
 /// A read/write wrapper around an IPv6 Extension Header Option.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Ipv6Option<T: AsRef<[u8]>> {
     buffer: T,

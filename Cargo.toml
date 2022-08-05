@@ -32,8 +32,8 @@ rand = "0.8"
 url = "2.0"
 
 [features]
-std = ["managed/std"]
-alloc = ["managed/alloc"]
+std = ["managed/std", "defmt?/alloc"]
+alloc = ["managed/alloc", "defmt?/alloc"]
 verbose = []
 "medium-ethernet" = ["socket"]
 "medium-ip" = ["socket"]

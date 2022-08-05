@@ -67,7 +67,7 @@ impl cmp::PartialOrd for SeqNumber {
 }
 
 /// A read/write wrapper around a Transmission Control Protocol packet buffer.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Packet<T: AsRef<[u8]>> {
     buffer: T,
@@ -606,7 +606,7 @@ pub enum TcpOption<'a> {
 impl<'a> TcpOption<'a> {
     pub fn parse(buffer: &'a [u8]) -> Result<(&'a [u8], TcpOption<'a>)> {
         let (length, option);
-        match *buffer.get(0).ok_or(Error)? {
+        match *buffer.first().ok_or(Error)? {
             field::OPT_END => {
                 length = 1;
                 option = TcpOption::EndOfList;
@@ -1148,7 +1148,7 @@ mod test {
         packet.options_mut().copy_from_slice(&OPTION_BYTES[..]);
         packet.payload_mut().copy_from_slice(&PAYLOAD_BYTES[..]);
         packet.fill_checksum(&SRC_ADDR.into(), &DST_ADDR.into());
-        assert_eq!(&packet.into_inner()[..], &PACKET_BYTES[..]);
+        assert_eq!(&*packet.into_inner(), &PACKET_BYTES[..]);
     }
 
     #[test]
@@ -1215,7 +1215,7 @@ mod test {
             &DST_ADDR.into(),
             &ChecksumCapabilities::default(),
         );
-        assert_eq!(&packet.into_inner()[..], &SYN_PACKET_BYTES[..]);
+        assert_eq!(&*packet.into_inner(), &SYN_PACKET_BYTES[..]);
     }
 
     #[test]

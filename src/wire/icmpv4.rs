@@ -161,7 +161,7 @@ enum_with_unknown! {
 }
 
 /// A read/write wrapper around an Internet Control Message Protocol version 4 packet buffer.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Packet<T: AsRef<[u8]>> {
     buffer: T,
@@ -665,7 +665,7 @@ mod test {
         packet.set_echo_seq_no(0xabcd);
         packet.data_mut().copy_from_slice(&ECHO_DATA_BYTES[..]);
         packet.fill_checksum();
-        assert_eq!(&packet.into_inner()[..], &ECHO_PACKET_BYTES[..]);
+        assert_eq!(&*packet.into_inner(), &ECHO_PACKET_BYTES[..]);
     }
 
     fn echo_packet_repr() -> Repr<'static> {
@@ -689,7 +689,7 @@ mod test {
         let mut bytes = vec![0xa5; repr.buffer_len()];
         let mut packet = Packet::new_unchecked(&mut bytes);
         repr.emit(&mut packet, &ChecksumCapabilities::default());
-        assert_eq!(&packet.into_inner()[..], &ECHO_PACKET_BYTES[..]);
+        assert_eq!(&*packet.into_inner(), &ECHO_PACKET_BYTES[..]);
     }
 
     #[test]

@@ -156,7 +156,7 @@ impl<'a> DhcpOption<'a> {
         // See https://tools.ietf.org/html/rfc2132 for all possible DHCP options.
 
         let (skip_len, option);
-        match *buffer.get(0).ok_or(Error)? {
+        match *buffer.first().ok_or(Error)? {
             field::OPT_END => {
                 skip_len = 1;
                 option = DhcpOption::EndOfList;
@@ -1292,7 +1292,7 @@ mod test {
         let mut bytes = vec![0xa5; repr.buffer_len()];
         let mut packet = Packet::new_unchecked(&mut bytes);
         repr.emit(&mut packet).unwrap();
-        let packet = &packet.into_inner()[..];
+        let packet = &*packet.into_inner();
         let packet_len = packet.len();
         assert_eq!(packet, &DISCOVER_BYTES[..packet_len]);
         for byte in &DISCOVER_BYTES[packet_len..] {

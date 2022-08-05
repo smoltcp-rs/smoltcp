@@ -21,7 +21,7 @@ jobs:
         # Failure is permitted on nightly.
         rust:
           - stable
-          - 1.56.0
+          - 1.60.0
           - nightly
 
         features:
@@ -62,19 +62,24 @@ jobs:
   check:
     runs-on: ubuntu-20.04
     continue-on-error: ${{ matrix.rust == 'nightly' }}
+    env:
+      # Set DEFMT_LOG to trace so that all net_{error, .., trace} messages
+      # are actually compiled and verified
+      DEFMT_LOG: "trace"
     strategy:
       matrix:
         # Test on stable, MSRV, and nightly.
         # Failure is permitted on nightly.
         rust:
           - stable
-          - 1.56.0
+          - 1.60.0
           - nightly
 
         features:
           # These feature sets cannot run tests, so we only check they build.
           - medium-ip medium-ethernet medium-ieee802154 proto-ipv6 proto-ipv6 proto-igmp proto-dhcpv4 socket-raw socket-udp socket-tcp socket-icmp socket-dns async
           - defmt medium-ip medium-ethernet proto-ipv6 proto-ipv6 proto-igmp proto-dhcpv4 socket-raw socket-udp socket-tcp socket-icmp socket-dns async
+          - defmt alloc medium-ip medium-ethernet proto-ipv6 proto-ipv6 proto-igmp proto-dhcpv4 socket-raw socket-udp socket-tcp socket-icmp socket-dns async
 
     steps:
       - uses: actions/checkout@v2
