@@ -67,7 +67,7 @@ use std::fs;
 fn if_nametoindex(ifname: &str) -> u32 {
     let contents = fs::read_to_string(format!("/sys/devices/virtual/net/{}/ifindex", ifname))
         .expect("couldn't read interface from \"/sys/devices/virtual/net\"")
-        .replace("\n", "");
+        .replace('\n', "");
     contents.parse::<u32>().unwrap()
 }
 

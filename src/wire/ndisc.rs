@@ -569,7 +569,7 @@ mod test {
             .payload_mut()
             .copy_from_slice(&SOURCE_LINK_LAYER_OPT[..]);
         packet.fill_checksum(&MOCK_IP_ADDR_1, &MOCK_IP_ADDR_2);
-        assert_eq!(&packet.into_inner()[..], &ROUTER_ADVERT_BYTES[..]);
+        assert_eq!(&*packet.into_inner(), &ROUTER_ADVERT_BYTES[..]);
     }
 
     #[test]
@@ -597,6 +597,6 @@ mod test {
             &mut packet,
             &ChecksumCapabilities::default(),
         );
-        assert_eq!(&packet.into_inner()[..], &ROUTER_ADVERT_BYTES[..]);
+        assert_eq!(&*packet.into_inner(), &ROUTER_ADVERT_BYTES[..]);
     }
 }
