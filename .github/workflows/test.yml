@@ -7,13 +7,13 @@ name: Test
 
 jobs:
   tests:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     needs: [test, check]
     steps:
       - name: Done
         run: exit 0
   test:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     continue-on-error: ${{ matrix.rust == 'nightly' }}
     strategy:
       matrix:
@@ -49,23 +49,16 @@ jobs:
           # Test alloc feature which requires nightly.
           - rust: nightly
             features: alloc medium-ethernet proto-ipv4 proto-ipv6 socket-raw socket-udp socket-tcp socket-icmp
+    env:
+      RUSTUP_TOOLCHAIN: "${{ matrix.rust }}"
     steps:
       - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: ${{ matrix.rust }}
-          override: true
       - name: Run Tests
         run: cargo test --no-default-features --features "${{ matrix.features }}"
 
   check:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     continue-on-error: ${{ matrix.rust == 'nightly' }}
-    env:
-      # Set DEFMT_LOG to trace so that all net_{error, .., trace} messages
-      # are actually compiled and verified
-      DEFMT_LOG: "trace"
     strategy:
       matrix:
         # Test on stable, MSRV, and nightly.
@@ -81,12 +74,12 @@ jobs:
           - defmt medium-ip medium-ethernet proto-ipv6 proto-ipv6 proto-igmp proto-dhcpv4 socket-raw socket-udp socket-tcp socket-icmp socket-dns async
           - defmt alloc medium-ip medium-ethernet proto-ipv6 proto-ipv6 proto-igmp proto-dhcpv4 socket-raw socket-udp socket-tcp socket-icmp socket-dns async
 
+    env:
+      # Set DEFMT_LOG to trace so that all net_{error, .., trace} messages
+      # are actually compiled and verified
+      DEFMT_LOG: "trace"
+      RUSTUP_TOOLCHAIN: "${{ matrix.rust }}"
     steps:
       - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: ${{ matrix.rust }}
-          override: true
       - name: Check
         run: cargo check --no-default-features --features "${{ matrix.features }}"
