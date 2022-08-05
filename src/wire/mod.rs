@@ -245,7 +245,7 @@ pub use self::tcp::{
 pub use self::dhcpv4::{
     MessageType as DhcpMessageType, Packet as DhcpPacket, Repr as DhcpRepr,
     CLIENT_PORT as DHCP_CLIENT_PORT, MAX_DNS_SERVER_COUNT as DHCP_MAX_DNS_SERVER_COUNT,
-    SERVER_PORT as DHCP_SERVER_PORT,
+    SERVER_PORT as DHCP_SERVER_PORT, DhcpOption, DhcpOptionsBuffer,
 };
 
 /// Parsing a packet failed.
