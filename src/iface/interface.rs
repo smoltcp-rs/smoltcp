@@ -27,7 +27,8 @@ pub(crate) struct FragmentsBuffer<'a> {
     ipv4_fragments: PacketAssemblerSet<'a, Ipv4FragKey>,
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
     sixlowpan_fragments: PacketAssemblerSet<'a, SixlowpanFragKey>,
-
+    #[cfg(feature = "proto-sixlowpan-fragmentation")]
+    sixlowpan_fragments_cache_timeout: Duration,
     #[cfg(not(any(
         feature = "proto-ipv4-fragmentation",
         feature = "proto-sixlowpan-fragmentation"
@@ -199,6 +200,8 @@ pub struct InterfaceBuilder<'a> {
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
     sixlowpan_fragments: Option<PacketAssemblerSet<'a, SixlowpanFragKey>>,
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
+    sixlowpan_fragments_cache_timeout: Duration,
+    #[cfg(feature = "proto-sixlowpan-fragmentation")]
     sixlowpan_out_buffer: Option<ManagedSlice<'a, u8>>,
 }
 
@@ -265,6 +268,8 @@ let iface = builder.finalize(&mut device);
 
             #[cfg(feature = "proto-sixlowpan-fragmentation")]
             sixlowpan_fragments: None,
+            #[cfg(feature = "proto-sixlowpan-fragmentation")]
+            sixlowpan_fragments_cache_timeout: Duration::from_secs(60),
             #[cfg(feature = "proto-sixlowpan-fragmentation")]
             sixlowpan_out_buffer: None,
         }
@@ -394,6 +399,15 @@ let iface = builder.finalize(&mut device);
     }
 
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
+    pub fn sixlowpan_fragments_cache_timeout(mut self, timeout: Duration) -> Self {
+        if timeout > Duration::from_secs(60) {
+            net_debug!("RFC 4944 specifies that the reassembly timeout MUST be set to a maximum of 60 seconds");
+        }
+        self.sixlowpan_fragments_cache_timeout = timeout;
+        self
+    }
+
+    #[cfg(feature = "proto-sixlowpan-fragmentation")]
     pub fn sixlowpan_out_packet_cache<T>(mut self, storage: T) -> Self
     where
         T: Into<ManagedSlice<'a, u8>>,
@@ -493,6 +507,8 @@ let iface = builder.finalize(&mut device);
                 sixlowpan_fragments: self
                     .sixlowpan_fragments
                     .expect("Cache for incoming 6LoWPAN fragments is required"),
+                #[cfg(feature = "proto-sixlowpan-fragmentation")]
+                sixlowpan_fragments_cache_timeout: self.sixlowpan_fragments_cache_timeout,
 
                 #[cfg(not(any(
                     feature = "proto-ipv4-fragmentation",
@@ -1574,7 +1590,7 @@ impl<'a> InterfaceInner<'a> {
             Some(payload) => {
                 cfg_if::cfg_if! {
                     if #[cfg(feature = "proto-sixlowpan-fragmentation")] {
-                        self.process_sixlowpan(sockets, &ieee802154_repr, payload, Some(&mut _fragments.sixlowpan_fragments))
+                        self.process_sixlowpan(sockets, &ieee802154_repr, payload, Some((&mut _fragments.sixlowpan_fragments, _fragments.sixlowpan_fragments_cache_timeout)))
                     } else {
                         self.process_sixlowpan(sockets, &ieee802154_repr, payload, None)
                     }
@@ -1590,7 +1606,10 @@ impl<'a> InterfaceInner<'a> {
         sockets: &mut SocketSet,
         ieee802154_repr: &Ieee802154Repr,
         payload: &'payload T,
-        _fragments: Option<&'output mut PacketAssemblerSet<'a, SixlowpanFragKey>>,
+        _fragments: Option<(
+            &'output mut PacketAssemblerSet<'a, SixlowpanFragKey>,
+            Duration,
+        )>,
     ) -> Option<IpPacket<'output>> {
         let payload = match check!(SixlowpanPacket::dispatch(payload)) {
             #[cfg(not(feature = "proto-sixlowpan-fragmentation"))]
@@ -1600,7 +1619,7 @@ impl<'a> InterfaceInner<'a> {
             }
             #[cfg(feature = "proto-sixlowpan-fragmentation")]
             SixlowpanPacket::FragmentHeader => {
-                let fragments = _fragments.unwrap();
+                let (fragments, timeout) = _fragments.unwrap();
 
                 // We have a fragment header, which means we cannot process the 6LoWPAN packet,
                 // unless we have a complete one after processing this fragment.
@@ -1660,12 +1679,21 @@ impl<'a> InterfaceInner<'a> {
                     // This information is the total size of the packet when it is fully assmbled.
                     // We also pass the header size, since this is needed when other fragments
                     // (other than the first one) are added.
-                    check!(check!(fragments.reserve_with_key(&key)).start(
+                    let frag_slot = match fragments.reserve_with_key(&key) {
+                        Ok(frag) => frag,
+                        Err(Error::PacketAssemblerSetFull) => {
+                            net_debug!("No available packet assembler for fragmented packet");
+                            return Default::default();
+                        }
+                        e => check!(e),
+                    };
+
+                    check!(frag_slot.start(
                         Some(
                             frag.datagram_size() as usize - uncompressed_header_size
                                 + compressed_header_size
                         ),
-                        self.now + Duration::from_secs(60),
+                        self.now + timeout,
                         -((uncompressed_header_size - compressed_header_size) as isize),
                     ));
                 }
