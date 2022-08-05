@@ -400,6 +400,9 @@ let iface = builder.finalize(&mut device);
 
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
     pub fn sixlowpan_fragments_cache_timeout(mut self, timeout: Duration) -> Self {
+        if timeout > Duration::from_secs(60) {
+            net_debug!("RFC 4944 specifies that the reassembly timeout MUST be set to a maximum of 60 seconds");
+        }
         self.sixlowpan_fragments_cache_timeout = timeout;
         self
     }
