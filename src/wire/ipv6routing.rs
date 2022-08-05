@@ -50,7 +50,7 @@ impl fmt::Display for Type {
 }
 
 /// A read/write wrapper around an IPv6 Routing Header buffer.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Header<T: AsRef<[u8]>> {
     buffer: T,

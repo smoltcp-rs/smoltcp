@@ -5,7 +5,7 @@ pub use super::IpProtocol as Protocol;
 use crate::wire::ipv6option::Ipv6OptionsIterator;
 
 /// A read/write wrapper around an IPv6 Hop-by-Hop Options Header.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Header<T: AsRef<[u8]>> {
     buffer: T,

@@ -48,7 +48,7 @@ bitflags! {
 /// A read/write wrapper around an [NDISC Option].
 ///
 /// [NDISC Option]: https://tools.ietf.org/html/rfc4861#section-4.6
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct NdiscOption<T: AsRef<[u8]>> {
     buffer: T,
@@ -617,7 +617,7 @@ impl<T: AsRef<[u8]>> PrettyPrint for NdiscOption<T> {
         indent: &mut PrettyIndent,
     ) -> fmt::Result {
         match NdiscOption::new_checked(buffer) {
-            Err(err) => return write!(f, "{}({})", indent, err),
+            Err(err) => write!(f, "{}({})", indent, err),
             Ok(ndisc) => match Repr::parse(&ndisc) {
                 Err(_) => Ok(()),
                 Ok(repr) => {
@@ -667,7 +667,7 @@ mod test {
         opt.set_valid_lifetime(Duration::from_secs(900));
         opt.set_preferred_lifetime(Duration::from_secs(1000));
         opt.set_prefix(Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1));
-        assert_eq!(&PREFIX_OPT_BYTES[..], &opt.into_inner()[..]);
+        assert_eq!(&PREFIX_OPT_BYTES[..], &*opt.into_inner());
     }
 
     #[test]

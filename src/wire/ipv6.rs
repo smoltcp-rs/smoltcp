@@ -349,7 +349,7 @@ impl fmt::Display for Cidr {
 }
 
 /// A read/write wrapper around an Internet Protocol version 6 packet buffer.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Packet<T: AsRef<[u8]>> {
     buffer: T,
@@ -1103,7 +1103,7 @@ mod test {
         let start = expected_bytes.len() - REPR_PAYLOAD_BYTES.len();
         expected_bytes[start..].copy_from_slice(&REPR_PAYLOAD_BYTES[..]);
         assert_eq!(packet.check_len(), Ok(()));
-        assert_eq!(&packet.into_inner()[..], &expected_bytes[..]);
+        assert_eq!(&*packet.into_inner(), &expected_bytes[..]);
     }
 
     #[test]
@@ -1175,7 +1175,7 @@ mod test {
         let mut packet = Packet::new_unchecked(&mut bytes);
         repr.emit(&mut packet);
         packet.payload_mut().copy_from_slice(&REPR_PAYLOAD_BYTES);
-        assert_eq!(&packet.into_inner()[..], &REPR_PACKET_BYTES[..]);
+        assert_eq!(&*packet.into_inner(), &REPR_PACKET_BYTES[..]);
     }
 
     #[test]

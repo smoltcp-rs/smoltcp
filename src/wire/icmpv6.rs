@@ -183,7 +183,7 @@ impl fmt::Display for TimeExceeded {
 }
 
 /// A read/write wrapper around an Internet Control Message Protocol version 6 packet buffer.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Packet<T: AsRef<[u8]>> {
     pub(super) buffer: T,
@@ -828,7 +828,7 @@ mod test {
             .payload_mut()
             .copy_from_slice(&ECHO_PACKET_PAYLOAD[..]);
         packet.fill_checksum(&MOCK_IP_ADDR_1, &MOCK_IP_ADDR_2);
-        assert_eq!(&packet.into_inner()[..], &ECHO_PACKET_BYTES[..]);
+        assert_eq!(&*packet.into_inner(), &ECHO_PACKET_BYTES[..]);
     }
 
     #[test]
@@ -855,7 +855,7 @@ mod test {
             &mut packet,
             &ChecksumCapabilities::default(),
         );
-        assert_eq!(&packet.into_inner()[..], &ECHO_PACKET_BYTES[..]);
+        assert_eq!(&*packet.into_inner(), &ECHO_PACKET_BYTES[..]);
     }
 
     #[test]
@@ -881,7 +881,7 @@ mod test {
             .payload_mut()
             .copy_from_slice(&PKT_TOO_BIG_IP_PAYLOAD[..]);
         packet.fill_checksum(&MOCK_IP_ADDR_1, &MOCK_IP_ADDR_2);
-        assert_eq!(&packet.into_inner()[..], &PKT_TOO_BIG_BYTES[..]);
+        assert_eq!(&*packet.into_inner(), &PKT_TOO_BIG_BYTES[..]);
     }
 
     #[test]
@@ -908,6 +908,6 @@ mod test {
             &mut packet,
             &ChecksumCapabilities::default(),
         );
-        assert_eq!(&packet.into_inner()[..], &PKT_TOO_BIG_BYTES[..]);
+        assert_eq!(&*packet.into_inner(), &PKT_TOO_BIG_BYTES[..]);
     }
 }

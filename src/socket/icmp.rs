@@ -683,7 +683,7 @@ mod test_ipv4 {
         ECHOV4_REPR.emit(&mut packet, &checksum);
 
         assert_eq!(
-            socket.send_slice(&packet.into_inner()[..], REMOTE_IPV4.into()),
+            socket.send_slice(&*packet.into_inner(), REMOTE_IPV4.into()),
             Ok(())
         );
         assert_eq!(
@@ -728,7 +728,7 @@ mod test_ipv4 {
         s.set_hop_limit(Some(0x2a));
 
         assert_eq!(
-            s.send_slice(&packet.into_inner()[..], REMOTE_IPV4.into()),
+            s.send_slice(&*packet.into_inner(), REMOTE_IPV4.into()),
             Ok(())
         );
         assert_eq!(
@@ -761,9 +761,9 @@ mod test_ipv4 {
         let checksum = ChecksumCapabilities::default();
 
         let mut bytes = [0xff; 24];
-        let mut packet = Icmpv4Packet::new_unchecked(&mut bytes);
+        let mut packet = Icmpv4Packet::new_unchecked(&mut bytes[..]);
         ECHOV4_REPR.emit(&mut packet, &checksum);
-        let data = &packet.into_inner()[..];
+        let data = &*packet.into_inner();
 
         assert!(socket.accepts(&mut cx, &REMOTE_IPV4_REPR, &ECHOV4_REPR.into()));
         socket.process(&mut cx, &REMOTE_IPV4_REPR, &ECHOV4_REPR.into());
@@ -816,7 +816,7 @@ mod test_ipv4 {
             &checksum,
         );
 
-        let data = &packet.into_inner()[..];
+        let data = &*packet.into_inner();
 
         let icmp_repr = Icmpv4Repr::DstUnreachable {
             reason: Icmpv4DstUnreachable::PortUnreachable,
@@ -850,7 +850,7 @@ mod test_ipv4 {
         icmp_repr.emit(&mut packet, &checksum);
         assert_eq!(
             socket.recv(),
-            Ok((&packet.into_inner()[..], REMOTE_IPV4.into()))
+            Ok((&*packet.into_inner(), REMOTE_IPV4.into()))
         );
         assert!(!socket.can_recv());
     }
@@ -931,7 +931,7 @@ mod test_ipv6 {
         );
 
         assert_eq!(
-            socket.send_slice(&packet.into_inner()[..], REMOTE_IPV6.into()),
+            socket.send_slice(&*packet.into_inner(), REMOTE_IPV6.into()),
             Ok(())
         );
         assert_eq!(
@@ -981,7 +981,7 @@ mod test_ipv6 {
         s.set_hop_limit(Some(0x2a));
 
         assert_eq!(
-            s.send_slice(&packet.into_inner()[..], REMOTE_IPV6.into()),
+            s.send_slice(&*packet.into_inner(), REMOTE_IPV6.into()),
             Ok(())
         );
         assert_eq!(
@@ -1014,14 +1014,14 @@ mod test_ipv6 {
         let checksum = ChecksumCapabilities::default();
 
         let mut bytes = [0xff; 24];
-        let mut packet = Icmpv6Packet::new_unchecked(&mut bytes);
+        let mut packet = Icmpv6Packet::new_unchecked(&mut bytes[..]);
         ECHOV6_REPR.emit(
             &LOCAL_IPV6.into(),
             &REMOTE_IPV6.into(),
             &mut packet,
             &checksum,
         );
-        let data = &packet.into_inner()[..];
+        let data = &*packet.into_inner();
 
         assert!(socket.accepts(&mut cx, &REMOTE_IPV6_REPR, &ECHOV6_REPR.into()));
         socket.process(&mut cx, &REMOTE_IPV6_REPR, &ECHOV6_REPR.into());
@@ -1079,7 +1079,7 @@ mod test_ipv6 {
             &checksum,
         );
 
-        let data = &packet.into_inner()[..];
+        let data = &*packet.into_inner();
 
         let icmp_repr = Icmpv6Repr::DstUnreachable {
             reason: Icmpv6DstUnreachable::PortUnreachable,
@@ -1118,7 +1118,7 @@ mod test_ipv6 {
         );
         assert_eq!(
             socket.recv(),
-            Ok((&packet.into_inner()[..], REMOTE_IPV6.into()))
+            Ok((&*packet.into_inner(), REMOTE_IPV6.into()))
         );
         assert!(!socket.can_recv());
     }

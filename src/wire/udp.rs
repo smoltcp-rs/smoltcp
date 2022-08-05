@@ -7,7 +7,7 @@ use crate::wire::ip::checksum;
 use crate::wire::{IpAddress, IpProtocol};
 
 /// A read/write wrapper around an User Datagram Protocol packet buffer.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Packet<T: AsRef<[u8]>> {
     buffer: T,
@@ -358,7 +358,7 @@ mod test {
         packet.set_checksum(0xffff);
         packet.payload_mut().copy_from_slice(&PAYLOAD_BYTES[..]);
         packet.fill_checksum(&SRC_ADDR.into(), &DST_ADDR.into());
-        assert_eq!(&packet.into_inner()[..], &PACKET_BYTES[..]);
+        assert_eq!(&*packet.into_inner(), &PACKET_BYTES[..]);
     }
 
     #[test]
@@ -429,7 +429,7 @@ mod test {
             |payload| payload.copy_from_slice(&PAYLOAD_BYTES),
             &ChecksumCapabilities::default(),
         );
-        assert_eq!(&packet.into_inner()[..], &PACKET_BYTES[..]);
+        assert_eq!(&*packet.into_inner(), &PACKET_BYTES[..]);
     }
 
     #[test]

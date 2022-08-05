@@ -330,7 +330,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
     }
 }
 
-impl<'a> fmt::Display for Repr {
+impl fmt::Display for Repr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Repr::MembershipQuery {
@@ -413,7 +413,7 @@ mod test {
         packet.set_max_resp_code(0);
         packet.set_group_address(Ipv4Address::from_bytes(&[224, 0, 6, 150]));
         packet.fill_checksum();
-        assert_eq!(&packet.into_inner()[..], &LEAVE_PACKET_BYTES[..]);
+        assert_eq!(&*packet.into_inner(), &LEAVE_PACKET_BYTES[..]);
     }
 
     #[test]
@@ -424,7 +424,7 @@ mod test {
         packet.set_max_resp_code(0);
         packet.set_group_address(Ipv4Address::from_bytes(&[225, 0, 0, 37]));
         packet.fill_checksum();
-        assert_eq!(&packet.into_inner()[..], &REPORT_PACKET_BYTES[..]);
+        assert_eq!(&*packet.into_inner(), &REPORT_PACKET_BYTES[..]);
     }
 
     #[test]

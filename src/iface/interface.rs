@@ -4254,14 +4254,14 @@ mod test {
 
         // Ensure the ident we bound to and the ident of the packet are the same.
         let mut bytes = [0xff; 24];
-        let mut packet = Icmpv4Packet::new_unchecked(&mut bytes);
+        let mut packet = Icmpv4Packet::new_unchecked(&mut bytes[..]);
         let echo_repr = Icmpv4Repr::EchoRequest {
             ident,
             seq_no,
             data: echo_data,
         };
         echo_repr.emit(&mut packet, &ChecksumCapabilities::default());
-        let icmp_data = &packet.into_inner()[..];
+        let icmp_data = &*packet.into_inner();
 
         let ipv4_repr = Ipv4Repr {
             src_addr: Ipv4Address::new(0x7f, 0x00, 0x00, 0x02),
