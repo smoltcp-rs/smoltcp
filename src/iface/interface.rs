@@ -399,8 +399,8 @@ let iface = builder.finalize(&mut device);
     }
 
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
-    pub fn sixlowpan_fragments_cache_timeout(mut self, sec: u64) -> Self {
-        self.sixlowpan_fragments_cache_timeout = Duration::from_secs(sec);
+    pub fn sixlowpan_fragments_cache_timeout(mut self, timeout: Duration) -> Self {
+        self.sixlowpan_fragments_cache_timeout = timeout;
         self
     }
 
