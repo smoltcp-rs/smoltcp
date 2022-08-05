@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Remove IpVersion::Unspecified
 - Remove IpAddress::Unspecified
 - When sending packets with a raw socket, the source IP address is sent unmodified (it was previously replaced with the interface's address if it was unspecified).
+- Fix enable `defmt/alloc` if `alloc` or `std` is enabled.
+- Minimum Supported Rust Version (MSRV) **bumped** from 1.56 to 1.60
 
 ## [0.8.1] - 2022-05-12
 
