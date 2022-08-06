@@ -542,24 +542,19 @@ impl<T: AsRef<[u8]>> Packet<T> {
         let field = &self.buffer.as_ref()[field::FLAGS];
         Flags::from_bits_truncate(NetworkEndian::read_u16(field))
     }
-}
 
-impl<'a, T: AsRef<[u8]> + ?Sized> Packet<&'a T> {
     /// Return a pointer to the options.
     #[inline]
-    pub fn options(&self) -> Result<DhcpOptionsBuffer<&'a [u8]>> {
-        let data = self.buffer.as_ref();
-        data.get(field::OPTIONS)
-            .ok_or(Error)
-            .map(|buffer| DhcpOptionsBuffer {
-                buffer,
-                len: buffer.len(),
-            })
+    pub fn options(&self) -> DhcpOptionsBuffer<&[u8]> {
+        let buffer = &self.buffer.as_ref()[field::OPTIONS];
+        DhcpOptionsBuffer {
+            buffer,
+            len: buffer.len(),
+        }
     }
 
-    pub fn get_sname(&self) -> Result<&'a str> {
-        let data = self.buffer.as_ref();
-        let data = data.get(field::SNAME).ok_or(Error)?;
+    pub fn get_sname(&self) -> Result<&str> {
+        let data = &self.buffer.as_ref()[field::SNAME];
         let len = data.iter().position(|&x| x == 0).ok_or(Error)?;
         if len == 0 {
             return Err(Error);
@@ -569,9 +564,8 @@ impl<'a, T: AsRef<[u8]> + ?Sized> Packet<&'a T> {
         Ok(data)
     }
 
-    pub fn get_boot_file(&self) -> Result<&'a str> {
-        let data = self.buffer.as_ref();
-        let data = data.get(field::FILE).ok_or(Error)?;
+    pub fn get_boot_file(&self) -> Result<&str> {
+        let data = &self.buffer.as_ref()[field::FILE];
         let len = data.iter().position(|&x| x == 0).ok_or(Error)?;
         if len == 0 {
             return Err(Error);
@@ -698,11 +692,8 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
 impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Packet<&'a mut T> {
     /// Return a pointer to the options.
     #[inline]
-    pub fn options_mut(&mut self) -> Result<DhcpOptionsBuffer<&mut [u8]>> {
-        let data = self.buffer.as_mut();
-        data.get_mut(field::OPTIONS)
-            .ok_or(Error)
-            .map(DhcpOptionsBuffer::new)
+    pub fn options_mut(&mut self) -> DhcpOptionsBuffer<&mut [u8]> {
+        DhcpOptionsBuffer::new(&mut self.buffer.as_mut()[field::OPTIONS])
     }
 }
 
@@ -866,7 +857,7 @@ impl<'a> Repr<'a> {
     }
 
     /// Parse a DHCP packet and return a high-level representation.
-    pub fn parse<T>(packet: &Packet<&'a T>) -> Result<Self>
+    pub fn parse<T>(packet: &'a Packet<&'a T>) -> Result<Self>
     where
         T: AsRef<[u8]> + ?Sized,
     {
@@ -903,7 +894,7 @@ impl<'a> Repr<'a> {
         let mut max_size = None;
         let mut lease_duration = None;
 
-        for option in packet.options()?.parse() {
+        for option in packet.options().parse() {
             match option {
                 DhcpOption::EndOfList => break,
                 DhcpOption::Pad => {}
@@ -1009,7 +1000,7 @@ impl<'a> Repr<'a> {
         packet.set_flags(flags);
 
         {
-            let mut options = packet.options_mut()?;
+            let mut options = packet.options_mut();
             options.emit(
                 iter::IntoIterator::into_iter([
                     Some(DhcpOption::MessageType(self.message_type)),
@@ -1155,7 +1146,7 @@ mod test {
         assert_eq!(packet.server_ip(), IP_NULL);
         assert_eq!(packet.relay_agent_ip(), IP_NULL);
         assert_eq!(packet.client_hardware_address(), CLIENT_MAC);
-        let options = packet.options().unwrap();
+        let options = packet.options();
         assert_eq!(options.buffer_len(), 3 + 9 + 6 + 4 + 6 + 1 + 7);
 
         let mut options = options.parse();
@@ -1203,7 +1194,7 @@ mod test {
         packet.set_client_hardware_address(CLIENT_MAC);
 
         {
-            let mut options = packet.options_mut().unwrap();
+            let mut options = packet.options_mut();
             options
                 .emit([DhcpOption::MessageType(MessageType::Discover)])
                 .unwrap();
