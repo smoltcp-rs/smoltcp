@@ -66,7 +66,7 @@ pub enum Socket<'a> {
     #[cfg(feature = "socket-tcp")]
     Tcp(tcp::Socket<'a>),
     #[cfg(feature = "socket-dhcpv4")]
-    Dhcpv4(dhcpv4::Socket),
+    Dhcpv4(dhcpv4::Socket<'a>),
     #[cfg(feature = "socket-dns")]
     Dns(dns::Socket<'a>),
 }
@@ -132,6 +132,6 @@ from_socket!(udp::Socket<'a>, Udp);
 #[cfg(feature = "socket-tcp")]
 from_socket!(tcp::Socket<'a>, Tcp);
 #[cfg(feature = "socket-dhcpv4")]
-from_socket!(dhcpv4::Socket, Dhcpv4);
+from_socket!(dhcpv4::Socket<'a>, Dhcpv4);
 #[cfg(feature = "socket-dns")]
 from_socket!(dns::Socket<'a>, Dns);
