@@ -59,17 +59,17 @@ impl MessageType {
 /// A buffer for DHCP options.
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct DhcpOptionsBuffer<'a> {
+pub struct DhcpOptionWriter<'a> {
     /// The underlying buffer, directly from the DHCP packet representation.
     buffer: &'a mut [u8],
 }
 
-impl<'a> DhcpOptionsBuffer<'a> {
+impl<'a> DhcpOptionWriter<'a> {
     pub fn new(buffer: &'a mut [u8]) -> Self {
         Self { buffer }
     }
 
-    /// Emit a  [`DhcpOption`] into a [`DhcpOptionsBuffer`].
+    /// Emit a  [`DhcpOption`] into a [`DhcpOptionWriter`].
     pub fn emit(&mut self, option: DhcpOption<'_>) -> Result<()> {
         if option.data.len() > u8::MAX as _ {
             return Err(Error);
@@ -533,8 +533,8 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
 impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Packet<&'a mut T> {
     /// Return a pointer to the options.
     #[inline]
-    pub fn options_mut(&mut self) -> DhcpOptionsBuffer<'_> {
-        DhcpOptionsBuffer::new(&mut self.buffer.as_mut()[field::OPTIONS])
+    pub fn options_mut(&mut self) -> DhcpOptionWriter<'_> {
+        DhcpOptionWriter::new(&mut self.buffer.as_mut()[field::OPTIONS])
     }
 }
 
@@ -1243,7 +1243,7 @@ mod test {
         };
 
         let mut bytes = vec![0xa5; 5];
-        let mut writer = DhcpOptionsBuffer::new(&mut bytes);
+        let mut writer = DhcpOptionWriter::new(&mut bytes);
         writer.emit(dhcp_option).unwrap();
 
         assert_eq!(
