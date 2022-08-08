@@ -9,6 +9,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       RUSTUP_TOOLCHAIN: stable
+    permissions:
+      checks: write
     steps:
       - uses: actions/checkout@v2
         if: github.event_name == 'pull_request_target'
