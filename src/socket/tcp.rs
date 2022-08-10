@@ -2425,6 +2425,7 @@ mod test {
     {
         socket.cx.set_now(timestamp);
 
+        let mut sent = 0;
         let result = socket
             .socket
             .dispatch(&mut socket.cx, |_, (ip_repr, tcp_repr)| {
@@ -2434,12 +2435,25 @@ mod test {
                 assert_eq!(ip_repr.payload_len(), tcp_repr.buffer_len());
 
                 net_trace!("recv: {}", tcp_repr);
+                sent += 1;
                 Ok(f(Ok(tcp_repr)))
             });
         match result {
-            Ok(()) => (),
+            Ok(()) => assert_eq!(sent, 1, "Exactly one packet should be sent"),
             Err(e) => f(Err(e)),
         }
+    }
+
+    fn recv_nothing(socket: &mut TestSocket, timestamp: Instant) {
+        socket.cx.set_now(timestamp);
+
+        let result: Result<(), ()> = socket
+            .socket
+            .dispatch(&mut socket.cx, |_, (_ip_repr, _tcp_repr)| {
+                panic!("Should not send a packet")
+            });
+
+        assert_eq!(result, Ok(()))
     }
 
     macro_rules! send {
@@ -2456,7 +2470,7 @@ mod test {
     macro_rules! recv {
         ($socket:ident, [$( $repr:expr ),*]) => ({
             $( recv!($socket, Ok($repr)); )*
-            recv!($socket, Err(Error::Exhausted))
+            recv_nothing!($socket)
         });
         ($socket:ident, $result:expr) =>
             (recv!($socket, time 0, $result));
@@ -2471,6 +2485,11 @@ mod test {
             }));
         ($socket:ident, time $time:expr, $result:expr, exact) =>
             (recv(&mut $socket, Instant::from_millis($time), |repr| assert_eq!(repr, $result)));
+    }
+
+    macro_rules! recv_nothing {
+        ($socket:ident) => (recv_nothing!($socket, time 0));
+        ($socket:ident, time $time:expr) => (recv_nothing(&mut $socket, Instant::from_millis($time)));
     }
 
     macro_rules! sanity {
@@ -3201,7 +3220,7 @@ mod test {
                 ..RECV_TEMPL
             }]
         );
-        recv!(s, time 1000, Err(Error::Exhausted));
+        recv_nothing!(s, time 1000);
         assert_eq!(s.state, State::Established);
         sanity!(s, socket_established());
     }
@@ -4376,7 +4395,7 @@ mod test {
             }]
         );
         assert_eq!(s.state, State::TimeWait);
-        recv!(s, time 60_000, Err(Error::Exhausted));
+        recv_nothing!(s, time 60_000);
         assert_eq!(s.state, State::Closed);
     }
 
@@ -4910,7 +4929,7 @@ mod test {
             payload:    &b"abcdef"[..],
             ..RECV_TEMPL
         }));
-        recv!(s, time 1050, Err(Error::Exhausted));
+        recv_nothing!(s, time 1050);
         recv!(s, time 2000, Ok(TcpRepr {
             seq_number: LOCAL_SEQ + 1,
             ack_number: Some(REMOTE_SEQ + 1),
@@ -4939,9 +4958,9 @@ mod test {
             payload:    &b"012345"[..],
             ..RECV_TEMPL
         }), exact);
-        recv!(s, time 0, Err(Error::Exhausted));
+        recv_nothing!(s, time 0);
 
-        recv!(s, time 50, Err(Error::Exhausted));
+        recv_nothing!(s, time 50);
 
         recv!(s, time 1000, Ok(TcpRepr {
             control:    TcpControl::None,
@@ -4957,7 +4976,7 @@ mod test {
             payload:    &b"012345"[..],
             ..RECV_TEMPL
         }), exact);
-        recv!(s, time 1550, Err(Error::Exhausted));
+        recv_nothing!(s, time 1550);
     }
 
     #[test]
@@ -5534,7 +5553,7 @@ mod test {
 
         // even though we're in "fast retransmit", we shouldn't
         // force-send anything because the remote's window is full.
-        recv!(s, Err(Error::Exhausted));
+        recv_nothing!(s);
     }
 
     // =========================================================================================//
@@ -5616,7 +5635,7 @@ mod test {
         assert_eq!(s.recv_slice(rx_buf), Ok(4));
 
         // check that we do NOT send a window update even if it has changed.
-        recv!(s, Err(Error::Exhausted));
+        recv_nothing!(s);
     }
 
     #[test]
@@ -5649,7 +5668,7 @@ mod test {
         assert_eq!(s.recv_slice(rx_buf), Ok(4));
 
         // check that we do NOT send a window update even if it has changed.
-        recv!(s, Err(Error::Exhausted));
+        recv_nothing!(s);
     }
 
     // =========================================================================================//
@@ -5765,7 +5784,7 @@ mod test {
                 ..RECV_TEMPL
             }]
         );
-        recv!(s, time 0, Err(Error::Exhausted));
+        recv_nothing!(s, time 0);
         s.recv(|buffer| {
             assert_eq!(&buffer[..3], b"abc");
             (3, ())
@@ -5777,7 +5796,7 @@ mod test {
             window_len: 3,
             ..RECV_TEMPL
         }));
-        recv!(s, time 0, Err(Error::Exhausted));
+        recv_nothing!(s, time 0);
         s.recv(|buffer| {
             assert_eq!(buffer, b"def");
             (buffer.len(), ())
@@ -5941,7 +5960,7 @@ mod test {
     fn test_established_timeout() {
         let mut s = socket_established();
         s.set_timeout(Some(Duration::from_millis(1000)));
-        recv!(s, time 250, Err(Error::Exhausted));
+        recv_nothing!(s, time 250);
         assert_eq!(
             s.socket.poll_at(&mut s.cx),
             PollAt::Time(Instant::from_millis(1250))
@@ -5988,7 +6007,7 @@ mod test {
             payload:    &[0],
             ..RECV_TEMPL
         }));
-        recv!(s, time 100, Err(Error::Exhausted));
+        recv_nothing!(s, time 100);
         assert_eq!(
             s.socket.poll_at(&mut s.cx),
             PollAt::Time(Instant::from_millis(150))
@@ -6008,19 +6027,19 @@ mod test {
             payload:    &[0],
             ..RECV_TEMPL
         }));
-        recv!(s, time 155, Err(Error::Exhausted));
+        recv_nothing!(s, time 155);
         assert_eq!(
             s.socket.poll_at(&mut s.cx),
             PollAt::Time(Instant::from_millis(205))
         );
-        recv!(s, time 200, Err(Error::Exhausted));
+        recv_nothing!(s, time 200);
         recv!(s, time 205, Ok(TcpRepr {
             control:    TcpControl::Rst,
             seq_number: LOCAL_SEQ + 1,
             ack_number: Some(REMOTE_SEQ + 1),
             ..RECV_TEMPL
         }));
-        recv!(s, time 205, Err(Error::Exhausted));
+        recv_nothing!(s, time 205);
         assert_eq!(s.state, State::Closed);
     }
 
@@ -6118,7 +6137,7 @@ mod test {
             s.socket.poll_at(&mut s.cx),
             PollAt::Time(Instant::from_millis(100))
         );
-        recv!(s, time 95, Err(Error::Exhausted));
+        recv_nothing!(s, time 95);
         recv!(s, time 100, Ok(TcpRepr {
             seq_number: LOCAL_SEQ,
             ack_number: Some(REMOTE_SEQ + 1),
@@ -6130,7 +6149,7 @@ mod test {
             s.socket.poll_at(&mut s.cx),
             PollAt::Time(Instant::from_millis(200))
         );
-        recv!(s, time 195, Err(Error::Exhausted));
+        recv_nothing!(s, time 195);
         recv!(s, time 200, Ok(TcpRepr {
             seq_number: LOCAL_SEQ,
             ack_number: Some(REMOTE_SEQ + 1),
@@ -6147,7 +6166,7 @@ mod test {
             s.socket.poll_at(&mut s.cx),
             PollAt::Time(Instant::from_millis(350))
         );
-        recv!(s, time 345, Err(Error::Exhausted));
+        recv_nothing!(s, time 345);
         recv!(s, time 350, Ok(TcpRepr {
             seq_number: LOCAL_SEQ,
             ack_number: Some(REMOTE_SEQ + 1),
@@ -6512,7 +6531,7 @@ mod test {
         );
 
         // No ACK is immediately sent.
-        recv!(s, Err(Error::Exhausted));
+        recv_nothing!(s);
 
         // After 10ms, it is sent.
         recv!(s, time 11, Ok(TcpRepr {
@@ -6545,7 +6564,7 @@ mod test {
         .unwrap();
 
         // However, no ACK or window update is immediately sent.
-        recv!(s, Err(Error::Exhausted));
+        recv_nothing!(s);
 
         // After 10ms, it is sent.
         recv!(s, time 11, Ok(TcpRepr {
@@ -6605,7 +6624,7 @@ mod test {
         );
 
         // No ACK is immediately sent.
-        recv!(s, Err(Error::Exhausted));
+        recv_nothing!(s);
 
         send!(
             s,
@@ -6644,7 +6663,7 @@ mod test {
         );
 
         // No ACK is immediately sent.
-        recv!(s, Err(Error::Exhausted));
+        recv_nothing!(s);
 
         send!(
             s,
