@@ -57,79 +57,46 @@ impl MessageType {
 }
 
 /// A buffer for DHCP options.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct DhcpOptionsBuffer<T> {
+pub struct DhcpOptionWriter<'a> {
     /// The underlying buffer, directly from the DHCP packet representation.
-    buffer: T,
-    len: usize,
+    buffer: &'a mut [u8],
 }
 
-impl<T: AsRef<[u8]>> DhcpOptionsBuffer<T> {
-    pub fn new(buffer: T) -> Self {
-        Self { buffer, len: 0 }
+impl<'a> DhcpOptionWriter<'a> {
+    pub fn new(buffer: &'a mut [u8]) -> Self {
+        Self { buffer }
     }
 
-    pub fn buffer_len(&self) -> usize {
-        self.len
-    }
-
-    pub fn map<F, U>(self, f: F) -> DhcpOptionsBuffer<U>
-    where
-        F: FnOnce(T) -> U,
-    {
-        DhcpOptionsBuffer {
-            buffer: f(self.buffer),
-            len: self.len,
-        }
-    }
-
-    pub fn map_ref<'a, F, U>(&'a self, f: F) -> DhcpOptionsBuffer<U>
-    where
-        F: FnOnce(&'a T) -> U,
-    {
-        DhcpOptionsBuffer {
-            buffer: f(&self.buffer),
-            len: self.len,
-        }
-    }
-}
-
-impl<'a, T: AsRef<[u8]> + ?Sized> DhcpOptionsBuffer<&'a T> {
-    /// Parse a [`DhcpOptionsBuffer`] into an iterator of [`DhcpOption`].
-    ///
-    /// This will stop when it reaches [`DhcpOption::EndOfList`].
-    pub fn parse(&self) -> impl Iterator<Item = DhcpOption<'a>> {
-        let mut buf = &self.buffer.as_ref()[..self.len];
-        iter::from_fn(move || match DhcpOption::parse(buf) {
-            Ok((_, DhcpOption::EndOfList)) | Err(_) => None,
-            Ok((new_buf, option)) => {
-                buf = new_buf;
-                Some(option)
-            }
-        })
-    }
-}
-
-impl<T: AsMut<[u8]> + AsRef<[u8]>> DhcpOptionsBuffer<T> {
-    /// Emit an iterator of [`DhcpOption`] into a [`DhcpOptionsBuffer`].
-    pub fn emit<'a, I>(&mut self, options: I) -> Result<()>
-    where
-        I: IntoIterator<Item = DhcpOption<'a>>,
-    {
-        let mut buf = self.buffer.as_mut().get_mut(self.len..).unwrap_or(&mut []);
-        for option in options.into_iter() {
-            let option_size = option.buffer_len();
-            let buf_len = buf.len();
-            if option_size > buf_len {
-                return Err(Error);
-            }
-            buf = option.emit(buf);
-            if buf.len() != buf_len {
-                self.len += option_size;
-            }
+    /// Emit a  [`DhcpOption`] into a [`DhcpOptionWriter`].
+    pub fn emit(&mut self, option: DhcpOption<'_>) -> Result<()> {
+        if option.data.len() > u8::MAX as _ {
+            return Err(Error);
         }
 
+        let total_len = 2 + option.data.len();
+        if self.buffer.len() < total_len {
+            return Err(Error);
+        }
+
+        let (buf, rest) = core::mem::take(&mut self.buffer).split_at_mut(total_len);
+        self.buffer = rest;
+
+        buf[0] = option.kind;
+        buf[1] = option.data.len() as _;
+        buf[2..].copy_from_slice(option.data);
+
+        Ok(())
+    }
+
+    pub fn end(&mut self) -> Result<()> {
+        if self.buffer.is_empty() {
+            return Err(Error);
+        }
+
+        self.buffer[0] = field::OPT_END;
+        self.buffer = &mut [];
         Ok(())
     }
 }
@@ -137,162 +104,9 @@ impl<T: AsMut<[u8]> + AsRef<[u8]>> DhcpOptionsBuffer<T> {
 /// A representation of a single DHCP option.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum DhcpOption<'a> {
-    EndOfList,
-    Pad,
-    MessageType(MessageType),
-    RequestedIp(Ipv4Address),
-    ClientIdentifier(EthernetAddress),
-    ServerIdentifier(Ipv4Address),
-    IpLeaseTime(u32),
-    Router(Ipv4Address),
-    SubnetMask(Ipv4Address),
-    MaximumDhcpMessageSize(u16),
-    Other { kind: u8, data: &'a [u8] },
-}
-
-impl<'a> DhcpOption<'a> {
-    pub fn parse(buffer: &'a [u8]) -> Result<(&'a [u8], DhcpOption<'a>)> {
-        // See https://tools.ietf.org/html/rfc2132 for all possible DHCP options.
-
-        let (skip_len, option);
-        match *buffer.first().ok_or(Error)? {
-            field::OPT_END => {
-                skip_len = 1;
-                option = DhcpOption::EndOfList;
-            }
-            field::OPT_PAD => {
-                skip_len = 1;
-                option = DhcpOption::Pad;
-            }
-            kind => {
-                let length = *buffer.get(1).ok_or(Error)? as usize;
-                skip_len = length + 2;
-                let data = buffer.get(2..skip_len).ok_or(Error)?;
-                match (kind, length) {
-                    (field::OPT_END, _) | (field::OPT_PAD, _) => unreachable!(),
-                    (field::OPT_DHCP_MESSAGE_TYPE, 1) => {
-                        option = DhcpOption::MessageType(MessageType::from(data[0]));
-                    }
-                    (field::OPT_REQUESTED_IP, 4) => {
-                        option = DhcpOption::RequestedIp(Ipv4Address::from_bytes(data));
-                    }
-                    (field::OPT_CLIENT_ID, 7) => {
-                        let hardware_type = Hardware::from(u16::from(data[0]));
-                        if hardware_type != Hardware::Ethernet {
-                            return Err(Error);
-                        }
-                        option =
-                            DhcpOption::ClientIdentifier(EthernetAddress::from_bytes(&data[1..]));
-                    }
-                    (field::OPT_SERVER_IDENTIFIER, 4) => {
-                        option = DhcpOption::ServerIdentifier(Ipv4Address::from_bytes(data));
-                    }
-                    (field::OPT_ROUTER, 4) => {
-                        option = DhcpOption::Router(Ipv4Address::from_bytes(data));
-                    }
-                    (field::OPT_SUBNET_MASK, 4) => {
-                        option = DhcpOption::SubnetMask(Ipv4Address::from_bytes(data));
-                    }
-                    (field::OPT_MAX_DHCP_MESSAGE_SIZE, 2) => {
-                        option = DhcpOption::MaximumDhcpMessageSize(u16::from_be_bytes([
-                            data[0], data[1],
-                        ]));
-                    }
-                    (field::OPT_IP_LEASE_TIME, 4) => {
-                        option = DhcpOption::IpLeaseTime(u32::from_be_bytes([
-                            data[0], data[1], data[2], data[3],
-                        ]))
-                    }
-                    (_, _) => {
-                        option = DhcpOption::Other {
-                            kind: kind,
-                            data: data,
-                        };
-                    }
-                }
-            }
-        }
-        Ok((&buffer[skip_len..], option))
-    }
-
-    pub fn buffer_len(&self) -> usize {
-        match self {
-            &DhcpOption::EndOfList => 1,
-            &DhcpOption::Pad => 1,
-            &DhcpOption::MessageType(_) => 3,
-            &DhcpOption::ClientIdentifier(eth_addr) => 3 + eth_addr.as_bytes().len(),
-            &DhcpOption::RequestedIp(ip)
-            | &DhcpOption::ServerIdentifier(ip)
-            | &DhcpOption::Router(ip)
-            | &DhcpOption::SubnetMask(ip) => 2 + ip.as_bytes().len(),
-            &DhcpOption::MaximumDhcpMessageSize(_) => 4,
-            &DhcpOption::IpLeaseTime(_) => 6,
-            &DhcpOption::Other { data, .. } => 2 + data.len(),
-        }
-    }
-
-    pub fn emit<'b>(&self, buffer: &'b mut [u8]) -> &'b mut [u8] {
-        let skip_length;
-        match *self {
-            DhcpOption::EndOfList => {
-                skip_length = 1;
-                buffer[0] = field::OPT_END;
-            }
-            DhcpOption::Pad => {
-                skip_length = 1;
-                buffer[0] = field::OPT_PAD;
-            }
-            _ => {
-                skip_length = self.buffer_len();
-                buffer[1] = (skip_length - 2) as u8;
-                match *self {
-                    DhcpOption::EndOfList | DhcpOption::Pad => unreachable!(),
-                    DhcpOption::MessageType(value) => {
-                        buffer[0] = field::OPT_DHCP_MESSAGE_TYPE;
-                        buffer[2] = value.into();
-                    }
-                    DhcpOption::ClientIdentifier(eth_addr) => {
-                        buffer[0] = field::OPT_CLIENT_ID;
-                        buffer[2] = u16::from(Hardware::Ethernet) as u8;
-                        buffer[3..9].copy_from_slice(eth_addr.as_bytes());
-                    }
-                    DhcpOption::RequestedIp(ip) => {
-                        buffer[0] = field::OPT_REQUESTED_IP;
-                        buffer[2..6].copy_from_slice(ip.as_bytes());
-                    }
-                    DhcpOption::ServerIdentifier(ip) => {
-                        buffer[0] = field::OPT_SERVER_IDENTIFIER;
-                        buffer[2..6].copy_from_slice(ip.as_bytes());
-                    }
-                    DhcpOption::Router(ip) => {
-                        buffer[0] = field::OPT_ROUTER;
-                        buffer[2..6].copy_from_slice(ip.as_bytes());
-                    }
-                    DhcpOption::SubnetMask(mask) => {
-                        buffer[0] = field::OPT_SUBNET_MASK;
-                        buffer[2..6].copy_from_slice(mask.as_bytes());
-                    }
-                    DhcpOption::MaximumDhcpMessageSize(size) => {
-                        buffer[0] = field::OPT_MAX_DHCP_MESSAGE_SIZE;
-                        buffer[2..4].copy_from_slice(&size.to_be_bytes()[..]);
-                    }
-                    DhcpOption::IpLeaseTime(lease_time) => {
-                        buffer[0] = field::OPT_IP_LEASE_TIME;
-                        buffer[2..6].copy_from_slice(&lease_time.to_be_bytes()[..]);
-                    }
-                    DhcpOption::Other {
-                        kind,
-                        data: provided,
-                    } => {
-                        buffer[0] = kind;
-                        buffer[2..skip_length].copy_from_slice(provided);
-                    }
-                }
-            }
-        }
-        &mut buffer[skip_length..]
-    }
+pub struct DhcpOption<'a> {
+    pub kind: u8,
+    pub data: &'a [u8],
 }
 
 /// A read/write wrapper around a Dynamic Host Configuration Protocol packet buffer.
@@ -542,24 +356,46 @@ impl<T: AsRef<[u8]>> Packet<T> {
         let field = &self.buffer.as_ref()[field::FLAGS];
         Flags::from_bits_truncate(NetworkEndian::read_u16(field))
     }
-}
 
-impl<'a, T: AsRef<[u8]> + ?Sized> Packet<&'a T> {
-    /// Return a pointer to the options.
+    /// Return an iterator over the options.
     #[inline]
-    pub fn options(&self) -> Result<DhcpOptionsBuffer<&'a [u8]>> {
-        let data = self.buffer.as_ref();
-        data.get(field::OPTIONS)
-            .ok_or(Error)
-            .map(|buffer| DhcpOptionsBuffer {
-                buffer,
-                len: buffer.len(),
-            })
+    pub fn options(&self) -> impl Iterator<Item = DhcpOption<'_>> + '_ {
+        let mut buf = &self.buffer.as_ref()[field::OPTIONS];
+        iter::from_fn(move || {
+            loop {
+                match buf.get(0).copied() {
+                    // No more options, return.
+                    None => return None,
+                    Some(field::OPT_END) => return None,
+
+                    // Skip padding.
+                    Some(field::OPT_PAD) => buf = &buf[1..],
+                    Some(kind) => {
+                        if buf.len() < 2 {
+                            return None;
+                        }
+
+                        let len = buf[1] as usize;
+
+                        if buf.len() < 2 + len {
+                            return None;
+                        }
+
+                        let opt = DhcpOption {
+                            kind,
+                            data: &buf[2..2 + len],
+                        };
+
+                        buf = &buf[2 + len..];
+                        return Some(opt);
+                    }
+                }
+            }
+        })
     }
 
-    pub fn get_sname(&self) -> Result<&'a str> {
-        let data = self.buffer.as_ref();
-        let data = data.get(field::SNAME).ok_or(Error)?;
+    pub fn get_sname(&self) -> Result<&str> {
+        let data = &self.buffer.as_ref()[field::SNAME];
         let len = data.iter().position(|&x| x == 0).ok_or(Error)?;
         if len == 0 {
             return Err(Error);
@@ -569,9 +405,8 @@ impl<'a, T: AsRef<[u8]> + ?Sized> Packet<&'a T> {
         Ok(data)
     }
 
-    pub fn get_boot_file(&self) -> Result<&'a str> {
-        let data = self.buffer.as_ref();
-        let data = data.get(field::FILE).ok_or(Error)?;
+    pub fn get_boot_file(&self) -> Result<&str> {
+        let data = &self.buffer.as_ref()[field::FILE];
         let len = data.iter().position(|&x| x == 0).ok_or(Error)?;
         if len == 0 {
             return Err(Error);
@@ -698,11 +533,8 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
 impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Packet<&'a mut T> {
     /// Return a pointer to the options.
     #[inline]
-    pub fn options_mut(&mut self) -> Result<DhcpOptionsBuffer<&mut [u8]>> {
-        let data = self.buffer.as_mut();
-        data.get_mut(field::OPTIONS)
-            .ok_or(Error)
-            .map(DhcpOptionsBuffer::new)
+    pub fn options_mut(&mut self) -> DhcpOptionWriter<'_> {
+        DhcpOptionWriter::new(&mut self.buffer.as_mut()[field::OPTIONS])
     }
 }
 
@@ -821,7 +653,7 @@ pub struct Repr<'a> {
     /// When returned from [`Repr::parse`], this field will be `None`.
     /// However, when calling [`Repr::emit`], this field should contain only
     /// additional DHCP options not known to smoltcp.
-    pub additional_options: Option<DhcpOptionsBuffer<&'a [u8]>>,
+    pub additional_options: &'a [DhcpOption<'a>],
 }
 
 impl<'a> Repr<'a> {
@@ -858,15 +690,15 @@ impl<'a> Repr<'a> {
         if let Some(list) = self.parameter_request_list {
             len += list.len() + 2;
         }
-        if let Some(additional_options) = self.additional_options {
-            len += additional_options.buffer_len();
+        for opt in self.additional_options {
+            len += 2 + opt.data.len()
         }
 
         len
     }
 
     /// Parse a DHCP packet and return a high-level representation.
-    pub fn parse<T>(packet: &Packet<&'a T>) -> Result<Self>
+    pub fn parse<T>(packet: &'a Packet<&'a T>) -> Result<Self>
     where
         T: AsRef<[u8]> + ?Sized,
     {
@@ -903,46 +735,44 @@ impl<'a> Repr<'a> {
         let mut max_size = None;
         let mut lease_duration = None;
 
-        for option in packet.options()?.parse() {
-            match option {
-                DhcpOption::EndOfList => break,
-                DhcpOption::Pad => {}
-                DhcpOption::MessageType(value) => {
+        for option in packet.options() {
+            let data = option.data;
+            match (option.kind, data.len()) {
+                (field::OPT_DHCP_MESSAGE_TYPE, 1) => {
+                    let value = MessageType::from(data[0]);
                     if value.opcode() == packet.opcode() {
                         message_type = Ok(value);
                     }
                 }
-                DhcpOption::RequestedIp(ip) => {
-                    requested_ip = Some(ip);
+                (field::OPT_REQUESTED_IP, 4) => {
+                    requested_ip = Some(Ipv4Address::from_bytes(data));
                 }
-                DhcpOption::ClientIdentifier(eth_addr) => {
-                    client_identifier = Some(eth_addr);
+                (field::OPT_CLIENT_ID, 7) => {
+                    let hardware_type = Hardware::from(u16::from(data[0]));
+                    if hardware_type != Hardware::Ethernet {
+                        return Err(Error);
+                    }
+                    client_identifier = Some(EthernetAddress::from_bytes(&data[1..]));
                 }
-                DhcpOption::ServerIdentifier(ip) => {
-                    server_identifier = Some(ip);
+                (field::OPT_SERVER_IDENTIFIER, 4) => {
+                    server_identifier = Some(Ipv4Address::from_bytes(data));
                 }
-                DhcpOption::Router(ip) => {
-                    router = Some(ip);
+                (field::OPT_ROUTER, 4) => {
+                    router = Some(Ipv4Address::from_bytes(data));
                 }
-                DhcpOption::SubnetMask(mask) => {
-                    subnet_mask = Some(mask);
+                (field::OPT_SUBNET_MASK, 4) => {
+                    subnet_mask = Some(Ipv4Address::from_bytes(data));
                 }
-                DhcpOption::MaximumDhcpMessageSize(size) => {
-                    max_size = Some(size);
+                (field::OPT_MAX_DHCP_MESSAGE_SIZE, 2) => {
+                    max_size = Some(u16::from_be_bytes([data[0], data[1]]));
                 }
-                DhcpOption::IpLeaseTime(duration) => {
-                    lease_duration = Some(duration);
+                (field::OPT_IP_LEASE_TIME, 4) => {
+                    lease_duration = Some(u32::from_be_bytes([data[0], data[1], data[2], data[3]]))
                 }
-                DhcpOption::Other {
-                    kind: field::OPT_PARAMETER_REQUEST_LIST,
-                    data,
-                } => {
+                (field::OPT_PARAMETER_REQUEST_LIST, _) => {
                     parameter_request_list = Some(data);
                 }
-                DhcpOption::Other {
-                    kind: field::OPT_DOMAIN_NAME_SERVER,
-                    data,
-                } => {
+                (field::OPT_DOMAIN_NAME_SERVER, _) => {
                     let mut servers = [None; MAX_DNS_SERVER_COUNT];
                     let chunk_size = 4;
                     for (server, chunk) in servers.iter_mut().zip(data.chunks(chunk_size)) {
@@ -953,7 +783,7 @@ impl<'a> Repr<'a> {
                     }
                     dns_servers = Some(servers);
                 }
-                DhcpOption::Other { .. } => {}
+                _ => {}
             }
         }
 
@@ -978,7 +808,7 @@ impl<'a> Repr<'a> {
             max_size,
             lease_duration,
             message_type: message_type?,
-            additional_options: None,
+            additional_options: &[],
         })
     }
 
@@ -1009,24 +839,67 @@ impl<'a> Repr<'a> {
         packet.set_flags(flags);
 
         {
-            let mut options = packet.options_mut()?;
-            options.emit(
-                iter::IntoIterator::into_iter([
-                    Some(DhcpOption::MessageType(self.message_type)),
-                    self.client_identifier.map(DhcpOption::ClientIdentifier),
-                    self.server_identifier.map(DhcpOption::ServerIdentifier),
-                    self.router.map(DhcpOption::Router),
-                    self.subnet_mask.map(DhcpOption::SubnetMask),
-                    self.requested_ip.map(DhcpOption::RequestedIp),
-                    self.max_size.map(DhcpOption::MaximumDhcpMessageSize),
-                    self.lease_duration.map(DhcpOption::IpLeaseTime),
-                    self.parameter_request_list.map(|list| DhcpOption::Other {
-                        kind: field::OPT_PARAMETER_REQUEST_LIST,
-                        data: list,
-                    }),
-                ])
-                .flatten(),
-            )?;
+            let mut options = packet.options_mut();
+
+            options.emit(DhcpOption {
+                kind: field::OPT_DHCP_MESSAGE_TYPE,
+                data: &[self.message_type.into()],
+            })?;
+
+            if let Some(val) = &self.client_identifier {
+                let mut data = [0; 7];
+                data[0] = u16::from(Hardware::Ethernet) as u8;
+                data[1..].copy_from_slice(val.as_bytes());
+
+                options.emit(DhcpOption {
+                    kind: field::OPT_CLIENT_ID,
+                    data: &data,
+                })?;
+            }
+
+            if let Some(val) = &self.server_identifier {
+                options.emit(DhcpOption {
+                    kind: field::OPT_SERVER_IDENTIFIER,
+                    data: val.as_bytes(),
+                })?;
+            }
+
+            if let Some(val) = &self.router {
+                options.emit(DhcpOption {
+                    kind: field::OPT_ROUTER,
+                    data: val.as_bytes(),
+                })?;
+            }
+            if let Some(val) = &self.subnet_mask {
+                options.emit(DhcpOption {
+                    kind: field::OPT_SUBNET_MASK,
+                    data: val.as_bytes(),
+                })?;
+            }
+            if let Some(val) = &self.requested_ip {
+                options.emit(DhcpOption {
+                    kind: field::OPT_REQUESTED_IP,
+                    data: val.as_bytes(),
+                })?;
+            }
+            if let Some(val) = &self.max_size {
+                options.emit(DhcpOption {
+                    kind: field::OPT_MAX_DHCP_MESSAGE_SIZE,
+                    data: &val.to_be_bytes(),
+                })?;
+            }
+            if let Some(val) = &self.lease_duration {
+                options.emit(DhcpOption {
+                    kind: field::OPT_IP_LEASE_TIME,
+                    data: &val.to_be_bytes(),
+                })?;
+            }
+            if let Some(val) = &self.parameter_request_list {
+                options.emit(DhcpOption {
+                    kind: field::OPT_PARAMETER_REQUEST_LIST,
+                    data: val,
+                })?;
+            }
 
             if let Some(dns_servers) = self.dns_servers {
                 const IP_SIZE: usize = core::mem::size_of::<u32>();
@@ -1041,17 +914,17 @@ impl<'a> Repr<'a> {
                     })
                     .count()
                     * IP_SIZE;
-                options.emit([DhcpOption::Other {
+                options.emit(DhcpOption {
                     kind: field::OPT_DOMAIN_NAME_SERVER,
                     data: &servers[..data_len],
-                }])?;
+                })?;
             }
 
-            if let Some(additional_options) = self.additional_options {
-                options.emit(additional_options.parse())?;
+            for option in self.additional_options {
+                options.emit(*option)?;
             }
 
-            options.emit([DhcpOption::EndOfList])?;
+            options.end()?;
         }
 
         Ok(())
@@ -1155,27 +1028,39 @@ mod test {
         assert_eq!(packet.server_ip(), IP_NULL);
         assert_eq!(packet.relay_agent_ip(), IP_NULL);
         assert_eq!(packet.client_hardware_address(), CLIENT_MAC);
-        let options = packet.options().unwrap();
-        assert_eq!(options.buffer_len(), 3 + 9 + 6 + 4 + 6 + 1 + 7);
 
-        let mut options = options.parse();
-
+        let mut options = packet.options();
         assert_eq!(
             options.next(),
-            Some(DhcpOption::MessageType(MessageType::Discover))
+            Some(DhcpOption {
+                kind: field::OPT_DHCP_MESSAGE_TYPE,
+                data: &[0x01]
+            })
         );
         assert_eq!(
             options.next(),
-            Some(DhcpOption::ClientIdentifier(CLIENT_MAC))
-        );
-        assert_eq!(options.next(), Some(DhcpOption::RequestedIp(IP_NULL)));
-        assert_eq!(
-            options.next(),
-            Some(DhcpOption::MaximumDhcpMessageSize(DHCP_SIZE))
+            Some(DhcpOption {
+                kind: field::OPT_CLIENT_ID,
+                data: &[0x01, 0x00, 0x0b, 0x82, 0x01, 0xfc, 0x42],
+            })
         );
         assert_eq!(
             options.next(),
-            Some(DhcpOption::Other {
+            Some(DhcpOption {
+                kind: field::OPT_REQUESTED_IP,
+                data: &[0x00, 0x00, 0x00, 0x00],
+            })
+        );
+        assert_eq!(
+            options.next(),
+            Some(DhcpOption {
+                kind: field::OPT_MAX_DHCP_MESSAGE_SIZE,
+                data: &DHCP_SIZE.to_be_bytes(),
+            })
+        );
+        assert_eq!(
+            options.next(),
+            Some(DhcpOption {
                 kind: field::OPT_PARAMETER_REQUEST_LIST,
                 data: &[1, 3, 6, 42]
             })
@@ -1202,26 +1087,39 @@ mod test {
         packet.set_relay_agent_ip(IP_NULL);
         packet.set_client_hardware_address(CLIENT_MAC);
 
-        {
-            let mut options = packet.options_mut().unwrap();
-            options
-                .emit([DhcpOption::MessageType(MessageType::Discover)])
-                .unwrap();
-            options
-                .emit([DhcpOption::ClientIdentifier(CLIENT_MAC)])
-                .unwrap();
-            options.emit([DhcpOption::RequestedIp(IP_NULL)]).unwrap();
-            options
-                .emit([DhcpOption::MaximumDhcpMessageSize(DHCP_SIZE)])
-                .unwrap();
-            options
-                .emit([DhcpOption::Other {
-                    kind: field::OPT_PARAMETER_REQUEST_LIST,
-                    data: &[1, 3, 6, 42],
-                }])
-                .unwrap();
-            options.emit([DhcpOption::EndOfList]).unwrap();
-        }
+        let mut options = packet.options_mut();
+
+        options
+            .emit(DhcpOption {
+                kind: field::OPT_DHCP_MESSAGE_TYPE,
+                data: &[0x01],
+            })
+            .unwrap();
+        options
+            .emit(DhcpOption {
+                kind: field::OPT_CLIENT_ID,
+                data: &[0x01, 0x00, 0x0b, 0x82, 0x01, 0xfc, 0x42],
+            })
+            .unwrap();
+        options
+            .emit(DhcpOption {
+                kind: field::OPT_REQUESTED_IP,
+                data: &[0x00, 0x00, 0x00, 0x00],
+            })
+            .unwrap();
+        options
+            .emit(DhcpOption {
+                kind: field::OPT_MAX_DHCP_MESSAGE_SIZE,
+                data: &DHCP_SIZE.to_be_bytes(),
+            })
+            .unwrap();
+        options
+            .emit(DhcpOption {
+                kind: field::OPT_PARAMETER_REQUEST_LIST,
+                data: &[1, 3, 6, 42],
+            })
+            .unwrap();
+        options.end().unwrap();
 
         let packet = &mut packet.into_inner()[..];
         for byte in &mut packet[269..276] {
@@ -1251,7 +1149,7 @@ mod test {
             dns_servers: None,
             max_size: None,
             lease_duration: Some(0xffff_ffff), // Infinite lease
-            additional_options: None,
+            additional_options: &[],
         }
     }
 
@@ -1275,7 +1173,7 @@ mod test {
             server_identifier: None,
             parameter_request_list: Some(&[1, 3, 6, 42]),
             dns_servers: None,
-            additional_options: None,
+            additional_options: &[],
         }
     }
 
@@ -1339,15 +1237,15 @@ mod test {
     #[test]
     fn test_emit_dhcp_option() {
         static DATA: &[u8] = &[1, 3, 6];
-        let mut bytes = vec![0xa5; 5];
-        let dhcp_option = DhcpOption::Other {
+        let dhcp_option = DhcpOption {
             kind: field::OPT_PARAMETER_REQUEST_LIST,
             data: DATA,
         };
-        {
-            let rest = dhcp_option.emit(&mut bytes);
-            assert_eq!(rest.len(), 0);
-        }
+
+        let mut bytes = vec![0xa5; 5];
+        let mut writer = DhcpOptionWriter::new(&mut bytes);
+        writer.emit(dhcp_option).unwrap();
+
         assert_eq!(
             &bytes[0..2],
             &[field::OPT_PARAMETER_REQUEST_LIST, DATA.len() as u8]

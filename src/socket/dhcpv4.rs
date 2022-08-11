@@ -3,12 +3,12 @@ use core::task::Waker;
 
 use crate::iface::Context;
 use crate::time::{Duration, Instant};
-use crate::wire::dhcpv4::{field as dhcpv4_field, DhcpOptionsBuffer};
-use crate::wire::HardwareAddress;
+use crate::wire::dhcpv4::field as dhcpv4_field;
 use crate::wire::{
     DhcpMessageType, DhcpPacket, DhcpRepr, IpAddress, IpProtocol, Ipv4Address, Ipv4Cidr, Ipv4Repr,
     UdpRepr, DHCP_CLIENT_PORT, DHCP_MAX_DNS_SERVER_COUNT, DHCP_SERVER_PORT, UDP_HEADER_LEN,
 };
+use crate::wire::{DhcpOption, HardwareAddress};
 
 #[cfg(feature = "async")]
 use super::WakerRegistration;
@@ -150,7 +150,7 @@ pub struct Socket<'a> {
 
     /// A buffer contains options additional to be added to outgoing DHCP
     /// packets.
-    outgoing_options: Option<DhcpOptionsBuffer<&'a [u8]>>,
+    outgoing_options: &'a [DhcpOption<'a>],
     /// A buffer containing all requested parameters.
     parameter_request_list: Option<&'a [u8]>,
 
@@ -180,7 +180,7 @@ impl<'a> Socket<'a> {
             max_lease_duration: None,
             retry_config: RetryConfig::default(),
             ignore_naks: false,
-            outgoing_options: None,
+            outgoing_options: &[],
             parameter_request_list: None,
             receive_packet_buffer: None,
             #[cfg(feature = "async")]
@@ -193,9 +193,9 @@ impl<'a> Socket<'a> {
         self.retry_config = config;
     }
 
-    /// Set the outgoing options buffer.
-    pub fn set_outgoing_options_buffer(&mut self, options_buffer: DhcpOptionsBuffer<&'a [u8]>) {
-        self.outgoing_options = Some(options_buffer);
+    /// Set the outgoing options.
+    pub fn set_outgoing_options(&mut self, options: &'a [DhcpOption<'a>]) {
+        self.outgoing_options = options;
     }
 
     /// Set the buffer into which incoming DHCP packets are copied into.
@@ -841,7 +841,7 @@ mod test {
         dns_servers: None,
         max_size: None,
         lease_duration: None,
-        additional_options: None,
+        additional_options: &[],
     };
 
     const DHCP_DISCOVER: DhcpRepr = DhcpRepr {
