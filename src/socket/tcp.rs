@@ -1460,6 +1460,7 @@ impl<'a> Socket<'a> {
         // from the sequence space.
         let mut ack_len = 0;
         let mut ack_of_fin = false;
+        let mut ack_all = false;
         if repr.control != TcpControl::Rst {
             if let Some(ack_number) = repr.ack_number {
                 // Sequence number corresponding to the first byte in `tx_buffer`.
@@ -1477,6 +1478,8 @@ impl<'a> Socket<'a> {
                         tcp_trace!("received ACK of FIN");
                         ack_of_fin = true;
                     }
+
+                    ack_all = self.remote_last_seq == ack_number
                 }
 
                 self.rtte.on_ack(cx.now(), ack_number);
@@ -1585,7 +1588,7 @@ impl<'a> Socket<'a> {
             // ACK packets in ESTABLISHED state reset the retransmit timer,
             // except for duplicate ACK packets which preserve it.
             (State::Established, TcpControl::None) => {
-                if !self.timer.is_retransmit() || ack_len != 0 {
+                if !self.timer.is_retransmit() || ack_all {
                     self.timer.set_for_idle(cx.now(), self.keep_alive);
                 }
             }
@@ -1604,7 +1607,9 @@ impl<'a> Socket<'a> {
                 if ack_of_fin {
                     self.set_state(State::FinWait2);
                 }
-                self.timer.set_for_idle(cx.now(), self.keep_alive);
+                if ack_all {
+                    self.timer.set_for_idle(cx.now(), self.keep_alive);
+                }
             }
 
             // FIN packets in FIN-WAIT-1 state change it to CLOSING, or to TIME-WAIT
@@ -4976,6 +4981,85 @@ mod test {
             payload:    &b"012345"[..],
             ..RECV_TEMPL
         }), exact);
+        recv_nothing!(s, time 1550);
+    }
+
+    #[test]
+    fn test_data_retransmit_bursts_half_ack() {
+        let mut s = socket_established();
+        s.remote_mss = 6;
+        s.send_slice(b"abcdef012345").unwrap();
+
+        recv!(s, time 0, Ok(TcpRepr {
+            control:    TcpControl::None,
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"abcdef"[..],
+            ..RECV_TEMPL
+        }), exact);
+        recv!(s, time 0, Ok(TcpRepr {
+            control:    TcpControl::Psh,
+            seq_number: LOCAL_SEQ + 1 + 6,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"012345"[..],
+            ..RECV_TEMPL
+        }), exact);
+        // Acknowledge the first packet
+        send!(s, time 5, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1 + 6),
+            window_len: 6,
+            ..SEND_TEMPL
+        });
+        // The second packet should be re-sent.
+        recv!(s, time 1500, Ok(TcpRepr {
+            control:    TcpControl::Psh,
+            seq_number: LOCAL_SEQ + 1 + 6,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"012345"[..],
+            ..RECV_TEMPL
+        }), exact);
+
+        recv_nothing!(s, time 1550);
+    }
+
+    #[test]
+    fn test_data_retransmit_bursts_half_ack_close() {
+        let mut s = socket_established();
+        s.remote_mss = 6;
+        s.send_slice(b"abcdef012345").unwrap();
+        s.close();
+
+        recv!(s, time 0, Ok(TcpRepr {
+            control:    TcpControl::None,
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"abcdef"[..],
+            ..RECV_TEMPL
+        }), exact);
+        recv!(s, time 0, Ok(TcpRepr {
+            control:    TcpControl::Fin,
+            seq_number: LOCAL_SEQ + 1 + 6,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"012345"[..],
+            ..RECV_TEMPL
+        }), exact);
+        // Acknowledge the first packet
+        send!(s, time 5, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1 + 6),
+            window_len: 6,
+            ..SEND_TEMPL
+        });
+        // The second packet should be re-sent.
+        recv!(s, time 1500, Ok(TcpRepr {
+            control:    TcpControl::Fin,
+            seq_number: LOCAL_SEQ + 1 + 6,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"012345"[..],
+            ..RECV_TEMPL
+        }), exact);
+
         recv_nothing!(s, time 1550);
     }
 
