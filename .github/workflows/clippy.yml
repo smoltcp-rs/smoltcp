@@ -7,8 +7,6 @@ name: Clippy check
 jobs:
   clippy:
     runs-on: ubuntu-latest
-    env:
-      RUSTUP_TOOLCHAIN: stable
     permissions:
       checks: write
     steps:
@@ -18,6 +16,9 @@ jobs:
           ref: refs/pull/${{ github.event.number }}/head
       - uses: actions/checkout@v2
         if: github.event_name != 'pull_request_target'
+      - run: sed -n 's,^rust-version = "\(.*\)"$,RUSTUP_TOOLCHAIN=\1,p' Cargo.toml >> $GITHUB_ENV
+      - run: rustup toolchain install $RUSTUP_TOOLCHAIN
+      - run: rustup component add clippy
       - uses: actions-rs/clippy-check@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
