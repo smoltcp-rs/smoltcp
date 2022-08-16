@@ -286,7 +286,7 @@ pub struct InterfaceBuilder<'a> {
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
     sixlowpan_fragments: PacketAssemblerSet<'a, SixlowpanFragKey>,
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
-    sixlowpan_fragments_cache_timeout: Duration,
+    sixlowpan_reassembly_buffer_timeout: Duration,
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
     sixlowpan_out_buffer: ManagedSlice<'a, u8>,
 }
@@ -325,8 +325,8 @@ let builder = InterfaceBuilder::new()
 
 # #[cfg(feature = "proto-ipv4-fragmentation")]
 let builder = builder
-    .ipv4_fragments_cache(ipv4_frag_cache)
-    .ipv4_out_packet_cache(vec![]);
+    .ipv4_reassembly_buffer(ipv4_frag_cache)
+    .ipv4_fragmentation_buffer(vec![]);
 
 let iface = builder.finalize(&mut device);
 ```
@@ -359,7 +359,7 @@ let iface = builder.finalize(&mut device);
             #[cfg(feature = "proto-sixlowpan-fragmentation")]
             sixlowpan_fragments: PacketAssemblerSet::new(&mut [][..], &mut [][..]),
             #[cfg(feature = "proto-sixlowpan-fragmentation")]
-            sixlowpan_fragments_cache_timeout: Duration::from_secs(60),
+            sixlowpan_reassembly_buffer_timeout: Duration::from_secs(60),
             #[cfg(feature = "proto-sixlowpan-fragmentation")]
             sixlowpan_out_buffer: ManagedSlice::Borrowed(&mut [][..]),
         }
@@ -474,13 +474,13 @@ let iface = builder.finalize(&mut device);
     }
 
     #[cfg(feature = "proto-ipv4-fragmentation")]
-    pub fn ipv4_fragments_cache(mut self, storage: PacketAssemblerSet<'a, Ipv4FragKey>) -> Self {
+    pub fn ipv4_reassembly_buffer(mut self, storage: PacketAssemblerSet<'a, Ipv4FragKey>) -> Self {
         self.ipv4_fragments = storage;
         self
     }
 
     #[cfg(feature = "proto-ipv4-fragmentation")]
-    pub fn ipv4_out_packet_cache<T>(mut self, storage: T) -> Self
+    pub fn ipv4_fragmentation_buffer<T>(mut self, storage: T) -> Self
     where
         T: Into<ManagedSlice<'a, u8>>,
     {
@@ -489,7 +489,7 @@ let iface = builder.finalize(&mut device);
     }
 
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
-    pub fn sixlowpan_fragments_cache(
+    pub fn sixlowpan_reassembly_buffer(
         mut self,
         storage: PacketAssemblerSet<'a, SixlowpanFragKey>,
     ) -> Self {
@@ -498,16 +498,16 @@ let iface = builder.finalize(&mut device);
     }
 
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
-    pub fn sixlowpan_fragments_cache_timeout(mut self, timeout: Duration) -> Self {
+    pub fn sixlowpan_reassembly_buffer_timeout(mut self, timeout: Duration) -> Self {
         if timeout > Duration::from_secs(60) {
             net_debug!("RFC 4944 specifies that the reassembly timeout MUST be set to a maximum of 60 seconds");
         }
-        self.sixlowpan_fragments_cache_timeout = timeout;
+        self.sixlowpan_reassembly_buffer_timeout = timeout;
         self
     }
 
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
-    pub fn sixlowpan_out_packet_cache<T>(mut self, storage: T) -> Self
+    pub fn sixlowpan_fragmentation_buffer<T>(mut self, storage: T) -> Self
     where
         T: Into<ManagedSlice<'a, u8>>,
     {
@@ -611,7 +611,7 @@ let iface = builder.finalize(&mut device);
                 #[cfg(feature = "proto-sixlowpan-fragmentation")]
                 sixlowpan_fragments: self.sixlowpan_fragments,
                 #[cfg(feature = "proto-sixlowpan-fragmentation")]
-                sixlowpan_fragments_cache_timeout: self.sixlowpan_fragments_cache_timeout,
+                sixlowpan_fragments_cache_timeout: self.sixlowpan_reassembly_buffer_timeout,
 
                 #[cfg(not(any(
                     feature = "proto-ipv4-fragmentation",
@@ -3817,8 +3817,8 @@ mod test {
 
         #[cfg(feature = "proto-ipv4-fragmentation")]
         let iface_builder = iface_builder
-            .ipv4_fragments_cache(PacketAssemblerSet::new(vec![], BTreeMap::new()))
-            .ipv4_out_packet_cache(vec![]);
+            .ipv4_reassembly_buffer(PacketAssemblerSet::new(vec![], BTreeMap::new()))
+            .ipv4_fragmentation_buffer(vec![]);
 
         #[cfg(feature = "proto-igmp")]
         let iface_builder = iface_builder.ipv4_multicast_groups(BTreeMap::new());
@@ -3847,13 +3847,13 @@ mod test {
 
         #[cfg(feature = "proto-sixlowpan-fragmentation")]
         let iface_builder = iface_builder
-            .sixlowpan_fragments_cache(PacketAssemblerSet::new(vec![], BTreeMap::new()))
-            .sixlowpan_out_packet_cache(vec![]);
+            .sixlowpan_reassembly_buffer(PacketAssemblerSet::new(vec![], BTreeMap::new()))
+            .sixlowpan_fragmentation_buffer(vec![]);
 
         #[cfg(feature = "proto-ipv4-fragmentation")]
         let iface_builder = iface_builder
-            .ipv4_fragments_cache(PacketAssemblerSet::new(vec![], BTreeMap::new()))
-            .ipv4_out_packet_cache(vec![]);
+            .ipv4_reassembly_buffer(PacketAssemblerSet::new(vec![], BTreeMap::new()))
+            .ipv4_fragmentation_buffer(vec![]);
 
         #[cfg(feature = "proto-igmp")]
         let iface_builder = iface_builder.ipv4_multicast_groups(BTreeMap::new());

@@ -48,7 +48,7 @@ use std::collections::BTreeMap;
 use std::os::unix::io::AsRawFd;
 use std::str;
 
-use smoltcp::iface::{FragmentsCache, InterfaceBuilder, NeighborCache, SocketSet};
+use smoltcp::iface::{InterfaceBuilder, NeighborCache, ReassemblyBuffer, SocketSet};
 use smoltcp::phy::{wait as phy_wait, Medium, RawSocket};
 use smoltcp::socket::tcp;
 use smoltcp::wire::{Ieee802154Pan, IpAddress, IpCidr};
@@ -166,7 +166,7 @@ fn main() {
         64,
     )];
 
-    let cache = FragmentsCache::new(vec![], BTreeMap::new());
+    let cache = ReassemblyBuffer::new(vec![], BTreeMap::new());
 
     let mut builder = InterfaceBuilder::new()
         .ip_addrs(ip_addrs)
@@ -174,8 +174,8 @@ fn main() {
     builder = builder
         .hardware_addr(ieee802154_addr.into())
         .neighbor_cache(neighbor_cache)
-        .sixlowpan_fragments_cache(cache)
-        .sixlowpan_out_packet_cache(vec![]);
+        .sixlowpan_reassembly_buffer(cache)
+        .sixlowpan_fragmentation_buffer(vec![]);
     let mut iface = builder.finalize(&mut device);
 
     let mut sockets = SocketSet::new(vec![]);
