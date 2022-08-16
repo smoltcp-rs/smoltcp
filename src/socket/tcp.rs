@@ -1898,7 +1898,12 @@ impl<'a> Socket<'a> {
             _ => false,
         };
 
-        if self.nagle && data_in_flight && !can_send_full {
+        // If we're applying the Nagle algorithm we don't want to send more
+        // until one of:
+        // * There's no data in flight
+        // * We can send a full packet
+        // * We have all the data we'll ever send (we're closing send)
+        if self.nagle && data_in_flight && !can_send_full && !want_fin {
             can_send = false;
         }
 
@@ -6845,6 +6850,29 @@ mod test {
                 ..RECV_TEMPL
             }]
         );
+    }
+
+    #[test]
+    fn test_final_packet_in_stream_doesnt_wait_for_nagle() {
+        let mut s = socket_established();
+        s.remote_mss = 6;
+        s.send_slice(b"abcdef0").unwrap();
+        s.socket.close();
+
+        recv!(s, time 0, Ok(TcpRepr {
+            control:    TcpControl::None,
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"abcdef"[..],
+            ..RECV_TEMPL
+        }), exact);
+        recv!(s, time 0, Ok(TcpRepr {
+            control:    TcpControl::Fin,
+            seq_number: LOCAL_SEQ + 1 + 6,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"0"[..],
+            ..RECV_TEMPL
+        }), exact);
     }
 
     // =========================================================================================//
