@@ -1084,18 +1084,21 @@ impl<'a> Interface<'a> {
                 match device.transmit().ok_or(Error::Exhausted) {
                     Ok(_t) => {
                         #[cfg(feature = "proto-sixlowpan-fragmentation")]
-                        if let Err(_e) = inner.dispatch_ip(_t, response, Some(_out_packets)) {
-                            net_debug!("failed to dispatch IP: {}", _e);
+                        if let Err(e) = inner.dispatch_ip(_t, response, Some(_out_packets)) {
+                            net_debug!("failed to dispatch IP: {}", e);
+                            return Err(e);
                         }
 
                         #[cfg(not(feature = "proto-sixlowpan-fragmentation"))]
-                        if let Err(_e) = inner.dispatch_ip(_t, response, None) {
-                            net_debug!("failed to dispatch IP: {}", _e);
+                        if let Err(e) = inner.dispatch_ip(_t, response, None) {
+                            net_debug!("failed to dispatch IP: {}", e);
+                            return Err(e);
                         }
                         emitted_any = true;
                     }
                     Err(e) => {
                         net_debug!("failed to transmit IP: {}", e);
+                        return Err(e);
                     }
                 }
 
