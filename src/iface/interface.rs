@@ -1194,32 +1194,24 @@ impl<'a> Interface<'a> {
             let mut neighbor_addr = None;
             let mut respond = |inner: &mut InterfaceInner, response: IpPacket| {
                 neighbor_addr = Some(response.ip_repr().dst_addr());
-                match device.transmit().ok_or(Error::Exhausted) {
-                    Ok(_t) => {
-                        #[cfg(any(
-                            feature = "proto-ipv4-fragmentation",
-                            feature = "proto-sixlowpan-fragmentation"
-                        ))]
-                        if let Err(e) = inner.dispatch_ip(_t, response, Some(_out_packets)) {
-                            net_debug!("failed to dispatch IP: {}", e);
-                            return Err(e);
-                        }
+                let t = device.transmit().ok_or_else(|| {
+                    net_debug!("failed to transmit IP: {}", Error::Exhausted);
+                    Error::Exhausted
+                })?;
 
-                        #[cfg(not(any(
-                            feature = "proto-ipv4-fragmentation",
-                            feature = "proto-sixlowpan-fragmentation"
-                        )))]
-                        if let Err(e) = inner.dispatch_ip(_t, response, None) {
-                            net_debug!("failed to dispatch IP: {}", e);
-                            return Err(e);
-                        }
-                        emitted_any = true;
-                    }
-                    Err(e) => {
-                        net_debug!("failed to transmit IP: {}", e);
-                        return Err(e);
-                    }
-                }
+                #[cfg(any(
+                    feature = "proto-ipv4-fragmentation",
+                    feature = "proto-sixlowpan-fragmentation"
+                ))]
+                inner.dispatch_ip(t, response, Some(_out_packets))?;
+
+                #[cfg(not(any(
+                    feature = "proto-ipv4-fragmentation",
+                    feature = "proto-sixlowpan-fragmentation"
+                )))]
+                inner.dispatch_ip(t, response, None)?;
+
+                emitted_any = true;
 
                 Ok(())
             };
