@@ -13,7 +13,7 @@ use smoltcp::phy::{wait as phy_wait, Medium};
 use smoltcp::socket::dns::{self, GetQueryResultError};
 use smoltcp::time::Instant;
 use smoltcp::wire::{
-    EthernetAddress, HardwareAddress, IpAddress, IpCidr, Ipv4Address, Ipv6Address,
+    DnsQueryType, EthernetAddress, HardwareAddress, IpAddress, IpCidr, Ipv4Address, Ipv6Address,
 };
 use std::collections::BTreeMap;
 use std::os::unix::io::AsRawFd;
@@ -68,7 +68,9 @@ fn main() {
     let dns_handle = sockets.add(dns_socket);
 
     let socket = sockets.get_mut::<dns::Socket>(dns_handle);
-    let query = socket.start_query(iface.context(), name).unwrap();
+    let query = socket
+        .start_query(iface.context(), name, DnsQueryType::A)
+        .unwrap();
 
     loop {
         let timestamp = Instant::now();
