@@ -1788,6 +1788,22 @@ impl<'a> InterfaceInner<'a> {
                             }
                         }
 
+                        #[cfg(feature = "socket-dns")]
+                        for dns_socket in sockets
+                            .items_mut()
+                            .filter_map(|i| dns::Socket::downcast_mut(&mut i.socket))
+                        {
+                            if dns_socket.accepts(&IpRepr::Ipv6(ipv6_repr), &udp_repr) {
+                                dns_socket.process(
+                                    self,
+                                    &IpRepr::Ipv6(ipv6_repr),
+                                    &udp_repr,
+                                    udp_packet.payload(),
+                                );
+                                return None;
+                            }
+                        }
+
                         // When we are here then then there was no UDP socket that accepted the UDP
                         // message.
                         let payload_len = icmp_reply_payload_len(
