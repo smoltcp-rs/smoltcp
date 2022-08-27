@@ -2,6 +2,8 @@
 
 mod wire {
     use smoltcp::phy::ChecksumCapabilities;
+    #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+    use smoltcp::wire::IPV4_FRAGMENTATION_PARAMS_DONT_FRAGMENT;
     use smoltcp::wire::{IpAddress, IpProtocol};
     #[cfg(feature = "proto-ipv4")]
     use smoltcp::wire::{Ipv4Address, Ipv4Packet, Ipv4Repr};
@@ -88,6 +90,8 @@ mod wire {
             next_header: IpProtocol::Tcp,
             payload_len: 100,
             hop_limit: 64,
+            #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+            fragmentation: IPV4_FRAGMENTATION_PARAMS_DONT_FRAGMENT,
         };
         let mut bytes = vec![0xa5; repr.buffer_len()];
 

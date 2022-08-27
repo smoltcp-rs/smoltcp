@@ -2314,6 +2314,8 @@ mod test {
             use crate::wire::Ipv4Address as IpvXAddress;
             use crate::wire::Ipv4Repr as IpvXRepr;
             use IpRepr::Ipv4 as IpReprIpvX;
+            #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+            use crate::wire::IPV4_FRAGMENTATION_PARAMS_DONT_FRAGMENT;
 
             const LOCAL_ADDR: IpvXAddress = IpvXAddress([192, 168, 1, 1]);
             const REMOTE_ADDR: IpvXAddress = IpvXAddress([192, 168, 1, 2]);
@@ -2345,6 +2347,8 @@ mod test {
         next_header: IpProtocol::Tcp,
         payload_len: 20,
         hop_limit: 64,
+        #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+        fragmentation: IPV4_FRAGMENTATION_PARAMS_DONT_FRAGMENT,
     });
     const SEND_TEMPL: TcpRepr<'static> = TcpRepr {
         src_port: REMOTE_PORT,
@@ -2365,6 +2369,8 @@ mod test {
         next_header: IpProtocol::Tcp,
         payload_len: 20,
         hop_limit: 64,
+        #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+        fragmentation: IPV4_FRAGMENTATION_PARAMS_DONT_FRAGMENT,
     });
     const RECV_TEMPL: TcpRepr<'static> = TcpRepr {
         src_port: LOCAL_PORT,
@@ -2415,6 +2421,8 @@ mod test {
             next_header: IpProtocol::Tcp,
             payload_len: repr.buffer_len(),
             hop_limit: 64,
+            #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+            fragmentation: IPV4_FRAGMENTATION_PARAMS_DONT_FRAGMENT,
         });
         net_trace!("send: {}", repr);
 
@@ -6919,6 +6927,8 @@ mod test {
             next_header: IpProtocol::Tcp,
             payload_len: tcp_repr.buffer_len(),
             hop_limit: 64,
+            #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+            fragmentation: IPV4_FRAGMENTATION_PARAMS_DONT_FRAGMENT,
         });
         assert!(s.socket.accepts(&mut s.cx, &ip_repr, &tcp_repr));
 
@@ -6928,6 +6938,8 @@ mod test {
             next_header: IpProtocol::Tcp,
             payload_len: tcp_repr.buffer_len(),
             hop_limit: 64,
+            #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+            fragmentation: IPV4_FRAGMENTATION_PARAMS_DONT_FRAGMENT,
         });
         assert!(!s.socket.accepts(&mut s.cx, &ip_repr_wrong_src, &tcp_repr));
 
@@ -6937,6 +6949,8 @@ mod test {
             next_header: IpProtocol::Tcp,
             payload_len: tcp_repr.buffer_len(),
             hop_limit: 64,
+            #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+            fragmentation: IPV4_FRAGMENTATION_PARAMS_DONT_FRAGMENT,
         });
         assert!(!s.socket.accepts(&mut s.cx, &ip_repr_wrong_dst, &tcp_repr));
     }

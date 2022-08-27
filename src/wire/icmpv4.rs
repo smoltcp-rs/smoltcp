@@ -4,6 +4,8 @@ use core::{cmp, fmt};
 use super::{Error, Result};
 use crate::phy::ChecksumCapabilities;
 use crate::wire::ip::checksum;
+#[cfg(feature = "proto-ipv4-tx-fragmentation")]
+use crate::wire::IPV4_FRAGMENTATION_PARAMS_DONT_FRAGMENT;
 use crate::wire::{Ipv4Packet, Ipv4Repr};
 
 enum_with_unknown! {
@@ -434,6 +436,8 @@ impl<'a> Repr<'a> {
                         dst_addr: ip_packet.dst_addr(),
                         next_header: ip_packet.next_header(),
                         payload_len: payload.len(),
+                        #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+                        fragmentation: IPV4_FRAGMENTATION_PARAMS_DONT_FRAGMENT,
                         hop_limit: ip_packet.hop_limit(),
                     },
                     data: payload,
@@ -457,6 +461,8 @@ impl<'a> Repr<'a> {
                         dst_addr: ip_packet.dst_addr(),
                         next_header: ip_packet.next_header(),
                         payload_len: payload.len(),
+                        #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+                        fragmentation: IPV4_FRAGMENTATION_PARAMS_DONT_FRAGMENT,
                         hop_limit: ip_packet.hop_limit(),
                     },
                     data: payload,

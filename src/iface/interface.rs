@@ -165,6 +165,8 @@ pub struct InterfaceInner<'a> {
     pan_id: Option<Ieee802154Pan>,
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
     tag: u16,
+    #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+    fragment_id: u16,
     ip_addrs: ManagedSlice<'a, IpCidr>,
     #[cfg(feature = "proto-ipv4")]
     any_ip: bool,
@@ -547,6 +549,8 @@ let iface = builder.finalize(&mut device);
                 pan_id: self.pan_id,
                 #[cfg(feature = "proto-sixlowpan-fragmentation")]
                 tag,
+                #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+                fragment_id: 0,
                 rand,
             },
         }
@@ -571,7 +575,7 @@ pub(crate) enum IpPacket<'a> {
     Igmp((Ipv4Repr, IgmpRepr)),
     #[cfg(feature = "proto-ipv6")]
     Icmpv6((Ipv6Repr, Icmpv6Repr<'a>)),
-    #[cfg(feature = "socket-raw")]
+    #[cfg(feature = "proto-ipv4-raw")]
     Raw((IpRepr, &'a [u8])),
     #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
     Udp((IpRepr, UdpRepr, &'a [u8])),
@@ -590,12 +594,12 @@ impl<'a> IpPacket<'a> {
             IpPacket::Igmp((ipv4_repr, _)) => IpRepr::Ipv4(*ipv4_repr),
             #[cfg(feature = "proto-ipv6")]
             IpPacket::Icmpv6((ipv6_repr, _)) => IpRepr::Ipv6(*ipv6_repr),
-            #[cfg(feature = "socket-raw")]
-            IpPacket::Raw((ip_repr, _)) => ip_repr.clone(),
+            #[cfg(feature = "proto-ipv4-raw")]
+            IpPacket::Raw((ip_repr, _)) => *ip_repr,
             #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
-            IpPacket::Udp((ip_repr, _, _)) => ip_repr.clone(),
+            IpPacket::Udp((ip_repr, _, _)) => *ip_repr,
             #[cfg(feature = "socket-tcp")]
-            IpPacket::Tcp((ip_repr, _)) => ip_repr.clone(),
+            IpPacket::Tcp((ip_repr, _)) => *ip_repr,
             #[cfg(feature = "socket-dhcpv4")]
             IpPacket::Dhcpv4((ipv4_repr, _, _)) => IpRepr::Ipv4(*ipv4_repr),
         }
@@ -603,7 +607,7 @@ impl<'a> IpPacket<'a> {
 
     pub(crate) fn emit_payload(
         &self,
-        _ip_repr: IpRepr,
+        _ip_repr: &IpRepr,
         payload: &mut [u8],
         caps: &DeviceCapabilities,
     ) {
@@ -623,7 +627,7 @@ impl<'a> IpPacket<'a> {
                 &mut Icmpv6Packet::new_unchecked(payload),
                 &caps.checksum,
             ),
-            #[cfg(feature = "socket-raw")]
+            #[cfg(feature = "proto-ipv4-raw")]
             IpPacket::Raw((_, raw_packet)) => payload.copy_from_slice(raw_packet),
             #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
             IpPacket::Udp((_, udp_repr, inner_payload)) => udp_repr.emit(
@@ -1079,30 +1083,128 @@ impl<'a> Interface<'a> {
             }
 
             let mut neighbor_addr = None;
-            let mut respond = |inner: &mut InterfaceInner, response: IpPacket| {
+            let mut respond = |inner: &mut InterfaceInner, response: IpPacket| -> Result<()> {
                 neighbor_addr = Some(response.ip_repr().dst_addr());
-                match device.transmit().ok_or(Error::Exhausted) {
-                    Ok(_t) => {
-                        #[cfg(feature = "proto-sixlowpan-fragmentation")]
-                        if let Err(e) = inner.dispatch_ip(_t, response, Some(_out_packets)) {
-                            net_debug!("failed to dispatch IP: {}", e);
-                            return Err(e);
-                        }
 
-                        #[cfg(not(feature = "proto-sixlowpan-fragmentation"))]
-                        if let Err(e) = inner.dispatch_ip(_t, response, None) {
-                            net_debug!("failed to dispatch IP: {}", e);
-                            return Err(e);
+                let mut send_ip_fragment =
+                    |inner: &mut InterfaceInner, fragment: IpPacket, i: usize| -> Result<()> {
+                        match device.transmit().ok_or(Error::Exhausted) {
+                            Ok(_t) => {
+                                #[cfg(feature = "proto-sixlowpan-fragmentation")]
+                                if let Err(e) = inner.dispatch_ip(_t, fragment, Some(_out_packets))
+                                {
+                                    net_debug!("failed to dispatch IP for fragment {}: {}", i, e);
+                                    return Err(e);
+                                }
+
+                                #[cfg(not(feature = "proto-sixlowpan-fragmentation"))]
+                                if let Err(e) = inner.dispatch_ip(_t, fragment, None) {
+                                    net_debug!("failed to dispatch IP: {}", e);
+                                    return Err(e);
+                                }
+                                emitted_any = true;
+                            }
+                            Err(e) => {
+                                net_debug!("failed to transmit IP: {}: {}", i, e);
+                                return Err(e);
+                            }
                         }
-                        emitted_any = true;
-                    }
-                    Err(e) => {
-                        net_debug!("failed to transmit IP: {}", e);
-                        return Err(e);
+                        Ok(())
+                    };
+
+                cfg_if::cfg_if! {
+                    if #[cfg(feature = "proto-ipv4-tx-fragmentation")] {
+                        let mut respond_fragmented = |inner: &mut InterfaceInner, response: IpPacket| -> Result<()> {
+                            let ip_repr = response.ip_repr();
+                            let mtu = _caps.max_transmission_unit;
+
+                            match ip_repr {
+                                crate::wire::ip::Repr::Ipv4(mut ipv4_repr) => {
+                                    let orig_frag_mode = ipv4_repr.fragmentation.mode;
+                                    let frag_id = if ipv4_repr.fragmentation.ident != 0 {
+                                        ipv4_repr.fragmentation.ident
+                                    } else {
+                                        inner.fragment_id += 1;
+                                        inner.fragment_id
+                                    };
+                                    match orig_frag_mode {
+                                        Ipv4FragmentMode::LastFragment | Ipv4FragmentMode::Fragment => {
+                                            let l3_and_l4_headers_size = ipv4_repr.buffer_len() as usize;
+                                            let l4_payload_length = ipv4_repr.payload_len;
+                                            //let header = IpPacket::Raw((ipv4_repr, vec![0_u8; 0]));
+
+                                            let mut full_packet_bytes =
+                                                vec![0_u8; l3_and_l4_headers_size + l4_payload_length];
+                                            InterfaceInner::emit_ip_packet(
+                                                full_packet_bytes.as_mut_slice(),
+                                                &_caps,
+                                                &response,
+                                                &ip_repr,
+                                            );
+                                            let ipv4_packet = Ipv4Packet::new_unchecked(&full_packet_bytes);
+
+                                            let ip_header_size = ipv4_packet.header_len() as usize;
+                                            let mut payload_chunk_size = mtu - ip_header_size;
+                                            assert!(
+                                                payload_chunk_size >= 8,
+                                                "MTU must be greater than {:?}",
+                                                8 + ip_header_size
+                                            );
+
+                                            let ip_payload_size = full_packet_bytes.len() - ip_header_size;
+                                            if ip_payload_size > payload_chunk_size {
+                                                assert!(
+                                                    payload_chunk_size > 0,
+                                                    "MTU ({:?}) must be greater than IP header size ({:?})!",
+                                                    mtu,
+                                                    ip_header_size
+                                                );
+                                                payload_chunk_size &= !0b111;
+                                                let payload_chunk_size = payload_chunk_size as usize;
+
+                                                let chunks = full_packet_bytes[ip_header_size..]
+                                                    .chunks(payload_chunk_size);
+                                                let chunks_len_minus_1 = chunks.len() - 1;
+
+                                                //smoltcp::wire::ipv4::Repr
+                                                let mut offset: u16 = 0;
+                                                for (i, chunk) in chunks.enumerate() {
+                                                    ipv4_repr.fragmentation = Ipv4FragmentationParams {
+                                                        mode: if i != chunks_len_minus_1 {
+                                                            Ipv4FragmentMode::Fragment
+                                                        } else {
+                                                            orig_frag_mode
+                                                        },
+                                                        ident: frag_id,
+                                                        frag_offset: offset, // set_frag_offset does division itself
+                                                    };
+                                                    ipv4_repr.payload_len = chunk.len();
+                                                    offset += chunk.len() as u16;
+
+                                                    send_ip_fragment(
+                                                        inner,
+                                                        IpPacket::Raw((ipv4_repr.into(), chunk)),
+                                                        i,
+                                                    )?;
+                                                }
+                                                Ok(())
+                                            } else {
+                                                send_ip_fragment(inner, response, 0)
+                                            }
+                                        }
+                                        Ipv4FragmentMode::DontFragment => {send_ip_fragment(inner, response, 0)},
+                                    }
+                                }
+                                #[cfg(feature = "proto-ipv6")]
+                                crate::wire::ip::Repr::Ipv6(_ip_repr) => {send_ip_fragment(inner, response, 0)},
+                            }
+                        };
+
+                        respond_fragmented(inner, response)
+                    } else {
+                        return send_ip_fragment(inner, response, 0);
                     }
                 }
-
-                Ok(())
             };
 
             let result = match &mut item.socket {
@@ -1379,6 +1481,8 @@ impl<'a> InterfaceInner<'a> {
 
             #[cfg(feature = "proto-ipv4")]
             any_ip: false,
+            #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+            fragment_id: 0,
 
             #[cfg(feature = "medium-ieee802154")]
             pan_id: Some(crate::wire::Ieee802154Pan(0xabcd)),
@@ -2489,6 +2593,8 @@ impl<'a> InterfaceInner<'a> {
                 src_addr: ipv4_repr.dst_addr,
                 dst_addr: ipv4_repr.src_addr,
                 next_header: IpProtocol::Icmp,
+                #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+                fragmentation: IPV4_FRAGMENTATION_PARAMS_DONT_FRAGMENT,
                 payload_len: icmp_repr.buffer_len(),
                 hop_limit: 64,
             };
@@ -2502,6 +2608,8 @@ impl<'a> InterfaceInner<'a> {
                             src_addr,
                             dst_addr: ipv4_repr.src_addr,
                             next_header: IpProtocol::Icmp,
+                            #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+                            fragmentation: IPV4_FRAGMENTATION_PARAMS_DONT_FRAGMENT,
                             payload_len: icmp_repr.buffer_len(),
                             hop_limit: 64,
                         };
@@ -2877,6 +2985,18 @@ impl<'a> InterfaceInner<'a> {
         }
     }
 
+    pub(crate) fn emit_ip_packet(
+        dst: &mut [u8],
+        caps: &DeviceCapabilities,
+        packet: &IpPacket,
+        repr: &IpRepr,
+    ) {
+        let payload = &mut dst[repr.buffer_len()..];
+        packet.emit_payload(repr, payload, caps);
+
+        repr.emit(dst, &caps.checksum);
+    }
+
     fn dispatch_ip<Tx: TxToken>(
         &mut self,
         tx_token: Tx,
@@ -2909,10 +3029,7 @@ impl<'a> InterfaceInner<'a> {
                         IpRepr::Ipv6(_) => frame.set_ethertype(EthernetProtocol::Ipv6),
                     }
 
-                    ip_repr.emit(frame.payload_mut(), &caps.checksum);
-
-                    let payload = &mut frame.payload_mut()[ip_repr.buffer_len()..];
-                    packet.emit_payload(ip_repr, payload, &caps);
+                    Self::emit_ip_packet(frame.payload_mut(), &caps, &packet, &ip_repr)
                 })
             }
             #[cfg(feature = "medium-ip")]
@@ -2924,7 +3041,7 @@ impl<'a> InterfaceInner<'a> {
                     ip_repr.emit(&mut tx_buffer, &self.caps.checksum);
 
                     let payload = &mut tx_buffer[ip_repr.buffer_len()..];
-                    packet.emit_payload(ip_repr, payload, &self.caps);
+                    packet.emit_payload(&ip_repr, payload, &self.caps);
 
                     Ok(())
                 })
@@ -3318,6 +3435,8 @@ impl<'a> InterfaceInner<'a> {
                 dst_addr: group_addr,
                 next_header: IpProtocol::Igmp,
                 payload_len: igmp_repr.buffer_len(),
+                #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+                fragmentation: IPV4_FRAGMENTATION_PARAMS_DONT_FRAGMENT,
                 hop_limit: 1,
                 // TODO: add Router Alert IPv4 header option. See
                 // [#183](https://github.com/m-labs/smoltcp/issues/183).
@@ -3336,6 +3455,8 @@ impl<'a> InterfaceInner<'a> {
                     src_addr: iface_addr,
                     dst_addr: Ipv4Address::MULTICAST_ALL_ROUTERS,
                     next_header: IpProtocol::Igmp,
+                    #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+                    fragmentation: IPV4_FRAGMENTATION_PARAMS_DONT_FRAGMENT,
                     payload_len: igmp_repr.buffer_len(),
                     hop_limit: 1,
                 },
@@ -3486,6 +3607,8 @@ mod test {
             next_header: IpProtocol::Unknown(0x0c),
             payload_len: 0,
             hop_limit: 0x40,
+            #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+            fragmentation: IPV4_FRAGMENTATION_PARAMS_DEFAULT,
         });
 
         let mut bytes = vec![0u8; 54];
@@ -3550,6 +3673,8 @@ mod test {
             next_header: IpProtocol::Unknown(0x0c),
             payload_len: 0,
             hop_limit: 0x40,
+            #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+            fragmentation: IPV4_FRAGMENTATION_PARAMS_DEFAULT,
         });
 
         let mut bytes = vec![0u8; 34];
@@ -3566,6 +3691,8 @@ mod test {
                 next_header: IpProtocol::Unknown(12),
                 payload_len: 0,
                 hop_limit: 64,
+                #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+                fragmentation: IPV4_FRAGMENTATION_PARAMS_DEFAULT,
             },
             data: &NO_BYTES,
         };
@@ -3577,6 +3704,8 @@ mod test {
                 next_header: IpProtocol::Icmp,
                 payload_len: icmp_repr.buffer_len(),
                 hop_limit: 64,
+                #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+                fragmentation: IPV4_FRAGMENTATION_PARAMS_DONT_FRAGMENT,
             },
             icmp_repr,
         ));
@@ -3679,6 +3808,8 @@ mod test {
             next_header: IpProtocol::Udp,
             payload_len: udp_repr.header_len() + UDP_PAYLOAD.len(),
             hop_limit: 64,
+            #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+            fragmentation: IPV4_FRAGMENTATION_PARAMS_DEFAULT,
         });
 
         // Emit the representations to a packet
@@ -3703,6 +3834,8 @@ mod test {
                 next_header: IpProtocol::Udp,
                 payload_len: udp_repr.header_len() + UDP_PAYLOAD.len(),
                 hop_limit: 64,
+                #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+                fragmentation: IPV4_FRAGMENTATION_PARAMS_DEFAULT,
             },
             data,
         };
@@ -3713,6 +3846,8 @@ mod test {
                 next_header: IpProtocol::Icmp,
                 payload_len: icmp_repr.buffer_len(),
                 hop_limit: 64,
+                #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+                fragmentation: IPV4_FRAGMENTATION_PARAMS_DONT_FRAGMENT,
             },
             icmp_repr,
         ));
@@ -3730,6 +3865,8 @@ mod test {
             next_header: IpProtocol::Udp,
             payload_len: udp_repr.header_len() + UDP_PAYLOAD.len(),
             hop_limit: 64,
+            #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+            fragmentation: IPV4_FRAGMENTATION_PARAMS_DEFAULT,
         });
 
         // Emit the representations to a packet
@@ -3797,6 +3934,8 @@ mod test {
             next_header: IpProtocol::Udp,
             payload_len: udp_repr.header_len() + UDP_PAYLOAD.len(),
             hop_limit: 0x40,
+            #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+            fragmentation: IPV4_FRAGMENTATION_PARAMS_DEFAULT,
         });
 
         // Bind the socket to port 68
@@ -3857,6 +3996,8 @@ mod test {
             next_header: IpProtocol::Icmp,
             hop_limit: 64,
             payload_len: icmpv4_repr.buffer_len(),
+            #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+            fragmentation: IPV4_FRAGMENTATION_PARAMS_DONT_FRAGMENT,
         };
 
         // Emit to ip frame
@@ -3885,6 +4026,8 @@ mod test {
             next_header: IpProtocol::Icmp,
             hop_limit: 64,
             payload_len: expected_icmpv4_repr.buffer_len(),
+            #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+            fragmentation: IPV4_FRAGMENTATION_PARAMS_DONT_FRAGMENT,
         };
         let expected_packet = IpPacket::Icmpv4((expected_ipv4_repr, expected_icmpv4_repr));
 
@@ -4300,6 +4443,8 @@ mod test {
             next_header: IpProtocol::Icmp,
             payload_len: 24,
             hop_limit: 64,
+            #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+            fragmentation: IPV4_FRAGMENTATION_PARAMS_DONT_FRAGMENT,
         };
         let ip_repr = IpRepr::Ipv4(ipv4_repr);
 
@@ -4561,6 +4706,8 @@ mod test {
             next_header: IpProtocol::Udp,
             hop_limit: 64,
             payload_len: udp_repr.header_len() + PAYLOAD_LEN,
+            #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+            fragmentation: IPV4_FRAGMENTATION_PARAMS_DEFAULT,
         };
 
         // Emit to frame
@@ -4652,6 +4799,8 @@ mod test {
             next_header: IpProtocol::Udp,
             hop_limit: 64,
             payload_len: udp_repr.header_len() + UDP_PAYLOAD.len(),
+            #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+            fragmentation: IPV4_FRAGMENTATION_PARAMS_DEFAULT,
         };
 
         // Emit to frame

@@ -9,6 +9,8 @@ use crate::socket::{Context, PollAt};
 
 use crate::storage::Empty;
 use crate::wire::IcmpRepr;
+#[cfg(feature = "proto-ipv4-tx-fragmentation")]
+use crate::wire::IPV4_FRAGMENTATION_PARAMS_DONT_FRAGMENT;
 #[cfg(feature = "proto-ipv4")]
 use crate::wire::{Icmpv4Packet, Icmpv4Repr, Ipv4Repr};
 #[cfg(feature = "proto-ipv6")]
@@ -525,6 +527,8 @@ impl<'a> Socket<'a> {
                         dst_addr,
                         next_header: IpProtocol::Icmp,
                         payload_len: repr.buffer_len(),
+                        #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+                        fragmentation: IPV4_FRAGMENTATION_PARAMS_DONT_FRAGMENT,
                         hop_limit: hop_limit,
                     });
                     emit(cx, (ip_repr, IcmpRepr::Ipv4(repr)))
@@ -640,6 +644,8 @@ mod test_ipv4 {
         next_header: IpProtocol::Icmp,
         payload_len: 24,
         hop_limit: 0x40,
+        #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+        fragmentation: IPV4_FRAGMENTATION_PARAMS_DONT_FRAGMENT,
     });
 
     static REMOTE_IPV4_REPR: IpRepr = IpRepr::Ipv4(Ipv4Repr {
@@ -648,6 +654,8 @@ mod test_ipv4 {
         next_header: IpProtocol::Icmp,
         payload_len: 24,
         hop_limit: 0x40,
+        #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+        fragmentation: IPV4_FRAGMENTATION_PARAMS_DONT_FRAGMENT,
     });
 
     #[test]
@@ -741,6 +749,8 @@ mod test_ipv4 {
                         next_header: IpProtocol::Icmp,
                         payload_len: ECHOV4_REPR.buffer_len(),
                         hop_limit: 0x2a,
+                        #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+                        fragmentation: IPV4_FRAGMENTATION_PARAMS_DONT_FRAGMENT,
                     })
                 );
                 Ok::<_, Error>(())
@@ -826,6 +836,8 @@ mod test_ipv4 {
                 next_header: IpProtocol::Icmp,
                 payload_len: 12,
                 hop_limit: 0x40,
+                #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+                fragmentation: IPV4_FRAGMENTATION_PARAMS_DONT_FRAGMENT,
             },
             data: data,
         };
@@ -835,6 +847,8 @@ mod test_ipv4 {
             next_header: IpProtocol::Icmp,
             payload_len: icmp_repr.buffer_len(),
             hop_limit: 0x40,
+            #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+            fragmentation: IPV4_FRAGMENTATION_PARAMS_DONT_FRAGMENT,
         });
 
         assert!(!socket.can_recv());

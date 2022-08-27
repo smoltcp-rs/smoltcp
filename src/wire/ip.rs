@@ -3,6 +3,8 @@ use core::fmt;
 
 use super::{Error, Result};
 use crate::phy::ChecksumCapabilities;
+#[cfg(feature = "proto-ipv4-tx-fragmentation")]
+use crate::wire::IPV4_FRAGMENTATION_PARAMS_DEFAULT;
 #[cfg(feature = "proto-ipv4")]
 use crate::wire::{Ipv4Address, Ipv4Cidr, Ipv4Packet, Ipv4Repr};
 #[cfg(feature = "proto-ipv6")]
@@ -537,7 +539,7 @@ impl<T: Into<Address>> From<(T, u16)> for ListenEndpoint {
 ///
 /// This enum abstracts the various versions of IP packets. It either contains an IPv4
 /// or IPv6 concrete high-level representation.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Repr {
     #[cfg(feature = "proto-ipv4")]
@@ -580,6 +582,8 @@ impl Repr {
                 dst_addr,
                 next_header,
                 payload_len,
+                #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+                fragmentation: IPV4_FRAGMENTATION_PARAMS_DEFAULT,
                 hop_limit,
             }),
             #[cfg(feature = "proto-ipv6")]

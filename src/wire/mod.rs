@@ -52,7 +52,9 @@ let repr = Ipv4Repr {
     dst_addr:    Ipv4Address::new(10, 0, 0, 2),
     next_header: IpProtocol::Tcp,
     payload_len: 10,
-    hop_limit:   64
+    hop_limit:   64,
+    #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+    fragmentation: IPV4_FRAGMENTATION_PARAMS_DEFAULT,
 };
 let mut buffer = vec![0; repr.buffer_len() + repr.payload_len];
 { // emission
@@ -171,6 +173,14 @@ pub use self::ip::{
 pub use self::ipv4::{
     Address as Ipv4Address, Cidr as Ipv4Cidr, Key as Ipv4FragKey, Packet as Ipv4Packet,
     Repr as Ipv4Repr, HEADER_LEN as IPV4_HEADER_LEN, MIN_MTU as IPV4_MIN_MTU,
+};
+
+#[cfg(feature = "proto-ipv4-tx-fragmentation")]
+pub use self::ipv4::{
+    FragmentMode as Ipv4FragmentMode, FragmentationParams as Ipv4FragmentationParams,
+    FRAGMENTATION_PARAMS_ALLOW_FRAGMENTING as IPV4_FRAGMENTATION_PARAMS_ALLOW_FRAGMENTING,
+    FRAGMENTATION_PARAMS_DEFAULT as IPV4_FRAGMENTATION_PARAMS_DEFAULT,
+    FRAGMENTATION_PARAMS_DONT_FRAGMENT as IPV4_FRAGMENTATION_PARAMS_DONT_FRAGMENT,
 };
 
 #[cfg(feature = "proto-ipv6")]

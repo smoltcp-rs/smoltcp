@@ -383,6 +383,8 @@ impl<'a> Socket<'a> {
 mod test {
     use super::*;
     use crate::wire::IpRepr;
+    #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+    use crate::wire::IPV4_FRAGMENTATION_PARAMS_DONT_FRAGMENT;
     #[cfg(feature = "proto-ipv4")]
     use crate::wire::{Ipv4Address, Ipv4Repr};
     #[cfg(feature = "proto-ipv6")]
@@ -416,6 +418,8 @@ mod test {
             next_header: IpProtocol::Unknown(IP_PROTO),
             payload_len: 4,
             hop_limit: 64,
+            #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+            fragmentation: IPV4_FRAGMENTATION_PARAMS_DONT_FRAGMENT,
         });
         pub const PACKET_BYTES: [u8; 24] = [
             0x45, 0x00, 0x00, 0x18, 0x00, 0x00, 0x40, 0x00, 0x40, 0x3f, 0x00, 0x00, 0x0a, 0x00,

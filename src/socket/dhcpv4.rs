@@ -4,6 +4,8 @@ use core::task::Waker;
 use crate::iface::Context;
 use crate::time::{Duration, Instant};
 use crate::wire::dhcpv4::field as dhcpv4_field;
+#[cfg(feature = "proto-ipv4-tx-fragmentation")]
+use crate::wire::IPV4_FRAGMENTATION_PARAMS_DONT_FRAGMENT;
 use crate::wire::{
     DhcpMessageType, DhcpPacket, DhcpRepr, IpAddress, IpProtocol, Ipv4Address, Ipv4Cidr, Ipv4Repr,
     UdpRepr, DHCP_CLIENT_PORT, DHCP_MAX_DNS_SERVER_COUNT, DHCP_SERVER_PORT, UDP_HEADER_LEN,
@@ -508,6 +510,8 @@ impl<'a> Socket<'a> {
             dst_addr: Ipv4Address::BROADCAST,
             next_header: IpProtocol::Udp,
             payload_len: 0, // filled right before emit
+            #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+            fragmentation: IPV4_FRAGMENTATION_PARAMS_DONT_FRAGMENT,
             hop_limit: 64,
         };
 
@@ -787,6 +791,8 @@ mod test {
         next_header: IpProtocol::Udp,
         payload_len: 0,
         hop_limit: 64,
+        #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+        fragmentation: IPV4_FRAGMENTATION_PARAMS_DONT_FRAGMENT,
     };
 
     const IP_SERVER_BROADCAST: Ipv4Repr = Ipv4Repr {
@@ -795,6 +801,8 @@ mod test {
         next_header: IpProtocol::Udp,
         payload_len: 0,
         hop_limit: 64,
+        #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+        fragmentation: IPV4_FRAGMENTATION_PARAMS_DONT_FRAGMENT,
     };
 
     const IP_RECV: Ipv4Repr = Ipv4Repr {
@@ -803,6 +811,8 @@ mod test {
         next_header: IpProtocol::Udp,
         payload_len: 0,
         hop_limit: 64,
+        #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+        fragmentation: IPV4_FRAGMENTATION_PARAMS_DONT_FRAGMENT,
     };
 
     const IP_SEND: Ipv4Repr = Ipv4Repr {
@@ -811,6 +821,8 @@ mod test {
         next_header: IpProtocol::Udp,
         payload_len: 0,
         hop_limit: 64,
+        #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+        fragmentation: IPV4_FRAGMENTATION_PARAMS_DONT_FRAGMENT,
     };
 
     const UDP_SEND: UdpRepr = UdpRepr {

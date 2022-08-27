@@ -608,6 +608,24 @@ impl<T: AsRef<[u8]>> AsRef<[u8]> for Packet<T> {
     }
 }
 
+#[cfg(feature = "proto-ipv4-tx-fragmentation")]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum FragmentMode {
+    LastFragment = 0,
+    Fragment = 1,
+    DontFragment = 2,
+}
+
+/// Parameters determining packet frgmentation
+#[cfg(feature = "proto-ipv4-tx-fragmentation")]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct FragmentationParams {
+    pub mode: FragmentMode,
+    pub ident: u16,
+    pub frag_offset: u16,
+}
+
 /// A high-level representation of an Internet Protocol version 4 packet header.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -617,6 +635,37 @@ pub struct Repr {
     pub next_header: Protocol,
     pub payload_len: usize,
     pub hop_limit: u8,
+    #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+    pub fragmentation: FragmentationParams,
+}
+
+#[cfg(feature = "proto-ipv4-tx-fragmentation")]
+pub const FRAGMENTATION_PARAMS_DONT_FRAGMENT: FragmentationParams = FragmentationParams {
+    mode: FragmentMode::DontFragment,
+    ident: 0,
+    frag_offset: 0,
+};
+
+#[cfg(feature = "proto-ipv4-tx-fragmentation")]
+pub const FRAGMENTATION_PARAMS_ALLOW_FRAGMENTING: FragmentationParams = FragmentationParams {
+    mode: FragmentMode::LastFragment,
+    ident: 0,
+    frag_offset: 0,
+};
+
+#[cfg(feature = "proto-ipv4-tx-fragmentation")]
+pub const FRAGMENTATION_PARAMS_DEFAULT: FragmentationParams =
+    FRAGMENTATION_PARAMS_ALLOW_FRAGMENTING;
+
+#[cfg(feature = "proto-ipv4-tx-fragmentation")]
+pub fn ipv4_fragment_mode_from_flags(more_frags: bool, dont_frag: bool) -> Result<FragmentMode> {
+    let fragment_mode_int = u8::from(more_frags) * 1 + u8::from(dont_frag) * 2;
+    match fragment_mode_int {
+        0 => Ok(FragmentMode::LastFragment),
+        1 => Ok(FragmentMode::Fragment),
+        2 => Ok(FragmentMode::DontFragment),
+        _ => Err(Error),
+    }
 }
 
 impl Repr {
@@ -650,6 +699,12 @@ impl Repr {
             dst_addr: packet.dst_addr(),
             next_header: packet.next_header(),
             payload_len,
+            #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+            fragmentation: FragmentationParams {
+                mode: ipv4_fragment_mode_from_flags(packet.more_frags(), packet.dont_frag())?,
+                ident: packet.ident(),
+                frag_offset: packet.frag_offset(),
+            },
             hop_limit: packet.hop_limit(),
         })
     }
@@ -672,11 +727,32 @@ impl Repr {
         packet.set_ecn(0);
         let total_len = packet.header_len() as u16 + self.payload_len as u16;
         packet.set_total_len(total_len);
-        packet.set_ident(0);
         packet.clear_flags();
-        packet.set_more_frags(false);
-        packet.set_dont_frag(true);
-        packet.set_frag_offset(0);
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "proto-ipv4-tx-fragmentation")] {
+                packet.set_ident(self.fragmentation.ident);
+                match self.fragmentation.mode{
+                    FragmentMode::DontFragment => {
+                        packet.set_more_frags(false);
+                        packet.set_dont_frag(true);
+                    }
+                    FragmentMode::Fragment => {
+                        packet.set_more_frags(true);
+                        packet.set_dont_frag(false);
+                    }
+                    FragmentMode::LastFragment => {
+                        packet.set_more_frags(false);
+                        packet.set_dont_frag(false);
+                    }
+                }
+                packet.set_frag_offset(self.fragmentation.frag_offset);
+            } else {
+                packet.set_ident(0);
+                packet.set_more_frags(false);
+                packet.set_dont_frag(true);
+                packet.set_frag_offset(0);
+            }
+        }
         packet.set_hop_limit(self.hop_limit);
         packet.set_next_header(self.next_header);
         packet.set_src_addr(self.src_addr);
@@ -880,6 +956,8 @@ mod test {
             next_header: Protocol::Icmp,
             payload_len: 4,
             hop_limit: 64,
+            #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+            fragmentation: FRAGMENTATION_PARAMS_DONT_FRAGMENT,
         }
     }
 

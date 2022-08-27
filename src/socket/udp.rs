@@ -509,6 +509,8 @@ mod test {
             use crate::wire::Ipv4Address as IpvXAddress;
             use crate::wire::Ipv4Repr as IpvXRepr;
             use IpRepr::Ipv4 as IpReprIpvX;
+            #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+            use crate::wire::IPV4_FRAGMENTATION_PARAMS_DEFAULT;
 
             const LOCAL_ADDR: IpvXAddress = IpvXAddress([192, 168, 1, 1]);
             const REMOTE_ADDR: IpvXAddress = IpvXAddress([192, 168, 1, 2]);
@@ -545,6 +547,8 @@ mod test {
         next_header: IpProtocol::Udp,
         payload_len: 8 + 6,
         hop_limit: 64,
+        #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+        fragmentation: IPV4_FRAGMENTATION_PARAMS_DEFAULT,
     });
 
     pub const REMOTE_IP_REPR: IpRepr = IpReprIpvX(IpvXRepr {
@@ -553,6 +557,8 @@ mod test {
         next_header: IpProtocol::Udp,
         payload_len: 8 + 6,
         hop_limit: 64,
+        #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+        fragmentation: IPV4_FRAGMENTATION_PARAMS_DEFAULT,
     });
 
     pub const BAD_IP_REPR: IpRepr = IpReprIpvX(IpvXRepr {
@@ -561,6 +567,8 @@ mod test {
         next_header: IpProtocol::Udp,
         payload_len: 8 + 6,
         hop_limit: 64,
+        #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+        fragmentation: IPV4_FRAGMENTATION_PARAMS_DEFAULT,
     });
 
     const LOCAL_UDP_REPR: UdpRepr = UdpRepr {
@@ -757,6 +765,8 @@ mod test {
                         next_header: IpProtocol::Udp,
                         payload_len: 8 + 6,
                         hop_limit: 0x2a,
+                        #[cfg(feature = "proto-ipv4-tx-fragmentation")]
+                        fragmentation: IPV4_FRAGMENTATION_PARAMS_DEFAULT,
                     })
                 );
                 Ok::<_, Error>(())
