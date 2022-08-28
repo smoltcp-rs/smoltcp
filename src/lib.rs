@@ -104,7 +104,7 @@ compile_error!("You must enable at least one of the following features: proto-ip
         feature = "socket-udp",
         feature = "socket-tcp",
         feature = "socket-icmp",
-        feature = "socket-dhcp",
+        feature = "socket-dhcpv4",
         feature = "socket-dns",
     ))
 ))]
