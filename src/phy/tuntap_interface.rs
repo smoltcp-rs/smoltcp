@@ -5,8 +5,8 @@ use std::rc::Rc;
 use std::vec::Vec;
 
 use crate::phy::{self, sys, Device, DeviceCapabilities, Medium};
+use crate::result_codes::Result;
 use crate::time::Instant;
-use crate::Result;
 
 /// A virtual TUN (IP) or TAP (Ethernet) interface.
 #[derive(Debug)]

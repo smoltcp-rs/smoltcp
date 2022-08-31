@@ -1,8 +1,8 @@
 use core::cell::RefCell;
 
 use crate::phy::{self, Device, DeviceCapabilities};
+use crate::result_codes::{Result, ResultCode};
 use crate::time::{Duration, Instant};
-use crate::{Error, Result};
 
 // We use our own RNG to stay compatible with #![no_std].
 // The use of the RNG below has a slight bias, but it doesn't matter.
@@ -263,7 +263,7 @@ impl<'a, Rx: phy::RxToken> phy::RxToken for RxToken<'a, Rx> {
     {
         if self.state.borrow_mut().maybe(self.config.drop_pct) {
             net_trace!("rx: randomly dropping a packet");
-            return Err(Error::Exhausted);
+            return Err(ResultCode::Exhausted);
         }
         if !self
             .state
@@ -271,7 +271,7 @@ impl<'a, Rx: phy::RxToken> phy::RxToken for RxToken<'a, Rx> {
             .maybe_receive(&self.config, timestamp)
         {
             net_trace!("rx: dropping a packet because of rate limiting");
-            return Err(Error::Exhausted);
+            return Err(ResultCode::Exhausted);
         }
         let Self {
             token,
@@ -282,7 +282,7 @@ impl<'a, Rx: phy::RxToken> phy::RxToken for RxToken<'a, Rx> {
         token.consume(timestamp, |buffer| {
             if config.max_size > 0 && buffer.as_ref().len() > config.max_size {
                 net_trace!("rx: dropping a packet that is too large");
-                return Err(Error::Exhausted);
+                return Err(ResultCode::Exhausted);
             }
             if state.borrow_mut().maybe(config.corrupt_pct) {
                 net_trace!("rx: randomly corrupting a packet");

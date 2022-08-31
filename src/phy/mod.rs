@@ -20,7 +20,7 @@ An implementation of the [Device](trait.Device.html) trait for a simple hardware
 Ethernet controller could look as follows:
 
 ```rust
-use smoltcp::Result;
+use smoltcp::result_codes::Result;
 use smoltcp::phy::{self, DeviceCapabilities, Device, Medium};
 use smoltcp::time::Instant;
 
@@ -89,8 +89,8 @@ impl<'a> phy::TxToken for StmPhyTxToken<'a> {
 "##
 )]
 
+use crate::result_codes::Result;
 use crate::time::Instant;
-use crate::Result;
 
 #[cfg(all(
     any(feature = "phy-raw_socket", feature = "phy-tuntap_interface"),

@@ -9,33 +9,35 @@ use crate::socket::WakerRegistration;
 use crate::storage::Empty;
 use crate::wire::{IpEndpoint, IpListenEndpoint, IpProtocol, IpRepr, UdpRepr};
 
+use crate::result_codes::ResultCode;
+
 /// A UDP packet metadata.
 pub type PacketMetadata = crate::storage::PacketMetadata<IpEndpoint>;
 
 /// A UDP packet ring buffer.
 pub type PacketBuffer<'a> = crate::storage::PacketBuffer<'a, IpEndpoint>;
 
-/// Error returned by [`Socket::bind`]
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum BindError {
-    InvalidState,
-    Unaddressable,
+error_code_enum! {
+    /// ResultCode returned by [`Socket::bind`]
+    pub enum BindError {
+        InvalidState,
+        Unaddressable,
+    }
 }
 
-/// Error returned by [`Socket::send`]
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum SendError {
-    Unaddressable,
-    BufferFull,
+error_code_enum! {
+    /// ResultCode returned by [`Socket::send`]
+    pub enum SendError {
+        Unaddressable,
+        BufferFull,
+    }
 }
 
-/// Error returned by [`Socket::recv`]
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum RecvError {
-    Exhausted,
+error_code_enum! {
+    /// ResultCode returned by [`Socket::recv`]
+    pub enum RecvError {
+        Exhausted,
+    }
 }
 
 /// A User Datagram Protocol socket.
@@ -140,8 +142,8 @@ impl<'a> Socket<'a> {
 
     /// Bind the socket to the given endpoint.
     ///
-    /// This function returns `Err(Error::Illegal)` if the socket was open
-    /// (see [is_open](#method.is_open)), and `Err(Error::Unaddressable)`
+    /// This function returns `Err(ResultCode::Illegal)` if the socket was open
+    /// (see [is_open](#method.is_open)), and `Err(ResultCode::Unaddressable)`
     /// if the port in the given endpoint is zero.
     pub fn bind<T: Into<IpListenEndpoint>>(&mut self, endpoint: T) -> Result<(), BindError> {
         let endpoint = endpoint.into();
@@ -225,9 +227,9 @@ impl<'a> Socket<'a> {
     /// Enqueue a packet to be sent to a given remote endpoint, and return a pointer
     /// to its payload.
     ///
-    /// This function returns `Err(Error::Exhausted)` if the transmit buffer is full,
-    /// `Err(Error::Unaddressable)` if local or remote port, or remote address are unspecified,
-    /// and `Err(Error::Truncated)` if there is not enough transmit buffer capacity
+    /// This function returns `Err(ResultCode::Exhausted)` if the transmit buffer is full,
+    /// `Err(ResultCode::Unaddressable)` if local or remote port, or remote address are unspecified,
+    /// and `Err(ResultCode::Truncated)` if there is not enough transmit buffer capacity
     /// to ever send this packet.
     pub fn send(
         &mut self,
@@ -312,7 +314,7 @@ impl<'a> Socket<'a> {
     /// Dequeue a packet received from a remote endpoint, and return the endpoint as well
     /// as a pointer to the payload.
     ///
-    /// This function returns `Err(Error::Exhausted)` if the receive buffer is empty.
+    /// This function returns `Err(ResultCode::Exhausted)` if the receive buffer is empty.
     pub fn recv(&mut self) -> Result<(&[u8], IpEndpoint), RecvError> {
         let (remote_endpoint, payload_buf) =
             self.rx_buffer.dequeue().map_err(|_| RecvError::Exhausted)?;
@@ -341,7 +343,7 @@ impl<'a> Socket<'a> {
     /// as a pointer to the payload without removing the packet from the receive buffer.
     /// This function otherwise behaves identically to [recv](#method.recv).
     ///
-    /// It returns `Err(Error::Exhausted)` if the receive buffer is empty.
+    /// It returns `Err(ResultCode::Exhausted)` if the receive buffer is empty.
     pub fn peek(&mut self) -> Result<(&[u8], &IpEndpoint), RecvError> {
         let endpoint = self.endpoint;
         self.rx_buffer.peek().map_err(|_| RecvError::Exhausted).map(
@@ -487,8 +489,8 @@ impl<'a> Socket<'a> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::result_codes::ResultCode;
     use crate::wire::{IpRepr, UdpRepr};
-    use crate::Error;
 
     fn buffer(packets: usize) -> PacketBuffer<'static> {
         PacketBuffer::new(vec![PacketMetadata::EMPTY; packets], vec![0; 16 * packets])
@@ -637,7 +639,7 @@ mod test {
         assert!(socket.can_send());
         assert_eq!(
             socket.dispatch(&mut cx, |_, _| unreachable!()),
-            Ok::<_, Error>(())
+            Ok::<_, ResultCode>(())
         );
 
         assert_eq!(socket.send_slice(b"abcdef", REMOTE_END), Ok(()));
@@ -652,9 +654,9 @@ mod test {
                 assert_eq!(ip_repr, LOCAL_IP_REPR);
                 assert_eq!(udp_repr, LOCAL_UDP_REPR);
                 assert_eq!(payload, PAYLOAD);
-                Err(Error::Unaddressable)
+                Err(ResultCode::Unaddressable)
             }),
-            Err(Error::Unaddressable)
+            Err(ResultCode::Unaddressable)
         );
         assert!(!socket.can_send());
 
@@ -663,7 +665,7 @@ mod test {
                 assert_eq!(ip_repr, LOCAL_IP_REPR);
                 assert_eq!(udp_repr, LOCAL_UDP_REPR);
                 assert_eq!(payload, PAYLOAD);
-                Ok::<_, Error>(())
+                Ok::<_, ResultCode>(())
             }),
             Ok(())
         );
@@ -759,7 +761,7 @@ mod test {
                         hop_limit: 0x2a,
                     })
                 );
-                Ok::<_, Error>(())
+                Ok::<_, ResultCode>(())
             }),
             Ok(())
         );

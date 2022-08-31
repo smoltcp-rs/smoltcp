@@ -13,6 +13,7 @@ use crate::iface::Routes;
 use crate::iface::{NeighborAnswer, NeighborCache};
 use crate::phy::{ChecksumCapabilities, Device, DeviceCapabilities, Medium, RxToken, TxToken};
 use crate::rand::Rand;
+use crate::result_codes::{Result, ResultCode};
 #[cfg(feature = "socket-dhcpv4")]
 use crate::socket::dhcpv4;
 #[cfg(feature = "socket-dns")]
@@ -20,7 +21,6 @@ use crate::socket::dns;
 use crate::socket::*;
 use crate::time::{Duration, Instant};
 use crate::wire::*;
-use crate::{Error, Result};
 
 pub(crate) struct FragmentsBuffer<'a> {
     #[cfg(feature = "proto-ipv4-fragmentation")]
@@ -775,14 +775,14 @@ impl<'a> Interface<'a> {
                     .inner
                     .ipv4_multicast_groups
                     .insert(addr, ())
-                    .map_err(|_| Error::Exhausted)?
+                    .map_err(|_| ResultCode::Exhausted)?
                     .is_some();
                 if is_not_new {
                     Ok(false)
                 } else if let Some(pkt) = self.inner.igmp_report_packet(IgmpVersion::Version2, addr)
                 {
                     // Send initial membership report
-                    let tx_token = device.transmit().ok_or(Error::Exhausted)?;
+                    let tx_token = device.transmit().ok_or(ResultCode::Exhausted)?;
                     self.inner.dispatch_ip(tx_token, pkt, None)?;
                     Ok(true)
                 } else {
@@ -791,7 +791,7 @@ impl<'a> Interface<'a> {
             }
             // Multicast is not yet implemented for other address families
             #[allow(unreachable_patterns)]
-            _ => Err(Error::Unaddressable),
+            _ => Err(ResultCode::Unaddressable),
         }
     }
 
@@ -818,7 +818,7 @@ impl<'a> Interface<'a> {
                     Ok(false)
                 } else if let Some(pkt) = self.inner.igmp_leave_packet(addr) {
                     // Send group leave packet
-                    let tx_token = device.transmit().ok_or(Error::Exhausted)?;
+                    let tx_token = device.transmit().ok_or(ResultCode::Exhausted)?;
                     self.inner.dispatch_ip(tx_token, pkt, None)?;
                     Ok(true)
                 } else {
@@ -827,7 +827,7 @@ impl<'a> Interface<'a> {
             }
             // Multicast is not yet implemented for other address families
             #[allow(unreachable_patterns)]
-            _ => Err(Error::Unaddressable),
+            _ => Err(ResultCode::Unaddressable),
         }
     }
 
@@ -895,7 +895,7 @@ impl<'a> Interface<'a> {
     /// These errors are provided as an aid for troubleshooting, and are meant
     /// to be logged and ignored.
     ///
-    /// As a special case, `Err(Error::Unrecognized)` is returned in response to
+    /// As a special case, `Err(ResultCode::Unrecognized)` is returned in response to
     /// packets containing any unsupported protocol, option, or form, which is
     /// a very common occurrence and on a production system it should not even
     /// be logged.
@@ -1081,7 +1081,7 @@ impl<'a> Interface<'a> {
             let mut neighbor_addr = None;
             let mut respond = |inner: &mut InterfaceInner, response: IpPacket| {
                 neighbor_addr = Some(response.ip_repr().dst_addr());
-                match device.transmit().ok_or(Error::Exhausted) {
+                match device.transmit().ok_or(ResultCode::Exhausted) {
                     Ok(_t) => {
                         #[cfg(feature = "proto-sixlowpan-fragmentation")]
                         if let Err(e) = inner.dispatch_ip(_t, response, Some(_out_packets)) {
@@ -1142,8 +1142,8 @@ impl<'a> Interface<'a> {
             };
 
             match result {
-                Err(Error::Exhausted) => break, // Device buffer full.
-                Err(Error::Unaddressable) => {
+                Err(ResultCode::Exhausted) => break, // Device buffer full.
+                Err(ResultCode::Unaddressable) => {
                     // `NeighborCache` already takes care of rate limiting the neighbor discovery
                     // requests from the socket. However, without an additional rate limiting
                     // mechanism, we would spin on every socket that has yet to discover its
@@ -1182,7 +1182,7 @@ impl<'a> Interface<'a> {
             } if self.inner.now >= timeout => {
                 if let Some(pkt) = self.inner.igmp_report_packet(version, group) {
                     // Send initial membership report
-                    let tx_token = device.transmit().ok_or(Error::Exhausted)?;
+                    let tx_token = device.transmit().ok_or(ResultCode::Exhausted)?;
                     self.inner.dispatch_ip(tx_token, pkt, None)?;
                 }
 
@@ -1206,7 +1206,7 @@ impl<'a> Interface<'a> {
                     Some(addr) => {
                         if let Some(pkt) = self.inner.igmp_report_packet(version, addr) {
                             // Send initial membership report
-                            let tx_token = device.transmit().ok_or(Error::Exhausted)?;
+                            let tx_token = device.transmit().ok_or(ResultCode::Exhausted)?;
                             self.inner.dispatch_ip(tx_token, pkt, None)?;
                         }
 
@@ -1246,7 +1246,7 @@ impl<'a> Interface<'a> {
         }
 
         if *packet_len > *sent_bytes {
-            match device.transmit().ok_or(Error::Exhausted) {
+            match device.transmit().ok_or(ResultCode::Exhausted) {
                 Ok(tx_token) => {
                     if let Err(e) = self.inner.dispatch_ieee802154_out_packet(
                         tx_token,
@@ -1684,7 +1684,7 @@ impl<'a> InterfaceInner<'a> {
                     // (other than the first one) are added.
                     let frag_slot = match fragments.reserve_with_key(&key) {
                         Ok(frag) => frag,
-                        Err(Error::PacketAssemblerSetFull) => {
+                        Err(ResultCode::PacketAssemblerSetFull) => {
                             net_debug!("No available packet assembler for fragmented packet");
                             return Default::default();
                         }
@@ -1714,7 +1714,7 @@ impl<'a> InterfaceInner<'a> {
                     Ok(false) => {
                         return None;
                     }
-                    Err(Error::PacketAssemblerOverlap) => {
+                    Err(ResultCode::PacketAssemblerOverlap) => {
                         net_trace!("6LoWPAN: overlap in packet");
                         frags.mark_discarded();
                         return None;
@@ -2042,7 +2042,7 @@ impl<'a> InterfaceInner<'a> {
                     Ok(false) => {
                         return None;
                     }
-                    Err(Error::PacketAssemblerOverlap) => {
+                    Err(ResultCode::PacketAssemblerOverlap) => {
                         return None;
                     }
                     Err(e) => {
@@ -2685,7 +2685,7 @@ impl<'a> InterfaceInner<'a> {
             let src_addr = if let Some(HardwareAddress::Ethernet(addr)) = self.hardware_addr {
                 addr
             } else {
-                return Err(Error::Malformed);
+                return Err(ResultCode::Malformed);
             };
 
             frame.set_src_addr(src_addr);
@@ -2709,7 +2709,7 @@ impl<'a> InterfaceInner<'a> {
         // Route via a router.
         match self.routes.lookup(addr, timestamp) {
             Some(router_addr) => Ok(router_addr),
-            None => Err(Error::Unaddressable),
+            None => Err(ResultCode::Unaddressable),
         }
     }
 
@@ -2802,7 +2802,7 @@ impl<'a> InterfaceInner<'a> {
             .lookup(&dst_addr, self.now)
         {
             NeighborAnswer::Found(hardware_addr) => return Ok((hardware_addr, tx_token)),
-            NeighborAnswer::RateLimited => return Err(Error::Unaddressable),
+            NeighborAnswer::RateLimited => return Err(ResultCode::Unaddressable),
             _ => (), // XXX
         }
 
@@ -2817,7 +2817,7 @@ impl<'a> InterfaceInner<'a> {
                     if let Some(HardwareAddress::Ethernet(addr)) = self.hardware_addr {
                         addr
                     } else {
-                        return Err(Error::Malformed);
+                        return Err(ResultCode::Malformed);
                     };
 
                 let arp_repr = ArpRepr::EthernetIpv4 {
@@ -2867,7 +2867,7 @@ impl<'a> InterfaceInner<'a> {
         }
         // The request got dispatched, limit the rate on the cache.
         self.neighbor_cache.as_mut().unwrap().limit_rate(self.now);
-        Err(Error::Unaddressable)
+        Err(ResultCode::Unaddressable)
     }
 
     fn flush_cache(&mut self) {
@@ -2958,17 +2958,17 @@ impl<'a> InterfaceInner<'a> {
         // Whenever this packet is to big to fit in the IEEE802.15.4 packet, then we need to
         // fragment it.
         let ll_src_a = self.hardware_addr.map_or_else(
-            || Err(Error::Malformed),
+            || Err(ResultCode::Malformed),
             |addr| match addr {
                 HardwareAddress::Ieee802154(addr) => Ok(addr),
-                _ => Err(Error::Malformed),
+                _ => Err(ResultCode::Malformed),
             },
         )?;
 
         let (src_addr, dst_addr) = match (ip_repr.src_addr(), ip_repr.dst_addr()) {
             (IpAddress::Ipv6(src_addr), IpAddress::Ipv6(dst_addr)) => (src_addr, dst_addr),
             #[allow(unreachable_patterns)]
-            _ => return Err(Error::Unaddressable),
+            _ => return Err(ResultCode::Unaddressable),
         };
 
         // Create the IEEE802.15.4 header.
@@ -2999,7 +2999,7 @@ impl<'a> InterfaceInner<'a> {
                 #[cfg(feature = "socket-udp")]
                 IpPacket::Udp(_) => SixlowpanNextHeader::Compressed,
                 #[allow(unreachable_patterns)]
-                _ => return Err(Error::Unrecognized),
+                _ => return Err(ResultCode::Unrecognized),
             },
             hop_limit: ip_repr.hop_limit(),
             ecn: None,
@@ -3031,7 +3031,7 @@ impl<'a> InterfaceInner<'a> {
             IpPacket::Icmpv6((_, icmp_repr)) => {
                 total_size += icmp_repr.buffer_len();
             }
-            _ => return Err(Error::Unrecognized),
+            _ => return Err(ResultCode::Unrecognized),
         }
 
         let ieee_len = ieee_repr.buffer_len();
@@ -3106,7 +3106,7 @@ impl<'a> InterfaceInner<'a> {
                                 &self.caps.checksum,
                             );
                         }
-                        _ => return Err(Error::Unrecognized),
+                        _ => return Err(ResultCode::Unrecognized),
                     }
 
                     *packet_len = total_size;
@@ -3222,7 +3222,7 @@ impl<'a> InterfaceInner<'a> {
                             &self.caps.checksum,
                         );
                     }
-                    _ => return Err(Error::Unrecognized),
+                    _ => return Err(ResultCode::Unrecognized),
                 }
                 Ok(())
             })
@@ -3357,9 +3357,9 @@ mod test {
     #[cfg(feature = "medium-ethernet")]
     use crate::iface::NeighborCache;
     use crate::phy::{ChecksumCapabilities, Loopback};
+    use crate::result_codes::{Result, ResultCode};
     #[cfg(feature = "proto-igmp")]
     use crate::time::Instant;
-    use crate::{Error, Result};
 
     #[allow(unused)]
     fn fill_slice(s: &mut [u8], val: u8) {
@@ -3458,7 +3458,7 @@ mod test {
         where
             F: FnOnce(&mut [u8]) -> Result<R>,
         {
-            Err(Error::Unaddressable)
+            Err(ResultCode::Unaddressable)
         }
     }
 
@@ -4188,7 +4188,7 @@ mod test {
                 &IpAddress::Ipv4(Ipv4Address([0x7f, 0x00, 0x00, 0x01])),
                 &IpAddress::Ipv4(remote_ip_addr)
             ),
-            Err(Error::Unaddressable)
+            Err(ResultCode::Unaddressable)
         );
     }
 

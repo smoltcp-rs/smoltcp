@@ -207,7 +207,7 @@ impl<'a, H> PacketBuffer<'a, H> {
     }
 
     /// Dequeue a single packet from the buffer, and return a reference to its payload
-    /// as well as its header, or return `Err(Error::Exhausted)` if the buffer is empty.
+    /// as well as its header, or return `Err(ResultCode::Exhausted)` if the buffer is empty.
     pub fn dequeue(&mut self) -> Result<(H, &mut [u8]), Empty> {
         self.dequeue_padding();
 
@@ -222,7 +222,7 @@ impl<'a, H> PacketBuffer<'a, H> {
     }
 
     /// Peek at a single packet from the buffer without removing it, and return a reference to
-    /// its payload as well as its header, or return `Err(Error:Exhausted)` if the buffer is empty.
+    /// its payload as well as its header, or return `Err(ResultCode:Exhausted)` if the buffer is empty.
     ///
     /// This function otherwise behaves identically to [dequeue](#method.dequeue).
     pub fn peek(&mut self) -> Result<(&H, &[u8]), Empty> {

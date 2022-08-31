@@ -4,10 +4,9 @@ use core::fmt;
 
 use managed::{ManagedMap, ManagedSlice};
 
+use crate::result_codes::{Result, ResultCode};
 use crate::storage::Assembler;
 use crate::time::{Duration, Instant};
-use crate::Error;
-use crate::Result;
 
 /// Holds different fragments of one packet, used for assembling fragmented packets.
 ///
@@ -68,7 +67,7 @@ impl<'a> PacketAssembler<'a> {
     ///
     /// # Errors
     ///
-    /// - Returns [`Error::PacketAssemblerBufferTooSmall`] when the buffer is too small for holding all the
+    /// - Returns [`ResultCode::PacketAssemblerBufferTooSmall`] when the buffer is too small for holding all the
     /// fragments of a packet.
     pub(crate) fn start(
         &mut self,
@@ -80,7 +79,7 @@ impl<'a> PacketAssembler<'a> {
             ManagedSlice::Borrowed(b) => {
                 if let Some(total_size) = total_size {
                     if b.len() < total_size {
-                        return Err(Error::PacketAssemblerBufferTooSmall);
+                        return Err(ResultCode::PacketAssemblerBufferTooSmall);
                     }
                 }
             }
@@ -110,11 +109,11 @@ impl<'a> PacketAssembler<'a> {
     ///
     /// # Errors
     ///
-    /// - Returns [`Error::PacketAssemblerNotInit`] when the assembler was not initialized (try initializing the
+    /// - Returns [`ResultCode::PacketAssemblerNotInit`] when the assembler was not initialized (try initializing the
     /// assembler with [Self::start]).
     pub(crate) fn set_total_size(&mut self, size: usize) -> Result<()> {
         match self.assembler {
-            AssemblerState::NotInit => Err(Error::PacketAssemblerNotInit),
+            AssemblerState::NotInit => Err(ResultCode::PacketAssemblerNotInit),
             AssemblerState::Assembling {
                 ref mut total_size, ..
             } => {
@@ -128,11 +127,11 @@ impl<'a> PacketAssembler<'a> {
     ///
     /// # Errors
     ///
-    /// - Returns [`Error::PacketAssemblerNotInit`] when the assembler was not initialized (try initializing the
+    /// - Returns [`ResultCode::PacketAssemblerNotInit`] when the assembler was not initialized (try initializing the
     /// assembler with [Self::start]).
     pub(crate) fn expires_at(&self) -> Result<Instant> {
         match self.assembler {
-            AssemblerState::NotInit => Err(Error::PacketAssemblerNotInit),
+            AssemblerState::NotInit => Err(ResultCode::PacketAssemblerNotInit),
             AssemblerState::Assembling { expires_at, .. } => Ok(expires_at),
         }
     }
@@ -141,14 +140,14 @@ impl<'a> PacketAssembler<'a> {
     ///
     /// # Errors
     ///
-    /// - Returns [`Error::PacketAssemblerNotInit`] when the assembler was not initialized (try initializing the
+    /// - Returns [`ResultCode::PacketAssemblerNotInit`] when the assembler was not initialized (try initializing the
     /// assembler with [Self::start]).
-    /// - Returns [`Error::PacketAssemblerBufferTooSmall`] when trying to add data into the buffer at a non-existing
+    /// - Returns [`ResultCode::PacketAssemblerBufferTooSmall`] when trying to add data into the buffer at a non-existing
     /// place.
-    /// - Returns [`Error::PacketAssemblerOverlap`] when there was an overlap when adding data.
+    /// - Returns [`ResultCode::PacketAssemblerOverlap`] when there was an overlap when adding data.
     pub(crate) fn add(&mut self, data: &[u8], offset: usize) -> Result<bool> {
         match self.assembler {
-            AssemblerState::NotInit => Err(Error::PacketAssemblerNotInit),
+            AssemblerState::NotInit => Err(ResultCode::PacketAssemblerNotInit),
             AssemblerState::Assembling {
                 ref mut assembler,
                 total_size,
@@ -161,7 +160,7 @@ impl<'a> PacketAssembler<'a> {
                 match &mut self.buffer {
                     ManagedSlice::Borrowed(b) => {
                         if offset + data.len() > b.len() {
-                            return Err(Error::PacketAssemblerBufferTooSmall);
+                            return Err(ResultCode::PacketAssemblerBufferTooSmall);
                         }
                     }
                     #[cfg(any(feature = "std", feature = "alloc"))]
@@ -191,7 +190,7 @@ impl<'a> PacketAssembler<'a> {
                         self.is_complete()
                     }
                     // NOTE(thvdveld): hopefully we wont get too many holes errors I guess?
-                    Err(_) => Err(Error::PacketAssemblerTooManyHoles),
+                    Err(_) => Err(ResultCode::PacketAssemblerTooManyHoles),
                 }
             }
         }
@@ -202,12 +201,12 @@ impl<'a> PacketAssembler<'a> {
     ///
     /// # Errors
     ///
-    /// - Returns [`Error::PacketAssemblerNotInit`] when the assembler was not initialized (try initializing the
+    /// - Returns [`ResultCode::PacketAssemblerNotInit`] when the assembler was not initialized (try initializing the
     /// assembler with [`Self::start`]).
-    /// - Returns [`Error::PacketAssemblerIncomplete`] when not all the fragments have been collected.
+    /// - Returns [`ResultCode::PacketAssemblerIncomplete`] when not all the fragments have been collected.
     pub(crate) fn assemble(&mut self) -> Result<&'_ [u8]> {
         let b = match self.assembler {
-            AssemblerState::NotInit => return Err(Error::PacketAssemblerNotInit),
+            AssemblerState::NotInit => return Err(ResultCode::PacketAssemblerNotInit),
             AssemblerState::Assembling { total_size, .. } => {
                 if self.is_complete()? {
                     // NOTE: we can unwrap because `is_complete` already checks this.
@@ -216,7 +215,7 @@ impl<'a> PacketAssembler<'a> {
                     self.assembler = AssemblerState::NotInit;
                     a
                 } else {
-                    return Err(Error::PacketAssemblerIncomplete);
+                    return Err(ResultCode::PacketAssemblerIncomplete);
                 }
             }
         };
@@ -227,11 +226,11 @@ impl<'a> PacketAssembler<'a> {
     ///
     /// # Errors
     ///
-    /// - Returns [`Error::PacketAssemblerNotInit`] when the assembler was not initialized (try initializing the
+    /// - Returns [`ResultCode::PacketAssemblerNotInit`] when the assembler was not initialized (try initializing the
     /// assembler with [`Self::start`]).
     pub(crate) fn is_complete(&self) -> Result<bool> {
         match &self.assembler {
-            AssemblerState::NotInit => Err(Error::PacketAssemblerNotInit),
+            AssemblerState::NotInit => Err(ResultCode::PacketAssemblerNotInit),
             AssemblerState::Assembling {
                 assembler,
                 total_size,
@@ -318,18 +317,18 @@ impl<'a, K: Eq + Ord + Clone + Copy> PacketAssemblerSet<'a, K> {
     ///
     /// # Errors
     ///
-    /// - Returns [`Error::PacketAssemblerSetFull`] when every [`PacketAssembler`] in the buffer is used (only
+    /// - Returns [`ResultCode::PacketAssemblerSetFull`] when every [`PacketAssembler`] in the buffer is used (only
     /// when the non allocating version of is used).
     pub(crate) fn reserve_with_key(&mut self, key: &K) -> Result<&mut PacketAssembler<'a>> {
         // Check how many WIP reassemblies we have.
         // The limit is currently set to 255.
         if self.index_buffer.len() == u8::MAX as usize {
-            return Err(Error::PacketAssemblerSetFull);
+            return Err(ResultCode::PacketAssemblerSetFull);
         }
 
         if self.packet_buffer.len() == self.index_buffer.len() {
             match &mut self.packet_buffer {
-                ManagedSlice::Borrowed(_) => return Err(Error::PacketAssemblerSetFull),
+                ManagedSlice::Borrowed(_) => return Err(ResultCode::PacketAssemblerSetFull),
                 #[cfg(any(feature = "std", feature = "alloc"))]
                 ManagedSlice::Owned(b) => (),
             }
@@ -337,7 +336,7 @@ impl<'a, K: Eq + Ord + Clone + Copy> PacketAssemblerSet<'a, K> {
 
         let i = self
             .get_free_packet_assembler()
-            .ok_or(Error::PacketAssemblerSetFull)?;
+            .ok_or(ResultCode::PacketAssemblerSetFull)?;
 
         // NOTE(thvdveld): this should not fail because we already checked the available space.
         match self.index_buffer.insert(*key, i) {
@@ -365,12 +364,12 @@ impl<'a, K: Eq + Ord + Clone + Copy> PacketAssemblerSet<'a, K> {
     ///
     /// # Errors
     ///
-    /// - Returns [`Error::PacketAssemblerSetKeyNotFound`] when the key was not found in the set.
+    /// - Returns [`ResultCode::PacketAssemblerSetKeyNotFound`] when the key was not found in the set.
     pub(crate) fn get_packet_assembler_mut(&mut self, key: &K) -> Result<&mut PacketAssembler<'a>> {
         if let Some(i) = self.index_buffer.get(key) {
             Ok(&mut self.packet_buffer[*i as usize])
         } else {
-            Err(Error::PacketAssemblerSetKeyNotFound)
+            Err(ResultCode::PacketAssemblerSetKeyNotFound)
         }
     }
 
@@ -379,15 +378,15 @@ impl<'a, K: Eq + Ord + Clone + Copy> PacketAssemblerSet<'a, K> {
     ///
     /// # Errors
     ///
-    /// - Returns [`Error::PacketAssemblerSetKeyNotFound`] when the `key` was not found.
-    /// - Returns [`Error::PacketAssemblerIncomplete`] when the fragments assembler was empty or not fully assembled.
+    /// - Returns [`ResultCode::PacketAssemblerSetKeyNotFound`] when the `key` was not found.
+    /// - Returns [`ResultCode::PacketAssemblerIncomplete`] when the fragments assembler was empty or not fully assembled.
     pub(crate) fn get_assembled_packet(&mut self, key: &K) -> Result<&[u8]> {
         if let Some(i) = self.index_buffer.get(key) {
             let p = self.packet_buffer[*i as usize].assemble()?;
             self.index_buffer.remove(key);
             Ok(p)
         } else {
-            Err(Error::PacketAssemblerSetKeyNotFound)
+            Err(ResultCode::PacketAssemblerSetKeyNotFound)
         }
     }
 
@@ -456,14 +455,17 @@ mod tests {
         let data = b"Hello World!";
         assert_eq!(
             p_assembler.add(&data[..], data.len()),
-            Err(Error::PacketAssemblerNotInit)
+            Err(ResultCode::PacketAssemblerNotInit)
         );
 
         assert_eq!(
             p_assembler.is_complete(),
-            Err(Error::PacketAssemblerNotInit)
+            Err(ResultCode::PacketAssemblerNotInit)
         );
-        assert_eq!(p_assembler.assemble(), Err(Error::PacketAssemblerNotInit));
+        assert_eq!(
+            p_assembler.assemble(),
+            Err(ResultCode::PacketAssemblerNotInit)
+        );
     }
 
     #[test]
@@ -473,14 +475,14 @@ mod tests {
 
         assert_eq!(
             p_assembler.start(Some(2), Instant::from_secs(0), 0),
-            Err(Error::PacketAssemblerBufferTooSmall)
+            Err(ResultCode::PacketAssemblerBufferTooSmall)
         );
         assert_eq!(p_assembler.start(Some(1), Instant::from_secs(0), 0), Ok(()));
 
         let data = b"Hello World!";
         assert_eq!(
             p_assembler.add(&data[..], data.len()),
-            Err(Error::PacketAssemblerBufferTooSmall)
+            Err(ResultCode::PacketAssemblerBufferTooSmall)
         );
     }
 
@@ -513,7 +515,7 @@ mod tests {
         p_assembler.add(b"Hello ", 0).unwrap();
         assert_eq!(
             p_assembler.assemble(),
-            Err(Error::PacketAssemblerIncomplete)
+            Err(ResultCode::PacketAssemblerIncomplete)
         );
 
         p_assembler.add(b"World!", b"Hello ".len()).unwrap();
@@ -535,7 +537,7 @@ mod tests {
         p_assembler.add(b"World!", b"Hello ".len()).unwrap();
         assert_eq!(
             p_assembler.assemble(),
-            Err(Error::PacketAssemblerIncomplete)
+            Err(ResultCode::PacketAssemblerIncomplete)
         );
 
         p_assembler.add(b"Hello ", 0).unwrap();
@@ -550,7 +552,7 @@ mod tests {
         let mut set = PacketAssemblerSet::<'_, _>::new(vec![], std::collections::BTreeMap::new());
 
         if let Err(e) = set.get_packet_assembler_mut(&key) {
-            assert_eq!(e, Error::PacketAssemblerSetKeyNotFound);
+            assert_eq!(e, ResultCode::PacketAssemblerSetKeyNotFound);
         }
 
         assert!(set.reserve_with_key(&key).is_ok());
@@ -568,7 +570,7 @@ mod tests {
             PacketAssemblerSet::new(&mut packet_assembler_cache[..], &mut packet_index_cache[..]);
 
         if let Err(e) = set.get_packet_assembler_mut(&key) {
-            assert_eq!(e, Error::PacketAssemblerSetKeyNotFound);
+            assert_eq!(e, ResultCode::PacketAssemblerSetKeyNotFound);
         }
 
         assert!(set.reserve_with_key(&key).is_ok());

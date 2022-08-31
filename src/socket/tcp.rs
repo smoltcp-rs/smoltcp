@@ -17,39 +17,41 @@ use crate::wire::{
     TCP_HEADER_LEN,
 };
 
+use crate::result_codes::ResultCode;
+
 macro_rules! tcp_trace {
     ($($arg:expr),*) => (net_log!(trace, $($arg),*));
 }
 
-/// Error returned by [`Socket::listen`]
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum ListenError {
-    InvalidState,
-    Unaddressable,
+error_code_enum! {
+    /// ResultCode returned by [`Socket::listen`]
+    pub enum ListenError {
+        InvalidState,
+        Unaddressable,
+    }
 }
 
-/// Error returned by [`Socket::connect`]
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum ConnectError {
-    InvalidState,
-    Unaddressable,
+error_code_enum! {
+    /// ResultCode returned by [`Socket::connect`]
+    pub enum ConnectError {
+        InvalidState,
+        Unaddressable,
+    }
 }
 
-/// Error returned by [`Socket::send`]
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum SendError {
-    InvalidState,
+error_code_enum! {
+    /// ResultCode returned by [`Socket::send`]
+    pub enum SendError {
+        InvalidState,
+    }
 }
 
-/// Error returned by [`Socket::recv`]
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum RecvError {
-    InvalidState,
-    Finished,
+error_code_enum! {
+    /// ResultCode returned by [`Socket::recv`]
+    pub enum RecvError {
+        InvalidState,
+        Finished,
+    }
 }
 
 /// A TCP socket ring buffer.
@@ -703,8 +705,8 @@ impl<'a> Socket<'a> {
 
     /// Start listening on the given endpoint.
     ///
-    /// This function returns `Err(Error::Illegal)` if the socket was already open
-    /// (see [is_open](#method.is_open)), and `Err(Error::Unaddressable)`
+    /// This function returns `Err(ResultCode::Illegal)` if the socket was already open
+    /// (see [is_open](#method.is_open)), and `Err(ResultCode::Unaddressable)`
     /// if the port in the given endpoint is zero.
     pub fn listen<T>(&mut self, local_endpoint: T) -> Result<(), ListenError>
     where
@@ -1001,7 +1003,7 @@ impl<'a> Socket<'a> {
     /// Call `f` with the largest contiguous slice of octets in the transmit buffer,
     /// and enqueue the amount of elements returned by `f`.
     ///
-    /// This function returns `Err(Error::Illegal)` if the transmit half of
+    /// This function returns `Err(ResultCode::Illegal)` if the transmit half of
     /// the connection is not open; see [may_send](#method.may_send).
     pub fn send<'b, F, R>(&'b mut self, f: F) -> Result<R, SendError>
     where
@@ -1062,10 +1064,10 @@ impl<'a> Socket<'a> {
     ///
     /// This function errors if the receive half of the connection is not open.
     ///
-    /// If the receive half has been gracefully closed (with a FIN packet), `Err(Error::Finished)`
+    /// If the receive half has been gracefully closed (with a FIN packet), `Err(ResultCode::Finished)`
     /// is returned. In this case, the previously received data is guaranteed to be complete.
     ///
-    /// In all other cases, `Err(Error::Illegal)` is returned and previously received data (if any)
+    /// In all other cases, `Err(ResultCode::Illegal)` is returned and previously received data (if any)
     /// may be incomplete (truncated).
     pub fn recv<'b, F, R>(&'b mut self, f: F) -> Result<R, RecvError>
     where
@@ -2278,8 +2280,8 @@ impl<'a> fmt::Write for Socket<'a> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::result_codes::ResultCode;
     use crate::wire::IpRepr;
-    use crate::Error;
     use core::i32;
     use std::ops::{Deref, DerefMut};
     use std::vec::Vec;
@@ -2431,7 +2433,7 @@ mod test {
 
     fn recv<F>(socket: &mut TestSocket, timestamp: Instant, mut f: F)
     where
-        F: FnMut(Result<TcpRepr, Error>),
+        F: FnMut(Result<TcpRepr, ResultCode>),
     {
         socket.cx.set_now(timestamp);
 
@@ -6276,7 +6278,7 @@ mod test {
         assert_eq!(
             s.socket.dispatch(&mut s.cx, |_, (ip_repr, _)| {
                 assert_eq!(ip_repr.hop_limit(), 0x2a);
-                Ok::<_, Error>(())
+                Ok::<_, ResultCode>(())
             }),
             Ok(())
         );
@@ -6523,7 +6525,7 @@ mod test {
                 ..SEND_TEMPL
             }
         );
-        // Error must be `Illegal` even if we've received a FIN,
+        // ResultCode must be `Illegal` even if we've received a FIN,
         // because we are missing data.
         assert_eq!(s.recv(|_| (0, ())), Err(RecvError::InvalidState));
     }

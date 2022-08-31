@@ -4,6 +4,7 @@ use core::task::Waker;
 use heapless::Vec;
 use managed::ManagedSlice;
 
+use crate::result_codes::ResultCode;
 use crate::socket::{Context, PollAt};
 use crate::time::{Duration, Instant};
 use crate::wire::dns::{Flags, Opcode, Packet, Question, Rcode, Record, RecordData, Repr, Type};
@@ -20,23 +21,23 @@ const RETRANSMIT_DELAY: Duration = Duration::from_millis(1_000);
 const MAX_RETRANSMIT_DELAY: Duration = Duration::from_millis(10_000);
 const RETRANSMIT_TIMEOUT: Duration = Duration::from_millis(10_000); // Should generally be 2-10 secs
 
-/// Error returned by [`Socket::start_query`]
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum StartQueryError {
-    NoFreeSlot,
-    InvalidName,
-    NameTooLong,
+error_code_enum! {
+    /// ResultCode returned by [`Socket::start_query`]
+    pub enum StartQueryError {
+        NoFreeSlot,
+        InvalidName,
+        NameTooLong,
+    }
 }
 
-/// Error returned by [`Socket::get_query_result`]
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum GetQueryResultError {
-    /// Query is not done yet.
-    Pending,
-    /// Query failed.
-    Failed,
+error_code_enum! {
+    /// ResultCode returned by [`Socket::get_query_result`]
+    pub enum GetQueryResultError {
+        /// Query is not done yet.
+        Pending,
+        /// Query failed.
+        Failed,
+    }
 }
 
 /// State for an in-progress DNS query.

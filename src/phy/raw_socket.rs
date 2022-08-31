@@ -5,8 +5,8 @@ use std::rc::Rc;
 use std::vec::Vec;
 
 use crate::phy::{self, sys, Device, DeviceCapabilities, Medium};
+use crate::result_codes::Result;
 use crate::time::Instant;
-use crate::Result;
 
 /// A socket that captures or transmits the complete frame.
 #[derive(Debug)]
@@ -119,7 +119,9 @@ impl phy::TxToken for TxToken {
         let result = f(&mut buffer);
         match lower.send(&buffer[..]) {
             Ok(_) => result,
-            Err(err) if err.kind() == io::ErrorKind::WouldBlock => Err(crate::Error::Exhausted),
+            Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
+                Err(crate::result_codes::ResultCode::Exhausted)
+            }
             Err(err) => panic!("{}", err),
         }
     }

@@ -158,8 +158,8 @@ pub mod frag {
 
     use super::{DISPATCH_FIRST_FRAGMENT_HEADER, DISPATCH_FRAGMENT_HEADER};
     use crate::{
+        result_codes::{Result, ResultCode},
         wire::{Ieee802154Address, Ieee802154Repr},
-        Error, Result,
     };
     use byteorder::{ByteOrder, NetworkEndian};
 
@@ -234,18 +234,18 @@ pub mod frag {
             let dispatch = packet.dispatch();
 
             if dispatch != DISPATCH_FIRST_FRAGMENT_HEADER && dispatch != DISPATCH_FRAGMENT_HEADER {
-                return Err(Error::Malformed);
+                return Err(ResultCode::Malformed);
             }
 
             Ok(packet)
         }
 
         /// Ensure that no accessor method will panic if called.
-        /// Returns `Err(Error::Truncated)` if the buffer is too short.
+        /// Returns `Err(ResultCode::Truncated)` if the buffer is too short.
         pub fn check_len(&self) -> Result<()> {
             let buffer = self.buffer.as_ref();
             if buffer.is_empty() {
-                return Err(Error::Truncated);
+                return Err(ResultCode::Truncated);
             }
 
             match self.dispatch() {
@@ -253,13 +253,13 @@ pub mod frag {
                     Ok(())
                 }
                 DISPATCH_FIRST_FRAGMENT_HEADER if buffer.len() < FIRST_FRAGMENT_HEADER_SIZE => {
-                    Err(Error::Truncated)
+                    Err(ResultCode::Truncated)
                 }
                 DISPATCH_FRAGMENT_HEADER if buffer.len() >= NEXT_FRAGMENT_HEADER_SIZE => Ok(()),
                 DISPATCH_FRAGMENT_HEADER if buffer.len() < NEXT_FRAGMENT_HEADER_SIZE => {
-                    Err(Error::Truncated)
+                    Err(ResultCode::Truncated)
                 }
-                _ => Err(Error::Unrecognized),
+                _ => Err(ResultCode::Unrecognized),
             }
         }
 
@@ -377,7 +377,7 @@ pub mod frag {
                     tag,
                     offset: packet.datagram_offset(),
                 }),
-                _ => Err(Error::Malformed),
+                _ => Err(ResultCode::Malformed),
             }
         }
 
@@ -1365,8 +1365,8 @@ pub mod nhc {
         /// Returns the type of the Next Header header.
         /// This can either be an Extenstion header or an 6LoWPAN Udp header.
         ///
-        /// # Errors
-        /// Returns `[Error::Unrecognized]` when neither the Extension Header dispatch or the Udp
+        /// # ResultCodes
+        /// Returns `[ResultCode::Unrecognized]` when neither the Extension Header dispatch or the Udp
         /// dispatch is recognized.
         pub fn dispatch(buffer: impl AsRef<[u8]>) -> Result<Self> {
             let raw = buffer.as_ref();
@@ -1655,7 +1655,7 @@ pub mod nhc {
         }
 
         /// Ensure that no accessor method will panic if called.
-        /// Returns `Err(Error::Truncated)` if the buffer is too short.
+        /// Returns `Err(ResultCode::Truncated)` if the buffer is too short.
         pub fn check_len(&self) -> Result<()> {
             let buffer = self.buffer.as_ref();
 

@@ -5,8 +5,8 @@ use alloc::vec::Vec;
 use alloc::VecDeque;
 
 use crate::phy::{self, Device, DeviceCapabilities, Medium};
+use crate::result_codes::Result;
 use crate::time::Instant;
-use crate::Result;
 
 /// A loopback device.
 #[derive(Debug)]

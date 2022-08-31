@@ -71,3 +71,38 @@ macro_rules! enum_with_unknown {
         }
     }
 }
+
+macro_rules! error_code_enum {
+    (
+        $( #[$enum_attr:meta] )*
+        pub enum $name:ident {
+            $(
+              $( #[$variant_attr:meta] )*
+              $variant:ident
+            ),+ $(,)?
+        }
+    ) => {
+        #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+        #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+        #[repr(u8)]
+        $( #[$enum_attr] )*
+        pub enum $name {
+            OK = (ResultCode::OK as u8),
+            $(
+              $( #[$variant_attr] )*
+              $variant
+            ),*,
+        }
+
+        impl From<Result<(), $name>> for $name {
+            fn from(res: Result<(), $name>) -> Self {
+                match res {
+                    Ok(_) => $name::OK,
+                    Err(err) => {
+                        err
+                    }
+                }
+            }
+        }
+    }
+}

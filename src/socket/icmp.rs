@@ -16,27 +16,29 @@ use crate::wire::{Icmpv6Packet, Icmpv6Repr, Ipv6Repr};
 use crate::wire::{IpAddress, IpListenEndpoint, IpProtocol, IpRepr};
 use crate::wire::{UdpPacket, UdpRepr};
 
-/// Error returned by [`Socket::bind`]
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum BindError {
-    InvalidState,
-    Unaddressable,
+use crate::result_codes::ResultCode;
+
+error_code_enum! {
+    /// ResultCode returned by [`Socket::bind`]
+    pub enum BindError {
+        InvalidState,
+        Unaddressable,
+    }
 }
 
-/// Error returned by [`Socket::send`]
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum SendError {
-    Unaddressable,
-    BufferFull,
+error_code_enum! {
+    /// ResultCode returned by [`Socket::send`]
+    pub enum SendError {
+        Unaddressable,
+        BufferFull,
+    }
 }
 
-/// Error returned by [`Socket::recv`]
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum RecvError {
-    Exhausted,
+error_code_enum! {
+    /// ResultCode returned by [`Socket::recv`]
+    pub enum RecvError {
+        Exhausted,
+    }
 }
 
 /// Type of endpoint to bind the ICMP socket to. See [IcmpSocket::bind] for
@@ -175,13 +177,13 @@ impl<'a> Socket<'a> {
 
     /// Bind the socket to the given endpoint.
     ///
-    /// This function returns `Err(Error::Illegal)` if the socket was open
-    /// (see [is_open](#method.is_open)), and `Err(Error::Unaddressable)`
+    /// This function returns `Err(ResultCode::Illegal)` if the socket was open
+    /// (see [is_open](#method.is_open)), and `Err(ResultCode::Unaddressable)`
     /// if `endpoint` is unspecified (see [is_specified]).
     ///
     /// # Examples
     ///
-    /// ## Bind to ICMP Error messages associated with a specific UDP port:
+    /// ## Bind to ICMP ResultCode messages associated with a specific UDP port:
     ///
     /// To [recv] ICMP error messages that are associated with a specific local
     /// UDP port, the socket may be bound to a given port using [IcmpEndpoint::Udp].
@@ -293,9 +295,9 @@ impl<'a> Socket<'a> {
     /// Enqueue a packet to be sent to a given remote address, and return a pointer
     /// to its payload.
     ///
-    /// This function returns `Err(Error::Exhausted)` if the transmit buffer is full,
-    /// `Err(Error::Truncated)` if the requested size is larger than the packet buffer
-    /// size, and `Err(Error::Unaddressable)` if the remote address is unspecified.
+    /// This function returns `Err(ResultCode::Exhausted)` if the transmit buffer is full,
+    /// `Err(ResultCode::Truncated)` if the requested size is larger than the packet buffer
+    /// size, and `Err(ResultCode::Unaddressable)` if the remote address is unspecified.
     pub fn send(&mut self, size: usize, endpoint: IpAddress) -> Result<&mut [u8], SendError> {
         if endpoint.is_unspecified() {
             return Err(SendError::Unaddressable);
@@ -349,7 +351,7 @@ impl<'a> Socket<'a> {
     /// Dequeue a packet received from a remote endpoint, and return the `IpAddress` as well
     /// as a pointer to the payload.
     ///
-    /// This function returns `Err(Error::Exhausted)` if the receive buffer is empty.
+    /// This function returns `Err(ResultCode::Exhausted)` if the receive buffer is empty.
     pub fn recv(&mut self) -> Result<(&[u8], IpAddress), RecvError> {
         let (endpoint, packet_buf) = self.rx_buffer.dequeue().map_err(|_| RecvError::Exhausted)?;
 
@@ -618,8 +620,8 @@ mod tests_common {
 #[cfg(all(test, feature = "proto-ipv4"))]
 mod test_ipv4 {
     use super::tests_common::*;
+    use crate::result_codes::ResultCode;
     use crate::wire::{Icmpv4DstUnreachable, IpEndpoint, Ipv4Address};
-    use crate::Error;
 
     const REMOTE_IPV4: Ipv4Address = Ipv4Address([192, 168, 1, 2]);
     const LOCAL_IPV4: Ipv4Address = Ipv4Address([192, 168, 1, 1]);
@@ -696,9 +698,9 @@ mod test_ipv4 {
             socket.dispatch(&mut cx, |_, (ip_repr, icmp_repr)| {
                 assert_eq!(ip_repr, LOCAL_IPV4_REPR);
                 assert_eq!(icmp_repr, ECHOV4_REPR.into());
-                Err(Error::Unaddressable)
+                Err(ResultCode::Unaddressable)
             }),
-            Err(Error::Unaddressable)
+            Err(ResultCode::Unaddressable)
         );
         // buffer is not taken off of the tx queue due to the error
         assert!(!socket.can_send());
@@ -707,7 +709,7 @@ mod test_ipv4 {
             socket.dispatch(&mut cx, |_, (ip_repr, icmp_repr)| {
                 assert_eq!(ip_repr, LOCAL_IPV4_REPR);
                 assert_eq!(icmp_repr, ECHOV4_REPR.into());
-                Ok::<_, Error>(())
+                Ok::<_, ResultCode>(())
             }),
             Ok(())
         );
@@ -743,7 +745,7 @@ mod test_ipv4 {
                         hop_limit: 0x2a,
                     })
                 );
-                Ok::<_, Error>(())
+                Ok::<_, ResultCode>(())
             }),
             Ok(())
         );
@@ -860,8 +862,8 @@ mod test_ipv4 {
 mod test_ipv6 {
     use super::tests_common::*;
 
+    use crate::result_codes::ResultCode;
     use crate::wire::{Icmpv6DstUnreachable, IpEndpoint, Ipv6Address};
-    use crate::Error;
 
     const REMOTE_IPV6: Ipv6Address =
         Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]);
@@ -911,7 +913,7 @@ mod test_ipv6 {
 
         assert_eq!(
             socket.dispatch(&mut cx, |_, _| unreachable!()),
-            Ok::<_, Error>(())
+            Ok::<_, ResultCode>(())
         );
 
         // This buffer is too long
@@ -944,9 +946,9 @@ mod test_ipv6 {
             socket.dispatch(&mut cx, |_, (ip_repr, icmp_repr)| {
                 assert_eq!(ip_repr, LOCAL_IPV6_REPR);
                 assert_eq!(icmp_repr, ECHOV6_REPR.into());
-                Err(Error::Unaddressable)
+                Err(ResultCode::Unaddressable)
             }),
-            Err(Error::Unaddressable)
+            Err(ResultCode::Unaddressable)
         );
         // buffer is not taken off of the tx queue due to the error
         assert!(!socket.can_send());
@@ -955,7 +957,7 @@ mod test_ipv6 {
             socket.dispatch(&mut cx, |_, (ip_repr, icmp_repr)| {
                 assert_eq!(ip_repr, LOCAL_IPV6_REPR);
                 assert_eq!(icmp_repr, ECHOV6_REPR.into());
-                Ok::<_, Error>(())
+                Ok::<_, ResultCode>(())
             }),
             Ok(())
         );
@@ -996,7 +998,7 @@ mod test_ipv6 {
                         hop_limit: 0x2a,
                     })
                 );
-                Ok::<_, Error>(())
+                Ok::<_, ResultCode>(())
             }),
             Ok(())
         );

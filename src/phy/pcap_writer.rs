@@ -5,8 +5,8 @@ use phy::Medium;
 use std::io::Write;
 
 use crate::phy::{self, Device, DeviceCapabilities};
+use crate::result_codes::Result;
 use crate::time::Instant;
-use crate::Result;
 
 enum_with_unknown! {
     /// Captured packet header type.

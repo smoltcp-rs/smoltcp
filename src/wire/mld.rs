@@ -188,7 +188,7 @@ impl<T: AsRef<[u8]>> AddressRecord<T> {
     }
 
     /// Ensure that no accessor method will panic if called.
-    /// Returns `Err(Error::Truncated)` if the buffer is too short.
+    /// Returns `Err(ResultCode::Truncated)` if the buffer is too short.
     pub fn check_len(&self) -> Result<()> {
         let len = self.buffer.as_ref().len();
         if len < field::RECORD_MCAST_ADDR.end {

@@ -2,12 +2,12 @@ use crate::time::Instant;
 use core::ops::Bound;
 use managed::ManagedMap;
 
+use crate::result_codes::{Result, ResultCode};
 use crate::wire::{IpAddress, IpCidr};
 #[cfg(feature = "proto-ipv4")]
 use crate::wire::{Ipv4Address, Ipv4Cidr};
 #[cfg(feature = "proto-ipv6")]
 use crate::wire::{Ipv6Address, Ipv6Cidr};
-use crate::{Error, Result};
 
 /// A prefix of addresses that should be routed via a router
 #[derive(Debug, Clone, Copy)]
@@ -91,7 +91,7 @@ impl<'a> Routes<'a> {
         let route = Route::new_ipv4_gateway(gateway);
         match self.storage.insert(cidr, route) {
             Ok(route) => Ok(route),
-            Err((_cidr, _route)) => Err(Error::Exhausted),
+            Err((_cidr, _route)) => Err(ResultCode::Exhausted),
         }
     }
 
@@ -104,7 +104,7 @@ impl<'a> Routes<'a> {
         let route = Route::new_ipv6_gateway(gateway);
         match self.storage.insert(cidr, route) {
             Ok(route) => Ok(route),
-            Err((_cidr, _route)) => Err(Error::Exhausted),
+            Err((_cidr, _route)) => Err(ResultCode::Exhausted),
         }
     }
 
