@@ -12,10 +12,11 @@ use crate::wire::{self, IpAddress, IpProtocol, IpRepr, UdpRepr};
 #[cfg(feature = "async")]
 use super::WakerRegistration;
 
+pub const MAX_ADDRESS_COUNT: usize = 4;
+pub const MAX_SERVER_COUNT: usize = 4;
+
 const DNS_PORT: u16 = 53;
 const MAX_NAME_LEN: usize = 255;
-const MAX_ADDRESS_COUNT: usize = 4;
-const MAX_SERVER_COUNT: usize = 4;
 const RETRANSMIT_DELAY: Duration = Duration::from_millis(1_000);
 const MAX_RETRANSMIT_DELAY: Duration = Duration::from_millis(10_000);
 const RETRANSMIT_TIMEOUT: Duration = Duration::from_millis(10_000); // Should generally be 2-10 secs
