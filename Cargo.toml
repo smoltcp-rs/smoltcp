@@ -42,6 +42,7 @@ verbose = []
 
 "phy-raw_socket" = ["std", "libc"]
 "phy-tuntap_interface" = ["std", "libc", "medium-ethernet"]
+"phy-sans_io" = ["std", "alloc"]
 
 "proto-ipv4" = []
 "proto-ipv4-fragmentation" = ["proto-ipv4"]
@@ -69,7 +70,7 @@ default = [
   "proto-ipv4", "proto-igmp", "proto-dhcpv4", "proto-ipv6", "proto-dns",
   "proto-ipv4-fragmentation", "proto-sixlowpan-fragmentation",
   "socket-raw", "socket-icmp", "socket-udp", "socket-tcp", "socket-dhcpv4", "socket-dns",
-  "async"
+  "async", "phy-sans_io"
 ]
 
 # experimental; do not use; no guarantees provided that this feature will be kept
@@ -127,6 +128,10 @@ required-features = ["std", "medium-ieee802154", "phy-raw_socket", "proto-sixlow
 [[example]]
 name = "dns"
 required-features = ["std", "medium-ethernet", "medium-ip", "phy-tuntap_interface", "proto-ipv4", "socket-dns"]
+
+[[example]]
+name = "sans_io"
+required-features = ["std", "medium-ethernet", "medium-ip", "phy-sans_io", "proto-ipv4", "socket-udp"]
 
 [profile.release]
 debug = 2

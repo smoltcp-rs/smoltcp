@@ -112,6 +112,9 @@ mod tracer;
 ))]
 mod tuntap_interface;
 
+#[cfg(feature = "phy-sans_io")]
+pub mod sans_io;
+
 #[cfg(all(
     any(feature = "phy-raw_socket", feature = "phy-tuntap_interface"),
     unix
