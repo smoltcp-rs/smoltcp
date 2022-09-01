@@ -15,16 +15,26 @@ pub use super::IpProtocol as Protocol;
 /// [RFC 8200 § 5]: https://tools.ietf.org/html/rfc8200#section-5
 pub const MIN_MTU: usize = 1280;
 
+/// Size of IPv6 adderess in octets.
+///
+/// [RFC 8200 § 2]: https://www.rfc-editor.org/rfc/rfc4291#section-2
+pub const ADDR_SIZE: usize = 16;
+
+/// Size of IPv4-mapping prefix in octets.
+///
+/// [RFC 8200 § 2]: https://www.rfc-editor.org/rfc/rfc4291#section-2
+pub const IPV4_MAPPED_PREFIX_SIZE: usize = ADDR_SIZE - 4; // 4 == ipv4::ADDR_SIZE , cannot DRY here because of dependency on a IPv4 module which is behind the feature
+
 /// A sixteen-octet IPv6 address.
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct Address(pub [u8; 16]);
+pub struct Address(pub [u8; ADDR_SIZE]);
 
 impl Address {
     /// The [unspecified address].
     ///
     /// [unspecified address]: https://tools.ietf.org/html/rfc4291#section-2.5.2
-    pub const UNSPECIFIED: Address = Address([0x00; 16]);
+    pub const UNSPECIFIED: Address = Address([0x00; ADDR_SIZE]);
 
     /// The link-local [all nodes multicast address].
     ///
@@ -50,18 +60,24 @@ impl Address {
         0x01,
     ]);
 
+    /// The prefix used in [IPv4-mapped addresses].
+    ///
+    /// [IPv4-mapped addresses]: https://www.rfc-editor.org/rfc/rfc4291#section-2.5.5.2
+    pub const IPV4_MAPPED_PREFIX: [u8; IPV4_MAPPED_PREFIX_SIZE] =
+        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff];
+
     /// Construct an IPv6 address from parts.
     #[allow(clippy::too_many_arguments)]
     pub fn new(a0: u16, a1: u16, a2: u16, a3: u16, a4: u16, a5: u16, a6: u16, a7: u16) -> Address {
-        let mut addr = [0u8; 16];
-        NetworkEndian::write_u16(&mut addr[0..2], a0);
+        let mut addr = [0u8; ADDR_SIZE];
+        NetworkEndian::write_u16(&mut addr[..2], a0);
         NetworkEndian::write_u16(&mut addr[2..4], a1);
         NetworkEndian::write_u16(&mut addr[4..6], a2);
         NetworkEndian::write_u16(&mut addr[6..8], a3);
         NetworkEndian::write_u16(&mut addr[8..10], a4);
         NetworkEndian::write_u16(&mut addr[10..12], a5);
         NetworkEndian::write_u16(&mut addr[12..14], a6);
-        NetworkEndian::write_u16(&mut addr[14..16], a7);
+        NetworkEndian::write_u16(&mut addr[14..], a7);
         Address(addr)
     }
 
@@ -70,7 +86,7 @@ impl Address {
     /// # Panics
     /// The function panics if `data` is not sixteen octets long.
     pub fn from_bytes(data: &[u8]) -> Address {
-        let mut bytes = [0; 16];
+        let mut bytes = [0; ADDR_SIZE];
         bytes.copy_from_slice(data);
         Address(bytes)
     }
@@ -81,7 +97,7 @@ impl Address {
     /// The function panics if `data` is not 8 words long.
     pub fn from_parts(data: &[u16]) -> Address {
         assert!(data.len() >= 8);
-        let mut bytes = [0; 16];
+        let mut bytes = [0; ADDR_SIZE];
         for (word_idx, chunk) in bytes.chunks_mut(2).enumerate() {
             NetworkEndian::write_u16(chunk, data[word_idx]);
         }
@@ -122,7 +138,7 @@ impl Address {
     ///
     /// [unspecified address]: https://tools.ietf.org/html/rfc4291#section-2.5.2
     pub fn is_unspecified(&self) -> bool {
-        self.0 == [0x00; 16]
+        self.0 == [0x00; ADDR_SIZE]
     }
 
     /// Query whether the IPv6 address is in the [link-local] scope.
@@ -143,15 +159,15 @@ impl Address {
     ///
     /// [IPv4 mapped IPv6 address]: https://tools.ietf.org/html/rfc4291#section-2.5.5.2
     pub fn is_ipv4_mapped(&self) -> bool {
-        self.0[0..12] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff]
+        self.0[..IPV4_MAPPED_PREFIX_SIZE] == Self::IPV4_MAPPED_PREFIX
     }
 
     #[cfg(feature = "proto-ipv4")]
     /// Convert an IPv4 mapped IPv6 address to an IPv4 address.
     pub fn as_ipv4(&self) -> Option<ipv4::Address> {
         if self.is_ipv4_mapped() {
-            Some(ipv4::Address::new(
-                self.0[12], self.0[13], self.0[14], self.0[15],
+            Some(ipv4::Address::from_bytes(
+                &self.0[IPV4_MAPPED_PREFIX_SIZE..],
             ))
         } else {
             None
@@ -162,14 +178,14 @@ impl Address {
     ///
     /// # Panics
     /// This function panics if `mask` is greater than 128.
-    pub(super) fn mask(&self, mask: u8) -> [u8; 16] {
+    pub(super) fn mask(&self, mask: u8) -> [u8; ADDR_SIZE] {
         assert!(mask <= 128);
-        let mut bytes = [0u8; 16];
+        let mut bytes = [0u8; ADDR_SIZE];
         let idx = (mask as usize) / 8;
         let modulus = (mask as usize) % 8;
         let (first, second) = self.0.split_at(idx);
         bytes[0..idx].copy_from_slice(first);
-        if idx < 16 {
+        if idx < ADDR_SIZE {
             let part = second[0];
             bytes[idx] = part & (!(0xff >> modulus) as u8);
         }
@@ -217,7 +233,10 @@ impl fmt::Display for Address {
             return write!(
                 f,
                 "::ffff:{}.{}.{}.{}",
-                self.0[12], self.0[13], self.0[14], self.0[15]
+                self.0[IPV4_MAPPED_PREFIX_SIZE + 0],
+                self.0[IPV4_MAPPED_PREFIX_SIZE + 1],
+                self.0[IPV4_MAPPED_PREFIX_SIZE + 2],
+                self.0[IPV4_MAPPED_PREFIX_SIZE + 3]
             );
         }
 
@@ -273,10 +292,10 @@ impl fmt::Display for Address {
 /// Convert the given IPv4 address into a IPv4-mapped IPv6 address
 impl From<ipv4::Address> for Address {
     fn from(address: ipv4::Address) -> Self {
-        let octets = address.0;
-        Address([
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, octets[0], octets[1], octets[2], octets[3],
-        ])
+        let mut b = [0_u8; ADDR_SIZE];
+        b[..Self::IPV4_MAPPED_PREFIX.len()].copy_from_slice(&Self::IPV4_MAPPED_PREFIX);
+        b[Self::IPV4_MAPPED_PREFIX.len()..].copy_from_slice(&address.0);
+        Self(b)
     }
 }
 
