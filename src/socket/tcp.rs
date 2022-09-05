@@ -2309,35 +2309,40 @@ mod test {
     const LOCAL_SEQ: TcpSeqNumber = TcpSeqNumber(10000);
     const REMOTE_SEQ: TcpSeqNumber = TcpSeqNumber(-10001);
 
-    cfg_if::cfg_if! {
-        if #[cfg(feature = "proto-ipv4")] {
-            use crate::wire::Ipv4Address as IpvXAddress;
-            use crate::wire::Ipv4Repr as IpvXRepr;
-            use IpRepr::Ipv4 as IpReprIpvX;
+    #[cfg(feature = "proto-ipv4")]
+    mod proto_ipv4 {
+        pub use super::IpRepr::Ipv4 as IpReprIpvX;
+        pub use crate::wire::Ipv4Address as IpvXAddress;
+        pub use crate::wire::Ipv4Repr as IpvXRepr;
 
-            const LOCAL_ADDR: IpvXAddress = IpvXAddress([192, 168, 1, 1]);
-            const REMOTE_ADDR: IpvXAddress = IpvXAddress([192, 168, 1, 2]);
-            const OTHER_ADDR: IpvXAddress = IpvXAddress([192, 168, 1, 3]);
+        pub const LOCAL_ADDR: IpvXAddress = IpvXAddress([192, 168, 1, 1]);
+        pub const REMOTE_ADDR: IpvXAddress = IpvXAddress([192, 168, 1, 2]);
+        pub const OTHER_ADDR: IpvXAddress = IpvXAddress([192, 168, 1, 3]);
 
-            const BASE_MSS: u16 = 1460;
-        } else {
-            use crate::wire::Ipv6Address as IpvXAddress;
-            use crate::wire::Ipv6Repr as IpvXRepr;
-            use IpRepr::Ipv6 as IpReprIpvX;
-
-            const LOCAL_ADDR: IpvXAddress = IpvXAddress([
-                0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
-            ]);
-            const REMOTE_ADDR: IpvXAddress = IpvXAddress([
-                0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2,
-            ]);
-            const OTHER_ADDR: IpvXAddress = IpvXAddress([
-                0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3,
-            ]);
-
-            const BASE_MSS: u16 = 1440;
-        }
+        pub const BASE_MSS: u16 = 1460;
     }
+
+    #[cfg(not(feature = "proto-ipv4"))]
+    mod proto_ipv6 {
+        pub use super::IpRepr::Ipv6 as IpReprIpvX;
+        pub use crate::wire::Ipv6Address as IpvXAddress;
+        pub use crate::wire::Ipv6Repr as IpvXRepr;
+
+        pub const LOCAL_ADDR: IpvXAddress =
+            IpvXAddress([0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
+        pub const REMOTE_ADDR: IpvXAddress =
+            IpvXAddress([0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]);
+        pub const OTHER_ADDR: IpvXAddress =
+            IpvXAddress([0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3]);
+
+        pub const BASE_MSS: u16 = 1440;
+    }
+
+    #[cfg(feature = "proto-ipv4")]
+    use proto_ipv4::*;
+
+    #[cfg(not(feature = "proto-ipv4"))]
+    use proto_ipv6::*;
 
     const SEND_IP_TEMPL: IpRepr = IpReprIpvX(IpvXRepr {
         src_addr: LOCAL_ADDR,
