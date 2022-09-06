@@ -9,6 +9,7 @@ use crate::wire::{
     UdpRepr, DHCP_CLIENT_PORT, DHCP_MAX_DNS_SERVER_COUNT, DHCP_SERVER_PORT, UDP_HEADER_LEN,
 };
 use crate::wire::{DhcpOption, HardwareAddress};
+use heapless::Vec;
 
 #[cfg(feature = "async")]
 use super::WakerRegistration;
@@ -24,7 +25,7 @@ const DEFAULT_PARAMETER_REQUEST_LIST: &[u8] = &[
 ];
 
 /// IPv4 configuration data provided by the DHCP server.
-#[derive(Debug, Eq, PartialEq, Clone, Copy)]
+#[derive(Debug, Eq, PartialEq, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Config<'a> {
     /// Information on how to reach the DHCP server that responded with DHCP
@@ -36,7 +37,7 @@ pub struct Config<'a> {
     /// match the DHCP server's address.
     pub router: Option<Ipv4Address>,
     /// DNS servers
-    pub dns_servers: [Option<Ipv4Address>; DHCP_MAX_DNS_SERVER_COUNT],
+    pub dns_servers: Vec<Ipv4Address, DHCP_MAX_DNS_SERVER_COUNT>,
     /// Received DHCP packet
     pub packet: Option<DhcpPacket<&'a [u8]>>,
 }
@@ -417,17 +418,20 @@ impl<'a> Socket<'a> {
 
         // Cleanup the DNS servers list, keeping only unicasts/
         // TP-Link TD-W8970 sends 0.0.0.0 as second DNS server if there's only one configured :(
-        let mut dns_servers = [None; DHCP_MAX_DNS_SERVER_COUNT];
-        if let Some(received) = dhcp_repr.dns_servers {
-            let mut i = 0;
-            for addr in received.iter().flatten() {
-                if addr.is_unicast() {
-                    // This can never be out-of-bounds since both arrays have length DHCP_MAX_DNS_SERVER_COUNT
-                    dns_servers[i] = Some(*addr);
-                    i += 1;
-                }
-            }
-        }
+        let mut dns_servers = Vec::new();
+
+        dhcp_repr
+            .dns_servers
+            .iter()
+            .flatten()
+            .flatten()
+            .filter(|s| s.is_unicast())
+            .for_each(|a| {
+                // This will never produce an error, as both the arrays and `dns_servers`
+                // have length DHCP_MAX_DNS_SERVER_COUNT
+                dns_servers.push(*a).ok();
+            });
+
         let config = Config {
             server,
             address: Ipv4Cidr::new(dhcp_repr.your_ip, prefix_len),
@@ -627,7 +631,7 @@ impl<'a> Socket<'a> {
                 server: state.config.server,
                 address: state.config.address,
                 router: state.config.router,
-                dns_servers: state.config.dns_servers,
+                dns_servers: state.config.dns_servers.clone(),
                 packet: self
                     .receive_packet_buffer
                     .as_deref()
@@ -775,8 +779,10 @@ mod test {
     const DNS_IP_1: Ipv4Address = Ipv4Address([1, 1, 1, 1]);
     const DNS_IP_2: Ipv4Address = Ipv4Address([1, 1, 1, 2]);
     const DNS_IP_3: Ipv4Address = Ipv4Address([1, 1, 1, 3]);
-    const DNS_IPS: [Option<Ipv4Address>; DHCP_MAX_DNS_SERVER_COUNT] =
+    const DNS_IPS_ARR: [Option<Ipv4Address>; DHCP_MAX_DNS_SERVER_COUNT] =
         [Some(DNS_IP_1), Some(DNS_IP_2), Some(DNS_IP_3)];
+    const DNS_IPS: &[Ipv4Address] = &[DNS_IP_1, DNS_IP_2, DNS_IP_3];
+
     const MASK_24: Ipv4Address = Ipv4Address([255, 255, 255, 0]);
 
     const MY_MAC: EthernetAddress = EthernetAddress([0x02, 0x02, 0x02, 0x02, 0x02, 0x02]);
@@ -860,7 +866,7 @@ mod test {
         your_ip: MY_IP,
         router: Some(SERVER_IP),
         subnet_mask: Some(MASK_24),
-        dns_servers: Some(DNS_IPS),
+        dns_servers: Some(DNS_IPS_ARR),
         lease_duration: Some(1000),
 
         ..DHCP_DEFAULT
@@ -885,7 +891,7 @@ mod test {
         your_ip: MY_IP,
         router: Some(SERVER_IP),
         subnet_mask: Some(MASK_24),
-        dns_servers: Some(DNS_IPS),
+        dns_servers: Some(DNS_IPS_ARR),
         lease_duration: Some(1000),
 
         ..DHCP_DEFAULT
@@ -931,7 +937,7 @@ mod test {
                     identifier: SERVER_IP,
                 },
                 address: Ipv4Cidr::new(MY_IP, 24),
-                dns_servers: DNS_IPS,
+                dns_servers: Vec::from_slice(DNS_IPS).unwrap(),
                 router: Some(SERVER_IP),
                 packet: None,
             },
@@ -962,7 +968,7 @@ mod test {
                     identifier: SERVER_IP,
                 },
                 address: Ipv4Cidr::new(MY_IP, 24),
-                dns_servers: DNS_IPS,
+                dns_servers: Vec::from_slice(DNS_IPS).unwrap(),
                 router: Some(SERVER_IP),
                 packet: None,
             }))

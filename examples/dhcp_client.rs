@@ -78,9 +78,7 @@ fn main() {
                 }
 
                 for (i, s) in config.dns_servers.iter().enumerate() {
-                    if let Some(s) = s {
-                        debug!("DNS server {}:    {}", i, s);
-                    }
+                    debug!("DNS server {}:    {}", i, s);
                 }
             }
             Some(dhcpv4::Event::Deconfigured) => {
