@@ -424,7 +424,6 @@ impl<'a> Socket<'a> {
             .dns_servers
             .iter()
             .flatten()
-            .flatten()
             .filter(|s| s.is_unicast())
             .for_each(|a| {
                 // This will never produce an error, as both the arrays and `dns_servers`
@@ -779,8 +778,6 @@ mod test {
     const DNS_IP_1: Ipv4Address = Ipv4Address([1, 1, 1, 1]);
     const DNS_IP_2: Ipv4Address = Ipv4Address([1, 1, 1, 2]);
     const DNS_IP_3: Ipv4Address = Ipv4Address([1, 1, 1, 3]);
-    const DNS_IPS_ARR: [Option<Ipv4Address>; DHCP_MAX_DNS_SERVER_COUNT] =
-        [Some(DNS_IP_1), Some(DNS_IP_2), Some(DNS_IP_3)];
     const DNS_IPS: &[Ipv4Address] = &[DNS_IP_1, DNS_IP_2, DNS_IP_3];
 
     const MASK_24: Ipv4Address = Ipv4Address([255, 255, 255, 0]);
@@ -858,19 +855,21 @@ mod test {
         ..DHCP_DEFAULT
     };
 
-    const DHCP_OFFER: DhcpRepr = DhcpRepr {
-        message_type: DhcpMessageType::Offer,
-        server_ip: SERVER_IP,
-        server_identifier: Some(SERVER_IP),
+    fn dhcp_offer() -> DhcpRepr<'static> {
+        DhcpRepr {
+            message_type: DhcpMessageType::Offer,
+            server_ip: SERVER_IP,
+            server_identifier: Some(SERVER_IP),
 
-        your_ip: MY_IP,
-        router: Some(SERVER_IP),
-        subnet_mask: Some(MASK_24),
-        dns_servers: Some(DNS_IPS_ARR),
-        lease_duration: Some(1000),
+            your_ip: MY_IP,
+            router: Some(SERVER_IP),
+            subnet_mask: Some(MASK_24),
+            dns_servers: Some(Vec::from_slice(DNS_IPS).unwrap()),
+            lease_duration: Some(1000),
 
-        ..DHCP_DEFAULT
-    };
+            ..DHCP_DEFAULT
+        }
+    }
 
     const DHCP_REQUEST: DhcpRepr = DhcpRepr {
         message_type: DhcpMessageType::Request,
@@ -883,19 +882,21 @@ mod test {
         ..DHCP_DEFAULT
     };
 
-    const DHCP_ACK: DhcpRepr = DhcpRepr {
-        message_type: DhcpMessageType::Ack,
-        server_ip: SERVER_IP,
-        server_identifier: Some(SERVER_IP),
+    fn dhcp_ack() -> DhcpRepr<'static> {
+        DhcpRepr {
+            message_type: DhcpMessageType::Ack,
+            server_ip: SERVER_IP,
+            server_identifier: Some(SERVER_IP),
 
-        your_ip: MY_IP,
-        router: Some(SERVER_IP),
-        subnet_mask: Some(MASK_24),
-        dns_servers: Some(DNS_IPS_ARR),
-        lease_duration: Some(1000),
+            your_ip: MY_IP,
+            router: Some(SERVER_IP),
+            subnet_mask: Some(MASK_24),
+            dns_servers: Some(Vec::from_slice(DNS_IPS).unwrap()),
+            lease_duration: Some(1000),
 
-        ..DHCP_DEFAULT
-    };
+            ..DHCP_DEFAULT
+        }
+    }
 
     const DHCP_NAK: DhcpRepr = DhcpRepr {
         message_type: DhcpMessageType::Nak,
@@ -954,11 +955,11 @@ mod test {
 
         recv!(s, [(IP_BROADCAST, UDP_SEND, DHCP_DISCOVER)]);
         assert_eq!(s.poll(), None);
-        send!(s, (IP_RECV, UDP_RECV, DHCP_OFFER));
+        send!(s, (IP_RECV, UDP_RECV, dhcp_offer()));
         assert_eq!(s.poll(), None);
         recv!(s, [(IP_BROADCAST, UDP_SEND, DHCP_REQUEST)]);
         assert_eq!(s.poll(), None);
-        send!(s, (IP_RECV, UDP_RECV, DHCP_ACK));
+        send!(s, (IP_RECV, UDP_RECV, dhcp_ack()));
 
         assert_eq!(
             s.poll(),
@@ -994,7 +995,7 @@ mod test {
         recv!(s, time 20_000, [(IP_BROADCAST, UDP_SEND, DHCP_DISCOVER)]);
 
         // check after retransmits it still works
-        send!(s, time 20_000, (IP_RECV, UDP_RECV, DHCP_OFFER));
+        send!(s, time 20_000, (IP_RECV, UDP_RECV, dhcp_offer()));
         recv!(s, time 20_000, [(IP_BROADCAST, UDP_SEND, DHCP_REQUEST)]);
     }
 
@@ -1003,7 +1004,7 @@ mod test {
         let mut s = socket();
 
         recv!(s, time 0, [(IP_BROADCAST, UDP_SEND, DHCP_DISCOVER)]);
-        send!(s, time 0, (IP_RECV, UDP_RECV, DHCP_OFFER));
+        send!(s, time 0, (IP_RECV, UDP_RECV, dhcp_offer()));
         recv!(s, time 0, [(IP_BROADCAST, UDP_SEND, DHCP_REQUEST)]);
         recv!(s, time 1_000, []);
         recv!(s, time 5_000, [(IP_BROADCAST, UDP_SEND, DHCP_REQUEST)]);
@@ -1013,7 +1014,7 @@ mod test {
         recv!(s, time 20_000, [(IP_BROADCAST, UDP_SEND, DHCP_REQUEST)]);
 
         // check after retransmits it still works
-        send!(s, time 20_000, (IP_RECV, UDP_RECV, DHCP_ACK));
+        send!(s, time 20_000, (IP_RECV, UDP_RECV, dhcp_ack()));
 
         match &s.state {
             ClientState::Renewing(r) => {
@@ -1029,7 +1030,7 @@ mod test {
         let mut s = socket();
 
         recv!(s, time 0, [(IP_BROADCAST, UDP_SEND, DHCP_DISCOVER)]);
-        send!(s, time 0, (IP_RECV, UDP_RECV, DHCP_OFFER));
+        send!(s, time 0, (IP_RECV, UDP_RECV, dhcp_offer()));
         recv!(s, time 0, [(IP_BROADCAST, UDP_SEND, DHCP_REQUEST)]);
         recv!(s, time 5_000, [(IP_BROADCAST, UDP_SEND, DHCP_REQUEST)]);
         recv!(s, time 10_000, [(IP_BROADCAST, UDP_SEND, DHCP_REQUEST)]);
@@ -1041,7 +1042,7 @@ mod test {
         recv!(s, time 70_000, [(IP_BROADCAST, UDP_SEND, DHCP_DISCOVER)]);
 
         // check it still works
-        send!(s, time 60_000, (IP_RECV, UDP_RECV, DHCP_OFFER));
+        send!(s, time 60_000, (IP_RECV, UDP_RECV, dhcp_offer()));
         recv!(s, time 60_000, [(IP_BROADCAST, UDP_SEND, DHCP_REQUEST)]);
     }
 
@@ -1050,7 +1051,7 @@ mod test {
         let mut s = socket();
 
         recv!(s, time 0, [(IP_BROADCAST, UDP_SEND, DHCP_DISCOVER)]);
-        send!(s, time 0, (IP_RECV, UDP_RECV, DHCP_OFFER));
+        send!(s, time 0, (IP_RECV, UDP_RECV, dhcp_offer()));
         recv!(s, time 0, [(IP_BROADCAST, UDP_SEND, DHCP_REQUEST)]);
         send!(s, time 0, (IP_SERVER_BROADCAST, UDP_RECV, DHCP_NAK));
         recv!(s, time 0, [(IP_BROADCAST, UDP_SEND, DHCP_DISCOVER)]);
@@ -1074,7 +1075,7 @@ mod test {
             _ => panic!("Invalid state"),
         }
 
-        send!(s, time 500_000, (IP_RECV, UDP_RECV, DHCP_ACK));
+        send!(s, time 500_000, (IP_RECV, UDP_RECV, dhcp_ack()));
         assert_eq!(s.poll(), None);
 
         match &s.state {
@@ -1099,7 +1100,7 @@ mod test {
         recv!(s, time 875_000, [(IP_SEND, UDP_SEND, DHCP_RENEW)]);
 
         // check it still works
-        send!(s, time 875_000, (IP_RECV, UDP_RECV, DHCP_ACK));
+        send!(s, time 875_000, (IP_RECV, UDP_RECV, dhcp_ack()));
         match &s.state {
             ClientState::Renewing(r) => {
                 // NOW the expiration gets bumped
