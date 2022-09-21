@@ -3,6 +3,7 @@
 use bitflags::bitflags;
 use byteorder::{ByteOrder, NetworkEndian};
 use core::iter;
+use heapless::Vec;
 
 use super::{Error, Result};
 use crate::wire::arp::Hardware;
@@ -582,7 +583,7 @@ impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Packet<&'a mut T> {
 /// length) is set to `6`.
 ///
 /// The `options` field has a variable length.
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Repr<'a> {
     /// This field is also known as `op` in the RFC. It indicates the type of DHCP message this
@@ -645,7 +646,7 @@ pub struct Repr<'a> {
     /// the client is interested in.
     pub parameter_request_list: Option<&'a [u8]>,
     /// DNS servers
-    pub dns_servers: Option<[Option<Ipv4Address>; MAX_DNS_SERVER_COUNT]>,
+    pub dns_servers: Option<Vec<Ipv4Address, MAX_DNS_SERVER_COUNT>>,
     /// The maximum size dhcp packet the interface can receive
     pub max_size: Option<u16>,
     /// The DHCP IP lease duration, specified in seconds.
@@ -683,9 +684,9 @@ impl<'a> Repr<'a> {
         if self.lease_duration.is_some() {
             len += 6;
         }
-        if let Some(dns_servers) = self.dns_servers {
+        if let Some(dns_servers) = &self.dns_servers {
             len += 2;
-            len += dns_servers.iter().flatten().count() * core::mem::size_of::<u32>();
+            len += dns_servers.iter().count() * core::mem::size_of::<u32>();
         }
         if let Some(list) = self.parameter_request_list {
             len += list.len() + 2;
@@ -773,13 +774,13 @@ impl<'a> Repr<'a> {
                     parameter_request_list = Some(data);
                 }
                 (field::OPT_DOMAIN_NAME_SERVER, _) => {
-                    let mut servers = [None; MAX_DNS_SERVER_COUNT];
-                    let chunk_size = 4;
-                    for (server, chunk) in servers.iter_mut().zip(data.chunks(chunk_size)) {
-                        if chunk.len() != chunk_size {
-                            return Err(Error);
-                        }
-                        *server = Some(Ipv4Address::from_bytes(chunk));
+                    let mut servers = Vec::new();
+                    const IP_ADDR_BYTE_LEN: usize = 4;
+                    for chunk in data.chunks(IP_ADDR_BYTE_LEN) {
+                        // We ignore push failures because that will only happen
+                        // if we attempt to push more than 4 addresses, and the only
+                        // solution to that is to support more addresses.
+                        servers.push(Ipv4Address::from_bytes(chunk)).ok();
                     }
                     dns_servers = Some(servers);
                 }
@@ -901,13 +902,12 @@ impl<'a> Repr<'a> {
                 })?;
             }
 
-            if let Some(dns_servers) = self.dns_servers {
+            if let Some(dns_servers) = &self.dns_servers {
                 const IP_SIZE: usize = core::mem::size_of::<u32>();
                 let mut servers = [0; MAX_DNS_SERVER_COUNT * IP_SIZE];
 
                 let data_len = dns_servers
                     .iter()
-                    .flatten()
                     .enumerate()
                     .inspect(|(i, ip)| {
                         servers[(i * IP_SIZE)..((i + 1) * IP_SIZE)].copy_from_slice(ip.as_bytes());
@@ -1210,11 +1210,14 @@ mod test {
     fn test_emit_offer_dns() {
         let repr = {
             let mut repr = offer_repr();
-            repr.dns_servers = Some([
-                Some(Ipv4Address([163, 1, 74, 6])),
-                Some(Ipv4Address([163, 1, 74, 7])),
-                Some(Ipv4Address([163, 1, 74, 3])),
-            ]);
+            repr.dns_servers = Some(
+                Vec::from_slice(&[
+                    Ipv4Address([163, 1, 74, 6]),
+                    Ipv4Address([163, 1, 74, 7]),
+                    Ipv4Address([163, 1, 74, 3]),
+                ])
+                .unwrap(),
+            );
             repr
         };
         let mut bytes = vec![0xa5; repr.buffer_len()];
@@ -1226,11 +1229,14 @@ mod test {
 
         assert_eq!(
             repr_parsed.dns_servers,
-            Some([
-                Some(Ipv4Address([163, 1, 74, 6])),
-                Some(Ipv4Address([163, 1, 74, 7])),
-                Some(Ipv4Address([163, 1, 74, 3]))
-            ])
+            Some(
+                Vec::from_slice(&[
+                    Ipv4Address([163, 1, 74, 6]),
+                    Ipv4Address([163, 1, 74, 7]),
+                    Ipv4Address([163, 1, 74, 3]),
+                ])
+                .unwrap()
+            )
         );
     }
 
@@ -1263,11 +1269,14 @@ mod test {
         // length-3 array (see issue #305)
         assert_eq!(
             repr.dns_servers,
-            Some([
-                Some(Ipv4Address([163, 1, 74, 6])),
-                Some(Ipv4Address([163, 1, 74, 7])),
-                Some(Ipv4Address([163, 1, 74, 3]))
-            ])
+            Some(
+                Vec::from_slice(&[
+                    Ipv4Address([163, 1, 74, 6]),
+                    Ipv4Address([163, 1, 74, 7]),
+                    Ipv4Address([163, 1, 74, 3])
+                ])
+                .unwrap()
+            )
         );
     }
 

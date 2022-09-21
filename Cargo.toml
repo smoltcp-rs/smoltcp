@@ -36,6 +36,7 @@ url = "2.0"
 std = ["managed/std", "defmt?/alloc"]
 alloc = ["managed/alloc", "defmt?/alloc"]
 verbose = []
+defmt = [ "dep:defmt", "heapless/defmt", "heapless/defmt-impl" ]
 "medium-ethernet" = ["socket"]
 "medium-ip" = ["socket"]
 "medium-ieee802154" = ["socket", "proto-sixlowpan"]
