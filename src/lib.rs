@@ -65,7 +65,7 @@
 //!
 //! # Minimum Supported Rust Version (MSRV)
 //!
-//! This crate is guaranteed to compile on stable Rust 1.61 and up with any valid set of features.
+//! This crate is guaranteed to compile on stable Rust 1.65 and up with any valid set of features.
 //! It *might* compile on older versions but that may change in any new patch release.
 //!
 //! The exception is when using the `defmt` feature, in which case `defmt`'s MSRV applies, which

@@ -20,8 +20,9 @@ jobs:
         # Test on stable, MSRV, and nightly.
         # Failure is permitted on nightly.
         rust:
-          - stable
-          - 1.61.0
+          # TODO update when stable Rust 1.65 is out.
+          #- stable
+          - beta
           - nightly
 
         features:
@@ -64,8 +65,9 @@ jobs:
         # Test on stable, MSRV, and nightly.
         # Failure is permitted on nightly.
         rust:
-          - stable
-          - 1.61.0
+          # TODO update when stable Rust 1.65 is out.
+          #- stable
+          - beta
           - nightly
 
         features:
