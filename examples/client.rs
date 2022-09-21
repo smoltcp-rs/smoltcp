@@ -9,7 +9,7 @@ use std::str::{self, FromStr};
     feature = "proto-sixlowpan-fragmentation",
     feature = "proto-ipv4-fragmentation"
 ))]
-use smoltcp::iface::FragmentsCache;
+use smoltcp::iface::ReassemblyBuffer;
 
 use smoltcp::iface::{InterfaceBuilder, NeighborCache, Routes, SocketSet};
 use smoltcp::phy::{wait as phy_wait, Device, Medium};
@@ -52,19 +52,23 @@ fn main() {
     let mut builder = InterfaceBuilder::new().ip_addrs(ip_addrs).routes(routes);
 
     #[cfg(feature = "proto-ipv4-fragmentation")]
+    let mut ipv4_out_packet_cache = [0u8; 1280];
+    #[cfg(feature = "proto-ipv4-fragmentation")]
     {
-        let ipv4_frag_cache = FragmentsCache::new(vec![], BTreeMap::new());
-        builder = builder.ipv4_fragments_cache(ipv4_frag_cache);
+        let ipv4_frag_cache = ReassemblyBuffer::new(vec![], BTreeMap::new());
+        builder = builder
+            .ipv4_reassembly_buffer(ipv4_frag_cache)
+            .ipv4_fragmentation_buffer(&mut ipv4_out_packet_cache[..]);
     }
 
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
-    let mut out_packet_buffer = [0u8; 1280];
+    let mut sixlowpan_out_packet_cache = [0u8; 1280];
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
     {
-        let sixlowpan_frag_cache = FragmentsCache::new(vec![], BTreeMap::new());
+        let sixlowpan_frag_cache = ReassemblyBuffer::new(vec![], BTreeMap::new());
         builder = builder
-            .sixlowpan_fragments_cache(sixlowpan_frag_cache)
-            .sixlowpan_out_packet_cache(&mut out_packet_buffer[..]);
+            .sixlowpan_reassembly_buffer(sixlowpan_frag_cache)
+            .sixlowpan_fragmentation_buffer(&mut sixlowpan_out_packet_cache[..]);
     }
 
     if medium == Medium::Ethernet {

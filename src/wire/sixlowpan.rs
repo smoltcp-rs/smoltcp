@@ -2067,14 +2067,14 @@ mod test {
 
     #[test]
     fn sixlowpan_three_fragments() {
-        use crate::iface::FragmentsCache;
+        use crate::iface::ReassemblyBuffer;
         use crate::time::Instant;
         use crate::wire::ieee802154::Frame as Ieee802154Frame;
         use crate::wire::ieee802154::Repr as Ieee802154Repr;
         use crate::wire::Ieee802154Address;
         use std::collections::BTreeMap;
 
-        let mut frags_cache = FragmentsCache::new(vec![], BTreeMap::new());
+        let mut frags_cache = ReassemblyBuffer::new(vec![], BTreeMap::new());
 
         let frame1: &[u8] = &[
             0x41, 0xcc, 0x92, 0xef, 0xbe, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x0b, 0x1a, 0xd9,

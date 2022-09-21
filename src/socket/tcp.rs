@@ -2099,7 +2099,7 @@ impl<'a> Socket<'a> {
                 // 3. MSS we can send, determined by our MTU.
                 let size = win_limit
                     .min(self.remote_mss)
-                    .min(cx.ip_mtu() - ip_repr.buffer_len() - TCP_HEADER_LEN);
+                    .min(cx.ip_mtu() - ip_repr.header_len() - TCP_HEADER_LEN);
 
                 let offset = self.remote_last_seq - self.local_seq_no;
                 repr.payload = self.tx_buffer.get_allocated(offset, size);
@@ -2161,7 +2161,7 @@ impl<'a> Socket<'a> {
 
         if repr.control == TcpControl::Syn {
             // Fill the MSS option. See RFC 6691 for an explanation of this calculation.
-            let max_segment_size = cx.ip_mtu() - ip_repr.buffer_len() - TCP_HEADER_LEN;
+            let max_segment_size = cx.ip_mtu() - ip_repr.header_len() - TCP_HEADER_LEN;
             repr.max_seg_size = Some(max_segment_size as u16);
         }
 

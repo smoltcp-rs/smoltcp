@@ -47,7 +47,7 @@ use std::collections::BTreeMap;
 use std::os::unix::io::AsRawFd;
 use std::str;
 
-use smoltcp::iface::{FragmentsCache, InterfaceBuilder, NeighborCache, SocketSet};
+use smoltcp::iface::{InterfaceBuilder, NeighborCache, ReassemblyBuffer, SocketSet};
 use smoltcp::phy::{wait as phy_wait, Medium, RawSocket};
 use smoltcp::socket::tcp;
 use smoltcp::socket::udp;
@@ -95,18 +95,18 @@ fn main() {
 
     #[cfg(feature = "proto-ipv4-fragmentation")]
     {
-        let ipv4_frag_cache = FragmentsCache::new(vec![], BTreeMap::new());
-        builder = builder.ipv4_fragments_cache(ipv4_frag_cache);
+        let ipv4_frag_cache = ReassemblyBuffer::new(vec![], BTreeMap::new());
+        builder = builder.ipv4_reassembly_buffer(ipv4_frag_cache);
     }
 
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
     let mut out_packet_buffer = [0u8; 1280];
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
     {
-        let sixlowpan_frag_cache = FragmentsCache::new(vec![], BTreeMap::new());
+        let sixlowpan_frag_cache = ReassemblyBuffer::new(vec![], BTreeMap::new());
         builder = builder
-            .sixlowpan_fragments_cache(sixlowpan_frag_cache)
-            .sixlowpan_out_packet_cache(&mut out_packet_buffer[..]);
+            .sixlowpan_reassembly_buffer(sixlowpan_frag_cache)
+            .sixlowpan_fragmentation_buffer(&mut out_packet_buffer[..]);
     }
 
     let mut iface = builder.finalize(&mut device);
