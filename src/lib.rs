@@ -104,11 +104,11 @@ compile_error!("You must enable at least one of the following features: proto-ip
         feature = "socket-udp",
         feature = "socket-tcp",
         feature = "socket-icmp",
-        feature = "socket-dhcp",
+        feature = "socket-dhcpv4",
         feature = "socket-dns",
     ))
 ))]
-compile_error!("If you enable the socket feature, you must enable at least one of the following features: socket-raw, socket-udp, socket-tcp, socket-icmp, socket-dhcp, socket-dns");
+compile_error!("If you enable the socket feature, you must enable at least one of the following features: socket-raw, socket-udp, socket-tcp, socket-icmp, socket-dhcpv4, socket-dns");
 
 #[cfg(all(
     feature = "socket",
