@@ -21,6 +21,11 @@ pub use super::IpProtocol as Protocol;
 // accept a packet of the following size.
 pub const MIN_MTU: usize = 576;
 
+/// Size of IPv4 adderess in octets.
+///
+/// [RFC 8200 § 2]: https://www.rfc-editor.org/rfc/rfc791#section-3.2
+pub const ADDR_SIZE: usize = 4;
+
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone, Copy)]
 pub struct Key {
     id: u16,
@@ -31,14 +36,14 @@ pub struct Key {
 
 /// A four-octet IPv4 address.
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
-pub struct Address(pub [u8; 4]);
+pub struct Address(pub [u8; ADDR_SIZE]);
 
 impl Address {
     /// An unspecified address.
-    pub const UNSPECIFIED: Address = Address([0x00; 4]);
+    pub const UNSPECIFIED: Address = Address([0x00; ADDR_SIZE]);
 
     /// The broadcast address.
-    pub const BROADCAST: Address = Address([0xff; 4]);
+    pub const BROADCAST: Address = Address([0xff; ADDR_SIZE]);
 
     /// All multicast-capable nodes
     pub const MULTICAST_ALL_SYSTEMS: Address = Address([224, 0, 0, 1]);
@@ -56,7 +61,7 @@ impl Address {
     /// # Panics
     /// The function panics if `data` is not four octets long.
     pub fn from_bytes(data: &[u8]) -> Address {
-        let mut bytes = [0; 4];
+        let mut bytes = [0; ADDR_SIZE];
         bytes.copy_from_slice(data);
         Address(bytes)
     }
@@ -73,7 +78,7 @@ impl Address {
 
     /// Query whether the address is the broadcast address.
     pub fn is_broadcast(&self) -> bool {
-        self.0[0..4] == [255; 4]
+        self.0[0..4] == [255; ADDR_SIZE]
     }
 
     /// Query whether the address is a multicast address.
@@ -873,7 +878,7 @@ mod test {
         0x14, 0x21, 0x22, 0x23, 0x24, 0xaa, 0x00, 0x00, 0xff,
     ];
 
-    static REPR_PAYLOAD_BYTES: [u8; 4] = [0xaa, 0x00, 0x00, 0xff];
+    static REPR_PAYLOAD_BYTES: [u8; ADDR_SIZE] = [0xaa, 0x00, 0x00, 0xff];
 
     fn packet_repr() -> Repr {
         Repr {
