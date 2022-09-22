@@ -1950,59 +1950,17 @@ impl<'a> InterfaceInner<'a> {
                         let udp_repr = check!(SixlowpanUdpNhcRepr::parse(
                             &udp_packet,
                             &iphc_repr.src_addr,
-                            &iphc_repr.dst_addr,
+                            &iphc_repr.dst_addr
                         ));
 
-                        // Look for UDP sockets that will accept the UDP packet.
-                        // If it does not accept the packet, then send an ICMP message.
-                        //
-                        // NOTE(thvdveld): this is currently the same code as in self.process_udp.
-                        // However, we cannot use that one because the payload passed to it is a
-                        // normal IPv6 UDP payload, which is not what we have here.
-                        for udp_socket in sockets
-                            .items_mut()
-                            .filter_map(|i| udp::Socket::downcast_mut(&mut i.socket))
-                        {
-                            if udp_socket.accepts(self, &IpRepr::Ipv6(ipv6_repr), &udp_repr) {
-                                udp_socket.process(
-                                    self,
-                                    &IpRepr::Ipv6(ipv6_repr),
-                                    &udp_repr,
-                                    udp_packet.payload(),
-                                );
-                                return None;
-                            }
-                        }
-
-                        #[cfg(feature = "socket-dns")]
-                        for dns_socket in sockets
-                            .items_mut()
-                            .filter_map(|i| dns::Socket::downcast_mut(&mut i.socket))
-                        {
-                            if dns_socket.accepts(&IpRepr::Ipv6(ipv6_repr), &udp_repr) {
-                                dns_socket.process(
-                                    self,
-                                    &IpRepr::Ipv6(ipv6_repr),
-                                    &udp_repr,
-                                    udp_packet.payload(),
-                                );
-                                return None;
-                            }
-                        }
-
-                        // When we are here then then there was no UDP socket that accepted the UDP
-                        // message.
-                        let payload_len = icmp_reply_payload_len(
-                            payload.len(),
-                            IPV6_MIN_MTU,
-                            ipv6_repr.buffer_len(),
-                        );
-                        let icmpv6_reply_repr = Icmpv6Repr::DstUnreachable {
-                            reason: Icmpv6DstUnreachable::PortUnreachable,
-                            header: ipv6_repr,
-                            data: &payload[0..payload_len],
-                        };
-                        self.icmpv6_reply(ipv6_repr, icmpv6_reply_repr)
+                        self.process_udp(
+                            sockets,
+                            IpRepr::Ipv6(ipv6_repr),
+                            udp_repr.0,
+                            false,
+                            udp_packet.payload(),
+                            payload,
+                        )
                     }
                 }
             }
@@ -2162,7 +2120,22 @@ impl<'a> InterfaceInner<'a> {
 
             #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
             IpProtocol::Udp => {
-                self.process_udp(sockets, ipv6_repr.into(), handled_by_raw_socket, ip_payload)
+                let udp_packet = check!(UdpPacket::new_checked(ip_payload));
+                let udp_repr = check!(UdpRepr::parse(
+                    &udp_packet,
+                    &ipv6_repr.src_addr.into(),
+                    &ipv6_repr.dst_addr.into(),
+                    &self.checksum_caps(),
+                ));
+
+                self.process_udp(
+                    sockets,
+                    ipv6_repr.into(),
+                    udp_repr,
+                    handled_by_raw_socket,
+                    udp_packet.payload(),
+                    ip_payload,
+                )
             }
 
             #[cfg(feature = "socket-tcp")]
@@ -2331,7 +2304,22 @@ impl<'a> InterfaceInner<'a> {
 
             #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
             IpProtocol::Udp => {
-                self.process_udp(sockets, ip_repr, handled_by_raw_socket, ip_payload)
+                let udp_packet = check!(UdpPacket::new_checked(ip_payload));
+                let udp_repr = check!(UdpRepr::parse(
+                    &udp_packet,
+                    &ipv4_repr.src_addr.into(),
+                    &ipv4_repr.dst_addr.into(),
+                    &self.checksum_caps(),
+                ));
+
+                self.process_udp(
+                    sockets,
+                    ip_repr,
+                    udp_repr,
+                    handled_by_raw_socket,
+                    udp_packet.payload(),
+                    ip_payload,
+                )
             }
 
             #[cfg(feature = "socket-tcp")]
@@ -2754,19 +2742,11 @@ impl<'a> InterfaceInner<'a> {
         &mut self,
         sockets: &mut SocketSet,
         ip_repr: IpRepr,
+        udp_repr: UdpRepr,
         handled_by_raw_socket: bool,
+        udp_payload: &'frame [u8],
         ip_payload: &'frame [u8],
     ) -> Option<IpPacket<'frame>> {
-        let (src_addr, dst_addr) = (ip_repr.src_addr(), ip_repr.dst_addr());
-        let udp_packet = check!(UdpPacket::new_checked(ip_payload));
-        let udp_repr = check!(UdpRepr::parse(
-            &udp_packet,
-            &src_addr,
-            &dst_addr,
-            &self.caps.checksum
-        ));
-        let udp_payload = udp_packet.payload();
-
         #[cfg(feature = "socket-udp")]
         for udp_socket in sockets
             .items_mut()
@@ -4159,7 +4139,9 @@ mod test {
         // Ensure that the unknown protocol triggers an error response.
         // And we correctly handle no payload.
         assert_eq!(
-            iface.inner.process_udp(&mut sockets, ip_repr, false, data),
+            iface
+                .inner
+                .process_udp(&mut sockets, ip_repr, udp_repr, false, &UDP_PAYLOAD, data),
             Some(expected_repr)
         );
 
@@ -4185,9 +4167,14 @@ mod test {
         // ICMP error response when the destination address is a
         // broadcast address and no socket is bound to the port.
         assert_eq!(
-            iface
-                .inner
-                .process_udp(&mut sockets, ip_repr, false, packet_broadcast.into_inner()),
+            iface.inner.process_udp(
+                &mut sockets,
+                ip_repr,
+                udp_repr,
+                false,
+                &UDP_PAYLOAD,
+                packet_broadcast.into_inner(),
+            ),
             None
         );
     }
@@ -4255,9 +4242,14 @@ mod test {
 
         // Packet should be handled by bound UDP socket
         assert_eq!(
-            iface
-                .inner
-                .process_udp(&mut sockets, ip_repr, false, packet.into_inner()),
+            iface.inner.process_udp(
+                &mut sockets,
+                ip_repr,
+                udp_repr,
+                false,
+                &UDP_PAYLOAD,
+                packet.into_inner(),
+            ),
             None
         );
 
@@ -4449,16 +4441,26 @@ mod test {
         // The expected packet and the generated packet are equal
         #[cfg(all(feature = "proto-ipv4", not(feature = "proto-ipv6")))]
         assert_eq!(
-            iface
-                .inner
-                .process_udp(&mut sockets, ip_repr.into(), false, payload),
+            iface.inner.process_udp(
+                &mut sockets,
+                ip_repr.into(),
+                udp_repr,
+                false,
+                &vec![0x2a; MAX_PAYLOAD_LEN],
+                payload,
+            ),
             Some(IpPacket::Icmpv4((expected_ip_repr, expected_icmp_repr)))
         );
         #[cfg(feature = "proto-ipv6")]
         assert_eq!(
-            iface
-                .inner
-                .process_udp(&mut sockets, ip_repr.into(), false, payload),
+            iface.inner.process_udp(
+                &mut sockets,
+                ip_repr.into(),
+                udp_repr,
+                false,
+                &vec![0x2a; MAX_PAYLOAD_LEN],
+                payload,
+            ),
             Some(IpPacket::Icmpv6((expected_ip_repr, expected_icmp_repr)))
         );
     }
