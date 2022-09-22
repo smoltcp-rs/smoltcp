@@ -3331,7 +3331,7 @@ impl<'a> InterfaceInner<'a> {
         let mut total_size = 0;
         total_size += iphc_repr.buffer_len();
         let mut _compressed_headers_len = iphc_repr.buffer_len();
-        let mut _uncompressed_headers_len = ip_repr.buffer_len();
+        let mut _uncompressed_headers_len = ip_repr.header_len();
 
         #[allow(unreachable_patterns)]
         match packet {
