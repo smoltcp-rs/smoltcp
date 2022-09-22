@@ -1806,105 +1806,9 @@ impl<'a> InterfaceInner<'a> {
             }
             #[cfg(feature = "proto-sixlowpan-fragmentation")]
             SixlowpanPacket::FragmentHeader => {
-                let (fragments, timeout) = _fragments.unwrap();
-
-                // We have a fragment header, which means we cannot process the 6LoWPAN packet,
-                // unless we have a complete one after processing this fragment.
-                let frag = check!(SixlowpanFragPacket::new_checked(payload));
-
-                // The key specifies to which 6LoWPAN fragment it belongs too.
-                // It is based on the link layer addresses, the tag and the size.
-                let key = frag.get_key(ieee802154_repr);
-
-                // The offset of this fragment in increments of 8 octets.
-                let offset = frag.datagram_offset() as usize * 8;
-
-                if frag.is_first_fragment() {
-                    // The first fragment contains the total size of the IPv6 packet.
-                    // However, we received a packet that is compressed following the 6LoWPAN
-                    // standard. This means we need to convert the IPv6 packet size to a 6LoWPAN
-                    // packet size. The packet size can be different because of first the
-                    // compression of the IP header and when UDP is used (because the UDP header
-                    // can also be compressed). Other headers are not compressed by 6LoWPAN.
-
-                    let iphc = check!(SixlowpanIphcPacket::new_checked(frag.payload()));
-                    let iphc_repr = check!(SixlowpanIphcRepr::parse(
-                        &iphc,
-                        ieee802154_repr.src_addr,
-                        ieee802154_repr.dst_addr,
-                        self.sixlowpan_address_context
-                    ));
-
-                    // The uncompressed header size always starts with 40, since this is the size
-                    // of a IPv6 header.
-                    let mut uncompressed_header_size = 40;
-                    let mut compressed_header_size = iphc.header_len();
-
-                    // We need to check if we have an UDP packet, since this header can also be
-                    // compressed by 6LoWPAN. We currently don't support extension headers yet.
-                    match iphc_repr.next_header {
-                        SixlowpanNextHeader::Compressed => {
-                            match check!(SixlowpanNhcPacket::dispatch(iphc.payload())) {
-                                SixlowpanNhcPacket::ExtHeader => {
-                                    net_debug!("6LoWPAN: extension headers not supported");
-                                    return None;
-                                }
-                                SixlowpanNhcPacket::UdpHeader => {
-                                    let udp_packet =
-                                        check!(SixlowpanUdpNhcPacket::new_checked(iphc.payload()));
-
-                                    uncompressed_header_size += 8;
-                                    compressed_header_size +=
-                                        1 + udp_packet.ports_size() + udp_packet.checksum_size();
-                                }
-                            }
-                        }
-                        SixlowpanNextHeader::Uncompressed(_) => (),
-                    }
-
-                    // We reserve a spot in the packet assembler set and add the required
-                    // information to the packet assembler.
-                    // This information is the total size of the packet when it is fully assmbled.
-                    // We also pass the header size, since this is needed when other fragments
-                    // (other than the first one) are added.
-                    let frag_slot = match fragments.reserve_with_key(&key) {
-                        Ok(frag) => frag,
-                        Err(Error::PacketAssemblerSetFull) => {
-                            net_debug!("No available packet assembler for fragmented packet");
-                            return Default::default();
-                        }
-                        e => check!(e),
-                    };
-
-                    check!(frag_slot.start(
-                        Some(
-                            frag.datagram_size() as usize - uncompressed_header_size
-                                + compressed_header_size
-                        ),
-                        self.now + timeout,
-                        -((uncompressed_header_size - compressed_header_size) as isize),
-                    ));
-                }
-
-                let frags = check!(fragments.get_packet_assembler_mut(&key));
-
-                net_trace!("6LoWPAN: received packet fragment");
-
-                // Add the fragment to the packet assembler.
-                match frags.add(frag.payload(), offset) {
-                    Ok(true) => {
-                        net_trace!("6LoWPAN: fragmented packet now complete");
-                        check!(fragments.get_assembled_packet(&key))
-                    }
-                    Ok(false) => {
-                        return None;
-                    }
-                    Err(Error::PacketAssemblerOverlap) => {
-                        net_trace!("6LoWPAN: overlap in packet");
-                        frags.mark_discarded();
-                        return None;
-                    }
-                    Err(_) => return None,
+                match self.process_sixlowpan_fragment(ieee802154_repr, payload, _fragments) {
+                    Some(payload) => payload,
+                    None => return None,
                 }
             }
             SixlowpanPacket::IphcHeader => payload.as_ref(),
@@ -1980,6 +1884,119 @@ impl<'a> InterfaceInner<'a> {
                     None
                 }
             },
+        }
+    }
+
+    #[cfg(feature = "proto-sixlowpan-fragmentation")]
+    fn process_sixlowpan_fragment<'output, 'payload: 'output, T: AsRef<[u8]> + ?Sized>(
+        &mut self,
+        ieee802154_repr: &Ieee802154Repr,
+        payload: &'payload T,
+        fragments: Option<(
+            &'output mut PacketAssemblerSet<'a, SixlowpanFragKey>,
+            Duration,
+        )>,
+    ) -> Option<&'output [u8]> {
+        let (fragments, timeout) = fragments.unwrap();
+
+        // We have a fragment header, which means we cannot process the 6LoWPAN packet,
+        // unless we have a complete one after processing this fragment.
+        let frag = check!(SixlowpanFragPacket::new_checked(payload));
+
+        // The key specifies to which 6LoWPAN fragment it belongs too.
+        // It is based on the link layer addresses, the tag and the size.
+        let key = frag.get_key(ieee802154_repr);
+
+        // The offset of this fragment in increments of 8 octets.
+        let offset = frag.datagram_offset() as usize * 8;
+
+        if frag.is_first_fragment() {
+            // The first fragment contains the total size of the IPv6 packet.
+            // However, we received a packet that is compressed following the 6LoWPAN
+            // standard. This means we need to convert the IPv6 packet size to a 6LoWPAN
+            // packet size. The packet size can be different because of first the
+            // compression of the IP header and when UDP is used (because the UDP header
+            // can also be compressed). Other headers are not compressed by 6LoWPAN.
+
+            let iphc = check!(SixlowpanIphcPacket::new_checked(frag.payload()));
+            let iphc_repr = check!(SixlowpanIphcRepr::parse(
+                &iphc,
+                ieee802154_repr.src_addr,
+                ieee802154_repr.dst_addr,
+                self.sixlowpan_address_context,
+            ));
+
+            // The uncompressed header size always starts with 40, since this is the size
+            // of a IPv6 header.
+            let mut uncompressed_header_size = 40;
+            let mut compressed_header_size = iphc.header_len();
+
+            // We need to check if we have an UDP packet, since this header can also be
+            // compressed by 6LoWPAN. We currently don't support extension headers yet.
+            match iphc_repr.next_header {
+                SixlowpanNextHeader::Compressed => {
+                    match check!(SixlowpanNhcPacket::dispatch(iphc.payload())) {
+                        SixlowpanNhcPacket::ExtHeader => {
+                            net_debug!("6LoWPAN: extension headers not supported");
+                            return None;
+                        }
+                        SixlowpanNhcPacket::UdpHeader => {
+                            let udp_packet =
+                                check!(SixlowpanUdpNhcPacket::new_checked(iphc.payload()));
+
+                            uncompressed_header_size += 8;
+                            compressed_header_size +=
+                                1 + udp_packet.ports_size() + udp_packet.checksum_size();
+                        }
+                    }
+                }
+                SixlowpanNextHeader::Uncompressed(_) => (),
+            }
+
+            // We reserve a spot in the packet assembler set and add the required
+            // information to the packet assembler.
+            // This information is the total size of the packet when it is fully assmbled.
+            // We also pass the header size, since this is needed when other fragments
+            // (other than the first one) are added.
+            let frag_slot = match fragments.reserve_with_key(&key) {
+                Ok(frag) => frag,
+                Err(Error::PacketAssemblerSetFull) => {
+                    net_debug!("No available packet assembler for fragmented packet");
+                    return Default::default();
+                }
+                e => check!(e),
+            };
+
+            check!(frag_slot.start(
+                Some(
+                    frag.datagram_size() as usize - uncompressed_header_size
+                        + compressed_header_size
+                ),
+                self.now + timeout,
+                -((uncompressed_header_size - compressed_header_size) as isize),
+            ));
+        }
+
+        let frags = check!(fragments.get_packet_assembler_mut(&key));
+
+        net_trace!("6LoWPAN: received packet fragment");
+
+        // Add the fragment to the packet assembler.
+        match frags.add(frag.payload(), offset) {
+            Ok(true) => {
+                net_trace!("6LoWPAN: fragmented packet now complete");
+                match fragments.get_assembled_packet(&key) {
+                    Ok(packet) => Some(packet),
+                    _ => unreachable!(),
+                }
+            }
+            Ok(false) => None,
+            Err(Error::PacketAssemblerOverlap) => {
+                net_trace!("6LoWPAN: overlap in packet");
+                frags.mark_discarded();
+                None
+            }
+            Err(_) => None,
         }
     }
 
