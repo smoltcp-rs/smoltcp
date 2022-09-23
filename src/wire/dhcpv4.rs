@@ -651,6 +651,10 @@ pub struct Repr<'a> {
     pub max_size: Option<u16>,
     /// The DHCP IP lease duration, specified in seconds.
     pub lease_duration: Option<u32>,
+    /// The DHCP IP renew duration (T1 interval), in seconds, if specified in the packet.
+    pub renew_duration: Option<u32>,
+    /// The DHCP IP rebind duration (T2 interval), in seconds, if specified in the packet.
+    pub rebind_duration: Option<u32>,
     /// When returned from [`Repr::parse`], this field will be `None`.
     /// However, when calling [`Repr::emit`], this field should contain only
     /// additional DHCP options not known to smoltcp.
@@ -735,6 +739,8 @@ impl<'a> Repr<'a> {
         let mut dns_servers = None;
         let mut max_size = None;
         let mut lease_duration = None;
+        let mut renew_duration = None;
+        let mut rebind_duration = None;
 
         for option in packet.options() {
             let data = option.data;
@@ -766,6 +772,12 @@ impl<'a> Repr<'a> {
                 }
                 (field::OPT_MAX_DHCP_MESSAGE_SIZE, 2) => {
                     max_size = Some(u16::from_be_bytes([data[0], data[1]]));
+                }
+                (field::OPT_RENEWAL_TIME_VALUE, 4) => {
+                    renew_duration = Some(u32::from_be_bytes([data[0], data[1], data[2], data[3]]))
+                }
+                (field::OPT_REBINDING_TIME_VALUE, 4) => {
+                    rebind_duration = Some(u32::from_be_bytes([data[0], data[1], data[2], data[3]]))
                 }
                 (field::OPT_IP_LEASE_TIME, 4) => {
                     lease_duration = Some(u32::from_be_bytes([data[0], data[1], data[2], data[3]]))
@@ -808,6 +820,8 @@ impl<'a> Repr<'a> {
             dns_servers,
             max_size,
             lease_duration,
+            renew_duration,
+            rebind_duration,
             message_type: message_type?,
             additional_options: &[],
         })

@@ -439,8 +439,23 @@ impl<'a> Socket<'a> {
             packet: None,
         };
 
-        // RFC 2131 indicates clients should renew a lease halfway through its expiration.
-        let renew_at = now + lease_duration / 2;
+        // Set renew time as per RFC 2131:
+        // The renew time (T1) can be specified by the server using option 58:
+        let renew_duration = dhcp_repr
+            .renew_duration
+            .map(|d| Duration::from_secs(d as u64))
+            // Since we don't follow the REBINDING part of the spec, when no
+            // explicit T1 time is given, we will also consider the rebinding
+            // time if it is given and less than the default.
+            .or_else(|| {
+                dhcp_repr
+                    .rebind_duration
+                    .map(|d| Duration::from_secs(d as u64).min(lease_duration / 2))
+            })
+            // Otherwise, we use the default T1 time, which is half the lease
+            // duration.
+            .unwrap_or(lease_duration / 2);
+        let renew_at = now + renew_duration;
         let expires_at = now + lease_duration;
 
         Some((config, renew_at, expires_at))
@@ -497,6 +512,8 @@ impl<'a> Socket<'a> {
             ),
             max_size: Some((cx.ip_mtu() - MAX_IPV4_HEADER_LEN - UDP_HEADER_LEN) as u16),
             lease_duration: None,
+            renew_duration: None,
+            rebind_duration: None,
             dns_servers: None,
             additional_options: self.outgoing_options,
         };
