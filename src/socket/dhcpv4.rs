@@ -860,6 +860,8 @@ mod test {
         parameter_request_list: None,
         dns_servers: None,
         max_size: None,
+        renew_duration: None,
+        rebind_duration: None,
         lease_duration: None,
         additional_options: &[],
     };

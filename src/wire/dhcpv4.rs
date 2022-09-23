@@ -1162,6 +1162,8 @@ mod test {
             parameter_request_list: None,
             dns_servers: None,
             max_size: None,
+            renew_duration: None,
+            rebind_duration: None,
             lease_duration: Some(0xffff_ffff), // Infinite lease
             additional_options: &[],
         }
@@ -1181,6 +1183,8 @@ mod test {
             broadcast: false,
             secs: 0,
             max_size: Some(DHCP_SIZE),
+            renew_duration: None,
+            rebind_duration: None,
             lease_duration: None,
             requested_ip: Some(IP_NULL),
             client_identifier: Some(CLIENT_MAC),
