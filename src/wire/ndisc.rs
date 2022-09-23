@@ -514,6 +514,7 @@ impl<'a> Repr<'a> {
     }
 }
 
+#[cfg(feature = "medium-ethernet")]
 #[cfg(test)]
 mod test {
     use super::*;

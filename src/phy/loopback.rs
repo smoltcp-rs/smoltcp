@@ -11,7 +11,7 @@ use crate::Result;
 /// A loopback device.
 #[derive(Debug)]
 pub struct Loopback {
-    queue: VecDeque<Vec<u8>>,
+    pub(crate) queue: VecDeque<Vec<u8>>,
     medium: Medium,
 }
 
@@ -73,6 +73,7 @@ impl phy::RxToken for RxToken {
 }
 
 #[doc(hidden)]
+#[derive(Debug)]
 pub struct TxToken<'a> {
     queue: &'a mut VecDeque<Vec<u8>>,
 }

@@ -1529,8 +1529,11 @@ impl<'a> InterfaceInner<'a> {
             caps: DeviceCapabilities {
                 #[cfg(feature = "medium-ethernet")]
                 medium: crate::phy::Medium::Ethernet,
-                #[cfg(not(feature = "medium-ethernet"))]
+                #[cfg(all(not(feature = "medium-ethernet"), feature = "medium-ip"))]
                 medium: crate::phy::Medium::Ip,
+                #[cfg(all(not(feature = "medium-ethernet"), feature = "medium-ieee802154"))]
+                medium: crate::phy::Medium::Ieee802154,
+
                 checksum: crate::phy::ChecksumCapabilities {
                     #[cfg(feature = "proto-ipv4")]
                     icmpv4: crate::phy::Checksum::Both,
@@ -1577,10 +1580,17 @@ impl<'a> InterfaceInner<'a> {
             #[cfg(feature = "proto-ipv4-fragmentation")]
             ipv4_id: 1,
 
-            #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
+            #[cfg(feature = "medium-ethernet")]
             hardware_addr: Some(crate::wire::HardwareAddress::Ethernet(
                 crate::wire::EthernetAddress([0x02, 0x02, 0x02, 0x02, 0x02, 0x02]),
             )),
+            #[cfg(all(not(feature = "medium-ethernet"), feature = "medium-ieee802154"))]
+            hardware_addr: Some(crate::wire::HardwareAddress::Ieee802154(
+                crate::wire::Ieee802154Address::Extended([
+                    0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x2, 0x2,
+                ]),
+            )),
+
             #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
             neighbor_cache: None,
 
@@ -2098,13 +2108,7 @@ impl<'a> InterfaceInner<'a> {
                 _ => unreachable!(),
             };
 
-            return self.dispatch_ieee802154(
-                dst_hardware_addr,
-                &ip_repr,
-                tx_token,
-                packet,
-                _out_packet,
-            );
+            return self.dispatch_ieee802154(dst_hardware_addr, tx_token, packet, _out_packet);
         }
 
         // Dispatch IP/Ethernet:

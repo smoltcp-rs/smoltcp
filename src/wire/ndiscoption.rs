@@ -628,6 +628,7 @@ impl<T: AsRef<[u8]>> PrettyPrint for NdiscOption<T> {
     }
 }
 
+#[cfg(feature = "medium-ethernet")]
 #[cfg(test)]
 mod test {
     use super::Error;

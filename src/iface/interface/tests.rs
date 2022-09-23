@@ -19,14 +19,25 @@ fn fill_slice(s: &mut [u8], val: u8) {
     }
 }
 
-fn create<'a>() -> (Interface<'a>, SocketSet<'a>, Loopback) {
-    #[cfg(feature = "medium-ethernet")]
-    return create_ethernet();
-    #[cfg(not(feature = "medium-ethernet"))]
-    return create_ip();
+#[cfg(feature = "medium-ethernet")]
+const MEDIUM: Medium = Medium::Ethernet;
+#[cfg(all(not(feature = "medium-ethernet"), feature = "medium-ip"))]
+const MEDIUM: Medium = Medium::Ip;
+#[cfg(all(not(feature = "medium-ethernet"), feature = "medium-ieee802154"))]
+const MEDIUM: Medium = Medium::Ieee802154;
+
+fn create<'a>(medium: Medium) -> (Interface<'a>, SocketSet<'a>, Loopback) {
+    match medium {
+        #[cfg(feature = "medium-ethernet")]
+        Medium::Ethernet => create_ethernet(),
+        #[cfg(feature = "medium-ip")]
+        Medium::Ip => create_ip(),
+        #[cfg(feature = "medium-ieee802154")]
+        Medium::Ieee802154 => create_ieee802154(),
+    }
 }
 
-#[cfg(all(feature = "medium-ip"))]
+#[cfg(feature = "medium-ip")]
 #[allow(unused)]
 fn create_ip<'a>() -> (Interface<'a>, SocketSet<'a>, Loopback) {
     // Create a basic device
@@ -54,7 +65,7 @@ fn create_ip<'a>() -> (Interface<'a>, SocketSet<'a>, Loopback) {
     (iface, SocketSet::new(vec![]), device)
 }
 
-#[cfg(all(feature = "medium-ethernet"))]
+#[cfg(feature = "medium-ethernet")]
 fn create_ethernet<'a>() -> (Interface<'a>, SocketSet<'a>, Loopback) {
     // Create a basic device
     let mut device = Loopback::new(Medium::Ethernet);
@@ -84,6 +95,32 @@ fn create_ethernet<'a>() -> (Interface<'a>, SocketSet<'a>, Loopback) {
 
     #[cfg(feature = "proto-igmp")]
     let iface_builder = iface_builder.ipv4_multicast_groups(BTreeMap::new());
+    let iface = iface_builder.finalize(&mut device);
+
+    (iface, SocketSet::new(vec![]), device)
+}
+
+#[cfg(feature = "medium-ieee802154")]
+fn create_ieee802154<'a>() -> (Interface<'a>, SocketSet<'a>, Loopback) {
+    // Create a basic device
+    let mut device = Loopback::new(Medium::Ieee802154);
+    let ip_addrs = [
+        #[cfg(feature = "proto-ipv6")]
+        IpCidr::new(IpAddress::v6(0, 0, 0, 0, 0, 0, 0, 1), 128),
+        #[cfg(feature = "proto-ipv6")]
+        IpCidr::new(IpAddress::v6(0xfdbe, 0, 0, 0, 0, 0, 0, 1), 64),
+    ];
+
+    let iface_builder = InterfaceBuilder::new()
+        .hardware_addr(Ieee802154Address::default().into())
+        .neighbor_cache(NeighborCache::new(BTreeMap::new()))
+        .ip_addrs(ip_addrs);
+
+    #[cfg(feature = "proto-sixlowpan-fragmentation")]
+    let iface_builder = iface_builder
+        .sixlowpan_reassembly_buffer(PacketAssemblerSet::new(vec![], BTreeMap::new()))
+        .sixlowpan_fragmentation_buffer(vec![]);
+
     let iface = iface_builder.finalize(&mut device);
 
     (iface, SocketSet::new(vec![]), device)
@@ -126,7 +163,7 @@ fn test_builder_initialization_panic() {
 #[test]
 #[cfg(feature = "proto-ipv4")]
 fn test_no_icmp_no_unicast_ipv4() {
-    let (mut iface, mut sockets, _device) = create();
+    let (mut iface, mut sockets, _device) = create(MEDIUM);
 
     // Unknown Ipv4 Protocol
     //
@@ -165,7 +202,7 @@ fn test_no_icmp_no_unicast_ipv4() {
 #[test]
 #[cfg(feature = "proto-ipv6")]
 fn test_no_icmp_no_unicast_ipv6() {
-    let (mut iface, mut sockets, _device) = create();
+    let (mut iface, mut sockets, _device) = create(MEDIUM);
 
     // Unknown Ipv6 Protocol
     //
@@ -194,7 +231,7 @@ fn test_no_icmp_no_unicast_ipv6() {
 #[cfg(feature = "proto-ipv4")]
 fn test_icmp_error_no_payload() {
     static NO_BYTES: [u8; 0] = [];
-    let (mut iface, mut sockets, _device) = create();
+    let (mut iface, mut sockets, _device) = create(MEDIUM);
 
     // Unknown Ipv4 Protocol with no payload
     let repr = IpRepr::Ipv4(Ipv4Repr {
@@ -257,7 +294,7 @@ fn test_icmp_error_no_payload() {
 #[test]
 #[cfg(feature = "proto-ipv4")]
 fn test_local_subnet_broadcasts() {
-    let (mut iface, _, _device) = create();
+    let (mut iface, _, _device) = create(MEDIUM);
     iface.update_ip_addrs(|addrs| {
         addrs.iter_mut().next().map(|addr| {
             *addr = IpCidr::Ipv4(Ipv4Cidr::new(Ipv4Address([192, 168, 1, 23]), 24));
@@ -314,7 +351,7 @@ fn test_icmp_error_port_unreachable() {
     static UDP_PAYLOAD: [u8; 12] = [
         0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x2c, 0x20, 0x57, 0x6f, 0x6c, 0x64, 0x21,
     ];
-    let (mut iface, mut sockets, _device) = create();
+    let (mut iface, mut sockets, _device) = create(MEDIUM);
 
     let mut udp_bytes_unicast = vec![0u8; 20];
     let mut udp_bytes_broadcast = vec![0u8; 20];
@@ -420,7 +457,7 @@ fn test_handle_udp_broadcast() {
 
     static UDP_PAYLOAD: [u8; 5] = [0x48, 0x65, 0x6c, 0x6c, 0x6f];
 
-    let (mut iface, mut sockets, _device) = create();
+    let (mut iface, mut sockets, _device) = create(MEDIUM);
 
     let rx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 15]);
     let tx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 15]);
@@ -502,7 +539,7 @@ fn test_handle_udp_broadcast() {
 fn test_handle_ipv4_broadcast() {
     use crate::wire::{Icmpv4Packet, Icmpv4Repr, Ipv4Packet};
 
-    let (mut iface, mut sockets, _device) = create();
+    let (mut iface, mut sockets, _device) = create(MEDIUM);
 
     let our_ipv4_addr = iface.ipv4_address().unwrap();
     let src_ipv4_addr = Ipv4Address([127, 0, 0, 2]);
@@ -585,7 +622,7 @@ fn test_icmp_reply_size() {
     #[cfg(feature = "proto-ipv6")]
     const MAX_PAYLOAD_LEN: usize = 1192;
 
-    let (mut iface, mut sockets, _device) = create();
+    let (mut iface, mut sockets, _device) = create(MEDIUM);
 
     #[cfg(all(feature = "proto-ipv4", not(feature = "proto-ipv6")))]
     let src_addr = Ipv4Address([192, 168, 1, 1]);
@@ -941,7 +978,7 @@ fn test_arp_flush_after_update_ip() {
 fn test_icmpv4_socket() {
     use crate::wire::Icmpv4Packet;
 
-    let (mut iface, mut sockets, _device) = create();
+    let (mut iface, mut sockets, _device) = create(MEDIUM);
 
     let rx_buffer = icmp::PacketBuffer::new(vec![icmp::PacketMetadata::EMPTY], vec![0; 24]);
     let tx_buffer = icmp::PacketBuffer::new(vec![icmp::PacketMetadata::EMPTY], vec![0; 24]);
@@ -1012,7 +1049,7 @@ fn test_icmpv4_socket() {
 #[test]
 #[cfg(feature = "proto-ipv6")]
 fn test_solicited_node_addrs() {
-    let (mut iface, _, _device) = create();
+    let (mut iface, _, _device) = create(MEDIUM);
     let mut new_addrs = vec![
         IpCidr::new(IpAddress::v6(0xfe80, 0, 0, 0, 1, 2, 0, 2), 64),
         IpCidr::new(IpAddress::v6(0xfe80, 0, 0, 0, 3, 4, 0, 0xffff), 64),
@@ -1035,7 +1072,7 @@ fn test_solicited_node_addrs() {
 #[test]
 #[cfg(feature = "proto-ipv6")]
 fn test_icmpv6_nxthdr_unknown() {
-    let (mut iface, mut sockets, _device) = create();
+    let (mut iface, mut sockets, _device) = create(MEDIUM);
 
     let remote_ip_addr = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
 
@@ -1129,7 +1166,7 @@ fn test_handle_igmp() {
         Ipv4Address::new(224, 0, 0, 56),
     ];
 
-    let (mut iface, mut sockets, mut device) = create();
+    let (mut iface, mut sockets, mut device) = create(MEDIUM);
 
     // Join multicast groups
     let timestamp = Instant::now();
@@ -1199,7 +1236,7 @@ fn test_handle_igmp() {
 fn test_raw_socket_no_reply() {
     use crate::wire::{IpVersion, Ipv4Packet, UdpPacket, UdpRepr};
 
-    let (mut iface, mut sockets, _device) = create();
+    let (mut iface, mut sockets, _device) = create(MEDIUM);
 
     let packets = 1;
     let rx_buffer =
@@ -1276,7 +1313,7 @@ fn test_raw_socket_with_udp_socket() {
 
     static UDP_PAYLOAD: [u8; 5] = [0x48, 0x65, 0x6c, 0x6c, 0x6f];
 
-    let (mut iface, mut sockets, _device) = create();
+    let (mut iface, mut sockets, _device) = create(MEDIUM);
 
     let udp_rx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 15]);
     let udp_tx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 15]);
@@ -1365,5 +1402,363 @@ fn test_raw_socket_with_udp_socket() {
     assert_eq!(
         socket.recv(),
         Ok((&UDP_PAYLOAD[..], IpEndpoint::new(src_addr.into(), 67)))
+    );
+}
+
+#[cfg(all(
+    not(feature = "medium-ethernet"),
+    feature = "proto-sixlowpan",
+    feature = "proto-sixlowpan-fragmentation"
+))]
+#[test]
+fn test_echo_request_sixlowpan_128_bytes() {
+    use crate::phy::Checksum;
+
+    let (mut iface, mut sockets, mut device) = create(Medium::Ieee802154);
+    // TODO: modify the example, such that we can also test if the checksum is correctly
+    // computed.
+    iface.inner.caps.checksum.icmpv6 = Checksum::None;
+
+    assert_eq!(iface.inner.caps.medium, Medium::Ieee802154);
+    let now = iface.inner.now();
+
+    iface.inner.neighbor_cache.as_mut().unwrap().fill(
+        Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0x2, 0, 0, 0, 0, 0, 0, 0]).into(),
+        HardwareAddress::Ieee802154(Ieee802154Address::default()),
+        now,
+    );
+
+    let mut ieee802154_repr = Ieee802154Repr {
+        frame_type: Ieee802154FrameType::Data,
+        security_enabled: false,
+        frame_pending: false,
+        ack_request: false,
+        sequence_number: Some(5),
+        pan_id_compression: true,
+        frame_version: Ieee802154FrameVersion::Ieee802154_2003,
+        dst_pan_id: Some(Ieee802154Pan(0xbeef)),
+        dst_addr: Some(Ieee802154Address::Extended([
+            0x90, 0xfc, 0x48, 0xc2, 0xa4, 0x41, 0xfc, 0x76,
+        ])),
+        src_pan_id: Some(Ieee802154Pan(0xbeef)),
+        src_addr: Some(Ieee802154Address::Extended([
+            0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x0b, 0x1a,
+        ])),
+    };
+
+    // NOTE: this data is retrieved from tests with Contiki-NG
+
+    let request_first_part_packet = SixlowpanFragPacket::new_checked(&[
+        0xc0, 0xb0, 0x00, 0x8e, 0x6a, 0x33, 0x05, 0x25, 0x2c, 0x3a, 0x80, 0x00, 0xe0, 0x71, 0x00,
+        0x27, 0x00, 0x02, 0xa2, 0xc2, 0x2d, 0x63, 0x00, 0x00, 0x00, 0x00, 0xd9, 0x5e, 0x0c, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a,
+        0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29,
+        0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38,
+        0x39, 0x3a, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f, 0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47,
+        0x48, 0x49, 0x4a, 0x4b, 0x4c, 0x4d, 0x4e, 0x4f,
+    ])
+    .unwrap();
+
+    let request_first_part_iphc_packet =
+        SixlowpanIphcPacket::new_checked(request_first_part_packet.payload()).unwrap();
+
+    let request_first_part_iphc_repr = SixlowpanIphcRepr::parse(
+        &request_first_part_iphc_packet,
+        ieee802154_repr.src_addr,
+        ieee802154_repr.dst_addr,
+        iface.inner.sixlowpan_address_context,
+    )
+    .unwrap();
+
+    assert_eq!(
+        request_first_part_iphc_repr.src_addr,
+        Ipv6Address([
+            0xfe, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x40, 0x42, 0x42, 0x42, 0x42, 0x42, 0xb,
+            0x1a,
+        ]),
+    );
+    assert_eq!(
+        request_first_part_iphc_repr.dst_addr,
+        Ipv6Address([
+            0xfe, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x92, 0xfc, 0x48, 0xc2, 0xa4, 0x41, 0xfc,
+            0x76,
+        ]),
+    );
+
+    let request_second_part = [
+        0xe0, 0xb0, 0x00, 0x8e, 0x10, 0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59,
+        0x5a, 0x5b, 0x5c, 0x5d, 0x5e, 0x5f, 0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68,
+        0x69, 0x6a, 0x6b, 0x6c, 0x6d, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77,
+        0x78, 0x79, 0x7a, 0x7b, 0x7c, 0x7d, 0x7e, 0x7f,
+    ];
+
+    assert_eq!(
+        iface.inner.process_sixlowpan(
+            &mut sockets,
+            &ieee802154_repr,
+            &request_first_part_packet.into_inner(),
+            Some((
+                &mut iface.fragments.sixlowpan_fragments,
+                iface.fragments.sixlowpan_fragments_cache_timeout,
+            )),
+        ),
+        None
+    );
+
+    ieee802154_repr.sequence_number = Some(6);
+
+    // data that was generated when using `ping -s 128`
+    let data = &[
+        0xa2, 0xc2, 0x2d, 0x63, 0x00, 0x00, 0x00, 0x00, 0xd9, 0x5e, 0x0c, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d,
+        0x1e, 0x1f, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2c,
+        0x2d, 0x2e, 0x2f, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3a, 0x3b,
+        0x3c, 0x3d, 0x3e, 0x3f, 0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4a,
+        0x4b, 0x4c, 0x4d, 0x4e, 0x4f, 0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59,
+        0x5a, 0x5b, 0x5c, 0x5d, 0x5e, 0x5f, 0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68,
+        0x69, 0x6a, 0x6b, 0x6c, 0x6d, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77,
+        0x78, 0x79, 0x7a, 0x7b, 0x7c, 0x7d, 0x7e, 0x7f,
+    ];
+
+    let result = iface.inner.process_sixlowpan(
+        &mut sockets,
+        &ieee802154_repr,
+        &request_second_part,
+        Some((
+            &mut iface.fragments.sixlowpan_fragments,
+            iface.fragments.sixlowpan_fragments_cache_timeout,
+        )),
+    );
+
+    assert_eq!(
+        result,
+        Some(IpPacket::Icmpv6((
+            Ipv6Repr {
+                src_addr: Ipv6Address([
+                    0xfe, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x92, 0xfc, 0x48, 0xc2, 0xa4, 0x41,
+                    0xfc, 0x76,
+                ]),
+                dst_addr: Ipv6Address([
+                    0xfe, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x40, 0x42, 0x42, 0x42, 0x42, 0x42,
+                    0xb, 0x1a,
+                ]),
+                next_header: IpProtocol::Icmpv6,
+                payload_len: 136,
+                hop_limit: 64,
+            },
+            Icmpv6Repr::EchoReply {
+                ident: 39,
+                seq_no: 2,
+                data,
+            }
+        )))
+    );
+
+    iface.inner.neighbor_cache.as_mut().unwrap().fill(
+        IpAddress::Ipv6(Ipv6Address([
+            0xfe, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x40, 0x42, 0x42, 0x42, 0x42, 0x42, 0xb, 0x1a,
+        ])),
+        HardwareAddress::Ieee802154(Ieee802154Address::default()),
+        Instant::now(),
+    );
+
+    let tx_token = device.transmit().unwrap();
+    iface
+        .inner
+        .dispatch_ieee802154(
+            Ieee802154Address::default(),
+            tx_token,
+            result.unwrap(),
+            Some(&mut iface.out_packets),
+        )
+        .unwrap();
+
+    assert_eq!(
+        device.queue[0],
+        &[
+            0x41, 0xcc, 0x3, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+            0x0, 0x0, 0x0, 0x0, 0xc0, 0xb0, 0x5, 0x4e, 0x7a, 0x11, 0x3a, 0x92, 0xfc, 0x48, 0xc2,
+            0xa4, 0x41, 0xfc, 0x76, 0x40, 0x42, 0x42, 0x42, 0x42, 0x42, 0xb, 0x1a, 0x81, 0x0, 0x0,
+            0x0, 0x0, 0x27, 0x0, 0x2, 0xa2, 0xc2, 0x2d, 0x63, 0x0, 0x0, 0x0, 0x0, 0xd9, 0x5e, 0xc,
+            0x0, 0x0, 0x0, 0x0, 0x0, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19,
+            0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27,
+            0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35,
+            0x36, 0x37, 0x38, 0x39, 0x3a, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f, 0x40, 0x41, 0x42, 0x43,
+            0x44, 0x45, 0x46, 0x47,
+        ]
+    );
+
+    iface.poll(Instant::now(), &mut device, &mut sockets);
+
+    assert_eq!(
+        device.queue[1],
+        &[
+            0x41, 0xcc, 0x4, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+            0x0, 0x0, 0x0, 0x0, 0xe0, 0xb0, 0x5, 0x4e, 0xf, 0x48, 0x49, 0x4a, 0x4b, 0x4c, 0x4d,
+            0x4e, 0x4f, 0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5a, 0x5b,
+            0x5c, 0x5d, 0x5e, 0x5f, 0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69,
+            0x6a, 0x6b, 0x6c, 0x6d, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77,
+            0x78, 0x79, 0x7a, 0x7b, 0x7c, 0x7d, 0x7e, 0x7f,
+        ]
+    );
+}
+
+#[cfg(all(
+    not(feature = "medium-ethernet"),
+    feature = "proto-sixlowpan",
+    feature = "proto-sixlowpan-fragmentation"
+))]
+#[test]
+fn test_sixlowpan_udp_with_fragmentation() {
+    use crate::phy::Checksum;
+
+    let mut ieee802154_repr = Ieee802154Repr {
+        frame_type: Ieee802154FrameType::Data,
+        security_enabled: false,
+        frame_pending: false,
+        ack_request: false,
+        sequence_number: Some(5),
+        pan_id_compression: true,
+        frame_version: Ieee802154FrameVersion::Ieee802154_2003,
+        dst_pan_id: Some(Ieee802154Pan(0xbeef)),
+        dst_addr: Some(Ieee802154Address::Extended([
+            0x90, 0xfc, 0x48, 0xc2, 0xa4, 0x41, 0xfc, 0x76,
+        ])),
+        src_pan_id: Some(Ieee802154Pan(0xbeef)),
+        src_addr: Some(Ieee802154Address::Extended([
+            0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x0b, 0x1a,
+        ])),
+    };
+
+    let (mut iface, mut sockets, mut device) = create(Medium::Ieee802154);
+    iface.inner.caps.checksum.udp = Checksum::None;
+
+    let udp_rx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 1024 * 4]);
+    let udp_tx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 1024 * 4]);
+    let udp_socket = udp::Socket::new(udp_rx_buffer, udp_tx_buffer);
+    let udp_socket_handle = sockets.add(udp_socket);
+
+    {
+        let socket = sockets.get_mut::<udp::Socket>(udp_socket_handle);
+        assert_eq!(socket.bind(6969), Ok(()));
+        assert!(!socket.can_recv());
+        assert!(socket.can_send());
+    }
+
+    let udp_first_part = &[
+        0xc0, 0xbc, 0x00, 0x92, 0x6e, 0x33, 0x07, 0xe7, 0xdc, 0xf0, 0xd3, 0xc9, 0x1b, 0x39, 0xbf,
+        0xa0, 0x4c, 0x6f, 0x72, 0x65, 0x6d, 0x20, 0x69, 0x70, 0x73, 0x75, 0x6d, 0x20, 0x64, 0x6f,
+        0x6c, 0x6f, 0x72, 0x20, 0x73, 0x69, 0x74, 0x20, 0x61, 0x6d, 0x65, 0x74, 0x2c, 0x20, 0x63,
+        0x6f, 0x6e, 0x73, 0x65, 0x63, 0x74, 0x65, 0x74, 0x75, 0x72, 0x20, 0x61, 0x64, 0x69, 0x70,
+        0x69, 0x73, 0x63, 0x69, 0x6e, 0x67, 0x20, 0x65, 0x6c, 0x69, 0x74, 0x2e, 0x20, 0x49, 0x6e,
+        0x20, 0x61, 0x74, 0x20, 0x72, 0x68, 0x6f, 0x6e, 0x63, 0x75, 0x73, 0x20, 0x74, 0x6f, 0x72,
+        0x74, 0x6f, 0x72, 0x2e, 0x20, 0x43, 0x72, 0x61, 0x73, 0x20, 0x62, 0x6c, 0x61, 0x6e,
+    ];
+
+    assert_eq!(
+        iface.inner.process_sixlowpan(
+            &mut sockets,
+            &ieee802154_repr,
+            udp_first_part,
+            Some((
+                &mut iface.fragments.sixlowpan_fragments,
+                iface.fragments.sixlowpan_fragments_cache_timeout
+            ))
+        ),
+        None
+    );
+
+    ieee802154_repr.sequence_number = Some(6);
+
+    let udp_second_part = &[
+        0xe0, 0xbc, 0x00, 0x92, 0x11, 0x64, 0x69, 0x74, 0x20, 0x74, 0x65, 0x6c, 0x6c, 0x75, 0x73,
+        0x20, 0x64, 0x69, 0x61, 0x6d, 0x2c, 0x20, 0x76, 0x61, 0x72, 0x69, 0x75, 0x73, 0x20, 0x76,
+        0x65, 0x73, 0x74, 0x69, 0x62, 0x75, 0x6c, 0x75, 0x6d, 0x20, 0x6e, 0x69, 0x62, 0x68, 0x20,
+        0x63, 0x6f, 0x6d, 0x6d, 0x6f, 0x64, 0x6f, 0x20, 0x6e, 0x65, 0x63, 0x2e,
+    ];
+
+    assert_eq!(
+        iface.inner.process_sixlowpan(
+            &mut sockets,
+            &ieee802154_repr,
+            udp_second_part,
+            Some((
+                &mut iface.fragments.sixlowpan_fragments,
+                iface.fragments.sixlowpan_fragments_cache_timeout
+            ))
+        ),
+        None
+    );
+
+    let socket = sockets.get_mut::<udp::Socket>(udp_socket_handle);
+
+    let udp_data = b"Lorem ipsum dolor sit amet, consectetur adipiscing elit. \
+                         In at rhoncus tortor. Cras blandit tellus diam, varius vestibulum nibh commodo nec.";
+    assert_eq!(
+        socket.recv(),
+        Ok((
+            &udp_data[..],
+            IpEndpoint {
+                addr: IpAddress::Ipv6(Ipv6Address([
+                    0xfe, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x40, 0x42, 0x42, 0x42, 0x42, 0x42,
+                    0xb, 0x1a,
+                ])),
+                port: 54217,
+            }
+        ))
+    );
+
+    let tx_token = device.transmit().unwrap();
+    iface
+        .inner
+        .dispatch_ieee802154(
+            Ieee802154Address::default(),
+            tx_token,
+            IpPacket::Udp((
+                IpRepr::Ipv6(Ipv6Repr {
+                    src_addr: Ipv6Address::default(),
+                    dst_addr: Ipv6Address::default(),
+                    next_header: IpProtocol::Udp,
+                    payload_len: udp_data.len(),
+                    hop_limit: 64,
+                }),
+                UdpRepr {
+                    src_port: 1234,
+                    dst_port: 1234,
+                },
+                udp_data,
+            )),
+            Some(&mut iface.out_packets),
+        )
+        .unwrap();
+
+    iface.poll(Instant::now(), &mut device, &mut sockets);
+
+    assert_eq!(
+        device.queue[0],
+        &[
+            0x41, 0xcc, 0x3, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+            0x0, 0x0, 0x0, 0x0, 0xc0, 0xb4, 0x5, 0x4e, 0x7e, 0x40, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0xf0, 0x4, 0xd2, 0x4, 0xd2, 0xf6,
+            0x4d, 0x4c, 0x6f, 0x72, 0x65, 0x6d, 0x20, 0x69, 0x70, 0x73, 0x75, 0x6d, 0x20, 0x64,
+            0x6f, 0x6c, 0x6f, 0x72, 0x20, 0x73, 0x69, 0x74, 0x20, 0x61, 0x6d, 0x65, 0x74, 0x2c,
+            0x20, 0x63, 0x6f, 0x6e, 0x73, 0x65, 0x63, 0x74, 0x65, 0x74, 0x75, 0x72, 0x20, 0x61,
+            0x64, 0x69, 0x70, 0x69, 0x73, 0x63, 0x69, 0x6e, 0x67, 0x20, 0x65, 0x6c, 0x69, 0x74,
+            0x2e, 0x20, 0x49, 0x6e, 0x20, 0x61, 0x74, 0x20, 0x72, 0x68, 0x6f, 0x6e, 0x63, 0x75,
+            0x73, 0x20, 0x74,
+        ]
+    );
+
+    assert_eq!(
+        device.queue[1],
+        &[
+            0x41, 0xcc, 0x4, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+            0x0, 0x0, 0x0, 0x0, 0xe0, 0xb4, 0x5, 0x4e, 0xf, 0x6f, 0x72, 0x74, 0x6f, 0x72, 0x2e,
+            0x20, 0x43, 0x72, 0x61, 0x73, 0x20, 0x62, 0x6c, 0x61, 0x6e, 0x64, 0x69, 0x74, 0x20,
+            0x74, 0x65, 0x6c, 0x6c, 0x75, 0x73, 0x20, 0x64, 0x69, 0x61, 0x6d, 0x2c, 0x20, 0x76,
+            0x61, 0x72, 0x69, 0x75, 0x73, 0x20, 0x76, 0x65, 0x73, 0x74, 0x69, 0x62, 0x75, 0x6c,
+            0x75, 0x6d, 0x20, 0x6e, 0x69, 0x62, 0x68, 0x20, 0x63, 0x6f, 0x6d, 0x6d, 0x6f, 0x64,
+            0x6f, 0x20, 0x6e, 0x65, 0x63, 0x2e,
+        ]
     );
 }

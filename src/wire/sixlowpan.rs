@@ -227,7 +227,8 @@ pub mod frag {
     use byteorder::{ByteOrder, NetworkEndian};
 
     /// Key used for identifying all the link fragments that belong to the same packet.
-    #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub struct Key {
         ll_src_addr: Ieee802154Address,
         ll_dst_addr: Ieee802154Address,
@@ -1412,11 +1413,14 @@ pub mod nhc {
     //!
     //! [RFC 6282 § 4]: https://datatracker.ietf.org/doc/html/rfc6282#section-4
     use super::{Error, NextHeader, Result, DISPATCH_EXT_HEADER, DISPATCH_UDP_HEADER};
-    use crate::wire::{
-        ip::{checksum, Address as IpAddress},
-        ipv6,
-        udp::Repr as UdpRepr,
-        IpProtocol,
+    use crate::{
+        phy::ChecksumCapabilities,
+        wire::{
+            ip::{checksum, Address as IpAddress},
+            ipv6,
+            udp::Repr as UdpRepr,
+            IpProtocol,
+        },
     };
     use byteorder::{ByteOrder, NetworkEndian};
     use ipv6::Address;
@@ -1967,6 +1971,7 @@ pub mod nhc {
             packet: &UdpNhcPacket<&'a T>,
             src_addr: &ipv6::Address,
             dst_addr: &ipv6::Address,
+            checksum_caps: &ChecksumCapabilities,
         ) -> Result<Self> {
             packet.check_len()?;
 
@@ -1974,28 +1979,27 @@ pub mod nhc {
                 return Err(Error);
             }
 
-            let payload_len = packet.payload().len();
-            let chk_sum = !checksum::combine(&[
-                checksum::pseudo_header(
-                    &IpAddress::Ipv6(*src_addr),
-                    &IpAddress::Ipv6(*dst_addr),
-                    crate::wire::ip::Protocol::Udp,
-                    payload_len as u32 + 8,
-                ),
-                packet.src_port(),
-                packet.dst_port(),
-                payload_len as u16 + 8,
-                checksum::data(packet.payload()),
-            ]);
+            if checksum_caps.udp.rx() {
+                let payload_len = packet.payload().len();
+                let chk_sum = !checksum::combine(&[
+                    checksum::pseudo_header(
+                        &IpAddress::Ipv6(*src_addr),
+                        &IpAddress::Ipv6(*dst_addr),
+                        crate::wire::ip::Protocol::Udp,
+                        payload_len as u32 + 8,
+                    ),
+                    packet.src_port(),
+                    packet.dst_port(),
+                    payload_len as u16 + 8,
+                    checksum::data(packet.payload()),
+                ]);
 
-            if let Some(checksum) = packet.checksum() {
-                if chk_sum != checksum {
-                    return Err(Error);
+                if let Some(checksum) = packet.checksum() {
+                    if chk_sum != checksum {
+                        return Err(Error);
+                    }
                 }
-            } else {
-                net_trace!("Currently we do not support elided checksums.");
-                return Err(Error);
-            };
+            }
 
             Ok(Self(UdpRepr {
                 src_port: packet.src_port(),
@@ -2135,6 +2139,8 @@ pub mod nhc {
 
 #[cfg(test)]
 mod test {
+    use crate::phy::ChecksumCapabilities;
+
     use super::*;
 
     #[test]
@@ -2344,8 +2350,13 @@ mod test {
         let payload = udp_hdr.payload();
         assert_eq!(String::from_utf8_lossy(payload), "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Aliquam dui odio, iaculis vel rutrum at, tristique non nunc erat curae. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Aliquam dui odio, iaculis vel rutrum at, tristique non nunc erat curae. \n");
 
-        let udp_repr =
-            nhc::UdpNhcRepr::parse(&udp_hdr, &iphc_repr.src_addr, &iphc_repr.dst_addr).unwrap();
+        let udp_repr = nhc::UdpNhcRepr::parse(
+            &udp_hdr,
+            &iphc_repr.src_addr,
+            &iphc_repr.dst_addr,
+            &ChecksumCapabilities::default(),
+        )
+        .unwrap();
 
         assert_eq!(udp_repr.src_port, 53855);
         assert_eq!(udp_repr.dst_port, 6969);
