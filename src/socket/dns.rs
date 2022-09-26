@@ -90,7 +90,14 @@ struct PendingQuery {
     delay: Duration,
 
     server_idx: usize,
-    mdns: bool,
+    mdns: MulticastDns,
+}
+
+#[derive(Debug)]
+pub enum MulticastDns {
+    Disabled,
+    #[cfg(feature = "socket-mdns")]
+    Enabled,
 }
 
 #[derive(Debug)]
@@ -211,10 +218,11 @@ impl<'a> Socket<'a> {
 
         let mut raw_name: Vec<u8, MAX_NAME_LEN> = Vec::new();
 
-        let mut mdns = false;
+        let mut mdns = MulticastDns::Disabled;
+        #[cfg(feature = "socket-mdns")]
         if name.split(|&c| c == b'.').last().unwrap() == b"local" {
             net_trace!("Starting a mDNS query");
-            mdns = true;
+            mdns = MulticastDns::Enabled;
         }
 
         for s in name.split(|&c| c == b'.') {
@@ -253,7 +261,7 @@ impl<'a> Socket<'a> {
         cx: &mut Context,
         raw_name: &[u8],
         query_type: Type,
-        mdns: bool,
+        mdns: MulticastDns,
     ) -> Result<QueryHandle, StartQueryError> {
         let handle = self.find_free_query().ok_or(StartQueryError::NoFreeSlot)?;
 
@@ -506,16 +514,17 @@ impl<'a> Socket<'a> {
                 // As per RFC 6762 any DNS query ending in .local. MUST be sent as mdns
                 // so we internally overwrite the servers for any of those queries
                 // in this function.
-                let servers = if pq.mdns {
-                    &[
+                let servers = match pq.mdns {
+                    #[cfg(feature = "socket-mdns")]
+                    MulticastDns::Enabled => &[
                         #[cfg(feature = "proto-ipv6")]
                         MDNS_IPV6_ADDR,
                         #[cfg(feature = "proto-ipv4")]
                         MDNS_IPV4_ADDR,
-                    ]
-                } else {
-                    self.servers.as_slice()
+                    ],
+                    MulticastDns::Disabled => self.servers.as_slice(),
                 };
+
                 let timeout = if let Some(timeout) = pq.timeout_at {
                     timeout
                 } else {
@@ -567,7 +576,11 @@ impl<'a> Socket<'a> {
                 let payload = &mut payload[..repr.buffer_len()];
                 repr.emit(&mut Packet::new_unchecked(payload));
 
-                let dst_port = if pq.mdns { MDNS_DNS_PORT } else { DNS_PORT };
+                let dst_port = match pq.mdns {
+                    #[cfg(feature = "socket-mdns")]
+                    MulticastDns::Enabled => MDNS_DNS_PORT,
+                    MulticastDns::Disabled => DNS_PORT,
+                };
 
                 let udp_repr = UdpRepr {
                     src_port: pq.port,
