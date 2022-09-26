@@ -1015,22 +1015,14 @@ impl<'a> Interface<'a> {
         self.inner.now = timestamp;
 
         #[cfg(feature = "proto-ipv4-fragmentation")]
-        if let Err(e) = self
-            .fragments
+        self.fragments
             .ipv4_fragments
-            .remove_when(|frag| Ok(timestamp >= frag.expires_at()?))
-        {
-            return Err(e);
-        }
+            .remove_when(|frag| Ok(timestamp >= frag.expires_at()?))?;
 
         #[cfg(feature = "proto-sixlowpan-fragmentation")]
-        if let Err(e) = self
-            .fragments
+        self.fragments
             .sixlowpan_fragments
-            .remove_when(|frag| Ok(timestamp >= frag.expires_at()?))
-        {
-            return Err(e);
-        }
+            .remove_when(|frag| Ok(timestamp >= frag.expires_at()?))?;
 
         #[cfg(feature = "proto-ipv4-fragmentation")]
         match self.ipv4_egress(device) {

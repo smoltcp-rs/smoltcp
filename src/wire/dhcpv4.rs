@@ -364,7 +364,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
         let mut buf = &self.buffer.as_ref()[field::OPTIONS];
         iter::from_fn(move || {
             loop {
-                match buf.get(0).copied() {
+                match buf.first().copied() {
                     // No more options, return.
                     None => return None,
                     Some(field::OPT_END) => return None,

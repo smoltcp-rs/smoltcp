@@ -248,6 +248,9 @@ pub use self::dhcpv4::{
     MAX_DNS_SERVER_COUNT as DHCP_MAX_DNS_SERVER_COUNT, SERVER_PORT as DHCP_SERVER_PORT,
 };
 
+#[cfg(feature = "proto-dns")]
+pub use self::dns::{Packet as DnsPacket, Repr as DnsRepr, Type as DnsQueryType};
+
 /// Parsing a packet failed.
 ///
 /// Either it is malformed, or it is not supported by smoltcp.

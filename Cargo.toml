@@ -60,6 +60,7 @@ defmt = [ "dep:defmt", "heapless/defmt", "heapless/defmt-impl" ]
 "socket-icmp" = ["socket"]
 "socket-dhcpv4" = ["socket", "medium-ethernet", "proto-dhcpv4"]
 "socket-dns" = ["socket", "proto-dns"]
+"socket-mdns" = ["socket-dns"]
 
 "async" = []
 
@@ -69,7 +70,7 @@ default = [
   "phy-raw_socket", "phy-tuntap_interface",
   "proto-ipv4", "proto-igmp", "proto-dhcpv4", "proto-ipv6", "proto-dns",
   "proto-ipv4-fragmentation", "proto-sixlowpan-fragmentation",
-  "socket-raw", "socket-icmp", "socket-udp", "socket-tcp", "socket-dhcpv4", "socket-dns",
+  "socket-raw", "socket-icmp", "socket-udp", "socket-tcp", "socket-dhcpv4", "socket-dns", "socket-mdns",
   "async"
 ]
 
