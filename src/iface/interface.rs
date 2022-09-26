@@ -1027,14 +1027,20 @@ impl<'a> Interface<'a> {
         #[cfg(feature = "proto-ipv4-fragmentation")]
         match self.ipv4_egress(device) {
             Ok(true) => return Ok(true),
-            Err(e) => return Err(e),
+            Err(e) => {
+                net_debug!("failed to transmit: {}", e);
+                return Err(e);
+            }
             _ => (),
         }
 
         #[cfg(feature = "proto-sixlowpan-fragmentation")]
         match self.sixlowpan_egress(device) {
             Ok(true) => return Ok(true),
-            Err(e) => return Err(e),
+            Err(e) => {
+                net_debug!("failed to transmit: {}", e);
+                return Err(e);
+            }
             _ => (),
         }
 
@@ -1354,20 +1360,13 @@ impl<'a> Interface<'a> {
         } = &self.out_packets.ipv4_out_packet;
 
         if *packet_len > *sent_bytes {
-            match device.transmit().ok_or(Error::Exhausted) {
-                Ok(tx_token) => {
-                    if let Err(e) = self
-                        .inner
-                        .dispatch_ipv4_out_packet(tx_token, &mut self.out_packets.ipv4_out_packet)
-                    {
-                        net_debug!("failed to transmit: {}", e);
-                    }
-                }
-                Err(e) => {
-                    net_debug!("failed to transmit: {}", e);
-                }
+            match device.transmit() {
+                Some(tx_token) => self
+                    .inner
+                    .dispatch_ipv4_out_packet(tx_token, &mut self.out_packets.ipv4_out_packet),
+                None => Err(Error::Exhausted),
             }
-            Ok(true)
+            .map(|_| true)
         } else {
             Ok(false)
         }
@@ -1398,20 +1397,14 @@ impl<'a> Interface<'a> {
         }
 
         if *packet_len > *sent_bytes {
-            match device.transmit().ok_or(Error::Exhausted) {
-                Ok(tx_token) => {
-                    if let Err(e) = self.inner.dispatch_ieee802154_out_packet(
-                        tx_token,
-                        &mut self.out_packets.sixlowpan_out_packet,
-                    ) {
-                        net_debug!("failed to transmit: {}", e);
-                    }
-                }
-                Err(e) => {
-                    net_debug!("failed to transmit: {}", e);
-                }
+            match device.transmit() {
+                Some(tx_token) => self.inner.dispatch_ieee802154_out_packet(
+                    tx_token,
+                    &mut self.out_packets.sixlowpan_out_packet,
+                ),
+                None => Err(Error::Exhausted),
             }
-            Ok(true)
+            .map(|_| true)
         } else {
             Ok(false)
         }
