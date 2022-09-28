@@ -1339,6 +1339,11 @@ impl<'a> Interface<'a> {
         }
     }
 
+    /// Process fragments that still need to be sent for IPv4 packets.
+    ///
+    /// This function returns a boolean value indicating whether any packets were
+    /// processed or emitted, and thus, whether the readiness of any socket might
+    /// have changed.
     #[cfg(feature = "proto-ipv4-fragmentation")]
     fn ipv4_egress<D>(&mut self, device: &mut D) -> Result<bool>
     where
@@ -1372,6 +1377,11 @@ impl<'a> Interface<'a> {
         }
     }
 
+    /// Process fragments that still need to be sent for 6LoWPAN packets.
+    ///
+    /// This function returns a boolean value indicating whether any packets were
+    /// processed or emitted, and thus, whether the readiness of any socket might
+    /// have changed.
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
     fn sixlowpan_egress<D>(&mut self, device: &mut D) -> Result<bool>
     where
@@ -1391,10 +1401,6 @@ impl<'a> Interface<'a> {
             sent_bytes,
             ..
         } = &self.out_packets.sixlowpan_out_packet;
-
-        if *packet_len == 0 {
-            return Ok(false);
-        }
 
         if *packet_len > *sent_bytes {
             match device.transmit() {
