@@ -151,7 +151,7 @@ pub use self::sixlowpan::{
         NhcPacket as SixlowpanNhcPacket, UdpNhcPacket as SixlowpanUdpNhcPacket,
         UdpNhcRepr as SixlowpanUdpNhcRepr,
     },
-    NextHeader as SixlowpanNextHeader, SixlowpanPacket,
+    AddressContext as SixlowpanAddressContext, NextHeader as SixlowpanNextHeader, SixlowpanPacket,
 };
 
 #[cfg(feature = "medium-ieee802154")]

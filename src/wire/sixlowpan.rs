@@ -2,10 +2,24 @@
 //! IEEE802.154-based networks.
 //!
 //! [RFC 6282]: https://datatracker.ietf.org/doc/html/rfc6282
+use core::ops::Deref;
+
 use super::{Error, Result};
 use crate::wire::ieee802154::Address as LlAddress;
 use crate::wire::ipv6;
 use crate::wire::IpProtocol;
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct AddressContext<'a>(pub &'a [u8]);
+
+impl<'a> Deref for AddressContext<'a> {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        self.0
+    }
+}
 
 /// The representation of an unresolved address. 6LoWPAN compression of IPv6 addresses can be with
 /// and without context information. The decompression with context information is not yet
@@ -14,7 +28,7 @@ use crate::wire::IpProtocol;
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum UnresolvedAddress<'a> {
     WithoutContext(AddressMode<'a>),
-    WithContext(AddressMode<'a>),
+    WithContext((usize, AddressMode<'a>)),
     Reserved,
 }
 
@@ -51,8 +65,30 @@ const LINK_LOCAL_PREFIX: [u8; 2] = [0xfe, 0x80];
 const EUI64_MIDDLE_VALUE: [u8; 2] = [0xff, 0xfe];
 
 impl<'a> UnresolvedAddress<'a> {
-    pub fn resolve(self, ll_address: Option<LlAddress>) -> Result<ipv6::Address> {
+    pub fn resolve(
+        self,
+        ll_address: Option<LlAddress>,
+        addr_context: &[AddressContext<'_>],
+    ) -> Result<ipv6::Address> {
         let mut bytes = [0; 16];
+
+        let copy_context = |index: usize, bytes: &mut [u8]| -> Result<()> {
+            if index >= addr_context.len() {
+                return Err(Error);
+            }
+
+            let context = addr_context[index];
+            let len = context.len();
+
+            if len > 8 {
+                return Err(Error);
+            }
+
+            bytes[..len].copy_from_slice(&context);
+
+            Ok(())
+        };
+
         match self {
             UnresolvedAddress::WithoutContext(mode) => match mode {
                 AddressMode::FullInline(addr) => Ok(ipv6::Address::from_bytes(addr)),
@@ -104,8 +140,35 @@ impl<'a> UnresolvedAddress<'a> {
                 _ => Err(Error),
             },
             UnresolvedAddress::WithContext(mode) => match mode {
-                AddressMode::Unspecified => Ok(ipv6::Address::UNSPECIFIED),
-                AddressMode::NotSupported => Err(Error),
+                (_, AddressMode::Unspecified) => Ok(ipv6::Address::UNSPECIFIED),
+                (index, AddressMode::InLine64bits(inline)) => {
+                    copy_context(index, &mut bytes[..])?;
+                    bytes[16 - inline.len()..].copy_from_slice(inline);
+                    Ok(ipv6::Address::from_bytes(&bytes[..]))
+                }
+                (index, AddressMode::InLine16bits(inline)) => {
+                    copy_context(index, &mut bytes[..])?;
+                    bytes[16 - inline.len()..].copy_from_slice(inline);
+                    Ok(ipv6::Address::from_bytes(&bytes[..]))
+                }
+                (index, AddressMode::FullyElided) => {
+                    match ll_address {
+                        Some(LlAddress::Short(ll)) => {
+                            bytes[11..13].copy_from_slice(&EUI64_MIDDLE_VALUE[..]);
+                            bytes[14..].copy_from_slice(&ll);
+                        }
+                        Some(addr @ LlAddress::Extended(_)) => match addr.as_eui_64() {
+                            Some(addr) => bytes[8..].copy_from_slice(&addr),
+                            None => return Err(Error),
+                        },
+                        Some(LlAddress::Absent) => return Err(Error),
+                        None => return Err(Error),
+                    }
+
+                    copy_context(index, &mut bytes[..])?;
+
+                    Ok(ipv6::Address::from_bytes(&bytes[..]))
+                }
                 _ => Err(Error),
             },
             UnresolvedAddress::Reserved => Err(Error),
@@ -421,7 +484,10 @@ pub mod iphc {
     //!
     //! [RFC 6282 § 3.1]: https://datatracker.ietf.org/doc/html/rfc6282#section-3.1
 
-    use super::{AddressMode, Error, NextHeader, Result, UnresolvedAddress, DISPATCH_IPHC_HEADER};
+    use super::{
+        AddressContext, AddressMode, Error, NextHeader, Result, UnresolvedAddress,
+        DISPATCH_IPHC_HEADER,
+    };
     use crate::wire::{ieee802154::Address as LlAddress, ipv6, IpProtocol};
     use byteorder::{ByteOrder, NetworkEndian};
 
@@ -573,7 +639,7 @@ pub mod iphc {
         pub fn src_context_id(&self) -> Option<u8> {
             if self.cid_field() == 1 {
                 let data = self.buffer.as_ref();
-                Some(data[1] >> 4)
+                Some(data[2] >> 4)
             } else {
                 None
             }
@@ -583,7 +649,7 @@ pub mod iphc {
         pub fn dst_context_id(&self) -> Option<u8> {
             if self.cid_field() == 1 {
                 let data = self.buffer.as_ref();
-                Some(data[1] & 0x0f)
+                Some(data[2] & 0x0f)
             } else {
                 None
             }
@@ -640,30 +706,52 @@ pub mod iphc {
                 + self.next_header_size()
                 + self.hop_limit_size()) as usize;
 
+            let data = self.buffer.as_ref();
             match (self.sac_field(), self.sam_field()) {
-                (0, 0b00) => {
-                    let data = self.buffer.as_ref();
-                    Ok(UnresolvedAddress::WithoutContext(AddressMode::FullInline(
-                        &data[start..][..16],
-                    )))
-                }
-                (0, 0b01) => {
-                    let data = self.buffer.as_ref();
-                    Ok(UnresolvedAddress::WithoutContext(
-                        AddressMode::InLine64bits(&data[start..][..8]),
-                    ))
-                }
-                (0, 0b10) => {
-                    let data = self.buffer.as_ref();
-                    Ok(UnresolvedAddress::WithoutContext(
-                        AddressMode::InLine16bits(&data[start..][..2]),
-                    ))
-                }
+                (0, 0b00) => Ok(UnresolvedAddress::WithoutContext(AddressMode::FullInline(
+                    &data[start..][..16],
+                ))),
+                (0, 0b01) => Ok(UnresolvedAddress::WithoutContext(
+                    AddressMode::InLine64bits(&data[start..][..8]),
+                )),
+                (0, 0b10) => Ok(UnresolvedAddress::WithoutContext(
+                    AddressMode::InLine16bits(&data[start..][..2]),
+                )),
                 (0, 0b11) => Ok(UnresolvedAddress::WithoutContext(AddressMode::FullyElided)),
-                (1, 0b00) => Ok(UnresolvedAddress::WithContext(AddressMode::Unspecified)),
-                (1, 0b01) => Ok(UnresolvedAddress::WithContext(AddressMode::NotSupported)),
-                (1, 0b10) => Ok(UnresolvedAddress::WithContext(AddressMode::NotSupported)),
-                (1, 0b11) => Ok(UnresolvedAddress::WithContext(AddressMode::NotSupported)),
+                (1, 0b00) => Ok(UnresolvedAddress::WithContext((
+                    0,
+                    AddressMode::Unspecified,
+                ))),
+                (1, 0b01) => {
+                    if let Some(id) = self.src_context_id() {
+                        Ok(UnresolvedAddress::WithContext((
+                            id as usize,
+                            AddressMode::InLine64bits(&data[start..][..8]),
+                        )))
+                    } else {
+                        Err(Error)
+                    }
+                }
+                (1, 0b10) => {
+                    if let Some(id) = self.src_context_id() {
+                        Ok(UnresolvedAddress::WithContext((
+                            id as usize,
+                            AddressMode::InLine16bits(&data[start..][..2]),
+                        )))
+                    } else {
+                        Err(Error)
+                    }
+                }
+                (1, 0b11) => {
+                    if let Some(id) = self.src_context_id() {
+                        Ok(UnresolvedAddress::WithContext((
+                            id as usize,
+                            AddressMode::FullyElided,
+                        )))
+                    } else {
+                        Err(Error)
+                    }
+                }
                 _ => Err(Error),
             }
         }
@@ -676,55 +764,65 @@ pub mod iphc {
                 + self.hop_limit_size()
                 + self.src_address_size()) as usize;
 
+            let data = self.buffer.as_ref();
             match (self.m_field(), self.dac_field(), self.dam_field()) {
-                (0, 0, 0b00) => {
-                    let data = self.buffer.as_ref();
-                    Ok(UnresolvedAddress::WithoutContext(AddressMode::FullInline(
-                        &data[start..][..16],
-                    )))
-                }
-                (0, 0, 0b01) => {
-                    let data = self.buffer.as_ref();
-                    Ok(UnresolvedAddress::WithoutContext(
-                        AddressMode::InLine64bits(&data[start..][..8]),
-                    ))
-                }
-                (0, 0, 0b10) => {
-                    let data = self.buffer.as_ref();
-                    Ok(UnresolvedAddress::WithoutContext(
-                        AddressMode::InLine16bits(&data[start..][..2]),
-                    ))
-                }
+                (0, 0, 0b00) => Ok(UnresolvedAddress::WithoutContext(AddressMode::FullInline(
+                    &data[start..][..16],
+                ))),
+                (0, 0, 0b01) => Ok(UnresolvedAddress::WithoutContext(
+                    AddressMode::InLine64bits(&data[start..][..8]),
+                )),
+                (0, 0, 0b10) => Ok(UnresolvedAddress::WithoutContext(
+                    AddressMode::InLine16bits(&data[start..][..2]),
+                )),
                 (0, 0, 0b11) => Ok(UnresolvedAddress::WithoutContext(AddressMode::FullyElided)),
                 (0, 1, 0b00) => Ok(UnresolvedAddress::Reserved),
-                (0, 1, 0b01) => Ok(UnresolvedAddress::WithContext(AddressMode::NotSupported)),
-                (0, 1, 0b10) => Ok(UnresolvedAddress::WithContext(AddressMode::NotSupported)),
-                (0, 1, 0b11) => Ok(UnresolvedAddress::WithContext(AddressMode::NotSupported)),
-                (1, 0, 0b00) => {
-                    let data = self.buffer.as_ref();
-                    Ok(UnresolvedAddress::WithoutContext(AddressMode::FullInline(
-                        &data[start..][..16],
-                    )))
+                (0, 1, 0b01) => {
+                    if let Some(id) = self.dst_context_id() {
+                        Ok(UnresolvedAddress::WithContext((
+                            id as usize,
+                            AddressMode::InLine64bits(&data[start..][..8]),
+                        )))
+                    } else {
+                        Err(Error)
+                    }
                 }
-                (1, 0, 0b01) => {
-                    let data = self.buffer.as_ref();
-                    Ok(UnresolvedAddress::WithoutContext(
-                        AddressMode::Multicast48bits(&data[start..][..6]),
-                    ))
+                (0, 1, 0b10) => {
+                    if let Some(id) = self.dst_context_id() {
+                        Ok(UnresolvedAddress::WithContext((
+                            id as usize,
+                            AddressMode::InLine16bits(&data[start..][..2]),
+                        )))
+                    } else {
+                        Err(Error)
+                    }
                 }
-                (1, 0, 0b10) => {
-                    let data = self.buffer.as_ref();
-                    Ok(UnresolvedAddress::WithoutContext(
-                        AddressMode::Multicast32bits(&data[start..][..4]),
-                    ))
+                (0, 1, 0b11) => {
+                    if let Some(id) = self.dst_context_id() {
+                        Ok(UnresolvedAddress::WithContext((
+                            id as usize,
+                            AddressMode::FullyElided,
+                        )))
+                    } else {
+                        Err(Error)
+                    }
                 }
-                (1, 0, 0b11) => {
-                    let data = self.buffer.as_ref();
-                    Ok(UnresolvedAddress::WithoutContext(
-                        AddressMode::Multicast8bits(&data[start..][..1]),
-                    ))
-                }
-                (1, 1, 0b00) => Ok(UnresolvedAddress::WithContext(AddressMode::NotSupported)),
+                (1, 0, 0b00) => Ok(UnresolvedAddress::WithoutContext(AddressMode::FullInline(
+                    &data[start..][..16],
+                ))),
+                (1, 0, 0b01) => Ok(UnresolvedAddress::WithoutContext(
+                    AddressMode::Multicast48bits(&data[start..][..6]),
+                )),
+                (1, 0, 0b10) => Ok(UnresolvedAddress::WithoutContext(
+                    AddressMode::Multicast32bits(&data[start..][..4]),
+                )),
+                (1, 0, 0b11) => Ok(UnresolvedAddress::WithoutContext(
+                    AddressMode::Multicast8bits(&data[start..][..1]),
+                )),
+                (1, 1, 0b00) => Ok(UnresolvedAddress::WithContext((
+                    0,
+                    AddressMode::NotSupported,
+                ))),
                 (1, 1, 0b01 | 0b10 | 0b11) => Ok(UnresolvedAddress::Reserved),
                 _ => Err(Error),
             }
@@ -1086,6 +1184,7 @@ pub mod iphc {
             packet: &Packet<&T>,
             ll_src_addr: Option<LlAddress>,
             ll_dst_addr: Option<LlAddress>,
+            addr_context: &[AddressContext<'_>],
         ) -> Result<Self> {
             // Ensure basic accessors will work.
             packet.check_len()?;
@@ -1095,8 +1194,8 @@ pub mod iphc {
                 return Err(Error);
             }
 
-            let src_addr = packet.src_addr()?.resolve(ll_src_addr)?;
-            let dst_addr = packet.dst_addr()?.resolve(ll_dst_addr)?;
+            let src_addr = packet.src_addr()?.resolve(ll_src_addr, addr_context)?;
+            let dst_addr = packet.dst_addr()?.resolve(ll_dst_addr, addr_context)?;
 
             Ok(Self {
                 src_addr,
@@ -1293,11 +1392,17 @@ pub mod iphc {
 
             assert_eq!(
                 packet.src_addr(),
-                Ok(UnresolvedAddress::WithContext(AddressMode::NotSupported))
+                Ok(UnresolvedAddress::WithContext((
+                    0,
+                    AddressMode::FullyElided
+                )))
             );
             assert_eq!(
                 packet.dst_addr(),
-                Ok(UnresolvedAddress::WithContext(AddressMode::NotSupported))
+                Ok(UnresolvedAddress::WithContext((
+                    0,
+                    AddressMode::FullyElided
+                )))
             );
         }
     }
@@ -2205,8 +2310,13 @@ mod test {
             unreachable!()
         };
 
-        let iphc_repr =
-            iphc::Repr::parse(&iphc, ieee802154_repr.src_addr, ieee802154_repr.dst_addr).unwrap();
+        let iphc_repr = iphc::Repr::parse(
+            &iphc,
+            ieee802154_repr.src_addr,
+            ieee802154_repr.dst_addr,
+            &[],
+        )
+        .unwrap();
 
         assert_eq!(
             iphc_repr.dst_addr,

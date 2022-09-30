@@ -43,6 +43,7 @@ fuzz_target!(|fuzz: SixlowpanPacketFuzzer| {
                     &frame,
                     fuzz.ll_src_addr.map(Into::into),
                     fuzz.ll_dst_addr.map(Into::into),
+                    &[],
                 ) {
                     let mut buffer = vec![0; iphc_repr.buffer_len()];
                     let mut iphc_frame = SixlowpanIphcPacket::new_unchecked(&mut buffer[..]);
