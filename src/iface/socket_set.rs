@@ -39,15 +39,15 @@ impl fmt::Display for SocketHandle {
 ///
 /// The lifetime `'a` is used when storing a `Socket<'a>`.
 #[derive(Debug)]
-pub struct SocketSet<'a> {
-    sockets: ManagedSlice<'a, SocketStorage<'a>>,
+pub struct SocketSet<'slice, 'data> {
+    sockets: ManagedSlice<'slice, SocketStorage<'data>>,
 }
 
-impl<'a> SocketSet<'a> {
+impl<'data: 'slice, 'slice> SocketSet<'slice, 'data> {
     /// Create a socket set using the provided storage.
-    pub fn new<SocketsT>(sockets: SocketsT) -> SocketSet<'a>
+    pub fn new<SocketsT>(sockets: SocketsT) -> SocketSet<'slice, 'data>
     where
-        SocketsT: Into<ManagedSlice<'a, SocketStorage<'a>>>,
+        SocketsT: Into<ManagedSlice<'slice, SocketStorage<'data>>>,
     {
         let sockets = sockets.into();
         SocketSet { sockets }
@@ -57,7 +57,7 @@ impl<'a> SocketSet<'a> {
     ///
     /// # Panics
     /// This function panics if the storage is fixed-size (not a `Vec`) and is full.
-    pub fn add<T: AnySocket<'a>>(&mut self, socket: T) -> SocketHandle {
+    pub fn add<T: AnySocket<'data>>(&mut self, socket: T) -> SocketHandle {
         fn put<'a>(index: usize, slot: &mut SocketStorage<'a>, socket: Socket<'a>) -> SocketHandle {
             net_trace!("[{}]: adding", index);
             let handle = SocketHandle(index);
@@ -93,7 +93,7 @@ impl<'a> SocketSet<'a> {
     /// # Panics
     /// This function may panic if the handle does not belong to this socket set
     /// or the socket has the wrong type.
-    pub fn get<T: AnySocket<'a>>(&self, handle: SocketHandle) -> &T {
+    pub fn get<T: AnySocket<'data>>(&self, handle: SocketHandle) -> &T {
         match self.sockets[handle.0].inner.as_ref() {
             Some(item) => {
                 T::downcast(&item.socket).expect("handle refers to a socket of a wrong type")
@@ -107,7 +107,7 @@ impl<'a> SocketSet<'a> {
     /// # Panics
     /// This function may panic if the handle does not belong to this socket set
     /// or the socket has the wrong type.
-    pub fn get_mut<T: AnySocket<'a>>(&mut self, handle: SocketHandle) -> &mut T {
+    pub fn get_mut<T: AnySocket<'data>>(&mut self, handle: SocketHandle) -> &mut T {
         match self.sockets[handle.0].inner.as_mut() {
             Some(item) => T::downcast_mut(&mut item.socket)
                 .expect("handle refers to a socket of a wrong type"),
@@ -119,7 +119,7 @@ impl<'a> SocketSet<'a> {
     ///
     /// # Panics
     /// This function may panic if the handle does not belong to this socket set.
-    pub fn remove(&mut self, handle: SocketHandle) -> Socket<'a> {
+    pub fn remove(&mut self, handle: SocketHandle) -> Socket<'data> {
         net_trace!("[{}]: removing", handle.0);
         match self.sockets[handle.0].inner.take() {
             Some(item) => item.socket,
@@ -128,22 +128,22 @@ impl<'a> SocketSet<'a> {
     }
 
     /// Get an iterator to the inner sockets.
-    pub fn iter(&self) -> impl Iterator<Item = (SocketHandle, &Socket<'a>)> {
+    pub fn iter(&self) -> impl Iterator<Item = (SocketHandle, &Socket<'data>)> {
         self.items().map(|i| (i.meta.handle, &i.socket))
     }
 
     /// Get a mutable iterator to the inner sockets.
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = (SocketHandle, &mut Socket<'a>)> {
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (SocketHandle, &mut Socket<'data>)> {
         self.items_mut().map(|i| (i.meta.handle, &mut i.socket))
     }
 
     /// Iterate every socket in this set.
-    pub(crate) fn items(&self) -> impl Iterator<Item = &Item<'a>> + '_ {
+    pub(crate) fn items(&self) -> impl Iterator<Item = &Item<'data>> + '_ {
         self.sockets.iter().filter_map(|x| x.inner.as_ref())
     }
 
     /// Iterate every socket in this set.
-    pub(crate) fn items_mut(&mut self) -> impl Iterator<Item = &mut Item<'a>> + '_ {
+    pub(crate) fn items_mut(&mut self) -> impl Iterator<Item = &mut Item<'data>> + '_ {
         self.sockets.iter_mut().filter_map(|x| x.inner.as_mut())
     }
 }

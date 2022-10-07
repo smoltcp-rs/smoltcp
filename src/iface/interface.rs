@@ -1003,14 +1003,16 @@ impl<'a> Interface<'a> {
     /// packets containing any unsupported protocol, option, or form, which is
     /// a very common occurrence and on a production system it should not even
     /// be logged.
-    pub fn poll<D>(
+    pub fn poll<'slice, 'data, D>(
         &mut self,
         timestamp: Instant,
         device: &mut D,
-        sockets: &mut SocketSet<'_>,
+        sockets: &mut SocketSet<'slice, 'data>,
     ) -> Result<bool>
     where
         D: Device + ?Sized,
+        'a: 'slice,
+        'data: 'a,
     {
         self.inner.now = timestamp;
 
@@ -1073,7 +1075,15 @@ impl<'a> Interface<'a> {
     ///
     /// [poll]: #method.poll
     /// [Instant]: struct.Instant.html
-    pub fn poll_at(&mut self, timestamp: Instant, sockets: &SocketSet<'_>) -> Option<Instant> {
+    pub fn poll_at<'slice, 'data>(
+        &mut self,
+        timestamp: Instant,
+        sockets: &SocketSet<'slice, 'data>,
+    ) -> Option<Instant>
+    where
+        'a: 'slice,
+        'data: 'a,
+    {
         self.inner.now = timestamp;
 
         #[cfg(feature = "proto-sixlowpan-fragmentation")]
@@ -1107,7 +1117,15 @@ impl<'a> Interface<'a> {
     ///
     /// [poll]: #method.poll
     /// [Duration]: struct.Duration.html
-    pub fn poll_delay(&mut self, timestamp: Instant, sockets: &SocketSet<'_>) -> Option<Duration> {
+    pub fn poll_delay<'slice, 'data>(
+        &mut self,
+        timestamp: Instant,
+        sockets: &SocketSet<'slice, 'data>,
+    ) -> Option<Duration>
+    where
+        'a: 'slice,
+        'data: 'a,
+    {
         match self.poll_at(timestamp, sockets) {
             Some(poll_at) if timestamp < poll_at => Some(poll_at - timestamp),
             Some(_) => Some(Duration::from_millis(0)),
@@ -1115,9 +1133,15 @@ impl<'a> Interface<'a> {
         }
     }
 
-    fn socket_ingress<D>(&mut self, device: &mut D, sockets: &mut SocketSet<'_>) -> bool
+    fn socket_ingress<'slice, 'data, D>(
+        &mut self,
+        device: &mut D,
+        sockets: &mut SocketSet<'slice, 'data>,
+    ) -> bool
     where
         D: Device + ?Sized,
+        'a: 'slice,
+        'data: 'a,
     {
         let mut processed_any = false;
         let Self {
@@ -1171,9 +1195,15 @@ impl<'a> Interface<'a> {
         processed_any
     }
 
-    fn socket_egress<D>(&mut self, device: &mut D, sockets: &mut SocketSet<'_>) -> bool
+    fn socket_egress<'slice, 'data, D>(
+        &mut self,
+        device: &mut D,
+        sockets: &mut SocketSet<'slice, 'data>,
+    ) -> bool
     where
         D: Device + ?Sized,
+        'a: 'slice,
+        'data: 'a,
     {
         let Self {
             inner,
@@ -1654,12 +1684,16 @@ impl<'a> InterfaceInner<'a> {
     }
 
     #[cfg(feature = "medium-ethernet")]
-    fn process_ethernet<'frame, T: AsRef<[u8]>>(
+    fn process_ethernet<'frame, 'slice, 'data, T: AsRef<[u8]>>(
         &mut self,
-        sockets: &mut SocketSet,
+        sockets: &mut SocketSet<'slice, 'data>,
         frame: &'frame T,
         _fragments: &'frame mut FragmentsBuffer<'a>,
-    ) -> Option<EthernetPacket<'frame>> {
+    ) -> Option<EthernetPacket<'frame>>
+    where
+        'a: 'slice,
+        'data: 'a,
+    {
         let eth_frame = check!(EthernetFrame::new_checked(frame));
 
         // Ignore any packets not directed to our hardware address or any of the multicast groups.
@@ -1697,12 +1731,16 @@ impl<'a> InterfaceInner<'a> {
     }
 
     #[cfg(feature = "medium-ip")]
-    fn process_ip<'frame, T: AsRef<[u8]>>(
+    fn process_ip<'frame, 'slice, 'data, T: AsRef<[u8]>>(
         &mut self,
-        sockets: &mut SocketSet,
+        sockets: &mut SocketSet<'slice, 'data>,
         ip_payload: &'frame T,
         _fragments: &'frame mut FragmentsBuffer<'a>,
-    ) -> Option<IpPacket<'frame>> {
+    ) -> Option<IpPacket<'frame>>
+    where
+        'a: 'slice,
+        'data: 'a,
+    {
         match IpVersion::of_packet(ip_payload.as_ref()) {
             #[cfg(feature = "proto-ipv4")]
             Ok(IpVersion::Ipv4) => {
@@ -1727,12 +1765,16 @@ impl<'a> InterfaceInner<'a> {
     }
 
     #[cfg(feature = "medium-ieee802154")]
-    fn process_ieee802154<'output, 'payload: 'output, T: AsRef<[u8]> + ?Sized>(
+    fn process_ieee802154<'output, 'payload: 'output, 'slice, 'data, T: AsRef<[u8]> + ?Sized>(
         &mut self,
-        sockets: &mut SocketSet,
+        sockets: &mut SocketSet<'slice, 'data>,
         sixlowpan_payload: &'payload T,
         _fragments: &'output mut FragmentsBuffer<'a>,
-    ) -> Option<IpPacket<'output>> {
+    ) -> Option<IpPacket<'output>>
+    where
+        'a: 'slice,
+        'data: 'a,
+    {
         let ieee802154_frame = check!(Ieee802154Frame::new_checked(sixlowpan_payload));
         let ieee802154_repr = check!(Ieee802154Repr::parse(&ieee802154_frame));
 
@@ -1769,16 +1811,20 @@ impl<'a> InterfaceInner<'a> {
     }
 
     #[cfg(feature = "proto-sixlowpan")]
-    fn process_sixlowpan<'output, 'payload: 'output, T: AsRef<[u8]> + ?Sized>(
+    fn process_sixlowpan<'output, 'payload: 'output, 'slice, 'data, T: AsRef<[u8]> + ?Sized>(
         &mut self,
-        sockets: &mut SocketSet,
+        sockets: &mut SocketSet<'slice, 'data>,
         ieee802154_repr: &Ieee802154Repr,
         payload: &'payload T,
         _fragments: Option<(
             &'output mut PacketAssemblerSet<'a, SixlowpanFragKey>,
             Duration,
         )>,
-    ) -> Option<IpPacket<'output>> {
+    ) -> Option<IpPacket<'output>>
+    where
+        'a: 'slice,
+        'data: 'a,
+    {
         let payload = match check!(SixlowpanPacket::dispatch(payload)) {
             #[cfg(not(feature = "proto-sixlowpan-fragmentation"))]
             SixlowpanPacket::FragmentHeader => {
@@ -2074,12 +2120,16 @@ impl<'a> InterfaceInner<'a> {
     }
 
     #[cfg(feature = "socket-raw")]
-    fn raw_socket_filter<'frame>(
+    fn raw_socket_filter<'frame, 'slice, 'data>(
         &mut self,
-        sockets: &mut SocketSet,
+        sockets: &mut SocketSet<'slice, 'data>,
         ip_repr: &IpRepr,
         ip_payload: &'frame [u8],
-    ) -> bool {
+    ) -> bool
+    where
+        'a: 'slice,
+        'data: 'a,
+    {
         let mut handled_by_raw_socket = false;
 
         // Pass every IP packet to all raw sockets we have registered.
@@ -2096,11 +2146,15 @@ impl<'a> InterfaceInner<'a> {
     }
 
     #[cfg(feature = "proto-ipv6")]
-    fn process_ipv6<'frame, T: AsRef<[u8]> + ?Sized>(
+    fn process_ipv6<'frame, 'slice, 'data, T: AsRef<[u8]> + ?Sized>(
         &mut self,
-        sockets: &mut SocketSet,
+        sockets: &mut SocketSet<'slice, 'data>,
         ipv6_packet: &Ipv6Packet<&'frame T>,
-    ) -> Option<IpPacket<'frame>> {
+    ) -> Option<IpPacket<'frame>>
+    where
+        'a: 'slice,
+        'data: 'a,
+    {
         let ipv6_repr = check!(Ipv6Repr::parse(ipv6_packet));
 
         if !ipv6_repr.src_addr.is_unicast() {
@@ -2128,14 +2182,18 @@ impl<'a> InterfaceInner<'a> {
     /// Given the next header value forward the payload onto the correct process
     /// function.
     #[cfg(feature = "proto-ipv6")]
-    fn process_nxt_hdr<'frame>(
+    fn process_nxt_hdr<'frame, 'slice, 'data>(
         &mut self,
-        sockets: &mut SocketSet,
+        sockets: &mut SocketSet<'slice, 'data>,
         ipv6_repr: Ipv6Repr,
         nxt_hdr: IpProtocol,
         handled_by_raw_socket: bool,
         ip_payload: &'frame [u8],
-    ) -> Option<IpPacket<'frame>> {
+    ) -> Option<IpPacket<'frame>>
+    where
+        'a: 'slice,
+        'data: 'a,
+    {
         match nxt_hdr {
             IpProtocol::Icmpv6 => self.process_icmpv6(sockets, ipv6_repr.into(), ip_payload),
 
@@ -2171,12 +2229,16 @@ impl<'a> InterfaceInner<'a> {
     }
 
     #[cfg(feature = "proto-ipv4")]
-    fn process_ipv4<'output, 'payload: 'output, T: AsRef<[u8]> + ?Sized>(
+    fn process_ipv4<'output, 'payload: 'output, 'slice, 'data, T: AsRef<[u8]> + ?Sized>(
         &mut self,
-        sockets: &mut SocketSet,
+        sockets: &mut SocketSet<'slice, 'data>,
         ipv4_packet: &Ipv4Packet<&'payload T>,
         _fragments: Option<&'output mut PacketAssemblerSet<'a, Ipv4FragKey>>,
-    ) -> Option<IpPacket<'output>> {
+    ) -> Option<IpPacket<'output>>
+    where
+        'a: 'slice,
+        'data: 'a,
+    {
         let ipv4_repr = check!(Ipv4Repr::parse(ipv4_packet, &self.caps.checksum));
         if !self.is_unicast_v4(ipv4_repr.src_addr) {
             // Discard packets with non-unicast source addresses.
@@ -2425,12 +2487,16 @@ impl<'a> InterfaceInner<'a> {
     }
 
     #[cfg(feature = "proto-ipv6")]
-    fn process_icmpv6<'frame>(
+    fn process_icmpv6<'frame, 'slice, 'data>(
         &mut self,
-        _sockets: &mut SocketSet,
+        _sockets: &mut SocketSet<'slice, 'data>,
         ip_repr: IpRepr,
         ip_payload: &'frame [u8],
-    ) -> Option<IpPacket<'frame>> {
+    ) -> Option<IpPacket<'frame>>
+    where
+        'a: 'slice,
+        'data: 'a,
+    {
         let icmp_packet = check!(Icmpv6Packet::new_checked(ip_payload));
         let icmp_repr = check!(Icmpv6Repr::parse(
             &ip_repr.src_addr(),
@@ -2571,13 +2637,17 @@ impl<'a> InterfaceInner<'a> {
     }
 
     #[cfg(feature = "proto-ipv6")]
-    fn process_hopbyhop<'frame>(
+    fn process_hopbyhop<'frame, 'slice, 'data>(
         &mut self,
-        sockets: &mut SocketSet,
+        sockets: &mut SocketSet<'slice, 'data>,
         ipv6_repr: Ipv6Repr,
         handled_by_raw_socket: bool,
         ip_payload: &'frame [u8],
-    ) -> Option<IpPacket<'frame>> {
+    ) -> Option<IpPacket<'frame>>
+    where
+        'a: 'slice,
+        'data: 'a,
+    {
         let hbh_pkt = check!(Ipv6HopByHopHeader::new_checked(ip_payload));
         let hbh_repr = check!(Ipv6HopByHopRepr::parse(&hbh_pkt));
         for opt_repr in hbh_repr.options() {
@@ -2609,12 +2679,16 @@ impl<'a> InterfaceInner<'a> {
     }
 
     #[cfg(feature = "proto-ipv4")]
-    fn process_icmpv4<'frame>(
+    fn process_icmpv4<'frame, 'slice, 'data>(
         &mut self,
-        _sockets: &mut SocketSet,
+        _sockets: &mut SocketSet<'slice, 'data>,
         ip_repr: IpRepr,
         ip_payload: &'frame [u8],
-    ) -> Option<IpPacket<'frame>> {
+    ) -> Option<IpPacket<'frame>>
+    where
+        'a: 'slice,
+        'data: 'a,
+    {
         let icmp_packet = check!(Icmpv4Packet::new_checked(ip_payload));
         let icmp_repr = check!(Icmpv4Repr::parse(&icmp_packet, &self.caps.checksum));
 
@@ -2729,13 +2803,17 @@ impl<'a> InterfaceInner<'a> {
     }
 
     #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
-    fn process_udp<'frame>(
+    fn process_udp<'frame, 'slice, 'data>(
         &mut self,
-        sockets: &mut SocketSet,
+        sockets: &mut SocketSet<'slice, 'data>,
         ip_repr: IpRepr,
         handled_by_raw_socket: bool,
         ip_payload: &'frame [u8],
-    ) -> Option<IpPacket<'frame>> {
+    ) -> Option<IpPacket<'frame>>
+    where
+        'a: 'slice,
+        'data: 'a,
+    {
         let (src_addr, dst_addr) = (ip_repr.src_addr(), ip_repr.dst_addr());
         let udp_packet = check!(UdpPacket::new_checked(ip_payload));
         let udp_repr = check!(UdpRepr::parse(
@@ -2800,12 +2878,16 @@ impl<'a> InterfaceInner<'a> {
     }
 
     #[cfg(feature = "socket-tcp")]
-    fn process_tcp<'frame>(
+    fn process_tcp<'frame, 'slice, 'data>(
         &mut self,
-        sockets: &mut SocketSet,
+        sockets: &mut SocketSet<'slice, 'data>,
         ip_repr: IpRepr,
         ip_payload: &'frame [u8],
-    ) -> Option<IpPacket<'frame>> {
+    ) -> Option<IpPacket<'frame>>
+    where
+        'a: 'slice,
+        'data: 'a,
+    {
         let (src_addr, dst_addr) = (ip_repr.src_addr(), ip_repr.dst_addr());
         let tcp_packet = check!(TcpPacket::new_checked(ip_payload));
         let tcp_repr = check!(TcpRepr::parse(
@@ -3784,7 +3866,7 @@ mod test {
         }
     }
 
-    fn create<'a>() -> (Interface<'a>, SocketSet<'a>, Loopback) {
+    fn create<'a, 'b>() -> (Interface<'a>, SocketSet<'a, 'b>, Loopback) {
         #[cfg(feature = "medium-ethernet")]
         return create_ethernet();
         #[cfg(not(feature = "medium-ethernet"))]
@@ -3793,7 +3875,7 @@ mod test {
 
     #[cfg(all(feature = "medium-ip"))]
     #[allow(unused)]
-    fn create_ip<'a>() -> (Interface<'a>, SocketSet<'a>, Loopback) {
+    fn create_ip<'a, 'b>() -> (Interface<'a>, SocketSet<'a, 'b>, Loopback) {
         // Create a basic device
         let mut device = Loopback::new(Medium::Ip);
         let ip_addrs = [
@@ -3820,7 +3902,7 @@ mod test {
     }
 
     #[cfg(all(feature = "medium-ethernet"))]
-    fn create_ethernet<'a>() -> (Interface<'a>, SocketSet<'a>, Loopback) {
+    fn create_ethernet<'a, 'b>() -> (Interface<'a>, SocketSet<'a, 'b>, Loopback) {
         // Create a basic device
         let mut device = Loopback::new(Medium::Ethernet);
         let ip_addrs = [
