@@ -171,8 +171,9 @@ impl Assembler {
         }
 
         // Removing the last one.
-        self.contigs[at] = Contig::empty();
-        &mut self.contigs[at]
+        let p = &mut self.contigs[self.contigs.len() - 1];
+        *p = Contig::empty();
+        p
     }
 
     /// Add a contig at the given index, and return a pointer to it.
@@ -474,6 +475,18 @@ mod test {
         let mut assr = contigs![(0, 4), (4, 4)];
         assert_eq!(assr.remove_front(), Some(4));
         assert_eq!(assr, contigs![(4, 4), (4, 0)]);
+    }
+
+    #[test]
+    fn test_boundary_case_remove_front() {
+        let mut vec = vec![(1, 1); CONTIG_COUNT];
+        vec[0] = (0, 2);
+        let mut assr = Assembler::from(vec);
+        assert_eq!(assr.remove_front(), Some(2));
+        let mut vec = vec![(1, 1); CONTIG_COUNT];
+        vec[CONTIG_COUNT - 1] = (2, 0);
+        let exp_assr = Assembler::from(vec);
+        assert_eq!(assr, exp_assr);
     }
 
     #[test]
