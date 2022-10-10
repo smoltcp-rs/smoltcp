@@ -192,7 +192,9 @@ pub use self::ipv6hopbyhop::{Header as Ipv6HopByHopHeader, Repr as Ipv6HopByHopR
 pub use self::ipv6fragment::{Header as Ipv6FragmentHeader, Repr as Ipv6FragmentRepr};
 
 #[cfg(feature = "proto-ipv6")]
-pub use self::ipv6routing::{Header as Ipv6RoutingHeader, Repr as Ipv6RoutingRepr};
+pub use self::ipv6routing::{
+    Header as Ipv6RoutingHeader, Repr as Ipv6RoutingRepr, Type as Ipv6RoutingType,
+};
 
 #[cfg(feature = "proto-ipv4")]
 pub use self::icmpv4::{
