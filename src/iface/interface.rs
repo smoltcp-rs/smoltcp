@@ -1696,12 +1696,16 @@ impl<'a> InterfaceInner<'a> {
             EthernetProtocol::Ipv4 => {
                 let ipv4_packet = check!(Ipv4Packet::new_checked(eth_frame.payload()));
 
-                cfg_if::cfg_if! {
-                if #[cfg(feature = "proto-ipv4-fragmentation")] {
+                #[cfg(feature = "proto-ipv4-fragmentation")]
+                {
                     self.process_ipv4(sockets, &ipv4_packet, Some(&mut _fragments.ipv4_fragments))
-                    .map(EthernetPacket::Ip) } else {
-                    self.process_ipv4(sockets, &ipv4_packet, None).map(EthernetPacket::Ip)
+                        .map(EthernetPacket::Ip)
                 }
+
+                #[cfg(not(feature = "proto-ipv4-fragmentation"))]
+                {
+                    self.process_ipv4(sockets, &ipv4_packet, None)
+                        .map(EthernetPacket::Ip)
                 }
             }
             #[cfg(feature = "proto-ipv6")]
@@ -1726,13 +1730,15 @@ impl<'a> InterfaceInner<'a> {
             #[cfg(feature = "proto-ipv4")]
             Ok(IpVersion::Ipv4) => {
                 let ipv4_packet = check!(Ipv4Packet::new_checked(ip_payload));
-                cfg_if::cfg_if! {
-                    if #[cfg(feature = "proto-ipv4-fragmentation")] {
-                        self.process_ipv4(sockets, &ipv4_packet, Some(&mut _fragments.ipv4_fragments))
-                    } else {
-                        self.process_ipv4(sockets, &ipv4_packet, None)
 
-                    }
+                #[cfg(feature = "proto-ipv4-fragmentation")]
+                {
+                    self.process_ipv4(sockets, &ipv4_packet, Some(&mut _fragments.ipv4_fragments))
+                }
+
+                #[cfg(not(feature = "proto-ipv4-fragmentation"))]
+                {
+                    self.process_ipv4(sockets, &ipv4_packet, None)
                 }
             }
             #[cfg(feature = "proto-ipv6")]
@@ -1775,12 +1781,22 @@ impl<'a> InterfaceInner<'a> {
 
         match ieee802154_frame.payload() {
             Some(payload) => {
-                cfg_if::cfg_if! {
-                    if #[cfg(feature = "proto-sixlowpan-fragmentation")] {
-                        self.process_sixlowpan(sockets, &ieee802154_repr, payload, Some((&mut _fragments.sixlowpan_fragments, _fragments.sixlowpan_fragments_cache_timeout)))
-                    } else {
-                        self.process_sixlowpan(sockets, &ieee802154_repr, payload, None)
-                    }
+                #[cfg(feature = "proto-sixlowpan-fragmentation")]
+                {
+                    self.process_sixlowpan(
+                        sockets,
+                        &ieee802154_repr,
+                        payload,
+                        Some((
+                            &mut _fragments.sixlowpan_fragments,
+                            _fragments.sixlowpan_fragments_cache_timeout,
+                        )),
+                    )
+                }
+
+                #[cfg(not(feature = "proto-sixlowpan-fragmentation"))]
+                {
+                    self.process_sixlowpan(sockets, &ieee802154_repr, payload, None)
                 }
             }
             None => None,
@@ -1806,105 +1822,9 @@ impl<'a> InterfaceInner<'a> {
             }
             #[cfg(feature = "proto-sixlowpan-fragmentation")]
             SixlowpanPacket::FragmentHeader => {
-                let (fragments, timeout) = _fragments.unwrap();
-
-                // We have a fragment header, which means we cannot process the 6LoWPAN packet,
-                // unless we have a complete one after processing this fragment.
-                let frag = check!(SixlowpanFragPacket::new_checked(payload));
-
-                // The key specifies to which 6LoWPAN fragment it belongs too.
-                // It is based on the link layer addresses, the tag and the size.
-                let key = frag.get_key(ieee802154_repr);
-
-                // The offset of this fragment in increments of 8 octets.
-                let offset = frag.datagram_offset() as usize * 8;
-
-                if frag.is_first_fragment() {
-                    // The first fragment contains the total size of the IPv6 packet.
-                    // However, we received a packet that is compressed following the 6LoWPAN
-                    // standard. This means we need to convert the IPv6 packet size to a 6LoWPAN
-                    // packet size. The packet size can be different because of first the
-                    // compression of the IP header and when UDP is used (because the UDP header
-                    // can also be compressed). Other headers are not compressed by 6LoWPAN.
-
-                    let iphc = check!(SixlowpanIphcPacket::new_checked(frag.payload()));
-                    let iphc_repr = check!(SixlowpanIphcRepr::parse(
-                        &iphc,
-                        ieee802154_repr.src_addr,
-                        ieee802154_repr.dst_addr,
-                        self.sixlowpan_address_context
-                    ));
-
-                    // The uncompressed header size always starts with 40, since this is the size
-                    // of a IPv6 header.
-                    let mut uncompressed_header_size = 40;
-                    let mut compressed_header_size = iphc.header_len();
-
-                    // We need to check if we have an UDP packet, since this header can also be
-                    // compressed by 6LoWPAN. We currently don't support extension headers yet.
-                    match iphc_repr.next_header {
-                        SixlowpanNextHeader::Compressed => {
-                            match check!(SixlowpanNhcPacket::dispatch(iphc.payload())) {
-                                SixlowpanNhcPacket::ExtHeader => {
-                                    net_debug!("6LoWPAN: extension headers not supported");
-                                    return None;
-                                }
-                                SixlowpanNhcPacket::UdpHeader => {
-                                    let udp_packet =
-                                        check!(SixlowpanUdpNhcPacket::new_checked(iphc.payload()));
-
-                                    uncompressed_header_size += 8;
-                                    compressed_header_size +=
-                                        1 + udp_packet.ports_size() + udp_packet.checksum_size();
-                                }
-                            }
-                        }
-                        SixlowpanNextHeader::Uncompressed(_) => (),
-                    }
-
-                    // We reserve a spot in the packet assembler set and add the required
-                    // information to the packet assembler.
-                    // This information is the total size of the packet when it is fully assmbled.
-                    // We also pass the header size, since this is needed when other fragments
-                    // (other than the first one) are added.
-                    let frag_slot = match fragments.reserve_with_key(&key) {
-                        Ok(frag) => frag,
-                        Err(Error::PacketAssemblerSetFull) => {
-                            net_debug!("No available packet assembler for fragmented packet");
-                            return Default::default();
-                        }
-                        e => check!(e),
-                    };
-
-                    check!(frag_slot.start(
-                        Some(
-                            frag.datagram_size() as usize - uncompressed_header_size
-                                + compressed_header_size
-                        ),
-                        self.now + timeout,
-                        -((uncompressed_header_size - compressed_header_size) as isize),
-                    ));
-                }
-
-                let frags = check!(fragments.get_packet_assembler_mut(&key));
-
-                net_trace!("6LoWPAN: received packet fragment");
-
-                // Add the fragment to the packet assembler.
-                match frags.add(frag.payload(), offset) {
-                    Ok(true) => {
-                        net_trace!("6LoWPAN: fragmented packet now complete");
-                        check!(fragments.get_assembled_packet(&key))
-                    }
-                    Ok(false) => {
-                        return None;
-                    }
-                    Err(Error::PacketAssemblerOverlap) => {
-                        net_trace!("6LoWPAN: overlap in packet");
-                        frags.mark_discarded();
-                        return None;
-                    }
-                    Err(_) => return None,
+                match self.process_sixlowpan_fragment(ieee802154_repr, payload, _fragments) {
+                    Some(payload) => payload,
+                    None => return None,
                 }
             }
             SixlowpanPacket::IphcHeader => payload.as_ref(),
@@ -1950,59 +1870,17 @@ impl<'a> InterfaceInner<'a> {
                         let udp_repr = check!(SixlowpanUdpNhcRepr::parse(
                             &udp_packet,
                             &iphc_repr.src_addr,
-                            &iphc_repr.dst_addr,
+                            &iphc_repr.dst_addr
                         ));
 
-                        // Look for UDP sockets that will accept the UDP packet.
-                        // If it does not accept the packet, then send an ICMP message.
-                        //
-                        // NOTE(thvdveld): this is currently the same code as in self.process_udp.
-                        // However, we cannot use that one because the payload passed to it is a
-                        // normal IPv6 UDP payload, which is not what we have here.
-                        for udp_socket in sockets
-                            .items_mut()
-                            .filter_map(|i| udp::Socket::downcast_mut(&mut i.socket))
-                        {
-                            if udp_socket.accepts(self, &IpRepr::Ipv6(ipv6_repr), &udp_repr) {
-                                udp_socket.process(
-                                    self,
-                                    &IpRepr::Ipv6(ipv6_repr),
-                                    &udp_repr,
-                                    udp_packet.payload(),
-                                );
-                                return None;
-                            }
-                        }
-
-                        #[cfg(feature = "socket-dns")]
-                        for dns_socket in sockets
-                            .items_mut()
-                            .filter_map(|i| dns::Socket::downcast_mut(&mut i.socket))
-                        {
-                            if dns_socket.accepts(&IpRepr::Ipv6(ipv6_repr), &udp_repr) {
-                                dns_socket.process(
-                                    self,
-                                    &IpRepr::Ipv6(ipv6_repr),
-                                    &udp_repr,
-                                    udp_packet.payload(),
-                                );
-                                return None;
-                            }
-                        }
-
-                        // When we are here then then there was no UDP socket that accepted the UDP
-                        // message.
-                        let payload_len = icmp_reply_payload_len(
-                            payload.len(),
-                            IPV6_MIN_MTU,
-                            ipv6_repr.buffer_len(),
-                        );
-                        let icmpv6_reply_repr = Icmpv6Repr::DstUnreachable {
-                            reason: Icmpv6DstUnreachable::PortUnreachable,
-                            header: ipv6_repr,
-                            data: &payload[0..payload_len],
-                        };
-                        self.icmpv6_reply(ipv6_repr, icmpv6_reply_repr)
+                        self.process_udp(
+                            sockets,
+                            IpRepr::Ipv6(ipv6_repr),
+                            udp_repr.0,
+                            false,
+                            udp_packet.payload(),
+                            payload,
+                        )
                     }
                 }
             }
@@ -2022,6 +1900,119 @@ impl<'a> InterfaceInner<'a> {
                     None
                 }
             },
+        }
+    }
+
+    #[cfg(feature = "proto-sixlowpan-fragmentation")]
+    fn process_sixlowpan_fragment<'output, 'payload: 'output, T: AsRef<[u8]> + ?Sized>(
+        &mut self,
+        ieee802154_repr: &Ieee802154Repr,
+        payload: &'payload T,
+        fragments: Option<(
+            &'output mut PacketAssemblerSet<'a, SixlowpanFragKey>,
+            Duration,
+        )>,
+    ) -> Option<&'output [u8]> {
+        let (fragments, timeout) = fragments.unwrap();
+
+        // We have a fragment header, which means we cannot process the 6LoWPAN packet,
+        // unless we have a complete one after processing this fragment.
+        let frag = check!(SixlowpanFragPacket::new_checked(payload));
+
+        // The key specifies to which 6LoWPAN fragment it belongs too.
+        // It is based on the link layer addresses, the tag and the size.
+        let key = frag.get_key(ieee802154_repr);
+
+        // The offset of this fragment in increments of 8 octets.
+        let offset = frag.datagram_offset() as usize * 8;
+
+        if frag.is_first_fragment() {
+            // The first fragment contains the total size of the IPv6 packet.
+            // However, we received a packet that is compressed following the 6LoWPAN
+            // standard. This means we need to convert the IPv6 packet size to a 6LoWPAN
+            // packet size. The packet size can be different because of first the
+            // compression of the IP header and when UDP is used (because the UDP header
+            // can also be compressed). Other headers are not compressed by 6LoWPAN.
+
+            let iphc = check!(SixlowpanIphcPacket::new_checked(frag.payload()));
+            let iphc_repr = check!(SixlowpanIphcRepr::parse(
+                &iphc,
+                ieee802154_repr.src_addr,
+                ieee802154_repr.dst_addr,
+                self.sixlowpan_address_context,
+            ));
+
+            // The uncompressed header size always starts with 40, since this is the size
+            // of a IPv6 header.
+            let mut uncompressed_header_size = 40;
+            let mut compressed_header_size = iphc.header_len();
+
+            // We need to check if we have an UDP packet, since this header can also be
+            // compressed by 6LoWPAN. We currently don't support extension headers yet.
+            match iphc_repr.next_header {
+                SixlowpanNextHeader::Compressed => {
+                    match check!(SixlowpanNhcPacket::dispatch(iphc.payload())) {
+                        SixlowpanNhcPacket::ExtHeader => {
+                            net_debug!("6LoWPAN: extension headers not supported");
+                            return None;
+                        }
+                        SixlowpanNhcPacket::UdpHeader => {
+                            let udp_packet =
+                                check!(SixlowpanUdpNhcPacket::new_checked(iphc.payload()));
+
+                            uncompressed_header_size += 8;
+                            compressed_header_size +=
+                                1 + udp_packet.ports_size() + udp_packet.checksum_size();
+                        }
+                    }
+                }
+                SixlowpanNextHeader::Uncompressed(_) => (),
+            }
+
+            // We reserve a spot in the packet assembler set and add the required
+            // information to the packet assembler.
+            // This information is the total size of the packet when it is fully assmbled.
+            // We also pass the header size, since this is needed when other fragments
+            // (other than the first one) are added.
+            let frag_slot = match fragments.reserve_with_key(&key) {
+                Ok(frag) => frag,
+                Err(Error::PacketAssemblerSetFull) => {
+                    net_debug!("No available packet assembler for fragmented packet");
+                    return Default::default();
+                }
+                e => check!(e),
+            };
+
+            check!(frag_slot.start(
+                Some(
+                    frag.datagram_size() as usize - uncompressed_header_size
+                        + compressed_header_size
+                ),
+                self.now + timeout,
+                -((uncompressed_header_size - compressed_header_size) as isize),
+            ));
+        }
+
+        let frags = check!(fragments.get_packet_assembler_mut(&key));
+
+        net_trace!("6LoWPAN: received packet fragment");
+
+        // Add the fragment to the packet assembler.
+        match frags.add(frag.payload(), offset) {
+            Ok(true) => {
+                net_trace!("6LoWPAN: fragmented packet now complete");
+                match fragments.get_assembled_packet(&key) {
+                    Ok(packet) => Some(packet),
+                    _ => unreachable!(),
+                }
+            }
+            Ok(false) => None,
+            Err(Error::PacketAssemblerOverlap) => {
+                net_trace!("6LoWPAN: overlap in packet");
+                frags.mark_discarded();
+                None
+            }
+            Err(_) => None,
         }
     }
 
@@ -2162,7 +2153,22 @@ impl<'a> InterfaceInner<'a> {
 
             #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
             IpProtocol::Udp => {
-                self.process_udp(sockets, ipv6_repr.into(), handled_by_raw_socket, ip_payload)
+                let udp_packet = check!(UdpPacket::new_checked(ip_payload));
+                let udp_repr = check!(UdpRepr::parse(
+                    &udp_packet,
+                    &ipv6_repr.src_addr.into(),
+                    &ipv6_repr.dst_addr.into(),
+                    &self.checksum_caps(),
+                ));
+
+                self.process_udp(
+                    sockets,
+                    ipv6_repr.into(),
+                    udp_repr,
+                    handled_by_raw_socket,
+                    udp_packet.payload(),
+                    ip_payload,
+                )
             }
 
             #[cfg(feature = "socket-tcp")]
@@ -2331,7 +2337,22 @@ impl<'a> InterfaceInner<'a> {
 
             #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
             IpProtocol::Udp => {
-                self.process_udp(sockets, ip_repr, handled_by_raw_socket, ip_payload)
+                let udp_packet = check!(UdpPacket::new_checked(ip_payload));
+                let udp_repr = check!(UdpRepr::parse(
+                    &udp_packet,
+                    &ipv4_repr.src_addr.into(),
+                    &ipv4_repr.dst_addr.into(),
+                    &self.checksum_caps(),
+                ));
+
+                self.process_udp(
+                    sockets,
+                    ip_repr,
+                    udp_repr,
+                    handled_by_raw_socket,
+                    udp_packet.payload(),
+                    ip_payload,
+                )
             }
 
             #[cfg(feature = "socket-tcp")]
@@ -2754,19 +2775,11 @@ impl<'a> InterfaceInner<'a> {
         &mut self,
         sockets: &mut SocketSet,
         ip_repr: IpRepr,
+        udp_repr: UdpRepr,
         handled_by_raw_socket: bool,
+        udp_payload: &'frame [u8],
         ip_payload: &'frame [u8],
     ) -> Option<IpPacket<'frame>> {
-        let (src_addr, dst_addr) = (ip_repr.src_addr(), ip_repr.dst_addr());
-        let udp_packet = check!(UdpPacket::new_checked(ip_payload));
-        let udp_repr = check!(UdpRepr::parse(
-            &udp_packet,
-            &src_addr,
-            &dst_addr,
-            &self.caps.checksum
-        ));
-        let udp_payload = udp_packet.payload();
-
         #[cfg(feature = "socket-udp")]
         for udp_socket in sockets
             .items_mut()
@@ -3189,80 +3202,82 @@ impl<'a> InterfaceInner<'a> {
             IpRepr::Ipv4(ref mut repr) => {
                 // If we have an IPv4 packet, then we need to check if we need to fragment it.
                 if total_ip_len > self.caps.max_transmission_unit {
-                    cfg_if::cfg_if! {
-                        if #[cfg(feature = "proto-ipv4-fragmentation")] {
-                            net_debug!("start fragmentation");
+                    #[cfg(feature = "proto-ipv4-fragmentation")]
+                    {
+                        net_debug!("start fragmentation");
 
-                            let Ipv4OutPacket {
-                                buffer,
-                                packet_len,
-                                sent_bytes,
-                                repr: out_packet_repr,
-                                frag_offset,
-                                ident,
-                                dst_hardware_addr: dst_address,
-                            } = &mut _out_packet.unwrap().ipv4_out_packet;
+                        let Ipv4OutPacket {
+                            buffer,
+                            packet_len,
+                            sent_bytes,
+                            repr: out_packet_repr,
+                            frag_offset,
+                            ident,
+                            dst_hardware_addr: dst_address,
+                        } = &mut _out_packet.unwrap().ipv4_out_packet;
 
-                            // Calculate how much we will send now (including the Ethernet header).
-                            let tx_len = self.caps.max_transmission_unit;
+                        // Calculate how much we will send now (including the Ethernet header).
+                        let tx_len = self.caps.max_transmission_unit;
 
-                            let ip_header_len = repr.buffer_len();
-                            let first_frag_ip_len = self.caps.ip_mtu();
+                        let ip_header_len = repr.buffer_len();
+                        let first_frag_ip_len = self.caps.ip_mtu();
 
-                            if buffer.len() < first_frag_ip_len {
-                                net_debug!("Fragmentation buffer is too small");
-                                return Err(Error::Exhausted);
-                            }
-
-                            *dst_address = dst_hardware_addr;
-
-                            // Save the total packet len (without the Ethernet header, but with the first
-                            // IP header).
-                            *packet_len = total_ip_len;
-
-                            // Save the IP header for other fragments.
-                            *out_packet_repr = *repr;
-
-                            // Save how much bytes we will send now.
-                            *sent_bytes = first_frag_ip_len;
-
-                            // Modify the IP header
-                            repr.payload_len = first_frag_ip_len - repr.buffer_len();
-
-                            // Emit the IP header to the buffer.
-                            emit_ip(&ip_repr, buffer);
-                            let mut ipv4_packet = Ipv4Packet::new_unchecked(&mut buffer[..]);
-                            *ident = ipv4_id;
-                            ipv4_packet.set_ident(ipv4_id);
-                            ipv4_packet.set_more_frags(true);
-                            ipv4_packet.set_dont_frag(false);
-                            ipv4_packet.set_frag_offset(0);
-
-                            if caps.checksum.ipv4.tx() {
-                                ipv4_packet.fill_checksum();
-                            }
-
-                            // Transmit the first packet.
-                            tx_token.consume(self.now, tx_len, |mut tx_buffer| {
-                                #[cfg(feature = "medium-ethernet")]
-                                if matches!(self.caps.medium, Medium::Ethernet) {
-                                    emit_ethernet(&ip_repr, tx_buffer)?;
-                                    tx_buffer = &mut tx_buffer[EthernetFrame::<&[u8]>::header_len()..];
-                                }
-
-                                // Change the offset for the next packet.
-                                *frag_offset = (first_frag_ip_len - ip_header_len) as u16;
-
-                                // Copy the IP header and the payload.
-                                tx_buffer[..first_frag_ip_len]
-                                    .copy_from_slice(&buffer[..first_frag_ip_len]);
-
-                                Ok(())
-                            })
-                        } else {
-                            net_debug!("Enable the `proto-ipv4-fragmentation` feature for fragmentation support.");
-                            Ok(())
+                        if buffer.len() < first_frag_ip_len {
+                            net_debug!("Fragmentation buffer is too small");
+                            return Err(Error::Exhausted);
                         }
+
+                        *dst_address = dst_hardware_addr;
+
+                        // Save the total packet len (without the Ethernet header, but with the first
+                        // IP header).
+                        *packet_len = total_ip_len;
+
+                        // Save the IP header for other fragments.
+                        *out_packet_repr = *repr;
+
+                        // Save how much bytes we will send now.
+                        *sent_bytes = first_frag_ip_len;
+
+                        // Modify the IP header
+                        repr.payload_len = first_frag_ip_len - repr.buffer_len();
+
+                        // Emit the IP header to the buffer.
+                        emit_ip(&ip_repr, buffer);
+                        let mut ipv4_packet = Ipv4Packet::new_unchecked(&mut buffer[..]);
+                        *ident = ipv4_id;
+                        ipv4_packet.set_ident(ipv4_id);
+                        ipv4_packet.set_more_frags(true);
+                        ipv4_packet.set_dont_frag(false);
+                        ipv4_packet.set_frag_offset(0);
+
+                        if caps.checksum.ipv4.tx() {
+                            ipv4_packet.fill_checksum();
+                        }
+
+                        // Transmit the first packet.
+                        tx_token.consume(self.now, tx_len, |mut tx_buffer| {
+                            #[cfg(feature = "medium-ethernet")]
+                            if matches!(self.caps.medium, Medium::Ethernet) {
+                                emit_ethernet(&ip_repr, tx_buffer)?;
+                                tx_buffer = &mut tx_buffer[EthernetFrame::<&[u8]>::header_len()..];
+                            }
+
+                            // Change the offset for the next packet.
+                            *frag_offset = (first_frag_ip_len - ip_header_len) as u16;
+
+                            // Copy the IP header and the payload.
+                            tx_buffer[..first_frag_ip_len]
+                                .copy_from_slice(&buffer[..first_frag_ip_len]);
+
+                            Ok(())
+                        })
+                    }
+
+                    #[cfg(not(feature = "proto-ipv4-fragmentation"))]
+                    {
+                        net_debug!("Enable the `proto-ipv4-fragmentation` feature for fragmentation support.");
+                        Ok(())
                     }
                 } else {
                     // No fragmentation is required.
@@ -3385,145 +3400,151 @@ impl<'a> InterfaceInner<'a> {
         let ieee_len = ieee_repr.buffer_len();
 
         if total_size + ieee_len > 125 {
-            cfg_if::cfg_if! {
-                if #[cfg(feature = "proto-sixlowpan-fragmentation")] {
-                    // The packet does not fit in one Ieee802154 frame, so we need fragmentation.
-                    // We do this by emitting everything in the `out_packet.buffer` from the interface.
-                    // After emitting everything into that buffer, we send the first fragment heere.
-                    // When `poll` is called again, we check if out_packet was fully sent, otherwise we
-                    // call `dispatch_ieee802154_out_packet`, which will transmit the other fragments.
+            #[cfg(feature = "proto-sixlowpan-fragmentation")]
+            {
+                // The packet does not fit in one Ieee802154 frame, so we need fragmentation.
+                // We do this by emitting everything in the `out_packet.buffer` from the interface.
+                // After emitting everything into that buffer, we send the first fragment heere.
+                // When `poll` is called again, we check if out_packet was fully sent, otherwise we
+                // call `dispatch_ieee802154_out_packet`, which will transmit the other fragments.
 
-                    // `dispatch_ieee802154_out_packet` requires some information about the total packet size,
-                    // the link local source and destination address...
-                    let SixlowpanOutPacket {
-                        buffer,
-                        packet_len,
-                        datagram_size,
-                        datagram_tag,
-                        sent_bytes,
-                        fragn_size,
-                        ll_dst_addr,
-                        ll_src_addr,
-                        datagram_offset,
-                        ..
-                    } = &mut _out_packet.unwrap().sixlowpan_out_packet;
+                // `dispatch_ieee802154_out_packet` requires some information about the total packet size,
+                // the link local source and destination address...
+                let SixlowpanOutPacket {
+                    buffer,
+                    packet_len,
+                    datagram_size,
+                    datagram_tag,
+                    sent_bytes,
+                    fragn_size,
+                    ll_dst_addr,
+                    ll_src_addr,
+                    datagram_offset,
+                    ..
+                } = &mut _out_packet.unwrap().sixlowpan_out_packet;
 
-                    if buffer.len() < total_size {
-                        net_debug!("6LoWPAN: Fragmentation buffer is too small");
-                        return Err(Error::Exhausted);
-                    }
-
-                    *ll_dst_addr = ll_dst_a;
-                    *ll_src_addr = ll_src_a;
-
-                    let mut iphc_packet =
-                        SixlowpanIphcPacket::new_unchecked(&mut buffer[..iphc_repr.buffer_len()]);
-                    iphc_repr.emit(&mut iphc_packet);
-
-                    let b = &mut buffer[iphc_repr.buffer_len()..];
-
-                    #[allow(unreachable_patterns)]
-                    match packet {
-                        #[cfg(feature = "socket-udp")]
-                        IpPacket::Udp((_, udpv6_repr, payload)) => {
-                            let udp_repr = SixlowpanUdpNhcRepr(udpv6_repr);
-                            let mut udp_packet = SixlowpanUdpNhcPacket::new_unchecked(
-                                &mut b[..udp_repr.header_len() + payload.len()],
-                            );
-                            udp_repr.emit(
-                                &mut udp_packet,
-                                &iphc_repr.src_addr,
-                                &iphc_repr.dst_addr,
-                                payload.len(),
-                                |buf| buf.copy_from_slice(payload),
-                            );
-                        }
-                        #[cfg(feature = "socket-tcp")]
-                        IpPacket::Tcp((_, tcp_repr)) => {
-                            let mut tcp_packet = TcpPacket::new_unchecked(&mut b[..tcp_repr.buffer_len()]);
-                            tcp_repr.emit(
-                                &mut tcp_packet,
-                                &iphc_repr.src_addr.into(),
-                                &iphc_repr.dst_addr.into(),
-                                &self.caps.checksum,
-                            );
-                        }
-                        #[cfg(feature = "proto-ipv6")]
-                        IpPacket::Icmpv6((_, icmp_repr)) => {
-                            let mut icmp_packet =
-                                Icmpv6Packet::new_unchecked(&mut b[..icmp_repr.buffer_len()]);
-                            icmp_repr.emit(
-                                &iphc_repr.src_addr.into(),
-                                &iphc_repr.dst_addr.into(),
-                                &mut icmp_packet,
-                                &self.caps.checksum,
-                            );
-                        }
-                        _ => return Err(Error::Unrecognized),
-                    }
-
-                    *packet_len = total_size;
-
-                    // The datagram size that we need to set in the first fragment header is equal to the
-                    // IPv6 payload length + 40.
-                    *datagram_size = (packet.ip_repr().payload_len() + 40) as u16;
-
-                    // We generate a random tag.
-                    let tag = self.get_sixlowpan_fragment_tag();
-                    // We save the tag for the other fragments that will be created when calling `poll`
-                    // multiple times.
-                    *datagram_tag = tag;
-
-                    let frag1 = SixlowpanFragRepr::FirstFragment {
-                        size: *datagram_size,
-                        tag,
-                    };
-                    let fragn = SixlowpanFragRepr::Fragment {
-                        size: *datagram_size,
-                        tag,
-                        offset: 0,
-                    };
-
-                    // We calculate how much data we can send in the first fragment and the other
-                    // fragments. The eventual IPv6 sizes of these fragments need to be a multiple of eight
-                    // (except for the last fragment) since the offset field in the fragment is an offset
-                    // in multiples of 8 octets. This is explained in [RFC 4944 § 5.3].
-                    //
-                    // [RFC 4944 § 5.3]: https://datatracker.ietf.org/doc/html/rfc4944#section-5.3
-
-                    let header_diff = _uncompressed_headers_len - _compressed_headers_len;
-                    let frag1_size =
-                        (125 - ieee_len - frag1.buffer_len() + header_diff) / 8 * 8 - (header_diff);
-
-                    *fragn_size = (125 - ieee_len - fragn.buffer_len()) / 8 * 8;
-
-                    *sent_bytes = frag1_size;
-                    *datagram_offset = frag1_size + header_diff;
-
-                    tx_token.consume(
-                        self.now,
-                        ieee_len + frag1.buffer_len() + frag1_size,
-                        |mut tx_buf| {
-                            // Add the IEEE header.
-                            let mut ieee_packet = Ieee802154Frame::new_unchecked(&mut tx_buf[..ieee_len]);
-                            ieee_repr.emit(&mut ieee_packet);
-                            tx_buf = &mut tx_buf[ieee_len..];
-
-                            // Add the first fragment header
-                            let mut frag1_packet = SixlowpanFragPacket::new_unchecked(&mut tx_buf);
-                            frag1.emit(&mut frag1_packet);
-                            tx_buf = &mut tx_buf[frag1.buffer_len()..];
-
-                            // Add the buffer part.
-                            tx_buf[..frag1_size].copy_from_slice(&buffer[..frag1_size]);
-
-                            Ok(())
-                        },
-                    )
-                } else {
-                    net_debug!("Enable the `proto-sixlowpan-fragmentation` feature for fragmentation support.");
-                    Ok(())
+                if buffer.len() < total_size {
+                    net_debug!("6LoWPAN: Fragmentation buffer is too small");
+                    return Err(Error::Exhausted);
                 }
+
+                *ll_dst_addr = ll_dst_a;
+                *ll_src_addr = ll_src_a;
+
+                let mut iphc_packet =
+                    SixlowpanIphcPacket::new_unchecked(&mut buffer[..iphc_repr.buffer_len()]);
+                iphc_repr.emit(&mut iphc_packet);
+
+                let b = &mut buffer[iphc_repr.buffer_len()..];
+
+                #[allow(unreachable_patterns)]
+                match packet {
+                    #[cfg(feature = "socket-udp")]
+                    IpPacket::Udp((_, udpv6_repr, payload)) => {
+                        let udp_repr = SixlowpanUdpNhcRepr(udpv6_repr);
+                        let mut udp_packet = SixlowpanUdpNhcPacket::new_unchecked(
+                            &mut b[..udp_repr.header_len() + payload.len()],
+                        );
+                        udp_repr.emit(
+                            &mut udp_packet,
+                            &iphc_repr.src_addr,
+                            &iphc_repr.dst_addr,
+                            payload.len(),
+                            |buf| buf.copy_from_slice(payload),
+                        );
+                    }
+                    #[cfg(feature = "socket-tcp")]
+                    IpPacket::Tcp((_, tcp_repr)) => {
+                        let mut tcp_packet =
+                            TcpPacket::new_unchecked(&mut b[..tcp_repr.buffer_len()]);
+                        tcp_repr.emit(
+                            &mut tcp_packet,
+                            &iphc_repr.src_addr.into(),
+                            &iphc_repr.dst_addr.into(),
+                            &self.caps.checksum,
+                        );
+                    }
+                    #[cfg(feature = "proto-ipv6")]
+                    IpPacket::Icmpv6((_, icmp_repr)) => {
+                        let mut icmp_packet =
+                            Icmpv6Packet::new_unchecked(&mut b[..icmp_repr.buffer_len()]);
+                        icmp_repr.emit(
+                            &iphc_repr.src_addr.into(),
+                            &iphc_repr.dst_addr.into(),
+                            &mut icmp_packet,
+                            &self.caps.checksum,
+                        );
+                    }
+                    _ => return Err(Error::Unrecognized),
+                }
+
+                *packet_len = total_size;
+
+                // The datagram size that we need to set in the first fragment header is equal to the
+                // IPv6 payload length + 40.
+                *datagram_size = (packet.ip_repr().payload_len() + 40) as u16;
+
+                // We generate a random tag.
+                let tag = self.get_sixlowpan_fragment_tag();
+                // We save the tag for the other fragments that will be created when calling `poll`
+                // multiple times.
+                *datagram_tag = tag;
+
+                let frag1 = SixlowpanFragRepr::FirstFragment {
+                    size: *datagram_size,
+                    tag,
+                };
+                let fragn = SixlowpanFragRepr::Fragment {
+                    size: *datagram_size,
+                    tag,
+                    offset: 0,
+                };
+
+                // We calculate how much data we can send in the first fragment and the other
+                // fragments. The eventual IPv6 sizes of these fragments need to be a multiple of eight
+                // (except for the last fragment) since the offset field in the fragment is an offset
+                // in multiples of 8 octets. This is explained in [RFC 4944 § 5.3].
+                //
+                // [RFC 4944 § 5.3]: https://datatracker.ietf.org/doc/html/rfc4944#section-5.3
+
+                let header_diff = _uncompressed_headers_len - _compressed_headers_len;
+                let frag1_size =
+                    (125 - ieee_len - frag1.buffer_len() + header_diff) / 8 * 8 - (header_diff);
+
+                *fragn_size = (125 - ieee_len - fragn.buffer_len()) / 8 * 8;
+
+                *sent_bytes = frag1_size;
+                *datagram_offset = frag1_size + header_diff;
+
+                tx_token.consume(
+                    self.now,
+                    ieee_len + frag1.buffer_len() + frag1_size,
+                    |mut tx_buf| {
+                        // Add the IEEE header.
+                        let mut ieee_packet =
+                            Ieee802154Frame::new_unchecked(&mut tx_buf[..ieee_len]);
+                        ieee_repr.emit(&mut ieee_packet);
+                        tx_buf = &mut tx_buf[ieee_len..];
+
+                        // Add the first fragment header
+                        let mut frag1_packet = SixlowpanFragPacket::new_unchecked(&mut tx_buf);
+                        frag1.emit(&mut frag1_packet);
+                        tx_buf = &mut tx_buf[frag1.buffer_len()..];
+
+                        // Add the buffer part.
+                        tx_buf[..frag1_size].copy_from_slice(&buffer[..frag1_size]);
+
+                        Ok(())
+                    },
+                )
+            }
+
+            #[cfg(not(feature = "proto-sixlowpan-fragmentation"))]
+            {
+                net_debug!(
+                    "Enable the `proto-sixlowpan-fragmentation` feature for fragmentation support."
+                );
+                Ok(())
             }
         } else {
             // We don't need fragmentation, so we emit everything to the TX token.
@@ -4159,7 +4180,9 @@ mod test {
         // Ensure that the unknown protocol triggers an error response.
         // And we correctly handle no payload.
         assert_eq!(
-            iface.inner.process_udp(&mut sockets, ip_repr, false, data),
+            iface
+                .inner
+                .process_udp(&mut sockets, ip_repr, udp_repr, false, &UDP_PAYLOAD, data),
             Some(expected_repr)
         );
 
@@ -4185,9 +4208,14 @@ mod test {
         // ICMP error response when the destination address is a
         // broadcast address and no socket is bound to the port.
         assert_eq!(
-            iface
-                .inner
-                .process_udp(&mut sockets, ip_repr, false, packet_broadcast.into_inner()),
+            iface.inner.process_udp(
+                &mut sockets,
+                ip_repr,
+                udp_repr,
+                false,
+                &UDP_PAYLOAD,
+                packet_broadcast.into_inner(),
+            ),
             None
         );
     }
@@ -4255,9 +4283,14 @@ mod test {
 
         // Packet should be handled by bound UDP socket
         assert_eq!(
-            iface
-                .inner
-                .process_udp(&mut sockets, ip_repr, false, packet.into_inner()),
+            iface.inner.process_udp(
+                &mut sockets,
+                ip_repr,
+                udp_repr,
+                false,
+                &UDP_PAYLOAD,
+                packet.into_inner(),
+            ),
             None
         );
 
@@ -4449,16 +4482,26 @@ mod test {
         // The expected packet and the generated packet are equal
         #[cfg(all(feature = "proto-ipv4", not(feature = "proto-ipv6")))]
         assert_eq!(
-            iface
-                .inner
-                .process_udp(&mut sockets, ip_repr.into(), false, payload),
+            iface.inner.process_udp(
+                &mut sockets,
+                ip_repr.into(),
+                udp_repr,
+                false,
+                &vec![0x2a; MAX_PAYLOAD_LEN],
+                payload,
+            ),
             Some(IpPacket::Icmpv4((expected_ip_repr, expected_icmp_repr)))
         );
         #[cfg(feature = "proto-ipv6")]
         assert_eq!(
-            iface
-                .inner
-                .process_udp(&mut sockets, ip_repr.into(), false, payload),
+            iface.inner.process_udp(
+                &mut sockets,
+                ip_repr.into(),
+                udp_repr,
+                false,
+                &vec![0x2a; MAX_PAYLOAD_LEN],
+                payload,
+            ),
             Some(IpPacket::Icmpv6((expected_ip_repr, expected_icmp_repr)))
         );
     }
