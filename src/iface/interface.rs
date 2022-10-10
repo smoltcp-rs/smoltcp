@@ -247,6 +247,8 @@ pub struct InterfaceInner<'a> {
     pan_id: Option<Ieee802154Pan>,
     #[cfg(feature = "proto-ipv4-fragmentation")]
     ipv4_id: u16,
+    #[cfg(feature = "proto-sixlowpan")]
+    sixlowpan_address_context: &'a [SixlowpanAddressContext<'a>],
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
     tag: u16,
     ip_addrs: ManagedSlice<'a, IpCidr>,
@@ -289,6 +291,9 @@ pub struct InterfaceBuilder<'a> {
     sixlowpan_reassembly_buffer_timeout: Duration,
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
     sixlowpan_out_buffer: ManagedSlice<'a, u8>,
+
+    #[cfg(feature = "proto-sixlowpan")]
+    sixlowpan_address_context: &'a [SixlowpanAddressContext<'a>],
 }
 
 impl<'a> InterfaceBuilder<'a> {
@@ -362,6 +367,9 @@ let iface = builder.finalize(&mut device);
             sixlowpan_reassembly_buffer_timeout: Duration::from_secs(60),
             #[cfg(feature = "proto-sixlowpan-fragmentation")]
             sixlowpan_out_buffer: ManagedSlice::Borrowed(&mut [][..]),
+
+            #[cfg(feature = "proto-sixlowpan")]
+            sixlowpan_address_context: &[],
         }
     }
 
@@ -473,12 +481,14 @@ let iface = builder.finalize(&mut device);
         self
     }
 
+    /// Set the IPv4 reassembly buffer the interface will use.
     #[cfg(feature = "proto-ipv4-fragmentation")]
     pub fn ipv4_reassembly_buffer(mut self, storage: PacketAssemblerSet<'a, Ipv4FragKey>) -> Self {
         self.ipv4_fragments = storage;
         self
     }
 
+    /// Set the IPv4 fragments buffer the interface will use.
     #[cfg(feature = "proto-ipv4-fragmentation")]
     pub fn ipv4_fragmentation_buffer<T>(mut self, storage: T) -> Self
     where
@@ -488,6 +498,17 @@ let iface = builder.finalize(&mut device);
         self
     }
 
+    /// Set the address contexts the interface will use.
+    #[cfg(feature = "proto-sixlowpan")]
+    pub fn sixlowpan_address_context(
+        mut self,
+        sixlowpan_address_context: &'a [SixlowpanAddressContext<'a>],
+    ) -> Self {
+        self.sixlowpan_address_context = sixlowpan_address_context;
+        self
+    }
+
+    /// Set the 6LoWPAN reassembly buffer the interface will use.
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
     pub fn sixlowpan_reassembly_buffer(
         mut self,
@@ -497,6 +518,7 @@ let iface = builder.finalize(&mut device);
         self
     }
 
+    /// Set the timeout value the 6LoWPAN reassembly buffer will use.
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
     pub fn sixlowpan_reassembly_buffer_timeout(mut self, timeout: Duration) -> Self {
         if timeout > Duration::from_secs(60) {
@@ -506,6 +528,7 @@ let iface = builder.finalize(&mut device);
         self
     }
 
+    /// Set the 6LoWPAN fragments buffer the interface will use.
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
     pub fn sixlowpan_fragmentation_buffer<T>(mut self, storage: T) -> Self
     where
@@ -651,6 +674,8 @@ let iface = builder.finalize(&mut device);
                 tag,
                 #[cfg(feature = "proto-ipv4-fragmentation")]
                 ipv4_id,
+                #[cfg(feature = "proto-sixlowpan")]
+                sixlowpan_address_context: &[],
                 rand,
             },
         }
@@ -1534,6 +1559,9 @@ impl<'a> InterfaceInner<'a> {
             #[cfg(feature = "proto-sixlowpan-fragmentation")]
             tag: 1,
 
+            #[cfg(feature = "proto-sixlowpan")]
+            sixlowpan_address_context: &[],
+
             #[cfg(feature = "proto-ipv4-fragmentation")]
             ipv4_id: 1,
 
@@ -1804,6 +1832,7 @@ impl<'a> InterfaceInner<'a> {
                         &iphc,
                         ieee802154_repr.src_addr,
                         ieee802154_repr.dst_addr,
+                        self.sixlowpan_address_context
                     ));
 
                     // The uncompressed header size always starts with 40, since this is the size
@@ -1888,6 +1917,7 @@ impl<'a> InterfaceInner<'a> {
             &iphc_packet,
             ieee802154_repr.src_addr,
             ieee802154_repr.dst_addr,
+            self.sixlowpan_address_context,
         ));
 
         let payload = iphc_packet.payload();
