@@ -1,6 +1,6 @@
 [package]
 name = "smoltcp"
-version = "0.9.0"
+version = "0.8.1"
 edition = "2018"
 rust-version = "1.60"
 authors = ["whitequark <whitequark@whitequark.org>"]
