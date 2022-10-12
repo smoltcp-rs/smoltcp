@@ -75,7 +75,7 @@ mod field {
     // Minimum length of an option.
     pub const MIN_OPT_LEN: usize = 8;
     // Variable-length field. Option-Type-specific data.
-    pub fn DATA(length: u8) -> Field {
+    pub const fn DATA(length: u8) -> Field {
         2..length as usize * 8
     }
 
@@ -145,7 +145,7 @@ mod field {
 /// Core getter methods relevant to any type of NDISC option.
 impl<T: AsRef<[u8]>> NdiscOption<T> {
     /// Create a raw octet buffer with an NDISC Option structure.
-    pub fn new_unchecked(buffer: T) -> NdiscOption<T> {
+    pub const fn new_unchecked(buffer: T) -> NdiscOption<T> {
         NdiscOption { buffer }
     }
 
@@ -499,7 +499,7 @@ impl<'a> Repr<'a> {
     }
 
     /// Return the length of a header that will be emitted from this high-level representation.
-    pub fn buffer_len(&self) -> usize {
+    pub const fn buffer_len(&self) -> usize {
         match self {
             &Repr::SourceLinkLayerAddr(addr) | &Repr::TargetLinkLayerAddr(addr) => {
                 let len = 2 + addr.len();

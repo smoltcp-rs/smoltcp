@@ -36,7 +36,7 @@ mod field {
 
 impl<T: AsRef<[u8]>> Header<T> {
     /// Create a raw octet buffer with an IPv6 Fragment Header structure.
-    pub fn new_unchecked(buffer: T) -> Header<T> {
+    pub const fn new_unchecked(buffer: T) -> Header<T> {
         Header { buffer }
     }
 
@@ -188,7 +188,7 @@ impl Repr {
 
     /// Return the length, in bytes, of a header that will be emitted from this high-level
     /// representation.
-    pub fn buffer_len(&self) -> usize {
+    pub const fn buffer_len(&self) -> usize {
         field::IDENT.end
     }
 

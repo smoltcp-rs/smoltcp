@@ -351,7 +351,7 @@ impl<'a> Repr<'a> {
         }
     }
 
-    pub fn buffer_len(&self) -> usize {
+    pub const fn buffer_len(&self) -> usize {
         match self {
             &Repr::RouterSolicit { lladdr } => match lladdr {
                 Some(addr) => {

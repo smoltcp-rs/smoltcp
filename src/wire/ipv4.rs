@@ -67,7 +67,7 @@ impl Address {
     }
 
     /// Return an IPv4 address as a sequence of octets, in big-endian.
-    pub fn as_bytes(&self) -> &[u8] {
+    pub const fn as_bytes(&self) -> &[u8] {
         &self.0
     }
 
@@ -192,7 +192,7 @@ impl Cidr {
     }
 
     /// Return the network mask of this IPv4 CIDR.
-    pub fn netmask(&self) -> Address {
+    pub const fn netmask(&self) -> Address {
         if self.prefix_len == 0 {
             return Address([0, 0, 0, 0]);
         }
@@ -229,7 +229,7 @@ impl Cidr {
     }
 
     /// Return the network block of this IPv4 CIDR.
-    pub fn network(&self) -> Cidr {
+    pub const fn network(&self) -> Cidr {
         let mask = self.netmask().0;
         let network = [
             self.address.0[0] & mask[0],
@@ -303,7 +303,7 @@ pub const HEADER_LEN: usize = field::DST_ADDR.end;
 
 impl<T: AsRef<[u8]>> Packet<T> {
     /// Imbue a raw octet buffer with IPv4 packet structure.
-    pub fn new_unchecked(buffer: T) -> Packet<T> {
+    pub const fn new_unchecked(buffer: T) -> Packet<T> {
         Packet { buffer }
     }
 
@@ -662,7 +662,7 @@ impl Repr {
     }
 
     /// Return the length of a header that will be emitted from this high-level representation.
-    pub fn buffer_len(&self) -> usize {
+    pub const fn buffer_len(&self) -> usize {
         // We never emit any options.
         field::DST_ADDR.end
     }
@@ -880,7 +880,7 @@ mod test {
 
     static REPR_PAYLOAD_BYTES: [u8; ADDR_SIZE] = [0xaa, 0x00, 0x00, 0xff];
 
-    fn packet_repr() -> Repr {
+    const fn packet_repr() -> Repr {
         Repr {
             src_addr: Address([0x11, 0x12, 0x13, 0x14]),
             dst_addr: Address([0x21, 0x22, 0x23, 0x24]),

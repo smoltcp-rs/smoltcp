@@ -23,7 +23,7 @@ mod field {
     pub const LENGTH: Field = 4..6;
     pub const CHECKSUM: Field = 6..8;
 
-    pub fn PAYLOAD(length: u16) -> Field {
+    pub const fn PAYLOAD(length: u16) -> Field {
         CHECKSUM.end..(length as usize)
     }
 }
@@ -33,7 +33,7 @@ pub const HEADER_LEN: usize = field::CHECKSUM.end;
 #[allow(clippy::len_without_is_empty)]
 impl<T: AsRef<[u8]>> Packet<T> {
     /// Imbue a raw octet buffer with UDP packet structure.
-    pub fn new_unchecked(buffer: T) -> Packet<T> {
+    pub const fn new_unchecked(buffer: T) -> Packet<T> {
         Packet { buffer }
     }
 
@@ -246,7 +246,7 @@ impl Repr {
     }
 
     /// Return the length of the packet header that will be emitted from this high-level representation.
-    pub fn header_len(&self) -> usize {
+    pub const fn header_len(&self) -> usize {
         HEADER_LEN
     }
 
