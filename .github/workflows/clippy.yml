@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v2
         if: github.event_name != 'pull_request_target'
       - run: sed -n 's,^rust-version = "\(.*\)"$,RUSTUP_TOOLCHAIN=\1,p' Cargo.toml >> $GITHUB_ENV
-      - run: rustup toolchain install $RUSTUP_TOOLCHAIN
+      - run: rustup toolchain install beta
       - run: rustup component add clippy
       - uses: actions-rs/clippy-check@v1
         with:
