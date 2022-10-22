@@ -12,12 +12,12 @@ use crate::{
 /// A tracer is a device that pretty prints all packets traversing it
 /// using the provided writer function, and then passes them to another
 /// device.
-pub struct Tracer<D: for<'a> Device<'a>> {
+pub struct Tracer<D: Device> {
     inner: D,
     writer: fn(Instant, Packet),
 }
 
-impl<D: for<'a> Device<'a>> Tracer<D> {
+impl<D: Device> Tracer<D> {
     /// Create a tracer device.
     pub fn new(inner: D, writer: fn(timestamp: Instant, packet: Packet)) -> Tracer<D> {
         Tracer { inner, writer }
@@ -44,18 +44,23 @@ impl<D: for<'a> Device<'a>> Tracer<D> {
     }
 }
 
-impl<'a, D> Device<'a> for Tracer<D>
+impl<D> Device for Tracer<D>
 where
-    D: for<'b> Device<'b>,
+    D: Device,
 {
-    type RxToken = RxToken<<D as Device<'a>>::RxToken>;
-    type TxToken = TxToken<<D as Device<'a>>::TxToken>;
+    type RxToken<'a> = RxToken<<D as Device>::RxToken<'a>>
+    where
+        Self: 'a;
+
+    type TxToken<'a> = TxToken<<D as Device>::TxToken<'a>>
+    where
+        Self: 'a;
 
     fn capabilities(&self) -> DeviceCapabilities {
         self.inner.capabilities()
     }
 
-    fn receive(&'a mut self) -> Option<(Self::RxToken, Self::TxToken)> {
+    fn receive<'a>(&'a mut self) -> Option<(Self::RxToken<'a>, Self::TxToken<'a>)> {
         let &mut Self {
             ref mut inner,
             writer,
@@ -77,7 +82,7 @@ where
         })
     }
 
-    fn transmit(&'a mut self) -> Option<Self::TxToken> {
+    fn transmit<'a>(&'a mut self) -> Option<Self::TxToken<'a>> {
         let &mut Self {
             ref mut inner,
             writer,

@@ -551,7 +551,7 @@ let iface = builder.finalize(&mut device);
     /// [neighbor_cache]: #method.neighbor_cache
     pub fn finalize<D>(self, device: &mut D) -> Interface<'a>
     where
-        D: for<'d> Device<'d> + ?Sized,
+        D: Device + ?Sized,
     {
         let caps = device.capabilities();
 
@@ -893,7 +893,7 @@ impl<'a> Interface<'a> {
         timestamp: Instant,
     ) -> Result<bool>
     where
-        D: for<'d> Device<'d> + ?Sized,
+        D: Device + ?Sized,
     {
         self.inner.now = timestamp;
 
@@ -935,7 +935,7 @@ impl<'a> Interface<'a> {
         timestamp: Instant,
     ) -> Result<bool>
     where
-        D: for<'d> Device<'d> + ?Sized,
+        D: Device + ?Sized,
     {
         self.inner.now = timestamp;
 
@@ -1035,7 +1035,7 @@ impl<'a> Interface<'a> {
         sockets: &mut SocketSet<'_>,
     ) -> Result<bool>
     where
-        D: for<'d> Device<'d> + ?Sized,
+        D: Device + ?Sized,
     {
         self.inner.now = timestamp;
 
@@ -1140,7 +1140,7 @@ impl<'a> Interface<'a> {
 
     fn socket_ingress<D>(&mut self, device: &mut D, sockets: &mut SocketSet<'_>) -> bool
     where
-        D: for<'d> Device<'d> + ?Sized,
+        D: Device + ?Sized,
     {
         let mut processed_any = false;
         let Self {
@@ -1196,7 +1196,7 @@ impl<'a> Interface<'a> {
 
     fn socket_egress<D>(&mut self, device: &mut D, sockets: &mut SocketSet<'_>) -> bool
     where
-        D: for<'d> Device<'d> + ?Sized,
+        D: Device + ?Sized,
     {
         let Self {
             inner,
@@ -1306,7 +1306,7 @@ impl<'a> Interface<'a> {
     #[cfg(feature = "proto-igmp")]
     fn igmp_egress<D>(&mut self, device: &mut D) -> Result<bool>
     where
-        D: for<'d> Device<'d> + ?Sized,
+        D: Device + ?Sized,
     {
         match self.inner.igmp_report_state {
             IgmpReportState::ToSpecificQuery {
@@ -1372,7 +1372,7 @@ impl<'a> Interface<'a> {
     #[cfg(feature = "proto-ipv4-fragmentation")]
     fn ipv4_egress<D>(&mut self, device: &mut D) -> Result<bool>
     where
-        D: for<'d> Device<'d> + ?Sized,
+        D: Device + ?Sized,
     {
         // Reset the buffer when we transmitted everything.
         if self.out_packets.ipv4_out_packet.finished() {
@@ -1410,7 +1410,7 @@ impl<'a> Interface<'a> {
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
     fn sixlowpan_egress<D>(&mut self, device: &mut D) -> Result<bool>
     where
-        D: for<'d> Device<'d> + ?Sized,
+        D: Device + ?Sized,
     {
         // Reset the buffer when we transmitted everything.
         if self.out_packets.sixlowpan_out_packet.finished() {

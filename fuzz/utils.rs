@@ -87,13 +87,13 @@ pub fn add_middleware_options(opts: &mut Options, _free: &mut Vec<&str>) {
     );
 }
 
-pub fn parse_middleware_options<D>(
+pub fn parse_middleware_options<'a, D>(
     matches: &mut Matches,
     device: D,
     loopback: bool,
 ) -> FaultInjector<Tracer<PcapWriter<D, Box<dyn Write>>>>
 where
-    D: for<'a> Device<'a>,
+    D: Device<'a>,
 {
     let drop_chance = matches
         .opt_str("drop-chance")

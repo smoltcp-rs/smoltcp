@@ -118,7 +118,7 @@ impl<T: Write> PcapSink for T {
 #[derive(Debug)]
 pub struct PcapWriter<D, S>
 where
-    D: for<'a> Device<'a>,
+    D: Device,
     S: PcapSink,
 {
     lower: D,
@@ -126,7 +126,7 @@ where
     mode: PcapMode,
 }
 
-impl<D: for<'a> Device<'a>, S: PcapSink> PcapWriter<D, S> {
+impl<D: Device, S: PcapSink> PcapWriter<D, S> {
     /// Creates a packet capture writer.
     pub fn new(lower: D, mut sink: S, mode: PcapMode) -> PcapWriter<D, S> {
         let medium = lower.capabilities().medium;
@@ -162,19 +162,24 @@ impl<D: for<'a> Device<'a>, S: PcapSink> PcapWriter<D, S> {
     }
 }
 
-impl<'a, D, S> Device<'a> for PcapWriter<D, S>
+impl<D, S> Device for PcapWriter<D, S>
 where
-    D: for<'b> Device<'b>,
-    S: PcapSink + 'a,
+    D: Device,
+    S: PcapSink,
 {
-    type RxToken = RxToken<'a, <D as Device<'a>>::RxToken, S>;
-    type TxToken = TxToken<'a, <D as Device<'a>>::TxToken, S>;
+    type RxToken<'a> = RxToken<'a, <D as Device>::RxToken<'a>, S>
+    where
+        Self: 'a;
+
+    type TxToken<'a> = TxToken<'a, <D as Device>::TxToken<'a>, S>
+    where
+        Self: 'a;
 
     fn capabilities(&self) -> DeviceCapabilities {
         self.lower.capabilities()
     }
 
-    fn receive(&'a mut self) -> Option<(Self::RxToken, Self::TxToken)> {
+    fn receive<'a>(&'a mut self) -> Option<(Self::RxToken<'a>, Self::TxToken<'a>)> {
         let sink = &self.sink;
         let mode = self.mode;
         self.lower.receive().map(move |(rx_token, tx_token)| {
@@ -192,7 +197,7 @@ where
         })
     }
 
-    fn transmit(&'a mut self) -> Option<Self::TxToken> {
+    fn transmit<'a>(&'a mut self) -> Option<Self::TxToken<'a>> {
         let sink = &self.sink;
         let mode = self.mode;
         self.lower
