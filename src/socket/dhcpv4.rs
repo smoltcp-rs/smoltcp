@@ -361,8 +361,17 @@ impl<'a> Socket<'a> {
                 ) {
                     state.renew_at = renew_at;
                     state.expires_at = expires_at;
+                    // The `receive_packet_buffer` field isn't populated until
+                    // the client asks for the state, but receiving any packet
+                    // will change it, so we indicate that the config has
+                    // changed every time if the receive packet buffer is set,
+                    // but we only write changes to the rest of the config now.
+                    let config_changed =
+                        state.config != config || self.receive_packet_buffer.is_some();
                     if state.config != config {
                         state.config = config;
+                    }
+                    if config_changed {
                         self.config_changed();
                     }
                 }
