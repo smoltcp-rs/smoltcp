@@ -39,25 +39,25 @@ mod field {
     pub const OPER: Field = 6..8;
 
     #[inline]
-    pub fn SHA(hardware_len: u8, _protocol_len: u8) -> Field {
+    pub const fn SHA(hardware_len: u8, _protocol_len: u8) -> Field {
         let start = OPER.end;
         start..(start + hardware_len as usize)
     }
 
     #[inline]
-    pub fn SPA(hardware_len: u8, protocol_len: u8) -> Field {
+    pub const fn SPA(hardware_len: u8, protocol_len: u8) -> Field {
         let start = SHA(hardware_len, protocol_len).end;
         start..(start + protocol_len as usize)
     }
 
     #[inline]
-    pub fn THA(hardware_len: u8, protocol_len: u8) -> Field {
+    pub const fn THA(hardware_len: u8, protocol_len: u8) -> Field {
         let start = SPA(hardware_len, protocol_len).end;
         start..(start + hardware_len as usize)
     }
 
     #[inline]
-    pub fn TPA(hardware_len: u8, protocol_len: u8) -> Field {
+    pub const fn TPA(hardware_len: u8, protocol_len: u8) -> Field {
         let start = THA(hardware_len, protocol_len).end;
         start..(start + protocol_len as usize)
     }
@@ -65,7 +65,7 @@ mod field {
 
 impl<T: AsRef<[u8]>> Packet<T> {
     /// Imbue a raw octet buffer with ARP packet structure.
-    pub fn new_unchecked(buffer: T) -> Packet<T> {
+    pub const fn new_unchecked(buffer: T) -> Packet<T> {
         Packet { buffer }
     }
 
@@ -289,7 +289,7 @@ impl Repr {
     }
 
     /// Return the length of a packet that will be emitted from this high-level representation.
-    pub fn buffer_len(&self) -> usize {
+    pub const fn buffer_len(&self) -> usize {
         match *self {
             Repr::EthernetIpv4 { .. } => field::TPA(6, 4).end,
         }

@@ -54,7 +54,7 @@ impl fmt::Display for Message {
 /// [RFC 2236]: https://tools.ietf.org/html/rfc2236
 impl<T: AsRef<[u8]>> Packet<T> {
     /// Imbue a raw octet buffer with IGMPv2 packet structure.
-    pub fn new_unchecked(buffer: T) -> Packet<T> {
+    pub const fn new_unchecked(buffer: T) -> Packet<T> {
         Packet { buffer }
     }
 
@@ -246,7 +246,7 @@ impl Repr {
     }
 
     /// Return the length of a packet that will be emitted from this high-level representation.
-    pub fn buffer_len(&self) -> usize {
+    pub const fn buffer_len(&self) -> usize {
         // always 8 bytes
         field::GROUP_ADDRESS.end
     }
@@ -304,7 +304,7 @@ fn max_resp_code_to_duration(value: u8) -> Duration {
     Duration::from_millis(decisecs * 100)
 }
 
-fn duration_to_max_resp_code(duration: Duration) -> u8 {
+const fn duration_to_max_resp_code(duration: Duration) -> u8 {
     let decisecs = duration.total_millis() / 100;
     if decisecs < 128 {
         decisecs as u8

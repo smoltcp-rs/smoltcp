@@ -55,7 +55,7 @@ impl Message {
     /// is an [NDISC] message type.
     ///
     /// [NDISC]: https://tools.ietf.org/html/rfc4861
-    pub fn is_ndisc(&self) -> bool {
+    pub const fn is_ndisc(&self) -> bool {
         match *self {
             Message::RouterSolicit
             | Message::RouterAdvert
@@ -70,7 +70,7 @@ impl Message {
     /// is an [MLD] message type.
     ///
     /// [MLD]: https://tools.ietf.org/html/rfc3810
-    pub fn is_mld(&self) -> bool {
+    pub const fn is_mld(&self) -> bool {
         match *self {
             Message::MldQuery | Message::MldReport => true,
             _ => false,
@@ -247,7 +247,7 @@ pub(super) mod field {
 
 impl<T: AsRef<[u8]>> Packet<T> {
     /// Imbue a raw octet buffer with ICMPv6 packet structure.
-    pub fn new_unchecked(buffer: T) -> Packet<T> {
+    pub const fn new_unchecked(buffer: T) -> Packet<T> {
         Packet { buffer }
     }
 
@@ -625,7 +625,7 @@ impl<'a> Repr<'a> {
     }
 
     /// Return the length of a packet that will be emitted from this high-level representation.
-    pub fn buffer_len(&self) -> usize {
+    pub const fn buffer_len(&self) -> usize {
         match self {
             &Repr::DstUnreachable { header, data, .. }
             | &Repr::PktTooBig { header, data, .. }

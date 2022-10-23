@@ -282,7 +282,7 @@ pub mod frag {
 
     impl<T: AsRef<[u8]>> Packet<T> {
         /// Input a raw octet buffer with a 6LoWPAN Fragment header structure.
-        pub fn new_unchecked(buffer: T) -> Self {
+        pub const fn new_unchecked(buffer: T) -> Self {
             Self { buffer }
         }
 
@@ -445,7 +445,7 @@ pub mod frag {
         }
 
         /// Returns the length of the Fragment header.
-        pub fn buffer_len(&self) -> usize {
+        pub const fn buffer_len(&self) -> usize {
             match self {
                 Self::FirstFragment { .. } => field::FIRST_FRAGMENT_REST.start,
                 Self::Fragment { .. } => field::NEXT_FRAGMENT_REST.start,
@@ -558,7 +558,7 @@ pub mod iphc {
 
     impl<T: AsRef<[u8]>> Packet<T> {
         /// Input a raw octet buffer with a 6LoWPAN IPHC header structure.
-        pub fn new_unchecked(buffer: T) -> Self {
+        pub const fn new_unchecked(buffer: T) -> Self {
             Packet { buffer }
         }
 
@@ -1526,7 +1526,7 @@ pub mod nhc {
 
     impl<T: AsRef<[u8]>> ExtHeaderPacket<T> {
         /// Input a raw octet buffer with a 6LoWPAN NHC Extension Header structure.
-        pub fn new_unchecked(buffer: T) -> Self {
+        pub const fn new_unchecked(buffer: T) -> Self {
             ExtHeaderPacket { buffer }
         }
 
@@ -1745,7 +1745,7 @@ pub mod nhc {
 
     impl<T: AsRef<[u8]>> UdpNhcPacket<T> {
         /// Input a raw octet buffer with a LOWPAN_NHC frame structure for UDP.
-        pub fn new_unchecked(buffer: T) -> Self {
+        pub const fn new_unchecked(buffer: T) -> Self {
             Self { buffer }
         }
 
@@ -1786,7 +1786,7 @@ pub mod nhc {
         get_field!(ports_field, 0b11, 0);
 
         /// Returns the index of the start of the next header compressed fields.
-        fn nhc_fields_start(&self) -> usize {
+        const fn nhc_fields_start(&self) -> usize {
             1
         }
 

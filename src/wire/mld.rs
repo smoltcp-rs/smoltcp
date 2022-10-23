@@ -173,7 +173,7 @@ pub struct AddressRecord<T: AsRef<[u8]>> {
 
 impl<T: AsRef<[u8]>> AddressRecord<T> {
     /// Imbue a raw octet buffer with a Address Record structure.
-    pub fn new_unchecked(buffer: T) -> Self {
+    pub const fn new_unchecked(buffer: T) -> Self {
         Self { buffer }
     }
 
@@ -338,7 +338,7 @@ impl<'a> Repr<'a> {
     }
 
     /// Return the length of a packet that will be emitted from this high-level representation.
-    pub fn buffer_len(&self) -> usize {
+    pub const fn buffer_len(&self) -> usize {
         match self {
             Repr::Query { data, .. } => field::QUERY_NUM_SRCS.end + data.len(),
             Repr::Report { data, .. } => field::NR_MCAST_RCRDS.end + data.len(),

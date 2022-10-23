@@ -42,7 +42,7 @@ mod field {
     //
     // Length of the header is in 8-octet units, not including the first 8 octets. The first two
     // octets are the next header type and the header length.
-    pub fn OPTIONS(length_field: u8) -> Field {
+    pub const fn OPTIONS(length_field: u8) -> Field {
         let bytes = length_field as usize * 8 + 8;
         2..bytes
     }
@@ -50,7 +50,7 @@ mod field {
 
 impl<T: AsRef<[u8]>> Header<T> {
     /// Create a raw octet buffer with an IPv6 Hop-by-Hop Options Header structure.
-    pub fn new_unchecked(buffer: T) -> Header<T> {
+    pub const fn new_unchecked(buffer: T) -> Header<T> {
         Header { buffer }
     }
 
@@ -183,7 +183,7 @@ impl<'a> Repr<'a> {
 
     /// Return the length, in bytes, of a header that will be emitted from this high-level
     /// representation.
-    pub fn buffer_len(&self) -> usize {
+    pub const fn buffer_len(&self) -> usize {
         field::OPTIONS(self.length).end
     }
 

@@ -116,7 +116,7 @@ impl Address {
     }
 
     /// Return an IPv6 address as a sequence of octets, in big-endian.
-    pub fn as_bytes(&self) -> &[u8] {
+    pub const fn as_bytes(&self) -> &[u8] {
         &self.0
     }
 
@@ -130,7 +130,7 @@ impl Address {
     /// Query whether the IPv6 address is a [multicast address].
     ///
     /// [multicast address]: https://tools.ietf.org/html/rfc4291#section-2.7
-    pub fn is_multicast(&self) -> bool {
+    pub const fn is_multicast(&self) -> bool {
         self.0[0] == 0xff
     }
 
@@ -333,12 +333,12 @@ impl Cidr {
     }
 
     /// Return the address of this IPv6 CIDR block.
-    pub fn address(&self) -> Address {
+    pub const fn address(&self) -> Address {
         self.address
     }
 
     /// Return the prefix length of this IPv6 CIDR block.
-    pub fn prefix_len(&self) -> u8 {
+    pub const fn prefix_len(&self) -> u8 {
         self.prefix_len
     }
 
@@ -425,7 +425,7 @@ pub const HEADER_LEN: usize = field::DST_ADDR.end;
 impl<T: AsRef<[u8]>> Packet<T> {
     /// Create a raw octet buffer with an IPv6 packet structure.
     #[inline]
-    pub fn new_unchecked(buffer: T) -> Packet<T> {
+    pub const fn new_unchecked(buffer: T) -> Packet<T> {
         Packet { buffer }
     }
 
@@ -464,7 +464,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
 
     /// Return the header length.
     #[inline]
-    pub fn header_len(&self) -> usize {
+    pub const fn header_len(&self) -> usize {
         // This is not a strictly necessary function, but it makes
         // code more readable.
         field::DST_ADDR.end
@@ -670,7 +670,7 @@ impl Repr {
     }
 
     /// Return the length of a header that will be emitted from this high-level representation.
-    pub fn buffer_len(&self) -> usize {
+    pub const fn buffer_len(&self) -> usize {
         // This function is not strictly necessary, but it can make client code more readable.
         field::DST_ADDR.end
     }
@@ -1055,7 +1055,7 @@ mod test {
         0x00, 0x01, 0x00, 0x02, 0x00, 0x0c, 0x02, 0x4e, 0xff, 0xff, 0xff, 0xff,
     ];
 
-    fn packet_repr() -> Repr {
+    const fn packet_repr() -> Repr {
         Repr {
             src_addr: Address([
                 0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,

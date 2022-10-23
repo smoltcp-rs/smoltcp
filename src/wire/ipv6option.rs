@@ -81,14 +81,14 @@ mod field {
     // 8-bit unsigned integer. Length of the DATA field of this option, in octets.
     pub const LENGTH: usize = 1;
     // Variable-length field. Option-Type-specific data.
-    pub fn DATA(length: u8) -> Field {
+    pub const fn DATA(length: u8) -> Field {
         2..length as usize + 2
     }
 }
 
 impl<T: AsRef<[u8]>> Ipv6Option<T> {
     /// Create a raw octet buffer with an IPv6 Extension Header Option structure.
-    pub fn new_unchecked(buffer: T) -> Ipv6Option<T> {
+    pub const fn new_unchecked(buffer: T) -> Ipv6Option<T> {
         Ipv6Option { buffer }
     }
 
@@ -245,7 +245,7 @@ impl<'a> Repr<'a> {
     }
 
     /// Return the length of a header that will be emitted from this high-level representation.
-    pub fn buffer_len(&self) -> usize {
+    pub const fn buffer_len(&self) -> usize {
         match *self {
             Repr::Pad1 => 1,
             Repr::PadN(length) => field::DATA(length).end,

@@ -91,7 +91,7 @@ mod field {
     //
     // Length of the header is in 8-octet units, not including the first 8 octets. The first four
     // octets are the next header type, the header length, routing type and segments left.
-    pub fn DATA(length_field: u8) -> Field {
+    pub const fn DATA(length_field: u8) -> Field {
         let bytes = length_field as usize * 8 + 8;
         4..bytes
     }
@@ -134,7 +134,7 @@ mod field {
     // 8-bit field containing the Pad value.
     pub const PAD: usize = 5;
     // Variable length field containing addresses
-    pub fn ADDRESSES(length_field: u8) -> Field {
+    pub const fn ADDRESSES(length_field: u8) -> Field {
         let data = DATA(length_field);
         8..data.end
     }
@@ -143,7 +143,7 @@ mod field {
 /// Core getter methods relevant to any routing type.
 impl<T: AsRef<[u8]>> Header<T> {
     /// Create a raw octet buffer with an IPv6 Routing Header structure.
-    pub fn new(buffer: T) -> Header<T> {
+    pub const fn new(buffer: T) -> Header<T> {
         Header { buffer }
     }
 
@@ -457,7 +457,7 @@ impl<'a> Repr<'a> {
 
     /// Return the length, in bytes, of a header that will be emitted from this high-level
     /// representation.
-    pub fn buffer_len(&self) -> usize {
+    pub const fn buffer_len(&self) -> usize {
         match self {
             &Repr::Rpl { length, .. } | &Repr::Type2 { length, .. } => field::DATA(length).end,
         }

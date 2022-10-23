@@ -44,7 +44,7 @@ bitflags! {
 }
 
 impl MessageType {
-    fn opcode(&self) -> OpCode {
+    const fn opcode(&self) -> OpCode {
         match *self {
             MessageType::Discover
             | MessageType::Inform
@@ -233,7 +233,7 @@ pub(crate) mod field {
 
 impl<T: AsRef<[u8]>> Packet<T> {
     /// Imbue a raw octet buffer with DHCP packet structure.
-    pub fn new_unchecked(buffer: T) -> Packet<T> {
+    pub const fn new_unchecked(buffer: T) -> Packet<T> {
         Packet { buffer }
     }
 
@@ -1143,7 +1143,7 @@ mod test {
         assert_eq!(packet, DISCOVER_BYTES);
     }
 
-    fn offer_repr() -> Repr<'static> {
+    const fn offer_repr() -> Repr<'static> {
         Repr {
             message_type: MessageType::Offer,
             transaction_id: 0x3d1d,
@@ -1169,7 +1169,7 @@ mod test {
         }
     }
 
-    fn discover_repr() -> Repr<'static> {
+    const fn discover_repr() -> Repr<'static> {
         Repr {
             message_type: MessageType::Discover,
             transaction_id: 0x3d1d,

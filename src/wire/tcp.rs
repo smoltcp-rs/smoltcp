@@ -87,7 +87,7 @@ mod field {
     pub const CHECKSUM: Field = 16..18;
     pub const URGENT: Field = 18..20;
 
-    pub fn OPTIONS(length: u8) -> Field {
+    pub const fn OPTIONS(length: u8) -> Field {
         URGENT.end..(length as usize)
     }
 
@@ -113,7 +113,7 @@ pub const HEADER_LEN: usize = field::URGENT.end;
 
 impl<T: AsRef<[u8]>> Packet<T> {
     /// Imbue a raw octet buffer with TCP packet structure.
-    pub fn new_unchecked(buffer: T) -> Packet<T> {
+    pub const fn new_unchecked(buffer: T) -> Packet<T> {
         Packet { buffer }
     }
 
@@ -753,7 +753,7 @@ pub enum Control {
 #[allow(clippy::len_without_is_empty)]
 impl Control {
     /// Return the length of a control flag, in terms of sequence space.
-    pub fn len(self) -> usize {
+    pub const fn len(self) -> usize {
         match self {
             Control::Syn | Control::Fin => 1,
             _ => 0,
@@ -761,7 +761,7 @@ impl Control {
     }
 
     /// Turn the PSH flag into no flag, and keep the rest as-is.
-    pub fn quash_psh(self) -> Control {
+    pub const fn quash_psh(self) -> Control {
         match self {
             Control::Psh => Control::None,
             _ => self,
@@ -971,12 +971,12 @@ impl<'a> Repr<'a> {
     }
 
     /// Return the length of the segment, in terms of sequence space.
-    pub fn segment_len(&self) -> usize {
+    pub const fn segment_len(&self) -> usize {
         self.payload.len() + self.control.len()
     }
 
     /// Return whether the segment has no flags set (except PSH) and no data.
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         match self.control {
             _ if !self.payload.is_empty() => false,
             Control::Syn | Control::Fin | Control::Rst => false,
