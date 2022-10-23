@@ -1764,7 +1764,7 @@ impl<'a> Socket<'a> {
 
         // Try adding payload octets to the assembler.
         match self.assembler.add(payload_offset, payload_len) {
-            Ok(_) => {
+            Ok(()) => {
                 debug_assert!(self.assembler.total_size() == self.rx_buffer.capacity());
                 // Place payload octets into the buffer.
                 tcp_trace!(

@@ -182,12 +182,8 @@ impl<'a> PacketAssembler<'a> {
                 );
 
                 match assembler.add(offset, data.len()) {
-                    Ok(overlap) => {
+                    Ok(()) => {
                         net_debug!("assembler: {}", self.assembler);
-
-                        if overlap {
-                            net_debug!("packet was added, but there was an overlap.");
-                        }
                         self.is_complete()
                     }
                     // NOTE(thvdveld): hopefully we wont get too many holes errors I guess?
