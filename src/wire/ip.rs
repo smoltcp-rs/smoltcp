@@ -958,6 +958,7 @@ pub(crate) mod test {
         test_eq(32, Ipv4Address::new(255, 255, 255, 255));
     }
 
+    #[test]
     #[cfg(feature = "proto-ipv4")]
     fn to_prefix_len_ipv4_error() {
         assert_eq!(
@@ -982,6 +983,7 @@ pub(crate) mod test {
         );
     }
 
+    #[test]
     #[cfg(feature = "proto-ipv6")]
     fn to_prefix_len_ipv6_error() {
         assert_eq!(
