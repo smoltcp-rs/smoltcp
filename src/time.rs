@@ -130,7 +130,7 @@ impl From<Instant> for ::std::time::SystemTime {
 
 impl fmt::Display for Instant {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}.{}s", self.secs(), self.millis())
+        write!(f, "{}.{:0>3}s", self.secs(), self.millis())
     }
 }
 
@@ -361,8 +361,9 @@ mod test {
 
     #[test]
     fn test_instant_display() {
+        assert_eq!(format!("{}", Instant::from_millis(74)), "0.074s");
         assert_eq!(format!("{}", Instant::from_millis(5674)), "5.674s");
-        assert_eq!(format!("{}", Instant::from_millis(5000)), "5.0s");
+        assert_eq!(format!("{}", Instant::from_millis(5000)), "5.000s");
     }
 
     #[test]
