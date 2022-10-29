@@ -41,6 +41,7 @@ jobs:
           - std medium-ethernet proto-ipv6 socket-tcp
           - std medium-ethernet medium-ip proto-ipv4 socket-icmp socket-tcp
           - std medium-ip proto-ipv6 socket-icmp socket-tcp
+          - std medium-ip proto-ipv4 proto-ipv6 socket-tcp socket-udp
 
           # Test features chosen to be as aggressive as possible.
           - std medium-ethernet medium-ip medium-ieee802154 proto-ipv4 proto-ipv6 socket-raw socket-udp socket-tcp socket-icmp socket-dns async
