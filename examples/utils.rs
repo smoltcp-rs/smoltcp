@@ -84,11 +84,7 @@ pub fn parse_options(options: &Options, free: Vec<&str>) -> Matches {
                     free.join(" ")
                 );
                 print!("{}", options.usage(&brief));
-                process::exit(if matches.free.len() != free.len() {
-                    1
-                } else {
-                    0
-                })
+                process::exit((matches.free.len() != free.len()) as _);
             }
             matches
         }
@@ -159,7 +155,7 @@ pub fn parse_middleware_options<D>(
     loopback: bool,
 ) -> FaultInjector<Tracer<PcapWriter<D, Box<dyn io::Write>>>>
 where
-    D: for<'a> Device<'a>,
+    D: Device,
 {
     let drop_chance = matches
         .opt_str("drop-chance")

@@ -1215,10 +1215,9 @@ pub mod iphc {
             let mut len = 0;
             len += 2; // The minimal header length
 
-            len += if self.next_header == NextHeader::Compressed {
-                0 // The next header is compressed (we don't need to inline what the next header is)
-            } else {
-                1 // The next header field is inlined
+            len += match self.next_header {
+                NextHeader::Compressed => 0, // The next header is compressed (we don't need to inline what the next header is)
+                NextHeader::Uncompressed(_) => 1, // The next header field is inlined
             };
 
             // Hop Limit size
@@ -1604,10 +1603,10 @@ pub mod nhc {
         /// Return the size of the Next Header field.
         fn next_header_size(&self) -> usize {
             // If nh is set, then the Next Header is compressed using LOWPAN_NHC
-            if self.nh_field() == 1 {
-                0
-            } else {
-                1
+            match self.nh_field() {
+                0 => 1,
+                1 => 0,
+                _ => unreachable!(),
             }
         }
     }

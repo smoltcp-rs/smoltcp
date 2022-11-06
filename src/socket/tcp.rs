@@ -129,7 +129,7 @@ impl Default for RttEstimator {
 impl RttEstimator {
     fn retransmission_timeout(&self) -> Duration {
         let margin = RTTE_MIN_MARGIN.max(self.deviation * 4);
-        let ms = (self.rtt + margin).max(RTTE_MIN_RTO).min(RTTE_MAX_RTO);
+        let ms = (self.rtt + margin).clamp(RTTE_MIN_RTO, RTTE_MAX_RTO);
         Duration::from_millis(ms as u64)
     }
 
@@ -1442,7 +1442,7 @@ impl<'a> Socket<'a> {
 
                 if segment_in_window {
                     // We've checked that segment_start >= window_start above.
-                    payload_offset = (segment_start - window_start) as usize;
+                    payload_offset = segment_start - window_start;
                     self.local_rx_last_seq = Some(repr.seq_number);
                 } else {
                     // If we're in the TIME-WAIT state, restart the TIME-WAIT timeout, since

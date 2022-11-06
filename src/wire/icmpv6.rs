@@ -555,7 +555,7 @@ impl<'a> Repr<'a> {
         {
             let ip_packet = Ipv6Packet::new_checked(packet.payload())?;
 
-            let payload = &packet.payload()[ip_packet.header_len() as usize..];
+            let payload = &packet.payload()[ip_packet.header_len()..];
             if payload.len() < 8 {
                 return Err(Error);
             }

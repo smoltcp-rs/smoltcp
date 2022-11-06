@@ -72,7 +72,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// Returns `Err(Error)` if the buffer is too short.
     pub fn check_len(&self) -> Result<()> {
         let len = self.buffer.as_ref().len();
-        if len < field::GROUP_ADDRESS.end as usize {
+        if len < field::GROUP_ADDRESS.end {
             Err(Error)
         } else {
             Ok(())

@@ -20,8 +20,8 @@ jobs:
         # Test on stable, MSRV, and nightly.
         # Failure is permitted on nightly.
         rust:
-          - stable
-          - 1.61.0
+          #- stable  # TODO: enable again when "stable" is 1.66 or higher.
+          - 1.65.0
           - nightly
 
         features:
@@ -64,8 +64,8 @@ jobs:
         # Test on stable, MSRV, and nightly.
         # Failure is permitted on nightly.
         rust:
-          - stable
-          - 1.61.0
+          #- stable  # TODO: enable again when "stable" is 1.66 or higher.
+          - 1.65.0
           - nightly
 
         features:
