@@ -169,7 +169,7 @@ impl<T: AsRef<[u8]>> Header<T> {
             return Err(Error);
         }
 
-        if len < field::DATA(self.header_len()).end as usize {
+        if len < field::DATA(self.header_len()).end {
             return Err(Error);
         }
 

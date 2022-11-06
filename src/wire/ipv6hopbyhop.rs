@@ -296,14 +296,14 @@ mod test {
     #[test]
     fn test_header_len_overflow() {
         let mut bytes = vec![];
-        bytes.extend(&REPR_PACKET_PAD4);
+        bytes.extend(REPR_PACKET_PAD4);
         let len = bytes.len() as u8;
         Header::new_unchecked(&mut bytes).set_header_len(len + 1);
 
         assert_eq!(Header::new_checked(&bytes).unwrap_err(), Error);
 
         let mut bytes = vec![];
-        bytes.extend(&REPR_PACKET_PAD12);
+        bytes.extend(REPR_PACKET_PAD12);
         let len = bytes.len() as u8;
         Header::new_unchecked(&mut bytes).set_header_len(len + 1);
 

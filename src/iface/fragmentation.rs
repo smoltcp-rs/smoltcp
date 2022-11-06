@@ -364,7 +364,7 @@ impl<'a, K: Eq + Ord + Clone + Copy> PacketAssemblerSet<'a, K> {
     /// - Returns [`Error::PacketAssemblerSetKeyNotFound`] when the key was not found in the set.
     pub(crate) fn get_packet_assembler_mut(&mut self, key: &K) -> Result<&mut PacketAssembler<'a>> {
         if let Some(i) = self.index_buffer.get(key) {
-            Ok(&mut self.packet_buffer[*i as usize])
+            Ok(&mut self.packet_buffer[*i])
         } else {
             Err(Error::PacketAssemblerSetKeyNotFound)
         }
@@ -379,7 +379,7 @@ impl<'a, K: Eq + Ord + Clone + Copy> PacketAssemblerSet<'a, K> {
     /// - Returns [`Error::PacketAssemblerIncomplete`] when the fragments assembler was empty or not fully assembled.
     pub(crate) fn get_assembled_packet(&mut self, key: &K) -> Result<&[u8]> {
         if let Some(i) = self.index_buffer.get(key) {
-            let p = self.packet_buffer[*i as usize].assemble()?;
+            let p = self.packet_buffer[*i].assemble()?;
             self.index_buffer.remove(key);
             Ok(p)
         } else {
@@ -392,10 +392,7 @@ impl<'a, K: Eq + Ord + Clone + Copy> PacketAssemblerSet<'a, K> {
         loop {
             let mut key = None;
             for (k, i) in self.index_buffer.iter() {
-                if matches!(
-                    self.packet_buffer[*i as usize].assembler,
-                    AssemblerState::NotInit
-                ) {
+                if matches!(self.packet_buffer[*i].assembler, AssemblerState::NotInit) {
                     key = Some(*k);
                     break;
                 }
@@ -416,7 +413,7 @@ impl<'a, K: Eq + Ord + Clone + Copy> PacketAssemblerSet<'a, K> {
         F: Fn(&mut PacketAssembler<'_>) -> Result<bool>,
     {
         for (_, i) in &mut self.index_buffer.iter() {
-            let frag = &mut self.packet_buffer[*i as usize];
+            let frag = &mut self.packet_buffer[*i];
             if f(frag)? {
                 frag.mark_discarded();
             }

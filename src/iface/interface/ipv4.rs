@@ -507,7 +507,7 @@ impl<'a> InterfaceInner<'a> {
             }
 
             tx_buffer[repr.buffer_len()..][..payload_len].copy_from_slice(
-                &buffer[*frag_offset as usize + repr.buffer_len() as usize..][..payload_len],
+                &buffer[*frag_offset as usize + repr.buffer_len()..][..payload_len],
             );
 
             // Update the frag offset for the next fragment.

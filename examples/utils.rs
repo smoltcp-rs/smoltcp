@@ -84,11 +84,7 @@ pub fn parse_options(options: &Options, free: Vec<&str>) -> Matches {
                     free.join(" ")
                 );
                 print!("{}", options.usage(&brief));
-                process::exit(if matches.free.len() != free.len() {
-                    1
-                } else {
-                    0
-                })
+                process::exit((matches.free.len() != free.len()) as _);
             }
             matches
         }
