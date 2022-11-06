@@ -79,7 +79,7 @@ impl<'a> OutPackets<'a> {
 }
 
 #[allow(unused)]
-#[cfg(feature = "proto-ipv4")]
+#[cfg(feature = "proto-ipv4-fragmentation")]
 pub(crate) struct Ipv4OutPacket<'a> {
     /// The buffer that holds the unfragmented 6LoWPAN packet.
     buffer: ManagedSlice<'a, u8>,
