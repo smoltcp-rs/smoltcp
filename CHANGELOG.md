@@ -13,6 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fix enable `defmt/alloc` if `alloc` or `std` is enabled.
 - Minimum Supported Rust Version (MSRV) **bumped** from 1.56 to 1.65
 
+## [0.8.2] - 2022-11-27
+
+- tcp: Fix return value of nagle_enable ([#642](https://github.com/smoltcp-rs/smoltcp/pull/642))
+- tcp: Only clear retransmit timer when all packets are acked ([#662](https://github.com/smoltcp-rs/smoltcp/pull/662))
+- tcp: Send incomplete fin packets even if nagle enabled ([#665](https://github.com/smoltcp-rs/smoltcp/pull/665))
+- phy: Fix mtu calculation for raw_socket ([#611](https://github.com/smoltcp-rs/smoltcp/pull/611))
+- wire: Fix ipv6 contains_addr function ([#605](https://github.com/smoltcp-rs/smoltcp/pull/605))
+
 ## [0.8.1] - 2022-05-12
 
 - Remove unused `rand_core` dep. ([#589](https://github.com/smoltcp-rs/smoltcp/pull/589))
@@ -144,7 +152,8 @@ only processed when directed to the 255.255.255.255 address. ([377](https://gith
 - Use #[non_exhaustive] for enums and structs ([409](https://github.com/smoltcp-rs/smoltcp/pull/409), [411](https://github.com/smoltcp-rs/smoltcp/pull/411))
 - Simplify lifetime parameters of sockets, SocketSet, EthernetInterface ([410](https://github.com/smoltcp-rs/smoltcp/pull/410), [413](https://github.com/smoltcp-rs/smoltcp/pull/413))
 
-[Unreleased]: https://github.com/smoltcp-rs/smoltcp/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/smoltcp-rs/smoltcp/compare/v0.8.2...HEAD
+[0.8.2]: https://github.com/smoltcp-rs/smoltcp/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/smoltcp-rs/smoltcp/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/smoltcp-rs/smoltcp/compare/v0.7.0...v0.8.0
 [0.7.5]: https://github.com/smoltcp-rs/smoltcp/compare/v0.7.4...v0.7.5
