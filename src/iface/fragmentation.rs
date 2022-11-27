@@ -84,7 +84,7 @@ impl<'a> PacketAssembler<'a> {
                     }
                 }
             }
-            #[cfg(any(feature = "std", feature = "alloc"))]
+            #[cfg(feature = "alloc")]
             ManagedSlice::Owned(b) => {
                 if let Some(total_size) = total_size {
                     b.resize(total_size, 0);
@@ -164,7 +164,7 @@ impl<'a> PacketAssembler<'a> {
                             return Err(Error::PacketAssemblerBufferTooSmall);
                         }
                     }
-                    #[cfg(any(feature = "std", feature = "alloc"))]
+                    #[cfg(feature = "alloc")]
                     ManagedSlice::Owned(b) => {
                         if offset + data.len() > b.len() {
                             b.resize(offset + data.len(), 0);
@@ -287,19 +287,19 @@ impl<'a, K: Eq + Ord + Clone + Copy> PacketAssemblerSet<'a, K> {
                     panic!("The amount of places in the index buffer must be the same as the amount of possible fragments assemblers.");
                 }
             }
-            #[cfg(any(feature = "std", feature = "alloc"))]
+            #[cfg(feature = "alloc")]
             (ManagedSlice::Borrowed(f), ManagedMap::Owned(_)) => {
                 if f.is_empty() {
                     panic!("The packet buffer cannot be empty.");
                 }
             }
-            #[cfg(any(feature = "std", feature = "alloc"))]
+            #[cfg(feature = "alloc")]
             (ManagedSlice::Owned(_), ManagedMap::Borrowed(i)) => {
                 if i.is_empty() {
                     panic!("The index buffer cannot be empty.");
                 }
             }
-            #[cfg(any(feature = "std", feature = "alloc"))]
+            #[cfg(feature = "alloc")]
             (ManagedSlice::Owned(_), ManagedMap::Owned(_)) => (),
         }
 
@@ -326,7 +326,7 @@ impl<'a, K: Eq + Ord + Clone + Copy> PacketAssemblerSet<'a, K> {
         if self.packet_buffer.len() == self.index_buffer.len() {
             match &mut self.packet_buffer {
                 ManagedSlice::Borrowed(_) => return Err(Error::PacketAssemblerSetFull),
-                #[cfg(any(feature = "std", feature = "alloc"))]
+                #[cfg(feature = "alloc")]
                 ManagedSlice::Owned(b) => (),
             }
         }
@@ -346,7 +346,7 @@ impl<'a, K: Eq + Ord + Clone + Copy> PacketAssemblerSet<'a, K> {
     fn get_free_packet_assembler(&mut self) -> Option<usize> {
         match &mut self.packet_buffer {
             ManagedSlice::Borrowed(_) => (),
-            #[cfg(any(feature = "std", feature = "alloc"))]
+            #[cfg(feature = "alloc")]
             ManagedSlice::Owned(b) => b.push(PacketAssembler::new(alloc::vec![])),
         }
 

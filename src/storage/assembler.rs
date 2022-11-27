@@ -81,14 +81,12 @@ impl Contig {
     }
 }
 
-#[cfg(all(feature = "alloc", not(feature = "std")))]
+#[cfg(feature = "alloc")]
 use alloc::boxed::Box;
-#[cfg(feature = "std")]
-use std::boxed::Box;
-#[cfg(any(feature = "std", feature = "alloc"))]
+#[cfg(feature = "alloc")]
 const CONTIG_COUNT: usize = 32;
 
-#[cfg(not(any(feature = "std", feature = "alloc")))]
+#[cfg(not(feature = "alloc"))]
 const CONTIG_COUNT: usize = 4;
 
 /// A buffer (re)assembler.
@@ -97,9 +95,9 @@ const CONTIG_COUNT: usize = 4;
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Assembler {
-    #[cfg(not(any(feature = "std", feature = "alloc")))]
+    #[cfg(not(feature = "alloc"))]
     contigs: [Contig; CONTIG_COUNT],
-    #[cfg(any(feature = "std", feature = "alloc"))]
+    #[cfg(feature = "alloc")]
     contigs: Box<[Contig; CONTIG_COUNT]>,
 }
 
@@ -120,9 +118,9 @@ impl fmt::Display for Assembler {
 impl Assembler {
     /// Create a new buffer assembler for buffers of the given size.
     pub fn new(size: usize) -> Assembler {
-        #[cfg(not(any(feature = "std", feature = "alloc")))]
+        #[cfg(not(feature = "alloc"))]
         let mut contigs = [Contig::empty(); CONTIG_COUNT];
-        #[cfg(any(feature = "std", feature = "alloc"))]
+        #[cfg(feature = "alloc")]
         let mut contigs = Box::new([Contig::empty(); CONTIG_COUNT]);
         contigs[0] = Contig::hole(size);
         Assembler { contigs }
@@ -328,9 +326,9 @@ mod test {
 
     impl From<Vec<(usize, usize)>> for Assembler {
         fn from(vec: Vec<(usize, usize)>) -> Assembler {
-            #[cfg(not(any(feature = "std", feature = "alloc")))]
+            #[cfg(not(feature = "alloc"))]
             let mut contigs = [Contig::empty(); CONTIG_COUNT];
-            #[cfg(any(feature = "std", feature = "alloc"))]
+            #[cfg(feature = "alloc")]
             let mut contigs = Box::new([Contig::empty(); CONTIG_COUNT]);
             for (i, &(hole_size, data_size)) in vec.iter().enumerate() {
                 contigs[i] = Contig {

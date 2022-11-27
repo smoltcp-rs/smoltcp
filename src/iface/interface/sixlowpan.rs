@@ -404,7 +404,7 @@ impl<'a> InterfaceInner<'a> {
                             return Err(Error::Exhausted);
                         }
                     }
-                    #[cfg(any(feature = "std", feature = "alloc"))]
+                    #[cfg(feature = "alloc")]
                     managed::ManagedSlice::Owned(buffer) => buffer.resize(total_size, 0),
                 }
 
