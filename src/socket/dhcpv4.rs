@@ -635,8 +635,6 @@ mod test {
     macro_rules! send {
         ($socket:ident, $repr:expr) =>
             (send!($socket, time 0, $repr));
-        ($socket:ident, $repr:expr, $result:expr) =>
-            (send!($socket, time 0, $repr, $result));
         ($socket:ident, time $time:expr, $repr:expr) =>
             (send!($socket, time $time, $repr, Ok(( ))));
         ($socket:ident, time $time:expr, $repr:expr, $result:expr) =>
