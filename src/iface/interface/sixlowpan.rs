@@ -134,7 +134,8 @@ impl<'a> InterfaceInner<'a> {
                         let udp_repr = check!(SixlowpanUdpNhcRepr::parse(
                             &udp_packet,
                             &iphc_repr.src_addr,
-                            &iphc_repr.dst_addr
+                            &iphc_repr.dst_addr,
+                            &self.checksum_caps(),
                         ));
 
                         self.process_udp(
@@ -284,7 +285,6 @@ impl<'a> InterfaceInner<'a> {
     pub(super) fn dispatch_ieee802154<Tx: TxToken>(
         &mut self,
         ll_dst_a: Ieee802154Address,
-        ip_repr: &IpRepr,
         tx_token: Tx,
         packet: IpPacket,
         _out_packet: Option<&mut OutPackets>,
@@ -299,6 +299,8 @@ impl<'a> InterfaceInner<'a> {
                 _ => Err(Error::Malformed),
             },
         )?;
+
+        let ip_repr = packet.ip_repr();
 
         let (src_addr, dst_addr) = match (ip_repr.src_addr(), ip_repr.dst_addr()) {
             (IpAddress::Ipv6(src_addr), IpAddress::Ipv6(dst_addr)) => (src_addr, dst_addr),
@@ -395,9 +397,15 @@ impl<'a> InterfaceInner<'a> {
                     ..
                 } = &mut _out_packet.unwrap().sixlowpan_out_packet;
 
-                if buffer.len() < total_size {
-                    net_debug!("6LoWPAN: Fragmentation buffer is too small");
-                    return Err(Error::Exhausted);
+                match buffer {
+                    managed::ManagedSlice::Borrowed(buffer) => {
+                        if buffer.len() < total_size {
+                            net_debug!("6LoWPAN: Fragmentation buffer is too small");
+                            return Err(Error::Exhausted);
+                        }
+                    }
+                    #[cfg(any(feature = "std", feature = "alloc"))]
+                    managed::ManagedSlice::Owned(buffer) => buffer.resize(total_size, 0),
                 }
 
                 *ll_dst_addr = ll_dst_a;

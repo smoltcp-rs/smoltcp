@@ -89,6 +89,13 @@ pub enum Address {
     Extended([u8; 8]),
 }
 
+#[cfg(test)]
+impl Default for Address {
+    fn default() -> Self {
+        Address::Extended([0u8; 8])
+    }
+}
+
 impl Address {
     /// The broadcast address.
     pub const BROADCAST: Address = Address::Short([0xff; 2]);

@@ -224,6 +224,7 @@ impl<'a> Cache<'a> {
     }
 }
 
+#[cfg(any(feature = "medium-ethernet", feature = "medium-ip"))]
 #[cfg(test)]
 mod test {
     use super::*;
