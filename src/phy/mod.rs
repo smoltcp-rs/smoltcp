@@ -100,7 +100,7 @@ mod sys;
 
 mod fault_injector;
 mod fuzz_injector;
-#[cfg(any(feature = "std", feature = "alloc"))]
+#[cfg(feature = "alloc")]
 mod loopback;
 mod pcap_writer;
 #[cfg(all(feature = "phy-raw_socket", unix))]
@@ -120,7 +120,7 @@ pub use self::sys::wait;
 
 pub use self::fault_injector::FaultInjector;
 pub use self::fuzz_injector::{FuzzInjector, Fuzzer};
-#[cfg(any(feature = "std", feature = "alloc"))]
+#[cfg(feature = "alloc")]
 pub use self::loopback::Loopback;
 pub use self::pcap_writer::{PcapLinkType, PcapMode, PcapSink, PcapWriter};
 #[cfg(all(feature = "phy-raw_socket", unix))]

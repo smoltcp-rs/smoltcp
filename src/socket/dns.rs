@@ -184,7 +184,7 @@ impl<'a> Socket<'a> {
 
         match self.queries {
             ManagedSlice::Borrowed(_) => None,
-            #[cfg(any(feature = "std", feature = "alloc"))]
+            #[cfg(feature = "alloc")]
             ManagedSlice::Owned(ref mut queries) => {
                 queries.push(None);
                 let index = queries.len() - 1;

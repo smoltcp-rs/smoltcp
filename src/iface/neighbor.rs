@@ -63,7 +63,7 @@ impl Answer {
 pub struct Cache<'a> {
     storage: ManagedMap<'a, IpAddress, Neighbor>,
     silent_until: Instant,
-    #[cfg(any(feature = "std", feature = "alloc"))]
+    #[cfg(feature = "alloc")]
     gc_threshold: usize,
 }
 
@@ -75,7 +75,7 @@ impl<'a> Cache<'a> {
     pub(crate) const ENTRY_LIFETIME: Duration = Duration::from_millis(60_000);
 
     /// Default number of entries in the cache before GC kicks in
-    #[cfg(any(feature = "std", feature = "alloc"))]
+    #[cfg(feature = "alloc")]
     pub(crate) const GC_THRESHOLD: usize = 1024;
 
     /// Create a cache. The backing storage is cleared upon creation.
@@ -91,13 +91,13 @@ impl<'a> Cache<'a> {
 
         Cache {
             storage,
-            #[cfg(any(feature = "std", feature = "alloc"))]
+            #[cfg(feature = "alloc")]
             gc_threshold: Self::GC_THRESHOLD,
             silent_until: Instant::from_millis(0),
         }
     }
 
-    #[cfg(any(feature = "std", feature = "alloc"))]
+    #[cfg(feature = "alloc")]
     pub fn new_with_limit<T>(storage: T, gc_threshold: usize) -> Cache<'a>
     where
         T: Into<ManagedMap<'a, IpAddress, Neighbor>>,
@@ -121,12 +121,12 @@ impl<'a> Cache<'a> {
         debug_assert!(protocol_addr.is_unicast());
         debug_assert!(hardware_addr.is_unicast());
 
-        #[cfg(any(feature = "std", feature = "alloc"))]
+        #[cfg(feature = "alloc")]
         let current_storage_size = self.storage.len();
 
         match self.storage {
             ManagedMap::Borrowed(_) => (),
-            #[cfg(any(feature = "std", feature = "alloc"))]
+            #[cfg(feature = "alloc")]
             ManagedMap::Owned(ref mut map) => {
                 if current_storage_size >= self.gc_threshold {
                     let new_btree_map = map
@@ -173,7 +173,7 @@ impl<'a> Cache<'a> {
                             .0
                     }
                     // Owned maps can extend themselves.
-                    #[cfg(any(feature = "std", feature = "alloc"))]
+                    #[cfg(feature = "alloc")]
                     ManagedMap::Owned(_) => unreachable!(),
                 };
 

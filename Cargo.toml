@@ -33,7 +33,7 @@ rand = "0.8"
 url = "2.0"
 
 [features]
-std = ["managed/std", "defmt?/alloc"]
+std = ["managed/std", "alloc"]
 alloc = ["managed/alloc", "defmt?/alloc"]
 verbose = []
 defmt = [ "dep:defmt", "heapless/defmt", "heapless/defmt-impl" ]

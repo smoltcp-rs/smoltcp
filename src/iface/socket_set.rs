@@ -79,7 +79,7 @@ impl<'a> SocketSet<'a> {
 
         match self.sockets {
             ManagedSlice::Borrowed(_) => panic!("adding a socket to a full SocketSet"),
-            #[cfg(any(feature = "std", feature = "alloc"))]
+            #[cfg(feature = "alloc")]
             ManagedSlice::Owned(ref mut sockets) => {
                 sockets.push(SocketStorage { inner: None });
                 let index = sockets.len() - 1;
