@@ -400,7 +400,10 @@ impl<'a> InterfaceInner<'a> {
                 match buffer {
                     managed::ManagedSlice::Borrowed(buffer) => {
                         if buffer.len() < total_size {
-                            net_debug!("6LoWPAN: Fragmentation buffer is too small");
+                            net_debug!(
+                                "6LoWPAN: Fragmentation buffer is too small, at least {} needed",
+                                total_size
+                            );
                             return Err(Error::Exhausted);
                         }
                     }
