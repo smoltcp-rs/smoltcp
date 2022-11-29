@@ -2196,7 +2196,10 @@ impl<'a> InterfaceInner<'a> {
                         let first_frag_ip_len = self.caps.ip_mtu();
 
                         if buffer.len() < first_frag_ip_len {
-                            net_debug!("Fragmentation buffer is too small");
+                            net_debug!(
+                                "Fragmentation buffer is too small, at least {} needed",
+                                first_frag_ip_len
+                            );
                             return Err(Error::Exhausted);
                         }
 
