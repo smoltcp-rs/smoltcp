@@ -319,7 +319,7 @@ impl<'a> InterfaceBuilder<'a> {
 ```
 # use std::collections::BTreeMap;
 #[cfg(feature = "proto-ipv4-fragmentation")]
-use smoltcp::iface::FragmentsCache;
+use smoltcp::iface::ReassemblyBuffer;
 use smoltcp::iface::{InterfaceBuilder, NeighborCache};
 # use smoltcp::phy::{Loopback, Medium};
 use smoltcp::wire::{EthernetAddress, IpCidr, IpAddress};
@@ -332,7 +332,7 @@ let neighbor_cache = // ...
 # NeighborCache::new(BTreeMap::new());
 # #[cfg(feature = "proto-ipv4-fragmentation")]
 # let ipv4_frag_cache = // ...
-# FragmentsCache::new(vec![], BTreeMap::new());
+# ReassemblyBuffer::new(vec![], BTreeMap::new());
 let ip_addrs = // ...
 # [];
 let builder = InterfaceBuilder::new()
