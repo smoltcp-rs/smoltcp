@@ -91,6 +91,7 @@ pub(crate) struct Ipv4OutPacket<'a> {
     /// The IPv4 representation.
     repr: Ipv4Repr,
     /// The destination hardware address.
+    #[cfg(feature = "medium-ethernet")]
     dst_hardware_addr: EthernetAddress,
     /// The offset of the next fragment.
     frag_offset: u16,
@@ -112,6 +113,7 @@ impl<'a> Ipv4OutPacket<'a> {
                 payload_len: 0,
                 hop_limit: 0,
             },
+            #[cfg(feature = "medium-ethernet")]
             dst_hardware_addr: EthernetAddress::default(),
             frag_offset: 0,
             ident: 0,
@@ -141,7 +143,10 @@ impl<'a> Ipv4OutPacket<'a> {
             payload_len: 0,
             hop_limit: 0,
         };
-        self.dst_hardware_addr = EthernetAddress::default();
+        #[cfg(feature = "medium-ethernet")]
+        {
+            self.dst_hardware_addr = EthernetAddress::default();
+        }
     }
 }
 
@@ -2129,12 +2134,20 @@ impl<'a> InterfaceInner<'a> {
 
         // If the medium is Ethernet, then we need to retrieve the destination hardware address.
         #[cfg(feature = "medium-ethernet")]
-        let (dst_hardware_addr, tx_token) =
-            match self.lookup_hardware_addr(tx_token, &ip_repr.src_addr(), &ip_repr.dst_addr())? {
-                (HardwareAddress::Ethernet(addr), tx_token) => (addr, tx_token),
-                #[cfg(feature = "medium-ieee802154")]
-                (HardwareAddress::Ieee802154(_), _) => unreachable!(),
-            };
+        let (dst_hardware_addr, tx_token) = match self.caps.medium {
+            Medium::Ethernet => {
+                match self.lookup_hardware_addr(
+                    tx_token,
+                    &ip_repr.src_addr(),
+                    &ip_repr.dst_addr(),
+                )? {
+                    (HardwareAddress::Ethernet(addr), tx_token) => (addr, tx_token),
+                    #[cfg(feature = "medium-ieee802154")]
+                    (HardwareAddress::Ieee802154(_), _) => unreachable!(),
+                }
+            }
+            _ => (EthernetAddress([0; 6]), tx_token),
+        };
 
         // Emit function for the Ethernet header.
         #[cfg(feature = "medium-ethernet")]
@@ -2186,7 +2199,8 @@ impl<'a> InterfaceInner<'a> {
                             repr: out_packet_repr,
                             frag_offset,
                             ident,
-                            dst_hardware_addr: dst_address,
+                            #[cfg(feature = "medium-ethernet")]
+                                dst_hardware_addr: dst_address,
                         } = &mut _out_packet.unwrap().ipv4_out_packet;
 
                         // Calculate how much we will send now (including the Ethernet header).
@@ -2203,7 +2217,10 @@ impl<'a> InterfaceInner<'a> {
                             return Err(Error::Exhausted);
                         }
 
-                        *dst_address = dst_hardware_addr;
+                        #[cfg(feature = "medium-ethernet")]
+                        {
+                            *dst_address = dst_hardware_addr;
+                        }
 
                         // Save the total packet len (without the Ethernet header, but with the first
                         // IP header).

@@ -466,6 +466,7 @@ impl<'a> InterfaceInner<'a> {
         }
 
         // Emit function for the Ethernet header.
+        #[cfg(feature = "medium-ethernet")]
         let emit_ethernet = |repr: &IpRepr, tx_buffer: &mut [u8]| {
             let mut frame = EthernetFrame::new_unchecked(tx_buffer);
 
