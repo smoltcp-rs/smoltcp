@@ -52,7 +52,7 @@ let repr = Ipv4Repr {
     dst_addr:    Ipv4Address::new(10, 0, 0, 2),
     next_header: IpProtocol::Tcp,
     payload_len: 10,
-    hop_limit:   64
+    hop_limit:   64,
 };
 let mut buffer = vec![0; repr.buffer_len() + repr.payload_len];
 { // emission
@@ -81,6 +81,8 @@ pub mod pretty_print;
 mod arp;
 #[cfg(feature = "proto-dhcpv4")]
 pub(crate) mod dhcpv4;
+#[cfg(feature = "proto-dns")]
+pub(crate) mod dns;
 #[cfg(feature = "medium-ethernet")]
 mod ethernet;
 #[cfg(any(feature = "proto-ipv4", feature = "proto-ipv6"))]
@@ -123,7 +125,9 @@ mod sixlowpan;
 mod tcp;
 mod udp;
 
-use crate::{phy::Medium, Error};
+use core::fmt;
+
+use crate::phy::Medium;
 
 pub use self::pretty_print::PrettyPrinter;
 
@@ -140,13 +144,14 @@ pub use self::arp::{
 
 #[cfg(all(feature = "proto-sixlowpan", feature = "medium-ieee802154"))]
 pub use self::sixlowpan::{
+    frag::{Key as SixlowpanFragKey, Packet as SixlowpanFragPacket, Repr as SixlowpanFragRepr},
     iphc::{Packet as SixlowpanIphcPacket, Repr as SixlowpanIphcRepr},
     nhc::{
-        ExtensionHeaderPacket as SixlowpanExtHeaderPacket,
-        ExtensionHeaderRepr as SixlowpanExtHeaderRepr, Packet as SixlowpanNhcPacket,
-        UdpNhcRepr as SixlowpanUdpRepr, UdpPacket as SixlowpanUdpPacket,
+        ExtHeaderPacket as SixlowpanExtHeaderPacket, ExtHeaderRepr as SixlowpanExtHeaderRepr,
+        NhcPacket as SixlowpanNhcPacket, UdpNhcPacket as SixlowpanUdpNhcPacket,
+        UdpNhcRepr as SixlowpanUdpNhcRepr,
     },
-    NextHeader as SixlowpanNextHeader,
+    AddressContext as SixlowpanAddressContext, NextHeader as SixlowpanNextHeader, SixlowpanPacket,
 };
 
 #[cfg(feature = "medium-ieee802154")]
@@ -157,14 +162,15 @@ pub use self::ieee802154::{
 };
 
 pub use self::ip::{
-    Address as IpAddress, Cidr as IpCidr, Endpoint as IpEndpoint, Protocol as IpProtocol,
-    Repr as IpRepr, Version as IpVersion,
+    Address as IpAddress, Cidr as IpCidr, Endpoint as IpEndpoint,
+    ListenEndpoint as IpListenEndpoint, Protocol as IpProtocol, Repr as IpRepr,
+    Version as IpVersion,
 };
 
 #[cfg(feature = "proto-ipv4")]
 pub use self::ipv4::{
-    Address as Ipv4Address, Cidr as Ipv4Cidr, Packet as Ipv4Packet, Repr as Ipv4Repr,
-    HEADER_LEN as IPV4_HEADER_LEN, MIN_MTU as IPV4_MIN_MTU,
+    Address as Ipv4Address, Cidr as Ipv4Cidr, Key as Ipv4FragKey, Packet as Ipv4Packet,
+    Repr as Ipv4Repr, HEADER_LEN as IPV4_HEADER_LEN, MIN_MTU as IPV4_MIN_MTU,
 };
 
 #[cfg(feature = "proto-ipv6")]
@@ -186,7 +192,9 @@ pub use self::ipv6hopbyhop::{Header as Ipv6HopByHopHeader, Repr as Ipv6HopByHopR
 pub use self::ipv6fragment::{Header as Ipv6FragmentHeader, Repr as Ipv6FragmentRepr};
 
 #[cfg(feature = "proto-ipv6")]
-pub use self::ipv6routing::{Header as Ipv6RoutingHeader, Repr as Ipv6RoutingRepr};
+pub use self::ipv6routing::{
+    Header as Ipv6RoutingHeader, Repr as Ipv6RoutingRepr, Type as Ipv6RoutingType,
+};
 
 #[cfg(feature = "proto-ipv4")]
 pub use self::icmpv4::{
@@ -237,10 +245,31 @@ pub use self::tcp::{
 
 #[cfg(feature = "proto-dhcpv4")]
 pub use self::dhcpv4::{
-    MessageType as DhcpMessageType, Packet as DhcpPacket, Repr as DhcpRepr,
-    CLIENT_PORT as DHCP_CLIENT_PORT, MAX_DNS_SERVER_COUNT as DHCP_MAX_DNS_SERVER_COUNT,
-    SERVER_PORT as DHCP_SERVER_PORT,
+    DhcpOption, DhcpOptionWriter, MessageType as DhcpMessageType, Packet as DhcpPacket,
+    Repr as DhcpRepr, CLIENT_PORT as DHCP_CLIENT_PORT,
+    MAX_DNS_SERVER_COUNT as DHCP_MAX_DNS_SERVER_COUNT, SERVER_PORT as DHCP_SERVER_PORT,
 };
+
+#[cfg(feature = "proto-dns")]
+pub use self::dns::{Packet as DnsPacket, Repr as DnsRepr, Type as DnsQueryType};
+
+/// Parsing a packet failed.
+///
+/// Either it is malformed, or it is not supported by smoltcp.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct Error;
+
+#[cfg(feature = "std")]
+impl std::error::Error for Error {}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "wire::Error")
+    }
+}
+
+pub type Result<T> = core::result::Result<T, Error>;
 
 /// Representation of an hardware address, such as an Ethernet address or an IEEE802.15.4 address.
 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
@@ -255,7 +284,7 @@ pub enum HardwareAddress {
 
 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
 impl HardwareAddress {
-    pub fn as_bytes(&self) -> &[u8] {
+    pub const fn as_bytes(&self) -> &[u8] {
         match self {
             #[cfg(feature = "medium-ethernet")]
             HardwareAddress::Ethernet(addr) => addr.as_bytes(),
@@ -343,20 +372,20 @@ impl RawHardwareAddress {
         &self.data[..self.len as usize]
     }
 
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.len as usize
     }
 
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.len == 0
     }
 
-    pub fn parse(&self, medium: Medium) -> Result<HardwareAddress, Error> {
+    pub fn parse(&self, medium: Medium) -> Result<HardwareAddress> {
         match medium {
             #[cfg(feature = "medium-ethernet")]
             Medium::Ethernet => {
                 if self.len() < 6 {
-                    return Err(Error::Malformed);
+                    return Err(Error);
                 }
                 Ok(HardwareAddress::Ethernet(EthernetAddress::from_bytes(
                     self.as_bytes(),
@@ -365,7 +394,7 @@ impl RawHardwareAddress {
             #[cfg(feature = "medium-ieee802154")]
             Medium::Ieee802154 => {
                 if self.len() < 8 {
-                    return Err(Error::Malformed);
+                    return Err(Error);
                 }
                 Ok(HardwareAddress::Ieee802154(Ieee802154Address::from_bytes(
                     self.as_bytes(),

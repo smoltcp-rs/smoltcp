@@ -41,7 +41,7 @@ where
                     buf,
                     "\x1b[37m{} {}\x1b[0m",
                     timestamp,
-                    message.replace("\n", "\n             ")
+                    message.replace('\n', "\n             ")
                 )
             } else {
                 writeln!(
@@ -84,18 +84,14 @@ pub fn parse_options(options: &Options, free: Vec<&str>) -> Matches {
                     free.join(" ")
                 );
                 print!("{}", options.usage(&brief));
-                process::exit(if matches.free.len() != free.len() {
-                    1
-                } else {
-                    0
-                })
+                process::exit((matches.free.len() != free.len()) as _);
             }
             matches
         }
     }
 }
 
-pub fn add_tuntap_options(opts: &mut Options, _free: &mut Vec<&str>) {
+pub fn add_tuntap_options(opts: &mut Options, _free: &mut [&str]) {
     opts.optopt("", "tun", "TUN interface to use", "tun0");
     opts.optopt("", "tap", "TAP interface to use", "tap0");
 }
@@ -111,7 +107,7 @@ pub fn parse_tuntap_options(matches: &mut Matches) -> TunTapInterface {
     }
 }
 
-pub fn add_middleware_options(opts: &mut Options, _free: &mut Vec<&str>) {
+pub fn add_middleware_options(opts: &mut Options, _free: &mut [&str]) {
     opts.optopt("", "pcap", "Write a packet capture file", "FILE");
     opts.optopt(
         "",
@@ -159,7 +155,7 @@ pub fn parse_middleware_options<D>(
     loopback: bool,
 ) -> FaultInjector<Tracer<PcapWriter<D, Box<dyn io::Write>>>>
 where
-    D: for<'a> Device<'a>,
+    D: Device,
 {
     let drop_chance = matches
         .opt_str("drop-chance")
@@ -186,12 +182,10 @@ where
         .map(|s| u64::from_str(&s).unwrap())
         .unwrap_or(0);
 
-    let pcap_writer: Box<dyn io::Write>;
-    if let Some(pcap_filename) = matches.opt_str("pcap") {
-        pcap_writer = Box::new(File::create(pcap_filename).expect("cannot open file"))
-    } else {
-        pcap_writer = Box::new(io::sink())
-    }
+    let pcap_writer: Box<dyn io::Write> = match matches.opt_str("pcap") {
+        Some(pcap_filename) => Box::new(File::create(pcap_filename).expect("cannot open file")),
+        None => Box::new(io::sink()),
+    };
 
     let seed = SystemTime::now()
         .duration_since(UNIX_EPOCH)

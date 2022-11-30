@@ -1,9 +1,9 @@
 use byteorder::{ByteOrder, NetworkEndian};
 use core::fmt;
 
+use super::{Error, Result};
 use crate::phy::ChecksumCapabilities;
 use crate::wire::ip::{checksum, pretty_print_ip_payload};
-use crate::{Error, Result};
 
 pub use super::IpProtocol as Protocol;
 
@@ -21,16 +21,29 @@ pub use super::IpProtocol as Protocol;
 // accept a packet of the following size.
 pub const MIN_MTU: usize = 576;
 
+/// Size of IPv4 adderess in octets.
+///
+/// [RFC 8200 § 2]: https://www.rfc-editor.org/rfc/rfc791#section-3.2
+pub const ADDR_SIZE: usize = 4;
+
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone, Copy)]
+pub struct Key {
+    id: u16,
+    src_addr: Address,
+    dst_addr: Address,
+    protocol: Protocol,
+}
+
 /// A four-octet IPv4 address.
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
-pub struct Address(pub [u8; 4]);
+pub struct Address(pub [u8; ADDR_SIZE]);
 
 impl Address {
     /// An unspecified address.
-    pub const UNSPECIFIED: Address = Address([0x00; 4]);
+    pub const UNSPECIFIED: Address = Address([0x00; ADDR_SIZE]);
 
     /// The broadcast address.
-    pub const BROADCAST: Address = Address([0xff; 4]);
+    pub const BROADCAST: Address = Address([0xff; ADDR_SIZE]);
 
     /// All multicast-capable nodes
     pub const MULTICAST_ALL_SYSTEMS: Address = Address([224, 0, 0, 1]);
@@ -48,13 +61,13 @@ impl Address {
     /// # Panics
     /// The function panics if `data` is not four octets long.
     pub fn from_bytes(data: &[u8]) -> Address {
-        let mut bytes = [0; 4];
+        let mut bytes = [0; ADDR_SIZE];
         bytes.copy_from_slice(data);
         Address(bytes)
     }
 
     /// Return an IPv4 address as a sequence of octets, in big-endian.
-    pub fn as_bytes(&self) -> &[u8] {
+    pub const fn as_bytes(&self) -> &[u8] {
         &self.0
     }
 
@@ -65,7 +78,7 @@ impl Address {
 
     /// Query whether the address is the broadcast address.
     pub fn is_broadcast(&self) -> bool {
-        self.0[0..4] == [255; 4]
+        self.0[0..4] == [255; ADDR_SIZE]
     }
 
     /// Query whether the address is a multicast address.
@@ -164,7 +177,7 @@ impl Cidr {
                 prefix_len: netmask.count_ones() as u8,
             })
         } else {
-            Err(Error::Illegal)
+            Err(Error)
         }
     }
 
@@ -179,7 +192,7 @@ impl Cidr {
     }
 
     /// Return the network mask of this IPv4 CIDR.
-    pub fn netmask(&self) -> Address {
+    pub const fn netmask(&self) -> Address {
         if self.prefix_len == 0 {
             return Address([0, 0, 0, 0]);
         }
@@ -216,7 +229,7 @@ impl Cidr {
     }
 
     /// Return the network block of this IPv4 CIDR.
-    pub fn network(&self) -> Cidr {
+    pub const fn network(&self) -> Cidr {
         let mask = self.netmask().0;
         let network = [
             self.address.0[0] & mask[0],
@@ -265,7 +278,7 @@ impl defmt::Format for Cidr {
 }
 
 /// A read/write wrapper around an Internet Protocol version 4 packet buffer.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Packet<T: AsRef<[u8]>> {
     buffer: T,
@@ -290,7 +303,7 @@ pub const HEADER_LEN: usize = field::DST_ADDR.end;
 
 impl<T: AsRef<[u8]>> Packet<T> {
     /// Imbue a raw octet buffer with IPv4 packet structure.
-    pub fn new_unchecked(buffer: T) -> Packet<T> {
+    pub const fn new_unchecked(buffer: T) -> Packet<T> {
         Packet { buffer }
     }
 
@@ -305,8 +318,8 @@ impl<T: AsRef<[u8]>> Packet<T> {
     }
 
     /// Ensure that no accessor method will panic if called.
-    /// Returns `Err(Error::Truncated)` if the buffer is too short.
-    /// Returns `Err(Error::Malformed)` if the header length is greater
+    /// Returns `Err(Error)` if the buffer is too short.
+    /// Returns `Err(Error)` if the header length is greater
     /// than total length.
     ///
     /// The result of this check is invalidated by calling [set_header_len]
@@ -318,13 +331,13 @@ impl<T: AsRef<[u8]>> Packet<T> {
     pub fn check_len(&self) -> Result<()> {
         let len = self.buffer.as_ref().len();
         if len < field::DST_ADDR.end {
-            Err(Error::Truncated)
+            Err(Error)
         } else if len < self.header_len() as usize {
-            Err(Error::Truncated)
+            Err(Error)
         } else if self.header_len() as u16 > self.total_len() {
-            Err(Error::Malformed)
+            Err(Error)
         } else if len < self.total_len() as usize {
-            Err(Error::Truncated)
+            Err(Error)
         } else {
             Ok(())
         }
@@ -442,6 +455,16 @@ impl<T: AsRef<[u8]>> Packet<T> {
 
         let data = self.buffer.as_ref();
         checksum::data(&data[..self.header_len() as usize]) == !0
+    }
+
+    /// Returns the key for identifying the packet.
+    pub fn get_key(&self) -> Key {
+        Key {
+            id: self.ident(),
+            src_addr: self.src_addr(),
+            dst_addr: self.dst_addr(),
+            protocol: self.next_header(),
+        }
     }
 }
 
@@ -611,21 +634,20 @@ impl Repr {
     ) -> Result<Repr> {
         // Version 4 is expected.
         if packet.version() != 4 {
-            return Err(Error::Malformed);
+            return Err(Error);
         }
         // Valid checksum is expected.
         if checksum_caps.ipv4.rx() && !packet.verify_checksum() {
-            return Err(Error::Checksum);
+            return Err(Error);
         }
+
+        #[cfg(not(feature = "proto-ipv4-fragmentation"))]
         // We do not support fragmentation.
         if packet.more_frags() || packet.frag_offset() != 0 {
-            return Err(Error::Fragmented);
+            return Err(Error);
         }
-        // Since the packet is not fragmented, it must include the entire payload.
+
         let payload_len = packet.total_len() as usize - packet.header_len() as usize;
-        if packet.payload().len() < payload_len {
-            return Err(Error::Truncated);
-        }
 
         // All DSCP values are acceptable, since they are of no concern to receiving endpoint.
         // All ECN values are acceptable, since ECN requires opt-in from both endpoints.
@@ -634,13 +656,13 @@ impl Repr {
             src_addr: packet.src_addr(),
             dst_addr: packet.dst_addr(),
             next_header: packet.next_header(),
-            payload_len: payload_len,
+            payload_len,
             hop_limit: packet.hop_limit(),
         })
     }
 
     /// Return the length of a header that will be emitted from this high-level representation.
-    pub fn buffer_len(&self) -> usize {
+    pub const fn buffer_len(&self) -> usize {
         // We never emit any options.
         field::DST_ADDR.end
     }
@@ -749,9 +771,20 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
             Ok(ip_packet) => match Repr::parse(&ip_packet, &checksum_caps) {
                 Err(_) => return Ok(()),
                 Ok(ip_repr) => {
-                    write!(f, "{}{}", indent, ip_repr)?;
-                    format_checksum(f, ip_packet.verify_checksum())?;
-                    (ip_repr, ip_packet.payload())
+                    if ip_packet.more_frags() || ip_packet.frag_offset() != 0 {
+                        write!(
+                            f,
+                            "{}IPv4 Fragment more_frags={} offset={}",
+                            indent,
+                            ip_packet.more_frags(),
+                            ip_packet.frag_offset()
+                        )?;
+                        return Ok(());
+                    } else {
+                        write!(f, "{}{}", indent, ip_repr)?;
+                        format_checksum(f, ip_packet.verify_checksum())?;
+                        (ip_repr, ip_packet.payload())
+                    }
                 }
             },
         };
@@ -812,7 +845,7 @@ mod test {
         packet.set_dst_addr(Address([0x21, 0x22, 0x23, 0x24]));
         packet.fill_checksum();
         packet.payload_mut().copy_from_slice(&PAYLOAD_BYTES[..]);
-        assert_eq!(&packet.into_inner()[..], &PACKET_BYTES[..]);
+        assert_eq!(&*packet.into_inner(), &PACKET_BYTES[..]);
     }
 
     #[test]
@@ -837,7 +870,7 @@ mod test {
         bytes.extend(&PACKET_BYTES[..]);
         Packet::new_unchecked(&mut bytes).set_total_len(128);
 
-        assert_eq!(Packet::new_checked(&bytes).unwrap_err(), Error::Truncated);
+        assert_eq!(Packet::new_checked(&bytes).unwrap_err(), Error);
     }
 
     static REPR_PACKET_BYTES: [u8; 24] = [
@@ -845,9 +878,9 @@ mod test {
         0x14, 0x21, 0x22, 0x23, 0x24, 0xaa, 0x00, 0x00, 0xff,
     ];
 
-    static REPR_PAYLOAD_BYTES: [u8; 4] = [0xaa, 0x00, 0x00, 0xff];
+    static REPR_PAYLOAD_BYTES: [u8; ADDR_SIZE] = [0xaa, 0x00, 0x00, 0xff];
 
-    fn packet_repr() -> Repr {
+    const fn packet_repr() -> Repr {
         Repr {
             src_addr: Address([0x11, 0x12, 0x13, 0x14]),
             dst_addr: Address([0x21, 0x22, 0x23, 0x24]),
@@ -874,7 +907,7 @@ mod test {
         let packet = Packet::new_unchecked(&*packet.into_inner());
         assert_eq!(
             Repr::parse(&packet, &ChecksumCapabilities::default()),
-            Err(Error::Malformed)
+            Err(Error)
         );
     }
 
@@ -882,7 +915,7 @@ mod test {
     fn test_parse_total_len_less_than_header_len() {
         let mut bytes = vec![0; 40];
         bytes[0] = 0x09;
-        assert_eq!(Packet::new_checked(&mut bytes), Err(Error::Malformed));
+        assert_eq!(Packet::new_checked(&mut bytes), Err(Error));
     }
 
     #[test]
@@ -892,7 +925,7 @@ mod test {
         let mut packet = Packet::new_unchecked(&mut bytes);
         repr.emit(&mut packet, &ChecksumCapabilities::default());
         packet.payload_mut().copy_from_slice(&REPR_PAYLOAD_BYTES);
-        assert_eq!(&packet.into_inner()[..], &REPR_PACKET_BYTES[..]);
+        assert_eq!(&*packet.into_inner(), &REPR_PACKET_BYTES[..]);
     }
 
     #[test]

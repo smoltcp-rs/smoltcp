@@ -19,3 +19,13 @@ pub use self::ring_buffer::RingBuffer;
 pub trait Resettable {
     fn reset(&mut self);
 }
+
+/// Error returned when enqueuing into a full buffer.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct Full;
+
+/// Error returned when dequeuing from an empty buffer.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct Empty;

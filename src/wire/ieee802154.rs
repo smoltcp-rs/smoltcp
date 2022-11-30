@@ -2,9 +2,8 @@ use core::fmt;
 
 use byteorder::{ByteOrder, LittleEndian};
 
+use super::{Error, Result};
 use crate::wire::ipv6::Address as Ipv6Address;
-use crate::Error;
-use crate::Result;
 
 enum_with_unknown! {
     /// IEEE 802.15.4 frame type.
@@ -44,7 +43,7 @@ enum_with_unknown! {
 
 impl AddressingMode {
     /// Return the size in octets of the address.
-    fn size(&self) -> usize {
+    const fn size(&self) -> usize {
         match self {
             AddressingMode::Absent => 0,
             AddressingMode::Short => 2,
@@ -90,6 +89,13 @@ pub enum Address {
     Extended([u8; 8]),
 }
 
+#[cfg(test)]
+impl Default for Address {
+    fn default() -> Self {
+        Address::Extended([0u8; 8])
+    }
+}
+
 impl Address {
     /// The broadcast address.
     pub const BROADCAST: Address = Address::Short([0xff; 2]);
@@ -104,11 +110,11 @@ impl Address {
         *self == Self::BROADCAST
     }
 
-    fn short_from_bytes(a: [u8; 2]) -> Self {
+    const fn short_from_bytes(a: [u8; 2]) -> Self {
         Self::Short(a)
     }
 
-    fn extended_from_bytes(a: [u8; 8]) -> Self {
+    const fn extended_from_bytes(a: [u8; 8]) -> Self {
         Self::Extended(a)
     }
 
@@ -126,7 +132,7 @@ impl Address {
         }
     }
 
-    pub fn as_bytes(&self) -> &[u8] {
+    pub const fn as_bytes(&self) -> &[u8] {
         match self {
             Address::Absent => &[],
             Address::Short(value) => value,
@@ -225,7 +231,7 @@ macro_rules! set_fc_bit_field {
 
 impl<T: AsRef<[u8]>> Frame<T> {
     /// Input a raw octet buffer with Ethernet frame structure.
-    pub fn new_unchecked(buffer: T) -> Frame<T> {
+    pub const fn new_unchecked(buffer: T) -> Frame<T> {
         Frame { buffer }
     }
 
@@ -238,22 +244,22 @@ impl<T: AsRef<[u8]>> Frame<T> {
         packet.check_len()?;
 
         if matches!(packet.dst_addressing_mode(), AddressingMode::Unknown(_)) {
-            return Err(Error::Malformed);
+            return Err(Error);
         }
 
         if matches!(packet.src_addressing_mode(), AddressingMode::Unknown(_)) {
-            return Err(Error::Malformed);
+            return Err(Error);
         }
 
         Ok(packet)
     }
 
     /// Ensure that no accessor method will panic if called.
-    /// Returns `Err(Error::Truncated)` if the buffer is too short.
+    /// Returns `Err(Error)` if the buffer is too short.
     pub fn check_len(&self) -> Result<()> {
         // We need at least 3 bytes
         if self.buffer.as_ref().len() < 3 {
-            return Err(Error::Truncated);
+            return Err(Error);
         }
 
         let mut offset = field::ADDRESSING.start + 2;
@@ -267,7 +273,7 @@ impl<T: AsRef<[u8]>> Frame<T> {
         }
 
         if offset > self.buffer.as_ref().len() {
-            return Err(Error::Truncated);
+            return Err(Error);
         }
 
         Ok(())
@@ -479,7 +485,7 @@ impl<T: AsRef<[u8]>> Frame<T> {
         index
     }
 
-    /// Return the lenght of the key identifier field.
+    /// Return the length of the key identifier field.
     fn key_identifier_length(&self) -> Option<u8> {
         Some(match self.key_identifier_mode() {
             0 => 0,
@@ -785,7 +791,7 @@ impl Repr {
 
     /// Return the length of a buffer required to hold a packet with the payload of a given length.
     #[inline]
-    pub fn buffer_len(&self) -> usize {
+    pub const fn buffer_len(&self) -> usize {
         3 + 2
             + match self.dst_addr {
                 Some(Address::Absent) | None => 0,

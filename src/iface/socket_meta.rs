@@ -1,19 +1,21 @@
 use super::SocketHandle;
-use crate::socket::PollAt;
-use crate::time::{Duration, Instant};
-use crate::wire::IpAddress;
+use crate::{
+    socket::PollAt,
+    time::{Duration, Instant},
+    wire::IpAddress,
+};
 
 /// Neighbor dependency.
 ///
-/// This enum tracks whether the socket should be polled based on the neighbor it is
-/// going to send packets to.
+/// This enum tracks whether the socket should be polled based on the neighbor
+/// it is going to send packets to.
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 enum NeighborState {
     /// Socket can be polled immediately.
     Active,
-    /// Socket should not be polled until either `silent_until` passes or `neighbor` appears
-    /// in the neighbor cache.
+    /// Socket should not be polled until either `silent_until` passes or
+    /// `neighbor` appears in the neighbor cache.
     Waiting {
         neighbor: IpAddress,
         silent_until: Instant,
@@ -29,7 +31,8 @@ impl Default for NeighborState {
 /// Network socket metadata.
 ///
 /// This includes things that only external (to the socket, that is) code
-/// is interested in, but which are more conveniently stored inside the socket itself.
+/// is interested in, but which are more conveniently stored inside the socket
+/// itself.
 #[derive(Debug, Default)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub(crate) struct Meta {
@@ -41,11 +44,11 @@ pub(crate) struct Meta {
 }
 
 impl Meta {
-    /// Minimum delay between neighbor discovery requests for this particular socket,
-    /// in milliseconds.
+    /// Minimum delay between neighbor discovery requests for this particular
+    /// socket, in milliseconds.
     ///
     /// See also `iface::NeighborCache::SILENT_TIME`.
-    pub(crate) const DISCOVERY_SILENT_TIME: Duration = Duration::from_millis(3_000);
+    pub(crate) const DISCOVERY_SILENT_TIME: Duration = Duration::from_millis(1_000);
 
     pub(crate) fn poll_at<F>(&self, socket_poll_at: PollAt, has_neighbor: F) -> PollAt
     where

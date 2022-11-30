@@ -1,7 +1,7 @@
 use byteorder::{ByteOrder, NetworkEndian};
 use core::fmt;
 
-use crate::{Error, Result};
+use super::{Error, Result};
 
 enum_with_unknown! {
     /// Ethernet protocol type.
@@ -43,7 +43,7 @@ impl Address {
     }
 
     /// Return an Ethernet address as a sequence of octets, in big-endian.
-    pub fn as_bytes(&self) -> &[u8] {
+    pub const fn as_bytes(&self) -> &[u8] {
         &self.0
     }
 
@@ -58,12 +58,12 @@ impl Address {
     }
 
     /// Query whether the "multicast" bit in the OUI is set.
-    pub fn is_multicast(&self) -> bool {
+    pub const fn is_multicast(&self) -> bool {
         self.0[0] & 0x01 != 0
     }
 
     /// Query whether the "locally administered" bit in the OUI is set.
-    pub fn is_local(&self) -> bool {
+    pub const fn is_local(&self) -> bool {
         self.0[0] & 0x02 != 0
     }
 }
@@ -100,7 +100,7 @@ pub const HEADER_LEN: usize = field::PAYLOAD.start;
 
 impl<T: AsRef<[u8]>> Frame<T> {
     /// Imbue a raw octet buffer with Ethernet frame structure.
-    pub fn new_unchecked(buffer: T) -> Frame<T> {
+    pub const fn new_unchecked(buffer: T) -> Frame<T> {
         Frame { buffer }
     }
 
@@ -115,11 +115,11 @@ impl<T: AsRef<[u8]>> Frame<T> {
     }
 
     /// Ensure that no accessor method will panic if called.
-    /// Returns `Err(Error::Truncated)` if the buffer is too short.
+    /// Returns `Err(Error)` if the buffer is too short.
     pub fn check_len(&self) -> Result<()> {
         let len = self.buffer.as_ref().len();
         if len < HEADER_LEN {
-            Err(Error::Truncated)
+            Err(Error)
         } else {
             Ok(())
         }
@@ -131,13 +131,13 @@ impl<T: AsRef<[u8]>> Frame<T> {
     }
 
     /// Return the length of a frame header.
-    pub fn header_len() -> usize {
+    pub const fn header_len() -> usize {
         HEADER_LEN
     }
 
     /// Return the length of a buffer required to hold a packet with the payload
     /// of a given length.
-    pub fn buffer_len(payload_len: usize) -> usize {
+    pub const fn buffer_len(payload_len: usize) -> usize {
         HEADER_LEN + payload_len
     }
 
@@ -277,7 +277,7 @@ impl Repr {
     }
 
     /// Return the length of a header that will be emitted from this high-level representation.
-    pub fn buffer_len(&self) -> usize {
+    pub const fn buffer_len(&self) -> usize {
         HEADER_LEN
     }
 

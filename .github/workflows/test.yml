@@ -7,21 +7,21 @@ name: Test
 
 jobs:
   tests:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     needs: [test, check]
     steps:
       - name: Done
         run: exit 0
   test:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     continue-on-error: ${{ matrix.rust == 'nightly' }}
     strategy:
       matrix:
         # Test on stable, MSRV, and nightly.
         # Failure is permitted on nightly.
         rust:
-          - stable
-          - 1.56.0
+          #- stable  # TODO: enable again when "stable" is 1.66 or higher.
+          - 1.65.0
           - nightly
 
         features:
@@ -32,56 +32,58 @@ jobs:
           - std proto-ipv4
 
           # Test features chosen to be as orthogonal as possible.
-          - std medium-ethernet phy-raw_socket proto-ipv6 socket-udp
+          - std medium-ethernet phy-raw_socket proto-ipv6 socket-udp socket-dns
           - std medium-ethernet phy-tuntap_interface proto-ipv6 socket-udp
-          - std medium-ethernet proto-ipv4 proto-igmp socket-raw
-          - std medium-ethernet proto-ipv4 socket-udp socket-tcp
+          - std medium-ethernet proto-ipv4 proto-ipv4-fragmentation socket-raw socket-dns
+          - std medium-ethernet proto-ipv4 proto-igmp socket-raw socket-dns
+          - std medium-ethernet proto-ipv4 socket-udp socket-tcp socket-dns
           - std medium-ethernet proto-ipv4 proto-dhcpv4 socket-udp
-          - std medium-ethernet medium-ip medium-ieee802154 proto-ipv6 socket-udp
+          - std medium-ethernet medium-ip medium-ieee802154 proto-ipv6 socket-udp socket-dns
           - std medium-ethernet proto-ipv6 socket-tcp
           - std medium-ethernet medium-ip proto-ipv4 socket-icmp socket-tcp
           - std medium-ip proto-ipv6 socket-icmp socket-tcp
+          - std medium-ieee802154 proto-sixlowpan socket-udp
+          - std medium-ieee802154 proto-sixlowpan proto-sixlowpan-fragmentation socket-udp
+          - std medium-ip proto-ipv4 proto-ipv6 socket-tcp socket-udp
 
           # Test features chosen to be as aggressive as possible.
-          - std medium-ethernet medium-ip medium-ieee802154 proto-ipv4 proto-ipv6 socket-raw socket-udp socket-tcp socket-icmp async
+          - std medium-ethernet medium-ip medium-ieee802154 proto-ipv4 proto-ipv6 socket-raw socket-udp socket-tcp socket-icmp socket-dns async
 
         include:
           # Test alloc feature which requires nightly.
           - rust: nightly
             features: alloc medium-ethernet proto-ipv4 proto-ipv6 socket-raw socket-udp socket-tcp socket-icmp
+    env:
+      RUSTUP_TOOLCHAIN: "${{ matrix.rust }}"
     steps:
       - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: ${{ matrix.rust }}
-          override: true
       - name: Run Tests
         run: cargo test --no-default-features --features "${{ matrix.features }}"
 
   check:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     continue-on-error: ${{ matrix.rust == 'nightly' }}
     strategy:
       matrix:
         # Test on stable, MSRV, and nightly.
         # Failure is permitted on nightly.
         rust:
-          - stable
-          - 1.56.0
+          #- stable  # TODO: enable again when "stable" is 1.66 or higher.
+          - 1.65.0
           - nightly
 
         features:
           # These feature sets cannot run tests, so we only check they build.
-          - medium-ip medium-ethernet medium-ieee802154 proto-ipv6 proto-ipv6 proto-igmp proto-dhcpv4 socket-raw socket-udp socket-tcp socket-icmp async
-          - defmt medium-ip medium-ethernet proto-ipv6 proto-ipv6 proto-igmp proto-dhcpv4 socket-raw socket-udp socket-tcp socket-icmp async
+          - medium-ip medium-ethernet medium-ieee802154 proto-ipv6 proto-ipv6 proto-igmp proto-dhcpv4 socket-raw socket-udp socket-tcp socket-icmp socket-dns async
+          - defmt medium-ip medium-ethernet proto-ipv6 proto-ipv6 proto-igmp proto-dhcpv4 socket-raw socket-udp socket-tcp socket-icmp socket-dns async
+          - defmt alloc medium-ip medium-ethernet proto-ipv6 proto-ipv6 proto-igmp proto-dhcpv4 socket-raw socket-udp socket-tcp socket-icmp socket-dns async
 
+    env:
+      # Set DEFMT_LOG to trace so that all net_{error, .., trace} messages
+      # are actually compiled and verified
+      DEFMT_LOG: "trace"
+      RUSTUP_TOOLCHAIN: "${{ matrix.rust }}"
     steps:
       - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: ${{ matrix.rust }}
-          override: true
       - name: Check
         run: cargo check --no-default-features --features "${{ matrix.features }}"

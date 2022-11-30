@@ -6,9 +6,9 @@
 
 use byteorder::{ByteOrder, NetworkEndian};
 
+use super::{Error, Result};
 use crate::wire::icmpv6::{field, Message, Packet};
 use crate::wire::Ipv6Address;
-use crate::{Error, Result};
 
 enum_with_unknown! {
     /// MLDv2 Multicast Listener Report Record Type. See [RFC 3810 § 5.2.12] for
@@ -165,7 +165,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
 }
 
 /// A read/write wrapper around an MLDv2 Listener Report Message Address Record.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct AddressRecord<T: AsRef<[u8]>> {
     buffer: T,
@@ -173,7 +173,7 @@ pub struct AddressRecord<T: AsRef<[u8]>> {
 
 impl<T: AsRef<[u8]>> AddressRecord<T> {
     /// Imbue a raw octet buffer with a Address Record structure.
-    pub fn new_unchecked(buffer: T) -> Self {
+    pub const fn new_unchecked(buffer: T) -> Self {
         Self { buffer }
     }
 
@@ -192,7 +192,7 @@ impl<T: AsRef<[u8]>> AddressRecord<T> {
     pub fn check_len(&self) -> Result<()> {
         let len = self.buffer.as_ref().len();
         if len < field::RECORD_MCAST_ADDR.end {
-            Err(Error::Truncated)
+            Err(Error)
         } else {
             Ok(())
         }
@@ -216,7 +216,7 @@ impl<T: AsRef<[u8]>> AddressRecord<T> {
         RecordType::from(data[field::RECORD_TYPE])
     }
 
-    /// Return the length of the auxilary data.
+    /// Return the length of the auxiliary data.
     #[inline]
     pub fn aux_data_len(&self) -> u8 {
         let data = self.buffer.as_ref();
@@ -259,7 +259,7 @@ impl<T: AsMut<[u8]> + AsRef<[u8]>> AddressRecord<T> {
         data[field::RECORD_TYPE] = rty.into();
     }
 
-    /// Return the length of the auxilary data.
+    /// Return the length of the auxiliary data.
     #[inline]
     pub fn set_aux_data_len(&mut self, len: u8) {
         let data = self.buffer.as_mut();
@@ -333,15 +333,15 @@ impl<'a> Repr<'a> {
                 nr_mcast_addr_rcrds: packet.nr_mcast_addr_rcrds(),
                 data: packet.payload(),
             }),
-            _ => Err(Error::Unrecognized),
+            _ => Err(Error),
         }
     }
 
     /// Return the length of a packet that will be emitted from this high-level representation.
-    pub fn buffer_len(&self) -> usize {
+    pub const fn buffer_len(&self) -> usize {
         match self {
-            Repr::Query { .. } => field::QUERY_NUM_SRCS.end,
-            Repr::Report { .. } => field::NR_MCAST_RCRDS.end,
+            Repr::Query { data, .. } => field::QUERY_NUM_SRCS.end + data.len(),
+            Repr::Report { data, .. } => field::NR_MCAST_RCRDS.end + data.len(),
         }
     }
 
@@ -478,7 +478,7 @@ mod test {
             &Ipv6Address::LINK_LOCAL_ALL_NODES.into(),
             &Ipv6Address::LINK_LOCAL_ALL_ROUTERS.into(),
         );
-        assert_eq!(&packet.into_inner()[..], &QUERY_PACKET_BYTES[..]);
+        assert_eq!(&*packet.into_inner(), &QUERY_PACKET_BYTES[..]);
     }
 
     #[test]
@@ -521,7 +521,7 @@ mod test {
             &Ipv6Address::LINK_LOCAL_ALL_NODES.into(),
             &Ipv6Address::LINK_LOCAL_ALL_ROUTERS.into(),
         );
-        assert_eq!(&packet.into_inner()[..], &REPORT_PACKET_BYTES[..]);
+        assert_eq!(&*packet.into_inner(), &REPORT_PACKET_BYTES[..]);
     }
 
     #[test]
@@ -559,7 +559,7 @@ mod test {
             &mut packet,
             &ChecksumCapabilities::default(),
         );
-        assert_eq!(&packet.into_inner()[..], &QUERY_PACKET_BYTES[..]);
+        assert_eq!(&*packet.into_inner(), &QUERY_PACKET_BYTES[..]);
     }
 
     #[test]
@@ -573,6 +573,6 @@ mod test {
             &mut packet,
             &ChecksumCapabilities::default(),
         );
-        assert_eq!(&packet.into_inner()[..], &REPORT_PACKET_BYTES[..]);
+        assert_eq!(&*packet.into_inner(), &REPORT_PACKET_BYTES[..]);
     }
 }

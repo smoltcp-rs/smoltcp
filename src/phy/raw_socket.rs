@@ -33,6 +33,12 @@ impl RawSocket {
 
         let mut mtu = lower.interface_mtu()?;
 
+        // FIXME(thvdveld): this is a workaround for https://github.com/smoltcp-rs/smoltcp/issues/622
+        #[cfg(feature = "medium-ieee802154")]
+        if medium == Medium::Ieee802154 {
+            mtu += 2;
+        }
+
         #[cfg(feature = "medium-ethernet")]
         if medium == Medium::Ethernet {
             // SIOCGIFMTU returns the IP MTU (typically 1500 bytes.)
@@ -43,14 +49,18 @@ impl RawSocket {
         Ok(RawSocket {
             medium,
             lower: Rc::new(RefCell::new(lower)),
-            mtu: mtu,
+            mtu,
         })
     }
 }
 
-impl<'a> Device<'a> for RawSocket {
-    type RxToken = RxToken;
-    type TxToken = TxToken;
+impl Device for RawSocket {
+    type RxToken<'a> = RxToken
+    where
+        Self: 'a;
+    type TxToken<'a> = TxToken
+    where
+        Self: 'a;
 
     fn capabilities(&self) -> DeviceCapabilities {
         DeviceCapabilities {
@@ -60,7 +70,7 @@ impl<'a> Device<'a> for RawSocket {
         }
     }
 
-    fn receive(&'a mut self) -> Option<(Self::RxToken, Self::TxToken)> {
+    fn receive(&mut self) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
         let mut lower = self.lower.borrow_mut();
         let mut buffer = vec![0; self.mtu];
         match lower.recv(&mut buffer[..]) {
@@ -77,7 +87,7 @@ impl<'a> Device<'a> for RawSocket {
         }
     }
 
-    fn transmit(&'a mut self) -> Option<Self::TxToken> {
+    fn transmit(&mut self) -> Option<Self::TxToken<'_>> {
         Some(TxToken {
             lower: self.lower.clone(),
         })

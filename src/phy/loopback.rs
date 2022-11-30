@@ -11,7 +11,7 @@ use crate::Result;
 /// A loopback device.
 #[derive(Debug)]
 pub struct Loopback {
-    queue: VecDeque<Vec<u8>>,
+    pub(crate) queue: VecDeque<Vec<u8>>,
     medium: Medium,
 }
 
@@ -29,9 +29,9 @@ impl Loopback {
     }
 }
 
-impl<'a> Device<'a> for Loopback {
-    type RxToken = RxToken;
-    type TxToken = TxToken<'a>;
+impl Device for Loopback {
+    type RxToken<'a> = RxToken;
+    type TxToken<'a> = TxToken<'a>;
 
     fn capabilities(&self) -> DeviceCapabilities {
         DeviceCapabilities {
@@ -41,7 +41,7 @@ impl<'a> Device<'a> for Loopback {
         }
     }
 
-    fn receive(&'a mut self) -> Option<(Self::RxToken, Self::TxToken)> {
+    fn receive(&mut self) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
         self.queue.pop_front().map(move |buffer| {
             let rx = RxToken { buffer };
             let tx = TxToken {
@@ -51,7 +51,7 @@ impl<'a> Device<'a> for Loopback {
         })
     }
 
-    fn transmit(&'a mut self) -> Option<Self::TxToken> {
+    fn transmit(&mut self) -> Option<Self::TxToken<'_>> {
         Some(TxToken {
             queue: &mut self.queue,
         })
@@ -73,6 +73,7 @@ impl phy::RxToken for RxToken {
 }
 
 #[doc(hidden)]
+#[derive(Debug)]
 pub struct TxToken<'a> {
     queue: &'a mut VecDeque<Vec<u8>>,
 }

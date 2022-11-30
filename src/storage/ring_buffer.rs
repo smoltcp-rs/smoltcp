@@ -6,7 +6,8 @@ use core::cmp;
 use managed::ManagedSlice;
 
 use crate::storage::Resettable;
-use crate::{Error, Result};
+
+use super::{Empty, Full};
 
 /// A ring buffer.
 ///
@@ -114,60 +115,57 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
 /// and boundary conditions (empty/full) are errors.
 impl<'a, T: 'a> RingBuffer<'a, T> {
     /// Call `f` with a single buffer element, and enqueue the element if `f`
-    /// returns successfully, or return `Err(Error::Exhausted)` if the buffer is full.
-    pub fn enqueue_one_with<'b, R, F>(&'b mut self, f: F) -> Result<R>
+    /// returns successfully, or return `Err(Full)` if the buffer is full.
+    pub fn enqueue_one_with<'b, R, E, F>(&'b mut self, f: F) -> Result<Result<R, E>, Full>
     where
-        F: FnOnce(&'b mut T) -> Result<R>,
+        F: FnOnce(&'b mut T) -> Result<R, E>,
     {
         if self.is_full() {
-            return Err(Error::Exhausted);
+            return Err(Full);
         }
 
         let index = self.get_idx_unchecked(self.length);
-        match f(&mut self.storage[index]) {
-            Ok(result) => {
-                self.length += 1;
-                Ok(result)
-            }
-            Err(error) => Err(error),
+        let res = f(&mut self.storage[index]);
+        if res.is_ok() {
+            self.length += 1;
         }
+        Ok(res)
     }
 
     /// Enqueue a single element into the buffer, and return a reference to it,
-    /// or return `Err(Error::Exhausted)` if the buffer is full.
+    /// or return `Err(Full)` if the buffer is full.
     ///
     /// This function is a shortcut for `ring_buf.enqueue_one_with(Ok)`.
-    pub fn enqueue_one(&mut self) -> Result<&mut T> {
-        self.enqueue_one_with(Ok)
+    pub fn enqueue_one(&mut self) -> Result<&mut T, Full> {
+        self.enqueue_one_with(Ok)?
     }
 
     /// Call `f` with a single buffer element, and dequeue the element if `f`
-    /// returns successfully, or return `Err(Error::Exhausted)` if the buffer is empty.
-    pub fn dequeue_one_with<'b, R, F>(&'b mut self, f: F) -> Result<R>
+    /// returns successfully, or return `Err(Empty)` if the buffer is empty.
+    pub fn dequeue_one_with<'b, R, E, F>(&'b mut self, f: F) -> Result<Result<R, E>, Empty>
     where
-        F: FnOnce(&'b mut T) -> Result<R>,
+        F: FnOnce(&'b mut T) -> Result<R, E>,
     {
         if self.is_empty() {
-            return Err(Error::Exhausted);
+            return Err(Empty);
         }
 
         let next_at = self.get_idx_unchecked(1);
-        match f(&mut self.storage[self.read_at]) {
-            Ok(result) => {
-                self.length -= 1;
-                self.read_at = next_at;
-                Ok(result)
-            }
-            Err(error) => Err(error),
+        let res = f(&mut self.storage[self.read_at]);
+
+        if res.is_ok() {
+            self.length -= 1;
+            self.read_at = next_at;
         }
+        Ok(res)
     }
 
     /// Dequeue an element from the buffer, and return a reference to it,
-    /// or return `Err(Error::Exhausted)` if the buffer is empty.
+    /// or return `Err(Empty)` if the buffer is empty.
     ///
     /// This function is a shortcut for `ring_buf.dequeue_one_with(Ok)`.
-    pub fn dequeue_one(&mut self) -> Result<&mut T> {
-        self.dequeue_one_with(Ok)
+    pub fn dequeue_one(&mut self) -> Result<&mut T, Empty> {
+        self.dequeue_one_with(Ok)?
     }
 }
 
@@ -441,31 +439,36 @@ mod test {
     fn test_buffer_enqueue_dequeue_one_with() {
         let mut ring = RingBuffer::new(vec![0; 5]);
         assert_eq!(
-            ring.dequeue_one_with(|_| unreachable!()) as Result<()>,
-            Err(Error::Exhausted)
+            ring.dequeue_one_with(|_| -> Result::<(), ()> { unreachable!() }),
+            Err(Empty)
         );
 
-        ring.enqueue_one_with(Ok).unwrap();
+        ring.enqueue_one_with(Ok::<_, ()>).unwrap().unwrap();
         assert!(!ring.is_empty());
         assert!(!ring.is_full());
 
         for i in 1..5 {
-            ring.enqueue_one_with(|e| Ok(*e = i)).unwrap();
+            ring.enqueue_one_with(|e| Ok::<_, ()>(*e = i))
+                .unwrap()
+                .unwrap();
             assert!(!ring.is_empty());
         }
         assert!(ring.is_full());
         assert_eq!(
-            ring.enqueue_one_with(|_| unreachable!()) as Result<()>,
-            Err(Error::Exhausted)
+            ring.enqueue_one_with(|_| -> Result::<(), ()> { unreachable!() }),
+            Err(Full)
         );
 
         for i in 0..5 {
-            assert_eq!(ring.dequeue_one_with(|e| Ok(*e)).unwrap(), i);
+            assert_eq!(
+                ring.dequeue_one_with(|e| Ok::<_, ()>(*e)).unwrap().unwrap(),
+                i
+            );
             assert!(!ring.is_full());
         }
         assert_eq!(
-            ring.dequeue_one_with(|_| unreachable!()) as Result<()>,
-            Err(Error::Exhausted)
+            ring.dequeue_one_with(|_| -> Result::<(), ()> { unreachable!() }),
+            Err(Empty)
         );
         assert!(ring.is_empty());
     }
@@ -473,7 +476,7 @@ mod test {
     #[test]
     fn test_buffer_enqueue_dequeue_one() {
         let mut ring = RingBuffer::new(vec![0; 5]);
-        assert_eq!(ring.dequeue_one(), Err(Error::Exhausted));
+        assert_eq!(ring.dequeue_one(), Err(Empty));
 
         ring.enqueue_one().unwrap();
         assert!(!ring.is_empty());
@@ -484,13 +487,13 @@ mod test {
             assert!(!ring.is_empty());
         }
         assert!(ring.is_full());
-        assert_eq!(ring.enqueue_one(), Err(Error::Exhausted));
+        assert_eq!(ring.enqueue_one(), Err(Full));
 
         for i in 0..5 {
             assert_eq!(*ring.dequeue_one().unwrap(), i);
             assert!(!ring.is_full());
         }
-        assert_eq!(ring.dequeue_one(), Err(Error::Exhausted));
+        assert_eq!(ring.dequeue_one(), Err(Empty));
         assert!(ring.is_empty());
     }
 
@@ -777,7 +780,7 @@ mod test {
         assert_eq!(no_capacity.get_allocated(0, 0), &[]);
         no_capacity.dequeue_allocated(0);
         assert_eq!(no_capacity.enqueue_many(0), &[]);
-        assert_eq!(no_capacity.enqueue_one(), Err(Error::Exhausted));
+        assert_eq!(no_capacity.enqueue_one(), Err(Full));
         assert_eq!(no_capacity.contiguous_window(), 0);
     }
 

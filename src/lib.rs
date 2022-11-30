@@ -1,12 +1,5 @@
 #![cfg_attr(not(any(test, feature = "std")), no_std)]
 #![deny(unsafe_code)]
-#![cfg_attr(
-    all(
-        any(feature = "proto-ipv4", feature = "proto-ipv6"),
-        feature = "medium-ethernet"
-    ),
-    deny(unused)
-)]
 
 //! The _smoltcp_ library is built in a layered structure, with the layers corresponding
 //! to the levels of API abstraction. Only the highest layers would be used by a typical
@@ -47,7 +40,7 @@
 //! Unlike the higher layers, the wire layer APIs will not be used by a typical application.
 //! They however are the bedrock of _smoltcp_, and everything else is built on top of them.
 //!
-//! The wire layer APIs are designed by the principle "make illegal states irrepresentable".
+//! The wire layer APIs are designed by the principle "make illegal states ir-representable".
 //! If a wire layer object can be constructed, then it can also be parsed from or emitted to
 //! a lower level.
 //!
@@ -72,7 +65,7 @@
 //!
 //! # Minimum Supported Rust Version (MSRV)
 //!
-//! This crate is guaranteed to compile on stable Rust 1.56 and up with any valid set of features.
+//! This crate is guaranteed to compile on stable Rust 1.65 and up with any valid set of features.
 //! It *might* compile on older versions but that may change in any new patch release.
 //!
 //! The exception is when using the `defmt` feature, in which case `defmt`'s MSRV applies, which
@@ -94,7 +87,7 @@ compile_error!("at least one socket needs to be enabled"); */
 #![allow(clippy::option_map_unit_fn)]
 #![allow(clippy::unit_arg)]
 
-#[cfg(any(feature = "std", feature = "alloc"))]
+#[cfg(feature = "alloc")]
 extern crate alloc;
 
 #[cfg(not(any(
@@ -111,10 +104,11 @@ compile_error!("You must enable at least one of the following features: proto-ip
         feature = "socket-udp",
         feature = "socket-tcp",
         feature = "socket-icmp",
-        feature = "socket-dhcp",
+        feature = "socket-dhcpv4",
+        feature = "socket-dns",
     ))
 ))]
-compile_error!("If you enable the socket feature, you must enable at least one of the following features: socket-raw, socket-udp, socket-tcp, socket-icmp, socket-dhcp");
+compile_error!("If you enable the socket feature, you must enable at least one of the following features: socket-raw, socket-udp, socket-tcp, socket-icmp, socket-dhcpv4, socket-dns");
 
 #[cfg(all(
     feature = "socket",
@@ -249,5 +243,11 @@ impl fmt::Display for Error {
             }
             Error::NotSupported => write!(f, "not supported by smoltcp"),
         }
+    }
+}
+
+impl From<wire::Error> for Error {
+    fn from(_: wire::Error) -> Self {
+        Error::Malformed
     }
 }

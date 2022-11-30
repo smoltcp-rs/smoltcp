@@ -1,7 +1,8 @@
 use managed::ManagedSlice;
 
-use crate::storage::RingBuffer;
-use crate::{Error, Result};
+use crate::storage::{Full, RingBuffer};
+
+use super::Empty;
 
 /// Size and header of a packet.
 #[derive(Debug, Clone, Copy)]
@@ -74,30 +75,25 @@ impl<'a, H> PacketBuffer<'a, H> {
     // in case of failure.
 
     /// Enqueue a single packet with the given header into the buffer, and
-    /// return a reference to its payload, or return `Err(Error::Exhausted)`
-    /// if the buffer is full, or return `Err(Error::Truncated)` if the buffer
-    /// does not have enough spare payload space.
-    pub fn enqueue(&mut self, size: usize, header: H) -> Result<&mut [u8]> {
-        if self.payload_ring.capacity() < size {
-            return Err(Error::Truncated);
-        }
-
-        if self.metadata_ring.is_full() {
-            return Err(Error::Exhausted);
+    /// return a reference to its payload, or return `Err(Full)`
+    /// if the buffer is full.
+    pub fn enqueue(&mut self, size: usize, header: H) -> Result<&mut [u8], Full> {
+        if self.payload_ring.capacity() < size || self.metadata_ring.is_full() {
+            return Err(Full);
         }
 
         let window = self.payload_ring.window();
         let contig_window = self.payload_ring.contiguous_window();
 
         if window < size {
-            return Err(Error::Exhausted);
+            return Err(Full);
         } else if contig_window < size {
             if window - contig_window < size {
                 // The buffer length is larger than the current contiguous window
                 // and is larger than the contiguous window will be after adding
                 // the padding necessary to circle around to the beginning of the
                 // ring buffer.
-                return Err(Error::Exhausted);
+                return Err(Full);
             } else {
                 // Add padding to the end of the ring buffer so that the
                 // contiguous window is at the beginning of the ring buffer.
@@ -115,6 +111,52 @@ impl<'a, H> PacketBuffer<'a, H> {
         Ok(payload_buf)
     }
 
+    /// Call `f` with a packet from the buffer large enough to fit `max_size` bytes. The packet
+    /// is shrunk to the size returned from `f` and enqueued into the buffer.
+    pub fn enqueue_with_infallible<'b, F>(
+        &'b mut self,
+        max_size: usize,
+        header: H,
+        f: F,
+    ) -> Result<usize, Full>
+    where
+        F: FnOnce(&'b mut [u8]) -> usize,
+    {
+        if self.payload_ring.capacity() < max_size || self.metadata_ring.is_full() {
+            return Err(Full);
+        }
+
+        let window = self.payload_ring.window();
+        let contig_window = self.payload_ring.contiguous_window();
+
+        if window < max_size {
+            return Err(Full);
+        } else if contig_window < max_size {
+            if window - contig_window < max_size {
+                // The buffer length is larger than the current contiguous window
+                // and is larger than the contiguous window will be after adding
+                // the padding necessary to circle around to the beginning of the
+                // ring buffer.
+                return Err(Full);
+            } else {
+                // Add padding to the end of the ring buffer so that the
+                // contiguous window is at the beginning of the ring buffer.
+                *self.metadata_ring.enqueue_one()? = PacketMetadata::padding(contig_window);
+                // note(discard): function does not write to the result
+                // enqueued padding buffer location
+                let _buf_enqueued = self.payload_ring.enqueue_many(contig_window);
+            }
+        }
+
+        let (size, _) = self
+            .payload_ring
+            .enqueue_many_with(|data| (f(&mut data[..max_size]), ()));
+
+        *self.metadata_ring.enqueue_one()? = PacketMetadata::packet(size, header);
+
+        Ok(size)
+    }
+
     fn dequeue_padding(&mut self) {
         let Self {
             ref mut metadata_ring,
@@ -127,16 +169,16 @@ impl<'a, H> PacketBuffer<'a, H> {
                 let _buf_dequeued = payload_ring.dequeue_many(metadata.size);
                 Ok(()) // dequeue metadata
             } else {
-                Err(Error::Exhausted) // don't dequeue metadata
+                Err(()) // don't dequeue metadata
             }
         });
     }
 
     /// Call `f` with a single packet from the buffer, and dequeue the packet if `f`
-    /// returns successfully, or return `Err(Error::Exhausted)` if the buffer is empty.
-    pub fn dequeue_with<'c, R, F>(&'c mut self, f: F) -> Result<R>
+    /// returns successfully, or return `Err(EmptyError)` if the buffer is empty.
+    pub fn dequeue_with<'c, R, E, F>(&'c mut self, f: F) -> Result<Result<R, E>, Empty>
     where
-        F: FnOnce(&mut H, &'c mut [u8]) -> Result<R>,
+        F: FnOnce(&mut H, &'c mut [u8]) -> Result<R, E>,
     {
         self.dequeue_padding();
 
@@ -166,7 +208,7 @@ impl<'a, H> PacketBuffer<'a, H> {
 
     /// Dequeue a single packet from the buffer, and return a reference to its payload
     /// as well as its header, or return `Err(Error::Exhausted)` if the buffer is empty.
-    pub fn dequeue(&mut self) -> Result<(H, &mut [u8])> {
+    pub fn dequeue(&mut self) -> Result<(H, &mut [u8]), Empty> {
         self.dequeue_padding();
 
         let PacketMetadata {
@@ -180,10 +222,10 @@ impl<'a, H> PacketBuffer<'a, H> {
     }
 
     /// Peek at a single packet from the buffer without removing it, and return a reference to
-    /// its payload as well as its header, or return `Err(Error:Exhaused)` if the buffer is empty.
+    /// its payload as well as its header, or return `Err(Error:Exhausted)` if the buffer is empty.
     ///
     /// This function otherwise behaves identically to [dequeue](#method.dequeue).
-    pub fn peek(&mut self) -> Result<(&H, &[u8])> {
+    pub fn peek(&mut self) -> Result<(&H, &[u8]), Empty> {
         self.dequeue_padding();
 
         if let Some(metadata) = self.metadata_ring.get_allocated(0, 1).first() {
@@ -192,7 +234,7 @@ impl<'a, H> PacketBuffer<'a, H> {
                 self.payload_ring.get_allocated(0, metadata.size),
             ))
         } else {
-            Err(Error::Exhausted)
+            Err(Empty)
         }
     }
 
@@ -226,21 +268,21 @@ mod test {
     fn test_simple() {
         let mut buffer = buffer();
         buffer.enqueue(6, ()).unwrap().copy_from_slice(b"abcdef");
-        assert_eq!(buffer.enqueue(16, ()), Err(Error::Exhausted));
+        assert_eq!(buffer.enqueue(16, ()), Err(Full));
         assert_eq!(buffer.metadata_ring.len(), 1);
         assert_eq!(buffer.dequeue().unwrap().1, &b"abcdef"[..]);
-        assert_eq!(buffer.dequeue(), Err(Error::Exhausted));
+        assert_eq!(buffer.dequeue(), Err(Empty));
     }
 
     #[test]
     fn test_peek() {
         let mut buffer = buffer();
-        assert_eq!(buffer.peek(), Err(Error::Exhausted));
+        assert_eq!(buffer.peek(), Err(Empty));
         buffer.enqueue(6, ()).unwrap().copy_from_slice(b"abcdef");
         assert_eq!(buffer.metadata_ring.len(), 1);
         assert_eq!(buffer.peek().unwrap().1, &b"abcdef"[..]);
         assert_eq!(buffer.dequeue().unwrap().1, &b"abcdef"[..]);
-        assert_eq!(buffer.peek(), Err(Error::Exhausted));
+        assert_eq!(buffer.peek(), Err(Empty));
     }
 
     #[test]
@@ -278,15 +320,16 @@ mod test {
         assert_eq!(buffer.metadata_ring.len(), 3);
         assert!(buffer.dequeue().is_ok());
 
-        assert!(buffer
-            .dequeue_with(|_, _| Err(Error::Unaddressable) as Result<()>)
-            .is_err());
+        assert!(matches!(
+            buffer.dequeue_with(|_, _| Result::<(), u32>::Err(123)),
+            Ok(Err(_))
+        ));
         assert_eq!(buffer.metadata_ring.len(), 1);
 
         assert!(buffer
             .dequeue_with(|&mut (), payload| {
                 assert_eq!(payload, &b"abcd"[..]);
-                Ok(())
+                Result::<(), ()>::Ok(())
             })
             .is_ok());
         assert_eq!(buffer.metadata_ring.len(), 0);
@@ -307,7 +350,7 @@ mod test {
         assert!(buffer.is_full());
         assert!(!buffer.is_empty());
         assert_eq!(buffer.metadata_ring.len(), 4);
-        assert_eq!(buffer.enqueue(1, ()), Err(Error::Exhausted));
+        assert_eq!(buffer.enqueue(1, ()), Err(Full));
     }
 
     #[test]
@@ -316,7 +359,7 @@ mod test {
         assert!(buffer.enqueue(4, ()).is_ok());
         assert!(buffer.enqueue(8, ()).is_ok());
         assert!(buffer.dequeue().is_ok());
-        assert_eq!(buffer.enqueue(16, ()), Err(Error::Exhausted));
+        assert_eq!(buffer.enqueue(16, ()), Err(Full));
         assert_eq!(buffer.metadata_ring.len(), 1);
     }
 
@@ -326,14 +369,14 @@ mod test {
         assert!(buffer.enqueue(4, ()).is_ok());
         assert!(buffer.enqueue(8, ()).is_ok());
         assert!(buffer.dequeue().is_ok());
-        assert_eq!(buffer.enqueue(8, ()), Err(Error::Exhausted));
+        assert_eq!(buffer.enqueue(8, ()), Err(Full));
         assert_eq!(buffer.metadata_ring.len(), 1);
     }
 
     #[test]
     fn test_capacity_too_small() {
         let mut buffer = buffer();
-        assert_eq!(buffer.enqueue(32, ()), Err(Error::Truncated));
+        assert_eq!(buffer.enqueue(32, ()), Err(Full));
     }
 
     #[test]

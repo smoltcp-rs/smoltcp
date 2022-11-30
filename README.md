@@ -11,7 +11,7 @@ include complicated compile-time computations, such as macro or type tricks, eve
 at cost of performance degradation.
 
 _smoltcp_ does not need heap allocation *at all*, is [extensively documented][docs],
-and compiles on stable Rust 1.56 and later.
+and compiles on stable Rust 1.65 and later.
 
 _smoltcp_ achieves [~Gbps of throughput](#examplesbenchmarkrs) when tested against
 the Linux TCP stack in loopback mode.
@@ -214,7 +214,7 @@ _smoltcp_, being a freestanding networking stack, needs to be able to transmit a
 raw frames. For testing purposes, we will use a regular OS, and run _smoltcp_ in
 a userspace process. Only Linux is supported (right now).
 
-On \*nix OSes, transmiting and receiving raw frames normally requires superuser privileges, but
+On \*nix OSes, transmitting and receiving raw frames normally requires superuser privileges, but
 on Linux it is possible to create a _persistent tap interface_ that can be manipulated by
 a specific user:
 
@@ -274,6 +274,14 @@ sudo ip link set br0 up
 # This connects your host system to the internet, so you can use it
 # at the same time you run the examples.
 sudo dhcpcd br0
+```
+
+To tear down:
+
+```
+sudo killall dhcpcd
+sudo ip link set br0 down
+sudo brctl delbr br0
 ```
 
 ### Fault injection

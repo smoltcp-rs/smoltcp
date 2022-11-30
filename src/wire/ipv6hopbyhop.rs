@@ -1,11 +1,11 @@
-use crate::{Error, Result};
+use super::{Error, Result};
 use core::fmt;
 
 pub use super::IpProtocol as Protocol;
 use crate::wire::ipv6option::Ipv6OptionsIterator;
 
 /// A read/write wrapper around an IPv6 Hop-by-Hop Options Header.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Header<T: AsRef<[u8]>> {
     buffer: T,
@@ -42,15 +42,15 @@ mod field {
     //
     // Length of the header is in 8-octet units, not including the first 8 octets. The first two
     // octets are the next header type and the header length.
-    pub fn OPTIONS(length_field: u8) -> Field {
-        let bytes = length_field * 8 + 8;
-        2..bytes as usize
+    pub const fn OPTIONS(length_field: u8) -> Field {
+        let bytes = length_field as usize * 8 + 8;
+        2..bytes
     }
 }
 
 impl<T: AsRef<[u8]>> Header<T> {
     /// Create a raw octet buffer with an IPv6 Hop-by-Hop Options Header structure.
-    pub fn new_unchecked(buffer: T) -> Header<T> {
+    pub const fn new_unchecked(buffer: T) -> Header<T> {
         Header { buffer }
     }
 
@@ -65,7 +65,7 @@ impl<T: AsRef<[u8]>> Header<T> {
     }
 
     /// Ensure that no accessor method will panic if called.
-    /// Returns `Err(Error::Truncated)` if the buffer is too short.
+    /// Returns `Err(Error)` if the buffer is too short.
     ///
     /// The result of this check is invalidated by calling [set_header_len].
     ///
@@ -75,13 +75,13 @@ impl<T: AsRef<[u8]>> Header<T> {
         let len = data.len();
 
         if len < field::MIN_HEADER_SIZE {
-            return Err(Error::Truncated);
+            return Err(Error);
         }
 
         let of = field::OPTIONS(data[field::LENGTH]);
 
         if len < of.end {
-            return Err(Error::Truncated);
+            return Err(Error);
         }
 
         Ok(())
@@ -183,7 +183,7 @@ impl<'a> Repr<'a> {
 
     /// Return the length, in bytes, of a header that will be emitted from this high-level
     /// representation.
-    pub fn buffer_len(&self) -> usize {
+    pub const fn buffer_len(&self) -> usize {
         field::OPTIONS(self.length).end
     }
 
@@ -226,17 +226,17 @@ mod test {
     fn test_check_len() {
         // zero byte buffer
         assert_eq!(
-            Err(Error::Truncated),
+            Err(Error),
             Header::new_unchecked(&REPR_PACKET_PAD4[..0]).check_len()
         );
         // no length field
         assert_eq!(
-            Err(Error::Truncated),
+            Err(Error),
             Header::new_unchecked(&REPR_PACKET_PAD4[..1]).check_len()
         );
         // less than 8 bytes
         assert_eq!(
-            Err(Error::Truncated),
+            Err(Error),
             Header::new_unchecked(&REPR_PACKET_PAD4[..7]).check_len()
         );
         // valid
@@ -248,10 +248,7 @@ mod test {
         );
         // length field value greater than number of bytes
         let header: [u8; 8] = [0x06, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0];
-        assert_eq!(
-            Err(Error::Truncated),
-            Header::new_unchecked(&header).check_len()
-        );
+        assert_eq!(Err(Error), Header::new_unchecked(&header).check_len());
     }
 
     #[test]
@@ -299,18 +296,18 @@ mod test {
     #[test]
     fn test_header_len_overflow() {
         let mut bytes = vec![];
-        bytes.extend(&REPR_PACKET_PAD4);
+        bytes.extend(REPR_PACKET_PAD4);
         let len = bytes.len() as u8;
         Header::new_unchecked(&mut bytes).set_header_len(len + 1);
 
-        assert_eq!(Header::new_checked(&bytes).unwrap_err(), Error::Truncated);
+        assert_eq!(Header::new_checked(&bytes).unwrap_err(), Error);
 
         let mut bytes = vec![];
-        bytes.extend(&REPR_PACKET_PAD12);
+        bytes.extend(REPR_PACKET_PAD12);
         let len = bytes.len() as u8;
         Header::new_unchecked(&mut bytes).set_header_len(len + 1);
 
-        assert_eq!(Header::new_checked(&bytes).unwrap_err(), Error::Truncated);
+        assert_eq!(Header::new_checked(&bytes).unwrap_err(), Error);
     }
 
     #[test]

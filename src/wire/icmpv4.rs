@@ -1,10 +1,10 @@
 use byteorder::{ByteOrder, NetworkEndian};
 use core::{cmp, fmt};
 
+use super::{Error, Result};
 use crate::phy::ChecksumCapabilities;
 use crate::wire::ip::checksum;
 use crate::wire::{Ipv4Packet, Ipv4Repr};
-use crate::{Error, Result};
 
 enum_with_unknown! {
     /// Internet protocol control message type.
@@ -138,6 +138,16 @@ enum_with_unknown! {
     }
 }
 
+impl fmt::Display for TimeExceeded {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            TimeExceeded::TtlExpired => write!(f, "time-to-live exceeded in transit"),
+            TimeExceeded::FragExpired => write!(f, "fragment reassembly time exceeded"),
+            TimeExceeded::Unknown(id) => write!(f, "{}", id),
+        }
+    }
+}
+
 enum_with_unknown! {
     /// Internet protocol control message subtype for type "Parameter Problem".
     pub enum ParamProblem(u8) {
@@ -151,7 +161,7 @@ enum_with_unknown! {
 }
 
 /// A read/write wrapper around an Internet Control Message Protocol version 4 packet buffer.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Packet<T: AsRef<[u8]>> {
     buffer: T,
@@ -174,7 +184,7 @@ mod field {
 
 impl<T: AsRef<[u8]>> Packet<T> {
     /// Imbue a raw octet buffer with ICMPv4 packet structure.
-    pub fn new_unchecked(buffer: T) -> Packet<T> {
+    pub const fn new_unchecked(buffer: T) -> Packet<T> {
         Packet { buffer }
     }
 
@@ -189,7 +199,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     }
 
     /// Ensure that no accessor method will panic if called.
-    /// Returns `Err(Error::Truncated)` if the buffer is too short.
+    /// Returns `Err(Error)` if the buffer is too short.
     ///
     /// The result of this check is invalidated by calling [set_header_len].
     ///
@@ -197,7 +207,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     pub fn check_len(&self) -> Result<()> {
         let len = self.buffer.as_ref().len();
         if len < field::HEADER_END {
-            Err(Error::Truncated)
+            Err(Error)
         } else {
             Ok(())
         }
@@ -372,6 +382,11 @@ pub enum Repr<'a> {
         header: Ipv4Repr,
         data: &'a [u8],
     },
+    TimeExceeded {
+        reason: TimeExceeded,
+        header: Ipv4Repr,
+        data: &'a [u8],
+    },
 }
 
 impl<'a> Repr<'a> {
@@ -386,7 +401,7 @@ impl<'a> Repr<'a> {
     {
         // Valid checksum is expected.
         if checksum_caps.icmpv4.rx() && !packet.verify_checksum() {
-            return Err(Error::Checksum);
+            return Err(Error);
         }
 
         match (packet.msg_type(), packet.msg_code()) {
@@ -409,7 +424,7 @@ impl<'a> Repr<'a> {
                 // RFC 792 requires exactly eight bytes to be returned.
                 // We allow more, since there isn't a reason not to, but require at least eight.
                 if payload.len() < 8 {
-                    return Err(Error::Truncated);
+                    return Err(Error);
                 }
 
                 Ok(Repr::DstUnreachable {
@@ -424,17 +439,42 @@ impl<'a> Repr<'a> {
                     data: payload,
                 })
             }
-            _ => Err(Error::Unrecognized),
+
+            (Message::TimeExceeded, code) => {
+                let ip_packet = Ipv4Packet::new_checked(packet.data())?;
+
+                let payload = &packet.data()[ip_packet.header_len() as usize..];
+                // RFC 792 requires exactly eight bytes to be returned.
+                // We allow more, since there isn't a reason not to, but require at least eight.
+                if payload.len() < 8 {
+                    return Err(Error);
+                }
+
+                Ok(Repr::TimeExceeded {
+                    reason: TimeExceeded::from(code),
+                    header: Ipv4Repr {
+                        src_addr: ip_packet.src_addr(),
+                        dst_addr: ip_packet.dst_addr(),
+                        next_header: ip_packet.next_header(),
+                        payload_len: payload.len(),
+                        hop_limit: ip_packet.hop_limit(),
+                    },
+                    data: payload,
+                })
+            }
+
+            _ => Err(Error),
         }
     }
 
     /// Return the length of a packet that will be emitted from this high-level representation.
-    pub fn buffer_len(&self) -> usize {
+    pub const fn buffer_len(&self) -> usize {
         match self {
             &Repr::EchoRequest { data, .. } | &Repr::EchoReply { data, .. } => {
                 field::ECHO_SEQNO.end + data.len()
             }
-            &Repr::DstUnreachable { header, data, .. } => {
+            &Repr::DstUnreachable { header, data, .. }
+            | &Repr::TimeExceeded { header, data, .. } => {
                 field::UNUSED.end + header.buffer_len() + data.len()
             }
         }
@@ -487,6 +527,20 @@ impl<'a> Repr<'a> {
                 let payload = &mut ip_packet.into_inner()[header.buffer_len()..];
                 payload.copy_from_slice(data)
             }
+
+            Repr::TimeExceeded {
+                reason,
+                header,
+                data,
+            } => {
+                packet.set_msg_type(Message::TimeExceeded);
+                packet.set_msg_code(reason.into());
+
+                let mut ip_packet = Ipv4Packet::new_unchecked(packet.data_mut());
+                header.emit(&mut ip_packet, checksum_caps);
+                let payload = &mut ip_packet.into_inner()[header.buffer_len()..];
+                payload.copy_from_slice(data)
+            }
         }
 
         if checksum_caps.icmpv4.tx() {
@@ -509,6 +563,9 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
                 match self.msg_type() {
                     Message::DstUnreachable => {
                         write!(f, " code={:?}", DstUnreachable::from(self.msg_code()))
+                    }
+                    Message::TimeExceeded => {
+                        write!(f, " code={:?}", TimeExceeded::from(self.msg_code()))
                     }
                     _ => write!(f, " code={}", self.msg_code()),
                 }
@@ -545,6 +602,9 @@ impl<'a> fmt::Display for Repr<'a> {
             Repr::DstUnreachable { reason, .. } => {
                 write!(f, "ICMPv4 destination unreachable ({})", reason)
             }
+            Repr::TimeExceeded { reason, .. } => {
+                write!(f, "ICMPv4 time exceeded ({})", reason)
+            }
         }
     }
 }
@@ -564,7 +624,7 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
         write!(f, "{}{}", indent, packet)?;
 
         match packet.msg_type() {
-            Message::DstUnreachable => {
+            Message::DstUnreachable | Message::TimeExceeded => {
                 indent.increase(f)?;
                 super::Ipv4Packet::<&[u8]>::pretty_print(&packet.data(), f, indent)
             }
@@ -635,8 +695,8 @@ mod test {
     #[test]
     fn test_check_len() {
         let bytes = [0x0b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
-        assert_eq!(Packet::new_checked(&[]), Err(Error::Truncated));
-        assert_eq!(Packet::new_checked(&bytes[..4]), Err(Error::Truncated));
+        assert_eq!(Packet::new_checked(&[]), Err(Error));
+        assert_eq!(Packet::new_checked(&bytes[..4]), Err(Error));
         assert!(Packet::new_checked(&bytes[..]).is_ok());
     }
 }
