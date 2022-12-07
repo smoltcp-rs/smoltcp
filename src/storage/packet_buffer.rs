@@ -82,6 +82,12 @@ impl<'a, H> PacketBuffer<'a, H> {
             return Err(Full);
         }
 
+        // Ring is currently empty.  Clear it (resetting `read_at`) to maximize
+        // for contiguous space.
+        if self.payload_ring.is_empty() {
+            self.payload_ring.clear();
+        }
+
         let window = self.payload_ring.window();
         let contig_window = self.payload_ring.contiguous_window();
 
@@ -371,6 +377,14 @@ mod test {
         assert!(buffer.dequeue().is_ok());
         assert_eq!(buffer.enqueue(8, ()), Err(Full));
         assert_eq!(buffer.metadata_ring.len(), 1);
+    }
+
+    #[test]
+    fn test_contiguous_window_wrap() {
+        let mut buffer = buffer();
+        assert!(buffer.enqueue(15, ()).is_ok());
+        assert!(buffer.dequeue().is_ok());
+        assert!(buffer.enqueue(16, ()).is_ok());
     }
 
     #[test]
