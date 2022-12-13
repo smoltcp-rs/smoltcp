@@ -391,7 +391,7 @@ It responds to:
 
   * pings (`ping 192.168.69.1`);
   * UDP packets on port 6969 (`socat stdio udp4-connect:192.168.69.1:6969 <<<"abcdefg"`),
-    where it will respond "hello" to any incoming packet;
+    where it will respond with reversed chunks of the input indefinitely;
   * TCP connections on port 6969 (`socat stdio tcp4-connect:192.168.69.1:6969`),
     where it will respond "hello" to any incoming connection and immediately close it;
   * TCP connections on port 6970 (`socat stdio tcp4-connect:192.168.69.1:6970 <<<"abcdefg"`),
