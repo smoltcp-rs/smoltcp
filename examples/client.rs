@@ -42,7 +42,8 @@ fn main() {
     let tcp_socket = tcp::Socket::new(tcp_rx_buffer, tcp_tx_buffer);
 
     let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x02]);
-    let ip_addrs = [IpCidr::new(IpAddress::v4(192, 168, 69, 2), 24)];
+    let mut ip_addrs = heapless::Vec::<IpCidr, 4>::new();
+    ip_addrs.push(IpCidr::new(IpAddress::v4(192, 168, 69, 2), 24)).unwrap();
     let default_v4_gw = Ipv4Address::new(192, 168, 69, 100);
     let mut routes_storage = [None; 1];
     let mut routes = Routes::new(&mut routes_storage[..]);
