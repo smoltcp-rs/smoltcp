@@ -44,11 +44,17 @@ fn create_ip<'a>() -> (Interface<'a>, SocketSet<'a>, Loopback) {
     let mut device = Loopback::new(Medium::Ip);
     let mut ip_addrs = heapless::Vec::<IpCidr, 4>::new();
     #[cfg(feature = "proto-ipv4")]
-    ip_addrs.push(IpCidr::new(IpAddress::v4(127, 0, 0, 1), 8)).unwrap();
+    ip_addrs
+        .push(IpCidr::new(IpAddress::v4(127, 0, 0, 1), 8))
+        .unwrap();
     #[cfg(feature = "proto-ipv6")]
-    ip_addrs.push(IpCidr::new(IpAddress::v6(0, 0, 0, 0, 0, 0, 0, 1), 128)).unwrap();
+    ip_addrs
+        .push(IpCidr::new(IpAddress::v6(0, 0, 0, 0, 0, 0, 0, 1), 128))
+        .unwrap();
     #[cfg(feature = "proto-ipv6")]
-    ip_addrs.push(IpCidr::new(IpAddress::v6(0xfdbe, 0, 0, 0, 0, 0, 0, 1), 64)).unwrap();
+    ip_addrs
+        .push(IpCidr::new(IpAddress::v6(0xfdbe, 0, 0, 0, 0, 0, 0, 1), 64))
+        .unwrap();
 
     let iface_builder = InterfaceBuilder::new().ip_addrs(ip_addrs);
 
@@ -70,11 +76,17 @@ fn create_ethernet<'a>() -> (Interface<'a>, SocketSet<'a>, Loopback) {
     let mut device = Loopback::new(Medium::Ethernet);
     let mut ip_addrs = heapless::Vec::<IpCidr, 4>::new();
     #[cfg(feature = "proto-ipv4")]
-    ip_addrs.push(IpCidr::new(IpAddress::v4(127, 0, 0, 1), 8)).unwrap();
+    ip_addrs
+        .push(IpCidr::new(IpAddress::v4(127, 0, 0, 1), 8))
+        .unwrap();
     #[cfg(feature = "proto-ipv6")]
-    ip_addrs.push(IpCidr::new(IpAddress::v6(0, 0, 0, 0, 0, 0, 0, 1), 128)).unwrap();
+    ip_addrs
+        .push(IpCidr::new(IpAddress::v6(0, 0, 0, 0, 0, 0, 0, 1), 128))
+        .unwrap();
     #[cfg(feature = "proto-ipv6")]
-    ip_addrs.push(IpCidr::new(IpAddress::v6(0xfdbe, 0, 0, 0, 0, 0, 0, 1), 64)).unwrap();
+    ip_addrs
+        .push(IpCidr::new(IpAddress::v6(0xfdbe, 0, 0, 0, 0, 0, 0, 1), 64))
+        .unwrap();
 
     let iface_builder = InterfaceBuilder::new()
         .hardware_addr(EthernetAddress::default().into())
@@ -104,9 +116,13 @@ fn create_ieee802154<'a>() -> (Interface<'a>, SocketSet<'a>, Loopback) {
     let mut device = Loopback::new(Medium::Ieee802154);
     let mut ip_addrs = heapless::Vec::<IpCidr, 4>::new();
     #[cfg(feature = "proto-ipv6")]
-    ip_addrs.push(IpCidr::new(IpAddress::v6(0, 0, 0, 0, 0, 0, 0, 1), 128)).unwrap();
+    ip_addrs
+        .push(IpCidr::new(IpAddress::v6(0, 0, 0, 0, 0, 0, 0, 1), 128))
+        .unwrap();
     #[cfg(feature = "proto-ipv6")]
-    ip_addrs.push(IpCidr::new(IpAddress::v6(0xfdbe, 0, 0, 0, 0, 0, 0, 1), 64)).unwrap();
+    ip_addrs
+        .push(IpCidr::new(IpAddress::v6(0xfdbe, 0, 0, 0, 0, 0, 0, 1), 64))
+        .unwrap();
 
     let iface_builder = InterfaceBuilder::new()
         .hardware_addr(Ieee802154Address::default().into())
@@ -1048,8 +1064,15 @@ fn test_icmpv4_socket() {
 fn test_solicited_node_addrs() {
     let (mut iface, _, _device) = create(MEDIUM);
     let mut new_addrs = heapless::Vec::<IpCidr, 4>::new();
-    new_addrs.push(IpCidr::new(IpAddress::v6(0xfe80, 0, 0, 0, 1, 2, 0, 2), 64)).unwrap();
-    new_addrs.push(IpCidr::new(IpAddress::v6(0xfe80, 0, 0, 0, 3, 4, 0, 0xffff), 64)).unwrap();
+    new_addrs
+        .push(IpCidr::new(IpAddress::v6(0xfe80, 0, 0, 0, 1, 2, 0, 2), 64))
+        .unwrap();
+    new_addrs
+        .push(IpCidr::new(
+            IpAddress::v6(0xfe80, 0, 0, 0, 3, 4, 0, 0xffff),
+            64,
+        ))
+        .unwrap();
     iface.update_ip_addrs(|addrs| {
         new_addrs.extend(addrs.to_vec());
         *addrs = new_addrs;

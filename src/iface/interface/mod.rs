@@ -1559,7 +1559,7 @@ impl<'a> InterfaceInner<'a> {
             },
             now: Instant::from_millis_const(0),
 
-            ip_addrs: Vec::from_slice(&vec![
+            ip_addrs: Vec::from_slice(&[
                 #[cfg(feature = "proto-ipv4")]
                 IpCidr::Ipv4(Ipv4Cidr::new(Ipv4Address::new(192, 168, 1, 1), 24)),
                 #[cfg(feature = "proto-ipv6")]
@@ -1567,7 +1567,8 @@ impl<'a> InterfaceInner<'a> {
                     Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
                     64,
                 )),
-            ]).unwrap(),
+            ])
+            .unwrap(),
             rand: Rand::new(1234),
             routes: Routes::new(&mut [][..]),
 

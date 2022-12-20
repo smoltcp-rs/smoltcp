@@ -82,10 +82,12 @@ fn main() {
         0x1a, 0x0b, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42,
     ]);
     let mut ip_addrs = heapless::Vec::<IpCidr, 4>::new();
-    ip_addrs.push(IpCidr::new(
-        IpAddress::v6(0xfe80, 0, 0, 0, 0x180b, 0x4242, 0x4242, 0x4242),
-        64,
-    )).unwrap();
+    ip_addrs
+        .push(IpCidr::new(
+            IpAddress::v6(0xfe80, 0, 0, 0, 0x180b, 0x4242, 0x4242, 0x4242),
+            64,
+        ))
+        .unwrap();
 
     let mut builder = InterfaceBuilder::new()
         .ip_addrs(ip_addrs)

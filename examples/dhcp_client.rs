@@ -31,7 +31,9 @@ fn main() {
     let neighbor_cache = NeighborCache::new(BTreeMap::new());
     let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
     let mut ip_addrs = heapless::Vec::<IpCidr, 4>::new();
-    ip_addrs.push(IpCidr::new(Ipv4Address::UNSPECIFIED.into(), 0)).unwrap();
+    ip_addrs
+        .push(IpCidr::new(Ipv4Address::UNSPECIFIED.into(), 0))
+        .unwrap();
     let mut routes_storage = [None; 1];
     let routes = Routes::new(&mut routes_storage[..]);
 
