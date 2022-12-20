@@ -34,7 +34,7 @@ fn main() {
 
     let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x02]);
     let ip_addr = IpCidr::new(IpAddress::from(local_addr), 24);
-    let mut ip_addrs = heapless::Vec::<IpCidr, 4>::new();
+    let mut ip_addrs = heapless::Vec::<IpCidr, 5>::new();
     ip_addrs.push(ip_addr).unwrap();
     let mut ipv4_multicast_storage = [None; 1];
     let mut iface = InterfaceBuilder::new()

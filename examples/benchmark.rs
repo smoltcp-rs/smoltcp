@@ -93,7 +93,7 @@ fn main() {
     let tcp2_socket = tcp::Socket::new(tcp2_rx_buffer, tcp2_tx_buffer);
 
     let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
-    let mut ip_addrs = heapless::Vec::<IpCidr, 4>::new();
+    let mut ip_addrs = heapless::Vec::<IpCidr, 5>::new();
     ip_addrs
         .push(IpCidr::new(IpAddress::v4(192, 168, 69, 1), 24))
         .unwrap();

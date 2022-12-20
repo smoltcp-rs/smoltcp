@@ -34,7 +34,7 @@ use crate::time::{Duration, Instant};
 use crate::wire::*;
 use crate::{Error, Result};
 
-const MAX_IP_ADDRS_NUM: usize = 4;
+const MAX_IP_ADDRS_NUM: usize = 5;
 
 pub(crate) struct FragmentsBuffer<'a> {
     #[cfg(feature = "proto-ipv4-fragmentation")]

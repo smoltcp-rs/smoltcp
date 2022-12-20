@@ -85,7 +85,7 @@ fn main() {
     let mut neighbor_cache_entries = [None; 8];
     let mut neighbor_cache = NeighborCache::new(&mut neighbor_cache_entries[..]);
 
-    let mut ip_addrs = heapless::Vec::<IpCidr, 4>::new();
+    let mut ip_addrs = heapless::Vec::<IpCidr, 5>::new();
     ip_addrs
         .push(IpCidr::new(IpAddress::v4(127, 0, 0, 1), 8))
         .unwrap();

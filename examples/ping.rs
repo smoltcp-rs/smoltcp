@@ -116,7 +116,7 @@ fn main() {
 
     let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x02]);
     let src_ipv6 = IpAddress::v6(0xfdaa, 0, 0, 0, 0, 0, 0, 1);
-    let mut ip_addrs = heapless::Vec::<IpCidr, 4>::new();
+    let mut ip_addrs = heapless::Vec::<IpCidr, 5>::new();
     ip_addrs
         .push(IpCidr::new(IpAddress::v4(192, 168, 69, 1), 24))
         .unwrap();
