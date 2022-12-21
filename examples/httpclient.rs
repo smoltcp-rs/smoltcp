@@ -36,11 +36,16 @@ fn main() {
     let tcp_socket = tcp::Socket::new(tcp_rx_buffer, tcp_tx_buffer);
 
     let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x02]);
-    let ip_addrs = [
-        IpCidr::new(IpAddress::v4(192, 168, 69, 1), 24),
-        IpCidr::new(IpAddress::v6(0xfdaa, 0, 0, 0, 0, 0, 0, 1), 64),
-        IpCidr::new(IpAddress::v6(0xfe80, 0, 0, 0, 0, 0, 0, 1), 64),
-    ];
+    let mut ip_addrs = heapless::Vec::<IpCidr, 5>::new();
+    ip_addrs
+        .push(IpCidr::new(IpAddress::v4(192, 168, 69, 1), 24))
+        .unwrap();
+    ip_addrs
+        .push(IpCidr::new(IpAddress::v6(0xfdaa, 0, 0, 0, 0, 0, 0, 1), 64))
+        .unwrap();
+    ip_addrs
+        .push(IpCidr::new(IpAddress::v6(0xfe80, 0, 0, 0, 0, 0, 0, 1), 64))
+        .unwrap();
     let default_v4_gw = Ipv4Address::new(192, 168, 69, 100);
     let default_v6_gw = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 0x100);
     let mut routes_storage = [None; 2];

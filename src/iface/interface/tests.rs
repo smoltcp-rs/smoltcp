@@ -42,14 +42,19 @@ fn create<'a>(medium: Medium) -> (Interface<'a>, SocketSet<'a>, Loopback) {
 fn create_ip<'a>() -> (Interface<'a>, SocketSet<'a>, Loopback) {
     // Create a basic device
     let mut device = Loopback::new(Medium::Ip);
-    let ip_addrs = [
-        #[cfg(feature = "proto-ipv4")]
-        IpCidr::new(IpAddress::v4(127, 0, 0, 1), 8),
-        #[cfg(feature = "proto-ipv6")]
-        IpCidr::new(IpAddress::v6(0, 0, 0, 0, 0, 0, 0, 1), 128),
-        #[cfg(feature = "proto-ipv6")]
-        IpCidr::new(IpAddress::v6(0xfdbe, 0, 0, 0, 0, 0, 0, 1), 64),
-    ];
+    let mut ip_addrs = heapless::Vec::<IpCidr, MAX_IP_ADDRS_NUM>::new();
+    #[cfg(feature = "proto-ipv4")]
+    ip_addrs
+        .push(IpCidr::new(IpAddress::v4(127, 0, 0, 1), 8))
+        .unwrap();
+    #[cfg(feature = "proto-ipv6")]
+    ip_addrs
+        .push(IpCidr::new(IpAddress::v6(0, 0, 0, 0, 0, 0, 0, 1), 128))
+        .unwrap();
+    #[cfg(feature = "proto-ipv6")]
+    ip_addrs
+        .push(IpCidr::new(IpAddress::v6(0xfdbe, 0, 0, 0, 0, 0, 0, 1), 64))
+        .unwrap();
 
     let iface_builder = InterfaceBuilder::new().ip_addrs(ip_addrs);
 
@@ -69,14 +74,19 @@ fn create_ip<'a>() -> (Interface<'a>, SocketSet<'a>, Loopback) {
 fn create_ethernet<'a>() -> (Interface<'a>, SocketSet<'a>, Loopback) {
     // Create a basic device
     let mut device = Loopback::new(Medium::Ethernet);
-    let ip_addrs = [
-        #[cfg(feature = "proto-ipv4")]
-        IpCidr::new(IpAddress::v4(127, 0, 0, 1), 8),
-        #[cfg(feature = "proto-ipv6")]
-        IpCidr::new(IpAddress::v6(0, 0, 0, 0, 0, 0, 0, 1), 128),
-        #[cfg(feature = "proto-ipv6")]
-        IpCidr::new(IpAddress::v6(0xfdbe, 0, 0, 0, 0, 0, 0, 1), 64),
-    ];
+    let mut ip_addrs = heapless::Vec::<IpCidr, MAX_IP_ADDRS_NUM>::new();
+    #[cfg(feature = "proto-ipv4")]
+    ip_addrs
+        .push(IpCidr::new(IpAddress::v4(127, 0, 0, 1), 8))
+        .unwrap();
+    #[cfg(feature = "proto-ipv6")]
+    ip_addrs
+        .push(IpCidr::new(IpAddress::v6(0, 0, 0, 0, 0, 0, 0, 1), 128))
+        .unwrap();
+    #[cfg(feature = "proto-ipv6")]
+    ip_addrs
+        .push(IpCidr::new(IpAddress::v6(0xfdbe, 0, 0, 0, 0, 0, 0, 1), 64))
+        .unwrap();
 
     let iface_builder = InterfaceBuilder::new()
         .hardware_addr(EthernetAddress::default().into())
@@ -104,12 +114,15 @@ fn create_ethernet<'a>() -> (Interface<'a>, SocketSet<'a>, Loopback) {
 fn create_ieee802154<'a>() -> (Interface<'a>, SocketSet<'a>, Loopback) {
     // Create a basic device
     let mut device = Loopback::new(Medium::Ieee802154);
-    let ip_addrs = [
-        #[cfg(feature = "proto-ipv6")]
-        IpCidr::new(IpAddress::v6(0, 0, 0, 0, 0, 0, 0, 1), 128),
-        #[cfg(feature = "proto-ipv6")]
-        IpCidr::new(IpAddress::v6(0xfdbe, 0, 0, 0, 0, 0, 0, 1), 64),
-    ];
+    let mut ip_addrs = heapless::Vec::<IpCidr, MAX_IP_ADDRS_NUM>::new();
+    #[cfg(feature = "proto-ipv6")]
+    ip_addrs
+        .push(IpCidr::new(IpAddress::v6(0, 0, 0, 0, 0, 0, 0, 1), 128))
+        .unwrap();
+    #[cfg(feature = "proto-ipv6")]
+    ip_addrs
+        .push(IpCidr::new(IpAddress::v6(0xfdbe, 0, 0, 0, 0, 0, 0, 1), 64))
+        .unwrap();
 
     let iface_builder = InterfaceBuilder::new()
         .hardware_addr(Ieee802154Address::default().into())
@@ -1050,13 +1063,19 @@ fn test_icmpv4_socket() {
 #[cfg(feature = "proto-ipv6")]
 fn test_solicited_node_addrs() {
     let (mut iface, _, _device) = create(MEDIUM);
-    let mut new_addrs = vec![
-        IpCidr::new(IpAddress::v6(0xfe80, 0, 0, 0, 1, 2, 0, 2), 64),
-        IpCidr::new(IpAddress::v6(0xfe80, 0, 0, 0, 3, 4, 0, 0xffff), 64),
-    ];
+    let mut new_addrs = heapless::Vec::<IpCidr, MAX_IP_ADDRS_NUM>::new();
+    new_addrs
+        .push(IpCidr::new(IpAddress::v6(0xfe80, 0, 0, 0, 1, 2, 0, 2), 64))
+        .unwrap();
+    new_addrs
+        .push(IpCidr::new(
+            IpAddress::v6(0xfe80, 0, 0, 0, 3, 4, 0, 0xffff),
+            64,
+        ))
+        .unwrap();
     iface.update_ip_addrs(|addrs| {
         new_addrs.extend(addrs.to_vec());
-        *addrs = From::from(new_addrs);
+        *addrs = new_addrs;
     });
     assert!(iface
         .inner

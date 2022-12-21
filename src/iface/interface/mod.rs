@@ -16,6 +16,7 @@ mod ipv4;
 mod ipv6;
 
 use core::cmp;
+use heapless::Vec;
 use managed::{ManagedMap, ManagedSlice};
 
 #[cfg(any(feature = "proto-ipv4", feature = "proto-sixlowpan"))]
@@ -32,6 +33,8 @@ use crate::socket::*;
 use crate::time::{Duration, Instant};
 use crate::wire::*;
 use crate::{Error, Result};
+
+const MAX_IP_ADDRS_NUM: usize = 5;
 
 pub(crate) struct FragmentsBuffer<'a> {
     #[cfg(feature = "proto-ipv4-fragmentation")]
@@ -269,7 +272,7 @@ pub struct InterfaceInner<'a> {
     sixlowpan_address_context: &'a [SixlowpanAddressContext<'a>],
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
     tag: u16,
-    ip_addrs: ManagedSlice<'a, IpCidr>,
+    ip_addrs: Vec<IpCidr, MAX_IP_ADDRS_NUM>,
     #[cfg(feature = "proto-ipv4")]
     any_ip: bool,
     routes: Routes<'a>,
@@ -288,7 +291,7 @@ pub struct InterfaceBuilder<'a> {
     neighbor_cache: Option<NeighborCache<'a>>,
     #[cfg(feature = "medium-ieee802154")]
     pan_id: Option<Ieee802154Pan>,
-    ip_addrs: ManagedSlice<'a, IpCidr>,
+    ip_addrs: Vec<IpCidr, MAX_IP_ADDRS_NUM>,
     #[cfg(feature = "proto-ipv4")]
     any_ip: bool,
     routes: Routes<'a>,
@@ -339,7 +342,7 @@ let neighbor_cache = // ...
 # let ipv4_frag_cache = // ...
 # ReassemblyBuffer::new(vec![], BTreeMap::new());
 let ip_addrs = // ...
-# [];
+# heapless::Vec::<IpCidr, 5>::new();
 let builder = InterfaceBuilder::new()
         .hardware_addr(hw_addr.into())
         .neighbor_cache(neighbor_cache)
@@ -365,7 +368,7 @@ let iface = builder.finalize(&mut device);
             #[cfg(feature = "medium-ieee802154")]
             pan_id: None,
 
-            ip_addrs: ManagedSlice::Borrowed(&mut []),
+            ip_addrs: Vec::new(),
             #[cfg(feature = "proto-ipv4")]
             any_ip: false,
             routes: Routes::new(ManagedMap::Borrowed(&mut [])),
@@ -433,7 +436,7 @@ let iface = builder.finalize(&mut device);
     /// [ip_addrs]: struct.Interface.html#method.ip_addrs
     pub fn ip_addrs<T>(mut self, ip_addrs: T) -> Self
     where
-        T: Into<ManagedSlice<'a, IpCidr>>,
+        T: Into<Vec<IpCidr, MAX_IP_ADDRS_NUM>>,
     {
         let ip_addrs = ip_addrs.into();
         InterfaceInner::check_ip_addrs(&ip_addrs);
@@ -1003,7 +1006,7 @@ impl<'a> Interface<'a> {
     ///
     /// # Panics
     /// This function panics if any of the addresses are not unicast.
-    pub fn update_ip_addrs<F: FnOnce(&mut ManagedSlice<'a, IpCidr>)>(&mut self, f: F) {
+    pub fn update_ip_addrs<F: FnOnce(&mut Vec<IpCidr, MAX_IP_ADDRS_NUM>)>(&mut self, f: F) {
         f(&mut self.inner.ip_addrs);
         InterfaceInner::flush_cache(&mut self.inner);
         InterfaceInner::check_ip_addrs(&self.inner.ip_addrs)
@@ -1556,7 +1559,7 @@ impl<'a> InterfaceInner<'a> {
             },
             now: Instant::from_millis_const(0),
 
-            ip_addrs: ManagedSlice::Owned(vec![
+            ip_addrs: Vec::from_slice(&[
                 #[cfg(feature = "proto-ipv4")]
                 IpCidr::Ipv4(Ipv4Cidr::new(Ipv4Address::new(192, 168, 1, 1), 24)),
                 #[cfg(feature = "proto-ipv6")]
@@ -1564,7 +1567,8 @@ impl<'a> InterfaceInner<'a> {
                     Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
                     64,
                 )),
-            ]),
+            ])
+            .unwrap(),
             rand: Rand::new(1234),
             routes: Routes::new(&mut [][..]),
 
