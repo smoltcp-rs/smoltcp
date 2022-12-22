@@ -259,7 +259,7 @@ pub struct InterfaceInner<'a> {
     rand: Rand,
 
     #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
-    neighbor_cache: Option<NeighborCache<'a>>,
+    neighbor_cache: Option<NeighborCache>,
     #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
     hardware_addr: Option<HardwareAddress>,
     #[cfg(feature = "medium-ieee802154")]
@@ -288,7 +288,7 @@ pub struct InterfaceBuilder<'a> {
     #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
     hardware_addr: Option<HardwareAddress>,
     #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
-    neighbor_cache: Option<NeighborCache<'a>>,
+    neighbor_cache: Option<NeighborCache>,
     #[cfg(feature = "medium-ieee802154")]
     pan_id: Option<Ieee802154Pan>,
     ip_addrs: Vec<IpCidr, MAX_IP_ADDRS_NUM>,
@@ -337,7 +337,7 @@ let mut device = // ...
 let hw_addr = // ...
 # EthernetAddress::default();
 let neighbor_cache = // ...
-# NeighborCache::new(BTreeMap::new());
+# NeighborCache::new();
 # #[cfg(feature = "proto-ipv4-fragmentation")]
 # let ipv4_frag_cache = // ...
 # ReassemblyBuffer::new(vec![], BTreeMap::new());
@@ -496,7 +496,7 @@ let iface = builder.finalize(&mut device);
 
     /// Set the Neighbor Cache the interface will use.
     #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
-    pub fn neighbor_cache(mut self, neighbor_cache: NeighborCache<'a>) -> Self {
+    pub fn neighbor_cache(mut self, neighbor_cache: NeighborCache) -> Self {
         self.neighbor_cache = Some(neighbor_cache);
         self
     }

@@ -1,7 +1,6 @@
 mod utils;
 
 use log::debug;
-use std::collections::BTreeMap;
 use std::os::unix::io::AsRawFd;
 use std::str::{self, FromStr};
 use url::Url;
@@ -29,7 +28,7 @@ fn main() {
     let address = IpAddress::from_str(&matches.free[0]).expect("invalid address format");
     let url = Url::parse(&matches.free[1]).expect("invalid url format");
 
-    let neighbor_cache = NeighborCache::new(BTreeMap::new());
+    let neighbor_cache = NeighborCache::new();
 
     let tcp_rx_buffer = tcp::SocketBuffer::new(vec![0; 1024]);
     let tcp_tx_buffer = tcp::SocketBuffer::new(vec![0; 1024]);

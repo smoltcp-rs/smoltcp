@@ -90,7 +90,7 @@ fn create_ethernet<'a>() -> (Interface<'a>, SocketSet<'a>, Loopback) {
 
     let iface_builder = InterfaceBuilder::new()
         .hardware_addr(EthernetAddress::default().into())
-        .neighbor_cache(NeighborCache::new(BTreeMap::new()))
+        .neighbor_cache(NeighborCache::new())
         .ip_addrs(ip_addrs);
 
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
@@ -126,7 +126,7 @@ fn create_ieee802154<'a>() -> (Interface<'a>, SocketSet<'a>, Loopback) {
 
     let iface_builder = InterfaceBuilder::new()
         .hardware_addr(Ieee802154Address::default().into())
-        .neighbor_cache(NeighborCache::new(BTreeMap::new()))
+        .neighbor_cache(NeighborCache::new())
         .ip_addrs(ip_addrs);
 
     #[cfg(feature = "proto-sixlowpan-fragmentation")]

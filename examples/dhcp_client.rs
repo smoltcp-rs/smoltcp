@@ -2,10 +2,9 @@
 mod utils;
 
 use log::*;
-use std::collections::BTreeMap;
 use std::os::unix::io::AsRawFd;
 
-use smoltcp::iface::{Interface, InterfaceBuilder, NeighborCache, Routes, SocketSet};
+use smoltcp::iface::{Interface, InterfaceBuilder, NeighborCache, SocketSet};
 use smoltcp::socket::dhcpv4;
 use smoltcp::time::Instant;
 use smoltcp::wire::{EthernetAddress, IpCidr, Ipv4Address, Ipv4Cidr};
@@ -28,7 +27,7 @@ fn main() {
     let mut device =
         utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
 
-    let neighbor_cache = NeighborCache::new(BTreeMap::new());
+    let neighbor_cache = NeighborCache::new();
     let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
     let mut ip_addrs = heapless::Vec::<IpCidr, 5>::new();
     ip_addrs

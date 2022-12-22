@@ -1,10 +1,15 @@
 // Heads up! Before working on this file you should read, at least,
 // the parts of RFC 1122 that discuss ARP.
 
-use managed::ManagedMap;
+use heapless::LinearMap;
 
 use crate::time::{Duration, Instant};
 use crate::wire::{HardwareAddress, IpAddress};
+
+#[cfg(not(test))]
+pub const NEIGHBOR_CACHE_SIZE: usize = 16;
+#[cfg(test)]
+pub const NEIGHBOR_CACHE_SIZE: usize = 3;
 
 /// A cached neighbor.
 ///
@@ -41,73 +46,23 @@ impl Answer {
 }
 
 /// A neighbor cache backed by a map.
-///
-/// # Examples
-///
-/// On systems with heap, this cache can be created with:
-///
-/// ```rust
-/// use std::collections::BTreeMap;
-/// use smoltcp::iface::NeighborCache;
-/// let mut neighbor_cache = NeighborCache::new(BTreeMap::new());
-/// ```
-///
-/// On systems without heap, use:
-///
-/// ```rust
-/// use smoltcp::iface::NeighborCache;
-/// let mut neighbor_cache_storage = [None; 8];
-/// let mut neighbor_cache = NeighborCache::new(&mut neighbor_cache_storage[..]);
-/// ```
 #[derive(Debug)]
-pub struct Cache<'a> {
-    storage: ManagedMap<'a, IpAddress, Neighbor>,
+pub struct Cache {
+    storage: LinearMap<IpAddress, Neighbor, NEIGHBOR_CACHE_SIZE>,
     silent_until: Instant,
-    #[cfg(feature = "alloc")]
-    gc_threshold: usize,
 }
 
-impl<'a> Cache<'a> {
+impl Cache {
     /// Minimum delay between discovery requests, in milliseconds.
     pub(crate) const SILENT_TIME: Duration = Duration::from_millis(1_000);
 
     /// Neighbor entry lifetime, in milliseconds.
     pub(crate) const ENTRY_LIFETIME: Duration = Duration::from_millis(60_000);
 
-    /// Default number of entries in the cache before GC kicks in
-    #[cfg(feature = "alloc")]
-    pub(crate) const GC_THRESHOLD: usize = 1024;
-
-    /// Create a cache. The backing storage is cleared upon creation.
-    ///
-    /// # Panics
-    /// This function panics if `storage.len() == 0`.
-    pub fn new<T>(storage: T) -> Cache<'a>
-    where
-        T: Into<ManagedMap<'a, IpAddress, Neighbor>>,
-    {
-        let mut storage = storage.into();
-        storage.clear();
-
-        Cache {
-            storage,
-            #[cfg(feature = "alloc")]
-            gc_threshold: Self::GC_THRESHOLD,
-            silent_until: Instant::from_millis(0),
-        }
-    }
-
-    #[cfg(feature = "alloc")]
-    pub fn new_with_limit<T>(storage: T, gc_threshold: usize) -> Cache<'a>
-    where
-        T: Into<ManagedMap<'a, IpAddress, Neighbor>>,
-    {
-        let mut storage = storage.into();
-        storage.clear();
-
-        Cache {
-            storage,
-            gc_threshold,
+    /// Create a cache.
+    pub fn new() -> Self {
+        Self {
+            storage: LinearMap::new(),
             silent_until: Instant::from_millis(0),
         }
     }
@@ -121,24 +76,6 @@ impl<'a> Cache<'a> {
         debug_assert!(protocol_addr.is_unicast());
         debug_assert!(hardware_addr.is_unicast());
 
-        #[cfg(feature = "alloc")]
-        let current_storage_size = self.storage.len();
-
-        match self.storage {
-            ManagedMap::Borrowed(_) => (),
-            #[cfg(feature = "alloc")]
-            ManagedMap::Owned(ref mut map) => {
-                if current_storage_size >= self.gc_threshold {
-                    let new_btree_map = map
-                        .iter_mut()
-                        .map(|(key, value)| (*key, *value))
-                        .filter(|(_, v)| timestamp < v.expires_at)
-                        .collect();
-
-                    *map = new_btree_map;
-                }
-            }
-        };
         let neighbor = Neighbor {
             expires_at: timestamp + Self::ENTRY_LIFETIME,
             hardware_addr,
@@ -158,24 +95,13 @@ impl<'a> Cache<'a> {
                 net_trace!("filled {} => {} (was empty)", protocol_addr, hardware_addr);
             }
             Err((protocol_addr, neighbor)) => {
-                // If we're going down this branch, it means that a fixed-size cache storage
-                // is full, and we need to evict an entry.
-                let old_protocol_addr = match self.storage {
-                    ManagedMap::Borrowed(ref mut pairs) => {
-                        pairs
-                            .iter()
-                            .min_by_key(|pair_opt| {
-                                let (_protocol_addr, neighbor) = pair_opt.unwrap();
-                                neighbor.expires_at
-                            })
-                            .expect("empty neighbor cache storage") // unwraps min_by_key
-                            .unwrap() // unwraps pair
-                            .0
-                    }
-                    // Owned maps can extend themselves.
-                    #[cfg(feature = "alloc")]
-                    ManagedMap::Owned(_) => unreachable!(),
-                };
+                // If we're going down this branch, it means the cache is full, and we need to evict an entry.
+                let old_protocol_addr = *self
+                    .storage
+                    .iter()
+                    .min_by_key(|(_, neighbor)| neighbor.expires_at)
+                    .expect("empty neighbor cache storage")
+                    .0;
 
                 let _old_neighbor = self.storage.remove(&old_protocol_addr).unwrap();
                 match self.storage.insert(protocol_addr, neighbor) {
@@ -229,7 +155,6 @@ impl<'a> Cache<'a> {
 mod test {
     use super::*;
     use crate::wire::ip::test::{MOCK_IP_ADDR_1, MOCK_IP_ADDR_2, MOCK_IP_ADDR_3, MOCK_IP_ADDR_4};
-    use std::collections::BTreeMap;
 
     use crate::wire::EthernetAddress;
 
@@ -240,8 +165,7 @@ mod test {
 
     #[test]
     fn test_fill() {
-        let mut cache_storage = [Default::default(); 3];
-        let mut cache = Cache::new(&mut cache_storage[..]);
+        let mut cache = Cache::new();
 
         assert!(!cache
             .lookup(&MOCK_IP_ADDR_1, Instant::from_millis(0))
@@ -273,8 +197,7 @@ mod test {
 
     #[test]
     fn test_expire() {
-        let mut cache_storage = [Default::default(); 3];
-        let mut cache = Cache::new(&mut cache_storage[..]);
+        let mut cache = Cache::new();
 
         cache.fill(MOCK_IP_ADDR_1, HADDR_A, Instant::from_millis(0));
         assert_eq!(
@@ -291,8 +214,7 @@ mod test {
 
     #[test]
     fn test_replace() {
-        let mut cache_storage = [Default::default(); 3];
-        let mut cache = Cache::new(&mut cache_storage[..]);
+        let mut cache = Cache::new();
 
         cache.fill(MOCK_IP_ADDR_1, HADDR_A, Instant::from_millis(0));
         assert_eq!(
@@ -307,32 +229,8 @@ mod test {
     }
 
     #[test]
-    fn test_cache_gc() {
-        let mut cache = Cache::new_with_limit(BTreeMap::new(), 2);
-        cache.fill(MOCK_IP_ADDR_1, HADDR_A, Instant::from_millis(100));
-        cache.fill(MOCK_IP_ADDR_2, HADDR_B, Instant::from_millis(50));
-        // Adding third item after the expiration of the previous
-        // two should garbage collect
-        cache.fill(
-            MOCK_IP_ADDR_3,
-            HADDR_C,
-            Instant::from_millis(50) + Cache::ENTRY_LIFETIME * 2,
-        );
-
-        assert_eq!(cache.storage.len(), 1);
-        assert_eq!(
-            cache.lookup(
-                &MOCK_IP_ADDR_3,
-                Instant::from_millis(50) + Cache::ENTRY_LIFETIME * 2
-            ),
-            Answer::Found(HADDR_C)
-        );
-    }
-
-    #[test]
     fn test_evict() {
-        let mut cache_storage = [Default::default(); 3];
-        let mut cache = Cache::new(&mut cache_storage[..]);
+        let mut cache = Cache::new();
 
         cache.fill(MOCK_IP_ADDR_1, HADDR_A, Instant::from_millis(100));
         cache.fill(MOCK_IP_ADDR_2, HADDR_B, Instant::from_millis(50));
@@ -357,8 +255,7 @@ mod test {
 
     #[test]
     fn test_hush() {
-        let mut cache_storage = [Default::default(); 3];
-        let mut cache = Cache::new(&mut cache_storage[..]);
+        let mut cache = Cache::new();
 
         assert_eq!(
             cache.lookup(&MOCK_IP_ADDR_1, Instant::from_millis(0)),
@@ -378,8 +275,7 @@ mod test {
 
     #[test]
     fn test_flush() {
-        let mut cache_storage = [Default::default(); 3];
-        let mut cache = Cache::new(&mut cache_storage[..]);
+        let mut cache = Cache::new();
 
         cache.fill(MOCK_IP_ADDR_1, HADDR_A, Instant::from_millis(0));
         assert_eq!(

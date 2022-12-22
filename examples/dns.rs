@@ -15,7 +15,6 @@ use smoltcp::time::Instant;
 use smoltcp::wire::{
     DnsQueryType, EthernetAddress, HardwareAddress, IpAddress, IpCidr, Ipv4Address, Ipv6Address,
 };
-use std::collections::BTreeMap;
 use std::os::unix::io::AsRawFd;
 
 fn main() {
@@ -33,7 +32,7 @@ fn main() {
         utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
     let name = &matches.free[0];
 
-    let neighbor_cache = NeighborCache::new(BTreeMap::new());
+    let neighbor_cache = NeighborCache::new();
 
     let servers = &[
         Ipv4Address::new(8, 8, 4, 4).into(),

@@ -82,16 +82,13 @@ fn main() {
         utils::parse_middleware_options(&mut matches, device, /*loopback=*/ true)
     };
 
-    let mut neighbor_cache_entries = [None; 8];
-    let mut neighbor_cache = NeighborCache::new(&mut neighbor_cache_entries[..]);
-
     let mut ip_addrs = heapless::Vec::<IpCidr, 5>::new();
     ip_addrs
         .push(IpCidr::new(IpAddress::v4(127, 0, 0, 1), 8))
         .unwrap();
     let mut iface = InterfaceBuilder::new()
         .hardware_addr(EthernetAddress::default().into())
-        .neighbor_cache(neighbor_cache)
+        .neighbor_cache(NeighborCache::new())
         .ip_addrs(ip_addrs)
         .finalize(&mut device);
 

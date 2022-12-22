@@ -4,7 +4,6 @@ use byteorder::{ByteOrder, NetworkEndian};
 use log::debug;
 use smoltcp::iface::SocketSet;
 use std::cmp;
-use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::os::unix::io::AsRawFd;
 use std::str::FromStr;
@@ -106,7 +105,7 @@ fn main() {
             .unwrap_or(5),
     );
 
-    let neighbor_cache = NeighborCache::new(BTreeMap::new());
+    let neighbor_cache = NeighborCache::new();
 
     let remote_addr = address;
 
