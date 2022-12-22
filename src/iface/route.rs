@@ -1,6 +1,5 @@
 use crate::time::Instant;
-use core::ops::Bound;
-use managed::ManagedMap;
+use heapless::Vec;
 
 use crate::wire::{IpAddress, IpCidr};
 #[cfg(feature = "proto-ipv4")]
@@ -9,10 +8,13 @@ use crate::wire::{Ipv4Address, Ipv4Cidr};
 use crate::wire::{Ipv6Address, Ipv6Cidr};
 use crate::{Error, Result};
 
+pub const MAX_ROUTE_COUNT: usize = 4;
+
 /// A prefix of addresses that should be routed via a router
 #[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Route {
+    pub cidr: IpCidr,
     pub via_router: IpAddress,
     /// `None` means "forever".
     pub preferred_until: Option<Instant>,
@@ -20,11 +22,18 @@ pub struct Route {
     pub expires_at: Option<Instant>,
 }
 
+#[cfg(feature = "proto-ipv4")]
+const IPV4_DEFAULT: IpCidr = IpCidr::Ipv4(Ipv4Cidr::new(Ipv4Address::new(0, 0, 0, 0), 0));
+#[cfg(feature = "proto-ipv6")]
+const IPV6_DEFAULT: IpCidr =
+    IpCidr::Ipv6(Ipv6Cidr::new(Ipv6Address::new(0, 0, 0, 0, 0, 0, 0, 0), 0));
+
 impl Route {
     /// Returns a route to 0.0.0.0/0 via the `gateway`, with no expiry.
     #[cfg(feature = "proto-ipv4")]
     pub fn new_ipv4_gateway(gateway: Ipv4Address) -> Route {
         Route {
+            cidr: IPV4_DEFAULT,
             via_router: gateway.into(),
             preferred_until: None,
             expires_at: None,
@@ -35,6 +44,7 @@ impl Route {
     #[cfg(feature = "proto-ipv6")]
     pub fn new_ipv6_gateway(gateway: Ipv6Address) -> Route {
         Route {
+            cidr: IPV6_DEFAULT,
             via_router: gateway.into(),
             preferred_until: None,
             expires_at: None,
@@ -43,42 +53,21 @@ impl Route {
 }
 
 /// A routing table.
-///
-/// # Examples
-///
-/// On systems with heap, this table can be created with:
-///
-/// ```rust
-/// use std::collections::BTreeMap;
-/// use smoltcp::iface::Routes;
-/// let mut routes = Routes::new(BTreeMap::new());
-/// ```
-///
-/// On systems without heap, use:
-///
-/// ```rust
-/// use smoltcp::iface::Routes;
-/// let mut routes_storage = [];
-/// let mut routes = Routes::new(&mut routes_storage[..]);
-/// ```
 #[derive(Debug)]
-pub struct Routes<'a> {
-    storage: ManagedMap<'a, IpCidr, Route>,
+pub struct Routes {
+    storage: Vec<Route, MAX_ROUTE_COUNT>,
 }
 
-impl<'a> Routes<'a> {
-    /// Creates a routing tables. The backing storage is **not** cleared
-    /// upon creation.
-    pub fn new<T>(storage: T) -> Routes<'a>
-    where
-        T: Into<ManagedMap<'a, IpCidr, Route>>,
-    {
-        let storage = storage.into();
-        Routes { storage }
+impl Routes {
+    /// Creates a new empty routing table.
+    pub fn new() -> Self {
+        Self {
+            storage: Vec::new(),
+        }
     }
 
     /// Update the routes of this node.
-    pub fn update<F: FnOnce(&mut ManagedMap<'a, IpCidr, Route>)>(&mut self, f: F) {
+    pub fn update<F: FnOnce(&mut Vec<Route, MAX_ROUTE_COUNT>)>(&mut self, f: F) {
         f(&mut self.storage);
     }
 
@@ -87,12 +76,11 @@ impl<'a> Routes<'a> {
     /// On success, returns the previous default route, if any.
     #[cfg(feature = "proto-ipv4")]
     pub fn add_default_ipv4_route(&mut self, gateway: Ipv4Address) -> Result<Option<Route>> {
-        let cidr = IpCidr::new(IpAddress::v4(0, 0, 0, 0), 0);
-        let route = Route::new_ipv4_gateway(gateway);
-        match self.storage.insert(cidr, route) {
-            Ok(route) => Ok(route),
-            Err((_cidr, _route)) => Err(Error::Exhausted),
-        }
+        let old = self.remove_default_ipv4_route();
+        self.storage
+            .push(Route::new_ipv4_gateway(gateway))
+            .map_err(|_| Error::Exhausted)?;
+        Ok(old)
     }
 
     /// Add a default ipv6 gateway (ie. "ip -6 route add ::/0 via `gateway`").
@@ -100,12 +88,11 @@ impl<'a> Routes<'a> {
     /// On success, returns the previous default route, if any.
     #[cfg(feature = "proto-ipv6")]
     pub fn add_default_ipv6_route(&mut self, gateway: Ipv6Address) -> Result<Option<Route>> {
-        let cidr = IpCidr::new(IpAddress::v6(0, 0, 0, 0, 0, 0, 0, 0), 0);
-        let route = Route::new_ipv6_gateway(gateway);
-        match self.storage.insert(cidr, route) {
-            Ok(route) => Ok(route),
-            Err((_cidr, _route)) => Err(Error::Exhausted),
-        }
+        let old = self.remove_default_ipv6_route();
+        self.storage
+            .push(Route::new_ipv6_gateway(gateway))
+            .map_err(|_| Error::Exhausted)?;
+        Ok(old)
     }
 
     /// Remove the default ipv4 gateway
@@ -113,8 +100,16 @@ impl<'a> Routes<'a> {
     /// On success, returns the previous default route, if any.
     #[cfg(feature = "proto-ipv4")]
     pub fn remove_default_ipv4_route(&mut self) -> Option<Route> {
-        let cidr = IpCidr::new(IpAddress::v4(0, 0, 0, 0), 0);
-        self.storage.remove(&cidr)
+        if let Some((i, _)) = self
+            .storage
+            .iter()
+            .enumerate()
+            .find(|(_, r)| r.cidr == IPV4_DEFAULT)
+        {
+            Some(self.storage.remove(i))
+        } else {
+            None
+        }
     }
 
     /// Remove the default ipv6 gateway
@@ -122,38 +117,35 @@ impl<'a> Routes<'a> {
     /// On success, returns the previous default route, if any.
     #[cfg(feature = "proto-ipv6")]
     pub fn remove_default_ipv6_route(&mut self) -> Option<Route> {
-        let cidr = IpCidr::new(IpAddress::v6(0, 0, 0, 0, 0, 0, 0, 0), 0);
-        self.storage.remove(&cidr)
+        if let Some((i, _)) = self
+            .storage
+            .iter()
+            .enumerate()
+            .find(|(_, r)| r.cidr == IPV6_DEFAULT)
+        {
+            Some(self.storage.remove(i))
+        } else {
+            None
+        }
     }
 
     pub(crate) fn lookup(&self, addr: &IpAddress, timestamp: Instant) -> Option<IpAddress> {
         assert!(addr.is_unicast());
 
-        let cidr = match addr {
-            #[cfg(feature = "proto-ipv4")]
-            IpAddress::Ipv4(addr) => IpCidr::Ipv4(Ipv4Cidr::new(*addr, 32)),
-            #[cfg(feature = "proto-ipv6")]
-            IpAddress::Ipv6(addr) => IpCidr::Ipv6(Ipv6Cidr::new(*addr, 128)),
-        };
-
-        for (prefix, route) in self
-            .storage
-            .range((Bound::Unbounded::<IpCidr>, Bound::Included(cidr)))
-            .rev()
-        {
-            // TODO: do something with route.preferred_until
-            if let Some(expires_at) = route.expires_at {
-                if timestamp > expires_at {
-                    continue;
+        self.storage
+            .iter()
+            // Keep only matching routes
+            .filter(|route| {
+                if let Some(expires_at) = route.expires_at {
+                    if timestamp > expires_at {
+                        return false;
+                    }
                 }
-            }
-
-            if prefix.contains_addr(addr) {
-                return Some(route.via_router);
-            }
-        }
-
-        None
+                route.cidr.contains_addr(addr)
+            })
+            // pick the most specific one (highest prefix_len)
+            .max_by_key(|route| route.cidr.prefix_len())
+            .map(|route| route.via_router)
     }
 }
 
@@ -209,8 +201,7 @@ mod test {
 
     #[test]
     fn test_fill() {
-        let mut routes_storage = [None, None, None];
-        let mut routes = Routes::new(&mut routes_storage[..]);
+        let mut routes = Routes::new();
 
         assert_eq!(
             routes.lookup(&ADDR_1A.into(), Instant::from_millis(0)),
@@ -234,12 +225,13 @@ mod test {
         );
 
         let route = Route {
+            cidr: cidr_1().into(),
             via_router: ADDR_1A.into(),
             preferred_until: None,
             expires_at: None,
         };
         routes.update(|storage| {
-            storage.insert(cidr_1().into(), route).unwrap();
+            storage.push(route).unwrap();
         });
 
         assert_eq!(
@@ -264,12 +256,13 @@ mod test {
         );
 
         let route2 = Route {
+            cidr: cidr_2().into(),
             via_router: ADDR_2A.into(),
             preferred_until: Some(Instant::from_millis(10)),
             expires_at: Some(Instant::from_millis(10)),
         };
         routes.update(|storage| {
-            storage.insert(cidr_2().into(), route2).unwrap();
+            storage.push(route2).unwrap();
         });
 
         assert_eq!(

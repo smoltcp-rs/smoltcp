@@ -34,11 +34,9 @@ fn main() {
     ip_addrs
         .push(IpCidr::new(Ipv4Address::UNSPECIFIED.into(), 0))
         .unwrap();
-    let mut routes_storage = [None; 1];
-    let routes = Routes::new(&mut routes_storage[..]);
 
     let medium = device.capabilities().medium;
-    let mut builder = InterfaceBuilder::new().ip_addrs(ip_addrs).routes(routes);
+    let mut builder = InterfaceBuilder::new().ip_addrs(ip_addrs);
     if medium == Medium::Ethernet {
         builder = builder
             .hardware_addr(ethernet_addr.into())

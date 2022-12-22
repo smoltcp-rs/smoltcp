@@ -47,8 +47,7 @@ fn main() {
         .push(IpCidr::new(IpAddress::v4(192, 168, 69, 2), 24))
         .unwrap();
     let default_v4_gw = Ipv4Address::new(192, 168, 69, 100);
-    let mut routes_storage = [None; 1];
-    let mut routes = Routes::new(&mut routes_storage[..]);
+    let mut routes = Routes::new();
     routes.add_default_ipv4_route(default_v4_gw).unwrap();
 
     let medium = device.capabilities().medium;

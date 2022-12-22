@@ -275,7 +275,7 @@ pub struct InterfaceInner<'a> {
     ip_addrs: Vec<IpCidr, MAX_IP_ADDRS_NUM>,
     #[cfg(feature = "proto-ipv4")]
     any_ip: bool,
-    routes: Routes<'a>,
+    routes: Routes,
     #[cfg(feature = "proto-igmp")]
     ipv4_multicast_groups: ManagedMap<'a, Ipv4Address, ()>,
     /// When to report for (all or) the next multicast group membership via IGMP
@@ -294,7 +294,7 @@ pub struct InterfaceBuilder<'a> {
     ip_addrs: Vec<IpCidr, MAX_IP_ADDRS_NUM>,
     #[cfg(feature = "proto-ipv4")]
     any_ip: bool,
-    routes: Routes<'a>,
+    routes: Routes,
     /// Does not share storage with `ipv6_multicast_groups` to avoid IPv6 size overhead.
     #[cfg(feature = "proto-igmp")]
     ipv4_multicast_groups: ManagedMap<'a, Ipv4Address, ()>,
@@ -371,7 +371,7 @@ let iface = builder.finalize(&mut device);
             ip_addrs: Vec::new(),
             #[cfg(feature = "proto-ipv4")]
             any_ip: false,
-            routes: Routes::new(ManagedMap::Borrowed(&mut [])),
+            routes: Routes::new(),
             #[cfg(feature = "proto-igmp")]
             ipv4_multicast_groups: ManagedMap::Borrowed(&mut []),
             random_seed: 0,
@@ -469,7 +469,7 @@ let iface = builder.finalize(&mut device);
     /// [routes]: struct.Interface.html#method.routes
     pub fn routes<T>(mut self, routes: T) -> InterfaceBuilder<'a>
     where
-        T: Into<Routes<'a>>,
+        T: Into<Routes>,
     {
         self.routes = routes.into();
         self
@@ -1023,11 +1023,11 @@ impl<'a> Interface<'a> {
         self.inner.ipv4_address()
     }
 
-    pub fn routes(&self) -> &Routes<'a> {
+    pub fn routes(&self) -> &Routes {
         &self.inner.routes
     }
 
-    pub fn routes_mut(&mut self) -> &mut Routes<'a> {
+    pub fn routes_mut(&mut self) -> &mut Routes {
         &mut self.inner.routes
     }
 
@@ -1570,7 +1570,7 @@ impl<'a> InterfaceInner<'a> {
             ])
             .unwrap(),
             rand: Rand::new(1234),
-            routes: Routes::new(&mut [][..]),
+            routes: Routes::new(),
 
             #[cfg(feature = "proto-ipv4")]
             any_ip: false,
