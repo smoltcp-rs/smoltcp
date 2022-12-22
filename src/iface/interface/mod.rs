@@ -16,6 +16,7 @@ mod ipv4;
 mod ipv6;
 
 use core::cmp;
+use core::marker::PhantomData;
 use heapless::Vec;
 use managed::{ManagedMap, ManagedSlice};
 
@@ -258,6 +259,8 @@ pub struct InterfaceInner<'a> {
     now: Instant,
     rand: Rand,
 
+    phantom: PhantomData<&'a mut ()>,
+
     #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
     neighbor_cache: Option<NeighborCache>,
     #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
@@ -285,6 +288,8 @@ pub struct InterfaceInner<'a> {
 
 /// A builder structure used for creating a network interface.
 pub struct InterfaceBuilder<'a> {
+    phantom: PhantomData<&'a mut ()>,
+
     #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
     hardware_addr: Option<HardwareAddress>,
     #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
@@ -360,6 +365,8 @@ let iface = builder.finalize(&mut device);
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         InterfaceBuilder {
+            phantom: PhantomData,
+
             #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
             hardware_addr: None,
             #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
@@ -672,6 +679,7 @@ let iface = builder.finalize(&mut device);
                 _lifetime: core::marker::PhantomData,
             },
             inner: InterfaceInner {
+                phantom: PhantomData,
                 now: Instant::from_secs(0),
                 caps,
                 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
@@ -1534,6 +1542,7 @@ impl<'a> InterfaceInner<'a> {
     #[cfg(test)]
     pub(crate) fn mock() -> Self {
         Self {
+            phantom: PhantomData,
             caps: DeviceCapabilities {
                 #[cfg(feature = "medium-ethernet")]
                 medium: crate::phy::Medium::Ethernet,
