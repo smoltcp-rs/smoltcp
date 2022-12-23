@@ -137,12 +137,12 @@ impl Assembler {
     }
 
     /// Return length of the front contiguous range without removing it from the assembler
-    pub fn peek_front(&self) -> Option<usize> {
+    pub fn peek_front(&self) -> usize {
         let front = self.front();
         if front.has_hole() {
-            None
+            0
         } else {
-            Some(front.data_size)
+            front.data_size
         }
     }
 
@@ -250,16 +250,16 @@ impl Assembler {
 
     /// Remove a contiguous range from the front of the assembler and `Some(data_size)`,
     /// or return `None` if there is no such range.
-    pub fn remove_front(&mut self) -> Option<usize> {
+    pub fn remove_front(&mut self) -> usize {
         let front = self.front();
         if front.has_hole() {
-            None
+            0
         } else {
             let last_hole = self.remove_contig_at(0);
             last_hole.hole_size += front.data_size;
 
             debug_assert!(front.data_size > 0);
-            Some(front.data_size)
+            front.data_size
         }
     }
 
@@ -452,20 +452,20 @@ mod test {
     #[test]
     fn test_empty_remove_front() {
         let mut assr = contigs![(12, 0)];
-        assert_eq!(assr.remove_front(), None);
+        assert_eq!(assr.remove_front(), 0);
     }
 
     #[test]
     fn test_trailing_hole_remove_front() {
         let mut assr = contigs![(0, 4), (8, 0)];
-        assert_eq!(assr.remove_front(), Some(4));
+        assert_eq!(assr.remove_front(), 4);
         assert_eq!(assr, contigs![(12, 0)]);
     }
 
     #[test]
     fn test_trailing_data_remove_front() {
         let mut assr = contigs![(0, 4), (4, 4)];
-        assert_eq!(assr.remove_front(), Some(4));
+        assert_eq!(assr.remove_front(), 4);
         assert_eq!(assr, contigs![(4, 4), (4, 0)]);
     }
 
@@ -474,7 +474,7 @@ mod test {
         let mut vec = vec![(1, 1); CONTIG_COUNT];
         vec[0] = (0, 2);
         let mut assr = Assembler::from(vec);
-        assert_eq!(assr.remove_front(), Some(2));
+        assert_eq!(assr.remove_front(), 2);
         let mut vec = vec![(1, 1); CONTIG_COUNT];
         vec[CONTIG_COUNT - 1] = (2, 0);
         let exp_assr = Assembler::from(vec);
