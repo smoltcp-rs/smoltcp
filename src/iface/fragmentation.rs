@@ -233,7 +233,7 @@ impl<'a> PacketAssembler<'a> {
                 total_size,
                 ..
             } => match (total_size, assembler.peek_front()) {
-                (Some(total_size), Some(front)) => Ok(front == *total_size),
+                (Some(total_size), front) => Ok(front == *total_size),
                 _ => Ok(false),
             },
         }

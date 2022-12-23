@@ -1787,7 +1787,8 @@ impl<'a> Socket<'a> {
             }
         }
 
-        if let Some(contig_len) = self.assembler.remove_front() {
+        let contig_len = self.assembler.remove_front();
+        if contig_len != 0 {
             debug_assert!(self.assembler.total_size() == self.rx_buffer.capacity());
             // Enqueue the contiguous data octets in front of the buffer.
             tcp_trace!(
