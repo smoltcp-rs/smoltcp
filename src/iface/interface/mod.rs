@@ -17,8 +17,8 @@ mod ipv6;
 
 use core::cmp;
 use core::marker::PhantomData;
-use heapless::Vec;
-use managed::{ManagedMap, ManagedSlice};
+use heapless::{LinearMap, Vec};
+use managed::ManagedSlice;
 
 #[cfg(any(feature = "proto-ipv4", feature = "proto-sixlowpan"))]
 use super::fragmentation::PacketAssemblerSet;
@@ -35,7 +35,9 @@ use crate::time::{Duration, Instant};
 use crate::wire::*;
 use crate::{Error, Result};
 
-const MAX_IP_ADDRS_NUM: usize = 5;
+const MAX_IP_ADDR_COUNT: usize = 5;
+#[cfg(feature = "proto-igmp")]
+const MAX_IPV4_MULTICAST_GROUPS: usize = 4;
 
 pub(crate) struct FragmentsBuffer<'a> {
     #[cfg(feature = "proto-ipv4-fragmentation")]
@@ -275,12 +277,12 @@ pub struct InterfaceInner<'a> {
     sixlowpan_address_context: &'a [SixlowpanAddressContext<'a>],
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
     tag: u16,
-    ip_addrs: Vec<IpCidr, MAX_IP_ADDRS_NUM>,
+    ip_addrs: Vec<IpCidr, MAX_IP_ADDR_COUNT>,
     #[cfg(feature = "proto-ipv4")]
     any_ip: bool,
     routes: Routes,
     #[cfg(feature = "proto-igmp")]
-    ipv4_multicast_groups: ManagedMap<'a, Ipv4Address, ()>,
+    ipv4_multicast_groups: LinearMap<Ipv4Address, (), MAX_IPV4_MULTICAST_GROUPS>,
     /// When to report for (all or) the next multicast group membership via IGMP
     #[cfg(feature = "proto-igmp")]
     igmp_report_state: IgmpReportState,
@@ -296,13 +298,13 @@ pub struct InterfaceBuilder<'a> {
     neighbor_cache: Option<NeighborCache>,
     #[cfg(feature = "medium-ieee802154")]
     pan_id: Option<Ieee802154Pan>,
-    ip_addrs: Vec<IpCidr, MAX_IP_ADDRS_NUM>,
+    ip_addrs: Vec<IpCidr, MAX_IP_ADDR_COUNT>,
     #[cfg(feature = "proto-ipv4")]
     any_ip: bool,
     routes: Routes,
     /// Does not share storage with `ipv6_multicast_groups` to avoid IPv6 size overhead.
     #[cfg(feature = "proto-igmp")]
-    ipv4_multicast_groups: ManagedMap<'a, Ipv4Address, ()>,
+    ipv4_multicast_groups: LinearMap<Ipv4Address, (), MAX_IPV4_MULTICAST_GROUPS>,
     random_seed: u64,
 
     #[cfg(feature = "proto-ipv4-fragmentation")]
@@ -380,7 +382,7 @@ let iface = builder.finalize(&mut device);
             any_ip: false,
             routes: Routes::new(),
             #[cfg(feature = "proto-igmp")]
-            ipv4_multicast_groups: ManagedMap::Borrowed(&mut []),
+            ipv4_multicast_groups: LinearMap::new(),
             random_seed: 0,
 
             #[cfg(feature = "proto-ipv4-fragmentation")]
@@ -443,7 +445,7 @@ let iface = builder.finalize(&mut device);
     /// [ip_addrs]: struct.Interface.html#method.ip_addrs
     pub fn ip_addrs<T>(mut self, ip_addrs: T) -> Self
     where
-        T: Into<Vec<IpCidr, MAX_IP_ADDRS_NUM>>,
+        T: Into<Vec<IpCidr, MAX_IP_ADDR_COUNT>>,
     {
         let ip_addrs = ip_addrs.into();
         InterfaceInner::check_ip_addrs(&ip_addrs);
@@ -495,7 +497,7 @@ let iface = builder.finalize(&mut device);
     #[cfg(feature = "proto-igmp")]
     pub fn ipv4_multicast_groups<T>(mut self, ipv4_multicast_groups: T) -> Self
     where
-        T: Into<ManagedMap<'a, Ipv4Address, ()>>,
+        T: Into<LinearMap<Ipv4Address, (), MAX_IPV4_MULTICAST_GROUPS>>,
     {
         self.ipv4_multicast_groups = ipv4_multicast_groups.into();
         self
@@ -1014,7 +1016,7 @@ impl<'a> Interface<'a> {
     ///
     /// # Panics
     /// This function panics if any of the addresses are not unicast.
-    pub fn update_ip_addrs<F: FnOnce(&mut Vec<IpCidr, MAX_IP_ADDRS_NUM>)>(&mut self, f: F) {
+    pub fn update_ip_addrs<F: FnOnce(&mut Vec<IpCidr, MAX_IP_ADDR_COUNT>)>(&mut self, f: F) {
         f(&mut self.inner.ip_addrs);
         InterfaceInner::flush_cache(&mut self.inner);
         InterfaceInner::check_ip_addrs(&self.inner.ip_addrs)
@@ -1615,7 +1617,7 @@ impl<'a> InterfaceInner<'a> {
             #[cfg(feature = "proto-igmp")]
             igmp_report_state: IgmpReportState::Inactive,
             #[cfg(feature = "proto-igmp")]
-            ipv4_multicast_groups: ManagedMap::Borrowed(&mut []),
+            ipv4_multicast_groups: LinearMap::new(),
         }
     }
 
