@@ -1,8 +1,5 @@
-#[cfg(not(feature = "rust-1_28"))]
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
-#[cfg(feature = "rust-1_28")]
-use alloc::VecDeque;
 
 use crate::phy::{self, Device, DeviceCapabilities, Medium};
 use crate::time::Instant;
