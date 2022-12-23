@@ -93,8 +93,12 @@ impl<'a> Socket<'a> {
 /// A conversion trait for network sockets.
 pub trait AnySocket<'a> {
     fn upcast(self) -> Socket<'a>;
-    fn downcast<'c>(socket: &'c Socket<'a>) -> Option<&'c Self>;
-    fn downcast_mut<'c>(socket: &'c mut Socket<'a>) -> Option<&'c mut Self>;
+    fn downcast<'c>(socket: &'c Socket<'a>) -> Option<&'c Self>
+    where
+        Self: Sized;
+    fn downcast_mut<'c>(socket: &'c mut Socket<'a>) -> Option<&'c mut Self>
+    where
+        Self: Sized;
 }
 
 macro_rules! from_socket {
