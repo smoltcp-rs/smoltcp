@@ -2140,6 +2140,7 @@ pub mod nhc {
 #[cfg(test)]
 mod test {
     use crate::phy::ChecksumCapabilities;
+    use crate::time::Duration;
 
     use super::*;
 
@@ -2182,9 +2183,8 @@ mod test {
         use crate::wire::ieee802154::Frame as Ieee802154Frame;
         use crate::wire::ieee802154::Repr as Ieee802154Repr;
         use crate::wire::Ieee802154Address;
-        use std::collections::BTreeMap;
 
-        let mut frags_cache = ReassemblyBuffer::new(vec![], BTreeMap::new());
+        let mut frags_cache = ReassemblyBuffer::new();
 
         let frame1: &[u8] = &[
             0x41, 0xcc, 0x92, 0xef, 0xbe, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x0b, 0x1a, 0xd9,
@@ -2219,20 +2219,13 @@ mod test {
         let uncompressed = 40 + 8;
         let compressed = 5 + 7;
 
-        frags_cache
-            .reserve_with_key(&key)
-            .unwrap()
-            .start(
-                Some(frag.datagram_size() as usize - uncompressed + compressed),
-                Instant::now() + crate::time::Duration::from_secs(60),
-                -((uncompressed - compressed) as isize),
-            )
+        let assr = frags_cache
+            .get(&key, Instant::now() + Duration::from_secs(60))
             .unwrap();
-        frags_cache
-            .get_packet_assembler_mut(&key)
-            .unwrap()
-            .add(frag.payload(), 0)
+        assr.set_total_size(frag.datagram_size() as usize - uncompressed + compressed)
             .unwrap();
+        assr.set_offset_correction(-((uncompressed - compressed) as isize));
+        assr.add(frag.payload(), 0).unwrap();
 
         let frame2: &[u8] = &[
             0x41, 0xcc, 0x93, 0xef, 0xbe, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x0b, 0x1a, 0xd9,
@@ -2264,10 +2257,10 @@ mod test {
 
         let key = frag.get_key(&ieee802154_repr);
 
-        frags_cache
-            .get_packet_assembler_mut(&key)
-            .unwrap()
-            .add(frag.payload(), frag.datagram_offset() as usize * 8)
+        let assr = frags_cache
+            .get(&key, Instant::now() + Duration::from_secs(60))
+            .unwrap();
+        assr.add(frag.payload(), frag.datagram_offset() as usize * 8)
             .unwrap();
 
         let frame3: &[u8] = &[
@@ -2299,13 +2292,13 @@ mod test {
 
         let key = frag.get_key(&ieee802154_repr);
 
-        frags_cache
-            .get_packet_assembler_mut(&key)
-            .unwrap()
-            .add(frag.payload(), frag.datagram_offset() as usize * 8)
+        let assr = frags_cache
+            .get(&key, Instant::now() + Duration::from_secs(60))
+            .unwrap();
+        assr.add(frag.payload(), frag.datagram_offset() as usize * 8)
             .unwrap();
 
-        let assembled_packet = frags_cache.get_assembled_packet(&key).unwrap();
+        let assembled_packet = assr.assemble().unwrap();
 
         let sixlowpan_frame = SixlowpanPacket::dispatch(assembled_packet).unwrap();
 
