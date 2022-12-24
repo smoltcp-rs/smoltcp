@@ -93,11 +93,7 @@ impl<'a> PacketAssembler<'a> {
         }
 
         self.assembler = AssemblerState::Assembling {
-            assembler: Assembler::new(if let Some(total_size) = total_size {
-                total_size
-            } else {
-                usize::MAX
-            }),
+            assembler: Assembler::new(),
             total_size,
             expires_at,
             offset_correction,
