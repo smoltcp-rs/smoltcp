@@ -35,7 +35,7 @@ fn main() {
     let address = IpAddress::from_str(&matches.free[0]).expect("invalid address format");
     let port = u16::from_str(&matches.free[1]).expect("invalid port format");
 
-    let neighbor_cache = NeighborCache::new(BTreeMap::new());
+    let neighbor_cache = NeighborCache::new();
 
     let tcp_rx_buffer = tcp::SocketBuffer::new(vec![0; 1500]);
     let tcp_tx_buffer = tcp::SocketBuffer::new(vec![0; 1500]);
@@ -47,8 +47,7 @@ fn main() {
         .push(IpCidr::new(IpAddress::v4(192, 168, 69, 2), 24))
         .unwrap();
     let default_v4_gw = Ipv4Address::new(192, 168, 69, 100);
-    let mut routes_storage = [None; 1];
-    let mut routes = Routes::new(&mut routes_storage[..]);
+    let mut routes = Routes::new();
     routes.add_default_ipv4_route(default_v4_gw).unwrap();
 
     let medium = device.capabilities().medium;

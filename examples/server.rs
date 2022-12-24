@@ -29,7 +29,7 @@ fn main() {
     let mut device =
         utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
 
-    let neighbor_cache = NeighborCache::new(BTreeMap::new());
+    let neighbor_cache = NeighborCache::new();
 
     let udp_rx_buffer = udp::PacketBuffer::new(
         vec![udp::PacketMetadata::EMPTY, udp::PacketMetadata::EMPTY],

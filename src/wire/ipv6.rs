@@ -68,17 +68,34 @@ impl Address {
 
     /// Construct an IPv6 address from parts.
     #[allow(clippy::too_many_arguments)]
-    pub fn new(a0: u16, a1: u16, a2: u16, a3: u16, a4: u16, a5: u16, a6: u16, a7: u16) -> Address {
-        let mut addr = [0u8; ADDR_SIZE];
-        NetworkEndian::write_u16(&mut addr[..2], a0);
-        NetworkEndian::write_u16(&mut addr[2..4], a1);
-        NetworkEndian::write_u16(&mut addr[4..6], a2);
-        NetworkEndian::write_u16(&mut addr[6..8], a3);
-        NetworkEndian::write_u16(&mut addr[8..10], a4);
-        NetworkEndian::write_u16(&mut addr[10..12], a5);
-        NetworkEndian::write_u16(&mut addr[12..14], a6);
-        NetworkEndian::write_u16(&mut addr[14..], a7);
-        Address(addr)
+    pub const fn new(
+        a0: u16,
+        a1: u16,
+        a2: u16,
+        a3: u16,
+        a4: u16,
+        a5: u16,
+        a6: u16,
+        a7: u16,
+    ) -> Address {
+        Address([
+            (a0 >> 8) as u8,
+            a0 as u8,
+            (a1 >> 8) as u8,
+            a1 as u8,
+            (a2 >> 8) as u8,
+            a2 as u8,
+            (a3 >> 8) as u8,
+            a3 as u8,
+            (a4 >> 8) as u8,
+            a4 as u8,
+            (a5 >> 8) as u8,
+            a5 as u8,
+            (a6 >> 8) as u8,
+            a6 as u8,
+            (a7 >> 8) as u8,
+            a7 as u8,
+        ])
     }
 
     /// Construct an IPv6 address from a sequence of octets, in big-endian.
@@ -324,7 +341,7 @@ impl Cidr {
     ///
     /// # Panics
     /// This function panics if the prefix length is larger than 128.
-    pub fn new(address: Address, prefix_len: u8) -> Cidr {
+    pub const fn new(address: Address, prefix_len: u8) -> Cidr {
         assert!(prefix_len <= 128);
         Cidr {
             address,

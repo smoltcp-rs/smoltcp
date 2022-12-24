@@ -1,7 +1,6 @@
 mod utils;
 
 use log::debug;
-use std::collections::BTreeMap;
 use std::os::unix::io::AsRawFd;
 
 use smoltcp::iface::{InterfaceBuilder, NeighborCache, SocketSet};
@@ -28,7 +27,7 @@ fn main() {
     let fd = device.as_raw_fd();
     let mut device =
         utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
-    let neighbor_cache = NeighborCache::new(BTreeMap::new());
+    let neighbor_cache = NeighborCache::new();
 
     let local_addr = Ipv4Address::new(192, 168, 69, 2);
 
@@ -36,12 +35,10 @@ fn main() {
     let ip_addr = IpCidr::new(IpAddress::from(local_addr), 24);
     let mut ip_addrs = heapless::Vec::<IpCidr, 5>::new();
     ip_addrs.push(ip_addr).unwrap();
-    let mut ipv4_multicast_storage = [None; 1];
     let mut iface = InterfaceBuilder::new()
         .hardware_addr(ethernet_addr.into())
         .neighbor_cache(neighbor_cache)
         .ip_addrs(ip_addrs)
-        .ipv4_multicast_groups(&mut ipv4_multicast_storage[..])
         .finalize(&mut device);
 
     let now = Instant::now();

@@ -4,7 +4,6 @@ mod utils;
 
 use log::debug;
 use std::cmp;
-use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::os::unix::io::AsRawFd;
@@ -82,7 +81,7 @@ fn main() {
         _ => panic!("invalid mode"),
     };
 
-    let neighbor_cache = NeighborCache::new(BTreeMap::new());
+    let neighbor_cache = NeighborCache::new();
 
     let tcp1_rx_buffer = tcp::SocketBuffer::new(vec![0; 65535]);
     let tcp1_tx_buffer = tcp::SocketBuffer::new(vec![0; 65535]);

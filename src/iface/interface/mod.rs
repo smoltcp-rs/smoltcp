@@ -16,8 +16,9 @@ mod ipv4;
 mod ipv6;
 
 use core::cmp;
-use heapless::Vec;
-use managed::{ManagedMap, ManagedSlice};
+use core::marker::PhantomData;
+use heapless::{LinearMap, Vec};
+use managed::ManagedSlice;
 
 #[cfg(any(feature = "proto-ipv4", feature = "proto-sixlowpan"))]
 use super::fragmentation::PacketAssemblerSet;
@@ -34,7 +35,9 @@ use crate::time::{Duration, Instant};
 use crate::wire::*;
 use crate::{Error, Result};
 
-const MAX_IP_ADDRS_NUM: usize = 5;
+const MAX_IP_ADDR_COUNT: usize = 5;
+#[cfg(feature = "proto-igmp")]
+const MAX_IPV4_MULTICAST_GROUPS: usize = 4;
 
 pub(crate) struct FragmentsBuffer<'a> {
     #[cfg(feature = "proto-ipv4-fragmentation")]
@@ -258,8 +261,10 @@ pub struct InterfaceInner<'a> {
     now: Instant,
     rand: Rand,
 
+    phantom: PhantomData<&'a mut ()>,
+
     #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
-    neighbor_cache: Option<NeighborCache<'a>>,
+    neighbor_cache: Option<NeighborCache>,
     #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
     hardware_addr: Option<HardwareAddress>,
     #[cfg(feature = "medium-ieee802154")]
@@ -272,12 +277,12 @@ pub struct InterfaceInner<'a> {
     sixlowpan_address_context: &'a [SixlowpanAddressContext<'a>],
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
     tag: u16,
-    ip_addrs: Vec<IpCidr, MAX_IP_ADDRS_NUM>,
+    ip_addrs: Vec<IpCidr, MAX_IP_ADDR_COUNT>,
     #[cfg(feature = "proto-ipv4")]
     any_ip: bool,
-    routes: Routes<'a>,
+    routes: Routes,
     #[cfg(feature = "proto-igmp")]
-    ipv4_multicast_groups: ManagedMap<'a, Ipv4Address, ()>,
+    ipv4_multicast_groups: LinearMap<Ipv4Address, (), MAX_IPV4_MULTICAST_GROUPS>,
     /// When to report for (all or) the next multicast group membership via IGMP
     #[cfg(feature = "proto-igmp")]
     igmp_report_state: IgmpReportState,
@@ -285,19 +290,21 @@ pub struct InterfaceInner<'a> {
 
 /// A builder structure used for creating a network interface.
 pub struct InterfaceBuilder<'a> {
+    phantom: PhantomData<&'a mut ()>,
+
     #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
     hardware_addr: Option<HardwareAddress>,
     #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
-    neighbor_cache: Option<NeighborCache<'a>>,
+    neighbor_cache: Option<NeighborCache>,
     #[cfg(feature = "medium-ieee802154")]
     pan_id: Option<Ieee802154Pan>,
-    ip_addrs: Vec<IpCidr, MAX_IP_ADDRS_NUM>,
+    ip_addrs: Vec<IpCidr, MAX_IP_ADDR_COUNT>,
     #[cfg(feature = "proto-ipv4")]
     any_ip: bool,
-    routes: Routes<'a>,
+    routes: Routes,
     /// Does not share storage with `ipv6_multicast_groups` to avoid IPv6 size overhead.
     #[cfg(feature = "proto-igmp")]
-    ipv4_multicast_groups: ManagedMap<'a, Ipv4Address, ()>,
+    ipv4_multicast_groups: LinearMap<Ipv4Address, (), MAX_IPV4_MULTICAST_GROUPS>,
     random_seed: u64,
 
     #[cfg(feature = "proto-ipv4-fragmentation")]
@@ -337,7 +344,7 @@ let mut device = // ...
 let hw_addr = // ...
 # EthernetAddress::default();
 let neighbor_cache = // ...
-# NeighborCache::new(BTreeMap::new());
+# NeighborCache::new();
 # #[cfg(feature = "proto-ipv4-fragmentation")]
 # let ipv4_frag_cache = // ...
 # ReassemblyBuffer::new(vec![], BTreeMap::new());
@@ -360,6 +367,8 @@ let iface = builder.finalize(&mut device);
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         InterfaceBuilder {
+            phantom: PhantomData,
+
             #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
             hardware_addr: None,
             #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
@@ -371,9 +380,9 @@ let iface = builder.finalize(&mut device);
             ip_addrs: Vec::new(),
             #[cfg(feature = "proto-ipv4")]
             any_ip: false,
-            routes: Routes::new(ManagedMap::Borrowed(&mut [])),
+            routes: Routes::new(),
             #[cfg(feature = "proto-igmp")]
-            ipv4_multicast_groups: ManagedMap::Borrowed(&mut []),
+            ipv4_multicast_groups: LinearMap::new(),
             random_seed: 0,
 
             #[cfg(feature = "proto-ipv4-fragmentation")]
@@ -436,7 +445,7 @@ let iface = builder.finalize(&mut device);
     /// [ip_addrs]: struct.Interface.html#method.ip_addrs
     pub fn ip_addrs<T>(mut self, ip_addrs: T) -> Self
     where
-        T: Into<Vec<IpCidr, MAX_IP_ADDRS_NUM>>,
+        T: Into<Vec<IpCidr, MAX_IP_ADDR_COUNT>>,
     {
         let ip_addrs = ip_addrs.into();
         InterfaceInner::check_ip_addrs(&ip_addrs);
@@ -469,7 +478,7 @@ let iface = builder.finalize(&mut device);
     /// [routes]: struct.Interface.html#method.routes
     pub fn routes<T>(mut self, routes: T) -> InterfaceBuilder<'a>
     where
-        T: Into<Routes<'a>>,
+        T: Into<Routes>,
     {
         self.routes = routes.into();
         self
@@ -488,7 +497,7 @@ let iface = builder.finalize(&mut device);
     #[cfg(feature = "proto-igmp")]
     pub fn ipv4_multicast_groups<T>(mut self, ipv4_multicast_groups: T) -> Self
     where
-        T: Into<ManagedMap<'a, Ipv4Address, ()>>,
+        T: Into<LinearMap<Ipv4Address, (), MAX_IPV4_MULTICAST_GROUPS>>,
     {
         self.ipv4_multicast_groups = ipv4_multicast_groups.into();
         self
@@ -496,7 +505,7 @@ let iface = builder.finalize(&mut device);
 
     /// Set the Neighbor Cache the interface will use.
     #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
-    pub fn neighbor_cache(mut self, neighbor_cache: NeighborCache<'a>) -> Self {
+    pub fn neighbor_cache(mut self, neighbor_cache: NeighborCache) -> Self {
         self.neighbor_cache = Some(neighbor_cache);
         self
     }
@@ -672,6 +681,7 @@ let iface = builder.finalize(&mut device);
                 _lifetime: core::marker::PhantomData,
             },
             inner: InterfaceInner {
+                phantom: PhantomData,
                 now: Instant::from_secs(0),
                 caps,
                 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
@@ -1006,7 +1016,7 @@ impl<'a> Interface<'a> {
     ///
     /// # Panics
     /// This function panics if any of the addresses are not unicast.
-    pub fn update_ip_addrs<F: FnOnce(&mut Vec<IpCidr, MAX_IP_ADDRS_NUM>)>(&mut self, f: F) {
+    pub fn update_ip_addrs<F: FnOnce(&mut Vec<IpCidr, MAX_IP_ADDR_COUNT>)>(&mut self, f: F) {
         f(&mut self.inner.ip_addrs);
         InterfaceInner::flush_cache(&mut self.inner);
         InterfaceInner::check_ip_addrs(&self.inner.ip_addrs)
@@ -1023,11 +1033,11 @@ impl<'a> Interface<'a> {
         self.inner.ipv4_address()
     }
 
-    pub fn routes(&self) -> &Routes<'a> {
+    pub fn routes(&self) -> &Routes {
         &self.inner.routes
     }
 
-    pub fn routes_mut(&mut self) -> &mut Routes<'a> {
+    pub fn routes_mut(&mut self) -> &mut Routes {
         &mut self.inner.routes
     }
 
@@ -1534,6 +1544,7 @@ impl<'a> InterfaceInner<'a> {
     #[cfg(test)]
     pub(crate) fn mock() -> Self {
         Self {
+            phantom: PhantomData,
             caps: DeviceCapabilities {
                 #[cfg(feature = "medium-ethernet")]
                 medium: crate::phy::Medium::Ethernet,
@@ -1570,7 +1581,7 @@ impl<'a> InterfaceInner<'a> {
             ])
             .unwrap(),
             rand: Rand::new(1234),
-            routes: Routes::new(&mut [][..]),
+            routes: Routes::new(),
 
             #[cfg(feature = "proto-ipv4")]
             any_ip: false,
@@ -1606,7 +1617,7 @@ impl<'a> InterfaceInner<'a> {
             #[cfg(feature = "proto-igmp")]
             igmp_report_state: IgmpReportState::Inactive,
             #[cfg(feature = "proto-igmp")]
-            ipv4_multicast_groups: ManagedMap::Borrowed(&mut []),
+            ipv4_multicast_groups: LinearMap::new(),
         }
     }
 
