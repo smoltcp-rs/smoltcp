@@ -184,9 +184,6 @@ pub enum Error {
     /// An incoming fragment arrived too late.
     ReassemblyTimeout,
 
-    /// The packet assembler is not initialized, thus it cannot know what the final size of the
-    /// packet would be.
-    PacketAssemblerNotInit,
     /// The buffer of the assembler is to small and thus the final packet wont fit into it.
     PacketAssemblerBufferTooSmall,
     /// The packet assembler did not receive all the fragments for assembling the final packet.
@@ -226,7 +223,6 @@ impl fmt::Display for Error {
             Error::Malformed => write!(f, "malformed packet"),
             Error::Dropped => write!(f, "dropped by socket"),
             Error::ReassemblyTimeout => write!(f, "incoming fragment arrived too late"),
-            Error::PacketAssemblerNotInit => write!(f, "packet assembler was not initialized"),
             Error::PacketAssemblerBufferTooSmall => {
                 write!(f, "packet assembler buffer too small for final packet")
             }
