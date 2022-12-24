@@ -1,15 +1,8 @@
 mod utils;
 
 use log::debug;
-use std::collections::BTreeMap;
 use std::os::unix::io::AsRawFd;
 use std::str::{self, FromStr};
-
-#[cfg(any(
-    feature = "proto-sixlowpan-fragmentation",
-    feature = "proto-ipv4-fragmentation"
-))]
-use smoltcp::iface::ReassemblyBuffer;
 
 use smoltcp::iface::{InterfaceBuilder, NeighborCache, Routes, SocketSet};
 use smoltcp::phy::{wait as phy_wait, Device, Medium};
@@ -51,33 +44,25 @@ fn main() {
     routes.add_default_ipv4_route(default_v4_gw).unwrap();
 
     let medium = device.capabilities().medium;
-    let mut builder = InterfaceBuilder::new().ip_addrs(ip_addrs).routes(routes);
+    let builder = InterfaceBuilder::new().ip_addrs(ip_addrs).routes(routes);
 
     #[cfg(feature = "proto-ipv4-fragmentation")]
     let mut ipv4_out_packet_cache = [0u8; 1280];
     #[cfg(feature = "proto-ipv4-fragmentation")]
-    {
-        let ipv4_frag_cache = ReassemblyBuffer::new(vec![], BTreeMap::new());
-        builder = builder
-            .ipv4_reassembly_buffer(ipv4_frag_cache)
-            .ipv4_fragmentation_buffer(&mut ipv4_out_packet_cache[..]);
-    }
+    let builder = builder.ipv4_fragmentation_buffer(&mut ipv4_out_packet_cache[..]);
 
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
     let mut sixlowpan_out_packet_cache = [0u8; 1280];
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
-    {
-        let sixlowpan_frag_cache = ReassemblyBuffer::new(vec![], BTreeMap::new());
-        builder = builder
-            .sixlowpan_reassembly_buffer(sixlowpan_frag_cache)
-            .sixlowpan_fragmentation_buffer(&mut sixlowpan_out_packet_cache[..]);
-    }
+    let builder = builder.sixlowpan_fragmentation_buffer(&mut sixlowpan_out_packet_cache[..]);
 
-    if medium == Medium::Ethernet {
-        builder = builder
+    let builder = if medium == Medium::Ethernet {
+        builder
             .hardware_addr(ethernet_addr.into())
-            .neighbor_cache(neighbor_cache);
-    }
+            .neighbor_cache(neighbor_cache)
+    } else {
+        builder
+    };
     let mut iface = builder.finalize(&mut device);
 
     let mut sockets = SocketSet::new(vec![]);

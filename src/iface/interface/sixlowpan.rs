@@ -21,7 +21,7 @@ impl<'a> InterfaceInner<'a> {
         &mut self,
         sockets: &mut SocketSet,
         sixlowpan_payload: &'payload T,
-        _fragments: &'output mut FragmentsBuffer<'a>,
+        _fragments: &'output mut FragmentsBuffer,
     ) -> Option<IpPacket<'output>> {
         let ieee802154_frame = check!(Ieee802154Frame::new_checked(sixlowpan_payload));
         let ieee802154_repr = check!(Ieee802154Repr::parse(&ieee802154_frame));
@@ -73,10 +73,7 @@ impl<'a> InterfaceInner<'a> {
         sockets: &mut SocketSet,
         ieee802154_repr: &Ieee802154Repr,
         payload: &'payload T,
-        _fragments: Option<(
-            &'output mut PacketAssemblerSet<'a, SixlowpanFragKey>,
-            Duration,
-        )>,
+        _fragments: Option<(&'output mut PacketAssemblerSet<SixlowpanFragKey>, Duration)>,
     ) -> Option<IpPacket<'output>> {
         let payload = match check!(SixlowpanPacket::dispatch(payload)) {
             #[cfg(not(feature = "proto-sixlowpan-fragmentation"))]
@@ -173,11 +170,10 @@ impl<'a> InterfaceInner<'a> {
         &mut self,
         ieee802154_repr: &Ieee802154Repr,
         payload: &'payload T,
-        fragments: Option<(
-            &'output mut PacketAssemblerSet<'a, SixlowpanFragKey>,
-            Duration,
-        )>,
+        fragments: Option<(&'output mut PacketAssemblerSet<SixlowpanFragKey>, Duration)>,
     ) -> Option<&'output [u8]> {
+        use crate::iface::fragmentation::AssemblerFullError;
+
         let (fragments, timeout) = fragments.unwrap();
 
         // We have a fragment header, which means we cannot process the 6LoWPAN packet,
@@ -190,6 +186,19 @@ impl<'a> InterfaceInner<'a> {
 
         // The offset of this fragment in increments of 8 octets.
         let offset = frag.datagram_offset() as usize * 8;
+
+        // We reserve a spot in the packet assembler set and add the required
+        // information to the packet assembler.
+        // This information is the total size of the packet when it is fully assmbled.
+        // We also pass the header size, since this is needed when other fragments
+        // (other than the first one) are added.
+        let frag_slot = match fragments.get(&key, self.now + timeout) {
+            Ok(frag) => frag,
+            Err(AssemblerFullError) => {
+                net_debug!("No available packet assembler for fragmented packet");
+                return Default::default();
+            }
+        };
 
         if frag.is_first_fragment() {
             // The first fragment contains the total size of the IPv6 packet.
@@ -234,45 +243,28 @@ impl<'a> InterfaceInner<'a> {
                 SixlowpanNextHeader::Uncompressed(_) => (),
             }
 
-            // We reserve a spot in the packet assembler set and add the required
-            // information to the packet assembler.
-            // This information is the total size of the packet when it is fully assmbled.
-            // We also pass the header size, since this is needed when other fragments
-            // (other than the first one) are added.
-            let frag_slot = match fragments.reserve_with_key(&key) {
-                Ok(frag) => frag,
-                Err(Error::PacketAssemblerSetFull) => {
-                    net_debug!("No available packet assembler for fragmented packet");
-                    return Default::default();
-                }
-                e => check!(e),
-            };
-
-            check!(frag_slot.start(
-                Some(
-                    frag.datagram_size() as usize - uncompressed_header_size
-                        + compressed_header_size
-                ),
-                self.now + timeout,
+            let total_size =
+                frag.datagram_size() as usize - uncompressed_header_size + compressed_header_size;
+            check!(frag_slot.set_total_size(total_size));
+            frag_slot.set_offset_correction(
                 -((uncompressed_header_size - compressed_header_size) as isize),
-            ));
+            );
         }
-
-        let frags = check!(fragments.get_packet_assembler_mut(&key));
 
         net_trace!("6LoWPAN: received packet fragment");
 
         // Add the fragment to the packet assembler.
-        match frags.add(frag.payload(), offset) {
-            Ok(true) => {
+        if let Err(e) = frag_slot.add(frag.payload(), offset) {
+            net_debug!("fragmentation error: {:?}", e);
+            return None;
+        }
+
+        match frag_slot.assemble() {
+            Some(payload) => {
                 net_trace!("6LoWPAN: fragmented packet now complete");
-                match fragments.get_assembled_packet(&key) {
-                    Ok(packet) => Some(packet),
-                    _ => unreachable!(),
-                }
+                Some(payload)
             }
-            Ok(false) => None,
-            Err(_) => None,
+            None => None,
         }
     }
 

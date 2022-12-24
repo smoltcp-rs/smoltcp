@@ -114,6 +114,10 @@ impl Assembler {
         Assembler { contigs }
     }
 
+    pub fn clear(&mut self) {
+        self.contigs.fill(Contig::empty());
+    }
+
     fn front(&self) -> Contig {
         self.contigs[0]
     }

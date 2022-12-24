@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 #[cfg(feature = "proto-igmp")]
 use std::vec::Vec;
 
@@ -59,9 +58,7 @@ fn create_ip<'a>() -> (Interface<'a>, SocketSet<'a>, Loopback) {
     let iface_builder = InterfaceBuilder::new().ip_addrs(ip_addrs);
 
     #[cfg(feature = "proto-ipv4-fragmentation")]
-    let iface_builder = iface_builder
-        .ipv4_reassembly_buffer(PacketAssemblerSet::new(vec![], BTreeMap::new()))
-        .ipv4_fragmentation_buffer(vec![]);
+    let iface_builder = iface_builder.ipv4_fragmentation_buffer(vec![]);
 
     let iface = iface_builder.finalize(&mut device);
 
@@ -92,14 +89,10 @@ fn create_ethernet<'a>() -> (Interface<'a>, SocketSet<'a>, Loopback) {
         .ip_addrs(ip_addrs);
 
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
-    let iface_builder = iface_builder
-        .sixlowpan_reassembly_buffer(PacketAssemblerSet::new(vec![], BTreeMap::new()))
-        .sixlowpan_fragmentation_buffer(vec![]);
+    let iface_builder = iface_builder.sixlowpan_fragmentation_buffer(vec![]);
 
     #[cfg(feature = "proto-ipv4-fragmentation")]
-    let iface_builder = iface_builder
-        .ipv4_reassembly_buffer(PacketAssemblerSet::new(vec![], BTreeMap::new()))
-        .ipv4_fragmentation_buffer(vec![]);
+    let iface_builder = iface_builder.ipv4_fragmentation_buffer(vec![]);
 
     let iface = iface_builder.finalize(&mut device);
 
@@ -126,9 +119,7 @@ fn create_ieee802154<'a>() -> (Interface<'a>, SocketSet<'a>, Loopback) {
         .ip_addrs(ip_addrs);
 
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
-    let iface_builder = iface_builder
-        .sixlowpan_reassembly_buffer(PacketAssemblerSet::new(vec![], BTreeMap::new()))
-        .sixlowpan_fragmentation_buffer(vec![]);
+    let iface_builder = iface_builder.sixlowpan_fragmentation_buffer(vec![]);
 
     let iface = iface_builder.finalize(&mut device);
 

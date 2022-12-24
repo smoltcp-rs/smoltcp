@@ -39,18 +39,13 @@ const MAX_IP_ADDR_COUNT: usize = 5;
 #[cfg(feature = "proto-igmp")]
 const MAX_IPV4_MULTICAST_GROUPS: usize = 4;
 
-pub(crate) struct FragmentsBuffer<'a> {
+pub(crate) struct FragmentsBuffer {
     #[cfg(feature = "proto-ipv4-fragmentation")]
-    pub(crate) ipv4_fragments: PacketAssemblerSet<'a, Ipv4FragKey>,
+    pub(crate) ipv4_fragments: PacketAssemblerSet<Ipv4FragKey>,
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
-    sixlowpan_fragments: PacketAssemblerSet<'a, SixlowpanFragKey>,
+    sixlowpan_fragments: PacketAssemblerSet<SixlowpanFragKey>,
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
     sixlowpan_fragments_cache_timeout: Duration,
-    #[cfg(not(any(
-        feature = "proto-ipv4-fragmentation",
-        feature = "proto-sixlowpan-fragmentation"
-    )))]
-    _lifetime: core::marker::PhantomData<&'a ()>,
 }
 
 pub(crate) struct OutPackets<'a> {
@@ -245,7 +240,7 @@ use check;
 /// a `&mut [T]`, or `Vec<T>` if a heap is available.
 pub struct Interface<'a> {
     inner: InterfaceInner<'a>,
-    fragments: FragmentsBuffer<'a>,
+    fragments: FragmentsBuffer,
     out_packets: OutPackets<'a>,
 }
 
@@ -308,12 +303,12 @@ pub struct InterfaceBuilder<'a> {
     random_seed: u64,
 
     #[cfg(feature = "proto-ipv4-fragmentation")]
-    ipv4_fragments: PacketAssemblerSet<'a, Ipv4FragKey>,
+    ipv4_fragments: PacketAssemblerSet<Ipv4FragKey>,
     #[cfg(feature = "proto-ipv4-fragmentation")]
     ipv4_out_buffer: ManagedSlice<'a, u8>,
 
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
-    sixlowpan_fragments: PacketAssemblerSet<'a, SixlowpanFragKey>,
+    sixlowpan_fragments: PacketAssemblerSet<SixlowpanFragKey>,
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
     sixlowpan_reassembly_buffer_timeout: Duration,
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
@@ -345,20 +340,12 @@ let hw_addr = // ...
 # EthernetAddress::default();
 let neighbor_cache = // ...
 # NeighborCache::new();
-# #[cfg(feature = "proto-ipv4-fragmentation")]
-# let ipv4_frag_cache = // ...
-# ReassemblyBuffer::new(vec![], BTreeMap::new());
 let ip_addrs = // ...
 # heapless::Vec::<IpCidr, 5>::new();
 let builder = InterfaceBuilder::new()
         .hardware_addr(hw_addr.into())
         .neighbor_cache(neighbor_cache)
         .ip_addrs(ip_addrs);
-
-# #[cfg(feature = "proto-ipv4-fragmentation")]
-let builder = builder
-    .ipv4_reassembly_buffer(ipv4_frag_cache)
-    .ipv4_fragmentation_buffer(vec![]);
 
 let iface = builder.finalize(&mut device);
 ```
@@ -386,12 +373,12 @@ let iface = builder.finalize(&mut device);
             random_seed: 0,
 
             #[cfg(feature = "proto-ipv4-fragmentation")]
-            ipv4_fragments: PacketAssemblerSet::new(&mut [][..], &mut [][..]),
+            ipv4_fragments: PacketAssemblerSet::new(),
             #[cfg(feature = "proto-ipv4-fragmentation")]
             ipv4_out_buffer: ManagedSlice::Borrowed(&mut [][..]),
 
             #[cfg(feature = "proto-sixlowpan-fragmentation")]
-            sixlowpan_fragments: PacketAssemblerSet::new(&mut [][..], &mut [][..]),
+            sixlowpan_fragments: PacketAssemblerSet::new(),
             #[cfg(feature = "proto-sixlowpan-fragmentation")]
             sixlowpan_reassembly_buffer_timeout: Duration::from_secs(60),
             #[cfg(feature = "proto-sixlowpan-fragmentation")]
@@ -512,7 +499,7 @@ let iface = builder.finalize(&mut device);
 
     /// Set the IPv4 reassembly buffer the interface will use.
     #[cfg(feature = "proto-ipv4-fragmentation")]
-    pub fn ipv4_reassembly_buffer(mut self, storage: PacketAssemblerSet<'a, Ipv4FragKey>) -> Self {
+    pub fn ipv4_reassembly_buffer(mut self, storage: PacketAssemblerSet<Ipv4FragKey>) -> Self {
         self.ipv4_fragments = storage;
         self
     }
@@ -541,7 +528,7 @@ let iface = builder.finalize(&mut device);
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
     pub fn sixlowpan_reassembly_buffer(
         mut self,
-        storage: PacketAssemblerSet<'a, SixlowpanFragKey>,
+        storage: PacketAssemblerSet<SixlowpanFragKey>,
     ) -> Self {
         self.sixlowpan_fragments = storage;
         self
@@ -664,12 +651,6 @@ let iface = builder.finalize(&mut device);
                 sixlowpan_fragments: self.sixlowpan_fragments,
                 #[cfg(feature = "proto-sixlowpan-fragmentation")]
                 sixlowpan_fragments_cache_timeout: self.sixlowpan_reassembly_buffer_timeout,
-
-                #[cfg(not(any(
-                    feature = "proto-ipv4-fragmentation",
-                    feature = "proto-sixlowpan-fragmentation"
-                )))]
-                _lifetime: core::marker::PhantomData,
             },
             out_packets: OutPackets {
                 #[cfg(feature = "proto-ipv4-fragmentation")]
@@ -1070,14 +1051,10 @@ impl<'a> Interface<'a> {
         self.inner.now = timestamp;
 
         #[cfg(feature = "proto-ipv4-fragmentation")]
-        self.fragments
-            .ipv4_fragments
-            .remove_when(|frag| Ok(timestamp >= frag.expires_at()?))?;
+        self.fragments.ipv4_fragments.remove_expired(timestamp);
 
         #[cfg(feature = "proto-sixlowpan-fragmentation")]
-        self.fragments
-            .sixlowpan_fragments
-            .remove_when(|frag| Ok(timestamp >= frag.expires_at()?))?;
+        self.fragments.sixlowpan_fragments.remove_expired(timestamp);
 
         #[cfg(feature = "proto-ipv4-fragmentation")]
         match self.ipv4_egress(device) {
@@ -1719,7 +1696,7 @@ impl<'a> InterfaceInner<'a> {
         &mut self,
         sockets: &mut SocketSet,
         ip_payload: &'frame T,
-        _fragments: &'frame mut FragmentsBuffer<'a>,
+        _fragments: &'frame mut FragmentsBuffer,
     ) -> Option<IpPacket<'frame>> {
         match IpVersion::of_packet(ip_payload.as_ref()) {
             #[cfg(feature = "proto-ipv4")]

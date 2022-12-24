@@ -28,7 +28,7 @@ impl<'a> InterfaceInner<'a> {
         &mut self,
         sockets: &mut SocketSet,
         ipv4_packet: &Ipv4Packet<&'payload T>,
-        _fragments: Option<&'output mut PacketAssemblerSet<'a, Ipv4FragKey>>,
+        _fragments: Option<&'output mut PacketAssemblerSet<Ipv4FragKey>>,
     ) -> Option<IpPacket<'output>> {
         let ipv4_repr = check!(Ipv4Repr::parse(ipv4_packet, &self.caps.checksum));
         if !self.is_unicast_v4(ipv4_repr.src_addr) {
@@ -46,21 +46,11 @@ impl<'a> InterfaceInner<'a> {
             if ipv4_packet.more_frags() || ipv4_packet.frag_offset() != 0 {
                 let key = ipv4_packet.get_key();
 
-                let f = match fragments.get_packet_assembler_mut(&key) {
+                let f = match fragments.get(&key, self.now + REASSEMBLY_TIMEOUT) {
                     Ok(f) => f,
                     Err(_) => {
-                        let p = match fragments.reserve_with_key(&key) {
-                            Ok(p) => p,
-                            Err(Error::PacketAssemblerSetFull) => {
-                                net_debug!("No available packet assembler for fragmented packet");
-                                return Default::default();
-                            }
-                            e => check!(e),
-                        };
-
-                        check!(p.start(None, self.now + REASSEMBLY_TIMEOUT, 0));
-
-                        check!(fragments.get_packet_assembler_mut(&key))
+                        net_debug!("No available packet assembler for fragmented packet");
+                        return None;
                     }
                 };
 
@@ -72,20 +62,17 @@ impl<'a> InterfaceInner<'a> {
                     ));
                 }
 
-                match f.add(ipv4_packet.payload(), ipv4_packet.frag_offset() as usize) {
-                    Ok(true) => {
-                        // NOTE: according to the standard, the total length needs to be
-                        // recomputed, as well as the checksum. However, we don't really use
-                        // the IPv4 header after the packet is reassembled.
-                        check!(fragments.get_assembled_packet(&key))
-                    }
-                    Ok(false) => {
-                        return None;
-                    }
-                    Err(e) => {
-                        net_debug!("fragmentation error: {}", e);
-                        return None;
-                    }
+                if let Err(e) = f.add(ipv4_packet.payload(), ipv4_packet.frag_offset() as usize) {
+                    net_debug!("fragmentation error: {:?}", e);
+                    return None;
+                }
+
+                // NOTE: according to the standard, the total length needs to be
+                // recomputed, as well as the checksum. However, we don't really use
+                // the IPv4 header after the packet is reassembled.
+                match f.assemble() {
+                    Some(payload) => payload,
+                    None => return None,
                 }
             } else {
                 ipv4_packet.payload()

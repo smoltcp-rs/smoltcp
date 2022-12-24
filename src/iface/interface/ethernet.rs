@@ -15,7 +15,7 @@ impl<'i> InterfaceInner<'i> {
         &mut self,
         sockets: &mut SocketSet,
         frame: &'frame T,
-        _fragments: &'frame mut FragmentsBuffer<'i>,
+        _fragments: &'frame mut FragmentsBuffer,
     ) -> Option<EthernetPacket<'frame>> {
         let eth_frame = check!(EthernetFrame::new_checked(frame));
 
