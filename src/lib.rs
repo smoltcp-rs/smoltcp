@@ -190,8 +190,6 @@ pub enum Error {
     PacketAssemblerIncomplete,
     /// There are too many holes in the packet assembler (should be fixed in the future?).
     PacketAssemblerTooManyHoles,
-    /// There was an overlap when adding data to the packet assembler.
-    PacketAssemblerOverlap,
 
     /// The packet assembler set has no place for assembling a new stream of fragments.
     PacketAssemblerSetFull,
@@ -231,9 +229,6 @@ impl fmt::Display for Error {
                 f,
                 "packet assembler has too many holes (internal smoltcp error)"
             ),
-            Error::PacketAssemblerOverlap => {
-                write!(f, "overlap when adding data to packet assembler")
-            }
             Error::PacketAssemblerSetFull => write!(f, "packet assembler set is full"),
             Error::PacketAssemblerSetKeyNotFound => {
                 write!(f, "packet assembler set does not find key")

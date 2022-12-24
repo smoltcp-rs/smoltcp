@@ -39,7 +39,7 @@ impl<'a> InterfaceInner<'a> {
 
         #[cfg(feature = "proto-ipv4-fragmentation")]
         let ip_payload = {
-            const REASSEMBLY_TIMEOUT: u64 = 90;
+            const REASSEMBLY_TIMEOUT: Duration = Duration::from_secs(90);
 
             let fragments = _fragments.unwrap();
 
@@ -58,11 +58,7 @@ impl<'a> InterfaceInner<'a> {
                             e => check!(e),
                         };
 
-                        check!(p.start(
-                            None,
-                            self.now + Duration::from_secs(REASSEMBLY_TIMEOUT),
-                            0
-                        ));
+                        check!(p.start(None, self.now + REASSEMBLY_TIMEOUT, 0));
 
                         check!(fragments.get_packet_assembler_mut(&key))
                     }
@@ -84,9 +80,6 @@ impl<'a> InterfaceInner<'a> {
                         check!(fragments.get_assembled_packet(&key))
                     }
                     Ok(false) => {
-                        return None;
-                    }
-                    Err(Error::PacketAssemblerOverlap) => {
                         return None;
                     }
                     Err(e) => {

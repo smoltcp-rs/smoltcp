@@ -272,11 +272,6 @@ impl<'a> InterfaceInner<'a> {
                 }
             }
             Ok(false) => None,
-            Err(Error::PacketAssemblerOverlap) => {
-                net_trace!("6LoWPAN: overlap in packet");
-                frags.reset();
-                None
-            }
             Err(_) => None,
         }
     }

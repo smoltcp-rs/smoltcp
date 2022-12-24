@@ -103,7 +103,6 @@ impl<'a> PacketAssembler<'a> {
     ///
     /// - Returns [`Error::PacketAssemblerBufferTooSmall`] when trying to add data into the buffer at a non-existing
     /// place.
-    /// - Returns [`Error::PacketAssemblerOverlap`] when there was an overlap when adding data.
     pub(crate) fn add(&mut self, data: &[u8], offset: usize) -> Result<bool> {
         let offset = offset as isize + self.offset_correction;
         let offset = if offset <= 0 { 0 } else { offset as usize };
