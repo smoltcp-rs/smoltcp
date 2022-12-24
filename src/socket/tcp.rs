@@ -454,7 +454,7 @@ impl<'a> Socket<'a> {
             state: State::Closed,
             timer: Timer::new(),
             rtte: RttEstimator::default(),
-            assembler: Assembler::new(rx_buffer.capacity()),
+            assembler: Assembler::new(),
             tx_buffer,
             rx_buffer,
             rx_fin_received: false,
@@ -675,7 +675,7 @@ impl<'a> Socket<'a> {
         self.state = State::Closed;
         self.timer = Timer::new();
         self.rtte = RttEstimator::default();
-        self.assembler = Assembler::new(self.rx_buffer.capacity());
+        self.assembler = Assembler::new();
         self.tx_buffer.clear();
         self.rx_buffer.clear();
         self.rx_fin_received = false;
@@ -1765,7 +1765,6 @@ impl<'a> Socket<'a> {
         // Try adding payload octets to the assembler.
         match self.assembler.add(payload_offset, payload_len) {
             Ok(()) => {
-                debug_assert!(self.assembler.total_size() == self.rx_buffer.capacity());
                 // Place payload octets into the buffer.
                 tcp_trace!(
                     "rx buffer: receiving {} octets at offset {}",
@@ -1789,7 +1788,6 @@ impl<'a> Socket<'a> {
 
         let contig_len = self.assembler.remove_front();
         if contig_len != 0 {
-            debug_assert!(self.assembler.total_size() == self.rx_buffer.capacity());
             // Enqueue the contiguous data octets in front of the buffer.
             tcp_trace!(
                 "rx buffer: enqueueing {} octets (now {})",
@@ -3664,7 +3662,7 @@ mod test {
         // Update our scaling parameters for a TCP with a scaled buffer.
         assert_eq!(s.rx_buffer.len(), 0);
         s.rx_buffer = SocketBuffer::new(vec![0; 262143]);
-        s.assembler = Assembler::new(s.rx_buffer.capacity());
+        s.assembler = Assembler::new();
         s.remote_win_scale = Some(0);
         s.remote_last_win = 65535;
         s.remote_win_shift = 2;
@@ -5815,7 +5813,7 @@ mod test {
     fn test_zero_window_ack() {
         let mut s = socket_established();
         s.rx_buffer = SocketBuffer::new(vec![0; 6]);
-        s.assembler = Assembler::new(s.rx_buffer.capacity());
+        s.assembler = Assembler::new();
         send!(
             s,
             TcpRepr {
@@ -5855,7 +5853,7 @@ mod test {
     fn test_zero_window_ack_on_window_growth() {
         let mut s = socket_established();
         s.rx_buffer = SocketBuffer::new(vec![0; 6]);
-        s.assembler = Assembler::new(s.rx_buffer.capacity());
+        s.assembler = Assembler::new();
         send!(
             s,
             TcpRepr {
@@ -5934,7 +5932,7 @@ mod test {
     fn test_announce_window_after_read() {
         let mut s = socket_established();
         s.rx_buffer = SocketBuffer::new(vec![0; 6]);
-        s.assembler = Assembler::new(s.rx_buffer.capacity());
+        s.assembler = Assembler::new();
         send!(
             s,
             TcpRepr {
@@ -6347,7 +6345,7 @@ mod test {
     fn test_buffer_wraparound_rx() {
         let mut s = socket_established();
         s.rx_buffer = SocketBuffer::new(vec![0; 6]);
-        s.assembler = Assembler::new(s.rx_buffer.capacity());
+        s.assembler = Assembler::new();
         send!(
             s,
             TcpRepr {
@@ -6884,7 +6882,7 @@ mod test {
     fn test_doesnt_accept_wrong_port() {
         let mut s = socket_established();
         s.rx_buffer = SocketBuffer::new(vec![0; 6]);
-        s.assembler = Assembler::new(s.rx_buffer.capacity());
+        s.assembler = Assembler::new();
 
         let tcp_repr = TcpRepr {
             seq_number: REMOTE_SEQ + 1,
