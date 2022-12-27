@@ -9,6 +9,7 @@ use super::SocketSet;
 #[cfg(feature = "proto-sixlowpan-fragmentation")]
 use super::SixlowpanOutPacket;
 
+use crate::phy::ChecksumCapabilities;
 use crate::phy::TxToken;
 use crate::time::*;
 use crate::wire::*;
@@ -75,6 +76,8 @@ impl<'a> InterfaceInner<'a> {
         payload: &'payload T,
         _fragments: Option<(&'output mut PacketAssemblerSet<SixlowpanFragKey>, Duration)>,
     ) -> Option<IpPacket<'output>> {
+        let (fragments, timeout) = _fragments.unwrap();
+
         let payload = match check!(SixlowpanPacket::dispatch(payload)) {
             #[cfg(not(feature = "proto-sixlowpan-fragmentation"))]
             SixlowpanPacket::FragmentHeader => {
@@ -83,86 +86,46 @@ impl<'a> InterfaceInner<'a> {
             }
             #[cfg(feature = "proto-sixlowpan-fragmentation")]
             SixlowpanPacket::FragmentHeader => {
-                match self.process_sixlowpan_fragment(ieee802154_repr, payload, _fragments) {
+                match self.process_sixlowpan_fragment(
+                    ieee802154_repr,
+                    payload,
+                    (fragments, timeout),
+                ) {
                     Some(payload) => payload,
                     None => return None,
                 }
             }
-            SixlowpanPacket::IphcHeader => payload.as_ref(),
-        };
-
-        // At this point we should have a valid 6LoWPAN packet.
-        // The first header needs to be an IPHC header.
-        let iphc_packet = check!(SixlowpanIphcPacket::new_checked(payload));
-        let iphc_repr = check!(SixlowpanIphcRepr::parse(
-            &iphc_packet,
-            ieee802154_repr.src_addr,
-            ieee802154_repr.dst_addr,
-            self.sixlowpan_address_context,
-        ));
-
-        let payload = iphc_packet.payload();
-        let mut ipv6_repr = Ipv6Repr {
-            src_addr: iphc_repr.src_addr,
-            dst_addr: iphc_repr.dst_addr,
-            hop_limit: iphc_repr.hop_limit,
-            next_header: IpProtocol::Unknown(0),
-            payload_len: 40,
-        };
-
-        match iphc_repr.next_header {
-            SixlowpanNextHeader::Compressed => {
-                match check!(SixlowpanNhcPacket::dispatch(payload)) {
-                    SixlowpanNhcPacket::ExtHeader => {
-                        net_debug!("Extension headers are currently not supported for 6LoWPAN");
-                        None
+            SixlowpanPacket::IphcHeader => {
+                let frag_slot = match fragments.get(
+                    &SixlowpanFragKey {
+                        ll_src_addr: ieee802154_repr
+                            .src_addr
+                            .unwrap_or(Ieee802154Address::Absent),
+                        ll_dst_addr: ieee802154_repr
+                            .dst_addr
+                            .unwrap_or(Ieee802154Address::Absent),
+                        datagram_size: 0,
+                        datagram_tag: ieee802154_repr.sequence_number.unwrap_or_default() as u16,
+                    },
+                    self.now,
+                ) {
+                    Ok(frag) => frag,
+                    Err(_) => {
+                        net_debug!("No available packet assembler for fragmented packet");
+                        return Default::default();
                     }
-                    #[cfg(not(feature = "socket-udp"))]
-                    SixlowpanNhcPacket::UdpHeader => {
-                        net_debug!("UDP support is disabled, enable cargo feature `socket-udp`.");
-                        None
-                    }
-                    #[cfg(feature = "socket-udp")]
-                    SixlowpanNhcPacket::UdpHeader => {
-                        let udp_packet = check!(SixlowpanUdpNhcPacket::new_checked(payload));
-                        ipv6_repr.next_header = IpProtocol::Udp;
-                        ipv6_repr.payload_len += 8 + udp_packet.payload().len();
+                };
 
-                        let udp_repr = check!(SixlowpanUdpNhcRepr::parse(
-                            &udp_packet,
-                            &iphc_repr.src_addr,
-                            &iphc_repr.dst_addr,
-                            &self.checksum_caps(),
-                        ));
+                self.decompress_sixlowpan(ieee802154_repr, payload.as_ref(), None, frag_slot);
 
-                        self.process_udp(
-                            sockets,
-                            IpRepr::Ipv6(ipv6_repr),
-                            udp_repr.0,
-                            false,
-                            udp_packet.payload(),
-                            payload,
-                        )
-                    }
+                match frag_slot.assemble() {
+                    Some(payload) => payload,
+                    None => unreachable!(),
                 }
             }
-            SixlowpanNextHeader::Uncompressed(nxt_hdr) => match nxt_hdr {
-                IpProtocol::Icmpv6 => {
-                    ipv6_repr.next_header = IpProtocol::Icmpv6;
-                    self.process_icmpv6(sockets, IpRepr::Ipv6(ipv6_repr), iphc_packet.payload())
-                }
-                #[cfg(feature = "socket-tcp")]
-                IpProtocol::Tcp => {
-                    ipv6_repr.next_header = nxt_hdr;
-                    ipv6_repr.payload_len += payload.len();
-                    self.process_tcp(sockets, IpRepr::Ipv6(ipv6_repr), iphc_packet.payload())
-                }
-                proto => {
-                    net_debug!("6LoWPAN: {} currently not supported", proto);
-                    None
-                }
-            },
-        }
+        };
+
+        self.process_ipv6(sockets, &check!(Ipv6Packet::new_checked(payload)))
     }
 
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
@@ -170,11 +133,11 @@ impl<'a> InterfaceInner<'a> {
         &mut self,
         ieee802154_repr: &Ieee802154Repr,
         payload: &'payload T,
-        fragments: Option<(&'output mut PacketAssemblerSet<SixlowpanFragKey>, Duration)>,
+        fragments: (&'output mut PacketAssemblerSet<SixlowpanFragKey>, Duration),
     ) -> Option<&'output [u8]> {
         use crate::iface::fragmentation::AssemblerFullError;
 
-        let (fragments, timeout) = fragments.unwrap();
+        let (fragments, timeout) = fragments;
 
         // We have a fragment header, which means we cannot process the 6LoWPAN packet,
         // unless we have a complete one after processing this fragment.
@@ -208,55 +171,18 @@ impl<'a> InterfaceInner<'a> {
             // compression of the IP header and when UDP is used (because the UDP header
             // can also be compressed). Other headers are not compressed by 6LoWPAN.
 
-            let iphc = check!(SixlowpanIphcPacket::new_checked(frag.payload()));
-            let iphc_repr = check!(SixlowpanIphcRepr::parse(
-                &iphc,
-                ieee802154_repr.src_addr,
-                ieee802154_repr.dst_addr,
-                self.sixlowpan_address_context,
-            ));
-
-            // The uncompressed header size always starts with 40, since this is the size
-            // of a IPv6 header.
-            let mut uncompressed_header_size = 40;
-            let mut compressed_header_size = iphc.header_len();
-
-            // We need to check if we have an UDP packet, since this header can also be
-            // compressed by 6LoWPAN. We currently don't support extension headers yet.
-            match iphc_repr.next_header {
-                SixlowpanNextHeader::Compressed => {
-                    match check!(SixlowpanNhcPacket::dispatch(iphc.payload())) {
-                        SixlowpanNhcPacket::ExtHeader => {
-                            net_debug!("6LoWPAN: extension headers not supported");
-                            return None;
-                        }
-                        SixlowpanNhcPacket::UdpHeader => {
-                            let udp_packet =
-                                check!(SixlowpanUdpNhcPacket::new_checked(iphc.payload()));
-
-                            uncompressed_header_size += 8;
-                            compressed_header_size +=
-                                1 + udp_packet.ports_size() + udp_packet.checksum_size();
-                        }
-                    }
-                }
-                SixlowpanNextHeader::Uncompressed(_) => (),
-            }
-
-            let total_size =
-                frag.datagram_size() as usize - uncompressed_header_size + compressed_header_size;
-            check!(frag_slot.set_total_size(total_size));
-            frag_slot.set_offset_correction(
-                -((uncompressed_header_size - compressed_header_size) as isize),
+            self.decompress_sixlowpan(
+                ieee802154_repr,
+                frag.payload(),
+                Some(frag.datagram_size() as usize),
+                frag_slot,
             );
-        }
-
-        net_trace!("6LoWPAN: received packet fragment");
-
-        // Add the fragment to the packet assembler.
-        if let Err(e) = frag_slot.add(frag.payload(), offset) {
-            net_debug!("fragmentation error: {:?}", e);
-            return None;
+        } else {
+            // Add the fragment to the packet assembler.
+            if let Err(e) = frag_slot.add(frag.payload(), offset) {
+                net_debug!("fragmentation error: {:?}", e);
+                return None;
+            }
         }
 
         match frag_slot.assemble() {
@@ -266,6 +192,116 @@ impl<'a> InterfaceInner<'a> {
             }
             None => None,
         }
+    }
+
+    fn decompress_sixlowpan(
+        &self,
+        ieee802154_repr: &Ieee802154Repr,
+        iphc_payload: &[u8],
+        total_size: Option<usize>,
+        frag_slot: &mut crate::iface::PacketAssembler<SixlowpanFragKey>,
+    ) {
+        let iphc = check!(SixlowpanIphcPacket::new_checked(iphc_payload));
+        let iphc_repr = check!(SixlowpanIphcRepr::parse(
+            &iphc,
+            ieee802154_repr.src_addr,
+            ieee802154_repr.dst_addr,
+            self.sixlowpan_address_context,
+        ));
+
+        let mut decompressed_size = 40 + iphc.payload().len();
+
+        let next_header = match iphc_repr.next_header {
+            SixlowpanNextHeader::Compressed => {
+                match check!(SixlowpanNhcPacket::dispatch(iphc.payload())) {
+                    SixlowpanNhcPacket::ExtHeader => {
+                        net_debug!("Extension headers are currently not supported for 6LoWPAN");
+                        IpProtocol::Unknown(0)
+                    }
+                    SixlowpanNhcPacket::UdpHeader => {
+                        let udp_packet = check!(SixlowpanUdpNhcPacket::new_checked(iphc.payload()));
+                        let udp_repr = check!(SixlowpanUdpNhcRepr::parse(
+                            &udp_packet,
+                            &iphc_repr.src_addr,
+                            &iphc_repr.dst_addr,
+                            &crate::phy::ChecksumCapabilities::ignored(),
+                        ));
+
+                        decompressed_size += 8;
+                        decompressed_size -= udp_repr.header_len();
+                        IpProtocol::Udp
+                    }
+                }
+            }
+            SixlowpanNextHeader::Uncompressed(proto) => proto,
+        };
+
+        let total_size = if let Some(size) = total_size {
+            size
+        } else {
+            decompressed_size
+        };
+
+        let ipv6_repr = Ipv6Repr {
+            src_addr: iphc_repr.src_addr,
+            dst_addr: iphc_repr.dst_addr,
+            next_header,
+            payload_len: total_size - 40,
+            hop_limit: iphc_repr.hop_limit,
+        };
+
+        // Set the total size of the buffer.
+        check!(frag_slot.set_total_size(total_size));
+
+        frag_slot
+            .add_with_fn(decompressed_size, 0, |buffer| {
+                // Emit the decompressed IPHC header (decompressed to an IPv6 header).
+                let mut ipv6_packet =
+                    Ipv6Packet::new_unchecked(&mut buffer[..ipv6_repr.buffer_len()]);
+                ipv6_repr.emit(&mut ipv6_packet);
+                let buffer = &mut buffer[ipv6_repr.buffer_len()..];
+
+                match iphc_repr.next_header {
+                    SixlowpanNextHeader::Compressed => {
+                        match check!(SixlowpanNhcPacket::dispatch(iphc.payload())) {
+                            SixlowpanNhcPacket::ExtHeader => todo!(),
+                            SixlowpanNhcPacket::UdpHeader => {
+                                // We need to uncompress the UDP packet and emit it to the
+                                // buffer.
+                                let udp_packet =
+                                    check!(SixlowpanUdpNhcPacket::new_checked(iphc.payload()));
+                                let udp_repr = check!(SixlowpanUdpNhcRepr::parse(
+                                    &udp_packet,
+                                    &iphc_repr.src_addr,
+                                    &iphc_repr.dst_addr,
+                                    &ChecksumCapabilities::ignored(),
+                                ));
+
+                                let mut udp_emit_packet = UdpPacket::new_unchecked(
+                                    &mut buffer[..udp_repr.0.header_len() + iphc.payload().len()
+                                        - udp_repr.header_len()],
+                                );
+                                udp_repr.0.emit_header(
+                                    &mut udp_emit_packet,
+                                    &iphc_repr.src_addr.into(),
+                                    &iphc_repr.dst_addr.into(),
+                                    ipv6_repr.payload_len - 8,
+                                    &ChecksumCapabilities::ignored(),
+                                );
+
+                                buffer[8..]
+                                    .copy_from_slice(&iphc.payload()[udp_repr.header_len()..]);
+                            }
+                        }
+                    }
+                    SixlowpanNextHeader::Uncompressed(_) => {
+                        // For uncompressed headers we just copy the slice.
+                        let len = iphc.payload().len();
+                        buffer[..len].copy_from_slice(iphc.payload());
+                    }
+                };
+            })
+            .unwrap()
     }
 
     #[cfg(feature = "medium-ieee802154")]
