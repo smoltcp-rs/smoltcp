@@ -7,7 +7,7 @@ easily human readable packet listings.
 
 A packet can be formatted using the `PrettyPrinter` wrapper:
 
-```rust,ignore
+```rust
 use smoltcp::wire::*;
 let buffer = vec![
     // Ethernet II
@@ -15,7 +15,7 @@ let buffer = vec![
     0x11, 0x12, 0x13, 0x14, 0x15, 0x16,
     0x08, 0x00,
     // IPv4
-    0x45, 0x00, 0x00, 0x18,
+    0x45, 0x00, 0x00, 0x20,
     0x00, 0x00, 0x40, 0x00,
     0x40, 0x01, 0xd2, 0x79,
     0x11, 0x12, 0x13, 0x14,
@@ -25,7 +25,18 @@ let buffer = vec![
     0x12, 0x34, 0xab, 0xcd,
     0xaa, 0x00, 0x00, 0xff
 ];
-print!("{}", PrettyPrinter::<EthernetFrame<&'static [u8]>>::new("", &buffer));
+
+let result = "\
+EthernetII src=11-12-13-14-15-16 dst=01-02-03-04-05-06 type=IPv4\n\
+\\ IPv4 src=17.18.19.20 dst=33.34.35.36 proto=ICMP (checksum incorrect)\n \
+ \\ ICMPv4 echo request id=4660 seq=43981 len=4\
+";
+
+#[cfg(all(feature = "medium-ethernet", feature = "proto-ipv4"))]
+assert_eq!(
+    result,
+    &format!("{}", PrettyPrinter::<EthernetFrame<&'static [u8]>>::new("", &buffer))
+);
 ```
 */
 
