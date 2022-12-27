@@ -230,10 +230,10 @@ pub mod frag {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub struct Key {
-        ll_src_addr: Ieee802154Address,
-        ll_dst_addr: Ieee802154Address,
-        datagram_size: u16,
-        datagram_tag: u16,
+        pub(crate) ll_src_addr: Ieee802154Address,
+        pub(crate) ll_dst_addr: Ieee802154Address,
+        pub(crate) datagram_size: u16,
+        pub(crate) datagram_tag: u16,
     }
 
     /// A read/write wrapper around a 6LoWPAN Fragment header.

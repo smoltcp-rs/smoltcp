@@ -89,6 +89,42 @@ impl<K> PacketAssembler<K> {
         self.expires_at
     }
 
+    pub(crate) fn add_with_fn(
+        &mut self,
+        len: usize,
+        offset: usize,
+        f: impl Fn(&mut [u8]),
+    ) -> Result<(), AssemblerError> {
+        #[cfg(not(feature = "alloc"))]
+        if self.buffer.len() < offset + len {
+            return Err(AssemblerError);
+        }
+
+        #[cfg(feature = "alloc")]
+        if self.buffer.len() < offset + len {
+            self.buffer.resize(offset + len, 0);
+        }
+
+        f(&mut self.buffer[offset..][..len]);
+
+        net_debug!(
+            "frag assembler: receiving {} octets at offset {}",
+            len,
+            offset
+        );
+
+        match self.assembler.add(offset, len) {
+            Ok(()) => {
+                net_debug!("assembler: {}", self.assembler);
+                Ok(())
+            }
+            Err(_) => {
+                net_debug!("packet assembler: too many holes, dropping.");
+                Err(AssemblerError)
+            }
+        }
+    }
+
     /// Add a fragment into the packet that is being reassembled.
     ///
     /// # Errors

@@ -251,6 +251,30 @@ impl Repr {
     }
 
     /// Emit a high-level representation into an User Datagram Protocol packet.
+    pub fn emit_header<T: ?Sized>(
+        &self,
+        packet: &mut Packet<&mut T>,
+        src_addr: &IpAddress,
+        dst_addr: &IpAddress,
+        payload_len: usize,
+        checksum_caps: &ChecksumCapabilities,
+    ) where
+        T: AsRef<[u8]> + AsMut<[u8]>,
+    {
+        packet.set_src_port(self.src_port);
+        packet.set_dst_port(self.dst_port);
+        packet.set_len((HEADER_LEN + payload_len) as u16);
+
+        if checksum_caps.udp.tx() {
+            packet.fill_checksum(src_addr, dst_addr)
+        } else {
+            // make sure we get a consistently zeroed checksum,
+            // since implementations might rely on it
+            packet.set_checksum(0);
+        }
+    }
+
+    /// Emit a high-level representation into an User Datagram Protocol packet.
     pub fn emit<T: ?Sized>(
         &self,
         packet: &mut Packet<&mut T>,
