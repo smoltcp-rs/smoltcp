@@ -1503,10 +1503,7 @@ fn test_echo_request_sixlowpan_128_bytes() {
             &mut sockets,
             &ieee802154_repr,
             &request_first_part_packet.into_inner(),
-            Some((
-                &mut iface.fragments.sixlowpan_fragments,
-                iface.fragments.sixlowpan_fragments_cache_timeout,
-            )),
+            &mut iface.fragments
         ),
         None
     );
@@ -1530,10 +1527,7 @@ fn test_echo_request_sixlowpan_128_bytes() {
         &mut sockets,
         &ieee802154_repr,
         &request_second_part,
-        Some((
-            &mut iface.fragments.sixlowpan_fragments,
-            iface.fragments.sixlowpan_fragments_cache_timeout,
-        )),
+        &mut iface.fragments,
     );
 
     assert_eq!(
@@ -1666,10 +1660,7 @@ fn test_sixlowpan_udp_with_fragmentation() {
             &mut sockets,
             &ieee802154_repr,
             udp_first_part,
-            Some((
-                &mut iface.fragments.sixlowpan_fragments,
-                iface.fragments.sixlowpan_fragments_cache_timeout
-            ))
+            &mut iface.fragments
         ),
         None
     );
@@ -1688,10 +1679,7 @@ fn test_sixlowpan_udp_with_fragmentation() {
             &mut sockets,
             &ieee802154_repr,
             udp_second_part,
-            Some((
-                &mut iface.fragments.sixlowpan_fragments,
-                iface.fragments.sixlowpan_fragments_cache_timeout
-            ))
+            &mut iface.fragments
         ),
         None
     );

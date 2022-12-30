@@ -40,6 +40,8 @@ const MAX_IP_ADDR_COUNT: usize = 5;
 const MAX_IPV4_MULTICAST_GROUPS: usize = 4;
 
 pub(crate) struct FragmentsBuffer {
+    #[cfg(feature = "proto-sixlowpan")]
+    decompress_buf: [u8; sixlowpan::MAX_DECOMPRESSED_LEN],
     #[cfg(feature = "proto-ipv4-fragmentation")]
     pub(crate) ipv4_fragments: PacketAssemblerSet<Ipv4FragKey>,
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
@@ -645,6 +647,9 @@ let iface = builder.finalize(&mut device);
 
         Interface {
             fragments: FragmentsBuffer {
+                #[cfg(feature = "proto-sixlowpan")]
+                decompress_buf: [0u8; sixlowpan::MAX_DECOMPRESSED_LEN],
+
                 #[cfg(feature = "proto-ipv4-fragmentation")]
                 ipv4_fragments: self.ipv4_fragments,
                 #[cfg(feature = "proto-sixlowpan-fragmentation")]

@@ -19,10 +19,12 @@ const PACKET_ASSEMBLER_COUNT: usize = 4;
 
 /// Problem when assembling: something was out of bounds.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct AssemblerError;
 
 /// Packet assembler is full
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct AssemblerFullError;
 
 /// Holds different fragments of one packet, used for assembling fragmented packets.
@@ -98,23 +100,17 @@ impl<K> PacketAssembler<K> {
         self.expires_at
     }
 
-    pub(crate) fn add_with_fn(
+    pub(crate) fn add_with(
         &mut self,
-        len: usize,
         offset: usize,
-        f: impl Fn(&mut [u8]),
+        f: impl Fn(&mut [u8]) -> Result<usize, AssemblerError>,
     ) -> Result<(), AssemblerError> {
-        #[cfg(not(feature = "alloc"))]
-        if self.buffer.len() < offset + len {
+        if self.buffer.len() < offset {
             return Err(AssemblerError);
         }
 
-        #[cfg(feature = "alloc")]
-        if self.buffer.len() < offset + len {
-            self.buffer.resize(offset + len, 0);
-        }
-
-        f(&mut self.buffer[offset..][..len]);
+        let len = f(&mut self.buffer[offset..])?;
+        assert!(offset + len <= self.buffer.len());
 
         net_debug!(
             "frag assembler: receiving {} octets at offset {}",
