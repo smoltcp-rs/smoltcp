@@ -19,7 +19,7 @@ pub(crate) use self::neighbor::Answer as NeighborAnswer;
 pub use self::neighbor::Cache as NeighborCache;
 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
 pub use self::neighbor::Neighbor;
-pub use self::route::{Route, Routes};
+pub use self::route::{Route, RouteTableFull, Routes};
 pub use socket_set::{SocketHandle, SocketSet, SocketStorage};
 
 #[cfg(any(feature = "proto-ipv4", feature = "proto-sixlowpan"))]
