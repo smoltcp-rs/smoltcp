@@ -40,7 +40,6 @@ pub struct PacketAssembler<K> {
     assembler: Assembler,
     total_size: Option<usize>,
     expires_at: Instant,
-    offset_correction: isize,
 }
 
 impl<K> PacketAssembler<K> {
@@ -57,7 +56,6 @@ impl<K> PacketAssembler<K> {
             assembler: Assembler::new(),
             total_size: None,
             expires_at: Instant::ZERO,
-            offset_correction: 0,
         }
     }
 
@@ -66,11 +64,6 @@ impl<K> PacketAssembler<K> {
         self.assembler.clear();
         self.total_size = None;
         self.expires_at = Instant::ZERO;
-        self.offset_correction = 0;
-    }
-
-    pub(crate) fn set_offset_correction(&mut self, correction: isize) {
-        self.offset_correction = correction;
     }
 
     /// Set the total size of the packet assembler.
@@ -137,9 +130,6 @@ impl<K> PacketAssembler<K> {
     /// - Returns [`Error::PacketAssemblerBufferTooSmall`] when trying to add data into the buffer at a non-existing
     /// place.
     pub(crate) fn add(&mut self, data: &[u8], offset: usize) -> Result<(), AssemblerError> {
-        let offset = offset as isize + self.offset_correction;
-        let offset = if offset <= 0 { 0 } else { offset as usize };
-
         #[cfg(not(feature = "alloc"))]
         if self.buffer.len() < offset + data.len() {
             return Err(AssemblerError);
