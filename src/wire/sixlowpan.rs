@@ -220,10 +220,8 @@ pub mod frag {
     //! [RFC 4944 § 5.3]: https://datatracker.ietf.org/doc/html/rfc4944#section-5.3
 
     use super::{DISPATCH_FIRST_FRAGMENT_HEADER, DISPATCH_FRAGMENT_HEADER};
-    use crate::{
-        wire::{Ieee802154Address, Ieee802154Repr},
-        Error, Result,
-    };
+    use crate::wire::{Error, Result};
+    use crate::wire::{Ieee802154Address, Ieee802154Repr};
     use byteorder::{ByteOrder, NetworkEndian};
 
     /// Key used for identifying all the link fragments that belong to the same packet.
@@ -298,18 +296,18 @@ pub mod frag {
             let dispatch = packet.dispatch();
 
             if dispatch != DISPATCH_FIRST_FRAGMENT_HEADER && dispatch != DISPATCH_FRAGMENT_HEADER {
-                return Err(Error::Malformed);
+                return Err(Error);
             }
 
             Ok(packet)
         }
 
         /// Ensure that no accessor method will panic if called.
-        /// Returns `Err(Error::Truncated)` if the buffer is too short.
+        /// Returns `Err(Error)` if the buffer is too short.
         pub fn check_len(&self) -> Result<()> {
             let buffer = self.buffer.as_ref();
             if buffer.is_empty() {
-                return Err(Error::Truncated);
+                return Err(Error);
             }
 
             match self.dispatch() {
@@ -317,13 +315,11 @@ pub mod frag {
                     Ok(())
                 }
                 DISPATCH_FIRST_FRAGMENT_HEADER if buffer.len() < FIRST_FRAGMENT_HEADER_SIZE => {
-                    Err(Error::Truncated)
+                    Err(Error)
                 }
                 DISPATCH_FRAGMENT_HEADER if buffer.len() >= NEXT_FRAGMENT_HEADER_SIZE => Ok(()),
-                DISPATCH_FRAGMENT_HEADER if buffer.len() < NEXT_FRAGMENT_HEADER_SIZE => {
-                    Err(Error::Truncated)
-                }
-                _ => Err(Error::Unrecognized),
+                DISPATCH_FRAGMENT_HEADER if buffer.len() < NEXT_FRAGMENT_HEADER_SIZE => Err(Error),
+                _ => Err(Error),
             }
         }
 
@@ -441,7 +437,7 @@ pub mod frag {
                     tag,
                     offset: packet.datagram_offset(),
                 }),
-                _ => Err(Error::Malformed),
+                _ => Err(Error),
             }
         }
 
