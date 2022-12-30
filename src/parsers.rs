@@ -95,7 +95,7 @@ impl<'a> Parser<'a> {
 
     fn accept_digit(&mut self, hex: bool) -> Result<u8> {
         let digit = self.advance()?;
-        if (b'0'..=b'9').contains(&digit) {
+        if digit.is_ascii_digit() {
             Ok(digit - b'0')
         } else if hex && (b'a'..=b'f').contains(&digit) {
             Ok(digit - b'a' + 10)

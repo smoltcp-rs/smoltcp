@@ -319,9 +319,9 @@ impl core::fmt::Display for HardwareAddress {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         match self {
             #[cfg(feature = "medium-ethernet")]
-            HardwareAddress::Ethernet(addr) => write!(f, "{}", addr),
+            HardwareAddress::Ethernet(addr) => write!(f, "{addr}"),
             #[cfg(feature = "medium-ieee802154")]
-            HardwareAddress::Ieee802154(addr) => write!(f, "{}", addr),
+            HardwareAddress::Ieee802154(addr) => write!(f, "{addr}"),
         }
     }
 }
@@ -413,7 +413,7 @@ impl core::fmt::Display for RawHardwareAddress {
             if i != 0 {
                 write!(f, ":")?;
             }
-            write!(f, "{:02x}", b)?;
+            write!(f, "{b:02x}")?;
         }
         Ok(())
     }

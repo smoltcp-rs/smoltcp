@@ -138,12 +138,12 @@ impl<D: Device> FaultInjector<D> {
 
     /// Return the maximum packet transmission rate, in packets per second.
     pub fn max_tx_rate(&self) -> u64 {
-        self.config.max_rx_rate
+        self.config.max_tx_rate
     }
 
     /// Return the maximum packet reception rate, in packets per second.
     pub fn max_rx_rate(&self) -> u64 {
-        self.config.max_tx_rate
+        self.config.max_rx_rate
     }
 
     /// Return the interval for packet rate limiting, in milliseconds.

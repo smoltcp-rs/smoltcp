@@ -94,7 +94,7 @@ impl fmt::Display for Message {
             Message::Redirect => write!(f, "redirect"),
             Message::MldQuery => write!(f, "multicast listener query"),
             Message::MldReport => write!(f, "multicast listener report"),
-            Message::Unknown(id) => write!(f, "{}", id),
+            Message::Unknown(id) => write!(f, "{id}"),
         }
     }
 }
@@ -134,7 +134,7 @@ impl fmt::Display for DstUnreachable {
                 write!(f, "source address failed ingress/egress policy")
             }
             DstUnreachable::RejectRoute => write!(f, "reject route to destination"),
-            DstUnreachable::Unknown(id) => write!(f, "{}", id),
+            DstUnreachable::Unknown(id) => write!(f, "{id}"),
         }
     }
 }
@@ -157,7 +157,7 @@ impl fmt::Display for ParamProblem {
             ParamProblem::ErroneousHdrField => write!(f, "erroneous header field."),
             ParamProblem::UnrecognizedNxtHdr => write!(f, "unrecognized next header type."),
             ParamProblem::UnrecognizedOption => write!(f, "unrecognized IPv6 option."),
-            ParamProblem::Unknown(id) => write!(f, "{}", id),
+            ParamProblem::Unknown(id) => write!(f, "{id}"),
         }
     }
 }
@@ -177,7 +177,7 @@ impl fmt::Display for TimeExceeded {
         match *self {
             TimeExceeded::HopLimitExceeded => write!(f, "hop limit exceeded in transit"),
             TimeExceeded::FragReassemExceeded => write!(f, "fragment reassembly time exceeded"),
-            TimeExceeded::Unknown(id) => write!(f, "{}", id),
+            TimeExceeded::Unknown(id) => write!(f, "{id}"),
         }
     }
 }

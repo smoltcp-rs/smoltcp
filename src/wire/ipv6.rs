@@ -286,17 +286,17 @@ impl fmt::Display for Address {
                 // When the state is Head or Tail write a u16 in hexadecimal
                 // without the leading colon if the value is not 0.
                 (_, &State::Head) => {
-                    write!(f, "{:x}", word)?;
+                    write!(f, "{word:x}")?;
                     State::HeadBody
                 }
                 (_, &State::Tail) => {
-                    write!(f, "{:x}", word)?;
+                    write!(f, "{word:x}")?;
                     State::TailBody
                 }
                 // Write the u16 with a leading colon when parsing a value
                 // that isn't the first in a section
                 (_, &State::HeadBody) | (_, &State::TailBody) => {
-                    write!(f, ":{:x}", word)?;
+                    write!(f, ":{word:x}")?;
                     state
                 }
             }
@@ -638,9 +638,9 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
 impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match Repr::parse(self) {
-            Ok(repr) => write!(f, "{}", repr),
+            Ok(repr) => write!(f, "{repr}"),
             Err(err) => {
-                write!(f, "IPv6 ({})", err)?;
+                write!(f, "IPv6 ({err})")?;
                 Ok(())
             }
         }
@@ -728,11 +728,11 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
         indent: &mut PrettyIndent,
     ) -> fmt::Result {
         let (ip_repr, payload) = match Packet::new_checked(buffer) {
-            Err(err) => return write!(f, "{}({})", indent, err),
+            Err(err) => return write!(f, "{indent}({err})"),
             Ok(ip_packet) => match Repr::parse(&ip_packet) {
                 Err(_) => return Ok(()),
                 Ok(ip_repr) => {
-                    write!(f, "{}{}", indent, ip_repr)?;
+                    write!(f, "{indent}{ip_repr}")?;
                     (ip_repr, ip_packet.payload())
                 }
             },

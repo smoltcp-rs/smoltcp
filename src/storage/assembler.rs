@@ -108,7 +108,7 @@ impl fmt::Display for Assembler {
             if contig.is_empty() {
                 break;
             }
-            write!(f, "{} ", contig)?;
+            write!(f, "{contig} ")?;
         }
         write!(f, "]")?;
         Ok(())

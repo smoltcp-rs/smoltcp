@@ -16,7 +16,7 @@ impl fmt::Display for Type {
         match *self {
             Type::Pad1 => write!(f, "Pad1"),
             Type::PadN => write!(f, "PadN"),
-            Type::Unknown(id) => write!(f, "{}", id),
+            Type::Unknown(id) => write!(f, "{id}"),
         }
     }
 }
@@ -44,7 +44,7 @@ impl fmt::Display for FailureType {
             FailureType::Discard => write!(f, "discard"),
             FailureType::DiscardSendAll => write!(f, "discard and send error"),
             FailureType::DiscardSendUnicast => write!(f, "discard and send error if unicast"),
-            FailureType::Unknown(id) => write!(f, "Unknown({})", id),
+            FailureType::Unknown(id) => write!(f, "Unknown({id})"),
         }
     }
 }
@@ -204,9 +204,9 @@ impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Ipv6Option<&'a mut T> {
 impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Ipv6Option<&'a T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match Repr::parse(self) {
-            Ok(repr) => write!(f, "{}", repr),
+            Ok(repr) => write!(f, "{repr}"),
             Err(err) => {
-                write!(f, "IPv6 Extension Option ({})", err)?;
+                write!(f, "IPv6 Extension Option ({err})")?;
                 Ok(())
             }
         }
@@ -344,7 +344,7 @@ impl<'a> fmt::Display for Repr<'a> {
         match *self {
             Repr::Pad1 => write!(f, "{} ", Type::Pad1),
             Repr::PadN(len) => write!(f, "{} length={} ", Type::PadN, len),
-            Repr::Unknown { type_, length, .. } => write!(f, "{} length={} ", type_, length),
+            Repr::Unknown { type_, length, .. } => write!(f, "{type_} length={length} "),
         }
     }
 }

@@ -43,7 +43,7 @@ impl fmt::Display for AssemblerState {
                 expires_at,
                 offset_correction,
             } => {
-                write!(f, "{} expires at {}", assembler, expires_at)?;
+                write!(f, "{assembler} expires at {expires_at}")?;
             }
         }
         Ok(())

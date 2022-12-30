@@ -44,7 +44,7 @@ impl fmt::Display for Message {
             Message::MembershipReportV2 => write!(f, "version 2 membership report"),
             Message::LeaveGroup => write!(f, "leave group"),
             Message::MembershipReportV1 => write!(f, "version 1 membership report"),
-            Message::Unknown(id) => write!(f, "{}", id),
+            Message::Unknown(id) => write!(f, "{id}"),
         }
     }
 }
@@ -324,8 +324,8 @@ const fn duration_to_max_resp_code(duration: Duration) -> u8 {
 impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match Repr::parse(self) {
-            Ok(repr) => write!(f, "{}", repr),
-            Err(err) => write!(f, "IGMP ({})", err),
+            Ok(repr) => write!(f, "{repr}"),
+            Err(err) => write!(f, "IGMP ({err})"),
         }
     }
 }
@@ -339,19 +339,17 @@ impl fmt::Display for Repr {
                 version,
             } => write!(
                 f,
-                "IGMP membership query max_resp_time={} group_addr={} version={:?}",
-                max_resp_time, group_addr, version
+                "IGMP membership query max_resp_time={max_resp_time} group_addr={group_addr} version={version:?}"
             ),
             Repr::MembershipReport {
                 group_addr,
                 version,
             } => write!(
                 f,
-                "IGMP membership report group_addr={} version={:?}",
-                group_addr, version
+                "IGMP membership report group_addr={group_addr} version={version:?}"
             ),
             Repr::LeaveGroup { group_addr } => {
-                write!(f, "IGMP leave group group_addr={})", group_addr)
+                write!(f, "IGMP leave group group_addr={group_addr})")
             }
         }
     }
@@ -366,8 +364,8 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
         indent: &mut PrettyIndent,
     ) -> fmt::Result {
         match Packet::new_checked(buffer) {
-            Err(err) => writeln!(f, "{}({})", indent, err),
-            Ok(packet) => writeln!(f, "{}{}", indent, packet),
+            Err(err) => writeln!(f, "{indent}({err})"),
+            Ok(packet) => writeln!(f, "{indent}{packet}"),
         }
     }
 }

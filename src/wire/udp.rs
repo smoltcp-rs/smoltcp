@@ -305,8 +305,8 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
         indent: &mut PrettyIndent,
     ) -> fmt::Result {
         match Packet::new_checked(buffer) {
-            Err(err) => write!(f, "{}({})", indent, err),
-            Ok(packet) => write!(f, "{}{}", indent, packet),
+            Err(err) => write!(f, "{indent}({err})"),
+            Ok(packet) => write!(f, "{indent}{packet}"),
         }
     }
 }

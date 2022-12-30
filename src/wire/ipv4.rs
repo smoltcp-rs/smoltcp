@@ -702,9 +702,9 @@ impl Repr {
 impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match Repr::parse(self, &ChecksumCapabilities::ignored()) {
-            Ok(repr) => write!(f, "{}", repr),
+            Ok(repr) => write!(f, "{repr}"),
             Err(err) => {
-                write!(f, "IPv4 ({})", err)?;
+                write!(f, "IPv4 ({err})")?;
                 write!(
                     f,
                     " src={} dst={} proto={} hop_limit={}",
@@ -767,7 +767,7 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
         let checksum_caps = ChecksumCapabilities::ignored();
 
         let (ip_repr, payload) = match Packet::new_checked(buffer) {
-            Err(err) => return write!(f, "{}({})", indent, err),
+            Err(err) => return write!(f, "{indent}({err})"),
             Ok(ip_packet) => match Repr::parse(&ip_packet, &checksum_caps) {
                 Err(_) => return Ok(()),
                 Ok(ip_repr) => {
@@ -781,7 +781,7 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
                         )?;
                         return Ok(());
                     } else {
-                        write!(f, "{}{}", indent, ip_repr)?;
+                        write!(f, "{indent}{ip_repr}")?;
                         format_checksum(f, ip_packet.verify_checksum())?;
                         (ip_repr, ip_packet.payload())
                     }

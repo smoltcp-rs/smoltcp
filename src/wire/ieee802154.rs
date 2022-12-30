@@ -28,7 +28,7 @@ impl fmt::Display for FrameType {
             FrameType::Multipurpose => write!(f, "Multipurpose"),
             FrameType::FragmentOrFrak => write!(f, "FragmentOrFrak"),
             FrameType::Extended => write!(f, "Extended"),
-            FrameType::Unknown(id) => write!(f, "0b{:04b}", id),
+            FrameType::Unknown(id) => write!(f, "0b{id:04b}"),
         }
     }
 }
@@ -59,7 +59,7 @@ impl fmt::Display for AddressingMode {
             AddressingMode::Absent => write!(f, "Absent"),
             AddressingMode::Short => write!(f, "Short"),
             AddressingMode::Extended => write!(f, "Extended"),
-            AddressingMode::Unknown(id) => write!(f, "0b{:04b}", id),
+            AddressingMode::Unknown(id) => write!(f, "0b{id:04b}"),
         }
     }
 }
