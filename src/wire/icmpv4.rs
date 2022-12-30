@@ -45,7 +45,7 @@ impl fmt::Display for Message {
             Message::ParamProblem => write!(f, "parameter problem"),
             Message::Timestamp => write!(f, "timestamp"),
             Message::TimestampReply => write!(f, "timestamp reply"),
-            Message::Unknown(id) => write!(f, "{}", id),
+            Message::Unknown(id) => write!(f, "{id}"),
         }
     }
 }
@@ -109,7 +109,7 @@ impl fmt::Display for DstUnreachable {
             }
             DstUnreachable::HostPrecedViol => write!(f, "host precedence violation"),
             DstUnreachable::PrecedCutoff => write!(f, "precedence cutoff in effect"),
-            DstUnreachable::Unknown(id) => write!(f, "{}", id),
+            DstUnreachable::Unknown(id) => write!(f, "{id}"),
         }
     }
 }
@@ -143,7 +143,7 @@ impl fmt::Display for TimeExceeded {
         match *self {
             TimeExceeded::TtlExpired => write!(f, "time-to-live exceeded in transit"),
             TimeExceeded::FragExpired => write!(f, "fragment reassembly time exceeded"),
-            TimeExceeded::Unknown(id) => write!(f, "{}", id),
+            TimeExceeded::Unknown(id) => write!(f, "{id}"),
         }
     }
 }
@@ -556,9 +556,9 @@ impl<'a> Repr<'a> {
 impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match Repr::parse(self, &ChecksumCapabilities::default()) {
-            Ok(repr) => write!(f, "{}", repr),
+            Ok(repr) => write!(f, "{repr}"),
             Err(err) => {
-                write!(f, "ICMPv4 ({})", err)?;
+                write!(f, "ICMPv4 ({err})")?;
                 write!(f, " type={:?}", self.msg_type())?;
                 match self.msg_type() {
                     Message::DstUnreachable => {
@@ -600,10 +600,10 @@ impl<'a> fmt::Display for Repr<'a> {
                 data.len()
             ),
             Repr::DstUnreachable { reason, .. } => {
-                write!(f, "ICMPv4 destination unreachable ({})", reason)
+                write!(f, "ICMPv4 destination unreachable ({reason})")
             }
             Repr::TimeExceeded { reason, .. } => {
-                write!(f, "ICMPv4 time exceeded ({})", reason)
+                write!(f, "ICMPv4 time exceeded ({reason})")
             }
         }
     }
@@ -618,10 +618,10 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
         indent: &mut PrettyIndent,
     ) -> fmt::Result {
         let packet = match Packet::new_checked(buffer) {
-            Err(err) => return write!(f, "{}({})", indent, err),
+            Err(err) => return write!(f, "{indent}({err})"),
             Ok(packet) => packet,
         };
-        write!(f, "{}{}", indent, packet)?;
+        write!(f, "{indent}{packet}")?;
 
         match packet.msg_type() {
             Message::DstUnreachable | Message::TimeExceeded => {

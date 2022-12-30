@@ -44,7 +44,7 @@ impl fmt::Display for Type {
             Type::Experiment1 => write!(f, "Experiment1"),
             Type::Experiment2 => write!(f, "Experiment2"),
             Type::Reserved => write!(f, "Reserved"),
-            Type::Unknown(id) => write!(f, "{}", id),
+            Type::Unknown(id) => write!(f, "{id}"),
         }
     }
 }
@@ -385,9 +385,9 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Header<T> {
 impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Header<&'a T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match Repr::parse(self) {
-            Ok(repr) => write!(f, "{}", repr),
+            Ok(repr) => write!(f, "{repr}"),
             Err(err) => {
-                write!(f, "IPv6 Routing ({})", err)?;
+                write!(f, "IPv6 Routing ({err})")?;
                 Ok(())
             }
         }

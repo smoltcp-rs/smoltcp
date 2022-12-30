@@ -32,7 +32,7 @@ impl fmt::Display for Type {
             Type::PrefixInformation => write!(f, "prefix information"),
             Type::RedirectedHeader => write!(f, "redirected header"),
             Type::Mtu => write!(f, "mtu"),
-            Type::Unknown(id) => write!(f, "{}", id),
+            Type::Unknown(id) => write!(f, "{id}"),
         }
     }
 }
@@ -383,9 +383,9 @@ impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> NdiscOption<&'a mut T> {
 impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for NdiscOption<&'a T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match Repr::parse(self) {
-            Ok(repr) => write!(f, "{}", repr),
+            Ok(repr) => write!(f, "{repr}"),
             Err(err) => {
-                write!(f, "NDISC Option ({})", err)?;
+                write!(f, "NDISC Option ({err})")?;
                 Ok(())
             }
         }
@@ -583,26 +583,26 @@ impl<'a> fmt::Display for Repr<'a> {
         write!(f, "NDISC Option: ")?;
         match *self {
             Repr::SourceLinkLayerAddr(addr) => {
-                write!(f, "SourceLinkLayer addr={}", addr)
+                write!(f, "SourceLinkLayer addr={addr}")
             }
             Repr::TargetLinkLayerAddr(addr) => {
-                write!(f, "TargetLinkLayer addr={}", addr)
+                write!(f, "TargetLinkLayer addr={addr}")
             }
             Repr::PrefixInformation(PrefixInformation {
                 prefix, prefix_len, ..
             }) => {
-                write!(f, "PrefixInformation prefix={}/{}", prefix, prefix_len)
+                write!(f, "PrefixInformation prefix={prefix}/{prefix_len}")
             }
             Repr::RedirectedHeader(RedirectedHeader { header, .. }) => {
-                write!(f, "RedirectedHeader header={}", header)
+                write!(f, "RedirectedHeader header={header}")
             }
             Repr::Mtu(mtu) => {
-                write!(f, "MTU mtu={}", mtu)
+                write!(f, "MTU mtu={mtu}")
             }
             Repr::Unknown {
                 type_: id, length, ..
             } => {
-                write!(f, "Unknown({}) length={}", id, length)
+                write!(f, "Unknown({id}) length={length}")
             }
         }
     }
@@ -617,11 +617,11 @@ impl<T: AsRef<[u8]>> PrettyPrint for NdiscOption<T> {
         indent: &mut PrettyIndent,
     ) -> fmt::Result {
         match NdiscOption::new_checked(buffer) {
-            Err(err) => write!(f, "{}({})", indent, err),
+            Err(err) => write!(f, "{indent}({err})"),
             Ok(ndisc) => match Repr::parse(&ndisc) {
                 Err(_) => Ok(()),
                 Ok(repr) => {
-                    write!(f, "{}{}", indent, repr)
+                    write!(f, "{indent}{repr}")
                 }
             },
         }

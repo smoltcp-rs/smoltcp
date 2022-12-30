@@ -1024,16 +1024,16 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
         while !options.is_empty() {
             let (next_options, option) = match TcpOption::parse(options) {
                 Ok(res) => res,
-                Err(err) => return write!(f, " ({})", err),
+                Err(err) => return write!(f, " ({err})"),
             };
             match option {
                 TcpOption::EndOfList => break,
                 TcpOption::NoOperation => (),
-                TcpOption::MaxSegmentSize(value) => write!(f, " mss={}", value)?,
-                TcpOption::WindowScale(value) => write!(f, " ws={}", value)?,
+                TcpOption::MaxSegmentSize(value) => write!(f, " mss={value}")?,
+                TcpOption::WindowScale(value) => write!(f, " ws={value}")?,
                 TcpOption::SackPermitted => write!(f, " sACK")?,
-                TcpOption::SackRange(slice) => write!(f, " sACKr{:?}", slice)?, // debug print conveniently includes the []s
-                TcpOption::Unknown { kind, .. } => write!(f, " opt({})", kind)?,
+                TcpOption::SackRange(slice) => write!(f, " sACKr{slice:?}")?, // debug print conveniently includes the []s
+                TcpOption::Unknown { kind, .. } => write!(f, " opt({kind})")?,
             }
             options = next_options;
         }
@@ -1053,12 +1053,12 @@ impl<'a> fmt::Display for Repr<'a> {
         }
         write!(f, " seq={}", self.seq_number)?;
         if let Some(ack_number) = self.ack_number {
-            write!(f, " ack={}", ack_number)?;
+            write!(f, " ack={ack_number}")?;
         }
         write!(f, " win={}", self.window_len)?;
         write!(f, " len={}", self.payload.len())?;
         if let Some(max_seg_size) = self.max_seg_size {
-            write!(f, " mss={}", max_seg_size)?;
+            write!(f, " mss={max_seg_size}")?;
         }
         Ok(())
     }
@@ -1073,8 +1073,8 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
         indent: &mut PrettyIndent,
     ) -> fmt::Result {
         match Packet::new_checked(buffer) {
-            Err(err) => write!(f, "{}({})", indent, err),
-            Ok(packet) => write!(f, "{}{}", indent, packet),
+            Err(err) => write!(f, "{indent}({err})"),
+            Ok(packet) => write!(f, "{indent}{packet}"),
         }
     }
 }

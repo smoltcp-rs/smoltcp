@@ -147,9 +147,9 @@ impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Header<&'a mut T> {
 impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Header<&'a T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match Repr::parse(self) {
-            Ok(repr) => write!(f, "{}", repr),
+            Ok(repr) => write!(f, "{repr}"),
             Err(err) => {
-                write!(f, "IPv6 Hop-by-Hop Options ({})", err)?;
+                write!(f, "IPv6 Hop-by-Hop Options ({err})")?;
                 Ok(())
             }
         }

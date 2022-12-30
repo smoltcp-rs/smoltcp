@@ -1747,11 +1747,11 @@ impl<'a> InterfaceInner<'a> {
     }
 
     #[cfg(feature = "socket-raw")]
-    fn raw_socket_filter<'frame>(
+    fn raw_socket_filter(
         &mut self,
         sockets: &mut SocketSet,
         ip_repr: &IpRepr,
-        ip_payload: &'frame [u8],
+        ip_payload: &[u8],
     ) -> bool {
         let mut handled_by_raw_socket = false;
 

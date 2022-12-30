@@ -18,7 +18,7 @@ impl fmt::Display for EtherType {
             EtherType::Ipv4 => write!(f, "IPv4"),
             EtherType::Ipv6 => write!(f, "IPv6"),
             EtherType::Arp => write!(f, "ARP"),
-            EtherType::Unknown(id) => write!(f, "0x{:04x}", id),
+            EtherType::Unknown(id) => write!(f, "0x{id:04x}"),
         }
     }
 }
@@ -230,10 +230,10 @@ impl<T: AsRef<[u8]>> PrettyPrint for Frame<T> {
         indent: &mut PrettyIndent,
     ) -> fmt::Result {
         let frame = match Frame::new_checked(buffer) {
-            Err(err) => return write!(f, "{}({})", indent, err),
+            Err(err) => return write!(f, "{indent}({err})"),
             Ok(frame) => frame,
         };
-        write!(f, "{}{}", indent, frame)?;
+        write!(f, "{indent}{frame}")?;
 
         match frame.ethertype() {
             #[cfg(feature = "proto-ipv4")]

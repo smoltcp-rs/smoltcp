@@ -322,7 +322,7 @@ impl Repr {
 impl<T: AsRef<[u8]>> fmt::Display for Packet<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match Repr::parse(self) {
-            Ok(repr) => write!(f, "{}", repr),
+            Ok(repr) => write!(f, "{repr}"),
             _ => {
                 write!(f, "ARP (unrecognized)")?;
                 write!(
@@ -360,12 +360,7 @@ impl fmt::Display for Repr {
             } => {
                 write!(
                     f,
-                    "ARP type=Ethernet+IPv4 src={}/{} tgt={}/{} op={:?}",
-                    source_hardware_addr,
-                    source_protocol_addr,
-                    target_hardware_addr,
-                    target_protocol_addr,
-                    operation
+                    "ARP type=Ethernet+IPv4 src={source_hardware_addr}/{source_protocol_addr} tgt={target_hardware_addr}/{target_protocol_addr} op={operation:?}"
                 )
             }
         }
@@ -381,8 +376,8 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
         indent: &mut PrettyIndent,
     ) -> fmt::Result {
         match Packet::new_checked(buffer) {
-            Err(err) => write!(f, "{}({})", indent, err),
-            Ok(packet) => write!(f, "{}{}", indent, packet),
+            Err(err) => write!(f, "{indent}({err})"),
+            Ok(packet) => write!(f, "{indent}{packet}"),
         }
     }
 }

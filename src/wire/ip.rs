@@ -74,7 +74,7 @@ impl fmt::Display for Protocol {
             Protocol::Icmpv6 => write!(f, "ICMPv6"),
             Protocol::Ipv6NoNxt => write!(f, "IPv6-NoNxt"),
             Protocol::Ipv6Opts => write!(f, "IPv6-Opts"),
-            Protocol::Unknown(id) => write!(f, "0x{:02x}", id),
+            Protocol::Unknown(id) => write!(f, "0x{id:02x}"),
         }
     }
 }
@@ -245,9 +245,9 @@ impl fmt::Display for Address {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             #[cfg(feature = "proto-ipv4")]
-            Address::Ipv4(addr) => write!(f, "{}", addr),
+            Address::Ipv4(addr) => write!(f, "{addr}"),
             #[cfg(feature = "proto-ipv6")]
-            Address::Ipv6(addr) => write!(f, "{}", addr),
+            Address::Ipv6(addr) => write!(f, "{addr}"),
         }
     }
 }
@@ -313,9 +313,9 @@ impl Cidr {
     pub fn contains_addr(&self, addr: &Address) -> bool {
         match (self, addr) {
             #[cfg(feature = "proto-ipv4")]
-            (&Cidr::Ipv4(ref cidr), &Address::Ipv4(ref addr)) => cidr.contains_addr(addr),
+            (Cidr::Ipv4(cidr), Address::Ipv4(addr)) => cidr.contains_addr(addr),
             #[cfg(feature = "proto-ipv6")]
-            (&Cidr::Ipv6(ref cidr), &Address::Ipv6(ref addr)) => cidr.contains_addr(addr),
+            (Cidr::Ipv6(cidr), Address::Ipv6(addr)) => cidr.contains_addr(addr),
             #[allow(unreachable_patterns)]
             _ => false,
         }
@@ -326,9 +326,9 @@ impl Cidr {
     pub fn contains_subnet(&self, subnet: &Cidr) -> bool {
         match (self, subnet) {
             #[cfg(feature = "proto-ipv4")]
-            (&Cidr::Ipv4(ref cidr), &Cidr::Ipv4(ref other)) => cidr.contains_subnet(other),
+            (Cidr::Ipv4(cidr), Cidr::Ipv4(other)) => cidr.contains_subnet(other),
             #[cfg(feature = "proto-ipv6")]
-            (&Cidr::Ipv6(ref cidr), &Cidr::Ipv6(ref other)) => cidr.contains_subnet(other),
+            (Cidr::Ipv6(cidr), Cidr::Ipv6(other)) => cidr.contains_subnet(other),
             #[allow(unreachable_patterns)]
             _ => false,
         }
@@ -353,9 +353,9 @@ impl fmt::Display for Cidr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             #[cfg(feature = "proto-ipv4")]
-            Cidr::Ipv4(cidr) => write!(f, "{}", cidr),
+            Cidr::Ipv4(cidr) => write!(f, "{cidr}"),
             #[cfg(feature = "proto-ipv6")]
-            Cidr::Ipv6(cidr) => write!(f, "{}", cidr),
+            Cidr::Ipv6(cidr) => write!(f, "{cidr}"),
         }
     }
 }
@@ -826,7 +826,7 @@ pub fn pretty_print_ip_payload<T: Into<Repr>>(
         Protocol::Udp => {
             indent.increase(f)?;
             match UdpPacket::<&[u8]>::new_checked(payload) {
-                Err(err) => write!(f, "{}({})", indent, err),
+                Err(err) => write!(f, "{indent}({err})"),
                 Ok(udp_packet) => {
                     match UdpRepr::parse(
                         &udp_packet,
@@ -834,7 +834,7 @@ pub fn pretty_print_ip_payload<T: Into<Repr>>(
                         &repr.dst_addr(),
                         &checksum_caps,
                     ) {
-                        Err(err) => write!(f, "{}{} ({})", indent, udp_packet, err),
+                        Err(err) => write!(f, "{indent}{udp_packet} ({err})"),
                         Ok(udp_repr) => {
                             write!(
                                 f,
@@ -854,7 +854,7 @@ pub fn pretty_print_ip_payload<T: Into<Repr>>(
         Protocol::Tcp => {
             indent.increase(f)?;
             match TcpPacket::<&[u8]>::new_checked(payload) {
-                Err(err) => write!(f, "{}({})", indent, err),
+                Err(err) => write!(f, "{indent}({err})"),
                 Ok(tcp_packet) => {
                     match TcpRepr::parse(
                         &tcp_packet,
@@ -862,9 +862,9 @@ pub fn pretty_print_ip_payload<T: Into<Repr>>(
                         &repr.dst_addr(),
                         &checksum_caps,
                     ) {
-                        Err(err) => write!(f, "{}{} ({})", indent, tcp_packet, err),
+                        Err(err) => write!(f, "{indent}{tcp_packet} ({err})"),
                         Ok(tcp_repr) => {
-                            write!(f, "{}{}", indent, tcp_repr)?;
+                            write!(f, "{indent}{tcp_repr}")?;
                             let valid =
                                 tcp_packet.verify_checksum(&repr.src_addr(), &repr.dst_addr());
                             format_checksum(f, valid)
