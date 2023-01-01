@@ -15,6 +15,9 @@ mod ipv4;
 #[cfg(feature = "proto-ipv6")]
 mod ipv6;
 
+#[cfg(feature = "proto-igmp")]
+mod igmp;
+
 use core::cmp;
 use core::marker::PhantomData;
 use heapless::{LinearMap, Vec};
@@ -898,89 +901,6 @@ impl<'a> Interface<'a> {
         self.inner.hardware_addr = Some(addr);
     }
 
-    /// Add an address to a list of subscribed multicast IP addresses.
-    ///
-    /// Returns `Ok(announce_sent)` if the address was added successfully, where `annouce_sent`
-    /// indicates whether an initial immediate announcement has been sent.
-    pub fn join_multicast_group<D, T: Into<IpAddress>>(
-        &mut self,
-        device: &mut D,
-        addr: T,
-        timestamp: Instant,
-    ) -> Result<bool>
-    where
-        D: Device + ?Sized,
-    {
-        self.inner.now = timestamp;
-
-        match addr.into() {
-            #[cfg(feature = "proto-igmp")]
-            IpAddress::Ipv4(addr) => {
-                let is_not_new = self
-                    .inner
-                    .ipv4_multicast_groups
-                    .insert(addr, ())
-                    .map_err(|_| Error::Exhausted)?
-                    .is_some();
-                if is_not_new {
-                    Ok(false)
-                } else if let Some(pkt) = self.inner.igmp_report_packet(IgmpVersion::Version2, addr)
-                {
-                    // Send initial membership report
-                    let tx_token = device.transmit(timestamp).ok_or(Error::Exhausted)?;
-                    self.inner.dispatch_ip(tx_token, pkt, None)?;
-                    Ok(true)
-                } else {
-                    Ok(false)
-                }
-            }
-            // Multicast is not yet implemented for other address families
-            #[allow(unreachable_patterns)]
-            _ => Err(Error::Unaddressable),
-        }
-    }
-
-    /// Remove an address from the subscribed multicast IP addresses.
-    ///
-    /// Returns `Ok(leave_sent)` if the address was removed successfully, where `leave_sent`
-    /// indicates whether an immediate leave packet has been sent.
-    pub fn leave_multicast_group<D, T: Into<IpAddress>>(
-        &mut self,
-        device: &mut D,
-        addr: T,
-        timestamp: Instant,
-    ) -> Result<bool>
-    where
-        D: Device + ?Sized,
-    {
-        self.inner.now = timestamp;
-
-        match addr.into() {
-            #[cfg(feature = "proto-igmp")]
-            IpAddress::Ipv4(addr) => {
-                let was_not_present = self.inner.ipv4_multicast_groups.remove(&addr).is_none();
-                if was_not_present {
-                    Ok(false)
-                } else if let Some(pkt) = self.inner.igmp_leave_packet(addr) {
-                    // Send group leave packet
-                    let tx_token = device.transmit(timestamp).ok_or(Error::Exhausted)?;
-                    self.inner.dispatch_ip(tx_token, pkt, None)?;
-                    Ok(true)
-                } else {
-                    Ok(false)
-                }
-            }
-            // Multicast is not yet implemented for other address families
-            #[allow(unreachable_patterns)]
-            _ => Err(Error::Unaddressable),
-        }
-    }
-
-    /// Check whether the interface listens to given destination multicast IP address.
-    pub fn has_multicast_group<T: Into<IpAddress>>(&self, addr: T) -> bool {
-        self.inner.has_multicast_group(addr)
-    }
-
     /// Get the IP addresses of the interface.
     pub fn ip_addrs(&self) -> &[IpCidr] {
         self.inner.ip_addrs.as_ref()
@@ -1315,70 +1235,6 @@ impl<'a> Interface<'a> {
         emitted_any
     }
 
-    /// Depending on `igmp_report_state` and the therein contained
-    /// timeouts, send IGMP membership reports.
-    #[cfg(feature = "proto-igmp")]
-    fn igmp_egress<D>(&mut self, device: &mut D) -> Result<bool>
-    where
-        D: Device + ?Sized,
-    {
-        match self.inner.igmp_report_state {
-            IgmpReportState::ToSpecificQuery {
-                version,
-                timeout,
-                group,
-            } if self.inner.now >= timeout => {
-                if let Some(pkt) = self.inner.igmp_report_packet(version, group) {
-                    // Send initial membership report
-                    let tx_token = device.transmit(self.inner.now).ok_or(Error::Exhausted)?;
-                    self.inner.dispatch_ip(tx_token, pkt, None)?;
-                }
-
-                self.inner.igmp_report_state = IgmpReportState::Inactive;
-                Ok(true)
-            }
-            IgmpReportState::ToGeneralQuery {
-                version,
-                timeout,
-                interval,
-                next_index,
-            } if self.inner.now >= timeout => {
-                let addr = self
-                    .inner
-                    .ipv4_multicast_groups
-                    .iter()
-                    .nth(next_index)
-                    .map(|(addr, ())| *addr);
-
-                match addr {
-                    Some(addr) => {
-                        if let Some(pkt) = self.inner.igmp_report_packet(version, addr) {
-                            // Send initial membership report
-                            let tx_token =
-                                device.transmit(self.inner.now).ok_or(Error::Exhausted)?;
-                            self.inner.dispatch_ip(tx_token, pkt, None)?;
-                        }
-
-                        let next_timeout = (timeout + interval).max(self.inner.now);
-                        self.inner.igmp_report_state = IgmpReportState::ToGeneralQuery {
-                            version,
-                            timeout: next_timeout,
-                            interval,
-                            next_index: next_index + 1,
-                        };
-                        Ok(true)
-                    }
-
-                    None => {
-                        self.inner.igmp_report_state = IgmpReportState::Inactive;
-                        Ok(false)
-                    }
-                }
-            }
-            _ => Ok(false),
-        }
-    }
-
     /// Process fragments that still need to be sent for IPv4 packets.
     ///
     /// This function returns a boolean value indicating whether any packets were
@@ -1683,20 +1539,9 @@ impl<'a> InterfaceInner<'a> {
         })
     }
 
-    /// Check whether the interface listens to given destination multicast IP address.
-    ///
-    /// If built without feature `proto-igmp` this function will
-    /// always return `false`.
-    pub fn has_multicast_group<T: Into<IpAddress>>(&self, addr: T) -> bool {
-        match addr.into() {
-            #[cfg(feature = "proto-igmp")]
-            IpAddress::Ipv4(key) => {
-                key == Ipv4Address::MULTICAST_ALL_SYSTEMS
-                    || self.ipv4_multicast_groups.get(&key).is_some()
-            }
-            #[allow(unreachable_patterns)]
-            _ => false,
-        }
+    #[cfg(not(feature = "proto-igmp"))]
+    fn has_multicast_group<T: Into<IpAddress>>(&self, addr: T) -> bool {
+        false
     }
 
     #[cfg(feature = "medium-ip")]

@@ -5,9 +5,6 @@ use super::IpPacket;
 use super::PacketAssemblerSet;
 use super::SocketSet;
 
-#[cfg(feature = "proto-igmp")]
-use super::IgmpReportState;
-
 #[cfg(feature = "medium-ethernet")]
 use super::EthernetPacket;
 
@@ -247,72 +244,6 @@ impl<'a> InterfaceInner<'a> {
                 }
             }
         }
-    }
-
-    /// Host duties of the **IGMPv2** protocol.
-    ///
-    /// Sets up `igmp_report_state` for responding to IGMP general/specific membership queries.
-    /// Membership must not be reported immediately in order to avoid flooding the network
-    /// after a query is broadcasted by a router; this is not currently done.
-    #[cfg(feature = "proto-igmp")]
-    pub(super) fn process_igmp<'frame>(
-        &mut self,
-        ipv4_repr: Ipv4Repr,
-        ip_payload: &'frame [u8],
-    ) -> Option<IpPacket<'frame>> {
-        let igmp_packet = check!(IgmpPacket::new_checked(ip_payload));
-        let igmp_repr = check!(IgmpRepr::parse(&igmp_packet));
-
-        // FIXME: report membership after a delay
-        match igmp_repr {
-            IgmpRepr::MembershipQuery {
-                group_addr,
-                version,
-                max_resp_time,
-            } => {
-                // General query
-                if group_addr.is_unspecified()
-                    && ipv4_repr.dst_addr == Ipv4Address::MULTICAST_ALL_SYSTEMS
-                {
-                    // Are we member in any groups?
-                    if self.ipv4_multicast_groups.iter().next().is_some() {
-                        let interval = match version {
-                            IgmpVersion::Version1 => Duration::from_millis(100),
-                            IgmpVersion::Version2 => {
-                                // No dependence on a random generator
-                                // (see [#24](https://github.com/m-labs/smoltcp/issues/24))
-                                // but at least spread reports evenly across max_resp_time.
-                                let intervals = self.ipv4_multicast_groups.len() as u32 + 1;
-                                max_resp_time / intervals
-                            }
-                        };
-                        self.igmp_report_state = IgmpReportState::ToGeneralQuery {
-                            version,
-                            timeout: self.now + interval,
-                            interval,
-                            next_index: 0,
-                        };
-                    }
-                } else {
-                    // Group-specific query
-                    if self.has_multicast_group(group_addr) && ipv4_repr.dst_addr == group_addr {
-                        // Don't respond immediately
-                        let timeout = max_resp_time / 4;
-                        self.igmp_report_state = IgmpReportState::ToSpecificQuery {
-                            version,
-                            timeout: self.now + timeout,
-                            group: group_addr,
-                        };
-                    }
-                }
-            }
-            // Ignore membership reports
-            IgmpRepr::MembershipReport { .. } => (),
-            // Ignore hosts leaving groups
-            IgmpRepr::LeaveGroup { .. } => (),
-        }
-
-        None
     }
 
     pub(super) fn process_icmpv4<'frame>(
