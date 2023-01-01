@@ -2313,7 +2313,6 @@ impl<'a> fmt::Write for Socket<'a> {
 mod test {
     use super::*;
     use crate::wire::IpRepr;
-    use crate::Error;
     use core::i32;
     use std::ops::{Deref, DerefMut};
     use std::vec::Vec;
@@ -2465,7 +2464,7 @@ mod test {
 
     fn recv<F>(socket: &mut TestSocket, timestamp: Instant, mut f: F)
     where
-        F: FnMut(Result<TcpRepr, Error>),
+        F: FnMut(Result<TcpRepr, ()>),
     {
         socket.cx.set_now(timestamp);
 
@@ -6310,7 +6309,7 @@ mod test {
         assert_eq!(
             s.socket.dispatch(&mut s.cx, |_, (ip_repr, _)| {
                 assert_eq!(ip_repr.hop_limit(), 0x2a);
-                Ok::<_, Error>(())
+                Ok::<_, ()>(())
             }),
             Ok(())
         );

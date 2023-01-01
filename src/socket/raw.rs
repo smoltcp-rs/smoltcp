@@ -387,7 +387,6 @@ mod test {
     use crate::wire::{Ipv4Address, Ipv4Repr};
     #[cfg(feature = "proto-ipv6")]
     use crate::wire::{Ipv6Address, Ipv6Repr};
-    use crate::Error;
 
     fn buffer(packets: usize) -> PacketBuffer<'static> {
         PacketBuffer::new(vec![PacketMetadata::EMPTY; packets], vec![0; 48 * packets])
@@ -484,7 +483,7 @@ mod test {
                     assert!(socket.can_send());
                     assert_eq!(
                         socket.dispatch(&mut cx, |_, _| unreachable!()),
-                        Ok::<_, Error>(())
+                        Ok::<_, ()>(())
                     );
 
                     assert_eq!(socket.send_slice(&$packet[..]), Ok(()));
@@ -495,9 +494,9 @@ mod test {
                         socket.dispatch(&mut cx, |_, (ip_repr, ip_payload)| {
                             assert_eq!(ip_repr, $hdr);
                             assert_eq!(ip_payload, &$payload);
-                            Err(Error::Unaddressable)
+                            Err(())
                         }),
-                        Err(Error::Unaddressable)
+                        Err(())
                     );
                     assert!(!socket.can_send());
 
@@ -505,7 +504,7 @@ mod test {
                         socket.dispatch(&mut cx, |_, (ip_repr, ip_payload)| {
                             assert_eq!(ip_repr, $hdr);
                             assert_eq!(ip_payload, &$payload);
-                            Ok::<_, Error>(())
+                            Ok::<_, ()>(())
                         }),
                         Ok(())
                     );
@@ -572,7 +571,7 @@ mod test {
             assert_eq!(socket.send_slice(&wrong_version[..]), Ok(()));
             assert_eq!(
                 socket.dispatch(&mut cx, |_, _| unreachable!()),
-                Ok::<_, Error>(())
+                Ok::<_, ()>(())
             );
 
             let mut wrong_protocol = ipv4_locals::PACKET_BYTES;
@@ -581,7 +580,7 @@ mod test {
             assert_eq!(socket.send_slice(&wrong_protocol[..]), Ok(()));
             assert_eq!(
                 socket.dispatch(&mut cx, |_, _| unreachable!()),
-                Ok::<_, Error>(())
+                Ok::<_, ()>(())
             );
         }
         #[cfg(feature = "proto-ipv6")]
@@ -595,7 +594,7 @@ mod test {
             assert_eq!(socket.send_slice(&wrong_version[..]), Ok(()));
             assert_eq!(
                 socket.dispatch(&mut cx, |_, _| unreachable!()),
-                Ok::<_, Error>(())
+                Ok::<_, ()>(())
             );
 
             let mut wrong_protocol = ipv6_locals::PACKET_BYTES;
@@ -604,7 +603,7 @@ mod test {
             assert_eq!(socket.send_slice(&wrong_protocol[..]), Ok(()));
             assert_eq!(
                 socket.dispatch(&mut cx, |_, _| unreachable!()),
-                Ok::<_, Error>(())
+                Ok::<_, ()>(())
             );
         }
     }

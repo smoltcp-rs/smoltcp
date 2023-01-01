@@ -488,7 +488,6 @@ impl<'a> Socket<'a> {
 mod test {
     use super::*;
     use crate::wire::{IpRepr, UdpRepr};
-    use crate::Error;
 
     fn buffer(packets: usize) -> PacketBuffer<'static> {
         PacketBuffer::new(vec![PacketMetadata::EMPTY; packets], vec![0; 16 * packets])
@@ -637,7 +636,7 @@ mod test {
         assert!(socket.can_send());
         assert_eq!(
             socket.dispatch(&mut cx, |_, _| unreachable!()),
-            Ok::<_, Error>(())
+            Ok::<_, ()>(())
         );
 
         assert_eq!(socket.send_slice(b"abcdef", REMOTE_END), Ok(()));
@@ -652,9 +651,9 @@ mod test {
                 assert_eq!(ip_repr, LOCAL_IP_REPR);
                 assert_eq!(udp_repr, LOCAL_UDP_REPR);
                 assert_eq!(payload, PAYLOAD);
-                Err(Error::Unaddressable)
+                Err(())
             }),
-            Err(Error::Unaddressable)
+            Err(())
         );
         assert!(!socket.can_send());
 
@@ -663,7 +662,7 @@ mod test {
                 assert_eq!(ip_repr, LOCAL_IP_REPR);
                 assert_eq!(udp_repr, LOCAL_UDP_REPR);
                 assert_eq!(payload, PAYLOAD);
-                Ok::<_, Error>(())
+                Ok::<_, ()>(())
             }),
             Ok(())
         );
@@ -759,7 +758,7 @@ mod test {
                         hop_limit: 0x2a,
                     })
                 );
-                Ok::<_, Error>(())
+                Ok::<_, ()>(())
             }),
             Ok(())
         );
