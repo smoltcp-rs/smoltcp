@@ -9,7 +9,6 @@ use crate::iface::NeighborCache;
 use crate::phy::{ChecksumCapabilities, Loopback};
 #[cfg(feature = "proto-igmp")]
 use crate::time::Instant;
-use crate::{Error, Result};
 
 #[allow(unused)]
 fn fill_slice(s: &mut [u8], val: u8) {
@@ -129,12 +128,10 @@ fn create_ieee802154<'a>() -> (Interface<'a>, SocketSet<'a>, Loopback) {
 #[cfg(feature = "proto-igmp")]
 fn recv_all(device: &mut Loopback, timestamp: Instant) -> Vec<Vec<u8>> {
     let mut pkts = Vec::new();
-    while let Some((rx, _tx)) = device.receive() {
-        rx.consume(timestamp, |pkt| {
+    while let Some((rx, _tx)) = device.receive(timestamp) {
+        rx.consume(|pkt| {
             pkts.push(pkt.to_vec());
-            Ok(())
-        })
-        .unwrap();
+        });
     }
     pkts
 }
@@ -144,11 +141,12 @@ fn recv_all(device: &mut Loopback, timestamp: Instant) -> Vec<Vec<u8>> {
 struct MockTxToken;
 
 impl TxToken for MockTxToken {
-    fn consume<R, F>(self, _: Instant, _: usize, _: F) -> Result<R>
+    fn consume<R, F>(self, len: usize, f: F) -> R
     where
-        F: FnOnce(&mut [u8]) -> Result<R>,
+        F: FnOnce(&mut [u8]) -> R,
     {
-        Err(Error::Unaddressable)
+        let mut junk = [0; 1536];
+        f(&mut junk[..len])
     }
 }
 
@@ -1206,13 +1204,10 @@ fn test_handle_igmp() {
     ];
     {
         // Transmit GENERAL_QUERY_BYTES into loopback
-        let tx_token = device.transmit().unwrap();
-        tx_token
-            .consume(timestamp, GENERAL_QUERY_BYTES.len(), |buffer| {
-                buffer.copy_from_slice(GENERAL_QUERY_BYTES);
-                Ok(())
-            })
-            .unwrap();
+        let tx_token = device.transmit(timestamp).unwrap();
+        tx_token.consume(GENERAL_QUERY_BYTES.len(), |buffer| {
+            buffer.copy_from_slice(GENERAL_QUERY_BYTES);
+        });
     }
     // Trigger processing until all packets received through the
     // loopback have been processed, including responses to
@@ -1562,7 +1557,7 @@ fn test_echo_request_sixlowpan_128_bytes() {
         Instant::now(),
     );
 
-    let tx_token = device.transmit().unwrap();
+    let tx_token = device.transmit(Instant::now()).unwrap();
     iface
         .inner
         .dispatch_ieee802154(
@@ -1702,7 +1697,7 @@ fn test_sixlowpan_udp_with_fragmentation() {
         ))
     );
 
-    let tx_token = device.transmit().unwrap();
+    let tx_token = device.transmit(Instant::now()).unwrap();
     iface
         .inner
         .dispatch_ieee802154(

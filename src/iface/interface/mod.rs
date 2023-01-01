@@ -927,7 +927,7 @@ impl<'a> Interface<'a> {
                 } else if let Some(pkt) = self.inner.igmp_report_packet(IgmpVersion::Version2, addr)
                 {
                     // Send initial membership report
-                    let tx_token = device.transmit().ok_or(Error::Exhausted)?;
+                    let tx_token = device.transmit(timestamp).ok_or(Error::Exhausted)?;
                     self.inner.dispatch_ip(tx_token, pkt, None)?;
                     Ok(true)
                 } else {
@@ -963,7 +963,7 @@ impl<'a> Interface<'a> {
                     Ok(false)
                 } else if let Some(pkt) = self.inner.igmp_leave_packet(addr) {
                     // Send group leave packet
-                    let tx_token = device.transmit().ok_or(Error::Exhausted)?;
+                    let tx_token = device.transmit(timestamp).ok_or(Error::Exhausted)?;
                     self.inner.dispatch_ip(tx_token, pkt, None)?;
                     Ok(true)
                 } else {
@@ -1161,8 +1161,8 @@ impl<'a> Interface<'a> {
             out_packets: _out_packets,
         } = self;
 
-        while let Some((rx_token, tx_token)) = device.receive() {
-            let res = rx_token.consume(inner.now, |frame| {
+        while let Some((rx_token, tx_token)) = device.receive(inner.now) {
+            rx_token.consume(|frame| {
                 match inner.caps.medium {
                     #[cfg(feature = "medium-ethernet")]
                     Medium::Ethernet => {
@@ -1195,12 +1195,7 @@ impl<'a> Interface<'a> {
                     }
                 }
                 processed_any = true;
-                Ok(())
             });
-
-            if let Err(err) = res {
-                net_debug!("Failed to consume RX token: {}", err);
-            }
         }
 
         processed_any
@@ -1229,7 +1224,7 @@ impl<'a> Interface<'a> {
             let mut neighbor_addr = None;
             let mut respond = |inner: &mut InterfaceInner, response: IpPacket| {
                 neighbor_addr = Some(response.ip_repr().dst_addr());
-                let t = device.transmit().ok_or_else(|| {
+                let t = device.transmit(inner.now).ok_or_else(|| {
                     net_debug!("failed to transmit IP: {}", Error::Exhausted);
                     Error::Exhausted
                 })?;
@@ -1328,7 +1323,7 @@ impl<'a> Interface<'a> {
             } if self.inner.now >= timeout => {
                 if let Some(pkt) = self.inner.igmp_report_packet(version, group) {
                     // Send initial membership report
-                    let tx_token = device.transmit().ok_or(Error::Exhausted)?;
+                    let tx_token = device.transmit(self.inner.now).ok_or(Error::Exhausted)?;
                     self.inner.dispatch_ip(tx_token, pkt, None)?;
                 }
 
@@ -1352,7 +1347,8 @@ impl<'a> Interface<'a> {
                     Some(addr) => {
                         if let Some(pkt) = self.inner.igmp_report_packet(version, addr) {
                             // Send initial membership report
-                            let tx_token = device.transmit().ok_or(Error::Exhausted)?;
+                            let tx_token =
+                                device.transmit(self.inner.now).ok_or(Error::Exhausted)?;
                             self.inner.dispatch_ip(tx_token, pkt, None)?;
                         }
 
@@ -1402,7 +1398,7 @@ impl<'a> Interface<'a> {
         } = &self.out_packets.ipv4_out_packet;
 
         if *packet_len > *sent_bytes {
-            match device.transmit() {
+            match device.transmit(self.inner.now) {
                 Some(tx_token) => self
                     .inner
                     .dispatch_ipv4_out_packet(tx_token, &mut self.out_packets.ipv4_out_packet),
@@ -1440,7 +1436,7 @@ impl<'a> Interface<'a> {
         } = &self.out_packets.sixlowpan_out_packet;
 
         if *packet_len > *sent_bytes {
-            match device.transmit() {
+            match device.transmit(self.inner.now) {
                 Some(tx_token) => self.inner.dispatch_ieee802154_out_packet(
                     tx_token,
                     &mut self.out_packets.sixlowpan_out_packet,
@@ -2246,7 +2242,7 @@ impl<'a> InterfaceInner<'a> {
                         }
 
                         // Transmit the first packet.
-                        tx_token.consume(self.now, tx_len, |mut tx_buffer| {
+                        tx_token.consume(tx_len, |mut tx_buffer| {
                             #[cfg(feature = "medium-ethernet")]
                             if matches!(self.caps.medium, Medium::Ethernet) {
                                 emit_ethernet(&ip_repr, tx_buffer)?;
@@ -2271,7 +2267,7 @@ impl<'a> InterfaceInner<'a> {
                     }
                 } else {
                     // No fragmentation is required.
-                    tx_token.consume(self.now, total_len, |mut tx_buffer| {
+                    tx_token.consume(total_len, |mut tx_buffer| {
                         #[cfg(feature = "medium-ethernet")]
                         if matches!(self.caps.medium, Medium::Ethernet) {
                             emit_ethernet(&ip_repr, tx_buffer)?;
@@ -2285,7 +2281,7 @@ impl<'a> InterfaceInner<'a> {
             }
             // We don't support IPv6 fragmentation yet.
             #[cfg(feature = "proto-ipv6")]
-            IpRepr::Ipv6(_) => tx_token.consume(self.now, total_len, |mut tx_buffer| {
+            IpRepr::Ipv6(_) => tx_token.consume(total_len, |mut tx_buffer| {
                 #[cfg(feature = "medium-ethernet")]
                 if matches!(self.caps.medium, Medium::Ethernet) {
                     emit_ethernet(&ip_repr, tx_buffer)?;

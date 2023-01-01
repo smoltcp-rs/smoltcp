@@ -469,7 +469,7 @@ impl<'a> InterfaceInner<'a> {
             Ok(())
         };
 
-        tx_token.consume(self.now, tx_len, |mut tx_buffer| {
+        tx_token.consume(tx_len, |mut tx_buffer| {
             #[cfg(feature = "medium-ethernet")]
             if matches!(self.caps.medium, Medium::Ethernet) {
                 emit_ethernet(&IpRepr::Ipv4(*repr), tx_buffer)?;

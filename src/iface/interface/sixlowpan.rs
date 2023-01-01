@@ -488,27 +488,22 @@ impl<'a> InterfaceInner<'a> {
                 *sent_bytes = frag1_size;
                 *datagram_offset = frag1_size + header_diff;
 
-                tx_token.consume(
-                    self.now,
-                    ieee_len + frag1.buffer_len() + frag1_size,
-                    |mut tx_buf| {
-                        // Add the IEEE header.
-                        let mut ieee_packet =
-                            Ieee802154Frame::new_unchecked(&mut tx_buf[..ieee_len]);
-                        ieee_repr.emit(&mut ieee_packet);
-                        tx_buf = &mut tx_buf[ieee_len..];
+                tx_token.consume(ieee_len + frag1.buffer_len() + frag1_size, |mut tx_buf| {
+                    // Add the IEEE header.
+                    let mut ieee_packet = Ieee802154Frame::new_unchecked(&mut tx_buf[..ieee_len]);
+                    ieee_repr.emit(&mut ieee_packet);
+                    tx_buf = &mut tx_buf[ieee_len..];
 
-                        // Add the first fragment header
-                        let mut frag1_packet = SixlowpanFragPacket::new_unchecked(&mut tx_buf);
-                        frag1.emit(&mut frag1_packet);
-                        tx_buf = &mut tx_buf[frag1.buffer_len()..];
+                    // Add the first fragment header
+                    let mut frag1_packet = SixlowpanFragPacket::new_unchecked(&mut tx_buf);
+                    frag1.emit(&mut frag1_packet);
+                    tx_buf = &mut tx_buf[frag1.buffer_len()..];
 
-                        // Add the buffer part.
-                        tx_buf[..frag1_size].copy_from_slice(&buffer[..frag1_size]);
+                    // Add the buffer part.
+                    tx_buf[..frag1_size].copy_from_slice(&buffer[..frag1_size]);
 
-                        Ok(())
-                    },
-                )
+                    Ok(())
+                })
             }
 
             #[cfg(not(feature = "proto-sixlowpan-fragmentation"))]
@@ -520,7 +515,7 @@ impl<'a> InterfaceInner<'a> {
             }
         } else {
             // We don't need fragmentation, so we emit everything to the TX token.
-            tx_token.consume(self.now, total_size + ieee_len, |mut tx_buf| {
+            tx_token.consume(total_size + ieee_len, |mut tx_buf| {
                 let mut ieee_packet = Ieee802154Frame::new_unchecked(&mut tx_buf[..ieee_len]);
                 ieee_repr.emit(&mut ieee_packet);
                 tx_buf = &mut tx_buf[ieee_len..];
@@ -623,7 +618,6 @@ impl<'a> InterfaceInner<'a> {
         let frag_size = (*packet_len - *sent_bytes).min(*fragn_size);
 
         tx_token.consume(
-            self.now,
             ieee_repr.buffer_len() + fragn.buffer_len() + frag_size,
             |mut tx_buf| {
                 let mut ieee_packet = Ieee802154Frame::new_unchecked(&mut tx_buf[..ieee_len]);

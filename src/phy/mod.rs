@@ -42,12 +42,12 @@ impl phy::Device for StmPhy {
     type RxToken<'a> = StmPhyRxToken<'a> where Self: 'a;
     type TxToken<'a> = StmPhyTxToken<'a> where Self: 'a;
 
-    fn receive(&mut self) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
+    fn receive(&mut self, _timestamp: Instant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
         Some((StmPhyRxToken(&mut self.rx_buffer[..]),
               StmPhyTxToken(&mut self.tx_buffer[..])))
     }
 
-    fn transmit(&mut self) -> Option<Self::TxToken<'_>> {
+    fn transmit(&mut self, _timestamp: Instant) -> Option<Self::TxToken<'_>> {
         Some(StmPhyTxToken(&mut self.tx_buffer[..]))
     }
 
@@ -63,8 +63,8 @@ impl phy::Device for StmPhy {
 struct StmPhyRxToken<'a>(&'a mut [u8]);
 
 impl<'a> phy::RxToken for StmPhyRxToken<'a> {
-    fn consume<R, F>(mut self, _timestamp: Instant, f: F) -> Result<R>
-        where F: FnOnce(&mut [u8]) -> Result<R>
+    fn consume<R, F>(mut self, f: F) -> R
+        where F: FnOnce(&mut [u8]) -> R
     {
         // TODO: receive packet into buffer
         let result = f(&mut self.0);
@@ -76,8 +76,8 @@ impl<'a> phy::RxToken for StmPhyRxToken<'a> {
 struct StmPhyTxToken<'a>(&'a mut [u8]);
 
 impl<'a> phy::TxToken for StmPhyTxToken<'a> {
-    fn consume<R, F>(self, _timestamp: Instant, len: usize, f: F) -> Result<R>
-        where F: FnOnce(&mut [u8]) -> Result<R>
+    fn consume<R, F>(self, len: usize, f: F) -> R
+        where F: FnOnce(&mut [u8]) -> R
     {
         let result = f(&mut self.0[..len]);
         println!("tx called {}", len);
@@ -90,7 +90,6 @@ impl<'a> phy::TxToken for StmPhyTxToken<'a> {
 )]
 
 use crate::time::Instant;
-use crate::Result;
 
 #[cfg(all(
     any(feature = "phy-raw_socket", feature = "phy-tuntap_interface"),
@@ -322,10 +321,16 @@ pub trait Device {
     /// on the contents of the received packet. For example, this makes it possible to
     /// handle arbitrarily large ICMP echo ("ping") requests, where the all received bytes
     /// need to be sent back, without heap allocation.
-    fn receive(&mut self) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)>;
+    ///
+    /// The timestamp must be a number of milliseconds, monotonically increasing since an
+    /// arbitrary moment in time, such as system startup.
+    fn receive(&mut self, timestamp: Instant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)>;
 
     /// Construct a transmit token.
-    fn transmit(&mut self) -> Option<Self::TxToken<'_>>;
+    ///
+    /// The timestamp must be a number of milliseconds, monotonically increasing since an
+    /// arbitrary moment in time, such as system startup.
+    fn transmit(&mut self, timestamp: Instant) -> Option<Self::TxToken<'_>>;
 
     /// Get a description of device capabilities.
     fn capabilities(&self) -> DeviceCapabilities;
@@ -337,12 +342,9 @@ pub trait RxToken {
     ///
     /// This method receives a packet and then calls the given closure `f` with the raw
     /// packet bytes as argument.
-    ///
-    /// The timestamp must be a number of milliseconds, monotonically increasing since an
-    /// arbitrary moment in time, such as system startup.
-    fn consume<R, F>(self, timestamp: Instant, f: F) -> Result<R>
+    fn consume<R, F>(self, f: F) -> R
     where
-        F: FnOnce(&mut [u8]) -> Result<R>;
+        F: FnOnce(&mut [u8]) -> R;
 }
 
 /// A token to transmit a single network packet.
@@ -353,10 +355,7 @@ pub trait TxToken {
     /// closure `f` with a mutable reference to that buffer. The closure should construct
     /// a valid network packet (e.g. an ethernet packet) in the buffer. When the closure
     /// returns, the transmit buffer is sent out.
-    ///
-    /// The timestamp must be a number of milliseconds, monotonically increasing since an
-    /// arbitrary moment in time, such as system startup.
-    fn consume<R, F>(self, timestamp: Instant, len: usize, f: F) -> Result<R>
+    fn consume<R, F>(self, len: usize, f: F) -> R
     where
-        F: FnOnce(&mut [u8]) -> Result<R>;
+        F: FnOnce(&mut [u8]) -> R;
 }
