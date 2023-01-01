@@ -839,7 +839,6 @@ impl Repr {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::Result;
 
     #[test]
     fn test_broadcast() {
