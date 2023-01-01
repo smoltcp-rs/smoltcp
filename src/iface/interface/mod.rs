@@ -1155,40 +1155,49 @@ impl<'a> Interface<'a> {
         D: Device + ?Sized,
     {
         let mut processed_any = false;
-        let Self {
-            inner,
-            fragments: ref mut _fragments,
-            out_packets: _out_packets,
-        } = self;
 
-        while let Some((rx_token, tx_token)) = device.receive(inner.now) {
+        while let Some((rx_token, tx_token)) = device.receive(self.inner.now) {
             rx_token.consume(|frame| {
-                match inner.caps.medium {
+                match self.inner.caps.medium {
                     #[cfg(feature = "medium-ethernet")]
                     Medium::Ethernet => {
-                        if let Some(packet) = inner.process_ethernet(sockets, &frame, _fragments) {
-                            if let Err(err) = inner.dispatch(tx_token, packet, Some(_out_packets)) {
+                        if let Some(packet) =
+                            self.inner
+                                .process_ethernet(sockets, &frame, &mut self.fragments)
+                        {
+                            if let Err(err) =
+                                self.inner
+                                    .dispatch(tx_token, packet, Some(&mut self.out_packets))
+                            {
                                 net_debug!("Failed to send response: {}", err);
                             }
                         }
                     }
                     #[cfg(feature = "medium-ip")]
                     Medium::Ip => {
-                        if let Some(packet) = inner.process_ip(sockets, &frame, _fragments) {
-                            if let Err(err) =
-                                inner.dispatch_ip(tx_token, packet, Some(_out_packets))
-                            {
+                        if let Some(packet) =
+                            self.inner.process_ip(sockets, &frame, &mut self.fragments)
+                        {
+                            if let Err(err) = self.inner.dispatch_ip(
+                                tx_token,
+                                packet,
+                                Some(&mut self.out_packets),
+                            ) {
                                 net_debug!("Failed to send response: {}", err);
                             }
                         }
                     }
                     #[cfg(feature = "medium-ieee802154")]
                     Medium::Ieee802154 => {
-                        if let Some(packet) = inner.process_ieee802154(sockets, &frame, _fragments)
+                        if let Some(packet) =
+                            self.inner
+                                .process_ieee802154(sockets, &frame, &mut self.fragments)
                         {
-                            if let Err(err) =
-                                inner.dispatch_ip(tx_token, packet, Some(_out_packets))
-                            {
+                            if let Err(err) = self.inner.dispatch_ip(
+                                tx_token,
+                                packet,
+                                Some(&mut self.out_packets),
+                            ) {
                                 net_debug!("Failed to send response: {}", err);
                             }
                         }
@@ -1205,18 +1214,13 @@ impl<'a> Interface<'a> {
     where
         D: Device + ?Sized,
     {
-        let Self {
-            inner,
-            out_packets: _out_packets,
-            ..
-        } = self;
         let _caps = device.capabilities();
 
         let mut emitted_any = false;
         for item in sockets.items_mut() {
             if !item
                 .meta
-                .egress_permitted(inner.now, |ip_addr| inner.has_neighbor(&ip_addr))
+                .egress_permitted(self.inner.now, |ip_addr| self.inner.has_neighbor(&ip_addr))
             {
                 continue;
             }
@@ -1233,7 +1237,7 @@ impl<'a> Interface<'a> {
                     feature = "proto-ipv4-fragmentation",
                     feature = "proto-sixlowpan-fragmentation"
                 ))]
-                inner.dispatch_ip(t, response, Some(_out_packets))?;
+                inner.dispatch_ip(t, response, Some(&mut self.out_packets))?;
 
                 #[cfg(not(any(
                     feature = "proto-ipv4-fragmentation",
@@ -1248,38 +1252,41 @@ impl<'a> Interface<'a> {
 
             let result = match &mut item.socket {
                 #[cfg(feature = "socket-raw")]
-                Socket::Raw(socket) => socket.dispatch(inner, |inner, response| {
+                Socket::Raw(socket) => socket.dispatch(&mut self.inner, |inner, response| {
                     respond(inner, IpPacket::Raw(response))
                 }),
                 #[cfg(feature = "socket-icmp")]
-                Socket::Icmp(socket) => socket.dispatch(inner, |inner, response| match response {
-                    #[cfg(feature = "proto-ipv4")]
-                    (IpRepr::Ipv4(ipv4_repr), IcmpRepr::Ipv4(icmpv4_repr)) => {
-                        respond(inner, IpPacket::Icmpv4((ipv4_repr, icmpv4_repr)))
-                    }
-                    #[cfg(feature = "proto-ipv6")]
-                    (IpRepr::Ipv6(ipv6_repr), IcmpRepr::Ipv6(icmpv6_repr)) => {
-                        respond(inner, IpPacket::Icmpv6((ipv6_repr, icmpv6_repr)))
-                    }
-                    #[allow(unreachable_patterns)]
-                    _ => unreachable!(),
-                }),
+                Socket::Icmp(socket) => {
+                    socket.dispatch(&mut self.inner, |inner, response| match response {
+                        #[cfg(feature = "proto-ipv4")]
+                        (IpRepr::Ipv4(ipv4_repr), IcmpRepr::Ipv4(icmpv4_repr)) => {
+                            respond(inner, IpPacket::Icmpv4((ipv4_repr, icmpv4_repr)))
+                        }
+                        #[cfg(feature = "proto-ipv6")]
+                        (IpRepr::Ipv6(ipv6_repr), IcmpRepr::Ipv6(icmpv6_repr)) => {
+                            respond(inner, IpPacket::Icmpv6((ipv6_repr, icmpv6_repr)))
+                        }
+                        #[allow(unreachable_patterns)]
+                        _ => unreachable!(),
+                    })
+                }
                 #[cfg(feature = "socket-udp")]
-                Socket::Udp(socket) => socket.dispatch(inner, |inner, response| {
+                Socket::Udp(socket) => socket.dispatch(&mut self.inner, |inner, response| {
                     respond(inner, IpPacket::Udp(response))
                 }),
                 #[cfg(feature = "socket-tcp")]
-                Socket::Tcp(socket) => socket.dispatch(inner, |inner, response| {
+                Socket::Tcp(socket) => socket.dispatch(&mut self.inner, |inner, response| {
                     respond(inner, IpPacket::Tcp(response))
                 }),
                 #[cfg(feature = "socket-dhcpv4")]
-                Socket::Dhcpv4(socket) => socket.dispatch(inner, |inner, response| {
+                Socket::Dhcpv4(socket) => socket.dispatch(&mut self.inner, |inner, response| {
                     respond(inner, IpPacket::Dhcpv4(response))
                 }),
                 #[cfg(feature = "socket-dns")]
-                Socket::Dns(ref mut socket) => socket.dispatch(inner, |inner, response| {
-                    respond(inner, IpPacket::Udp(response))
-                }),
+                Socket::Dns(ref mut socket) => socket
+                    .dispatch(&mut self.inner, |inner, response| {
+                        respond(inner, IpPacket::Udp(response))
+                    }),
             };
 
             match result {
@@ -1290,7 +1297,7 @@ impl<'a> Interface<'a> {
                     // mechanism, we would spin on every socket that has yet to discover its
                     // neighbor.
                     item.meta.neighbor_missing(
-                        inner.now,
+                        self.inner.now,
                         neighbor_addr.expect("non-IP response packet"),
                     );
                     break;

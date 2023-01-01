@@ -104,9 +104,8 @@ impl<'a, Rx: phy::RxToken, FRx: Fuzzer> phy::RxToken for RxToken<'a, Rx, FRx> {
     where
         F: FnOnce(&mut [u8]) -> R,
     {
-        let Self { fuzzer, token } = self;
-        token.consume(|buffer| {
-            fuzzer.fuzz_packet(buffer);
+        self.token.consume(|buffer| {
+            self.fuzzer.fuzz_packet(buffer);
             f(buffer)
         })
     }
@@ -123,10 +122,9 @@ impl<'a, Tx: phy::TxToken, FTx: Fuzzer> phy::TxToken for TxToken<'a, Tx, FTx> {
     where
         F: FnOnce(&mut [u8]) -> R,
     {
-        let Self { fuzzer, token } = self;
-        token.consume(len, |buf| {
+        self.token.consume(len, |buf| {
             let result = f(buf);
-            fuzzer.fuzz_packet(buf);
+            self.fuzzer.fuzz_packet(buf);
             result
         })
     }
