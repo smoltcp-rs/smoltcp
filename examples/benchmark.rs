@@ -46,7 +46,7 @@ fn client(kind: Client) {
                 // print!("(P:{})", result);
                 processed += result
             }
-            Err(err) => panic!("cannot process: {}", err),
+            Err(err) => panic!("cannot process: {err}"),
         }
     }
 

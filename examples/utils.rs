@@ -26,7 +26,7 @@ where
     Builder::new()
         .format(move |buf, record| {
             let elapsed = since_startup();
-            let timestamp = format!("[{}]", elapsed);
+            let timestamp = format!("[{elapsed}]");
             if record.target().starts_with("smoltcp::") {
                 writeln!(
                     buf,
@@ -73,7 +73,7 @@ pub fn create_options() -> (Options, Vec<&'static str>) {
 pub fn parse_options(options: &Options, free: Vec<&str>) -> Matches {
     match options.parse(env::args().skip(1)) {
         Err(err) => {
-            println!("{}", err);
+            println!("{err}");
             process::exit(1)
         }
         Ok(matches) => {

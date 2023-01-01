@@ -247,7 +247,7 @@ fn main() {
             if timestamp - *from < timeout {
                 true
             } else {
-                println!("From {} icmp_seq={} timeout", remote_addr, seq);
+                println!("From {remote_addr} icmp_seq={seq} timeout");
                 false
             }
         });
@@ -269,7 +269,7 @@ fn main() {
         }
     }
 
-    println!("--- {} ping statistics ---", remote_addr);
+    println!("--- {remote_addr} ping statistics ---");
     println!(
         "{} packets transmitted, {} received, {:.0}% packet loss",
         seq_no,

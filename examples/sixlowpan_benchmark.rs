@@ -65,7 +65,7 @@ use std::thread;
 use std::fs;
 
 fn if_nametoindex(ifname: &str) -> u32 {
-    let contents = fs::read_to_string(format!("/sys/devices/virtual/net/{}/ifindex", ifname))
+    let contents = fs::read_to_string(format!("/sys/devices/virtual/net/{ifname}/ifindex"))
         .expect("couldn't read interface from \"/sys/devices/virtual/net\"")
         .replace('\n', "");
     contents.parse::<u32>().unwrap()
@@ -111,7 +111,7 @@ fn client(kind: Client) {
                 // print!("(P:{})", result);
                 processed += result
             }
-            Err(err) => panic!("cannot process: {}", err),
+            Err(err) => panic!("cannot process: {err}"),
         }
     }
 
