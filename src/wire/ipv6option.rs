@@ -534,7 +534,7 @@ mod test {
                     }),
                 ) => continue,
                 (6, Err(Error)) => continue,
-                (i, res) => panic!("Unexpected option `{:?}` at index {}", res, i),
+                (i, res) => panic!("Unexpected option `{res:?}` at index {i}"),
             }
         }
     }

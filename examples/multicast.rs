@@ -83,13 +83,13 @@ fn main() {
             // For display purposes only - normally we wouldn't process incoming IGMP packets
             // in the application layer
             match socket.recv() {
-                Err(e) => println!("Recv IGMP error: {:?}", e),
+                Err(e) => println!("Recv IGMP error: {e:?}"),
                 Ok(buf) => {
                     Ipv4Packet::new_checked(buf)
                         .and_then(|ipv4_packet| IgmpPacket::new_checked(ipv4_packet.payload()))
                         .and_then(|igmp_packet| IgmpRepr::parse(&igmp_packet))
-                        .map(|igmp_repr| println!("IGMP packet: {:?}", igmp_repr))
-                        .unwrap_or_else(|e| println!("parse IGMP error: {:?}", e));
+                        .map(|igmp_repr| println!("IGMP packet: {igmp_repr:?}"))
+                        .unwrap_or_else(|e| println!("parse IGMP error: {e:?}"));
                 }
             }
         }
@@ -105,7 +105,7 @@ fn main() {
                 .map(|(data, sender)| {
                     println!("mDNS traffic: {} UDP bytes from {}", data.len(), sender)
                 })
-                .unwrap_or_else(|e| println!("Recv UDP error: {:?}", e));
+                .unwrap_or_else(|e| println!("Recv UDP error: {e:?}"));
         }
 
         phy_wait(fd, iface.poll_delay(timestamp, &sockets)).expect("wait error");

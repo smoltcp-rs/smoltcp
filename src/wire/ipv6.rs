@@ -787,7 +787,7 @@ mod test {
     #[test]
     fn test_address_format() {
         assert_eq!("ff02::1", format!("{}", Address::LINK_LOCAL_ALL_NODES));
-        assert_eq!("fe80::1", format!("{}", LINK_LOCAL_ADDR));
+        assert_eq!("fe80::1", format!("{LINK_LOCAL_ADDR}"));
         assert_eq!(
             "fe80::7f00:0:1",
             format!(

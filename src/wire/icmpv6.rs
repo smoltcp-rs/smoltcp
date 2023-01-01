@@ -418,7 +418,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
                 let data = self.buffer.as_mut();
                 NetworkEndian::write_u16(&mut data[field::RECORD_RESV], 0);
             }
-            ty => panic!("Message type `{}` does not have any reserved fields.", ty),
+            ty => panic!("Message type `{ty}` does not have any reserved fields."),
         }
     }
 

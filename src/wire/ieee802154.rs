@@ -872,7 +872,7 @@ mod test {
         let mut frame = Frame::new_unchecked(&mut buffer[..buffer_len]);
         repr.emit(&mut frame);
 
-        println!("{:2x?}", frame);
+        println!("{frame:2x?}");
 
         assert_eq!(frame.frame_type(), FrameType::Data);
         assert!(!frame.security_enabled());

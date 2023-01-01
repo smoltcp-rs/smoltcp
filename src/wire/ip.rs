@@ -591,7 +591,7 @@ impl Repr {
                 hop_limit,
             }),
             #[allow(unreachable_patterns)]
-            _ => panic!("IP version mismatch: src={:?} dst={:?}", src_addr, dst_addr),
+            _ => panic!("IP version mismatch: src={src_addr:?} dst={dst_addr:?}"),
         }
     }
 
@@ -783,10 +783,7 @@ pub mod checksum {
             }
 
             #[allow(unreachable_patterns)]
-            _ => panic!(
-                "Unexpected pseudo header addresses: {}, {}",
-                src_addr, dst_addr
-            ),
+            _ => panic!("Unexpected pseudo header addresses: {src_addr}, {dst_addr}"),
         }
     }
 

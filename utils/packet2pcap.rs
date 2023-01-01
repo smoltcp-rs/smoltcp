@@ -24,7 +24,7 @@ fn convert(
 }
 
 fn print_usage(program: &str, opts: Options) {
-    let brief = format!("Usage: {} [options] INPUT OUTPUT", program);
+    let brief = format!("Usage: {program} [options] INPUT OUTPUT");
     print!("{}", opts.usage(&brief));
 }
 
@@ -44,7 +44,7 @@ fn main() {
     let matches = match opts.parse(&args[1..]) {
         Ok(m) => m,
         Err(e) => {
-            eprintln!("{}", e);
+            eprintln!("{e}");
             return;
         }
     };
@@ -67,7 +67,7 @@ fn main() {
     ) {
         Ok(()) => (),
         Err(e) => {
-            eprintln!("Cannot convert packet to pcap: {}", e);
+            eprintln!("Cannot convert packet to pcap: {e}");
             exit(1);
         }
     }

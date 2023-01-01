@@ -89,11 +89,11 @@ fn main() {
             .get_query_result(query)
         {
             Ok(addrs) => {
-                println!("Query done: {:?}", addrs);
+                println!("Query done: {addrs:?}");
                 break;
             }
             Err(GetQueryResultError::Pending) => {} // not done yet
-            Err(e) => panic!("query failed: {:?}", e),
+            Err(e) => panic!("query failed: {e:?}"),
         }
 
         phy_wait(fd, iface.poll_delay(timestamp, &sockets)).expect("wait error");

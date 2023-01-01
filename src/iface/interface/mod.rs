@@ -1630,7 +1630,7 @@ impl<'a> InterfaceInner<'a> {
     #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
     fn check_hardware_addr(addr: &HardwareAddress) {
         if !addr.is_unicast() {
-            panic!("Ethernet address {} is not unicast", addr)
+            panic!("Ethernet address {addr} is not unicast")
         }
     }
 
