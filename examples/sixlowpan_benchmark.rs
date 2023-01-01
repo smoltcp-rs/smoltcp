@@ -43,7 +43,6 @@
 
 mod utils;
 
-use log::debug;
 use std::os::unix::io::AsRawFd;
 use std::str;
 
@@ -188,12 +187,7 @@ fn main() {
 
     while !CLIENT_DONE.load(Ordering::SeqCst) {
         let timestamp = Instant::now();
-        match iface.poll(timestamp, &mut device, &mut sockets) {
-            Ok(_) => {}
-            Err(e) => {
-                debug!("poll error: {}", e);
-            }
-        }
+        iface.poll(timestamp, &mut device, &mut sockets);
 
         // tcp:1234: emit data
         let socket = sockets.get_mut::<tcp::Socket>(tcp1_handle);

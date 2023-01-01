@@ -2,7 +2,20 @@ use super::{check, IgmpReportState, Interface, InterfaceInner, IpPacket};
 use crate::phy::Device;
 use crate::time::{Duration, Instant};
 use crate::wire::*;
-use crate::{Error, Result};
+
+use core::result::Result;
+
+/// Error type for `join_multicast_group`, `leave_multicast_group`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum MulticastError {
+    /// The hardware device transmit buffer is full. Try again later.
+    Exhausted,
+    /// The table of joined multicast groups is already full.
+    GroupTableFull,
+    /// IPv6 multicast is not yet supported.
+    Ipv6NotSupported,
+}
 
 impl<'a> Interface<'a> {
     /// Add an address to a list of subscribed multicast IP addresses.
@@ -14,7 +27,7 @@ impl<'a> Interface<'a> {
         device: &mut D,
         addr: T,
         timestamp: Instant,
-    ) -> Result<bool>
+    ) -> Result<bool, MulticastError>
     where
         D: Device + ?Sized,
     {
@@ -26,15 +39,20 @@ impl<'a> Interface<'a> {
                     .inner
                     .ipv4_multicast_groups
                     .insert(addr, ())
-                    .map_err(|_| Error::Exhausted)?
+                    .map_err(|_| MulticastError::GroupTableFull)?
                     .is_some();
                 if is_not_new {
                     Ok(false)
                 } else if let Some(pkt) = self.inner.igmp_report_packet(IgmpVersion::Version2, addr)
                 {
                     // Send initial membership report
-                    let tx_token = device.transmit(timestamp).ok_or(Error::Exhausted)?;
-                    self.inner.dispatch_ip(tx_token, pkt, None)?;
+                    let tx_token = device
+                        .transmit(timestamp)
+                        .ok_or(MulticastError::Exhausted)?;
+
+                    // NOTE(unwrap): packet destination is multicast, which is always routable and doesn't require neighbor discovery.
+                    self.inner.dispatch_ip(tx_token, pkt, None).unwrap();
+
                     Ok(true)
                 } else {
                     Ok(false)
@@ -42,7 +60,7 @@ impl<'a> Interface<'a> {
             }
             // Multicast is not yet implemented for other address families
             #[allow(unreachable_patterns)]
-            _ => Err(Error::Unaddressable),
+            _ => Err(MulticastError::Ipv6NotSupported),
         }
     }
 
@@ -55,7 +73,7 @@ impl<'a> Interface<'a> {
         device: &mut D,
         addr: T,
         timestamp: Instant,
-    ) -> Result<bool>
+    ) -> Result<bool, MulticastError>
     where
         D: Device + ?Sized,
     {
@@ -68,8 +86,13 @@ impl<'a> Interface<'a> {
                     Ok(false)
                 } else if let Some(pkt) = self.inner.igmp_leave_packet(addr) {
                     // Send group leave packet
-                    let tx_token = device.transmit(timestamp).ok_or(Error::Exhausted)?;
-                    self.inner.dispatch_ip(tx_token, pkt, None)?;
+                    let tx_token = device
+                        .transmit(timestamp)
+                        .ok_or(MulticastError::Exhausted)?;
+
+                    // NOTE(unwrap): packet destination is multicast, which is always routable and doesn't require neighbor discovery.
+                    self.inner.dispatch_ip(tx_token, pkt, None).unwrap();
+
                     Ok(true)
                 } else {
                     Ok(false)
@@ -77,7 +100,7 @@ impl<'a> Interface<'a> {
             }
             // Multicast is not yet implemented for other address families
             #[allow(unreachable_patterns)]
-            _ => Err(Error::Unaddressable),
+            _ => Err(MulticastError::Ipv6NotSupported),
         }
     }
 
@@ -88,7 +111,7 @@ impl<'a> Interface<'a> {
 
     /// Depending on `igmp_report_state` and the therein contained
     /// timeouts, send IGMP membership reports.
-    pub(crate) fn igmp_egress<D>(&mut self, device: &mut D) -> Result<bool>
+    pub(crate) fn igmp_egress<D>(&mut self, device: &mut D) -> bool
     where
         D: Device + ?Sized,
     {
@@ -100,12 +123,16 @@ impl<'a> Interface<'a> {
             } if self.inner.now >= timeout => {
                 if let Some(pkt) = self.inner.igmp_report_packet(version, group) {
                     // Send initial membership report
-                    let tx_token = device.transmit(self.inner.now).ok_or(Error::Exhausted)?;
-                    self.inner.dispatch_ip(tx_token, pkt, None)?;
+                    if let Some(tx_token) = device.transmit(self.inner.now) {
+                        // NOTE(unwrap): packet destination is multicast, which is always routable and doesn't require neighbor discovery.
+                        self.inner.dispatch_ip(tx_token, pkt, None).unwrap();
+                    } else {
+                        return false;
+                    }
                 }
 
                 self.inner.igmp_report_state = IgmpReportState::Inactive;
-                Ok(true)
+                true
             }
             IgmpReportState::ToGeneralQuery {
                 version,
@@ -124,9 +151,12 @@ impl<'a> Interface<'a> {
                     Some(addr) => {
                         if let Some(pkt) = self.inner.igmp_report_packet(version, addr) {
                             // Send initial membership report
-                            let tx_token =
-                                device.transmit(self.inner.now).ok_or(Error::Exhausted)?;
-                            self.inner.dispatch_ip(tx_token, pkt, None)?;
+                            if let Some(tx_token) = device.transmit(self.inner.now) {
+                                // NOTE(unwrap): packet destination is multicast, which is always routable and doesn't require neighbor discovery.
+                                self.inner.dispatch_ip(tx_token, pkt, None).unwrap();
+                            } else {
+                                return false;
+                            }
                         }
 
                         let next_timeout = (timeout + interval).max(self.inner.now);
@@ -136,16 +166,16 @@ impl<'a> Interface<'a> {
                             interval,
                             next_index: next_index + 1,
                         };
-                        Ok(true)
+                        true
                     }
 
                     None => {
                         self.inner.igmp_report_state = IgmpReportState::Inactive;
-                        Ok(false)
+                        false
                     }
                 }
             }
-            _ => Ok(false),
+            _ => false,
         }
     }
 }

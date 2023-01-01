@@ -18,7 +18,8 @@ use crate::socket::icmp;
 use crate::socket::AnySocket;
 
 use crate::phy::{Medium, TxToken};
-use crate::{time::*, wire::*, Error, Result};
+use crate::time::{Duration, Instant};
+use crate::wire::*;
 
 impl<'a> InterfaceInner<'a> {
     pub(super) fn process_ipv4<'output, 'payload: 'output, T: AsRef<[u8]> + ?Sized>(
@@ -348,7 +349,7 @@ impl<'a> InterfaceInner<'a> {
         &mut self,
         tx_token: Tx,
         out_packet: &mut Ipv4OutPacket,
-    ) -> Result<()> {
+    ) {
         let Ipv4OutPacket {
             buffer,
             packet_len,
@@ -381,12 +382,7 @@ impl<'a> InterfaceInner<'a> {
         let emit_ethernet = |repr: &IpRepr, tx_buffer: &mut [u8]| {
             let mut frame = EthernetFrame::new_unchecked(tx_buffer);
 
-            let src_addr = if let Some(HardwareAddress::Ethernet(addr)) = self.hardware_addr {
-                addr
-            } else {
-                return Err(Error::Malformed);
-            };
-
+            let src_addr = self.hardware_addr.unwrap().ethernet_or_panic();
             frame.set_src_addr(src_addr);
             frame.set_dst_addr(*dst_hardware_addr);
 
@@ -396,14 +392,12 @@ impl<'a> InterfaceInner<'a> {
                 #[cfg(feature = "proto-ipv6")]
                 IpVersion::Ipv6 => frame.set_ethertype(EthernetProtocol::Ipv6),
             }
-
-            Ok(())
         };
 
         tx_token.consume(tx_len, |mut tx_buffer| {
             #[cfg(feature = "medium-ethernet")]
             if matches!(self.caps.medium, Medium::Ethernet) {
-                emit_ethernet(&IpRepr::Ipv4(*repr), tx_buffer)?;
+                emit_ethernet(&IpRepr::Ipv4(*repr), tx_buffer);
                 tx_buffer = &mut tx_buffer[EthernetFrame::<&[u8]>::header_len()..];
             }
 
@@ -424,8 +418,6 @@ impl<'a> InterfaceInner<'a> {
 
             // Update the frag offset for the next fragment.
             *frag_offset += payload_len as u16;
-
-            Ok(())
         })
     }
 

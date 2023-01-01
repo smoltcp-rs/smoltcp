@@ -56,9 +56,7 @@ fn main() {
 
     loop {
         let timestamp = Instant::now();
-        if let Err(e) = iface.poll(timestamp, &mut device, &mut sockets) {
-            debug!("poll error: {}", e);
-        }
+        iface.poll(timestamp, &mut device, &mut sockets);
 
         let event = sockets.get_mut::<dhcpv4::Socket>(dhcp_handle).poll();
         match event {

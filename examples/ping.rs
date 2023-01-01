@@ -1,7 +1,6 @@
 mod utils;
 
 use byteorder::{ByteOrder, NetworkEndian};
-use log::debug;
 use smoltcp::iface::SocketSet;
 use std::cmp;
 use std::collections::HashMap;
@@ -150,12 +149,7 @@ fn main() {
 
     loop {
         let timestamp = Instant::now();
-        match iface.poll(timestamp, &mut device, &mut sockets) {
-            Ok(_) => {}
-            Err(e) => {
-                debug!("poll error: {}", e);
-            }
-        }
+        iface.poll(timestamp, &mut device, &mut sockets);
 
         let timestamp = Instant::now();
         let socket = sockets.get_mut::<icmp::Socket>(icmp_handle);

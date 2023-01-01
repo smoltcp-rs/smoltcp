@@ -115,17 +115,7 @@ fn main() {
 
     loop {
         let timestamp = Instant::now();
-
-        let mut poll = true;
-        while poll {
-            match iface.poll(timestamp, &mut device, &mut sockets) {
-                Ok(r) => poll = r,
-                Err(e) => {
-                    debug!("poll error: {}", e);
-                    break;
-                }
-            }
-        }
+        iface.poll(timestamp, &mut device, &mut sockets);
 
         // udp:6969: respond "hello"
         let socket = sockets.get_mut::<udp::Socket>(udp_handle);

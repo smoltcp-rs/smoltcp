@@ -20,6 +20,7 @@ mod igmp;
 
 use core::cmp;
 use core::marker::PhantomData;
+use core::result::Result;
 use heapless::{LinearMap, Vec};
 use managed::ManagedSlice;
 
@@ -36,7 +37,6 @@ use crate::socket::dns;
 use crate::socket::*;
 use crate::time::{Duration, Instant};
 use crate::wire::*;
-use crate::{Error, Result};
 
 const MAX_IP_ADDR_COUNT: usize = 5;
 #[cfg(feature = "proto-igmp")]
@@ -953,23 +953,12 @@ impl<'a> Interface<'a> {
     /// This function returns a boolean value indicating whether any packets were
     /// processed or emitted, and thus, whether the readiness of any socket might
     /// have changed.
-    ///
-    /// # Errors
-    /// This method will routinely return errors in response to normal network
-    /// activity as well as certain boundary conditions such as buffer exhaustion.
-    /// These errors are provided as an aid for troubleshooting, and are meant
-    /// to be logged and ignored.
-    ///
-    /// As a special case, `Err(Error::Unrecognized)` is returned in response to
-    /// packets containing any unsupported protocol, option, or form, which is
-    /// a very common occurrence and on a production system it should not even
-    /// be logged.
     pub fn poll<D>(
         &mut self,
         timestamp: Instant,
         device: &mut D,
         sockets: &mut SocketSet<'_>,
-    ) -> Result<bool>
+    ) -> bool
     where
         D: Device + ?Sized,
     {
@@ -982,42 +971,35 @@ impl<'a> Interface<'a> {
         self.fragments.sixlowpan_fragments.remove_expired(timestamp);
 
         #[cfg(feature = "proto-ipv4-fragmentation")]
-        match self.ipv4_egress(device) {
-            Ok(true) => return Ok(true),
-            Err(e) => {
-                net_debug!("failed to transmit: {}", e);
-                return Err(e);
-            }
-            _ => (),
+        if self.ipv4_egress(device) {
+            return true;
         }
 
         #[cfg(feature = "proto-sixlowpan-fragmentation")]
-        match self.sixlowpan_egress(device) {
-            Ok(true) => return Ok(true),
-            Err(e) => {
-                net_debug!("failed to transmit: {}", e);
-                return Err(e);
-            }
-            _ => (),
+        if self.sixlowpan_egress(device) {
+            return true;
         }
 
         let mut readiness_may_have_changed = false;
 
         loop {
-            let processed_any = self.socket_ingress(device, sockets);
-            let emitted_any = self.socket_egress(device, sockets);
+            let mut did_something = false;
+            did_something |= self.socket_ingress(device, sockets);
+            did_something |= self.socket_egress(device, sockets);
 
             #[cfg(feature = "proto-igmp")]
-            self.igmp_egress(device)?;
+            {
+                did_something |= self.igmp_egress(device);
+            }
 
-            if processed_any || emitted_any {
+            if did_something {
                 readiness_may_have_changed = true;
             } else {
                 break;
             }
         }
 
-        Ok(readiness_may_have_changed)
+        readiness_may_have_changed
     }
 
     /// Return a _soft deadline_ for calling [poll] the next time.
@@ -1089,7 +1071,7 @@ impl<'a> Interface<'a> {
                                 self.inner
                                     .dispatch(tx_token, packet, Some(&mut self.out_packets))
                             {
-                                net_debug!("Failed to send response: {}", err);
+                                net_debug!("Failed to send response: {:?}", err);
                             }
                         }
                     }
@@ -1103,7 +1085,7 @@ impl<'a> Interface<'a> {
                                 packet,
                                 Some(&mut self.out_packets),
                             ) {
-                                net_debug!("Failed to send response: {}", err);
+                                net_debug!("Failed to send response: {:?}", err);
                             }
                         }
                     }
@@ -1118,7 +1100,7 @@ impl<'a> Interface<'a> {
                                 packet,
                                 Some(&mut self.out_packets),
                             ) {
-                                net_debug!("Failed to send response: {}", err);
+                                net_debug!("Failed to send response: {:?}", err);
                             }
                         }
                     }
@@ -1136,6 +1118,11 @@ impl<'a> Interface<'a> {
     {
         let _caps = device.capabilities();
 
+        enum EgressError {
+            Exhausted,
+            Dispatch(DispatchError),
+        }
+
         let mut emitted_any = false;
         for item in sockets.items_mut() {
             if !item
@@ -1149,21 +1136,25 @@ impl<'a> Interface<'a> {
             let mut respond = |inner: &mut InterfaceInner, response: IpPacket| {
                 neighbor_addr = Some(response.ip_repr().dst_addr());
                 let t = device.transmit(inner.now).ok_or_else(|| {
-                    net_debug!("failed to transmit IP: {}", Error::Exhausted);
-                    Error::Exhausted
+                    net_debug!("failed to transmit IP: device exhausted");
+                    EgressError::Exhausted
                 })?;
 
                 #[cfg(any(
                     feature = "proto-ipv4-fragmentation",
                     feature = "proto-sixlowpan-fragmentation"
                 ))]
-                inner.dispatch_ip(t, response, Some(&mut self.out_packets))?;
+                inner
+                    .dispatch_ip(t, response, Some(&mut self.out_packets))
+                    .map_err(EgressError::Dispatch)?;
 
                 #[cfg(not(any(
                     feature = "proto-ipv4-fragmentation",
                     feature = "proto-sixlowpan-fragmentation"
                 )))]
-                inner.dispatch_ip(t, response, None)?;
+                inner
+                    .dispatch_ip(t, response, None)
+                    .map_err(EgressError::Dispatch)?;
 
                 emitted_any = true;
 
@@ -1210,8 +1201,8 @@ impl<'a> Interface<'a> {
             };
 
             match result {
-                Err(Error::Exhausted) => break, // Device buffer full.
-                Err(Error::Unaddressable) => {
+                Err(EgressError::Exhausted) => break, // Device buffer full.
+                Err(EgressError::Dispatch(_)) => {
                     // `NeighborCache` already takes care of rate limiting the neighbor discovery
                     // requests from the socket. However, without an additional rate limiting
                     // mechanism, we would spin on every socket that has yet to discover its
@@ -1219,14 +1210,6 @@ impl<'a> Interface<'a> {
                     item.meta.neighbor_missing(
                         self.inner.now,
                         neighbor_addr.expect("non-IP response packet"),
-                    );
-                    break;
-                }
-                Err(err) => {
-                    net_debug!(
-                        "{}: cannot dispatch egress packet: {}",
-                        item.meta.handle,
-                        err
                     );
                 }
                 Ok(()) => {}
@@ -1241,7 +1224,7 @@ impl<'a> Interface<'a> {
     /// processed or emitted, and thus, whether the readiness of any socket might
     /// have changed.
     #[cfg(feature = "proto-ipv4-fragmentation")]
-    fn ipv4_egress<D>(&mut self, device: &mut D) -> Result<bool>
+    fn ipv4_egress<D>(&mut self, device: &mut D) -> bool
     where
         D: Device + ?Sized,
     {
@@ -1251,7 +1234,7 @@ impl<'a> Interface<'a> {
         }
 
         if self.out_packets.ipv4_out_packet.is_empty() {
-            return Ok(false);
+            return false;
         }
 
         let Ipv4OutPacket {
@@ -1261,16 +1244,13 @@ impl<'a> Interface<'a> {
         } = &self.out_packets.ipv4_out_packet;
 
         if *packet_len > *sent_bytes {
-            match device.transmit(self.inner.now) {
-                Some(tx_token) => self
-                    .inner
-                    .dispatch_ipv4_out_packet(tx_token, &mut self.out_packets.ipv4_out_packet),
-                None => Err(Error::Exhausted),
+            if let Some(tx_token) = device.transmit(self.inner.now) {
+                self.inner
+                    .dispatch_ipv4_out_packet(tx_token, &mut self.out_packets.ipv4_out_packet);
+                return true;
             }
-            .map(|_| true)
-        } else {
-            Ok(false)
         }
+        false
     }
 
     /// Process fragments that still need to be sent for 6LoWPAN packets.
@@ -1279,7 +1259,7 @@ impl<'a> Interface<'a> {
     /// processed or emitted, and thus, whether the readiness of any socket might
     /// have changed.
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
-    fn sixlowpan_egress<D>(&mut self, device: &mut D) -> Result<bool>
+    fn sixlowpan_egress<D>(&mut self, device: &mut D) -> bool
     where
         D: Device + ?Sized,
     {
@@ -1289,7 +1269,7 @@ impl<'a> Interface<'a> {
         }
 
         if self.out_packets.sixlowpan_out_packet.is_empty() {
-            return Ok(false);
+            return false;
         }
 
         let SixlowpanOutPacket {
@@ -1299,17 +1279,15 @@ impl<'a> Interface<'a> {
         } = &self.out_packets.sixlowpan_out_packet;
 
         if *packet_len > *sent_bytes {
-            match device.transmit(self.inner.now) {
-                Some(tx_token) => self.inner.dispatch_ieee802154_out_packet(
+            if let Some(tx_token) = device.transmit(self.inner.now) {
+                self.inner.dispatch_ieee802154_out_packet(
                     tx_token,
                     &mut self.out_packets.sixlowpan_out_packet,
-                ),
-                None => Err(Error::Exhausted),
+                );
+                return true;
             }
-            .map(|_| true)
-        } else {
-            Ok(false)
         }
+        false
     }
 }
 
@@ -1729,7 +1707,7 @@ impl<'a> InterfaceInner<'a> {
         tx_token: Tx,
         packet: EthernetPacket,
         _out_packet: Option<&mut OutPackets<'_>>,
-    ) -> Result<()>
+    ) -> Result<(), DispatchError>
     where
         Tx: TxToken,
     {
@@ -1759,22 +1737,19 @@ impl<'a> InterfaceInner<'a> {
         self.ip_addrs.iter().any(|cidr| cidr.contains_addr(addr))
     }
 
-    fn route(&self, addr: &IpAddress, timestamp: Instant) -> Result<IpAddress> {
+    fn route(&self, addr: &IpAddress, timestamp: Instant) -> Option<IpAddress> {
         // Send directly.
         if self.in_same_network(addr) || addr.is_broadcast() {
-            return Ok(*addr);
+            return Some(*addr);
         }
 
         // Route via a router.
-        match self.routes.lookup(addr, timestamp) {
-            Some(router_addr) => Ok(router_addr),
-            None => Err(Error::Unaddressable),
-        }
+        self.routes.lookup(addr, timestamp)
     }
 
     fn has_neighbor(&self, addr: &IpAddress) -> bool {
         match self.route(addr, self.now) {
-            Ok(_routed_addr) => match self.caps.medium {
+            Some(_routed_addr) => match self.caps.medium {
                 #[cfg(feature = "medium-ethernet")]
                 Medium::Ethernet => self
                     .neighbor_cache
@@ -1792,7 +1767,7 @@ impl<'a> InterfaceInner<'a> {
                 #[cfg(feature = "medium-ip")]
                 Medium::Ip => true,
             },
-            Err(_) => false,
+            None => false,
         }
     }
 
@@ -1802,7 +1777,7 @@ impl<'a> InterfaceInner<'a> {
         tx_token: Tx,
         src_addr: &IpAddress,
         dst_addr: &IpAddress,
-    ) -> Result<(HardwareAddress, Tx)>
+    ) -> Result<(HardwareAddress, Tx), DispatchError>
     where
         Tx: TxToken,
     {
@@ -1852,7 +1827,9 @@ impl<'a> InterfaceInner<'a> {
             return Ok((hardware_addr, tx_token));
         }
 
-        let dst_addr = self.route(dst_addr, self.now)?;
+        let dst_addr = self
+            .route(dst_addr, self.now)
+            .ok_or(DispatchError::NoRoute)?;
 
         match self
             .neighbor_cache
@@ -1861,7 +1838,7 @@ impl<'a> InterfaceInner<'a> {
             .lookup(&dst_addr, self.now)
         {
             NeighborAnswer::Found(hardware_addr) => return Ok((hardware_addr, tx_token)),
-            NeighborAnswer::RateLimited => return Err(Error::Unaddressable),
+            NeighborAnswer::RateLimited => return Err(DispatchError::NeighborPending),
             _ => (), // XXX
         }
 
@@ -1872,12 +1849,7 @@ impl<'a> InterfaceInner<'a> {
                     "address {} not in neighbor cache, sending ARP request",
                     dst_addr
                 );
-                let src_hardware_addr =
-                    if let Some(HardwareAddress::Ethernet(addr)) = self.hardware_addr {
-                        addr
-                    } else {
-                        return Err(Error::Malformed);
-                    };
+                let src_hardware_addr = self.hardware_addr.unwrap().ethernet_or_panic();
 
                 let arp_repr = ArpRepr::EthernetIpv4 {
                     operation: ArpOperation::Request,
@@ -1887,12 +1859,17 @@ impl<'a> InterfaceInner<'a> {
                     target_protocol_addr: dst_addr,
                 };
 
-                self.dispatch_ethernet(tx_token, arp_repr.buffer_len(), |mut frame| {
-                    frame.set_dst_addr(EthernetAddress::BROADCAST);
-                    frame.set_ethertype(EthernetProtocol::Arp);
+                if let Err(e) =
+                    self.dispatch_ethernet(tx_token, arp_repr.buffer_len(), |mut frame| {
+                        frame.set_dst_addr(EthernetAddress::BROADCAST);
+                        frame.set_ethertype(EthernetProtocol::Arp);
 
-                    arp_repr.emit(&mut ArpPacket::new_unchecked(frame.payload_mut()))
-                })?;
+                        arp_repr.emit(&mut ArpPacket::new_unchecked(frame.payload_mut()))
+                    })
+                {
+                    net_debug!("Failed to dispatch ARP request: {:?}", e);
+                    return Err(DispatchError::NeighborPending);
+                }
             }
 
             #[cfg(feature = "proto-ipv6")]
@@ -1918,15 +1895,19 @@ impl<'a> InterfaceInner<'a> {
                     solicit,
                 ));
 
-                self.dispatch_ip(tx_token, packet, None)?;
+                if let Err(e) = self.dispatch_ip(tx_token, packet, None) {
+                    net_debug!("Failed to dispatch NDISC solicit: {:?}", e);
+                    return Err(DispatchError::NeighborPending);
+                }
             }
 
             #[allow(unreachable_patterns)]
             _ => (),
         }
+
         // The request got dispatched, limit the rate on the cache.
         self.neighbor_cache.as_mut().unwrap().limit_rate(self.now);
-        Err(Error::Unaddressable)
+        Err(DispatchError::NeighborPending)
     }
 
     fn flush_cache(&mut self) {
@@ -1941,7 +1922,7 @@ impl<'a> InterfaceInner<'a> {
         tx_token: Tx,
         packet: IpPacket,
         _out_packet: Option<&mut OutPackets<'_>>,
-    ) -> Result<()> {
+    ) -> Result<(), DispatchError> {
         let mut ip_repr = packet.ip_repr();
         assert!(!ip_repr.dst_addr().is_unspecified());
 
@@ -1949,16 +1930,12 @@ impl<'a> InterfaceInner<'a> {
 
         #[cfg(feature = "medium-ieee802154")]
         if matches!(self.caps.medium, Medium::Ieee802154) {
-            let (dst_hardware_addr, tx_token) = match self.lookup_hardware_addr(
-                tx_token,
-                &ip_repr.src_addr(),
-                &ip_repr.dst_addr(),
-            )? {
-                (HardwareAddress::Ieee802154(addr), tx_token) => (addr, tx_token),
-                _ => unreachable!(),
-            };
+            let (addr, tx_token) =
+                self.lookup_hardware_addr(tx_token, &ip_repr.src_addr(), &ip_repr.dst_addr())?;
+            let addr = addr.ieee802154_or_panic();
 
-            return self.dispatch_ieee802154(dst_hardware_addr, tx_token, packet, _out_packet);
+            self.dispatch_ieee802154(addr, tx_token, packet, _out_packet);
+            return Ok(());
         }
 
         // Dispatch IP/Ethernet:
@@ -1999,12 +1976,7 @@ impl<'a> InterfaceInner<'a> {
         let emit_ethernet = |repr: &IpRepr, tx_buffer: &mut [u8]| {
             let mut frame = EthernetFrame::new_unchecked(tx_buffer);
 
-            let src_addr = if let Some(HardwareAddress::Ethernet(addr)) = self.hardware_addr {
-                addr
-            } else {
-                return Err(Error::Malformed);
-            };
-
+            let src_addr = self.hardware_addr.unwrap().ethernet_or_panic();
             frame.set_src_addr(src_addr);
             frame.set_dst_addr(dst_hardware_addr);
 
@@ -2056,10 +2028,10 @@ impl<'a> InterfaceInner<'a> {
 
                         if buffer.len() < first_frag_ip_len {
                             net_debug!(
-                                "Fragmentation buffer is too small, at least {} needed",
+                                "Fragmentation buffer is too small, at least {} needed. Dropping",
                                 first_frag_ip_len
                             );
-                            return Err(Error::Exhausted);
+                            return Ok(());
                         }
 
                         #[cfg(feature = "medium-ethernet")]
@@ -2145,4 +2117,16 @@ impl<'a> InterfaceInner<'a> {
             }),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+enum DispatchError {
+    /// No route to dispatch this packet. Retrying won't help unless
+    /// configuration is changed.
+    NoRoute,
+    /// We do have a route to dispatch this packet, but we haven't discovered
+    /// the neighbor for it yet. Discovery has been initiated, dispatch
+    /// should be retried later.
+    NeighborPending,
 }

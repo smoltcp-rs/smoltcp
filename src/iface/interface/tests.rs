@@ -898,7 +898,7 @@ fn test_handle_other_arp_request() {
             &IpAddress::Ipv4(Ipv4Address([0x7f, 0x00, 0x00, 0x01])),
             &IpAddress::Ipv4(remote_ip_addr)
         ),
-        Err(Error::Unaddressable)
+        Err(DispatchError::NeighborPending)
     );
 }
 
@@ -1558,15 +1558,12 @@ fn test_echo_request_sixlowpan_128_bytes() {
     );
 
     let tx_token = device.transmit(Instant::now()).unwrap();
-    iface
-        .inner
-        .dispatch_ieee802154(
-            Ieee802154Address::default(),
-            tx_token,
-            result.unwrap(),
-            Some(&mut iface.out_packets),
-        )
-        .unwrap();
+    iface.inner.dispatch_ieee802154(
+        Ieee802154Address::default(),
+        tx_token,
+        result.unwrap(),
+        Some(&mut iface.out_packets),
+    );
 
     assert_eq!(
         device.queue[0],
@@ -1698,28 +1695,25 @@ fn test_sixlowpan_udp_with_fragmentation() {
     );
 
     let tx_token = device.transmit(Instant::now()).unwrap();
-    iface
-        .inner
-        .dispatch_ieee802154(
-            Ieee802154Address::default(),
-            tx_token,
-            IpPacket::Udp((
-                IpRepr::Ipv6(Ipv6Repr {
-                    src_addr: Ipv6Address::default(),
-                    dst_addr: Ipv6Address::default(),
-                    next_header: IpProtocol::Udp,
-                    payload_len: udp_data.len(),
-                    hop_limit: 64,
-                }),
-                UdpRepr {
-                    src_port: 1234,
-                    dst_port: 1234,
-                },
-                udp_data,
-            )),
-            Some(&mut iface.out_packets),
-        )
-        .unwrap();
+    iface.inner.dispatch_ieee802154(
+        Ieee802154Address::default(),
+        tx_token,
+        IpPacket::Udp((
+            IpRepr::Ipv6(Ipv6Repr {
+                src_addr: Ipv6Address::default(),
+                dst_addr: Ipv6Address::default(),
+                next_header: IpProtocol::Udp,
+                payload_len: udp_data.len(),
+                hop_limit: 64,
+            }),
+            UdpRepr {
+                src_port: 1234,
+                dst_port: 1234,
+            },
+            udp_data,
+        )),
+        Some(&mut iface.out_packets),
+    );
 
     iface.poll(Instant::now(), &mut device, &mut sockets);
 

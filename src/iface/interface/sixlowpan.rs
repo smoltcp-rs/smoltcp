@@ -11,8 +11,6 @@ use super::SixlowpanOutPacket;
 use crate::phy::ChecksumCapabilities;
 use crate::phy::TxToken;
 use crate::wire::*;
-use crate::Error;
-use crate::Result;
 
 // Max len of non-fragmented packets after decompression (including ipv6 header and payload)
 // TODO: lower. Should be (6lowpan mtu) - (min 6lowpan header size) + (max ipv6 header size)
@@ -277,24 +275,21 @@ impl<'a> InterfaceInner<'a> {
         tx_token: Tx,
         packet: IpPacket,
         _out_packet: Option<&mut OutPackets>,
-    ) -> Result<()> {
+    ) {
         // We first need to convert the IPv6 packet to a 6LoWPAN compressed packet.
         // Whenever this packet is to big to fit in the IEEE802.15.4 packet, then we need to
         // fragment it.
-        let ll_src_a = self.hardware_addr.map_or_else(
-            || Err(Error::Malformed),
-            |addr| match addr {
-                HardwareAddress::Ieee802154(addr) => Ok(addr),
-                _ => Err(Error::Malformed),
-            },
-        )?;
+        let ll_src_a = self.hardware_addr.unwrap().ieee802154_or_panic();
 
         let ip_repr = packet.ip_repr();
 
         let (src_addr, dst_addr) = match (ip_repr.src_addr(), ip_repr.dst_addr()) {
             (IpAddress::Ipv6(src_addr), IpAddress::Ipv6(dst_addr)) => (src_addr, dst_addr),
             #[allow(unreachable_patterns)]
-            _ => return Err(Error::Unaddressable),
+            _ => {
+                net_debug!("dispatch_ieee802154: dropping because src or dst addrs are not ipv6.");
+                return;
+            }
         };
 
         // Create the IEEE802.15.4 header.
@@ -325,7 +320,10 @@ impl<'a> InterfaceInner<'a> {
                 #[cfg(feature = "socket-udp")]
                 IpPacket::Udp(_) => SixlowpanNextHeader::Compressed,
                 #[allow(unreachable_patterns)]
-                _ => return Err(Error::Unrecognized),
+                _ => {
+                    net_debug!("dispatch_ieee802154: dropping, unhandled protocol.");
+                    return;
+                }
             },
             hop_limit: ip_repr.hop_limit(),
             ecn: None,
@@ -340,7 +338,6 @@ impl<'a> InterfaceInner<'a> {
         let mut _compressed_headers_len = iphc_repr.buffer_len();
         let mut _uncompressed_headers_len = ip_repr.header_len();
 
-        #[allow(unreachable_patterns)]
         match packet {
             #[cfg(feature = "socket-udp")]
             IpPacket::Udp((_, udpv6_repr, payload)) => {
@@ -357,7 +354,8 @@ impl<'a> InterfaceInner<'a> {
             IpPacket::Icmpv6((_, icmp_repr)) => {
                 total_size += icmp_repr.buffer_len();
             }
-            _ => return Err(Error::Unrecognized),
+            #[allow(unreachable_patterns)]
+            _ => unreachable!(),
         }
 
         let ieee_len = ieee_repr.buffer_len();
@@ -390,10 +388,10 @@ impl<'a> InterfaceInner<'a> {
                     managed::ManagedSlice::Borrowed(buffer) => {
                         if buffer.len() < total_size {
                             net_debug!(
-                                "6LoWPAN: Fragmentation buffer is too small, at least {} needed",
+                                "dispatch_ieee802154: dropping, fragmentation buffer is too small, at least {} needed",
                                 total_size
                             );
-                            return Err(Error::Exhausted);
+                            return;
                         }
                     }
                     #[cfg(feature = "alloc")]
@@ -409,7 +407,6 @@ impl<'a> InterfaceInner<'a> {
 
                 let b = &mut buffer[iphc_repr.buffer_len()..];
 
-                #[allow(unreachable_patterns)]
                 match packet {
                     #[cfg(feature = "socket-udp")]
                     IpPacket::Udp((_, udpv6_repr, payload)) => {
@@ -447,7 +444,8 @@ impl<'a> InterfaceInner<'a> {
                             &self.caps.checksum,
                         );
                     }
-                    _ => return Err(Error::Unrecognized),
+                    #[allow(unreachable_patterns)]
+                    _ => unreachable!(),
                 }
 
                 *packet_len = total_size;
@@ -501,9 +499,7 @@ impl<'a> InterfaceInner<'a> {
 
                     // Add the buffer part.
                     tx_buf[..frag1_size].copy_from_slice(&buffer[..frag1_size]);
-
-                    Ok(())
-                })
+                });
             }
 
             #[cfg(not(feature = "proto-sixlowpan-fragmentation"))]
@@ -511,7 +507,7 @@ impl<'a> InterfaceInner<'a> {
                 net_debug!(
                     "Enable the `proto-sixlowpan-fragmentation` feature for fragmentation support."
                 );
-                Ok(())
+                return;
             }
         } else {
             // We don't need fragmentation, so we emit everything to the TX token.
@@ -525,7 +521,6 @@ impl<'a> InterfaceInner<'a> {
                 iphc_repr.emit(&mut iphc_packet);
                 tx_buf = &mut tx_buf[iphc_repr.buffer_len()..];
 
-                #[allow(unreachable_patterns)]
                 match packet {
                     #[cfg(feature = "socket-udp")]
                     IpPacket::Udp((_, udpv6_repr, payload)) => {
@@ -563,10 +558,10 @@ impl<'a> InterfaceInner<'a> {
                             &self.caps.checksum,
                         );
                     }
-                    _ => return Err(Error::Unrecognized),
+                    #[allow(unreachable_patterns)]
+                    _ => unreachable!(),
                 }
-                Ok(())
-            })
+            });
         }
     }
 
@@ -578,7 +573,7 @@ impl<'a> InterfaceInner<'a> {
         &mut self,
         tx_token: Tx,
         out_packet: &mut SixlowpanOutPacket,
-    ) -> Result<()> {
+    ) {
         let SixlowpanOutPacket {
             buffer,
             packet_len,
@@ -634,9 +629,7 @@ impl<'a> InterfaceInner<'a> {
 
                 *sent_bytes += frag_size;
                 *datagram_offset += frag_size;
-
-                Ok(())
             },
-        )
+        );
     }
 }
