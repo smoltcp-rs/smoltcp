@@ -247,6 +247,37 @@ impl<'a> Socket<'a> {
         Ok(length)
     }
 
+    /// Peek at a packet in the receive buffer and return a pointer to the
+    /// payload without removing the packet from the receive buffer.
+    /// This function otherwise behaves identically to [recv](#method.recv).
+    ///
+    /// It returns `Err(Error::Exhausted)` if the receive buffer is empty.
+    pub fn peek(&mut self) -> Result<&[u8], RecvError> {
+        self.rx_buffer.peek().map_err(|_| RecvError::Exhausted).map(
+            |((), payload_buf)| {
+                net_trace!(
+                    "raw:{}:{}: peek {} buffered octets",
+                    self.ip_version,
+                    self.ip_protocol,
+                    payload_buf.len()
+                );
+                payload_buf
+            },
+        )
+    }
+
+    /// Peek at a packet in the receive buffer, copy the payload into the given slice,
+    /// and return the amount of octets copied without removing the packet from the receive buffer.
+    /// This function otherwise behaves identically to [recv_slice](#method.recv_slice).
+    ///
+    /// See also [peek](#method.peek).
+    pub fn peek_slice(&mut self, data: &mut [u8]) -> Result<usize, RecvError> {
+        let buffer = self.peek()?;
+        let length = min(data.len(), buffer.len());
+        data[..length].copy_from_slice(&buffer[..length]);
+        Ok(length)
+    }
+
     pub(crate) fn accepts(&self, ip_repr: &IpRepr) -> bool {
         if ip_repr.version() != self.ip_version {
             return false;
