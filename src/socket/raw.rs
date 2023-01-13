@@ -253,8 +253,10 @@ impl<'a> Socket<'a> {
     ///
     /// It returns `Err(Error::Exhausted)` if the receive buffer is empty.
     pub fn peek(&mut self) -> Result<&[u8], RecvError> {
-        self.rx_buffer.peek().map_err(|_| RecvError::Exhausted).map(
-            |((), payload_buf)| {
+        self.rx_buffer
+            .peek()
+            .map_err(|_| RecvError::Exhausted)
+            .map(|((), payload_buf)| {
                 net_trace!(
                     "raw:{}:{}: peek {} buffered octets",
                     self.ip_version,
@@ -262,8 +264,7 @@ impl<'a> Socket<'a> {
                     payload_buf.len()
                 );
                 payload_buf
-            },
-        )
+            })
     }
 
     /// Peek at a packet in the receive buffer, copy the payload into the given slice,
