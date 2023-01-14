@@ -250,17 +250,11 @@ impl<'a> InterfaceInner<'a> {
                             &ChecksumCapabilities::ignored(),
                         )?;
 
-                        let mut udp_emit_packet = UdpPacket::new_unchecked(
+                        let mut udp = UdpPacket::new_unchecked(
                             &mut buffer[..udp_repr.0.header_len() + iphc.payload().len()
                                 - udp_repr.header_len()],
                         );
-                        udp_repr.0.emit_header(
-                            &mut udp_emit_packet,
-                            &iphc_repr.src_addr.into(),
-                            &iphc_repr.dst_addr.into(),
-                            ipv6_repr.payload_len - 8,
-                            &ChecksumCapabilities::ignored(),
-                        );
+                        udp_repr.0.emit_header(&mut udp, ipv6_repr.payload_len - 8);
 
                         buffer[8..].copy_from_slice(&iphc.payload()[udp_repr.header_len()..]);
                     }
