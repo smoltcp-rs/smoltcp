@@ -312,6 +312,24 @@ impl HardwareAddress {
             HardwareAddress::Ieee802154(addr) => addr.is_broadcast(),
         }
     }
+
+    #[cfg(feature = "medium-ethernet")]
+    pub(crate) fn ethernet_or_panic(&self) -> EthernetAddress {
+        match self {
+            HardwareAddress::Ethernet(addr) => *addr,
+            #[allow(unreachable_patterns)]
+            _ => panic!("HardwareAddress is not Ethernet."),
+        }
+    }
+
+    #[cfg(feature = "medium-ieee802154")]
+    pub(crate) fn ieee802154_or_panic(&self) -> Ieee802154Address {
+        match self {
+            HardwareAddress::Ieee802154(addr) => *addr,
+            #[allow(unreachable_patterns)]
+            _ => panic!("HardwareAddress is not Ethernet."),
+        }
+    }
 }
 
 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]

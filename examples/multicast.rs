@@ -1,6 +1,5 @@
 mod utils;
 
-use log::debug;
 use std::os::unix::io::AsRawFd;
 
 use smoltcp::iface::{InterfaceBuilder, NeighborCache, SocketSet};
@@ -70,12 +69,7 @@ fn main() {
 
     loop {
         let timestamp = Instant::now();
-        match iface.poll(timestamp, &mut device, &mut sockets) {
-            Ok(_) => {}
-            Err(e) => {
-                debug!("poll error: {}", e);
-            }
-        }
+        iface.poll(timestamp, &mut device, &mut sockets);
 
         let socket = sockets.get_mut::<raw::Socket>(raw_handle);
 

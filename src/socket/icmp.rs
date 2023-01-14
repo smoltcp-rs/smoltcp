@@ -619,7 +619,6 @@ mod tests_common {
 mod test_ipv4 {
     use super::tests_common::*;
     use crate::wire::{Icmpv4DstUnreachable, IpEndpoint, Ipv4Address};
-    use crate::Error;
 
     const REMOTE_IPV4: Ipv4Address = Ipv4Address([192, 168, 1, 2]);
     const LOCAL_IPV4: Ipv4Address = Ipv4Address([192, 168, 1, 1]);
@@ -696,9 +695,9 @@ mod test_ipv4 {
             socket.dispatch(&mut cx, |_, (ip_repr, icmp_repr)| {
                 assert_eq!(ip_repr, LOCAL_IPV4_REPR);
                 assert_eq!(icmp_repr, ECHOV4_REPR.into());
-                Err(Error::Unaddressable)
+                Err(())
             }),
-            Err(Error::Unaddressable)
+            Err(())
         );
         // buffer is not taken off of the tx queue due to the error
         assert!(!socket.can_send());
@@ -707,7 +706,7 @@ mod test_ipv4 {
             socket.dispatch(&mut cx, |_, (ip_repr, icmp_repr)| {
                 assert_eq!(ip_repr, LOCAL_IPV4_REPR);
                 assert_eq!(icmp_repr, ECHOV4_REPR.into());
-                Ok::<_, Error>(())
+                Ok::<_, ()>(())
             }),
             Ok(())
         );
@@ -743,7 +742,7 @@ mod test_ipv4 {
                         hop_limit: 0x2a,
                     })
                 );
-                Ok::<_, Error>(())
+                Ok::<_, ()>(())
             }),
             Ok(())
         );
@@ -861,7 +860,6 @@ mod test_ipv6 {
     use super::tests_common::*;
 
     use crate::wire::{Icmpv6DstUnreachable, IpEndpoint, Ipv6Address};
-    use crate::Error;
 
     const REMOTE_IPV6: Ipv6Address =
         Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]);
@@ -911,7 +909,7 @@ mod test_ipv6 {
 
         assert_eq!(
             socket.dispatch(&mut cx, |_, _| unreachable!()),
-            Ok::<_, Error>(())
+            Ok::<_, ()>(())
         );
 
         // This buffer is too long
@@ -944,9 +942,9 @@ mod test_ipv6 {
             socket.dispatch(&mut cx, |_, (ip_repr, icmp_repr)| {
                 assert_eq!(ip_repr, LOCAL_IPV6_REPR);
                 assert_eq!(icmp_repr, ECHOV6_REPR.into());
-                Err(Error::Unaddressable)
+                Err(())
             }),
-            Err(Error::Unaddressable)
+            Err(())
         );
         // buffer is not taken off of the tx queue due to the error
         assert!(!socket.can_send());
@@ -955,7 +953,7 @@ mod test_ipv6 {
             socket.dispatch(&mut cx, |_, (ip_repr, icmp_repr)| {
                 assert_eq!(ip_repr, LOCAL_IPV6_REPR);
                 assert_eq!(icmp_repr, ECHOV6_REPR.into());
-                Ok::<_, Error>(())
+                Ok::<_, ()>(())
             }),
             Ok(())
         );
@@ -996,7 +994,7 @@ mod test_ipv6 {
                         hop_limit: 0x2a,
                     })
                 );
-                Ok::<_, Error>(())
+                Ok::<_, ()>(())
             }),
             Ok(())
         );

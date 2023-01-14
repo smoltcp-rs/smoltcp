@@ -43,11 +43,10 @@
 mod utils;
 
 use log::debug;
-use std::collections::BTreeMap;
 use std::os::unix::io::AsRawFd;
 use std::str;
 
-use smoltcp::iface::{InterfaceBuilder, NeighborCache, ReassemblyBuffer, SocketSet};
+use smoltcp::iface::{InterfaceBuilder, NeighborCache, SocketSet};
 use smoltcp::phy::{wait as phy_wait, Medium, RawSocket};
 use smoltcp::socket::tcp;
 use smoltcp::socket::udp;
@@ -96,20 +95,11 @@ fn main() {
         .hardware_addr(ieee802154_addr.into())
         .neighbor_cache(neighbor_cache);
 
-    #[cfg(feature = "proto-ipv4-fragmentation")]
-    {
-        let ipv4_frag_cache = ReassemblyBuffer::new(vec![], BTreeMap::new());
-        builder = builder.ipv4_reassembly_buffer(ipv4_frag_cache);
-    }
-
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
     let mut out_packet_buffer = [0u8; 1280];
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
     {
-        let sixlowpan_frag_cache = ReassemblyBuffer::new(vec![], BTreeMap::new());
-        builder = builder
-            .sixlowpan_reassembly_buffer(sixlowpan_frag_cache)
-            .sixlowpan_fragmentation_buffer(&mut out_packet_buffer[..]);
+        builder = builder.sixlowpan_fragmentation_buffer(&mut out_packet_buffer[..]);
     }
 
     let mut iface = builder.finalize(&mut device);
@@ -125,17 +115,7 @@ fn main() {
 
     loop {
         let timestamp = Instant::now();
-
-        let mut poll = true;
-        while poll {
-            match iface.poll(timestamp, &mut device, &mut sockets) {
-                Ok(r) => poll = r,
-                Err(e) => {
-                    debug!("poll error: {}", e);
-                    break;
-                }
-            }
-        }
+        iface.poll(timestamp, &mut device, &mut sockets);
 
         // udp:6969: respond "hello"
         let socket = sockets.get_mut::<udp::Socket>(udp_handle);

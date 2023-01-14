@@ -1,6 +1,5 @@
 use crate::phy::{self, Device, DeviceCapabilities};
 use crate::time::Instant;
-use crate::Result;
 
 // This could be fixed once associated consts are stable.
 const MTU: usize = 1536;
@@ -62,13 +61,13 @@ where
         caps
     }
 
-    fn receive(&mut self) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
+    fn receive(&mut self, timestamp: Instant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
         let &mut Self {
             ref mut inner,
             ref fuzz_rx,
             ref fuzz_tx,
         } = self;
-        inner.receive().map(|(rx_token, tx_token)| {
+        inner.receive(timestamp).map(|(rx_token, tx_token)| {
             let rx = RxToken {
                 fuzzer: fuzz_rx,
                 token: rx_token,
@@ -81,13 +80,13 @@ where
         })
     }
 
-    fn transmit(&mut self) -> Option<Self::TxToken<'_>> {
+    fn transmit(&mut self, timestamp: Instant) -> Option<Self::TxToken<'_>> {
         let &mut Self {
             ref mut inner,
             fuzz_rx: _,
             ref fuzz_tx,
         } = self;
-        inner.transmit().map(|token| TxToken {
+        inner.transmit(timestamp).map(|token| TxToken {
             fuzzer: fuzz_tx,
             token: token,
         })
@@ -101,13 +100,12 @@ pub struct RxToken<'a, Rx: phy::RxToken, F: Fuzzer + 'a> {
 }
 
 impl<'a, Rx: phy::RxToken, FRx: Fuzzer> phy::RxToken for RxToken<'a, Rx, FRx> {
-    fn consume<R, F>(self, timestamp: Instant, f: F) -> Result<R>
+    fn consume<R, F>(self, f: F) -> R
     where
-        F: FnOnce(&mut [u8]) -> Result<R>,
+        F: FnOnce(&mut [u8]) -> R,
     {
-        let Self { fuzzer, token } = self;
-        token.consume(timestamp, |buffer| {
-            fuzzer.fuzz_packet(buffer);
+        self.token.consume(|buffer| {
+            self.fuzzer.fuzz_packet(buffer);
             f(buffer)
         })
     }
@@ -120,14 +118,13 @@ pub struct TxToken<'a, Tx: phy::TxToken, F: Fuzzer + 'a> {
 }
 
 impl<'a, Tx: phy::TxToken, FTx: Fuzzer> phy::TxToken for TxToken<'a, Tx, FTx> {
-    fn consume<R, F>(self, timestamp: Instant, len: usize, f: F) -> Result<R>
+    fn consume<R, F>(self, len: usize, f: F) -> R
     where
-        F: FnOnce(&mut [u8]) -> Result<R>,
+        F: FnOnce(&mut [u8]) -> R,
     {
-        let Self { fuzzer, token } = self;
-        token.consume(timestamp, len, |buf| {
+        self.token.consume(len, |buf| {
             let result = f(buf);
-            fuzzer.fuzz_packet(buf);
+            self.fuzzer.fuzz_packet(buf);
             result
         })
     }

@@ -220,20 +220,18 @@ pub mod frag {
     //! [RFC 4944 § 5.3]: https://datatracker.ietf.org/doc/html/rfc4944#section-5.3
 
     use super::{DISPATCH_FIRST_FRAGMENT_HEADER, DISPATCH_FRAGMENT_HEADER};
-    use crate::{
-        wire::{Ieee802154Address, Ieee802154Repr},
-        Error, Result,
-    };
+    use crate::wire::{Error, Result};
+    use crate::wire::{Ieee802154Address, Ieee802154Repr};
     use byteorder::{ByteOrder, NetworkEndian};
 
     /// Key used for identifying all the link fragments that belong to the same packet.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub struct Key {
-        ll_src_addr: Ieee802154Address,
-        ll_dst_addr: Ieee802154Address,
-        datagram_size: u16,
-        datagram_tag: u16,
+        pub(crate) ll_src_addr: Ieee802154Address,
+        pub(crate) ll_dst_addr: Ieee802154Address,
+        pub(crate) datagram_size: u16,
+        pub(crate) datagram_tag: u16,
     }
 
     /// A read/write wrapper around a 6LoWPAN Fragment header.
@@ -298,18 +296,18 @@ pub mod frag {
             let dispatch = packet.dispatch();
 
             if dispatch != DISPATCH_FIRST_FRAGMENT_HEADER && dispatch != DISPATCH_FRAGMENT_HEADER {
-                return Err(Error::Malformed);
+                return Err(Error);
             }
 
             Ok(packet)
         }
 
         /// Ensure that no accessor method will panic if called.
-        /// Returns `Err(Error::Truncated)` if the buffer is too short.
+        /// Returns `Err(Error)` if the buffer is too short.
         pub fn check_len(&self) -> Result<()> {
             let buffer = self.buffer.as_ref();
             if buffer.is_empty() {
-                return Err(Error::Truncated);
+                return Err(Error);
             }
 
             match self.dispatch() {
@@ -317,13 +315,11 @@ pub mod frag {
                     Ok(())
                 }
                 DISPATCH_FIRST_FRAGMENT_HEADER if buffer.len() < FIRST_FRAGMENT_HEADER_SIZE => {
-                    Err(Error::Truncated)
+                    Err(Error)
                 }
                 DISPATCH_FRAGMENT_HEADER if buffer.len() >= NEXT_FRAGMENT_HEADER_SIZE => Ok(()),
-                DISPATCH_FRAGMENT_HEADER if buffer.len() < NEXT_FRAGMENT_HEADER_SIZE => {
-                    Err(Error::Truncated)
-                }
-                _ => Err(Error::Unrecognized),
+                DISPATCH_FRAGMENT_HEADER if buffer.len() < NEXT_FRAGMENT_HEADER_SIZE => Err(Error),
+                _ => Err(Error),
             }
         }
 
@@ -441,7 +437,7 @@ pub mod frag {
                     tag,
                     offset: packet.datagram_offset(),
                 }),
-                _ => Err(Error::Malformed),
+                _ => Err(Error),
             }
         }
 
@@ -2139,8 +2135,6 @@ pub mod nhc {
 
 #[cfg(test)]
 mod test {
-    use crate::phy::ChecksumCapabilities;
-
     use super::*;
 
     #[test]
@@ -2177,14 +2171,16 @@ mod test {
 
     #[test]
     fn sixlowpan_three_fragments() {
-        use crate::iface::ReassemblyBuffer;
-        use crate::time::Instant;
         use crate::wire::ieee802154::Frame as Ieee802154Frame;
         use crate::wire::ieee802154::Repr as Ieee802154Repr;
         use crate::wire::Ieee802154Address;
-        use std::collections::BTreeMap;
 
-        let mut frags_cache = ReassemblyBuffer::new(vec![], BTreeMap::new());
+        let key = frag::Key {
+            ll_src_addr: Ieee802154Address::Extended([50, 147, 130, 47, 40, 8, 62, 217]),
+            ll_dst_addr: Ieee802154Address::Extended([26, 11, 66, 66, 66, 66, 66, 66]),
+            datagram_size: 307,
+            datagram_tag: 63,
+        };
 
         let frame1: &[u8] = &[
             0x41, 0xcc, 0x92, 0xef, 0xbe, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x0b, 0x1a, 0xd9,
@@ -2214,25 +2210,7 @@ mod test {
         assert_eq!(frag.datagram_tag(), 0x003f);
         assert_eq!(frag.datagram_offset(), 0);
 
-        let key = frag.get_key(&ieee802154_repr);
-
-        let uncompressed = 40 + 8;
-        let compressed = 5 + 7;
-
-        frags_cache
-            .reserve_with_key(&key)
-            .unwrap()
-            .start(
-                Some(frag.datagram_size() as usize - uncompressed + compressed),
-                Instant::now() + crate::time::Duration::from_secs(60),
-                -((uncompressed - compressed) as isize),
-            )
-            .unwrap();
-        frags_cache
-            .get_packet_assembler_mut(&key)
-            .unwrap()
-            .add(frag.payload(), 0)
-            .unwrap();
+        assert_eq!(frag.get_key(&ieee802154_repr), key);
 
         let frame2: &[u8] = &[
             0x41, 0xcc, 0x93, 0xef, 0xbe, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x0b, 0x1a, 0xd9,
@@ -2262,13 +2240,7 @@ mod test {
         assert_eq!(frag.datagram_tag(), 0x003f);
         assert_eq!(frag.datagram_offset(), 136 / 8);
 
-        let key = frag.get_key(&ieee802154_repr);
-
-        frags_cache
-            .get_packet_assembler_mut(&key)
-            .unwrap()
-            .add(frag.payload(), frag.datagram_offset() as usize * 8)
-            .unwrap();
+        assert_eq!(frag.get_key(&ieee802154_repr), key);
 
         let frame3: &[u8] = &[
             0x41, 0xcc, 0x94, 0xef, 0xbe, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x0b, 0x1a, 0xd9,
@@ -2297,69 +2269,6 @@ mod test {
         assert_eq!(frag.datagram_tag(), 0x003f);
         assert_eq!(frag.datagram_offset(), 232 / 8);
 
-        let key = frag.get_key(&ieee802154_repr);
-
-        frags_cache
-            .get_packet_assembler_mut(&key)
-            .unwrap()
-            .add(frag.payload(), frag.datagram_offset() as usize * 8)
-            .unwrap();
-
-        let assembled_packet = frags_cache.get_assembled_packet(&key).unwrap();
-
-        let sixlowpan_frame = SixlowpanPacket::dispatch(assembled_packet).unwrap();
-
-        let iphc = if let SixlowpanPacket::IphcHeader = sixlowpan_frame {
-            iphc::Packet::new_checked(assembled_packet).unwrap()
-        } else {
-            unreachable!()
-        };
-
-        let iphc_repr = iphc::Repr::parse(
-            &iphc,
-            ieee802154_repr.src_addr,
-            ieee802154_repr.dst_addr,
-            &[],
-        )
-        .unwrap();
-
-        assert_eq!(
-            iphc_repr.dst_addr,
-            ipv6::Address::from_bytes(&[
-                0xfe, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x18, 0xb, 0x42, 0x42, 0x42, 0x42, 0x42,
-                0x42,
-            ]),
-        );
-        assert_eq!(
-            iphc_repr.ll_dst_addr,
-            Some(Ieee802154Address::from_bytes(&[
-                0x1a, 0xb, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42,
-            ])),
-        );
-        assert_eq!(iphc_repr.next_header, NextHeader::Compressed);
-        assert_eq!(iphc_repr.hop_limit, 64);
-
-        let sixlowpan_frame = nhc::NhcPacket::dispatch(iphc.payload()).unwrap();
-
-        let udp_hdr = if let nhc::NhcPacket::UdpHeader = sixlowpan_frame {
-            nhc::UdpNhcPacket::new_checked(iphc.payload()).unwrap()
-        } else {
-            unreachable!()
-        };
-
-        let payload = udp_hdr.payload();
-        assert_eq!(String::from_utf8_lossy(payload), "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Aliquam dui odio, iaculis vel rutrum at, tristique non nunc erat curae. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Aliquam dui odio, iaculis vel rutrum at, tristique non nunc erat curae. \n");
-
-        let udp_repr = nhc::UdpNhcRepr::parse(
-            &udp_hdr,
-            &iphc_repr.src_addr,
-            &iphc_repr.dst_addr,
-            &ChecksumCapabilities::default(),
-        )
-        .unwrap();
-
-        assert_eq!(udp_repr.src_port, 53855);
-        assert_eq!(udp_repr.dst_port, 6969);
-        assert_eq!(udp_hdr.checksum(), Some(0xb46b));
+        assert_eq!(frag.get_key(&ieee802154_repr), key);
     }
 }

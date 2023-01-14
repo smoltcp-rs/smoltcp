@@ -1,13 +1,13 @@
 use super::check;
+use super::DispatchError;
 use super::EthernetPacket;
 use super::FragmentsBuffer;
 use super::InterfaceInner;
 use super::SocketSet;
+use core::result::Result;
 
 use crate::phy::TxToken;
 use crate::wire::*;
-use crate::Error;
-use crate::Result;
 
 impl<'i> InterfaceInner<'i> {
     #[cfg(feature = "medium-ethernet")]
@@ -15,7 +15,7 @@ impl<'i> InterfaceInner<'i> {
         &mut self,
         sockets: &mut SocketSet,
         frame: &'frame T,
-        _fragments: &'frame mut FragmentsBuffer<'i>,
+        _fragments: &'frame mut FragmentsBuffer,
     ) -> Option<EthernetPacket<'frame>> {
         let eth_frame = check!(EthernetFrame::new_checked(frame));
 
@@ -63,22 +63,17 @@ impl<'i> InterfaceInner<'i> {
         tx_token: Tx,
         buffer_len: usize,
         f: F,
-    ) -> Result<()>
+    ) -> Result<(), DispatchError>
     where
         Tx: TxToken,
         F: FnOnce(EthernetFrame<&mut [u8]>),
     {
         let tx_len = EthernetFrame::<&[u8]>::buffer_len(buffer_len);
-        tx_token.consume(self.now, tx_len, |tx_buffer| {
+        tx_token.consume(tx_len, |tx_buffer| {
             debug_assert!(tx_buffer.as_ref().len() == tx_len);
             let mut frame = EthernetFrame::new_unchecked(tx_buffer);
 
-            let src_addr = if let Some(HardwareAddress::Ethernet(addr)) = self.hardware_addr {
-                addr
-            } else {
-                return Err(Error::Malformed);
-            };
-
+            let src_addr = self.hardware_addr.unwrap().ethernet_or_panic();
             frame.set_src_addr(src_addr);
 
             f(frame);

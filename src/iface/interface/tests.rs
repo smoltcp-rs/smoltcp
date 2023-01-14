@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 #[cfg(feature = "proto-igmp")]
 use std::vec::Vec;
 
@@ -10,7 +9,6 @@ use crate::iface::NeighborCache;
 use crate::phy::{ChecksumCapabilities, Loopback};
 #[cfg(feature = "proto-igmp")]
 use crate::time::Instant;
-use crate::{Error, Result};
 
 #[allow(unused)]
 fn fill_slice(s: &mut [u8], val: u8) {
@@ -59,9 +57,7 @@ fn create_ip<'a>() -> (Interface<'a>, SocketSet<'a>, Loopback) {
     let iface_builder = InterfaceBuilder::new().ip_addrs(ip_addrs);
 
     #[cfg(feature = "proto-ipv4-fragmentation")]
-    let iface_builder = iface_builder
-        .ipv4_reassembly_buffer(PacketAssemblerSet::new(vec![], BTreeMap::new()))
-        .ipv4_fragmentation_buffer(vec![]);
+    let iface_builder = iface_builder.ipv4_fragmentation_buffer(vec![]);
 
     let iface = iface_builder.finalize(&mut device);
 
@@ -92,14 +88,10 @@ fn create_ethernet<'a>() -> (Interface<'a>, SocketSet<'a>, Loopback) {
         .ip_addrs(ip_addrs);
 
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
-    let iface_builder = iface_builder
-        .sixlowpan_reassembly_buffer(PacketAssemblerSet::new(vec![], BTreeMap::new()))
-        .sixlowpan_fragmentation_buffer(vec![]);
+    let iface_builder = iface_builder.sixlowpan_fragmentation_buffer(vec![]);
 
     #[cfg(feature = "proto-ipv4-fragmentation")]
-    let iface_builder = iface_builder
-        .ipv4_reassembly_buffer(PacketAssemblerSet::new(vec![], BTreeMap::new()))
-        .ipv4_fragmentation_buffer(vec![]);
+    let iface_builder = iface_builder.ipv4_fragmentation_buffer(vec![]);
 
     let iface = iface_builder.finalize(&mut device);
 
@@ -126,9 +118,7 @@ fn create_ieee802154<'a>() -> (Interface<'a>, SocketSet<'a>, Loopback) {
         .ip_addrs(ip_addrs);
 
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
-    let iface_builder = iface_builder
-        .sixlowpan_reassembly_buffer(PacketAssemblerSet::new(vec![], BTreeMap::new()))
-        .sixlowpan_fragmentation_buffer(vec![]);
+    let iface_builder = iface_builder.sixlowpan_fragmentation_buffer(vec![]);
 
     let iface = iface_builder.finalize(&mut device);
 
@@ -138,12 +128,10 @@ fn create_ieee802154<'a>() -> (Interface<'a>, SocketSet<'a>, Loopback) {
 #[cfg(feature = "proto-igmp")]
 fn recv_all(device: &mut Loopback, timestamp: Instant) -> Vec<Vec<u8>> {
     let mut pkts = Vec::new();
-    while let Some((rx, _tx)) = device.receive() {
-        rx.consume(timestamp, |pkt| {
+    while let Some((rx, _tx)) = device.receive(timestamp) {
+        rx.consume(|pkt| {
             pkts.push(pkt.to_vec());
-            Ok(())
-        })
-        .unwrap();
+        });
     }
     pkts
 }
@@ -153,11 +141,12 @@ fn recv_all(device: &mut Loopback, timestamp: Instant) -> Vec<Vec<u8>> {
 struct MockTxToken;
 
 impl TxToken for MockTxToken {
-    fn consume<R, F>(self, _: Instant, _: usize, _: F) -> Result<R>
+    fn consume<R, F>(self, len: usize, f: F) -> R
     where
-        F: FnOnce(&mut [u8]) -> Result<R>,
+        F: FnOnce(&mut [u8]) -> R,
     {
-        Err(Error::Unaddressable)
+        let mut junk = [0; 1536];
+        f(&mut junk[..len])
     }
 }
 
@@ -909,7 +898,7 @@ fn test_handle_other_arp_request() {
             &IpAddress::Ipv4(Ipv4Address([0x7f, 0x00, 0x00, 0x01])),
             &IpAddress::Ipv4(remote_ip_addr)
         ),
-        Err(Error::Unaddressable)
+        Err(DispatchError::NeighborPending)
     );
 }
 
@@ -1215,13 +1204,10 @@ fn test_handle_igmp() {
     ];
     {
         // Transmit GENERAL_QUERY_BYTES into loopback
-        let tx_token = device.transmit().unwrap();
-        tx_token
-            .consume(timestamp, GENERAL_QUERY_BYTES.len(), |buffer| {
-                buffer.copy_from_slice(GENERAL_QUERY_BYTES);
-                Ok(())
-            })
-            .unwrap();
+        let tx_token = device.transmit(timestamp).unwrap();
+        tx_token.consume(GENERAL_QUERY_BYTES.len(), |buffer| {
+            buffer.copy_from_slice(GENERAL_QUERY_BYTES);
+        });
     }
     // Trigger processing until all packets received through the
     // loopback have been processed, including responses to
@@ -1512,10 +1498,7 @@ fn test_echo_request_sixlowpan_128_bytes() {
             &mut sockets,
             &ieee802154_repr,
             &request_first_part_packet.into_inner(),
-            Some((
-                &mut iface.fragments.sixlowpan_fragments,
-                iface.fragments.sixlowpan_fragments_cache_timeout,
-            )),
+            &mut iface.fragments
         ),
         None
     );
@@ -1539,10 +1522,7 @@ fn test_echo_request_sixlowpan_128_bytes() {
         &mut sockets,
         &ieee802154_repr,
         &request_second_part,
-        Some((
-            &mut iface.fragments.sixlowpan_fragments,
-            iface.fragments.sixlowpan_fragments_cache_timeout,
-        )),
+        &mut iface.fragments,
     );
 
     assert_eq!(
@@ -1577,16 +1557,13 @@ fn test_echo_request_sixlowpan_128_bytes() {
         Instant::now(),
     );
 
-    let tx_token = device.transmit().unwrap();
-    iface
-        .inner
-        .dispatch_ieee802154(
-            Ieee802154Address::default(),
-            tx_token,
-            result.unwrap(),
-            Some(&mut iface.out_packets),
-        )
-        .unwrap();
+    let tx_token = device.transmit(Instant::now()).unwrap();
+    iface.inner.dispatch_ieee802154(
+        Ieee802154Address::default(),
+        tx_token,
+        result.unwrap(),
+        Some(&mut iface.out_packets),
+    );
 
     assert_eq!(
         device.queue[0],
@@ -1675,10 +1652,7 @@ fn test_sixlowpan_udp_with_fragmentation() {
             &mut sockets,
             &ieee802154_repr,
             udp_first_part,
-            Some((
-                &mut iface.fragments.sixlowpan_fragments,
-                iface.fragments.sixlowpan_fragments_cache_timeout
-            ))
+            &mut iface.fragments
         ),
         None
     );
@@ -1697,10 +1671,7 @@ fn test_sixlowpan_udp_with_fragmentation() {
             &mut sockets,
             &ieee802154_repr,
             udp_second_part,
-            Some((
-                &mut iface.fragments.sixlowpan_fragments,
-                iface.fragments.sixlowpan_fragments_cache_timeout
-            ))
+            &mut iface.fragments
         ),
         None
     );
@@ -1723,29 +1694,26 @@ fn test_sixlowpan_udp_with_fragmentation() {
         ))
     );
 
-    let tx_token = device.transmit().unwrap();
-    iface
-        .inner
-        .dispatch_ieee802154(
-            Ieee802154Address::default(),
-            tx_token,
-            IpPacket::Udp((
-                IpRepr::Ipv6(Ipv6Repr {
-                    src_addr: Ipv6Address::default(),
-                    dst_addr: Ipv6Address::default(),
-                    next_header: IpProtocol::Udp,
-                    payload_len: udp_data.len(),
-                    hop_limit: 64,
-                }),
-                UdpRepr {
-                    src_port: 1234,
-                    dst_port: 1234,
-                },
-                udp_data,
-            )),
-            Some(&mut iface.out_packets),
-        )
-        .unwrap();
+    let tx_token = device.transmit(Instant::now()).unwrap();
+    iface.inner.dispatch_ieee802154(
+        Ieee802154Address::default(),
+        tx_token,
+        IpPacket::Udp((
+            IpRepr::Ipv6(Ipv6Repr {
+                src_addr: Ipv6Address::default(),
+                dst_addr: Ipv6Address::default(),
+                next_header: IpProtocol::Udp,
+                payload_len: udp_data.len(),
+                hop_limit: 64,
+            }),
+            UdpRepr {
+                src_port: 1234,
+                dst_port: 1234,
+            },
+            udp_data,
+        )),
+        Some(&mut iface.out_packets),
+    );
 
     iface.poll(Instant::now(), &mut device, &mut sockets);
 

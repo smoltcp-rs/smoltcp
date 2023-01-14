@@ -251,6 +251,21 @@ impl Repr {
     }
 
     /// Emit a high-level representation into an User Datagram Protocol packet.
+    ///
+    /// This never calculates the checksum, and is intended for internal-use only,
+    /// not for packets that are going to be actually sent over the network. For
+    /// example, when decompressing 6lowpan.
+    pub(crate) fn emit_header<T: ?Sized>(&self, packet: &mut Packet<&mut T>, payload_len: usize)
+    where
+        T: AsRef<[u8]> + AsMut<[u8]>,
+    {
+        packet.set_src_port(self.src_port);
+        packet.set_dst_port(self.dst_port);
+        packet.set_len((HEADER_LEN + payload_len) as u16);
+        packet.set_checksum(0);
+    }
+
+    /// Emit a high-level representation into an User Datagram Protocol packet.
     pub fn emit<T: ?Sized>(
         &self,
         packet: &mut Packet<&mut T>,

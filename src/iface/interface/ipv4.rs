@@ -5,9 +5,6 @@ use super::IpPacket;
 use super::PacketAssemblerSet;
 use super::SocketSet;
 
-#[cfg(feature = "proto-igmp")]
-use super::IgmpReportState;
-
 #[cfg(feature = "medium-ethernet")]
 use super::EthernetPacket;
 
@@ -21,14 +18,15 @@ use crate::socket::icmp;
 use crate::socket::AnySocket;
 
 use crate::phy::{Medium, TxToken};
-use crate::{time::*, wire::*, Error, Result};
+use crate::time::{Duration, Instant};
+use crate::wire::*;
 
 impl<'a> InterfaceInner<'a> {
     pub(super) fn process_ipv4<'output, 'payload: 'output, T: AsRef<[u8]> + ?Sized>(
         &mut self,
         sockets: &mut SocketSet,
         ipv4_packet: &Ipv4Packet<&'payload T>,
-        _fragments: Option<&'output mut PacketAssemblerSet<'a, Ipv4FragKey>>,
+        _fragments: Option<&'output mut PacketAssemblerSet<Ipv4FragKey>>,
     ) -> Option<IpPacket<'output>> {
         let ipv4_repr = check!(Ipv4Repr::parse(ipv4_packet, &self.caps.checksum));
         if !self.is_unicast_v4(ipv4_repr.src_addr) {
@@ -39,32 +37,18 @@ impl<'a> InterfaceInner<'a> {
 
         #[cfg(feature = "proto-ipv4-fragmentation")]
         let ip_payload = {
-            const REASSEMBLY_TIMEOUT: u64 = 90;
+            const REASSEMBLY_TIMEOUT: Duration = Duration::from_secs(90);
 
             let fragments = _fragments.unwrap();
 
             if ipv4_packet.more_frags() || ipv4_packet.frag_offset() != 0 {
                 let key = ipv4_packet.get_key();
 
-                let f = match fragments.get_packet_assembler_mut(&key) {
+                let f = match fragments.get(&key, self.now + REASSEMBLY_TIMEOUT) {
                     Ok(f) => f,
                     Err(_) => {
-                        let p = match fragments.reserve_with_key(&key) {
-                            Ok(p) => p,
-                            Err(Error::PacketAssemblerSetFull) => {
-                                net_debug!("No available packet assembler for fragmented packet");
-                                return Default::default();
-                            }
-                            e => check!(e),
-                        };
-
-                        check!(p.start(
-                            None,
-                            self.now + Duration::from_secs(REASSEMBLY_TIMEOUT),
-                            0
-                        ));
-
-                        check!(fragments.get_packet_assembler_mut(&key))
+                        net_debug!("No available packet assembler for fragmented packet");
+                        return None;
                     }
                 };
 
@@ -76,23 +60,17 @@ impl<'a> InterfaceInner<'a> {
                     ));
                 }
 
-                match f.add(ipv4_packet.payload(), ipv4_packet.frag_offset() as usize) {
-                    Ok(true) => {
-                        // NOTE: according to the standard, the total length needs to be
-                        // recomputed, as well as the checksum. However, we don't really use
-                        // the IPv4 header after the packet is reassembled.
-                        check!(fragments.get_assembled_packet(&key))
-                    }
-                    Ok(false) => {
-                        return None;
-                    }
-                    Err(Error::PacketAssemblerOverlap) => {
-                        return None;
-                    }
-                    Err(e) => {
-                        net_debug!("fragmentation error: {}", e);
-                        return None;
-                    }
+                if let Err(e) = f.add(ipv4_packet.payload(), ipv4_packet.frag_offset() as usize) {
+                    net_debug!("fragmentation error: {:?}", e);
+                    return None;
+                }
+
+                // NOTE: according to the standard, the total length needs to be
+                // recomputed, as well as the checksum. However, we don't really use
+                // the IPv4 header after the packet is reassembled.
+                match f.assemble() {
+                    Some(payload) => payload,
+                    None => return None,
                 }
             } else {
                 ipv4_packet.payload()
@@ -269,72 +247,6 @@ impl<'a> InterfaceInner<'a> {
         }
     }
 
-    /// Host duties of the **IGMPv2** protocol.
-    ///
-    /// Sets up `igmp_report_state` for responding to IGMP general/specific membership queries.
-    /// Membership must not be reported immediately in order to avoid flooding the network
-    /// after a query is broadcasted by a router; this is not currently done.
-    #[cfg(feature = "proto-igmp")]
-    pub(super) fn process_igmp<'frame>(
-        &mut self,
-        ipv4_repr: Ipv4Repr,
-        ip_payload: &'frame [u8],
-    ) -> Option<IpPacket<'frame>> {
-        let igmp_packet = check!(IgmpPacket::new_checked(ip_payload));
-        let igmp_repr = check!(IgmpRepr::parse(&igmp_packet));
-
-        // FIXME: report membership after a delay
-        match igmp_repr {
-            IgmpRepr::MembershipQuery {
-                group_addr,
-                version,
-                max_resp_time,
-            } => {
-                // General query
-                if group_addr.is_unspecified()
-                    && ipv4_repr.dst_addr == Ipv4Address::MULTICAST_ALL_SYSTEMS
-                {
-                    // Are we member in any groups?
-                    if self.ipv4_multicast_groups.iter().next().is_some() {
-                        let interval = match version {
-                            IgmpVersion::Version1 => Duration::from_millis(100),
-                            IgmpVersion::Version2 => {
-                                // No dependence on a random generator
-                                // (see [#24](https://github.com/m-labs/smoltcp/issues/24))
-                                // but at least spread reports evenly across max_resp_time.
-                                let intervals = self.ipv4_multicast_groups.len() as u32 + 1;
-                                max_resp_time / intervals
-                            }
-                        };
-                        self.igmp_report_state = IgmpReportState::ToGeneralQuery {
-                            version,
-                            timeout: self.now + interval,
-                            interval,
-                            next_index: 0,
-                        };
-                    }
-                } else {
-                    // Group-specific query
-                    if self.has_multicast_group(group_addr) && ipv4_repr.dst_addr == group_addr {
-                        // Don't respond immediately
-                        let timeout = max_resp_time / 4;
-                        self.igmp_report_state = IgmpReportState::ToSpecificQuery {
-                            version,
-                            timeout: self.now + timeout,
-                            group: group_addr,
-                        };
-                    }
-                }
-            }
-            // Ignore membership reports
-            IgmpRepr::MembershipReport { .. } => (),
-            // Ignore hosts leaving groups
-            IgmpRepr::LeaveGroup { .. } => (),
-        }
-
-        None
-    }
-
     pub(super) fn process_icmpv4<'frame>(
         &mut self,
         _sockets: &mut SocketSet,
@@ -437,7 +349,7 @@ impl<'a> InterfaceInner<'a> {
         &mut self,
         tx_token: Tx,
         out_packet: &mut Ipv4OutPacket,
-    ) -> Result<()> {
+    ) {
         let Ipv4OutPacket {
             buffer,
             packet_len,
@@ -470,12 +382,7 @@ impl<'a> InterfaceInner<'a> {
         let emit_ethernet = |repr: &IpRepr, tx_buffer: &mut [u8]| {
             let mut frame = EthernetFrame::new_unchecked(tx_buffer);
 
-            let src_addr = if let Some(HardwareAddress::Ethernet(addr)) = self.hardware_addr {
-                addr
-            } else {
-                return Err(Error::Malformed);
-            };
-
+            let src_addr = self.hardware_addr.unwrap().ethernet_or_panic();
             frame.set_src_addr(src_addr);
             frame.set_dst_addr(*dst_hardware_addr);
 
@@ -485,14 +392,12 @@ impl<'a> InterfaceInner<'a> {
                 #[cfg(feature = "proto-ipv6")]
                 IpVersion::Ipv6 => frame.set_ethertype(EthernetProtocol::Ipv6),
             }
-
-            Ok(())
         };
 
-        tx_token.consume(self.now, tx_len, |mut tx_buffer| {
+        tx_token.consume(tx_len, |mut tx_buffer| {
             #[cfg(feature = "medium-ethernet")]
             if matches!(self.caps.medium, Medium::Ethernet) {
-                emit_ethernet(&IpRepr::Ipv4(*repr), tx_buffer)?;
+                emit_ethernet(&IpRepr::Ipv4(*repr), tx_buffer);
                 tx_buffer = &mut tx_buffer[EthernetFrame::<&[u8]>::header_len()..];
             }
 
@@ -513,8 +418,6 @@ impl<'a> InterfaceInner<'a> {
 
             // Update the frag offset for the next fragment.
             *frag_offset += payload_len as u16;
-
-            Ok(())
         })
     }
 

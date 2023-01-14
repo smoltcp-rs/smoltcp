@@ -43,12 +43,10 @@
 
 mod utils;
 
-use log::debug;
-use std::collections::BTreeMap;
 use std::os::unix::io::AsRawFd;
 use std::str;
 
-use smoltcp::iface::{InterfaceBuilder, NeighborCache, ReassemblyBuffer, SocketSet};
+use smoltcp::iface::{InterfaceBuilder, NeighborCache, SocketSet};
 use smoltcp::phy::{wait as phy_wait, Medium, RawSocket};
 use smoltcp::socket::tcp;
 use smoltcp::wire::{Ieee802154Pan, IpAddress, IpCidr};
@@ -169,15 +167,12 @@ fn main() {
         ))
         .unwrap();
 
-    let cache = ReassemblyBuffer::new(vec![], BTreeMap::new());
-
     let mut builder = InterfaceBuilder::new()
         .ip_addrs(ip_addrs)
         .pan_id(Ieee802154Pan(0xbeef));
     builder = builder
         .hardware_addr(ieee802154_addr.into())
         .neighbor_cache(neighbor_cache)
-        .sixlowpan_reassembly_buffer(cache)
         .sixlowpan_fragmentation_buffer(vec![]);
     let mut iface = builder.finalize(&mut device);
 
@@ -192,12 +187,7 @@ fn main() {
 
     while !CLIENT_DONE.load(Ordering::SeqCst) {
         let timestamp = Instant::now();
-        match iface.poll(timestamp, &mut device, &mut sockets) {
-            Ok(_) => {}
-            Err(e) => {
-                debug!("poll error: {}", e);
-            }
-        }
+        iface.poll(timestamp, &mut device, &mut sockets);
 
         // tcp:1234: emit data
         let socket = sockets.get_mut::<tcp::Socket>(tcp1_handle);

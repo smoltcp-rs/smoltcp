@@ -6,9 +6,12 @@ use crate::wire::{IpAddress, IpCidr};
 use crate::wire::{Ipv4Address, Ipv4Cidr};
 #[cfg(feature = "proto-ipv6")]
 use crate::wire::{Ipv6Address, Ipv6Cidr};
-use crate::{Error, Result};
 
 pub const MAX_ROUTE_COUNT: usize = 4;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct RouteTableFull;
 
 /// A prefix of addresses that should be routed via a router
 #[derive(Debug, Clone, Copy)]
@@ -75,11 +78,14 @@ impl Routes {
     ///
     /// On success, returns the previous default route, if any.
     #[cfg(feature = "proto-ipv4")]
-    pub fn add_default_ipv4_route(&mut self, gateway: Ipv4Address) -> Result<Option<Route>> {
+    pub fn add_default_ipv4_route(
+        &mut self,
+        gateway: Ipv4Address,
+    ) -> Result<Option<Route>, RouteTableFull> {
         let old = self.remove_default_ipv4_route();
         self.storage
             .push(Route::new_ipv4_gateway(gateway))
-            .map_err(|_| Error::Exhausted)?;
+            .map_err(|_| RouteTableFull)?;
         Ok(old)
     }
 
@@ -87,11 +93,14 @@ impl Routes {
     ///
     /// On success, returns the previous default route, if any.
     #[cfg(feature = "proto-ipv6")]
-    pub fn add_default_ipv6_route(&mut self, gateway: Ipv6Address) -> Result<Option<Route>> {
+    pub fn add_default_ipv6_route(
+        &mut self,
+        gateway: Ipv6Address,
+    ) -> Result<Option<Route>, RouteTableFull> {
         let old = self.remove_default_ipv6_route();
         self.storage
             .push(Route::new_ipv6_gateway(gateway))
-            .map_err(|_| Error::Exhausted)?;
+            .map_err(|_| RouteTableFull)?;
         Ok(old)
     }
 

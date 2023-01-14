@@ -164,15 +164,10 @@ impl<'a, H> PacketBuffer<'a, H> {
     }
 
     fn dequeue_padding(&mut self) {
-        let Self {
-            ref mut metadata_ring,
-            ref mut payload_ring,
-        } = *self;
-
-        let _ = metadata_ring.dequeue_one_with(|metadata| {
+        let _ = self.metadata_ring.dequeue_one_with(|metadata| {
             if metadata.is_padding() {
                 // note(discard): function does not use value of dequeued padding bytes
-                let _buf_dequeued = payload_ring.dequeue_many(metadata.size);
+                let _buf_dequeued = self.payload_ring.dequeue_many(metadata.size);
                 Ok(()) // dequeue metadata
             } else {
                 Err(()) // don't dequeue metadata
@@ -188,18 +183,13 @@ impl<'a, H> PacketBuffer<'a, H> {
     {
         self.dequeue_padding();
 
-        let Self {
-            ref mut metadata_ring,
-            ref mut payload_ring,
-        } = *self;
-
-        metadata_ring.dequeue_one_with(move |metadata| {
+        self.metadata_ring.dequeue_one_with(|metadata| {
             let PacketMetadata {
                 ref mut header,
                 size,
             } = *metadata;
 
-            payload_ring
+            self.payload_ring
                 .dequeue_many_with(|payload_buf| {
                     debug_assert!(payload_buf.len() >= size);
 

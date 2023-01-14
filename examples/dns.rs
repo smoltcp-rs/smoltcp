@@ -77,12 +77,7 @@ fn main() {
         let timestamp = Instant::now();
         debug!("timestamp {:?}", timestamp);
 
-        match iface.poll(timestamp, &mut device, &mut sockets) {
-            Ok(_) => {}
-            Err(e) => {
-                debug!("poll error: {}", e);
-            }
-        }
+        iface.poll(timestamp, &mut device, &mut sockets);
 
         match sockets
             .get_mut::<dns::Socket>(dns_handle)

@@ -121,12 +121,7 @@ fn main() {
     let mut did_connect = false;
     let mut done = false;
     while !done && clock.elapsed() < Instant::from_millis(10_000) {
-        match iface.poll(clock.elapsed(), &mut device, &mut sockets) {
-            Ok(_) => {}
-            Err(e) => {
-                debug!("poll error: {}", e);
-            }
-        }
+        iface.poll(clock.elapsed(), &mut device, &mut sockets);
 
         let mut socket = sockets.get_mut::<tcp::Socket>(server_handle);
         if !socket.is_active() && !socket.is_listening() {
