@@ -165,7 +165,6 @@ impl<'a> Parser<'a> {
         (head, tail): (&mut [u16; 8], &mut [u16; 6]),
         (head_idx, tail_idx): (&mut usize, &mut usize),
         mut use_tail: bool,
-        is_cidr: bool,
     ) -> Result<()> {
         let double_colon = match self.try_do(|p| p.accept_str(b"::")) {
             Some(_) if !use_tail && *head_idx < 7 => {
@@ -221,7 +220,7 @@ impl<'a> Parser<'a> {
                 // Tail or head section is too long
                 Err(())
             }
-            None if double_colon && (is_cidr || self.pos == self.data.len()) => {
+            None if double_colon => {
                 // The address ends with "::". E.g. 1234:: or ::
                 Ok(())
             }
@@ -242,12 +241,12 @@ impl<'a> Parser<'a> {
             Ok(())
         } else {
             // Continue recursing
-            self.accept_ipv6_part((head, tail), (head_idx, tail_idx), use_tail, is_cidr)
+            self.accept_ipv6_part((head, tail), (head_idx, tail_idx), use_tail)
         }
     }
 
     #[cfg(feature = "proto-ipv6")]
-    fn accept_ipv6(&mut self, is_cidr: bool) -> Result<Ipv6Address> {
+    fn accept_ipv6(&mut self) -> Result<Ipv6Address> {
         // IPv6 addresses may contain a "::" to indicate a series of
         // 16 bit sections that evaluate to 0. E.g.
         //
@@ -272,7 +271,6 @@ impl<'a> Parser<'a> {
             (&mut addr, &mut tail),
             (&mut head_idx, &mut tail_idx),
             false,
-            is_cidr,
         )?;
 
         // We need to copy the tail portion (the portion following the "::") to the
@@ -309,7 +307,7 @@ impl<'a> Parser<'a> {
 
         #[cfg(feature = "proto-ipv6")]
         #[allow(clippy::single_match)]
-        match self.try_do(|p| p.accept_ipv6(false)) {
+        match self.try_do(|p| p.accept_ipv6()) {
             Some(ipv6) => return Ok(IpAddress::Ipv6(ipv6)),
             None => (),
         }
@@ -338,7 +336,7 @@ impl<'a> Parser<'a> {
     fn accept_ipv6_endpoint(&mut self) -> Result<IpEndpoint> {
         if self.lookahead_char(b'[') {
             self.accept_char(b'[')?;
-            let ip = self.accept_ipv6(false)?;
+            let ip = self.accept_ipv6()?;
             self.accept_char(b']')?;
             self.accept_char(b':')?;
             let port = self.accept_number(5, 65535, false)?;
@@ -348,7 +346,7 @@ impl<'a> Parser<'a> {
                 port: port as u16,
             })
         } else {
-            let ip = self.accept_ipv6(false)?;
+            let ip = self.accept_ipv6()?;
             Ok(IpEndpoint {
                 addr: IpAddress::Ipv6(ip),
                 port: 0,
@@ -401,7 +399,7 @@ impl FromStr for Ipv6Address {
 
     /// Parse a string representation of an IPv6 address.
     fn from_str(s: &str) -> Result<Ipv6Address> {
-        Parser::new(s).until_eof(|p| p.accept_ipv6(false))
+        Parser::new(s).until_eof(|p| p.accept_ipv6())
     }
 }
 
@@ -437,7 +435,7 @@ impl FromStr for Ipv6Cidr {
     fn from_str(s: &str) -> Result<Ipv6Cidr> {
         // https://tools.ietf.org/html/rfc4291#section-2.3
         Parser::new(s).until_eof(|p| {
-            let ip = p.accept_ipv6(true)?;
+            let ip = p.accept_ipv6()?;
             p.accept_char(b'/')?;
             let prefix_len = p.accept_number(3, 129, false)? as u8;
             Ok(Ipv6Cidr::new(ip, prefix_len))
@@ -753,6 +751,13 @@ mod test {
             IpEndpoint::from_str("[fe80::1]:12345"),
             Ok(IpEndpoint {
                 addr: IpAddress::v6(0xfe80, 0, 0, 0, 0, 0, 0, 1),
+                port: 12345
+            })
+        );
+        assert_eq!(
+            IpEndpoint::from_str("[::]:12345"),
+            Ok(IpEndpoint {
+                addr: IpAddress::v6(0, 0, 0, 0, 0, 0, 0, 0),
                 port: 12345
             })
         );
