@@ -427,7 +427,7 @@ pub enum Repr<'a> {
 
 impl<'a> Repr<'a> {
     /// Parse an NDISC Option and return a high-level representation.
-    pub fn parse<T>(opt: &'a NdiscOption<&'a T>) -> Result<Repr<'a>>
+    pub fn parse<T>(opt: &NdiscOption<&'a T>) -> Result<Repr<'a>>
     where
         T: AsRef<[u8]> + ?Sized,
     {
