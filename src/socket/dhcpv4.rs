@@ -299,12 +299,12 @@ impl<'a> Socket<'a> {
                 return;
             }
         };
-        let hardware_addr = match cx.hardware_addr() {
-            Some(HardwareAddress::Ethernet(addr)) => addr,
-            _ => return,
+
+        let Some(HardwareAddress::Ethernet(ethernet_addr)) = cx.hardware_addr() else {
+            panic!("using DHCPv4 socket with a non-ethernet hardware address.");
         };
 
-        if dhcp_repr.client_hardware_address != hardware_addr {
+        if dhcp_repr.client_hardware_address != ethernet_addr {
             return;
         }
         if dhcp_repr.transaction_id != self.transaction_id {
@@ -503,9 +503,7 @@ impl<'a> Socket<'a> {
     {
         // note: Dhcpv4Socket is only usable in ethernet mediums, so the
         // unwrap can never fail.
-        let ethernet_addr = if let Some(HardwareAddress::Ethernet(addr)) = cx.hardware_addr() {
-            addr
-        } else {
+        let Some(HardwareAddress::Ethernet(ethernet_addr)) = cx.hardware_addr() else {
             panic!("using DHCPv4 socket with a non-ethernet hardware address.");
         };
 
