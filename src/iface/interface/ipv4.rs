@@ -90,15 +90,15 @@ impl<'a> InterfaceInner<'a> {
         #[cfg(feature = "socket-dhcpv4")]
         {
             if ipv4_repr.next_header == IpProtocol::Udp && self.hardware_addr.is_some() {
-                // First check for source and dest ports, then do `UdpRepr::parse` if they match.
-                // This way we avoid validating the UDP checksum twice for all non-DHCP UDP packets (one here, one in `process_udp`)
                 let udp_packet = check!(UdpPacket::new_checked(ip_payload));
-                if udp_packet.src_port() == DHCP_SERVER_PORT
-                    && udp_packet.dst_port() == DHCP_CLIENT_PORT
+                if let Some(dhcp_socket) = sockets
+                    .items_mut()
+                    .find_map(|i| dhcpv4::Socket::downcast_mut(&mut i.socket))
                 {
-                    if let Some(dhcp_socket) = sockets
-                        .items_mut()
-                        .find_map(|i| dhcpv4::Socket::downcast_mut(&mut i.socket))
+                    // First check for source and dest ports, then do `UdpRepr::parse` if they match.
+                    // This way we avoid validating the UDP checksum twice for all non-DHCP UDP packets (one here, one in `process_udp`)
+                    if udp_packet.src_port() == dhcp_socket.server_port
+                        && udp_packet.dst_port() == dhcp_socket.client_port
                     {
                         let (src_addr, dst_addr) = (ip_repr.src_addr(), ip_repr.dst_addr());
                         let udp_repr = check!(UdpRepr::parse(
