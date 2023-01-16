@@ -1455,7 +1455,7 @@ fn test_echo_request_sixlowpan_128_bytes() {
         &request_first_part_iphc_packet,
         ieee802154_repr.src_addr,
         ieee802154_repr.dst_addr,
-        iface.inner.sixlowpan_address_context,
+        &iface.inner.sixlowpan_address_context,
     )
     .unwrap();
 

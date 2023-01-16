@@ -178,7 +178,7 @@ impl<'a> InterfaceInner<'a> {
             &iphc,
             ieee802154_repr.src_addr,
             ieee802154_repr.dst_addr,
-            self.sixlowpan_address_context,
+            &self.sixlowpan_address_context,
         )?;
 
         let mut decompressed_size = 40 + iphc.payload().len();

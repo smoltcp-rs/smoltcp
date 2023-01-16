@@ -41,6 +41,8 @@ const MAX_IP_ADDR_COUNT: usize = 5;
 #[cfg(feature = "proto-igmp")]
 const MAX_IPV4_MULTICAST_GROUPS: usize = 4;
 const FRAGMENTATION_BUFFER_SIZE: usize = 1500;
+#[cfg(feature = "proto-sixlowpan")]
+const SIXLOWPAN_ADDRESS_CONTEXT_COUNT: usize = 4;
 
 pub(crate) struct FragmentsBuffer {
     #[cfg(feature = "proto-sixlowpan")]
@@ -271,7 +273,7 @@ pub struct InterfaceInner<'a> {
     #[cfg(feature = "proto-ipv4-fragmentation")]
     ipv4_id: u16,
     #[cfg(feature = "proto-sixlowpan")]
-    sixlowpan_address_context: &'a [SixlowpanAddressContext<'a>],
+    sixlowpan_address_context: Vec<SixlowpanAddressContext, SIXLOWPAN_ADDRESS_CONTEXT_COUNT>,
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
     tag: u16,
     ip_addrs: Vec<IpCidr, MAX_IP_ADDR_COUNT>,
@@ -308,7 +310,7 @@ pub struct InterfaceBuilder<'a> {
     sixlowpan_reassembly_buffer_timeout: Duration,
 
     #[cfg(feature = "proto-sixlowpan")]
-    sixlowpan_address_context: &'a [SixlowpanAddressContext<'a>],
+    sixlowpan_address_context: Vec<SixlowpanAddressContext, SIXLOWPAN_ADDRESS_CONTEXT_COUNT>,
 }
 
 impl<'a> InterfaceBuilder<'a> {
@@ -369,7 +371,7 @@ let iface = builder.finalize(&mut device);
             sixlowpan_reassembly_buffer_timeout: Duration::from_secs(60),
 
             #[cfg(feature = "proto-sixlowpan")]
-            sixlowpan_address_context: &[],
+            sixlowpan_address_context: Vec::new(),
         }
     }
 
@@ -485,7 +487,7 @@ let iface = builder.finalize(&mut device);
     #[cfg(feature = "proto-sixlowpan")]
     pub fn sixlowpan_address_context(
         mut self,
-        sixlowpan_address_context: &'a [SixlowpanAddressContext<'a>],
+        sixlowpan_address_context: Vec<SixlowpanAddressContext, SIXLOWPAN_ADDRESS_CONTEXT_COUNT>,
     ) -> Self {
         self.sixlowpan_address_context = sixlowpan_address_context;
         self
@@ -633,7 +635,7 @@ let iface = builder.finalize(&mut device);
                 #[cfg(feature = "proto-ipv4-fragmentation")]
                 ipv4_id,
                 #[cfg(feature = "proto-sixlowpan")]
-                sixlowpan_address_context: &[],
+                sixlowpan_address_context: Vec::new(),
                 rand,
             },
         }
@@ -1353,7 +1355,7 @@ impl<'a> InterfaceInner<'a> {
             tag: 1,
 
             #[cfg(feature = "proto-sixlowpan")]
-            sixlowpan_address_context: &[],
+            sixlowpan_address_context: Vec::new(),
 
             #[cfg(feature = "proto-ipv4-fragmentation")]
             ipv4_id: 1,
