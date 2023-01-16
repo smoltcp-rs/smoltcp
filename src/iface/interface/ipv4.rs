@@ -21,7 +21,7 @@ use crate::phy::{Medium, TxToken};
 use crate::time::{Duration, Instant};
 use crate::wire::*;
 
-impl<'a> InterfaceInner<'a> {
+impl InterfaceInner {
     pub(super) fn process_ipv4<'output, 'payload: 'output, T: AsRef<[u8]> + ?Sized>(
         &mut self,
         sockets: &mut SocketSet,

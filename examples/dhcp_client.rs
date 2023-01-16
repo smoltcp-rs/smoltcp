@@ -90,7 +90,7 @@ fn main() {
     }
 }
 
-fn set_ipv4_addr(iface: &mut Interface<'_>, cidr: Ipv4Cidr) {
+fn set_ipv4_addr(iface: &mut Interface, cidr: Ipv4Cidr) {
     iface.update_ip_addrs(|addrs| {
         let dest = addrs.iter_mut().next().unwrap();
         *dest = IpCidr::Ipv4(cidr);

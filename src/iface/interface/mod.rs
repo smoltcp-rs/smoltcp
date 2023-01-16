@@ -19,7 +19,6 @@ mod ipv6;
 mod igmp;
 
 use core::cmp;
-use core::marker::PhantomData;
 use core::result::Result;
 use heapless::{LinearMap, Vec};
 
@@ -242,8 +241,8 @@ use check;
 /// The network interface logically owns a number of other data structures; to avoid
 /// a dependency on heap allocation, it instead owns a `BorrowMut<[T]>`, which can be
 /// a `&mut [T]`, or `Vec<T>` if a heap is available.
-pub struct Interface<'a> {
-    inner: InterfaceInner<'a>,
+pub struct Interface {
+    inner: InterfaceInner,
     fragments: FragmentsBuffer,
     out_packets: OutPackets,
 }
@@ -255,12 +254,10 @@ pub struct Interface<'a> {
 /// the `device` mutably until they're used, which makes it impossible to call other
 /// methods on the `Interface` in this time (since its `device` field is borrowed
 /// exclusively). However, it is still possible to call methods on its `inner` field.
-pub struct InterfaceInner<'a> {
+pub struct InterfaceInner {
     caps: DeviceCapabilities,
     now: Instant,
     rand: Rand,
-
-    phantom: PhantomData<&'a mut ()>,
 
     #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
     neighbor_cache: Option<NeighborCache>,
@@ -288,9 +285,7 @@ pub struct InterfaceInner<'a> {
 }
 
 /// A builder structure used for creating a network interface.
-pub struct InterfaceBuilder<'a> {
-    phantom: PhantomData<&'a mut ()>,
-
+pub struct InterfaceBuilder {
     #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
     hardware_addr: Option<HardwareAddress>,
     #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
@@ -313,7 +308,7 @@ pub struct InterfaceBuilder<'a> {
     sixlowpan_address_context: Vec<SixlowpanAddressContext, SIXLOWPAN_ADDRESS_CONTEXT_COUNT>,
 }
 
-impl<'a> InterfaceBuilder<'a> {
+impl InterfaceBuilder {
     /// Create a builder used for creating a network interface using the
     /// given device and address.
     #[cfg_attr(
@@ -349,8 +344,6 @@ let iface = builder.finalize(&mut device);
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         InterfaceBuilder {
-            phantom: PhantomData,
-
             #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
             hardware_addr: None,
             #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
@@ -449,7 +442,7 @@ let iface = builder.finalize(&mut device);
     /// [routes].
     ///
     /// [routes]: struct.Interface.html#method.routes
-    pub fn routes<T>(mut self, routes: T) -> InterfaceBuilder<'a>
+    pub fn routes<T>(mut self, routes: T) -> Self
     where
         T: Into<Routes>,
     {
@@ -514,7 +507,7 @@ let iface = builder.finalize(&mut device);
     ///
     /// [ethernet_addr]: #method.ethernet_addr
     /// [neighbor_cache]: #method.neighbor_cache
-    pub fn finalize<D>(self, device: &mut D) -> Interface<'a>
+    pub fn finalize<D>(self, device: &mut D) -> Interface
     where
         D: Device + ?Sized,
     {
@@ -611,7 +604,6 @@ let iface = builder.finalize(&mut device);
                 sixlowpan_out_packet: SixlowpanOutPacket::new(),
             },
             inner: InterfaceInner {
-                phantom: PhantomData,
                 now: Instant::from_secs(0),
                 caps,
                 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
@@ -792,11 +784,11 @@ enum IgmpReportState {
     },
 }
 
-impl<'a> Interface<'a> {
+impl Interface {
     /// Get the socket context.
     ///
     /// The context is needed for some socket methods.
-    pub fn context(&mut self) -> &mut InterfaceInner<'a> {
+    pub fn context(&mut self) -> &mut InterfaceInner {
         &mut self.inner
     }
 
@@ -1232,7 +1224,7 @@ impl<'a> Interface<'a> {
     }
 }
 
-impl<'a> InterfaceInner<'a> {
+impl InterfaceInner {
     #[allow(unused)] // unused depending on which sockets are enabled
     pub(crate) fn now(&self) -> Instant {
         self.now
@@ -1304,7 +1296,6 @@ impl<'a> InterfaceInner<'a> {
     #[cfg(test)]
     pub(crate) fn mock() -> Self {
         Self {
-            phantom: PhantomData,
             caps: DeviceCapabilities {
                 #[cfg(feature = "medium-ethernet")]
                 medium: crate::phy::Medium::Ethernet,

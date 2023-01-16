@@ -722,7 +722,7 @@ mod test {
 
     struct TestSocket {
         socket: Socket<'static>,
-        cx: Context<'static>,
+        cx: Context,
     }
 
     impl Deref for TestSocket {

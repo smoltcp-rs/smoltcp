@@ -16,7 +16,7 @@ use crate::wire::*;
 // TODO: lower. Should be (6lowpan mtu) - (min 6lowpan header size) + (max ipv6 header size)
 pub(crate) const MAX_DECOMPRESSED_LEN: usize = 1500;
 
-impl<'a> InterfaceInner<'a> {
+impl InterfaceInner {
     #[cfg(feature = "medium-ieee802154")]
     pub(super) fn process_ieee802154<'output, 'payload: 'output, T: AsRef<[u8]> + ?Sized>(
         &mut self,

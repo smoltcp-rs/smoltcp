@@ -24,7 +24,7 @@ const MEDIUM: Medium = Medium::Ip;
 #[cfg(all(not(feature = "medium-ethernet"), feature = "medium-ieee802154"))]
 const MEDIUM: Medium = Medium::Ieee802154;
 
-fn create<'a>(medium: Medium) -> (Interface<'a>, SocketSet<'a>, Loopback) {
+fn create<'a>(medium: Medium) -> (Interface, SocketSet<'a>, Loopback) {
     match medium {
         #[cfg(feature = "medium-ethernet")]
         Medium::Ethernet => create_ethernet(),
@@ -37,7 +37,7 @@ fn create<'a>(medium: Medium) -> (Interface<'a>, SocketSet<'a>, Loopback) {
 
 #[cfg(feature = "medium-ip")]
 #[allow(unused)]
-fn create_ip<'a>() -> (Interface<'a>, SocketSet<'a>, Loopback) {
+fn create_ip<'a>() -> (Interface, SocketSet<'a>, Loopback) {
     // Create a basic device
     let mut device = Loopback::new(Medium::Ip);
     let mut ip_addrs = heapless::Vec::<IpCidr, MAX_IP_ADDR_COUNT>::new();
@@ -62,7 +62,7 @@ fn create_ip<'a>() -> (Interface<'a>, SocketSet<'a>, Loopback) {
 }
 
 #[cfg(feature = "medium-ethernet")]
-fn create_ethernet<'a>() -> (Interface<'a>, SocketSet<'a>, Loopback) {
+fn create_ethernet<'a>() -> (Interface, SocketSet<'a>, Loopback) {
     // Create a basic device
     let mut device = Loopback::new(Medium::Ethernet);
     let mut ip_addrs = heapless::Vec::<IpCidr, MAX_IP_ADDR_COUNT>::new();
@@ -90,7 +90,7 @@ fn create_ethernet<'a>() -> (Interface<'a>, SocketSet<'a>, Loopback) {
 }
 
 #[cfg(feature = "medium-ieee802154")]
-fn create_ieee802154<'a>() -> (Interface<'a>, SocketSet<'a>, Loopback) {
+fn create_ieee802154<'a>() -> (Interface, SocketSet<'a>, Loopback) {
     // Create a basic device
     let mut device = Loopback::new(Medium::Ieee802154);
     let mut ip_addrs = heapless::Vec::<IpCidr, MAX_IP_ADDR_COUNT>::new();
