@@ -170,7 +170,7 @@ impl Assembler {
         Ok(&mut self.contigs[at])
     }
 
-    /// Add a new contiguous range to the assembler, and return `Ok(bool)`,
+    /// Add a new contiguous range to the assembler,
     /// or return `Err(TooManyHolesError)` if too many discontiguities are already recorded.
     pub fn add(&mut self, mut offset: usize, size: usize) -> Result<(), TooManyHolesError> {
         if size == 0 {
@@ -229,11 +229,16 @@ impl Assembler {
         }
         let shift = j - i - 1;
         if shift != 0 {
-            for x in i + 1..self.contigs.len() - shift {
+            for x in i + 1..self.contigs.len() {
                 if !self.contigs[x].has_data() {
                     break;
                 }
-                self.contigs[x] = self.contigs[x + shift];
+
+                self.contigs[x] = self
+                    .contigs
+                    .get(x + shift)
+                    .copied()
+                    .unwrap_or_else(Contig::empty);
             }
         }
 
@@ -251,8 +256,8 @@ impl Assembler {
         Ok(())
     }
 
-    /// Remove a contiguous range from the front of the assembler and `Some(data_size)`,
-    /// or return `None` if there is no such range.
+    /// Remove a contiguous range from the front of the assembler.
+    /// If no such range, return 0.
     pub fn remove_front(&mut self) -> usize {
         let front = self.front();
         if front.has_hole() || !front.has_data() {
@@ -262,6 +267,29 @@ impl Assembler {
             debug_assert!(front.data_size > 0);
             front.data_size
         }
+    }
+
+    /// Add a segment, then remove_front.
+    ///
+    /// This is equivalent to calling `add` then `remove_front` individually,
+    /// except it's guaranteed to not fail when offset = 0.
+    /// This is required for TCP: we must never drop the next expected segment, or
+    /// the protocol might get stuck.
+    pub fn add_then_remove_front(
+        &mut self,
+        offset: usize,
+        size: usize,
+    ) -> Result<usize, TooManyHolesError> {
+        // This is the only case where a segment at offset=0 would cause the
+        // total amount of contigs to rise (and therefore can potentially cause
+        // a TooManyHolesError). Handle it in a way that is guaranteed to succeed.
+        if offset == 0 && size < self.contigs[0].hole_size {
+            self.contigs[0].hole_size -= size;
+            return Ok(size);
+        }
+
+        self.add(offset, size)?;
+        Ok(self.remove_front())
     }
 
     /// Iterate over all of the contiguous data ranges.
@@ -593,54 +621,103 @@ mod test {
         assert_eq!(assr.add(1, 1), Ok(()));
     }
 
+    #[test]
+    fn test_add_then_remove_front() {
+        let mut assr = Assembler::new();
+        assert_eq!(assr.add(50, 10), Ok(()));
+        assert_eq!(assr.add_then_remove_front(10, 10), Ok(0));
+        assert_eq!(assr, contigs![(10, 10), (30, 10)]);
+    }
+
+    #[test]
+    fn test_add_then_remove_front_at_front() {
+        let mut assr = Assembler::new();
+        assert_eq!(assr.add(50, 10), Ok(()));
+        assert_eq!(assr.add_then_remove_front(0, 10), Ok(10));
+        assert_eq!(assr, contigs![(40, 10)]);
+    }
+
+    #[test]
+    fn test_add_then_remove_front_at_front_touch() {
+        let mut assr = Assembler::new();
+        assert_eq!(assr.add(50, 10), Ok(()));
+        assert_eq!(assr.add_then_remove_front(0, 50), Ok(60));
+        assert_eq!(assr, contigs![]);
+    }
+
+    #[test]
+    fn test_add_then_remove_front_at_front_full() {
+        let mut assr = Assembler::new();
+        for c in 1..=CONTIG_COUNT {
+            assert_eq!(assr.add(c * 10, 3), Ok(()));
+        }
+        // Maximum of allowed holes is reached
+        let assr_before = assr.clone();
+        assert_eq!(assr.add_then_remove_front(1, 3), Err(TooManyHolesError));
+        assert_eq!(assr_before, assr);
+    }
+
+    #[test]
+    fn test_add_then_remove_front_at_front_full_offset_0() {
+        let mut assr = Assembler::new();
+        for c in 1..=CONTIG_COUNT {
+            assert_eq!(assr.add(c * 10, 3), Ok(()));
+        }
+        assert_eq!(assr.add_then_remove_front(0, 3), Ok(3));
+    }
+
     // Test against an obviously-correct but inefficient bitmap impl.
     #[test]
     fn test_random() {
         use rand::Rng;
 
-        for _ in 0..1000 {
-            println!("===");
-            let mut assr = Assembler::new();
-            let mut map = [false; 128];
+        const MAX_INDEX: usize = 256;
 
-            for _ in 0..30 {
-                let offset = rand::thread_rng().gen_range(0..80);
-                let size = rand::thread_rng().gen_range(0..47);
+        for max_size in [2, 5, 10, 100] {
+            for _ in 0..300 {
+                //println!("===");
+                let mut assr = Assembler::new();
+                let mut map = [false; MAX_INDEX];
 
-                println!("add {}..{} {}", offset, offset + size, size);
-                // Real impl
-                let res = assr.add(offset, size);
+                for _ in 0..60 {
+                    let offset = rand::thread_rng().gen_range(0..MAX_INDEX - max_size - 1);
+                    let size = rand::thread_rng().gen_range(1..=max_size);
 
-                // Bitmap impl
-                let mut map2 = map;
-                map2[offset..][..size].fill(true);
+                    //println!("add {}..{} {}", offset, offset + size, size);
+                    // Real impl
+                    let res = assr.add(offset, size);
 
-                let mut contigs = vec![];
-                let mut hole: usize = 0;
-                let mut data: usize = 0;
-                for b in map2 {
-                    if b {
-                        data += 1;
-                    } else {
-                        if data != 0 {
-                            contigs.push((hole, data));
-                            hole = 0;
-                            data = 0;
+                    // Bitmap impl
+                    let mut map2 = map;
+                    map2[offset..][..size].fill(true);
+
+                    let mut contigs = vec![];
+                    let mut hole: usize = 0;
+                    let mut data: usize = 0;
+                    for b in map2 {
+                        if b {
+                            data += 1;
+                        } else {
+                            if data != 0 {
+                                contigs.push((hole, data));
+                                hole = 0;
+                                data = 0;
+                            }
+                            hole += 1;
                         }
-                        hole += 1;
                     }
-                }
 
-                // Compare.
-                let wanted_res = if contigs.len() > CONTIG_COUNT {
-                    Err(TooManyHolesError)
-                } else {
-                    Ok(())
-                };
-                assert_eq!(res, wanted_res);
-                if res.is_ok() {
-                    map = map2;
-                    assert_eq!(assr, Assembler::from(contigs));
+                    // Compare.
+                    let wanted_res = if contigs.len() > CONTIG_COUNT {
+                        Err(TooManyHolesError)
+                    } else {
+                        Ok(())
+                    };
+                    assert_eq!(res, wanted_res);
+                    if res.is_ok() {
+                        map = map2;
+                        assert_eq!(assr, Assembler::from(contigs));
+                    }
                 }
             }
         }
