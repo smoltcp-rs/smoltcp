@@ -149,6 +149,12 @@ pub struct Socket<'a> {
     /// Ignore NAKs.
     ignore_naks: bool,
 
+    /// Server port config
+    pub(crate) server_port: u16,
+
+    /// Client port config
+    pub(crate) client_port: u16,
+
     /// A buffer contains options additional to be added to outgoing DHCP
     /// packets.
     outgoing_options: &'a [DhcpOption<'a>],
@@ -186,6 +192,8 @@ impl<'a> Socket<'a> {
             receive_packet_buffer: None,
             #[cfg(feature = "async")]
             waker: WakerRegistration::new(),
+            server_port: DHCP_SERVER_PORT,
+            client_port: DHCP_CLIENT_PORT,
         }
     }
 
@@ -247,6 +255,15 @@ impl<'a> Socket<'a> {
         self.ignore_naks = ignore_naks;
     }
 
+    /// Set the server/client port
+    ///
+    /// Allows you to specify the ports used by DHCP.
+    /// This is meant to support esoteric usecases allowed by the dhclient program.
+    pub fn set_ports(&mut self, server_port: u16, client_port: u16) {
+        self.server_port = server_port;
+        self.client_port = client_port;
+    }
+
     pub(crate) fn poll_at(&self, _cx: &mut Context) -> PollAt {
         let t = match &self.state {
             ClientState::Discovering(state) => state.retry_at,
@@ -266,7 +283,7 @@ impl<'a> Socket<'a> {
         let src_ip = ip_repr.src_addr;
 
         // This is enforced in interface.rs.
-        assert!(repr.src_port == DHCP_SERVER_PORT && repr.dst_port == DHCP_CLIENT_PORT);
+        assert!(repr.src_port == self.server_port && repr.dst_port == self.client_port);
 
         let dhcp_packet = match DhcpPacket::new_checked(payload) {
             Ok(dhcp_packet) => dhcp_packet,
@@ -528,8 +545,8 @@ impl<'a> Socket<'a> {
         };
 
         let udp_repr = UdpRepr {
-            src_port: DHCP_CLIENT_PORT,
-            dst_port: DHCP_SERVER_PORT,
+            src_port: self.client_port,
+            dst_port: self.server_port,
         };
 
         let mut ipv4_repr = Ipv4Repr {
@@ -842,12 +859,24 @@ mod test {
     };
 
     const UDP_SEND: UdpRepr = UdpRepr {
-        src_port: 68,
-        dst_port: 67,
+        src_port: DHCP_CLIENT_PORT,
+        dst_port: DHCP_SERVER_PORT,
     };
     const UDP_RECV: UdpRepr = UdpRepr {
-        src_port: 67,
-        dst_port: 68,
+        src_port: DHCP_SERVER_PORT,
+        dst_port: DHCP_CLIENT_PORT,
+    };
+
+    const DIFFERENT_CLIENT_PORT: u16 = 6800;
+    const DIFFERENT_SERVER_PORT: u16 = 6700;
+
+    const UDP_SEND_DIFFERENT_PORT: UdpRepr = UdpRepr {
+        src_port: DIFFERENT_CLIENT_PORT,
+        dst_port: DIFFERENT_SERVER_PORT,
+    };
+    const UDP_RECV_DIFFERENT_PORT: UdpRepr = UdpRepr {
+        src_port: DIFFERENT_SERVER_PORT,
+        dst_port: DIFFERENT_CLIENT_PORT,
     };
 
     const DHCP_DEFAULT: DhcpRepr = DhcpRepr {
@@ -956,6 +985,17 @@ mod test {
         }
     }
 
+    fn socket_different_port() -> TestSocket {
+        let mut s = Socket::new();
+        s.set_ports(DIFFERENT_SERVER_PORT, DIFFERENT_CLIENT_PORT);
+
+        assert_eq!(s.poll(), Some(Event::Deconfigured));
+        TestSocket {
+            socket: s,
+            cx: Context::mock(),
+        }
+    }
+
     fn socket_bound() -> TestSocket {
         let mut s = socket();
         s.state = ClientState::Renewing(RenewState {
@@ -987,6 +1027,41 @@ mod test {
         recv!(s, [(IP_BROADCAST, UDP_SEND, DHCP_REQUEST)]);
         assert_eq!(s.poll(), None);
         send!(s, (IP_RECV, UDP_RECV, dhcp_ack()));
+
+        assert_eq!(
+            s.poll(),
+            Some(Event::Configured(Config {
+                server: ServerInfo {
+                    address: SERVER_IP,
+                    identifier: SERVER_IP,
+                },
+                address: Ipv4Cidr::new(MY_IP, 24),
+                dns_servers: Vec::from_slice(DNS_IPS).unwrap(),
+                router: Some(SERVER_IP),
+                packet: None,
+            }))
+        );
+
+        match &s.state {
+            ClientState::Renewing(r) => {
+                assert_eq!(r.renew_at, Instant::from_secs(500));
+                assert_eq!(r.expires_at, Instant::from_secs(1000));
+            }
+            _ => panic!("Invalid state"),
+        }
+    }
+
+    #[test]
+    fn test_bind_different_ports() {
+        let mut s = socket_different_port();
+
+        recv!(s, [(IP_BROADCAST, UDP_SEND_DIFFERENT_PORT, DHCP_DISCOVER)]);
+        assert_eq!(s.poll(), None);
+        send!(s, (IP_RECV, UDP_RECV_DIFFERENT_PORT, dhcp_offer()));
+        assert_eq!(s.poll(), None);
+        recv!(s, [(IP_BROADCAST, UDP_SEND_DIFFERENT_PORT, DHCP_REQUEST)]);
+        assert_eq!(s.poll(), None);
+        send!(s, (IP_RECV, UDP_RECV_DIFFERENT_PORT, dhcp_ack()));
 
         assert_eq!(
             s.poll(),
