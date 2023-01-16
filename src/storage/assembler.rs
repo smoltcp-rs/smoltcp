@@ -170,7 +170,7 @@ impl Assembler {
         Ok(&mut self.contigs[at])
     }
 
-    /// Add a new contiguous range to the assembler, and return `Ok(bool)`,
+    /// Add a new contiguous range to the assembler,
     /// or return `Err(TooManyHolesError)` if too many discontiguities are already recorded.
     pub fn add(&mut self, mut offset: usize, size: usize) -> Result<(), TooManyHolesError> {
         if size == 0 {
@@ -256,8 +256,8 @@ impl Assembler {
         Ok(())
     }
 
-    /// Remove a contiguous range from the front of the assembler and `Some(data_size)`,
-    /// or return `None` if there is no such range.
+    /// Remove a contiguous range from the front of the assembler.
+    /// If no such range, return 0.
     pub fn remove_front(&mut self) -> usize {
         let front = self.front();
         if front.has_hole() || !front.has_data() {
