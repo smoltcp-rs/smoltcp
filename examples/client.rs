@@ -46,16 +46,6 @@ fn main() {
     let medium = device.capabilities().medium;
     let builder = InterfaceBuilder::new().ip_addrs(ip_addrs).routes(routes);
 
-    #[cfg(feature = "proto-ipv4-fragmentation")]
-    let mut ipv4_out_packet_cache = [0u8; 1280];
-    #[cfg(feature = "proto-ipv4-fragmentation")]
-    let builder = builder.ipv4_fragmentation_buffer(&mut ipv4_out_packet_cache[..]);
-
-    #[cfg(feature = "proto-sixlowpan-fragmentation")]
-    let mut sixlowpan_out_packet_cache = [0u8; 1280];
-    #[cfg(feature = "proto-sixlowpan-fragmentation")]
-    let builder = builder.sixlowpan_fragmentation_buffer(&mut sixlowpan_out_packet_cache[..]);
-
     let builder = if medium == Medium::Ethernet {
         builder
             .hardware_addr(ethernet_addr.into())

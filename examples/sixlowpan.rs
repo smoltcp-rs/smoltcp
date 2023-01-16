@@ -95,13 +95,6 @@ fn main() {
         .hardware_addr(ieee802154_addr.into())
         .neighbor_cache(neighbor_cache);
 
-    #[cfg(feature = "proto-sixlowpan-fragmentation")]
-    let mut out_packet_buffer = [0u8; 1280];
-    #[cfg(feature = "proto-sixlowpan-fragmentation")]
-    {
-        builder = builder.sixlowpan_fragmentation_buffer(&mut out_packet_buffer[..]);
-    }
-
     let mut iface = builder.finalize(&mut device);
 
     let mut sockets = SocketSet::new(vec![]);

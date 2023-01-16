@@ -73,16 +73,6 @@ fn main() {
             .as_secs(),
     );
 
-    #[cfg(feature = "proto-ipv4-fragmentation")]
-    let mut ipv4_out_packet_cache = [0u8; 10_000];
-    #[cfg(feature = "proto-ipv4-fragmentation")]
-    let builder = builder.ipv4_fragmentation_buffer(&mut ipv4_out_packet_cache[..]);
-
-    #[cfg(feature = "proto-sixlowpan-fragmentation")]
-    let mut sixlowpan_out_packet_cache = [0u8; 1280];
-    #[cfg(feature = "proto-sixlowpan-fragmentation")]
-    let mut builder = builder.sixlowpan_fragmentation_buffer(&mut sixlowpan_out_packet_cache[..]);
-
     if medium == Medium::Ethernet {
         builder = builder
             .hardware_addr(ethernet_addr.into())

@@ -172,8 +172,7 @@ fn main() {
         .pan_id(Ieee802154Pan(0xbeef));
     builder = builder
         .hardware_addr(ieee802154_addr.into())
-        .neighbor_cache(neighbor_cache)
-        .sixlowpan_fragmentation_buffer(vec![]);
+        .neighbor_cache(neighbor_cache);
     let mut iface = builder.finalize(&mut device);
 
     let mut sockets = SocketSet::new(vec![]);

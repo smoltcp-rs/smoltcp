@@ -111,16 +111,8 @@ impl<K> PacketAssembler<K> {
             offset
         );
 
-        match self.assembler.add(offset, len) {
-            Ok(()) => {
-                net_debug!("assembler: {}", self.assembler);
-                Ok(())
-            }
-            Err(_) => {
-                net_debug!("packet assembler: too many holes, dropping.");
-                Err(AssemblerError)
-            }
-        }
+        self.assembler.add(offset, len);
+        Ok(())
     }
 
     /// Add a fragment into the packet that is being reassembled.
@@ -149,16 +141,8 @@ impl<K> PacketAssembler<K> {
             offset
         );
 
-        match self.assembler.add(offset, data.len()) {
-            Ok(()) => {
-                net_debug!("assembler: {}", self.assembler);
-                Ok(())
-            }
-            Err(_) => {
-                net_debug!("packet assembler: too many holes, dropping.");
-                Err(AssemblerError)
-            }
-        }
+        self.assembler.add(offset, data.len());
+        Ok(())
     }
 
     /// Get an immutable slice of the underlying packet data, if reassembly complete.

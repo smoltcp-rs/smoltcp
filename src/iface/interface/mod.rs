@@ -22,7 +22,6 @@ use core::cmp;
 use core::marker::PhantomData;
 use core::result::Result;
 use heapless::{LinearMap, Vec};
-use managed::ManagedSlice;
 
 #[cfg(any(feature = "proto-ipv4", feature = "proto-sixlowpan"))]
 use super::fragmentation::PacketAssemblerSet;
@@ -41,6 +40,7 @@ use crate::wire::*;
 const MAX_IP_ADDR_COUNT: usize = 5;
 #[cfg(feature = "proto-igmp")]
 const MAX_IPV4_MULTICAST_GROUPS: usize = 4;
+const FRAGMENTATION_BUFFER_SIZE: usize = 1500;
 
 pub(crate) struct FragmentsBuffer {
     #[cfg(feature = "proto-sixlowpan")]
@@ -53,17 +53,14 @@ pub(crate) struct FragmentsBuffer {
     sixlowpan_fragments_cache_timeout: Duration,
 }
 
-pub(crate) struct OutPackets<'a> {
+pub(crate) struct OutPackets {
     #[cfg(feature = "proto-ipv4-fragmentation")]
-    ipv4_out_packet: Ipv4OutPacket<'a>,
+    ipv4_out_packet: Ipv4OutPacket,
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
-    sixlowpan_out_packet: SixlowpanOutPacket<'a>,
-
-    #[cfg(not(feature = "proto-sixlowpan-fragmentation"))]
-    _lifetime: core::marker::PhantomData<&'a ()>,
+    sixlowpan_out_packet: SixlowpanOutPacket,
 }
 
-impl<'a> OutPackets<'a> {
+impl OutPackets {
     #[cfg(any(
         feature = "proto-ipv4-fragmentation",
         feature = "proto-sixlowpan-fragmentation"
@@ -86,9 +83,9 @@ impl<'a> OutPackets<'a> {
 
 #[allow(unused)]
 #[cfg(feature = "proto-ipv4-fragmentation")]
-pub(crate) struct Ipv4OutPacket<'a> {
+pub(crate) struct Ipv4OutPacket {
     /// The buffer that holds the unfragmented 6LoWPAN packet.
-    buffer: ManagedSlice<'a, u8>,
+    buffer: [u8; FRAGMENTATION_BUFFER_SIZE],
     /// The size of the packet without the IEEE802.15.4 header and the fragmentation headers.
     packet_len: usize,
     /// The amount of bytes that already have been transmitted.
@@ -106,10 +103,10 @@ pub(crate) struct Ipv4OutPacket<'a> {
 }
 
 #[cfg(feature = "proto-ipv4-fragmentation")]
-impl<'a> Ipv4OutPacket<'a> {
-    pub(crate) fn new(buffer: ManagedSlice<'a, u8>) -> Self {
+impl Ipv4OutPacket {
+    pub(crate) fn new() -> Self {
         Self {
-            buffer,
+            buffer: [0u8; FRAGMENTATION_BUFFER_SIZE],
             packet_len: 0,
             sent_bytes: 0,
             repr: Ipv4Repr {
@@ -158,9 +155,9 @@ impl<'a> Ipv4OutPacket<'a> {
 
 #[allow(unused)]
 #[cfg(feature = "proto-sixlowpan")]
-pub(crate) struct SixlowpanOutPacket<'a> {
+pub(crate) struct SixlowpanOutPacket {
     /// The buffer that holds the unfragmented 6LoWPAN packet.
-    buffer: ManagedSlice<'a, u8>,
+    buffer: [u8; FRAGMENTATION_BUFFER_SIZE],
     /// The size of the packet without the IEEE802.15.4 header and the fragmentation headers.
     packet_len: usize,
     /// The amount of bytes that already have been transmitted.
@@ -182,10 +179,10 @@ pub(crate) struct SixlowpanOutPacket<'a> {
 }
 
 #[cfg(feature = "proto-sixlowpan-fragmentation")]
-impl<'a> SixlowpanOutPacket<'a> {
-    pub(crate) fn new(buffer: ManagedSlice<'a, u8>) -> Self {
+impl SixlowpanOutPacket {
+    pub(crate) fn new() -> Self {
         Self {
-            buffer,
+            buffer: [0u8; FRAGMENTATION_BUFFER_SIZE],
             packet_len: 0,
             datagram_size: 0,
             datagram_tag: 0,
@@ -246,7 +243,7 @@ use check;
 pub struct Interface<'a> {
     inner: InterfaceInner<'a>,
     fragments: FragmentsBuffer,
-    out_packets: OutPackets<'a>,
+    out_packets: OutPackets,
 }
 
 /// The device independent part of an Ethernet network interface.
@@ -307,17 +304,8 @@ pub struct InterfaceBuilder<'a> {
     ipv4_multicast_groups: LinearMap<Ipv4Address, (), MAX_IPV4_MULTICAST_GROUPS>,
     random_seed: u64,
 
-    #[cfg(feature = "proto-ipv4-fragmentation")]
-    ipv4_fragments: PacketAssemblerSet<Ipv4FragKey>,
-    #[cfg(feature = "proto-ipv4-fragmentation")]
-    ipv4_out_buffer: ManagedSlice<'a, u8>,
-
-    #[cfg(feature = "proto-sixlowpan-fragmentation")]
-    sixlowpan_fragments: PacketAssemblerSet<SixlowpanFragKey>,
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
     sixlowpan_reassembly_buffer_timeout: Duration,
-    #[cfg(feature = "proto-sixlowpan-fragmentation")]
-    sixlowpan_out_buffer: ManagedSlice<'a, u8>,
 
     #[cfg(feature = "proto-sixlowpan")]
     sixlowpan_address_context: &'a [SixlowpanAddressContext<'a>],
@@ -377,17 +365,8 @@ let iface = builder.finalize(&mut device);
             ipv4_multicast_groups: LinearMap::new(),
             random_seed: 0,
 
-            #[cfg(feature = "proto-ipv4-fragmentation")]
-            ipv4_fragments: PacketAssemblerSet::new(),
-            #[cfg(feature = "proto-ipv4-fragmentation")]
-            ipv4_out_buffer: ManagedSlice::Borrowed(&mut [][..]),
-
-            #[cfg(feature = "proto-sixlowpan-fragmentation")]
-            sixlowpan_fragments: PacketAssemblerSet::new(),
             #[cfg(feature = "proto-sixlowpan-fragmentation")]
             sixlowpan_reassembly_buffer_timeout: Duration::from_secs(60),
-            #[cfg(feature = "proto-sixlowpan-fragmentation")]
-            sixlowpan_out_buffer: ManagedSlice::Borrowed(&mut [][..]),
 
             #[cfg(feature = "proto-sixlowpan")]
             sixlowpan_address_context: &[],
@@ -502,23 +481,6 @@ let iface = builder.finalize(&mut device);
         self
     }
 
-    /// Set the IPv4 reassembly buffer the interface will use.
-    #[cfg(feature = "proto-ipv4-fragmentation")]
-    pub fn ipv4_reassembly_buffer(mut self, storage: PacketAssemblerSet<Ipv4FragKey>) -> Self {
-        self.ipv4_fragments = storage;
-        self
-    }
-
-    /// Set the IPv4 fragments buffer the interface will use.
-    #[cfg(feature = "proto-ipv4-fragmentation")]
-    pub fn ipv4_fragmentation_buffer<T>(mut self, storage: T) -> Self
-    where
-        T: Into<ManagedSlice<'a, u8>>,
-    {
-        self.ipv4_out_buffer = storage.into();
-        self
-    }
-
     /// Set the address contexts the interface will use.
     #[cfg(feature = "proto-sixlowpan")]
     pub fn sixlowpan_address_context(
@@ -529,16 +491,6 @@ let iface = builder.finalize(&mut device);
         self
     }
 
-    /// Set the 6LoWPAN reassembly buffer the interface will use.
-    #[cfg(feature = "proto-sixlowpan-fragmentation")]
-    pub fn sixlowpan_reassembly_buffer(
-        mut self,
-        storage: PacketAssemblerSet<SixlowpanFragKey>,
-    ) -> Self {
-        self.sixlowpan_fragments = storage;
-        self
-    }
-
     /// Set the timeout value the 6LoWPAN reassembly buffer will use.
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
     pub fn sixlowpan_reassembly_buffer_timeout(mut self, timeout: Duration) -> Self {
@@ -546,16 +498,6 @@ let iface = builder.finalize(&mut device);
             net_debug!("RFC 4944 specifies that the reassembly timeout MUST be set to a maximum of 60 seconds");
         }
         self.sixlowpan_reassembly_buffer_timeout = timeout;
-        self
-    }
-
-    /// Set the 6LoWPAN fragments buffer the interface will use.
-    #[cfg(feature = "proto-sixlowpan-fragmentation")]
-    pub fn sixlowpan_fragmentation_buffer<T>(mut self, storage: T) -> Self
-    where
-        T: Into<ManagedSlice<'a, u8>>,
-    {
-        self.sixlowpan_out_buffer = storage.into();
         self
     }
 
@@ -654,20 +596,17 @@ let iface = builder.finalize(&mut device);
                 decompress_buf: [0u8; sixlowpan::MAX_DECOMPRESSED_LEN],
 
                 #[cfg(feature = "proto-ipv4-fragmentation")]
-                ipv4_fragments: self.ipv4_fragments,
+                ipv4_fragments: PacketAssemblerSet::new(),
                 #[cfg(feature = "proto-sixlowpan-fragmentation")]
-                sixlowpan_fragments: self.sixlowpan_fragments,
+                sixlowpan_fragments: PacketAssemblerSet::new(),
                 #[cfg(feature = "proto-sixlowpan-fragmentation")]
                 sixlowpan_fragments_cache_timeout: self.sixlowpan_reassembly_buffer_timeout,
             },
             out_packets: OutPackets {
                 #[cfg(feature = "proto-ipv4-fragmentation")]
-                ipv4_out_packet: Ipv4OutPacket::new(self.ipv4_out_buffer),
+                ipv4_out_packet: Ipv4OutPacket::new(),
                 #[cfg(feature = "proto-sixlowpan-fragmentation")]
-                sixlowpan_out_packet: SixlowpanOutPacket::new(self.sixlowpan_out_buffer),
-
-                #[cfg(not(feature = "proto-sixlowpan-fragmentation"))]
-                _lifetime: core::marker::PhantomData,
+                sixlowpan_out_packet: SixlowpanOutPacket::new(),
             },
             inner: InterfaceInner {
                 phantom: PhantomData,
@@ -1706,7 +1645,7 @@ impl<'a> InterfaceInner<'a> {
         &mut self,
         tx_token: Tx,
         packet: EthernetPacket,
-        _out_packet: Option<&mut OutPackets<'_>>,
+        _out_packet: Option<&mut OutPackets>,
     ) -> Result<(), DispatchError>
     where
         Tx: TxToken,
@@ -1921,7 +1860,7 @@ impl<'a> InterfaceInner<'a> {
         &mut self,
         tx_token: Tx,
         packet: IpPacket,
-        _out_packet: Option<&mut OutPackets<'_>>,
+        _out_packet: Option<&mut OutPackets>,
     ) -> Result<(), DispatchError> {
         let mut ip_repr = packet.ip_repr();
         assert!(!ip_repr.dst_addr().is_unspecified());

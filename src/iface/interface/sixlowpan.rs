@@ -384,18 +384,12 @@ impl<'a> InterfaceInner<'a> {
                     ..
                 } = &mut _out_packet.unwrap().sixlowpan_out_packet;
 
-                match buffer {
-                    managed::ManagedSlice::Borrowed(buffer) => {
-                        if buffer.len() < total_size {
-                            net_debug!(
+                if buffer.len() < total_size {
+                    net_debug!(
                                 "dispatch_ieee802154: dropping, fragmentation buffer is too small, at least {} needed",
                                 total_size
                             );
-                            return;
-                        }
-                    }
-                    #[cfg(feature = "alloc")]
-                    managed::ManagedSlice::Owned(buffer) => buffer.resize(total_size, 0),
+                    return;
                 }
 
                 *ll_dst_addr = ll_dst_a;
