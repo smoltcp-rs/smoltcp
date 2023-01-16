@@ -229,11 +229,16 @@ impl Assembler {
         }
         let shift = j - i - 1;
         if shift != 0 {
-            for x in i + 1..self.contigs.len() - shift {
+            for x in i + 1..self.contigs.len() {
                 if !self.contigs[x].has_data() {
                     break;
                 }
-                self.contigs[x] = self.contigs[x + shift];
+
+                self.contigs[x] = self
+                    .contigs
+                    .get(x + shift)
+                    .copied()
+                    .unwrap_or_else(Contig::empty);
             }
         }
 
@@ -598,49 +603,53 @@ mod test {
     fn test_random() {
         use rand::Rng;
 
-        for _ in 0..1000 {
-            println!("===");
-            let mut assr = Assembler::new();
-            let mut map = [false; 128];
+        const MAX_INDEX: usize = 256;
 
-            for _ in 0..30 {
-                let offset = rand::thread_rng().gen_range(0..80);
-                let size = rand::thread_rng().gen_range(0..47);
+        for max_size in [2, 5, 10, 100] {
+            for _ in 0..300 {
+                //println!("===");
+                let mut assr = Assembler::new();
+                let mut map = [false; MAX_INDEX];
 
-                println!("add {}..{} {}", offset, offset + size, size);
-                // Real impl
-                let res = assr.add(offset, size);
+                for _ in 0..60 {
+                    let offset = rand::thread_rng().gen_range(0..MAX_INDEX - max_size - 1);
+                    let size = rand::thread_rng().gen_range(1..=max_size);
 
-                // Bitmap impl
-                let mut map2 = map;
-                map2[offset..][..size].fill(true);
+                    //println!("add {}..{} {}", offset, offset + size, size);
+                    // Real impl
+                    let res = assr.add(offset, size);
 
-                let mut contigs = vec![];
-                let mut hole: usize = 0;
-                let mut data: usize = 0;
-                for b in map2 {
-                    if b {
-                        data += 1;
-                    } else {
-                        if data != 0 {
-                            contigs.push((hole, data));
-                            hole = 0;
-                            data = 0;
+                    // Bitmap impl
+                    let mut map2 = map;
+                    map2[offset..][..size].fill(true);
+
+                    let mut contigs = vec![];
+                    let mut hole: usize = 0;
+                    let mut data: usize = 0;
+                    for b in map2 {
+                        if b {
+                            data += 1;
+                        } else {
+                            if data != 0 {
+                                contigs.push((hole, data));
+                                hole = 0;
+                                data = 0;
+                            }
+                            hole += 1;
                         }
-                        hole += 1;
                     }
-                }
 
-                // Compare.
-                let wanted_res = if contigs.len() > CONTIG_COUNT {
-                    Err(TooManyHolesError)
-                } else {
-                    Ok(())
-                };
-                assert_eq!(res, wanted_res);
-                if res.is_ok() {
-                    map = map2;
-                    assert_eq!(assr, Assembler::from(contigs));
+                    // Compare.
+                    let wanted_res = if contigs.len() > CONTIG_COUNT {
+                        Err(TooManyHolesError)
+                    } else {
+                        Ok(())
+                    };
+                    assert_eq!(res, wanted_res);
+                    if res.is_ok() {
+                        map = map2;
+                        assert_eq!(assr, Assembler::from(contigs));
+                    }
                 }
             }
         }
