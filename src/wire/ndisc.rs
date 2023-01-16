@@ -6,8 +6,7 @@ use crate::time::Duration;
 use crate::wire::icmpv6::{field, Message, Packet};
 use crate::wire::Ipv6Address;
 use crate::wire::RawHardwareAddress;
-use crate::wire::{Ipv6Packet, Ipv6Repr};
-use crate::wire::{NdiscOption, NdiscOptionRepr, NdiscOptionType};
+use crate::wire::{NdiscOption, NdiscOptionRepr};
 use crate::wire::{NdiscPrefixInformation, NdiscRedirectedHeader};
 
 bitflags! {
@@ -226,41 +225,56 @@ pub enum Repr<'a> {
 impl<'a> Repr<'a> {
     /// Parse an NDISC packet and return a high-level representation of the
     /// packet.
+    #[allow(clippy::single_match)]
     pub fn parse<T>(packet: &Packet<&'a T>) -> Result<Repr<'a>>
     where
         T: AsRef<[u8]> + ?Sized,
     {
+        fn foreach_option<'a>(
+            payload: &'a [u8],
+            mut f: impl FnMut(NdiscOptionRepr<'a>) -> Result<()>,
+        ) -> Result<()> {
+            let mut offset = 0;
+            while payload.len() > offset {
+                let pkt = NdiscOption::new_checked(&payload[offset..])?;
+
+                // If an option doesn't parse, ignore it and still parse the others.
+                if let Ok(opt) = NdiscOptionRepr::parse(&pkt) {
+                    f(opt)?;
+                }
+
+                let len = pkt.data_len() as usize * 8;
+                if len == 0 {
+                    return Err(Error);
+                }
+                offset += len;
+            }
+            Ok(())
+        }
+
         match packet.msg_type() {
             Message::RouterSolicit => {
-                let lladdr = if !packet.payload().is_empty() {
-                    let opt = NdiscOption::new_checked(packet.payload())?;
-                    match opt.option_type() {
-                        NdiscOptionType::SourceLinkLayerAddr => Some(opt.link_layer_addr()),
-                        _ => {
-                            return Err(Error);
-                        }
+                let mut lladdr = None;
+                foreach_option(packet.payload(), |opt| {
+                    match opt {
+                        NdiscOptionRepr::SourceLinkLayerAddr(addr) => lladdr = Some(addr),
+                        _ => {}
                     }
-                } else {
-                    None
-                };
+                    Ok(())
+                })?;
                 Ok(Repr::RouterSolicit { lladdr })
             }
             Message::RouterAdvert => {
-                let mut offset = 0;
                 let (mut lladdr, mut mtu, mut prefix_info) = (None, None, None);
-                while packet.payload().len() - offset > 0 {
-                    let pkt = NdiscOption::new_checked(&packet.payload()[offset..])?;
-                    let opt = NdiscOptionRepr::parse(&pkt)?;
+                foreach_option(packet.payload(), |opt| {
                     match opt {
                         NdiscOptionRepr::SourceLinkLayerAddr(addr) => lladdr = Some(addr),
                         NdiscOptionRepr::Mtu(val) => mtu = Some(val),
                         NdiscOptionRepr::PrefixInformation(info) => prefix_info = Some(info),
-                        _ => {
-                            return Err(Error);
-                        }
+                        _ => {}
                     }
-                    offset += opt.buffer_len();
-                }
+                    Ok(())
+                })?;
                 Ok(Repr::RouterAdvert {
                     hop_limit: packet.current_hop_limit(),
                     flags: packet.router_flags(),
@@ -273,34 +287,28 @@ impl<'a> Repr<'a> {
                 })
             }
             Message::NeighborSolicit => {
-                let lladdr = if !packet.payload().is_empty() {
-                    let opt = NdiscOption::new_checked(packet.payload())?;
-                    match opt.option_type() {
-                        NdiscOptionType::SourceLinkLayerAddr => Some(opt.link_layer_addr()),
-                        _ => {
-                            return Err(Error);
-                        }
+                let mut lladdr = None;
+                foreach_option(packet.payload(), |opt| {
+                    match opt {
+                        NdiscOptionRepr::SourceLinkLayerAddr(addr) => lladdr = Some(addr),
+                        _ => {}
                     }
-                } else {
-                    None
-                };
+                    Ok(())
+                })?;
                 Ok(Repr::NeighborSolicit {
                     target_addr: packet.target_addr(),
                     lladdr,
                 })
             }
             Message::NeighborAdvert => {
-                let lladdr = if !packet.payload().is_empty() {
-                    let opt = NdiscOption::new_checked(packet.payload())?;
-                    match opt.option_type() {
-                        NdiscOptionType::TargetLinkLayerAddr => Some(opt.link_layer_addr()),
-                        _ => {
-                            return Err(Error);
-                        }
+                let mut lladdr = None;
+                foreach_option(packet.payload(), |opt| {
+                    match opt {
+                        NdiscOptionRepr::TargetLinkLayerAddr(addr) => lladdr = Some(addr),
+                        _ => {}
                     }
-                } else {
-                    None
-                };
+                    Ok(())
+                })?;
                 Ok(Repr::NeighborAdvert {
                     flags: packet.neighbor_flags(),
                     target_addr: packet.target_addr(),
@@ -308,38 +316,16 @@ impl<'a> Repr<'a> {
                 })
             }
             Message::Redirect => {
-                let mut offset = 0;
                 let (mut lladdr, mut redirected_hdr) = (None, None);
-                while packet.payload().len() - offset > 0 {
-                    let opt = NdiscOption::new_checked(&packet.payload()[offset..])?;
-                    match opt.option_type() {
-                        NdiscOptionType::SourceLinkLayerAddr => {
-                            let addr = opt.link_layer_addr();
-                            offset += NdiscOptionRepr::SourceLinkLayerAddr(addr).buffer_len();
-                            lladdr = Some(addr);
-                        }
-                        NdiscOptionType::RedirectedHeader => {
-                            let opt_data = opt.data();
 
-                            if opt.data_len() < 6 || opt_data.len() < offset + 8 {
-                                return Err(Error);
-                            };
-
-                            let ip_packet = Ipv6Packet::new_checked(&opt_data[offset + 8..])?;
-                            let ip_repr = Ipv6Repr::parse(&ip_packet)?;
-                            let data = ip_packet.payload();
-                            let redirected = NdiscRedirectedHeader {
-                                header: ip_repr,
-                                data,
-                            };
-                            offset += NdiscOptionRepr::RedirectedHeader(redirected).buffer_len();
-                            redirected_hdr = Some(redirected);
-                        }
-                        _ => {
-                            return Err(Error);
-                        }
+                foreach_option(packet.payload(), |opt| {
+                    match opt {
+                        NdiscOptionRepr::SourceLinkLayerAddr(addr) => lladdr = Some(addr),
+                        NdiscOptionRepr::RedirectedHeader(rh) => redirected_hdr = Some(rh),
+                        _ => {}
                     }
-                }
+                    Ok(())
+                })?;
                 Ok(Repr::Redirect {
                     target_addr: packet.target_addr(),
                     dest_addr: packet.dest_addr(),
