@@ -1798,30 +1798,26 @@ impl<'a> Socket<'a> {
         let assembler_was_empty = self.assembler.is_empty();
 
         // Try adding payload octets to the assembler.
-        match self.assembler.add(payload_offset, payload_len) {
-            Ok(()) => {
-                // Place payload octets into the buffer.
-                tcp_trace!(
-                    "rx buffer: receiving {} octets at offset {}",
-                    payload_len,
-                    payload_offset
-                );
-                let len_written = self
-                    .rx_buffer
-                    .write_unallocated(payload_offset, repr.payload);
-                debug_assert!(len_written == payload_len);
-            }
-            Err(_) => {
-                net_debug!(
-                    "assembler: too many holes to add {} octets at offset {}",
-                    payload_len,
-                    payload_offset
-                );
-                return None;
-            }
-        }
+        let Ok(contig_len) = self.assembler.add_then_remove_front(payload_offset, payload_len) else {
+            net_debug!(
+                "assembler: too many holes to add {} octets at offset {}",
+                payload_len,
+                payload_offset
+            );
+            return None;
+        };
 
-        let contig_len = self.assembler.remove_front();
+        // Place payload octets into the buffer.
+        tcp_trace!(
+            "rx buffer: receiving {} octets at offset {}",
+            payload_len,
+            payload_offset
+        );
+        let len_written = self
+            .rx_buffer
+            .write_unallocated(payload_offset, repr.payload);
+        debug_assert!(len_written == payload_len);
+
         if contig_len != 0 {
             // Enqueue the contiguous data octets in front of the buffer.
             tcp_trace!(
