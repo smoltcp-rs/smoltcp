@@ -2,24 +2,17 @@
 //! IEEE802.154-based networks.
 //!
 //! [RFC 6282]: https://datatracker.ietf.org/doc/html/rfc6282
-use core::ops::Deref;
 
 use super::{Error, Result};
 use crate::wire::ieee802154::Address as LlAddress;
 use crate::wire::ipv6;
 use crate::wire::IpProtocol;
 
+const ADDRESS_CONTEXT_LENGTH: usize = 8;
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct AddressContext<'a>(pub &'a [u8]);
-
-impl<'a> Deref for AddressContext<'a> {
-    type Target = [u8];
-
-    fn deref(&self) -> &Self::Target {
-        self.0
-    }
-}
+pub struct AddressContext(pub [u8; ADDRESS_CONTEXT_LENGTH]);
 
 /// The representation of an unresolved address. 6LoWPAN compression of IPv6 addresses can be with
 /// and without context information. The decompression with context information is not yet
@@ -68,7 +61,7 @@ impl<'a> UnresolvedAddress<'a> {
     pub fn resolve(
         self,
         ll_address: Option<LlAddress>,
-        addr_context: &[AddressContext<'_>],
+        addr_context: &[AddressContext],
     ) -> Result<ipv6::Address> {
         let mut bytes = [0; 16];
 
@@ -78,13 +71,7 @@ impl<'a> UnresolvedAddress<'a> {
             }
 
             let context = addr_context[index];
-            let len = context.len();
-
-            if len > 8 {
-                return Err(Error);
-            }
-
-            bytes[..len].copy_from_slice(&context);
+            bytes[..ADDRESS_CONTEXT_LENGTH].copy_from_slice(&context.0);
 
             Ok(())
         };
@@ -1181,7 +1168,7 @@ pub mod iphc {
             packet: &Packet<&T>,
             ll_src_addr: Option<LlAddress>,
             ll_dst_addr: Option<LlAddress>,
-            addr_context: &[AddressContext<'_>],
+            addr_context: &[AddressContext],
         ) -> Result<Self> {
             // Ensure basic accessors will work.
             packet.check_len()?;

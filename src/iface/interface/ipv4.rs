@@ -21,7 +21,7 @@ use crate::phy::{Medium, TxToken};
 use crate::time::{Duration, Instant};
 use crate::wire::*;
 
-impl<'a> InterfaceInner<'a> {
+impl InterfaceInner {
     pub(super) fn process_ipv4<'output, 'payload: 'output, T: AsRef<[u8]> + ?Sized>(
         &mut self,
         sockets: &mut SocketSet,
@@ -324,7 +324,7 @@ impl<'a> InterfaceInner<'a> {
         } else if self.is_broadcast_v4(ipv4_repr.dst_addr) {
             // Only reply to broadcasts for echo replies and not other ICMP messages
             match icmp_repr {
-                Icmpv4Repr::EchoReply { .. } => match self.ipv4_address() {
+                Icmpv4Repr::EchoReply { .. } => match self.ipv4_addr() {
                     Some(src_addr) => {
                         let ipv4_reply_repr = Ipv4Repr {
                             src_addr,
@@ -427,7 +427,7 @@ impl<'a> InterfaceInner<'a> {
         version: IgmpVersion,
         group_addr: Ipv4Address,
     ) -> Option<IpPacket<'any>> {
-        let iface_addr = self.ipv4_address()?;
+        let iface_addr = self.ipv4_addr()?;
         let igmp_repr = IgmpRepr::MembershipReport {
             group_addr,
             version,
@@ -452,7 +452,7 @@ impl<'a> InterfaceInner<'a> {
         &self,
         group_addr: Ipv4Address,
     ) -> Option<IpPacket<'any>> {
-        self.ipv4_address().map(|iface_addr| {
+        self.ipv4_addr().map(|iface_addr| {
             let igmp_repr = IgmpRepr::LeaveGroup { group_addr };
             IpPacket::Igmp((
                 Ipv4Repr {

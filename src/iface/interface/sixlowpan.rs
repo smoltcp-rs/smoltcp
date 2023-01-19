@@ -16,7 +16,7 @@ use crate::wire::*;
 // TODO: lower. Should be (6lowpan mtu) - (min 6lowpan header size) + (max ipv6 header size)
 pub(crate) const MAX_DECOMPRESSED_LEN: usize = 1500;
 
-impl<'a> InterfaceInner<'a> {
+impl InterfaceInner {
     #[cfg(feature = "medium-ieee802154")]
     pub(super) fn process_ieee802154<'output, 'payload: 'output, T: AsRef<[u8]> + ?Sized>(
         &mut self,
@@ -178,7 +178,7 @@ impl<'a> InterfaceInner<'a> {
             &iphc,
             ieee802154_repr.src_addr,
             ieee802154_repr.dst_addr,
-            self.sixlowpan_address_context,
+            &self.sixlowpan_address_context,
         )?;
 
         let mut decompressed_size = 40 + iphc.payload().len();
@@ -384,18 +384,12 @@ impl<'a> InterfaceInner<'a> {
                     ..
                 } = &mut _out_packet.unwrap().sixlowpan_out_packet;
 
-                match buffer {
-                    managed::ManagedSlice::Borrowed(buffer) => {
-                        if buffer.len() < total_size {
-                            net_debug!(
+                if buffer.len() < total_size {
+                    net_debug!(
                                 "dispatch_ieee802154: dropping, fragmentation buffer is too small, at least {} needed",
                                 total_size
                             );
-                            return;
-                        }
-                    }
-                    #[cfg(feature = "alloc")]
-                    managed::ManagedSlice::Owned(buffer) => buffer.resize(total_size, 0),
+                    return;
                 }
 
                 *ll_dst_addr = ll_dst_a;

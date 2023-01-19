@@ -5,7 +5,7 @@ use std::os::unix::io::AsRawFd;
 use std::str::{self, FromStr};
 use url::Url;
 
-use smoltcp::iface::{InterfaceBuilder, NeighborCache, Routes, SocketSet};
+use smoltcp::iface::{Config, Interface, SocketSet};
 use smoltcp::phy::{wait as phy_wait, Device, Medium};
 use smoltcp::socket::tcp;
 use smoltcp::time::Instant;
@@ -28,37 +28,38 @@ fn main() {
     let address = IpAddress::from_str(&matches.free[0]).expect("invalid address format");
     let url = Url::parse(&matches.free[1]).expect("invalid url format");
 
-    let neighbor_cache = NeighborCache::new();
+    // Create interface
+    let mut config = Config::new();
+    config.random_seed = rand::random();
+    if device.capabilities().medium == Medium::Ethernet {
+        config.hardware_addr = Some(EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]).into());
+    }
 
+    let mut iface = Interface::new(config, &mut device);
+    iface.update_ip_addrs(|ip_addrs| {
+        ip_addrs
+            .push(IpCidr::new(IpAddress::v4(192, 168, 69, 1), 24))
+            .unwrap();
+        ip_addrs
+            .push(IpCidr::new(IpAddress::v6(0xfdaa, 0, 0, 0, 0, 0, 0, 1), 64))
+            .unwrap();
+        ip_addrs
+            .push(IpCidr::new(IpAddress::v6(0xfe80, 0, 0, 0, 0, 0, 0, 1), 64))
+            .unwrap();
+    });
+    iface
+        .routes_mut()
+        .add_default_ipv4_route(Ipv4Address::new(192, 168, 69, 100))
+        .unwrap();
+    iface
+        .routes_mut()
+        .add_default_ipv6_route(Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 0x100))
+        .unwrap();
+
+    // Create sockets
     let tcp_rx_buffer = tcp::SocketBuffer::new(vec![0; 1024]);
     let tcp_tx_buffer = tcp::SocketBuffer::new(vec![0; 1024]);
     let tcp_socket = tcp::Socket::new(tcp_rx_buffer, tcp_tx_buffer);
-
-    let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x02]);
-    let mut ip_addrs = heapless::Vec::<IpCidr, 5>::new();
-    ip_addrs
-        .push(IpCidr::new(IpAddress::v4(192, 168, 69, 1), 24))
-        .unwrap();
-    ip_addrs
-        .push(IpCidr::new(IpAddress::v6(0xfdaa, 0, 0, 0, 0, 0, 0, 1), 64))
-        .unwrap();
-    ip_addrs
-        .push(IpCidr::new(IpAddress::v6(0xfe80, 0, 0, 0, 0, 0, 0, 1), 64))
-        .unwrap();
-    let default_v4_gw = Ipv4Address::new(192, 168, 69, 100);
-    let default_v6_gw = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 0x100);
-    let mut routes = Routes::new();
-    routes.add_default_ipv4_route(default_v4_gw).unwrap();
-    routes.add_default_ipv6_route(default_v6_gw).unwrap();
-
-    let medium = device.capabilities().medium;
-    let mut builder = InterfaceBuilder::new().ip_addrs(ip_addrs).routes(routes);
-    if medium == Medium::Ethernet {
-        builder = builder
-            .hardware_addr(ethernet_addr.into())
-            .neighbor_cache(neighbor_cache);
-    }
-    let mut iface = builder.finalize(&mut device);
 
     let mut sockets = SocketSet::new(vec![]);
     let tcp_handle = sockets.add(tcp_socket);

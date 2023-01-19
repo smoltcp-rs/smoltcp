@@ -4,8 +4,6 @@ use std::vec::Vec;
 use super::*;
 
 use crate::iface::Interface;
-#[cfg(feature = "medium-ethernet")]
-use crate::iface::NeighborCache;
 use crate::phy::{ChecksumCapabilities, Loopback};
 #[cfg(feature = "proto-igmp")]
 use crate::time::Instant;
@@ -24,7 +22,7 @@ const MEDIUM: Medium = Medium::Ip;
 #[cfg(all(not(feature = "medium-ethernet"), feature = "medium-ieee802154"))]
 const MEDIUM: Medium = Medium::Ieee802154;
 
-fn create<'a>(medium: Medium) -> (Interface<'a>, SocketSet<'a>, Loopback) {
+fn create<'a>(medium: Medium) -> (Interface, SocketSet<'a>, Loopback) {
     match medium {
         #[cfg(feature = "medium-ethernet")]
         Medium::Ethernet => create_ethernet(),
@@ -37,90 +35,74 @@ fn create<'a>(medium: Medium) -> (Interface<'a>, SocketSet<'a>, Loopback) {
 
 #[cfg(feature = "medium-ip")]
 #[allow(unused)]
-fn create_ip<'a>() -> (Interface<'a>, SocketSet<'a>, Loopback) {
+fn create_ip<'a>() -> (Interface, SocketSet<'a>, Loopback) {
     // Create a basic device
     let mut device = Loopback::new(Medium::Ip);
-    let mut ip_addrs = heapless::Vec::<IpCidr, MAX_IP_ADDR_COUNT>::new();
-    #[cfg(feature = "proto-ipv4")]
-    ip_addrs
-        .push(IpCidr::new(IpAddress::v4(127, 0, 0, 1), 8))
-        .unwrap();
-    #[cfg(feature = "proto-ipv6")]
-    ip_addrs
-        .push(IpCidr::new(IpAddress::v6(0, 0, 0, 0, 0, 0, 0, 1), 128))
-        .unwrap();
-    #[cfg(feature = "proto-ipv6")]
-    ip_addrs
-        .push(IpCidr::new(IpAddress::v6(0xfdbe, 0, 0, 0, 0, 0, 0, 1), 64))
-        .unwrap();
 
-    let iface_builder = InterfaceBuilder::new().ip_addrs(ip_addrs);
-
-    #[cfg(feature = "proto-ipv4-fragmentation")]
-    let iface_builder = iface_builder.ipv4_fragmentation_buffer(vec![]);
-
-    let iface = iface_builder.finalize(&mut device);
+    let mut config = Config::new();
+    let mut iface = Interface::new(config, &mut device);
+    iface.update_ip_addrs(|ip_addrs| {
+        #[cfg(feature = "proto-ipv4")]
+        ip_addrs
+            .push(IpCidr::new(IpAddress::v4(127, 0, 0, 1), 8))
+            .unwrap();
+        #[cfg(feature = "proto-ipv6")]
+        ip_addrs
+            .push(IpCidr::new(IpAddress::v6(0, 0, 0, 0, 0, 0, 0, 1), 128))
+            .unwrap();
+        #[cfg(feature = "proto-ipv6")]
+        ip_addrs
+            .push(IpCidr::new(IpAddress::v6(0xfdbe, 0, 0, 0, 0, 0, 0, 1), 64))
+            .unwrap();
+    });
 
     (iface, SocketSet::new(vec![]), device)
 }
 
 #[cfg(feature = "medium-ethernet")]
-fn create_ethernet<'a>() -> (Interface<'a>, SocketSet<'a>, Loopback) {
+fn create_ethernet<'a>() -> (Interface, SocketSet<'a>, Loopback) {
     // Create a basic device
     let mut device = Loopback::new(Medium::Ethernet);
-    let mut ip_addrs = heapless::Vec::<IpCidr, MAX_IP_ADDR_COUNT>::new();
-    #[cfg(feature = "proto-ipv4")]
-    ip_addrs
-        .push(IpCidr::new(IpAddress::v4(127, 0, 0, 1), 8))
-        .unwrap();
-    #[cfg(feature = "proto-ipv6")]
-    ip_addrs
-        .push(IpCidr::new(IpAddress::v6(0, 0, 0, 0, 0, 0, 0, 1), 128))
-        .unwrap();
-    #[cfg(feature = "proto-ipv6")]
-    ip_addrs
-        .push(IpCidr::new(IpAddress::v6(0xfdbe, 0, 0, 0, 0, 0, 0, 1), 64))
-        .unwrap();
 
-    let iface_builder = InterfaceBuilder::new()
-        .hardware_addr(EthernetAddress::default().into())
-        .neighbor_cache(NeighborCache::new())
-        .ip_addrs(ip_addrs);
-
-    #[cfg(feature = "proto-sixlowpan-fragmentation")]
-    let iface_builder = iface_builder.sixlowpan_fragmentation_buffer(vec![]);
-
-    #[cfg(feature = "proto-ipv4-fragmentation")]
-    let iface_builder = iface_builder.ipv4_fragmentation_buffer(vec![]);
-
-    let iface = iface_builder.finalize(&mut device);
+    let mut config = Config::new();
+    config.hardware_addr = Some(EthernetAddress::default().into());
+    let mut iface = Interface::new(config, &mut device);
+    iface.update_ip_addrs(|ip_addrs| {
+        #[cfg(feature = "proto-ipv4")]
+        ip_addrs
+            .push(IpCidr::new(IpAddress::v4(127, 0, 0, 1), 8))
+            .unwrap();
+        #[cfg(feature = "proto-ipv6")]
+        ip_addrs
+            .push(IpCidr::new(IpAddress::v6(0, 0, 0, 0, 0, 0, 0, 1), 128))
+            .unwrap();
+        #[cfg(feature = "proto-ipv6")]
+        ip_addrs
+            .push(IpCidr::new(IpAddress::v6(0xfdbe, 0, 0, 0, 0, 0, 0, 1), 64))
+            .unwrap();
+    });
 
     (iface, SocketSet::new(vec![]), device)
 }
 
 #[cfg(feature = "medium-ieee802154")]
-fn create_ieee802154<'a>() -> (Interface<'a>, SocketSet<'a>, Loopback) {
+fn create_ieee802154<'a>() -> (Interface, SocketSet<'a>, Loopback) {
     // Create a basic device
     let mut device = Loopback::new(Medium::Ieee802154);
-    let mut ip_addrs = heapless::Vec::<IpCidr, MAX_IP_ADDR_COUNT>::new();
-    #[cfg(feature = "proto-ipv6")]
-    ip_addrs
-        .push(IpCidr::new(IpAddress::v6(0, 0, 0, 0, 0, 0, 0, 1), 128))
-        .unwrap();
-    #[cfg(feature = "proto-ipv6")]
-    ip_addrs
-        .push(IpCidr::new(IpAddress::v6(0xfdbe, 0, 0, 0, 0, 0, 0, 1), 64))
-        .unwrap();
 
-    let iface_builder = InterfaceBuilder::new()
-        .hardware_addr(Ieee802154Address::default().into())
-        .neighbor_cache(NeighborCache::new())
-        .ip_addrs(ip_addrs);
-
-    #[cfg(feature = "proto-sixlowpan-fragmentation")]
-    let iface_builder = iface_builder.sixlowpan_fragmentation_buffer(vec![]);
-
-    let iface = iface_builder.finalize(&mut device);
+    let mut config = Config::new();
+    config.hardware_addr = Some(Ieee802154Address::default().into());
+    let mut iface = Interface::new(config, &mut device);
+    iface.update_ip_addrs(|ip_addrs| {
+        #[cfg(feature = "proto-ipv6")]
+        ip_addrs
+            .push(IpCidr::new(IpAddress::v6(0, 0, 0, 0, 0, 0, 0, 1), 128))
+            .unwrap();
+        #[cfg(feature = "proto-ipv6")]
+        ip_addrs
+            .push(IpCidr::new(IpAddress::v6(0xfdbe, 0, 0, 0, 0, 0, 0, 1), 64))
+            .unwrap();
+    });
 
     (iface, SocketSet::new(vec![]), device)
 }
@@ -153,9 +135,10 @@ impl TxToken for MockTxToken {
 #[test]
 #[should_panic(expected = "hardware_addr required option was not set")]
 #[cfg(all(feature = "medium-ethernet"))]
-fn test_builder_initialization_panic() {
+fn test_new_panic() {
     let mut device = Loopback::new(Medium::Ethernet);
-    InterfaceBuilder::new().finalize(&mut device);
+    let config = Config::new();
+    Interface::new(config, &mut device);
 }
 
 #[test]
@@ -539,7 +522,7 @@ fn test_handle_ipv4_broadcast() {
 
     let (mut iface, mut sockets, _device) = create(MEDIUM);
 
-    let our_ipv4_addr = iface.ipv4_address().unwrap();
+    let our_ipv4_addr = iface.ipv4_addr().unwrap();
     let src_ipv4_addr = Ipv4Address([127, 0, 0, 2]);
 
     // ICMPv4 echo request
@@ -1467,7 +1450,7 @@ fn test_echo_request_sixlowpan_128_bytes() {
         &request_first_part_iphc_packet,
         ieee802154_repr.src_addr,
         ieee802154_repr.dst_addr,
-        iface.inner.sixlowpan_address_context,
+        &iface.inner.sixlowpan_address_context,
     )
     .unwrap();
 

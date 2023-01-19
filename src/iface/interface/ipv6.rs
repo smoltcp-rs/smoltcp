@@ -10,7 +10,7 @@ use crate::socket::AnySocket;
 
 use crate::wire::*;
 
-impl<'a> InterfaceInner<'a> {
+impl InterfaceInner {
     #[cfg(feature = "proto-ipv6")]
     pub(super) fn process_ipv6<'frame, T: AsRef<[u8]> + ?Sized>(
         &mut self,

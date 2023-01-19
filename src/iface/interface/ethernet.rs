@@ -9,7 +9,7 @@ use core::result::Result;
 use crate::phy::TxToken;
 use crate::wire::*;
 
-impl<'i> InterfaceInner<'i> {
+impl InterfaceInner {
     #[cfg(feature = "medium-ethernet")]
     pub(super) fn process_ethernet<'frame, T: AsRef<[u8]>>(
         &mut self,

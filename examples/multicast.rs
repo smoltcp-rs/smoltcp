@@ -2,13 +2,13 @@ mod utils;
 
 use std::os::unix::io::AsRawFd;
 
-use smoltcp::iface::{InterfaceBuilder, NeighborCache, SocketSet};
-use smoltcp::phy::wait as phy_wait;
+use smoltcp::iface::{Config, Interface, SocketSet};
+use smoltcp::phy::{wait as phy_wait, Device, Medium};
 use smoltcp::socket::{raw, udp};
 use smoltcp::time::Instant;
 use smoltcp::wire::{
     EthernetAddress, IgmpPacket, IgmpRepr, IpAddress, IpCidr, IpProtocol, IpVersion, Ipv4Address,
-    Ipv4Packet,
+    Ipv4Packet, Ipv6Address,
 };
 
 const MDNS_PORT: u16 = 5353;
@@ -26,26 +26,36 @@ fn main() {
     let fd = device.as_raw_fd();
     let mut device =
         utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
-    let neighbor_cache = NeighborCache::new();
 
-    let local_addr = Ipv4Address::new(192, 168, 69, 2);
+    // Create interface
+    let mut config = Config::new();
+    config.random_seed = rand::random();
+    if device.capabilities().medium == Medium::Ethernet {
+        config.hardware_addr = Some(EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]).into());
+    }
 
-    let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x02]);
-    let ip_addr = IpCidr::new(IpAddress::from(local_addr), 24);
-    let mut ip_addrs = heapless::Vec::<IpCidr, 5>::new();
-    ip_addrs.push(ip_addr).unwrap();
-    let mut iface = InterfaceBuilder::new()
-        .hardware_addr(ethernet_addr.into())
-        .neighbor_cache(neighbor_cache)
-        .ip_addrs(ip_addrs)
-        .finalize(&mut device);
-
-    let now = Instant::now();
-    // Join a multicast group to receive mDNS traffic
+    let mut iface = Interface::new(config, &mut device);
+    iface.update_ip_addrs(|ip_addrs| {
+        ip_addrs
+            .push(IpCidr::new(IpAddress::v4(192, 168, 69, 1), 24))
+            .unwrap();
+        ip_addrs
+            .push(IpCidr::new(IpAddress::v6(0xfdaa, 0, 0, 0, 0, 0, 0, 1), 64))
+            .unwrap();
+        ip_addrs
+            .push(IpCidr::new(IpAddress::v6(0xfe80, 0, 0, 0, 0, 0, 0, 1), 64))
+            .unwrap();
+    });
     iface
-        .join_multicast_group(&mut device, Ipv4Address::from_bytes(&MDNS_GROUP), now)
+        .routes_mut()
+        .add_default_ipv4_route(Ipv4Address::new(192, 168, 69, 100))
+        .unwrap();
+    iface
+        .routes_mut()
+        .add_default_ipv6_route(Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 0x100))
         .unwrap();
 
+    // Create sockets
     let mut sockets = SocketSet::new(vec![]);
 
     // Must fit at least one IGMP packet
@@ -66,6 +76,15 @@ fn main() {
     let udp_tx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 0]);
     let udp_socket = udp::Socket::new(udp_rx_buffer, udp_tx_buffer);
     let udp_handle = sockets.add(udp_socket);
+
+    // Join a multicast group to receive mDNS traffic
+    iface
+        .join_multicast_group(
+            &mut device,
+            Ipv4Address::from_bytes(&MDNS_GROUP),
+            Instant::now(),
+        )
+        .unwrap();
 
     loop {
         let timestamp = Instant::now();

@@ -17,7 +17,7 @@ pub enum MulticastError {
     Ipv6NotSupported,
 }
 
-impl<'a> Interface<'a> {
+impl Interface {
     /// Add an address to a list of subscribed multicast IP addresses.
     ///
     /// Returns `Ok(announce_sent)` if the address was added successfully, where `annouce_sent`
@@ -180,7 +180,7 @@ impl<'a> Interface<'a> {
     }
 }
 
-impl<'a> InterfaceInner<'a> {
+impl InterfaceInner {
     /// Check whether the interface listens to given destination multicast IP address.
     ///
     /// If built without feature `proto-igmp` this function will
