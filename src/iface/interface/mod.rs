@@ -24,10 +24,10 @@ use heapless::{LinearMap, Vec};
 
 #[cfg(any(feature = "proto-ipv4", feature = "proto-sixlowpan"))]
 use super::fragmentation::PacketAssemblerSet;
+#[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
+use super::neighbor::{Answer as NeighborAnswer, Cache as NeighborCache};
 use super::socket_set::SocketSet;
 use crate::iface::Routes;
-#[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
-use crate::iface::{NeighborAnswer, NeighborCache};
 use crate::phy::{ChecksumCapabilities, Device, DeviceCapabilities, Medium, RxToken, TxToken};
 use crate::rand::Rand;
 #[cfg(feature = "socket-dns")]
@@ -284,353 +284,46 @@ pub struct InterfaceInner {
     igmp_report_state: IgmpReportState,
 }
 
-/// A builder structure used for creating a network interface.
-pub struct InterfaceBuilder {
-    #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
-    hardware_addr: Option<HardwareAddress>,
-    #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
-    neighbor_cache: Option<NeighborCache>,
-    #[cfg(feature = "medium-ieee802154")]
-    pan_id: Option<Ieee802154Pan>,
-    ip_addrs: Vec<IpCidr, MAX_IP_ADDR_COUNT>,
-    #[cfg(feature = "proto-ipv4")]
-    any_ip: bool,
-    routes: Routes,
-    /// Does not share storage with `ipv6_multicast_groups` to avoid IPv6 size overhead.
-    #[cfg(feature = "proto-igmp")]
-    ipv4_multicast_groups: LinearMap<Ipv4Address, (), MAX_IPV4_MULTICAST_GROUPS>,
-    random_seed: u64,
-
-    #[cfg(feature = "proto-sixlowpan-fragmentation")]
-    sixlowpan_reassembly_buffer_timeout: Duration,
-
-    #[cfg(feature = "proto-sixlowpan")]
-    sixlowpan_address_context: Vec<SixlowpanAddressContext, SIXLOWPAN_ADDRESS_CONTEXT_COUNT>,
-}
-
-impl InterfaceBuilder {
-    /// Create a builder used for creating a network interface using the
-    /// given device and address.
-    #[cfg_attr(
-        all(feature = "medium-ethernet", not(feature = "proto-sixlowpan")),
-        doc = r##"
-# Examples
-
-```
-# use std::collections::BTreeMap;
-#[cfg(feature = "proto-ipv4-fragmentation")]
-use smoltcp::iface::ReassemblyBuffer;
-use smoltcp::iface::{InterfaceBuilder, NeighborCache};
-# use smoltcp::phy::{Loopback, Medium};
-use smoltcp::wire::{EthernetAddress, IpCidr, IpAddress};
-
-let mut device = // ...
-# Loopback::new(Medium::Ethernet);
-let hw_addr = // ...
-# EthernetAddress::default();
-let neighbor_cache = // ...
-# NeighborCache::new();
-let ip_addrs = // ...
-# heapless::Vec::<IpCidr, 5>::new();
-let builder = InterfaceBuilder::new()
-        .hardware_addr(hw_addr.into())
-        .neighbor_cache(neighbor_cache)
-        .ip_addrs(ip_addrs);
-
-let iface = builder.finalize(&mut device);
-```
-    "##
-    )]
-    #[allow(clippy::new_without_default)]
-    pub fn new() -> Self {
-        InterfaceBuilder {
-            #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
-            hardware_addr: None,
-            #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
-            neighbor_cache: None,
-
-            #[cfg(feature = "medium-ieee802154")]
-            pan_id: None,
-
-            ip_addrs: Vec::new(),
-            #[cfg(feature = "proto-ipv4")]
-            any_ip: false,
-            routes: Routes::new(),
-            #[cfg(feature = "proto-igmp")]
-            ipv4_multicast_groups: LinearMap::new(),
-            random_seed: 0,
-
-            #[cfg(feature = "proto-sixlowpan-fragmentation")]
-            sixlowpan_reassembly_buffer_timeout: Duration::from_secs(60),
-
-            #[cfg(feature = "proto-sixlowpan")]
-            sixlowpan_address_context: Vec::new(),
-        }
-    }
-
-    /// Set the random seed for this interface.
+/// Configuration structure used for creating a network interface.
+#[non_exhaustive]
+pub struct Config {
+    /// Random seed.
     ///
     /// It is strongly recommended that the random seed is different on each boot,
     /// to avoid problems with TCP port/sequence collisions.
     ///
     /// The seed doesn't have to be cryptographically secure.
-    pub fn random_seed(mut self, random_seed: u64) -> Self {
-        self.random_seed = random_seed;
-        self
-    }
+    pub random_seed: u64,
 
-    /// Set the Hardware address the interface will use. See also
-    /// [hardware_addr].
+    /// Set the Hardware address the interface will use.
     ///
     /// # Panics
-    /// This function panics if the address is not unicast.
-    ///
-    /// [hardware_addr]: struct.Interface.html#method.hardware_addr
+    /// Creating the interface panics if the address is not unicast.
     #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
-    pub fn hardware_addr(mut self, addr: HardwareAddress) -> Self {
-        InterfaceInner::check_hardware_addr(&addr);
-        self.hardware_addr = Some(addr);
-        self
-    }
+    pub hardware_addr: Option<HardwareAddress>,
 
     /// Set the IEEE802.15.4 PAN ID the interface will use.
     ///
     /// **NOTE**: we use the same PAN ID for destination and source.
     #[cfg(feature = "medium-ieee802154")]
-    pub fn pan_id(mut self, pan_id: Ieee802154Pan) -> Self {
-        self.pan_id = Some(pan_id);
-        self
-    }
+    pub pan_id: Option<Ieee802154Pan>,
+}
 
-    /// Set the IP addresses the interface will use. See also
-    /// [ip_addrs].
-    ///
-    /// # Panics
-    /// This function panics if any of the addresses are not unicast.
-    ///
-    /// [ip_addrs]: struct.Interface.html#method.ip_addrs
-    pub fn ip_addrs<T>(mut self, ip_addrs: T) -> Self
-    where
-        T: Into<Vec<IpCidr, MAX_IP_ADDR_COUNT>>,
-    {
-        let ip_addrs = ip_addrs.into();
-        InterfaceInner::check_ip_addrs(&ip_addrs);
-        self.ip_addrs = ip_addrs;
-        self
-    }
-
-    /// Enable or disable the AnyIP capability, allowing packets to be received
-    /// locally on IPv4 addresses other than the interface's configured [ip_addrs].
-    /// When AnyIP is enabled and a route prefix in [routes] specifies one of
-    /// the interface's [ip_addrs] as its gateway, the interface will accept
-    /// packets addressed to that prefix.
-    ///
-    /// # IPv6
-    ///
-    /// This option is not available or required for IPv6 as packets sent to
-    /// the interface are not filtered by IPv6 address.
-    ///
-    /// [routes]: struct.Interface.html#method.routes
-    /// [ip_addrs]: struct.Interface.html#method.ip_addrs
-    #[cfg(feature = "proto-ipv4")]
-    pub fn any_ip(mut self, enabled: bool) -> Self {
-        self.any_ip = enabled;
-        self
-    }
-
-    /// Set the IP routes the interface will use. See also
-    /// [routes].
-    ///
-    /// [routes]: struct.Interface.html#method.routes
-    pub fn routes<T>(mut self, routes: T) -> Self
-    where
-        T: Into<Routes>,
-    {
-        self.routes = routes.into();
-        self
-    }
-
-    /// Provide storage for multicast groups.
-    ///
-    /// Join multicast groups by calling [`join_multicast_group()`] on an `Interface`.
-    /// Using [`join_multicast_group()`] will send initial membership reports.
-    ///
-    /// A previously destroyed interface can be recreated by reusing the multicast group
-    /// storage, i.e. providing a non-empty storage to `ipv4_multicast_groups()`.
-    /// Note that this way initial membership reports are **not** sent.
-    ///
-    /// [`join_multicast_group()`]: struct.Interface.html#method.join_multicast_group
-    #[cfg(feature = "proto-igmp")]
-    pub fn ipv4_multicast_groups<T>(mut self, ipv4_multicast_groups: T) -> Self
-    where
-        T: Into<LinearMap<Ipv4Address, (), MAX_IPV4_MULTICAST_GROUPS>>,
-    {
-        self.ipv4_multicast_groups = ipv4_multicast_groups.into();
-        self
-    }
-
-    /// Set the Neighbor Cache the interface will use.
-    #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
-    pub fn neighbor_cache(mut self, neighbor_cache: NeighborCache) -> Self {
-        self.neighbor_cache = Some(neighbor_cache);
-        self
-    }
-
-    /// Set the address contexts the interface will use.
-    #[cfg(feature = "proto-sixlowpan")]
-    pub fn sixlowpan_address_context(
-        mut self,
-        sixlowpan_address_context: Vec<SixlowpanAddressContext, SIXLOWPAN_ADDRESS_CONTEXT_COUNT>,
-    ) -> Self {
-        self.sixlowpan_address_context = sixlowpan_address_context;
-        self
-    }
-
-    /// Set the timeout value the 6LoWPAN reassembly buffer will use.
-    #[cfg(feature = "proto-sixlowpan-fragmentation")]
-    pub fn sixlowpan_reassembly_buffer_timeout(mut self, timeout: Duration) -> Self {
-        if timeout > Duration::from_secs(60) {
-            net_debug!("RFC 4944 specifies that the reassembly timeout MUST be set to a maximum of 60 seconds");
-        }
-        self.sixlowpan_reassembly_buffer_timeout = timeout;
-        self
-    }
-
-    /// Create a network interface using the previously provided configuration.
-    ///
-    /// # Panics
-    /// If a required option is not provided, this function will panic. Required
-    /// options are:
-    ///
-    /// - [ethernet_addr]
-    /// - [neighbor_cache]
-    ///
-    /// [ethernet_addr]: #method.ethernet_addr
-    /// [neighbor_cache]: #method.neighbor_cache
-    pub fn finalize<D>(self, device: &mut D) -> Interface
-    where
-        D: Device + ?Sized,
-    {
-        let caps = device.capabilities();
-
-        #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
-        let (hardware_addr, neighbor_cache) = match caps.medium {
-            #[cfg(feature = "medium-ethernet")]
-            Medium::Ethernet => (
-                Some(
-                    self.hardware_addr
-                        .expect("hardware_addr required option was not set"),
-                ),
-                Some(
-                    self.neighbor_cache
-                        .expect("neighbor_cache required option was not set"),
-                ),
-            ),
-            #[cfg(feature = "medium-ip")]
-            Medium::Ip => {
-                assert!(
-                    self.hardware_addr.is_none(),
-                    "hardware_addr is set, but device medium is IP"
-                );
-                assert!(
-                    self.neighbor_cache.is_none(),
-                    "neighbor_cache is set, but device medium is IP"
-                );
-                (None, None)
-            }
+impl Config {
+    pub fn new() -> Self {
+        Config {
+            random_seed: 0,
+            #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
+            hardware_addr: None,
             #[cfg(feature = "medium-ieee802154")]
-            Medium::Ieee802154 => (
-                Some(
-                    self.hardware_addr
-                        .expect("hardware_addr required option was not set"),
-                ),
-                Some(
-                    self.neighbor_cache
-                        .expect("neighbor_cache required option was not set"),
-                ),
-            ),
-        };
-
-        let mut rand = Rand::new(self.random_seed);
-
-        #[cfg(feature = "medium-ieee802154")]
-        let mut sequence_no;
-        #[cfg(feature = "medium-ieee802154")]
-        loop {
-            sequence_no = (rand.rand_u32() & 0xff) as u8;
-            if sequence_no != 0 {
-                break;
-            }
+            pan_id: None,
         }
+    }
+}
 
-        #[cfg(feature = "proto-sixlowpan")]
-        let mut tag;
-
-        #[cfg(feature = "proto-sixlowpan")]
-        loop {
-            tag = rand.rand_u16();
-            if tag != 0 {
-                break;
-            }
-        }
-
-        #[cfg(feature = "proto-ipv4")]
-        let mut ipv4_id;
-
-        #[cfg(feature = "proto-ipv4")]
-        loop {
-            ipv4_id = rand.rand_u16();
-            if ipv4_id != 0 {
-                break;
-            }
-        }
-
-        Interface {
-            fragments: FragmentsBuffer {
-                #[cfg(feature = "proto-sixlowpan")]
-                decompress_buf: [0u8; sixlowpan::MAX_DECOMPRESSED_LEN],
-
-                #[cfg(feature = "proto-ipv4-fragmentation")]
-                ipv4_fragments: PacketAssemblerSet::new(),
-                #[cfg(feature = "proto-sixlowpan-fragmentation")]
-                sixlowpan_fragments: PacketAssemblerSet::new(),
-                #[cfg(feature = "proto-sixlowpan-fragmentation")]
-                sixlowpan_fragments_cache_timeout: self.sixlowpan_reassembly_buffer_timeout,
-            },
-            out_packets: OutPackets {
-                #[cfg(feature = "proto-ipv4-fragmentation")]
-                ipv4_out_packet: Ipv4OutPacket::new(),
-                #[cfg(feature = "proto-sixlowpan-fragmentation")]
-                sixlowpan_out_packet: SixlowpanOutPacket::new(),
-            },
-            inner: InterfaceInner {
-                now: Instant::from_secs(0),
-                caps,
-                #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
-                hardware_addr,
-                ip_addrs: self.ip_addrs,
-                #[cfg(feature = "proto-ipv4")]
-                any_ip: self.any_ip,
-                routes: self.routes,
-                #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
-                neighbor_cache,
-                #[cfg(feature = "proto-igmp")]
-                ipv4_multicast_groups: self.ipv4_multicast_groups,
-                #[cfg(feature = "proto-igmp")]
-                igmp_report_state: IgmpReportState::Inactive,
-                #[cfg(feature = "medium-ieee802154")]
-                sequence_no,
-                #[cfg(feature = "medium-ieee802154")]
-                pan_id: self.pan_id,
-                #[cfg(feature = "proto-sixlowpan-fragmentation")]
-                tag,
-                #[cfg(feature = "proto-ipv4-fragmentation")]
-                ipv4_id,
-                #[cfg(feature = "proto-sixlowpan")]
-                sixlowpan_address_context: Vec::new(),
-                rand,
-            },
-        }
+impl Default for Config {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -785,6 +478,129 @@ enum IgmpReportState {
 }
 
 impl Interface {
+    /// Create a network interface using the previously provided configuration.
+    ///
+    /// # Panics
+    /// If a required option is not provided, this function will panic. Required
+    /// options are:
+    ///
+    /// - [ethernet_addr]
+    /// - [neighbor_cache]
+    ///
+    /// [ethernet_addr]: #method.ethernet_addr
+    /// [neighbor_cache]: #method.neighbor_cache
+    pub fn new<D>(config: Config, device: &mut D) -> Self
+    where
+        D: Device + ?Sized,
+    {
+        let caps = device.capabilities();
+
+        #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
+        let hardware_addr = match caps.medium {
+            #[cfg(feature = "medium-ethernet")]
+            Medium::Ethernet => Some(
+                config
+                    .hardware_addr
+                    .expect("hardware_addr required option was not set"),
+            ),
+            #[cfg(feature = "medium-ip")]
+            Medium::Ip => {
+                assert!(
+                    config.hardware_addr.is_none(),
+                    "hardware_addr is set, but device medium is IP"
+                );
+                None
+            }
+            #[cfg(feature = "medium-ieee802154")]
+            Medium::Ieee802154 => Some(
+                config
+                    .hardware_addr
+                    .expect("hardware_addr required option was not set"),
+            ),
+        };
+
+        let mut rand = Rand::new(config.random_seed);
+
+        #[cfg(feature = "medium-ieee802154")]
+        let mut sequence_no;
+        #[cfg(feature = "medium-ieee802154")]
+        loop {
+            sequence_no = (rand.rand_u32() & 0xff) as u8;
+            if sequence_no != 0 {
+                break;
+            }
+        }
+
+        #[cfg(feature = "proto-sixlowpan")]
+        let mut tag;
+
+        #[cfg(feature = "proto-sixlowpan")]
+        loop {
+            tag = rand.rand_u16();
+            if tag != 0 {
+                break;
+            }
+        }
+
+        #[cfg(feature = "proto-ipv4")]
+        let mut ipv4_id;
+
+        #[cfg(feature = "proto-ipv4")]
+        loop {
+            ipv4_id = rand.rand_u16();
+            if ipv4_id != 0 {
+                break;
+            }
+        }
+
+        Interface {
+            fragments: FragmentsBuffer {
+                #[cfg(feature = "proto-sixlowpan")]
+                decompress_buf: [0u8; sixlowpan::MAX_DECOMPRESSED_LEN],
+
+                #[cfg(feature = "proto-ipv4-fragmentation")]
+                ipv4_fragments: PacketAssemblerSet::new(),
+                #[cfg(feature = "proto-sixlowpan-fragmentation")]
+                sixlowpan_fragments: PacketAssemblerSet::new(),
+                #[cfg(feature = "proto-sixlowpan-fragmentation")]
+                sixlowpan_fragments_cache_timeout: Duration::from_secs(60),
+            },
+            out_packets: OutPackets {
+                #[cfg(feature = "proto-ipv4-fragmentation")]
+                ipv4_out_packet: Ipv4OutPacket::new(),
+                #[cfg(feature = "proto-sixlowpan-fragmentation")]
+                sixlowpan_out_packet: SixlowpanOutPacket::new(),
+            },
+            inner: InterfaceInner {
+                now: Instant::from_secs(0),
+                caps,
+                #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
+                hardware_addr,
+                ip_addrs: Vec::new(),
+                #[cfg(feature = "proto-ipv4")]
+                any_ip: false,
+                routes: Routes::new(),
+                #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
+                neighbor_cache: Some(NeighborCache::new()),
+                #[cfg(feature = "proto-igmp")]
+                ipv4_multicast_groups: LinearMap::new(),
+                #[cfg(feature = "proto-igmp")]
+                igmp_report_state: IgmpReportState::Inactive,
+                #[cfg(feature = "medium-ieee802154")]
+                sequence_no,
+                #[cfg(feature = "medium-ieee802154")]
+                pan_id: config.pan_id,
+                #[cfg(feature = "proto-sixlowpan-fragmentation")]
+                tag,
+                #[cfg(feature = "proto-ipv4-fragmentation")]
+                ipv4_id,
+                #[cfg(feature = "proto-sixlowpan")]
+                sixlowpan_address_context: Vec::new(),
+                rand,
+            },
+        }
+    }
+
     /// Get the socket context.
     ///
     /// The context is needed for some socket methods.
@@ -842,13 +658,13 @@ impl Interface {
     /// Get the first IPv4 address if present.
     #[cfg(feature = "proto-ipv4")]
     pub fn ipv4_addr(&self) -> Option<Ipv4Address> {
-        self.ip_addrs()
-            .iter()
-            .find_map(|cidr| match cidr.address() {
-                IpAddress::Ipv4(addr) => Some(addr),
-                #[allow(unreachable_patterns)]
-                _ => None,
-            })
+        self.inner.ipv4_addr()
+    }
+
+    /// Get the first IPv6 address if present.
+    #[cfg(feature = "proto-ipv6")]
+    pub fn ipv6_addr(&self) -> Option<Ipv6Address> {
+        self.inner.ipv6_addr()
     }
 
     /// Update the IP addresses of the interface.
@@ -866,18 +682,72 @@ impl Interface {
         self.inner.has_ip_addr(addr)
     }
 
-    /// Get the first IPv4 address of the interface.
-    #[cfg(feature = "proto-ipv4")]
-    pub fn ipv4_address(&self) -> Option<Ipv4Address> {
-        self.inner.ipv4_address()
-    }
-
     pub fn routes(&self) -> &Routes {
         &self.inner.routes
     }
 
     pub fn routes_mut(&mut self) -> &mut Routes {
         &mut self.inner.routes
+    }
+
+    /// Enable or disable the AnyIP capability.
+    ///
+    /// AnyIP allowins packets to be received
+    /// locally on IPv4 addresses other than the interface's configured [ip_addrs].
+    /// When AnyIP is enabled and a route prefix in [`routes`](Self::routes) specifies one of
+    /// the interface's [`ip_addrs`](Self::ip_addrs) as its gateway, the interface will accept
+    /// packets addressed to that prefix.
+    ///
+    /// # IPv6
+    ///
+    /// This option is not available or required for IPv6 as packets sent to
+    /// the interface are not filtered by IPv6 address.
+    #[cfg(feature = "proto-ipv4")]
+    pub fn set_any_ip(&mut self, any_ip: bool) {
+        self.inner.any_ip = any_ip;
+    }
+
+    /// Get whether AnyIP is enabled.
+    ///
+    /// See [`set_any_ip`](Self::set_any_ip) for details on AnyIP
+    #[cfg(feature = "proto-ipv4")]
+    pub fn any_ip(&self) -> bool {
+        self.inner.any_ip
+    }
+
+    /// Get the 6LoWPAN address contexts.
+    #[cfg(feature = "proto-sixlowpan")]
+    pub fn sixlowpan_address_context(
+        &self,
+    ) -> &Vec<SixlowpanAddressContext, SIXLOWPAN_ADDRESS_CONTEXT_COUNT> {
+        &self.inner.sixlowpan_address_context
+    }
+
+    /// Get a mutable reference to the 6LoWPAN address contexts.
+    #[cfg(feature = "proto-sixlowpan")]
+    pub fn sixlowpan_address_context_mut(
+        &mut self,
+    ) -> &mut Vec<SixlowpanAddressContext, SIXLOWPAN_ADDRESS_CONTEXT_COUNT> {
+        &mut self.inner.sixlowpan_address_context
+    }
+
+    /// Get the packet reassembly timeout.
+    ///
+    /// Currently used only for 6LoWPAN, will be used for IPv4 in the future as well.
+    #[cfg(feature = "proto-sixlowpan-fragmentation")]
+    pub fn reassembly_timeout(&self) -> Duration {
+        self.fragments.sixlowpan_fragments_cache_timeout
+    }
+
+    /// Set the packet reassembly timeout.
+    ///
+    /// Currently used only for 6LoWPAN, will be used for IPv4 in the future as well.
+    #[cfg(feature = "proto-sixlowpan-fragmentation")]
+    pub fn set_reassembly_timeout(&mut self, timeout: Duration) {
+        if timeout > Duration::from_secs(60) {
+            net_debug!("RFC 4944 specifies that the reassembly timeout MUST be set to a maximum of 60 seconds");
+        }
+        self.fragments.sixlowpan_fragments_cache_timeout = timeout;
     }
 
     /// Transmit packets queued in the given sockets, and receive packets queued
@@ -1441,11 +1311,21 @@ impl InterfaceInner {
 
     /// Get the first IPv4 address of the interface.
     #[cfg(feature = "proto-ipv4")]
-    pub fn ipv4_address(&self) -> Option<Ipv4Address> {
+    pub fn ipv4_addr(&self) -> Option<Ipv4Address> {
         self.ip_addrs.iter().find_map(|addr| match *addr {
             IpCidr::Ipv4(cidr) => Some(cidr.address()),
-            #[cfg(feature = "proto-ipv6")]
-            IpCidr::Ipv6(_) => None,
+            #[allow(unreachable_patterns)]
+            _ => None,
+        })
+    }
+
+    /// Get the first IPv6 address if present.
+    #[cfg(feature = "proto-ipv6")]
+    pub fn ipv6_addr(&self) -> Option<Ipv6Address> {
+        self.ip_addrs.iter().find_map(|addr| match *addr {
+            IpCidr::Ipv6(cidr) => Some(cidr.address()),
+            #[allow(unreachable_patterns)]
+            _ => None,
         })
     }
 

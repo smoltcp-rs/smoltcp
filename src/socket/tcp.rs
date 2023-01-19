@@ -731,15 +731,15 @@ impl<'a> Socket<'a> {
     /// The local port must be provided explicitly. Assuming `fn get_ephemeral_port() -> u16`
     /// allocates a port between 49152 and 65535, a connection may be established as follows:
     ///
-    /// ```rust
+    /// ```no_run
     /// # #[cfg(all(
     /// #     feature = "medium-ethernet",
     /// #     feature = "proto-ipv4",
     /// # ))]
     /// # {
     /// # use smoltcp::socket::tcp::{Socket, SocketBuffer};
-    /// # use smoltcp::iface::{InterfaceBuilder, NeighborCache};
-    /// # use smoltcp::wire::{HardwareAddress, EthernetAddress, IpAddress, IpCidr};
+    /// # use smoltcp::iface::Interface;
+    /// # use smoltcp::wire::IpAddress;
     /// #
     /// # fn get_ephemeral_port() -> u16 {
     /// #     49152
@@ -750,17 +750,7 @@ impl<'a> Socket<'a> {
     /// #     SocketBuffer::new(vec![0; 1200])
     /// # );
     /// #
-    /// # let mut ip_addrs = heapless::Vec::<IpCidr, 5>::new();
-    /// # ip_addrs
-    /// #     .push(IpCidr::new(IpAddress::v4(192, 168, 69, 1), 24))
-    /// #     .unwrap();
-    /// #
-    /// # let mut device =smoltcp::phy::Loopback::new(smoltcp::phy::Medium::Ethernet);
-    /// # let mut iface = InterfaceBuilder::new()
-    /// #     .hardware_addr(HardwareAddress::Ethernet(EthernetAddress::default()))
-    /// #     .neighbor_cache(NeighborCache::new())
-    /// #     .ip_addrs(ip_addrs)
-    /// #     .finalize(&mut device);
+    /// # let mut iface: Interface = todo!();
     /// #
     /// socket.connect(
     ///     iface.context(),

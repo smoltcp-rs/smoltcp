@@ -46,12 +46,12 @@ use log::debug;
 use std::os::unix::io::AsRawFd;
 use std::str;
 
-use smoltcp::iface::{InterfaceBuilder, NeighborCache, SocketSet};
+use smoltcp::iface::{Config, Interface, SocketSet};
 use smoltcp::phy::{wait as phy_wait, Medium, RawSocket};
 use smoltcp::socket::tcp;
 use smoltcp::socket::udp;
 use smoltcp::time::Instant;
-use smoltcp::wire::{Ieee802154Pan, IpAddress, IpCidr};
+use smoltcp::wire::{Ieee802154Address, Ieee802154Pan, IpAddress, IpCidr};
 
 fn main() {
     utils::setup_logging("");
@@ -62,13 +62,28 @@ fn main() {
     let mut matches = utils::parse_options(&opts, free);
 
     let device = RawSocket::new("wpan1", Medium::Ieee802154).unwrap();
-
     let fd = device.as_raw_fd();
     let mut device =
         utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
 
-    let neighbor_cache = NeighborCache::new();
+    // Create interface
+    let mut config = Config::new();
+    config.random_seed = rand::random();
+    config.hardware_addr =
+        Some(Ieee802154Address::Extended([0x1a, 0x0b, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42]).into());
+    config.pan_id = Some(Ieee802154Pan(0xbeef));
 
+    let mut iface = Interface::new(config, &mut device);
+    iface.update_ip_addrs(|ip_addrs| {
+        ip_addrs
+            .push(IpCidr::new(
+                IpAddress::v6(0xfe80, 0, 0, 0, 0x180b, 0x4242, 0x4242, 0x4242),
+                64,
+            ))
+            .unwrap();
+    });
+
+    // Create sockets
     let udp_rx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 1280]);
     let udp_tx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 1280]);
     let udp_socket = udp::Socket::new(udp_rx_buffer, udp_tx_buffer);
@@ -76,26 +91,6 @@ fn main() {
     let tcp_rx_buffer = tcp::SocketBuffer::new(vec![0; 4096]);
     let tcp_tx_buffer = tcp::SocketBuffer::new(vec![0; 4096]);
     let tcp_socket = tcp::Socket::new(tcp_rx_buffer, tcp_tx_buffer);
-
-    let ieee802154_addr = smoltcp::wire::Ieee802154Address::Extended([
-        0x1a, 0x0b, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42,
-    ]);
-    let mut ip_addrs = heapless::Vec::<IpCidr, 5>::new();
-    ip_addrs
-        .push(IpCidr::new(
-            IpAddress::v6(0xfe80, 0, 0, 0, 0x180b, 0x4242, 0x4242, 0x4242),
-            64,
-        ))
-        .unwrap();
-
-    let mut builder = InterfaceBuilder::new()
-        .ip_addrs(ip_addrs)
-        .pan_id(Ieee802154Pan(0xbeef));
-    builder = builder
-        .hardware_addr(ieee802154_addr.into())
-        .neighbor_cache(neighbor_cache);
-
-    let mut iface = builder.finalize(&mut device);
 
     let mut sockets = SocketSet::new(vec![]);
     let udp_handle = sockets.add(udp_socket);

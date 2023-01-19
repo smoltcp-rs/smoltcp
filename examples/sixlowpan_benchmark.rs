@@ -46,10 +46,10 @@ mod utils;
 use std::os::unix::io::AsRawFd;
 use std::str;
 
-use smoltcp::iface::{InterfaceBuilder, NeighborCache, SocketSet};
+use smoltcp::iface::{Config, Interface, SocketSet};
 use smoltcp::phy::{wait as phy_wait, Medium, RawSocket};
 use smoltcp::socket::tcp;
-use smoltcp::wire::{Ieee802154Pan, IpAddress, IpCidr};
+use smoltcp::wire::{Ieee802154Address, Ieee802154Pan, IpAddress, IpCidr};
 
 //For benchmark
 use smoltcp::time::{Duration, Instant};
@@ -146,7 +146,22 @@ fn main() {
         _ => panic!("invalid mode"),
     };
 
-    let neighbor_cache = NeighborCache::new();
+    // Create interface
+    let mut config = Config::new();
+    config.random_seed = rand::random();
+    config.hardware_addr =
+        Some(Ieee802154Address::Extended([0x1a, 0x0b, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42]).into());
+    config.pan_id = Some(Ieee802154Pan(0xbeef));
+
+    let mut iface = Interface::new(config, &mut device);
+    iface.update_ip_addrs(|ip_addrs| {
+        ip_addrs
+            .push(IpCidr::new(
+                IpAddress::v6(0xfe80, 0, 0, 0, 0x180b, 0x4242, 0x4242, 0x4242),
+                64,
+            ))
+            .unwrap();
+    });
 
     let tcp1_rx_buffer = tcp::SocketBuffer::new(vec![0; 4096]);
     let tcp1_tx_buffer = tcp::SocketBuffer::new(vec![0; 4096]);
@@ -155,25 +170,6 @@ fn main() {
     let tcp2_rx_buffer = tcp::SocketBuffer::new(vec![0; 4096]);
     let tcp2_tx_buffer = tcp::SocketBuffer::new(vec![0; 4096]);
     let tcp2_socket = tcp::Socket::new(tcp2_rx_buffer, tcp2_tx_buffer);
-
-    let ieee802154_addr = smoltcp::wire::Ieee802154Address::Extended([
-        0x1a, 0x0b, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42,
-    ]);
-    let mut ip_addrs = heapless::Vec::<IpCidr, 5>::new();
-    ip_addrs
-        .push(IpCidr::new(
-            IpAddress::v6(0xfe80, 0, 0, 0, 0x180b, 0x4242, 0x4242, 0x4242),
-            64,
-        ))
-        .unwrap();
-
-    let mut builder = InterfaceBuilder::new()
-        .ip_addrs(ip_addrs)
-        .pan_id(Ieee802154Pan(0xbeef));
-    builder = builder
-        .hardware_addr(ieee802154_addr.into())
-        .neighbor_cache(neighbor_cache);
-    let mut iface = builder.finalize(&mut device);
 
     let mut sockets = SocketSet::new(vec![]);
     let tcp1_handle = sockets.add(tcp1_socket);

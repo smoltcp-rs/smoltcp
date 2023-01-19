@@ -4,7 +4,7 @@ mod utils;
 use log::*;
 use std::os::unix::io::AsRawFd;
 
-use smoltcp::iface::{Interface, InterfaceBuilder, NeighborCache, SocketSet};
+use smoltcp::iface::{Config, Interface, SocketSet};
 use smoltcp::socket::dhcpv4;
 use smoltcp::time::Instant;
 use smoltcp::wire::{EthernetAddress, IpCidr, Ipv4Address, Ipv4Cidr};
@@ -27,22 +27,15 @@ fn main() {
     let mut device =
         utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
 
-    let neighbor_cache = NeighborCache::new();
-    let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
-    let mut ip_addrs = heapless::Vec::<IpCidr, 5>::new();
-    ip_addrs
-        .push(IpCidr::new(Ipv4Address::UNSPECIFIED.into(), 0))
-        .unwrap();
-
-    let medium = device.capabilities().medium;
-    let mut builder = InterfaceBuilder::new().ip_addrs(ip_addrs);
-    if medium == Medium::Ethernet {
-        builder = builder
-            .hardware_addr(ethernet_addr.into())
-            .neighbor_cache(neighbor_cache);
+    // Create interface
+    let mut config = Config::new();
+    config.random_seed = rand::random();
+    if device.capabilities().medium == Medium::Ethernet {
+        config.hardware_addr = Some(EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]).into());
     }
-    let mut iface = builder.finalize(&mut device);
+    let mut iface = Interface::new(config, &mut device);
 
+    // Create sockets
     let mut dhcp_socket = dhcpv4::Socket::new();
 
     // Set a ridiculously short max lease time to show DHCP renews work properly.
