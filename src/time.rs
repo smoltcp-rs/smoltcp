@@ -15,7 +15,7 @@ use core::{fmt, ops};
 /// A representation of an absolute time value.
 ///
 /// The `Instant` type is a wrapper around a `i64` value that
-/// represents a number of milliseconds, monotonically increasing
+/// represents a number of microseconds, monotonically increasing
 /// since an arbitrary moment in time, such as system startup.
 ///
 /// * A value of `0` is inherently arbitrary.
