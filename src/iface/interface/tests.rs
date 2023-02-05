@@ -167,14 +167,12 @@ fn test_no_icmp_no_unicast_ipv4() {
     // ICMP error response when the destination address is a
     // broadcast address
 
-    #[cfg(not(feature = "proto-ipv4-fragmentation"))]
-    assert_eq!(iface.inner.process_ipv4(&mut sockets, &frame, None), None);
-    #[cfg(feature = "proto-ipv4-fragmentation")]
     assert_eq!(
         iface.inner.process_ipv4(
             &mut sockets,
             &frame,
-            Some(&mut iface.fragments.ipv4_fragments)
+            #[cfg(feature = "proto-ipv4-fragmentation")]
+            &mut iface.fragments.assembler
         ),
         None
     );
@@ -255,18 +253,12 @@ fn test_icmp_error_no_payload() {
     // Ensure that the unknown protocol triggers an error response.
     // And we correctly handle no payload.
 
-    #[cfg(not(feature = "proto-ipv4-fragmentation"))]
-    assert_eq!(
-        iface.inner.process_ipv4(&mut sockets, &frame, None),
-        Some(expected_repr)
-    );
-
-    #[cfg(feature = "proto-ipv4-fragmentation")]
     assert_eq!(
         iface.inner.process_ipv4(
             &mut sockets,
             &frame,
-            Some(&mut iface.fragments.ipv4_fragments)
+            #[cfg(feature = "proto-ipv4-fragmentation")]
+            &mut iface.fragments.assembler
         ),
         Some(expected_repr)
     );
@@ -571,18 +563,12 @@ fn test_handle_ipv4_broadcast() {
     };
     let expected_packet = IpPacket::Icmpv4((expected_ipv4_repr, expected_icmpv4_repr));
 
-    #[cfg(not(feature = "proto-ipv4-fragmentation"))]
-    assert_eq!(
-        iface.inner.process_ipv4(&mut sockets, &frame, None),
-        Some(expected_packet)
-    );
-
-    #[cfg(feature = "proto-ipv4-fragmentation")]
     assert_eq!(
         iface.inner.process_ipv4(
             &mut sockets,
             &frame,
-            Some(&mut iface.fragments.ipv4_fragments)
+            #[cfg(feature = "proto-ipv4-fragmentation")]
+            &mut iface.fragments.assembler
         ),
         Some(expected_packet)
     );
@@ -1277,14 +1263,12 @@ fn test_raw_socket_no_reply() {
         Ipv4Packet::new_unchecked(&bytes)
     };
 
-    #[cfg(not(feature = "proto-ipv4-fragmentation"))]
-    assert_eq!(iface.inner.process_ipv4(&mut sockets, &frame, None), None);
-    #[cfg(feature = "proto-ipv4-fragmentation")]
     assert_eq!(
         iface.inner.process_ipv4(
             &mut sockets,
             &frame,
-            Some(&mut iface.fragments.ipv4_fragments)
+            #[cfg(feature = "proto-ipv4-fragmentation")]
+            &mut iface.fragments.assembler
         ),
         None
     );
@@ -1368,14 +1352,12 @@ fn test_raw_socket_with_udp_socket() {
         Ipv4Packet::new_unchecked(&bytes)
     };
 
-    #[cfg(not(feature = "proto-ipv4-fragmentation"))]
-    assert_eq!(iface.inner.process_ipv4(&mut sockets, &frame, None), None);
-    #[cfg(feature = "proto-ipv4-fragmentation")]
     assert_eq!(
         iface.inner.process_ipv4(
             &mut sockets,
             &frame,
-            Some(&mut iface.fragments.ipv4_fragments)
+            #[cfg(feature = "proto-ipv4-fragmentation")]
+            &mut iface.fragments.assembler
         ),
         None
     );

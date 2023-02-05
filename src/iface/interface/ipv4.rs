@@ -1,15 +1,4 @@
-use super::check;
-use super::icmp_reply_payload_len;
-use super::InterfaceInner;
-use super::IpPacket;
-use super::PacketAssemblerSet;
-use super::SocketSet;
-
-#[cfg(feature = "medium-ethernet")]
-use super::EthernetPacket;
-
-#[cfg(feature = "proto-ipv4-fragmentation")]
-use super::Ipv4OutPacket;
+use super::*;
 
 #[cfg(feature = "socket-dhcpv4")]
 use crate::socket::dhcpv4;
@@ -22,12 +11,12 @@ use crate::time::{Duration, Instant};
 use crate::wire::*;
 
 impl InterfaceInner {
-    pub(super) fn process_ipv4<'output, 'payload: 'output, T: AsRef<[u8]> + ?Sized>(
+    pub(super) fn process_ipv4<'a, T: AsRef<[u8]> + ?Sized>(
         &mut self,
         sockets: &mut SocketSet,
-        ipv4_packet: &Ipv4Packet<&'payload T>,
-        _fragments: Option<&'output mut PacketAssemblerSet<Ipv4FragKey>>,
-    ) -> Option<IpPacket<'output>> {
+        ipv4_packet: &Ipv4Packet<&'a T>,
+        #[cfg(feature = "proto-ipv4-fragmentation")] assembler: &'a mut PacketAssemblerSet<FragKey>,
+    ) -> Option<IpPacket<'a>> {
         let ipv4_repr = check!(Ipv4Repr::parse(ipv4_packet, &self.caps.checksum));
         if !self.is_unicast_v4(ipv4_repr.src_addr) {
             // Discard packets with non-unicast source addresses.
@@ -39,12 +28,10 @@ impl InterfaceInner {
         let ip_payload = {
             const REASSEMBLY_TIMEOUT: Duration = Duration::from_secs(90);
 
-            let fragments = _fragments.unwrap();
-
             if ipv4_packet.more_frags() || ipv4_packet.frag_offset() != 0 {
-                let key = ipv4_packet.get_key();
+                let key = FragKey::Ipv4(ipv4_packet.get_key());
 
-                let f = match fragments.get(&key, self.now + REASSEMBLY_TIMEOUT) {
+                let f = match assembler.get(&key, self.now + REASSEMBLY_TIMEOUT) {
                     Ok(f) => f,
                     Err(_) => {
                         net_debug!("No available packet assembler for fragmented packet");

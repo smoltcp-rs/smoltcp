@@ -43,13 +43,23 @@ const FRAGMENTATION_BUFFER_SIZE: usize = 1500;
 #[cfg(feature = "proto-sixlowpan")]
 const SIXLOWPAN_ADDRESS_CONTEXT_COUNT: usize = 4;
 
+#[cfg(feature = "_proto-fragmentation")]
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub(crate) enum FragKey {
+    #[cfg(feature = "proto-ipv4-fragmentation")]
+    Ipv4(Ipv4FragKey),
+    #[cfg(feature = "proto-sixlowpan-fragmentation")]
+    Sixlowpan(SixlowpanFragKey),
+}
+
 pub(crate) struct FragmentsBuffer {
     #[cfg(feature = "proto-sixlowpan")]
     decompress_buf: [u8; sixlowpan::MAX_DECOMPRESSED_LEN],
-    #[cfg(feature = "proto-ipv4-fragmentation")]
-    pub(crate) ipv4_fragments: PacketAssemblerSet<Ipv4FragKey>,
-    #[cfg(feature = "proto-sixlowpan-fragmentation")]
-    sixlowpan_fragments: PacketAssemblerSet<SixlowpanFragKey>,
+
+    #[cfg(feature = "_proto-fragmentation")]
+    pub(crate) assembler: PacketAssemblerSet<FragKey>,
+
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
     sixlowpan_reassembly_timeout: Duration,
 }
@@ -558,10 +568,8 @@ impl Interface {
                 #[cfg(feature = "proto-sixlowpan")]
                 decompress_buf: [0u8; sixlowpan::MAX_DECOMPRESSED_LEN],
 
-                #[cfg(feature = "proto-ipv4-fragmentation")]
-                ipv4_fragments: PacketAssemblerSet::new(),
-                #[cfg(feature = "proto-sixlowpan-fragmentation")]
-                sixlowpan_fragments: PacketAssemblerSet::new(),
+                #[cfg(feature = "_proto-fragmentation")]
+                assembler: PacketAssemblerSet::new(),
                 #[cfg(feature = "proto-sixlowpan-fragmentation")]
                 sixlowpan_reassembly_timeout: Duration::from_secs(60),
             },
@@ -767,11 +775,8 @@ impl Interface {
     {
         self.inner.now = timestamp;
 
-        #[cfg(feature = "proto-ipv4-fragmentation")]
-        self.fragments.ipv4_fragments.remove_expired(timestamp);
-
-        #[cfg(feature = "proto-sixlowpan-fragmentation")]
-        self.fragments.sixlowpan_fragments.remove_expired(timestamp);
+        #[cfg(feature = "_proto-fragmentation")]
+        self.fragments.assembler.remove_expired(timestamp);
 
         #[cfg(feature = "proto-ipv4-fragmentation")]
         if self.ipv4_egress(device) {
@@ -1328,22 +1333,19 @@ impl InterfaceInner {
         &mut self,
         sockets: &mut SocketSet,
         ip_payload: &'frame T,
-        _fragments: &'frame mut FragmentsBuffer,
+        fragments: &'frame mut FragmentsBuffer,
     ) -> Option<IpPacket<'frame>> {
         match IpVersion::of_packet(ip_payload.as_ref()) {
             #[cfg(feature = "proto-ipv4")]
             Ok(IpVersion::Ipv4) => {
                 let ipv4_packet = check!(Ipv4Packet::new_checked(ip_payload));
 
-                #[cfg(feature = "proto-ipv4-fragmentation")]
-                {
-                    self.process_ipv4(sockets, &ipv4_packet, Some(&mut _fragments.ipv4_fragments))
-                }
-
-                #[cfg(not(feature = "proto-ipv4-fragmentation"))]
-                {
-                    self.process_ipv4(sockets, &ipv4_packet, None)
-                }
+                self.process_ipv4(
+                    sockets,
+                    &ipv4_packet,
+                    #[cfg(feature = "proto-ipv4-fragmentation")]
+                    &mut fragments.assembler,
+                )
             }
             #[cfg(feature = "proto-ipv6")]
             Ok(IpVersion::Ipv6) => {

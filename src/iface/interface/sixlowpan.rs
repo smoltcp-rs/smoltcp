@@ -98,6 +98,7 @@ impl InterfaceInner {
         f: &'output mut FragmentsBuffer,
     ) -> Option<&'output [u8]> {
         use crate::iface::fragmentation::{AssemblerError, AssemblerFullError};
+        use crate::iface::interface::FragKey;
 
         // We have a fragment header, which means we cannot process the 6LoWPAN packet,
         // unless we have a complete one after processing this fragment.
@@ -105,7 +106,7 @@ impl InterfaceInner {
 
         // The key specifies to which 6LoWPAN fragment it belongs too.
         // It is based on the link layer addresses, the tag and the size.
-        let key = frag.get_key(ieee802154_repr);
+        let key = FragKey::Sixlowpan(frag.get_key(ieee802154_repr));
 
         // The offset of this fragment in increments of 8 octets.
         let offset = frag.datagram_offset() as usize * 8;
@@ -116,7 +117,7 @@ impl InterfaceInner {
         // We also pass the header size, since this is needed when other fragments
         // (other than the first one) are added.
         let frag_slot = match f
-            .sixlowpan_fragments
+            .assembler
             .get(&key, self.now + f.sixlowpan_reassembly_timeout)
         {
             Ok(frag) => frag,
