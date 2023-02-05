@@ -63,7 +63,7 @@ impl Device for TunTapInterface {
                 };
                 Some((rx, tx))
             }
-            Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => None,
+            Err(err) if err.kind() == io::ErrorKind::WouldBlock => None,
             Err(err) => panic!("{}", err),
         }
     }

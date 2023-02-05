@@ -62,18 +62,13 @@ where
     }
 
     fn receive(&mut self, timestamp: Instant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
-        let &mut Self {
-            ref mut inner,
-            ref fuzz_rx,
-            ref fuzz_tx,
-        } = self;
-        inner.receive(timestamp).map(|(rx_token, tx_token)| {
+        self.inner.receive(timestamp).map(|(rx_token, tx_token)| {
             let rx = RxToken {
-                fuzzer: fuzz_rx,
+                fuzzer: &mut self.fuzz_rx,
                 token: rx_token,
             };
             let tx = TxToken {
-                fuzzer: fuzz_tx,
+                fuzzer: &mut self.fuzz_tx,
                 token: tx_token,
             };
             (rx, tx)
@@ -81,13 +76,8 @@ where
     }
 
     fn transmit(&mut self, timestamp: Instant) -> Option<Self::TxToken<'_>> {
-        let &mut Self {
-            ref mut inner,
-            fuzz_rx: _,
-            ref fuzz_tx,
-        } = self;
-        inner.transmit(timestamp).map(|token| TxToken {
-            fuzzer: fuzz_tx,
+        self.inner.transmit(timestamp).map(|token| TxToken {
+            fuzzer: &mut self.fuzz_tx,
             token: token,
         })
     }

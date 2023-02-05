@@ -273,10 +273,7 @@ impl Timer {
     }
 
     fn set_keep_alive(&mut self) {
-        if let Timer::Idle {
-            ref mut keep_alive_at,
-        } = *self
-        {
+        if let Timer::Idle { keep_alive_at } = self {
             if keep_alive_at.is_none() {
                 *keep_alive_at = Some(Instant::from_millis(0))
             }
@@ -284,10 +281,7 @@ impl Timer {
     }
 
     fn rewind_keep_alive(&mut self, timestamp: Instant, interval: Option<Duration>) {
-        if let Timer::Idle {
-            ref mut keep_alive_at,
-        } = *self
-        {
+        if let Timer::Idle { keep_alive_at } = self {
             *keep_alive_at = interval.map(|interval| timestamp + interval)
         }
     }
@@ -1734,9 +1728,9 @@ impl<'a> Socket<'a> {
                 // Duplicate ACK if payload empty and ACK doesn't move send window ->
                 // Increment duplicate ACK count and set for retransmit if we just received
                 // the third duplicate ACK
-                Some(ref last_rx_ack)
+                Some(last_rx_ack)
                     if repr.payload.is_empty()
-                        && *last_rx_ack == ack_number
+                        && last_rx_ack == ack_number
                         && ack_number < self.remote_last_seq =>
                 {
                     // Increment duplicate ACK count

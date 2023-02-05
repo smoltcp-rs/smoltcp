@@ -184,17 +184,15 @@ impl<'a, H> PacketBuffer<'a, H> {
         self.dequeue_padding();
 
         self.metadata_ring.dequeue_one_with(|metadata| {
-            let PacketMetadata {
-                ref mut header,
-                size,
-            } = *metadata;
-
             self.payload_ring
                 .dequeue_many_with(|payload_buf| {
-                    debug_assert!(payload_buf.len() >= size);
+                    debug_assert!(payload_buf.len() >= metadata.size);
 
-                    match f(header.as_mut().unwrap(), &mut payload_buf[..size]) {
-                        Ok(val) => (size, Ok(val)),
+                    match f(
+                        metadata.header.as_mut().unwrap(),
+                        &mut payload_buf[..metadata.size],
+                    ) {
+                        Ok(val) => (metadata.size, Ok(val)),
                         Err(err) => (0, Err(err)),
                     }
                 })
@@ -207,14 +205,11 @@ impl<'a, H> PacketBuffer<'a, H> {
     pub fn dequeue(&mut self) -> Result<(H, &mut [u8]), Empty> {
         self.dequeue_padding();
 
-        let PacketMetadata {
-            ref mut header,
-            size,
-        } = *self.metadata_ring.dequeue_one()?;
+        let meta = self.metadata_ring.dequeue_one()?;
 
-        let payload_buf = self.payload_ring.dequeue_many(size);
-        debug_assert!(payload_buf.len() == size);
-        Ok((header.take().unwrap(), payload_buf))
+        let payload_buf = self.payload_ring.dequeue_many(meta.size);
+        debug_assert!(payload_buf.len() == meta.size);
+        Ok((meta.header.take().unwrap(), payload_buf))
     }
 
     /// Peek at a single packet from the buffer without removing it, and return a reference to

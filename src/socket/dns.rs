@@ -182,10 +182,10 @@ impl<'a> Socket<'a> {
             }
         }
 
-        match self.queries {
+        match &mut self.queries {
             ManagedSlice::Borrowed(_) => None,
             #[cfg(feature = "alloc")]
-            ManagedSlice::Owned(ref mut queries) => {
+            ManagedSlice::Owned(queries) => {
                 queries.push(None);
                 let index = queries.len() - 1;
                 Some(QueryHandle(index))
