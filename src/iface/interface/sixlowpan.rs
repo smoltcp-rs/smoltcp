@@ -117,7 +117,7 @@ impl InterfaceInner {
         // (other than the first one) are added.
         let frag_slot = match f
             .sixlowpan_fragments
-            .get(&key, self.now + f.sixlowpan_fragments_cache_timeout)
+            .get(&key, self.now + f.sixlowpan_reassembly_timeout)
         {
             Ok(frag) => frag,
             Err(AssemblerFullError) => {

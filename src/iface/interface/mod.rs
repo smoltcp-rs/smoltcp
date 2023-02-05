@@ -51,7 +51,7 @@ pub(crate) struct FragmentsBuffer {
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
     sixlowpan_fragments: PacketAssemblerSet<SixlowpanFragKey>,
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
-    sixlowpan_fragments_cache_timeout: Duration,
+    sixlowpan_reassembly_timeout: Duration,
 }
 
 pub(crate) struct OutPackets {
@@ -563,7 +563,7 @@ impl Interface {
                 #[cfg(feature = "proto-sixlowpan-fragmentation")]
                 sixlowpan_fragments: PacketAssemblerSet::new(),
                 #[cfg(feature = "proto-sixlowpan-fragmentation")]
-                sixlowpan_fragments_cache_timeout: Duration::from_secs(60),
+                sixlowpan_reassembly_timeout: Duration::from_secs(60),
             },
             out_packets: OutPackets {
                 #[cfg(feature = "proto-ipv4-fragmentation")]
@@ -736,7 +736,7 @@ impl Interface {
     /// Currently used only for 6LoWPAN, will be used for IPv4 in the future as well.
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
     pub fn reassembly_timeout(&self) -> Duration {
-        self.fragments.sixlowpan_fragments_cache_timeout
+        self.fragments.sixlowpan_reassembly_timeout
     }
 
     /// Set the packet reassembly timeout.
@@ -747,7 +747,7 @@ impl Interface {
         if timeout > Duration::from_secs(60) {
             net_debug!("RFC 4944 specifies that the reassembly timeout MUST be set to a maximum of 60 seconds");
         }
-        self.fragments.sixlowpan_fragments_cache_timeout = timeout;
+        self.fragments.sixlowpan_reassembly_timeout = timeout;
     }
 
     /// Transmit packets queued in the given sockets, and receive packets queued
