@@ -116,17 +116,17 @@ impl Address {
 
     /// Return an address as a sequence of octets, in big-endian.
     pub const fn as_bytes(&self) -> &[u8] {
-        match *self {
+        match self {
             #[cfg(feature = "proto-ipv4")]
-            Address::Ipv4(ref addr) => addr.as_bytes(),
+            Address::Ipv4(addr) => addr.as_bytes(),
             #[cfg(feature = "proto-ipv6")]
-            Address::Ipv6(ref addr) => addr.as_bytes(),
+            Address::Ipv6(addr) => addr.as_bytes(),
         }
     }
 
     /// Query whether the address is a valid unicast address.
     pub fn is_unicast(&self) -> bool {
-        match *self {
+        match self {
             #[cfg(feature = "proto-ipv4")]
             Address::Ipv4(addr) => addr.is_unicast(),
             #[cfg(feature = "proto-ipv6")]
@@ -136,7 +136,7 @@ impl Address {
 
     /// Query whether the address is a valid multicast address.
     pub const fn is_multicast(&self) -> bool {
-        match *self {
+        match self {
             #[cfg(feature = "proto-ipv4")]
             Address::Ipv4(addr) => addr.is_multicast(),
             #[cfg(feature = "proto-ipv6")]
@@ -146,7 +146,7 @@ impl Address {
 
     /// Query whether the address is the broadcast address.
     pub fn is_broadcast(&self) -> bool {
-        match *self {
+        match self {
             #[cfg(feature = "proto-ipv4")]
             Address::Ipv4(addr) => addr.is_broadcast(),
             #[cfg(feature = "proto-ipv6")]
@@ -156,7 +156,7 @@ impl Address {
 
     /// Query whether the address falls into the "unspecified" range.
     pub fn is_unspecified(&self) -> bool {
-        match *self {
+        match self {
             #[cfg(feature = "proto-ipv4")]
             Address::Ipv4(addr) => addr.is_unspecified(),
             #[cfg(feature = "proto-ipv6")]

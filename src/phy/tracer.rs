@@ -54,22 +54,17 @@ impl<D: Device> Device for Tracer<D> {
     }
 
     fn receive(&mut self, timestamp: Instant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
-        let &mut Self {
-            ref mut inner,
-            writer,
-            ..
-        } = self;
-        let medium = inner.capabilities().medium;
-        inner.receive(timestamp).map(|(rx_token, tx_token)| {
+        let medium = self.inner.capabilities().medium;
+        self.inner.receive(timestamp).map(|(rx_token, tx_token)| {
             let rx = RxToken {
                 token: rx_token,
-                writer,
+                writer: self.writer,
                 medium,
                 timestamp,
             };
             let tx = TxToken {
                 token: tx_token,
-                writer,
+                writer: self.writer,
                 medium,
                 timestamp,
             };
@@ -78,15 +73,11 @@ impl<D: Device> Device for Tracer<D> {
     }
 
     fn transmit(&mut self, timestamp: Instant) -> Option<Self::TxToken<'_>> {
-        let &mut Self {
-            ref mut inner,
-            writer,
-        } = self;
-        let medium = inner.capabilities().medium;
-        inner.transmit(timestamp).map(|tx_token| TxToken {
+        let medium = self.inner.capabilities().medium;
+        self.inner.transmit(timestamp).map(|tx_token| TxToken {
             token: tx_token,
             medium,
-            writer,
+            writer: self.writer,
             timestamp,
         })
     }

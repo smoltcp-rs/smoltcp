@@ -4,7 +4,7 @@ use smoltcp::wire::{DhcpPacket, DhcpRepr};
 
 fuzz_target!(|data: &[u8]| {
     let _ = match DhcpPacket::new_checked(data) {
-        Ok(ref packet) => match DhcpRepr::parse(packet) {
+        Ok(packet) => match DhcpRepr::parse(packet) {
             Ok(dhcp_repr) => {
                 let mut dhcp_payload = vec![0; dhcp_repr.buffer_len()];
                 match DhcpPacket::new_checked(&mut dhcp_payload[..]) {

@@ -997,10 +997,9 @@ impl Interface {
                     respond(inner, IpPacket::Dhcpv4(response))
                 }),
                 #[cfg(feature = "socket-dns")]
-                Socket::Dns(ref mut socket) => socket
-                    .dispatch(&mut self.inner, |inner, response| {
-                        respond(inner, IpPacket::Udp(response))
-                    }),
+                Socket::Dns(socket) => socket.dispatch(&mut self.inner, |inner, response| {
+                    respond(inner, IpPacket::Udp(response))
+                }),
             };
 
             match result {
@@ -1040,13 +1039,8 @@ impl Interface {
             return false;
         }
 
-        let Ipv4OutPacket {
-            packet_len,
-            sent_bytes,
-            ..
-        } = &self.out_packets.ipv4_out_packet;
-
-        if *packet_len > *sent_bytes {
+        let pkt = &self.out_packets.ipv4_out_packet;
+        if pkt.packet_len > pkt.sent_bytes {
             if let Some(tx_token) = device.transmit(self.inner.now) {
                 self.inner
                     .dispatch_ipv4_out_packet(tx_token, &mut self.out_packets.ipv4_out_packet);
@@ -1075,13 +1069,8 @@ impl Interface {
             return false;
         }
 
-        let SixlowpanOutPacket {
-            packet_len,
-            sent_bytes,
-            ..
-        } = &self.out_packets.sixlowpan_out_packet;
-
-        if *packet_len > *sent_bytes {
+        let pkt = &self.out_packets.sixlowpan_out_packet;
+        if pkt.packet_len > pkt.sent_bytes {
             if let Some(tx_token) = device.transmit(self.inner.now) {
                 self.inner.dispatch_ieee802154_out_packet(
                     tx_token,
@@ -1735,7 +1724,7 @@ impl InterfaceInner {
         packet: IpPacket,
         _out_packet: Option<&mut OutPackets>,
     ) -> Result<(), DispatchError> {
-        let mut ip_repr = packet.ip_repr();
+        let ip_repr = packet.ip_repr();
         assert!(!ip_repr.dst_addr().is_unspecified());
 
         // Dispatch IEEE802.15.4:
@@ -1814,23 +1803,14 @@ impl InterfaceInner {
 
         match ip_repr {
             #[cfg(feature = "proto-ipv4")]
-            IpRepr::Ipv4(ref mut repr) => {
+            IpRepr::Ipv4(mut repr) => {
                 // If we have an IPv4 packet, then we need to check if we need to fragment it.
                 if total_ip_len > self.caps.max_transmission_unit {
                     #[cfg(feature = "proto-ipv4-fragmentation")]
                     {
                         net_debug!("start fragmentation");
 
-                        let Ipv4OutPacket {
-                            buffer,
-                            packet_len,
-                            sent_bytes,
-                            repr: out_packet_repr,
-                            frag_offset,
-                            ident,
-                            #[cfg(feature = "medium-ethernet")]
-                                dst_hardware_addr: dst_address,
-                        } = &mut _out_packet.unwrap().ipv4_out_packet;
+                        let pkt = &mut _out_packet.unwrap().ipv4_out_packet;
 
                         // Calculate how much we will send now (including the Ethernet header).
                         let tx_len = self.caps.max_transmission_unit;
@@ -1838,7 +1818,7 @@ impl InterfaceInner {
                         let ip_header_len = repr.buffer_len();
                         let first_frag_ip_len = self.caps.ip_mtu();
 
-                        if buffer.len() < first_frag_ip_len {
+                        if pkt.buffer.len() < first_frag_ip_len {
                             net_debug!(
                                 "Fragmentation buffer is too small, at least {} needed. Dropping",
                                 first_frag_ip_len
@@ -1848,26 +1828,26 @@ impl InterfaceInner {
 
                         #[cfg(feature = "medium-ethernet")]
                         {
-                            *dst_address = dst_hardware_addr;
+                            pkt.dst_hardware_addr = dst_hardware_addr;
                         }
 
                         // Save the total packet len (without the Ethernet header, but with the first
                         // IP header).
-                        *packet_len = total_ip_len;
+                        pkt.packet_len = total_ip_len;
 
                         // Save the IP header for other fragments.
-                        *out_packet_repr = *repr;
+                        pkt.repr = repr;
 
                         // Save how much bytes we will send now.
-                        *sent_bytes = first_frag_ip_len;
+                        pkt.sent_bytes = first_frag_ip_len;
 
                         // Modify the IP header
                         repr.payload_len = first_frag_ip_len - repr.buffer_len();
 
                         // Emit the IP header to the buffer.
-                        emit_ip(&ip_repr, buffer);
-                        let mut ipv4_packet = Ipv4Packet::new_unchecked(&mut buffer[..]);
-                        *ident = ipv4_id;
+                        emit_ip(&ip_repr, &mut pkt.buffer);
+                        let mut ipv4_packet = Ipv4Packet::new_unchecked(&mut pkt.buffer[..]);
+                        pkt.ident = ipv4_id;
                         ipv4_packet.set_ident(ipv4_id);
                         ipv4_packet.set_more_frags(true);
                         ipv4_packet.set_dont_frag(false);
@@ -1886,11 +1866,11 @@ impl InterfaceInner {
                             }
 
                             // Change the offset for the next packet.
-                            *frag_offset = (first_frag_ip_len - ip_header_len) as u16;
+                            pkt.frag_offset = (first_frag_ip_len - ip_header_len) as u16;
 
                             // Copy the IP header and the payload.
                             tx_buffer[..first_frag_ip_len]
-                                .copy_from_slice(&buffer[..first_frag_ip_len]);
+                                .copy_from_slice(&pkt.buffer[..first_frag_ip_len]);
 
                             Ok(())
                         })

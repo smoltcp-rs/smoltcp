@@ -371,20 +371,9 @@ impl InterfaceInner {
 
                 // `dispatch_ieee802154_out_packet` requires some information about the total packet size,
                 // the link local source and destination address...
-                let SixlowpanOutPacket {
-                    buffer,
-                    packet_len,
-                    datagram_size,
-                    datagram_tag,
-                    sent_bytes,
-                    fragn_size,
-                    ll_dst_addr,
-                    ll_src_addr,
-                    datagram_offset,
-                    ..
-                } = &mut _out_packet.unwrap().sixlowpan_out_packet;
+                let pkt = &mut _out_packet.unwrap().sixlowpan_out_packet;
 
-                if buffer.len() < total_size {
+                if pkt.buffer.len() < total_size {
                     net_debug!(
                                 "dispatch_ieee802154: dropping, fragmentation buffer is too small, at least {} needed",
                                 total_size
@@ -392,14 +381,14 @@ impl InterfaceInner {
                     return;
                 }
 
-                *ll_dst_addr = ll_dst_a;
-                *ll_src_addr = ll_src_a;
+                pkt.ll_dst_addr = ll_dst_a;
+                pkt.ll_src_addr = ll_src_a;
 
                 let mut iphc_packet =
-                    SixlowpanIphcPacket::new_unchecked(&mut buffer[..iphc_repr.buffer_len()]);
+                    SixlowpanIphcPacket::new_unchecked(&mut pkt.buffer[..iphc_repr.buffer_len()]);
                 iphc_repr.emit(&mut iphc_packet);
 
-                let b = &mut buffer[iphc_repr.buffer_len()..];
+                let b = &mut pkt.buffer[iphc_repr.buffer_len()..];
 
                 match packet {
                     #[cfg(feature = "socket-udp")]
@@ -442,24 +431,24 @@ impl InterfaceInner {
                     _ => unreachable!(),
                 }
 
-                *packet_len = total_size;
+                pkt.packet_len = total_size;
 
                 // The datagram size that we need to set in the first fragment header is equal to the
                 // IPv6 payload length + 40.
-                *datagram_size = (packet.ip_repr().payload_len() + 40) as u16;
+                pkt.datagram_size = (packet.ip_repr().payload_len() + 40) as u16;
 
                 // We generate a random tag.
                 let tag = self.get_sixlowpan_fragment_tag();
                 // We save the tag for the other fragments that will be created when calling `poll`
                 // multiple times.
-                *datagram_tag = tag;
+                pkt.datagram_tag = tag;
 
                 let frag1 = SixlowpanFragRepr::FirstFragment {
-                    size: *datagram_size,
+                    size: pkt.datagram_size,
                     tag,
                 };
                 let fragn = SixlowpanFragRepr::Fragment {
-                    size: *datagram_size,
+                    size: pkt.datagram_size,
                     tag,
                     offset: 0,
                 };
@@ -475,10 +464,10 @@ impl InterfaceInner {
                 let frag1_size =
                     (125 - ieee_len - frag1.buffer_len() + header_diff) / 8 * 8 - (header_diff);
 
-                *fragn_size = (125 - ieee_len - fragn.buffer_len()) / 8 * 8;
+                pkt.fragn_size = (125 - ieee_len - fragn.buffer_len()) / 8 * 8;
 
-                *sent_bytes = frag1_size;
-                *datagram_offset = frag1_size + header_diff;
+                pkt.sent_bytes = frag1_size;
+                pkt.datagram_offset = frag1_size + header_diff;
 
                 tx_token.consume(ieee_len + frag1.buffer_len() + frag1_size, |mut tx_buf| {
                     // Add the IEEE header.
@@ -492,7 +481,7 @@ impl InterfaceInner {
                     tx_buf = &mut tx_buf[frag1.buffer_len()..];
 
                     // Add the buffer part.
-                    tx_buf[..frag1_size].copy_from_slice(&buffer[..frag1_size]);
+                    tx_buf[..frag1_size].copy_from_slice(&pkt.buffer[..frag1_size]);
                 });
             }
 
@@ -566,21 +555,8 @@ impl InterfaceInner {
     pub(super) fn dispatch_ieee802154_out_packet<Tx: TxToken>(
         &mut self,
         tx_token: Tx,
-        out_packet: &mut SixlowpanOutPacket,
+        pkt: &mut SixlowpanOutPacket,
     ) {
-        let SixlowpanOutPacket {
-            buffer,
-            packet_len,
-            datagram_size,
-            datagram_tag,
-            datagram_offset,
-            sent_bytes,
-            fragn_size,
-            ll_dst_addr,
-            ll_src_addr,
-            ..
-        } = out_packet;
-
         // Create the IEEE802.15.4 header.
         let ieee_repr = Ieee802154Repr {
             frame_type: Ieee802154FrameType::Data,
@@ -591,20 +567,20 @@ impl InterfaceInner {
             pan_id_compression: true,
             frame_version: Ieee802154FrameVersion::Ieee802154_2003,
             dst_pan_id: self.pan_id,
-            dst_addr: Some(*ll_dst_addr),
+            dst_addr: Some(pkt.ll_dst_addr),
             src_pan_id: self.pan_id,
-            src_addr: Some(*ll_src_addr),
+            src_addr: Some(pkt.ll_src_addr),
         };
 
         // Create the FRAG_N header.
         let fragn = SixlowpanFragRepr::Fragment {
-            size: *datagram_size,
-            tag: *datagram_tag,
-            offset: (*datagram_offset / 8) as u8,
+            size: pkt.datagram_size,
+            tag: pkt.datagram_tag,
+            offset: (pkt.datagram_offset / 8) as u8,
         };
 
         let ieee_len = ieee_repr.buffer_len();
-        let frag_size = (*packet_len - *sent_bytes).min(*fragn_size);
+        let frag_size = (pkt.packet_len - pkt.sent_bytes).min(pkt.fragn_size);
 
         tx_token.consume(
             ieee_repr.buffer_len() + fragn.buffer_len() + frag_size,
@@ -619,10 +595,10 @@ impl InterfaceInner {
                 tx_buf = &mut tx_buf[fragn.buffer_len()..];
 
                 // Add the buffer part
-                tx_buf[..frag_size].copy_from_slice(&buffer[*sent_bytes..][..frag_size]);
+                tx_buf[..frag_size].copy_from_slice(&pkt.buffer[pkt.sent_bytes..][..frag_size]);
 
-                *sent_bytes += frag_size;
-                *datagram_offset += frag_size;
+                pkt.sent_bytes += frag_size;
+                pkt.datagram_offset += frag_size;
             },
         );
     }

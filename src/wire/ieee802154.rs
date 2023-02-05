@@ -637,21 +637,21 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Frame<T> {
 
     /// Set the destination address.
     #[inline]
-    pub fn set_dst_addr(&mut self, mut value: Address) {
+    pub fn set_dst_addr(&mut self, value: Address) {
         match value {
             Address::Absent => self.set_dst_addressing_mode(AddressingMode::Absent),
-            Address::Short(ref mut value) => {
+            Address::Short(mut value) => {
                 value.reverse();
                 self.set_dst_addressing_mode(AddressingMode::Short);
                 let data = self.buffer.as_mut();
-                data[field::ADDRESSING][2..2 + 2].copy_from_slice(value);
+                data[field::ADDRESSING][2..2 + 2].copy_from_slice(&value);
                 value.reverse();
             }
-            Address::Extended(ref mut value) => {
+            Address::Extended(mut value) => {
                 value.reverse();
                 self.set_dst_addressing_mode(AddressingMode::Extended);
                 let data = &mut self.buffer.as_mut()[field::ADDRESSING];
-                data[2..2 + 8].copy_from_slice(value);
+                data[2..2 + 8].copy_from_slice(&value);
                 value.reverse();
             }
         }
@@ -683,7 +683,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Frame<T> {
 
     /// Set the source address.
     #[inline]
-    pub fn set_src_addr(&mut self, mut value: Address) {
+    pub fn set_src_addr(&mut self, value: Address) {
         let offset = match self.dst_addressing_mode() {
             AddressingMode::Absent => 0,
             AddressingMode::Short => 2,
@@ -695,18 +695,18 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Frame<T> {
 
         match value {
             Address::Absent => self.set_src_addressing_mode(AddressingMode::Absent),
-            Address::Short(ref mut value) => {
+            Address::Short(mut value) => {
                 value.reverse();
                 self.set_src_addressing_mode(AddressingMode::Short);
                 let data = &mut self.buffer.as_mut()[field::ADDRESSING];
-                data[offset..offset + 2].copy_from_slice(value);
+                data[offset..offset + 2].copy_from_slice(&value);
                 value.reverse();
             }
-            Address::Extended(ref mut value) => {
+            Address::Extended(mut value) => {
                 value.reverse();
                 self.set_src_addressing_mode(AddressingMode::Extended);
                 let data = &mut self.buffer.as_mut()[field::ADDRESSING];
-                data[offset..offset + 8].copy_from_slice(value);
+                data[offset..offset + 8].copy_from_slice(&value);
                 value.reverse();
             }
         }
