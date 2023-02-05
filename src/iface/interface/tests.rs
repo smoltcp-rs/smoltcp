@@ -749,7 +749,8 @@ fn test_handle_valid_arp_request() {
         iface.inner.lookup_hardware_addr(
             MockTxToken,
             &IpAddress::Ipv4(local_ip_addr),
-            &IpAddress::Ipv4(remote_ip_addr)
+            &IpAddress::Ipv4(remote_ip_addr),
+            &mut iface.fragmenter,
         ),
         Ok((HardwareAddress::Ethernet(remote_hw_addr), MockTxToken))
     );
@@ -821,7 +822,8 @@ fn test_handle_valid_ndisc_request() {
         iface.inner.lookup_hardware_addr(
             MockTxToken,
             &IpAddress::Ipv6(local_ip_addr),
-            &IpAddress::Ipv6(remote_ip_addr)
+            &IpAddress::Ipv6(remote_ip_addr),
+            &mut iface.fragmenter,
         ),
         Ok((HardwareAddress::Ethernet(remote_hw_addr), MockTxToken))
     );
@@ -865,7 +867,8 @@ fn test_handle_other_arp_request() {
         iface.inner.lookup_hardware_addr(
             MockTxToken,
             &IpAddress::Ipv4(Ipv4Address([0x7f, 0x00, 0x00, 0x01])),
-            &IpAddress::Ipv4(remote_ip_addr)
+            &IpAddress::Ipv4(remote_ip_addr),
+            &mut iface.fragmenter,
         ),
         Err(DispatchError::NeighborPending)
     );
@@ -923,7 +926,8 @@ fn test_arp_flush_after_update_ip() {
         iface.inner.lookup_hardware_addr(
             MockTxToken,
             &IpAddress::Ipv4(local_ip_addr),
-            &IpAddress::Ipv4(remote_ip_addr)
+            &IpAddress::Ipv4(remote_ip_addr),
+            &mut iface.fragmenter,
         ),
         Ok((HardwareAddress::Ethernet(remote_hw_addr), MockTxToken))
     );
@@ -1527,7 +1531,7 @@ fn test_echo_request_sixlowpan_128_bytes() {
         Ieee802154Address::default(),
         tx_token,
         result.unwrap(),
-        Some(&mut iface.out_packets),
+        &mut iface.fragmenter,
     );
 
     assert_eq!(
@@ -1677,7 +1681,7 @@ fn test_sixlowpan_udp_with_fragmentation() {
             },
             udp_data,
         )),
-        Some(&mut iface.out_packets),
+        &mut iface.fragmenter,
     );
 
     iface.poll(Instant::now(), &mut device, &mut sockets);

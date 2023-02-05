@@ -51,7 +51,9 @@ impl Interface {
                         .ok_or(MulticastError::Exhausted)?;
 
                     // NOTE(unwrap): packet destination is multicast, which is always routable and doesn't require neighbor discovery.
-                    self.inner.dispatch_ip(tx_token, pkt, None).unwrap();
+                    self.inner
+                        .dispatch_ip(tx_token, pkt, &mut self.fragmenter)
+                        .unwrap();
 
                     Ok(true)
                 } else {
@@ -91,7 +93,9 @@ impl Interface {
                         .ok_or(MulticastError::Exhausted)?;
 
                     // NOTE(unwrap): packet destination is multicast, which is always routable and doesn't require neighbor discovery.
-                    self.inner.dispatch_ip(tx_token, pkt, None).unwrap();
+                    self.inner
+                        .dispatch_ip(tx_token, pkt, &mut self.fragmenter)
+                        .unwrap();
 
                     Ok(true)
                 } else {
@@ -125,7 +129,9 @@ impl Interface {
                     // Send initial membership report
                     if let Some(tx_token) = device.transmit(self.inner.now) {
                         // NOTE(unwrap): packet destination is multicast, which is always routable and doesn't require neighbor discovery.
-                        self.inner.dispatch_ip(tx_token, pkt, None).unwrap();
+                        self.inner
+                            .dispatch_ip(tx_token, pkt, &mut self.fragmenter)
+                            .unwrap();
                     } else {
                         return false;
                     }
@@ -153,7 +159,9 @@ impl Interface {
                             // Send initial membership report
                             if let Some(tx_token) = device.transmit(self.inner.now) {
                                 // NOTE(unwrap): packet destination is multicast, which is always routable and doesn't require neighbor discovery.
-                                self.inner.dispatch_ip(tx_token, pkt, None).unwrap();
+                                self.inner
+                                    .dispatch_ip(tx_token, pkt, &mut self.fragmenter)
+                                    .unwrap();
                             } else {
                                 return false;
                             }
