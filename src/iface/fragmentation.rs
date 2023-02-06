@@ -4,18 +4,14 @@ use core::fmt;
 
 use managed::{ManagedMap, ManagedSlice};
 
+use crate::config::{REASSEMBLY_BUFFER_COUNT, REASSEMBLY_BUFFER_SIZE};
 use crate::storage::Assembler;
 use crate::time::{Duration, Instant};
-
-// TODO: make configurable.
-const BUFFER_SIZE: usize = 1500;
 
 #[cfg(feature = "alloc")]
 type Buffer = alloc::vec::Vec<u8>;
 #[cfg(not(feature = "alloc"))]
-type Buffer = [u8; BUFFER_SIZE];
-
-const PACKET_ASSEMBLER_COUNT: usize = 4;
+type Buffer = [u8; REASSEMBLY_BUFFER_SIZE];
 
 /// Problem when assembling: something was out of bounds.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -44,14 +40,14 @@ pub struct PacketAssembler<K> {
 
 impl<K> PacketAssembler<K> {
     /// Create a new empty buffer for fragments.
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             key: None,
 
             #[cfg(feature = "alloc")]
             buffer: Buffer::new(),
             #[cfg(not(feature = "alloc"))]
-            buffer: [0u8; BUFFER_SIZE],
+            buffer: [0u8; REASSEMBLY_BUFFER_SIZE],
 
             assembler: Assembler::new(),
             total_size: None,
@@ -172,20 +168,16 @@ impl<K> PacketAssembler<K> {
 /// Set holding multiple [`PacketAssembler`].
 #[derive(Debug)]
 pub struct PacketAssemblerSet<K: Eq + Copy> {
-    assemblers: [PacketAssembler<K>; PACKET_ASSEMBLER_COUNT],
+    assemblers: [PacketAssembler<K>; REASSEMBLY_BUFFER_COUNT],
 }
 
 impl<K: Eq + Copy> PacketAssemblerSet<K> {
+    const NEW_PA: PacketAssembler<K> = PacketAssembler::new();
+
     /// Create a new set of packet assemblers.
     pub fn new() -> Self {
         Self {
-            // TODO: support any PACKET_ASSEMBLER_COUNT
-            assemblers: [
-                PacketAssembler::new(),
-                PacketAssembler::new(),
-                PacketAssembler::new(),
-                PacketAssembler::new(),
-            ],
+            assemblers: [Self::NEW_PA; REASSEMBLY_BUFFER_COUNT],
         }
     }
 
@@ -291,10 +283,9 @@ mod tests {
     #[test]
     fn packet_assembler_set_full() {
         let mut set = PacketAssemblerSet::new();
-        set.get(&Key { id: 0 }, Instant::ZERO).unwrap();
-        set.get(&Key { id: 1 }, Instant::ZERO).unwrap();
-        set.get(&Key { id: 2 }, Instant::ZERO).unwrap();
-        set.get(&Key { id: 3 }, Instant::ZERO).unwrap();
+        for i in 0..REASSEMBLY_BUFFER_COUNT {
+            set.get(&Key { id: i }, Instant::ZERO).unwrap();
+        }
         assert!(set.get(&Key { id: 4 }, Instant::ZERO).is_err());
     }
 

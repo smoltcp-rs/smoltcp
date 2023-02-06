@@ -1012,7 +1012,7 @@ fn test_icmpv4_socket() {
 #[cfg(feature = "proto-ipv6")]
 fn test_solicited_node_addrs() {
     let (mut iface, _, _device) = create(MEDIUM);
-    let mut new_addrs = heapless::Vec::<IpCidr, MAX_IP_ADDR_COUNT>::new();
+    let mut new_addrs = heapless::Vec::<IpCidr, IFACE_MAX_ADDR_COUNT>::new();
     new_addrs
         .push(IpCidr::new(IpAddress::v6(0xfe80, 0, 0, 0, 1, 2, 0, 2), 64))
         .unwrap();

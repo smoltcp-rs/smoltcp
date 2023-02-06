@@ -1,13 +1,12 @@
-use crate::time::Instant;
 use heapless::Vec;
 
+use crate::config::IFACE_MAX_ROUTE_COUNT;
+use crate::time::Instant;
 use crate::wire::{IpAddress, IpCidr};
 #[cfg(feature = "proto-ipv4")]
 use crate::wire::{Ipv4Address, Ipv4Cidr};
 #[cfg(feature = "proto-ipv6")]
 use crate::wire::{Ipv6Address, Ipv6Cidr};
-
-pub const MAX_ROUTE_COUNT: usize = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -58,7 +57,7 @@ impl Route {
 /// A routing table.
 #[derive(Debug)]
 pub struct Routes {
-    storage: Vec<Route, MAX_ROUTE_COUNT>,
+    storage: Vec<Route, IFACE_MAX_ROUTE_COUNT>,
 }
 
 impl Routes {
@@ -70,7 +69,7 @@ impl Routes {
     }
 
     /// Update the routes of this node.
-    pub fn update<F: FnOnce(&mut Vec<Route, MAX_ROUTE_COUNT>)>(&mut self, f: F) {
+    pub fn update<F: FnOnce(&mut Vec<Route, IFACE_MAX_ROUTE_COUNT>)>(&mut self, f: F) {
         f(&mut self.storage);
     }
 
