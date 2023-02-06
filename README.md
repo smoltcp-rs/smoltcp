@@ -49,7 +49,7 @@ There are 3 supported mediums.
   * IPv4 time-to-live value is configurable per socket, set to 64 by default.
   * IPv4 default gateway is supported.
   * Routing outgoing IPv4 packets is supported, through a default gateway or a CIDR route table.
-  * IPv4 fragmentation is **not** supported.
+  * IPv4 fragmentation and reassembly is supported.
   * IPv4 options are **not** supported and are silently ignored.
 
 #### IPv6
@@ -86,7 +86,7 @@ The ICMPv4 protocol is supported, and ICMP sockets are available.
 
 #### ICMPv6
 
-The ICMPv6 protocol is supported, but is **not** available via ICMP sockets.
+The ICMPv6 protocol is supported, and ICMP sockets are available.
 
   * ICMPv6 header checksum is supported.
   * ICMPv6 echo replies are generated in response to echo requests.
@@ -227,51 +227,51 @@ Any value can be set, unlike with Cargo features.
 Environment variables take precedence over Cargo features. If two Cargo features are enabled for the same setting
 with different values, compilation fails.
 
-### IFACE_MAX_ADDR_COUNT
+### `IFACE_MAX_ADDR_COUNT`
 
 Max amount of IP addresses that can be assigned to one interface (counting both IPv4 and IPv6 addresses). Default: 2.
 
-### IFACE_MAX_MULTICAST_GROUP_COUNT
+### `IFACE_MAX_MULTICAST_GROUP_COUNT`
 
 Max amount of multicast groups that can be joined by one interface. Default: 4.
 
-### IFACE_MAX_SIXLOWPAN_ADDRESS_CONTEXT_COUNT
+### `IFACE_MAX_SIXLOWPAN_ADDRESS_CONTEXT_COUNT`
 
 Max amount of 6LoWPAN address contexts that can be assigned to one interface. Default: 4.
 
-### IFACE_NEIGHBOR_CACHE_COUNT
+### `IFACE_NEIGHBOR_CACHE_COUNT`
 
 Amount of "IP address -> hardware address" entries the neighbor cache (also known as the "ARP cache" or the "ARP table") holds. Default: 4.
 
-### IFACE_MAX_ROUTE_COUNT
+### `IFACE_MAX_ROUTE_COUNT`
 
 Max amount of routes that can be added to one interface. Includes the default route. Includes both IPv4 and IPv6. Default: 2.
 
-### FRAGMENTATION_BUFFER_SIZE
+### `FRAGMENTATION_BUFFER_SIZE`
 
 Size of the buffer used for fragmenting outgoing packets larger than the MTU. Packets larger than this setting will be dropped instead of fragmented. Default: 1500.
 
-### ASSEMBLER_MAX_SEGMENT_COUNT
+### `ASSEMBLER_MAX_SEGMENT_COUNT`
 
 Maximum number of non-contiguous segments the assembler can hold. Used for both packet reassembly and TCP stream reassembly. Default: 4.
 
-### REASSEMBLY_BUFFER_SIZE
+### `REASSEMBLY_BUFFER_SIZE`
 
 Size of the buffer used for reassembling (de-fragmenting) incoming packets. If the reassembled packet is larger than this setting, it will be dropped instead of reassembled. Default: 1500.
 
-### REASSEMBLY_BUFFER_COUNT
+### `REASSEMBLY_BUFFER_COUNT`
 
 Number of reassembly buffers, i.e how many different incoming packets can be reassembled at the same time. Default: 1.
 
-### DNS_MAX_RESULT_COUNT
+### `DNS_MAX_RESULT_COUNT`
 
 Maximum amount of address results for a given DNS query that will be kept. For example, if this is set to 2 and the queried name has 4 `A` records, only the first 2 will be returned. Default: 1.
 
-### DNS_MAX_SERVER_COUNT
+### `DNS_MAX_SERVER_COUNT`
 
 Maximum amount of DNS servers that can be configured in one DNS socket. Default: 1.
 
-### DNS_MAX_NAME_SIZE
+### `DNS_MAX_NAME_SIZE`
 
 Maximum length of DNS names that can be queried. Default: 255.
 

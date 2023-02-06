@@ -6,12 +6,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- Remove IpRepr::Unspecified (#579)
-- Remove IpVersion::Unspecified
-- Remove IpAddress::Unspecified
-- When sending packets with a raw socket, the source IP address is sent unmodified (it was previously replaced with the interface's address if it was unspecified).
-- Fix enable `defmt/alloc` if `alloc` or `std` is enabled.
+## [0.9.0] - 2023-02-06
+
 - Minimum Supported Rust Version (MSRV) **bumped** from 1.56 to 1.65
+- Added DNS client support.
+    - Add DnsSocket (#465)
+    - Add support for one-shot mDNS resolution (#669)
+- Added support for packet fragmentation and reassembly, both for IPv4 and 6LoWPAN. (#591, #580, #624, #634, #645, #653, #684)
+- Major error handling overhaul.
+    - Previously, _smoltcp_ had a single `Error` enum that all methods returned. Now methods that can fail have their own error enums, with only the actual errors they can return. (#617, #667, #730)
+    - Consuming `phy::Device` tokens is now infallible.
+        - In the case of "buffer full", `phy::Device` implementations must return `None` from the `transmit`/`receive` methods. (Previously, they could either do that, or return tokens and then return `Error::Exhausted` when consuming them. The latter wasted computation since it'd make _smoltcp_ pointlessly spend effort preparing the packet, and is now disallowed).
+        - For all other phy errors, `phy::Device` implementations should drop the packet and handle the error themselves. (Either log it and forget it, or buffer/count it and offer methods to let the user retrieve the error queue/counts.) Returning the error to have it bubble up to `Interface::poll()` is no longer supported.
+- phy: the `trait Device` now uses Generic Associated Types (GAT) for the TX and RX tokens. The main impact of this is `Device` impls can now borrow data (because previously, the`for<'a> T: Device<'a>` bounds required to workaround the lack of GATs essentially implied `T: 'static`.) (#572)
+- iface: The `Interface` API has been significantly simplified and cleaned up.
+    - The builder has been removed (#736)
+    - SocketSet and Device are now borrowed in methods that need them, instead of owning them. (#619)
+    - `Interface` now owns the list of addresses (#719), routes, neighbor cache (#722), 6LoWPAN address contexts, and fragmentation buffers (#736) instead of borrowing them with `managed`.
+    - A new compile-time configuration mechanism has been added, to configure the size of the (now owned) buffers (#742)
+- iface: Change neighbor discovery timeout from 3s to 1s, to match Linux's behavior. (#620)
+- iface: Remove implicit sized bound on device generics (#679)
+- iface/6lowpan: Add address context information for resolving 6LoWPAN addresses (#687)
+- iface/6lowpan: fix incorrect SAM value in IPHC when address is not compressed (#630)
+- iface/6lowpan: packet parsing fuzz fixes (#636)
+- socket: Add send_with to udp, raw, and icmp sockets. These methods enable reserving a packet buffer with a greater size than you need, and then shrinking the size once you know it. (#625)
+- socket: Make `trait AnySocket` object-safe (#718)
+- socket/dhcpv4: add waker support (#623)
+- socket/dhcpv4: indicate new config if there's a packet buffer provided (#685)
+- socket/dhcpv4: Use renewal time from DHCP server ACK, if given (#683)
+- socket/dhcpv4: allow for extra configuration
+    - setting arbitrary options in the request. (#650)
+    - retrieving arbitrary options from the response. (#650)
+    - setting custom parameter request list. (#650)
+    - setting custom timing for retries. (#650)
+    - Allow specifying different server/client DHCP ports (#738)
+- socket/raw: Add `peek` and `peek_slice` methods (#734)
+- socket/raw: When sending packets, send the source IP address unmodified (it was previously replaced with the interface's address if it was unspecified). (#616)
+- socket/tcp: Do not reset socket-level settings, such as keepalive, on reset (#603)
+- socket/tcp: ensure we always accept the segment at offset=0 even if the assembler is full. (#735, #452)
+- socket/tcp: Refactored assembler, now more robust and faster (#726, #735)
+- socket/udp: accept packets with checksum field set to `0`, since that means the checksum is not computed (#632)
+- wire: make many functions const (#693)
+- wire/dhcpv4: remove Option enum (#656)
+- wire/dhcpv4: use heapless Vec for DNS server list (#678)
+- wire/icmpv4: add support for TimeExceeded packets (#609)
+- wire/ip: Remove `IpRepr::Unspecified`, `IpVersion::Unspecified`, `IpAddress::Unspecified` (#579, #616)
+- wire/ip: support parsing unspecified IPv6 IpEndpoints from string (like `[::]:12345`) (#732)
+- wire/ipv6: Make Public Ipv6RoutingType (#691)
+- wire/ndisc: do not error on unrecognized options. (#737)
+- Switch to Rust 2021 edition. (#729)
+- Remove obsolete Cargo feature `rust-1_28` (#725)
 
 ## [0.8.2] - 2022-11-27
 
@@ -152,7 +196,8 @@ only processed when directed to the 255.255.255.255 address. ([377](https://gith
 - Use #[non_exhaustive] for enums and structs ([409](https://github.com/smoltcp-rs/smoltcp/pull/409), [411](https://github.com/smoltcp-rs/smoltcp/pull/411))
 - Simplify lifetime parameters of sockets, SocketSet, EthernetInterface ([410](https://github.com/smoltcp-rs/smoltcp/pull/410), [413](https://github.com/smoltcp-rs/smoltcp/pull/413))
 
-[Unreleased]: https://github.com/smoltcp-rs/smoltcp/compare/v0.8.2...HEAD
+[Unreleased]: https://github.com/smoltcp-rs/smoltcp/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/smoltcp-rs/smoltcp/compare/v0.8.2...v0.9.0
 [0.8.2]: https://github.com/smoltcp-rs/smoltcp/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/smoltcp-rs/smoltcp/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/smoltcp-rs/smoltcp/compare/v0.7.0...v0.8.0
