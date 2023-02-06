@@ -107,10 +107,7 @@ impl InterfaceInner {
         // This information is the total size of the packet when it is fully assmbled.
         // We also pass the header size, since this is needed when other fragments
         // (other than the first one) are added.
-        let frag_slot = match f
-            .assembler
-            .get(&key, self.now + f.sixlowpan_reassembly_timeout)
-        {
+        let frag_slot = match f.assembler.get(&key, self.now + f.reassembly_timeout) {
             Ok(frag) => frag,
             Err(AssemblerFullError) => {
                 net_debug!("No available packet assembler for fragmented packet");

@@ -60,8 +60,8 @@ pub(crate) struct FragmentsBuffer {
     #[cfg(feature = "_proto-fragmentation")]
     pub(crate) assembler: PacketAssemblerSet<FragKey>,
 
-    #[cfg(feature = "proto-sixlowpan-fragmentation")]
-    sixlowpan_reassembly_timeout: Duration,
+    #[cfg(feature = "_proto-fragmentation")]
+    reassembly_timeout: Duration,
 }
 
 #[cfg(not(feature = "_proto-fragmentation"))]
@@ -538,8 +538,8 @@ impl Interface {
 
                 #[cfg(feature = "_proto-fragmentation")]
                 assembler: PacketAssemblerSet::new(),
-                #[cfg(feature = "proto-sixlowpan-fragmentation")]
-                sixlowpan_reassembly_timeout: Duration::from_secs(60),
+                #[cfg(feature = "_proto-fragmentation")]
+                reassembly_timeout: Duration::from_secs(60),
             },
             fragmenter: Fragmenter::new(),
             inner: InterfaceInner {
@@ -703,22 +703,18 @@ impl Interface {
     }
 
     /// Get the packet reassembly timeout.
-    ///
-    /// Currently used only for 6LoWPAN, will be used for IPv4 in the future as well.
-    #[cfg(feature = "proto-sixlowpan-fragmentation")]
+    #[cfg(feature = "_proto-fragmentation")]
     pub fn reassembly_timeout(&self) -> Duration {
-        self.fragments.sixlowpan_reassembly_timeout
+        self.fragments.reassembly_timeout
     }
 
     /// Set the packet reassembly timeout.
-    ///
-    /// Currently used only for 6LoWPAN, will be used for IPv4 in the future as well.
-    #[cfg(feature = "proto-sixlowpan-fragmentation")]
+    #[cfg(feature = "_proto-fragmentation")]
     pub fn set_reassembly_timeout(&mut self, timeout: Duration) {
         if timeout > Duration::from_secs(60) {
             net_debug!("RFC 4944 specifies that the reassembly timeout MUST be set to a maximum of 60 seconds");
         }
-        self.fragments.sixlowpan_reassembly_timeout = timeout;
+        self.fragments.reassembly_timeout = timeout;
     }
 
     /// Transmit packets queued in the given sockets, and receive packets queued
@@ -1288,19 +1284,14 @@ impl InterfaceInner {
         &mut self,
         sockets: &mut SocketSet,
         ip_payload: &'frame T,
-        fragments: &'frame mut FragmentsBuffer,
+        frag: &'frame mut FragmentsBuffer,
     ) -> Option<IpPacket<'frame>> {
         match IpVersion::of_packet(ip_payload.as_ref()) {
             #[cfg(feature = "proto-ipv4")]
             Ok(IpVersion::Ipv4) => {
                 let ipv4_packet = check!(Ipv4Packet::new_checked(ip_payload));
 
-                self.process_ipv4(
-                    sockets,
-                    &ipv4_packet,
-                    #[cfg(feature = "proto-ipv4-fragmentation")]
-                    &mut fragments.assembler,
-                )
+                self.process_ipv4(sockets, &ipv4_packet, frag)
             }
             #[cfg(feature = "proto-ipv6")]
             Ok(IpVersion::Ipv6) => {

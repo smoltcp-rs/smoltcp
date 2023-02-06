@@ -168,12 +168,9 @@ fn test_no_icmp_no_unicast_ipv4() {
     // broadcast address
 
     assert_eq!(
-        iface.inner.process_ipv4(
-            &mut sockets,
-            &frame,
-            #[cfg(feature = "proto-ipv4-fragmentation")]
-            &mut iface.fragments.assembler
-        ),
+        iface
+            .inner
+            .process_ipv4(&mut sockets, &frame, &mut iface.fragments),
         None
     );
 }
@@ -254,12 +251,9 @@ fn test_icmp_error_no_payload() {
     // And we correctly handle no payload.
 
     assert_eq!(
-        iface.inner.process_ipv4(
-            &mut sockets,
-            &frame,
-            #[cfg(feature = "proto-ipv4-fragmentation")]
-            &mut iface.fragments.assembler
-        ),
+        iface
+            .inner
+            .process_ipv4(&mut sockets, &frame, &mut iface.fragments),
         Some(expected_repr)
     );
 }
@@ -564,12 +558,9 @@ fn test_handle_ipv4_broadcast() {
     let expected_packet = IpPacket::Icmpv4((expected_ipv4_repr, expected_icmpv4_repr));
 
     assert_eq!(
-        iface.inner.process_ipv4(
-            &mut sockets,
-            &frame,
-            #[cfg(feature = "proto-ipv4-fragmentation")]
-            &mut iface.fragments.assembler
-        ),
+        iface
+            .inner
+            .process_ipv4(&mut sockets, &frame, &mut iface.fragments),
         Some(expected_packet)
     );
 }
@@ -1268,12 +1259,9 @@ fn test_raw_socket_no_reply() {
     };
 
     assert_eq!(
-        iface.inner.process_ipv4(
-            &mut sockets,
-            &frame,
-            #[cfg(feature = "proto-ipv4-fragmentation")]
-            &mut iface.fragments.assembler
-        ),
+        iface
+            .inner
+            .process_ipv4(&mut sockets, &frame, &mut iface.fragments),
         None
     );
 }
@@ -1357,12 +1345,9 @@ fn test_raw_socket_with_udp_socket() {
     };
 
     assert_eq!(
-        iface.inner.process_ipv4(
-            &mut sockets,
-            &frame,
-            #[cfg(feature = "proto-ipv4-fragmentation")]
-            &mut iface.fragments.assembler
-        ),
+        iface
+            .inner
+            .process_ipv4(&mut sockets, &frame, &mut iface.fragments),
         None
     );
 

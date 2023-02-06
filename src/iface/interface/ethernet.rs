@@ -34,13 +34,8 @@ impl InterfaceInner {
             EthernetProtocol::Ipv4 => {
                 let ipv4_packet = check!(Ipv4Packet::new_checked(eth_frame.payload()));
 
-                self.process_ipv4(
-                    sockets,
-                    &ipv4_packet,
-                    #[cfg(feature = "proto-ipv4-fragmentation")]
-                    &mut fragments.assembler,
-                )
-                .map(EthernetPacket::Ip)
+                self.process_ipv4(sockets, &ipv4_packet, fragments)
+                    .map(EthernetPacket::Ip)
             }
             #[cfg(feature = "proto-ipv6")]
             EthernetProtocol::Ipv6 => {

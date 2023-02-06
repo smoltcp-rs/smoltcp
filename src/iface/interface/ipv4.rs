@@ -7,7 +7,7 @@ use crate::socket::icmp;
 use crate::socket::AnySocket;
 
 use crate::phy::{Medium, TxToken};
-use crate::time::{Duration, Instant};
+use crate::time::Instant;
 use crate::wire::*;
 
 impl InterfaceInner {
@@ -15,7 +15,7 @@ impl InterfaceInner {
         &mut self,
         sockets: &mut SocketSet,
         ipv4_packet: &Ipv4Packet<&'a T>,
-        #[cfg(feature = "proto-ipv4-fragmentation")] assembler: &'a mut PacketAssemblerSet<FragKey>,
+        frag: &'a mut FragmentsBuffer,
     ) -> Option<IpPacket<'a>> {
         let ipv4_repr = check!(Ipv4Repr::parse(ipv4_packet, &self.caps.checksum));
         if !self.is_unicast_v4(ipv4_repr.src_addr) {
@@ -26,12 +26,10 @@ impl InterfaceInner {
 
         #[cfg(feature = "proto-ipv4-fragmentation")]
         let ip_payload = {
-            const REASSEMBLY_TIMEOUT: Duration = Duration::from_secs(90);
-
             if ipv4_packet.more_frags() || ipv4_packet.frag_offset() != 0 {
                 let key = FragKey::Ipv4(ipv4_packet.get_key());
 
-                let f = match assembler.get(&key, self.now + REASSEMBLY_TIMEOUT) {
+                let f = match frag.assembler.get(&key, self.now + frag.reassembly_timeout) {
                     Ok(f) => f,
                     Err(_) => {
                         net_debug!("No available packet assembler for fragmented packet");
