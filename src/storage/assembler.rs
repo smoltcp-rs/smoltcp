@@ -1,5 +1,7 @@
 use core::fmt;
 
+use crate::config::ASSEMBLER_MAX_SEGMENT_COUNT;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TooManyHolesError;
 
@@ -27,7 +29,7 @@ impl fmt::Display for Contig {
 }
 
 impl Contig {
-    fn empty() -> Contig {
+    const fn empty() -> Contig {
         Contig {
             hole_size: 0,
             data_size: 0,
@@ -66,24 +68,13 @@ impl Contig {
     }
 }
 
-#[cfg(feature = "alloc")]
-use alloc::boxed::Box;
-#[cfg(feature = "alloc")]
-const CONTIG_COUNT: usize = 32;
-
-#[cfg(not(feature = "alloc"))]
-const CONTIG_COUNT: usize = 4;
-
 /// A buffer (re)assembler.
 ///
 /// Currently, up to a hardcoded limit of 4 or 32 holes can be tracked in the buffer.
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Assembler {
-    #[cfg(not(feature = "alloc"))]
-    contigs: [Contig; CONTIG_COUNT],
-    #[cfg(feature = "alloc")]
-    contigs: Box<[Contig; CONTIG_COUNT]>,
+    contigs: [Contig; ASSEMBLER_MAX_SEGMENT_COUNT],
 }
 
 impl fmt::Display for Assembler {
@@ -106,12 +97,11 @@ impl fmt::Display for Assembler {
 
 impl Assembler {
     /// Create a new buffer assembler.
-    pub fn new() -> Assembler {
-        #[cfg(not(feature = "alloc"))]
-        let contigs = [Contig::empty(); CONTIG_COUNT];
-        #[cfg(feature = "alloc")]
-        let contigs = Box::new([Contig::empty(); CONTIG_COUNT]);
-        Assembler { contigs }
+    pub const fn new() -> Assembler {
+        const EMPTY: Contig = Contig::empty();
+        Assembler {
+            contigs: [EMPTY; ASSEMBLER_MAX_SEGMENT_COUNT],
+        }
     }
 
     pub fn clear(&mut self) {
@@ -355,10 +345,9 @@ mod test {
 
     impl From<Vec<(usize, usize)>> for Assembler {
         fn from(vec: Vec<(usize, usize)>) -> Assembler {
-            #[cfg(not(feature = "alloc"))]
-            let mut contigs = [Contig::empty(); CONTIG_COUNT];
-            #[cfg(feature = "alloc")]
-            let mut contigs = Box::new([Contig::empty(); CONTIG_COUNT]);
+            const EMPTY: Contig = Contig::empty();
+
+            let mut contigs = [EMPTY; ASSEMBLER_MAX_SEGMENT_COUNT];
             for (i, &(hole_size, data_size)) in vec.iter().enumerate() {
                 contigs[i] = Contig {
                     hole_size,
@@ -468,7 +457,7 @@ mod test {
     #[test]
     fn test_rejected_add_keeps_state() {
         let mut assr = Assembler::new();
-        for c in 1..=CONTIG_COUNT {
+        for c in 1..=ASSEMBLER_MAX_SEGMENT_COUNT {
             assert_eq!(assr.add(c * 10, 3), Ok(()));
         }
         // Maximum of allowed holes is reached
@@ -499,12 +488,12 @@ mod test {
 
     #[test]
     fn test_boundary_case_remove_front() {
-        let mut vec = vec![(1, 1); CONTIG_COUNT];
+        let mut vec = vec![(1, 1); ASSEMBLER_MAX_SEGMENT_COUNT];
         vec[0] = (0, 2);
         let mut assr = Assembler::from(vec);
         assert_eq!(assr.remove_front(), 2);
-        let mut vec = vec![(1, 1); CONTIG_COUNT];
-        vec[CONTIG_COUNT - 1] = (0, 0);
+        let mut vec = vec![(1, 1); ASSEMBLER_MAX_SEGMENT_COUNT];
+        vec[ASSEMBLER_MAX_SEGMENT_COUNT - 1] = (0, 0);
         let exp_assr = Assembler::from(vec);
         assert_eq!(assr, exp_assr);
     }
@@ -648,7 +637,7 @@ mod test {
     #[test]
     fn test_add_then_remove_front_at_front_full() {
         let mut assr = Assembler::new();
-        for c in 1..=CONTIG_COUNT {
+        for c in 1..=ASSEMBLER_MAX_SEGMENT_COUNT {
             assert_eq!(assr.add(c * 10, 3), Ok(()));
         }
         // Maximum of allowed holes is reached
@@ -660,7 +649,7 @@ mod test {
     #[test]
     fn test_add_then_remove_front_at_front_full_offset_0() {
         let mut assr = Assembler::new();
-        for c in 1..=CONTIG_COUNT {
+        for c in 1..=ASSEMBLER_MAX_SEGMENT_COUNT {
             assert_eq!(assr.add(c * 10, 3), Ok(()));
         }
         assert_eq!(assr.add_then_remove_front(0, 3), Ok(3));
@@ -708,7 +697,7 @@ mod test {
                     }
 
                     // Compare.
-                    let wanted_res = if contigs.len() > CONTIG_COUNT {
+                    let wanted_res = if contigs.len() > ASSEMBLER_MAX_SEGMENT_COUNT {
                         Err(TooManyHolesError)
                     } else {
                         Ok(())

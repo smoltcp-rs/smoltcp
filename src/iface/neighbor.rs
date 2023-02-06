@@ -3,13 +3,9 @@
 
 use heapless::LinearMap;
 
+use crate::config::IFACE_NEIGHBOR_CACHE_COUNT;
 use crate::time::{Duration, Instant};
 use crate::wire::{HardwareAddress, IpAddress};
-
-#[cfg(not(test))]
-pub const NEIGHBOR_CACHE_SIZE: usize = 16;
-#[cfg(test)]
-pub const NEIGHBOR_CACHE_SIZE: usize = 3;
 
 /// A cached neighbor.
 ///
@@ -48,7 +44,7 @@ impl Answer {
 /// A neighbor cache backed by a map.
 #[derive(Debug)]
 pub struct Cache {
-    storage: LinearMap<IpAddress, Neighbor, NEIGHBOR_CACHE_SIZE>,
+    storage: LinearMap<IpAddress, Neighbor, IFACE_NEIGHBOR_CACHE_COUNT>,
     silent_until: Instant,
 }
 

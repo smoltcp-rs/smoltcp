@@ -129,6 +129,29 @@ mod macros;
 mod parsers;
 mod rand;
 
+#[cfg(test)]
+mod config {
+    #![allow(unused)]
+    pub const ASSEMBLER_MAX_SEGMENT_COUNT: usize = 4;
+    pub const DNS_MAX_NAME_SIZE: usize = 255;
+    pub const DNS_MAX_RESULT_COUNT: usize = 1;
+    pub const DNS_MAX_SERVER_COUNT: usize = 1;
+    pub const FRAGMENTATION_BUFFER_SIZE: usize = 1500;
+    pub const IFACE_MAX_ADDR_COUNT: usize = 8;
+    pub const IFACE_MAX_MULTICAST_GROUP_COUNT: usize = 4;
+    pub const IFACE_MAX_ROUTE_COUNT: usize = 4;
+    pub const IFACE_MAX_SIXLOWPAN_ADDRESS_CONTEXT_COUNT: usize = 4;
+    pub const IFACE_NEIGHBOR_CACHE_COUNT: usize = 3;
+    pub const REASSEMBLY_BUFFER_COUNT: usize = 4;
+    pub const REASSEMBLY_BUFFER_SIZE: usize = 1500;
+}
+
+#[cfg(not(test))]
+mod config {
+    #![allow(unused)]
+    include!(concat!(env!("OUT_DIR"), "/config.rs"));
+}
+
 #[cfg(any(
     feature = "medium-ethernet",
     feature = "medium-ip",

@@ -27,6 +27,10 @@ use super::fragmentation::PacketAssemblerSet;
 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
 use super::neighbor::{Answer as NeighborAnswer, Cache as NeighborCache};
 use super::socket_set::SocketSet;
+use crate::config::{
+    FRAGMENTATION_BUFFER_SIZE, IFACE_MAX_ADDR_COUNT, IFACE_MAX_MULTICAST_GROUP_COUNT,
+    IFACE_MAX_SIXLOWPAN_ADDRESS_CONTEXT_COUNT,
+};
 use crate::iface::Routes;
 use crate::phy::{ChecksumCapabilities, Device, DeviceCapabilities, Medium, RxToken, TxToken};
 use crate::rand::Rand;
@@ -35,13 +39,6 @@ use crate::socket::dns;
 use crate::socket::*;
 use crate::time::{Duration, Instant};
 use crate::wire::*;
-
-const MAX_IP_ADDR_COUNT: usize = 5;
-#[cfg(feature = "proto-igmp")]
-const MAX_IPV4_MULTICAST_GROUPS: usize = 4;
-const FRAGMENTATION_BUFFER_SIZE: usize = 1500;
-#[cfg(feature = "proto-sixlowpan")]
-const SIXLOWPAN_ADDRESS_CONTEXT_COUNT: usize = 4;
 
 #[cfg(feature = "_proto-fragmentation")]
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone, Copy)]
@@ -248,15 +245,16 @@ pub struct InterfaceInner {
     #[cfg(feature = "proto-ipv4-fragmentation")]
     ipv4_id: u16,
     #[cfg(feature = "proto-sixlowpan")]
-    sixlowpan_address_context: Vec<SixlowpanAddressContext, SIXLOWPAN_ADDRESS_CONTEXT_COUNT>,
+    sixlowpan_address_context:
+        Vec<SixlowpanAddressContext, IFACE_MAX_SIXLOWPAN_ADDRESS_CONTEXT_COUNT>,
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
     tag: u16,
-    ip_addrs: Vec<IpCidr, MAX_IP_ADDR_COUNT>,
+    ip_addrs: Vec<IpCidr, IFACE_MAX_ADDR_COUNT>,
     #[cfg(feature = "proto-ipv4")]
     any_ip: bool,
     routes: Routes,
     #[cfg(feature = "proto-igmp")]
-    ipv4_multicast_groups: LinearMap<Ipv4Address, (), MAX_IPV4_MULTICAST_GROUPS>,
+    ipv4_multicast_groups: LinearMap<Ipv4Address, (), IFACE_MAX_MULTICAST_GROUP_COUNT>,
     /// When to report for (all or) the next multicast group membership via IGMP
     #[cfg(feature = "proto-igmp")]
     igmp_report_state: IgmpReportState,
@@ -642,7 +640,7 @@ impl Interface {
     ///
     /// # Panics
     /// This function panics if any of the addresses are not unicast.
-    pub fn update_ip_addrs<F: FnOnce(&mut Vec<IpCidr, MAX_IP_ADDR_COUNT>)>(&mut self, f: F) {
+    pub fn update_ip_addrs<F: FnOnce(&mut Vec<IpCidr, IFACE_MAX_ADDR_COUNT>)>(&mut self, f: F) {
         f(&mut self.inner.ip_addrs);
         InterfaceInner::flush_cache(&mut self.inner);
         InterfaceInner::check_ip_addrs(&self.inner.ip_addrs)
@@ -690,7 +688,7 @@ impl Interface {
     #[cfg(feature = "proto-sixlowpan")]
     pub fn sixlowpan_address_context(
         &self,
-    ) -> &Vec<SixlowpanAddressContext, SIXLOWPAN_ADDRESS_CONTEXT_COUNT> {
+    ) -> &Vec<SixlowpanAddressContext, IFACE_MAX_SIXLOWPAN_ADDRESS_CONTEXT_COUNT> {
         &self.inner.sixlowpan_address_context
     }
 
@@ -698,7 +696,7 @@ impl Interface {
     #[cfg(feature = "proto-sixlowpan")]
     pub fn sixlowpan_address_context_mut(
         &mut self,
-    ) -> &mut Vec<SixlowpanAddressContext, SIXLOWPAN_ADDRESS_CONTEXT_COUNT> {
+    ) -> &mut Vec<SixlowpanAddressContext, IFACE_MAX_SIXLOWPAN_ADDRESS_CONTEXT_COUNT> {
         &mut self.inner.sixlowpan_address_context
     }
 

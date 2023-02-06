@@ -4,6 +4,7 @@ use core::task::Waker;
 use heapless::Vec;
 use managed::ManagedSlice;
 
+use crate::config::{DNS_MAX_NAME_SIZE, DNS_MAX_RESULT_COUNT, DNS_MAX_SERVER_COUNT};
 use crate::socket::{Context, PollAt};
 use crate::time::{Duration, Instant};
 use crate::wire::dns::{Flags, Opcode, Packet, Question, Rcode, Record, RecordData, Repr, Type};
@@ -12,12 +13,8 @@ use crate::wire::{self, IpAddress, IpProtocol, IpRepr, UdpRepr};
 #[cfg(feature = "async")]
 use super::WakerRegistration;
 
-pub const MAX_ADDRESS_COUNT: usize = 4;
-pub const MAX_SERVER_COUNT: usize = 4;
-
 const DNS_PORT: u16 = 53;
 const MDNS_DNS_PORT: u16 = 5353;
-const MAX_NAME_LEN: usize = 255;
 const RETRANSMIT_DELAY: Duration = Duration::from_millis(1_000);
 const MAX_RETRANSMIT_DELAY: Duration = Duration::from_millis(10_000);
 const RETRANSMIT_TIMEOUT: Duration = Duration::from_millis(10_000); // Should generally be 2-10 secs
@@ -79,7 +76,7 @@ enum State {
 
 #[derive(Debug)]
 struct PendingQuery {
-    name: Vec<u8, MAX_NAME_LEN>,
+    name: Vec<u8, DNS_MAX_NAME_SIZE>,
     type_: Type,
 
     port: u16, // UDP port (src for request, dst for response)
@@ -102,7 +99,7 @@ pub enum MulticastDns {
 
 #[derive(Debug)]
 struct CompletedQuery {
-    addresses: Vec<IpAddress, MAX_ADDRESS_COUNT>,
+    addresses: Vec<IpAddress, DNS_MAX_RESULT_COUNT>,
 }
 
 /// A handle to an in-progress DNS query.
@@ -115,7 +112,7 @@ pub struct QueryHandle(usize);
 /// packet buffers.
 #[derive(Debug)]
 pub struct Socket<'a> {
-    servers: Vec<IpAddress, MAX_SERVER_COUNT>,
+    servers: Vec<IpAddress, DNS_MAX_SERVER_COUNT>,
     queries: ManagedSlice<'a, Option<DnsQuery>>,
 
     /// The time-to-live (IPv4) or hop limit (IPv6) value used in outgoing packets.
@@ -216,7 +213,7 @@ impl<'a> Socket<'a> {
             name = &name[..name.len() - 1];
         }
 
-        let mut raw_name: Vec<u8, MAX_NAME_LEN> = Vec::new();
+        let mut raw_name: Vec<u8, DNS_MAX_NAME_SIZE> = Vec::new();
 
         let mut mdns = MulticastDns::Disabled;
         #[cfg(feature = "socket-mdns")]
@@ -292,7 +289,7 @@ impl<'a> Socket<'a> {
     pub fn get_query_result(
         &mut self,
         handle: QueryHandle,
-    ) -> Result<Vec<IpAddress, MAX_ADDRESS_COUNT>, GetQueryResultError> {
+    ) -> Result<Vec<IpAddress, DNS_MAX_RESULT_COUNT>, GetQueryResultError> {
         let slot = &mut self.queries[handle.0];
         let q = slot.as_mut().unwrap();
         match &mut q.state {
