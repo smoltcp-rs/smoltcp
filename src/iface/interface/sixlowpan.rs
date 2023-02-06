@@ -1,12 +1,4 @@
-use super::check;
-use super::FragmentsBuffer;
-use super::InterfaceInner;
-use super::IpPacket;
-use super::OutPackets;
-use super::SocketSet;
-
-#[cfg(feature = "proto-sixlowpan-fragmentation")]
-use super::SixlowpanOutPacket;
+use super::*;
 
 use crate::phy::ChecksumCapabilities;
 use crate::phy::TxToken;
@@ -105,7 +97,7 @@ impl InterfaceInner {
 
         // The key specifies to which 6LoWPAN fragment it belongs too.
         // It is based on the link layer addresses, the tag and the size.
-        let key = frag.get_key(ieee802154_repr);
+        let key = FragKey::Sixlowpan(frag.get_key(ieee802154_repr));
 
         // The offset of this fragment in increments of 8 octets.
         let offset = frag.datagram_offset() as usize * 8;
@@ -115,10 +107,7 @@ impl InterfaceInner {
         // This information is the total size of the packet when it is fully assmbled.
         // We also pass the header size, since this is needed when other fragments
         // (other than the first one) are added.
-        let frag_slot = match f
-            .sixlowpan_fragments
-            .get(&key, self.now + f.sixlowpan_fragments_cache_timeout)
-        {
+        let frag_slot = match f.assembler.get(&key, self.now + f.reassembly_timeout) {
             Ok(frag) => frag,
             Err(AssemblerFullError) => {
                 net_debug!("No available packet assembler for fragmented packet");
@@ -274,7 +263,7 @@ impl InterfaceInner {
         ll_dst_a: Ieee802154Address,
         tx_token: Tx,
         packet: IpPacket,
-        _out_packet: Option<&mut OutPackets>,
+        frag: &mut Fragmenter,
     ) {
         // We first need to convert the IPv6 packet to a 6LoWPAN compressed packet.
         // Whenever this packet is to big to fit in the IEEE802.15.4 packet, then we need to
@@ -364,14 +353,14 @@ impl InterfaceInner {
             #[cfg(feature = "proto-sixlowpan-fragmentation")]
             {
                 // The packet does not fit in one Ieee802154 frame, so we need fragmentation.
-                // We do this by emitting everything in the `out_packet.buffer` from the interface.
+                // We do this by emitting everything in the `frag.buffer` from the interface.
                 // After emitting everything into that buffer, we send the first fragment heere.
-                // When `poll` is called again, we check if out_packet was fully sent, otherwise we
-                // call `dispatch_ieee802154_out_packet`, which will transmit the other fragments.
+                // When `poll` is called again, we check if frag was fully sent, otherwise we
+                // call `dispatch_ieee802154_frag`, which will transmit the other fragments.
 
-                // `dispatch_ieee802154_out_packet` requires some information about the total packet size,
+                // `dispatch_ieee802154_frag` requires some information about the total packet size,
                 // the link local source and destination address...
-                let pkt = &mut _out_packet.unwrap().sixlowpan_out_packet;
+                let pkt = frag;
 
                 if pkt.buffer.len() < total_size {
                     net_debug!(
@@ -381,8 +370,8 @@ impl InterfaceInner {
                     return;
                 }
 
-                pkt.ll_dst_addr = ll_dst_a;
-                pkt.ll_src_addr = ll_src_a;
+                pkt.sixlowpan.ll_dst_addr = ll_dst_a;
+                pkt.sixlowpan.ll_src_addr = ll_src_a;
 
                 let mut iphc_packet =
                     SixlowpanIphcPacket::new_unchecked(&mut pkt.buffer[..iphc_repr.buffer_len()]);
@@ -435,20 +424,20 @@ impl InterfaceInner {
 
                 // The datagram size that we need to set in the first fragment header is equal to the
                 // IPv6 payload length + 40.
-                pkt.datagram_size = (packet.ip_repr().payload_len() + 40) as u16;
+                pkt.sixlowpan.datagram_size = (packet.ip_repr().payload_len() + 40) as u16;
 
                 // We generate a random tag.
                 let tag = self.get_sixlowpan_fragment_tag();
                 // We save the tag for the other fragments that will be created when calling `poll`
                 // multiple times.
-                pkt.datagram_tag = tag;
+                pkt.sixlowpan.datagram_tag = tag;
 
                 let frag1 = SixlowpanFragRepr::FirstFragment {
-                    size: pkt.datagram_size,
+                    size: pkt.sixlowpan.datagram_size,
                     tag,
                 };
                 let fragn = SixlowpanFragRepr::Fragment {
-                    size: pkt.datagram_size,
+                    size: pkt.sixlowpan.datagram_size,
                     tag,
                     offset: 0,
                 };
@@ -464,10 +453,10 @@ impl InterfaceInner {
                 let frag1_size =
                     (125 - ieee_len - frag1.buffer_len() + header_diff) / 8 * 8 - (header_diff);
 
-                pkt.fragn_size = (125 - ieee_len - fragn.buffer_len()) / 8 * 8;
+                pkt.sixlowpan.fragn_size = (125 - ieee_len - fragn.buffer_len()) / 8 * 8;
 
                 pkt.sent_bytes = frag1_size;
-                pkt.datagram_offset = frag1_size + header_diff;
+                pkt.sixlowpan.datagram_offset = frag1_size + header_diff;
 
                 tx_token.consume(ieee_len + frag1.buffer_len() + frag1_size, |mut tx_buf| {
                     // Add the IEEE header.
@@ -552,10 +541,10 @@ impl InterfaceInner {
         feature = "medium-ieee802154",
         feature = "proto-sixlowpan-fragmentation"
     ))]
-    pub(super) fn dispatch_ieee802154_out_packet<Tx: TxToken>(
+    pub(super) fn dispatch_ieee802154_frag<Tx: TxToken>(
         &mut self,
         tx_token: Tx,
-        pkt: &mut SixlowpanOutPacket,
+        frag: &mut Fragmenter,
     ) {
         // Create the IEEE802.15.4 header.
         let ieee_repr = Ieee802154Repr {
@@ -567,20 +556,20 @@ impl InterfaceInner {
             pan_id_compression: true,
             frame_version: Ieee802154FrameVersion::Ieee802154_2003,
             dst_pan_id: self.pan_id,
-            dst_addr: Some(pkt.ll_dst_addr),
+            dst_addr: Some(frag.sixlowpan.ll_dst_addr),
             src_pan_id: self.pan_id,
-            src_addr: Some(pkt.ll_src_addr),
+            src_addr: Some(frag.sixlowpan.ll_src_addr),
         };
 
         // Create the FRAG_N header.
         let fragn = SixlowpanFragRepr::Fragment {
-            size: pkt.datagram_size,
-            tag: pkt.datagram_tag,
-            offset: (pkt.datagram_offset / 8) as u8,
+            size: frag.sixlowpan.datagram_size,
+            tag: frag.sixlowpan.datagram_tag,
+            offset: (frag.sixlowpan.datagram_offset / 8) as u8,
         };
 
         let ieee_len = ieee_repr.buffer_len();
-        let frag_size = (pkt.packet_len - pkt.sent_bytes).min(pkt.fragn_size);
+        let frag_size = (frag.packet_len - frag.sent_bytes).min(frag.sixlowpan.fragn_size);
 
         tx_token.consume(
             ieee_repr.buffer_len() + fragn.buffer_len() + frag_size,
@@ -595,10 +584,10 @@ impl InterfaceInner {
                 tx_buf = &mut tx_buf[fragn.buffer_len()..];
 
                 // Add the buffer part
-                tx_buf[..frag_size].copy_from_slice(&pkt.buffer[pkt.sent_bytes..][..frag_size]);
+                tx_buf[..frag_size].copy_from_slice(&frag.buffer[frag.sent_bytes..][..frag_size]);
 
-                pkt.sent_bytes += frag_size;
-                pkt.datagram_offset += frag_size;
+                frag.sent_bytes += frag_size;
+                frag.sixlowpan.datagram_offset += frag_size;
             },
         );
     }

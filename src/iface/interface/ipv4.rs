@@ -1,15 +1,4 @@
-use super::check;
-use super::icmp_reply_payload_len;
-use super::InterfaceInner;
-use super::IpPacket;
-use super::PacketAssemblerSet;
-use super::SocketSet;
-
-#[cfg(feature = "medium-ethernet")]
-use super::EthernetPacket;
-
-#[cfg(feature = "proto-ipv4-fragmentation")]
-use super::Ipv4OutPacket;
+use super::*;
 
 #[cfg(feature = "socket-dhcpv4")]
 use crate::socket::dhcpv4;
@@ -18,16 +7,16 @@ use crate::socket::icmp;
 use crate::socket::AnySocket;
 
 use crate::phy::{Medium, TxToken};
-use crate::time::{Duration, Instant};
+use crate::time::Instant;
 use crate::wire::*;
 
 impl InterfaceInner {
-    pub(super) fn process_ipv4<'output, 'payload: 'output, T: AsRef<[u8]> + ?Sized>(
+    pub(super) fn process_ipv4<'a, T: AsRef<[u8]> + ?Sized>(
         &mut self,
         sockets: &mut SocketSet,
-        ipv4_packet: &Ipv4Packet<&'payload T>,
-        _fragments: Option<&'output mut PacketAssemblerSet<Ipv4FragKey>>,
-    ) -> Option<IpPacket<'output>> {
+        ipv4_packet: &Ipv4Packet<&'a T>,
+        frag: &'a mut FragmentsBuffer,
+    ) -> Option<IpPacket<'a>> {
         let ipv4_repr = check!(Ipv4Repr::parse(ipv4_packet, &self.caps.checksum));
         if !self.is_unicast_v4(ipv4_repr.src_addr) {
             // Discard packets with non-unicast source addresses.
@@ -37,14 +26,10 @@ impl InterfaceInner {
 
         #[cfg(feature = "proto-ipv4-fragmentation")]
         let ip_payload = {
-            const REASSEMBLY_TIMEOUT: Duration = Duration::from_secs(90);
-
-            let fragments = _fragments.unwrap();
-
             if ipv4_packet.more_frags() || ipv4_packet.frag_offset() != 0 {
-                let key = ipv4_packet.get_key();
+                let key = FragKey::Ipv4(ipv4_packet.get_key());
 
-                let f = match fragments.get(&key, self.now + REASSEMBLY_TIMEOUT) {
+                let f = match frag.assembler.get(&key, self.now + frag.reassembly_timeout) {
                     Ok(f) => f,
                     Err(_) => {
                         net_debug!("No available packet assembler for fragmented packet");
@@ -345,20 +330,16 @@ impl InterfaceInner {
     }
 
     #[cfg(feature = "proto-ipv4-fragmentation")]
-    pub(super) fn dispatch_ipv4_out_packet<Tx: TxToken>(
-        &mut self,
-        tx_token: Tx,
-        pkt: &mut Ipv4OutPacket,
-    ) {
+    pub(super) fn dispatch_ipv4_frag<Tx: TxToken>(&mut self, tx_token: Tx, frag: &mut Fragmenter) {
         let caps = self.caps.clone();
 
         let mtu_max = self.ip_mtu();
-        let ip_len = (pkt.packet_len - pkt.sent_bytes + pkt.repr.buffer_len()).min(mtu_max);
-        let payload_len = ip_len - pkt.repr.buffer_len();
+        let ip_len = (frag.packet_len - frag.sent_bytes + frag.ipv4.repr.buffer_len()).min(mtu_max);
+        let payload_len = ip_len - frag.ipv4.repr.buffer_len();
 
-        let more_frags = (pkt.packet_len - pkt.sent_bytes) != payload_len;
-        pkt.repr.payload_len = payload_len;
-        pkt.sent_bytes += payload_len;
+        let more_frags = (frag.packet_len - frag.sent_bytes) != payload_len;
+        frag.ipv4.repr.payload_len = payload_len;
+        frag.sent_bytes += payload_len;
 
         let mut tx_len = ip_len;
         #[cfg(feature = "medium-ethernet")]
@@ -373,7 +354,7 @@ impl InterfaceInner {
 
             let src_addr = self.hardware_addr.unwrap().ethernet_or_panic();
             frame.set_src_addr(src_addr);
-            frame.set_dst_addr(pkt.dst_hardware_addr);
+            frame.set_dst_addr(frag.ipv4.dst_hardware_addr);
 
             match repr.version() {
                 #[cfg(feature = "proto-ipv4")]
@@ -386,27 +367,29 @@ impl InterfaceInner {
         tx_token.consume(tx_len, |mut tx_buffer| {
             #[cfg(feature = "medium-ethernet")]
             if matches!(self.caps.medium, Medium::Ethernet) {
-                emit_ethernet(&IpRepr::Ipv4(pkt.repr), tx_buffer);
+                emit_ethernet(&IpRepr::Ipv4(frag.ipv4.repr), tx_buffer);
                 tx_buffer = &mut tx_buffer[EthernetFrame::<&[u8]>::header_len()..];
             }
 
-            let mut packet = Ipv4Packet::new_unchecked(&mut tx_buffer[..pkt.repr.buffer_len()]);
-            pkt.repr.emit(&mut packet, &caps.checksum);
-            packet.set_ident(pkt.ident);
+            let mut packet =
+                Ipv4Packet::new_unchecked(&mut tx_buffer[..frag.ipv4.repr.buffer_len()]);
+            frag.ipv4.repr.emit(&mut packet, &caps.checksum);
+            packet.set_ident(frag.ipv4.ident);
             packet.set_more_frags(more_frags);
             packet.set_dont_frag(false);
-            packet.set_frag_offset(pkt.frag_offset);
+            packet.set_frag_offset(frag.ipv4.frag_offset);
 
             if caps.checksum.ipv4.tx() {
                 packet.fill_checksum();
             }
 
-            tx_buffer[pkt.repr.buffer_len()..][..payload_len].copy_from_slice(
-                &pkt.buffer[pkt.frag_offset as usize + pkt.repr.buffer_len()..][..payload_len],
+            tx_buffer[frag.ipv4.repr.buffer_len()..][..payload_len].copy_from_slice(
+                &frag.buffer[frag.ipv4.frag_offset as usize + frag.ipv4.repr.buffer_len()..]
+                    [..payload_len],
             );
 
             // Update the frag offset for the next fragment.
-            pkt.frag_offset += payload_len as u16;
+            frag.ipv4.frag_offset += payload_len as u16;
         })
     }
 

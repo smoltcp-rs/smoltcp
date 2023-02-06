@@ -27,6 +27,7 @@ pub const MIN_MTU: usize = 576;
 pub const ADDR_SIZE: usize = 4;
 
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Key {
     id: u16,
     src_addr: Address,

@@ -45,12 +45,12 @@ defmt = [ "dep:defmt", "heapless/defmt", "heapless/defmt-impl" ]
 "phy-tuntap_interface" = ["std", "libc", "medium-ethernet"]
 
 "proto-ipv4" = []
-"proto-ipv4-fragmentation" = ["proto-ipv4"]
+"proto-ipv4-fragmentation" = ["proto-ipv4", "_proto-fragmentation"]
 "proto-igmp" = ["proto-ipv4"]
 "proto-dhcpv4" = ["proto-ipv4"]
 "proto-ipv6" = []
 "proto-sixlowpan" = ["proto-ipv6"]
-"proto-sixlowpan-fragmentation" = ["proto-sixlowpan"]
+"proto-sixlowpan-fragmentation" = ["proto-sixlowpan", "_proto-fragmentation"]
 "proto-dns" = []
 
 "socket" = []
@@ -73,6 +73,12 @@ default = [
   "socket-raw", "socket-icmp", "socket-udp", "socket-tcp", "socket-dhcpv4", "socket-dns", "socket-mdns",
   "async"
 ]
+
+# Private features
+# Features starting with "_" are considered private. They should not be enabled by 
+# other crates, and they are not considered semver-stable.
+
+"_proto-fragmentation" = []
 
 [[example]]
 name = "packet2pcap"

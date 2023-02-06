@@ -167,15 +167,10 @@ fn test_no_icmp_no_unicast_ipv4() {
     // ICMP error response when the destination address is a
     // broadcast address
 
-    #[cfg(not(feature = "proto-ipv4-fragmentation"))]
-    assert_eq!(iface.inner.process_ipv4(&mut sockets, &frame, None), None);
-    #[cfg(feature = "proto-ipv4-fragmentation")]
     assert_eq!(
-        iface.inner.process_ipv4(
-            &mut sockets,
-            &frame,
-            Some(&mut iface.fragments.ipv4_fragments)
-        ),
+        iface
+            .inner
+            .process_ipv4(&mut sockets, &frame, &mut iface.fragments),
         None
     );
 }
@@ -255,19 +250,10 @@ fn test_icmp_error_no_payload() {
     // Ensure that the unknown protocol triggers an error response.
     // And we correctly handle no payload.
 
-    #[cfg(not(feature = "proto-ipv4-fragmentation"))]
     assert_eq!(
-        iface.inner.process_ipv4(&mut sockets, &frame, None),
-        Some(expected_repr)
-    );
-
-    #[cfg(feature = "proto-ipv4-fragmentation")]
-    assert_eq!(
-        iface.inner.process_ipv4(
-            &mut sockets,
-            &frame,
-            Some(&mut iface.fragments.ipv4_fragments)
-        ),
+        iface
+            .inner
+            .process_ipv4(&mut sockets, &frame, &mut iface.fragments),
         Some(expected_repr)
     );
 }
@@ -571,19 +557,10 @@ fn test_handle_ipv4_broadcast() {
     };
     let expected_packet = IpPacket::Icmpv4((expected_ipv4_repr, expected_icmpv4_repr));
 
-    #[cfg(not(feature = "proto-ipv4-fragmentation"))]
     assert_eq!(
-        iface.inner.process_ipv4(&mut sockets, &frame, None),
-        Some(expected_packet)
-    );
-
-    #[cfg(feature = "proto-ipv4-fragmentation")]
-    assert_eq!(
-        iface.inner.process_ipv4(
-            &mut sockets,
-            &frame,
-            Some(&mut iface.fragments.ipv4_fragments)
-        ),
+        iface
+            .inner
+            .process_ipv4(&mut sockets, &frame, &mut iface.fragments),
         Some(expected_packet)
     );
 }
@@ -763,7 +740,8 @@ fn test_handle_valid_arp_request() {
         iface.inner.lookup_hardware_addr(
             MockTxToken,
             &IpAddress::Ipv4(local_ip_addr),
-            &IpAddress::Ipv4(remote_ip_addr)
+            &IpAddress::Ipv4(remote_ip_addr),
+            &mut iface.fragmenter,
         ),
         Ok((HardwareAddress::Ethernet(remote_hw_addr), MockTxToken))
     );
@@ -835,7 +813,8 @@ fn test_handle_valid_ndisc_request() {
         iface.inner.lookup_hardware_addr(
             MockTxToken,
             &IpAddress::Ipv6(local_ip_addr),
-            &IpAddress::Ipv6(remote_ip_addr)
+            &IpAddress::Ipv6(remote_ip_addr),
+            &mut iface.fragmenter,
         ),
         Ok((HardwareAddress::Ethernet(remote_hw_addr), MockTxToken))
     );
@@ -879,7 +858,8 @@ fn test_handle_other_arp_request() {
         iface.inner.lookup_hardware_addr(
             MockTxToken,
             &IpAddress::Ipv4(Ipv4Address([0x7f, 0x00, 0x00, 0x01])),
-            &IpAddress::Ipv4(remote_ip_addr)
+            &IpAddress::Ipv4(remote_ip_addr),
+            &mut iface.fragmenter,
         ),
         Err(DispatchError::NeighborPending)
     );
@@ -937,7 +917,8 @@ fn test_arp_flush_after_update_ip() {
         iface.inner.lookup_hardware_addr(
             MockTxToken,
             &IpAddress::Ipv4(local_ip_addr),
-            &IpAddress::Ipv4(remote_ip_addr)
+            &IpAddress::Ipv4(remote_ip_addr),
+            &mut iface.fragmenter,
         ),
         Ok((HardwareAddress::Ethernet(remote_hw_addr), MockTxToken))
     );
@@ -1277,15 +1258,10 @@ fn test_raw_socket_no_reply() {
         Ipv4Packet::new_unchecked(&bytes)
     };
 
-    #[cfg(not(feature = "proto-ipv4-fragmentation"))]
-    assert_eq!(iface.inner.process_ipv4(&mut sockets, &frame, None), None);
-    #[cfg(feature = "proto-ipv4-fragmentation")]
     assert_eq!(
-        iface.inner.process_ipv4(
-            &mut sockets,
-            &frame,
-            Some(&mut iface.fragments.ipv4_fragments)
-        ),
+        iface
+            .inner
+            .process_ipv4(&mut sockets, &frame, &mut iface.fragments),
         None
     );
 }
@@ -1368,15 +1344,10 @@ fn test_raw_socket_with_udp_socket() {
         Ipv4Packet::new_unchecked(&bytes)
     };
 
-    #[cfg(not(feature = "proto-ipv4-fragmentation"))]
-    assert_eq!(iface.inner.process_ipv4(&mut sockets, &frame, None), None);
-    #[cfg(feature = "proto-ipv4-fragmentation")]
     assert_eq!(
-        iface.inner.process_ipv4(
-            &mut sockets,
-            &frame,
-            Some(&mut iface.fragments.ipv4_fragments)
-        ),
+        iface
+            .inner
+            .process_ipv4(&mut sockets, &frame, &mut iface.fragments),
         None
     );
 
@@ -1545,7 +1516,7 @@ fn test_echo_request_sixlowpan_128_bytes() {
         Ieee802154Address::default(),
         tx_token,
         result.unwrap(),
-        Some(&mut iface.out_packets),
+        &mut iface.fragmenter,
     );
 
     assert_eq!(
@@ -1695,7 +1666,7 @@ fn test_sixlowpan_udp_with_fragmentation() {
             },
             udp_data,
         )),
-        Some(&mut iface.out_packets),
+        &mut iface.fragmenter,
     );
 
     iface.poll(Instant::now(), &mut device, &mut sockets);
