@@ -9,10 +9,11 @@ use crate::{
 ///
 /// This enum tracks whether the socket should be polled based on the neighbor
 /// it is going to send packets to.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 enum NeighborState {
     /// Socket can be polled immediately.
+    #[default]
     Active,
     /// Socket should not be polled until either `silent_until` passes or
     /// `neighbor` appears in the neighbor cache.
@@ -20,12 +21,6 @@ enum NeighborState {
         neighbor: IpAddress,
         silent_until: Instant,
     },
-}
-
-impl Default for NeighborState {
-    fn default() -> Self {
-        NeighborState::Active
-    }
 }
 
 /// Network socket metadata.

@@ -43,9 +43,10 @@ pub enum RecvError {
 /// more details.
 ///
 /// [IcmpSocket::bind]: struct.IcmpSocket.html#method.bind
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+#[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Endpoint {
+    #[default]
     Unspecified,
     Ident(u16),
     Udp(IpListenEndpoint),
@@ -58,12 +59,6 @@ impl Endpoint {
             Endpoint::Udp(endpoint) => endpoint.port != 0,
             Endpoint::Unspecified => false,
         }
-    }
-}
-
-impl Default for Endpoint {
-    fn default() -> Endpoint {
-        Endpoint::Unspecified
     }
 }
 

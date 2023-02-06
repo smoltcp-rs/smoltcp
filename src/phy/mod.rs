@@ -131,10 +131,11 @@ pub use self::tracer::Tracer;
 pub use self::tuntap_interface::TunTapInterface;
 
 /// A description of checksum behavior for a particular protocol.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Checksum {
     /// Verify checksum when receiving and compute checksum when sending.
+    #[default]
     Both,
     /// Verify checksum when receiving.
     Rx,
@@ -142,12 +143,6 @@ pub enum Checksum {
     Tx,
     /// Ignore checksum completely.
     None,
-}
-
-impl Default for Checksum {
-    fn default() -> Checksum {
-        Checksum::Both
-    }
 }
 
 impl Checksum {
