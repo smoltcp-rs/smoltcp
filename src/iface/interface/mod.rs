@@ -240,9 +240,8 @@ pub struct InterfaceInner {
     rand: Rand,
 
     #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
-    neighbor_cache: Option<NeighborCache>,
-    #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
-    hardware_addr: Option<HardwareAddress>,
+    neighbor_cache: NeighborCache,
+    hardware_addr: HardwareAddress,
     #[cfg(feature = "medium-ieee802154")]
     sequence_no: u8,
     #[cfg(feature = "medium-ieee802154")]
@@ -280,8 +279,7 @@ pub struct Config {
     ///
     /// # Panics
     /// Creating the interface panics if the address is not unicast.
-    #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
-    pub hardware_addr: Option<HardwareAddress>,
+    pub hardware_addr: HardwareAddress,
 
     /// Set the IEEE802.15.4 PAN ID the interface will use.
     ///
@@ -291,20 +289,13 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn new() -> Self {
+    pub fn new(hardware_addr: HardwareAddress) -> Self {
         Config {
             random_seed: 0,
-            #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
-            hardware_addr: None,
+            hardware_addr,
             #[cfg(feature = "medium-ieee802154")]
             pan_id: None,
         }
-    }
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -476,29 +467,11 @@ impl Interface {
     {
         let caps = device.capabilities();
 
-        #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
-        let hardware_addr = match caps.medium {
-            #[cfg(feature = "medium-ethernet")]
-            Medium::Ethernet => Some(
-                config
-                    .hardware_addr
-                    .expect("hardware_addr required option was not set"),
-            ),
-            #[cfg(feature = "medium-ip")]
-            Medium::Ip => {
-                assert!(
-                    config.hardware_addr.is_none(),
-                    "hardware_addr is set, but device medium is IP"
-                );
-                None
-            }
-            #[cfg(feature = "medium-ieee802154")]
-            Medium::Ieee802154 => Some(
-                config
-                    .hardware_addr
-                    .expect("hardware_addr required option was not set"),
-            ),
-        };
+        assert_eq!(
+            config.hardware_addr.medium(),
+            caps.medium,
+            "The hardware address does not match the medium of the interface."
+        );
 
         let mut rand = Rand::new(config.random_seed);
 
@@ -548,14 +521,13 @@ impl Interface {
             inner: InterfaceInner {
                 now: Instant::from_secs(0),
                 caps,
-                #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
-                hardware_addr,
+                hardware_addr: config.hardware_addr,
                 ip_addrs: Vec::new(),
                 #[cfg(feature = "proto-ipv4")]
                 any_ip: false,
                 routes: Routes::new(),
                 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
-                neighbor_cache: Some(NeighborCache::new()),
+                neighbor_cache: NeighborCache::new(),
                 #[cfg(feature = "proto-igmp")]
                 ipv4_multicast_groups: LinearMap::new(),
                 #[cfg(feature = "proto-igmp")]
@@ -599,7 +571,7 @@ impl Interface {
                 || self.inner.caps.medium == Medium::Ieee802154
         );
 
-        self.inner.hardware_addr.unwrap()
+        self.inner.hardware_addr
     }
 
     /// Set the HardwareAddress address of the interface.
@@ -621,7 +593,7 @@ impl Interface {
         );
 
         InterfaceInner::check_hardware_addr(&addr);
-        self.inner.hardware_addr = Some(addr);
+        self.inner.hardware_addr = addr;
     }
 
     /// Get the IP addresses of the interface.
@@ -1050,7 +1022,7 @@ impl InterfaceInner {
 
     #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
     #[allow(unused)] // unused depending on which sockets are enabled
-    pub(crate) fn hardware_addr(&self) -> Option<HardwareAddress> {
+    pub(crate) fn hardware_addr(&self) -> HardwareAddress {
         self.hardware_addr
     }
 
@@ -1169,19 +1141,31 @@ impl InterfaceInner {
             #[cfg(feature = "proto-ipv4-fragmentation")]
             ipv4_id: 1,
 
+            #[cfg(all(
+                feature = "medium-ip",
+                not(feature = "medium-ethernet"),
+                not(feature = "medium-ieee802154")
+            ))]
+            hardware_addr: crate::wire::HardwareAddress::Ip,
+
             #[cfg(feature = "medium-ethernet")]
-            hardware_addr: Some(crate::wire::HardwareAddress::Ethernet(
-                crate::wire::EthernetAddress([0x02, 0x02, 0x02, 0x02, 0x02, 0x02]),
-            )),
-            #[cfg(all(not(feature = "medium-ethernet"), feature = "medium-ieee802154"))]
-            hardware_addr: Some(crate::wire::HardwareAddress::Ieee802154(
+            hardware_addr: crate::wire::HardwareAddress::Ethernet(crate::wire::EthernetAddress([
+                0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
+            ])),
+
+            #[cfg(all(
+                not(feature = "medium-ip"),
+                not(feature = "medium-ethernet"),
+                feature = "medium-ieee802154"
+            ))]
+            hardware_addr: crate::wire::HardwareAddress::Ieee802154(
                 crate::wire::Ieee802154Address::Extended([
                     0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x2, 0x2,
                 ]),
-            )),
+            ),
 
             #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
-            neighbor_cache: None,
+            neighbor_cache: NeighborCache::new(),
 
             #[cfg(feature = "proto-igmp")]
             igmp_report_state: IgmpReportState::Inactive,
@@ -1199,7 +1183,7 @@ impl InterfaceInner {
     #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
     fn check_hardware_addr(addr: &HardwareAddress) {
         if !addr.is_unicast() {
-            panic!("Ethernet address {addr} is not unicast")
+            panic!("Hardware address {addr} is not unicast")
         }
     }
 
@@ -1503,19 +1487,9 @@ impl InterfaceInner {
         match self.route(addr, self.now) {
             Some(_routed_addr) => match self.caps.medium {
                 #[cfg(feature = "medium-ethernet")]
-                Medium::Ethernet => self
-                    .neighbor_cache
-                    .as_ref()
-                    .unwrap()
-                    .lookup(&_routed_addr, self.now)
-                    .found(),
+                Medium::Ethernet => self.neighbor_cache.lookup(&_routed_addr, self.now).found(),
                 #[cfg(feature = "medium-ieee802154")]
-                Medium::Ieee802154 => self
-                    .neighbor_cache
-                    .as_ref()
-                    .unwrap()
-                    .lookup(&_routed_addr, self.now)
-                    .found(),
+                Medium::Ieee802154 => self.neighbor_cache.lookup(&_routed_addr, self.now).found(),
                 #[cfg(feature = "medium-ip")]
                 Medium::Ip => true,
             },
@@ -1584,12 +1558,7 @@ impl InterfaceInner {
             .route(dst_addr, self.now)
             .ok_or(DispatchError::NoRoute)?;
 
-        match self
-            .neighbor_cache
-            .as_mut()
-            .unwrap()
-            .lookup(&dst_addr, self.now)
-        {
+        match self.neighbor_cache.lookup(&dst_addr, self.now) {
             NeighborAnswer::Found(hardware_addr) => return Ok((hardware_addr, tx_token)),
             NeighborAnswer::RateLimited => return Err(DispatchError::NeighborPending),
             _ => (), // XXX
@@ -1602,7 +1571,7 @@ impl InterfaceInner {
                     "address {} not in neighbor cache, sending ARP request",
                     dst_addr
                 );
-                let src_hardware_addr = self.hardware_addr.unwrap().ethernet_or_panic();
+                let src_hardware_addr = self.hardware_addr.ethernet_or_panic();
 
                 let arp_repr = ArpRepr::EthernetIpv4 {
                     operation: ArpOperation::Request,
@@ -1634,7 +1603,7 @@ impl InterfaceInner {
 
                 let solicit = Icmpv6Repr::Ndisc(NdiscRepr::NeighborSolicit {
                     target_addr: dst_addr,
-                    lladdr: Some(self.hardware_addr.unwrap().into()),
+                    lladdr: Some(self.hardware_addr.into()),
                 });
 
                 let packet = IpPacket::Icmpv6((
@@ -1659,15 +1628,13 @@ impl InterfaceInner {
         }
 
         // The request got dispatched, limit the rate on the cache.
-        self.neighbor_cache.as_mut().unwrap().limit_rate(self.now);
+        self.neighbor_cache.limit_rate(self.now);
         Err(DispatchError::NeighborPending)
     }
 
     fn flush_cache(&mut self) {
         #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
-        if let Some(cache) = self.neighbor_cache.as_mut() {
-            cache.flush()
-        }
+        self.neighbor_cache.flush()
     }
 
     fn dispatch_ip<Tx: TxToken>(
@@ -1722,8 +1689,7 @@ impl InterfaceInner {
                     frag,
                 )? {
                     (HardwareAddress::Ethernet(addr), tx_token) => (addr, tx_token),
-                    #[cfg(feature = "medium-ieee802154")]
-                    (HardwareAddress::Ieee802154(_), _) => unreachable!(),
+                    (_, _) => unreachable!(),
                 }
             }
             _ => (EthernetAddress([0; 6]), tx_token),
@@ -1734,7 +1700,7 @@ impl InterfaceInner {
         let emit_ethernet = |repr: &IpRepr, tx_buffer: &mut [u8]| {
             let mut frame = EthernetFrame::new_unchecked(tx_buffer);
 
-            let src_addr = self.hardware_addr.unwrap().ethernet_or_panic();
+            let src_addr = self.hardware_addr.ethernet_or_panic();
             frame.set_src_addr(src_addr);
             frame.set_dst_addr(dst_hardware_addr);
 

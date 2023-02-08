@@ -192,17 +192,9 @@ impl InterfaceInner {
                         return None;
                     }
                     if flags.contains(NdiscNeighborFlags::OVERRIDE)
-                        || !self
-                            .neighbor_cache
-                            .as_mut()
-                            .unwrap()
-                            .lookup(&ip_addr, self.now)
-                            .found()
+                        || !self.neighbor_cache.lookup(&ip_addr, self.now).found()
                     {
-                        self.neighbor_cache
-                            .as_mut()
-                            .unwrap()
-                            .fill(ip_addr, lladdr, self.now)
+                        self.neighbor_cache.fill(ip_addr, lladdr, self.now)
                     }
                 }
                 None
@@ -217,11 +209,8 @@ impl InterfaceInner {
                     if !lladdr.is_unicast() || !target_addr.is_unicast() {
                         return None;
                     }
-                    self.neighbor_cache.as_mut().unwrap().fill(
-                        ip_repr.src_addr.into(),
-                        lladdr,
-                        self.now,
-                    );
+                    self.neighbor_cache
+                        .fill(ip_repr.src_addr.into(), lladdr, self.now);
                 }
 
                 if self.has_solicited_node(ip_repr.dst_addr) && self.has_ip_addr(target_addr) {
@@ -229,7 +218,7 @@ impl InterfaceInner {
                         flags: NdiscNeighborFlags::SOLICITED,
                         target_addr,
                         #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
-                        lladdr: Some(self.hardware_addr.unwrap().into()),
+                        lladdr: Some(self.hardware_addr.into()),
                     });
                     let ip_repr = Ipv6Repr {
                         src_addr: target_addr,

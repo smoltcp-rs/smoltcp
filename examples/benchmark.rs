@@ -88,11 +88,14 @@ fn main() {
     let tcp2_tx_buffer = tcp::SocketBuffer::new(vec![0; 65535]);
     let tcp2_socket = tcp::Socket::new(tcp2_rx_buffer, tcp2_tx_buffer);
 
-    let mut config = Config::new();
+    let mut config = match device.capabilities().medium {
+        Medium::Ethernet => {
+            Config::new(EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]).into())
+        }
+        Medium::Ip => Config::new(smoltcp::wire::HardwareAddress::Ip),
+        Medium::Ieee802154 => todo!(),
+    };
     config.random_seed = rand::random();
-    if device.capabilities().medium == Medium::Ethernet {
-        config.hardware_addr = Some(EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]).into());
-    }
 
     let mut iface = Interface::new(config, &mut device);
     iface.update_ip_addrs(|ip_addrs| {

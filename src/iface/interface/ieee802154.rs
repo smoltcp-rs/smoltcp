@@ -44,7 +44,7 @@ impl InterfaceInner {
         packet: IpPacket,
         frag: &mut Fragmenter,
     ) {
-        let ll_src_a = self.hardware_addr.unwrap().ieee802154_or_panic();
+        let ll_src_a = self.hardware_addr.ieee802154_or_panic();
 
         // Create the IEEE802.15.4 header.
         let ieee_repr = Ieee802154Repr {

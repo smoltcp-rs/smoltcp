@@ -24,11 +24,15 @@ fn main() {
         utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
 
     // Create interface
-    let mut config = Config::new();
+    let mut config = match device.capabilities().medium {
+        Medium::Ethernet => {
+            Config::new(EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]).into())
+        }
+        Medium::Ip => Config::new(smoltcp::wire::HardwareAddress::Ip),
+        Medium::Ieee802154 => todo!(),
+    };
+
     config.random_seed = rand::random();
-    if device.capabilities().medium == Medium::Ethernet {
-        config.hardware_addr = Some(EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]).into());
-    }
 
     let mut iface = Interface::new(config, &mut device);
     iface.update_ip_addrs(|ip_addrs| {

@@ -10,7 +10,7 @@ use core::str;
 use log::{debug, error, info};
 
 use smoltcp::iface::{Config, Interface, SocketSet};
-use smoltcp::phy::{Loopback, Medium};
+use smoltcp::phy::{Device, Loopback, Medium};
 use smoltcp::socket::tcp;
 use smoltcp::time::{Duration, Instant};
 use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr};
@@ -83,8 +83,13 @@ fn main() {
     };
 
     // Create interface
-    let mut config = Config::new();
-    config.hardware_addr = Some(EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]).into());
+    let mut config = match device.capabilities().medium {
+        Medium::Ethernet => {
+            Config::new(EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]).into())
+        }
+        Medium::Ip => Config::new(smoltcp::wire::HardwareAddress::Ip),
+        Medium::Ieee802154 => todo!(),
+    };
 
     let mut iface = Interface::new(config, &mut device);
     iface.update_ip_addrs(|ip_addrs| {

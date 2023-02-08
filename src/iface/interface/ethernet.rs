@@ -22,7 +22,7 @@ impl InterfaceInner {
         // Ignore any packets not directed to our hardware address or any of the multicast groups.
         if !eth_frame.dst_addr().is_broadcast()
             && !eth_frame.dst_addr().is_multicast()
-            && HardwareAddress::Ethernet(eth_frame.dst_addr()) != self.hardware_addr.unwrap()
+            && HardwareAddress::Ethernet(eth_frame.dst_addr()) != self.hardware_addr
         {
             return None;
         }
@@ -64,7 +64,7 @@ impl InterfaceInner {
             debug_assert!(tx_buffer.as_ref().len() == tx_len);
             let mut frame = EthernetFrame::new_unchecked(tx_buffer);
 
-            let src_addr = self.hardware_addr.unwrap().ethernet_or_panic();
+            let src_addr = self.hardware_addr.ethernet_or_panic();
             frame.set_src_addr(src_addr);
 
             f(frame);
