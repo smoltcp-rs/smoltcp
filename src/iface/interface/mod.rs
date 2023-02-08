@@ -18,6 +18,9 @@ mod ipv6;
 #[cfg(feature = "proto-igmp")]
 mod igmp;
 
+#[cfg(feature = "proto-igmp")]
+pub use igmp::MulticastError;
+
 use core::cmp;
 use core::result::Result;
 use heapless::{LinearMap, Vec};
