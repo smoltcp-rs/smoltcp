@@ -433,14 +433,14 @@ impl<'a> Repr<'a> {
     {
         match opt.option_type() {
             Type::SourceLinkLayerAddr => {
-                if opt.data_len() == 1 {
+                if opt.data_len() >= 1 {
                     Ok(Repr::SourceLinkLayerAddr(opt.link_layer_addr()))
                 } else {
                     Err(Error)
                 }
             }
             Type::TargetLinkLayerAddr => {
-                if opt.data_len() == 1 {
+                if opt.data_len() >= 1 {
                     Ok(Repr::TargetLinkLayerAddr(opt.link_layer_addr()))
                 } else {
                     Err(Error)
@@ -628,13 +628,18 @@ impl<T: AsRef<[u8]>> PrettyPrint for NdiscOption<T> {
     }
 }
 
-#[cfg(feature = "medium-ethernet")]
+#[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
 #[cfg(test)]
 mod test {
     use super::Error;
     use super::{NdiscOption, PrefixInfoFlags, PrefixInformation, Repr, Type};
     use crate::time::Duration;
-    use crate::wire::{EthernetAddress, Ipv6Address};
+    use crate::wire::Ipv6Address;
+
+    #[cfg(feature = "medium-ethernet")]
+    use crate::wire::EthernetAddress;
+    #[cfg(all(not(feature = "medium-ethernet"), feature = "medium-ieee802154"))]
+    use crate::wire::Ieee802154Address;
 
     static PREFIX_OPT_BYTES: [u8; 32] = [
         0x03, 0x04, 0x40, 0xc0, 0x00, 0x00, 0x03, 0x84, 0x00, 0x00, 0x03, 0xe8, 0x00, 0x00, 0x00,
@@ -678,10 +683,34 @@ mod test {
         assert_eq!(NdiscOption::new_checked(&bytes), Err(Error));
     }
 
+    #[cfg(feature = "medium-ethernet")]
     #[test]
-    fn test_repr_parse_link_layer_opt() {
+    fn test_repr_parse_link_layer_opt_ethernet() {
         let mut bytes = [0x01, 0x01, 0x54, 0x52, 0x00, 0x12, 0x23, 0x34];
         let addr = EthernetAddress([0x54, 0x52, 0x00, 0x12, 0x23, 0x34]);
+        {
+            assert_eq!(
+                Repr::parse(&NdiscOption::new_unchecked(&bytes)),
+                Ok(Repr::SourceLinkLayerAddr(addr.into()))
+            );
+        }
+        bytes[0] = 0x02;
+        {
+            assert_eq!(
+                Repr::parse(&NdiscOption::new_unchecked(&bytes)),
+                Ok(Repr::TargetLinkLayerAddr(addr.into()))
+            );
+        }
+    }
+
+    #[cfg(all(not(feature = "medium-ethernet"), feature = "medium-ieee802154"))]
+    #[test]
+    fn test_repr_parse_link_layer_opt_ieee802154() {
+        let mut bytes = [
+            0x01, 0x02, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ];
+        let addr = Ieee802154Address::Extended([0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]);
         {
             assert_eq!(
                 Repr::parse(&NdiscOption::new_unchecked(&bytes)),
