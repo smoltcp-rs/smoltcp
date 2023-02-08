@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.1] - 2023-02-08
+
+- iface: make MulticastError public. (#747)
+- Fix parsing of ieee802154 link layer address for NDISC options (#746)
+
 ## [0.9.0] - 2023-02-06
 
 - Minimum Supported Rust Version (MSRV) **bumped** from 1.56 to 1.65
@@ -196,7 +201,8 @@ only processed when directed to the 255.255.255.255 address. ([377](https://gith
 - Use #[non_exhaustive] for enums and structs ([409](https://github.com/smoltcp-rs/smoltcp/pull/409), [411](https://github.com/smoltcp-rs/smoltcp/pull/411))
 - Simplify lifetime parameters of sockets, SocketSet, EthernetInterface ([410](https://github.com/smoltcp-rs/smoltcp/pull/410), [413](https://github.com/smoltcp-rs/smoltcp/pull/413))
 
-[Unreleased]: https://github.com/smoltcp-rs/smoltcp/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/smoltcp-rs/smoltcp/compare/v0.9.1...HEAD
+[0.9.1]: https://github.com/smoltcp-rs/smoltcp/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/smoltcp-rs/smoltcp/compare/v0.8.2...v0.9.0
 [0.8.2]: https://github.com/smoltcp-rs/smoltcp/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/smoltcp-rs/smoltcp/compare/v0.8.0...v0.8.1
