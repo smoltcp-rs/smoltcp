@@ -1699,7 +1699,9 @@ impl<'a> Socket<'a> {
             TcpControl::Syn => 0,
             _ => self.remote_win_scale.unwrap_or(0),
         };
-        self.remote_win_len = (repr.window_len as usize) << (scale as usize);
+        let new_remote_win_len = (repr.window_len as usize) << (scale as usize);
+        let is_window_update = new_remote_win_len != self.remote_win_len;
+        self.remote_win_len = new_remote_win_len;
 
         if ack_len > 0 {
             // Dequeue acknowledged octets.
@@ -1731,7 +1733,8 @@ impl<'a> Socket<'a> {
                 Some(last_rx_ack)
                     if repr.payload.is_empty()
                         && last_rx_ack == ack_number
-                        && ack_number < self.remote_last_seq =>
+                        && ack_number < self.remote_last_seq
+                        && !is_window_update =>
                 {
                     // Increment duplicate ACK count
                     self.local_rx_dup_acks = self.local_rx_dup_acks.saturating_add(1);
@@ -5481,6 +5484,66 @@ mod test {
         assert_eq!(
             s.local_rx_dup_acks, 0,
             "duplicate ACK counter is not reset when receiving data"
+        );
+    }
+
+    #[test]
+    fn test_fast_retransmit_duplicate_detection_with_window_update() {
+        let mut s = socket_established();
+
+        s.send_slice(b"abc").unwrap(); // This is lost
+        recv!(s, time 1000, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"abc"[..],
+            ..RECV_TEMPL
+        }));
+
+        // Normal ACK of previously received segment
+        send!(
+            s,
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                ..SEND_TEMPL
+            }
+        );
+        // First duplicate
+        send!(
+            s,
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                ..SEND_TEMPL
+            }
+        );
+        // Second duplicate
+        send!(
+            s,
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                ..SEND_TEMPL
+            }
+        );
+
+        assert_eq!(s.local_rx_dup_acks, 2, "duplicate ACK counter is not set");
+
+        // This packet has a window update, hence should not be detected
+        // as a duplicate ACK and should reset the duplicate ACK count
+        send!(
+            s,
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                window_len: 400,
+                ..SEND_TEMPL
+            }
+        );
+
+        assert_eq!(
+            s.local_rx_dup_acks, 0,
+            "duplicate ACK counter is not reset when receiving a window update"
         );
     }
 
