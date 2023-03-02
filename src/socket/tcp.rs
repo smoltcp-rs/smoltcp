@@ -29,6 +29,18 @@ pub enum ListenError {
     Unaddressable,
 }
 
+impl Display for ListenError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            ListenError::InvalidState => write!(f, "invalid state"),
+            ListenError::Unaddressable => write!(f, "unaddressable destination"),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for ListenError {}
+
 /// Error returned by [`Socket::connect`]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -37,12 +49,35 @@ pub enum ConnectError {
     Unaddressable,
 }
 
+impl Display for ConnectError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            ConnectError::InvalidState => write!(f, "invalid state"),
+            ConnectError::Unaddressable => write!(f, "unaddressable destination"),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for ConnectError {}
+
 /// Error returned by [`Socket::send`]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum SendError {
     InvalidState,
 }
+
+impl Display for SendError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            SendError::InvalidState => write!(f, "invalid state"),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for SendError {}
 
 /// Error returned by [`Socket::recv`]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -51,6 +86,18 @@ pub enum RecvError {
     InvalidState,
     Finished,
 }
+
+impl Display for RecvError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            RecvError::InvalidState => write!(f, "invalid state"),
+            RecvError::Finished => write!(f, "operation finished"),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for RecvError {}
 
 /// A TCP socket ring buffer.
 pub type SocketBuffer<'a> = RingBuffer<'a, u8>;
