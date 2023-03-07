@@ -1,10 +1,3 @@
-#[macro_use]
-extern crate log;
-extern crate byteorder;
-extern crate env_logger;
-extern crate getopts;
-extern crate smoltcp;
-
 mod utils;
 
 use smoltcp::iface::{Config, Interface, SocketSet};
@@ -75,7 +68,7 @@ fn main() {
 
     loop {
         let timestamp = Instant::now();
-        debug!("timestamp {:?}", timestamp);
+        log::debug!("timestamp {:?}", timestamp);
 
         iface.poll(timestamp, &mut device, &mut sockets);
 
