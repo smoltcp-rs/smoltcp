@@ -29,6 +29,10 @@ impl Rand {
         (n ^ (n >> 16)) as u16
     }
 
+    pub(crate) fn rand_u8(&mut self) -> u8 {
+        (self.rand_u16() & 0xff) as u8
+    }
+
     pub(crate) fn rand_source_port(&mut self) -> u16 {
         loop {
             let res = self.rand_u16();

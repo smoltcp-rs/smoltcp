@@ -49,7 +49,7 @@ impl InterfaceInner {
             #[cfg(feature = "proto-ipv6")]
             EthernetProtocol::Ipv6 => {
                 let ipv6_packet = check!(Ipv6Packet::new_checked(eth_frame.payload()));
-                self.process_ipv6(sockets, &ipv6_packet)
+                self.process_ipv6(sockets, Some(eth_frame.src_addr().into()), &ipv6_packet)
                     .map(EthernetPacket::Ip)
             }
             // Drop all other traffic.

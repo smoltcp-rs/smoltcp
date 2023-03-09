@@ -100,8 +100,8 @@ impl<'a> Socket<'a> {
     /// Create an ICMP socket with the given buffers.
     pub fn new(rx_buffer: PacketBuffer<'a>, tx_buffer: PacketBuffer<'a>) -> Socket<'a> {
         Socket {
-            rx_buffer: rx_buffer,
-            tx_buffer: tx_buffer,
+            rx_buffer,
+            tx_buffer,
             endpoint: Default::default(),
             hop_limit: None,
             #[cfg(feature = "async")]
@@ -941,7 +941,7 @@ mod test_ipv6 {
         assert_eq!(
             socket.dispatch(&mut cx, |_, (ip_repr, icmp_repr)| {
                 assert_eq!(ip_repr, LOCAL_IPV6_REPR);
-                assert_eq!(icmp_repr, ECHOV6_REPR.into());
+                assert_eq!(icmp_repr, ECHOV6_REPR.clone().into());
                 Err(())
             }),
             Err(())
@@ -952,7 +952,7 @@ mod test_ipv6 {
         assert_eq!(
             socket.dispatch(&mut cx, |_, (ip_repr, icmp_repr)| {
                 assert_eq!(ip_repr, LOCAL_IPV6_REPR);
-                assert_eq!(icmp_repr, ECHOV6_REPR.into());
+                assert_eq!(icmp_repr, ECHOV6_REPR.clone().into());
                 Ok::<_, ()>(())
             }),
             Ok(())
@@ -1021,12 +1021,12 @@ mod test_ipv6 {
         );
         let data = &*packet.into_inner();
 
-        assert!(socket.accepts(&mut cx, &REMOTE_IPV6_REPR, &ECHOV6_REPR.into()));
-        socket.process(&mut cx, &REMOTE_IPV6_REPR, &ECHOV6_REPR.into());
+        assert!(socket.accepts(&mut cx, &REMOTE_IPV6_REPR, &ECHOV6_REPR.clone().into()));
+        socket.process(&mut cx, &REMOTE_IPV6_REPR, &ECHOV6_REPR.clone().into());
         assert!(socket.can_recv());
 
-        assert!(socket.accepts(&mut cx, &REMOTE_IPV6_REPR, &ECHOV6_REPR.into()));
-        socket.process(&mut cx, &REMOTE_IPV6_REPR, &ECHOV6_REPR.into());
+        assert!(socket.accepts(&mut cx, &REMOTE_IPV6_REPR, &ECHOV6_REPR.clone().into()));
+        socket.process(&mut cx, &REMOTE_IPV6_REPR, &ECHOV6_REPR.clone().into());
 
         assert_eq!(socket.recv(), Ok((data, REMOTE_IPV6.into())));
         assert!(!socket.can_recv());
@@ -1088,7 +1088,7 @@ mod test_ipv6 {
                 payload_len: 12,
                 hop_limit: 0x40,
             },
-            data: data,
+            data,
         };
         let ip_repr = IpRepr::Ipv6(Ipv6Repr {
             src_addr: REMOTE_IPV6,
@@ -1102,8 +1102,8 @@ mod test_ipv6 {
 
         // Ensure we can accept ICMP error response to the bound
         // UDP port
-        assert!(socket.accepts(&mut cx, &ip_repr, &icmp_repr.into()));
-        socket.process(&mut cx, &ip_repr, &icmp_repr.into());
+        assert!(socket.accepts(&mut cx, &ip_repr, &icmp_repr.clone().into()));
+        socket.process(&mut cx, &ip_repr, &icmp_repr.clone().into());
         assert!(socket.can_recv());
 
         let mut bytes = [0x00; 66];

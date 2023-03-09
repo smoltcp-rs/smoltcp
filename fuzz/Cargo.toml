@@ -3,7 +3,7 @@ name = "smoltcp-fuzz"
 version = "0.0.1"
 authors = ["Automatically generated"]
 publish = false
-edition = "2018"
+edition = "2021"
 
 [package.metadata]
 cargo-fuzz = true
@@ -12,7 +12,7 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4"
 arbitrary = { version = "1", features = ["derive"] }
 getopts = "0.2"
-smoltcp = { path = "..", features = [ "medium-ethernet" ] }
+smoltcp = { path = ".." }
 
 # Prevent this from interfering with workspaces
 [workspace]
@@ -45,5 +45,11 @@ doc = false
 [[bin]]
 name = "sixlowpan_packet"
 path = "fuzz_targets/sixlowpan_packet.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "rpl_packet"
+path = "fuzz_targets/rpl_packet.rs"
 test = false
 doc = false

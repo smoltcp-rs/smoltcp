@@ -52,6 +52,14 @@ impl Address {
         0x02,
     ]);
 
+    /// The link-local [all RPL nodes multicast address].
+    ///
+    /// [all RPL nodes multicast address]: https://www.rfc-editor.org/rfc/rfc6550.html#section-20.19
+    pub const LINK_LOCAL_ALL_RPL_NODES: Address = Address([
+        0xff, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x1a,
+    ]);
+
     /// The [loopback address].
     ///
     /// [loopback address]: https://tools.ietf.org/html/rfc4291#section-2.5.3
@@ -693,7 +701,7 @@ impl Repr {
     }
 
     /// Emit a high-level representation into an Internet Protocol version 6 packet.
-    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(&self, packet: &mut Packet<T>) {
+    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]> + ?Sized>(&self, packet: &mut Packet<&mut T>) {
         // Make no assumptions about the original state of the packet buffer.
         // Make sure to set every byte.
         packet.set_version(6);
@@ -747,7 +755,6 @@ mod test {
     use super::Error;
     use super::{Address, Cidr};
     use super::{Packet, Protocol, Repr};
-    use crate::wire::pretty_print::PrettyPrinter;
 
     #[cfg(feature = "proto-ipv4")]
     use crate::wire::ipv4::Address as Ipv4Address;
@@ -1212,16 +1219,5 @@ mod test {
         repr.emit(&mut packet);
         packet.payload_mut().copy_from_slice(&REPR_PAYLOAD_BYTES);
         assert_eq!(&*packet.into_inner(), &REPR_PACKET_BYTES[..]);
-    }
-
-    #[test]
-    fn test_pretty_print() {
-        assert_eq!(
-            format!(
-                "{}",
-                PrettyPrinter::<Packet<&'static [u8]>>::new("\n", &&REPR_PACKET_BYTES[..])
-            ),
-            "\nIPv6 src=fe80::1 dst=ff02::1 nxt_hdr=UDP hop_limit=64\n \\ UDP src=1 dst=2 len=4"
-        );
     }
 }

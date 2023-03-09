@@ -15,6 +15,7 @@ impl InterfaceInner {
     pub(super) fn process_ipv6<'frame, T: AsRef<[u8]> + ?Sized>(
         &mut self,
         sockets: &mut SocketSet,
+        ll_addr: Option<HardwareAddress>,
         ipv6_packet: &Ipv6Packet<&'frame T>,
     ) -> Option<IpPacket<'frame>> {
         let ipv6_repr = check!(Ipv6Repr::parse(ipv6_packet));
@@ -22,6 +23,30 @@ impl InterfaceInner {
         if !ipv6_repr.src_addr.is_unicast() {
             // Discard packets with non-unicast source addresses.
             net_debug!("non-unicast source address");
+            return None;
+        }
+
+        if !self.has_ip_addr(ipv6_repr.dst_addr) && !ipv6_repr.dst_addr.is_multicast() {
+            net_debug!("not our IP address");
+
+            #[cfg(feature = "proto-rpl")]
+            if ipv6_repr.dst_addr.is_unicast()
+                && ipv6_repr.hop_limit != 0
+                && ipv6_repr.next_header == IpProtocol::HopByHop
+            {
+                return self.process_hopbyhop(
+                    sockets,
+                    ll_addr,
+                    ipv6_repr,
+                    false,
+                    true,
+                    ipv6_packet.payload(),
+                );
+            }
+
+            // FIXME(thvdveld): in case of RPL, there should always be a HopByHop header in
+            // the packet when it is a packet that needs to be forwarded. I'm not sure
+            // what should be done when this is not the case, or when it isn't in a RPL network.
             return None;
         }
 
@@ -34,6 +59,7 @@ impl InterfaceInner {
 
         self.process_nxt_hdr(
             sockets,
+            ll_addr,
             ipv6_repr,
             ipv6_repr.next_header,
             handled_by_raw_socket,
@@ -47,13 +73,16 @@ impl InterfaceInner {
     pub(super) fn process_nxt_hdr<'frame>(
         &mut self,
         sockets: &mut SocketSet,
+        ll_addr: Option<HardwareAddress>,
         ipv6_repr: Ipv6Repr,
         nxt_hdr: IpProtocol,
         handled_by_raw_socket: bool,
         ip_payload: &'frame [u8],
     ) -> Option<IpPacket<'frame>> {
         match nxt_hdr {
-            IpProtocol::Icmpv6 => self.process_icmpv6(sockets, ipv6_repr.into(), ip_payload),
+            IpProtocol::Icmpv6 => {
+                self.process_icmpv6(sockets, ll_addr, ipv6_repr.into(), ip_payload)
+            }
 
             #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
             IpProtocol::Udp => {
@@ -78,9 +107,14 @@ impl InterfaceInner {
             #[cfg(feature = "socket-tcp")]
             IpProtocol::Tcp => self.process_tcp(sockets, ipv6_repr.into(), ip_payload),
 
-            IpProtocol::HopByHop => {
-                self.process_hopbyhop(sockets, ipv6_repr, handled_by_raw_socket, ip_payload)
-            }
+            IpProtocol::HopByHop => self.process_hopbyhop(
+                sockets,
+                ll_addr,
+                ipv6_repr,
+                handled_by_raw_socket,
+                false,
+                ip_payload,
+            ),
 
             #[cfg(feature = "socket-raw")]
             _ if handled_by_raw_socket => None,
@@ -105,6 +139,7 @@ impl InterfaceInner {
     pub(super) fn process_icmpv6<'frame>(
         &mut self,
         _sockets: &mut SocketSet,
+        ll_addr: Option<HardwareAddress>,
         ip_repr: IpRepr,
         ip_payload: &'frame [u8],
     ) -> Option<IpPacket<'frame>> {
@@ -124,8 +159,8 @@ impl InterfaceInner {
             .items_mut()
             .filter_map(|i| icmp::Socket::downcast_mut(&mut i.socket))
         {
-            if icmp_socket.accepts(self, &ip_repr, &icmp_repr.into()) {
-                icmp_socket.process(self, &ip_repr, &icmp_repr.into());
+            if icmp_socket.accepts(self, &ip_repr, &icmp_repr.clone().into()) {
+                icmp_socket.process(self, &ip_repr, &icmp_repr.clone().into());
                 handled_by_icmp_socket = true;
             }
         }
@@ -164,6 +199,13 @@ impl InterfaceInner {
             // has been handled by an ICMP socket
             #[cfg(feature = "socket-icmp")]
             _ if handled_by_icmp_socket => None,
+
+            #[cfg(feature = "proto-rpl")]
+            Icmpv6Repr::Rpl(rpl) => match ip_repr {
+                IpRepr::Ipv6(ipv6_repr) => self.process_rpl(ll_addr.unwrap(), ipv6_repr, rpl),
+                #[allow(unreachable_patterns)]
+                _ => unreachable!(),
+            },
 
             // FIXME: do something correct here?
             _ => None,
@@ -251,8 +293,10 @@ impl InterfaceInner {
     pub(super) fn process_hopbyhop<'frame>(
         &mut self,
         sockets: &mut SocketSet,
+        ll_addr: Option<HardwareAddress>,
         ipv6_repr: Ipv6Repr,
         handled_by_raw_socket: bool,
+        should_forward: bool,
         ip_payload: &'frame [u8],
     ) -> Option<IpPacket<'frame>> {
         let hbh_pkt = check!(Ipv6HopByHopHeader::new_checked(ip_payload));
@@ -261,6 +305,29 @@ impl InterfaceInner {
             let opt_repr = check!(opt_repr);
             match opt_repr {
                 Ipv6OptionRepr::Pad1 | Ipv6OptionRepr::PadN(_) => (),
+                #[cfg(feature = "proto-rpl")]
+                Ipv6OptionRepr::Rpl(opt) => {
+                    let sender_rank = crate::iface::rpl::Rank::new(
+                        opt.sender_rank,
+                        self.rpl.rank.min_hop_rank_increase,
+                    );
+
+                    if (opt.down && sender_rank > self.rpl.rank)
+                        || (!opt.down && sender_rank < self.rpl.rank)
+                        || opt.rank_error
+                        || opt.forwarding_error
+                    {
+                        // Packet going in wrong direction, or R or F flag is set.
+                        //
+                        // TODO(thvdveld): in case of DAO Inconsistency Detection and Recovery some
+                        // other things should be done.
+                        let InterfaceInner { rand, rpl, now, .. } = self;
+                        rpl.dio_timer.hear_inconsistent(*now, rand);
+
+                        // We drop the packet.
+                        return None;
+                    }
+                }
                 Ipv6OptionRepr::Unknown { type_, .. } => {
                     match Ipv6OptionFailureType::from(type_) {
                         Ipv6OptionFailureType::Skip => (),
@@ -276,13 +343,31 @@ impl InterfaceInner {
                 }
             }
         }
-        self.process_nxt_hdr(
-            sockets,
-            ipv6_repr,
-            hbh_repr.next_header,
-            handled_by_raw_socket,
-            &ip_payload[hbh_repr.buffer_len()..],
-        )
+
+        if should_forward {
+            #[cfg(feature = "proto-rpl")]
+            {
+                Some(IpPacket::Forward((
+                    ipv6_repr,
+                    Some(hbh_repr),
+                    &ip_payload[hbh_repr.buffer_len()..],
+                )))
+            }
+
+            #[cfg(not(feature = "proto-rpl"))]
+            {
+                None
+            }
+        } else {
+            self.process_nxt_hdr(
+                sockets,
+                ll_addr,
+                ipv6_repr,
+                hbh_repr.next_header.unwrap(),
+                handled_by_raw_socket,
+                &ip_payload[hbh_repr.buffer_len()..],
+            )
+        }
     }
 
     #[cfg(feature = "proto-ipv6")]

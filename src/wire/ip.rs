@@ -676,9 +676,9 @@ impl Repr {
     }
 
     /// Emit this high-level representation into a buffer.
-    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(
+    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]> + ?Sized>(
         &self,
-        buffer: T,
+        buffer: &mut T,
         _checksum_caps: &ChecksumCapabilities,
     ) {
         match *self {
@@ -803,75 +803,115 @@ pub fn pretty_print_ip_payload<T: Into<Repr>>(
     f: &mut fmt::Formatter,
     indent: &mut PrettyIndent,
     ip_repr: T,
-    payload: &[u8],
+    mut payload: &[u8],
 ) -> fmt::Result {
-    #[cfg(feature = "proto-ipv4")]
+    #[cfg(any(feature = "proto-ipv4", feature = "proto-ipv6"))]
     use super::pretty_print::PrettyPrint;
     use crate::wire::ip::checksum::format_checksum;
     #[cfg(feature = "proto-ipv4")]
     use crate::wire::Icmpv4Packet;
     use crate::wire::{TcpPacket, TcpRepr, UdpPacket, UdpRepr};
 
+    #[cfg(feature = "proto-ipv6")]
+    use crate::wire::{Icmpv6Packet, Ipv6HopByHopHeader, Ipv6HopByHopRepr};
+
     let checksum_caps = ChecksumCapabilities::ignored();
     let repr = ip_repr.into();
-    match repr.next_header() {
-        #[cfg(feature = "proto-ipv4")]
-        Protocol::Icmp => {
-            indent.increase(f)?;
-            Icmpv4Packet::<&[u8]>::pretty_print(&payload, f, indent)
-        }
-        Protocol::Udp => {
-            indent.increase(f)?;
-            match UdpPacket::<&[u8]>::new_checked(payload) {
-                Err(err) => write!(f, "{indent}({err})"),
-                Ok(udp_packet) => {
-                    match UdpRepr::parse(
-                        &udp_packet,
-                        &repr.src_addr(),
-                        &repr.dst_addr(),
-                        &checksum_caps,
-                    ) {
-                        Err(err) => write!(f, "{indent}{udp_packet} ({err})"),
-                        Ok(udp_repr) => {
-                            write!(
-                                f,
-                                "{}{} len={}",
-                                indent,
-                                udp_repr,
-                                udp_packet.payload().len()
-                            )?;
-                            let valid =
-                                udp_packet.verify_checksum(&repr.src_addr(), &repr.dst_addr());
-                            format_checksum(f, valid)
+    let mut nh = Some(repr.next_header());
+    while let Some(next_header) = nh {
+        match next_header {
+            Protocol::HopByHop => {
+                indent.increase(f)?;
+                #[cfg(feature = "proto-ipv6")]
+                match Ipv6HopByHopHeader::new_checked(payload) {
+                    Err(err) => return write!(f, "{indent}({err})"),
+                    Ok(hbh_packet) => match Ipv6HopByHopRepr::parse(&hbh_packet) {
+                        Err(err) => return write!(f, "{indent}{hbh_packet} ({err})"),
+                        Ok(hbh_rpr) => {
+                            write!(f, "{indent}{hbh_rpr}")?;
+
+                            indent.increase(f)?;
+
+                            for opt in hbh_rpr.options() {
+                                match opt {
+                                    Ok(opt) => write!(f, "{indent}{opt}")?,
+                                    Err(err) => write!(f, "{indent}{hbh_packet} ({err})")?,
+                                }
+                            }
+
+                            indent.decrease()?;
+                            nh = hbh_rpr.next_header;
+                            payload = &payload[hbh_rpr.buffer_len()..];
+                        }
+                    },
+                }
+                indent.decrease()?;
+            }
+            #[cfg(feature = "proto-ipv4")]
+            Protocol::Icmp => {
+                indent.increase(f)?;
+                return Icmpv4Packet::<&[u8]>::pretty_print(&payload, f, indent);
+            }
+            #[cfg(feature = "proto-ipv6")]
+            Protocol::Icmpv6 => {
+                indent.increase(f)?;
+                return Icmpv6Packet::<&[u8]>::pretty_print(&payload, f, indent);
+            }
+            Protocol::Udp => {
+                indent.increase(f)?;
+                return match UdpPacket::<&[u8]>::new_checked(payload) {
+                    Err(err) => write!(f, "{indent}({err})"),
+                    Ok(udp_packet) => {
+                        match UdpRepr::parse(
+                            &udp_packet,
+                            &repr.src_addr(),
+                            &repr.dst_addr(),
+                            &checksum_caps,
+                        ) {
+                            Err(err) => write!(f, "{indent}{udp_packet} ({err})"),
+                            Ok(udp_repr) => {
+                                write!(
+                                    f,
+                                    "{}{} len={}",
+                                    indent,
+                                    udp_repr,
+                                    udp_packet.payload().len()
+                                )?;
+                                let valid =
+                                    udp_packet.verify_checksum(&repr.src_addr(), &repr.dst_addr());
+                                format_checksum(f, valid)
+                            }
                         }
                     }
-                }
+                };
             }
-        }
-        Protocol::Tcp => {
-            indent.increase(f)?;
-            match TcpPacket::<&[u8]>::new_checked(payload) {
-                Err(err) => write!(f, "{indent}({err})"),
-                Ok(tcp_packet) => {
-                    match TcpRepr::parse(
-                        &tcp_packet,
-                        &repr.src_addr(),
-                        &repr.dst_addr(),
-                        &checksum_caps,
-                    ) {
-                        Err(err) => write!(f, "{indent}{tcp_packet} ({err})"),
-                        Ok(tcp_repr) => {
-                            write!(f, "{indent}{tcp_repr}")?;
-                            let valid =
-                                tcp_packet.verify_checksum(&repr.src_addr(), &repr.dst_addr());
-                            format_checksum(f, valid)
+            Protocol::Tcp => {
+                indent.increase(f)?;
+                return match TcpPacket::<&[u8]>::new_checked(payload) {
+                    Err(err) => write!(f, "{indent}({err})"),
+                    Ok(tcp_packet) => {
+                        match TcpRepr::parse(
+                            &tcp_packet,
+                            &repr.src_addr(),
+                            &repr.dst_addr(),
+                            &checksum_caps,
+                        ) {
+                            Err(err) => write!(f, "{indent}{tcp_packet} ({err})"),
+                            Ok(tcp_repr) => {
+                                write!(f, "{indent}{tcp_repr}")?;
+                                let valid =
+                                    tcp_packet.verify_checksum(&repr.src_addr(), &repr.dst_addr());
+                                format_checksum(f, valid)
+                            }
                         }
                     }
-                }
+                };
             }
+            _ => return Ok(()),
         }
-        _ => Ok(()),
     }
+
+    Ok(())
 }
 
 #[cfg(test)]

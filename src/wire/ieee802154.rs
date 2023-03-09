@@ -2,7 +2,7 @@ use core::fmt;
 
 use byteorder::{ByteOrder, LittleEndian};
 
-use super::{Error, Result};
+use super::{pretty_print::PrettyPrint, Error, Result};
 use crate::wire::ipv6::Address as Ipv6Address;
 
 enum_with_unknown! {
@@ -80,6 +80,12 @@ impl Pan {
     }
 }
 
+impl core::fmt::Display for Pan {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "0x{:02x}", self.0)
+    }
+}
+
 /// A IEEE 802.15.4 address.
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -87,6 +93,20 @@ pub enum Address {
     Absent,
     Short([u8; 2]),
     Extended([u8; 8]),
+}
+
+impl core::fmt::Display for Address {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Address::Absent => write!(f, "absent"),
+            Address::Short(v) => write!(f, "{:02x}:{:02x}", v[0], v[1]),
+            Address::Extended(v) => write!(
+                f,
+                "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+                v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7]
+            ),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -164,20 +184,6 @@ impl Address {
         bytes[8..].copy_from_slice(&self.as_eui_64()?);
 
         Some(Ipv6Address::from_bytes(&bytes))
-    }
-}
-
-impl fmt::Display for Address {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Self::Absent => write!(f, "not-present"),
-            Self::Short(bytes) => write!(f, "{:02x}-{:02x}", bytes[0], bytes[1]),
-            Self::Extended(bytes) => write!(
-                f,
-                "{:02x}-{:02x}-{:02x}-{:02x}-{:02x}-{:02x}-{:02x}-{:02x}",
-                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7]
-            ),
-        }
     }
 }
 
@@ -464,7 +470,11 @@ impl<T: AsRef<[u8]>> Frame<T> {
     fn aux_security_header_start(&self) -> usize {
         // We start with 3, because 2 bytes for frame control and the sequence number.
         let mut index = 3;
-        index += self.addressing_fields().unwrap().len();
+        index += if let Some(i) = self.addressing_fields() {
+            i.len()
+        } else {
+            0
+        };
         index
     }
 
@@ -736,18 +746,70 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Frame<T> {
     }
 }
 
-impl<T: AsRef<[u8]>> fmt::Display for Frame<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "IEEE802.15.4 frame type={} seq={:2x?} dst_pan={:x?} dest={:x?} src_pan={:?} src={:x?}",
-            self.frame_type(),
-            self.sequence_number(),
-            self.dst_pan_id(),
-            self.dst_addr(),
-            self.src_pan_id(),
-            self.src_addr(),
-        )
+impl<T: AsRef<[u8]>> core::fmt::Display for Frame<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "IEEE802.15.4 Frame")?;
+
+        write!(f, " type={}", self.frame_type())?;
+
+        if let Some(pan_id) = self.dst_pan_id() {
+            write!(f, " pan_id={pan_id}")?;
+        }
+
+        if let Some(addr) = self.src_addr() {
+            write!(f, " src={addr}")?;
+        }
+
+        if let Some(addr) = self.dst_addr() {
+            write!(f, " dst={addr}")?;
+        }
+
+        Ok(())
+    }
+}
+
+impl<T: AsRef<[u8]>> PrettyPrint for Frame<T> {
+    fn pretty_print(
+        buffer: &dyn AsRef<[u8]>,
+        f: &mut fmt::Formatter,
+        indent: &mut super::pretty_print::PrettyIndent,
+    ) -> fmt::Result {
+        let frame = match Frame::new_checked(buffer) {
+            Err(err) => return write!(f, "{indent}({err})"),
+            Ok(frame) => frame,
+        };
+
+        write!(f, "{indent}{frame}")?;
+
+        if frame.frame_type() == FrameType::Data {
+            indent.increase(f)?;
+            let payload = frame.payload().unwrap();
+
+            match super::SixlowpanPacket::dispatch(payload) {
+                Err(err) => return write!(f, "{indent}({err})"),
+                Ok(super::SixlowpanPacket::FragmentHeader) => {}
+                Ok(super::SixlowpanPacket::IphcHeader) => {
+                    super::SixlowpanIphcPacket::<T>::pretty_print(&payload, f, indent)?;
+
+                    let mut buffer = [0u8; 1500];
+                    let len = crate::iface::Context::decompress_sixlowpan(
+                        &[],
+                        &Repr::parse(&frame).unwrap(),
+                        payload,
+                        None,
+                        &mut buffer,
+                    )
+                    .unwrap();
+
+                    indent.decrease()?;
+                    indent.increase(f)?;
+
+                    super::Ipv6Packet::<T>::pretty_print(&&buffer[..len], f, indent)?;
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 

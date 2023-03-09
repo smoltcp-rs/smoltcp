@@ -1,12 +1,14 @@
 use byteorder::{ByteOrder, NetworkEndian};
 use core::{cmp, fmt};
 
-use super::{Error, Result};
+use super::{pretty_print::PrettyPrint, Error, Result};
 use crate::phy::ChecksumCapabilities;
 use crate::wire::ip::checksum;
 use crate::wire::MldRepr;
 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
 use crate::wire::NdiscRepr;
+#[cfg(feature = "proto-rpl")]
+use crate::wire::RplRepr;
 use crate::wire::{IpAddress, IpProtocol, Ipv6Packet, Ipv6Repr};
 
 enum_with_unknown! {
@@ -37,7 +39,9 @@ enum_with_unknown! {
         /// Redirect
         Redirect        = 0x89,
         /// Multicast Listener Report
-        MldReport       = 0x8f
+        MldReport       = 0x8f,
+        /// RPL Control Message
+        RplControl      = 0x9b,
     }
 }
 
@@ -94,6 +98,7 @@ impl fmt::Display for Message {
             Message::Redirect => write!(f, "redirect"),
             Message::MldQuery => write!(f, "multicast listener query"),
             Message::MldReport => write!(f, "multicast listener report"),
+            Message::RplControl => write!(f, "RPL control message"),
             Message::Unknown(id) => write!(f, "{id}"),
         }
     }
@@ -182,13 +187,6 @@ impl fmt::Display for TimeExceeded {
     }
 }
 
-/// A read/write wrapper around an Internet Control Message Protocol version 6 packet buffer.
-#[derive(Debug, PartialEq, Eq, Clone)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct Packet<T: AsRef<[u8]>> {
-    pub(super) buffer: T,
-}
-
 // Ranges and constants describing key boundaries in the ICMPv6 header.
 pub(super) mod field {
     use crate::wire::field::*;
@@ -245,9 +243,16 @@ pub(super) mod field {
     pub const RECORD_MCAST_ADDR: Field = 4..20;
 }
 
+/// A read wrapper around an Internet Control Message Protocol version 6 packet buffer.
+#[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct Packet<T: AsRef<[u8]>> {
+    pub(super) buffer: T,
+}
+
 impl<T: AsRef<[u8]>> Packet<T> {
     /// Imbue a raw octet buffer with ICMPv6 packet structure.
-    pub const fn new_unchecked(buffer: T) -> Packet<T> {
+    pub const fn new_unchecked(buffer: T) -> Self {
         Packet { buffer }
     }
 
@@ -255,7 +260,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     ///
     /// [new_unchecked]: #method.new_unchecked
     /// [check_len]: #method.check_len
-    pub fn new_checked(buffer: T) -> Result<Packet<T>> {
+    pub fn new_checked(buffer: T) -> Result<Self> {
         let packet = Self::new_unchecked(buffer);
         packet.check_len()?;
         Ok(packet)
@@ -265,11 +270,68 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// Returns `Err(Error)` if the buffer is too short.
     pub fn check_len(&self) -> Result<()> {
         let len = self.buffer.as_ref().len();
-        if len < field::HEADER_END || len < self.header_len() {
-            Err(Error)
-        } else {
-            Ok(())
+
+        if len < 4 {
+            return Err(Error);
         }
+
+        match self.msg_type() {
+            Message::DstUnreachable
+            | Message::PktTooBig
+            | Message::TimeExceeded
+            | Message::ParamProblem
+            | Message::EchoRequest
+            | Message::EchoReply
+            | Message::MldQuery
+            | Message::RouterSolicit
+            | Message::RouterAdvert
+            | Message::NeighborSolicit
+            | Message::NeighborAdvert
+            | Message::Redirect
+            | Message::MldReport => {
+                if len < field::HEADER_END || len < self.header_len() {
+                    return Err(Error);
+                }
+            }
+            #[cfg(feature = "proto-rpl")]
+            Message::RplControl => match super::rpl::RplControlMessage::from(self.msg_code()) {
+                super::rpl::RplControlMessage::DodagInformationSolicitation => {
+                    // TODO(thvdveld): replace magic number
+                    if len < 6 {
+                        return Err(Error);
+                    }
+                }
+                super::rpl::RplControlMessage::DodagInformationObject => {
+                    // TODO(thvdveld): replace magic number
+                    if len < 28 {
+                        return Err(Error);
+                    }
+                }
+                super::rpl::RplControlMessage::DestinationAdvertisementObject => {
+                    // TODO(thvdveld): replace magic number
+                    if len < 8 || (self.dao_dodag_id_present() && len < 24) {
+                        return Err(Error);
+                    }
+                }
+                super::rpl::RplControlMessage::DestinationAdvertisementObjectAck => {
+                    // TODO(thvdveld): replace magic number
+                    if len < 8 || (self.dao_dodag_id_present() && len < 24) {
+                        return Err(Error);
+                    }
+                }
+                super::rpl::RplControlMessage::SecureDodagInformationSolicitation
+                | super::rpl::RplControlMessage::SecureDodagInformationObject
+                | super::rpl::RplControlMessage::SecureDesintationAdvertismentObject
+                | super::rpl::RplControlMessage::SecureDestinationAdvertisementObjectAck
+                | super::rpl::RplControlMessage::ConsistencyCheck => return Err(Error),
+                super::rpl::RplControlMessage::Unknown(_) => return Err(Error),
+            },
+            #[cfg(not(feature = "proto-rpl"))]
+            Message::RplControl => return Err(Error),
+            Message::Unknown(_) => return Err(Error),
+        }
+
+        Ok(())
     }
 
     /// Consume the packet, returning the underlying buffer.
@@ -280,50 +342,43 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// Return the message type field.
     #[inline]
     pub fn msg_type(&self) -> Message {
-        let data = self.buffer.as_ref();
-        Message::from(data[field::TYPE])
+        Message::from(self.buffer.as_ref()[field::TYPE])
     }
 
     /// Return the message code field.
     #[inline]
     pub fn msg_code(&self) -> u8 {
-        let data = self.buffer.as_ref();
-        data[field::CODE]
+        self.buffer.as_ref()[field::CODE]
     }
 
     /// Return the checksum field.
     #[inline]
     pub fn checksum(&self) -> u16 {
-        let data = self.buffer.as_ref();
-        NetworkEndian::read_u16(&data[field::CHECKSUM])
+        NetworkEndian::read_u16(&self.buffer.as_ref()[field::CHECKSUM])
     }
 
     /// Return the identifier field (for echo request and reply packets).
     #[inline]
     pub fn echo_ident(&self) -> u16 {
-        let data = self.buffer.as_ref();
-        NetworkEndian::read_u16(&data[field::ECHO_IDENT])
+        NetworkEndian::read_u16(&self.buffer.as_ref()[field::ECHO_IDENT])
     }
 
     /// Return the sequence number field (for echo request and reply packets).
     #[inline]
     pub fn echo_seq_no(&self) -> u16 {
-        let data = self.buffer.as_ref();
-        NetworkEndian::read_u16(&data[field::ECHO_SEQNO])
+        NetworkEndian::read_u16(&self.buffer.as_ref()[field::ECHO_SEQNO])
     }
 
     /// Return the MTU field (for packet too big messages).
     #[inline]
     pub fn pkt_too_big_mtu(&self) -> u32 {
-        let data = self.buffer.as_ref();
-        NetworkEndian::read_u32(&data[field::MTU])
+        NetworkEndian::read_u32(&self.buffer.as_ref()[field::MTU])
     }
 
     /// Return the pointer field (for parameter problem messages).
     #[inline]
     pub fn param_problem_ptr(&self) -> u32 {
-        let data = self.buffer.as_ref();
-        NetworkEndian::read_u32(&data[field::POINTER])
+        NetworkEndian::read_u32(&self.buffer.as_ref()[field::POINTER])
     }
 
     /// Return the header length. The result depends on the value of
@@ -360,20 +415,23 @@ impl<T: AsRef<[u8]>> Packet<T> {
             return true;
         }
 
-        let data = self.buffer.as_ref();
         checksum::combine(&[
-            checksum::pseudo_header(src_addr, dst_addr, IpProtocol::Icmpv6, data.len() as u32),
-            checksum::data(data),
+            checksum::pseudo_header(
+                src_addr,
+                dst_addr,
+                IpProtocol::Icmpv6,
+                self.buffer.as_ref().len() as u32,
+            ),
+            checksum::data(self.buffer.as_ref()),
         ]) == !0
     }
 }
 
-impl<'a, T: AsRef<[u8]> + ?Sized> Packet<&'a T> {
+impl<'p, T: AsRef<[u8]> + ?Sized> Packet<&'p T> {
     /// Return a pointer to the type-specific data.
     #[inline]
-    pub fn payload(&self) -> &'a [u8] {
-        let data = self.buffer.as_ref();
-        &data[self.header_len()..]
+    pub fn payload(&self) -> &'p [u8] {
+        &self.buffer.as_ref()[self.header_len()..]
     }
 }
 
@@ -381,15 +439,13 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// Set the message type field.
     #[inline]
     pub fn set_msg_type(&mut self, value: Message) {
-        let data = self.buffer.as_mut();
-        data[field::TYPE] = value.into()
+        self.buffer.as_mut()[field::TYPE] = value.into()
     }
 
     /// Set the message code field.
     #[inline]
     pub fn set_msg_code(&mut self, value: u8) {
-        let data = self.buffer.as_mut();
-        data[field::CODE] = value
+        self.buffer.as_mut()[field::CODE] = value
     }
 
     /// Clear any reserved fields in the message header.
@@ -406,17 +462,14 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
             | Message::NeighborSolicit
             | Message::NeighborAdvert
             | Message::Redirect => {
-                let data = self.buffer.as_mut();
-                NetworkEndian::write_u32(&mut data[field::UNUSED], 0);
+                NetworkEndian::write_u32(&mut self.buffer.as_mut()[field::UNUSED], 0);
             }
             Message::MldQuery => {
-                let data = self.buffer.as_mut();
-                NetworkEndian::write_u16(&mut data[field::QUERY_RESV], 0);
-                data[field::SQRV] &= 0xf;
+                NetworkEndian::write_u16(&mut self.buffer.as_mut()[field::QUERY_RESV], 0);
+                self.buffer.as_mut()[field::SQRV] &= 0xf;
             }
             Message::MldReport => {
-                let data = self.buffer.as_mut();
-                NetworkEndian::write_u16(&mut data[field::RECORD_RESV], 0);
+                NetworkEndian::write_u16(&mut self.buffer.as_mut()[field::RECORD_RESV], 0);
             }
             ty => panic!("Message type `{ty}` does not have any reserved fields."),
         }
@@ -424,8 +477,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
 
     #[inline]
     pub fn set_checksum(&mut self, value: u16) {
-        let data = self.buffer.as_mut();
-        NetworkEndian::write_u16(&mut data[field::CHECKSUM], value)
+        NetworkEndian::write_u16(&mut self.buffer.as_mut()[field::CHECKSUM], value)
     }
 
     /// Set the identifier field (for echo request and reply packets).
@@ -434,8 +486,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// This function may panic if this packet is not an echo request or reply packet.
     #[inline]
     pub fn set_echo_ident(&mut self, value: u16) {
-        let data = self.buffer.as_mut();
-        NetworkEndian::write_u16(&mut data[field::ECHO_IDENT], value)
+        NetworkEndian::write_u16(&mut self.buffer.as_mut()[field::ECHO_IDENT], value)
     }
 
     /// Set the sequence number field (for echo request and reply packets).
@@ -444,8 +495,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// This function may panic if this packet is not an echo request or reply packet.
     #[inline]
     pub fn set_echo_seq_no(&mut self, value: u16) {
-        let data = self.buffer.as_mut();
-        NetworkEndian::write_u16(&mut data[field::ECHO_SEQNO], value)
+        NetworkEndian::write_u16(&mut self.buffer.as_mut()[field::ECHO_SEQNO], value)
     }
 
     /// Set the MTU field (for packet too big messages).
@@ -454,8 +504,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// This function may panic if this packet is not an packet too big packet.
     #[inline]
     pub fn set_pkt_too_big_mtu(&mut self, value: u32) {
-        let data = self.buffer.as_mut();
-        NetworkEndian::write_u32(&mut data[field::MTU], value)
+        NetworkEndian::write_u32(&mut self.buffer.as_mut()[field::MTU], value)
     }
 
     /// Set the pointer field (for parameter problem messages).
@@ -464,40 +513,99 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// This function may panic if this packet is not a parameter problem message.
     #[inline]
     pub fn set_param_problem_ptr(&mut self, value: u32) {
-        let data = self.buffer.as_mut();
-        NetworkEndian::write_u32(&mut data[field::POINTER], value)
+        NetworkEndian::write_u32(&mut self.buffer.as_mut()[field::POINTER], value)
     }
 
     /// Compute and fill in the header checksum.
     pub fn fill_checksum(&mut self, src_addr: &IpAddress, dst_addr: &IpAddress) {
         self.set_checksum(0);
         let checksum = {
-            let data = self.buffer.as_ref();
             !checksum::combine(&[
-                checksum::pseudo_header(src_addr, dst_addr, IpProtocol::Icmpv6, data.len() as u32),
-                checksum::data(data),
+                checksum::pseudo_header(
+                    src_addr,
+                    dst_addr,
+                    IpProtocol::Icmpv6,
+                    self.buffer.as_ref().len() as u32,
+                ),
+                checksum::data(self.buffer.as_ref()),
             ])
         };
         self.set_checksum(checksum)
     }
+}
 
+impl<'p, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Packet<&'p mut T> {
     /// Return a mutable pointer to the type-specific data.
     #[inline]
     pub fn payload_mut(&mut self) -> &mut [u8] {
-        let range = self.header_len()..;
-        let data = self.buffer.as_mut();
-        &mut data[range]
+        let header_len = self.header_len();
+        let range = header_len..;
+        &mut self.buffer.as_mut()[range]
     }
 }
 
-impl<T: AsRef<[u8]>> AsRef<[u8]> for Packet<T> {
-    fn as_ref(&self) -> &[u8] {
-        self.buffer.as_ref()
+impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
+    fn pretty_print(
+        buffer: &dyn AsRef<[u8]>,
+        f: &mut fmt::Formatter,
+        indent: &mut super::pretty_print::PrettyIndent,
+    ) -> fmt::Result {
+        let packet = match Packet::new_checked(buffer) {
+            Err(err) => return write!(f, "{indent}({err})"),
+            Ok(packet) => packet,
+        };
+        write!(
+            f,
+            "{indent}ICMPv6 msg_type={} msg_code={}",
+            packet.msg_type(),
+            packet.msg_code()
+        )?;
+        indent.increase(f)?;
+
+        match (packet.msg_type(), packet.msg_code()) {
+            (Message::DstUnreachable, _) => todo!(),
+            (Message::PktTooBig, 0) => todo!(),
+            (Message::TimeExceeded, _) => todo!(),
+            (Message::ParamProblem, _) => todo!(),
+            (Message::EchoRequest, 0) => todo!(),
+            (Message::EchoReply, 0) => todo!(),
+            #[cfg(feature = "proto-rpl")]
+            (Message::RplControl, _) => {
+                let rpl = match super::RplRepr::parse(&packet) {
+                    Err(err) => return write!(f, "{indent}({err})"),
+                    Ok(repr) => repr,
+                };
+
+                write!(f, "{indent}{rpl}")?;
+
+                let mut options = rpl.options();
+                while let Ok(opt) = super::RplOptionPacket::new_checked(options) {
+                    indent.increase(f)?;
+                    let opt = match super::RplOptionRepr::parse(&opt) {
+                        Err(err) => return write!(f, "{indent}({err})"),
+                        Ok(opt) => opt,
+                    };
+
+                    write!(f, "{indent}{opt}")?;
+
+                    options = &options[opt.buffer_len()..];
+                    indent.decrease()?;
+                }
+
+                indent.decrease()?;
+            }
+            #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
+            (msg_type, 0) if msg_type.is_ndisc() => todo!(),
+            (msg_type, 0) if msg_type.is_mld() => todo!(),
+            _ => write!(f, "error")?,
+        }
+
+        Ok(())
     }
 }
 
 /// A high-level representation of an Internet Control Message Protocol version 6 packet header.
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Repr<'a> {
@@ -535,24 +643,22 @@ pub enum Repr<'a> {
     #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
     Ndisc(NdiscRepr<'a>),
     Mld(MldRepr<'a>),
+    #[cfg(feature = "proto-rpl")]
+    Rpl(RplRepr<'a>),
 }
 
-impl<'a> Repr<'a> {
+impl<'p> Repr<'p> {
     /// Parse an Internet Control Message Protocol version 6 packet and return
     /// a high-level representation.
-    pub fn parse<T>(
+    pub fn parse<T: AsRef<[u8]> + ?Sized>(
         src_addr: &IpAddress,
         dst_addr: &IpAddress,
-        packet: &Packet<&'a T>,
+        packet: &Packet<&'p T>,
         checksum_caps: &ChecksumCapabilities,
-    ) -> Result<Repr<'a>>
-    where
-        T: AsRef<[u8]> + ?Sized,
-    {
-        fn create_packet_from_payload<'a, T>(packet: &Packet<&'a T>) -> Result<(&'a [u8], Ipv6Repr)>
-        where
-            T: AsRef<[u8]> + ?Sized,
-        {
+    ) -> Result<Repr<'p>> {
+        fn create_packet_from_payload<'a, T: AsRef<[u8]> + ?Sized>(
+            packet: &Packet<&'a T>,
+        ) -> Result<(&'a [u8], Ipv6Repr)> {
             let ip_packet = Ipv6Packet::new_checked(packet.payload())?;
 
             let payload = &packet.payload()[ip_packet.header_len()..];
@@ -568,6 +674,7 @@ impl<'a> Repr<'a> {
             };
             Ok((payload, repr))
         }
+
         // Valid checksum is expected.
         if checksum_caps.icmpv6.rx() && !packet.verify_checksum(src_addr, dst_addr) {
             return Err(Error);
@@ -617,6 +724,8 @@ impl<'a> Repr<'a> {
                 seq_no: packet.echo_seq_no(),
                 data: packet.payload(),
             }),
+            #[cfg(feature = "proto-rpl")]
+            (Message::RplControl, _) => RplRepr::parse(packet).map(Repr::Rpl),
             #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
             (msg_type, 0) if msg_type.is_ndisc() => NdiscRepr::parse(packet).map(Repr::Ndisc),
             (msg_type, 0) if msg_type.is_mld() => MldRepr::parse(packet).map(Repr::Mld),
@@ -625,7 +734,7 @@ impl<'a> Repr<'a> {
     }
 
     /// Return the length of a packet that will be emitted from this high-level representation.
-    pub const fn buffer_len(&self) -> usize {
+    pub fn buffer_len(&self) -> usize {
         match self {
             &Repr::DstUnreachable { header, data, .. }
             | &Repr::PktTooBig { header, data, .. }
@@ -639,20 +748,20 @@ impl<'a> Repr<'a> {
             #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
             &Repr::Ndisc(ndisc) => ndisc.buffer_len(),
             &Repr::Mld(mld) => mld.buffer_len(),
+            #[cfg(feature = "proto-rpl")]
+            Repr::Rpl(rpl) => rpl.buffer_len(),
         }
     }
 
     /// Emit a high-level representation into an Internet Control Message Protocol version 6
     /// packet.
-    pub fn emit<T>(
+    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]> + ?Sized>(
         &self,
         src_addr: &IpAddress,
         dst_addr: &IpAddress,
-        packet: &mut Packet<&mut T>,
+        packet: &mut Packet<&'p mut T>,
         checksum_caps: &ChecksumCapabilities,
-    ) where
-        T: AsRef<[u8]> + AsMut<[u8]> + ?Sized,
-    {
+    ) {
         fn emit_contained_packet(buffer: &mut [u8], header: Ipv6Repr, data: &[u8]) {
             let mut ip_packet = Ipv6Packet::new_unchecked(buffer);
             header.emit(&mut ip_packet);
@@ -660,24 +769,24 @@ impl<'a> Repr<'a> {
             payload.copy_from_slice(data);
         }
 
-        match *self {
+        match self {
             Repr::DstUnreachable {
                 reason,
                 header,
                 data,
             } => {
                 packet.set_msg_type(Message::DstUnreachable);
-                packet.set_msg_code(reason.into());
+                packet.set_msg_code((*reason).into());
 
-                emit_contained_packet(packet.payload_mut(), header, data);
+                emit_contained_packet(packet.payload_mut(), *header, data);
             }
 
             Repr::PktTooBig { mtu, header, data } => {
                 packet.set_msg_type(Message::PktTooBig);
                 packet.set_msg_code(0);
-                packet.set_pkt_too_big_mtu(mtu);
+                packet.set_pkt_too_big_mtu(*mtu);
 
-                emit_contained_packet(packet.payload_mut(), header, data);
+                emit_contained_packet(packet.payload_mut(), *header, data);
             }
 
             Repr::TimeExceeded {
@@ -686,9 +795,9 @@ impl<'a> Repr<'a> {
                 data,
             } => {
                 packet.set_msg_type(Message::TimeExceeded);
-                packet.set_msg_code(reason.into());
+                packet.set_msg_code((*reason).into());
 
-                emit_contained_packet(packet.payload_mut(), header, data);
+                emit_contained_packet(packet.payload_mut(), *header, data);
             }
 
             Repr::ParamProblem {
@@ -698,10 +807,10 @@ impl<'a> Repr<'a> {
                 data,
             } => {
                 packet.set_msg_type(Message::ParamProblem);
-                packet.set_msg_code(reason.into());
-                packet.set_param_problem_ptr(pointer);
+                packet.set_msg_code((*reason).into());
+                packet.set_param_problem_ptr(*pointer);
 
-                emit_contained_packet(packet.payload_mut(), header, data);
+                emit_contained_packet(packet.payload_mut(), *header, data);
             }
 
             Repr::EchoRequest {
@@ -711,8 +820,8 @@ impl<'a> Repr<'a> {
             } => {
                 packet.set_msg_type(Message::EchoRequest);
                 packet.set_msg_code(0);
-                packet.set_echo_ident(ident);
-                packet.set_echo_seq_no(seq_no);
+                packet.set_echo_ident(*ident);
+                packet.set_echo_seq_no(*seq_no);
                 let data_len = cmp::min(packet.payload_mut().len(), data.len());
                 packet.payload_mut()[..data_len].copy_from_slice(&data[..data_len])
             }
@@ -724,8 +833,8 @@ impl<'a> Repr<'a> {
             } => {
                 packet.set_msg_type(Message::EchoReply);
                 packet.set_msg_code(0);
-                packet.set_echo_ident(ident);
-                packet.set_echo_seq_no(seq_no);
+                packet.set_echo_ident(*ident);
+                packet.set_echo_seq_no(*seq_no);
                 let data_len = cmp::min(packet.payload_mut().len(), data.len());
                 packet.payload_mut()[..data_len].copy_from_slice(&data[..data_len])
             }
@@ -734,6 +843,9 @@ impl<'a> Repr<'a> {
             Repr::Ndisc(ndisc) => ndisc.emit(packet),
 
             Repr::Mld(mld) => mld.emit(packet),
+
+            #[cfg(feature = "proto-rpl")]
+            Repr::Rpl(rpl) => rpl.emit(packet),
         }
 
         if checksum_caps.icmpv6.tx() {

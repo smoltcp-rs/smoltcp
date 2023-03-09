@@ -1,3 +1,4 @@
+use super::PacketFormat;
 use super::{Error, Result};
 use core::fmt;
 
@@ -54,6 +55,7 @@ impl fmt::Display for Type {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Header<T: AsRef<[u8]>> {
     buffer: T,
+    format: PacketFormat,
 }
 
 // Format of the Routing Header
@@ -91,9 +93,9 @@ mod field {
     //
     // Length of the header is in 8-octet units, not including the first 8 octets. The first four
     // octets are the next header type, the header length, routing type and segments left.
-    pub const fn DATA(length_field: u8) -> Field {
+    pub const fn DATA(length_field: u8, offset: usize) -> Field {
         let bytes = length_field as usize * 8 + 8;
-        4..bytes
+        4 - offset..bytes - offset
     }
 
     // The Type 2 Routing Header has the following format:
@@ -134,17 +136,20 @@ mod field {
     // 8-bit field containing the Pad value.
     pub const PAD: usize = 5;
     // Variable length field containing addresses
-    pub const fn ADDRESSES(length_field: u8) -> Field {
-        let data = DATA(length_field);
-        8..data.end
+    pub const fn ADDRESSES(length_field: u8, offset: usize) -> Field {
+        let data = DATA(length_field, offset);
+        8 - offset..data.end - offset
     }
 }
 
 /// Core getter methods relevant to any routing type.
 impl<T: AsRef<[u8]>> Header<T> {
     /// Create a raw octet buffer with an IPv6 Routing Header structure.
-    pub const fn new(buffer: T) -> Header<T> {
-        Header { buffer }
+    pub const fn new_unchecked(buffer: T) -> Self {
+        Self {
+            buffer,
+            format: PacketFormat::Normal,
+        }
     }
 
     /// Shorthand for a combination of [new_unchecked] and [check_len].
@@ -152,7 +157,27 @@ impl<T: AsRef<[u8]>> Header<T> {
     /// [new_unchecked]: #method.new_unchecked
     /// [check_len]: #method.check_len
     pub fn new_checked(buffer: T) -> Result<Header<T>> {
-        let header = Self::new(buffer);
+        let header = Self::new_unchecked(buffer);
+        header.check_len()?;
+        Ok(header)
+    }
+
+    /// Create a raw octet buffer with an IPv6 Routing Header structure.
+    #[cfg(feature = "proto-sixlowpan")]
+    pub const fn new_unchecked_compressed(buffer: T, len: u8, offset: usize) -> Header<T> {
+        Header {
+            buffer,
+            format: PacketFormat::Compressed { len, offset },
+        }
+    }
+
+    /// Shorthand for a combination of [new_unchecked_compressed] and [check_len].
+    ///
+    /// [new_unchecked_compressed]: #method.new_unchecked_compressed
+    /// [check_len]: #method.check_len
+    #[cfg(feature = "proto-sixlowpan")]
+    pub fn new_checked_compressed(buffer: T, len: u8, offset: usize) -> Result<Header<T>> {
+        let header = Self::new_unchecked_compressed(buffer, len, offset);
         header.check_len()?;
         Ok(header)
     }
@@ -169,15 +194,28 @@ impl<T: AsRef<[u8]>> Header<T> {
             return Err(Error);
         }
 
-        if len < field::DATA(self.header_len()).end {
-            return Err(Error);
+        match self.format {
+            PacketFormat::Normal
+                if len < field::DATA(self.header_len(), self.format.offset()).end =>
+            {
+                return Err(Error);
+            }
+            #[cfg(feature = "proto-sixlowpan")]
+            PacketFormat::Compressed { len: length, .. } if len > 2 + length as usize => {
+                return Err(Error);
+            }
+            _ => (),
         }
 
-        // The header lenght field could be wrong and thus we need to check this as well:
-        if matches!(self.routing_type(), Type::Type2)
-            && field::DATA(self.header_len()).end != field::HOME_ADDRESS.end
-        {
-            return Err(Error);
+        match self.routing_type() {
+            // The header lenght field could be wrong and thus we need to check this as well:
+            Type::Type2
+                if field::DATA(self.header_len(), self.format.offset()).end
+                    != field::HOME_ADDRESS.end =>
+            {
+                return Err(Error);
+            }
+            _ => (),
         }
 
         Ok(())
@@ -188,33 +226,43 @@ impl<T: AsRef<[u8]>> Header<T> {
         self.buffer
     }
 
+    // TODO(thvdveld): change to `Option<Protocol>` for handling compressed versions.
     /// Return the next header field.
+    /// The Next Header field is `None` for compressed headers.
     #[inline]
-    pub fn next_header(&self) -> Protocol {
-        let data = self.buffer.as_ref();
-        Protocol::from(data[field::NXT_HDR])
+    pub fn next_header(&self) -> Option<Protocol> {
+        match self.format {
+            PacketFormat::Normal => Some(Protocol::from(self.buffer.as_ref()[field::NXT_HDR])),
+            #[cfg(feature = "proto-sixlowpan")]
+            PacketFormat::Compressed { .. } => None,
+        }
     }
 
+    // TODO(thvdveld): change to `Option<u8>` for handling compressed versions.
     /// Return the header length field. Length of the Routing header in 8-octet units,
     /// not including the first 8 octets.
+    /// The header length field is `None` for compressed headers.
     #[inline]
     pub fn header_len(&self) -> u8 {
-        let data = self.buffer.as_ref();
-        data[field::LENGTH]
+        match self.format {
+            PacketFormat::Normal => self.buffer.as_ref()[field::LENGTH],
+            #[cfg(feature = "proto-sixlowpan")]
+            PacketFormat::Compressed { len, .. } => len,
+        }
     }
 
     /// Return the routing type field.
     #[inline]
     pub fn routing_type(&self) -> Type {
         let data = self.buffer.as_ref();
-        Type::from(data[field::TYPE])
+        Type::from(data[field::TYPE - self.format.offset()])
     }
 
     /// Return the segments left field.
     #[inline]
     pub fn segments_left(&self) -> u8 {
         let data = self.buffer.as_ref();
-        data[field::SEG_LEFT]
+        data[field::SEG_LEFT - self.format.offset()]
     }
 }
 
@@ -226,7 +274,10 @@ impl<T: AsRef<[u8]>> Header<T> {
     /// This function may panic if this header is not the Type2 Routing Header routing type.
     pub fn home_address(&self) -> Address {
         let data = self.buffer.as_ref();
-        Address::from_bytes(&data[field::HOME_ADDRESS])
+        Address::from_bytes(
+            &data[field::HOME_ADDRESS.start - self.format.offset()
+                ..field::HOME_ADDRESS.end - self.format.offset()],
+        )
     }
 }
 
@@ -238,7 +289,7 @@ impl<T: AsRef<[u8]>> Header<T> {
     /// This function may panic if this header is not the RPL Source Routing Header routing type.
     pub fn cmpr_i(&self) -> u8 {
         let data = self.buffer.as_ref();
-        data[field::CMPR] >> 4
+        data[field::CMPR - self.format.offset()] >> 4
     }
 
     /// Return the number of prefix octets elided from the last address (`addresses[n]`).
@@ -247,7 +298,7 @@ impl<T: AsRef<[u8]>> Header<T> {
     /// This function may panic if this header is not the RPL Source Routing Header routing type.
     pub fn cmpr_e(&self) -> u8 {
         let data = self.buffer.as_ref();
-        data[field::CMPR] & 0xf
+        data[field::CMPR - self.format.offset()] & 0xf
     }
 
     /// Return the number of octets used for padding after `addresses[n]`.
@@ -256,7 +307,7 @@ impl<T: AsRef<[u8]>> Header<T> {
     /// This function may panic if this header is not the RPL Source Routing Header routing type.
     pub fn pad(&self) -> u8 {
         let data = self.buffer.as_ref();
-        data[field::PAD] >> 4
+        data[field::PAD - self.format.offset()] >> 4
     }
 
     /// Return the address vector in bytes
@@ -265,7 +316,15 @@ impl<T: AsRef<[u8]>> Header<T> {
     /// This function may panic if this header is not the RPL Source Routing Header routing type.
     pub fn addresses(&self) -> &[u8] {
         let data = self.buffer.as_ref();
-        &data[field::ADDRESSES(data[field::LENGTH])]
+        match self.format {
+            PacketFormat::Normal => {
+                &data[field::ADDRESSES(data[field::LENGTH], self.format.offset())]
+            }
+            #[cfg(feature = "proto-sixlowpan")]
+            PacketFormat::Compressed { len, .. } => {
+                &data[6..][..len as usize - 6 - self.pad() as usize]
+            }
+        }
     }
 }
 
@@ -289,14 +348,14 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Header<T> {
     #[inline]
     pub fn set_routing_type(&mut self, value: Type) {
         let data = self.buffer.as_mut();
-        data[field::TYPE] = value.into();
+        data[field::TYPE - self.format.offset()] = value.into();
     }
 
     /// Set the segments left field.
     #[inline]
     pub fn set_segments_left(&mut self, value: u8) {
         let data = self.buffer.as_mut();
-        data[field::SEG_LEFT] = value;
+        data[field::SEG_LEFT - self.format.offset()] = value;
     }
 
     /// Initialize reserved fields to 0.
@@ -310,16 +369,16 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Header<T> {
 
         match routing_type {
             Type::Type2 => {
-                data[4] = 0;
-                data[5] = 0;
-                data[6] = 0;
-                data[7] = 0;
+                data[4 - self.format.offset()] = 0;
+                data[5 - self.format.offset()] = 0;
+                data[6 - self.format.offset()] = 0;
+                data[7 - self.format.offset()] = 0;
             }
             Type::Rpl => {
                 // Retain the higher order 4 bits of the padding field
-                data[field::PAD] &= 0xF0;
-                data[6] = 0;
-                data[7] = 0;
+                data[field::PAD - self.format.offset()] &= 0xF0;
+                data[6 - self.format.offset()] = 0;
+                data[7 - self.format.offset()] = 0;
             }
 
             _ => panic!("Unrecognized routing type when clearing reserved fields."),
@@ -335,7 +394,9 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Header<T> {
     /// This function may panic if this header is not the Type 2 Routing Header routing type.
     pub fn set_home_address(&mut self, value: Address) {
         let data = self.buffer.as_mut();
-        data[field::HOME_ADDRESS].copy_from_slice(value.as_bytes());
+        data[field::HOME_ADDRESS.start - self.format.offset()
+            ..field::HOME_ADDRESS.end - self.format.offset()]
+            .copy_from_slice(value.as_bytes());
     }
 }
 
@@ -347,8 +408,8 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Header<T> {
     /// This function may panic if this header is not the RPL Source Routing Header routing type.
     pub fn set_cmpr_i(&mut self, value: u8) {
         let data = self.buffer.as_mut();
-        let raw = (value << 4) | (data[field::CMPR] & 0xF);
-        data[field::CMPR] = raw;
+        let raw = (value << 4) | (data[field::CMPR - self.format.offset()] & 0xF);
+        data[field::CMPR - self.format.offset()] = raw;
     }
 
     /// Set the number of prefix octets elided from the last address (`addresses[n]`).
@@ -357,8 +418,8 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Header<T> {
     /// This function may panic if this header is not the RPL Source Routing Header routing type.
     pub fn set_cmpr_e(&mut self, value: u8) {
         let data = self.buffer.as_mut();
-        let raw = (value & 0xF) | (data[field::CMPR] & 0xF0);
-        data[field::CMPR] = raw;
+        let raw = (value & 0xF) | (data[field::CMPR - self.format.offset()] & 0xF0);
+        data[field::CMPR - self.format.offset()] = raw;
     }
 
     /// Set the number of octets used for padding after `addresses[n]`.
@@ -367,7 +428,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Header<T> {
     /// This function may panic if this header is not the RPL Source Routing Header routing type.
     pub fn set_pad(&mut self, value: u8) {
         let data = self.buffer.as_mut();
-        data[field::PAD] = value << 4;
+        data[field::PAD - self.format.offset()] = value << 4;
     }
 
     /// Set address data
@@ -376,8 +437,8 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Header<T> {
     /// This function may panic if this header is not the RPL Source Routing Header routing type.
     pub fn set_addresses(&mut self, value: &[u8]) {
         let data = self.buffer.as_mut();
-        let len = data[field::LENGTH];
-        let addresses = &mut data[field::ADDRESSES(len)];
+        let len = data[field::LENGTH - self.format.offset()];
+        let addresses = &mut data[field::ADDRESSES(len, self.format.offset())];
         addresses.copy_from_slice(value);
     }
 }
@@ -401,7 +462,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Header<&'a T> {
 pub enum Repr<'a> {
     Type2 {
         /// The type of header immediately following the Routing header.
-        next_header: Protocol,
+        next_header: Option<Protocol>,
         /// Length of the Routing header in 8-octet units, not including the first 8 octets.
         length: u8,
         /// Number of route segments remaining.
@@ -411,7 +472,7 @@ pub enum Repr<'a> {
     },
     Rpl {
         /// The type of header immediately following the Routing header.
-        next_header: Protocol,
+        next_header: Option<Protocol>,
         /// Length of the Routing header in 8-octet units, not including the first 8 octets.
         length: u8,
         /// Number of route segments remaining.
@@ -457,9 +518,9 @@ impl<'a> Repr<'a> {
 
     /// Return the length, in bytes, of a header that will be emitted from this high-level
     /// representation.
-    pub const fn buffer_len(&self) -> usize {
+    pub fn buffer_len(&self) -> usize {
         match self {
-            &Repr::Rpl { length, .. } | &Repr::Type2 { length, .. } => field::DATA(length).end,
+            &Repr::Rpl { length, .. } | &Repr::Type2 { length, .. } => field::DATA(length, 0).end,
         }
     }
 
@@ -472,7 +533,7 @@ impl<'a> Repr<'a> {
                 segments_left,
                 home_address,
             } => {
-                header.set_next_header(next_header);
+                header.set_next_header(next_header.unwrap());
                 header.set_header_len(length);
                 header.set_routing_type(Type::Type2);
                 header.set_segments_left(segments_left);
@@ -488,7 +549,7 @@ impl<'a> Repr<'a> {
                 pad,
                 addresses,
             } => {
-                header.set_next_header(next_header);
+                header.set_next_header(next_header.unwrap());
                 header.set_header_len(length);
                 header.set_routing_type(Type::Rpl);
                 header.set_segments_left(segments_left);
@@ -513,7 +574,7 @@ impl<'a> fmt::Display for Repr<'a> {
             } => {
                 write!(
                     f,
-                    "IPv6 Routing next_hdr={} length={} type={} seg_left={} home_address={}",
+                    "IPv6 Routing next_hdr={:?} length={:?} type={} seg_left={} home_address={}",
                     next_header,
                     length,
                     Type::Type2,
@@ -530,7 +591,7 @@ impl<'a> fmt::Display for Repr<'a> {
                 pad,
                 ..
             } => {
-                write!(f, "IPv6 Routing next_hdr={} length={} type={} seg_left={} cmpr_i={} cmpr_e={} pad={}",
+                write!(f, "IPv6 Routing next_hdr={:?} length={:?} type={} seg_left={} cmpr_i={} cmpr_e={} pad={}",
                        next_header, length, Type::Rpl, segments_left, cmpr_i, cmpr_e, pad)
             }
         }
@@ -549,7 +610,7 @@ mod test {
 
     // A representation of a Type 2 Routing header
     static REPR_TYPE2: Repr = Repr::Type2 {
-        next_header: Protocol::Tcp,
+        next_header: Some(Protocol::Tcp),
         length: 2,
         segments_left: 1,
         home_address: Address::LOOPBACK,
@@ -564,7 +625,7 @@ mod test {
 
     // A representation of a Source Routing Header with full IPv6 addresses
     static REPR_SRH_FULL: Repr = Repr::Rpl {
-        next_header: Protocol::Tcp,
+        next_header: Some(Protocol::Tcp),
         length: 4,
         segments_left: 2,
         cmpr_i: 0,
@@ -583,7 +644,7 @@ mod test {
 
     // A representation of a Source Routing Header with elided IPv6 addresses
     static REPR_SRH_ELIDED: Repr = Repr::Rpl {
-        next_header: Protocol::Tcp,
+        next_header: Some(Protocol::Tcp),
         length: 1,
         segments_left: 2,
         cmpr_i: 15,
@@ -595,37 +656,61 @@ mod test {
     #[test]
     fn test_check_len() {
         // less than min header size
-        assert_eq!(Err(Error), Header::new(&BYTES_TYPE2[..3]).check_len());
-        assert_eq!(Err(Error), Header::new(&BYTES_SRH_FULL[..3]).check_len());
-        assert_eq!(Err(Error), Header::new(&BYTES_SRH_ELIDED[..3]).check_len());
+        assert_eq!(
+            Err(Error),
+            Header::new_unchecked(&BYTES_TYPE2[..3]).check_len()
+        );
+        assert_eq!(
+            Err(Error),
+            Header::new_unchecked(&BYTES_SRH_FULL[..3]).check_len()
+        );
+        assert_eq!(
+            Err(Error),
+            Header::new_unchecked(&BYTES_SRH_ELIDED[..3]).check_len()
+        );
         // less than specified length field
-        assert_eq!(Err(Error), Header::new(&BYTES_TYPE2[..23]).check_len());
-        assert_eq!(Err(Error), Header::new(&BYTES_SRH_FULL[..39]).check_len());
-        assert_eq!(Err(Error), Header::new(&BYTES_SRH_ELIDED[..11]).check_len());
+        assert_eq!(
+            Err(Error),
+            Header::new_unchecked(&BYTES_TYPE2[..23]).check_len()
+        );
+        assert_eq!(
+            Err(Error),
+            Header::new_unchecked(&BYTES_SRH_FULL[..39]).check_len()
+        );
+        assert_eq!(
+            Err(Error),
+            Header::new_unchecked(&BYTES_SRH_ELIDED[..11]).check_len()
+        );
         // valid
-        assert_eq!(Ok(()), Header::new(&BYTES_TYPE2[..]).check_len());
-        assert_eq!(Ok(()), Header::new(&BYTES_SRH_FULL[..]).check_len());
-        assert_eq!(Ok(()), Header::new(&BYTES_SRH_ELIDED[..]).check_len());
+        assert_eq!(Ok(()), Header::new_unchecked(&BYTES_TYPE2[..]).check_len());
+        assert_eq!(
+            Ok(()),
+            Header::new_unchecked(&BYTES_SRH_FULL[..]).check_len()
+        );
+        assert_eq!(
+            Ok(()),
+            Header::new_unchecked(&BYTES_SRH_ELIDED[..]).check_len()
+        );
     }
 
     #[test]
     fn test_header_deconstruct() {
-        let header = Header::new(&BYTES_TYPE2[..]);
-        assert_eq!(header.next_header(), Protocol::Tcp);
+        let header = Header::new_unchecked(&BYTES_TYPE2[..]);
+        assert_eq!(header.next_header(), Some(Protocol::Tcp));
         assert_eq!(header.header_len(), 2);
         assert_eq!(header.routing_type(), Type::Type2);
         assert_eq!(header.segments_left(), 1);
         assert_eq!(header.home_address(), Address::LOOPBACK);
 
-        let header = Header::new(&BYTES_SRH_FULL[..]);
-        assert_eq!(header.next_header(), Protocol::Tcp);
+        let header = Header::new_unchecked(&BYTES_SRH_FULL[..]);
+        assert_eq!(header.next_header(), Some(Protocol::Tcp));
         assert_eq!(header.header_len(), 4);
         assert_eq!(header.routing_type(), Type::Rpl);
         assert_eq!(header.segments_left(), 2);
         assert_eq!(header.addresses(), &BYTES_SRH_FULL[8..]);
 
-        let header = Header::new(&BYTES_SRH_ELIDED[..]);
-        assert_eq!(header.next_header(), Protocol::Tcp);
+        let header = Header::new_unchecked(&BYTES_SRH_ELIDED[..]);
+        assert_eq!(header.next_header(), Some(Protocol::Tcp));
         assert_eq!(header.header_len(), 1);
         assert_eq!(header.routing_type(), Type::Rpl);
         assert_eq!(header.segments_left(), 2);
@@ -650,17 +735,17 @@ mod test {
     #[test]
     fn test_repr_emit() {
         let mut bytes = [0u8; 24];
-        let mut header = Header::new(&mut bytes[..]);
+        let mut header = Header::new_unchecked(&mut bytes[..]);
         REPR_TYPE2.emit(&mut header);
         assert_eq!(header.into_inner(), &BYTES_TYPE2[..]);
 
         let mut bytes = [0u8; 40];
-        let mut header = Header::new(&mut bytes[..]);
+        let mut header = Header::new_unchecked(&mut bytes[..]);
         REPR_SRH_FULL.emit(&mut header);
         assert_eq!(header.into_inner(), &BYTES_SRH_FULL[..]);
 
         let mut bytes = [0u8; 16];
-        let mut header = Header::new(&mut bytes[..]);
+        let mut header = Header::new_unchecked(&mut bytes[..]);
         REPR_SRH_ELIDED.emit(&mut header);
         assert_eq!(header.into_inner(), &BYTES_SRH_ELIDED[..]);
     }

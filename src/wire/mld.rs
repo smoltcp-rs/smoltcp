@@ -41,43 +41,37 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// Return the maximum response code field.
     #[inline]
     pub fn max_resp_code(&self) -> u16 {
-        let data = self.buffer.as_ref();
-        NetworkEndian::read_u16(&data[field::MAX_RESP_CODE])
+        NetworkEndian::read_u16(&self.buffer.as_ref()[field::MAX_RESP_CODE])
     }
 
     /// Return the address being queried.
     #[inline]
     pub fn mcast_addr(&self) -> Ipv6Address {
-        let data = self.buffer.as_ref();
-        Ipv6Address::from_bytes(&data[field::QUERY_MCAST_ADDR])
+        Ipv6Address::from_bytes(&self.buffer.as_ref()[field::QUERY_MCAST_ADDR])
     }
 
     /// Return the Suppress Router-Side Processing flag.
     #[inline]
     pub fn s_flag(&self) -> bool {
-        let data = self.buffer.as_ref();
-        (data[field::SQRV] & 0x08) != 0
+        (self.buffer.as_ref()[field::SQRV] & 0x08) != 0
     }
 
     /// Return the Querier's Robustness Variable.
     #[inline]
     pub fn qrv(&self) -> u8 {
-        let data = self.buffer.as_ref();
-        data[field::SQRV] & 0x7
+        self.buffer.as_ref()[field::SQRV] & 0x7
     }
 
     /// Return the Querier's Query Interval Code.
     #[inline]
     pub fn qqic(&self) -> u8 {
-        let data = self.buffer.as_ref();
-        data[field::QQIC]
+        self.buffer.as_ref()[field::QQIC]
     }
 
     /// Return number of sources.
     #[inline]
     pub fn num_srcs(&self) -> u16 {
-        let data = self.buffer.as_ref();
-        NetworkEndian::read_u16(&data[field::QUERY_NUM_SRCS])
+        NetworkEndian::read_u16(&self.buffer.as_ref()[field::QUERY_NUM_SRCS])
     }
 }
 
@@ -89,8 +83,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// Return the number of Multicast Address Records.
     #[inline]
     pub fn nr_mcast_addr_rcrds(&self) -> u16 {
-        let data = self.buffer.as_ref();
-        NetworkEndian::read_u16(&data[field::NR_MCAST_RCRDS])
+        NetworkEndian::read_u16(&self.buffer.as_ref()[field::NR_MCAST_RCRDS])
     }
 }
 
@@ -102,52 +95,45 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// Set the maximum response code field.
     #[inline]
     pub fn set_max_resp_code(&mut self, code: u16) {
-        let data = self.buffer.as_mut();
-        NetworkEndian::write_u16(&mut data[field::MAX_RESP_CODE], code);
+        NetworkEndian::write_u16(&mut self.buffer.as_mut()[field::MAX_RESP_CODE], code);
     }
 
     /// Set the address being queried.
     #[inline]
     pub fn set_mcast_addr(&mut self, addr: Ipv6Address) {
-        let data = self.buffer.as_mut();
-        data[field::QUERY_MCAST_ADDR].copy_from_slice(addr.as_bytes());
+        self.buffer.as_mut()[field::QUERY_MCAST_ADDR].copy_from_slice(addr.as_bytes());
     }
 
     /// Set the Suppress Router-Side Processing flag.
     #[inline]
     pub fn set_s_flag(&mut self) {
-        let data = self.buffer.as_mut();
-        let current = data[field::SQRV];
-        data[field::SQRV] = 0x8 | (current & 0x7);
+        let current = self.buffer.as_mut()[field::SQRV];
+        self.buffer.as_mut()[field::SQRV] = 0x8 | (current & 0x7);
     }
 
     /// Clear the Suppress Router-Side Processing flag.
     #[inline]
     pub fn clear_s_flag(&mut self) {
-        let data = self.buffer.as_mut();
-        data[field::SQRV] &= 0x7;
+        self.buffer.as_mut()[field::SQRV] &= 0x7;
     }
 
     /// Set the Querier's Robustness Variable.
     #[inline]
     pub fn set_qrv(&mut self, value: u8) {
         assert!(value < 8);
-        let data = self.buffer.as_mut();
-        data[field::SQRV] = (data[field::SQRV] & 0x8) | value & 0x7;
+        self.buffer.as_mut()[field::SQRV] = (self.buffer.as_ref()[field::SQRV] & 0x8) | value & 0x7;
     }
 
     /// Set the Querier's Query Interval Code.
     #[inline]
     pub fn set_qqic(&mut self, value: u8) {
-        let data = self.buffer.as_mut();
-        data[field::QQIC] = value;
+        self.buffer.as_mut()[field::QQIC] = value;
     }
 
     /// Set number of sources.
     #[inline]
     pub fn set_num_srcs(&mut self, value: u16) {
-        let data = self.buffer.as_mut();
-        NetworkEndian::write_u16(&mut data[field::QUERY_NUM_SRCS], value);
+        NetworkEndian::write_u16(&mut self.buffer.as_mut()[field::QUERY_NUM_SRCS], value);
     }
 }
 
@@ -159,8 +145,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// Set the number of Multicast Address Records.
     #[inline]
     pub fn set_nr_mcast_addr_rcrds(&mut self, value: u16) {
-        let data = self.buffer.as_mut();
-        NetworkEndian::write_u16(&mut data[field::NR_MCAST_RCRDS], value)
+        NetworkEndian::write_u16(&mut self.buffer.as_mut()[field::NR_MCAST_RCRDS], value)
     }
 }
 
@@ -315,10 +300,7 @@ pub enum Repr<'a> {
 
 impl<'a> Repr<'a> {
     /// Parse an MLDv2 packet and return a high-level representation.
-    pub fn parse<T>(packet: &Packet<&'a T>) -> Result<Repr<'a>>
-    where
-        T: AsRef<[u8]> + ?Sized,
-    {
+    pub fn parse<T: AsRef<[u8]> + ?Sized>(packet: &Packet<&'a T>) -> Result<Repr<'a>> {
         match packet.msg_type() {
             Message::MldQuery => Ok(Repr::Query {
                 max_resp_code: packet.max_resp_code(),
@@ -346,10 +328,7 @@ impl<'a> Repr<'a> {
     }
 
     /// Emit a high-level representation into an MLDv2 packet.
-    pub fn emit<T>(&self, packet: &mut Packet<&mut T>)
-    where
-        T: AsRef<[u8]> + AsMut<[u8]> + ?Sized,
-    {
+    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]> + ?Sized>(&self, packet: &mut Packet<&'a mut T>) {
         match self {
             Repr::Query {
                 max_resp_code,

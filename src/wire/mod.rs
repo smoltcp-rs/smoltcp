@@ -99,7 +99,7 @@ pub(crate) mod ip;
 #[cfg(feature = "proto-ipv4")]
 mod ipv4;
 #[cfg(feature = "proto-ipv6")]
-mod ipv6;
+pub(crate) mod ipv6;
 #[cfg(feature = "proto-ipv6")]
 mod ipv6fragment;
 #[cfg(feature = "proto-ipv6")]
@@ -120,6 +120,8 @@ mod ndisc;
     any(feature = "medium-ethernet", feature = "medium-ieee802154")
 ))]
 mod ndiscoption;
+#[cfg(feature = "proto-rpl")]
+pub(crate) mod rpl;
 #[cfg(all(feature = "proto-sixlowpan", feature = "medium-ieee802154"))]
 mod sixlowpan;
 mod tcp;
@@ -147,9 +149,9 @@ pub use self::sixlowpan::{
     frag::{Key as SixlowpanFragKey, Packet as SixlowpanFragPacket, Repr as SixlowpanFragRepr},
     iphc::{Packet as SixlowpanIphcPacket, Repr as SixlowpanIphcRepr},
     nhc::{
-        ExtHeaderPacket as SixlowpanExtHeaderPacket, ExtHeaderRepr as SixlowpanExtHeaderRepr,
-        NhcPacket as SixlowpanNhcPacket, UdpNhcPacket as SixlowpanUdpNhcPacket,
-        UdpNhcRepr as SixlowpanUdpNhcRepr,
+        ExtHeaderId as SixlowpanExtHeaderId, ExtHeaderPacket as SixlowpanExtHeaderPacket,
+        ExtHeaderRepr as SixlowpanExtHeaderRepr, NhcPacket as SixlowpanNhcPacket,
+        UdpNhcPacket as SixlowpanUdpNhcPacket, UdpNhcRepr as SixlowpanUdpNhcRepr,
     },
     AddressContext as SixlowpanAddressContext, NextHeader as SixlowpanNextHeader, SixlowpanPacket,
 };
@@ -223,6 +225,13 @@ pub use self::ndisc::{
     NeighborFlags as NdiscNeighborFlags, Repr as NdiscRepr, RouterFlags as NdiscRouterFlags,
 };
 
+#[cfg(feature = "proto-rpl")]
+pub use self::rpl::{
+    data::HopByHopOption as RplHopByHopRepr, data::Packet as RplHopByHopPacket,
+    options::Packet as RplOptionPacket, options::Repr as RplOptionRepr,
+    InstanceId as RplInstanceId, ModeOfOperation as RplMop, Repr as RplRepr,
+};
+
 #[cfg(all(
     feature = "proto-ipv6",
     any(feature = "medium-ethernet", feature = "medium-ieee802154")
@@ -253,6 +262,29 @@ pub use self::dhcpv4::{
 #[cfg(feature = "proto-dns")]
 pub use self::dns::{Packet as DnsPacket, Repr as DnsRepr, Type as DnsQueryType};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum PacketFormat {
+    Normal,
+    #[cfg(feature = "proto-sixlowpan")]
+    Compressed {
+        len: u8,
+        offset: usize,
+    },
+}
+
+impl PacketFormat {
+    /// Return the offset for the fields.
+    #[inline(always)]
+    fn offset(&self) -> usize {
+        match self {
+            PacketFormat::Normal => 0,
+            #[cfg(feature = "proto-sixlowpan")]
+            PacketFormat::Compressed { offset, .. } => *offset,
+        }
+    }
+}
+
 /// Parsing a packet failed.
 ///
 /// Either it is malformed, or it is not supported by smoltcp.
@@ -272,7 +304,6 @@ impl fmt::Display for Error {
 pub type Result<T> = core::result::Result<T, Error>;
 
 /// Representation of an hardware address, such as an Ethernet address or an IEEE802.15.4 address.
-#[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum HardwareAddress {

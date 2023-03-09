@@ -25,6 +25,16 @@ pub enum UnresolvedAddress<'a> {
     Reserved,
 }
 
+impl core::fmt::Display for UnresolvedAddress<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            UnresolvedAddress::WithoutContext(_) => write!(f, "Stateless"),
+            UnresolvedAddress::WithContext(_) => write!(f, "Statefull"),
+            UnresolvedAddress::Reserved => write!(f, "Reserved"),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum AddressMode<'a> {
@@ -462,6 +472,15 @@ pub enum NextHeader {
     Uncompressed(IpProtocol),
 }
 
+impl core::fmt::Display for NextHeader {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            NextHeader::Compressed => write!(f, "Compressed"),
+            NextHeader::Uncompressed(proto) => write!(f, "{proto}"),
+        }
+    }
+}
+
 pub mod iphc {
     //! Implementation of IP Header Compression from [RFC 6282 § 3.1].
     //! It defines the compression of IPv6 headers.
@@ -472,7 +491,9 @@ pub mod iphc {
         AddressContext, AddressMode, Error, NextHeader, Result, UnresolvedAddress,
         DISPATCH_IPHC_HEADER,
     };
-    use crate::wire::{ieee802154::Address as LlAddress, ipv6, IpProtocol};
+    use crate::wire::{
+        ieee802154::Address as LlAddress, ipv6, pretty_print::PrettyPrint, IpProtocol,
+    };
     use byteorder::{ByteOrder, NetworkEndian};
 
     mod field {
@@ -483,7 +504,7 @@ pub mod iphc {
 
     macro_rules! get_field {
         ($name:ident, $mask:expr, $shift:expr) => {
-            fn $name(&self) -> u8 {
+            pub(crate) fn $name(&self) -> u8 {
                 let data = self.buffer.as_ref();
                 let raw = NetworkEndian::read_u16(&data[field::IPHC_FIELD]);
                 ((raw >> $shift) & $mask) as u8
@@ -493,7 +514,7 @@ pub mod iphc {
 
     macro_rules! set_field {
         ($name:ident, $mask:expr, $shift:expr) => {
-            fn $name(&mut self, val: u8) {
+            pub(crate) fn $name(&mut self, val: u8) {
                 let data = &mut self.buffer.as_mut()[field::IPHC_FIELD];
                 let mut raw = NetworkEndian::read_u16(data);
 
@@ -1143,6 +1164,42 @@ pub mod iphc {
         }
     }
 
+    impl<T: AsRef<[u8]>> core::fmt::Display for Packet<T> {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            write!(f, "6LoWPAN_IPHC")?;
+
+            if let Ok(addr) = self.src_addr() {
+                write!(f, " src={addr}")?;
+            }
+
+            if let Ok(addr) = self.dst_addr() {
+                write!(f, " dst={addr}")?;
+            }
+
+            write!(f, " nxt_hdr={}", self.next_header())?;
+            write!(f, " hop_limit={}", self.hop_limit())?;
+
+            Ok(())
+        }
+    }
+
+    impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
+        fn pretty_print(
+            buffer: &dyn AsRef<[u8]>,
+            f: &mut core::fmt::Formatter,
+            indent: &mut crate::wire::pretty_print::PrettyIndent,
+        ) -> core::fmt::Result {
+            let packet = match Packet::new_checked(buffer) {
+                Err(err) => return write!(f, "{indent}({err})"),
+                Ok(packet) => packet,
+            };
+
+            write!(f, "{indent}{packet}")?;
+
+            Ok(())
+        }
+    }
+
     /// A high-level representation of a 6LoWPAN IPHC header.
     #[derive(Debug, PartialEq, Eq, Clone, Copy)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -1410,7 +1467,7 @@ pub mod nhc {
 
     macro_rules! get_field {
         ($name:ident, $mask:expr, $shift:expr) => {
-            fn $name(&self) -> u8 {
+            pub(crate) fn $name(&self) -> u8 {
                 let data = self.buffer.as_ref();
                 let raw = &data[0];
                 ((raw >> $shift) & $mask) as u8
@@ -1420,7 +1477,7 @@ pub mod nhc {
 
     macro_rules! set_field {
         ($name:ident, $mask:expr, $shift:expr) => {
-            fn $name(&mut self, val: u8) {
+            pub(crate) fn $name(&mut self, val: u8) {
                 let data = self.buffer.as_mut();
                 let mut raw = data[0];
                 raw = (raw & !($mask << $shift)) | (val << $shift);
@@ -1487,6 +1544,19 @@ pub mod nhc {
         MobilityHeader,
         Header,
         Reserved,
+        Unknown(u8),
+    }
+
+    impl From<IpProtocol> for ExtHeaderId {
+        fn from(value: IpProtocol) -> Self {
+            match value {
+                IpProtocol::HopByHop => Self::HopByHopHeader,
+                IpProtocol::Ipv6Route => Self::RoutingHeader,
+                IpProtocol::Ipv6Frag => Self::FragmentHeader,
+                IpProtocol::Ipv6Opts => Self::DestinationOptionsHeader,
+                proto => Self::Unknown(proto.into()),
+            }
+        }
     }
 
     impl From<ExtHeaderId> for IpProtocol {
@@ -1499,6 +1569,7 @@ pub mod nhc {
                 ExtHeaderId::MobilityHeader => Self::Unknown(0),
                 ExtHeaderId::Header => Self::Unknown(0),
                 ExtHeaderId::Reserved => Self::Unknown(0),
+                ExtHeaderId::Unknown(val) => Self::Unknown(val),
             }
         }
     }
@@ -1522,9 +1593,13 @@ pub mod nhc {
         /// [check_len]: #method.check_len
         pub fn new_checked(buffer: T) -> Result<Self> {
             let packet = Self::new_unchecked(buffer);
+
+            // Check if basic accessors will work.
             packet.check_len()?;
 
-            if packet.eid_field() > 7 {
+            // Check if we have the correct dispatch value.
+            // Check that the EID field has a valid value.
+            if packet.dispatch_field() != DISPATCH_EXT_HEADER || packet.eid_field() > 7 {
                 return Err(Error);
             }
 
@@ -1573,6 +1648,10 @@ pub mod nhc {
             }
         }
 
+        pub fn length(&self) -> u8 {
+            self.buffer.as_ref()[1]
+        }
+
         /// Parse the next header field.
         pub fn next_header(&self) -> NextHeader {
             if self.nh_field() == 1 {
@@ -1596,12 +1675,17 @@ pub mod nhc {
                 _ => unreachable!(),
             }
         }
+
+        pub fn header_len(&self) -> u8 {
+            self.buffer.as_ref()[1 + self.next_header_size()]
+        }
     }
 
     impl<'a, T: AsRef<[u8]> + ?Sized> ExtHeaderPacket<&'a T> {
         /// Return a pointer to the payload.
         pub fn payload(&self) -> &'a [u8] {
-            let start = 1 + self.next_header_size();
+            // TODO(thvdveld): CHECK HOW THIS SHOULD BE CALCULATED
+            let start = 2 + self.next_header_size();
             &self.buffer.as_ref()[start..]
         }
     }
@@ -1632,6 +1716,7 @@ pub mod nhc {
                 ExtHeaderId::MobilityHeader => 4,
                 ExtHeaderId::Reserved => 5,
                 ExtHeaderId::Header => 7,
+                ExtHeaderId::Unknown(_) => unreachable!(),
             };
 
             self.set_eid_field(id);
@@ -1664,9 +1749,9 @@ pub mod nhc {
     #[derive(Debug, PartialEq, Eq, Clone, Copy)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub struct ExtHeaderRepr {
-        ext_header_id: ExtHeaderId,
-        next_header: NextHeader,
-        length: u8,
+        pub ext_header_id: ExtHeaderId,
+        pub next_header: NextHeader,
+        pub length: u8,
     }
 
     impl ExtHeaderRepr {
@@ -1682,7 +1767,7 @@ pub mod nhc {
             Ok(Self {
                 ext_header_id: packet.extension_header_id(),
                 next_header: packet.next_header(),
-                length: packet.payload().len() as u8,
+                length: packet.length(),
             })
         }
 
@@ -2004,6 +2089,12 @@ pub mod nhc {
             }
         }
 
+        pub fn emit_header<T: AsRef<[u8]> + AsMut<[u8]>>(&self, packet: &mut UdpNhcPacket<T>) {
+            packet.set_dispatch_field();
+            packet.set_ports(self.src_port, self.dst_port);
+            packet.set_checksum(0);
+        }
+
         /// Emit a high-level representation into a LOWPAN_NHC UDP header.
         pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(
             &self,
@@ -2051,18 +2142,6 @@ pub mod nhc {
     #[cfg(test)]
     mod test {
         use super::*;
-
-        #[test]
-        fn ext_header_nhc_fields() {
-            let bytes = [0xe3, 0x06, 0x03, 0x00, 0xff, 0x00, 0x00, 0x00];
-
-            let packet = ExtHeaderPacket::new_checked(&bytes[..]).unwrap();
-            assert_eq!(packet.next_header_size(), 0);
-            assert_eq!(packet.dispatch_field(), DISPATCH_EXT_HEADER);
-            assert_eq!(packet.extension_header_id(), ExtHeaderId::RoutingHeader);
-
-            assert_eq!(packet.payload(), [0x06, 0x03, 0x00, 0xff, 0x00, 0x00, 0x00]);
-        }
 
         #[test]
         fn ext_header_emit() {
@@ -2122,6 +2201,11 @@ pub mod nhc {
 
 #[cfg(test)]
 mod test {
+    use crate::wire::sixlowpan::nhc::ExtHeaderId;
+    use crate::wire::{
+        Ipv6Option, Ipv6OptionType, Ipv6RoutingHeader, Ipv6RoutingRepr, Ipv6RoutingType,
+    };
+
     use super::*;
 
     #[test]
@@ -2257,5 +2341,68 @@ mod test {
         assert_eq!(frag.datagram_offset(), 232 / 8);
 
         assert_eq!(frag.get_key(&ieee802154_repr), key);
+    }
+
+    #[test]
+    fn sixlowpan_extension_header_routing_header() {
+        let data = [
+            0xe3, 0x16, 0x03, 0x02, 0x99, 0x20, 0x00, 0x00, 0x04, 0x00, 0x04, 0x00, 0x04, 0x00,
+            0x04, 0x09, 0x00, 0x09, 0x00, 0x09, 0x00, 0x09, 0x00, 0x00,
+        ];
+
+        let ext_header_packet = nhc::ExtHeaderPacket::new_checked(&data).unwrap();
+
+        assert_eq!(ext_header_packet.dispatch_field(), DISPATCH_EXT_HEADER);
+        assert_eq!(ext_header_packet.next_header(), NextHeader::Compressed);
+        assert_eq!(
+            ext_header_packet.extension_header_id(),
+            ExtHeaderId::RoutingHeader
+        );
+
+        let routing_header = Ipv6RoutingHeader::new_checked_compressed(
+            ext_header_packet.payload(),
+            ext_header_packet.header_len(),
+            2,
+        )
+        .unwrap();
+
+        assert_eq!(routing_header.next_header(), None);
+        assert_eq!(routing_header.header_len(), 22);
+        assert_eq!(routing_header.routing_type(), Ipv6RoutingType::Rpl);
+        assert_eq!(routing_header.segments_left(), 2);
+        assert_eq!(routing_header.cmpr_i(), 9);
+        assert_eq!(routing_header.cmpr_e(), 9);
+        assert_eq!(routing_header.pad(), 2);
+        assert_eq!(
+            routing_header.addresses(),
+            &[0x04, 0x00, 0x04, 0x00, 0x04, 0x00, 0x04, 0x09, 0x00, 0x09, 0x00, 0x09, 0x00, 0x09]
+        );
+
+        _ = Ipv6RoutingRepr::parse(&routing_header).unwrap();
+    }
+
+    #[test]
+    fn sixlowpan_extension_header_hop_by_hop_options() {
+        let data = [0xe0, 0x3a, 0x06, 0x63, 0x04, 0x00, 0x1e, 0x04, 0x00];
+
+        let ext_header_packet = nhc::ExtHeaderPacket::new_checked(&data).unwrap();
+
+        assert_eq!(ext_header_packet.dispatch_field(), DISPATCH_EXT_HEADER);
+        assert_eq!(
+            ext_header_packet.next_header(),
+            NextHeader::Uncompressed(IpProtocol::Icmpv6)
+        );
+        assert_eq!(
+            ext_header_packet.extension_header_id(),
+            ExtHeaderId::HopByHopHeader
+        );
+
+        let options_packet = Ipv6Option::new_checked(ext_header_packet.payload()).unwrap();
+
+        assert_eq!(options_packet.option_type(), Ipv6OptionType::Rpl);
+        assert_eq!(options_packet.data_len(), 4);
+
+        // TODO(thvdveld): replace this with the readl IPv6 RPL Option when working on RPL.
+        assert_eq!(options_packet.data(), &[0x00, 0x1e, 0x04, 0x00]);
     }
 }

@@ -18,6 +18,9 @@ mod ipv6;
 #[cfg(feature = "proto-igmp")]
 mod igmp;
 
+#[cfg(feature = "proto-rpl")]
+mod rpl;
+
 use core::cmp;
 use core::result::Result;
 use heapless::{LinearMap, Vec};
@@ -35,6 +38,9 @@ use crate::socket::dns;
 use crate::socket::*;
 use crate::time::{Duration, Instant};
 use crate::wire::*;
+
+#[cfg(feature = "proto-rpl")]
+use crate::iface::rpl::{Rank, Rpl, RplBuilder};
 
 const MAX_IP_ADDR_COUNT: usize = 5;
 #[cfg(feature = "proto-igmp")]
@@ -282,6 +288,9 @@ pub struct InterfaceInner {
     /// When to report for (all or) the next multicast group membership via IGMP
     #[cfg(feature = "proto-igmp")]
     igmp_report_state: IgmpReportState,
+
+    #[cfg(feature = "proto-rpl")]
+    rpl: Rpl,
 }
 
 /// Configuration structure used for creating a network interface.
@@ -307,6 +316,10 @@ pub struct Config {
     /// **NOTE**: we use the same PAN ID for destination and source.
     #[cfg(feature = "medium-ieee802154")]
     pub pan_id: Option<Ieee802154Pan>,
+
+    /// Set the RPL configuration the interface will use.
+    #[cfg(feature = "proto-rpl")]
+    pub rpl: RplBuilder,
 }
 
 impl Config {
@@ -317,6 +330,8 @@ impl Config {
             hardware_addr: None,
             #[cfg(feature = "medium-ieee802154")]
             pan_id: None,
+            #[cfg(feature = "proto-rpl")]
+            rpl: RplBuilder::default(),
         }
     }
 }
@@ -345,6 +360,8 @@ pub(crate) enum IpPacket<'a> {
     Igmp((Ipv4Repr, IgmpRepr)),
     #[cfg(feature = "proto-ipv6")]
     Icmpv6((Ipv6Repr, Icmpv6Repr<'a>)),
+    #[cfg(feature = "proto-sixlowpan")]
+    Forward((Ipv6Repr, Option<Ipv6HopByHopRepr<'a>>, &'a [u8])),
     #[cfg(feature = "socket-raw")]
     Raw((IpRepr, &'a [u8])),
     #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
@@ -364,6 +381,8 @@ impl<'a> IpPacket<'a> {
             IpPacket::Igmp((ipv4_repr, _)) => IpRepr::Ipv4(*ipv4_repr),
             #[cfg(feature = "proto-ipv6")]
             IpPacket::Icmpv6((ipv6_repr, _)) => IpRepr::Ipv6(*ipv6_repr),
+            #[cfg(feature = "proto-sixlowpan")]
+            IpPacket::Forward((ipv6_repr, _, _)) => IpRepr::Ipv6(*ipv6_repr),
             #[cfg(feature = "socket-raw")]
             IpPacket::Raw((ip_repr, _)) => ip_repr.clone(),
             #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
@@ -397,6 +416,10 @@ impl<'a> IpPacket<'a> {
                 &mut Icmpv6Packet::new_unchecked(payload),
                 &caps.checksum,
             ),
+            #[cfg(feature = "proto-sixlowpan")]
+            IpPacket::Forward(_) => {
+                todo!();
+            }
             #[cfg(feature = "socket-raw")]
             IpPacket::Raw((_, raw_packet)) => payload.copy_from_slice(raw_packet),
             #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
@@ -597,6 +620,8 @@ impl Interface {
                 #[cfg(feature = "proto-sixlowpan")]
                 sixlowpan_address_context: Vec::new(),
                 rand,
+                #[cfg(feature = "proto-rpl")]
+                rpl: config.rpl.finalize(Instant::from_secs(0)),
             },
         }
     }
@@ -604,7 +629,14 @@ impl Interface {
     /// Get the socket context.
     ///
     /// The context is needed for some socket methods.
-    pub fn context(&mut self) -> &mut InterfaceInner {
+    pub fn context(&self) -> &InterfaceInner {
+        &self.inner
+    }
+
+    /// Get the socket context.
+    ///
+    /// The context is needed for some socket methods.
+    pub fn context_mut(&mut self) -> &mut InterfaceInner {
         &mut self.inner
     }
 
@@ -767,6 +799,9 @@ impl Interface {
     {
         self.inner.now = timestamp;
 
+        #[cfg(feature = "proto-rpl")]
+        self.poll_rpl(device);
+
         #[cfg(feature = "proto-ipv4-fragmentation")]
         self.fragments.ipv4_fragments.remove_expired(timestamp);
 
@@ -816,6 +851,12 @@ impl Interface {
     pub fn poll_at(&mut self, timestamp: Instant, sockets: &SocketSet<'_>) -> Option<Instant> {
         self.inner.now = timestamp;
 
+        #[cfg(feature = "proto-rpl")]
+        let min = Some(self.poll_at_rpl());
+
+        #[cfg(not(feature = "proto-rpl"))]
+        let min = None;
+
         #[cfg(feature = "proto-sixlowpan-fragmentation")]
         if !self.out_packets.all_transmitted() {
             return Some(Instant::from_millis(0));
@@ -823,7 +864,7 @@ impl Interface {
 
         let inner = &mut self.inner;
 
-        sockets
+        let result = sockets
             .items()
             .filter_map(move |item| {
                 let socket_poll_at = item.socket.poll_at(inner);
@@ -836,7 +877,13 @@ impl Interface {
                     PollAt::Now => Some(Instant::from_millis(0)),
                 }
             })
-            .min()
+            .min();
+
+        if result.is_none() {
+            min
+        } else {
+            result.min(min)
+        }
     }
 
     /// Return an _advisory wait time_ for calling [poll] the next time.
@@ -852,6 +899,49 @@ impl Interface {
             Some(poll_at) if timestamp < poll_at => Some(poll_at - timestamp),
             Some(_) => Some(Duration::from_millis(0)),
             _ => None,
+        }
+    }
+
+    #[cfg(feature = "proto-rpl")]
+    fn poll_rpl<D>(&mut self, device: &mut D) -> bool
+    where
+        D: Device + ?Sized,
+    {
+        let InterfaceInner { rpl, now, rand, .. } = &mut self.inner;
+
+        rpl.dio_timer.start(*now, rand);
+
+        if rpl.has_parent()
+            && rpl.parent_last_heard.unwrap_or(*now) < *now - rpl.dio_timer.max_expiration() * 2
+        {
+            rpl.parent_address = None;
+            rpl.parent_rank = None;
+            rpl.parent_preference = None;
+            rpl.rank = Rank::INFINITE;
+
+            return self.transmit_rpl_dio(device);
+        }
+
+        // This is for transmitting DIS messages.
+        if rpl.should_send_dis(*now) {
+            rpl.set_dis_expiration(*now + Duration::from_secs(60));
+            return self.transmit_rpl_dis(device);
+        }
+
+        // This is for transmitting DIO messages periodically.
+        if (rpl.has_parent() || rpl.is_root) && rpl.dio_timer.poll(*now, rand) {
+            return self.transmit_rpl_dio(device);
+        }
+
+        false
+    }
+
+    #[cfg(feature = "proto-rpl")]
+    pub fn poll_at_rpl(&mut self) -> Instant {
+        if self.inner.rpl.has_parent() || self.inner.rpl.is_root {
+            self.inner.rpl.dio_timer.poll_at()
+        } else {
+            self.inner.rpl.dis_expiration
         }
     }
 
@@ -1010,10 +1100,10 @@ impl Interface {
                     // requests from the socket. However, without an additional rate limiting
                     // mechanism, we would spin on every socket that has yet to discover its
                     // neighbor.
-                    item.meta.neighbor_missing(
-                        self.inner.now,
-                        neighbor_addr.expect("non-IP response packet"),
-                    );
+                    //item.meta.neighbor_missing(
+                    //self.inner.now,
+                    //neighbor_addr.expect("non-IP response packet"),
+                    //);
                 }
                 Ok(()) => {}
             }
@@ -1090,6 +1180,92 @@ impl Interface {
                 return true;
             }
         }
+        false
+    }
+
+    #[cfg(feature = "proto-rpl")]
+    fn transmit_rpl_dis<D>(&mut self, device: &mut D) -> bool
+    where
+        D: Device + ?Sized,
+    {
+        let dis = RplRepr::DodagInformationSolicitation { options: &[] };
+        net_trace!("Sending {}", dis);
+
+        let icmp_rpl = Icmpv6Repr::Rpl(dis);
+
+        // TODO(thvdveld): remove unwrap
+        let ipv6_repr = Ipv6Repr {
+            src_addr: self.inner.ipv6_addr().unwrap(),
+            dst_addr: Ipv6Address::LINK_LOCAL_ALL_RPL_NODES,
+            next_header: IpProtocol::Icmpv6,
+            payload_len: icmp_rpl.buffer_len(),
+            hop_limit: 64,
+        };
+
+        if let Some(tx_token) = device.transmit(self.inner.now) {
+            match self.inner.dispatch_ip(
+                tx_token,
+                IpPacket::Icmpv6((ipv6_repr, icmp_rpl)),
+                Some(&mut self.out_packets),
+            ) {
+                Ok(()) => return true,
+                Err(e) => {
+                    net_debug!("Failed to send DIS: {e:?}");
+                    return false;
+                }
+            }
+        }
+
+        false
+    }
+
+    #[cfg(feature = "proto-rpl")]
+    fn transmit_rpl_dio<D>(&mut self, device: &mut D) -> bool
+    where
+        D: Device + ?Sized,
+    {
+        let mut buffer = [0; 128];
+        let dodag_conf = self.inner.rpl.dodag_configuration();
+        dodag_conf.emit(&mut RplOptionPacket::new_unchecked(&mut buffer));
+
+        let dio = RplRepr::DodagInformationObject {
+            rpl_instance_id: self.inner.rpl.instance_id,
+            version_number: self.inner.rpl.version_number.value(),
+            rank: self.inner.rpl.rank.raw_value(),
+            grounded: self.inner.rpl.grounded,
+            mode_of_operation: self.inner.rpl.mode_of_operation,
+            dodag_preference: self.inner.rpl.dodag_preference,
+            dtsn: self.inner.rpl.dtsn.value(),
+            dodag_id: self.inner.rpl.dodag_id.unwrap(),
+            options: &buffer[..dodag_conf.buffer_len()],
+        };
+        net_trace!("Sending {}", dio);
+
+        let icmp_rpl = Icmpv6Repr::Rpl(dio);
+
+        // TODO(thvdveld): remove unwrap
+        let ipv6_repr = Ipv6Repr {
+            src_addr: self.inner.ipv6_addr().unwrap(),
+            dst_addr: Ipv6Address::LINK_LOCAL_ALL_RPL_NODES,
+            next_header: IpProtocol::Icmpv6,
+            payload_len: icmp_rpl.buffer_len(),
+            hop_limit: 64,
+        };
+
+        if let Some(tx_token) = device.transmit(self.inner.now) {
+            match self.inner.dispatch_ip(
+                tx_token,
+                IpPacket::Icmpv6((ipv6_repr, icmp_rpl)),
+                Some(&mut self.out_packets),
+            ) {
+                Ok(()) => return true,
+                Err(e) => {
+                    net_debug!("Failed to send DIS: {e:?}");
+                    return false;
+                }
+            }
+        }
+
         false
     }
 }
@@ -1239,6 +1415,9 @@ impl InterfaceInner {
             igmp_report_state: IgmpReportState::Inactive,
             #[cfg(feature = "proto-igmp")]
             ipv4_multicast_groups: LinearMap::new(),
+
+            #[cfg(feature = "proto-rpl")]
+            rpl: crate::iface::rpl::RplBuilder::default().finalize(Instant::now()),
         }
     }
 
@@ -1334,6 +1513,16 @@ impl InterfaceInner {
         false
     }
 
+    #[cfg(feature = "proto-rpl")]
+    pub fn rpl(&self) -> &Rpl {
+        &self.rpl
+    }
+
+    #[cfg(feature = "proto-rpl")]
+    pub fn rpl_mut(&mut self) -> &mut Rpl {
+        &mut self.rpl
+    }
+
     #[cfg(feature = "medium-ip")]
     fn process_ip<'frame, T: AsRef<[u8]>>(
         &mut self,
@@ -1359,7 +1548,7 @@ impl InterfaceInner {
             #[cfg(feature = "proto-ipv6")]
             Ok(IpVersion::Ipv6) => {
                 let ipv6_packet = check!(Ipv6Packet::new_checked(ip_payload));
-                self.process_ipv6(sockets, &ipv6_packet)
+                self.process_ipv6(sockets, None, &ipv6_packet)
             }
             // Drop all other traffic.
             _ => None,
@@ -1742,9 +1931,40 @@ impl InterfaceInner {
 
         #[cfg(feature = "medium-ieee802154")]
         if matches!(self.caps.medium, Medium::Ieee802154) {
-            let (addr, tx_token) =
-                self.lookup_hardware_addr(tx_token, &ip_repr.src_addr(), &ip_repr.dst_addr())?;
-            let addr = addr.ieee802154_or_panic();
+            // TODO(thvdveld): make the following part nicer!
+            let (addr, tx_token) = if ip_repr.dst_addr().is_multicast() {
+                (Ieee802154Address::BROADCAST, tx_token)
+            } else {
+                #[cfg(feature = "proto-rpl")]
+                {
+                    let addr = if let Some(addr) = self.rpl.parent_address {
+                        if let Some((n, _)) =
+                            self.rpl.neighbor_table.get_neighbor_from_ip_addr(&addr)
+                        {
+                            n.link_layer_addr().ieee802154_or_panic()
+                        } else {
+                            unreachable!()
+                        }
+                    } else {
+                        net_trace!("No parent yet, so cannot send it.");
+                        return Err(DispatchError::NoRoute);
+                    };
+
+                    (addr, tx_token)
+                }
+
+                #[cfg(not(feature = "proto-rpl"))]
+                {
+                    let (addr, tx_token) = self.lookup_hardware_addr(
+                        tx_token,
+                        &ip_repr.src_addr(),
+                        &ip_repr.dst_addr(),
+                    )?;
+                    let addr = addr.ieee802154_or_panic();
+
+                    (addr, tx_token)
+                }
+            };
 
             self.dispatch_ieee802154(addr, tx_token, packet, _out_packet);
             return Ok(());

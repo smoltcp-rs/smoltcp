@@ -18,7 +18,13 @@ macro_rules! net_log {
     (debug, $($arg:expr),*) => { defmt::debug!($($arg),*) };
 }
 
-#[cfg(not(any(feature = "log", feature = "defmt")))]
+#[cfg(feature = "rtt-cortex-m")]
+macro_rules! net_log {
+    (trace, $($arg:expr),*) => { rtt_target::rprintln!($($arg),*) };
+    (debug, $($arg:expr),*) => { rtt_target::rprintln!($($arg),*) };
+}
+
+#[cfg(not(any(feature = "log", feature = "defmt", feature = "rtt-cortex-m")))]
 macro_rules! net_log {
     ($level:ident, $($arg:expr),*) => {{ $( let _ = $arg; )* }}
 }
@@ -70,4 +76,98 @@ macro_rules! enum_with_unknown {
             }
         }
     }
+}
+
+macro_rules! get {
+    ($buffer:expr, into: $into:ty, fun: $fun:ident, field: $field:expr $(,)?) => {
+        {
+            <$into>::$fun(&$buffer.as_ref()[$field])
+        }
+    };
+
+    ($buffer:expr, into: $into:ty, field: $field:expr $(,)?) => {
+        get!($buffer, into: $into, field: $field, shift: 0, mask: 0b1111_1111)
+    };
+
+    ($buffer:expr, into: $into:ty, field: $field:expr, mask: $bit_mask:expr $(,)?) => {
+        get!($buffer, into: $into, field: $field, shift: 0, mask: $bit_mask)
+    };
+
+    ($buffer:expr, into: $into:ty, field: $field:expr, shift: $bit_shift:expr, mask: $bit_mask:expr $(,)?) => {
+        {
+            <$into>::from((&$buffer.as_ref()[$field] >> $bit_shift) & $bit_mask)
+        }
+    };
+
+    ($buffer:expr, field: $field:expr $(,)?) => {
+        get!($buffer, field: $field, shift: 0, mask: 0b1111_1111)
+    };
+
+    ($buffer:expr, field: $field:expr, mask: $bit_mask:expr $(,)?) => {
+        get!($buffer, field: $field, shift: 0, mask: $bit_mask)
+    };
+
+    ($buffer:expr, field: $field:expr, shift: $bit_shift:expr, mask: $bit_mask:expr $(,)?)
+        =>
+    {
+        {
+            (&$buffer.as_ref()[$field] >> $bit_shift) & $bit_mask
+        }
+    };
+
+    ($buffer:expr, u16, field: $field:expr $(,)?) => {
+        {
+            NetworkEndian::read_u16(&$buffer.as_ref()[$field])
+        }
+    };
+
+    ($buffer:expr, bool, field: $field:expr, shift: $bit_shift:expr, mask: $bit_mask:expr $(,)?) => {
+        {
+            (($buffer.as_ref()[$field] >> $bit_shift) & $bit_mask) == 0b1
+        }
+    };
+
+    ($buffer:expr, u32, field: $field:expr $(,)?) => {
+        {
+            NetworkEndian::read_u32(&$buffer.as_ref()[$field])
+        }
+    };
+}
+
+macro_rules! set {
+    ($buffer:expr, address: $address:ident, field: $field:expr $(,)?) => {{
+        $buffer.as_mut()[$field].copy_from_slice($address.as_bytes());
+    }};
+
+    ($buffer:expr, $value:ident, field: $field:expr $(,)?) => {
+        set!($buffer, $value, field: $field, shift: 0, mask: 0b1111_1111)
+    };
+
+    ($buffer:expr, $value:ident, field: $field:expr, mask: $bit_mask:expr $(,)?) => {
+        set!($buffer, $value, field: $field, shift: 0, mask: $bit_mask)
+    };
+
+    ($buffer:expr, $value:ident, field: $field:expr, shift: $bit_shift:expr, mask: $bit_mask:expr $(,)?) => {{
+        let raw =
+            ($buffer.as_ref()[$field] & !($bit_mask << $bit_shift)) | ($value << $bit_shift);
+        $buffer.as_mut()[$field] = raw;
+    }};
+
+    ($buffer:expr, $value:ident, bool, field: $field:expr, mask: $bit_mask:expr $(,)?) => {
+        set!($buffer, $value, bool, field: $field, shift: 0, mask: $bit_mask);
+    };
+
+    ($buffer:expr, $value:ident, bool, field: $field:expr, shift: $bit_shift:expr, mask: $bit_mask:expr $(,)?) => {{
+        let raw = ($buffer.as_ref()[$field] & !($bit_mask << $bit_shift))
+            | (if $value { 0b1 } else { 0b0 } << $bit_shift);
+        $buffer.as_mut()[$field] = raw;
+    }};
+
+    ($buffer:expr, $value:ident, u16, field: $field:expr $(,)?) => {{
+        NetworkEndian::write_u16(&mut $buffer.as_mut()[$field], $value);
+    }};
+
+    ($buffer:expr, $value:ident, u32, field: $field:expr $(,)?) => {{
+        NetworkEndian::write_u32(&mut $buffer.as_mut()[$field], $value);
+    }};
 }

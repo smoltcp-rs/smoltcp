@@ -70,7 +70,7 @@ fn main() {
 
     let socket = sockets.get_mut::<dns::Socket>(dns_handle);
     let query = socket
-        .start_query(iface.context(), name, DnsQueryType::A)
+        .start_query(iface.context_mut(), name, DnsQueryType::A)
         .unwrap();
 
     loop {

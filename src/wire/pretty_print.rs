@@ -28,8 +28,8 @@ let buffer = vec![
 
 let result = "\
 EthernetII src=11-12-13-14-15-16 dst=01-02-03-04-05-06 type=IPv4\n\
-\\ IPv4 src=17.18.19.20 dst=33.34.35.36 proto=ICMP (checksum incorrect)\n \
- \\ ICMPv4 echo request id=4660 seq=43981 len=4\
+└─ IPv4 src=17.18.19.20 dst=33.34.35.36 proto=ICMP (checksum incorrect)\n \
+ └─ ICMPv4 echo request id=4660 seq=43981 len=4\
 ";
 
 #[cfg(all(feature = "medium-ethernet", feature = "proto-ipv4"))]
@@ -64,6 +64,12 @@ impl PrettyIndent {
         self.level += 1;
         Ok(())
     }
+
+    /// Increase indentation level.
+    pub fn decrease(&mut self) -> fmt::Result {
+        self.level -= 1;
+        Ok(())
+    }
 }
 
 impl fmt::Display for PrettyIndent {
@@ -71,7 +77,7 @@ impl fmt::Display for PrettyIndent {
         if self.level == 0 {
             write!(f, "{}", self.prefix)
         } else {
-            write!(f, "{0:1$}{0:2$}\\ ", "", self.prefix.len(), self.level - 1)
+            write!(f, "{0:1$}{0:2$}└─ ", "", self.prefix.len(), self.level - 1)
         }
     }
 }
