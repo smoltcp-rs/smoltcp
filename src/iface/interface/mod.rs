@@ -40,7 +40,7 @@ use crate::time::{Duration, Instant};
 use crate::wire::*;
 
 #[cfg(feature = "proto-rpl")]
-use crate::iface::rpl::{Rank, Rpl, RplBuilder};
+use crate::iface::rpl::{Rank, Rpl};
 
 const MAX_IP_ADDR_COUNT: usize = 5;
 #[cfg(feature = "proto-igmp")]
@@ -319,7 +319,7 @@ pub struct Config {
 
     /// Set the RPL configuration the interface will use.
     #[cfg(feature = "proto-rpl")]
-    pub rpl: RplBuilder,
+    pub rpl: super::RplConfig,
 }
 
 impl Config {
@@ -331,7 +331,7 @@ impl Config {
             #[cfg(feature = "medium-ieee802154")]
             pan_id: None,
             #[cfg(feature = "proto-rpl")]
-            rpl: RplBuilder::default(),
+            rpl: super::RplConfig::default(),
         }
     }
 }
@@ -621,7 +621,7 @@ impl Interface {
                 sixlowpan_address_context: Vec::new(),
                 rand,
                 #[cfg(feature = "proto-rpl")]
-                rpl: config.rpl.finalize(Instant::from_secs(0)),
+                rpl: Rpl::new(config.rpl, Instant::from_secs(0)),
             },
         }
     }
@@ -1233,7 +1233,7 @@ impl Interface {
             version_number: self.inner.rpl.version_number.value(),
             rank: self.inner.rpl.rank.raw_value(),
             grounded: self.inner.rpl.grounded,
-            mode_of_operation: self.inner.rpl.mode_of_operation,
+            mode_of_operation: self.inner.rpl.mode_of_operation.into(),
             dodag_preference: self.inner.rpl.dodag_preference,
             dtsn: self.inner.rpl.dtsn.value(),
             dodag_id: self.inner.rpl.dodag_id.unwrap(),
@@ -1417,7 +1417,7 @@ impl InterfaceInner {
             ipv4_multicast_groups: LinearMap::new(),
 
             #[cfg(feature = "proto-rpl")]
-            rpl: crate::iface::rpl::RplBuilder::default().finalize(Instant::now()),
+            rpl: Rpl::new(crate::iface::RplConfig::default(), Instant::now()),
         }
     }
 

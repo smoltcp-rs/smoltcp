@@ -16,6 +16,17 @@ pub struct TrickleTimer {
     counter: usize,
 }
 
+impl Default for TrickleTimer {
+    fn default() -> Self {
+        Self::new(
+            super::consts::DEFAULT_DIO_INTERVAL_MIN as u32,
+            super::consts::DEFAULT_DIO_INTERVAL_MIN as u32
+                + super::consts::DEFAULT_DIO_INTERVAL_DOUBLINGS as u32,
+            super::consts::DEFAULT_DIO_REDUNDANCY_CONSTANT as usize,
+        )
+    }
+}
+
 impl TrickleTimer {
     /// Create a new Trickle timer.
     pub(crate) const fn new(i_min: u32, i_max: u32, k: usize) -> Self {

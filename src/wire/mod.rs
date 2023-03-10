@@ -229,7 +229,7 @@ pub use self::ndisc::{
 pub use self::rpl::{
     data::HopByHopOption as RplHopByHopRepr, data::Packet as RplHopByHopPacket,
     options::Packet as RplOptionPacket, options::Repr as RplOptionRepr,
-    InstanceId as RplInstanceId, ModeOfOperation as RplMop, Repr as RplRepr,
+    InstanceId as RplInstanceId, Repr as RplRepr,
 };
 
 #[cfg(all(

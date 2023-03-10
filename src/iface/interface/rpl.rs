@@ -160,7 +160,7 @@ impl InterfaceInner {
                         return None;
                     }
 
-                    if (mode_of_operation != self.rpl.mode_of_operation)
+                    if (ModeOfOperation::from(mode_of_operation) != self.rpl.mode_of_operation)
                         || (ocp != Some(self.rpl.ocp))
                     {
                         // We ignore the packet if the Mode of Operation is not the same as ours.
@@ -189,7 +189,7 @@ impl InterfaceInner {
                             version_number: self.rpl.version_number.value(),
                             rank: Rank::INFINITE.raw_value(),
                             grounded: self.rpl.grounded,
-                            mode_of_operation: self.rpl.mode_of_operation,
+                            mode_of_operation: self.rpl.mode_of_operation.into(),
                             dodag_preference: self.rpl.dodag_preference,
                             dtsn: self.rpl.dtsn.value(),
                             dodag_id: self.rpl.dodag_id.unwrap(),
@@ -210,7 +210,7 @@ impl InterfaceInner {
 
                     // Update our RPL values from the DIO message:
                     self.rpl.grounded = grounded;
-                    self.rpl.mode_of_operation = mode_of_operation;
+                    self.rpl.mode_of_operation = mode_of_operation.into();
                     self.rpl.dodag_preference = dodag_preference;
                     self.rpl.version_number = SequenceCounter::new(version_number);
                     self.rpl.instance_id = rpl_instance_id;
@@ -735,7 +735,7 @@ mod tests {
             version_number: SequenceCounter::default().value(),
             rank: Rank::ROOT.raw_value(),
             grounded: false,
-            mode_of_operation: RplMop::NoDownwardRoutesMaintained,
+            mode_of_operation: ModeOfOperation::NoDownwardRoutesMaintained.into(),
             dodag_preference: 0,
             dtsn: SequenceCounter::default().value(),
             dodag_id: ip_addr(ROOT_ADDRESS),
@@ -777,7 +777,7 @@ mod tests {
             version_number: SequenceCounter::default().value(),
             rank: Rank::ROOT.raw_value(),
             grounded: false,
-            mode_of_operation: RplMop::NoDownwardRoutesMaintained,
+            mode_of_operation: ModeOfOperation::NoDownwardRoutesMaintained.into(),
             dodag_preference: 0,
             dtsn: SequenceCounter::default().value(),
             dodag_id: ip_addr(ROOT_ADDRESS),
@@ -835,7 +835,7 @@ mod tests {
             version_number: version_number.value(),
             rank: Rank::ROOT.raw_value(),
             grounded: false,
-            mode_of_operation: RplMop::NoDownwardRoutesMaintained,
+            mode_of_operation: ModeOfOperation::NoDownwardRoutesMaintained.into(),
             dodag_preference: 0,
             dtsn: SequenceCounter::default().value(),
             dodag_id: ip_addr(ROOT_ADDRESS),
@@ -863,8 +863,8 @@ mod tests {
 
         // Check that the node selected a parent and dodag_id, and that the trickle timer is started.
         let rpl = iface.context().rpl();
-        assert_eq!(rpl.dio_timer.get_i(), rpl.dio_timer.min_expiration());
         assert_eq!(rpl.dio_timer.get_counter(), 0);
+        assert_eq!(rpl.dio_timer.get_i(), rpl.dio_timer.min_expiration());
     }
 
     #[test]
@@ -892,7 +892,7 @@ mod tests {
             version_number: SequenceCounter::default().value(),
             rank: Rank::INFINITE.raw_value(),
             grounded: false,
-            mode_of_operation: RplMop::NoDownwardRoutesMaintained,
+            mode_of_operation: ModeOfOperation::NoDownwardRoutesMaintained.into(),
             dodag_preference: 0,
             dtsn: SequenceCounter::default().value(),
             dodag_id: ip_addr(ROOT_ADDRESS),
@@ -955,7 +955,7 @@ mod tests {
                 version_number: SequenceCounter::default().value(),
                 rank: 256 * 2,
                 grounded: false,
-                mode_of_operation: RplMop::NoDownwardRoutesMaintained,
+                mode_of_operation: ModeOfOperation::NoDownwardRoutesMaintained.into(),
                 dodag_preference: 0,
                 dtsn: SequenceCounter::default().value(),
                 dodag_id: ip_addr(ROOT_ADDRESS),

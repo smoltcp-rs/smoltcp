@@ -20,4 +20,4 @@ pub use self::route::{Route, RouteTableFull, Routes};
 pub use socket_set::{SocketHandle, SocketSet, SocketStorage};
 
 #[cfg(feature = "proto-rpl")]
-pub use self::rpl::RplBuilder;
+pub use self::rpl::{Config as RplConfig, ModeOfOperation as RplModeOfOperation};

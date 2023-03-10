@@ -1,4 +1,3 @@
-mod builder;
 pub(crate) mod consts;
 mod lollipop;
 mod neighbor_table;
@@ -9,22 +8,123 @@ mod routing;
 mod trickle;
 
 pub(crate) use self::rank::Rank;
-use crate::time::Instant;
+use crate::time::{Duration, Instant};
 use crate::wire::ipv6::Address;
-use crate::wire::rpl::ModeOfOperation;
 use crate::wire::*;
-pub use builder::RplBuilder;
 pub(crate) use lollipop::SequenceCounter;
 pub(crate) use neighbor_table::{RplNeighbor, RplNeighborEntry, RplNeighborTable};
 pub(crate) use of_zero::ObjectiveFunction0;
 pub(crate) use routing::RplNodeRelations;
 
-//#[derive(Debug)]
-//pub enum RplMode {
-//Mesh = 0,
-//Feather = 1,
-//Leaf = 2,
-//}
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ModeOfOperation {
+    #[cfg(feature = "rpl-mop-0")]
+    NoDownwardRoutesMaintained,
+    #[cfg(feature = "rpl-mop-1")]
+    NonStoringMode,
+    #[cfg(feature = "rpl-mop-2")]
+    StoringModeWithoutMulticast,
+    #[cfg(feature = "rpl-mop-3")]
+    StoringModeWithMulticast,
+}
+
+impl From<crate::wire::rpl::ModeOfOperation> for ModeOfOperation {
+    fn from(value: crate::wire::rpl::ModeOfOperation) -> Self {
+        use crate::wire::rpl::ModeOfOperation as WireMop;
+        match value {
+            WireMop::NoDownwardRoutesMaintained => Self::NoDownwardRoutesMaintained,
+            #[cfg(feature = "rpl-mop-1")]
+            WireMop::NonStoringMode => Self::NonStoringMode,
+            #[cfg(feature = "rpl-mop-2")]
+            WireMop::StoringModeWithoutMulticast => Self::StoringModeWithoutMulticast,
+            #[cfg(feature = "rpl-mop-3")]
+            WireMop::StoringModeWithMulticast => Self::StoringModeWithMulticast,
+
+            _ => Self::NoDownwardRoutesMaintained, // FIXME: is this the correct thing to do?
+        }
+    }
+}
+
+impl From<ModeOfOperation> for crate::wire::rpl::ModeOfOperation {
+    fn from(value: ModeOfOperation) -> Self {
+        use crate::wire::rpl::ModeOfOperation as WireMop;
+
+        match value {
+            ModeOfOperation::NoDownwardRoutesMaintained => WireMop::NoDownwardRoutesMaintained,
+            #[cfg(feature = "rpl-mop-1")]
+            ModeOfOperation::NonStoringMode => WireMop::NonStoringMode,
+            #[cfg(feature = "rpl-mop-2")]
+            ModeOfOperation::StoringModeWithoutMulticast => WireMop::StoringModeWithoutMulticast,
+            #[cfg(feature = "rpl-mop-3")]
+            ModeOfOperation::StoringModeWithMulticast => WireMop::StoringModeWithMulticast,
+        }
+    }
+}
+
+pub struct Config {
+    pub is_root: bool,
+    pub preference: u8,
+    pub dio_timer: trickle::TrickleTimer,
+    pub instance_id: RplInstanceId,
+    pub version_number: lollipop::SequenceCounter,
+    pub dodag_id: Option<Address>,
+    pub rank: rank::Rank,
+    pub dtsn: lollipop::SequenceCounter,
+    pub mode_of_operation: ModeOfOperation,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        #[cfg(feature = "rpl-mop-0")]
+        let mode_of_operation = ModeOfOperation::NoDownwardRoutesMaintained;
+        #[cfg(feature = "rpl-mop-1")]
+        let mode_of_operation = ModeOfOperation::NonStoringMode;
+        #[cfg(feature = "rpl-mop-2")]
+        let mode_of_operation = ModeOfOperation::StoringModeWithoutMulticast;
+        #[cfg(feature = "rpl-mop-3")]
+        let mode_of_operation = ModeOfOperation::StoringModeWithMulticast;
+
+        Self {
+            is_root: false,
+            preference: 0,
+            dio_timer: trickle::TrickleTimer::default(),
+            instance_id: RplInstanceId::from(consts::RPL_DEFAULT_INSTANCE),
+            version_number: lollipop::SequenceCounter::default(),
+            dodag_id: None,
+            rank: Rank::INFINITE,
+            dtsn: lollipop::SequenceCounter::default(),
+            mode_of_operation,
+        }
+    }
+}
+
+impl Config {
+    pub fn new(instance_id: RplInstanceId, mode_of_operation: ModeOfOperation) -> Self {
+        Self {
+            is_root: false,
+            preference: 0,
+            dio_timer: trickle::TrickleTimer::default(),
+            instance_id,
+            version_number: lollipop::SequenceCounter::default(),
+            dodag_id: None,
+            rank: Rank::INFINITE,
+            dtsn: lollipop::SequenceCounter::default(),
+            mode_of_operation,
+        }
+    }
+
+    pub fn new_root(
+        instance_id: RplInstanceId,
+        mode_of_operation: ModeOfOperation,
+        dodag_id: Ipv6Address,
+    ) -> Self {
+        let mut config = Self::new(instance_id, mode_of_operation);
+        config.is_root = true;
+        config.rank = Rank::ROOT;
+        config.dodag_id = Some(dodag_id);
+        config
+    }
+}
 
 #[derive(Debug)]
 pub struct Rpl {
@@ -82,6 +182,34 @@ impl Default for DodagConfiguration {
 }
 
 impl Rpl {
+    pub fn new(config: Config, now: Instant) -> Self {
+        Self {
+            is_root: config.is_root,
+            dio_timer: config.dio_timer,
+            instance_id: config.instance_id,
+            version_number: config.version_number,
+            dodag_id: config.dodag_id,
+            rank: config.rank,
+            dtsn: config.dtsn,
+            mode_of_operation: config.mode_of_operation,
+            dodag_preference: config.preference,
+
+            dis_expiration: now + Duration::from_secs(5),
+
+            neighbor_table: Default::default(),
+            node_relations: Default::default(),
+
+            parent_address: None,
+            parent_rank: None,
+            parent_preference: None,
+            parent_last_heard: None,
+
+            dodag_configuration: Default::default(),
+            grounded: false,
+            ocp: 0,
+        }
+    }
+
     pub fn has_parent(&self) -> bool {
         self.parent_address.is_some()
     }
@@ -100,7 +228,7 @@ impl Rpl {
             version_number: self.version_number.value(),
             rank: self.rank.value,
             grounded: false,
-            mode_of_operation: rpl::ModeOfOperation::NoDownwardRoutesMaintained,
+            mode_of_operation: self.mode_of_operation.into(),
             dodag_preference: self.dodag_preference,
             dtsn: self.dtsn.value(),
             dodag_id: self.dodag_id.unwrap(),
