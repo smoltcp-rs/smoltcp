@@ -126,29 +126,6 @@ impl Config {
     }
 }
 
-#[derive(Debug)]
-pub struct Rpl {
-    pub is_root: bool,
-    pub dis_expiration: Instant,
-    pub dio_timer: trickle::TrickleTimer,
-    pub neighbor_table: RplNeighborTable,
-    pub node_relations: RplNodeRelations,
-    pub instance_id: RplInstanceId,
-    pub version_number: lollipop::SequenceCounter,
-    pub dodag_id: Option<Address>,
-    pub rank: rank::Rank,
-    pub dtsn: lollipop::SequenceCounter,
-    pub parent_address: Option<Address>,
-    pub parent_rank: Option<Rank>,
-    pub parent_preference: Option<u8>,
-    pub parent_last_heard: Option<Instant>,
-    pub mode_of_operation: ModeOfOperation,
-    pub dodag_configuration: DodagConfiguration,
-    pub grounded: bool,
-    pub dodag_preference: u8,
-    pub ocp: u16,
-}
-
 #[derive(Debug, PartialEq, Eq)]
 pub struct DodagConfiguration {
     pub authentication_enabled: bool,
@@ -181,11 +158,38 @@ impl Default for DodagConfiguration {
     }
 }
 
+#[derive(Debug)]
+pub struct Rpl {
+    pub is_root: bool,
+    pub instance_id: RplInstanceId,
+    pub version_number: lollipop::SequenceCounter,
+    pub dodag_id: Option<Address>,
+    pub rank: rank::Rank,
+    pub dtsn: lollipop::SequenceCounter,
+    pub mode_of_operation: ModeOfOperation,
+    pub dodag_preference: u8,
+
+    pub dio_timer: trickle::TrickleTimer,
+    pub dis_expiration: Instant,
+
+    pub neighbor_table: RplNeighborTable,
+    pub node_relations: RplNodeRelations,
+
+    pub parent_address: Option<Address>,
+    pub parent_rank: Option<Rank>,
+    pub parent_preference: Option<u8>,
+    pub parent_last_heard: Option<Instant>,
+
+    pub dodag_configuration: DodagConfiguration,
+    pub grounded: bool,
+    pub ocp: u16,
+}
+
+
 impl Rpl {
     pub fn new(config: Config, now: Instant) -> Self {
         Self {
             is_root: config.is_root,
-            dio_timer: config.dio_timer,
             instance_id: config.instance_id,
             version_number: config.version_number,
             dodag_id: config.dodag_id,
@@ -194,6 +198,7 @@ impl Rpl {
             mode_of_operation: config.mode_of_operation,
             dodag_preference: config.preference,
 
+            dio_timer: config.dio_timer,
             dis_expiration: now + Duration::from_secs(5),
 
             neighbor_table: Default::default(),
