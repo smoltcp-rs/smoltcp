@@ -606,7 +606,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Repr<'p> {
     DodagInformationSolicitation {
-        options: &'p [u8],
+        options: heapless::Vec<options::Repr<'p>, 4>,
     },
     DodagInformationObject {
         rpl_instance_id: InstanceId,
@@ -617,21 +617,20 @@ pub enum Repr<'p> {
         dodag_preference: u8,
         dtsn: u8,
         dodag_id: Address,
-        options: &'p [u8],
+        options: heapless::Vec<options::Repr<'p>, 4>,
     },
     DestinationAdvertisementObject {
         rpl_instance_id: InstanceId,
         expect_ack: bool,
         sequence: u8,
         dodag_id: Option<Address>,
-        options: &'p [u8],
+        options: heapless::Vec<options::Repr<'p>, 4>,
     },
     DestinationAdvertisementObjectAck {
         rpl_instance_id: InstanceId,
         sequence: u8,
         status: u8,
         dodag_id: Option<Address>,
-        options: &'p [u8],
     },
 }
 
@@ -704,25 +703,35 @@ impl core::fmt::Display for Repr<'_> {
 }
 
 impl<'p> Repr<'p> {
-    pub fn options(&self) -> &[u8] {
+    pub fn options(&self) -> &[options::Repr] {
         match self {
             Repr::DodagInformationSolicitation { options } => options,
             Repr::DodagInformationObject { options, .. } => options,
             Repr::DestinationAdvertisementObject { options, .. } => options,
-            Repr::DestinationAdvertisementObjectAck { options, .. } => options,
+            Repr::DestinationAdvertisementObjectAck { .. } => unreachable!(),
         }
     }
-    pub fn set_options(&mut self, o: &'p [u8]) {
+
+    pub fn set_options(&mut self, opts: heapless::Vec<options::Repr<'p>, 4>) {
         match self {
-            Repr::DodagInformationSolicitation { options } => *options = o,
-            Repr::DodagInformationObject { options, .. } => *options = o,
-            Repr::DestinationAdvertisementObject { options, .. } => *options = o,
-            Repr::DestinationAdvertisementObjectAck { options, .. } => *options = o,
+            Repr::DodagInformationSolicitation { options } => *options = opts,
+            Repr::DodagInformationObject { options, .. } => *options = opts,
+            Repr::DestinationAdvertisementObject { options, .. } => *options = opts,
+            Repr::DestinationAdvertisementObjectAck { .. } => unreachable!(),
         }
     }
 
     pub fn parse<T: AsRef<[u8]> + ?Sized>(packet: &Packet<&'p T>) -> Result<Self> {
-        let options = packet.options()?;
+        let mut options = heapless::Vec::new();
+
+        let mut options_buffer = packet.options()?;
+
+        while !options_buffer.is_empty() {
+            let opt = options::Packet::new_checked(options_buffer)?;
+            let opt_repr = options::Repr::parse(&opt)?;
+            options_buffer = &options_buffer[opt_repr.buffer_len()..];
+            options.push(opt_repr).unwrap();
+        }
 
         match RplControlMessage::from(packet.msg_code()) {
             RplControlMessage::DodagInformationSolicitation => {
@@ -754,7 +763,6 @@ impl<'p> Repr<'p> {
                     sequence: packet.dao_ack_sequence(),
                     status: packet.dao_ack_status(),
                     dodag_id: packet.dao_ack_dodag_id(),
-                    options,
                 })
             }
             RplControlMessage::SecureDodagInformationSolicitation
@@ -786,13 +794,14 @@ impl<'p> Repr<'p> {
             }
         };
 
-        len += match self {
-            Repr::DodagInformationSolicitation { options } => options,
-            Repr::DodagInformationObject { options, .. } => options,
-            Repr::DestinationAdvertisementObject { options, .. } => options,
-            Repr::DestinationAdvertisementObjectAck { options, .. } => options,
-        }
-        .len();
+        let opts = match self {
+            Repr::DodagInformationSolicitation { options } => &options[..],
+            Repr::DodagInformationObject { options, .. } => &options[..],
+            Repr::DestinationAdvertisementObject { options, .. } => &options[..],
+            Repr::DestinationAdvertisementObjectAck { .. } => &[],
+        };
+
+        len += opts.iter().map(|opt| opt.buffer_len()).sum::<usize>();
 
         len
     }
@@ -856,14 +865,18 @@ impl<'p> Repr<'p> {
         }
 
         let options = match self {
-            Repr::DodagInformationSolicitation { options } => options,
-            Repr::DodagInformationObject { options, .. } => options,
-            Repr::DestinationAdvertisementObject { options, .. } => options,
-            Repr::DestinationAdvertisementObjectAck { options, .. } => options,
+            Repr::DodagInformationSolicitation { options } => &options[..],
+            Repr::DodagInformationObject { options, .. } => &options[..],
+            Repr::DestinationAdvertisementObject { options, .. } => &options[..],
+            Repr::DestinationAdvertisementObjectAck { .. } => &[],
         };
 
-        if !options.is_empty() {
-            packet.options_mut().copy_from_slice(options);
+        let mut buffer = packet.options_mut();
+        for opt in options {
+            opt.emit(&mut options::Packet::new_unchecked(
+                &mut buffer[..opt.buffer_len()],
+            ));
+            buffer = &mut buffer[opt.buffer_len()..];
         }
     }
 }
@@ -1009,7 +1022,7 @@ pub mod options {
     impl<'p, T: AsRef<[u8]> + ?Sized> Packet<&'p T> {
         /// Return a pointer to the next option.
         #[inline]
-        pub fn next_option(&self) -> Option<&[u8]> {
+        pub fn next_option(&self) -> Option<&'p [u8]> {
             if !self.buffer.as_ref().is_empty() {
                 match self.option_type() {
                     OptionType::Pad1 => Some(&self.buffer.as_ref()[1..]),
@@ -1886,7 +1899,9 @@ pub mod options {
         },
         RplTarget {
             prefix_length: u8,
-            prefix: &'p [u8],
+            prefix: crate::wire::Ipv6Address, // FIXME: this is not the correct type, because the
+                                              // field can be an IPv6 address, a prefix or a
+                                              // multicast group.
         },
         TransitInformation {
             external: bool,
@@ -2059,7 +2074,7 @@ pub mod options {
                 }),
                 OptionType::RplTarget => Ok(Repr::RplTarget {
                     prefix_length: packet.target_prefix_length(),
-                    prefix: packet.target_prefix(),
+                    prefix: crate::wire::Ipv6Address::from_bytes(packet.target_prefix()),
                 }),
                 OptionType::TransitInformation => Ok(Repr::TransitInformation {
                     external: packet.is_external(),
@@ -2099,7 +2114,7 @@ pub mod options {
                 Repr::DagMetricContainer => todo!(),
                 Repr::RouteInformation { prefix, .. } => 2 + 6 + prefix.len(),
                 Repr::DodagConfiguration { .. } => 2 + 14,
-                Repr::RplTarget { prefix, .. } => 2 + 2 + prefix.len(),
+                Repr::RplTarget { prefix, .. } => 2 + 2 + prefix.0.len(),
                 Repr::TransitInformation { parent_address, .. } => {
                     2 + 4 + if parent_address.is_some() { 16 } else { 0 }
                 }
@@ -2169,7 +2184,7 @@ pub mod options {
                 } => {
                     packet.clear_rpl_target_flags();
                     packet.set_rpl_target_prefix_length(*prefix_length);
-                    packet.set_rpl_target_prefix(prefix);
+                    packet.set_rpl_target_prefix(prefix.as_bytes());
                 }
                 Repr::TransitInformation {
                     external,
@@ -2555,18 +2570,11 @@ mod tests {
         }
 
         // We also try to emit the packet:
-        let mut options_buffer =
-            vec![0u8; dodag_conf_option.buffer_len() + prefix_info_option.buffer_len()];
+        let mut options = heapless::Vec::new();
+        options.push(dodag_conf_option).unwrap();
+        options.push(prefix_info_option).unwrap();
 
-        dodag_conf_option.emit(&mut OptionPacket::new_unchecked(
-            &mut options_buffer[..dodag_conf_option.buffer_len()],
-        ));
-        prefix_info_option.emit(&mut OptionPacket::new_unchecked(
-            &mut options_buffer[dodag_conf_option.buffer_len()..]
-                [..prefix_info_option.buffer_len()],
-        ));
-
-        dio_repr.set_options(&options_buffer[..]);
+        dio_repr.set_options(options);
 
         let mut buffer = vec![0u8; dio_repr.buffer_len()];
         dio_repr.emit(&mut Packet::new_unchecked(&mut buffer[..]));
@@ -2621,7 +2629,7 @@ mod tests {
                 prefix,
             } => {
                 assert_eq!(prefix_length, 128);
-                assert_eq!(prefix, &target_prefix[..]);
+                assert_eq!(prefix.as_bytes(), &target_prefix[..]);
             }
             _ => unreachable!(),
         }
@@ -2646,18 +2654,10 @@ mod tests {
         }
 
         // We also try to emit the packet:
-        let mut options_buffer =
-            vec![0u8; rpl_target_option.buffer_len() + transit_info_option.buffer_len()];
-
-        rpl_target_option.emit(&mut OptionPacket::new_unchecked(
-            &mut options_buffer[..rpl_target_option.buffer_len()],
-        ));
-        transit_info_option.emit(&mut OptionPacket::new_unchecked(
-            &mut options_buffer[rpl_target_option.buffer_len()..]
-                [..transit_info_option.buffer_len()],
-        ));
-
-        dao_repr.set_options(&options_buffer[..]);
+        let mut options = heapless::Vec::new();
+        options.push(rpl_target_option).unwrap();
+        options.push(transit_info_option).unwrap();
+        dao_repr.set_options(options);
 
         let mut buffer = vec![0u8; dao_repr.buffer_len()];
         dao_repr.emit(&mut Packet::new_unchecked(&mut buffer[..]));

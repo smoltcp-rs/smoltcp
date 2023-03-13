@@ -18,11 +18,10 @@ impl InterfaceInner {
         let now = self.now();
 
         match repr {
-            RplRepr::DodagInformationSolicitation { mut options } => {
+            RplRepr::DodagInformationSolicitation { options } => {
                 let InterfaceInner { rand, rpl, now, .. } = self;
 
-                while let Ok(opt_packet) = RplOptionPacket::new_checked(options) {
-                    let opt = check!(RplOptionRepr::parse(&opt_packet));
+                for opt in &options {
                     match opt {
                         // Skip padding
                         RplOptionRepr::Pad1 | RplOptionRepr::PadN(_) => (),
@@ -42,18 +41,16 @@ impl InterfaceInner {
                             // We check if the predicates are matched. I they don't match we do not
                             // reset the Trickle timer.
 
-                            if (version_predicate
-                                && rpl.version_number != SequenceCounter::new(version_number))
-                                || (instance_id_predicate && rpl.instance_id != rpl_instance_id)
-                                || (dodag_id_predicate && rpl.dodag_id != Some(dodag_id))
+                            if (*version_predicate
+                                && rpl.version_number != SequenceCounter::new(*version_number))
+                                || (*instance_id_predicate && rpl.instance_id != *rpl_instance_id)
+                                || (*dodag_id_predicate && rpl.dodag_id != Some(*dodag_id))
                             {
                                 return None;
                             }
                         }
                         _ => net_trace!("Received invalid option"),
                     }
-
-                    options = &options[opt.buffer_len()..];
                 }
 
                 if ip_repr.dst_addr.is_unicast() {
@@ -79,15 +76,13 @@ impl InterfaceInner {
                 mode_of_operation,
                 dodag_preference,
                 dodag_id,
-                mut options,
+                options,
                 ..
             } => {
                 let mut dio_rank = Rank::new(rank, consts::DEFAULT_MIN_HOP_RANK_INCREASE);
                 let mut ocp = None;
 
-                while let Ok(opt_packet) = RplOptionPacket::new_checked(options) {
-                    let opt = check!(RplOptionRepr::parse(&opt_packet));
-
+                for opt in &options {
                     match opt {
                         // Skip padding
                         RplOptionRepr::Pad1 | RplOptionRepr::PadN(_) => (),
@@ -114,9 +109,9 @@ impl InterfaceInner {
                             // The dodag configuration option contains information about how the DODAG
                             // operates.
 
-                            dio_rank.min_hop_rank_increase = minimum_hop_rank_increase;
+                            dio_rank.min_hop_rank_increase = *minimum_hop_rank_increase;
                             ocp = Some(objective_code_point);
-                            self.rpl.update_dodag_conf(&opt);
+                            self.rpl.update_dodag_conf(opt);
                         }
                         // The root of a DODAG is responsible for setting the option values.
                         // This information is propagated down the DODAG unchanged.
@@ -126,8 +121,6 @@ impl InterfaceInner {
                         }
                         _ => net_trace!("Received invalid option."),
                     }
-
-                    options = &options[opt.buffer_len()..];
                 }
 
                 // We check if we can accept the DIO message:
@@ -161,7 +154,7 @@ impl InterfaceInner {
                     }
 
                     if (ModeOfOperation::from(mode_of_operation) != self.rpl.mode_of_operation)
-                        || (ocp != Some(self.rpl.ocp))
+                        || (ocp != Some(&self.rpl.ocp))
                     {
                         // We ignore the packet if the Mode of Operation is not the same as ours.
                         // We also ignore the packet if the objective function is different.
@@ -193,7 +186,7 @@ impl InterfaceInner {
                             dodag_preference: self.rpl.dodag_preference,
                             dtsn: self.rpl.dtsn.value(),
                             dodag_id: self.rpl.dodag_id.unwrap(),
-                            options: &[],
+                            options: heapless::Vec::new(),
                         });
 
                         return Some(IpPacket::Icmpv6((
@@ -488,8 +481,9 @@ mod tests {
         Ieee802154Address::Extended(address)
     }
 
-    fn rpl_root_node() -> (Interface, SocketSet<'static>, TestDevice) {
+    fn rpl_root_node(mop: ModeOfOperation) -> (Interface, SocketSet<'static>, TestDevice) {
         let (mut iface, sockets, _) = create(Medium::Ieee802154);
+        iface.context_mut().rpl_mut().mode_of_operation = mop;
 
         iface.set_hardware_addr(HardwareAddress::Ieee802154(ROOT_ADDRESS));
         iface.update_ip_addrs(|a| a[0] = IpCidr::Ipv6(Ipv6Cidr::new(ip_addr(ROOT_ADDRESS), 128)));
@@ -501,8 +495,12 @@ mod tests {
         (iface, sockets, TestDevice::new(Medium::Ieee802154))
     }
 
-    fn rpl_connected_node(addr: Ieee802154Address) -> (Interface, SocketSet<'static>, TestDevice) {
+    fn rpl_connected_node(
+        addr: Ieee802154Address,
+        mop: ModeOfOperation,
+    ) -> (Interface, SocketSet<'static>, TestDevice) {
         let (mut iface, sockets, _) = create(Medium::Ieee802154);
+        iface.context_mut().rpl_mut().mode_of_operation = mop;
 
         iface.set_hardware_addr(HardwareAddress::Ieee802154(addr));
         iface.update_ip_addrs(|a| a[0] = IpCidr::Ipv6(Ipv6Cidr::new(ip_addr(addr), 128)));
@@ -521,8 +519,10 @@ mod tests {
 
     fn rpl_unconnected_node(
         addr: Ieee802154Address,
+        mop: ModeOfOperation,
     ) -> (Interface, SocketSet<'static>, TestDevice) {
         let (mut iface, sockets, _) = create(Medium::Ieee802154);
+        iface.context_mut().rpl_mut().mode_of_operation = mop;
 
         iface.set_hardware_addr(HardwareAddress::Ieee802154(addr));
         iface.update_ip_addrs(|a| a[0] = IpCidr::Ipv6(Ipv6Cidr::new(ip_addr(addr), 128)));
@@ -535,7 +535,8 @@ mod tests {
 
     #[test]
     fn trickle_timer_intervals() {
-        let (mut iface, mut sockets, mut device) = rpl_root_node();
+        let (mut iface, mut sockets, mut device) =
+            rpl_root_node(ModeOfOperation::NoDownwardRoutesMaintained);
 
         let now = Instant::now();
 
@@ -572,7 +573,8 @@ mod tests {
 
     #[test]
     fn reset_trickle_timer_on_dis_multicast() {
-        let (mut iface, mut sockets, mut device) = rpl_connected_node(NODE_1_ADDRESS);
+        let (mut iface, mut sockets, mut device) =
+            rpl_connected_node(NODE_1_ADDRESS, ModeOfOperation::NoDownwardRoutesMaintained);
 
         // Poll the interface and simulate 100 seconds.
         for i in 0..100 {
@@ -588,7 +590,9 @@ mod tests {
         assert_ne!(rpl.dio_timer.get_i(), rpl.dio_timer.min_expiration());
 
         // Create a DIS multicast message.
-        let rpl_repr = RplRepr::DodagInformationSolicitation { options: &[] };
+        let rpl_repr = RplRepr::DodagInformationSolicitation {
+            options: Default::default(),
+        };
         let packet = create_rpl_packet(
             ROOT_ADDRESS,
             Ieee802154Pan(0xbeef),
@@ -615,7 +619,8 @@ mod tests {
 
     #[test]
     fn ignore_dis_with_solicited_information_option_mismatch() {
-        let (mut iface, mut sockets, mut device) = rpl_connected_node(NODE_1_ADDRESS);
+        let (mut iface, mut sockets, mut device) =
+            rpl_connected_node(NODE_1_ADDRESS, ModeOfOperation::NoDownwardRoutesMaintained);
 
         // Poll the interface and simulate 100 seconds.
         for i in 0..100 {
@@ -641,13 +646,9 @@ mod tests {
             version_predicate: true,
             version_number: 240,
         };
-        let mut options = vec![0u8; dis_option.buffer_len()];
-        dis_option.emit(&mut RplOptionPacket::new_unchecked(
-            &mut options[..dis_option.buffer_len()],
-        ));
-        let rpl_repr = RplRepr::DodagInformationSolicitation {
-            options: &options[..],
-        };
+        let mut options = heapless::Vec::new();
+        options.push(dis_option).unwrap();
+        let rpl_repr = RplRepr::DodagInformationSolicitation { options };
         let packet = create_rpl_packet(
             ROOT_ADDRESS,
             Ieee802154Pan(0xbeef),
@@ -672,7 +673,8 @@ mod tests {
 
     #[test]
     fn trickle_timer_is_running_by_default_when_node_is_root() {
-        let (mut iface, mut sockets, mut device) = rpl_root_node();
+        let (mut iface, mut sockets, mut device) =
+            rpl_root_node(ModeOfOperation::NoDownwardRoutesMaintained);
 
         // Poll the interface and simulate 100 seconds.
         for i in 0..100 {
@@ -691,7 +693,8 @@ mod tests {
 
     #[test]
     fn trickle_timer_is_not_running_by_default_when_node_is_not_root() {
-        let (mut iface, mut sockets, mut device) = rpl_unconnected_node(NODE_1_ADDRESS);
+        let (mut iface, mut sockets, mut device) =
+            rpl_unconnected_node(NODE_1_ADDRESS, ModeOfOperation::NoDownwardRoutesMaintained);
 
         // Poll the interface and simulate 100 seconds.
         for i in 0..100 {
@@ -716,7 +719,8 @@ mod tests {
 
     #[test]
     fn reset_trickle_timer_on_selecting_parent_and_increment_consistency_counter() {
-        let (mut iface, mut sockets, mut device) = rpl_unconnected_node(NODE_1_ADDRESS);
+        let (mut iface, mut sockets, mut device) =
+            rpl_unconnected_node(NODE_1_ADDRESS, ModeOfOperation::NoDownwardRoutesMaintained);
 
         // Poll the interface and simulate 100 seconds.
         for i in 0..100 {
@@ -727,11 +731,8 @@ mod tests {
             );
         }
 
-        let dio_conf_option = iface.context().rpl().dodag_configuration();
-        let mut options = vec![0u8; dio_conf_option.buffer_len()];
-        dio_conf_option.emit(&mut RplOptionPacket::new_unchecked(
-            &mut options[..dio_conf_option.buffer_len()],
-        ));
+        let mut options = heapless::Vec::new();
+        options.push(iface.context().rpl().dodag_configuration()).unwrap();
 
         // Create a DIO message from a root node.
         let rpl_repr = RplRepr::DodagInformationObject {
@@ -743,7 +744,7 @@ mod tests {
             dodag_preference: 0,
             dtsn: SequenceCounter::default().value(),
             dodag_id: ip_addr(ROOT_ADDRESS),
-            options: &options[..],
+            options,
         };
         let packet = create_rpl_packet(
             ROOT_ADDRESS,
@@ -770,11 +771,8 @@ mod tests {
         assert_eq!(rpl.dodag_id, Some(ip_addr(ROOT_ADDRESS)));
         assert_eq!(rpl.dio_timer.get_counter(), 1);
 
-        let dio_conf_option = iface.context().rpl().dodag_configuration();
-        let mut options = vec![0u8; dio_conf_option.buffer_len()];
-        dio_conf_option.emit(&mut RplOptionPacket::new_unchecked(
-            &mut options[..dio_conf_option.buffer_len()],
-        ));
+        let mut options = heapless::Vec::new();
+        options.push(iface.context().rpl().dodag_configuration()).unwrap();
 
         let rpl_repr = RplRepr::DodagInformationObject {
             rpl_instance_id: RplInstanceId::from(30),
@@ -785,7 +783,7 @@ mod tests {
             dodag_preference: 0,
             dtsn: SequenceCounter::default().value(),
             dodag_id: ip_addr(ROOT_ADDRESS),
-            options: &options[..],
+            options,
         };
         let packet = create_rpl_packet(
             NODE_2_ADDRESS,
@@ -810,7 +808,8 @@ mod tests {
 
     #[test]
     fn reset_trickle_timer_on_root_receiving_dio_with_wrong_version_number() {
-        let (mut iface, mut sockets, mut device) = rpl_root_node();
+        let (mut iface, mut sockets, mut device) =
+            rpl_root_node(ModeOfOperation::NoDownwardRoutesMaintained);
 
         // Poll the interface and simulate 100 seconds.
         for i in 0..100 {
@@ -824,11 +823,8 @@ mod tests {
         let rpl = iface.context().rpl();
         assert_ne!(rpl.dio_timer.get_i(), rpl.dio_timer.min_expiration());
 
-        let dio_conf_option = iface.context().rpl().dodag_configuration();
-        let mut options = vec![0u8; dio_conf_option.buffer_len()];
-        dio_conf_option.emit(&mut RplOptionPacket::new_unchecked(
-            &mut options[..dio_conf_option.buffer_len()],
-        ));
+        let mut options = heapless::Vec::new();
+        options.push(iface.context().rpl().dodag_configuration()).unwrap();
 
         let mut version_number = SequenceCounter::default();
         version_number.increment();
@@ -843,7 +839,7 @@ mod tests {
             dodag_preference: 0,
             dtsn: SequenceCounter::default().value(),
             dodag_id: ip_addr(ROOT_ADDRESS),
-            options: &options[..],
+            options,
         };
 
         let packet = create_rpl_packet(
@@ -873,7 +869,8 @@ mod tests {
 
     #[test]
     fn reset_trickle_timer_on_parent_advertising_() {
-        let (mut iface, mut sockets, mut device) = rpl_connected_node(NODE_1_ADDRESS);
+        let (mut iface, mut sockets, mut device) =
+            rpl_connected_node(NODE_1_ADDRESS, ModeOfOperation::NoDownwardRoutesMaintained);
 
         // Poll the interface and simulate 100 seconds.
         for i in 0..100 {
@@ -884,11 +881,8 @@ mod tests {
             );
         }
 
-        let dio_conf_option = iface.context().rpl().dodag_configuration();
-        let mut options = vec![0u8; dio_conf_option.buffer_len()];
-        dio_conf_option.emit(&mut RplOptionPacket::new_unchecked(
-            &mut options[..dio_conf_option.buffer_len()],
-        ));
+        let mut options = heapless::Vec::new();
+        options.push(iface.context().rpl().dodag_configuration()).unwrap();
 
         // Create a DIO message from a node, with an infinite Rank.
         let rpl_repr = RplRepr::DodagInformationObject {
@@ -900,7 +894,7 @@ mod tests {
             dodag_preference: 0,
             dtsn: SequenceCounter::default().value(),
             dodag_id: ip_addr(ROOT_ADDRESS),
-            options: &options[..],
+            options,
         };
 
         let packet = create_rpl_packet(
@@ -931,7 +925,8 @@ mod tests {
 
     #[test]
     fn trickle_timer_counter_increment_for_root_dio_from_child_rank_not_infinite() {
-        let (mut iface, mut sockets, mut device) = rpl_root_node();
+        let (mut iface, mut sockets, mut device) =
+            rpl_root_node(ModeOfOperation::NoDownwardRoutesMaintained);
 
         // Poll the interface and simulate 100 seconds.
         for i in 0..100 {
@@ -942,11 +937,8 @@ mod tests {
             );
         }
 
-        let dio_conf_option = iface.context().rpl().dodag_configuration();
-        let mut options = vec![0u8; dio_conf_option.buffer_len()];
-        dio_conf_option.emit(&mut RplOptionPacket::new_unchecked(
-            &mut options[..dio_conf_option.buffer_len()],
-        ));
+        let mut options = heapless::Vec::new();
+        options.push(iface.context().rpl().dodag_configuration()).unwrap();
 
         let packet = create_rpl_packet(
             NODE_1_ADDRESS,
@@ -963,7 +955,7 @@ mod tests {
                 dodag_preference: 0,
                 dtsn: SequenceCounter::default().value(),
                 dodag_id: ip_addr(ROOT_ADDRESS),
-                options: &options[..],
+                options,
             },
         );
 
@@ -981,7 +973,8 @@ mod tests {
 
     #[test]
     fn remove_parent_when_not_hearing_parent() {
-        let (mut iface, mut sockets, mut device) = rpl_connected_node(NODE_1_ADDRESS);
+        let (mut iface, mut sockets, mut device) =
+            rpl_connected_node(NODE_1_ADDRESS, ModeOfOperation::NoDownwardRoutesMaintained);
 
         for i in 0..1500 {
             iface.poll(
@@ -1048,7 +1041,8 @@ mod tests {
 
     #[test]
     fn inconsistent_rpl_hop_by_hop_option() {
-        let (mut iface, mut sockets, mut device) = rpl_connected_node(NODE_1_ADDRESS);
+        let (mut iface, mut sockets, mut device) =
+            rpl_connected_node(NODE_1_ADDRESS, ModeOfOperation::NoDownwardRoutesMaintained);
 
         // Poll the interface and simulate 100 seconds.
         for i in 0..100 {
@@ -1146,7 +1140,8 @@ mod tests {
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
     #[test]
     fn transmitting_udp_packet() {
-        let (mut iface, mut sockets, mut device) = rpl_connected_node(NODE_1_ADDRESS);
+        let (mut iface, mut sockets, mut device) =
+            rpl_connected_node(NODE_1_ADDRESS, ModeOfOperation::NoDownwardRoutesMaintained);
 
         let udp_socket = crate::socket::udp::Socket::new(
             crate::socket::udp::PacketBuffer::new(

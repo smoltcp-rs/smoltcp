@@ -578,17 +578,9 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
 
                 write!(f, "{indent}{rpl}")?;
 
-                let mut options = rpl.options();
-                while let Ok(opt) = super::RplOptionPacket::new_checked(options) {
+                for opt in rpl.options() {
                     indent.increase(f)?;
-                    let opt = match super::RplOptionRepr::parse(&opt) {
-                        Err(err) => return write!(f, "{indent}({err})"),
-                        Ok(opt) => opt,
-                    };
-
                     write!(f, "{indent}{opt}")?;
-
-                    options = &options[opt.buffer_len()..];
                     indent.decrease()?;
                 }
 

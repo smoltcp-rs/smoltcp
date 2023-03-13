@@ -1188,7 +1188,10 @@ impl Interface {
     where
         D: Device + ?Sized,
     {
-        let dis = RplRepr::DodagInformationSolicitation { options: &[] };
+        let dis = RplRepr::DodagInformationSolicitation {
+            options: heapless::Vec::new(),
+        };
+
         net_trace!("Sending {}", dis);
 
         let icmp_rpl = Icmpv6Repr::Rpl(dis);
@@ -1224,9 +1227,8 @@ impl Interface {
     where
         D: Device + ?Sized,
     {
-        let mut buffer = [0; 128];
-        let dodag_conf = self.inner.rpl.dodag_configuration();
-        dodag_conf.emit(&mut RplOptionPacket::new_unchecked(&mut buffer));
+        let mut options = heapless::Vec::new();
+        options.push(self.inner.rpl.dodag_configuration()).unwrap();
 
         let dio = RplRepr::DodagInformationObject {
             rpl_instance_id: self.inner.rpl.instance_id,
@@ -1237,7 +1239,7 @@ impl Interface {
             dodag_preference: self.inner.rpl.dodag_preference,
             dtsn: self.inner.rpl.dtsn.value(),
             dodag_id: self.inner.rpl.dodag_id.unwrap(),
-            options: &buffer[..dodag_conf.buffer_len()],
+            options,
         };
         net_trace!("Sending {}", dio);
 

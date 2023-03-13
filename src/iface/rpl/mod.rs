@@ -75,6 +75,8 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
+        #![allow(unused_variables)]
+
         #[cfg(feature = "rpl-mop-0")]
         let mode_of_operation = ModeOfOperation::NoDownwardRoutesMaintained;
         #[cfg(feature = "rpl-mop-1")]
@@ -237,7 +239,7 @@ impl Rpl {
             dodag_preference: self.dodag_preference,
             dtsn: self.dtsn.value(),
             dodag_id: self.dodag_id.unwrap(),
-            options: &[],
+            options: heapless::Vec::new(),
         }
     }
 
