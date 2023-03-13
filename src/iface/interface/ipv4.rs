@@ -305,7 +305,12 @@ impl InterfaceInner {
                 payload_len: icmp_repr.buffer_len(),
                 hop_limit: 64,
             };
-            Some(IpPacket::Icmpv4((ipv4_reply_repr, icmp_repr)))
+            let mut headers = heapless::Vec::new();
+            headers.push(IpHeader::Icmpv4(icmp_repr)).unwrap();
+            Some(IpPacket {
+                hdr: IpRepr::Ipv4(ipv4_reply_repr),
+                headers,
+            })
         } else if self.is_broadcast_v4(ipv4_repr.dst_addr) {
             // Only reply to broadcasts for echo replies and not other ICMP messages
             match icmp_repr {
@@ -318,7 +323,12 @@ impl InterfaceInner {
                             payload_len: icmp_repr.buffer_len(),
                             hop_limit: 64,
                         };
-                        Some(IpPacket::Icmpv4((ipv4_reply_repr, icmp_repr)))
+                        let mut headers = heapless::Vec::new();
+                        headers.push(IpHeader::Icmpv4(icmp_repr)).unwrap();
+                        Some(IpPacket {
+                            hdr: IpRepr::Ipv4(ipv4_reply_repr),
+                            headers,
+                        })
                     }
                     None => None,
                 },
@@ -404,18 +414,22 @@ impl InterfaceInner {
             group_addr,
             version,
         };
-        let pkt = IpPacket::Igmp((
-            Ipv4Repr {
+        let payload_len = igmp_repr.buffer_len();
+        let mut headers = heapless::Vec::new();
+        headers.push(IpHeader::Igmp(igmp_repr)).unwrap();
+
+        let pkt = IpPacket {
+            hdr: IpRepr::Ipv4(Ipv4Repr {
                 src_addr: iface_addr,
                 // Send to the group being reported
                 dst_addr: group_addr,
                 next_header: IpProtocol::Igmp,
-                payload_len: igmp_repr.buffer_len(),
+                payload_len,
                 hop_limit: 1,
                 // [#183](https://github.com/m-labs/smoltcp/issues/183).
-            },
-            igmp_repr,
-        ));
+            }),
+            headers,
+        };
         Some(pkt)
     }
 
@@ -426,16 +440,21 @@ impl InterfaceInner {
     ) -> Option<IpPacket<'any>> {
         self.ipv4_addr().map(|iface_addr| {
             let igmp_repr = IgmpRepr::LeaveGroup { group_addr };
-            IpPacket::Igmp((
-                Ipv4Repr {
+
+            let payload_len = igmp_repr.buffer_len();
+            let mut headers = heapless::Vec::new();
+            headers.push(IpHeader::Igmp(igmp_repr)).unwrap();
+
+            IpPacket {
+                hdr: IpRepr::Ipv4(Ipv4Repr {
                     src_addr: iface_addr,
                     dst_addr: Ipv4Address::MULTICAST_ALL_ROUTERS,
                     next_header: IpProtocol::Igmp,
-                    payload_len: igmp_repr.buffer_len(),
+                    payload_len,
                     hop_limit: 1,
-                },
-                igmp_repr,
-            ))
+                }),
+                headers,
+            }
         })
     }
 }

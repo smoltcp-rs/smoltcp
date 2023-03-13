@@ -236,16 +236,18 @@ fn test_icmp_error_no_payload() {
         data: &NO_BYTES,
     };
 
-    let expected_repr = IpPacket::Icmpv4((
-        Ipv4Repr {
+    let mut headers = heapless::Vec::new();
+    headers.push(IpHeader::Icmpv4(icmp_repr)).unwrap();
+    let expected_repr = IpPacket {
+        hdr: IpRepr::Ipv4(Ipv4Repr {
             src_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x01]),
             dst_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x02]),
             next_header: IpProtocol::Icmp,
             payload_len: icmp_repr.buffer_len(),
             hop_limit: 64,
-        },
-        icmp_repr,
-    ));
+        }),
+        headers,
+    };
 
     // Ensure that the unknown protocol triggers an error response.
     // And we correctly handle no payload.
@@ -363,16 +365,19 @@ fn test_icmp_error_port_unreachable() {
         },
         data,
     };
-    let expected_repr = IpPacket::Icmpv4((
-        Ipv4Repr {
+    let mut headers = heapless::Vec::new();
+    headers.push(IpHeader::Icmpv4(icmp_repr)).unwrap();
+
+    let expected_repr = IpPacket {
+        hdr: IpRepr::Ipv4(Ipv4Repr {
             src_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x01]),
             dst_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x02]),
             next_header: IpProtocol::Icmp,
             payload_len: icmp_repr.buffer_len(),
             hop_limit: 64,
-        },
-        icmp_repr,
-    ));
+        }),
+        headers,
+    };
 
     // Ensure that the unknown protocol triggers an error response.
     // And we correctly handle no payload.
@@ -548,6 +553,10 @@ fn test_handle_ipv4_broadcast() {
         seq_no: 0xabcd,
         data: &icmpv4_data,
     };
+    let mut headers = heapless::Vec::new();
+    headers
+        .push(IpHeader::Icmpv4(expected_icmpv4_repr))
+        .unwrap();
     let expected_ipv4_repr = Ipv4Repr {
         src_addr: our_ipv4_addr,
         dst_addr: src_ipv4_addr,
@@ -555,7 +564,10 @@ fn test_handle_ipv4_broadcast() {
         hop_limit: 64,
         payload_len: expected_icmpv4_repr.buffer_len(),
     };
-    let expected_packet = IpPacket::Icmpv4((expected_ipv4_repr, expected_icmpv4_repr));
+    let expected_packet = IpPacket {
+        hdr: IpRepr::Ipv4(expected_ipv4_repr),
+        headers,
+    };
 
     assert_eq!(
         iface
@@ -669,29 +681,44 @@ fn test_icmp_reply_size() {
     );
     // The expected packet and the generated packet are equal
     #[cfg(all(feature = "proto-ipv4", not(feature = "proto-ipv6")))]
-    assert_eq!(
-        iface.inner.process_udp(
-            &mut sockets,
-            ip_repr.into(),
-            udp_repr,
-            false,
-            &vec![0x2a; MAX_PAYLOAD_LEN],
-            payload,
-        ),
-        Some(IpPacket::Icmpv4((expected_ip_repr, expected_icmp_repr)))
-    );
+    {
+        let mut headers = heapless::Vec::new();
+        headers.push(IpHeader::Icmpv4(expected_icmp_repr)).unwrap();
+        assert_eq!(
+            iface.inner.process_udp(
+                &mut sockets,
+                ip_repr.into(),
+                udp_repr,
+                false,
+                &vec![0x2a; MAX_PAYLOAD_LEN],
+                payload,
+            ),
+            Some(IpPacket {
+                hdr: IpRepr::Ipv4(expected_ip_repr),
+                headers
+            }),
+        );
+    }
     #[cfg(feature = "proto-ipv6")]
-    assert_eq!(
-        iface.inner.process_udp(
-            &mut sockets,
-            ip_repr.into(),
-            udp_repr,
-            false,
-            &vec![0x2a; MAX_PAYLOAD_LEN],
-            payload,
-        ),
-        Some(IpPacket::Icmpv6((expected_ip_repr, expected_icmp_repr)))
-    );
+    {
+        let mut headers = heapless::Vec::new();
+        headers.push(IpHeader::Icmpv6(expected_icmp_repr)).unwrap();
+
+        assert_eq!(
+            iface.inner.process_udp(
+                &mut sockets,
+                ip_repr.into(),
+                udp_repr,
+                false,
+                &vec![0x2a; MAX_PAYLOAD_LEN],
+                payload,
+            ),
+            Some(IpPacket {
+                hdr: IpRepr::Ipv6(expected_ip_repr),
+                headers
+            })
+        );
+    }
 }
 
 #[test]
@@ -797,15 +824,18 @@ fn test_handle_valid_ndisc_request() {
         payload_len: icmpv6_expected.buffer_len(),
     };
 
+    let mut headers = heapless::Vec::new();
+    headers.push(IpHeader::Icmpv6(icmpv6_expected)).unwrap();
+
     // Ensure an Neighbor Solicitation triggers a Neighbor Advertisement
     assert_eq!(
         iface
             .inner
             .process_ethernet(&mut sockets, frame.into_inner(), &mut iface.fragments),
-        Some(EthernetPacket::Ip(IpPacket::Icmpv6((
-            ipv6_expected,
-            icmpv6_expected
-        ))))
+        Some(EthernetPacket::Ip(IpPacket {
+            hdr: IpRepr::Ipv6(ipv6_expected),
+            headers
+        }))
     );
 
     // Ensure the address of the requestor was entered in the cache
@@ -992,9 +1022,14 @@ fn test_icmpv4_socket() {
         dst_addr: ipv4_repr.src_addr,
         ..ipv4_repr
     };
+    let mut headers = heapless::Vec::new();
+    headers.push(IpHeader::Icmpv4(echo_reply)).unwrap();
     assert_eq!(
         iface.inner.process_icmpv4(&mut sockets, ip_repr, icmp_data),
-        Some(IpPacket::Icmpv4((ipv4_reply, echo_reply)))
+        Some(IpPacket {
+            hdr: IpRepr::Ipv4(ipv4_reply),
+            headers
+        })
     );
 
     let socket = sockets.get_mut::<icmp::Socket>(socket_handle);
@@ -1092,11 +1127,16 @@ fn test_icmpv6_nxthdr_unknown() {
         hop_limit: 0x40,
     };
 
+    let mut headers = heapless::Vec::new();
+    headers.push(IpHeader::Icmpv6(reply_icmp_repr)).unwrap();
     // Ensure the unknown next header causes a ICMPv6 Parameter Problem
     // error message to be sent to the sender.
     assert_eq!(
         iface.inner.process_ipv6(&mut sockets, &frame),
-        Some(IpPacket::Icmpv6((reply_ipv6_repr, reply_icmp_repr)))
+        Some(IpPacket {
+            hdr: IpRepr::Ipv6(reply_ipv6_repr),
+            headers
+        })
     );
 }
 
@@ -1479,10 +1519,19 @@ fn test_echo_request_sixlowpan_128_bytes() {
         &mut iface.fragments,
     );
 
+    let mut headers = heapless::Vec::new();
+    headers
+        .push(IpHeader::Icmpv6(Icmpv6Repr::EchoReply {
+            ident: 39,
+            seq_no: 2,
+            data,
+        }))
+        .unwrap();
+
     assert_eq!(
         result,
-        Some(IpPacket::Icmpv6((
-            Ipv6Repr {
+        Some(IpPacket {
+            hdr: IpRepr::Ipv6(Ipv6Repr {
                 src_addr: Ipv6Address([
                     0xfe, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x92, 0xfc, 0x48, 0xc2, 0xa4, 0x41,
                     0xfc, 0x76,
@@ -1494,13 +1543,9 @@ fn test_echo_request_sixlowpan_128_bytes() {
                 next_header: IpProtocol::Icmpv6,
                 payload_len: 136,
                 hop_limit: 64,
-            },
-            Icmpv6Repr::EchoReply {
-                ident: 39,
-                seq_no: 2,
-                data,
-            }
-        )))
+            }),
+            headers
+        })
     );
 
     iface.inner.neighbor_cache.as_mut().unwrap().fill(
@@ -1647,25 +1692,32 @@ fn test_sixlowpan_udp_with_fragmentation() {
             }
         ))
     );
+    let mut headers = heapless::Vec::new();
+    headers
+        .push(IpHeader::Udp(
+            UdpRepr {
+                src_port: 1234,
+                dst_port: 1234,
+            },
+            udp_data,
+        ))
+        .unwrap();
 
     let tx_token = device.transmit(Instant::now()).unwrap();
     iface.inner.dispatch_ieee802154(
         Ieee802154Address::default(),
         tx_token,
-        IpPacket::Udp((
-            IpRepr::Ipv6(Ipv6Repr {
+        IpPacket {
+            hdr: IpRepr::Ipv6(Ipv6Repr {
                 src_addr: Ipv6Address::default(),
                 dst_addr: Ipv6Address::default(),
                 next_header: IpProtocol::Udp,
                 payload_len: udp_data.len(),
                 hop_limit: 64,
             }),
-            UdpRepr {
-                src_port: 1234,
-                dst_port: 1234,
-            },
-            udp_data,
-        )),
+
+            headers,
+        },
         &mut iface.fragmenter,
     );
 

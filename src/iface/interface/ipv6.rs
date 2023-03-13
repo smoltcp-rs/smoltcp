@@ -179,6 +179,8 @@ impl InterfaceInner {
         ip_repr: Ipv6Repr,
         repr: NdiscRepr<'frame>,
     ) -> Option<IpPacket<'frame>> {
+        use super::IpHeader;
+
         match repr {
             NdiscRepr::NeighborAdvert {
                 lladdr,
@@ -238,7 +240,14 @@ impl InterfaceInner {
                         hop_limit: 0xff,
                         payload_len: advert.buffer_len(),
                     };
-                    Some(IpPacket::Icmpv6((ip_repr, advert)))
+
+                    let mut headers = heapless::Vec::new();
+                    headers.push(IpHeader::Icmpv6(advert)).unwrap();
+
+                    Some(IpPacket {
+                        hdr: IpRepr::Ipv6(ip_repr),
+                        headers,
+                    })
                 } else {
                     None
                 }
@@ -291,6 +300,8 @@ impl InterfaceInner {
         ipv6_repr: Ipv6Repr,
         icmp_repr: Icmpv6Repr<'icmp>,
     ) -> Option<IpPacket<'frame>> {
+        use super::IpHeader;
+
         if ipv6_repr.dst_addr.is_unicast() {
             let ipv6_reply_repr = Ipv6Repr {
                 src_addr: ipv6_repr.dst_addr,
@@ -299,7 +310,13 @@ impl InterfaceInner {
                 payload_len: icmp_repr.buffer_len(),
                 hop_limit: 64,
             };
-            Some(IpPacket::Icmpv6((ipv6_reply_repr, icmp_repr)))
+            let mut headers = heapless::Vec::new();
+            headers.push(IpHeader::Icmpv6(icmp_repr)).unwrap();
+
+            Some(IpPacket {
+                hdr: IpRepr::Ipv6(ipv6_reply_repr),
+                headers,
+            })
         } else {
             // Do not send any ICMP replies to a broadcast destination address.
             None

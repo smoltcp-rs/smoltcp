@@ -302,12 +302,12 @@ impl InterfaceInner {
             ll_src_addr: Some(ll_src_a),
             dst_addr,
             ll_dst_addr: Some(ll_dst_a),
-            next_header: match &packet {
-                IpPacket::Icmpv6(_) => SixlowpanNextHeader::Uncompressed(IpProtocol::Icmpv6),
+            next_header: match &packet.headers[0] {
+                IpHeader::Icmpv6(..) => SixlowpanNextHeader::Uncompressed(IpProtocol::Icmpv6),
                 #[cfg(feature = "socket-tcp")]
-                IpPacket::Tcp(_) => SixlowpanNextHeader::Uncompressed(IpProtocol::Tcp),
+                IpHeader::Tcp(..) => SixlowpanNextHeader::Uncompressed(IpProtocol::Tcp),
                 #[cfg(feature = "socket-udp")]
-                IpPacket::Udp(_) => SixlowpanNextHeader::Compressed,
+                IpHeader::Udp(..) => SixlowpanNextHeader::Compressed,
                 #[allow(unreachable_patterns)]
                 _ => {
                     net_debug!("dispatch_ieee802154: dropping, unhandled protocol.");
@@ -327,24 +327,26 @@ impl InterfaceInner {
         let mut _compressed_headers_len = iphc_repr.buffer_len();
         let mut _uncompressed_headers_len = ip_repr.header_len();
 
-        match packet {
-            #[cfg(feature = "socket-udp")]
-            IpPacket::Udp((_, udpv6_repr, payload)) => {
-                let udp_repr = SixlowpanUdpNhcRepr(udpv6_repr);
-                _compressed_headers_len += udp_repr.header_len();
-                _uncompressed_headers_len += udpv6_repr.header_len();
-                total_size += udp_repr.header_len() + payload.len();
+        for packet in &packet.headers {
+            match packet {
+                #[cfg(feature = "socket-udp")]
+                IpHeader::Udp(udpv6_repr, payload) => {
+                    let udp_repr = SixlowpanUdpNhcRepr(*udpv6_repr);
+                    _compressed_headers_len += udp_repr.header_len();
+                    _uncompressed_headers_len += udpv6_repr.header_len();
+                    total_size += udp_repr.header_len() + payload.len();
+                }
+                #[cfg(feature = "socket-tcp")]
+                IpHeader::Tcp(tcp_repr) => {
+                    total_size += tcp_repr.buffer_len();
+                }
+                #[cfg(feature = "proto-ipv6")]
+                IpHeader::Icmpv6(icmp_repr) => {
+                    total_size += icmp_repr.buffer_len();
+                }
+                #[allow(unreachable_patterns)]
+                _ => unreachable!(),
             }
-            #[cfg(feature = "socket-tcp")]
-            IpPacket::Tcp((_, tcp_repr)) => {
-                total_size += tcp_repr.buffer_len();
-            }
-            #[cfg(feature = "proto-ipv6")]
-            IpPacket::Icmpv6((_, icmp_repr)) => {
-                total_size += icmp_repr.buffer_len();
-            }
-            #[allow(unreachable_patterns)]
-            _ => unreachable!(),
         }
 
         let ieee_len = ieee_repr.buffer_len();
@@ -379,45 +381,47 @@ impl InterfaceInner {
 
                 let b = &mut pkt.buffer[iphc_repr.buffer_len()..];
 
-                match packet {
-                    #[cfg(feature = "socket-udp")]
-                    IpPacket::Udp((_, udpv6_repr, payload)) => {
-                        let udp_repr = SixlowpanUdpNhcRepr(udpv6_repr);
-                        let mut udp_packet = SixlowpanUdpNhcPacket::new_unchecked(
-                            &mut b[..udp_repr.header_len() + payload.len()],
-                        );
-                        udp_repr.emit(
-                            &mut udp_packet,
-                            &iphc_repr.src_addr,
-                            &iphc_repr.dst_addr,
-                            payload.len(),
-                            |buf| buf.copy_from_slice(payload),
-                        );
+                for packet in &packet.headers {
+                    match packet {
+                        #[cfg(feature = "socket-udp")]
+                        IpHeader::Udp(udpv6_repr, payload) => {
+                            let udp_repr = SixlowpanUdpNhcRepr(*udpv6_repr);
+                            let mut udp_packet = SixlowpanUdpNhcPacket::new_unchecked(
+                                &mut b[..udp_repr.header_len() + payload.len()],
+                            );
+                            udp_repr.emit(
+                                &mut udp_packet,
+                                &iphc_repr.src_addr,
+                                &iphc_repr.dst_addr,
+                                payload.len(),
+                                |buf| buf.copy_from_slice(payload),
+                            );
+                        }
+                        #[cfg(feature = "socket-tcp")]
+                        IpHeader::Tcp(tcp_repr) => {
+                            let mut tcp_packet =
+                                TcpPacket::new_unchecked(&mut b[..tcp_repr.buffer_len()]);
+                            tcp_repr.emit(
+                                &mut tcp_packet,
+                                &iphc_repr.src_addr.into(),
+                                &iphc_repr.dst_addr.into(),
+                                &self.caps.checksum,
+                            );
+                        }
+                        #[cfg(feature = "proto-ipv6")]
+                        IpHeader::Icmpv6(icmp_repr) => {
+                            let mut icmp_packet =
+                                Icmpv6Packet::new_unchecked(&mut b[..icmp_repr.buffer_len()]);
+                            icmp_repr.emit(
+                                &iphc_repr.src_addr.into(),
+                                &iphc_repr.dst_addr.into(),
+                                &mut icmp_packet,
+                                &self.caps.checksum,
+                            );
+                        }
+                        #[allow(unreachable_patterns)]
+                        _ => unreachable!(),
                     }
-                    #[cfg(feature = "socket-tcp")]
-                    IpPacket::Tcp((_, tcp_repr)) => {
-                        let mut tcp_packet =
-                            TcpPacket::new_unchecked(&mut b[..tcp_repr.buffer_len()]);
-                        tcp_repr.emit(
-                            &mut tcp_packet,
-                            &iphc_repr.src_addr.into(),
-                            &iphc_repr.dst_addr.into(),
-                            &self.caps.checksum,
-                        );
-                    }
-                    #[cfg(feature = "proto-ipv6")]
-                    IpPacket::Icmpv6((_, icmp_repr)) => {
-                        let mut icmp_packet =
-                            Icmpv6Packet::new_unchecked(&mut b[..icmp_repr.buffer_len()]);
-                        icmp_repr.emit(
-                            &iphc_repr.src_addr.into(),
-                            &iphc_repr.dst_addr.into(),
-                            &mut icmp_packet,
-                            &self.caps.checksum,
-                        );
-                    }
-                    #[allow(unreachable_patterns)]
-                    _ => unreachable!(),
                 }
 
                 pkt.packet_len = total_size;
@@ -493,45 +497,47 @@ impl InterfaceInner {
                 iphc_repr.emit(&mut iphc_packet);
                 tx_buf = &mut tx_buf[iphc_repr.buffer_len()..];
 
-                match packet {
-                    #[cfg(feature = "socket-udp")]
-                    IpPacket::Udp((_, udpv6_repr, payload)) => {
-                        let udp_repr = SixlowpanUdpNhcRepr(udpv6_repr);
-                        let mut udp_packet = SixlowpanUdpNhcPacket::new_unchecked(
-                            &mut tx_buf[..udp_repr.header_len() + payload.len()],
-                        );
-                        udp_repr.emit(
-                            &mut udp_packet,
-                            &iphc_repr.src_addr,
-                            &iphc_repr.dst_addr,
-                            payload.len(),
-                            |buf| buf.copy_from_slice(payload),
-                        );
+                for packet in &packet.headers {
+                    match packet {
+                        #[cfg(feature = "socket-udp")]
+                        IpHeader::Udp(udpv6_repr, payload) => {
+                            let udp_repr = SixlowpanUdpNhcRepr(*udpv6_repr);
+                            let mut udp_packet = SixlowpanUdpNhcPacket::new_unchecked(
+                                &mut tx_buf[..udp_repr.header_len() + payload.len()],
+                            );
+                            udp_repr.emit(
+                                &mut udp_packet,
+                                &iphc_repr.src_addr,
+                                &iphc_repr.dst_addr,
+                                payload.len(),
+                                |buf| buf.copy_from_slice(payload),
+                            );
+                        }
+                        #[cfg(feature = "socket-tcp")]
+                        IpHeader::Tcp(tcp_repr) => {
+                            let mut tcp_packet =
+                                TcpPacket::new_unchecked(&mut tx_buf[..tcp_repr.buffer_len()]);
+                            tcp_repr.emit(
+                                &mut tcp_packet,
+                                &iphc_repr.src_addr.into(),
+                                &iphc_repr.dst_addr.into(),
+                                &self.caps.checksum,
+                            );
+                        }
+                        #[cfg(feature = "proto-ipv6")]
+                        IpHeader::Icmpv6(icmp_repr) => {
+                            let mut icmp_packet =
+                                Icmpv6Packet::new_unchecked(&mut tx_buf[..icmp_repr.buffer_len()]);
+                            icmp_repr.emit(
+                                &iphc_repr.src_addr.into(),
+                                &iphc_repr.dst_addr.into(),
+                                &mut icmp_packet,
+                                &self.caps.checksum,
+                            );
+                        }
+                        #[allow(unreachable_patterns)]
+                        _ => unreachable!(),
                     }
-                    #[cfg(feature = "socket-tcp")]
-                    IpPacket::Tcp((_, tcp_repr)) => {
-                        let mut tcp_packet =
-                            TcpPacket::new_unchecked(&mut tx_buf[..tcp_repr.buffer_len()]);
-                        tcp_repr.emit(
-                            &mut tcp_packet,
-                            &iphc_repr.src_addr.into(),
-                            &iphc_repr.dst_addr.into(),
-                            &self.caps.checksum,
-                        );
-                    }
-                    #[cfg(feature = "proto-ipv6")]
-                    IpPacket::Icmpv6((_, icmp_repr)) => {
-                        let mut icmp_packet =
-                            Icmpv6Packet::new_unchecked(&mut tx_buf[..icmp_repr.buffer_len()]);
-                        icmp_repr.emit(
-                            &iphc_repr.src_addr.into(),
-                            &iphc_repr.dst_addr.into(),
-                            &mut icmp_packet,
-                            &self.caps.checksum,
-                        );
-                    }
-                    #[allow(unreachable_patterns)]
-                    _ => unreachable!(),
                 }
             });
         }
