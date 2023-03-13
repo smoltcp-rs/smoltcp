@@ -2,7 +2,7 @@ use core::cmp::Ordering;
 
 use super::consts::SEQUENCE_WINDOW;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Hash)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct SequenceCounter(u8);
 
@@ -65,6 +65,9 @@ impl PartialEq for SequenceCounter {
             }
         }
     }
+}
+
+impl Eq for SequenceCounter {
 }
 
 impl PartialOrd for SequenceCounter {
