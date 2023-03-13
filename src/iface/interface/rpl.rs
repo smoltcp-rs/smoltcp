@@ -252,6 +252,10 @@ impl InterfaceInner {
                             if !self.rpl.has_parent()
                                 || preferred_parent.rank().dag_rank()
                                     < self.rpl.parent_rank.unwrap().dag_rank()
+                                || (preferred_parent.rank().dag_rank()
+                                    == self.rpl.parent_rank.unwrap().dag_rank()
+                                    && preferred_parent.preference()
+                                        > self.rpl.parent_preference.unwrap())
                             {
                                 self.rpl.parent_address = Some(preferred_parent.ip_addr());
                                 self.rpl.parent_rank = Some(preferred_parent.rank());
