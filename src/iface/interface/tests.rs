@@ -236,16 +236,17 @@ fn test_icmp_error_no_payload() {
         data: &NO_BYTES,
     };
 
-    let expected_repr = IpPacket::Icmpv4((
+    let expected_repr = IpPacket::new(
         Ipv4Repr {
             src_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x01]),
             dst_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x02]),
             next_header: IpProtocol::Icmp,
             payload_len: icmp_repr.buffer_len(),
             hop_limit: 64,
-        },
-        icmp_repr,
-    ));
+        }
+        .into(),
+        IpPayload::Icmpv4(icmp_repr),
+    );
 
     // Ensure that the unknown protocol triggers an error response.
     // And we correctly handle no payload.
@@ -363,16 +364,17 @@ fn test_icmp_error_port_unreachable() {
         },
         data,
     };
-    let expected_repr = IpPacket::Icmpv4((
+    let expected_repr = IpPacket::new(
         Ipv4Repr {
             src_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x01]),
             dst_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x02]),
             next_header: IpProtocol::Icmp,
             payload_len: icmp_repr.buffer_len(),
             hop_limit: 64,
-        },
-        icmp_repr,
-    ));
+        }
+        .into(),
+        IpPayload::Icmpv4(icmp_repr),
+    );
 
     // Ensure that the unknown protocol triggers an error response.
     // And we correctly handle no payload.
@@ -555,7 +557,10 @@ fn test_handle_ipv4_broadcast() {
         hop_limit: 64,
         payload_len: expected_icmpv4_repr.buffer_len(),
     };
-    let expected_packet = IpPacket::Icmpv4((expected_ipv4_repr, expected_icmpv4_repr));
+    let expected_packet = IpPacket::new(
+        expected_ipv4_repr.into(),
+        IpPayload::Icmpv4(expected_icmpv4_repr),
+    );
 
     assert_eq!(
         iface
@@ -678,7 +683,10 @@ fn test_icmp_reply_size() {
             &vec![0x2a; MAX_PAYLOAD_LEN],
             payload,
         ),
-        Some(IpPacket::Icmpv4((expected_ip_repr, expected_icmp_repr)))
+        Some(IpPacket::new(
+            expected_ip_repr.into(),
+            IpPayload::Icmpv4(expected_icmp_repr)
+        ))
     );
     #[cfg(feature = "proto-ipv6")]
     assert_eq!(
@@ -690,7 +698,10 @@ fn test_icmp_reply_size() {
             &vec![0x2a; MAX_PAYLOAD_LEN],
             payload,
         ),
-        Some(IpPacket::Icmpv6((expected_ip_repr, expected_icmp_repr)))
+        Some(IpPacket::new(
+            expected_ip_repr.into(),
+            IpPayload::Icmpv6(expected_icmp_repr)
+        ))
     );
 }
 
@@ -802,10 +813,10 @@ fn test_handle_valid_ndisc_request() {
         iface
             .inner
             .process_ethernet(&mut sockets, frame.into_inner(), &mut iface.fragments),
-        Some(EthernetPacket::Ip(IpPacket::Icmpv6((
-            ipv6_expected,
-            icmpv6_expected
-        ))))
+        Some(EthernetPacket::Ip(IpPacket::new(
+            ipv6_expected.into(),
+            IpPayload::Icmpv6(icmpv6_expected),
+        )))
     );
 
     // Ensure the address of the requestor was entered in the cache
@@ -994,7 +1005,10 @@ fn test_icmpv4_socket() {
     };
     assert_eq!(
         iface.inner.process_icmpv4(&mut sockets, ip_repr, icmp_data),
-        Some(IpPacket::Icmpv4((ipv4_reply, echo_reply)))
+        Some(IpPacket::new(
+            ipv4_reply.into(),
+            IpPayload::Icmpv4(echo_reply)
+        ))
     );
 
     let socket = sockets.get_mut::<icmp::Socket>(socket_handle);
@@ -1096,7 +1110,10 @@ fn test_icmpv6_nxthdr_unknown() {
     // error message to be sent to the sender.
     assert_eq!(
         iface.inner.process_ipv6(&mut sockets, &frame),
-        Some(IpPacket::Icmpv6((reply_ipv6_repr, reply_icmp_repr)))
+        Some(IpPacket::new(
+            reply_ipv6_repr.into(),
+            IpPayload::Icmpv6(reply_icmp_repr)
+        ))
     );
 }
 
@@ -1481,7 +1498,7 @@ fn test_echo_request_sixlowpan_128_bytes() {
 
     assert_eq!(
         result,
-        Some(IpPacket::Icmpv6((
+        Some(IpPacket::new(
             Ipv6Repr {
                 src_addr: Ipv6Address([
                     0xfe, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x92, 0xfc, 0x48, 0xc2, 0xa4, 0x41,
@@ -1494,13 +1511,14 @@ fn test_echo_request_sixlowpan_128_bytes() {
                 next_header: IpProtocol::Icmpv6,
                 payload_len: 136,
                 hop_limit: 64,
-            },
-            Icmpv6Repr::EchoReply {
+            }
+            .into(),
+            IpPayload::Icmpv6(Icmpv6Repr::EchoReply {
                 ident: 39,
                 seq_no: 2,
                 data,
-            }
-        )))
+            })
+        ))
     );
 
     iface.inner.neighbor_cache.as_mut().unwrap().fill(
@@ -1652,7 +1670,7 @@ fn test_sixlowpan_udp_with_fragmentation() {
     iface.inner.dispatch_ieee802154(
         Ieee802154Address::default(),
         tx_token,
-        IpPacket::Udp((
+        IpPacket::new(
             IpRepr::Ipv6(Ipv6Repr {
                 src_addr: Ipv6Address::default(),
                 dst_addr: Ipv6Address::default(),
@@ -1660,12 +1678,14 @@ fn test_sixlowpan_udp_with_fragmentation() {
                 payload_len: udp_data.len(),
                 hop_limit: 64,
             }),
-            UdpRepr {
-                src_port: 1234,
-                dst_port: 1234,
-            },
-            udp_data,
-        )),
+            IpPayload::Udp(
+                UdpRepr {
+                    src_port: 1234,
+                    dst_port: 1234,
+                },
+                udp_data,
+            ),
+        ),
         &mut iface.fragmenter,
     );
 

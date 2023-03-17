@@ -238,7 +238,10 @@ impl InterfaceInner {
                         hop_limit: 0xff,
                         payload_len: advert.buffer_len(),
                     };
-                    Some(IpPacket::Icmpv6((ip_repr, advert)))
+                    Some(IpPacket::new(
+                        ip_repr.into(),
+                        super::IpPayload::Icmpv6(advert),
+                    ))
                 } else {
                     None
                 }
@@ -299,7 +302,10 @@ impl InterfaceInner {
                 payload_len: icmp_repr.buffer_len(),
                 hop_limit: 64,
             };
-            Some(IpPacket::Icmpv6((ipv6_reply_repr, icmp_repr)))
+            Some(IpPacket::new(
+                ipv6_reply_repr.into(),
+                super::IpPayload::Icmpv6(icmp_repr),
+            ))
         } else {
             // Do not send any ICMP replies to a broadcast destination address.
             None

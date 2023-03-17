@@ -305,7 +305,10 @@ impl InterfaceInner {
                 payload_len: icmp_repr.buffer_len(),
                 hop_limit: 64,
             };
-            Some(IpPacket::Icmpv4((ipv4_reply_repr, icmp_repr)))
+            Some(IpPacket::new(
+                IpRepr::Ipv4(ipv4_reply_repr),
+                IpPayload::Icmpv4(icmp_repr),
+            ))
         } else if self.is_broadcast_v4(ipv4_repr.dst_addr) {
             // Only reply to broadcasts for echo replies and not other ICMP messages
             match icmp_repr {
@@ -318,7 +321,10 @@ impl InterfaceInner {
                             payload_len: icmp_repr.buffer_len(),
                             hop_limit: 64,
                         };
-                        Some(IpPacket::Icmpv4((ipv4_reply_repr, icmp_repr)))
+                        Some(IpPacket::new(
+                            ipv4_reply_repr.into(),
+                            IpPayload::Icmpv4(icmp_repr),
+                        ))
                     }
                     None => None,
                 },
@@ -404,7 +410,7 @@ impl InterfaceInner {
             group_addr,
             version,
         };
-        let pkt = IpPacket::Igmp((
+        Some(IpPacket::new(
             Ipv4Repr {
                 src_addr: iface_addr,
                 // Send to the group being reported
@@ -413,10 +419,10 @@ impl InterfaceInner {
                 payload_len: igmp_repr.buffer_len(),
                 hop_limit: 1,
                 // [#183](https://github.com/m-labs/smoltcp/issues/183).
-            },
-            igmp_repr,
-        ));
-        Some(pkt)
+            }
+            .into(),
+            IpPayload::Igmp(igmp_repr),
+        ))
     }
 
     #[cfg(feature = "proto-igmp")]
@@ -426,16 +432,18 @@ impl InterfaceInner {
     ) -> Option<IpPacket<'any>> {
         self.ipv4_addr().map(|iface_addr| {
             let igmp_repr = IgmpRepr::LeaveGroup { group_addr };
-            IpPacket::Igmp((
+
+            IpPacket::new(
                 Ipv4Repr {
                     src_addr: iface_addr,
                     dst_addr: Ipv4Address::MULTICAST_ALL_ROUTERS,
                     next_header: IpProtocol::Igmp,
                     payload_len: igmp_repr.buffer_len(),
                     hop_limit: 1,
-                },
-                igmp_repr,
-            ))
+                }
+                .into(),
+                IpPayload::Igmp(igmp_repr),
+            )
         })
     }
 }
