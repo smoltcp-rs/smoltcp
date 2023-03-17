@@ -5,6 +5,8 @@ pub use super::IpProtocol as Protocol;
 use crate::wire::ipv6option::Ipv6OptionsIterator;
 use crate::wire::{Ipv6Option, Ipv6OptionRepr};
 
+use alloc::vec::Vec;
+
 /// A read/write wrapper around an IPv6 Hop-by-Hop Options Header.
 #[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -173,7 +175,7 @@ pub struct Repr<'a> {
     /// Length of the Hop-by-Hop Options header in 8-octet units, not including the first 8 octets.
     pub length: u8,
     /// The options contained in the Hop-by-Hop Options header.
-    pub options: alloc::vec::Vec<Ipv6OptionRepr<'a>>,
+    pub options: Vec<Ipv6OptionRepr<'a>>,
 }
 
 impl<'a> Repr<'a> {

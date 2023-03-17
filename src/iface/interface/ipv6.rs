@@ -78,6 +78,7 @@ impl InterfaceInner {
             #[cfg(feature = "socket-tcp")]
             IpProtocol::Tcp => self.process_tcp(sockets, ipv6_repr.into(), ip_payload),
 
+            #[cfg(feature = "proto-ipv6-hop-by-hop")]
             IpProtocol::HopByHop => {
                 self.process_hopbyhop(sockets, ipv6_repr, handled_by_raw_socket, ip_payload)
             }
@@ -250,7 +251,7 @@ impl InterfaceInner {
         }
     }
 
-    #[cfg(feature = "proto-ipv6")]
+    #[cfg(feature = "proto-ipv6-hop-by-hop")]
     pub(super) fn process_hopbyhop<'frame>(
         &mut self,
         sockets: &mut SocketSet,

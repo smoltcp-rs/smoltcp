@@ -102,7 +102,7 @@ mod ipv4;
 mod ipv6;
 #[cfg(feature = "proto-ipv6")]
 mod ipv6fragment;
-#[cfg(feature = "proto-ipv6")]
+#[cfg(feature = "proto-ipv6-hop-by-hop")]
 mod ipv6hopbyhop;
 #[cfg(feature = "proto-ipv6")]
 mod ipv6option;
@@ -185,7 +185,7 @@ pub use self::ipv6option::{
     Type as Ipv6OptionType,
 };
 
-#[cfg(feature = "proto-ipv6")]
+#[cfg(feature = "proto-ipv6-hop-by-hop")]
 pub use self::ipv6hopbyhop::{Header as Ipv6HopByHopHeader, Repr as Ipv6HopByHopRepr};
 
 #[cfg(feature = "proto-ipv6")]
@@ -480,7 +480,7 @@ pub struct Ipv4PacketRepr<'a> {
 #[cfg(feature = "proto-ipv6")]
 pub struct Ipv6PacketRepr<'a> {
     hdr: Ipv6Repr,
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "proto-ipv6-hop-by-hop")]
     hop_by_hop: Option<Ipv6HopByHopRepr<'a>>,
     payload: IpPayload<'a>,
 }
@@ -504,7 +504,7 @@ impl<'a> IpPacket<'a> {
             #[cfg(feature = "proto-ipv6")]
             IpRepr::Ipv6(hdr) => Self::Ipv6(Ipv6PacketRepr {
                 hdr,
-                #[cfg(feature = "alloc")]
+                #[cfg(feature = "proto-ipv6-hop-by-hop")]
                 hop_by_hop: None,
                 payload,
             }),

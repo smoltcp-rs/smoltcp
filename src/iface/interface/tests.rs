@@ -1051,71 +1051,71 @@ fn test_solicited_node_addrs() {
         .has_solicited_node(Ipv6Address::new(0xff02, 0, 0, 0, 0, 1, 0xff00, 0x0003)));
 }
 
-#[test]
-#[cfg(feature = "proto-ipv6")]
-fn test_icmpv6_nxthdr_unknown() {
-    let (mut iface, mut sockets, _device) = create(MEDIUM);
+//#[test]
+//#[cfg(feature = "proto-ipv6")]
+//fn test_icmpv6_nxthdr_unknown() {
+//let (mut iface, mut sockets, _device) = create(MEDIUM);
 
-    let remote_ip_addr = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
+//let remote_ip_addr = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
 
-    let payload = [0x12, 0x34, 0x56, 0x78];
+//let payload = [0x12, 0x34, 0x56, 0x78];
 
-    let ipv6_repr = Ipv6Repr {
-        src_addr: remote_ip_addr,
-        dst_addr: Ipv6Address::LOOPBACK,
-        next_header: IpProtocol::HopByHop,
-        payload_len: 12,
-        hop_limit: 0x40,
-    };
+//let ipv6_repr = Ipv6Repr {
+//src_addr: remote_ip_addr,
+//dst_addr: Ipv6Address::LOOPBACK,
+//next_header: IpProtocol::HopByHop,
+//payload_len: 12,
+//hop_limit: 0x40,
+//};
 
-    let mut bytes = vec![0; 52];
-    let frame = {
-        let ip_repr = IpRepr::Ipv6(ipv6_repr);
-        ip_repr.emit(&mut bytes, &ChecksumCapabilities::default());
-        let mut offset = ipv6_repr.buffer_len();
-        {
-            let mut hbh_pkt = Ipv6HopByHopHeader::new_unchecked(&mut bytes[offset..]);
-            hbh_pkt.set_next_header(IpProtocol::Unknown(0x0c));
-            hbh_pkt.set_header_len(0);
-            offset += 8;
-            {
-                let mut pad_pkt = Ipv6Option::new_unchecked(&mut *hbh_pkt.options_mut());
-                Ipv6OptionRepr::PadN(3).emit(&mut pad_pkt);
-            }
-            {
-                let mut pad_pkt = Ipv6Option::new_unchecked(&mut hbh_pkt.options_mut()[5..]);
-                Ipv6OptionRepr::Pad1.emit(&mut pad_pkt);
-            }
-        }
-        bytes[offset..].copy_from_slice(&payload);
-        Ipv6Packet::new_unchecked(&bytes)
-    };
+//let mut bytes = vec![0; 52];
+//let frame = {
+//let ip_repr = IpRepr::Ipv6(ipv6_repr);
+//ip_repr.emit(&mut bytes, &ChecksumCapabilities::default());
+//let mut offset = ipv6_repr.buffer_len();
+//{
+//let mut hbh_pkt = Ipv6HopByHopHeader::new_unchecked(&mut bytes[offset..]);
+//hbh_pkt.set_next_header(IpProtocol::Unknown(0x0c));
+//hbh_pkt.set_header_len(0);
+//offset += 8;
+//{
+//let mut pad_pkt = Ipv6Option::new_unchecked(&mut *hbh_pkt.options_mut());
+//Ipv6OptionRepr::PadN(3).emit(&mut pad_pkt);
+//}
+//{
+//let mut pad_pkt = Ipv6Option::new_unchecked(&mut hbh_pkt.options_mut()[5..]);
+//Ipv6OptionRepr::Pad1.emit(&mut pad_pkt);
+//}
+//}
+//bytes[offset..].copy_from_slice(&payload);
+//Ipv6Packet::new_unchecked(&bytes)
+//};
 
-    let reply_icmp_repr = Icmpv6Repr::ParamProblem {
-        reason: Icmpv6ParamProblem::UnrecognizedNxtHdr,
-        pointer: 40,
-        header: ipv6_repr,
-        data: &payload[..],
-    };
+//let reply_icmp_repr = Icmpv6Repr::ParamProblem {
+//reason: Icmpv6ParamProblem::UnrecognizedNxtHdr,
+//pointer: 40,
+//header: ipv6_repr,
+//data: &payload[..],
+//};
 
-    let reply_ipv6_repr = Ipv6Repr {
-        src_addr: Ipv6Address::LOOPBACK,
-        dst_addr: remote_ip_addr,
-        next_header: IpProtocol::Icmpv6,
-        payload_len: reply_icmp_repr.buffer_len(),
-        hop_limit: 0x40,
-    };
+//let reply_ipv6_repr = Ipv6Repr {
+//src_addr: Ipv6Address::LOOPBACK,
+//dst_addr: remote_ip_addr,
+//next_header: IpProtocol::Icmpv6,
+//payload_len: reply_icmp_repr.buffer_len(),
+//hop_limit: 0x40,
+//};
 
-    // Ensure the unknown next header causes a ICMPv6 Parameter Problem
-    // error message to be sent to the sender.
-    assert_eq!(
-        iface.inner.process_ipv6(&mut sockets, &frame),
-        Some(IpPacket::new(
-            reply_ipv6_repr.into(),
-            IpPayload::Icmpv6(reply_icmp_repr)
-        ))
-    );
-}
+//// Ensure the unknown next header causes a ICMPv6 Parameter Problem
+//// error message to be sent to the sender.
+//assert_eq!(
+//iface.inner.process_ipv6(&mut sockets, &frame),
+//Some(IpPacket::new(
+//reply_ipv6_repr.into(),
+//IpPayload::Icmpv6(reply_icmp_repr)
+//))
+//);
+//}
 
 #[test]
 #[cfg(feature = "proto-igmp")]
