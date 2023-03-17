@@ -457,3 +457,200 @@ impl From<HardwareAddress> for RawHardwareAddress {
         Self::from_bytes(addr.as_bytes())
     }
 }
+
+#[derive(Debug, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum IpPacket<'a> {
+    #[cfg(feature = "proto-ipv4")]
+    Ipv4(Ipv4PacketRepr<'a>),
+    #[cfg(feature = "proto-ipv6")]
+    Ipv6(Ipv6PacketRepr<'a>),
+}
+
+#[derive(Debug, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg(feature = "proto-ipv4")]
+pub struct Ipv4PacketRepr<'a> {
+    hdr: Ipv4Repr,
+    payload: IpPayload<'a>,
+}
+
+#[derive(Debug, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg(feature = "proto-ipv6")]
+pub struct Ipv6PacketRepr<'a> {
+    hdr: Ipv6Repr,
+    #[cfg(feature = "alloc")]
+    hop_by_hop: Option<Ipv6HopByHopRepr<'a>>,
+    payload: IpPayload<'a>,
+}
+
+impl<'a> IpPacket<'a> {
+    pub fn new(hdr: IpRepr, payload: IpPayload<'a>) -> Self {
+        // Check that the packet we make makes sense.
+        match (hdr.version(), &payload) {
+            #[cfg(all(feature = "proto-ipv4", feature = "proto-ipv6"))]
+            (IpVersion::Ipv4, &IpPayload::Icmpv6(..)) => unreachable!(),
+            #[cfg(all(feature = "proto-ipv4", feature = "proto-ipv6"))]
+            (IpVersion::Ipv6, &IpPayload::Icmpv4(..)) => unreachable!(),
+            #[cfg(all(feature = "proto-ipv6", feature = "socket-dhcpv4"))]
+            (IpVersion::Ipv6, &IpPayload::Dhcpv4(..)) => unreachable!(),
+            _ => (),
+        }
+
+        match hdr {
+            #[cfg(feature = "proto-ipv4")]
+            IpRepr::Ipv4(hdr) => Self::Ipv4(Ipv4PacketRepr { hdr, payload }),
+            #[cfg(feature = "proto-ipv6")]
+            IpRepr::Ipv6(hdr) => Self::Ipv6(Ipv6PacketRepr {
+                hdr,
+                #[cfg(feature = "alloc")]
+                hop_by_hop: None,
+                payload,
+            }),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum IpPayload<'a> {
+    #[cfg(feature = "proto-ipv4")]
+    Icmpv4(Icmpv4Repr<'a>),
+    #[cfg(feature = "proto-igmp")]
+    Igmp(IgmpRepr),
+    #[cfg(feature = "proto-ipv6")]
+    Icmpv6(Icmpv6Repr<'a>),
+    #[cfg(feature = "socket-raw")]
+    Raw(&'a [u8]),
+    #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
+    Udp(UdpRepr, &'a [u8]),
+    #[cfg(feature = "socket-tcp")]
+    Tcp(TcpRepr<'a>),
+    #[cfg(feature = "socket-dhcpv4")]
+    Dhcpv4(UdpRepr, DhcpRepr<'a>),
+}
+
+impl<'a> IpPacket<'a> {
+    pub fn header(&self) -> IpRepr {
+        match &self {
+            #[cfg(feature = "proto-ipv4")]
+            Self::Ipv4(Ipv4PacketRepr { hdr, .. }) => IpRepr::Ipv4(*hdr),
+            #[cfg(feature = "proto-ipv6")]
+            Self::Ipv6(Ipv6PacketRepr { hdr, .. }) => IpRepr::Ipv6(*hdr),
+        }
+    }
+
+    pub fn set_header(&mut self, header: IpRepr) {
+        match (self, header) {
+            #[cfg(feature = "proto-ipv4")]
+            (IpPacket::Ipv4(Ipv4PacketRepr { hdr, .. }), IpRepr::Ipv4(new_header)) => {
+                *hdr = new_header
+            }
+            #[cfg(feature = "proto-ipv6")]
+            (IpPacket::Ipv6(Ipv6PacketRepr { hdr, .. }), IpRepr::Ipv6(new_header)) => {
+                *hdr = new_header
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    pub fn payload(&self) -> &IpPayload {
+        match &self {
+            #[cfg(feature = "proto-ipv4")]
+            Self::Ipv4(Ipv4PacketRepr { payload, .. }) => payload,
+            #[cfg(feature = "proto-ipv6")]
+            Self::Ipv6(Ipv6PacketRepr { payload, .. }) => payload,
+        }
+    }
+
+    pub fn payload_mut(&mut self) -> &'a mut IpPayload {
+        match self {
+            #[cfg(feature = "proto-ipv4")]
+            Self::Ipv4(Ipv4PacketRepr { payload, .. }) => payload,
+            #[cfg(feature = "proto-ipv6")]
+            Self::Ipv6(Ipv6PacketRepr { payload, .. }) => payload,
+        }
+    }
+
+    pub fn emit(&self, mut buffer: &mut [u8], caps: &crate::phy::DeviceCapabilities) {
+        let hdr = self.header();
+        match hdr {
+            #[cfg(feature = "proto-ipv4")]
+            IpRepr::Ipv4(ip) => {
+                ip.emit(
+                    &mut Ipv4Packet::new_unchecked(&mut buffer[..]),
+                    &caps.checksum,
+                );
+                buffer = &mut buffer[ip.buffer_len()..];
+            }
+            #[cfg(feature = "proto-ipv6")]
+            IpRepr::Ipv6(ip) => {
+                ip.emit(&mut Ipv6Packet::new_unchecked(&mut buffer[..]));
+                buffer = &mut buffer[ip.buffer_len()..];
+            }
+        }
+        match self.payload() {
+            #[cfg(feature = "proto-ipv4")]
+            IpPayload::Icmpv4(icmpv4_repr) => {
+                icmpv4_repr.emit(&mut Icmpv4Packet::new_unchecked(buffer), &caps.checksum)
+            }
+            #[cfg(feature = "proto-igmp")]
+            IpPayload::Igmp(igmp_repr) => igmp_repr.emit(&mut IgmpPacket::new_unchecked(buffer)),
+            #[cfg(feature = "proto-ipv6")]
+            IpPayload::Icmpv6(icmpv6_repr) => icmpv6_repr.emit(
+                &hdr.src_addr(),
+                &hdr.dst_addr(),
+                &mut Icmpv6Packet::new_unchecked(buffer),
+                &caps.checksum,
+            ),
+            #[cfg(feature = "socket-raw")]
+            IpPayload::Raw(raw_packet) => buffer.copy_from_slice(raw_packet),
+            #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
+            IpPayload::Udp(udp_repr, inner_payload) => udp_repr.emit(
+                &mut UdpPacket::new_unchecked(buffer),
+                &hdr.src_addr(),
+                &hdr.dst_addr(),
+                inner_payload.len(),
+                |buf| buf.copy_from_slice(inner_payload),
+                &caps.checksum,
+            ),
+            #[cfg(feature = "socket-tcp")]
+            IpPayload::Tcp(mut tcp_repr) => {
+                // This is a terrible hack to make TCP performance more acceptable on systems
+                // where the TCP buffers are significantly larger than network buffers,
+                // e.g. a 64 kB TCP receive buffer (and so, when empty, a 64k window)
+                // together with four 1500 B Ethernet receive buffers. If left untreated,
+                // this would result in our peer pushing our window and sever packet loss.
+                //
+                // I'm really not happy about this "solution" but I don't know what else to do.
+                if let Some(max_burst_size) = caps.max_burst_size {
+                    let mut max_segment_size = caps.max_transmission_unit;
+                    max_segment_size -= hdr.header_len();
+                    max_segment_size -= tcp_repr.header_len();
+
+                    let max_window_size = max_burst_size * max_segment_size;
+                    if tcp_repr.window_len as usize > max_window_size {
+                        tcp_repr.window_len = max_window_size as u16;
+                    }
+                }
+
+                tcp_repr.emit(
+                    &mut TcpPacket::new_unchecked(buffer),
+                    &hdr.src_addr(),
+                    &hdr.dst_addr(),
+                    &caps.checksum,
+                );
+            }
+            #[cfg(feature = "socket-dhcpv4")]
+            IpPayload::Dhcpv4(udp_repr, dhcp_repr) => udp_repr.emit(
+                &mut UdpPacket::new_unchecked(buffer),
+                &hdr.src_addr(),
+                &hdr.dst_addr(),
+                dhcp_repr.buffer_len(),
+                |buf| dhcp_repr.emit(&mut DhcpPacket::new_unchecked(buf)).unwrap(),
+                &caps.checksum,
+            ),
+        }
+    }
+}

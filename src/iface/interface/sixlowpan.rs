@@ -270,7 +270,7 @@ impl InterfaceInner {
         // fragment it.
         let ll_src_a = self.hardware_addr.unwrap().ieee802154_or_panic();
 
-        let ip_hdr = &packet.hdr;
+        let ip_hdr = packet.header();
 
         let (src_addr, dst_addr) = match (ip_hdr.src_addr(), ip_hdr.dst_addr()) {
             (IpAddress::Ipv6(src_addr), IpAddress::Ipv6(dst_addr)) => (src_addr, dst_addr),
@@ -302,7 +302,7 @@ impl InterfaceInner {
             ll_src_addr: Some(ll_src_a),
             dst_addr,
             ll_dst_addr: Some(ll_dst_a),
-            next_header: match &packet.payload {
+            next_header: match packet.payload() {
                 IpPayload::Icmpv6(..) => SixlowpanNextHeader::Uncompressed(IpProtocol::Icmpv6),
                 #[cfg(feature = "socket-tcp")]
                 IpPayload::Tcp(..) => SixlowpanNextHeader::Uncompressed(IpProtocol::Tcp),
@@ -327,10 +327,10 @@ impl InterfaceInner {
         let mut _compressed_headers_len = iphc_repr.buffer_len();
         let mut _uncompressed_headers_len = ip_hdr.header_len();
 
-        match packet.payload {
+        match packet.payload() {
             #[cfg(feature = "socket-udp")]
             IpPayload::Udp(udpv6_repr, payload) => {
-                let udp_repr = SixlowpanUdpNhcRepr(udpv6_repr);
+                let udp_repr = SixlowpanUdpNhcRepr(*udpv6_repr);
                 _compressed_headers_len += udp_repr.header_len();
                 _uncompressed_headers_len += udpv6_repr.header_len();
                 total_size += udp_repr.header_len() + payload.len();
@@ -379,10 +379,10 @@ impl InterfaceInner {
 
                 let b = &mut pkt.buffer[iphc_repr.buffer_len()..];
 
-                match packet.payload {
+                match packet.payload() {
                     #[cfg(feature = "socket-udp")]
                     IpPayload::Udp(udpv6_repr, payload) => {
-                        let udp_repr = SixlowpanUdpNhcRepr(udpv6_repr);
+                        let udp_repr = SixlowpanUdpNhcRepr(*udpv6_repr);
                         let mut udp_packet = SixlowpanUdpNhcPacket::new_unchecked(
                             &mut b[..udp_repr.header_len() + payload.len()],
                         );
@@ -424,7 +424,7 @@ impl InterfaceInner {
 
                 // The datagram size that we need to set in the first fragment header is equal to the
                 // IPv6 payload length + 40.
-                pkt.sixlowpan.datagram_size = (packet.hdr.payload_len() + 40) as u16;
+                pkt.sixlowpan.datagram_size = (packet.header().payload_len() + 40) as u16;
 
                 // We generate a random tag.
                 let tag = self.get_sixlowpan_fragment_tag();
@@ -493,10 +493,10 @@ impl InterfaceInner {
                 iphc_repr.emit(&mut iphc_packet);
                 tx_buf = &mut tx_buf[iphc_repr.buffer_len()..];
 
-                match packet.payload {
+                match packet.payload() {
                     #[cfg(feature = "socket-udp")]
                     IpPayload::Udp(udpv6_repr, payload) => {
-                        let udp_repr = SixlowpanUdpNhcRepr(udpv6_repr);
+                        let udp_repr = SixlowpanUdpNhcRepr(*udpv6_repr);
                         let mut udp_packet = SixlowpanUdpNhcPacket::new_unchecked(
                             &mut tx_buf[..udp_repr.header_len() + payload.len()],
                         );
