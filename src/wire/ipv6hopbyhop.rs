@@ -3,6 +3,7 @@ use core::fmt;
 
 pub use super::IpProtocol as Protocol;
 use crate::wire::ipv6option::Ipv6OptionsIterator;
+use crate::wire::{Ipv6Option, Ipv6OptionRepr};
 
 /// A read/write wrapper around an IPv6 Hop-by-Hop Options Header.
 #[derive(Debug, PartialEq, Eq)]
@@ -115,6 +116,13 @@ impl<'a, T: AsRef<[u8]> + ?Sized> Header<&'a T> {
         let data = self.buffer.as_ref();
         &data[field::OPTIONS(data[field::LENGTH])]
     }
+
+    /// Return an `Iterator` for the contained options.
+    pub fn options_iter(&self) -> Ipv6OptionsIterator<'a> {
+        let opts = self.options();
+        let len = opts.len();
+        Ipv6OptionsIterator::new(opts, len)
+    }
 }
 
 impl<T: AsRef<[u8]> + AsMut<[u8]>> Header<T> {
@@ -157,7 +165,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Header<&'a T> {
 }
 
 /// A high-level representation of an IPv6 Hop-by-Hop Options header.
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Repr<'a> {
     /// The type of header immediately following the Hop-by-Hop Options header.
@@ -165,7 +173,7 @@ pub struct Repr<'a> {
     /// Length of the Hop-by-Hop Options header in 8-octet units, not including the first 8 octets.
     pub length: u8,
     /// The options contained in the Hop-by-Hop Options header.
-    pub options: &'a [u8],
+    pub options: alloc::vec::Vec<Ipv6OptionRepr<'a>>,
 }
 
 impl<'a> Repr<'a> {
@@ -174,10 +182,15 @@ impl<'a> Repr<'a> {
     where
         T: AsRef<[u8]> + ?Sized,
     {
+        let mut options = Vec::new();
+        for opt in header.options_iter() {
+            options.push(opt?);
+        }
+
         Ok(Repr {
             next_header: header.next_header(),
             length: header.header_len(),
-            options: header.options(),
+            options,
         })
     }
 
@@ -191,12 +204,12 @@ impl<'a> Repr<'a> {
     pub fn emit<T: AsRef<[u8]> + AsMut<[u8]> + ?Sized>(&self, header: &mut Header<&mut T>) {
         header.set_next_header(self.next_header);
         header.set_header_len(self.length);
-        header.options_mut().copy_from_slice(self.options);
-    }
 
-    /// Return an `Iterator` for the contained options.
-    pub fn options(&self) -> Ipv6OptionsIterator {
-        Ipv6OptionsIterator::new(self.options, self.buffer_len() - 2)
+        let mut buffer = header.options_mut();
+        for opt in &self.options {
+            opt.emit(&mut Ipv6Option::new_unchecked(&mut buffer[..]));
+            buffer = &mut buffer[opt.buffer_len()..];
+        }
     }
 }
 
@@ -319,7 +332,7 @@ mod test {
             Repr {
                 next_header: Protocol::Tcp,
                 length: 0,
-                options: &REPR_PACKET_PAD4[2..]
+                options: vec![Ipv6OptionRepr::PadN(4)],
             }
         );
 
@@ -330,7 +343,7 @@ mod test {
             Repr {
                 next_header: Protocol::Tcp,
                 length: 1,
-                options: &REPR_PACKET_PAD12[2..]
+                options: vec![Ipv6OptionRepr::PadN(12)],
             }
         );
     }
@@ -340,7 +353,7 @@ mod test {
         let repr = Repr {
             next_header: Protocol::Tcp,
             length: 0,
-            options: &REPR_PACKET_PAD4[2..],
+            options: vec![Ipv6OptionRepr::PadN(4)],
         };
         let mut bytes = [0u8; 8];
         let mut header = Header::new_unchecked(&mut bytes);
@@ -350,7 +363,7 @@ mod test {
         let repr = Repr {
             next_header: Protocol::Tcp,
             length: 1,
-            options: &REPR_PACKET_PAD12[2..],
+            options: vec![Ipv6OptionRepr::PadN(12)],
         };
         let mut bytes = [0u8; 16];
         let mut header = Header::new_unchecked(&mut bytes);

@@ -260,7 +260,7 @@ impl InterfaceInner {
     ) -> Option<IpPacket<'frame>> {
         let hbh_pkt = check!(Ipv6HopByHopHeader::new_checked(ip_payload));
         let hbh_repr = check!(Ipv6HopByHopRepr::parse(&hbh_pkt));
-        for opt_repr in hbh_repr.options() {
+        for opt_repr in hbh_pkt.options_iter() {
             let opt_repr = check!(opt_repr);
             match opt_repr {
                 Ipv6OptionRepr::Pad1 | Ipv6OptionRepr::PadN(_) => (),
