@@ -379,7 +379,6 @@ impl From<ipv4::Address> for Address {
 /// A specification of an IPv6 CIDR block, containing an address and a variable-length
 /// subnet masking prefix length.
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Cidr {
     address: Address,
     prefix_len: u8,
@@ -441,6 +440,13 @@ impl fmt::Display for Cidr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // https://tools.ietf.org/html/rfc4291#section-2.3
         write!(f, "{}/{}", self.address, self.prefix_len)
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl defmt::Format for Cidr {
+    fn format(&self, f: defmt::Formatter) {
+        defmt::write!(f, "{}/{=u8}", self.address, self.prefix_len);
     }
 }
 
