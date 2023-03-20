@@ -27,7 +27,6 @@ pub const IPV4_MAPPED_PREFIX_SIZE: usize = ADDR_SIZE - 4; // 4 == ipv4::ADDR_SIZ
 
 /// A sixteen-octet IPv6 address.
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Address(pub [u8; ADDR_SIZE]);
 
 impl Address {
@@ -305,6 +304,67 @@ impl fmt::Display for Address {
     }
 }
 
+#[cfg(feature = "defmt")]
+impl defmt::Format for Address {
+    fn format(&self, f: defmt::Formatter) {
+        if self.is_ipv4_mapped() {
+            return defmt::write!(
+                f,
+                "::ffff:{}.{}.{}.{}",
+                self.0[IPV4_MAPPED_PREFIX_SIZE + 0],
+                self.0[IPV4_MAPPED_PREFIX_SIZE + 1],
+                self.0[IPV4_MAPPED_PREFIX_SIZE + 2],
+                self.0[IPV4_MAPPED_PREFIX_SIZE + 3]
+            );
+        }
+
+        // The string representation of an IPv6 address should
+        // collapse a series of 16 bit sections that evaluate
+        // to 0 to "::"
+        //
+        // See https://tools.ietf.org/html/rfc4291#section-2.2
+        // for details.
+        enum State {
+            Head,
+            HeadBody,
+            Tail,
+            TailBody,
+        }
+        let mut words = [0u16; 8];
+        self.write_parts(&mut words);
+        let mut state = State::Head;
+        for word in words.iter() {
+            state = match (*word, &state) {
+                // Once a u16 equal to zero write a double colon and
+                // skip to the next non-zero u16.
+                (0, &State::Head) | (0, &State::HeadBody) => {
+                    defmt::write!(f, "::");
+                    State::Tail
+                }
+                // Continue iterating without writing any characters until
+                // we hit a non-zero value.
+                (0, &State::Tail) => State::Tail,
+                // When the state is Head or Tail write a u16 in hexadecimal
+                // without the leading colon if the value is not 0.
+                (_, &State::Head) => {
+                    defmt::write!(f, "{:x}", word);
+                    State::HeadBody
+                }
+                (_, &State::Tail) => {
+                    defmt::write!(f, "{:x}", word);
+                    State::TailBody
+                }
+                // Write the u16 with a leading colon when parsing a value
+                // that isn't the first in a section
+                (_, &State::HeadBody) | (_, &State::TailBody) => {
+                    defmt::write!(f, ":{:x}", word);
+                    state
+                }
+            }
+        }
+    }
+}
+
 #[cfg(feature = "proto-ipv4")]
 /// Convert the given IPv4 address into a IPv4-mapped IPv6 address
 impl From<ipv4::Address> for Address {
@@ -319,7 +379,6 @@ impl From<ipv4::Address> for Address {
 /// A specification of an IPv6 CIDR block, containing an address and a variable-length
 /// subnet masking prefix length.
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Cidr {
     address: Address,
     prefix_len: u8,
@@ -381,6 +440,13 @@ impl fmt::Display for Cidr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // https://tools.ietf.org/html/rfc4291#section-2.3
         write!(f, "{}/{}", self.address, self.prefix_len)
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl defmt::Format for Cidr {
+    fn format(&self, f: defmt::Formatter) {
+        defmt::write!(f, "{}/{=u8}", self.address, self.prefix_len);
     }
 }
 

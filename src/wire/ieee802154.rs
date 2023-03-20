@@ -82,11 +82,32 @@ impl Pan {
 
 /// A IEEE 802.15.4 address.
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Address {
     Absent,
     Short([u8; 2]),
     Extended([u8; 8]),
+}
+
+#[cfg(feature = "defmt")]
+impl defmt::Format for Address {
+    fn format(&self, f: defmt::Formatter) {
+        match self {
+            Self::Absent => defmt::write!(f, "not-present"),
+            Self::Short(bytes) => defmt::write!(f, "{:02x}:{:02x}", bytes[0], bytes[1]),
+            Self::Extended(bytes) => defmt::write!(
+                f,
+                "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+                bytes[0],
+                bytes[1],
+                bytes[2],
+                bytes[3],
+                bytes[4],
+                bytes[5],
+                bytes[6],
+                bytes[7]
+            ),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -171,10 +192,10 @@ impl fmt::Display for Address {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Absent => write!(f, "not-present"),
-            Self::Short(bytes) => write!(f, "{:02x}-{:02x}", bytes[0], bytes[1]),
+            Self::Short(bytes) => write!(f, "{:02x}:{:02x}", bytes[0], bytes[1]),
             Self::Extended(bytes) => write!(
                 f,
-                "{:02x}-{:02x}-{:02x}-{:02x}-{:02x}-{:02x}-{:02x}-{:02x}",
+                "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
                 bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7]
             ),
         }

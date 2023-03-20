@@ -274,7 +274,7 @@ impl fmt::Display for Cidr {
 #[cfg(feature = "defmt")]
 impl defmt::Format for Cidr {
     fn format(&self, f: defmt::Formatter) {
-        defmt::write!(f, "{:?}/{=u8}", self.address, self.prefix_len);
+        defmt::write!(f, "{}/{=u8}", self.address, self.prefix_len);
     }
 }
 

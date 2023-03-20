@@ -22,7 +22,6 @@ use core::{fmt, ops};
 /// * A value less than `0` indicates a time before the starting
 ///   point.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Instant {
     micros: i64,
 }
@@ -134,6 +133,13 @@ impl fmt::Display for Instant {
     }
 }
 
+#[cfg(feature = "defmt")]
+impl defmt::Format for Instant {
+    fn format(&self, f: defmt::Formatter) {
+        defmt::write!(f, "{}.{:03}s", self.secs(), self.millis());
+    }
+}
+
 impl ops::Add<Duration> for Instant {
     type Output = Instant;
 
@@ -172,7 +178,6 @@ impl ops::Sub<Instant> for Instant {
 
 /// A relative amount of time.
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Duration {
     micros: u64,
 }
@@ -227,6 +232,13 @@ impl Duration {
 impl fmt::Display for Duration {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}.{:03}s", self.secs(), self.millis())
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl defmt::Format for Duration {
+    fn format(&self, f: defmt::Formatter) {
+        defmt::write!(f, "{}.{:03}s", self.secs(), self.millis());
     }
 }
 
