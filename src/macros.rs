@@ -41,7 +41,7 @@ macro_rules! enum_with_unknown {
             ),+ $(,)?
         }
     ) => {
-        #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+        #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
         #[cfg_attr(feature = "defmt", derive(defmt::Format))]
         $( #[$enum_attr] )*
         pub enum $name {
