@@ -12,6 +12,15 @@ use crate::wire::{Ipv6Address, Ipv6Cidr};
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct RouteTableFull;
 
+impl core::fmt::Display for RouteTableFull {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "Route table full")
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for RouteTableFull {}
+
 /// A prefix of addresses that should be routed via a router
 #[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
