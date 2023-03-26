@@ -27,7 +27,6 @@ impl fmt::Display for AssemblerError {
 #[cfg(feature = "std")]
 impl std::error::Error for AssemblerError {}
 
-
 /// Packet assembler is full
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
