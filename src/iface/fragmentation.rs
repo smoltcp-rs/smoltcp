@@ -18,10 +18,28 @@ type Buffer = [u8; REASSEMBLY_BUFFER_SIZE];
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct AssemblerError;
 
+impl fmt::Display for AssemblerError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "AssemblerError")
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for AssemblerError {}
+
 /// Packet assembler is full
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct AssemblerFullError;
+
+impl fmt::Display for AssemblerFullError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "AssemblerFullError")
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for AssemblerFullError {}
 
 /// Holds different fragments of one packet, used for assembling fragmented packets.
 ///

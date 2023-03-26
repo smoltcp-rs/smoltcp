@@ -5,6 +5,15 @@ use crate::config::ASSEMBLER_MAX_SEGMENT_COUNT;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TooManyHolesError;
 
+impl fmt::Display for TooManyHolesError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "too many holes")
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for TooManyHolesError {}
+
 /// A contiguous chunk of absent data, followed by a contiguous chunk of present data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]

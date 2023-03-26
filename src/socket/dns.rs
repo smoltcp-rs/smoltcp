@@ -36,6 +36,19 @@ pub enum StartQueryError {
     NameTooLong,
 }
 
+impl core::fmt::Display for StartQueryError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            StartQueryError::NoFreeSlot => write!(f, "No free slot"),
+            StartQueryError::InvalidName => write!(f, "Invalid name"),
+            StartQueryError::NameTooLong => write!(f, "Name too long"),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for StartQueryError {}
+
 /// Error returned by [`Socket::get_query_result`]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -45,6 +58,18 @@ pub enum GetQueryResultError {
     /// Query failed.
     Failed,
 }
+
+impl core::fmt::Display for GetQueryResultError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            GetQueryResultError::Pending => write!(f, "Query is not done yet"),
+            GetQueryResultError::Failed => write!(f, "Query failed"),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for GetQueryResultError {}
 
 /// State for an in-progress DNS query.
 ///
