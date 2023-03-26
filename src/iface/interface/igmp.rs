@@ -17,6 +17,19 @@ pub enum MulticastError {
     Ipv6NotSupported,
 }
 
+impl core::fmt::Display for MulticastError {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        match self {
+            MulticastError::Exhausted => write!(f, "Exhausted"),
+            MulticastError::GroupTableFull => write!(f, "GroupTableFull"),
+            MulticastError::Ipv6NotSupported => write!(f, "Ipv6NotSupported"),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for MulticastError {}
+
 impl Interface {
     /// Add an address to a list of subscribed multicast IP addresses.
     ///

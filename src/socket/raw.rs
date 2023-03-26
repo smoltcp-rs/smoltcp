@@ -22,6 +22,18 @@ pub enum BindError {
     Unaddressable,
 }
 
+impl core::fmt::Display for BindError {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        match self {
+            BindError::InvalidState => write!(f, "invalid state"),
+            BindError::Unaddressable => write!(f, "unaddressable"),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for BindError {}
+
 /// Error returned by [`Socket::send`]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -29,12 +41,34 @@ pub enum SendError {
     BufferFull,
 }
 
+impl core::fmt::Display for SendError {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        match self {
+            SendError::BufferFull => write!(f, "buffer full"),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for SendError {}
+
 /// Error returned by [`Socket::recv`]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum RecvError {
     Exhausted,
 }
+
+impl core::fmt::Display for RecvError {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        match self {
+            RecvError::Exhausted => write!(f, "exhausted"),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for RecvError {}
 
 /// A UDP packet metadata.
 pub type PacketMetadata = crate::storage::PacketMetadata<()>;
