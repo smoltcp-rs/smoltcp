@@ -8,7 +8,6 @@ use crate::wire::{IpAddress, IpProtocol};
 
 /// A read/write wrapper around an User Datagram Protocol packet buffer.
 #[derive(Debug, PartialEq, Eq, Clone)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Packet<T: AsRef<[u8]>> {
     buffer: T,
 }
@@ -208,7 +207,6 @@ impl<T: AsRef<[u8]>> AsRef<[u8]> for Packet<T> {
 
 /// A high-level representation of an User Datagram Protocol packet.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Repr {
     pub src_port: u16,
     pub dst_port: u16,
@@ -305,9 +303,30 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
     }
 }
 
+#[cfg(feature = "defmt")]
+impl<'a, T: AsRef<[u8]> + ?Sized> defmt::Format for Packet<&'a T> {
+    fn format(&self, fmt: defmt::Formatter) {
+        // Cannot use Repr::parse because we don't have the IP addresses.
+        defmt::write!(
+            fmt,
+            "UDP src={} dst={} len={}",
+            self.src_port(),
+            self.dst_port(),
+            self.payload().len()
+        );
+    }
+}
+
 impl fmt::Display for Repr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "UDP src={} dst={}", self.src_port, self.dst_port)
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl defmt::Format for Repr {
+    fn format(&self, fmt: defmt::Formatter) {
+        defmt::write!(fmt, "UDP src={} dst={}", self.src_port, self.dst_port);
     }
 }
 

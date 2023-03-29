@@ -66,7 +66,6 @@ impl fmt::Display for AddressingMode {
 
 /// A IEEE 802.15.4 PAN.
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Pan(pub u16);
 
 impl Pan {
@@ -77,6 +76,19 @@ impl Pan {
         let mut pan = [0u8; 2];
         LittleEndian::write_u16(&mut pan, self.0);
         pan
+    }
+}
+
+impl fmt::Display for Pan {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:0x}", self.0)
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl defmt::Format for Pan {
+    fn format(&self, fmt: defmt::Formatter) {
+        defmt::write!(fmt, "{:02x}", self.0)
     }
 }
 
@@ -759,16 +771,56 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Frame<T> {
 
 impl<T: AsRef<[u8]>> fmt::Display for Frame<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "IEEE802.15.4 frame type={} seq={:2x?} dst_pan={:x?} dest={:x?} src_pan={:?} src={:x?}",
-            self.frame_type(),
-            self.sequence_number(),
-            self.dst_pan_id(),
-            self.dst_addr(),
-            self.src_pan_id(),
-            self.src_addr(),
-        )
+        write!(f, "IEEE802.15.4 frame type={}", self.frame_type())?;
+
+        if let Some(seq) = self.sequence_number() {
+            write!(f, " seq={:02x}", seq)?;
+        }
+
+        if let Some(pan) = self.dst_pan_id() {
+            write!(f, " dst-pan={}", pan)?;
+        }
+
+        if let Some(pan) = self.src_pan_id() {
+            write!(f, " src-pan={}", pan)?;
+        }
+
+        if let Some(addr) = self.dst_addr() {
+            write!(f, " dst={}", addr)?;
+        }
+
+        if let Some(addr) = self.src_addr() {
+            write!(f, " src={}", addr)?;
+        }
+
+        Ok(())
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl<T: AsRef<[u8]>> defmt::Format for Frame<T> {
+    fn format(&self, f: defmt::Formatter) {
+        defmt::write!(f, "IEEE802.15.4 frame type={}", self.frame_type());
+
+        if let Some(seq) = self.sequence_number() {
+            defmt::write!(f, " seq={:02x}", seq);
+        }
+
+        if let Some(pan) = self.dst_pan_id() {
+            defmt::write!(f, " dst-pan={}", pan);
+        }
+
+        if let Some(pan) = self.src_pan_id() {
+            defmt::write!(f, " src-pan={}", pan);
+        }
+
+        if let Some(addr) = self.dst_addr() {
+            defmt::write!(f, " dst={}", addr);
+        }
+
+        if let Some(addr) = self.src_addr() {
+            defmt::write!(f, " src={}", addr);
+        }
     }
 }
 

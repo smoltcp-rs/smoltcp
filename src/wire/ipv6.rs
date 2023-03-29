@@ -721,7 +721,6 @@ impl<T: AsRef<[u8]>> AsRef<[u8]> for Packet<T> {
 
 /// A high-level representation of an Internet Protocol version 6 packet header.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Repr {
     /// IPv6 address of the source node.
     pub src_addr: Address,
@@ -779,6 +778,20 @@ impl fmt::Display for Repr {
             f,
             "IPv6 src={} dst={} nxt_hdr={} hop_limit={}",
             self.src_addr, self.dst_addr, self.next_header, self.hop_limit
+        )
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl defmt::Format for Repr {
+    fn format(&self, fmt: defmt::Formatter) {
+        defmt::write!(
+            fmt,
+            "IPv6 src={} dst={} nxt_hdr={} hop_limit={}",
+            self.src_addr,
+            self.dst_addr,
+            self.next_header,
+            self.hop_limit
         )
     }
 }
