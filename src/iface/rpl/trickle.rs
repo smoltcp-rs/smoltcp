@@ -120,6 +120,11 @@ impl TrickleTimer {
 
     /// Signal the Trickle timer that an inconsistency has been heard.
     pub(crate) fn hear_inconsistent(&mut self, now: Instant, rand: &mut Rand) {
+        if !self.started {
+            self.start(now, rand);
+            return;
+        }
+
         let i = Duration::from_millis(2u32.pow(self.i_min) as u64);
         if self.i > i {
             self.reset(i, now, rand);
@@ -145,7 +150,7 @@ impl TrickleTimer {
     }
 
     #[inline(always)]
-    fn reset(&mut self, i: Duration, now: Instant, rand: &mut Rand) {
+    pub(crate) fn reset(&mut self, i: Duration, now: Instant, rand: &mut Rand) {
         self.i = i;
         self.i_expiration = now + self.i;
         self.counter = 0;
@@ -156,7 +161,6 @@ impl TrickleTimer {
         Duration::from_millis(2u32.pow(self.i_max) as u64)
     }
 
-    #[cfg(test)]
     pub(crate) const fn min_expiration(&self) -> Duration {
         Duration::from_millis(2u32.pow(self.i_min) as u64)
     }

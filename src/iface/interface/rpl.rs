@@ -232,13 +232,31 @@ impl InterfaceInner {
                         .neighbor_table
                         .purge(self.now, self.rpl.dio_timer.max_expiration() * 2);
 
+                    // We should increment the Trickle timer counter for a valid DIO message,
+                    // when we are the root, and the rank that is advertised in the DIO message is
+                    // not infinite.
+                    // We also increment it when we hear a valid DIO message from our parent (when
+                    // we are not the root, obviously).
+                    // At this point, the DIO message should be valid.
+                    let mut may_hear_inconsistency = self.rpl.is_root && dio_rank != Rank::INFINITE;
+
                     // Check if the DIO message is comming from a neighbor that could be our new
                     // parent. For this, the DIO rank must be smaller than ours.
                     if dio_rank < self.rpl.rank {
+                        if self.rpl.parent_address == Some(ip_repr.src_addr) {
+                            may_hear_inconsistency = true;
+                        }
+
+                        let current_parent = self.rpl.parent_address;
+
                         // Check for a preferred parent:
                         if let Some(preferred_parent) =
                             ObjectiveFunction0::preferred_parent(&self.rpl.neighbor_table)
                         {
+                            if Some(preferred_parent.ip_addr()) != current_parent {
+                                may_hear_inconsistency = false;
+                            }
+
                             // Accept the preferred parent as new parent when we don't have a
                             // parent yet, or when we have a parent, but its rank is higher than
                             // the preferred parent.
@@ -264,7 +282,8 @@ impl InterfaceInner {
 
                                 // Reset the DIO trickle timer.
                                 let InterfaceInner { rand, rpl, now, .. } = self;
-                                rpl.dio_timer.hear_inconsistent(*now, rand);
+                                let min = rpl.dio_timer.min_expiration();
+                                rpl.dio_timer.reset(min, *now, rand);
                             }
                         }
 
@@ -273,15 +292,7 @@ impl InterfaceInner {
                         }
                     }
 
-                    // We should increment the Trickle timer counter for a valid DIO message,
-                    // when we are the root, and the rank that is advertised in the DIO message is
-                    // not infinite.
-                    // We also increment it when we hear a valid DIO message from our parent (when
-                    // we are not the root, obviously).
-                    // At this point, the DIO message should be valid.
-                    if (self.rpl.is_root && dio_rank != Rank::INFINITE)
-                        || self.rpl.parent_rank == Some(dio_rank)
-                    {
+                    if may_hear_inconsistency {
                         self.rpl.dio_timer.hear_consistent();
                     }
                 }
@@ -490,6 +501,7 @@ mod tests {
 
         let rpl = iface.context_mut().rpl_mut();
         rpl.is_root = true;
+        rpl.rank = Rank::ROOT;
         rpl.dodag_id = Some(ip_addr(ROOT_ADDRESS));
 
         (iface, sockets, TestDevice::new(Medium::Ieee802154))
@@ -504,6 +516,16 @@ mod tests {
 
         iface.set_hardware_addr(HardwareAddress::Ieee802154(addr));
         iface.update_ip_addrs(|a| a[0] = IpCidr::Ipv6(Ipv6Cidr::new(ip_addr(addr), 128)));
+
+        iface.context_mut().rpl_mut().neighbor_table.add_neighbor(
+            RplNeighbor::new(
+                ROOT_ADDRESS.into(),
+                ip_addr(ROOT_ADDRESS),
+                Some(Rank::ROOT),
+                Some(0),
+            ),
+            Instant::now(),
+        );
 
         let rpl = iface.context_mut().rpl_mut();
         rpl.is_root = false;
@@ -685,9 +707,9 @@ mod tests {
             );
         }
 
-        // Check that the interval of the DIO trickle timer is not equal to the minimum value.
+        // Check that the interval of the DIO trickle timer is 0, because it was never set.
         let rpl = iface.context().rpl();
-        assert_ne!(rpl.dio_timer.get_i(), rpl.dio_timer.min_expiration());
+        assert_ne!(rpl.dio_timer.get_i(), Duration::from_secs(0));
         assert_eq!(rpl.dio_timer.get_counter(), 0);
     }
 
@@ -707,7 +729,7 @@ mod tests {
 
         // Check that the interval of the DIO trickle timer is equal to the minimum value.
         let rpl = iface.context().rpl();
-        assert_eq!(rpl.dio_timer.get_i(), rpl.dio_timer.min_expiration());
+        assert_eq!(rpl.dio_timer.get_i(), Duration::ZERO);
         assert_eq!(rpl.dio_timer.get_counter(), 0);
     }
 
@@ -718,7 +740,7 @@ mod tests {
     fn reset_trickle_timer_on_local_repair() {}
 
     #[test]
-    fn reset_trickle_timer_on_selecting_parent_and_increment_consistency_counter() {
+    fn reset_trickle_timer_on_selecting_parent() {
         let (mut iface, mut sockets, mut device) =
             rpl_unconnected_node(NODE_1_ADDRESS, ModeOfOperation::NoDownwardRoutesMaintained);
 
@@ -732,7 +754,9 @@ mod tests {
         }
 
         let mut options = heapless::Vec::new();
-        options.push(iface.context().rpl().dodag_configuration()).unwrap();
+        options
+            .push(iface.context().rpl().dodag_configuration())
+            .unwrap();
 
         // Create a DIO message from a root node.
         let rpl_repr = RplRepr::DodagInformationObject {
@@ -769,11 +793,26 @@ mod tests {
         assert_eq!(rpl.parent_rank, Some(Rank::ROOT));
         assert_eq!(rpl.parent_preference, Some(0));
         assert_eq!(rpl.dodag_id, Some(ip_addr(ROOT_ADDRESS)));
-        assert_eq!(rpl.dio_timer.get_counter(), 1);
+        assert_eq!(rpl.dio_timer.get_counter(), 0);
+    }
+
+    #[test]
+    fn increment_trickle_counter_on_hearing_consistent_dio() {
+        let (mut iface, mut sockets, mut device) =
+            rpl_connected_node(NODE_1_ADDRESS, ModeOfOperation::NoDownwardRoutesMaintained);
+
+        iface.poll(
+            Instant::now() + Duration::from_millis(1),
+            &mut device,
+            &mut sockets,
+        );
 
         let mut options = heapless::Vec::new();
-        options.push(iface.context().rpl().dodag_configuration()).unwrap();
+        options
+            .push(iface.context().rpl().dodag_configuration())
+            .unwrap();
 
+        // Create a DIO message from a root node.
         let rpl_repr = RplRepr::DodagInformationObject {
             rpl_instance_id: RplInstanceId::from(30),
             version_number: SequenceCounter::default().value(),
@@ -786,7 +825,7 @@ mod tests {
             options,
         };
         let packet = create_rpl_packet(
-            NODE_2_ADDRESS,
+            ROOT_ADDRESS,
             Ieee802154Pan(0xbeef),
             Ieee802154Address::BROADCAST,
             Ieee802154Pan(0xbeef),
@@ -797,7 +836,7 @@ mod tests {
         device.rx_queue.push_back(packet);
 
         iface.poll(
-            Instant::now() + Duration::from_secs(101),
+            Instant::now() + Duration::from_secs(1),
             &mut device,
             &mut sockets,
         );
@@ -824,7 +863,9 @@ mod tests {
         assert_ne!(rpl.dio_timer.get_i(), rpl.dio_timer.min_expiration());
 
         let mut options = heapless::Vec::new();
-        options.push(iface.context().rpl().dodag_configuration()).unwrap();
+        options
+            .push(iface.context().rpl().dodag_configuration())
+            .unwrap();
 
         let mut version_number = SequenceCounter::default();
         version_number.increment();
@@ -882,7 +923,9 @@ mod tests {
         }
 
         let mut options = heapless::Vec::new();
-        options.push(iface.context().rpl().dodag_configuration()).unwrap();
+        options
+            .push(iface.context().rpl().dodag_configuration())
+            .unwrap();
 
         // Create a DIO message from a node, with an infinite Rank.
         let rpl_repr = RplRepr::DodagInformationObject {
@@ -938,7 +981,9 @@ mod tests {
         }
 
         let mut options = heapless::Vec::new();
-        options.push(iface.context().rpl().dodag_configuration()).unwrap();
+        options
+            .push(iface.context().rpl().dodag_configuration())
+            .unwrap();
 
         let packet = create_rpl_packet(
             NODE_1_ADDRESS,
@@ -1156,47 +1201,32 @@ mod tests {
 
         let udp_handle = sockets.add(udp_socket);
 
-        iface.context_mut().rpl_mut().neighbor_table.add_neighbor(
-            RplNeighbor::new(
-                ROOT_ADDRESS.into(),
-                ip_addr(ROOT_ADDRESS),
-                Some(Rank::ROOT),
-                Some(0),
-            ),
-            Instant::now(),
-        );
-
-        // Poll the interface and simulate 100 seconds.
         for i in 0..100 {
             iface.poll(
-                Instant::now() + Duration::from_secs(i),
+                Instant::now() + Duration::from_millis(i),
                 &mut device,
                 &mut sockets,
             );
         }
-        device.tx_queue.clear();
+
+        device.rx_queue.clear();
 
         let udp_socket: &mut crate::socket::udp::Socket = sockets.get_mut(udp_handle);
         udp_socket.bind(1234).unwrap();
         udp_socket
             .send_slice(
                 b"Lorem ipsum dolor sit amet consectetur adipiscing, \
-                elit cubilia integer duis ultrices, \
-                montes cum tempor hendrerit tincidunt. R.",
+    elit cubilia integer duis ultrices, \
+    montes cum tempor hendrerit tincidunt. R.",
                 IpEndpoint::new(ip_addr(ROOT_ADDRESS).into(), 1234),
             )
             .unwrap();
 
-        for i in 0..100 {
-            iface.poll(
-                Instant::now()
-                    + Duration::from_secs(100)
-                    + Duration::from_millis(100)
-                    + Duration::from_millis(i),
-                &mut device,
-                &mut sockets,
-            );
-        }
+        iface.poll(
+            Instant::now() + Duration::from_millis(101),
+            &mut device,
+            &mut sockets,
+        );
 
         assert!(!device.tx_queue.is_empty());
         let first_packet = device.tx_queue.pop_front().unwrap();
@@ -1221,7 +1251,7 @@ mod tests {
             &ieee802154_repr,
             ieee802154_packet.payload().unwrap(),
             &mut fragments_buffer,
-            Instant::now(),
+            Instant::now() + Duration::from_millis(101),
             &[],
         );
 
@@ -1232,7 +1262,7 @@ mod tests {
             &ieee802154_repr,
             ieee802154_packet.payload().unwrap(),
             &mut fragments_buffer,
-            Instant::now(),
+            Instant::now() + Duration::from_millis(101),
             &[],
         )
         .unwrap();
@@ -1291,8 +1321,8 @@ mod tests {
         assert_eq!(
             udp_packet.payload(),
             b"Lorem ipsum dolor sit amet consectetur adipiscing, \
-            elit cubilia integer duis ultrices, \
-            montes cum tempor hendrerit tincidunt. R.",
+    elit cubilia integer duis ultrices, \
+    montes cum tempor hendrerit tincidunt. R.",
         );
     }
 }

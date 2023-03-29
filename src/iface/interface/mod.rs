@@ -909,7 +909,9 @@ impl Interface {
     {
         let InterfaceInner { rpl, now, rand, .. } = &mut self.inner;
 
-        rpl.dio_timer.start(*now, rand);
+        if rpl.is_root {
+            rpl.dio_timer.start(*now, rand);
+        }
 
         if rpl.has_parent()
             && rpl.parent_last_heard.unwrap_or(*now) < *now - rpl.dio_timer.max_expiration() * 2
