@@ -405,10 +405,36 @@ pub mod frag {
 
     /// A high-level representation of a 6LoWPAN Fragment header.
     #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum Repr {
         FirstFragment { size: u16, tag: u16 },
         Fragment { size: u16, tag: u16, offset: u8 },
+    }
+
+    impl core::fmt::Display for Repr {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            match self {
+                Repr::FirstFragment { size, tag } => {
+                    write!(f, "FirstFrag size={size} tag={tag}")
+                }
+                Repr::Fragment { size, tag, offset } => {
+                    write!(f, "NthFrag size={size} tag={tag} offset={offset}")
+                }
+            }
+        }
+    }
+
+    #[cfg(feature = "defmt")]
+    impl defmt::Format for Repr {
+        fn format(&self, fmt: defmt::Formatter) {
+            match self {
+                Repr::FirstFragment { size, tag } => {
+                    defmt::write!(fmt, "FirstFrag size={} tag={}", size, tag);
+                }
+                Repr::Fragment { size, tag, offset } => {
+                    defmt::write!(fmt, "NthFrag size={} tag={} offset={}", size, tag, offset);
+                }
+            }
+        }
     }
 
     impl Repr {
@@ -456,10 +482,28 @@ pub mod frag {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum NextHeader {
     Compressed,
     Uncompressed(IpProtocol),
+}
+
+impl core::fmt::Display for NextHeader {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            NextHeader::Compressed => write!(f, "compressed"),
+            NextHeader::Uncompressed(protocol) => write!(f, "{protocol}"),
+        }
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl defmt::Format for NextHeader {
+    fn format(&self, fmt: defmt::Formatter) {
+        match self {
+            NextHeader::Compressed => defmt::write!(fmt, "compressed"),
+            NextHeader::Uncompressed(protocol) => defmt::write!(fmt, "{}", protocol),
+        }
+    }
 }
 
 pub mod iphc {
@@ -1145,7 +1189,6 @@ pub mod iphc {
 
     /// A high-level representation of a 6LoWPAN IPHC header.
     #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub struct Repr {
         pub src_addr: ipv6::Address,
         pub ll_src_addr: Option<LlAddress>,
@@ -1157,6 +1200,30 @@ pub mod iphc {
         pub ecn: Option<u8>,
         pub dscp: Option<u8>,
         pub flow_label: Option<u16>,
+    }
+
+    impl core::fmt::Display for Repr {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            write!(
+                f,
+                "IPHC src={} dst={} nxt-hdr={} hop-limit={}",
+                self.src_addr, self.dst_addr, self.next_header, self.hop_limit
+            )
+        }
+    }
+
+    #[cfg(feature = "defmt")]
+    impl defmt::Format for Repr {
+        fn format(&self, fmt: defmt::Formatter) {
+            defmt::write!(
+                fmt,
+                "IPHC src={} dst={} nxt-hdr={} hop-limit={}",
+                self.src_addr,
+                self.dst_addr,
+                self.next_header,
+                self.hop_limit
+            );
+        }
     }
 
     impl Repr {

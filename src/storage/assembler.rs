@@ -16,7 +16,6 @@ impl std::error::Error for TooManyHolesError {}
 
 /// A contiguous chunk of absent data, followed by a contiguous chunk of present data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 struct Contig {
     hole_size: usize,
     data_size: usize,
@@ -34,6 +33,21 @@ impl fmt::Display for Contig {
             write!(f, "{}", self.data_size)?;
         }
         Ok(())
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl defmt::Format for Contig {
+    fn format(&self, fmt: defmt::Formatter) {
+        if self.has_hole() {
+            defmt::write!(fmt, "({})", self.hole_size);
+        }
+        if self.has_hole() && self.has_data() {
+            defmt::write!(fmt, " ");
+        }
+        if self.has_data() {
+            defmt::write!(fmt, "{}", self.data_size);
+        }
     }
 }
 
@@ -81,7 +95,6 @@ impl Contig {
 ///
 /// Currently, up to a hardcoded limit of 4 or 32 holes can be tracked in the buffer.
 #[derive(Debug, PartialEq, Eq, Clone)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Assembler {
     contigs: [Contig; ASSEMBLER_MAX_SEGMENT_COUNT],
 }
@@ -97,6 +110,20 @@ impl fmt::Display for Assembler {
         }
         write!(f, "]")?;
         Ok(())
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl defmt::Format for Assembler {
+    fn format(&self, fmt: defmt::Formatter) {
+        defmt::write!(fmt, "[ ");
+        for contig in self.contigs.iter() {
+            if !contig.has_data() {
+                break;
+            }
+            defmt::write!(fmt, "{} ", contig);
+        }
+        defmt::write!(fmt, "]");
     }
 }
 

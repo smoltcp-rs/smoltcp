@@ -11,12 +11,18 @@ use crate::wire::{IpAddress, IpProtocol};
 /// A sequence number is a monotonically advancing integer modulo 2<sup>32</sup>.
 /// Sequence numbers do not have a discontiguity when compared pairwise across a signed overflow.
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct SeqNumber(pub i32);
 
 impl fmt::Display for SeqNumber {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.0 as u32)
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl defmt::Format for SeqNumber {
+    fn format(&self, fmt: defmt::Formatter) {
+        defmt::write!(fmt, "{}", self.0 as u32);
     }
 }
 
@@ -771,7 +777,6 @@ impl Control {
 
 /// A high-level representation of a Transmission Control Protocol packet.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Repr<'a> {
     pub src_port: u16,
     pub dst_port: u16,
@@ -1061,6 +1066,29 @@ impl<'a> fmt::Display for Repr<'a> {
             write!(f, " mss={max_seg_size}")?;
         }
         Ok(())
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl<'a> defmt::Format for Repr<'a> {
+    fn format(&self, fmt: defmt::Formatter) {
+        defmt::write!(fmt, "TCP src={} dst={}", self.src_port, self.dst_port);
+        match self.control {
+            Control::Syn => defmt::write!(fmt, " syn"),
+            Control::Fin => defmt::write!(fmt, " fin"),
+            Control::Rst => defmt::write!(fmt, " rst"),
+            Control::Psh => defmt::write!(fmt, " psh"),
+            Control::None => (),
+        }
+        defmt::write!(fmt, " seq={}", self.seq_number);
+        if let Some(ack_number) = self.ack_number {
+            defmt::write!(fmt, " ack={}", ack_number);
+        }
+        defmt::write!(fmt, " win={}", self.window_len);
+        defmt::write!(fmt, " len={}", self.payload.len());
+        if let Some(max_seg_size) = self.max_seg_size {
+            defmt::write!(fmt, " mss={}", max_seg_size);
+        }
     }
 }
 
