@@ -7,13 +7,15 @@ mod tests;
 
 #[cfg(feature = "medium-ethernet")]
 mod ethernet;
-#[cfg(feature = "proto-sixlowpan")]
-mod sixlowpan;
+#[cfg(feature = "medium-ieee802154")]
+mod ieee802154;
 
 #[cfg(feature = "proto-ipv4")]
 mod ipv4;
 #[cfg(feature = "proto-ipv6")]
 mod ipv6;
+#[cfg(feature = "proto-sixlowpan")]
+mod sixlowpan;
 
 #[cfg(feature = "proto-igmp")]
 mod igmp;

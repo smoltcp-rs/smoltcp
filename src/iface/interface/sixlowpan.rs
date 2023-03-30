@@ -1,7 +1,6 @@
 use super::*;
 
 use crate::phy::ChecksumCapabilities;
-use crate::phy::TxToken;
 use crate::wire::*;
 
 // Max len of non-fragmented packets after decompression (including ipv6 header and payload)
@@ -9,40 +8,6 @@ use crate::wire::*;
 pub(crate) const MAX_DECOMPRESSED_LEN: usize = 1500;
 
 impl InterfaceInner {
-    #[cfg(feature = "medium-ieee802154")]
-    pub(super) fn process_ieee802154<'output, 'payload: 'output, T: AsRef<[u8]> + ?Sized>(
-        &mut self,
-        sockets: &mut SocketSet,
-        sixlowpan_payload: &'payload T,
-        _fragments: &'output mut FragmentsBuffer,
-    ) -> Option<IpPacket<'output>> {
-        let ieee802154_frame = check!(Ieee802154Frame::new_checked(sixlowpan_payload));
-        let ieee802154_repr = check!(Ieee802154Repr::parse(&ieee802154_frame));
-
-        if ieee802154_repr.frame_type != Ieee802154FrameType::Data {
-            return None;
-        }
-
-        // Drop frames when the user has set a PAN id and the PAN id from frame is not equal to this
-        // When the user didn't set a PAN id (so it is None), then we accept all PAN id's.
-        // We always accept the broadcast PAN id.
-        if self.pan_id.is_some()
-            && ieee802154_repr.dst_pan_id != self.pan_id
-            && ieee802154_repr.dst_pan_id != Some(Ieee802154Pan::BROADCAST)
-        {
-            net_debug!(
-                "IEEE802.15.4: dropping {:?} because not our PAN id (or not broadcast)",
-                ieee802154_repr
-            );
-            return None;
-        }
-
-        match ieee802154_frame.payload() {
-            Some(payload) => self.process_sixlowpan(sockets, &ieee802154_repr, payload, _fragments),
-            None => None,
-        }
-    }
-
     pub(super) fn process_sixlowpan<'output, 'payload: 'output, T: AsRef<[u8]> + ?Sized>(
         &mut self,
         sockets: &mut SocketSet,
@@ -53,7 +18,10 @@ impl InterfaceInner {
         let payload = match check!(SixlowpanPacket::dispatch(payload)) {
             #[cfg(not(feature = "proto-sixlowpan-fragmentation"))]
             SixlowpanPacket::FragmentHeader => {
-                net_debug!("Fragmentation is not supported, use the `proto-sixlowpan-fragmentation` feature to add support.");
+                net_debug!(
+                    "Fragmentation is not supported, \
+                    use the `proto-sixlowpan-fragmentation` feature to add support."
+                );
                 return None;
             }
             #[cfg(feature = "proto-sixlowpan-fragmentation")]
@@ -257,51 +225,29 @@ impl InterfaceInner {
         Ok(decompressed_size)
     }
 
-    #[cfg(feature = "medium-ieee802154")]
-    pub(super) fn dispatch_ieee802154<Tx: TxToken>(
+    pub(super) fn dispatch_sixlowpan<Tx: TxToken>(
         &mut self,
-        ll_dst_a: Ieee802154Address,
         tx_token: Tx,
         packet: IpPacket,
+        ieee_repr: Ieee802154Repr,
         frag: &mut Fragmenter,
     ) {
-        // We first need to convert the IPv6 packet to a 6LoWPAN compressed packet.
-        // Whenever this packet is to big to fit in the IEEE802.15.4 packet, then we need to
-        // fragment it.
-        let ll_src_a = self.hardware_addr.unwrap().ieee802154_or_panic();
-
         let ip_repr = packet.ip_repr();
 
         let (src_addr, dst_addr) = match (ip_repr.src_addr(), ip_repr.dst_addr()) {
             (IpAddress::Ipv6(src_addr), IpAddress::Ipv6(dst_addr)) => (src_addr, dst_addr),
             #[allow(unreachable_patterns)]
             _ => {
-                net_debug!("dispatch_ieee802154: dropping because src or dst addrs are not ipv6.");
-                return;
+                unreachable!()
             }
-        };
-
-        // Create the IEEE802.15.4 header.
-        let ieee_repr = Ieee802154Repr {
-            frame_type: Ieee802154FrameType::Data,
-            security_enabled: false,
-            frame_pending: false,
-            ack_request: false,
-            sequence_number: Some(self.get_sequence_number()),
-            pan_id_compression: true,
-            frame_version: Ieee802154FrameVersion::Ieee802154_2003,
-            dst_pan_id: self.pan_id,
-            dst_addr: Some(ll_dst_a),
-            src_pan_id: self.pan_id,
-            src_addr: Some(ll_src_a),
         };
 
         // Create the 6LoWPAN IPHC header.
         let iphc_repr = SixlowpanIphcRepr {
             src_addr,
-            ll_src_addr: Some(ll_src_a),
+            ll_src_addr: ieee_repr.src_addr,
             dst_addr,
-            ll_dst_addr: Some(ll_dst_a),
+            ll_dst_addr: ieee_repr.dst_addr,
             next_header: match &packet {
                 IpPacket::Icmpv6(_) => SixlowpanNextHeader::Uncompressed(IpProtocol::Icmpv6),
                 #[cfg(feature = "socket-tcp")]
@@ -364,14 +310,15 @@ impl InterfaceInner {
 
                 if pkt.buffer.len() < total_size {
                     net_debug!(
-                                "dispatch_ieee802154: dropping, fragmentation buffer is too small, at least {} needed",
-                                total_size
-                            );
+                        "dispatch_ieee802154: dropping, \
+                        fragmentation buffer is too small, at least {} needed",
+                        total_size
+                    );
                     return;
                 }
 
-                pkt.sixlowpan.ll_dst_addr = ll_dst_a;
-                pkt.sixlowpan.ll_src_addr = ll_src_a;
+                pkt.sixlowpan.ll_dst_addr = ieee_repr.dst_addr.unwrap();
+                pkt.sixlowpan.ll_src_addr = ieee_repr.src_addr.unwrap();
 
                 let mut iphc_packet =
                     SixlowpanIphcPacket::new_unchecked(&mut pkt.buffer[..iphc_repr.buffer_len()]);
@@ -537,30 +484,13 @@ impl InterfaceInner {
         }
     }
 
-    #[cfg(all(
-        feature = "medium-ieee802154",
-        feature = "proto-sixlowpan-fragmentation"
-    ))]
-    pub(super) fn dispatch_ieee802154_frag<Tx: TxToken>(
+    #[cfg(feature = "proto-sixlowpan-fragmentation")]
+    pub(super) fn dispatch_sixlowpan_frag<Tx: TxToken>(
         &mut self,
         tx_token: Tx,
+        ieee_repr: Ieee802154Repr,
         frag: &mut Fragmenter,
     ) {
-        // Create the IEEE802.15.4 header.
-        let ieee_repr = Ieee802154Repr {
-            frame_type: Ieee802154FrameType::Data,
-            security_enabled: false,
-            frame_pending: false,
-            ack_request: false,
-            sequence_number: Some(self.get_sequence_number()),
-            pan_id_compression: true,
-            frame_version: Ieee802154FrameVersion::Ieee802154_2003,
-            dst_pan_id: self.pan_id,
-            dst_addr: Some(frag.sixlowpan.ll_dst_addr),
-            src_pan_id: self.pan_id,
-            src_addr: Some(frag.sixlowpan.ll_src_addr),
-        };
-
         // Create the FRAG_N header.
         let fragn = SixlowpanFragRepr::Fragment {
             size: frag.sixlowpan.datagram_size,
