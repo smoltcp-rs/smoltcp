@@ -251,7 +251,7 @@ pub use self::dhcpv4::{
 };
 
 #[cfg(feature = "proto-dns")]
-pub use self::dns::{Packet as DnsPacket, Repr as DnsRepr, Type as DnsQueryType};
+pub use self::dns::{Packet as DnsPacket, Repr as DnsRepr, Type as DnsQueryType, Opcode as DnsOpCode, Flags as DnsFlags};
 
 /// Parsing a packet failed.
 ///
