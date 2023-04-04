@@ -81,8 +81,20 @@ struct RenewState {
 
     /// Renew timer. When reached, we will start attempting
     /// to renew this lease with the DHCP server.
-    /// Must be less or equal than `expires_at`.
+    ///
+    /// Must be less or equal than `rebind_at`.
     renew_at: Instant,
+
+    /// Rebind timer. When reached, we will start broadcasting to renew
+    /// this lease with any DHCP server.
+    ///
+    /// Must be greater than or equal to `renew_at`, and less than or
+    /// equal to `expires_at`.
+    rebind_at: Instant,
+
+    /// Whether the T2 time has elapsed
+    rebinding: bool,
+
     /// Expiration timer. When reached, this lease is no longer valid, so it must be
     /// thrown away and the ethernet interface deconfigured.
     expires_at: Instant,
@@ -268,7 +280,12 @@ impl<'a> Socket<'a> {
         let t = match &self.state {
             ClientState::Discovering(state) => state.retry_at,
             ClientState::Requesting(state) => state.retry_at,
-            ClientState::Renewing(state) => state.renew_at.min(state.expires_at),
+            ClientState::Renewing(state) => if state.rebinding {
+                state.rebind_at
+            } else {
+                state.renew_at.min(state.rebind_at)
+            }
+            .min(state.expires_at),
         };
         PollAt::Time(t)
     }
@@ -353,13 +370,15 @@ impl<'a> Socket<'a> {
                 });
             }
             (ClientState::Requesting(state), DhcpMessageType::Ack) => {
-                if let Some((config, renew_at, expires_at)) =
+                if let Some((config, renew_at, rebind_at, expires_at)) =
                     Self::parse_ack(cx.now(), &dhcp_repr, self.max_lease_duration, state.server)
                 {
                     self.state = ClientState::Renewing(RenewState {
                         config,
                         renew_at,
+                        rebind_at,
                         expires_at,
+                        rebinding: false,
                     });
                     self.config_changed();
                 }
@@ -370,13 +389,15 @@ impl<'a> Socket<'a> {
                 }
             }
             (ClientState::Renewing(state), DhcpMessageType::Ack) => {
-                if let Some((config, renew_at, expires_at)) = Self::parse_ack(
+                if let Some((config, renew_at, rebind_at, expires_at)) = Self::parse_ack(
                     cx.now(),
                     &dhcp_repr,
                     self.max_lease_duration,
                     state.config.server,
                 ) {
                     state.renew_at = renew_at;
+                    state.rebind_at = rebind_at;
+                    state.rebinding = false;
                     state.expires_at = expires_at;
                     // The `receive_packet_buffer` field isn't populated until
                     // the client asks for the state, but receiving any packet
@@ -412,7 +433,7 @@ impl<'a> Socket<'a> {
         dhcp_repr: &DhcpRepr,
         max_lease_duration: Option<Duration>,
         server: ServerInfo,
-    ) -> Option<(Config<'static>, Instant, Instant)> {
+    ) -> Option<(Config<'static>, Instant, Instant, Instant)> {
         let subnet_mask = match dhcp_repr.subnet_mask {
             Some(subnet_mask) => subnet_mask,
             None => {
@@ -465,26 +486,44 @@ impl<'a> Socket<'a> {
             packet: None,
         };
 
-        // Set renew time as per RFC 2131:
-        // The renew time (T1) can be specified by the server using option 58:
-        let renew_duration = dhcp_repr
-            .renew_duration
-            .map(|d| Duration::from_secs(d as u64))
-            // Since we don't follow the REBINDING part of the spec, when no
-            // explicit T1 time is given, we will also consider the rebinding
-            // time if it is given and less than the default.
-            .or_else(|| {
-                dhcp_repr
-                    .rebind_duration
-                    .map(|d| Duration::from_secs(d as u64).min(lease_duration / 2))
-            })
-            // Otherwise, we use the default T1 time, which is half the lease
-            // duration.
-            .unwrap_or(lease_duration / 2);
+        // Set renew and rebind times as per RFC 2131:
+        // Times T1 and T2 are configurable by the server through
+        // options. T1 defaults to (0.5 * duration_of_lease). T2
+        // defaults to (0.875 * duration_of_lease).
+        let (renew_duration, rebind_duration) = match (
+            dhcp_repr
+                .renew_duration
+                .map(|d| Duration::from_secs(d as u64)),
+            dhcp_repr
+                .rebind_duration
+                .map(|d| Duration::from_secs(d as u64)),
+        ) {
+            (Some(renew_duration), Some(rebind_duration)) => (renew_duration, rebind_duration),
+            (None, None) => (lease_duration / 2, lease_duration * 7 / 8),
+            // RFC 2131 does not say what to do if only one value is
+            // provided, so:
+
+            // If only T1 is provided, set T2 to be 0.75 through the gap
+            // between T1 and the duration of the lease. If T1 is set to
+            // the default (0.5 * duration_of_lease), then T2 will also
+            // be set to the default (0.875 * duration_of_lease).
+            (Some(renew_duration), None) => (
+                renew_duration,
+                renew_duration + (lease_duration - renew_duration) * 3 / 4,
+            ),
+
+            // If only T2 is provided, then T1 will be set to be
+            // whichever is smaller of the default (0.5 *
+            // duration_of_lease) or T2.
+            (None, Some(rebind_duration)) => {
+                ((lease_duration / 2).min(rebind_duration), rebind_duration)
+            }
+        };
         let renew_at = now + renew_duration;
+        let rebind_at = now + rebind_duration;
         let expires_at = now + lease_duration;
 
-        Some((config, renew_at, expires_at))
+        Some((config, renew_at, rebind_at, expires_at))
     }
 
     #[cfg(not(test))]
@@ -607,19 +646,25 @@ impl<'a> Socket<'a> {
                 Ok(())
             }
             ClientState::Renewing(state) => {
-                if state.expires_at <= cx.now() {
+                let now = cx.now();
+                if state.expires_at <= now {
                     net_debug!("DHCP lease expired");
                     self.reset();
                     // return Ok so we get polled again
                     return Ok(());
                 }
 
-                if cx.now() < state.renew_at {
+                if now < state.renew_at || state.rebinding && now < state.rebind_at {
                     return Ok(());
                 }
 
+                state.rebinding |= now >= state.rebind_at;
+
                 ipv4_repr.src_addr = state.config.address.address();
-                ipv4_repr.dst_addr = state.config.server.address;
+                // Renewing is unicast to the original server, rebinding is broadcast
+                if !state.rebinding {
+                    ipv4_repr.dst_addr = state.config.server.address;
+                }
                 dhcp_repr.message_type = DhcpMessageType::Request;
                 dhcp_repr.client_ip = state.config.address.address();
 
@@ -632,11 +677,20 @@ impl<'a> Socket<'a> {
                 // of the remaining time until T2 (in RENEWING state) and one-half of
                 // the remaining lease time (in REBINDING state), down to a minimum of
                 // 60 seconds, before retransmitting the DHCPREQUEST message.
-                state.renew_at = cx.now()
-                    + self
-                        .retry_config
-                        .min_renew_timeout
-                        .max((state.expires_at - cx.now()) / 2);
+                if state.rebinding {
+                    state.rebind_at = now
+                        + self
+                            .retry_config
+                            .min_renew_timeout
+                            .max((state.expires_at - now) / 2);
+                } else {
+                    state.renew_at = now
+                        + self
+                            .retry_config
+                            .min_renew_timeout
+                            .max((state.rebind_at - now) / 2)
+                            .min(state.rebind_at - now);
+                }
 
                 self.transaction_id = next_transaction_id;
                 Ok(())
@@ -832,6 +886,14 @@ mod test {
         hop_limit: 64,
     };
 
+    const IP_BROADCAST_ADDRESSED: Ipv4Repr = Ipv4Repr {
+        src_addr: MY_IP,
+        dst_addr: Ipv4Address::BROADCAST,
+        next_header: IpProtocol::Udp,
+        payload_len: 0,
+        hop_limit: 64,
+    };
+
     const IP_SERVER_BROADCAST: Ipv4Repr = Ipv4Repr {
         src_addr: SERVER_IP,
         dst_addr: Ipv4Address::BROADCAST,
@@ -971,6 +1033,18 @@ mod test {
         ..DHCP_DEFAULT
     };
 
+    const DHCP_REBIND: DhcpRepr = DhcpRepr {
+        message_type: DhcpMessageType::Request,
+        client_identifier: Some(MY_MAC),
+        // NO server_identifier in renew requests, only in first one!
+        client_ip: MY_IP,
+        max_size: Some(1432),
+
+        requested_ip: None,
+        parameter_request_list: Some(&[1, 3, 6]),
+        ..DHCP_DEFAULT
+    };
+
     // =========================================================================================//
     // Tests
 
@@ -1008,6 +1082,8 @@ mod test {
                 packet: None,
             },
             renew_at: Instant::from_secs(500),
+            rebind_at: Instant::from_secs(875),
+            rebinding: false,
             expires_at: Instant::from_secs(1000),
         });
 
@@ -1043,6 +1119,7 @@ mod test {
         match &s.state {
             ClientState::Renewing(r) => {
                 assert_eq!(r.renew_at, Instant::from_secs(500));
+                assert_eq!(r.rebind_at, Instant::from_secs(875));
                 assert_eq!(r.expires_at, Instant::from_secs(1000));
             }
             _ => panic!("Invalid state"),
@@ -1078,6 +1155,7 @@ mod test {
         match &s.state {
             ClientState::Renewing(r) => {
                 assert_eq!(r.renew_at, Instant::from_secs(500));
+                assert_eq!(r.rebind_at, Instant::from_secs(875));
                 assert_eq!(r.expires_at, Instant::from_secs(1000));
             }
             _ => panic!("Invalid state"),
@@ -1189,35 +1267,66 @@ mod test {
     }
 
     #[test]
-    fn test_renew_retransmit() {
+    fn test_renew_rebind_retransmit() {
         let mut s = socket_bound();
 
         recv!(s, []);
+        // First renew attempt at T1
+        recv!(s, time 499_000, []);
         recv!(s, time 500_000, [(IP_SEND, UDP_SEND, DHCP_RENEW)]);
-        recv!(s, time 749_000, []);
-        recv!(s, time 750_000, [(IP_SEND, UDP_SEND, DHCP_RENEW)]);
+        // Next renew attempt at half way to T2
+        recv!(s, time 687_000, []);
+        recv!(s, time 687_500, [(IP_SEND, UDP_SEND, DHCP_RENEW)]);
+        // Next renew attempt at half way again to T2
+        recv!(s, time 781_000, []);
+        recv!(s, time 781_250, [(IP_SEND, UDP_SEND, DHCP_RENEW)]);
+        // Next renew attempt 60s later (minimum interval)
+        recv!(s, time 841_000, []);
+        recv!(s, time 841_250, [(IP_SEND, UDP_SEND, DHCP_RENEW)]);
+        // No more renews due to minimum interval
         recv!(s, time 874_000, []);
-        recv!(s, time 875_000, [(IP_SEND, UDP_SEND, DHCP_RENEW)]);
+        // First rebind attempt
+        recv!(s, time 875_000, [(IP_BROADCAST_ADDRESSED, UDP_SEND, DHCP_REBIND)]);
+        // Next rebind attempt half way to expiry
+        recv!(s, time 937_000, []);
+        recv!(s, time 937_500, [(IP_BROADCAST_ADDRESSED, UDP_SEND, DHCP_REBIND)]);
+        // Next rebind attempt 60s later (minimum interval)
+        recv!(s, time 997_000, []);
+        recv!(s, time 997_500, [(IP_BROADCAST_ADDRESSED, UDP_SEND, DHCP_REBIND)]);
 
         // check it still works
-        send!(s, time 875_000, (IP_RECV, UDP_RECV, dhcp_ack()));
+        send!(s, time 999_000, (IP_RECV, UDP_RECV, dhcp_ack()));
         match &s.state {
             ClientState::Renewing(r) => {
                 // NOW the expiration gets bumped
-                assert_eq!(r.renew_at, Instant::from_secs(875 + 500));
-                assert_eq!(r.expires_at, Instant::from_secs(875 + 1000));
+                assert_eq!(r.renew_at, Instant::from_secs(999 + 500));
+                assert_eq!(r.expires_at, Instant::from_secs(999 + 1000));
             }
             _ => panic!("Invalid state"),
         }
     }
 
     #[test]
-    fn test_renew_timeout() {
+    fn test_renew_rebind_timeout() {
         let mut s = socket_bound();
 
         recv!(s, []);
+        // First renew attempt at T1
         recv!(s, time 500_000, [(IP_SEND, UDP_SEND, DHCP_RENEW)]);
-        recv!(s, time 999_000, [(IP_SEND, UDP_SEND, DHCP_RENEW)]);
+        // Next renew attempt at half way to T2
+        recv!(s, time 687_500, [(IP_SEND, UDP_SEND, DHCP_RENEW)]);
+        // Next renew attempt at half way again to T2
+        recv!(s, time 781_250, [(IP_SEND, UDP_SEND, DHCP_RENEW)]);
+        // Next renew attempt 60s later (minimum interval)
+        recv!(s, time 841_250, [(IP_SEND, UDP_SEND, DHCP_RENEW)]);
+        // TODO uncomment below part of test
+        // // First rebind attempt
+        // recv!(s, time 875_000, [(IP_BROADCAST_ADDRESSED, UDP_SEND, DHCP_REBIND)]);
+        // // Next rebind attempt half way to expiry
+        // recv!(s, time 937_500, [(IP_BROADCAST_ADDRESSED, UDP_SEND, DHCP_REBIND)]);
+        // // Next rebind attempt 60s later (minimum interval)
+        // recv!(s, time 997_500, [(IP_BROADCAST_ADDRESSED, UDP_SEND, DHCP_REBIND)]);
+        // No more rebinds due to minimum interval
         recv!(s, time 1_000_000, [(IP_BROADCAST, UDP_SEND, DHCP_DISCOVER)]);
         match &s.state {
             ClientState::Discovering(_) => {}
