@@ -39,7 +39,7 @@ fn create_ip<'a>() -> (Interface, SocketSet<'a>, Loopback) {
     // Create a basic device
     let mut device = Loopback::new(Medium::Ip);
 
-    let mut config = Config::new();
+    let config = Config::new(HardwareAddress::Ip);
     let mut iface = Interface::new(config, &mut device);
     iface.update_ip_addrs(|ip_addrs| {
         #[cfg(feature = "proto-ipv4")]
@@ -64,8 +64,7 @@ fn create_ethernet<'a>() -> (Interface, SocketSet<'a>, Loopback) {
     // Create a basic device
     let mut device = Loopback::new(Medium::Ethernet);
 
-    let mut config = Config::new();
-    config.hardware_addr = Some(EthernetAddress::default().into());
+    let config = Config::new(HardwareAddress::Ethernet(EthernetAddress::default()));
     let mut iface = Interface::new(config, &mut device);
     iface.update_ip_addrs(|ip_addrs| {
         #[cfg(feature = "proto-ipv4")]
@@ -90,8 +89,7 @@ fn create_ieee802154<'a>() -> (Interface, SocketSet<'a>, Loopback) {
     // Create a basic device
     let mut device = Loopback::new(Medium::Ieee802154);
 
-    let mut config = Config::new();
-    config.hardware_addr = Some(Ieee802154Address::default().into());
+    let config = Config::new(HardwareAddress::Ieee802154(Ieee802154Address::default()));
     let mut iface = Interface::new(config, &mut device);
     iface.update_ip_addrs(|ip_addrs| {
         #[cfg(feature = "proto-ipv6")]
@@ -133,11 +131,11 @@ impl TxToken for MockTxToken {
 }
 
 #[test]
-#[should_panic(expected = "hardware_addr required option was not set")]
-#[cfg(all(feature = "medium-ethernet"))]
+#[should_panic(expected = "The hardware address does not match the medium of the interface.")]
+#[cfg(all(feature = "medium-ip", feature = "medium-ethernet"))]
 fn test_new_panic() {
     let mut device = Loopback::new(Medium::Ethernet);
-    let config = Config::new();
+    let config = Config::new(HardwareAddress::Ip);
     Interface::new(config, &mut device);
 }
 
@@ -1377,7 +1375,7 @@ fn test_echo_request_sixlowpan_128_bytes() {
     assert_eq!(iface.inner.caps.medium, Medium::Ieee802154);
     let now = iface.inner.now();
 
-    iface.inner.neighbor_cache.as_mut().unwrap().fill(
+    iface.inner.neighbor_cache.fill(
         Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0x2, 0, 0, 0, 0, 0, 0, 0]).into(),
         HardwareAddress::Ieee802154(Ieee802154Address::default()),
         now,
@@ -1503,7 +1501,7 @@ fn test_echo_request_sixlowpan_128_bytes() {
         )))
     );
 
-    iface.inner.neighbor_cache.as_mut().unwrap().fill(
+    iface.inner.neighbor_cache.fill(
         IpAddress::Ipv6(Ipv6Address([
             0xfe, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x40, 0x42, 0x42, 0x42, 0x42, 0x42, 0xb, 0x1a,
         ])),

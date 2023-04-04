@@ -275,20 +275,32 @@ impl fmt::Display for Error {
 pub type Result<T> = core::result::Result<T, Error>;
 
 /// Representation of an hardware address, such as an Ethernet address or an IEEE802.15.4 address.
-#[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
+#[cfg(any(
+    feature = "medium-ip",
+    feature = "medium-ethernet",
+    feature = "medium-ieee802154"
+))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum HardwareAddress {
+    #[cfg(feature = "medium-ip")]
+    Ip,
     #[cfg(feature = "medium-ethernet")]
     Ethernet(EthernetAddress),
     #[cfg(feature = "medium-ieee802154")]
     Ieee802154(Ieee802154Address),
 }
 
-#[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
+#[cfg(any(
+    feature = "medium-ip",
+    feature = "medium-ethernet",
+    feature = "medium-ieee802154"
+))]
 impl HardwareAddress {
     pub const fn as_bytes(&self) -> &[u8] {
         match self {
+            #[cfg(feature = "medium-ip")]
+            HardwareAddress::Ip => unreachable!(),
             #[cfg(feature = "medium-ethernet")]
             HardwareAddress::Ethernet(addr) => addr.as_bytes(),
             #[cfg(feature = "medium-ieee802154")]
@@ -299,6 +311,8 @@ impl HardwareAddress {
     /// Query wether the address is an unicast address.
     pub fn is_unicast(&self) -> bool {
         match self {
+            #[cfg(feature = "medium-ip")]
+            HardwareAddress::Ip => unreachable!(),
             #[cfg(feature = "medium-ethernet")]
             HardwareAddress::Ethernet(addr) => addr.is_unicast(),
             #[cfg(feature = "medium-ieee802154")]
@@ -309,6 +323,8 @@ impl HardwareAddress {
     /// Query wether the address is a broadcast address.
     pub fn is_broadcast(&self) -> bool {
         match self {
+            #[cfg(feature = "medium-ip")]
+            HardwareAddress::Ip => unreachable!(),
             #[cfg(feature = "medium-ethernet")]
             HardwareAddress::Ethernet(addr) => addr.is_broadcast(),
             #[cfg(feature = "medium-ieee802154")]
@@ -333,12 +349,30 @@ impl HardwareAddress {
             _ => panic!("HardwareAddress is not Ethernet."),
         }
     }
+
+    #[inline]
+    pub(crate) fn medium(&self) -> Medium {
+        match self {
+            #[cfg(feature = "medium-ip")]
+            HardwareAddress::Ip => Medium::Ip,
+            #[cfg(feature = "medium-ethernet")]
+            HardwareAddress::Ethernet(_) => Medium::Ethernet,
+            #[cfg(feature = "medium-ieee802154")]
+            HardwareAddress::Ieee802154(_) => Medium::Ieee802154,
+        }
+    }
 }
 
-#[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
+#[cfg(any(
+    feature = "medium-ip",
+    feature = "medium-ethernet",
+    feature = "medium-ieee802154"
+))]
 impl core::fmt::Display for HardwareAddress {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         match self {
+            #[cfg(feature = "medium-ip")]
+            HardwareAddress::Ip => write!(f, "no hardware addr"),
             #[cfg(feature = "medium-ethernet")]
             HardwareAddress::Ethernet(addr) => write!(f, "{addr}"),
             #[cfg(feature = "medium-ieee802154")]

@@ -47,11 +47,11 @@ use std::os::unix::io::AsRawFd;
 use std::str;
 
 use smoltcp::iface::{Config, Interface, SocketSet};
-use smoltcp::phy::{wait as phy_wait, Medium, RawSocket};
+use smoltcp::phy::{wait as phy_wait, Device, Medium, RawSocket};
 use smoltcp::socket::tcp;
 use smoltcp::socket::udp;
 use smoltcp::time::Instant;
-use smoltcp::wire::{Ieee802154Address, Ieee802154Pan, IpAddress, IpCidr};
+use smoltcp::wire::{EthernetAddress, Ieee802154Address, Ieee802154Pan, IpAddress, IpCidr};
 
 fn main() {
     utils::setup_logging("");
@@ -67,10 +67,16 @@ fn main() {
         utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
 
     // Create interface
-    let mut config = Config::new();
+    let mut config = match device.capabilities().medium {
+        Medium::Ethernet => {
+            Config::new(EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]).into())
+        }
+        Medium::Ip => Config::new(smoltcp::wire::HardwareAddress::Ip),
+        Medium::Ieee802154 => Config::new(
+            Ieee802154Address::Extended([0x1a, 0x0b, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42]).into(),
+        ),
+    };
     config.random_seed = rand::random();
-    config.hardware_addr =
-        Some(Ieee802154Address::Extended([0x1a, 0x0b, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42]).into());
     config.pan_id = Some(Ieee802154Pan(0xbeef));
 
     let mut iface = Interface::new(config, &mut device);

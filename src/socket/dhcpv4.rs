@@ -317,7 +317,7 @@ impl<'a> Socket<'a> {
             }
         };
 
-        let Some(HardwareAddress::Ethernet(ethernet_addr)) = cx.hardware_addr() else {
+        let HardwareAddress::Ethernet(ethernet_addr) = cx.hardware_addr() else {
             panic!("using DHCPv4 socket with a non-ethernet hardware address.");
         };
 
@@ -542,7 +542,7 @@ impl<'a> Socket<'a> {
     {
         // note: Dhcpv4Socket is only usable in ethernet mediums, so the
         // unwrap can never fail.
-        let Some(HardwareAddress::Ethernet(ethernet_addr)) = cx.hardware_addr() else {
+        let HardwareAddress::Ethernet(ethernet_addr) = cx.hardware_addr() else {
             panic!("using DHCPv4 socket with a non-ethernet hardware address.");
         };
 

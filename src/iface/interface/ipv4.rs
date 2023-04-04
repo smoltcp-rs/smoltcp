@@ -74,7 +74,9 @@ impl InterfaceInner {
 
         #[cfg(feature = "socket-dhcpv4")]
         {
-            if ipv4_repr.next_header == IpProtocol::Udp && self.hardware_addr.is_some() {
+            if ipv4_repr.next_header == IpProtocol::Udp
+                && matches!(self.caps.medium, Medium::Ethernet)
+            {
                 let udp_packet = check!(UdpPacket::new_checked(ip_payload));
                 if let Some(dhcp_socket) = sockets
                     .items_mut()
@@ -206,17 +208,14 @@ impl InterfaceInner {
                 // We fill from requests too because if someone is requesting our address they
                 // are probably going to talk to us, so we avoid having to request their address
                 // when we later reply to them.
-                self.neighbor_cache.as_mut().unwrap().fill(
+                self.neighbor_cache.fill(
                     source_protocol_addr.into(),
                     source_hardware_addr.into(),
                     timestamp,
                 );
 
                 if operation == ArpOperation::Request {
-                    let src_hardware_addr = match self.hardware_addr {
-                        Some(HardwareAddress::Ethernet(addr)) => addr,
-                        _ => unreachable!(),
-                    };
+                    let src_hardware_addr = self.hardware_addr.ethernet_or_panic();
 
                     Some(EthernetPacket::Arp(ArpRepr::EthernetIpv4 {
                         operation: ArpOperation::Reply,
@@ -352,7 +351,7 @@ impl InterfaceInner {
         let emit_ethernet = |repr: &IpRepr, tx_buffer: &mut [u8]| {
             let mut frame = EthernetFrame::new_unchecked(tx_buffer);
 
-            let src_addr = self.hardware_addr.unwrap().ethernet_or_panic();
+            let src_addr = self.hardware_addr.ethernet_or_panic();
             frame.set_src_addr(src_addr);
             frame.set_dst_addr(frag.ipv4.dst_hardware_addr);
 
