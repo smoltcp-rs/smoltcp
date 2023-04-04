@@ -700,7 +700,7 @@ pub mod iphc {
             match self.tf_field() {
                 0b00 | 0b10 => {
                     let start = self.ip_fields_start() as usize;
-                    Some(self.buffer.as_ref()[start..][0] & 0b1111_11)
+                    Some(self.buffer.as_ref()[start..][0] & 0b111111)
                 }
                 0b01 | 0b11 => None,
                 _ => unreachable!(),
