@@ -7,6 +7,8 @@ use crate::wire::ip::checksum;
 use crate::wire::MldRepr;
 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
 use crate::wire::NdiscRepr;
+#[cfg(feature = "proto-rpl")]
+use crate::wire::RplRepr;
 use crate::wire::{IpAddress, IpProtocol, Ipv6Packet, Ipv6Repr};
 
 enum_with_unknown! {
@@ -37,7 +39,9 @@ enum_with_unknown! {
         /// Redirect
         Redirect        = 0x89,
         /// Multicast Listener Report
-        MldReport       = 0x8f
+        MldReport       = 0x8f,
+        /// RPL Control Message
+        RplControl      = 0x9b,
     }
 }
 
@@ -94,6 +98,7 @@ impl fmt::Display for Message {
             Message::Redirect => write!(f, "redirect"),
             Message::MldQuery => write!(f, "multicast listener query"),
             Message::MldReport => write!(f, "multicast listener report"),
+            Message::RplControl => write!(f, "RPL control message"),
             Message::Unknown(id) => write!(f, "{id}"),
         }
     }
@@ -265,11 +270,68 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// Returns `Err(Error)` if the buffer is too short.
     pub fn check_len(&self) -> Result<()> {
         let len = self.buffer.as_ref().len();
-        if len < field::HEADER_END || len < self.header_len() {
-            Err(Error)
-        } else {
-            Ok(())
+
+        if len < 4 {
+            return Err(Error);
         }
+
+        match self.msg_type() {
+            Message::DstUnreachable
+            | Message::PktTooBig
+            | Message::TimeExceeded
+            | Message::ParamProblem
+            | Message::EchoRequest
+            | Message::EchoReply
+            | Message::MldQuery
+            | Message::RouterSolicit
+            | Message::RouterAdvert
+            | Message::NeighborSolicit
+            | Message::NeighborAdvert
+            | Message::Redirect
+            | Message::MldReport => {
+                if len < field::HEADER_END || len < self.header_len() {
+                    return Err(Error);
+                }
+            }
+            #[cfg(feature = "proto-rpl")]
+            Message::RplControl => match super::rpl::RplControlMessage::from(self.msg_code()) {
+                super::rpl::RplControlMessage::DodagInformationSolicitation => {
+                    // TODO(thvdveld): replace magic number
+                    if len < 6 {
+                        return Err(Error);
+                    }
+                }
+                super::rpl::RplControlMessage::DodagInformationObject => {
+                    // TODO(thvdveld): replace magic number
+                    if len < 28 {
+                        return Err(Error);
+                    }
+                }
+                super::rpl::RplControlMessage::DestinationAdvertisementObject => {
+                    // TODO(thvdveld): replace magic number
+                    if len < 8 || (self.dao_dodag_id_present() && len < 24) {
+                        return Err(Error);
+                    }
+                }
+                super::rpl::RplControlMessage::DestinationAdvertisementObjectAck => {
+                    // TODO(thvdveld): replace magic number
+                    if len < 8 || (self.dao_dodag_id_present() && len < 24) {
+                        return Err(Error);
+                    }
+                }
+                super::rpl::RplControlMessage::SecureDodagInformationSolicitation
+                | super::rpl::RplControlMessage::SecureDodagInformationObject
+                | super::rpl::RplControlMessage::SecureDesintationAdvertismentObject
+                | super::rpl::RplControlMessage::SecureDestinationAdvertisementObjectAck
+                | super::rpl::RplControlMessage::ConsistencyCheck => return Err(Error),
+                super::rpl::RplControlMessage::Unknown(_) => return Err(Error),
+            },
+            #[cfg(not(feature = "proto-rpl"))]
+            Message::RplControl => return Err(Error),
+            Message::Unknown(_) => return Err(Error),
+        }
+
+        Ok(())
     }
 
     /// Consume the packet, returning the underlying buffer.
@@ -535,6 +597,8 @@ pub enum Repr<'a> {
     #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
     Ndisc(NdiscRepr<'a>),
     Mld(MldRepr<'a>),
+    #[cfg(feature = "proto-rpl")]
+    Rpl(RplRepr<'a>),
 }
 
 impl<'a> Repr<'a> {
@@ -620,12 +684,14 @@ impl<'a> Repr<'a> {
             #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
             (msg_type, 0) if msg_type.is_ndisc() => NdiscRepr::parse(packet).map(Repr::Ndisc),
             (msg_type, 0) if msg_type.is_mld() => MldRepr::parse(packet).map(Repr::Mld),
+            #[cfg(feature = "proto-rpl")]
+            (Message::RplControl, _) => RplRepr::parse(packet).map(Repr::Rpl),
             _ => Err(Error),
         }
     }
 
     /// Return the length of a packet that will be emitted from this high-level representation.
-    pub const fn buffer_len(&self) -> usize {
+    pub fn buffer_len(&self) -> usize {
         match self {
             &Repr::DstUnreachable { header, data, .. }
             | &Repr::PktTooBig { header, data, .. }
@@ -639,6 +705,8 @@ impl<'a> Repr<'a> {
             #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
             &Repr::Ndisc(ndisc) => ndisc.buffer_len(),
             &Repr::Mld(mld) => mld.buffer_len(),
+            #[cfg(feature = "proto-rpl")]
+            Repr::Rpl(rpl) => rpl.buffer_len(),
         }
     }
 
@@ -734,6 +802,9 @@ impl<'a> Repr<'a> {
             Repr::Ndisc(ndisc) => ndisc.emit(packet),
 
             Repr::Mld(mld) => mld.emit(packet),
+
+            #[cfg(feature = "proto-rpl")]
+            Repr::Rpl(ref rpl) => rpl.emit(packet),
         }
 
         if checksum_caps.icmpv6.tx() {
