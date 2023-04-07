@@ -1,13 +1,18 @@
 use super::{Error, Result};
+#[cfg(feature = "proto-rpl")]
+use super::{RplHopByHopPacket, RplHopByHopRepr};
+
 use core::fmt;
 
 enum_with_unknown! {
     /// IPv6 Extension Header Option Type
     pub enum Type(u8) {
         /// 1 byte of padding
-        Pad1 =  0,
+        Pad1 = 0,
         /// Multiple bytes of padding
-        PadN =  1
+        PadN = 1,
+        /// RPL Option
+        Rpl  = 0x63,
     }
 }
 
@@ -16,6 +21,7 @@ impl fmt::Display for Type {
         match *self {
             Type::Pad1 => write!(f, "Pad1"),
             Type::PadN => write!(f, "PadN"),
+            Type::Rpl => write!(f, "RPL"),
             Type::Unknown(id) => write!(f, "{id}"),
         }
     }
@@ -220,6 +226,8 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Ipv6Option<&'a T> {
 pub enum Repr<'a> {
     Pad1,
     PadN(u8),
+    #[cfg(feature = "proto-rpl")]
+    Rpl(RplHopByHopRepr),
     Unknown {
         type_: Type,
         length: u8,
@@ -236,6 +244,18 @@ impl<'a> Repr<'a> {
         match opt.option_type() {
             Type::Pad1 => Ok(Repr::Pad1),
             Type::PadN => Ok(Repr::PadN(opt.data_len())),
+
+            #[cfg(feature = "proto-rpl")]
+            Type::Rpl => Ok(Repr::Rpl(RplHopByHopRepr::parse(
+                &RplHopByHopPacket::new_checked(opt.data())?,
+            ))),
+            #[cfg(not(feature = "proto-rpl"))]
+            Type::Rpl => Ok(Repr::Unknown {
+                type_: Type::Rpl,
+                length: opt.data_len(),
+                data: opt.data(),
+            }),
+
             unknown_type @ Type::Unknown(_) => Ok(Repr::Unknown {
                 type_: unknown_type,
                 length: opt.data_len(),
@@ -249,6 +269,8 @@ impl<'a> Repr<'a> {
         match *self {
             Repr::Pad1 => 1,
             Repr::PadN(length) => field::DATA(length).end,
+            #[cfg(feature = "proto-rpl")]
+            Repr::Rpl(opt) => field::DATA(opt.buffer_len() as u8).end,
             Repr::Unknown { length, .. } => field::DATA(length).end,
         }
     }
@@ -264,6 +286,14 @@ impl<'a> Repr<'a> {
                 for x in opt.data_mut().iter_mut() {
                     *x = 0
                 }
+            }
+            #[cfg(feature = "proto-rpl")]
+            Repr::Rpl(rpl) => {
+                opt.set_option_type(Type::Rpl);
+                opt.set_data_len(4);
+                rpl.emit(&mut crate::wire::RplHopByHopPacket::new_unchecked(
+                    opt.data_mut(),
+                ));
             }
             Repr::Unknown {
                 type_,
@@ -344,6 +374,8 @@ impl<'a> fmt::Display for Repr<'a> {
         match *self {
             Repr::Pad1 => write!(f, "{} ", Type::Pad1),
             Repr::PadN(len) => write!(f, "{} length={} ", Type::PadN, len),
+            #[cfg(feature = "proto-rpl")]
+            Repr::Rpl(rpl) => write!(f, "{} {rpl}", Type::Rpl),
             Repr::Unknown { type_, length, .. } => write!(f, "{type_} length={length} "),
         }
     }
@@ -356,6 +388,8 @@ mod test {
     static IPV6OPTION_BYTES_PAD1: [u8; 1] = [0x0];
     static IPV6OPTION_BYTES_PADN: [u8; 3] = [0x1, 0x1, 0x0];
     static IPV6OPTION_BYTES_UNKNOWN: [u8; 5] = [0xff, 0x3, 0x0, 0x0, 0x0];
+    #[cfg(feature = "proto-rpl")]
+    static IPV6OPTION_BYTES_RPL: [u8; 6] = [0x63, 0x04, 0x00, 0x1e, 0x08, 0x00];
 
     #[test]
     fn test_check_len() {
@@ -396,6 +430,14 @@ mod test {
             Ok(()),
             Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_UNKNOWN).check_len()
         );
+
+        #[cfg(feature = "proto-rpl")]
+        {
+            assert_eq!(
+                Ok(()),
+                Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_RPL).check_len()
+            );
+        }
     }
 
     #[test]
@@ -437,6 +479,14 @@ mod test {
 
         // unrecognized option without length and data
         assert_eq!(Ipv6Option::new_checked(&bytes), Err(Error));
+
+        #[cfg(feature = "proto-rpl")]
+        {
+            let opt = Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_RPL);
+            assert_eq!(opt.option_type(), Type::Rpl);
+            assert_eq!(opt.data_len(), 4);
+            assert_eq!(opt.data(), &[0x00, 0x1e, 0x08, 0x00]);
+        }
     }
 
     #[test]
@@ -465,6 +515,23 @@ mod test {
                 data: &data
             }
         );
+
+        #[cfg(feature = "proto-rpl")]
+        {
+            let opt = Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_RPL);
+            let rpl = Repr::parse(&opt).unwrap();
+
+            assert_eq!(
+                rpl,
+                Repr::Rpl(crate::wire::RplHopByHopRepr {
+                    down: false,
+                    rank_error: false,
+                    forwarding_error: false,
+                    instance_id: crate::wire::RplInstanceId::from(0x1e),
+                    sender_rank: 0x0800,
+                })
+            );
+        }
     }
 
     #[test]
@@ -491,6 +558,16 @@ mod test {
         let mut opt = Ipv6Option::new_unchecked(&mut bytes);
         repr.emit(&mut opt);
         assert_eq!(opt.into_inner(), &IPV6OPTION_BYTES_UNKNOWN);
+
+        #[cfg(feature = "proto-rpl")]
+        {
+            let opt = Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_RPL);
+            let rpl = Repr::parse(&opt).unwrap();
+            let mut bytes = [0u8; 6];
+            rpl.emit(&mut Ipv6Option::new_unchecked(&mut bytes));
+
+            assert_eq!(&bytes, &IPV6OPTION_BYTES_RPL);
+        }
     }
 
     #[test]
