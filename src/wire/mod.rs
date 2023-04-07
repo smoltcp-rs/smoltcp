@@ -120,6 +120,8 @@ mod ndisc;
     any(feature = "medium-ethernet", feature = "medium-ieee802154")
 ))]
 mod ndiscoption;
+#[cfg(feature = "proto-rpl")]
+mod rpl;
 #[cfg(all(feature = "proto-sixlowpan", feature = "medium-ieee802154"))]
 mod sixlowpan;
 mod tcp;
@@ -140,6 +142,13 @@ pub use self::ethernet::{
 #[cfg(all(feature = "proto-ipv4", feature = "medium-ethernet"))]
 pub use self::arp::{
     Hardware as ArpHardware, Operation as ArpOperation, Packet as ArpPacket, Repr as ArpRepr,
+};
+
+#[cfg(feature = "proto-rpl")]
+pub use self::rpl::{
+    data::HopByHopOption as RplHopByHopRepr, data::Packet as RplHopByHopPacket,
+    options::Packet as RplOptionPacket, options::Repr as RplOptionRepr,
+    InstanceId as RplInstanceId, Repr as RplRepr,
 };
 
 #[cfg(all(feature = "proto-sixlowpan", feature = "medium-ieee802154"))]

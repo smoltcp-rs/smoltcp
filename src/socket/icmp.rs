@@ -474,7 +474,7 @@ impl<'a> Socket<'a> {
     }
 
     pub(crate) fn process(&mut self, _cx: &mut Context, ip_repr: &IpRepr, icmp_repr: &IcmpRepr) {
-        match *icmp_repr {
+        match icmp_repr {
             #[cfg(feature = "proto-ipv4")]
             IcmpRepr::Ipv4(icmp_repr) => {
                 net_trace!("icmp: receiving {} octets", icmp_repr.buffer_len());
