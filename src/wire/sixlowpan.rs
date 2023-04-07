@@ -1570,6 +1570,13 @@ pub mod nhc {
         }
     }
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+    pub enum ExtHdrNextHeader {
+        Inline,
+        Elided,
+    }
+
     /// A read/write wrapper around a 6LoWPAN NHC Extension header.
     #[derive(Debug, Clone)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]

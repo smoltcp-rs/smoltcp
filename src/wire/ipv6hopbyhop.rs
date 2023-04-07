@@ -1,6 +1,8 @@
 use super::{Error, Result};
 use core::fmt;
 
+use super::PacketFormat;
+
 pub use super::IpProtocol as Protocol;
 use crate::wire::ipv6option::Ipv6OptionsIterator;
 
@@ -9,6 +11,7 @@ use crate::wire::ipv6option::Ipv6OptionsIterator;
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Header<T: AsRef<[u8]>> {
     buffer: T,
+    format: PacketFormat,
 }
 
 // Format of the Hop-by-Hop Options Header
@@ -51,7 +54,10 @@ mod field {
 impl<T: AsRef<[u8]>> Header<T> {
     /// Create a raw octet buffer with an IPv6 Hop-by-Hop Options Header structure.
     pub const fn new_unchecked(buffer: T) -> Header<T> {
-        Header { buffer }
+        Header {
+            buffer,
+            format: PacketFormat::Normal,
+        }
     }
 
     /// Shorthand for a combination of [new_unchecked] and [check_len].
@@ -60,6 +66,34 @@ impl<T: AsRef<[u8]>> Header<T> {
     /// [check_len]: #method.check_len
     pub fn new_checked(buffer: T) -> Result<Header<T>> {
         let header = Self::new_unchecked(buffer);
+        header.check_len()?;
+        Ok(header)
+    }
+
+    /// Create a raw octet buffer with an IPv6 Hop-by-Hop Options Header structure.
+    ///
+    /// This should be used for 6LoWPAN Hop-by-Hop Options Headers.
+    #[cfg(feature = "proto-sixlowpan")]
+    pub const fn new_unchecked_compressed(
+        buffer: T,
+        next_header: super::SixlowpanExtHeaderNextheader,
+    ) -> Header<T> {
+        Header {
+            buffer,
+            format: PacketFormat::Compressed(next_header),
+        }
+    }
+
+    /// Shorthand for a combination of [new_unchecked_compressed] and [check_len].
+    ///
+    /// [new_unchecked_compressed]: #method.new_unchecked_compressed
+    /// [check_len]: #method.check_len
+    #[cfg(feature = "proto-sixlowpan")]
+    pub fn new_checked_compressed(
+        buffer: T,
+        next_header: super::SixlowpanExtHeaderNextheader,
+    ) -> Result<Header<T>> {
+        let header = Self::new_unchecked_compressed(buffer, next_header);
         header.check_len()?;
         Ok(header)
     }
@@ -74,11 +108,24 @@ impl<T: AsRef<[u8]>> Header<T> {
         let data = self.buffer.as_ref();
         let len = data.len();
 
-        if len < field::MIN_HEADER_SIZE {
-            return Err(Error);
+        match self.format {
+            PacketFormat::Normal => {
+                if len < field::MIN_HEADER_SIZE {
+                    return Err(Error);
+                }
+            }
+            #[cfg(feature = "proto-sixlowpan")]
+            PacketFormat::Compressed(ext) => match ext {
+                super::SixlowpanExtHeaderNextheader::Inline if len < 2 => return Err(Error),
+                super::SixlowpanExtHeaderNextheader::Elided if len == 0 => return Err(Error),
+                _ => (),
+            },
         }
 
-        let of = field::OPTIONS(data[field::LENGTH]);
+        let of = self.format.field(field::OPTIONS(
+            self.format
+                .ipv6_length(data[self.format.idx(field::LENGTH)]),
+        ));
 
         if len < of.end {
             return Err(Error);
@@ -94,17 +141,34 @@ impl<T: AsRef<[u8]>> Header<T> {
 
     /// Return the next header field.
     #[inline]
-    pub fn next_header(&self) -> Protocol {
-        let data = self.buffer.as_ref();
-        Protocol::from(data[field::NXT_HDR])
+    pub fn next_header(&self) -> Option<Protocol> {
+        match self.format {
+            PacketFormat::Normal => {
+                let data = self.buffer.as_ref();
+                Some(Protocol::from(data[field::NXT_HDR]))
+            }
+            #[cfg(feature = "proto-sixlowpan")]
+            PacketFormat::Compressed(super::SixlowpanExtHeaderNextheader::Elided) => None,
+            #[cfg(feature = "proto-sixlowpan")]
+            PacketFormat::Compressed(super::SixlowpanExtHeaderNextheader::Inline) => {
+                let data = self.buffer.as_ref();
+                Some(Protocol::from(data[self.format.idx(field::NXT_HDR)]))
+            }
+        }
     }
 
     /// Return length of the Hop-by-Hop Options header in 8-octet units, not including the first
     /// 8 octets.
+    ///
+    /// **NOTE**: For 6LoWPAN, the header length field is in 1-octet units instead of 8-octet
+    /// units. The length field also indicates the length of the octets that pertain to the
+    /// extenion header following the Length field. See [RFC 6282 § 4.2 ] for details.
+    ///
+    /// [RFC 6282 § 4.2]: https://datatracker.ietf.org/doc/html/rfc6282#section-4.2
     #[inline]
     pub fn header_len(&self) -> u8 {
         let data = self.buffer.as_ref();
-        data[field::LENGTH]
+        data[self.format.idx(field::LENGTH)]
     }
 }
 
@@ -113,7 +177,9 @@ impl<'a, T: AsRef<[u8]> + ?Sized> Header<&'a T> {
     #[inline]
     pub fn options(&self) -> &'a [u8] {
         let data = self.buffer.as_ref();
-        &data[field::OPTIONS(data[field::LENGTH])]
+        &data[self
+            .format
+            .field(field::OPTIONS(self.format.ipv6_length(data[field::LENGTH])))]
     }
 }
 
@@ -121,16 +187,33 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Header<T> {
     /// Set the next header field.
     #[inline]
     pub fn set_next_header(&mut self, value: Protocol) {
-        let data = self.buffer.as_mut();
-        data[field::NXT_HDR] = value.into();
+        match self.format {
+            PacketFormat::Normal => {
+                let data = self.buffer.as_mut();
+                data[field::NXT_HDR] = value.into();
+            }
+            #[cfg(feature = "proto-sixlowpan")]
+            PacketFormat::Compressed(super::SixlowpanExtHeaderNextheader::Inline) => {
+                let data = self.buffer.as_mut();
+                data[self.format.idx(field::NXT_HDR)] = value.into();
+            }
+            #[cfg(feature = "proto-sixlowpan")]
+            PacketFormat::Compressed(super::SixlowpanExtHeaderNextheader::Elided) => {}
+        }
     }
 
     /// Set the option data length. Length of the Hop-by-Hop Options header in 8-octet units,
     /// not including the first 8 octets.
+    ///
+    /// **NOTE**: For 6LoWPAN, the header length field is in 1-octet units instead of 8-octet
+    /// units. The length field also indicates the length of the octets that pertain to the
+    /// extenion header following the Length field. See [RFC 6282 § 4.2 ] for details.
+    ///
+    /// [RFC 6282 § 4.2]: https://datatracker.ietf.org/doc/html/rfc6282#section-4.2
     #[inline]
     pub fn set_header_len(&mut self, value: u8) {
         let data = self.buffer.as_mut();
-        data[field::LENGTH] = value;
+        data[self.format.idx(field::LENGTH)] = value;
     }
 }
 
@@ -139,8 +222,8 @@ impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Header<&'a mut T> {
     #[inline]
     pub fn options_mut(&mut self) -> &mut [u8] {
         let data = self.buffer.as_mut();
-        let len = data[field::LENGTH];
-        &mut data[field::OPTIONS(len)]
+        let len = self.format.ipv6_length(data[field::LENGTH]);
+        &mut data[self.format.field(field::OPTIONS(len))]
     }
 }
 
@@ -161,11 +244,13 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Header<&'a T> {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Repr<'a> {
     /// The type of header immediately following the Hop-by-Hop Options header.
-    pub next_header: Protocol,
+    pub next_header: Option<Protocol>,
     /// Length of the Hop-by-Hop Options header in 8-octet units, not including the first 8 octets.
     pub length: u8,
     /// The options contained in the Hop-by-Hop Options header.
     pub options: &'a [u8],
+    #[cfg(feature = "proto-sixlowpan")]
+    format: PacketFormat,
 }
 
 impl<'a> Repr<'a> {
@@ -178,18 +263,41 @@ impl<'a> Repr<'a> {
             next_header: header.next_header(),
             length: header.header_len(),
             options: header.options(),
+            #[cfg(feature = "proto-sixlowpan")]
+            format: header.format,
         })
     }
 
     /// Return the length, in bytes, of a header that will be emitted from this high-level
     /// representation.
     pub const fn buffer_len(&self) -> usize {
-        field::OPTIONS(self.length).end
+        #[cfg(feature = "proto-sixlowpan")]
+        {
+            self.format
+                .field(field::OPTIONS(self.format.ipv6_length(self.length)))
+                .end
+        }
+
+        #[cfg(not(feature = "proto-sixlowpan"))]
+        {
+            field::OPTIONS(self.length).end
+        }
     }
 
     /// Emit a high-level representation into an IPv6 Hop-by-Hop Options Header.
     pub fn emit<T: AsRef<[u8]> + AsMut<[u8]> + ?Sized>(&self, header: &mut Header<&mut T>) {
-        header.set_next_header(self.next_header);
+        if matches!(header.format, PacketFormat::Normal) {
+            header.set_next_header(self.next_header.unwrap());
+        }
+
+        #[cfg(feature = "proto-sixlowpan")]
+        if matches!(
+            header.format,
+            PacketFormat::Compressed(super::SixlowpanExtHeaderNextheader::Inline)
+        ) {
+            header.set_next_header(self.next_header.unwrap());
+        }
+
         header.set_header_len(self.length);
         header.options_mut().copy_from_slice(self.options);
     }
@@ -202,11 +310,15 @@ impl<'a> Repr<'a> {
 
 impl<'a> fmt::Display for Repr<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "IPv6 Hop-by-Hop Options next_hdr={} length={} ",
-            self.next_header, self.length
-        )
+        write!(f, "IPv6 Hop-by-Hop Options next_hdr=")?;
+
+        if let Some(nh) = self.next_header {
+            write!(f, "{nh} ")?;
+        } else {
+            write!(f, "Elided ")?;
+        }
+
+        write!(f, "length={}", self.length)
     }
 }
 
@@ -215,12 +327,16 @@ mod test {
     use super::*;
 
     // A Hop-by-Hop Option header with a PadN option of option data length 4.
-    static REPR_PACKET_PAD4: [u8; 8] = [0x6, 0x0, 0x1, 0x4, 0x0, 0x0, 0x0, 0x0];
+    const REPR_PACKET_PAD4: [u8; 8] = [0x6, 0x0, 0x1, 0x4, 0x0, 0x0, 0x0, 0x0];
 
     // A Hop-by-Hop Option header with a PadN option of option data length 12.
-    static REPR_PACKET_PAD12: [u8; 16] = [
+    const REPR_PACKET_PAD12: [u8; 16] = [
         0x06, 0x1, 0x1, 0x0C, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
     ];
+
+    // A Hop-by-Hop Option header with a RPL option.
+    #[cfg(feature = "proto-sixlowpan")]
+    const REPR_PACKET_RPL_OPTION: [u8; 8] = [0x3a, 0x06, 0x63, 0x04, 0x00, 0x1e, 0x03, 0x00];
 
     #[test]
     fn test_check_len() {
@@ -249,19 +365,40 @@ mod test {
         // length field value greater than number of bytes
         let header: [u8; 8] = [0x06, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0];
         assert_eq!(Err(Error), Header::new_unchecked(&header).check_len());
+
+        #[cfg(feature = "proto-sixlowpan")]
+        assert_eq!(
+            Ok(()),
+            Header::new_unchecked_compressed(
+                &REPR_PACKET_RPL_OPTION,
+                crate::wire::SixlowpanExtHeaderNextheader::Inline
+            )
+            .check_len(),
+        );
     }
 
     #[test]
     fn test_header_deconstruct() {
         let header = Header::new_unchecked(&REPR_PACKET_PAD4);
-        assert_eq!(header.next_header(), Protocol::Tcp);
+        assert_eq!(header.next_header(), Some(Protocol::Tcp));
         assert_eq!(header.header_len(), 0);
         assert_eq!(header.options(), &REPR_PACKET_PAD4[2..]);
 
         let header = Header::new_unchecked(&REPR_PACKET_PAD12);
-        assert_eq!(header.next_header(), Protocol::Tcp);
+        assert_eq!(header.next_header(), Some(Protocol::Tcp));
         assert_eq!(header.header_len(), 1);
         assert_eq!(header.options(), &REPR_PACKET_PAD12[2..]);
+
+        #[cfg(feature = "proto-sixlowpan")]
+        {
+            let header = Header::new_unchecked_compressed(
+                &REPR_PACKET_RPL_OPTION,
+                crate::wire::SixlowpanExtHeaderNextheader::Inline,
+            );
+            assert_eq!(header.next_header(), Some(Protocol::Icmpv6));
+            assert_eq!(header.header_len(), 6);
+            assert_eq!(header.options(), &REPR_PACKET_RPL_OPTION[2..]);
+        }
     }
 
     #[test]
@@ -317,9 +454,11 @@ mod test {
         assert_eq!(
             repr,
             Repr {
-                next_header: Protocol::Tcp,
+                next_header: Some(Protocol::Tcp),
                 length: 0,
-                options: &REPR_PACKET_PAD4[2..]
+                options: &REPR_PACKET_PAD4[2..],
+                #[cfg(feature = "proto-sixlowpan")]
+                format: PacketFormat::Normal,
             }
         );
 
@@ -328,19 +467,43 @@ mod test {
         assert_eq!(
             repr,
             Repr {
-                next_header: Protocol::Tcp,
+                next_header: Some(Protocol::Tcp),
                 length: 1,
-                options: &REPR_PACKET_PAD12[2..]
+                options: &REPR_PACKET_PAD12[2..],
+                #[cfg(feature = "proto-sixlowpan")]
+                format: PacketFormat::Normal,
             }
         );
+
+        #[cfg(feature = "proto-sixlowpan")]
+        {
+            let header = Header::new_unchecked_compressed(
+                &REPR_PACKET_RPL_OPTION,
+                crate::wire::SixlowpanExtHeaderNextheader::Inline,
+            );
+            let repr = Repr::parse(&header).unwrap();
+            assert_eq!(
+                repr,
+                Repr {
+                    next_header: Some(Protocol::Icmpv6),
+                    length: 6,
+                    options: &REPR_PACKET_RPL_OPTION[2..],
+                    format: PacketFormat::Compressed(
+                        crate::wire::SixlowpanExtHeaderNextheader::Inline
+                    ),
+                }
+            );
+        }
     }
 
     #[test]
     fn test_repr_emit() {
         let repr = Repr {
-            next_header: Protocol::Tcp,
+            next_header: Some(Protocol::Tcp),
             length: 0,
             options: &REPR_PACKET_PAD4[2..],
+            #[cfg(feature = "proto-sixlowpan")]
+            format: PacketFormat::Normal,
         };
         let mut bytes = [0u8; 8];
         let mut header = Header::new_unchecked(&mut bytes);
@@ -348,14 +511,34 @@ mod test {
         assert_eq!(header.into_inner(), &REPR_PACKET_PAD4[..]);
 
         let repr = Repr {
-            next_header: Protocol::Tcp,
+            next_header: Some(Protocol::Tcp),
             length: 1,
             options: &REPR_PACKET_PAD12[2..],
+            #[cfg(feature = "proto-sixlowpan")]
+            format: PacketFormat::Normal,
         };
         let mut bytes = [0u8; 16];
         let mut header = Header::new_unchecked(&mut bytes);
         repr.emit(&mut header);
         assert_eq!(header.into_inner(), &REPR_PACKET_PAD12[..]);
+
+        #[cfg(feature = "proto-sixlowpan")]
+        {
+            let repr = Repr {
+                next_header: Some(Protocol::Icmpv6),
+                length: 6,
+                options: &REPR_PACKET_RPL_OPTION[2..],
+                format: PacketFormat::Compressed(crate::wire::SixlowpanExtHeaderNextheader::Inline),
+            };
+            let mut bytes = [0u8; 8];
+
+            let mut header = Header::new_unchecked_compressed(
+                &mut bytes,
+                crate::wire::SixlowpanExtHeaderNextheader::Inline,
+            );
+            repr.emit(&mut header);
+            assert_eq!(header.into_inner(), &REPR_PACKET_RPL_OPTION[..]);
+        }
     }
 
     #[test]
@@ -367,5 +550,15 @@ mod test {
         let header = Header::new_unchecked(&REPR_PACKET_PAD12);
         let repr = Repr::parse(&header).unwrap();
         assert_eq!(repr.buffer_len(), REPR_PACKET_PAD12.len());
+
+        #[cfg(feature = "proto-sixlowpan")]
+        {
+            let header = Header::new_unchecked_compressed(
+                &REPR_PACKET_RPL_OPTION,
+                crate::wire::SixlowpanExtHeaderNextheader::Inline,
+            );
+            let repr = Repr::parse(&header).unwrap();
+            assert_eq!(repr.buffer_len(), REPR_PACKET_RPL_OPTION.len());
+        }
     }
 }

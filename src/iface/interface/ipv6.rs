@@ -268,7 +268,7 @@ impl InterfaceInner {
         self.process_nxt_hdr(
             sockets,
             ipv6_repr,
-            hbh_repr.next_header,
+            hbh_repr.next_header.unwrap(),
             handled_by_raw_socket,
             &ip_payload[hbh_repr.buffer_len()..],
         )

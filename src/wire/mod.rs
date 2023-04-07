@@ -156,6 +156,7 @@ pub use self::sixlowpan::{
     frag::{Key as SixlowpanFragKey, Packet as SixlowpanFragPacket, Repr as SixlowpanFragRepr},
     iphc::{Packet as SixlowpanIphcPacket, Repr as SixlowpanIphcRepr},
     nhc::{
+        ExtHdrNextHeader as SixlowpanExtHeaderNextheader,
         ExtHeaderPacket as SixlowpanExtHeaderPacket, ExtHeaderRepr as SixlowpanExtHeaderRepr,
         NhcPacket as SixlowpanNhcPacket, UdpNhcPacket as SixlowpanUdpNhcPacket,
         UdpNhcRepr as SixlowpanUdpNhcRepr,
@@ -501,5 +502,56 @@ impl From<Ieee802154Address> for RawHardwareAddress {
 impl From<HardwareAddress> for RawHardwareAddress {
     fn from(addr: HardwareAddress) -> Self {
         Self::from_bytes(addr.as_bytes())
+    }
+}
+
+/// The packet format is especially used for 6LoWPAN Extension Headers. The fields in Extension
+/// Headers defined in 6LoWPAN do not have the same semantics as in the IPv6 defintion.
+/// See [RFC 6282 § 4.2 ] for more details.
+///
+/// [RFC 6282 § 4.2]: https://datatracker.ietf.org/doc/html/rfc6282#section-4.2
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub(crate) enum PacketFormat {
+    Normal,
+    #[cfg(feature = "proto-sixlowpan")]
+    Compressed(SixlowpanExtHeaderNextheader),
+}
+
+impl PacketFormat {
+    #[inline(always)]
+    pub(crate) const fn ipv6_length(&self, length: u8) -> u8 {
+        match self {
+            PacketFormat::Normal => length,
+            #[cfg(feature = "proto-sixlowpan")]
+            PacketFormat::Compressed(_) => length / 8,
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) const fn field(
+        &self,
+        field: crate::wire::field::Field,
+    ) -> crate::wire::field::Field {
+        match self {
+            PacketFormat::Normal => field,
+            #[cfg(feature = "proto-sixlowpan")]
+            PacketFormat::Compressed(SixlowpanExtHeaderNextheader::Elided) => {
+                field.start - 1..field.end - 1
+            }
+            #[cfg(feature = "proto-sixlowpan")]
+            PacketFormat::Compressed(SixlowpanExtHeaderNextheader::Inline) => field,
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) const fn idx(&self, idx: usize) -> usize {
+        match self {
+            PacketFormat::Normal => idx,
+            #[cfg(feature = "proto-sixlowpan")]
+            PacketFormat::Compressed(SixlowpanExtHeaderNextheader::Elided) => idx - 1,
+            #[cfg(feature = "proto-sixlowpan")]
+            PacketFormat::Compressed(SixlowpanExtHeaderNextheader::Inline) => idx,
+        }
     }
 }
