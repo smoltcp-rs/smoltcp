@@ -4,6 +4,8 @@ use core::fmt;
 use crate::wire::IpProtocol as Protocol;
 use crate::wire::Ipv6Address as Address;
 
+use super::PacketFormat;
+
 enum_with_unknown! {
     /// IPv6 Extension Routing Header Routing Type
     pub enum Type(u8) {
@@ -54,6 +56,7 @@ impl fmt::Display for Type {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Header<T: AsRef<[u8]>> {
     buffer: T,
+    format: PacketFormat,
 }
 
 // Format of the Routing Header
@@ -143,8 +146,11 @@ mod field {
 /// Core getter methods relevant to any routing type.
 impl<T: AsRef<[u8]>> Header<T> {
     /// Create a raw octet buffer with an IPv6 Routing Header structure.
-    pub const fn new(buffer: T) -> Header<T> {
-        Header { buffer }
+    pub const fn new_unchecked(buffer: T) -> Header<T> {
+        Header {
+            buffer,
+            format: PacketFormat::Normal,
+        }
     }
 
     /// Shorthand for a combination of [new_unchecked] and [check_len].
@@ -152,7 +158,35 @@ impl<T: AsRef<[u8]>> Header<T> {
     /// [new_unchecked]: #method.new_unchecked
     /// [check_len]: #method.check_len
     pub fn new_checked(buffer: T) -> Result<Header<T>> {
-        let header = Self::new(buffer);
+        let header = Self::new_unchecked(buffer);
+        header.check_len()?;
+        Ok(header)
+    }
+
+    /// Create a raw octet buffer with an IPv6 Routing Header structure.
+    ///
+    /// This should be used for 6LoWPAN Routing Headers.
+    #[cfg(feature = "proto-sixlowpan")]
+    pub const fn new_unchecked_compressed(
+        buffer: T,
+        next_header: crate::wire::SixlowpanExtHeaderNextheader,
+    ) -> Header<T> {
+        Header {
+            buffer,
+            format: PacketFormat::Compressed(next_header),
+        }
+    }
+
+    /// Shorthand for a combination of [new_unchecked_compressed] and [check_len].
+    ///
+    /// [new_unchecked]: #method.new_unchecked_compressed
+    /// [check_len]: #method.check_len
+    #[cfg(feature = "proto-sixlowpan")]
+    pub fn new_checked_compressed(
+        buffer: T,
+        next_header: crate::wire::SixlowpanExtHeaderNextheader,
+    ) -> Result<Header<T>> {
+        let header = Self::new_unchecked_compressed(buffer, next_header);
         header.check_len()?;
         Ok(header)
     }
@@ -169,14 +203,16 @@ impl<T: AsRef<[u8]>> Header<T> {
             return Err(Error);
         }
 
-        if len < field::DATA(self.header_len()).end {
+        let data_field = self
+            .format
+            .field(field::DATA(self.format.ipv6_length(self.header_len())));
+
+        if len < data_field.end {
             return Err(Error);
         }
 
         // The header lenght field could be wrong and thus we need to check this as well:
-        if matches!(self.routing_type(), Type::Type2)
-            && field::DATA(self.header_len()).end != field::HOME_ADDRESS.end
-        {
+        if matches!(self.routing_type(), Type::Type2) && data_field.end != field::HOME_ADDRESS.end {
             return Err(Error);
         }
 
@@ -190,31 +226,49 @@ impl<T: AsRef<[u8]>> Header<T> {
 
     /// Return the next header field.
     #[inline]
-    pub fn next_header(&self) -> Protocol {
-        let data = self.buffer.as_ref();
-        Protocol::from(data[field::NXT_HDR])
+    pub fn next_header(&self) -> Option<Protocol> {
+        match self.format {
+            PacketFormat::Normal => {
+                let data = self.buffer.as_ref();
+                Some(Protocol::from(data[field::NXT_HDR]))
+            }
+
+            #[cfg(feature = "proto-sixlowpan")]
+            PacketFormat::Compressed(crate::wire::SixlowpanExtHeaderNextheader::Elided) => None,
+            #[cfg(feature = "proto-sixlowpan")]
+            PacketFormat::Compressed(crate::wire::SixlowpanExtHeaderNextheader::Inline) => {
+                let data = self.buffer.as_ref();
+                Some(Protocol::from(data[field::NXT_HDR]))
+            }
+        }
     }
 
     /// Return the header length field. Length of the Routing header in 8-octet units,
     /// not including the first 8 octets.
+    ///
+    /// **NOTE**: For 6LoWPAN, the header length field is in 1-octet units instead of 8-octet
+    /// units. The length field also indicates the length of the octets that pertain to the
+    /// extenion header following the Length field. See [RFC 6282 § 4.2 ] for details.
+    ///
+    /// [RFC 6282 § 4.2]: https://datatracker.ietf.org/doc/html/rfc6282#section-4.2
     #[inline]
     pub fn header_len(&self) -> u8 {
         let data = self.buffer.as_ref();
-        data[field::LENGTH]
+        data[self.format.idx(field::LENGTH)]
     }
 
     /// Return the routing type field.
     #[inline]
     pub fn routing_type(&self) -> Type {
         let data = self.buffer.as_ref();
-        Type::from(data[field::TYPE])
+        Type::from(data[self.format.idx(field::TYPE)])
     }
 
     /// Return the segments left field.
     #[inline]
     pub fn segments_left(&self) -> u8 {
         let data = self.buffer.as_ref();
-        data[field::SEG_LEFT]
+        data[self.format.idx(field::SEG_LEFT)]
     }
 }
 
@@ -238,7 +292,7 @@ impl<T: AsRef<[u8]>> Header<T> {
     /// This function may panic if this header is not the RPL Source Routing Header routing type.
     pub fn cmpr_i(&self) -> u8 {
         let data = self.buffer.as_ref();
-        data[field::CMPR] >> 4
+        data[self.format.idx(field::CMPR)] >> 4
     }
 
     /// Return the number of prefix octets elided from the last address (`addresses[n]`).
@@ -247,7 +301,7 @@ impl<T: AsRef<[u8]>> Header<T> {
     /// This function may panic if this header is not the RPL Source Routing Header routing type.
     pub fn cmpr_e(&self) -> u8 {
         let data = self.buffer.as_ref();
-        data[field::CMPR] & 0xf
+        data[self.format.idx(field::CMPR)] & 0xf
     }
 
     /// Return the number of octets used for padding after `addresses[n]`.
@@ -256,7 +310,7 @@ impl<T: AsRef<[u8]>> Header<T> {
     /// This function may panic if this header is not the RPL Source Routing Header routing type.
     pub fn pad(&self) -> u8 {
         let data = self.buffer.as_ref();
-        data[field::PAD] >> 4
+        data[self.format.idx(field::PAD)] >> 4
     }
 
     /// Return the address vector in bytes
@@ -265,7 +319,7 @@ impl<T: AsRef<[u8]>> Header<T> {
     /// This function may panic if this header is not the RPL Source Routing Header routing type.
     pub fn addresses(&self) -> &[u8] {
         let data = self.buffer.as_ref();
-        &data[field::ADDRESSES(data[field::LENGTH])]
+        &data[self.format.field(field::ADDRESSES(data[field::LENGTH]))]
     }
 }
 
@@ -275,28 +329,34 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Header<T> {
     #[inline]
     pub fn set_next_header(&mut self, value: Protocol) {
         let data = self.buffer.as_mut();
-        data[field::NXT_HDR] = value.into();
+        data[self.format.idx(field::NXT_HDR)] = value.into();
     }
 
     /// Set the option data length. Length of the Routing header in 8-octet units.
+    ///
+    /// **NOTE**: For 6LoWPAN, the header length field is in 1-octet units instead of 8-octet
+    /// units. The length field also indicates the length of the octets that pertain to the
+    /// extenion header following the Length field. See [RFC 6282 § 4.2 ] for details.
+    ///
+    /// [RFC 6282 § 4.2]: https://datatracker.ietf.org/doc/html/rfc6282#section-4.2
     #[inline]
     pub fn set_header_len(&mut self, value: u8) {
         let data = self.buffer.as_mut();
-        data[field::LENGTH] = value;
+        data[self.format.idx(field::LENGTH)] = value;
     }
 
     /// Set the routing type.
     #[inline]
     pub fn set_routing_type(&mut self, value: Type) {
         let data = self.buffer.as_mut();
-        data[field::TYPE] = value.into();
+        data[self.format.idx(field::TYPE)] = value.into();
     }
 
     /// Set the segments left field.
     #[inline]
     pub fn set_segments_left(&mut self, value: u8) {
         let data = self.buffer.as_mut();
-        data[field::SEG_LEFT] = value;
+        data[self.format.idx(field::SEG_LEFT)] = value;
     }
 
     /// Initialize reserved fields to 0.
@@ -317,9 +377,9 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Header<T> {
             }
             Type::Rpl => {
                 // Retain the higher order 4 bits of the padding field
-                data[field::PAD] &= 0xF0;
-                data[6] = 0;
-                data[7] = 0;
+                data[self.format.idx(field::PAD)] &= 0xF0;
+                data[self.format.idx(6)] = 0;
+                data[self.format.idx(7)] = 0;
             }
 
             _ => panic!("Unrecognized routing type when clearing reserved fields."),
@@ -347,8 +407,9 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Header<T> {
     /// This function may panic if this header is not the RPL Source Routing Header routing type.
     pub fn set_cmpr_i(&mut self, value: u8) {
         let data = self.buffer.as_mut();
-        let raw = (value << 4) | (data[field::CMPR] & 0xF);
-        data[field::CMPR] = raw;
+        let idx = self.format.idx(field::CMPR);
+        let raw = (value << 4) | (data[idx] & 0xF);
+        data[idx] = raw;
     }
 
     /// Set the number of prefix octets elided from the last address (`addresses[n]`).
@@ -357,8 +418,9 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Header<T> {
     /// This function may panic if this header is not the RPL Source Routing Header routing type.
     pub fn set_cmpr_e(&mut self, value: u8) {
         let data = self.buffer.as_mut();
-        let raw = (value & 0xF) | (data[field::CMPR] & 0xF0);
-        data[field::CMPR] = raw;
+        let idx = self.format.idx(field::CMPR);
+        let raw = (value & 0xF) | (data[idx] & 0xF0);
+        data[idx] = raw;
     }
 
     /// Set the number of octets used for padding after `addresses[n]`.
@@ -367,7 +429,8 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Header<T> {
     /// This function may panic if this header is not the RPL Source Routing Header routing type.
     pub fn set_pad(&mut self, value: u8) {
         let data = self.buffer.as_mut();
-        data[field::PAD] = value << 4;
+        let idx = self.format.idx(field::PAD);
+        data[idx] = value << 4;
     }
 
     /// Set address data
@@ -376,8 +439,10 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Header<T> {
     /// This function may panic if this header is not the RPL Source Routing Header routing type.
     pub fn set_addresses(&mut self, value: &[u8]) {
         let data = self.buffer.as_mut();
-        let len = data[field::LENGTH];
-        let addresses = &mut data[field::ADDRESSES(len)];
+        let len = self
+            .format
+            .ipv6_length(data[self.format.idx(field::LENGTH)]);
+        let addresses = &mut data[self.format.field(field::ADDRESSES(len))];
         addresses.copy_from_slice(value);
     }
 }
@@ -401,7 +466,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Header<&'a T> {
 pub enum Repr<'a> {
     Type2 {
         /// The type of header immediately following the Routing header.
-        next_header: Protocol,
+        next_header: Option<Protocol>,
         /// Length of the Routing header in 8-octet units, not including the first 8 octets.
         length: u8,
         /// Number of route segments remaining.
@@ -411,7 +476,7 @@ pub enum Repr<'a> {
     },
     Rpl {
         /// The type of header immediately following the Routing header.
-        next_header: Protocol,
+        next_header: Option<Protocol>,
         /// Length of the Routing header in 8-octet units, not including the first 8 octets.
         length: u8,
         /// Number of route segments remaining.
@@ -472,7 +537,7 @@ impl<'a> Repr<'a> {
                 segments_left,
                 home_address,
             } => {
-                header.set_next_header(next_header);
+                header.set_next_header(next_header.unwrap());
                 header.set_header_len(length);
                 header.set_routing_type(Type::Type2);
                 header.set_segments_left(segments_left);
@@ -488,7 +553,19 @@ impl<'a> Repr<'a> {
                 pad,
                 addresses,
             } => {
-                header.set_next_header(next_header);
+                match header.format {
+                    PacketFormat::Normal => {
+                        header.set_next_header(next_header.unwrap());
+                    }
+                    #[cfg(feature = "proto-sixlowpan")]
+                    PacketFormat::Compressed(crate::wire::SixlowpanExtHeaderNextheader::Elided) => {
+                    }
+                    #[cfg(feature = "proto-sixlowpan")]
+                    PacketFormat::Compressed(crate::wire::SixlowpanExtHeaderNextheader::Inline) => {
+                        header.set_next_header(next_header.unwrap());
+                    }
+                }
+
                 header.set_header_len(length);
                 header.set_routing_type(Type::Rpl);
                 header.set_segments_left(segments_left);
@@ -511,14 +588,20 @@ impl<'a> fmt::Display for Repr<'a> {
                 segments_left,
                 home_address,
             } => {
+                write!(f, "IPv6 Routing next_hdr=")?;
+
+                if let Some(nh) = next_header {
+                    write!(f, "{nh} ")?;
+                } else {
+                    write!(f, "Elided ")?;
+                }
+
                 write!(
                     f,
-                    "IPv6 Routing next_hdr={} length={} type={} seg_left={} home_address={}",
-                    next_header,
-                    length,
+                    "length={length} type={} \
+                    seg_left={segments_left} \
+                    home_address={home_address}",
                     Type::Type2,
-                    segments_left,
-                    home_address
                 )
             }
             Repr::Rpl {
@@ -530,8 +613,21 @@ impl<'a> fmt::Display for Repr<'a> {
                 pad,
                 ..
             } => {
-                write!(f, "IPv6 Routing next_hdr={} length={} type={} seg_left={} cmpr_i={} cmpr_e={} pad={}",
-                       next_header, length, Type::Rpl, segments_left, cmpr_i, cmpr_e, pad)
+                write!(f, "IPv6 Routing next_hdr=")?;
+
+                if let Some(nh) = next_header {
+                    write!(f, "{nh} ")?;
+                } else {
+                    write!(f, "Elided ")?;
+                }
+
+                write!(
+                    f,
+                    "length={} type={length} \
+                    seg_left={segments_left} \
+                    cmpr_i={cmpr_i} cmpr_e={cmpr_e} pad={pad}",
+                    Type::Rpl
+                )
             }
         }
     }
@@ -549,7 +645,7 @@ mod test {
 
     // A representation of a Type 2 Routing header
     static REPR_TYPE2: Repr = Repr::Type2 {
-        next_header: Protocol::Tcp,
+        next_header: Some(Protocol::Tcp),
         length: 2,
         segments_left: 1,
         home_address: Address::LOOPBACK,
@@ -562,9 +658,15 @@ mod test {
         0x0, 0x0, 0x3, 0x1,
     ];
 
+    static BYTES_SIXLOWPAN_COMPRESSED_SRH: [u8; 31] = [
+        0x1e, 0x03, 0x02, 0x99, 0x30, 0x00, 0x00, 0x04, 0x00, 0x04, 0x00, 0x04, 0x00, 0x04, 0x06,
+        0x00, 0x06, 0x00, 0x06, 0x00, 0x06, 0x02, 0x00, 0x02, 0x00, 0x02, 0x00, 0x02, 0x00, 0x00,
+        0x00,
+    ];
+
     // A representation of a Source Routing Header with full IPv6 addresses
     static REPR_SRH_FULL: Repr = Repr::Rpl {
-        next_header: Protocol::Tcp,
+        next_header: Some(Protocol::Tcp),
         length: 4,
         segments_left: 2,
         cmpr_i: 0,
@@ -583,7 +685,7 @@ mod test {
 
     // A representation of a Source Routing Header with elided IPv6 addresses
     static REPR_SRH_ELIDED: Repr = Repr::Rpl {
-        next_header: Protocol::Tcp,
+        next_header: Some(Protocol::Tcp),
         length: 1,
         segments_left: 2,
         cmpr_i: 15,
@@ -592,44 +694,106 @@ mod test {
         addresses: &[0x2, 0x3, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0],
     };
 
+    static REPR_SIXLOWPAN_COMPRESSED_SRH: Repr = Repr::Rpl {
+        next_header: None,
+        length: 30,
+        segments_left: 2,
+        cmpr_i: 9,
+        cmpr_e: 9,
+        pad: 3,
+        addresses: &[
+            0x04, 0x00, 0x04, 0x00, 0x04, 0x00, 0x04, 0x06, 0x00, 0x06, 0x00, 0x06, 0x00, 0x06,
+            0x02, 0x00, 0x02, 0x00, 0x02, 0x00, 0x02, 0x00, 0x00, 0x00,
+        ],
+    };
+
     #[test]
     fn test_check_len() {
         // less than min header size
-        assert_eq!(Err(Error), Header::new(&BYTES_TYPE2[..3]).check_len());
-        assert_eq!(Err(Error), Header::new(&BYTES_SRH_FULL[..3]).check_len());
-        assert_eq!(Err(Error), Header::new(&BYTES_SRH_ELIDED[..3]).check_len());
+        assert_eq!(
+            Err(Error),
+            Header::new_unchecked(&BYTES_TYPE2[..3]).check_len()
+        );
+        assert_eq!(
+            Err(Error),
+            Header::new_unchecked(&BYTES_SRH_FULL[..3]).check_len()
+        );
+        assert_eq!(
+            Err(Error),
+            Header::new_unchecked(&BYTES_SRH_ELIDED[..3]).check_len()
+        );
         // less than specified length field
-        assert_eq!(Err(Error), Header::new(&BYTES_TYPE2[..23]).check_len());
-        assert_eq!(Err(Error), Header::new(&BYTES_SRH_FULL[..39]).check_len());
-        assert_eq!(Err(Error), Header::new(&BYTES_SRH_ELIDED[..11]).check_len());
+        assert_eq!(
+            Err(Error),
+            Header::new_unchecked(&BYTES_TYPE2[..23]).check_len()
+        );
+        assert_eq!(
+            Err(Error),
+            Header::new_unchecked(&BYTES_SRH_FULL[..39]).check_len()
+        );
+        assert_eq!(
+            Err(Error),
+            Header::new_unchecked(&BYTES_SRH_ELIDED[..11]).check_len()
+        );
         // valid
-        assert_eq!(Ok(()), Header::new(&BYTES_TYPE2[..]).check_len());
-        assert_eq!(Ok(()), Header::new(&BYTES_SRH_FULL[..]).check_len());
-        assert_eq!(Ok(()), Header::new(&BYTES_SRH_ELIDED[..]).check_len());
+        assert_eq!(Ok(()), Header::new_unchecked(&BYTES_TYPE2[..]).check_len());
+        assert_eq!(
+            Ok(()),
+            Header::new_unchecked(&BYTES_SRH_FULL[..]).check_len()
+        );
+        assert_eq!(
+            Ok(()),
+            Header::new_unchecked(&BYTES_SRH_ELIDED[..]).check_len()
+        );
+
+        #[cfg(feature = "proto-sixlowpan")]
+        {
+            assert_eq!(
+                Ok(()),
+                Header::new_unchecked_compressed(
+                    &BYTES_SIXLOWPAN_COMPRESSED_SRH[..],
+                    crate::wire::SixlowpanExtHeaderNextheader::Elided
+                )
+                .check_len()
+            );
+        }
     }
 
     #[test]
     fn test_header_deconstruct() {
-        let header = Header::new(&BYTES_TYPE2[..]);
-        assert_eq!(header.next_header(), Protocol::Tcp);
+        let header = Header::new_unchecked(&BYTES_TYPE2[..]);
+        assert_eq!(header.next_header(), Some(Protocol::Tcp));
         assert_eq!(header.header_len(), 2);
         assert_eq!(header.routing_type(), Type::Type2);
         assert_eq!(header.segments_left(), 1);
         assert_eq!(header.home_address(), Address::LOOPBACK);
 
-        let header = Header::new(&BYTES_SRH_FULL[..]);
-        assert_eq!(header.next_header(), Protocol::Tcp);
+        let header = Header::new_unchecked(&BYTES_SRH_FULL[..]);
+        assert_eq!(header.next_header(), Some(Protocol::Tcp));
         assert_eq!(header.header_len(), 4);
         assert_eq!(header.routing_type(), Type::Rpl);
         assert_eq!(header.segments_left(), 2);
         assert_eq!(header.addresses(), &BYTES_SRH_FULL[8..]);
 
-        let header = Header::new(&BYTES_SRH_ELIDED[..]);
-        assert_eq!(header.next_header(), Protocol::Tcp);
+        let header = Header::new_unchecked(&BYTES_SRH_ELIDED[..]);
+        assert_eq!(header.next_header(), Some(Protocol::Tcp));
         assert_eq!(header.header_len(), 1);
         assert_eq!(header.routing_type(), Type::Rpl);
         assert_eq!(header.segments_left(), 2);
         assert_eq!(header.addresses(), &BYTES_SRH_ELIDED[8..]);
+
+        #[cfg(feature = "proto-sixlowpan")]
+        {
+            let header = Header::new_unchecked_compressed(
+                &BYTES_SIXLOWPAN_COMPRESSED_SRH[..],
+                crate::wire::SixlowpanExtHeaderNextheader::Elided,
+            );
+            assert_eq!(header.next_header(), None);
+            assert_eq!(header.header_len(), 30);
+            assert_eq!(header.routing_type(), Type::Rpl);
+            assert_eq!(header.segments_left(), 2);
+            assert_eq!(header.addresses(), &BYTES_SIXLOWPAN_COMPRESSED_SRH[7..]);
+        }
     }
 
     #[test]
@@ -645,24 +809,46 @@ mod test {
         let header = Header::new_checked(&BYTES_SRH_ELIDED[..]).unwrap();
         let repr = Repr::parse(&header).unwrap();
         assert_eq!(repr, REPR_SRH_ELIDED);
+
+        #[cfg(feature = "proto-sixlowpan")]
+        {
+            let header = Header::new_checked_compressed(
+                &BYTES_SIXLOWPAN_COMPRESSED_SRH[..],
+                crate::wire::SixlowpanExtHeaderNextheader::Elided,
+            )
+            .unwrap();
+            let repr = Repr::parse(&header).unwrap();
+            assert_eq!(repr, REPR_SIXLOWPAN_COMPRESSED_SRH);
+        }
     }
 
     #[test]
     fn test_repr_emit() {
         let mut bytes = [0u8; 24];
-        let mut header = Header::new(&mut bytes[..]);
+        let mut header = Header::new_unchecked(&mut bytes[..]);
         REPR_TYPE2.emit(&mut header);
         assert_eq!(header.into_inner(), &BYTES_TYPE2[..]);
 
         let mut bytes = [0u8; 40];
-        let mut header = Header::new(&mut bytes[..]);
+        let mut header = Header::new_unchecked(&mut bytes[..]);
         REPR_SRH_FULL.emit(&mut header);
         assert_eq!(header.into_inner(), &BYTES_SRH_FULL[..]);
 
         let mut bytes = [0u8; 16];
-        let mut header = Header::new(&mut bytes[..]);
+        let mut header = Header::new_unchecked(&mut bytes[..]);
         REPR_SRH_ELIDED.emit(&mut header);
         assert_eq!(header.into_inner(), &BYTES_SRH_ELIDED[..]);
+
+        #[cfg(feature = "proto-sixlowpan")]
+        {
+            let mut bytes = [0u8; 31];
+            let mut header = Header::new_unchecked_compressed(
+                &mut bytes[..],
+                crate::wire::SixlowpanExtHeaderNextheader::Elided,
+            );
+            REPR_SIXLOWPAN_COMPRESSED_SRH.emit(&mut header);
+            assert_eq!(header.into_inner(), &BYTES_SIXLOWPAN_COMPRESSED_SRH[..]);
+        }
     }
 
     #[test]
