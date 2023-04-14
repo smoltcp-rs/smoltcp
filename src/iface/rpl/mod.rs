@@ -2,3 +2,4 @@
 
 mod consts;
 mod lollipop;
+mod trickle;
