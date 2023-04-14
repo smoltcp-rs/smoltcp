@@ -10,6 +10,8 @@ mod interface;
 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
 mod neighbor;
 mod route;
+#[cfg(feature = "proto-rpl")]
+mod rpl;
 mod socket_meta;
 mod socket_set;
 
