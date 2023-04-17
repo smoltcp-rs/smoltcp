@@ -6,8 +6,7 @@ use std::os::unix::io::{AsRawFd, RawFd};
 #[derive(Debug)]
 pub struct TunTapInterfaceDesc {
     lower: libc::c_int,
-    ifreq: ifreq,
-    medium: Medium,
+    mtu: usize,
 }
 
 impl AsRawFd for TunTapInterfaceDesc {
@@ -29,15 +28,23 @@ impl TunTapInterfaceDesc {
             lower
         };
 
-        Ok(TunTapInterfaceDesc {
-            lower,
-            ifreq: ifreq_for(name),
-            medium,
-        })
+        let mut ifreq = ifreq_for(name);
+        Self::attach_interface_ifreq(lower, medium, &mut ifreq)?;
+        let mtu = Self::mtu_ifreq(medium, &mut ifreq)?;
+
+        Ok(TunTapInterfaceDesc { lower, mtu })
     }
 
-    pub fn attach_interface(&mut self) -> io::Result<()> {
-        let mode = match self.medium {
+    pub fn from_fd(fd: RawFd, mtu: usize) -> io::Result<TunTapInterfaceDesc> {
+        Ok(TunTapInterfaceDesc { lower: fd, mtu })
+    }
+
+    fn attach_interface_ifreq(
+        lower: libc::c_int,
+        medium: Medium,
+        ifr: &mut ifreq,
+    ) -> io::Result<()> {
+        let mode = match medium {
             #[cfg(feature = "medium-ip")]
             Medium::Ip => imp::IFF_TUN,
             #[cfg(feature = "medium-ethernet")]
@@ -45,11 +52,11 @@ impl TunTapInterfaceDesc {
             #[cfg(feature = "medium-ieee802154")]
             Medium::Ieee802154 => todo!(),
         };
-        self.ifreq.ifr_data = mode | imp::IFF_NO_PI;
-        ifreq_ioctl(self.lower, &mut self.ifreq, imp::TUNSETIFF).map(|_| ())
+        ifr.ifr_data = mode | imp::IFF_NO_PI;
+        ifreq_ioctl(lower, ifr, imp::TUNSETIFF).map(|_| ())
     }
 
-    pub fn interface_mtu(&mut self) -> io::Result<usize> {
+    fn mtu_ifreq(medium: Medium, ifr: &mut ifreq) -> io::Result<usize> {
         let lower = unsafe {
             let lower = libc::socket(libc::AF_INET, libc::SOCK_DGRAM, libc::IPPROTO_IP);
             if lower == -1 {
@@ -58,7 +65,7 @@ impl TunTapInterfaceDesc {
             lower
         };
 
-        let ip_mtu = ifreq_ioctl(lower, &mut self.ifreq, imp::SIOCGIFMTU).map(|mtu| mtu as usize);
+        let ip_mtu = ifreq_ioctl(lower, ifr, imp::SIOCGIFMTU).map(|mtu| mtu as usize);
 
         unsafe {
             libc::close(lower);
@@ -69,7 +76,7 @@ impl TunTapInterfaceDesc {
 
         // SIOCGIFMTU returns the IP MTU (typically 1500 bytes.)
         // smoltcp counts the entire Ethernet packet in the MTU, so add the Ethernet header size to it.
-        let mtu = match self.medium {
+        let mtu = match medium {
             #[cfg(feature = "medium-ip")]
             Medium::Ip => ip_mtu,
             #[cfg(feature = "medium-ethernet")]
@@ -79,6 +86,10 @@ impl TunTapInterfaceDesc {
         };
 
         Ok(mtu)
+    }
+
+    pub fn interface_mtu(&self) -> io::Result<usize> {
+        Ok(self.mtu)
     }
 
     pub fn recv(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
