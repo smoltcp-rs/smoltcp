@@ -1,0 +1,22 @@
+on:
+  push:
+    branches: [staging, trying]
+  pull_request:
+
+name: Coverage
+
+jobs:
+  coverage:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install `cargo llvm-cov`
+        uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Run Coverage
+        run: ./ci.sh coverage
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          #token: ${{ secrets.CODECOV_TOKEN }} # not required for public repos
+          files: lcov.info
+          fail_ci_if_error: false
