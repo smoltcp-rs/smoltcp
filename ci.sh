@@ -27,6 +27,7 @@ FEATURES_TEST=(
     "std,medium-ip,proto-ipv6,socket-icmp,socket-tcp"
     "std,medium-ieee802154,proto-sixlowpan,socket-udp"
     "std,medium-ieee802154,proto-sixlowpan,proto-sixlowpan-fragmentation,socket-udp"
+    "std,medium-ieee802154,proto-rpl,proto-sixlowpan,proto-sixlowpan-fragmentation,socket-udp"
     "std,medium-ip,proto-ipv4,proto-ipv6,socket-tcp,socket-udp"
     "std,medium-ethernet,medium-ip,medium-ieee802154,proto-ipv4,proto-ipv6,socket-raw,socket-udp,socket-tcp,socket-icmp,socket-dns,async"
 )
