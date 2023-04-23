@@ -1,5 +1,5 @@
 use super::{Error, Result};
-use core::fmt;
+use core::{convert::TryInto, fmt};
 
 use crate::wire::IpProtocol as Protocol;
 use crate::wire::Ipv6Address as Address;
@@ -21,6 +21,10 @@ enum_with_unknown! {
         ///
         /// See https://tools.ietf.org/html/rfc6554 for details.
         Rpl = 3,
+        /// IPv6 Segment Routing Header (SRH)
+        ///
+        /// See https://tools.ietf.org/html/rfc8754 for details.
+        Srh = 4,
         /// RFC3692-style Experiment 1
         ///
         /// See https://tools.ietf.org/html/rfc4727 for details.
@@ -41,6 +45,7 @@ impl fmt::Display for Type {
             Type::Nimrod => write!(f, "Nimrod"),
             Type::Type2 => write!(f, "Type2"),
             Type::Rpl => write!(f, "Rpl"),
+            Type::Srh => write!(f, "Srh"),
             Type::Experiment1 => write!(f, "Experiment1"),
             Type::Experiment2 => write!(f, "Experiment2"),
             Type::Reserved => write!(f, "Reserved"),
@@ -137,6 +142,56 @@ mod field {
     pub const fn ADDRESSES(length_field: u8) -> Field {
         let data = DATA(length_field);
         8..data.end
+    }
+
+    // The SRv6 Segment Routing Header has the following format:
+    //
+    // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    // | Next Header   |  Hdr Ext Len  | Routing Type  | Segments Left |
+    // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    // |  Last Entry   |     Flags     |              Tag              |
+    // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    // |                                                               |
+    // |            Segment List[0] (128-bit IPv6 address)             |
+    // |                                                               |
+    // |                                                               |
+    // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    // |                                                               |
+    // |                                                               |
+    // |                            ...                                |
+    // |                                                               |
+    // |                                                               |
+    // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    // |                                                               |
+    // |            Segment List[n] (128-bit IPv6 address)             |
+    // |                                                               |
+    // |                                                               |
+    // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    // //                                                             //
+    // //         Optional Type Length Value objects (variable)       //
+    // //                                                             //
+    // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+    /// 8-bit field containing the Last Entry value
+    pub const LAST_ENTRY: usize = 4;
+
+    /// 8-bit field containing the Flags value
+    pub const FLAGS: usize = 5;
+
+    /// 16-bit field containing the Tag value
+    pub const TAG: Field = 6..8;
+
+    /// Variable-length field containing the segment list
+    pub const fn SEGMENTS(last_entry_field: u8) -> Field {
+        let bytes = 16 * (last_entry_field as usize) + 8;
+        8..bytes
+    }
+
+    /// Variable-length field containing the TLVs
+    pub const fn TLV(length_field: u8, last_entry_field: u8) -> Field {
+        let start = SEGMENTS(last_entry_field).end;
+        let end = DATA(length_field).end;
+        start..end
     }
 }
 
@@ -269,6 +324,55 @@ impl<T: AsRef<[u8]>> Header<T> {
     }
 }
 
+/// Getter methods for the SRv6 Segment Routing Header type.
+impl<T: AsRef<[u8]>> Header<T> {
+    /// Return the index of the last entry in the Segment List.
+    ///
+    /// # Panics
+    /// This function may panic if this header is not the SRv6 Segment Routing Header type.
+    pub fn last_entry(&self) -> u8 {
+        let data = self.buffer.as_ref();
+        data[field::LAST_ENTRY]
+    }
+
+    /// Return the 8-bit Segment Routing Header flags.
+    ///
+    /// # Panics
+    /// This function may panic if this header is not the SRv6 Segment Routing Header type.
+    pub fn flags(&self) -> u8 {
+        let data = self.buffer.as_ref();
+        data[field::FLAGS]
+    }
+
+    /// Return the segment routing tag.
+    ///
+    /// # Panics
+    /// This function may panic if this header is not the SRv6 Segment Routing Header type.
+    pub fn tag(&self) -> u16 {
+        let data = self.buffer.as_ref();
+        let slice = &data[field::TAG];
+        u16::from_be_bytes(slice.try_into().unwrap())
+    }
+
+    /// Return the SRv6 segment list.
+    ///
+    /// # Panics
+    /// This function may panic if this header is not the SRv6 Segment Routing Header type.
+    pub fn segment_list(&self) -> &[u8] {
+        let data = self.buffer.as_ref();
+        &data[field::SEGMENTS(self.last_entry())]
+    }
+
+    /// Return the type length value fields.
+    ///
+    /// # Panics
+    /// This function may panic if this header is not the SRv6 Segment Routing Header type.
+    pub fn tlv(&self) -> &[u8] {
+        let data = self.buffer.as_ref();
+        &data[field::TLV(self.header_len(), self.last_entry())]
+    }
+}
+
 /// Core setter methods relevant to any routing type.
 impl<T: AsRef<[u8]> + AsMut<[u8]>> Header<T> {
     /// Set the next header field.
@@ -382,6 +486,57 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Header<T> {
     }
 }
 
+/// Setter methods for the SRv6 Segment Routing Header type.
+impl<T: AsRef<[u8]> + AsMut<[u8]>> Header<T> {
+    /// Set the index of the last entry in the Segment List.
+    ///
+    /// # Panics
+    /// This function may panic if this header is not the SRv6 Segment Routing Header type.
+    pub fn set_last_entry(&mut self, value: u8) {
+        let data = self.buffer.as_mut();
+        data[field::LAST_ENTRY] = value;
+    }
+
+    /// Set the 8-bit Segment Routing Header flags.
+    ///
+    /// # Panics
+    /// This function may panic if this header is not the SRv6 Segment Routing Header type.
+    pub fn set_flags(&mut self, value: u8) {
+        let data = self.buffer.as_mut();
+        data[field::FLAGS] = value;
+    }
+
+    /// Set the segment routing tag.
+    ///
+    /// # Panics
+    /// This function may panic if this header is not the SRv6 Segment Routing Header type.
+    pub fn set_tag(&mut self, value: u16) {
+        let data = self.buffer.as_mut();
+        let bytes = value.to_be_bytes();
+        data[field::TAG].copy_from_slice(&bytes);
+    }
+
+    /// Set the SRv6 segment list.
+    ///
+    /// # Panics
+    /// This function may panic if this header is not the SRv6 Segment Routing Header type.
+    pub fn set_segment_list(&mut self, value: &[u8]) {
+        let seg_field = field::SEGMENTS(self.last_entry());
+        let data = self.buffer.as_mut();
+        data[seg_field].copy_from_slice(value);
+    }
+
+    /// Set the type length value fields.
+    ///
+    /// # Panics
+    /// This function may panic if this header is not the SRv6 Segment Routing Header type.
+    pub fn set_tlv(&mut self, value: &[u8]) {
+        let tlv_field = field::TLV(self.header_len(), self.last_entry());
+        let data = self.buffer.as_mut();
+        data[tlv_field].copy_from_slice(value);
+    }
+}
+
 impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Header<&'a T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match Repr::parse(self) {
@@ -426,6 +581,24 @@ pub enum Repr<'a> {
         /// Vector of addresses, numbered 1 to `n`.
         addresses: &'a [u8],
     },
+    Srh {
+        /// The type of header immediately following the Routing header.
+        next_header: Protocol,
+        /// Length of the Routing header in 8-octet units, not including the first 8 octets.
+        length: u8,
+        /// Number of route segments remaining.
+        segments_left: u8,
+        /// Contains the index (zero based) of the last element of the Segment List
+        last_entry: u8,
+        /// Header flags (unused currently)
+        flags: u8,
+        /// Tag a packet as part of a class or group of packets
+        tag: u16,
+        /// 128-bit IPv6 addresses representing the nth segment in the Segment List
+        segment_list: &'a [u8],
+        /// Type Length Value fields
+        tlv: &'a [u8],
+    },
 }
 
 impl<'a> Repr<'a> {
@@ -450,7 +623,16 @@ impl<'a> Repr<'a> {
                 pad: header.pad(),
                 addresses: header.addresses(),
             }),
-
+            Type::Srh => Ok(Repr::Srh {
+                next_header: header.next_header(),
+                length: header.header_len(),
+                segments_left: header.segments_left(),
+                last_entry: header.last_entry(),
+                flags: header.flags(),
+                tag: header.tag(),
+                segment_list: header.segment_list(),
+                tlv: header.tlv(),
+            }),
             _ => Err(Error),
         }
     }
@@ -459,7 +641,9 @@ impl<'a> Repr<'a> {
     /// representation.
     pub const fn buffer_len(&self) -> usize {
         match self {
-            &Repr::Rpl { length, .. } | &Repr::Type2 { length, .. } => field::DATA(length).end,
+            &Repr::Rpl { length, .. } | &Repr::Type2 { length, .. } | &Repr::Srh { length, .. } => {
+                field::DATA(length).end
+            }
         }
     }
 
@@ -498,6 +682,26 @@ impl<'a> Repr<'a> {
                 header.clear_reserved();
                 header.set_addresses(addresses);
             }
+            Repr::Srh {
+                next_header,
+                length,
+                segments_left,
+                last_entry,
+                flags,
+                tag,
+                segment_list,
+                tlv,
+            } => {
+                header.set_next_header(next_header);
+                header.set_header_len(length);
+                header.set_routing_type(Type::Srh);
+                header.set_segments_left(segments_left);
+                header.set_last_entry(last_entry);
+                header.set_flags(flags);
+                header.set_tag(tag);
+                header.set_segment_list(segment_list);
+                header.set_tlv(tlv);
+            }
         }
     }
 }
@@ -532,6 +736,18 @@ impl<'a> fmt::Display for Repr<'a> {
             } => {
                 write!(f, "IPv6 Routing next_hdr={} length={} type={} seg_left={} cmpr_i={} cmpr_e={} pad={}",
                        next_header, length, Type::Rpl, segments_left, cmpr_i, cmpr_e, pad)
+            }
+            Repr::Srh {
+                next_header,
+                length,
+                segments_left,
+                last_entry,
+                flags,
+                tag,
+                ..
+            } => {
+                write!(f, "IPv6 Routing next_hdr={} length={} type={} seg_left={} last_entry={} flags={} tag={}",
+                        next_header, length, Type::Srh, segments_left, last_entry, flags, tag)
             }
         }
     }
