@@ -250,6 +250,9 @@ impl InterfaceInner {
             let opt_repr = check!(opt_repr);
             match opt_repr {
                 Ipv6OptionRepr::Pad1 | Ipv6OptionRepr::PadN(_) => (),
+                #[cfg(feature = "proto-rpl")]
+                Ipv6OptionRepr::Rpl(_) => {}
+
                 Ipv6OptionRepr::Unknown { type_, .. } => {
                     match Ipv6OptionFailureType::from(type_) {
                         Ipv6OptionFailureType::Skip => (),
