@@ -101,9 +101,9 @@ mod ipv4;
 #[cfg(feature = "proto-ipv6")]
 mod ipv6;
 #[cfg(feature = "proto-ipv6")]
-mod ipv6fragment;
+mod ipv6ext_header;
 #[cfg(feature = "proto-ipv6")]
-mod ipv6hopbyhop;
+mod ipv6fragment;
 #[cfg(feature = "proto-ipv6")]
 mod ipv6option;
 #[cfg(feature = "proto-ipv6")]
@@ -190,12 +190,19 @@ pub use self::ipv6::{
 
 #[cfg(feature = "proto-ipv6")]
 pub use self::ipv6option::{
-    FailureType as Ipv6OptionFailureType, Ipv6Option, Repr as Ipv6OptionRepr,
+    FailureType as Ipv6OptionFailureType, Ipv6Option, Ipv6OptionsIterator, Repr as Ipv6OptionRepr,
     Type as Ipv6OptionType,
 };
 
 #[cfg(feature = "proto-ipv6")]
-pub use self::ipv6hopbyhop::{Header as Ipv6HopByHopHeader, Repr as Ipv6HopByHopRepr};
+pub use self::ipv6ext_header::{Header as Ipv6ExtHeader, Repr as Ipv6ExtHeaderRepr};
+
+#[cfg(feature = "proto-ipv6")]
+/// A read/write wrapper around an IPv6 Hop-By-Hop header.
+pub type Ipv6HopByHopHeader<T> = Ipv6ExtHeader<T>;
+#[cfg(feature = "proto-ipv6")]
+/// A high-level representation of an IPv6 Hop-By-Hop heade.
+pub type Ipv6HopByHopRepr<'a> = Ipv6ExtHeaderRepr<'a>;
 
 #[cfg(feature = "proto-ipv6")]
 pub use self::ipv6fragment::{Header as Ipv6FragmentHeader, Repr as Ipv6FragmentRepr};

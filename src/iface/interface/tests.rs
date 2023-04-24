@@ -1063,11 +1063,11 @@ fn test_icmpv6_nxthdr_unknown() {
             hbh_pkt.set_header_len(0);
             offset += 8;
             {
-                let mut pad_pkt = Ipv6Option::new_unchecked(&mut *hbh_pkt.options_mut());
+                let mut pad_pkt = Ipv6Option::new_unchecked(&mut hbh_pkt.payload_mut()[..]);
                 Ipv6OptionRepr::PadN(3).emit(&mut pad_pkt);
             }
             {
-                let mut pad_pkt = Ipv6Option::new_unchecked(&mut hbh_pkt.options_mut()[5..]);
+                let mut pad_pkt = Ipv6Option::new_unchecked(&mut hbh_pkt.payload_mut()[5..]);
                 Ipv6OptionRepr::Pad1.emit(&mut pad_pkt);
             }
         }

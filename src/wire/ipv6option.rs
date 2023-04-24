@@ -322,12 +322,8 @@ impl<'a> Ipv6OptionsIterator<'a> {
     /// Create a new `Ipv6OptionsIterator`, used to iterate over the
     /// options contained in a IPv6 Extension Header (e.g. the Hop-by-Hop
     /// header).
-    ///
-    /// # Panics
-    /// This function panics if the `length` provided is larger than the
-    /// length of the `data` buffer.
-    pub fn new(data: &'a [u8], length: usize) -> Ipv6OptionsIterator<'a> {
-        assert!(length <= data.len());
+    pub fn new(data: &'a [u8]) -> Ipv6OptionsIterator<'a> {
+        let length = data.len();
         Ipv6OptionsIterator {
             pos: 0,
             hit_error: false,
@@ -591,10 +587,7 @@ mod test {
             0x08, 0x00,
         ];
 
-        let mut iterator = Ipv6OptionsIterator::new(&options, 0);
-        assert_eq!(iterator.next(), None);
-
-        iterator = Ipv6OptionsIterator::new(&options, 16);
+        let iterator = Ipv6OptionsIterator::new(&options);
         for (i, opt) in iterator.enumerate() {
             match (i, opt) {
                 (0, Ok(Repr::Pad1)) => continue,
@@ -614,12 +607,5 @@ mod test {
                 (i, res) => panic!("Unexpected option `{res:?}` at index {i}"),
             }
         }
-    }
-
-    #[test]
-    #[should_panic(expected = "length <= data.len()")]
-    fn test_options_iter_truncated() {
-        let options = [0x01, 0x02, 0x00, 0x00];
-        let _ = Ipv6OptionsIterator::new(&options, 5);
     }
 }

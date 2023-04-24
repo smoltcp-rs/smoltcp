@@ -244,9 +244,11 @@ impl InterfaceInner {
         handled_by_raw_socket: bool,
         ip_payload: &'frame [u8],
     ) -> Option<IpPacket<'frame>> {
-        let hbh_pkt = check!(Ipv6HopByHopHeader::new_checked(ip_payload));
-        let hbh_repr = check!(Ipv6HopByHopRepr::parse(&hbh_pkt));
-        for opt_repr in hbh_repr.options() {
+        let hbh_hdr = check!(Ipv6HopByHopHeader::new_checked(ip_payload));
+        let hbh_repr = check!(Ipv6HopByHopRepr::parse(&hbh_hdr));
+
+        let hbh_options = Ipv6OptionsIterator::new(hbh_repr.data);
+        for opt_repr in hbh_options {
             let opt_repr = check!(opt_repr);
             match opt_repr {
                 Ipv6OptionRepr::Pad1 | Ipv6OptionRepr::PadN(_) => (),
@@ -273,7 +275,7 @@ impl InterfaceInner {
             ipv6_repr,
             hbh_repr.next_header,
             handled_by_raw_socket,
-            &ip_payload[hbh_repr.buffer_len()..],
+            &ip_payload[hbh_repr.header_len() + hbh_repr.data.len()..],
         )
     }
 
