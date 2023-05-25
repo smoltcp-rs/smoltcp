@@ -1,56 +1,38 @@
+#![allow(unused)]
+
+use super::IpProtocol;
 use super::{Error, Result};
-use core::fmt;
 
-pub use super::IpProtocol as Protocol;
-use crate::wire::ipv6option::Ipv6OptionsIterator;
+mod field {
+    #![allow(non_snake_case)]
 
-/// A read/write wrapper around an IPv6 Hop-by-Hop Options Header.
+    use crate::wire::field::*;
+
+    pub const MIN_HEADER_SIZE: usize = 8;
+
+    pub const NXT_HDR: usize = 0;
+    pub const LENGTH: usize = 1;
+    // Variable-length field.
+    //
+    // Length of the header is in 8-octet units, not including the first 8 octets.
+    // The first two octets are the next header type and the header length.
+    pub const fn PAYLOAD(length_field: u8) -> Field {
+        let bytes = length_field as usize * 8 + 8;
+        2..bytes
+    }
+}
+
+/// A read/write wrapper around an IPv6 Extension Header buffer.
 #[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Header<T: AsRef<[u8]>> {
     buffer: T,
 }
 
-// Format of the Hop-by-Hop Options Header
-//
-// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-// |  Next Header  |  Hdr Ext Len  |                               |
-// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+                               +
-// |                                                               |
-// .                                                               .
-// .                            Options                            .
-// .                                                               .
-// |                                                               |
-// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-//
-//
-// See https://tools.ietf.org/html/rfc8200#section-4.3 for details.
-mod field {
-    #![allow(non_snake_case)]
-
-    use crate::wire::field::*;
-
-    // Minimum size of the header.
-    pub const MIN_HEADER_SIZE: usize = 8;
-
-    // 8-bit identifier of the header immediately following this header.
-    pub const NXT_HDR: usize = 0;
-    // 8-bit unsigned integer. Length of the OPTIONS field in 8-octet units,
-    // not including the first 8 octets.
-    pub const LENGTH: usize = 1;
-    // Variable-length field. Option-Type-specific data.
-    //
-    // Length of the header is in 8-octet units, not including the first 8 octets. The first two
-    // octets are the next header type and the header length.
-    pub const fn OPTIONS(length_field: u8) -> Field {
-        let bytes = length_field as usize * 8 + 8;
-        2..bytes
-    }
-}
-
+/// Core getter methods relevant to any IPv6 extension header.
 impl<T: AsRef<[u8]>> Header<T> {
-    /// Create a raw octet buffer with an IPv6 Hop-by-Hop Options Header structure.
-    pub const fn new_unchecked(buffer: T) -> Header<T> {
+    /// Create a raw octet buffer with an IPv6 Extension Header structure.
+    pub const fn new_unchecked(buffer: T) -> Self {
         Header { buffer }
     }
 
@@ -58,7 +40,7 @@ impl<T: AsRef<[u8]>> Header<T> {
     ///
     /// [new_unchecked]: #method.new_unchecked
     /// [check_len]: #method.check_len
-    pub fn new_checked(buffer: T) -> Result<Header<T>> {
+    pub fn new_checked(buffer: T) -> Result<Self> {
         let header = Self::new_unchecked(buffer);
         header.check_len()?;
         Ok(header)
@@ -72,14 +54,13 @@ impl<T: AsRef<[u8]>> Header<T> {
     /// [set_header_len]: #method.set_header_len
     pub fn check_len(&self) -> Result<()> {
         let data = self.buffer.as_ref();
-        let len = data.len();
 
+        let len = data.len();
         if len < field::MIN_HEADER_SIZE {
             return Err(Error);
         }
 
-        let of = field::OPTIONS(data[field::LENGTH]);
-
+        let of = field::PAYLOAD(data[field::LENGTH]);
         if len < of.end {
             return Err(Error);
         }
@@ -93,40 +74,36 @@ impl<T: AsRef<[u8]>> Header<T> {
     }
 
     /// Return the next header field.
-    #[inline]
-    pub fn next_header(&self) -> Protocol {
+    pub fn next_header(&self) -> IpProtocol {
         let data = self.buffer.as_ref();
-        Protocol::from(data[field::NXT_HDR])
+        IpProtocol::from(data[field::NXT_HDR])
     }
 
-    /// Return length of the Hop-by-Hop Options header in 8-octet units, not including the first
-    /// 8 octets.
-    #[inline]
+    /// Return the header length field.
     pub fn header_len(&self) -> u8 {
         let data = self.buffer.as_ref();
         data[field::LENGTH]
     }
 }
 
-impl<'a, T: AsRef<[u8]> + ?Sized> Header<&'a T> {
-    /// Return the option data.
-    #[inline]
-    pub fn options(&self) -> &'a [u8] {
+impl<'h, T: AsRef<[u8]> + ?Sized> Header<&'h T> {
+    /// Return the payload of the IPv6 extension header.
+    pub fn payload(&self) -> &'h [u8] {
         let data = self.buffer.as_ref();
-        &data[field::OPTIONS(data[field::LENGTH])]
+        &data[field::PAYLOAD(data[field::LENGTH])]
     }
 }
 
 impl<T: AsRef<[u8]> + AsMut<[u8]>> Header<T> {
     /// Set the next header field.
     #[inline]
-    pub fn set_next_header(&mut self, value: Protocol) {
+    pub fn set_next_header(&mut self, value: IpProtocol) {
         let data = self.buffer.as_mut();
         data[field::NXT_HDR] = value.into();
     }
 
-    /// Set the option data length. Length of the Hop-by-Hop Options header in 8-octet units,
-    /// not including the first 8 octets.
+    /// Set the extension header data length. The length of the header is
+    /// in 8-octet units, not including the first 8 octets.
     #[inline]
     pub fn set_header_len(&mut self, value: u8) {
         let data = self.buffer.as_mut();
@@ -135,78 +112,46 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Header<T> {
 }
 
 impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Header<&'a mut T> {
-    /// Return a mutable pointer to the option data.
+    /// Return a mutable pointer to the payload data.
     #[inline]
-    pub fn options_mut(&mut self) -> &mut [u8] {
+    pub fn payload_mut(&mut self) -> &mut [u8] {
         let data = self.buffer.as_mut();
         let len = data[field::LENGTH];
-        &mut data[field::OPTIONS(len)]
+        &mut data[field::PAYLOAD(len)]
     }
 }
 
-impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Header<&'a T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match Repr::parse(self) {
-            Ok(repr) => write!(f, "{repr}"),
-            Err(err) => {
-                write!(f, "IPv6 Hop-by-Hop Options ({err})")?;
-                Ok(())
-            }
-        }
-    }
-}
-
-/// A high-level representation of an IPv6 Hop-by-Hop Options header.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Repr<'a> {
-    /// The type of header immediately following the Hop-by-Hop Options header.
-    pub next_header: Protocol,
-    /// Length of the Hop-by-Hop Options header in 8-octet units, not including the first 8 octets.
+    pub next_header: IpProtocol,
     pub length: u8,
-    /// The options contained in the Hop-by-Hop Options header.
-    pub options: &'a [u8],
+    pub data: &'a [u8],
 }
 
 impl<'a> Repr<'a> {
-    /// Parse an IPv6 Hop-by-Hop Options Header and return a high-level representation.
-    pub fn parse<T>(header: &Header<&'a T>) -> Result<Repr<'a>>
+    /// Parse an IPv6 Extension Header Header and return a high-level representation.
+    pub fn parse<T>(header: &Header<&'a T>) -> Result<Self>
     where
         T: AsRef<[u8]> + ?Sized,
     {
-        Ok(Repr {
+        Ok(Self {
             next_header: header.next_header(),
             length: header.header_len(),
-            options: header.options(),
+            data: header.payload(),
         })
     }
 
     /// Return the length, in bytes, of a header that will be emitted from this high-level
     /// representation.
-    pub const fn buffer_len(&self) -> usize {
-        field::OPTIONS(self.length).end
+    pub const fn header_len(&self) -> usize {
+        2
     }
 
-    /// Emit a high-level representation into an IPv6 Hop-by-Hop Options Header.
+    /// Emit a high-level representation into an IPv6 Extension Header.
     pub fn emit<T: AsRef<[u8]> + AsMut<[u8]> + ?Sized>(&self, header: &mut Header<&mut T>) {
         header.set_next_header(self.next_header);
         header.set_header_len(self.length);
-        header.options_mut().copy_from_slice(self.options);
-    }
-
-    /// Return an `Iterator` for the contained options.
-    pub fn options(&self) -> Ipv6OptionsIterator {
-        Ipv6OptionsIterator::new(self.options, self.buffer_len() - 2)
-    }
-}
-
-impl<'a> fmt::Display for Repr<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "IPv6 Hop-by-Hop Options next_hdr={} length={} ",
-            self.next_header, self.length
-        )
     }
 }
 
@@ -254,14 +199,14 @@ mod test {
     #[test]
     fn test_header_deconstruct() {
         let header = Header::new_unchecked(&REPR_PACKET_PAD4);
-        assert_eq!(header.next_header(), Protocol::Tcp);
+        assert_eq!(header.next_header(), IpProtocol::Tcp);
         assert_eq!(header.header_len(), 0);
-        assert_eq!(header.options(), &REPR_PACKET_PAD4[2..]);
+        assert_eq!(header.payload(), &REPR_PACKET_PAD4[2..]);
 
         let header = Header::new_unchecked(&REPR_PACKET_PAD12);
-        assert_eq!(header.next_header(), Protocol::Tcp);
+        assert_eq!(header.next_header(), IpProtocol::Tcp);
         assert_eq!(header.header_len(), 1);
-        assert_eq!(header.options(), &REPR_PACKET_PAD12[2..]);
+        assert_eq!(header.payload(), &REPR_PACKET_PAD12[2..]);
     }
 
     #[test]
@@ -271,11 +216,11 @@ mod test {
         bytes.push(0);
 
         assert_eq!(
-            Header::new_unchecked(&bytes).options().len(),
+            Header::new_unchecked(&bytes).payload().len(),
             REPR_PACKET_PAD4[2..].len()
         );
         assert_eq!(
-            Header::new_unchecked(&mut bytes).options_mut().len(),
+            Header::new_unchecked(&mut bytes).payload_mut().len(),
             REPR_PACKET_PAD4[2..].len()
         );
 
@@ -284,11 +229,11 @@ mod test {
         bytes.push(0);
 
         assert_eq!(
-            Header::new_unchecked(&bytes).options().len(),
+            Header::new_unchecked(&bytes).payload().len(),
             REPR_PACKET_PAD12[2..].len()
         );
         assert_eq!(
-            Header::new_unchecked(&mut bytes).options_mut().len(),
+            Header::new_unchecked(&mut bytes).payload_mut().len(),
             REPR_PACKET_PAD12[2..].len()
         );
     }
@@ -317,9 +262,9 @@ mod test {
         assert_eq!(
             repr,
             Repr {
-                next_header: Protocol::Tcp,
+                next_header: IpProtocol::Tcp,
                 length: 0,
-                options: &REPR_PACKET_PAD4[2..]
+                data: &REPR_PACKET_PAD4[2..]
             }
         );
 
@@ -328,9 +273,9 @@ mod test {
         assert_eq!(
             repr,
             Repr {
-                next_header: Protocol::Tcp,
+                next_header: IpProtocol::Tcp,
                 length: 1,
-                options: &REPR_PACKET_PAD12[2..]
+                data: &REPR_PACKET_PAD12[2..]
             }
         );
     }
@@ -338,34 +283,23 @@ mod test {
     #[test]
     fn test_repr_emit() {
         let repr = Repr {
-            next_header: Protocol::Tcp,
+            next_header: IpProtocol::Tcp,
             length: 0,
-            options: &REPR_PACKET_PAD4[2..],
+            data: &REPR_PACKET_PAD4[2..],
         };
-        let mut bytes = [0u8; 8];
+        let mut bytes = [0u8; 2];
         let mut header = Header::new_unchecked(&mut bytes);
         repr.emit(&mut header);
-        assert_eq!(header.into_inner(), &REPR_PACKET_PAD4[..]);
+        assert_eq!(header.into_inner(), &REPR_PACKET_PAD4[..2]);
 
         let repr = Repr {
-            next_header: Protocol::Tcp,
+            next_header: IpProtocol::Tcp,
             length: 1,
-            options: &REPR_PACKET_PAD12[2..],
+            data: &REPR_PACKET_PAD12[2..],
         };
-        let mut bytes = [0u8; 16];
+        let mut bytes = [0u8; 2];
         let mut header = Header::new_unchecked(&mut bytes);
         repr.emit(&mut header);
-        assert_eq!(header.into_inner(), &REPR_PACKET_PAD12[..]);
-    }
-
-    #[test]
-    fn test_buffer_len() {
-        let header = Header::new_unchecked(&REPR_PACKET_PAD4);
-        let repr = Repr::parse(&header).unwrap();
-        assert_eq!(repr.buffer_len(), REPR_PACKET_PAD4.len());
-
-        let header = Header::new_unchecked(&REPR_PACKET_PAD12);
-        let repr = Repr::parse(&header).unwrap();
-        assert_eq!(repr.buffer_len(), REPR_PACKET_PAD12.len());
+        assert_eq!(header.into_inner(), &REPR_PACKET_PAD12[..2]);
     }
 }

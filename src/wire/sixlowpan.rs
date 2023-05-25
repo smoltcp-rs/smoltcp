@@ -1668,7 +1668,7 @@ pub mod nhc {
     impl<'a, T: AsRef<[u8]> + ?Sized> ExtHeaderPacket<&'a T> {
         /// Return a pointer to the payload.
         pub fn payload(&self) -> &'a [u8] {
-            let start = 1 + self.next_header_size();
+            let start = 2 + self.next_header_size();
             &self.buffer.as_ref()[start..]
         }
     }
@@ -1772,6 +1772,141 @@ pub mod nhc {
             packet.set_extension_header_id(self.ext_header_id);
             packet.set_next_header(self.next_header);
             packet.set_length(self.length);
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        use crate::wire::{Ipv6RoutingHeader, Ipv6RoutingRepr};
+
+        #[cfg(feature = "proto-rpl")]
+        use crate::wire::{
+            Ipv6Option, Ipv6OptionRepr, Ipv6OptionsIterator, RplHopByHopRepr, RplInstanceId,
+        };
+
+        #[cfg(feature = "proto-rpl")]
+        const RPL_HOP_BY_HOP_PACKET: [u8; 9] =
+            [0xe0, 0x3a, 0x06, 0x63, 0x04, 0x00, 0x1e, 0x03, 0x00];
+
+        const ROUTING_SR_PACKET: [u8; 32] = [
+            0xe3, 0x1e, 0x03, 0x03, 0x99, 0x30, 0x00, 0x00, 0x05, 0x00, 0x05, 0x00, 0x05, 0x00,
+            0x05, 0x06, 0x00, 0x06, 0x00, 0x06, 0x00, 0x06, 0x02, 0x00, 0x02, 0x00, 0x02, 0x00,
+            0x02, 0x00, 0x00, 0x00,
+        ];
+
+        #[test]
+        #[cfg(feature = "proto-rpl")]
+        fn test_rpl_hop_by_hop_option_deconstruct() {
+            let header = ExtHeaderPacket::new_checked(&RPL_HOP_BY_HOP_PACKET).unwrap();
+            assert_eq!(
+                header.next_header(),
+                NextHeader::Uncompressed(IpProtocol::Icmpv6)
+            );
+            assert_eq!(header.extension_header_id(), ExtHeaderId::HopByHopHeader);
+
+            let options = header.payload();
+            let mut options = Ipv6OptionsIterator::new(options);
+            let rpl_repr = options.next().unwrap();
+            let rpl_repr = rpl_repr.unwrap();
+
+            match rpl_repr {
+                Ipv6OptionRepr::Rpl(rpl) => {
+                    assert_eq!(
+                        rpl,
+                        RplHopByHopRepr {
+                            down: false,
+                            rank_error: false,
+                            forwarding_error: false,
+                            instance_id: RplInstanceId::from(0x1e),
+                            sender_rank: 0x0300,
+                        }
+                    );
+                }
+                _ => unreachable!(),
+            }
+        }
+
+        #[test]
+        #[cfg(feature = "proto-rpl")]
+        fn test_rpl_hop_by_hop_option_emit() {
+            let repr = Ipv6OptionRepr::Rpl(RplHopByHopRepr {
+                down: false,
+                rank_error: false,
+                forwarding_error: false,
+                instance_id: RplInstanceId::from(0x1e),
+                sender_rank: 0x0300,
+            });
+
+            let ext_hdr = ExtHeaderRepr {
+                ext_header_id: ExtHeaderId::HopByHopHeader,
+                next_header: NextHeader::Uncompressed(IpProtocol::Icmpv6),
+                length: repr.buffer_len() as u8,
+            };
+
+            let mut buffer = vec![0u8; ext_hdr.buffer_len() + repr.buffer_len()];
+            ext_hdr.emit(&mut ExtHeaderPacket::new_unchecked(
+                &mut buffer[..ext_hdr.buffer_len()],
+            ));
+            repr.emit(&mut Ipv6Option::new_unchecked(
+                &mut buffer[ext_hdr.buffer_len()..],
+            ));
+
+            assert_eq!(&buffer[..], RPL_HOP_BY_HOP_PACKET);
+        }
+
+        #[test]
+        fn test_source_routing_deconstruct() {
+            let header = ExtHeaderPacket::new_checked(&ROUTING_SR_PACKET).unwrap();
+            assert_eq!(header.next_header(), NextHeader::Compressed);
+            assert_eq!(header.extension_header_id(), ExtHeaderId::RoutingHeader);
+
+            let routing_hdr = Ipv6RoutingHeader::new_checked(header.payload()).unwrap();
+            let repr = Ipv6RoutingRepr::parse(&routing_hdr).unwrap();
+            assert_eq!(
+                repr,
+                Ipv6RoutingRepr::Rpl {
+                    segments_left: 3,
+                    cmpr_i: 9,
+                    cmpr_e: 9,
+                    pad: 3,
+                    addresses: &[
+                        0x05, 0x00, 0x05, 0x00, 0x05, 0x00, 0x05, 0x06, 0x00, 0x06, 0x00, 0x06,
+                        0x00, 0x06, 0x02, 0x00, 0x02, 0x00, 0x02, 0x00, 0x02, 0x00, 0x00, 0x00
+                    ],
+                }
+            );
+        }
+
+        #[test]
+        fn test_source_routing_emit() {
+            let routing_hdr = Ipv6RoutingRepr::Rpl {
+                segments_left: 3,
+                cmpr_i: 9,
+                cmpr_e: 9,
+                pad: 3,
+                addresses: &[
+                    0x05, 0x00, 0x05, 0x00, 0x05, 0x00, 0x05, 0x06, 0x00, 0x06, 0x00, 0x06, 0x00,
+                    0x06, 0x02, 0x00, 0x02, 0x00, 0x02, 0x00, 0x02, 0x00, 0x00, 0x00,
+                ],
+            };
+
+            let ext_hdr = ExtHeaderRepr {
+                ext_header_id: ExtHeaderId::RoutingHeader,
+                next_header: NextHeader::Compressed,
+                length: routing_hdr.buffer_len() as u8,
+            };
+
+            let mut buffer = vec![0u8; ext_hdr.buffer_len() + routing_hdr.buffer_len()];
+            ext_hdr.emit(&mut ExtHeaderPacket::new_unchecked(
+                &mut buffer[..ext_hdr.buffer_len()],
+            ));
+            routing_hdr.emit(&mut Ipv6RoutingHeader::new_unchecked(
+                &mut buffer[ext_hdr.buffer_len()..],
+            ));
+
+            assert_eq!(&buffer[..], ROUTING_SR_PACKET);
         }
     }
 
@@ -2128,7 +2263,7 @@ pub mod nhc {
             assert_eq!(packet.dispatch_field(), DISPATCH_EXT_HEADER);
             assert_eq!(packet.extension_header_id(), ExtHeaderId::RoutingHeader);
 
-            assert_eq!(packet.payload(), [0x06, 0x03, 0x00, 0xff, 0x00, 0x00, 0x00]);
+            assert_eq!(packet.payload(), [0x03, 0x00, 0xff, 0x00, 0x00, 0x00]);
         }
 
         #[test]
