@@ -77,6 +77,7 @@ fuzz_target!(|fuzz: SixlowpanPacketFuzzer| {
                                                 &frame,
                                                 &iphc_repr.src_addr,
                                                 &iphc_repr.dst_addr,
+                                                &Default::default(),
                                             ) {
                                                 let mut buffer = vec![
                                                     0;

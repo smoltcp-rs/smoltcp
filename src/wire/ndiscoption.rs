@@ -466,13 +466,14 @@ impl<'a> Repr<'a> {
                 if opt.data_len() < 6 {
                     Err(Error)
                 } else {
-                    let ip_packet =
-                        Ipv6Packet::new_unchecked(&opt.data()[field::REDIRECTED_RESERVED.len()..]);
+                    let redirected_packet = &opt.data()[field::REDIRECTED_RESERVED.len()..];
+
+                    let ip_packet = Ipv6Packet::new_checked(redirected_packet)?;
                     let ip_repr = Ipv6Repr::parse(&ip_packet)?;
+
                     Ok(Repr::RedirectedHeader(RedirectedHeader {
                         header: ip_repr,
-                        data: &opt.data()
-                            [field::REDIRECTED_RESERVED.len() + ip_repr.buffer_len()..],
+                        data: &redirected_packet[ip_repr.buffer_len()..][..ip_repr.payload_len],
                     }))
                 }
             }
