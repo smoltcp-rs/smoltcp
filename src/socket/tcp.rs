@@ -2281,6 +2281,11 @@ impl<'a> Socket<'a> {
         if self.state == State::Closed {
             // When aborting a connection, forget about it after sending a single RST packet.
             self.tuple = None;
+            #[cfg(feature = "async")]
+            {
+                // Wake tx now so that async users can wait for the RST to be sent
+                self.tx_waker.wake();
+            }
         }
 
         Ok(())
