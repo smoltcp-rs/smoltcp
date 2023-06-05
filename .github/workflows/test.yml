@@ -1,7 +1,6 @@
 on:
-  push:
-    branches: [staging, trying]
   pull_request:
+  merge_group:
 
 name: Test
 
