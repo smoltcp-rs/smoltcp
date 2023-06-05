@@ -40,6 +40,7 @@ feature("dns_max_result_count", default=1, min=1, max=32, pow2=4)
 feature("dns_max_server_count", default=1, min=1, max=32, pow2=4)
 feature("dns_max_name_size", default=255, min=64, max=255, pow2=True)
 feature("rpl_relations_buffer_count", default=16, min=1, max=128, pow2=True)
+feature("rpl_parents_buffer_count", default=8, min=2, max=32, pow2=True)
 
 # ========= Update Cargo.toml
 
