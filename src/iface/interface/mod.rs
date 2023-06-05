@@ -1643,7 +1643,7 @@ impl InterfaceInner {
         packet: IpPacket,
         frag: &mut Fragmenter,
     ) -> Result<(), DispatchError> {
-        let ip_repr = packet.ip_repr();
+        let mut ip_repr = packet.ip_repr();
         assert!(!ip_repr.dst_addr().is_unspecified());
 
         // Dispatch IEEE802.15.4:
@@ -1724,9 +1724,9 @@ impl InterfaceInner {
 
         let total_ip_len = ip_repr.buffer_len();
 
-        match ip_repr {
+        match &mut ip_repr {
             #[cfg(feature = "proto-ipv4")]
-            IpRepr::Ipv4(mut repr) => {
+            IpRepr::Ipv4(repr) => {
                 // If we have an IPv4 packet, then we need to check if we need to fragment it.
                 if total_ip_len > self.caps.max_transmission_unit {
                     #[cfg(feature = "proto-ipv4-fragmentation")]
@@ -1739,10 +1739,10 @@ impl InterfaceInner {
                         let ip_header_len = repr.buffer_len();
                         let first_frag_ip_len = self.caps.ip_mtu();
 
-                        if frag.buffer.len() < first_frag_ip_len {
+                        if frag.buffer.len() < total_ip_len {
                             net_debug!(
                                 "Fragmentation buffer is too small, at least {} needed. Dropping",
-                                first_frag_ip_len
+                                total_ip_len
                             );
                             return Ok(());
                         }
@@ -1757,7 +1757,7 @@ impl InterfaceInner {
                         frag.packet_len = total_ip_len;
 
                         // Save the IP header for other fragments.
-                        frag.ipv4.repr = repr;
+                        frag.ipv4.repr = *repr;
 
                         // Save how much bytes we will send now.
                         frag.sent_bytes = first_frag_ip_len;
