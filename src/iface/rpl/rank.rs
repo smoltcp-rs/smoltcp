@@ -25,8 +25,8 @@ use super::consts::DEFAULT_MIN_HOP_RANK_INCREASE;
 #[derive(Debug, Clone, Copy, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Rank {
-    value: u16,
-    min_hop_rank_increase: u16,
+    pub(super) value: u16,
+    pub(super) min_hop_rank_increase: u16,
 }
 
 impl core::fmt::Display for Rank {
@@ -46,6 +46,8 @@ impl Rank {
     /// The `MinHopRankIncrease` is used for calculating the integer part for comparing to other
     /// Ranks.
     pub const fn new(value: u16, min_hop_rank_increase: u16) -> Self {
+        assert!(min_hop_rank_increase > 0);
+
         Self {
             value,
             min_hop_rank_increase,

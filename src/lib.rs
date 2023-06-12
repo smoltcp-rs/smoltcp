@@ -145,6 +145,7 @@ mod config {
     pub const REASSEMBLY_BUFFER_COUNT: usize = 4;
     pub const REASSEMBLY_BUFFER_SIZE: usize = 1500;
     pub const RPL_RELATIONS_BUFFER_COUNT: usize = 16;
+    pub const RPL_PARENTS_BUFFER_COUNT: usize = 8;
 }
 
 #[cfg(not(test))]
