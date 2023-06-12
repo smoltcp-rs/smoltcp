@@ -40,7 +40,7 @@ fn create_ip<'a>() -> (Interface, SocketSet<'a>, Loopback) {
     let mut device = Loopback::new(Medium::Ip);
 
     let config = Config::new(HardwareAddress::Ip);
-    let mut iface = Interface::new(config, &mut device);
+    let mut iface = Interface::new(config, &mut device, Instant::ZERO);
     iface.update_ip_addrs(|ip_addrs| {
         #[cfg(feature = "proto-ipv4")]
         ip_addrs
@@ -65,7 +65,7 @@ fn create_ethernet<'a>() -> (Interface, SocketSet<'a>, Loopback) {
     let mut device = Loopback::new(Medium::Ethernet);
 
     let config = Config::new(HardwareAddress::Ethernet(EthernetAddress::default()));
-    let mut iface = Interface::new(config, &mut device);
+    let mut iface = Interface::new(config, &mut device, Instant::ZERO);
     iface.update_ip_addrs(|ip_addrs| {
         #[cfg(feature = "proto-ipv4")]
         ip_addrs
@@ -90,7 +90,7 @@ fn create_ieee802154<'a>() -> (Interface, SocketSet<'a>, Loopback) {
     let mut device = Loopback::new(Medium::Ieee802154);
 
     let config = Config::new(HardwareAddress::Ieee802154(Ieee802154Address::default()));
-    let mut iface = Interface::new(config, &mut device);
+    let mut iface = Interface::new(config, &mut device, Instant::ZERO);
     iface.update_ip_addrs(|ip_addrs| {
         #[cfg(feature = "proto-ipv6")]
         ip_addrs
@@ -136,7 +136,7 @@ impl TxToken for MockTxToken {
 fn test_new_panic() {
     let mut device = Loopback::new(Medium::Ethernet);
     let config = Config::new(HardwareAddress::Ip);
-    Interface::new(config, &mut device);
+    Interface::new(config, &mut device, Instant::ZERO);
 }
 
 #[test]

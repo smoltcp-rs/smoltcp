@@ -91,7 +91,7 @@ fn main() {
         Medium::Ieee802154 => todo!(),
     };
 
-    let mut iface = Interface::new(config, &mut device);
+    let mut iface = Interface::new(config, &mut device, Instant::now());
     iface.update_ip_addrs(|ip_addrs| {
         ip_addrs
             .push(IpCidr::new(IpAddress::v4(127, 0, 0, 1), 8))
