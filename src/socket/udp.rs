@@ -405,13 +405,13 @@ impl<'a> Socket<'a> {
         Ok((length, endpoint))
     }
 
-    pub(crate) fn accepts(&self, _cx: &mut Context, ip_repr: &IpRepr, repr: &UdpRepr) -> bool {
+    pub(crate) fn accepts(&self, cx: &mut Context, ip_repr: &IpRepr, repr: &UdpRepr) -> bool {
         if self.endpoint.port != repr.dst_port {
             return false;
         }
         if self.endpoint.addr.is_some()
             && self.endpoint.addr != Some(ip_repr.dst_addr())
-            && !ip_repr.dst_addr().is_broadcast()
+            && !cx.is_broadcast(&ip_repr.dst_addr())
             && !ip_repr.dst_addr().is_multicast()
         {
             return false;
