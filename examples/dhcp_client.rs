@@ -36,7 +36,7 @@ fn main() {
         Medium::Ieee802154 => todo!(),
     };
     config.random_seed = rand::random();
-    let mut iface = Interface::new(config, &mut device);
+    let mut iface = Interface::new(config, &mut device, Instant::now());
 
     // Create sockets
     let mut dhcp_socket = dhcpv4::Socket::new();

@@ -461,7 +461,7 @@ impl Interface {
     ///
     /// [ethernet_addr]: #method.ethernet_addr
     /// [neighbor_cache]: #method.neighbor_cache
-    pub fn new<D>(config: Config, device: &mut D) -> Self
+    pub fn new<D>(config: Config, device: &mut D, now: Instant) -> Self
     where
         D: Device + ?Sized,
     {
@@ -519,7 +519,7 @@ impl Interface {
             },
             fragmenter: Fragmenter::new(),
             inner: InterfaceInner {
-                now: Instant::from_secs(0),
+                now,
                 caps,
                 hardware_addr: config.hardware_addr,
                 ip_addrs: Vec::new(),
