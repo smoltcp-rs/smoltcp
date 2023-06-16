@@ -1312,10 +1312,25 @@ impl InterfaceInner {
         handled_by_raw_socket
     }
 
-    /// Checks if an incoming packet has a broadcast address for the interfaces
-    /// associated ipv4 addresses.
+    /// Checks if an address is broadcast, taking into account ipv4 subnet-local
+    /// broadcast addresses.
+    pub(crate) fn is_broadcast(&self, address: &IpAddress) -> bool {
+        match address {
+            #[cfg(feature = "proto-ipv4")]
+            IpAddress::Ipv4(address) => self.is_broadcast_v4(*address),
+            #[cfg(feature = "proto-ipv6")]
+            IpAddress::Ipv6(_) => false,
+        }
+    }
+
+    /// Checks if an address is broadcast, taking into account ipv4 subnet-local
+    /// broadcast addresses.
     #[cfg(feature = "proto-ipv4")]
-    fn is_subnet_broadcast(&self, address: Ipv4Address) -> bool {
+    pub(crate) fn is_broadcast_v4(&self, address: Ipv4Address) -> bool {
+        if address.is_broadcast() {
+            return true;
+        }
+
         self.ip_addrs
             .iter()
             .filter_map(|own_cidr| match own_cidr {
@@ -1326,16 +1341,10 @@ impl InterfaceInner {
             .any(|broadcast_address| address == broadcast_address)
     }
 
-    /// Checks if an ipv4 address is broadcast, taking into account subnet broadcast addresses
-    #[cfg(feature = "proto-ipv4")]
-    fn is_broadcast_v4(&self, address: Ipv4Address) -> bool {
-        address.is_broadcast() || self.is_subnet_broadcast(address)
-    }
-
     /// Checks if an ipv4 address is unicast, taking into account subnet broadcast addresses
     #[cfg(feature = "proto-ipv4")]
     fn is_unicast_v4(&self, address: Ipv4Address) -> bool {
-        address.is_unicast() && !self.is_subnet_broadcast(address)
+        address.is_unicast() && !self.is_broadcast_v4(address)
     }
 
     #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
@@ -1475,6 +1484,8 @@ impl InterfaceInner {
 
     fn route(&self, addr: &IpAddress, timestamp: Instant) -> Option<IpAddress> {
         // Send directly.
+        // note: no need to use `self.is_broadcast()` to check for subnet-local broadcast addrs
+        //       here because `in_same_network` will already return true.
         if self.in_same_network(addr) || addr.is_broadcast() {
             return Some(*addr);
         }
@@ -1508,7 +1519,7 @@ impl InterfaceInner {
     where
         Tx: TxToken,
     {
-        if dst_addr.is_broadcast() {
+        if self.is_broadcast(dst_addr) {
             let hardware_addr = match self.caps.medium {
                 #[cfg(feature = "medium-ethernet")]
                 Medium::Ethernet => HardwareAddress::Ethernet(EthernetAddress::BROADCAST),
