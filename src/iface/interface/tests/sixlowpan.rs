@@ -38,7 +38,7 @@ fn icmp_echo_request(#[case] medium: Medium) {
         0x37,
     ];
 
-    let response = Some(IpPacket::Icmpv6((
+    let response = Some(IpPacket::new_ipv6(
         Ipv6Repr {
             src_addr: Ipv6Address::from_parts(&[0xfe80, 0, 0, 0, 0x180b, 0x4242, 0x4242, 0x4242]),
             dst_addr: Ipv6Address::from_parts(&[0xfe80, 0, 0, 0, 0x241c, 0x2957, 0x34a6, 0x3a62]),
@@ -46,7 +46,7 @@ fn icmp_echo_request(#[case] medium: Medium) {
             next_header: IpProtocol::Icmpv6,
             payload_len: 64,
         },
-        Icmpv6Repr::EchoReply {
+        IpPayload::Icmpv6(Icmpv6Repr::EchoReply {
             ident: 4,
             seq_no: 1,
             data: &[
@@ -55,8 +55,8 @@ fn icmp_echo_request(#[case] medium: Medium) {
                 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29,
                 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37,
             ],
-        },
-    )));
+        }),
+    ));
 
     let (mut iface, mut sockets, _device) = setup(medium);
 
@@ -190,7 +190,7 @@ fn test_echo_request_sixlowpan_128_bytes() {
 
     assert_eq!(
         result,
-        Some(IpPacket::Icmpv6((
+        Some(IpPacket::new_ipv6(
             Ipv6Repr {
                 src_addr: Ipv6Address([
                     0xfe, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x92, 0xfc, 0x48, 0xc2, 0xa4, 0x41,
@@ -204,12 +204,12 @@ fn test_echo_request_sixlowpan_128_bytes() {
                 payload_len: 136,
                 hop_limit: 64,
             },
-            Icmpv6Repr::EchoReply {
+            IpPayload::Icmpv6(Icmpv6Repr::EchoReply {
                 ident: 39,
                 seq_no: 2,
                 data,
-            }
-        )))
+            })
+        ))
     );
 
     iface.inner.neighbor_cache.fill(
@@ -362,20 +362,22 @@ In at rhoncus tortor. Cras blandit tellus diam, varius vestibulum nibh commodo n
         Ieee802154Address::default(),
         tx_token,
         PacketMeta::default(),
-        IpPacket::Udp((
-            IpRepr::Ipv6(Ipv6Repr {
+        IpPacket::new_ipv6(
+            Ipv6Repr {
                 src_addr: Ipv6Address::default(),
                 dst_addr: Ipv6Address::default(),
                 next_header: IpProtocol::Udp,
                 payload_len: udp_data.len(),
                 hop_limit: 64,
-            }),
-            UdpRepr {
-                src_port: 1234,
-                dst_port: 1234,
             },
-            udp_data,
-        )),
+            IpPayload::Udp(
+                UdpRepr {
+                    src_port: 1234,
+                    dst_port: 1234,
+                },
+                udp_data,
+            ),
+        ),
         &mut iface.fragmenter,
     );
 

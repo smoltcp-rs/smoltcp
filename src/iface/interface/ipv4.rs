@@ -8,14 +8,14 @@ use crate::socket::AnySocket;
 
 use crate::phy::{Medium, TxToken};
 use crate::time::Instant;
-use crate::wire::*;
+use crate::wire::{Ipv4Packet as Ipv4PacketWire, *};
 
 impl InterfaceInner {
     pub(super) fn process_ipv4<'a, T: AsRef<[u8]> + ?Sized>(
         &mut self,
         sockets: &mut SocketSet,
         meta: PacketMeta,
-        ipv4_packet: &Ipv4Packet<&'a T>,
+        ipv4_packet: &Ipv4PacketWire<&'a T>,
         frag: &'a mut FragmentsBuffer,
     ) -> Option<IpPacket<'a>> {
         let ipv4_repr = check!(Ipv4Repr::parse(ipv4_packet, &self.caps.checksum));
@@ -306,7 +306,10 @@ impl InterfaceInner {
                 payload_len: icmp_repr.buffer_len(),
                 hop_limit: 64,
             };
-            Some(IpPacket::Icmpv4((ipv4_reply_repr, icmp_repr)))
+            Some(IpPacket::new_ipv4(
+                ipv4_reply_repr,
+                IpPayload::Icmpv4(icmp_repr),
+            ))
         } else if self.is_broadcast_v4(ipv4_repr.dst_addr) {
             // Only reply to broadcasts for echo replies and not other ICMP messages
             match icmp_repr {
@@ -319,7 +322,10 @@ impl InterfaceInner {
                             payload_len: icmp_repr.buffer_len(),
                             hop_limit: 64,
                         };
-                        Some(IpPacket::Icmpv4((ipv4_reply_repr, icmp_repr)))
+                        Some(IpPacket::new_ipv4(
+                            ipv4_reply_repr,
+                            IpPayload::Icmpv4(icmp_repr),
+                        ))
                     }
                     None => None,
                 },
@@ -373,7 +379,7 @@ impl InterfaceInner {
             }
 
             let mut packet =
-                Ipv4Packet::new_unchecked(&mut tx_buffer[..frag.ipv4.repr.buffer_len()]);
+                Ipv4PacketWire::new_unchecked(&mut tx_buffer[..frag.ipv4.repr.buffer_len()]);
             frag.ipv4.repr.emit(&mut packet, &caps.checksum);
             packet.set_ident(frag.ipv4.ident);
             packet.set_more_frags(more_frags);
@@ -405,7 +411,7 @@ impl InterfaceInner {
             group_addr,
             version,
         };
-        let pkt = IpPacket::Igmp((
+        let pkt = IpPacket::new_ipv4(
             Ipv4Repr {
                 src_addr: iface_addr,
                 // Send to the group being reported
@@ -415,8 +421,8 @@ impl InterfaceInner {
                 hop_limit: 1,
                 // [#183](https://github.com/m-labs/smoltcp/issues/183).
             },
-            igmp_repr,
-        ));
+            IpPayload::Igmp(igmp_repr),
+        );
         Some(pkt)
     }
 
@@ -427,7 +433,7 @@ impl InterfaceInner {
     ) -> Option<IpPacket<'any>> {
         self.ipv4_addr().map(|iface_addr| {
             let igmp_repr = IgmpRepr::LeaveGroup { group_addr };
-            IpPacket::Igmp((
+            IpPacket::new_ipv4(
                 Ipv4Repr {
                     src_addr: iface_addr,
                     dst_addr: Ipv4Address::MULTICAST_ALL_ROUTERS,
@@ -435,8 +441,8 @@ impl InterfaceInner {
                     payload_len: igmp_repr.buffer_len(),
                     hop_limit: 1,
                 },
-                igmp_repr,
-            ))
+                IpPayload::Igmp(igmp_repr),
+            )
         })
     }
 }

@@ -1,7 +1,7 @@
 use super::*;
 
 fn parse_ipv6(data: &[u8]) -> crate::wire::Result<IpPacket<'_>> {
-    let ipv6_header = Ipv6Packet::new_checked(data)?;
+    let ipv6_header = Ipv6PacketWire::new_checked(data)?;
     let ipv6 = Ipv6Repr::parse(&ipv6_header)?;
 
     match ipv6.next_header {
@@ -19,7 +19,7 @@ fn parse_ipv6(data: &[u8]) -> crate::wire::Result<IpPacket<'_>> {
                 &Icmpv6Packet::new_checked(ipv6_header.payload())?,
                 &Default::default(),
             )?;
-            Ok(IpPacket::Icmpv6((ipv6, icmp)))
+            Ok(IpPacket::new_ipv6(ipv6, IpPayload::Icmpv6(icmp)))
         }
         IpProtocol::Ipv6NoNxt => todo!(),
         IpProtocol::Ipv6Opts => todo!(),
@@ -49,7 +49,7 @@ fn multicast_source_address(#[case] medium: Medium) {
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
-            &Ipv6Packet::new_checked(&data).unwrap()
+            &Ipv6PacketWire::new_checked(&data).unwrap()
         ),
         response
     );
@@ -76,7 +76,7 @@ fn hop_by_hop_skip_with_icmp(#[case] medium: Medium) {
         0x0, 0x2a, 0x1, 0xa4, 0x4c, 0x6f, 0x72, 0x65, 0x6d, 0x20, 0x49, 0x70, 0x73, 0x75, 0x6d,
     ];
 
-    let response = Some(IpPacket::Icmpv6((
+    let response = Some(IpPacket::new_ipv6(
         Ipv6Repr {
             src_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0001]),
             dst_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0002]),
@@ -84,12 +84,12 @@ fn hop_by_hop_skip_with_icmp(#[case] medium: Medium) {
             next_header: IpProtocol::Icmpv6,
             payload_len: 19,
         },
-        Icmpv6Repr::EchoReply {
+        IpPayload::Icmpv6(Icmpv6Repr::EchoReply {
             ident: 42,
             seq_no: 420,
             data: b"Lorem Ipsum",
-        },
-    )));
+        }),
+    ));
 
     let (mut iface, mut sockets, _device) = setup(medium);
 
@@ -97,7 +97,7 @@ fn hop_by_hop_skip_with_icmp(#[case] medium: Medium) {
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
-            &Ipv6Packet::new_checked(&data).unwrap()
+            &Ipv6PacketWire::new_checked(&data).unwrap()
         ),
         response
     );
@@ -132,7 +132,7 @@ fn hop_by_hop_discard_with_icmp(#[case] medium: Medium) {
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
-            &Ipv6Packet::new_checked(&data).unwrap()
+            &Ipv6PacketWire::new_checked(&data).unwrap()
         ),
         response
     );
@@ -154,7 +154,7 @@ fn imcp_empty_echo_request(#[case] medium: Medium) {
 
     assert_eq!(
         parse_ipv6(&data),
-        Ok(IpPacket::Icmpv6((
+        Ok(IpPacket::new_ipv6(
             Ipv6Repr {
                 src_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0002]),
                 dst_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0001]),
@@ -162,15 +162,15 @@ fn imcp_empty_echo_request(#[case] medium: Medium) {
                 next_header: IpProtocol::Icmpv6,
                 payload_len: 8,
             },
-            Icmpv6Repr::EchoRequest {
+            IpPayload::Icmpv6(Icmpv6Repr::EchoRequest {
                 ident: 0,
                 seq_no: 0,
                 data: b"",
-            }
-        )))
+            })
+        ))
     );
 
-    let response = Some(IpPacket::Icmpv6((
+    let response = Some(IpPacket::new_ipv6(
         Ipv6Repr {
             src_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0001]),
             dst_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0002]),
@@ -178,12 +178,12 @@ fn imcp_empty_echo_request(#[case] medium: Medium) {
             next_header: IpProtocol::Icmpv6,
             payload_len: 8,
         },
-        Icmpv6Repr::EchoReply {
+        IpPayload::Icmpv6(Icmpv6Repr::EchoReply {
             ident: 0,
             seq_no: 0,
             data: b"",
-        },
-    )));
+        }),
+    ));
 
     let (mut iface, mut sockets, _device) = setup(medium);
 
@@ -191,7 +191,7 @@ fn imcp_empty_echo_request(#[case] medium: Medium) {
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
-            &Ipv6Packet::new_checked(&data).unwrap()
+            &Ipv6PacketWire::new_checked(&data).unwrap()
         ),
         response
     );
@@ -214,7 +214,7 @@ fn icmp_echo_request(#[case] medium: Medium) {
 
     assert_eq!(
         parse_ipv6(&data),
-        Ok(IpPacket::Icmpv6((
+        Ok(IpPacket::new_ipv6(
             Ipv6Repr {
                 src_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0002]),
                 dst_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0001]),
@@ -222,15 +222,15 @@ fn icmp_echo_request(#[case] medium: Medium) {
                 next_header: IpProtocol::Icmpv6,
                 payload_len: 19,
             },
-            Icmpv6Repr::EchoRequest {
+            IpPayload::Icmpv6(Icmpv6Repr::EchoRequest {
                 ident: 42,
                 seq_no: 420,
                 data: b"Lorem Ipsum",
-            }
-        )))
+            })
+        ))
     );
 
-    let response = Some(IpPacket::Icmpv6((
+    let response = Some(IpPacket::new_ipv6(
         Ipv6Repr {
             src_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0001]),
             dst_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0002]),
@@ -238,12 +238,12 @@ fn icmp_echo_request(#[case] medium: Medium) {
             next_header: IpProtocol::Icmpv6,
             payload_len: 19,
         },
-        Icmpv6Repr::EchoReply {
+        IpPayload::Icmpv6(Icmpv6Repr::EchoReply {
             ident: 42,
             seq_no: 420,
             data: b"Lorem Ipsum",
-        },
-    )));
+        }),
+    ));
 
     let (mut iface, mut sockets, _device) = setup(medium);
 
@@ -251,7 +251,7 @@ fn icmp_echo_request(#[case] medium: Medium) {
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
-            &Ipv6Packet::new_checked(&data).unwrap()
+            &Ipv6PacketWire::new_checked(&data).unwrap()
         ),
         response
     );
@@ -274,7 +274,7 @@ fn icmp_echo_reply_as_input(#[case] medium: Medium) {
 
     assert_eq!(
         parse_ipv6(&data),
-        Ok(IpPacket::Icmpv6((
+        Ok(IpPacket::new_ipv6(
             Ipv6Repr {
                 src_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0002]),
                 dst_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0001]),
@@ -282,12 +282,12 @@ fn icmp_echo_reply_as_input(#[case] medium: Medium) {
                 next_header: IpProtocol::Icmpv6,
                 payload_len: 19,
             },
-            Icmpv6Repr::EchoReply {
+            IpPayload::Icmpv6(Icmpv6Repr::EchoReply {
                 ident: 0,
                 seq_no: 0,
                 data: b"Lorem Ipsum",
-            }
-        )))
+            })
+        ))
     );
 
     let response = None;
@@ -298,7 +298,7 @@ fn icmp_echo_reply_as_input(#[case] medium: Medium) {
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
-            &Ipv6Packet::new_checked(&data).unwrap()
+            &Ipv6PacketWire::new_checked(&data).unwrap()
         ),
         response
     );
@@ -327,7 +327,7 @@ fn unknown_proto_with_multicast_dst_address(#[case] medium: Medium) {
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
-            &Ipv6Packet::new_checked(&data).unwrap()
+            &Ipv6PacketWire::new_checked(&data).unwrap()
         ),
         response
     );
@@ -348,7 +348,7 @@ fn unknown_proto(#[case] medium: Medium) {
         0x0, 0x0, 0x0, 0x0, 0x1,
     ];
 
-    let response = Some(IpPacket::Icmpv6((
+    let response = Some(IpPacket::new_ipv6(
         Ipv6Repr {
             src_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0001]),
             dst_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0002]),
@@ -356,7 +356,7 @@ fn unknown_proto(#[case] medium: Medium) {
             next_header: IpProtocol::Icmpv6,
             payload_len: 48,
         },
-        Icmpv6Repr::ParamProblem {
+        IpPayload::Icmpv6(Icmpv6Repr::ParamProblem {
             reason: Icmpv6ParamProblem::UnrecognizedNxtHdr,
             pointer: 40,
             header: Ipv6Repr {
@@ -367,8 +367,8 @@ fn unknown_proto(#[case] medium: Medium) {
                 payload_len: 0,
             },
             data: &[],
-        },
-    )));
+        }),
+    ));
 
     let (mut iface, mut sockets, _device) = setup(medium);
 
@@ -376,7 +376,7 @@ fn unknown_proto(#[case] medium: Medium) {
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
-            &Ipv6Packet::new_checked(&data).unwrap()
+            &Ipv6PacketWire::new_checked(&data).unwrap()
         ),
         response
     );
@@ -396,7 +396,7 @@ fn ndsic_neighbor_advertisement_ethernet(#[case] medium: Medium) {
 
     assert_eq!(
         parse_ipv6(&data),
-        Ok(IpPacket::Icmpv6((
+        Ok(IpPacket::new_ipv6(
             Ipv6Repr {
                 src_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0002]),
                 dst_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0001]),
@@ -404,12 +404,12 @@ fn ndsic_neighbor_advertisement_ethernet(#[case] medium: Medium) {
                 next_header: IpProtocol::Icmpv6,
                 payload_len: 32,
             },
-            Icmpv6Repr::Ndisc(NdiscRepr::NeighborAdvert {
+            IpPayload::Icmpv6(Icmpv6Repr::Ndisc(NdiscRepr::NeighborAdvert {
                 flags: NdiscNeighborFlags::SOLICITED,
                 target_addr: Ipv6Address::from_parts(&[0xfe80, 0, 0, 0, 0, 0, 0, 0x0002]),
                 lladdr: Some(RawHardwareAddress::from_bytes(&[0, 0, 0, 0, 0, 1])),
-            })
-        )))
+            }))
+        ))
     );
 
     let response = None;
@@ -420,7 +420,7 @@ fn ndsic_neighbor_advertisement_ethernet(#[case] medium: Medium) {
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
-            &Ipv6Packet::new_checked(&data).unwrap()
+            &Ipv6PacketWire::new_checked(&data).unwrap()
         ),
         response
     );
@@ -450,7 +450,7 @@ fn ndsic_neighbor_advertisement_ethernet_multicast_addr(#[case] medium: Medium) 
 
     assert_eq!(
         parse_ipv6(&data),
-        Ok(IpPacket::Icmpv6((
+        Ok(IpPacket::new_ipv6(
             Ipv6Repr {
                 src_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0002]),
                 dst_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0001]),
@@ -458,14 +458,14 @@ fn ndsic_neighbor_advertisement_ethernet_multicast_addr(#[case] medium: Medium) 
                 next_header: IpProtocol::Icmpv6,
                 payload_len: 32,
             },
-            Icmpv6Repr::Ndisc(NdiscRepr::NeighborAdvert {
+            IpPayload::Icmpv6(Icmpv6Repr::Ndisc(NdiscRepr::NeighborAdvert {
                 flags: NdiscNeighborFlags::SOLICITED,
                 target_addr: Ipv6Address::from_parts(&[0xfe80, 0, 0, 0, 0, 0, 0, 0x0002]),
                 lladdr: Some(RawHardwareAddress::from_bytes(&[
                     0xff, 0xff, 0xff, 0xff, 0xff, 0xff
                 ])),
-            })
-        )))
+            }))
+        ))
     );
 
     let response = None;
@@ -476,7 +476,7 @@ fn ndsic_neighbor_advertisement_ethernet_multicast_addr(#[case] medium: Medium) 
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
-            &Ipv6Packet::new_checked(&data).unwrap()
+            &Ipv6PacketWire::new_checked(&data).unwrap()
         ),
         response
     );
@@ -504,7 +504,7 @@ fn ndsic_neighbor_advertisement_ieee802154(#[case] medium: Medium) {
 
     assert_eq!(
         parse_ipv6(&data),
-        Ok(IpPacket::Icmpv6((
+        Ok(IpPacket::new_ipv6(
             Ipv6Repr {
                 src_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0002]),
                 dst_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0001]),
@@ -512,12 +512,12 @@ fn ndsic_neighbor_advertisement_ieee802154(#[case] medium: Medium) {
                 next_header: IpProtocol::Icmpv6,
                 payload_len: 40,
             },
-            Icmpv6Repr::Ndisc(NdiscRepr::NeighborAdvert {
+            IpPayload::Icmpv6(Icmpv6Repr::Ndisc(NdiscRepr::NeighborAdvert {
                 flags: NdiscNeighborFlags::SOLICITED,
                 target_addr: Ipv6Address::from_parts(&[0xfe80, 0, 0, 0, 0, 0, 0, 0x0002]),
                 lladdr: Some(RawHardwareAddress::from_bytes(&[0, 0, 0, 0, 0, 0, 0, 1])),
-            })
-        )))
+            }))
+        ))
     );
 
     let response = None;
@@ -528,7 +528,7 @@ fn ndsic_neighbor_advertisement_ieee802154(#[case] medium: Medium) {
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
-            &Ipv6Packet::new_checked(&data).unwrap()
+            &Ipv6PacketWire::new_checked(&data).unwrap()
         ),
         response
     );
@@ -603,10 +603,10 @@ fn test_handle_valid_ndisc_request(#[case] medium: Medium) {
             frame.into_inner(),
             &mut iface.fragments
         ),
-        Some(EthernetPacket::Ip(IpPacket::Icmpv6((
+        Some(EthernetPacket::Ip(IpPacket::new_ipv6(
             ipv6_expected,
-            icmpv6_expected
-        ))))
+            IpPayload::Icmpv6(icmpv6_expected)
+        )))
     );
 
     // Ensure the address of the requestor was entered in the cache
@@ -727,6 +727,9 @@ fn test_icmp_reply_size(#[case] medium: Medium) {
             &vec![0x2a; MAX_PAYLOAD_LEN],
             payload,
         ),
-        Some(IpPacket::Icmpv6((expected_ip_repr, expected_icmp_repr)))
+        Some(IpPacket::new_ipv6(
+            expected_ip_repr,
+            IpPayload::Icmpv6(expected_icmp_repr)
+        ))
     );
 }
