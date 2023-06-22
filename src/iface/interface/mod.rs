@@ -451,16 +451,6 @@ enum IgmpReportState {
 
 impl Interface {
     /// Create a network interface using the previously provided configuration.
-    ///
-    /// # Panics
-    /// If a required option is not provided, this function will panic. Required
-    /// options are:
-    ///
-    /// - [ethernet_addr]
-    /// - [neighbor_cache]
-    ///
-    /// [ethernet_addr]: #method.ethernet_addr
-    /// [neighbor_cache]: #method.neighbor_cache
     pub fn new<D>(config: Config, device: &mut D, now: Instant) -> Self
     where
         D: Device + ?Sized,
