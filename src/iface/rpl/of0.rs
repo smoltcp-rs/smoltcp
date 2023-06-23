@@ -41,7 +41,7 @@ impl ObjectiveFunction for ObjectiveFunction0 {
     fn preferred_parent(parent_set: &ParentSet) -> Option<&Parent> {
         let mut pref_parent: Option<&Parent> = None;
 
-        for parent in parent_set.parents() {
+        for (_, parent) in parent_set.parents() {
             if pref_parent.is_none() || parent.rank() < pref_parent.unwrap().rank() {
                 pref_parent = Some(parent);
             }
@@ -98,29 +98,27 @@ mod tests {
 
         let mut parents = ParentSet::default();
 
-        parents.add(Parent::new(
+        parents.add(
             Ipv6Address::default(),
-            0,
-            Rank::ROOT,
-            Default::default(),
-            Ipv6Address::default(),
-        ));
+            Parent::new(0, Rank::ROOT, Default::default(), Ipv6Address::default()),
+        );
 
         let mut address = Ipv6Address::default();
         address.0[15] = 1;
 
-        parents.add(Parent::new(
+        parents.add(
             address,
-            0,
-            Rank::new(1024, DEFAULT_MIN_HOP_RANK_INCREASE),
-            Default::default(),
-            Ipv6Address::default(),
-        ));
+            Parent::new(
+                0,
+                Rank::new(1024, DEFAULT_MIN_HOP_RANK_INCREASE),
+                Default::default(),
+                Ipv6Address::default(),
+            ),
+        );
 
         assert_eq!(
             ObjectiveFunction0::preferred_parent(&parents),
             Some(&Parent::new(
-                Ipv6Address::default(),
                 0,
                 Rank::ROOT,
                 Default::default(),
