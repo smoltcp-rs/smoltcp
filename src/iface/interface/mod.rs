@@ -451,12 +451,15 @@ enum IgmpReportState {
 
 impl Interface {
     /// Create a network interface using the previously provided configuration.
+    ///
+    /// # Panics
+    /// This function panics if the [`Config::hardware_address`] does not match
+    /// the medium of the device.
     pub fn new<D>(config: Config, device: &mut D, now: Instant) -> Self
     where
         D: Device + ?Sized,
     {
         let caps = device.capabilities();
-
         assert_eq!(
             config.hardware_addr.medium(),
             caps.medium,
