@@ -453,20 +453,13 @@ impl Interface {
     /// Create a network interface using the previously provided configuration.
     ///
     /// # Panics
-    /// If a required option is not provided, this function will panic. Required
-    /// options are:
-    ///
-    /// - [ethernet_addr]
-    /// - [neighbor_cache]
-    ///
-    /// [ethernet_addr]: #method.ethernet_addr
-    /// [neighbor_cache]: #method.neighbor_cache
+    /// This function panics if the [`Config::hardware_address`] does not match
+    /// the medium of the device.
     pub fn new<D>(config: Config, device: &mut D, now: Instant) -> Self
     where
         D: Device + ?Sized,
     {
         let caps = device.capabilities();
-
         assert_eq!(
             config.hardware_addr.medium(),
             caps.medium,
