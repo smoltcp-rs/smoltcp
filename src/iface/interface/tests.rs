@@ -526,7 +526,10 @@ fn test_handle_udp_broadcast() {
         socket.recv(),
         Ok((
             &UDP_PAYLOAD[..],
-            UdpMetadata::new(IpEndpoint::new(src_ip.into(), 67), PacketMeta::default(),)
+            UdpMetadata {
+                endpoint: IpEndpoint::new(src_ip.into(), 67),
+                meta: PacketMeta::default()
+            }
         ))
     );
 }
@@ -1416,7 +1419,10 @@ fn test_raw_socket_with_udp_socket() {
         socket.recv(),
         Ok((
             &UDP_PAYLOAD[..],
-            UdpMetadata::new(IpEndpoint::new(src_addr.into(), 67), PacketMeta::default(),)
+            UdpMetadata {
+                endpoint: IpEndpoint::new(src_addr.into(), 67),
+                meta: PacketMeta::default()
+            }
         ))
     );
 }
@@ -1701,7 +1707,7 @@ fn test_sixlowpan_udp_with_fragmentation() {
                          In at rhoncus tortor. Cras blandit tellus diam, varius vestibulum nibh commodo nec.";
 
     assert_eq!(
-        socket.recv().map(|(data, meta)| (data, meta.endpoint())),
+        socket.recv().map(|(data, meta)| (data, meta.endpoint)),
         Ok((
             &udp_data[..],
             IpEndpoint {
