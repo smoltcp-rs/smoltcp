@@ -99,6 +99,10 @@ impl<'a, Rx: phy::RxToken, FRx: Fuzzer> phy::RxToken for RxToken<'a, Rx, FRx> {
             f(buffer)
         })
     }
+
+    fn packet_id(&self) -> phy::PacketId {
+        self.token.packet_id()
+    }
 }
 
 #[doc(hidden)]
@@ -117,5 +121,9 @@ impl<'a, Tx: phy::TxToken, FTx: Fuzzer> phy::TxToken for TxToken<'a, Tx, FTx> {
             self.fuzzer.fuzz_packet(buf);
             result
         })
+    }
+
+    fn set_packet_id(&mut self, packet_id: phy::PacketId) {
+        self.token.set_packet_id(packet_id)
     }
 }

@@ -231,6 +231,10 @@ impl<'a, Rx: phy::RxToken, S: PcapSink> phy::RxToken for RxToken<'a, Rx, S> {
             f(buffer)
         })
     }
+
+    fn packet_id(&self) -> phy::PacketId {
+        self.token.packet_id()
+    }
 }
 
 #[doc(hidden)]
@@ -256,5 +260,9 @@ impl<'a, Tx: phy::TxToken, S: PcapSink> phy::TxToken for TxToken<'a, Tx, S> {
             };
             result
         })
+    }
+
+    fn set_packet_id(&mut self, packet_id: phy::PacketId) {
+        self.token.set_packet_id(packet_id)
     }
 }

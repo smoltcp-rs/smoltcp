@@ -108,6 +108,10 @@ impl<Rx: phy::RxToken> phy::RxToken for RxToken<Rx> {
             f(buffer)
         })
     }
+
+    fn packet_id(&self) -> phy::PacketId {
+        self.token.packet_id()
+    }
 }
 
 #[doc(hidden)]
@@ -135,6 +139,10 @@ impl<Tx: phy::TxToken> phy::TxToken for TxToken<Tx> {
             );
             result
         })
+    }
+
+    fn set_packet_id(&mut self, packet_id: phy::PacketId) {
+        self.token.set_packet_id(packet_id)
     }
 }
 

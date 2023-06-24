@@ -135,7 +135,9 @@ fn main() {
                 "udp:6969 send data: {:?}",
                 str::from_utf8(&buffer[..len]).unwrap()
             );
-            socket.send_slice(&buffer[..len], endpoint).unwrap();
+            socket
+                .send_slice(&buffer[..len], endpoint.endpoint())
+                .unwrap();
         }
 
         let socket = sockets.get_mut::<tcp::Socket>(tcp_handle);

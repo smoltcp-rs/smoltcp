@@ -111,7 +111,7 @@ fn main() {
         };
         if let Some((endpoint, data)) = client {
             debug!("udp:6969 send data: {:?} to {}", data, endpoint,);
-            socket.send_slice(&data, endpoint).unwrap();
+            socket.send_slice(&data, endpoint.endpoint()).unwrap();
         }
 
         // tcp:6969: respond "hello"
