@@ -7,7 +7,7 @@ impl InterfaceInner {
     pub(super) fn process_ieee802154<'output, 'payload: 'output, T: AsRef<[u8]> + ?Sized>(
         &mut self,
         sockets: &mut SocketSet,
-        packet_id: PacketId,
+        meta: PacketMeta,
         sixlowpan_payload: &'payload T,
         _fragments: &'output mut FragmentsBuffer,
     ) -> Option<IpPacket<'output>> {
@@ -34,7 +34,7 @@ impl InterfaceInner {
 
         match ieee802154_frame.payload() {
             Some(payload) => {
-                self.process_sixlowpan(sockets, packet_id, &ieee802154_repr, payload, _fragments)
+                self.process_sixlowpan(sockets, meta, &ieee802154_repr, payload, _fragments)
             }
             None => None,
         }

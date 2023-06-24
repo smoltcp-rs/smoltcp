@@ -168,7 +168,7 @@ fn test_no_icmp_no_unicast_ipv4() {
     assert_eq!(
         iface.inner.process_ipv4(
             &mut sockets,
-            PacketId::empty(),
+            PacketMeta::default(),
             &frame,
             &mut iface.fragments
         ),
@@ -204,7 +204,7 @@ fn test_no_icmp_no_unicast_ipv6() {
     assert_eq!(
         iface
             .inner
-            .process_ipv6(&mut sockets, PacketId::empty(), &frame),
+            .process_ipv6(&mut sockets, PacketMeta::default(), &frame),
         None
     );
 }
@@ -259,7 +259,7 @@ fn test_icmp_error_no_payload() {
     assert_eq!(
         iface.inner.process_ipv4(
             &mut sockets,
-            PacketId::empty(),
+            PacketMeta::default(),
             &frame,
             &mut iface.fragments
         ),
@@ -398,7 +398,7 @@ fn test_icmp_error_port_unreachable() {
     assert_eq!(
         iface.inner.process_udp(
             &mut sockets,
-            PacketId::empty(),
+            PacketMeta::default(),
             ip_repr,
             udp_repr,
             false,
@@ -432,7 +432,7 @@ fn test_icmp_error_port_unreachable() {
     assert_eq!(
         iface.inner.process_udp(
             &mut sockets,
-            PacketId::empty(),
+            PacketMeta::default(),
             ip_repr,
             udp_repr,
             false,
@@ -508,7 +508,7 @@ fn test_handle_udp_broadcast() {
     assert_eq!(
         iface.inner.process_udp(
             &mut sockets,
-            PacketId::empty(),
+            PacketMeta::default(),
             ip_repr,
             udp_repr,
             false,
@@ -526,7 +526,7 @@ fn test_handle_udp_broadcast() {
         socket.recv(),
         Ok((
             &UDP_PAYLOAD[..],
-            UdpMetadata::new(IpEndpoint::new(src_ip.into(), 67), PacketId::empty(),)
+            UdpMetadata::new(IpEndpoint::new(src_ip.into(), 67), PacketMeta::default(),)
         ))
     );
 }
@@ -590,7 +590,7 @@ fn test_handle_ipv4_broadcast() {
     assert_eq!(
         iface.inner.process_ipv4(
             &mut sockets,
-            PacketId::empty(),
+            PacketMeta::default(),
             &frame,
             &mut iface.fragments
         ),
@@ -705,7 +705,7 @@ fn test_icmp_reply_size() {
     assert_eq!(
         iface.inner.process_udp(
             &mut sockets,
-            PacketId::empty(),
+            PacketMeta::default(),
             ip_repr.into(),
             udp_repr,
             false,
@@ -718,7 +718,7 @@ fn test_icmp_reply_size() {
     assert_eq!(
         iface.inner.process_udp(
             &mut sockets,
-            PacketId::empty(),
+            PacketMeta::default(),
             ip_repr.into(),
             udp_repr,
             false,
@@ -760,7 +760,7 @@ fn test_handle_valid_arp_request() {
     assert_eq!(
         iface.inner.process_ethernet(
             &mut sockets,
-            PacketId::empty(),
+            PacketMeta::default(),
             frame.into_inner(),
             &mut iface.fragments
         ),
@@ -839,7 +839,7 @@ fn test_handle_valid_ndisc_request() {
     assert_eq!(
         iface.inner.process_ethernet(
             &mut sockets,
-            PacketId::empty(),
+            PacketMeta::default(),
             frame.into_inner(),
             &mut iface.fragments
         ),
@@ -890,7 +890,7 @@ fn test_handle_other_arp_request() {
     assert_eq!(
         iface.inner.process_ethernet(
             &mut sockets,
-            PacketId::empty(),
+            PacketMeta::default(),
             frame.into_inner(),
             &mut iface.fragments
         ),
@@ -946,7 +946,7 @@ fn test_arp_flush_after_update_ip() {
     assert_eq!(
         iface.inner.process_ethernet(
             &mut sockets,
-            PacketId::empty(),
+            PacketMeta::default(),
             frame.into_inner(),
             &mut iface.fragments
         ),
@@ -1144,7 +1144,7 @@ fn test_icmpv6_nxthdr_unknown() {
     assert_eq!(
         iface
             .inner
-            .process_ipv6(&mut sockets, PacketId::empty(), &frame),
+            .process_ipv6(&mut sockets, PacketMeta::default(), &frame),
         Some(IpPacket::Icmpv6((reply_ipv6_repr, reply_icmp_repr)))
     );
 }
@@ -1310,7 +1310,7 @@ fn test_raw_socket_no_reply() {
     assert_eq!(
         iface.inner.process_ipv4(
             &mut sockets,
-            PacketId::empty(),
+            PacketMeta::default(),
             &frame,
             &mut iface.fragments
         ),
@@ -1402,7 +1402,7 @@ fn test_raw_socket_with_udp_socket() {
     assert_eq!(
         iface.inner.process_ipv4(
             &mut sockets,
-            PacketId::empty(),
+            PacketMeta::default(),
             &frame,
             &mut iface.fragments
         ),
@@ -1416,7 +1416,7 @@ fn test_raw_socket_with_udp_socket() {
         socket.recv(),
         Ok((
             &UDP_PAYLOAD[..],
-            UdpMetadata::new(IpEndpoint::new(src_addr.into(), 67), PacketId::empty(),)
+            UdpMetadata::new(IpEndpoint::new(src_addr.into(), 67), PacketMeta::default(),)
         ))
     );
 }
@@ -1511,7 +1511,7 @@ fn test_echo_request_sixlowpan_128_bytes() {
     assert_eq!(
         iface.inner.process_sixlowpan(
             &mut sockets,
-            PacketId::empty(),
+            PacketMeta::default(),
             &ieee802154_repr,
             &request_first_part_packet.into_inner(),
             &mut iface.fragments
@@ -1536,7 +1536,7 @@ fn test_echo_request_sixlowpan_128_bytes() {
 
     let result = iface.inner.process_sixlowpan(
         &mut sockets,
-        PacketId::empty(),
+        PacketMeta::default(),
         &ieee802154_repr,
         &request_second_part,
         &mut iface.fragments,
@@ -1667,7 +1667,7 @@ fn test_sixlowpan_udp_with_fragmentation() {
     assert_eq!(
         iface.inner.process_sixlowpan(
             &mut sockets,
-            PacketId::empty(),
+            PacketMeta::default(),
             &ieee802154_repr,
             udp_first_part,
             &mut iface.fragments
@@ -1687,7 +1687,7 @@ fn test_sixlowpan_udp_with_fragmentation() {
     assert_eq!(
         iface.inner.process_sixlowpan(
             &mut sockets,
-            PacketId::empty(),
+            PacketMeta::default(),
             &ieee802154_repr,
             udp_second_part,
             &mut iface.fragments
@@ -1731,7 +1731,7 @@ fn test_sixlowpan_udp_with_fragmentation() {
                 dst_port: 1234,
             },
             udp_data,
-            PacketId::empty(),
+            PacketMeta::default(),
         )),
         &mut iface.fragmenter,
     );

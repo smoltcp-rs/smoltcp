@@ -37,7 +37,7 @@ use crate::config::{
     IFACE_MAX_SIXLOWPAN_ADDRESS_CONTEXT_COUNT,
 };
 use crate::iface::Routes;
-use crate::phy::PacketId;
+use crate::phy::PacketMeta;
 use crate::phy::{ChecksumCapabilities, Device, DeviceCapabilities, Medium, RxToken, TxToken};
 use crate::rand::Rand;
 #[cfg(feature = "socket-dns")]
@@ -321,7 +321,7 @@ pub(crate) enum IpPacket<'a> {
     #[cfg(feature = "socket-raw")]
     Raw((IpRepr, &'a [u8])),
     #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
-    Udp((IpRepr, UdpRepr, &'a [u8], PacketId)),
+    Udp((IpRepr, UdpRepr, &'a [u8], PacketMeta)),
     #[cfg(feature = "socket-tcp")]
     Tcp((IpRepr, TcpRepr<'a>)),
     #[cfg(feature = "socket-dhcpv4")]
@@ -348,11 +348,11 @@ impl<'a> IpPacket<'a> {
         }
     }
 
-    pub(crate) fn packet_id(&self) -> PacketId {
+    pub(crate) fn meta(&self) -> PacketMeta {
         match self {
             #[cfg(feature = "socket-udp")]
-            IpPacket::Udp((_, _, _, packet_id)) => *packet_id,
-            _ => PacketId::empty(),
+            IpPacket::Udp((_, _, _, meta)) => *meta,
+            _ => PacketMeta::default(),
         }
     }
 
@@ -814,14 +814,14 @@ impl Interface {
         let mut processed_any = false;
 
         while let Some((rx_token, tx_token)) = device.receive(self.inner.now) {
-            let rx_packet_id = rx_token.packet_id();
+            let rx_meta = rx_token.meta();
             rx_token.consume(|frame| {
                 match self.inner.caps.medium {
                     #[cfg(feature = "medium-ethernet")]
                     Medium::Ethernet => {
                         if let Some(packet) = self.inner.process_ethernet(
                             sockets,
-                            rx_packet_id,
+                            rx_meta,
                             &frame,
                             &mut self.fragments,
                         ) {
@@ -834,12 +834,10 @@ impl Interface {
                     }
                     #[cfg(feature = "medium-ip")]
                     Medium::Ip => {
-                        if let Some(packet) = self.inner.process_ip(
-                            sockets,
-                            rx_packet_id,
-                            &frame,
-                            &mut self.fragments,
-                        ) {
+                        if let Some(packet) =
+                            self.inner
+                                .process_ip(sockets, rx_meta, &frame, &mut self.fragments)
+                        {
                             if let Err(err) =
                                 self.inner
                                     .dispatch_ip(tx_token, packet, &mut self.fragmenter)
@@ -852,7 +850,7 @@ impl Interface {
                     Medium::Ieee802154 => {
                         if let Some(packet) = self.inner.process_ieee802154(
                             sockets,
-                            rx_packet_id,
+                            rx_meta,
                             &frame,
                             &mut self.fragments,
                         ) {
@@ -944,7 +942,10 @@ impl Interface {
                 #[cfg(feature = "socket-dns")]
                 Socket::Dns(socket) => {
                     socket.dispatch(&mut self.inner, |inner, (ip, udp, payload)| {
-                        respond(inner, IpPacket::Udp((ip, udp, payload, PacketId::empty())))
+                        respond(
+                            inner,
+                            IpPacket::Udp((ip, udp, payload, PacketMeta::default())),
+                        )
                     })
                 }
             };
@@ -1284,7 +1285,7 @@ impl InterfaceInner {
     fn process_ip<'frame, T: AsRef<[u8]>>(
         &mut self,
         sockets: &mut SocketSet,
-        packet_id: PacketId,
+        meta: PacketMeta,
         ip_payload: &'frame T,
         frag: &'frame mut FragmentsBuffer,
     ) -> Option<IpPacket<'frame>> {
@@ -1293,12 +1294,12 @@ impl InterfaceInner {
             Ok(IpVersion::Ipv4) => {
                 let ipv4_packet = check!(Ipv4Packet::new_checked(ip_payload));
 
-                self.process_ipv4(sockets, packet_id, &ipv4_packet, frag)
+                self.process_ipv4(sockets, meta, &ipv4_packet, frag)
             }
             #[cfg(feature = "proto-ipv6")]
             Ok(IpVersion::Ipv6) => {
                 let ipv6_packet = check!(Ipv6Packet::new_checked(ip_payload));
-                self.process_ipv6(sockets, packet_id, &ipv6_packet)
+                self.process_ipv6(sockets, meta, &ipv6_packet)
             }
             // Drop all other traffic.
             _ => None,
@@ -1367,7 +1368,7 @@ impl InterfaceInner {
     fn process_udp<'frame>(
         &mut self,
         sockets: &mut SocketSet,
-        packet_id: PacketId,
+        meta: PacketMeta,
         ip_repr: IpRepr,
         udp_repr: UdpRepr,
         handled_by_raw_socket: bool,
@@ -1380,7 +1381,7 @@ impl InterfaceInner {
             .filter_map(|i| udp::Socket::downcast_mut(&mut i.socket))
         {
             if udp_socket.accepts(self, &ip_repr, &udp_repr) {
-                udp_socket.process(self, packet_id, &ip_repr, &udp_repr, udp_payload);
+                udp_socket.process(self, meta, &ip_repr, &udp_repr, udp_payload);
                 return None;
             }
         }
@@ -1834,7 +1835,7 @@ impl InterfaceInner {
                         Ok(())
                     }
                 } else {
-                    tx_token.set_packet_id(packet.packet_id());
+                    tx_token.set_meta(packet.meta());
 
                     // No fragmentation is required.
                     tx_token.consume(total_len, |mut tx_buffer| {

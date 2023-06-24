@@ -11,7 +11,7 @@ impl InterfaceInner {
     pub(super) fn process_sixlowpan<'output, 'payload: 'output, T: AsRef<[u8]> + ?Sized>(
         &mut self,
         sockets: &mut SocketSet,
-        packet_id: PacketId,
+        meta: PacketMeta,
         ieee802154_repr: &Ieee802154Repr,
         payload: &'payload T,
         f: &'output mut FragmentsBuffer,
@@ -48,11 +48,7 @@ impl InterfaceInner {
             }
         };
 
-        self.process_ipv6(
-            sockets,
-            packet_id,
-            &check!(Ipv6Packet::new_checked(payload)),
-        )
+        self.process_ipv6(sockets, meta, &check!(Ipv6Packet::new_checked(payload)))
     }
 
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
@@ -434,7 +430,7 @@ impl InterfaceInner {
                 return;
             }
         } else {
-            tx_token.set_packet_id(packet.packet_id());
+            tx_token.set_meta(packet.meta());
 
             // We don't need fragmentation, so we emit everything to the TX token.
             tx_token.consume(total_size + ieee_len, |mut tx_buf| {

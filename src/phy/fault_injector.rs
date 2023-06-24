@@ -1,7 +1,7 @@
 use crate::phy::{self, Device, DeviceCapabilities};
 use crate::time::{Duration, Instant};
 
-use super::PacketId;
+use super::PacketMeta;
 
 // We use our own RNG to stay compatible with #![no_std].
 // The use of the RNG below has a slight bias, but it doesn't matter.
@@ -213,7 +213,7 @@ impl<D: Device> Device for FaultInjector<D> {
 
     fn receive(&mut self, timestamp: Instant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
         let (rx_token, tx_token) = self.inner.receive(timestamp)?;
-        let rx_packet_id = <D::RxToken<'_> as phy::RxToken>::packet_id(&rx_token);
+        let rx_meta = <D::RxToken<'_> as phy::RxToken>::meta(&rx_token);
 
         let len = super::RxToken::consume(rx_token, |buffer| {
             if (self.config.max_size > 0 && buffer.len() > self.config.max_size)
@@ -243,10 +243,7 @@ impl<D: Device> Device for FaultInjector<D> {
             self.state.corrupt(&mut buf[..]);
         }
 
-        let rx = RxToken {
-            buf,
-            packet_id: rx_packet_id,
-        };
+        let rx = RxToken { buf, meta: rx_meta };
         let tx = TxToken {
             state: &mut self.state,
             config: self.config,
@@ -271,7 +268,7 @@ impl<D: Device> Device for FaultInjector<D> {
 #[doc(hidden)]
 pub struct RxToken<'a> {
     buf: &'a mut [u8],
-    packet_id: PacketId,
+    meta: PacketMeta,
 }
 
 impl<'a> phy::RxToken for RxToken<'a> {
@@ -282,8 +279,8 @@ impl<'a> phy::RxToken for RxToken<'a> {
         f(self.buf)
     }
 
-    fn packet_id(&self) -> phy::PacketId {
-        self.packet_id
+    fn meta(&self) -> phy::PacketMeta {
+        self.meta
     }
 }
 
@@ -327,7 +324,7 @@ impl<'a, Tx: phy::TxToken> phy::TxToken for TxToken<'a, Tx> {
         })
     }
 
-    fn set_packet_id(&mut self, packet_id: PacketId) {
-        self.token.set_packet_id(packet_id);
+    fn set_meta(&mut self, meta: PacketMeta) {
+        self.token.set_meta(meta);
     }
 }

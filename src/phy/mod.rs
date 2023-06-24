@@ -133,38 +133,11 @@ pub use self::tuntap_interface::TunTapInterface;
 /// An ID that can be used to uniquely identify a packet to a [`Device`],
 /// sent or received by that same [`Device`]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
-pub struct PacketId {
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, Default)]
+#[non_exhaustive]
+pub struct PacketMeta {
     #[cfg(feature = "packet-id")]
-    id: Option<u32>,
-}
-
-impl PacketId {
-    pub fn empty() -> Self {
-        #[cfg(feature = "packet-id")]
-        {
-            Self { id: None }
-        }
-        #[cfg(not(feature = "packet-id"))]
-        {
-            Self {}
-        }
-    }
-}
-
-#[cfg(feature = "packet-id")]
-impl PacketId {
-    pub fn id(&self) -> Option<u32> {
-        self.id
-    }
-
-    /// Create a new packet ID.
-    ///
-    /// A caller of this function should know the context in which
-    /// this ID is relevant.
-    pub fn new(id: u32) -> Self {
-        Self { id: Some(id) }
-    }
+    pub id: Option<u32>,
 }
 
 /// A description of checksum behavior for a particular protocol.
@@ -378,8 +351,8 @@ pub trait RxToken {
         F: FnOnce(&mut [u8]) -> R;
 
     /// The Packet ID associated with the frame received by this [`RxToken`]
-    fn packet_id(&self) -> PacketId {
-        PacketId::empty()
+    fn meta(&self) -> PacketMeta {
+        PacketMeta::default()
     }
 }
 
@@ -397,5 +370,5 @@ pub trait TxToken {
 
     /// The Packet ID to be associated with the frame to be transmitted by this [`TxToken`].
     #[allow(unused_variables)]
-    fn set_packet_id(&mut self, packet_id: PacketId) {}
+    fn set_meta(&mut self, meta: PacketMeta) {}
 }

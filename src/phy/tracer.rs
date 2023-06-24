@@ -109,8 +109,8 @@ impl<Rx: phy::RxToken> phy::RxToken for RxToken<Rx> {
         })
     }
 
-    fn packet_id(&self) -> phy::PacketId {
-        self.token.packet_id()
+    fn meta(&self) -> phy::PacketMeta {
+        self.token.meta()
     }
 }
 
@@ -141,8 +141,8 @@ impl<Tx: phy::TxToken> phy::TxToken for TxToken<Tx> {
         })
     }
 
-    fn set_packet_id(&mut self, packet_id: phy::PacketId) {
-        self.token.set_packet_id(packet_id)
+    fn set_meta(&mut self, meta: phy::PacketMeta) {
+        self.token.set_meta(meta)
     }
 }
 
