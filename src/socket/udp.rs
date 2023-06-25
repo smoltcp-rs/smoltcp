@@ -493,7 +493,7 @@ impl<'a> Socket<'a> {
 
     pub(crate) fn dispatch<F, E>(&mut self, cx: &mut Context, emit: F) -> Result<(), E>
     where
-        F: FnOnce(&mut Context, (IpRepr, UdpRepr, &[u8], PacketMeta)) -> Result<(), E>,
+        F: FnOnce(&mut Context, PacketMeta, (IpRepr, UdpRepr, &[u8])) -> Result<(), E>,
     {
         let endpoint = self.endpoint;
         let hop_limit = self.hop_limit.unwrap_or(64);
@@ -533,7 +533,7 @@ impl<'a> Socket<'a> {
                 hop_limit,
             );
 
-            emit(cx, (ip_repr, repr, payload_buf, packet_meta.meta))
+            emit(cx, packet_meta.meta, (ip_repr, repr, payload_buf))
         });
         match res {
             Err(Empty) => Ok(()),
@@ -711,7 +711,7 @@ mod test {
 
         assert!(socket.can_send());
         assert_eq!(
-            socket.dispatch(&mut cx, |_, _| unreachable!()),
+            socket.dispatch(&mut cx, |_, _, _| unreachable!()),
             Ok::<_, ()>(())
         );
 
@@ -723,7 +723,7 @@ mod test {
         assert!(!socket.can_send());
 
         assert_eq!(
-            socket.dispatch(&mut cx, |_, (ip_repr, udp_repr, payload, _meta)| {
+            socket.dispatch(&mut cx, |_, _, (ip_repr, udp_repr, payload)| {
                 assert_eq!(ip_repr, LOCAL_IP_REPR);
                 assert_eq!(udp_repr, LOCAL_UDP_REPR);
                 assert_eq!(payload, PAYLOAD);
@@ -734,7 +734,7 @@ mod test {
         assert!(!socket.can_send());
 
         assert_eq!(
-            socket.dispatch(&mut cx, |_, (ip_repr, udp_repr, payload, _meta)| {
+            socket.dispatch(&mut cx, |_, _, (ip_repr, udp_repr, payload)| {
                 assert_eq!(ip_repr, LOCAL_IP_REPR);
                 assert_eq!(udp_repr, LOCAL_UDP_REPR);
                 assert_eq!(payload, PAYLOAD);
@@ -862,7 +862,7 @@ mod test {
         s.set_hop_limit(Some(0x2a));
         assert_eq!(s.send_slice(b"abcdef", REMOTE_END), Ok(()));
         assert_eq!(
-            s.dispatch(&mut cx, |_, (ip_repr, _, _, _)| {
+            s.dispatch(&mut cx, |_, _, (ip_repr, _, _)| {
                 assert_eq!(
                     ip_repr,
                     IpReprIpvX(IpvXRepr {

@@ -1584,6 +1584,7 @@ fn test_echo_request_sixlowpan_128_bytes() {
     iface.inner.dispatch_ieee802154(
         Ieee802154Address::default(),
         tx_token,
+        PacketMeta::default(),
         result.unwrap(),
         &mut iface.fragmenter,
     );
@@ -1724,6 +1725,7 @@ fn test_sixlowpan_udp_with_fragmentation() {
     iface.inner.dispatch_ieee802154(
         Ieee802154Address::default(),
         tx_token,
+        PacketMeta::default(),
         IpPacket::Udp((
             IpRepr::Ipv6(Ipv6Repr {
                 src_addr: Ipv6Address::default(),
@@ -1737,7 +1739,6 @@ fn test_sixlowpan_udp_with_fragmentation() {
                 dst_port: 1234,
             },
             udp_data,
-            PacketMeta::default(),
         )),
         &mut iface.fragmenter,
     );

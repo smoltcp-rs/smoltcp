@@ -1,5 +1,5 @@
 use super::{check, IgmpReportState, Interface, InterfaceInner, IpPacket};
-use crate::phy::Device;
+use crate::phy::{Device, PacketMeta};
 use crate::time::{Duration, Instant};
 use crate::wire::*;
 
@@ -65,7 +65,7 @@ impl Interface {
 
                     // NOTE(unwrap): packet destination is multicast, which is always routable and doesn't require neighbor discovery.
                     self.inner
-                        .dispatch_ip(tx_token, pkt, &mut self.fragmenter)
+                        .dispatch_ip(tx_token, PacketMeta::default(), pkt, &mut self.fragmenter)
                         .unwrap();
 
                     Ok(true)
@@ -107,7 +107,7 @@ impl Interface {
 
                     // NOTE(unwrap): packet destination is multicast, which is always routable and doesn't require neighbor discovery.
                     self.inner
-                        .dispatch_ip(tx_token, pkt, &mut self.fragmenter)
+                        .dispatch_ip(tx_token, PacketMeta::default(), pkt, &mut self.fragmenter)
                         .unwrap();
 
                     Ok(true)
@@ -143,7 +143,7 @@ impl Interface {
                     if let Some(tx_token) = device.transmit(self.inner.now) {
                         // NOTE(unwrap): packet destination is multicast, which is always routable and doesn't require neighbor discovery.
                         self.inner
-                            .dispatch_ip(tx_token, pkt, &mut self.fragmenter)
+                            .dispatch_ip(tx_token, PacketMeta::default(), pkt, &mut self.fragmenter)
                             .unwrap();
                     } else {
                         return false;
@@ -173,7 +173,12 @@ impl Interface {
                             if let Some(tx_token) = device.transmit(self.inner.now) {
                                 // NOTE(unwrap): packet destination is multicast, which is always routable and doesn't require neighbor discovery.
                                 self.inner
-                                    .dispatch_ip(tx_token, pkt, &mut self.fragmenter)
+                                    .dispatch_ip(
+                                        tx_token,
+                                        PacketMeta::default(),
+                                        pkt,
+                                        &mut self.fragmenter,
+                                    )
                                     .unwrap();
                             } else {
                                 return false;

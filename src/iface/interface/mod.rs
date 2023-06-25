@@ -321,7 +321,7 @@ pub(crate) enum IpPacket<'a> {
     #[cfg(feature = "socket-raw")]
     Raw((IpRepr, &'a [u8])),
     #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
-    Udp((IpRepr, UdpRepr, &'a [u8], PacketMeta)),
+    Udp((IpRepr, UdpRepr, &'a [u8])),
     #[cfg(feature = "socket-tcp")]
     Tcp((IpRepr, TcpRepr<'a>)),
     #[cfg(feature = "socket-dhcpv4")]
@@ -340,19 +340,11 @@ impl<'a> IpPacket<'a> {
             #[cfg(feature = "socket-raw")]
             IpPacket::Raw((ip_repr, _)) => ip_repr.clone(),
             #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
-            IpPacket::Udp((ip_repr, _, _, _)) => ip_repr.clone(),
+            IpPacket::Udp((ip_repr, _, _)) => ip_repr.clone(),
             #[cfg(feature = "socket-tcp")]
             IpPacket::Tcp((ip_repr, _)) => ip_repr.clone(),
             #[cfg(feature = "socket-dhcpv4")]
             IpPacket::Dhcpv4((ipv4_repr, _, _)) => IpRepr::Ipv4(*ipv4_repr),
-        }
-    }
-
-    pub(crate) fn meta(&self) -> PacketMeta {
-        match self {
-            #[cfg(feature = "socket-udp")]
-            IpPacket::Udp((_, _, _, meta)) => *meta,
-            _ => PacketMeta::default(),
         }
     }
 
@@ -381,7 +373,7 @@ impl<'a> IpPacket<'a> {
             #[cfg(feature = "socket-raw")]
             IpPacket::Raw((_, raw_packet)) => payload.copy_from_slice(raw_packet),
             #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
-            IpPacket::Udp((_, udp_repr, inner_payload, _)) => {
+            IpPacket::Udp((_, udp_repr, inner_payload)) => {
                 udp_repr.emit(
                     &mut UdpPacket::new_unchecked(payload),
                     &_ip_repr.src_addr(),
@@ -838,10 +830,12 @@ impl Interface {
                             self.inner
                                 .process_ip(sockets, rx_meta, &frame, &mut self.fragments)
                         {
-                            if let Err(err) =
-                                self.inner
-                                    .dispatch_ip(tx_token, packet, &mut self.fragmenter)
-                            {
+                            if let Err(err) = self.inner.dispatch_ip(
+                                tx_token,
+                                PacketMeta::default(),
+                                packet,
+                                &mut self.fragmenter,
+                            ) {
                                 net_debug!("Failed to send response: {:?}", err);
                             }
                         }
@@ -854,10 +848,12 @@ impl Interface {
                             &frame,
                             &mut self.fragments,
                         ) {
-                            if let Err(err) =
-                                self.inner
-                                    .dispatch_ip(tx_token, packet, &mut self.fragmenter)
-                            {
+                            if let Err(err) = self.inner.dispatch_ip(
+                                tx_token,
+                                PacketMeta::default(),
+                                packet,
+                                &mut self.fragmenter,
+                            ) {
                                 net_debug!("Failed to send response: {:?}", err);
                             }
                         }
@@ -891,7 +887,7 @@ impl Interface {
             }
 
             let mut neighbor_addr = None;
-            let mut respond = |inner: &mut InterfaceInner, response: IpPacket| {
+            let mut respond = |inner: &mut InterfaceInner, meta: PacketMeta, response: IpPacket| {
                 neighbor_addr = Some(response.ip_repr().dst_addr());
                 let t = device.transmit(inner.now).ok_or_else(|| {
                     net_debug!("failed to transmit IP: device exhausted");
@@ -899,7 +895,7 @@ impl Interface {
                 })?;
 
                 inner
-                    .dispatch_ip(t, response, &mut self.fragmenter)
+                    .dispatch_ip(t, meta, response, &mut self.fragmenter)
                     .map_err(EgressError::Dispatch)?;
 
                 emitted_any = true;
@@ -910,41 +906,46 @@ impl Interface {
             let result = match &mut item.socket {
                 #[cfg(feature = "socket-raw")]
                 Socket::Raw(socket) => socket.dispatch(&mut self.inner, |inner, response| {
-                    respond(inner, IpPacket::Raw(response))
+                    respond(inner, PacketMeta::default(), IpPacket::Raw(response))
                 }),
                 #[cfg(feature = "socket-icmp")]
                 Socket::Icmp(socket) => {
                     socket.dispatch(&mut self.inner, |inner, response| match response {
                         #[cfg(feature = "proto-ipv4")]
-                        (IpRepr::Ipv4(ipv4_repr), IcmpRepr::Ipv4(icmpv4_repr)) => {
-                            respond(inner, IpPacket::Icmpv4((ipv4_repr, icmpv4_repr)))
-                        }
+                        (IpRepr::Ipv4(ipv4_repr), IcmpRepr::Ipv4(icmpv4_repr)) => respond(
+                            inner,
+                            PacketMeta::default(),
+                            IpPacket::Icmpv4((ipv4_repr, icmpv4_repr)),
+                        ),
                         #[cfg(feature = "proto-ipv6")]
-                        (IpRepr::Ipv6(ipv6_repr), IcmpRepr::Ipv6(icmpv6_repr)) => {
-                            respond(inner, IpPacket::Icmpv6((ipv6_repr, icmpv6_repr)))
-                        }
+                        (IpRepr::Ipv6(ipv6_repr), IcmpRepr::Ipv6(icmpv6_repr)) => respond(
+                            inner,
+                            PacketMeta::default(),
+                            IpPacket::Icmpv6((ipv6_repr, icmpv6_repr)),
+                        ),
                         #[allow(unreachable_patterns)]
                         _ => unreachable!(),
                     })
                 }
                 #[cfg(feature = "socket-udp")]
-                Socket::Udp(socket) => socket.dispatch(&mut self.inner, |inner, response| {
-                    respond(inner, IpPacket::Udp(response))
+                Socket::Udp(socket) => socket.dispatch(&mut self.inner, |inner, meta, response| {
+                    respond(inner, meta, IpPacket::Udp(response))
                 }),
                 #[cfg(feature = "socket-tcp")]
                 Socket::Tcp(socket) => socket.dispatch(&mut self.inner, |inner, response| {
-                    respond(inner, IpPacket::Tcp(response))
+                    respond(inner, PacketMeta::default(), IpPacket::Tcp(response))
                 }),
                 #[cfg(feature = "socket-dhcpv4")]
                 Socket::Dhcpv4(socket) => socket.dispatch(&mut self.inner, |inner, response| {
-                    respond(inner, IpPacket::Dhcpv4(response))
+                    respond(inner, PacketMeta::default(), IpPacket::Dhcpv4(response))
                 }),
                 #[cfg(feature = "socket-dns")]
                 Socket::Dns(socket) => {
                     socket.dispatch(&mut self.inner, |inner, (ip, udp, payload)| {
                         respond(
                             inner,
-                            IpPacket::Udp((ip, udp, payload, PacketMeta::default())),
+                            PacketMeta::default(),
+                            IpPacket::Udp((ip, udp, payload)),
                         )
                     })
                 }
@@ -1492,7 +1493,9 @@ impl InterfaceInner {
                     arp_repr.emit(&mut packet);
                 })
             }
-            EthernetPacket::Ip(packet) => self.dispatch_ip(tx_token, packet, frag),
+            EthernetPacket::Ip(packet) => {
+                self.dispatch_ip(tx_token, PacketMeta::default(), packet, frag)
+            }
         }
     }
 
@@ -1646,7 +1649,9 @@ impl InterfaceInner {
                     solicit,
                 ));
 
-                if let Err(e) = self.dispatch_ip(tx_token, packet, fragmenter) {
+                if let Err(e) =
+                    self.dispatch_ip(tx_token, PacketMeta::default(), packet, fragmenter)
+                {
                     net_debug!("Failed to dispatch NDISC solicit: {:?}", e);
                     return Err(DispatchError::NeighborPending);
                 }
@@ -1671,6 +1676,7 @@ impl InterfaceInner {
         // NOTE(unused_mut): tx_token isn't always mutated, depending on
         // the feature set that is used.
         #[allow(unused_mut)] mut tx_token: Tx,
+        meta: PacketMeta,
         packet: IpPacket,
         frag: &mut Fragmenter,
     ) -> Result<(), DispatchError> {
@@ -1689,7 +1695,7 @@ impl InterfaceInner {
             )?;
             let addr = addr.ieee802154_or_panic();
 
-            self.dispatch_ieee802154(addr, tx_token, packet, frag);
+            self.dispatch_ieee802154(addr, tx_token, meta, packet, frag);
             return Ok(());
         }
 
@@ -1835,7 +1841,7 @@ impl InterfaceInner {
                         Ok(())
                     }
                 } else {
-                    tx_token.set_meta(packet.meta());
+                    tx_token.set_meta(meta);
 
                     // No fragmentation is required.
                     tx_token.consume(total_len, |mut tx_buffer| {
