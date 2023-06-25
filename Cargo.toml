@@ -31,6 +31,7 @@ env_logger = "0.10"
 getopts = "0.2"
 rand = "0.8"
 url = "2.0"
+rstest = "0.17"
 
 [features]
 std = ["managed/std", "alloc"]
