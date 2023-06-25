@@ -229,6 +229,7 @@ impl InterfaceInner {
     pub(super) fn dispatch_sixlowpan<Tx: TxToken>(
         &mut self,
         mut tx_token: Tx,
+        meta: PacketMeta,
         packet: IpPacket,
         ieee_repr: Ieee802154Repr,
         frag: &mut Fragmenter,
@@ -276,7 +277,7 @@ impl InterfaceInner {
 
         match packet {
             #[cfg(feature = "socket-udp")]
-            IpPacket::Udp((_, udpv6_repr, payload, _)) => {
+            IpPacket::Udp((_, udpv6_repr, payload)) => {
                 let udp_repr = SixlowpanUdpNhcRepr(udpv6_repr);
                 _compressed_headers_len += udp_repr.header_len();
                 _uncompressed_headers_len += udpv6_repr.header_len();
@@ -329,7 +330,7 @@ impl InterfaceInner {
 
                 match packet {
                     #[cfg(feature = "socket-udp")]
-                    IpPacket::Udp((_, udpv6_repr, payload, _)) => {
+                    IpPacket::Udp((_, udpv6_repr, payload)) => {
                         let udp_repr = SixlowpanUdpNhcRepr(udpv6_repr);
                         let mut udp_packet = SixlowpanUdpNhcPacket::new_unchecked(
                             &mut b[..udp_repr.header_len() + payload.len()],
@@ -430,7 +431,7 @@ impl InterfaceInner {
                 return;
             }
         } else {
-            tx_token.set_meta(packet.meta());
+            tx_token.set_meta(meta);
 
             // We don't need fragmentation, so we emit everything to the TX token.
             tx_token.consume(total_size + ieee_len, |mut tx_buf| {
@@ -445,7 +446,7 @@ impl InterfaceInner {
 
                 match packet {
                     #[cfg(feature = "socket-udp")]
-                    IpPacket::Udp((_, udpv6_repr, payload, _)) => {
+                    IpPacket::Udp((_, udpv6_repr, payload)) => {
                         let udp_repr = SixlowpanUdpNhcRepr(udpv6_repr);
                         let mut udp_packet = SixlowpanUdpNhcPacket::new_unchecked(
                             &mut tx_buf[..udp_repr.header_len() + payload.len()],

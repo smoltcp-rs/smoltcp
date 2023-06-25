@@ -44,6 +44,7 @@ impl InterfaceInner {
         &mut self,
         ll_dst_a: Ieee802154Address,
         tx_token: Tx,
+        meta: PacketMeta,
         packet: IpPacket,
         frag: &mut Fragmenter,
     ) {
@@ -64,7 +65,7 @@ impl InterfaceInner {
             src_addr: Some(ll_src_a),
         };
 
-        self.dispatch_sixlowpan(tx_token, packet, ieee_repr, frag);
+        self.dispatch_sixlowpan(tx_token, meta, packet, ieee_repr, frag);
     }
 
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
