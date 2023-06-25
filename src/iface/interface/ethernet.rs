@@ -14,6 +14,7 @@ impl InterfaceInner {
     pub(super) fn process_ethernet<'frame, T: AsRef<[u8]>>(
         &mut self,
         sockets: &mut SocketSet,
+        meta: crate::phy::PacketMeta,
         frame: &'frame T,
         fragments: &'frame mut FragmentsBuffer,
     ) -> Option<EthernetPacket<'frame>> {
@@ -34,13 +35,13 @@ impl InterfaceInner {
             EthernetProtocol::Ipv4 => {
                 let ipv4_packet = check!(Ipv4Packet::new_checked(eth_frame.payload()));
 
-                self.process_ipv4(sockets, &ipv4_packet, fragments)
+                self.process_ipv4(sockets, meta, &ipv4_packet, fragments)
                     .map(EthernetPacket::Ip)
             }
             #[cfg(feature = "proto-ipv6")]
             EthernetProtocol::Ipv6 => {
                 let ipv6_packet = check!(Ipv6Packet::new_checked(eth_frame.payload()));
-                self.process_ipv6(sockets, &ipv6_packet)
+                self.process_ipv6(sockets, meta, &ipv6_packet)
                     .map(EthernetPacket::Ip)
             }
             // Drop all other traffic.

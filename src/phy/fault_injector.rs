@@ -1,6 +1,8 @@
 use crate::phy::{self, Device, DeviceCapabilities};
 use crate::time::{Duration, Instant};
 
+use super::PacketMeta;
+
 // We use our own RNG to stay compatible with #![no_std].
 // The use of the RNG below has a slight bias, but it doesn't matter.
 fn xorshift32(state: &mut u32) -> u32 {
@@ -211,6 +213,7 @@ impl<D: Device> Device for FaultInjector<D> {
 
     fn receive(&mut self, timestamp: Instant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
         let (rx_token, tx_token) = self.inner.receive(timestamp)?;
+        let rx_meta = <D::RxToken<'_> as phy::RxToken>::meta(&rx_token);
 
         let len = super::RxToken::consume(rx_token, |buffer| {
             if (self.config.max_size > 0 && buffer.len() > self.config.max_size)
@@ -240,7 +243,7 @@ impl<D: Device> Device for FaultInjector<D> {
             self.state.corrupt(&mut buf[..]);
         }
 
-        let rx = RxToken { buf };
+        let rx = RxToken { buf, meta: rx_meta };
         let tx = TxToken {
             state: &mut self.state,
             config: self.config,
@@ -265,6 +268,7 @@ impl<D: Device> Device for FaultInjector<D> {
 #[doc(hidden)]
 pub struct RxToken<'a> {
     buf: &'a mut [u8],
+    meta: PacketMeta,
 }
 
 impl<'a> phy::RxToken for RxToken<'a> {
@@ -273,6 +277,10 @@ impl<'a> phy::RxToken for RxToken<'a> {
         F: FnOnce(&mut [u8]) -> R,
     {
         f(self.buf)
+    }
+
+    fn meta(&self) -> phy::PacketMeta {
+        self.meta
     }
 }
 
@@ -314,5 +322,9 @@ impl<'a, Tx: phy::TxToken> phy::TxToken for TxToken<'a, Tx> {
             }
             f(buf)
         })
+    }
+
+    fn set_meta(&mut self, meta: PacketMeta) {
+        self.token.set_meta(meta);
     }
 }

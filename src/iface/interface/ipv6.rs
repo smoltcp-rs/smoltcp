@@ -8,6 +8,7 @@ use super::SocketSet;
 use crate::socket::icmp;
 use crate::socket::AnySocket;
 
+use crate::phy::PacketMeta;
 use crate::wire::*;
 
 impl InterfaceInner {
@@ -15,6 +16,7 @@ impl InterfaceInner {
     pub(super) fn process_ipv6<'frame, T: AsRef<[u8]> + ?Sized>(
         &mut self,
         sockets: &mut SocketSet,
+        meta: PacketMeta,
         ipv6_packet: &Ipv6Packet<&'frame T>,
     ) -> Option<IpPacket<'frame>> {
         let ipv6_repr = check!(Ipv6Repr::parse(ipv6_packet));
@@ -34,6 +36,7 @@ impl InterfaceInner {
 
         self.process_nxt_hdr(
             sockets,
+            meta,
             ipv6_repr,
             ipv6_repr.next_header,
             handled_by_raw_socket,
@@ -47,6 +50,7 @@ impl InterfaceInner {
     pub(super) fn process_nxt_hdr<'frame>(
         &mut self,
         sockets: &mut SocketSet,
+        meta: PacketMeta,
         ipv6_repr: Ipv6Repr,
         nxt_hdr: IpProtocol,
         handled_by_raw_socket: bool,
@@ -67,6 +71,7 @@ impl InterfaceInner {
 
                 self.process_udp(
                     sockets,
+                    meta,
                     ipv6_repr.into(),
                     udp_repr,
                     handled_by_raw_socket,
@@ -79,7 +84,7 @@ impl InterfaceInner {
             IpProtocol::Tcp => self.process_tcp(sockets, ipv6_repr.into(), ip_payload),
 
             IpProtocol::HopByHop => {
-                self.process_hopbyhop(sockets, ipv6_repr, handled_by_raw_socket, ip_payload)
+                self.process_hopbyhop(sockets, meta, ipv6_repr, handled_by_raw_socket, ip_payload)
             }
 
             #[cfg(feature = "socket-raw")]
@@ -240,6 +245,7 @@ impl InterfaceInner {
     pub(super) fn process_hopbyhop<'frame>(
         &mut self,
         sockets: &mut SocketSet,
+        meta: PacketMeta,
         ipv6_repr: Ipv6Repr,
         handled_by_raw_socket: bool,
         ip_payload: &'frame [u8],
@@ -272,6 +278,7 @@ impl InterfaceInner {
         }
         self.process_nxt_hdr(
             sockets,
+            meta,
             ipv6_repr,
             hbh_repr.next_header,
             handled_by_raw_socket,

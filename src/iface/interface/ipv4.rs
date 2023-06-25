@@ -14,6 +14,7 @@ impl InterfaceInner {
     pub(super) fn process_ipv4<'a, T: AsRef<[u8]> + ?Sized>(
         &mut self,
         sockets: &mut SocketSet,
+        meta: PacketMeta,
         ipv4_packet: &Ipv4Packet<&'a T>,
         frag: &'a mut FragmentsBuffer,
     ) -> Option<IpPacket<'a>> {
@@ -138,6 +139,7 @@ impl InterfaceInner {
 
                 self.process_udp(
                     sockets,
+                    meta,
                     ip_repr,
                     udp_repr,
                     handled_by_raw_socket,

@@ -99,6 +99,10 @@ impl<'a, Rx: phy::RxToken, FRx: Fuzzer> phy::RxToken for RxToken<'a, Rx, FRx> {
             f(buffer)
         })
     }
+
+    fn meta(&self) -> phy::PacketMeta {
+        self.token.meta()
+    }
 }
 
 #[doc(hidden)]
@@ -117,5 +121,9 @@ impl<'a, Tx: phy::TxToken, FTx: Fuzzer> phy::TxToken for TxToken<'a, Tx, FTx> {
             self.fuzzer.fuzz_packet(buf);
             result
         })
+    }
+
+    fn set_meta(&mut self, meta: phy::PacketMeta) {
+        self.token.set_meta(meta)
     }
 }

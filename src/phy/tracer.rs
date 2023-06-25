@@ -108,6 +108,10 @@ impl<Rx: phy::RxToken> phy::RxToken for RxToken<Rx> {
             f(buffer)
         })
     }
+
+    fn meta(&self) -> phy::PacketMeta {
+        self.token.meta()
+    }
 }
 
 #[doc(hidden)]
@@ -135,6 +139,10 @@ impl<Tx: phy::TxToken> phy::TxToken for TxToken<Tx> {
             );
             result
         })
+    }
+
+    fn set_meta(&mut self, meta: phy::PacketMeta) {
+        self.token.set_meta(meta)
     }
 }
 

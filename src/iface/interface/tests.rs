@@ -166,9 +166,12 @@ fn test_no_icmp_no_unicast_ipv4() {
     // broadcast address
 
     assert_eq!(
-        iface
-            .inner
-            .process_ipv4(&mut sockets, &frame, &mut iface.fragments),
+        iface.inner.process_ipv4(
+            &mut sockets,
+            PacketMeta::default(),
+            &frame,
+            &mut iface.fragments
+        ),
         None
     );
 }
@@ -198,7 +201,12 @@ fn test_no_icmp_no_unicast_ipv6() {
     // Ensure that the unknown protocol frame does not trigger an
     // ICMP error response when the destination address is a
     // broadcast address
-    assert_eq!(iface.inner.process_ipv6(&mut sockets, &frame), None);
+    assert_eq!(
+        iface
+            .inner
+            .process_ipv6(&mut sockets, PacketMeta::default(), &frame),
+        None
+    );
 }
 
 #[test]
@@ -249,9 +257,12 @@ fn test_icmp_error_no_payload() {
     // And we correctly handle no payload.
 
     assert_eq!(
-        iface
-            .inner
-            .process_ipv4(&mut sockets, &frame, &mut iface.fragments),
+        iface.inner.process_ipv4(
+            &mut sockets,
+            PacketMeta::default(),
+            &frame,
+            &mut iface.fragments
+        ),
         Some(expected_repr)
     );
 }
@@ -385,9 +396,15 @@ fn test_icmp_error_port_unreachable() {
     // Ensure that the unknown protocol triggers an error response.
     // And we correctly handle no payload.
     assert_eq!(
-        iface
-            .inner
-            .process_udp(&mut sockets, ip_repr, udp_repr, false, &UDP_PAYLOAD, data),
+        iface.inner.process_udp(
+            &mut sockets,
+            PacketMeta::default(),
+            ip_repr,
+            udp_repr,
+            false,
+            &UDP_PAYLOAD,
+            data
+        ),
         Some(expected_repr)
     );
 
@@ -415,6 +432,7 @@ fn test_icmp_error_port_unreachable() {
     assert_eq!(
         iface.inner.process_udp(
             &mut sockets,
+            PacketMeta::default(),
             ip_repr,
             udp_repr,
             false,
@@ -428,7 +446,7 @@ fn test_icmp_error_port_unreachable() {
 #[test]
 #[cfg(feature = "socket-udp")]
 fn test_handle_udp_broadcast() {
-    use crate::wire::IpEndpoint;
+    use crate::{socket::udp::UdpMetadata, wire::IpEndpoint};
 
     static UDP_PAYLOAD: [u8; 5] = [0x48, 0x65, 0x6c, 0x6c, 0x6f];
 
@@ -490,6 +508,7 @@ fn test_handle_udp_broadcast() {
     assert_eq!(
         iface.inner.process_udp(
             &mut sockets,
+            PacketMeta::default(),
             ip_repr,
             udp_repr,
             false,
@@ -505,7 +524,13 @@ fn test_handle_udp_broadcast() {
     assert!(socket.can_recv());
     assert_eq!(
         socket.recv(),
-        Ok((&UDP_PAYLOAD[..], IpEndpoint::new(src_ip.into(), 67)))
+        Ok((
+            &UDP_PAYLOAD[..],
+            UdpMetadata {
+                endpoint: IpEndpoint::new(src_ip.into(), 67),
+                meta: PacketMeta::default()
+            }
+        ))
     );
 }
 
@@ -566,9 +591,12 @@ fn test_handle_ipv4_broadcast() {
     let expected_packet = IpPacket::Icmpv4((expected_ipv4_repr, expected_icmpv4_repr));
 
     assert_eq!(
-        iface
-            .inner
-            .process_ipv4(&mut sockets, &frame, &mut iface.fragments),
+        iface.inner.process_ipv4(
+            &mut sockets,
+            PacketMeta::default(),
+            &frame,
+            &mut iface.fragments
+        ),
         Some(expected_packet)
     );
 }
@@ -680,6 +708,7 @@ fn test_icmp_reply_size() {
     assert_eq!(
         iface.inner.process_udp(
             &mut sockets,
+            PacketMeta::default(),
             ip_repr.into(),
             udp_repr,
             false,
@@ -692,6 +721,7 @@ fn test_icmp_reply_size() {
     assert_eq!(
         iface.inner.process_udp(
             &mut sockets,
+            PacketMeta::default(),
             ip_repr.into(),
             udp_repr,
             false,
@@ -731,9 +761,12 @@ fn test_handle_valid_arp_request() {
 
     // Ensure an ARP Request for us triggers an ARP Reply
     assert_eq!(
-        iface
-            .inner
-            .process_ethernet(&mut sockets, frame.into_inner(), &mut iface.fragments),
+        iface.inner.process_ethernet(
+            &mut sockets,
+            PacketMeta::default(),
+            frame.into_inner(),
+            &mut iface.fragments
+        ),
         Some(EthernetPacket::Arp(ArpRepr::EthernetIpv4 {
             operation: ArpOperation::Reply,
             source_hardware_addr: local_hw_addr,
@@ -807,9 +840,12 @@ fn test_handle_valid_ndisc_request() {
 
     // Ensure an Neighbor Solicitation triggers a Neighbor Advertisement
     assert_eq!(
-        iface
-            .inner
-            .process_ethernet(&mut sockets, frame.into_inner(), &mut iface.fragments),
+        iface.inner.process_ethernet(
+            &mut sockets,
+            PacketMeta::default(),
+            frame.into_inner(),
+            &mut iface.fragments
+        ),
         Some(EthernetPacket::Ip(IpPacket::Icmpv6((
             ipv6_expected,
             icmpv6_expected
@@ -855,9 +891,12 @@ fn test_handle_other_arp_request() {
 
     // Ensure an ARP Request for someone else does not trigger an ARP Reply
     assert_eq!(
-        iface
-            .inner
-            .process_ethernet(&mut sockets, frame.into_inner(), &mut iface.fragments),
+        iface.inner.process_ethernet(
+            &mut sockets,
+            PacketMeta::default(),
+            frame.into_inner(),
+            &mut iface.fragments
+        ),
         None
     );
 
@@ -908,9 +947,12 @@ fn test_arp_flush_after_update_ip() {
 
     // Ensure an ARP Request for us triggers an ARP Reply
     assert_eq!(
-        iface
-            .inner
-            .process_ethernet(&mut sockets, frame.into_inner(), &mut iface.fragments),
+        iface.inner.process_ethernet(
+            &mut sockets,
+            PacketMeta::default(),
+            frame.into_inner(),
+            &mut iface.fragments
+        ),
         Some(EthernetPacket::Arp(ArpRepr::EthernetIpv4 {
             operation: ArpOperation::Reply,
             source_hardware_addr: local_hw_addr,
@@ -1103,7 +1145,9 @@ fn test_icmpv6_nxthdr_unknown() {
     // Ensure the unknown next header causes a ICMPv6 Parameter Problem
     // error message to be sent to the sender.
     assert_eq!(
-        iface.inner.process_ipv6(&mut sockets, &frame),
+        iface
+            .inner
+            .process_ipv6(&mut sockets, PacketMeta::default(), &frame),
         Some(IpPacket::Icmpv6((reply_ipv6_repr, reply_icmp_repr)))
     );
 }
@@ -1267,9 +1311,12 @@ fn test_raw_socket_no_reply() {
     };
 
     assert_eq!(
-        iface
-            .inner
-            .process_ipv4(&mut sockets, &frame, &mut iface.fragments),
+        iface.inner.process_ipv4(
+            &mut sockets,
+            PacketMeta::default(),
+            &frame,
+            &mut iface.fragments
+        ),
         None
     );
 }
@@ -1277,7 +1324,10 @@ fn test_raw_socket_no_reply() {
 #[test]
 #[cfg(all(feature = "proto-ipv4", feature = "socket-raw", feature = "socket-udp"))]
 fn test_raw_socket_with_udp_socket() {
-    use crate::wire::{IpEndpoint, IpVersion, Ipv4Packet, UdpPacket, UdpRepr};
+    use crate::{
+        socket::udp::UdpMetadata,
+        wire::{IpEndpoint, IpVersion, Ipv4Packet, UdpPacket, UdpRepr},
+    };
 
     static UDP_PAYLOAD: [u8; 5] = [0x48, 0x65, 0x6c, 0x6c, 0x6f];
 
@@ -1353,9 +1403,12 @@ fn test_raw_socket_with_udp_socket() {
     };
 
     assert_eq!(
-        iface
-            .inner
-            .process_ipv4(&mut sockets, &frame, &mut iface.fragments),
+        iface.inner.process_ipv4(
+            &mut sockets,
+            PacketMeta::default(),
+            &frame,
+            &mut iface.fragments
+        ),
         None
     );
 
@@ -1364,7 +1417,13 @@ fn test_raw_socket_with_udp_socket() {
     assert!(socket.can_recv());
     assert_eq!(
         socket.recv(),
-        Ok((&UDP_PAYLOAD[..], IpEndpoint::new(src_addr.into(), 67)))
+        Ok((
+            &UDP_PAYLOAD[..],
+            UdpMetadata {
+                endpoint: IpEndpoint::new(src_addr.into(), 67),
+                meta: PacketMeta::default()
+            }
+        ))
     );
 }
 
@@ -1458,6 +1517,7 @@ fn test_echo_request_sixlowpan_128_bytes() {
     assert_eq!(
         iface.inner.process_sixlowpan(
             &mut sockets,
+            PacketMeta::default(),
             &ieee802154_repr,
             &request_first_part_packet.into_inner(),
             &mut iface.fragments
@@ -1482,6 +1542,7 @@ fn test_echo_request_sixlowpan_128_bytes() {
 
     let result = iface.inner.process_sixlowpan(
         &mut sockets,
+        PacketMeta::default(),
         &ieee802154_repr,
         &request_second_part,
         &mut iface.fragments,
@@ -1612,6 +1673,7 @@ fn test_sixlowpan_udp_with_fragmentation() {
     assert_eq!(
         iface.inner.process_sixlowpan(
             &mut sockets,
+            PacketMeta::default(),
             &ieee802154_repr,
             udp_first_part,
             &mut iface.fragments
@@ -1631,6 +1693,7 @@ fn test_sixlowpan_udp_with_fragmentation() {
     assert_eq!(
         iface.inner.process_sixlowpan(
             &mut sockets,
+            PacketMeta::default(),
             &ieee802154_repr,
             udp_second_part,
             &mut iface.fragments
@@ -1642,8 +1705,9 @@ fn test_sixlowpan_udp_with_fragmentation() {
 
     let udp_data = b"Lorem ipsum dolor sit amet, consectetur adipiscing elit. \
                          In at rhoncus tortor. Cras blandit tellus diam, varius vestibulum nibh commodo nec.";
+
     assert_eq!(
-        socket.recv(),
+        socket.recv().map(|(data, meta)| (data, meta.endpoint)),
         Ok((
             &udp_data[..],
             IpEndpoint {
@@ -1673,6 +1737,7 @@ fn test_sixlowpan_udp_with_fragmentation() {
                 dst_port: 1234,
             },
             udp_data,
+            PacketMeta::default(),
         )),
         &mut iface.fragmenter,
     );

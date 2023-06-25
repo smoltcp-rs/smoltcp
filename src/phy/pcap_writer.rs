@@ -231,6 +231,10 @@ impl<'a, Rx: phy::RxToken, S: PcapSink> phy::RxToken for RxToken<'a, Rx, S> {
             f(buffer)
         })
     }
+
+    fn meta(&self) -> phy::PacketMeta {
+        self.token.meta()
+    }
 }
 
 #[doc(hidden)]
@@ -256,5 +260,9 @@ impl<'a, Tx: phy::TxToken, S: PcapSink> phy::TxToken for TxToken<'a, Tx, S> {
             };
             result
         })
+    }
+
+    fn set_meta(&mut self, meta: phy::PacketMeta) {
+        self.token.set_meta(meta)
     }
 }

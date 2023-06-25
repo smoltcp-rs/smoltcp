@@ -130,6 +130,37 @@ pub use self::tracer::Tracer;
 ))]
 pub use self::tuntap_interface::TunTapInterface;
 
+/// Metadata associated to a packet.
+///
+/// The packet metadata is a set of attributes associated to network packets
+/// as they travel up or down the stack. The metadata is get/set by the
+/// [`Device`] implementations or by the user when sending/receiving packets from a
+/// socket.
+///
+/// Metadata fields are enabled via Cargo features. If no field is enabled, this
+/// struct becomes zero-sized, which allows the compiler to optimize it out as if
+/// the packet metadata mechanism didn't exist at all.
+///
+/// Currently only UDP sockets allow setting/retrieving packet metadata. The metadata
+/// for packets emitted with other sockets will be all default values.
+///
+/// This struct is marked as `#[non_exhaustive]`. This means it is not possible to
+/// create it directly by specifying all fields. You have to instead create it with
+/// default values and then set the fields you want. This makes adding metadata
+/// fields a non-breaking change.
+///
+/// ```rust,ignore
+/// let mut meta = PacketMeta::new();
+/// meta.id = 15;
+/// ```
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, Default)]
+#[non_exhaustive]
+pub struct PacketMeta {
+    #[cfg(feature = "packetmeta-id")]
+    pub id: u32,
+}
+
 /// A description of checksum behavior for a particular protocol.
 #[derive(Debug, Clone, Copy, Default)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -339,6 +370,11 @@ pub trait RxToken {
     fn consume<R, F>(self, f: F) -> R
     where
         F: FnOnce(&mut [u8]) -> R;
+
+    /// The Packet ID associated with the frame received by this [`RxToken`]
+    fn meta(&self) -> PacketMeta {
+        PacketMeta::default()
+    }
 }
 
 /// A token to transmit a single network packet.
@@ -352,4 +388,8 @@ pub trait TxToken {
     fn consume<R, F>(self, len: usize, f: F) -> R
     where
         F: FnOnce(&mut [u8]) -> R;
+
+    /// The Packet ID to be associated with the frame to be transmitted by this [`TxToken`].
+    #[allow(unused_variables)]
+    fn set_meta(&mut self, meta: PacketMeta) {}
 }
