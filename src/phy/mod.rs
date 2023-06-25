@@ -130,8 +130,29 @@ pub use self::tracer::Tracer;
 ))]
 pub use self::tuntap_interface::TunTapInterface;
 
-/// An ID that can be used to uniquely identify a packet to a [`Device`],
-/// sent or received by that same [`Device`]
+/// Metadata associated to a packet.
+///
+/// The packet metadata is a set of attributes associated to network packets
+/// as they travel up or down the stack. The metadata is get/set by the
+/// [`Device`] implementations or by the user when sending/receiving packets from a
+/// socket.
+///
+/// Metadata fields are enabled via Cargo features. If no field is enabled, this
+/// struct becomes zero-sized, which allows the compiler to optimize it out as if
+/// the packet metadata mechanism didn't exist at all.
+///
+/// Currently only UDP sockets allow setting/retrieving packet metadata. The metadata
+/// for packets emitted with other sockets will be all default values.
+///
+/// This struct is marked as `#[non_exhaustive]`. This means it is not possible to
+/// create it directly by specifying all fields. You have to instead create it with
+/// default values and then set the fields you want. This makes adding metadata
+/// fields a non-breaking change.
+///
+/// ```rust,ignore
+/// let mut meta = PacketMeta::new();
+/// meta.id = 15;
+/// ```
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, Default)]
 #[non_exhaustive]
