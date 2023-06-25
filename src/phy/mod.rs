@@ -158,7 +158,7 @@ pub use self::tuntap_interface::TunTapInterface;
 #[non_exhaustive]
 pub struct PacketMeta {
     #[cfg(feature = "packetmeta-id")]
-    pub id: Option<u32>,
+    pub id: u32,
 }
 
 /// A description of checksum behavior for a particular protocol.
