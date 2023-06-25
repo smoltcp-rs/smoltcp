@@ -136,7 +136,7 @@ pub use self::tuntap_interface::TunTapInterface;
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, Default)]
 #[non_exhaustive]
 pub struct PacketMeta {
-    #[cfg(feature = "packet-id")]
+    #[cfg(feature = "packetmeta-id")]
     pub id: Option<u32>,
 }
 

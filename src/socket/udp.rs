@@ -29,10 +29,10 @@ impl<T: Into<IpEndpoint>> From<T> for UdpMetadata {
 
 impl core::fmt::Display for UdpMetadata {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        #[cfg(feature = "packet-id")]
+        #[cfg(feature = "packetmeta-id")]
         return write!(f, "{}, PacketID: {:?}", self.endpoint, self.meta);
 
-        #[cfg(not(feature = "packet-id"))]
+        #[cfg(not(feature = "packetmeta-id"))]
         write!(f, "{}", self.endpoint)
     }
 }
