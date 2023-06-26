@@ -6,6 +6,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2023-06-26
+
+- Add optional packet metadata. Allows tracking packets by ID across the whole stack, between the `Device` impl and sockets. One application is timestamping packets with the PHY's collaboration, allowing implementing PTP (#628)
+- Work-in-progress implementation of RPL (Routing Protocol for Low-Power and Lossy Networks), commonly used for IEEE 802.15.4 / 6LoWPAN networks. Wire is mostly complete, full functionality will be in 0.11 hopefully! (#627, #766, #767, #772, #773, #777, #790, #798, #804)
+- dhcp: Add support for rebinding (#744)
+
+- iface:
+    - add support for sending to subnet-local broadcast addrs (like 192.168.1.255). (#801)
+    - Creating an interface requires passing in the time. (#799)
+    - fix wrong payload length of first IPv4 fragment (#791, #792)
+    - Don't discard from unspecified IPv4 src addresses (#787)
+
+- tcp:
+    - do not count window updates as duplicate acks. (#748)
+    - consider segments partially overlapping the window as acceptable (#749)
+    - Perform a reset() after an abort() (#788)
+
+- 6lowpan:
+    - Hop-by-Hop Header compression (#765)
+    - Routing Header compression (#770)
+
+- wire:
+    - reexport DNS opcode, rcode, flag. (#763, #806)
+    - refactor IPv6 Extension Headers to make them more consistent and easier to parse. (#781)
+    - check length field of NDISC redirected head (#784)
+
+- Modify `hardware_addr` and `neighbor_cache` to be not `Option`, add `HardwareAddress::Ip` (#745)
+- Add file descriptor support for tuntap devices, needed for the Android VPN API. (#776)
+- implement Display and Error for error types (#750, #756, #757)
+- Better defmt for Instant, Duration and Ipv6Address (#754, #758)
+- Add Hash trait for enum_with_unknown macro (#755)
+
 ## [0.9.1] - 2023-02-08
 
 - iface: make MulticastError public. (#747)
@@ -201,7 +233,8 @@ only processed when directed to the 255.255.255.255 address. ([377](https://gith
 - Use #[non_exhaustive] for enums and structs ([409](https://github.com/smoltcp-rs/smoltcp/pull/409), [411](https://github.com/smoltcp-rs/smoltcp/pull/411))
 - Simplify lifetime parameters of sockets, SocketSet, EthernetInterface ([410](https://github.com/smoltcp-rs/smoltcp/pull/410), [413](https://github.com/smoltcp-rs/smoltcp/pull/413))
 
-[Unreleased]: https://github.com/smoltcp-rs/smoltcp/compare/v0.9.1...HEAD
+[Unreleased]: https://github.com/smoltcp-rs/smoltcp/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/smoltcp-rs/smoltcp/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/smoltcp-rs/smoltcp/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/smoltcp-rs/smoltcp/compare/v0.8.2...v0.9.0
 [0.8.2]: https://github.com/smoltcp-rs/smoltcp/compare/v0.8.1...v0.8.2
