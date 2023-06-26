@@ -1475,41 +1475,77 @@ impl<'a> Socket<'a> {
         let segment_start = repr.seq_number;
         let segment_end = repr.seq_number + repr.segment_len();
 
-        let payload_offset;
-        match self.state {
+        let (payload, payload_offset) = match self.state {
             // In LISTEN and SYN-SENT states, we have not yet synchronized with the remote end.
-            State::Listen | State::SynSent => payload_offset = 0,
-            // In all other states, segments must occupy a valid portion of the receive window.
+            State::Listen | State::SynSent => (&[][..], 0),
             _ => {
-                let mut segment_in_window = true;
-
-                if window_start == window_end && segment_start != segment_end {
-                    net_debug!(
-                        "non-zero-length segment with zero receive window, will only send an ACK"
-                    );
-                    segment_in_window = false;
-                }
-
-                if segment_start == segment_end && segment_end == window_start - 1 {
-                    net_debug!("received a keep-alive or window probe packet, will send an ACK");
-                    segment_in_window = false;
-                } else if !((window_start <= segment_start && segment_start <= window_end)
-                    && (window_start <= segment_end && segment_end <= window_end))
-                {
-                    net_debug!(
-                        "segment not in receive window ({}..{} not intersecting {}..{}), will send challenge ACK",
-                        segment_start,
-                        segment_end,
-                        window_start,
-                        window_end
-                    );
-                    segment_in_window = false;
-                }
+                // https://www.rfc-editor.org/rfc/rfc9293.html#name-segment-acceptability-tests
+                let segment_in_window = match (
+                    segment_start == segment_end,
+                    window_start == window_end,
+                ) {
+                    (true, _) if segment_end == window_start - 1 => {
+                        net_debug!(
+                            "received a keep-alive or window probe packet, will send an ACK"
+                        );
+                        false
+                    }
+                    (true, true) => {
+                        if window_start == segment_start {
+                            true
+                        } else {
+                            net_debug!(
+                                "zero-length segment not inside zero-length window, will send an ACK."
+                            );
+                            false
+                        }
+                    }
+                    (true, false) => {
+                        if window_start <= segment_start && segment_start < window_end {
+                            true
+                        } else {
+                            net_debug!("zero-length segment not inside window, will send an ACK.");
+                            false
+                        }
+                    }
+                    (false, true) => {
+                        net_debug!(
+                            "non-zero-length segment with zero receive window, will only send an ACK"
+                        );
+                        false
+                    }
+                    (false, false) => {
+                        if (window_start <= segment_start && segment_start < window_end)
+                            || (window_start < segment_end && segment_end <= window_end)
+                        {
+                            true
+                        } else {
+                            net_debug!(
+                                "segment not in receive window ({}..{} not intersecting {}..{}), will send challenge ACK",
+                                segment_start,
+                                segment_end,
+                                window_start,
+                                window_end
+                            );
+                            false
+                        }
+                    }
+                };
 
                 if segment_in_window {
-                    // We've checked that segment_start >= window_start above.
-                    payload_offset = segment_start - window_start;
+                    let segment_data_end = repr.seq_number + repr.payload.len();
+                    let overlap_start = window_start.max(segment_start);
+                    let overlap_end = window_end.min(segment_data_end);
+
+                    // the checks done above imply this.
+                    debug_assert!(overlap_start <= overlap_end);
+
                     self.local_rx_last_seq = Some(repr.seq_number);
+
+                    (
+                        &repr.payload[overlap_start - segment_start..overlap_end - segment_start],
+                        overlap_start - window_start,
+                    )
                 } else {
                     // If we're in the TIME-WAIT state, restart the TIME-WAIT timeout, since
                     // the remote end may not have realized we've closed the connection.
@@ -1520,7 +1556,7 @@ impl<'a> Socket<'a> {
                     return self.challenge_ack_reply(cx, ip_repr, repr);
                 }
             }
-        }
+        };
 
         // Compute the amount of acknowledged octets, removing the SYN and FIN bits
         // from the sequence space.
@@ -1824,7 +1860,7 @@ impl<'a> Socket<'a> {
             }
         }
 
-        let payload_len = repr.payload.len();
+        let payload_len = payload.len();
         if payload_len == 0 {
             return None;
         }
@@ -1847,9 +1883,7 @@ impl<'a> Socket<'a> {
             payload_len,
             payload_offset
         );
-        let len_written = self
-            .rx_buffer
-            .write_unallocated(payload_offset, repr.payload);
+        let len_written = self.rx_buffer.write_unallocated(payload_offset, payload);
         debug_assert!(len_written == payload_len);
 
         if contig_len != 0 {
@@ -3913,6 +3947,45 @@ mod test {
                 ..RECV_TEMPL
             }]
         );
+    }
+
+    #[test]
+    fn test_established_receive_partially_outside_window() {
+        let mut s = socket_established();
+
+        send!(
+            s,
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                payload: &b"abc"[..],
+                ..SEND_TEMPL
+            }
+        );
+
+        s.recv(|data| {
+            assert_eq!(data, b"abc");
+            (3, ())
+        })
+        .unwrap();
+
+        // Peer decides to retransmit (perhaps because the ACK was lost)
+        // and also pushed data.
+        send!(
+            s,
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                payload: &b"abcdef"[..],
+                ..SEND_TEMPL
+            }
+        );
+
+        s.recv(|data| {
+            assert_eq!(data, b"def");
+            (3, ())
+        })
+        .unwrap();
     }
 
     #[test]

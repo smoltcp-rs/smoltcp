@@ -13,6 +13,24 @@ use crate::wire::{IpAddress, IpProtocol};
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
 pub struct SeqNumber(pub i32);
 
+impl SeqNumber {
+    pub fn max(self, rhs: Self) -> Self {
+        if self > rhs {
+            self
+        } else {
+            rhs
+        }
+    }
+
+    pub fn min(self, rhs: Self) -> Self {
+        if self < rhs {
+            self
+        } else {
+            rhs
+        }
+    }
+}
+
 impl fmt::Display for SeqNumber {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.0 as u32)
