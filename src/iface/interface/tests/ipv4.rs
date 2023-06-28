@@ -23,7 +23,7 @@ fn test_no_icmp_no_unicast(#[case] medium: Medium) {
 
     let mut bytes = vec![0u8; 54];
     repr.emit(&mut bytes, &ChecksumCapabilities::default());
-    let frame = Ipv4Packet::new_unchecked(&bytes);
+    let frame = Ipv4PacketWire::new_unchecked(&bytes);
 
     // Ensure that the unknown protocol frame does not trigger an
     // ICMP error response when the destination address is a
@@ -60,7 +60,7 @@ fn test_icmp_error_no_payload(#[case] medium: Medium) {
 
     let mut bytes = vec![0u8; 34];
     repr.emit(&mut bytes, &ChecksumCapabilities::default());
-    let frame = Ipv4Packet::new_unchecked(&bytes);
+    let frame = Ipv4PacketWire::new_unchecked(&bytes);
 
     // The expected Destination Unreachable response due to the
     // unknown protocol
@@ -76,7 +76,7 @@ fn test_icmp_error_no_payload(#[case] medium: Medium) {
         data: &NO_BYTES,
     };
 
-    let expected_repr = IpPacket::Icmpv4((
+    let expected_repr = IpPacket::new_ipv4(
         Ipv4Repr {
             src_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x01]),
             dst_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x02]),
@@ -84,8 +84,8 @@ fn test_icmp_error_no_payload(#[case] medium: Medium) {
             payload_len: icmp_repr.buffer_len(),
             hop_limit: 64,
         },
-        icmp_repr,
-    ));
+        IpPayload::Icmpv4(icmp_repr),
+    );
 
     // Ensure that the unknown protocol triggers an error response.
     // And we correctly handle no payload.
@@ -222,7 +222,7 @@ fn test_icmp_error_port_unreachable(#[case] medium: Medium) {
         },
         data,
     };
-    let expected_repr = IpPacket::Icmpv4((
+    let expected_repr = IpPacket::new_ipv4(
         Ipv4Repr {
             src_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x01]),
             dst_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x02]),
@@ -230,8 +230,8 @@ fn test_icmp_error_port_unreachable(#[case] medium: Medium) {
             payload_len: icmp_repr.buffer_len(),
             hop_limit: 64,
         },
-        icmp_repr,
-    ));
+        IpPayload::Icmpv4(icmp_repr),
+    );
 
     // Ensure that the unknown protocol triggers an error response.
     // And we correctly handle no payload.
@@ -289,7 +289,7 @@ fn test_icmp_error_port_unreachable(#[case] medium: Medium) {
 #[case(Medium::Ethernet)]
 #[cfg(feature = "medium-ethernet")]
 fn test_handle_ipv4_broadcast(#[case] medium: Medium) {
-    use crate::wire::{Icmpv4Packet, Icmpv4Repr, Ipv4Packet};
+    use crate::wire::{Icmpv4Packet, Icmpv4Repr};
 
     let (mut iface, mut sockets, _device) = setup(medium);
 
@@ -317,14 +317,14 @@ fn test_handle_ipv4_broadcast(#[case] medium: Medium) {
     let mut bytes = vec![0u8; ipv4_repr.buffer_len() + icmpv4_repr.buffer_len()];
     let frame = {
         ipv4_repr.emit(
-            &mut Ipv4Packet::new_unchecked(&mut bytes),
+            &mut Ipv4PacketWire::new_unchecked(&mut bytes),
             &ChecksumCapabilities::default(),
         );
         icmpv4_repr.emit(
             &mut Icmpv4Packet::new_unchecked(&mut bytes[ipv4_repr.buffer_len()..]),
             &ChecksumCapabilities::default(),
         );
-        Ipv4Packet::new_unchecked(&bytes)
+        Ipv4PacketWire::new_unchecked(&bytes)
     };
 
     // Expected ICMPv4 echo reply
@@ -340,7 +340,8 @@ fn test_handle_ipv4_broadcast(#[case] medium: Medium) {
         hop_limit: 64,
         payload_len: expected_icmpv4_repr.buffer_len(),
     };
-    let expected_packet = IpPacket::Icmpv4((expected_ipv4_repr, expected_icmpv4_repr));
+    let expected_packet =
+        IpPacket::new_ipv4(expected_ipv4_repr, IpPayload::Icmpv4(expected_icmpv4_repr));
 
     assert_eq!(
         iface.inner.process_ipv4(
@@ -591,7 +592,10 @@ fn test_icmpv4_socket(#[case] medium: Medium) {
     };
     assert_eq!(
         iface.inner.process_icmpv4(&mut sockets, ip_repr, icmp_data),
-        Some(IpPacket::Icmpv4((ipv4_reply, echo_reply)))
+        Some(IpPacket::new_ipv4(
+            ipv4_reply,
+            IpPayload::Icmpv4(echo_reply)
+        ))
     );
 
     let socket = sockets.get_mut::<icmp::Socket>(socket_handle);
@@ -621,10 +625,10 @@ fn test_handle_igmp(#[case] medium: Medium) {
                     #[cfg(feature = "medium-ethernet")]
                     Medium::Ethernet => {
                         let eth_frame = EthernetFrame::new_checked(frame).ok()?;
-                        Ipv4Packet::new_checked(eth_frame.payload()).ok()?
+                        Ipv4PacketWire::new_checked(eth_frame.payload()).ok()?
                     }
                     #[cfg(feature = "medium-ip")]
-                    Medium::Ip => Ipv4Packet::new_checked(&frame[..]).ok()?,
+                    Medium::Ip => Ipv4PacketWire::new_checked(&frame[..]).ok()?,
                     #[cfg(feature = "medium-ieee802154")]
                     Medium::Ieee802154 => todo!(),
                 };
@@ -710,7 +714,7 @@ fn test_handle_igmp(#[case] medium: Medium) {
 #[case(Medium::Ethernet)]
 #[cfg(all(feature = "socket-raw", feature = "medium-ethernet"))]
 fn test_raw_socket_no_reply(#[case] medium: Medium) {
-    use crate::wire::{IpVersion, Ipv4Packet, UdpPacket, UdpRepr};
+    use crate::wire::{IpVersion, UdpPacket, UdpRepr};
 
     let (mut iface, mut sockets, _) = setup(medium);
 
@@ -755,7 +759,7 @@ fn test_raw_socket_no_reply(#[case] medium: Medium) {
     let mut bytes = vec![0u8; ipv4_repr.buffer_len() + udp_repr.header_len() + PAYLOAD_LEN];
     let frame = {
         ipv4_repr.emit(
-            &mut Ipv4Packet::new_unchecked(&mut bytes),
+            &mut Ipv4PacketWire::new_unchecked(&mut bytes),
             &ChecksumCapabilities::default(),
         );
         udp_repr.emit(
@@ -766,7 +770,7 @@ fn test_raw_socket_no_reply(#[case] medium: Medium) {
             |buf| fill_slice(buf, 0x2a),
             &ChecksumCapabilities::default(),
         );
-        Ipv4Packet::new_unchecked(&bytes)
+        Ipv4PacketWire::new_unchecked(&bytes)
     };
 
     assert_eq!(
@@ -790,7 +794,7 @@ fn test_raw_socket_no_reply(#[case] medium: Medium) {
     feature = "medium-ethernet"
 ))]
 fn test_raw_socket_with_udp_socket(#[case] medium: Medium) {
-    use crate::wire::{IpEndpoint, IpVersion, Ipv4Packet, UdpPacket, UdpRepr};
+    use crate::wire::{IpEndpoint, IpVersion, UdpPacket, UdpRepr};
 
     static UDP_PAYLOAD: [u8; 5] = [0x48, 0x65, 0x6c, 0x6c, 0x6f];
 
@@ -851,7 +855,7 @@ fn test_raw_socket_with_udp_socket(#[case] medium: Medium) {
     let mut bytes = vec![0u8; ipv4_repr.buffer_len() + udp_repr.header_len() + UDP_PAYLOAD.len()];
     let frame = {
         ipv4_repr.emit(
-            &mut Ipv4Packet::new_unchecked(&mut bytes),
+            &mut Ipv4PacketWire::new_unchecked(&mut bytes),
             &ChecksumCapabilities::default(),
         );
         udp_repr.emit(
@@ -862,7 +866,7 @@ fn test_raw_socket_with_udp_socket(#[case] medium: Medium) {
             |buf| buf.copy_from_slice(&UDP_PAYLOAD),
             &ChecksumCapabilities::default(),
         );
-        Ipv4Packet::new_unchecked(&bytes)
+        Ipv4PacketWire::new_unchecked(&bytes)
     };
 
     assert_eq!(
@@ -956,6 +960,9 @@ fn test_icmp_reply_size(#[case] medium: Medium) {
             &vec![0x2a; MAX_PAYLOAD_LEN],
             payload,
         ),
-        Some(IpPacket::Icmpv4((expected_ip_repr, expected_icmp_repr)))
+        Some(IpPacket::new_ipv4(
+            expected_ip_repr,
+            IpPayload::Icmpv4(expected_icmp_repr)
+        ))
     );
 }

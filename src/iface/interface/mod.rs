@@ -23,7 +23,8 @@ mod igmp;
 #[cfg(feature = "proto-igmp")]
 pub use igmp::MulticastError;
 
-use core::cmp;
+use super::ip_packet::*;
+
 use core::result::Result;
 use heapless::{LinearMap, Vec};
 
@@ -44,6 +45,12 @@ use crate::rand::Rand;
 use crate::socket::dns;
 use crate::socket::*;
 use crate::time::{Duration, Instant};
+
+#[cfg(feature = "proto-ipv4")]
+use crate::wire::Ipv4Packet as Ipv4PacketWire;
+#[cfg(feature = "proto-ipv6")]
+use crate::wire::Ipv6Packet as Ipv6PacketWire;
+
 use crate::wire::*;
 
 #[cfg(feature = "_proto-fragmentation")]
@@ -298,158 +305,6 @@ impl Config {
             pan_id: None,
         }
     }
-}
-
-#[derive(Debug, PartialEq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[cfg(feature = "medium-ethernet")]
-enum EthernetPacket<'a> {
-    #[cfg(feature = "proto-ipv4")]
-    Arp(ArpRepr),
-    Ip(IpPacket<'a>),
-}
-
-#[derive(Debug, PartialEq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub(crate) enum IpPacket<'a> {
-    #[cfg(feature = "proto-ipv4")]
-    Icmpv4((Ipv4Repr, Icmpv4Repr<'a>)),
-    #[cfg(feature = "proto-igmp")]
-    Igmp((Ipv4Repr, IgmpRepr)),
-    #[cfg(feature = "proto-ipv6")]
-    Icmpv6((Ipv6Repr, Icmpv6Repr<'a>)),
-    #[cfg(feature = "socket-raw")]
-    Raw((IpRepr, &'a [u8])),
-    #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
-    Udp((IpRepr, UdpRepr, &'a [u8])),
-    #[cfg(feature = "socket-tcp")]
-    Tcp((IpRepr, TcpRepr<'a>)),
-    #[cfg(feature = "socket-dhcpv4")]
-    Dhcpv4((Ipv4Repr, UdpRepr, DhcpRepr<'a>)),
-}
-
-impl<'a> IpPacket<'a> {
-    pub(crate) fn ip_repr(&self) -> IpRepr {
-        match self {
-            #[cfg(feature = "proto-ipv4")]
-            IpPacket::Icmpv4((ipv4_repr, _)) => IpRepr::Ipv4(*ipv4_repr),
-            #[cfg(feature = "proto-igmp")]
-            IpPacket::Igmp((ipv4_repr, _)) => IpRepr::Ipv4(*ipv4_repr),
-            #[cfg(feature = "proto-ipv6")]
-            IpPacket::Icmpv6((ipv6_repr, _)) => IpRepr::Ipv6(*ipv6_repr),
-            #[cfg(feature = "socket-raw")]
-            IpPacket::Raw((ip_repr, _)) => ip_repr.clone(),
-            #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
-            IpPacket::Udp((ip_repr, _, _)) => ip_repr.clone(),
-            #[cfg(feature = "socket-tcp")]
-            IpPacket::Tcp((ip_repr, _)) => ip_repr.clone(),
-            #[cfg(feature = "socket-dhcpv4")]
-            IpPacket::Dhcpv4((ipv4_repr, _, _)) => IpRepr::Ipv4(*ipv4_repr),
-        }
-    }
-
-    pub(crate) fn emit_payload(
-        &self,
-        _ip_repr: &IpRepr,
-        payload: &mut [u8],
-        caps: &DeviceCapabilities,
-    ) {
-        match self {
-            #[cfg(feature = "proto-ipv4")]
-            IpPacket::Icmpv4((_, icmpv4_repr)) => {
-                icmpv4_repr.emit(&mut Icmpv4Packet::new_unchecked(payload), &caps.checksum)
-            }
-            #[cfg(feature = "proto-igmp")]
-            IpPacket::Igmp((_, igmp_repr)) => {
-                igmp_repr.emit(&mut IgmpPacket::new_unchecked(payload))
-            }
-            #[cfg(feature = "proto-ipv6")]
-            IpPacket::Icmpv6((_, icmpv6_repr)) => icmpv6_repr.emit(
-                &_ip_repr.src_addr(),
-                &_ip_repr.dst_addr(),
-                &mut Icmpv6Packet::new_unchecked(payload),
-                &caps.checksum,
-            ),
-            #[cfg(feature = "socket-raw")]
-            IpPacket::Raw((_, raw_packet)) => payload.copy_from_slice(raw_packet),
-            #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
-            IpPacket::Udp((_, udp_repr, inner_payload)) => {
-                udp_repr.emit(
-                    &mut UdpPacket::new_unchecked(payload),
-                    &_ip_repr.src_addr(),
-                    &_ip_repr.dst_addr(),
-                    inner_payload.len(),
-                    |buf| buf.copy_from_slice(inner_payload),
-                    &caps.checksum,
-                );
-            }
-            #[cfg(feature = "socket-tcp")]
-            IpPacket::Tcp((_, mut tcp_repr)) => {
-                // This is a terrible hack to make TCP performance more acceptable on systems
-                // where the TCP buffers are significantly larger than network buffers,
-                // e.g. a 64 kB TCP receive buffer (and so, when empty, a 64k window)
-                // together with four 1500 B Ethernet receive buffers. If left untreated,
-                // this would result in our peer pushing our window and sever packet loss.
-                //
-                // I'm really not happy about this "solution" but I don't know what else to do.
-                if let Some(max_burst_size) = caps.max_burst_size {
-                    let mut max_segment_size = caps.max_transmission_unit;
-                    max_segment_size -= _ip_repr.header_len();
-                    max_segment_size -= tcp_repr.header_len();
-
-                    let max_window_size = max_burst_size * max_segment_size;
-                    if tcp_repr.window_len as usize > max_window_size {
-                        tcp_repr.window_len = max_window_size as u16;
-                    }
-                }
-
-                tcp_repr.emit(
-                    &mut TcpPacket::new_unchecked(payload),
-                    &_ip_repr.src_addr(),
-                    &_ip_repr.dst_addr(),
-                    &caps.checksum,
-                );
-            }
-            #[cfg(feature = "socket-dhcpv4")]
-            IpPacket::Dhcpv4((_, udp_repr, dhcp_repr)) => udp_repr.emit(
-                &mut UdpPacket::new_unchecked(payload),
-                &_ip_repr.src_addr(),
-                &_ip_repr.dst_addr(),
-                dhcp_repr.buffer_len(),
-                |buf| dhcp_repr.emit(&mut DhcpPacket::new_unchecked(buf)).unwrap(),
-                &caps.checksum,
-            ),
-        };
-    }
-}
-
-#[cfg(any(feature = "proto-ipv4", feature = "proto-ipv6"))]
-fn icmp_reply_payload_len(len: usize, mtu: usize, header_len: usize) -> usize {
-    // Send back as much of the original payload as will fit within
-    // the minimum MTU required by IPv4. See RFC 1812 § 4.3.2.3 for
-    // more details.
-    //
-    // Since the entire network layer packet must fit within the minimum
-    // MTU supported, the payload must not exceed the following:
-    //
-    // <min mtu> - IP Header Size * 2 - ICMPv4 DstUnreachable hdr size
-    cmp::min(len, mtu - header_len * 2 - 8)
-}
-
-#[cfg(feature = "proto-igmp")]
-enum IgmpReportState {
-    Inactive,
-    ToGeneralQuery {
-        version: IgmpVersion,
-        timeout: Instant,
-        interval: Duration,
-        next_index: usize,
-    },
-    ToSpecificQuery {
-        version: IgmpVersion,
-        timeout: Instant,
-        group: Ipv4Address,
-    },
 }
 
 impl Interface {
@@ -905,8 +760,12 @@ impl Interface {
 
             let result = match &mut item.socket {
                 #[cfg(feature = "socket-raw")]
-                Socket::Raw(socket) => socket.dispatch(&mut self.inner, |inner, response| {
-                    respond(inner, PacketMeta::default(), IpPacket::Raw(response))
+                Socket::Raw(socket) => socket.dispatch(&mut self.inner, |inner, (ip, raw)| {
+                    respond(
+                        inner,
+                        PacketMeta::default(),
+                        IpPacket::new(ip, IpPayload::Raw(raw)),
+                    )
                 }),
                 #[cfg(feature = "socket-icmp")]
                 Socket::Icmp(socket) => {
@@ -915,40 +774,50 @@ impl Interface {
                         (IpRepr::Ipv4(ipv4_repr), IcmpRepr::Ipv4(icmpv4_repr)) => respond(
                             inner,
                             PacketMeta::default(),
-                            IpPacket::Icmpv4((ipv4_repr, icmpv4_repr)),
+                            IpPacket::new_ipv4(ipv4_repr, IpPayload::Icmpv4(icmpv4_repr)),
                         ),
                         #[cfg(feature = "proto-ipv6")]
                         (IpRepr::Ipv6(ipv6_repr), IcmpRepr::Ipv6(icmpv6_repr)) => respond(
                             inner,
                             PacketMeta::default(),
-                            IpPacket::Icmpv6((ipv6_repr, icmpv6_repr)),
+                            IpPacket::new_ipv6(ipv6_repr, IpPayload::Icmpv6(icmpv6_repr)),
                         ),
                         #[allow(unreachable_patterns)]
                         _ => unreachable!(),
                     })
                 }
                 #[cfg(feature = "socket-udp")]
-                Socket::Udp(socket) => socket.dispatch(&mut self.inner, |inner, meta, response| {
-                    respond(inner, meta, IpPacket::Udp(response))
-                }),
+                Socket::Udp(socket) => {
+                    socket.dispatch(&mut self.inner, |inner, meta, (ip, udp, payload)| {
+                        respond(inner, meta, IpPacket::new(ip, IpPayload::Udp(udp, payload)))
+                    })
+                }
                 #[cfg(feature = "socket-tcp")]
-                Socket::Tcp(socket) => socket.dispatch(&mut self.inner, |inner, response| {
-                    respond(inner, PacketMeta::default(), IpPacket::Tcp(response))
+                Socket::Tcp(socket) => socket.dispatch(&mut self.inner, |inner, (ip, tcp)| {
+                    respond(
+                        inner,
+                        PacketMeta::default(),
+                        IpPacket::new(ip, IpPayload::Tcp(tcp)),
+                    )
                 }),
                 #[cfg(feature = "socket-dhcpv4")]
-                Socket::Dhcpv4(socket) => socket.dispatch(&mut self.inner, |inner, response| {
-                    respond(inner, PacketMeta::default(), IpPacket::Dhcpv4(response))
-                }),
-                #[cfg(feature = "socket-dns")]
-                Socket::Dns(socket) => {
-                    socket.dispatch(&mut self.inner, |inner, (ip, udp, payload)| {
+                Socket::Dhcpv4(socket) => {
+                    socket.dispatch(&mut self.inner, |inner, (ip, udp, dhcp)| {
                         respond(
                             inner,
                             PacketMeta::default(),
-                            IpPacket::Udp((ip, udp, payload)),
+                            IpPacket::new_ipv4(ip, IpPayload::Dhcpv4(udp, dhcp)),
                         )
                     })
                 }
+                #[cfg(feature = "socket-dns")]
+                Socket::Dns(socket) => socket.dispatch(&mut self.inner, |inner, (ip, udp, dns)| {
+                    respond(
+                        inner,
+                        PacketMeta::default(),
+                        IpPacket::new(ip, IpPayload::Udp(udp, dns)),
+                    )
+                }),
             };
 
             match result {
@@ -1293,13 +1162,13 @@ impl InterfaceInner {
         match IpVersion::of_packet(ip_payload.as_ref()) {
             #[cfg(feature = "proto-ipv4")]
             Ok(IpVersion::Ipv4) => {
-                let ipv4_packet = check!(Ipv4Packet::new_checked(ip_payload));
+                let ipv4_packet = check!(Ipv4PacketWire::new_checked(ip_payload));
 
                 self.process_ipv4(sockets, meta, &ipv4_packet, frag)
             }
             #[cfg(feature = "proto-ipv6")]
             Ok(IpVersion::Ipv6) => {
-                let ipv6_packet = check!(Ipv6Packet::new_checked(ip_payload));
+                let ipv6_packet = check!(Ipv6PacketWire::new_checked(ip_payload));
                 self.process_ipv6(sockets, meta, &ipv6_packet)
             }
             // Drop all other traffic.
@@ -1452,7 +1321,7 @@ impl InterfaceInner {
             if tcp_socket.accepts(self, &ip_repr, &tcp_repr) {
                 return tcp_socket
                     .process(self, &ip_repr, &tcp_repr)
-                    .map(IpPacket::Tcp);
+                    .map(|(ip, tcp)| IpPacket::new(ip, IpPayload::Tcp(tcp)));
             }
         }
 
@@ -1461,7 +1330,8 @@ impl InterfaceInner {
             None
         } else {
             // The packet wasn't handled by a socket, send a TCP RST packet.
-            Some(IpPacket::Tcp(tcp::Socket::rst_reply(&ip_repr, &tcp_repr)))
+            let (ip, tcp) = tcp::Socket::rst_reply(&ip_repr, &tcp_repr);
+            Some(IpPacket::new(ip, IpPayload::Tcp(tcp)))
         }
     }
 
@@ -1638,7 +1508,7 @@ impl InterfaceInner {
                     lladdr: Some(self.hardware_addr.into()),
                 });
 
-                let packet = IpPacket::Icmpv6((
+                let packet = IpPacket::new_ipv6(
                     Ipv6Repr {
                         src_addr,
                         dst_addr: dst_addr.solicited_node(),
@@ -1646,8 +1516,8 @@ impl InterfaceInner {
                         payload_len: solicit.buffer_len(),
                         hop_limit: 0xff,
                     },
-                    solicit,
-                ));
+                    IpPayload::Icmpv6(solicit),
+                );
 
                 if let Err(e) =
                     self.dispatch_ip(tx_token, PacketMeta::default(), packet, fragmenter)
@@ -1805,7 +1675,7 @@ impl InterfaceInner {
                         // Emit the IP header to the buffer.
                         emit_ip(&ip_repr, &mut frag.buffer);
 
-                        let mut ipv4_packet = Ipv4Packet::new_unchecked(&mut frag.buffer[..]);
+                        let mut ipv4_packet = Ipv4PacketWire::new_unchecked(&mut frag.buffer[..]);
                         frag.ipv4.ident = ipv4_id;
                         ipv4_packet.set_ident(ipv4_id);
                         ipv4_packet.set_more_frags(true);

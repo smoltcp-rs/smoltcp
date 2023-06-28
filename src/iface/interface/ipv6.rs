@@ -1,8 +1,8 @@
 use super::check;
 use super::icmp_reply_payload_len;
 use super::InterfaceInner;
-use super::IpPacket;
 use super::SocketSet;
+use super::{IpPacket, IpPayload};
 
 #[cfg(feature = "socket-icmp")]
 use crate::socket::icmp;
@@ -232,7 +232,7 @@ impl InterfaceInner {
                         hop_limit: 0xff,
                         payload_len: advert.buffer_len(),
                     };
-                    Some(IpPacket::Icmpv6((ip_repr, advert)))
+                    Some(IpPacket::new_ipv6(ip_repr, IpPayload::Icmpv6(advert)))
                 } else {
                     None
                 }
@@ -300,7 +300,10 @@ impl InterfaceInner {
                 payload_len: icmp_repr.buffer_len(),
                 hop_limit: 64,
             };
-            Some(IpPacket::Icmpv6((ipv6_reply_repr, icmp_repr)))
+            Some(IpPacket::new_ipv6(
+                ipv6_reply_repr,
+                IpPayload::Icmpv6(icmp_repr),
+            ))
         } else {
             // Do not send any ICMP replies to a broadcast destination address.
             None
