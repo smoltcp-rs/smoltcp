@@ -4,11 +4,11 @@ use crate::phy::TxToken;
 use crate::wire::*;
 
 impl InterfaceInner {
-    pub(super) fn process_ieee802154<'output, 'payload: 'output, T: AsRef<[u8]> + ?Sized>(
+    pub(super) fn process_ieee802154<'output, 'payload: 'output>(
         &mut self,
         sockets: &mut SocketSet,
         meta: PacketMeta,
-        sixlowpan_payload: &'payload T,
+        sixlowpan_payload: &'payload [u8],
         _fragments: &'output mut FragmentsBuffer,
     ) -> Option<IpPacket<'output>> {
         let ieee802154_frame = check!(Ieee802154Frame::new_checked(sixlowpan_payload));

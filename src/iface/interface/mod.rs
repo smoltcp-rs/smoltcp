@@ -669,7 +669,7 @@ impl Interface {
                         if let Some(packet) = self.inner.process_ethernet(
                             sockets,
                             rx_meta,
-                            &frame,
+                            frame,
                             &mut self.fragments,
                         ) {
                             if let Err(err) =
@@ -683,7 +683,7 @@ impl Interface {
                     Medium::Ip => {
                         if let Some(packet) =
                             self.inner
-                                .process_ip(sockets, rx_meta, &frame, &mut self.fragments)
+                                .process_ip(sockets, rx_meta, frame, &mut self.fragments)
                         {
                             if let Err(err) = self.inner.dispatch_ip(
                                 tx_token,
@@ -700,7 +700,7 @@ impl Interface {
                         if let Some(packet) = self.inner.process_ieee802154(
                             sockets,
                             rx_meta,
-                            &frame,
+                            frame,
                             &mut self.fragments,
                         ) {
                             if let Err(err) = self.inner.dispatch_ip(
@@ -1152,14 +1152,14 @@ impl InterfaceInner {
     }
 
     #[cfg(feature = "medium-ip")]
-    fn process_ip<'frame, T: AsRef<[u8]>>(
+    fn process_ip<'frame>(
         &mut self,
         sockets: &mut SocketSet,
         meta: PacketMeta,
-        ip_payload: &'frame T,
+        ip_payload: &'frame [u8],
         frag: &'frame mut FragmentsBuffer,
     ) -> Option<IpPacket<'frame>> {
-        match IpVersion::of_packet(ip_payload.as_ref()) {
+        match IpVersion::of_packet(ip_payload) {
             #[cfg(feature = "proto-ipv4")]
             Ok(IpVersion::Ipv4) => {
                 let ipv4_packet = check!(Ipv4PacketWire::new_checked(ip_payload));
