@@ -13,11 +13,11 @@ use crate::wire::*;
 
 impl InterfaceInner {
     #[cfg(feature = "proto-ipv6")]
-    pub(super) fn process_ipv6<'frame, T: AsRef<[u8]> + ?Sized>(
+    pub(super) fn process_ipv6<'frame>(
         &mut self,
         sockets: &mut SocketSet,
         meta: PacketMeta,
-        ipv6_packet: &Ipv6Packet<&'frame T>,
+        ipv6_packet: &Ipv6Packet<&'frame [u8]>,
     ) -> Option<IpPacket<'frame>> {
         let ipv6_repr = check!(Ipv6Repr::parse(ipv6_packet));
 

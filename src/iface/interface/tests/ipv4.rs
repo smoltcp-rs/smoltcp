@@ -23,7 +23,7 @@ fn test_no_icmp_no_unicast(#[case] medium: Medium) {
 
     let mut bytes = vec![0u8; 54];
     repr.emit(&mut bytes, &ChecksumCapabilities::default());
-    let frame = Ipv4PacketWire::new_unchecked(&bytes);
+    let frame = Ipv4PacketWire::new_unchecked(&bytes[..]);
 
     // Ensure that the unknown protocol frame does not trigger an
     // ICMP error response when the destination address is a
@@ -60,7 +60,7 @@ fn test_icmp_error_no_payload(#[case] medium: Medium) {
 
     let mut bytes = vec![0u8; 34];
     repr.emit(&mut bytes, &ChecksumCapabilities::default());
-    let frame = Ipv4PacketWire::new_unchecked(&bytes);
+    let frame = Ipv4PacketWire::new_unchecked(&bytes[..]);
 
     // The expected Destination Unreachable response due to the
     // unknown protocol
@@ -317,14 +317,14 @@ fn test_handle_ipv4_broadcast(#[case] medium: Medium) {
     let mut bytes = vec![0u8; ipv4_repr.buffer_len() + icmpv4_repr.buffer_len()];
     let frame = {
         ipv4_repr.emit(
-            &mut Ipv4PacketWire::new_unchecked(&mut bytes),
+            &mut Ipv4PacketWire::new_unchecked(&mut bytes[..]),
             &ChecksumCapabilities::default(),
         );
         icmpv4_repr.emit(
             &mut Icmpv4Packet::new_unchecked(&mut bytes[ipv4_repr.buffer_len()..]),
             &ChecksumCapabilities::default(),
         );
-        Ipv4PacketWire::new_unchecked(&bytes)
+        Ipv4PacketWire::new_unchecked(&bytes[..])
     };
 
     // Expected ICMPv4 echo reply
@@ -770,7 +770,7 @@ fn test_raw_socket_no_reply(#[case] medium: Medium) {
             |buf| fill_slice(buf, 0x2a),
             &ChecksumCapabilities::default(),
         );
-        Ipv4PacketWire::new_unchecked(&bytes)
+        Ipv4PacketWire::new_unchecked(&bytes[..])
     };
 
     assert_eq!(
@@ -866,7 +866,7 @@ fn test_raw_socket_with_udp_socket(#[case] medium: Medium) {
             |buf| buf.copy_from_slice(&UDP_PAYLOAD),
             &ChecksumCapabilities::default(),
         );
-        Ipv4PacketWire::new_unchecked(&bytes)
+        Ipv4PacketWire::new_unchecked(&bytes[..])
     };
 
     assert_eq!(

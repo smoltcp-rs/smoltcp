@@ -11,11 +11,11 @@ use crate::wire::*;
 
 impl InterfaceInner {
     #[cfg(feature = "medium-ethernet")]
-    pub(super) fn process_ethernet<'frame, T: AsRef<[u8]>>(
+    pub(super) fn process_ethernet<'frame>(
         &mut self,
         sockets: &mut SocketSet,
         meta: crate::phy::PacketMeta,
-        frame: &'frame T,
+        frame: &'frame [u8],
         fragments: &'frame mut FragmentsBuffer,
     ) -> Option<EthernetPacket<'frame>> {
         let eth_frame = check!(EthernetFrame::new_checked(frame));

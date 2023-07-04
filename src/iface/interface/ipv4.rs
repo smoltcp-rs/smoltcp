@@ -11,11 +11,11 @@ use crate::time::Instant;
 use crate::wire::{Ipv4Packet as Ipv4PacketWire, *};
 
 impl InterfaceInner {
-    pub(super) fn process_ipv4<'a, T: AsRef<[u8]> + ?Sized>(
+    pub(super) fn process_ipv4<'a>(
         &mut self,
         sockets: &mut SocketSet,
         meta: PacketMeta,
-        ipv4_packet: &Ipv4PacketWire<&'a T>,
+        ipv4_packet: &Ipv4PacketWire<&'a [u8]>,
         frag: &'a mut FragmentsBuffer,
     ) -> Option<IpPacket<'a>> {
         let ipv4_repr = check!(Ipv4Repr::parse(ipv4_packet, &self.caps.checksum));
@@ -168,10 +168,10 @@ impl InterfaceInner {
     }
 
     #[cfg(feature = "medium-ethernet")]
-    pub(super) fn process_arp<'frame, T: AsRef<[u8]>>(
+    pub(super) fn process_arp<'frame>(
         &mut self,
         timestamp: Instant,
-        eth_frame: &EthernetFrame<&'frame T>,
+        eth_frame: &EthernetFrame<&'frame [u8]>,
     ) -> Option<EthernetPacket<'frame>> {
         let arp_packet = check!(ArpPacket::new_checked(eth_frame.payload()));
         let arp_repr = check!(ArpRepr::parse(&arp_packet));

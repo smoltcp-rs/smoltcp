@@ -8,12 +8,12 @@ use crate::wire::{Ipv6Packet as Ipv6PacketWire, *};
 pub(crate) const MAX_DECOMPRESSED_LEN: usize = 1500;
 
 impl InterfaceInner {
-    pub(super) fn process_sixlowpan<'output, 'payload: 'output, T: AsRef<[u8]> + ?Sized>(
+    pub(super) fn process_sixlowpan<'output, 'payload: 'output>(
         &mut self,
         sockets: &mut SocketSet,
         meta: PacketMeta,
         ieee802154_repr: &Ieee802154Repr,
-        payload: &'payload T,
+        payload: &'payload [u8],
         f: &'output mut FragmentsBuffer,
     ) -> Option<IpPacket<'output>> {
         let payload = match check!(SixlowpanPacket::dispatch(payload)) {
@@ -52,10 +52,10 @@ impl InterfaceInner {
     }
 
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
-    fn process_sixlowpan_fragment<'output, 'payload: 'output, T: AsRef<[u8]> + ?Sized>(
+    fn process_sixlowpan_fragment<'output, 'payload: 'output>(
         &mut self,
         ieee802154_repr: &Ieee802154Repr,
-        payload: &'payload T,
+        payload: &'payload [u8],
         f: &'output mut FragmentsBuffer,
     ) -> Option<&'output [u8]> {
         use crate::iface::fragmentation::{AssemblerError, AssemblerFullError};

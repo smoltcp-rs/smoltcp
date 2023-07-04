@@ -159,7 +159,7 @@ fn test_echo_request_sixlowpan_128_bytes() {
             &mut sockets,
             PacketMeta::default(),
             &ieee802154_repr,
-            &request_first_part_packet.into_inner(),
+            &request_first_part_packet.into_inner()[..],
             &mut iface.fragments
         ),
         None
