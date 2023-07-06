@@ -105,7 +105,7 @@ fuzz_target!(|fuzz: SixlowpanPacketFuzzer| {
                             IpProtocol::HopByHop => {
                                 if let Ok(frame) = Ipv6HopByHopHeader::new_checked(payload) {
                                     if let Ok(repr) = Ipv6HopByHopRepr::parse(&frame) {
-                                        let mut buffer = vec![0; repr.buffer_len()];
+                                        let mut buffer = vec![0; repr.header_len()];
                                         let mut hop_by_hop_frame =
                                             Ipv6HopByHopHeader::new_unchecked(&mut buffer[..]);
                                         repr.emit(&mut hop_by_hop_frame);
@@ -181,7 +181,7 @@ fuzz_target!(|fuzz: SixlowpanPacketFuzzer| {
                                 if let Ok(frame) = Ipv6RoutingHeader::new_checked(payload) {
                                     if let Ok(repr) = Ipv6RoutingRepr::parse(&frame) {
                                         let mut buffer = vec![0; repr.buffer_len()];
-                                        let mut packet = Ipv6RoutingHeader::new(&mut buffer[..]);
+                                        let mut packet = Ipv6RoutingHeader::new_unchecked(&mut buffer[..]);
                                         repr.emit(&mut packet);
                                     }
                                 }

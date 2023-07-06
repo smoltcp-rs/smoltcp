@@ -1,0 +1,49 @@
+[package]
+name = "smolutils"
+version = "0.10.0"
+edition = "2021"
+rust-version = "1.65"
+authors = ["whitequark <whitequark@whitequark.org>"]
+description = "A TCP/IP stack designed for bare-metal, real-time systems without a heap."
+documentation = "https://docs.rs/smoltcp/"
+homepage = "https://github.com/smoltcp-rs/smoltcp"
+repository = "https://github.com/smoltcp-rs/smoltcp.git"
+readme = "README.md"
+keywords = ["ip", "tcp", "udp", "ethernet", "network"]
+categories = ["embedded", "network-programming"]
+license = "0BSD"
+# Each example should have an explicit `[[example]]` section here to
+# ensure that the correct features are enabled.
+autoexamples = false
+
+[dependencies]
+log = { version = "0.4.4", default-features = false, optional = true }
+defmt = { version = "0.3", optional = true }
+
+[dev-dependencies]
+env_logger = "0.10"
+getopts = "0.2"
+
+[features]
+std = []
+
+defmt = ["dep:defmt"]
+
+"medium-ethernet" = []
+"medium-ip" = []
+"medium-ieee802154" = []
+
+"proto-ipv4" = []
+"proto-ipv6" = []
+
+default = [
+  "std",
+  "log", # needed for `cargo test --no-default-features --features default` :/
+
+  "medium-ethernet",
+  "medium-ip",
+  "medium-ieee802154",
+
+  "proto-ipv4",
+  "proto-ipv6",
+]

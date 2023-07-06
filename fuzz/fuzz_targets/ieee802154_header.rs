@@ -4,7 +4,7 @@ use smoltcp::wire::{Ieee802154Frame, Ieee802154Repr};
 
 fuzz_target!(|data: &[u8]| {
     if let Ok(frame) = Ieee802154Frame::new_checked(data) {
-        if let Ok(repr) = Ieee802154Repr::parse(frame) {
+        if let Ok(repr) = Ieee802154Repr::parse(&frame) {
             // The buffer len returns only the length required for emitting the header
             // and does not take into account the length of the payload.
             let mut buffer = vec![0; repr.buffer_len()];
