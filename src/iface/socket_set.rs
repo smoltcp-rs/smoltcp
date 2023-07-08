@@ -37,7 +37,9 @@ impl fmt::Display for SocketHandle {
 
 /// An extensible set of sockets.
 ///
-/// The lifetime `'a` is used when storing a `Socket<'a>`.
+/// The lifetime `'a` is used when storing a `Socket<'a>`.  If you're using
+/// owned buffers for your sockets (passed in as `Vec`s) you can use
+/// `SocketSet<'static>`.
 #[derive(Debug)]
 pub struct SocketSet<'a> {
     sockets: ManagedSlice<'a, SocketStorage<'a>>,
