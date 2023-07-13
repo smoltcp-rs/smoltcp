@@ -68,10 +68,14 @@ impl core::fmt::Display for UdpMetadata {
 impl core::fmt::Display for ExtendedUdpMetadata {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         #[cfg(feature = "packetmeta-id")]
-        return write!(f, "{}<->{}, PacketID: {:?}", self.local_endpoint, self.remote_endpoint, self.meta);
+        return write!(
+            f,
+            "{}/{}, PacketID: {:?}",
+            self.local_endpoint, self.remote_endpoint, self.meta
+        );
 
         #[cfg(not(feature = "packetmeta-id"))]
-        write!(f, "{}", self.endpoint)
+        write!(f, "{}/{}", self.local_endpoint, self.remote_endpoint)
     }
 }
 
@@ -372,7 +376,10 @@ impl<'a> Socket<'a> {
         size: usize,
         meta: impl Into<UdpMetadata>,
     ) -> Result<&mut [u8], SendError> {
-        self.send_from(size, ExtendedUdpMetadata::new(self.bound_endpoint(), meta.into()))
+        self.send_from(
+            size,
+            ExtendedUdpMetadata::new(self.bound_endpoint(), meta.into()),
+        )
     }
 
     /// Enqueue a packet to be send to a given remote endpoint and pass the buffer
@@ -428,7 +435,11 @@ impl<'a> Socket<'a> {
     where
         F: FnOnce(&mut [u8]) -> usize,
     {
-        self.send_from_with(max_size, ExtendedUdpMetadata::new(self.bound_endpoint(), meta.into()), f)
+        self.send_from_with(
+            max_size,
+            ExtendedUdpMetadata::new(self.bound_endpoint(), meta.into()),
+            f,
+        )
     }
 
     /// Enqueue a packet to be sent to a given remote endpoint, and fill it from a slice.
@@ -460,8 +471,7 @@ impl<'a> Socket<'a> {
     ///
     /// This function returns `Err(Error::Exhausted)` if the receive buffer is empty.
     pub fn recv_to(&mut self) -> Result<(&[u8], ExtendedUdpMetadata), RecvError> {
-        let (meta, payload_buf) =
-            self.rx_buffer.dequeue().map_err(|_| RecvError::Exhausted)?;
+        let (meta, payload_buf) = self.rx_buffer.dequeue().map_err(|_| RecvError::Exhausted)?;
 
         net_trace!(
             "udp:{}:{}: receive {} buffered octets",
@@ -484,7 +494,10 @@ impl<'a> Socket<'a> {
     /// and return the amount of octets copied as well as the endpoint.
     ///
     /// See also [recv](#method.recv).
-    pub fn recv_slice_to(&mut self, data: &mut [u8]) -> Result<(usize, ExtendedUdpMetadata), RecvError> {
+    pub fn recv_slice_to(
+        &mut self,
+        data: &mut [u8],
+    ) -> Result<(usize, ExtendedUdpMetadata), RecvError> {
         let (buffer, endpoint) = self.recv_to().map_err(|_| RecvError::Exhausted)?;
         let length = min(data.len(), buffer.len());
         data[..length].copy_from_slice(&buffer[..length]);
@@ -496,7 +509,8 @@ impl<'a> Socket<'a> {
     ///
     /// See also [recv](#method.recv).
     pub fn recv_slice(&mut self, data: &mut [u8]) -> Result<(usize, UdpMetadata), RecvError> {
-        self.recv_slice_to(data).map(|(length, meta)| (length, meta.into()))
+        self.recv_slice_to(data)
+            .map(|(length, meta)| (length, meta.into()))
     }
 
     /// Peek at a packet received from a remote endpoint, and return the endpoint as well
@@ -505,8 +519,10 @@ impl<'a> Socket<'a> {
     ///
     /// It returns `Err(Error::Exhausted)` if the receive buffer is empty.
     pub fn peek_to(&mut self) -> Result<(&[u8], ExtendedUdpMetadata), RecvError> {
-        self.rx_buffer.peek().map_err(|_| RecvError::Exhausted).map(
-            |(meta, payload_buf)| {
+        self.rx_buffer
+            .peek()
+            .map_err(|_| RecvError::Exhausted)
+            .map(|(meta, payload_buf)| {
                 net_trace!(
                     "udp:{}:{}: peek {} buffered octets",
                     meta.local_endpoint,
@@ -514,8 +530,7 @@ impl<'a> Socket<'a> {
                     payload_buf.len()
                 );
                 (payload_buf, *meta)
-            },
-        )
+            })
     }
 
     /// Peek at a packet received from a remote endpoint, and return the endpoint as well
@@ -533,7 +548,10 @@ impl<'a> Socket<'a> {
     /// This function otherwise behaves identically to [recv_slice](#method.recv_slice).
     ///
     /// See also [peek](#method.peek).
-    pub fn peek_slice_to(&mut self, data: &mut [u8]) -> Result<(usize, ExtendedUdpMetadata), RecvError> {
+    pub fn peek_slice_to(
+        &mut self,
+        data: &mut [u8],
+    ) -> Result<(usize, ExtendedUdpMetadata), RecvError> {
         let (buffer, endpoint) = self.peek_to()?;
         let length = min(data.len(), buffer.len());
         data[..length].copy_from_slice(&buffer[..length]);
@@ -547,7 +565,8 @@ impl<'a> Socket<'a> {
     ///
     /// See also [peek](#method.peek).
     pub fn peek_slice(&mut self, data: &mut [u8]) -> Result<(usize, UdpMetadata), RecvError> {
-        self.peek_slice_to(data).map(|(length, meta)| (length, meta.into()))
+        self.peek_slice_to(data)
+            .map(|(length, meta)| (length, meta.into()))
     }
 
     pub(crate) fn accepts(&self, cx: &mut Context, ip_repr: &IpRepr, repr: &UdpRepr) -> bool {

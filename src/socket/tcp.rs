@@ -1345,7 +1345,9 @@ impl<'a> Socket<'a> {
                 Some(addr) => ip_repr.dst_addr() == addr,
                 None => true,
             };
-            addr_ok && repr.dst_port != 0 && (self.listen_endpoint.port == 0 || repr.dst_port == self.listen_endpoint.port)
+            addr_ok
+                && repr.dst_port != 0
+                && (self.listen_endpoint.port == 0 || repr.dst_port == self.listen_endpoint.port)
         }
     }
 
@@ -1864,7 +1866,10 @@ impl<'a> Socket<'a> {
         let assembler_was_empty = self.assembler.is_empty();
 
         // Try adding payload octets to the assembler.
-        let Ok(contig_len) = self.assembler.add_then_remove_front(payload_offset, payload_len) else {
+        let Ok(contig_len) = self
+            .assembler
+            .add_then_remove_front(payload_offset, payload_len)
+        else {
             net_debug!(
                 "assembler: too many holes to add {} octets at offset {}",
                 payload_len,
