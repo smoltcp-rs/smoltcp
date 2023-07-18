@@ -57,7 +57,10 @@ fn open_device() -> io::Result<libc::c_int> {
     unsafe {
         for i in 0..256 {
             let dev = format!("/dev/bpf{}\0", i);
-            match libc::open(dev.as_ptr() as *const libc::c_char, libc::O_RDWR) {
+            match libc::open(
+                dev.as_ptr() as *const libc::c_char,
+                libc::O_RDWR | libc::O_NONBLOCK,
+            ) {
                 -1 => continue,
                 fd => return Ok(fd),
             };
