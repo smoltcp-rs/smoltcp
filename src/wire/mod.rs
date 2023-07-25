@@ -127,6 +127,9 @@ mod sixlowpan;
 mod tcp;
 mod udp;
 
+#[cfg(feature = "proto-ipsec-ah")]
+mod ipsec_ah;
+
 use core::fmt;
 
 use crate::phy::Medium;
