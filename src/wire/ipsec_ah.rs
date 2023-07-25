@@ -44,8 +44,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     }
 
     /// Ensure that no accessor method will panic if called.
-    /// Returns `Err(Error)` if the buffer is too short.
-    /// Returns `Err(Error)` if the buffer is shorter than payload length
+    /// Returns `Err(Error)` if the buffer is too short or shorter than payload length.
     ///
     /// The result of this check is invalidated by calling [set_payload_len].
     ///
