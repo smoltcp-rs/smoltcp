@@ -10,6 +10,8 @@ pub struct Packet<T: AsRef<[u8]>> {
 }
 
 mod field {
+    #![allow(non_snake_case)]
+
     use crate::wire::field::Field;
 
     pub const NEXT_HEADER: usize = 0;
@@ -17,6 +19,12 @@ mod field {
     pub const RESERVED: Field = 2..4;
     pub const SPI: Field = 4..8;
     pub const SEQUENCE_NUMBER: Field = 8..16;
+
+    pub const fn ICV(payload_len: u8) -> Field {
+        let header_len = (payload_len as usize + 2) * 4;
+
+        SEQUENCE_NUMBER.end..header_len
+    }
 }
 
 impl<T: AsRef<[u8]>> Packet<T> {
@@ -44,10 +52,11 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// [set_payload_len]: #method.set_payload_len
     #[allow(clippy::if_same_then_else)]
     pub fn check_len(&self) -> Result<()> {
-        let len = self.buffer.as_ref().len();
+        let data = self.buffer.as_ref();
+        let len = data.len();
         if len < field::SEQUENCE_NUMBER.end {
             Err(Error)
-        } else if len < self.header_len() {
+        } else if len < field::ICV(data[field::PAYLOAD_LEN]).end {
             Err(Error)
         } else {
             Ok(())
@@ -57,11 +66,6 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// Consume the packet, returning the underlying buffer.
     pub fn into_inner(self) -> T {
         self.buffer
-    }
-
-    /// Return length of Authentication Header in octets
-    pub fn header_len(&self) -> usize {
-        (self.payload_len() as usize + 2) * 4
     }
 
     /// Return next header protocol type
@@ -94,9 +98,8 @@ impl<'a, T: AsRef<[u8]> + ?Sized> Packet<&'a T> {
     /// Return a pointer to the integrity check value
     #[inline]
     pub fn integrity_check_value(&self) -> &'a [u8] {
-        let range = field::SEQUENCE_NUMBER.end..self.header_len();
         let data = self.buffer.as_ref();
-        &data[range]
+        &data[field::ICV(data[field::PAYLOAD_LEN])]
     }
 }
 
@@ -134,8 +137,8 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// Return a mutable pointer to the integrity check value.
     #[inline]
     pub fn integrity_check_value_mut(&mut self) -> &mut [u8] {
-        let range = field::SEQUENCE_NUMBER.end..self.header_len();
         let data = self.buffer.as_mut();
+        let range = field::ICV(data[field::PAYLOAD_LEN]);
         &mut data[range]
     }
 }
