@@ -100,7 +100,6 @@ impl<'a, T: AsRef<[u8]> + ?Sized> Packet<&'a T> {
     }
 }
 
-
 impl<T: AsRef<[u8]>> AsRef<[u8]> for Packet<T> {
     fn as_ref(&self) -> &[u8] {
         self.buffer.as_ref()
@@ -116,5 +115,15 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     fn set_payload_len(&mut self, value: u8) {
         let data = self.buffer.as_mut();
         data[field::PAYLOAD_LEN] = value
+    }
+
+    fn set_security_parameters_index(&mut self, value: u32) {
+        let data = self.buffer.as_mut();
+        NetworkEndian::write_u32(&mut data[field::SPI], value)
+    }
+
+    fn set_sequence_number(&mut self, value: u32) {
+        let data = self.buffer.as_mut();
+        NetworkEndian::write_u32(&mut data[field::SEQUENCE_NUMBER], value)
     }
 }
