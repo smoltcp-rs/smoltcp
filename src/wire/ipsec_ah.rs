@@ -141,3 +141,26 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
         &mut data[range]
     }
 }
+
+pub struct Repr<'a> {
+    next_header: u8,
+    payload_len: u8,
+    security_parameters_index: u32,
+    sequence_number: u32,
+    integrity_check_value: &'a [u8],
+}
+
+impl<'a> Repr<'a> {
+    /// Parse an IPSec Authentication Header packet and return a high-level representation,
+    pub fn parse<T: AsRef<[u8]>>(packet: &Packet<&'a T>) -> Result<Repr<'a>> {
+        Ok(Repr {
+            next_header: packet.next_header().into(),
+            payload_len: packet.payload_len(),
+            security_parameters_index: packet.security_parameters_index(),
+            sequence_number: packet.sequence_number(),
+            integrity_check_value: packet.integrity_check_value(),
+        })
+    }
+}
+
+// This sample can be used for test: https://www.cloudshark.org/captures/4d1561a5935f
