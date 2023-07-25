@@ -57,6 +57,8 @@ defmt = [ "dep:defmt", "heapless/defmt", "heapless/defmt-impl" ]
 "proto-sixlowpan" = ["proto-ipv6"]
 "proto-sixlowpan-fragmentation" = ["proto-sixlowpan", "_proto-fragmentation"]
 "proto-dns" = []
+"proto-ipsec-ah"= []
+"proto-ipsec-esp"= []
 
 "socket" = []
 "socket-raw" = ["socket"]
@@ -78,7 +80,7 @@ default = [
   "proto-ipv4", "proto-igmp", "proto-dhcpv4", "proto-ipv6", "proto-dns",
   "proto-ipv4-fragmentation", "proto-sixlowpan-fragmentation",
   "socket-raw", "socket-icmp", "socket-udp", "socket-tcp", "socket-dhcpv4", "socket-dns", "socket-mdns",
-  "packetmeta-id", "async"
+  "packetmeta-id", "async", "proto-ipsec-ah"
 ]
 
 # Private features
