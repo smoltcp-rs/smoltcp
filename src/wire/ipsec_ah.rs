@@ -94,7 +94,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized> Packet<&'a T> {
     /// Return a pointer to the integrity check value
     #[inline]
     pub fn integrity_check_value(&self) -> &'a [u8] {
-        let range = field::SEQUENCE_NUMBER.end as usize..self.header_len();
+        let range = field::SEQUENCE_NUMBER.end..self.header_len();
         let data = self.buffer.as_ref();
         &data[range]
     }
@@ -107,23 +107,35 @@ impl<T: AsRef<[u8]>> AsRef<[u8]> for Packet<T> {
 }
 
 impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
+    /// Set next header protocol field
     fn set_next_header(&mut self, value: IpProtocol) {
         let data = self.buffer.as_mut();
         data[field::NEXT_HEADER] = value.into()
     }
 
+    /// Set payload length field
     fn set_payload_len(&mut self, value: u8) {
         let data = self.buffer.as_mut();
         data[field::PAYLOAD_LEN] = value
     }
 
+    /// Set security parameters index field
     fn set_security_parameters_index(&mut self, value: u32) {
         let data = self.buffer.as_mut();
         NetworkEndian::write_u32(&mut data[field::SPI], value)
     }
 
+    /// Set sequence number
     fn set_sequence_number(&mut self, value: u32) {
         let data = self.buffer.as_mut();
         NetworkEndian::write_u32(&mut data[field::SEQUENCE_NUMBER], value)
+    }
+
+    /// Return a mutable pointer to the integrity check value.
+    #[inline]
+    pub fn integrity_check_value_mut(&mut self) -> &mut [u8] {
+        let range = field::SEQUENCE_NUMBER.end..self.header_len();
+        let data = self.buffer.as_mut();
+        &mut data[range]
     }
 }
