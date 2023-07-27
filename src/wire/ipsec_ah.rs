@@ -161,6 +161,8 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Repr<'a> {
     next_header: IpProtocol,
     security_parameters_index: u32,
@@ -170,7 +172,7 @@ pub struct Repr<'a> {
 
 impl<'a> Repr<'a> {
     /// Parse an IPSec Authentication Header packet and return a high-level representation,
-    pub fn parse<T: AsRef<[u8]>>(packet: &Packet<&'a T>) -> Result<Repr<'a>> {
+    pub fn parse<T: AsRef<[u8]> + ?Sized>(packet: &Packet<&'a T>) -> Result<Repr<'a>> {
         Ok(Repr {
             next_header: packet.next_header(),
             security_parameters_index: packet.security_parameters_index(),
@@ -188,7 +190,7 @@ impl<'a> Repr<'a> {
     pub fn emit<T: AsRef<[u8]> + AsMut<[u8]> + ?Sized>(&self, packet: &mut Packet<&'a mut T>) {
         packet.set_next_header(self.next_header);
 
-        let payload_len = (field::SEQUENCE_NUMBER.end + self.integrity_check_value.len() - 2) / 4;
+        let payload_len = ((field::SEQUENCE_NUMBER.end + self.integrity_check_value.len()) / 4) - 2;
         packet.set_payload_len(payload_len as u8);
 
         packet.clear_reserved();
@@ -230,7 +232,7 @@ mod test {
     #[test]
     fn test_construct() {
         let mut bytes = vec![0xa5; 24];
-        let mut packet = Packet::new_unchecked(&mut bytes);
+        let mut packet: Packet<&mut Vec<u8>> = Packet::new_unchecked(&mut bytes);
         packet.set_next_header(IpProtocol::Esp);
         packet.set_payload_len(4);
         packet.clear_reserved();
@@ -240,6 +242,37 @@ mod test {
             0xaf, 0xd2, 0xe7, 0xa1, 0x73, 0xd3, 0x29, 0x0b, 0xfe, 0x6b, 0x63, 0x73,
         ];
         packet.integrity_check_value_mut().copy_from_slice(&ICV);
+        assert_eq!(&*packet.into_inner(), &PACKET_BYTES2[..]);
+    }
+    #[test]
+    fn test_check_len() {
+        assert!(matches!(Packet::new_checked(&PACKET_BYTES1[..10]), Err(_)));
+        assert!(matches!(Packet::new_checked(&PACKET_BYTES1[..22]), Err(_)));
+        assert!(matches!(Packet::new_checked(&PACKET_BYTES1[..]), Ok(_)));
+    }
+
+    fn packet_repr<'a>() -> Repr<'a> {
+        Repr {
+            next_header: IpProtocol::Esp,
+            security_parameters_index: 0xba8bd060,
+            sequence_number: 1,
+            integrity_check_value: &[
+                0xaf, 0xd2, 0xe7, 0xa1, 0x73, 0xd3, 0x29, 0x0b, 0xfe, 0x6b, 0x63, 0x73,
+            ],
+        }
+    }
+
+    #[test]
+    fn test_parse() {
+        let packet = Packet::new_unchecked(&PACKET_BYTES2[..]);
+        assert_eq!(Repr::parse(&packet).unwrap(), packet_repr());
+    }
+
+    #[test]
+    fn test_emit() {
+        let mut bytes = vec![0x17; 24];
+        let mut packet = Packet::new_unchecked(&mut bytes);
+        packet_repr().emit(&mut packet);
         assert_eq!(&*packet.into_inner(), &PACKET_BYTES2[..]);
     }
 }
