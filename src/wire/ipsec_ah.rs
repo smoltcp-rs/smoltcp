@@ -187,14 +187,16 @@ impl<'a> Repr<'a> {
     /// Emit a high-level representation into an IPSec Authentication Header.
     pub fn emit<T: AsRef<[u8]> + AsMut<[u8]> + ?Sized>(&self, packet: &mut Packet<&'a mut T>) {
         packet.set_next_header(self.next_header);
-        
+
         let payload_len = (field::SEQUENCE_NUMBER.end + self.integrity_check_value.len() - 2) / 4;
         packet.set_payload_len(payload_len as u8);
 
         packet.clear_reserved();
         packet.set_security_parameters_index(self.security_parameters_index);
         packet.set_sequence_number(self.sequence_number);
-        packet.integrity_check_value_mut().copy_from_slice(self.integrity_check_value);
+        packet
+            .integrity_check_value_mut()
+            .copy_from_slice(self.integrity_check_value);
     }
 }
 
