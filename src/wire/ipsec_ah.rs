@@ -9,6 +9,19 @@ pub struct Packet<T: AsRef<[u8]>> {
     buffer: T,
 }
 
+//     0                   1                   2                   3
+//     0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+//   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+//   | Next Header   |  Payload Len  |          RESERVED             |
+//   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+//   |                 Security Parameters Index (SPI)               |
+//   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+//   |                    Sequence Number Field                      |
+//   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+//   |                                                               |
+//   +                Integrity Check Value-ICV (variable)           |
+//   |                                                               |
+//   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 mod field {
     #![allow(non_snake_case)]
 
@@ -121,6 +134,12 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
         data[field::PAYLOAD_LEN] = value
     }
 
+    /// Clear reserved field
+    fn clear_reserved(&mut self) {
+        let data = self.buffer.as_mut();
+        data[field::RESERVED].fill(0)
+    }
+
     /// Set security parameters index field
     fn set_security_parameters_index(&mut self, value: u32) {
         let data = self.buffer.as_mut();
@@ -143,8 +162,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
 }
 
 pub struct Repr<'a> {
-    next_header: u8,
-    payload_len: u8,
+    next_header: IpProtocol,
     security_parameters_index: u32,
     sequence_number: u32,
     integrity_check_value: &'a [u8],
@@ -154,12 +172,29 @@ impl<'a> Repr<'a> {
     /// Parse an IPSec Authentication Header packet and return a high-level representation,
     pub fn parse<T: AsRef<[u8]>>(packet: &Packet<&'a T>) -> Result<Repr<'a>> {
         Ok(Repr {
-            next_header: packet.next_header().into(),
-            payload_len: packet.payload_len(),
+            next_header: packet.next_header(),
             security_parameters_index: packet.security_parameters_index(),
             sequence_number: packet.sequence_number(),
             integrity_check_value: packet.integrity_check_value(),
         })
+    }
+
+    /// Return the length of a packet that will be emitted from this high-level representation.
+    pub const fn buffer_len(&self) -> usize {
+        self.integrity_check_value.len() + field::SEQUENCE_NUMBER.end
+    }
+
+    /// Emit a high-level representation into an IPSec Authentication Header.
+    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]> + ?Sized>(&self, packet: &mut Packet<&'a mut T>) {
+        packet.set_next_header(self.next_header);
+        
+        let payload_len = (field::SEQUENCE_NUMBER.end + self.integrity_check_value.len() - 2) / 4;
+        packet.set_payload_len(payload_len as u8);
+
+        packet.clear_reserved();
+        packet.set_security_parameters_index(self.security_parameters_index);
+        packet.set_sequence_number(self.sequence_number);
+        packet.integrity_check_value_mut().copy_from_slice(self.integrity_check_value);
     }
 }
 

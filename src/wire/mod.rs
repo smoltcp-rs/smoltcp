@@ -275,6 +275,9 @@ pub use self::dns::{
     Repr as DnsRepr, Type as DnsQueryType,
 };
 
+#[cfg(feature = "proto-ipsec-ah")]
+pub use self::ipsec_ah::{Packet as IPSecAuthHeaderPacket, Repr as IPSecAuthHeaderRepr};
+
 /// Parsing a packet failed.
 ///
 /// Either it is malformed, or it is not supported by smoltcp.
