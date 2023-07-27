@@ -31,7 +31,7 @@ mod field {
     pub const PAYLOAD_LEN: usize = 1;
     pub const RESERVED: Field = 2..4;
     pub const SPI: Field = 4..8;
-    pub const SEQUENCE_NUMBER: Field = 8..16;
+    pub const SEQUENCE_NUMBER: Field = 8..12;
 
     pub const fn ICV(payload_len: u8) -> Field {
         let header_len = (payload_len as usize + 2) * 4;
@@ -200,4 +200,46 @@ impl<'a> Repr<'a> {
     }
 }
 
-// This sample can be used for test: https://www.cloudshark.org/captures/4d1561a5935f
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    static PACKET_BYTES1: [u8; 24] = [
+        0x32, 0x04, 0x00, 0x00, 0x81, 0x79, 0xb7, 0x05, 0x00, 0x00, 0x00, 0x01, 0x27, 0xcf, 0xc0,
+        0xa5, 0xe4, 0x3d, 0x69, 0xb3, 0x72, 0x8e, 0xc5, 0xb0,
+    ];
+
+    static PACKET_BYTES2: [u8; 24] = [
+        0x32, 0x04, 0x00, 0x00, 0xba, 0x8b, 0xd0, 0x60, 0x00, 0x00, 0x00, 0x01, 0xaf, 0xd2, 0xe7,
+        0xa1, 0x73, 0xd3, 0x29, 0x0b, 0xfe, 0x6b, 0x63, 0x73,
+    ];
+
+    #[test]
+    fn test_deconstruct() {
+        let packet = Packet::new_unchecked(&PACKET_BYTES1[..]);
+        assert_eq!(packet.next_header(), IpProtocol::Esp);
+        assert_eq!(packet.payload_len(), 4);
+        assert_eq!(packet.security_parameters_index(), 0x8179b705);
+        assert_eq!(packet.sequence_number(), 1);
+        assert_eq!(
+            packet.integrity_check_value(),
+            &[0x27, 0xcf, 0xc0, 0xa5, 0xe4, 0x3d, 0x69, 0xb3, 0x72, 0x8e, 0xc5, 0xb0]
+        );
+    }
+
+    #[test]
+    fn test_construct() {
+        let mut bytes = vec![0xa5; 24];
+        let mut packet = Packet::new_unchecked(&mut bytes);
+        packet.set_next_header(IpProtocol::Esp);
+        packet.set_payload_len(4);
+        packet.clear_reserved();
+        packet.set_security_parameters_index(0xba8bd060);
+        packet.set_sequence_number(1);
+        const ICV: [u8; 12] = [
+            0xaf, 0xd2, 0xe7, 0xa1, 0x73, 0xd3, 0x29, 0x0b, 0xfe, 0x6b, 0x63, 0x73,
+        ];
+        packet.integrity_check_value_mut().copy_from_slice(&ICV);
+        assert_eq!(&*packet.into_inner(), &PACKET_BYTES2[..]);
+    }
+}

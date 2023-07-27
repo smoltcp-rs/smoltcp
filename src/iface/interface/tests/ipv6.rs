@@ -12,6 +12,8 @@ fn parse_ipv6(data: &[u8]) -> crate::wire::Result<IpPacket<'_>> {
         IpProtocol::Udp => todo!(),
         IpProtocol::Ipv6Route => todo!(),
         IpProtocol::Ipv6Frag => todo!(),
+        IpProtocol::Esp => todo!(),
+        IpProtocol::Ah => todo!(),
         IpProtocol::Icmpv6 => {
             let icmp = Icmpv6Repr::parse(
                 &ipv6.src_addr.into(),
