@@ -130,6 +130,9 @@ mod udp;
 #[cfg(feature = "proto-ipsec-ah")]
 mod ipsec_ah;
 
+#[cfg(feature = "proto-ipsec-esp")]
+mod ipsec_esp;
+
 use core::fmt;
 
 use crate::phy::Medium;
@@ -277,6 +280,9 @@ pub use self::dns::{
 
 #[cfg(feature = "proto-ipsec-ah")]
 pub use self::ipsec_ah::{Packet as IPSecAuthHeaderPacket, Repr as IPSecAuthHeaderRepr};
+
+#[cfg(feature = "proto-ipsec-esp")]
+pub use self::ipsec_esp::{Packet as IPSecEspPacket, Repr as IPSecEspRepr};
 
 /// Parsing a packet failed.
 ///
