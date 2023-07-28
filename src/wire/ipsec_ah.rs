@@ -34,6 +34,7 @@ mod field {
     pub const SEQUENCE_NUMBER: Field = 8..12;
 
     pub const fn ICV(payload_len: u8) -> Field {
+        // The `payload_len` is the length of this Authentication Header in 4-octet units, minus 2.
         let header_len = (payload_len as usize + 2) * 4;
 
         SEQUENCE_NUMBER.end..header_len
