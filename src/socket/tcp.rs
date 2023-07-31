@@ -2378,7 +2378,10 @@ impl<'a> fmt::Write for Socket<'a> {
     }
 }
 
-#[cfg(test)]
+// TODO: TCP should work for all features. For now, we only test with the IP feature. We could do
+// it for other features as well with rstest, however, this means we have to modify a lot of the
+// tests in here, which I didn't had the time for at the moment.
+#[cfg(all(test, feature = "medium-ip"))]
 mod test {
     use super::*;
     use crate::wire::IpRepr;
@@ -2624,12 +2627,16 @@ mod test {
     }
 
     fn socket_with_buffer_sizes(tx_len: usize, rx_len: usize) -> TestSocket {
+        let (iface, _, _) = crate::tests::setup(crate::phy::Medium::Ip);
+
         let rx_buffer = SocketBuffer::new(vec![0; rx_len]);
         let tx_buffer = SocketBuffer::new(vec![0; tx_len]);
         let mut socket = Socket::new(rx_buffer, tx_buffer);
         socket.set_ack_delay(None);
-        let cx = Context::mock();
-        TestSocket { socket, cx }
+        TestSocket {
+            socket,
+            cx: iface.inner,
+        }
     }
 
     fn socket_syn_received_with_buffer_sizes(tx_len: usize, rx_len: usize) -> TestSocket {

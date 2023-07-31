@@ -364,7 +364,7 @@ fn test_handle_valid_arp_request(#[case] medium: Medium) {
 
     let local_ip_addr = Ipv4Address([0x7f, 0x00, 0x00, 0x01]);
     let remote_ip_addr = Ipv4Address([0x7f, 0x00, 0x00, 0x02]);
-    let local_hw_addr = EthernetAddress([0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+    let local_hw_addr = EthernetAddress([0x02, 0x02, 0x02, 0x02, 0x02, 0x02]);
     let remote_hw_addr = EthernetAddress([0x52, 0x54, 0x00, 0x00, 0x00, 0x00]);
 
     let repr = ArpRepr::EthernetIpv4 {
@@ -470,7 +470,7 @@ fn test_arp_flush_after_update_ip(#[case] medium: Medium) {
 
     let local_ip_addr = Ipv4Address([0x7f, 0x00, 0x00, 0x01]);
     let remote_ip_addr = Ipv4Address([0x7f, 0x00, 0x00, 0x02]);
-    let local_hw_addr = EthernetAddress([0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+    let local_hw_addr = EthernetAddress([0x02, 0x02, 0x02, 0x02, 0x02, 0x02]);
     let remote_hw_addr = EthernetAddress([0x52, 0x54, 0x00, 0x00, 0x00, 0x00]);
 
     let repr = ArpRepr::EthernetIpv4 {
@@ -615,7 +615,10 @@ fn test_icmpv4_socket(#[case] medium: Medium) {
 #[case(Medium::Ethernet)]
 #[cfg(all(feature = "proto-igmp", feature = "medium-ethernet"))]
 fn test_handle_igmp(#[case] medium: Medium) {
-    fn recv_igmp(device: &mut Loopback, timestamp: Instant) -> Vec<(Ipv4Repr, IgmpRepr)> {
+    fn recv_igmp(
+        device: &mut crate::tests::TestingDevice,
+        timestamp: Instant,
+    ) -> Vec<(Ipv4Repr, IgmpRepr)> {
         let caps = device.capabilities();
         let checksum_caps = &caps.checksum;
         recv_all(device, timestamp)
@@ -649,7 +652,7 @@ fn test_handle_igmp(#[case] medium: Medium) {
     let (mut iface, mut sockets, mut device) = setup(medium);
 
     // Join multicast groups
-    let timestamp = Instant::now();
+    let timestamp = Instant::ZERO;
     for group in &groups {
         iface
             .join_multicast_group(&mut device, *group, timestamp)
@@ -671,7 +674,7 @@ fn test_handle_igmp(#[case] medium: Medium) {
     }
 
     // General query
-    let timestamp = Instant::now();
+    let timestamp = Instant::ZERO;
     const GENERAL_QUERY_BYTES: &[u8] = &[
         0x46, 0xc0, 0x00, 0x24, 0xed, 0xb4, 0x00, 0x00, 0x01, 0x02, 0x47, 0x43, 0xac, 0x16, 0x63,
         0x04, 0xe0, 0x00, 0x00, 0x01, 0x94, 0x04, 0x00, 0x00, 0x11, 0x64, 0xec, 0x8f, 0x00, 0x00,
@@ -692,7 +695,7 @@ fn test_handle_igmp(#[case] medium: Medium) {
     iface.socket_ingress(&mut device, &mut sockets);
 
     // Leave multicast groups
-    let timestamp = Instant::now();
+    let timestamp = Instant::ZERO;
     for group in &groups {
         iface
             .leave_multicast_group(&mut device, *group, timestamp)

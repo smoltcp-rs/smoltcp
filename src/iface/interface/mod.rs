@@ -230,7 +230,7 @@ use check;
 /// a dependency on heap allocation, it instead owns a `BorrowMut<[T]>`, which can be
 /// a `&mut [T]`, or `Vec<T>` if a heap is available.
 pub struct Interface {
-    inner: InterfaceInner,
+    pub(crate) inner: InterfaceInner,
     fragments: FragmentsBuffer,
     fragmenter: Fragmenter,
 }
@@ -966,97 +966,6 @@ impl InterfaceInner {
             }
         }
         None
-    }
-
-    #[cfg(test)]
-    pub(crate) fn mock() -> Self {
-        Self {
-            caps: DeviceCapabilities {
-                #[cfg(feature = "medium-ethernet")]
-                medium: crate::phy::Medium::Ethernet,
-                #[cfg(all(not(feature = "medium-ethernet"), feature = "medium-ip"))]
-                medium: crate::phy::Medium::Ip,
-                #[cfg(all(not(feature = "medium-ethernet"), feature = "medium-ieee802154"))]
-                medium: crate::phy::Medium::Ieee802154,
-
-                checksum: crate::phy::ChecksumCapabilities {
-                    #[cfg(feature = "proto-ipv4")]
-                    icmpv4: crate::phy::Checksum::Both,
-                    #[cfg(feature = "proto-ipv6")]
-                    icmpv6: crate::phy::Checksum::Both,
-                    ipv4: crate::phy::Checksum::Both,
-                    tcp: crate::phy::Checksum::Both,
-                    udp: crate::phy::Checksum::Both,
-                },
-                max_burst_size: None,
-                #[cfg(feature = "medium-ethernet")]
-                max_transmission_unit: 1514,
-                #[cfg(not(feature = "medium-ethernet"))]
-                max_transmission_unit: 1500,
-            },
-            now: Instant::from_millis_const(0),
-
-            ip_addrs: Vec::from_slice(&[
-                #[cfg(feature = "proto-ipv4")]
-                IpCidr::Ipv4(Ipv4Cidr::new(Ipv4Address::new(192, 168, 1, 1), 24)),
-                #[cfg(feature = "proto-ipv6")]
-                IpCidr::Ipv6(Ipv6Cidr::new(
-                    Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
-                    64,
-                )),
-            ])
-            .unwrap(),
-            rand: Rand::new(1234),
-            routes: Routes::new(),
-
-            #[cfg(feature = "proto-ipv4")]
-            any_ip: false,
-
-            #[cfg(feature = "medium-ieee802154")]
-            pan_id: Some(crate::wire::Ieee802154Pan(0xabcd)),
-            #[cfg(feature = "medium-ieee802154")]
-            sequence_no: 1,
-
-            #[cfg(feature = "proto-sixlowpan-fragmentation")]
-            tag: 1,
-
-            #[cfg(feature = "proto-sixlowpan")]
-            sixlowpan_address_context: Vec::new(),
-
-            #[cfg(feature = "proto-ipv4-fragmentation")]
-            ipv4_id: 1,
-
-            #[cfg(all(
-                feature = "medium-ip",
-                not(feature = "medium-ethernet"),
-                not(feature = "medium-ieee802154")
-            ))]
-            hardware_addr: crate::wire::HardwareAddress::Ip,
-
-            #[cfg(feature = "medium-ethernet")]
-            hardware_addr: crate::wire::HardwareAddress::Ethernet(crate::wire::EthernetAddress([
-                0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
-            ])),
-
-            #[cfg(all(
-                not(feature = "medium-ip"),
-                not(feature = "medium-ethernet"),
-                feature = "medium-ieee802154"
-            ))]
-            hardware_addr: crate::wire::HardwareAddress::Ieee802154(
-                crate::wire::Ieee802154Address::Extended([
-                    0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x2, 0x2,
-                ]),
-            ),
-
-            #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
-            neighbor_cache: NeighborCache::new(),
-
-            #[cfg(feature = "proto-igmp")]
-            igmp_report_state: IgmpReportState::Inactive,
-            #[cfg(feature = "proto-igmp")]
-            ipv4_multicast_groups: LinearMap::new(),
-        }
     }
 
     #[cfg(test)]
