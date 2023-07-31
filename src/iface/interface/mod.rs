@@ -1336,16 +1336,21 @@ impl InterfaceInner {
             let b = dst_addr.as_bytes();
             let hardware_addr = match *dst_addr {
                 #[cfg(feature = "proto-ipv4")]
-                IpAddress::Ipv4(_addr) => {
-                    HardwareAddress::Ethernet(EthernetAddress::from_bytes(&[
+                IpAddress::Ipv4(_addr) => match self.caps.medium {
+                    #[cfg(feature = "medium-ethernet")]
+                    Medium::Ethernet => HardwareAddress::Ethernet(EthernetAddress::from_bytes(&[
                         0x01,
                         0x00,
                         0x5e,
                         b[1] & 0x7F,
                         b[2],
                         b[3],
-                    ]))
-                }
+                    ])),
+                    #[cfg(feature = "medium-ieee802154")]
+                    Medium::Ieee802154 => unreachable!(),
+                    #[cfg(feature = "medium-ip")]
+                    Medium::Ip => unreachable!(),
+                },
                 #[cfg(feature = "proto-ipv6")]
                 IpAddress::Ipv6(_addr) => match self.caps.medium {
                     #[cfg(feature = "medium-ethernet")]
@@ -1376,8 +1381,10 @@ impl InterfaceInner {
         }
 
         match (src_addr, dst_addr) {
-            #[cfg(feature = "proto-ipv4")]
-            (&IpAddress::Ipv4(src_addr), IpAddress::Ipv4(dst_addr)) => {
+            #[cfg(all(feature = "medium-ethernet", feature = "proto-ipv4"))]
+            (&IpAddress::Ipv4(src_addr), IpAddress::Ipv4(dst_addr))
+                if matches!(self.caps.medium, Medium::Ethernet) =>
+            {
                 net_debug!(
                     "address {} not in neighbor cache, sending ARP request",
                     dst_addr
