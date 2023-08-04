@@ -179,7 +179,7 @@ impl<'p, T: AsRef<[u8]> + ?Sized> Packet<&'p T> {
                 return Err(Error)
             }
             RplControlMessage::DestinationAdvertisementObjectAck
-                if self.dao_dodag_id_present() && len < field::DAO_ACK_DODAG_ID.end =>
+                if self.dao_ack_dodag_id_present() && len < field::DAO_ACK_DODAG_ID.end =>
             {
                 return Err(Error)
             }
@@ -205,7 +205,9 @@ impl<'p, T: AsRef<[u8]> + ?Sized> Packet<&'p T> {
                 &buffer[field::DAO_DODAG_ID.end..]
             }
             RplControlMessage::DestinationAdvertisementObject => &buffer[field::DAO_SEQUENCE + 1..],
-            RplControlMessage::DestinationAdvertisementObjectAck if self.dao_dodag_id_present() => {
+            RplControlMessage::DestinationAdvertisementObjectAck
+                if self.dao_ack_dodag_id_present() =>
+            {
                 &buffer[field::DAO_ACK_DODAG_ID.end..]
             }
             RplControlMessage::DestinationAdvertisementObjectAck => {
@@ -247,7 +249,7 @@ impl<'p, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Packet<&'p mut T> {
                 }
             }
             RplControlMessage::DestinationAdvertisementObjectAck => {
-                if self.dao_dodag_id_present() {
+                if self.dao_ack_dodag_id_present() {
                     &mut self.buffer.as_mut()[field::DAO_ACK_DODAG_ID.end..]
                 } else {
                     &mut self.buffer.as_mut()[field::DAO_ACK_STATUS + 1..]
@@ -539,7 +541,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// Returns the flag indicating that the DODAG ID is present or not.
     #[inline]
     pub fn dao_ack_dodag_id_present(&self) -> bool {
-        get!(self.buffer, bool, field: field::DAO_ACK_D, shift: 6, mask: 0b1)
+        get!(self.buffer, bool, field: field::DAO_ACK_D, shift: 7, mask: 0b1)
     }
 
     /// Return the DODAG sequence number.
@@ -572,7 +574,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// Set the flag indicating that the DODAG ID is present or not.
     #[inline]
     pub fn set_dao_ack_dodag_id_present(&mut self, value: bool) {
-        set!(self.buffer, value, bool, field: field::DAO_ACK_D, shift: 6, mask: 0b1)
+        set!(self.buffer, value, bool, field: field::DAO_ACK_D, shift: 7, mask: 0b1)
     }
 
     /// Set the DODAG sequence number.
@@ -2674,6 +2676,39 @@ mod tests {
                 assert_eq!(sequence, 241);
                 assert_eq!(status, 0);
                 assert_eq!(dodag_id, None);
+            }
+            _ => unreachable!(),
+        }
+
+        let mut buffer = vec![0u8; dao_ack_repr.buffer_len()];
+        dao_ack_repr.emit(&mut Packet::new_unchecked(&mut buffer[..]));
+
+        assert_eq!(&data[..], &buffer[..]);
+
+        let data = [
+            0x9b, 0x03, 0x0, 0x0, 0x1e, 0x80, 0xf0, 0x00, 0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+        ];
+
+        let packet = Packet::new_checked(&data[..]).unwrap();
+        let dao_ack_repr = RplRepr::parse(&packet).unwrap();
+        match dao_ack_repr {
+            RplRepr::DestinationAdvertisementObjectAck {
+                rpl_instance_id,
+                sequence,
+                status,
+                dodag_id,
+                ..
+            } => {
+                assert_eq!(rpl_instance_id, InstanceId::from(30));
+                assert_eq!(sequence, 240);
+                assert_eq!(status, 0x0);
+                assert_eq!(
+                    dodag_id,
+                    Some(Ipv6Address([
+                        254, 128, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 1
+                    ]))
+                );
             }
             _ => unreachable!(),
         }
