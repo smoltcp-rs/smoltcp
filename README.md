@@ -38,9 +38,8 @@ There are 3 supported mediums.
   * Jumbo frames are **not** supported.
 * IP
   * Unicast, broadcast and multicast packets are supported.
-* IEEE 802.15.4 + 6LoWPAN (experimental)
-  * Unicast, broadcast and multicast packets are supported.
-  * ONLY UDP packets are supported.
+* IEEE 802.15.4
+  * Only support for data frames.
 
 ### IP layer
 
@@ -61,6 +60,14 @@ There are 3 supported mediums.
   * ICMPv6 parameter problem message is generated in response to an unrecognized IPv6 next header.
   * ICMPv6 parameter problem message is **not** generated in response to an unknown IPv6
     hop-by-hop option.
+
+#### 6LoWPAN
+  
+  * Implementation of [RFC6282](https://tools.ietf.org/rfc/rfc6282.txt).
+  * Fragmentation is supported, as defined in [RFC4944](https://tools.ietf.org/rfc/rfc4944.txt).
+  * UDP header compression is supported.
+  * Extension header compression is **not** supported (will be soon™).
+  * Uncompressed IP headers are supported.
 
 ### IP multicast
 
@@ -137,7 +144,7 @@ To use the _smoltcp_ library in your project, add the following to `Cargo.toml`:
 
 ```toml
 [dependencies]
-smoltcp = "0.8.0"
+smoltcp = "0.10.0"
 ```
 
 The default configuration assumes a hosted environment, for ease of evaluation.
@@ -145,7 +152,7 @@ You probably want to disable default features and configure them one by one:
 
 ```toml
 [dependencies]
-smoltcp = { version = "0.8.0", default-features = false, features = ["log"] }
+smoltcp = { version = "0.10.0", default-features = false, features = ["log"] }
 ```
 
 ## Feature flags
@@ -204,12 +211,13 @@ Enable the corresponding socket type.
 
 These features are enabled by default.
 
-### Features `proto-ipv4` and `proto-ipv6`
+### Features `proto-ipv4`, `proto-ipv6` and `proto-sixlowpan`
 
-Enable [IPv4] and [IPv6] respectively.
+Enable [IPv4], [IPv6] and [6LoWPAN] respectively.
 
 [IPv4]: https://tools.ietf.org/rfc/rfc791.txt
 [IPv6]: https://tools.ietf.org/rfc/rfc8200.txt
+[6LoWPAN]: https://tools.ietf.org/rfc/rfc6282.txt
 
 ## Configuration
 
