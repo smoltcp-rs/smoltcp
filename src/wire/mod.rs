@@ -105,6 +105,8 @@ mod ipv6ext_header;
 #[cfg(feature = "proto-ipv6")]
 mod ipv6fragment;
 #[cfg(feature = "proto-ipv6")]
+mod ipv6hbh;
+#[cfg(feature = "proto-ipv6")]
 mod ipv6option;
 #[cfg(feature = "proto-ipv6")]
 mod ipv6routing;
@@ -198,14 +200,10 @@ pub use self::ipv6option::{
 pub use self::ipv6ext_header::{Header as Ipv6ExtHeader, Repr as Ipv6ExtHeaderRepr};
 
 #[cfg(feature = "proto-ipv6")]
-/// A read/write wrapper around an IPv6 Hop-By-Hop header.
-pub type Ipv6HopByHopHeader<T> = Ipv6ExtHeader<T>;
-#[cfg(feature = "proto-ipv6")]
-/// A high-level representation of an IPv6 Hop-By-Hop heade.
-pub type Ipv6HopByHopRepr<'a> = Ipv6ExtHeaderRepr<'a>;
+pub use self::ipv6fragment::{Header as Ipv6FragmentHeader, Repr as Ipv6FragmentRepr};
 
 #[cfg(feature = "proto-ipv6")]
-pub use self::ipv6fragment::{Header as Ipv6FragmentHeader, Repr as Ipv6FragmentRepr};
+pub use self::ipv6hbh::{Header as Ipv6HopByHopHeader, Repr as Ipv6HopByHopRepr};
 
 #[cfg(feature = "proto-ipv6")]
 pub use self::ipv6routing::{
