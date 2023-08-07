@@ -1125,7 +1125,7 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
     }
 }
 
-#[cfg(test)]
+// #[cfg(test)]
 mod test {
     use super::*;
     #[cfg(feature = "proto-ipv4")]
@@ -1328,4 +1328,236 @@ mod test {
         assert_eq!(TcpOption::parse(&[0x2, 0x02]), Err(Error));
         assert_eq!(TcpOption::parse(&[0x3, 0x02]), Err(Error));
     }
+}
+
+// #[cfg(kani)]
+mod verification {
+
+    extern crate kani;
+    use alloc::vec;
+    use super::*;
+
+    use crate::wire::Ipv4Address;
+
+    impl kani::Arbitrary for SeqNumber {
+        #[inline]
+        fn any() -> Self {
+            let seq_number: i32 = kani::any();
+            return SeqNumber(seq_number);
+        }
+    }
+
+    impl kani::Arbitrary for Ipv4Address {
+        #[inline]
+        fn any() -> Self {
+            let a0: u8 = kani::any();
+            let a1: u8 = kani::any();
+            let a2: u8 = kani::any();
+            let a3: u8 = kani::any();
+            return Ipv4Address::new(a0, a1, a2, a3);
+        }
+    }
+
+    impl kani::Arbitrary for Packet<Vec<u8>> {
+        #[inline]
+        fn any() -> Self {
+            // FIXME: Packets with symbolic payload length are too expensive (dozens of hours).
+            // FIXME: checksums are quite expensive (one hour).
+            let options: Vec<u8> = kani::vec::exact_vec::<_, 4>();
+            let payload: Vec<u8> = kani::vec::exact_vec::<_, 8>();
+
+            let bytes: Vec<u8> = vec![0xa5; 32];
+            let mut packet = Packet::new_unchecked(bytes);
+            
+            let src_addr: Ipv4Address = kani::any();
+            let dst_addr: Ipv4Address = kani::any();
+
+            packet.set_src_port(kani::any());
+            packet.set_dst_port(kani::any());
+            packet.set_seq_number(kani::any());
+            packet.set_ack_number(kani::any());
+            packet.set_header_len(24);
+            packet.clear_flags();
+            packet.set_fin(kani::any());
+            packet.set_syn(kani::any());
+            packet.set_rst(kani::any());
+            packet.set_psh(kani::any());
+            packet.set_ack(kani::any());
+            packet.set_urg(kani::any());
+            packet.set_ece(kani::any());
+            packet.set_cwr(kani::any());
+            packet.set_ns(kani::any());
+            packet.set_window_len(kani::any());
+            packet.set_urgent_at(kani::any());
+            packet.options_mut().copy_from_slice(&options[..]);
+            packet.payload_mut().copy_from_slice(&payload[..]);
+            // packet.fill_checksum(&src_addr.into(), &dst_addr.into());
+            
+            return packet;
+        }   
+    }
+
+    #[kani::proof]
+    #[kani::unwind(10)]
+    fn prove_parsing() {
+        let src_addr: Ipv4Address = kani::any();
+        let dst_addr: Ipv4Address = kani::any();
+
+        let src_port: u16 = kani::any();
+        let dst_port: u16 = kani::any();
+
+        let seq_number: SeqNumber = kani::any();
+        let ack_number: SeqNumber = kani::any();
+
+        let fin: bool = kani::any();
+        let syn: bool = kani::any();
+        let rst: bool = kani::any();
+        let psh: bool = kani::any();
+        let ack: bool = kani::any();
+        let urg: bool = kani::any();
+        let ece: bool = kani::any();
+        let cwr: bool = kani::any();
+        let ns: bool = kani::any();
+
+        let window_len: u16 = kani::any();
+        let urgent_at: u16 = kani::any();
+
+        let options: Vec<u8> = kani::vec::exact_vec::<_, 4>();
+        let payload: Vec<u8> = kani::vec::exact_vec::<_, 8>();
+        
+        let mut bytes = vec![0xa5; 32];
+        let mut packet = Packet::new_unchecked(&mut bytes);
+        packet.set_src_port(src_port);
+        packet.set_dst_port(dst_port);
+        packet.set_seq_number(seq_number);
+        packet.set_ack_number(ack_number);
+        let options_size: u8 = options.len().try_into().unwrap();
+        packet.set_header_len(24);
+        packet.clear_flags();
+        packet.set_fin(fin);
+        packet.set_syn(syn);
+        packet.set_rst(rst);
+        packet.set_psh(psh);
+        packet.set_ack(ack);
+        packet.set_urg(urg);
+        packet.set_ece(ece);
+        packet.set_cwr(cwr);
+        packet.set_ns(ns);
+        packet.set_window_len(window_len);
+        packet.set_urgent_at(urgent_at);
+        packet.options_mut().copy_from_slice(&options[..]);
+        packet.payload_mut().copy_from_slice(&payload[..]);
+        // packet.fill_checksum(&src_addr.into(), &dst_addr.into());
+
+        assert_eq!(src_port, packet.src_port());
+        assert_eq!(dst_port, packet.dst_port());
+
+        assert_eq!(seq_number, packet.seq_number());
+        assert_eq!(ack_number, packet.ack_number());
+        assert_eq!(24, packet.header_len());
+        assert_eq!(fin, packet.fin());
+        assert_eq!(syn, packet.syn());
+        assert_eq!(rst, packet.rst());
+        assert_eq!(psh, packet.psh());
+        assert_eq!(ack, packet.ack());
+        assert_eq!(urg, packet.urg());
+        assert_eq!(ece, packet.ece());
+        assert_eq!(cwr, packet.cwr());
+        assert_eq!(ns, packet.ns());
+
+        assert_eq!(window_len, packet.window_len());
+        assert_eq!(urgent_at, packet.urgent_at());
+        assert_eq!(options, packet.options_mut());
+        assert_eq!(payload, packet.payload_mut());
+        // assert!(packet.verify_checksum(&src_addr.into(), &dst_addr.into()));
+        assert!(packet.check_len().is_ok());
+    }
+
+    #[kani::proof]
+    fn prove_truncated() {
+        let packet: Packet<Vec<u8>> = kani::any();
+        let data: &Vec<u8> = packet.buffer.as_ref();
+
+        let trunc_length: usize = kani::any_where(|l| *l < 24);
+        let packet_in = Packet::new_unchecked(&data[..trunc_length]);
+        
+        assert!(packet_in.check_len().is_err());
+    }
+
+    #[kani::proof]
+    fn prove_impossible_length() {
+        let mut bytes = vec![0; 20];
+        let mut packet = Packet::new_unchecked(&mut bytes);
+        let max_len: u8 = field::URGENT.end.try_into().unwrap();
+        let header_len: u8 = kani::any_where(|l| *l < max_len);
+        packet.set_header_len(header_len);
+        assert!(packet.check_len().is_err());
+    }
+
+    impl kani::Arbitrary for Control {
+        #[inline]
+        fn any() -> Self {
+            let code: u8 = kani::any_where(|c| *c >= 1 && *c <= 5);
+            return match code {
+                1 => Control::None,
+                2 => Control::Psh,
+                3 => Control::Syn,
+                4 => Control::Fin,
+                5 => Control::Rst,
+                _ => panic!("Should be unreachable!")
+            }
+        }
+    }
+
+    fn any_repr<'a>(payload: &'a Vec<u8>) -> Repr<'a> {
+        // FIXME: This can get quite expensive, due to the loops for emitting TcpOptions under different control. 
+        let repr = Repr {
+            src_port: kani::any(),
+            dst_port: kani::any(),
+            seq_number: kani::any(),
+            ack_number: kani::any(),
+            window_len: kani::any(),
+            window_scale: None,
+            control: kani::any(),
+            max_seg_size: None,
+            sack_permitted: false,
+            sack_ranges: [None, None, None],
+            payload: &payload[..],
+        };
+
+        return repr;
+    }
+
+    #[kani::proof]
+    #[kani::unwind(30)]
+    fn prove_repr_intertible() {
+        let payload: Vec<u8> = kani::vec::exact_vec::<_, 4>();
+        let repr: Repr = any_repr(&payload);
+        let mut bytes = vec![0xa5; repr.buffer_len()];
+        let mut packet = Packet::new_unchecked(&mut bytes);
+
+        let src_addr: Ipv4Address = kani::any();
+        let dst_addr: Ipv4Address = kani::any();
+
+        repr.emit(
+            &mut packet,
+            &src_addr.into(),
+            &dst_addr.into(),
+            &ChecksumCapabilities::default(),
+        );
+
+        let packet_out = Packet::new_unchecked(&packet.into_inner()[..]);
+
+        let repr_out = Repr::parse(
+            &packet_out,
+            &src_addr.into(),
+            &dst_addr.into(),
+            &ChecksumCapabilities::default(),
+        )
+        .unwrap();
+
+        assert_eq!(repr, repr_out);
+        
+    }
+       
 }
