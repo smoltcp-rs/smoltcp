@@ -1125,7 +1125,7 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
     }
 }
 
-// #[cfg(test)]
+#[cfg(test)]
 mod test {
     use super::*;
     #[cfg(feature = "proto-ipv4")]
@@ -1330,7 +1330,7 @@ mod test {
     }
 }
 
-// #[cfg(kani)]
+#[cfg(kani)]
 mod verification {
 
     extern crate kani;
@@ -1509,30 +1509,32 @@ mod verification {
         }
     }
 
-    fn any_repr<'a>(payload: &'a Vec<u8>) -> Repr<'a> {
-        // FIXME: This can get quite expensive, due to the loops for emitting TcpOptions under different control. 
-        let repr = Repr {
-            src_port: kani::any(),
-            dst_port: kani::any(),
-            seq_number: kani::any(),
-            ack_number: kani::any(),
-            window_len: kani::any(),
-            window_scale: None,
-            control: kani::any(),
-            max_seg_size: None,
-            sack_permitted: false,
-            sack_ranges: [None, None, None],
-            payload: &payload[..],
-        };
-
-        return repr;
+    impl<'a> kani::Arbitrary for Repr<'a> {
+        #[inline]
+        fn any() -> Self {
+            // FIXME: This can get quite expensive, due to the loops for emitting TcpOptions under different control. 
+            let payload: Vec<u8> = kani::vec::exact_vec::<_, 4>();
+            return Repr {
+                src_port: kani::any(),
+                dst_port: kani::any(),
+                seq_number: kani::any(),
+                ack_number: kani::any(),
+                window_len: kani::any(),
+                window_scale: None,
+                control: kani::any(),
+                max_seg_size: None,
+                sack_permitted: false,
+                sack_ranges: [None, None, None],
+                // FIXME: Symbolic execution can have a little leaky memory, as a treat -- Chris Phifer, 2023
+                payload: payload.leak(),
+            };
+        }
     }
 
     #[kani::proof]
-    #[kani::unwind(30)]
+    #[kani::unwind(10)]
     fn prove_repr_intertible() {
-        let payload: Vec<u8> = kani::vec::exact_vec::<_, 4>();
-        let repr: Repr = any_repr(&payload);
+        let repr: Repr = kani::any();
         let mut bytes = vec![0xa5; repr.buffer_len()];
         let mut packet = Packet::new_unchecked(&mut bytes);
 
