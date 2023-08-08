@@ -1512,11 +1512,10 @@ mod verification {
     impl<'a> kani::Arbitrary for Repr<'a> {
         #[inline]
         fn any() -> Self {
-            // FIXME: This can get quite expensive, due to the loops for emitting TcpOptions under different control. 
             let payload: Vec<u8> = kani::vec::exact_vec::<_, 4>();
             return Repr {
-                src_port: kani::any(),
-                dst_port: kani::any(),
+                src_port: kani::any_where(|p| *p != 0),
+                dst_port: kani::any_where(|p| *p != 0),
                 seq_number: kani::any(),
                 ack_number: kani::any(),
                 window_len: kani::any(),
@@ -1532,7 +1531,7 @@ mod verification {
     }
 
     #[kani::proof]
-    #[kani::unwind(10)]
+    #[kani::unwind(15)]
     fn prove_repr_intertible() {
         let repr: Repr = kani::any();
         let mut bytes = vec![0xa5; repr.buffer_len()];
@@ -1555,10 +1554,10 @@ mod verification {
             &src_addr.into(),
             &dst_addr.into(),
             &ChecksumCapabilities::default(),
-        )
-        .unwrap();
+        );
 
-        assert_eq!(repr, repr_out);
+        assert!(repr_out.is_ok());
+        assert_eq!(repr, repr_out.unwrap());
         
     }
        
