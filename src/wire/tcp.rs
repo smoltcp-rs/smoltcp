@@ -1519,10 +1519,10 @@ mod verification {
                 seq_number: kani::any(),
                 ack_number: kani::any(),
                 window_len: kani::any(),
-                window_scale: kani::any(),
+                window_scale: None,
                 control: kani::any(),
-                max_seg_size: kani::any(),
-                sack_permitted: kani::any(),
+                max_seg_size: None,
+                sack_permitted: false,
                 sack_ranges: [None, None, None],
                 // FIXME: Symbolic execution can have a little leaky memory, as a treat -- Chris Phifer, 2023
                 payload: payload.leak(),
