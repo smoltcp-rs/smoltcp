@@ -250,19 +250,19 @@ impl InterfaceInner {
         handled_by_raw_socket: bool,
         ip_payload: &'frame [u8],
     ) -> Option<IpPacket<'frame>> {
-        let hbh_hdr = check!(Ipv6HopByHopHeader::new_checked(ip_payload));
+        let ext_hdr = check!(Ipv6ExtHeader::new_checked(ip_payload));
+        let ext_repr = check!(Ipv6ExtHeaderRepr::parse(&ext_hdr));
+        let hbh_hdr = check!(Ipv6HopByHopHeader::new_checked(ext_repr.data));
         let hbh_repr = check!(Ipv6HopByHopRepr::parse(&hbh_hdr));
 
-        let hbh_options = Ipv6OptionsIterator::new(hbh_repr.data);
-        for opt_repr in hbh_options {
-            let opt_repr = check!(opt_repr);
+        for opt_repr in &hbh_repr.options {
             match opt_repr {
                 Ipv6OptionRepr::Pad1 | Ipv6OptionRepr::PadN(_) => (),
                 #[cfg(feature = "proto-rpl")]
                 Ipv6OptionRepr::Rpl(_) => {}
 
                 Ipv6OptionRepr::Unknown { type_, .. } => {
-                    match Ipv6OptionFailureType::from(type_) {
+                    match Ipv6OptionFailureType::from(*type_) {
                         Ipv6OptionFailureType::Skip => (),
                         Ipv6OptionFailureType::Discard => {
                             return None;
@@ -280,9 +280,9 @@ impl InterfaceInner {
             sockets,
             meta,
             ipv6_repr,
-            hbh_repr.next_header,
+            ext_repr.next_header,
             handled_by_raw_socket,
-            &ip_payload[hbh_repr.header_len() + hbh_repr.data.len()..],
+            &ip_payload[ext_repr.header_len() + ext_repr.data.len()..],
         )
     }
 

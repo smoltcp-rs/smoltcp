@@ -284,7 +284,9 @@ Maximum amount of DNS servers that can be configured in one DNS socket. Default:
 
 Maximum length of DNS names that can be queried. Default: 255.
 
+### IPV6_HBH_MAX_OPTIONS
 
+The maximum amount of parsed options the IPv6 Hop-by-Hop header can hold. Default: 1.
 
 ## Hosted usage examples
 
