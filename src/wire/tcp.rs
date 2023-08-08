@@ -1330,7 +1330,7 @@ mod test {
     }
 }
 
-#[cfg(kani)]
+// #[cfg(kani)]
 mod verification {
 
     extern crate kani;
@@ -1519,10 +1519,10 @@ mod verification {
                 seq_number: kani::any(),
                 ack_number: kani::any(),
                 window_len: kani::any(),
-                window_scale: None,
+                window_scale: kani::any(),
                 control: kani::any(),
-                max_seg_size: None,
-                sack_permitted: false,
+                max_seg_size: kani::any(),
+                sack_permitted: kani::any(),
                 sack_ranges: [None, None, None],
                 // FIXME: Symbolic execution can have a little leaky memory, as a treat -- Chris Phifer, 2023
                 payload: payload.leak(),
@@ -1558,7 +1558,13 @@ mod verification {
 
         assert!(repr_out.is_ok());
         assert_eq!(repr, repr_out.unwrap());
-        
+    }
+
+    #[kani::proof]
+    #[kani::unwind(15)]
+    fn prove_header_len_multiple_of_4() {
+        let repr: Repr = kani::any();
+        assert_eq!(repr.header_len() % 4, 0); // Should e.g. be 28 instead of 27.
     }
        
 }
