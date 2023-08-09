@@ -179,6 +179,11 @@ impl<T: AsRef<[u8]>> ExtHeaderPacket<T> {
         }
     }
 
+    /// Return the length field.
+    pub fn length(&self) -> u8 {
+        self.buffer.as_ref()[1 + self.next_header_size()]
+    }
+
     /// Parse the next header field.
     pub fn next_header(&self) -> NextHeader {
         if self.nh_field() == 1 {
@@ -208,7 +213,8 @@ impl<'a, T: AsRef<[u8]> + ?Sized> ExtHeaderPacket<&'a T> {
     /// Return a pointer to the payload.
     pub fn payload(&self) -> &'a [u8] {
         let start = 2 + self.next_header_size();
-        &self.buffer.as_ref()[start..]
+        let len = self.length() as usize;
+        &self.buffer.as_ref()[start..][..len]
     }
 }
 
@@ -216,7 +222,8 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> ExtHeaderPacket<T> {
     /// Return a mutable pointer to the payload.
     pub fn payload_mut(&mut self) -> &mut [u8] {
         let start = 2 + self.next_header_size();
-        &mut self.buffer.as_mut()[start..]
+        let len = self.length() as usize;
+        &mut self.buffer.as_mut()[start..][..len]
     }
 
     /// Set the dispatch field to `0b1110`.
@@ -270,9 +277,9 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> ExtHeaderPacket<T> {
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ExtHeaderRepr {
-    ext_header_id: ExtHeaderId,
-    next_header: NextHeader,
-    length: u8,
+    pub ext_header_id: ExtHeaderId,
+    pub next_header: NextHeader,
+    pub length: u8,
 }
 
 impl ExtHeaderRepr {
@@ -288,7 +295,7 @@ impl ExtHeaderRepr {
         Ok(Self {
             ext_header_id: packet.extension_header_id(),
             next_header: packet.next_header(),
-            length: packet.payload().len() as u8,
+            length: packet.length(),
         })
     }
 
@@ -752,25 +759,28 @@ impl<'a> UdpNhcRepr {
         dst_addr: &Address,
         payload_len: usize,
         emit_payload: impl FnOnce(&mut [u8]),
+        checksum_caps: &ChecksumCapabilities,
     ) {
         packet.set_dispatch_field();
         packet.set_ports(self.src_port, self.dst_port);
         emit_payload(packet.payload_mut());
 
-        let chk_sum = !checksum::combine(&[
-            checksum::pseudo_header(
-                &IpAddress::Ipv6(*src_addr),
-                &IpAddress::Ipv6(*dst_addr),
-                crate::wire::ip::Protocol::Udp,
-                payload_len as u32 + 8,
-            ),
-            self.src_port,
-            self.dst_port,
-            payload_len as u16 + 8,
-            checksum::data(packet.payload_mut()),
-        ]);
+        if checksum_caps.udp.tx() {
+            let chk_sum = !checksum::combine(&[
+                checksum::pseudo_header(
+                    &IpAddress::Ipv6(*src_addr),
+                    &IpAddress::Ipv6(*dst_addr),
+                    crate::wire::ip::Protocol::Udp,
+                    payload_len as u32 + 8,
+                ),
+                self.src_port,
+                self.dst_port,
+                payload_len as u16 + 8,
+                checksum::data(packet.payload_mut()),
+            ]);
 
-        packet.set_checksum(chk_sum);
+            packet.set_checksum(chk_sum);
+        }
     }
 }
 
@@ -848,9 +858,14 @@ mod test {
         let len = udp.header_len() + payload.len();
         let mut buffer = [0u8; 127];
         let mut packet = UdpNhcPacket::new_unchecked(&mut buffer[..len]);
-        udp.emit(&mut packet, &src_addr, &dst_addr, payload.len(), |buf| {
-            buf.copy_from_slice(&payload[..])
-        });
+        udp.emit(
+            &mut packet,
+            &src_addr,
+            &dst_addr,
+            payload.len(),
+            |buf| buf.copy_from_slice(&payload[..]),
+            &ChecksumCapabilities::default(),
+        );
 
         assert_eq!(packet.dispatch_field(), DISPATCH_UDP_HEADER);
         assert_eq!(packet.src_port(), 0xf0b1);

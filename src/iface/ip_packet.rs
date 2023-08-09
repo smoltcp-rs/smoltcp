@@ -153,14 +153,14 @@ pub(crate) struct Ipv4Packet<'p> {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[cfg(feature = "proto-ipv6")]
 pub(crate) struct Ipv6Packet<'p> {
-    header: Ipv6Repr,
+    pub(crate) header: Ipv6Repr,
     #[cfg(feature = "proto-ipv6-hbh")]
-    hop_by_hop: Option<Ipv6HopByHopRepr<'p>>,
+    pub(crate) hop_by_hop: Option<Ipv6HopByHopRepr<'p>>,
     #[cfg(feature = "proto-ipv6-fragmentation")]
-    fragment: Option<Ipv6FragmentRepr>,
+    pub(crate) fragment: Option<Ipv6FragmentRepr>,
     #[cfg(feature = "proto-ipv6-routing")]
-    routing: Option<Ipv6RoutingRepr<'p>>,
-    payload: IpPayload<'p>,
+    pub(crate) routing: Option<Ipv6RoutingRepr<'p>>,
+    pub(crate) payload: IpPayload<'p>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -180,6 +180,28 @@ pub(crate) enum IpPayload<'p> {
     Tcp(TcpRepr<'p>),
     #[cfg(feature = "socket-dhcpv4")]
     Dhcpv4(UdpRepr, DhcpRepr<'p>),
+}
+
+impl<'p> IpPayload<'p> {
+    #[cfg(feature = "proto-sixlowpan")]
+    pub(crate) fn as_sixlowpan_next_header(&self) -> SixlowpanNextHeader {
+        match self {
+            #[cfg(feature = "proto-ipv4")]
+            Self::Icmpv4(_) => unreachable!(),
+            #[cfg(feature = "socket-dhcpv4")]
+            Self::Dhcpv4(..) => unreachable!(),
+            #[cfg(feature = "proto-ipv6")]
+            Self::Icmpv6(_) => SixlowpanNextHeader::Uncompressed(IpProtocol::Icmpv6),
+            #[cfg(feature = "proto-igmp")]
+            Self::Igmp(_) => unreachable!(),
+            #[cfg(feature = "socket-tcp")]
+            Self::Tcp(_) => SixlowpanNextHeader::Uncompressed(IpProtocol::Tcp),
+            #[cfg(feature = "socket-udp")]
+            Self::Udp(..) => SixlowpanNextHeader::Compressed,
+            #[cfg(feature = "socket-raw")]
+            Self::Raw(_) => todo!(),
+        }
+    }
 }
 
 #[cfg(any(feature = "proto-ipv4", feature = "proto-ipv6"))]
