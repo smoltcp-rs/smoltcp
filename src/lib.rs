@@ -168,3 +168,13 @@ pub mod socket;
 pub mod storage;
 pub mod time;
 pub mod wire;
+
+#[cfg(all(
+    test,
+    any(
+        feature = "medium-ethernet",
+        feature = "medium-ip",
+        feature = "medium-ieee802154"
+    )
+))]
+mod tests;
