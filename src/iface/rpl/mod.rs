@@ -94,15 +94,17 @@ impl Config {
 #[derive(Debug, PartialEq, Eq)]
 pub struct RootConfig {
     instance_id: RplInstanceId,
+    dodag_id: Ipv6Address,
     preference: u8,
     dio_timer: TrickleTimer,
 }
 
 impl RootConfig {
     /// Create a new RPL Root configuration.
-    pub fn new(instance_id: RplInstanceId) -> Self {
+    pub fn new(instance_id: RplInstanceId, dodag_id: Ipv6Address) -> Self {
         Self {
             instance_id,
+            dodag_id,
             preference: 0,
             dio_timer: Default::default(),
         }
@@ -153,6 +155,7 @@ pub(crate) struct Dodag {
     pub authentication_enabled: bool,
     pub path_control_size: u8,
 
+    pub dtsn: SequenceCounter,
     pub default_lifetime: u8,
     pub lifetime_unit: u16,
     pub grounded: bool,
@@ -190,13 +193,42 @@ impl Dao {
 
 impl Rpl {
     pub fn new(config: Config, now: Instant) -> Self {
+        let (instance, dodag) = if let Some(root) = config.root {
+            (
+                Some(Instance { id: root.instance_id }),
+                Some(Dodag {
+                    id: root.dodag_id,
+                    version_number: SequenceCounter::default(),
+                    preference: root.preference,
+                    rank: Rank::ROOT,
+                    dio_timer: root.dio_timer,
+                    dao_expiration: now,
+                    parent: None,
+                    without_parent: None,
+                    authentication_enabled: false,
+                    path_control_size: 0,
+                    dtsn: SequenceCounter::default(),
+                    default_lifetime: 30,
+                    lifetime_unit: 60,
+                    grounded: false,
+                    dao_seq_number: SequenceCounter::default(),
+                    dao_acks: Default::default(),
+                    daos: Default::default(),
+                    parent_set: Default::default(),
+                    relations: Default::default(),
+                }),
+            )
+        } else {
+            (None, None)
+        };
+
         Self {
-            is_root: config.is_root(),
+            is_root: dodag.is_some(),
             mode_of_operation: config.mode_of_operation,
             of: Default::default(),
             dis_expiration: now + Duration::from_secs(5),
-            instance: None,
-            dodag: None,
+            instance,
+            dodag,
         }
     }
 
@@ -208,23 +240,64 @@ impl Rpl {
         false
     }
 
+    /// ## Panics
+    /// This function will panic if the node is not part of a DODAG.
     pub(crate) fn dodag_configuration<'o>(&self) -> RplOptionRepr<'o> {
-        todo!()
+        let dodag = self.dodag.as_ref().unwrap();
+
+        // FIXME: I think we need to convert from seconds to something else, not sure what.
+        let dio_interval_doublings = dodag.dio_timer.i_max as u8 - dodag.dio_timer.i_min as u8;
+
+        RplOptionRepr::DodagConfiguration {
+            authentication_enabled: dodag.authentication_enabled,
+            path_control_size: dodag.path_control_size,
+            dio_interval_doublings,
+            dio_interval_min: dodag.dio_timer.i_min as u8,
+            dio_redundancy_constant: dodag.dio_timer.k as u8,
+            max_rank_increase: self.of.max_rank_increase(),
+            minimum_hop_rank_increase: self.of.min_hop_rank_increase(),
+            objective_code_point: self.of.objective_code_point(),
+            default_lifetime: dodag.default_lifetime,
+            lifetime_unit: dodag.lifetime_unit,
+        }
     }
 
+    /// ## Panics
+    /// This function will panic if the node is not part of a DODAG.
     pub(crate) fn dodag_information_object<'o>(
         &self,
         options: heapless::Vec<RplOptionRepr<'o>, 2>,
     ) -> RplRepr<'o> {
-        todo!()
+        let dodag = self.dodag.as_ref().unwrap();
+
+        RplRepr::DodagInformationObject {
+            rpl_instance_id: self.instance.unwrap().id,
+            version_number: dodag.version_number.value(),
+            rank: dodag.rank.raw_value(),
+            grounded: dodag.grounded,
+            mode_of_operation: self.mode_of_operation.into(),
+            dodag_preference: dodag.preference,
+            dtsn: dodag.dtsn.value(),
+            dodag_id: dodag.id,
+            options,
+        }
     }
 
+    /// ## Panics
+    /// This function will panic if the node is not part of a DODAG.
     pub(crate) fn destination_advertisement_object<'o>(
         &self,
         sequence: SequenceCounter,
         options: heapless::Vec<RplOptionRepr<'o>, 2>,
     ) -> RplRepr<'o> {
-        todo!()
+        let dodag = self.dodag.as_ref().unwrap();
+        RplRepr::DestinationAdvertisementObject {
+            rpl_instance_id: self.instance.unwrap().id,
+            expect_ack: true,
+            sequence: sequence.value(),
+            dodag_id: Some(dodag.id),
+            options,
+        }
     }
 }
 

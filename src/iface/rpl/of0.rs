@@ -12,6 +12,8 @@ pub(crate) trait ObjectiveFunction: Default {
     /// Return the preferred parent from a given parent set.
     fn preferred_parent(&self, parent_set: &ParentSet) -> Option<Ipv6Address>;
 
+    fn objective_code_point(&self) -> u16;
+
     /// Return the MaxRankIncrease value of an Objective Function.
     fn max_rank_increase(&self) -> u16;
     /// Set the MaxRankIncrease value of an Objective Function.
@@ -85,6 +87,10 @@ impl ObjectiveFunction for ObjectiveFunction0 {
         }
 
         pref_addr
+    }
+
+    fn objective_code_point(&self) -> u16 {
+        Self::OCP
     }
 
     fn max_rank_increase(&self) -> u16 {
