@@ -857,7 +857,7 @@ mod tests {
                 dodag_id: Some(Ipv6Address::from_bytes(&[
                     253, 0, 0, 0, 0, 0, 0, 0, 2, 1, 0, 1, 0, 1, 0, 1,
                 ])),
-                options: &[],
+                options: heapless::Vec::new(),
             })),
         };
 
@@ -915,6 +915,23 @@ mod tests {
             }))
             .unwrap();
 
+        let mut options = heapless::Vec::new();
+        options
+            .push(RplOptionRepr::RplTarget {
+                prefix_length: 128,
+                prefix: addr,
+            })
+            .unwrap();
+        options
+            .push(RplOptionRepr::TransitInformation {
+                external: false,
+                path_control: 0,
+                path_sequence: 0,
+                path_lifetime: 30,
+                parent_address: Some(parent_address),
+            })
+            .unwrap();
+
         let mut ip_packet = PacketV6 {
             header: Ipv6Repr {
                 src_addr: addr,
@@ -938,10 +955,7 @@ mod tests {
                 dodag_id: Some(Ipv6Address::from_bytes(&[
                     253, 0, 0, 0, 0, 0, 0, 0, 2, 1, 0, 1, 0, 1, 0, 1,
                 ])),
-                options: &[
-                    5, 18, 0, 128, 253, 0, 0, 0, 0, 0, 0, 0, 2, 3, 0, 3, 0, 3, 0, 3, 6, 20, 0, 0,
-                    0, 30, 253, 0, 0, 0, 0, 0, 0, 0, 2, 1, 0, 1, 0, 1, 0, 1,
-                ],
+                options,
             })),
         };
 

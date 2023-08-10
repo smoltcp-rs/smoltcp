@@ -568,7 +568,7 @@ impl<T: AsRef<[u8]>> AsRef<[u8]> for Packet<T> {
 }
 
 /// A high-level representation of an Internet Control Message Protocol version 6 packet header.
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Repr<'a> {

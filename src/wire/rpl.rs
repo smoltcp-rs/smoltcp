@@ -604,11 +604,13 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+type RplOptions<'p> = heapless::Vec<options::Repr<'p>, { crate::config::RPL_MAX_OPTIONS }>;
+
+#[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Repr<'p> {
     DodagInformationSolicitation {
-        options: &'p [u8],
+        options: RplOptions<'p>,
     },
     DodagInformationObject {
         rpl_instance_id: InstanceId,
@@ -619,14 +621,14 @@ pub enum Repr<'p> {
         dodag_preference: u8,
         dtsn: u8,
         dodag_id: Address,
-        options: &'p [u8],
+        options: RplOptions<'p>,
     },
     DestinationAdvertisementObject {
         rpl_instance_id: InstanceId,
         expect_ack: bool,
         sequence: u8,
         dodag_id: Option<Address>,
-        options: &'p [u8],
+        options: RplOptions<'p>,
     },
     DestinationAdvertisementObjectAck {
         rpl_instance_id: InstanceId,
@@ -705,7 +707,7 @@ impl core::fmt::Display for Repr<'_> {
 }
 
 impl<'p> Repr<'p> {
-    pub fn set_options(&mut self, options: &'p [u8]) {
+    pub fn set_options(&mut self, options: RplOptions<'p>) {
         let opts = match self {
             Repr::DodagInformationSolicitation { options } => options,
             Repr::DodagInformationObject { options, .. } => options,
@@ -719,7 +721,14 @@ impl<'p> Repr<'p> {
     pub fn parse<T: AsRef<[u8]> + ?Sized>(packet: &Packet<&'p T>) -> Result<Self> {
         packet.check_len()?;
 
-        let options = packet.options()?;
+        let mut options = heapless::Vec::new();
+
+        let iter = options::OptionsIterator::new(packet.options()?);
+        for opt in iter {
+            let opt = opt?;
+            options.push(opt).unwrap();
+        }
+
         match RplControlMessage::from(packet.msg_code()) {
             RplControlMessage::DodagInformationSolicitation => {
                 Ok(Repr::DodagInformationSolicitation { options })
@@ -788,7 +797,7 @@ impl<'p> Repr<'p> {
             Repr::DestinationAdvertisementObjectAck { .. } => &[],
         };
 
-        len += opts.len();
+        len += opts.iter().map(|o| o.buffer_len()).sum::<usize>();
 
         len
     }
@@ -858,7 +867,12 @@ impl<'p> Repr<'p> {
             Repr::DestinationAdvertisementObjectAck { .. } => &[],
         };
 
-        packet.options_mut().copy_from_slice(options);
+        let mut buffer = packet.options_mut();
+        for opt in options {
+            let len = opt.buffer_len();
+            opt.emit(&mut options::Packet::new_unchecked(&mut buffer[..len]));
+            buffer = &mut buffer[len..];
+        }
     }
 }
 
@@ -2226,6 +2240,61 @@ pub mod options {
             }
         }
     }
+
+    /// A iterator for RPL options.
+    #[derive(Debug)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+    pub struct OptionsIterator<'a> {
+        pos: usize,
+        length: usize,
+        data: &'a [u8],
+        hit_error: bool,
+    }
+
+    impl<'a> OptionsIterator<'a> {
+        /// Create a new `OptionsIterator`, used to iterate over the
+        /// options contained in a RPL header.
+        pub fn new(data: &'a [u8]) -> Self {
+            let length = data.len();
+            Self {
+                pos: 0,
+                hit_error: false,
+                length,
+                data,
+            }
+        }
+    }
+
+    impl<'a> Iterator for OptionsIterator<'a> {
+        type Item = Result<Repr<'a>>;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            if self.pos < self.length && !self.hit_error {
+                // If we still have data to parse and we have not previously
+                // hit an error, attempt to parse the next option.
+                match Packet::new_checked(&self.data[self.pos..]) {
+                    Ok(hdr) => match Repr::parse(&hdr) {
+                        Ok(repr) => {
+                            self.pos += repr.buffer_len();
+                            Some(Ok(repr))
+                        }
+                        Err(e) => {
+                            self.hit_error = true;
+                            Some(Err(e))
+                        }
+                    },
+                    Err(e) => {
+                        self.hit_error = true;
+                        Some(Err(e))
+                    }
+                }
+            } else {
+                // If we failed to parse a previous option or hit the end of the
+                // buffer, we do not continue to iterate.
+                None
+            }
+        }
+    }
 }
 
 pub mod data {
@@ -2550,18 +2619,10 @@ mod tests {
             _ => unreachable!(),
         }
 
-        let mut options_buffer =
-            vec![0u8; dodag_conf_option.buffer_len() + prefix_info_option.buffer_len()];
-
-        dodag_conf_option.emit(&mut OptionPacket::new_unchecked(
-            &mut options_buffer[..dodag_conf_option.buffer_len()],
-        ));
-        prefix_info_option.emit(&mut OptionPacket::new_unchecked(
-            &mut options_buffer[dodag_conf_option.buffer_len()..]
-                [..prefix_info_option.buffer_len()],
-        ));
-
-        dio_repr.set_options(&options_buffer[..]);
+        let mut options = heapless::Vec::new();
+        options.push(dodag_conf_option).unwrap();
+        options.push(prefix_info_option).unwrap();
+        dio_repr.set_options(options);
 
         let mut buffer = vec![0u8; dio_repr.buffer_len()];
         dio_repr.emit(&mut Packet::new_unchecked(&mut buffer[..]));
@@ -2640,18 +2701,10 @@ mod tests {
             _ => unreachable!(),
         }
 
-        let mut options_buffer =
-            vec![0u8; rpl_target_option.buffer_len() + transit_info_option.buffer_len()];
-
-        rpl_target_option.emit(&mut OptionPacket::new_unchecked(
-            &mut options_buffer[..rpl_target_option.buffer_len()],
-        ));
-        transit_info_option.emit(&mut OptionPacket::new_unchecked(
-            &mut options_buffer[rpl_target_option.buffer_len()..]
-                [..transit_info_option.buffer_len()],
-        ));
-
-        dao_repr.set_options(&options_buffer[..]);
+        let mut options = heapless::Vec::new();
+        options.push(rpl_target_option).unwrap();
+        options.push(transit_info_option).unwrap();
+        dao_repr.set_options(options);
 
         let mut buffer = vec![0u8; dao_repr.buffer_len()];
         dao_repr.emit(&mut Packet::new_unchecked(&mut buffer[..]));
