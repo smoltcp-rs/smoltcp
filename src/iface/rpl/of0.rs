@@ -107,6 +107,7 @@ impl ObjectiveFunction for ObjectiveFunction0 {
 #[cfg(test)]
 mod tests {
     use crate::iface::rpl::consts::DEFAULT_MIN_HOP_RANK_INCREASE;
+    use crate::time::Instant;
 
     use super::*;
 
@@ -150,7 +151,12 @@ mod tests {
 
         parents.add(
             Ipv6Address::default(),
-            Parent::new(Rank::ROOT, Default::default(), Ipv6Address::default()),
+            Parent::new(
+                Rank::ROOT,
+                Default::default(),
+                Ipv6Address::default(),
+                Instant::now(),
+            ),
         );
 
         let mut address = Ipv6Address::default();
@@ -162,6 +168,7 @@ mod tests {
                 Rank::new(1024, DEFAULT_MIN_HOP_RANK_INCREASE),
                 Default::default(),
                 Ipv6Address::default(),
+                Instant::now(),
             ),
         );
 

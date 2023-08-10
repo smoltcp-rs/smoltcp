@@ -85,10 +85,11 @@ mod tests {
 
     #[test]
     fn add_parent() {
+        let now = Instant::now();
         let mut set = ParentSet::default();
         set.add(
             Default::default(),
-            Parent::new(Rank::ROOT, Default::default(), Default::default()),
+            Parent::new(Rank::ROOT, Default::default(), Default::default(), now),
         );
 
         assert_eq!(
@@ -96,13 +97,15 @@ mod tests {
             Some(&Parent::new(
                 Rank::ROOT,
                 Default::default(),
-                Default::default()
+                Default::default(),
+                now,
             ))
         );
     }
 
     #[test]
     fn add_more_parents() {
+        let now = Instant::now();
         use super::super::consts::DEFAULT_MIN_HOP_RANK_INCREASE;
         let mut set = ParentSet::default();
 
@@ -119,6 +122,7 @@ mod tests {
                     Rank::new(256 * i, DEFAULT_MIN_HOP_RANK_INCREASE),
                     Default::default(),
                     address,
+                    now,
                 ),
             );
 
@@ -128,6 +132,7 @@ mod tests {
                     Rank::new(256 * i, DEFAULT_MIN_HOP_RANK_INCREASE),
                     Default::default(),
                     address,
+                    now,
                 ))
             );
         }
@@ -142,6 +147,7 @@ mod tests {
                 Rank::new(256 * 8, DEFAULT_MIN_HOP_RANK_INCREASE),
                 Default::default(),
                 address,
+                now,
             ),
         );
         assert_eq!(set.find(&address), None);
@@ -155,6 +161,7 @@ mod tests {
                 Rank::new(0, DEFAULT_MIN_HOP_RANK_INCREASE),
                 Default::default(),
                 address,
+                now,
             ),
         );
         assert_eq!(
@@ -162,7 +169,8 @@ mod tests {
             Some(&Parent::new(
                 Rank::new(0, DEFAULT_MIN_HOP_RANK_INCREASE),
                 Default::default(),
-                address
+                address,
+                now,
             ))
         );
         assert_eq!(set.find(&last_address), None);
