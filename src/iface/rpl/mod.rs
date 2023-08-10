@@ -23,7 +23,6 @@ pub use trickle::TrickleTimer;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModeOfOperation {
-    #[cfg(feature = "rpl-mop-0")]
     NoDownwardRoutesMaintained,
     #[cfg(feature = "rpl-mop-1")]
     NonStoringMode,
