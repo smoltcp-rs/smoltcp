@@ -65,9 +65,9 @@ There are 3 supported mediums.
   
   * Implementation of [RFC6282](https://tools.ietf.org/rfc/rfc6282.txt).
   * Fragmentation is supported, as defined in [RFC4944](https://tools.ietf.org/rfc/rfc4944.txt).
-  * UDP header compression is supported.
-  * Extension header compression is **not** supported (will be soon™).
-  * Uncompressed IP headers are supported.
+  * UDP header compression/decompression is supported.
+  * Extension header compression/decompression is supported.
+  * Uncompressed IPv6 Extension Headers are **not** supported.
 
 ### IP multicast
 
