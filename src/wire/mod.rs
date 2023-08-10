@@ -123,7 +123,7 @@ mod ndisc;
 ))]
 mod ndiscoption;
 #[cfg(feature = "proto-rpl")]
-mod rpl;
+pub(crate) mod rpl;
 #[cfg(all(feature = "proto-sixlowpan", feature = "medium-ieee802154"))]
 mod sixlowpan;
 mod tcp;
