@@ -1330,7 +1330,7 @@ mod test {
     }
 }
 
-// #[cfg(kani)]
+#[cfg(kani)]
 mod verification {
 
     extern crate kani;
@@ -1504,7 +1504,7 @@ mod verification {
                 3 => Control::Syn,
                 4 => Control::Fin,
                 5 => Control::Rst,
-                _ => panic!("Should be unreachable!")
+                _ => unreachable!()
             }
         }
     }
@@ -1566,5 +1566,42 @@ mod verification {
         let repr: Repr = kani::any();
         assert_eq!(repr.header_len() % 4, 0); // Should e.g. be 28 instead of 27.
     }
-       
+
+    impl<'a> kani::Arbitrary for TcpOption<'a> {
+        #[inline]
+        fn any() -> Self {
+            let option: u8 = kani::any_where(|v| *v >= 1 && *v <= 7);
+            return match option {
+                1 => TcpOption::EndOfList,
+                2 => TcpOption::NoOperation,
+                3 => TcpOption::MaxSegmentSize(kani::any()),
+                4 => TcpOption::WindowScale(kani::any()),
+                5 => TcpOption::SackPermitted,
+                6 => {
+                    let range_type: u8 = kani::any_where(|v| *v >= 1 && *v <= 3);
+                    let ranges: [Option<(u32, u32)>; 3] = match range_type {
+                        1 => [Some((kani::any(), kani::any())), None, None],
+                        2 => [Some((kani::any(), kani::any())), Some((kani::any(), kani::any())), None],
+                        3 => [Some((kani::any(), kani::any())), Some((kani::any(), kani::any())), Some((kani::any(), kani::any()))],
+                        _ => unreachable!()
+                    };
+                    return TcpOption::SackRange(ranges);
+                },
+                7 => TcpOption::Unknown { kind: kani::any_where(|v| *v > 5) , data: kani::vec::exact_vec::<u8, 3>().leak() },
+                _ => unreachable!()
+            };       
+        }
+    }
+
+    #[kani::proof]
+    #[kani::unwind(15)]
+    fn prove_tcpoption_invertible() {
+        let option: TcpOption = kani::any();
+        let buffer = &mut [0; 40][..option.buffer_len()];
+        assert_eq!(option.emit(buffer), &mut []);
+
+        let option_out = TcpOption::parse(&*buffer);
+        assert!(option_out.is_ok());
+        assert_eq!(option, option_out.unwrap().1);
+    }
 }
