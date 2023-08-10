@@ -22,3 +22,12 @@ pub use self::interface::{Config, Interface, InterfaceInner as Context};
 
 pub use self::route::{Route, RouteTableFull, Routes};
 pub use self::socket_set::{SocketHandle, SocketSet, SocketStorage};
+
+#[cfg(feature = "proto-rpl")]
+pub use self::rpl::{
+    Config as RplConfig, ModeOfOperation as RplModeOfOperation, RootConfig as RplRootConfig,
+    RplInstanceId, TrickleTimer,
+};
+
+#[cfg(feature = "proto-rpl")]
+use self::rpl::Rpl;

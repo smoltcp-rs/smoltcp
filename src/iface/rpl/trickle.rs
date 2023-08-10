@@ -17,9 +17,9 @@ use crate::{
 #[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct TrickleTimer {
-    i_min: u32,
-    i_max: u32,
-    k: usize,
+    pub(crate) i_min: u32,
+    pub(crate) i_max: u32,
+    pub(crate) k: usize,
 
     i: Duration,
     t: Duration,
@@ -28,7 +28,7 @@ pub struct TrickleTimer {
     counter: usize,
 }
 
-impl TrickleTimer {
+impl Default for TrickleTimer {
     /// Creat a new Trickle timer using the default values.
     ///
     /// **NOTE**: the standard defines I as a random value between [Imin, Imax]. However, this
@@ -39,7 +39,7 @@ impl TrickleTimer {
     /// don't use the default values from the standard, but the values from the _Enhanced Trickle
     /// Algorithm for Low-Power and Lossy Networks_ from Baraq Ghaleb et al. This is also what the
     /// Contiki Trickle timer does.
-    pub(crate) fn default() -> Self {
+    fn default() -> Self {
         use super::consts::{
             DEFAULT_DIO_INTERVAL_DOUBLINGS, DEFAULT_DIO_INTERVAL_MIN,
             DEFAULT_DIO_REDUNDANCY_CONSTANT,
@@ -51,7 +51,9 @@ impl TrickleTimer {
             DEFAULT_DIO_REDUNDANCY_CONSTANT,
         )
     }
+}
 
+impl TrickleTimer {
     /// Create a new Trickle timer.
     pub(crate) fn new(i_min: u32, i_max: u32, k: usize) -> Self {
         let mut timer = Self {
@@ -78,7 +80,6 @@ impl TrickleTimer {
             self.i_exp = now + self.i;
             self.set_t(now, rand);
         }
-
 
         let can_transmit = self.can_transmit() && self.t_expired(now);
 
@@ -137,6 +138,18 @@ impl TrickleTimer {
         self.i_exp = now + self.i;
         self.counter = 0;
         self.set_t(now, rand);
+    }
+
+    pub(crate) fn interval_doublings(&self) -> u8 {
+        todo!();
+    }
+
+    pub(crate) fn interval_min(&self) -> u8 {
+        todo!();
+    }
+
+    pub(crate) fn redundancy_constant(&self) -> u8 {
+        todo!();
     }
 
     pub(crate) const fn max_expiration(&self) -> Duration {

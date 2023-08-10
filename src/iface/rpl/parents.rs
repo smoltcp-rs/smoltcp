@@ -1,3 +1,4 @@
+use crate::time::Instant;
 use crate::wire::Ipv6Address;
 
 use super::{lollipop::SequenceCounter, rank::Rank};
@@ -5,31 +6,26 @@ use crate::config::RPL_PARENTS_BUFFER_COUNT;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Parent {
-    rank: Rank,
-    preference: u8,
-    version_number: SequenceCounter,
-    dodag_id: Ipv6Address,
+    pub dodag_id: Ipv6Address,
+    pub rank: Rank,
+    pub version_number: SequenceCounter,
+    pub last_heard: Instant,
 }
 
 impl Parent {
     /// Create a new parent.
     pub(crate) fn new(
-        preference: u8,
         rank: Rank,
         version_number: SequenceCounter,
         dodag_id: Ipv6Address,
+        last_heard: Instant,
     ) -> Self {
         Self {
             rank,
-            preference,
             version_number,
             dodag_id,
+            last_heard,
         }
-    }
-
-    /// Return the Rank of the parent.
-    pub(crate) fn rank(&self) -> &Rank {
-        &self.rank
     }
 }
 
@@ -56,6 +52,10 @@ impl ParentSet {
                 unreachable!()
             }
         }
+    }
+
+    pub(crate) fn remove(&mut self, address: &Ipv6Address) {
+        self.parents.remove(address);
     }
 
     /// Find a parent based on its address.
@@ -88,13 +88,12 @@ mod tests {
         let mut set = ParentSet::default();
         set.add(
             Default::default(),
-            Parent::new(0, Rank::ROOT, Default::default(), Default::default()),
+            Parent::new(Rank::ROOT, Default::default(), Default::default()),
         );
 
         assert_eq!(
             set.find(&Default::default()),
             Some(&Parent::new(
-                0,
                 Rank::ROOT,
                 Default::default(),
                 Default::default()
@@ -117,7 +116,6 @@ mod tests {
             set.add(
                 address,
                 Parent::new(
-                    0,
                     Rank::new(256 * i, DEFAULT_MIN_HOP_RANK_INCREASE),
                     Default::default(),
                     address,
@@ -127,7 +125,6 @@ mod tests {
             assert_eq!(
                 set.find(&address),
                 Some(&Parent::new(
-                    0,
                     Rank::new(256 * i, DEFAULT_MIN_HOP_RANK_INCREASE),
                     Default::default(),
                     address,
@@ -142,7 +139,6 @@ mod tests {
         set.add(
             address,
             Parent::new(
-                0,
                 Rank::new(256 * 8, DEFAULT_MIN_HOP_RANK_INCREASE),
                 Default::default(),
                 address,
@@ -156,7 +152,6 @@ mod tests {
         set.add(
             address,
             Parent::new(
-                0,
                 Rank::new(0, DEFAULT_MIN_HOP_RANK_INCREASE),
                 Default::default(),
                 address,
@@ -165,7 +160,6 @@ mod tests {
         assert_eq!(
             set.find(&address),
             Some(&Parent::new(
-                0,
                 Rank::new(0, DEFAULT_MIN_HOP_RANK_INCREASE),
                 Default::default(),
                 address
