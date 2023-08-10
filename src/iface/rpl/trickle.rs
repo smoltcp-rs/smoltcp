@@ -39,7 +39,7 @@ impl TrickleTimer {
     /// don't use the default values from the standard, but the values from the _Enhanced Trickle
     /// Algorithm for Low-Power and Lossy Networks_ from Baraq Ghaleb et al. This is also what the
     /// Contiki Trickle timer does.
-    pub(crate) fn default(now: Instant, rand: &mut Rand) -> Self {
+    pub(crate) fn default() -> Self {
         use super::consts::{
             DEFAULT_DIO_INTERVAL_DOUBLINGS, DEFAULT_DIO_INTERVAL_MIN,
             DEFAULT_DIO_REDUNDANCY_CONSTANT,
@@ -49,13 +49,11 @@ impl TrickleTimer {
             DEFAULT_DIO_INTERVAL_MIN,
             DEFAULT_DIO_INTERVAL_MIN + DEFAULT_DIO_INTERVAL_DOUBLINGS,
             DEFAULT_DIO_REDUNDANCY_CONSTANT,
-            now,
-            rand,
         )
     }
 
     /// Create a new Trickle timer.
-    pub(crate) fn new(i_min: u32, i_max: u32, k: usize, now: Instant, rand: &mut Rand) -> Self {
+    pub(crate) fn new(i_min: u32, i_max: u32, k: usize) -> Self {
         let mut timer = Self {
             i_min,
             i_max,
@@ -68,10 +66,7 @@ impl TrickleTimer {
         };
 
         timer.i = Duration::from_millis(2u32.pow(timer.i_min) as u64);
-        timer.i_exp = now + timer.i;
         timer.counter = 0;
-
-        timer.set_t(now, rand);
 
         timer
     }
@@ -79,6 +74,12 @@ impl TrickleTimer {
     /// Poll the Trickle timer. Returns `true` when the Trickle timer signals that a message can be
     /// transmitted. This happens when the Trickle timer expires.
     pub(crate) fn poll(&mut self, now: Instant, rand: &mut Rand) -> bool {
+        if self.i_exp == Instant::ZERO {
+            self.i_exp = now + self.i;
+            self.set_t(now, rand);
+        }
+
+
         let can_transmit = self.can_transmit() && self.t_expired(now);
 
         if can_transmit {
@@ -174,7 +175,7 @@ mod tests {
     fn trickle_timer_intervals() {
         let mut rand = Rand::new(1234);
         let mut now = Instant::ZERO;
-        let mut trickle = TrickleTimer::default(now, &mut rand);
+        let mut trickle = TrickleTimer::default();
 
         let mut previous_i = trickle.i;
 
@@ -202,7 +203,7 @@ mod tests {
     fn trickle_timer_hear_inconsistency() {
         let mut rand = Rand::new(1234);
         let mut now = Instant::ZERO;
-        let mut trickle = TrickleTimer::default(now, &mut rand);
+        let mut trickle = TrickleTimer::default();
 
         trickle.counter = 1;
 
@@ -236,7 +237,7 @@ mod tests {
     fn trickle_timer_hear_consistency() {
         let mut rand = Rand::new(1234);
         let mut now = Instant::ZERO;
-        let mut trickle = TrickleTimer::default(now, &mut rand);
+        let mut trickle = TrickleTimer::default();
 
         trickle.counter = 1;
 
