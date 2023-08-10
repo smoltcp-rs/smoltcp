@@ -13,8 +13,8 @@ use crate::socket::{Context, PollAt};
 use crate::storage::{Assembler, RingBuffer};
 use crate::time::{Duration, Instant};
 use crate::wire::{
-    IpAddress, IpEndpoint, IpListenEndpoint, IpProtocol, IpRepr, TcpControl, TcpRepr, TcpSeqNumber,
-    TCP_HEADER_LEN,
+    ETHERNET_HEADER_LEN, IpAddress, IpEndpoint, IpListenEndpoint, IpProtocol, IpRepr, ip::Version, TcpControl, TcpRepr,
+    TcpSeqNumber, TCP_HEADER_LEN,
 };
 
 macro_rules! tcp_trace {
@@ -2191,13 +2191,24 @@ impl<'a> Socket<'a> {
                     0
                 };
 
-                // Maximum size we're allowed to send. This can be limited by 3 factors:
-                // 1. remote window
-                // 2. MSS the remote is willing to accept, probably determined by their MTU
-                // 3. MSS we can send, determined by our MTU.
-                let size = win_limit
-                    .min(self.remote_mss)
-                    .min(cx.ip_mtu() - ip_repr.header_len() - TCP_HEADER_LEN);
+                let tso = match ip_repr.version() {
+                    #[cfg(feature = "proto-ipv4")]
+                    Version::Ipv4 => cx.tso4(),
+                    #[cfg(feature = "proto-ipv6")]
+                    Version::Ipv6 => cx.tso6(),
+                };
+
+                let size = if tso {
+                    win_limit.min(u16::MAX as usize - ETHERNET_HEADER_LEN - ip_repr.header_len() - TCP_HEADER_LEN)
+                } else {
+                    // Maximum size we're allowed to send. This can be limited by 3 factors:
+                    // 1. remote window
+                    // 2. MSS the remote is willing to accept, probably determined by their MTU
+                    // 3. MSS we can send, determined by our MTU.
+                    win_limit
+                        .min(self.remote_mss)
+                        .min(cx.ip_mtu() - ip_repr.header_len() - TCP_HEADER_LEN)
+                };
 
                 let offset = self.remote_last_seq - self.local_seq_no;
                 repr.payload = self.tx_buffer.get_allocated(offset, size);

@@ -921,6 +921,16 @@ impl InterfaceInner {
         self.caps.ip_mtu()
     }
 
+    #[allow(unused)] // unused depending on which sockets are enabled
+    pub(crate) fn tso4(&self) -> bool {
+        self.caps.tso4()
+    }
+
+    #[allow(unused)] // unused depending on which sockets are enabled
+    pub(crate) fn tso6(&self) -> bool {
+        self.caps.tso6()
+    }
+
     #[allow(unused)] // unused depending on which sockets are enabled, and in tests
     pub(crate) fn rand(&mut self) -> &mut Rand {
         &mut self.rand
@@ -1635,7 +1645,7 @@ impl InterfaceInner {
             #[cfg(feature = "proto-ipv4")]
             IpRepr::Ipv4(repr) => {
                 // If we have an IPv4 packet, then we need to check if we need to fragment it.
-                if total_ip_len > self.caps.max_transmission_unit {
+                if total_ip_len > self.caps.max_transmission_unit && !self.caps.tso.tso4() {
                     #[cfg(feature = "proto-ipv4-fragmentation")]
                     {
                         net_debug!("start fragmentation");
@@ -1728,16 +1738,20 @@ impl InterfaceInner {
             }
             // We don't support IPv6 fragmentation yet.
             #[cfg(feature = "proto-ipv6")]
-            IpRepr::Ipv6(_) => tx_token.consume(total_len, |mut tx_buffer| {
-                #[cfg(feature = "medium-ethernet")]
-                if matches!(self.caps.medium, Medium::Ethernet) {
-                    emit_ethernet(&ip_repr, tx_buffer)?;
-                    tx_buffer = &mut tx_buffer[EthernetFrame::<&[u8]>::header_len()..];
-                }
+            IpRepr::Ipv6(_) => {
+                tx_token.set_meta(meta);
 
-                emit_ip(&ip_repr, tx_buffer);
-                Ok(())
-            }),
+                tx_token.consume(total_len, |mut tx_buffer| {
+                    #[cfg(feature = "medium-ethernet")]
+                    if matches!(self.caps.medium, Medium::Ethernet) {
+                        emit_ethernet(&ip_repr, tx_buffer)?;
+                        tx_buffer = &mut tx_buffer[EthernetFrame::<&[u8]>::header_len()..];
+                    }
+
+                    emit_ip(&ip_repr, tx_buffer);
+                    Ok(())
+                })
+            },
         }
     }
 }

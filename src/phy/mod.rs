@@ -224,6 +224,39 @@ impl ChecksumCapabilities {
     }
 }
 
+/// Describes if the device supports TCP segment offloading (TSO).
+#[derive(Debug, Copy, Clone, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum TsoCapabilities {
+    /// Supports TSO for IPv4 and IPv6
+    Both,
+    /// Supports TSO for IPv4
+    Tso4,
+    /// Supports TSO for IPv6
+    Tso6,
+    /// Doesn't support TSO
+    #[default]
+    None,
+}
+
+impl TsoCapabilities {
+    /// Returns true if TCP segment offloading is supported for IPv4
+    pub fn tso4(&self) -> bool {
+        match *self {
+            TsoCapabilities::Both | TsoCapabilities::Tso4 => true,
+            _ => false,
+        }
+    }
+
+    /// Returns true if TCP segment offloading is supported for IPv6
+    pub fn tso6(&self) -> bool {
+        match *self {
+            TsoCapabilities::Both | TsoCapabilities::Tso6 => true,
+            _ => false,
+        }
+    }
+}
+
 /// A description of device capabilities.
 ///
 /// Higher-level protocols may achieve higher throughput or lower latency if they consider
@@ -267,6 +300,12 @@ pub struct DeviceCapabilities {
     /// If the network device is capable of verifying or computing checksums for some protocols,
     /// it can request that the stack not do so in software to improve performance.
     pub checksum: ChecksumCapabilities,
+
+    /// TCP segmentation offload (TSO) support
+    ///
+    /// If the network device is able to support TCP segmentation offloading (TSO),
+    /// the stack forward the segementation to the harware to improve qthe performance.
+    pub tso: TsoCapabilities,
 }
 
 impl DeviceCapabilities {
@@ -281,6 +320,14 @@ impl DeviceCapabilities {
             #[cfg(feature = "medium-ieee802154")]
             Medium::Ieee802154 => self.max_transmission_unit, // TODO(thvdveld): what is the MTU for Medium::IEEE802
         }
+    }
+
+    pub fn tso4(&self) -> bool {
+        self.tso.tso4()
+    }
+
+    pub fn tso6(&self) -> bool {
+        self.tso.tso6()
     }
 }
 
