@@ -16,7 +16,7 @@ use crate::{
 
 #[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub(crate) struct TrickleTimer {
+pub struct TrickleTimer {
     i_min: u32,
     i_max: u32,
     k: usize,
