@@ -17,7 +17,7 @@ pub(crate) fn setup<'a>(medium: Medium) -> (Interface, SocketSet<'a>, TestingDev
         ])),
     });
 
-    #[cfg(feature = "rpl-mop-0")]
+    #[cfg(feature = "proto-rpl")]
     let config = Config {
         rpl_config: Some(RplConfig::new(
             RplModeOfOperation::NoDownwardRoutesMaintained,
