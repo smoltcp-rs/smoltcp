@@ -41,6 +41,8 @@ use super::fragmentation::{Fragmenter, FragmentsBuffer};
 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
 use super::neighbor::{Answer as NeighborAnswer, Cache as NeighborCache};
 use super::socket_set::SocketSet;
+#[cfg(feature = "proto-rpl")]
+use super::RplConfig;
 use crate::config::{
     IFACE_MAX_ADDR_COUNT, IFACE_MAX_MULTICAST_GROUP_COUNT,
     IFACE_MAX_SIXLOWPAN_ADDRESS_CONTEXT_COUNT,
@@ -117,6 +119,9 @@ pub struct InterfaceInner {
     /// When to report for (all or) the next multicast group membership via IGMP
     #[cfg(feature = "proto-igmp")]
     igmp_report_state: IgmpReportState,
+
+    #[cfg(feature = "proto-rpl")]
+    rpl: super::Rpl,
 }
 
 /// Configuration structure used for creating a network interface.
@@ -141,6 +146,9 @@ pub struct Config {
     /// **NOTE**: we use the same PAN ID for destination and source.
     #[cfg(feature = "medium-ieee802154")]
     pub pan_id: Option<Ieee802154Pan>,
+
+    #[cfg(feature = "proto-rpl")]
+    pub rpl_config: Option<RplConfig>,
 }
 
 impl Config {
@@ -150,6 +158,8 @@ impl Config {
             hardware_addr,
             #[cfg(feature = "medium-ieee802154")]
             pan_id: None,
+            #[cfg(feature = "proto-rpl")]
+            rpl_config: None,
         }
     }
 }
@@ -241,6 +251,9 @@ impl Interface {
                 #[cfg(feature = "proto-sixlowpan")]
                 sixlowpan_address_context: Vec::new(),
                 rand,
+
+                #[cfg(feature = "proto-rpl")]
+                rpl: super::Rpl::new(config.rpl_config.unwrap(), now),
             },
         }
     }
@@ -434,6 +447,9 @@ impl Interface {
             }
         }
 
+        #[cfg(feature = "proto-rpl")]
+        self.poll_rpl(device);
+
         let mut readiness_may_have_changed = false;
 
         loop {
@@ -472,22 +488,243 @@ impl Interface {
             return Some(Instant::from_millis(0));
         }
 
-        let inner = &mut self.inner;
+        #[cfg(feature = "proto-rpl")]
+        let poll_at_rpl = self.poll_at_rpl();
 
-        sockets
-            .items()
-            .filter_map(move |item| {
-                let socket_poll_at = item.socket.poll_at(inner);
-                match item
-                    .meta
-                    .poll_at(socket_poll_at, |ip_addr| inner.has_neighbor(&ip_addr))
-                {
-                    PollAt::Ingress => None,
-                    PollAt::Time(instant) => Some(instant),
-                    PollAt::Now => Some(Instant::from_millis(0)),
+        let inner = &mut self.inner;
+        let poll_at = sockets.items().filter_map(move |item| {
+            let socket_poll_at = item.socket.poll_at(inner);
+            match item
+                .meta
+                .poll_at(socket_poll_at, |ip_addr| inner.has_neighbor(&ip_addr))
+            {
+                PollAt::Ingress => None,
+                PollAt::Time(instant) => Some(instant),
+                PollAt::Now => Some(Instant::from_millis(0)),
+            }
+        });
+
+        #[cfg(feature = "proto-rpl")]
+        let poll_at = poll_at.chain(core::iter::once(poll_at_rpl));
+
+        poll_at.min()
+    }
+
+    #[cfg(feature = "proto-rpl")]
+    fn poll_rpl<D>(&mut self, device: &mut D) -> bool
+    where
+        D: Device + ?Sized,
+    {
+        let Interface {
+            inner: ctx,
+            fragmenter,
+            ..
+        } = self;
+
+        // If we have been parentless for more than twice the time of the maximum Trickle timer
+        // interval, we remove ourself from the DODAG. Normally, there should be no DAO-ACK or DAO
+        // in the queues, so no data is lost.
+        if !ctx.rpl.is_root {
+            if let Some(dodag) = &ctx.rpl.dodag {
+                if let Some(instant) = dodag.without_parent {
+                    if instant < ctx.now - dodag.dio_timer.max_expiration() * 2 {
+                        ctx.rpl.dodag = None;
+                        ctx.rpl.dis_expiration = ctx.now;
+                    }
                 }
-            })
-            .min()
+            }
+        }
+
+        let packet = 'packet: {
+            if let Some(dodag) = &mut ctx.rpl.dodag {
+                // Check if we have heard from our parent recently. If not, we remove our parent.
+                if let Some(parent) = &mut dodag.parent {
+                    let parent = dodag.parent_set.find(parent).unwrap();
+
+                    if parent.last_heard < ctx.now - dodag.dio_timer.max_expiration() * 2 {
+                        dodag.remove_parent(&ctx.rpl.of, ctx.now);
+
+                        net_trace!("transmitting DIO (INFINITE rank)");
+                        let mut options = heapless::Vec::new();
+                        options.push(ctx.rpl.dodag_configuration()).unwrap();
+
+                        let icmp = Icmpv6Repr::Rpl(ctx.rpl.dodag_information_object(options));
+
+                        let ipv6_repr = Ipv6Repr {
+                            src_addr: ctx.ipv6_addr().unwrap(),
+                            dst_addr: Ipv6Address::LINK_LOCAL_ALL_RPL_NODES,
+                            next_header: IpProtocol::Icmpv6,
+                            payload_len: icmp.buffer_len(),
+                            hop_limit: 64,
+                        };
+
+                        break 'packet Some(IpPacket::new_ipv6(ipv6_repr, IpPayload::Icmpv6(icmp)));
+                    }
+                }
+
+                #[cfg(feature = "rpl-mop-1")]
+                if !dodag.dao_acks.is_empty() {
+                    // Transmit all the DAO-ACKs that are still queued.
+                    net_trace!("transmit DOA-ACK");
+
+                    let (dst_addr, seq) = dodag.dao_acks.pop().unwrap();
+                    let icmp = Icmpv6Repr::Rpl(RplRepr::DestinationAdvertisementObjectAck {
+                        rpl_instance_id: ctx.rpl.instance.unwrap().id,
+                        sequence: seq.value(),
+                        status: 0,
+                        dodag_id: Some(dodag.id),
+                    });
+
+                    break 'packet Some(IpPacket::new_ipv6(
+                        Ipv6Repr {
+                            src_addr: ctx.ipv6_addr().unwrap(),
+                            dst_addr,
+                            next_header: IpProtocol::Icmpv6,
+                            payload_len: icmp.buffer_len(),
+                            hop_limit: 64,
+                        },
+                        IpPayload::Icmpv6(icmp),
+                    ));
+                }
+
+                #[cfg(feature = "rpl-mop-1")]
+                if !dodag.daos.is_empty() {
+                    // Transmit all the DAOs that are still queued or waiting for an ACK.
+                    dodag.daos.iter_mut().for_each(|dao| {
+                        if !dao.needs_sending {
+                            if let Some(sent_at) = dao.sent_at {
+                                if sent_at + Duration::from_secs(60) < ctx.now {
+                                    dao.needs_sending = true;
+                                }
+                            }
+                        }
+                    });
+
+                    dodag
+                        .daos
+                        .retain(|dao| !dao.needs_sending || dao.sent_count < 4);
+
+                    if let Some(dao) = dodag.daos.iter_mut().find(|dao| dao.needs_sending) {
+                        let mut options = heapless::Vec::new();
+                        options
+                            .push(RplOptionRepr::RplTarget {
+                                prefix_length: 64,
+                                prefix: dao.child,
+                            })
+                            .unwrap();
+                        options
+                            .push(RplOptionRepr::TransitInformation {
+                                external: false,
+                                path_control: 0,
+                                path_sequence: 0,
+                                path_lifetime: 0x30,
+                                parent_address: dao.parent,
+                            })
+                            .unwrap();
+
+                        if dao.sequence.is_none() {
+                            dao.sequence = Some(dodag.dao_seq_number);
+                            dodag.dao_seq_number.increment();
+                        }
+
+                        dao.sent_at = Some(ctx.now);
+                        dao.sent_count += 1;
+                        dao.needs_sending = false;
+                        let sequence = dao.sequence.unwrap();
+                        let to = dao.to;
+
+                        let icmp = Icmpv6Repr::Rpl(
+                            ctx.rpl.destination_advertisement_object(sequence, options),
+                        );
+
+                        break 'packet Some(IpPacket::new_ipv6(
+                            Ipv6Repr {
+                                src_addr: ctx.ipv6_addr().unwrap(),
+                                dst_addr: to,
+                                next_header: IpProtocol::Icmpv6,
+                                payload_len: icmp.buffer_len(),
+                                hop_limit: 64,
+                            },
+                            IpPayload::Icmpv6(icmp),
+                        ));
+                    }
+                }
+
+                if (ctx.rpl.is_root || dodag.parent.is_some())
+                    && dodag.dio_timer.poll(ctx.now, &mut ctx.rand)
+                {
+                    // If we are the ROOT, or we have a parent, transmit a DIO based on the Trickle timer.
+                    net_trace!("transmitting DIO");
+
+                    let mut options = heapless::Vec::new();
+                    options.push(ctx.rpl.dodag_configuration()).unwrap();
+
+                    let icmp = Icmpv6Repr::Rpl(ctx.rpl.dodag_information_object(options));
+
+                    let ipv6_repr = Ipv6Repr {
+                        src_addr: ctx.ipv6_addr().unwrap(),
+                        dst_addr: Ipv6Address::LINK_LOCAL_ALL_RPL_NODES,
+                        next_header: IpProtocol::Icmpv6,
+                        payload_len: icmp.buffer_len(),
+                        hop_limit: 64,
+                    };
+
+                    Some(IpPacket::new_ipv6(ipv6_repr, IpPayload::Icmpv6(icmp)))
+                } else {
+                    None
+                }
+            } else if !ctx.rpl.is_root && ctx.now >= ctx.rpl.dis_expiration {
+                net_trace!("transmitting DIS");
+
+                ctx.rpl.dis_expiration = ctx.now + Duration::from_secs(60);
+
+                let dis = RplRepr::DodagInformationSolicitation {
+                    options: Default::default(),
+                };
+                let icmp_rpl = Icmpv6Repr::Rpl(dis);
+
+                let ipv6_repr = Ipv6Repr {
+                    src_addr: ctx.ipv6_addr().unwrap(),
+                    dst_addr: Ipv6Address::LINK_LOCAL_ALL_RPL_NODES,
+                    next_header: IpProtocol::Icmpv6,
+                    payload_len: icmp_rpl.buffer_len(),
+                    hop_limit: 64,
+                };
+
+                Some(IpPacket::new_ipv6(ipv6_repr, IpPayload::Icmpv6(icmp_rpl)))
+            } else {
+                None
+            }
+        };
+
+        if let Some(packet) = packet {
+            if let Some(tx_token) = device.transmit(ctx.now) {
+                match ctx.dispatch_ip(tx_token, PacketMeta::default(), packet, fragmenter) {
+                    Ok(()) => return true,
+                    Err(e) => {
+                        net_debug!("Failed to send DIS: {:?}", e);
+                        return false;
+                    }
+                }
+            }
+        }
+
+        false
+    }
+
+    #[cfg(feature = "proto-rpl")]
+    fn poll_at_rpl(&mut self) -> Instant {
+        let ctx = self.context();
+
+        if let Some(dodag) = &ctx.rpl.dodag {
+            if !dodag.daos.is_empty() || !dodag.dao_acks.is_empty() {
+                Instant::from_millis(0)
+            } else {
+                dodag.dio_timer.poll_at()
+            }
+        } else {
+            ctx.rpl.dis_expiration
+        }
     }
 
     /// Return an _advisory wait time_ for calling [poll] the next time.
