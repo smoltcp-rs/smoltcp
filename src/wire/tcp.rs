@@ -6,6 +6,9 @@ use crate::phy::ChecksumCapabilities;
 use crate::wire::ip::checksum;
 use crate::wire::{IpAddress, IpProtocol};
 
+#[cfg(kani)]
+extern crate kani;
+
 /// A TCP sequence number.
 ///
 /// A sequence number is a monotonically advancing integer modulo 2<sup>32</sup>.
@@ -87,6 +90,15 @@ impl ops::Sub for SeqNumber {
 impl cmp::PartialOrd for SeqNumber {
     fn partial_cmp(&self, other: &SeqNumber) -> Option<cmp::Ordering> {
         self.0.wrapping_sub(other.0).partial_cmp(&0)
+    }
+}
+
+#[cfg(kani)]
+impl kani::Arbitrary for SeqNumber {
+    #[inline]
+    fn any() -> Self {
+        let seq_number: i32 = kani::any();
+        return SeqNumber(seq_number);
     }
 }
 
@@ -614,6 +626,42 @@ impl<T: AsRef<[u8]>> AsRef<[u8]> for Packet<T> {
     }
 }
 
+#[cfg(kani)]
+impl kani::Arbitrary for Packet<Vec<u8>> {
+    #[inline]
+    fn any() -> Self {
+        // FIXME: Packets with symbolic payload length are too expensive (dozens of hours).
+        // FIXME: checksums are quite expensive (one hour).
+        let options: Vec<u8> = kani::vec::exact_vec::<_, 4>();
+        let payload: Vec<u8> = kani::vec::exact_vec::<_, 8>();
+
+        let bytes: Vec<u8> = vec![0xa5; 32];
+        let mut packet = Packet::new_unchecked(bytes);
+
+        packet.set_src_port(kani::any());
+        packet.set_dst_port(kani::any());
+        packet.set_seq_number(kani::any());
+        packet.set_ack_number(kani::any());
+        packet.set_header_len(24);
+        packet.clear_flags();
+        packet.set_fin(kani::any());
+        packet.set_syn(kani::any());
+        packet.set_rst(kani::any());
+        packet.set_psh(kani::any());
+        packet.set_ack(kani::any());
+        packet.set_urg(kani::any());
+        packet.set_ece(kani::any());
+        packet.set_cwr(kani::any());
+        packet.set_ns(kani::any());
+        packet.set_window_len(kani::any());
+        packet.set_urgent_at(kani::any());
+        packet.options_mut().copy_from_slice(&options[..]);
+        packet.payload_mut().copy_from_slice(&payload[..]);
+        
+        return packet;
+    }   
+}
+
 /// A representation of a single TCP option.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -763,6 +811,33 @@ impl<'a> TcpOption<'a> {
     }
 }
 
+#[cfg(kani)]
+impl<'a> kani::Arbitrary for TcpOption<'a> {
+    #[inline]
+    fn any() -> Self {
+        let option: u8 = kani::any_where(|v| *v >= 1 && *v <= 7);
+        return match option {
+            1 => TcpOption::EndOfList,
+            2 => TcpOption::NoOperation,
+            3 => TcpOption::MaxSegmentSize(kani::any()),
+            4 => TcpOption::WindowScale(kani::any()),
+            5 => TcpOption::SackPermitted,
+            6 => {
+                let range_type: u8 = kani::any_where(|v| *v >= 1 && *v <= 3);
+                let ranges: [Option<(u32, u32)>; 3] = match range_type {
+                    1 => [Some((kani::any(), kani::any())), None, None],
+                    2 => [Some((kani::any(), kani::any())), Some((kani::any(), kani::any())), None],
+                    3 => [Some((kani::any(), kani::any())), Some((kani::any(), kani::any())), Some((kani::any(), kani::any()))],
+                    _ => unreachable!()
+                };
+                return TcpOption::SackRange(ranges);
+            },
+            7 => TcpOption::Unknown { kind: kani::any_where(|v| *v > 5) , data: kani::vec::exact_vec::<u8, 3>().leak() },
+            _ => unreachable!()
+        };       
+    }
+}
+
 /// The possible control flags of a Transmission Control Protocol packet.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -789,6 +864,22 @@ impl Control {
         match self {
             Control::Psh => Control::None,
             _ => self,
+        }
+    }
+}
+
+#[cfg(kani)]
+impl kani::Arbitrary for Control {
+    #[inline]
+    fn any() -> Self {
+        let code: u8 = kani::any_where(|c| *c >= 1 && *c <= 5);
+        return match code {
+            1 => Control::None,
+            2 => Control::Psh,
+            3 => Control::Syn,
+            4 => Control::Fin,
+            5 => Control::Rst,
+            _ => unreachable!()
         }
     }
 }
@@ -1007,6 +1098,29 @@ impl<'a> Repr<'a> {
         }
     }
 }
+
+#[cfg(kani)]
+impl<'a> kani::Arbitrary for Repr<'a> {
+    #[inline]
+    fn any() -> Self {
+        let payload: Vec<u8> = kani::vec::exact_vec::<_, 4>();
+        return Repr {
+            src_port: kani::any_where(|p| *p != 0),
+            dst_port: kani::any_where(|p| *p != 0),
+            seq_number: kani::any(),
+            ack_number: kani::any(),
+            window_len: kani::any(),
+            window_scale: None,
+            control: kani::any(),
+            max_seg_size: None,
+            sack_permitted: false,
+            sack_ranges: [None, None, None],
+            // FIXME: Symbolic execution can have a little leaky memory, as a treat -- Chris Phifer, 2023
+            payload: payload.leak(),
+        };
+    }
+}
+
 
 impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -1339,70 +1453,9 @@ mod verification {
 
     use crate::wire::Ipv4Address;
 
-    impl kani::Arbitrary for SeqNumber {
-        #[inline]
-        fn any() -> Self {
-            let seq_number: i32 = kani::any();
-            return SeqNumber(seq_number);
-        }
-    }
-
-    impl kani::Arbitrary for Ipv4Address {
-        #[inline]
-        fn any() -> Self {
-            let a0: u8 = kani::any();
-            let a1: u8 = kani::any();
-            let a2: u8 = kani::any();
-            let a3: u8 = kani::any();
-            return Ipv4Address::new(a0, a1, a2, a3);
-        }
-    }
-
-    impl kani::Arbitrary for Packet<Vec<u8>> {
-        #[inline]
-        fn any() -> Self {
-            // FIXME: Packets with symbolic payload length are too expensive (dozens of hours).
-            // FIXME: checksums are quite expensive (one hour).
-            let options: Vec<u8> = kani::vec::exact_vec::<_, 4>();
-            let payload: Vec<u8> = kani::vec::exact_vec::<_, 8>();
-
-            let bytes: Vec<u8> = vec![0xa5; 32];
-            let mut packet = Packet::new_unchecked(bytes);
-            
-            let src_addr: Ipv4Address = kani::any();
-            let dst_addr: Ipv4Address = kani::any();
-
-            packet.set_src_port(kani::any());
-            packet.set_dst_port(kani::any());
-            packet.set_seq_number(kani::any());
-            packet.set_ack_number(kani::any());
-            packet.set_header_len(24);
-            packet.clear_flags();
-            packet.set_fin(kani::any());
-            packet.set_syn(kani::any());
-            packet.set_rst(kani::any());
-            packet.set_psh(kani::any());
-            packet.set_ack(kani::any());
-            packet.set_urg(kani::any());
-            packet.set_ece(kani::any());
-            packet.set_cwr(kani::any());
-            packet.set_ns(kani::any());
-            packet.set_window_len(kani::any());
-            packet.set_urgent_at(kani::any());
-            packet.options_mut().copy_from_slice(&options[..]);
-            packet.payload_mut().copy_from_slice(&payload[..]);
-            // packet.fill_checksum(&src_addr.into(), &dst_addr.into());
-            
-            return packet;
-        }   
-    }
-
     #[kani::proof]
     #[kani::unwind(10)]
     fn prove_parsing() {
-        let src_addr: Ipv4Address = kani::any();
-        let dst_addr: Ipv4Address = kani::any();
-
         let src_port: u16 = kani::any();
         let dst_port: u16 = kani::any();
 
@@ -1431,7 +1484,6 @@ mod verification {
         packet.set_dst_port(dst_port);
         packet.set_seq_number(seq_number);
         packet.set_ack_number(ack_number);
-        let options_size: u8 = options.len().try_into().unwrap();
         packet.set_header_len(24);
         packet.clear_flags();
         packet.set_fin(fin);
@@ -1447,7 +1499,6 @@ mod verification {
         packet.set_urgent_at(urgent_at);
         packet.options_mut().copy_from_slice(&options[..]);
         packet.payload_mut().copy_from_slice(&payload[..]);
-        // packet.fill_checksum(&src_addr.into(), &dst_addr.into());
 
         assert_eq!(src_port, packet.src_port());
         assert_eq!(dst_port, packet.dst_port());
@@ -1494,42 +1545,6 @@ mod verification {
         assert!(packet.check_len().is_err());
     }
 
-    impl kani::Arbitrary for Control {
-        #[inline]
-        fn any() -> Self {
-            let code: u8 = kani::any_where(|c| *c >= 1 && *c <= 5);
-            return match code {
-                1 => Control::None,
-                2 => Control::Psh,
-                3 => Control::Syn,
-                4 => Control::Fin,
-                5 => Control::Rst,
-                _ => unreachable!()
-            }
-        }
-    }
-
-    impl<'a> kani::Arbitrary for Repr<'a> {
-        #[inline]
-        fn any() -> Self {
-            let payload: Vec<u8> = kani::vec::exact_vec::<_, 4>();
-            return Repr {
-                src_port: kani::any_where(|p| *p != 0),
-                dst_port: kani::any_where(|p| *p != 0),
-                seq_number: kani::any(),
-                ack_number: kani::any(),
-                window_len: kani::any(),
-                window_scale: None,
-                control: kani::any(),
-                max_seg_size: None,
-                sack_permitted: false,
-                sack_ranges: [None, None, None],
-                // FIXME: Symbolic execution can have a little leaky memory, as a treat -- Chris Phifer, 2023
-                payload: payload.leak(),
-            };
-        }
-    }
-
     #[kani::proof]
     #[kani::unwind(15)]
     fn prove_repr_intertible() {
@@ -1565,32 +1580,6 @@ mod verification {
     fn prove_header_len_multiple_of_4() {
         let repr: Repr = kani::any();
         assert_eq!(repr.header_len() % 4, 0); // Should e.g. be 28 instead of 27.
-    }
-
-    impl<'a> kani::Arbitrary for TcpOption<'a> {
-        #[inline]
-        fn any() -> Self {
-            let option: u8 = kani::any_where(|v| *v >= 1 && *v <= 7);
-            return match option {
-                1 => TcpOption::EndOfList,
-                2 => TcpOption::NoOperation,
-                3 => TcpOption::MaxSegmentSize(kani::any()),
-                4 => TcpOption::WindowScale(kani::any()),
-                5 => TcpOption::SackPermitted,
-                6 => {
-                    let range_type: u8 = kani::any_where(|v| *v >= 1 && *v <= 3);
-                    let ranges: [Option<(u32, u32)>; 3] = match range_type {
-                        1 => [Some((kani::any(), kani::any())), None, None],
-                        2 => [Some((kani::any(), kani::any())), Some((kani::any(), kani::any())), None],
-                        3 => [Some((kani::any(), kani::any())), Some((kani::any(), kani::any())), Some((kani::any(), kani::any()))],
-                        _ => unreachable!()
-                    };
-                    return TcpOption::SackRange(ranges);
-                },
-                7 => TcpOption::Unknown { kind: kani::any_where(|v| *v > 5) , data: kani::vec::exact_vec::<u8, 3>().leak() },
-                _ => unreachable!()
-            };       
-        }
     }
 
     #[kani::proof]

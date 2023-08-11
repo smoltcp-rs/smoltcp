@@ -107,6 +107,7 @@ pub type SocketBuffer<'a> = RingBuffer<'a, u8>;
 /// [RFC 793]: https://tools.ietf.org/html/rfc793
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg_attr(kani, derive(kani::Arbitrary))]
 pub enum State {
     Closed,
     Listen,
@@ -152,6 +153,7 @@ const RTTE_MAX_RTO: u32 = 10000;
 
 #[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg_attr(kani, derive(kani::Arbitrary))]
 struct RttEstimator {
     // Using u32 instead of Duration to save space (Duration is i64)
     rtt: u32,
@@ -249,6 +251,7 @@ impl RttEstimator {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg_attr(kani, derive(kani::Arbitrary))]
 enum Timer {
     Idle {
         keep_alive_at: Option<Instant>,
@@ -379,6 +382,7 @@ enum AckDelayTimer {
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg_attr(kani, derive(kani::Arbitrary))]
 struct Tuple {
     local: IpEndpoint,
     remote: IpEndpoint,
@@ -7183,5 +7187,306 @@ mod test {
             r.sample(100);
             assert_eq!(r.retransmission_timeout(), Duration::from_millis(rto));
         }
+    }
+}
+
+#[cfg(kani)]
+mod verification {
+    extern crate kani;
+    use crate::wire::IpRepr;
+    use std::ops::{Deref, DerefMut};
+    use super::*;
+
+    // =========================================================================================//
+    // Helper functions
+    // =========================================================================================//
+
+    struct TestSocket {
+        socket: Socket<'static>,
+        cx: Context,
+    }
+
+    impl Deref for TestSocket {
+        type Target = Socket<'static>;
+        fn deref(&self) -> &Self::Target {
+            &self.socket
+        }
+    }
+
+    impl DerefMut for TestSocket {
+        fn deref_mut(&mut self) -> &mut Self::Target {
+            &mut self.socket
+        }
+    }
+
+    // fn send(
+    //     socket: &mut TestSocket,
+    //     timestamp: Instant,
+    //     repr: &TcpRepr,
+    // ) -> Option<TcpRepr<'static>> {
+    //     socket.cx.set_now(timestamp);
+
+    //     let ip_repr = IpReprIpvX(IpvXRepr {
+    //         src_addr: REMOTE_ADDR,
+    //         dst_addr: LOCAL_ADDR,
+    //         next_header: IpProtocol::Tcp,
+    //         payload_len: repr.buffer_len(),
+    //         hop_limit: 64,
+    //     });
+    //     net_trace!("send: {}", repr);
+
+    //     assert!(socket.socket.accepts(&mut socket.cx, &ip_repr, repr));
+
+    //     match socket.socket.process(&mut socket.cx, &ip_repr, repr) {
+    //         Some((_ip_repr, repr)) => {
+    //             net_trace!("recv: {}", repr);
+    //             Some(repr)
+    //         }
+    //         None => None,
+    //     }
+    // }
+
+    // fn recv<F>(socket: &mut TestSocket, timestamp: Instant, mut f: F)
+    // where
+    //     F: FnMut(Result<TcpRepr, ()>),
+    // {
+    //     socket.cx.set_now(timestamp);
+
+    //     let mut sent = 0;
+    //     let result = socket
+    //         .socket
+    //         .dispatch(&mut socket.cx, |_, (ip_repr, tcp_repr)| {
+    //             assert_eq!(ip_repr.next_header(), IpProtocol::Tcp);
+    //             assert_eq!(ip_repr.src_addr(), LOCAL_ADDR.into());
+    //             assert_eq!(ip_repr.dst_addr(), REMOTE_ADDR.into());
+    //             assert_eq!(ip_repr.payload_len(), tcp_repr.buffer_len());
+
+    //             net_trace!("recv: {}", tcp_repr);
+    //             sent += 1;
+    //             Ok(f(Ok(tcp_repr)))
+    //         });
+    //     match result {
+    //         Ok(()) => assert_eq!(sent, 1, "Exactly one packet should be sent"),
+    //         Err(e) => f(Err(e)),
+    //     }
+    // }
+
+    // fn recv_nothing(socket: &mut TestSocket, timestamp: Instant) {
+    //     socket.cx.set_now(timestamp);
+
+    //     let result: Result<(), ()> = socket
+    //         .socket
+    //         .dispatch(&mut socket.cx, |_, (_ip_repr, _tcp_repr)| {
+    //             panic!("Should not send a packet")
+    //         });
+
+    //     assert_eq!(result, Ok(()))
+    // }
+
+    // macro_rules! send {
+    //     ($socket:ident, $repr:expr) =>
+    //         (send!($socket, time 0, $repr));
+    //     ($socket:ident, $repr:expr, $result:expr) =>
+    //         (send!($socket, time 0, $repr, $result));
+    //     ($socket:ident, time $time:expr, $repr:expr) =>
+    //         (send!($socket, time $time, $repr, None));
+    //     ($socket:ident, time $time:expr, $repr:expr, $result:expr) =>
+    //         (assert_eq!(send(&mut $socket, Instant::from_millis($time), &$repr), $result));
+    // }
+
+    // macro_rules! recv {
+    //     ($socket:ident, [$( $repr:expr ),*]) => ({
+    //         $( recv!($socket, Ok($repr)); )*
+    //         recv_nothing!($socket)
+    //     });
+    //     ($socket:ident, $result:expr) =>
+    //         (recv!($socket, time 0, $result));
+    //     ($socket:ident, time $time:expr, $result:expr) =>
+    //         (recv(&mut $socket, Instant::from_millis($time), |result| {
+    //             // Most of the time we don't care about the PSH flag.
+    //             let result = result.map(|mut repr| {
+    //                 repr.control = repr.control.quash_psh();
+    //                 repr
+    //             });
+    //             assert_eq!(result, $result)
+    //         }));
+    //     ($socket:ident, time $time:expr, $result:expr, exact) =>
+    //         (recv(&mut $socket, Instant::from_millis($time), |repr| assert_eq!(repr, $result)));
+    // }
+
+    // macro_rules! recv_nothing {
+    //     ($socket:ident) => (recv_nothing!($socket, time 0));
+    //     ($socket:ident, time $time:expr) => (recv_nothing(&mut $socket, Instant::from_millis($time)));
+    // }
+
+    // macro_rules! sanity {
+    //     ($socket1:expr, $socket2:expr) => {{
+    //         let (s1, s2) = ($socket1, $socket2);
+    //         assert_eq!(s1.state, s2.state, "state");
+    //         assert_eq!(s1.tuple, s2.tuple, "tuple");
+    //         assert_eq!(s1.local_seq_no, s2.local_seq_no, "local_seq_no");
+    //         assert_eq!(s1.remote_seq_no, s2.remote_seq_no, "remote_seq_no");
+    //         assert_eq!(s1.remote_last_seq, s2.remote_last_seq, "remote_last_seq");
+    //         assert_eq!(s1.remote_last_ack, s2.remote_last_ack, "remote_last_ack");
+    //         assert_eq!(s1.remote_last_win, s2.remote_last_win, "remote_last_win");
+    //         assert_eq!(s1.remote_win_len, s2.remote_win_len, "remote_win_len");
+    //         assert_eq!(s1.timer, s2.timer, "timer");
+    //     }};
+    // }
+
+    fn socket() -> TestSocket {
+        socket_with_buffer_sizes(64, 64)
+    }
+
+    fn socket_with_buffer_sizes(tx_len: usize, rx_len: usize) -> TestSocket {
+        let rx_buffer = SocketBuffer::new(vec![0; rx_len]);
+        let tx_buffer = SocketBuffer::new(vec![0; tx_len]);
+        let mut socket = Socket::new(rx_buffer, tx_buffer);
+        socket.set_ack_delay(None);
+        let cx = Context::mock();
+        TestSocket { socket, cx }
+    }
+
+    // fn socket_syn_received_with_buffer_sizes(tx_len: usize, rx_len: usize) -> TestSocket {
+    //     let mut s = socket_with_buffer_sizes(tx_len, rx_len);
+    //     s.state = State::SynReceived;
+    //     s.tuple = Some(TUPLE);
+    //     s.local_seq_no = LOCAL_SEQ;
+    //     s.remote_seq_no = REMOTE_SEQ + 1;
+    //     s.remote_last_seq = LOCAL_SEQ;
+    //     s.remote_win_len = 256;
+    //     s
+    // }
+
+    // fn socket_syn_received() -> TestSocket {
+    //     socket_syn_received_with_buffer_sizes(64, 64)
+    // }
+
+    // fn socket_syn_sent_with_buffer_sizes(tx_len: usize, rx_len: usize) -> TestSocket {
+    //     let mut s = socket_with_buffer_sizes(tx_len, rx_len);
+    //     s.state = State::SynSent;
+    //     s.tuple = Some(TUPLE);
+    //     s.local_seq_no = LOCAL_SEQ;
+    //     s.remote_last_seq = LOCAL_SEQ;
+    //     s
+    // }
+
+    // fn socket_syn_sent() -> TestSocket {
+    //     socket_syn_sent_with_buffer_sizes(64, 64)
+    // }
+
+    // fn socket_established_with_buffer_sizes(tx_len: usize, rx_len: usize) -> TestSocket {
+    //     let mut s = socket_syn_received_with_buffer_sizes(tx_len, rx_len);
+    //     s.state = State::Established;
+    //     s.local_seq_no = LOCAL_SEQ + 1;
+    //     s.remote_last_seq = LOCAL_SEQ + 1;
+    //     s.remote_last_ack = Some(REMOTE_SEQ + 1);
+    //     s.remote_last_win = 64;
+    //     s
+    // }
+
+    // fn socket_established() -> TestSocket {
+    //     socket_established_with_buffer_sizes(64, 64)
+    // }
+
+    // fn socket_fin_wait_1() -> TestSocket {
+    //     let mut s = socket_established();
+    //     s.state = State::FinWait1;
+    //     s
+    // }
+
+    // fn socket_fin_wait_2() -> TestSocket {
+    //     let mut s = socket_fin_wait_1();
+    //     s.state = State::FinWait2;
+    //     s.local_seq_no = LOCAL_SEQ + 1 + 1;
+    //     s.remote_last_seq = LOCAL_SEQ + 1 + 1;
+    //     s
+    // }
+
+    // fn socket_closing() -> TestSocket {
+    //     let mut s = socket_fin_wait_1();
+    //     s.state = State::Closing;
+    //     s.remote_last_seq = LOCAL_SEQ + 1 + 1;
+    //     s.remote_seq_no = REMOTE_SEQ + 1 + 1;
+    //     s
+    // }
+
+    // fn socket_time_wait(from_closing: bool) -> TestSocket {
+    //     let mut s = socket_fin_wait_2();
+    //     s.state = State::TimeWait;
+    //     s.remote_seq_no = REMOTE_SEQ + 1 + 1;
+    //     if from_closing {
+    //         s.remote_last_ack = Some(REMOTE_SEQ + 1 + 1);
+    //     }
+    //     s.timer = Timer::Close {
+    //         expires_at: Instant::from_secs(1) + CLOSE_DELAY,
+    //     };
+    //     s
+    // }
+
+    // fn socket_close_wait() -> TestSocket {
+    //     let mut s = socket_established();
+    //     s.state = State::CloseWait;
+    //     s.remote_seq_no = REMOTE_SEQ + 1 + 1;
+    //     s.remote_last_ack = Some(REMOTE_SEQ + 1 + 1);
+    //     s
+    // }
+
+    // fn socket_last_ack() -> TestSocket {
+    //     let mut s = socket_close_wait();
+    //     s.state = State::LastAck;
+    //     s
+    // }
+
+    // fn socket_recved() -> TestSocket {
+    //     let mut s = socket_established();
+    //     send!(
+    //         s,
+    //         TcpRepr {
+    //             seq_number: REMOTE_SEQ + 1,
+    //             ack_number: Some(LOCAL_SEQ + 1),
+    //             payload: &b"abcdef"[..],
+    //             ..SEND_TEMPL
+    //         }
+    //     );
+    //     recv!(
+    //         s,
+    //         [TcpRepr {
+    //             seq_number: LOCAL_SEQ + 1,
+    //             ack_number: Some(REMOTE_SEQ + 1 + 6),
+    //             window_len: 58,
+    //             ..RECV_TEMPL
+    //         }]
+    //     );
+    //     s
+    // }
+
+    // =========================================================================================//
+    // Proofs
+    // =========================================================================================//
+
+    #[kani::proof]
+    fn prove_closed_reject() {
+        let mut s = socket();
+        assert_eq!(s.state, State::Closed);
+
+        let tcp_repr: TcpRepr = kani::any();
+        let send_ip: IpRepr = kani::any();
+
+        assert!(!s.socket.accepts(&mut s.cx, &send_ip, &tcp_repr));
+    }
+
+    #[kani::proof]
+    fn prove_closed_reject_after_listen() {
+        let mut s = socket();
+        let local_endpoint: IpEndpoint = kani::any_where(|e: &IpEndpoint| e.port != 0);
+        s.listen(local_endpoint).unwrap();
+        s.close();
+
+        let tcp_repr: TcpRepr = kani::any();
+        let send_ip: IpRepr = kani::any();
+
+        assert!(!s.socket.accepts(&mut s.cx, &send_ip, &tcp_repr));
+
     }
 }

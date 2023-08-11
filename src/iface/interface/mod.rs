@@ -968,7 +968,7 @@ impl InterfaceInner {
         None
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, kani))]
     pub(crate) fn mock() -> Self {
         Self {
             caps: DeviceCapabilities {

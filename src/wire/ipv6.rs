@@ -376,6 +376,23 @@ impl From<ipv4::Address> for Address {
     }
 }
 
+#[cfg(kani)]
+impl kani::Arbitrary for Address {
+    #[inline]
+    fn any() -> Self {
+        let a0: u16 = kani::any();
+        let a1: u16 = kani::any();
+        let a2: u16 = kani::any();
+        let a3: u16 = kani::any();
+        let a4: u16 = kani::any();
+        let a5: u16 = kani::any();
+        let a6: u16 = kani::any();
+        let a7: u16 = kani::any();
+        return Self::new(a0, a1, a2, a3, a4, a5, a6, a7);
+    }
+}
+
+
 /// A specification of an IPv6 CIDR block, containing an address and a variable-length
 /// subnet masking prefix length.
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
@@ -721,6 +738,7 @@ impl<T: AsRef<[u8]>> AsRef<[u8]> for Packet<T> {
 
 /// A high-level representation of an Internet Protocol version 6 packet header.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(kani, derive(kani::Arbitrary))]
 pub struct Repr {
     /// IPv6 address of the source node.
     pub src_addr: Address,

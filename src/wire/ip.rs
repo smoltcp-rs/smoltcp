@@ -47,6 +47,7 @@ impl fmt::Display for Version {
 
 enum_with_unknown! {
     /// IP datagram encapsulated protocol.
+    #[cfg_attr(kani, derive(kani::Arbitrary))]
     pub enum Protocol(u8) {
         HopByHop  = 0x00,
         Icmp      = 0x01,
@@ -81,6 +82,7 @@ impl fmt::Display for Protocol {
 
 /// An internetworking address.
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+#[cfg_attr(kani, derive(kani::Arbitrary))]
 pub enum Address {
     /// An IPv4 address.
     #[cfg(feature = "proto-ipv4")]
@@ -379,6 +381,7 @@ impl defmt::Format for Cidr {
 /// See also ['ListenEndpoint'], which allows not specifying the address
 /// in order to listen on a given port on any address.
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+#[cfg_attr(kani, derive(kani::Arbitrary))]
 pub struct Endpoint {
     pub addr: Address,
     pub port: u16,
@@ -450,6 +453,7 @@ impl<T: Into<Address>> From<(T, u16)> for Endpoint {
 ///
 /// An endpoint can be constructed from a port, in which case the address is unspecified.
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
+#[cfg_attr(kani, derive(kani::Arbitrary))]
 pub struct ListenEndpoint {
     pub addr: Option<Address>,
     pub port: u16,
@@ -539,6 +543,7 @@ impl<T: Into<Address>> From<(T, u16)> for ListenEndpoint {
 /// or IPv6 concrete high-level representation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg_attr(kani, derive(kani::Arbitrary))]
 pub enum Repr {
     #[cfg(feature = "proto-ipv4")]
     Ipv4(Ipv4Repr),

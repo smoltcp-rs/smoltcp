@@ -7,6 +7,9 @@ use crate::wire::ip::{checksum, pretty_print_ip_payload};
 
 pub use super::IpProtocol as Protocol;
 
+#[cfg(kani)]
+extern crate kani;
+
 /// Minimum MTU required of all links supporting IPv4. See [RFC 791 § 3.1].
 ///
 /// [RFC 791 § 3.1]: https://tools.ietf.org/html/rfc791#section-3.1
@@ -144,6 +147,19 @@ impl defmt::Format for Address {
         )
     }
 }
+
+#[cfg(kani)]
+impl kani::Arbitrary for Address {
+    #[inline]
+    fn any() -> Self {
+        let a0: u8 = kani::any();
+        let a1: u8 = kani::any();
+        let a2: u8 = kani::any();
+        let a3: u8 = kani::any();
+        return Self::new(a0, a1, a2, a3);
+    }
+}
+
 
 /// A specification of an IPv4 CIDR block, containing an address and a variable-length
 /// subnet masking prefix length.
@@ -619,6 +635,7 @@ impl<T: AsRef<[u8]>> AsRef<[u8]> for Packet<T> {
 /// A high-level representation of an Internet Protocol version 4 packet header.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg_attr(kani, derive(kani::Arbitrary))]
 pub struct Repr {
     pub src_addr: Address,
     pub dst_addr: Address,
