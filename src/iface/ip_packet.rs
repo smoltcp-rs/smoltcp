@@ -42,7 +42,6 @@ impl<'p> IpPacket<'p> {
     pub(crate) fn new_ipv6(ip_repr: Ipv6Repr, payload: IpPayload<'p>) -> Self {
         Self::Ipv6(Ipv6Packet {
             header: ip_repr,
-            #[cfg(feature = "proto-ipv6-hbh")]
             hop_by_hop: None,
             #[cfg(feature = "proto-ipv6-fragmentation")]
             fragment: None,
@@ -90,7 +89,6 @@ impl<'p> IpPacket<'p> {
                 &mut Icmpv6Packet::new_unchecked(payload),
                 &caps.checksum,
             ),
-            #[cfg(feature = "socket-raw")]
             IpPayload::Raw(raw_packet) => payload.copy_from_slice(raw_packet),
             #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
             IpPayload::Udp(udp_repr, inner_payload) => udp_repr.emit(
@@ -154,7 +152,6 @@ pub(crate) struct Ipv4Packet<'p> {
 #[cfg(feature = "proto-ipv6")]
 pub(crate) struct Ipv6Packet<'p> {
     pub(crate) header: Ipv6Repr,
-    #[cfg(feature = "proto-ipv6-hbh")]
     pub(crate) hop_by_hop: Option<Ipv6HopByHopRepr<'p>>,
     #[cfg(feature = "proto-ipv6-fragmentation")]
     pub(crate) fragment: Option<Ipv6FragmentRepr>,
@@ -172,7 +169,6 @@ pub(crate) enum IpPayload<'p> {
     Igmp(IgmpRepr),
     #[cfg(feature = "proto-ipv6")]
     Icmpv6(Icmpv6Repr<'p>),
-    #[cfg(feature = "socket-raw")]
     Raw(&'p [u8]),
     #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
     Udp(UdpRepr, &'p [u8]),
@@ -198,8 +194,7 @@ impl<'p> IpPayload<'p> {
             Self::Tcp(_) => SixlowpanNextHeader::Uncompressed(IpProtocol::Tcp),
             #[cfg(feature = "socket-udp")]
             Self::Udp(..) => SixlowpanNextHeader::Compressed,
-            #[cfg(feature = "socket-raw")]
-            Self::Raw(_) => todo!(),
+            Self::Raw(_) => unreachable!(),
         }
     }
 }

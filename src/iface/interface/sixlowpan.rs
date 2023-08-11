@@ -566,8 +566,7 @@ impl InterfaceInner {
                     checksum_caps,
                 );
             }
-            #[cfg(feature = "socket-raw")]
-            IpPayload::Raw(_raw) => todo!(),
+            IpPayload::Raw(_) => todo!(),
 
             #[allow(unreachable_patterns)]
             _ => unreachable!(),

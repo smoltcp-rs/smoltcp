@@ -129,8 +129,8 @@ fn test_handle_udp_broadcast(
         iface.inner.process_udp(
             &mut sockets,
             PacketMeta::default(),
-            ip_repr,
-            udp_repr,
+            &ip_repr,
+            &udp_repr,
             false,
             &UDP_PAYLOAD,
             packet.into_inner(),

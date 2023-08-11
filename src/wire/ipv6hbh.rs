@@ -66,7 +66,7 @@ pub struct Repr<'a> {
 
 impl<'a> Repr<'a> {
     /// Parse an IPv6 Hop-by-Hop Header and return a high-level representation.
-    pub fn parse<T>(header: &'a Header<&'a T>) -> Result<Repr<'a>>
+    pub fn parse<T>(header: &Header<&'a T>) -> Result<Repr<'a>>
     where
         T: AsRef<[u8]> + ?Sized,
     {

@@ -8,8 +8,9 @@ use super::{IpPacket, IpPayload};
 use crate::socket::icmp;
 use crate::socket::AnySocket;
 
+use crate::iface::ip_packet::Ipv6Packet;
 use crate::phy::PacketMeta;
-use crate::wire::*;
+use crate::wire::{Ipv6Packet as Ipv6PacketWire, *};
 
 impl InterfaceInner {
     #[cfg(feature = "proto-ipv6")]
@@ -17,153 +18,214 @@ impl InterfaceInner {
         &mut self,
         sockets: &mut SocketSet,
         meta: PacketMeta,
-        ipv6_packet: &Ipv6Packet<&'frame [u8]>,
+        ipv6_packet: &Ipv6PacketWire<&'frame [u8]>,
     ) -> Option<IpPacket<'frame>> {
         let ipv6_repr = check!(Ipv6Repr::parse(ipv6_packet));
+        let packet = check!(self.parse_ipv6(ipv6_repr, ipv6_packet.payload()));
 
-        if !ipv6_repr.src_addr.is_unicast() {
+        if !packet.header.src_addr.is_unicast() {
             // Discard packets with non-unicast source addresses.
             net_debug!("non-unicast source address");
             return None;
         }
 
-        let ip_payload = ipv6_packet.payload();
+        if let Some(hbh) = &packet.hop_by_hop {
+            self.process_hopbyhop(&packet.header, hbh)?;
+        }
+
+        #[cfg(feature = "proto-ipv6-routing")]
+        if let Some(routing) = &packet.routing {
+            self.process_routing(&packet.header, routing);
+        }
+
+        #[cfg(feature = "proto-ipv6-fragmentation")]
+        if let Some(fragment) = &packet.fragment {
+            self.process_fragment(&packet.header, fragment);
+        }
 
         #[cfg(feature = "socket-raw")]
-        let handled_by_raw_socket = self.raw_socket_filter(sockets, &ipv6_repr.into(), ip_payload);
+        let handled_by_raw_socket =
+            self.raw_socket_filter(sockets, &IpRepr::Ipv6(packet.header), ipv6_packet.payload());
         #[cfg(not(feature = "socket-raw"))]
         let handled_by_raw_socket = false;
 
-        self.process_nxt_hdr(
-            sockets,
-            meta,
-            ipv6_repr,
-            ipv6_repr.next_header,
-            handled_by_raw_socket,
-            ip_payload,
-        )
-    }
-
-    /// Given the next header value forward the payload onto the correct process
-    /// function.
-    #[cfg(feature = "proto-ipv6")]
-    pub(super) fn process_nxt_hdr<'frame>(
-        &mut self,
-        sockets: &mut SocketSet,
-        meta: PacketMeta,
-        ipv6_repr: Ipv6Repr,
-        nxt_hdr: IpProtocol,
-        handled_by_raw_socket: bool,
-        ip_payload: &'frame [u8],
-    ) -> Option<IpPacket<'frame>> {
-        match nxt_hdr {
-            IpProtocol::Icmpv6 => self.process_icmpv6(sockets, ipv6_repr.into(), ip_payload),
-
-            #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
-            IpProtocol::Udp => {
-                let udp_packet = check!(UdpPacket::new_checked(ip_payload));
-                let udp_repr = check!(UdpRepr::parse(
-                    &udp_packet,
-                    &ipv6_repr.src_addr.into(),
-                    &ipv6_repr.dst_addr.into(),
-                    &self.checksum_caps(),
-                ));
-
-                self.process_udp(
-                    sockets,
-                    meta,
-                    ipv6_repr.into(),
-                    udp_repr,
-                    handled_by_raw_socket,
-                    udp_packet.payload(),
-                    ip_payload,
-                )
-            }
-
+        match &packet.payload {
             #[cfg(feature = "socket-tcp")]
-            IpProtocol::Tcp => self.process_tcp(sockets, ipv6_repr.into(), ip_payload),
-
-            IpProtocol::HopByHop => {
-                self.process_hopbyhop(sockets, meta, ipv6_repr, handled_by_raw_socket, ip_payload)
-            }
-
-            #[cfg(feature = "socket-raw")]
+            IpPayload::Tcp(tcp) => self.process_tcp(sockets, IpRepr::Ipv6(ipv6_repr), tcp),
+            #[cfg(feature = "socket-udp")]
+            IpPayload::Udp(udp, data) => self.process_udp(
+                sockets,
+                meta,
+                &IpRepr::Ipv6(packet.header),
+                udp,
+                false,
+                data,
+                ipv6_packet.payload(),
+            ),
+            IpPayload::Icmpv6(icmp) => self.process_icmpv6(sockets, &packet.header, icmp),
             _ if handled_by_raw_socket => None,
-
             _ => {
                 // Send back as much of the original payload as we can.
-                let payload_len =
-                    icmp_reply_payload_len(ip_payload.len(), IPV6_MIN_MTU, ipv6_repr.buffer_len());
+                let payload_len = icmp_reply_payload_len(
+                    ipv6_packet.payload().len(),
+                    IPV6_MIN_MTU,
+                    ipv6_repr.buffer_len(),
+                );
                 let icmp_reply_repr = Icmpv6Repr::ParamProblem {
                     reason: Icmpv6ParamProblem::UnrecognizedNxtHdr,
                     // The offending packet is after the IPv6 header.
                     pointer: ipv6_repr.buffer_len() as u32,
                     header: ipv6_repr,
-                    data: &ip_payload[0..payload_len],
+                    data: &ipv6_packet.payload()[0..payload_len],
                 };
-                self.icmpv6_reply(ipv6_repr, icmp_reply_repr)
+                self.icmpv6_reply(&ipv6_repr, &icmp_reply_repr)
             }
         }
     }
 
-    #[cfg(feature = "proto-ipv6")]
+    fn parse_ipv6<'payload>(
+        &self,
+        header: Ipv6Repr,
+        mut data: &'payload [u8],
+    ) -> Result<Ipv6Packet<'payload>> {
+        let mut packet = Ipv6Packet {
+            header,
+            hop_by_hop: None,
+            #[cfg(feature = "proto-ipv6-routing")]
+            routing: None,
+            #[cfg(feature = "proto-ipv6-fragmentation")]
+            fragment: None,
+            payload: IpPayload::Raw(data),
+        };
+
+        let mut next_header = Some(header.next_header);
+
+        while let Some(nh) = next_header {
+            match nh {
+                IpProtocol::HopByHop => {
+                    let ext_hdr = Ipv6ExtHeader::new_checked(data)?;
+                    let ext_repr = Ipv6ExtHeaderRepr::parse(&ext_hdr)?;
+                    let hbh_hdr = Ipv6HopByHopHeader::new_checked(ext_repr.data)?;
+                    let hbh_repr = Ipv6HopByHopRepr::parse(&hbh_hdr)?;
+
+                    next_header = Some(ext_repr.next_header);
+                    data = &data[ext_repr.header_len() + ext_repr.data.len()..];
+
+                    packet.hop_by_hop = Some(hbh_repr);
+                }
+                #[cfg(feature = "proto-ipv6-routing")]
+                IpProtocol::Ipv6Route => {
+                    let ext_hdr = Ipv6ExtHeader::new_checked(data)?;
+                    let ext_repr = Ipv6ExtHeaderRepr::parse(&ext_hdr)?;
+                    let routing_hdr = Ipv6RoutingHeader::new_checked(ext_repr.data)?;
+                    let routing_repr = Ipv6RoutingRepr::parse(&routing_hdr)?;
+
+                    next_header = Some(ext_repr.next_header);
+                    data = &data[ext_repr.header_len() + ext_repr.data.len()..];
+                    packet.routing = Some(routing_repr);
+                }
+                #[cfg(feature = "proto-ipv6-fragmentation")]
+                IpProtocol::Ipv6Frag => {
+                    let ext_hdr = Ipv6ExtHeader::new_checked(data)?;
+                    let ext_repr = Ipv6ExtHeaderRepr::parse(&ext_hdr)?;
+                    let fragment_hdr = Ipv6FragmentHeader::new_checked(ext_repr.data)?;
+                    let fragment_repr = Ipv6FragmentRepr::parse(&fragment_hdr)?;
+
+                    next_header = Some(ext_repr.next_header);
+                    data = &data[ext_repr.header_len() + ext_repr.data.len()..];
+                    packet.fragment = Some(fragment_repr);
+                }
+
+                IpProtocol::Icmpv6 => {
+                    let icmp_packet = Icmpv6Packet::new_checked(data)?;
+                    let icmp_repr = Icmpv6Repr::parse(
+                        &header.src_addr.into(),
+                        &header.dst_addr.into(),
+                        &icmp_packet,
+                        &self.caps.checksum,
+                    )?;
+
+                    packet.payload = IpPayload::Icmpv6(icmp_repr);
+                    break;
+                }
+                #[cfg(feature = "socket-tcp")]
+                IpProtocol::Tcp => {
+                    let tcp_packet = TcpPacket::new_checked(data)?;
+                    let tcp_repr = TcpRepr::parse(
+                        &tcp_packet,
+                        &header.src_addr.into(),
+                        &header.dst_addr.into(),
+                        &self.caps.checksum,
+                    )?;
+
+                    packet.payload = IpPayload::Tcp(tcp_repr);
+                    break;
+                }
+                #[cfg(feature = "socket-udp")]
+                IpProtocol::Udp => {
+                    let udp_packet = UdpPacket::new_checked(data)?;
+                    let udp_repr = UdpRepr::parse(
+                        &udp_packet,
+                        &header.src_addr.into(),
+                        &header.dst_addr.into(),
+                        &self.checksum_caps(),
+                    )?;
+
+                    packet.payload = IpPayload::Udp(udp_repr, udp_packet.payload());
+                    break;
+                }
+
+                _ => {
+                    packet.payload = IpPayload::Raw(data);
+                    break;
+                }
+            }
+        }
+
+        Ok(packet)
+    }
+
     pub(super) fn process_icmpv6<'frame>(
         &mut self,
         _sockets: &mut SocketSet,
-        ip_repr: IpRepr,
-        ip_payload: &'frame [u8],
+        header: &Ipv6Repr,
+        icmp: &Icmpv6Repr<'frame>,
     ) -> Option<IpPacket<'frame>> {
-        let icmp_packet = check!(Icmpv6Packet::new_checked(ip_payload));
-        let icmp_repr = check!(Icmpv6Repr::parse(
-            &ip_repr.src_addr(),
-            &ip_repr.dst_addr(),
-            &icmp_packet,
-            &self.caps.checksum,
-        ));
-
         #[cfg(feature = "socket-icmp")]
         let mut handled_by_icmp_socket = false;
 
-        #[cfg(all(feature = "socket-icmp", feature = "proto-ipv6"))]
+        #[cfg(feature = "socket-icmp")]
         for icmp_socket in _sockets
             .items_mut()
             .filter_map(|i| icmp::Socket::downcast_mut(&mut i.socket))
         {
-            if icmp_socket.accepts(self, &ip_repr, &icmp_repr.into()) {
-                icmp_socket.process(self, &ip_repr, &icmp_repr.into());
+            if icmp_socket.accepts(self, &IpRepr::Ipv6(*header), &IcmpRepr::Ipv6(*icmp)) {
+                icmp_socket.process(self, &IpRepr::Ipv6(*header), &IcmpRepr::Ipv6(*icmp));
                 handled_by_icmp_socket = true;
             }
         }
 
-        match icmp_repr {
+        match icmp {
             // Respond to echo requests.
             Icmpv6Repr::EchoRequest {
                 ident,
                 seq_no,
                 data,
-            } => match ip_repr {
-                IpRepr::Ipv6(ipv6_repr) => {
-                    let icmp_reply_repr = Icmpv6Repr::EchoReply {
-                        ident,
-                        seq_no,
-                        data,
-                    };
-                    self.icmpv6_reply(ipv6_repr, icmp_reply_repr)
-                }
-                #[allow(unreachable_patterns)]
-                _ => unreachable!(),
-            },
+            } => {
+                let icmp_reply_repr = Icmpv6Repr::EchoReply {
+                    ident: *ident,
+                    seq_no: *seq_no,
+                    data,
+                };
+                self.icmpv6_reply(header, &icmp_reply_repr)
+            }
 
             // Ignore any echo replies.
             Icmpv6Repr::EchoReply { .. } => None,
 
             // Forward any NDISC packets to the ndisc packet handler
             #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
-            Icmpv6Repr::Ndisc(repr) if ip_repr.hop_limit() == 0xff => match ip_repr {
-                IpRepr::Ipv6(ipv6_repr) => self.process_ndisc(ipv6_repr, repr),
-                #[allow(unreachable_patterns)]
-                _ => unreachable!(),
-            },
+            Icmpv6Repr::Ndisc(repr) if header.hop_limit == 0xff => self.process_ndisc(header, repr),
 
             // Don't report an error if a packet with unknown type
             // has been handled by an ICMP socket
@@ -175,14 +237,11 @@ impl InterfaceInner {
         }
     }
 
-    #[cfg(all(
-        any(feature = "medium-ethernet", feature = "medium-ieee802154"),
-        feature = "proto-ipv6"
-    ))]
+    #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
     pub(super) fn process_ndisc<'frame>(
         &mut self,
-        ip_repr: Ipv6Repr,
-        repr: NdiscRepr<'frame>,
+        ip_repr: &Ipv6Repr,
+        repr: &NdiscRepr<'frame>,
     ) -> Option<IpPacket<'frame>> {
         match repr {
             NdiscRepr::NeighborAdvert {
@@ -218,15 +277,15 @@ impl InterfaceInner {
                         .fill(ip_repr.src_addr.into(), lladdr, self.now);
                 }
 
-                if self.has_solicited_node(ip_repr.dst_addr) && self.has_ip_addr(target_addr) {
+                if self.has_solicited_node(ip_repr.dst_addr) && self.has_ip_addr(*target_addr) {
                     let advert = Icmpv6Repr::Ndisc(NdiscRepr::NeighborAdvert {
                         flags: NdiscNeighborFlags::SOLICITED,
-                        target_addr,
+                        target_addr: *target_addr,
                         #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
                         lladdr: Some(self.hardware_addr.into()),
                     });
                     let ip_repr = Ipv6Repr {
-                        src_addr: target_addr,
+                        src_addr: *target_addr,
                         dst_addr: ip_repr.src_addr,
                         next_header: IpProtocol::Icmpv6,
                         hop_limit: 0xff,
@@ -241,21 +300,12 @@ impl InterfaceInner {
         }
     }
 
-    #[cfg(feature = "proto-ipv6")]
-    pub(super) fn process_hopbyhop<'frame>(
+    pub(super) fn process_hopbyhop(
         &mut self,
-        sockets: &mut SocketSet,
-        meta: PacketMeta,
-        ipv6_repr: Ipv6Repr,
-        handled_by_raw_socket: bool,
-        ip_payload: &'frame [u8],
-    ) -> Option<IpPacket<'frame>> {
-        let ext_hdr = check!(Ipv6ExtHeader::new_checked(ip_payload));
-        let ext_repr = check!(Ipv6ExtHeaderRepr::parse(&ext_hdr));
-        let hbh_hdr = check!(Ipv6HopByHopHeader::new_checked(ext_repr.data));
-        let hbh_repr = check!(Ipv6HopByHopRepr::parse(&hbh_hdr));
-
-        for opt_repr in &hbh_repr.options {
+        _ipv6_repr: &Ipv6Repr,
+        hbh: &Ipv6HopByHopRepr,
+    ) -> Option<()> {
+        for opt_repr in &hbh.options {
             match opt_repr {
                 Ipv6OptionRepr::Pad1 | Ipv6OptionRepr::PadN(_) => (),
                 #[cfg(feature = "proto-rpl")]
@@ -276,21 +326,35 @@ impl InterfaceInner {
                 }
             }
         }
-        self.process_nxt_hdr(
-            sockets,
-            meta,
-            ipv6_repr,
-            ext_repr.next_header,
-            handled_by_raw_socket,
-            &ip_payload[ext_repr.header_len() + ext_repr.data.len()..],
-        )
+
+        Some(())
     }
 
-    #[cfg(feature = "proto-ipv6")]
+    #[cfg(feature = "proto-ipv6-routing")]
+    pub(super) fn process_routing<'frame>(
+        &mut self,
+        ipv6_repr: &Ipv6Repr,
+        routing: &Ipv6RoutingRepr<'frame>,
+    ) {
+        match routing {
+            Ipv6RoutingRepr::Type2 { .. } => {
+                net_debug!("IPv6 Type2 routing header not supported yet");
+            }
+            Ipv6RoutingRepr::Rpl { .. } => {
+                net_debug!("IPv6 Rpl routing header not supported yet");
+            }
+        }
+    }
+
+    #[cfg(feature = "proto-ipv6-fragmentation")]
+    pub(super) fn process_fragment(&mut self, ipv6_repr: &ipv6repr, fragment: &ipv6fragmentrepr) {
+        net_debug!("IPv6 Fragment header not supported yet");
+    }
+
     pub(super) fn icmpv6_reply<'frame, 'icmp: 'frame>(
         &self,
-        ipv6_repr: Ipv6Repr,
-        icmp_repr: Icmpv6Repr<'icmp>,
+        ipv6_repr: &Ipv6Repr,
+        icmp_repr: &Icmpv6Repr<'icmp>,
     ) -> Option<IpPacket<'frame>> {
         if ipv6_repr.dst_addr.is_unicast() {
             let ipv6_reply_repr = Ipv6Repr {
@@ -302,7 +366,7 @@ impl InterfaceInner {
             };
             Some(IpPacket::new_ipv6(
                 ipv6_reply_repr,
-                IpPayload::Icmpv6(icmp_repr),
+                IpPayload::Icmpv6(*icmp_repr),
             ))
         } else {
             // Do not send any ICMP replies to a broadcast destination address.

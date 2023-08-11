@@ -223,12 +223,14 @@ impl<T: AsRef<[u8]>> Header<T> {
         let data = self.buffer.as_ref();
         data[field::PAD] >> 4
     }
+}
 
+impl<'a, T: AsRef<[u8]> + ?Sized> Header<&'a T> {
     /// Return the address vector in bytes
     ///
     /// # Panics
     /// This function may panic if this header is not the RPL Source Routing Header routing type.
-    pub fn addresses(&self) -> &[u8] {
+    pub fn addresses(&self) -> &'a [u8] {
         let data = self.buffer.as_ref();
         &data[field::ADDRESSES..]
     }
@@ -372,7 +374,7 @@ pub enum Repr<'a> {
 
 impl<'a> Repr<'a> {
     /// Parse an IPv6 Routing Header and return a high-level representation.
-    pub fn parse<T>(header: &'a Header<&'a T>) -> Result<Repr<'a>>
+    pub fn parse<T>(header: &Header<&'a T>) -> Result<Repr<'a>>
     where
         T: AsRef<[u8]> + ?Sized,
     {

@@ -122,7 +122,7 @@ impl InterfaceInner {
         }
 
         match ipv4_repr.next_header {
-            IpProtocol::Icmp => self.process_icmpv4(sockets, ip_repr, ip_payload),
+            IpProtocol::Icmp => self.process_icmpv4(sockets, &ipv4_repr, ip_payload),
 
             #[cfg(feature = "proto-igmp")]
             IpProtocol::Igmp => self.process_igmp(ipv4_repr, ip_payload),
@@ -140,8 +140,8 @@ impl InterfaceInner {
                 self.process_udp(
                     sockets,
                     meta,
-                    ip_repr,
-                    udp_repr,
+                    &ip_repr,
+                    &udp_repr,
                     handled_by_raw_socket,
                     udp_packet.payload(),
                     ip_payload,
@@ -149,7 +149,17 @@ impl InterfaceInner {
             }
 
             #[cfg(feature = "socket-tcp")]
-            IpProtocol::Tcp => self.process_tcp(sockets, ip_repr, ip_payload),
+            IpProtocol::Tcp => {
+                let (src_addr, dst_addr) = (ip_repr.src_addr(), ip_repr.dst_addr());
+                let tcp_packet = check!(TcpPacket::new_checked(ip_payload));
+                let tcp_repr = check!(TcpRepr::parse(
+                    &tcp_packet,
+                    &src_addr,
+                    &dst_addr,
+                    &self.caps.checksum
+                ));
+                self.process_tcp(sockets, ip_repr, &tcp_repr)
+            }
 
             _ if handled_by_raw_socket => None,
 
@@ -162,7 +172,7 @@ impl InterfaceInner {
                     header: ipv4_repr,
                     data: &ip_payload[0..payload_len],
                 };
-                self.icmpv4_reply(ipv4_repr, icmp_reply_repr)
+                self.icmpv4_reply(&ipv4_repr, &icmp_reply_repr)
             }
         }
     }
@@ -236,7 +246,7 @@ impl InterfaceInner {
     pub(super) fn process_icmpv4<'frame>(
         &mut self,
         _sockets: &mut SocketSet,
-        ip_repr: IpRepr,
+        ip_repr: &Ipv4Repr,
         ip_payload: &'frame [u8],
     ) -> Option<IpPacket<'frame>> {
         let icmp_packet = check!(Icmpv4Packet::new_checked(ip_payload));
@@ -250,8 +260,8 @@ impl InterfaceInner {
             .items_mut()
             .filter_map(|i| icmp::Socket::downcast_mut(&mut i.socket))
         {
-            if icmp_socket.accepts(self, &ip_repr, &icmp_repr.into()) {
-                icmp_socket.process(self, &ip_repr, &icmp_repr.into());
+            if icmp_socket.accepts(self, &IpRepr::Ipv4(*ip_repr), &icmp_repr.into()) {
+                icmp_socket.process(self, &IpRepr::Ipv4(*ip_repr), &icmp_repr.into());
                 handled_by_icmp_socket = true;
             }
         }
@@ -269,11 +279,7 @@ impl InterfaceInner {
                     seq_no,
                     data,
                 };
-                match ip_repr {
-                    IpRepr::Ipv4(ipv4_repr) => self.icmpv4_reply(ipv4_repr, icmp_reply_repr),
-                    #[allow(unreachable_patterns)]
-                    _ => unreachable!(),
-                }
+                self.icmpv4_reply(ip_repr, &icmp_reply_repr)
             }
 
             // Ignore any echo replies.
@@ -291,8 +297,8 @@ impl InterfaceInner {
 
     pub(super) fn icmpv4_reply<'frame, 'icmp: 'frame>(
         &self,
-        ipv4_repr: Ipv4Repr,
-        icmp_repr: Icmpv4Repr<'icmp>,
+        ipv4_repr: &Ipv4Repr,
+        icmp_repr: &Icmpv4Repr<'icmp>,
     ) -> Option<IpPacket<'frame>> {
         if !self.is_unicast_v4(ipv4_repr.src_addr) {
             // Do not send ICMP replies to non-unicast sources
@@ -308,7 +314,7 @@ impl InterfaceInner {
             };
             Some(IpPacket::new_ipv4(
                 ipv4_reply_repr,
-                IpPayload::Icmpv4(icmp_repr),
+                IpPayload::Icmpv4(*icmp_repr),
             ))
         } else if self.is_broadcast_v4(ipv4_repr.dst_addr) {
             // Only reply to broadcasts for echo replies and not other ICMP messages
@@ -324,7 +330,7 @@ impl InterfaceInner {
                         };
                         Some(IpPacket::new_ipv4(
                             ipv4_reply_repr,
-                            IpPayload::Icmpv4(icmp_repr),
+                            IpPayload::Icmpv4(*icmp_repr),
                         ))
                     }
                     None => None,
