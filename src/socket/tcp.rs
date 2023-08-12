@@ -374,6 +374,7 @@ impl Timer {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(kani, derive(kani::Arbitrary))]
 enum AckDelayTimer {
     Idle,
     Waiting(Instant),
@@ -2379,6 +2380,49 @@ impl<'a> fmt::Write for Socket<'a> {
         } else {
             Err(fmt::Error)
         }
+    }
+}
+
+#[cfg(kani)]
+impl<'a> kani::Arbitrary for Socket<'a> {
+    #[inline]
+    fn any() -> Self {
+        return Socket {
+            state: kani::any(),
+            timer: kani::any(),
+            rtte: kani::any(),
+            assembler: Assembler::new(),
+            rx_buffer: SocketBuffer::new(kani::vec::exact_vec::<_, 64>()),
+            rx_fin_received: kani::any(),
+            tx_buffer: SocketBuffer::new(kani::vec::exact_vec::<_, 64>()),
+            timeout: kani::any(),
+            keep_alive: kani::any(),
+            hop_limit: kani::any(),
+            listen_endpoint: kani::any(),
+            tuple: kani::any(),
+            local_seq_no: kani::any(),
+            remote_seq_no: kani::any(),
+            remote_last_seq: kani::any(),
+            remote_last_ack: kani::any(),
+            remote_last_win: kani::any(),
+            remote_win_shift: kani::any(),
+            remote_win_len: kani::any(),
+            remote_win_scale: kani::any(),
+            remote_has_sack: kani::any(),
+            remote_mss: kani::any(),
+            remote_last_ts: kani::any(),
+            local_rx_last_seq: kani::any(),
+            local_rx_last_ack: kani::any(),
+            local_rx_dup_acks: kani::any(),
+            ack_delay: kani::any(),
+            ack_delay_timer: kani::any(),
+            challenge_ack_timer: kani::any(),
+            nagle: kani::any(),
+            #[cfg(feature = "async")]
+            rx_waker: WakerRegistration::new(),
+            #[cfg(feature = "async")]
+            tx_waker: WakerRegistration::new(),
+    };
     }
 }
 
@@ -7219,6 +7263,15 @@ mod verification {
         }
     }
 
+    impl kani::Arbitrary for TestSocket {
+        #[inline]
+        fn any() -> Self {
+            let socket: Socket = kani::any();
+            let cx = Context::mock();
+            return TestSocket { socket, cx };
+        }
+    }
+
     // fn send(
     //     socket: &mut TestSocket,
     //     timestamp: Instant,
@@ -7467,19 +7520,19 @@ mod verification {
 
     #[kani::proof]
     fn prove_closed_reject() {
-        let mut s = socket();
-        assert_eq!(s.state, State::Closed);
+        let mut socket: TestSocket = kani::any_where(|s: &TestSocket| s.state == State::Closed);
+        assert_eq!(socket.state, State::Closed);
 
         let tcp_repr: TcpRepr = kani::any();
         let send_ip: IpRepr = kani::any();
 
-        assert!(!s.socket.accepts(&mut s.cx, &send_ip, &tcp_repr));
+        assert!(!socket.socket.accepts(&mut socket.cx, &send_ip, &tcp_repr));
     }
 
     #[kani::proof]
     fn prove_closed_reject_after_listen() {
         let mut s = socket();
-        let local_endpoint: IpEndpoint = kani::any_where(|e: &IpEndpoint| e.port != 0);
+        let local_endpoint: IpEndpoint = kani::any();
         s.listen(local_endpoint).unwrap();
         s.close();
 

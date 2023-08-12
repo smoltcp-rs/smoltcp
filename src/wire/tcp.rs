@@ -6,14 +6,12 @@ use crate::phy::ChecksumCapabilities;
 use crate::wire::ip::checksum;
 use crate::wire::{IpAddress, IpProtocol};
 
-#[cfg(kani)]
-extern crate kani;
-
 /// A TCP sequence number.
 ///
 /// A sequence number is a monotonically advancing integer modulo 2<sup>32</sup>.
 /// Sequence numbers do not have a discontiguity when compared pairwise across a signed overflow.
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
+#[cfg_attr(kani, derive(kani::Arbitrary))]
 pub struct SeqNumber(pub i32);
 
 impl SeqNumber {
@@ -90,15 +88,6 @@ impl ops::Sub for SeqNumber {
 impl cmp::PartialOrd for SeqNumber {
     fn partial_cmp(&self, other: &SeqNumber) -> Option<cmp::Ordering> {
         self.0.wrapping_sub(other.0).partial_cmp(&0)
-    }
-}
-
-#[cfg(kani)]
-impl kani::Arbitrary for SeqNumber {
-    #[inline]
-    fn any() -> Self {
-        let seq_number: i32 = kani::any();
-        return SeqNumber(seq_number);
     }
 }
 
@@ -841,6 +830,7 @@ impl<'a> kani::Arbitrary for TcpOption<'a> {
 /// The possible control flags of a Transmission Control Protocol packet.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg_attr(kani, derive(kani::Arbitrary))]
 pub enum Control {
     None,
     Psh,
@@ -864,22 +854,6 @@ impl Control {
         match self {
             Control::Psh => Control::None,
             _ => self,
-        }
-    }
-}
-
-#[cfg(kani)]
-impl kani::Arbitrary for Control {
-    #[inline]
-    fn any() -> Self {
-        let code: u8 = kani::any_where(|c| *c >= 1 && *c <= 5);
-        return match code {
-            1 => Control::None,
-            2 => Control::Psh,
-            3 => Control::Syn,
-            4 => Control::Fin,
-            5 => Control::Rst,
-            _ => unreachable!()
         }
     }
 }

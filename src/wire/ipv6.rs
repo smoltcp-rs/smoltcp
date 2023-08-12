@@ -27,6 +27,7 @@ pub const IPV4_MAPPED_PREFIX_SIZE: usize = ADDR_SIZE - 4; // 4 == ipv4::ADDR_SIZ
 
 /// A sixteen-octet IPv6 address.
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
+#[cfg_attr(kani, derive(kani::Arbitrary))]
 pub struct Address(pub [u8; ADDR_SIZE]);
 
 impl Address {
@@ -375,23 +376,6 @@ impl From<ipv4::Address> for Address {
         Self(b)
     }
 }
-
-#[cfg(kani)]
-impl kani::Arbitrary for Address {
-    #[inline]
-    fn any() -> Self {
-        let a0: u16 = kani::any();
-        let a1: u16 = kani::any();
-        let a2: u16 = kani::any();
-        let a3: u16 = kani::any();
-        let a4: u16 = kani::any();
-        let a5: u16 = kani::any();
-        let a6: u16 = kani::any();
-        let a7: u16 = kani::any();
-        return Self::new(a0, a1, a2, a3, a4, a5, a6, a7);
-    }
-}
-
 
 /// A specification of an IPv6 CIDR block, containing an address and a variable-length
 /// subnet masking prefix length.

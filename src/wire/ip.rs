@@ -381,7 +381,6 @@ impl defmt::Format for Cidr {
 /// See also ['ListenEndpoint'], which allows not specifying the address
 /// in order to listen on a given port on any address.
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
-#[cfg_attr(kani, derive(kani::Arbitrary))]
 pub struct Endpoint {
     pub addr: Address,
     pub port: u16,
@@ -445,6 +444,17 @@ impl<T: Into<Address>> From<(T, u16)> for Endpoint {
         }
     }
 }
+
+#[cfg(kani)]
+impl<'a> kani::Arbitrary for Endpoint {
+    #[inline]
+    fn any() -> Self {
+        let addr: Address = kani::any();
+        let port: u16 = kani::any_where(|p| *p != 0);
+        return Self::new(addr, port);
+    }
+}
+
 
 /// An internet endpoint address for listening.
 ///
