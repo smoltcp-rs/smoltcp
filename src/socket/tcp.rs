@@ -13,8 +13,8 @@ use crate::socket::{Context, PollAt};
 use crate::storage::{Assembler, RingBuffer};
 use crate::time::{Duration, Instant};
 use crate::wire::{
-    ETHERNET_HEADER_LEN, IpAddress, IpEndpoint, IpListenEndpoint, IpProtocol, IpRepr, ip::Version, TcpControl, TcpRepr,
-    TcpSeqNumber, TCP_HEADER_LEN,
+    ip::Version, IpAddress, IpEndpoint, IpListenEndpoint, IpProtocol, IpRepr, TcpControl, TcpRepr,
+    TcpSeqNumber, ETHERNET_HEADER_LEN, TCP_HEADER_LEN,
 };
 
 macro_rules! tcp_trace {
@@ -1868,7 +1868,10 @@ impl<'a> Socket<'a> {
         let assembler_was_empty = self.assembler.is_empty();
 
         // Try adding payload octets to the assembler.
-        let Ok(contig_len) = self.assembler.add_then_remove_front(payload_offset, payload_len) else {
+        let Ok(contig_len) = self
+            .assembler
+            .add_then_remove_front(payload_offset, payload_len)
+        else {
             net_debug!(
                 "assembler: too many holes to add {} octets at offset {}",
                 payload_len,
@@ -2199,7 +2202,12 @@ impl<'a> Socket<'a> {
                 };
 
                 let size = if tso {
-                    win_limit.min(u16::MAX as usize - ETHERNET_HEADER_LEN - ip_repr.header_len() - TCP_HEADER_LEN)
+                    win_limit.min(
+                        u16::MAX as usize
+                            - ETHERNET_HEADER_LEN
+                            - ip_repr.header_len()
+                            - TCP_HEADER_LEN,
+                    )
                 } else {
                     // Maximum size we're allowed to send. This can be limited by 3 factors:
                     // 1. remote window

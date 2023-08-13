@@ -1751,7 +1751,7 @@ impl InterfaceInner {
                     emit_ip(&ip_repr, tx_buffer);
                     Ok(())
                 })
-            },
+            }
         }
     }
 }
