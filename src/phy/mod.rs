@@ -304,7 +304,7 @@ pub struct DeviceCapabilities {
     /// TCP segmentation offload (TSO) support
     ///
     /// If the network device is able to support TCP segmentation offloading (TSO),
-    /// the stack forward the segementation to the harware to improve qthe performance.
+    /// the stack forward the segementation to the harware to improve the performance.
     pub tso: TsoCapabilities,
 }
 
