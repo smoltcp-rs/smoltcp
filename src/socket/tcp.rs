@@ -2202,12 +2202,9 @@ impl<'a> Socket<'a> {
                 };
 
                 let size = if tso {
-                    win_limit.min(
-                        u16::MAX as usize
-                            - ETHERNET_HEADER_LEN
-                            - ip_repr.header_len()
-                            - TCP_HEADER_LEN,
-                    )
+                    // according to the Virtio I/O Device Specification the maximum size of
+                    // a TCP or UDP packet, plus the 14 byte ethernet header
+                    win_limit.min(65550)
                 } else {
                     // Maximum size we're allowed to send. This can be limited by 3 factors:
                     // 1. remote window
