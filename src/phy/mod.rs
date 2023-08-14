@@ -224,7 +224,7 @@ impl ChecksumCapabilities {
     }
 }
 
-/// Describes if the device supports TCP segment offloading (TSO).
+/// Describes if the device supports TCP segmentation offloading (TSO).
 #[derive(Debug, Copy, Clone, Default)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum TsoCapabilities {
