@@ -136,10 +136,10 @@ mod test {
     #[test]
     fn test_construct() {
         let mut bytes = vec![0xa5; 8];
-        let mut packet: Packet<&mut Vec<u8>> = Packet::new_unchecked(&mut bytes);
+        let mut packet = Packet::new_unchecked(&mut bytes);
         packet.set_security_parameters_index(0xfb5128a6);
         packet.set_sequence_number(2);
-        assert_eq!(&*packet.into_inner(), &PACKET_BYTES[..8]);
+        assert_eq!(&bytes, &PACKET_BYTES[..8]);
     }
     #[test]
     fn test_check_len() {
@@ -165,6 +165,13 @@ mod test {
         let mut bytes = vec![0x17; 8];
         let mut packet = Packet::new_unchecked(&mut bytes);
         packet_repr().emit(&mut packet);
-        assert_eq!(&*packet.into_inner(), &PACKET_BYTES[..8]);
+        assert_eq!(&bytes, &PACKET_BYTES[..8]);
+    }
+
+    #[test]
+    fn test_buffer_len() {
+        let header = Packet::new_unchecked(&PACKET_BYTES[..]);
+        let repr = Repr::parse(&header).unwrap();
+        assert_eq!(repr.buffer_len(), 8);
     }
 }

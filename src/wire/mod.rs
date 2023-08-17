@@ -279,10 +279,10 @@ pub use self::dns::{
 };
 
 #[cfg(feature = "proto-ipsec-ah")]
-pub use self::ipsec_ah::{Packet as IPSecAuthHeaderPacket, Repr as IPSecAuthHeaderRepr};
+pub use self::ipsec_ah::{Packet as IpSecAuthHeaderPacket, Repr as IpSecAuthHeaderRepr};
 
 #[cfg(feature = "proto-ipsec-esp")]
-pub use self::ipsec_esp::{Packet as IPSecEspPacket, Repr as IPSecEspRepr};
+pub use self::ipsec_esp::{Packet as IpSecEspPacket, Repr as IpSecEspRepr};
 
 /// Parsing a packet failed.
 ///

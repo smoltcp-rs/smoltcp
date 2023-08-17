@@ -233,7 +233,7 @@ mod test {
     #[test]
     fn test_construct() {
         let mut bytes = vec![0xa5; 24];
-        let mut packet: Packet<&mut Vec<u8>> = Packet::new_unchecked(&mut bytes);
+        let mut packet = Packet::new_unchecked(&mut bytes);
         packet.set_next_header(IpProtocol::Esp);
         packet.set_payload_len(4);
         packet.clear_reserved();
@@ -243,7 +243,7 @@ mod test {
             0xaf, 0xd2, 0xe7, 0xa1, 0x73, 0xd3, 0x29, 0x0b, 0xfe, 0x6b, 0x63, 0x73,
         ];
         packet.integrity_check_value_mut().copy_from_slice(&ICV);
-        assert_eq!(&*packet.into_inner(), &PACKET_BYTES2[..]);
+        assert_eq!(bytes, PACKET_BYTES2);
     }
     #[test]
     fn test_check_len() {
@@ -274,6 +274,13 @@ mod test {
         let mut bytes = vec![0x17; 24];
         let mut packet = Packet::new_unchecked(&mut bytes);
         packet_repr().emit(&mut packet);
-        assert_eq!(&*packet.into_inner(), &PACKET_BYTES2[..]);
+        assert_eq!(bytes, PACKET_BYTES2);
+    }
+
+    #[test]
+    fn test_buffer_len() {
+        let header = Packet::new_unchecked(&PACKET_BYTES1[..]);
+        let repr = Repr::parse(&header).unwrap();
+        assert_eq!(repr.buffer_len(), PACKET_BYTES1.len());
     }
 }

@@ -57,6 +57,7 @@ defmt = [ "dep:defmt", "heapless/defmt", "heapless/defmt-impl" ]
 "proto-sixlowpan" = ["proto-ipv6"]
 "proto-sixlowpan-fragmentation" = ["proto-sixlowpan", "_proto-fragmentation"]
 "proto-dns" = []
+"proto-ipsec" = ["proto-ipsec-ah", "proto-ipsec-esp"]
 "proto-ipsec-ah"= []
 "proto-ipsec-esp"= []
 
@@ -78,7 +79,7 @@ default = [
   "medium-ethernet", "medium-ip", "medium-ieee802154",
   "phy-raw_socket", "phy-tuntap_interface",
   "proto-ipv4", "proto-igmp", "proto-dhcpv4", "proto-ipv6", "proto-dns",
-  "proto-ipv4-fragmentation", "proto-sixlowpan-fragmentation", "proto-ipsec-ah", "proto-ipsec-esp",
+  "proto-ipv4-fragmentation", "proto-sixlowpan-fragmentation", "proto-ipsec",
   "socket-raw", "socket-icmp", "socket-udp", "socket-tcp", "socket-dhcpv4", "socket-dns", "socket-mdns",
   "packetmeta-id", "async"
 ]
