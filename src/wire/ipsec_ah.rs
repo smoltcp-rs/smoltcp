@@ -220,7 +220,7 @@ mod test {
     #[test]
     fn test_deconstruct() {
         let packet = Packet::new_unchecked(&PACKET_BYTES1[..]);
-        assert_eq!(packet.next_header(), IpProtocol::Esp);
+        assert_eq!(packet.next_header(), IpProtocol::IpSecEsp);
         assert_eq!(packet.payload_len(), 4);
         assert_eq!(packet.security_parameters_index(), 0x8179b705);
         assert_eq!(packet.sequence_number(), 1);
@@ -234,7 +234,7 @@ mod test {
     fn test_construct() {
         let mut bytes = vec![0xa5; 24];
         let mut packet = Packet::new_unchecked(&mut bytes);
-        packet.set_next_header(IpProtocol::Esp);
+        packet.set_next_header(IpProtocol::IpSecEsp);
         packet.set_payload_len(4);
         packet.clear_reserved();
         packet.set_security_parameters_index(0xba8bd060);
@@ -254,7 +254,7 @@ mod test {
 
     fn packet_repr<'a>() -> Repr<'a> {
         Repr {
-            next_header: IpProtocol::Esp,
+            next_header: IpProtocol::IpSecEsp,
             security_parameters_index: 0xba8bd060,
             sequence_number: 1,
             integrity_check_value: &[
