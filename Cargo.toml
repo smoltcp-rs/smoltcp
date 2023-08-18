@@ -203,6 +203,14 @@ reassembly-buffer-count-8 = []
 reassembly-buffer-count-16 = []
 reassembly-buffer-count-32 = []
 
+ipv6-hbh-max-options-1 = [] # Default
+ipv6-hbh-max-options-2 = []
+ipv6-hbh-max-options-3 = []
+ipv6-hbh-max-options-4 = []
+ipv6-hbh-max-options-8 = []
+ipv6-hbh-max-options-16 = []
+ipv6-hbh-max-options-32 = []
+
 dns-max-result-count-1 = [] # Default
 dns-max-result-count-2 = []
 dns-max-result-count-3 = []
