@@ -31,7 +31,7 @@ FEATURES_TEST=(
     "std,medium-ip,proto-ipv4,proto-ipv6,socket-tcp,socket-udp"
     "std,medium-ethernet,medium-ip,medium-ieee802154,proto-ipv4,proto-ipv6,socket-raw,socket-udp,socket-tcp,socket-icmp,socket-dns,async"
     "std,medium-ieee802154,medium-ip,proto-ipv4,socket-raw"
-    "std,medium-ethernet,proto-ipv4,proto-ipsec"
+    "std,medium-ethernet,proto-ipv4,proto-ipsec,socket-raw"
 )
 
 FEATURES_TEST_NIGHTLY=(
