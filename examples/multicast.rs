@@ -111,7 +111,7 @@ fn main() {
         }
 
         let socket = sockets.get_mut::<udp::Socket>(udp_handle);
-        if !socket.is_open() {
+        if !socket.is_bound() {
             socket.bind(MDNS_PORT).unwrap()
         }
 

@@ -745,16 +745,12 @@ impl<'a> Socket<'a> {
     /// Start listening on the given endpoint.
     ///
     /// This function returns `Err(Error::Illegal)` if the socket was already open
-    /// (see [is_open](#method.is_open)), and `Err(Error::Unaddressable)`
-    /// if the port in the given endpoint is zero.
+    /// (see [is_open](#method.is_open)).
     pub fn listen<T>(&mut self, local_endpoint: T) -> Result<(), ListenError>
     where
         T: Into<IpListenEndpoint>,
     {
         let local_endpoint = local_endpoint.into();
-        if local_endpoint.port == 0 {
-            return Err(ListenError::Unaddressable);
-        }
 
         if self.is_open() {
             return Err(ListenError::InvalidState);
@@ -1346,7 +1342,9 @@ impl<'a> Socket<'a> {
                 Some(addr) => ip_repr.dst_addr() == addr,
                 None => true,
             };
-            addr_ok && repr.dst_port != 0 && repr.dst_port == self.listen_endpoint.port
+            addr_ok
+                && repr.dst_port != 0
+                && (self.listen_endpoint.port == 0 || repr.dst_port == self.listen_endpoint.port)
         }
     }
 
@@ -2902,9 +2900,9 @@ mod test {
     }
 
     #[test]
-    fn test_listen_validation() {
+    fn test_listen_any_port() {
         let mut s = socket();
-        assert_eq!(s.listen(0), Err(ListenError::Unaddressable));
+        assert_eq!(s.listen(0), Ok(()));
     }
 
     #[test]
