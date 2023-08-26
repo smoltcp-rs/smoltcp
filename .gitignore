@@ -1,3 +1,6 @@
+.vscode/
+tmp/
+build/
 /target
 Cargo.lock
 *.pcap

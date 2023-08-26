@@ -1,11 +1,11 @@
 mod utils;
 
 use smoltcp::iface::{Config, Interface, SocketSet};
-use smoltcp::phy::Device;
-use smoltcp::phy::{wait as phy_wait, Medium};
+use smoltcp::phy::{self, Device, Medium};
 use smoltcp::socket::dns::{self, GetQueryResultError};
 use smoltcp::time::Instant;
 use smoltcp::wire::{DnsQueryType, EthernetAddress, IpAddress, IpCidr, Ipv4Address, Ipv6Address};
+#[cfg(target_family = "unix")]
 use std::os::unix::io::AsRawFd;
 
 fn main() {
@@ -87,6 +87,6 @@ fn main() {
             Err(e) => panic!("query failed: {e:?}"),
         }
 
-        phy_wait(fd, iface.poll_delay(timestamp, &sockets)).expect("wait error");
+        phy::wait(fd, iface.poll_delay(timestamp, &sockets)).expect("wait error");
     }
 }

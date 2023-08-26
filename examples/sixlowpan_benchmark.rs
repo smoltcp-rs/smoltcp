@@ -43,13 +43,13 @@
 
 mod utils;
 
-use std::os::unix::io::AsRawFd;
-use std::str;
-
 use smoltcp::iface::{Config, Interface, SocketSet};
-use smoltcp::phy::{wait as phy_wait, Device, Medium, RawSocket};
+use smoltcp::phy::{self, Device, Medium, RawSocket};
 use smoltcp::socket::tcp;
 use smoltcp::wire::{EthernetAddress, Ieee802154Address, Ieee802154Pan, IpAddress, IpCidr};
+#[cfg(target_family = "unix")]
+use std::os::unix::io::AsRawFd;
+use std::str;
 
 //For benchmark
 use smoltcp::time::{Duration, Instant};
@@ -224,11 +224,11 @@ fn main() {
 
         match iface.poll_at(timestamp, &sockets) {
             Some(poll_at) if timestamp < poll_at => {
-                phy_wait(fd, Some(poll_at - timestamp)).expect("wait error");
+                phy::wait(fd, Some(poll_at - timestamp)).expect("wait error");
             }
             Some(_) => (),
             None => {
-                phy_wait(fd, default_timeout).expect("wait error");
+                phy::wait(fd, default_timeout).expect("wait error");
             }
         }
     }

@@ -1,14 +1,14 @@
 mod utils;
 
 use log::debug;
-use std::fmt::Write;
-use std::os::unix::io::AsRawFd;
-
 use smoltcp::iface::{Config, Interface, SocketSet};
-use smoltcp::phy::{wait as phy_wait, Device, Medium};
+use smoltcp::phy::{self, Device, Medium};
 use smoltcp::socket::{tcp, udp};
 use smoltcp::time::{Duration, Instant};
 use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr, Ipv4Address, Ipv6Address};
+use std::fmt::Write;
+#[cfg(target_family = "unix")]
+use std::os::unix::io::AsRawFd;
 
 fn main() {
     utils::setup_logging("");
@@ -204,6 +204,6 @@ fn main() {
                 .unwrap();
         }
 
-        phy_wait(fd, iface.poll_delay(timestamp, &sockets)).expect("wait error");
+        phy::wait(fd, iface.poll_delay(timestamp, &sockets)).expect("wait error");
     }
 }

@@ -2,18 +2,18 @@
 
 mod utils;
 
-use std::cmp;
-use std::io::{Read, Write};
-use std::net::TcpStream;
-use std::os::unix::io::AsRawFd;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread;
-
 use smoltcp::iface::{Config, Interface, SocketSet};
-use smoltcp::phy::{wait as phy_wait, Device, Medium};
+use smoltcp::phy::{self, Device, Medium};
 use smoltcp::socket::tcp;
 use smoltcp::time::{Duration, Instant};
 use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr};
+use std::cmp;
+use std::io::{Read, Write};
+use std::net::TcpStream;
+#[cfg(target_family = "unix")]
+use std::os::unix::io::AsRawFd;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
 
 const AMOUNT: usize = 1_000_000_000;
 
@@ -153,11 +153,11 @@ fn main() {
 
         match iface.poll_at(timestamp, &sockets) {
             Some(poll_at) if timestamp < poll_at => {
-                phy_wait(fd, Some(poll_at - timestamp)).expect("wait error");
+                phy::wait(fd, Some(poll_at - timestamp)).expect("wait error");
             }
             Some(_) => (),
             None => {
-                phy_wait(fd, default_timeout).expect("wait error");
+                phy::wait(fd, default_timeout).expect("wait error");
             }
         }
     }
