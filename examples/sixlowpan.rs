@@ -43,15 +43,15 @@
 mod utils;
 
 use log::debug;
-use std::os::unix::io::AsRawFd;
-use std::str;
-
 use smoltcp::iface::{Config, Interface, SocketSet};
-use smoltcp::phy::{wait as phy_wait, Device, Medium, RawSocket};
+use smoltcp::phy::{self, Device, Medium, RawSocket};
 use smoltcp::socket::tcp;
 use smoltcp::socket::udp;
 use smoltcp::time::Instant;
 use smoltcp::wire::{EthernetAddress, Ieee802154Address, Ieee802154Pan, IpAddress, IpCidr};
+#[cfg(target_family = "unix")]
+use std::os::unix::io::AsRawFd;
+use std::str;
 
 fn main() {
     utils::setup_logging("");
@@ -172,6 +172,6 @@ fn main() {
             socket.close();
         }
 
-        phy_wait(fd, iface.poll_delay(timestamp, &sockets)).expect("wait error");
+        phy::wait(fd, iface.poll_delay(timestamp, &sockets)).expect("wait error");
     }
 }

@@ -1,15 +1,15 @@
 mod utils;
 
-use std::os::unix::io::AsRawFd;
-
 use smoltcp::iface::{Config, Interface, SocketSet};
-use smoltcp::phy::{wait as phy_wait, Device, Medium};
+use smoltcp::phy::{self, Device, Medium};
 use smoltcp::socket::{raw, udp};
 use smoltcp::time::Instant;
 use smoltcp::wire::{
     EthernetAddress, IgmpPacket, IgmpRepr, IpAddress, IpCidr, IpProtocol, IpVersion, Ipv4Address,
     Ipv4Packet, Ipv6Address,
 };
+#[cfg(target_family = "unix")]
+use std::os::unix::io::AsRawFd;
 
 const MDNS_PORT: u16 = 5353;
 const MDNS_GROUP: [u8; 4] = [224, 0, 0, 251];
@@ -124,6 +124,6 @@ fn main() {
                 .unwrap_or_else(|e| println!("Recv UDP error: {e:?}"));
         }
 
-        phy_wait(fd, iface.poll_delay(timestamp, &sockets)).expect("wait error");
+        phy::wait(fd, iface.poll_delay(timestamp, &sockets)).expect("wait error");
     }
 }

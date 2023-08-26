@@ -1,24 +1,21 @@
 mod utils;
 
 use byteorder::{ByteOrder, NetworkEndian};
-use smoltcp::iface::{Interface, SocketSet};
-use std::cmp;
-use std::collections::HashMap;
-use std::os::unix::io::AsRawFd;
-use std::str::FromStr;
-
-use smoltcp::iface::Config;
-use smoltcp::phy::wait as phy_wait;
-use smoltcp::phy::Device;
+use smoltcp::iface::{Config, Interface, SocketSet};
 use smoltcp::socket::icmp;
 use smoltcp::wire::{
     EthernetAddress, Icmpv4Packet, Icmpv4Repr, Icmpv6Packet, Icmpv6Repr, IpAddress, IpCidr,
     Ipv4Address, Ipv6Address,
 };
 use smoltcp::{
-    phy::Medium,
+    phy::{self, Device, Medium},
     time::{Duration, Instant},
 };
+use std::cmp;
+use std::collections::HashMap;
+#[cfg(target_family = "unix")]
+use std::os::unix::io::AsRawFd;
+use std::str::FromStr;
 
 macro_rules! send_icmp_ping {
     ( $repr_type:ident, $packet_type:ident, $ident:expr, $seq_no:expr,
@@ -256,11 +253,11 @@ fn main() {
         match iface.poll_at(timestamp, &sockets) {
             Some(poll_at) if timestamp < poll_at => {
                 let resume_at = cmp::min(poll_at, send_at);
-                phy_wait(fd, Some(resume_at - timestamp)).expect("wait error");
+                phy::wait(fd, Some(resume_at - timestamp)).expect("wait error");
             }
             Some(_) => (),
             None => {
-                phy_wait(fd, Some(send_at - timestamp)).expect("wait error");
+                phy::wait(fd, Some(send_at - timestamp)).expect("wait error");
             }
         }
     }

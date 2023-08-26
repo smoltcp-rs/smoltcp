@@ -2,16 +2,16 @@
 mod utils;
 
 use log::*;
-use std::os::unix::io::AsRawFd;
-
 use smoltcp::iface::{Config, Interface, SocketSet};
 use smoltcp::socket::dhcpv4;
 use smoltcp::time::Instant;
 use smoltcp::wire::{EthernetAddress, IpCidr, Ipv4Address, Ipv4Cidr};
 use smoltcp::{
-    phy::{wait as phy_wait, Device, Medium},
+    phy::{self, Device, Medium},
     time::Duration,
 };
+#[cfg(target_family = "unix")]
+use std::os::unix::io::AsRawFd;
 
 fn main() {
     #[cfg(feature = "log")]
@@ -82,7 +82,7 @@ fn main() {
             }
         }
 
-        phy_wait(fd, iface.poll_delay(timestamp, &sockets)).expect("wait error");
+        phy::wait(fd, iface.poll_delay(timestamp, &sockets)).expect("wait error");
     }
 }
 
