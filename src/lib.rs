@@ -170,7 +170,7 @@ pub mod time;
 pub mod wire;
 
 #[cfg(all(
-    test,
+    any(test, kani),
     any(
         feature = "medium-ethernet",
         feature = "medium-ip",
