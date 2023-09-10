@@ -7577,7 +7577,105 @@ mod verification {
             assert_eq!(repr.unwrap().window_scale, Some(window_shift));
             assert_eq!(repr.unwrap().window_len, cmp::min(buffer_capacity, 65535) as u16);
         });
+    }
 
+    #[kani::proof]
+    fn prove_listen_validation() {
+        let mut s: TestSocket = kani::any();
+        assert_eq!(s.listen(0), Err(ListenError::Unaddressable));
+    }
+
+    #[kani::proof]
+    fn prove_listen_twice() {
+        let mut s: TestSocket = kani::any_where(|s: &TestSocket| !s.is_open());
+        let port1: u16 = kani::any_where(|p| *p != 0);
+        let port2: u16 = kani::any_where(|p| *p != 0);
+        assert_eq!(s.listen(port1), Ok(()));
+        assert!(s.is_open());
+        assert_eq!(s.listen(port2), Err(ListenError::InvalidState));
+    }
+
+    #[kani::proof]
+    #[kani::unwind(20)]
+    fn prove_listen_syn() {
+        let mut s: TestSocket = kani::any_where(|s: &TestSocket| {
+            s.state == State::Listen &&
+            s.socket.tuple.is_none() &&
+            s.listen_endpoint.addr.is_none() &&
+            s.listen_endpoint.port == s.tuple.local.port
+        });
+
+        let packet_to_send: TcpRepr = kani::any_where(|p: &TcpRepr|
+            p.src_port == s.tuple.remote.port &&
+            p.dst_port == s.tuple.local.port &&
+            p.control == TcpControl::Syn &&
+            p.ack_number.is_none()
+        );
+        
+        send!(s, packet_to_send);
+
+        assert_eq!(s.state, State::SynReceived);
+        assert_eq!(s.socket.tuple, Some(s.tuple));
+        assert_eq!(s.remote_seq_no, packet_to_send.seq_number + 1);
+        assert_eq!(s.remote_has_sack, packet_to_send.sack_permitted);
+        assert_eq!(s.remote_win_scale, packet_to_send.window_scale);
+
+    }
+
+    #[kani::proof]
+    #[kani::unwind(20)]
+    fn prove_listen_syn_reject_ack() {
+        let mut s: TestSocket = kani::any_where(|s: &TestSocket| {
+            s.state == State::Listen &&
+            s.socket.tuple.is_none() &&
+            s.listen_endpoint.addr.is_none() &&
+            s.listen_endpoint.port == s.tuple.local.port
+        });
+
+        let send_ip: IpRepr = kani::any();
+        let packet_to_send: TcpRepr = kani::any_where(|p: &TcpRepr|
+            p.src_port == s.tuple.remote.port &&
+            p.dst_port == s.tuple.local.port &&
+            p.control == TcpControl::Syn &&
+            p.ack_number.is_some()
+        );
+        
+        assert!(!s.socket.accepts(&mut s.cx, &send_ip, &packet_to_send));
+        assert_eq!(s.state, State::Listen);
+    }
+
+    #[kani::proof]
+    #[kani::unwind(20)]
+    fn prove_listen_rst() {
+        let mut s: TestSocket = kani::any_where(|s: &TestSocket| {
+            s.state == State::Listen &&
+            s.socket.tuple.is_none() &&
+            s.listen_endpoint.addr.is_none() &&
+            s.listen_endpoint.port == s.tuple.local.port
+        });
+
+
+        let packet_to_send: TcpRepr = kani::any_where(|p: &TcpRepr|
+            p.src_port == s.tuple.remote.port &&
+            p.dst_port == s.tuple.local.port &&
+            p.control == TcpControl::Rst &&
+            p.ack_number.is_none()
+        );
+
+        send!(s, packet_to_send);
+        assert_eq!(s.state, State::Listen);
+    }
+
+    #[kani::proof]
+    #[kani::unwind(20)]
+    fn prove_listen_close() {
+        let mut s: TestSocket = kani::any_where(|s: &TestSocket| {
+            s.state == State::Listen
+        });
+
+        s.close();
+
+        assert_eq!(s.state, State::Closed);
     }
 
 }
