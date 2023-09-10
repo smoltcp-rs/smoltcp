@@ -494,9 +494,8 @@ impl<'a> Socket<'a> {
         if rx_capacity > (1 << 30) {
             panic!("receiving buffer too large, cannot exceed 1 GiB")
         }
-        let rx_cap_log2 = mem::size_of::<usize>() * 8 - rx_capacity.leading_zeros() as usize;
 
-        Socket {
+        let mut socket = Socket {
             state: State::Closed,
             timer: Timer::new(),
             rtte: RttEstimator::default(),
@@ -515,7 +514,7 @@ impl<'a> Socket<'a> {
             remote_last_ack: None,
             remote_last_win: 0,
             remote_win_len: 0,
-            remote_win_shift: rx_cap_log2.saturating_sub(16) as u8,
+            remote_win_shift: 0,
             remote_win_scale: None,
             remote_has_sack: false,
             remote_mss: DEFAULT_MSS,
@@ -532,7 +531,16 @@ impl<'a> Socket<'a> {
             rx_waker: WakerRegistration::new(),
             #[cfg(feature = "async")]
             tx_waker: WakerRegistration::new(),
-        }
+        };
+
+        socket.compute_win_shift();
+
+        socket
+    }
+
+    pub fn compute_win_shift(&mut self) {
+        let rx_cap_log2 = mem::size_of::<usize>() * 8 - self.rx_buffer.capacity().leading_zeros() as usize;
+        self.remote_win_shift = rx_cap_log2.saturating_sub(16) as u8;
     }
 
     /// Register a waker for receive operations.
@@ -715,9 +723,6 @@ impl<'a> Socket<'a> {
     }
 
     fn reset(&mut self) {
-        let rx_cap_log2 =
-            mem::size_of::<usize>() * 8 - self.rx_buffer.capacity().leading_zeros() as usize;
-
         self.state = State::Closed;
         self.timer = Timer::new();
         self.rtte = RttEstimator::default();
@@ -734,11 +739,12 @@ impl<'a> Socket<'a> {
         self.remote_last_win = 0;
         self.remote_win_len = 0;
         self.remote_win_scale = None;
-        self.remote_win_shift = rx_cap_log2.saturating_sub(16) as u8;
         self.remote_mss = DEFAULT_MSS;
         self.remote_last_ts = None;
         self.ack_delay_timer = AckDelayTimer::Idle;
         self.challenge_ack_timer = Instant::from_secs(0);
+
+        self.compute_win_shift();
 
         #[cfg(feature = "async")]
         {
@@ -2387,14 +2393,17 @@ impl<'a> fmt::Write for Socket<'a> {
 impl<'a> kani::Arbitrary for Socket<'a> {
     #[inline]
     fn any() -> Self {
+        // These bounds are enforced by Socket::new().
+        let rx_buffer_size: usize = kani::any_where(|s| *s <= (1 << 30));
+        let tx_buffer_size: usize = kani::any_where(|s| *s <= (1 << 30));
         return Socket {
             state: kani::any(),
             timer: kani::any(),
             rtte: kani::any(),
             assembler: Assembler::new(),
-            rx_buffer: SocketBuffer::new(kani::vec::exact_vec::<_, 64>()),
+            rx_buffer: SocketBuffer::new(vec![0; rx_buffer_size]),
             rx_fin_received: kani::any(),
-            tx_buffer: SocketBuffer::new(kani::vec::exact_vec::<_, 64>()),
+            tx_buffer: SocketBuffer::new(vec![0; tx_buffer_size]),
             timeout: kani::any(),
             keep_alive: kani::any(),
             hop_limit: kani::any(),
@@ -7268,8 +7277,6 @@ mod verification {
         #[inline]
         fn any() -> Self {
             let mut socket: Socket = kani::any();
-            socket.rx_buffer = SocketBuffer::new(vec![0; 64]);
-            socket.tx_buffer = SocketBuffer::new(vec![0; 64]);
             socket.set_ack_delay(None);
             let cx = Context::mock();
             let ipv4: bool = kani::any();
@@ -7567,6 +7574,8 @@ mod verification {
     #[kani::proof]
     #[kani::unwind(20)]
     fn prove_listen_sack_option() {
+        let sack_enabled: bool = kani::any();
+
         let mut s: TestSocket = kani::any_where(|s: &TestSocket| {
             s.timer == Timer::new() &&
             s.rtte == RttEstimator::default() &&
@@ -7575,23 +7584,64 @@ mod verification {
             s.listen_endpoint.addr.is_none() &&
             s.listen_endpoint.port == s.tuple.local.port
         });
+        s.compute_win_shift();
         
         let packet_to_send: TcpRepr = kani::any_where(|p: &TcpRepr|
+            p.src_port == s.tuple.remote.port &&
+            p.dst_port == s.tuple.local.port &&
             p.control == TcpControl::Syn &&
-            p.sack_permitted == false);
-        kani::assume(packet_to_send.src_port == s.tuple.remote.port);
-        kani::assume(packet_to_send.dst_port == s.tuple.local.port);
-        kani::assume(packet_to_send.ack_number.is_none());
+            p.ack_number.is_none() &&
+            p.sack_permitted == sack_enabled);
         
         send!(s, packet_to_send);
-        assert!(!s.remote_has_sack);
+        assert_eq!(s.remote_has_sack, sack_enabled);
 
         recv(&mut s, Instant::from_secs(0), |repr| {
             assert!(repr.is_ok());
             assert_eq!(repr.unwrap().ack_number, Some(packet_to_send.seq_number + 1));
-            assert_eq!(repr.unwrap().sack_permitted, false);
+            assert_eq!(repr.unwrap().sack_permitted, sack_enabled);
         });
         
+    }
+
+    #[kani::proof]
+    #[kani::unwind(20)]
+    fn prove_listen_syn_win_scale_buffers() {
+        let mut s: TestSocket = kani::any_where(|s: &TestSocket|
+            // Needed to prevent socket timeout.
+            s.timer == Timer::new() &&
+            s.timeout == None &&
+            s.remote_last_ts == None &&
+
+            s.rtte == RttEstimator::default() &&
+            s.state == State::Listen &&
+            s.socket.tuple.is_none() &&
+            s.listen_endpoint.addr.is_none() &&
+            s.listen_endpoint.port == s.tuple.local.port
+        );
+        s.compute_win_shift();
+
+        let window_shift = s.remote_win_shift;
+
+        let packet_to_send: TcpRepr = kani::any_where(|p: &TcpRepr|
+            p.src_port == s.tuple.remote.port &&
+            p.dst_port == s.tuple.local.port &&
+            p.control == TcpControl::Syn &&
+            p.ack_number.is_none() &&
+            p.window_scale == Some(0)
+        );
+        
+        send!(s, packet_to_send);
+        let buffer_capacity = s.rx_buffer.window();
+
+        recv(&mut s, Instant::from_secs(0), |repr| {
+            assert!(repr.is_ok());
+            assert!(repr.unwrap().control == TcpControl::Syn);
+            assert_eq!(repr.unwrap().ack_number, Some(packet_to_send.seq_number + 1));
+            assert_eq!(repr.unwrap().window_scale, Some(window_shift));
+            assert_eq!(repr.unwrap().window_len, cmp::min(buffer_capacity, 65535) as u16);
+        });
+
     }
 
 }

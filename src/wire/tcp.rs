@@ -1084,7 +1084,8 @@ impl<'a> kani::Arbitrary for Repr<'a> {
             seq_number: kani::any(),
             ack_number: kani::any(),
             window_len: kani::any(),
-            window_scale: None,
+            // This is enforced by parse().
+            window_scale: kani::any_where(|s: &Option<u8>| s.is_none() || s.unwrap() <= 14),
             control: kani::any(),
             max_seg_size: None,
             sack_permitted: false,
