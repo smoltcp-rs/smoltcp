@@ -7308,7 +7308,6 @@ mod verification {
     extern crate kani;
     use super::*;
     use crate::wire::IpRepr;
-    use crate::tests;
     use std::ops::{Deref, DerefMut};
 
     // =========================================================================================//
