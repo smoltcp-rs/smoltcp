@@ -65,9 +65,9 @@ There are 3 supported mediums.
   
   * Implementation of [RFC6282](https://tools.ietf.org/rfc/rfc6282.txt).
   * Fragmentation is supported, as defined in [RFC4944](https://tools.ietf.org/rfc/rfc4944.txt).
-  * UDP header compression is supported.
-  * Extension header compression is **not** supported (will be soon™).
-  * Uncompressed IP headers are supported.
+  * UDP header compression/decompression is supported.
+  * Extension header compression/decompression is supported.
+  * Uncompressed IPv6 Extension Headers are **not** supported.
 
 ### IP multicast
 
@@ -284,7 +284,9 @@ Maximum amount of DNS servers that can be configured in one DNS socket. Default:
 
 Maximum length of DNS names that can be queried. Default: 255.
 
+### IPV6_HBH_MAX_OPTIONS
 
+The maximum amount of parsed options the IPv6 Hop-by-Hop header can hold. Default: 1.
 
 ## Hosted usage examples
 

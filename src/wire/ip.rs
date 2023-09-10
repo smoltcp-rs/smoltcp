@@ -56,6 +56,8 @@ enum_with_unknown! {
         Udp       = 0x11,
         Ipv6Route = 0x2b,
         Ipv6Frag  = 0x2c,
+        IpSecEsp  = 0x32,
+        IpSecAh   = 0x33,
         Icmpv6    = 0x3a,
         Ipv6NoNxt = 0x3b,
         Ipv6Opts  = 0x3c
@@ -72,6 +74,8 @@ impl fmt::Display for Protocol {
             Protocol::Udp => write!(f, "UDP"),
             Protocol::Ipv6Route => write!(f, "IPv6-Route"),
             Protocol::Ipv6Frag => write!(f, "IPv6-Frag"),
+            Protocol::IpSecEsp => write!(f, "IPsec-ESP"),
+            Protocol::IpSecAh => write!(f, "IPsec-AH"),
             Protocol::Icmpv6 => write!(f, "ICMPv6"),
             Protocol::Ipv6NoNxt => write!(f, "IPv6-NoNxt"),
             Protocol::Ipv6Opts => write!(f, "IPv6-Opts"),

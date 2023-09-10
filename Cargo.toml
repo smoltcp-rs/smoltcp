@@ -57,6 +57,9 @@ defmt = [ "dep:defmt", "heapless/defmt", "heapless/defmt-impl" ]
 "proto-sixlowpan" = ["proto-ipv6"]
 "proto-sixlowpan-fragmentation" = ["proto-sixlowpan", "_proto-fragmentation"]
 "proto-dns" = []
+"proto-ipsec" = ["proto-ipsec-ah", "proto-ipsec-esp"]
+"proto-ipsec-ah"= []
+"proto-ipsec-esp"= []
 
 "socket" = []
 "socket-raw" = ["socket"]
@@ -199,6 +202,14 @@ reassembly-buffer-count-4 = []
 reassembly-buffer-count-8 = []
 reassembly-buffer-count-16 = []
 reassembly-buffer-count-32 = []
+
+ipv6-hbh-max-options-1 = [] # Default
+ipv6-hbh-max-options-2 = []
+ipv6-hbh-max-options-3 = []
+ipv6-hbh-max-options-4 = []
+ipv6-hbh-max-options-8 = []
+ipv6-hbh-max-options-16 = []
+ipv6-hbh-max-options-32 = []
 
 dns-max-result-count-1 = [] # Default
 dns-max-result-count-2 = []

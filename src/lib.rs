@@ -146,6 +146,7 @@ mod config {
     pub const REASSEMBLY_BUFFER_SIZE: usize = 1500;
     pub const RPL_RELATIONS_BUFFER_COUNT: usize = 16;
     pub const RPL_PARENTS_BUFFER_COUNT: usize = 8;
+    pub const IPV6_HBH_MAX_OPTIONS: usize = 2;
 }
 
 #[cfg(not(test))]
@@ -167,3 +168,13 @@ pub mod socket;
 pub mod storage;
 pub mod time;
 pub mod wire;
+
+#[cfg(all(
+    test,
+    any(
+        feature = "medium-ethernet",
+        feature = "medium-ip",
+        feature = "medium-ieee802154"
+    )
+))]
+mod tests;

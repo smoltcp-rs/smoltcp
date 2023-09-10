@@ -1048,28 +1048,34 @@ mod test {
     // =========================================================================================//
     // Tests
 
-    fn socket() -> TestSocket {
+    use crate::phy::Medium;
+    use crate::tests::setup;
+    use rstest::*;
+
+    fn socket(medium: Medium) -> TestSocket {
+        let (iface, _, _) = setup(medium);
         let mut s = Socket::new();
         assert_eq!(s.poll(), Some(Event::Deconfigured));
         TestSocket {
             socket: s,
-            cx: Context::mock(),
+            cx: iface.inner,
         }
     }
 
-    fn socket_different_port() -> TestSocket {
+    fn socket_different_port(medium: Medium) -> TestSocket {
+        let (iface, _, _) = setup(medium);
         let mut s = Socket::new();
         s.set_ports(DIFFERENT_SERVER_PORT, DIFFERENT_CLIENT_PORT);
 
         assert_eq!(s.poll(), Some(Event::Deconfigured));
         TestSocket {
             socket: s,
-            cx: Context::mock(),
+            cx: iface.inner,
         }
     }
 
-    fn socket_bound() -> TestSocket {
-        let mut s = socket();
+    fn socket_bound(medium: Medium) -> TestSocket {
+        let mut s = socket(medium);
         s.state = ClientState::Renewing(RenewState {
             config: Config {
                 server: ServerInfo {
@@ -1090,9 +1096,11 @@ mod test {
         s
     }
 
-    #[test]
-    fn test_bind() {
-        let mut s = socket();
+    #[rstest]
+    #[case::ip(Medium::Ethernet)]
+    #[cfg(feature = "medium-ethernet")]
+    fn test_bind(#[case] medium: Medium) {
+        let mut s = socket(medium);
 
         recv!(s, [(IP_BROADCAST, UDP_SEND, DHCP_DISCOVER)]);
         assert_eq!(s.poll(), None);
@@ -1126,9 +1134,11 @@ mod test {
         }
     }
 
-    #[test]
-    fn test_bind_different_ports() {
-        let mut s = socket_different_port();
+    #[rstest]
+    #[case::ip(Medium::Ethernet)]
+    #[cfg(feature = "medium-ethernet")]
+    fn test_bind_different_ports(#[case] medium: Medium) {
+        let mut s = socket_different_port(medium);
 
         recv!(s, [(IP_BROADCAST, UDP_SEND_DIFFERENT_PORT, DHCP_DISCOVER)]);
         assert_eq!(s.poll(), None);
@@ -1162,9 +1172,11 @@ mod test {
         }
     }
 
-    #[test]
-    fn test_discover_retransmit() {
-        let mut s = socket();
+    #[rstest]
+    #[case::ip(Medium::Ethernet)]
+    #[cfg(feature = "medium-ethernet")]
+    fn test_discover_retransmit(#[case] medium: Medium) {
+        let mut s = socket(medium);
 
         recv!(s, time 0, [(IP_BROADCAST, UDP_SEND, DHCP_DISCOVER)]);
         recv!(s, time 1_000, []);
@@ -1177,9 +1189,11 @@ mod test {
         recv!(s, time 20_000, [(IP_BROADCAST, UDP_SEND, DHCP_REQUEST)]);
     }
 
-    #[test]
-    fn test_request_retransmit() {
-        let mut s = socket();
+    #[rstest]
+    #[case::ip(Medium::Ethernet)]
+    #[cfg(feature = "medium-ethernet")]
+    fn test_request_retransmit(#[case] medium: Medium) {
+        let mut s = socket(medium);
 
         recv!(s, time 0, [(IP_BROADCAST, UDP_SEND, DHCP_DISCOVER)]);
         send!(s, time 0, (IP_RECV, UDP_RECV, dhcp_offer()));
@@ -1203,9 +1217,11 @@ mod test {
         }
     }
 
-    #[test]
-    fn test_request_timeout() {
-        let mut s = socket();
+    #[rstest]
+    #[case::ip(Medium::Ethernet)]
+    #[cfg(feature = "medium-ethernet")]
+    fn test_request_timeout(#[case] medium: Medium) {
+        let mut s = socket(medium);
 
         recv!(s, time 0, [(IP_BROADCAST, UDP_SEND, DHCP_DISCOVER)]);
         send!(s, time 0, (IP_RECV, UDP_RECV, dhcp_offer()));
@@ -1224,9 +1240,11 @@ mod test {
         recv!(s, time 60_000, [(IP_BROADCAST, UDP_SEND, DHCP_REQUEST)]);
     }
 
-    #[test]
-    fn test_request_nak() {
-        let mut s = socket();
+    #[rstest]
+    #[case::ip(Medium::Ethernet)]
+    #[cfg(feature = "medium-ethernet")]
+    fn test_request_nak(#[case] medium: Medium) {
+        let mut s = socket(medium);
 
         recv!(s, time 0, [(IP_BROADCAST, UDP_SEND, DHCP_DISCOVER)]);
         send!(s, time 0, (IP_RECV, UDP_RECV, dhcp_offer()));
@@ -1235,9 +1253,11 @@ mod test {
         recv!(s, time 0, [(IP_BROADCAST, UDP_SEND, DHCP_DISCOVER)]);
     }
 
-    #[test]
-    fn test_renew() {
-        let mut s = socket_bound();
+    #[rstest]
+    #[case::ip(Medium::Ethernet)]
+    #[cfg(feature = "medium-ethernet")]
+    fn test_renew(#[case] medium: Medium) {
+        let mut s = socket_bound(medium);
 
         recv!(s, []);
         assert_eq!(s.poll(), None);
@@ -1266,9 +1286,11 @@ mod test {
         }
     }
 
-    #[test]
-    fn test_renew_rebind_retransmit() {
-        let mut s = socket_bound();
+    #[rstest]
+    #[case::ip(Medium::Ethernet)]
+    #[cfg(feature = "medium-ethernet")]
+    fn test_renew_rebind_retransmit(#[case] medium: Medium) {
+        let mut s = socket_bound(medium);
 
         recv!(s, []);
         // First renew attempt at T1
@@ -1306,9 +1328,11 @@ mod test {
         }
     }
 
-    #[test]
-    fn test_renew_rebind_timeout() {
-        let mut s = socket_bound();
+    #[rstest]
+    #[case::ip(Medium::Ethernet)]
+    #[cfg(feature = "medium-ethernet")]
+    fn test_renew_rebind_timeout(#[case] medium: Medium) {
+        let mut s = socket_bound(medium);
 
         recv!(s, []);
         // First renew attempt at T1
@@ -1334,9 +1358,11 @@ mod test {
         }
     }
 
-    #[test]
-    fn test_renew_nak() {
-        let mut s = socket_bound();
+    #[rstest]
+    #[case::ip(Medium::Ethernet)]
+    #[cfg(feature = "medium-ethernet")]
+    fn test_renew_nak(#[case] medium: Medium) {
+        let mut s = socket_bound(medium);
 
         recv!(s, time 500_000, [(IP_SEND, UDP_SEND, DHCP_RENEW)]);
         send!(s, time 500_000, (IP_SERVER_BROADCAST, UDP_RECV, DHCP_NAK));

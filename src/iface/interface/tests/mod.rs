@@ -8,12 +8,16 @@ mod sixlowpan;
 #[cfg(feature = "proto-igmp")]
 use std::vec::Vec;
 
+use crate::tests::setup;
+
 use rstest::*;
 
 use super::*;
 
 use crate::iface::Interface;
-use crate::phy::{ChecksumCapabilities, Loopback};
+use crate::phy::ChecksumCapabilities;
+#[cfg(feature = "alloc")]
+use crate::phy::Loopback;
 use crate::time::Instant;
 
 #[allow(unused)]
@@ -23,46 +27,8 @@ fn fill_slice(s: &mut [u8], val: u8) {
     }
 }
 
-fn setup<'a>(medium: Medium) -> (Interface, SocketSet<'a>, Loopback) {
-    let mut device = Loopback::new(medium);
-
-    let config = Config::new(match medium {
-        #[cfg(feature = "medium-ethernet")]
-        Medium::Ethernet => HardwareAddress::Ethernet(Default::default()),
-        #[cfg(feature = "medium-ip")]
-        Medium::Ip => HardwareAddress::Ip,
-        #[cfg(feature = "medium-ieee802154")]
-        Medium::Ieee802154 => HardwareAddress::Ieee802154(Default::default()),
-    });
-
-    let mut iface = Interface::new(config, &mut device, Instant::ZERO);
-
-    #[cfg(feature = "proto-ipv4")]
-    {
-        iface.update_ip_addrs(|ip_addrs| {
-            ip_addrs
-                .push(IpCidr::new(IpAddress::v4(127, 0, 0, 1), 8))
-                .unwrap();
-        });
-    }
-
-    #[cfg(feature = "proto-ipv6")]
-    {
-        iface.update_ip_addrs(|ip_addrs| {
-            ip_addrs
-                .push(IpCidr::new(IpAddress::v6(0, 0, 0, 0, 0, 0, 0, 1), 128))
-                .unwrap();
-            ip_addrs
-                .push(IpCidr::new(IpAddress::v6(0xfdbe, 0, 0, 0, 0, 0, 0, 1), 64))
-                .unwrap();
-        });
-    }
-
-    (iface, SocketSet::new(vec![]), device)
-}
-
 #[cfg(feature = "proto-igmp")]
-fn recv_all(device: &mut Loopback, timestamp: Instant) -> Vec<Vec<u8>> {
+fn recv_all(device: &mut crate::tests::TestingDevice, timestamp: Instant) -> Vec<Vec<u8>> {
     let mut pkts = Vec::new();
     while let Some((rx, _tx)) = device.receive(timestamp) {
         rx.consume(|pkt| {
@@ -88,7 +54,7 @@ impl TxToken for MockTxToken {
 
 #[test]
 #[should_panic(expected = "The hardware address does not match the medium of the interface.")]
-#[cfg(all(feature = "medium-ip", feature = "medium-ethernet"))]
+#[cfg(all(feature = "medium-ip", feature = "medium-ethernet", feature = "alloc"))]
 fn test_new_panic() {
     let mut device = Loopback::new(Medium::Ethernet);
     let config = Config::new(HardwareAddress::Ip);

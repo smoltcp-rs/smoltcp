@@ -12,6 +12,8 @@ fn parse_ipv6(data: &[u8]) -> crate::wire::Result<IpPacket<'_>> {
         IpProtocol::Udp => todo!(),
         IpProtocol::Ipv6Route => todo!(),
         IpProtocol::Ipv6Frag => todo!(),
+        IpProtocol::IpSecEsp => todo!(),
+        IpProtocol::IpSecAh => todo!(),
         IpProtocol::Icmpv6 => {
             let icmp = Icmpv6Repr::parse(
                 &ipv6.src_addr.into(),
@@ -554,7 +556,7 @@ fn test_handle_valid_ndisc_request(#[case] medium: Medium) {
 
     let local_ip_addr = Ipv6Address::new(0xfdbe, 0, 0, 0, 0, 0, 0, 1);
     let remote_ip_addr = Ipv6Address::new(0xfdbe, 0, 0, 0, 0, 0, 0, 2);
-    let local_hw_addr = EthernetAddress([0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+    let local_hw_addr = EthernetAddress([0x02, 0x02, 0x02, 0x02, 0x02, 0x02]);
     let remote_hw_addr = EthernetAddress([0x52, 0x54, 0x00, 0x00, 0x00, 0x00]);
 
     let solicit = Icmpv6Repr::Ndisc(NdiscRepr::NeighborSolicit {

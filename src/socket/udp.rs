@@ -560,6 +560,10 @@ mod test {
     use super::*;
     use crate::wire::{IpRepr, UdpRepr};
 
+    use crate::phy::Medium;
+    use crate::tests::setup;
+    use rstest::*;
+
     fn buffer(packets: usize) -> PacketBuffer<'static> {
         PacketBuffer::new(
             (0..packets)
@@ -702,16 +706,23 @@ mod test {
         assert_eq!(socket.send_slice(b"abcdef", REMOTE_END), Ok(()));
     }
 
-    #[test]
-    fn test_send_dispatch() {
+    #[rstest]
+    #[case::ip(Medium::Ip)]
+    #[cfg(feature = "medium-ip")]
+    #[case::ethernet(Medium::Ethernet)]
+    #[cfg(feature = "medium-ethernet")]
+    #[case::ieee802154(Medium::Ieee802154)]
+    #[cfg(feature = "medium-ieee802154")]
+    fn test_send_dispatch(#[case] medium: Medium) {
+        let (mut iface, _, _) = setup(medium);
+        let cx = iface.context();
         let mut socket = socket(buffer(0), buffer(1));
-        let mut cx = Context::mock();
 
         assert_eq!(socket.bind(LOCAL_END), Ok(()));
 
         assert!(socket.can_send());
         assert_eq!(
-            socket.dispatch(&mut cx, |_, _, _| unreachable!()),
+            socket.dispatch(cx, |_, _, _| unreachable!()),
             Ok::<_, ()>(())
         );
 
@@ -723,7 +734,7 @@ mod test {
         assert!(!socket.can_send());
 
         assert_eq!(
-            socket.dispatch(&mut cx, |_, _, (ip_repr, udp_repr, payload)| {
+            socket.dispatch(cx, |_, _, (ip_repr, udp_repr, payload)| {
                 assert_eq!(ip_repr, LOCAL_IP_REPR);
                 assert_eq!(udp_repr, LOCAL_UDP_REPR);
                 assert_eq!(payload, PAYLOAD);
@@ -734,7 +745,7 @@ mod test {
         assert!(!socket.can_send());
 
         assert_eq!(
-            socket.dispatch(&mut cx, |_, _, (ip_repr, udp_repr, payload)| {
+            socket.dispatch(cx, |_, _, (ip_repr, udp_repr, payload)| {
                 assert_eq!(ip_repr, LOCAL_IP_REPR);
                 assert_eq!(udp_repr, LOCAL_UDP_REPR);
                 assert_eq!(payload, PAYLOAD);
@@ -745,19 +756,27 @@ mod test {
         assert!(socket.can_send());
     }
 
-    #[test]
-    fn test_recv_process() {
+    #[rstest]
+    #[case::ip(Medium::Ip)]
+    #[cfg(feature = "medium-ip")]
+    #[case::ethernet(Medium::Ethernet)]
+    #[cfg(feature = "medium-ethernet")]
+    #[case::ieee802154(Medium::Ieee802154)]
+    #[cfg(feature = "medium-ieee802154")]
+    fn test_recv_process(#[case] medium: Medium) {
+        let (mut iface, _, _) = setup(medium);
+        let cx = iface.context();
+
         let mut socket = socket(buffer(1), buffer(0));
-        let mut cx = Context::mock();
 
         assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
 
         assert!(!socket.can_recv());
         assert_eq!(socket.recv(), Err(RecvError::Exhausted));
 
-        assert!(socket.accepts(&mut cx, &REMOTE_IP_REPR, &REMOTE_UDP_REPR));
+        assert!(socket.accepts(cx, &REMOTE_IP_REPR, &REMOTE_UDP_REPR));
         socket.process(
-            &mut cx,
+            cx,
             PacketMeta::default(),
             &REMOTE_IP_REPR,
             &REMOTE_UDP_REPR,
@@ -765,9 +784,9 @@ mod test {
         );
         assert!(socket.can_recv());
 
-        assert!(socket.accepts(&mut cx, &REMOTE_IP_REPR, &REMOTE_UDP_REPR));
+        assert!(socket.accepts(cx, &REMOTE_IP_REPR, &REMOTE_UDP_REPR));
         socket.process(
-            &mut cx,
+            cx,
             PacketMeta::default(),
             &REMOTE_IP_REPR,
             &REMOTE_UDP_REPR,
@@ -778,17 +797,25 @@ mod test {
         assert!(!socket.can_recv());
     }
 
-    #[test]
-    fn test_peek_process() {
+    #[rstest]
+    #[case::ip(Medium::Ip)]
+    #[cfg(feature = "medium-ip")]
+    #[case::ethernet(Medium::Ethernet)]
+    #[cfg(feature = "medium-ethernet")]
+    #[case::ieee802154(Medium::Ieee802154)]
+    #[cfg(feature = "medium-ieee802154")]
+    fn test_peek_process(#[case] medium: Medium) {
+        let (mut iface, _, _) = setup(medium);
+        let cx = iface.context();
+
         let mut socket = socket(buffer(1), buffer(0));
-        let mut cx = Context::mock();
 
         assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
 
         assert_eq!(socket.peek(), Err(RecvError::Exhausted));
 
         socket.process(
-            &mut cx,
+            cx,
             PacketMeta::default(),
             &REMOTE_IP_REPR,
             &REMOTE_UDP_REPR,
@@ -799,16 +826,24 @@ mod test {
         assert_eq!(socket.peek(), Err(RecvError::Exhausted));
     }
 
-    #[test]
-    fn test_recv_truncated_slice() {
+    #[rstest]
+    #[case::ip(Medium::Ip)]
+    #[cfg(feature = "medium-ip")]
+    #[case::ethernet(Medium::Ethernet)]
+    #[cfg(feature = "medium-ethernet")]
+    #[case::ieee802154(Medium::Ieee802154)]
+    #[cfg(feature = "medium-ieee802154")]
+    fn test_recv_truncated_slice(#[case] medium: Medium) {
+        let (mut iface, _, _) = setup(medium);
+        let cx = iface.context();
+
         let mut socket = socket(buffer(1), buffer(0));
-        let mut cx = Context::mock();
 
         assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
 
-        assert!(socket.accepts(&mut cx, &REMOTE_IP_REPR, &REMOTE_UDP_REPR));
+        assert!(socket.accepts(cx, &REMOTE_IP_REPR, &REMOTE_UDP_REPR));
         socket.process(
-            &mut cx,
+            cx,
             PacketMeta::default(),
             &REMOTE_IP_REPR,
             &REMOTE_UDP_REPR,
@@ -823,15 +858,23 @@ mod test {
         assert_eq!(&slice, b"abcd");
     }
 
-    #[test]
-    fn test_peek_truncated_slice() {
+    #[rstest]
+    #[case::ip(Medium::Ip)]
+    #[cfg(feature = "medium-ip")]
+    #[case::ethernet(Medium::Ethernet)]
+    #[cfg(feature = "medium-ethernet")]
+    #[case::ieee802154(Medium::Ieee802154)]
+    #[cfg(feature = "medium-ieee802154")]
+    fn test_peek_truncated_slice(#[case] medium: Medium) {
+        let (mut iface, _, _) = setup(medium);
+        let cx = iface.context();
+
         let mut socket = socket(buffer(1), buffer(0));
-        let mut cx = Context::mock();
 
         assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
 
         socket.process(
-            &mut cx,
+            cx,
             PacketMeta::default(),
             &REMOTE_IP_REPR,
             &REMOTE_UDP_REPR,
@@ -852,17 +895,25 @@ mod test {
         assert_eq!(socket.peek_slice(&mut slice[..]), Err(RecvError::Exhausted));
     }
 
-    #[test]
-    fn test_set_hop_limit() {
+    #[rstest]
+    #[case::ip(Medium::Ip)]
+    #[cfg(feature = "medium-ip")]
+    #[case::ethernet(Medium::Ethernet)]
+    #[cfg(feature = "medium-ethernet")]
+    #[case::ieee802154(Medium::Ieee802154)]
+    #[cfg(feature = "medium-ieee802154")]
+    fn test_set_hop_limit(#[case] medium: Medium) {
+        let (mut iface, _, _) = setup(medium);
+        let cx = iface.context();
+
         let mut s = socket(buffer(0), buffer(1));
-        let mut cx = Context::mock();
 
         assert_eq!(s.bind(LOCAL_END), Ok(()));
 
         s.set_hop_limit(Some(0x2a));
         assert_eq!(s.send_slice(b"abcdef", REMOTE_END), Ok(()));
         assert_eq!(
-            s.dispatch(&mut cx, |_, _, (ip_repr, _, _)| {
+            s.dispatch(cx, |_, _, (ip_repr, _, _)| {
                 assert_eq!(
                     ip_repr,
                     IpReprIpvX(IpvXRepr {
@@ -879,30 +930,45 @@ mod test {
         );
     }
 
-    #[test]
-    fn test_doesnt_accept_wrong_port() {
+    #[rstest]
+    #[case::ip(Medium::Ip)]
+    #[cfg(feature = "medium-ip")]
+    #[case::ethernet(Medium::Ethernet)]
+    #[cfg(feature = "medium-ethernet")]
+    #[case::ieee802154(Medium::Ieee802154)]
+    #[cfg(feature = "medium-ieee802154")]
+    fn test_doesnt_accept_wrong_port(#[case] medium: Medium) {
+        let (mut iface, _, _) = setup(medium);
+        let cx = iface.context();
+
         let mut socket = socket(buffer(1), buffer(0));
-        let mut cx = Context::mock();
 
         assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
 
         let mut udp_repr = REMOTE_UDP_REPR;
-        assert!(socket.accepts(&mut cx, &REMOTE_IP_REPR, &udp_repr));
+        assert!(socket.accepts(cx, &REMOTE_IP_REPR, &udp_repr));
         udp_repr.dst_port += 1;
-        assert!(!socket.accepts(&mut cx, &REMOTE_IP_REPR, &udp_repr));
+        assert!(!socket.accepts(cx, &REMOTE_IP_REPR, &udp_repr));
     }
 
-    #[test]
-    fn test_doesnt_accept_wrong_ip() {
-        let mut cx = Context::mock();
+    #[rstest]
+    #[case::ip(Medium::Ip)]
+    #[cfg(feature = "medium-ip")]
+    #[case::ethernet(Medium::Ethernet)]
+    #[cfg(feature = "medium-ethernet")]
+    #[case::ieee802154(Medium::Ieee802154)]
+    #[cfg(feature = "medium-ieee802154")]
+    fn test_doesnt_accept_wrong_ip(#[case] medium: Medium) {
+        let (mut iface, _, _) = setup(medium);
+        let cx = iface.context();
 
         let mut port_bound_socket = socket(buffer(1), buffer(0));
         assert_eq!(port_bound_socket.bind(LOCAL_PORT), Ok(()));
-        assert!(port_bound_socket.accepts(&mut cx, &BAD_IP_REPR, &REMOTE_UDP_REPR));
+        assert!(port_bound_socket.accepts(cx, &BAD_IP_REPR, &REMOTE_UDP_REPR));
 
         let mut ip_bound_socket = socket(buffer(1), buffer(0));
         assert_eq!(ip_bound_socket.bind(LOCAL_END), Ok(()));
-        assert!(!ip_bound_socket.accepts(&mut cx, &BAD_IP_REPR, &REMOTE_UDP_REPR));
+        assert!(!ip_bound_socket.accepts(cx, &BAD_IP_REPR, &REMOTE_UDP_REPR));
     }
 
     #[test]
@@ -919,12 +985,20 @@ mod test {
         assert_eq!(socket.send_slice(&too_large[..16 * 4], REMOTE_END), Ok(()));
     }
 
-    #[test]
-    fn test_process_empty_payload() {
+    #[rstest]
+    #[case::ip(Medium::Ip)]
+    #[cfg(feature = "medium-ip")]
+    #[case::ethernet(Medium::Ethernet)]
+    #[cfg(feature = "medium-ethernet")]
+    #[case::ieee802154(Medium::Ieee802154)]
+    #[cfg(feature = "medium-ieee802154")]
+    fn test_process_empty_payload(#[case] medium: Medium) {
         let meta = Box::leak(Box::new([PacketMetadata::EMPTY]));
         let recv_buffer = PacketBuffer::new(&mut meta[..], vec![]);
         let mut socket = socket(recv_buffer, buffer(0));
-        let mut cx = Context::mock();
+
+        let (mut iface, _, _) = setup(medium);
+        let cx = iface.context();
 
         assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
 
@@ -932,7 +1006,7 @@ mod test {
             src_port: REMOTE_PORT,
             dst_port: LOCAL_PORT,
         };
-        socket.process(&mut cx, PacketMeta::default(), &REMOTE_IP_REPR, &repr, &[]);
+        socket.process(cx, PacketMeta::default(), &REMOTE_IP_REPR, &repr, &[]);
         assert_eq!(socket.recv(), Ok((&[][..], REMOTE_END.into())));
     }
 

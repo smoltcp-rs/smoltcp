@@ -539,7 +539,8 @@ impl<'a> Socket<'a> {
     }
 
     pub fn compute_win_shift(&mut self) {
-        let rx_cap_log2 = mem::size_of::<usize>() * 8 - self.rx_buffer.capacity().leading_zeros() as usize;
+        let rx_cap_log2 =
+            mem::size_of::<usize>() * 8 - self.rx_buffer.capacity().leading_zeros() as usize;
         self.remote_win_shift = rx_cap_log2.saturating_sub(16) as u8;
     }
 
@@ -1184,10 +1185,7 @@ impl<'a> Socket<'a> {
     ///
     /// This function otherwise behaves identically to [recv_slice](#method.recv_slice).
     pub fn peek_slice(&mut self, data: &mut [u8]) -> Result<usize, RecvError> {
-        let buffer = self.peek(data.len())?;
-        let data = &mut data[..buffer.len()];
-        data.copy_from_slice(buffer);
-        Ok(buffer.len())
+        Ok(self.rx_buffer.read_allocated(0, data))
     }
 
     /// Return the amount of octets queued in the transmit buffer.
@@ -1879,7 +1877,10 @@ impl<'a> Socket<'a> {
         let assembler_was_empty = self.assembler.is_empty();
 
         // Try adding payload octets to the assembler.
-        let Ok(contig_len) = self.assembler.add_then_remove_front(payload_offset, payload_len) else {
+        let Ok(contig_len) = self
+            .assembler
+            .add_then_remove_front(payload_offset, payload_len)
+        else {
             net_debug!(
                 "assembler: too many holes to add {} octets at offset {}",
                 payload_len,
@@ -2431,11 +2432,14 @@ impl<'a> kani::Arbitrary for Socket<'a> {
             rx_waker: WakerRegistration::new(),
             #[cfg(feature = "async")]
             tx_waker: WakerRegistration::new(),
-    };
+        };
     }
 }
 
-#[cfg(test)]
+// TODO: TCP should work for all features. For now, we only test with the IP feature. We could do
+// it for other features as well with rstest, however, this means we have to modify a lot of the
+// tests in here, which I didn't had the time for at the moment.
+#[cfg(all(test, feature = "medium-ip"))]
 mod test {
     use super::*;
     use crate::wire::IpRepr;
@@ -2681,12 +2685,16 @@ mod test {
     }
 
     fn socket_with_buffer_sizes(tx_len: usize, rx_len: usize) -> TestSocket {
+        let (iface, _, _) = crate::tests::setup(crate::phy::Medium::Ip);
+
         let rx_buffer = SocketBuffer::new(vec![0; rx_len]);
         let tx_buffer = SocketBuffer::new(vec![0; tx_len]);
         let mut socket = Socket::new(rx_buffer, tx_buffer);
         socket.set_ack_delay(None);
-        let cx = Context::mock();
-        TestSocket { socket, cx }
+        TestSocket {
+            socket,
+            cx: iface.inner,
+        }
     }
 
     fn socket_syn_received_with_buffer_sizes(tx_len: usize, rx_len: usize) -> TestSocket {
@@ -3715,6 +3723,58 @@ mod test {
             }]
         );
         assert_eq!(s.rx_buffer.dequeue_many(6), &b"abcdef"[..]);
+    }
+
+    #[test]
+    fn test_peek_slice() {
+        const BUF_SIZE: usize = 10;
+
+        let send_buf = b"0123456";
+
+        let mut s = socket_established_with_buffer_sizes(BUF_SIZE, BUF_SIZE);
+
+        // Populate the recv buffer
+        send!(
+            s,
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                payload: &send_buf[..],
+                ..SEND_TEMPL
+            }
+        );
+
+        // Peek into the recv buffer
+        let mut peeked_buf = [0u8; BUF_SIZE];
+        let actually_peeked = s.peek_slice(&mut peeked_buf[..]).unwrap();
+        let mut recv_buf = [0u8; BUF_SIZE];
+        let actually_recvd = s.recv_slice(&mut recv_buf[..]).unwrap();
+        assert_eq!(
+            &mut peeked_buf[..actually_peeked],
+            &mut recv_buf[..actually_recvd]
+        );
+    }
+
+    #[test]
+    fn test_peek_slice_buffer_wrap() {
+        const BUF_SIZE: usize = 10;
+
+        let send_buf = b"0123456789";
+
+        let mut s = socket_established_with_buffer_sizes(BUF_SIZE, BUF_SIZE);
+
+        let _ = s.rx_buffer.enqueue_slice(&send_buf[..8]);
+        let _ = s.rx_buffer.dequeue_many(6);
+        let _ = s.rx_buffer.enqueue_slice(&send_buf[..5]);
+
+        let mut peeked_buf = [0u8; BUF_SIZE];
+        let actually_peeked = s.peek_slice(&mut peeked_buf[..]).unwrap();
+        let mut recv_buf = [0u8; BUF_SIZE];
+        let actually_recvd = s.recv_slice(&mut recv_buf[..]).unwrap();
+        assert_eq!(
+            &mut peeked_buf[..actually_peeked],
+            &mut recv_buf[..actually_recvd]
+        );
     }
 
     fn setup_rfc2018_cases() -> (TestSocket, Vec<u8>) {
@@ -7246,9 +7306,10 @@ mod test {
 #[cfg(kani)]
 mod verification {
     extern crate kani;
-    use crate::wire::IpRepr;
-    use std::ops::{Deref, DerefMut};
     use super::*;
+    use crate::wire::IpRepr;
+    use crate::tests;
+    use std::ops::{Deref, DerefMut};
 
     // =========================================================================================//
     // Helper functions
@@ -7257,7 +7318,7 @@ mod verification {
     struct TestSocket {
         socket: Socket<'static>,
         cx: Context,
-        tuple: Tuple
+        tuple: Tuple,
     }
 
     impl Deref for TestSocket {
@@ -7278,7 +7339,7 @@ mod verification {
         fn any() -> Self {
             let mut socket: Socket = kani::any();
             socket.set_ack_delay(None);
-            let cx = Context::mock();
+            let (iface, _, _) = crate::tests::setup(crate::phy::Medium::Ip);
             let ipv4: bool = kani::any();
             let tuple: Tuple = Tuple {
                 local: IpEndpoint {
@@ -7288,9 +7349,9 @@ mod verification {
                 remote: IpEndpoint {
                     addr: kani::any_where(|a| ipv4 == matches!(a, IpAddress::Ipv4(_))),
                     port: kani::any_where(|p| *p != 0),
-                }
+                },
             };
-            return TestSocket { socket, cx, tuple };
+            return TestSocket { socket, cx: iface.inner, tuple };
         }
     }
 
@@ -7306,7 +7367,7 @@ mod verification {
             socket.tuple.local.addr,
             IpProtocol::Tcp,
             repr.buffer_len(),
-            kani::any()
+            kani::any(),
         );
         net_trace!("send: {}", repr);
 
@@ -7412,129 +7473,6 @@ mod verification {
         }};
     }
 
-    // fn socket_with_buffer_sizes(tx_len: usize, rx_len: usize) -> TestSocket {
-    //     let rx_buffer = SocketBuffer::new(vec![0; rx_len]);
-    //     let tx_buffer = SocketBuffer::new(vec![0; tx_len]);
-    //     let mut socket = Socket::new(rx_buffer, tx_buffer);
-    //     socket.set_ack_delay(None);
-    //     let cx = Context::mock();
-    //     TestSocket { socket, cx }
-    // }
-
-    // fn socket_syn_received_with_buffer_sizes(tx_len: usize, rx_len: usize) -> TestSocket {
-    //     let mut s = socket_with_buffer_sizes(tx_len, rx_len);
-    //     s.state = State::SynReceived;
-    //     s.tuple = Some(TUPLE);
-    //     s.local_seq_no = LOCAL_SEQ;
-    //     s.remote_seq_no = REMOTE_SEQ + 1;
-    //     s.remote_last_seq = LOCAL_SEQ;
-    //     s.remote_win_len = 256;
-    //     s
-    // }
-
-    // fn socket_syn_received() -> TestSocket {
-    //     socket_syn_received_with_buffer_sizes(64, 64)
-    // }
-
-    // fn socket_syn_sent_with_buffer_sizes(tx_len: usize, rx_len: usize) -> TestSocket {
-    //     let mut s = socket_with_buffer_sizes(tx_len, rx_len);
-    //     s.state = State::SynSent;
-    //     s.tuple = Some(TUPLE);
-    //     s.local_seq_no = LOCAL_SEQ;
-    //     s.remote_last_seq = LOCAL_SEQ;
-    //     s
-    // }
-
-    // fn socket_syn_sent() -> TestSocket {
-    //     socket_syn_sent_with_buffer_sizes(64, 64)
-    // }
-
-    // fn socket_established_with_buffer_sizes(tx_len: usize, rx_len: usize) -> TestSocket {
-    //     let mut s = socket_syn_received_with_buffer_sizes(tx_len, rx_len);
-    //     s.state = State::Established;
-    //     s.local_seq_no = LOCAL_SEQ + 1;
-    //     s.remote_last_seq = LOCAL_SEQ + 1;
-    //     s.remote_last_ack = Some(REMOTE_SEQ + 1);
-    //     s.remote_last_win = 64;
-    //     s
-    // }
-
-    // fn socket_established() -> TestSocket {
-    //     socket_established_with_buffer_sizes(64, 64)
-    // }
-
-    // fn socket_fin_wait_1() -> TestSocket {
-    //     let mut s = socket_established();
-    //     s.state = State::FinWait1;
-    //     s
-    // }
-
-    // fn socket_fin_wait_2() -> TestSocket {
-    //     let mut s = socket_fin_wait_1();
-    //     s.state = State::FinWait2;
-    //     s.local_seq_no = LOCAL_SEQ + 1 + 1;
-    //     s.remote_last_seq = LOCAL_SEQ + 1 + 1;
-    //     s
-    // }
-
-    // fn socket_closing() -> TestSocket {
-    //     let mut s = socket_fin_wait_1();
-    //     s.state = State::Closing;
-    //     s.remote_last_seq = LOCAL_SEQ + 1 + 1;
-    //     s.remote_seq_no = REMOTE_SEQ + 1 + 1;
-    //     s
-    // }
-
-    // fn socket_time_wait(from_closing: bool) -> TestSocket {
-    //     let mut s = socket_fin_wait_2();
-    //     s.state = State::TimeWait;
-    //     s.remote_seq_no = REMOTE_SEQ + 1 + 1;
-    //     if from_closing {
-    //         s.remote_last_ack = Some(REMOTE_SEQ + 1 + 1);
-    //     }
-    //     s.timer = Timer::Close {
-    //         expires_at: Instant::from_secs(1) + CLOSE_DELAY,
-    //     };
-    //     s
-    // }
-
-    // fn socket_close_wait() -> TestSocket {
-    //     let mut s = socket_established();
-    //     s.state = State::CloseWait;
-    //     s.remote_seq_no = REMOTE_SEQ + 1 + 1;
-    //     s.remote_last_ack = Some(REMOTE_SEQ + 1 + 1);
-    //     s
-    // }
-
-    // fn socket_last_ack() -> TestSocket {
-    //     let mut s = socket_close_wait();
-    //     s.state = State::LastAck;
-    //     s
-    // }
-
-    // fn socket_recved() -> TestSocket {
-    //     let mut s = socket_established();
-    //     send!(
-    //         s,
-    //         TcpRepr {
-    //             seq_number: REMOTE_SEQ + 1,
-    //             ack_number: Some(LOCAL_SEQ + 1),
-    //             payload: &b"abcdef"[..],
-    //             ..SEND_TEMPL
-    //         }
-    //     );
-    //     recv!(
-    //         s,
-    //         [TcpRepr {
-    //             seq_number: LOCAL_SEQ + 1,
-    //             ack_number: Some(REMOTE_SEQ + 1 + 6),
-    //             window_len: 58,
-    //             ..RECV_TEMPL
-    //         }]
-    //     );
-    //     s
-    // }
-
     // =========================================================================================//
     // Proofs
     // =========================================================================================//
@@ -7561,7 +7499,6 @@ mod verification {
         let send_ip: IpRepr = kani::any();
 
         assert!(!s.socket.accepts(&mut s.cx, &send_ip, &tcp_repr));
-
     }
 
     #[kani::proof]

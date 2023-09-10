@@ -554,7 +554,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
         NetworkEndian::write_u16(&mut data[field::FLAGS], raw)
     }
 
-    /// Return the window size field.
+    /// Set the window size field.
     #[inline]
     pub fn set_window_len(&mut self, value: u16) {
         let data = self.buffer.as_mut();
