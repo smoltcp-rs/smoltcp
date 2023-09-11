@@ -14,4 +14,4 @@ jobs:
       - name: 'Run Kani on your code.'
         uses: model-checking/kani-github-action@v0.34
         with:
-          args: '--enable-unstable --jobs 8 --output-format=terse'
+          args: '--enable-unstable --jobs 4 --output-format=terse --verbose'
