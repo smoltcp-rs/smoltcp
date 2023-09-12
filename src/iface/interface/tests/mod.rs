@@ -135,7 +135,7 @@ fn test_handle_udp_broadcast(
             &UDP_PAYLOAD,
             packet.into_inner(),
         ),
-        None
+        Ok(None),
     );
 
     // Make sure the payload to the UDP packet processed by process_udp is

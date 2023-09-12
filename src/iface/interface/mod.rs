@@ -207,23 +207,6 @@ impl Fragmenter {
     }
 }
 
-macro_rules! check {
-    ($e:expr) => {
-        match $e {
-            Ok(x) => x,
-            Err(_) => {
-                // concat!/stringify! doesn't work with defmt macros
-                #[cfg(not(feature = "defmt"))]
-                net_trace!(concat!("iface: malformed ", stringify!($e)));
-                #[cfg(feature = "defmt")]
-                net_trace!("iface: malformed");
-                return Default::default();
-            }
-        }
-    };
-}
-use check;
-
 /// A  network interface.
 ///
 /// The network interface logically owns a number of other data structures; to avoid
@@ -666,51 +649,79 @@ impl Interface {
                 match self.inner.caps.medium {
                     #[cfg(feature = "medium-ethernet")]
                     Medium::Ethernet => {
-                        if let Some(packet) = self.inner.process_ethernet(
+                        match self.inner.process_ethernet(
                             sockets,
                             rx_meta,
                             frame,
                             &mut self.fragments,
                         ) {
-                            if let Err(err) =
-                                self.inner.dispatch(tx_token, packet, &mut self.fragmenter)
-                            {
-                                net_debug!("Failed to send response: {:?}", err);
+                            Ok(Some(packet)) => {
+                                if let Err(err) =
+                                    self.inner.dispatch(tx_token, packet, &mut self.fragmenter)
+                                {
+                                    net_debug!("Failed to send response: {:?}", err);
+                                }
                             }
+                            Err(_e) => {
+                                #[cfg(not(feature = "defmt"))]
+                                net_trace!(concat!("iface: malformed ", stringify!(_e)));
+                                #[cfg(feature = "defmt")]
+                                net_trace!("iface: malformed");
+                            }
+                            _ => {}
                         }
                     }
                     #[cfg(feature = "medium-ip")]
                     Medium::Ip => {
-                        if let Some(packet) =
-                            self.inner
-                                .process_ip(sockets, rx_meta, frame, &mut self.fragments)
+                        match self
+                            .inner
+                            .process_ip(sockets, rx_meta, frame, &mut self.fragments)
                         {
-                            if let Err(err) = self.inner.dispatch_ip(
-                                tx_token,
-                                PacketMeta::default(),
-                                packet,
-                                &mut self.fragmenter,
-                            ) {
-                                net_debug!("Failed to send response: {:?}", err);
+                            Ok(Some(packet)) => {
+                                if let Err(err) = self.inner.dispatch_ip(
+                                    tx_token,
+                                    PacketMeta::default(),
+                                    packet,
+                                    &mut self.fragmenter,
+                                ) {
+                                    net_debug!("Failed to send response: {:?}", err);
+                                }
                             }
+
+                            Err(_e) => {
+                                #[cfg(not(feature = "defmt"))]
+                                net_trace!(concat!("iface: malformed ", stringify!(_e)));
+                                #[cfg(feature = "defmt")]
+                                net_trace!("iface: malformed");
+                            }
+                            _ => {}
                         }
                     }
                     #[cfg(feature = "medium-ieee802154")]
                     Medium::Ieee802154 => {
-                        if let Some(packet) = self.inner.process_ieee802154(
+                        match self.inner.process_ieee802154(
                             sockets,
                             rx_meta,
                             frame,
                             &mut self.fragments,
                         ) {
-                            if let Err(err) = self.inner.dispatch_ip(
-                                tx_token,
-                                PacketMeta::default(),
-                                packet,
-                                &mut self.fragmenter,
-                            ) {
-                                net_debug!("Failed to send response: {:?}", err);
+                            Ok(Some(packet)) => {
+                                if let Err(err) = self.inner.dispatch_ip(
+                                    tx_token,
+                                    PacketMeta::default(),
+                                    packet,
+                                    &mut self.fragmenter,
+                                ) {
+                                    net_debug!("Failed to send response: {:?}", err);
+                                }
                             }
+                            Err(_e) => {
+                                #[cfg(not(feature = "defmt"))]
+                                net_trace!(concat!("iface: malformed ", stringify!(_e)));
+                                #[cfg(feature = "defmt")]
+                                net_trace!("iface: malformed");
+                            }
+                            _ => {}
                         }
                     }
                 }
@@ -1067,21 +1078,20 @@ impl InterfaceInner {
         meta: PacketMeta,
         ip_payload: &'frame [u8],
         frag: &'frame mut FragmentsBuffer,
-    ) -> Option<IpPacket<'frame>> {
+    ) -> crate::wire::Result<Option<IpPacket<'frame>>> {
         match IpVersion::of_packet(ip_payload) {
             #[cfg(feature = "proto-ipv4")]
             Ok(IpVersion::Ipv4) => {
-                let ipv4_packet = check!(Ipv4PacketWire::new_checked(ip_payload));
-
+                let ipv4_packet = Ipv4PacketWire::new_checked(ip_payload)?;
                 self.process_ipv4(sockets, meta, &ipv4_packet, frag)
             }
             #[cfg(feature = "proto-ipv6")]
             Ok(IpVersion::Ipv6) => {
-                let ipv6_packet = check!(Ipv6PacketWire::new_checked(ip_payload));
+                let ipv6_packet = Ipv6PacketWire::new_checked(ip_payload)?;
                 self.process_ipv6(sockets, meta, &ipv6_packet)
             }
             // Drop all other traffic.
-            _ => None,
+            _ => Ok(None),
         }
     }
 
@@ -1153,7 +1163,7 @@ impl InterfaceInner {
         handled_by_raw_socket: bool,
         udp_payload: &'frame [u8],
         ip_payload: &'frame [u8],
-    ) -> Option<IpPacket<'frame>> {
+    ) -> crate::wire::Result<Option<IpPacket<'frame>>> {
         #[cfg(feature = "socket-udp")]
         for udp_socket in sockets
             .items_mut()
@@ -1161,7 +1171,7 @@ impl InterfaceInner {
         {
             if udp_socket.accepts(self, &ip_repr, &udp_repr) {
                 udp_socket.process(self, meta, &ip_repr, &udp_repr, udp_payload);
-                return None;
+                return Ok(None);
             }
         }
 
@@ -1172,16 +1182,16 @@ impl InterfaceInner {
         {
             if dns_socket.accepts(&ip_repr, &udp_repr) {
                 dns_socket.process(self, &ip_repr, &udp_repr, udp_payload);
-                return None;
+                return Ok(None);
             }
         }
 
         // The packet wasn't handled by a socket, send an ICMP port unreachable packet.
         match ip_repr {
             #[cfg(feature = "proto-ipv4")]
-            IpRepr::Ipv4(_) if handled_by_raw_socket => None,
+            IpRepr::Ipv4(_) if handled_by_raw_socket => Ok(None),
             #[cfg(feature = "proto-ipv6")]
-            IpRepr::Ipv6(_) if handled_by_raw_socket => None,
+            IpRepr::Ipv6(_) if handled_by_raw_socket => Ok(None),
             #[cfg(feature = "proto-ipv4")]
             IpRepr::Ipv4(ipv4_repr) => {
                 let payload_len =
@@ -1202,7 +1212,7 @@ impl InterfaceInner {
                     header: ipv6_repr,
                     data: &ip_payload[0..payload_len],
                 };
-                self.icmpv6_reply(ipv6_repr, icmpv6_reply_repr)
+                Ok(self.icmpv6_reply(ipv6_repr, icmpv6_reply_repr))
             }
         }
     }
@@ -1213,34 +1223,29 @@ impl InterfaceInner {
         sockets: &mut SocketSet,
         ip_repr: IpRepr,
         ip_payload: &'frame [u8],
-    ) -> Option<IpPacket<'frame>> {
+    ) -> crate::wire::Result<Option<IpPacket<'frame>>> {
         let (src_addr, dst_addr) = (ip_repr.src_addr(), ip_repr.dst_addr());
-        let tcp_packet = check!(TcpPacket::new_checked(ip_payload));
-        let tcp_repr = check!(TcpRepr::parse(
-            &tcp_packet,
-            &src_addr,
-            &dst_addr,
-            &self.caps.checksum
-        ));
+        let tcp_packet = TcpPacket::new_checked(ip_payload)?;
+        let tcp_repr = TcpRepr::parse(&tcp_packet, &src_addr, &dst_addr, &self.caps.checksum)?;
 
         for tcp_socket in sockets
             .items_mut()
             .filter_map(|i| tcp::Socket::downcast_mut(&mut i.socket))
         {
             if tcp_socket.accepts(self, &ip_repr, &tcp_repr) {
-                return tcp_socket
+                return Ok(tcp_socket
                     .process(self, &ip_repr, &tcp_repr)
-                    .map(|(ip, tcp)| IpPacket::new(ip, IpPayload::Tcp(tcp)));
+                    .map(|(ip, tcp)| IpPacket::new(ip, IpPayload::Tcp(tcp))));
             }
         }
 
         if tcp_repr.control == TcpControl::Rst {
             // Never reply to a TCP RST packet with another TCP RST packet.
-            None
+            Ok(None)
         } else {
             // The packet wasn't handled by a socket, send a TCP RST packet.
             let (ip, tcp) = tcp::Socket::rst_reply(&ip_repr, &tcp_repr);
-            Some(IpPacket::new(ip, IpPayload::Tcp(tcp)))
+            Ok(Some(IpPacket::new(ip, IpPayload::Tcp(tcp))))
         }
     }
 

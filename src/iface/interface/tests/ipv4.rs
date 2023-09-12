@@ -36,7 +36,7 @@ fn test_no_icmp_no_unicast(#[case] medium: Medium) {
             &frame,
             &mut iface.fragments
         ),
-        None
+        Ok(None)
     );
 }
 
@@ -97,7 +97,7 @@ fn test_icmp_error_no_payload(#[case] medium: Medium) {
             &frame,
             &mut iface.fragments
         ),
-        Some(expected_repr)
+        Ok(Some(expected_repr))
     );
 }
 
@@ -245,7 +245,7 @@ fn test_icmp_error_port_unreachable(#[case] medium: Medium) {
             &UDP_PAYLOAD,
             data
         ),
-        Some(expected_repr)
+        Ok(Some(expected_repr))
     );
 
     let ip_repr = IpRepr::Ipv4(Ipv4Repr {
@@ -279,7 +279,7 @@ fn test_icmp_error_port_unreachable(#[case] medium: Medium) {
             &UDP_PAYLOAD,
             packet_broadcast.into_inner(),
         ),
-        None
+        Ok(None)
     );
 }
 
@@ -350,7 +350,7 @@ fn test_handle_ipv4_broadcast(#[case] medium: Medium) {
             &frame,
             &mut iface.fragments
         ),
-        Some(expected_packet)
+        Ok(Some(expected_packet))
     );
 }
 
@@ -390,13 +390,13 @@ fn test_handle_valid_arp_request(#[case] medium: Medium) {
             frame.into_inner(),
             &mut iface.fragments
         ),
-        Some(EthernetPacket::Arp(ArpRepr::EthernetIpv4 {
+        Ok(Some(EthernetPacket::Arp(ArpRepr::EthernetIpv4 {
             operation: ArpOperation::Reply,
             source_hardware_addr: local_hw_addr,
             source_protocol_addr: local_ip_addr,
             target_hardware_addr: remote_hw_addr,
             target_protocol_addr: remote_ip_addr
-        }))
+        })))
     );
 
     // Ensure the address of the requestor was entered in the cache
@@ -445,7 +445,7 @@ fn test_handle_other_arp_request(#[case] medium: Medium) {
             frame.into_inner(),
             &mut iface.fragments
         ),
-        None
+        Ok(None)
     );
 
     // Ensure the address of the requestor was NOT entered in the cache
@@ -498,13 +498,13 @@ fn test_arp_flush_after_update_ip(#[case] medium: Medium) {
             frame.into_inner(),
             &mut iface.fragments
         ),
-        Some(EthernetPacket::Arp(ArpRepr::EthernetIpv4 {
+        Ok(Some(EthernetPacket::Arp(ArpRepr::EthernetIpv4 {
             operation: ArpOperation::Reply,
             source_hardware_addr: local_hw_addr,
             source_protocol_addr: local_ip_addr,
             target_hardware_addr: remote_hw_addr,
             target_protocol_addr: remote_ip_addr
-        }))
+        })))
     );
 
     // Ensure the address of the requestor was entered in the cache
@@ -592,10 +592,10 @@ fn test_icmpv4_socket(#[case] medium: Medium) {
     };
     assert_eq!(
         iface.inner.process_icmpv4(&mut sockets, ip_repr, icmp_data),
-        Some(IpPacket::new_ipv4(
+        Ok(Some(IpPacket::new_ipv4(
             ipv4_reply,
             IpPayload::Icmpv4(echo_reply)
-        ))
+        )))
     );
 
     let socket = sockets.get_mut::<icmp::Socket>(socket_handle);
@@ -783,7 +783,7 @@ fn test_raw_socket_no_reply(#[case] medium: Medium) {
             &frame,
             &mut iface.fragments
         ),
-        None
+        Ok(None),
     );
 }
 
@@ -879,7 +879,7 @@ fn test_raw_socket_with_udp_socket(#[case] medium: Medium) {
             &frame,
             &mut iface.fragments
         ),
-        None
+        Ok(None),
     );
 
     // Make sure the UDP socket can still receive in presence of a Raw socket that handles UDP
@@ -963,9 +963,9 @@ fn test_icmp_reply_size(#[case] medium: Medium) {
             &vec![0x2a; MAX_PAYLOAD_LEN],
             payload,
         ),
-        Some(IpPacket::new_ipv4(
+        Ok(Some(IpPacket::new_ipv4(
             expected_ip_repr,
             IpPayload::Icmpv4(expected_icmp_repr)
-        ))
+        )))
     );
 }

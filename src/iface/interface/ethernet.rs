@@ -1,4 +1,3 @@
-use super::check;
 use super::DispatchError;
 use super::EthernetPacket;
 use super::FragmentsBuffer;
@@ -17,15 +16,15 @@ impl InterfaceInner {
         meta: crate::phy::PacketMeta,
         frame: &'frame [u8],
         fragments: &'frame mut FragmentsBuffer,
-    ) -> Option<EthernetPacket<'frame>> {
-        let eth_frame = check!(EthernetFrame::new_checked(frame));
+    ) -> crate::wire::Result<Option<EthernetPacket<'frame>>> {
+        let eth_frame = EthernetFrame::new_checked(frame)?;
 
         // Ignore any packets not directed to our hardware address or any of the multicast groups.
         if !eth_frame.dst_addr().is_broadcast()
             && !eth_frame.dst_addr().is_multicast()
             && HardwareAddress::Ethernet(eth_frame.dst_addr()) != self.hardware_addr
         {
-            return None;
+            return Ok(None);
         }
 
         match eth_frame.ethertype() {
@@ -33,19 +32,21 @@ impl InterfaceInner {
             EthernetProtocol::Arp => self.process_arp(self.now, &eth_frame),
             #[cfg(feature = "proto-ipv4")]
             EthernetProtocol::Ipv4 => {
-                let ipv4_packet = check!(Ipv4Packet::new_checked(eth_frame.payload()));
+                let ipv4_packet = Ipv4Packet::new_checked(eth_frame.payload())?;
 
-                self.process_ipv4(sockets, meta, &ipv4_packet, fragments)
-                    .map(EthernetPacket::Ip)
+                Ok(self
+                    .process_ipv4(sockets, meta, &ipv4_packet, fragments)?
+                    .map(EthernetPacket::Ip))
             }
             #[cfg(feature = "proto-ipv6")]
             EthernetProtocol::Ipv6 => {
-                let ipv6_packet = check!(Ipv6Packet::new_checked(eth_frame.payload()));
-                self.process_ipv6(sockets, meta, &ipv6_packet)
-                    .map(EthernetPacket::Ip)
+                let ipv6_packet = Ipv6Packet::new_checked(eth_frame.payload())?;
+                Ok(self
+                    .process_ipv6(sockets, meta, &ipv6_packet)?
+                    .map(EthernetPacket::Ip))
             }
             // Drop all other traffic.
-            _ => None,
+            _ => Ok(None),
         }
     }
 

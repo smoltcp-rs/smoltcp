@@ -1,4 +1,3 @@
-use super::check;
 use super::icmp_reply_payload_len;
 use super::InterfaceInner;
 use super::SocketSet;
@@ -18,13 +17,13 @@ impl InterfaceInner {
         sockets: &mut SocketSet,
         meta: PacketMeta,
         ipv6_packet: &Ipv6Packet<&'frame [u8]>,
-    ) -> Option<IpPacket<'frame>> {
-        let ipv6_repr = check!(Ipv6Repr::parse(ipv6_packet));
+    ) -> crate::wire::Result<Option<IpPacket<'frame>>> {
+        let ipv6_repr = Ipv6Repr::parse(ipv6_packet)?;
 
         if !ipv6_repr.src_addr.is_unicast() {
             // Discard packets with non-unicast source addresses.
             net_debug!("non-unicast source address");
-            return None;
+            return Ok(None);
         }
 
         let ip_payload = ipv6_packet.payload();
@@ -55,19 +54,19 @@ impl InterfaceInner {
         nxt_hdr: IpProtocol,
         handled_by_raw_socket: bool,
         ip_payload: &'frame [u8],
-    ) -> Option<IpPacket<'frame>> {
+    ) -> crate::wire::Result<Option<IpPacket<'frame>>> {
         match nxt_hdr {
             IpProtocol::Icmpv6 => self.process_icmpv6(sockets, ipv6_repr.into(), ip_payload),
 
             #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
             IpProtocol::Udp => {
-                let udp_packet = check!(UdpPacket::new_checked(ip_payload));
-                let udp_repr = check!(UdpRepr::parse(
+                let udp_packet = UdpPacket::new_checked(ip_payload)?;
+                let udp_repr = UdpRepr::parse(
                     &udp_packet,
                     &ipv6_repr.src_addr.into(),
                     &ipv6_repr.dst_addr.into(),
                     &self.checksum_caps(),
-                ));
+                )?;
 
                 self.process_udp(
                     sockets,
@@ -88,7 +87,7 @@ impl InterfaceInner {
             }
 
             #[cfg(feature = "socket-raw")]
-            _ if handled_by_raw_socket => None,
+            _ if handled_by_raw_socket => Ok(None),
 
             _ => {
                 // Send back as much of the original payload as we can.
@@ -101,7 +100,7 @@ impl InterfaceInner {
                     header: ipv6_repr,
                     data: &ip_payload[0..payload_len],
                 };
-                self.icmpv6_reply(ipv6_repr, icmp_reply_repr)
+                Ok(self.icmpv6_reply(ipv6_repr, icmp_reply_repr))
             }
         }
     }
@@ -112,14 +111,14 @@ impl InterfaceInner {
         _sockets: &mut SocketSet,
         ip_repr: IpRepr,
         ip_payload: &'frame [u8],
-    ) -> Option<IpPacket<'frame>> {
-        let icmp_packet = check!(Icmpv6Packet::new_checked(ip_payload));
-        let icmp_repr = check!(Icmpv6Repr::parse(
+    ) -> crate::wire::Result<Option<IpPacket<'frame>>> {
+        let icmp_packet = Icmpv6Packet::new_checked(ip_payload)?;
+        let icmp_repr = Icmpv6Repr::parse(
             &ip_repr.src_addr(),
             &ip_repr.dst_addr(),
             &icmp_packet,
             &self.caps.checksum,
-        ));
+        )?;
 
         #[cfg(feature = "socket-icmp")]
         let mut handled_by_icmp_socket = false;
@@ -148,14 +147,14 @@ impl InterfaceInner {
                         seq_no,
                         data,
                     };
-                    self.icmpv6_reply(ipv6_repr, icmp_reply_repr)
+                    Ok(self.icmpv6_reply(ipv6_repr, icmp_reply_repr))
                 }
                 #[allow(unreachable_patterns)]
                 _ => unreachable!(),
             },
 
             // Ignore any echo replies.
-            Icmpv6Repr::EchoReply { .. } => None,
+            Icmpv6Repr::EchoReply { .. } => Ok(None),
 
             // Forward any NDISC packets to the ndisc packet handler
             #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
@@ -168,10 +167,10 @@ impl InterfaceInner {
             // Don't report an error if a packet with unknown type
             // has been handled by an ICMP socket
             #[cfg(feature = "socket-icmp")]
-            _ if handled_by_icmp_socket => None,
+            _ if handled_by_icmp_socket => Ok(None),
 
             // FIXME: do something correct here?
-            _ => None,
+            _ => Ok(None),
         }
     }
 
@@ -183,7 +182,7 @@ impl InterfaceInner {
         &mut self,
         ip_repr: Ipv6Repr,
         repr: NdiscRepr<'frame>,
-    ) -> Option<IpPacket<'frame>> {
+    ) -> crate::wire::Result<Option<IpPacket<'frame>>> {
         match repr {
             NdiscRepr::NeighborAdvert {
                 lladdr,
@@ -192,9 +191,9 @@ impl InterfaceInner {
             } => {
                 let ip_addr = ip_repr.src_addr.into();
                 if let Some(lladdr) = lladdr {
-                    let lladdr = check!(lladdr.parse(self.caps.medium));
+                    let lladdr = lladdr.parse(self.caps.medium)?;
                     if !lladdr.is_unicast() || !target_addr.is_unicast() {
-                        return None;
+                        return Ok(None);
                     }
                     if flags.contains(NdiscNeighborFlags::OVERRIDE)
                         || !self.neighbor_cache.lookup(&ip_addr, self.now).found()
@@ -202,7 +201,7 @@ impl InterfaceInner {
                         self.neighbor_cache.fill(ip_addr, lladdr, self.now)
                     }
                 }
-                None
+                Ok(None)
             }
             NdiscRepr::NeighborSolicit {
                 target_addr,
@@ -210,9 +209,9 @@ impl InterfaceInner {
                 ..
             } => {
                 if let Some(lladdr) = lladdr {
-                    let lladdr = check!(lladdr.parse(self.caps.medium));
+                    let lladdr = lladdr.parse(self.caps.medium)?;
                     if !lladdr.is_unicast() || !target_addr.is_unicast() {
-                        return None;
+                        return Ok(None);
                     }
                     self.neighbor_cache
                         .fill(ip_repr.src_addr.into(), lladdr, self.now);
@@ -232,12 +231,12 @@ impl InterfaceInner {
                         hop_limit: 0xff,
                         payload_len: advert.buffer_len(),
                     };
-                    Some(IpPacket::new_ipv6(ip_repr, IpPayload::Icmpv6(advert)))
+                    Ok(Some(IpPacket::new_ipv6(ip_repr, IpPayload::Icmpv6(advert))))
                 } else {
-                    None
+                    Ok(None)
                 }
             }
-            _ => None,
+            _ => Ok(None),
         }
     }
 
@@ -249,11 +248,11 @@ impl InterfaceInner {
         ipv6_repr: Ipv6Repr,
         handled_by_raw_socket: bool,
         ip_payload: &'frame [u8],
-    ) -> Option<IpPacket<'frame>> {
-        let ext_hdr = check!(Ipv6ExtHeader::new_checked(ip_payload));
-        let ext_repr = check!(Ipv6ExtHeaderRepr::parse(&ext_hdr));
-        let hbh_hdr = check!(Ipv6HopByHopHeader::new_checked(ext_repr.data));
-        let hbh_repr = check!(Ipv6HopByHopRepr::parse(&hbh_hdr));
+    ) -> crate::wire::Result<Option<IpPacket<'frame>>> {
+        let ext_hdr = Ipv6ExtHeader::new_checked(ip_payload)?;
+        let ext_repr = Ipv6ExtHeaderRepr::parse(&ext_hdr)?;
+        let hbh_hdr = Ipv6HopByHopHeader::new_checked(ext_repr.data)?;
+        let hbh_repr = Ipv6HopByHopRepr::parse(&hbh_hdr)?;
 
         for opt_repr in &hbh_repr.options {
             match opt_repr {
@@ -265,12 +264,12 @@ impl InterfaceInner {
                     match Ipv6OptionFailureType::from(*type_) {
                         Ipv6OptionFailureType::Skip => (),
                         Ipv6OptionFailureType::Discard => {
-                            return None;
+                            return Ok(None);
                         }
                         _ => {
                             // FIXME(dlrobertson): Send an ICMPv6 parameter problem message
                             // here.
-                            return None;
+                            return Ok(None);
                         }
                     }
                 }

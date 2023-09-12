@@ -17,12 +17,12 @@ impl InterfaceInner {
         meta: PacketMeta,
         ipv4_packet: &Ipv4PacketWire<&'a [u8]>,
         frag: &'a mut FragmentsBuffer,
-    ) -> Option<IpPacket<'a>> {
-        let ipv4_repr = check!(Ipv4Repr::parse(ipv4_packet, &self.caps.checksum));
+    ) -> crate::wire::Result<Option<IpPacket<'a>>> {
+        let ipv4_repr = Ipv4Repr::parse(ipv4_packet, &self.caps.checksum)?;
         if !self.is_unicast_v4(ipv4_repr.src_addr) && !ipv4_repr.src_addr.is_unspecified() {
             // Discard packets with non-unicast source addresses but allow unspecified
             net_debug!("non-unicast or unspecified source address");
-            return None;
+            return Ok(None);
         }
 
         #[cfg(feature = "proto-ipv4-fragmentation")]
@@ -34,21 +34,24 @@ impl InterfaceInner {
                     Ok(f) => f,
                     Err(_) => {
                         net_debug!("No available packet assembler for fragmented packet");
-                        return None;
+                        return Ok(None);
                     }
                 };
 
                 if !ipv4_packet.more_frags() {
                     // This is the last fragment, so we know the total size
-                    check!(f.set_total_size(
+                    if let Err(e) = f.set_total_size(
                         ipv4_packet.total_len() as usize - ipv4_packet.header_len() as usize
                             + ipv4_packet.frag_offset() as usize,
-                    ));
+                    ) {
+                        net_trace!("fragmentation error: {}", e);
+                        return Ok(None);
+                    }
                 }
 
                 if let Err(e) = f.add(ipv4_packet.payload(), ipv4_packet.frag_offset() as usize) {
                     net_debug!("fragmentation error: {:?}", e);
-                    return None;
+                    return Ok(None);
                 }
 
                 // NOTE: according to the standard, the total length needs to be
@@ -56,7 +59,7 @@ impl InterfaceInner {
                 // the IPv4 header after the packet is reassembled.
                 match f.assemble() {
                     Some(payload) => payload,
-                    None => return None,
+                    None => return Ok(None),
                 }
             } else {
                 ipv4_packet.payload()
@@ -78,7 +81,7 @@ impl InterfaceInner {
             if ipv4_repr.next_header == IpProtocol::Udp
                 && matches!(self.caps.medium, Medium::Ethernet)
             {
-                let udp_packet = check!(UdpPacket::new_checked(ip_payload));
+                let udp_packet = UdpPacket::new_checked(ip_payload)?;
                 if let Some(dhcp_socket) = sockets
                     .items_mut()
                     .find_map(|i| dhcpv4::Socket::downcast_mut(&mut i.socket))
@@ -89,16 +92,12 @@ impl InterfaceInner {
                         && udp_packet.dst_port() == dhcp_socket.client_port
                     {
                         let (src_addr, dst_addr) = (ip_repr.src_addr(), ip_repr.dst_addr());
-                        let udp_repr = check!(UdpRepr::parse(
-                            &udp_packet,
-                            &src_addr,
-                            &dst_addr,
-                            &self.caps.checksum
-                        ));
+                        let udp_repr =
+                            UdpRepr::parse(&udp_packet, &src_addr, &dst_addr, &self.caps.checksum)?;
                         let udp_payload = udp_packet.payload();
 
                         dhcp_socket.process(self, &ipv4_repr, &udp_repr, udp_payload);
-                        return None;
+                        return Ok(None);
                     }
                 }
             }
@@ -117,7 +116,7 @@ impl InterfaceInner {
                     .lookup(&IpAddress::Ipv4(ipv4_repr.dst_addr), self.now)
                     .map_or(true, |router_addr| !self.has_ip_addr(router_addr))
             {
-                return None;
+                return Ok(None);
             }
         }
 
@@ -129,13 +128,13 @@ impl InterfaceInner {
 
             #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
             IpProtocol::Udp => {
-                let udp_packet = check!(UdpPacket::new_checked(ip_payload));
-                let udp_repr = check!(UdpRepr::parse(
+                let udp_packet = UdpPacket::new_checked(ip_payload)?;
+                let udp_repr = UdpRepr::parse(
                     &udp_packet,
                     &ipv4_repr.src_addr.into(),
                     &ipv4_repr.dst_addr.into(),
                     &self.checksum_caps(),
-                ));
+                )?;
 
                 self.process_udp(
                     sockets,
@@ -151,7 +150,7 @@ impl InterfaceInner {
             #[cfg(feature = "socket-tcp")]
             IpProtocol::Tcp => self.process_tcp(sockets, ip_repr, ip_payload),
 
-            _ if handled_by_raw_socket => None,
+            _ if handled_by_raw_socket => Ok(None),
 
             _ => {
                 // Send back as much of the original payload as we can.
@@ -172,9 +171,9 @@ impl InterfaceInner {
         &mut self,
         timestamp: Instant,
         eth_frame: &EthernetFrame<&'frame [u8]>,
-    ) -> Option<EthernetPacket<'frame>> {
-        let arp_packet = check!(ArpPacket::new_checked(eth_frame.payload()));
-        let arp_repr = check!(ArpRepr::parse(&arp_packet));
+    ) -> crate::wire::Result<Option<EthernetPacket<'frame>>> {
+        let arp_packet = ArpPacket::new_checked(eth_frame.payload())?;
+        let arp_repr = ArpRepr::parse(&arp_packet)?;
 
         match arp_repr {
             ArpRepr::EthernetIpv4 {
@@ -186,24 +185,24 @@ impl InterfaceInner {
             } => {
                 // Only process ARP packets for us.
                 if !self.has_ip_addr(target_protocol_addr) {
-                    return None;
+                    return Ok(None);
                 }
 
                 // Only process REQUEST and RESPONSE.
                 if let ArpOperation::Unknown(_) = operation {
                     net_debug!("arp: unknown operation code");
-                    return None;
+                    return Ok(None);
                 }
 
                 // Discard packets with non-unicast source addresses.
                 if !source_protocol_addr.is_unicast() || !source_hardware_addr.is_unicast() {
                     net_debug!("arp: non-unicast source address");
-                    return None;
+                    return Ok(None);
                 }
 
                 if !self.in_same_network(&IpAddress::Ipv4(source_protocol_addr)) {
                     net_debug!("arp: source IP address not in same network as us");
-                    return None;
+                    return Ok(None);
                 }
 
                 // Fill the ARP cache from any ARP packet aimed at us (both request or response).
@@ -219,15 +218,15 @@ impl InterfaceInner {
                 if operation == ArpOperation::Request {
                     let src_hardware_addr = self.hardware_addr.ethernet_or_panic();
 
-                    Some(EthernetPacket::Arp(ArpRepr::EthernetIpv4 {
+                    Ok(Some(EthernetPacket::Arp(ArpRepr::EthernetIpv4 {
                         operation: ArpOperation::Reply,
                         source_hardware_addr: src_hardware_addr,
                         source_protocol_addr: target_protocol_addr,
                         target_hardware_addr: source_hardware_addr,
                         target_protocol_addr: source_protocol_addr,
-                    }))
+                    })))
                 } else {
-                    None
+                    Ok(None)
                 }
             }
         }
@@ -238,9 +237,9 @@ impl InterfaceInner {
         _sockets: &mut SocketSet,
         ip_repr: IpRepr,
         ip_payload: &'frame [u8],
-    ) -> Option<IpPacket<'frame>> {
-        let icmp_packet = check!(Icmpv4Packet::new_checked(ip_payload));
-        let icmp_repr = check!(Icmpv4Repr::parse(&icmp_packet, &self.caps.checksum));
+    ) -> crate::wire::Result<Option<IpPacket<'frame>>> {
+        let icmp_packet = Icmpv4Packet::new_checked(ip_payload)?;
+        let icmp_repr = Icmpv4Repr::parse(&icmp_packet, &self.caps.checksum)?;
 
         #[cfg(feature = "socket-icmp")]
         let mut handled_by_icmp_socket = false;
@@ -277,15 +276,15 @@ impl InterfaceInner {
             }
 
             // Ignore any echo replies.
-            Icmpv4Repr::EchoReply { .. } => None,
+            Icmpv4Repr::EchoReply { .. } => Ok(None),
 
             // Don't report an error if a packet with unknown type
             // has been handled by an ICMP socket
             #[cfg(feature = "socket-icmp")]
-            _ if handled_by_icmp_socket => None,
+            _ if handled_by_icmp_socket => Ok(None),
 
             // FIXME: do something correct here?
-            _ => None,
+            _ => Ok(None),
         }
     }
 
@@ -293,10 +292,10 @@ impl InterfaceInner {
         &self,
         ipv4_repr: Ipv4Repr,
         icmp_repr: Icmpv4Repr<'icmp>,
-    ) -> Option<IpPacket<'frame>> {
+    ) -> crate::wire::Result<Option<IpPacket<'frame>>> {
         if !self.is_unicast_v4(ipv4_repr.src_addr) {
             // Do not send ICMP replies to non-unicast sources
-            None
+            Ok(None)
         } else if self.is_unicast_v4(ipv4_repr.dst_addr) {
             // Reply as normal when src_addr and dst_addr are both unicast
             let ipv4_reply_repr = Ipv4Repr {
@@ -306,10 +305,10 @@ impl InterfaceInner {
                 payload_len: icmp_repr.buffer_len(),
                 hop_limit: 64,
             };
-            Some(IpPacket::new_ipv4(
+            Ok(Some(IpPacket::new_ipv4(
                 ipv4_reply_repr,
                 IpPayload::Icmpv4(icmp_repr),
-            ))
+            )))
         } else if self.is_broadcast_v4(ipv4_repr.dst_addr) {
             // Only reply to broadcasts for echo replies and not other ICMP messages
             match icmp_repr {
@@ -322,17 +321,17 @@ impl InterfaceInner {
                             payload_len: icmp_repr.buffer_len(),
                             hop_limit: 64,
                         };
-                        Some(IpPacket::new_ipv4(
+                        Ok(Some(IpPacket::new_ipv4(
                             ipv4_reply_repr,
                             IpPayload::Icmpv4(icmp_repr),
-                        ))
+                        )))
                     }
-                    None => None,
+                    None => Ok(None),
                 },
-                _ => None,
+                _ => Ok(None),
             }
         } else {
-            None
+            Ok(None)
         }
     }
 

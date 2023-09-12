@@ -41,7 +41,7 @@ fn multicast_source_address(#[case] medium: Medium) {
         0x0, 0x0, 0x0, 0x0, 0x1,
     ];
 
-    let response = None;
+    let response = Ok(None);
 
     let (mut iface, mut sockets, _device) = setup(medium);
 
@@ -76,7 +76,7 @@ fn hop_by_hop_skip_with_icmp(#[case] medium: Medium) {
         0x0, 0x2a, 0x1, 0xa4, 0x4c, 0x6f, 0x72, 0x65, 0x6d, 0x20, 0x49, 0x70, 0x73, 0x75, 0x6d,
     ];
 
-    let response = Some(IpPacket::new_ipv6(
+    let response = Ok(Some(IpPacket::new_ipv6(
         Ipv6Repr {
             src_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0001]),
             dst_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0002]),
@@ -89,7 +89,7 @@ fn hop_by_hop_skip_with_icmp(#[case] medium: Medium) {
             seq_no: 420,
             data: b"Lorem Ipsum",
         }),
-    ));
+    )));
 
     let (mut iface, mut sockets, _device) = setup(medium);
 
@@ -124,7 +124,7 @@ fn hop_by_hop_discard_with_icmp(#[case] medium: Medium) {
         0x0, 0x2a, 0x1, 0xa4, 0x4c, 0x6f, 0x72, 0x65, 0x6d, 0x20, 0x49, 0x70, 0x73, 0x75, 0x6d,
     ];
 
-    let response = None;
+    let response = Ok(None);
 
     let (mut iface, mut sockets, _device) = setup(medium);
 
@@ -170,7 +170,7 @@ fn imcp_empty_echo_request(#[case] medium: Medium) {
         ))
     );
 
-    let response = Some(IpPacket::new_ipv6(
+    let response = Ok(Some(IpPacket::new_ipv6(
         Ipv6Repr {
             src_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0001]),
             dst_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0002]),
@@ -183,7 +183,7 @@ fn imcp_empty_echo_request(#[case] medium: Medium) {
             seq_no: 0,
             data: b"",
         }),
-    ));
+    )));
 
     let (mut iface, mut sockets, _device) = setup(medium);
 
@@ -230,7 +230,7 @@ fn icmp_echo_request(#[case] medium: Medium) {
         ))
     );
 
-    let response = Some(IpPacket::new_ipv6(
+    let response = Ok(Some(IpPacket::new_ipv6(
         Ipv6Repr {
             src_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0001]),
             dst_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0002]),
@@ -243,7 +243,7 @@ fn icmp_echo_request(#[case] medium: Medium) {
             seq_no: 420,
             data: b"Lorem Ipsum",
         }),
-    ));
+    )));
 
     let (mut iface, mut sockets, _device) = setup(medium);
 
@@ -290,7 +290,7 @@ fn icmp_echo_reply_as_input(#[case] medium: Medium) {
         ))
     );
 
-    let response = None;
+    let response = Ok(None);
 
     let (mut iface, mut sockets, _device) = setup(medium);
 
@@ -319,7 +319,7 @@ fn unknown_proto_with_multicast_dst_address(#[case] medium: Medium) {
         0x0, 0x0, 0x0, 0x0, 0x1,
     ];
 
-    let response = None;
+    let response = Ok(None);
 
     let (mut iface, mut sockets, _device) = setup(medium);
 
@@ -348,7 +348,7 @@ fn unknown_proto(#[case] medium: Medium) {
         0x0, 0x0, 0x0, 0x0, 0x1,
     ];
 
-    let response = Some(IpPacket::new_ipv6(
+    let response = Ok(Some(IpPacket::new_ipv6(
         Ipv6Repr {
             src_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0001]),
             dst_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0002]),
@@ -368,7 +368,7 @@ fn unknown_proto(#[case] medium: Medium) {
             },
             data: &[],
         }),
-    ));
+    )));
 
     let (mut iface, mut sockets, _device) = setup(medium);
 
@@ -412,7 +412,7 @@ fn ndsic_neighbor_advertisement_ethernet(#[case] medium: Medium) {
         ))
     );
 
-    let response = None;
+    let response = Ok(None);
 
     let (mut iface, mut sockets, _device) = setup(medium);
 
@@ -468,7 +468,7 @@ fn ndsic_neighbor_advertisement_ethernet_multicast_addr(#[case] medium: Medium) 
         ))
     );
 
-    let response = None;
+    let response = Ok(None);
 
     let (mut iface, mut sockets, _device) = setup(medium);
 
@@ -520,7 +520,7 @@ fn ndsic_neighbor_advertisement_ieee802154(#[case] medium: Medium) {
         ))
     );
 
-    let response = None;
+    let response = Ok(None);
 
     let (mut iface, mut sockets, _device) = setup(medium);
 
@@ -603,10 +603,10 @@ fn test_handle_valid_ndisc_request(#[case] medium: Medium) {
             frame.into_inner(),
             &mut iface.fragments
         ),
-        Some(EthernetPacket::Ip(IpPacket::new_ipv6(
+        Ok(Some(EthernetPacket::Ip(IpPacket::new_ipv6(
             ipv6_expected,
             IpPayload::Icmpv6(icmpv6_expected)
-        )))
+        ))))
     );
 
     // Ensure the address of the requestor was entered in the cache
@@ -727,9 +727,9 @@ fn test_icmp_reply_size(#[case] medium: Medium) {
             &vec![0x2a; MAX_PAYLOAD_LEN],
             payload,
         ),
-        Some(IpPacket::new_ipv6(
+        Ok(Some(IpPacket::new_ipv6(
             expected_ip_repr,
             IpPayload::Icmpv6(expected_icmp_repr)
-        ))
+        )))
     );
 }

@@ -16,21 +16,21 @@ impl InterfaceInner {
         ieee802154_repr: &Ieee802154Repr,
         payload: &'payload [u8],
         f: &'output mut FragmentsBuffer,
-    ) -> Option<IpPacket<'output>> {
-        let payload = match check!(SixlowpanPacket::dispatch(payload)) {
+    ) -> crate::wire::Result<Option<IpPacket<'output>>> {
+        let payload = match SixlowpanPacket::dispatch(payload)? {
             #[cfg(not(feature = "proto-sixlowpan-fragmentation"))]
             SixlowpanPacket::FragmentHeader => {
                 net_debug!(
                     "Fragmentation is not supported, \
                     use the `proto-sixlowpan-fragmentation` feature to add support."
                 );
-                return None;
+                return Ok(None);
             }
             #[cfg(feature = "proto-sixlowpan-fragmentation")]
             SixlowpanPacket::FragmentHeader => {
                 match self.process_sixlowpan_fragment(ieee802154_repr, payload, f) {
                     Some(payload) => payload,
-                    None => return None,
+                    None => return Ok(None),
                 }
             }
             SixlowpanPacket::IphcHeader => {
@@ -44,13 +44,13 @@ impl InterfaceInner {
                     Ok(len) => &f.decompress_buf[..len],
                     Err(e) => {
                         net_debug!("sixlowpan decompress failed: {:?}", e);
-                        return None;
+                        return Ok(None);
                     }
                 }
             }
         };
 
-        self.process_ipv6(sockets, meta, &check!(Ipv6PacketWire::new_checked(payload)))
+        self.process_ipv6(sockets, meta, &Ipv6PacketWire::new_checked(payload)?)
     }
 
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
@@ -64,7 +64,7 @@ impl InterfaceInner {
 
         // We have a fragment header, which means we cannot process the 6LoWPAN packet,
         // unless we have a complete one after processing this fragment.
-        let frag = check!(SixlowpanFragPacket::new_checked(payload));
+        let frag = SixlowpanFragPacket::new_checked(payload).ok()?;
 
         // The key specifies to which 6LoWPAN fragment it belongs too.
         // It is based on the link layer addresses, the tag and the size.

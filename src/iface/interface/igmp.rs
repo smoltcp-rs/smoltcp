@@ -1,4 +1,4 @@
-use super::{check, IgmpReportState, Interface, InterfaceInner, IpPacket};
+use super::{IgmpReportState, Interface, InterfaceInner, IpPacket};
 use crate::phy::{Device, PacketMeta};
 use crate::time::{Duration, Instant};
 use crate::wire::*;
@@ -231,9 +231,9 @@ impl InterfaceInner {
         &mut self,
         ipv4_repr: Ipv4Repr,
         ip_payload: &'frame [u8],
-    ) -> Option<IpPacket<'frame>> {
-        let igmp_packet = check!(IgmpPacket::new_checked(ip_payload));
-        let igmp_repr = check!(IgmpRepr::parse(&igmp_packet));
+    ) -> crate::wire::Result<Option<IpPacket<'frame>>> {
+        let igmp_packet = IgmpPacket::new_checked(ip_payload)?;
+        let igmp_repr = IgmpRepr::parse(&igmp_packet)?;
 
         // FIXME: report membership after a delay
         match igmp_repr {
@@ -284,6 +284,6 @@ impl InterfaceInner {
             IgmpRepr::LeaveGroup { .. } => (),
         }
 
-        None
+        Ok(None)
     }
 }

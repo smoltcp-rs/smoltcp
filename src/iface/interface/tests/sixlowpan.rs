@@ -9,7 +9,7 @@ fn ieee802154_wrong_pan_id(#[case] medium: Medium) {
         0xa6, 0x34, 0x57, 0x29, 0x1c, 0x26,
     ];
 
-    let response = None;
+    let response = Ok(None);
 
     let (mut iface, mut sockets, _device) = setup(medium);
 
@@ -38,7 +38,7 @@ fn icmp_echo_request(#[case] medium: Medium) {
         0x37,
     ];
 
-    let response = Some(IpPacket::new_ipv6(
+    let response = Ok(Some(IpPacket::new_ipv6(
         Ipv6Repr {
             src_addr: Ipv6Address::from_parts(&[0xfe80, 0, 0, 0, 0x180b, 0x4242, 0x4242, 0x4242]),
             dst_addr: Ipv6Address::from_parts(&[0xfe80, 0, 0, 0, 0x241c, 0x2957, 0x34a6, 0x3a62]),
@@ -56,7 +56,7 @@ fn icmp_echo_request(#[case] medium: Medium) {
                 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37,
             ],
         }),
-    ));
+    )));
 
     let (mut iface, mut sockets, _device) = setup(medium);
 
@@ -162,7 +162,7 @@ fn test_echo_request_sixlowpan_128_bytes() {
             &request_first_part_packet.into_inner()[..],
             &mut iface.fragments
         ),
-        None
+        Ok(None),
     );
 
     ieee802154_repr.sequence_number = Some(6);
@@ -190,7 +190,7 @@ fn test_echo_request_sixlowpan_128_bytes() {
 
     assert_eq!(
         result,
-        Some(IpPacket::new_ipv6(
+        Ok(Some(IpPacket::new_ipv6(
             Ipv6Repr {
                 src_addr: Ipv6Address([
                     0xfe, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x92, 0xfc, 0x48, 0xc2, 0xa4, 0x41,
@@ -209,7 +209,7 @@ fn test_echo_request_sixlowpan_128_bytes() {
                 seq_no: 2,
                 data,
             })
-        ))
+        )))
     );
 
     iface.inner.neighbor_cache.fill(
@@ -225,7 +225,7 @@ fn test_echo_request_sixlowpan_128_bytes() {
         Ieee802154Address::default(),
         tx_token,
         PacketMeta::default(),
-        result.unwrap(),
+        result.unwrap().unwrap(),
         &mut iface.fragmenter,
     );
 
@@ -315,7 +315,7 @@ fn test_sixlowpan_udp_with_fragmentation() {
             udp_first_part,
             &mut iface.fragments
         ),
-        None
+        Ok(None)
     );
 
     ieee802154_repr.sequence_number = Some(6);
@@ -335,7 +335,7 @@ fn test_sixlowpan_udp_with_fragmentation() {
             udp_second_part,
             &mut iface.fragments
         ),
-        None
+        Ok(None)
     );
 
     let socket = sockets.get_mut::<udp::Socket>(udp_socket_handle);
