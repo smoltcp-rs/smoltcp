@@ -307,6 +307,11 @@ impl Interface {
             "The hardware address does not match the medium of the interface."
         );
 
+        #[cfg(feature = "medium-ieee802154")]
+        if config.pan_id.is_none() {
+            net_debug!("no IEEE802.15.4 PAN id was set!");
+        }
+
         let mut rand = Rand::new(config.random_seed);
 
         #[cfg(feature = "medium-ieee802154")]
