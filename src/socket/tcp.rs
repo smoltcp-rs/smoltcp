@@ -7548,8 +7548,8 @@ mod verification {
             s.timer == Timer::new() &&
             s.timeout == None &&
             s.remote_last_ts == None &&
-
             s.rtte == RttEstimator::default() &&
+
             s.state == State::Listen &&
             s.socket.tuple.is_none() &&
             s.listen_endpoint.addr.is_none() &&
@@ -7676,6 +7676,53 @@ mod verification {
         s.close();
 
         assert_eq!(s.state, State::Closed);
+    }
+
+    #[kani::proof]
+    #[kani::unwind(20)]
+    fn prove_syn_received_ack() {
+
+        let mut s: TestSocket = kani::any_where(|s: &TestSocket| {
+            // Needed to prevent socket timeout.
+            s.timer == Timer::new() &&
+            s.rx_buffer.capacity() != 0 &&
+            s.tx_buffer.capacity() != 0 &&
+            s.timeout == None &&
+
+            s.remote_win_scale == None &&
+            s.rtte == RttEstimator::default() &&
+            s.local_seq_no == s.remote_last_seq &&
+            s.state == State::SynReceived &&
+            s.socket.tuple == Some(s.tuple) &&
+            s.listen_endpoint.addr.is_none() &&
+            s.listen_endpoint.port == s.tuple.local.port            
+        });
+        s.compute_win_shift();
+
+        let local_seq = s.local_seq_no;
+        let remote_seq = s.remote_seq_no - 1;
+        let local_port = s.tuple.local.port;
+        let remote_port = s.tuple.remote.port;
+
+        recv(&mut s, Instant::from_secs(0), |repr| {
+            assert!(repr.is_ok());
+            assert_eq!(repr.unwrap().control, TcpControl::Syn);
+            assert_eq!(repr.unwrap().src_port, local_port);
+            assert_eq!(repr.unwrap().dst_port, remote_port);
+            assert_eq!(repr.unwrap().seq_number, local_seq);
+            assert_eq!(repr.unwrap().ack_number, Some(remote_seq + 1));
+        });
+
+        let packet_to_send: TcpRepr = kani::any_where(|p: &TcpRepr|
+            p.src_port == s.tuple.remote.port &&
+            p.dst_port == s.tuple.local.port &&
+            p.control == TcpControl::None &&
+            p.ack_number == Some(local_seq + 1) &&
+            p.seq_number == remote_seq + 1
+        );
+
+        send!(s, packet_to_send);
+        assert_eq!(s.state, State::Established);
     }
 
 }
