@@ -7681,7 +7681,6 @@ mod verification {
     #[kani::proof]
     #[kani::unwind(20)]
     fn prove_syn_received_ack() {
-
         let mut s: TestSocket = kani::any_where(|s: &TestSocket| {
             // Needed to prevent socket timeout.
             s.timer == Timer::new() &&
@@ -7723,6 +7722,123 @@ mod verification {
 
         send!(s, packet_to_send);
         assert_eq!(s.state, State::Established);
+    }
+
+    #[kani::proof]
+    #[kani::unwind(20)]
+    fn prove_syn_received_ack_invalid() {
+        let mut s: TestSocket = kani::any_where(|s: &TestSocket| {
+            // Needed to prevent socket timeout.
+            s.timer == Timer::new() &&
+            s.rx_buffer.capacity() != 0 &&
+            s.tx_buffer.capacity() != 0 &&
+            s.timeout == None &&
+
+            s.remote_win_scale == None &&
+            s.rtte == RttEstimator::default() &&
+            s.local_seq_no == s.remote_last_seq &&
+            s.state == State::SynReceived &&
+            s.socket.tuple == Some(s.tuple) &&
+            s.listen_endpoint.addr.is_none() &&
+            s.listen_endpoint.port == s.tuple.local.port            
+        });
+        s.compute_win_shift();
+
+        let local_seq = s.local_seq_no;
+        let remote_seq = s.remote_seq_no - 1;
+        let local_port = s.tuple.local.port;
+        let remote_port = s.tuple.remote.port;
+
+        recv(&mut s, Instant::from_secs(0), |repr| {
+            assert!(repr.is_ok());
+            assert_eq!(repr.unwrap().control, TcpControl::Syn);
+            assert_eq!(repr.unwrap().src_port, local_port);
+            assert_eq!(repr.unwrap().dst_port, remote_port);
+            assert_eq!(repr.unwrap().seq_number, local_seq);
+            assert_eq!(repr.unwrap().ack_number, Some(remote_seq + 1));
+        });
+
+        let wrong_ack: TcpSeqNumber = kani::any_where(|s: &TcpSeqNumber| *s != local_seq + 1);
+
+        let packet_in: TcpRepr = kani::any_where(|p: &TcpRepr|
+            p.src_port == s.tuple.remote.port &&
+            p.dst_port == s.tuple.local.port &&
+            p.control == TcpControl::None &&
+            p.ack_number == Some(wrong_ack) && // wrong
+            p.seq_number == remote_seq + 1
+        );
+
+        let packet_out = send(&mut s, Instant::from_millis(0), &packet_in);
+        assert!(packet_out.is_some());
+        assert_eq!(packet_out.unwrap().src_port, local_port);
+        assert_eq!(packet_out.unwrap().dst_port, remote_port);
+        assert_eq!(packet_out.unwrap().control, TcpControl::Rst);
+        assert_eq!(packet_out.unwrap().ack_number, None);
+        assert_eq!(packet_out.unwrap().seq_number, wrong_ack);
+        assert_eq!(packet_out.unwrap().window_len, 0);
+
+        assert_eq!(s.state, State::SynReceived);
+    }
+
+    #[kani::proof]
+    #[kani::unwind(20)]
+    fn prove_syn_received_fin() {
+        let mut s: TestSocket = kani::any_where(|s: &TestSocket| {
+            // Needed to prevent socket timeout.
+            s.timer == Timer::new() &&
+            s.rx_buffer.capacity() > 3 &&
+            s.tx_buffer.capacity() > 3 &&
+            s.timeout == None &&
+
+            s.remote_win_scale == None &&
+            s.rtte == RttEstimator::default() &&
+            s.local_seq_no == s.remote_last_seq &&
+            s.state == State::SynReceived &&
+            s.socket.tuple == Some(s.tuple) &&
+            s.listen_endpoint.addr.is_none() &&
+            s.listen_endpoint.port == s.tuple.local.port            
+        });
+        s.compute_win_shift();
+
+        let local_seq = s.local_seq_no;
+        let remote_seq = s.remote_seq_no - 1;
+        let local_port = s.tuple.local.port;
+        let remote_port = s.tuple.remote.port;
+
+        recv(&mut s, Instant::from_secs(0), |repr| {
+            assert!(repr.is_ok());
+            assert_eq!(repr.unwrap().control, TcpControl::Syn);
+            assert_eq!(repr.unwrap().src_port, local_port);
+            assert_eq!(repr.unwrap().dst_port, remote_port);
+            assert_eq!(repr.unwrap().seq_number, local_seq);
+            assert_eq!(repr.unwrap().ack_number, Some(remote_seq + 1));
+        });
+
+        let packet_in: TcpRepr = kani::any_where(|p: &TcpRepr|
+            p.src_port == s.tuple.remote.port &&
+            p.dst_port == s.tuple.local.port &&
+            p.control == TcpControl::Fin &&
+            p.ack_number == Some(local_seq + 1) &&
+            p.seq_number == remote_seq + 1 &&
+            p.max_seg_size == None &&
+            p.window_scale == None &&
+            p.window_len == 256
+        );
+
+        send!(s, packet_in);
+
+        recv(&mut s, Instant::from_secs(0), |repr| {
+            assert!(repr.is_ok());
+            assert_eq!(repr.unwrap().control, TcpControl::None);
+            assert_eq!(repr.unwrap().src_port, local_port);
+            assert_eq!(repr.unwrap().dst_port, remote_port);
+            // Check for keep-alive.
+            assert!(repr.unwrap().seq_number == local_seq + 1 ||
+                (repr.unwrap().seq_number == local_seq && repr.unwrap().payload == b"\x00"));
+            assert_eq!(repr.unwrap().ack_number, Some(remote_seq + 1 + packet_in.payload.len() + 1));
+        });
+
+        assert_eq!(s.state, State::CloseWait);
     }
 
 }
