@@ -6,7 +6,7 @@ on:
       - feat/verification
 jobs:
   run-kani:
-    runs-on: [self-hosted, apple-silicon]
+    runs-on: ubuntu-22.04
     steps:
       - name: 'Checkout your code.'
         uses: actions/checkout@v3
