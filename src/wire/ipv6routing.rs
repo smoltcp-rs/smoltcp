@@ -269,8 +269,8 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Header<T> {
             Type::Rpl => {
                 // Retain the higher order 4 bits of the padding field
                 data[field::PAD] &= 0xF0;
-                data[6] = 0;
-                data[7] = 0;
+                data[4] = 0;
+                data[5] = 0;
             }
 
             _ => panic!("Unrecognized routing type when clearing reserved fields."),

@@ -756,7 +756,7 @@ impl<'a> Socket<'a> {
 
     /// Start listening on the given endpoint.
     ///
-    /// This function returns `Err(Error::Illegal)` if the socket was already open
+    /// This function returns `Err(Error::InvalidState)` if the socket was already open
     /// (see [is_open](#method.is_open)), and `Err(Error::Unaddressable)`
     /// if the port in the given endpoint is zero.
     pub fn listen<T>(&mut self, local_endpoint: T) -> Result<(), ListenError>
@@ -769,7 +769,19 @@ impl<'a> Socket<'a> {
         }
 
         if self.is_open() {
-            return Err(ListenError::InvalidState);
+            // If we were already listening to same endpoint there is nothing to do; exit early.
+            //
+            // In the past listening on an socket that was already listening was an error,
+            // however this makes writing an acceptor loop with multiple sockets impossible.
+            // Without this early exit, if you tried to listen on a socket that's already listening you'll
+            // immediately get an error. The only way around this is to abort the socket first
+            // before listening again, but this means that incoming connections can actually
+            // get aborted between the abort() and the next listen().
+            if matches!(self.state, State::Listen) && self.listen_endpoint == local_endpoint {
+                return Ok(());
+            } else {
+                return Err(ListenError::InvalidState);
+            }
         }
 
         self.reset();
@@ -2969,6 +2981,9 @@ mod test {
     fn test_listen_twice() {
         let mut s = socket();
         assert_eq!(s.listen(80), Ok(()));
+        // multiple calls to listen are okay if its the same local endpoint and the state is still in listening
+        assert_eq!(s.listen(80), Ok(()));
+        s.set_state(State::SynReceived); // state change, simulate incoming connection
         assert_eq!(s.listen(80), Err(ListenError::InvalidState));
     }
 
