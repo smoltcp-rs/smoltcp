@@ -5,13 +5,23 @@ on:
     branches:
       - feat/verification
 jobs:
-  run-kani:
+  verify-wire:
     runs-on: [self-hosted, apple-silicon]
     steps:
       - name: 'Checkout your code.'
         uses: actions/checkout@v3
 
-      - name: 'Run Kani on your code.'
+      - name: 'Run Kani on TCP wire.'
         uses: model-checking/kani-github-action@v0.34
         with:
-          args: '--output-format=terse --verbose'
+          args: '--output-format=terse --verbose --harness wire::tcp::verification'
+  verify-socket:
+    runs-on: [self-hosted, apple-silicon]
+    steps:
+      - name: 'Checkout your code.'
+        uses: actions/checkout@v3
+
+      - name: 'Run Kani on TCP socket.'
+        uses: model-checking/kani-github-action@v0.34
+        with:
+          args: '--output-format=terse --verbose --harness socket::tcp::verification'
