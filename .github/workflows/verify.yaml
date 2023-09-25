@@ -6,7 +6,7 @@ on:
       - feat/verification
 jobs:
   verify-wire:
-    runs-on: [self-hosted, apple-silicon]
+    runs-on: [ubuntu-22.04]
     steps:
       - name: 'Checkout your code.'
         uses: actions/checkout@v3
@@ -16,7 +16,7 @@ jobs:
         with:
           args: '--solver kissat --output-format=terse --verbose --harness wire::tcp::verification'
   verify-socket:
-    runs-on: [self-hosted, apple-silicon]
+    runs-on: [ubuntu-22.04]
     steps:
       - name: 'Checkout your code.'
         uses: actions/checkout@v3
