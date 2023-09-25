@@ -427,6 +427,19 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
         NetworkEndian::write_u16(&mut data[field::FLAGS], raw)
     }
 
+    // Set a flag given a u16 value.
+     #[inline]
+    pub fn set_flag(&self, flag:u16) -> bool {
+        let data = self.buffer.as_ref();
+        let raw = NetworkEndian::read_u16(&data[field::FLAGS]);
+        let raw = if value {
+            raw | flag
+        } else {
+            raw & !flag
+        };
+        NetworkEndian::write_u16(&mut data[field::FLAGS], raw)
+    }
+
     /// Set the FIN flag.
     #[inline]
     pub fn set_fin(&mut self, value: bool) {
