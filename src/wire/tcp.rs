@@ -1426,6 +1426,8 @@ mod verification {
     use alloc::vec;
     use super::*;
 
+    use crate::wire::Ipv4Address;
+
     #[kani::proof]
     #[kani::unwind(10)]
     fn prove_parsing() {
