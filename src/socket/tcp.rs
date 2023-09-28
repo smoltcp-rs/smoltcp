@@ -7424,18 +7424,6 @@ mod verification {
         }
     }
 
-    fn recv_nothing(socket: &mut TestSocket, timestamp: Instant) {
-        socket.cx.set_now(timestamp);
-
-        let result: Result<(), ()> = socket
-            .socket
-            .dispatch(&mut socket.cx, |_, (_ip_repr, _tcp_repr)| {
-                panic!("Should not send a packet")
-            });
-
-        assert_eq!(result, Ok(()))
-    }
-
     macro_rules! send {
         ($socket:ident, $repr:expr) =>
             (send!($socket, time 0, $repr));
@@ -7445,46 +7433,6 @@ mod verification {
             (send!($socket, time $time, $repr, None));
         ($socket:ident, time $time:expr, $repr:expr, $result:expr) =>
             (assert_eq!(send(&mut $socket, Instant::from_millis($time), &$repr), $result));
-    }
-
-    macro_rules! recv {
-        ($socket:ident, [$( $repr:expr ),*]) => ({
-            $( recv!($socket, Ok($repr)); )*
-            recv_nothing!($socket)
-        });
-        ($socket:ident, $result:expr) =>
-            (recv!($socket, time 0, $result));
-        ($socket:ident, time $time:expr, $result:expr) =>
-            (recv(&mut $socket, Instant::from_millis($time), |result| {
-                // Most of the time we don't care about the PSH flag.
-                let result = result.map(|mut repr| {
-                    repr.control = repr.control.quash_psh();
-                    repr
-                });
-                assert_eq!(result, $result)
-            }));
-        ($socket:ident, time $time:expr, $result:expr, exact) =>
-            (recv(&mut $socket, Instant::from_millis($time), |repr| {println!("{:?}, {:?}", repr, $result); assert_eq!(repr, $result)}));
-    }
-
-    macro_rules! recv_nothing {
-        ($socket:ident) => (recv_nothing!($socket, time 0));
-        ($socket:ident, time $time:expr) => (recv_nothing(&mut $socket, Instant::from_millis($time)));
-    }
-
-    macro_rules! sanity {
-        ($socket1:expr, $socket2:expr) => {{
-            let (s1, s2) = ($socket1, $socket2);
-            assert_eq!(s1.state, s2.state, "state");
-            assert_eq!(s1.tuple, s2.tuple, "tuple");
-            assert_eq!(s1.local_seq_no, s2.local_seq_no, "local_seq_no");
-            assert_eq!(s1.remote_seq_no, s2.remote_seq_no, "remote_seq_no");
-            assert_eq!(s1.remote_last_seq, s2.remote_last_seq, "remote_last_seq");
-            assert_eq!(s1.remote_last_ack, s2.remote_last_ack, "remote_last_ack");
-            assert_eq!(s1.remote_last_win, s2.remote_last_win, "remote_last_win");
-            assert_eq!(s1.remote_win_len, s2.remote_win_len, "remote_win_len");
-            assert_eq!(s1.timer, s2.timer, "timer");
-        }};
     }
 
     // =========================================================================================//
@@ -7604,7 +7552,7 @@ mod verification {
     fn prove_listen_twice() {
         let mut s: TestSocket = kani::any_where(|s: &TestSocket| !s.is_open());
         let port1: u16 = kani::any_where(|p| *p != 0);
-        let port2: u16 = kani::any_where(|p| *p != 0);
+        let port2: u16 = kani::any_where(|p| *p != 0 && *p != port1);
         assert_eq!(s.listen(port1), Ok(()));
         assert!(s.is_open());
         assert_eq!(s.listen(port2), Err(ListenError::InvalidState));

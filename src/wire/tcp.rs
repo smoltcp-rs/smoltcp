@@ -1426,8 +1426,6 @@ mod verification {
     use alloc::vec;
     use super::*;
 
-    use crate::wire::Ipv4Address;
-
     #[kani::proof]
     #[kani::unwind(10)]
     fn prove_parsing() {
@@ -1520,36 +1518,35 @@ mod verification {
         assert!(packet.check_len().is_err());
     }
 
-    // FIXME: Too slow.
-    // #[kani::proof]
-    // #[kani::unwind(15)]
-    // fn prove_repr_intertible() {
-    //     let repr: Repr = kani::any();
-    //     let mut bytes = vec![0xa5; repr.buffer_len()];
-    //     let mut packet = Packet::new_unchecked(&mut bytes);
+    #[kani::proof]
+    #[kani::unwind(15)]
+    fn prove_repr_intertible() {
+        let repr: Repr = kani::any();
+        let mut bytes = vec![0xa5; repr.buffer_len()];
+        let mut packet = Packet::new_unchecked(&mut bytes);
 
-    //     let src_addr: Ipv4Address = kani::any();
-    //     let dst_addr: Ipv4Address = kani::any();
+        let src_addr: Ipv4Address = kani::any();
+        let dst_addr: Ipv4Address = kani::any();
 
-    //     repr.emit(
-    //         &mut packet,
-    //         &src_addr.into(),
-    //         &dst_addr.into(),
-    //         &ChecksumCapabilities::default(),
-    //     );
+        repr.emit(
+            &mut packet,
+            &src_addr.into(),
+            &dst_addr.into(),
+            &ChecksumCapabilities::default(),
+        );
 
-    //     let packet_out = Packet::new_unchecked(&packet.into_inner()[..]);
+        let packet_out = Packet::new_unchecked(&packet.into_inner()[..]);
 
-    //     let repr_out = Repr::parse(
-    //         &packet_out,
-    //         &src_addr.into(),
-    //         &dst_addr.into(),
-    //         &ChecksumCapabilities::default(),
-    //     );
+        let repr_out = Repr::parse(
+            &packet_out,
+            &src_addr.into(),
+            &dst_addr.into(),
+            &ChecksumCapabilities::default(),
+        );
 
-    //     assert!(repr_out.is_ok());
-    //     assert_eq!(repr, repr_out.unwrap());
-    // }
+        assert!(repr_out.is_ok());
+        assert_eq!(repr, repr_out.unwrap());
+    }
 
     #[kani::proof]
     #[kani::unwind(15)]
