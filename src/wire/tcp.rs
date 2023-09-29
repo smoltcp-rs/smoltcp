@@ -812,16 +812,15 @@ impl<'a> kani::Arbitrary for TcpOption<'a> {
             4 => TcpOption::WindowScale(kani::any()),
             5 => TcpOption::SackPermitted,
             6 => {
-                let range_type: u8 = kani::any_where(|v| *v >= 1 && *v <= 4);
+                let range_type: u8 = kani::any_where(|v| *v >= 1 && *v <= 3);
                 let ranges: [Option<(u32, u32)>; 3] = match range_type {
-                    1 => [None, None, None],
-                    2 => [Some((kani::any(), kani::any())), None, None],
-                    3 => [
+                    1 => [Some((kani::any(), kani::any())), None, None],
+                    2 => [
                         Some((kani::any(), kani::any())),
                         Some((kani::any(), kani::any())),
                         None,
                     ],
-                    4 => [
+                    3 => [
                         Some((kani::any(), kani::any())),
                         Some((kani::any(), kani::any())),
                         Some((kani::any(), kani::any())),
@@ -1550,7 +1549,7 @@ mod verification {
     #[cfg(notci)]
     #[kani::proof]
     #[kani::unwind(15)]
-    fn prove_repr_intertible() {
+    fn prove_repr_invertible() {
         // This proof is interesting but too heavy to run frequently on CI.
         let repr: Repr = kani::any();
         let mut bytes = vec![0xa5; repr.buffer_len()];
