@@ -1,9 +1,8 @@
 name: Verification
 on:
   pull_request:
-  push:
-    branches:
-      - feat/verification
+  merge_group:
+    
 jobs:
   verify-wire:
     runs-on: [macos-latest]

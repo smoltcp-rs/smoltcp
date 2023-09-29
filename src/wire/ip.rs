@@ -459,7 +459,6 @@ impl<'a> kani::Arbitrary for Endpoint {
     }
 }
 
-
 /// An internet endpoint address for listening.
 ///
 /// In contrast with [`Endpoint`], `ListenEndpoint` allows not specifying the address,
