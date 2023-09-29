@@ -7905,6 +7905,7 @@ mod verification {
                 && p.control == TcpControl::Syn
                 && p.ack_number == None
                 && p.seq_number == remote_seq
+                && p.max_seg_size != Some(0)
                 && p.window_scale == window_scale
         });
 
@@ -7936,6 +7937,7 @@ mod verification {
                 && p.control == TcpControl::None
                 && p.ack_number == Some(local_seq + 1)
                 && p.seq_number == remote_seq + 1
+                && p.max_seg_size != Some(0)
                 && p.window_scale == None
         });
 
