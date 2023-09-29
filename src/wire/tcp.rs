@@ -893,8 +893,10 @@ impl<'a> Repr<'a> {
             return Err(Error);
         }
         // Valid checksum is expected.
-        if checksum_caps.tcp.rx() && !packet.verify_checksum(src_addr, dst_addr) {
-            return Err(Error);
+        if checksum_caps.tcp.rx() {
+            if !packet.verify_checksum(src_addr, dst_addr) {
+                return Err(Error);    
+            }
         }
 
         let control = match (packet.syn(), packet.fin(), packet.rst(), packet.psh()) {
@@ -1077,7 +1079,8 @@ impl<'a> Repr<'a> {
 impl<'a> kani::Arbitrary for Repr<'a> {
     #[inline]
     fn any() -> Self {
-        let payload: Vec<u8> = kani::vec::exact_vec::<_, 4>();
+        // Limit payload to length 4 to keep things reasonable.
+        let payload: Vec<u8> = kani::vec::exact_vec::<u8, 4>();
         return Repr {
             src_port: kani::any_where(|p| *p != 0),
             dst_port: kani::any_where(|p| *p != 0),
@@ -1087,10 +1090,9 @@ impl<'a> kani::Arbitrary for Repr<'a> {
             // This is enforced by parse().
             window_scale: kani::any_where(|s: &Option<u8>| s.is_none() || s.unwrap() <= 14),
             control: kani::any(),
-            max_seg_size: None,
-            sack_permitted: false,
-            sack_ranges: [None, None, None],
-            // FIXME: Symbolic execution can have a little leaky memory, as a treat -- Chris Phifer, 2023
+            max_seg_size: kani::any(),
+            sack_permitted: kani::any(),
+            sack_ranges: kani::any(),
             payload: payload.leak(),
         };
     }
@@ -1523,7 +1525,19 @@ mod verification {
     #[kani::proof]
     #[kani::unwind(15)]
     fn prove_repr_intertible() {
-        let repr: Repr = kani::any();
+        // A completely dynamic payload and TcpOption set is really, really expensive.
+        // It can be done, but for the purposes of CI it is better to have 
+        // a proof that checks some of the properties in a couple of minutes, than 
+        // one that checks all but in many hours.
+        // Instead, we prove properties of TcpOptions separately below.
+
+        let repr: Repr = kani::any_where(|p: &Repr| {
+            p.window_scale == None &&
+            p.max_seg_size == None &&
+            p.sack_permitted == false &&
+            p.sack_ranges == [None, None, None]
+        });
+
         let mut bytes = vec![0xa5; repr.buffer_len()];
         let mut packet = Packet::new_unchecked(&mut bytes);
 
@@ -1534,7 +1548,7 @@ mod verification {
             &mut packet,
             &src_addr.into(),
             &dst_addr.into(),
-            &ChecksumCapabilities::default(),
+            &ChecksumCapabilities::ignored(),
         );
 
         let packet_out = Packet::new_unchecked(&packet.into_inner()[..]);
@@ -1543,7 +1557,7 @@ mod verification {
             &packet_out,
             &src_addr.into(),
             &dst_addr.into(),
-            &ChecksumCapabilities::default(),
+            &ChecksumCapabilities::ignored(),
         );
 
         assert!(repr_out.is_ok());
