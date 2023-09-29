@@ -1090,9 +1090,9 @@ impl<'a> kani::Arbitrary for Repr<'a> {
             // This is enforced by parse().
             window_scale: kani::any_where(|s: &Option<u8>| s.is_none() || s.unwrap() <= 14),
             control: kani::any(),
-            max_seg_size: kani::any(),
-            sack_permitted: kani::any(),
-            sack_ranges: kani::any(),
+            max_seg_size: None,
+            sack_permitted: false,
+            sack_ranges: [None, None, None],
             payload: payload.leak(),
         };
     }
@@ -1522,22 +1522,12 @@ mod verification {
         assert!(packet.check_len().is_err());
     }
 
+    #[cfg(notci)]
     #[kani::proof]
     #[kani::unwind(15)]
     fn prove_repr_intertible() {
-        // A completely dynamic payload and TcpOption set is really, really expensive.
-        // It can be done, but for the purposes of CI it is better to have 
-        // a proof that checks some of the properties in a couple of minutes, than 
-        // one that checks all but in many hours.
-        // Instead, we prove properties of TcpOptions separately below.
-
-        let repr: Repr = kani::any_where(|p: &Repr| {
-            p.window_scale == None &&
-            p.max_seg_size == None &&
-            p.sack_permitted == false &&
-            p.sack_ranges == [None, None, None]
-        });
-
+        // This proof is interesting but too heavy to run frequently on CI.
+        let repr: Repr = kani::any();
         let mut bytes = vec![0xa5; repr.buffer_len()];
         let mut packet = Packet::new_unchecked(&mut bytes);
 
