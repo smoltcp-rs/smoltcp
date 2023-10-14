@@ -744,7 +744,7 @@ impl<'a> Socket<'a> {
 
     /// Start listening on the given endpoint.
     ///
-    /// This function returns `Err(Error::Illegal)` if the socket was already open
+    /// This function returns `Err(Error::InvalidState)` if the socket was already open
     /// (see [is_open](#method.is_open)), and `Err(Error::Unaddressable)`
     /// if the port in the given endpoint is zero.
     pub fn listen<T>(&mut self, local_endpoint: T) -> Result<(), ListenError>
@@ -757,7 +757,19 @@ impl<'a> Socket<'a> {
         }
 
         if self.is_open() {
-            return Err(ListenError::InvalidState);
+            // If we were already listening to same endpoint there is nothing to do; exit early.
+            //
+            // In the past listening on an socket that was already listening was an error,
+            // however this makes writing an acceptor loop with multiple sockets impossible.
+            // Without this early exit, if you tried to listen on a socket that's already listening you'll
+            // immediately get an error. The only way around this is to abort the socket first
+            // before listening again, but this means that incoming connections can actually
+            // get aborted between the abort() and the next listen().
+            if matches!(self.state, State::Listen) && self.listen_endpoint == local_endpoint {
+                return Ok(());
+            } else {
+                return Err(ListenError::InvalidState);
+            }
         }
 
         self.reset();
@@ -1173,10 +1185,7 @@ impl<'a> Socket<'a> {
     ///
     /// This function otherwise behaves identically to [recv_slice](#method.recv_slice).
     pub fn peek_slice(&mut self, data: &mut [u8]) -> Result<usize, RecvError> {
-        let buffer = self.peek(data.len())?;
-        let data = &mut data[..buffer.len()];
-        data.copy_from_slice(buffer);
-        Ok(buffer.len())
+        Ok(self.rx_buffer.read_allocated(0, data))
     }
 
     /// Return the amount of octets queued in the transmit buffer.
@@ -1868,7 +1877,10 @@ impl<'a> Socket<'a> {
         let assembler_was_empty = self.assembler.is_empty();
 
         // Try adding payload octets to the assembler.
-        let Ok(contig_len) = self.assembler.add_then_remove_front(payload_offset, payload_len) else {
+        let Ok(contig_len) = self
+            .assembler
+            .add_then_remove_front(payload_offset, payload_len)
+        else {
             net_debug!(
                 "assembler: too many holes to add {} octets at offset {}",
                 payload_len,
@@ -2911,6 +2923,9 @@ mod test {
     fn test_listen_twice() {
         let mut s = socket();
         assert_eq!(s.listen(80), Ok(()));
+        // multiple calls to listen are okay if its the same local endpoint and the state is still in listening
+        assert_eq!(s.listen(80), Ok(()));
+        s.set_state(State::SynReceived); // state change, simulate incoming connection
         assert_eq!(s.listen(80), Err(ListenError::InvalidState));
     }
 
@@ -3665,6 +3680,58 @@ mod test {
             }]
         );
         assert_eq!(s.rx_buffer.dequeue_many(6), &b"abcdef"[..]);
+    }
+
+    #[test]
+    fn test_peek_slice() {
+        const BUF_SIZE: usize = 10;
+
+        let send_buf = b"0123456";
+
+        let mut s = socket_established_with_buffer_sizes(BUF_SIZE, BUF_SIZE);
+
+        // Populate the recv buffer
+        send!(
+            s,
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                payload: &send_buf[..],
+                ..SEND_TEMPL
+            }
+        );
+
+        // Peek into the recv buffer
+        let mut peeked_buf = [0u8; BUF_SIZE];
+        let actually_peeked = s.peek_slice(&mut peeked_buf[..]).unwrap();
+        let mut recv_buf = [0u8; BUF_SIZE];
+        let actually_recvd = s.recv_slice(&mut recv_buf[..]).unwrap();
+        assert_eq!(
+            &mut peeked_buf[..actually_peeked],
+            &mut recv_buf[..actually_recvd]
+        );
+    }
+
+    #[test]
+    fn test_peek_slice_buffer_wrap() {
+        const BUF_SIZE: usize = 10;
+
+        let send_buf = b"0123456789";
+
+        let mut s = socket_established_with_buffer_sizes(BUF_SIZE, BUF_SIZE);
+
+        let _ = s.rx_buffer.enqueue_slice(&send_buf[..8]);
+        let _ = s.rx_buffer.dequeue_many(6);
+        let _ = s.rx_buffer.enqueue_slice(&send_buf[..5]);
+
+        let mut peeked_buf = [0u8; BUF_SIZE];
+        let actually_peeked = s.peek_slice(&mut peeked_buf[..]).unwrap();
+        let mut recv_buf = [0u8; BUF_SIZE];
+        let actually_recvd = s.recv_slice(&mut recv_buf[..]).unwrap();
+        assert_eq!(
+            &mut peeked_buf[..actually_peeked],
+            &mut recv_buf[..actually_recvd]
+        );
     }
 
     fn setup_rfc2018_cases() -> (TestSocket, Vec<u8>) {

@@ -129,6 +129,12 @@ mod sixlowpan;
 mod tcp;
 mod udp;
 
+#[cfg(feature = "proto-ipsec-ah")]
+mod ipsec_ah;
+
+#[cfg(feature = "proto-ipsec-esp")]
+mod ipsec_esp;
+
 use core::fmt;
 
 use crate::phy::Medium;
@@ -269,6 +275,12 @@ pub use self::dns::{
     Flags as DnsFlags, Opcode as DnsOpcode, Packet as DnsPacket, Rcode as DnsRcode,
     Repr as DnsRepr, Type as DnsQueryType,
 };
+
+#[cfg(feature = "proto-ipsec-ah")]
+pub use self::ipsec_ah::{Packet as IpSecAuthHeaderPacket, Repr as IpSecAuthHeaderRepr};
+
+#[cfg(feature = "proto-ipsec-esp")]
+pub use self::ipsec_esp::{Packet as IpSecEspPacket, Repr as IpSecEspRepr};
 
 /// Parsing a packet failed.
 ///

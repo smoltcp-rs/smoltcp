@@ -146,7 +146,7 @@ impl<T: AsRef<[u8]>> ExtHeaderPacket<T> {
             return Err(Error);
         }
 
-        let mut len = 1;
+        let mut len = 2;
         len += self.next_header_size();
 
         if len <= buffer.len() {
@@ -190,11 +190,7 @@ impl<T: AsRef<[u8]>> ExtHeaderPacket<T> {
             NextHeader::Compressed
         } else {
             // The full 8 bits for Next Header are carried in-line.
-            let start = 1;
-
-            let data = self.buffer.as_ref();
-            let nh = data[start];
-            NextHeader::Uncompressed(IpProtocol::from(nh))
+            NextHeader::Uncompressed(IpProtocol::from(self.buffer.as_ref()[1]))
         }
     }
 
@@ -803,13 +799,32 @@ mod test {
     use super::*;
 
     #[test]
-    fn ext_header_nhc_fields() {
+    fn ext_header_nh_inlined() {
+        let bytes = [0xe2, 0x3a, 0x6, 0x3, 0x0, 0xff, 0x0, 0x0, 0x0];
+
+        let packet = ExtHeaderPacket::new_checked(&bytes[..]).unwrap();
+        assert_eq!(packet.next_header_size(), 1);
+        assert_eq!(packet.length(), 6);
+        assert_eq!(packet.dispatch_field(), DISPATCH_EXT_HEADER);
+        assert_eq!(packet.extension_header_id(), ExtHeaderId::RoutingHeader);
+        assert_eq!(
+            packet.next_header(),
+            NextHeader::Uncompressed(IpProtocol::Icmpv6)
+        );
+
+        assert_eq!(packet.payload(), [0x03, 0x00, 0xff, 0x00, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn ext_header_nh_elided() {
         let bytes = [0xe3, 0x06, 0x03, 0x00, 0xff, 0x00, 0x00, 0x00];
 
         let packet = ExtHeaderPacket::new_checked(&bytes[..]).unwrap();
         assert_eq!(packet.next_header_size(), 0);
+        assert_eq!(packet.length(), 6);
         assert_eq!(packet.dispatch_field(), DISPATCH_EXT_HEADER);
         assert_eq!(packet.extension_header_id(), ExtHeaderId::RoutingHeader);
+        assert_eq!(packet.next_header(), NextHeader::Compressed);
 
         assert_eq!(packet.payload(), [0x03, 0x00, 0xff, 0x00, 0x00, 0x00]);
     }
