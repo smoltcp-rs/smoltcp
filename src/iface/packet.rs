@@ -167,7 +167,7 @@ pub(crate) struct PacketV6<'p> {
     #[cfg(feature = "proto-ipv6-fragmentation")]
     pub(crate) fragment: Option<Ipv6FragmentRepr>,
     #[cfg(feature = "proto-ipv6-routing")]
-    pub(crate) routing: Option<Ipv6RoutingRepr<'p>>,
+    pub(crate) routing: Option<Ipv6RoutingRepr>,
     pub(crate) payload: IpPayload<'p>,
 }
 

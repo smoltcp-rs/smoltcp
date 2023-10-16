@@ -345,10 +345,10 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Header<&'a T> {
 }
 
 /// A high-level representation of an IPv6 Routing Header.
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
-pub enum Repr<'a> {
+pub enum Repr {
     Type2 {
         /// Number of route segments remaining.
         segments_left: u8,
@@ -366,13 +366,13 @@ pub enum Repr<'a> {
         /// RPL Source Route Header.
         pad: u8,
         /// Vector of addresses, numbered 1 to `n`.
-        addresses: &'a [u8],
+        addresses: heapless::Vec<Address, 8>,
     },
 }
 
-impl<'a> Repr<'a> {
+impl Repr {
     /// Parse an IPv6 Routing Header and return a high-level representation.
-    pub fn parse<T>(header: &'a Header<&'a T>) -> Result<Repr<'a>>
+    pub fn parse<T>(header: &Header<&T>) -> Result<Repr>
     where
         T: AsRef<[u8]> + ?Sized,
     {
@@ -382,13 +382,31 @@ impl<'a> Repr<'a> {
                 segments_left: header.segments_left(),
                 home_address: header.home_address(),
             }),
-            Type::Rpl => Ok(Repr::Rpl {
-                segments_left: header.segments_left(),
-                cmpr_i: header.cmpr_i(),
-                cmpr_e: header.cmpr_e(),
-                pad: header.pad(),
-                addresses: header.addresses(),
-            }),
+            Type::Rpl => {
+                let mut addresses = heapless::Vec::new();
+
+                let addresses_bytes = header.addresses();
+                let mut buffer = [0u8; 16];
+
+                for (i, b) in addresses_bytes.iter().enumerate() {
+                    let j = i % 16;
+                    buffer[j] = *b;
+
+                    if i % 16 == 0 && i != 0 {
+                        addresses.push(Address::from_bytes(&buffer)).unwrap();
+                    }
+                }
+
+                addresses.push(Address::from_bytes(&buffer)).unwrap();
+
+                Ok(Repr::Rpl {
+                    segments_left: header.segments_left(),
+                    cmpr_i: header.cmpr_i(),
+                    cmpr_e: header.cmpr_e(),
+                    pad: header.pad(),
+                    addresses,
+                })
+            }
 
             _ => Err(Error),
         }
@@ -396,11 +414,11 @@ impl<'a> Repr<'a> {
 
     /// Return the length, in bytes, of a header that will be emitted from this high-level
     /// representation.
-    pub const fn buffer_len(&self) -> usize {
+    pub fn buffer_len(&self) -> usize {
         match self {
             // Routing Type + Segments Left + Reserved + Home Address
             Repr::Type2 { home_address, .. } => 2 + 4 + home_address.as_bytes().len(),
-            Repr::Rpl { addresses, .. } => 2 + 4 + addresses.len(),
+            Repr::Rpl { addresses, .. } => 2 + 4 + addresses.len() * 16,
         }
     }
 
@@ -421,7 +439,7 @@ impl<'a> Repr<'a> {
                 cmpr_i,
                 cmpr_e,
                 pad,
-                addresses,
+                ref addresses,
             } => {
                 header.set_routing_type(Type::Rpl);
                 header.set_segments_left(segments_left);
@@ -429,13 +447,22 @@ impl<'a> Repr<'a> {
                 header.set_cmpr_e(cmpr_e);
                 header.set_pad(pad);
                 header.clear_reserved();
-                header.set_addresses(addresses);
+
+                let mut buffer = [0u8; 16 * 4];
+                let mut len = 0;
+
+                for addr in addresses {
+                    buffer[len..][..16].copy_from_slice(addr.as_bytes());
+                    len += 16;
+                }
+
+                header.set_addresses(&buffer[..len]);
             }
         }
     }
 }
 
-impl<'a> fmt::Display for Repr<'a> {
+impl fmt::Display for Repr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Repr::Type2 {
