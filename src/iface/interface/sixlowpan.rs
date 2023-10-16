@@ -324,6 +324,17 @@ impl InterfaceInner {
                 .unwrap();
                 packet.payload = IpPayload::Udp(udp_repr, udp.payload());
             }
+            IpPayload::Raw(payload) if matches!(packet.header.next_header, IpProtocol::Icmpv6) => {
+                let icmp = Icmpv6Packet::new_checked(payload).unwrap();
+                let icmp_repr = Icmpv6Repr::parse(
+                    &packet.header.src_addr.into(),
+                    &packet.header.dst_addr.into(),
+                    &icmp,
+                    &ChecksumCapabilities::ignored(),
+                )
+                .unwrap();
+                packet.payload = IpPayload::Icmpv6(icmp_repr);
+            }
             _ => (),
         }
 
