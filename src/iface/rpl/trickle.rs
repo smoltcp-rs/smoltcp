@@ -102,7 +102,7 @@ impl TrickleTimer {
 
     /// Signal the Trickle timer that a consistency has been heard, and thus increasing it's
     /// counter.
-    pub(crate) fn hear_consistent(&mut self) {
+    pub(crate) fn hear_consistency(&mut self) {
         self.counter += 1;
     }
 
@@ -257,7 +257,7 @@ mod tests {
         let mut transmit_counter = 0;
 
         while now <= Instant::from_secs(10_000) {
-            trickle.hear_consistent();
+            trickle.hear_consistency();
 
             if trickle.poll(now, &mut rand) {
                 transmit_counter += 1;
