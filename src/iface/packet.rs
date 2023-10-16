@@ -207,7 +207,7 @@ impl<'p> IpPayload<'p> {
             #[cfg(feature = "socket-udp")]
             Self::Udp(..) => SixlowpanNextHeader::Compressed,
             #[cfg(feature = "socket-raw")]
-            Self::Raw(_) => todo!(),
+            Self::Raw(_) => SixlowpanNextHeader::Uncompressed(IpProtocol::Unknown(0)),
         }
     }
 }

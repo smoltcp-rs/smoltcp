@@ -17,6 +17,9 @@ mod ipv6;
 #[cfg(feature = "proto-sixlowpan")]
 mod sixlowpan;
 
+#[cfg(feature = "proto-rpl")]
+mod rpl;
+
 #[cfg(feature = "proto-igmp")]
 mod igmp;
 #[cfg(feature = "socket-tcp")]
@@ -261,7 +264,14 @@ impl Interface {
     /// Get the socket context.
     ///
     /// The context is needed for some socket methods.
-    pub fn context(&mut self) -> &mut InterfaceInner {
+    pub fn context(&self) -> &InterfaceInner {
+        &self.inner
+    }
+
+    /// Get the socket context.
+    ///
+    /// The context is needed for some socket methods.
+    pub fn context_mut(&mut self) -> &mut InterfaceInner {
         &mut self.inner
     }
 
@@ -536,13 +546,19 @@ impl Interface {
         }
 
         let packet = 'packet: {
+            let our_addr = ctx.ipv6_addr().unwrap();
             if let Some(dodag) = &mut ctx.rpl.dodag {
                 // Check if we have heard from our parent recently. If not, we remove our parent.
                 if let Some(parent) = &mut dodag.parent {
                     let parent = dodag.parent_set.find(parent).unwrap();
 
                     if parent.last_heard < ctx.now - dodag.dio_timer.max_expiration() * 2 {
-                        dodag.remove_parent(&ctx.rpl.of, ctx.now);
+                        dodag.remove_parent(
+                            ctx.rpl.mode_of_operation,
+                            our_addr,
+                            &ctx.rpl.of,
+                            ctx.now,
+                        );
 
                         net_trace!("transmitting DIO (INFINITE rank)");
                         let mut options = heapless::Vec::new();
@@ -560,6 +576,15 @@ impl Interface {
 
                         break 'packet Some(IpPacket::new_ipv6(ipv6_repr, IpPayload::Icmpv6(icmp)));
                     }
+
+                    if dodag.dao_expiration <= ctx.now {
+                        dodag.schedule_dao(
+                            ctx.rpl.mode_of_operation,
+                            our_addr,
+                            dodag.parent.unwrap(),
+                            ctx.now,
+                        );
+                    }
                 }
 
                 #[cfg(feature = "rpl-mop-1")]
@@ -567,24 +592,94 @@ impl Interface {
                     // Transmit all the DAO-ACKs that are still queued.
                     net_trace!("transmit DOA-ACK");
 
-                    let (dst_addr, seq) = dodag.dao_acks.pop().unwrap();
+                    let (mut dst_addr, seq) = dodag.dao_acks.pop().unwrap();
+                    let rpl_instance_id = ctx.rpl.instance.unwrap().id;
                     let icmp = Icmpv6Repr::Rpl(RplRepr::DestinationAdvertisementObjectAck {
-                        rpl_instance_id: ctx.rpl.instance.unwrap().id,
+                        rpl_instance_id,
                         sequence: seq.value(),
                         status: 0,
-                        dodag_id: Some(dodag.id),
+                        dodag_id: if rpl_instance_id.is_local() {
+                            Some(dodag.id)
+                        } else {
+                            None
+                        },
                     });
 
-                    break 'packet Some(IpPacket::new_ipv6(
-                        Ipv6Repr {
+                    // A DAO-ACK always goes down. In MOP1, both Hop-by-Hop option and source
+                    // routing header MAY be included. However, a source routing header must always
+                    // be included when it is going down.
+                    use crate::iface::RplModeOfOperation;
+                    let routing = if matches!(
+                        ctx.rpl.mode_of_operation,
+                        RplModeOfOperation::NonStoringMode
+                    ) {
+                        if ctx.rpl.is_root {
+                            net_trace!("creating source routing header to {}", dst_addr);
+                            let mut nh = dst_addr;
+
+                            // Create the source routing header
+                            let mut route = heapless::Vec::<Ipv6Address, 32>::new();
+                            route.push(nh).unwrap();
+
+                            loop {
+                                let next_hop =
+                                    ctx.rpl.dodag.as_ref().unwrap().relations.find_next_hop(nh);
+                                if let Some(next_hop) = next_hop {
+                                    net_trace!("  via {}", next_hop);
+                                    if next_hop == ctx.ipv6_addr().unwrap() {
+                                        break;
+                                    }
+
+                                    route.push(next_hop).unwrap();
+                                    nh = next_hop;
+                                } else {
+                                    net_trace!("no route found, last next hop: {}", nh);
+                                    break 'packet None;
+                                }
+                            }
+
+                            let segments_left = route.len() - 1;
+                            if segments_left == 0 {
+                                net_trace!("no source routing needed, node is neighbor");
+                                None
+                            } else {
+                                dst_addr = route[segments_left];
+
+                                // Create the route list for the source routing header
+                                let mut addresses = heapless::Vec::new();
+                                for addr in route[..segments_left].iter().rev() {
+                                    addresses.push(*addr).unwrap();
+                                }
+
+                                // Add the source routing option to the packet.
+                                Some(Ipv6RoutingRepr::Rpl {
+                                    segments_left: segments_left as u8,
+                                    cmpr_i: 0,
+                                    cmpr_e: 0,
+                                    pad: 0,
+                                    addresses,
+                                })
+                            }
+                        } else {
+                            unreachable!();
+                        }
+                    } else {
+                        None
+                    };
+
+                    let ip_packet = super::ip_packet::Ipv6Packet {
+                        header: Ipv6Repr {
                             src_addr: ctx.ipv6_addr().unwrap(),
                             dst_addr,
                             next_header: IpProtocol::Icmpv6,
                             payload_len: icmp.buffer_len(),
                             hop_limit: 64,
                         },
-                        IpPayload::Icmpv6(icmp),
-                    ));
+                        hop_by_hop: None,
+                        routing,
+                        payload: IpPayload::Icmpv6(icmp),
+                    };
+                    break 'packet Some(IpPacket::Ipv6(ip_packet));
                 }
 
                 #[cfg(feature = "rpl-mop-1")]
@@ -592,19 +687,20 @@ impl Interface {
                     // Transmit all the DAOs that are still queued or waiting for an ACK.
                     dodag.daos.iter_mut().for_each(|dao| {
                         if !dao.needs_sending {
-                            if let Some(sent_at) = dao.sent_at {
-                                if sent_at + Duration::from_secs(60) < ctx.now {
+                            if let Some(next_tx) = dao.next_tx {
+                                if next_tx < ctx.now {
                                     dao.needs_sending = true;
                                 }
+                            } else {
+                                dao.next_tx = Some(ctx.now + dodag.dio_timer.min_expiration());
                             }
                         }
                     });
 
-                    dodag
-                        .daos
-                        .retain(|dao| !dao.needs_sending || dao.sent_count < 4);
+                    dodag.daos.retain(|dao| dao.sent_count < 4);
 
                     if let Some(dao) = dodag.daos.iter_mut().find(|dao| dao.needs_sending) {
+                        net_trace!("parent: {:?}", dao.parent);
                         let mut options = heapless::Vec::new();
                         options
                             .push(RplOptionRepr::RplTarget {
@@ -617,7 +713,11 @@ impl Interface {
                                 external: false,
                                 path_control: 0,
                                 path_sequence: 0,
-                                path_lifetime: 0x30,
+                                path_lifetime: if dao.is_no_path {
+                                    0
+                                } else {
+                                    dodag.default_lifetime
+                                },
                                 parent_address: dao.parent,
                             })
                             .unwrap();
@@ -627,7 +727,7 @@ impl Interface {
                             dodag.dao_seq_number.increment();
                         }
 
-                        dao.sent_at = Some(ctx.now);
+                        dao.next_tx = Some(ctx.now + Duration::from_secs(60));
                         dao.sent_count += 1;
                         dao.needs_sending = false;
                         let sequence = dao.sequence.unwrap();
@@ -637,16 +737,33 @@ impl Interface {
                             ctx.rpl.destination_advertisement_object(sequence, options),
                         );
 
-                        break 'packet Some(IpPacket::new_ipv6(
-                            Ipv6Repr {
+                        let mut options = heapless::Vec::new();
+                        options
+                            .push(Ipv6OptionRepr::Rpl(RplHopByHopRepr {
+                                down: ctx.rpl.is_root,
+                                rank_error: false,
+                                forwarding_error: false,
+                                instance_id: ctx.rpl.instance.as_ref().unwrap().id,
+                                sender_rank: ctx.rpl.dodag.as_ref().unwrap().rank.raw_value(),
+                            }))
+                            .unwrap();
+
+                        let hbh = Ipv6HopByHopRepr { options };
+
+                        let ip_packet = super::ip_packet::Ipv6Packet {
+                            header: Ipv6Repr {
                                 src_addr: ctx.ipv6_addr().unwrap(),
                                 dst_addr: to,
                                 next_header: IpProtocol::Icmpv6,
                                 payload_len: icmp.buffer_len(),
                                 hop_limit: 64,
                             },
-                            IpPayload::Icmpv6(icmp),
-                        ));
+                            hop_by_hop: Some(hbh),
+                            routing: None,
+                            payload: IpPayload::Icmpv6(icmp),
+                        };
+                        net_trace!("transmitting DAO");
+                        break 'packet Some(IpPacket::Ipv6(ip_packet));
                     }
                 }
 
@@ -1036,7 +1153,7 @@ impl InterfaceInner {
             #[cfg(feature = "proto-ipv6")]
             Ok(IpVersion::Ipv6) => {
                 let ipv6_packet = check!(Ipv6Packet::new_checked(ip_payload));
-                self.process_ipv6(sockets, meta, &ipv6_packet)
+                self.process_ipv6(None, sockets, meta, &ipv6_packet)
             }
             // Drop all other traffic.
             _ => None,
@@ -1151,6 +1268,8 @@ impl InterfaceInner {
     where
         Tx: TxToken,
     {
+        net_trace!("hardware addr lookup for {}", dst_addr);
+
         if self.is_broadcast(dst_addr) {
             let hardware_addr = match self.caps.medium {
                 #[cfg(feature = "medium-ethernet")]
@@ -1206,80 +1325,120 @@ impl InterfaceInner {
             .route(dst_addr, self.now)
             .ok_or(DispatchError::NoRoute)?;
 
+        #[cfg(feature = "proto-rpl")]
+        let dst_addr = if let IpAddress::Ipv6(dst_addr) = dst_addr {
+            if let Some(next_hop) = self
+                .rpl
+                .dodag
+                .as_ref()
+                .unwrap()
+                .relations
+                .find_next_hop(dst_addr)
+            {
+                if next_hop == self.ipv6_addr().unwrap() {
+                    dst_addr.into()
+                } else {
+                    net_trace!("next hop {}", next_hop);
+                    next_hop.into()
+                }
+            } else {
+                dst_addr.into()
+            }
+        } else {
+            dst_addr
+        };
+
         match self.neighbor_cache.lookup(&dst_addr, self.now) {
             NeighborAnswer::Found(hardware_addr) => return Ok((hardware_addr, tx_token)),
             NeighborAnswer::RateLimited => return Err(DispatchError::NeighborPending),
             _ => (), // XXX
         }
 
-        match (src_addr, dst_addr) {
-            #[cfg(all(feature = "medium-ethernet", feature = "proto-ipv4"))]
-            (&IpAddress::Ipv4(src_addr), IpAddress::Ipv4(dst_addr))
-                if matches!(self.caps.medium, Medium::Ethernet) =>
-            {
-                net_debug!(
-                    "address {} not in neighbor cache, sending ARP request",
-                    dst_addr
-                );
-                let src_hardware_addr = self.hardware_addr.ethernet_or_panic();
-
-                let arp_repr = ArpRepr::EthernetIpv4 {
-                    operation: ArpOperation::Request,
-                    source_hardware_addr: src_hardware_addr,
-                    source_protocol_addr: src_addr,
-                    target_hardware_addr: EthernetAddress::BROADCAST,
-                    target_protocol_addr: dst_addr,
-                };
-
-                if let Err(e) =
-                    self.dispatch_ethernet(tx_token, arp_repr.buffer_len(), |mut frame| {
-                        frame.set_dst_addr(EthernetAddress::BROADCAST);
-                        frame.set_ethertype(EthernetProtocol::Arp);
-
-                        arp_repr.emit(&mut ArpPacket::new_unchecked(frame.payload_mut()))
-                    })
-                {
-                    net_debug!("Failed to dispatch ARP request: {:?}", e);
-                    return Err(DispatchError::NeighborPending);
-                }
+        match self.neighbor_cache.lookup(&dst_addr, self.now) {
+            NeighborAnswer::Found(hardware_addr) => return Ok((hardware_addr, tx_token)),
+            NeighborAnswer::RateLimited => {
+                net_debug!("neighbor {} pending", dst_addr);
+                return Err(DispatchError::NeighborPending);
             }
+            NeighborAnswer::NotFound => match (src_addr, dst_addr) {
+                #[cfg(feature = "proto-ipv4")]
+                (&IpAddress::Ipv4(src_addr), IpAddress::Ipv4(dst_addr)) => {
+                    net_debug!(
+                        "address {} not in neighbor cache, sending ARP request",
+                        dst_addr
+                    );
+                    let src_hardware_addr = self.hardware_addr.ethernet_or_panic();
 
-            #[cfg(feature = "proto-ipv6")]
-            (&IpAddress::Ipv6(src_addr), IpAddress::Ipv6(dst_addr)) => {
-                net_debug!(
-                    "address {} not in neighbor cache, sending Neighbor Solicitation",
-                    dst_addr
-                );
+                    let arp_repr = ArpRepr::EthernetIpv4 {
+                        operation: ArpOperation::Request,
+                        source_hardware_addr: src_hardware_addr,
+                        source_protocol_addr: src_addr,
+                        target_hardware_addr: EthernetAddress::BROADCAST,
+                        target_protocol_addr: dst_addr,
+                    };
 
-                let solicit = Icmpv6Repr::Ndisc(NdiscRepr::NeighborSolicit {
-                    target_addr: dst_addr,
-                    lladdr: Some(self.hardware_addr.into()),
-                });
+                    if let Err(e) =
+                        self.dispatch_ethernet(tx_token, arp_repr.buffer_len(), |mut frame| {
+                            frame.set_dst_addr(EthernetAddress::BROADCAST);
+                            frame.set_ethertype(EthernetProtocol::Arp);
 
-                let packet = Packet::new_ipv6(
-                    Ipv6Repr {
-                        src_addr,
-                        dst_addr: dst_addr.solicited_node(),
-                        next_header: IpProtocol::Icmpv6,
-                        payload_len: solicit.buffer_len(),
-                        hop_limit: 0xff,
-                    },
-                    IpPayload::Icmpv6(solicit),
-                );
-
-                if let Err(e) =
-                    self.dispatch_ip(tx_token, PacketMeta::default(), packet, fragmenter)
-                {
-                    net_debug!("Failed to dispatch NDISC solicit: {:?}", e);
-                    return Err(DispatchError::NeighborPending);
+                            arp_repr.emit(&mut ArpPacket::new_unchecked(frame.payload_mut()))
+                        })
+                    {
+                        net_debug!("Failed to dispatch ARP request: {:?}", e);
+                        return Err(DispatchError::NeighborPending);
+                    }
                 }
-            }
 
-            #[allow(unreachable_patterns)]
-            _ => (),
+                #[cfg(all(feature = "proto-ipv6", feature = "proto-rpl"))]
+                (&IpAddress::Ipv6(src_addr), IpAddress::Ipv6(dst_addr)) => {
+                    if let Some(parent) = self.rpl.dodag.as_ref().unwrap().parent {
+                        if let NeighborAnswer::Found(hardware_addr) =
+                            self.neighbor_cache.lookup(&parent.into(), self.now)
+                        {
+                            return Ok((hardware_addr, tx_token));
+                        }
+                    }
+                }
+
+                #[cfg(all(feature = "proto-ipv6", not(feature = "proto-rpl")))]
+                (&IpAddress::Ipv6(src_addr), IpAddress::Ipv6(dst_addr)) => {
+                    net_debug!(
+                        "address {} not in neighbor cache, sending Neighbor Solicitation",
+                        dst_addr
+                    );
+
+                    let solicit = Icmpv6Repr::Ndisc(NdiscRepr::NeighborSolicit {
+                        target_addr: dst_addr,
+                        lladdr: Some(self.hardware_addr.into()),
+                    });
+
+                    let packet = Packet::new_ipv6(
+                        Ipv6Repr {
+                            src_addr,
+                            dst_addr: dst_addr.solicited_node(),
+                            next_header: IpProtocol::Icmpv6,
+                            payload_len: solicit.buffer_len(),
+                            hop_limit: 0xff,
+                        },
+                        IpPayload::Icmpv6(solicit),
+                    );
+
+                    if let Err(e) =
+                        self.dispatch_ip(tx_token, PacketMeta::default(), packet, fragmenter)
+                    {
+                        net_debug!("Failed to dispatch NDISC solicit: {:?}", e);
+                        return Err(DispatchError::NeighborPending);
+                    }
+                }
+
+                #[allow(unreachable_patterns)]
+                _ => (),
+            },
         }
 
         // The request got dispatched, limit the rate on the cache.
+        net_debug!("request dispatched, limiting rate on cache");
         self.neighbor_cache.limit_rate(self.now);
         Err(DispatchError::NeighborPending)
     }

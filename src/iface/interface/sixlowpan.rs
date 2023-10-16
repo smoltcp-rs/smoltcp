@@ -60,6 +60,7 @@ impl InterfaceInner {
 
     pub(super) fn process_sixlowpan<'output, 'payload: 'output>(
         &mut self,
+        src_ll_addr: Option<HardwareAddress>,
         sockets: &mut SocketSet,
         meta: PacketMeta,
         ieee802154_repr: &Ieee802154Repr,
@@ -99,7 +100,12 @@ impl InterfaceInner {
             }
         };
 
-        self.process_ipv6(sockets, meta, &check!(Ipv6Packet::new_checked(payload)))
+        self.process_ipv6(
+            src_ll_addr,
+            sockets,
+            meta,
+            &check!(Ipv6Packet::new_checked(payload)),
+        )
     }
 
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
@@ -293,11 +299,33 @@ impl InterfaceInner {
         ieee_repr: Ieee802154Repr,
         frag: &mut Fragmenter,
     ) {
-        let packet = match packet {
+        let mut packet = match packet {
             #[cfg(feature = "proto-ipv4")]
             Packet::Ipv4(_) => unreachable!(),
             Packet::Ipv6(packet) => packet,
         };
+
+        // FIXME: The problem we have here is that for 6LoWPAN, UDP packets should be compressed.
+        // Other types of protocols we don't care if they are compressed or not. However, since we
+        // decompress a 6LoWPAN packet to the IPv6 format, we don't have access to the raw
+        // compressed data. When we could have access to this raw compressed data, this data can be
+        // used for forwarding, since then we don't need to go through the compression anymore and
+        // we can just handle it as raw data. This is the reason why we parse the UDP header.
+        // Note that we do not check the correctness of the checksum.
+        match packet.payload {
+            IpPayload::Raw(payload) if matches!(packet.header.next_header, IpProtocol::Udp) => {
+                let udp = UdpPacket::new_checked(payload).unwrap();
+                let udp_repr = UdpRepr::parse(
+                    &udp,
+                    &packet.header.src_addr.into(),
+                    &packet.header.dst_addr.into(),
+                    &ChecksumCapabilities::ignored(),
+                )
+                .unwrap();
+                packet.payload = IpPayload::Udp(udp_repr, udp.payload());
+            }
+            _ => (),
+        }
 
         // First we calculate the size we are going to need. If the size is bigger than the MTU,
         // then we use fragmentation.
@@ -486,9 +514,25 @@ impl InterfaceInner {
             }
         }
 
+        let mut checksum_dst_addr = packet.header.dst_addr;
+
         // Emit the Routing header
         #[cfg(feature = "proto-ipv6-routing")]
         if let Some(routing) = &packet.routing {
+            if let Ipv6RoutingRepr::Rpl {
+                addresses,
+                segments_left,
+                ..
+            } = routing
+            {
+                if *segments_left != 0 {
+                    checksum_dst_addr = *addresses.last().unwrap();
+                }
+            }
+
+            #[allow(unused)]
+            let next_header = last_header;
+
             let ext_hdr = SixlowpanExtHeaderRepr {
                 ext_header_id: SixlowpanExtHeaderId::RoutingHeader,
                 next_header,
@@ -509,7 +553,7 @@ impl InterfaceInner {
             IpPayload::Icmpv6(icmp_repr) => {
                 icmp_repr.emit(
                     &packet.header.src_addr,
-                    &packet.header.dst_addr,
+                    &checksum_dst_addr,
                     &mut Icmpv6Packet::new_unchecked(&mut buffer[..icmp_repr.buffer_len()]),
                     checksum_caps,
                 );
@@ -521,8 +565,8 @@ impl InterfaceInner {
                     &mut SixlowpanUdpNhcPacket::new_unchecked(
                         &mut buffer[..udp_repr.header_len() + payload.len()],
                     ),
-                    &iphc_repr.src_addr,
-                    &iphc_repr.dst_addr,
+                    &packet.header.src_addr,
+                    &checksum_dst_addr,
                     payload.len(),
                     |buf| buf.copy_from_slice(payload),
                     checksum_caps,
@@ -533,12 +577,14 @@ impl InterfaceInner {
                 tcp_repr.emit(
                     &mut TcpPacket::new_unchecked(&mut buffer[..tcp_repr.buffer_len()]),
                     &packet.header.src_addr.into(),
-                    &packet.header.dst_addr.into(),
+                    &IpAddress::Ipv6(checksum_dst_addr),
                     checksum_caps,
                 );
             }
             #[cfg(feature = "socket-raw")]
-            IpPayload::Raw(_raw) => todo!(),
+            IpPayload::Raw(raw) => {
+                buffer[..raw.len()].copy_from_slice(raw);
+            }
 
             #[allow(unreachable_patterns)]
             _ => unreachable!(),
@@ -609,20 +655,23 @@ impl InterfaceInner {
             };
 
             total_size += ext_hdr.buffer_len() + options_size;
-            compressed_hdr_size += ext_hdr.buffer_len() + options_size;
-            uncompressed_hdr_size += hbh.buffer_len() + options_size;
+            compressed_hdr_size += ext_hdr.buffer_len();
+            uncompressed_hdr_size += options_size;
         }
 
         // Add the routing header to the sizes.
         #[cfg(feature = "proto-ipv6-routing")]
         if let Some(routing) = &packet.routing {
+            #[allow(unused)]
+            let next_header = last_header;
+
             let ext_hdr = SixlowpanExtHeaderRepr {
                 ext_header_id: SixlowpanExtHeaderId::RoutingHeader,
                 next_header,
                 length: routing.buffer_len() as u8,
             };
             total_size += ext_hdr.buffer_len() + routing.buffer_len();
-            compressed_hdr_size += ext_hdr.buffer_len() + routing.buffer_len();
+            compressed_hdr_size += ext_hdr.buffer_len();
             uncompressed_hdr_size += routing.buffer_len();
         }
 

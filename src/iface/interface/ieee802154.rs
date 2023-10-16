@@ -39,9 +39,14 @@ impl InterfaceInner {
         }
 
         match ieee802154_frame.payload() {
-            Some(payload) => {
-                self.process_sixlowpan(sockets, meta, &ieee802154_repr, payload, _fragments)
-            }
+            Some(payload) => self.process_sixlowpan(
+                ieee802154_repr.src_addr.map(|addr| addr.into()),
+                sockets,
+                meta,
+                &ieee802154_repr,
+                payload,
+                _fragments,
+            ),
             None => None,
         }
     }
