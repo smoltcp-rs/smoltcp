@@ -1,4 +1,4 @@
-use crate::time::Instant;
+use crate::time::{Duration, Instant};
 use crate::wire::Ipv6Address;
 
 use super::{lollipop::SequenceCounter, rank::Rank};
@@ -58,6 +58,14 @@ impl ParentSet {
         self.parents.remove(address);
     }
 
+    pub(crate) fn is_empty(&self) -> bool {
+        self.parents.is_empty()
+    }
+
+    pub(crate) fn clear(&mut self) {
+        self.parents.clear();
+    }
+
     /// Find a parent based on its address.
     pub(crate) fn find(&self, address: &Ipv6Address) -> Option<&Parent> {
         self.parents.get(address)
@@ -76,6 +84,20 @@ impl ParentSet {
     /// Find the worst parent that is currently in the parent set.
     fn worst_parent(&self) -> Option<(&Ipv6Address, &Parent)> {
         self.parents.iter().max_by_key(|(k, v)| v.rank.dag_rank())
+    }
+
+    pub(crate) fn purge(&mut self, now: Instant, expiration: Duration) {
+        let mut keys = heapless::Vec::<Ipv6Address, RPL_PARENTS_BUFFER_COUNT>::new();
+        for (k, v) in self.parents.iter() {
+            if v.last_heard + expiration < now {
+                keys.push(*k);
+            }
+        }
+
+        for k in keys {
+            net_trace!("removed {} from parent set", &k);
+            self.parents.remove(&k);
+        }
     }
 }
 
