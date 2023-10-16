@@ -63,6 +63,16 @@ impl InstanceId {
     pub fn dodag_is_source(&self) -> bool {
         !self.dodag_is_destination()
     }
+    
+    #[inline]
+    pub fn is_local(&self) -> bool {
+        matches!(self, InstanceId::Local(_))
+    }
+
+    #[inline]
+    pub fn is_global(&self) -> bool {
+        matches!(self, InstanceId::Global(_))
+    }
 }
 
 mod field {
