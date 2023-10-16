@@ -9,14 +9,13 @@ mod relations;
 mod trickle;
 
 use crate::time::{Duration, Instant};
-use crate::wire::{Ipv6Address, RplOptionRepr, RplRepr};
-
-use parents::ParentSet;
-use relations::Relations;
+use crate::wire::{Icmpv6Repr, Ipv6Address, RplOptionRepr, RplRepr};
 
 pub(crate) use lollipop::SequenceCounter;
 pub(crate) use of0::{ObjectiveFunction, ObjectiveFunction0};
+pub(crate) use parents::{Parent, ParentSet};
 pub(crate) use rank::Rank;
+pub(crate) use relations::Relations;
 
 pub use crate::wire::RplInstanceId;
 pub use trickle::TrickleTimer;
@@ -67,8 +66,8 @@ impl From<ModeOfOperation> for crate::wire::rpl::ModeOfOperation {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Config {
-    mode_of_operation: ModeOfOperation,
-    root: Option<RootConfig>,
+    pub mode_of_operation: ModeOfOperation,
+    pub root: Option<RootConfig>,
 }
 
 impl Config {
@@ -93,10 +92,10 @@ impl Config {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct RootConfig {
-    instance_id: RplInstanceId,
-    dodag_id: Ipv6Address,
-    preference: u8,
-    dio_timer: TrickleTimer,
+    pub instance_id: RplInstanceId,
+    pub dodag_id: Ipv6Address,
+    pub preference: u8,
+    pub dio_timer: TrickleTimer,
 }
 
 impl RootConfig {
@@ -123,71 +122,96 @@ impl RootConfig {
     }
 }
 
-pub(crate) struct Rpl {
-    pub is_root: bool,
-    pub mode_of_operation: ModeOfOperation,
-    pub of: ObjectiveFunction0,
+pub struct Rpl {
+    pub(crate) is_root: bool,
+    pub(crate) mode_of_operation: ModeOfOperation,
+    pub(crate) of: ObjectiveFunction0,
 
-    pub dis_expiration: Instant,
+    pub(crate) dis_expiration: Instant,
 
-    pub instance: Option<Instance>,
-    pub dodag: Option<Dodag>,
+    pub(crate) instance: Option<Instance>,
+    pub(crate) dodag: Option<Dodag>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Instance {
-    pub id: RplInstanceId,
+pub struct Instance {
+    pub(crate) id: RplInstanceId,
 }
 
-pub(crate) struct Dodag {
-    pub id: Ipv6Address,
-    pub version_number: SequenceCounter,
-    pub preference: u8,
+impl Instance {
+    pub fn id(&self) -> &RplInstanceId {
+        &self.id
+    }
+}
 
-    pub rank: Rank,
+pub struct Dodag {
+    pub(crate) id: Ipv6Address,
+    pub(crate) version_number: SequenceCounter,
+    pub(crate) preference: u8,
 
-    pub dio_timer: TrickleTimer,
-    pub dao_expiration: Instant,
+    pub(crate) rank: Rank,
 
-    pub parent: Option<Ipv6Address>,
-    pub without_parent: Option<Instant>,
+    pub(crate) dio_timer: TrickleTimer,
+    pub(crate) dao_expiration: Instant,
 
-    pub authentication_enabled: bool,
-    pub path_control_size: u8,
+    pub(crate) parent: Option<Ipv6Address>,
+    pub(crate) without_parent: Option<Instant>,
 
-    pub dtsn: SequenceCounter,
-    pub default_lifetime: u8,
-    pub lifetime_unit: u16,
-    pub grounded: bool,
+    pub(crate) authentication_enabled: bool,
+    pub(crate) path_control_size: u8,
 
-    pub dao_seq_number: SequenceCounter,
+    pub(crate) dtsn: SequenceCounter,
+    pub(crate) default_lifetime: u8,
+    pub(crate) lifetime_unit: u16,
+    pub(crate) grounded: bool,
 
-    pub dao_acks: heapless::Vec<(Ipv6Address, SequenceCounter), 16>,
-    pub daos: heapless::Vec<Dao, 16>,
+    pub(crate) dao_seq_number: SequenceCounter,
 
-    pub parent_set: ParentSet,
+    pub(crate) dao_acks: heapless::Vec<(Ipv6Address, SequenceCounter), 16>,
+    pub(crate) daos: heapless::Vec<Dao, 16>,
+
+    pub(crate) parent_set: ParentSet,
     #[cfg(feature = "rpl-mop-1")]
-    pub relations: Relations,
+    pub(crate) relations: Relations,
 }
 
 #[derive(Debug)]
 pub(crate) struct Dao {
     pub needs_sending: bool,
-    pub sent_at: Option<Instant>,
+    pub next_tx: Option<Instant>,
     pub sent_count: u8,
     pub to: Ipv6Address,
     pub child: Ipv6Address,
     pub parent: Option<Ipv6Address>,
     pub sequence: Option<SequenceCounter>,
+    pub is_no_path: bool,
 }
 
 impl Dao {
-    pub(crate) fn new() -> Self {
-        todo!();
+    pub(crate) fn new(to: Ipv6Address, child: Ipv6Address, parent: Option<Ipv6Address>) -> Self {
+        Dao {
+            needs_sending: false,
+            next_tx: None,
+            sent_count: 0,
+            to,
+            child,
+            parent,
+            sequence: None,
+            is_no_path: false,
+        }
     }
 
-    pub(crate) fn no_path() -> Self {
-        todo!();
+    pub(crate) fn no_path(to: Ipv6Address, child: Ipv6Address) -> Self {
+        Dao {
+            needs_sending: true,
+            next_tx: None,
+            sent_count: 0,
+            to,
+            child,
+            parent: None,
+            sequence: None,
+            is_no_path: true,
+        }
     }
 }
 
@@ -195,7 +219,9 @@ impl Rpl {
     pub fn new(config: Config, now: Instant) -> Self {
         let (instance, dodag) = if let Some(root) = config.root {
             (
-                Some(Instance { id: root.instance_id }),
+                Some(Instance {
+                    id: root.instance_id,
+                }),
                 Some(Dodag {
                     id: root.dodag_id,
                     version_number: SequenceCounter::default(),
@@ -230,6 +256,26 @@ impl Rpl {
             instance,
             dodag,
         }
+    }
+
+    pub fn parent(&self) -> Option<&Ipv6Address> {
+        if let Some(dodag) = &self.dodag {
+            dodag.parent.as_ref()
+        } else {
+            None
+        }
+    }
+
+    pub fn is_root(&self) -> bool {
+        self.is_root
+    }
+
+    pub fn instance(&self) -> Option<&Instance> {
+        self.instance.as_ref()
+    }
+
+    pub fn dodag(&self) -> Option<&Dodag> {
+        self.dodag.as_ref()
     }
 
     pub(crate) fn has_parent(&self) -> bool {
@@ -302,25 +348,103 @@ impl Rpl {
 }
 
 impl Dodag {
+    pub fn id(&self) -> &Ipv6Address {
+        &self.id
+    }
     /// ## Panics
     /// This function will panic if the DODAG does not have a parent selected.
-    pub(crate) fn remove_parent<OF: ObjectiveFunction>(&mut self, of: &OF, now: Instant) {
+    pub(crate) fn remove_parent<OF: ObjectiveFunction>(
+        &mut self,
+        mop: ModeOfOperation,
+        our_addr: Ipv6Address,
+        of: &OF,
+        now: Instant,
+    ) -> Ipv6Address {
         let old_parent = self.parent.unwrap();
 
         self.parent = None;
         self.parent_set.remove(&old_parent);
 
+        self.find_new_parent(mop, our_addr, of, now);
+
+        old_parent
+    }
+
+    /// ## Panics
+    /// This function will panic if the DODAG does not have a parent selected.
+    pub(crate) fn remove_parent_with_no_path<OF: ObjectiveFunction>(
+        &mut self,
+        mop: ModeOfOperation,
+        our_addr: Ipv6Address,
+        child: Ipv6Address,
+        of: &OF,
+        now: Instant,
+    ) {
+        let old_parent = self.remove_parent(mop, our_addr, of, now);
+
         #[cfg(feature = "rpl-mop-2")]
-        self.daos.push(Dao::no_path()).unwrap();
+        self.daos.push(Dao::no_path(old_parent, child)).unwrap();
+    }
 
-        self.parent = of.preferred_parent(&self.parent_set);
+    pub(crate) fn find_new_parent<OF: ObjectiveFunction>(
+        &mut self,
+        mop: ModeOfOperation,
+        child: Ipv6Address,
+        of: &OF,
+        now: Instant,
+    ) {
+        // Remove expired parents from the parent set.
+        self.parent_set.purge(now, self.dio_timer.max_expiration());
 
-        if let Some(parent) = self.parent {
-            #[cfg(feature = "rpl-mop-1")]
-            self.daos.push(Dao::new()).unwrap();
+        let old_parent = self.parent;
+
+        if let Some(parent) = of.preferred_parent(&self.parent_set) {
+            // Send a NO-PATH DAO in MOP 2 when we already had a parent.
+            #[cfg(feature = "rpl-mop-2")]
+            if let Some(old_parent) = old_parent {
+                if matches!(mop, ModeOfOperation::StoringMode) && old_parent != parent {
+                    net_trace!("scheduling NO-PATH DAO for {} to {}", child, old_parent);
+                    self.daos.push(Dao::no_path(old_parent, child)).unwrap();
+                }
+            }
+
+            // Schedule a DAO when we didn't have a parent yet, or when the new parent is different
+            // from our old parent.
+            if old_parent.is_none() || old_parent != Some(parent) {
+                self.parent = Some(parent);
+                self.without_parent = None;
+                self.rank = of.rank(self.rank, self.parent_set.find(&parent).unwrap().rank);
+                self.schedule_dao(mop, child, parent, now);
+            }
         } else {
             self.without_parent = Some(now);
             self.rank = Rank::INFINITE;
         }
+    }
+
+    pub(crate) fn schedule_dao(
+        &mut self,
+        mop: ModeOfOperation,
+        child: Ipv6Address,
+        parent: Ipv6Address,
+        now: Instant,
+    ) {
+        net_trace!("scheduling DAO: {} is parent of {}", parent, child);
+        #[cfg(feature = "rpl-mop-1")]
+        if matches!(mop, ModeOfOperation::NonStoringMode) {
+            self.daos
+                .push(Dao::new(self.id, child, Some(parent)))
+                .unwrap();
+        }
+
+        #[cfg(feature = "rpl-mop-2")]
+        if matches!(mop, ModeOfOperation::StoringMode) {
+            self.daos.push(Dao::new(parent, child, None)).unwrap();
+        }
+
+        let exp = (self.lifetime_unit as u64 * self.default_lifetime as u64)
+            .checked_sub(2 * 60)
+            .unwrap_or(2 * 60);
+        self.dao_expiration = now + Duration::from_secs(exp);
     }
 }
