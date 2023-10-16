@@ -10,6 +10,19 @@ pub struct Relation {
     expiration: Instant,
 }
 
+impl core::fmt::Display for Relation {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{} via {} (expires at {})", self.destination, self.next_hop, self.expiration)
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl defmt::Format for Relation {
+    fn format(&self, fmt: defmt::Formatter) {
+        defmt::write!("{} via {} (expires at {})", self.destination, self.next_hop, self.expiration);
+    }
+}
+
 #[derive(Default, Debug)]
 pub struct Relations {
     relations: heapless::Vec<Relation, { RPL_RELATIONS_BUFFER_COUNT }>,
@@ -29,6 +42,7 @@ impl Relations {
             .iter_mut()
             .find(|r| r.destination == destination)
         {
+            net_trace!("Updating old relation information");
             r.next_hop = next_hop;
             r.expiration = expiration;
         } else {
@@ -39,7 +53,7 @@ impl Relations {
             };
 
             if let Err(e) = self.relations.push(relation) {
-                net_debug!("Unable to add relation, buffer is full");
+                net_trace!("unable to add relation, buffer is full");
             }
         }
     }
@@ -50,7 +64,7 @@ impl Relations {
     }
 
     /// Return the next hop for a specific IPv6 address, if there is one.
-    pub fn find_next_hop(&mut self, destination: Ipv6Address) -> Option<Ipv6Address> {
+    pub fn find_next_hop(&self, destination: Ipv6Address) -> Option<Ipv6Address> {
         self.relations.iter().find_map(|r| {
             if r.destination == destination {
                 Some(r.next_hop)
@@ -62,7 +76,15 @@ impl Relations {
 
     /// Purge expired relations.
     pub fn purge(&mut self, now: Instant) {
-        self.relations.retain(|r| r.expiration > now)
+        let len = self.relations.len();
+        self.relations.retain(|r| r.expiration > now);
+        if self.relations.len() != len {
+            net_trace!("removed old relation");
+        }
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &Relation> {
+        self.relations.iter()
     }
 }
 
