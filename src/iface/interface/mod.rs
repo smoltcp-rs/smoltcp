@@ -562,9 +562,9 @@ impl Interface {
             net_trace!("transmitting RPL DIS");
             ctx.rpl.dis_expiration = ctx.now + Duration::from_secs(60);
 
-            let dis = RplRepr::DodagInformationSolicitation {
+            let dis = RplRepr::DodagInformationSolicitation(RplDis {
                 options: Default::default(),
-            };
+            });
             let icmp_rpl = Icmpv6Repr::Rpl(dis);
 
             let ipv6_repr = Ipv6Repr {
@@ -632,7 +632,7 @@ impl Interface {
 
             let (mut dst_addr, seq) = dodag.dao_acks.pop().unwrap();
             let rpl_instance_id = dodag.instance_id;
-            let icmp = Icmpv6Repr::Rpl(RplRepr::DestinationAdvertisementObjectAck {
+            let icmp = Icmpv6Repr::Rpl(RplRepr::DestinationAdvertisementObjectAck(RplDaoAck {
                 rpl_instance_id,
                 sequence: seq.value(),
                 status: 0,
@@ -641,7 +641,7 @@ impl Interface {
                 } else {
                     None
                 },
-            });
+            }));
 
             // A DAO-ACK always goes down. In MOP1, both Hop-by-Hop option and source
             // routing header MAY be included. However, a source routing header must always

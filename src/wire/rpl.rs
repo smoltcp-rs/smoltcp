@@ -63,7 +63,7 @@ impl InstanceId {
     pub fn dodag_is_source(&self) -> bool {
         !self.dodag_is_destination()
     }
-    
+
     #[inline]
     pub fn is_local(&self) -> bool {
         matches!(self, InstanceId::Local(_))
@@ -619,33 +619,49 @@ type RplOptions<'p> = heapless::Vec<options::Repr<'p>, { crate::config::RPL_MAX_
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Repr<'p> {
-    DodagInformationSolicitation {
-        options: RplOptions<'p>,
-    },
-    DodagInformationObject {
-        rpl_instance_id: InstanceId,
-        version_number: u8,
-        rank: u16,
-        grounded: bool,
-        mode_of_operation: ModeOfOperation,
-        dodag_preference: u8,
-        dtsn: u8,
-        dodag_id: Address,
-        options: RplOptions<'p>,
-    },
-    DestinationAdvertisementObject {
-        rpl_instance_id: InstanceId,
-        expect_ack: bool,
-        sequence: u8,
-        dodag_id: Option<Address>,
-        options: RplOptions<'p>,
-    },
-    DestinationAdvertisementObjectAck {
-        rpl_instance_id: InstanceId,
-        sequence: u8,
-        status: u8,
-        dodag_id: Option<Address>,
-    },
+    DodagInformationSolicitation(DodagInformationSolicitation<'p>),
+    DodagInformationObject(DodagInformationObject<'p>),
+    DestinationAdvertisementObject(DestinationAdvertisementObject<'p>),
+    DestinationAdvertisementObjectAck(DestinationAdvertisementObjectAck),
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct DodagInformationSolicitation<'p> {
+    pub options: RplOptions<'p>,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct DodagInformationObject<'p> {
+    pub rpl_instance_id: InstanceId,
+    pub version_number: u8,
+    pub rank: u16,
+    pub grounded: bool,
+    pub mode_of_operation: ModeOfOperation,
+    pub dodag_preference: u8,
+    pub dtsn: u8,
+    pub dodag_id: Address,
+    pub options: RplOptions<'p>,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct DestinationAdvertisementObject<'p> {
+    pub rpl_instance_id: InstanceId,
+    pub expect_ack: bool,
+    pub sequence: u8,
+    pub dodag_id: Option<Address>,
+    pub options: RplOptions<'p>,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct DestinationAdvertisementObjectAck {
+    pub rpl_instance_id: InstanceId,
+    pub sequence: u8,
+    pub status: u8,
+    pub dodag_id: Option<Address>,
 }
 
 impl core::fmt::Display for Repr<'_> {
@@ -654,7 +670,7 @@ impl core::fmt::Display for Repr<'_> {
             Repr::DodagInformationSolicitation { .. } => {
                 write!(f, "DIS")?;
             }
-            Repr::DodagInformationObject {
+            Repr::DodagInformationObject(DodagInformationObject {
                 rpl_instance_id,
                 version_number,
                 rank,
@@ -664,7 +680,7 @@ impl core::fmt::Display for Repr<'_> {
                 dtsn,
                 dodag_id,
                 ..
-            } => {
+            }) => {
                 write!(
                     f,
                     "DIO \
@@ -678,13 +694,13 @@ impl core::fmt::Display for Repr<'_> {
                              DODAGID={dodag_id}"
                 )?;
             }
-            Repr::DestinationAdvertisementObject {
+            Repr::DestinationAdvertisementObject(DestinationAdvertisementObject {
                 rpl_instance_id,
                 expect_ack,
                 sequence,
                 dodag_id,
                 ..
-            } => {
+            }) => {
                 write!(
                     f,
                     "DAO \
@@ -694,13 +710,13 @@ impl core::fmt::Display for Repr<'_> {
                              DODAGID={dodag_id:?}",
                 )?;
             }
-            Repr::DestinationAdvertisementObjectAck {
+            Repr::DestinationAdvertisementObjectAck(DestinationAdvertisementObjectAck {
                 rpl_instance_id,
                 sequence,
                 status,
                 dodag_id,
                 ..
-            } => {
+            }) => {
                 write!(
                     f,
                     "DAO-ACK \
@@ -719,9 +735,12 @@ impl core::fmt::Display for Repr<'_> {
 impl<'p> Repr<'p> {
     pub fn set_options(&mut self, options: RplOptions<'p>) {
         let opts = match self {
-            Repr::DodagInformationSolicitation { options } => options,
-            Repr::DodagInformationObject { options, .. } => options,
-            Repr::DestinationAdvertisementObject { options, .. } => options,
+            Repr::DodagInformationSolicitation(DodagInformationSolicitation { options }) => options,
+            Repr::DodagInformationObject(DodagInformationObject { options, .. }) => options,
+            Repr::DestinationAdvertisementObject(DestinationAdvertisementObject {
+                options,
+                ..
+            }) => options,
             Repr::DestinationAdvertisementObjectAck { .. } => unreachable!(),
         };
 
@@ -741,36 +760,38 @@ impl<'p> Repr<'p> {
 
         match RplControlMessage::from(packet.msg_code()) {
             RplControlMessage::DodagInformationSolicitation => {
-                Ok(Repr::DodagInformationSolicitation { options })
+                Ok(Repr::DodagInformationSolicitation(DodagInformationSolicitation { options }))
             }
-            RplControlMessage::DodagInformationObject => Ok(Repr::DodagInformationObject {
-                rpl_instance_id: packet.rpl_instance_id(),
-                version_number: packet.dio_version_number(),
-                rank: packet.dio_rank(),
-                grounded: packet.dio_grounded(),
-                mode_of_operation: packet.dio_mode_of_operation(),
-                dodag_preference: packet.dio_dodag_preference(),
-                dtsn: packet.dio_dest_adv_trigger_seq_number(),
-                dodag_id: packet.dio_dodag_id(),
-                options,
-            }),
-            RplControlMessage::DestinationAdvertisementObject => {
-                Ok(Repr::DestinationAdvertisementObject {
+            RplControlMessage::DodagInformationObject => {
+                Ok(Repr::DodagInformationObject(DodagInformationObject {
+                    rpl_instance_id: packet.rpl_instance_id(),
+                    version_number: packet.dio_version_number(),
+                    rank: packet.dio_rank(),
+                    grounded: packet.dio_grounded(),
+                    mode_of_operation: packet.dio_mode_of_operation(),
+                    dodag_preference: packet.dio_dodag_preference(),
+                    dtsn: packet.dio_dest_adv_trigger_seq_number(),
+                    dodag_id: packet.dio_dodag_id(),
+                    options,
+                }))
+            }
+            RplControlMessage::DestinationAdvertisementObject => Ok(
+                Repr::DestinationAdvertisementObject(DestinationAdvertisementObject {
                     rpl_instance_id: packet.rpl_instance_id(),
                     expect_ack: packet.dao_ack_request(),
                     sequence: packet.dao_dodag_sequence(),
                     dodag_id: packet.dao_dodag_id(),
                     options,
-                })
-            }
-            RplControlMessage::DestinationAdvertisementObjectAck => {
-                Ok(Repr::DestinationAdvertisementObjectAck {
+                }),
+            ),
+            RplControlMessage::DestinationAdvertisementObjectAck => Ok(
+                Repr::DestinationAdvertisementObjectAck(DestinationAdvertisementObjectAck {
                     rpl_instance_id: packet.rpl_instance_id(),
                     sequence: packet.dao_ack_sequence(),
                     status: packet.dao_ack_status(),
                     dodag_id: packet.dao_ack_dodag_id(),
-                })
-            }
+                }),
+            ),
             RplControlMessage::SecureDodagInformationSolicitation
             | RplControlMessage::SecureDodagInformationObject
             | RplControlMessage::SecureDestinationAdvertisementObject
@@ -784,14 +805,20 @@ impl<'p> Repr<'p> {
         let mut len = 4 + match self {
             Repr::DodagInformationSolicitation { .. } => 2,
             Repr::DodagInformationObject { .. } => 24,
-            Repr::DestinationAdvertisementObject { dodag_id, .. } => {
+            Repr::DestinationAdvertisementObject(DestinationAdvertisementObject {
+                dodag_id,
+                ..
+            }) => {
                 if dodag_id.is_some() {
                     20
                 } else {
                     4
                 }
             }
-            Repr::DestinationAdvertisementObjectAck { dodag_id, .. } => {
+            Repr::DestinationAdvertisementObjectAck(DestinationAdvertisementObjectAck {
+                dodag_id,
+                ..
+            }) => {
                 if dodag_id.is_some() {
                     20
                 } else {
@@ -801,10 +828,15 @@ impl<'p> Repr<'p> {
         };
 
         let opts = match self {
-            Repr::DodagInformationSolicitation { options } => &options[..],
-            Repr::DodagInformationObject { options, .. } => &options[..],
-            Repr::DestinationAdvertisementObject { options, .. } => &options[..],
-            Repr::DestinationAdvertisementObjectAck { .. } => &[],
+            Repr::DodagInformationSolicitation(DodagInformationSolicitation { options }) => &options[..],
+            Repr::DodagInformationObject(DodagInformationObject { options, .. }) => &options[..],
+            Repr::DestinationAdvertisementObject(DestinationAdvertisementObject {
+                options,
+                ..
+            }) => &options[..],
+            Repr::DestinationAdvertisementObjectAck(DestinationAdvertisementObjectAck {
+                ..
+            }) => &[],
         };
 
         len += opts.iter().map(|o| o.buffer_len()).sum::<usize>();
@@ -821,7 +853,7 @@ impl<'p> Repr<'p> {
                 packet.clear_dis_flags();
                 packet.clear_dis_reserved();
             }
-            Repr::DodagInformationObject {
+            Repr::DodagInformationObject(DodagInformationObject {
                 rpl_instance_id,
                 version_number,
                 rank,
@@ -831,7 +863,7 @@ impl<'p> Repr<'p> {
                 dtsn,
                 dodag_id,
                 ..
-            } => {
+            }) => {
                 packet.set_msg_code(RplControlMessage::DodagInformationObject.into());
                 packet.set_rpl_instance_id((*rpl_instance_id).into());
                 packet.set_dio_version_number(*version_number);
@@ -842,26 +874,26 @@ impl<'p> Repr<'p> {
                 packet.set_dio_dest_adv_trigger_seq_number(*dtsn);
                 packet.set_dio_dodag_id(*dodag_id);
             }
-            Repr::DestinationAdvertisementObject {
+            Repr::DestinationAdvertisementObject(DestinationAdvertisementObject {
                 rpl_instance_id,
                 expect_ack,
                 sequence,
                 dodag_id,
                 ..
-            } => {
+            }) => {
                 packet.set_msg_code(RplControlMessage::DestinationAdvertisementObject.into());
                 packet.set_rpl_instance_id((*rpl_instance_id).into());
                 packet.set_dao_ack_request(*expect_ack);
                 packet.set_dao_dodag_sequence(*sequence);
                 packet.set_dao_dodag_id(*dodag_id);
             }
-            Repr::DestinationAdvertisementObjectAck {
+            Repr::DestinationAdvertisementObjectAck(DestinationAdvertisementObjectAck {
                 rpl_instance_id,
                 sequence,
                 status,
                 dodag_id,
                 ..
-            } => {
+            }) => {
                 packet.set_msg_code(RplControlMessage::DestinationAdvertisementObjectAck.into());
                 packet.set_rpl_instance_id((*rpl_instance_id).into());
                 packet.set_dao_ack_sequence(*sequence);
@@ -871,9 +903,12 @@ impl<'p> Repr<'p> {
         }
 
         let options = match self {
-            Repr::DodagInformationSolicitation { options } => &options[..],
-            Repr::DodagInformationObject { options, .. } => &options[..],
-            Repr::DestinationAdvertisementObject { options, .. } => &options[..],
+            Repr::DodagInformationSolicitation(DodagInformationSolicitation { options }) => &options[..],
+            Repr::DodagInformationObject(DodagInformationObject { options, .. }) => &options[..],
+            Repr::DestinationAdvertisementObject(DestinationAdvertisementObject {
+                options,
+                ..
+            }) => &options[..],
             Repr::DestinationAdvertisementObjectAck { .. } => &[],
         };
 
@@ -1884,57 +1919,79 @@ pub mod options {
         Pad1,
         PadN(u8),
         DagMetricContainer,
-        RouteInformation {
-            prefix_length: u8,
-            preference: u8,
-            lifetime: u32,
-            prefix: &'p [u8],
-        },
-        DodagConfiguration {
-            authentication_enabled: bool,
-            path_control_size: u8,
-            dio_interval_doublings: u8,
-            dio_interval_min: u8,
-            dio_redundancy_constant: u8,
-            max_rank_increase: u16,
-            minimum_hop_rank_increase: u16,
-            objective_code_point: u16,
-            default_lifetime: u8,
-            lifetime_unit: u16,
-        },
-        RplTarget {
-            prefix_length: u8,
-            prefix: crate::wire::Ipv6Address, // FIXME: this is not the correct type, because the
+        RouteInformation(RouteInformation<'p>),
+        DodagConfiguration(DodagConfiguration),
+        RplTarget(RplTarget),
+        TransitInformation(TransitInformation),
+        SolicitedInformation(SolicitedInformation),
+        PrefixInformation(PrefixInformation<'p>),
+        RplTargetDescriptor(u32),
+    }
+
+    #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+    pub struct RouteInformation<'p> {
+        pub prefix_length: u8,
+        pub preference: u8,
+        pub lifetime: u32,
+        pub prefix: &'p [u8],
+    }
+
+    #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+    pub struct DodagConfiguration {
+        pub authentication_enabled: bool,
+        pub path_control_size: u8,
+        pub dio_interval_doublings: u8,
+        pub dio_interval_min: u8,
+        pub dio_redundancy_constant: u8,
+        pub max_rank_increase: u16,
+        pub minimum_hop_rank_increase: u16,
+        pub objective_code_point: u16,
+        pub default_lifetime: u8,
+        pub lifetime_unit: u16,
+    }
+
+    #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+    pub struct RplTarget {
+        pub prefix_length: u8,
+        pub prefix: crate::wire::Ipv6Address, // FIXME: this is not the correct type, because the
                                               // field can be an IPv6 address, a prefix or a
                                               // multicast group.
-        },
-        TransitInformation {
-            external: bool,
-            path_control: u8,
-            path_sequence: u8,
-            path_lifetime: u8,
-            parent_address: Option<Address>,
-        },
-        SolicitedInformation {
-            rpl_instance_id: InstanceId,
-            version_predicate: bool,
-            instance_id_predicate: bool,
-            dodag_id_predicate: bool,
-            dodag_id: Address,
-            version_number: u8,
-        },
-        PrefixInformation {
-            prefix_length: u8,
-            on_link: bool,
-            autonomous_address_configuration: bool,
-            router_address: bool,
-            valid_lifetime: u32,
-            preferred_lifetime: u32,
-            destination_prefix: &'p [u8],
-        },
-        RplTargetDescriptor {
-            descriptor: u32,
-        },
+    }
+
+    #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+    pub struct TransitInformation {
+        pub external: bool,
+        pub path_control: u8,
+        pub path_sequence: u8,
+        pub path_lifetime: u8,
+        pub parent_address: Option<Address>,
+    }
+
+    #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+    pub struct SolicitedInformation {
+        pub rpl_instance_id: InstanceId,
+        pub version_predicate: bool,
+        pub instance_id_predicate: bool,
+        pub dodag_id_predicate: bool,
+        pub dodag_id: Address,
+        pub version_number: u8,
+    }
+
+    #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+    pub struct PrefixInformation<'p> {
+        pub prefix_length: u8,
+        pub on_link: bool,
+        pub autonomous_address_configuration: bool,
+        pub router_address: bool,
+        pub valid_lifetime: u32,
+        pub preferred_lifetime: u32,
+        pub destination_prefix: &'p [u8],
     }
 
     impl core::fmt::Display for Repr<'_> {
@@ -1943,12 +2000,12 @@ pub mod options {
                 Repr::Pad1 => write!(f, "Pad1"),
                 Repr::PadN(n) => write!(f, "PadN({n})"),
                 Repr::DagMetricContainer => todo!(),
-                Repr::RouteInformation {
+                Repr::RouteInformation(RouteInformation {
                     prefix_length,
                     preference,
                     lifetime,
                     prefix,
-                } => {
+                }) => {
                     write!(
                         f,
                         "ROUTE INFO \
@@ -1958,7 +2015,7 @@ pub mod options {
                         Prefix={prefix:0x?}"
                     )
                 }
-                Repr::DodagConfiguration {
+                Repr::DodagConfiguration(DodagConfiguration {
                     dio_interval_doublings,
                     dio_interval_min,
                     dio_redundancy_constant,
@@ -1968,7 +2025,7 @@ pub mod options {
                     default_lifetime,
                     lifetime_unit,
                     ..
-                } => {
+                }) => {
                     write!(
                         f,
                         "DODAG CONF \
@@ -1982,10 +2039,10 @@ pub mod options {
                         LifeUnit={lifetime_unit}"
                     )
                 }
-                Repr::RplTarget {
+                Repr::RplTarget(RplTarget {
                     prefix_length,
                     prefix,
-                } => {
+                }) => {
                     write!(
                         f,
                         "RPL Target \
@@ -1993,13 +2050,13 @@ pub mod options {
                         Prefix={prefix:0x?}"
                     )
                 }
-                Repr::TransitInformation {
+                Repr::TransitInformation(TransitInformation {
                     external,
                     path_control,
                     path_sequence,
                     path_lifetime,
                     parent_address,
-                } => {
+                }) => {
                     write!(
                         f,
                         "Transit Info \
@@ -2010,14 +2067,14 @@ pub mod options {
                         Parent={parent_address:0x?}"
                     )
                 }
-                Repr::SolicitedInformation {
+                Repr::SolicitedInformation(SolicitedInformation {
                     rpl_instance_id,
                     version_predicate,
                     instance_id_predicate,
                     dodag_id_predicate,
                     dodag_id,
                     version_number,
-                } => {
+                }) => {
                     write!(
                         f,
                         "Solicited Info \
@@ -2029,7 +2086,7 @@ pub mod options {
                         Version={version_number}"
                     )
                 }
-                Repr::PrefixInformation {
+                Repr::PrefixInformation(PrefixInformation {
                     prefix_length,
                     on_link,
                     autonomous_address_configuration,
@@ -2037,7 +2094,7 @@ pub mod options {
                     valid_lifetime,
                     preferred_lifetime,
                     destination_prefix,
-                } => {
+                }) => {
                     write!(
                         f,
                         "Prefix Info \
@@ -2048,7 +2105,7 @@ pub mod options {
                         Prefix={destination_prefix:0x?}"
                     )
                 }
-                Repr::RplTargetDescriptor { .. } => write!(f, "Target Descriptor"),
+                Repr::RplTargetDescriptor(_) => write!(f, "Target Descriptor"),
             }
         }
     }
@@ -2059,44 +2116,50 @@ pub mod options {
                 OptionType::Pad1 => Ok(Repr::Pad1),
                 OptionType::PadN => Ok(Repr::PadN(packet.option_length())),
                 OptionType::DagMetricContainer => todo!(),
-                OptionType::RouteInformation => Ok(Repr::RouteInformation {
+                OptionType::RouteInformation => Ok(Repr::RouteInformation(RouteInformation {
                     prefix_length: packet.prefix_length(),
                     preference: packet.route_preference(),
                     lifetime: packet.route_lifetime(),
                     prefix: packet.prefix(),
-                }),
-                OptionType::DodagConfiguration => Ok(Repr::DodagConfiguration {
-                    authentication_enabled: packet.authentication_enabled(),
-                    path_control_size: packet.path_control_size(),
-                    dio_interval_doublings: packet.dio_interval_doublings(),
-                    dio_interval_min: packet.dio_interval_minimum(),
-                    dio_redundancy_constant: packet.dio_redundancy_constant(),
-                    max_rank_increase: packet.max_rank_increase(),
-                    minimum_hop_rank_increase: packet.minimum_hop_rank_increase(),
-                    objective_code_point: packet.objective_code_point(),
-                    default_lifetime: packet.default_lifetime(),
-                    lifetime_unit: packet.lifetime_unit(),
-                }),
-                OptionType::RplTarget => Ok(Repr::RplTarget {
+                })),
+                OptionType::DodagConfiguration => {
+                    Ok(Repr::DodagConfiguration(DodagConfiguration {
+                        authentication_enabled: packet.authentication_enabled(),
+                        path_control_size: packet.path_control_size(),
+                        dio_interval_doublings: packet.dio_interval_doublings(),
+                        dio_interval_min: packet.dio_interval_minimum(),
+                        dio_redundancy_constant: packet.dio_redundancy_constant(),
+                        max_rank_increase: packet.max_rank_increase(),
+                        minimum_hop_rank_increase: packet.minimum_hop_rank_increase(),
+                        objective_code_point: packet.objective_code_point(),
+                        default_lifetime: packet.default_lifetime(),
+                        lifetime_unit: packet.lifetime_unit(),
+                    }))
+                }
+                OptionType::RplTarget => Ok(Repr::RplTarget(RplTarget {
                     prefix_length: packet.target_prefix_length(),
                     prefix: crate::wire::Ipv6Address::from_bytes(packet.target_prefix()),
-                }),
-                OptionType::TransitInformation => Ok(Repr::TransitInformation {
-                    external: packet.is_external(),
-                    path_control: packet.path_control(),
-                    path_sequence: packet.path_sequence(),
-                    path_lifetime: packet.path_lifetime(),
-                    parent_address: packet.parent_address(),
-                }),
-                OptionType::SolicitedInformation => Ok(Repr::SolicitedInformation {
-                    rpl_instance_id: InstanceId::from(packet.rpl_instance_id()),
-                    version_predicate: packet.version_predicate(),
-                    instance_id_predicate: packet.instance_id_predicate(),
-                    dodag_id_predicate: packet.dodag_id_predicate(),
-                    dodag_id: packet.dodag_id(),
-                    version_number: packet.version_number(),
-                }),
-                OptionType::PrefixInformation => Ok(Repr::PrefixInformation {
+                })),
+                OptionType::TransitInformation => {
+                    Ok(Repr::TransitInformation(TransitInformation {
+                        external: packet.is_external(),
+                        path_control: packet.path_control(),
+                        path_sequence: packet.path_sequence(),
+                        path_lifetime: packet.path_lifetime(),
+                        parent_address: packet.parent_address(),
+                    }))
+                }
+                OptionType::SolicitedInformation => {
+                    Ok(Repr::SolicitedInformation(SolicitedInformation {
+                        rpl_instance_id: InstanceId::from(packet.rpl_instance_id()),
+                        version_predicate: packet.version_predicate(),
+                        instance_id_predicate: packet.instance_id_predicate(),
+                        dodag_id_predicate: packet.dodag_id_predicate(),
+                        dodag_id: packet.dodag_id(),
+                        version_number: packet.version_number(),
+                    }))
+                }
+                OptionType::PrefixInformation => Ok(Repr::PrefixInformation(PrefixInformation {
                     prefix_length: packet.prefix_info_prefix_length(),
                     on_link: packet.on_link(),
                     autonomous_address_configuration: packet.autonomous_address_configuration(),
@@ -2104,10 +2167,10 @@ pub mod options {
                     valid_lifetime: packet.valid_lifetime(),
                     preferred_lifetime: packet.preferred_lifetime(),
                     destination_prefix: packet.destination_prefix(),
-                }),
-                OptionType::RplTargetDescriptor => Ok(Repr::RplTargetDescriptor {
-                    descriptor: packet.descriptor(),
-                }),
+                })),
+                OptionType::RplTargetDescriptor => {
+                    Ok(Repr::RplTargetDescriptor(packet.descriptor()))
+                }
                 OptionType::Unknown(_) => Err(Error),
             }
         }
@@ -2117,10 +2180,10 @@ pub mod options {
                 Repr::Pad1 => 1,
                 Repr::PadN(size) => 2 + *size as usize,
                 Repr::DagMetricContainer => todo!(),
-                Repr::RouteInformation { prefix, .. } => 2 + 6 + prefix.len(),
+                Repr::RouteInformation(RouteInformation { prefix, .. }) => 2 + 6 + prefix.len(),
                 Repr::DodagConfiguration { .. } => 2 + 14,
-                Repr::RplTarget { prefix, .. } => 2 + 2 + prefix.0.len(),
-                Repr::TransitInformation { parent_address, .. } => {
+                Repr::RplTarget(RplTarget { prefix, .. }) => 2 + 2 + prefix.0.len(),
+                Repr::TransitInformation(TransitInformation { parent_address, .. }) => {
                     2 + 4 + if parent_address.is_some() { 16 } else { 0 }
                 }
                 Repr::SolicitedInformation { .. } => 2 + 2 + 16 + 1,
@@ -2147,19 +2210,19 @@ pub mod options {
                 Repr::DagMetricContainer => {
                     unimplemented!();
                 }
-                Repr::RouteInformation {
+                Repr::RouteInformation(RouteInformation {
                     prefix_length,
                     preference,
                     lifetime,
                     prefix,
-                } => {
+                }) => {
                     packet.clear_route_info_reserved();
                     packet.set_route_info_prefix_length(*prefix_length);
                     packet.set_route_info_route_preference(*preference);
                     packet.set_route_info_route_lifetime(*lifetime);
                     packet.set_route_info_prefix(prefix);
                 }
-                Repr::DodagConfiguration {
+                Repr::DodagConfiguration(DodagConfiguration {
                     authentication_enabled,
                     path_control_size,
                     dio_interval_doublings,
@@ -2170,7 +2233,7 @@ pub mod options {
                     objective_code_point,
                     default_lifetime,
                     lifetime_unit,
-                } => {
+                }) => {
                     packet.clear_dodag_conf_flags();
                     packet.set_dodag_conf_authentication_enabled(*authentication_enabled);
                     packet.set_dodag_conf_path_control_size(*path_control_size);
@@ -2183,21 +2246,21 @@ pub mod options {
                     packet.set_dodag_conf_default_lifetime(*default_lifetime);
                     packet.set_dodag_conf_lifetime_unit(*lifetime_unit);
                 }
-                Repr::RplTarget {
+                Repr::RplTarget(RplTarget {
                     prefix_length,
                     prefix,
-                } => {
+                }) => {
                     packet.clear_rpl_target_flags();
                     packet.set_rpl_target_prefix_length(*prefix_length);
                     packet.set_rpl_target_prefix(prefix.as_bytes());
                 }
-                Repr::TransitInformation {
+                Repr::TransitInformation(TransitInformation {
                     external,
                     path_control,
                     path_sequence,
                     path_lifetime,
                     parent_address,
-                } => {
+                }) => {
                     packet.clear_transit_info_flags();
                     packet.set_transit_info_is_external(*external);
                     packet.set_transit_info_path_control(*path_control);
@@ -2208,14 +2271,14 @@ pub mod options {
                         packet.set_transit_info_parent_address(*address);
                     }
                 }
-                Repr::SolicitedInformation {
+                Repr::SolicitedInformation(SolicitedInformation {
                     rpl_instance_id,
                     version_predicate,
                     instance_id_predicate,
                     dodag_id_predicate,
                     dodag_id,
                     version_number,
-                } => {
+                }) => {
                     packet.clear_solicited_info_flags();
                     packet.set_solicited_info_rpl_instance_id((*rpl_instance_id).into());
                     packet.set_solicited_info_version_predicate(*version_predicate);
@@ -2224,7 +2287,7 @@ pub mod options {
                     packet.set_solicited_info_version_number(*version_number);
                     packet.set_solicited_info_dodag_id(*dodag_id);
                 }
-                Repr::PrefixInformation {
+                Repr::PrefixInformation(PrefixInformation {
                     prefix_length,
                     on_link,
                     autonomous_address_configuration,
@@ -2232,7 +2295,7 @@ pub mod options {
                     valid_lifetime,
                     preferred_lifetime,
                     destination_prefix,
-                } => {
+                }) => {
                     packet.clear_prefix_info_reserved();
                     packet.set_prefix_info_prefix_length(*prefix_length);
                     packet.set_prefix_info_on_link(*on_link);
@@ -2244,7 +2307,7 @@ pub mod options {
                     packet.set_prefix_info_preferred_lifetime(*preferred_lifetime);
                     packet.set_prefix_info_destination_prefix(destination_prefix);
                 }
-                Repr::RplTargetDescriptor { descriptor } => {
+                Repr::RplTargetDescriptor(descriptor) => {
                     packet.set_rpl_target_descriptor_descriptor(*descriptor);
                 }
             }
@@ -2474,6 +2537,7 @@ mod tests {
     use super::Repr as RplRepr;
     use super::*;
     use crate::phy::ChecksumCapabilities;
+    use crate::wire::rpl::options::TransitInformation;
     use crate::wire::{icmpv6::*, *};
 
     #[test]
@@ -2555,7 +2619,7 @@ mod tests {
 
         let mut dio_repr = RplRepr::parse(&packet).unwrap();
         match dio_repr {
-            RplRepr::DodagInformationObject {
+            RplRepr::DodagInformationObject(DodagInformationObject {
                 rpl_instance_id,
                 version_number,
                 rank,
@@ -2565,7 +2629,7 @@ mod tests {
                 dtsn,
                 dodag_id,
                 ..
-            } => {
+            }) => {
                 assert_eq!(rpl_instance_id, InstanceId::from(0));
                 assert_eq!(version_number, 240);
                 assert_eq!(rank, 128);
@@ -2581,7 +2645,7 @@ mod tests {
         let option = OptionPacket::new_unchecked(packet.options().unwrap());
         let dodag_conf_option = OptionRepr::parse(&option).unwrap();
         match dodag_conf_option {
-            OptionRepr::DodagConfiguration {
+            OptionRepr::DodagConfiguration(DodagConfiguration {
                 authentication_enabled,
                 path_control_size,
                 dio_interval_doublings,
@@ -2592,7 +2656,7 @@ mod tests {
                 objective_code_point,
                 default_lifetime,
                 lifetime_unit,
-            } => {
+            }) => {
                 assert!(!authentication_enabled);
                 assert_eq!(path_control_size, 0);
                 assert_eq!(dio_interval_doublings, 8);
@@ -2610,7 +2674,7 @@ mod tests {
         let option = OptionPacket::new_unchecked(option.next_option().unwrap());
         let prefix_info_option = OptionRepr::parse(&option).unwrap();
         match prefix_info_option {
-            OptionRepr::PrefixInformation {
+            OptionRepr::PrefixInformation(PrefixInformation {
                 prefix_length,
                 on_link,
                 autonomous_address_configuration,
@@ -2618,7 +2682,7 @@ mod tests {
                 preferred_lifetime,
                 destination_prefix,
                 ..
-            } => {
+            }) => {
                 assert_eq!(prefix_length, 64);
                 assert!(!on_link);
                 assert!(autonomous_address_configuration);
@@ -2663,13 +2727,13 @@ mod tests {
         let packet = Packet::new_checked(&data[..]).unwrap();
         let mut dao_repr = RplRepr::parse(&packet).unwrap();
         match dao_repr {
-            RplRepr::DestinationAdvertisementObject {
+            RplRepr::DestinationAdvertisementObject(DestinationAdvertisementObject {
                 rpl_instance_id,
                 expect_ack,
                 sequence,
                 dodag_id,
                 ..
-            } => {
+            }) => {
                 assert_eq!(rpl_instance_id, InstanceId::from(0));
                 assert!(expect_ack);
                 assert_eq!(sequence, 241);
@@ -2682,10 +2746,10 @@ mod tests {
 
         let rpl_target_option = OptionRepr::parse(&option).unwrap();
         match rpl_target_option {
-            OptionRepr::RplTarget {
+            OptionRepr::RplTarget(RplTarget {
                 prefix_length,
                 prefix,
-            } => {
+            }) => {
                 assert_eq!(prefix_length, 128);
                 assert_eq!(prefix.as_bytes(), &target_prefix[..]);
             }
@@ -2695,13 +2759,13 @@ mod tests {
         let option = OptionPacket::new_unchecked(option.next_option().unwrap());
         let transit_info_option = OptionRepr::parse(&option).unwrap();
         match transit_info_option {
-            OptionRepr::TransitInformation {
+            OptionRepr::TransitInformation(TransitInformation {
                 external,
                 path_control,
                 path_sequence,
                 path_lifetime,
                 parent_address,
-            } => {
+            }) => {
                 assert!(!external);
                 assert_eq!(path_control, 0);
                 assert_eq!(path_sequence, 0);
@@ -2730,13 +2794,13 @@ mod tests {
         let packet = Packet::new_checked(&data[..]).unwrap();
         let dao_ack_repr = RplRepr::parse(&packet).unwrap();
         match dao_ack_repr {
-            RplRepr::DestinationAdvertisementObjectAck {
+            RplRepr::DestinationAdvertisementObjectAck(DestinationAdvertisementObjectAck {
                 rpl_instance_id,
                 sequence,
                 status,
                 dodag_id,
                 ..
-            } => {
+            }) => {
                 assert_eq!(rpl_instance_id, InstanceId::from(0));
                 assert_eq!(sequence, 241);
                 assert_eq!(status, 0);
@@ -2758,13 +2822,13 @@ mod tests {
         let packet = Packet::new_checked(&data[..]).unwrap();
         let dao_ack_repr = RplRepr::parse(&packet).unwrap();
         match dao_ack_repr {
-            RplRepr::DestinationAdvertisementObjectAck {
+            RplRepr::DestinationAdvertisementObjectAck(DestinationAdvertisementObjectAck {
                 rpl_instance_id,
                 sequence,
                 status,
                 dodag_id,
                 ..
-            } => {
+            }) => {
                 assert_eq!(rpl_instance_id, InstanceId::from(30));
                 assert_eq!(sequence, 240);
                 assert_eq!(status, 0x0);

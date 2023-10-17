@@ -14,13 +14,11 @@ impl InterfaceInner {
         repr: RplRepr<'payload>,
     ) -> Option<IpPacket<'output>> {
         match repr {
-            RplRepr::DodagInformationSolicitation { .. } => self.process_rpl_dis(ip_repr, repr),
-            RplRepr::DodagInformationObject { .. } => {
-                self.process_rpl_dio(src_ll_addr, ip_repr, repr)
-            }
-            RplRepr::DestinationAdvertisementObject { .. } => self.process_rpl_dao(ip_repr, repr),
-            RplRepr::DestinationAdvertisementObjectAck { .. } => {
-                self.process_rpl_dao_ack(ip_repr, repr)
+            RplRepr::DodagInformationSolicitation(dis) => self.process_rpl_dis(ip_repr, dis),
+            RplRepr::DodagInformationObject(dio) => self.process_rpl_dio(src_ll_addr, ip_repr, dio),
+            RplRepr::DestinationAdvertisementObject(dao) => self.process_rpl_dao(ip_repr, dao),
+            RplRepr::DestinationAdvertisementObjectAck(dao_ack) => {
+                self.process_rpl_dao_ack(ip_repr, dao_ack)
             }
         }
     }
@@ -38,44 +36,30 @@ impl InterfaceInner {
     pub(super) fn process_rpl_dis<'output, 'payload: 'output>(
         &mut self,
         ip_repr: Ipv6Repr,
-        repr: RplRepr<'payload>,
+        dis: RplDis<'payload>,
     ) -> Option<IpPacket<'output>> {
-        let RplRepr::DodagInformationSolicitation { options } = repr else {
+        let Some(dodag) = &mut self.rpl.dodag else {
             return None;
         };
 
-        // If we are not part of a DODAG we cannot respond with a DIO.
-        let dodag = self.rpl.dodag.as_mut()?;
-
-        // Process options
-        // ===============
-        for opt in &options {
+        for opt in dis.options {
             match opt {
-                // Skip padding
-                RplOptionRepr::Pad1 | RplOptionRepr::PadN(_) => (),
-
                 // The solicited information option is used for filtering incoming DIS
                 // packets. This option will contain predicates, which we need to match on.
                 // When we match all to requested predicates, then we answer with a DIO,
                 // otherwise we just drop the packet. See section 8.3 for more information.
-                RplOptionRepr::SolicitedInformation {
-                    rpl_instance_id,
-                    version_predicate,
-                    instance_id_predicate,
-                    dodag_id_predicate,
-                    dodag_id,
-                    version_number,
-                } => {
-                    if (*version_predicate
-                        && dodag.version_number != SequenceCounter::new(*version_number))
-                        || (*dodag_id_predicate && dodag.id != *dodag_id)
-                        || (*instance_id_predicate && dodag.instance_id != *rpl_instance_id)
+                RplOptionRepr::SolicitedInformation(info) => {
+                    if (info.version_predicate
+                        && dodag.version_number != SequenceCounter::new(info.version_number))
+                        || (info.dodag_id_predicate && dodag.id != info.dodag_id)
+                        || (info.instance_id_predicate && dodag.instance_id != info.rpl_instance_id)
                     {
                         net_trace!("predicates did not match, dropping packet");
                         return None;
                     }
                 }
-                _ => net_trace!("received invalid option, continuing"),
+
+                _ => {}
             }
         }
 
@@ -114,32 +98,12 @@ impl InterfaceInner {
         &mut self,
         src_ll_addr: Option<HardwareAddress>,
         ip_repr: Ipv6Repr,
-        repr: RplRepr<'payload>,
+        dio: RplDio<'payload>,
     ) -> Option<IpPacket<'output>> {
-        let RplRepr::DodagInformationObject {
-            rpl_instance_id,
-            version_number,
-            rank,
-            grounded,
-            mode_of_operation,
-            dodag_preference,
-            dtsn,
-            dodag_id,
-            options,
-        } = repr
-        else {
-            return None;
-        };
-
         let mut dodag_configuration = None;
 
-        // Process options
-        // ===============
-        for opt in &options {
+        for opt in dio.options {
             match opt {
-                // Skip padding
-                RplOptionRepr::Pad1 | RplOptionRepr::PadN(_) => (),
-
                 RplOptionRepr::DagMetricContainer => {
                     // NOTE(thvdveld): We don't support DAG Metric containers yet. They contain
                     // information about node, link or path metrics specified in RFC6551. The
@@ -155,32 +119,36 @@ impl InterfaceInner {
                     // this option in RPL. This is considered future work!
                     net_trace!("Route Information Option not yet supported");
                 }
-                RplOptionRepr::DodagConfiguration {
-                    objective_code_point,
-                    ..
-                } => {
-                    // If we are not part of a network, and the OCP is not the same as
-                    // ours, then we don't accept the DIO packet.
-                    if self.rpl.dodag.is_none()
-                        && *objective_code_point != self.rpl.of.objective_code_point()
-                    {
-                        net_trace!("dropping packet, OCP is not compatible");
-                        return None;
-                    }
-
-                    dodag_configuration = Some(opt);
-                }
                 // The root of a DODAG is responsible for setting the option values.
                 // This information is propagated down the DODAG unchanged.
                 RplOptionRepr::PrefixInformation { .. } => {
                     // FIXME(thvdveld): handle a prefix information option.
                     net_trace!("Prefix Information Option not yet supported");
                 }
-                _ => net_trace!("received invalid option, continuing"),
+                // The dodag configuration option contains information about trickle timer,
+                // default route lifetime, objective code point, etc.
+                RplOptionRepr::DodagConfiguration(
+                    conf @ RplDodagConfiguration {
+                        objective_code_point,
+                        ..
+                    },
+                ) => {
+                    // If we are not part of a network, and the OCP is not the same as
+                    // ours, then we don't accept the DIO packet.
+                    if self.rpl.dodag.is_none()
+                        && objective_code_point != self.rpl.of.objective_code_point()
+                    {
+                        net_trace!("dropping packet, OCP is not compatible");
+                        return None;
+                    }
+
+                    dodag_configuration = Some(conf);
+                }
+                _ => {}
             }
         }
 
-        let sender_rank = Rank::new(rank, self.rpl.of.min_hop_rank_increase());
+        let sender_rank = Rank::new(dio.rank, self.rpl.of.min_hop_rank_increase());
 
         // Accept DIO if not part of DODAG
         // ===============================
@@ -191,28 +159,16 @@ impl InterfaceInner {
         // respond with a unicast DIO with the option present.
         if !self.rpl.is_root
             && self.rpl.dodag.is_none()
-            && ModeOfOperation::from(mode_of_operation) == self.rpl.mode_of_operation
+            && ModeOfOperation::from(dio.mode_of_operation) == self.rpl.mode_of_operation
             && sender_rank != Rank::INFINITE
         {
-            let Some(RplOptionRepr::DodagConfiguration {
-                authentication_enabled,
-                path_control_size,
-                dio_interval_doublings,
-                dio_interval_min,
-                dio_redundancy_constant,
-                max_rank_increase,
-                minimum_hop_rank_increase,
-                default_lifetime,
-                lifetime_unit,
-                ..
-            }) = dodag_configuration
-            else {
+            let Some(dodag_conf) = dodag_configuration else {
                 // Send a unicast DIS.
                 net_trace!("sending unicast DIS (to ask for DODAG Conf. option)");
 
-                let icmp = Icmpv6Repr::Rpl(RplRepr::DodagInformationSolicitation {
+                let icmp = Icmpv6Repr::Rpl(RplRepr::DodagInformationSolicitation(RplDis {
                     options: Default::default(),
-                });
+                }));
 
                 return Some(IpPacket::new_ipv6(
                     Ipv6Repr {
@@ -228,38 +184,40 @@ impl InterfaceInner {
 
             net_trace!(
                 "accepting new RPL conf (grounded={} pref={} version={} InstanceID={:?} DODAGID={})",
-                grounded,
-                dodag_preference,
-                version_number,
-                rpl_instance_id,
-                dodag_id
+                dio.grounded,
+                dio.dodag_preference,
+                dio.version_number,
+                dio.rpl_instance_id,
+                dio.dodag_id
             );
 
             self.rpl
                 .of
-                .set_min_hop_rank_increase(*minimum_hop_rank_increase);
-            self.rpl.of.set_max_rank_increase(*max_rank_increase);
+                .set_min_hop_rank_increase(dodag_conf.minimum_hop_rank_increase);
+            self.rpl
+                .of
+                .set_max_rank_increase(dodag_conf.max_rank_increase);
 
             let dodag = Dodag {
-                instance_id: rpl_instance_id,
-                id: dodag_id,
-                version_number: SequenceCounter::new(version_number),
-                preference: dodag_preference,
+                instance_id: dio.rpl_instance_id,
+                id: dio.dodag_id,
+                version_number: SequenceCounter::new(dio.version_number),
+                preference: dio.dodag_preference,
                 rank: Rank::INFINITE,
                 dio_timer: TrickleTimer::new(
-                    *dio_interval_min as u32,
-                    *dio_interval_min as u32 + *dio_interval_doublings as u32,
-                    *dio_redundancy_constant as usize,
+                    dodag_conf.dio_interval_min as u32,
+                    dodag_conf.dio_interval_min as u32 + dodag_conf.dio_interval_doublings as u32,
+                    dodag_conf.dio_redundancy_constant as usize,
                 ),
                 dao_expiration: Instant::ZERO,
                 parent: None,
                 without_parent: Some(self.now),
-                authentication_enabled: *authentication_enabled,
-                path_control_size: *path_control_size,
+                authentication_enabled: dodag_conf.authentication_enabled,
+                path_control_size: dodag_conf.path_control_size,
                 dtsn: SequenceCounter::default(),
-                default_lifetime: *default_lifetime,
-                lifetime_unit: *lifetime_unit,
-                grounded,
+                default_lifetime: dodag_conf.default_lifetime,
+                lifetime_unit: dodag_conf.lifetime_unit,
+                grounded: dio.grounded,
                 dao_seq_number: SequenceCounter::default(),
                 dao_acks: Default::default(),
                 daos: Default::default(),
@@ -271,7 +229,7 @@ impl InterfaceInner {
         }
 
         // The sender rank might be updated by the configuration option.
-        let sender_rank = Rank::new(rank, self.rpl.of.min_hop_rank_increase());
+        let sender_rank = Rank::new(dio.rank, self.rpl.of.min_hop_rank_increase());
 
         let our_addr = self.ipv6_addr().unwrap();
         if let Some(dodag) = &mut self.rpl.dodag {
@@ -284,10 +242,10 @@ impl InterfaceInner {
             // 4. The Mode of Operation must be the same as our Mode of Operation.
             // 5. The Objective Function must be the same as our Ojbective ObjectiveFunction,
             //    which we already checked.
-            if rpl_instance_id != dodag.instance_id
-                || dodag.id != dodag_id
-                || version_number < dodag.version_number.value()
-                || ModeOfOperation::from(mode_of_operation) != self.rpl.mode_of_operation
+            if dio.rpl_instance_id != dodag.instance_id
+                || dio.dodag_id != dodag.id
+                || dio.version_number < dodag.version_number.value()
+                || ModeOfOperation::from(dio.mode_of_operation) != self.rpl.mode_of_operation
             {
                 net_trace!(
                     "dropping DIO packet (different INSTANCE ID/DODAG ID/MOP/lower Version Number)"
@@ -303,13 +261,13 @@ impl InterfaceInner {
             // When we are the root, we change the version number to one higher than the
             // received one. Then we reset the Trickle timer, such that the information is
             // propagated in the network.
-            if SequenceCounter::new(version_number) > dodag.version_number {
+            if SequenceCounter::new(dio.version_number) > dodag.version_number {
                 net_trace!("version number higher than ours");
 
                 if self.rpl.is_root {
                     net_trace!("(root) using new version number + 1");
 
-                    dodag.version_number = SequenceCounter::new(version_number);
+                    dodag.version_number = SequenceCounter::new(dio.version_number);
                     dodag.version_number.increment();
 
                     net_trace!("(root) resetting Trickle timer");
@@ -319,7 +277,7 @@ impl InterfaceInner {
                 } else {
                     net_trace!("resetting parent set, resetting rank, removing parent");
 
-                    dodag.version_number = SequenceCounter::new(version_number);
+                    dodag.version_number = SequenceCounter::new(dio.version_number);
 
                     // Clear the parent set, .
                     dodag.parent_set.clear();
@@ -364,7 +322,7 @@ impl InterfaceInner {
             // If there is no parent in the parent set, we also detach from the network by
             // sending a DIO with an infinite rank.
             if Some(ip_repr.src_addr) == dodag.parent {
-                if Rank::new(rank, self.rpl.of.min_hop_rank_increase()) == Rank::INFINITE {
+                if Rank::new(dio.rank, self.rpl.of.min_hop_rank_increase()) == Rank::INFINITE {
                     net_trace!("parent leaving, removing parent");
 
                     // Don't need to send a no-path DOA when parent is leaving.
@@ -397,7 +355,7 @@ impl InterfaceInner {
                     }
                 } else {
                     // DTSN increased, so we need to transmit a DAO.
-                    if SequenceCounter::new(dtsn) > dodag.dtsn {
+                    if SequenceCounter::new(dio.dtsn) > dodag.dtsn {
                         net_trace!("DTSN increased, scheduling DAO");
                         dodag.dao_expiration = self.now;
                     }
@@ -431,7 +389,7 @@ impl InterfaceInner {
                     ip_repr.src_addr,
                     Parent::new(
                         sender_rank,
-                        SequenceCounter::new(version_number),
+                        SequenceCounter::new(dio.version_number),
                         dodag.id,
                         self.now,
                     ),
@@ -463,18 +421,15 @@ impl InterfaceInner {
     pub(super) fn process_rpl_dao<'output, 'payload: 'output>(
         &mut self,
         ip_repr: Ipv6Repr,
-        repr: RplRepr<'payload>,
+        dao: RplDao<'payload>,
     ) -> Option<IpPacket<'output>> {
-        let RplRepr::DestinationAdvertisementObject {
+        let RplDao {
             rpl_instance_id,
             expect_ack,
             sequence,
             dodag_id,
             ref options,
-        } = repr
-        else {
-            return None;
-        };
+        } = dao;
 
         let our_addr = self.ipv6_addr().unwrap();
         let dodag = self.rpl.dodag.as_mut()?;
@@ -516,7 +471,9 @@ impl InterfaceInner {
                 header: ip_repr,
                 hop_by_hop: Some(hbh),
                 routing: None,
-                payload: IpPayload::Icmpv6(Icmpv6Repr::Rpl(repr)),
+                payload: IpPayload::Icmpv6(Icmpv6Repr::Rpl(
+                    RplRepr::DestinationAdvertisementObject(dao),
+                )),
             }));
         }
 
@@ -532,19 +489,19 @@ impl InterfaceInner {
             match opt {
                 //skip padding
                 RplOptionRepr::Pad1 | RplOptionRepr::PadN(_) => (),
-                RplOptionRepr::RplTarget {
+                RplOptionRepr::RplTarget(RplTarget {
                     prefix_length: pl,
                     prefix,
-                } => {
+                }) => {
                     prefix_length = Some(*pl);
                     child = Some(*prefix);
                 }
-                RplOptionRepr::TransitInformation {
+                RplOptionRepr::TransitInformation(RplTransitInformation {
                     path_sequence,
                     path_lifetime,
                     parent_address,
                     ..
-                } => {
+                }) => {
                     lifetime = Some(*path_lifetime);
                     p_sequence = Some(*path_sequence);
                     parent = match self.rpl.mode_of_operation {
@@ -621,19 +578,19 @@ impl InterfaceInner {
                 // Send message upward.
                 let mut options = heapless::Vec::new();
                 options
-                    .push(RplOptionRepr::RplTarget {
+                    .push(RplOptionRepr::RplTarget(RplTarget {
                         prefix_length: _prefix_length,
                         prefix: child,
-                    })
+                    }))
                     .unwrap();
                 options
-                    .push(RplOptionRepr::TransitInformation {
+                    .push(RplOptionRepr::TransitInformation(RplTransitInformation {
                         external: false,
                         path_control: 0,
                         path_sequence: _path_sequence,
                         path_lifetime: lifetime,
                         parent_address: None,
-                    })
+                    }))
                     .unwrap();
 
                 let dao_seq_number = dodag.dao_seq_number;
@@ -665,20 +622,17 @@ impl InterfaceInner {
         None
     }
 
-    pub(super) fn process_rpl_dao_ack<'output, 'payload: 'output>(
+    pub(super) fn process_rpl_dao_ack<'output>(
         &mut self,
         ip_repr: Ipv6Repr,
-        repr: RplRepr<'payload>,
+        dao_ack: RplDaoAck,
     ) -> Option<IpPacket<'output>> {
-        let RplRepr::DestinationAdvertisementObjectAck {
+        let RplDaoAck {
             rpl_instance_id,
             sequence,
             status,
             dodag_id,
-        } = repr
-        else {
-            return None;
-        };
+        } = dao_ack;
 
         let dodag = self.rpl.dodag.as_mut()?;
 

@@ -9,7 +9,10 @@ mod relations;
 mod trickle;
 
 use crate::time::{Duration, Instant};
-use crate::wire::{Icmpv6Repr, Ipv6Address, RplOptionRepr, RplRepr};
+use crate::wire::{
+    Icmpv6Repr, Ipv6Address, RplDao, RplDio, RplDodagConfiguration, RplOptionRepr, RplRepr,
+    RplTarget, RplTransitInformation,
+};
 
 pub(crate) use lollipop::SequenceCounter;
 pub(crate) use of0::{ObjectiveFunction, ObjectiveFunction0};
@@ -230,28 +233,28 @@ impl Dao {
     pub(crate) fn as_rpl_dao_repr<'dao>(&mut self) -> RplRepr<'dao> {
         let mut options = heapless::Vec::new();
         options
-            .push(RplOptionRepr::RplTarget {
+            .push(RplOptionRepr::RplTarget(RplTarget {
                 prefix_length: 64,
                 prefix: self.child,
-            })
+            }))
             .unwrap();
         options
-            .push(RplOptionRepr::TransitInformation {
+            .push(RplOptionRepr::TransitInformation(RplTransitInformation {
                 external: false,
                 path_control: 0,
                 path_sequence: 0,
                 path_lifetime: self.lifetime,
                 parent_address: self.parent,
-            })
+            }))
             .unwrap();
 
-        RplRepr::DestinationAdvertisementObject {
+        RplRepr::DestinationAdvertisementObject(RplDao {
             rpl_instance_id: self.instance_id,
             expect_ack: true,
             sequence: self.sequence.value(),
             dodag_id: self.dodag_id,
             options,
-        }
+        })
     }
 }
 
@@ -331,7 +334,7 @@ impl Rpl {
         // FIXME: I think we need to convert from seconds to something else, not sure what.
         let dio_interval_doublings = dodag.dio_timer.i_max as u8 - dodag.dio_timer.i_min as u8;
 
-        RplOptionRepr::DodagConfiguration {
+        RplOptionRepr::DodagConfiguration(RplDodagConfiguration {
             authentication_enabled: dodag.authentication_enabled,
             path_control_size: dodag.path_control_size,
             dio_interval_doublings,
@@ -342,7 +345,7 @@ impl Rpl {
             objective_code_point: self.of.objective_code_point(),
             default_lifetime: dodag.default_lifetime,
             lifetime_unit: dodag.lifetime_unit,
-        }
+        })
     }
 
     /// ## Panics
@@ -353,7 +356,7 @@ impl Rpl {
     ) -> RplRepr<'o> {
         let dodag = self.dodag.as_ref().unwrap();
 
-        RplRepr::DodagInformationObject {
+        RplRepr::DodagInformationObject(RplDio {
             rpl_instance_id: dodag.instance_id,
             version_number: dodag.version_number.value(),
             rank: dodag.rank.raw_value(),
@@ -363,7 +366,7 @@ impl Rpl {
             dtsn: dodag.dtsn.value(),
             dodag_id: dodag.id,
             options,
-        }
+        })
     }
 
     /// ## Panics
@@ -374,13 +377,13 @@ impl Rpl {
         options: heapless::Vec<RplOptionRepr<'o>, 2>,
     ) -> RplRepr<'o> {
         let dodag = self.dodag.as_ref().unwrap();
-        RplRepr::DestinationAdvertisementObject {
+        RplRepr::DestinationAdvertisementObject(RplDao {
             rpl_instance_id: dodag.instance_id,
             expect_ack: true,
             sequence: sequence.value(),
             dodag_id: Some(dodag.id),
             options,
-        }
+        })
     }
 }
 

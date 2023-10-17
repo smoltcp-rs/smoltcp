@@ -154,8 +154,17 @@ pub use self::arp::{
 
 #[cfg(feature = "proto-rpl")]
 pub use self::rpl::{
-    data::HopByHopOption as RplHopByHopRepr, data::Packet as RplHopByHopPacket,
-    options::Packet as RplOptionPacket, options::Repr as RplOptionRepr,
+    data::HopByHopOption as RplHopByHopRepr,
+    data::Packet as RplHopByHopPacket,
+    options::{
+        DodagConfiguration as RplDodagConfiguration, Packet as RplOptionPacket,
+        PrefixInformation as RplPrefixInformation, Repr as RplOptionRepr,
+        RouteInformation as RplRouteInformation, RplTarget,
+        SolicitedInformation as RplSolicitedInformation,
+        TransitInformation as RplTransitInformation,
+    },
+    DestinationAdvertisementObject as RplDao, DestinationAdvertisementObjectAck as RplDaoAck,
+    DodagInformationObject as RplDio, DodagInformationSolicitation as RplDis,
     InstanceId as RplInstanceId, Repr as RplRepr,
 };
 
