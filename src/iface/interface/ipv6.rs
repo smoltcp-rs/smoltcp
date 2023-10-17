@@ -1,5 +1,12 @@
 use super::*;
 
+#[cfg(feature = "socket-icmp")]
+use crate::socket::icmp;
+use crate::socket::AnySocket;
+
+use crate::phy::PacketMeta;
+use crate::wire::*;
+
 /// Enum used for the process_hopbyhop function. In some cases, when discarding a packet, an ICMMP
 /// parameter problem message needs to be transmitted to the source of the address. In other cases,
 /// the processing of the IP packet can continue.
@@ -645,71 +652,27 @@ impl InterfaceInner {
         }
         ipv6_repr.hop_limit -= 1;
 
-        use crate::iface::RplModeOfOperation;
-        let mut dst_addr = ipv6_repr.dst_addr;
-
         #[allow(unused)]
         let routing: Option<Ipv6RoutingRepr> = None;
 
         #[cfg(feature = "rpl-mop-1")]
         let routing = if matches!(
             self.rpl.mode_of_operation,
-            RplModeOfOperation::NonStoringMode
-        ) {
-            if self.rpl.is_root {
-                net_trace!("creating source routing header to {}", ipv6_repr.dst_addr);
-                let mut nh = ipv6_repr.dst_addr;
-
-                // Create the source routing header
-                let mut route = heapless::Vec::<Ipv6Address, 32>::new();
-                route.push(nh).unwrap();
-
-                loop {
-                    let next_hop = self.rpl.dodag.as_ref().unwrap().relations.find_next_hop(nh);
-                    if let Some(next_hop) = next_hop {
-                        net_trace!("  via {}", next_hop);
-                        if next_hop == self.ipv6_addr().unwrap() {
-                            break;
-                        }
-
-                        route.push(next_hop).unwrap();
-                        nh = next_hop;
-                    } else {
-                        net_trace!("no route found, last next hop: {}", nh);
-                        return None;
-                    }
-                }
-
-                let segments_left = route.len() - 1;
-                if segments_left == 0 {
-                    net_trace!("no source routing needed, node is neighbor");
-                    None
-                } else {
-                    dst_addr = route[segments_left];
-
-                    // Create the route list for the source routing header
-                    let mut addresses = heapless::Vec::new();
-                    for addr in route[..segments_left].iter().rev() {
-                        addresses.push(*addr).unwrap();
-                    }
-
-                    // Add the source routing option to the packet.
-                    Some(Ipv6RoutingRepr::Rpl {
-                        segments_left: segments_left as u8,
-                        cmpr_i: 0,
-                        cmpr_e: 0,
-                        pad: 0,
-                        addresses,
-                    })
-                }
+            crate::iface::RplModeOfOperation::NonStoringMode
+        ) && self.rpl.is_root
+        {
+            net_trace!("creating source routing header to {}", ipv6_repr.dst_addr);
+            if let Some((source_route, new_dst_addr)) =
+                create_source_routing_header(self, self.ipv6_addr().unwrap(), ipv6_repr.dst_addr)
+            {
+                ipv6_repr.dst_addr = new_dst_addr;
+                Some(source_route)
             } else {
                 None
             }
         } else {
             None
         };
-
-        ipv6_repr.dst_addr = dst_addr;
 
         Some(IpPacket::Ipv6(Ipv6Packet {
             header: ipv6_repr,

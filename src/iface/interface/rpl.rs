@@ -46,7 +46,6 @@ impl InterfaceInner {
 
         // If we are not part of a DODAG we cannot respond with a DIO.
         let dodag = self.rpl.dodag.as_mut()?;
-        let instance = self.rpl.instance.as_ref()?;
 
         // Process options
         // ===============
@@ -70,7 +69,7 @@ impl InterfaceInner {
                     if (*version_predicate
                         && dodag.version_number != SequenceCounter::new(*version_number))
                         || (*dodag_id_predicate && dodag.id != *dodag_id)
-                        || (*instance_id_predicate && instance.id != *rpl_instance_id)
+                        || (*instance_id_predicate && dodag.instance_id != *rpl_instance_id)
                     {
                         net_trace!("predicates did not match, dropping packet");
                         return None;
@@ -241,10 +240,8 @@ impl InterfaceInner {
                 .set_min_hop_rank_increase(*minimum_hop_rank_increase);
             self.rpl.of.set_max_rank_increase(*max_rank_increase);
 
-            let instance = Instance {
-                id: rpl_instance_id,
-            };
             let dodag = Dodag {
+                instance_id: rpl_instance_id,
                 id: dodag_id,
                 version_number: SequenceCounter::new(version_number),
                 preference: dodag_preference,
@@ -270,7 +267,6 @@ impl InterfaceInner {
                 relations: Default::default(),
             };
 
-            self.rpl.instance = Some(instance);
             self.rpl.dodag = Some(dodag);
         }
 
@@ -278,7 +274,7 @@ impl InterfaceInner {
         let sender_rank = Rank::new(rank, self.rpl.of.min_hop_rank_increase());
 
         let our_addr = self.ipv6_addr().unwrap();
-        if let (Some(instance), Some(dodag)) = (self.rpl.instance, &mut self.rpl.dodag) {
+        if let Some(dodag) = &mut self.rpl.dodag {
             // Check DIO validity
             // ==================
             // We check if we can accept the DIO message:
@@ -288,7 +284,7 @@ impl InterfaceInner {
             // 4. The Mode of Operation must be the same as our Mode of Operation.
             // 5. The Objective Function must be the same as our Ojbective ObjectiveFunction,
             //    which we already checked.
-            if rpl_instance_id != instance.id
+            if rpl_instance_id != dodag.instance_id
                 || dodag.id != dodag_id
                 || version_number < dodag.version_number.value()
                 || ModeOfOperation::from(mode_of_operation) != self.rpl.mode_of_operation
@@ -481,12 +477,11 @@ impl InterfaceInner {
         };
 
         let our_addr = self.ipv6_addr().unwrap();
-        let instance = self.rpl.instance.as_ref()?;
         let dodag = self.rpl.dodag.as_mut()?;
 
         // Check validity of the DAO
         // =========================
-        if instance.id != rpl_instance_id && Some(dodag.id) != dodag_id {
+        if dodag.instance_id != rpl_instance_id && Some(dodag.id) != dodag_id {
             net_trace!("dropping DAO, wrong DODAG ID/INSTANCE ID");
             return None;
         }
@@ -510,7 +505,7 @@ impl InterfaceInner {
                     down: false,
                     rank_error: false,
                     forwarding_error: false,
-                    instance_id: instance.id,
+                    instance_id: dodag.instance_id,
                     sender_rank: dodag.rank.raw_value(),
                 }))
                 .unwrap();
@@ -685,13 +680,13 @@ impl InterfaceInner {
             return None;
         };
 
-        let instance = self.rpl.instance.as_ref()?;
         let dodag = self.rpl.dodag.as_mut()?;
 
-        if rpl_instance_id == instance.id && (dodag_id == Some(dodag.id) || dodag_id.is_none()) {
+        if rpl_instance_id == dodag.instance_id
+            && (dodag_id == Some(dodag.id) || dodag_id.is_none())
+        {
             dodag.daos.retain(|dao| {
-                !(dao.to == ip_repr.src_addr
-                    && dao.sequence == Some(SequenceCounter::new(sequence)))
+                !(dao.to == ip_repr.src_addr && dao.sequence == SequenceCounter::new(sequence))
             });
 
             if status == 0 {
@@ -734,132 +729,6 @@ impl InterfaceInner {
 
         Ok(hbh)
     }
-
-    //fn remove_parent<'options>(&mut self) -> RplRepr<'options> {
-    //self.rpl.parent_address = None;
-    //self.rpl.parent_rank = None;
-    //self.rpl.parent_preference = None;
-    //self.rpl.parent_last_heard = None;
-    //self.rpl.rank = Rank::INFINITE;
-
-    //self.rpl.dodag_information_object(heapless::Vec::new())
-    //}
-
-    //fn select_preferred_parent<'options>(&mut self) -> Option<IpPacket<'options>> {
-    //if let Some(preferred_parent) =
-    //of0::ObjectiveFunction0::preferred_parent(&self.rpl_parent_set)
-    //{
-    //// Accept the preferred parent as new parent when we don't have a
-    //// parent yet, or when we have a parent, but its rank is lower than
-    //// the preferred parent, or when the rank is the same but the preference is
-    //// higher.
-    //if !self.rpl.has_parent()
-    //|| preferred_parent.rank.dag_rank() < self.rpl.parent_rank.unwrap().dag_rank()
-    //{
-    //net_trace!(
-    //"RPL DIO: selecting {} as new parent",
-    //preferred_parent.ip_addr
-    //);
-    //self.rpl.parent_last_heard = Some(self.now);
-
-    //// Schedule a DAO after we send a no-path dao.
-    //net_trace!("RPL DIO: scheduling DAO");
-    //self.rpl.dao_expiration = self.now;
-
-    //// In case of MOP1, MOP2 and (maybe) MOP3, a DAO packet needs to be
-    //// transmitted with this information.
-    //return self.select_parent(self.rpl.parent_address, &preferred_parent);
-    //}
-    //}
-
-    //None
-    //}
-
-    //fn select_parent<'options>(
-    //&mut self,
-    //old_parent: Option<Ipv6Address>,
-    //parent: &Parent,
-    //) -> Option<IpPacket<'options>> {
-    //let no_path = if let Some(old_parent) = old_parent {
-    //self.no_path_dao(old_parent)
-    //} else {
-    //// If there was no old parent, then we don't need to transmit a no-path DAO.
-    //None
-    //};
-
-    //self.rpl.parent_address = Some(parent.ip_addr);
-    //self.rpl.parent_rank = Some(parent.rank);
-
-    //// Recalculate our rank when updating our parent.
-    //self.rpl.rank = of0::ObjectiveFunction0::new_rank(self.rpl.rank, parent.rank);
-
-    //// Reset the trickle timer.
-    //let min = self.rpl.dio_timer.min_expiration();
-    //self.rpl.dio_timer.reset(min, self.now, &mut self.rand);
-
-    //no_path
-    //}
-
-    //fn no_path_dao<'options>(&mut self, old_parent: Ipv6Address) -> Option<IpPacket<'options>> {
-    //let src_addr = self.ipv6_addr().unwrap();
-
-    //if self.rpl.mode_of_operation == ModeOfOperation::NoDownwardRoutesMaintained {
-    //return None;
-    //}
-
-    //#[cfg(feature = "rpl-mop-1")]
-    //if self.rpl.mode_of_operation == ModeOfOperation::NonStoringMode {
-    //return None;
-    //}
-
-    //let mut options = heapless::Vec::new();
-    //options
-    //.push(RplOptionRepr::RplTarget {
-    //prefix_length: 64,
-    //prefix: src_addr,
-    //})
-    //.unwrap();
-    //options
-    //.push(RplOptionRepr::TransitInformation {
-    //external: false,
-    //path_control: 0,
-    //path_sequence: 0,
-    //path_lifetime: 0, // no-path lifetime
-    //parent_address: None,
-    //})
-    //.unwrap();
-
-    //let icmp = Icmpv6Repr::Rpl(
-    //self.rpl
-    //.destination_advertisement_object(self.rpl.dao_seq_number, options),
-    //);
-
-    //self.rpl
-    //.daos
-    //.push(Dao {
-    //needs_sending: false,
-    //sent_at: Some(self.now),
-    //sent_count: 1,
-    //to: old_parent,
-    //child: src_addr,
-    //parent: None,
-    //sequence: Some(self.rpl.dao_seq_number),
-    //})
-    //.unwrap();
-
-    //self.rpl.dao_seq_number.increment();
-
-    //Some(IpPacket::new(
-    //Ipv6Repr {
-    //src_addr,
-    //dst_addr: old_parent,
-    //next_header: IpProtocol::Icmpv6,
-    //payload_len: icmp.buffer_len(),
-    //hop_limit: 64,
-    //},
-    //icmp,
-    //))
-    //}
 }
 
 pub(crate) fn create_source_routing_header(

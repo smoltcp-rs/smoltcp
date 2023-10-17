@@ -129,22 +129,11 @@ pub struct Rpl {
 
     pub(crate) dis_expiration: Instant,
 
-    pub(crate) instance: Option<Instance>,
     pub(crate) dodag: Option<Dodag>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Instance {
-    pub(crate) id: RplInstanceId,
-}
-
-impl Instance {
-    pub fn id(&self) -> &RplInstanceId {
-        &self.id
-    }
-}
-
 pub struct Dodag {
+    pub(crate) instance_id: RplInstanceId,
     pub(crate) id: Ipv6Address,
     pub(crate) version_number: SequenceCounter,
     pub(crate) preference: u8,
@@ -183,12 +172,24 @@ pub(crate) struct Dao {
     pub to: Ipv6Address,
     pub child: Ipv6Address,
     pub parent: Option<Ipv6Address>,
-    pub sequence: Option<SequenceCounter>,
+    pub sequence: SequenceCounter,
     pub is_no_path: bool,
+    pub lifetime: u8,
+
+    pub instance_id: RplInstanceId,
+    pub dodag_id: Option<Ipv6Address>,
 }
 
 impl Dao {
-    pub(crate) fn new(to: Ipv6Address, child: Ipv6Address, parent: Option<Ipv6Address>) -> Self {
+    pub(crate) fn new(
+        to: Ipv6Address,
+        child: Ipv6Address,
+        parent: Option<Ipv6Address>,
+        sequence: SequenceCounter,
+        lifetime: u8,
+        instance_id: RplInstanceId,
+        dodag_id: Option<Ipv6Address>,
+    ) -> Self {
         Dao {
             needs_sending: false,
             next_tx: None,
@@ -196,12 +197,21 @@ impl Dao {
             to,
             child,
             parent,
-            sequence: None,
+            sequence,
+            lifetime,
             is_no_path: false,
+            instance_id,
+            dodag_id,
         }
     }
 
-    pub(crate) fn no_path(to: Ipv6Address, child: Ipv6Address) -> Self {
+    pub(crate) fn no_path(
+        to: Ipv6Address,
+        child: Ipv6Address,
+        sequence: SequenceCounter,
+        instance_id: RplInstanceId,
+        dodag_id: Option<Ipv6Address>,
+    ) -> Self {
         Dao {
             needs_sending: true,
             next_tx: None,
@@ -209,20 +219,52 @@ impl Dao {
             to,
             child,
             parent: None,
-            sequence: None,
+            sequence,
+            lifetime: 0,
             is_no_path: true,
+            instance_id,
+            dodag_id,
+        }
+    }
+
+    pub(crate) fn as_rpl_dao_repr<'dao>(&mut self) -> RplRepr<'dao> {
+        let mut options = heapless::Vec::new();
+        options
+            .push(RplOptionRepr::RplTarget {
+                prefix_length: 64,
+                prefix: self.child,
+            })
+            .unwrap();
+        options
+            .push(RplOptionRepr::TransitInformation {
+                external: false,
+                path_control: 0,
+                path_sequence: 0,
+                path_lifetime: self.lifetime,
+                parent_address: self.parent,
+            })
+            .unwrap();
+
+        RplRepr::DestinationAdvertisementObject {
+            rpl_instance_id: self.instance_id,
+            expect_ack: true,
+            sequence: self.sequence.value(),
+            dodag_id: self.dodag_id,
+            options,
         }
     }
 }
 
 impl Rpl {
     pub fn new(config: Config, now: Instant) -> Self {
-        let (instance, dodag) = if let Some(root) = config.root {
-            (
-                Some(Instance {
-                    id: root.instance_id,
-                }),
+        Self {
+            is_root: config.is_root(),
+            mode_of_operation: config.mode_of_operation,
+            of: Default::default(),
+            dis_expiration: now + Duration::from_secs(5),
+            dodag: if let Some(root) = config.root {
                 Some(Dodag {
+                    instance_id: root.instance_id,
                     id: root.dodag_id,
                     version_number: SequenceCounter::default(),
                     preference: root.preference,
@@ -242,19 +284,10 @@ impl Rpl {
                     daos: Default::default(),
                     parent_set: Default::default(),
                     relations: Default::default(),
-                }),
-            )
-        } else {
-            (None, None)
-        };
-
-        Self {
-            is_root: dodag.is_some(),
-            mode_of_operation: config.mode_of_operation,
-            of: Default::default(),
-            dis_expiration: now + Duration::from_secs(5),
-            instance,
-            dodag,
+                })
+            } else {
+                None
+            },
         }
     }
 
@@ -270,8 +303,12 @@ impl Rpl {
         self.is_root
     }
 
-    pub fn instance(&self) -> Option<&Instance> {
-        self.instance.as_ref()
+    pub fn instance(&self) -> Option<&RplInstanceId> {
+        if let Some(dodag) = &self.dodag {
+            Some(&dodag.instance_id)
+        } else {
+            None
+        }
     }
 
     pub fn dodag(&self) -> Option<&Dodag> {
@@ -317,7 +354,7 @@ impl Rpl {
         let dodag = self.dodag.as_ref().unwrap();
 
         RplRepr::DodagInformationObject {
-            rpl_instance_id: self.instance.unwrap().id,
+            rpl_instance_id: dodag.instance_id,
             version_number: dodag.version_number.value(),
             rank: dodag.rank.raw_value(),
             grounded: dodag.grounded,
@@ -338,7 +375,7 @@ impl Rpl {
     ) -> RplRepr<'o> {
         let dodag = self.dodag.as_ref().unwrap();
         RplRepr::DestinationAdvertisementObject {
-            rpl_instance_id: self.instance.unwrap().id,
+            rpl_instance_id: dodag.instance_id,
             expect_ack: true,
             sequence: sequence.value(),
             dodag_id: Some(dodag.id),
@@ -383,7 +420,16 @@ impl Dodag {
         let old_parent = self.remove_parent(mop, our_addr, of, now);
 
         #[cfg(feature = "rpl-mop-2")]
-        self.daos.push(Dao::no_path(old_parent, child)).unwrap();
+        self.daos
+            .push(Dao::no_path(
+                old_parent,
+                child,
+                self.dao_seq_number,
+                self.instance_id,
+                Some(self.id),
+            ))
+            .unwrap();
+        self.dao_seq_number.increment();
     }
 
     pub(crate) fn find_new_parent<OF: ObjectiveFunction>(
@@ -404,7 +450,16 @@ impl Dodag {
             if let Some(old_parent) = old_parent {
                 if matches!(mop, ModeOfOperation::StoringMode) && old_parent != parent {
                     net_trace!("scheduling NO-PATH DAO for {} to {}", child, old_parent);
-                    self.daos.push(Dao::no_path(old_parent, child)).unwrap();
+                    self.daos
+                        .push(Dao::no_path(
+                            old_parent,
+                            child,
+                            self.dao_seq_number,
+                            self.instance_id,
+                            Some(self.id),
+                        ))
+                        .unwrap();
+                    self.dao_seq_number.increment();
                 }
             }
 
@@ -433,13 +488,33 @@ impl Dodag {
         #[cfg(feature = "rpl-mop-1")]
         if matches!(mop, ModeOfOperation::NonStoringMode) {
             self.daos
-                .push(Dao::new(self.id, child, Some(parent)))
+                .push(Dao::new(
+                    self.id,
+                    child,
+                    Some(parent),
+                    self.dao_seq_number,
+                    self.default_lifetime,
+                    self.instance_id,
+                    Some(self.id),
+                ))
                 .unwrap();
+            self.dao_seq_number.increment();
         }
 
         #[cfg(feature = "rpl-mop-2")]
         if matches!(mop, ModeOfOperation::StoringMode) {
-            self.daos.push(Dao::new(parent, child, None)).unwrap();
+            self.daos
+                .push(Dao::new(
+                    parent,
+                    child,
+                    None,
+                    self.dao_seq_number,
+                    self.default_lifetime,
+                    self.instance_id,
+                    Some(self.id),
+                ))
+                .unwrap();
+            self.dao_seq_number.increment();
         }
 
         let exp = (self.lifetime_unit as u64 * self.default_lifetime as u64)

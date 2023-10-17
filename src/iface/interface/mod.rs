@@ -620,12 +620,7 @@ impl Interface {
             }
 
             if dodag.dao_expiration <= ctx.now {
-                dodag.schedule_dao(
-                    ctx.rpl.mode_of_operation,
-                    our_addr,
-                    parent_address,
-                    ctx.now,
-                );
+                dodag.schedule_dao(ctx.rpl.mode_of_operation, our_addr, parent_address, ctx.now);
             }
         }
 
@@ -636,7 +631,7 @@ impl Interface {
             net_trace!("transmit DAO-ACK");
 
             let (mut dst_addr, seq) = dodag.dao_acks.pop().unwrap();
-            let rpl_instance_id = ctx.rpl.instance.unwrap().id;
+            let rpl_instance_id = dodag.instance_id;
             let icmp = Icmpv6Repr::Rpl(RplRepr::DestinationAdvertisementObjectAck {
                 rpl_instance_id,
                 sequence: seq.value(),
@@ -708,40 +703,12 @@ impl Interface {
             });
 
             if let Some(dao) = dodag.daos.iter_mut().find(|dao| dao.needs_sending) {
-                let mut options = heapless::Vec::new();
-                options
-                    .push(RplOptionRepr::RplTarget {
-                        prefix_length: 64,
-                        prefix: dao.child,
-                    })
-                    .unwrap();
-                options
-                    .push(RplOptionRepr::TransitInformation {
-                        external: false,
-                        path_control: 0,
-                        path_sequence: 0,
-                        path_lifetime: if dao.is_no_path {
-                            0
-                        } else {
-                            dodag.default_lifetime
-                        },
-                        parent_address: dao.parent,
-                    })
-                    .unwrap();
-
-                if dao.sequence.is_none() {
-                    dao.sequence = Some(dodag.dao_seq_number);
-                    dodag.dao_seq_number.increment();
-                }
-
                 dao.next_tx = Some(ctx.now + Duration::from_secs(60));
                 dao.sent_count += 1;
                 dao.needs_sending = false;
-                let sequence = dao.sequence.unwrap();
-                let to = dao.to;
+                let dst_addr = dao.to;
 
-                let icmp =
-                    Icmpv6Repr::Rpl(ctx.rpl.destination_advertisement_object(sequence, options));
+                let icmp = Icmpv6Repr::Rpl(dao.as_rpl_dao_repr());
 
                 let mut options = heapless::Vec::new();
                 options
@@ -749,8 +716,8 @@ impl Interface {
                         down: ctx.rpl.is_root,
                         rank_error: false,
                         forwarding_error: false,
-                        instance_id: ctx.rpl.instance.as_ref().unwrap().id,
-                        sender_rank: ctx.rpl.dodag.as_ref().unwrap().rank.raw_value(),
+                        instance_id: dodag.instance_id,
+                        sender_rank: dodag.rank.raw_value(),
                     }))
                     .unwrap();
 
@@ -759,7 +726,7 @@ impl Interface {
                 let ip_packet = super::ip_packet::Ipv6Packet {
                     header: Ipv6Repr {
                         src_addr: our_addr,
-                        dst_addr: to,
+                        dst_addr,
                         next_header: IpProtocol::Icmpv6,
                         payload_len: icmp.buffer_len(),
                         hop_limit: 64,
