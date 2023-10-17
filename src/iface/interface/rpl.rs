@@ -232,69 +232,116 @@ impl InterfaceInner {
         let sender_rank = Rank::new(dio.rank, self.rpl.of.min_hop_rank_increase());
 
         let our_addr = self.ipv6_addr().unwrap();
-        if let Some(dodag) = &mut self.rpl.dodag {
-            // Check DIO validity
-            // ==================
-            // We check if we can accept the DIO message:
-            // 1. The RPL instance is the same as our RPL instance.
-            // 2. The DODAG ID must be the same as our DODAG ID.
-            // 3. The version number must be the same or higher than ours.
-            // 4. The Mode of Operation must be the same as our Mode of Operation.
-            // 5. The Objective Function must be the same as our Ojbective ObjectiveFunction,
-            //    which we already checked.
-            if dio.rpl_instance_id != dodag.instance_id
-                || dio.dodag_id != dodag.id
-                || dio.version_number < dodag.version_number.value()
-                || ModeOfOperation::from(dio.mode_of_operation) != self.rpl.mode_of_operation
-            {
-                net_trace!(
-                    "dropping DIO packet (different INSTANCE ID/DODAG ID/MOP/lower Version Number)"
-                );
+        let dodag = self.rpl.dodag.as_mut()?;
+
+        // Check DIO validity
+        // ==================
+        // We check if we can accept the DIO message:
+        // 1. The RPL instance is the same as our RPL instance.
+        // 2. The DODAG ID must be the same as our DODAG ID.
+        // 3. The version number must be the same or higher than ours.
+        // 4. The Mode of Operation must be the same as our Mode of Operation.
+        // 5. The Objective Function must be the same as our Ojbective ObjectiveFunction,
+        //    which we already checked.
+        if dio.rpl_instance_id != dodag.instance_id
+            || dio.dodag_id != dodag.id
+            || dio.version_number < dodag.version_number.value()
+            || ModeOfOperation::from(dio.mode_of_operation) != self.rpl.mode_of_operation
+        {
+            net_trace!(
+                "dropping DIO packet (different INSTANCE ID/DODAG ID/MOP/lower Version Number)"
+            );
+            return None;
+        }
+
+        // Global repair
+        // =============
+        // If the Version number is higher than ours, we need to clear our parent set,
+        // remove our parent and reset our rank.
+        //
+        // When we are the root, we change the version number to one higher than the
+        // received one. Then we reset the Trickle timer, such that the information is
+        // propagated in the network.
+        if SequenceCounter::new(dio.version_number) > dodag.version_number {
+            net_trace!("version number higher than ours");
+
+            if self.rpl.is_root {
+                net_trace!("(root) using new version number + 1");
+
+                dodag.version_number = SequenceCounter::new(dio.version_number);
+                dodag.version_number.increment();
+
+                net_trace!("(root) resetting Trickle timer");
+                // Reset the trickle timer.
+                dodag.dio_timer.hear_inconsistency(self.now, &mut self.rand);
                 return None;
+            } else {
+                net_trace!("resetting parent set, resetting rank, removing parent");
+
+                dodag.version_number = SequenceCounter::new(dio.version_number);
+
+                // Clear the parent set, .
+                dodag.parent_set.clear();
+
+                // We do NOT send a No-path DAO.
+                let _ = dodag.remove_parent(
+                    self.rpl.mode_of_operation,
+                    our_addr,
+                    &self.rpl.of,
+                    self.now,
+                );
+
+                let dio = Icmpv6Repr::Rpl(self.rpl.dodag_information_object(Default::default()));
+
+                // Transmit a DIO with INFINITE rank, but with an updated Version number.
+                // Everyone knows they have to leave the network and form a new one.
+                return Some(IpPacket::new_ipv6(
+                    Ipv6Repr {
+                        src_addr: self.ipv6_addr().unwrap(),
+                        dst_addr: Ipv6Address::LINK_LOCAL_ALL_RPL_NODES,
+                        next_header: IpProtocol::Icmpv6,
+                        payload_len: dio.buffer_len(),
+                        hop_limit: 64,
+                    },
+                    IpPayload::Icmpv6(dio),
+                ));
             }
+        }
 
-            // Global repair
-            // =============
-            // If the Version number is higher than ours, we need to clear our parent set,
-            // remove our parent and reset our rank.
-            //
-            // When we are the root, we change the version number to one higher than the
-            // received one. Then we reset the Trickle timer, such that the information is
-            // propagated in the network.
-            if SequenceCounter::new(dio.version_number) > dodag.version_number {
-                net_trace!("version number higher than ours");
+        // Add the sender to our neighbor cache.
+        self.neighbor_cache.fill_with_expiration(
+            ip_repr.src_addr.into(),
+            src_ll_addr.unwrap(),
+            self.now + dodag.dio_timer.max_expiration() * 2,
+        );
 
-                if self.rpl.is_root {
-                    net_trace!("(root) using new version number + 1");
+        // Remove parent if parent has INFINITE rank
+        // =========================================
+        // If our parent transmits a DIO with an infinite rank, than it means that our
+        // parent is leaving the network. Thus we should deselect it as our parent.
+        // If there is no parent in the parent set, we also detach from the network by
+        // sending a DIO with an infinite rank.
+        if Some(ip_repr.src_addr) == dodag.parent {
+            if Rank::new(dio.rank, self.rpl.of.min_hop_rank_increase()) == Rank::INFINITE {
+                net_trace!("parent leaving, removing parent");
 
-                    dodag.version_number = SequenceCounter::new(dio.version_number);
-                    dodag.version_number.increment();
+                // Don't need to send a no-path DOA when parent is leaving.
+                let _ = dodag.remove_parent(
+                    self.rpl.mode_of_operation,
+                    our_addr,
+                    &self.rpl.of,
+                    self.now,
+                );
 
-                    net_trace!("(root) resetting Trickle timer");
-                    // Reset the trickle timer.
+                if dodag.parent.is_some() {
                     dodag.dio_timer.hear_inconsistency(self.now, &mut self.rand);
-                    return None;
                 } else {
-                    net_trace!("resetting parent set, resetting rank, removing parent");
+                    net_trace!("no potential parents, leaving network");
 
-                    dodag.version_number = SequenceCounter::new(dio.version_number);
-
-                    // Clear the parent set, .
-                    dodag.parent_set.clear();
-
-                    // We do NOT send a No-path DAO.
-                    let _ = dodag.remove_parent(
-                        self.rpl.mode_of_operation,
-                        our_addr,
-                        &self.rpl.of,
-                        self.now,
-                    );
-
+                    // DIO with INFINITE rank.
                     let dio =
                         Icmpv6Repr::Rpl(self.rpl.dodag_information_object(Default::default()));
 
-                    // Transmit a DIO with INFINITE rank, but with an updated Version number.
-                    // Everyone knows they have to leave the network and form a new one.
                     return Some(IpPacket::new_ipv6(
                         Ipv6Repr {
                             src_addr: self.ipv6_addr().unwrap(),
@@ -306,116 +353,66 @@ impl InterfaceInner {
                         IpPayload::Icmpv6(dio),
                     ));
                 }
-            }
-
-            // Add the sender to our neighbor cache.
-            self.neighbor_cache.fill_with_expiration(
-                ip_repr.src_addr.into(),
-                src_ll_addr.unwrap(),
-                self.now + dodag.dio_timer.max_expiration() * 2,
-            );
-
-            // Remove parent if parent has INFINITE rank
-            // =========================================
-            // If our parent transmits a DIO with an infinite rank, than it means that our
-            // parent is leaving the network. Thus we should deselect it as our parent.
-            // If there is no parent in the parent set, we also detach from the network by
-            // sending a DIO with an infinite rank.
-            if Some(ip_repr.src_addr) == dodag.parent {
-                if Rank::new(dio.rank, self.rpl.of.min_hop_rank_increase()) == Rank::INFINITE {
-                    net_trace!("parent leaving, removing parent");
-
-                    // Don't need to send a no-path DOA when parent is leaving.
-                    let _ = dodag.remove_parent(
-                        self.rpl.mode_of_operation,
-                        our_addr,
-                        &self.rpl.of,
-                        self.now,
-                    );
-
-                    if dodag.parent.is_some() {
-                        dodag.dio_timer.hear_inconsistency(self.now, &mut self.rand);
-                    } else {
-                        net_trace!("no potential parents, leaving network");
-
-                        // DIO with INFINITE rank.
-                        let dio =
-                            Icmpv6Repr::Rpl(self.rpl.dodag_information_object(Default::default()));
-
-                        return Some(IpPacket::new_ipv6(
-                            Ipv6Repr {
-                                src_addr: self.ipv6_addr().unwrap(),
-                                dst_addr: Ipv6Address::LINK_LOCAL_ALL_RPL_NODES,
-                                next_header: IpProtocol::Icmpv6,
-                                payload_len: dio.buffer_len(),
-                                hop_limit: 64,
-                            },
-                            IpPayload::Icmpv6(dio),
-                        ));
-                    }
-                } else {
-                    // DTSN increased, so we need to transmit a DAO.
-                    if SequenceCounter::new(dio.dtsn) > dodag.dtsn {
-                        net_trace!("DTSN increased, scheduling DAO");
-                        dodag.dao_expiration = self.now;
-                    }
-
-                    dodag
-                        .parent_set
-                        .find_mut(&dodag.parent.unwrap())
-                        .unwrap()
-                        .last_heard = self.now;
-
-                    // Trickle Consistency
-                    // ===================
-                    // When we are not the root, we hear a consistency when the DIO message is from
-                    // our parent and is valid. The validity of the message should be checked when we
-                    // reach this line.
-                    net_trace!("hearing consistency");
-                    dodag.dio_timer.hear_consistency();
-
-                    return None;
+            } else {
+                // DTSN increased, so we need to transmit a DAO.
+                if SequenceCounter::new(dio.dtsn) > dodag.dtsn {
+                    net_trace!("DTSN increased, scheduling DAO");
+                    dodag.dao_expiration = self.now;
                 }
-            }
 
-            // Add node to parent set
-            // ======================
-            // If the rank is smaller than ours, the instance id and the mode of operation is
-            // the same as ours,, we can add the sender to our parent set.
-            if sender_rank < dodag.rank && !self.rpl.is_root {
-                net_trace!("adding {} to parent set", ip_repr.src_addr);
+                dodag
+                    .parent_set
+                    .find_mut(&dodag.parent.unwrap())
+                    .unwrap()
+                    .last_heard = self.now;
 
-                dodag.parent_set.add(
-                    ip_repr.src_addr,
-                    Parent::new(
-                        sender_rank,
-                        SequenceCounter::new(dio.version_number),
-                        dodag.id,
-                        self.now,
-                    ),
-                );
-
-                // Select parent
-                // =============
-                // Send a no-path DAO to our old parent.
-                // Select and schedule DAO to new parent.
-                dodag.find_new_parent(self.rpl.mode_of_operation, our_addr, &self.rpl.of, self.now);
-            }
-
-            // Trickle Consistency
-            // ===================
-            // We should increment the Trickle timer counter for a valid DIO message,
-            // when we are the root, and the rank that is advertised in the DIO message is
-            // not infinite (so we received a valid DIO from a child).
-            if self.rpl.is_root && sender_rank != Rank::INFINITE {
+                // Trickle Consistency
+                // ===================
+                // When we are not the root, we hear a consistency when the DIO message is from
+                // our parent and is valid. The validity of the message should be checked when we
+                // reach this line.
                 net_trace!("hearing consistency");
                 dodag.dio_timer.hear_consistency();
-            }
 
-            None
-        } else {
-            None
+                return None;
+            }
         }
+
+        // Add node to parent set
+        // ======================
+        // If the rank is smaller than ours, the instance id and the mode of operation is
+        // the same as ours,, we can add the sender to our parent set.
+        if sender_rank < dodag.rank && !self.rpl.is_root {
+            net_trace!("adding {} to parent set", ip_repr.src_addr);
+
+            dodag.parent_set.add(
+                ip_repr.src_addr,
+                Parent::new(
+                    sender_rank,
+                    SequenceCounter::new(dio.version_number),
+                    dodag.id,
+                    self.now,
+                ),
+            );
+
+            // Select parent
+            // =============
+            // Send a no-path DAO to our old parent.
+            // Select and schedule DAO to new parent.
+            dodag.find_new_parent(self.rpl.mode_of_operation, our_addr, &self.rpl.of, self.now);
+        }
+
+        // Trickle Consistency
+        // ===================
+        // We should increment the Trickle timer counter for a valid DIO message,
+        // when we are the root, and the rank that is advertised in the DIO message is
+        // not infinite (so we received a valid DIO from a child).
+        if self.rpl.is_root && sender_rank != Rank::INFINITE {
+            net_trace!("hearing consistency");
+            dodag.dio_timer.hear_consistency();
+        }
+
+        None
     }
 
     pub(super) fn process_rpl_dao<'output, 'payload: 'output>(
