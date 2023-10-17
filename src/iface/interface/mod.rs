@@ -525,305 +525,281 @@ impl Interface {
     where
         D: Device + ?Sized,
     {
+        use crate::iface::interface::rpl::create_source_routing_header;
+
+        fn transmit<D>(
+            ctx: &mut InterfaceInner,
+            device: &mut D,
+            packet: IpPacket,
+            fragmenter: &mut Fragmenter,
+        ) -> bool
+        where
+            D: Device + ?Sized,
+        {
+            let Some(tx_token) = device.transmit(ctx.now) else {
+                return false;
+            };
+
+            match ctx.dispatch_ip(tx_token, PacketMeta::default(), packet, fragmenter) {
+                Ok(()) => true,
+                Err(e) => {
+                    net_debug!("failed to send packet: {:?}", e);
+                    false
+                }
+            }
+        }
+
         let Interface {
             inner: ctx,
             fragmenter,
             ..
         } = self;
 
-        // If we have been parentless for more than twice the time of the maximum Trickle timer
-        // interval, we remove ourself from the DODAG. Normally, there should be no DAO-ACK or DAO
-        // in the queues, so no data is lost.
-        if !ctx.rpl.is_root {
-            if let Some(dodag) = &ctx.rpl.dodag {
-                if let Some(instant) = dodag.without_parent {
-                    if instant < ctx.now - dodag.dio_timer.max_expiration() * 2 {
-                        ctx.rpl.dodag = None;
-                        ctx.rpl.dis_expiration = ctx.now;
-                    }
-                }
-            }
+        // When we are not the root and we are not part of any DODAG, make sure to transmit
+        // a DODAG Information Solicitation (DIS) message. Only transmit this message when
+        // the DIS timer is expired.
+        if !ctx.rpl.is_root && ctx.rpl.dodag.is_none() && ctx.now >= ctx.rpl.dis_expiration {
+            net_trace!("transmitting RPL DIS");
+            ctx.rpl.dis_expiration = ctx.now + Duration::from_secs(60);
+
+            let dis = RplRepr::DodagInformationSolicitation {
+                options: Default::default(),
+            };
+            let icmp_rpl = Icmpv6Repr::Rpl(dis);
+
+            let ipv6_repr = Ipv6Repr {
+                src_addr: ctx.ipv6_addr().unwrap(),
+                dst_addr: Ipv6Address::LINK_LOCAL_ALL_RPL_NODES,
+                next_header: IpProtocol::Icmpv6,
+                payload_len: icmp_rpl.buffer_len(),
+                hop_limit: 64,
+            };
+
+            return transmit(
+                ctx,
+                device,
+                IpPacket::new_ipv6(ipv6_repr, IpPayload::Icmpv6(icmp_rpl)),
+                fragmenter,
+            );
         }
 
-        let packet = 'packet: {
-            let our_addr = ctx.ipv6_addr().unwrap();
-            if let Some(dodag) = &mut ctx.rpl.dodag {
-                // Check if we have heard from our parent recently. If not, we remove our parent.
-                if let Some(parent) = &mut dodag.parent {
-                    let parent = dodag.parent_set.find(parent).unwrap();
+        let our_addr = ctx.ipv6_addr().unwrap();
+        let Some(dodag) = &mut ctx.rpl.dodag else {
+            return false;
+        };
 
-                    if parent.last_heard < ctx.now - dodag.dio_timer.max_expiration() * 2 {
-                        dodag.remove_parent(
-                            ctx.rpl.mode_of_operation,
-                            our_addr,
-                            &ctx.rpl.of,
-                            ctx.now,
-                        );
+        // Schedule a DAO before the route will expire.
+        if let Some(parent_address) = dodag.parent {
+            let parent = dodag.parent_set.find(&parent_address).unwrap();
 
-                        net_trace!("transmitting DIO (INFINITE rank)");
-                        let mut options = heapless::Vec::new();
-                        options.push(ctx.rpl.dodag_configuration()).unwrap();
+            // If we did not hear from our parent for some time,
+            // remove our parent. Ideally, we should check if we could find another parent.
+            if parent.last_heard < ctx.now - dodag.dio_timer.max_expiration() * 2 {
+                dodag.remove_parent(ctx.rpl.mode_of_operation, our_addr, &ctx.rpl.of, ctx.now);
 
-                        let icmp = Icmpv6Repr::Rpl(ctx.rpl.dodag_information_object(options));
+                net_trace!("transmitting DIO (INFINITE rank)");
+                let mut options = heapless::Vec::new();
+                options.push(ctx.rpl.dodag_configuration()).unwrap();
 
-                        let ipv6_repr = Ipv6Repr {
-                            src_addr: ctx.ipv6_addr().unwrap(),
-                            dst_addr: Ipv6Address::LINK_LOCAL_ALL_RPL_NODES,
-                            next_header: IpProtocol::Icmpv6,
-                            payload_len: icmp.buffer_len(),
-                            hop_limit: 64,
-                        };
-
-                        break 'packet Some(IpPacket::new_ipv6(ipv6_repr, IpPayload::Icmpv6(icmp)));
-                    }
-
-                    if dodag.dao_expiration <= ctx.now {
-                        dodag.schedule_dao(
-                            ctx.rpl.mode_of_operation,
-                            our_addr,
-                            dodag.parent.unwrap(),
-                            ctx.now,
-                        );
-                    }
-                }
-
-                #[cfg(feature = "rpl-mop-1")]
-                if !dodag.dao_acks.is_empty() {
-                    // Transmit all the DAO-ACKs that are still queued.
-                    net_trace!("transmit DOA-ACK");
-
-                    let (mut dst_addr, seq) = dodag.dao_acks.pop().unwrap();
-                    let rpl_instance_id = ctx.rpl.instance.unwrap().id;
-                    let icmp = Icmpv6Repr::Rpl(RplRepr::DestinationAdvertisementObjectAck {
-                        rpl_instance_id,
-                        sequence: seq.value(),
-                        status: 0,
-                        dodag_id: if rpl_instance_id.is_local() {
-                            Some(dodag.id)
-                        } else {
-                            None
-                        },
-                    });
-
-                    // A DAO-ACK always goes down. In MOP1, both Hop-by-Hop option and source
-                    // routing header MAY be included. However, a source routing header must always
-                    // be included when it is going down.
-                    use crate::iface::RplModeOfOperation;
-                    let routing = if matches!(
-                        ctx.rpl.mode_of_operation,
-                        RplModeOfOperation::NonStoringMode
-                    ) {
-                        if ctx.rpl.is_root {
-                            net_trace!("creating source routing header to {}", dst_addr);
-                            let mut nh = dst_addr;
-
-                            // Create the source routing header
-                            let mut route = heapless::Vec::<Ipv6Address, 32>::new();
-                            route.push(nh).unwrap();
-
-                            loop {
-                                let next_hop =
-                                    ctx.rpl.dodag.as_ref().unwrap().relations.find_next_hop(nh);
-                                if let Some(next_hop) = next_hop {
-                                    net_trace!("  via {}", next_hop);
-                                    if next_hop == ctx.ipv6_addr().unwrap() {
-                                        break;
-                                    }
-
-                                    route.push(next_hop).unwrap();
-                                    nh = next_hop;
-                                } else {
-                                    net_trace!("no route found, last next hop: {}", nh);
-                                    break 'packet None;
-                                }
-                            }
-
-                            let segments_left = route.len() - 1;
-                            if segments_left == 0 {
-                                net_trace!("no source routing needed, node is neighbor");
-                                None
-                            } else {
-                                dst_addr = route[segments_left];
-
-                                // Create the route list for the source routing header
-                                let mut addresses = heapless::Vec::new();
-                                for addr in route[..segments_left].iter().rev() {
-                                    addresses.push(*addr).unwrap();
-                                }
-
-                                // Add the source routing option to the packet.
-                                Some(Ipv6RoutingRepr::Rpl {
-                                    segments_left: segments_left as u8,
-                                    cmpr_i: 0,
-                                    cmpr_e: 0,
-                                    pad: 0,
-                                    addresses,
-                                })
-                            }
-                        } else {
-                            unreachable!();
-                        }
-                    } else {
-                        None
-                    };
-
-                    let ip_packet = super::ip_packet::Ipv6Packet {
-                        header: Ipv6Repr {
-                            src_addr: ctx.ipv6_addr().unwrap(),
-                            dst_addr,
-                            next_header: IpProtocol::Icmpv6,
-                            payload_len: icmp.buffer_len(),
-                            hop_limit: 64,
-                        },
-                        hop_by_hop: None,
-                        routing,
-                        payload: IpPayload::Icmpv6(icmp),
-                    };
-                    break 'packet Some(IpPacket::Ipv6(ip_packet));
-                }
-
-                #[cfg(feature = "rpl-mop-1")]
-                if !dodag.daos.is_empty() {
-                    // Transmit all the DAOs that are still queued or waiting for an ACK.
-                    dodag.daos.iter_mut().for_each(|dao| {
-                        if !dao.needs_sending {
-                            if let Some(next_tx) = dao.next_tx {
-                                if next_tx < ctx.now {
-                                    dao.needs_sending = true;
-                                }
-                            } else {
-                                dao.next_tx = Some(ctx.now + dodag.dio_timer.min_expiration());
-                            }
-                        }
-                    });
-
-                    dodag.daos.retain(|dao| dao.sent_count < 4);
-
-                    if let Some(dao) = dodag.daos.iter_mut().find(|dao| dao.needs_sending) {
-                        net_trace!("parent: {:?}", dao.parent);
-                        let mut options = heapless::Vec::new();
-                        options
-                            .push(RplOptionRepr::RplTarget {
-                                prefix_length: 64,
-                                prefix: dao.child,
-                            })
-                            .unwrap();
-                        options
-                            .push(RplOptionRepr::TransitInformation {
-                                external: false,
-                                path_control: 0,
-                                path_sequence: 0,
-                                path_lifetime: if dao.is_no_path {
-                                    0
-                                } else {
-                                    dodag.default_lifetime
-                                },
-                                parent_address: dao.parent,
-                            })
-                            .unwrap();
-
-                        if dao.sequence.is_none() {
-                            dao.sequence = Some(dodag.dao_seq_number);
-                            dodag.dao_seq_number.increment();
-                        }
-
-                        dao.next_tx = Some(ctx.now + Duration::from_secs(60));
-                        dao.sent_count += 1;
-                        dao.needs_sending = false;
-                        let sequence = dao.sequence.unwrap();
-                        let to = dao.to;
-
-                        let icmp = Icmpv6Repr::Rpl(
-                            ctx.rpl.destination_advertisement_object(sequence, options),
-                        );
-
-                        let mut options = heapless::Vec::new();
-                        options
-                            .push(Ipv6OptionRepr::Rpl(RplHopByHopRepr {
-                                down: ctx.rpl.is_root,
-                                rank_error: false,
-                                forwarding_error: false,
-                                instance_id: ctx.rpl.instance.as_ref().unwrap().id,
-                                sender_rank: ctx.rpl.dodag.as_ref().unwrap().rank.raw_value(),
-                            }))
-                            .unwrap();
-
-                        let hbh = Ipv6HopByHopRepr { options };
-
-                        let ip_packet = super::ip_packet::Ipv6Packet {
-                            header: Ipv6Repr {
-                                src_addr: ctx.ipv6_addr().unwrap(),
-                                dst_addr: to,
-                                next_header: IpProtocol::Icmpv6,
-                                payload_len: icmp.buffer_len(),
-                                hop_limit: 64,
-                            },
-                            hop_by_hop: Some(hbh),
-                            routing: None,
-                            payload: IpPayload::Icmpv6(icmp),
-                        };
-                        net_trace!("transmitting DAO");
-                        break 'packet Some(IpPacket::Ipv6(ip_packet));
-                    }
-                }
-
-                if (ctx.rpl.is_root || dodag.parent.is_some())
-                    && dodag.dio_timer.poll(ctx.now, &mut ctx.rand)
-                {
-                    // If we are the ROOT, or we have a parent, transmit a DIO based on the Trickle timer.
-                    net_trace!("transmitting DIO");
-
-                    let mut options = heapless::Vec::new();
-                    options.push(ctx.rpl.dodag_configuration()).unwrap();
-
-                    let icmp = Icmpv6Repr::Rpl(ctx.rpl.dodag_information_object(options));
-
-                    let ipv6_repr = Ipv6Repr {
-                        src_addr: ctx.ipv6_addr().unwrap(),
-                        dst_addr: Ipv6Address::LINK_LOCAL_ALL_RPL_NODES,
-                        next_header: IpProtocol::Icmpv6,
-                        payload_len: icmp.buffer_len(),
-                        hop_limit: 64,
-                    };
-
-                    Some(IpPacket::new_ipv6(ipv6_repr, IpPayload::Icmpv6(icmp)))
-                } else {
-                    None
-                }
-            } else if !ctx.rpl.is_root && ctx.now >= ctx.rpl.dis_expiration {
-                net_trace!("transmitting DIS");
-
-                ctx.rpl.dis_expiration = ctx.now + Duration::from_secs(60);
-
-                let dis = RplRepr::DodagInformationSolicitation {
-                    options: Default::default(),
-                };
-                let icmp_rpl = Icmpv6Repr::Rpl(dis);
+                let icmp = Icmpv6Repr::Rpl(ctx.rpl.dodag_information_object(options));
 
                 let ipv6_repr = Ipv6Repr {
                     src_addr: ctx.ipv6_addr().unwrap(),
                     dst_addr: Ipv6Address::LINK_LOCAL_ALL_RPL_NODES,
                     next_header: IpProtocol::Icmpv6,
-                    payload_len: icmp_rpl.buffer_len(),
+                    payload_len: icmp.buffer_len(),
                     hop_limit: 64,
                 };
 
-                Some(IpPacket::new_ipv6(ipv6_repr, IpPayload::Icmpv6(icmp_rpl)))
+                return transmit(
+                    ctx,
+                    device,
+                    IpPacket::new_ipv6(ipv6_repr, IpPayload::Icmpv6(icmp)),
+                    fragmenter,
+                );
+            }
+
+            if dodag.dao_expiration <= ctx.now {
+                dodag.schedule_dao(
+                    ctx.rpl.mode_of_operation,
+                    our_addr,
+                    parent_address,
+                    ctx.now,
+                );
+            }
+        }
+
+        // Transmit any DAO-ACK that are queued.
+        #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop-3"))]
+        if !dodag.dao_acks.is_empty() {
+            // Transmit all the DAO-ACKs that are still queued.
+            net_trace!("transmit DAO-ACK");
+
+            let (mut dst_addr, seq) = dodag.dao_acks.pop().unwrap();
+            let rpl_instance_id = ctx.rpl.instance.unwrap().id;
+            let icmp = Icmpv6Repr::Rpl(RplRepr::DestinationAdvertisementObjectAck {
+                rpl_instance_id,
+                sequence: seq.value(),
+                status: 0,
+                dodag_id: if rpl_instance_id.is_local() {
+                    Some(dodag.id)
+                } else {
+                    None
+                },
+            });
+
+            // A DAO-ACK always goes down. In MOP1, both Hop-by-Hop option and source
+            // routing header MAY be included. However, a source routing header must always
+            // be included when it is going down.
+            use crate::iface::RplModeOfOperation;
+            let routing = if matches!(
+                ctx.rpl.mode_of_operation,
+                RplModeOfOperation::NonStoringMode
+            ) && ctx.rpl.is_root
+            {
+                net_trace!("creating source routing header to {}", dst_addr);
+                if let Some((source_route, new_dst_addr)) =
+                    create_source_routing_header(ctx, our_addr, dst_addr)
+                {
+                    dst_addr = new_dst_addr;
+                    Some(source_route)
+                } else {
+                    None
+                }
             } else {
                 None
-            }
-        };
+            };
 
-        if let Some(packet) = packet {
-            if let Some(tx_token) = device.transmit(ctx.now) {
-                match ctx.dispatch_ip(tx_token, PacketMeta::default(), packet, fragmenter) {
-                    Ok(()) => return true,
-                    Err(e) => {
-                        net_debug!("Failed to send DIS: {:?}", e);
-                        return false;
+            let ip_packet = super::ip_packet::Ipv6Packet {
+                header: Ipv6Repr {
+                    src_addr: ctx.ipv6_addr().unwrap(),
+                    dst_addr,
+                    next_header: IpProtocol::Icmpv6,
+                    payload_len: icmp.buffer_len(),
+                    hop_limit: 64,
+                },
+                hop_by_hop: None,
+                routing,
+                payload: IpPayload::Icmpv6(icmp),
+            };
+            return transmit(ctx, device, IpPacket::Ipv6(ip_packet), fragmenter);
+        }
+
+        // Transmit any DAO that are queued.
+        #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop-3"))]
+        if !dodag.daos.is_empty() {
+            // Remove DAOs that have been transmitted 3 times and did not get acknowledged.
+            // TODO: we should be able to remove the parent when it was actually not acknowledged
+            // after 3 times. This means that there is no valid path to the parent.
+            dodag.daos.retain(|dao| dao.sent_count < 4);
+
+            // Go over each queued DAO and check if they need to be transmitted.
+            dodag.daos.iter_mut().for_each(|dao| {
+                if !dao.needs_sending {
+                    let Some(next_tx) = dao.next_tx else {
+                        dao.next_tx = Some(ctx.now + dodag.dio_timer.min_expiration());
+                        return;
+                    };
+
+                    if next_tx < ctx.now {
+                        dao.needs_sending = true;
                     }
                 }
+            });
+
+            if let Some(dao) = dodag.daos.iter_mut().find(|dao| dao.needs_sending) {
+                let mut options = heapless::Vec::new();
+                options
+                    .push(RplOptionRepr::RplTarget {
+                        prefix_length: 64,
+                        prefix: dao.child,
+                    })
+                    .unwrap();
+                options
+                    .push(RplOptionRepr::TransitInformation {
+                        external: false,
+                        path_control: 0,
+                        path_sequence: 0,
+                        path_lifetime: if dao.is_no_path {
+                            0
+                        } else {
+                            dodag.default_lifetime
+                        },
+                        parent_address: dao.parent,
+                    })
+                    .unwrap();
+
+                if dao.sequence.is_none() {
+                    dao.sequence = Some(dodag.dao_seq_number);
+                    dodag.dao_seq_number.increment();
+                }
+
+                dao.next_tx = Some(ctx.now + Duration::from_secs(60));
+                dao.sent_count += 1;
+                dao.needs_sending = false;
+                let sequence = dao.sequence.unwrap();
+                let to = dao.to;
+
+                let icmp =
+                    Icmpv6Repr::Rpl(ctx.rpl.destination_advertisement_object(sequence, options));
+
+                let mut options = heapless::Vec::new();
+                options
+                    .push(Ipv6OptionRepr::Rpl(RplHopByHopRepr {
+                        down: ctx.rpl.is_root,
+                        rank_error: false,
+                        forwarding_error: false,
+                        instance_id: ctx.rpl.instance.as_ref().unwrap().id,
+                        sender_rank: ctx.rpl.dodag.as_ref().unwrap().rank.raw_value(),
+                    }))
+                    .unwrap();
+
+                let hbh = Ipv6HopByHopRepr { options };
+
+                let ip_packet = super::ip_packet::Ipv6Packet {
+                    header: Ipv6Repr {
+                        src_addr: our_addr,
+                        dst_addr: to,
+                        next_header: IpProtocol::Icmpv6,
+                        payload_len: icmp.buffer_len(),
+                        hop_limit: 64,
+                    },
+                    hop_by_hop: Some(hbh),
+                    routing: None,
+                    payload: IpPayload::Icmpv6(icmp),
+                };
+                net_trace!("transmitting DAO");
+                return transmit(ctx, device, IpPacket::Ipv6(ip_packet), fragmenter);
             }
+        }
+
+        // When we are part of a DODAG, we should check if our DIO Trickle timer
+        // expired. If it expires, a DODAG Information Object (DIO) should be
+        // transmitted.
+        if (ctx.rpl.is_root || dodag.parent.is_some())
+            && dodag.dio_timer.poll(ctx.now, &mut ctx.rand)
+        {
+            net_trace!("transmitting DIO");
+
+            let mut options = heapless::Vec::new();
+            options.push(ctx.rpl.dodag_configuration()).unwrap();
+
+            let icmp = Icmpv6Repr::Rpl(ctx.rpl.dodag_information_object(options));
+
+            let ipv6_repr = Ipv6Repr {
+                src_addr: our_addr,
+                dst_addr: Ipv6Address::LINK_LOCAL_ALL_RPL_NODES,
+                next_header: IpProtocol::Icmpv6,
+                payload_len: icmp.buffer_len(),
+                hop_limit: 64,
+            };
+
+            return transmit(
+                ctx,
+                device,
+                IpPacket::new_ipv6(ipv6_repr, IpPayload::Icmpv6(icmp)),
+                fragmenter,
+            );
         }
 
         false

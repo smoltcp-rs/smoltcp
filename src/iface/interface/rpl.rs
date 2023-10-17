@@ -18,9 +18,7 @@ impl InterfaceInner {
             RplRepr::DodagInformationObject { .. } => {
                 self.process_rpl_dio(src_ll_addr, ip_repr, repr)
             }
-            RplRepr::DestinationAdvertisementObject { .. } => {
-                self.process_rpl_dao(ip_repr, repr)
-            }
+            RplRepr::DestinationAdvertisementObject { .. } => self.process_rpl_dao(ip_repr, repr),
             RplRepr::DestinationAdvertisementObjectAck { .. } => {
                 self.process_rpl_dao_ack(ip_repr, repr)
             }
@@ -862,4 +860,61 @@ impl InterfaceInner {
     //icmp,
     //))
     //}
+}
+
+pub(crate) fn create_source_routing_header(
+    ctx: &super::InterfaceInner,
+    our_addr: Ipv6Address,
+    dst_addr: Ipv6Address,
+) -> Option<(Ipv6RoutingRepr, Ipv6Address)> {
+    let mut route = heapless::Vec::<Ipv6Address, 32>::new();
+    route.push(dst_addr).unwrap();
+
+    let mut next = dst_addr;
+
+    loop {
+        let next_hop = ctx
+            .rpl
+            .dodag
+            .as_ref()
+            .unwrap()
+            .relations
+            .find_next_hop(next);
+        if let Some(next_hop) = next_hop {
+            net_trace!("  via {}", next_hop);
+            if next_hop == our_addr {
+                break;
+            }
+
+            route.push(next_hop).unwrap();
+            next = next_hop;
+        } else {
+            net_trace!("no route found, last next hop: {}", next);
+            todo!();
+        }
+    }
+
+    let segments_left = route.len() - 1;
+
+    if segments_left == 0 {
+        net_trace!("no source routing needed, node is neighbor");
+        None
+    } else {
+        // Create the route list for the source routing header
+        let mut addresses = heapless::Vec::new();
+        for addr in route[..segments_left].iter().rev() {
+            addresses.push(*addr).unwrap();
+        }
+
+        Some((
+            Ipv6RoutingRepr::Rpl {
+                segments_left: segments_left as u8,
+                cmpr_i: 0,
+                cmpr_e: 0,
+                pad: 0,
+                addresses,
+            },
+            route[segments_left],
+        ))
+    }
 }
