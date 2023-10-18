@@ -348,6 +348,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Header<&'a T> {
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
+#[allow(clippy::large_enum_variant)]
 pub enum Repr {
     Type2 {
         /// Number of route segments remaining.
@@ -366,7 +367,7 @@ pub enum Repr {
         /// RPL Source Route Header.
         pad: u8,
         /// Vector of addresses, numbered 1 to `n`.
-        addresses: heapless::Vec<Address, 8>,
+        addresses: heapless::Vec<Address, { crate::config::RPL_RELATIONS_BUFFER_COUNT }>,
     },
 }
 

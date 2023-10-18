@@ -8,6 +8,7 @@ use crate::wire::{
 };
 
 use crate::iface::rpl::*;
+use heapless::Vec;
 
 impl InterfaceInner {
     pub fn rpl(&self) -> &Rpl {
@@ -50,24 +51,20 @@ impl InterfaceInner {
         };
 
         for opt in dis.options {
-            match opt {
-                // RFC6550 section 8.3:
-                // The solicited information option is used for filtering incoming DIS
-                // packets. This option will contain predicates, which we need to match on.
-                // When we match all to requested predicates, then we answer with a DIO,
-                // otherwise we just drop the packet.
-                RplOptionRepr::SolicitedInformation(info) => {
-                    if (info.version_predicate
-                        && dodag.version_number != SequenceCounter::new(info.version_number))
-                        || (info.dodag_id_predicate && dodag.id != info.dodag_id)
-                        || (info.instance_id_predicate && dodag.instance_id != info.rpl_instance_id)
-                    {
-                        net_trace!("predicates did not match, dropping packet");
-                        return None;
-                    }
+            // RFC6550 section 8.3:
+            // The solicited information option is used for filtering incoming DIS
+            // packets. This option will contain predicates, which we need to match on.
+            // When we match all to requested predicates, then we answer with a DIO,
+            // otherwise we just drop the packet.
+            if let RplOptionRepr::SolicitedInformation(info) = opt {
+                if (info.version_predicate
+                    && dodag.version_number != SequenceCounter::new(info.version_number))
+                    || (info.dodag_id_predicate && dodag.id != info.dodag_id)
+                    || (info.instance_id_predicate && dodag.instance_id != info.rpl_instance_id)
+                {
+                    net_trace!("predicates did not match, dropping packet");
+                    return None;
                 }
-
-                _ => {}
             }
         }
 
@@ -76,7 +73,7 @@ impl InterfaceInner {
         if ip_repr.dst_addr.is_unicast() {
             net_trace!("unicast DIS, sending unicast DIO");
 
-            let mut options = heapless::Vec::new();
+            let mut options = Vec::new();
             _ = options.push(self.rpl.dodag_configuration());
 
             let dio = Icmpv6Repr::Rpl(self.rpl.dodag_information_object(options));
@@ -465,7 +462,7 @@ impl InterfaceInner {
             && !self.rpl.is_root
         {
             net_trace!("forwarding DAO to root");
-            let mut options = heapless::Vec::new();
+            let mut options = Vec::new();
             _ = options.push(Ipv6OptionRepr::Rpl(RplHopByHopRepr {
                 down: false,
                 rank_error: false,
@@ -568,13 +565,14 @@ impl InterfaceInner {
             }
 
             // Schedule an ACK if requested and the DAO was for us.
-            if expect_ack && ip_repr.dst_addr == our_addr {
-                if let Err(_) = dodag
+            if expect_ack
+                && ip_repr.dst_addr == our_addr
+                && dodag
                     .dao_acks
                     .push((ip_repr.src_addr, SequenceCounter::new(sequence)))
-                {
-                    net_trace!("unable to schedule DAO-ACK");
-                }
+                    .is_err()
+            {
+                net_trace!("unable to schedule DAO-ACK");
             }
 
             #[cfg(feature = "rpl-mop-2")]
@@ -584,7 +582,7 @@ impl InterfaceInner {
                 net_trace!("forwarding relation information to parent");
 
                 // Send message upward.
-                let mut options = heapless::Vec::new();
+                let mut options = Vec::new();
                 _ = options.push(RplOptionRepr::RplTarget(RplTarget {
                     prefix_length: _prefix_length,
                     prefix: child,
@@ -689,6 +687,7 @@ impl InterfaceInner {
     }
 }
 
+/// Create a source routing header based on RPL relation information.
 pub(crate) fn create_source_routing_header(
     ctx: &super::InterfaceInner,
     our_addr: Ipv6Address,
@@ -698,7 +697,7 @@ pub(crate) fn create_source_routing_header(
         unreachable!()
     };
 
-    let mut route = heapless::Vec::<Ipv6Address, 32>::new();
+    let mut route = Vec::<Ipv6Address, { crate::config::RPL_RELATIONS_BUFFER_COUNT }>::new();
     _ = route.push(dst_addr);
 
     let mut next = dst_addr;
@@ -711,12 +710,15 @@ pub(crate) fn create_source_routing_header(
                 break;
             }
 
-            // TODO: add a maximum amount!
-            _ = route.push(next_hop);
+            if route.push(next_hop).is_err() {
+                net_trace!("could not add hop to route buffer");
+                return None;
+            }
+
             next = next_hop;
         } else {
-            net_trace!("no route found, last next hop: {}", next);
-            todo!();
+            net_trace!("no route found, last next hop is {}", next);
+            return None;
         }
     }
 
@@ -727,7 +729,7 @@ pub(crate) fn create_source_routing_header(
         None
     } else {
         // Create the route list for the source routing header
-        let mut addresses = heapless::Vec::new();
+        let mut addresses = Vec::new();
         for addr in route[..segments_left].iter().rev() {
             _ = addresses.push(*addr);
         }
