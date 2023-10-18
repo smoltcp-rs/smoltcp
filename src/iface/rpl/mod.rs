@@ -453,16 +453,16 @@ impl Dodag {
             if let Some(old_parent) = old_parent {
                 if matches!(mop, ModeOfOperation::StoringMode) && old_parent != parent {
                     net_trace!("scheduling NO-PATH DAO for {} to {}", child, old_parent);
-                    self.daos
-                        .push(Dao::no_path(
-                            old_parent,
-                            child,
-                            self.dao_seq_number,
-                            self.instance_id,
-                            Some(self.id),
-                        ))
-                        .unwrap();
-                    self.dao_seq_number.increment();
+                    match self.daos.push(Dao::no_path(
+                        old_parent,
+                        child,
+                        self.dao_seq_number,
+                        self.instance_id,
+                        Some(self.id),
+                    )) {
+                        Ok(_) => self.dao_seq_number.increment(),
+                        Err(_) => net_trace!("could not schedule DAO"),
+                    }
                 }
             }
 
@@ -492,6 +492,7 @@ impl Dodag {
         now: Instant,
     ) {
         net_trace!("scheduling DAO: {} is parent of {}", parent, child);
+
         #[cfg(feature = "rpl-mop-1")]
         if matches!(mop, ModeOfOperation::NonStoringMode) {
             self.daos
