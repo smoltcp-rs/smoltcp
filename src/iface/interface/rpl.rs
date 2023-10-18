@@ -1,4 +1,12 @@
-use super::*;
+use super::InterfaceInner;
+use crate::iface::ip_packet::{IpPacket, IpPayload, Ipv6Packet};
+use crate::time::{Duration, Instant};
+use crate::wire::{
+    Error, HardwareAddress, Icmpv6Repr, IpProtocol, Ipv6Address, Ipv6HopByHopRepr, Ipv6OptionRepr,
+    Ipv6Repr, Ipv6RoutingRepr, RplDao, RplDaoAck, RplDio, RplDis, RplDodagConfiguration,
+    RplHopByHopRepr, RplOptionRepr, RplRepr, RplTarget, RplTransitInformation,
+};
+
 use crate::iface::rpl::*;
 
 impl InterfaceInner {
@@ -16,38 +24,38 @@ impl InterfaceInner {
         match repr {
             RplRepr::DodagInformationSolicitation(dis) => self.process_rpl_dis(ip_repr, dis),
             RplRepr::DodagInformationObject(dio) => self.process_rpl_dio(src_ll_addr, ip_repr, dio),
+            #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop-3"))]
             RplRepr::DestinationAdvertisementObject(dao) => self.process_rpl_dao(ip_repr, dao),
+            #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop-3"))]
             RplRepr::DestinationAdvertisementObjectAck(dao_ack) => {
                 self.process_rpl_dao_ack(ip_repr, dao_ack)
+            }
+            #[allow(unreachable_patterns)]
+            _ => {
+                net_trace!("packet not supported in curent MOP");
+                None
             }
         }
     }
 
     /// Process an incoming RPL DIS packet.
-    //
-    // When processing a DIS packet, we first check if the Solicited Information is present. This
-    // option has predicates that we need to match on. It is used as a filtering mechanism.
-    //
-    // When receiving and validating a DIS message, we need to reset our Trickle timer. More
-    // information can be found in RFC6550 8.3.
-    //
-    // When receiving a unicast DIS message, we should respond with a unicast DIO message, instead
-    // of a multicast message.
     pub(super) fn process_rpl_dis<'output, 'payload: 'output>(
         &mut self,
         ip_repr: Ipv6Repr,
         dis: RplDis<'payload>,
     ) -> Option<IpPacket<'output>> {
+        // We cannot handle a DIS when we are not part of any DODAG.
         let Some(dodag) = &mut self.rpl.dodag else {
             return None;
         };
 
         for opt in dis.options {
             match opt {
+                // RFC6550 section 8.3:
                 // The solicited information option is used for filtering incoming DIS
                 // packets. This option will contain predicates, which we need to match on.
                 // When we match all to requested predicates, then we answer with a DIO,
-                // otherwise we just drop the packet. See section 8.3 for more information.
+                // otherwise we just drop the packet.
                 RplOptionRepr::SolicitedInformation(info) => {
                     if (info.version_predicate
                         && dodag.version_number != SequenceCounter::new(info.version_number))
@@ -69,7 +77,7 @@ impl InterfaceInner {
             net_trace!("unicast DIS, sending unicast DIO");
 
             let mut options = heapless::Vec::new();
-            options.push(self.rpl.dodag_configuration()).unwrap();
+            _ = options.push(self.rpl.dodag_configuration());
 
             let dio = Icmpv6Repr::Rpl(self.rpl.dodag_information_object(options));
 
@@ -452,15 +460,13 @@ impl InterfaceInner {
         {
             net_trace!("forwarding DAO to root");
             let mut options = heapless::Vec::new();
-            options
-                .push(Ipv6OptionRepr::Rpl(RplHopByHopRepr {
-                    down: false,
-                    rank_error: false,
-                    forwarding_error: false,
-                    instance_id: dodag.instance_id,
-                    sender_rank: dodag.rank.raw_value(),
-                }))
-                .unwrap();
+            _ = options.push(Ipv6OptionRepr::Rpl(RplHopByHopRepr {
+                down: false,
+                rank_error: false,
+                forwarding_error: false,
+                instance_id: dodag.instance_id,
+                sender_rank: dodag.rank.raw_value(),
+            }));
 
             let hbh = Ipv6HopByHopRepr { options };
 
@@ -560,10 +566,12 @@ impl InterfaceInner {
 
             // Schedule an ACK if requested and the DAO was for us.
             if expect_ack && ip_repr.dst_addr == our_addr {
-                dodag
+                if let Err(_) = dodag
                     .dao_acks
                     .push((ip_repr.src_addr, SequenceCounter::new(sequence)))
-                    .unwrap();
+                {
+                    net_trace!("unable to schedule DAO-ACK");
+                }
             }
 
             #[cfg(feature = "rpl-mop-2")]
@@ -574,21 +582,17 @@ impl InterfaceInner {
 
                 // Send message upward.
                 let mut options = heapless::Vec::new();
-                options
-                    .push(RplOptionRepr::RplTarget(RplTarget {
-                        prefix_length: _prefix_length,
-                        prefix: child,
-                    }))
-                    .unwrap();
-                options
-                    .push(RplOptionRepr::TransitInformation(RplTransitInformation {
-                        external: false,
-                        path_control: 0,
-                        path_sequence: _path_sequence,
-                        path_lifetime: lifetime,
-                        parent_address: None,
-                    }))
-                    .unwrap();
+                _ = options.push(RplOptionRepr::RplTarget(RplTarget {
+                    prefix_length: _prefix_length,
+                    prefix: child,
+                }));
+                _ = options.push(RplOptionRepr::TransitInformation(RplTransitInformation {
+                    external: false,
+                    path_control: 0,
+                    path_sequence: _path_sequence,
+                    path_lifetime: lifetime,
+                    parent_address: None,
+                }));
 
                 let dao_seq_number = dodag.dao_seq_number;
                 let icmp = Icmpv6Repr::Rpl(
@@ -687,26 +691,25 @@ pub(crate) fn create_source_routing_header(
     our_addr: Ipv6Address,
     dst_addr: Ipv6Address,
 ) -> Option<(Ipv6RoutingRepr, Ipv6Address)> {
+    let Some(dodag) = &ctx.rpl.dodag else {
+        unreachable!()
+    };
+
     let mut route = heapless::Vec::<Ipv6Address, 32>::new();
-    route.push(dst_addr).unwrap();
+    _ = route.push(dst_addr);
 
     let mut next = dst_addr;
 
     loop {
-        let next_hop = ctx
-            .rpl
-            .dodag
-            .as_ref()
-            .unwrap()
-            .relations
-            .find_next_hop(next);
+        let next_hop = dodag.relations.find_next_hop(next);
         if let Some(next_hop) = next_hop {
             net_trace!("  via {}", next_hop);
             if next_hop == our_addr {
                 break;
             }
 
-            route.push(next_hop).unwrap();
+            // TODO: add a maximum amount!
+            _ = route.push(next_hop);
             next = next_hop;
         } else {
             net_trace!("no route found, last next hop: {}", next);
@@ -723,7 +726,7 @@ pub(crate) fn create_source_routing_header(
         // Create the route list for the source routing header
         let mut addresses = heapless::Vec::new();
         for addr in route[..segments_left].iter().rev() {
-            addresses.push(*addr).unwrap();
+            _ = addresses.push(*addr);
         }
 
         Some((
