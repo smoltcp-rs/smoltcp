@@ -445,7 +445,7 @@ impl Dodag {
         now: Instant,
     ) {
         // Remove expired parents from the parent set.
-        self.parent_set.purge(now, self.dio_timer.max_expiration());
+        self.parent_set.purge(now, self.dio_timer.max_expiration() * 2);
 
         let old_parent = self.parent;
 
