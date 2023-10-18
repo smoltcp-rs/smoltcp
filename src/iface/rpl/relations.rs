@@ -75,12 +75,12 @@ impl Relations {
     }
 
     /// Purge expired relations.
-    pub fn purge(&mut self, now: Instant) {
+    /// 
+    /// Returns `true` when a relation was actually removed.
+    pub fn purge(&mut self, now: Instant) -> bool {
         let len = self.relations.len();
         self.relations.retain(|r| r.expiration > now);
-        if self.relations.len() != len {
-            net_trace!("removed old relation");
-        }
+        self.relations.len() != len
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &Relation> {

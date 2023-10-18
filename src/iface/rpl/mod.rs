@@ -46,7 +46,7 @@ impl From<crate::wire::rpl::ModeOfOperation> for ModeOfOperation {
             #[cfg(feature = "rpl-mop-3")]
             WireMop::StoringModeWithMulticast => Self::StoringModeWithMulticast,
 
-            _ => Self::NoDownwardRoutesMaintained,
+            _ => unreachable!(),
         }
     }
 }
@@ -153,6 +153,7 @@ pub struct Dodag {
     pub(crate) path_control_size: u8,
 
     pub(crate) dtsn: SequenceCounter,
+    pub(crate) dtsn_incremented_at: Instant,
     pub(crate) default_lifetime: u8,
     pub(crate) lifetime_unit: u16,
     pub(crate) grounded: bool,
@@ -279,6 +280,7 @@ impl Rpl {
                     authentication_enabled: false,
                     path_control_size: 0,
                     dtsn: SequenceCounter::default(),
+                    dtsn_incremented_at: now,
                     default_lifetime: 30,
                     lifetime_unit: 60,
                     grounded: false,

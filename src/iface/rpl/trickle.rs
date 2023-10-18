@@ -100,6 +100,10 @@ impl TrickleTimer {
         self.t_exp.min(self.i_exp)
     }
 
+    pub(crate) fn next_expiration(&self) -> Instant {
+        self.t_exp
+    }
+
     /// Signal the Trickle timer that a consistency has been heard, and thus increasing it's
     /// counter.
     pub(crate) fn hear_consistency(&mut self) {

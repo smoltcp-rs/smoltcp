@@ -9,6 +9,7 @@ pub(crate) struct Parent {
     pub dodag_id: Ipv6Address,
     pub rank: Rank,
     pub version_number: SequenceCounter,
+    pub dtsn: SequenceCounter,
     pub last_heard: Instant,
 }
 
@@ -17,12 +18,14 @@ impl Parent {
     pub(crate) fn new(
         rank: Rank,
         version_number: SequenceCounter,
+        dtsn: SequenceCounter,
         dodag_id: Ipv6Address,
         last_heard: Instant,
     ) -> Self {
         Self {
             rank,
             version_number,
+            dtsn,
             dodag_id,
             last_heard,
         }
@@ -111,13 +114,20 @@ mod tests {
         let mut set = ParentSet::default();
         set.add(
             Default::default(),
-            Parent::new(Rank::ROOT, Default::default(), Default::default(), now),
+            Parent::new(
+                Rank::ROOT,
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                now,
+            ),
         );
 
         assert_eq!(
             set.find(&Default::default()),
             Some(&Parent::new(
                 Rank::ROOT,
+                Default::default(),
                 Default::default(),
                 Default::default(),
                 now,
@@ -143,6 +153,7 @@ mod tests {
                 Parent::new(
                     Rank::new(256 * i, DEFAULT_MIN_HOP_RANK_INCREASE),
                     Default::default(),
+                    Default::default(),
                     address,
                     now,
                 ),
@@ -152,6 +163,7 @@ mod tests {
                 set.find(&address),
                 Some(&Parent::new(
                     Rank::new(256 * i, DEFAULT_MIN_HOP_RANK_INCREASE),
+                    Default::default(),
                     Default::default(),
                     address,
                     now,
@@ -168,6 +180,7 @@ mod tests {
             Parent::new(
                 Rank::new(256 * 8, DEFAULT_MIN_HOP_RANK_INCREASE),
                 Default::default(),
+                Default::default(),
                 address,
                 now,
             ),
@@ -182,6 +195,7 @@ mod tests {
             Parent::new(
                 Rank::new(0, DEFAULT_MIN_HOP_RANK_INCREASE),
                 Default::default(),
+                Default::default(),
                 address,
                 now,
             ),
@@ -190,6 +204,7 @@ mod tests {
             set.find(&address),
             Some(&Parent::new(
                 Rank::new(0, DEFAULT_MIN_HOP_RANK_INCREASE),
+                Default::default(),
                 Default::default(),
                 address,
                 now,

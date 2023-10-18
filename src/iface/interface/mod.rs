@@ -588,6 +588,28 @@ impl Interface {
             return false;
         };
 
+        // Remove stale relations and increment the DTSN when we actually removed
+        // a relation. This means that a node forgot to retransmit a DAO on time.
+        #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop-3"))]
+        if dodag.relations.purge(ctx.now) {
+            use crate::iface::rpl::ModeOfOperation;
+            if match ctx.rpl.mode_of_operation {
+                #[cfg(feature = "rpl-mop-1")]
+                ModeOfOperation::NonStoringMode if ctx.rpl.is_root => true,
+                #[cfg(feature = "rpl-mop-2")]
+                ModeOfOperation::StoringMode => true,
+                #[cfg(feature = "rpl-mop-3")]
+                ModeOfOperation::StoringModeWithMulticast => true,
+                _ => false,
+            } {
+                if dodag.dtsn_incremented_at < dodag.dio_timer.next_expiration() {
+                    net_trace!("incrementing DTSN");
+                    dodag.dtsn_incremented_at = dodag.dio_timer.next_expiration();
+                    dodag.dtsn.increment();
+                }
+            }
+        }
+
         // Schedule a DAO before the route will expire.
         if let Some(parent_address) = dodag.parent {
             let parent = dodag.parent_set.find(&parent_address).unwrap();

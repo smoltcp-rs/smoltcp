@@ -223,6 +223,7 @@ impl InterfaceInner {
                 authentication_enabled: dodag_conf.authentication_enabled,
                 path_control_size: dodag_conf.path_control_size,
                 dtsn: SequenceCounter::default(),
+                dtsn_incremented_at: self.now,
                 default_lifetime: dodag_conf.default_lifetime,
                 lifetime_unit: dodag_conf.lifetime_unit,
                 grounded: dio.grounded,
@@ -361,16 +362,16 @@ impl InterfaceInner {
                 }
             } else {
                 // Update the time we last heard our parent.
-                dodag
-                    .parent_set
-                    .find_mut(&dodag.parent.unwrap())
-                    .unwrap()
-                    .last_heard = self.now;
+                let Some(parent) = dodag.parent_set.find_mut(&dodag.parent.unwrap()) else {
+                    unreachable!();
+                };
+
+                parent.last_heard = self.now;
 
                 // RFC 6550 section 9.6:
                 // If a node hears one of its parents increase the DTSN, the node MUST
                 // schedule a DAO. In non-storing mode, a node should increment its own DTSN.
-                if SequenceCounter::new(dio.dtsn) > dodag.dtsn {
+                if SequenceCounter::new(dio.dtsn) > parent.dtsn {
                     net_trace!("DTSN increased, scheduling DAO");
                     dodag.dao_expiration = self.now;
 
@@ -402,6 +403,7 @@ impl InterfaceInner {
                 Parent::new(
                     sender_rank,
                     SequenceCounter::new(dio.version_number),
+                    SequenceCounter::new(dio.dtsn),
                     dodag.id,
                     self.now,
                 ),
@@ -537,9 +539,6 @@ impl InterfaceInner {
                 _ => net_trace!("received invalid option, continuing"),
             }
         }
-
-        // Remove stale relations.
-        dodag.relations.purge(self.now);
 
         if let (
             Some(child),
