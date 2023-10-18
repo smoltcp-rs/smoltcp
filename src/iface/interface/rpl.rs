@@ -323,13 +323,11 @@ impl InterfaceInner {
             self.now + dodag.dio_timer.max_expiration() * 2,
         );
 
-        // Remove parent if parent has INFINITE rank
-        // =========================================
-        // If our parent transmits a DIO with an infinite rank, than it means that our
-        // parent is leaving the network. Thus we should deselect it as our parent.
-        // If there is no parent in the parent set, we also detach from the network by
-        // sending a DIO with an infinite rank.
         if Some(ip_repr.src_addr) == dodag.parent {
+            // If our parent transmits a DIO with an infinite rank, than it means that our
+            // parent is leaving the network. Thus we should deselect it as our parent.
+            // If there is no parent in the parent set, we also detach from the network by
+            // sending a DIO with an infinite rank.
             if Rank::new(dio.rank, self.rpl.of.min_hop_rank_increase()) == Rank::INFINITE {
                 net_trace!("parent leaving, removing parent");
 
@@ -362,20 +360,26 @@ impl InterfaceInner {
                     ));
                 }
             } else {
-                // DTSN increased, so we need to transmit a DAO.
-                if SequenceCounter::new(dio.dtsn) > dodag.dtsn {
-                    net_trace!("DTSN increased, scheduling DAO");
-                    dodag.dao_expiration = self.now;
-                }
-
+                // Update the time we last heard our parent.
                 dodag
                     .parent_set
                     .find_mut(&dodag.parent.unwrap())
                     .unwrap()
                     .last_heard = self.now;
 
-                // Trickle Consistency
-                // ===================
+                // RFC 6550 section 9.6:
+                // If a node hears one of its parents increase the DTSN, the node MUST
+                // schedule a DAO. In non-storing mode, a node should increment its own DTSN.
+                if SequenceCounter::new(dio.dtsn) > dodag.dtsn {
+                    net_trace!("DTSN increased, scheduling DAO");
+                    dodag.dao_expiration = self.now;
+
+                    #[cfg(feature = "rpl-mop-1")]
+                    if matches!(self.rpl.mode_of_operation, ModeOfOperation::NonStoringMode) {
+                        dodag.dtsn.increment();
+                    }
+                }
+
                 // When we are not the root, we hear a consistency when the DIO message is from
                 // our parent and is valid. The validity of the message should be checked when we
                 // reach this line.
