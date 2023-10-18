@@ -370,23 +370,6 @@ impl Rpl {
             options,
         })
     }
-
-    /// ## Panics
-    /// This function will panic if the node is not part of a DODAG.
-    pub(crate) fn destination_advertisement_object<'o>(
-        &self,
-        sequence: SequenceCounter,
-        options: heapless::Vec<RplOptionRepr<'o>, 2>,
-    ) -> RplRepr<'o> {
-        let dodag = self.dodag.as_ref().unwrap();
-        RplRepr::DestinationAdvertisementObject(RplDao {
-            rpl_instance_id: dodag.instance_id,
-            expect_ack: true,
-            sequence: sequence.value(),
-            dodag_id: Some(dodag.id),
-            options,
-        })
-    }
 }
 
 impl Dodag {
@@ -445,7 +428,8 @@ impl Dodag {
         now: Instant,
     ) {
         // Remove expired parents from the parent set.
-        self.parent_set.purge(now, self.dio_timer.max_expiration() * 2);
+        self.parent_set
+            .purge(now, self.dio_timer.max_expiration() * 2);
 
         let old_parent = self.parent;
 
@@ -531,5 +515,22 @@ impl Dodag {
             .checked_sub(2 * 60)
             .unwrap_or(2 * 60);
         self.dao_expiration = now + Duration::from_secs(exp);
+    }
+
+    /// ## Panics
+    /// This function will panic if the node is not part of a DODAG.
+    pub(crate) fn destination_advertisement_object<'o>(
+        &mut self,
+        options: heapless::Vec<RplOptionRepr<'o>, 2>,
+    ) -> RplRepr<'o> {
+        let sequence = self.dao_seq_number;
+        self.dao_seq_number.increment();
+        RplRepr::DestinationAdvertisementObject(RplDao {
+            rpl_instance_id: self.instance_id,
+            expect_ack: true,
+            sequence: sequence.value(),
+            dodag_id: Some(self.id),
+            options,
+        })
     }
 }

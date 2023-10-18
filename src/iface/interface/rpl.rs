@@ -4,7 +4,7 @@ use crate::time::{Duration, Instant};
 use crate::wire::{
     Error, HardwareAddress, Icmpv6Repr, IpProtocol, Ipv6Address, Ipv6HopByHopRepr, Ipv6OptionRepr,
     Ipv6Repr, Ipv6RoutingRepr, RplDao, RplDaoAck, RplDio, RplDis, RplDodagConfiguration,
-    RplHopByHopRepr, RplOptionRepr, RplRepr, RplTarget, RplTransitInformation,
+    RplHopByHopRepr, RplOptionRepr, RplRepr,
 };
 
 use crate::iface::rpl::*;
@@ -431,20 +431,12 @@ impl InterfaceInner {
         ip_repr: Ipv6Repr,
         dao: RplDao<'payload>,
     ) -> Option<IpPacket<'output>> {
-        let RplDao {
-            rpl_instance_id,
-            expect_ack,
-            sequence,
-            dodag_id,
-            ref options,
-        } = dao;
-
         let our_addr = self.ipv6_addr().unwrap();
         let dodag = self.rpl.dodag.as_mut()?;
 
         // Check validity of the DAO
         // =========================
-        if dodag.instance_id != rpl_instance_id && Some(dodag.id) != dodag_id {
+        if dodag.instance_id != dao.rpl_instance_id && Some(dodag.id) != dao.dodag_id {
             net_trace!("dropping DAO, wrong DODAG ID/INSTANCE ID");
             return None;
         }
@@ -462,6 +454,7 @@ impl InterfaceInner {
             && !self.rpl.is_root
         {
             net_trace!("forwarding DAO to root");
+            // TODO: we should use the hop-by-hop if there was already one.
             let mut options = Vec::new();
             _ = options.push(Ipv6OptionRepr::Rpl(RplHopByHopRepr {
                 down: false,
@@ -483,142 +476,83 @@ impl InterfaceInner {
             }));
         }
 
-        let mut child = None;
-        let mut lifetime = None;
-        let mut p_sequence = None;
-        let mut prefix_length = None;
-        let mut parent = None;
+        let mut targets: Vec<Ipv6Address, 8> = Vec::new();
 
-        // Process options
-        // ===============
-        for opt in options {
+        for opt in &dao.options {
             match opt {
-                //skip padding
-                RplOptionRepr::Pad1 | RplOptionRepr::PadN(_) => (),
-                RplOptionRepr::RplTarget(RplTarget {
-                    prefix_length: pl,
-                    prefix,
-                }) => {
-                    prefix_length = Some(*pl);
-                    child = Some(*prefix);
+                RplOptionRepr::RplTarget(target) => {
+                    // FIXME: we only take care of IPv6 addresses.
+                    // However, a RPL target can also be a prefix or a multicast group.
+                    // When receiving such a message, it might break our implementation.
+                    targets.push(target.prefix).unwrap();
                 }
-                RplOptionRepr::TransitInformation(RplTransitInformation {
-                    path_sequence,
-                    path_lifetime,
-                    parent_address,
-                    ..
-                }) => {
-                    lifetime = Some(*path_lifetime);
-                    p_sequence = Some(*path_sequence);
-                    parent = match self.rpl.mode_of_operation {
-                        ModeOfOperation::NoDownwardRoutesMaintained => unreachable!(),
+                RplOptionRepr::TransitInformation(transit) => {
+                    if transit.path_lifetime == 0 {
+                        // Remove all targets from the relation list since we received a NO-PATH
+                        // DAO.
+                        for target in &targets {
+                            net_trace!("remove {} relation (NO-PATH)", target);
+                            dodag.relations.remove_relation(*target);
+                        }
+                    } else {
+                        let next_hop = match self.rpl.mode_of_operation {
+                            ModeOfOperation::NoDownwardRoutesMaintained => unreachable!(),
+                            #[cfg(feature = "rpl-mop-1")]
+                            ModeOfOperation::NonStoringMode => transit.parent_address.unwrap(),
+                            #[cfg(feature = "rpl-mop-2")]
+                            ModeOfOperation::StoringMode => ip_repr.src_addr,
+                            #[cfg(feature = "rpl-mop-3")]
+                            ModeOfOperation::StoringModeWithMulticast => ip_repr.src_addr,
+                        };
 
-                        #[cfg(feature = "rpl-mop-1")]
-                        ModeOfOperation::NonStoringMode => {
-                            if let Some(parent_address) = parent_address {
-                                Some(*parent_address)
-                            } else {
-                                net_debug!("Parent Address required for MOP1, dropping packet");
-                                return None;
-                            }
+                        for target in &targets {
+                            net_trace!("adding {} => {} relation", target, next_hop);
+                            dodag.relations.add_relation(
+                                *target,
+                                next_hop,
+                                self.now
+                                    + Duration::from_secs(
+                                        transit.path_lifetime as u64 * dodag.lifetime_unit as u64,
+                                    ),
+                            );
                         }
 
-                        #[cfg(feature = "rpl-mop-2")]
-                        ModeOfOperation::StoringMode => Some(ip_repr.src_addr),
-
-                        #[cfg(feature = "rpl-mop-3")]
-                        ModeOfOperation::StoringModeWithMulticast => Some(ip_repr.src_addr),
-                    };
+                        targets.clear();
+                    }
                 }
-                RplOptionRepr::RplTargetDescriptor { .. } => {
-                    net_trace!("Target Descriptor Option not yet supported");
-                }
-                _ => net_trace!("received invalid option, continuing"),
+                _ => {}
             }
         }
 
-        if let (
-            Some(child),
-            Some(lifetime),
-            Some(_path_sequence),
-            Some(_prefix_length),
-            Some(parent),
-        ) = (child, lifetime, p_sequence, prefix_length, parent)
+        net_trace!("RPL relations:");
+        for relation in dodag.relations.iter() {
+            net_trace!("  {}", relation);
+        }
+
+        // Schedule a DAO-ACK if an ACK is requested.
+        if dao.expect_ack
+            && dodag
+                .dao_acks
+                .push((ip_repr.src_addr, SequenceCounter::new(dao.sequence)))
+                .is_err()
         {
-            if lifetime == 0 {
-                net_trace!("remove {} => {} relation (NO-PATH)", child, parent);
-                dodag.relations.remove_relation(child);
-            } else {
-                net_trace!("adding {} => {} relation", child, parent);
+            net_trace!("unable to schedule DAO-ACK for {}", dao.sequence);
+        }
 
-                //Create the relation with the child and parent addresses extracted from the options
-                dodag.relations.add_relation(
-                    child,
-                    parent,
-                    self.now + Duration::from_secs(lifetime as u64 * dodag.lifetime_unit as u64),
-                );
+        // Transmit a DAO to our parent if we are not the root.
+        if !self.rpl.is_root {
+            let icmp = dodag.destination_advertisement_object(dao.options);
 
-                net_trace!("RPL relations:");
-                for relation in dodag.relations.iter() {
-                    net_trace!("  {}", relation);
-                }
-            }
-
-            // Schedule an ACK if requested and the DAO was for us.
-            if expect_ack
-                && ip_repr.dst_addr == our_addr
-                && dodag
-                    .dao_acks
-                    .push((ip_repr.src_addr, SequenceCounter::new(sequence)))
-                    .is_err()
-            {
-                net_trace!("unable to schedule DAO-ACK");
-            }
-
-            #[cfg(feature = "rpl-mop-2")]
-            if matches!(self.rpl.mode_of_operation, ModeOfOperation::StoringMode)
-                && !self.rpl.is_root
-            {
-                net_trace!("forwarding relation information to parent");
-
-                // Send message upward.
-                let mut options = Vec::new();
-                _ = options.push(RplOptionRepr::RplTarget(RplTarget {
-                    prefix_length: _prefix_length,
-                    prefix: child,
-                }));
-                _ = options.push(RplOptionRepr::TransitInformation(RplTransitInformation {
-                    external: false,
-                    path_control: 0,
-                    path_sequence: _path_sequence,
-                    path_lifetime: lifetime,
-                    parent_address: None,
-                }));
-
-                let dao_seq_number = dodag.dao_seq_number;
-                let icmp = Icmpv6Repr::Rpl(
-                    self.rpl
-                        .destination_advertisement_object(dao_seq_number, options),
-                );
-
-                let dodag = self.rpl.dodag.as_mut()?;
-
-                // Selecting new parent (so new information).
-                dodag.dao_seq_number.increment();
-
-                return Some(IpPacket::new_ipv6(
-                    Ipv6Repr {
-                        src_addr: our_addr,
-                        dst_addr: dodag.parent.unwrap(),
-                        next_header: IpProtocol::Icmpv6,
-                        payload_len: icmp.buffer_len(),
-                        hop_limit: 64,
-                    },
-                    IpPayload::Icmpv6(icmp),
-                ));
-            }
-        } else {
-            net_trace!("not all required info received for adding relation");
+            return Some(IpPacket::new_ipv6(
+                Ipv6Repr {
+                    src_addr: our_addr,
+                    dst_addr: dodag.parent.unwrap(),
+                    next_header: IpProtocol::Icmpv6,
+                    payload_len: icmp.buffer_len(),
+                    hop_limit: 64,
+                },
+                IpPayload::Icmpv6(Icmpv6Repr::Rpl(icmp)),
+            ));
         }
 
         None
