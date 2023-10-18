@@ -510,10 +510,10 @@ impl InterfaceInner {
                             dodag.relations.add_relation(
                                 *target,
                                 next_hop,
-                                self.now
-                                    + Duration::from_secs(
-                                        transit.path_lifetime as u64 * dodag.lifetime_unit as u64,
-                                    ),
+                                self.now,
+                                Duration::from_secs(
+                                    transit.path_lifetime as u64 * dodag.lifetime_unit as u64,
+                                ),
                             );
                         }
 
