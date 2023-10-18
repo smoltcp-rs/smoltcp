@@ -472,7 +472,11 @@ impl Dodag {
                 self.parent = Some(parent);
                 self.without_parent = None;
                 self.rank = of.rank(self.rank, self.parent_set.find(&parent).unwrap().rank);
-                self.schedule_dao(mop, child, parent, now);
+
+                #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop-3"))]
+                if !matches!(mop, ModeOfOperation::NoDownwardRoutesMaintained) {
+                    self.schedule_dao(mop, child, parent, now);
+                }
             }
         } else {
             self.without_parent = Some(now);
