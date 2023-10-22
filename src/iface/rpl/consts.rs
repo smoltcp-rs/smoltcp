@@ -1,4 +1,3 @@
-pub(crate) const SEQUENCE_WINDOW: u8 = 16;
 
 pub(crate) const DEFAULT_MIN_HOP_RANK_INCREASE: u16 = 256;
 

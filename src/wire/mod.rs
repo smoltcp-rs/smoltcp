@@ -166,6 +166,7 @@ pub use self::rpl::{
     DestinationAdvertisementObject as RplDao, DestinationAdvertisementObjectAck as RplDaoAck,
     DodagInformationObject as RplDio, DodagInformationSolicitation as RplDis,
     InstanceId as RplInstanceId, Repr as RplRepr,
+    SequenceCounter as RplSequenceCounter,
 };
 
 #[cfg(all(feature = "proto-sixlowpan", feature = "medium-ieee802154"))]

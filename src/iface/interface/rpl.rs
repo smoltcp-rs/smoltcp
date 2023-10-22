@@ -4,7 +4,7 @@ use crate::time::{Duration, Instant};
 use crate::wire::{
     Error, HardwareAddress, Icmpv6Repr, IpProtocol, Ipv6Address, Ipv6HopByHopRepr, Ipv6OptionRepr,
     Ipv6Repr, Ipv6RoutingRepr, RplDao, RplDaoAck, RplDio, RplDis, RplDodagConfiguration,
-    RplHopByHopRepr, RplOptionRepr, RplRepr,
+    RplHopByHopRepr, RplOptionRepr, RplRepr, RplSequenceCounter,
 };
 
 use crate::iface::rpl::*;
@@ -57,8 +57,7 @@ impl InterfaceInner {
             // When we match all to requested predicates, then we answer with a DIO,
             // otherwise we just drop the packet.
             if let RplOptionRepr::SolicitedInformation(info) = opt {
-                if (info.version_predicate
-                    && dodag.version_number != SequenceCounter::new(info.version_number))
+                if (info.version_predicate && dodag.version_number != info.version_number)
                     || (info.dodag_id_predicate && dodag.id != info.dodag_id)
                     || (info.instance_id_predicate && dodag.instance_id != info.rpl_instance_id)
                 {
@@ -206,7 +205,7 @@ impl InterfaceInner {
             let dodag = Dodag {
                 instance_id: dio.rpl_instance_id,
                 id: dio.dodag_id,
-                version_number: SequenceCounter::new(dio.version_number),
+                version_number: dio.version_number,
                 preference: dio.dodag_preference,
                 rank: Rank::INFINITE,
                 dio_timer: TrickleTimer::new(
@@ -219,12 +218,12 @@ impl InterfaceInner {
                 without_parent: Some(self.now),
                 authentication_enabled: dodag_conf.authentication_enabled,
                 path_control_size: dodag_conf.path_control_size,
-                dtsn: SequenceCounter::default(),
+                dtsn: RplSequenceCounter::default(),
                 dtsn_incremented_at: self.now,
                 default_lifetime: dodag_conf.default_lifetime,
                 lifetime_unit: dodag_conf.lifetime_unit,
                 grounded: dio.grounded,
-                dao_seq_number: SequenceCounter::default(),
+                dao_seq_number: RplSequenceCounter::default(),
                 dao_acks: Default::default(),
                 daos: Default::default(),
                 parent_set: Default::default(),
@@ -251,7 +250,7 @@ impl InterfaceInner {
         //    which we already checked.
         if dio.rpl_instance_id != dodag.instance_id
             || dio.dodag_id != dodag.id
-            || dio.version_number < dodag.version_number.value()
+            || dio.version_number < dodag.version_number
             || ModeOfOperation::from(dio.mode_of_operation) != self.rpl.mode_of_operation
         {
             net_trace!(
@@ -268,13 +267,13 @@ impl InterfaceInner {
         // When we are the root, we change the version number to one higher than the
         // received one. Then we reset the Trickle timer, such that the information is
         // propagated in the network.
-        if SequenceCounter::new(dio.version_number) > dodag.version_number {
+        if dio.version_number > dodag.version_number {
             net_trace!("version number higher than ours");
 
             if self.rpl.is_root {
                 net_trace!("(root) using new version number + 1");
 
-                dodag.version_number = SequenceCounter::new(dio.version_number);
+                dodag.version_number = dio.version_number;
                 dodag.version_number.increment();
 
                 net_trace!("(root) resetting Trickle timer");
@@ -284,7 +283,7 @@ impl InterfaceInner {
             } else {
                 net_trace!("resetting parent set, resetting rank, removing parent");
 
-                dodag.version_number = SequenceCounter::new(dio.version_number);
+                dodag.version_number = dio.version_number;
 
                 // Clear the parent set, .
                 dodag.parent_set.clear();
@@ -368,7 +367,7 @@ impl InterfaceInner {
                 // RFC 6550 section 9.6:
                 // If a node hears one of its parents increase the DTSN, the node MUST
                 // schedule a DAO. In non-storing mode, a node should increment its own DTSN.
-                if SequenceCounter::new(dio.dtsn) > parent.dtsn {
+                if dio.dtsn > parent.dtsn {
                     net_trace!("DTSN increased, scheduling DAO");
                     dodag.dao_expiration = self.now;
 
@@ -398,8 +397,8 @@ impl InterfaceInner {
             if let Err(parent) = dodag.parent_set.add(Parent::new(
                 ip_repr.src_addr,
                 sender_rank,
-                SequenceCounter::new(dio.version_number),
-                SequenceCounter::new(dio.dtsn),
+                dio.version_number,
+                dio.dtsn,
                 dodag.id,
                 self.now,
             )) {
@@ -533,7 +532,7 @@ impl InterfaceInner {
         if dao.expect_ack
             && dodag
                 .dao_acks
-                .push((ip_repr.src_addr, SequenceCounter::new(dao.sequence)))
+                .push((ip_repr.src_addr, dao.sequence))
                 .is_err()
         {
             net_trace!("unable to schedule DAO-ACK for {}", dao.sequence);
@@ -575,9 +574,9 @@ impl InterfaceInner {
         if rpl_instance_id == dodag.instance_id
             && (dodag_id == Some(dodag.id) || dodag_id.is_none())
         {
-            dodag.daos.retain(|dao| {
-                !(dao.to == ip_repr.src_addr && dao.sequence == SequenceCounter::new(sequence))
-            });
+            dodag
+                .daos
+                .retain(|dao| !(dao.to == ip_repr.src_addr && dao.sequence == sequence));
 
             if status == 0 {
                 net_trace!("DAO {} acknowledged", sequence);

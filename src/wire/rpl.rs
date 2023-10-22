@@ -8,6 +8,208 @@ use super::{Error, Result};
 use crate::wire::icmpv6::Packet;
 use crate::wire::ipv6::Address;
 
+pub(crate) const SEQUENCE_WINDOW: u8 = 16;
+
+/// Implementation of sequence counters defined in [RFC 6550 § 7.2]. Values from 128 and greater
+/// are used as a linear sequence to indicate a restart and bootstrap the counter. Values less than
+/// or equal to 127 are used as a circular sequence number space of size 128. When operating in the
+/// circular region, if sequence numbers are detected to be too far apart, then they are not
+/// comparable.
+///
+/// [RFC 6550 § 7.2]: https://datatracker.ietf.org/doc/html/rfc6550#section-7.2
+#[derive(Debug, Clone, Copy, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct SequenceCounter(u8);
+
+impl Default for SequenceCounter {
+    fn default() -> Self {
+        // RFC6550 7.2 recommends 240 (256 - SEQUENCE_WINDOW) as the initialization value of the
+        // counter.
+        Self(240)
+    }
+}
+
+impl core::fmt::Display for SequenceCounter {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}", self.value())
+    }
+}
+
+impl From<u8> for SequenceCounter {
+    fn from(value: u8) -> Self {
+        Self(value)
+    }
+}
+
+impl SequenceCounter {
+    /// Create a new sequence counter.
+    ///
+    /// Use `Self::default()` when a new sequence counter needs to be created with a value that is
+    /// recommended in RFC6550 7.2, being 240.
+    pub fn new(value: u8) -> Self {
+        Self(value)
+    }
+
+    /// Return the value of the sequence counter.
+    pub fn value(&self) -> u8 {
+        self.0
+    }
+
+    /// Increment the sequence counter.
+    ///
+    /// When the sequence counter is greater than or equal to 128, the maximum value is 255.
+    /// When the sequence counter is less than 128, the maximum value is 127.
+    ///
+    /// When an increment of the sequence counter would cause the counter to increment beyond its
+    /// maximum value, the counter MUST wrap back to zero.
+    pub fn increment(&mut self) {
+        let max = if self.0 >= 128 { 255 } else { 127 };
+
+        self.0 = match self.0.checked_add(1) {
+            Some(val) if val <= max => val,
+            _ => 0,
+        };
+    }
+}
+
+impl PartialEq for SequenceCounter {
+    fn eq(&self, other: &Self) -> bool {
+        let a = self.value() as usize;
+        let b = other.value() as usize;
+
+        if ((128..=255).contains(&a) && (0..=127).contains(&b))
+            || ((128..=255).contains(&b) && (0..=127).contains(&a))
+        {
+            false
+        } else {
+            let result = if a > b { a - b } else { b - a };
+
+            if result <= SEQUENCE_WINDOW as usize {
+                // RFC1982
+                a == b
+            } else {
+                // This case is actually not comparable.
+                false
+            }
+        }
+    }
+}
+
+impl PartialOrd for SequenceCounter {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        use core::cmp::Ordering;
+
+        let a = self.value() as usize;
+        let b = other.value() as usize;
+
+        if (128..256).contains(&a) && (0..128).contains(&b) {
+            if 256 + b - a <= SEQUENCE_WINDOW as usize {
+                Some(Ordering::Less)
+            } else {
+                Some(Ordering::Greater)
+            }
+        } else if (128..256).contains(&b) && (0..128).contains(&a) {
+            if 256 + a - b <= SEQUENCE_WINDOW as usize {
+                Some(Ordering::Greater)
+            } else {
+                Some(Ordering::Less)
+            }
+        } else if ((0..128).contains(&a) && (0..128).contains(&b))
+            || ((128..256).contains(&a) && (128..256).contains(&b))
+        {
+            let result = if a > b { a - b } else { b - a };
+
+            if result <= SEQUENCE_WINDOW as usize {
+                // RFC1982
+                a.partial_cmp(&b)
+            } else {
+                // This case is not comparable.
+                None
+            }
+        } else {
+            unreachable!();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sequence_counter_increment() {
+        let mut seq = SequenceCounter::new(253);
+        seq.increment();
+        assert_eq!(seq.value(), 254);
+        seq.increment();
+        assert_eq!(seq.value(), 255);
+        seq.increment();
+        assert_eq!(seq.value(), 0);
+
+        let mut seq = SequenceCounter::new(126);
+        seq.increment();
+        assert_eq!(seq.value(), 127);
+        seq.increment();
+        assert_eq!(seq.value(), 0);
+    }
+
+    #[test]
+    fn sequence_counter_comparison() {
+        use core::cmp::Ordering;
+
+        assert!(SequenceCounter::new(240) != SequenceCounter::new(1));
+        assert!(SequenceCounter::new(1) != SequenceCounter::new(240));
+        assert!(SequenceCounter::new(1) != SequenceCounter::new(240));
+        assert!(SequenceCounter::new(240) == SequenceCounter::new(240));
+        assert!(SequenceCounter::new(240 - 17) != SequenceCounter::new(240));
+
+        assert_eq!(
+            SequenceCounter::new(240).partial_cmp(&SequenceCounter::new(5)),
+            Some(Ordering::Greater)
+        );
+        assert_eq!(
+            SequenceCounter::new(250).partial_cmp(&SequenceCounter::new(5)),
+            Some(Ordering::Less)
+        );
+        assert_eq!(
+            SequenceCounter::new(5).partial_cmp(&SequenceCounter::new(250)),
+            Some(Ordering::Greater)
+        );
+        assert_eq!(
+            SequenceCounter::new(127).partial_cmp(&SequenceCounter::new(129)),
+            Some(Ordering::Less)
+        );
+        assert_eq!(
+            SequenceCounter::new(120).partial_cmp(&SequenceCounter::new(121)),
+            Some(Ordering::Less)
+        );
+        assert_eq!(
+            SequenceCounter::new(121).partial_cmp(&SequenceCounter::new(120)),
+            Some(Ordering::Greater)
+        );
+        assert_eq!(
+            SequenceCounter::new(240).partial_cmp(&SequenceCounter::new(241)),
+            Some(Ordering::Less)
+        );
+        assert_eq!(
+            SequenceCounter::new(241).partial_cmp(&SequenceCounter::new(240)),
+            Some(Ordering::Greater)
+        );
+        assert_eq!(
+            SequenceCounter::new(120).partial_cmp(&SequenceCounter::new(120)),
+            Some(Ordering::Equal)
+        );
+        assert_eq!(
+            SequenceCounter::new(240).partial_cmp(&SequenceCounter::new(240)),
+            Some(Ordering::Equal)
+        );
+        assert_eq!(
+            SequenceCounter::new(130).partial_cmp(&SequenceCounter::new(241)),
+            None
+        );
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u8)]
@@ -635,12 +837,12 @@ pub struct DodagInformationSolicitation<'p> {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct DodagInformationObject<'p> {
     pub rpl_instance_id: InstanceId,
-    pub version_number: u8,
+    pub version_number: SequenceCounter,
     pub rank: u16,
     pub grounded: bool,
     pub mode_of_operation: ModeOfOperation,
     pub dodag_preference: u8,
-    pub dtsn: u8,
+    pub dtsn: SequenceCounter,
     pub dodag_id: Address,
     pub options: RplOptions<'p>,
 }
@@ -650,7 +852,7 @@ pub struct DodagInformationObject<'p> {
 pub struct DestinationAdvertisementObject<'p> {
     pub rpl_instance_id: InstanceId,
     pub expect_ack: bool,
-    pub sequence: u8,
+    pub sequence: SequenceCounter,
     pub dodag_id: Option<Address>,
     pub options: RplOptions<'p>,
 }
@@ -659,7 +861,7 @@ pub struct DestinationAdvertisementObject<'p> {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct DestinationAdvertisementObjectAck {
     pub rpl_instance_id: InstanceId,
-    pub sequence: u8,
+    pub sequence: SequenceCounter,
     pub status: u8,
     pub dodag_id: Option<Address>,
 }
@@ -759,18 +961,18 @@ impl<'p> Repr<'p> {
         }
 
         match RplControlMessage::from(packet.msg_code()) {
-            RplControlMessage::DodagInformationSolicitation => {
-                Ok(Repr::DodagInformationSolicitation(DodagInformationSolicitation { options }))
-            }
+            RplControlMessage::DodagInformationSolicitation => Ok(
+                Repr::DodagInformationSolicitation(DodagInformationSolicitation { options }),
+            ),
             RplControlMessage::DodagInformationObject => {
                 Ok(Repr::DodagInformationObject(DodagInformationObject {
                     rpl_instance_id: packet.rpl_instance_id(),
-                    version_number: packet.dio_version_number(),
+                    version_number: packet.dio_version_number().into(),
                     rank: packet.dio_rank(),
                     grounded: packet.dio_grounded(),
                     mode_of_operation: packet.dio_mode_of_operation(),
                     dodag_preference: packet.dio_dodag_preference(),
-                    dtsn: packet.dio_dest_adv_trigger_seq_number(),
+                    dtsn: packet.dio_dest_adv_trigger_seq_number().into(),
                     dodag_id: packet.dio_dodag_id(),
                     options,
                 }))
@@ -779,7 +981,7 @@ impl<'p> Repr<'p> {
                 Repr::DestinationAdvertisementObject(DestinationAdvertisementObject {
                     rpl_instance_id: packet.rpl_instance_id(),
                     expect_ack: packet.dao_ack_request(),
-                    sequence: packet.dao_dodag_sequence(),
+                    sequence: packet.dao_dodag_sequence().into(),
                     dodag_id: packet.dao_dodag_id(),
                     options,
                 }),
@@ -787,7 +989,7 @@ impl<'p> Repr<'p> {
             RplControlMessage::DestinationAdvertisementObjectAck => Ok(
                 Repr::DestinationAdvertisementObjectAck(DestinationAdvertisementObjectAck {
                     rpl_instance_id: packet.rpl_instance_id(),
-                    sequence: packet.dao_ack_sequence(),
+                    sequence: packet.dao_ack_sequence().into(),
                     status: packet.dao_ack_status(),
                     dodag_id: packet.dao_ack_dodag_id(),
                 }),
@@ -828,7 +1030,9 @@ impl<'p> Repr<'p> {
         };
 
         let opts = match self {
-            Repr::DodagInformationSolicitation(DodagInformationSolicitation { options }) => &options[..],
+            Repr::DodagInformationSolicitation(DodagInformationSolicitation { options }) => {
+                &options[..]
+            }
             Repr::DodagInformationObject(DodagInformationObject { options, .. }) => &options[..],
             Repr::DestinationAdvertisementObject(DestinationAdvertisementObject {
                 options,
@@ -866,12 +1070,12 @@ impl<'p> Repr<'p> {
             }) => {
                 packet.set_msg_code(RplControlMessage::DodagInformationObject.into());
                 packet.set_rpl_instance_id((*rpl_instance_id).into());
-                packet.set_dio_version_number(*version_number);
+                packet.set_dio_version_number(version_number.value());
                 packet.set_dio_rank(*rank);
                 packet.set_dio_grounded(*grounded);
                 packet.set_dio_mode_of_operation(*mode_of_operation);
                 packet.set_dio_dodag_preference(*dodag_preference);
-                packet.set_dio_dest_adv_trigger_seq_number(*dtsn);
+                packet.set_dio_dest_adv_trigger_seq_number(dtsn.value());
                 packet.set_dio_dodag_id(*dodag_id);
             }
             Repr::DestinationAdvertisementObject(DestinationAdvertisementObject {
@@ -884,7 +1088,7 @@ impl<'p> Repr<'p> {
                 packet.set_msg_code(RplControlMessage::DestinationAdvertisementObject.into());
                 packet.set_rpl_instance_id((*rpl_instance_id).into());
                 packet.set_dao_ack_request(*expect_ack);
-                packet.set_dao_dodag_sequence(*sequence);
+                packet.set_dao_dodag_sequence(sequence.value());
                 packet.set_dao_dodag_id(*dodag_id);
             }
             Repr::DestinationAdvertisementObjectAck(DestinationAdvertisementObjectAck {
@@ -896,14 +1100,16 @@ impl<'p> Repr<'p> {
             }) => {
                 packet.set_msg_code(RplControlMessage::DestinationAdvertisementObjectAck.into());
                 packet.set_rpl_instance_id((*rpl_instance_id).into());
-                packet.set_dao_ack_sequence(*sequence);
+                packet.set_dao_ack_sequence(sequence.value());
                 packet.set_dao_ack_status(*status);
                 packet.set_dao_ack_dodag_id(*dodag_id);
             }
         }
 
         let options = match self {
-            Repr::DodagInformationSolicitation(DodagInformationSolicitation { options }) => &options[..],
+            Repr::DodagInformationSolicitation(DodagInformationSolicitation { options }) => {
+                &options[..]
+            }
             Repr::DodagInformationObject(DodagInformationObject { options, .. }) => &options[..],
             Repr::DestinationAdvertisementObject(DestinationAdvertisementObject {
                 options,
@@ -924,7 +1130,7 @@ impl<'p> Repr<'p> {
 pub mod options {
     use byteorder::{ByteOrder, NetworkEndian};
 
-    use super::{Error, InstanceId, Result};
+    use super::{Error, InstanceId, Result, SequenceCounter};
     use crate::wire::ipv6::Address;
 
     /// A read/write wrapper around a RPL Control Message Option.
@@ -1979,7 +2185,7 @@ pub mod options {
         pub instance_id_predicate: bool,
         pub dodag_id_predicate: bool,
         pub dodag_id: Address,
-        pub version_number: u8,
+        pub version_number: SequenceCounter,
     }
 
     #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -2156,7 +2362,7 @@ pub mod options {
                         instance_id_predicate: packet.instance_id_predicate(),
                         dodag_id_predicate: packet.dodag_id_predicate(),
                         dodag_id: packet.dodag_id(),
-                        version_number: packet.version_number(),
+                        version_number: packet.version_number().into(),
                     }))
                 }
                 OptionType::PrefixInformation => Ok(Repr::PrefixInformation(PrefixInformation {
@@ -2284,7 +2490,7 @@ pub mod options {
                     packet.set_solicited_info_version_predicate(*version_predicate);
                     packet.set_solicited_info_instance_id_predicate(*instance_id_predicate);
                     packet.set_solicited_info_dodag_id_predicate(*dodag_id_predicate);
-                    packet.set_solicited_info_version_number(*version_number);
+                    packet.set_solicited_info_version_number(version_number.value());
                     packet.set_solicited_info_dodag_id(*dodag_id);
                 }
                 Repr::PrefixInformation(PrefixInformation {

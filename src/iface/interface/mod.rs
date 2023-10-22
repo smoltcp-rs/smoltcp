@@ -651,11 +651,11 @@ impl Interface {
             // Transmit all the DAO-ACKs that are still queued.
             net_trace!("transmit DAO-ACK");
 
-            let (mut dst_addr, seq) = dodag.dao_acks.pop().unwrap();
+            let (mut dst_addr, sequence) = dodag.dao_acks.pop().unwrap();
             let rpl_instance_id = dodag.instance_id;
             let icmp = Icmpv6Repr::Rpl(RplRepr::DestinationAdvertisementObjectAck(RplDaoAck {
                 rpl_instance_id,
-                sequence: seq.value(),
+                sequence,
                 status: 0,
                 dodag_id: if rpl_instance_id.is_local() {
                     Some(dodag.id)

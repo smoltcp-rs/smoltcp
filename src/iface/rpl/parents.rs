@@ -1,7 +1,7 @@
 use crate::time::{Duration, Instant};
-use crate::wire::Ipv6Address;
+use crate::wire::{Ipv6Address, RplSequenceCounter};
 
-use super::{lollipop::SequenceCounter, rank::Rank};
+use super::rank::Rank;
 use crate::config::RPL_PARENTS_BUFFER_COUNT;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -9,8 +9,8 @@ pub(crate) struct Parent {
     pub address: Ipv6Address,
     pub dodag_id: Ipv6Address,
     pub rank: Rank,
-    pub version_number: SequenceCounter,
-    pub dtsn: SequenceCounter,
+    pub version_number: RplSequenceCounter,
+    pub dtsn: RplSequenceCounter,
     pub last_heard: Instant,
 }
 
@@ -19,8 +19,8 @@ impl Parent {
     pub(crate) fn new(
         address: Ipv6Address,
         rank: Rank,
-        version_number: SequenceCounter,
-        dtsn: SequenceCounter,
+        version_number: RplSequenceCounter,
+        dtsn: RplSequenceCounter,
         dodag_id: Ipv6Address,
         last_heard: Instant,
     ) -> Self {

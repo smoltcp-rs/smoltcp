@@ -1,7 +1,6 @@
 #![allow(unused)]
 
 mod consts;
-mod lollipop;
 mod of0;
 mod parents;
 mod rank;
@@ -11,10 +10,9 @@ mod trickle;
 use crate::time::{Duration, Instant};
 use crate::wire::{
     Icmpv6Repr, Ipv6Address, RplDao, RplDio, RplDodagConfiguration, RplOptionRepr, RplRepr,
-    RplTarget, RplTransitInformation,
+    RplSequenceCounter, RplTarget, RplTransitInformation,
 };
 
-pub(crate) use lollipop::SequenceCounter;
 pub(crate) use of0::{ObjectiveFunction, ObjectiveFunction0};
 pub(crate) use parents::{Parent, ParentSet};
 pub(crate) use rank::Rank;
@@ -138,7 +136,7 @@ pub struct Rpl {
 pub struct Dodag {
     pub(crate) instance_id: RplInstanceId,
     pub(crate) id: Ipv6Address,
-    pub(crate) version_number: SequenceCounter,
+    pub(crate) version_number: RplSequenceCounter,
     pub(crate) preference: u8,
 
     pub(crate) rank: Rank,
@@ -152,15 +150,15 @@ pub struct Dodag {
     pub(crate) authentication_enabled: bool,
     pub(crate) path_control_size: u8,
 
-    pub(crate) dtsn: SequenceCounter,
+    pub(crate) dtsn: RplSequenceCounter,
     pub(crate) dtsn_incremented_at: Instant,
     pub(crate) default_lifetime: u8,
     pub(crate) lifetime_unit: u16,
     pub(crate) grounded: bool,
 
-    pub(crate) dao_seq_number: SequenceCounter,
+    pub(crate) dao_seq_number: RplSequenceCounter,
 
-    pub(crate) dao_acks: heapless::Vec<(Ipv6Address, SequenceCounter), 16>,
+    pub(crate) dao_acks: heapless::Vec<(Ipv6Address, RplSequenceCounter), 16>,
     pub(crate) daos: heapless::Vec<Dao, 16>,
 
     pub(crate) parent_set: ParentSet,
@@ -176,7 +174,7 @@ pub(crate) struct Dao {
     pub to: Ipv6Address,
     pub child: Ipv6Address,
     pub parent: Option<Ipv6Address>,
-    pub sequence: SequenceCounter,
+    pub sequence: RplSequenceCounter,
     pub is_no_path: bool,
     pub lifetime: u8,
 
@@ -189,7 +187,7 @@ impl Dao {
         to: Ipv6Address,
         child: Ipv6Address,
         parent: Option<Ipv6Address>,
-        sequence: SequenceCounter,
+        sequence: RplSequenceCounter,
         lifetime: u8,
         instance_id: RplInstanceId,
         dodag_id: Option<Ipv6Address>,
@@ -212,7 +210,7 @@ impl Dao {
     pub(crate) fn no_path(
         to: Ipv6Address,
         child: Ipv6Address,
-        sequence: SequenceCounter,
+        sequence: RplSequenceCounter,
         instance_id: RplInstanceId,
         dodag_id: Option<Ipv6Address>,
     ) -> Self {
@@ -252,7 +250,7 @@ impl Dao {
         RplRepr::DestinationAdvertisementObject(RplDao {
             rpl_instance_id: self.instance_id,
             expect_ack: true,
-            sequence: self.sequence.value(),
+            sequence: self.sequence,
             dodag_id: self.dodag_id,
             options,
         })
@@ -270,7 +268,7 @@ impl Rpl {
                 Some(Dodag {
                     instance_id: root.instance_id,
                     id: root.dodag_id,
-                    version_number: SequenceCounter::default(),
+                    version_number: RplSequenceCounter::default(),
                     preference: root.preference,
                     rank: Rank::ROOT,
                     dio_timer: root.dio_timer,
@@ -279,12 +277,12 @@ impl Rpl {
                     without_parent: None,
                     authentication_enabled: false,
                     path_control_size: 0,
-                    dtsn: SequenceCounter::default(),
+                    dtsn: RplSequenceCounter::default(),
                     dtsn_incremented_at: now,
                     default_lifetime: 30,
                     lifetime_unit: 60,
                     grounded: false,
-                    dao_seq_number: SequenceCounter::default(),
+                    dao_seq_number: RplSequenceCounter::default(),
                     dao_acks: Default::default(),
                     daos: Default::default(),
                     parent_set: Default::default(),
@@ -360,12 +358,12 @@ impl Rpl {
 
         RplRepr::DodagInformationObject(RplDio {
             rpl_instance_id: dodag.instance_id,
-            version_number: dodag.version_number.value(),
+            version_number: dodag.version_number,
             rank: dodag.rank.raw_value(),
             grounded: dodag.grounded,
             mode_of_operation: self.mode_of_operation.into(),
             dodag_preference: dodag.preference,
-            dtsn: dodag.dtsn.value(),
+            dtsn: dodag.dtsn,
             dodag_id: dodag.id,
             options,
         })
@@ -528,7 +526,7 @@ impl Dodag {
         RplRepr::DestinationAdvertisementObject(RplDao {
             rpl_instance_id: self.instance_id,
             expect_ack: true,
-            sequence: sequence.value(),
+            sequence,
             dodag_id: Some(self.id),
             options,
         })
