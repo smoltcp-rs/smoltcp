@@ -86,7 +86,8 @@ default = [
   "proto-ipv4", "proto-igmp", "proto-dhcpv4", "proto-ipv6", "proto-dns",
   "proto-ipv4-fragmentation", "proto-sixlowpan-fragmentation",
   "socket-raw", "socket-icmp", "socket-udp", "socket-tcp", "socket-dhcpv4", "socket-dns", "socket-mdns",
-  "packetmeta-id", "async"
+  "packetmeta-id", "async",
+  "rpl-mop-3"
 ]
 
 # Private features
