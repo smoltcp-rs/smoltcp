@@ -601,12 +601,11 @@ impl Interface {
                 #[cfg(feature = "rpl-mop-3")]
                 ModeOfOperation::StoringModeWithMulticast => true,
                 _ => false,
-            } {
-                if dodag.dtsn_incremented_at < dodag.dio_timer.next_expiration() {
-                    net_trace!("incrementing DTSN");
-                    dodag.dtsn_incremented_at = dodag.dio_timer.next_expiration();
-                    dodag.dtsn.increment();
-                }
+            } && dodag.dtsn_incremented_at < dodag.dio_timer.next_expiration()
+            {
+                net_trace!("incrementing DTSN");
+                dodag.dtsn_incremented_at = dodag.dio_timer.next_expiration();
+                dodag.dtsn.increment();
             }
         }
 
