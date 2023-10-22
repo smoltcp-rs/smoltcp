@@ -79,10 +79,10 @@ impl ObjectiveFunction for ObjectiveFunction0 {
         let mut pref_addr = None;
         let mut pref_parent: Option<&Parent> = None;
 
-        for (addr, parent) in parent_set.parents() {
+        for parent in parent_set.parents() {
             if pref_parent.is_none() || parent.rank < pref_parent.unwrap().rank {
                 pref_parent = Some(parent);
-                pref_addr = Some(*addr);
+                pref_addr = Some(parent.address);
             }
         }
 

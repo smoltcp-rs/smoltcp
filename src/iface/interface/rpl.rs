@@ -395,16 +395,16 @@ impl InterfaceInner {
         if sender_rank < dodag.rank && !self.rpl.is_root {
             net_trace!("adding {} to parent set", ip_repr.src_addr);
 
-            dodag.parent_set.add(
+            if let Err(parent) = dodag.parent_set.add(Parent::new(
                 ip_repr.src_addr,
-                Parent::new(
-                    sender_rank,
-                    SequenceCounter::new(dio.version_number),
-                    SequenceCounter::new(dio.dtsn),
-                    dodag.id,
-                    self.now,
-                ),
-            );
+                sender_rank,
+                SequenceCounter::new(dio.version_number),
+                SequenceCounter::new(dio.dtsn),
+                dodag.id,
+                self.now,
+            )) {
+                net_trace!("failed to add {} to parent set", parent.address);
+            }
 
             // Select parent
             // =============

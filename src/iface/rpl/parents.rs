@@ -6,6 +6,7 @@ use crate::config::RPL_PARENTS_BUFFER_COUNT;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Parent {
+    pub address: Ipv6Address,
     pub dodag_id: Ipv6Address,
     pub rank: Rank,
     pub version_number: SequenceCounter,
@@ -16,6 +17,7 @@ pub(crate) struct Parent {
 impl Parent {
     /// Create a new parent.
     pub(crate) fn new(
+        address: Ipv6Address,
         rank: Rank,
         version_number: SequenceCounter,
         dtsn: SequenceCounter,
@@ -23,6 +25,7 @@ impl Parent {
         last_heard: Instant,
     ) -> Self {
         Self {
+            address,
             rank,
             version_number,
             dtsn,
@@ -34,31 +37,40 @@ impl Parent {
 
 #[derive(Debug, Default)]
 pub(crate) struct ParentSet {
-    parents: heapless::LinearMap<Ipv6Address, Parent, { RPL_PARENTS_BUFFER_COUNT }>,
+    parents: heapless::Vec<Parent, { RPL_PARENTS_BUFFER_COUNT }>,
 }
 
 impl ParentSet {
     /// Add a new parent to the parent set. The Rank of the new parent should be lower than the
     /// Rank of the node that holds this parent set.
-    pub(crate) fn add(&mut self, address: Ipv6Address, parent: Parent) {
-        if let Some(p) = self.parents.get_mut(&address) {
+    pub(crate) fn add(&mut self, parent: Parent) -> Result<(), Parent> {
+        if let Some(p) = self.find_mut(&parent.address) {
             *p = parent;
-        } else if let Err(p) = self.parents.insert(address, parent) {
-            if let Some((w_a, w_p)) = self.worst_parent() {
-                if w_p.rank.dag_rank() > parent.rank.dag_rank() {
-                    self.parents.remove(&w_a.clone()).unwrap();
-                    self.parents.insert(address, parent).unwrap();
+        } else if let Err(p) = self.parents.push(parent) {
+            if let Some(worst_parent) = self.worst_parent() {
+                if worst_parent.rank.dag_rank() > parent.rank.dag_rank() {
+                    *worst_parent = parent;
                 } else {
-                    net_debug!("could not add {} to parent set, buffer is full", address);
+                    return Err(parent);
                 }
             } else {
                 unreachable!()
             }
         }
+
+        Ok(())
     }
 
     pub(crate) fn remove(&mut self, address: &Ipv6Address) {
-        self.parents.remove(address);
+        if let Some(i) = self.parents.iter().enumerate().find_map(|(i, p)| {
+            if p.address == *address {
+                Some(i)
+            } else {
+                None
+            }
+        }) {
+            self.parents.remove(i);
+        }
     }
 
     pub(crate) fn is_empty(&self) -> bool {
@@ -71,35 +83,34 @@ impl ParentSet {
 
     /// Find a parent based on its address.
     pub(crate) fn find(&self, address: &Ipv6Address) -> Option<&Parent> {
-        self.parents.get(address)
+        self.parents.iter().find(|p| p.address == *address)
     }
 
     /// Find a mutable parent based on its address.
     pub(crate) fn find_mut(&mut self, address: &Ipv6Address) -> Option<&mut Parent> {
-        self.parents.get_mut(address)
+        self.parents.iter_mut().find(|p| p.address == *address)
     }
 
     /// Return a slice to the parent set.
-    pub(crate) fn parents(&self) -> impl Iterator<Item = (&Ipv6Address, &Parent)> {
+    pub(crate) fn parents(&self) -> impl Iterator<Item = &Parent> {
         self.parents.iter()
     }
 
     /// Find the worst parent that is currently in the parent set.
-    fn worst_parent(&self) -> Option<(&Ipv6Address, &Parent)> {
-        self.parents.iter().max_by_key(|(k, v)| v.rank.dag_rank())
+    fn worst_parent(&mut self) -> Option<&mut Parent> {
+        self.parents.iter_mut().max_by_key(|p| p.rank.dag_rank())
     }
 
     pub(crate) fn purge(&mut self, now: Instant, expiration: Duration) {
-        let mut keys = heapless::Vec::<Ipv6Address, RPL_PARENTS_BUFFER_COUNT>::new();
-        for (k, v) in self.parents.iter() {
-            if v.last_heard + expiration < now {
-                keys.push(*k);
+        let mut keys = heapless::Vec::<usize, RPL_PARENTS_BUFFER_COUNT>::new();
+        for (i, p) in self.parents.iter().enumerate() {
+            if p.last_heard + expiration < now {
+                keys.push(i);
             }
         }
 
         for k in keys {
-            net_trace!("removed {} from parent set", &k);
-            self.parents.remove(&k);
+            self.parents.remove(k);
         }
     }
 }
