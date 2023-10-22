@@ -1233,8 +1233,6 @@ impl InterfaceInner {
     where
         Tx: TxToken,
     {
-        net_trace!("hardware addr lookup for {}", dst_addr);
-
         if self.is_broadcast(dst_addr) {
             let hardware_addr = match self.caps.medium {
                 #[cfg(feature = "medium-ethernet")]
