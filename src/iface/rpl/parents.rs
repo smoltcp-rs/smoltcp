@@ -129,20 +129,19 @@ mod tests {
     fn add_parent() {
         let now = Instant::now();
         let mut set = ParentSet::default();
-        set.add(
+        set.add(Parent::new(
             Default::default(),
-            Parent::new(
-                Rank::ROOT,
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                now,
-            ),
-        );
+            Rank::ROOT,
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            now,
+        ));
 
         assert_eq!(
             set.find(&Default::default()),
             Some(&Parent::new(
+                Default::default(),
                 Rank::ROOT,
                 Default::default(),
                 Default::default(),
@@ -165,20 +164,19 @@ mod tests {
             address.0[15] = i as u8;
             last_address = address;
 
-            set.add(
+            set.add(Parent::new(
                 address,
-                Parent::new(
-                    Rank::new(256 * i, DEFAULT_MIN_HOP_RANK_INCREASE),
-                    Default::default(),
-                    Default::default(),
-                    address,
-                    now,
-                ),
-            );
+                Rank::new(256 * i, DEFAULT_MIN_HOP_RANK_INCREASE),
+                Default::default(),
+                Default::default(),
+                address,
+                now,
+            ));
 
             assert_eq!(
                 set.find(&address),
                 Some(&Parent::new(
+                    address,
                     Rank::new(256 * i, DEFAULT_MIN_HOP_RANK_INCREASE),
                     Default::default(),
                     Default::default(),
@@ -192,34 +190,31 @@ mod tests {
         // set.
         let mut address = Ipv6Address::default();
         address.0[15] = 8;
-        set.add(
+        set.add(Parent::new(
             address,
-            Parent::new(
-                Rank::new(256 * 8, DEFAULT_MIN_HOP_RANK_INCREASE),
-                Default::default(),
-                Default::default(),
-                address,
-                now,
-            ),
-        );
+            Rank::new(256 * 8, DEFAULT_MIN_HOP_RANK_INCREASE),
+            Default::default(),
+            Default::default(),
+            address,
+            now,
+        ));
         assert_eq!(set.find(&address), None);
 
         /// This Parent has a better rank than the last one in the set.
         let mut address = Ipv6Address::default();
         address.0[15] = 9;
-        set.add(
+        set.add(Parent::new(
             address,
-            Parent::new(
-                Rank::new(0, DEFAULT_MIN_HOP_RANK_INCREASE),
-                Default::default(),
-                Default::default(),
-                address,
-                now,
-            ),
-        );
+            Rank::new(0, DEFAULT_MIN_HOP_RANK_INCREASE),
+            Default::default(),
+            Default::default(),
+            address,
+            now,
+        ));
         assert_eq!(
             set.find(&address),
             Some(&Parent::new(
+                address,
                 Rank::new(0, DEFAULT_MIN_HOP_RANK_INCREASE),
                 Default::default(),
                 Default::default(),

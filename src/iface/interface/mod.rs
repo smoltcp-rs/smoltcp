@@ -1387,7 +1387,7 @@ impl InterfaceInner {
                     );
 
                     if let Err(e) =
-                        self.dispatch_ip(tx_token, PacketMeta::default(), packet, fragmenter)
+                        self.dispatch_ip(tx_token, Default::default(), packet, fragmenter)
                     {
                         net_debug!("Failed to dispatch NDISC solicit: {:?}", e);
                         return Err(DispatchError::NeighborPending);

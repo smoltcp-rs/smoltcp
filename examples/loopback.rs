@@ -149,7 +149,7 @@ fn main() {
         }
 
         let mut socket = sockets.get_mut::<tcp::Socket>(client_handle);
-        let cx = iface.context();
+        let cx = iface.context_mut();
         if !socket.is_open() {
             if !did_connect {
                 debug!("connecting");

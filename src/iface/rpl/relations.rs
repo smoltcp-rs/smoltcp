@@ -223,7 +223,7 @@ mod tests {
         relations.add_relation(
             addrs[0],
             addrs[1],
-            Instant::now() - Duration::from_secs(1),
+            Instant::now() - Duration::from_secs(60 * 30 + 1),
             Duration::from_secs(60 * 30),
         );
 

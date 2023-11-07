@@ -877,6 +877,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop-3"))]
     fn test_sixlowpan_compress_hop_by_hop_with_icmpv6() {
         let ieee_repr = Ieee802154Repr {
             frame_type: Ieee802154FrameType::Data,
@@ -910,15 +911,17 @@ mod tests {
             fragment: None,
             #[cfg(feature = "proto-ipv6-routing")]
             routing: None,
-            payload: IpPayload::Icmpv6(Icmpv6Repr::Rpl(RplRepr::DestinationAdvertisementObject {
-                rpl_instance_id: RplInstanceId::Global(30),
-                expect_ack: false,
-                sequence: 241,
-                dodag_id: Some(Ipv6Address::from_bytes(&[
-                    253, 0, 0, 0, 0, 0, 0, 0, 2, 1, 0, 1, 0, 1, 0, 1,
-                ])),
-                options: heapless::Vec::new(),
-            })),
+            payload: IpPayload::Icmpv6(Icmpv6Repr::Rpl(RplRepr::DestinationAdvertisementObject(
+                RplDao {
+                    rpl_instance_id: RplInstanceId::Global(30),
+                    expect_ack: false,
+                    sequence: 241.into(),
+                    dodag_id: Some(Ipv6Address::from_bytes(&[
+                        253, 0, 0, 0, 0, 0, 0, 0, 2, 1, 0, 1, 0, 1, 0, 1,
+                    ])),
+                    options: heapless::Vec::new(),
+                },
+            ))),
         };
 
         let (total_size, _, _) = InterfaceInner::compressed_packet_size(&mut ip_packet, &ieee_repr);
@@ -945,6 +948,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop-3"))]
     fn test_sixlowpan_compress_hop_by_hop_with_udp() {
         let ieee_repr = Ieee802154Repr {
             frame_type: Ieee802154FrameType::Data,
@@ -977,19 +981,19 @@ mod tests {
 
         let mut options = heapless::Vec::new();
         options
-            .push(RplOptionRepr::RplTarget {
+            .push(RplOptionRepr::RplTarget(RplTarget {
                 prefix_length: 128,
                 prefix: addr,
-            })
+            }))
             .unwrap();
         options
-            .push(RplOptionRepr::TransitInformation {
+            .push(RplOptionRepr::TransitInformation(RplTransitInformation {
                 external: false,
                 path_control: 0,
                 path_sequence: 0,
                 path_lifetime: 30,
                 parent_address: Some(parent_address),
-            })
+            }))
             .unwrap();
 
         let mut ip_packet = PacketV6 {
@@ -1008,15 +1012,17 @@ mod tests {
             fragment: None,
             #[cfg(feature = "proto-ipv6-routing")]
             routing: None,
-            payload: IpPayload::Icmpv6(Icmpv6Repr::Rpl(RplRepr::DestinationAdvertisementObject {
-                rpl_instance_id: RplInstanceId::Global(30),
-                expect_ack: false,
-                sequence: 241,
-                dodag_id: Some(Ipv6Address::from_bytes(&[
-                    253, 0, 0, 0, 0, 0, 0, 0, 2, 1, 0, 1, 0, 1, 0, 1,
-                ])),
-                options,
-            })),
+            payload: IpPayload::Icmpv6(Icmpv6Repr::Rpl(RplRepr::DestinationAdvertisementObject(
+                RplDao {
+                    rpl_instance_id: RplInstanceId::Global(30),
+                    expect_ack: false,
+                    sequence: 241.into(),
+                    dodag_id: Some(Ipv6Address::from_bytes(&[
+                        253, 0, 0, 0, 0, 0, 0, 0, 2, 1, 0, 1, 0, 1, 0, 1,
+                    ])),
+                    options,
+                },
+            ))),
         };
 
         let (total_size, _, _) = InterfaceInner::compressed_packet_size(&mut ip_packet, &ieee_repr);

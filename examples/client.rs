@@ -68,7 +68,7 @@ fn main() {
 
     let socket = sockets.get_mut::<tcp::Socket>(tcp_handle);
     socket
-        .connect(iface.context(), (address, port), 49500)
+        .connect(iface.context_mut(), (address, port), 49500)
         .unwrap();
 
     let mut tcp_active = false;

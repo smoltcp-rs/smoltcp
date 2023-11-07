@@ -155,28 +155,26 @@ mod tests {
 
         let mut parents = ParentSet::default();
 
-        parents.add(
-            Ipv6Address::default(),
-            Parent::new(
-                Rank::ROOT,
-                Default::default(),
-                Ipv6Address::default(),
-                Instant::now(),
-            ),
-        );
+        parents.add(Parent::new(
+            Default::default(),
+            Rank::ROOT,
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Instant::now(),
+        ));
 
         let mut address = Ipv6Address::default();
         address.0[15] = 1;
 
-        parents.add(
+        parents.add(Parent::new(
             address,
-            Parent::new(
-                Rank::new(1024, DEFAULT_MIN_HOP_RANK_INCREASE),
-                Default::default(),
-                Ipv6Address::default(),
-                Instant::now(),
-            ),
-        );
+            Rank::new(1024, DEFAULT_MIN_HOP_RANK_INCREASE),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Instant::now(),
+        ));
 
         let of = ObjectiveFunction0::default();
         assert_eq!(of.preferred_parent(&parents), Some(Ipv6Address::default()));

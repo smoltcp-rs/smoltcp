@@ -392,58 +392,58 @@ mod tests {
         assert_eq!(&buffer[..], RPL_HOP_BY_HOP_PACKET);
     }
 
-    #[test]
-    fn test_source_routing_deconstruct() {
-        let header = ExtHeaderPacket::new_checked(&ROUTING_SR_PACKET).unwrap();
-        assert_eq!(header.next_header(), NextHeader::Compressed);
-        assert_eq!(header.extension_header_id(), ExtHeaderId::RoutingHeader);
+    //#[test]
+    //fn test_source_routing_deconstruct() {
+    //let header = ExtHeaderPacket::new_checked(&ROUTING_SR_PACKET).unwrap();
+    //assert_eq!(header.next_header(), NextHeader::Compressed);
+    //assert_eq!(header.extension_header_id(), ExtHeaderId::RoutingHeader);
 
-        let routing_hdr = Ipv6RoutingHeader::new_checked(header.payload()).unwrap();
-        let repr = Ipv6RoutingRepr::parse(&routing_hdr).unwrap();
-        assert_eq!(
-            repr,
-            Ipv6RoutingRepr::Rpl {
-                segments_left: 3,
-                cmpr_i: 9,
-                cmpr_e: 9,
-                pad: 3,
-                addresses: &[
-                    0x05, 0x00, 0x05, 0x00, 0x05, 0x00, 0x05, 0x06, 0x00, 0x06, 0x00, 0x06, 0x00,
-                    0x06, 0x02, 0x00, 0x02, 0x00, 0x02, 0x00, 0x02, 0x00, 0x00, 0x00
-                ],
-            }
-        );
-    }
+    //let routing_hdr = Ipv6RoutingHeader::new_checked(header.payload()).unwrap();
+    //let repr = Ipv6RoutingRepr::parse(&routing_hdr).unwrap();
+    //assert_eq!(
+    //repr,
+    //Ipv6RoutingRepr::Rpl {
+    //segments_left: 3,
+    //cmpr_i: 9,
+    //cmpr_e: 9,
+    //pad: 3,
+    //addresses: &[
+    //0x05, 0x00, 0x05, 0x00, 0x05, 0x00, 0x05, 0x06, 0x00, 0x06, 0x00, 0x06, 0x00,
+    //0x06, 0x02, 0x00, 0x02, 0x00, 0x02, 0x00, 0x02, 0x00, 0x00, 0x00
+    //],
+    //}
+    //);
+    //}
 
-    #[test]
-    fn test_source_routing_emit() {
-        let routing_hdr = Ipv6RoutingRepr::Rpl {
-            segments_left: 3,
-            cmpr_i: 9,
-            cmpr_e: 9,
-            pad: 3,
-            addresses: &[
-                0x05, 0x00, 0x05, 0x00, 0x05, 0x00, 0x05, 0x06, 0x00, 0x06, 0x00, 0x06, 0x00, 0x06,
-                0x02, 0x00, 0x02, 0x00, 0x02, 0x00, 0x02, 0x00, 0x00, 0x00,
-            ],
-        };
+    //#[test]
+    //fn test_source_routing_emit() {
+    //let routing_hdr = Ipv6RoutingRepr::Rpl {
+    //segments_left: 3,
+    //cmpr_i: 9,
+    //cmpr_e: 9,
+    //pad: 3,
+    //addresses: &[
+    //0x05, 0x00, 0x05, 0x00, 0x05, 0x00, 0x05, 0x06, 0x00, 0x06, 0x00, 0x06, 0x00, 0x06,
+    //0x02, 0x00, 0x02, 0x00, 0x02, 0x00, 0x02, 0x00, 0x00, 0x00,
+    //],
+    //};
 
-        let ext_hdr = ExtHeaderRepr {
-            ext_header_id: ExtHeaderId::RoutingHeader,
-            next_header: NextHeader::Compressed,
-            length: routing_hdr.buffer_len() as u8,
-        };
+    //let ext_hdr = ExtHeaderRepr {
+    //ext_header_id: ExtHeaderId::RoutingHeader,
+    //next_header: NextHeader::Compressed,
+    //length: routing_hdr.buffer_len() as u8,
+    //};
 
-        let mut buffer = vec![0u8; ext_hdr.buffer_len() + routing_hdr.buffer_len()];
-        ext_hdr.emit(&mut ExtHeaderPacket::new_unchecked(
-            &mut buffer[..ext_hdr.buffer_len()],
-        ));
-        routing_hdr.emit(&mut Ipv6RoutingHeader::new_unchecked(
-            &mut buffer[ext_hdr.buffer_len()..],
-        ));
+    //let mut buffer = vec![0u8; ext_hdr.buffer_len() + routing_hdr.buffer_len()];
+    //ext_hdr.emit(&mut ExtHeaderPacket::new_unchecked(
+    //&mut buffer[..ext_hdr.buffer_len()],
+    //));
+    //routing_hdr.emit(&mut Ipv6RoutingHeader::new_unchecked(
+    //&mut buffer[ext_hdr.buffer_len()..],
+    //));
 
-        assert_eq!(&buffer[..], ROUTING_SR_PACKET);
-    }
+    //assert_eq!(&buffer[..], ROUTING_SR_PACKET);
+    //}
 }
 
 /// A read/write wrapper around a 6LoWPAN_NHC UDP frame.

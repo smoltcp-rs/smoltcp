@@ -806,7 +806,7 @@ impl<'a> Socket<'a> {
     /// # let mut iface: Interface = todo!();
     /// #
     /// socket.connect(
-    ///     iface.context(),
+    ///     iface.context_mut(),
     ///     (IpAddress::v4(10, 0, 0, 1), 80),
     ///     get_ephemeral_port()
     /// ).unwrap();

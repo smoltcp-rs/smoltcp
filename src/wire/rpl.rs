@@ -132,84 +132,6 @@ impl PartialOrd for SequenceCounter {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn sequence_counter_increment() {
-        let mut seq = SequenceCounter::new(253);
-        seq.increment();
-        assert_eq!(seq.value(), 254);
-        seq.increment();
-        assert_eq!(seq.value(), 255);
-        seq.increment();
-        assert_eq!(seq.value(), 0);
-
-        let mut seq = SequenceCounter::new(126);
-        seq.increment();
-        assert_eq!(seq.value(), 127);
-        seq.increment();
-        assert_eq!(seq.value(), 0);
-    }
-
-    #[test]
-    fn sequence_counter_comparison() {
-        use core::cmp::Ordering;
-
-        assert!(SequenceCounter::new(240) != SequenceCounter::new(1));
-        assert!(SequenceCounter::new(1) != SequenceCounter::new(240));
-        assert!(SequenceCounter::new(1) != SequenceCounter::new(240));
-        assert!(SequenceCounter::new(240) == SequenceCounter::new(240));
-        assert!(SequenceCounter::new(240 - 17) != SequenceCounter::new(240));
-
-        assert_eq!(
-            SequenceCounter::new(240).partial_cmp(&SequenceCounter::new(5)),
-            Some(Ordering::Greater)
-        );
-        assert_eq!(
-            SequenceCounter::new(250).partial_cmp(&SequenceCounter::new(5)),
-            Some(Ordering::Less)
-        );
-        assert_eq!(
-            SequenceCounter::new(5).partial_cmp(&SequenceCounter::new(250)),
-            Some(Ordering::Greater)
-        );
-        assert_eq!(
-            SequenceCounter::new(127).partial_cmp(&SequenceCounter::new(129)),
-            Some(Ordering::Less)
-        );
-        assert_eq!(
-            SequenceCounter::new(120).partial_cmp(&SequenceCounter::new(121)),
-            Some(Ordering::Less)
-        );
-        assert_eq!(
-            SequenceCounter::new(121).partial_cmp(&SequenceCounter::new(120)),
-            Some(Ordering::Greater)
-        );
-        assert_eq!(
-            SequenceCounter::new(240).partial_cmp(&SequenceCounter::new(241)),
-            Some(Ordering::Less)
-        );
-        assert_eq!(
-            SequenceCounter::new(241).partial_cmp(&SequenceCounter::new(240)),
-            Some(Ordering::Greater)
-        );
-        assert_eq!(
-            SequenceCounter::new(120).partial_cmp(&SequenceCounter::new(120)),
-            Some(Ordering::Equal)
-        );
-        assert_eq!(
-            SequenceCounter::new(240).partial_cmp(&SequenceCounter::new(240)),
-            Some(Ordering::Equal)
-        );
-        assert_eq!(
-            SequenceCounter::new(130).partial_cmp(&SequenceCounter::new(241)),
-            None
-        );
-    }
-}
-
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u8)]
@@ -2739,12 +2661,87 @@ pub mod data {
 
 #[cfg(test)]
 mod tests {
-    use super::options::{Packet as OptionPacket, Repr as OptionRepr};
+    use super::options::{
+        DodagConfiguration, Packet as OptionPacket, PrefixInformation, Repr as OptionRepr,
+    };
     use super::Repr as RplRepr;
     use super::*;
     use crate::phy::ChecksumCapabilities;
     use crate::wire::rpl::options::TransitInformation;
     use crate::wire::{icmpv6::*, *};
+
+    #[test]
+    fn sequence_counter_increment() {
+        let mut seq = SequenceCounter::new(253);
+        seq.increment();
+        assert_eq!(seq.value(), 254);
+        seq.increment();
+        assert_eq!(seq.value(), 255);
+        seq.increment();
+        assert_eq!(seq.value(), 0);
+
+        let mut seq = SequenceCounter::new(126);
+        seq.increment();
+        assert_eq!(seq.value(), 127);
+        seq.increment();
+        assert_eq!(seq.value(), 0);
+    }
+
+    #[test]
+    fn sequence_counter_comparison() {
+        use core::cmp::Ordering;
+
+        assert!(SequenceCounter::new(240) != SequenceCounter::new(1));
+        assert!(SequenceCounter::new(1) != SequenceCounter::new(240));
+        assert!(SequenceCounter::new(1) != SequenceCounter::new(240));
+        assert!(SequenceCounter::new(240) == SequenceCounter::new(240));
+        assert!(SequenceCounter::new(240 - 17) != SequenceCounter::new(240));
+
+        assert_eq!(
+            SequenceCounter::new(240).partial_cmp(&SequenceCounter::new(5)),
+            Some(Ordering::Greater)
+        );
+        assert_eq!(
+            SequenceCounter::new(250).partial_cmp(&SequenceCounter::new(5)),
+            Some(Ordering::Less)
+        );
+        assert_eq!(
+            SequenceCounter::new(5).partial_cmp(&SequenceCounter::new(250)),
+            Some(Ordering::Greater)
+        );
+        assert_eq!(
+            SequenceCounter::new(127).partial_cmp(&SequenceCounter::new(129)),
+            Some(Ordering::Less)
+        );
+        assert_eq!(
+            SequenceCounter::new(120).partial_cmp(&SequenceCounter::new(121)),
+            Some(Ordering::Less)
+        );
+        assert_eq!(
+            SequenceCounter::new(121).partial_cmp(&SequenceCounter::new(120)),
+            Some(Ordering::Greater)
+        );
+        assert_eq!(
+            SequenceCounter::new(240).partial_cmp(&SequenceCounter::new(241)),
+            Some(Ordering::Less)
+        );
+        assert_eq!(
+            SequenceCounter::new(241).partial_cmp(&SequenceCounter::new(240)),
+            Some(Ordering::Greater)
+        );
+        assert_eq!(
+            SequenceCounter::new(120).partial_cmp(&SequenceCounter::new(120)),
+            Some(Ordering::Equal)
+        );
+        assert_eq!(
+            SequenceCounter::new(240).partial_cmp(&SequenceCounter::new(240)),
+            Some(Ordering::Equal)
+        );
+        assert_eq!(
+            SequenceCounter::new(130).partial_cmp(&SequenceCounter::new(241)),
+            None
+        );
+    }
 
     #[test]
     fn dis_packet() {
@@ -2837,12 +2834,12 @@ mod tests {
                 ..
             }) => {
                 assert_eq!(rpl_instance_id, InstanceId::from(0));
-                assert_eq!(version_number, 240);
+                assert_eq!(version_number, 240.into());
                 assert_eq!(rank, 128);
                 assert!(!grounded);
                 assert_eq!(mode_of_operation, ModeOfOperation::NonStoringMode);
                 assert_eq!(dodag_preference, 0);
-                assert_eq!(dtsn, 240);
+                assert_eq!(dtsn, 240.into());
                 assert_eq!(dodag_id, addr);
             }
             _ => unreachable!(),
@@ -2942,7 +2939,7 @@ mod tests {
             }) => {
                 assert_eq!(rpl_instance_id, InstanceId::from(0));
                 assert!(expect_ack);
-                assert_eq!(sequence, 241);
+                assert_eq!(sequence, 241.into());
                 assert_eq!(dodag_id, None);
             }
             _ => unreachable!(),
@@ -3008,7 +3005,7 @@ mod tests {
                 ..
             }) => {
                 assert_eq!(rpl_instance_id, InstanceId::from(0));
-                assert_eq!(sequence, 241);
+                assert_eq!(sequence, 241.into());
                 assert_eq!(status, 0);
                 assert_eq!(dodag_id, None);
             }
@@ -3036,7 +3033,7 @@ mod tests {
                 ..
             }) => {
                 assert_eq!(rpl_instance_id, InstanceId::from(30));
-                assert_eq!(sequence, 240);
+                assert_eq!(sequence, 240.into());
                 assert_eq!(status, 0x0);
                 assert_eq!(
                     dodag_id,
