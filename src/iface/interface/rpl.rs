@@ -595,9 +595,21 @@ impl InterfaceInner {
     ) -> Result<RplHopByHopRepr, Error> {
         let sender_rank = Rank::new(hbh.sender_rank, self.rpl.of.min_hop_rank_increase());
 
-        if hbh.rank_error {
-            net_trace!("RPL HBH: contains rank error, resetting trickle timer, dropping packet");
-
+        // Check for inconsistencies (see 11.2.2.2), which are:
+        //  - If the packet is going down, and the sender rank is higher or equal as ours.
+        //  - If the packet is going up, and the sender rank is lower or equal as ours.
+        //
+        //  NOTE: the standard says that one rank error is not a critical error and that the packet
+        //  can continue traveling through the DODAG. When the bit is set and another inconsistency
+        //  is detected, the packet should be dropped. One case this might help is when the DODAG
+        //  is moving to a new Version number. However, the standard does not define when a new
+        //  Version number should be used. Therefore, we immediately drop the packet when a Rank
+        //  error is detected, or when the bit was already set.
+        let rank = self.rpl.dodag.as_ref().unwrap().rank;
+        if hbh.rank_error || (hbh.down && rank <= sender_rank) || (!hbh.down && rank >= sender_rank)
+        {
+            net_trace!("RPL HBH: inconsistency detected, resetting trickle timer, dropping packet");
+            hbh.rank_error = true;
             self.rpl
                 .dodag
                 .as_mut()
@@ -605,15 +617,6 @@ impl InterfaceInner {
                 .dio_timer
                 .hear_inconsistency(self.now, &mut self.rand);
             return Err(Error);
-        }
-
-        // Check for inconsistencies (see 11.2.2.2), which are:
-        //  - If the packet is going down, and the sender rank is higher or equal as ours.
-        //  - If the packet is going up, and the sender rank is lower or equal as ours.
-        let rank = self.rpl.dodag.as_ref().unwrap().rank;
-        if (hbh.down && rank <= sender_rank) || (!hbh.down && rank >= sender_rank) {
-            net_trace!("RPL HBH: inconsistency detected, setting Rank-Error");
-            hbh.rank_error = true;
         }
 
         Ok(hbh)
