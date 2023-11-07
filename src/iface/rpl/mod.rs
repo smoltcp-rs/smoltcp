@@ -142,7 +142,15 @@ pub struct Dodag {
     pub(crate) rank: Rank,
 
     pub(crate) dio_timer: TrickleTimer,
+
+    #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop-3"))]
     pub(crate) dao_expiration: Instant,
+    #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop-3"))]
+    pub(crate) dao_seq_number: RplSequenceCounter,
+    #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop-3"))]
+    pub(crate) dao_acks: heapless::Vec<(Ipv6Address, RplSequenceCounter), 16>,
+    #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop-3"))]
+    pub(crate) daos: heapless::Vec<Dao, 16>,
 
     pub(crate) parent: Option<Ipv6Address>,
     pub(crate) without_parent: Option<Instant>,
@@ -156,13 +164,9 @@ pub struct Dodag {
     pub(crate) lifetime_unit: u16,
     pub(crate) grounded: bool,
 
-    pub(crate) dao_seq_number: RplSequenceCounter,
-
-    pub(crate) dao_acks: heapless::Vec<(Ipv6Address, RplSequenceCounter), 16>,
-    pub(crate) daos: heapless::Vec<Dao, 16>,
-
     pub(crate) parent_set: ParentSet,
-    #[cfg(feature = "rpl-mop-1")]
+
+    #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop-3"))]
     pub(crate) relations: Relations,
 }
 
@@ -272,7 +276,30 @@ impl Rpl {
                     preference: root.preference,
                     rank: Rank::ROOT,
                     dio_timer: root.dio_timer,
+                    #[cfg(any(
+                        feature = "rpl-mop-1",
+                        feature = "rpl-mop-2",
+                        feature = "rpl-mop-3"
+                    ))]
                     dao_expiration: now,
+                    #[cfg(any(
+                        feature = "rpl-mop-1",
+                        feature = "rpl-mop-2",
+                        feature = "rpl-mop-3"
+                    ))]
+                    dao_seq_number: RplSequenceCounter::default(),
+                    #[cfg(any(
+                        feature = "rpl-mop-1",
+                        feature = "rpl-mop-2",
+                        feature = "rpl-mop-3"
+                    ))]
+                    dao_acks: Default::default(),
+                    #[cfg(any(
+                        feature = "rpl-mop-1",
+                        feature = "rpl-mop-2",
+                        feature = "rpl-mop-3"
+                    ))]
+                    daos: Default::default(),
                     parent: None,
                     without_parent: None,
                     authentication_enabled: false,
@@ -282,10 +309,12 @@ impl Rpl {
                     default_lifetime: 30,
                     lifetime_unit: 60,
                     grounded: false,
-                    dao_seq_number: RplSequenceCounter::default(),
-                    dao_acks: Default::default(),
-                    daos: Default::default(),
                     parent_set: Default::default(),
+                    #[cfg(any(
+                        feature = "rpl-mop-1",
+                        feature = "rpl-mop-2",
+                        feature = "rpl-mop-3"
+                    ))]
                     relations: Default::default(),
                 })
             } else {
@@ -395,6 +424,7 @@ impl Dodag {
 
     /// ## Panics
     /// This function will panic if the DODAG does not have a parent selected.
+    #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop-3"))]
     pub(crate) fn remove_parent_with_no_path<OF: ObjectiveFunction>(
         &mut self,
         mop: ModeOfOperation,
@@ -468,6 +498,7 @@ impl Dodag {
         }
     }
 
+    #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop-3"))]
     pub(crate) fn schedule_dao(
         &mut self,
         mop: ModeOfOperation,
@@ -475,10 +506,9 @@ impl Dodag {
         parent: Ipv6Address,
         now: Instant,
     ) {
-        net_trace!("scheduling DAO: {} is parent of {}", parent, child);
-
         #[cfg(feature = "rpl-mop-1")]
         if matches!(mop, ModeOfOperation::NonStoringMode) {
+            net_trace!("scheduling DAO: {} is parent of {}", parent, child);
             self.daos
                 .push(Dao::new(
                     self.id,
@@ -495,6 +525,7 @@ impl Dodag {
 
         #[cfg(feature = "rpl-mop-2")]
         if matches!(mop, ModeOfOperation::StoringMode) {
+            net_trace!("scheduling DAO: {} is parent of {}", parent, child);
             self.daos
                 .push(Dao::new(
                     parent,
@@ -517,6 +548,7 @@ impl Dodag {
 
     /// ## Panics
     /// This function will panic if the node is not part of a DODAG.
+    #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop-3"))]
     pub(crate) fn destination_advertisement_object<'o>(
         &mut self,
         options: heapless::Vec<RplOptionRepr<'o>, 2>,

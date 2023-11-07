@@ -62,9 +62,9 @@ defmt = ["dep:defmt", "heapless/defmt-03"]
 "proto-ipsec-esp" = []
 
 "rpl-mop-0" = ["proto-rpl"]
-"rpl-mop-1" = ["rpl-mop-0"]
-"rpl-mop-2" = ["rpl-mop-1"]
-"rpl-mop-3" = ["rpl-mop-2"]
+"rpl-mop-1" = ["proto-rpl"]
+"rpl-mop-2" = ["proto-rpl"]
+"rpl-mop-3" = ["proto-rpl"]
 
 "socket" = []
 "socket-raw" = ["socket"]

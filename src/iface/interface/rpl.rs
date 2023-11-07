@@ -213,7 +213,14 @@ impl InterfaceInner {
                     dodag_conf.dio_interval_min as u32 + dodag_conf.dio_interval_doublings as u32,
                     dodag_conf.dio_redundancy_constant as usize,
                 ),
+                #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop-3"))]
                 dao_expiration: Instant::ZERO,
+                #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop-3"))]
+                dao_seq_number: RplSequenceCounter::default(),
+                #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop-3"))]
+                dao_acks: Default::default(),
+                #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop-3"))]
+                daos: Default::default(),
                 parent: None,
                 without_parent: Some(self.now),
                 authentication_enabled: dodag_conf.authentication_enabled,
@@ -223,10 +230,8 @@ impl InterfaceInner {
                 default_lifetime: dodag_conf.default_lifetime,
                 lifetime_unit: dodag_conf.lifetime_unit,
                 grounded: dio.grounded,
-                dao_seq_number: RplSequenceCounter::default(),
-                dao_acks: Default::default(),
-                daos: Default::default(),
                 parent_set: Default::default(),
+                #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop-3"))]
                 relations: Default::default(),
             };
 
@@ -368,8 +373,15 @@ impl InterfaceInner {
                 // If a node hears one of its parents increase the DTSN, the node MUST
                 // schedule a DAO. In non-storing mode, a node should increment its own DTSN.
                 if dio.dtsn > parent.dtsn {
-                    net_trace!("DTSN increased, scheduling DAO");
-                    dodag.dao_expiration = self.now;
+                    #[cfg(any(
+                        feature = "rpl-mop-1",
+                        feature = "rpl-mop-2",
+                        feature = "rpl-mop-3"
+                    ))]
+                    {
+                        net_trace!("DTSN increased, scheduling DAO");
+                        dodag.dao_expiration = self.now;
+                    }
 
                     #[cfg(feature = "rpl-mop-1")]
                     if matches!(self.rpl.mode_of_operation, ModeOfOperation::NonStoringMode) {
@@ -380,7 +392,6 @@ impl InterfaceInner {
                 // When we are not the root, we hear a consistency when the DIO message is from
                 // our parent and is valid. The validity of the message should be checked when we
                 // reach this line.
-                net_trace!("hearing consistency");
                 dodag.dio_timer.hear_consistency();
 
                 return None;
@@ -392,8 +403,6 @@ impl InterfaceInner {
         // If the rank is smaller than ours, the instance id and the mode of operation is
         // the same as ours,, we can add the sender to our parent set.
         if sender_rank < dodag.rank && !self.rpl.is_root {
-            net_trace!("adding {} to parent set", ip_repr.src_addr);
-
             if let Err(parent) = dodag.parent_set.add(Parent::new(
                 ip_repr.src_addr,
                 sender_rank,
@@ -418,13 +427,13 @@ impl InterfaceInner {
         // when we are the root, and the rank that is advertised in the DIO message is
         // not infinite (so we received a valid DIO from a child).
         if self.rpl.is_root && sender_rank != Rank::INFINITE {
-            net_trace!("hearing consistency");
             dodag.dio_timer.hear_consistency();
         }
 
         None
     }
 
+    #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop-3"))]
     pub(super) fn process_rpl_dao<'output, 'payload: 'output>(
         &mut self,
         ip_repr: Ipv6Repr,
@@ -557,6 +566,7 @@ impl InterfaceInner {
         None
     }
 
+    #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop-3"))]
     pub(super) fn process_rpl_dao_ack<'output>(
         &mut self,
         ip_repr: Ipv6Repr,
@@ -624,6 +634,7 @@ impl InterfaceInner {
 }
 
 /// Create a source routing header based on RPL relation information.
+#[cfg(feature = "rpl-mop-1")]
 pub(crate) fn create_source_routing_header(
     ctx: &super::InterfaceInner,
     our_addr: Ipv6Address,

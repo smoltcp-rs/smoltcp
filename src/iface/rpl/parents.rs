@@ -46,15 +46,21 @@ impl ParentSet {
     pub(crate) fn add(&mut self, parent: Parent) -> Result<(), Parent> {
         if let Some(p) = self.find_mut(&parent.address) {
             *p = parent;
-        } else if let Err(p) = self.parents.push(parent) {
-            if let Some(worst_parent) = self.worst_parent() {
-                if worst_parent.rank.dag_rank() > parent.rank.dag_rank() {
-                    *worst_parent = parent;
-                } else {
-                    return Err(parent);
+        } else {
+            match self.parents.push(parent) {
+                Ok(_) => net_trace!("added {} to parent set", parent.address),
+                Err(e) => {
+                    if let Some(worst_parent) = self.worst_parent() {
+                        if worst_parent.rank.dag_rank() > parent.rank.dag_rank() {
+                            *worst_parent = parent;
+                            net_trace!("added {} to parent set", parent.address);
+                        } else {
+                            return Err(parent);
+                        }
+                    } else {
+                        unreachable!()
+                    }
                 }
-            } else {
-                unreachable!()
             }
         }
 

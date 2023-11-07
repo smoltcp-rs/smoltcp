@@ -428,7 +428,8 @@ impl InterfaceInner {
                 src_ll_addr,
                 match ip_repr {
                     IpRepr::Ipv6(ip_repr) => ip_repr,
-                    IpRepr::Ipv4(_) => unreachable!(),
+                    #[allow(unreachable_patterns)]
+                    _ => unreachable!(),
                 },
                 rpl,
             ),
@@ -661,9 +662,11 @@ impl InterfaceInner {
         ) && self.rpl.is_root
         {
             net_trace!("creating source routing header to {}", ipv6_repr.dst_addr);
-            if let Some((source_route, new_dst_addr)) =
-                create_source_routing_header(self, self.ipv6_addr().unwrap(), ipv6_repr.dst_addr)
-            {
+            if let Some((source_route, new_dst_addr)) = super::rpl::create_source_routing_header(
+                self,
+                self.ipv6_addr().unwrap(),
+                ipv6_repr.dst_addr,
+            ) {
                 ipv6_repr.dst_addr = new_dst_addr;
                 Some(source_route)
             } else {

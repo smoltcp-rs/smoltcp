@@ -525,8 +525,6 @@ impl Interface {
     where
         D: Device + ?Sized,
     {
-        use crate::iface::interface::rpl::create_source_routing_header;
-
         fn transmit<D>(
             ctx: &mut InterfaceInner,
             device: &mut D,
@@ -640,6 +638,7 @@ impl Interface {
                 );
             }
 
+            #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop-3"))]
             if dodag.dao_expiration <= ctx.now {
                 dodag.schedule_dao(ctx.rpl.mode_of_operation, our_addr, parent_address, ctx.now);
             }
@@ -668,6 +667,7 @@ impl Interface {
             // routing header MAY be included. However, a source routing header must always
             // be included when it is going down.
             use crate::iface::RplModeOfOperation;
+            #[cfg(feature = "rpl-mop-1")]
             let routing = if matches!(
                 ctx.rpl.mode_of_operation,
                 RplModeOfOperation::NonStoringMode
@@ -675,7 +675,7 @@ impl Interface {
             {
                 net_trace!("creating source routing header to {}", dst_addr);
                 if let Some((source_route, new_dst_addr)) =
-                    create_source_routing_header(ctx, our_addr, dst_addr)
+                    self::rpl::create_source_routing_header(ctx, our_addr, dst_addr)
                 {
                     dst_addr = new_dst_addr;
                     Some(source_route)
@@ -685,6 +685,9 @@ impl Interface {
             } else {
                 None
             };
+
+            #[cfg(not(feature = "rpl-mop-1"))]
+            let routing = None;
 
             let ip_packet = super::ip_packet::Ipv6Packet {
                 header: Ipv6Repr {
@@ -767,8 +770,6 @@ impl Interface {
         if (ctx.rpl.is_root || dodag.parent.is_some())
             && dodag.dio_timer.poll(ctx.now, &mut ctx.rand)
         {
-            net_trace!("transmitting DIO");
-
             let mut options = heapless::Vec::new();
             options.push(ctx.rpl.dodag_configuration()).unwrap();
 
@@ -798,11 +799,12 @@ impl Interface {
         let ctx = self.context();
 
         if let Some(dodag) = &ctx.rpl.dodag {
+            #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop-3"))]
             if !dodag.daos.is_empty() || !dodag.dao_acks.is_empty() {
-                Instant::from_millis(0)
-            } else {
-                dodag.dio_timer.poll_at()
+                return Instant::from_millis(0);
             }
+
+            dodag.dio_timer.poll_at()
         } else {
             ctx.rpl.dis_expiration
         }
@@ -1289,6 +1291,7 @@ impl InterfaceInner {
 
         #[cfg(feature = "proto-rpl")]
         let dst_addr = if let IpAddress::Ipv6(dst_addr) = dst_addr {
+            #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop3"))]
             if let Some(next_hop) = self
                 .rpl
                 .dodag
@@ -1306,15 +1309,12 @@ impl InterfaceInner {
             } else {
                 dst_addr.into()
             }
+
+            #[cfg(not(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop3")))]
+            dst_addr.into()
         } else {
             dst_addr
         };
-
-        match self.neighbor_cache.lookup(&dst_addr, self.now) {
-            NeighborAnswer::Found(hardware_addr) => return Ok((hardware_addr, tx_token)),
-            NeighborAnswer::RateLimited => return Err(DispatchError::NeighborPending),
-            _ => (), // XXX
-        }
 
         match self.neighbor_cache.lookup(&dst_addr, self.now) {
             NeighborAnswer::Found(hardware_addr) => return Ok((hardware_addr, tx_token)),
