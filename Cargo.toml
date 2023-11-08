@@ -314,5 +314,9 @@ required-features = ["std", "medium-ieee802154", "phy-raw_socket", "proto-sixlow
 name = "dns"
 required-features = ["std", "medium-ethernet", "medium-ip", "phy-tuntap_interface", "proto-ipv4", "socket-dns"]
 
+[[test]]
+name = "rpl"
+required-features = ["std", "medium-ieee802154", "proto-sixlowpan", "rpl-mop-0", "rpl-mop-1", "rpl-mop-2"]
+
 [profile.release]
 debug = 2
