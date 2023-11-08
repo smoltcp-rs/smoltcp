@@ -1295,19 +1295,16 @@ impl InterfaceInner {
         #[cfg(feature = "proto-rpl")]
         let dst_addr = if let IpAddress::Ipv6(dst_addr) = dst_addr {
             #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop3"))]
-            if let Some(next_hop) = self
-                .rpl
-                .dodag
-                .as_ref()
-                .unwrap()
-                .relations
-                .find_next_hop(dst_addr)
-            {
-                if next_hop == self.ipv6_addr().unwrap() {
-                    dst_addr.into()
+            if let Some(dodag) = &self.rpl.dodag {
+                if let Some(next_hop) = dodag.relations.find_next_hop(dst_addr) {
+                    if next_hop == self.ipv6_addr().unwrap() {
+                        dst_addr.into()
+                    } else {
+                        net_trace!("next hop {}", next_hop);
+                        next_hop.into()
+                    }
                 } else {
-                    net_trace!("next hop {}", next_hop);
-                    next_hop.into()
+                    dst_addr.into()
                 }
             } else {
                 dst_addr.into()
