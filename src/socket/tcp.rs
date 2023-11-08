@@ -1482,7 +1482,7 @@ impl<'a> Socket<'a> {
         let window_start = self.remote_seq_no + self.rx_buffer.len();
         let window_end = self.remote_seq_no + self.rx_buffer.capacity();
         let segment_start = repr.seq_number;
-        let segment_end = repr.seq_number + repr.segment_len();
+        let segment_end = repr.seq_number + repr.payload.len();
 
         let (payload, payload_offset) = match self.state {
             // In LISTEN and SYN-SENT states, we have not yet synchronized with the remote end.
@@ -1542,9 +1542,8 @@ impl<'a> Socket<'a> {
                 };
 
                 if segment_in_window {
-                    let segment_data_end = repr.seq_number + repr.payload.len();
                     let overlap_start = window_start.max(segment_start);
-                    let overlap_end = window_end.min(segment_data_end);
+                    let overlap_end = window_end.min(segment_end);
 
                     // the checks done above imply this.
                     debug_assert!(overlap_start <= overlap_end);
@@ -1604,6 +1603,7 @@ impl<'a> Socket<'a> {
         // If a FIN is received at the end of the current segment but the start of the segment
         // is not at the start of the receive window, disregard this FIN.
         if control == TcpControl::Fin && window_start != segment_start {
+            tcp_trace!("ignoring FIN because we don't have full data yet. window_start={} segment_start={}", window_start, segment_start);
             control = TcpControl::None;
         }
 
@@ -6122,6 +6122,57 @@ mod test {
                 window_len: 0,
                 ..RECV_TEMPL
             })
+        );
+    }
+
+    #[test]
+    fn test_zero_window_fin() {
+        let mut s = socket_established();
+        s.rx_buffer = SocketBuffer::new(vec![0; 6]);
+        s.assembler = Assembler::new();
+        s.ack_delay = None;
+
+        send!(
+            s,
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                payload: &b"abcdef"[..],
+                ..SEND_TEMPL
+            }
+        );
+        recv!(
+            s,
+            [TcpRepr {
+                seq_number: LOCAL_SEQ + 1,
+                ack_number: Some(REMOTE_SEQ + 1 + 6),
+                window_len: 0,
+                ..RECV_TEMPL
+            }]
+        );
+
+        // Even though the sequence space for the FIN itself is outside the window,
+        // it is not data, so FIN must be accepted when window full.
+        send!(
+            s,
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1 + 6,
+                ack_number: Some(LOCAL_SEQ + 1),
+                payload: &[],
+                control: TcpControl::Fin,
+                ..SEND_TEMPL
+            }
+        );
+        assert_eq!(s.state, State::CloseWait);
+
+        recv!(
+            s,
+            [TcpRepr {
+                seq_number: LOCAL_SEQ + 1,
+                ack_number: Some(REMOTE_SEQ + 1 + 7),
+                window_len: 0,
+                ..RECV_TEMPL
+            }]
         );
     }
 
