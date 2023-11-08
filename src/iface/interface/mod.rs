@@ -1353,12 +1353,14 @@ impl InterfaceInner {
                 }
 
                 #[cfg(all(feature = "proto-ipv6", feature = "proto-rpl"))]
-                (&IpAddress::Ipv6(src_addr), IpAddress::Ipv6(dst_addr)) => {
-                    if let Some(parent) = self.rpl.dodag.as_ref().unwrap().parent {
-                        if let NeighborAnswer::Found(hardware_addr) =
-                            self.neighbor_cache.lookup(&parent.into(), self.now)
-                        {
-                            return Ok((hardware_addr, tx_token));
+                (&IpAddress::Ipv6(_), IpAddress::Ipv6(_)) => {
+                    if let Some(dodag) = self.rpl.dodag.as_ref() {
+                        if let Some(parent) = dodag.parent {
+                            if let NeighborAnswer::Found(hardware_addr) =
+                                self.neighbor_cache.lookup(&parent.into(), self.now)
+                            {
+                                return Ok((hardware_addr, tx_token));
+                            }
                         }
                     }
                 }
