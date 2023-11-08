@@ -198,6 +198,10 @@ impl<T: AsRef<[u8]>> ExtHeaderPacket<T> {
             _ => unreachable!(),
         }
     }
+
+    pub fn header_len(&self) -> usize {
+        2 + self.next_header_size()
+    }
 }
 
 impl<'a, T: AsRef<[u8]> + ?Sized> ExtHeaderPacket<&'a T> {
