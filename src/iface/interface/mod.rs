@@ -630,6 +630,9 @@ impl Interface {
                     hop_limit: 64,
                 };
 
+                ctx.rpl.dodag = None;
+                ctx.rpl.dis_expiration = ctx.now + Duration::from_secs(5);
+
                 return transmit(
                     ctx,
                     device,
