@@ -1,0 +1,26 @@
+name: Verification
+on:
+  pull_request:
+  merge_group:
+    
+jobs:
+  verify-wire:
+    runs-on: [macos-latest]
+    steps:
+      - name: 'Checkout your code.'
+        uses: actions/checkout@v3
+
+      - name: 'Run Kani on TCP wire.'
+        uses: model-checking/kani-github-action@v0.33
+        with:
+          args: '--output-format=terse --verbose --harness wire::tcp::verification'
+  verify-socket:
+    runs-on: [macos-latest]
+    steps:
+      - name: 'Checkout your code.'
+        uses: actions/checkout@v3
+
+      - name: 'Run Kani on TCP socket.'
+        uses: model-checking/kani-github-action@v0.33
+        with:
+          args: '--output-format=terse --verbose --harness socket::tcp::verification'

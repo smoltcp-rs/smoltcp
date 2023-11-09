@@ -11,6 +11,7 @@ use crate::wire::{IpAddress, IpProtocol};
 /// A sequence number is a monotonically advancing integer modulo 2<sup>32</sup>.
 /// Sequence numbers do not have a discontiguity when compared pairwise across a signed overflow.
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
+#[cfg_attr(kani, derive(kani::Arbitrary))]
 pub struct SeqNumber(pub i32);
 
 impl SeqNumber {
@@ -614,6 +615,42 @@ impl<T: AsRef<[u8]>> AsRef<[u8]> for Packet<T> {
     }
 }
 
+#[cfg(kani)]
+impl kani::Arbitrary for Packet<Vec<u8>> {
+    #[inline]
+    fn any() -> Self {
+        // FIXME: Packets with symbolic payload length are too expensive (dozens of hours).
+        // FIXME: checksums are quite expensive (one hour).
+        let options: Vec<u8> = kani::vec::exact_vec::<_, 4>();
+        let payload: Vec<u8> = kani::vec::exact_vec::<_, 8>();
+
+        let bytes: Vec<u8> = vec![0xa5; 32];
+        let mut packet = Packet::new_unchecked(bytes);
+
+        packet.set_src_port(kani::any());
+        packet.set_dst_port(kani::any());
+        packet.set_seq_number(kani::any());
+        packet.set_ack_number(kani::any());
+        packet.set_header_len(24);
+        packet.clear_flags();
+        packet.set_fin(kani::any());
+        packet.set_syn(kani::any());
+        packet.set_rst(kani::any());
+        packet.set_psh(kani::any());
+        packet.set_ack(kani::any());
+        packet.set_urg(kani::any());
+        packet.set_ece(kani::any());
+        packet.set_cwr(kani::any());
+        packet.set_ns(kani::any());
+        packet.set_window_len(kani::any());
+        packet.set_urgent_at(kani::any());
+        packet.options_mut().copy_from_slice(&options[..]);
+        packet.payload_mut().copy_from_slice(&payload[..]);
+
+        return packet;
+    }
+}
+
 /// A representation of a single TCP option.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -763,9 +800,48 @@ impl<'a> TcpOption<'a> {
     }
 }
 
+#[cfg(kani)]
+impl<'a> kani::Arbitrary for TcpOption<'a> {
+    #[inline]
+    fn any() -> Self {
+        let option: u8 = kani::any_where(|v| *v >= 1 && *v <= 7);
+        return match option {
+            1 => TcpOption::EndOfList,
+            2 => TcpOption::NoOperation,
+            3 => TcpOption::MaxSegmentSize(kani::any()),
+            4 => TcpOption::WindowScale(kani::any()),
+            5 => TcpOption::SackPermitted,
+            6 => {
+                let range_type: u8 = kani::any_where(|v| *v >= 1 && *v <= 3);
+                let ranges: [Option<(u32, u32)>; 3] = match range_type {
+                    1 => [Some((kani::any(), kani::any())), None, None],
+                    2 => [
+                        Some((kani::any(), kani::any())),
+                        Some((kani::any(), kani::any())),
+                        None,
+                    ],
+                    3 => [
+                        Some((kani::any(), kani::any())),
+                        Some((kani::any(), kani::any())),
+                        Some((kani::any(), kani::any())),
+                    ],
+                    _ => unreachable!(),
+                };
+                return TcpOption::SackRange(ranges);
+            }
+            7 => TcpOption::Unknown {
+                kind: kani::any_where(|v| *v > 5),
+                data: kani::vec::exact_vec::<u8, 3>().leak(),
+            },
+            _ => unreachable!(),
+        };
+    }
+}
+
 /// The possible control flags of a Transmission Control Protocol packet.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg_attr(kani, derive(kani::Arbitrary))]
 pub enum Control {
     None,
     Psh,
@@ -1005,6 +1081,45 @@ impl<'a> Repr<'a> {
             Control::Syn | Control::Fin | Control::Rst => false,
             Control::None | Control::Psh => true,
         }
+    }
+}
+
+#[cfg(kani)]
+impl<'a> kani::Arbitrary for Repr<'a> {
+    #[inline]
+    fn any() -> Self {
+        // Limit payload to length 4 to keep things reasonable.
+        let payload: Vec<u8> = kani::vec::exact_vec::<u8, 4>();
+        let range_type: u8 = kani::any_where(|v| *v >= 1 && *v <= 4);
+        let ranges: [Option<(u32, u32)>; 3] = match range_type {
+            1 => [None, None, None],
+            2 => [Some((kani::any(), kani::any())), None, None],
+            3 => [
+                Some((kani::any(), kani::any())),
+                Some((kani::any(), kani::any())),
+                None,
+            ],
+            4 => [
+                Some((kani::any(), kani::any())),
+                Some((kani::any(), kani::any())),
+                Some((kani::any(), kani::any())),
+            ],
+            _ => unreachable!(),
+        };
+        return Repr {
+            src_port: kani::any_where(|p| *p != 0),
+            dst_port: kani::any_where(|p| *p != 0),
+            seq_number: kani::any(),
+            ack_number: kani::any(),
+            window_len: kani::any(),
+            // This is enforced by parse().
+            window_scale: kani::any_where(|s: &Option<u8>| s.is_none() || s.unwrap() <= 14),
+            control: kani::any(),
+            max_seg_size: kani::any(),
+            sack_permitted: kani::any(),
+            sack_ranges: ranges,
+            payload: payload.leak(),
+        };
     }
 }
 
@@ -1327,5 +1442,158 @@ mod test {
         assert_eq!(TcpOption::parse(&[0xc, 0x01]), Err(Error));
         assert_eq!(TcpOption::parse(&[0x2, 0x02]), Err(Error));
         assert_eq!(TcpOption::parse(&[0x3, 0x02]), Err(Error));
+    }
+}
+
+#[cfg(kani)]
+mod verification {
+
+    extern crate kani;
+    use super::*;
+    use alloc::vec;
+
+    use crate::wire::Ipv4Address;
+
+    #[kani::proof]
+    #[kani::unwind(10)]
+    fn prove_parsing() {
+        let src_port: u16 = kani::any();
+        let dst_port: u16 = kani::any();
+
+        let seq_number: SeqNumber = kani::any();
+        let ack_number: SeqNumber = kani::any();
+
+        let fin: bool = kani::any();
+        let syn: bool = kani::any();
+        let rst: bool = kani::any();
+        let psh: bool = kani::any();
+        let ack: bool = kani::any();
+        let urg: bool = kani::any();
+        let ece: bool = kani::any();
+        let cwr: bool = kani::any();
+        let ns: bool = kani::any();
+
+        let window_len: u16 = kani::any();
+        let urgent_at: u16 = kani::any();
+
+        let options: Vec<u8> = kani::vec::exact_vec::<_, 4>();
+        let payload: Vec<u8> = kani::vec::exact_vec::<_, 8>();
+
+        let mut bytes = vec![0xa5; 32];
+        let mut packet = Packet::new_unchecked(&mut bytes);
+        packet.set_src_port(src_port);
+        packet.set_dst_port(dst_port);
+        packet.set_seq_number(seq_number);
+        packet.set_ack_number(ack_number);
+        packet.set_header_len(24);
+        packet.clear_flags();
+        packet.set_fin(fin);
+        packet.set_syn(syn);
+        packet.set_rst(rst);
+        packet.set_psh(psh);
+        packet.set_ack(ack);
+        packet.set_urg(urg);
+        packet.set_ece(ece);
+        packet.set_cwr(cwr);
+        packet.set_ns(ns);
+        packet.set_window_len(window_len);
+        packet.set_urgent_at(urgent_at);
+        packet.options_mut().copy_from_slice(&options[..]);
+        packet.payload_mut().copy_from_slice(&payload[..]);
+
+        assert_eq!(src_port, packet.src_port());
+        assert_eq!(dst_port, packet.dst_port());
+
+        assert_eq!(seq_number, packet.seq_number());
+        assert_eq!(ack_number, packet.ack_number());
+        assert_eq!(24, packet.header_len());
+        assert_eq!(fin, packet.fin());
+        assert_eq!(syn, packet.syn());
+        assert_eq!(rst, packet.rst());
+        assert_eq!(psh, packet.psh());
+        assert_eq!(ack, packet.ack());
+        assert_eq!(urg, packet.urg());
+        assert_eq!(ece, packet.ece());
+        assert_eq!(cwr, packet.cwr());
+        assert_eq!(ns, packet.ns());
+
+        assert_eq!(window_len, packet.window_len());
+        assert_eq!(urgent_at, packet.urgent_at());
+        assert_eq!(options, packet.options_mut());
+        assert_eq!(payload, packet.payload_mut());
+        // assert!(packet.verify_checksum(&src_addr.into(), &dst_addr.into()));
+        assert!(packet.check_len().is_ok());
+    }
+
+    #[kani::proof]
+    fn prove_truncated() {
+        let packet: Packet<Vec<u8>> = kani::any();
+        let data: &Vec<u8> = packet.buffer.as_ref();
+
+        let trunc_length: usize = kani::any_where(|l| *l < 24);
+        let packet_in = Packet::new_unchecked(&data[..trunc_length]);
+
+        assert!(packet_in.check_len().is_err());
+    }
+
+    #[kani::proof]
+    fn prove_impossible_length() {
+        let mut bytes = vec![0; 20];
+        let mut packet = Packet::new_unchecked(&mut bytes);
+        let max_len: u8 = field::URGENT.end.try_into().unwrap();
+        let header_len: u8 = kani::any_where(|l| *l < max_len);
+        packet.set_header_len(header_len);
+        assert!(packet.check_len().is_err());
+    }
+
+    #[cfg(notci)]
+    #[kani::proof]
+    #[kani::unwind(15)]
+    fn prove_repr_invertible() {
+        // This proof is interesting but too heavy to run frequently on CI.
+        let repr: Repr = kani::any();
+        let mut bytes = vec![0xa5; repr.buffer_len()];
+        let mut packet = Packet::new_unchecked(&mut bytes);
+
+        let src_addr: Ipv4Address = kani::any();
+        let dst_addr: Ipv4Address = kani::any();
+
+        repr.emit(
+            &mut packet,
+            &src_addr.into(),
+            &dst_addr.into(),
+            &ChecksumCapabilities::ignored(),
+        );
+
+        let packet_out = Packet::new_unchecked(&packet.into_inner()[..]);
+
+        let repr_out = Repr::parse(
+            &packet_out,
+            &src_addr.into(),
+            &dst_addr.into(),
+            &ChecksumCapabilities::ignored(),
+        );
+
+        assert!(repr_out.is_ok());
+        assert_eq!(repr, repr_out.unwrap());
+    }
+
+    #[kani::proof]
+    #[kani::unwind(15)]
+    fn prove_header_len_multiple_of_4() {
+        let repr: Repr = kani::any();
+        assert_eq!(repr.header_len() % 4, 0); // Should e.g. be 28 instead of 27.
+    }
+
+    #[kani::proof]
+    #[kani::unwind(15)]
+    fn prove_tcpoption_invertible() {
+        let option: TcpOption = kani::any();
+        let buffer = &mut [0; 40][..option.buffer_len()];
+        assert_eq!(option.emit(buffer), &mut []);
+
+        let option_out = TcpOption::parse(&*buffer);
+        assert!(option_out.is_ok());
+        assert_eq!(option, option_out.unwrap().1);
     }
 }

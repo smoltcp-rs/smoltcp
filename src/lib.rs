@@ -129,7 +129,7 @@ mod macros;
 mod parsers;
 mod rand;
 
-#[cfg(test)]
+#[cfg(any(test, kani))]
 mod config {
     #![allow(unused)]
     pub const ASSEMBLER_MAX_SEGMENT_COUNT: usize = 4;
@@ -149,7 +149,7 @@ mod config {
     pub const IPV6_HBH_MAX_OPTIONS: usize = 2;
 }
 
-#[cfg(not(test))]
+#[cfg(not(any(test, kani)))]
 mod config {
     #![allow(unused)]
     include!(concat!(env!("OUT_DIR"), "/config.rs"));
@@ -170,7 +170,7 @@ pub mod time;
 pub mod wire;
 
 #[cfg(all(
-    test,
+    any(test, kani),
     any(
         feature = "medium-ethernet",
         feature = "medium-ip",

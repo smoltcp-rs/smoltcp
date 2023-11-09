@@ -968,7 +968,7 @@ impl InterfaceInner {
         None
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, kani))]
     #[allow(unused)] // unused depending on which sockets are enabled
     pub(crate) fn set_now(&mut self, now: Instant) {
         self.now = now

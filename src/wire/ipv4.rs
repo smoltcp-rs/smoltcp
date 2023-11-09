@@ -37,6 +37,7 @@ pub struct Key {
 
 /// A four-octet IPv4 address.
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
+#[cfg_attr(kani, derive(kani::Arbitrary))]
 pub struct Address(pub [u8; ADDR_SIZE]);
 
 impl Address {
@@ -619,6 +620,7 @@ impl<T: AsRef<[u8]>> AsRef<[u8]> for Packet<T> {
 /// A high-level representation of an Internet Protocol version 4 packet header.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg_attr(kani, derive(kani::Arbitrary))]
 pub struct Repr {
     pub src_addr: Address,
     pub dst_addr: Address,

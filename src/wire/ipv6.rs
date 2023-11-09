@@ -27,6 +27,7 @@ pub const IPV4_MAPPED_PREFIX_SIZE: usize = ADDR_SIZE - 4; // 4 == ipv4::ADDR_SIZ
 
 /// A sixteen-octet IPv6 address.
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
+#[cfg_attr(kani, derive(kani::Arbitrary))]
 pub struct Address(pub [u8; ADDR_SIZE]);
 
 impl Address {
@@ -721,6 +722,7 @@ impl<T: AsRef<[u8]>> AsRef<[u8]> for Packet<T> {
 
 /// A high-level representation of an Internet Protocol version 6 packet header.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(kani, derive(kani::Arbitrary))]
 pub struct Repr {
     /// IPv6 address of the source node.
     pub src_addr: Address,
