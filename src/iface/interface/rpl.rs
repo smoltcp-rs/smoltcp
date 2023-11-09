@@ -443,12 +443,12 @@ impl InterfaceInner {
         let dodag = self.rpl.dodag.as_mut()?;
 
         // Check validity of the DAO
-        // =========================
         if dodag.instance_id != dao.rpl_instance_id && Some(dodag.id) != dao.dodag_id {
             net_trace!("dropping DAO, wrong DODAG ID/INSTANCE ID");
             return None;
         }
 
+        #[cfg(feature = "rpl-mop-0")]
         if matches!(
             self.rpl.mode_of_operation,
             ModeOfOperation::NoDownwardRoutesMaintained
@@ -461,27 +461,8 @@ impl InterfaceInner {
         if matches!(self.rpl.mode_of_operation, ModeOfOperation::NonStoringMode)
             && !self.rpl.is_root
         {
-            net_trace!("forwarding DAO to root");
-            // TODO: we should use the hop-by-hop if there was already one.
-            let mut options = Vec::new();
-            _ = options.push(Ipv6OptionRepr::Rpl(RplHopByHopRepr {
-                down: false,
-                rank_error: false,
-                forwarding_error: false,
-                instance_id: dodag.instance_id,
-                sender_rank: dodag.rank.raw_value(),
-            }));
-
-            let hbh = Ipv6HopByHopRepr { options };
-
-            return Some(IpPacket::Ipv6(Ipv6Packet {
-                header: ip_repr,
-                hop_by_hop: Some(hbh),
-                routing: None,
-                payload: IpPayload::Icmpv6(Icmpv6Repr::Rpl(
-                    RplRepr::DestinationAdvertisementObject(dao),
-                )),
-            }));
+            net_trace!("dropping DAO, MOP1 and not root");
+            return None;
         }
 
         let mut targets: Vec<Ipv6Address, 8> = Vec::new();
@@ -504,6 +485,7 @@ impl InterfaceInner {
                         }
                     } else {
                         let next_hop = match self.rpl.mode_of_operation {
+                            #[cfg(feature = "rpl-mop-0")]
                             ModeOfOperation::NoDownwardRoutesMaintained => unreachable!(),
                             #[cfg(feature = "rpl-mop-1")]
                             ModeOfOperation::NonStoringMode => transit.parent_address.unwrap(),
@@ -511,6 +493,8 @@ impl InterfaceInner {
                             ModeOfOperation::StoringMode => ip_repr.src_addr,
                             #[cfg(feature = "rpl-mop-3")]
                             ModeOfOperation::StoringModeWithMulticast => ip_repr.src_addr,
+                            #[allow(unreachable_patterns)]
+                            _ => unreachable!(),
                         };
 
                         for target in &targets {
