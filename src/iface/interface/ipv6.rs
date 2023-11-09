@@ -639,7 +639,7 @@ impl InterfaceInner {
     pub(super) fn forward<'frame>(
         &self,
         mut ipv6_repr: Ipv6Repr,
-        hop_by_hop: Option<Ipv6HopByHopRepr<'frame>>,
+        _hop_by_hop: Option<Ipv6HopByHopRepr<'frame>>,
         payload: &'frame [u8],
     ) -> Option<IpPacket<'frame>> {
         net_trace!("forwarding packet");
@@ -676,7 +676,9 @@ impl InterfaceInner {
 
         Some(IpPacket::Ipv6(Ipv6Packet {
             header: ipv6_repr,
-            hop_by_hop,
+            #[cfg(feature = "proto-ipv6-hbh")]
+            hop_by_hop: _hop_by_hop,
+            #[cfg(feature = "proto-ipv6-routing")]
             routing,
             payload: IpPayload::Raw(payload),
         }))
