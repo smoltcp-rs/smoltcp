@@ -323,7 +323,6 @@ impl InterfaceInner {
             #[cfg(feature = "socket-tcp")]
             IpProtocol::Tcp => self.process_tcp(sockets, ipv6_repr.into(), ip_payload),
 
-            #[cfg(feature = "proto-ipv6-hbh")]
             IpProtocol::HopByHop => self.process_hopbyhop(
                 src_ll_addr,
                 sockets,
@@ -609,7 +608,6 @@ impl InterfaceInner {
         )
     }
 
-    #[cfg(feature = "proto-ipv6")]
     pub(super) fn icmpv6_reply<'frame, 'icmp: 'frame>(
         &self,
         ipv6_repr: Ipv6Repr,
