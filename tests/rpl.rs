@@ -85,7 +85,9 @@ fn root_and_normal_node(#[case] mop: RplModeOfOperation) {
             // start. Therefore, there should never be a DIS in the messages.
             RplModeOfOperation::NoDownwardRoutesMaintained => assert!(msg.is_dio().unwrap()),
             // In MOP1, MOP2, MOP3, DAOs and DAO-ACKs are also transmitted.
-            RplModeOfOperation::NonStoringMode | RplModeOfOperation::StoringMode => {
+            RplModeOfOperation::NonStoringMode
+            | RplModeOfOperation::StoringMode
+            | RplModeOfOperation::StoringModeWithMulticast => {
                 assert!(msg.is_dio().unwrap() || msg.is_dao().unwrap() || msg.is_dao_ack().unwrap())
             }
         }
@@ -111,7 +113,9 @@ fn root_and_normal_node_moved_out_of_range(#[case] mop: RplModeOfOperation) {
             // start. Therefore, there should never be a DIS in the messages.
             RplModeOfOperation::NoDownwardRoutesMaintained => assert!(msg.is_dio().unwrap()),
             // In MOP1, MOP2, MOP3, DAOs and DAO-ACKs are also transmitted.
-            RplModeOfOperation::NonStoringMode | RplModeOfOperation::StoringMode => {
+            RplModeOfOperation::NonStoringMode
+            | RplModeOfOperation::StoringMode
+            | RplModeOfOperation::StoringModeWithMulticast => {
                 assert!(msg.is_dio().unwrap() || msg.is_dao().unwrap() || msg.is_dao_ack().unwrap())
             }
         }
@@ -138,7 +142,9 @@ fn root_and_normal_node_moved_out_of_range(#[case] mop: RplModeOfOperation) {
             RplModeOfOperation::NoDownwardRoutesMaintained => {
                 assert!(msg.is_dio().unwrap() || msg.is_dis().unwrap())
             }
-            RplModeOfOperation::NonStoringMode | RplModeOfOperation::StoringMode => {
+            RplModeOfOperation::NonStoringMode
+            | RplModeOfOperation::StoringMode
+            | RplModeOfOperation::StoringModeWithMulticast => {
                 assert!(msg.is_dio().unwrap() || msg.is_dis().unwrap() || msg.is_dao().unwrap());
             }
         }
@@ -164,7 +170,9 @@ fn root_and_normal_node_moved_out_of_range(#[case] mop: RplModeOfOperation) {
                 assert!(msg.is_dio().unwrap() || msg.is_dis().unwrap())
             }
             // In MOP1, MOP2, MOP3, DAOs and DAO-ACKs are also transmitted.
-            RplModeOfOperation::NonStoringMode | RplModeOfOperation::StoringMode => {
+            RplModeOfOperation::NonStoringMode
+            | RplModeOfOperation::StoringMode
+            | RplModeOfOperation::StoringModeWithMulticast => {
                 assert!(
                     msg.is_dis().unwrap()
                         || msg.is_dio().unwrap()
@@ -210,7 +218,9 @@ fn message_forwarding_to_root(#[case] mop: RplModeOfOperation) {
                 assert!(msg.is_dis().unwrap() || msg.is_dio().unwrap() || msg.is_udp().unwrap())
             }
             // In MOP1, MOP2, MOP3, DAOs and DAO-ACKs are also transmitted.
-            RplModeOfOperation::NonStoringMode | RplModeOfOperation::StoringMode => {
+            RplModeOfOperation::NonStoringMode
+            | RplModeOfOperation::StoringMode
+            | RplModeOfOperation::StoringModeWithMulticast => {
                 assert!(
                     msg.is_dis().unwrap()
                         || msg.is_dio().unwrap()
@@ -260,7 +270,9 @@ fn message_forwarding_up_and_down(#[case] mop: RplModeOfOperation) {
         RplModeOfOperation::NoDownwardRoutesMaintained => {
             assert!(udp_count >= 59 * 2 && udp_count <= 60 * 2);
         }
-        RplModeOfOperation::NonStoringMode | RplModeOfOperation::StoringMode => {
+        RplModeOfOperation::NonStoringMode
+        | RplModeOfOperation::StoringMode
+        | RplModeOfOperation::StoringModeWithMulticast => {
             assert!(udp_count >= 59 * 4 && udp_count <= 60 * 4);
         }
     }
@@ -271,7 +283,9 @@ fn message_forwarding_up_and_down(#[case] mop: RplModeOfOperation) {
                 assert!(msg.is_dis().unwrap() || msg.is_dio().unwrap() || msg.is_udp().unwrap())
             }
             // In MOP1, MOP2, MOP3, DAOs and DAO-ACKs are also transmitted.
-            RplModeOfOperation::NonStoringMode | RplModeOfOperation::StoringMode => {
+            RplModeOfOperation::NonStoringMode
+            | RplModeOfOperation::StoringMode
+            | RplModeOfOperation::StoringModeWithMulticast => {
                 assert!(
                     msg.is_dis().unwrap()
                         || msg.is_dio().unwrap()

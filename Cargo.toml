@@ -316,7 +316,7 @@ required-features = ["std", "medium-ethernet", "medium-ip", "phy-tuntap_interfac
 
 [[test]]
 name = "rpl"
-required-features = ["std", "medium-ieee802154", "proto-sixlowpan", "rpl-mop-0", "rpl-mop-1", "rpl-mop-2"]
+required-features = ["std", "medium-ieee802154", "proto-sixlowpan", "rpl-mop-0", "rpl-mop-1", "rpl-mop-2", "rpl-mop-3"]
 
 [profile.release]
 debug = 2
