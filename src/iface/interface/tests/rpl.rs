@@ -96,3 +96,61 @@ fn unicast_dis(#[case] mop: RplModeOfOperation) {
         }))
     );
 }
+
+#[rstest]
+#[case::mop0(RplModeOfOperation::NoDownwardRoutesMaintained)]
+#[cfg(feature = "rpl-mop-0")]
+#[case::mop1(RplModeOfOperation::NonStoringMode)]
+#[cfg(feature = "rpl-mop-1")]
+#[case::mop2(RplModeOfOperation::StoringMode)]
+#[cfg(feature = "rpl-mop-2")]
+fn dio_without_configuration(#[case] mop: RplModeOfOperation) {
+    use crate::iface::rpl::{Dodag, Rank, RplInstanceId};
+
+    let (mut iface, mut sockets, _device) = setup(Medium::Ieee802154);
+    iface.inner.rpl.mode_of_operation = mop;
+
+    let ll_addr = Ieee802154Address::Extended([0, 0, 0, 0, 0, 0, 0, 2]);
+    let addr = ll_addr.as_link_local_address().unwrap();
+
+    let response = iface.inner.process_rpl_dio(
+        Some(ll_addr.into()),
+        Ipv6Repr {
+            src_addr: addr,
+            dst_addr: Ipv6Address::LINK_LOCAL_ALL_RPL_NODES,
+            next_header: IpProtocol::Icmpv6,
+            payload_len: 0, // does not matter
+            hop_limit: 0,   // does not matter
+        },
+        RplDio {
+            rpl_instance_id: RplInstanceId::Local(30),
+            version_number: Default::default(),
+            rank: Rank::ROOT.raw_value(),
+            grounded: false,
+            mode_of_operation: mop.into(),
+            dodag_preference: 0,
+            dtsn: Default::default(),
+            dodag_id: Default::default(),
+            options: Default::default(),
+        },
+    );
+    assert_eq!(
+        response,
+        Some(IpPacket::Ipv6(Ipv6Packet {
+            header: Ipv6Repr {
+                src_addr: iface.ipv6_addr().unwrap(),
+                dst_addr: addr,
+                next_header: IpProtocol::Icmpv6,
+                payload_len: 6,
+                hop_limit: 64
+            },
+            hop_by_hop: None,
+            routing: None,
+            payload: IpPayload::Icmpv6(Icmpv6Repr::Rpl(RplRepr::DodagInformationSolicitation(
+                RplDis {
+                    options: Default::default(),
+                }
+            ))),
+        }))
+    );
+}

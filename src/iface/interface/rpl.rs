@@ -178,7 +178,7 @@ impl InterfaceInner {
                 return Some(IpPacket::new_ipv6(
                     Ipv6Repr {
                         src_addr: self.ipv6_addr().unwrap(),
-                        dst_addr: ip_repr.dst_addr,
+                        dst_addr: ip_repr.src_addr,
                         next_header: IpProtocol::Icmpv6,
                         payload_len: icmp.buffer_len(),
                         hop_limit: 64,
