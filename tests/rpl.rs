@@ -38,7 +38,7 @@ fn root_node_only(#[case] mop: RplModeOfOperation) {
     }
 }
 
-/// A RPL root node with a normal node that is out of range of the root node. The normal node
+/// A RPL normal node that is out of range of any DODAG. The normal node
 /// should transmit DIS messages, soliciting for a DODAG. These messages are transmitted every 60
 /// seconds. In hour, 60 DIS messages should be transmitted.
 #[rstest]
@@ -63,6 +63,12 @@ fn normal_node_without_dodag(#[case] mop: RplModeOfOperation) {
     }
 }
 
+/// A RPL root node and a normal node in range of the root node.
+/// In all mode of operations, DIOs should be transmitted.
+/// For MOP1, MOP2 and MOP3, DAOs and DAO-ACKs should be transmitted.
+/// We run the simulation for 15 minutes. During this period, around 7 DIOs should be transmitted
+/// by each node (root and normal node). In MOP1, MOP2 and MOP3, the normal node should transmit 1
+/// DAO and the root 1 DAO-ACK. By default, DAOs require an ACK in smoltcp.
 #[rstest]
 #[case::mop0(RplModeOfOperation::NoDownwardRoutesMaintained)]
 #[case::mop1(RplModeOfOperation::NonStoringMode)]
@@ -70,13 +76,30 @@ fn normal_node_without_dodag(#[case] mop: RplModeOfOperation) {
 fn root_and_normal_node(#[case] mop: RplModeOfOperation) {
     let mut sim = sim::topology(sim::NetworkSim::new(), mop, 1, 1);
 
-    sim.run(Duration::from_millis(500), ONE_HOUR);
+    sim.run(Duration::from_millis(500), Duration::from_secs(60 * 15));
 
     assert!(!sim.messages.is_empty());
 
     let dio_count = sim.messages.iter().filter(|m| m.is_dio().unwrap()).count();
 
-    assert!(dio_count > 18 && dio_count < 22);
+    assert!(dio_count > 12 && dio_count < 17);
+
+    match mop {
+        RplModeOfOperation::NonStoringMode
+        | RplModeOfOperation::StoringMode
+        | RplModeOfOperation::StoringModeWithMulticast => {
+            let dao_count = sim.messages.iter().filter(|m| m.is_dao().unwrap()).count();
+            let dao_ack_count = sim
+                .messages
+                .iter()
+                .filter(|m| m.is_dao_ack().unwrap())
+                .count();
+
+            assert_eq!(dao_count, 1);
+            assert_eq!(dao_ack_count, 1);
+        }
+        _ => (),
+    }
 
     for msg in &sim.messages {
         match mop {
