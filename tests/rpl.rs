@@ -159,9 +159,9 @@ fn root_and_normal_node_moved_out_of_range(#[case] mop: RplModeOfOperation) {
         _ => {}
     }
 
-    // There should be no DAO or DAO-ACK, however, it should containt DIS's.
     for msg in &sim.messages {
         match mop {
+            // There should be no DAO or DAO-ACK, however, it should containt DIS's.
             RplModeOfOperation::NoDownwardRoutesMaintained => {
                 assert!(msg.is_dio().unwrap() || msg.is_dis().unwrap())
             }
@@ -223,9 +223,6 @@ fn message_forwarding_to_root(#[case] mop: RplModeOfOperation) {
 
     assert!(!sim.messages.is_empty());
 
-    sim.save_pcap(&std::path::Path::new("./rpl-forwarding.pcap"))
-        .unwrap();
-
     let dio_count = sim.messages.iter().filter(|m| m.is_dio().unwrap()).count();
     assert!(dio_count > 27 && dio_count < 33);
 
@@ -271,9 +268,6 @@ fn message_forwarding_up_and_down(#[case] mop: RplModeOfOperation) {
     sim.run(Duration::from_millis(500), ONE_HOUR);
 
     assert!(!sim.messages.is_empty());
-
-    sim.save_pcap(&std::path::Path::new("./rpl-forwarding.pcap"))
-        .unwrap();
 
     let dio_count = sim
         .messages

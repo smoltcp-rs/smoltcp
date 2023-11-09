@@ -11,6 +11,7 @@ use crate::iface::rpl::*;
 use heapless::Vec;
 
 impl InterfaceInner {
+    /// Get a reference to the RPL configuration.
     pub fn rpl(&self) -> &Rpl {
         &self.rpl
     }
