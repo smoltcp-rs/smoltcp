@@ -181,6 +181,7 @@ pub(crate) struct Dao {
     pub sequence: RplSequenceCounter,
     pub is_no_path: bool,
     pub lifetime: u8,
+    pub rank: Rank,
 
     pub instance_id: RplInstanceId,
     pub dodag_id: Option<Ipv6Address>,
@@ -195,6 +196,7 @@ impl Dao {
         lifetime: u8,
         instance_id: RplInstanceId,
         dodag_id: Option<Ipv6Address>,
+        rank: Rank,
     ) -> Self {
         Dao {
             needs_sending: false,
@@ -208,6 +210,7 @@ impl Dao {
             is_no_path: false,
             instance_id,
             dodag_id,
+            rank,
         }
     }
 
@@ -217,6 +220,7 @@ impl Dao {
         sequence: RplSequenceCounter,
         instance_id: RplInstanceId,
         dodag_id: Option<Ipv6Address>,
+        rank: Rank,
     ) -> Self {
         Dao {
             needs_sending: true,
@@ -230,6 +234,7 @@ impl Dao {
             is_no_path: true,
             instance_id,
             dodag_id,
+            rank,
         }
     }
 
@@ -253,7 +258,7 @@ impl Dao {
 
         RplRepr::DestinationAdvertisementObject(RplDao {
             rpl_instance_id: self.instance_id,
-            expect_ack: true,
+            expect_ack: self.lifetime != 0,
             sequence: self.sequence,
             dodag_id: self.dodag_id,
             options,
@@ -443,6 +448,7 @@ impl Dodag {
                 self.dao_seq_number,
                 self.instance_id,
                 Some(self.id),
+                self.rank,
             ))
             .unwrap();
         self.dao_seq_number.increment();
@@ -473,6 +479,7 @@ impl Dodag {
                         self.dao_seq_number,
                         self.instance_id,
                         Some(self.id),
+                        self.rank,
                     )) {
                         Ok(_) => self.dao_seq_number.increment(),
                         Err(_) => net_trace!("could not schedule DAO"),
@@ -518,6 +525,7 @@ impl Dodag {
                     self.default_lifetime,
                     self.instance_id,
                     Some(self.id),
+                    self.rank,
                 ))
                 .unwrap();
             self.dao_seq_number.increment();
@@ -535,6 +543,7 @@ impl Dodag {
                     self.default_lifetime,
                     self.instance_id,
                     Some(self.id),
+                    self.rank,
                 ))
                 .unwrap();
             self.dao_seq_number.increment();

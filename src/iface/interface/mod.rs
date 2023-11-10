@@ -758,7 +758,7 @@ impl Interface {
                         rank_error: false,
                         forwarding_error: false,
                         instance_id: dodag.instance_id,
-                        sender_rank: dodag.rank.raw_value(),
+                        sender_rank: dao.rank.raw_value(),
                     }))
                     .unwrap();
 

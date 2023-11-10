@@ -4,7 +4,7 @@ use smoltcp::iface::RplConfig;
 use smoltcp::iface::RplModeOfOperation;
 use smoltcp::iface::RplRootConfig;
 use smoltcp::time::*;
-use smoltcp::wire::{Ipv6Address, RplInstanceId};
+use smoltcp::wire::{Icmpv6Repr, Ipv6Address, RplInstanceId, RplRepr};
 
 mod sim;
 
@@ -158,6 +158,25 @@ fn root_and_normal_node_moved_out_of_range(#[case] mop: RplModeOfOperation) {
         }
         _ => {}
     }
+
+    // When a node leaves a DODAG, it multicasts an INFINITE rank DIO.
+    let infinite_rank_dio_count = sim
+        .messages
+        .iter()
+        .filter(|m| {
+            if m.is_dio().unwrap() {
+                let icmp = m.icmp().unwrap().unwrap();
+                let Icmpv6Repr::Rpl(RplRepr::DodagInformationObject(dio)) = icmp else {
+                    return false;
+                };
+                dio.rank == 0xffff
+            } else {
+                false
+            }
+        })
+        .count();
+
+    assert!(infinite_rank_dio_count == 1);
 
     for msg in &sim.messages {
         match mop {

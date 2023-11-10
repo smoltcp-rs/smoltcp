@@ -620,7 +620,7 @@ impl Message {
         self.to == Ieee802154Address::BROADCAST
     }
 
-    fn udp(&self) -> Result<Option<SixlowpanUdpNhcRepr>> {
+    pub fn udp(&self) -> Result<Option<SixlowpanUdpNhcRepr>> {
         let ieee802154 = Ieee802154Frame::new_checked(&self.data)?;
         let lowpan = SixlowpanIphcPacket::new_checked(ieee802154.payload().ok_or(Error)?)?;
         let src_addr = lowpan.src_addr()?.resolve(ieee802154.src_addr(), &[])?;
@@ -653,7 +653,7 @@ impl Message {
         }
     }
 
-    fn icmp(&self) -> Result<Option<Icmpv6Repr<'_>>> {
+    pub fn icmp(&self) -> Result<Option<Icmpv6Repr<'_>>> {
         let ieee802154 = Ieee802154Frame::new_checked(&self.data)?;
         let lowpan = SixlowpanIphcPacket::new_checked(ieee802154.payload().ok_or(Error)?)?;
         let src_addr = lowpan.src_addr()?.resolve(ieee802154.src_addr(), &[])?;

@@ -95,6 +95,11 @@ impl Relations {
     /// Returns `true` when a relation was actually removed.
     pub fn purge(&mut self, now: Instant) -> bool {
         let len = self.relations.len();
+        for r in &self.relations {
+            if r.added + r.lifetime <= now {
+                net_trace!("removing {} relation (expired)", r.destination);
+            }
+        }
         self.relations.retain(|r| r.added + r.lifetime > now);
         self.relations.len() != len
     }
