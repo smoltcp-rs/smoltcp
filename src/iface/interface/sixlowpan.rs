@@ -313,6 +313,7 @@ impl InterfaceInner {
         // we can just handle it as raw data. This is the reason why we parse the UDP header.
         // Note that we do not check the correctness of the checksum.
         match packet.payload {
+            #[cfg(feature = "proto-rpl")]
             IpPayload::Udp(..)
                 if self.rpl.dodag.is_some()
                     && packet.hop_by_hop.is_none()
@@ -544,6 +545,7 @@ impl InterfaceInner {
             }
         }
 
+        #[allow(unused_mut)]
         let mut checksum_dst_addr = packet.header.dst_addr;
 
         // Emit the Routing header

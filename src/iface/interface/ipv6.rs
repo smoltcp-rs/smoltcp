@@ -383,7 +383,7 @@ impl InterfaceInner {
 
     pub(super) fn process_icmpv6<'frame>(
         &mut self,
-        src_ll_addr: Option<HardwareAddress>,
+        #[allow(unused)] src_ll_addr: Option<HardwareAddress>,
         _sockets: &mut SocketSet,
         ip_repr: Ipv6Repr,
         ip_payload: &'frame [u8],
@@ -543,8 +543,8 @@ impl InterfaceInner {
 
         match &mut routing_repr {
             Ipv6RoutingRepr::Type2 { .. } => {
+                // TODO: we should respond with an ICMPv6 unknown protocol message.
                 net_debug!("IPv6 Type2 routing header not supported yet, dropping packet.");
-                todo!("We should respond with a ICMPv6 unkown protocol.");
                 return None;
             }
             #[cfg(not(feature = "proto-rpl"))]
@@ -623,7 +623,7 @@ impl InterfaceInner {
             meta,
             ipv6_repr,
             ext_hdr.next_header(),
-            false,
+            handled_by_raw_socket,
             &ip_payload[ext_hdr.payload().len() + 2..],
         )
     }

@@ -1,11 +1,15 @@
 use super::InterfaceInner;
-use crate::iface::ip_packet::{IpPacket, IpPayload, Ipv6Packet};
-use crate::time::{Duration, Instant};
+use crate::iface::ip_packet::{IpPacket, IpPayload};
 use crate::wire::{
-    Error, HardwareAddress, Icmpv6Repr, IpProtocol, Ipv6Address, Ipv6HopByHopRepr, Ipv6OptionRepr,
-    Ipv6Repr, Ipv6RoutingRepr, RplDao, RplDaoAck, RplDio, RplDis, RplDodagConfiguration,
-    RplHopByHopRepr, RplOptionRepr, RplRepr, RplSequenceCounter,
+    Error, HardwareAddress, Icmpv6Repr, IpProtocol, Ipv6Address, Ipv6Repr, RplDio, RplDis,
+    RplDodagConfiguration, RplHopByHopRepr, RplOptionRepr, RplRepr, RplSequenceCounter,
 };
+
+#[cfg(feature = "rpl-mop-1")]
+use crate::wire::Ipv6RoutingRepr;
+
+#[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop-3"))]
+use crate::wire::{Ipv6HopByHopRepr, Ipv6OptionRepr, RplDao, RplDaoAck};
 
 use crate::iface::rpl::*;
 use heapless::Vec;
@@ -215,7 +219,7 @@ impl InterfaceInner {
                     dodag_conf.dio_redundancy_constant as usize,
                 ),
                 #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop-3"))]
-                dao_expiration: Instant::ZERO,
+                dao_expiration: crate::time::Instant::ZERO,
                 #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop-3"))]
                 dao_seq_number: RplSequenceCounter::default(),
                 #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop-3"))]
@@ -504,7 +508,7 @@ impl InterfaceInner {
                                 *target,
                                 next_hop,
                                 self.now,
-                                Duration::from_secs(
+                                crate::time::Duration::from_secs(
                                     transit.path_lifetime as u64 * dodag.lifetime_unit as u64,
                                 ),
                             );
@@ -549,7 +553,7 @@ impl InterfaceInner {
 
             let hbh = Ipv6HopByHopRepr { options };
 
-            let packet = Ipv6Packet {
+            let packet = crate::iface::ip_packet::Ipv6Packet {
                 header: Ipv6Repr {
                     src_addr: our_addr,
                     dst_addr: dodag.parent.unwrap(),

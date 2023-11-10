@@ -12,7 +12,7 @@ use crate::iface::RplModeOfOperation;
 fn unicast_dis(#[case] mop: RplModeOfOperation) {
     use crate::iface::rpl::{Dodag, Rank, RplInstanceId};
 
-    let (mut iface, mut sockets, _device) = setup(Medium::Ieee802154);
+    let (mut iface, _, _) = setup(Medium::Ieee802154);
     iface.inner.rpl.is_root = true;
     iface.inner.rpl.mode_of_operation = mop;
     iface.inner.rpl.dodag = Some(Dodag {
@@ -107,7 +107,7 @@ fn unicast_dis(#[case] mop: RplModeOfOperation) {
 fn dio_without_configuration(#[case] mop: RplModeOfOperation) {
     use crate::iface::rpl::{Dodag, Rank, RplInstanceId};
 
-    let (mut iface, mut sockets, _device) = setup(Medium::Ieee802154);
+    let (mut iface, _, _) = setup(Medium::Ieee802154);
     iface.inner.rpl.mode_of_operation = mop;
 
     let ll_addr = Ieee802154Address::Extended([0, 0, 0, 0, 0, 0, 0, 2]);

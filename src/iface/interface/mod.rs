@@ -653,6 +653,7 @@ impl Interface {
             // Transmit all the DAO-ACKs that are still queued.
             net_trace!("transmit DAO-ACK");
 
+            #[allow(unused_mut)]
             let (mut dst_addr, sequence) = dodag.dao_acks.pop().unwrap();
             let rpl_instance_id = dodag.instance_id;
             let icmp = Icmpv6Repr::Rpl(RplRepr::DestinationAdvertisementObjectAck(RplDaoAck {
@@ -669,11 +670,10 @@ impl Interface {
             // A DAO-ACK always goes down. In MOP1, both Hop-by-Hop option and source
             // routing header MAY be included. However, a source routing header must always
             // be included when it is going down.
-            use crate::iface::RplModeOfOperation;
             #[cfg(feature = "rpl-mop-1")]
             let routing = if matches!(
                 ctx.rpl.mode_of_operation,
-                RplModeOfOperation::NonStoringMode
+                super::RplModeOfOperation::NonStoringMode
             ) && ctx.rpl.is_root
             {
                 net_trace!("creating source routing header to {}", dst_addr);
@@ -1232,7 +1232,7 @@ impl InterfaceInner {
         tx_token: Tx,
         src_addr: &IpAddress,
         dst_addr: &IpAddress,
-        fragmenter: &mut Fragmenter,
+        #[allow(unused)] fragmenter: &mut Fragmenter,
     ) -> Result<(HardwareAddress, Tx), DispatchError>
     where
         Tx: TxToken,
