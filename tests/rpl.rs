@@ -265,19 +265,12 @@ fn message_forwarding_up_and_down(#[case] mop: RplModeOfOperation) {
     sim::udp_sender_node(&mut sim.nodes[4], 1234, dst_addr);
 
     sim.init();
-    sim.run(Duration::from_millis(500), ONE_HOUR);
+    sim.run(Duration::from_millis(500), Duration::from_secs(60 * 15));
 
     assert!(!sim.messages.is_empty());
 
-    let dio_count = sim
-        .messages
-        .iter()
-        .filter(|m| {
-            println!("{:?}", &m.data);
-            m.is_dio().unwrap()
-        })
-        .count();
-    assert!(dio_count > 45 && dio_count < 55);
+    let dio_count = sim.messages.iter().filter(|m| m.is_dio().unwrap()).count();
+    assert!(dio_count >= 30 && dio_count <= 40);
 
     // We transmit a message every 60 seconds. We simulate for 1 hour, so the node will transmit
     // 59 messages. The node is not in range of the destination (which is the root). There is one
@@ -285,12 +278,12 @@ fn message_forwarding_up_and_down(#[case] mop: RplModeOfOperation) {
     let udp_count = sim.messages.iter().filter(|m| m.is_udp().unwrap()).count();
     match mop {
         RplModeOfOperation::NoDownwardRoutesMaintained => {
-            assert!(udp_count >= 59 * 2 && udp_count <= 60 * 2);
+            assert!(udp_count >= 14 * 2 && udp_count <= 15 * 2);
         }
         RplModeOfOperation::NonStoringMode
         | RplModeOfOperation::StoringMode
         | RplModeOfOperation::StoringModeWithMulticast => {
-            assert!(udp_count >= 59 * 4 && udp_count <= 60 * 4);
+            assert!(udp_count >= 14 * 4 && udp_count <= 15 * 4);
         }
     }
 
@@ -311,6 +304,79 @@ fn message_forwarding_up_and_down(#[case] mop: RplModeOfOperation) {
                         || msg.is_udp().unwrap()
                 )
             }
+        }
+    }
+
+    // All UDPs, DAOs and DAO-ACKs should contain HBH
+    let udp_packets: Vec<&sim::Message> = sim
+        .messages
+        .iter()
+        .filter(|m| m.is_udp().unwrap())
+        .collect();
+
+    for d in udp_packets {
+        assert!(
+            d.has_hbh().unwrap() || d.has_routing().unwrap(),
+            "{:?}",
+            d.data
+        );
+    }
+
+    let dao_packets: Vec<&sim::Message> = sim
+        .messages
+        .iter()
+        .filter(|m| m.is_dao().unwrap())
+        .collect();
+
+    for d in dao_packets {
+        assert!(
+            d.has_hbh().unwrap() && !d.has_routing().unwrap(),
+            "{:?}",
+            d.data
+        );
+    }
+
+    let dao_ack_packets_with_routing = sim
+        .messages
+        .iter()
+        .filter(|m| m.is_dao_ack().unwrap() && m.has_routing().unwrap())
+        .count();
+    let dao_ack_packets_without_routing = sim
+        .messages
+        .iter()
+        .filter(|m| m.is_dao_ack().unwrap() && !m.has_routing().unwrap())
+        .count();
+
+    match mop {
+        RplModeOfOperation::NonStoringMode => {
+            assert!(
+                dao_ack_packets_with_routing == 4,
+                "{dao_ack_packets_with_routing}"
+            );
+            assert!(
+                dao_ack_packets_without_routing == 2,
+                "{dao_ack_packets_without_routing}"
+            );
+        }
+        RplModeOfOperation::StoringMode | RplModeOfOperation::StoringModeWithMulticast => {
+            assert!(
+                dao_ack_packets_with_routing == 0,
+                "{dao_ack_packets_with_routing}"
+            );
+            assert!(
+                dao_ack_packets_without_routing == 6,
+                "{dao_ack_packets_without_routing}"
+            );
+        }
+        _ => {
+            assert!(
+                dao_ack_packets_with_routing == 0,
+                "{dao_ack_packets_with_routing}"
+            );
+            assert!(
+                dao_ack_packets_without_routing == 0,
+                "{dao_ack_packets_without_routing}"
+            );
         }
     }
 }

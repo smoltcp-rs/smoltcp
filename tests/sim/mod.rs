@@ -687,6 +687,72 @@ impl Message {
         }
     }
 
+    pub fn has_routing(&self) -> Result<bool> {
+        let ieee802154 = Ieee802154Frame::new_checked(&self.data)?;
+        let lowpan = SixlowpanIphcPacket::new_checked(ieee802154.payload().ok_or(Error)?)?;
+        let src_addr = lowpan.src_addr()?.resolve(ieee802154.src_addr(), &[])?;
+        let dst_addr = lowpan.dst_addr()?.resolve(ieee802154.src_addr(), &[])?;
+
+        let mut payload = lowpan.payload();
+        let mut next_hdr = lowpan.next_header();
+
+        loop {
+            match next_hdr {
+                SixlowpanNextHeader::Compressed => match SixlowpanNhcPacket::dispatch(payload)? {
+                    SixlowpanNhcPacket::ExtHeader => {
+                        let ext_hdr = SixlowpanExtHeaderPacket::new_checked(payload)?;
+                        if ext_hdr.extension_header_id() == SixlowpanExtHeaderId::RoutingHeader {
+                            return Ok(true);
+                        }
+                        next_hdr = ext_hdr.next_header();
+                        payload = &payload[ext_hdr.header_len() + ext_hdr.payload().len()..];
+                        continue;
+                    }
+                    SixlowpanNhcPacket::UdpHeader => return Ok(false),
+                },
+                SixlowpanNextHeader::Uncompressed(IpProtocol::Icmpv6) => {
+                    return Ok(false);
+                }
+                _ => unreachable!(),
+            };
+        }
+
+        Ok(false)
+    }
+
+    pub fn has_hbh(&self) -> Result<bool> {
+        let ieee802154 = Ieee802154Frame::new_checked(&self.data)?;
+        let lowpan = SixlowpanIphcPacket::new_checked(ieee802154.payload().ok_or(Error)?)?;
+        let src_addr = lowpan.src_addr()?.resolve(ieee802154.src_addr(), &[])?;
+        let dst_addr = lowpan.dst_addr()?.resolve(ieee802154.src_addr(), &[])?;
+
+        let mut payload = lowpan.payload();
+        let mut next_hdr = lowpan.next_header();
+
+        loop {
+            match next_hdr {
+                SixlowpanNextHeader::Compressed => match SixlowpanNhcPacket::dispatch(payload)? {
+                    SixlowpanNhcPacket::ExtHeader => {
+                        let ext_hdr = SixlowpanExtHeaderPacket::new_checked(payload)?;
+                        if ext_hdr.extension_header_id() == SixlowpanExtHeaderId::HopByHopHeader {
+                            return Ok(true);
+                        }
+                        next_hdr = ext_hdr.next_header();
+                        payload = &payload[ext_hdr.header_len() + ext_hdr.payload().len()..];
+                        continue;
+                    }
+                    SixlowpanNhcPacket::UdpHeader => return Ok(false),
+                },
+                SixlowpanNextHeader::Uncompressed(IpProtocol::Icmpv6) => {
+                    return Ok(false);
+                }
+                _ => unreachable!(),
+            };
+        }
+
+        Ok(false)
+    }
+
     pub fn is_udp(&self) -> Result<bool> {
         Ok(matches!(self.udp()?, Some(SixlowpanUdpNhcRepr(_))))
     }
