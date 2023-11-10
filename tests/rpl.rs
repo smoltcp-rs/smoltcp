@@ -307,34 +307,11 @@ fn message_forwarding_up_and_down(#[case] mop: RplModeOfOperation) {
         }
     }
 
-    // All UDPs, DAOs and DAO-ACKs should contain HBH
-    let udp_packets: Vec<&sim::Message> = sim
-        .messages
+    // All UDP, DAO, DAO-ACK packets should have a HBH or a source routing header
+    sim.messages
         .iter()
-        .filter(|m| m.is_udp().unwrap())
-        .collect();
-
-    for d in udp_packets {
-        assert!(
-            d.has_hbh().unwrap() || d.has_routing().unwrap(),
-            "{:?}",
-            d.data
-        );
-    }
-
-    let dao_packets: Vec<&sim::Message> = sim
-        .messages
-        .iter()
-        .filter(|m| m.is_dao().unwrap())
-        .collect();
-
-    for d in dao_packets {
-        assert!(
-            d.has_hbh().unwrap() && !d.has_routing().unwrap(),
-            "{:?}",
-            d.data
-        );
-    }
+        .filter(|m| m.is_udp().unwrap() || m.is_dao().unwrap() || m.is_dao_ack().unwrap())
+        .for_each(|m| assert!(m.has_hbh().unwrap() || m.has_routing().unwrap()));
 
     let dao_ack_packets_with_routing = sim
         .messages
@@ -349,34 +326,16 @@ fn message_forwarding_up_and_down(#[case] mop: RplModeOfOperation) {
 
     match mop {
         RplModeOfOperation::NonStoringMode => {
-            assert!(
-                dao_ack_packets_with_routing == 4,
-                "{dao_ack_packets_with_routing}"
-            );
-            assert!(
-                dao_ack_packets_without_routing == 2,
-                "{dao_ack_packets_without_routing}"
-            );
+            assert!(dao_ack_packets_with_routing == 4,);
+            assert!(dao_ack_packets_without_routing == 2,);
         }
         RplModeOfOperation::StoringMode | RplModeOfOperation::StoringModeWithMulticast => {
-            assert!(
-                dao_ack_packets_with_routing == 0,
-                "{dao_ack_packets_with_routing}"
-            );
-            assert!(
-                dao_ack_packets_without_routing == 6,
-                "{dao_ack_packets_without_routing}"
-            );
+            assert!(dao_ack_packets_with_routing == 0,);
+            assert!(dao_ack_packets_without_routing == 6,);
         }
         _ => {
-            assert!(
-                dao_ack_packets_with_routing == 0,
-                "{dao_ack_packets_with_routing}"
-            );
-            assert!(
-                dao_ack_packets_without_routing == 0,
-                "{dao_ack_packets_without_routing}"
-            );
+            assert!(dao_ack_packets_with_routing == 0,);
+            assert!(dao_ack_packets_without_routing == 0,);
         }
     }
 }

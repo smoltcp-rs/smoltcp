@@ -667,6 +667,19 @@ impl Interface {
                 },
             }));
 
+            let mut options = heapless::Vec::new();
+            options
+                .push(Ipv6OptionRepr::Rpl(RplHopByHopRepr {
+                    down: true,
+                    rank_error: false,
+                    forwarding_error: false,
+                    instance_id: ctx.rpl.dodag.as_ref().unwrap().instance_id,
+                    sender_rank: ctx.rpl.dodag.as_ref().unwrap().rank.raw_value(),
+                }))
+                .unwrap();
+            #[allow(unused_mut)]
+            let mut hop_by_hop = Some(Ipv6HopByHopRepr { options });
+
             // A DAO-ACK always goes down. In MOP1, both Hop-by-Hop option and source
             // routing header MAY be included. However, a source routing header must always
             // be included when it is going down.
@@ -680,6 +693,7 @@ impl Interface {
                 if let Some((source_route, new_dst_addr)) =
                     self::rpl::create_source_routing_header(ctx, our_addr, dst_addr)
                 {
+                    hop_by_hop = None;
                     dst_addr = new_dst_addr;
                     Some(source_route)
                 } else {
@@ -700,7 +714,7 @@ impl Interface {
                     payload_len: icmp.buffer_len(),
                     hop_limit: 64,
                 },
-                hop_by_hop: None,
+                hop_by_hop,
                 routing,
                 payload: IpPayload::Icmpv6(icmp),
             };
