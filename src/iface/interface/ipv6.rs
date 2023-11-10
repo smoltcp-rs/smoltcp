@@ -251,14 +251,34 @@ impl InterfaceInner {
         let ext_hdr = check!(Ipv6ExtHeader::new_checked(ip_payload));
         let ext_repr = check!(Ipv6ExtHeaderRepr::parse(&ext_hdr));
         let hbh_hdr = check!(Ipv6HopByHopHeader::new_checked(ext_repr.data));
-        let hbh_repr = check!(Ipv6HopByHopRepr::parse(&hbh_hdr));
+        let mut hbh_repr = check!(Ipv6HopByHopRepr::parse(&hbh_hdr));
 
         for opt_repr in &hbh_repr.options {
             match opt_repr {
                 Ipv6OptionRepr::Pad1 | Ipv6OptionRepr::PadN(_) => (),
                 #[cfg(feature = "proto-rpl")]
                 Ipv6OptionRepr::Rpl(hbh) => match self.process_rpl_hopbyhop(*hbh) {
-                    Ok(hbh) => {
+                    Ok(mut hbh) => {
+                        if self.rpl.is_root {
+                            hbh.down = true;
+                        } else {
+                            #[cfg(feature = "rpl-mop-2")]
+                            if matches!(
+                                self.rpl.mode_of_operation,
+                                crate::iface::RplModeOfOperation::StoringMode
+                            ) {
+                                hbh.down = self
+                                    .rpl
+                                    .dodag
+                                    .as_ref()
+                                    .unwrap()
+                                    .relations
+                                    .find_next_hop(ipv6_repr.dst_addr)
+                                    .is_some();
+                            }
+                        }
+
+                        hbh.sender_rank = self.rpl.dodag.as_ref().unwrap().rank.raw_value();
                         // FIXME: really update the RPL Hop-by-Hop. When forwarding,
                         // we need to update the RPL Hop-by-Hop header.
                         *opt_repr = Ipv6OptionRepr::Rpl(hbh);
@@ -639,7 +659,7 @@ impl InterfaceInner {
     pub(super) fn forward<'frame>(
         &self,
         mut ipv6_repr: Ipv6Repr,
-        _hop_by_hop: Option<Ipv6HopByHopRepr<'frame>>,
+        mut _hop_by_hop: Option<Ipv6HopByHopRepr<'frame>>,
         payload: &'frame [u8],
     ) -> Option<IpPacket<'frame>> {
         net_trace!("forwarding packet");
@@ -659,6 +679,9 @@ impl InterfaceInner {
             crate::iface::RplModeOfOperation::NonStoringMode
         ) && self.rpl.is_root
         {
+            // Clear the Hop-by-Hop in MOP1 when the root is is adding a source routing header.
+            // Only the HBH or the source routing header needs to be present in MOP1.
+            _hop_by_hop = None;
             net_trace!("creating source routing header to {}", ipv6_repr.dst_addr);
             if let Some((source_route, new_dst_addr)) = super::rpl::create_source_routing_header(
                 self,

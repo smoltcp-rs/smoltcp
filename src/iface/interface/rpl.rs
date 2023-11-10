@@ -536,16 +536,33 @@ impl InterfaceInner {
         if !self.rpl.is_root {
             let icmp = dodag.destination_advertisement_object(dao.options);
 
-            return Some(IpPacket::new_ipv6(
-                Ipv6Repr {
+            let mut options = heapless::Vec::new();
+            options
+                .push(Ipv6OptionRepr::Rpl(RplHopByHopRepr {
+                    down: false,
+                    rank_error: false,
+                    forwarding_error: false,
+                    instance_id: dodag.instance_id,
+                    sender_rank: dodag.rank.raw_value(),
+                }))
+                .unwrap();
+
+            let hbh = Ipv6HopByHopRepr { options };
+
+            let packet = Ipv6Packet {
+                header: Ipv6Repr {
                     src_addr: our_addr,
                     dst_addr: dodag.parent.unwrap(),
                     next_header: IpProtocol::Icmpv6,
                     payload_len: icmp.buffer_len(),
                     hop_limit: 64,
                 },
-                IpPayload::Icmpv6(Icmpv6Repr::Rpl(icmp)),
-            ));
+                hop_by_hop: Some(hbh),
+                routing: None,
+                payload: IpPayload::Icmpv6(Icmpv6Repr::Rpl(icmp)),
+            };
+
+            return Some(IpPacket::Ipv6(packet));
         }
 
         None
