@@ -4,7 +4,7 @@ use smoltcp::iface::RplConfig;
 use smoltcp::iface::RplModeOfOperation;
 use smoltcp::iface::RplRootConfig;
 use smoltcp::time::*;
-use smoltcp::wire::{Icmpv6Repr, Ipv6Address, RplInstanceId, RplRepr};
+use smoltcp::wire::{Icmpv6Repr, Ipv6Address, RplInstanceId, RplOptionRepr, RplRepr};
 
 mod sim;
 
@@ -347,5 +347,51 @@ fn message_forwarding_up_and_down(#[case] mop: RplModeOfOperation) {
             assert!(dao_ack_packets_with_routing == 0,);
             assert!(dao_ack_packets_without_routing == 0,);
         }
+    }
+}
+
+#[rstest]
+#[case::mop0(RplModeOfOperation::NoDownwardRoutesMaintained)]
+#[case::mop1(RplModeOfOperation::NonStoringMode)]
+#[case::mop2(RplModeOfOperation::StoringMode)]
+fn normal_node_change_parent(#[case] mop: RplModeOfOperation) {
+    let mut sim = sim::topology(sim::NetworkSim::new(), mop, 1, 2);
+    sim.run(Duration::from_millis(100), Duration::from_secs(60 * 5));
+
+    assert!(!sim.messages.is_empty());
+
+    // Move the the second node such that it is also in the range of a node with smaller rank.
+    sim.nodes[2].set_position(sim::Position((50., -50.)));
+
+    sim.run(Duration::from_millis(100), Duration::from_secs(60 * 5));
+
+    // Counting number of NO-PATH DAOs sent
+    let mut no_path_dao_count = 0;
+
+    for msg in sim.messages {
+        if msg.is_dao().unwrap() {
+            let icmp = msg.icmp().unwrap().unwrap();
+            let Icmpv6Repr::Rpl(RplRepr::DestinationAdvertisementObject(dao)) = icmp else {
+                break;
+            };
+            for opt in dao.options {
+                if let RplOptionRepr::TransitInformation(o) = opt {
+                    if o.path_lifetime == 0 {
+                        no_path_dao_count += 1;
+                    }
+                }
+            }
+        }
+    }
+    match mop {
+        // In MOP 2 when a nodes leaves it's parent it should send a NO-PATH DAO
+        RplModeOfOperation::StoringMode => {
+            assert!(no_path_dao_count > 0,);
+        }
+        // In MOP 1 and MOP 0 there should be no NO-PATH DAOs sent
+        RplModeOfOperation::NonStoringMode | RplModeOfOperation::NoDownwardRoutesMaintained => {
+            assert!(no_path_dao_count == 0,);
+        }
+        _ => {}
     }
 }
