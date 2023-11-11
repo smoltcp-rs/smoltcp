@@ -253,6 +253,11 @@ enum Timer {
     Idle {
         keep_alive_at: Option<Instant>,
     },
+    SynRetransmit{
+        expires_at: Instant,
+        delay: Duration,
+        retries: u8,
+    },
     Retransmit {
         expires_at: Instant,
         delay: Duration,
@@ -265,6 +270,7 @@ enum Timer {
 
 const ACK_DELAY_DEFAULT: Duration = Duration::from_millis(10);
 const CLOSE_DELAY: Duration = Duration::from_millis(10_000);
+const DEFAULT_MAX_SYN_RETRIES: u8 = 6;
 
 impl Timer {
     fn new() -> Timer {
@@ -295,6 +301,7 @@ impl Timer {
     fn should_close(&self, timestamp: Instant) -> bool {
         match *self {
             Timer::Close { expires_at } if timestamp >= expires_at => true,
+            Timer::SynRetransmit { retries, ..} if retries >= DEFAULT_MAX_SYN_RETRIES => true,
             _ => false,
         }
     }
@@ -307,7 +314,9 @@ impl Timer {
             Timer::Idle {
                 keep_alive_at: None,
             } => PollAt::Ingress,
-            Timer::Retransmit { expires_at, .. } => PollAt::Time(expires_at),
+            Timer::SynRetransmit { expires_at, retries, ..} if retries < DEFAULT_MAX_SYN_RETRIES => PollAt::Time(expires_at),
+            Timer::SynRetransmit { .. } => PollAt::Now,
+            Timer::Retransmit { expires_at, .. }  => PollAt::Time(expires_at),
             Timer::FastRetransmit => PollAt::Now,
             Timer::Close { expires_at } => PollAt::Time(expires_at),
         }
@@ -335,7 +344,7 @@ impl Timer {
 
     fn set_for_retransmit(&mut self, timestamp: Instant, delay: Duration) {
         match *self {
-            Timer::Idle { .. } | Timer::FastRetransmit { .. } => {
+            Timer::Idle { .. } | Timer::FastRetransmit { .. } | Timer::SynRetransmit { .. }=> {
                 *self = Timer::Retransmit {
                     expires_at: timestamp + delay,
                     delay,
@@ -350,6 +359,27 @@ impl Timer {
             Timer::Retransmit { .. } => (),
             Timer::Close { .. } => (),
         }
+    }
+
+    fn set_for_syn_retransmit(&mut self, timestamp: Instant) {
+        match *self {
+            Timer::Idle { .. } => {
+                *self = Timer::SynRetransmit{
+                    expires_at: timestamp + Duration::from_secs(1),
+                    delay: Duration::from_secs(1),
+                    retries: 1
+                }
+            },
+            Timer::SynRetransmit { retries,  .. } => {
+                *self = Timer::SynRetransmit{
+                    expires_at: timestamp + Duration::from_secs(1 << retries),
+                    delay: Duration::from_secs(1 << retries),
+                    retries: retries + 1
+                }
+            },
+            _ => (),
+        } 
+        
     }
 
     fn set_for_fast_retransmit(&mut self) {
@@ -1980,7 +2010,7 @@ impl<'a> Socket<'a> {
         let data_in_flight = self.remote_last_seq != self.local_seq_no;
 
         // If we want to send a SYN and we haven't done so, do it!
-        if matches!(self.state, State::SynSent | State::SynReceived) && !data_in_flight {
+        if matches!(self.state, State::SynReceived) && !data_in_flight {
             return true;
         }
 
@@ -2099,7 +2129,12 @@ impl<'a> Socket<'a> {
         }
 
         // Decide whether we're sending a packet.
-        if self.seq_to_transmit(cx) {
+        if self.timer.should_close(cx.now()) {
+            // If we have spent enough time in the TIME-WAIT state, close the socket.
+            tcp_trace!("TIME-WAIT timer expired");
+            self.reset();
+            return Ok(());
+        } else if self.seq_to_transmit(cx) {
             // If we have data to transmit and it fits into partner's window, do it.
             tcp_trace!("outgoing segment will send data or flags");
         } else if self.ack_to_transmit() && self.delayed_ack_expired(cx.now()) {
@@ -2114,11 +2149,6 @@ impl<'a> Socket<'a> {
         } else if self.timer.should_keep_alive(cx.now()) {
             // If we need to transmit a keep-alive packet, do it.
             tcp_trace!("keep-alive timer expired");
-        } else if self.timer.should_close(cx.now()) {
-            // If we have spent enough time in the TIME-WAIT state, close the socket.
-            tcp_trace!("TIME-WAIT timer expired");
-            self.reset();
-            return Ok(());
         } else {
             return Ok(());
         }
@@ -2168,7 +2198,16 @@ impl<'a> Socket<'a> {
                 repr.control = TcpControl::Syn;
                 // window len must NOT be scaled in SYNs.
                 repr.window_len = self.rx_buffer.window().min((1 << 16) - 1) as u16;
-                if self.state == State::SynSent {
+                if   self.state == State::SynSent {
+                    match self.timer {
+                        Timer::SynRetransmit { expires_at, .. } if cx.now() < expires_at => {
+                            return Ok(());
+                        },
+                        Timer::SynRetransmit { .. } | Timer::Idle { .. } => {
+                            self.timer.set_for_syn_retransmit(cx.now());
+                        },
+                        _ => ()
+                    }
                     repr.ack_number = None;
                     repr.window_scale = Some(self.remote_win_shift);
                     repr.sack_permitted = true;
@@ -2349,6 +2388,8 @@ impl<'a> Socket<'a> {
         } else if self.state == State::Closed {
             // Socket was aborted, we have an RST packet to transmit.
             PollAt::Now
+        } else if self.state == State::SynSent{
+            self.timer.poll_at()
         } else if self.seq_to_transmit(cx) {
             // We have a data or flag packet to transmit.
             PollAt::Now
