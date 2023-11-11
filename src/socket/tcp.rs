@@ -314,7 +314,8 @@ impl Timer {
             Timer::Idle {
                 keep_alive_at: None,
             } => PollAt::Ingress,
-            Timer::SynRetransmit { expires_at, 
+            Timer::SynRetransmit {
+                expires_at, 
                 retries, 
                 .. 
             } if retries < DEFAULT_MAX_SYN_RETRIES => PollAt::Time(expires_at),
@@ -2208,7 +2209,7 @@ impl<'a> Socket<'a> {
                         Timer::SynRetransmit { .. } | Timer::Idle { .. } => {
                             self.timer.set_for_syn_retransmit(cx.now());
                         }
-                        _ => ()
+                        _ => (),
                     }
                     repr.ack_number = None;
                     repr.window_scale = Some(self.remote_win_shift);
