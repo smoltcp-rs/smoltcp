@@ -253,7 +253,7 @@ enum Timer {
     Idle {
         keep_alive_at: Option<Instant>,
     },
-    SynRetransmit{
+    SynRetransmit {
         expires_at: Instant,
         delay: Duration,
         retries: u8,
@@ -301,7 +301,7 @@ impl Timer {
     fn should_close(&self, timestamp: Instant) -> bool {
         match *self {
             Timer::Close { expires_at } if timestamp >= expires_at => true,
-            Timer::SynRetransmit { retries, ..} if retries >= DEFAULT_MAX_SYN_RETRIES => true,
+            Timer::SynRetransmit { retries, .. } if retries >= DEFAULT_MAX_SYN_RETRIES => true,
             _ => false,
         }
     }
@@ -314,9 +314,12 @@ impl Timer {
             Timer::Idle {
                 keep_alive_at: None,
             } => PollAt::Ingress,
-            Timer::SynRetransmit { expires_at, retries, ..} if retries < DEFAULT_MAX_SYN_RETRIES => PollAt::Time(expires_at),
+            Timer::SynRetransmit { expires_at, 
+                retries, 
+                .. 
+            } if retries < DEFAULT_MAX_SYN_RETRIES => PollAt::Time(expires_at),
             Timer::SynRetransmit { .. } => PollAt::Now,
-            Timer::Retransmit { expires_at, .. }  => PollAt::Time(expires_at),
+            Timer::Retransmit { expires_at, .. } => PollAt::Time(expires_at),
             Timer::FastRetransmit => PollAt::Now,
             Timer::Close { expires_at } => PollAt::Time(expires_at),
         }
@@ -344,7 +347,7 @@ impl Timer {
 
     fn set_for_retransmit(&mut self, timestamp: Instant, delay: Duration) {
         match *self {
-            Timer::Idle { .. } | Timer::FastRetransmit { .. } | Timer::SynRetransmit { .. }=> {
+            Timer::Idle { .. } | Timer::FastRetransmit { .. } | Timer::SynRetransmit { .. } => {
                 *self = Timer::Retransmit {
                     expires_at: timestamp + delay,
                     delay,
@@ -364,22 +367,21 @@ impl Timer {
     fn set_for_syn_retransmit(&mut self, timestamp: Instant) {
         match *self {
             Timer::Idle { .. } => {
-                *self = Timer::SynRetransmit{
+                *self = Timer::SynRetransmit {
                     expires_at: timestamp + Duration::from_secs(1),
                     delay: Duration::from_secs(1),
-                    retries: 1
+                    retries: 1,
                 }
-            },
-            Timer::SynRetransmit { retries,  .. } => {
-                *self = Timer::SynRetransmit{
+            }
+            Timer::SynRetransmit { retries, .. } => {
+                *self = Timer::SynRetransmit {
                     expires_at: timestamp + Duration::from_secs(1 << retries),
                     delay: Duration::from_secs(1 << retries),
-                    retries: retries + 1
+                    retries: retries + 1,
                 }
-            },
+            }
             _ => (),
-        } 
-        
+        }
     }
 
     fn set_for_fast_retransmit(&mut self) {
@@ -2198,14 +2200,14 @@ impl<'a> Socket<'a> {
                 repr.control = TcpControl::Syn;
                 // window len must NOT be scaled in SYNs.
                 repr.window_len = self.rx_buffer.window().min((1 << 16) - 1) as u16;
-                if   self.state == State::SynSent {
+                if self.state == State::SynSent {
                     match self.timer {
                         Timer::SynRetransmit { expires_at, .. } if cx.now() < expires_at => {
                             return Ok(());
-                        },
+                        }
                         Timer::SynRetransmit { .. } | Timer::Idle { .. } => {
                             self.timer.set_for_syn_retransmit(cx.now());
-                        },
+                        }
                         _ => ()
                     }
                     repr.ack_number = None;
@@ -2388,8 +2390,6 @@ impl<'a> Socket<'a> {
         } else if self.state == State::Closed {
             // Socket was aborted, we have an RST packet to transmit.
             PollAt::Now
-        } else if self.state == State::SynSent{
-            self.timer.poll_at()
         } else if self.seq_to_transmit(cx) {
             // We have a data or flag packet to transmit.
             PollAt::Now
