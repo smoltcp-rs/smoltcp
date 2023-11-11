@@ -47,7 +47,7 @@ enum_with_unknown! {
 }
 
 bitflags! {
-    #[derive(Debug, PartialEq, Eq, Copy, Clone)]
+    
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub struct Flags: u16 {
         const RESPONSE            = 0b1000_0000_0000_0000;

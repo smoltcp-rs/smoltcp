@@ -38,7 +38,7 @@ impl fmt::Display for Type {
 }
 
 bitflags! {
-    #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+    
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub struct PrefixInfoFlags: u8 {
         const ON_LINK  = 0b10000000;
