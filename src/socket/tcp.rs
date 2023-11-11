@@ -315,9 +315,9 @@ impl Timer {
                 keep_alive_at: None,
             } => PollAt::Ingress,
             Timer::SynRetransmit {
-                expires_at, 
-                retries, 
-                .. 
+                expires_at,
+                retries,
+                ..
             } if retries < DEFAULT_MAX_SYN_RETRIES => PollAt::Time(expires_at),
             Timer::SynRetransmit { .. } => PollAt::Now,
             Timer::Retransmit { expires_at, .. } => PollAt::Time(expires_at),
