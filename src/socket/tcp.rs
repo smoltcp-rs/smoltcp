@@ -2326,7 +2326,7 @@ impl<'a> Socket<'a> {
         emit(cx, (ip_repr, repr))?;
 
         // while actually sending the syn packet, add or update the SynRetransmit timer
-        if let (State::SynSent, Timer::SynRetransmit { .. } | Timer::Idle { .. }) = 
+        if let (State::SynSent, Timer::SynRetransmit { .. } | Timer::Idle { .. }) =
             (self.state, self.timer) 
         {
             self.timer.set_for_syn_retransmit(cx.now());
