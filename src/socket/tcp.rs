@@ -2332,7 +2332,6 @@ impl<'a> Socket<'a> {
             }
             _ => (),
         }
-        
         // We've sent something, whether useful data or a keep-alive packet, so rewind
         // the keep-alive timer.
         self.timer.rewind_keep_alive(cx.now(), self.keep_alive);
