@@ -2202,12 +2202,10 @@ impl<'a> Socket<'a> {
                 // window len must NOT be scaled in SYNs.
                 repr.window_len = self.rx_buffer.window().min((1 << 16) - 1) as u16;
                 if self.state == State::SynSent {
+                    // when the SynRetransmit timer don't time out, return immediately
                     match self.timer {
                         Timer::SynRetransmit { expires_at, .. } if cx.now() < expires_at => {
                             return Ok(());
-                        }
-                        Timer::SynRetransmit { .. } | Timer::Idle { .. } => {
-                            self.timer.set_for_syn_retransmit(cx.now());
                         }
                         _ => (),
                     }
@@ -2327,6 +2325,14 @@ impl<'a> Socket<'a> {
         ip_repr.set_payload_len(repr.buffer_len());
         emit(cx, (ip_repr, repr))?;
 
+        // while actually sending the syn packet, add or update the SynRetransmit timer
+        match (self.state, self.timer) {
+            (State::SynSent, Timer::SynRetransmit { .. } | Timer::Idle { .. }) => {
+                self.timer.set_for_syn_retransmit(cx.now());
+            }
+            _ => (),
+        }
+        
         // We've sent something, whether useful data or a keep-alive packet, so rewind
         // the keep-alive timer.
         self.timer.rewind_keep_alive(cx.now(), self.keep_alive);
