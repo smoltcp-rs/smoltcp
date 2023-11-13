@@ -1,11 +1,38 @@
-use std::collections::VecDeque;
-
 use smoltcp::iface::*;
-use smoltcp::phy::{ChecksumCapabilities, PcapLinkType, PcapSink};
+use smoltcp::phy::{PcapLinkType, PcapSink};
 use smoltcp::time::*;
 use smoltcp::wire::*;
 
+mod message;
+mod node;
+
+use message::Message;
+use node::*;
+
 const TRANSMIT_SPEED: f32 = 250_000. / 8.;
+
+#[derive(Debug, PartialEq, PartialOrd, Clone, Copy)]
+pub struct Position(pub (f32, f32));
+
+impl Position {
+    pub fn distance(&self, other: &Self) -> f32 {
+        ((other.0 .0 - self.0 .0).powf(2.0) + (other.0 .1 - self.0 .1).powf(2.0)).sqrt()
+    }
+
+    pub fn x(&self) -> f32 {
+        self.0 .0
+    }
+
+    pub fn y(&self) -> f32 {
+        self.0 .1
+    }
+}
+
+impl From<(f32, f32)> for Position {
+    fn from(pos: (f32, f32)) -> Self {
+        Position(pos)
+    }
+}
 
 pub fn topology(
     mut sim: NetworkSim,
@@ -50,7 +77,7 @@ pub fn udp_receiver_node(node: &mut Node, port: u16) {
         vec![s.add(udp_socket)]
     }));
 
-    node.set_application(Box::new(move |instant, sockets, handles, _| {
+    node.set_application(Box::new(move |_, sockets, handles, _| {
         let socket = sockets.get_mut::<smoltcp::socket::udp::Socket>(handles[0]);
         if !socket.is_open() {
             socket.bind(port).unwrap();
@@ -95,11 +122,10 @@ pub fn udp_sender_node(node: &mut Node, port: u16, addr: Ipv6Address) {
     ));
 }
 
-#[derive(Debug)]
 pub struct NetworkSim {
-    pub nodes: Vec<Node>,
-    pub messages: Vec<Message>,
-    pub now: Instant,
+    nodes: Vec<Node>,
+    messages: Vec<Message>,
+    now: Instant,
 }
 
 impl Default for NetworkSim {
@@ -118,10 +144,6 @@ impl NetworkSim {
         }
     }
 
-    pub fn add_node(&mut self, rpl: RplConfig) {
-        _ = self.create_node(rpl);
-    }
-
     /// Create a new node.
     pub fn create_node(&mut self, rpl: smoltcp::iface::RplConfig) -> &mut Node {
         let id = self.nodes.len();
@@ -132,26 +154,24 @@ impl NetworkSim {
         &mut self.nodes[id]
     }
 
-    /// Get the nodes.
-    pub fn get_nodes(&self) -> &[Node] {
+    /// Get a reference to the nodes.
+    pub fn nodes(&self) -> &[Node] {
         &self.nodes
     }
 
-    /// Get the nodes.
-    pub fn get_nodes_mut(&mut self) -> &mut [Node] {
+    /// Get a mutable reference to the nodes.
+    pub fn nodes_mut(&mut self) -> &mut [Node] {
         &mut self.nodes
     }
 
-    /// Get a node from an IP address.
-    pub fn get_node_from_ip_address(&self, address: smoltcp::wire::Ipv6Address) -> Option<&Node> {
-        self.nodes.iter().find(|&node| node.ip_address == address)
+    /// Get a reference to the transmitted messages.
+    pub fn msgs(&self) -> &[Message] {
+        &self.messages
     }
 
-    /// Search for a node with a specific IEEE address and PAN ID.
-    pub fn get_node_from_ieee(&self, destination: Ieee802154Address) -> Option<&Node> {
-        self.nodes
-            .iter()
-            .find(|node| node.ieee_address == destination)
+    /// Clear all transmitted messages.
+    pub fn clear_msgs(&mut self) {
+        self.messages.clear();
     }
 
     /// Search for a node with a specific IEEE address and PAN ID.
@@ -171,6 +191,9 @@ impl NetworkSim {
         }
     }
 
+    /// Run the simluation for a specific duration with a specified step.
+    /// *NOTE*: the simulation uses the step as a maximum step. If a smoltcp interface needs to be
+    /// polled more often, then the simulation will do so.
     pub fn run(&mut self, step: Duration, duration: Duration) {
         let start = self.now;
         while self.now < start + duration {
@@ -222,7 +245,7 @@ impl NetworkSim {
                         Duration::from_secs((msg.data.len() as f32 / TRANSMIT_SPEED) as u64);
 
                     if now >= msg.at + delta {
-                        let msg = node.get_tx_message().unwrap();
+                        let msg = node.tx_message().unwrap();
 
                         if msg.is_broadcast() {
                             node.is_sending = true;
@@ -245,7 +268,7 @@ impl NetworkSim {
                     && node.id != msg.from.0
                     && node.position.distance(&msg.from.1) < node.range
                 {
-                    node.receive_message(msg.clone());
+                    node.rx_message(msg.clone());
                 }
             }
         }
@@ -255,7 +278,7 @@ impl NetworkSim {
             let to_node = self.get_node_from_ieee_mut(msg.to).unwrap();
 
             if to_node.enabled && to_node.position.distance(&msg.from.1) < to_node.range {
-                to_node.receive_message(msg.clone());
+                to_node.rx_message(msg.clone());
             }
         }
 
@@ -283,8 +306,10 @@ impl NetworkSim {
         (step, broadcast_msgs, unicast_msgs)
     }
 
+    /// Save the messages to a specified path in the PCAP format.
+    #[allow(unused)]
     pub fn save_pcap(&self, path: &std::path::Path) -> std::io::Result<()> {
-        let mut pcap_file = std::fs::File::create(path)?;
+        let mut pcap_file = std::fs::File::create(path).unwrap();
         PcapSink::global_header(&mut pcap_file, PcapLinkType::Ieee802154WithoutFcs);
 
         for msg in &self.messages {
@@ -292,498 +317,5 @@ impl NetworkSim {
         }
 
         Ok(())
-    }
-}
-
-pub struct Node {
-    pub id: usize,
-    pub range: f32,
-    pub position: Position,
-    pub enabled: bool,
-    pub is_sending: bool,
-    pub parent_changed: bool,
-    pub previous_parent: Option<Ipv6Address>,
-    pub sent_at: Instant,
-    pub ieee_address: Ieee802154Address,
-    pub ip_address: Ipv6Address,
-    pub pan_id: Ieee802154Pan,
-    pub device: NodeDevice,
-    pub last_transmitted: Instant,
-    pub interface: Interface,
-    pub sockets: SocketSet<'static>,
-    pub socket_handles: Vec<SocketHandle>,
-    pub init:
-        Option<Box<dyn Fn(&mut SocketSet<'static>) -> Vec<SocketHandle> + Send + Sync + 'static>>,
-    pub application: Option<
-        Box<
-            dyn Fn(Instant, &mut SocketSet<'static>, &mut Vec<SocketHandle>, &mut Instant)
-                + Send
-                + Sync
-                + 'static,
-        >,
-    >,
-    pub next_poll: Option<Instant>,
-}
-
-impl std::fmt::Debug for Node {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Node")
-            .field("id", &self.id)
-            .field("range", &self.range)
-            .field("position", &self.position)
-            .field("enabled", &self.enabled)
-            .field("is_sending", &self.is_sending)
-            .field("parent_changed", &self.parent_changed)
-            .field("previous_parent", &self.previous_parent)
-            .field("sent_at", &self.sent_at)
-            .field("ieee_address", &self.ieee_address)
-            .field("ip_address", &self.ip_address)
-            .field("pan_id", &self.pan_id)
-            .field("sockets", &self.sockets)
-            .field("socket_handles", &self.socket_handles)
-            .field("next_poll", &self.next_poll)
-            .finish()
-    }
-}
-
-impl Node {
-    pub fn new_default(id: usize) -> Self {
-        Self::new(
-            id,
-            RplConfig::new(RplModeOfOperation::NoDownwardRoutesMaintained),
-        )
-    }
-
-    /// Create a new node.
-    pub fn new(id: usize, mut rpl: RplConfig) -> Self {
-        let mut device = NodeDevice::new(id, Position::from((0., 0.)));
-
-        let ieee_address = Ieee802154Address::Extended((id as u64 + 1).to_be_bytes());
-        let ipv6_address = ieee_address.as_link_local_address().unwrap();
-
-        let rpl = if let Some(ref mut root) = rpl.root {
-            root.dodag_id = ipv6_address;
-            rpl
-        } else {
-            rpl
-        };
-
-        let mut config = Config::new(ieee_address.into());
-        config.pan_id = Some(Ieee802154Pan(0xbeef));
-        config.rpl_config = Some(rpl);
-        config.random_seed = Instant::now().total_micros() as u64;
-
-        let mut interface = Interface::new(config, &mut device, Instant::ZERO);
-        interface.update_ip_addrs(|addresses| {
-            addresses
-                .push(IpCidr::Ipv6(Ipv6Cidr::new(ipv6_address, 10)))
-                .unwrap();
-        });
-
-        Self {
-            id: id as usize,
-            range: 101.,
-            position: Position::from((0., 0.)),
-            enabled: true,
-            is_sending: false,
-            parent_changed: false,
-            previous_parent: None,
-            sent_at: Instant::now(),
-            ieee_address,
-            ip_address: ipv6_address,
-            pan_id: Ieee802154Pan(0xbeef),
-            device,
-            interface,
-            sockets: SocketSet::new(vec![]),
-            socket_handles: vec![],
-            init: None,
-            application: None,
-            next_poll: Some(Instant::ZERO),
-            last_transmitted: Instant::ZERO,
-        }
-    }
-
-    /// Set the position of the node.
-    pub fn set_position(&mut self, position: Position) {
-        self.position = position;
-        self.device.position = position;
-    }
-
-    /// Set the IEEE802.15.4 address of the node.
-    pub fn set_ieee_address(&mut self, address: Ieee802154Address) {
-        self.ieee_address = address;
-        self.ip_address = address.as_link_local_address().unwrap();
-        self.interface.set_hardware_addr(address.into());
-        self.interface.update_ip_addrs(|addresses| {
-            addresses[0] = IpCidr::Ipv6(Ipv6Cidr::new(self.ip_address, 128));
-        });
-    }
-
-    /// Set the PAN id of the node.
-    pub fn set_pan_id(&mut self, pan: Ieee802154Pan) {
-        self.pan_id = pan;
-    }
-
-    pub fn set_ip_address(&mut self, address: IpCidr) {
-        self.interface.update_ip_addrs(|ip_addrs| {
-            *ip_addrs.first_mut().unwrap() = address;
-        });
-    }
-
-    /// Add a message to the list of messages the node is sending.
-    pub fn send_message(&mut self, msg: Message) {
-        self.device.tx_queue.push_back(msg);
-    }
-
-    /// Accept a message that was send to this node.
-    pub(crate) fn receive_message(&mut self, msg: Message) {
-        self.device.rx_queue.push_back(msg);
-    }
-
-    /// Check if the node has data to send.
-    pub(crate) fn needs_to_send(&self) -> bool {
-        !self.device.tx_queue.is_empty()
-    }
-
-    /// Peek a message that needs to be send.
-    pub(crate) fn peek_tx_message(&mut self) -> Option<&Message> {
-        self.device.tx_queue.front()
-    }
-
-    /// Get a message that needs to be send.
-    pub(crate) fn get_tx_message(&mut self) -> Option<Message> {
-        self.device.tx_queue.pop_front()
-    }
-
-    pub fn set_init(
-        &mut self,
-        init: Box<dyn Fn(&mut SocketSet) -> Vec<SocketHandle> + Send + Sync>,
-    ) {
-        self.init = Some(init);
-    }
-
-    pub fn set_application(
-        &mut self,
-        application: Box<
-            dyn Fn(Instant, &mut SocketSet<'static>, &mut Vec<SocketHandle>, &mut Instant)
-                + Send
-                + Sync
-                + 'static,
-        >,
-    ) {
-        self.application = Some(application);
-    }
-
-    pub fn enable(&mut self) {
-        self.enabled = true;
-    }
-
-    pub fn disable(&mut self) {
-        self.enabled = false;
-    }
-}
-
-pub struct NodeDevice {
-    pub id: usize,
-    pub position: Position,
-    pub rx_queue: VecDeque<Message>,
-    pub tx_queue: VecDeque<Message>,
-}
-
-impl NodeDevice {
-    pub fn new(id: usize, position: Position) -> Self {
-        Self {
-            id,
-            position,
-            rx_queue: Default::default(),
-            tx_queue: Default::default(),
-        }
-    }
-}
-
-impl smoltcp::phy::Device for NodeDevice {
-    type RxToken<'a> = RxToken where Self: 'a;
-    type TxToken<'a> = TxToken<'a> where Self: 'a;
-
-    fn receive(&mut self, timestamp: Instant) -> Option<(RxToken, TxToken)> {
-        if let Some(data) = self.rx_queue.pop_front() {
-            Some((
-                RxToken {
-                    buffer: data.data,
-                    timestamp,
-                },
-                TxToken {
-                    buffer: &mut self.tx_queue,
-                    node_id: self.id,
-                    position: self.position,
-                    timestamp,
-                },
-            ))
-        } else {
-            None
-        }
-    }
-
-    fn transmit(&mut self, timestamp: Instant) -> Option<TxToken> {
-        Some(TxToken {
-            buffer: &mut self.tx_queue,
-            node_id: self.id,
-            position: self.position,
-            timestamp,
-        })
-    }
-
-    fn capabilities(&self) -> smoltcp::phy::DeviceCapabilities {
-        let mut caps = smoltcp::phy::DeviceCapabilities::default();
-        caps.medium = smoltcp::phy::Medium::Ieee802154;
-        caps.max_transmission_unit = 125;
-        caps
-    }
-}
-
-pub struct RxToken {
-    buffer: Vec<u8>,
-    timestamp: Instant,
-}
-
-impl smoltcp::phy::RxToken for RxToken {
-    fn consume<R, F>(mut self, f: F) -> R
-    where
-        F: FnOnce(&mut [u8]) -> R,
-    {
-        f(&mut self.buffer)
-    }
-}
-
-pub struct TxToken<'v> {
-    buffer: &'v mut VecDeque<Message>,
-    node_id: usize,
-    position: Position,
-    timestamp: Instant,
-}
-
-impl<'v> smoltcp::phy::TxToken for TxToken<'v> {
-    fn consume<R, F>(self, len: usize, f: F) -> R
-    where
-        F: FnOnce(&mut [u8]) -> R,
-    {
-        let mut buffer = vec![0; len];
-        let r = f(&mut buffer);
-
-        let packet = Ieee802154Frame::new_unchecked(&buffer);
-        let repr = Ieee802154Repr::parse(&packet).unwrap();
-
-        self.buffer.push_back(Message {
-            at: self.timestamp,
-            to: repr.dst_addr.unwrap(),
-            from: (self.node_id, self.position),
-            data: buffer,
-        });
-
-        r
-    }
-}
-
-#[derive(Debug, PartialEq, PartialOrd, Clone, Copy)]
-pub struct Position(pub (f32, f32));
-
-impl Position {
-    pub fn distance(&self, other: &Self) -> f32 {
-        ((other.0 .0 - self.0 .0).powf(2.0) + (other.0 .1 - self.0 .1).powf(2.0)).sqrt()
-    }
-
-    pub fn x(&self) -> f32 {
-        self.0 .0
-    }
-
-    pub fn y(&self) -> f32 {
-        self.0 .1
-    }
-}
-
-impl From<(f32, f32)> for Position {
-    fn from(pos: (f32, f32)) -> Self {
-        Position(pos)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct Message {
-    pub at: Instant,
-    pub to: Ieee802154Address,
-    pub from: (usize, Position),
-    pub data: Vec<u8>,
-}
-
-impl Message {
-    pub fn is_broadcast(&self) -> bool {
-        self.to == Ieee802154Address::BROADCAST
-    }
-
-    pub fn udp(&self) -> Result<Option<SixlowpanUdpNhcRepr>> {
-        let ieee802154 = Ieee802154Frame::new_checked(&self.data)?;
-        let lowpan = SixlowpanIphcPacket::new_checked(ieee802154.payload().ok_or(Error)?)?;
-        let src_addr = lowpan.src_addr()?.resolve(ieee802154.src_addr(), &[])?;
-        let dst_addr = lowpan.dst_addr()?.resolve(ieee802154.src_addr(), &[])?;
-
-        let mut payload = lowpan.payload();
-        let mut next_hdr = lowpan.next_header();
-        loop {
-            match next_hdr {
-                SixlowpanNextHeader::Compressed => match SixlowpanNhcPacket::dispatch(payload)? {
-                    SixlowpanNhcPacket::ExtHeader => {
-                        let ext_hdr = SixlowpanExtHeaderPacket::new_checked(payload)?;
-                        next_hdr = ext_hdr.next_header();
-                        payload = &payload[ext_hdr.header_len() + ext_hdr.payload().len()..];
-                        continue;
-                    }
-                    SixlowpanNhcPacket::UdpHeader => {
-                        let udp = SixlowpanUdpNhcPacket::new_checked(payload)?;
-                        return Ok(Some(SixlowpanUdpNhcRepr::parse(
-                            &udp,
-                            &src_addr.into(),
-                            &dst_addr.into(),
-                            &ChecksumCapabilities::ignored(),
-                        )?));
-                    }
-                },
-                SixlowpanNextHeader::Uncompressed(IpProtocol::Icmpv6) => return Ok(None),
-                _ => unreachable!(),
-            };
-        }
-    }
-
-    pub fn icmp(&self) -> Result<Option<Icmpv6Repr<'_>>> {
-        let ieee802154 = Ieee802154Frame::new_checked(&self.data)?;
-        let lowpan = SixlowpanIphcPacket::new_checked(ieee802154.payload().ok_or(Error)?)?;
-        let src_addr = lowpan.src_addr()?.resolve(ieee802154.src_addr(), &[])?;
-        let dst_addr = lowpan.dst_addr()?.resolve(ieee802154.src_addr(), &[])?;
-
-        let mut payload = lowpan.payload();
-        let mut next_hdr = lowpan.next_header();
-        loop {
-            match next_hdr {
-                SixlowpanNextHeader::Compressed => match SixlowpanNhcPacket::dispatch(payload)? {
-                    SixlowpanNhcPacket::ExtHeader => {
-                        let ext_hdr = SixlowpanExtHeaderPacket::new_checked(payload)?;
-                        next_hdr = ext_hdr.next_header();
-                        payload = &payload[ext_hdr.header_len() + ext_hdr.payload().len()..];
-                        continue;
-                    }
-                    SixlowpanNhcPacket::UdpHeader => return Ok(None),
-                },
-                SixlowpanNextHeader::Uncompressed(IpProtocol::Icmpv6) => {
-                    let icmp = Icmpv6Packet::new_checked(payload).unwrap();
-
-                    return Ok(Some(Icmpv6Repr::parse(
-                        &src_addr.into(),
-                        &dst_addr.into(),
-                        &icmp,
-                        &ChecksumCapabilities::ignored(),
-                    )?));
-                }
-                _ => unreachable!(),
-            };
-        }
-    }
-
-    pub fn has_routing(&self) -> Result<bool> {
-        let ieee802154 = Ieee802154Frame::new_checked(&self.data)?;
-        let lowpan = SixlowpanIphcPacket::new_checked(ieee802154.payload().ok_or(Error)?)?;
-        let src_addr = lowpan.src_addr()?.resolve(ieee802154.src_addr(), &[])?;
-        let dst_addr = lowpan.dst_addr()?.resolve(ieee802154.src_addr(), &[])?;
-
-        let mut payload = lowpan.payload();
-        let mut next_hdr = lowpan.next_header();
-
-        loop {
-            match next_hdr {
-                SixlowpanNextHeader::Compressed => match SixlowpanNhcPacket::dispatch(payload)? {
-                    SixlowpanNhcPacket::ExtHeader => {
-                        let ext_hdr = SixlowpanExtHeaderPacket::new_checked(payload)?;
-                        if ext_hdr.extension_header_id() == SixlowpanExtHeaderId::RoutingHeader {
-                            return Ok(true);
-                        }
-                        next_hdr = ext_hdr.next_header();
-                        payload = &payload[ext_hdr.header_len() + ext_hdr.payload().len()..];
-                        continue;
-                    }
-                    SixlowpanNhcPacket::UdpHeader => return Ok(false),
-                },
-                SixlowpanNextHeader::Uncompressed(IpProtocol::Icmpv6) => {
-                    return Ok(false);
-                }
-                _ => unreachable!(),
-            };
-        }
-
-        Ok(false)
-    }
-
-    pub fn has_hbh(&self) -> Result<bool> {
-        let ieee802154 = Ieee802154Frame::new_checked(&self.data)?;
-        let lowpan = SixlowpanIphcPacket::new_checked(ieee802154.payload().ok_or(Error)?)?;
-        let src_addr = lowpan.src_addr()?.resolve(ieee802154.src_addr(), &[])?;
-        let dst_addr = lowpan.dst_addr()?.resolve(ieee802154.src_addr(), &[])?;
-
-        let mut payload = lowpan.payload();
-        let mut next_hdr = lowpan.next_header();
-
-        loop {
-            match next_hdr {
-                SixlowpanNextHeader::Compressed => match SixlowpanNhcPacket::dispatch(payload)? {
-                    SixlowpanNhcPacket::ExtHeader => {
-                        let ext_hdr = SixlowpanExtHeaderPacket::new_checked(payload)?;
-                        if ext_hdr.extension_header_id() == SixlowpanExtHeaderId::HopByHopHeader {
-                            return Ok(true);
-                        }
-                        next_hdr = ext_hdr.next_header();
-                        payload = &payload[ext_hdr.header_len() + ext_hdr.payload().len()..];
-                        continue;
-                    }
-                    SixlowpanNhcPacket::UdpHeader => return Ok(false),
-                },
-                SixlowpanNextHeader::Uncompressed(IpProtocol::Icmpv6) => {
-                    return Ok(false);
-                }
-                _ => unreachable!(),
-            };
-        }
-
-        Ok(false)
-    }
-
-    pub fn is_udp(&self) -> Result<bool> {
-        Ok(matches!(self.udp()?, Some(SixlowpanUdpNhcRepr(_))))
-    }
-
-    pub fn is_dis(&self) -> Result<bool> {
-        Ok(matches!(
-            self.icmp()?,
-            Some(Icmpv6Repr::Rpl(RplRepr::DodagInformationSolicitation(_)))
-        ))
-    }
-
-    pub fn is_dio(&self) -> Result<bool> {
-        Ok(matches!(
-            self.icmp()?,
-            Some(Icmpv6Repr::Rpl(RplRepr::DodagInformationObject(_)))
-        ))
-    }
-
-    pub fn is_dao(&self) -> Result<bool> {
-        Ok(matches!(
-            self.icmp()?,
-            Some(Icmpv6Repr::Rpl(RplRepr::DestinationAdvertisementObject(_)))
-        ))
-    }
-
-    pub fn is_dao_ack(&self) -> Result<bool> {
-        Ok(matches!(
-            self.icmp()?,
-            Some(Icmpv6Repr::Rpl(RplRepr::DestinationAdvertisementObjectAck(
-                _
-            )))
-        ))
     }
 }
