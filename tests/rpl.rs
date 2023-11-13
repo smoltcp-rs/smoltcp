@@ -358,11 +358,11 @@ fn normal_node_change_parent(#[case] mop: RplModeOfOperation) {
     let mut sim = sim::topology(sim::NetworkSim::new(), mop, 1, 3);
     sim.run(Duration::from_millis(100), Duration::from_secs(60 * 5));
 
-    assert!(!sim.messages.is_empty());
+    assert!(!sim.msgs().is_empty());
 
     // Move the the second node such that it is also in the range of a node with smaller rank.
-    sim.nodes[3].set_position(sim::Position((150., -50.)));
-    sim.messages.clear();
+    sim.nodes_mut()[3].set_position(sim::Position((150., -50.)));
+    sim.clear_msgs();
 
     sim.run(Duration::from_millis(100), ONE_HOUR);
 
@@ -374,9 +374,9 @@ fn normal_node_change_parent(#[case] mop: RplModeOfOperation) {
     // This node should reset its Trickle Timer
     let mut dio_count = 0;
 
-    for msg in &sim.messages {
-        if msg.is_dao().unwrap() {
-            let icmp = msg.icmp().unwrap().unwrap();
+    for msg in sim.msgs() {
+        if msg.is_dao() {
+            let icmp = msg.icmp().unwrap();
             let Icmpv6Repr::Rpl(RplRepr::DestinationAdvertisementObject(dao)) = icmp else {
                 break;
             };
@@ -393,7 +393,7 @@ fn normal_node_change_parent(#[case] mop: RplModeOfOperation) {
                 })
                 .count();
         }
-        if msg.is_dio().unwrap() && msg.from.0 == 3 {
+        if msg.is_dio() && msg.from.0 == 3 {
             dio_count += 1;
         }
     }
