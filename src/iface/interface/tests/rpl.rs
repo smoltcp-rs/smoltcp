@@ -1,5 +1,7 @@
 use super::*;
 
+use crate::iface::ip_packet::Ipv6Packet;
+
 use crate::iface::RplModeOfOperation;
 
 #[rstest]
@@ -105,7 +107,7 @@ fn unicast_dis(#[case] mop: RplModeOfOperation) {
 #[case::mop2(RplModeOfOperation::StoringMode)]
 #[cfg(feature = "rpl-mop-2")]
 fn dio_without_configuration(#[case] mop: RplModeOfOperation) {
-    use crate::iface::rpl::{Dodag, Rank, RplInstanceId};
+    use crate::iface::rpl::{Rank, RplInstanceId};
 
     let (mut iface, _, _) = setup(Medium::Ieee802154);
     iface.inner.rpl.mode_of_operation = mop;
