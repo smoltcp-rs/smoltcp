@@ -83,6 +83,22 @@ impl fmt::Display for Protocol {
     }
 }
 
+impl Protocol {
+    #[cfg(feature = "proto-sixlowpan")]
+    pub(crate) fn as_sixlowpan(&self) -> crate::wire::SixlowpanNextHeader {
+        use crate::wire::SixlowpanNextHeader;
+
+        match self {
+            Self::Icmpv6 => SixlowpanNextHeader::Uncompressed(Self::Icmpv6),
+            Self::Tcp => SixlowpanNextHeader::Uncompressed(Self::Tcp),
+            Self::Udp => SixlowpanNextHeader::Compressed,
+            Self::Ipv6Route => SixlowpanNextHeader::Compressed,
+            Self::Ipv6Opts => SixlowpanNextHeader::Compressed,
+            _ => unreachable!(),
+        }
+    }
+}
+
 /// An internetworking address.
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub enum Address {

@@ -479,7 +479,7 @@ impl InterfaceInner {
         ieee_repr: &Ieee802154Repr,
         mut buffer: &mut [u8],
     ) {
-        let last_header = packet.payload.as_sixlowpan_next_header();
+        let last_header = packet.header.next_header.as_sixlowpan();
         let next_header = last_header;
 
         #[cfg(feature = "proto-ipv6-hbh")]
@@ -632,7 +632,7 @@ impl InterfaceInner {
         packet: &PacketV6,
         ieee_repr: &Ieee802154Repr,
     ) -> (usize, usize, usize) {
-        let last_header = packet.payload.as_sixlowpan_next_header();
+        let last_header = packet.header.next_header.as_sixlowpan();
         let next_header = last_header;
 
         #[cfg(feature = "proto-ipv6-hbh")]

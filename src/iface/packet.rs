@@ -190,28 +190,6 @@ pub(crate) enum IpPayload<'p> {
     Dhcpv4(UdpRepr, DhcpRepr<'p>),
 }
 
-impl<'p> IpPayload<'p> {
-    #[cfg(feature = "proto-sixlowpan")]
-    pub(crate) fn as_sixlowpan_next_header(&self) -> SixlowpanNextHeader {
-        match self {
-            #[cfg(feature = "proto-ipv4")]
-            Self::Icmpv4(_) => unreachable!(),
-            #[cfg(feature = "socket-dhcpv4")]
-            Self::Dhcpv4(..) => unreachable!(),
-            #[cfg(feature = "proto-ipv6")]
-            Self::Icmpv6(_) => SixlowpanNextHeader::Uncompressed(IpProtocol::Icmpv6),
-            #[cfg(feature = "proto-igmp")]
-            Self::Igmp(_) => unreachable!(),
-            #[cfg(feature = "socket-tcp")]
-            Self::Tcp(_) => SixlowpanNextHeader::Uncompressed(IpProtocol::Tcp),
-            #[cfg(feature = "socket-udp")]
-            Self::Udp(..) => SixlowpanNextHeader::Compressed,
-            #[cfg(feature = "socket-raw")]
-            Self::Raw(_) => todo!(),
-        }
-    }
-}
-
 #[cfg(any(feature = "proto-ipv4", feature = "proto-ipv6"))]
 pub(crate) fn icmp_reply_payload_len(len: usize, mtu: usize, header_len: usize) -> usize {
     // Send back as much of the original payload as will fit within
