@@ -306,6 +306,7 @@ impl InterfaceInner {
                     our_addr,
                     &self.rpl.of,
                     self.now,
+                    &mut self.rand,
                 );
 
                 let dio = Icmpv6Repr::Rpl(self.rpl.dodag_information_object(Default::default()));
@@ -346,6 +347,7 @@ impl InterfaceInner {
                     our_addr,
                     &self.rpl.of,
                     self.now,
+                    &mut self.rand,
                 );
 
                 if dodag.parent.is_some() {
@@ -425,7 +427,13 @@ impl InterfaceInner {
             // =============
             // Send a no-path DAO to our old parent.
             // Select and schedule DAO to new parent.
-            dodag.find_new_parent(self.rpl.mode_of_operation, our_addr, &self.rpl.of, self.now);
+            dodag.find_new_parent(
+                self.rpl.mode_of_operation,
+                our_addr,
+                &self.rpl.of,
+                self.now,
+                &mut self.rand,
+            );
         }
 
         // Trickle Consistency

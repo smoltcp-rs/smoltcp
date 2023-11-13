@@ -7,6 +7,7 @@ mod rank;
 mod relations;
 mod trickle;
 
+use crate::rand::Rand;
 use crate::time::{Duration, Instant};
 use crate::wire::{
     Icmpv6Repr, Ipv6Address, RplDao, RplDio, RplDodagConfiguration, RplOptionRepr, RplRepr,
@@ -416,13 +417,14 @@ impl Dodag {
         our_addr: Ipv6Address,
         of: &OF,
         now: Instant,
+        rand: &mut Rand,
     ) -> Ipv6Address {
         let old_parent = self.parent.unwrap();
 
         self.parent = None;
         self.parent_set.remove(&old_parent);
 
-        self.find_new_parent(mop, our_addr, of, now);
+        self.find_new_parent(mop, our_addr, of, now, rand);
 
         old_parent
     }
@@ -437,8 +439,9 @@ impl Dodag {
         child: Ipv6Address,
         of: &OF,
         now: Instant,
+        rand: &mut Rand,
     ) {
-        let old_parent = self.remove_parent(mop, our_addr, of, now);
+        let old_parent = self.remove_parent(mop, our_addr, of, now, rand);
 
         #[cfg(feature = "rpl-mop-2")]
         self.daos
@@ -460,6 +463,7 @@ impl Dodag {
         child: Ipv6Address,
         of: &OF,
         now: Instant,
+        rand: &mut Rand,
     ) {
         // Remove expired parents from the parent set.
         self.parent_set
@@ -490,6 +494,7 @@ impl Dodag {
             // Schedule a DAO when we didn't have a parent yet, or when the new parent is different
             // from our old parent.
             if old_parent.is_none() || old_parent != Some(parent) {
+                self.dio_timer.hear_inconsistency(now, rand);
                 self.parent = Some(parent);
                 self.without_parent = None;
                 self.rank = of.rank(self.rank, self.parent_set.find(&parent).unwrap().rank);

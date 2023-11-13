@@ -614,7 +614,13 @@ impl Interface {
             // If we did not hear from our parent for some time,
             // remove our parent. Ideally, we should check if we could find another parent.
             if parent.last_heard < ctx.now - dodag.dio_timer.max_expiration() * 2 {
-                dodag.remove_parent(ctx.rpl.mode_of_operation, our_addr, &ctx.rpl.of, ctx.now);
+                dodag.remove_parent(
+                    ctx.rpl.mode_of_operation,
+                    our_addr,
+                    &ctx.rpl.of,
+                    ctx.now,
+                    &mut ctx.rand,
+                );
 
                 net_trace!("transmitting DIO (INFINITE rank)");
                 let mut options = heapless::Vec::new();
