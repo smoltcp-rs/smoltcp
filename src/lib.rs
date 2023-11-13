@@ -130,7 +130,7 @@ mod parsers;
 mod rand;
 
 #[cfg(test)]
-mod config {
+pub mod config {
     #![allow(unused)]
     pub const ASSEMBLER_MAX_SEGMENT_COUNT: usize = 4;
     pub const DNS_MAX_NAME_SIZE: usize = 255;
@@ -150,7 +150,7 @@ mod config {
 }
 
 #[cfg(not(test))]
-mod config {
+pub mod config {
     #![allow(unused)]
     include!(concat!(env!("OUT_DIR"), "/config.rs"));
 }
