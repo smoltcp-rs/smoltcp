@@ -355,42 +355,67 @@ fn message_forwarding_up_and_down(#[case] mop: RplModeOfOperation) {
 #[case::mop1(RplModeOfOperation::NonStoringMode)]
 #[case::mop2(RplModeOfOperation::StoringMode)]
 fn normal_node_change_parent(#[case] mop: RplModeOfOperation) {
-    let mut sim = sim::topology(sim::NetworkSim::new(), mop, 1, 2);
+    let mut sim = sim::topology(sim::NetworkSim::new(), mop, 1, 3);
     sim.run(Duration::from_millis(100), Duration::from_secs(60 * 5));
 
     assert!(!sim.messages.is_empty());
 
     // Move the the second node such that it is also in the range of a node with smaller rank.
-    sim.nodes[2].set_position(sim::Position((50., -50.)));
+    sim.nodes[3].set_position(sim::Position((150., -50.)));
+    sim.messages.clear();
 
-    sim.run(Duration::from_millis(100), Duration::from_secs(60 * 5));
+    sim.run(Duration::from_millis(100), ONE_HOUR);
 
-    // Counting number of NO-PATH DAOs sent
+    // Counter for sent NO-PATH DAOs
     let mut no_path_dao_count = 0;
+    // Counter for not acknowledged NO-PATH DAOs
+    let mut dao_no_ack_req_count = 0;
+    // Counter for DIOs for the node that changed the parent
+    // This node should reset its Trickle Timer
+    let mut dio_count = 0;
 
-    for msg in sim.messages {
+    for msg in &sim.messages {
         if msg.is_dao().unwrap() {
             let icmp = msg.icmp().unwrap().unwrap();
             let Icmpv6Repr::Rpl(RplRepr::DestinationAdvertisementObject(dao)) = icmp else {
                 break;
             };
-            for opt in dao.options {
-                if let RplOptionRepr::TransitInformation(o) = opt {
-                    if o.path_lifetime == 0 {
-                        no_path_dao_count += 1;
+            dao_no_ack_req_count += !dao.expect_ack as usize;
+            no_path_dao_count += dao
+                .options
+                .iter()
+                .filter(|opt| {
+                    if let RplOptionRepr::TransitInformation(o) = opt {
+                        o.path_lifetime == 0
+                    } else {
+                        false
                     }
-                }
-            }
+                })
+                .count();
+        }
+        if msg.is_dio().unwrap() && msg.from.0 == 3 {
+            dio_count += 1;
         }
     }
+
     match mop {
         // In MOP 2 when a nodes leaves it's parent it should send a NO-PATH DAO
         RplModeOfOperation::StoringMode => {
-            assert!(no_path_dao_count > 0,);
+            // The node sends a NO-PATH DAO to the parent that forwards it to its own parent
+            // until it reaches the root, that is why there will be 3 NO-PATH DAOs sent
+            assert!(no_path_dao_count == 1 * 3,);
+            // NO-PATH DAO should have the ack request flag set to false only when it is sent
+            // to the old parent
+            assert!(dao_no_ack_req_count == 1,);
+            assert!(dio_count > 9 && dio_count < 12);
         }
         // In MOP 1 and MOP 0 there should be no NO-PATH DAOs sent
         RplModeOfOperation::NonStoringMode | RplModeOfOperation::NoDownwardRoutesMaintained => {
             assert!(no_path_dao_count == 0,);
+            // By default all DAOs are acknowledged with the exception of the NO-PATH DAO
+            // destined to the old parent
+            assert!(dao_no_ack_req_count == 0,);
+            assert!(dio_count > 9 && dio_count < 12);
         }
         _ => {}
     }
