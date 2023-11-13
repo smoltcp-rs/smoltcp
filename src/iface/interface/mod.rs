@@ -727,7 +727,9 @@ impl Interface {
             // Remove DAOs that have been transmitted 3 times and did not get acknowledged.
             // TODO: we should be able to remove the parent when it was actually not acknowledged
             // after 3 times. This means that there is no valid path to the parent.
-            dodag.daos.retain(|dao| dao.sent_count < 4);
+            dodag.daos.retain(|dao| {
+                (!dao.is_no_path && dao.sent_count < 4) || (dao.is_no_path && dao.sent_count == 0)
+            });
 
             // Go over each queued DAO and check if they need to be transmitted.
             dodag.daos.iter_mut().for_each(|dao| {
