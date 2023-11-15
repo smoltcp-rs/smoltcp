@@ -154,8 +154,8 @@ pub use self::arp::{
 
 #[cfg(feature = "proto-rpl")]
 pub use self::rpl::{
-    data::HopByHopOption as RplHopByHopRepr,
-    data::Packet as RplHopByHopPacket,
+    hbh::HopByHopOption as RplHopByHopRepr,
+    hbh::Packet as RplHopByHopPacket,
     options::{
         DodagConfiguration as RplDodagConfiguration, Packet as RplOptionPacket,
         PrefixInformation as RplPrefixInformation, Repr as RplOptionRepr,
@@ -165,8 +165,7 @@ pub use self::rpl::{
     },
     DestinationAdvertisementObject as RplDao, DestinationAdvertisementObjectAck as RplDaoAck,
     DodagInformationObject as RplDio, DodagInformationSolicitation as RplDis,
-    InstanceId as RplInstanceId, Repr as RplRepr,
-    SequenceCounter as RplSequenceCounter,
+    InstanceId as RplInstanceId, Repr as RplRepr, SequenceCounter as RplSequenceCounter,
 };
 
 #[cfg(all(feature = "proto-sixlowpan", feature = "medium-ieee802154"))]
