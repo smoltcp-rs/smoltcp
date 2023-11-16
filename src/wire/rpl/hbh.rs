@@ -28,11 +28,16 @@ pub struct Packet<T: AsRef<[u8]>> {
 }
 
 impl<T: AsRef<[u8]>> Packet<T> {
+    /// Create a raw octet buffer with a RPL Hop-by-Hop option structure.
     #[inline]
     pub fn new_unchecked(buffer: T) -> Self {
         Self { buffer }
     }
 
+    /// Shorthand for a combination of [new_unchecked] and [check_len].
+    ///
+    /// [new_unchecked]: #method.new_unchecked
+    /// [check_len]: #method.check_len
     #[inline]
     pub fn new_checked(buffer: T) -> Result<Self> {
         let packet = Self::new_unchecked(buffer);
@@ -40,6 +45,8 @@ impl<T: AsRef<[u8]>> Packet<T> {
         Ok(packet)
     }
 
+    /// Ensure that no accessor method will panic if called.
+    /// Returns `Err(Error)` if the buffer is too short.
     #[inline]
     pub fn check_len(&self) -> Result<()> {
         if self.buffer.as_ref().len() == 4 {
@@ -49,26 +56,37 @@ impl<T: AsRef<[u8]>> Packet<T> {
         }
     }
 
+    /// Consume the packet, returning the underlying buffer.
+    #[inline]
+    pub fn into_inner(self) -> T {
+        self.buffer
+    }
+
+    /// Return the Down field.
     #[inline]
     pub fn is_down(&self) -> bool {
         get!(self.buffer, bool, field: field::FLAGS, shift: 7, mask: 0b1)
     }
 
+    /// Return the Rank-Error field.
     #[inline]
     pub fn has_rank_error(&self) -> bool {
         get!(self.buffer, bool, field: field::FLAGS, shift: 6, mask: 0b1)
     }
 
+    /// Return the Forwarding-Error field.
     #[inline]
     pub fn has_forwarding_error(&self) -> bool {
         get!(self.buffer, bool, field: field::FLAGS, shift: 5, mask: 0b1)
     }
 
+    /// Return the Instance ID field.
     #[inline]
     pub fn rpl_instance_id(&self) -> InstanceId {
         get!(self.buffer, into: InstanceId, field: field::INSTANCE_ID)
     }
 
+    /// Return the Sender Rank field.
     #[inline]
     pub fn sender_rank(&self) -> u16 {
         get!(self.buffer, u16, field: field::SENDER_RANK)
@@ -76,33 +94,38 @@ impl<T: AsRef<[u8]>> Packet<T> {
 }
 
 impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
+    /// Set the Down field.
     #[inline]
     pub fn set_is_down(&mut self, value: bool) {
         set!(self.buffer, value, bool, field: field::FLAGS, shift: 7, mask: 0b1)
     }
 
+    /// Set the Rank-Error field.
     #[inline]
     pub fn set_has_rank_error(&mut self, value: bool) {
         set!(self.buffer, value, bool, field: field::FLAGS, shift: 6, mask: 0b1)
     }
 
+    /// Set the Forwarding-Error field.
     #[inline]
     pub fn set_has_forwarding_error(&mut self, value: bool) {
         set!(self.buffer, value, bool, field: field::FLAGS, shift: 5, mask: 0b1)
     }
 
+    /// Set the Instance ID field.
     #[inline]
     pub fn set_rpl_instance_id(&mut self, value: u8) {
         set!(self.buffer, value, field: field::INSTANCE_ID)
     }
 
+    /// Set the Sender Rank field.
     #[inline]
     pub fn set_sender_rank(&mut self, value: u16) {
         set!(self.buffer, value, u16, field: field::SENDER_RANK)
     }
 }
 
-/// A high-level representation of an IPv6 Extension Header Option.
+/// A high-level representation of an RPL Hop-by-Hop Option.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct HopByHopOption {
@@ -114,7 +137,7 @@ pub struct HopByHopOption {
 }
 
 impl HopByHopOption {
-    /// Parse an IPv6 Extension Header Option and return a high-level representation.
+    /// Parse an RPL Hop-by-Hop Option and return a high-level representation.
     pub fn parse<T>(opt: &Packet<&T>) -> Self
     where
         T: AsRef<[u8]> + ?Sized,
@@ -133,7 +156,7 @@ impl HopByHopOption {
         4
     }
 
-    /// Emit a high-level representation into an IPv6 Extension Header Option.
+    /// Emit a high-level representation into an RPL Hop-by-Hop Option.
     pub fn emit<T: AsRef<[u8]> + AsMut<[u8]> + ?Sized>(&self, opt: &mut Packet<&mut T>) {
         opt.set_is_down(self.down);
         opt.set_has_rank_error(self.rank_error);

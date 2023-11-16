@@ -1,4 +1,3 @@
-
 use byteorder::{ByteOrder, NetworkEndian};
 
 use super::{Error, InstanceId, Result, SequenceCounter};
@@ -108,19 +107,32 @@ mod field {
 
 /// Getters for the RPL Control Message Options.
 impl<T: AsRef<[u8]>> Packet<T> {
-    /// Imbue a raw octet buffer with RPL Control Message Option structure.
+    /// Create a raw octet buffer with RPL Control Message Option structure.
     #[inline]
     pub fn new_unchecked(buffer: T) -> Self {
-        Packet { buffer }
+        Self { buffer }
     }
 
+    /// Shorthand for a combination of [new_checked] and [check_len].
+    ///
+    /// [new_unchecked]: #method.new_unchecked
+    /// [check_len]: #method.check_len
     #[inline]
     pub fn new_checked(buffer: T) -> Result<Self> {
-        if buffer.as_ref().is_empty() {
+        let packet = Self::new_unchecked(buffer);
+        packet.check_len()?;
+        Ok(packet)
+    }
+
+    /// Ensure that no accessor method will panic if called.
+    /// Returns `Err(Error)` if the buffer is too short.
+    #[inline]
+    pub fn check_len(&self) -> Result<()> {
+        if self.buffer.as_ref().is_empty() {
             return Err(Error);
         }
 
-        Ok(Packet { buffer })
+        Ok(())
     }
 
     /// Return the type field.
@@ -177,8 +189,6 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
         }
     }
 }
-
-/// Getters for the DAG Metric Container Option Message.
 
 /// Getters for the Route Information Option Message.
 ///
@@ -990,6 +1000,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     }
 }
 
+/// A high-level representation of a RPL Option.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Repr<'p> {
@@ -1005,6 +1016,7 @@ pub enum Repr<'p> {
     RplTargetDescriptor(u32),
 }
 
+/// A high-level representation of a RPL Route Option.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct RouteInformation<'p> {
@@ -1014,6 +1026,7 @@ pub struct RouteInformation<'p> {
     pub prefix: &'p [u8],
 }
 
+/// A high-level representation of a RPL DODAG Configuration Option.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct DodagConfiguration {
@@ -1029,6 +1042,7 @@ pub struct DodagConfiguration {
     pub lifetime_unit: u16,
 }
 
+/// A high-level representation of a RPL Target Option.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct RplTarget {
@@ -1038,6 +1052,7 @@ pub struct RplTarget {
                                           // multicast group.
 }
 
+/// A high-level representation of a RPL Transit Information Option.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct TransitInformation {
@@ -1048,6 +1063,7 @@ pub struct TransitInformation {
     pub parent_address: Option<Address>,
 }
 
+/// A high-level representation of a RPL Solicited Information Option.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct SolicitedInformation {
@@ -1059,6 +1075,7 @@ pub struct SolicitedInformation {
     pub version_number: SequenceCounter,
 }
 
+/// A high-level representation of a RPL Prefix Information Option.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct PrefixInformation<'p> {
@@ -1085,11 +1102,8 @@ impl core::fmt::Display for Repr<'_> {
             }) => {
                 write!(
                     f,
-                    "ROUTE INFO \
-                        PrefixLength={prefix_length} \
-                        Preference={preference} \
-                        Lifetime={lifetime} \
-                        Prefix={prefix:0x?}"
+                    "ROUTE INFO PrefixLength={prefix_length} Preference={preference} \
+                    Lifetime={lifetime} Prefix={prefix:0x?}"
                 )
             }
             Repr::DodagConfiguration(DodagConfiguration {
@@ -1105,15 +1119,10 @@ impl core::fmt::Display for Repr<'_> {
             }) => {
                 write!(
                     f,
-                    "DODAG CONF \
-                        IntD={dio_interval_doublings} \
-                        IntMin={dio_interval_min} \
-                        RedCst={dio_redundancy_constant} \
-                        MaxRankIncr={max_rank_increase} \
-                        MinHopRankIncr={minimum_hop_rank_increase} \
-                        OCP={objective_code_point} \
-                        DefaultLifetime={default_lifetime} \
-                        LifeUnit={lifetime_unit}"
+                    "DODAG CONF IntD={dio_interval_doublings} IntMin={dio_interval_min} \
+                    RedCst={dio_redundancy_constant} MaxRankIncr={max_rank_increase} \
+                    MinHopRankIncr={minimum_hop_rank_increase} OCP={objective_code_point} \
+                    DefaultLifetime={default_lifetime} LifeUnit={lifetime_unit}"
                 )
             }
             Repr::RplTarget(RplTarget {
@@ -1122,9 +1131,7 @@ impl core::fmt::Display for Repr<'_> {
             }) => {
                 write!(
                     f,
-                    "RPL Target \
-                        PrefixLength={prefix_length} \
-                        Prefix={prefix:0x?}"
+                    "RPL Target PrefixLength={prefix_length} Prefix={prefix:0x?}"
                 )
             }
             Repr::TransitInformation(TransitInformation {
@@ -1136,12 +1143,9 @@ impl core::fmt::Display for Repr<'_> {
             }) => {
                 write!(
                     f,
-                    "Transit Info \
-                        External={external} \
-                        PathCtrl={path_control} \
-                        PathSqnc={path_sequence} \
-                        PathLifetime={path_lifetime} \
-                        Parent={parent_address:0x?}"
+                    "Transit Info External={external} PathCtrl={path_control} \
+                    PathSqnc={path_sequence} PathLifetime={path_lifetime} \
+                    Parent={parent_address:0x?}"
                 )
             }
             Repr::SolicitedInformation(SolicitedInformation {
@@ -1154,13 +1158,9 @@ impl core::fmt::Display for Repr<'_> {
             }) => {
                 write!(
                     f,
-                    "Solicited Info \
-                        I={instance_id_predicate} \
-                        IID={rpl_instance_id:0x?} \
-                        D={dodag_id_predicate} \
-                        DODAGID={dodag_id} \
-                        V={version_predicate} \
-                        Version={version_number}"
+                    "Solicited Info I={instance_id_predicate} IID={rpl_instance_id:0x?} \
+                    D={dodag_id_predicate} DODAGID={dodag_id} V={version_predicate} \
+                    Version={version_number}"
                 )
             }
             Repr::PrefixInformation(PrefixInformation {
@@ -1174,12 +1174,10 @@ impl core::fmt::Display for Repr<'_> {
             }) => {
                 write!(
                     f,
-                    "Prefix Info \
-                        PrefixLength={prefix_length} \
-                        L={on_link} A={autonomous_address_configuration} R={router_address} \
-                        Valid={valid_lifetime} \
-                        Prefered={preferred_lifetime} \
-                        Prefix={destination_prefix:0x?}"
+                    "Prefix Info PrefixLength={prefix_length} L={on_link} \
+                    A={autonomous_address_configuration} R={router_address} \
+                    Valid={valid_lifetime} Prefered={preferred_lifetime} \
+                    Prefix={destination_prefix:0x?}"
                 )
             }
             Repr::RplTargetDescriptor(_) => write!(f, "Target Descriptor"),
@@ -1188,6 +1186,7 @@ impl core::fmt::Display for Repr<'_> {
 }
 
 impl<'p> Repr<'p> {
+    /// Parse a RPL Option and return a high-level representation.
     pub fn parse<T: AsRef<[u8]> + ?Sized>(packet: &Packet<&'p T>) -> Result<Self> {
         match packet.option_type() {
             OptionType::Pad1 => Ok(Repr::Pad1),
@@ -1246,6 +1245,7 @@ impl<'p> Repr<'p> {
         }
     }
 
+    /// Return the length of an option that will be emitted from this high-level representation.
     pub fn buffer_len(&self) -> usize {
         match self {
             Repr::Pad1 => 1,
@@ -1263,6 +1263,7 @@ impl<'p> Repr<'p> {
         }
     }
 
+    /// Emit a high-level representation into an RPL Option packet.
     pub fn emit<T: AsRef<[u8]> + AsMut<[u8]> + ?Sized>(&self, packet: &mut Packet<&'p mut T>) {
         let mut option_length = self.buffer_len() as u8;
 
@@ -1385,7 +1386,7 @@ impl<'p> Repr<'p> {
     }
 }
 
-/// A iterator for RPL options.
+/// An Iterator for RPL options.
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct OptionsIterator<'a> {
@@ -1439,4 +1440,3 @@ impl<'a> Iterator for OptionsIterator<'a> {
         }
     }
 }
-

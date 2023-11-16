@@ -57,6 +57,7 @@ impl InterfaceInner {
             return None;
         };
 
+        // Options that are expected: Pad1, PadN, Solicited Information.
         for opt in dis.options {
             // RFC6550 section 8.3:
             // The solicited information option is used for filtering incoming DIS
@@ -113,6 +114,8 @@ impl InterfaceInner {
     ) -> Option<IpPacket<'output>> {
         let mut dodag_configuration = None;
 
+        // Options that are expected: Pad1, PadN, DAG Metric Container, Routing Information, DODAG
+        // Configuration and Prefix Information.
         for opt in dio.options {
             match opt {
                 RplOptionRepr::DagMetricContainer => {
@@ -493,6 +496,7 @@ impl InterfaceInner {
 
         let mut targets: Vec<Ipv6Address, 8> = Vec::new();
 
+        // Expected options: Pad1, PadN, RPL Target, Transit Information, RPL Target Descriptor.
         for opt in &dao.options {
             match opt {
                 RplOptionRepr::RplTarget(target) => {

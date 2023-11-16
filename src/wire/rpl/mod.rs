@@ -557,6 +557,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
 
 type RplOptions<'p> = heapless::Vec<options::Repr<'p>, { crate::config::RPL_MAX_OPTIONS }>;
 
+/// A high-level representation of a RPL control packet.
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Repr<'p> {
@@ -566,12 +567,14 @@ pub enum Repr<'p> {
     DestinationAdvertisementObjectAck(DestinationAdvertisementObjectAck),
 }
 
+/// A high-level representation of a RPL DODAG Information Solicitation (DIS).
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct DodagInformationSolicitation<'p> {
     pub options: RplOptions<'p>,
 }
 
+/// A high-level representation of a RPL DODAG Information Object (DIO).
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct DodagInformationObject<'p> {
@@ -586,6 +589,7 @@ pub struct DodagInformationObject<'p> {
     pub options: RplOptions<'p>,
 }
 
+/// A high-level representation of a RPL Destination Advertisement Object (DAO).
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct DestinationAdvertisementObject<'p> {
@@ -596,6 +600,8 @@ pub struct DestinationAdvertisementObject<'p> {
     pub options: RplOptions<'p>,
 }
 
+/// A high-level representation of a RPL Destination Advertisement Object Acknowledgement
+/// (DAO-ACK).
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct DestinationAdvertisementObjectAck {
@@ -624,15 +630,9 @@ impl core::fmt::Display for Repr<'_> {
             }) => {
                 write!(
                     f,
-                    "DIO \
-                             IID={rpl_instance_id:?} \
-                             V={version_number} \
-                             R={rank} \
-                             G={grounded} \
-                             MOP={mode_of_operation:?} \
-                             Pref={dodag_preference} \
-                             DTSN={dtsn} \
-                             DODAGID={dodag_id}"
+                    "{rpl_instance_id:?} V={version_number} R={rank} G={grounded} \
+                    MOP={mode_of_operation:?} Pref={dodag_preference} \
+                    DTSN={dtsn} DODAGID={dodag_id}"
                 )?;
             }
             Repr::DestinationAdvertisementObject(DestinationAdvertisementObject {
@@ -644,11 +644,8 @@ impl core::fmt::Display for Repr<'_> {
             }) => {
                 write!(
                     f,
-                    "DAO \
-                             IID={rpl_instance_id:?} \
-                             Ack={expect_ack} \
-                             Seq={sequence} \
-                             DODAGID={dodag_id:?}",
+                    "DAO IID={rpl_instance_id:?} Ack={expect_ack} Seq={sequence} \
+                    DODAGID={dodag_id:?}"
                 )?;
             }
             Repr::DestinationAdvertisementObjectAck(DestinationAdvertisementObjectAck {
@@ -660,11 +657,8 @@ impl core::fmt::Display for Repr<'_> {
             }) => {
                 write!(
                     f,
-                    "DAO-ACK \
-                             IID={rpl_instance_id:?} \
-                             Seq={sequence} \
-                             Status={status} \
-                             DODAGID={dodag_id:?}",
+                    "DAO-ACK IID={rpl_instance_id:?} Seq={sequence} Status={status} \
+                    DODAGID={dodag_id:?}"
                 )?;
             }
         };
@@ -688,6 +682,7 @@ impl<'p> Repr<'p> {
         *opts = options;
     }
 
+    /// Parse a RPL packet and return a high-level representation.
     pub fn parse<T: AsRef<[u8]> + ?Sized>(packet: &Packet<&'p T>) -> Result<Self> {
         packet.check_len()?;
 
@@ -742,6 +737,8 @@ impl<'p> Repr<'p> {
         }
     }
 
+    /// Return the length of a header that will be emitted from this high-level representation.
+    /// The length also contains the lengths of the emitted options.
     pub fn buffer_len(&self) -> usize {
         let mut len = 4 + match self {
             Repr::DodagInformationSolicitation { .. } => 2,
@@ -787,6 +784,8 @@ impl<'p> Repr<'p> {
         len
     }
 
+    /// Emit a high-level representation into an RPL packet. This also emits the options the
+    /// high-level representation contains.
     pub fn emit<T: AsRef<[u8]> + AsMut<[u8]> + ?Sized>(&self, packet: &mut Packet<&mut T>) {
         packet.set_msg_type(crate::wire::icmpv6::Message::RplControl);
 
