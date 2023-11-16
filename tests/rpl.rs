@@ -1,10 +1,12 @@
+use std::iter::Once;
+
 use rstest::rstest;
 
 use smoltcp::iface::RplConfig;
 use smoltcp::iface::RplModeOfOperation;
 use smoltcp::iface::RplRootConfig;
 use smoltcp::time::*;
-use smoltcp::wire::{Icmpv6Repr, Ipv6Address, RplInstanceId, RplOptionRepr, RplRepr};
+use smoltcp::wire::{Icmpv6Repr, Ipv6Address, RplDio, RplInstanceId, RplOptionRepr, RplRepr};
 
 mod sim;
 
@@ -418,5 +420,118 @@ fn normal_node_change_parent(#[case] mop: RplModeOfOperation) {
             assert!(dio_count > 9 && dio_count < 12);
         }
         _ => {}
+    }
+}
+
+// When a parent leaves the network, its children nodes should also leave the DODAG
+// if there are no alternate parents they can choose from.
+#[rstest]
+#[case::mop0(RplModeOfOperation::NoDownwardRoutesMaintained)]
+#[case::mop1(RplModeOfOperation::NonStoringMode)]
+#[case::mop2(RplModeOfOperation::StoringMode)]
+fn parent_leaves_network_no_other_parent(#[case] mop: RplModeOfOperation) {
+    let mut sim = sim::topology(sim::NetworkSim::new(), mop, 4, 2);
+    sim.run(Duration::from_millis(100), ONE_HOUR);
+
+    // Parent leaves network, child node does not have an alternative parent.
+    // The child node should send INFINITE_RANK DIO and after that only send DIS messages
+    // since it is unable to connect back to the tree
+    sim.nodes_mut()[1].set_position(sim::Position((300., 300.)));
+
+    sim.clear_msgs();
+
+    sim.run(Duration::from_millis(100), ONE_HOUR);
+
+    let no_parent_node_msgs: Vec<_> = sim.msgs().iter().filter(|m| m.from.0 == 5).collect();
+
+    let infinite_dio_msgs = no_parent_node_msgs
+        .iter()
+        .filter(|m| {
+            let icmp = m.icmp().unwrap();
+            let Icmpv6Repr::Rpl(RplRepr::DodagInformationObject(dio)) = icmp else {
+                return false;
+            };
+            dio.rank == 65535
+        })
+        .count();
+    let dis_msgs = no_parent_node_msgs.iter().filter(|m| m.is_dis()).count();
+
+    assert_eq!(infinite_dio_msgs, 1);
+    assert!(dis_msgs > 0 && dis_msgs < 62);
+}
+
+// In MOP 2 the DTSN is incremented when a parent does not hear anymore from one of its children.
+#[rstest]
+#[case::mop2(RplModeOfOperation::StoringMode)]
+fn dtsn_incremented_when_child_leaves_network(#[case] mop: RplModeOfOperation) {
+    use std::collections::HashMap;
+    
+    let mut sim = sim::topology(sim::NetworkSim::new(), mop, 1, 5);
+    sim.nodes_mut()[4].set_position(sim::Position((200., 100.)));
+    sim.nodes_mut()[5].set_position(sim::Position((-100., 0.)));
+
+    sim.run(Duration::from_millis(100), ONE_HOUR);
+
+    // One node is moved out of the range of its parent.
+    sim.nodes_mut()[4].set_position(sim::Position((500., 500.)));
+
+    sim.clear_msgs();
+
+    sim.run(Duration::from_millis(100), ONE_HOUR);
+
+    // Keep track of when was the first DIO with increased DTSN sent
+    let mut dio_at = Instant::ZERO;
+    let mut time_set = false;
+
+    // The parent will not hear anymore from the child and will increment DTSN.
+    // All the nodes that had the missing child in the relations table will increment DTSN.
+    let node_ids_with_dtsn_incremented: Vec<usize> = sim
+        .nodes_mut()
+        .iter()
+        .filter_map(|n| if n.id != 5 { Some(n.id) } else { None })
+        .collect();
+
+    let dios: HashMap<usize, RplDio> = sim
+        .msgs()
+        .iter()
+        .filter_map(|msg| {
+            if let Some(Icmpv6Repr::Rpl(RplRepr::DodagInformationObject(dio))) = msg.icmp() {
+                if msg.from.0 == 2 && dio.dtsn.value() == 241 && !time_set {
+                    dio_at = msg.at;
+                    time_set = true;
+                }
+                Some((msg.from.0, dio))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if dios.is_empty() {
+        panic!("No DIO messages found");
+    }
+
+    dios.iter()
+        .filter(|(_, v)| v.dtsn.value() == 241)
+        .for_each(|(k, _)| assert!(node_ids_with_dtsn_incremented.contains(k)));
+
+    // The nodes that did not have the missing child in the relations table will not increase
+    // the DTSN even if they hear a DIO with increased DTSN from parent.
+    dios.iter()
+        .filter(|(k, _)| **k == 4 || **k == 5)
+        .for_each(|(_, v)| assert_eq!(v.dtsn.value(), 240));
+
+    // The remaining children will send DAOs to renew paths when hearing a DIO
+    // with incremented DTSN from their preferred parent
+    let dao_at = sim.msgs().iter().find_map(|m| {
+        if m.from.0 == 3 && m.is_dao() && m.at.gt(&dio_at) {
+            return Some(m.at);
+        }
+        None
+    });
+
+    if dao_at.is_some() {
+        println!("dao_at {} and dio_at {dio_at}", dao_at.unwrap());
+        assert!(dao_at.unwrap() - dio_at < Duration::from_secs(6));
     }
 }
