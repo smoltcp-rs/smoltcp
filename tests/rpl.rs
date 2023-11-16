@@ -1,5 +1,3 @@
-use std::iter::Once;
-
 use rstest::rstest;
 
 use smoltcp::iface::RplConfig;
@@ -465,7 +463,7 @@ fn parent_leaves_network_no_other_parent(#[case] mop: RplModeOfOperation) {
 #[case::mop2(RplModeOfOperation::StoringMode)]
 fn dtsn_incremented_when_child_leaves_network(#[case] mop: RplModeOfOperation) {
     use std::collections::HashMap;
-    
+
     let mut sim = sim::topology(sim::NetworkSim::new(), mop, 1, 5);
     sim.nodes_mut()[4].set_position(sim::Position((200., 100.)));
     sim.nodes_mut()[5].set_position(sim::Position((-100., 0.)));
