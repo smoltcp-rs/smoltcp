@@ -243,8 +243,8 @@ impl Dao {
         let mut options = heapless::Vec::new();
         options
             .push(RplOptionRepr::RplTarget(RplTarget {
-                prefix_length: 64,
-                prefix: self.child,
+                prefix_length: 64, // TODO: get the prefix length from the address.
+                prefix: heapless::Vec::from_slice(self.child.as_bytes()).unwrap(),
             }))
             .unwrap();
         options

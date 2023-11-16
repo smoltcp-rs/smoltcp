@@ -1001,7 +1001,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
 }
 
 /// A high-level representation of a RPL Option.
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Repr<'p> {
     Pad1,
@@ -1043,13 +1043,11 @@ pub struct DodagConfiguration {
 }
 
 /// A high-level representation of a RPL Target Option.
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct RplTarget {
     pub prefix_length: u8,
-    pub prefix: crate::wire::Ipv6Address, // FIXME: this is not the correct type, because the
-                                          // field can be an IPv6 address, a prefix or a
-                                          // multicast group.
+    pub prefix: heapless::Vec<u8, 16>,
 }
 
 /// A high-level representation of a RPL Transit Information Option.
@@ -1212,7 +1210,7 @@ impl<'p> Repr<'p> {
             })),
             OptionType::RplTarget => Ok(Repr::RplTarget(RplTarget {
                 prefix_length: packet.target_prefix_length(),
-                prefix: crate::wire::Ipv6Address::from_bytes(packet.target_prefix()),
+                prefix: heapless::Vec::from_slice(packet.target_prefix()).map_err(|_| Error)?,
             })),
             OptionType::TransitInformation => Ok(Repr::TransitInformation(TransitInformation {
                 external: packet.is_external(),
@@ -1253,7 +1251,7 @@ impl<'p> Repr<'p> {
             Repr::DagMetricContainer => todo!(),
             Repr::RouteInformation(RouteInformation { prefix, .. }) => 2 + 6 + prefix.len(),
             Repr::DodagConfiguration { .. } => 2 + 14,
-            Repr::RplTarget(RplTarget { prefix, .. }) => 2 + 2 + prefix.0.len(),
+            Repr::RplTarget(RplTarget { prefix, .. }) => 2 + 2 + prefix.len(),
             Repr::TransitInformation(TransitInformation { parent_address, .. }) => {
                 2 + 4 + if parent_address.is_some() { 16 } else { 0 }
             }
@@ -1324,7 +1322,7 @@ impl<'p> Repr<'p> {
             }) => {
                 packet.clear_rpl_target_flags();
                 packet.set_rpl_target_prefix_length(*prefix_length);
-                packet.set_rpl_target_prefix(prefix.as_bytes());
+                packet.set_rpl_target_prefix(&prefix);
             }
             Repr::TransitInformation(TransitInformation {
                 external,

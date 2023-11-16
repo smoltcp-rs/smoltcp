@@ -1084,10 +1084,10 @@ mod tests {
         match rpl_target_option {
             OptionRepr::RplTarget(RplTarget {
                 prefix_length,
-                prefix,
+                ref prefix,
             }) => {
                 assert_eq!(prefix_length, 128);
-                assert_eq!(prefix.as_bytes(), &target_prefix[..]);
+                assert_eq!(prefix, &target_prefix[..]);
             }
             _ => unreachable!(),
         }

@@ -1004,7 +1004,7 @@ mod tests {
         options
             .push(RplOptionRepr::RplTarget(RplTarget {
                 prefix_length: 128,
-                prefix: addr,
+                prefix: heapless::Vec::from_slice(addr.as_bytes()).unwrap(),
             }))
             .unwrap();
         options

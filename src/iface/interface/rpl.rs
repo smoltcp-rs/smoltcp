@@ -503,7 +503,9 @@ impl InterfaceInner {
                     // FIXME: we only take care of IPv6 addresses.
                     // However, a RPL target can also be a prefix or a multicast group.
                     // When receiving such a message, it might break our implementation.
-                    targets.push(target.prefix).unwrap();
+                    targets
+                        .push(Ipv6Address::from_bytes(&target.prefix))
+                        .unwrap();
                 }
                 RplOptionRepr::TransitInformation(transit) => {
                     if transit.path_lifetime == 0 {
