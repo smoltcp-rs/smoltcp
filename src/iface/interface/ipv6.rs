@@ -596,10 +596,18 @@ impl InterfaceInner {
                     addresses[i - 1] = tmp_addr;
 
                     if ipv6_repr.hop_limit <= 1 {
-                        todo!(
-                            "Send an ICMP Time Exceeded -- Hop Limit Exceeded in \
-                            Transit message to the Source Address and discard the packet."
-                        );
+                        net_trace!("hop limit reached 0, dropping packet");
+                        // FIXME: we should transmit an ICMPv6 Time Exceeded message, as defined
+                        // in RFC 2460. However, this is not trivial with the current state of
+                        // smoltcp. When sending this message back, as much as possible of the
+                        // original message should be transmitted back. This is after updating the
+                        // addresses in the source routing headers. At this time, we only update
+                        // the parsed list of addresses, not the `ip_payload` buffer. It is this
+                        // buffer we would use when sending back the ICMPv6 message. And since we
+                        // can't update that buffer here, we can't update the source routing header
+                        // and it would send back an incorrect header. The standard does not
+                        // specify if we SHOULD or MUST transmit an ICMPv6 message.
+                        return None;
                     } else {
                         ipv6_repr.hop_limit -= 1;
                         ipv6_repr.next_header = ext_hdr.next_header();
@@ -664,10 +672,21 @@ impl InterfaceInner {
     ) -> Option<IpPacket<'frame>> {
         net_trace!("forwarding packet");
 
-        // TODO: check that the hop limit is not 0, because otherwise we cannot forward it anymore.
-        if ipv6_repr.hop_limit == 1 {
-            net_trace!("hop limit reached 0, should send ICMPv6 packet back");
+        if ipv6_repr.hop_limit <= 1 {
+            net_trace!("hop limit reached 0, dropping packet");
+            // FIXME: we should transmit an ICMPv6 Time Exceeded message, as defined
+            // in RFC 2460. However, this is not trivial with the current state of
+            // smoltcp. When sending this message back, as much as possible of the
+            // original message should be transmitted back. This is after updating the
+            // addresses in the source routing headers. At this time, we only update
+            // the parsed list of addresses, not the `ip_payload` buffer. It is this
+            // buffer we would use when sending back the ICMPv6 message. And since we
+            // can't update that buffer here, we can't update the source routing header
+            // and it would send back an incorrect header. The standard does not
+            // specify if we SHOULD or MUST transmit an ICMPv6 message.
+            return None;
         }
+
         ipv6_repr.hop_limit -= 1;
 
         #[allow(unused)]
