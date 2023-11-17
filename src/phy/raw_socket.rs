@@ -32,9 +32,14 @@ impl RawSocket {
 
         let mut mtu = lower.interface_mtu()?;
 
-        // FIXME(thvdveld): this is a workaround for https://github.com/smoltcp-rs/smoltcp/issues/622
         #[cfg(feature = "medium-ieee802154")]
         if medium == Medium::Ieee802154 {
+            // SIOCGIFMTU returns 127 - (ACK_PSDU - FCS - 1) - FCS.
+            //                    127 - (5 - 2 - 1) - 2 = 123
+            // For IEEE802154, we want to add (ACK_PSDU - FCS - 1), since that is what SIOCGIFMTU
+            // uses as the size of the link layer header.
+            //
+            // https://github.com/torvalds/linux/blob/7475e51b87969e01a6812eac713a1c8310372e8a/net/mac802154/iface.c#L541
             mtu += 2;
         }
 
