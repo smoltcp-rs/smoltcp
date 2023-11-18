@@ -151,7 +151,10 @@ pub use self::tuntap_interface::TunTapInterface;
 ///
 /// ```rust
 /// let mut meta = smoltcp::phy::PacketMeta::default();
-/// meta.id = 15;
+/// #[cfg(feature = "packetmeta-id")]
+/// {
+///     meta.id = 15;
+/// }
 /// ```
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, Default)]
