@@ -149,9 +149,12 @@ pub use self::tuntap_interface::TunTapInterface;
 /// default values and then set the fields you want. This makes adding metadata
 /// fields a non-breaking change.
 ///
-/// ```rust,ignore
-/// let mut meta = PacketMeta::new();
-/// meta.id = 15;
+/// ```rust
+/// let mut meta = smoltcp::phy::PacketMeta::default();
+/// #[cfg(feature = "packetmeta-id")]
+/// {
+///     meta.id = 15;
+/// }
 /// ```
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, Default)]
