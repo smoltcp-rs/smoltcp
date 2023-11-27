@@ -12,7 +12,6 @@ use crate::phy::PacketMeta;
 use crate::wire::*;
 
 impl InterfaceInner {
-    #[cfg(feature = "proto-ipv6")]
     pub(super) fn process_ipv6<'frame>(
         &mut self,
         sockets: &mut SocketSet,
@@ -46,7 +45,6 @@ impl InterfaceInner {
 
     /// Given the next header value forward the payload onto the correct process
     /// function.
-    #[cfg(feature = "proto-ipv6")]
     pub(super) fn process_nxt_hdr<'frame>(
         &mut self,
         sockets: &mut SocketSet,
@@ -106,7 +104,6 @@ impl InterfaceInner {
         }
     }
 
-    #[cfg(feature = "proto-ipv6")]
     pub(super) fn process_icmpv6<'frame>(
         &mut self,
         _sockets: &mut SocketSet,
@@ -124,7 +121,7 @@ impl InterfaceInner {
         #[cfg(feature = "socket-icmp")]
         let mut handled_by_icmp_socket = false;
 
-        #[cfg(all(feature = "socket-icmp", feature = "proto-ipv6"))]
+        #[cfg(feature = "socket-icmp")]
         for icmp_socket in _sockets
             .items_mut()
             .filter_map(|i| icmp::Socket::downcast_mut(&mut i.socket))
@@ -175,10 +172,7 @@ impl InterfaceInner {
         }
     }
 
-    #[cfg(all(
-        any(feature = "medium-ethernet", feature = "medium-ieee802154"),
-        feature = "proto-ipv6"
-    ))]
+    #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
     pub(super) fn process_ndisc<'frame>(
         &mut self,
         ip_repr: Ipv6Repr,
@@ -241,7 +235,6 @@ impl InterfaceInner {
         }
     }
 
-    #[cfg(feature = "proto-ipv6")]
     pub(super) fn process_hopbyhop<'frame>(
         &mut self,
         sockets: &mut SocketSet,
@@ -286,7 +279,6 @@ impl InterfaceInner {
         )
     }
 
-    #[cfg(feature = "proto-ipv6")]
     pub(super) fn icmpv6_reply<'frame, 'icmp: 'frame>(
         &self,
         ipv6_repr: Ipv6Repr,
