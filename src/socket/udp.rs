@@ -88,12 +88,14 @@ impl std::error::Error for SendError {}
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum RecvError {
     Exhausted,
+    Truncated,
 }
 
 impl core::fmt::Display for RecvError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             RecvError::Exhausted => write!(f, "exhausted"),
+            RecvError::Truncated => write!(f, "truncated"),
         }
     }
 }
@@ -393,9 +395,17 @@ impl<'a> Socket<'a> {
     /// Dequeue a packet received from a remote endpoint, copy the payload into the given slice,
     /// and return the amount of octets copied as well as the endpoint.
     ///
+    /// **Note**: when the size of the provided buffer is smaller than the size of the payload,
+    /// the packet is dropped and a `RecvError::Truncated` error is returned.
+    ///
     /// See also [recv](#method.recv).
     pub fn recv_slice(&mut self, data: &mut [u8]) -> Result<(usize, UdpMetadata), RecvError> {
         let (buffer, endpoint) = self.recv().map_err(|_| RecvError::Exhausted)?;
+
+        if data.len() < buffer.len() {
+            return Err(RecvError::Truncated);
+        }
+
         let length = min(data.len(), buffer.len());
         data[..length].copy_from_slice(&buffer[..length]);
         Ok((length, endpoint))
@@ -426,9 +436,17 @@ impl<'a> Socket<'a> {
     /// packet from the receive buffer.
     /// This function otherwise behaves identically to [recv_slice](#method.recv_slice).
     ///
+    /// **Note**: when the size of the provided buffer is smaller than the size of the payload,
+    /// no data is copied into the provided buffer and a `RecvError::Truncated` error is returned.
+    ///
     /// See also [peek](#method.peek).
     pub fn peek_slice(&mut self, data: &mut [u8]) -> Result<(usize, &UdpMetadata), RecvError> {
         let (buffer, endpoint) = self.peek()?;
+
+        if data.len() < buffer.len() {
+            return Err(RecvError::Truncated);
+        }
+
         let length = min(data.len(), buffer.len());
         data[..length].copy_from_slice(&buffer[..length]);
         Ok((length, endpoint))
@@ -851,11 +869,7 @@ mod test {
         );
 
         let mut slice = [0; 4];
-        assert_eq!(
-            socket.recv_slice(&mut slice[..]),
-            Ok((4, REMOTE_END.into()))
-        );
-        assert_eq!(&slice, b"abcd");
+        assert_eq!(socket.recv_slice(&mut slice[..]), Err(RecvError::Truncated));
     }
 
     #[rstest]
@@ -882,16 +896,8 @@ mod test {
         );
 
         let mut slice = [0; 4];
-        assert_eq!(
-            socket.peek_slice(&mut slice[..]),
-            Ok((4, &REMOTE_END.into()))
-        );
-        assert_eq!(&slice, b"abcd");
-        assert_eq!(
-            socket.recv_slice(&mut slice[..]),
-            Ok((4, REMOTE_END.into()))
-        );
-        assert_eq!(&slice, b"abcd");
+        assert_eq!(socket.peek_slice(&mut slice[..]), Err(RecvError::Truncated));
+        assert_eq!(socket.recv_slice(&mut slice[..]), Err(RecvError::Truncated));
         assert_eq!(socket.peek_slice(&mut slice[..]), Err(RecvError::Exhausted));
     }
 
