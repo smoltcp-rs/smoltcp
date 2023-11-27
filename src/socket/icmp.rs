@@ -61,12 +61,14 @@ impl std::error::Error for SendError {}
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum RecvError {
     Exhausted,
+    Truncated,
 }
 
 impl core::fmt::Display for RecvError {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         match self {
             RecvError::Exhausted => write!(f, "exhausted"),
+            RecvError::Truncated => write!(f, "truncated"),
         }
     }
 }
@@ -130,8 +132,8 @@ impl<'a> Socket<'a> {
     /// Create an ICMP socket with the given buffers.
     pub fn new(rx_buffer: PacketBuffer<'a>, tx_buffer: PacketBuffer<'a>) -> Socket<'a> {
         Socket {
-            rx_buffer: rx_buffer,
-            tx_buffer: tx_buffer,
+            rx_buffer,
+            tx_buffer,
             endpoint: Default::default(),
             hop_limit: None,
             #[cfg(feature = "async")]
@@ -394,9 +396,17 @@ impl<'a> Socket<'a> {
     /// Dequeue a packet received from a remote endpoint, copy the payload into the given slice,
     /// and return the amount of octets copied as well as the `IpAddress`
     ///
+    /// **Note**: when the size of the provided buffer is smaller than the size of the payload,
+    /// the packet is dropped and a `RecvError::Truncated` error is returned.
+    ///
     /// See also [recv](#method.recv).
     pub fn recv_slice(&mut self, data: &mut [u8]) -> Result<(usize, IpAddress), RecvError> {
         let (buffer, endpoint) = self.recv()?;
+
+        if data.len() < buffer.len() {
+            return Err(RecvError::Truncated);
+        }
+
         let length = cmp::min(data.len(), buffer.len());
         data[..length].copy_from_slice(&buffer[..length]);
         Ok((length, endpoint))
@@ -555,7 +565,7 @@ impl<'a> Socket<'a> {
                         dst_addr,
                         next_header: IpProtocol::Icmp,
                         payload_len: repr.buffer_len(),
-                        hop_limit: hop_limit,
+                        hop_limit,
                     });
                     emit(cx, (ip_repr, IcmpRepr::Ipv4(repr)))
                 }
@@ -592,7 +602,7 @@ impl<'a> Socket<'a> {
                         dst_addr,
                         next_header: IpProtocol::Icmpv6,
                         payload_len: repr.buffer_len(),
-                        hop_limit: hop_limit,
+                        hop_limit,
                     });
                     emit(cx, (ip_repr, IcmpRepr::Ipv6(repr)))
                 }
@@ -1093,6 +1103,42 @@ mod test_ipv6 {
         socket.process(cx, &REMOTE_IPV6_REPR, &ECHOV6_REPR.into());
 
         assert_eq!(socket.recv(), Ok((data, REMOTE_IPV6.into())));
+        assert!(!socket.can_recv());
+    }
+
+    #[rstest]
+    #[case::ethernet(Medium::Ethernet)]
+    #[cfg(feature = "medium-ethernet")]
+    fn test_truncated_recv_slice(#[case] medium: Medium) {
+        let (mut iface, _, _) = setup(medium);
+        let cx = iface.context();
+
+        let mut socket = socket(buffer(1), buffer(1));
+        assert_eq!(socket.bind(Endpoint::Ident(0x1234)), Ok(()));
+
+        let checksum = ChecksumCapabilities::default();
+
+        let mut bytes = [0xff; 24];
+        let mut packet = Icmpv6Packet::new_unchecked(&mut bytes[..]);
+        ECHOV6_REPR.emit(
+            &LOCAL_IPV6.into(),
+            &REMOTE_IPV6.into(),
+            &mut packet,
+            &checksum,
+        );
+
+        assert!(socket.accepts(cx, &REMOTE_IPV6_REPR, &ECHOV6_REPR.into()));
+        socket.process(cx, &REMOTE_IPV6_REPR, &ECHOV6_REPR.into());
+        assert!(socket.can_recv());
+
+        assert!(socket.accepts(cx, &REMOTE_IPV6_REPR, &ECHOV6_REPR.into()));
+        socket.process(cx, &REMOTE_IPV6_REPR, &ECHOV6_REPR.into());
+
+        let mut buffer = [0u8; 1];
+        assert_eq!(
+            socket.recv_slice(&mut buffer[..]),
+            Err(RecvError::Truncated)
+        );
         assert!(!socket.can_recv());
     }
 

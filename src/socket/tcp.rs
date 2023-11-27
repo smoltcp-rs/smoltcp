@@ -1331,7 +1331,7 @@ impl<'a> Socket<'a> {
         // Rate-limit to 1 per second max.
         self.challenge_ack_timer = cx.now() + Duration::from_secs(1);
 
-        return Some(self.ack_reply(ip_repr, repr));
+        Some(self.ack_reply(ip_repr, repr))
     }
 
     pub(crate) fn accepts(&self, _cx: &mut Context, ip_repr: &IpRepr, repr: &TcpRepr) -> bool {
