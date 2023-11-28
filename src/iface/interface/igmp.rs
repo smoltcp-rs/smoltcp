@@ -208,21 +208,6 @@ impl Interface {
 }
 
 impl InterfaceInner {
-    /// Check whether the interface listens to given destination multicast IP address.
-    ///
-    /// If built without feature `proto-igmp` this function will
-    /// always return `false`.
-    pub fn has_multicast_group<T: Into<IpAddress>>(&self, addr: T) -> bool {
-        match addr.into() {
-            IpAddress::Ipv4(key) => {
-                key == Ipv4Address::MULTICAST_ALL_SYSTEMS
-                    || self.ipv4_multicast_groups.get(&key).is_some()
-            }
-            #[allow(unreachable_patterns)]
-            _ => false,
-        }
-    }
-
     /// Host duties of the **IGMPv2** protocol.
     ///
     /// Sets up `igmp_report_state` for responding to IGMP general/specific membership queries.
