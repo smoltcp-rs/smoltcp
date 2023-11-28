@@ -143,6 +143,117 @@ fn hop_by_hop_discard_with_icmp(#[case] medium: Medium) {
 #[rstest]
 #[case::ip(Medium::Ip)]
 #[cfg(feature = "medium-ip")]
+fn hop_by_hop_discard_param_problem(#[case] medium: Medium) {
+    // The following contains:
+    // - IPv6 header
+    // - Hop-by-hop, with options:
+    //  - PADN (skipped)
+    //  - Unknown option (discard + ParamProblem)
+    // - ICMP echo request
+    let data = [
+        0x60, 0x0, 0x0, 0x0, 0x0, 0x1b, 0x0, 0x40, 0xfd, 0xbe, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+        0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x2, 0xfd, 0xbe, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+        0x0, 0x0, 0x0, 0x0, 0x1, 0x3a, 0x0, 0xC0, 0x0, 0x40, 0x0, 0x1, 0x0, 0x80, 0x0, 0x2c, 0x88,
+        0x0, 0x2a, 0x1, 0xa4, 0x4c, 0x6f, 0x72, 0x65, 0x6d, 0x20, 0x49, 0x70, 0x73, 0x75, 0x6d,
+    ];
+
+    let response = Some(Packet::new_ipv6(
+        Ipv6Repr {
+            src_addr: Ipv6Address::new(0xfdbe, 0, 0, 0, 0, 0, 0, 1),
+            dst_addr: Ipv6Address::new(0xfdbe, 0, 0, 0, 0, 0, 0, 2),
+            next_header: IpProtocol::Icmpv6,
+            payload_len: 75,
+            hop_limit: 64,
+        },
+        IpPayload::Icmpv6(Icmpv6Repr::ParamProblem {
+            reason: Icmpv6ParamProblem::UnrecognizedOption,
+            pointer: 40,
+            header: Ipv6Repr {
+                src_addr: Ipv6Address::new(0xfdbe, 0, 0, 0, 0, 0, 0, 2),
+                dst_addr: Ipv6Address::new(0xfdbe, 0, 0, 0, 0, 0, 0, 1),
+                next_header: IpProtocol::HopByHop,
+                payload_len: 27,
+                hop_limit: 64,
+            },
+            data: &[
+                0x3a, 0x0, 0xC0, 0x0, 0x40, 0x0, 0x1, 0x0, 0x80, 0x0, 0x2c, 0x88, 0x0, 0x2a, 0x1,
+                0xa4, 0x4c, 0x6f, 0x72, 0x65, 0x6d, 0x20, 0x49, 0x70, 0x73, 0x75, 0x6d,
+            ],
+        }),
+    ));
+
+    let (mut iface, mut sockets, _device) = setup(medium);
+
+    assert_eq!(
+        iface.inner.process_ipv6(
+            &mut sockets,
+            PacketMeta::default(),
+            &Ipv6Packet::new_checked(&data[..]).unwrap()
+        ),
+        response
+    );
+}
+
+#[rstest]
+#[case::ip(Medium::Ip)]
+#[cfg(feature = "medium-ip")]
+fn hop_by_hop_discard_with_multicast(#[case] medium: Medium) {
+    // The following contains:
+    // - IPv6 header
+    // - Hop-by-hop, with options:
+    //  - PADN (skipped)
+    //  - Unknown option (discard (0b11) + ParamProblem)
+    // - ICMP echo request
+    //
+    // In this case, even if the destination address is a multicast address, an ICMPv6 ParamProblem
+    // should be transmitted.
+    let data = [
+        0x60, 0x0, 0x0, 0x0, 0x0, 0x1b, 0x0, 0x40, 0xfd, 0xbe, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+        0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x2, 0xff, 0x02, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+        0x0, 0x0, 0x0, 0x0, 0x1, 0x3a, 0x0, 0x80, 0x0, 0x40, 0x0, 0x1, 0x0, 0x80, 0x0, 0x2c, 0x88,
+        0x0, 0x2a, 0x1, 0xa4, 0x4c, 0x6f, 0x72, 0x65, 0x6d, 0x20, 0x49, 0x70, 0x73, 0x75, 0x6d,
+    ];
+
+    let response = Some(Packet::new_ipv6(
+        Ipv6Repr {
+            src_addr: Ipv6Address::new(0xfdbe, 0, 0, 0, 0, 0, 0, 1),
+            dst_addr: Ipv6Address::new(0xfdbe, 0, 0, 0, 0, 0, 0, 2),
+            next_header: IpProtocol::Icmpv6,
+            payload_len: 75,
+            hop_limit: 64,
+        },
+        IpPayload::Icmpv6(Icmpv6Repr::ParamProblem {
+            reason: Icmpv6ParamProblem::UnrecognizedOption,
+            pointer: 40,
+            header: Ipv6Repr {
+                src_addr: Ipv6Address::new(0xfdbe, 0, 0, 0, 0, 0, 0, 2),
+                dst_addr: Ipv6Address::new(0xff02, 0, 0, 0, 0, 0, 0, 1),
+                next_header: IpProtocol::HopByHop,
+                payload_len: 27,
+                hop_limit: 64,
+            },
+            data: &[
+                0x3a, 0x0, 0x80, 0x0, 0x40, 0x0, 0x1, 0x0, 0x80, 0x0, 0x2c, 0x88, 0x0, 0x2a, 0x1,
+                0xa4, 0x4c, 0x6f, 0x72, 0x65, 0x6d, 0x20, 0x49, 0x70, 0x73, 0x75, 0x6d,
+            ],
+        }),
+    ));
+
+    let (mut iface, mut sockets, _device) = setup(medium);
+
+    assert_eq!(
+        iface.inner.process_ipv6(
+            &mut sockets,
+            PacketMeta::default(),
+            &Ipv6Packet::new_checked(&data[..]).unwrap()
+        ),
+        response
+    );
+}
+
+#[rstest]
+#[case::ip(Medium::Ip)]
+#[cfg(feature = "medium-ip")]
 #[case::ethernet(Medium::Ethernet)]
 #[cfg(feature = "medium-ethernet")]
 #[case::ieee802154(Medium::Ieee802154)]
@@ -314,14 +425,33 @@ fn icmp_echo_reply_as_input(#[case] medium: Medium) {
 #[case::ieee802154(Medium::Ieee802154)]
 #[cfg(feature = "medium-ieee802154")]
 fn unknown_proto_with_multicast_dst_address(#[case] medium: Medium) {
-    // Since the destination address is multicast, we should not answer with an ICMPv6 message.
     let data = [
         0x60, 0x0, 0x0, 0x0, 0x0, 0x0, 0xc, 0x40, 0xfd, 0xbe, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
         0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x2, 0xff, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
         0x0, 0x0, 0x0, 0x0, 0x1,
     ];
 
-    let response = None;
+    let response = Some(Packet::new_ipv6(
+        Ipv6Repr {
+            src_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0001]),
+            dst_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0002]),
+            hop_limit: 64,
+            next_header: IpProtocol::Icmpv6,
+            payload_len: 48,
+        },
+        IpPayload::Icmpv6(Icmpv6Repr::ParamProblem {
+            reason: Icmpv6ParamProblem::UnrecognizedNxtHdr,
+            pointer: 40,
+            header: Ipv6Repr {
+                src_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0002]),
+                dst_addr: Ipv6Address::from_parts(&[0xff02, 0, 0, 0, 0, 0, 0, 0x0001]),
+                hop_limit: 64,
+                next_header: IpProtocol::Unknown(0x0c),
+                payload_len: 0,
+            },
+            data: &[],
+        }),
+    ));
 
     let (mut iface, mut sockets, _device) = setup(medium);
 
@@ -343,7 +473,7 @@ fn unknown_proto_with_multicast_dst_address(#[case] medium: Medium) {
 #[case::ieee802154(Medium::Ieee802154)]
 #[cfg(feature = "medium-ieee802154")]
 fn unknown_proto(#[case] medium: Medium) {
-    // Since the destination address is multicast, we should not answer with an ICMPv6 message.
+    // Since the destination address is multicast, we should answer with an ICMPv6 message.
     let data = [
         0x60, 0x0, 0x0, 0x0, 0x0, 0x0, 0xc, 0x40, 0xfd, 0xbe, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
         0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x2, 0xfd, 0xbe, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,

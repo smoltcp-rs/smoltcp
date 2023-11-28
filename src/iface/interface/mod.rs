@@ -1023,11 +1023,7 @@ impl InterfaceInner {
             #[cfg(feature = "proto-rpl")]
             IpAddress::Ipv6(Ipv6Address::LINK_LOCAL_ALL_RPL_NODES) => true,
             #[cfg(feature = "proto-ipv6")]
-            IpAddress::Ipv6(addr) => self.ip_addrs.iter().any(|a| match a.address() {
-                IpAddress::Ipv6(a) => a.solicited_node() == addr,
-                #[allow(unreachable_patterns)]
-                _ => false,
-            }),
+            IpAddress::Ipv6(addr) => self.has_solicited_node(addr),
             #[allow(unreachable_patterns)]
             _ => false,
         }

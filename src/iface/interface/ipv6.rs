@@ -7,6 +7,24 @@ use crate::socket::AnySocket;
 use crate::phy::PacketMeta;
 use crate::wire::*;
 
+/// Enum used for the process_hopbyhop function. In some cases, when discarding a packet, an ICMMP
+/// parameter problem message needs to be transmitted to the source of the address. In other cases,
+/// the processing of the IP packet can continue.
+#[allow(clippy::large_enum_variant)]
+enum HopByHopResponse<'frame> {
+    /// Continue processing the IPv6 packet.
+    Continue((IpProtocol, &'frame [u8])),
+    /// Discard the packet and maybe send back an ICMPv6 packet.
+    Discard(Option<Packet<'frame>>),
+}
+
+// We implement `Default` such that we can use the check! macro.
+impl Default for HopByHopResponse<'_> {
+    fn default() -> Self {
+        Self::Discard(None)
+    }
+}
+
 impl InterfaceInner {
     pub(super) fn process_ipv6<'frame>(
         &mut self,
@@ -22,7 +40,19 @@ impl InterfaceInner {
             return None;
         }
 
-        let ip_payload = ipv6_packet.payload();
+        let (next_header, ip_payload) = if ipv6_repr.next_header == IpProtocol::HopByHop {
+            match self.process_hopbyhop(ipv6_repr, ipv6_packet.payload()) {
+                HopByHopResponse::Discard(e) => return e,
+                HopByHopResponse::Continue(next) => next,
+            }
+        } else {
+            (ipv6_repr.next_header, ipv6_packet.payload())
+        };
+
+        if !self.has_ip_addr(ipv6_repr.dst_addr) && !self.has_multicast_group(ipv6_repr.dst_addr) {
+            net_trace!("packet IP address not for this interface");
+            return None;
+        }
 
         #[cfg(feature = "socket-raw")]
         let handled_by_raw_socket = self.raw_socket_filter(sockets, &ipv6_repr.into(), ip_payload);
@@ -33,15 +63,71 @@ impl InterfaceInner {
             sockets,
             meta,
             ipv6_repr,
-            ipv6_repr.next_header,
+            next_header,
             handled_by_raw_socket,
             ip_payload,
         )
     }
 
+    fn process_hopbyhop<'frame>(
+        &mut self,
+        ipv6_repr: Ipv6Repr,
+        ip_payload: &'frame [u8],
+    ) -> HopByHopResponse<'frame> {
+        let param_problem = || {
+            let payload_len =
+                icmp_reply_payload_len(ip_payload.len(), IPV6_MIN_MTU, ipv6_repr.buffer_len());
+            self.icmpv6_reply(
+                ipv6_repr,
+                Icmpv6Repr::ParamProblem {
+                    reason: Icmpv6ParamProblem::UnrecognizedOption,
+                    pointer: ipv6_repr.buffer_len() as u32,
+                    header: ipv6_repr,
+                    data: &ip_payload[0..payload_len],
+                },
+            )
+        };
+
+        let ext_hdr = check!(Ipv6ExtHeader::new_checked(ip_payload));
+        let ext_repr = check!(Ipv6ExtHeaderRepr::parse(&ext_hdr));
+        let hbh_hdr = check!(Ipv6HopByHopHeader::new_checked(ext_repr.data));
+        let hbh_repr = check!(Ipv6HopByHopRepr::parse(&hbh_hdr));
+
+        for opt_repr in &hbh_repr.options {
+            match opt_repr {
+                Ipv6OptionRepr::Pad1 | Ipv6OptionRepr::PadN(_) => (),
+                #[cfg(feature = "proto-rpl")]
+                Ipv6OptionRepr::Rpl(_) => {}
+
+                Ipv6OptionRepr::Unknown { type_, .. } => {
+                    match Ipv6OptionFailureType::from(*type_) {
+                        Ipv6OptionFailureType::Skip => (),
+                        Ipv6OptionFailureType::Discard => {
+                            return HopByHopResponse::Discard(None);
+                        }
+                        Ipv6OptionFailureType::DiscardSendAll => {
+                            return HopByHopResponse::Discard(param_problem());
+                        }
+                        Ipv6OptionFailureType::DiscardSendUnicast
+                            if !ipv6_repr.dst_addr.is_multicast() =>
+                        {
+                            return HopByHopResponse::Discard(param_problem());
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+            }
+        }
+
+        HopByHopResponse::Continue((
+            ext_repr.next_header,
+            &ip_payload[ext_repr.header_len() + ext_repr.data.len()..],
+        ))
+    }
+
     /// Given the next header value forward the payload onto the correct process
     /// function.
-    pub(super) fn process_nxt_hdr<'frame>(
+    fn process_nxt_hdr<'frame>(
         &mut self,
         sockets: &mut SocketSet,
         meta: PacketMeta,
@@ -76,10 +162,6 @@ impl InterfaceInner {
 
             #[cfg(feature = "socket-tcp")]
             IpProtocol::Tcp => self.process_tcp(sockets, ipv6_repr.into(), ip_payload),
-
-            IpProtocol::HopByHop => {
-                self.process_hopbyhop(sockets, meta, ipv6_repr, handled_by_raw_socket, ip_payload)
-            }
 
             #[cfg(feature = "socket-raw")]
             _ if handled_by_raw_socket => None,
@@ -238,70 +320,33 @@ impl InterfaceInner {
         }
     }
 
-    pub(super) fn process_hopbyhop<'frame>(
-        &mut self,
-        sockets: &mut SocketSet,
-        meta: PacketMeta,
-        ipv6_repr: Ipv6Repr,
-        handled_by_raw_socket: bool,
-        ip_payload: &'frame [u8],
-    ) -> Option<Packet<'frame>> {
-        let ext_hdr = check!(Ipv6ExtHeader::new_checked(ip_payload));
-        let ext_repr = check!(Ipv6ExtHeaderRepr::parse(&ext_hdr));
-        let hbh_hdr = check!(Ipv6HopByHopHeader::new_checked(ext_repr.data));
-        let hbh_repr = check!(Ipv6HopByHopRepr::parse(&hbh_hdr));
-
-        for opt_repr in &hbh_repr.options {
-            match opt_repr {
-                Ipv6OptionRepr::Pad1 | Ipv6OptionRepr::PadN(_) => (),
-                #[cfg(feature = "proto-rpl")]
-                Ipv6OptionRepr::Rpl(_) => {}
-
-                Ipv6OptionRepr::Unknown { type_, .. } => {
-                    match Ipv6OptionFailureType::from(*type_) {
-                        Ipv6OptionFailureType::Skip => (),
-                        Ipv6OptionFailureType::Discard => {
-                            return None;
-                        }
-                        _ => {
-                            // FIXME(dlrobertson): Send an ICMPv6 parameter problem message
-                            // here.
-                            return None;
-                        }
-                    }
-                }
-            }
-        }
-        self.process_nxt_hdr(
-            sockets,
-            meta,
-            ipv6_repr,
-            ext_repr.next_header,
-            handled_by_raw_socket,
-            &ip_payload[ext_repr.header_len() + ext_repr.data.len()..],
-        )
-    }
-
     pub(super) fn icmpv6_reply<'frame, 'icmp: 'frame>(
         &self,
         ipv6_repr: Ipv6Repr,
         icmp_repr: Icmpv6Repr<'icmp>,
     ) -> Option<Packet<'frame>> {
-        if ipv6_repr.dst_addr.is_unicast() {
-            let ipv6_reply_repr = Ipv6Repr {
-                src_addr: ipv6_repr.dst_addr,
-                dst_addr: ipv6_repr.src_addr,
-                next_header: IpProtocol::Icmpv6,
-                payload_len: icmp_repr.buffer_len(),
-                hop_limit: 64,
-            };
-            Some(Packet::new_ipv6(
-                ipv6_reply_repr,
-                IpPayload::Icmpv6(icmp_repr),
-            ))
+        let src_addr = ipv6_repr.dst_addr;
+        let dst_addr = ipv6_repr.src_addr;
+
+        let src_addr = if src_addr.is_unicast() {
+            src_addr
+        } else if let Some(addr) = self.get_source_address_ipv6(&dst_addr) {
+            addr
         } else {
-            // Do not send any ICMP replies to a broadcast destination address.
-            None
-        }
+            net_debug!("no suitable source address found");
+            return None;
+        };
+
+        let ipv6_reply_repr = Ipv6Repr {
+            src_addr,
+            dst_addr,
+            next_header: IpProtocol::Icmpv6,
+            payload_len: icmp_repr.buffer_len(),
+            hop_limit: 64,
+        };
+        Some(Packet::new_ipv6(
+            ipv6_reply_repr,
+            IpPayload::Icmpv6(icmp_repr),
+        ))
     }
 }
