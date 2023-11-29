@@ -49,7 +49,10 @@ impl InterfaceInner {
             (ipv6_repr.next_header, ipv6_packet.payload())
         };
 
-        if !self.has_ip_addr(ipv6_repr.dst_addr) && !self.has_multicast_group(ipv6_repr.dst_addr) {
+        if !self.has_ip_addr(ipv6_repr.dst_addr)
+            && !self.has_multicast_group(ipv6_repr.dst_addr)
+            && !ipv6_repr.dst_addr.is_loopback()
+        {
             net_trace!("packet IP address not for this interface");
             return None;
         }
