@@ -116,7 +116,6 @@ fn dio_without_configuration(#[case] mop: RplModeOfOperation) {
     let addr = ll_addr.as_link_local_address().unwrap();
 
     let response = iface.inner.process_rpl_dio(
-        Some(ll_addr.into()),
         Ipv6Repr {
             src_addr: addr,
             dst_addr: Ipv6Address::LINK_LOCAL_ALL_RPL_NODES,

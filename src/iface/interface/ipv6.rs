@@ -197,6 +197,35 @@ impl InterfaceInner {
             (ipv6_repr.next_header, ipv6_packet.payload())
         };
 
+        #[cfg(feature = "proto-rpl")]
+        if let Some(ll_addr) = src_ll_addr {
+            if (ipv6_repr.hop_limit == 64 || ipv6_repr.hop_limit == 255)
+                && match ipv6_repr.dst_addr {
+                    Ipv6Address::LINK_LOCAL_ALL_NODES => true,
+                    #[cfg(feature = "proto-rpl")]
+                    Ipv6Address::LINK_LOCAL_ALL_RPL_NODES => true,
+                    addr if addr.is_unicast() && self.has_ip_addr(addr) => true,
+                    _ => false,
+                }
+            {
+                #[cfg(not(feature = "proto-rpl"))]
+                self.neighbor_cache
+                    .fill(ipv6_repr.src_addr.into(), ll_addr, self.now());
+
+                #[cfg(feature = "proto-rpl")]
+                if let Some(dodag) = &self.rpl.dodag {
+                    self.neighbor_cache.fill_with_expiration(
+                        ipv6_repr.src_addr.into(),
+                        ll_addr,
+                        self.now() + dodag.dio_timer.max_expiration() * 2,
+                    );
+                } else {
+                    self.neighbor_cache
+                        .fill(ipv6_repr.src_addr.into(), ll_addr, self.now());
+                }
+            }
+        }
+
         if !self.has_ip_addr(ipv6_repr.dst_addr)
             && !self.has_multicast_group(ipv6_repr.dst_addr)
             && !ipv6_repr.dst_addr.is_loopback()
@@ -219,7 +248,6 @@ impl InterfaceInner {
         let handled_by_raw_socket = false;
 
         self.process_nxt_hdr(
-            src_ll_addr,
             sockets,
             meta,
             ipv6_repr,
@@ -320,7 +348,6 @@ impl InterfaceInner {
     /// function.
     fn process_nxt_hdr<'frame>(
         &mut self,
-        src_ll_addr: Option<HardwareAddress>,
         sockets: &mut SocketSet,
         meta: PacketMeta,
         ipv6_repr: Ipv6Repr,
@@ -329,7 +356,7 @@ impl InterfaceInner {
         ip_payload: &'frame [u8],
     ) -> Option<Packet<'frame>> {
         match nxt_hdr {
-            IpProtocol::Icmpv6 => self.process_icmpv6(src_ll_addr, sockets, ipv6_repr, ip_payload),
+            IpProtocol::Icmpv6 => self.process_icmpv6(sockets, ipv6_repr, ip_payload),
 
             #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
             IpProtocol::Udp => self.process_udp(
@@ -343,24 +370,14 @@ impl InterfaceInner {
             #[cfg(feature = "socket-tcp")]
             IpProtocol::Tcp => self.process_tcp(sockets, ipv6_repr.into(), ip_payload),
 
-            IpProtocol::HopByHop => self.process_hopbyhop(
-                src_ll_addr,
-                sockets,
-                meta,
-                ipv6_repr,
-                handled_by_raw_socket,
-                ip_payload,
-            ),
+            IpProtocol::HopByHop => {
+                self.process_hopbyhop(sockets, meta, ipv6_repr, handled_by_raw_socket, ip_payload)
+            }
 
             #[cfg(feature = "proto-ipv6-routing")]
-            IpProtocol::Ipv6Route => self.process_routing(
-                src_ll_addr,
-                sockets,
-                meta,
-                ipv6_repr,
-                handled_by_raw_socket,
-                ip_payload,
-            ),
+            IpProtocol::Ipv6Route => {
+                self.process_routing(sockets, meta, ipv6_repr, handled_by_raw_socket, ip_payload)
+            }
 
             #[cfg(feature = "socket-raw")]
             _ if handled_by_raw_socket => None,
@@ -383,7 +400,6 @@ impl InterfaceInner {
 
     pub(super) fn process_icmpv6<'frame>(
         &mut self,
-        #[allow(unused)] src_ll_addr: Option<HardwareAddress>,
         _sockets: &mut SocketSet,
         ip_repr: Ipv6Repr,
         ip_payload: &'frame [u8],
@@ -444,7 +460,6 @@ impl InterfaceInner {
 
             #[cfg(feature = "proto-rpl")]
             Icmpv6Repr::Rpl(rpl) => self.process_rpl(
-                src_ll_addr,
                 match ip_repr {
                     IpRepr::Ipv6(ip_repr) => ip_repr,
                     #[allow(unreachable_patterns)]
@@ -529,7 +544,6 @@ impl InterfaceInner {
     #[cfg(feature = "proto-ipv6-routing")]
     pub(super) fn process_routing<'frame>(
         &mut self,
-        src_ll_addr: Option<HardwareAddress>,
         sockets: &mut SocketSet,
         meta: PacketMeta,
         mut ipv6_repr: Ipv6Repr,
@@ -626,7 +640,6 @@ impl InterfaceInner {
         }
 
         self.process_nxt_hdr(
-            src_ll_addr,
             sockets,
             meta,
             ipv6_repr,

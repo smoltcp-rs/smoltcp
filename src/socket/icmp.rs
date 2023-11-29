@@ -1110,7 +1110,7 @@ mod test_ipv6 {
     #[cfg(feature = "medium-ethernet")]
     fn test_truncated_recv_slice(#[case] medium: Medium) {
         let (mut iface, _, _) = setup(medium);
-        let cx = iface.context();
+        let cx = iface.context_mut();
 
         let mut socket = socket(buffer(1), buffer(1));
         assert_eq!(socket.bind(Endpoint::Ident(0x1234)), Ok(()));

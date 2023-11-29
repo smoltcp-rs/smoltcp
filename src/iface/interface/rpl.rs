@@ -1,8 +1,8 @@
 use super::InterfaceInner;
 use crate::iface::ip_packet::{IpPacket, IpPayload};
 use crate::wire::{
-    Error, HardwareAddress, Icmpv6Repr, IpProtocol, Ipv6Address, Ipv6Repr, RplDio, RplDis,
-    RplDodagConfiguration, RplHopByHopRepr, RplOptionRepr, RplRepr, RplSequenceCounter,
+    Error, Icmpv6Repr, IpProtocol, Ipv6Address, Ipv6Repr, RplDio, RplDis, RplDodagConfiguration,
+    RplHopByHopRepr, RplOptionRepr, RplRepr, RplSequenceCounter,
 };
 
 #[cfg(feature = "rpl-mop-1")]
@@ -23,17 +23,14 @@ impl InterfaceInner {
     /// Process an incoming RPL packet.
     pub(super) fn process_rpl<'output, 'payload: 'output>(
         &mut self,
-        src_ll_addr: Option<HardwareAddress>,
         ip_repr: Ipv6Repr,
         repr: RplRepr<'payload>,
     ) -> Option<IpPacket<'output>> {
         match repr {
             RplRepr::DodagInformationSolicitation(dis) => self.process_rpl_dis(ip_repr, dis),
-            RplRepr::DodagInformationObject(dio) => self.process_rpl_dio(src_ll_addr, ip_repr, dio),
+            RplRepr::DodagInformationObject(dio) => self.process_rpl_dio(ip_repr, dio),
             #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop-3"))]
-            RplRepr::DestinationAdvertisementObject(dao) => {
-                self.process_rpl_dao(src_ll_addr, ip_repr, dao)
-            }
+            RplRepr::DestinationAdvertisementObject(dao) => self.process_rpl_dao(ip_repr, dao),
             #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop-3"))]
             RplRepr::DestinationAdvertisementObjectAck(dao_ack) => {
                 self.process_rpl_dao_ack(ip_repr, dao_ack)
@@ -108,7 +105,6 @@ impl InterfaceInner {
     /// Process an incoming RPL DIO packet.
     pub(super) fn process_rpl_dio<'output, 'payload: 'output>(
         &mut self,
-        src_ll_addr: Option<HardwareAddress>,
         ip_repr: Ipv6Repr,
         dio: RplDio<'payload>,
     ) -> Option<IpPacket<'output>> {
@@ -329,13 +325,6 @@ impl InterfaceInner {
             }
         }
 
-        // Add the sender to our neighbor cache.
-        self.neighbor_cache.fill_with_expiration(
-            ip_repr.src_addr.into(),
-            src_ll_addr.unwrap(),
-            self.now + dodag.dio_timer.max_expiration() * 2,
-        );
-
         if Some(ip_repr.src_addr) == dodag.parent {
             // If our parent transmits a DIO with an infinite rank, than it means that our
             // parent is leaving the network. Thus we should deselect it as our parent.
@@ -454,7 +443,6 @@ impl InterfaceInner {
     #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop-3"))]
     pub(super) fn process_rpl_dao<'output, 'payload: 'output>(
         &mut self,
-        src_ll_addr: Option<HardwareAddress>,
         ip_repr: Ipv6Repr,
         dao: RplDao<'payload>,
     ) -> Option<IpPacket<'output>> {
@@ -482,16 +470,6 @@ impl InterfaceInner {
         {
             net_trace!("dropping DAO, MOP1 and not root");
             return None;
-        }
-
-        #[cfg(feature = "rpl-mop-2")]
-        if matches!(self.rpl.mode_of_operation, ModeOfOperation::StoringMode) {
-            // Add the sender to our neighbor cache.
-            self.neighbor_cache.fill_with_expiration(
-                ip_repr.src_addr.into(),
-                src_ll_addr.unwrap(),
-                self.now + dodag.dio_timer.max_expiration() * 2,
-            );
         }
 
         let mut targets: Vec<Ipv6Address, 8> = Vec::new();
