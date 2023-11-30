@@ -164,6 +164,13 @@ impl Address {
         self.0[0..8] == [0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
     }
 
+    /// Query whether the IPv6 address is a [Unique Local Address] (ULA).
+    ///
+    /// [Unique Local Address]: https://tools.ietf.org/html/rfc4193
+    pub fn is_unique_local(&self) -> bool {
+        (self.0[0] & 0b1111_1110) == 0xfc
+    }
+
     /// Query whether the IPv6 address is the [loopback address].
     ///
     /// [loopback address]: https://tools.ietf.org/html/rfc4291#section-2.5.3
@@ -831,20 +838,21 @@ mod test {
     #[cfg(feature = "proto-ipv4")]
     use crate::wire::ipv4::Address as Ipv4Address;
 
-    static LINK_LOCAL_ADDR: Address = Address([
-        0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x01,
-    ]);
+    const LINK_LOCAL_ADDR: Address = Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
+    const UNIQUE_LOCAL_ADDR: Address = Address::new(0xfd00, 0, 0, 201, 1, 1, 1, 1);
+
     #[test]
     fn test_basic_multicast() {
         assert!(!Address::LINK_LOCAL_ALL_ROUTERS.is_unspecified());
         assert!(Address::LINK_LOCAL_ALL_ROUTERS.is_multicast());
         assert!(!Address::LINK_LOCAL_ALL_ROUTERS.is_link_local());
         assert!(!Address::LINK_LOCAL_ALL_ROUTERS.is_loopback());
+        assert!(!Address::LINK_LOCAL_ALL_ROUTERS.is_unique_local());
         assert!(!Address::LINK_LOCAL_ALL_NODES.is_unspecified());
         assert!(Address::LINK_LOCAL_ALL_NODES.is_multicast());
         assert!(!Address::LINK_LOCAL_ALL_NODES.is_link_local());
         assert!(!Address::LINK_LOCAL_ALL_NODES.is_loopback());
+        assert!(!Address::LINK_LOCAL_ALL_NODES.is_unique_local());
     }
 
     #[test]
@@ -853,6 +861,7 @@ mod test {
         assert!(!LINK_LOCAL_ADDR.is_multicast());
         assert!(LINK_LOCAL_ADDR.is_link_local());
         assert!(!LINK_LOCAL_ADDR.is_loopback());
+        assert!(!LINK_LOCAL_ADDR.is_unique_local());
     }
 
     #[test]
@@ -861,6 +870,16 @@ mod test {
         assert!(!Address::LOOPBACK.is_multicast());
         assert!(!Address::LOOPBACK.is_link_local());
         assert!(Address::LOOPBACK.is_loopback());
+        assert!(!Address::LOOPBACK.is_unique_local());
+    }
+
+    #[test]
+    fn test_unique_local() {
+        assert!(!UNIQUE_LOCAL_ADDR.is_unspecified());
+        assert!(!UNIQUE_LOCAL_ADDR.is_multicast());
+        assert!(!UNIQUE_LOCAL_ADDR.is_link_local());
+        assert!(!UNIQUE_LOCAL_ADDR.is_loopback());
+        assert!(UNIQUE_LOCAL_ADDR.is_unique_local());
     }
 
     #[test]
