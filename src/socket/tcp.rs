@@ -527,6 +527,9 @@ pub struct Socket<'a> {
     /// Used for rate-limiting: No more challenge ACKs will be sent until this instant.
     challenge_ack_timer: Instant,
 
+    /// If this is set, we will not send a SYN|ACK until this is unset.
+    synack_paused: bool,
+
     /// Nagle's Algorithm enabled.
     nagle: bool,
 
@@ -601,6 +604,7 @@ impl<'a> Socket<'a> {
             tsval_generator: None,
             last_remote_tsval: 0,
             congestion_controller: congestion::AnyController::new(),
+            synack_paused: false,
 
             #[cfg(feature = "async")]
             rx_waker: WakerRegistration::new(),
@@ -722,6 +726,15 @@ impl<'a> Socket<'a> {
     /// See also the [set_nagle_enabled](#method.set_nagle_enabled) method.
     pub fn nagle_enabled(&self) -> bool {
         self.nagle
+    }
+
+    /// Pause sending of SYN|ACK packets.
+    ///
+    /// When this flag is set, the socket will get stuck in `SynReceived` state without sending
+    /// any SYN|ACK packets back, until this flag is unset. This is useful for certain niche TCP
+    /// proxy usecases.
+    pub fn pause_synack(&mut self, pause: bool) {
+        self.synack_paused = pause;
     }
 
     /// Return the current window field value, including scaling according to RFC 1323.
@@ -2370,6 +2383,10 @@ impl<'a> Socket<'a> {
             self.congestion_controller
                 .inner_mut()
                 .on_retransmit(cx.now());
+        }
+
+        if matches!(self.state, State::SynReceived) && self.synack_paused {
+            return Ok(());
         }
 
         // Decide whether we're sending a packet.
