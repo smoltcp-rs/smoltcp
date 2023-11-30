@@ -928,14 +928,12 @@ impl InterfaceInner {
 
     #[allow(unused)] // unused depending on which sockets are enabled
     pub(crate) fn get_source_address(&mut self, dst_addr: IpAddress) -> Option<IpAddress> {
-        let v = dst_addr.version();
-        for cidr in self.ip_addrs.iter() {
-            let addr = cidr.address();
-            if addr.version() == v {
-                return Some(addr);
-            }
+        match dst_addr {
+            #[cfg(feature = "proto-ipv4")]
+            IpAddress::Ipv4(addr) => self.get_source_address_ipv4(addr).map(|a| a.into()),
+            #[cfg(feature = "proto-ipv6")]
+            IpAddress::Ipv6(addr) => self.get_source_address_ipv6(addr).map(|a| a.into()),
         }
-        None
     }
 
     #[cfg(feature = "proto-ipv4")]
