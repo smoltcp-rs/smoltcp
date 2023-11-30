@@ -191,6 +191,8 @@ pub use self::ipv4::{
 };
 
 #[cfg(feature = "proto-ipv6")]
+pub(crate) use self::ipv6::Scope as Ipv6AddressScope;
+#[cfg(feature = "proto-ipv6")]
 pub use self::ipv6::{
     Address as Ipv6Address, Cidr as Ipv6Cidr, Packet as Ipv6Packet, Repr as Ipv6Repr,
     HEADER_LEN as IPV6_HEADER_LEN, MIN_MTU as IPV6_MIN_MTU,
