@@ -464,6 +464,27 @@ impl Interface {
         self.inner.ipv6_addr()
     }
 
+    /// Get an address from the interface that could be used as source address. For IPv4, this is
+    /// the first IPv4 address from the list of addresses. For IPv6, the address is based on the
+    /// destination address and uses RFC6724 for selecting the source address.
+    pub fn get_source_address(&self, dst_addr: &IpAddress) -> Option<IpAddress> {
+        self.inner.get_source_address(*dst_addr)
+    }
+
+    /// Get an address from the interface that could be used as source address. This is the first
+    /// IPv4 address from the list of addresses in the interface.
+    #[cfg(feature = "proto-ipv4")]
+    pub fn get_source_address_ipv4(&self, dst_addr: &Ipv4Address) -> Option<Ipv4Address> {
+        self.inner.get_source_address_ipv4(*dst_addr)
+    }
+
+    /// Get an address from the interface that could be used as source address. The selection is
+    /// based on RFC6724.
+    #[cfg(feature = "proto-ipv6")]
+    pub fn get_source_address_ipv6(&self, dst_addr: &Ipv6Address) -> Option<Ipv6Address> {
+        self.inner.get_source_address_ipv6(*dst_addr)
+    }
+
     /// Update the IP addresses of the interface.
     ///
     /// # Panics
@@ -927,7 +948,7 @@ impl InterfaceInner {
     }
 
     #[allow(unused)] // unused depending on which sockets are enabled
-    pub(crate) fn get_source_address(&mut self, dst_addr: IpAddress) -> Option<IpAddress> {
+    pub(crate) fn get_source_address(&self, dst_addr: IpAddress) -> Option<IpAddress> {
         match dst_addr {
             #[cfg(feature = "proto-ipv4")]
             IpAddress::Ipv4(addr) => self.get_source_address_ipv4(addr).map(|a| a.into()),
@@ -938,10 +959,7 @@ impl InterfaceInner {
 
     #[cfg(feature = "proto-ipv4")]
     #[allow(unused)]
-    pub(crate) fn get_source_address_ipv4(
-        &mut self,
-        _dst_addr: Ipv4Address,
-    ) -> Option<Ipv4Address> {
+    pub(crate) fn get_source_address_ipv4(&self, _dst_addr: Ipv4Address) -> Option<Ipv4Address> {
         for cidr in self.ip_addrs.iter() {
             #[allow(irrefutable_let_patterns)] // if only ipv4 is enabled
             if let IpCidr::Ipv4(cidr) = cidr {
@@ -953,17 +971,104 @@ impl InterfaceInner {
 
     #[cfg(feature = "proto-ipv6")]
     #[allow(unused)]
-    pub(crate) fn get_source_address_ipv6(
-        &mut self,
-        _dst_addr: Ipv6Address,
-    ) -> Option<Ipv6Address> {
-        for cidr in self.ip_addrs.iter() {
-            #[allow(irrefutable_let_patterns)] // if only ipv6 is enabled
-            if let IpCidr::Ipv6(cidr) = cidr {
-                return Some(cidr.address());
+    pub(crate) fn get_source_address_ipv6(&self, dst_addr: Ipv6Address) -> Option<Ipv6Address> {
+        // RFC 6724 describes how to select the correct source address depending on the destination
+        // address.
+
+        // See RFC 6724 Section 4: Candidate source address
+        fn is_candidate_source_address(dst_addr: &Ipv6Address, src_addr: &Ipv6Address) -> bool {
+            // For all multicast and link-local destination addresses, the candidate address MUST
+            // only be an address from the same link.
+            if dst_addr.is_link_local() && !src_addr.is_link_local() {
+                return false;
+            }
+
+            if dst_addr.is_multicast()
+                && matches!(dst_addr.scope(), Ipv6AddressScope::LinkLocal)
+                && src_addr.is_multicast()
+                && !matches!(src_addr.scope(), Ipv6AddressScope::LinkLocal)
+            {
+                return false;
+            }
+
+            // Loopback addresses and multicast address can not be in the candidate source address
+            // list. Except when the destination multicast address has a link-local scope, then the
+            // source address can also be link-local multicast.
+            if src_addr.is_loopback() || src_addr.is_multicast() {
+                return false;
+            }
+
+            true
+        }
+
+        // See RFC 6724 Section 2.2: Common Prefix Length
+        fn common_prefix_length(dst_addr: &Ipv6Cidr, src_addr: &Ipv6Address) -> usize {
+            let addr = dst_addr.address();
+            let mut bits = 0;
+            for (l, r) in addr.as_bytes().iter().zip(src_addr.as_bytes().iter()) {
+                if l == r {
+                    bits += 8;
+                } else {
+                    bits += (l ^ r).leading_zeros();
+                    break;
+                }
+            }
+
+            bits = bits.min(dst_addr.prefix_len() as u32);
+
+            bits as usize
+        }
+
+        // Get the first address that is a candidate address.
+        let mut candidate = self
+            .ip_addrs
+            .iter()
+            .filter_map(|a| match a {
+                #[cfg(feature = "proto-ipv4")]
+                IpCidr::Ipv4(_) => None,
+                #[cfg(feature = "proto-ipv6")]
+                IpCidr::Ipv6(a) => Some(a),
+            })
+            .find(|a| is_candidate_source_address(&dst_addr, &a.address()))
+            .unwrap();
+
+        for addr in self.ip_addrs.iter().filter_map(|a| match a {
+            #[cfg(feature = "proto-ipv4")]
+            IpCidr::Ipv4(_) => None,
+            #[cfg(feature = "proto-ipv6")]
+            IpCidr::Ipv6(a) => Some(a),
+        }) {
+            if !is_candidate_source_address(&dst_addr, &addr.address()) {
+                continue;
+            }
+
+            // Rule 1: prefer the address that is the same as the output destination address.
+            if candidate.address() != dst_addr && addr.address() == dst_addr {
+                candidate = addr;
+            }
+
+            // Rule 2: prefer appropriate scope.
+            if (candidate.address().scope() as u8) < (addr.address().scope() as u8) {
+                if (candidate.address().scope() as u8) < (dst_addr.scope() as u8) {
+                    candidate = addr;
+                }
+            } else if (addr.address().scope() as u8) > (dst_addr.scope() as u8) {
+                candidate = addr;
+            }
+
+            // Rule 3: avoid deprecated addresses (TODO)
+            // Rule 4: prefer home addresses (TODO)
+            // Rule 5: prefer outgoing interfaces (TODO)
+            // Rule 5.5: prefer addresses in a prefix advertises by the next-hop (TODO).
+            // Rule 6: prefer matching label (TODO)
+            // Rule 7: prefer temporary addresses (TODO)
+            // Rule 8: use longest matching prefix
+            if common_prefix_length(candidate, &dst_addr) < common_prefix_length(addr, &dst_addr) {
+                candidate = addr;
             }
         }
-        None
+
+        Some(candidate.address())
     }
 
     #[cfg(test)]

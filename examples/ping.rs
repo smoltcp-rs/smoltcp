@@ -176,7 +176,7 @@ fn main() {
                     );
                     icmp_repr.emit(&mut icmp_packet, &device_caps.checksum);
                 }
-                IpAddress::Ipv6(_) => {
+                IpAddress::Ipv6(address) => {
                     let (icmp_repr, mut icmp_packet) = send_icmp_ping!(
                         Icmpv6Repr,
                         Icmpv6Packet,
@@ -187,7 +187,10 @@ fn main() {
                         remote_addr
                     );
                     icmp_repr.emit(
-                        &iface.ipv6_addr().unwrap().into_address(),
+                        &iface
+                            .get_source_address_ipv6(&address)
+                            .unwrap()
+                            .into_address(),
                         &remote_addr,
                         &mut icmp_packet,
                         &device_caps.checksum,
@@ -217,11 +220,14 @@ fn main() {
                         received
                     );
                 }
-                IpAddress::Ipv6(_) => {
+                IpAddress::Ipv6(address) => {
                     let icmp_packet = Icmpv6Packet::new_checked(&payload).unwrap();
                     let icmp_repr = Icmpv6Repr::parse(
                         &remote_addr,
-                        &iface.ipv6_addr().unwrap().into_address(),
+                        &iface
+                            .get_source_address_ipv6(&address)
+                            .unwrap()
+                            .into_address(),
                         &icmp_packet,
                         &device_caps.checksum,
                     )
