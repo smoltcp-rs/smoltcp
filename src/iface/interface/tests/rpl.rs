@@ -155,3 +155,220 @@ fn dio_without_configuration(#[case] mop: RplModeOfOperation) {
         }))
     );
 }
+
+#[rstest]
+#[case::mop0(RplModeOfOperation::NoDownwardRoutesMaintained)]
+#[cfg(feature = "rpl-mop-0")]
+#[case::mop1(RplModeOfOperation::NonStoringMode)]
+#[cfg(feature = "rpl-mop-1")]
+#[case::mop2(RplModeOfOperation::StoringMode)]
+#[cfg(feature = "rpl-mop-2")]
+fn dio_with_increased_version_number(#[case] mop: RplModeOfOperation) {
+    use crate::iface::rpl::{Dodag, ObjectiveFunction0, Parent, ParentSet, Rank, RplInstanceId};
+
+    let (mut iface, _, _) = setup(Medium::Ieee802154);
+
+    let ll_addr = Ieee802154Address::Extended([0, 0, 0, 0, 0, 0, 0, 1]);
+    let addr = ll_addr.as_link_local_address().unwrap();
+
+    let now = Instant::now();
+    let mut set = ParentSet::default();
+    let _ = set.add(Parent::new(
+        addr,
+        Rank::ROOT,
+        Default::default(),
+        RplSequenceCounter::from(240),
+        Default::default(),
+        now,
+    ));
+
+    // Setting a dodag configuration with parent
+    iface.inner.rpl.mode_of_operation = mop;
+    iface.inner.rpl.of = ObjectiveFunction0::default();
+    iface.inner.rpl.is_root = false;
+    iface.inner.rpl.dodag = Some(Dodag {
+        instance_id: RplInstanceId::Local(30),
+        id: Default::default(),
+        version_number: Default::default(),
+        preference: 0,
+        rank: Rank::new(1024, 16),
+        dio_timer: Default::default(),
+        dao_expiration: Instant::now(),
+        dao_seq_number: Default::default(),
+        dao_acks: Default::default(),
+        daos: Default::default(),
+        parent: Some(addr),
+        without_parent: Default::default(),
+        authentication_enabled: Default::default(),
+        path_control_size: Default::default(),
+        dtsn: Default::default(),
+        dtsn_incremented_at: Instant::now(),
+        default_lifetime: Default::default(),
+        lifetime_unit: Default::default(),
+        grounded: false,
+        parent_set: set,
+        relations: Default::default(),
+    });
+    let old_version_number = iface.inner.rpl.dodag.as_ref().unwrap().version_number;
+
+    // Check if the parameters are set correctly
+    assert_eq!(old_version_number, RplSequenceCounter::from(240));
+    assert!(!iface
+        .inner
+        .rpl
+        .dodag
+        .as_ref()
+        .unwrap()
+        .parent_set
+        .is_empty());
+
+    // Receiving DIO with increased version number from node from another dodag
+    let response = iface.inner.process_rpl_dio(
+        Ipv6Repr {
+            src_addr: addr,
+            dst_addr: Ipv6Address::LINK_LOCAL_ALL_RPL_NODES,
+            next_header: IpProtocol::Icmpv6,
+            payload_len: 0, // does not matter
+            hop_limit: 0,   // does not matter
+        },
+        RplDio {
+            rpl_instance_id: RplInstanceId::Local(31),
+            version_number: RplSequenceCounter::from(242),
+            rank: Rank::new(16, 16).raw_value(),
+            grounded: false,
+            mode_of_operation: mop.into(),
+            dodag_preference: 0,
+            dtsn: Default::default(),
+            dodag_id: Default::default(),
+            options: Default::default(),
+        },
+    );
+
+    // The version number should stay the same
+    assert_eq!(
+        iface.inner.rpl.dodag.as_ref().unwrap().version_number,
+        RplSequenceCounter::from(240)
+    );
+
+    // The instance id should stay the same
+    assert_eq!(
+        iface.inner.rpl.dodag.as_ref().unwrap().instance_id,
+        RplInstanceId::Local(30)
+    );
+
+    // The parent should remain the same
+    assert_eq!(iface.inner.rpl.dodag.as_ref().unwrap().parent, Some(addr));
+
+    // The parent set should remain the same
+    assert!(!iface
+        .inner
+        .rpl
+        .dodag
+        .as_ref()
+        .unwrap()
+        .parent_set
+        .is_empty());
+
+    // Response should be None
+    assert_eq!(response, None);
+
+    // Upon receving a DIO with a lesser DODAG Version Number value the node cannot select the sender as a parent
+    let ll_addr2 = Ieee802154Address::Extended([0, 0, 0, 0, 0, 0, 0, 3]);
+    let addr2 = ll_addr2.as_link_local_address().unwrap();
+
+    let response = iface.inner.process_rpl_dio(
+        Ipv6Repr {
+            src_addr: addr2,
+            dst_addr: Ipv6Address::LINK_LOCAL_ALL_RPL_NODES,
+            next_header: IpProtocol::Icmpv6,
+            payload_len: 0, // does not matter
+            hop_limit: 0,   // does not matter
+        },
+        RplDio {
+            rpl_instance_id: RplInstanceId::Local(30),
+            version_number: RplSequenceCounter::from(239),
+            rank: Rank::new(16, 16).raw_value(),
+            grounded: false,
+            mode_of_operation: mop.into(),
+            dodag_preference: 0,
+            dtsn: Default::default(),
+            dodag_id: Default::default(),
+            options: Default::default(),
+        },
+    );
+
+    // Response should be None
+    assert_eq!(response, None);
+
+    // The parent should remain the same
+    assert_eq!(iface.inner.rpl.dodag.as_ref().unwrap().parent, Some(addr));
+
+    // Receiving DIO with increased version number from root which is also parent
+    let response = iface.inner.process_rpl_dio(
+        Ipv6Repr {
+            src_addr: addr,
+            dst_addr: Ipv6Address::LINK_LOCAL_ALL_RPL_NODES,
+            next_header: IpProtocol::Icmpv6,
+            payload_len: 0, // does not matter
+            hop_limit: 0,   // does not matter
+        },
+        RplDio {
+            rpl_instance_id: RplInstanceId::Local(30),
+            version_number: RplSequenceCounter::from(241),
+            rank: Rank::ROOT.raw_value(),
+            grounded: false,
+            mode_of_operation: mop.into(),
+            dodag_preference: 0,
+            dtsn: Default::default(),
+            dodag_id: Default::default(),
+            options: Default::default(),
+        },
+    );
+
+    // The version number should be increased
+    assert_eq!(
+        iface.inner.rpl.dodag.as_ref().unwrap().version_number,
+        RplSequenceCounter::from(241)
+    );
+
+    // The parent should be removed
+    assert_eq!(iface.inner.rpl.dodag.as_ref().unwrap().parent, None);
+
+    // The parent set should be empty
+    assert!(iface
+        .inner
+        .rpl
+        .dodag
+        .as_ref()
+        .unwrap()
+        .parent_set
+        .is_empty());
+
+    // DIO with infinite rank is sent with the new version number so the nodes
+    // know they have to leave the network
+    assert_eq!(
+        response,
+        Some(IpPacket::Ipv6(Ipv6Packet {
+            header: Ipv6Repr {
+                src_addr: iface.ipv6_addr().unwrap(),
+                dst_addr: Ipv6Address::LINK_LOCAL_ALL_RPL_NODES,
+                next_header: IpProtocol::Icmpv6,
+                payload_len: 28,
+                hop_limit: 64
+            },
+            hop_by_hop: None,
+            routing: None,
+            payload: IpPayload::Icmpv6(Icmpv6Repr::Rpl(RplRepr::DodagInformationObject(RplDio {
+                rpl_instance_id: RplInstanceId::Local(30),
+                version_number: RplSequenceCounter::from(241),
+                rank: Rank::INFINITE.raw_value(),
+                grounded: false,
+                mode_of_operation: mop.into(),
+                dodag_preference: 0,
+                dtsn: Default::default(),
+                dodag_id: Default::default(),
+                options: heapless::Vec::new(),
+            }))),
+        }))
+    );
+}
