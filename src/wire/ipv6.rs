@@ -29,6 +29,7 @@ pub const IPV4_MAPPED_PREFIX_SIZE: usize = ADDR_SIZE - 4; // 4 == ipv4::ADDR_SIZ
 ///
 /// [scope]: https://www.rfc-editor.org/rfc/rfc4291#section-2.7
 #[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Scope {
     /// Interface Local scope
     InterfaceLocal = 0x1,
@@ -280,6 +281,7 @@ impl Address {
             Scope::LinkLocal
         } else if self.is_unique_local() || self.is_global_unicast() {
             // ULA are considered global scope
+            // https://www.rfc-editor.org/rfc/rfc6724#section-3.1
             Scope::Global
         } else {
             Scope::Unknown
@@ -1232,6 +1234,46 @@ mod test {
     #[should_panic(expected = "data.len() >= 8")]
     fn test_from_parts_too_long() {
         let _ = Address::from_parts(&[0u16; 7]);
+    }
+
+    #[test]
+    fn test_scope() {
+        use super::*;
+        assert_eq!(
+            Address::new(0xff01, 0, 0, 0, 0, 0, 0, 1).scope(),
+            Scope::InterfaceLocal
+        );
+        assert_eq!(
+            Address::new(0xff02, 0, 0, 0, 0, 0, 0, 1).scope(),
+            Scope::LinkLocal
+        );
+        assert_eq!(
+            Address::new(0xff03, 0, 0, 0, 0, 0, 0, 1).scope(),
+            Scope::Unknown
+        );
+        assert_eq!(
+            Address::new(0xff04, 0, 0, 0, 0, 0, 0, 1).scope(),
+            Scope::AdminLocal
+        );
+        assert_eq!(
+            Address::new(0xff05, 0, 0, 0, 0, 0, 0, 1).scope(),
+            Scope::SiteLocal
+        );
+        assert_eq!(
+            Address::new(0xff08, 0, 0, 0, 0, 0, 0, 1).scope(),
+            Scope::OrganizationLocal
+        );
+        assert_eq!(
+            Address::new(0xff0e, 0, 0, 0, 0, 0, 0, 1).scope(),
+            Scope::Global
+        );
+
+        assert_eq!(Address::LINK_LOCAL_ALL_NODES.scope(), Scope::LinkLocal);
+
+        // For source address selection, unicast addresses also have a scope:
+        assert_eq!(LINK_LOCAL_ADDR.scope(), Scope::LinkLocal);
+        assert_eq!(GLOBAL_UNICAST_ADDR.scope(), Scope::Global);
+        assert_eq!(UNIQUE_LOCAL_ADDR.scope(), Scope::Global);
     }
 
     static REPR_PACKET_BYTES: [u8; 52] = [
