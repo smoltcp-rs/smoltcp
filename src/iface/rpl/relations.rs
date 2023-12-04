@@ -93,7 +93,7 @@ impl Relations {
     /// Purge expired relations.
     ///
     /// Returns `true` when a relation was actually removed.
-    pub fn purge(&mut self, now: Instant) -> bool {
+    pub fn flush(&mut self, now: Instant) -> bool {
         let len = self.relations.len();
         for r in &self.relations {
             if r.added + r.lifetime <= now {
@@ -234,7 +234,7 @@ mod tests {
 
         assert_eq!(relations.relations.len(), 1);
 
-        relations.purge(Instant::now());
+        relations.flush(Instant::now());
         assert!(relations.relations.is_empty());
     }
 }

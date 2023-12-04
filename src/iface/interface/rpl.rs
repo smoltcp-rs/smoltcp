@@ -85,7 +85,7 @@ impl Interface {
         // Remove stale relations and increment the DTSN when we actually removed
         // a relation. This means that a node forgot to retransmit a DAO on time.
         #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop-3"))]
-        if dodag.relations.purge(ctx.now)
+        if dodag.relations.flush(ctx.now)
             && match ctx.rpl.mode_of_operation {
                 #[cfg(feature = "rpl-mop-1")]
                 ModeOfOperation::NonStoringMode if ctx.rpl.is_root => true,
