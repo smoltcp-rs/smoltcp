@@ -315,7 +315,7 @@ impl Interface {
 fn flush_relations(
     mode_of_operation: ModeOfOperation,
     dodag: &mut Dodag,
-    is_root: bool,
+    _is_root: bool,
     now: Instant,
 ) {
     // Remove stale relations and increment the DTSN when we actually removed
@@ -324,7 +324,7 @@ fn flush_relations(
     if dodag.relations.flush(now)
         && match mode_of_operation {
             #[cfg(feature = "rpl-mop-1")]
-            ModeOfOperation::NonStoringMode if is_root => true,
+            ModeOfOperation::NonStoringMode if _is_root => true,
             #[cfg(feature = "rpl-mop-2")]
             ModeOfOperation::StoringMode => true,
             #[cfg(feature = "rpl-mop-3")]
