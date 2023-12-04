@@ -735,3 +735,124 @@ fn test_icmp_reply_size(#[case] medium: Medium) {
         ))
     );
 }
+
+#[cfg(feature = "medium-ip")]
+#[test]
+fn get_source_address() {
+    let (mut iface, _, _) = setup(Medium::Ip);
+
+    const OWN_LINK_LOCAL_ADDR: Ipv6Address = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
+    const OWN_UNIQUE_LOCAL_ADDR1: Ipv6Address = Ipv6Address::new(0xfd00, 0, 0, 201, 1, 1, 1, 2);
+    const OWN_UNIQUE_LOCAL_ADDR2: Ipv6Address = Ipv6Address::new(0xfd01, 0, 0, 201, 1, 1, 1, 2);
+    const OWN_GLOBAL_UNICAST_ADDR1: Ipv6Address =
+        Ipv6Address::new(0x2001, 0x0db8, 0x0003, 0, 0, 0, 0, 1);
+
+    // List of addresses of the interface:
+    //   fe80::1/64
+    //   fd00::201:1:1:1:2/64
+    //   fd01::201:1:1:1:2/64
+    //   2001:db8:3::1/64
+    //   ::1/128
+    //   ::/128
+    iface.update_ip_addrs(|addrs| {
+        addrs.clear();
+
+        addrs
+            .push(IpCidr::Ipv6(Ipv6Cidr::new(OWN_LINK_LOCAL_ADDR, 64)))
+            .unwrap();
+        addrs
+            .push(IpCidr::Ipv6(Ipv6Cidr::new(OWN_UNIQUE_LOCAL_ADDR1, 64)))
+            .unwrap();
+        addrs
+            .push(IpCidr::Ipv6(Ipv6Cidr::new(OWN_UNIQUE_LOCAL_ADDR2, 64)))
+            .unwrap();
+        addrs
+            .push(IpCidr::Ipv6(Ipv6Cidr::new(OWN_GLOBAL_UNICAST_ADDR1, 64)))
+            .unwrap();
+
+        // These should never be used:
+        addrs
+            .push(IpCidr::Ipv6(Ipv6Cidr::new(Ipv6Address::LOOPBACK, 128)))
+            .unwrap();
+        addrs
+            .push(IpCidr::Ipv6(Ipv6Cidr::new(Ipv6Address::UNSPECIFIED, 128)))
+            .unwrap();
+    });
+
+    // List of addresses we test:
+    //   fe80::42          -> fe80::1
+    //   fd00::201:1:1:1:1 -> fd00::201:1:1:1:2
+    //   fd01::201:1:1:1:1 -> fd01::201:1:1:1:2
+    //   fd02::201:1:1:1:1 -> fd00::201:1:1:1:2 (because first added in the list)
+    //   ff02::1           -> fe80::1 (same scope)
+    //   2001:db8:3::2     -> 2001:db8:3::1
+    //   2001:db9:3::2     -> 2001:db8:3::1
+    const LINK_LOCAL_ADDR: Ipv6Address = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 42);
+    const UNIQUE_LOCAL_ADDR1: Ipv6Address = Ipv6Address::new(0xfd00, 0, 0, 201, 1, 1, 1, 1);
+    const UNIQUE_LOCAL_ADDR2: Ipv6Address = Ipv6Address::new(0xfd01, 0, 0, 201, 1, 1, 1, 1);
+    const UNIQUE_LOCAL_ADDR3: Ipv6Address = Ipv6Address::new(0xfd02, 0, 0, 201, 1, 1, 1, 1);
+    const GLOBAL_UNICAST_ADDR1: Ipv6Address =
+        Ipv6Address::new(0x2001, 0x0db8, 0x0003, 0, 0, 0, 0, 2);
+    const GLOBAL_UNICAST_ADDR2: Ipv6Address =
+        Ipv6Address::new(0x2001, 0x0db9, 0x0003, 0, 0, 0, 0, 2);
+
+    assert_eq!(
+        iface.inner.get_source_address_ipv6(&LINK_LOCAL_ADDR),
+        Some(OWN_LINK_LOCAL_ADDR)
+    );
+    assert_eq!(
+        iface.inner.get_source_address_ipv6(&UNIQUE_LOCAL_ADDR1),
+        Some(OWN_UNIQUE_LOCAL_ADDR1)
+    );
+    assert_eq!(
+        iface.inner.get_source_address_ipv6(&UNIQUE_LOCAL_ADDR2),
+        Some(OWN_UNIQUE_LOCAL_ADDR2)
+    );
+    assert_eq!(
+        iface.inner.get_source_address_ipv6(&UNIQUE_LOCAL_ADDR3),
+        Some(OWN_UNIQUE_LOCAL_ADDR1)
+    );
+    assert_eq!(
+        iface
+            .inner
+            .get_source_address_ipv6(&Ipv6Address::LINK_LOCAL_ALL_NODES),
+        Some(OWN_LINK_LOCAL_ADDR)
+    );
+    assert_eq!(
+        iface.inner.get_source_address_ipv6(&GLOBAL_UNICAST_ADDR1),
+        Some(OWN_GLOBAL_UNICAST_ADDR1)
+    );
+    assert_eq!(
+        iface.inner.get_source_address_ipv6(&GLOBAL_UNICAST_ADDR2),
+        Some(OWN_GLOBAL_UNICAST_ADDR1)
+    );
+
+    assert_eq!(
+        iface.get_source_address_ipv6(&LINK_LOCAL_ADDR),
+        Some(OWN_LINK_LOCAL_ADDR)
+    );
+    assert_eq!(
+        iface.get_source_address_ipv6(&UNIQUE_LOCAL_ADDR1),
+        Some(OWN_UNIQUE_LOCAL_ADDR1)
+    );
+    assert_eq!(
+        iface.get_source_address_ipv6(&UNIQUE_LOCAL_ADDR2),
+        Some(OWN_UNIQUE_LOCAL_ADDR2)
+    );
+    assert_eq!(
+        iface.get_source_address_ipv6(&UNIQUE_LOCAL_ADDR3),
+        Some(OWN_UNIQUE_LOCAL_ADDR1)
+    );
+    assert_eq!(
+        iface.get_source_address_ipv6(&Ipv6Address::LINK_LOCAL_ALL_NODES),
+        Some(OWN_LINK_LOCAL_ADDR)
+    );
+    assert_eq!(
+        iface.get_source_address_ipv6(&GLOBAL_UNICAST_ADDR1),
+        Some(OWN_GLOBAL_UNICAST_ADDR1)
+    );
+    assert_eq!(
+        iface.get_source_address_ipv6(&GLOBAL_UNICAST_ADDR2),
+        Some(OWN_GLOBAL_UNICAST_ADDR1)
+    );
+}

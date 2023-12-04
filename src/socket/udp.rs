@@ -519,7 +519,7 @@ impl<'a> Socket<'a> {
         let res = self.tx_buffer.dequeue_with(|packet_meta, payload_buf| {
             let src_addr = match endpoint.addr {
                 Some(addr) => addr,
-                None => match cx.get_source_address(packet_meta.endpoint.addr) {
+                None => match cx.get_source_address(&packet_meta.endpoint.addr) {
                     Some(addr) => addr,
                     None => {
                         net_trace!(

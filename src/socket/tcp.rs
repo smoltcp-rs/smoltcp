@@ -851,7 +851,7 @@ impl<'a> Socket<'a> {
                     addr
                 }
                 None => cx
-                    .get_source_address(remote_endpoint.addr)
+                    .get_source_address(&remote_endpoint.addr)
                     .ok_or(ConnectError::Unaddressable)?,
             },
             port: local_endpoint.port,
