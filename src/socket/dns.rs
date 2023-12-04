@@ -610,7 +610,7 @@ impl<'a> Socket<'a> {
                 };
 
                 let dst_addr = servers[pq.server_idx];
-                let src_addr = cx.get_source_address(dst_addr).unwrap(); // TODO remove unwrap
+                let src_addr = cx.get_source_address(&dst_addr).unwrap(); // TODO remove unwrap
                 let ip_repr = IpRepr::new(
                     src_addr,
                     dst_addr,
