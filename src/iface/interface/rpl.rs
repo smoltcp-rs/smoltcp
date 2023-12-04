@@ -82,25 +82,7 @@ impl Interface {
             return false;
         };
 
-        // Remove stale relations and increment the DTSN when we actually removed
-        // a relation. This means that a node forgot to retransmit a DAO on time.
-        #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop-3"))]
-        if dodag.relations.flush(ctx.now)
-            && match ctx.rpl.mode_of_operation {
-                #[cfg(feature = "rpl-mop-1")]
-                ModeOfOperation::NonStoringMode if ctx.rpl.is_root => true,
-                #[cfg(feature = "rpl-mop-2")]
-                ModeOfOperation::StoringMode => true,
-                #[cfg(feature = "rpl-mop-3")]
-                ModeOfOperation::StoringModeWithMulticast => true,
-                _ => false,
-            }
-            && dodag.dtsn_incremented_at < dodag.dio_timer.next_expiration()
-        {
-            net_trace!("incrementing DTSN");
-            dodag.dtsn_incremented_at = dodag.dio_timer.next_expiration();
-            dodag.dtsn.increment();
-        }
+        flush_relations(ctx.rpl.mode_of_operation, dodag, ctx.rpl.is_root, ctx.now);
 
         // Schedule a DAO before the route will expire.
         if let Some(parent_address) = dodag.parent {
@@ -325,6 +307,37 @@ impl Interface {
         } else {
             ctx.rpl.dis_expiration
         }
+    }
+}
+
+/// Flush old relations. When a relation was removed, we increment the DTSN, which will trigger
+/// DAO's from our children.
+fn flush_relations(
+    mode_of_operation: ModeOfOperation,
+    dodag: &mut Dodag,
+    is_root: bool,
+    now: Instant,
+) {
+    // Remove stale relations and increment the DTSN when we actually removed
+    // a relation. This means that a node forgot to retransmit a DAO on time.
+    #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop-3"))]
+    if dodag.relations.flush(now)
+        && match mode_of_operation {
+            #[cfg(feature = "rpl-mop-1")]
+            ModeOfOperation::NonStoringMode if is_root => true,
+            #[cfg(feature = "rpl-mop-2")]
+            ModeOfOperation::StoringMode => true,
+            #[cfg(feature = "rpl-mop-3")]
+            ModeOfOperation::StoringModeWithMulticast => true,
+            _ => false,
+        }
+    //&& dodag.dtsn_incremented_at < dodag.dio_timer.next_expiration()
+    {
+        net_trace!("incrementing DTSN");
+        // FIXME: maybe this is not needed and we always increment the DTSN when we removed a
+        // relation from the relation table.
+        //dodag.dtsn_incremented_at = dodag.dio_timer.next_expiration();
+        dodag.dtsn.increment();
     }
 }
 
