@@ -157,7 +157,18 @@ impl InterfaceInner {
             // Forward any NDISC packets to the ndisc packet handler
             #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
             Icmpv6Repr::Ndisc(repr) if ip_repr.hop_limit() == 0xff => match ip_repr {
-                IpRepr::Ipv6(ipv6_repr) => self.process_ndisc(ipv6_repr, repr),
+                IpRepr::Ipv6(ipv6_repr) => {
+                    use crate::phy::Medium;
+
+                    match self.caps.medium {
+                        #[cfg(feature = "medium-ethernet")]
+                        Medium::Ethernet => self.process_ndisc(ipv6_repr, repr),
+                        #[cfg(feature = "medium-ieee802154")]
+                        Medium::Ieee802154 => self.process_ndisc(ipv6_repr, repr),
+                        #[cfg(feature = "medium-ip")]
+                        Medium::Ip => None,
+                    }
+                }
                 #[allow(unreachable_patterns)]
                 _ => unreachable!(),
             },
