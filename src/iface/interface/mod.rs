@@ -1337,8 +1337,12 @@ impl InterfaceInner {
             }
         }
 
-        if tcp_repr.control == TcpControl::Rst {
-            // Never reply to a TCP RST packet with another TCP RST packet.
+        if tcp_repr.control == TcpControl::Rst
+            || ip_repr.dst_addr().is_unspecified()
+            || ip_repr.src_addr().is_unspecified()
+        {
+            // Never reply to a TCP RST packet with another TCP RST packet. We also never want to
+            // send a TCP RST packet with unspecified addresses.
             None
         } else {
             // The packet wasn't handled by a socket, send a TCP RST packet.
