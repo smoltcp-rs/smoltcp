@@ -321,14 +321,10 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Header<T> {
         data[field::PAD] = value << 4;
     }
 
-    /// Set address data
-    ///
-    /// # Panics
-    /// This function may panic if this header is not the RPL Source Routing Header routing type.
-    pub fn set_addresses(&mut self, value: &[u8]) {
+    /// Return a pointer to the addresses buffer.
+    pub fn addresses_mut(&mut self) -> &mut [u8] {
         let data = self.buffer.as_mut();
-        let addresses = &mut data[field::ADDRESSES..];
-        addresses.copy_from_slice(value);
+        &mut data[field::ADDRESSES..]
     }
 }
 
@@ -449,15 +445,12 @@ impl Repr {
                 header.set_pad(pad);
                 header.clear_reserved();
 
-                let mut buffer = [0u8; 16 * 4];
-                let mut len = 0;
+                let mut addrs_buf = header.addresses_mut();
 
                 for addr in addresses {
-                    buffer[len..][..16].copy_from_slice(addr.as_bytes());
-                    len += 16;
+                    addrs_buf[..addr.as_bytes().len()].copy_from_slice(addr.as_bytes());
+                    addrs_buf = &mut addrs_buf[addr.as_bytes().len()..];
                 }
-
-                header.set_addresses(&buffer[..len]);
             }
         }
     }
