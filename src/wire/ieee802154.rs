@@ -305,6 +305,15 @@ impl<T: AsRef<[u8]>> Frame<T> {
             offset += 2;
         }
 
+        if self.security_enabled() {
+            // First check that we can access the security header control bits.
+            if offset + 1 > self.buffer.as_ref().len() {
+                return Err(Error);
+            }
+
+            offset += self.security_header_len();
+        }
+
         if offset > self.buffer.as_ref().len() {
             return Err(Error);
         }
@@ -322,7 +331,7 @@ impl<T: AsRef<[u8]>> Frame<T> {
     pub fn frame_type(&self) -> FrameType {
         let data = self.buffer.as_ref();
         let raw = LittleEndian::read_u16(&data[field::FRAMECONTROL]);
-        let ft = (raw & 0b11) as u8;
+        let ft = (raw & 0b111) as u8;
         FrameType::from(ft)
     }
 
@@ -497,8 +506,28 @@ impl<T: AsRef<[u8]>> Frame<T> {
     fn aux_security_header_start(&self) -> usize {
         // We start with 3, because 2 bytes for frame control and the sequence number.
         let mut index = 3;
-        index += self.addressing_fields().unwrap().len();
+        index += if let Some(addrs) = self.addressing_fields() {
+            addrs.len()
+        } else {
+            0
+        };
         index
+    }
+
+    /// Return the size of the security header.
+    fn security_header_len(&self) -> usize {
+        let mut size = 1;
+        size += if self.frame_counter_suppressed() {
+            0
+        } else {
+            4
+        };
+        size += if let Some(len) = self.key_identifier_length() {
+            len as usize
+        } else {
+            0
+        };
+        size
     }
 
     /// Return the index where the payload starts.
@@ -506,13 +535,7 @@ impl<T: AsRef<[u8]>> Frame<T> {
         let mut index = self.aux_security_header_start();
 
         if self.security_enabled() {
-            // We add 5 because 1 byte for control bits and 4 bytes for frame counter.
-            index += 5;
-            index += if let Some(len) = self.key_identifier_length() {
-                len as usize
-            } else {
-                0
-            };
+            index += self.security_header_len();
         }
 
         index
@@ -543,11 +566,22 @@ impl<T: AsRef<[u8]>> Frame<T> {
         (b >> 3) & 0b11
     }
 
-    /// Return the frame counter field.
-    pub fn frame_counter(&self) -> u32 {
+    /// Return `true` when the frame counter in the security header is suppressed.
+    pub fn frame_counter_suppressed(&self) -> bool {
         let index = self.aux_security_header_start();
-        let b = &self.buffer.as_ref()[index..];
-        LittleEndian::read_u32(&b[1..1 + 4])
+        let b = self.buffer.as_ref()[index..][0];
+        ((b >> 5) & 0b1) == 0b1
+    }
+
+    /// Return the frame counter field.
+    pub fn frame_counter(&self) -> Option<u32> {
+        if self.frame_counter_suppressed() {
+            None
+        } else {
+            let index = self.aux_security_header_start();
+            let b = &self.buffer.as_ref()[index..];
+            Some(LittleEndian::read_u32(&b[1..1 + 4]))
+        }
     }
 
     /// Return the Key Identifier field.
@@ -1067,7 +1101,7 @@ mod test {
         src_addr -> Some(Address::Extended([0x00,0x12,0x4b,0x00,0x14,0xb5,0xd9,0xc7])),
         security_level -> 5,
         key_identifier_mode -> 0,
-        frame_counter -> 305,
+        frame_counter -> Some(305),
         key_source -> None,
         key_index -> None,
         payload -> Some(&[0x3e,0xe8,0xfb,0x85,0xe4,0xcc,0xf4,0x48,0x90,0xfe,0x56,0x66,0xf7,0x1c,0x65,0x9e,0xf9,0x93,0xc8,0x34,0x2e][..]),
