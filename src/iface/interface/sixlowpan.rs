@@ -321,9 +321,17 @@ impl InterfaceInner {
                     && !self.has_neighbor(&packet.header.dst_addr.into()) =>
             {
                 let mut options = heapless::Vec::new();
+
                 options
                     .push(Ipv6OptionRepr::Rpl(RplHopByHopRepr {
-                        down: self.rpl.is_root,
+                        down: self
+                            .rpl
+                            .dodag
+                            .as_ref()
+                            .unwrap()
+                            .relations
+                            .find_next_hop(packet.header.dst_addr.into())
+                            .is_some(),
                         rank_error: false,
                         forwarding_error: false,
                         instance_id: self.rpl.dodag.as_ref().unwrap().instance_id,
