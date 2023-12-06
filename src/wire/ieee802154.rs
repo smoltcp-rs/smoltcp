@@ -331,7 +331,7 @@ impl<T: AsRef<[u8]>> Frame<T> {
     pub fn frame_type(&self) -> FrameType {
         let data = self.buffer.as_ref();
         let raw = LittleEndian::read_u16(&data[field::FRAMECONTROL]);
-        let ft = (raw & 0b11) as u8;
+        let ft = (raw & 0b111) as u8;
         FrameType::from(ft)
     }
 
