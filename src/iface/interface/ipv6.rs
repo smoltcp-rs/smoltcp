@@ -721,6 +721,7 @@ impl InterfaceInner {
                 ipv6_repr.dst_addr,
             ) {
                 ipv6_repr.dst_addr = new_dst_addr;
+                ipv6_repr.payload_len += source_route.buffer_len();
                 Some(source_route)
             } else {
                 None
