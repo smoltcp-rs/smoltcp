@@ -330,7 +330,7 @@ impl InterfaceInner {
                             .as_ref()
                             .unwrap()
                             .relations
-                            .find_next_hop(packet.header.dst_addr.into())
+                            .find_next_hop(packet.header.dst_addr)
                             .is_some(),
                         rank_error: false,
                         forwarding_error: false,
