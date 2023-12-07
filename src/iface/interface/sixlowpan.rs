@@ -174,6 +174,11 @@ impl InterfaceInner {
                         decompressed_size += 2;
                         decompressed_size -= ext_repr.buffer_len();
                         next_header = Some(ext_repr.next_header);
+
+                        if ext_repr.buffer_len() + ext_repr.length as usize > data.len() {
+                            return Err(Error);
+                        }
+
                         data = &data[ext_repr.buffer_len() + ext_repr.length as usize..];
                     }
                     SixlowpanNhcPacket::UdpHeader => {
@@ -282,6 +287,10 @@ impl InterfaceInner {
                             &iphc_repr.dst_addr,
                             &ChecksumCapabilities::ignored(),
                         )?;
+
+                        if payload.len() + 8 > buffer.len() {
+                            return Err(Error);
+                        }
 
                         let mut udp = UdpPacket::new_unchecked(&mut buffer[..payload.len() + 8]);
                         udp_repr
