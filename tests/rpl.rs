@@ -356,7 +356,7 @@ fn message_forwarding_up_and_down(#[case] mop: RplModeOfOperation) {
 #[case::mop2(RplModeOfOperation::StoringMode)]
 fn normal_node_change_parent(#[case] mop: RplModeOfOperation) {
     let mut sim = sim::topology(sim::NetworkSim::new(), mop, 1, 3);
-    sim.run(Duration::from_millis(100), Duration::from_secs(60 * 5));
+    sim.run(Duration::from_millis(500), Duration::from_secs(60 * 5));
 
     assert!(!sim.msgs().is_empty());
 
@@ -364,7 +364,7 @@ fn normal_node_change_parent(#[case] mop: RplModeOfOperation) {
     sim.nodes_mut()[3].set_position(sim::Position((150., -50.)));
     sim.clear_msgs();
 
-    sim.run(Duration::from_millis(100), ONE_HOUR);
+    sim.run(Duration::from_millis(500), ONE_HOUR);
 
     // Counter for sent NO-PATH DAOs
     let mut no_path_dao_count = 0;
@@ -429,7 +429,7 @@ fn normal_node_change_parent(#[case] mop: RplModeOfOperation) {
 #[case::mop2(RplModeOfOperation::StoringMode)]
 fn parent_leaves_network_no_other_parent(#[case] mop: RplModeOfOperation) {
     let mut sim = sim::topology(sim::NetworkSim::new(), mop, 4, 2);
-    sim.run(Duration::from_millis(100), ONE_HOUR);
+    sim.run(Duration::from_millis(500), ONE_HOUR);
 
     // Parent leaves network, child node does not have an alternative parent.
     // The child node should send INFINITE_RANK DIO and after that only send DIS messages
@@ -438,7 +438,7 @@ fn parent_leaves_network_no_other_parent(#[case] mop: RplModeOfOperation) {
 
     sim.clear_msgs();
 
-    sim.run(Duration::from_millis(100), ONE_HOUR);
+    sim.run(Duration::from_millis(500), ONE_HOUR);
 
     let no_parent_node_msgs: Vec<_> = sim.msgs().iter().filter(|m| m.from.0 == 5).collect();
 
@@ -468,14 +468,14 @@ fn dtsn_incremented_when_child_leaves_network(#[case] mop: RplModeOfOperation) {
     sim.nodes_mut()[4].set_position(sim::Position((200., 100.)));
     sim.nodes_mut()[5].set_position(sim::Position((-100., 0.)));
 
-    sim.run(Duration::from_millis(100), ONE_HOUR);
+    sim.run(Duration::from_millis(500), ONE_HOUR);
 
     // One node is moved out of the range of its parent.
     sim.nodes_mut()[4].set_position(sim::Position((500., 500.)));
 
     sim.clear_msgs();
 
-    sim.run(Duration::from_millis(100), ONE_HOUR);
+    sim.run(Duration::from_millis(500), ONE_HOUR);
 
     // Keep track of when was the first DIO with increased DTSN sent
     let mut dio_at = Instant::ZERO;
