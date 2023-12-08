@@ -571,6 +571,11 @@ impl InterfaceInner {
                 pad,
                 addresses,
             } => {
+                for addr in addresses.iter_mut() {
+                    addr.0[..*cmpr_e as usize]
+                        .copy_from_slice(&ipv6_repr.src_addr.as_bytes()[..*cmpr_e as usize]);
+                }
+
                 // Calculate the number of addresses left to visit.
                 let n = (((ext_hdr.header_len() as usize * 8)
                     - *pad as usize
