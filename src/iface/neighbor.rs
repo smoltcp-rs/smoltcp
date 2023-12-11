@@ -72,8 +72,21 @@ impl Cache {
         debug_assert!(protocol_addr.is_unicast());
         debug_assert!(hardware_addr.is_unicast());
 
+        let expires_at = timestamp + Self::ENTRY_LIFETIME;
+        self.fill_with_expiration(protocol_addr, hardware_addr, expires_at);
+    }
+
+    pub fn fill_with_expiration(
+        &mut self,
+        protocol_addr: IpAddress,
+        hardware_addr: HardwareAddress,
+        expires_at: Instant,
+    ) {
+        debug_assert!(protocol_addr.is_unicast());
+        debug_assert!(hardware_addr.is_unicast());
+
         let neighbor = Neighbor {
-            expires_at: timestamp + Self::ENTRY_LIFETIME,
+            expires_at,
             hardware_addr,
         };
         match self.storage.insert(protocol_addr, neighbor) {
