@@ -38,7 +38,7 @@ fn icmp_echo_request(#[case] medium: Medium) {
         0x37,
     ];
 
-    let response = Some(IpPacket::new_ipv6(
+    let response = Some(Packet::new_ipv6(
         Ipv6Repr {
             src_addr: Ipv6Address::from_parts(&[0xfe80, 0, 0, 0, 0x180b, 0x4242, 0x4242, 0x4242]),
             dst_addr: Ipv6Address::from_parts(&[0xfe80, 0, 0, 0, 0x241c, 0x2957, 0x34a6, 0x3a62]),
@@ -190,7 +190,7 @@ fn test_echo_request_sixlowpan_128_bytes() {
 
     assert_eq!(
         result,
-        Some(IpPacket::new_ipv6(
+        Some(Packet::new_ipv6(
             Ipv6Repr {
                 src_addr: Ipv6Address([
                     0xfe, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x92, 0xfc, 0x48, 0xc2, 0xa4, 0x41,
@@ -362,7 +362,7 @@ In at rhoncus tortor. Cras blandit tellus diam, varius vestibulum nibh commodo n
         Ieee802154Address::default(),
         tx_token,
         PacketMeta::default(),
-        IpPacket::new_ipv6(
+        Packet::new_ipv6(
             Ipv6Repr {
                 src_addr: Ipv6Address::default(),
                 dst_addr: Ipv6Address::default(),

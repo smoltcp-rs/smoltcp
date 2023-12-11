@@ -1,8 +1,4 @@
-use super::check;
-use super::icmp_reply_payload_len;
-use super::InterfaceInner;
-use super::SocketSet;
-use super::{IpPacket, IpPayload};
+use super::*;
 
 #[cfg(feature = "socket-icmp")]
 use crate::socket::icmp;
@@ -17,7 +13,7 @@ impl InterfaceInner {
         sockets: &mut SocketSet,
         meta: PacketMeta,
         ipv6_packet: &Ipv6Packet<&'frame [u8]>,
-    ) -> Option<IpPacket<'frame>> {
+    ) -> Option<Packet<'frame>> {
         let ipv6_repr = check!(Ipv6Repr::parse(ipv6_packet));
 
         if !ipv6_repr.src_addr.is_unicast() {
@@ -53,7 +49,7 @@ impl InterfaceInner {
         nxt_hdr: IpProtocol,
         handled_by_raw_socket: bool,
         ip_payload: &'frame [u8],
-    ) -> Option<IpPacket<'frame>> {
+    ) -> Option<Packet<'frame>> {
         match nxt_hdr {
             IpProtocol::Icmpv6 => self.process_icmpv6(sockets, ipv6_repr.into(), ip_payload),
 
@@ -109,7 +105,7 @@ impl InterfaceInner {
         _sockets: &mut SocketSet,
         ip_repr: IpRepr,
         ip_payload: &'frame [u8],
-    ) -> Option<IpPacket<'frame>> {
+    ) -> Option<Packet<'frame>> {
         let icmp_packet = check!(Icmpv6Packet::new_checked(ip_payload));
         let icmp_repr = check!(Icmpv6Repr::parse(
             &ip_repr.src_addr(),
@@ -157,18 +153,14 @@ impl InterfaceInner {
             // Forward any NDISC packets to the ndisc packet handler
             #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
             Icmpv6Repr::Ndisc(repr) if ip_repr.hop_limit() == 0xff => match ip_repr {
-                IpRepr::Ipv6(ipv6_repr) => {
-                    use crate::phy::Medium;
-
-                    match self.caps.medium {
-                        #[cfg(feature = "medium-ethernet")]
-                        Medium::Ethernet => self.process_ndisc(ipv6_repr, repr),
-                        #[cfg(feature = "medium-ieee802154")]
-                        Medium::Ieee802154 => self.process_ndisc(ipv6_repr, repr),
-                        #[cfg(feature = "medium-ip")]
-                        Medium::Ip => None,
-                    }
-                }
+                IpRepr::Ipv6(ipv6_repr) => match self.caps.medium {
+                    #[cfg(feature = "medium-ethernet")]
+                    Medium::Ethernet => self.process_ndisc(ipv6_repr, repr),
+                    #[cfg(feature = "medium-ieee802154")]
+                    Medium::Ieee802154 => self.process_ndisc(ipv6_repr, repr),
+                    #[cfg(feature = "medium-ip")]
+                    Medium::Ip => None,
+                },
                 #[allow(unreachable_patterns)]
                 _ => unreachable!(),
             },
@@ -188,7 +180,7 @@ impl InterfaceInner {
         &mut self,
         ip_repr: Ipv6Repr,
         repr: NdiscRepr<'frame>,
-    ) -> Option<IpPacket<'frame>> {
+    ) -> Option<Packet<'frame>> {
         match repr {
             NdiscRepr::NeighborAdvert {
                 lladdr,
@@ -237,7 +229,7 @@ impl InterfaceInner {
                         hop_limit: 0xff,
                         payload_len: advert.buffer_len(),
                     };
-                    Some(IpPacket::new_ipv6(ip_repr, IpPayload::Icmpv6(advert)))
+                    Some(Packet::new_ipv6(ip_repr, IpPayload::Icmpv6(advert)))
                 } else {
                     None
                 }
@@ -253,7 +245,7 @@ impl InterfaceInner {
         ipv6_repr: Ipv6Repr,
         handled_by_raw_socket: bool,
         ip_payload: &'frame [u8],
-    ) -> Option<IpPacket<'frame>> {
+    ) -> Option<Packet<'frame>> {
         let ext_hdr = check!(Ipv6ExtHeader::new_checked(ip_payload));
         let ext_repr = check!(Ipv6ExtHeaderRepr::parse(&ext_hdr));
         let hbh_hdr = check!(Ipv6HopByHopHeader::new_checked(ext_repr.data));
@@ -294,7 +286,7 @@ impl InterfaceInner {
         &self,
         ipv6_repr: Ipv6Repr,
         icmp_repr: Icmpv6Repr<'icmp>,
-    ) -> Option<IpPacket<'frame>> {
+    ) -> Option<Packet<'frame>> {
         if ipv6_repr.dst_addr.is_unicast() {
             let ipv6_reply_repr = Ipv6Repr {
                 src_addr: ipv6_repr.dst_addr,
@@ -303,7 +295,7 @@ impl InterfaceInner {
                 payload_len: icmp_repr.buffer_len(),
                 hop_limit: 64,
             };
-            Some(IpPacket::new_ipv6(
+            Some(Packet::new_ipv6(
                 ipv6_reply_repr,
                 IpPayload::Icmpv6(icmp_repr),
             ))

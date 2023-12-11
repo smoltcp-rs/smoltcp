@@ -23,7 +23,7 @@ mod igmp;
 #[cfg(feature = "proto-igmp")]
 pub use igmp::MulticastError;
 
-use super::ip_packet::*;
+use super::packet::*;
 
 use core::result::Result;
 use heapless::{LinearMap, Vec};
@@ -45,11 +45,6 @@ use crate::rand::Rand;
 use crate::socket::dns;
 use crate::socket::*;
 use crate::time::{Duration, Instant};
-
-#[cfg(feature = "proto-ipv4")]
-use crate::wire::Ipv4Packet as Ipv4PacketWire;
-#[cfg(feature = "proto-ipv6")]
-use crate::wire::Ipv6Packet as Ipv6PacketWire;
 
 use crate::wire::*;
 
@@ -767,7 +762,7 @@ impl Interface {
             }
 
             let mut neighbor_addr = None;
-            let mut respond = |inner: &mut InterfaceInner, meta: PacketMeta, response: IpPacket| {
+            let mut respond = |inner: &mut InterfaceInner, meta: PacketMeta, response: Packet| {
                 neighbor_addr = Some(response.ip_repr().dst_addr());
                 let t = device.transmit(inner.now).ok_or_else(|| {
                     net_debug!("failed to transmit IP: device exhausted");
@@ -789,7 +784,7 @@ impl Interface {
                     respond(
                         inner,
                         PacketMeta::default(),
-                        IpPacket::new(ip, IpPayload::Raw(raw)),
+                        Packet::new(ip, IpPayload::Raw(raw)),
                     )
                 }),
                 #[cfg(feature = "socket-icmp")]
@@ -799,13 +794,13 @@ impl Interface {
                         (IpRepr::Ipv4(ipv4_repr), IcmpRepr::Ipv4(icmpv4_repr)) => respond(
                             inner,
                             PacketMeta::default(),
-                            IpPacket::new_ipv4(ipv4_repr, IpPayload::Icmpv4(icmpv4_repr)),
+                            Packet::new_ipv4(ipv4_repr, IpPayload::Icmpv4(icmpv4_repr)),
                         ),
                         #[cfg(feature = "proto-ipv6")]
                         (IpRepr::Ipv6(ipv6_repr), IcmpRepr::Ipv6(icmpv6_repr)) => respond(
                             inner,
                             PacketMeta::default(),
-                            IpPacket::new_ipv6(ipv6_repr, IpPayload::Icmpv6(icmpv6_repr)),
+                            Packet::new_ipv6(ipv6_repr, IpPayload::Icmpv6(icmpv6_repr)),
                         ),
                         #[allow(unreachable_patterns)]
                         _ => unreachable!(),
@@ -814,7 +809,7 @@ impl Interface {
                 #[cfg(feature = "socket-udp")]
                 Socket::Udp(socket) => {
                     socket.dispatch(&mut self.inner, |inner, meta, (ip, udp, payload)| {
-                        respond(inner, meta, IpPacket::new(ip, IpPayload::Udp(udp, payload)))
+                        respond(inner, meta, Packet::new(ip, IpPayload::Udp(udp, payload)))
                     })
                 }
                 #[cfg(feature = "socket-tcp")]
@@ -822,7 +817,7 @@ impl Interface {
                     respond(
                         inner,
                         PacketMeta::default(),
-                        IpPacket::new(ip, IpPayload::Tcp(tcp)),
+                        Packet::new(ip, IpPayload::Tcp(tcp)),
                     )
                 }),
                 #[cfg(feature = "socket-dhcpv4")]
@@ -831,7 +826,7 @@ impl Interface {
                         respond(
                             inner,
                             PacketMeta::default(),
-                            IpPacket::new_ipv4(ip, IpPayload::Dhcpv4(udp, dhcp)),
+                            Packet::new_ipv4(ip, IpPayload::Dhcpv4(udp, dhcp)),
                         )
                     })
                 }
@@ -840,7 +835,7 @@ impl Interface {
                     respond(
                         inner,
                         PacketMeta::default(),
-                        IpPacket::new(ip, IpPayload::Udp(udp, dns)),
+                        Packet::new(ip, IpPayload::Udp(udp, dns)),
                     )
                 }),
             };
@@ -1174,17 +1169,17 @@ impl InterfaceInner {
         meta: PacketMeta,
         ip_payload: &'frame [u8],
         frag: &'frame mut FragmentsBuffer,
-    ) -> Option<IpPacket<'frame>> {
+    ) -> Option<Packet<'frame>> {
         match IpVersion::of_packet(ip_payload) {
             #[cfg(feature = "proto-ipv4")]
             Ok(IpVersion::Ipv4) => {
-                let ipv4_packet = check!(Ipv4PacketWire::new_checked(ip_payload));
+                let ipv4_packet = check!(Ipv4Packet::new_checked(ip_payload));
 
                 self.process_ipv4(sockets, meta, &ipv4_packet, frag)
             }
             #[cfg(feature = "proto-ipv6")]
             Ok(IpVersion::Ipv6) => {
-                let ipv6_packet = check!(Ipv6PacketWire::new_checked(ip_payload));
+                let ipv6_packet = check!(Ipv6Packet::new_checked(ip_payload));
                 self.process_ipv6(sockets, meta, &ipv6_packet)
             }
             // Drop all other traffic.
@@ -1260,7 +1255,7 @@ impl InterfaceInner {
         handled_by_raw_socket: bool,
         udp_payload: &'frame [u8],
         ip_payload: &'frame [u8],
-    ) -> Option<IpPacket<'frame>> {
+    ) -> Option<Packet<'frame>> {
         #[cfg(feature = "socket-udp")]
         for udp_socket in sockets
             .items_mut()
@@ -1320,7 +1315,7 @@ impl InterfaceInner {
         sockets: &mut SocketSet,
         ip_repr: IpRepr,
         ip_payload: &'frame [u8],
-    ) -> Option<IpPacket<'frame>> {
+    ) -> Option<Packet<'frame>> {
         let (src_addr, dst_addr) = (ip_repr.src_addr(), ip_repr.dst_addr());
         let tcp_packet = check!(TcpPacket::new_checked(ip_payload));
         let tcp_repr = check!(TcpRepr::parse(
@@ -1337,7 +1332,7 @@ impl InterfaceInner {
             if tcp_socket.accepts(self, &ip_repr, &tcp_repr) {
                 return tcp_socket
                     .process(self, &ip_repr, &tcp_repr)
-                    .map(|(ip, tcp)| IpPacket::new(ip, IpPayload::Tcp(tcp)));
+                    .map(|(ip, tcp)| Packet::new(ip, IpPayload::Tcp(tcp)));
             }
         }
 
@@ -1351,7 +1346,7 @@ impl InterfaceInner {
         } else {
             // The packet wasn't handled by a socket, send a TCP RST packet.
             let (ip, tcp) = tcp::Socket::rst_reply(&ip_repr, &tcp_repr);
-            Some(IpPacket::new(ip, IpPayload::Tcp(tcp)))
+            Some(Packet::new(ip, IpPayload::Tcp(tcp)))
         }
     }
 
@@ -1535,7 +1530,7 @@ impl InterfaceInner {
                     lladdr: Some(self.hardware_addr.into()),
                 });
 
-                let packet = IpPacket::new_ipv6(
+                let packet = Packet::new_ipv6(
                     Ipv6Repr {
                         src_addr,
                         dst_addr: dst_addr.solicited_node(),
@@ -1574,7 +1569,7 @@ impl InterfaceInner {
         // the feature set that is used.
         #[allow(unused_mut)] mut tx_token: Tx,
         meta: PacketMeta,
-        packet: IpPacket,
+        packet: Packet,
         frag: &mut Fragmenter,
     ) -> Result<(), DispatchError> {
         let mut ip_repr = packet.ip_repr();
@@ -1702,7 +1697,7 @@ impl InterfaceInner {
                         // Emit the IP header to the buffer.
                         emit_ip(&ip_repr, &mut frag.buffer);
 
-                        let mut ipv4_packet = Ipv4PacketWire::new_unchecked(&mut frag.buffer[..]);
+                        let mut ipv4_packet = Ipv4Packet::new_unchecked(&mut frag.buffer[..]);
                         frag.ipv4.ident = ipv4_id;
                         ipv4_packet.set_ident(ipv4_id);
                         ipv4_packet.set_more_frags(true);

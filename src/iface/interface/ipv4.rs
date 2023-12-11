@@ -8,16 +8,16 @@ use crate::socket::AnySocket;
 
 use crate::phy::{Medium, TxToken};
 use crate::time::Instant;
-use crate::wire::{Ipv4Packet as Ipv4PacketWire, *};
+use crate::wire::*;
 
 impl InterfaceInner {
     pub(super) fn process_ipv4<'a>(
         &mut self,
         sockets: &mut SocketSet,
         meta: PacketMeta,
-        ipv4_packet: &Ipv4PacketWire<&'a [u8]>,
+        ipv4_packet: &Ipv4Packet<&'a [u8]>,
         frag: &'a mut FragmentsBuffer,
-    ) -> Option<IpPacket<'a>> {
+    ) -> Option<Packet<'a>> {
         let ipv4_repr = check!(Ipv4Repr::parse(ipv4_packet, &self.caps.checksum));
         if !self.is_unicast_v4(ipv4_repr.src_addr) && !ipv4_repr.src_addr.is_unspecified() {
             // Discard packets with non-unicast source addresses but allow unspecified
@@ -238,7 +238,7 @@ impl InterfaceInner {
         _sockets: &mut SocketSet,
         ip_repr: IpRepr,
         ip_payload: &'frame [u8],
-    ) -> Option<IpPacket<'frame>> {
+    ) -> Option<Packet<'frame>> {
         let icmp_packet = check!(Icmpv4Packet::new_checked(ip_payload));
         let icmp_repr = check!(Icmpv4Repr::parse(&icmp_packet, &self.caps.checksum));
 
@@ -293,7 +293,7 @@ impl InterfaceInner {
         &self,
         ipv4_repr: Ipv4Repr,
         icmp_repr: Icmpv4Repr<'icmp>,
-    ) -> Option<IpPacket<'frame>> {
+    ) -> Option<Packet<'frame>> {
         if !self.is_unicast_v4(ipv4_repr.src_addr) {
             // Do not send ICMP replies to non-unicast sources
             None
@@ -306,7 +306,7 @@ impl InterfaceInner {
                 payload_len: icmp_repr.buffer_len(),
                 hop_limit: 64,
             };
-            Some(IpPacket::new_ipv4(
+            Some(Packet::new_ipv4(
                 ipv4_reply_repr,
                 IpPayload::Icmpv4(icmp_repr),
             ))
@@ -322,7 +322,7 @@ impl InterfaceInner {
                             payload_len: icmp_repr.buffer_len(),
                             hop_limit: 64,
                         };
-                        Some(IpPacket::new_ipv4(
+                        Some(Packet::new_ipv4(
                             ipv4_reply_repr,
                             IpPayload::Icmpv4(icmp_repr),
                         ))
@@ -379,7 +379,7 @@ impl InterfaceInner {
             }
 
             let mut packet =
-                Ipv4PacketWire::new_unchecked(&mut tx_buffer[..frag.ipv4.repr.buffer_len()]);
+                Ipv4Packet::new_unchecked(&mut tx_buffer[..frag.ipv4.repr.buffer_len()]);
             frag.ipv4.repr.emit(&mut packet, &caps.checksum);
             packet.set_ident(frag.ipv4.ident);
             packet.set_more_frags(more_frags);
@@ -405,13 +405,13 @@ impl InterfaceInner {
         &self,
         version: IgmpVersion,
         group_addr: Ipv4Address,
-    ) -> Option<IpPacket<'any>> {
+    ) -> Option<Packet<'any>> {
         let iface_addr = self.ipv4_addr()?;
         let igmp_repr = IgmpRepr::MembershipReport {
             group_addr,
             version,
         };
-        let pkt = IpPacket::new_ipv4(
+        let pkt = Packet::new_ipv4(
             Ipv4Repr {
                 src_addr: iface_addr,
                 // Send to the group being reported
@@ -427,13 +427,10 @@ impl InterfaceInner {
     }
 
     #[cfg(feature = "proto-igmp")]
-    pub(super) fn igmp_leave_packet<'any>(
-        &self,
-        group_addr: Ipv4Address,
-    ) -> Option<IpPacket<'any>> {
+    pub(super) fn igmp_leave_packet<'any>(&self, group_addr: Ipv4Address) -> Option<Packet<'any>> {
         self.ipv4_addr().map(|iface_addr| {
             let igmp_repr = IgmpRepr::LeaveGroup { group_addr };
-            IpPacket::new_ipv4(
+            Packet::new_ipv4(
                 Ipv4Repr {
                     src_addr: iface_addr,
                     dst_addr: Ipv4Address::MULTICAST_ALL_ROUTERS,

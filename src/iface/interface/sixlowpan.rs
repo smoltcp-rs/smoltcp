@@ -1,8 +1,7 @@
 use super::*;
 
-use crate::iface::ip_packet::Ipv6Packet;
 use crate::phy::ChecksumCapabilities;
-use crate::wire::{Ipv6Packet as Ipv6PacketWire, *};
+use crate::wire::*;
 
 // Max len of non-fragmented packets after decompression (including ipv6 header and payload)
 // TODO: lower. Should be (6lowpan mtu) - (min 6lowpan header size) + (max ipv6 header size)
@@ -16,7 +15,7 @@ impl InterfaceInner {
         ieee802154_repr: &Ieee802154Repr,
         payload: &'payload [u8],
         f: &'output mut FragmentsBuffer,
-    ) -> Option<IpPacket<'output>> {
+    ) -> Option<Packet<'output>> {
         let payload = match check!(SixlowpanPacket::dispatch(payload)) {
             #[cfg(not(feature = "proto-sixlowpan-fragmentation"))]
             SixlowpanPacket::FragmentHeader => {
@@ -50,7 +49,7 @@ impl InterfaceInner {
             }
         };
 
-        self.process_ipv6(sockets, meta, &check!(Ipv6PacketWire::new_checked(payload)))
+        self.process_ipv6(sockets, meta, &check!(Ipv6Packet::new_checked(payload)))
     }
 
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
@@ -231,7 +230,7 @@ impl InterfaceInner {
         rest_size -= 40;
 
         // Emit the decompressed IPHC header (decompressed to an IPv6 header).
-        let mut ipv6_packet = Ipv6PacketWire::new_unchecked(&mut buffer[..ipv6_repr.buffer_len()]);
+        let mut ipv6_packet = Ipv6Packet::new_unchecked(&mut buffer[..ipv6_repr.buffer_len()]);
         ipv6_repr.emit(&mut ipv6_packet);
         let mut buffer = &mut buffer[ipv6_repr.buffer_len()..];
 
@@ -327,14 +326,14 @@ impl InterfaceInner {
         &mut self,
         mut tx_token: Tx,
         meta: PacketMeta,
-        packet: IpPacket,
+        packet: Packet,
         ieee_repr: Ieee802154Repr,
         frag: &mut Fragmenter,
     ) {
         let packet = match packet {
             #[cfg(feature = "proto-ipv4")]
-            IpPacket::Ipv4(_) => unreachable!(),
-            IpPacket::Ipv6(packet) => packet,
+            Packet::Ipv4(_) => unreachable!(),
+            Packet::Ipv6(packet) => packet,
         };
 
         // First we calculate the size we are going to need. If the size is bigger than the MTU,
@@ -454,7 +453,7 @@ impl InterfaceInner {
 
     fn ipv6_to_sixlowpan(
         checksum_caps: &ChecksumCapabilities,
-        mut packet: Ipv6Packet,
+        mut packet: PacketV6,
         ieee_repr: &Ieee802154Repr,
         mut buffer: &mut [u8],
     ) {
@@ -589,7 +588,7 @@ impl InterfaceInner {
     ///  - uncompressed header size: the size of the headers that are not compressed
     ///  They are returned as a tuple in the same order.
     fn compressed_packet_size(
-        packet: &Ipv6Packet,
+        packet: &PacketV6,
         ieee_repr: &Ieee802154Repr,
     ) -> (usize, usize, usize) {
         let last_header = packet.payload.as_sixlowpan_next_header();
@@ -785,7 +784,7 @@ mod tests {
             src_addr: Some(Ieee802154Address::Extended([0, 3, 0, 3, 0, 3, 0, 3])),
         };
 
-        let mut ip_packet = Ipv6Packet {
+        let mut ip_packet = PacketV6 {
             header: Ipv6Repr {
                 src_addr: Ipv6Address::from_bytes(&[
                     253, 0, 0, 0, 0, 0, 0, 0, 2, 3, 0, 3, 0, 3, 0, 3,
@@ -868,7 +867,7 @@ mod tests {
             }))
             .unwrap();
 
-        let mut ip_packet = Ipv6Packet {
+        let mut ip_packet = PacketV6 {
             header: Ipv6Repr {
                 src_addr: addr,
                 dst_addr: parent_address,

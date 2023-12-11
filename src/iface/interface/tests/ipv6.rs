@@ -1,7 +1,7 @@
 use super::*;
 
-fn parse_ipv6(data: &[u8]) -> crate::wire::Result<IpPacket<'_>> {
-    let ipv6_header = Ipv6PacketWire::new_checked(data)?;
+fn parse_ipv6(data: &[u8]) -> crate::wire::Result<Packet<'_>> {
+    let ipv6_header = Ipv6Packet::new_checked(data)?;
     let ipv6 = Ipv6Repr::parse(&ipv6_header)?;
 
     match ipv6.next_header {
@@ -21,7 +21,7 @@ fn parse_ipv6(data: &[u8]) -> crate::wire::Result<IpPacket<'_>> {
                 &Icmpv6Packet::new_checked(ipv6_header.payload())?,
                 &Default::default(),
             )?;
-            Ok(IpPacket::new_ipv6(ipv6, IpPayload::Icmpv6(icmp)))
+            Ok(Packet::new_ipv6(ipv6, IpPayload::Icmpv6(icmp)))
         }
         IpProtocol::Ipv6NoNxt => todo!(),
         IpProtocol::Ipv6Opts => todo!(),
@@ -51,7 +51,7 @@ fn multicast_source_address(#[case] medium: Medium) {
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
-            &Ipv6PacketWire::new_checked(&data[..]).unwrap()
+            &Ipv6Packet::new_checked(&data[..]).unwrap()
         ),
         response
     );
@@ -78,7 +78,7 @@ fn hop_by_hop_skip_with_icmp(#[case] medium: Medium) {
         0x0, 0x2a, 0x1, 0xa4, 0x4c, 0x6f, 0x72, 0x65, 0x6d, 0x20, 0x49, 0x70, 0x73, 0x75, 0x6d,
     ];
 
-    let response = Some(IpPacket::new_ipv6(
+    let response = Some(Packet::new_ipv6(
         Ipv6Repr {
             src_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0001]),
             dst_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0002]),
@@ -99,7 +99,7 @@ fn hop_by_hop_skip_with_icmp(#[case] medium: Medium) {
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
-            &Ipv6PacketWire::new_checked(&data[..]).unwrap()
+            &Ipv6Packet::new_checked(&data[..]).unwrap()
         ),
         response
     );
@@ -134,7 +134,7 @@ fn hop_by_hop_discard_with_icmp(#[case] medium: Medium) {
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
-            &Ipv6PacketWire::new_checked(&data[..]).unwrap()
+            &Ipv6Packet::new_checked(&data[..]).unwrap()
         ),
         response
     );
@@ -156,7 +156,7 @@ fn imcp_empty_echo_request(#[case] medium: Medium) {
 
     assert_eq!(
         parse_ipv6(&data),
-        Ok(IpPacket::new_ipv6(
+        Ok(Packet::new_ipv6(
             Ipv6Repr {
                 src_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0002]),
                 dst_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0001]),
@@ -172,7 +172,7 @@ fn imcp_empty_echo_request(#[case] medium: Medium) {
         ))
     );
 
-    let response = Some(IpPacket::new_ipv6(
+    let response = Some(Packet::new_ipv6(
         Ipv6Repr {
             src_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0001]),
             dst_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0002]),
@@ -193,7 +193,7 @@ fn imcp_empty_echo_request(#[case] medium: Medium) {
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
-            &Ipv6PacketWire::new_checked(&data[..]).unwrap()
+            &Ipv6Packet::new_checked(&data[..]).unwrap()
         ),
         response
     );
@@ -216,7 +216,7 @@ fn icmp_echo_request(#[case] medium: Medium) {
 
     assert_eq!(
         parse_ipv6(&data),
-        Ok(IpPacket::new_ipv6(
+        Ok(Packet::new_ipv6(
             Ipv6Repr {
                 src_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0002]),
                 dst_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0001]),
@@ -232,7 +232,7 @@ fn icmp_echo_request(#[case] medium: Medium) {
         ))
     );
 
-    let response = Some(IpPacket::new_ipv6(
+    let response = Some(Packet::new_ipv6(
         Ipv6Repr {
             src_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0001]),
             dst_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0002]),
@@ -253,7 +253,7 @@ fn icmp_echo_request(#[case] medium: Medium) {
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
-            &Ipv6PacketWire::new_checked(&data[..]).unwrap()
+            &Ipv6Packet::new_checked(&data[..]).unwrap()
         ),
         response
     );
@@ -276,7 +276,7 @@ fn icmp_echo_reply_as_input(#[case] medium: Medium) {
 
     assert_eq!(
         parse_ipv6(&data),
-        Ok(IpPacket::new_ipv6(
+        Ok(Packet::new_ipv6(
             Ipv6Repr {
                 src_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0002]),
                 dst_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0001]),
@@ -300,7 +300,7 @@ fn icmp_echo_reply_as_input(#[case] medium: Medium) {
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
-            &Ipv6PacketWire::new_checked(&data[..]).unwrap()
+            &Ipv6Packet::new_checked(&data[..]).unwrap()
         ),
         response
     );
@@ -329,7 +329,7 @@ fn unknown_proto_with_multicast_dst_address(#[case] medium: Medium) {
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
-            &Ipv6PacketWire::new_checked(&data[..]).unwrap()
+            &Ipv6Packet::new_checked(&data[..]).unwrap()
         ),
         response
     );
@@ -350,7 +350,7 @@ fn unknown_proto(#[case] medium: Medium) {
         0x0, 0x0, 0x0, 0x0, 0x1,
     ];
 
-    let response = Some(IpPacket::new_ipv6(
+    let response = Some(Packet::new_ipv6(
         Ipv6Repr {
             src_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0001]),
             dst_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0002]),
@@ -378,7 +378,7 @@ fn unknown_proto(#[case] medium: Medium) {
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
-            &Ipv6PacketWire::new_checked(&data[..]).unwrap()
+            &Ipv6Packet::new_checked(&data[..]).unwrap()
         ),
         response
     );
@@ -398,7 +398,7 @@ fn ndsic_neighbor_advertisement_ethernet(#[case] medium: Medium) {
 
     assert_eq!(
         parse_ipv6(&data),
-        Ok(IpPacket::new_ipv6(
+        Ok(Packet::new_ipv6(
             Ipv6Repr {
                 src_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0002]),
                 dst_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0001]),
@@ -422,7 +422,7 @@ fn ndsic_neighbor_advertisement_ethernet(#[case] medium: Medium) {
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
-            &Ipv6PacketWire::new_checked(&data[..]).unwrap()
+            &Ipv6Packet::new_checked(&data[..]).unwrap()
         ),
         response
     );
@@ -452,7 +452,7 @@ fn ndsic_neighbor_advertisement_ethernet_multicast_addr(#[case] medium: Medium) 
 
     assert_eq!(
         parse_ipv6(&data),
-        Ok(IpPacket::new_ipv6(
+        Ok(Packet::new_ipv6(
             Ipv6Repr {
                 src_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0002]),
                 dst_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0001]),
@@ -478,7 +478,7 @@ fn ndsic_neighbor_advertisement_ethernet_multicast_addr(#[case] medium: Medium) 
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
-            &Ipv6PacketWire::new_checked(&data[..]).unwrap()
+            &Ipv6Packet::new_checked(&data[..]).unwrap()
         ),
         response
     );
@@ -506,7 +506,7 @@ fn ndsic_neighbor_advertisement_ieee802154(#[case] medium: Medium) {
 
     assert_eq!(
         parse_ipv6(&data),
-        Ok(IpPacket::new_ipv6(
+        Ok(Packet::new_ipv6(
             Ipv6Repr {
                 src_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0002]),
                 dst_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0001]),
@@ -530,7 +530,7 @@ fn ndsic_neighbor_advertisement_ieee802154(#[case] medium: Medium) {
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
-            &Ipv6PacketWire::new_checked(&data[..]).unwrap()
+            &Ipv6Packet::new_checked(&data[..]).unwrap()
         ),
         response
     );
@@ -605,7 +605,7 @@ fn test_handle_valid_ndisc_request(#[case] medium: Medium) {
             frame.into_inner(),
             &mut iface.fragments
         ),
-        Some(EthernetPacket::Ip(IpPacket::new_ipv6(
+        Some(EthernetPacket::Ip(Packet::new_ipv6(
             ipv6_expected,
             IpPayload::Icmpv6(icmpv6_expected)
         )))
@@ -729,7 +729,7 @@ fn test_icmp_reply_size(#[case] medium: Medium) {
             &vec![0x2a; MAX_PAYLOAD_LEN],
             payload,
         ),
-        Some(IpPacket::new_ipv6(
+        Some(Packet::new_ipv6(
             expected_ip_repr,
             IpPayload::Icmpv6(expected_icmp_repr)
         ))

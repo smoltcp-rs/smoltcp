@@ -10,7 +10,7 @@ impl InterfaceInner {
         meta: PacketMeta,
         sixlowpan_payload: &'payload [u8],
         _fragments: &'output mut FragmentsBuffer,
-    ) -> Option<IpPacket<'output>> {
+    ) -> Option<Packet<'output>> {
         let ieee802154_frame = check!(Ieee802154Frame::new_checked(sixlowpan_payload));
         let ieee802154_repr = check!(Ieee802154Repr::parse(&ieee802154_frame));
 
@@ -45,7 +45,7 @@ impl InterfaceInner {
         ll_dst_a: Ieee802154Address,
         tx_token: Tx,
         meta: PacketMeta,
-        packet: IpPacket,
+        packet: Packet,
         frag: &mut Fragmenter,
     ) {
         let ll_src_a = self.hardware_addr.ieee802154_or_panic();

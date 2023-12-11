@@ -15,7 +15,7 @@ mod rpl;
 mod socket_meta;
 mod socket_set;
 
-mod ip_packet;
+mod packet;
 
 #[cfg(feature = "proto-igmp")]
 pub use self::interface::MulticastError;
