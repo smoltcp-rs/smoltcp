@@ -149,7 +149,7 @@ fn test_handle_udp_broadcast(
 }
 
 #[test]
-#[cfg(all(feature = "socket-tcp", feature = "proto-ipv6"))]
+#[cfg(all(feature = "medium-ip", feature = "socket-tcp", feature = "proto-ipv6"))]
 pub fn tcp_not_accepted() {
     use crate::iface::ip_packet::{IpPacket, IpPayload, Ipv6Packet};
 
