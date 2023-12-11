@@ -684,6 +684,10 @@ impl Interface {
         while let Some((rx_token, tx_token)) = device.receive(self.inner.now) {
             let rx_meta = rx_token.meta();
             rx_token.consume(|frame| {
+                if frame.is_empty() {
+                    return;
+                }
+
                 match self.inner.caps.medium {
                     #[cfg(feature = "medium-ethernet")]
                     Medium::Ethernet => {
