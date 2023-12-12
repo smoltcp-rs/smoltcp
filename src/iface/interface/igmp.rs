@@ -1,4 +1,5 @@
-use super::{check, IgmpReportState, Interface, InterfaceInner, IpPacket};
+use super::*;
+
 use crate::phy::{Device, PacketMeta};
 use crate::time::{Duration, Instant};
 use crate::wire::*;
@@ -231,7 +232,7 @@ impl InterfaceInner {
         &mut self,
         ipv4_repr: Ipv4Repr,
         ip_payload: &'frame [u8],
-    ) -> Option<IpPacket<'frame>> {
+    ) -> Option<Packet<'frame>> {
         let igmp_packet = check!(IgmpPacket::new_checked(ip_payload));
         let igmp_repr = check!(IgmpRepr::parse(&igmp_packet));
 

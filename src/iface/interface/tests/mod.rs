@@ -151,8 +151,6 @@ fn test_handle_udp_broadcast(
 #[test]
 #[cfg(all(feature = "medium-ip", feature = "socket-tcp", feature = "proto-ipv6"))]
 pub fn tcp_not_accepted() {
-    use crate::iface::ip_packet::{IpPacket, IpPayload, Ipv6Packet};
-
     let (mut iface, mut sockets, _) = setup(Medium::Ip);
     let tcp = TcpRepr {
         src_port: 4242,
@@ -189,23 +187,15 @@ pub fn tcp_not_accepted() {
             }),
             &tcp_bytes,
         ),
-        Some(IpPacket::Ipv6(Ipv6Packet {
-            header: Ipv6Repr {
+        Some(Packet::new_ipv6(
+            Ipv6Repr {
                 src_addr: Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1),
                 dst_addr: Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 2),
                 next_header: IpProtocol::Tcp,
                 payload_len: tcp.buffer_len(),
                 hop_limit: 64,
             },
-
-            #[cfg(feature = "proto-ipv6-hbh")]
-            hop_by_hop: None,
-            #[cfg(feature = "proto-ipv6-fragmentation")]
-            fragment: None,
-            #[cfg(feature = "proto-ipv6-routing")]
-            routing: None,
-
-            payload: IpPayload::Tcp(TcpRepr {
+            IpPayload::Tcp(TcpRepr {
                 src_port: 4243,
                 dst_port: 4242,
                 control: TcpControl::Rst,
@@ -218,7 +208,7 @@ pub fn tcp_not_accepted() {
                 sack_ranges: [None, None, None],
                 payload: &[],
             })
-        })),
+        ))
     );
     // Unspecified destination address.
     tcp.emit(

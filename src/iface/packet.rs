@@ -8,19 +8,19 @@ use crate::wire::*;
 pub(crate) enum EthernetPacket<'a> {
     #[cfg(feature = "proto-ipv4")]
     Arp(ArpRepr),
-    Ip(IpPacket<'a>),
+    Ip(Packet<'a>),
 }
 
 #[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub(crate) enum IpPacket<'p> {
+pub(crate) enum Packet<'p> {
     #[cfg(feature = "proto-ipv4")]
-    Ipv4(Ipv4Packet<'p>),
+    Ipv4(PacketV4<'p>),
     #[cfg(feature = "proto-ipv6")]
-    Ipv6(Ipv6Packet<'p>),
+    Ipv6(PacketV6<'p>),
 }
 
-impl<'p> IpPacket<'p> {
+impl<'p> Packet<'p> {
     pub(crate) fn new(ip_repr: IpRepr, payload: IpPayload<'p>) -> Self {
         match ip_repr {
             #[cfg(feature = "proto-ipv4")]
@@ -32,7 +32,7 @@ impl<'p> IpPacket<'p> {
 
     #[cfg(feature = "proto-ipv4")]
     pub(crate) fn new_ipv4(ip_repr: Ipv4Repr, payload: IpPayload<'p>) -> Self {
-        Self::Ipv4(Ipv4Packet {
+        Self::Ipv4(PacketV4 {
             header: ip_repr,
             payload,
         })
@@ -40,7 +40,7 @@ impl<'p> IpPacket<'p> {
 
     #[cfg(feature = "proto-ipv6")]
     pub(crate) fn new_ipv6(ip_repr: Ipv6Repr, payload: IpPayload<'p>) -> Self {
-        Self::Ipv6(Ipv6Packet {
+        Self::Ipv6(PacketV6 {
             header: ip_repr,
             #[cfg(feature = "proto-ipv6-hbh")]
             hop_by_hop: None,
@@ -55,18 +55,18 @@ impl<'p> IpPacket<'p> {
     pub(crate) fn ip_repr(&self) -> IpRepr {
         match self {
             #[cfg(feature = "proto-ipv4")]
-            IpPacket::Ipv4(p) => IpRepr::Ipv4(p.header),
+            Packet::Ipv4(p) => IpRepr::Ipv4(p.header),
             #[cfg(feature = "proto-ipv6")]
-            IpPacket::Ipv6(p) => IpRepr::Ipv6(p.header),
+            Packet::Ipv6(p) => IpRepr::Ipv6(p.header),
         }
     }
 
     pub(crate) fn payload(&self) -> &IpPayload<'p> {
         match self {
             #[cfg(feature = "proto-ipv4")]
-            IpPacket::Ipv4(p) => &p.payload,
+            Packet::Ipv4(p) => &p.payload,
             #[cfg(feature = "proto-ipv6")]
-            IpPacket::Ipv6(p) => &p.payload,
+            Packet::Ipv6(p) => &p.payload,
         }
     }
 
@@ -144,7 +144,7 @@ impl<'p> IpPacket<'p> {
 #[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[cfg(feature = "proto-ipv4")]
-pub(crate) struct Ipv4Packet<'p> {
+pub(crate) struct PacketV4<'p> {
     header: Ipv4Repr,
     payload: IpPayload<'p>,
 }
@@ -152,7 +152,7 @@ pub(crate) struct Ipv4Packet<'p> {
 #[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[cfg(feature = "proto-ipv6")]
-pub(crate) struct Ipv6Packet<'p> {
+pub(crate) struct PacketV6<'p> {
     pub(crate) header: Ipv6Repr,
     #[cfg(feature = "proto-ipv6-hbh")]
     pub(crate) hop_by_hop: Option<Ipv6HopByHopRepr<'p>>,
