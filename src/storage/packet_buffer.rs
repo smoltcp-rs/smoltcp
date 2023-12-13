@@ -390,7 +390,7 @@ mod test {
     fn clear() {
         let mut buffer = buffer();
 
-        // Ensure enqueuing data in teh buffer fills it somewhat.
+        // Ensure enqueuing data in the buffer fills it somewhat.
         assert!(buffer.is_empty());
         assert!(buffer.enqueue(6, ()).is_ok());
 

@@ -64,7 +64,7 @@ macro_rules! set_field {
 /// - Next Header
 /// - Hop Limit
 /// - IPv6 source address
-/// - IPv6 destinatino address
+/// - IPv6 destination address
 ///
 /// [RFC 6282 § 3.1]: https://datatracker.ietf.org/doc/html/rfc6282#section-3.1
 /// [RFC 6282 § 3.1.1]: https://datatracker.ietf.org/doc/html/rfc6282#section-3.1.1

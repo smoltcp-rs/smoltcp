@@ -1,6 +1,6 @@
 //! Implementation of the Trickle timer defined in [RFC 6206]. The algorithm allows node in a lossy
 //! shared medium to exchange information in a highly robust, energy efficient, simple, and
-//! scalable manner. Dynamicaly adjusting transmission windows allows Trickle to spread new
+//! scalable manner. Dynamically adjusting transmission windows allows Trickle to spread new
 //! information fast while sending only a few messages per hour when information does not change.
 //!
 //! **NOTE**: the constants used for the default Trickle timer are the ones from the [Enhanced
@@ -76,7 +76,7 @@ impl TrickleTimer {
         timer
     }
 
-    /// Poll the Trickle timer. Returns `true` when the Trickle timer singals that a message can be
+    /// Poll the Trickle timer. Returns `true` when the Trickle timer signals that a message can be
     /// transmitted. This happens when the Trickle timer expires.
     pub(crate) fn poll(&mut self, now: Instant, rand: &mut Rand) -> bool {
         let can_transmit = self.can_transmit() && self.t_expired(now);
@@ -212,7 +212,7 @@ mod tests {
             if now < trickle.i_exp && now < Instant::ZERO + trickle.min_expiration() {
                 assert_eq!(trickle.counter, 1);
             } else {
-                // The first interval expired, so the conter is reset.
+                // The first interval expired, so the counter is reset.
                 assert_eq!(trickle.counter, 0);
             }
 

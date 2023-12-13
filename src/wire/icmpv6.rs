@@ -325,7 +325,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
                 }
                 super::rpl::RplControlMessage::SecureDodagInformationSolicitation
                 | super::rpl::RplControlMessage::SecureDodagInformationObject
-                | super::rpl::RplControlMessage::SecureDesintationAdvertismentObject
+                | super::rpl::RplControlMessage::SecureDestinationAdvertisementObject
                 | super::rpl::RplControlMessage::SecureDestinationAdvertisementObjectAck
                 | super::rpl::RplControlMessage::ConsistencyCheck => return Err(Error),
                 super::rpl::RplControlMessage::Unknown(_) => return Err(Error),

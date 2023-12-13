@@ -611,7 +611,7 @@ fn test_handle_valid_ndisc_request(#[case] medium: Medium) {
         )))
     );
 
-    // Ensure the address of the requestor was entered in the cache
+    // Ensure the address of the requester was entered in the cache
     assert_eq!(
         iface.inner.lookup_hardware_addr(
             MockTxToken,
@@ -675,7 +675,7 @@ fn test_icmp_reply_size(#[case] medium: Medium) {
     let dst_addr = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 2);
 
     // UDP packet that if not tructated will cause a icmp port unreachable reply
-    // to exeed the minimum mtu bytes in length.
+    // to exceed the minimum mtu bytes in length.
     let udp_repr = UdpRepr {
         src_port: 67,
         dst_port: 68,

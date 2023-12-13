@@ -169,7 +169,7 @@ pub(crate) mod field {
     pub const OPT_MAX_DATAGRAM_REASSEMBLY_SIZE: u8 = 22;
     pub const OPT_DEFAULT_TTL: u8 = 23;
     pub const OPT_PATH_MTU_AGING_TIMEOUT: u8 = 24;
-    pub const OPT_PATH_MTU_PLATEU_TABLE: u8 = 25;
+    pub const OPT_PATH_MTU_PLATEAU_TABLE: u8 = 25;
 
     // IP Layer Parameters per Interface
     pub const OPT_INTERFACE_MTU: u8 = 26;

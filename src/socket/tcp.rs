@@ -5518,7 +5518,7 @@ mod test {
         let mut s = socket_established();
         s.remote_mss = 6;
 
-        // Normal ACK of previously recived segment
+        // Normal ACK of previously received segment
         send!(s, time 0, TcpRepr {
             seq_number: REMOTE_SEQ + 1,
             ack_number: Some(LOCAL_SEQ + 1),

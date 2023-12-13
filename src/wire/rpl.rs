@@ -57,7 +57,7 @@ impl InstanceId {
 
     /// Returns `true` when the DODAG ID is the source address of the IPv6 packet.
     ///
-    /// *NOTE*: this only makes sence when using a local RPL Instance ID and the packet is not a
+    /// *NOTE*: this only makes sense when using a local RPL Instance ID and the packet is not a
     /// RPL control message.
     #[inline]
     pub fn dodag_is_source(&self) -> bool {
@@ -85,7 +85,7 @@ mod field {
     //pub const DIO_RESERVED: usize = 11;
     pub const DIO_DODAG_ID: Field = 12..12 + 16;
 
-    // Destination advertisment object (DAO)
+    // Destination advertisement object (DAO)
     pub const DAO_K: usize = 5;
     pub const DAO_D: usize = 5;
     //pub const DAO_FLAGS: usize = 5;
@@ -93,7 +93,7 @@ mod field {
     pub const DAO_SEQUENCE: usize = 7;
     pub const DAO_DODAG_ID: Field = 8..8 + 16;
 
-    // Destination advertisment object ack (DAO-ACK)
+    // Destination advertisement object ack (DAO-ACK)
     pub const DAO_ACK_D: usize = 5;
     //pub const DAO_ACK_RESERVED: usize = 5;
     pub const DAO_ACK_SEQUENCE: usize = 6;
@@ -110,7 +110,7 @@ enum_with_unknown! {
         DestinationAdvertisementObjectAck = 0x03,
         SecureDodagInformationSolicitation = 0x80,
         SecureDodagInformationObject = 0x81,
-        SecureDesintationAdvertismentObject = 0x82,
+        SecureDestinationAdvertisementObject = 0x82,
         SecureDestinationAdvertisementObjectAck = 0x83,
         ConsistencyCheck = 0x8a,
     }
@@ -126,11 +126,11 @@ impl core::fmt::Display for RplControlMessage {
                 write!(f, "DODAG information object (DIO)")
             }
             RplControlMessage::DestinationAdvertisementObject => {
-                write!(f, "destination advertisment object (DAO)")
+                write!(f, "destination advertisement object (DAO)")
             }
             RplControlMessage::DestinationAdvertisementObjectAck => write!(
                 f,
-                "destination advertisment object acknowledgement (DAO-ACK)"
+                "destination advertisement object acknowledgement (DAO-ACK)"
             ),
             RplControlMessage::SecureDodagInformationSolicitation => {
                 write!(f, "secure DODAG information solicitation (DIS)")
@@ -138,12 +138,12 @@ impl core::fmt::Display for RplControlMessage {
             RplControlMessage::SecureDodagInformationObject => {
                 write!(f, "secure DODAG information object (DIO)")
             }
-            RplControlMessage::SecureDesintationAdvertismentObject => {
-                write!(f, "secure destination advertisment object (DAO)")
+            RplControlMessage::SecureDestinationAdvertisementObject => {
+                write!(f, "secure destination advertisement object (DAO)")
             }
             RplControlMessage::SecureDestinationAdvertisementObjectAck => write!(
                 f,
-                "secure destination advertisment object acknowledgement (DAO-ACK)"
+                "secure destination advertisement object acknowledgement (DAO-ACK)"
             ),
             RplControlMessage::ConsistencyCheck => write!(f, "consistency check (CC)"),
             RplControlMessage::Unknown(id) => write!(f, "{}", id),
@@ -190,7 +190,7 @@ impl<'p, T: AsRef<[u8]> + ?Sized> Packet<&'p T> {
             }
             RplControlMessage::SecureDodagInformationSolicitation
             | RplControlMessage::SecureDodagInformationObject
-            | RplControlMessage::SecureDesintationAdvertismentObject
+            | RplControlMessage::SecureDestinationAdvertisementObject
             | RplControlMessage::SecureDestinationAdvertisementObjectAck
             | RplControlMessage::ConsistencyCheck => return Err(Error),
             RplControlMessage::Unknown(_) => return Err(Error),
@@ -215,7 +215,7 @@ impl<'p, T: AsRef<[u8]> + ?Sized> Packet<&'p T> {
             }
             RplControlMessage::SecureDodagInformationSolicitation
             | RplControlMessage::SecureDodagInformationObject
-            | RplControlMessage::SecureDesintationAdvertismentObject
+            | RplControlMessage::SecureDestinationAdvertisementObject
             | RplControlMessage::SecureDestinationAdvertisementObjectAck
             | RplControlMessage::ConsistencyCheck => unreachable!(),
             RplControlMessage::Unknown(_) => unreachable!(),
@@ -257,7 +257,7 @@ impl<'p, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Packet<&'p mut T> {
             }
             RplControlMessage::SecureDodagInformationSolicitation
             | RplControlMessage::SecureDodagInformationObject
-            | RplControlMessage::SecureDesintationAdvertismentObject
+            | RplControlMessage::SecureDestinationAdvertisementObject
             | RplControlMessage::SecureDestinationAdvertisementObjectAck
             | RplControlMessage::ConsistencyCheck => todo!("Secure messages not supported"),
             RplControlMessage::Unknown(_) => todo!(),
@@ -368,7 +368,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
         get!(self.buffer, field: field::DIO_PRF, mask: 0b111)
     }
 
-    /// Return the destination advertisment trigger sequence number.
+    /// Return the destination advertisement trigger sequence number.
     #[inline]
     pub fn dio_dest_adv_trigger_seq_number(&self) -> u8 {
         get!(self.buffer, field: field::DIO_DTSN)
@@ -419,7 +419,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
         set!(self.buffer, value, field: field::DIO_PRF, mask: 0b111)
     }
 
-    /// Set the destination advertisment trigger sequence number.
+    /// Set the destination advertisement trigger sequence number.
     #[inline]
     pub fn set_dio_dest_adv_trigger_seq_number(&mut self, value: u8) {
         set!(self.buffer, value, field: field::DIO_DTSN)
@@ -432,7 +432,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     }
 }
 
-/// Getters for the Destination Advertisment Object (DAO) message.
+/// Getters for the Destination Advertisement Object (DAO) message.
 ///
 /// ```txt
 ///  0                   1                   2                   3
@@ -483,7 +483,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     }
 }
 
-/// Setters for the Destination Advertisment Object (DAO) message.
+/// Setters for the Destination Advertisement Object (DAO) message.
 impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// Set the Expect DAO-ACK flag.
     #[inline]
@@ -518,7 +518,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     }
 }
 
-/// Getters for the Destination Advertisment Object acknowledgement (DAO-ACK) message.
+/// Getters for the Destination Advertisement Object acknowledgement (DAO-ACK) message.
 ///
 /// ```txt
 ///  0                   1                   2                   3
@@ -569,7 +569,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     }
 }
 
-/// Setters for the Destination Advertisment Object acknowledgement (DAO-ACK) message.
+/// Setters for the Destination Advertisement Object acknowledgement (DAO-ACK) message.
 impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// Set the flag indicating that the DODAG ID is present or not.
     #[inline]
@@ -752,7 +752,7 @@ impl<'p> Repr<'p> {
             }
             RplControlMessage::SecureDodagInformationSolicitation
             | RplControlMessage::SecureDodagInformationObject
-            | RplControlMessage::SecureDesintationAdvertismentObject
+            | RplControlMessage::SecureDestinationAdvertisementObject
             | RplControlMessage::SecureDestinationAdvertisementObjectAck
             | RplControlMessage::ConsistencyCheck => Err(Error),
             RplControlMessage::Unknown(_) => Err(Error),
@@ -2018,7 +2018,7 @@ pub mod options {
                         PrefixLength={prefix_length} \
                         L={on_link} A={autonomous_address_configuration} R={router_address} \
                         Valid={valid_lifetime} \
-                        Prefered={preferred_lifetime} \
+                        Preferred={preferred_lifetime} \
                         Prefix={destination_prefix:0x?}"
                     )
                 }

@@ -190,7 +190,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
                     }
 
                     // RFC1035 says: "In this scheme, an entire domain name or a list of labels at
-                    //      the end of a domain name is replaced with a pointer to a ***prior*** occurance
+                    //      the end of a domain name is replaced with a pointer to a ***prior*** occurrence
                     //      of the same name.
                     //
                     // Is it unclear if this means the pointer MUST point backwards in the packet or not. Either way,

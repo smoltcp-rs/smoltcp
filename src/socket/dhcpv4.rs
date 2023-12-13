@@ -551,7 +551,7 @@ impl<'a> Socket<'a> {
         const MAX_IPV4_HEADER_LEN: usize = 60;
 
         // We don't directly modify self.transaction_id because sending the packet
-        // may fail. We only want to update state after succesfully sending.
+        // may fail. We only want to update state after successfully sending.
         let next_transaction_id = Self::random_transaction_id(cx);
 
         let mut dhcp_repr = DhcpRepr {

@@ -78,7 +78,7 @@ impl<'a> Repr<'a> {
             let option = option?;
 
             if let Err(e) = options.push(option) {
-                net_trace!("eror when parsing hop-by-hop options: {}", e);
+                net_trace!("error when parsing hop-by-hop options: {}", e);
                 break;
             }
         }
