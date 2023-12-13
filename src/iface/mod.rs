@@ -4,7 +4,6 @@ The `iface` module deals with the *network interfaces*. It filters incoming fram
 provides lookup and caching of hardware addresses, and handles management packets.
 */
 
-#[cfg(any(feature = "proto-ipv4", feature = "proto-sixlowpan"))]
 mod fragmentation;
 mod interface;
 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]

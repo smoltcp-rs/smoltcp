@@ -4,9 +4,12 @@ use core::fmt;
 
 use managed::{ManagedMap, ManagedSlice};
 
-use crate::config::{REASSEMBLY_BUFFER_COUNT, REASSEMBLY_BUFFER_SIZE};
+use crate::config::{FRAGMENTATION_BUFFER_SIZE, REASSEMBLY_BUFFER_COUNT, REASSEMBLY_BUFFER_SIZE};
 use crate::storage::Assembler;
 use crate::time::{Duration, Instant};
+use crate::wire::*;
+
+use core::result::Result;
 
 #[cfg(feature = "alloc")]
 type Buffer = alloc::vec::Vec<u8>;
@@ -231,6 +234,164 @@ impl<K: Eq + Copy> PacketAssemblerSet<K> {
             if !frag.is_free() && frag.expires_at < timestamp {
                 frag.reset();
             }
+        }
+    }
+}
+
+// Max len of non-fragmented packets after decompression (including ipv6 header and payload)
+// TODO: lower. Should be (6lowpan mtu) - (min 6lowpan header size) + (max ipv6 header size)
+pub(crate) const MAX_DECOMPRESSED_LEN: usize = 1500;
+
+#[cfg(feature = "_proto-fragmentation")]
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub(crate) enum FragKey {
+    #[cfg(feature = "proto-ipv4-fragmentation")]
+    Ipv4(Ipv4FragKey),
+    #[cfg(feature = "proto-sixlowpan-fragmentation")]
+    Sixlowpan(SixlowpanFragKey),
+}
+
+pub(crate) struct FragmentsBuffer {
+    #[cfg(feature = "proto-sixlowpan")]
+    pub decompress_buf: [u8; MAX_DECOMPRESSED_LEN],
+
+    #[cfg(feature = "_proto-fragmentation")]
+    pub assembler: PacketAssemblerSet<FragKey>,
+
+    #[cfg(feature = "_proto-fragmentation")]
+    pub reassembly_timeout: Duration,
+}
+
+#[cfg(not(feature = "_proto-fragmentation"))]
+pub(crate) struct Fragmenter {}
+
+#[cfg(not(feature = "_proto-fragmentation"))]
+impl Fragmenter {
+    pub(crate) fn new() -> Self {
+        Self {}
+    }
+}
+
+#[cfg(feature = "_proto-fragmentation")]
+pub(crate) struct Fragmenter {
+    /// The buffer that holds the unfragmented 6LoWPAN packet.
+    pub buffer: [u8; FRAGMENTATION_BUFFER_SIZE],
+    /// The size of the packet without the IEEE802.15.4 header and the fragmentation headers.
+    pub packet_len: usize,
+    /// The amount of bytes that already have been transmitted.
+    pub sent_bytes: usize,
+
+    #[cfg(feature = "proto-ipv4-fragmentation")]
+    pub ipv4: Ipv4Fragmenter,
+    #[cfg(feature = "proto-sixlowpan-fragmentation")]
+    pub sixlowpan: SixlowpanFragmenter,
+}
+
+#[cfg(feature = "proto-ipv4-fragmentation")]
+pub(crate) struct Ipv4Fragmenter {
+    /// The IPv4 representation.
+    pub repr: Ipv4Repr,
+    /// The destination hardware address.
+    #[cfg(feature = "medium-ethernet")]
+    pub dst_hardware_addr: EthernetAddress,
+    /// The offset of the next fragment.
+    pub frag_offset: u16,
+    /// The identifier of the stream.
+    pub ident: u16,
+}
+
+#[cfg(feature = "proto-sixlowpan-fragmentation")]
+pub(crate) struct SixlowpanFragmenter {
+    /// The datagram size that is used for the fragmentation headers.
+    pub datagram_size: u16,
+    /// The datagram tag that is used for the fragmentation headers.
+    pub datagram_tag: u16,
+    pub datagram_offset: usize,
+
+    /// The size of the FRAG_N packets.
+    pub fragn_size: usize,
+
+    /// The link layer IEEE802.15.4 source address.
+    pub ll_dst_addr: Ieee802154Address,
+    /// The link layer IEEE802.15.4 source address.
+    pub ll_src_addr: Ieee802154Address,
+}
+
+#[cfg(feature = "_proto-fragmentation")]
+impl Fragmenter {
+    pub(crate) fn new() -> Self {
+        Self {
+            buffer: [0u8; FRAGMENTATION_BUFFER_SIZE],
+            packet_len: 0,
+            sent_bytes: 0,
+
+            #[cfg(feature = "proto-ipv4-fragmentation")]
+            ipv4: Ipv4Fragmenter {
+                repr: Ipv4Repr {
+                    src_addr: Ipv4Address::default(),
+                    dst_addr: Ipv4Address::default(),
+                    next_header: IpProtocol::Unknown(0),
+                    payload_len: 0,
+                    hop_limit: 0,
+                },
+                #[cfg(feature = "medium-ethernet")]
+                dst_hardware_addr: EthernetAddress::default(),
+                frag_offset: 0,
+                ident: 0,
+            },
+
+            #[cfg(feature = "proto-sixlowpan-fragmentation")]
+            sixlowpan: SixlowpanFragmenter {
+                datagram_size: 0,
+                datagram_tag: 0,
+                datagram_offset: 0,
+                fragn_size: 0,
+                ll_dst_addr: Ieee802154Address::Absent,
+                ll_src_addr: Ieee802154Address::Absent,
+            },
+        }
+    }
+
+    /// Return `true` when everything is transmitted.
+    #[inline]
+    pub(crate) fn finished(&self) -> bool {
+        self.packet_len == self.sent_bytes
+    }
+
+    /// Returns `true` when there is nothing to transmit.
+    #[inline]
+    pub(crate) fn is_empty(&self) -> bool {
+        self.packet_len == 0
+    }
+
+    // Reset the buffer.
+    pub(crate) fn reset(&mut self) {
+        self.packet_len = 0;
+        self.sent_bytes = 0;
+
+        #[cfg(feature = "proto-ipv4-fragmentation")]
+        {
+            self.ipv4.repr = Ipv4Repr {
+                src_addr: Ipv4Address::default(),
+                dst_addr: Ipv4Address::default(),
+                next_header: IpProtocol::Unknown(0),
+                payload_len: 0,
+                hop_limit: 0,
+            };
+            #[cfg(feature = "medium-ethernet")]
+            {
+                self.ipv4.dst_hardware_addr = EthernetAddress::default();
+            }
+        }
+
+        #[cfg(feature = "proto-sixlowpan-fragmentation")]
+        {
+            self.sixlowpan.datagram_size = 0;
+            self.sixlowpan.datagram_tag = 0;
+            self.sixlowpan.fragn_size = 0;
+            self.sixlowpan.ll_dst_addr = Ieee802154Address::Absent;
+            self.sixlowpan.ll_src_addr = Ieee802154Address::Absent;
         }
     }
 }
