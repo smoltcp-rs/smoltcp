@@ -1,4 +1,4 @@
-//! 6lowpan exmaple
+//! 6lowpan example
 //!
 //! This example is designed to run using the Linux ieee802154/6lowpan support,
 //! using mac802154_hwsim.

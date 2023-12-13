@@ -60,7 +60,7 @@ pub enum NhcPacket {
 
 impl NhcPacket {
     /// Returns the type of the Next Header header.
-    /// This can either be an Extenstion header or an 6LoWPAN Udp header.
+    /// This can either be an Extension header or an 6LoWPAN Udp header.
     ///
     /// # Errors
     /// Returns `[Error::Unrecognized]` when neither the Extension Header dispatch or the Udp
@@ -308,7 +308,7 @@ impl ExtHeaderRepr {
         len
     }
 
-    /// Emit a high-level representaiton into a 6LoWPAN NHC Extension Header packet.
+    /// Emit a high-level representation into a 6LoWPAN NHC Extension Header packet.
     pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(&self, packet: &mut ExtHeaderPacket<T>) {
         packet.set_dispatch_field();
         packet.set_extension_header_id(self.ext_header_id);
@@ -454,7 +454,7 @@ mod tests {
 /// A read/write wrapper around a 6LoWPAN_NHC UDP frame.
 /// [RFC 6282 § 4.3] specifies the format of the header.
 ///
-/// The base header has the following formath:
+/// The base header has the following format:
 /// ```txt
 ///   0   1   2   3   4   5   6   7
 /// +---+---+---+---+---+---+---+---+

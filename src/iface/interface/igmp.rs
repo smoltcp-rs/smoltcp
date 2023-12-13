@@ -34,7 +34,7 @@ impl std::error::Error for MulticastError {}
 impl Interface {
     /// Add an address to a list of subscribed multicast IP addresses.
     ///
-    /// Returns `Ok(announce_sent)` if the address was added successfully, where `annouce_sent`
+    /// Returns `Ok(announce_sent)` if the address was added successfully, where `announce_sent`
     /// indicates whether an initial immediate announcement has been sent.
     pub fn join_multicast_group<D, T: Into<IpAddress>>(
         &mut self,

@@ -197,7 +197,7 @@ impl Assembler {
     }
 
     /// Add a new contiguous range to the assembler,
-    /// or return `Err(TooManyHolesError)` if too many discontiguities are already recorded.
+    /// or return `Err(TooManyHolesError)` if too many discontinuities are already recorded.
     pub fn add(&mut self, mut offset: usize, size: usize) -> Result<(), TooManyHolesError> {
         if size == 0 {
             return Ok(());

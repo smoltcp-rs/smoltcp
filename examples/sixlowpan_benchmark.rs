@@ -1,4 +1,4 @@
-//! 6lowpan benchmark exmaple
+//! 6lowpan benchmark example
 //!
 //! This example runs a simple TCP throughput benchmark using the 6lowpan implementation in smoltcp
 //! It is designed to run using the Linux ieee802154/6lowpan support,
