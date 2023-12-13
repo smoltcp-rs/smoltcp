@@ -811,17 +811,13 @@ pub struct Repr<'a> {
 
 impl<'a> Repr<'a> {
     /// Parse a Transmission Control Protocol packet and return a high-level representation.
-    pub fn parse<T>(
-        packet: &Packet<&'a T>,
+    pub fn parse(
+        packet: &Packet<&'a [u8]>,
         src_addr: &IpAddress,
         dst_addr: &IpAddress,
         checksum_caps: &ChecksumCapabilities,
-    ) -> Result<Repr<'a>>
-    where
-        T: AsRef<[u8]> + ?Sized,
-    {
+    ) -> Result<Repr<'a>> {
         packet.check_len()?;
-
         // Source and destination ports must be present.
         if packet.src_port() == 0 {
             return Err(Error);
@@ -937,15 +933,13 @@ impl<'a> Repr<'a> {
     }
 
     /// Emit a high-level representation into a Transmission Control Protocol packet.
-    pub fn emit<T>(
+    pub fn emit(
         &self,
-        packet: &mut Packet<&mut T>,
+        packet: &mut Packet<&mut [u8]>,
         src_addr: &IpAddress,
         dst_addr: &IpAddress,
         checksum_caps: &ChecksumCapabilities,
-    ) where
-        T: AsRef<[u8]> + AsMut<[u8]> + ?Sized,
-    {
+    ) {
         packet.set_src_port(self.src_port);
         packet.set_dst_port(self.dst_port);
         packet.set_seq_number(self.seq_number);
@@ -1256,7 +1250,7 @@ mod test {
     fn test_emit() {
         let repr = packet_repr();
         let mut bytes = vec![0xa5; repr.buffer_len()];
-        let mut packet = Packet::new_unchecked(&mut bytes);
+        let mut packet = Packet::new_unchecked(&mut bytes[..]);
         repr.emit(
             &mut packet,
             &SRC_ADDR.into(),

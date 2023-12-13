@@ -629,10 +629,7 @@ pub struct Repr {
 
 impl Repr {
     /// Parse an Internet Protocol version 4 packet and return a high-level representation.
-    pub fn parse<T: AsRef<[u8]> + ?Sized>(
-        packet: &Packet<&T>,
-        checksum_caps: &ChecksumCapabilities,
-    ) -> Result<Repr> {
+    pub fn parse(packet: &Packet<&'_ [u8]>, checksum_caps: &ChecksumCapabilities) -> Result<Repr> {
         packet.check_len()?;
         // Version 4 is expected.
         if packet.version() != 4 {
@@ -670,11 +667,7 @@ impl Repr {
     }
 
     /// Emit a high-level representation into an Internet Protocol version 4 packet.
-    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(
-        &self,
-        packet: &mut Packet<T>,
-        checksum_caps: &ChecksumCapabilities,
-    ) {
+    pub fn emit(&self, packet: &mut Packet<&'_ mut [u8]>, checksum_caps: &ChecksumCapabilities) {
         packet.set_version(4);
         packet.set_header_len(field::DST_ADDR.end as u8);
         packet.set_dscp(0);
@@ -701,7 +694,7 @@ impl Repr {
     }
 }
 
-impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
+impl<'a> fmt::Display for Packet<&'a [u8]> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match Repr::parse(self, &ChecksumCapabilities::ignored()) {
             Ok(repr) => write!(f, "{repr}"),
@@ -768,7 +761,7 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
 
         let checksum_caps = ChecksumCapabilities::ignored();
 
-        let (ip_repr, payload) = match Packet::new_checked(buffer) {
+        let (ip_repr, payload) = match Packet::new_checked(buffer.as_ref()) {
             Err(err) => return write!(f, "{indent}({err})"),
             Ok(ip_packet) => match Repr::parse(&ip_packet, &checksum_caps) {
                 Err(_) => return Ok(()),
@@ -906,7 +899,7 @@ mod test {
         let mut packet = Packet::new_unchecked(&mut bytes);
         packet.set_version(6);
         packet.fill_checksum();
-        let packet = Packet::new_unchecked(&*packet.into_inner());
+        let packet = Packet::new_unchecked(&packet.into_inner()[..]);
         assert_eq!(
             Repr::parse(&packet, &ChecksumCapabilities::default()),
             Err(Error)
@@ -924,7 +917,7 @@ mod test {
     fn test_emit() {
         let repr = packet_repr();
         let mut bytes = vec![0xa5; repr.buffer_len() + REPR_PAYLOAD_BYTES.len()];
-        let mut packet = Packet::new_unchecked(&mut bytes);
+        let mut packet = Packet::new_unchecked(&mut bytes[..]);
         repr.emit(&mut packet, &ChecksumCapabilities::default());
         packet.payload_mut().copy_from_slice(&REPR_PAYLOAD_BYTES);
         assert_eq!(&*packet.into_inner(), &REPR_PACKET_BYTES[..]);

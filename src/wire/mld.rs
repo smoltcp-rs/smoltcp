@@ -315,10 +315,7 @@ pub enum Repr<'a> {
 
 impl<'a> Repr<'a> {
     /// Parse an MLDv2 packet and return a high-level representation.
-    pub fn parse<T>(packet: &Packet<&'a T>) -> Result<Repr<'a>>
-    where
-        T: AsRef<[u8]> + ?Sized,
-    {
+    pub fn parse(packet: &Packet<&'a [u8]>) -> Result<Repr<'a>> {
         packet.check_len()?;
         match packet.msg_type() {
             Message::MldQuery => Ok(Repr::Query {
@@ -347,10 +344,7 @@ impl<'a> Repr<'a> {
     }
 
     /// Emit a high-level representation into an MLDv2 packet.
-    pub fn emit<T>(&self, packet: &mut Packet<&mut T>)
-    where
-        T: AsRef<[u8]> + AsMut<[u8]> + ?Sized,
-    {
+    pub fn emit(&self, packet: &mut Packet<&mut [u8]>) {
         match self {
             Repr::Query {
                 max_resp_code,

@@ -173,8 +173,9 @@ pub struct Repr<'a> {
 
 impl<'a> Repr<'a> {
     /// Parse an IPSec Authentication Header packet and return a high-level representation.
-    pub fn parse<T: AsRef<[u8]> + ?Sized>(packet: &Packet<&'a T>) -> Result<Repr<'a>> {
+    pub fn parse(packet: &Packet<&'a [u8]>) -> Result<Repr<'a>> {
         packet.check_len()?;
+
         Ok(Repr {
             next_header: packet.next_header(),
             security_parameters_index: packet.security_parameters_index(),
@@ -189,7 +190,7 @@ impl<'a> Repr<'a> {
     }
 
     /// Emit a high-level representation into an IPSec Authentication Header.
-    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]> + ?Sized>(&self, packet: &mut Packet<&'a mut T>) {
+    pub fn emit(&self, packet: &mut Packet<&'a mut [u8]>) {
         packet.set_next_header(self.next_header);
 
         let payload_len = ((field::SEQUENCE_NUMBER.end + self.integrity_check_value.len()) / 4) - 2;
@@ -273,7 +274,7 @@ mod test {
     #[test]
     fn test_emit() {
         let mut bytes = vec![0x17; 24];
-        let mut packet = Packet::new_unchecked(&mut bytes);
+        let mut packet = Packet::new_unchecked(&mut bytes[..]);
         packet_repr().emit(&mut packet);
         assert_eq!(bytes, PACKET_BYTES2);
     }

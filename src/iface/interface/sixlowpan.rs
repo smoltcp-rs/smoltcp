@@ -421,7 +421,7 @@ impl InterfaceInner {
                     tx_buf = &mut tx_buf[ieee_len..];
 
                     // Add the first fragment header
-                    let mut frag1_packet = SixlowpanFragPacket::new_unchecked(&mut tx_buf);
+                    let mut frag1_packet = SixlowpanFragPacket::new_unchecked(&mut tx_buf[..]);
                     frag1.emit(&mut frag1_packet);
                     tx_buf = &mut tx_buf[frag1.buffer_len()..];
 
@@ -752,7 +752,7 @@ mod tests {
             0xfd, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
         ])];
 
-        let ieee_frame = Ieee802154Frame::new_checked(&SIXLOWPAN_COMPRESSED_RPL_DAO).unwrap();
+        let ieee_frame = Ieee802154Frame::new_checked(&SIXLOWPAN_COMPRESSED_RPL_DAO[..]).unwrap();
         let ieee_repr = Ieee802154Repr::parse(&ieee_frame).unwrap();
 
         let mut buffer = [0u8; 256];

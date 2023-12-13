@@ -78,7 +78,7 @@ fn test_handle_udp_broadcast(
     let udp_socket = udp::Socket::new(rx_buffer, tx_buffer);
 
     let mut udp_bytes = vec![0u8; 13];
-    let mut packet = UdpPacket::new_unchecked(&mut udp_bytes);
+    let mut packet = UdpPacket::new_unchecked(&mut udp_bytes[..]);
 
     let socket_handle = sockets.add(udp_socket);
 

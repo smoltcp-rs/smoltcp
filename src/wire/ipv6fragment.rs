@@ -126,7 +126,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Header<T> {
     }
 }
 
-impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Header<&'a T> {
+impl<'a> fmt::Display for Header<&'a [u8]> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match Repr::parse(self) {
             Ok(repr) => write!(f, "{repr}"),
@@ -153,10 +153,7 @@ pub struct Repr {
 
 impl Repr {
     /// Parse an IPv6 Fragment Header and return a high-level representation.
-    pub fn parse<T>(header: &Header<&T>) -> Result<Repr>
-    where
-        T: AsRef<[u8]> + ?Sized,
-    {
+    pub fn parse(header: &Header<&'_ [u8]>) -> Result<Repr> {
         header.check_len()?;
         Ok(Repr {
             frag_offset: header.frag_offset(),
@@ -172,7 +169,7 @@ impl Repr {
     }
 
     /// Emit a high-level representation into an IPv6 Fragment Header.
-    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]> + ?Sized>(&self, header: &mut Header<&mut T>) {
+    pub fn emit(&self, header: &mut Header<&'_ mut [u8]>) {
         header.clear_reserved();
         header.set_frag_offset(self.frag_offset);
         header.set_more_frags(self.more_frags);
@@ -229,7 +226,7 @@ mod test {
 
     #[test]
     fn test_repr_parse_valid() {
-        let header = Header::new_unchecked(&BYTES_HEADER_MORE_FRAG);
+        let header = Header::new_unchecked(&BYTES_HEADER_MORE_FRAG[..]);
         let repr = Repr::parse(&header).unwrap();
         assert_eq!(
             repr,
@@ -240,7 +237,7 @@ mod test {
             }
         );
 
-        let header = Header::new_unchecked(&BYTES_HEADER_LAST_FRAG);
+        let header = Header::new_unchecked(&BYTES_HEADER_LAST_FRAG[..]);
         let repr = Repr::parse(&header).unwrap();
         assert_eq!(
             repr,
@@ -260,7 +257,7 @@ mod test {
             ident: 12345,
         };
         let mut bytes = [0u8; 6];
-        let mut header = Header::new_unchecked(&mut bytes);
+        let mut header = Header::new_unchecked(&mut bytes[..]);
         repr.emit(&mut header);
         assert_eq!(header.into_inner(), &BYTES_HEADER_MORE_FRAG[0..6]);
 
@@ -270,14 +267,14 @@ mod test {
             ident: 67890,
         };
         let mut bytes = [0u8; 6];
-        let mut header = Header::new_unchecked(&mut bytes);
+        let mut header = Header::new_unchecked(&mut bytes[..]);
         repr.emit(&mut header);
         assert_eq!(header.into_inner(), &BYTES_HEADER_LAST_FRAG[0..6]);
     }
 
     #[test]
     fn test_buffer_len() {
-        let header = Header::new_unchecked(&BYTES_HEADER_MORE_FRAG);
+        let header = Header::new_unchecked(&BYTES_HEADER_MORE_FRAG[..]);
         let repr = Repr::parse(&header).unwrap();
         assert_eq!(repr.buffer_len(), BYTES_HEADER_MORE_FRAG.len());
     }

@@ -66,10 +66,7 @@ pub struct Repr<'a> {
 
 impl<'a> Repr<'a> {
     /// Parse an IPv6 Hop-by-Hop Header and return a high-level representation.
-    pub fn parse<T>(header: &'a Header<&'a T>) -> Result<Repr<'a>>
-    where
-        T: AsRef<[u8]> + ?Sized,
-    {
+    pub fn parse(header: &Header<&'a [u8]>) -> Result<Repr<'a>> {
         header.check_len()?;
 
         let mut options = Vec::new();
@@ -95,7 +92,7 @@ impl<'a> Repr<'a> {
     }
 
     /// Emit a high-level representation into an IPv6 Hop-by-Hop Header.
-    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]> + ?Sized>(&self, header: &mut Header<&mut T>) {
+    pub fn emit(&self, header: &mut Header<&'_ mut [u8]>) {
         let mut buffer = header.options_mut();
 
         for opt in &self.options {
@@ -138,14 +135,14 @@ mod tests {
 
     #[test]
     fn test_repr_parse_valid() {
-        let header = Header::new_unchecked(&REPR_PACKET_PAD4);
+        let header = Header::new_unchecked(&REPR_PACKET_PAD4[..]);
         let repr = Repr::parse(&header).unwrap();
 
         let mut options = Vec::new();
         options.push(Ipv6OptionRepr::PadN(4)).unwrap();
         assert_eq!(repr, Repr { options });
 
-        let header = Header::new_unchecked(&REPR_PACKET_PAD12);
+        let header = Header::new_unchecked(&REPR_PACKET_PAD12[..]);
         let repr = Repr::parse(&header).unwrap();
 
         let mut options = Vec::new();
@@ -160,7 +157,7 @@ mod tests {
         let repr = Repr { options };
 
         let mut bytes = [0u8; 6];
-        let mut header = Header::new_unchecked(&mut bytes);
+        let mut header = Header::new_unchecked(&mut bytes[..]);
         repr.emit(&mut header);
 
         assert_eq!(header.into_inner(), &REPR_PACKET_PAD4[..]);
@@ -170,7 +167,7 @@ mod tests {
         let repr = Repr { options };
 
         let mut bytes = [0u8; 14];
-        let mut header = Header::new_unchecked(&mut bytes);
+        let mut header = Header::new_unchecked(&mut bytes[..]);
         repr.emit(&mut header);
 
         assert_eq!(header.into_inner(), &REPR_PACKET_PAD12[..]);

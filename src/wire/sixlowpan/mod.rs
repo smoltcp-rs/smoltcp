@@ -240,8 +240,8 @@ mod test {
             size: 0xff,
             tag: 0xabcd,
         };
-        let buffer = [0u8; 4];
-        let mut packet = frag::Packet::new_unchecked(buffer);
+        let mut buffer = [0u8; 4];
+        let mut packet = frag::Packet::new_unchecked(&mut buffer[..]);
 
         assert_eq!(repr.buffer_len(), 4);
         repr.emit(&mut packet);
@@ -255,8 +255,8 @@ mod test {
             tag: 0xabcd,
             offset: 0xcc,
         };
-        let buffer = [0u8; 5];
-        let mut packet = frag::Packet::new_unchecked(buffer);
+        let mut buffer = [0u8; 5];
+        let mut packet = frag::Packet::new_unchecked(&mut buffer[..]);
 
         assert_eq!(repr.buffer_len(), 5);
         repr.emit(&mut packet);

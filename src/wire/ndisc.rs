@@ -226,10 +226,7 @@ impl<'a> Repr<'a> {
     /// Parse an NDISC packet and return a high-level representation of the
     /// packet.
     #[allow(clippy::single_match)]
-    pub fn parse<T>(packet: &Packet<&'a T>) -> Result<Repr<'a>>
-    where
-        T: AsRef<[u8]> + ?Sized,
-    {
+    pub fn parse(packet: &Packet<&'a [u8]>) -> Result<Repr<'a>> {
         packet.check_len()?;
 
         let (mut src_ll_addr, mut mtu, mut prefix_info, mut target_ll_addr, mut redirected_hdr) =
@@ -343,10 +340,7 @@ impl<'a> Repr<'a> {
         }
     }
 
-    pub fn emit<T>(&self, packet: &mut Packet<&mut T>)
-    where
-        T: AsRef<[u8]> + AsMut<[u8]> + ?Sized,
-    {
+    pub fn emit(&self, packet: &mut Packet<&mut [u8]>) {
         match *self {
             Repr::RouterSolicit { lladdr } => {
                 packet.set_msg_type(Message::RouterSolicit);

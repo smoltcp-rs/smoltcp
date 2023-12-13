@@ -716,9 +716,8 @@ impl<'p> Repr<'p> {
         *opts = options;
     }
 
-    pub fn parse<T: AsRef<[u8]> + ?Sized>(packet: &Packet<&'p T>) -> Result<Self> {
+    pub fn parse(packet: &Packet<&'p [u8]>) -> Result<Self> {
         packet.check_len()?;
-
         let options = packet.options()?;
         match RplControlMessage::from(packet.msg_code()) {
             RplControlMessage::DodagInformationSolicitation => {
@@ -793,7 +792,7 @@ impl<'p> Repr<'p> {
         len
     }
 
-    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]> + ?Sized>(&self, packet: &mut Packet<&mut T>) {
+    pub fn emit(&self, packet: &mut Packet<&mut [u8]>) {
         packet.set_msg_type(crate::wire::icmpv6::Message::RplControl);
 
         match self {
@@ -2030,7 +2029,7 @@ pub mod options {
     }
 
     impl<'p> Repr<'p> {
-        pub fn parse<T: AsRef<[u8]> + ?Sized>(packet: &Packet<&'p T>) -> Result<Self> {
+        pub fn parse(packet: &Packet<&'p [u8]>) -> Result<Self> {
             match packet.option_type() {
                 OptionType::Pad1 => Ok(Repr::Pad1),
                 OptionType::PadN => Ok(Repr::PadN(packet.option_length())),
@@ -2105,7 +2104,7 @@ pub mod options {
             }
         }
 
-        pub fn emit<T: AsRef<[u8]> + AsMut<[u8]> + ?Sized>(&self, packet: &mut Packet<&'p mut T>) {
+        pub fn emit(&self, packet: &mut Packet<&'p mut [u8]>) {
             let mut option_length = self.buffer_len() as u8;
 
             packet.set_option_type(self.into());
@@ -2346,10 +2345,7 @@ pub mod data {
 
     impl HopByHopOption {
         /// Parse an IPv6 Extension Header Option and return a high-level representation.
-        pub fn parse<T>(opt: &Packet<&T>) -> Self
-        where
-            T: AsRef<[u8]> + ?Sized,
-        {
+        pub fn parse(opt: &Packet<&[u8]>) -> Self {
             Self {
                 down: opt.is_down(),
                 rank_error: opt.has_rank_error(),
@@ -2365,7 +2361,7 @@ pub mod data {
         }
 
         /// Emit a high-level representation into an IPv6 Extension Header Option.
-        pub fn emit<T: AsRef<[u8]> + AsMut<[u8]> + ?Sized>(&self, opt: &mut Packet<&mut T>) {
+        pub fn emit(&self, opt: &mut Packet<&mut [u8]>) {
             opt.set_is_down(self.down);
             opt.set_has_rank_error(self.rank_error);
             opt.set_has_forwarding_error(self.forwarding_error);
@@ -2405,7 +2401,8 @@ mod tests {
             Ieee802154Address::Extended([0x9e, 0xd3, 0xa2, 0x9c, 0x57, 0x1a, 0x4f, 0xe4]);
         let ll_dst_address = Ieee802154Address::Short([0xff, 0xff]);
 
-        let packet = SixlowpanIphcPacket::new_checked(&data).unwrap();
+        let packet = SixlowpanIphcPacket::new_checked(&data[..]).unwrap();
+
         let repr =
             SixlowpanIphcRepr::parse(&packet, Some(ll_src_address), Some(ll_dst_address), &[])
                 .unwrap();

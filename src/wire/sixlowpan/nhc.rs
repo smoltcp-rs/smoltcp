@@ -280,7 +280,7 @@ pub struct ExtHeaderRepr {
 
 impl ExtHeaderRepr {
     /// Parse a 6LoWPAN NHC Extension Header packet and return a high-level representation.
-    pub fn parse<T: AsRef<[u8]> + ?Sized>(packet: &ExtHeaderPacket<&T>) -> Result<Self> {
+    pub fn parse(packet: &ExtHeaderPacket<&[u8]>) -> Result<Self> {
         // Ensure basic accessors will work.
         packet.check_len()?;
 
@@ -309,7 +309,7 @@ impl ExtHeaderRepr {
     }
 
     /// Emit a high-level representation into a 6LoWPAN NHC Extension Header packet.
-    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(&self, packet: &mut ExtHeaderPacket<T>) {
+    pub fn emit(&self, packet: &mut ExtHeaderPacket<&mut [u8]>) {
         packet.set_dispatch_field();
         packet.set_extension_header_id(self.ext_header_id);
         packet.set_next_header(self.next_header);
@@ -693,8 +693,8 @@ pub struct UdpNhcRepr(pub UdpRepr);
 
 impl<'a> UdpNhcRepr {
     /// Parse a 6LoWPAN NHC UDP packet and return a high-level representation.
-    pub fn parse<T: AsRef<[u8]> + ?Sized>(
-        packet: &UdpNhcPacket<&'a T>,
+    pub fn parse(
+        packet: &UdpNhcPacket<&'a [u8]>,
         src_addr: &ipv6::Address,
         dst_addr: &ipv6::Address,
         checksum_caps: &ChecksumCapabilities,
@@ -748,9 +748,9 @@ impl<'a> UdpNhcRepr {
     }
 
     /// Emit a high-level representation into a LOWPAN_NHC UDP header.
-    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(
+    pub fn emit(
         &self,
-        packet: &mut UdpNhcPacket<T>,
+        packet: &mut UdpNhcPacket<&mut [u8]>,
         src_addr: &Address,
         dst_addr: &Address,
         payload_len: usize,
