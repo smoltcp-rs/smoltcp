@@ -6,6 +6,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Additions
+
+- wire/ipsec: add basic IPsec parsing/emitting ([#821](https://github.com/smoltcp-rs/smoltcp/pull/821)).
+- phy: add support for `TUNSETIFF` on MIPS, PPC and SPARC ([#839](https://github.com/smoltcp-rs/smoltcp/pull/839)).
+- socket/tcp: accept FIN on zero window ([#845](https://github.com/smoltcp-rs/smoltcp/pull/845)).
+- wire/ipv6: add `is_unique_local()` to IPv6 addresses ([#862](https://github.com/smoltcp-rs/smoltcp/pull/862)).
+- wire/ipv6: add `is_global_unicast()` to IPv6 addresses ([#864](https://github.com/smoltcp-rs/smoltcp/pull/864)).
+- iface/neigh: add `fill_with_expiration` ([#871](https://github.com/smoltcp-rs/smoltcp/pull/871)).
+
+### Fixes
+
+- icmpv6: truncate packet to MTU ([#807](https://github.com/smoltcp-rs/smoltcp/pull/807), [#808](https://github.com/smoltcp-rs/smoltcp/pull/810)).
+- wire/rpl: DAO-ACK DODAG ID was wrongly read ([#824](https://github.com/smoltcp-rs/smoltcp/pull/824)).
+- socket/tcp: don't panic when calling `listen` again on the same local endpoint ([#841](https://github.com/smoltcp-rs/smoltcp/pull/841)).
+- wire/dhcpv4: don't panic when parsing addresses with incorrect amount of bytes ([#843](https://github.com/smoltcp-rs/smoltcp/pull/843)).
+- iface/ndisc: prevent ndisc when the medium is IP ([#865](https://github.com/smoltcp-rs/smoltcp/pull/865)).
+- wire/ieee802154: better parsing of security fields. Correctly parse frame type (3 bits instead of 2 bits) ([#868](https://github.com/smoltcp-rs/smoltcp/pull/864)).
+- wire/ieee802154: better handle address fields for new frame version ([#870](https://github.com/smoltcp-rs/smoltcp/pull/870)).
+- iface/tcp: don't send TCP RST with unspecified addresses ([#867](https://github.com/smoltcp-rs/smoltcp/pull/867)).
+- iface: don't handle empty packets (this would panic when reading the IP version) ([#866](https://github.com/smoltcp-rs/smoltcp/pull/866)).
+
+
+### Changes
+
+- iface: rewrite `IpPacket` such that IPv6 packets can contain owned extension headers ([#802](https://github.com/smoltcp-rs/smoltcp/pull/802)).
+- iface: remove generic `T: [u8]` in functions. This reduced the server example by 10KB ([#810](https://github.com/smoltcp-rs/smoltcp/pull/810)).
+- SocketSet: add comment about using static lifetime for SocketSets with owned storage ([#813](https://github.com/smoltcp-rs/smoltcp/pull/813)).
+- phy/RawSocket: open raw socket with `O_NONBLOCK` ([#817](https://github.com/smoltcp-rs/smoltcp/pull/817)).
+- tests/rstest: use rstest for fixture based testing ([#823](https://github.com/smoltcp-rs/smoltcp/pull/823)).
+- docs/readme: update readme about IEEE802.15.4 and 6LoWPAN ([#826](https://github.com/smoltcp-rs/smoltcp/pull/826)).
+- wire/ipv6-hbh: IPv6 HBH has owned options instead of references ([#827](https://github.com/smoltcp-rs/smoltcp/pull/827)).
+- wire/sixlowpan: 6LoWPAN is split into multiple modules ([#828](https://github.com/smoltcp-rs/smoltcp/pull/828)).
+- sockets: match the behaviour of `peek_slice` and `recv_slice` ([#834](https://github.com/smoltcp-rs/smoltcp/pull/834)).
+- dependencies: update to headpless v0.8 ([#853](https://github.com/smoltcp-rs/smoltcp/pull/853)).
+- config: make `config` constants public ([#855](https://github.com/smoltcp-rs/smoltcp/pull/855)).
+- phy/ieee802154: clarify `mtu+=2` for IEEE802.15.4 ([#857](https://github.com/smoltcp-rs/smoltcp/pull/857)).
+- sockets: `recv_slice` returns `RcvError::Truncated` when the length of the slice is smaller than the data received by the socket ([#859](https://github.com/smoltcp-rs/smoltcp/pull/859)).
+- iface/ipv6: `get_source_address` uses [RFC 6724](https://www.rfc-editor.org/rfc/rfc6724) for address selection ([#864](https://github.com/smoltcp-rs/smoltcp/pull/864)).
+- pcap: use IEEE 802.15.4 without FCS for PCAP link types ([#874](https://github.com/smoltcp-rs/smoltcp/pull/874)).
+- iface: rename `IpPacket`/`Ipv4Packet`/`Ipv6Packet` to `Pacet`/`PacketV4`/`PacketV4`. This is to remove the ambiguity with `IpPacket` in `src/wire/` ([#873](https://github.com/smoltcp-rs/smoltcp/pull/873)).
+- wire/ndisc: rewrite parse function (3.1KiB -> 1.9KiB) ([#878](https://github.com/smoltcp-rs/smoltcp/pull/878))
+
 ## [0.10.0] - 2023-06-26
 
 - Add optional packet metadata. Allows tracking packets by ID across the whole stack, between the `Device` impl and sockets. One application is timestamping packets with the PHY's collaboration, allowing implementing PTP (#628)
