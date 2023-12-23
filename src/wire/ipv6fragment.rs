@@ -3,8 +3,6 @@ use core::fmt;
 
 use byteorder::{ByteOrder, NetworkEndian};
 
-pub use super::IpProtocol as Protocol;
-
 /// A read/write wrapper around an IPv6 Fragment Header.
 #[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
