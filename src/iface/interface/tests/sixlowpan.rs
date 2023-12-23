@@ -59,6 +59,13 @@ fn icmp_echo_request(#[case] medium: Medium) {
     ));
 
     let (mut iface, mut sockets, _device) = setup(medium);
+    iface.update_ip_addrs(|ips| {
+        ips.push(IpCidr::Ipv6(Ipv6Cidr::new(
+            Ipv6Address::from_parts(&[0xfe80, 0, 0, 0, 0x180b, 0x4242, 0x4242, 0x4242]),
+            10,
+        )))
+        .unwrap();
+    });
 
     assert_eq!(
         iface.inner.process_ieee802154(
@@ -77,6 +84,13 @@ fn test_echo_request_sixlowpan_128_bytes() {
     use crate::phy::Checksum;
 
     let (mut iface, mut sockets, mut device) = setup(Medium::Ieee802154);
+    iface.update_ip_addrs(|ips| {
+        ips.push(IpCidr::Ipv6(Ipv6Cidr::new(
+            Ipv6Address::new(0xfe80, 0x0, 0x0, 0x0, 0x92fc, 0x48c2, 0xa441, 0xfc76),
+            10,
+        )))
+        .unwrap();
+    });
     // TODO: modify the example, such that we can also test if the checksum is correctly
     // computed.
     iface.inner.caps.checksum.icmpv6 = Checksum::None;
@@ -283,6 +297,13 @@ fn test_sixlowpan_udp_with_fragmentation() {
     };
 
     let (mut iface, mut sockets, mut device) = setup(Medium::Ieee802154);
+    iface.update_ip_addrs(|ips| {
+        ips.push(IpCidr::Ipv6(Ipv6Cidr::new(
+            Ipv6Address::new(0xfe80, 0x0, 0x0, 0x0, 0x92fc, 0x48c2, 0xa441, 0xfc76),
+            10,
+        )))
+        .unwrap();
+    });
     iface.inner.caps.checksum.udp = Checksum::None;
 
     let udp_rx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 1024 * 4]);

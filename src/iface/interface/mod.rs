@@ -1007,9 +1007,26 @@ impl InterfaceInner {
         })
     }
 
-    #[cfg(not(feature = "proto-igmp"))]
+    /// Check whether the interface listens to given destination multicast IP address.
+    ///
+    /// If built without feature `proto-igmp` this function will
+    /// always return `false` when using IPv4.
     fn has_multicast_group<T: Into<IpAddress>>(&self, addr: T) -> bool {
-        false
+        match addr.into() {
+            #[cfg(feature = "proto-igmp")]
+            IpAddress::Ipv4(key) => {
+                key == Ipv4Address::MULTICAST_ALL_SYSTEMS
+                    || self.ipv4_multicast_groups.get(&key).is_some()
+            }
+            #[cfg(feature = "proto-ipv6")]
+            IpAddress::Ipv6(Ipv6Address::LINK_LOCAL_ALL_NODES) => true,
+            #[cfg(feature = "proto-rpl")]
+            IpAddress::Ipv6(Ipv6Address::LINK_LOCAL_ALL_RPL_NODES) => true,
+            #[cfg(feature = "proto-ipv6")]
+            IpAddress::Ipv6(addr) => self.has_solicited_node(addr),
+            #[allow(unreachable_patterns)]
+            _ => false,
+        }
     }
 
     #[cfg(feature = "medium-ip")]

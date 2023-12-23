@@ -87,6 +87,14 @@ impl Address {
         0x02,
     ]);
 
+    /// The link-local [all RPL nodes multicast address].
+    ///
+    /// [all RPL nodes multicast address]: https://www.rfc-editor.org/rfc/rfc6550.html#section-20.19
+    pub const LINK_LOCAL_ALL_RPL_NODES: Address = Address([
+        0xff, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x1a,
+    ]);
+
     /// The [loopback address].
     ///
     /// [loopback address]: https://tools.ietf.org/html/rfc4291#section-2.5.3
