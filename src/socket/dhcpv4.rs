@@ -114,12 +114,17 @@ enum ClientState {
 /// Timeout and retry configuration.
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub struct RetryConfig {
     pub discover_timeout: Duration,
     /// The REQUEST timeout doubles every 2 tries.
     pub initial_request_timeout: Duration,
     pub request_retries: u16,
     pub min_renew_timeout: Duration,
+    /// An upper bound on how long to wait between retrying a renew or rebind.
+    ///
+    /// Set this to [`Duration::MAX`] if you don't want to impose an upper bound.
+    pub max_renew_timeout: Duration,
 }
 
 impl Default for RetryConfig {
@@ -129,6 +134,7 @@ impl Default for RetryConfig {
             initial_request_timeout: Duration::from_secs(5),
             request_retries: 5,
             min_renew_timeout: Duration::from_secs(60),
+            max_renew_timeout: Duration::MAX,
         }
     }
 }
@@ -212,6 +218,11 @@ impl<'a> Socket<'a> {
     /// Set the retry/timeouts configuration.
     pub fn set_retry_config(&mut self, config: RetryConfig) {
         self.retry_config = config;
+    }
+
+    /// Gets the current retry/timeouts configuration
+    pub fn get_retry_config(&self) -> RetryConfig {
+        self.retry_config
     }
 
     /// Set the outgoing options.
@@ -682,14 +693,16 @@ impl<'a> Socket<'a> {
                         + self
                             .retry_config
                             .min_renew_timeout
-                            .max((state.expires_at - now) / 2);
+                            .max((state.expires_at - now) / 2)
+                            .min(self.retry_config.max_renew_timeout);
                 } else {
                     state.renew_at = now
                         + self
                             .retry_config
                             .min_renew_timeout
                             .max((state.rebind_at - now) / 2)
-                            .min(state.rebind_at - now);
+                            .min(state.rebind_at - now)
+                            .min(self.retry_config.max_renew_timeout);
                 }
 
                 self.transaction_id = next_transaction_id;
@@ -1356,6 +1369,39 @@ mod test {
             ClientState::Discovering(_) => {}
             _ => panic!("Invalid state"),
         }
+    }
+
+    #[rstest]
+    #[case::ip(Medium::Ethernet)]
+    #[cfg(feature = "medium-ethernet")]
+    fn test_min_max_renew_timeout(#[case] medium: Medium) {
+        let mut s = socket_bound(medium);
+        // Set a minimum of 45s and a maximum of 120s
+        let config = RetryConfig {
+            max_renew_timeout: Duration::from_secs(120),
+            min_renew_timeout: Duration::from_secs(45),
+            ..s.get_retry_config()
+        };
+        s.set_retry_config(config);
+        recv!(s, []);
+        // First renew attempt at T1
+        recv!(s, time 499_999, []);
+        recv!(s, time 500_000, [(IP_SEND, UDP_SEND, DHCP_RENEW)]);
+        // Next renew attempt 120s after T1 because we hit the max
+        recv!(s, time 619_999, []);
+        recv!(s, time 620_000, [(IP_SEND, UDP_SEND, DHCP_RENEW)]);
+        // Next renew attempt 120s after previous because we hit the max again
+        recv!(s, time 739_999, []);
+        recv!(s, time 740_000, [(IP_SEND, UDP_SEND, DHCP_RENEW)]);
+        // Next renew attempt half way to T2
+        recv!(s, time 807_499, []);
+        recv!(s, time 807_500, [(IP_SEND, UDP_SEND, DHCP_RENEW)]);
+        // Next renew attempt 45s after previous because we hit the min
+        recv!(s, time 852_499, []);
+        recv!(s, time 852_500, [(IP_SEND, UDP_SEND, DHCP_RENEW)]);
+        // Next is a rebind, because the min puts us after T2
+        recv!(s, time 874_999, []);
+        recv!(s, time 875_000, [(IP_BROADCAST_ADDRESSED, UDP_SEND, DHCP_REBIND)]);
     }
 
     #[rstest]
