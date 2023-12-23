@@ -1,6 +1,6 @@
 [package]
 name = "smoltcp"
-version = "0.10.0"
+version = "0.11.0"
 edition = "2021"
 rust-version = "1.65"
 authors = ["whitequark <whitequark@whitequark.org>"]
@@ -37,7 +37,7 @@ rstest = "0.17"
 std = ["managed/std", "alloc"]
 alloc = ["managed/alloc", "defmt?/alloc"]
 verbose = []
-defmt = [ "dep:defmt", "heapless/defmt-03" ]
+defmt = ["dep:defmt", "heapless/defmt-03"]
 "medium-ethernet" = ["socket"]
 "medium-ip" = ["socket"]
 "medium-ieee802154" = ["socket", "proto-sixlowpan"]
@@ -58,8 +58,8 @@ defmt = [ "dep:defmt", "heapless/defmt-03" ]
 "proto-sixlowpan-fragmentation" = ["proto-sixlowpan", "_proto-fragmentation"]
 "proto-dns" = []
 "proto-ipsec" = ["proto-ipsec-ah", "proto-ipsec-esp"]
-"proto-ipsec-ah"= []
-"proto-ipsec-esp"= []
+"proto-ipsec-ah" = []
+"proto-ipsec-esp" = []
 
 "socket" = []
 "socket-raw" = ["socket"]

@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+No unreleased changes yet.
+
+## [0.11.0] - 2023-12-23
+
 ### Additions
 
 - wire/ipsec: add basic IPsec parsing/emitting ([#821](https://github.com/smoltcp-rs/smoltcp/pull/821)).
@@ -26,7 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - wire/ieee802154: better handle address fields for new frame version ([#870](https://github.com/smoltcp-rs/smoltcp/pull/870)).
 - iface/tcp: don't send TCP RST with unspecified addresses ([#867](https://github.com/smoltcp-rs/smoltcp/pull/867)).
 - iface: don't handle empty packets (this would panic when reading the IP version) ([#866](https://github.com/smoltcp-rs/smoltcp/pull/866)).
-
+- socket/dhcp: Add an upper bound to the renew/rebind timeout in `RetryConfig` ([#835](https://github.com/smoltcp-rs/smoltcp/pull/835)).
 
 ### Changes
 
@@ -47,6 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - pcap: use IEEE 802.15.4 without FCS for PCAP link types ([#874](https://github.com/smoltcp-rs/smoltcp/pull/874)).
 - iface: rename `IpPacket`/`Ipv4Packet`/`Ipv6Packet` to `Pacet`/`PacketV4`/`PacketV4`. This is to remove the ambiguity with `IpPacket` in `src/wire/` ([#873](https://github.com/smoltcp-rs/smoltcp/pull/873)).
 - wire/ndisc: rewrite parse function (3.1KiB -> 1.9KiB) ([#878](https://github.com/smoltcp-rs/smoltcp/pull/878))
+- iface: Check IPv6 address after processing HBH ([#861](https://github.com/smoltcp-rs/smoltcp/pull/861))
 
 ## [0.10.0] - 2023-06-26
 
@@ -275,7 +280,8 @@ only processed when directed to the 255.255.255.255 address. ([377](https://gith
 - Use #[non_exhaustive] for enums and structs ([409](https://github.com/smoltcp-rs/smoltcp/pull/409), [411](https://github.com/smoltcp-rs/smoltcp/pull/411))
 - Simplify lifetime parameters of sockets, SocketSet, EthernetInterface ([410](https://github.com/smoltcp-rs/smoltcp/pull/410), [413](https://github.com/smoltcp-rs/smoltcp/pull/413))
 
-[Unreleased]: https://github.com/smoltcp-rs/smoltcp/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/smoltcp-rs/smoltcp/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/smoltcp-rs/smoltcp/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/smoltcp-rs/smoltcp/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/smoltcp-rs/smoltcp/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/smoltcp-rs/smoltcp/compare/v0.8.2...v0.9.0
