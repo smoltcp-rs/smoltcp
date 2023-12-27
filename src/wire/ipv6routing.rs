@@ -261,10 +261,10 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Header<T> {
 
         match routing_type {
             Type::Type2 => {
+                data[2] = 0;
+                data[3] = 0;
                 data[4] = 0;
                 data[5] = 0;
-                data[6] = 0;
-                data[7] = 0;
             }
             Type::Rpl => {
                 // Retain the higher order 4 bits of the padding field
