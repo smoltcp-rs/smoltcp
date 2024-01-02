@@ -261,10 +261,10 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Header<T> {
 
         match routing_type {
             Type::Type2 => {
+                data[2] = 0;
+                data[3] = 0;
                 data[4] = 0;
                 data[5] = 0;
-                data[6] = 0;
-                data[7] = 0;
             }
             Type::Rpl => {
                 // Retain the higher order 4 bits of the padding field
@@ -581,17 +581,17 @@ mod test {
 
     #[test]
     fn test_repr_emit() {
-        let mut bytes = [0u8; 22];
+        let mut bytes = [0xFFu8; 22];
         let mut header = Header::new_unchecked(&mut bytes[..]);
         REPR_TYPE2.emit(&mut header);
         assert_eq!(header.into_inner(), &BYTES_TYPE2[..]);
 
-        let mut bytes = [0u8; 38];
+        let mut bytes = [0xFFu8; 38];
         let mut header = Header::new_unchecked(&mut bytes[..]);
         REPR_SRH_FULL.emit(&mut header);
         assert_eq!(header.into_inner(), &BYTES_SRH_FULL[..]);
 
-        let mut bytes = [0u8; 14];
+        let mut bytes = [0xFFu8; 14];
         let mut header = Header::new_unchecked(&mut bytes[..]);
         REPR_SRH_ELIDED.emit(&mut header);
         assert_eq!(header.into_inner(), &BYTES_SRH_ELIDED[..]);
