@@ -505,6 +505,7 @@ impl Repr {
                         .copy_from_slice(&addr.as_bytes()[common_prefix..]);
                     addrs_buf = &mut addrs_buf[16 - common_prefix..];
                 }
+                addrs_buf.fill(0);
             }
         }
     }
@@ -669,7 +670,7 @@ mod test {
         REPR_TYPE2.emit(&mut header);
         assert_eq!(header.into_inner(), &BYTES_TYPE2[..]);
 
-        let mut bytes = [0xFFu8; 38];
+        let mut bytes = [0xFFu8; 54];
         let mut header = Header::new_unchecked(&mut bytes[..]);
         repr_srh_elided().emit(&mut header);
         assert_eq!(header.into_inner(), &BYTES_SRH_ELIDED[..]);

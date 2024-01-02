@@ -189,6 +189,7 @@ fn hop_by_hop_discard_param_problem(#[case] medium: Medium) {
 
     assert_eq!(
         iface.inner.process_ipv6(
+            None,
             &mut sockets,
             PacketMeta::default(),
             &Ipv6Packet::new_checked(&data[..]).unwrap()
@@ -246,6 +247,7 @@ fn hop_by_hop_discard_with_multicast(#[case] medium: Medium) {
 
     assert_eq!(
         iface.inner.process_ipv6(
+            None,
             &mut sockets,
             PacketMeta::default(),
             &Ipv6Packet::new_checked(&data[..]).unwrap()

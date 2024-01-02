@@ -1,11 +1,4 @@
-use super::{Fragmenter, Interface, InterfaceInner, PacketMeta};
-use crate::iface::ip_packet::{IpPacket, IpPayload, Ipv6Packet};
-use crate::phy::Device;
-use crate::time::*;
-use crate::wire::{
-    Error, Icmpv6Repr, IpProtocol, Ipv6Address, Ipv6Repr, RplDio, RplDis, RplDodagConfiguration,
-    RplHopByHopRepr, RplOptionRepr, RplRepr, RplSequenceCounter,
-};
+use super::*;
 
 #[cfg(feature = "rpl-mop-1")]
 use crate::wire::Ipv6RoutingRepr;
@@ -24,7 +17,7 @@ impl Interface {
         fn transmit<D>(
             ctx: &mut InterfaceInner,
             device: &mut D,
-            packet: IpPacket,
+            packet: Packet,
             fragmenter: &mut Fragmenter,
         ) -> bool
         where
@@ -72,7 +65,7 @@ impl Interface {
             return transmit(
                 ctx,
                 device,
-                IpPacket::new_ipv6(ipv6_repr, IpPayload::Icmpv6(icmp_rpl)),
+                Packet::new_ipv6(ipv6_repr, IpPayload::Icmpv6(icmp_rpl)),
                 fragmenter,
             );
         }
@@ -119,7 +112,7 @@ impl Interface {
                 return transmit(
                     ctx,
                     device,
-                    IpPacket::new_ipv6(ipv6_repr, IpPayload::Icmpv6(icmp)),
+                    Packet::new_ipv6(ipv6_repr, IpPayload::Icmpv6(icmp)),
                     fragmenter,
                 );
             }
@@ -187,7 +180,7 @@ impl Interface {
             #[cfg(not(feature = "rpl-mop-1"))]
             let routing = None;
 
-            let ip_packet = Ipv6Packet {
+            let ip_packet = PacketV6 {
                 header: Ipv6Repr {
                     src_addr: ctx.ipv6_addr().unwrap(),
                     dst_addr,
@@ -199,7 +192,7 @@ impl Interface {
                 routing,
                 payload: IpPayload::Icmpv6(icmp),
             };
-            return transmit(ctx, device, IpPacket::Ipv6(ip_packet), fragmenter);
+            return transmit(ctx, device, Packet::Ipv6(ip_packet), fragmenter);
         }
 
         // Transmit any DAO that are queued.
@@ -247,7 +240,7 @@ impl Interface {
 
                 let hbh = Ipv6HopByHopRepr { options };
 
-                let ip_packet = crate::iface::ip_packet::Ipv6Packet {
+                let ip_packet = PacketV6 {
                     header: Ipv6Repr {
                         src_addr: our_addr,
                         dst_addr,
@@ -260,7 +253,7 @@ impl Interface {
                     payload: IpPayload::Icmpv6(icmp),
                 };
                 net_trace!("transmitting DAO");
-                return transmit(ctx, device, IpPacket::Ipv6(ip_packet), fragmenter);
+                return transmit(ctx, device, Packet::Ipv6(ip_packet), fragmenter);
             }
         }
 
@@ -286,7 +279,7 @@ impl Interface {
             return transmit(
                 ctx,
                 device,
-                IpPacket::new_ipv6(ipv6_repr, IpPayload::Icmpv6(icmp)),
+                Packet::new_ipv6(ipv6_repr, IpPayload::Icmpv6(icmp)),
                 fragmenter,
             );
         }
@@ -352,7 +345,7 @@ impl InterfaceInner {
         &mut self,
         ip_repr: Ipv6Repr,
         repr: RplRepr<'payload>,
-    ) -> Option<IpPacket<'output>> {
+    ) -> Option<Packet<'output>> {
         match repr {
             RplRepr::DodagInformationSolicitation(dis) => self.process_rpl_dis(ip_repr, dis),
             RplRepr::DodagInformationObject(dio) => self.process_rpl_dio(ip_repr, dio),
@@ -375,7 +368,7 @@ impl InterfaceInner {
         &mut self,
         ip_repr: Ipv6Repr,
         dis: RplDis<'payload>,
-    ) -> Option<IpPacket<'output>> {
+    ) -> Option<Packet<'output>> {
         // We cannot handle a DIS when we are not part of any DODAG.
         let Some(dodag) = &mut self.rpl.dodag else {
             return None;
@@ -409,7 +402,7 @@ impl InterfaceInner {
 
             let dio = Icmpv6Repr::Rpl(self.rpl.dodag_information_object(options));
 
-            Some(IpPacket::new_ipv6(
+            Some(Packet::new_ipv6(
                 Ipv6Repr {
                     src_addr: self.ipv6_addr().unwrap(),
                     dst_addr: ip_repr.src_addr,
@@ -434,7 +427,7 @@ impl InterfaceInner {
         &mut self,
         ip_repr: Ipv6Repr,
         dio: RplDio<'payload>,
-    ) -> Option<IpPacket<'output>> {
+    ) -> Option<Packet<'output>> {
         let mut dodag_configuration = None;
 
         // Options that are expected: Pad1, PadN, DAG Metric Container, Routing Information, DODAG
@@ -507,7 +500,7 @@ impl InterfaceInner {
                     options: Default::default(),
                 }));
 
-                return Some(IpPacket::new_ipv6(
+                return Some(Packet::new_ipv6(
                     Ipv6Repr {
                         src_addr: self.ipv6_addr().unwrap(),
                         dst_addr: ip_repr.src_addr,
@@ -639,7 +632,7 @@ impl InterfaceInner {
 
                 // Transmit a DIO with INFINITE rank, but with an updated Version number.
                 // Everyone knows they have to leave the network and form a new one.
-                return Some(IpPacket::new_ipv6(
+                return Some(Packet::new_ipv6(
                     Ipv6Repr {
                         src_addr: self.ipv6_addr().unwrap(),
                         dst_addr: Ipv6Address::LINK_LOCAL_ALL_RPL_NODES,
@@ -678,7 +671,7 @@ impl InterfaceInner {
                     let dio =
                         Icmpv6Repr::Rpl(self.rpl.dodag_information_object(Default::default()));
 
-                    return Some(IpPacket::new_ipv6(
+                    return Some(Packet::new_ipv6(
                         Ipv6Repr {
                             src_addr: self.ipv6_addr().unwrap(),
                             dst_addr: Ipv6Address::LINK_LOCAL_ALL_RPL_NODES,
@@ -772,7 +765,7 @@ impl InterfaceInner {
         &mut self,
         ip_repr: Ipv6Repr,
         dao: RplDao<'payload>,
-    ) -> Option<IpPacket<'output>> {
+    ) -> Option<Packet<'output>> {
         let our_addr = self.ipv6_addr().unwrap();
         let dodag = self.rpl.dodag.as_mut()?;
 
@@ -885,7 +878,7 @@ impl InterfaceInner {
 
             let hbh = Ipv6HopByHopRepr { options };
 
-            let packet = crate::iface::ip_packet::Ipv6Packet {
+            let packet = PacketV6 {
                 header: Ipv6Repr {
                     src_addr: our_addr,
                     dst_addr: dodag.parent.unwrap(),
@@ -898,7 +891,7 @@ impl InterfaceInner {
                 payload: IpPayload::Icmpv6(Icmpv6Repr::Rpl(icmp)),
             };
 
-            return Some(IpPacket::Ipv6(packet));
+            return Some(Packet::Ipv6(packet));
         }
 
         None
@@ -909,7 +902,7 @@ impl InterfaceInner {
         &mut self,
         ip_repr: Ipv6Repr,
         dao_ack: RplDaoAck,
-    ) -> Option<IpPacket<'output>> {
+    ) -> Option<Packet<'output>> {
         let RplDaoAck {
             rpl_instance_id,
             sequence,

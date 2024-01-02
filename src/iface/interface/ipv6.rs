@@ -262,26 +262,12 @@ impl InterfaceInner {
         ipv6_repr: Ipv6Repr,
         ip_payload: &'frame [u8],
     ) -> HopByHopResponse<'frame> {
-        let param_problem = || {
-            let payload_len =
-                icmp_reply_payload_len(ip_payload.len(), IPV6_MIN_MTU, ipv6_repr.buffer_len());
-            self.icmpv6_reply(
-                ipv6_repr,
-                Icmpv6Repr::ParamProblem {
-                    reason: Icmpv6ParamProblem::UnrecognizedOption,
-                    pointer: ipv6_repr.buffer_len() as u32,
-                    header: ipv6_repr,
-                    data: &ip_payload[0..payload_len],
-                },
-            )
-        };
-
         let ext_hdr = check!(Ipv6ExtHeader::new_checked(ip_payload));
         let ext_repr = check!(Ipv6ExtHeaderRepr::parse(&ext_hdr));
         let hbh_hdr = check!(Ipv6HopByHopHeader::new_checked(ext_repr.data));
         let mut hbh_repr = check!(Ipv6HopByHopRepr::parse(&hbh_hdr));
 
-        for opt_repr in &hbh_repr.options {
+        for opt_repr in &mut hbh_repr.options {
             match opt_repr {
                 Ipv6OptionRepr::Pad1 | Ipv6OptionRepr::PadN(_) => (),
                 #[cfg(feature = "proto-rpl")]
@@ -325,12 +311,16 @@ impl InterfaceInner {
                             return HopByHopResponse::Discard(None);
                         }
                         Ipv6OptionFailureType::DiscardSendAll => {
-                            return HopByHopResponse::Discard(param_problem());
+                            return HopByHopResponse::Discard(
+                                self.param_problem(ipv6_repr, ip_payload),
+                            );
                         }
                         Ipv6OptionFailureType::DiscardSendUnicast
                             if !ipv6_repr.dst_addr.is_multicast() =>
                         {
-                            return HopByHopResponse::Discard(param_problem());
+                            return HopByHopResponse::Discard(
+                                self.param_problem(ipv6_repr, ip_payload),
+                            );
                         }
                         _ => unreachable!(),
                     }
@@ -370,10 +360,6 @@ impl InterfaceInner {
             #[cfg(feature = "socket-tcp")]
             IpProtocol::Tcp => self.process_tcp(sockets, ipv6_repr.into(), ip_payload),
 
-            IpProtocol::HopByHop => {
-                self.process_hopbyhop(sockets, meta, ipv6_repr, handled_by_raw_socket, ip_payload)
-            }
-
             #[cfg(feature = "proto-ipv6-routing")]
             IpProtocol::Ipv6Route => {
                 self.process_routing(sockets, meta, ipv6_repr, handled_by_raw_socket, ip_payload)
@@ -382,19 +368,7 @@ impl InterfaceInner {
             #[cfg(feature = "socket-raw")]
             _ if handled_by_raw_socket => None,
 
-            _ => {
-                // Send back as much of the original payload as we can.
-                let payload_len =
-                    icmp_reply_payload_len(ip_payload.len(), IPV6_MIN_MTU, ipv6_repr.buffer_len());
-                let icmp_reply_repr = Icmpv6Repr::ParamProblem {
-                    reason: Icmpv6ParamProblem::UnrecognizedNxtHdr,
-                    // The offending packet is after the IPv6 header.
-                    pointer: ipv6_repr.buffer_len() as u32,
-                    header: ipv6_repr,
-                    data: &ip_payload[0..payload_len],
-                };
-                self.icmpv6_reply(ipv6_repr, icmp_reply_repr)
-            }
+            _ => self.param_problem(ipv6_repr, ip_payload),
         }
     }
 
@@ -549,7 +523,7 @@ impl InterfaceInner {
         mut ipv6_repr: Ipv6Repr,
         handled_by_raw_socket: bool,
         ip_payload: &'frame [u8],
-    ) -> Option<IpPacket<'frame>> {
+    ) -> Option<Packet<'frame>> {
         let ext_hdr = check!(Ipv6ExtHeader::new_checked(ip_payload));
 
         let routing_header = check!(Ipv6RoutingHeader::new_checked(ext_hdr.payload()));
@@ -633,7 +607,7 @@ impl InterfaceInner {
                         let payload = &ip_payload[ext_hdr.payload().len() + 2..];
                         ipv6_repr.payload_len = payload.len();
 
-                        return Some(IpPacket::Ipv6(Ipv6Packet {
+                        return Some(Packet::Ipv6(PacketV6 {
                             header: ipv6_repr,
                             hop_by_hop: None,
                             routing: Some(routing_repr),
@@ -687,7 +661,7 @@ impl InterfaceInner {
         mut ipv6_repr: Ipv6Repr,
         mut _hop_by_hop: Option<Ipv6HopByHopRepr<'frame>>,
         payload: &'frame [u8],
-    ) -> Option<IpPacket<'frame>> {
+    ) -> Option<Packet<'frame>> {
         net_trace!("forwarding packet");
 
         if ipv6_repr.hop_limit <= 1 {
@@ -735,7 +709,7 @@ impl InterfaceInner {
             None
         };
 
-        Some(IpPacket::Ipv6(Ipv6Packet {
+        Some(Packet::Ipv6(PacketV6 {
             header: ipv6_repr,
             #[cfg(feature = "proto-ipv6-hbh")]
             hop_by_hop: _hop_by_hop,
@@ -743,5 +717,23 @@ impl InterfaceInner {
             routing,
             payload: IpPayload::Raw(payload),
         }))
+    }
+
+    fn param_problem<'frame>(
+        &self,
+        ipv6_repr: Ipv6Repr,
+        ip_payload: &'frame [u8],
+    ) -> Option<Packet<'frame>> {
+        let payload_len =
+            icmp_reply_payload_len(ip_payload.len(), IPV6_MIN_MTU, ipv6_repr.buffer_len());
+        self.icmpv6_reply(
+            ipv6_repr,
+            Icmpv6Repr::ParamProblem {
+                reason: Icmpv6ParamProblem::UnrecognizedOption,
+                pointer: ipv6_repr.buffer_len() as u32,
+                header: ipv6_repr,
+                data: &ip_payload[0..payload_len],
+            },
+        )
     }
 }
