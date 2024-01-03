@@ -223,6 +223,8 @@ impl Repr {
     where
         T: AsRef<[u8]> + ?Sized,
     {
+        packet.check_len()?;
+
         // Destination port cannot be omitted (but source port can be).
         if packet.dst_port() == 0 {
             return Err(Error);

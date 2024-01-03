@@ -283,6 +283,7 @@ impl Repr {
 
     /// Emit a high-level representation into an Ethernet II frame.
     pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(&self, frame: &mut Frame<T>) {
+        assert!(frame.buffer.as_ref().len() >= self.buffer_len());
         frame.set_src_addr(self.src_addr);
         frame.set_dst_addr(self.dst_addr);
         frame.set_ethertype(self.ethertype);

@@ -271,6 +271,8 @@ impl Repr {
     /// Parse an Address Resolution Protocol packet and return a high-level representation,
     /// or return `Err(Error)` if the packet is not recognized.
     pub fn parse<T: AsRef<[u8]>>(packet: &Packet<T>) -> Result<Repr> {
+        packet.check_len()?;
+
         match (
             packet.hardware_type(),
             packet.protocol_type(),

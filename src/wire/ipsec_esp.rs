@@ -91,6 +91,7 @@ pub struct Repr {
 impl Repr {
     /// Parse an IPSec Encapsulating Security Payload packet and return a high-level representation.
     pub fn parse<T: AsRef<[u8]>>(packet: &Packet<T>) -> Result<Repr> {
+        packet.check_len()?;
         Ok(Repr {
             security_parameters_index: packet.security_parameters_index(),
             sequence_number: packet.sequence_number(),

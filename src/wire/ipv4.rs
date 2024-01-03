@@ -633,6 +633,7 @@ impl Repr {
         packet: &Packet<&T>,
         checksum_caps: &ChecksumCapabilities,
     ) -> Result<Repr> {
+        packet.check_len()?;
         // Version 4 is expected.
         if packet.version() != 4 {
             return Err(Error);

@@ -431,6 +431,8 @@ impl<'a> Repr<'a> {
     where
         T: AsRef<[u8]> + ?Sized,
     {
+        opt.check_len()?;
+
         match opt.option_type() {
             Type::SourceLinkLayerAddr => {
                 if opt.data_len() >= 1 {

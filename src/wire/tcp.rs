@@ -820,6 +820,8 @@ impl<'a> Repr<'a> {
     where
         T: AsRef<[u8]> + ?Sized,
     {
+        packet.check_len()?;
+
         // Source and destination ports must be present.
         if packet.src_port() == 0 {
             return Err(Error);
