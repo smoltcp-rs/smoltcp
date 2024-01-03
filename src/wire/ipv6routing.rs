@@ -376,6 +376,7 @@ impl<'a> Repr<'a> {
     where
         T: AsRef<[u8]> + ?Sized,
     {
+        header.check_len()?;
         match header.routing_type() {
             Type::Type2 => Ok(Repr::Type2 {
                 segments_left: header.segments_left(),

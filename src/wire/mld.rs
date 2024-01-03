@@ -319,6 +319,7 @@ impl<'a> Repr<'a> {
     where
         T: AsRef<[u8]> + ?Sized,
     {
+        packet.check_len()?;
         match packet.msg_type() {
             Message::MldQuery => Ok(Repr::Query {
                 max_resp_code: packet.max_resp_code(),

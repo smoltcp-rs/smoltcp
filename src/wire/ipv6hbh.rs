@@ -70,6 +70,8 @@ impl<'a> Repr<'a> {
     where
         T: AsRef<[u8]> + ?Sized,
     {
+        header.check_len()?;
+
         let mut options = Vec::new();
 
         let iter = Ipv6OptionsIterator::new(header.options());

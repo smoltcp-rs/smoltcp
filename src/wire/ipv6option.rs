@@ -241,6 +241,7 @@ impl<'a> Repr<'a> {
     where
         T: AsRef<[u8]> + ?Sized,
     {
+        opt.check_len()?;
         match opt.option_type() {
             Type::Pad1 => Ok(Repr::Pad1),
             Type::PadN => Ok(Repr::PadN(opt.data_len())),

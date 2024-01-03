@@ -707,6 +707,7 @@ impl<'a> Repr<'a> {
     where
         T: AsRef<[u8]> + ?Sized,
     {
+        packet.check_len()?;
         let transaction_id = packet.transaction_id();
         let client_hardware_address = packet.client_hardware_address();
         let client_ip = packet.client_ip();
