@@ -1,6 +1,14 @@
 use super::*;
 
 impl InterfaceInner {
+    /// Return the next IEEE802.15.4 sequence number.
+    #[cfg(feature = "medium-ieee802154")]
+    pub(super) fn next_ieee802154_seq_number(&mut self) -> u8 {
+        let no = self.sequence_no;
+        self.sequence_no = self.sequence_no.wrapping_add(1);
+        no
+    }
+
     pub(super) fn process_ieee802154<'output, 'payload: 'output>(
         &mut self,
         sockets: &mut SocketSet,
@@ -54,7 +62,7 @@ impl InterfaceInner {
             security_enabled: false,
             frame_pending: false,
             ack_request: false,
-            sequence_number: Some(self.get_sequence_number()),
+            sequence_number: Some(self.next_ieee802154_seq_number()),
             pan_id_compression: true,
             frame_version: Ieee802154FrameVersion::Ieee802154_2003,
             dst_pan_id: self.pan_id,
@@ -78,7 +86,7 @@ impl InterfaceInner {
             security_enabled: false,
             frame_pending: false,
             ack_request: false,
-            sequence_number: Some(self.get_sequence_number()),
+            sequence_number: Some(self.next_ieee802154_seq_number()),
             pan_id_compression: true,
             frame_version: Ieee802154FrameVersion::Ieee802154_2003,
             dst_pan_id: self.pan_id,

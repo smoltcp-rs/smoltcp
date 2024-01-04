@@ -897,13 +897,6 @@ impl InterfaceInner {
         }
     }
 
-    #[cfg(feature = "medium-ieee802154")]
-    fn get_sequence_number(&mut self) -> u8 {
-        let no = self.sequence_no;
-        self.sequence_no = self.sequence_no.wrapping_add(1);
-        no
-    }
-
     #[cfg(feature = "proto-ipv4-fragmentation")]
     fn get_ipv4_ident(&mut self) -> u16 {
         let ipv4_id = self.ipv4_id;
