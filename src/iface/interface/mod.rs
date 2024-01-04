@@ -1112,24 +1112,30 @@ impl InterfaceInner {
     }
 
     #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
-    #[allow(clippy::too_many_arguments)]
     fn process_udp<'frame>(
         &mut self,
         sockets: &mut SocketSet,
         meta: PacketMeta,
-        ip_repr: IpRepr,
-        udp_repr: UdpRepr,
         handled_by_raw_socket: bool,
-        udp_payload: &'frame [u8],
+        ip_repr: IpRepr,
         ip_payload: &'frame [u8],
     ) -> Option<Packet<'frame>> {
+        let (src_addr, dst_addr) = (ip_repr.src_addr(), ip_repr.dst_addr());
+        let udp_packet = check!(UdpPacket::new_checked(ip_payload));
+        let udp_repr = check!(UdpRepr::parse(
+            &udp_packet,
+            &src_addr,
+            &dst_addr,
+            &self.caps.checksum
+        ));
+
         #[cfg(feature = "socket-udp")]
         for udp_socket in sockets
             .items_mut()
             .filter_map(|i| udp::Socket::downcast_mut(&mut i.socket))
         {
             if udp_socket.accepts(self, &ip_repr, &udp_repr) {
-                udp_socket.process(self, meta, &ip_repr, &udp_repr, udp_payload);
+                udp_socket.process(self, meta, &ip_repr, &udp_repr, udp_packet.payload());
                 return None;
             }
         }
@@ -1140,7 +1146,7 @@ impl InterfaceInner {
             .filter_map(|i| dns::Socket::downcast_mut(&mut i.socket))
         {
             if dns_socket.accepts(&ip_repr, &udp_repr) {
-                dns_socket.process(self, &ip_repr, &udp_repr, udp_payload);
+                dns_socket.process(self, &ip_repr, &udp_repr, udp_packet.payload());
                 return None;
             }
         }

@@ -236,15 +236,9 @@ fn test_icmp_error_port_unreachable(#[case] medium: Medium) {
     // Ensure that the unknown protocol triggers an error response.
     // And we correctly handle no payload.
     assert_eq!(
-        iface.inner.process_udp(
-            &mut sockets,
-            PacketMeta::default(),
-            ip_repr,
-            udp_repr,
-            false,
-            &UDP_PAYLOAD,
-            data
-        ),
+        iface
+            .inner
+            .process_udp(&mut sockets, PacketMeta::default(), false, ip_repr, data),
         Some(expected_repr)
     );
 
@@ -273,10 +267,8 @@ fn test_icmp_error_port_unreachable(#[case] medium: Medium) {
         iface.inner.process_udp(
             &mut sockets,
             PacketMeta::default(),
-            ip_repr,
-            udp_repr,
             false,
-            &UDP_PAYLOAD,
+            ip_repr,
             packet_broadcast.into_inner(),
         ),
         None
@@ -954,10 +946,8 @@ fn test_icmp_reply_size(#[case] medium: Medium) {
         iface.inner.process_udp(
             &mut sockets,
             PacketMeta::default(),
-            ip_repr.into(),
-            udp_repr,
             false,
-            &vec![0x2a; MAX_PAYLOAD_LEN],
+            ip_repr.into(),
             payload,
         ),
         Some(Packet::new_ipv4(

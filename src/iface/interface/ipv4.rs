@@ -129,23 +129,7 @@ impl InterfaceInner {
 
             #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
             IpProtocol::Udp => {
-                let udp_packet = check!(UdpPacket::new_checked(ip_payload));
-                let udp_repr = check!(UdpRepr::parse(
-                    &udp_packet,
-                    &ipv4_repr.src_addr.into(),
-                    &ipv4_repr.dst_addr.into(),
-                    &self.checksum_caps(),
-                ));
-
-                self.process_udp(
-                    sockets,
-                    meta,
-                    ip_repr,
-                    udp_repr,
-                    handled_by_raw_socket,
-                    udp_packet.payload(),
-                    ip_payload,
-                )
+                self.process_udp(sockets, meta, handled_by_raw_socket, ip_repr, ip_payload)
             }
 
             #[cfg(feature = "socket-tcp")]
