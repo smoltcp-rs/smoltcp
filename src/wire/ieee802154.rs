@@ -940,7 +940,7 @@ pub struct Repr {
 
 impl Repr {
     /// Parse an IEEE 802.15.4 frame and return a high-level representation.
-    pub fn parse<T: AsRef<[u8]> + ?Sized>(packet: &Frame<&T>) -> Result<Repr> {
+    pub fn parse(packet: &Frame<&[u8]>) -> Result<Repr> {
         // Ensure the basic accessors will work.
         packet.check_len()?;
 
@@ -977,7 +977,7 @@ impl Repr {
     }
 
     /// Emit a high-level representation into an IEEE802.15.4 frame.
-    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(&self, frame: &mut Frame<T>) {
+    pub fn emit(&self, frame: &mut Frame<&mut [u8]>) {
         frame.set_frame_type(self.frame_type);
         frame.set_security_enabled(self.security_enabled);
         frame.set_frame_pending(self.frame_pending);

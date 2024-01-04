@@ -201,10 +201,7 @@ pub enum IgmpVersion {
 impl Repr {
     /// Parse an Internet Group Management Protocol v1/v2 packet and return
     /// a high-level representation.
-    pub fn parse<T>(packet: &Packet<&T>) -> Result<Repr>
-    where
-        T: AsRef<[u8]> + ?Sized,
-    {
+    pub fn parse(packet: &Packet<&[u8]>) -> Result<Repr> {
         packet.check_len()?;
 
         // Check if the address is 0.0.0.0 or multicast
@@ -254,10 +251,7 @@ impl Repr {
     }
 
     /// Emit a high-level representation into an Internet Group Management Protocol v2 packet.
-    pub fn emit<T>(&self, packet: &mut Packet<&mut T>)
-    where
-        T: AsRef<[u8]> + AsMut<[u8]> + ?Sized,
-    {
+    pub fn emit(&self, packet: &mut Packet<&mut [u8]>) {
         match *self {
             Repr::MembershipQuery {
                 max_resp_time,
@@ -323,7 +317,7 @@ const fn duration_to_max_resp_code(duration: Duration) -> u8 {
     }
 }
 
-impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
+impl fmt::Display for Packet<&[u8]> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match Repr::parse(self) {
             Ok(repr) => write!(f, "{repr}"),
@@ -365,7 +359,7 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
         f: &mut fmt::Formatter,
         indent: &mut PrettyIndent,
     ) -> fmt::Result {
-        match Packet::new_checked(buffer) {
+        match Packet::new_checked(buffer.as_ref()) {
             Err(err) => writeln!(f, "{indent}({err})"),
             Ok(packet) => writeln!(f, "{indent}{packet}"),
         }

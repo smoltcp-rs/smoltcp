@@ -332,7 +332,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Header<T> {
     }
 }
 
-impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Header<&'a T> {
+impl<'a> fmt::Display for Header<&'a [u8]> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match Repr::parse(self) {
             Ok(repr) => write!(f, "{repr}"),
@@ -372,10 +372,7 @@ pub enum Repr<'a> {
 
 impl<'a> Repr<'a> {
     /// Parse an IPv6 Routing Header and return a high-level representation.
-    pub fn parse<T>(header: &'a Header<&'a T>) -> Result<Repr<'a>>
-    where
-        T: AsRef<[u8]> + ?Sized,
-    {
+    pub fn parse(header: &'a Header<&'a [u8]>) -> Result<Repr<'a>> {
         header.check_len()?;
         match header.routing_type() {
             Type::Type2 => Ok(Repr::Type2 {
@@ -405,7 +402,7 @@ impl<'a> Repr<'a> {
     }
 
     /// Emit a high-level representation into an IPv6 Routing Header.
-    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]> + ?Sized>(&self, header: &mut Header<&mut T>) {
+    pub fn emit(&self, header: &mut Header<&mut [u8]>) {
         match *self {
             Repr::Type2 {
                 segments_left,

@@ -703,11 +703,9 @@ impl<'a> Repr<'a> {
     }
 
     /// Parse a DHCP packet and return a high-level representation.
-    pub fn parse<T>(packet: &'a Packet<&'a T>) -> Result<Self>
-    where
-        T: AsRef<[u8]> + ?Sized,
-    {
+    pub fn parse(packet: &'a Packet<&'a [u8]>) -> Result<Self> {
         packet.check_len()?;
+
         let transaction_id = packet.transaction_id();
         let client_hardware_address = packet.client_hardware_address();
         let client_ip = packet.client_ip();
@@ -835,10 +833,7 @@ impl<'a> Repr<'a> {
 
     /// Emit a high-level representation into a Dynamic Host
     /// Configuration Protocol packet.
-    pub fn emit<T>(&self, packet: &mut Packet<&mut T>) -> Result<()>
-    where
-        T: AsRef<[u8]> + AsMut<[u8]> + ?Sized,
-    {
+    pub fn emit(&self, packet: &mut Packet<&mut [u8]>) -> Result<()> {
         packet.set_sname_and_boot_file_to_zero();
         packet.set_opcode(self.message_type.opcode());
         packet.set_hardware_type(Hardware::Ethernet);
@@ -1212,7 +1207,7 @@ mod test {
     fn test_emit_discover() {
         let repr = discover_repr();
         let mut bytes = vec![0xa5; repr.buffer_len()];
-        let mut packet = Packet::new_unchecked(&mut bytes);
+        let mut packet = Packet::new_unchecked(&mut bytes[..]);
         repr.emit(&mut packet).unwrap();
         let packet = &*packet.into_inner();
         let packet_len = packet.len();
@@ -1226,7 +1221,7 @@ mod test {
     fn test_emit_offer() {
         let repr = offer_repr();
         let mut bytes = vec![0xa5; repr.buffer_len()];
-        let mut packet = Packet::new_unchecked(&mut bytes);
+        let mut packet = Packet::new_unchecked(&mut bytes[..]);
         repr.emit(&mut packet).unwrap();
     }
 
@@ -1245,10 +1240,10 @@ mod test {
             repr
         };
         let mut bytes = vec![0xa5; repr.buffer_len()];
-        let mut packet = Packet::new_unchecked(&mut bytes);
+        let mut packet = Packet::new_unchecked(&mut bytes[..]);
         repr.emit(&mut packet).unwrap();
 
-        let packet = Packet::new_unchecked(&bytes);
+        let packet = Packet::new_unchecked(&bytes[..]);
         let repr_parsed = Repr::parse(&packet).unwrap();
 
         assert_eq!(

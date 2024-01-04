@@ -680,11 +680,7 @@ impl Repr {
     }
 
     /// Emit this high-level representation into a buffer.
-    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(
-        &self,
-        buffer: T,
-        _checksum_caps: &ChecksumCapabilities,
-    ) {
+    pub fn emit(&self, buffer: &mut [u8], _checksum_caps: &ChecksumCapabilities) {
         match *self {
             #[cfg(feature = "proto-ipv4")]
             Repr::Ipv4(repr) => repr.emit(&mut Ipv4Packet::new_unchecked(buffer), _checksum_caps),

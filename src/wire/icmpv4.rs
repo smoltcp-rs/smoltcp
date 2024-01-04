@@ -392,13 +392,10 @@ pub enum Repr<'a> {
 impl<'a> Repr<'a> {
     /// Parse an Internet Control Message Protocol version 4 packet and return
     /// a high-level representation.
-    pub fn parse<T>(
-        packet: &Packet<&'a T>,
+    pub fn parse(
+        packet: &Packet<&'a [u8]>,
         checksum_caps: &ChecksumCapabilities,
-    ) -> Result<Repr<'a>>
-    where
-        T: AsRef<[u8]> + ?Sized,
-    {
+    ) -> Result<Repr<'a>> {
         packet.check_len()?;
 
         // Valid checksum is expected.
@@ -484,10 +481,7 @@ impl<'a> Repr<'a> {
 
     /// Emit a high-level representation into an Internet Control Message Protocol version 4
     /// packet.
-    pub fn emit<T>(&self, packet: &mut Packet<&mut T>, checksum_caps: &ChecksumCapabilities)
-    where
-        T: AsRef<[u8]> + AsMut<[u8]> + ?Sized,
-    {
+    pub fn emit(&self, packet: &mut Packet<&mut [u8]>, checksum_caps: &ChecksumCapabilities) {
         packet.set_msg_code(0);
         match *self {
             Repr::EchoRequest {
@@ -555,7 +549,7 @@ impl<'a> Repr<'a> {
     }
 }
 
-impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
+impl<'a> fmt::Display for Packet<&'a [u8]> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match Repr::parse(self, &ChecksumCapabilities::default()) {
             Ok(repr) => write!(f, "{repr}"),
@@ -619,7 +613,7 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
         f: &mut fmt::Formatter,
         indent: &mut PrettyIndent,
     ) -> fmt::Result {
-        let packet = match Packet::new_checked(buffer) {
+        let packet = match Packet::new_checked(buffer.as_ref()) {
             Err(err) => return write!(f, "{indent}({err})"),
             Ok(packet) => packet,
         };
@@ -689,9 +683,9 @@ mod test {
     fn test_echo_emit() {
         let repr = echo_packet_repr();
         let mut bytes = vec![0xa5; repr.buffer_len()];
-        let mut packet = Packet::new_unchecked(&mut bytes);
+        let mut packet = Packet::new_unchecked(&mut bytes[..]);
         repr.emit(&mut packet, &ChecksumCapabilities::default());
-        assert_eq!(&packet.into_inner()[..], &ECHO_PACKET_BYTES[..]);
+        assert_eq!(packet.into_inner(), &ECHO_PACKET_BYTES[..]);
     }
 
     #[test]

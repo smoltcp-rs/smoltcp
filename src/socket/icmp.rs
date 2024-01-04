@@ -722,7 +722,7 @@ mod test_ipv4 {
         assert!(socket.can_send());
 
         let mut bytes = [0xff; 24];
-        let mut packet = Icmpv4Packet::new_unchecked(&mut bytes);
+        let mut packet = Icmpv4Packet::new_unchecked(&mut bytes[..]);
         ECHOV4_REPR.emit(&mut packet, &checksum);
 
         assert_eq!(
@@ -769,7 +769,7 @@ mod test_ipv4 {
         let checksum = ChecksumCapabilities::default();
 
         let mut bytes = [0xff; 24];
-        let mut packet = Icmpv4Packet::new_unchecked(&mut bytes);
+        let mut packet = Icmpv4Packet::new_unchecked(&mut bytes[..]);
         ECHOV4_REPR.emit(&mut packet, &checksum);
 
         s.set_hop_limit(Some(0x2a));
@@ -839,7 +839,7 @@ mod test_ipv4 {
 
         let checksum = ChecksumCapabilities::default();
         let mut bytes = [0xff; 20];
-        let mut packet = Icmpv4Packet::new_unchecked(&mut bytes);
+        let mut packet = Icmpv4Packet::new_unchecked(&mut bytes[..]);
         let icmp_repr = Icmpv4Repr::EchoRequest {
             ident: 0x4321,
             seq_no: 0x5678,
@@ -865,7 +865,7 @@ mod test_ipv4 {
         let checksum = ChecksumCapabilities::default();
 
         let mut bytes = [0xff; 18];
-        let mut packet = UdpPacket::new_unchecked(&mut bytes);
+        let mut packet = UdpPacket::new_unchecked(&mut bytes[..]);
         UDP_REPR.emit(
             &mut packet,
             &REMOTE_IPV4.into(),
@@ -985,7 +985,7 @@ mod test_ipv6 {
         assert!(socket.can_send());
 
         let mut bytes = vec![0xff; 24];
-        let mut packet = Icmpv6Packet::new_unchecked(&mut bytes);
+        let mut packet = Icmpv6Packet::new_unchecked(&mut bytes[..]);
         ECHOV6_REPR.emit(
             &LOCAL_IPV6.into(),
             &REMOTE_IPV6.into(),
@@ -1037,7 +1037,7 @@ mod test_ipv6 {
         let checksum = ChecksumCapabilities::default();
 
         let mut bytes = vec![0xff; 24];
-        let mut packet = Icmpv6Packet::new_unchecked(&mut bytes);
+        let mut packet = Icmpv6Packet::new_unchecked(&mut bytes[..]);
         ECHOV6_REPR.emit(
             &LOCAL_IPV6.into(),
             &REMOTE_IPV6.into(),
@@ -1153,7 +1153,7 @@ mod test_ipv6 {
 
         let checksum = ChecksumCapabilities::default();
         let mut bytes = [0xff; 20];
-        let mut packet = Icmpv6Packet::new_unchecked(&mut bytes);
+        let mut packet = Icmpv6Packet::new_unchecked(&mut bytes[..]);
         let icmp_repr = Icmpv6Repr::EchoRequest {
             ident: 0x4321,
             seq_no: 0x5678,
@@ -1184,7 +1184,7 @@ mod test_ipv6 {
         let checksum = ChecksumCapabilities::default();
 
         let mut bytes = [0xff; 18];
-        let mut packet = UdpPacket::new_unchecked(&mut bytes);
+        let mut packet = UdpPacket::new_unchecked(&mut bytes[..]);
         UDP_REPR.emit(
             &mut packet,
             &REMOTE_IPV6.into(),

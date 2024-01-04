@@ -233,7 +233,7 @@ impl defmt::Format for Repr {
 
 impl Repr {
     /// Parse a 6LoWPAN Fragment header.
-    pub fn parse<T: AsRef<[u8]>>(packet: &Packet<T>) -> Result<Self> {
+    pub fn parse(packet: &Packet<&[u8]>) -> Result<Self> {
         packet.check_len()?;
         let size = packet.datagram_size();
         let tag = packet.datagram_tag();
@@ -258,7 +258,7 @@ impl Repr {
     }
 
     /// Emit a high-level representation into a 6LoWPAN Fragment header.
-    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(&self, packet: &mut Packet<T>) {
+    pub fn emit(&self, packet: &mut Packet<&mut [u8]>) {
         match self {
             Self::FirstFragment { size, tag } => {
                 packet.set_dispatch_field(DISPATCH_FIRST_FRAGMENT_HEADER);

@@ -380,7 +380,7 @@ impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> NdiscOption<&'a mut T> {
     }
 }
 
-impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for NdiscOption<&'a T> {
+impl<'a> fmt::Display for NdiscOption<&'a [u8]> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match Repr::parse(self) {
             Ok(repr) => write!(f, "{repr}"),
@@ -427,12 +427,8 @@ pub enum Repr<'a> {
 
 impl<'a> Repr<'a> {
     /// Parse an NDISC Option and return a high-level representation.
-    pub fn parse<T>(opt: &NdiscOption<&'a T>) -> Result<Repr<'a>>
-    where
-        T: AsRef<[u8]> + ?Sized,
-    {
+    pub fn parse(opt: &NdiscOption<&'a [u8]>) -> Result<Repr<'a>> {
         opt.check_len()?;
-
         match opt.option_type() {
             Type::SourceLinkLayerAddr => {
                 if opt.data_len() >= 1 {
@@ -519,10 +515,7 @@ impl<'a> Repr<'a> {
     }
 
     /// Emit a high-level representation into an NDISC Option.
-    pub fn emit<T>(&self, opt: &mut NdiscOption<&'a mut T>)
-    where
-        T: AsRef<[u8]> + AsMut<[u8]> + ?Sized,
-    {
+    pub fn emit(&self, opt: &mut NdiscOption<&'a mut [u8]>) {
         match *self {
             Repr::SourceLinkLayerAddr(addr) => {
                 opt.set_option_type(Type::SourceLinkLayerAddr);
@@ -558,8 +551,8 @@ impl<'a> Repr<'a> {
                 opt.clear_redirected_reserved();
                 opt.set_option_type(Type::RedirectedHeader);
                 opt.set_data_len((((8 + header.buffer_len() + data.len()) + 7) / 8) as u8);
-                let mut packet = &mut opt.data_mut()[field::REDIRECTED_RESERVED.end - 2..];
-                let mut ip_packet = Ipv6Packet::new_unchecked(&mut packet);
+                let packet = &mut opt.data_mut()[field::REDIRECTED_RESERVED.end - 2..];
+                let mut ip_packet = Ipv6Packet::new_unchecked(&mut packet[..]);
                 header.emit(&mut ip_packet);
                 ip_packet.payload_mut().copy_from_slice(data);
             }
@@ -619,7 +612,7 @@ impl<T: AsRef<[u8]>> PrettyPrint for NdiscOption<T> {
         f: &mut fmt::Formatter,
         indent: &mut PrettyIndent,
     ) -> fmt::Result {
-        match NdiscOption::new_checked(buffer) {
+        match NdiscOption::new_checked(buffer.as_ref()) {
             Err(err) => write!(f, "{indent}({err})"),
             Ok(ndisc) => match Repr::parse(&ndisc) {
                 Err(_) => Ok(()),
@@ -754,9 +747,9 @@ mod test {
             preferred_lifetime: Duration::from_secs(1000),
             prefix: Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1),
         });
-        let mut opt = NdiscOption::new_unchecked(&mut bytes);
+        let mut opt = NdiscOption::new_unchecked(&mut bytes[..]);
         repr.emit(&mut opt);
-        assert_eq!(&opt.into_inner()[..], &PREFIX_OPT_BYTES[..]);
+        assert_eq!(opt.into_inner(), &PREFIX_OPT_BYTES[..]);
     }
 
     #[test]

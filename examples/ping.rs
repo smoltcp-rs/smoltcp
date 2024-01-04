@@ -208,7 +208,7 @@ fn main() {
 
             match remote_addr {
                 IpAddress::Ipv4(_) => {
-                    let icmp_packet = Icmpv4Packet::new_checked(&payload).unwrap();
+                    let icmp_packet = Icmpv4Packet::new_checked(payload).unwrap();
                     let icmp_repr = Icmpv4Repr::parse(&icmp_packet, &device_caps.checksum).unwrap();
                     get_icmp_pong!(
                         Icmpv4Repr,
@@ -221,7 +221,7 @@ fn main() {
                     );
                 }
                 IpAddress::Ipv6(address) => {
-                    let icmp_packet = Icmpv6Packet::new_checked(&payload).unwrap();
+                    let icmp_packet = Icmpv6Packet::new_checked(payload).unwrap();
                     let icmp_repr = Icmpv6Repr::parse(
                         &remote_addr,
                         &iface

@@ -131,10 +131,7 @@ pub struct Repr<'a> {
 
 impl<'a> Repr<'a> {
     /// Parse an IPv6 Extension Header Header and return a high-level representation.
-    pub fn parse<T>(header: &Header<&'a T>) -> Result<Self>
-    where
-        T: AsRef<[u8]> + ?Sized,
-    {
+    pub fn parse(header: &Header<&'a [u8]>) -> Result<Self> {
         header.check_len()?;
         Ok(Self {
             next_header: header.next_header(),
@@ -150,7 +147,7 @@ impl<'a> Repr<'a> {
     }
 
     /// Emit a high-level representation into an IPv6 Extension Header.
-    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]> + ?Sized>(&self, header: &mut Header<&mut T>) {
+    pub fn emit(&self, header: &mut Header<&mut [u8]>) {
         header.set_next_header(self.next_header);
         header.set_header_len(self.length);
     }
@@ -258,7 +255,7 @@ mod test {
 
     #[test]
     fn test_repr_parse_valid() {
-        let header = Header::new_unchecked(&REPR_PACKET_PAD4);
+        let header = Header::new_unchecked(&REPR_PACKET_PAD4[..]);
         let repr = Repr::parse(&header).unwrap();
         assert_eq!(
             repr,
@@ -269,7 +266,7 @@ mod test {
             }
         );
 
-        let header = Header::new_unchecked(&REPR_PACKET_PAD12);
+        let header = Header::new_unchecked(&REPR_PACKET_PAD12[..]);
         let repr = Repr::parse(&header).unwrap();
         assert_eq!(
             repr,
@@ -289,7 +286,7 @@ mod test {
             data: &REPR_PACKET_PAD4[2..],
         };
         let mut bytes = [0u8; 2];
-        let mut header = Header::new_unchecked(&mut bytes);
+        let mut header = Header::new_unchecked(&mut bytes[..]);
         repr.emit(&mut header);
         assert_eq!(header.into_inner(), &REPR_PACKET_PAD4[..2]);
 
@@ -299,7 +296,7 @@ mod test {
             data: &REPR_PACKET_PAD12[2..],
         };
         let mut bytes = [0u8; 2];
-        let mut header = Header::new_unchecked(&mut bytes);
+        let mut header = Header::new_unchecked(&mut bytes[..]);
         repr.emit(&mut header);
         assert_eq!(header.into_inner(), &REPR_PACKET_PAD12[..2]);
     }

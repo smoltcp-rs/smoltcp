@@ -608,15 +608,12 @@ pub enum Repr<'a> {
 impl<'a> Repr<'a> {
     /// Parse an Internet Control Message Protocol version 6 packet and return
     /// a high-level representation.
-    pub fn parse<T>(
+    pub fn parse(
         src_addr: &IpAddress,
         dst_addr: &IpAddress,
-        packet: &Packet<&'a T>,
+        packet: &Packet<&'a [u8]>,
         checksum_caps: &ChecksumCapabilities,
-    ) -> Result<Repr<'a>>
-    where
-        T: AsRef<[u8]> + ?Sized,
-    {
+    ) -> Result<Repr<'a>> {
         packet.check_len()?;
 
         fn create_packet_from_payload<'a, T>(packet: &Packet<&'a T>) -> Result<(&'a [u8], Ipv6Repr)>
@@ -723,15 +720,13 @@ impl<'a> Repr<'a> {
 
     /// Emit a high-level representation into an Internet Control Message Protocol version 6
     /// packet.
-    pub fn emit<T>(
+    pub fn emit(
         &self,
         src_addr: &IpAddress,
         dst_addr: &IpAddress,
-        packet: &mut Packet<&mut T>,
+        packet: &mut Packet<&mut [u8]>,
         checksum_caps: &ChecksumCapabilities,
-    ) where
-        T: AsRef<[u8]> + AsMut<[u8]> + ?Sized,
-    {
+    ) {
         fn emit_contained_packet<T>(packet: &mut Packet<&mut T>, header: Ipv6Repr, data: &[u8])
         where
             T: AsRef<[u8]> + AsMut<[u8]> + ?Sized,
@@ -940,7 +935,7 @@ mod test {
     fn test_echo_emit() {
         let repr = echo_packet_repr();
         let mut bytes = vec![0xa5; repr.buffer_len()];
-        let mut packet = Packet::new_unchecked(&mut bytes);
+        let mut packet = Packet::new_unchecked(&mut bytes[..]);
         repr.emit(
             &MOCK_IP_ADDR_1,
             &MOCK_IP_ADDR_2,
@@ -993,7 +988,7 @@ mod test {
     fn test_too_big_emit() {
         let repr = too_big_packet_repr();
         let mut bytes = vec![0xa5; repr.buffer_len()];
-        let mut packet = Packet::new_unchecked(&mut bytes);
+        let mut packet = Packet::new_unchecked(&mut bytes[..]);
         repr.emit(
             &MOCK_IP_ADDR_1,
             &MOCK_IP_ADDR_2,
@@ -1028,7 +1023,8 @@ mod test {
             hop_limit: 64,
             payload_len: IPV6_MIN_MTU - IPV6_HEADER_LEN,
         };
-        let mut ip_packet = Ipv6Packet::new_unchecked(vec![0; IPV6_MIN_MTU]);
+        let mut buffer = [0; IPV6_MIN_MTU];
+        let mut ip_packet = Ipv6Packet::new_unchecked(&mut buffer[..]);
         ip_packet_repr.emit(&mut ip_packet);
 
         let repr1 = Repr::PktTooBig {
@@ -1044,7 +1040,7 @@ mod test {
             data: &ip_packet.as_ref()[IPV6_HEADER_LEN..repr1.buffer_len() - field::UNUSED.end],
         };
         let mut data = vec![0; MAX_ERROR_PACKET_LEN];
-        let mut packet = Packet::new_unchecked(&mut data);
+        let mut packet = Packet::new_unchecked(&mut data[..]);
         repr1.emit(
             &MOCK_IP_ADDR_1,
             &MOCK_IP_ADDR_2,
@@ -1052,7 +1048,7 @@ mod test {
             &ChecksumCapabilities::default(),
         );
 
-        let packet = Packet::new_unchecked(&data);
+        let packet = Packet::new_unchecked(&data[..]);
         let repr2 = Repr::parse(
             &MOCK_IP_ADDR_1,
             &MOCK_IP_ADDR_2,
@@ -1068,7 +1064,7 @@ mod test {
     fn test_truncated_payload_ipv6_header_parse_fails() {
         let repr = too_big_packet_repr();
         let mut bytes = vec![0xa5; repr.buffer_len()];
-        let mut packet = Packet::new_unchecked(&mut bytes);
+        let mut packet = Packet::new_unchecked(&mut bytes[..]);
         repr.emit(
             &MOCK_IP_ADDR_1,
             &MOCK_IP_ADDR_2,

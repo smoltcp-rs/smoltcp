@@ -721,8 +721,8 @@ impl Repr {
     ///
     /// The `ll_src_addr` and `ll_dst_addr` are the link-local addresses used for resolving the
     /// IPv6 packets.
-    pub fn parse<T: AsRef<[u8]> + ?Sized>(
-        packet: &Packet<&T>,
+    pub fn parse(
+        packet: &Packet<&[u8]>,
         ll_src_addr: Option<LlAddress>,
         ll_dst_addr: Option<LlAddress>,
         addr_context: &[AddressContext],
@@ -849,7 +849,7 @@ impl Repr {
     }
 
     /// Emit a high-level representation into a 6LoWPAN IPHC header.
-    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(&self, packet: &mut Packet<T>) {
+    pub fn emit(&self, packet: &mut Packet<&mut [u8]>) {
         let idx = 2;
 
         packet.set_dispatch_field();

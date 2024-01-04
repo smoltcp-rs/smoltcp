@@ -207,7 +207,7 @@ impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Ipv6Option<&'a mut T> {
     }
 }
 
-impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Ipv6Option<&'a T> {
+impl<'a> fmt::Display for Ipv6Option<&'a [u8]> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match Repr::parse(self) {
             Ok(repr) => write!(f, "{repr}"),
@@ -237,11 +237,9 @@ pub enum Repr<'a> {
 
 impl<'a> Repr<'a> {
     /// Parse an IPv6 Extension Header Option and return a high-level representation.
-    pub fn parse<T>(opt: &Ipv6Option<&'a T>) -> Result<Repr<'a>>
-    where
-        T: AsRef<[u8]> + ?Sized,
-    {
+    pub fn parse(opt: &Ipv6Option<&'a [u8]>) -> Result<Repr<'a>> {
         opt.check_len()?;
+
         match opt.option_type() {
             Type::Pad1 => Ok(Repr::Pad1),
             Type::PadN => Ok(Repr::PadN(opt.data_len())),
@@ -277,7 +275,7 @@ impl<'a> Repr<'a> {
     }
 
     /// Emit a high-level representation into an IPv6 Extension Header Option.
-    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]> + ?Sized>(&self, opt: &mut Ipv6Option<&'a mut T>) {
+    pub fn emit(&self, opt: &mut Ipv6Option<&'a mut [u8]>) {
         match *self {
             Repr::Pad1 => opt.set_option_type(Type::Pad1),
             Repr::PadN(len) => {
@@ -399,7 +397,7 @@ mod test {
         // pad1
         assert_eq!(
             Ok(()),
-            Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_PAD1).check_len()
+            Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_PAD1[..]).check_len()
         );
 
         // padn with truncated data
@@ -410,7 +408,7 @@ mod test {
         // padn
         assert_eq!(
             Ok(()),
-            Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_PADN).check_len()
+            Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_PADN[..]).check_len()
         );
 
         // unknown option type with truncated data
@@ -425,14 +423,14 @@ mod test {
         // unknown type
         assert_eq!(
             Ok(()),
-            Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_UNKNOWN).check_len()
+            Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_UNKNOWN[..]).check_len()
         );
 
         #[cfg(feature = "proto-rpl")]
         {
             assert_eq!(
                 Ok(()),
-                Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_RPL).check_len()
+                Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_RPL[..]).check_len()
             );
         }
     }
@@ -440,46 +438,46 @@ mod test {
     #[test]
     #[should_panic(expected = "index out of bounds")]
     fn test_data_len() {
-        let opt = Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_PAD1);
+        let opt = Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_PAD1[..]);
         opt.data_len();
     }
 
     #[test]
     fn test_option_deconstruct() {
         // one octet of padding
-        let opt = Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_PAD1);
+        let opt = Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_PAD1[..]);
         assert_eq!(opt.option_type(), Type::Pad1);
 
         // two octets of padding
         let bytes: [u8; 2] = [0x1, 0x0];
-        let opt = Ipv6Option::new_unchecked(&bytes);
+        let opt = Ipv6Option::new_unchecked(&bytes[..]);
         assert_eq!(opt.option_type(), Type::PadN);
         assert_eq!(opt.data_len(), 0);
 
         // three octets of padding
-        let opt = Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_PADN);
+        let opt = Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_PADN[..]);
         assert_eq!(opt.option_type(), Type::PadN);
         assert_eq!(opt.data_len(), 1);
         assert_eq!(opt.data(), &[0]);
 
         // extra bytes in buffer
         let bytes: [u8; 10] = [0x1, 0x7, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0xff];
-        let opt = Ipv6Option::new_unchecked(&bytes);
+        let opt = Ipv6Option::new_unchecked(&bytes[..]);
         assert_eq!(opt.option_type(), Type::PadN);
         assert_eq!(opt.data_len(), 7);
         assert_eq!(opt.data(), &[0, 0, 0, 0, 0, 0, 0]);
 
         // unrecognized option
         let bytes: [u8; 1] = [0xff];
-        let opt = Ipv6Option::new_unchecked(&bytes);
+        let opt = Ipv6Option::new_unchecked(&bytes[..]);
         assert_eq!(opt.option_type(), Type::Unknown(255));
 
         // unrecognized option without length and data
-        assert_eq!(Ipv6Option::new_checked(&bytes), Err(Error));
+        assert_eq!(Ipv6Option::new_checked(&bytes[..]), Err(Error));
 
         #[cfg(feature = "proto-rpl")]
         {
-            let opt = Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_RPL);
+            let opt = Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_RPL[..]);
             assert_eq!(opt.option_type(), Type::Rpl);
             assert_eq!(opt.data_len(), 4);
             assert_eq!(opt.data(), &[0x00, 0x1e, 0x08, 0x00]);
@@ -489,20 +487,20 @@ mod test {
     #[test]
     fn test_option_parse() {
         // one octet of padding
-        let opt = Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_PAD1);
+        let opt = Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_PAD1[..]);
         let pad1 = Repr::parse(&opt).unwrap();
         assert_eq!(pad1, Repr::Pad1);
         assert_eq!(pad1.buffer_len(), 1);
 
         // two or more octets of padding
-        let opt = Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_PADN);
+        let opt = Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_PADN[..]);
         let padn = Repr::parse(&opt).unwrap();
         assert_eq!(padn, Repr::PadN(1));
         assert_eq!(padn.buffer_len(), 3);
 
         // unrecognized option type
         let data = [0u8; 3];
-        let opt = Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_UNKNOWN);
+        let opt = Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_UNKNOWN[..]);
         let unknown = Repr::parse(&opt).unwrap();
         assert_eq!(
             unknown,
@@ -515,7 +513,7 @@ mod test {
 
         #[cfg(feature = "proto-rpl")]
         {
-            let opt = Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_RPL);
+            let opt = Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_RPL[..]);
             let rpl = Repr::parse(&opt).unwrap();
 
             assert_eq!(
@@ -535,13 +533,13 @@ mod test {
     fn test_option_emit() {
         let repr = Repr::Pad1;
         let mut bytes = [255u8; 1]; // don't assume bytes are initialized to zero
-        let mut opt = Ipv6Option::new_unchecked(&mut bytes);
+        let mut opt = Ipv6Option::new_unchecked(&mut bytes[..]);
         repr.emit(&mut opt);
         assert_eq!(opt.into_inner(), &IPV6OPTION_BYTES_PAD1);
 
         let repr = Repr::PadN(1);
         let mut bytes = [255u8; 3]; // don't assume bytes are initialized to zero
-        let mut opt = Ipv6Option::new_unchecked(&mut bytes);
+        let mut opt = Ipv6Option::new_unchecked(&mut bytes[..]);
         repr.emit(&mut opt);
         assert_eq!(opt.into_inner(), &IPV6OPTION_BYTES_PADN);
 
@@ -552,16 +550,16 @@ mod test {
             data: &data,
         };
         let mut bytes = [254u8; 5]; // don't assume bytes are initialized to zero
-        let mut opt = Ipv6Option::new_unchecked(&mut bytes);
+        let mut opt = Ipv6Option::new_unchecked(&mut bytes[..]);
         repr.emit(&mut opt);
         assert_eq!(opt.into_inner(), &IPV6OPTION_BYTES_UNKNOWN);
 
         #[cfg(feature = "proto-rpl")]
         {
-            let opt = Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_RPL);
+            let opt = Ipv6Option::new_unchecked(&IPV6OPTION_BYTES_RPL[..]);
             let rpl = Repr::parse(&opt).unwrap();
             let mut bytes = [0u8; 6];
-            rpl.emit(&mut Ipv6Option::new_unchecked(&mut bytes));
+            rpl.emit(&mut Ipv6Option::new_unchecked(&mut bytes[..]));
 
             assert_eq!(&bytes, &IPV6OPTION_BYTES_RPL);
         }

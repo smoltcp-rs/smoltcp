@@ -267,7 +267,7 @@ pub struct Repr {
 
 impl Repr {
     /// Parse an Ethernet II frame and return a high-level representation.
-    pub fn parse<T: AsRef<[u8]> + ?Sized>(frame: &Frame<&T>) -> Result<Repr> {
+    pub fn parse(frame: &Frame<&[u8]>) -> Result<Repr> {
         frame.check_len()?;
         Ok(Repr {
             src_addr: frame.src_addr(),
@@ -282,8 +282,7 @@ impl Repr {
     }
 
     /// Emit a high-level representation into an Ethernet II frame.
-    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(&self, frame: &mut Frame<T>) {
-        assert!(frame.buffer.as_ref().len() >= self.buffer_len());
+    pub fn emit(&self, frame: &mut Frame<&mut [u8]>) {
         frame.set_src_addr(self.src_addr);
         frame.set_dst_addr(self.dst_addr);
         frame.set_ethertype(self.ethertype);

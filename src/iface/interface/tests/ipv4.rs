@@ -181,8 +181,8 @@ fn test_icmp_error_port_unreachable(#[case] medium: Medium) {
 
     let mut udp_bytes_unicast = vec![0u8; 20];
     let mut udp_bytes_broadcast = vec![0u8; 20];
-    let mut packet_unicast = UdpPacket::new_unchecked(&mut udp_bytes_unicast);
-    let mut packet_broadcast = UdpPacket::new_unchecked(&mut udp_bytes_broadcast);
+    let mut packet_unicast = UdpPacket::new_unchecked(&mut udp_bytes_unicast[..]);
+    let mut packet_broadcast = UdpPacket::new_unchecked(&mut udp_bytes_broadcast[..]);
 
     let udp_repr = UdpRepr {
         src_port: 67,

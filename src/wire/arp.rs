@@ -270,7 +270,7 @@ pub enum Repr {
 impl Repr {
     /// Parse an Address Resolution Protocol packet and return a high-level representation,
     /// or return `Err(Error)` if the packet is not recognized.
-    pub fn parse<T: AsRef<[u8]>>(packet: &Packet<T>) -> Result<Repr> {
+    pub fn parse(packet: &Packet<&[u8]>) -> Result<Repr> {
         packet.check_len()?;
 
         match (
@@ -298,7 +298,7 @@ impl Repr {
     }
 
     /// Emit a high-level representation into an Address Resolution Protocol packet.
-    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(&self, packet: &mut Packet<T>) {
+    pub fn emit(&self, packet: &mut Packet<&mut [u8]>) {
         match *self {
             Repr::EthernetIpv4 {
                 operation,
@@ -321,7 +321,7 @@ impl Repr {
     }
 }
 
-impl<T: AsRef<[u8]>> fmt::Display for Packet<T> {
+impl fmt::Display for Packet<&[u8]> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match Repr::parse(self) {
             Ok(repr) => write!(f, "{repr}"),
@@ -377,7 +377,7 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
         f: &mut fmt::Formatter,
         indent: &mut PrettyIndent,
     ) -> fmt::Result {
-        match Packet::new_checked(buffer) {
+        match Packet::new_checked(buffer.as_ref()) {
             Err(err) => write!(f, "{indent}({err})"),
             Ok(packet) => write!(f, "{indent}{packet}"),
         }
@@ -453,7 +453,7 @@ mod test {
     #[test]
     fn test_emit() {
         let mut bytes = vec![0xa5; 28];
-        let mut packet = Packet::new_unchecked(&mut bytes);
+        let mut packet = Packet::new_unchecked(&mut bytes[..]);
         packet_repr().emit(&mut packet);
         assert_eq!(&*packet.into_inner(), &PACKET_BYTES[..]);
     }

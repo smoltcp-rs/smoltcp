@@ -214,17 +214,13 @@ pub struct Repr {
 
 impl Repr {
     /// Parse an User Datagram Protocol packet and return a high-level representation.
-    pub fn parse<T>(
-        packet: &Packet<&T>,
+    pub fn parse(
+        packet: &Packet<&[u8]>,
         src_addr: &IpAddress,
         dst_addr: &IpAddress,
         checksum_caps: &ChecksumCapabilities,
-    ) -> Result<Repr>
-    where
-        T: AsRef<[u8]> + ?Sized,
-    {
+    ) -> Result<Repr> {
         packet.check_len()?;
-
         // Destination port cannot be omitted (but source port can be).
         if packet.dst_port() == 0 {
             return Err(Error);
@@ -255,10 +251,7 @@ impl Repr {
     /// This never calculates the checksum, and is intended for internal-use only,
     /// not for packets that are going to be actually sent over the network. For
     /// example, when decompressing 6lowpan.
-    pub(crate) fn emit_header<T: ?Sized>(&self, packet: &mut Packet<&mut T>, payload_len: usize)
-    where
-        T: AsRef<[u8]> + AsMut<[u8]>,
-    {
+    pub(crate) fn emit_header(&self, packet: &mut Packet<&mut [u8]>, payload_len: usize) {
         packet.set_src_port(self.src_port);
         packet.set_dst_port(self.dst_port);
         packet.set_len((HEADER_LEN + payload_len) as u16);
@@ -266,17 +259,15 @@ impl Repr {
     }
 
     /// Emit a high-level representation into an User Datagram Protocol packet.
-    pub fn emit<T: ?Sized>(
+    pub fn emit(
         &self,
-        packet: &mut Packet<&mut T>,
+        packet: &mut Packet<&mut [u8]>,
         src_addr: &IpAddress,
         dst_addr: &IpAddress,
         payload_len: usize,
         emit_payload: impl FnOnce(&mut [u8]),
         checksum_caps: &ChecksumCapabilities,
-    ) where
-        T: AsRef<[u8]> + AsMut<[u8]>,
-    {
+    ) {
         packet.set_src_port(self.src_port);
         packet.set_dst_port(self.dst_port);
         packet.set_len((HEADER_LEN + payload_len) as u16);
@@ -292,7 +283,7 @@ impl Repr {
     }
 }
 
-impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
+impl<'a> fmt::Display for Packet<&'a [u8]> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // Cannot use Repr::parse because we don't have the IP addresses.
         write!(
@@ -340,7 +331,7 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
         f: &mut fmt::Formatter,
         indent: &mut PrettyIndent,
     ) -> fmt::Result {
-        match Packet::new_checked(buffer) {
+        match Packet::new_checked(buffer.as_ref()) {
             Err(err) => write!(f, "{indent}({err})"),
             Ok(packet) => write!(f, "{indent}{packet}"),
         }
@@ -456,7 +447,7 @@ mod test {
     fn test_emit() {
         let repr = packet_repr();
         let mut bytes = vec![0xa5; repr.header_len() + PAYLOAD_BYTES.len()];
-        let mut packet = Packet::new_unchecked(&mut bytes);
+        let mut packet = Packet::new_unchecked(&mut bytes[..]);
         repr.emit(
             &mut packet,
             &SRC_ADDR.into(),

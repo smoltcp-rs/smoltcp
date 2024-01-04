@@ -90,8 +90,9 @@ pub struct Repr {
 
 impl Repr {
     /// Parse an IPSec Encapsulating Security Payload packet and return a high-level representation.
-    pub fn parse<T: AsRef<[u8]>>(packet: &Packet<T>) -> Result<Repr> {
+    pub fn parse(packet: &Packet<&'_ [u8]>) -> Result<Repr> {
         packet.check_len()?;
+
         Ok(Repr {
             security_parameters_index: packet.security_parameters_index(),
             sequence_number: packet.sequence_number(),
@@ -104,7 +105,7 @@ impl Repr {
     }
 
     /// Emit a high-level representation into an IPSec Encapsulating Security Payload.
-    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(&self, packet: &mut Packet<T>) {
+    pub fn emit(&self, packet: &mut Packet<&'_ mut [u8]>) {
         packet.set_security_parameters_index(self.security_parameters_index);
         packet.set_sequence_number(self.sequence_number);
     }
@@ -164,7 +165,7 @@ mod test {
     #[test]
     fn test_emit() {
         let mut bytes = vec![0x17; 8];
-        let mut packet = Packet::new_unchecked(&mut bytes);
+        let mut packet = Packet::new_unchecked(&mut bytes[..]);
         packet_repr().emit(&mut packet);
         assert_eq!(&bytes, &PACKET_BYTES[..8]);
     }

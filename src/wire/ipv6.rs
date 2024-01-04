@@ -776,7 +776,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     }
 }
 
-impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
+impl fmt::Display for Packet<&[u8]> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match Repr::parse(self) {
             Ok(repr) => write!(f, "{repr}"),
@@ -811,7 +811,7 @@ pub struct Repr {
 
 impl Repr {
     /// Parse an Internet Protocol version 6 packet and return a high-level representation.
-    pub fn parse<T: AsRef<[u8]> + ?Sized>(packet: &Packet<&T>) -> Result<Repr> {
+    pub fn parse(packet: &Packet<&'_ [u8]>) -> Result<Repr> {
         // Ensure basic accessors will work
         packet.check_len()?;
         if packet.version() != 6 {
@@ -833,7 +833,7 @@ impl Repr {
     }
 
     /// Emit a high-level representation into an Internet Protocol version 6 packet.
-    pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(&self, packet: &mut Packet<T>) {
+    pub fn emit(&self, packet: &mut Packet<&'_ mut [u8]>) {
         // Make no assumptions about the original state of the packet buffer.
         // Make sure to set every byte.
         packet.set_version(6);
@@ -881,7 +881,7 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
         f: &mut fmt::Formatter,
         indent: &mut PrettyIndent,
     ) -> fmt::Result {
-        let (ip_repr, payload) = match Packet::new_checked(buffer) {
+        let (ip_repr, payload) = match Packet::new_checked(buffer.as_ref()) {
             Err(err) => return write!(f, "{indent}({err})"),
             Ok(ip_packet) => match Repr::parse(&ip_packet) {
                 Err(_) => return Ok(()),
@@ -1430,7 +1430,7 @@ mod test {
     fn test_basic_repr_emit() {
         let repr = packet_repr();
         let mut bytes = vec![0xff; repr.buffer_len() + REPR_PAYLOAD_BYTES.len()];
-        let mut packet = Packet::new_unchecked(&mut bytes);
+        let mut packet = Packet::new_unchecked(&mut bytes[..]);
         repr.emit(&mut packet);
         packet.payload_mut().copy_from_slice(&REPR_PAYLOAD_BYTES);
         assert_eq!(&*packet.into_inner(), &REPR_PACKET_BYTES[..]);

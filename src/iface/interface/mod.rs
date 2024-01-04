@@ -1517,8 +1517,8 @@ impl InterfaceInner {
         };
 
         // Emit function for the IP header and payload.
-        let emit_ip = |repr: &IpRepr, mut tx_buffer: &mut [u8]| {
-            repr.emit(&mut tx_buffer, &self.caps.checksum);
+        let emit_ip = |repr: &IpRepr, tx_buffer: &mut [u8]| {
+            repr.emit(tx_buffer, &self.caps.checksum);
 
             let payload = &mut tx_buffer[repr.header_len()..];
             packet.emit_payload(repr, payload, &caps)
