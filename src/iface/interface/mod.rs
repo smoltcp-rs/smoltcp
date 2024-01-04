@@ -380,22 +380,6 @@ impl Interface {
         self.inner.any_ip
     }
 
-    /// Get the 6LoWPAN address contexts.
-    #[cfg(feature = "proto-sixlowpan")]
-    pub fn sixlowpan_address_context(
-        &self,
-    ) -> &Vec<SixlowpanAddressContext, IFACE_MAX_SIXLOWPAN_ADDRESS_CONTEXT_COUNT> {
-        &self.inner.sixlowpan_address_context
-    }
-
-    /// Get a mutable reference to the 6LoWPAN address contexts.
-    #[cfg(feature = "proto-sixlowpan")]
-    pub fn sixlowpan_address_context_mut(
-        &mut self,
-    ) -> &mut Vec<SixlowpanAddressContext, IFACE_MAX_SIXLOWPAN_ADDRESS_CONTEXT_COUNT> {
-        &mut self.inner.sixlowpan_address_context
-    }
-
     /// Get the packet reassembly timeout.
     #[cfg(feature = "_proto-fragmentation")]
     pub fn reassembly_timeout(&self) -> Duration {
@@ -739,36 +723,6 @@ impl Interface {
         }
         false
     }
-
-    /// Process fragments that still need to be sent for 6LoWPAN packets.
-    ///
-    /// This function returns a boolean value indicating whether any packets were
-    /// processed or emitted, and thus, whether the readiness of any socket might
-    /// have changed.
-    #[cfg(feature = "proto-sixlowpan-fragmentation")]
-    fn sixlowpan_egress<D>(&mut self, device: &mut D) -> bool
-    where
-        D: Device + ?Sized,
-    {
-        // Reset the buffer when we transmitted everything.
-        if self.fragmenter.finished() {
-            self.fragmenter.reset();
-        }
-
-        if self.fragmenter.is_empty() {
-            return false;
-        }
-
-        let pkt = &self.fragmenter;
-        if pkt.packet_len > pkt.sent_bytes {
-            if let Some(tx_token) = device.transmit(self.inner.now) {
-                self.inner
-                    .dispatch_ieee802154_frag(tx_token, &mut self.fragmenter);
-                return true;
-            }
-        }
-        false
-    }
 }
 
 impl InterfaceInner {
@@ -955,13 +909,6 @@ impl InterfaceInner {
         let ipv4_id = self.ipv4_id;
         self.ipv4_id = self.ipv4_id.wrapping_add(1);
         ipv4_id
-    }
-
-    #[cfg(feature = "proto-sixlowpan-fragmentation")]
-    fn get_sixlowpan_fragment_tag(&mut self) -> u16 {
-        let tag = self.tag;
-        self.tag = self.tag.wrapping_add(1);
-        tag
     }
 
     /// Determine if the given `Ipv6Address` is the solicited node
