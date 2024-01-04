@@ -143,25 +143,13 @@ impl InterfaceInner {
             IpProtocol::Icmpv6 => self.process_icmpv6(sockets, ipv6_repr.into(), ip_payload),
 
             #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
-            IpProtocol::Udp => {
-                let udp_packet = check!(UdpPacket::new_checked(ip_payload));
-                let udp_repr = check!(UdpRepr::parse(
-                    &udp_packet,
-                    &ipv6_repr.src_addr.into(),
-                    &ipv6_repr.dst_addr.into(),
-                    &self.checksum_caps(),
-                ));
-
-                self.process_udp(
-                    sockets,
-                    meta,
-                    ipv6_repr.into(),
-                    udp_repr,
-                    handled_by_raw_socket,
-                    udp_packet.payload(),
-                    ip_payload,
-                )
-            }
+            IpProtocol::Udp => self.process_udp(
+                sockets,
+                meta,
+                handled_by_raw_socket,
+                ipv6_repr.into(),
+                ip_payload,
+            ),
 
             #[cfg(feature = "socket-tcp")]
             IpProtocol::Tcp => self.process_tcp(sockets, ipv6_repr.into(), ip_payload),

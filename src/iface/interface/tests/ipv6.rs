@@ -853,10 +853,8 @@ fn test_icmp_reply_size(#[case] medium: Medium) {
         iface.inner.process_udp(
             &mut sockets,
             PacketMeta::default(),
-            ip_repr.into(),
-            udp_repr,
             false,
-            &vec![0x2a; MAX_PAYLOAD_LEN],
+            ip_repr.into(),
             payload,
         ),
         Some(Packet::new_ipv6(
