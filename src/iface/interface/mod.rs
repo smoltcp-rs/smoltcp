@@ -693,36 +693,6 @@ impl Interface {
         }
         emitted_any
     }
-
-    /// Process fragments that still need to be sent for IPv4 packets.
-    ///
-    /// This function returns a boolean value indicating whether any packets were
-    /// processed or emitted, and thus, whether the readiness of any socket might
-    /// have changed.
-    #[cfg(feature = "proto-ipv4-fragmentation")]
-    fn ipv4_egress<D>(&mut self, device: &mut D) -> bool
-    where
-        D: Device + ?Sized,
-    {
-        // Reset the buffer when we transmitted everything.
-        if self.fragmenter.finished() {
-            self.fragmenter.reset();
-        }
-
-        if self.fragmenter.is_empty() {
-            return false;
-        }
-
-        let pkt = &self.fragmenter;
-        if pkt.packet_len > pkt.sent_bytes {
-            if let Some(tx_token) = device.transmit(self.inner.now) {
-                self.inner
-                    .dispatch_ipv4_frag(tx_token, &mut self.fragmenter);
-                return true;
-            }
-        }
-        false
-    }
 }
 
 impl InterfaceInner {
@@ -760,18 +730,6 @@ impl InterfaceInner {
             #[cfg(feature = "proto-ipv6")]
             IpAddress::Ipv6(addr) => self.get_source_address_ipv6(addr).map(|a| a.into()),
         }
-    }
-
-    #[cfg(feature = "proto-ipv4")]
-    #[allow(unused)]
-    pub(crate) fn get_source_address_ipv4(&self, _dst_addr: &Ipv4Address) -> Option<Ipv4Address> {
-        for cidr in self.ip_addrs.iter() {
-            #[allow(irrefutable_let_patterns)] // if only ipv4 is enabled
-            if let IpCidr::Ipv4(cidr) = cidr {
-                return Some(cidr.address());
-            }
-        }
-        None
     }
 
     #[cfg(feature = "proto-ipv6")]
@@ -897,13 +855,6 @@ impl InterfaceInner {
         }
     }
 
-    #[cfg(feature = "proto-ipv4-fragmentation")]
-    fn get_ipv4_ident(&mut self) -> u16 {
-        let ipv4_id = self.ipv4_id;
-        self.ipv4_id = self.ipv4_id.wrapping_add(1);
-        ipv4_id
-    }
-
     /// Determine if the given `Ipv6Address` is the solicited node
     /// multicast address for a IPv6 addresses assigned to the interface.
     /// See [RFC 4291 § 2.7.1] for more details.
@@ -927,16 +878,6 @@ impl InterfaceInner {
     fn has_ip_addr<T: Into<IpAddress>>(&self, addr: T) -> bool {
         let addr = addr.into();
         self.ip_addrs.iter().any(|probe| probe.address() == addr)
-    }
-
-    /// Get the first IPv4 address of the interface.
-    #[cfg(feature = "proto-ipv4")]
-    pub fn ipv4_addr(&self) -> Option<Ipv4Address> {
-        self.ip_addrs.iter().find_map(|addr| match *addr {
-            IpCidr::Ipv4(cidr) => Some(cidr.address()),
-            #[allow(unreachable_patterns)]
-            _ => None,
-        })
     }
 
     /// Get the first IPv6 address if present.
@@ -1027,30 +968,6 @@ impl InterfaceInner {
             #[cfg(feature = "proto-ipv6")]
             IpAddress::Ipv6(_) => false,
         }
-    }
-
-    /// Checks if an address is broadcast, taking into account ipv4 subnet-local
-    /// broadcast addresses.
-    #[cfg(feature = "proto-ipv4")]
-    pub(crate) fn is_broadcast_v4(&self, address: Ipv4Address) -> bool {
-        if address.is_broadcast() {
-            return true;
-        }
-
-        self.ip_addrs
-            .iter()
-            .filter_map(|own_cidr| match own_cidr {
-                IpCidr::Ipv4(own_ip) => Some(own_ip.broadcast()?),
-                #[cfg(feature = "proto-ipv6")]
-                IpCidr::Ipv6(_) => None,
-            })
-            .any(|broadcast_address| address == broadcast_address)
-    }
-
-    /// Checks if an ipv4 address is unicast, taking into account subnet broadcast addresses
-    #[cfg(feature = "proto-ipv4")]
-    fn is_unicast_v4(&self, address: Ipv4Address) -> bool {
-        address.is_unicast() && !self.is_broadcast_v4(address)
     }
 
     #[cfg(feature = "medium-ethernet")]
@@ -1299,7 +1216,7 @@ impl InterfaceInner {
         let caps = self.caps.clone();
 
         #[cfg(feature = "proto-ipv4-fragmentation")]
-        let ipv4_id = self.get_ipv4_ident();
+        let ipv4_id = self.next_ipv4_frag_ident();
 
         // First we calculate the total length that we will have to emit.
         let mut total_len = ip_repr.buffer_len();
