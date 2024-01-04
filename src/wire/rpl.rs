@@ -2414,8 +2414,8 @@ mod tests {
             SixlowpanNextHeader::Uncompressed(IpProtocol::Icmpv6) => {
                 let icmp_packet = Icmpv6Packet::new_checked(packet.payload()).unwrap();
                 match Icmpv6Repr::parse(
-                    &IpAddress::Ipv6(repr.src_addr),
-                    &IpAddress::Ipv6(repr.dst_addr),
+                    &repr.src_addr,
+                    &repr.dst_addr,
                     &icmp_packet,
                     &ChecksumCapabilities::ignored(),
                 ) {

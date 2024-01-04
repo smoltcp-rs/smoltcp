@@ -508,8 +508,8 @@ impl InterfaceInner {
         match &mut packet.payload {
             IpPayload::Icmpv6(icmp_repr) => {
                 icmp_repr.emit(
-                    &packet.header.src_addr.into(),
-                    &packet.header.dst_addr.into(),
+                    &packet.header.src_addr,
+                    &packet.header.dst_addr,
                     &mut Icmpv6Packet::new_unchecked(&mut buffer[..icmp_repr.buffer_len()]),
                     checksum_caps,
                 );

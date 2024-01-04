@@ -166,16 +166,13 @@ impl InterfaceInner {
                     if udp_packet.src_port() == dhcp_socket.server_port
                         && udp_packet.dst_port() == dhcp_socket.client_port
                     {
-                        let (src_addr, dst_addr) = (ip_repr.src_addr(), ip_repr.dst_addr());
                         let udp_repr = check!(UdpRepr::parse(
                             &udp_packet,
-                            &src_addr,
-                            &dst_addr,
+                            &ipv4_repr.src_addr.into(),
+                            &ipv4_repr.dst_addr.into(),
                             &self.caps.checksum
                         ));
-                        let udp_payload = udp_packet.payload();
-
-                        dhcp_socket.process(self, &ipv4_repr, &udp_repr, udp_payload);
+                        dhcp_socket.process(self, &ipv4_repr, &udp_repr, udp_packet.payload());
                         return None;
                     }
                 }
@@ -200,7 +197,7 @@ impl InterfaceInner {
         }
 
         match ipv4_repr.next_header {
-            IpProtocol::Icmp => self.process_icmpv4(sockets, ip_repr, ip_payload),
+            IpProtocol::Icmp => self.process_icmpv4(sockets, ipv4_repr, ip_payload),
 
             #[cfg(feature = "proto-igmp")]
             IpProtocol::Igmp => self.process_igmp(ipv4_repr, ip_payload),
@@ -298,7 +295,7 @@ impl InterfaceInner {
     pub(super) fn process_icmpv4<'frame>(
         &mut self,
         _sockets: &mut SocketSet,
-        ip_repr: IpRepr,
+        ip_repr: Ipv4Repr,
         ip_payload: &'frame [u8],
     ) -> Option<Packet<'frame>> {
         let icmp_packet = check!(Icmpv4Packet::new_checked(ip_payload));
@@ -312,8 +309,8 @@ impl InterfaceInner {
             .items_mut()
             .filter_map(|i| icmp::Socket::downcast_mut(&mut i.socket))
         {
-            if icmp_socket.accepts(self, &ip_repr, &icmp_repr.into()) {
-                icmp_socket.process(self, &ip_repr, &icmp_repr.into());
+            if icmp_socket.accepts_v4(self, &ip_repr, &icmp_repr) {
+                icmp_socket.process_v4(self, &ip_repr, &icmp_repr);
                 handled_by_icmp_socket = true;
             }
         }
@@ -331,11 +328,7 @@ impl InterfaceInner {
                     seq_no,
                     data,
                 };
-                match ip_repr {
-                    IpRepr::Ipv4(ipv4_repr) => self.icmpv4_reply(ipv4_repr, icmp_reply_repr),
-                    #[allow(unreachable_patterns)]
-                    _ => unreachable!(),
-                }
+                self.icmpv4_reply(ip_repr, icmp_reply_repr)
             }
 
             // Ignore any echo replies.

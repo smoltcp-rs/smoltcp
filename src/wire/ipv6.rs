@@ -897,7 +897,7 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
 }
 
 #[cfg(test)]
-mod test {
+pub(crate) mod test {
     use super::Error;
     use super::{Address, Cidr};
     use super::{Packet, Protocol, Repr};
@@ -905,6 +905,21 @@ mod test {
 
     #[cfg(feature = "proto-ipv4")]
     use crate::wire::ipv4::Address as Ipv4Address;
+
+    #[allow(unused)]
+    pub(crate) const MOCK_IP_ADDR_1: Address =
+        Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
+    #[allow(unused)]
+    pub(crate) const MOCK_IP_ADDR_2: Address =
+        Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]);
+    #[allow(unused)]
+    pub(crate) const MOCK_IP_ADDR_3: Address =
+        Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3]);
+    #[allow(unused)]
+    pub(crate) const MOCK_IP_ADDR_4: Address =
+        Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4]);
+    #[allow(unused)]
+    pub(crate) const MOCK_UNSPECIFIED: Address = Address::UNSPECIFIED;
 
     const LINK_LOCAL_ADDR: Address = Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
     const UNIQUE_LOCAL_ADDR: Address = Address::new(0xfd00, 0, 0, 201, 1, 1, 1, 1);

@@ -565,7 +565,6 @@ fn test_icmpv4_socket(#[case] medium: Medium) {
         payload_len: 24,
         hop_limit: 64,
     };
-    let ip_repr = IpRepr::Ipv4(ipv4_repr);
 
     // Open a socket and ensure the packet is handled due to the listening
     // socket.
@@ -583,7 +582,9 @@ fn test_icmpv4_socket(#[case] medium: Medium) {
         ..ipv4_repr
     };
     assert_eq!(
-        iface.inner.process_icmpv4(&mut sockets, ip_repr, icmp_data),
+        iface
+            .inner
+            .process_icmpv4(&mut sockets, ipv4_repr, icmp_data),
         Some(Packet::new_ipv4(ipv4_reply, IpPayload::Icmpv4(echo_reply)))
     );
 

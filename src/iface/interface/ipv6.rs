@@ -260,7 +260,7 @@ impl InterfaceInner {
         ip_payload: &'frame [u8],
     ) -> Option<Packet<'frame>> {
         match nxt_hdr {
-            IpProtocol::Icmpv6 => self.process_icmpv6(sockets, ipv6_repr.into(), ip_payload),
+            IpProtocol::Icmpv6 => self.process_icmpv6(sockets, ipv6_repr, ip_payload),
 
             #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
             IpProtocol::Udp => self.process_udp(
@@ -296,13 +296,13 @@ impl InterfaceInner {
     pub(super) fn process_icmpv6<'frame>(
         &mut self,
         _sockets: &mut SocketSet,
-        ip_repr: IpRepr,
+        ip_repr: Ipv6Repr,
         ip_payload: &'frame [u8],
     ) -> Option<Packet<'frame>> {
         let icmp_packet = check!(Icmpv6Packet::new_checked(ip_payload));
         let icmp_repr = check!(Icmpv6Repr::parse(
-            &ip_repr.src_addr(),
-            &ip_repr.dst_addr(),
+            &ip_repr.src_addr,
+            &ip_repr.dst_addr,
             &icmp_packet,
             &self.caps.checksum,
         ));
@@ -317,8 +317,8 @@ impl InterfaceInner {
                 .items_mut()
                 .filter_map(|i| IcmpSocket::downcast_mut(&mut i.socket))
             {
-                if icmp_socket.accepts(self, &ip_repr, &icmp_repr.into()) {
-                    icmp_socket.process(self, &ip_repr, &icmp_repr.into());
+                if icmp_socket.accepts_v6(self, &ip_repr, &icmp_repr) {
+                    icmp_socket.process_v6(self, &ip_repr, &icmp_repr);
                     handled_by_icmp_socket = true;
                 }
             }
@@ -330,35 +330,27 @@ impl InterfaceInner {
                 ident,
                 seq_no,
                 data,
-            } => match ip_repr {
-                IpRepr::Ipv6(ipv6_repr) => {
-                    let icmp_reply_repr = Icmpv6Repr::EchoReply {
-                        ident,
-                        seq_no,
-                        data,
-                    };
-                    self.icmpv6_reply(ipv6_repr, icmp_reply_repr)
-                }
-                #[allow(unreachable_patterns)]
-                _ => unreachable!(),
-            },
+            } => {
+                let icmp_reply_repr = Icmpv6Repr::EchoReply {
+                    ident,
+                    seq_no,
+                    data,
+                };
+                self.icmpv6_reply(ip_repr, icmp_reply_repr)
+            }
 
             // Ignore any echo replies.
             Icmpv6Repr::EchoReply { .. } => None,
 
             // Forward any NDISC packets to the ndisc packet handler
             #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
-            Icmpv6Repr::Ndisc(repr) if ip_repr.hop_limit() == 0xff => match ip_repr {
-                IpRepr::Ipv6(ipv6_repr) => match self.caps.medium {
-                    #[cfg(feature = "medium-ethernet")]
-                    Medium::Ethernet => self.process_ndisc(ipv6_repr, repr),
-                    #[cfg(feature = "medium-ieee802154")]
-                    Medium::Ieee802154 => self.process_ndisc(ipv6_repr, repr),
-                    #[cfg(feature = "medium-ip")]
-                    Medium::Ip => None,
-                },
-                #[allow(unreachable_patterns)]
-                _ => unreachable!(),
+            Icmpv6Repr::Ndisc(repr) if ip_repr.hop_limit == 0xff => match self.caps.medium {
+                #[cfg(feature = "medium-ethernet")]
+                Medium::Ethernet => self.process_ndisc(ip_repr, repr),
+                #[cfg(feature = "medium-ieee802154")]
+                Medium::Ieee802154 => self.process_ndisc(ip_repr, repr),
+                #[cfg(feature = "medium-ip")]
+                Medium::Ip => None,
             },
 
             // Don't report an error if a packet with unknown type
