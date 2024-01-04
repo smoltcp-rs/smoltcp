@@ -338,7 +338,7 @@ impl Interface {
     /// This function panics if any of the addresses are not unicast.
     pub fn update_ip_addrs<F: FnOnce(&mut Vec<IpCidr, IFACE_MAX_ADDR_COUNT>)>(&mut self, f: F) {
         f(&mut self.inner.ip_addrs);
-        InterfaceInner::flush_cache(&mut self.inner);
+        InterfaceInner::flush_neighbor_cache(&mut self.inner);
         InterfaceInner::check_ip_addrs(&self.inner.ip_addrs)
     }
 
@@ -1047,7 +1047,7 @@ impl InterfaceInner {
         Err(DispatchError::NeighborPending)
     }
 
-    fn flush_cache(&mut self) {
+    fn flush_neighbor_cache(&mut self) {
         #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
         self.neighbor_cache.flush()
     }
