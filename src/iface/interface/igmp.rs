@@ -1,11 +1,5 @@
 use super::*;
 
-use crate::phy::{Device, PacketMeta};
-use crate::time::{Duration, Instant};
-use crate::wire::*;
-
-use core::result::Result;
-
 /// Error type for `join_multicast_group`, `leave_multicast_group`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]

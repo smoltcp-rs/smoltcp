@@ -786,6 +786,7 @@ fn test_raw_socket_no_reply(#[case] medium: Medium) {
     feature = "medium-ethernet"
 ))]
 fn test_raw_socket_with_udp_socket(#[case] medium: Medium) {
+    use crate::socket::udp;
     use crate::wire::{IpEndpoint, IpVersion, UdpPacket, UdpRepr};
 
     static UDP_PAYLOAD: [u8; 5] = [0x48, 0x65, 0x6c, 0x6c, 0x6f];

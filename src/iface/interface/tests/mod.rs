@@ -66,6 +66,7 @@ fn test_new_panic() {
 fn test_handle_udp_broadcast(
     #[values(Medium::Ip, Medium::Ethernet, Medium::Ieee802154)] medium: Medium,
 ) {
+    use crate::socket::udp;
     use crate::wire::IpEndpoint;
 
     static UDP_PAYLOAD: [u8; 5] = [0x48, 0x65, 0x6c, 0x6c, 0x6f];

@@ -1,14 +1,63 @@
 use super::*;
 use crate::wire::Result;
 
-use crate::phy::ChecksumCapabilities;
-use crate::wire::*;
-
 // Max len of non-fragmented packets after decompression (including ipv6 header and payload)
 // TODO: lower. Should be (6lowpan mtu) - (min 6lowpan header size) + (max ipv6 header size)
 pub(crate) const MAX_DECOMPRESSED_LEN: usize = 1500;
 
+impl Interface {
+    /// Process fragments that still need to be sent for 6LoWPAN packets.
+    ///
+    /// This function returns a boolean value indicating whether any packets were
+    /// processed or emitted, and thus, whether the readiness of any socket might
+    /// have changed.
+    #[cfg(feature = "proto-sixlowpan-fragmentation")]
+    pub(super) fn sixlowpan_egress<D>(&mut self, device: &mut D) -> bool
+    where
+        D: Device + ?Sized,
+    {
+        // Reset the buffer when we transmitted everything.
+        if self.fragmenter.finished() {
+            self.fragmenter.reset();
+        }
+
+        if self.fragmenter.is_empty() {
+            return false;
+        }
+
+        let pkt = &self.fragmenter;
+        if pkt.packet_len > pkt.sent_bytes {
+            if let Some(tx_token) = device.transmit(self.inner.now) {
+                self.inner
+                    .dispatch_ieee802154_frag(tx_token, &mut self.fragmenter);
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Get the 6LoWPAN address contexts.
+    pub fn sixlowpan_address_context(&self) -> &[SixlowpanAddressContext] {
+        &self.inner.sixlowpan_address_context[..]
+    }
+
+    /// Get a mutable reference to the 6LoWPAN address contexts.
+    pub fn sixlowpan_address_context_mut(
+        &mut self,
+    ) -> &mut Vec<SixlowpanAddressContext, IFACE_MAX_SIXLOWPAN_ADDRESS_CONTEXT_COUNT> {
+        &mut self.inner.sixlowpan_address_context
+    }
+}
+
 impl InterfaceInner {
+    /// Get the next tag for a 6LoWPAN fragment.
+    #[cfg(feature = "proto-sixlowpan-fragmentation")]
+    fn get_sixlowpan_fragment_tag(&mut self) -> u16 {
+        let tag = self.tag;
+        self.tag = self.tag.wrapping_add(1);
+        tag
+    }
+
     pub(super) fn process_sixlowpan<'output, 'payload: 'output>(
         &mut self,
         sockets: &mut SocketSet,

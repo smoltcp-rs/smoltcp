@@ -19,6 +19,10 @@ mod sixlowpan;
 
 #[cfg(feature = "proto-igmp")]
 mod igmp;
+#[cfg(feature = "socket-tcp")]
+mod tcp;
+#[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
+mod udp;
 
 #[cfg(feature = "proto-igmp")]
 pub use igmp::MulticastError;
@@ -45,8 +49,6 @@ use crate::iface::Routes;
 use crate::phy::PacketMeta;
 use crate::phy::{ChecksumCapabilities, Device, DeviceCapabilities, Medium, RxToken, TxToken};
 use crate::rand::Rand;
-#[cfg(feature = "socket-dns")]
-use crate::socket::dns;
 use crate::socket::*;
 use crate::time::{Duration, Instant};
 
@@ -336,7 +338,7 @@ impl Interface {
     /// This function panics if any of the addresses are not unicast.
     pub fn update_ip_addrs<F: FnOnce(&mut Vec<IpCidr, IFACE_MAX_ADDR_COUNT>)>(&mut self, f: F) {
         f(&mut self.inner.ip_addrs);
-        InterfaceInner::flush_cache(&mut self.inner);
+        InterfaceInner::flush_neighbor_cache(&mut self.inner);
         InterfaceInner::check_ip_addrs(&self.inner.ip_addrs)
     }
 
@@ -376,22 +378,6 @@ impl Interface {
     #[cfg(feature = "proto-ipv4")]
     pub fn any_ip(&self) -> bool {
         self.inner.any_ip
-    }
-
-    /// Get the 6LoWPAN address contexts.
-    #[cfg(feature = "proto-sixlowpan")]
-    pub fn sixlowpan_address_context(
-        &self,
-    ) -> &Vec<SixlowpanAddressContext, IFACE_MAX_SIXLOWPAN_ADDRESS_CONTEXT_COUNT> {
-        &self.inner.sixlowpan_address_context
-    }
-
-    /// Get a mutable reference to the 6LoWPAN address contexts.
-    #[cfg(feature = "proto-sixlowpan")]
-    pub fn sixlowpan_address_context_mut(
-        &mut self,
-    ) -> &mut Vec<SixlowpanAddressContext, IFACE_MAX_SIXLOWPAN_ADDRESS_CONTEXT_COUNT> {
-        &mut self.inner.sixlowpan_address_context
     }
 
     /// Get the packet reassembly timeout.
@@ -707,66 +693,6 @@ impl Interface {
         }
         emitted_any
     }
-
-    /// Process fragments that still need to be sent for IPv4 packets.
-    ///
-    /// This function returns a boolean value indicating whether any packets were
-    /// processed or emitted, and thus, whether the readiness of any socket might
-    /// have changed.
-    #[cfg(feature = "proto-ipv4-fragmentation")]
-    fn ipv4_egress<D>(&mut self, device: &mut D) -> bool
-    where
-        D: Device + ?Sized,
-    {
-        // Reset the buffer when we transmitted everything.
-        if self.fragmenter.finished() {
-            self.fragmenter.reset();
-        }
-
-        if self.fragmenter.is_empty() {
-            return false;
-        }
-
-        let pkt = &self.fragmenter;
-        if pkt.packet_len > pkt.sent_bytes {
-            if let Some(tx_token) = device.transmit(self.inner.now) {
-                self.inner
-                    .dispatch_ipv4_frag(tx_token, &mut self.fragmenter);
-                return true;
-            }
-        }
-        false
-    }
-
-    /// Process fragments that still need to be sent for 6LoWPAN packets.
-    ///
-    /// This function returns a boolean value indicating whether any packets were
-    /// processed or emitted, and thus, whether the readiness of any socket might
-    /// have changed.
-    #[cfg(feature = "proto-sixlowpan-fragmentation")]
-    fn sixlowpan_egress<D>(&mut self, device: &mut D) -> bool
-    where
-        D: Device + ?Sized,
-    {
-        // Reset the buffer when we transmitted everything.
-        if self.fragmenter.finished() {
-            self.fragmenter.reset();
-        }
-
-        if self.fragmenter.is_empty() {
-            return false;
-        }
-
-        let pkt = &self.fragmenter;
-        if pkt.packet_len > pkt.sent_bytes {
-            if let Some(tx_token) = device.transmit(self.inner.now) {
-                self.inner
-                    .dispatch_ieee802154_frag(tx_token, &mut self.fragmenter);
-                return true;
-            }
-        }
-        false
-    }
 }
 
 impl InterfaceInner {
@@ -806,120 +732,6 @@ impl InterfaceInner {
         }
     }
 
-    #[cfg(feature = "proto-ipv4")]
-    #[allow(unused)]
-    pub(crate) fn get_source_address_ipv4(&self, _dst_addr: &Ipv4Address) -> Option<Ipv4Address> {
-        for cidr in self.ip_addrs.iter() {
-            #[allow(irrefutable_let_patterns)] // if only ipv4 is enabled
-            if let IpCidr::Ipv4(cidr) = cidr {
-                return Some(cidr.address());
-            }
-        }
-        None
-    }
-
-    #[cfg(feature = "proto-ipv6")]
-    #[allow(unused)]
-    pub(crate) fn get_source_address_ipv6(&self, dst_addr: &Ipv6Address) -> Option<Ipv6Address> {
-        // RFC 6724 describes how to select the correct source address depending on the destination
-        // address.
-
-        // See RFC 6724 Section 4: Candidate source address
-        fn is_candidate_source_address(dst_addr: &Ipv6Address, src_addr: &Ipv6Address) -> bool {
-            // For all multicast and link-local destination addresses, the candidate address MUST
-            // only be an address from the same link.
-            if dst_addr.is_link_local() && !src_addr.is_link_local() {
-                return false;
-            }
-
-            if dst_addr.is_multicast()
-                && matches!(dst_addr.scope(), Ipv6AddressScope::LinkLocal)
-                && src_addr.is_multicast()
-                && !matches!(src_addr.scope(), Ipv6AddressScope::LinkLocal)
-            {
-                return false;
-            }
-
-            // Loopback addresses and multicast address can not be in the candidate source address
-            // list. Except when the destination multicast address has a link-local scope, then the
-            // source address can also be link-local multicast.
-            if src_addr.is_loopback() || src_addr.is_multicast() {
-                return false;
-            }
-
-            true
-        }
-
-        // See RFC 6724 Section 2.2: Common Prefix Length
-        fn common_prefix_length(dst_addr: &Ipv6Cidr, src_addr: &Ipv6Address) -> usize {
-            let addr = dst_addr.address();
-            let mut bits = 0;
-            for (l, r) in addr.as_bytes().iter().zip(src_addr.as_bytes().iter()) {
-                if l == r {
-                    bits += 8;
-                } else {
-                    bits += (l ^ r).leading_zeros();
-                    break;
-                }
-            }
-
-            bits = bits.min(dst_addr.prefix_len() as u32);
-
-            bits as usize
-        }
-
-        // Get the first address that is a candidate address.
-        let mut candidate = self
-            .ip_addrs
-            .iter()
-            .filter_map(|a| match a {
-                #[cfg(feature = "proto-ipv4")]
-                IpCidr::Ipv4(_) => None,
-                #[cfg(feature = "proto-ipv6")]
-                IpCidr::Ipv6(a) => Some(a),
-            })
-            .find(|a| is_candidate_source_address(dst_addr, &a.address()))
-            .unwrap();
-
-        for addr in self.ip_addrs.iter().filter_map(|a| match a {
-            #[cfg(feature = "proto-ipv4")]
-            IpCidr::Ipv4(_) => None,
-            #[cfg(feature = "proto-ipv6")]
-            IpCidr::Ipv6(a) => Some(a),
-        }) {
-            if !is_candidate_source_address(dst_addr, &addr.address()) {
-                continue;
-            }
-
-            // Rule 1: prefer the address that is the same as the output destination address.
-            if candidate.address() != *dst_addr && addr.address() == *dst_addr {
-                candidate = addr;
-            }
-
-            // Rule 2: prefer appropriate scope.
-            if (candidate.address().scope() as u8) < (addr.address().scope() as u8) {
-                if (candidate.address().scope() as u8) < (dst_addr.scope() as u8) {
-                    candidate = addr;
-                }
-            } else if (addr.address().scope() as u8) > (dst_addr.scope() as u8) {
-                candidate = addr;
-            }
-
-            // Rule 3: avoid deprecated addresses (TODO)
-            // Rule 4: prefer home addresses (TODO)
-            // Rule 5: prefer outgoing interfaces (TODO)
-            // Rule 5.5: prefer addresses in a prefix advertises by the next-hop (TODO).
-            // Rule 6: prefer matching label (TODO)
-            // Rule 7: prefer temporary addresses (TODO)
-            // Rule 8: use longest matching prefix
-            if common_prefix_length(candidate, dst_addr) < common_prefix_length(addr, dst_addr) {
-                candidate = addr;
-            }
-        }
-
-        Some(candidate.address())
-    }
-
     #[cfg(test)]
     #[allow(unused)] // unused depending on which sockets are enabled
     pub(crate) fn set_now(&mut self, now: Instant) {
@@ -941,70 +753,10 @@ impl InterfaceInner {
         }
     }
 
-    #[cfg(feature = "medium-ieee802154")]
-    fn get_sequence_number(&mut self) -> u8 {
-        let no = self.sequence_no;
-        self.sequence_no = self.sequence_no.wrapping_add(1);
-        no
-    }
-
-    #[cfg(feature = "proto-ipv4-fragmentation")]
-    fn get_ipv4_ident(&mut self) -> u16 {
-        let ipv4_id = self.ipv4_id;
-        self.ipv4_id = self.ipv4_id.wrapping_add(1);
-        ipv4_id
-    }
-
-    #[cfg(feature = "proto-sixlowpan-fragmentation")]
-    fn get_sixlowpan_fragment_tag(&mut self) -> u16 {
-        let tag = self.tag;
-        self.tag = self.tag.wrapping_add(1);
-        tag
-    }
-
-    /// Determine if the given `Ipv6Address` is the solicited node
-    /// multicast address for a IPv6 addresses assigned to the interface.
-    /// See [RFC 4291 § 2.7.1] for more details.
-    ///
-    /// [RFC 4291 § 2.7.1]: https://tools.ietf.org/html/rfc4291#section-2.7.1
-    #[cfg(feature = "proto-ipv6")]
-    pub fn has_solicited_node(&self, addr: Ipv6Address) -> bool {
-        self.ip_addrs.iter().any(|cidr| {
-            match *cidr {
-                IpCidr::Ipv6(cidr) if cidr.address() != Ipv6Address::LOOPBACK => {
-                    // Take the lower order 24 bits of the IPv6 address and
-                    // append those bits to FF02:0:0:0:0:1:FF00::/104.
-                    addr.as_bytes()[14..] == cidr.address().as_bytes()[14..]
-                }
-                _ => false,
-            }
-        })
-    }
-
     /// Check whether the interface has the given IP address assigned.
     fn has_ip_addr<T: Into<IpAddress>>(&self, addr: T) -> bool {
         let addr = addr.into();
         self.ip_addrs.iter().any(|probe| probe.address() == addr)
-    }
-
-    /// Get the first IPv4 address of the interface.
-    #[cfg(feature = "proto-ipv4")]
-    pub fn ipv4_addr(&self) -> Option<Ipv4Address> {
-        self.ip_addrs.iter().find_map(|addr| match *addr {
-            IpCidr::Ipv4(cidr) => Some(cidr.address()),
-            #[allow(unreachable_patterns)]
-            _ => None,
-        })
-    }
-
-    /// Get the first IPv6 address if present.
-    #[cfg(feature = "proto-ipv6")]
-    pub fn ipv6_addr(&self) -> Option<Ipv6Address> {
-        self.ip_addrs.iter().find_map(|addr| match *addr {
-            IpCidr::Ipv6(cidr) => Some(cidr.address()),
-            #[allow(unreachable_patterns)]
-            _ => None,
-        })
     }
 
     /// Check whether the interface listens to given destination multicast IP address.
@@ -1084,142 +836,6 @@ impl InterfaceInner {
             IpAddress::Ipv4(address) => self.is_broadcast_v4(*address),
             #[cfg(feature = "proto-ipv6")]
             IpAddress::Ipv6(_) => false,
-        }
-    }
-
-    /// Checks if an address is broadcast, taking into account ipv4 subnet-local
-    /// broadcast addresses.
-    #[cfg(feature = "proto-ipv4")]
-    pub(crate) fn is_broadcast_v4(&self, address: Ipv4Address) -> bool {
-        if address.is_broadcast() {
-            return true;
-        }
-
-        self.ip_addrs
-            .iter()
-            .filter_map(|own_cidr| match own_cidr {
-                IpCidr::Ipv4(own_ip) => Some(own_ip.broadcast()?),
-                #[cfg(feature = "proto-ipv6")]
-                IpCidr::Ipv6(_) => None,
-            })
-            .any(|broadcast_address| address == broadcast_address)
-    }
-
-    /// Checks if an ipv4 address is unicast, taking into account subnet broadcast addresses
-    #[cfg(feature = "proto-ipv4")]
-    fn is_unicast_v4(&self, address: Ipv4Address) -> bool {
-        address.is_unicast() && !self.is_broadcast_v4(address)
-    }
-
-    #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
-    fn process_udp<'frame>(
-        &mut self,
-        sockets: &mut SocketSet,
-        meta: PacketMeta,
-        handled_by_raw_socket: bool,
-        ip_repr: IpRepr,
-        ip_payload: &'frame [u8],
-    ) -> Option<Packet<'frame>> {
-        let (src_addr, dst_addr) = (ip_repr.src_addr(), ip_repr.dst_addr());
-        let udp_packet = check!(UdpPacket::new_checked(ip_payload));
-        let udp_repr = check!(UdpRepr::parse(
-            &udp_packet,
-            &src_addr,
-            &dst_addr,
-            &self.caps.checksum
-        ));
-
-        #[cfg(feature = "socket-udp")]
-        for udp_socket in sockets
-            .items_mut()
-            .filter_map(|i| udp::Socket::downcast_mut(&mut i.socket))
-        {
-            if udp_socket.accepts(self, &ip_repr, &udp_repr) {
-                udp_socket.process(self, meta, &ip_repr, &udp_repr, udp_packet.payload());
-                return None;
-            }
-        }
-
-        #[cfg(feature = "socket-dns")]
-        for dns_socket in sockets
-            .items_mut()
-            .filter_map(|i| dns::Socket::downcast_mut(&mut i.socket))
-        {
-            if dns_socket.accepts(&ip_repr, &udp_repr) {
-                dns_socket.process(self, &ip_repr, &udp_repr, udp_packet.payload());
-                return None;
-            }
-        }
-
-        // The packet wasn't handled by a socket, send an ICMP port unreachable packet.
-        match ip_repr {
-            #[cfg(feature = "proto-ipv4")]
-            IpRepr::Ipv4(_) if handled_by_raw_socket => None,
-            #[cfg(feature = "proto-ipv6")]
-            IpRepr::Ipv6(_) if handled_by_raw_socket => None,
-            #[cfg(feature = "proto-ipv4")]
-            IpRepr::Ipv4(ipv4_repr) => {
-                let payload_len =
-                    icmp_reply_payload_len(ip_payload.len(), IPV4_MIN_MTU, ipv4_repr.buffer_len());
-                let icmpv4_reply_repr = Icmpv4Repr::DstUnreachable {
-                    reason: Icmpv4DstUnreachable::PortUnreachable,
-                    header: ipv4_repr,
-                    data: &ip_payload[0..payload_len],
-                };
-                self.icmpv4_reply(ipv4_repr, icmpv4_reply_repr)
-            }
-            #[cfg(feature = "proto-ipv6")]
-            IpRepr::Ipv6(ipv6_repr) => {
-                let payload_len =
-                    icmp_reply_payload_len(ip_payload.len(), IPV6_MIN_MTU, ipv6_repr.buffer_len());
-                let icmpv6_reply_repr = Icmpv6Repr::DstUnreachable {
-                    reason: Icmpv6DstUnreachable::PortUnreachable,
-                    header: ipv6_repr,
-                    data: &ip_payload[0..payload_len],
-                };
-                self.icmpv6_reply(ipv6_repr, icmpv6_reply_repr)
-            }
-        }
-    }
-
-    #[cfg(feature = "socket-tcp")]
-    pub(crate) fn process_tcp<'frame>(
-        &mut self,
-        sockets: &mut SocketSet,
-        ip_repr: IpRepr,
-        ip_payload: &'frame [u8],
-    ) -> Option<Packet<'frame>> {
-        let (src_addr, dst_addr) = (ip_repr.src_addr(), ip_repr.dst_addr());
-        let tcp_packet = check!(TcpPacket::new_checked(ip_payload));
-        let tcp_repr = check!(TcpRepr::parse(
-            &tcp_packet,
-            &src_addr,
-            &dst_addr,
-            &self.caps.checksum
-        ));
-
-        for tcp_socket in sockets
-            .items_mut()
-            .filter_map(|i| tcp::Socket::downcast_mut(&mut i.socket))
-        {
-            if tcp_socket.accepts(self, &ip_repr, &tcp_repr) {
-                return tcp_socket
-                    .process(self, &ip_repr, &tcp_repr)
-                    .map(|(ip, tcp)| Packet::new(ip, IpPayload::Tcp(tcp)));
-            }
-        }
-
-        if tcp_repr.control == TcpControl::Rst
-            || ip_repr.dst_addr().is_unspecified()
-            || ip_repr.src_addr().is_unspecified()
-        {
-            // Never reply to a TCP RST packet with another TCP RST packet. We also never want to
-            // send a TCP RST packet with unspecified addresses.
-            None
-        } else {
-            // The packet wasn't handled by a socket, send a TCP RST packet.
-            let (ip, tcp) = tcp::Socket::rst_reply(&ip_repr, &tcp_repr);
-            Some(Packet::new(ip, IpPayload::Tcp(tcp)))
         }
     }
 
@@ -1431,7 +1047,7 @@ impl InterfaceInner {
         Err(DispatchError::NeighborPending)
     }
 
-    fn flush_cache(&mut self) {
+    fn flush_neighbor_cache(&mut self) {
         #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
         self.neighbor_cache.flush()
     }
@@ -1469,7 +1085,7 @@ impl InterfaceInner {
         let caps = self.caps.clone();
 
         #[cfg(feature = "proto-ipv4-fragmentation")]
-        let ipv4_id = self.get_ipv4_ident();
+        let ipv4_id = self.next_ipv4_frag_ident();
 
         // First we calculate the total length that we will have to emit.
         let mut total_len = ip_repr.buffer_len();
