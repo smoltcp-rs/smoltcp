@@ -459,9 +459,13 @@ impl<'a> Repr<'a> {
 mod test {
     use super::*;
     use crate::phy::ChecksumCapabilities;
-    use crate::wire::ip::test::{MOCK_IP_ADDR_1, MOCK_IP_ADDR_2};
     use crate::wire::EthernetAddress;
     use crate::wire::Icmpv6Repr;
+
+    const MOCK_IP_ADDR_1: Ipv6Address =
+        Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
+    const MOCK_IP_ADDR_2: Ipv6Address =
+        Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]);
 
     static ROUTER_ADVERT_BYTES: [u8; 24] = [
         0x86, 0x00, 0xa9, 0xde, 0x40, 0x80, 0x03, 0x84, 0x00, 0x00, 0x03, 0x84, 0x00, 0x00, 0x03,

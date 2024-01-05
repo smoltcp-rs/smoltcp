@@ -16,8 +16,8 @@ fn parse_ipv6(data: &[u8]) -> crate::wire::Result<Packet<'_>> {
         IpProtocol::IpSecAh => todo!(),
         IpProtocol::Icmpv6 => {
             let icmp = Icmpv6Repr::parse(
-                &ipv6.src_addr.into(),
-                &ipv6.dst_addr.into(),
+                &ipv6.src_addr,
+                &ipv6.dst_addr,
                 &Icmpv6Packet::new_checked(ipv6_header.payload())?,
                 &Default::default(),
             )?;
@@ -707,8 +707,8 @@ fn test_handle_valid_ndisc_request(#[case] medium: Medium) {
     frame.set_ethertype(EthernetProtocol::Ipv6);
     ip_repr.emit(frame.payload_mut(), &ChecksumCapabilities::default());
     solicit.emit(
-        &remote_ip_addr.into(),
-        &local_ip_addr.solicited_node().into(),
+        &remote_ip_addr,
+        &local_ip_addr.solicited_node(),
         &mut Icmpv6Packet::new_unchecked(&mut frame.payload_mut()[ip_repr.header_len()..]),
         &ChecksumCapabilities::default(),
     );

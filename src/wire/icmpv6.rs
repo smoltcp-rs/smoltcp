@@ -9,7 +9,7 @@ use crate::wire::MldRepr;
 use crate::wire::NdiscRepr;
 #[cfg(feature = "proto-rpl")]
 use crate::wire::RplRepr;
-use crate::wire::{IpAddress, IpProtocol, Ipv6Packet, Ipv6Repr};
+use crate::wire::{IpProtocol, Ipv6Address, Ipv6Packet, Ipv6Repr};
 use crate::wire::{IPV6_HEADER_LEN, IPV6_MIN_MTU};
 
 /// Error packets must not exceed min MTU
@@ -421,14 +421,14 @@ impl<T: AsRef<[u8]>> Packet<T> {
     ///
     /// # Fuzzing
     /// This function always returns `true` when fuzzing.
-    pub fn verify_checksum(&self, src_addr: &IpAddress, dst_addr: &IpAddress) -> bool {
+    pub fn verify_checksum(&self, src_addr: &Ipv6Address, dst_addr: &Ipv6Address) -> bool {
         if cfg!(fuzzing) {
             return true;
         }
 
         let data = self.buffer.as_ref();
         checksum::combine(&[
-            checksum::pseudo_header(src_addr, dst_addr, IpProtocol::Icmpv6, data.len() as u32),
+            checksum::pseudo_header_v6(src_addr, dst_addr, IpProtocol::Icmpv6, data.len() as u32),
             checksum::data(data),
         ]) == !0
     }
@@ -535,12 +535,17 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     }
 
     /// Compute and fill in the header checksum.
-    pub fn fill_checksum(&mut self, src_addr: &IpAddress, dst_addr: &IpAddress) {
+    pub fn fill_checksum(&mut self, src_addr: &Ipv6Address, dst_addr: &Ipv6Address) {
         self.set_checksum(0);
         let checksum = {
             let data = self.buffer.as_ref();
             !checksum::combine(&[
-                checksum::pseudo_header(src_addr, dst_addr, IpProtocol::Icmpv6, data.len() as u32),
+                checksum::pseudo_header_v6(
+                    src_addr,
+                    dst_addr,
+                    IpProtocol::Icmpv6,
+                    data.len() as u32,
+                ),
                 checksum::data(data),
             ])
         };
@@ -609,8 +614,8 @@ impl<'a> Repr<'a> {
     /// Parse an Internet Control Message Protocol version 6 packet and return
     /// a high-level representation.
     pub fn parse<T>(
-        src_addr: &IpAddress,
-        dst_addr: &IpAddress,
+        src_addr: &Ipv6Address,
+        dst_addr: &Ipv6Address,
         packet: &Packet<&'a T>,
         checksum_caps: &ChecksumCapabilities,
     ) -> Result<Repr<'a>>
@@ -725,8 +730,8 @@ impl<'a> Repr<'a> {
     /// packet.
     pub fn emit<T>(
         &self,
-        src_addr: &IpAddress,
-        dst_addr: &IpAddress,
+        src_addr: &Ipv6Address,
+        dst_addr: &Ipv6Address,
         packet: &mut Packet<&mut T>,
         checksum_caps: &ChecksumCapabilities,
     ) where
@@ -840,8 +845,12 @@ impl<'a> Repr<'a> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::wire::ip::test::{MOCK_IP_ADDR_1, MOCK_IP_ADDR_2};
     use crate::wire::{IpProtocol, Ipv6Address, Ipv6Repr};
+
+    const MOCK_IP_ADDR_1: Ipv6Address =
+        Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
+    const MOCK_IP_ADDR_2: Ipv6Address =
+        Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]);
 
     static ECHO_PACKET_BYTES: [u8; 12] = [
         0x80, 0x00, 0x19, 0xb3, 0x12, 0x34, 0xab, 0xcd, 0xaa, 0x00, 0x00, 0xff,

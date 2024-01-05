@@ -84,12 +84,20 @@ impl<'p> Packet<'p> {
             #[cfg(feature = "proto-igmp")]
             IpPayload::Igmp(igmp_repr) => igmp_repr.emit(&mut IgmpPacket::new_unchecked(payload)),
             #[cfg(feature = "proto-ipv6")]
-            IpPayload::Icmpv6(icmpv6_repr) => icmpv6_repr.emit(
-                &_ip_repr.src_addr(),
-                &_ip_repr.dst_addr(),
-                &mut Icmpv6Packet::new_unchecked(payload),
-                &caps.checksum,
-            ),
+            IpPayload::Icmpv6(icmpv6_repr) => {
+                let ipv6_repr = match _ip_repr {
+                    #[cfg(feature = "proto-ipv4")]
+                    IpRepr::Ipv4(_) => unreachable!(),
+                    IpRepr::Ipv6(repr) => repr,
+                };
+
+                icmpv6_repr.emit(
+                    &ipv6_repr.src_addr,
+                    &ipv6_repr.dst_addr,
+                    &mut Icmpv6Packet::new_unchecked(payload),
+                    &caps.checksum,
+                )
+            }
             #[cfg(feature = "socket-raw")]
             IpPayload::Raw(raw_packet) => payload.copy_from_slice(raw_packet),
             #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]

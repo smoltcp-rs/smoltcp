@@ -753,7 +753,42 @@ pub mod checksum {
         propagate_carries(accum)
     }
 
-    /// Compute an IP pseudo header checksum.
+    #[cfg(feature = "proto-ipv4")]
+    pub fn pseudo_header_v4(
+        src_addr: &Ipv4Address,
+        dst_addr: &Ipv4Address,
+        next_header: Protocol,
+        length: u32,
+    ) -> u16 {
+        let mut proto_len = [0u8; 4];
+        proto_len[1] = next_header.into();
+        NetworkEndian::write_u16(&mut proto_len[2..4], length as u16);
+
+        combine(&[
+            data(src_addr.as_bytes()),
+            data(dst_addr.as_bytes()),
+            data(&proto_len[..]),
+        ])
+    }
+
+    #[cfg(feature = "proto-ipv6")]
+    pub fn pseudo_header_v6(
+        src_addr: &Ipv6Address,
+        dst_addr: &Ipv6Address,
+        next_header: Protocol,
+        length: u32,
+    ) -> u16 {
+        let mut proto_len = [0u8; 4];
+        proto_len[1] = next_header.into();
+        NetworkEndian::write_u16(&mut proto_len[2..4], length as u16);
+
+        combine(&[
+            data(src_addr.as_bytes()),
+            data(dst_addr.as_bytes()),
+            data(&proto_len[..]),
+        ])
+    }
+
     pub fn pseudo_header(
         src_addr: &Address,
         dst_addr: &Address,
@@ -762,32 +797,15 @@ pub mod checksum {
     ) -> u16 {
         match (src_addr, dst_addr) {
             #[cfg(feature = "proto-ipv4")]
-            (&Address::Ipv4(src_addr), &Address::Ipv4(dst_addr)) => {
-                let mut proto_len = [0u8; 4];
-                proto_len[1] = next_header.into();
-                NetworkEndian::write_u16(&mut proto_len[2..4], length as u16);
-
-                combine(&[
-                    data(src_addr.as_bytes()),
-                    data(dst_addr.as_bytes()),
-                    data(&proto_len[..]),
-                ])
+            (Address::Ipv4(src_addr), Address::Ipv4(dst_addr)) => {
+                pseudo_header_v4(src_addr, dst_addr, next_header, length)
             }
-
             #[cfg(feature = "proto-ipv6")]
-            (&Address::Ipv6(src_addr), &Address::Ipv6(dst_addr)) => {
-                let mut proto_len = [0u8; 8];
-                proto_len[7] = next_header.into();
-                NetworkEndian::write_u32(&mut proto_len[0..4], length);
-                combine(&[
-                    data(src_addr.as_bytes()),
-                    data(dst_addr.as_bytes()),
-                    data(&proto_len[..]),
-                ])
+            (Address::Ipv6(src_addr), Address::Ipv6(dst_addr)) => {
+                pseudo_header_v6(src_addr, dst_addr, next_header, length)
             }
-
             #[allow(unreachable_patterns)]
-            _ => panic!("Unexpected pseudo header addresses: {src_addr}, {dst_addr}"),
+            _ => unreachable!(),
         }
     }
 
@@ -881,36 +899,6 @@ pub fn pretty_print_ip_payload<T: Into<Repr>>(
 #[cfg(test)]
 pub(crate) mod test {
     #![allow(unused)]
-
-    #[cfg(feature = "proto-ipv6")]
-    pub(crate) const MOCK_IP_ADDR_1: IpAddress = IpAddress::Ipv6(Ipv6Address([
-        0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
-    ]));
-    #[cfg(feature = "proto-ipv6")]
-    pub(crate) const MOCK_IP_ADDR_2: IpAddress = IpAddress::Ipv6(Ipv6Address([
-        0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2,
-    ]));
-    #[cfg(feature = "proto-ipv6")]
-    pub(crate) const MOCK_IP_ADDR_3: IpAddress = IpAddress::Ipv6(Ipv6Address([
-        0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3,
-    ]));
-    #[cfg(feature = "proto-ipv6")]
-    pub(crate) const MOCK_IP_ADDR_4: IpAddress = IpAddress::Ipv6(Ipv6Address([
-        0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4,
-    ]));
-    #[cfg(feature = "proto-ipv6")]
-    pub(crate) const MOCK_UNSPECIFIED: IpAddress = IpAddress::Ipv6(Ipv6Address::UNSPECIFIED);
-
-    #[cfg(all(feature = "proto-ipv4", not(feature = "proto-ipv6")))]
-    pub(crate) const MOCK_IP_ADDR_1: IpAddress = IpAddress::Ipv4(Ipv4Address([192, 168, 1, 1]));
-    #[cfg(all(feature = "proto-ipv4", not(feature = "proto-ipv6")))]
-    pub(crate) const MOCK_IP_ADDR_2: IpAddress = IpAddress::Ipv4(Ipv4Address([192, 168, 1, 2]));
-    #[cfg(all(feature = "proto-ipv4", not(feature = "proto-ipv6")))]
-    pub(crate) const MOCK_IP_ADDR_3: IpAddress = IpAddress::Ipv4(Ipv4Address([192, 168, 1, 3]));
-    #[cfg(all(feature = "proto-ipv4", not(feature = "proto-ipv6")))]
-    pub(crate) const MOCK_IP_ADDR_4: IpAddress = IpAddress::Ipv4(Ipv4Address([192, 168, 1, 4]));
-    #[cfg(all(feature = "proto-ipv4", not(feature = "proto-ipv6")))]
-    pub(crate) const MOCK_UNSPECIFIED: IpAddress = IpAddress::Ipv4(Ipv4Address::UNSPECIFIED);
 
     use super::*;
     use crate::wire::{IpAddress, IpCidr, IpProtocol};

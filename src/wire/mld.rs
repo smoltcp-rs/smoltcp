@@ -476,8 +476,8 @@ mod test {
             .copy_from_slice(Ipv6Address::LINK_LOCAL_ALL_ROUTERS.as_bytes());
         packet.clear_reserved();
         packet.fill_checksum(
-            &Ipv6Address::LINK_LOCAL_ALL_NODES.into(),
-            &Ipv6Address::LINK_LOCAL_ALL_ROUTERS.into(),
+            &Ipv6Address::LINK_LOCAL_ALL_NODES,
+            &Ipv6Address::LINK_LOCAL_ALL_ROUTERS,
         );
         assert_eq!(&*packet.into_inner(), &QUERY_PACKET_BYTES[..]);
     }
@@ -519,8 +519,8 @@ mod test {
                 .copy_from_slice(Ipv6Address::LINK_LOCAL_ALL_ROUTERS.as_bytes());
         }
         packet.fill_checksum(
-            &Ipv6Address::LINK_LOCAL_ALL_NODES.into(),
-            &Ipv6Address::LINK_LOCAL_ALL_ROUTERS.into(),
+            &Ipv6Address::LINK_LOCAL_ALL_NODES,
+            &Ipv6Address::LINK_LOCAL_ALL_ROUTERS,
         );
         assert_eq!(&*packet.into_inner(), &REPORT_PACKET_BYTES[..]);
     }
@@ -529,8 +529,8 @@ mod test {
     fn test_query_repr_parse() {
         let packet = Packet::new_unchecked(&QUERY_PACKET_BYTES[..]);
         let repr = Icmpv6Repr::parse(
-            &Ipv6Address::LINK_LOCAL_ALL_NODES.into(),
-            &Ipv6Address::LINK_LOCAL_ALL_ROUTERS.into(),
+            &Ipv6Address::LINK_LOCAL_ALL_NODES,
+            &Ipv6Address::LINK_LOCAL_ALL_ROUTERS,
             &packet,
             &ChecksumCapabilities::default(),
         );
@@ -541,8 +541,8 @@ mod test {
     fn test_report_repr_parse() {
         let packet = Packet::new_unchecked(&REPORT_PACKET_BYTES[..]);
         let repr = Icmpv6Repr::parse(
-            &Ipv6Address::LINK_LOCAL_ALL_NODES.into(),
-            &Ipv6Address::LINK_LOCAL_ALL_ROUTERS.into(),
+            &Ipv6Address::LINK_LOCAL_ALL_NODES,
+            &Ipv6Address::LINK_LOCAL_ALL_ROUTERS,
             &packet,
             &ChecksumCapabilities::default(),
         );
@@ -555,8 +555,8 @@ mod test {
         let mut packet = Packet::new_unchecked(&mut bytes[..]);
         let repr = create_repr(Message::MldQuery);
         repr.emit(
-            &Ipv6Address::LINK_LOCAL_ALL_NODES.into(),
-            &Ipv6Address::LINK_LOCAL_ALL_ROUTERS.into(),
+            &Ipv6Address::LINK_LOCAL_ALL_NODES,
+            &Ipv6Address::LINK_LOCAL_ALL_ROUTERS,
             &mut packet,
             &ChecksumCapabilities::default(),
         );
@@ -569,8 +569,8 @@ mod test {
         let mut packet = Packet::new_unchecked(&mut bytes[..]);
         let repr = create_repr(Message::MldReport);
         repr.emit(
-            &Ipv6Address::LINK_LOCAL_ALL_NODES.into(),
-            &Ipv6Address::LINK_LOCAL_ALL_ROUTERS.into(),
+            &Ipv6Address::LINK_LOCAL_ALL_NODES,
+            &Ipv6Address::LINK_LOCAL_ALL_ROUTERS,
             &mut packet,
             &ChecksumCapabilities::default(),
         );

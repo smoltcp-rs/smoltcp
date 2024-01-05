@@ -796,8 +796,19 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
 }
 
 #[cfg(test)]
-mod test {
+pub(crate) mod test {
     use super::*;
+
+    #[allow(unused)]
+    pub(crate) const MOCK_IP_ADDR_1: Address = Address([192, 168, 1, 1]);
+    #[allow(unused)]
+    pub(crate) const MOCK_IP_ADDR_2: Address = Address([192, 168, 1, 2]);
+    #[allow(unused)]
+    pub(crate) const MOCK_IP_ADDR_3: Address = Address([192, 168, 1, 3]);
+    #[allow(unused)]
+    pub(crate) const MOCK_IP_ADDR_4: Address = Address([192, 168, 1, 4]);
+    #[allow(unused)]
+    pub(crate) const MOCK_UNSPECIFIED: Address = Address::UNSPECIFIED;
 
     static PACKET_BYTES: [u8; 30] = [
         0x45, 0x00, 0x00, 0x1e, 0x01, 0x02, 0x62, 0x03, 0x1a, 0x01, 0xd5, 0x6e, 0x11, 0x12, 0x13,

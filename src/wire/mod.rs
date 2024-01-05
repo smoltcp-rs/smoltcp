@@ -97,9 +97,9 @@ pub mod ieee802154;
 mod igmp;
 pub(crate) mod ip;
 #[cfg(feature = "proto-ipv4")]
-mod ipv4;
+pub(crate) mod ipv4;
 #[cfg(feature = "proto-ipv6")]
-mod ipv6;
+pub(crate) mod ipv6;
 #[cfg(feature = "proto-ipv6")]
 mod ipv6ext_header;
 #[cfg(feature = "proto-ipv6")]
