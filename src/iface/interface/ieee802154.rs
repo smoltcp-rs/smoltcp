@@ -1,8 +1,5 @@
 use super::*;
 
-use crate::phy::TxToken;
-use crate::wire::*;
-
 impl InterfaceInner {
     pub(super) fn process_ieee802154<'output, 'payload: 'output>(
         &mut self,
@@ -12,11 +9,12 @@ impl InterfaceInner {
         _fragments: &'output mut FragmentsBuffer,
     ) -> Option<Packet<'output>> {
         let ieee802154_frame = check!(Ieee802154Frame::new_checked(sixlowpan_payload));
-        let ieee802154_repr = check!(Ieee802154Repr::parse(&ieee802154_frame));
 
-        if ieee802154_repr.frame_type != Ieee802154FrameType::Data {
+        if ieee802154_frame.frame_type() != Ieee802154FrameType::Data {
             return None;
         }
+
+        let ieee802154_repr = check!(Ieee802154Repr::parse(&ieee802154_frame));
 
         // Drop frames when the user has set a PAN id and the PAN id from frame is not equal to this
         // When the user didn't set a PAN id (so it is None), then we accept all PAN id's.
