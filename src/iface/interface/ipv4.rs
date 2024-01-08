@@ -244,7 +244,7 @@ impl InterfaceInner {
                 ..
             } => {
                 // Only process ARP packets for us.
-                if !self.has_ip_addr(target_protocol_addr) {
+                if !self.has_ip_addr(target_protocol_addr) && !self.any_ip {
                     return None;
                 }
 

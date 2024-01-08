@@ -1,6 +1,64 @@
 use super::*;
 
 #[rstest]
+#[case(Medium::Ethernet)]
+#[cfg(feature = "medium-ethernet")]
+fn test_any_ip_accept_arp(#[case] medium: Medium) {
+    let mut buffer = [0u8; 64];
+    #[allow(non_snake_case)]
+    fn ETHERNET_FRAME_ARP(buffer: &mut [u8]) -> &[u8] {
+        let ethernet_repr = EthernetRepr {
+            src_addr: EthernetAddress::from_bytes(&[0x02, 0x02, 0x02, 0x02, 0x02, 0x03]),
+            dst_addr: EthernetAddress::from_bytes(&[0x02, 0x02, 0x02, 0x02, 0x02, 0x02]),
+            ethertype: EthernetProtocol::Arp,
+        };
+        let frame_repr = ArpRepr::EthernetIpv4 {
+            operation: ArpOperation::Request,
+            source_hardware_addr: EthernetAddress::from_bytes(&[
+                0x02, 0x02, 0x02, 0x02, 0x02, 0x03,
+            ]),
+            source_protocol_addr: Ipv4Address::from_bytes(&[192, 168, 1, 2]),
+            target_hardware_addr: EthernetAddress::from_bytes(&[
+                0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
+            ]),
+            target_protocol_addr: Ipv4Address::from_bytes(&[192, 168, 1, 3]),
+        };
+        let mut frame = EthernetFrame::new_unchecked(&mut buffer[..]);
+        ethernet_repr.emit(&mut frame);
+
+        let mut frame = ArpPacket::new_unchecked(&mut buffer[ethernet_repr.buffer_len()..]);
+        frame_repr.emit(&mut frame);
+
+        &buffer[..ethernet_repr.buffer_len() + frame_repr.buffer_len()]
+    }
+
+    let (mut iface, mut sockets, _) = setup(medium);
+
+    assert!(iface
+        .inner
+        .process_ethernet(
+            &mut sockets,
+            PacketMeta::default(),
+            ETHERNET_FRAME_ARP(buffer.as_mut()),
+            &mut iface.fragments,
+        )
+        .is_none());
+
+    // Accept any IP address
+    iface.set_any_ip(true);
+
+    assert!(iface
+        .inner
+        .process_ethernet(
+            &mut sockets,
+            PacketMeta::default(),
+            ETHERNET_FRAME_ARP(buffer.as_mut()),
+            &mut iface.fragments,
+        )
+        .is_some());
+}
+
+#[rstest]
 #[case(Medium::Ip)]
 #[cfg(feature = "medium-ip")]
 #[case(Medium::Ethernet)]
