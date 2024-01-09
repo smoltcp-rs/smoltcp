@@ -167,7 +167,7 @@ impl<'a> Socket<'a> {
     ///
     /// Panics if `servers.len() > MAX_SERVER_COUNT`
     pub fn update_servers(&mut self, servers: &[IpAddress]) {
-        self.servers = Vec::from_slice(servers).unwrap();
+        self.servers = Vec::from_slice(&servers[..DNS_MAX_SERVER_COUNT]).unwrap();
     }
 
     /// Return the time-to-live (IPv4) or hop limit (IPv6) value used in outgoing packets.
