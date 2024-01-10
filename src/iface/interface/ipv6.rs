@@ -21,8 +21,13 @@ impl Default for HopByHopResponse<'_> {
 impl InterfaceInner {
     /// Return the IPv6 address that is a candidate source address for the given destination
     /// address, based on RFC 6724.
+    ///
+    /// # Panics
+    /// This function panics if the destination address is unspecified.
     #[allow(unused)]
-    pub(crate) fn get_source_address_ipv6(&self, dst_addr: &Ipv6Address) -> Option<Ipv6Address> {
+    pub(crate) fn get_source_address_ipv6(&self, dst_addr: &Ipv6Address) -> Ipv6Address {
+        assert!(!dst_addr.is_unspecified());
+
         // See RFC 6724 Section 4: Candidate source address
         fn is_candidate_source_address(dst_addr: &Ipv6Address, src_addr: &Ipv6Address) -> bool {
             // For all multicast and link-local destination addresses, the candidate address MUST
@@ -39,10 +44,10 @@ impl InterfaceInner {
                 return false;
             }
 
-            // Loopback addresses and multicast address can not be in the candidate source address
+            // Unspecified addresses and multicast address can not be in the candidate source address
             // list. Except when the destination multicast address has a link-local scope, then the
             // source address can also be link-local multicast.
-            if src_addr.is_loopback() || src_addr.is_multicast() {
+            if src_addr.is_unspecified() || src_addr.is_multicast() {
                 return false;
             }
 
@@ -67,18 +72,28 @@ impl InterfaceInner {
             bits as usize
         }
 
-        // Get the first address that is a candidate address.
+        // If the destination address is a loopback address, or when there are no IPv6 addresses in
+        // the interface, then the loopback address is the only candidate source address.
+        if dst_addr.is_loopback()
+            || self
+                .ip_addrs
+                .iter()
+                .filter(|a| matches!(a, IpCidr::Ipv6(_)))
+                .count()
+                == 0
+        {
+            return Ipv6Address::LOOPBACK;
+        }
+
         let mut candidate = self
             .ip_addrs
             .iter()
-            .filter_map(|a| match a {
+            .find_map(|a| match a {
                 #[cfg(feature = "proto-ipv4")]
                 IpCidr::Ipv4(_) => None,
-                #[cfg(feature = "proto-ipv6")]
                 IpCidr::Ipv6(a) => Some(a),
             })
-            .find(|a| is_candidate_source_address(dst_addr, &a.address()))
-            .unwrap();
+            .unwrap(); // NOTE: we check above that there is at least one IPv6 address.
 
         for addr in self.ip_addrs.iter().filter_map(|a| match a {
             #[cfg(feature = "proto-ipv4")]
@@ -116,7 +131,7 @@ impl InterfaceInner {
             }
         }
 
-        Some(candidate.address())
+        candidate.address()
     }
 
     /// Determine if the given `Ipv6Address` is the solicited node
@@ -436,11 +451,8 @@ impl InterfaceInner {
 
         let src_addr = if src_addr.is_unicast() {
             src_addr
-        } else if let Some(addr) = self.get_source_address_ipv6(&dst_addr) {
-            addr
         } else {
-            net_debug!("no suitable source address found");
-            return None;
+            self.get_source_address_ipv6(&dst_addr)
         };
 
         let ipv6_reply_repr = Ipv6Repr {

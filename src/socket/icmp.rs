@@ -594,16 +594,8 @@ impl<'a> Socket<'a> {
                 }
                 #[cfg(feature = "proto-ipv6")]
                 IpAddress::Ipv6(dst_addr) => {
-                    let src_addr = match cx.get_source_address_ipv6(&dst_addr) {
-                        Some(addr) => addr,
-                        None => {
-                            net_trace!(
-                                "icmp:{}: not find suitable source address, dropping",
-                                remote_endpoint
-                            );
-                            return Ok(());
-                        }
-                    };
+                    let src_addr = cx.get_source_address_ipv6(&dst_addr);
+
                     let packet = Icmpv6Packet::new_unchecked(&*packet_buf);
                     let repr = match Icmpv6Repr::parse(
                         &src_addr,

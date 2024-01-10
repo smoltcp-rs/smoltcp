@@ -328,7 +328,7 @@ impl Interface {
     /// Get an address from the interface that could be used as source address. The selection is
     /// based on RFC6724.
     #[cfg(feature = "proto-ipv6")]
-    pub fn get_source_address_ipv6(&self, dst_addr: &Ipv6Address) -> Option<Ipv6Address> {
+    pub fn get_source_address_ipv6(&self, dst_addr: &Ipv6Address) -> Ipv6Address {
         self.inner.get_source_address_ipv6(dst_addr)
     }
 
@@ -728,7 +728,7 @@ impl InterfaceInner {
             #[cfg(feature = "proto-ipv4")]
             IpAddress::Ipv4(addr) => self.get_source_address_ipv4(addr).map(|a| a.into()),
             #[cfg(feature = "proto-ipv6")]
-            IpAddress::Ipv6(addr) => self.get_source_address_ipv6(addr).map(|a| a.into()),
+            IpAddress::Ipv6(addr) => Some(self.get_source_address_ipv6(addr).into()),
         }
     }
 
