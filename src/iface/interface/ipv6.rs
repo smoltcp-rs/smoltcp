@@ -32,9 +32,9 @@ impl InterfaceInner {
             }
 
             if dst_addr.is_multicast()
-                && matches!(dst_addr.scope(), Ipv6AddressScope::LinkLocal)
+                && matches!(dst_addr.multicast_scope(), Ipv6MulticastScope::LinkLocal)
                 && src_addr.is_multicast()
-                && !matches!(src_addr.scope(), Ipv6AddressScope::LinkLocal)
+                && !matches!(src_addr.multicast_scope(), Ipv6MulticastScope::LinkLocal)
             {
                 return false;
             }
@@ -96,11 +96,16 @@ impl InterfaceInner {
             }
 
             // Rule 2: prefer appropriate scope.
-            if (candidate.address().scope() as u8) < (addr.address().scope() as u8) {
-                if (candidate.address().scope() as u8) < (dst_addr.scope() as u8) {
+            if (candidate.address().multicast_scope() as u8)
+                < (addr.address().multicast_scope() as u8)
+            {
+                if (candidate.address().multicast_scope() as u8)
+                    < (dst_addr.multicast_scope() as u8)
+                {
                     candidate = addr;
                 }
-            } else if (addr.address().scope() as u8) > (dst_addr.scope() as u8) {
+            } else if (addr.address().multicast_scope() as u8) > (dst_addr.multicast_scope() as u8)
+            {
                 candidate = addr;
             }
 

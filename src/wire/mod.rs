@@ -191,7 +191,7 @@ pub use self::ipv4::{
 };
 
 #[cfg(feature = "proto-ipv6")]
-pub(crate) use self::ipv6::Scope as Ipv6AddressScope;
+pub(crate) use self::ipv6::MulticastScope as Ipv6MulticastScope;
 #[cfg(feature = "proto-ipv6")]
 pub use self::ipv6::{
     Address as Ipv6Address, Cidr as Ipv6Cidr, Packet as Ipv6Packet, Repr as Ipv6Repr,
