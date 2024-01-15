@@ -30,7 +30,7 @@ pub const IPV4_MAPPED_PREFIX_SIZE: usize = ADDR_SIZE - 4; // 4 == ipv4::ADDR_SIZ
 /// [scope]: https://www.rfc-editor.org/rfc/rfc4291#section-2.7
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Scope {
+pub(crate) enum MulticastScope {
     /// Interface Local scope
     InterfaceLocal = 0x1,
     /// Link local scope
@@ -47,7 +47,7 @@ pub(crate) enum Scope {
     Unknown = 0xFF,
 }
 
-impl From<u8> for Scope {
+impl From<u8> for MulticastScope {
     fn from(value: u8) -> Self {
         match value {
             0x1 => Self::InterfaceLocal,
@@ -280,19 +280,19 @@ impl Address {
     }
 
     /// Return the scope of the address.
-    pub(crate) fn scope(&self) -> Scope {
+    pub(crate) fn multicast_scope(&self) -> MulticastScope {
         if self.is_multicast() {
-            return Scope::from(self.as_bytes()[1] & 0b1111);
+            return MulticastScope::from(self.as_bytes()[1] & 0b1111);
         }
 
         if self.is_link_local() {
-            Scope::LinkLocal
+            MulticastScope::LinkLocal
         } else if self.is_unique_local() || self.is_global_unicast() {
             // ULA are considered global scope
             // https://www.rfc-editor.org/rfc/rfc6724#section-3.1
-            Scope::Global
+            MulticastScope::Global
         } else {
-            Scope::Unknown
+            MulticastScope::Unknown
         }
     }
 
@@ -1263,40 +1263,46 @@ pub(crate) mod test {
     fn test_scope() {
         use super::*;
         assert_eq!(
-            Address::new(0xff01, 0, 0, 0, 0, 0, 0, 1).scope(),
-            Scope::InterfaceLocal
+            Address::new(0xff01, 0, 0, 0, 0, 0, 0, 1).multicast_scope(),
+            MulticastScope::InterfaceLocal
         );
         assert_eq!(
-            Address::new(0xff02, 0, 0, 0, 0, 0, 0, 1).scope(),
-            Scope::LinkLocal
+            Address::new(0xff02, 0, 0, 0, 0, 0, 0, 1).multicast_scope(),
+            MulticastScope::LinkLocal
         );
         assert_eq!(
-            Address::new(0xff03, 0, 0, 0, 0, 0, 0, 1).scope(),
-            Scope::Unknown
+            Address::new(0xff03, 0, 0, 0, 0, 0, 0, 1).multicast_scope(),
+            MulticastScope::Unknown
         );
         assert_eq!(
-            Address::new(0xff04, 0, 0, 0, 0, 0, 0, 1).scope(),
-            Scope::AdminLocal
+            Address::new(0xff04, 0, 0, 0, 0, 0, 0, 1).multicast_scope(),
+            MulticastScope::AdminLocal
         );
         assert_eq!(
-            Address::new(0xff05, 0, 0, 0, 0, 0, 0, 1).scope(),
-            Scope::SiteLocal
+            Address::new(0xff05, 0, 0, 0, 0, 0, 0, 1).multicast_scope(),
+            MulticastScope::SiteLocal
         );
         assert_eq!(
-            Address::new(0xff08, 0, 0, 0, 0, 0, 0, 1).scope(),
-            Scope::OrganizationLocal
+            Address::new(0xff08, 0, 0, 0, 0, 0, 0, 1).multicast_scope(),
+            MulticastScope::OrganizationLocal
         );
         assert_eq!(
-            Address::new(0xff0e, 0, 0, 0, 0, 0, 0, 1).scope(),
-            Scope::Global
+            Address::new(0xff0e, 0, 0, 0, 0, 0, 0, 1).multicast_scope(),
+            MulticastScope::Global
         );
 
-        assert_eq!(Address::LINK_LOCAL_ALL_NODES.scope(), Scope::LinkLocal);
+        assert_eq!(
+            Address::LINK_LOCAL_ALL_NODES.multicast_scope(),
+            MulticastScope::LinkLocal
+        );
 
         // For source address selection, unicast addresses also have a scope:
-        assert_eq!(LINK_LOCAL_ADDR.scope(), Scope::LinkLocal);
-        assert_eq!(GLOBAL_UNICAST_ADDR.scope(), Scope::Global);
-        assert_eq!(UNIQUE_LOCAL_ADDR.scope(), Scope::Global);
+        assert_eq!(LINK_LOCAL_ADDR.multicast_scope(), MulticastScope::LinkLocal);
+        assert_eq!(
+            GLOBAL_UNICAST_ADDR.multicast_scope(),
+            MulticastScope::Global
+        );
+        assert_eq!(UNIQUE_LOCAL_ADDR.multicast_scope(), MulticastScope::Global);
     }
 
     static REPR_PACKET_BYTES: [u8; 52] = [
