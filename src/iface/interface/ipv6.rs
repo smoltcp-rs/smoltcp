@@ -1,7 +1,5 @@
 use super::*;
 
-#[cfg(feature = "socket-icmp")]
-use crate::socket::icmp;
 use crate::socket::AnySocket;
 
 use crate::phy::PacketMeta;
@@ -433,14 +431,7 @@ impl InterfaceInner {
             },
 
             #[cfg(feature = "proto-rpl")]
-            Icmpv6Repr::Rpl(rpl) => self.process_rpl(
-                match ip_repr {
-                    IpRepr::Ipv6(ip_repr) => ip_repr,
-                    #[allow(unreachable_patterns)]
-                    _ => unreachable!(),
-                },
-                rpl,
-            ),
+            Icmpv6Repr::Rpl(rpl) => self.process_rpl(ip_repr, rpl),
 
             // Don't report an error if a packet with unknown type
             // has been handled by an ICMP socket

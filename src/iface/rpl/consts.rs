@@ -1,4 +1,3 @@
-
 pub(crate) const DEFAULT_MIN_HOP_RANK_INCREASE: u16 = 256;
 
 pub(crate) const DEFAULT_DIO_INTERVAL_MIN: u32 = 12;

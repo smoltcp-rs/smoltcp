@@ -1,6 +1,6 @@
 use super::*;
 
-use crate::iface::ip_packet::Ipv6Packet;
+use crate::iface::packet::*;
 
 use crate::iface::RplModeOfOperation;
 
@@ -74,7 +74,7 @@ fn unicast_dis(#[case] mop: RplModeOfOperation) {
 
     assert_eq!(
         response,
-        Some(IpPacket::Ipv6(Ipv6Packet {
+        Some(Packet::Ipv6(PacketV6 {
             header: Ipv6Repr {
                 src_addr: iface.ipv6_addr().unwrap(),
                 dst_addr: addr,
@@ -137,7 +137,7 @@ fn dio_without_configuration(#[case] mop: RplModeOfOperation) {
     );
     assert_eq!(
         response,
-        Some(IpPacket::Ipv6(Ipv6Packet {
+        Some(Packet::Ipv6(PacketV6 {
             header: Ipv6Repr {
                 src_addr: iface.ipv6_addr().unwrap(),
                 dst_addr: addr,
@@ -348,7 +348,7 @@ fn dio_with_increased_version_number(#[case] mop: RplModeOfOperation) {
     // know they have to leave the network
     assert_eq!(
         response,
-        Some(IpPacket::Ipv6(Ipv6Packet {
+        Some(Packet::Ipv6(PacketV6 {
             header: Ipv6Repr {
                 src_addr: iface.ipv6_addr().unwrap(),
                 dst_addr: Ipv6Address::LINK_LOCAL_ALL_RPL_NODES,

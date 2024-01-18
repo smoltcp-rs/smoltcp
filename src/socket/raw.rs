@@ -572,10 +572,7 @@ mod test {
                     let mut socket = $socket(buffer(0), buffer(1));
 
                     assert!(socket.can_send());
-                    assert_eq!(
-                        socket.dispatch(cx, |_, _| unreachable!()),
-                        Ok::<_, ()>(())
-                    );
+                    assert_eq!(socket.dispatch(cx, |_, _| unreachable!()), Ok::<_, ()>(()));
 
                     assert_eq!(socket.send_slice(&$packet[..]), Ok(()));
                     assert_eq!(socket.send_slice(b""), Err(SendError::BufferFull));
