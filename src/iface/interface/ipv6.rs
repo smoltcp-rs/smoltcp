@@ -11,7 +11,7 @@ use crate::wire::*;
 #[allow(clippy::large_enum_variant)]
 enum HopByHopResponse<'frame> {
     /// Continue processing the IPv6 packet.
-    Continue((IpProtocol, &'frame [u8])),
+    Continue(Ipv6HopByHopRepr<'frame>, IpProtocol, &'frame [u8]),
     /// Discard the packet and maybe send back an ICMPv6 packet.
     Discard(Option<Packet<'frame>>),
 }
@@ -186,13 +186,15 @@ impl InterfaceInner {
             return None;
         }
 
-        let (next_header, ip_payload) = if ipv6_repr.next_header == IpProtocol::HopByHop {
+        let (hbh, next_header, ip_payload) = if ipv6_repr.next_header == IpProtocol::HopByHop {
             match self.process_hopbyhop(ipv6_repr, ipv6_packet.payload()) {
                 HopByHopResponse::Discard(e) => return e,
-                HopByHopResponse::Continue(next) => next,
+                HopByHopResponse::Continue(hbh, next_header, payload) => {
+                    (Some(hbh), next_header, payload)
+                }
             }
         } else {
-            (ipv6_repr.next_header, ipv6_packet.payload())
+            (None, ipv6_repr.next_header, ipv6_packet.payload())
         };
 
         #[cfg(feature = "proto-rpl")]
@@ -236,7 +238,7 @@ impl InterfaceInner {
 
             #[cfg(feature = "proto-rpl")]
             {
-                return self.forward(ipv6_repr, None, ip_payload);
+                return self.forward(ipv6_repr, hbh, ip_payload);
             }
         }
 
@@ -326,10 +328,11 @@ impl InterfaceInner {
             }
         }
 
-        HopByHopResponse::Continue((
+        HopByHopResponse::Continue(
+            hbh_repr,
             ext_repr.next_header,
             &ip_payload[ext_repr.header_len() + ext_repr.data.len()..],
-        ))
+        )
     }
 
     /// Given the next header value forward the payload onto the correct process
