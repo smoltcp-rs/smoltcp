@@ -194,18 +194,26 @@ fn test_echo_request_sixlowpan_128_bytes() {
         0x78, 0x79, 0x7a, 0x7b, 0x7c, 0x7d, 0x7e, 0x7f,
     ];
 
-    let result = iface.inner.process_sixlowpan(
-        &mut sockets,
-        PacketMeta::default(),
-        &ieee802154_repr,
-        &request_second_part,
-        &mut iface.fragments,
-    );
+    let result = match iface
+        .inner
+        .process_sixlowpan(
+            &mut sockets,
+            PacketMeta::default(),
+            &ieee802154_repr,
+            &request_second_part,
+            &mut iface.fragments,
+        )
+        .unwrap()
+    {
+        Packet::Ipv6(packet) => Some(packet),
+        #[allow(unreachable_patterns)]
+        _ => unreachable!(),
+    };
 
     assert_eq!(
         result,
-        Some(Packet::new_ipv6(
-            Ipv6Repr {
+        Some(PacketV6 {
+            header: Ipv6Repr {
                 src_addr: Ipv6Address([
                     0xfe, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x92, 0xfc, 0x48, 0xc2, 0xa4, 0x41,
                     0xfc, 0x76,
@@ -218,12 +226,16 @@ fn test_echo_request_sixlowpan_128_bytes() {
                 payload_len: 136,
                 hop_limit: 64,
             },
-            IpPayload::Icmpv6(Icmpv6Repr::EchoReply {
+            #[cfg(feature = "proto-ipv6-hbh")]
+            hop_by_hop: None,
+            #[cfg(feature = "proto-ipv6-routing")]
+            routing: None,
+            payload: IpPayload::Icmpv6(Icmpv6Repr::EchoReply {
                 ident: 39,
                 seq_no: 2,
                 data,
             })
-        ))
+        })
     );
 
     iface.inner.neighbor_cache.fill(
@@ -384,22 +396,26 @@ In at rhoncus tortor. Cras blandit tellus diam, varius vestibulum nibh commodo n
         Ieee802154Address::default(),
         tx_token,
         PacketMeta::default(),
-        Packet::new_ipv6(
-            Ipv6Repr {
+        PacketV6 {
+            header: Ipv6Repr {
                 src_addr: Ipv6Address::default(),
                 dst_addr: Ipv6Address::default(),
                 next_header: IpProtocol::Udp,
                 payload_len: udp_data.len(),
                 hop_limit: 64,
             },
-            IpPayload::Udp(
+            #[cfg(feature = "proto-ipv6-hbh")]
+            hop_by_hop: None,
+            #[cfg(feature = "proto-ipv6-routing")]
+            routing: None,
+            payload: IpPayload::Udp(
                 UdpRepr {
                     src_port: 1234,
                     dst_port: 1234,
                 },
                 udp_data,
             ),
-        ),
+        },
         &mut iface.fragmenter,
     );
 
