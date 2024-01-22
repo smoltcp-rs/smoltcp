@@ -193,8 +193,17 @@ impl InterfaceInner {
             && !self.has_multicast_group(ipv6_repr.dst_addr)
             && !ipv6_repr.dst_addr.is_loopback()
         {
-            net_trace!("packet IP address not for this interface");
-            return None;
+            // If AnyIP is enabled, also check if the packet is routed locally.
+            if !self.any_ip
+                || !ipv6_repr.dst_addr.is_unicast()
+                || self
+                    .routes
+                    .lookup(&IpAddress::Ipv6(ipv6_repr.dst_addr), self.now)
+                    .map_or(true, |router_addr| !self.has_ip_addr(router_addr))
+            {
+                net_trace!("packet IP address not for this interface");
+                return None;
+            }
         }
 
         #[cfg(feature = "socket-raw")]
