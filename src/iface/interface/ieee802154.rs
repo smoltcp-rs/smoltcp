@@ -56,7 +56,7 @@ impl InterfaceInner {
         ll_dst_a: Ieee802154Address,
         tx_token: Tx,
         meta: PacketMeta,
-        packet: Packet,
+        packet: PacketV6,
         frag: &mut Fragmenter,
     ) {
         let ll_src_a = self.hardware_addr.ieee802154_or_panic();

@@ -230,6 +230,15 @@ impl defmt::Format for NextHeader {
     }
 }
 
+impl From<IpProtocol> for NextHeader {
+    fn from(protocol: IpProtocol) -> Self {
+        match protocol {
+            IpProtocol::Udp | IpProtocol::HopByHop | IpProtocol::Ipv6Route => Self::Compressed,
+            p => Self::Uncompressed(p),
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;

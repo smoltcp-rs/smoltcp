@@ -677,7 +677,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> UdpNhcPacket<T> {
         };
     }
 
-    fn set_checksum(&mut self, checksum: u16) {
+    pub fn set_checksum(&mut self, checksum: u16) {
         self.set_checksum_field(0b0);
         let idx = 1 + self.ports_size();
         let data = self.buffer.as_mut();

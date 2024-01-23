@@ -178,7 +178,7 @@ impl InterfaceInner {
         meta: PacketMeta,
         ipv6_packet: &Ipv6Packet<&'frame [u8]>,
     ) -> Option<Packet<'frame>> {
-        let ipv6_repr = check!(Ipv6Repr::parse(ipv6_packet));
+        let mut ipv6_repr = check!(Ipv6Repr::parse(ipv6_packet));
 
         if !ipv6_repr.src_addr.is_unicast() {
             // Discard packets with non-unicast source addresses.
@@ -238,7 +238,11 @@ impl InterfaceInner {
 
             #[cfg(feature = "proto-rpl")]
             {
-                return self.forward(ipv6_repr, hbh, ip_payload);
+                ipv6_repr.next_header = next_header;
+                if let Some(hbh) = &hbh {
+                    ipv6_repr.payload_len -= 2 + hbh.buffer_len();
+                }
+                return self.forward(ipv6_repr, hbh, None, ip_payload);
             }
         }
 
@@ -596,17 +600,16 @@ impl InterfaceInner {
                         // specify if we SHOULD or MUST transmit an ICMPv6 message.
                         return None;
                     } else {
-                        ipv6_repr.hop_limit -= 1;
-                        ipv6_repr.next_header = ext_hdr.next_header();
                         let payload = &ip_payload[ext_hdr.payload().len() + 2..];
+
+                        ipv6_repr.next_header = ext_hdr.next_header();
+                        ipv6_repr.hop_limit -= 1;
                         ipv6_repr.payload_len = payload.len();
 
-                        return Some(Packet::Ipv6(PacketV6 {
-                            header: ipv6_repr,
-                            hop_by_hop: None,
-                            routing: Some(routing_repr),
-                            payload: IpPayload::Raw(payload),
-                        }));
+                        let mut p = PacketV6::new(ipv6_repr, IpPayload::Raw(payload));
+                        p.add_routing(routing_repr);
+
+                        return Some(Packet::Ipv6(p));
                     }
                 }
             }
@@ -654,6 +657,7 @@ impl InterfaceInner {
         &self,
         mut ipv6_repr: Ipv6Repr,
         mut _hop_by_hop: Option<Ipv6HopByHopRepr<'frame>>,
+        mut _routing: Option<Ipv6RoutingRepr>,
         payload: &'frame [u8],
     ) -> Option<Packet<'frame>> {
         net_trace!("forwarding packet");
@@ -675,42 +679,36 @@ impl InterfaceInner {
 
         ipv6_repr.hop_limit -= 1;
 
-        #[allow(unused)]
-        let routing: Option<Ipv6RoutingRepr> = None;
+        let mut p = PacketV6::new(ipv6_repr, IpPayload::Raw(payload));
 
-        #[cfg(feature = "rpl-mop-1")]
-        let routing = if matches!(
-            self.rpl.mode_of_operation,
-            crate::iface::RplModeOfOperation::NonStoringMode
-        ) && self.rpl.is_root
-        {
-            // Clear the Hop-by-Hop in MOP1 when the root is is adding a source routing header.
-            // Only the HBH or the source routing header needs to be present in MOP1.
-            _hop_by_hop = None;
-            net_trace!("creating source routing header to {}", ipv6_repr.dst_addr);
-            if let Some((source_route, new_dst_addr)) = super::rpl::create_source_routing_header(
-                self,
-                self.ipv6_addr().unwrap(),
-                ipv6_repr.dst_addr,
-            ) {
-                ipv6_repr.dst_addr = new_dst_addr;
-                ipv6_repr.payload_len += source_route.buffer_len();
-                Some(source_route)
-            } else {
-                None
-            }
+        if let Some(hbh) = _hop_by_hop {
+            p.add_hop_by_hop(hbh);
         } else {
-            None
-        };
+            #[cfg(feature = "proto-rpl")]
+            if p.header().dst_addr.is_unicast() && self.rpl.dodag.is_some() {
+                let mut options = heapless::Vec::new();
+                options
+                    .push(Ipv6OptionRepr::Rpl(RplHopByHopRepr {
+                        down: self.rpl.is_root,
+                        rank_error: false,
+                        forwarding_error: false,
+                        instance_id: self.rpl.dodag.as_ref().unwrap().instance_id,
+                        sender_rank: self.rpl.dodag.as_ref().unwrap().rank.raw_value(),
+                    }))
+                    .unwrap();
 
-        Some(Packet::Ipv6(PacketV6 {
-            header: ipv6_repr,
-            #[cfg(feature = "proto-ipv6-hbh")]
-            hop_by_hop: _hop_by_hop,
-            #[cfg(feature = "proto-ipv6-routing")]
-            routing,
-            payload: IpPayload::Raw(payload),
-        }))
+                let hbh = Ipv6HopByHopRepr { options };
+                p.add_hop_by_hop(hbh);
+            }
+        }
+
+        if let Some(routing) = _routing {
+            p.add_routing(routing);
+        }
+
+        println!("packet {:?}", p);
+
+        Some(Packet::Ipv6(p))
     }
 
     fn param_problem<'frame>(

@@ -143,6 +143,34 @@ impl Interface {
                 },
             }));
 
+            let mut p = PacketV6::new(
+                Ipv6Repr {
+                    src_addr: ctx.ipv6_addr().unwrap(),
+                    dst_addr,
+                    next_header: IpProtocol::Icmpv6,
+                    payload_len: icmp.buffer_len(),
+                    hop_limit: 64,
+                },
+                IpPayload::Icmpv6(icmp),
+            );
+
+            // A DAO-ACK always goes down. In MOP1, both Hop-by-Hop option and source
+            // routing header MAY be included. However, a source routing header must always
+            // be included when it is going down.
+            #[cfg(feature = "rpl-mop-1")]
+            if matches!(ctx.rpl.mode_of_operation, ModeOfOperation::NonStoringMode)
+                && ctx.rpl.is_root
+            {
+                net_trace!("creating source routing header to {}", dst_addr);
+                if let Some((source_route, new_dst_addr)) =
+                    create_source_routing_header(ctx, our_addr, dst_addr)
+                {
+                    p.header_mut().dst_addr = new_dst_addr;
+                    p.add_routing(source_route);
+                    return transmit(ctx, device, Packet::Ipv6(p), fragmenter);
+                }
+            };
+
             let mut options = heapless::Vec::new();
             options
                 .push(Ipv6OptionRepr::Rpl(RplHopByHopRepr {
@@ -153,46 +181,8 @@ impl Interface {
                     sender_rank: ctx.rpl.dodag.as_ref().unwrap().rank.raw_value(),
                 }))
                 .unwrap();
-            #[allow(unused_mut)]
-            let mut hop_by_hop = Some(Ipv6HopByHopRepr { options });
-
-            // A DAO-ACK always goes down. In MOP1, both Hop-by-Hop option and source
-            // routing header MAY be included. However, a source routing header must always
-            // be included when it is going down.
-            #[cfg(feature = "rpl-mop-1")]
-            let routing = if matches!(ctx.rpl.mode_of_operation, ModeOfOperation::NonStoringMode)
-                && ctx.rpl.is_root
-            {
-                net_trace!("creating source routing header to {}", dst_addr);
-                if let Some((source_route, new_dst_addr)) =
-                    create_source_routing_header(ctx, our_addr, dst_addr)
-                {
-                    hop_by_hop = None;
-                    dst_addr = new_dst_addr;
-                    Some(source_route)
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
-
-            #[cfg(not(feature = "rpl-mop-1"))]
-            let routing = None;
-
-            let ip_packet = PacketV6 {
-                header: Ipv6Repr {
-                    src_addr: ctx.ipv6_addr().unwrap(),
-                    dst_addr,
-                    next_header: IpProtocol::Icmpv6,
-                    payload_len: icmp.buffer_len(),
-                    hop_limit: 64,
-                },
-                hop_by_hop,
-                routing,
-                payload: IpPayload::Icmpv6(icmp),
-            };
-            return transmit(ctx, device, Packet::Ipv6(ip_packet), fragmenter);
+            p.add_hop_by_hop(Ipv6HopByHopRepr { options });
+            return transmit(ctx, device, Packet::Ipv6(p), fragmenter);
         }
 
         // Transmit any DAO that are queued.
@@ -240,20 +230,20 @@ impl Interface {
 
                 let hbh = Ipv6HopByHopRepr { options };
 
-                let ip_packet = PacketV6 {
-                    header: Ipv6Repr {
+                let mut p = PacketV6::new(
+                    Ipv6Repr {
                         src_addr: our_addr,
                         dst_addr,
                         next_header: IpProtocol::Icmpv6,
                         payload_len: icmp.buffer_len(),
                         hop_limit: 64,
                     },
-                    hop_by_hop: Some(hbh),
-                    routing: None,
-                    payload: IpPayload::Icmpv6(icmp),
-                };
+                    IpPayload::Icmpv6(icmp),
+                );
+                p.add_hop_by_hop(hbh);
+
                 net_trace!("transmitting DAO");
-                return transmit(ctx, device, Packet::Ipv6(ip_packet), fragmenter);
+                return transmit(ctx, device, Packet::Ipv6(p), fragmenter);
             }
         }
 
@@ -878,20 +868,19 @@ impl InterfaceInner {
 
             let hbh = Ipv6HopByHopRepr { options };
 
-            let packet = PacketV6 {
-                header: Ipv6Repr {
+            let mut p = PacketV6::new(
+                Ipv6Repr {
                     src_addr: our_addr,
                     dst_addr: dodag.parent.unwrap(),
                     next_header: IpProtocol::Icmpv6,
                     payload_len: icmp.buffer_len(),
                     hop_limit: 64,
                 },
-                hop_by_hop: Some(hbh),
-                routing: None,
-                payload: IpPayload::Icmpv6(Icmpv6Repr::Rpl(icmp)),
-            };
+                IpPayload::Icmpv6(Icmpv6Repr::Rpl(icmp)),
+            );
+            p.add_hop_by_hop(hbh);
 
-            return Some(Packet::Ipv6(packet));
+            return Some(Packet::Ipv6(p));
         }
 
         None

@@ -72,31 +72,30 @@ fn unicast_dis(#[case] mop: RplModeOfOperation) {
         }))
         .unwrap();
 
-    assert_eq!(
-        response,
-        Some(Packet::Ipv6(PacketV6 {
-            header: Ipv6Repr {
-                src_addr: iface.ipv6_addr().unwrap(),
-                dst_addr: addr,
-                next_header: IpProtocol::Icmpv6,
-                payload_len: 44,
-                hop_limit: 64
-            },
-            hop_by_hop: None,
-            routing: None,
-            payload: IpPayload::Icmpv6(Icmpv6Repr::Rpl(RplRepr::DodagInformationObject(RplDio {
-                rpl_instance_id: RplInstanceId::Local(30),
-                version_number: Default::default(),
-                rank: Rank::ROOT.raw_value(),
-                grounded: false,
-                mode_of_operation: mop.into(),
-                dodag_preference: 0,
-                dtsn: Default::default(),
-                dodag_id: Default::default(),
-                options: dio_options,
-            }))),
-        }))
-    );
+    let icmp = Icmpv6Repr::Rpl(RplRepr::DodagInformationObject(RplDio {
+        rpl_instance_id: RplInstanceId::Local(30),
+        version_number: Default::default(),
+        rank: Rank::ROOT.raw_value(),
+        grounded: false,
+        mode_of_operation: mop.into(),
+        dodag_preference: 0,
+        dtsn: Default::default(),
+        dodag_id: Default::default(),
+        options: dio_options,
+    }));
+
+    let expected = Some(Packet::Ipv6(PacketV6::new(
+        Ipv6Repr {
+            src_addr: iface.ipv6_addr().unwrap(),
+            dst_addr: addr,
+            next_header: IpProtocol::Icmpv6,
+            payload_len: icmp.buffer_len(),
+            hop_limit: 64,
+        },
+        IpPayload::Icmpv6(icmp),
+    )));
+
+    assert_eq!(response, expected,);
 }
 
 #[rstest]
@@ -135,25 +134,23 @@ fn dio_without_configuration(#[case] mop: RplModeOfOperation) {
             options: Default::default(),
         },
     );
-    assert_eq!(
-        response,
-        Some(Packet::Ipv6(PacketV6 {
-            header: Ipv6Repr {
-                src_addr: iface.ipv6_addr().unwrap(),
-                dst_addr: addr,
-                next_header: IpProtocol::Icmpv6,
-                payload_len: 6,
-                hop_limit: 64
-            },
-            hop_by_hop: None,
-            routing: None,
-            payload: IpPayload::Icmpv6(Icmpv6Repr::Rpl(RplRepr::DodagInformationSolicitation(
-                RplDis {
-                    options: Default::default(),
-                }
-            ))),
-        }))
-    );
+
+    let icmp = Icmpv6Repr::Rpl(RplRepr::DodagInformationSolicitation(RplDis {
+        options: Default::default(),
+    }));
+
+    let expected = Some(Packet::Ipv6(PacketV6::new(
+        Ipv6Repr {
+            src_addr: iface.ipv6_addr().unwrap(),
+            dst_addr: addr,
+            next_header: IpProtocol::Icmpv6,
+            payload_len: icmp.buffer_len(),
+            hop_limit: 64,
+        },
+        IpPayload::Icmpv6(icmp),
+    )));
+
+    assert_eq!(response, expected,);
 }
 
 #[rstest]
@@ -344,31 +341,30 @@ fn dio_with_increased_version_number(#[case] mop: RplModeOfOperation) {
         .parent_set
         .is_empty());
 
+    let icmp = Icmpv6Repr::Rpl(RplRepr::DodagInformationObject(RplDio {
+        rpl_instance_id: RplInstanceId::Local(30),
+        version_number: RplSequenceCounter::from(241),
+        rank: Rank::INFINITE.raw_value(),
+        grounded: false,
+        mode_of_operation: mop.into(),
+        dodag_preference: 0,
+        dtsn: Default::default(),
+        dodag_id: Default::default(),
+        options: heapless::Vec::new(),
+    }));
+
+    let expected = Some(Packet::Ipv6(PacketV6::new(
+        Ipv6Repr {
+            src_addr: iface.ipv6_addr().unwrap(),
+            dst_addr: Ipv6Address::LINK_LOCAL_ALL_RPL_NODES,
+            next_header: IpProtocol::Icmpv6,
+            payload_len: icmp.buffer_len(),
+            hop_limit: 64,
+        },
+        IpPayload::Icmpv6(icmp),
+    )));
+
     // DIO with infinite rank is sent with the new version number so the nodes
     // know they have to leave the network
-    assert_eq!(
-        response,
-        Some(Packet::Ipv6(PacketV6 {
-            header: Ipv6Repr {
-                src_addr: iface.ipv6_addr().unwrap(),
-                dst_addr: Ipv6Address::LINK_LOCAL_ALL_RPL_NODES,
-                next_header: IpProtocol::Icmpv6,
-                payload_len: 28,
-                hop_limit: 64
-            },
-            hop_by_hop: None,
-            routing: None,
-            payload: IpPayload::Icmpv6(Icmpv6Repr::Rpl(RplRepr::DodagInformationObject(RplDio {
-                rpl_instance_id: RplInstanceId::Local(30),
-                version_number: RplSequenceCounter::from(241),
-                rank: Rank::INFINITE.raw_value(),
-                grounded: false,
-                mode_of_operation: mop.into(),
-                dodag_preference: 0,
-                dtsn: Default::default(),
-                dodag_id: Default::default(),
-                options: heapless::Vec::new(),
-            }))),
-        }))
-    );
+    assert_eq!(response, expected,);
 }

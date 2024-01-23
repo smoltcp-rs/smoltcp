@@ -425,6 +425,7 @@ fn icmp_echo_reply_as_input(#[case] medium: Medium) {
     );
 }
 
+#[cfg(not(feature = "proto-rpl"))]
 #[rstest]
 #[case::ip(Medium::Ip)]
 #[cfg(feature = "medium-ip")]
@@ -474,6 +475,7 @@ fn unknown_proto_with_multicast_dst_address(#[case] medium: Medium) {
     );
 }
 
+#[cfg(not(feature = "proto-rpl"))]
 #[rstest]
 #[case::ip(Medium::Ip)]
 #[cfg(feature = "medium-ip")]

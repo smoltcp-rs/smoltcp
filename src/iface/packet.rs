@@ -161,14 +161,88 @@ pub(crate) struct PacketV4<'p> {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[cfg(feature = "proto-ipv6")]
 pub(crate) struct PacketV6<'p> {
-    pub(crate) header: Ipv6Repr,
+    header: Ipv6Repr,
     #[cfg(feature = "proto-ipv6-hbh")]
-    pub(crate) hop_by_hop: Option<Ipv6HopByHopRepr<'p>>,
+    hop_by_hop: Option<(IpProtocol, Ipv6HopByHopRepr<'p>)>,
     #[cfg(feature = "proto-ipv6-fragmentation")]
-    pub(crate) fragment: Option<Ipv6FragmentRepr>,
+    fragment: Option<(IpProtocol, Ipv6FragmentRepr)>,
     #[cfg(feature = "proto-ipv6-routing")]
-    pub(crate) routing: Option<Ipv6RoutingRepr>,
-    pub(crate) payload: IpPayload<'p>,
+    routing: Option<(IpProtocol, Ipv6RoutingRepr)>,
+    payload: IpPayload<'p>,
+}
+
+impl<'p> PacketV6<'p> {
+    pub(crate) fn new(header: Ipv6Repr, payload: IpPayload<'p>) -> Self {
+        Self {
+            header,
+            #[cfg(feature = "proto-ipv6-hbh")]
+            hop_by_hop: None,
+            #[cfg(feature = "proto-ipv6-fragmentation")]
+            fragment: None,
+            #[cfg(feature = "proto-ipv6-routing")]
+            routing: None,
+            payload,
+        }
+    }
+
+    pub(crate) fn header(&self) -> &Ipv6Repr {
+        &self.header
+    }
+
+    pub(crate) fn header_mut(&mut self) -> &mut Ipv6Repr {
+        &mut self.header
+    }
+
+    pub(crate) fn hop_by_hop(&self) -> Option<(IpProtocol, &Ipv6HopByHopRepr<'p>)> {
+        #[cfg(feature = "proto-ipv6-hbh")]
+        {
+            self.hop_by_hop
+                .as_ref()
+                .map(|(next_header, repr)| (*next_header, repr))
+        }
+        #[cfg(not(feature = "proto-ipv6-hbh"))]
+        {
+            None
+        }
+    }
+
+    pub(crate) fn add_hop_by_hop(&mut self, repr: Ipv6HopByHopRepr<'p>) {
+        self.header.payload_len += 2 + repr.buffer_len();
+        let next_header = self.header.next_header;
+        self.header.next_header = IpProtocol::HopByHop;
+        self.hop_by_hop = Some((next_header, repr));
+    }
+
+    pub(crate) fn routing(&self) -> Option<(IpProtocol, &Ipv6RoutingRepr)> {
+        #[cfg(feature = "proto-ipv6-routing")]
+        {
+            self.routing
+                .as_ref()
+                .map(|(next_header, repr)| (*next_header, repr))
+        }
+        #[cfg(not(feature = "proto-ipv6-routing"))]
+        {
+            None
+        }
+    }
+
+    pub(crate) fn add_routing(&mut self, repr: Ipv6RoutingRepr) {
+        self.header.payload_len += 2 + repr.buffer_len();
+        let mut next_header = self.header.next_header;
+
+        if let Some((hbh_next_header, _)) = &mut self.hop_by_hop {
+            next_header = *hbh_next_header;
+            *hbh_next_header = IpProtocol::Ipv6Route;
+        } else {
+            self.header.next_header = IpProtocol::Ipv6Route;
+        }
+
+        self.routing = Some((next_header, repr));
+    }
+
+    pub(crate) fn payload(&self) -> &IpPayload<'p> {
+        &self.payload
+    }
 }
 
 #[derive(Debug, PartialEq)]

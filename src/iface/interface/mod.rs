@@ -1143,6 +1143,12 @@ impl InterfaceInner {
             )?;
             let addr = addr.ieee802154_or_panic();
 
+            let packet = match packet {
+                Packet::Ipv6(packet) => packet,
+                #[allow(unreachable_patterns)]
+                _ => unreachable!(),
+            };
+
             self.dispatch_ieee802154(addr, tx_token, meta, packet, frag);
             return Ok(());
         }
