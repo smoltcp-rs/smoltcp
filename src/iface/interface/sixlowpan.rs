@@ -540,7 +540,8 @@ pub struct PacketSixlowpan<'p> {
 pub enum SixlowpanPayload<'p> {
     Icmpv6(Icmpv6Repr<'p>),
     #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
-    Udp(UdpRepr, &'p [u8]),
+    Udp(UdpRepr, &'p [u8], Option<u16>),
+    Raw(&'p [u8]),
 }
 
 impl<'p> PacketSixlowpan<'p> {
@@ -563,6 +564,8 @@ impl<'p> PacketSixlowpan<'p> {
         compressed += iphc.buffer_len();
         uncompressed += packet.header.buffer_len();
 
+        let last_header = packet.header.next_header;
+
         #[cfg(feature = "proto-ipv6-hbh")]
         let hbh = if let Some((next_header, hbh)) = &packet.hop_by_hop {
             let ext_hdr = SixlowpanExtHeaderRepr {
@@ -574,6 +577,7 @@ impl<'p> PacketSixlowpan<'p> {
             compressed += ext_hdr.buffer_len();
             uncompressed += hbh.buffer_len();
 
+            last_header = next_header;
             Some((ext_hdr, &hbh.options[..]))
         } else {
             None
@@ -590,6 +594,7 @@ impl<'p> PacketSixlowpan<'p> {
             compressed += ext_hdr.buffer_len() + routing.buffer_len();
             uncompressed += routing.buffer_len();
 
+            last_header = next_header;
             Some((ext_hdr, routing))
         } else {
             None
@@ -602,7 +607,33 @@ impl<'p> PacketSixlowpan<'p> {
                 compressed += SixlowpanUdpNhcRepr(udp_repr).header_len();
                 uncompressed += udp_repr.header_len();
 
-                SixlowpanPayload::Udp(udp_repr, payload)
+                SixlowpanPayload::Udp(udp_repr, payload, None)
+            }
+            IpPayload::Raw(raw) => {
+                match last_header {
+                    IpProtocol::Udp => {
+                        // TODO: remove unwrap
+                        let udp_packet = UdpPacket::new_checked(raw).unwrap();
+                        let udp_repr = UdpRepr::parse(
+                            &udp_packet,
+                            &packet.header.src_addr.into(),
+                            &packet.header.dst_addr.into(),
+                            &ChecksumCapabilities::ignored(),
+                        )
+                        .unwrap();
+
+                        compressed += SixlowpanUdpNhcRepr(udp_repr).header_len();
+                        uncompressed += udp_repr.header_len();
+
+                        SixlowpanPayload::Udp(
+                            udp_repr,
+                            udp_packet.payload(),
+                            Some(udp_packet.checksum()),
+                        )
+                    }
+                    // Any other protocol does not need compression.
+                    _ => SixlowpanPayload::Raw(raw),
+                }
             }
             _ => unreachable!(),
         };
@@ -639,9 +670,10 @@ impl<'p> PacketSixlowpan<'p> {
         match self.payload {
             SixlowpanPayload::Icmpv6(icmp_repr) => len + icmp_repr.buffer_len(),
             #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
-            SixlowpanPayload::Udp(udp_repr, payload) => {
+            SixlowpanPayload::Udp(udp_repr, payload, _) => {
                 len + SixlowpanUdpNhcRepr(udp_repr).header_len() + payload.len()
             }
+            SixlowpanPayload::Raw(payload) => len + payload.len(),
         }
     }
 
@@ -694,19 +726,25 @@ impl<'p> PacketSixlowpan<'p> {
                 caps,
             ),
             #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
-            SixlowpanPayload::Udp(udp_repr, payload) => {
+            SixlowpanPayload::Udp(udp_repr, payload, checksum) => {
                 let udp = SixlowpanUdpNhcRepr(udp_repr);
+                let mut udp_packet = SixlowpanUdpNhcPacket::new_unchecked(
+                    &mut buffer[..udp.header_len() + payload.len()],
+                );
                 udp.emit(
-                    &mut SixlowpanUdpNhcPacket::new_unchecked(
-                        &mut buffer[..udp.header_len() + payload.len()],
-                    ),
+                    &mut udp_packet,
                     &self.iphc.src_addr,
                     &self.iphc.dst_addr,
                     payload.len(),
                     |buf| buf.copy_from_slice(payload),
                     caps,
                 );
+
+                if let Some(checksum) = checksum {
+                    udp_packet.set_checksum(checksum);
+                }
             }
+            SixlowpanPayload::Raw(payload) => buffer[..payload.len()].copy_from_slice(payload),
         }
     }
 }
