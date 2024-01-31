@@ -128,6 +128,8 @@ mod rpl;
 mod sixlowpan;
 mod tcp;
 mod udp;
+#[cfg(feature = "proto-vlan")]
+mod vlan;
 
 #[cfg(feature = "proto-ipsec-ah")]
 mod ipsec_ah;
@@ -271,6 +273,9 @@ pub use self::dhcpv4::{
     Repr as DhcpRepr, CLIENT_PORT as DHCP_CLIENT_PORT,
     MAX_DNS_SERVER_COUNT as DHCP_MAX_DNS_SERVER_COUNT, SERVER_PORT as DHCP_SERVER_PORT,
 };
+
+#[cfg(feature = "proto-vlan")]
+pub use self::vlan::{Packet as VlanPacket, VlanConfig};
 
 #[cfg(feature = "proto-dns")]
 pub use self::dns::{

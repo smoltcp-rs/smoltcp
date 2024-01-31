@@ -230,9 +230,9 @@ impl InterfaceInner {
     pub(super) fn process_arp<'frame>(
         &mut self,
         timestamp: Instant,
-        eth_frame: &EthernetFrame<&'frame [u8]>,
+        payload: &'frame [u8],
     ) -> Option<EthernetPacket<'frame>> {
-        let arp_packet = check!(ArpPacket::new_checked(eth_frame.payload()));
+        let arp_packet = check!(ArpPacket::new_checked(payload));
         let arp_repr = check!(ArpRepr::parse(&arp_packet));
 
         match arp_repr {
@@ -407,6 +407,14 @@ impl InterfaceInner {
         #[cfg(feature = "medium-ethernet")]
         if matches!(caps.medium, Medium::Ethernet) {
             tx_len += EthernetFrame::<&[u8]>::header_len();
+
+            #[cfg(feature = "proto-vlan")]
+            {
+                tx_len += self
+                    .vlan_config
+                    .map(|vlan_config| vlan_config.get_additional_header_length())
+                    .unwrap_or(0);
+            }
         }
 
         // Emit function for the Ethernet header.
@@ -418,11 +426,23 @@ impl InterfaceInner {
             frame.set_src_addr(src_addr);
             frame.set_dst_addr(frag.ipv4.dst_hardware_addr);
 
-            match repr.version() {
+            let ip_ethertype = match repr.version() {
                 #[cfg(feature = "proto-ipv4")]
-                IpVersion::Ipv4 => frame.set_ethertype(EthernetProtocol::Ipv4),
+                IpVersion::Ipv4 => EthernetProtocol::Ipv4,
                 #[cfg(feature = "proto-ipv6")]
-                IpVersion::Ipv6 => frame.set_ethertype(EthernetProtocol::Ipv6),
+                IpVersion::Ipv6 => EthernetProtocol::Ipv6,
+            };
+
+            #[cfg(feature = "proto-vlan")]
+            if let Some(vlan_config) = &self.vlan_config {
+                frame.set_ethertype(vlan_config.get_outer_ethertype());
+                vlan_config.emit_to_payload(frame.payload_mut(), ip_ethertype);
+            } else {
+                frame.set_ethertype(ip_ethertype);
+            }
+            #[cfg(not(feature = "proto-vlan"))]
+            {
+                frame.set_ethertype(ip_ethertype);
             }
         };
 
@@ -430,7 +450,19 @@ impl InterfaceInner {
             #[cfg(feature = "medium-ethernet")]
             if matches!(self.caps.medium, Medium::Ethernet) {
                 emit_ethernet(&IpRepr::Ipv4(frag.ipv4.repr), tx_buffer);
-                tx_buffer = &mut tx_buffer[EthernetFrame::<&[u8]>::header_len()..];
+                #[cfg(not(feature = "proto-vlan"))]
+                {
+                    tx_buffer = &mut tx_buffer[EthernetFrame::<&[u8]>::header_len()..];
+                }
+                #[cfg(feature = "proto-vlan")]
+                {
+                    tx_buffer = &mut tx_buffer[EthernetFrame::<&[u8]>::header_len()
+                        + self
+                            .vlan_config
+                            .as_ref()
+                            .map(|vlan_config| vlan_config.get_additional_header_length())
+                            .unwrap_or(0)..];
+                }
             }
 
             let mut packet =
