@@ -647,6 +647,13 @@ mod test {
         addr: REMOTE_ADDR.into_address(),
         port: REMOTE_PORT,
     };
+    fn remote_metadata_with_local() -> UdpMetadata {
+        // Would be great as a const once we have const `.into()`.
+        UdpMetadata {
+            local_address: Some(LOCAL_ADDR.into()),
+            ..REMOTE_END.into()
+        }
+    }
 
     pub const LOCAL_IP_REPR: IpRepr = IpReprIpvX(IpvXRepr {
         src_addr: LOCAL_ADDR,
@@ -823,7 +830,10 @@ mod test {
             PAYLOAD,
         );
 
-        assert_eq!(socket.recv(), Ok((&b"abcdef"[..], REMOTE_END.into())));
+        assert_eq!(
+            socket.recv(),
+            Ok((&b"abcdef"[..], remote_metadata_with_local()))
+        );
         assert!(!socket.can_recv());
     }
 
@@ -851,8 +861,14 @@ mod test {
             &REMOTE_UDP_REPR,
             PAYLOAD,
         );
-        assert_eq!(socket.peek(), Ok((&b"abcdef"[..], &REMOTE_END.into(),)));
-        assert_eq!(socket.recv(), Ok((&b"abcdef"[..], REMOTE_END.into(),)));
+        assert_eq!(
+            socket.peek(),
+            Ok((&b"abcdef"[..], &remote_metadata_with_local(),))
+        );
+        assert_eq!(
+            socket.recv(),
+            Ok((&b"abcdef"[..], remote_metadata_with_local(),))
+        );
         assert_eq!(socket.peek(), Err(RecvError::Exhausted));
     }
 
@@ -1025,7 +1041,7 @@ mod test {
             dst_port: LOCAL_PORT,
         };
         socket.process(cx, PacketMeta::default(), &REMOTE_IP_REPR, &repr, &[]);
-        assert_eq!(socket.recv(), Ok((&[][..], REMOTE_END.into())));
+        assert_eq!(socket.recv(), Ok((&[][..], remote_metadata_with_local())));
     }
 
     #[test]
