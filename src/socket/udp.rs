@@ -743,6 +743,17 @@ mod test {
         assert_eq!(socket.send_slice(b"abcdef", REMOTE_END), Ok(()));
     }
 
+    #[test]
+    fn test_send_with_source() {
+        let mut socket = socket(buffer(0), buffer(1));
+
+        assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
+        assert_eq!(
+            socket.send_slice(b"abcdef", remote_metadata_with_local()),
+            Ok(())
+        );
+    }
+
     #[rstest]
     #[case::ip(Medium::Ip)]
     #[cfg(feature = "medium-ip")]
