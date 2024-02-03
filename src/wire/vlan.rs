@@ -75,6 +75,35 @@ pub struct Packet<T: AsRef<[u8]>> {
     buffer: T,
 }
 
+//  VLAN according to IEEE 802.1Q adds 4 bytes after the source MAC address and EtherType of an
+//  Ethernet frame as follows:
+//
+//  ```txt
+//    0                   1                   2                   3
+//    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+//   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+//   |         TPID (0x8100)         | PCP |D|        VLAN ID        |
+//   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+//  ```
+//
+//  The first two bytes are the Tag Protocol Identifier (TPID) and the last two are the
+//  Tag Control Information (TCI).
+//
+//  IEEE 802.1ad adds the concept of double tagging which allows an outer header with a
+//  TPID of 0x88A8 in front of the IEEE 802.1Q header.
+//
+//  For simplicity it is practical to treat the TPID as EtherType of the standard Ethernet
+//  header. One can then handle VLAN as a normal Ethernet protocol with the TCI as first field
+//  followed by the EtherType of the next protocol:
+//
+//  ```txt
+//    0                   1                   2                   3
+//    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+//   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+//   | PCP |D|        VLAN ID        |           EtherType           |
+//   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+//  ```
+//
 mod field {
     #![allow(non_snake_case)]
 
