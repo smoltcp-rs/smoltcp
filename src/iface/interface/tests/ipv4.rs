@@ -676,7 +676,22 @@ fn test_handle_igmp(#[case] medium: Medium) {
                     #[cfg(feature = "medium-ethernet")]
                     Medium::Ethernet => {
                         let eth_frame = EthernetFrame::new_checked(frame).ok()?;
-                        Ipv4Packet::new_checked(eth_frame.payload()).ok()?
+                        #[cfg(feature = "proto-vlan")]
+                        let ipv4_payload = {
+                            let vlan_packet = VlanPacket::new_checked(eth_frame.payload()).ok()?;
+                            let num_vlan_headers =
+                                if vlan_packet.ethertype() == EthernetProtocol::VlanInner {
+                                    2
+                                } else {
+                                    1
+                                };
+                            &eth_frame.payload()
+                                [VlanPacket::<&[u8]>::header_len() * num_vlan_headers..]
+                        };
+                        #[cfg(not(feature = "proto-vlan"))]
+                        let ipv4_payload = eth_frame.payload();
+
+                        Ipv4Packet::new_checked(ipv4_payload).ok()?
                     }
                     #[cfg(feature = "medium-ip")]
                     Medium::Ip => Ipv4Packet::new_checked(&frame[..]).ok()?,

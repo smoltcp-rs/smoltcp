@@ -4,7 +4,8 @@ use crate::wire::*;
 pub(crate) fn setup<'a>(medium: Medium) -> (Interface, SocketSet<'a>, TestingDevice) {
     let mut device = TestingDevice::new(medium);
 
-    let config = Config::new(match medium {
+    #[allow(unused_mut)]
+    let mut config = Config::new(match medium {
         #[cfg(feature = "medium-ethernet")]
         Medium::Ethernet => {
             HardwareAddress::Ethernet(EthernetAddress([0x02, 0x02, 0x02, 0x02, 0x02, 0x02]))
@@ -16,6 +17,14 @@ pub(crate) fn setup<'a>(medium: Medium) -> (Interface, SocketSet<'a>, TestingDev
             0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
         ])),
     });
+
+    #[cfg(feature = "proto-vlan")]
+    {
+        config.vlan_config = Some(VlanConfig {
+            inner_vlan_id: 100,
+            outer_vlan_id: Some(200),
+        });
+    }
 
     let mut iface = Interface::new(config, &mut device, Instant::ZERO);
 
