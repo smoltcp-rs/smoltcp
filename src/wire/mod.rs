@@ -275,7 +275,7 @@ pub use self::dhcpv4::{
 };
 
 #[cfg(feature = "proto-vlan")]
-pub use self::vlan::{Packet as VlanPacket, VlanConfig};
+pub use self::vlan::{Packet as VlanPacket, Pcp, Repr as VlanRepr, VlanConfig};
 
 #[cfg(feature = "proto-dns")]
 pub use self::dns::{

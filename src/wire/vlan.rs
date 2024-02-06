@@ -244,10 +244,10 @@ impl<T: AsRef<[u8]>> AsRef<[u8]> for Packet<T> {
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Repr {
-    vlan_identifier: u16,
-    drop_eligible_indicator: bool,
-    priority_code_point: Pcp,
-    ethertype: EtherType,
+    pub vlan_identifier: u16,
+    pub drop_eligible_indicator: bool,
+    pub priority_code_point: Pcp,
+    pub ethertype: EtherType,
 }
 
 impl Repr {
