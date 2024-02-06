@@ -18,6 +18,16 @@ impl InterfaceInner {
             return None;
         }
 
+        #[cfg(feature = "proto-vlan")]
+        if let Some(vlan_config) = &self.vlan_config {
+            // Drop all frames without VLAN header
+            match vlan_config.outer_vlan_id {
+                Some(_) if eth_frame.ethertype() != EthernetProtocol::VlanOuter => return None,
+                None if eth_frame.ethertype() != EthernetProtocol::VlanInner => return None,
+                _ => (),
+            }
+        }
+
         self.handle_ethertype(
             sockets,
             meta,
