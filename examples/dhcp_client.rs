@@ -7,7 +7,7 @@ use std::os::unix::io::AsRawFd;
 use smoltcp::iface::{Config, Interface, SocketSet};
 use smoltcp::socket::dhcpv4;
 use smoltcp::time::Instant;
-use smoltcp::wire::{EthernetAddress, IpCidr, Ipv4Address, Ipv4Cidr};
+use smoltcp::wire::{EthernetAddress, IpCidr, Ipv4Cidr};
 use smoltcp::{
     phy::{wait as phy_wait, Device, Medium},
     time::Duration,
