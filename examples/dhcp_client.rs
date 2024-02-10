@@ -7,7 +7,7 @@ use std::os::unix::io::AsRawFd;
 use smoltcp::iface::{Config, Interface, SocketSet};
 use smoltcp::socket::dhcpv4;
 use smoltcp::time::Instant;
-use smoltcp::wire::{EthernetAddress, IpCidr, Ipv4Address, Ipv4Cidr};
+use smoltcp::wire::{EthernetAddress, IpCidr, Ipv4Cidr};
 use smoltcp::{
     phy::{wait as phy_wait, Device, Medium},
     time::Duration,
@@ -77,7 +77,7 @@ fn main() {
             }
             Some(dhcpv4::Event::Deconfigured) => {
                 debug!("DHCP lost config!");
-                set_ipv4_addr(&mut iface, Ipv4Cidr::new(Ipv4Address::UNSPECIFIED, 0));
+                iface.update_ip_addrs(|addrs| addrs.clear());
                 iface.routes_mut().remove_default_ipv4_route();
             }
         }
@@ -86,9 +86,10 @@ fn main() {
     }
 }
 
+/// Clear any existing IP addresses & add the new one
 fn set_ipv4_addr(iface: &mut Interface, cidr: Ipv4Cidr) {
     iface.update_ip_addrs(|addrs| {
-        let dest = addrs.iter_mut().next().unwrap();
-        *dest = IpCidr::Ipv4(cidr);
+        addrs.clear();
+        addrs.push(IpCidr::Ipv4(cidr)).unwrap();
     });
 }
