@@ -38,9 +38,6 @@ fn main() {
     config.random_seed = rand::random();
     let mut iface = Interface::new(config, &mut device, Instant::now());
 
-    // Initialize with an unspecified address
-    set_ipv4_addr(&mut iface, Ipv4Cidr::new(Ipv4Address::UNSPECIFIED, 0));
-
     // Create sockets
     let mut dhcp_socket = dhcpv4::Socket::new();
 
@@ -80,7 +77,7 @@ fn main() {
             }
             Some(dhcpv4::Event::Deconfigured) => {
                 debug!("DHCP lost config!");
-                set_ipv4_addr(&mut iface, Ipv4Cidr::new(Ipv4Address::UNSPECIFIED, 0));
+                iface.update_ip_addrs(|addrs| addrs.clear());
                 iface.routes_mut().remove_default_ipv4_route();
             }
         }
