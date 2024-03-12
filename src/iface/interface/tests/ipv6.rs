@@ -36,6 +36,80 @@ fn parse_ipv6(data: &[u8]) -> crate::wire::Result<Packet<'_>> {
 #[cfg(feature = "medium-ethernet")]
 #[case::ieee802154(Medium::Ieee802154)]
 #[cfg(feature = "medium-ieee802154")]
+fn any_ip(#[case] medium: Medium) {
+    // An empty echo request with destination address fdbe::3, which is not part of the interface
+    // address list.
+    let data = [
+        0x60, 0x0, 0x0, 0x0, 0x0, 0x8, 0x3a, 0x40, 0xfd, 0xbe, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+        0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x2, 0xfd, 0xbe, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+        0x0, 0x0, 0x0, 0x0, 0x3, 0x80, 0x0, 0x84, 0x3a, 0x0, 0x0, 0x0, 0x0,
+    ];
+
+    assert_eq!(
+        parse_ipv6(&data),
+        Ok(Packet::new_ipv6(
+            Ipv6Repr {
+                src_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0002]),
+                dst_addr: Ipv6Address::from_parts(&[0xfdbe, 0, 0, 0, 0, 0, 0, 0x0003]),
+                hop_limit: 64,
+                next_header: IpProtocol::Icmpv6,
+                payload_len: 8,
+            },
+            IpPayload::Icmpv6(Icmpv6Repr::EchoRequest {
+                ident: 0,
+                seq_no: 0,
+                data: b"",
+            })
+        ))
+    );
+
+    let (mut iface, mut sockets, _device) = setup(medium);
+
+    // Add a route to the interface, otherwise, we don't know if the packet is routed localy.
+    iface.routes_mut().update(|routes| {
+        routes
+            .push(crate::iface::Route {
+                cidr: IpCidr::Ipv6(Ipv6Cidr::new(
+                    Ipv6Address::new(0xfdbe, 0, 0, 0, 0, 0, 0, 0),
+                    64,
+                )),
+                via_router: IpAddress::Ipv6(Ipv6Address::from_parts(&[
+                    0xfdbe, 0, 0, 0, 0, 0, 0, 0x0001,
+                ])),
+                preferred_until: None,
+                expires_at: None,
+            })
+            .unwrap();
+    });
+
+    assert_eq!(
+        iface.inner.process_ipv6(
+            &mut sockets,
+            PacketMeta::default(),
+            &Ipv6Packet::new_checked(&data[..]).unwrap()
+        ),
+        None
+    );
+
+    // Accept any IP:
+    iface.set_any_ip(true);
+    assert!(iface
+        .inner
+        .process_ipv6(
+            &mut sockets,
+            PacketMeta::default(),
+            &Ipv6Packet::new_checked(&data[..]).unwrap()
+        )
+        .is_some());
+}
+
+#[rstest]
+#[case::ip(Medium::Ip)]
+#[cfg(feature = "medium-ip")]
+#[case::ethernet(Medium::Ethernet)]
+#[cfg(feature = "medium-ethernet")]
+#[case::ieee802154(Medium::Ieee802154)]
+#[cfg(feature = "medium-ieee802154")]
 fn multicast_source_address(#[case] medium: Medium) {
     let data = [
         0x60, 0x0, 0x0, 0x0, 0x0, 0x0, 0xc, 0x40, 0xff, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
