@@ -109,6 +109,7 @@ fn test_handle_udp_broadcast(
         payload_len: udp_repr.header_len() + UDP_PAYLOAD.len(),
         hop_limit: 0x40,
     });
+    let dst_addr = ip_repr.dst_addr();
 
     // Bind the socket to port 68
     let socket = sockets.get_mut::<udp::Socket>(socket_handle);
@@ -143,7 +144,13 @@ fn test_handle_udp_broadcast(
     assert!(socket.can_recv());
     assert_eq!(
         socket.recv(),
-        Ok((&UDP_PAYLOAD[..], IpEndpoint::new(src_ip.into(), 67).into()))
+        Ok((
+            &UDP_PAYLOAD[..],
+            udp::UdpMetadata {
+                local_address: Some(dst_addr),
+                ..IpEndpoint::new(src_ip.into(), 67).into()
+            }
+        ))
     );
 }
 

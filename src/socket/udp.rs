@@ -8,13 +8,19 @@ use crate::socket::PollAt;
 #[cfg(feature = "async")]
 use crate::socket::WakerRegistration;
 use crate::storage::Empty;
-use crate::wire::{IpEndpoint, IpListenEndpoint, IpProtocol, IpRepr, UdpRepr};
+use crate::wire::{IpAddress, IpEndpoint, IpListenEndpoint, IpProtocol, IpRepr, UdpRepr};
 
 /// Metadata for a sent or received UDP packet.
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct UdpMetadata {
     pub endpoint: IpEndpoint,
+    /// The IP address to which an incoming datagram was sent, or to which an outgoing datagram
+    /// will be sent. Incoming datagrams always have this set. On outgoing datagrams, if it is not
+    /// set, and the socket is not bound to a single address anyway, a suitable address will be
+    /// determined using the algorithms of RFC 6724 (candidate source address selection) or some
+    /// heuristic (for IPv4).
+    pub local_address: Option<IpAddress>,
     pub meta: PacketMeta,
 }
 
@@ -22,6 +28,7 @@ impl<T: Into<IpEndpoint>> From<T> for UdpMetadata {
     fn from(value: T) -> Self {
         Self {
             endpoint: value.into(),
+            local_address: None,
             meta: PacketMeta::default(),
         }
     }
@@ -493,6 +500,7 @@ impl<'a> Socket<'a> {
 
         let metadata = UdpMetadata {
             endpoint: remote_endpoint,
+            local_address: Some(ip_repr.dst_addr()),
             meta,
         };
 
@@ -517,19 +525,23 @@ impl<'a> Socket<'a> {
         let hop_limit = self.hop_limit.unwrap_or(64);
 
         let res = self.tx_buffer.dequeue_with(|packet_meta, payload_buf| {
-            let src_addr = match endpoint.addr {
-                Some(addr) => addr,
-                None => match cx.get_source_address(&packet_meta.endpoint.addr) {
+            let src_addr = if let Some(s) = packet_meta.local_address {
+                s
+            } else {
+                match endpoint.addr {
                     Some(addr) => addr,
-                    None => {
-                        net_trace!(
-                            "udp:{}:{}: cannot find suitable source address, dropping.",
-                            endpoint,
-                            packet_meta.endpoint
-                        );
-                        return Ok(());
-                    }
-                },
+                    None => match cx.get_source_address(&packet_meta.endpoint.addr) {
+                        Some(addr) => addr,
+                        None => {
+                            net_trace!(
+                                "udp:{}:{}: cannot find suitable source address, dropping.",
+                                endpoint,
+                                packet_meta.endpoint
+                            );
+                            return Ok(());
+                        }
+                    },
+                }
             };
 
             net_trace!(
@@ -635,6 +647,13 @@ mod test {
         addr: REMOTE_ADDR.into_address(),
         port: REMOTE_PORT,
     };
+    fn remote_metadata_with_local() -> UdpMetadata {
+        // Would be great as a const once we have const `.into()`.
+        UdpMetadata {
+            local_address: Some(LOCAL_ADDR.into()),
+            ..REMOTE_END.into()
+        }
+    }
 
     pub const LOCAL_IP_REPR: IpRepr = IpReprIpvX(IpvXRepr {
         src_addr: LOCAL_ADDR,
@@ -724,6 +743,17 @@ mod test {
         assert_eq!(socket.send_slice(b"abcdef", REMOTE_END), Ok(()));
     }
 
+    #[test]
+    fn test_send_with_source() {
+        let mut socket = socket(buffer(0), buffer(1));
+
+        assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
+        assert_eq!(
+            socket.send_slice(b"abcdef", remote_metadata_with_local()),
+            Ok(())
+        );
+    }
+
     #[rstest]
     #[case::ip(Medium::Ip)]
     #[cfg(feature = "medium-ip")]
@@ -811,7 +841,10 @@ mod test {
             PAYLOAD,
         );
 
-        assert_eq!(socket.recv(), Ok((&b"abcdef"[..], REMOTE_END.into())));
+        assert_eq!(
+            socket.recv(),
+            Ok((&b"abcdef"[..], remote_metadata_with_local()))
+        );
         assert!(!socket.can_recv());
     }
 
@@ -839,8 +872,14 @@ mod test {
             &REMOTE_UDP_REPR,
             PAYLOAD,
         );
-        assert_eq!(socket.peek(), Ok((&b"abcdef"[..], &REMOTE_END.into(),)));
-        assert_eq!(socket.recv(), Ok((&b"abcdef"[..], REMOTE_END.into(),)));
+        assert_eq!(
+            socket.peek(),
+            Ok((&b"abcdef"[..], &remote_metadata_with_local(),))
+        );
+        assert_eq!(
+            socket.recv(),
+            Ok((&b"abcdef"[..], remote_metadata_with_local(),))
+        );
         assert_eq!(socket.peek(), Err(RecvError::Exhausted));
     }
 
@@ -1013,7 +1052,7 @@ mod test {
             dst_port: LOCAL_PORT,
         };
         socket.process(cx, PacketMeta::default(), &REMOTE_IP_REPR, &repr, &[]);
-        assert_eq!(socket.recv(), Ok((&[][..], REMOTE_END.into())));
+        assert_eq!(socket.recv(), Ok((&[][..], remote_metadata_with_local())));
     }
 
     #[test]
