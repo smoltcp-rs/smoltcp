@@ -2,7 +2,7 @@ use super::*;
 
 #[rstest]
 #[case(Medium::Ethernet)]
-#[cfg(feature = "medium-ethernet")]
+#[cfg(all(feature = "medium-ethernet", not(feature = "proto-vlan")))]
 fn test_any_ip_accept_arp(#[case] medium: Medium) {
     let mut buffer = [0u8; 64];
     #[allow(non_snake_case)]
@@ -30,6 +30,91 @@ fn test_any_ip_accept_arp(#[case] medium: Medium) {
         frame_repr.emit(&mut frame);
 
         &buffer[..ethernet_repr.buffer_len() + frame_repr.buffer_len()]
+    }
+
+    let (mut iface, mut sockets, _) = setup(medium);
+
+    assert!(iface
+        .inner
+        .process_ethernet(
+            &mut sockets,
+            PacketMeta::default(),
+            ETHERNET_FRAME_ARP(buffer.as_mut()),
+            &mut iface.fragments,
+        )
+        .is_none());
+
+    // Accept any IP address
+    iface.set_any_ip(true);
+
+    assert!(iface
+        .inner
+        .process_ethernet(
+            &mut sockets,
+            PacketMeta::default(),
+            ETHERNET_FRAME_ARP(buffer.as_mut()),
+            &mut iface.fragments,
+        )
+        .is_some());
+}
+
+#[rstest]
+#[case(Medium::Ethernet)]
+#[cfg(feature = "proto-vlan")]
+fn test_any_ip_accept_arp_vlan(#[case] medium: Medium) {
+    let mut buffer = [0u8; 64];
+    #[allow(non_snake_case)]
+    fn ETHERNET_FRAME_ARP(buffer: &mut [u8]) -> &[u8] {
+        let ethernet_repr = EthernetRepr {
+            src_addr: EthernetAddress::from_bytes(&[0x02, 0x02, 0x02, 0x02, 0x02, 0x03]),
+            dst_addr: EthernetAddress::from_bytes(&[0x02, 0x02, 0x02, 0x02, 0x02, 0x02]),
+            ethertype: EthernetProtocol::VlanOuter,
+        };
+        let outer_vlan_repr = VlanRepr {
+            vlan_identifier: 200,
+            drop_eligible_indicator: false,
+            priority_code_point: Pcp::Be,
+            ethertype: EthernetProtocol::VlanInner,
+        };
+        let inner_vlan_repr = VlanRepr {
+            vlan_identifier: 100,
+            drop_eligible_indicator: false,
+            priority_code_point: Pcp::Be,
+            ethertype: EthernetProtocol::Arp,
+        };
+        let frame_repr = ArpRepr::EthernetIpv4 {
+            operation: ArpOperation::Request,
+            source_hardware_addr: EthernetAddress::from_bytes(&[
+                0x02, 0x02, 0x02, 0x02, 0x02, 0x03,
+            ]),
+            source_protocol_addr: Ipv4Address::from_bytes(&[192, 168, 1, 2]),
+            target_hardware_addr: EthernetAddress::from_bytes(&[
+                0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
+            ]),
+            target_protocol_addr: Ipv4Address::from_bytes(&[192, 168, 1, 3]),
+        };
+        let mut frame = EthernetFrame::new_unchecked(&mut buffer[..]);
+        ethernet_repr.emit(&mut frame);
+
+        let mut frame = VlanPacket::new_unchecked(&mut buffer[ethernet_repr.buffer_len()..]);
+        outer_vlan_repr.emit(&mut frame);
+
+        let mut frame = VlanPacket::new_unchecked(
+            &mut buffer[ethernet_repr.buffer_len() + outer_vlan_repr.buffer_len()..],
+        );
+        inner_vlan_repr.emit(&mut frame);
+
+        let mut frame = ArpPacket::new_unchecked(
+            &mut buffer[ethernet_repr.buffer_len()
+                + outer_vlan_repr.buffer_len()
+                + inner_vlan_repr.buffer_len()..],
+        );
+        frame_repr.emit(&mut frame);
+
+        &buffer[..ethernet_repr.buffer_len()
+            + frame_repr.buffer_len()
+            + outer_vlan_repr.buffer_len()
+            + inner_vlan_repr.buffer_len()]
     }
 
     let (mut iface, mut sockets, _) = setup(medium);
@@ -406,7 +491,7 @@ fn test_handle_ipv4_broadcast(#[case] medium: Medium) {
 
 #[rstest]
 #[case(Medium::Ethernet)]
-#[cfg(feature = "medium-ethernet")]
+#[cfg(all(feature = "medium-ethernet", not(feature = "proto-vlan")))]
 fn test_handle_valid_arp_request(#[case] medium: Medium) {
     let (mut iface, mut sockets, _device) = setup(medium);
 
@@ -512,7 +597,7 @@ fn test_handle_other_arp_request(#[case] medium: Medium) {
 
 #[rstest]
 #[case(Medium::Ethernet)]
-#[cfg(feature = "medium-ethernet")]
+#[cfg(all(feature = "medium-ethernet", not(feature = "proto-vlan")))]
 fn test_arp_flush_after_update_ip(#[case] medium: Medium) {
     let (mut iface, mut sockets, _device) = setup(medium);
 
@@ -676,7 +761,22 @@ fn test_handle_igmp(#[case] medium: Medium) {
                     #[cfg(feature = "medium-ethernet")]
                     Medium::Ethernet => {
                         let eth_frame = EthernetFrame::new_checked(frame).ok()?;
-                        Ipv4Packet::new_checked(eth_frame.payload()).ok()?
+                        #[cfg(feature = "proto-vlan")]
+                        let ipv4_payload = {
+                            let vlan_packet = VlanPacket::new_checked(eth_frame.payload()).ok()?;
+                            let num_vlan_headers =
+                                if vlan_packet.ethertype() == EthernetProtocol::VlanInner {
+                                    2
+                                } else {
+                                    1
+                                };
+                            &eth_frame.payload()
+                                [VlanPacket::<&[u8]>::header_len() * num_vlan_headers..]
+                        };
+                        #[cfg(not(feature = "proto-vlan"))]
+                        let ipv4_payload = eth_frame.payload();
+
+                        Ipv4Packet::new_checked(ipv4_payload).ok()?
                     }
                     #[cfg(feature = "medium-ip")]
                     Medium::Ip => Ipv4Packet::new_checked(&frame[..]).ok()?,

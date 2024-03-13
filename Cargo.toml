@@ -60,6 +60,7 @@ defmt = ["dep:defmt", "heapless/defmt-03"]
 "proto-ipsec" = ["proto-ipsec-ah", "proto-ipsec-esp"]
 "proto-ipsec-ah" = []
 "proto-ipsec-esp" = []
+"proto-vlan" = ["medium-ethernet"]
 
 "socket" = []
 "socket-raw" = ["socket"]

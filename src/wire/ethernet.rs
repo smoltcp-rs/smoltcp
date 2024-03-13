@@ -8,7 +8,9 @@ enum_with_unknown! {
     pub enum EtherType(u16) {
         Ipv4 = 0x0800,
         Arp  = 0x0806,
-        Ipv6 = 0x86DD
+        Ipv6 = 0x86DD,
+        VlanInner = 0x8100,
+        VlanOuter = 0x88A8
     }
 }
 
@@ -18,6 +20,8 @@ impl fmt::Display for EtherType {
             EtherType::Ipv4 => write!(f, "IPv4"),
             EtherType::Ipv6 => write!(f, "IPv6"),
             EtherType::Arp => write!(f, "ARP"),
+            EtherType::VlanInner => write!(f, "Inner VLAN"),
+            EtherType::VlanOuter => write!(f, "Outer VLAN"),
             EtherType::Unknown(id) => write!(f, "0x{id:04x}"),
         }
     }
@@ -223,6 +227,46 @@ impl<T: AsRef<[u8]>> fmt::Display for Frame<T> {
 
 use crate::wire::pretty_print::{PrettyIndent, PrettyPrint};
 
+impl<T: AsRef<[u8]>> Frame<T> {
+    fn pretty_print_ethertype(
+        payload: &dyn AsRef<[u8]>,
+        f: &mut fmt::Formatter,
+        indent: &mut PrettyIndent,
+        ethertype: EtherType,
+    ) -> fmt::Result {
+        match ethertype {
+            #[cfg(feature = "proto-ipv4")]
+            EtherType::Arp => {
+                indent.increase(f)?;
+                super::ArpPacket::<&[u8]>::pretty_print(&payload, f, indent)
+            }
+            #[cfg(feature = "proto-ipv4")]
+            EtherType::Ipv4 => {
+                indent.increase(f)?;
+                super::Ipv4Packet::<&[u8]>::pretty_print(&payload, f, indent)
+            }
+            #[cfg(feature = "proto-ipv6")]
+            EtherType::Ipv6 => {
+                indent.increase(f)?;
+                super::Ipv6Packet::<&[u8]>::pretty_print(&payload, f, indent)
+            }
+            #[cfg(feature = "proto-vlan")]
+            EtherType::VlanOuter | EtherType::VlanInner => {
+                indent.increase(f)?;
+                super::VlanPacket::<&[u8]>::pretty_print(&payload, f, indent)?;
+                let vlan_packet = super::VlanPacket::new_unchecked(&payload);
+                Frame::<&[u8]>::pretty_print_ethertype(
+                    &&payload.as_ref()[super::VlanPacket::<&[u8]>::header_len()..],
+                    f,
+                    indent,
+                    vlan_packet.ethertype(),
+                )
+            }
+            _ => Ok(()),
+        }
+    }
+}
+
 impl<T: AsRef<[u8]>> PrettyPrint for Frame<T> {
     fn pretty_print(
         buffer: &dyn AsRef<[u8]>,
@@ -235,24 +279,7 @@ impl<T: AsRef<[u8]>> PrettyPrint for Frame<T> {
         };
         write!(f, "{indent}{frame}")?;
 
-        match frame.ethertype() {
-            #[cfg(feature = "proto-ipv4")]
-            EtherType::Arp => {
-                indent.increase(f)?;
-                super::ArpPacket::<&[u8]>::pretty_print(&frame.payload(), f, indent)
-            }
-            #[cfg(feature = "proto-ipv4")]
-            EtherType::Ipv4 => {
-                indent.increase(f)?;
-                super::Ipv4Packet::<&[u8]>::pretty_print(&frame.payload(), f, indent)
-            }
-            #[cfg(feature = "proto-ipv6")]
-            EtherType::Ipv6 => {
-                indent.increase(f)?;
-                super::Ipv6Packet::<&[u8]>::pretty_print(&frame.payload(), f, indent)
-            }
-            _ => Ok(()),
-        }
+        Frame::<&[u8]>::pretty_print_ethertype(&frame.payload(), f, indent, frame.ethertype())
     }
 }
 

@@ -678,7 +678,7 @@ fn ndsic_neighbor_advertisement_ieee802154(#[case] medium: Medium) {
 
 #[rstest]
 #[case(Medium::Ethernet)]
-#[cfg(feature = "medium-ethernet")]
+#[cfg(all(feature = "medium-ethernet", not(feature = "proto-vlan")))]
 fn test_handle_valid_ndisc_request(#[case] medium: Medium) {
     let (mut iface, mut sockets, _device) = setup(medium);
 
