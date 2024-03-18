@@ -552,7 +552,7 @@ fn decompress_udp(
     Ok(())
 }
 
-pub struct PacketSixlowpan<'p> {
+struct PacketSixlowpan<'p> {
     iphc: SixlowpanIphcRepr,
     #[cfg(feature = "proto-ipv6-hbh")]
     hbh: Option<(SixlowpanExtHeaderRepr, &'p [Ipv6OptionRepr<'p>])>,
@@ -563,7 +563,7 @@ pub struct PacketSixlowpan<'p> {
     header_diff: usize,
 }
 
-pub enum SixlowpanPayload<'p> {
+enum SixlowpanPayload<'p> {
     Icmpv6(&'p Icmpv6Repr<'p>),
     #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
     Udp(UdpRepr, &'p [u8], Option<u16>),
@@ -573,7 +573,7 @@ pub enum SixlowpanPayload<'p> {
 
 impl<'p> PacketSixlowpan<'p> {
     /// Create a 6LoWPAN compressed representation packet from an IPv6 representation.
-    pub fn new(packet: &'p PacketV6<'_>, ieee_repr: &Ieee802154Repr) -> Self {
+    fn new(packet: &'p PacketV6<'_>, ieee_repr: &Ieee802154Repr) -> Self {
         let mut compressed = 0;
         let mut uncompressed = 0;
 
@@ -679,7 +679,7 @@ impl<'p> PacketSixlowpan<'p> {
     }
 
     /// Return the required length for the underlying buffer when emitting the packet.
-    pub fn buffer_len(&self) -> usize {
+    fn buffer_len(&self) -> usize {
         let mut len = 0;
 
         len += self.iphc.buffer_len();
@@ -707,12 +707,12 @@ impl<'p> PacketSixlowpan<'p> {
     }
 
     /// Return the difference between the compressed and uncompressed header sizes.
-    pub fn header_diff(&self) -> usize {
+    fn header_diff(&self) -> usize {
         self.header_diff
     }
 
     /// Emit the packet into the given buffer.
-    pub fn emit(&self, mut buffer: &mut [u8], caps: &ChecksumCapabilities) {
+    fn emit(&self, mut buffer: &mut [u8], caps: &ChecksumCapabilities) {
         let mut checksum_dst_addr = self.iphc.dst_addr;
 
         self.iphc.emit(&mut SixlowpanIphcPacket::new_unchecked(
