@@ -172,7 +172,6 @@ fn test_echo_request_sixlowpan_128_bytes() {
 
     assert_eq!(
         iface.inner.process_sixlowpan(
-            None,
             &mut sockets,
             PacketMeta::default(),
             &ieee802154_repr,
@@ -200,7 +199,6 @@ fn test_echo_request_sixlowpan_128_bytes() {
     let result = match iface
         .inner
         .process_sixlowpan(
-            None,
             &mut sockets,
             PacketMeta::default(),
             &ieee802154_repr,
@@ -344,7 +342,6 @@ fn test_sixlowpan_udp_with_fragmentation() {
 
     assert_eq!(
         iface.inner.process_sixlowpan(
-            None,
             &mut sockets,
             PacketMeta::default(),
             &ieee802154_repr,
@@ -365,7 +362,6 @@ fn test_sixlowpan_udp_with_fragmentation() {
 
     assert_eq!(
         iface.inner.process_sixlowpan(
-            None,
             &mut sockets,
             PacketMeta::default(),
             &ieee802154_repr,

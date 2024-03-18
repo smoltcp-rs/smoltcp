@@ -60,7 +60,6 @@ impl InterfaceInner {
 
     pub(super) fn process_sixlowpan<'output, 'payload: 'output>(
         &mut self,
-        src_ll_addr: Option<HardwareAddress>,
         sockets: &mut SocketSet,
         meta: PacketMeta,
         ieee802154_repr: &Ieee802154Repr,
@@ -100,12 +99,42 @@ impl InterfaceInner {
             }
         };
 
-        self.process_ipv6(
-            src_ll_addr,
-            sockets,
-            meta,
-            &check!(Ipv6Packet::new_checked(payload)),
-        )
+        let packet = check!(Ipv6Packet::new_checked(payload));
+
+        #[cfg(feature = "proto-rpl")]
+        {
+            // For RPL, in most cases the source IP address does not match the source link layer
+            // address. Example: a node is forwarding a packet by just sending the packet to its
+            // root. This means we need to check the hop limit to make sure that the packet is
+            // actually coming from a direct neighbor.
+            // TODO: use neighbor solicitation messages to probe neighbors instead of relying on
+            // the hop limit.
+            if (packet.hop_limit() == 64 || packet.hop_limit() == 255)
+                && match packet.dst_addr() {
+                    Ipv6Address::LINK_LOCAL_ALL_NODES => true,
+                    #[cfg(feature = "proto-rpl")]
+                    Ipv6Address::LINK_LOCAL_ALL_RPL_NODES => true,
+                    addr if addr.is_unicast() && self.has_ip_addr(addr) => true,
+                    _ => false,
+                }
+            {
+                if let Some(dodag) = &self.rpl.dodag {
+                    self.neighbor_cache.fill_with_expiration(
+                        packet.src_addr().into(),
+                        ieee802154_repr.src_addr.unwrap().into(),
+                        self.now() + dodag.dio_timer.max_expiration() * 2,
+                    );
+                } else {
+                    self.neighbor_cache.fill(
+                        packet.src_addr().into(),
+                        ieee802154_repr.src_addr.unwrap().into(),
+                        self.now(),
+                    );
+                }
+            }
+        }
+
+        self.process_ipv6(sockets, meta, &packet)
     }
 
     #[cfg(feature = "proto-sixlowpan-fragmentation")]

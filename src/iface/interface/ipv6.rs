@@ -173,7 +173,6 @@ impl InterfaceInner {
 
     pub(super) fn process_ipv6<'frame>(
         &mut self,
-        src_ll_addr: Option<HardwareAddress>,
         sockets: &mut SocketSet,
         meta: PacketMeta,
         ipv6_packet: &Ipv6Packet<&'frame [u8]>,
@@ -196,35 +195,6 @@ impl InterfaceInner {
         } else {
             (None, ipv6_repr.next_header, ipv6_packet.payload())
         };
-
-        #[cfg(feature = "proto-rpl")]
-        if let Some(ll_addr) = src_ll_addr {
-            if (ipv6_repr.hop_limit == 64 || ipv6_repr.hop_limit == 255)
-                && match ipv6_repr.dst_addr {
-                    Ipv6Address::LINK_LOCAL_ALL_NODES => true,
-                    #[cfg(feature = "proto-rpl")]
-                    Ipv6Address::LINK_LOCAL_ALL_RPL_NODES => true,
-                    addr if addr.is_unicast() && self.has_ip_addr(addr) => true,
-                    _ => false,
-                }
-            {
-                #[cfg(not(feature = "proto-rpl"))]
-                self.neighbor_cache
-                    .fill(ipv6_repr.src_addr.into(), ll_addr, self.now());
-
-                #[cfg(feature = "proto-rpl")]
-                if let Some(dodag) = &self.rpl.dodag {
-                    self.neighbor_cache.fill_with_expiration(
-                        ipv6_repr.src_addr.into(),
-                        ll_addr,
-                        self.now() + dodag.dio_timer.max_expiration() * 2,
-                    );
-                } else {
-                    self.neighbor_cache
-                        .fill(ipv6_repr.src_addr.into(), ll_addr, self.now());
-                }
-            }
-        }
 
         if !self.has_ip_addr(ipv6_repr.dst_addr)
             && !self.has_multicast_group(ipv6_repr.dst_addr)
