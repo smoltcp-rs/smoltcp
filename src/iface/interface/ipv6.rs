@@ -315,16 +315,20 @@ impl InterfaceInner {
                             return HopByHopResponse::Discard(None);
                         }
                         Ipv6OptionFailureType::DiscardSendAll => {
-                            return HopByHopResponse::Discard(
-                                self.param_problem(ipv6_repr, ip_payload),
-                            );
+                            return HopByHopResponse::Discard(self.icmpv6_problem(
+                                ipv6_repr,
+                                ip_payload,
+                                Icmpv6ParamProblem::UnrecognizedOption,
+                            ));
                         }
                         Ipv6OptionFailureType::DiscardSendUnicast
                             if !ipv6_repr.dst_addr.is_multicast() =>
                         {
-                            return HopByHopResponse::Discard(
-                                self.param_problem(ipv6_repr, ip_payload),
-                            );
+                            return HopByHopResponse::Discard(self.icmpv6_problem(
+                                ipv6_repr,
+                                ip_payload,
+                                Icmpv6ParamProblem::UnrecognizedOption,
+                            ));
                         }
                         _ => unreachable!(),
                     }
@@ -373,7 +377,11 @@ impl InterfaceInner {
             #[cfg(feature = "socket-raw")]
             _ if handled_by_raw_socket => None,
 
-            _ => self.param_problem(ipv6_repr, ip_payload),
+            _ => self.icmpv6_problem(
+                ipv6_repr,
+                ip_payload,
+                Icmpv6ParamProblem::UnrecognizedNxtHdr,
+            ),
         }
     }
 
@@ -711,17 +719,18 @@ impl InterfaceInner {
         Some(Packet::Ipv6(p))
     }
 
-    fn param_problem<'frame>(
+    fn icmpv6_problem<'frame>(
         &self,
         ipv6_repr: Ipv6Repr,
         ip_payload: &'frame [u8],
+        reason: Icmpv6ParamProblem,
     ) -> Option<Packet<'frame>> {
         let payload_len =
             icmp_reply_payload_len(ip_payload.len(), IPV6_MIN_MTU, ipv6_repr.buffer_len());
         self.icmpv6_reply(
             ipv6_repr,
             Icmpv6Repr::ParamProblem {
-                reason: Icmpv6ParamProblem::UnrecognizedOption,
+                reason,
                 pointer: ipv6_repr.buffer_len() as u32,
                 header: ipv6_repr,
                 data: &ip_payload[0..payload_len],

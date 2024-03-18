@@ -98,7 +98,7 @@ impl<'p> Packet<'p> {
                     &caps.checksum,
                 )
             }
-            #[cfg(feature = "socket-raw")]
+            #[cfg(any(feature = "socket-raw", feature = "proto-rpl"))]
             IpPayload::Raw(raw_packet) => payload.copy_from_slice(raw_packet),
             #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
             IpPayload::Udp(udp_repr, inner_payload) => udp_repr.emit(
@@ -171,6 +171,7 @@ pub(crate) struct PacketV6<'p> {
     payload: IpPayload<'p>,
 }
 
+#[cfg(feature = "proto-ipv6")]
 impl<'p> PacketV6<'p> {
     pub(crate) fn new(header: Ipv6Repr, payload: IpPayload<'p>) -> Self {
         Self {
@@ -193,6 +194,7 @@ impl<'p> PacketV6<'p> {
         &mut self.header
     }
 
+    #[cfg(feature = "proto-ipv6-hbh")]
     pub(crate) fn hop_by_hop(&self) -> Option<(IpProtocol, &Ipv6HopByHopRepr<'p>)> {
         #[cfg(feature = "proto-ipv6-hbh")]
         {
@@ -206,6 +208,7 @@ impl<'p> PacketV6<'p> {
         }
     }
 
+    #[cfg(feature = "proto-ipv6-hbh")]
     pub(crate) fn add_hop_by_hop(&mut self, repr: Ipv6HopByHopRepr<'p>) {
         self.header.payload_len += 2 + repr.buffer_len();
         let next_header = self.header.next_header;
@@ -213,6 +216,7 @@ impl<'p> PacketV6<'p> {
         self.hop_by_hop = Some((next_header, repr));
     }
 
+    #[cfg(feature = "proto-ipv6-routing")]
     pub(crate) fn routing(&self) -> Option<(IpProtocol, &Ipv6RoutingRepr)> {
         #[cfg(feature = "proto-ipv6-routing")]
         {
@@ -226,6 +230,7 @@ impl<'p> PacketV6<'p> {
         }
     }
 
+    #[cfg(feature = "proto-ipv6-routing")]
     pub(crate) fn add_routing(&mut self, repr: Ipv6RoutingRepr) {
         self.header.payload_len += 2 + repr.buffer_len();
         let mut next_header = self.header.next_header;
@@ -254,7 +259,7 @@ pub(crate) enum IpPayload<'p> {
     Igmp(IgmpRepr),
     #[cfg(feature = "proto-ipv6")]
     Icmpv6(Icmpv6Repr<'p>),
-    #[cfg(feature = "socket-raw")]
+    #[cfg(any(feature = "socket-raw", feature = "proto-rpl"))]
     Raw(&'p [u8]),
     #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
     Udp(UdpRepr, &'p [u8]),

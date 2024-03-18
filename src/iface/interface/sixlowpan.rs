@@ -567,6 +567,7 @@ pub enum SixlowpanPayload<'p> {
     Icmpv6(&'p Icmpv6Repr<'p>),
     #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
     Udp(UdpRepr, &'p [u8], Option<u16>),
+    #[cfg(feature = "proto-rpl")]
     Raw(&'p [u8]),
 }
 
@@ -635,6 +636,7 @@ impl<'p> PacketSixlowpan<'p> {
 
                 SixlowpanPayload::Udp(*udp_repr, payload, None)
             }
+            #[cfg(feature = "proto-rpl")]
             IpPayload::Raw(raw) => {
                 match last_header {
                     IpProtocol::Udp => {
@@ -699,6 +701,7 @@ impl<'p> PacketSixlowpan<'p> {
             SixlowpanPayload::Udp(udp_repr, payload, _) => {
                 len + SixlowpanUdpNhcRepr(udp_repr).header_len() + payload.len()
             }
+            #[cfg(feature = "proto-rpl")]
             SixlowpanPayload::Raw(payload) => len + payload.len(),
         }
     }
@@ -776,6 +779,7 @@ impl<'p> PacketSixlowpan<'p> {
                     udp_packet.set_checksum(checksum);
                 }
             }
+            #[cfg(feature = "proto-rpl")]
             SixlowpanPayload::Raw(payload) => buffer[..payload.len()].copy_from_slice(payload),
         }
     }

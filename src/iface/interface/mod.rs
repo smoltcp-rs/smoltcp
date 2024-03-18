@@ -1030,7 +1030,7 @@ impl InterfaceInner {
                 return Err(DispatchError::NeighborPending);
             }
             NeighborAnswer::NotFound => match (src_addr, dst_addr) {
-                #[cfg(feature = "proto-ipv4")]
+                #[cfg(all(feature = "medium-ethernet", feature = "proto-ipv4"))]
                 (&IpAddress::Ipv4(src_addr), IpAddress::Ipv4(dst_addr)) => {
                     net_debug!(
                         "address {} not in neighbor cache, sending ARP request",
