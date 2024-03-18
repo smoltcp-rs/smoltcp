@@ -276,8 +276,8 @@ pub use self::tcp::{
 
 #[cfg(feature = "proto-dhcpv4")]
 pub use self::dhcpv4::{
-    DhcpOption, DhcpOptionWriter, MessageType as DhcpMessageType, Packet as DhcpPacket,
-    Repr as DhcpRepr, CLIENT_PORT as DHCP_CLIENT_PORT,
+    DhcpOption, DhcpOptionWriter, Flags as DhcpFlags, MessageType as DhcpMessageType,
+    OpCode as DhcpOpCode, Packet as DhcpPacket, Repr as DhcpRepr, CLIENT_PORT as DHCP_CLIENT_PORT,
     MAX_DNS_SERVER_COUNT as DHCP_MAX_DNS_SERVER_COUNT, SERVER_PORT as DHCP_SERVER_PORT,
 };
 

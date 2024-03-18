@@ -75,6 +75,21 @@ defmt = ["dep:defmt", "heapless/defmt-03"]
 "socket-dns" = ["socket", "proto-dns"]
 "socket-mdns" = ["socket-dns"]
 
+# Enable Cubic TCP congestion control algorithm, and it is used as a default congestion controller.
+#
+# Cubic relies on double precision (`f64`) floating point operations, which may cause issues in some contexts:
+#
+# * Small embedded processors (such as Cortex-M0, Cortex-M1, and Cortex-M3) do not have an FPU,
+#   and floating point operations consume significant amounts of CPU time and Flash space.
+# * Interrupt handlers should almost always avoid floating-point operations.
+# * Kernel-mode code on desktop processors usually avoids FPU operations to reduce the penalty of saving and restoring FPU registers.
+#
+# In all these cases, `CongestionControl::Reno` is a better choice of congestion control algorithm.
+"socket-tcp-cubic" = []
+
+# Enable Reno TCP congestion control algorithm, and it is used as a default congestion controller.
+"socket-tcp-reno" = []
+
 "packetmeta-id" = []
 
 "async" = []
@@ -91,7 +106,7 @@ default = [
 ]
 
 # Private features
-# Features starting with "_" are considered private. They should not be enabled by 
+# Features starting with "_" are considered private. They should not be enabled by
 # other crates, and they are not considered semver-stable.
 
 "_proto-fragmentation" = []

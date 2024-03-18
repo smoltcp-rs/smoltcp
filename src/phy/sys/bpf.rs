@@ -13,7 +13,8 @@ use crate::wire::ETHERNET_HEADER_LEN;
     target_os = "macos",
     target_os = "ios",
     target_os = "netbsd",
-    target_os = "openbsd"
+    target_os = "openbsd",
+    target_os = "freebsd"
 ))]
 const BIOCSETIF: libc::c_ulong = 0x8020426c;
 /// get buffer length
@@ -21,7 +22,8 @@ const BIOCSETIF: libc::c_ulong = 0x8020426c;
     target_os = "macos",
     target_os = "ios",
     target_os = "netbsd",
-    target_os = "openbsd"
+    target_os = "openbsd",
+    target_os = "freebsd"
 ))]
 const BIOCGBLEN: libc::c_ulong = 0x40044266;
 /// set immediate/nonblocking read
@@ -29,24 +31,27 @@ const BIOCGBLEN: libc::c_ulong = 0x40044266;
     target_os = "macos",
     target_os = "ios",
     target_os = "netbsd",
-    target_os = "openbsd"
+    target_os = "openbsd",
+    target_os = "freebsd"
 ))]
 const BIOCIMMEDIATE: libc::c_ulong = 0x80044270;
 /// set bpf_hdr struct size
 #[cfg(any(target_os = "macos", target_os = "ios", target_os = "netbsd"))]
 const SIZEOF_BPF_HDR: usize = 18;
 /// set bpf_hdr struct size
-#[cfg(target_os = "openbsd")]
+#[cfg(any(target_os = "openbsd", target_os = "freebsd"))]
 const SIZEOF_BPF_HDR: usize = 24;
 /// The actual header length may be larger than the bpf_hdr struct due to aligning
 /// see https://github.com/openbsd/src/blob/37ecb4d066e5566411cc16b362d3960c93b1d0be/sys/net/bpf.c#L1649
 /// and https://github.com/apple/darwin-xnu/blob/8f02f2a044b9bb1ad951987ef5bab20ec9486310/bsd/net/bpf.c#L3580
 /// and https://github.com/NetBSD/src/blob/13d937d9ba3db87c9a898a40a8ed9d2aab2b1b95/sys/net/bpf.c#L1988
+/// for FreeBSD, core::mem::size_of::<libc::bpf_hdr>() = 32 when run on a FreeBSD system.
 #[cfg(any(
     target_os = "macos",
     target_os = "ios",
     target_os = "netbsd",
-    target_os = "openbsd"
+    target_os = "openbsd",
+    target_os = "freebsd"
 ))]
 const BPF_HDRLEN: usize = (((SIZEOF_BPF_HDR + ETHERNET_HEADER_LEN) + mem::align_of::<u32>() - 1)
     & !(mem::align_of::<u32>() - 1))
