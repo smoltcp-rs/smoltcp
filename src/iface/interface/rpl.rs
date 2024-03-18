@@ -1,4 +1,5 @@
 use super::*;
+use crate::iface::interface::ipv6::RoutingResponse;
 
 #[cfg(feature = "rpl-mop-1")]
 use crate::wire::Ipv6RoutingRepr;
@@ -951,6 +952,100 @@ impl InterfaceInner {
 
         Ok(hbh)
     }
+
+    pub(super) fn process_source_routing<'frame>(
+        &self,
+        mut ipv6_repr: Ipv6Repr,
+        ext_hdr: &Ipv6ExtHeader<&'frame [u8]>,
+        routing: Ipv6SourceRoutingRepr,
+        payload: &'frame [u8],
+    ) -> RoutingResponse<'frame> {
+        let Ipv6SourceRoutingRepr {
+            mut segments_left,
+            cmpr_i,
+            cmpr_e,
+            pad,
+            mut addresses,
+        } = routing;
+
+        for addr in addresses.iter_mut() {
+            addr.0[..cmpr_e as usize]
+                .copy_from_slice(&ipv6_repr.src_addr.as_bytes()[..cmpr_e as usize]);
+        }
+
+        // Calculate the number of addresses left to visit.
+        let n = (((ext_hdr.header_len() as usize * 8) - pad as usize - (16 - cmpr_e as usize))
+            / (16 - cmpr_i as usize))
+            + 1;
+
+        if segments_left == 0 {
+            // We can process the next header.
+            RoutingResponse::Continue(
+                ext_hdr.next_header(),
+                &payload[ext_hdr.payload().len() + 2..],
+            )
+        } else if segments_left as usize > n {
+            todo!(
+                "We should send an ICMP Parameter Problem, Code 0, \
+                            to the source address, pointing to the segments left \
+                            field, and discard the packet."
+            );
+        } else {
+            // Decrement the segments left by 1.
+            segments_left -= 1;
+
+            // Compute i, the index of the next address to be visited in the address
+            // vector, by substracting segments left from n.
+            let i = addresses.len() - segments_left as usize;
+
+            let address = addresses[i - 1];
+            net_debug!("The next address: {}", address);
+
+            // If Addresses[i] or the Destination address is mutlicast, we discard the
+            // packet.
+
+            if address.is_multicast() || ipv6_repr.dst_addr.is_multicast() {
+                net_trace!("Dropping packet, destination address is multicast");
+                return RoutingResponse::Discard;
+            }
+
+            let tmp_addr = ipv6_repr.dst_addr;
+            ipv6_repr.dst_addr = address;
+            addresses[i - 1] = tmp_addr;
+
+            if ipv6_repr.hop_limit <= 1 {
+                net_trace!("hop limit reached 0, dropping packet");
+                // FIXME: we should transmit an ICMPv6 Time Exceeded message, as defined
+                // in RFC 2460. However, this is not trivial with the current state of
+                // smoltcp. When sending this message back, as much as possible of the
+                // original message should be transmitted back. This is after updating the
+                // addresses in the source routing headers. At this time, we only update
+                // the parsed list of addresses, not the `ip_payload` buffer. It is this
+                // buffer we would use when sending back the ICMPv6 message. And since we
+                // can't update that buffer here, we can't update the source routing header
+                // and it would send back an incorrect header. The standard does not
+                // specify if we SHOULD or MUST transmit an ICMPv6 message.
+                RoutingResponse::Discard
+            } else {
+                let payload = &payload[ext_hdr.payload().len() + 2..];
+
+                ipv6_repr.next_header = ext_hdr.next_header();
+                ipv6_repr.hop_limit -= 1;
+                ipv6_repr.payload_len = payload.len();
+
+                let mut p = PacketV6::new(ipv6_repr, IpPayload::Raw(payload));
+                p.add_routing(Ipv6RoutingRepr::Rpl(Ipv6SourceRoutingRepr {
+                    segments_left,
+                    cmpr_i,
+                    cmpr_e,
+                    pad,
+                    addresses,
+                }));
+
+                RoutingResponse::Forward(Packet::Ipv6(p))
+            }
+        }
+    }
 }
 
 /// Create a source routing header based on RPL relation information.
@@ -1002,13 +1097,13 @@ pub(crate) fn create_source_routing_header(
         }
 
         Some((
-            Ipv6RoutingRepr::Rpl {
+            Ipv6RoutingRepr::Rpl(Ipv6SourceRoutingRepr {
                 segments_left: segments_left as u8,
                 cmpr_i: 0,
                 cmpr_e: 0,
                 pad: 0,
                 addresses,
-            },
+            }),
             route[segments_left],
         ))
     }

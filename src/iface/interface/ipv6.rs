@@ -23,6 +23,17 @@ impl Default for HopByHopResponse<'_> {
     }
 }
 
+/// Enum used for the process_routing function.
+#[allow(clippy::large_enum_variant)]
+pub(crate) enum RoutingResponse<'frame> {
+    /// Continue processing the IP packet.
+    Continue(IpProtocol, &'frame [u8]),
+    /// Forward the packet based on the information from the routing header.
+    Forward(Packet<'frame>),
+    /// There was an error processing the routing header, discard the packet.
+    Discard,
+}
+
 impl InterfaceInner {
     /// Return the IPv6 address that is a candidate source address for the given destination
     /// address, based on RFC 6724.
@@ -496,110 +507,43 @@ impl InterfaceInner {
         &mut self,
         sockets: &mut SocketSet,
         meta: PacketMeta,
-        mut ipv6_repr: Ipv6Repr,
+        ipv6_repr: Ipv6Repr,
         handled_by_raw_socket: bool,
         ip_payload: &'frame [u8],
     ) -> Option<Packet<'frame>> {
         let ext_hdr = check!(Ipv6ExtHeader::new_checked(ip_payload));
 
         let routing_header = check!(Ipv6RoutingHeader::new_checked(ext_hdr.payload()));
-        let mut routing_repr = check!(Ipv6RoutingRepr::parse(&routing_header));
+        let routing_repr = check!(Ipv6RoutingRepr::parse(&routing_header));
 
-        match &mut routing_repr {
+        let (next_header, payload) = match routing_repr {
             Ipv6RoutingRepr::Type2 { .. } => {
                 // TODO: we should respond with an ICMPv6 unknown protocol message.
                 net_debug!("IPv6 Type2 routing header not supported yet, dropping packet.");
                 return None;
             }
             #[cfg(not(feature = "proto-rpl"))]
-            Ipv6RoutingRepr::Rpl { .. } => (),
+            Ipv6RoutingRepr::Rpl { .. } => {
+                net_debug!("RPL routing header not supported, dropping packet.");
+                return None;
+            }
             #[cfg(feature = "proto-rpl")]
-            Ipv6RoutingRepr::Rpl {
-                segments_left,
-                cmpr_i,
-                cmpr_e,
-                pad,
-                addresses,
-            } => {
-                for addr in addresses.iter_mut() {
-                    addr.0[..*cmpr_e as usize]
-                        .copy_from_slice(&ipv6_repr.src_addr.as_bytes()[..*cmpr_e as usize]);
-                }
-
-                // Calculate the number of addresses left to visit.
-                let n = (((ext_hdr.header_len() as usize * 8)
-                    - *pad as usize
-                    - (16 - *cmpr_e as usize))
-                    / (16 - *cmpr_i as usize))
-                    + 1;
-
-                if *segments_left == 0 {
-                    // We can process the next header.
-                } else if *segments_left as usize > n {
-                    todo!(
-                        "We should send an ICMP Parameter Problem, Code 0, \
-                            to the source address, pointing to the segments left \
-                            field, and discard the packet."
-                    );
-                } else {
-                    // Decrement the segments left by 1.
-                    *segments_left -= 1;
-
-                    // Compute i, the index of the next address to be visited in the address
-                    // vector, by substracting segments left from n.
-                    let i = addresses.len() - *segments_left as usize;
-
-                    let address = addresses[i - 1];
-                    net_debug!("The next address: {}", address);
-
-                    // If Addresses[i] or the Destination address is mutlicast, we discard the
-                    // packet.
-
-                    if address.is_multicast() || ipv6_repr.dst_addr.is_multicast() {
-                        net_trace!("Dropping packet, destination address is multicast");
-                        return None;
-                    }
-
-                    let tmp_addr = ipv6_repr.dst_addr;
-                    ipv6_repr.dst_addr = address;
-                    addresses[i - 1] = tmp_addr;
-
-                    if ipv6_repr.hop_limit <= 1 {
-                        net_trace!("hop limit reached 0, dropping packet");
-                        // FIXME: we should transmit an ICMPv6 Time Exceeded message, as defined
-                        // in RFC 2460. However, this is not trivial with the current state of
-                        // smoltcp. When sending this message back, as much as possible of the
-                        // original message should be transmitted back. This is after updating the
-                        // addresses in the source routing headers. At this time, we only update
-                        // the parsed list of addresses, not the `ip_payload` buffer. It is this
-                        // buffer we would use when sending back the ICMPv6 message. And since we
-                        // can't update that buffer here, we can't update the source routing header
-                        // and it would send back an incorrect header. The standard does not
-                        // specify if we SHOULD or MUST transmit an ICMPv6 message.
-                        return None;
-                    } else {
-                        let payload = &ip_payload[ext_hdr.payload().len() + 2..];
-
-                        ipv6_repr.next_header = ext_hdr.next_header();
-                        ipv6_repr.hop_limit -= 1;
-                        ipv6_repr.payload_len = payload.len();
-
-                        let mut p = PacketV6::new(ipv6_repr, IpPayload::Raw(payload));
-                        p.add_routing(routing_repr);
-
-                        return Some(Packet::Ipv6(p));
-                    }
+            Ipv6RoutingRepr::Rpl(routing) => {
+                match self.process_source_routing(ipv6_repr, &ext_hdr, routing, ip_payload) {
+                    RoutingResponse::Discard => return None,
+                    RoutingResponse::Forward(packet) => return Some(packet),
+                    RoutingResponse::Continue(next_header, payload) => (next_header, payload),
                 }
             }
-        }
+        };
 
         self.process_nxt_hdr(
             sockets,
             meta,
             ipv6_repr,
-            ext_hdr.next_header(),
+            next_header,
             handled_by_raw_socket,
-            &ip_payload[ext_hdr.payload().len() + 2..],
+            payload,
         )
     }
 

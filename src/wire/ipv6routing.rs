@@ -352,19 +352,23 @@ pub enum Repr {
         /// The home address of the destination mobile node.
         home_address: Address,
     },
-    Rpl {
-        /// Number of route segments remaining.
-        segments_left: u8,
-        /// Number of prefix octets from each segment, except the last segment, that are elided.
-        cmpr_i: u8,
-        /// Number of prefix octets from the last segment that are elided.
-        cmpr_e: u8,
-        /// Number of octets that are used for padding after `address[n]` at the end of the
-        /// RPL Source Route Header.
-        pad: u8,
-        /// Vector of addresses, numbered 1 to `n`.
-        addresses: heapless::Vec<Address, { crate::config::RPL_RELATIONS_BUFFER_COUNT }>,
-    },
+    Rpl(SourceRoutingRepr),
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct SourceRoutingRepr {
+    /// Number of route segments remaining.
+    pub segments_left: u8,
+    /// Number of prefix octets from each segment, except the last segment, that are elided.
+    pub cmpr_i: u8,
+    /// Number of prefix octets from the last segment that are elided.
+    pub cmpr_e: u8,
+    /// Number of octets that are used for padding after `address[n]` at the end of the
+    /// RPL Source Route Header.
+    pub pad: u8,
+    /// Vector of addresses, numbered 1 to `n`.
+    pub addresses: heapless::Vec<Address, { crate::config::RPL_RELATIONS_BUFFER_COUNT }>,
 }
 
 impl Repr {
@@ -405,13 +409,13 @@ impl Repr {
                     addresses.push(Address::from_bytes(&buffer)).unwrap();
                 }
 
-                Ok(Repr::Rpl {
+                Ok(Repr::Rpl(SourceRoutingRepr {
                     segments_left: header.segments_left(),
                     cmpr_i: header.cmpr_i(),
                     cmpr_e: header.cmpr_e(),
                     pad: header.pad(),
                     addresses,
-                })
+                }))
             }
 
             _ => Err(Error),
@@ -424,7 +428,7 @@ impl Repr {
         match self {
             // Routing Type + Segments Left + Reserved + Home Address
             Repr::Type2 { home_address, .. } => 2 + 4 + home_address.as_bytes().len(),
-            Repr::Rpl { addresses, .. } => {
+            Repr::Rpl(SourceRoutingRepr { addresses, .. }) => {
                 // Compute the length of the common prefix for every address on the route.
                 let mut common_prefix = 0;
 
@@ -463,11 +467,11 @@ impl Repr {
                 header.clear_reserved();
                 header.set_home_address(home_address);
             }
-            Repr::Rpl {
+            Repr::Rpl(SourceRoutingRepr {
                 segments_left,
                 ref addresses,
                 ..
-            } => {
+            }) => {
                 header.set_routing_type(Type::Rpl);
                 header.set_segments_left(segments_left);
                 header.clear_reserved();
@@ -526,13 +530,13 @@ impl fmt::Display for Repr {
                     home_address
                 )
             }
-            Repr::Rpl {
+            Repr::Rpl(SourceRoutingRepr {
                 segments_left,
                 cmpr_i,
                 cmpr_e,
                 pad,
                 ..
-            } => {
+            }) => {
                 write!(
                     f,
                     "IPv6 Routing type={} seg_left={} cmpr_i={} cmpr_e={} pad={}",
@@ -573,7 +577,7 @@ mod test {
 
     // A representation of a Source Routing Header with elided IPv6 addresses
     fn repr_srh_elided() -> Repr {
-        Repr::Rpl {
+        Repr::Rpl(SourceRoutingRepr {
             segments_left: 6,
             cmpr_i: 9,
             cmpr_e: 9,
@@ -587,7 +591,7 @@ mod test {
                 Address::new(0, 0, 0, 0, 8, 8, 8, 8),
             ])
             .unwrap(),
-        }
+        })
     }
 
     static BYTES_SRH_VERY_ELIDED: [u8; 14] = [
@@ -596,7 +600,7 @@ mod test {
 
     // A representation of a Source Routing Header with elided IPv6 addresses
     fn repr_srh_very_elided() -> Repr {
-        Repr::Rpl {
+        Repr::Rpl(SourceRoutingRepr {
             segments_left: 2,
             cmpr_i: 15,
             cmpr_e: 15,
@@ -606,7 +610,7 @@ mod test {
                 Address::new(0, 0, 0, 0, 0, 0, 0, 4),
             ])
             .unwrap(),
-        }
+        })
     }
 
     #[test]

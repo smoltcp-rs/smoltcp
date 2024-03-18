@@ -224,7 +224,8 @@ pub use self::ipv6hbh::{Header as Ipv6HopByHopHeader, Repr as Ipv6HopByHopRepr};
 
 #[cfg(feature = "proto-ipv6")]
 pub use self::ipv6routing::{
-    Header as Ipv6RoutingHeader, Repr as Ipv6RoutingRepr, Type as Ipv6RoutingType,
+    Header as Ipv6RoutingHeader, Repr as Ipv6RoutingRepr,
+    SourceRoutingRepr as Ipv6SourceRoutingRepr, Type as Ipv6RoutingType,
 };
 
 #[cfg(feature = "proto-ipv4")]

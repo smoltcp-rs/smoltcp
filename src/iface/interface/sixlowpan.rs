@@ -767,7 +767,7 @@ impl<'p> PacketSixlowpan<'p> {
 
         #[cfg(feature = "proto-ipv6-routing")]
         if let Some((ext_hdr, routing)) = &self.routing {
-            if let Ipv6RoutingRepr::Rpl { addresses, .. } = routing {
+            if let Ipv6RoutingRepr::Rpl(Ipv6SourceRoutingRepr { addresses, .. }) = routing {
                 checksum_dst_addr = *addresses.last().unwrap();
             }
 
