@@ -913,8 +913,8 @@ mod tests {
             &mut buffer[..repr.buffer_len()],
         ));
         icmp_repr.emit(
-            &repr.src_addr.into(),
-            &repr.dst_addr.into(),
+            &repr.src_addr,
+            &repr.dst_addr,
             &mut Icmpv6Packet::new_unchecked(
                 &mut buffer[repr.buffer_len()..][..icmp_repr.buffer_len()],
             ),

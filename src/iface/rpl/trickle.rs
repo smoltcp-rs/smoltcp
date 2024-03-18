@@ -217,11 +217,11 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::field_reassign_with_default)]
     fn trickle_timer_hear_inconsistency() {
         let mut rand = Rand::new(1234);
         let mut now = Instant::ZERO;
         let mut trickle = TrickleTimer::default();
-
         trickle.counter = 1;
 
         while now <= Instant::from_secs(10_000) {
@@ -251,11 +251,11 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::field_reassign_with_default)]
     fn trickle_timer_hear_consistency() {
         let mut rand = Rand::new(1234);
         let mut now = Instant::ZERO;
         let mut trickle = TrickleTimer::default();
-
         trickle.counter = 1;
 
         let mut transmit_counter = 0;

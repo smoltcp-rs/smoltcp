@@ -189,6 +189,7 @@ pub(crate) struct Dao {
 }
 
 impl Dao {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         to: Ipv6Address,
         child: Ipv6Address,

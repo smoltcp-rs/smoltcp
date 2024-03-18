@@ -5,6 +5,15 @@ use smoltcp::time::*;
 use smoltcp::wire::*;
 use std::collections::VecDeque;
 
+type InitFn = Box<dyn Fn(&mut SocketSet<'static>) -> Vec<SocketHandle> + Send + Sync + 'static>;
+
+type AppFn = Box<
+    dyn Fn(Instant, &mut SocketSet<'static>, &mut Vec<SocketHandle>, &mut Instant)
+        + Send
+        + Sync
+        + 'static,
+>;
+
 pub struct Node {
     pub id: usize,
     pub range: f32,
@@ -22,16 +31,8 @@ pub struct Node {
     pub interface: Interface,
     pub sockets: SocketSet<'static>,
     pub socket_handles: Vec<SocketHandle>,
-    pub init:
-        Option<Box<dyn Fn(&mut SocketSet<'static>) -> Vec<SocketHandle> + Send + Sync + 'static>>,
-    pub application: Option<
-        Box<
-            dyn Fn(Instant, &mut SocketSet<'static>, &mut Vec<SocketHandle>, &mut Instant)
-                + Send
-                + Sync
-                + 'static,
-        >,
-    >,
+    pub init: Option<InitFn>,
+    pub application: Option<AppFn>,
     pub next_poll: Option<Instant>,
 }
 
@@ -106,22 +107,11 @@ impl Node {
         self.device.tx_queue.pop_front()
     }
 
-    pub fn set_init(
-        &mut self,
-        init: Box<dyn Fn(&mut SocketSet) -> Vec<SocketHandle> + Send + Sync>,
-    ) {
+    pub fn set_init(&mut self, init: InitFn) {
         self.init = Some(init);
     }
 
-    pub fn set_application(
-        &mut self,
-        application: Box<
-            dyn Fn(Instant, &mut SocketSet<'static>, &mut Vec<SocketHandle>, &mut Instant)
-                + Send
-                + Sync
-                + 'static,
-        >,
-    ) {
+    pub fn set_application(&mut self, application: AppFn) {
         self.application = Some(application);
     }
 }

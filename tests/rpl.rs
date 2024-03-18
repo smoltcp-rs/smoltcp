@@ -240,7 +240,7 @@ fn message_forwarding_to_root(#[case] mop: RplModeOfOperation) {
     // 59 messages. The node is not in range of the destination (which is the root). There is one
     // node inbetween that has to forward it. Thus, it is forwarding 59 messages.
     let udp_count = sim.msgs().iter().filter(|m| m.is_udp()).count();
-    assert!(udp_count >= 59 * 2 && udp_count <= 60 * 2);
+    assert!((118..=120).contains(&udp_count));
 
     for msg in sim.msgs() {
         match mop {
@@ -280,7 +280,7 @@ fn message_forwarding_up_and_down(#[case] mop: RplModeOfOperation) {
     assert!(!sim.msgs().is_empty());
 
     let dio_count = sim.msgs().iter().filter(|m| m.is_dio()).count();
-    assert!(dio_count >= 30 && dio_count <= 40);
+    assert!((30..=40).contains(&dio_count));
 
     // We transmit a message every 60 seconds. We simulate for 1 hour, so the node will transmit
     // 59 messages. The node is not in range of the destination (which is the root). There is one
@@ -288,12 +288,12 @@ fn message_forwarding_up_and_down(#[case] mop: RplModeOfOperation) {
     let udp_count = sim.msgs().iter().filter(|m| m.is_udp()).count();
     match mop {
         RplModeOfOperation::NoDownwardRoutesMaintained => {
-            assert!(udp_count >= 14 * 2 && udp_count <= 15 * 2);
+            assert!((28..=30).contains(&udp_count));
         }
         RplModeOfOperation::NonStoringMode
         | RplModeOfOperation::StoringMode
         | RplModeOfOperation::StoringModeWithMulticast => {
-            assert!(udp_count >= 14 * 4 && udp_count <= 15 * 4);
+            assert!((52..=60).contains(&udp_count));
         }
     }
 
@@ -403,10 +403,10 @@ fn normal_node_change_parent(#[case] mop: RplModeOfOperation) {
         RplModeOfOperation::StoringMode => {
             // The node sends a NO-PATH DAO to the parent that forwards it to its own parent
             // until it reaches the root, that is why there will be 3 NO-PATH DAOs sent
-            assert!(no_path_dao_count == 1 * 3,);
+            assert!(no_path_dao_count == 3);
             // NO-PATH DAO should have the ack request flag set to false only when it is sent
             // to the old parent
-            assert!(dao_no_ack_req_count == 1,);
+            assert!(dao_no_ack_req_count == 1);
             assert!(dio_count > 9 && dio_count < 12);
         }
         // In MOP 1 and MOP 0 there should be no NO-PATH DAOs sent

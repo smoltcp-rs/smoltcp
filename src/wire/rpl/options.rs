@@ -1322,7 +1322,7 @@ impl<'p> Repr<'p> {
             }) => {
                 packet.clear_rpl_target_flags();
                 packet.set_rpl_target_prefix_length(*prefix_length);
-                packet.set_rpl_target_prefix(&prefix);
+                packet.set_rpl_target_prefix(prefix);
             }
             Repr::TransitInformation(TransitInformation {
                 external,

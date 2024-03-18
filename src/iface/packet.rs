@@ -13,6 +13,7 @@ pub(crate) enum EthernetPacket<'a> {
 
 #[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[allow(clippy::large_enum_variant)]
 pub(crate) enum Packet<'p> {
     #[cfg(feature = "proto-ipv4")]
     Ipv4(PacketV4<'p>),

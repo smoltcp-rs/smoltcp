@@ -47,8 +47,8 @@ impl Message {
                             return Some(
                                 SixlowpanUdpNhcRepr::parse(
                                     &udp,
-                                    &src_addr.into(),
-                                    &dst_addr.into(),
+                                    &src_addr,
+                                    &dst_addr,
                                     &ChecksumCapabilities::ignored(),
                                 )
                                 .unwrap(),
@@ -97,8 +97,8 @@ impl Message {
 
                     return Some(
                         Icmpv6Repr::parse(
-                            &src_addr.into(),
-                            &dst_addr.into(),
+                            &src_addr,
+                            &dst_addr,
                             &icmp,
                             &ChecksumCapabilities::ignored(),
                         )
