@@ -260,7 +260,7 @@ impl Interface {
                 current_frame: None,
 
                 #[cfg(feature = "proto-rpl")]
-                rpl: super::Rpl::new(config.rpl_config.unwrap(), now),
+                rpl: super::Rpl::new(config.rpl_config.unwrap_or_default(), now),
             },
         }
     }

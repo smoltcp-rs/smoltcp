@@ -14,7 +14,7 @@ use crate::{
     time::{Duration, Instant},
 };
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct TrickleTimer {
     pub(crate) i_min: u32,

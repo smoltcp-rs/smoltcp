@@ -66,10 +66,20 @@ impl From<ModeOfOperation> for crate::wire::rpl::ModeOfOperation {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
     pub mode_of_operation: ModeOfOperation,
     pub root: Option<RootConfig>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        // TODO: Make some kind of leaf mode
+        Self {
+            mode_of_operation: ModeOfOperation::NoDownwardRoutesMaintained,
+            root: None,
+        }
+    }
 }
 
 impl Config {
@@ -92,7 +102,7 @@ impl Config {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RootConfig {
     pub instance_id: RplInstanceId,
     pub dodag_id: Ipv6Address,
