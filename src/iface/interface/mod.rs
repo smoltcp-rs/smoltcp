@@ -1010,6 +1010,8 @@ impl InterfaceInner {
                         net_trace!("next hop {}", next_hop);
                         next_hop.into()
                     }
+                } else if let Some(parent) = dodag.parent {
+                    parent.into()
                 } else {
                     dst_addr.into()
                 }
