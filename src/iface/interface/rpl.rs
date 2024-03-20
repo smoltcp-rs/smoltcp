@@ -960,7 +960,12 @@ impl InterfaceInner {
         //  is moving to a new Version number. However, the standard does not define when a new
         //  Version number should be used. Therefore, we immediately drop the packet when a Rank
         //  error is detected, or when the bit was already set.
-        let rank = self.rpl.dodag.as_ref().unwrap().rank;
+        let rank = self
+            .rpl
+            .dodag
+            .as_ref()
+            .map(|dodag| dodag.rank)
+            .unwrap_or(Rank::new(u16::MAX, 1));
         if hbh.rank_error || (hbh.down && rank <= sender_rank) || (!hbh.down && rank >= sender_rank)
         {
             net_trace!("RPL HBH: inconsistency detected, resetting trickle timer, dropping packet");
