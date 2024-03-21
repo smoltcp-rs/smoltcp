@@ -365,16 +365,13 @@ impl InterfaceInner {
             return None;
         };
 
-        self.neighbor_cache.fill_with_expiration(
-            ip_repr.src_addr.into(),
-            self.current_frame
-                .as_ref()
-                .unwrap()
-                .src_addr
-                .unwrap()
-                .into(),
-            self.now + dodag.dio_timer.max_expiration() * 2,
-        );
+        if let Some(frame) = self.current_frame.as_ref() {
+            self.neighbor_cache.fill_with_expiration(
+                ip_repr.src_addr.into(),
+                frame.src_addr.unwrap().into(),
+                self.now + dodag.dio_timer.max_expiration() * 2,
+            );
+        }
 
         // Options that are expected: Pad1, PadN, Solicited Information.
         for opt in dis.options {
@@ -430,28 +427,20 @@ impl InterfaceInner {
         ip_repr: Ipv6Repr,
         dio: RplDio<'payload>,
     ) -> Option<Packet<'output>> {
-        if let Some(dodag) = self.rpl.dodag.as_ref() {
-            self.neighbor_cache.fill_with_expiration(
-                ip_repr.src_addr.into(),
-                self.current_frame
-                    .as_ref()
-                    .unwrap()
-                    .src_addr
-                    .unwrap()
-                    .into(),
-                self.now + dodag.dio_timer.max_expiration() * 2,
-            );
-        } else {
-            self.neighbor_cache.fill(
-                ip_repr.src_addr.into(),
-                self.current_frame
-                    .as_ref()
-                    .unwrap()
-                    .src_addr
-                    .unwrap()
-                    .into(),
-                self.now,
-            );
+        if let Some(frame) = self.current_frame.as_ref() {
+            if let Some(dodag) = self.rpl.dodag.as_ref() {
+                self.neighbor_cache.fill_with_expiration(
+                    ip_repr.src_addr.into(),
+                    frame.src_addr.unwrap().into(),
+                    self.now + dodag.dio_timer.max_expiration() * 2,
+                );
+            } else {
+                self.neighbor_cache.fill(
+                    ip_repr.src_addr.into(),
+                    frame.src_addr.unwrap().into(),
+                    self.now,
+                );
+            }
         }
 
         let mut dodag_configuration = None;

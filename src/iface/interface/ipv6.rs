@@ -256,38 +256,45 @@ impl InterfaceInner {
             match opt_repr {
                 Ipv6OptionRepr::Pad1 | Ipv6OptionRepr::PadN(_) => (),
                 #[cfg(feature = "proto-rpl")]
-                Ipv6OptionRepr::Rpl(hbh) => match self.process_rpl_hopbyhop(*hbh) {
-                    Ok(mut hbh) => {
-                        if self.rpl.is_root {
-                            hbh.down = true;
-                        } else {
-                            #[cfg(feature = "rpl-mop-2")]
-                            if matches!(
-                                self.rpl.mode_of_operation,
-                                crate::iface::RplModeOfOperation::StoringMode
-                            ) {
-                                hbh.down = self
-                                    .rpl
-                                    .dodag
-                                    .as_ref()
-                                    .unwrap()
-                                    .relations
-                                    .find_next_hop(ipv6_repr.dst_addr)
-                                    .is_some();
+                Ipv6OptionRepr::Rpl(hbh) if self.rpl.dodag.is_some() => {
+                    match self.process_rpl_hopbyhop(*hbh) {
+                        Ok(mut hbh) => {
+                            if self.rpl.is_root {
+                                hbh.down = true;
+                            } else {
+                                #[cfg(feature = "rpl-mop-2")]
+                                if matches!(
+                                    self.rpl.mode_of_operation,
+                                    crate::iface::RplModeOfOperation::StoringMode
+                                ) {
+                                    hbh.down = self
+                                        .rpl
+                                        .dodag
+                                        .as_ref()
+                                        .unwrap()
+                                        .relations
+                                        .find_next_hop(ipv6_repr.dst_addr)
+                                        .is_some();
+                                }
                             }
-                        }
 
-                        hbh.sender_rank = self.rpl.dodag.as_ref().unwrap().rank.raw_value();
-                        // FIXME: really update the RPL Hop-by-Hop. When forwarding,
-                        // we need to update the RPL Hop-by-Hop header.
-                        *opt_repr = Ipv6OptionRepr::Rpl(hbh);
+                            hbh.sender_rank = self.rpl.dodag.as_ref().unwrap().rank.raw_value();
+                            // FIXME: really update the RPL Hop-by-Hop. When forwarding,
+                            // we need to update the RPL Hop-by-Hop header.
+                            *opt_repr = Ipv6OptionRepr::Rpl(hbh);
+                        }
+                        Err(_) => {
+                            // TODO: check if we need to silently drop the packet or if we need to send
+                            // back to the original sender (global/local repair).
+                            return HopByHopResponse::Discard(None);
+                        }
                     }
-                    Err(_) => {
-                        // TODO: check if we need to silently drop the packet or if we need to send
-                        // back to the original sender (global/local repair).
-                        return HopByHopResponse::Discard(None);
-                    }
-                },
+                }
+
+                Ipv6OptionRepr::Rpl(_) => {
+                    // If we are not part of a RPL network, we should silently drop the packet.
+                    return HopByHopResponse::Discard(None);
+                }
 
                 Ipv6OptionRepr::Unknown { type_, .. } => {
                     match Ipv6OptionFailureType::from(*type_) {
