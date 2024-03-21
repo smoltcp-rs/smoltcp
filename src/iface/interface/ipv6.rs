@@ -628,8 +628,6 @@ impl InterfaceInner {
             p.add_routing(routing);
         }
 
-        println!("packet {:?}", p);
-
         Some(Packet::Ipv6(p))
     }
 
