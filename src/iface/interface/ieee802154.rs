@@ -38,6 +38,8 @@ impl InterfaceInner {
             return None;
         }
 
+        self.current_frame = Some(ieee802154_repr);
+
         match ieee802154_frame.payload() {
             Some(payload) => {
                 self.process_sixlowpan(sockets, meta, &ieee802154_repr, payload, _fragments)

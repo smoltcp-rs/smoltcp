@@ -123,6 +123,8 @@ pub struct InterfaceInner {
     #[cfg(feature = "proto-igmp")]
     igmp_report_state: IgmpReportState,
 
+    current_frame: Option<Ieee802154Repr>,
+
     #[cfg(feature = "proto-rpl")]
     rpl: super::Rpl,
 }
@@ -254,6 +256,8 @@ impl Interface {
                 #[cfg(feature = "proto-sixlowpan")]
                 sixlowpan_address_context: Vec::new(),
                 rand,
+
+                current_frame: None,
 
                 #[cfg(feature = "proto-rpl")]
                 rpl: super::Rpl::new(config.rpl_config.unwrap(), now),
