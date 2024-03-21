@@ -59,12 +59,13 @@ fn icmp_echo_request(#[case] medium: Medium) {
     ));
 
     let (mut iface, mut sockets, _device) = setup(medium);
-    iface.update_ip_addrs(|ips| {
-        ips.push(IpCidr::Ipv6(Ipv6Cidr::new(
-            Ipv6Address::from_parts(&[0xfe80, 0, 0, 0, 0x180b, 0x4242, 0x4242, 0x4242]),
-            10,
-        )))
-        .unwrap();
+    iface.update_ip_addrs(|addrs| {
+        addrs
+            .push(IpCidr::Ipv6(Ipv6Cidr::new(
+                Ipv6Address::from_parts(&[0xfe80, 0, 0, 0, 0x180b, 0x4242, 0x4242, 0x4242]),
+                10,
+            )))
+            .unwrap();
     });
 
     assert_eq!(
@@ -84,12 +85,13 @@ fn test_echo_request_sixlowpan_128_bytes() {
     use crate::phy::Checksum;
 
     let (mut iface, mut sockets, mut device) = setup(Medium::Ieee802154);
-    iface.update_ip_addrs(|ips| {
-        ips.push(IpCidr::Ipv6(Ipv6Cidr::new(
-            Ipv6Address::new(0xfe80, 0x0, 0x0, 0x0, 0x92fc, 0x48c2, 0xa441, 0xfc76),
-            10,
-        )))
-        .unwrap();
+    iface.update_ip_addrs(|addrs| {
+        addrs
+            .push(IpCidr::Ipv6(Ipv6Cidr::new(
+                Ipv6Address::new(0xfe80, 0x0, 0x0, 0x0, 0x92fc, 0x48c2, 0xa441, 0xfc76),
+                10,
+            )))
+            .unwrap();
     });
     // TODO: modify the example, such that we can also test if the checksum is correctly
     // computed.
@@ -194,37 +196,45 @@ fn test_echo_request_sixlowpan_128_bytes() {
         0x78, 0x79, 0x7a, 0x7b, 0x7c, 0x7d, 0x7e, 0x7f,
     ];
 
-    let result = iface.inner.process_sixlowpan(
-        &mut sockets,
-        PacketMeta::default(),
-        &ieee802154_repr,
-        &request_second_part,
-        &mut iface.fragments,
-    );
+    let result = match iface
+        .inner
+        .process_sixlowpan(
+            &mut sockets,
+            PacketMeta::default(),
+            &ieee802154_repr,
+            &request_second_part,
+            &mut iface.fragments,
+        )
+        .unwrap()
+    {
+        Packet::Ipv6(packet) => Some(packet),
+        #[allow(unreachable_patterns)]
+        _ => unreachable!(),
+    };
 
-    assert_eq!(
-        result,
-        Some(Packet::new_ipv6(
-            Ipv6Repr {
-                src_addr: Ipv6Address([
-                    0xfe, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x92, 0xfc, 0x48, 0xc2, 0xa4, 0x41,
-                    0xfc, 0x76,
-                ]),
-                dst_addr: Ipv6Address([
-                    0xfe, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x40, 0x42, 0x42, 0x42, 0x42, 0x42,
-                    0xb, 0x1a,
-                ]),
-                next_header: IpProtocol::Icmpv6,
-                payload_len: 136,
-                hop_limit: 64,
-            },
-            IpPayload::Icmpv6(Icmpv6Repr::EchoReply {
-                ident: 39,
-                seq_no: 2,
-                data,
-            })
-        ))
-    );
+    let icmp = Icmpv6Repr::EchoReply {
+        ident: 39,
+        seq_no: 2,
+        data,
+    };
+    let expected = Some(PacketV6::new(
+        Ipv6Repr {
+            src_addr: Ipv6Address([
+                0xfe, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x92, 0xfc, 0x48, 0xc2, 0xa4, 0x41, 0xfc,
+                0x76,
+            ]),
+            dst_addr: Ipv6Address([
+                0xfe, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x40, 0x42, 0x42, 0x42, 0x42, 0x42, 0xb,
+                0x1a,
+            ]),
+            next_header: IpProtocol::Icmpv6,
+            payload_len: 136,
+            hop_limit: 64,
+        },
+        IpPayload::Icmpv6(icmp),
+    ));
+
+    assert_eq!(result, expected);
 
     iface.inner.neighbor_cache.fill(
         IpAddress::Ipv6(Ipv6Address([
@@ -298,12 +308,13 @@ fn test_sixlowpan_udp_with_fragmentation() {
     };
 
     let (mut iface, mut sockets, mut device) = setup(Medium::Ieee802154);
-    iface.update_ip_addrs(|ips| {
-        ips.push(IpCidr::Ipv6(Ipv6Cidr::new(
-            Ipv6Address::new(0xfe80, 0x0, 0x0, 0x0, 0x92fc, 0x48c2, 0xa441, 0xfc76),
-            10,
-        )))
-        .unwrap();
+    iface.update_ip_addrs(|addrs| {
+        addrs
+            .push(IpCidr::Ipv6(Ipv6Cidr::new(
+                Ipv6Address::new(0xfe80, 0x0, 0x0, 0x0, 0x92fc, 0x48c2, 0xa441, 0xfc76),
+                10,
+            )))
+            .unwrap();
     });
     iface.inner.caps.checksum.udp = Checksum::None;
 
@@ -379,27 +390,27 @@ In at rhoncus tortor. Cras blandit tellus diam, varius vestibulum nibh commodo n
         ))
     );
 
+    let udp = UdpRepr {
+        src_port: 1234,
+        dst_port: 1234,
+    };
+    let packet = PacketV6::new(
+        Ipv6Repr {
+            src_addr: Ipv6Address::default(),
+            dst_addr: Ipv6Address::default(),
+            next_header: IpProtocol::Udp,
+            payload_len: udp.header_len() + udp_data.len(),
+            hop_limit: 64,
+        },
+        IpPayload::Udp(udp, udp_data),
+    );
+
     let tx_token = device.transmit(Instant::now()).unwrap();
     iface.inner.dispatch_ieee802154(
         Ieee802154Address::default(),
         tx_token,
         PacketMeta::default(),
-        Packet::new_ipv6(
-            Ipv6Repr {
-                src_addr: Ipv6Address::default(),
-                dst_addr: Ipv6Address::default(),
-                next_header: IpProtocol::Udp,
-                payload_len: udp_data.len(),
-                hop_limit: 64,
-            },
-            IpPayload::Udp(
-                UdpRepr {
-                    src_port: 1234,
-                    dst_port: 1234,
-                },
-                udp_data,
-            ),
-        ),
+        packet,
         &mut iface.fragmenter,
     );
 
@@ -409,7 +420,7 @@ In at rhoncus tortor. Cras blandit tellus diam, varius vestibulum nibh commodo n
         device.queue.pop_front().unwrap(),
         &[
             0x41, 0xcc, 0x3, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x2, 0x2, 0x2, 0x2,
-            0x2, 0x2, 0x2, 0x2, 0xc0, 0xb4, 0x5, 0x4e, 0x7e, 0x40, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+            0x2, 0x2, 0x2, 0x2, 0xc0, 0xbc, 0x5, 0x4e, 0x7e, 0x40, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
             0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0xf0, 0x4, 0xd2, 0x4, 0xd2, 0x0, 0x0,
             0x4c, 0x6f, 0x72, 0x65, 0x6d, 0x20, 0x69, 0x70, 0x73, 0x75, 0x6d, 0x20, 0x64, 0x6f,
             0x6c, 0x6f, 0x72, 0x20, 0x73, 0x69, 0x74, 0x20, 0x61, 0x6d, 0x65, 0x74, 0x2c, 0x20,
@@ -424,7 +435,7 @@ In at rhoncus tortor. Cras blandit tellus diam, varius vestibulum nibh commodo n
         device.queue.pop_front().unwrap(),
         &[
             0x41, 0xcc, 0x4, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x2, 0x2, 0x2, 0x2,
-            0x2, 0x2, 0x2, 0x2, 0xe0, 0xb4, 0x5, 0x4e, 0xf, 0x6f, 0x72, 0x74, 0x6f, 0x72, 0x2e,
+            0x2, 0x2, 0x2, 0x2, 0xe0, 0xbc, 0x5, 0x4e, 0xf, 0x6f, 0x72, 0x74, 0x6f, 0x72, 0x2e,
             0x20, 0x43, 0x72, 0x61, 0x73, 0x20, 0x62, 0x6c, 0x61, 0x6e, 0x64, 0x69, 0x74, 0x20,
             0x74, 0x65, 0x6c, 0x6c, 0x75, 0x73, 0x20, 0x64, 0x69, 0x61, 0x6d, 0x2c, 0x20, 0x76,
             0x61, 0x72, 0x69, 0x75, 0x73, 0x20, 0x76, 0x65, 0x73, 0x74, 0x69, 0x62, 0x75, 0x6c,

@@ -78,6 +78,10 @@ fn main() {
     };
     config.random_seed = rand::random();
     config.pan_id = Some(Ieee802154Pan(0xbeef));
+    #[cfg(feature = "proto-rpl")]
+    {
+        config.rpl_config = None;
+    }
 
     let mut iface = Interface::new(config, &mut device, Instant::now());
     iface.update_ip_addrs(|ip_addrs| {

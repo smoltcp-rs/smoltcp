@@ -1,81 +1,123 @@
-use crate::wire::Ipv6Address;
+use crate::time::{Duration, Instant};
+use crate::wire::{Ipv6Address, RplSequenceCounter};
 
-use super::{lollipop::SequenceCounter, rank::Rank};
+use super::rank::Rank;
 use crate::config::RPL_PARENTS_BUFFER_COUNT;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Parent {
-    rank: Rank,
-    preference: u8,
-    version_number: SequenceCounter,
-    dodag_id: Ipv6Address,
+    pub address: Ipv6Address,
+    pub dodag_id: Ipv6Address,
+    pub rank: Rank,
+    pub version_number: RplSequenceCounter,
+    pub dtsn: RplSequenceCounter,
+    pub last_heard: Instant,
 }
 
 impl Parent {
     /// Create a new parent.
     pub(crate) fn new(
-        preference: u8,
+        address: Ipv6Address,
         rank: Rank,
-        version_number: SequenceCounter,
+        version_number: RplSequenceCounter,
+        dtsn: RplSequenceCounter,
         dodag_id: Ipv6Address,
+        last_heard: Instant,
     ) -> Self {
         Self {
+            address,
             rank,
-            preference,
             version_number,
+            dtsn,
             dodag_id,
+            last_heard,
         }
-    }
-
-    /// Return the Rank of the parent.
-    pub(crate) fn rank(&self) -> &Rank {
-        &self.rank
     }
 }
 
 #[derive(Debug, Default)]
 pub(crate) struct ParentSet {
-    parents: heapless::LinearMap<Ipv6Address, Parent, { RPL_PARENTS_BUFFER_COUNT }>,
+    parents: heapless::Vec<Parent, { RPL_PARENTS_BUFFER_COUNT }>,
 }
 
 impl ParentSet {
     /// Add a new parent to the parent set. The Rank of the new parent should be lower than the
     /// Rank of the node that holds this parent set.
-    pub(crate) fn add(&mut self, address: Ipv6Address, parent: Parent) {
-        if let Some(p) = self.parents.get_mut(&address) {
+    pub(crate) fn add(&mut self, parent: Parent) -> Result<(), Parent> {
+        if let Some(p) = self.find_mut(&parent.address) {
             *p = parent;
-        } else if let Err(p) = self.parents.insert(address, parent) {
-            if let Some((w_a, w_p)) = self.worst_parent() {
-                if w_p.rank.dag_rank() > parent.rank.dag_rank() {
-                    self.parents.remove(&w_a.clone()).unwrap();
-                    self.parents.insert(address, parent).unwrap();
-                } else {
-                    net_debug!("could not add {} to parent set, buffer is full", address);
+        } else {
+            match self.parents.push(parent) {
+                Ok(_) => net_trace!("added {} to parent set", parent.address),
+                Err(e) => {
+                    if let Some(worst_parent) = self.worst_parent() {
+                        if worst_parent.rank.dag_rank() > parent.rank.dag_rank() {
+                            *worst_parent = parent;
+                            net_trace!("added {} to parent set", parent.address);
+                        } else {
+                            return Err(parent);
+                        }
+                    } else {
+                        unreachable!()
+                    }
                 }
-            } else {
-                unreachable!()
             }
         }
+
+        Ok(())
+    }
+
+    pub(crate) fn remove(&mut self, address: &Ipv6Address) {
+        if let Some(i) = self.parents.iter().enumerate().find_map(|(i, p)| {
+            if p.address == *address {
+                Some(i)
+            } else {
+                None
+            }
+        }) {
+            self.parents.remove(i);
+        }
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.parents.is_empty()
+    }
+
+    pub(crate) fn clear(&mut self) {
+        self.parents.clear();
     }
 
     /// Find a parent based on its address.
     pub(crate) fn find(&self, address: &Ipv6Address) -> Option<&Parent> {
-        self.parents.get(address)
+        self.parents.iter().find(|p| p.address == *address)
     }
 
     /// Find a mutable parent based on its address.
     pub(crate) fn find_mut(&mut self, address: &Ipv6Address) -> Option<&mut Parent> {
-        self.parents.get_mut(address)
+        self.parents.iter_mut().find(|p| p.address == *address)
     }
 
     /// Return a slice to the parent set.
-    pub(crate) fn parents(&self) -> impl Iterator<Item = (&Ipv6Address, &Parent)> {
+    pub(crate) fn parents(&self) -> impl Iterator<Item = &Parent> {
         self.parents.iter()
     }
 
     /// Find the worst parent that is currently in the parent set.
-    fn worst_parent(&self) -> Option<(&Ipv6Address, &Parent)> {
-        self.parents.iter().max_by_key(|(k, v)| v.rank.dag_rank())
+    fn worst_parent(&mut self) -> Option<&mut Parent> {
+        self.parents.iter_mut().max_by_key(|p| p.rank.dag_rank())
+    }
+
+    pub(crate) fn purge(&mut self, now: Instant, expiration: Duration) {
+        let mut keys = heapless::Vec::<usize, RPL_PARENTS_BUFFER_COUNT>::new();
+        for (i, p) in self.parents.iter().enumerate() {
+            if p.last_heard + expiration < now {
+                keys.push(i);
+            }
+        }
+
+        for k in keys {
+            self.parents.remove(k);
+        }
     }
 }
 
@@ -85,25 +127,33 @@ mod tests {
 
     #[test]
     fn add_parent() {
+        let now = Instant::now();
         let mut set = ParentSet::default();
-        set.add(
+        set.add(Parent::new(
             Default::default(),
-            Parent::new(0, Rank::ROOT, Default::default(), Default::default()),
-        );
+            Rank::ROOT,
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            now,
+        ));
 
         assert_eq!(
             set.find(&Default::default()),
             Some(&Parent::new(
-                0,
+                Default::default(),
                 Rank::ROOT,
                 Default::default(),
-                Default::default()
+                Default::default(),
+                Default::default(),
+                now,
             ))
         );
     }
 
     #[test]
     fn add_more_parents() {
+        let now = Instant::now();
         use super::super::consts::DEFAULT_MIN_HOP_RANK_INCREASE;
         let mut set = ParentSet::default();
 
@@ -114,23 +164,24 @@ mod tests {
             address.0[15] = i as u8;
             last_address = address;
 
-            set.add(
+            set.add(Parent::new(
                 address,
-                Parent::new(
-                    0,
-                    Rank::new(256 * i, DEFAULT_MIN_HOP_RANK_INCREASE),
-                    Default::default(),
-                    address,
-                ),
-            );
+                Rank::new(256 * i, DEFAULT_MIN_HOP_RANK_INCREASE),
+                Default::default(),
+                Default::default(),
+                address,
+                now,
+            ));
 
             assert_eq!(
                 set.find(&address),
                 Some(&Parent::new(
-                    0,
+                    address,
                     Rank::new(256 * i, DEFAULT_MIN_HOP_RANK_INCREASE),
                     Default::default(),
+                    Default::default(),
                     address,
+                    now,
                 ))
             );
         }
@@ -139,36 +190,36 @@ mod tests {
         // set.
         let mut address = Ipv6Address::default();
         address.0[15] = 8;
-        set.add(
+        set.add(Parent::new(
             address,
-            Parent::new(
-                0,
-                Rank::new(256 * 8, DEFAULT_MIN_HOP_RANK_INCREASE),
-                Default::default(),
-                address,
-            ),
-        );
+            Rank::new(256 * 8, DEFAULT_MIN_HOP_RANK_INCREASE),
+            Default::default(),
+            Default::default(),
+            address,
+            now,
+        ));
         assert_eq!(set.find(&address), None);
 
         /// This Parent has a better rank than the last one in the set.
         let mut address = Ipv6Address::default();
         address.0[15] = 9;
-        set.add(
+        set.add(Parent::new(
             address,
-            Parent::new(
-                0,
-                Rank::new(0, DEFAULT_MIN_HOP_RANK_INCREASE),
-                Default::default(),
-                address,
-            ),
-        );
+            Rank::new(0, DEFAULT_MIN_HOP_RANK_INCREASE),
+            Default::default(),
+            Default::default(),
+            address,
+            now,
+        ));
         assert_eq!(
             set.find(&address),
             Some(&Parent::new(
-                0,
+                address,
                 Rank::new(0, DEFAULT_MIN_HOP_RANK_INCREASE),
                 Default::default(),
-                address
+                Default::default(),
+                address,
+                now,
             ))
         );
         assert_eq!(set.find(&last_address), None);

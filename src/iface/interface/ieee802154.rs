@@ -38,6 +38,8 @@ impl InterfaceInner {
             return None;
         }
 
+        self.current_frame = Some(ieee802154_repr);
+
         match ieee802154_frame.payload() {
             Some(payload) => {
                 self.process_sixlowpan(sockets, meta, &ieee802154_repr, payload, _fragments)
@@ -51,7 +53,7 @@ impl InterfaceInner {
         ll_dst_a: Ieee802154Address,
         tx_token: Tx,
         meta: PacketMeta,
-        packet: Packet,
+        packet: PacketV6,
         frag: &mut Fragmenter,
     ) {
         let ll_src_a = self.hardware_addr.ieee802154_or_panic();

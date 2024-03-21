@@ -1,12 +1,17 @@
 use super::*;
 
+use crate::socket::AnySocket;
+
+use crate::phy::PacketMeta;
+use crate::wire::*;
+
 /// Enum used for the process_hopbyhop function. In some cases, when discarding a packet, an ICMMP
 /// parameter problem message needs to be transmitted to the source of the address. In other cases,
 /// the processing of the IP packet can continue.
 #[allow(clippy::large_enum_variant)]
 enum HopByHopResponse<'frame> {
     /// Continue processing the IPv6 packet.
-    Continue((IpProtocol, &'frame [u8])),
+    Continue(Ipv6HopByHopRepr<'frame>, IpProtocol, &'frame [u8]),
     /// Discard the packet and maybe send back an ICMPv6 packet.
     Discard(Option<Packet<'frame>>),
 }
@@ -16,6 +21,17 @@ impl Default for HopByHopResponse<'_> {
     fn default() -> Self {
         Self::Discard(None)
     }
+}
+
+/// Enum used for the process_routing function.
+#[allow(clippy::large_enum_variant)]
+pub(crate) enum RoutingResponse<'frame> {
+    /// Continue processing the IP packet.
+    Continue(IpProtocol, &'frame [u8]),
+    /// Forward the packet based on the information from the routing header.
+    Forward(Packet<'frame>),
+    /// There was an error processing the routing header, discard the packet.
+    Discard,
 }
 
 impl InterfaceInner {
@@ -172,7 +188,7 @@ impl InterfaceInner {
         meta: PacketMeta,
         ipv6_packet: &Ipv6Packet<&'frame [u8]>,
     ) -> Option<Packet<'frame>> {
-        let ipv6_repr = check!(Ipv6Repr::parse(ipv6_packet));
+        let mut ipv6_repr = check!(Ipv6Repr::parse(ipv6_packet));
 
         if !ipv6_repr.src_addr.is_unicast() {
             // Discard packets with non-unicast source addresses.
@@ -180,21 +196,35 @@ impl InterfaceInner {
             return None;
         }
 
-        let (next_header, ip_payload) = if ipv6_repr.next_header == IpProtocol::HopByHop {
+        let (hbh, next_header, ip_payload) = if ipv6_repr.next_header == IpProtocol::HopByHop {
             match self.process_hopbyhop(ipv6_repr, ipv6_packet.payload()) {
                 HopByHopResponse::Discard(e) => return e,
-                HopByHopResponse::Continue(next) => next,
+                HopByHopResponse::Continue(hbh, next_header, payload) => {
+                    (Some(hbh), next_header, payload)
+                }
             }
         } else {
-            (ipv6_repr.next_header, ipv6_packet.payload())
+            (None, ipv6_repr.next_header, ipv6_packet.payload())
         };
 
         if !self.has_ip_addr(ipv6_repr.dst_addr)
             && !self.has_multicast_group(ipv6_repr.dst_addr)
             && !ipv6_repr.dst_addr.is_loopback()
         {
-            net_trace!("packet IP address not for this interface");
-            return None;
+            #[cfg(not(feature = "proto-rpl"))]
+            {
+                net_trace!("packet IP address not for this interface");
+                return None;
+            }
+
+            #[cfg(feature = "proto-rpl")]
+            {
+                ipv6_repr.next_header = next_header;
+                if let Some(hbh) = &hbh {
+                    ipv6_repr.payload_len -= 2 + hbh.buffer_len();
+                }
+                return self.forward(ipv6_repr, hbh, None, ip_payload);
+            }
         }
 
         #[cfg(feature = "socket-raw")]
@@ -217,30 +247,54 @@ impl InterfaceInner {
         ipv6_repr: Ipv6Repr,
         ip_payload: &'frame [u8],
     ) -> HopByHopResponse<'frame> {
-        let param_problem = || {
-            let payload_len =
-                icmp_reply_payload_len(ip_payload.len(), IPV6_MIN_MTU, ipv6_repr.buffer_len());
-            self.icmpv6_reply(
-                ipv6_repr,
-                Icmpv6Repr::ParamProblem {
-                    reason: Icmpv6ParamProblem::UnrecognizedOption,
-                    pointer: ipv6_repr.buffer_len() as u32,
-                    header: ipv6_repr,
-                    data: &ip_payload[0..payload_len],
-                },
-            )
-        };
-
         let ext_hdr = check!(Ipv6ExtHeader::new_checked(ip_payload));
         let ext_repr = check!(Ipv6ExtHeaderRepr::parse(&ext_hdr));
         let hbh_hdr = check!(Ipv6HopByHopHeader::new_checked(ext_repr.data));
-        let hbh_repr = check!(Ipv6HopByHopRepr::parse(&hbh_hdr));
+        let mut hbh_repr = check!(Ipv6HopByHopRepr::parse(&hbh_hdr));
 
-        for opt_repr in &hbh_repr.options {
+        for opt_repr in &mut hbh_repr.options {
             match opt_repr {
                 Ipv6OptionRepr::Pad1 | Ipv6OptionRepr::PadN(_) => (),
                 #[cfg(feature = "proto-rpl")]
-                Ipv6OptionRepr::Rpl(_) => {}
+                Ipv6OptionRepr::Rpl(hbh) if self.rpl.dodag.is_some() => {
+                    match self.process_rpl_hopbyhop(*hbh) {
+                        Ok(mut hbh) => {
+                            if self.rpl.is_root {
+                                hbh.down = true;
+                            } else {
+                                #[cfg(feature = "rpl-mop-2")]
+                                if matches!(
+                                    self.rpl.mode_of_operation,
+                                    crate::iface::RplModeOfOperation::StoringMode
+                                ) {
+                                    hbh.down = self
+                                        .rpl
+                                        .dodag
+                                        .as_ref()
+                                        .unwrap()
+                                        .relations
+                                        .find_next_hop(ipv6_repr.dst_addr)
+                                        .is_some();
+                                }
+                            }
+
+                            hbh.sender_rank = self.rpl.dodag.as_ref().unwrap().rank.raw_value();
+                            // FIXME: really update the RPL Hop-by-Hop. When forwarding,
+                            // we need to update the RPL Hop-by-Hop header.
+                            *opt_repr = Ipv6OptionRepr::Rpl(hbh);
+                        }
+                        Err(_) => {
+                            // TODO: check if we need to silently drop the packet or if we need to send
+                            // back to the original sender (global/local repair).
+                            return HopByHopResponse::Discard(None);
+                        }
+                    }
+                }
+
+                Ipv6OptionRepr::Rpl(_) => {
+                    // If we are not part of a RPL network, we should silently drop the packet.
+                    return HopByHopResponse::Discard(None);
+                }
 
                 Ipv6OptionRepr::Unknown { type_, .. } => {
                     match Ipv6OptionFailureType::from(*type_) {
@@ -249,12 +303,20 @@ impl InterfaceInner {
                             return HopByHopResponse::Discard(None);
                         }
                         Ipv6OptionFailureType::DiscardSendAll => {
-                            return HopByHopResponse::Discard(param_problem());
+                            return HopByHopResponse::Discard(self.icmpv6_problem(
+                                ipv6_repr,
+                                ip_payload,
+                                Icmpv6ParamProblem::UnrecognizedOption,
+                            ));
                         }
                         Ipv6OptionFailureType::DiscardSendUnicast
                             if !ipv6_repr.dst_addr.is_multicast() =>
                         {
-                            return HopByHopResponse::Discard(param_problem());
+                            return HopByHopResponse::Discard(self.icmpv6_problem(
+                                ipv6_repr,
+                                ip_payload,
+                                Icmpv6ParamProblem::UnrecognizedOption,
+                            ));
                         }
                         _ => unreachable!(),
                     }
@@ -262,10 +324,11 @@ impl InterfaceInner {
             }
         }
 
-        HopByHopResponse::Continue((
+        HopByHopResponse::Continue(
+            hbh_repr,
             ext_repr.next_header,
             &ip_payload[ext_repr.header_len() + ext_repr.data.len()..],
-        ))
+        )
     }
 
     /// Given the next header value forward the payload onto the correct process
@@ -294,22 +357,19 @@ impl InterfaceInner {
             #[cfg(feature = "socket-tcp")]
             IpProtocol::Tcp => self.process_tcp(sockets, ipv6_repr.into(), ip_payload),
 
+            #[cfg(feature = "proto-ipv6-routing")]
+            IpProtocol::Ipv6Route => {
+                self.process_routing(sockets, meta, ipv6_repr, handled_by_raw_socket, ip_payload)
+            }
+
             #[cfg(feature = "socket-raw")]
             _ if handled_by_raw_socket => None,
 
-            _ => {
-                // Send back as much of the original payload as we can.
-                let payload_len =
-                    icmp_reply_payload_len(ip_payload.len(), IPV6_MIN_MTU, ipv6_repr.buffer_len());
-                let icmp_reply_repr = Icmpv6Repr::ParamProblem {
-                    reason: Icmpv6ParamProblem::UnrecognizedNxtHdr,
-                    // The offending packet is after the IPv6 header.
-                    pointer: ipv6_repr.buffer_len() as u32,
-                    header: ipv6_repr,
-                    data: &ip_payload[0..payload_len],
-                };
-                self.icmpv6_reply(ipv6_repr, icmp_reply_repr)
-            }
+            _ => self.icmpv6_problem(
+                ipv6_repr,
+                ip_payload,
+                Icmpv6ParamProblem::UnrecognizedNxtHdr,
+            ),
         }
     }
 
@@ -324,7 +384,7 @@ impl InterfaceInner {
             &ip_repr.src_addr,
             &ip_repr.dst_addr,
             &icmp_packet,
-            &self.caps.checksum,
+            &self.checksum_caps(),
         ));
 
         #[cfg(feature = "socket-icmp")]
@@ -372,6 +432,9 @@ impl InterfaceInner {
                 #[cfg(feature = "medium-ip")]
                 Medium::Ip => None,
             },
+
+            #[cfg(feature = "proto-rpl")]
+            Icmpv6Repr::Rpl(rpl) => self.process_rpl(ip_repr, rpl),
 
             // Don't report an error if a packet with unknown type
             // has been handled by an ICMP socket
@@ -446,6 +509,51 @@ impl InterfaceInner {
         }
     }
 
+    #[cfg(feature = "proto-ipv6-routing")]
+    pub(super) fn process_routing<'frame>(
+        &mut self,
+        sockets: &mut SocketSet,
+        meta: PacketMeta,
+        ipv6_repr: Ipv6Repr,
+        handled_by_raw_socket: bool,
+        ip_payload: &'frame [u8],
+    ) -> Option<Packet<'frame>> {
+        let ext_hdr = check!(Ipv6ExtHeader::new_checked(ip_payload));
+
+        let routing_header = check!(Ipv6RoutingHeader::new_checked(ext_hdr.payload()));
+        let routing_repr = check!(Ipv6RoutingRepr::parse(&routing_header));
+
+        let (next_header, payload) = match routing_repr {
+            Ipv6RoutingRepr::Type2 { .. } => {
+                // TODO: we should respond with an ICMPv6 unknown protocol message.
+                net_debug!("IPv6 Type2 routing header not supported yet, dropping packet.");
+                return None;
+            }
+            #[cfg(not(feature = "proto-rpl"))]
+            Ipv6RoutingRepr::Rpl { .. } => {
+                net_debug!("RPL routing header not supported, dropping packet.");
+                return None;
+            }
+            #[cfg(feature = "proto-rpl")]
+            Ipv6RoutingRepr::Rpl(routing) => {
+                match self.process_source_routing(ipv6_repr, &ext_hdr, routing, ip_payload) {
+                    RoutingResponse::Discard => return None,
+                    RoutingResponse::Forward(packet) => return Some(packet),
+                    RoutingResponse::Continue(next_header, payload) => (next_header, payload),
+                }
+            }
+        };
+
+        self.process_nxt_hdr(
+            sockets,
+            meta,
+            ipv6_repr,
+            next_header,
+            handled_by_raw_socket,
+            payload,
+        )
+    }
+
     pub(super) fn icmpv6_reply<'frame, 'icmp: 'frame>(
         &self,
         ipv6_repr: Ipv6Repr,
@@ -471,5 +579,81 @@ impl InterfaceInner {
             ipv6_reply_repr,
             IpPayload::Icmpv6(icmp_repr),
         ))
+    }
+
+    #[cfg(feature = "proto-rpl")]
+    pub(super) fn forward<'frame>(
+        &self,
+        mut ipv6_repr: Ipv6Repr,
+        mut _hop_by_hop: Option<Ipv6HopByHopRepr<'frame>>,
+        mut _routing: Option<Ipv6RoutingRepr>,
+        payload: &'frame [u8],
+    ) -> Option<Packet<'frame>> {
+        net_trace!("forwarding packet");
+
+        if ipv6_repr.hop_limit <= 1 {
+            net_trace!("hop limit reached 0, dropping packet");
+            // FIXME: we should transmit an ICMPv6 Time Exceeded message, as defined
+            // in RFC 2460. However, this is not trivial with the current state of
+            // smoltcp. When sending this message back, as much as possible of the
+            // original message should be transmitted back. This is after updating the
+            // addresses in the source routing headers. At this time, we only update
+            // the parsed list of addresses, not the `ip_payload` buffer. It is this
+            // buffer we would use when sending back the ICMPv6 message. And since we
+            // can't update that buffer here, we can't update the source routing header
+            // and it would send back an incorrect header. The standard does not
+            // specify if we SHOULD or MUST transmit an ICMPv6 message.
+            return None;
+        }
+
+        ipv6_repr.hop_limit -= 1;
+
+        let mut p = PacketV6::new(ipv6_repr, IpPayload::Raw(payload));
+
+        if let Some(hbh) = _hop_by_hop {
+            p.add_hop_by_hop(hbh);
+        } else {
+            #[cfg(feature = "proto-rpl")]
+            if p.header().dst_addr.is_unicast() && self.rpl.dodag.is_some() {
+                let mut options = heapless::Vec::new();
+                options
+                    .push(Ipv6OptionRepr::Rpl(RplHopByHopRepr {
+                        down: self.rpl.is_root,
+                        rank_error: false,
+                        forwarding_error: false,
+                        instance_id: self.rpl.dodag.as_ref().unwrap().instance_id,
+                        sender_rank: self.rpl.dodag.as_ref().unwrap().rank.raw_value(),
+                    }))
+                    .unwrap();
+
+                let hbh = Ipv6HopByHopRepr { options };
+                p.add_hop_by_hop(hbh);
+            }
+        }
+
+        if let Some(routing) = _routing {
+            p.add_routing(routing);
+        }
+
+        Some(Packet::Ipv6(p))
+    }
+
+    fn icmpv6_problem<'frame>(
+        &self,
+        ipv6_repr: Ipv6Repr,
+        ip_payload: &'frame [u8],
+        reason: Icmpv6ParamProblem,
+    ) -> Option<Packet<'frame>> {
+        let payload_len =
+            icmp_reply_payload_len(ip_payload.len(), IPV6_MIN_MTU, ipv6_repr.buffer_len());
+        self.icmpv6_reply(
+            ipv6_repr,
+            Icmpv6Repr::ParamProblem {
+                reason,
+                pointer: ipv6_repr.buffer_len() as u32,
+                header: ipv6_repr,
+                data: &ip_payload[0..payload_len],
+            },
+        )
     }
 }

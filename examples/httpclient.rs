@@ -79,7 +79,7 @@ fn main() {
         iface.poll(timestamp, &mut device, &mut sockets);
 
         let socket = sockets.get_mut::<tcp::Socket>(tcp_handle);
-        let cx = iface.context();
+        let cx = iface.context_mut();
 
         state = match state {
             State::Connect if !socket.is_active() => {

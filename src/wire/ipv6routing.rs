@@ -321,14 +321,10 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Header<T> {
         data[field::PAD] = value << 4;
     }
 
-    /// Set address data
-    ///
-    /// # Panics
-    /// This function may panic if this header is not the RPL Source Routing Header routing type.
-    pub fn set_addresses(&mut self, value: &[u8]) {
+    /// Return a pointer to the addresses buffer.
+    pub fn addresses_mut(&mut self) -> &mut [u8] {
         let data = self.buffer.as_mut();
-        let addresses = &mut data[field::ADDRESSES..];
-        addresses.copy_from_slice(value);
+        &mut data[field::ADDRESSES..]
     }
 }
 
@@ -345,34 +341,39 @@ impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Header<&'a T> {
 }
 
 /// A high-level representation of an IPv6 Routing Header.
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
-pub enum Repr<'a> {
+#[allow(clippy::large_enum_variant)]
+pub enum Repr {
     Type2 {
         /// Number of route segments remaining.
         segments_left: u8,
         /// The home address of the destination mobile node.
         home_address: Address,
     },
-    Rpl {
-        /// Number of route segments remaining.
-        segments_left: u8,
-        /// Number of prefix octets from each segment, except the last segment, that are elided.
-        cmpr_i: u8,
-        /// Number of prefix octets from the last segment that are elided.
-        cmpr_e: u8,
-        /// Number of octets that are used for padding after `address[n]` at the end of the
-        /// RPL Source Route Header.
-        pad: u8,
-        /// Vector of addresses, numbered 1 to `n`.
-        addresses: &'a [u8],
-    },
+    Rpl(SourceRoutingRepr),
 }
 
-impl<'a> Repr<'a> {
+#[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct SourceRoutingRepr {
+    /// Number of route segments remaining.
+    pub segments_left: u8,
+    /// Number of prefix octets from each segment, except the last segment, that are elided.
+    pub cmpr_i: u8,
+    /// Number of prefix octets from the last segment that are elided.
+    pub cmpr_e: u8,
+    /// Number of octets that are used for padding after `address[n]` at the end of the
+    /// RPL Source Route Header.
+    pub pad: u8,
+    /// Vector of addresses, numbered 1 to `n`.
+    pub addresses: heapless::Vec<Address, { crate::config::RPL_RELATIONS_BUFFER_COUNT }>,
+}
+
+impl Repr {
     /// Parse an IPv6 Routing Header and return a high-level representation.
-    pub fn parse<T>(header: &'a Header<&'a T>) -> Result<Repr<'a>>
+    pub fn parse<T>(header: &Header<&T>) -> Result<Repr>
     where
         T: AsRef<[u8]> + ?Sized,
     {
@@ -382,13 +383,40 @@ impl<'a> Repr<'a> {
                 segments_left: header.segments_left(),
                 home_address: header.home_address(),
             }),
-            Type::Rpl => Ok(Repr::Rpl {
-                segments_left: header.segments_left(),
-                cmpr_i: header.cmpr_i(),
-                cmpr_e: header.cmpr_e(),
-                pad: header.pad(),
-                addresses: header.addresses(),
-            }),
+            Type::Rpl => {
+                let mut addresses = heapless::Vec::new();
+
+                let cmpr_e = header.cmpr_e();
+                let cmp_i = header.cmpr_i();
+                let pad = header.pad();
+
+                let mut addr_iterator = header.addresses()
+                    [..header.addresses().len() - pad as usize]
+                    .chunks_exact(16 - cmpr_e as usize);
+
+                for addr_raw in addr_iterator.by_ref() {
+                    let mut buffer = [0u8; 16];
+                    buffer[cmpr_e as usize..].copy_from_slice(addr_raw);
+                    addresses.push(Address::from_bytes(&buffer)).unwrap();
+                }
+
+                let last_addr = addr_iterator.remainder();
+
+                if !last_addr.is_empty() {
+                    let mut buffer = [0u8; 16];
+                    buffer[cmp_i as usize..]
+                        .copy_from_slice(&last_addr[..last_addr.len() - pad as usize]);
+                    addresses.push(Address::from_bytes(&buffer)).unwrap();
+                }
+
+                Ok(Repr::Rpl(SourceRoutingRepr {
+                    segments_left: header.segments_left(),
+                    cmpr_i: header.cmpr_i(),
+                    cmpr_e: header.cmpr_e(),
+                    pad: header.pad(),
+                    addresses,
+                }))
+            }
 
             _ => Err(Error),
         }
@@ -396,11 +424,34 @@ impl<'a> Repr<'a> {
 
     /// Return the length, in bytes, of a header that will be emitted from this high-level
     /// representation.
-    pub const fn buffer_len(&self) -> usize {
+    pub fn buffer_len(&self) -> usize {
         match self {
             // Routing Type + Segments Left + Reserved + Home Address
             Repr::Type2 { home_address, .. } => 2 + 4 + home_address.as_bytes().len(),
-            Repr::Rpl { addresses, .. } => 2 + 4 + addresses.len(),
+            Repr::Rpl(SourceRoutingRepr { addresses, .. }) => {
+                // Compute the length of the common prefix for every address on the route.
+                let mut common_prefix = 0;
+
+                if addresses.len() > 1 {
+                    'outer: for i in 0..16 {
+                        for addr in addresses.iter() {
+                            if addr.as_bytes()[i] != addresses[0].as_bytes()[i] {
+                                break 'outer;
+                            }
+                        }
+                        common_prefix += 1;
+                    }
+                }
+
+                let mut len = 2 + 4 + addresses.len() * 16 - common_prefix * addresses.len();
+
+                // Add the padding:
+                if (len + 2) % 8 != 0 {
+                    len += 8 - ((len + 2) % 8);
+                }
+
+                len
+            }
         }
     }
 
@@ -416,26 +467,55 @@ impl<'a> Repr<'a> {
                 header.clear_reserved();
                 header.set_home_address(home_address);
             }
-            Repr::Rpl {
+            Repr::Rpl(SourceRoutingRepr {
                 segments_left,
-                cmpr_i,
-                cmpr_e,
-                pad,
-                addresses,
-            } => {
+                ref addresses,
+                ..
+            }) => {
                 header.set_routing_type(Type::Rpl);
                 header.set_segments_left(segments_left);
-                header.set_cmpr_i(cmpr_i);
-                header.set_cmpr_e(cmpr_e);
-                header.set_pad(pad);
                 header.clear_reserved();
-                header.set_addresses(addresses);
+
+                // Compute the length of the common prefix for every address on the route.
+                let mut common_prefix = 0;
+
+                if addresses.len() > 1 {
+                    'outer: for i in 0..16 {
+                        for addr in addresses.iter() {
+                            if addr.as_bytes()[i] != addresses[0].as_bytes()[i] {
+                                break 'outer;
+                            }
+                        }
+                        common_prefix += 1;
+                    }
+                }
+
+                // Calculate the padding for the last address:
+                let len = 2 + 4 + addresses.len() * 16 - common_prefix * addresses.len();
+                let pad = if (len + 2) % 8 != 0 {
+                    8 - (len + 2) % 8
+                } else {
+                    0
+                };
+
+                header.set_cmpr_i(common_prefix as u8);
+                header.set_cmpr_e(common_prefix as u8);
+                header.set_pad(pad as u8);
+
+                let mut addrs_buf = header.addresses_mut();
+
+                for addr in addresses {
+                    addrs_buf[..16 - common_prefix]
+                        .copy_from_slice(&addr.as_bytes()[common_prefix..]);
+                    addrs_buf = &mut addrs_buf[16 - common_prefix..];
+                }
+                addrs_buf.fill(0);
             }
         }
     }
 }
 
-impl<'a> fmt::Display for Repr<'a> {
+impl fmt::Display for Repr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Repr::Type2 {
@@ -450,13 +530,13 @@ impl<'a> fmt::Display for Repr<'a> {
                     home_address
                 )
             }
-            Repr::Rpl {
+            Repr::Rpl(SourceRoutingRepr {
                 segments_left,
                 cmpr_i,
                 cmpr_e,
                 pad,
                 ..
-            } => {
+            }) => {
                 write!(
                     f,
                     "IPv6 Routing type={} seg_left={} cmpr_i={} cmpr_e={} pad={}",
@@ -487,38 +567,51 @@ mod test {
         home_address: Address::LOOPBACK,
     };
 
-    // A Source Routing Header with full IPv6 addresses in bytes
-    static BYTES_SRH_FULL: [u8; 38] = [
-        0x3, 0x2, 0x0, 0x0, 0x0, 0x0, 0xfd, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-        0x0, 0x0, 0x0, 0x2, 0xfd, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-        0x3, 0x1,
-    ];
-
-    // A representation of a Source Routing Header with full IPv6 addresses
-    static REPR_SRH_FULL: Repr = Repr::Rpl {
-        segments_left: 2,
-        cmpr_i: 0,
-        cmpr_e: 0,
-        pad: 0,
-        addresses: &[
-            0xfd, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x2, 0xfd,
-            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x3, 0x1,
-        ],
-    };
-
     // A Source Routing Header with elided IPv6 addresses in bytes
-    static BYTES_SRH_ELIDED: [u8; 14] = [
-        0x3, 0x2, 0xfe, 0x50, 0x0, 0x0, 0x2, 0x3, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0,
+    static BYTES_SRH_ELIDED: [u8; 54] = [
+        0x03, 0x06, 0x99, 0x60, 0x00, 0x00, 0x03, 0x00, 0x03, 0x00, 0x03, 0x00, 0x03, 0x04, 0x00,
+        0x04, 0x00, 0x04, 0x00, 0x04, 0x05, 0x00, 0x05, 0x00, 0x05, 0x00, 0x05, 0x06, 0x00, 0x06,
+        0x00, 0x06, 0x00, 0x06, 0x07, 0x00, 0x07, 0x00, 0x07, 0x00, 0x07, 0x08, 0x00, 0x08, 0x00,
+        0x08, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     ];
 
     // A representation of a Source Routing Header with elided IPv6 addresses
-    static REPR_SRH_ELIDED: Repr = Repr::Rpl {
-        segments_left: 2,
-        cmpr_i: 15,
-        cmpr_e: 14,
-        pad: 5,
-        addresses: &[0x2, 0x3, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0],
-    };
+    fn repr_srh_elided() -> Repr {
+        Repr::Rpl(SourceRoutingRepr {
+            segments_left: 6,
+            cmpr_i: 9,
+            cmpr_e: 9,
+            pad: 6,
+            addresses: heapless::Vec::from_slice(&[
+                Address::new(0, 0, 0, 0, 3, 3, 3, 3),
+                Address::new(0, 0, 0, 0, 4, 4, 4, 4),
+                Address::new(0, 0, 0, 0, 5, 5, 5, 5),
+                Address::new(0, 0, 0, 0, 6, 6, 6, 6),
+                Address::new(0, 0, 0, 0, 7, 7, 7, 7),
+                Address::new(0, 0, 0, 0, 8, 8, 8, 8),
+            ])
+            .unwrap(),
+        })
+    }
+
+    static BYTES_SRH_VERY_ELIDED: [u8; 14] = [
+        0x03, 0x02, 0xff, 0x60, 0x00, 0x00, 0x03, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ];
+
+    // A representation of a Source Routing Header with elided IPv6 addresses
+    fn repr_srh_very_elided() -> Repr {
+        Repr::Rpl(SourceRoutingRepr {
+            segments_left: 2,
+            cmpr_i: 15,
+            cmpr_e: 15,
+            pad: 6,
+            addresses: heapless::Vec::from_slice(&[
+                Address::new(0, 0, 0, 0, 0, 0, 0, 3),
+                Address::new(0, 0, 0, 0, 0, 0, 0, 4),
+            ])
+            .unwrap(),
+        })
+    }
 
     #[test]
     fn test_check_len() {
@@ -529,22 +622,16 @@ mod test {
         );
         assert_eq!(
             Err(Error),
-            Header::new_unchecked(&BYTES_SRH_FULL[..3]).check_len()
-        );
-        assert_eq!(
-            Err(Error),
             Header::new_unchecked(&BYTES_SRH_ELIDED[..3]).check_len()
         );
         // valid
-        assert_eq!(Ok(()), Header::new_unchecked(&BYTES_TYPE2[..]).check_len());
-        assert_eq!(
-            Ok(()),
-            Header::new_unchecked(&BYTES_SRH_FULL[..]).check_len()
-        );
-        assert_eq!(
-            Ok(()),
-            Header::new_unchecked(&BYTES_SRH_ELIDED[..]).check_len()
-        );
+        assert!(Header::new_unchecked(&BYTES_TYPE2[..]).check_len().is_ok());
+        assert!(Header::new_unchecked(&BYTES_SRH_ELIDED[..])
+            .check_len()
+            .is_ok());
+        assert!(Header::new_unchecked(&BYTES_SRH_VERY_ELIDED[..])
+            .check_len()
+            .is_ok());
     }
 
     #[test]
@@ -554,15 +641,15 @@ mod test {
         assert_eq!(header.segments_left(), 1);
         assert_eq!(header.home_address(), Address::LOOPBACK);
 
-        let header = Header::new_unchecked(&BYTES_SRH_FULL[..]);
-        assert_eq!(header.routing_type(), Type::Rpl);
-        assert_eq!(header.segments_left(), 2);
-        assert_eq!(header.addresses(), &BYTES_SRH_FULL[6..]);
-
         let header = Header::new_unchecked(&BYTES_SRH_ELIDED[..]);
         assert_eq!(header.routing_type(), Type::Rpl);
-        assert_eq!(header.segments_left(), 2);
+        assert_eq!(header.segments_left(), 6);
         assert_eq!(header.addresses(), &BYTES_SRH_ELIDED[6..]);
+
+        let header = Header::new_unchecked(&BYTES_SRH_VERY_ELIDED[..]);
+        assert_eq!(header.routing_type(), Type::Rpl);
+        assert_eq!(header.segments_left(), 2);
+        assert_eq!(header.addresses(), &BYTES_SRH_VERY_ELIDED[6..]);
     }
 
     #[test]
@@ -571,13 +658,13 @@ mod test {
         let repr = Repr::parse(&header).unwrap();
         assert_eq!(repr, REPR_TYPE2);
 
-        let header = Header::new_checked(&BYTES_SRH_FULL[..]).unwrap();
-        let repr = Repr::parse(&header).unwrap();
-        assert_eq!(repr, REPR_SRH_FULL);
-
         let header = Header::new_checked(&BYTES_SRH_ELIDED[..]).unwrap();
         let repr = Repr::parse(&header).unwrap();
-        assert_eq!(repr, REPR_SRH_ELIDED);
+        assert_eq!(repr, repr_srh_elided());
+
+        let header = Header::new_checked(&BYTES_SRH_VERY_ELIDED[..]).unwrap();
+        let repr = Repr::parse(&header).unwrap();
+        assert_eq!(repr, repr_srh_very_elided());
     }
 
     #[test]
@@ -587,21 +674,21 @@ mod test {
         REPR_TYPE2.emit(&mut header);
         assert_eq!(header.into_inner(), &BYTES_TYPE2[..]);
 
-        let mut bytes = [0xFFu8; 38];
+        let mut bytes = [0xFFu8; 54];
         let mut header = Header::new_unchecked(&mut bytes[..]);
-        REPR_SRH_FULL.emit(&mut header);
-        assert_eq!(header.into_inner(), &BYTES_SRH_FULL[..]);
-
-        let mut bytes = [0xFFu8; 14];
-        let mut header = Header::new_unchecked(&mut bytes[..]);
-        REPR_SRH_ELIDED.emit(&mut header);
+        repr_srh_elided().emit(&mut header);
         assert_eq!(header.into_inner(), &BYTES_SRH_ELIDED[..]);
+
+        let mut bytes = [0u8; 14];
+        let mut header = Header::new_unchecked(&mut bytes[..]);
+        repr_srh_very_elided().emit(&mut header);
+        assert_eq!(header.into_inner(), &BYTES_SRH_VERY_ELIDED[..]);
     }
 
     #[test]
     fn test_buffer_len() {
         assert_eq!(REPR_TYPE2.buffer_len(), 22);
-        assert_eq!(REPR_SRH_FULL.buffer_len(), 38);
-        assert_eq!(REPR_SRH_ELIDED.buffer_len(), 14);
+        assert_eq!(repr_srh_elided().buffer_len(), 54);
+        assert_eq!(repr_srh_very_elided().buffer_len(), 14);
     }
 }

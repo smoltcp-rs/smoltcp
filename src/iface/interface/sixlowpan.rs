@@ -99,7 +99,8 @@ impl InterfaceInner {
             }
         };
 
-        self.process_ipv6(sockets, meta, &check!(Ipv6Packet::new_checked(payload)))
+        let packet = check!(Ipv6Packet::new_checked(payload));
+        self.process_ipv6(sockets, meta, &packet)
     }
 
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
@@ -289,20 +290,33 @@ impl InterfaceInner {
         &mut self,
         mut tx_token: Tx,
         meta: PacketMeta,
-        packet: Packet,
+        mut packet: PacketV6,
         ieee_repr: Ieee802154Repr,
         frag: &mut Fragmenter,
     ) {
-        let packet = match packet {
-            #[cfg(feature = "proto-ipv4")]
-            Packet::Ipv4(_) => unreachable!(),
-            Packet::Ipv6(packet) => packet,
-        };
+        #[cfg(feature = "proto-rpl")]
+        if packet.header().dst_addr.is_unicast()
+            && self.rpl.dodag.is_some()
+            && packet.hop_by_hop().is_none()
+            && packet.routing().is_none()
+        {
+            let mut options = heapless::Vec::new();
+            options
+                .push(Ipv6OptionRepr::Rpl(RplHopByHopRepr {
+                    down: self.rpl.is_root,
+                    rank_error: false,
+                    forwarding_error: false,
+                    instance_id: self.rpl.dodag.as_ref().unwrap().instance_id,
+                    sender_rank: self.rpl.dodag.as_ref().unwrap().rank.raw_value(),
+                }))
+                .unwrap();
 
-        // First we calculate the size we are going to need. If the size is bigger than the MTU,
-        // then we use fragmentation.
-        let (total_size, compressed_size, uncompressed_size) =
-            Self::compressed_packet_size(&packet, &ieee_repr);
+            let hbh = Ipv6HopByHopRepr { options };
+            packet.add_hop_by_hop(hbh);
+        }
+
+        let sixlowpan_packet = PacketSixlowpan::new(&packet, &ieee_repr);
+        let total_size = sixlowpan_packet.buffer_len();
 
         let ieee_len = ieee_repr.buffer_len();
 
@@ -329,14 +343,9 @@ impl InterfaceInner {
                     return;
                 }
 
-                let payload_length = packet.header.payload_len;
+                let payload_length = packet.header().payload_len;
 
-                Self::ipv6_to_sixlowpan(
-                    &self.checksum_caps(),
-                    packet,
-                    &ieee_repr,
-                    &mut pkt.buffer[..],
-                );
+                sixlowpan_packet.emit(&mut pkt.buffer[..], &self.checksum_caps());
 
                 pkt.sixlowpan.ll_dst_addr = ieee_repr.dst_addr.unwrap();
                 pkt.sixlowpan.ll_src_addr = ieee_repr.src_addr.unwrap();
@@ -368,7 +377,7 @@ impl InterfaceInner {
                 //
                 // [RFC 4944 § 5.3]: https://datatracker.ietf.org/doc/html/rfc4944#section-5.3
 
-                let header_diff = uncompressed_size - compressed_size;
+                let header_diff = sixlowpan_packet.header_diff();
                 let frag1_size =
                     (125 - ieee_len - frag1.buffer_len() + header_diff) / 8 * 8 - header_diff;
 
@@ -409,239 +418,9 @@ impl InterfaceInner {
                 ieee_repr.emit(&mut ieee_packet);
                 tx_buf = &mut tx_buf[ieee_len..];
 
-                Self::ipv6_to_sixlowpan(&self.checksum_caps(), packet, &ieee_repr, tx_buf);
+                sixlowpan_packet.emit(tx_buf, &self.checksum_caps());
             });
         }
-    }
-
-    fn ipv6_to_sixlowpan(
-        checksum_caps: &ChecksumCapabilities,
-        mut packet: PacketV6,
-        ieee_repr: &Ieee802154Repr,
-        mut buffer: &mut [u8],
-    ) {
-        let last_header = packet.payload.as_sixlowpan_next_header();
-        let next_header = last_header;
-
-        #[cfg(feature = "proto-ipv6-hbh")]
-        let next_header = if packet.hop_by_hop.is_some() {
-            SixlowpanNextHeader::Compressed
-        } else {
-            next_header
-        };
-
-        #[cfg(feature = "proto-ipv6-routing")]
-        let next_header = if packet.routing.is_some() {
-            SixlowpanNextHeader::Compressed
-        } else {
-            next_header
-        };
-
-        let iphc_repr = SixlowpanIphcRepr {
-            src_addr: packet.header.src_addr,
-            ll_src_addr: ieee_repr.src_addr,
-            dst_addr: packet.header.dst_addr,
-            ll_dst_addr: ieee_repr.dst_addr,
-            next_header,
-            hop_limit: packet.header.hop_limit,
-            ecn: None,
-            dscp: None,
-            flow_label: None,
-        };
-
-        iphc_repr.emit(&mut SixlowpanIphcPacket::new_unchecked(
-            &mut buffer[..iphc_repr.buffer_len()],
-        ));
-        buffer = &mut buffer[iphc_repr.buffer_len()..];
-
-        // Emit the Hop-by-Hop header
-        #[cfg(feature = "proto-ipv6-hbh")]
-        if let Some(hbh) = packet.hop_by_hop {
-            #[allow(unused)]
-            let next_header = last_header;
-
-            #[cfg(feature = "proto-ipv6-routing")]
-            let next_header = if packet.routing.is_some() {
-                SixlowpanNextHeader::Compressed
-            } else {
-                last_header
-            };
-
-            let ext_hdr = SixlowpanExtHeaderRepr {
-                ext_header_id: SixlowpanExtHeaderId::HopByHopHeader,
-                next_header,
-                length: hbh.options.iter().map(|o| o.buffer_len()).sum::<usize>() as u8,
-            };
-            ext_hdr.emit(&mut SixlowpanExtHeaderPacket::new_unchecked(
-                &mut buffer[..ext_hdr.buffer_len()],
-            ));
-            buffer = &mut buffer[ext_hdr.buffer_len()..];
-
-            for opt in &hbh.options {
-                opt.emit(&mut Ipv6Option::new_unchecked(
-                    &mut buffer[..opt.buffer_len()],
-                ));
-
-                buffer = &mut buffer[opt.buffer_len()..];
-            }
-        }
-
-        // Emit the Routing header
-        #[cfg(feature = "proto-ipv6-routing")]
-        if let Some(routing) = &packet.routing {
-            let ext_hdr = SixlowpanExtHeaderRepr {
-                ext_header_id: SixlowpanExtHeaderId::RoutingHeader,
-                next_header,
-                length: routing.buffer_len() as u8,
-            };
-            ext_hdr.emit(&mut SixlowpanExtHeaderPacket::new_unchecked(
-                &mut buffer[..ext_hdr.buffer_len()],
-            ));
-            buffer = &mut buffer[ext_hdr.buffer_len()..];
-
-            routing.emit(&mut Ipv6RoutingHeader::new_unchecked(
-                &mut buffer[..routing.buffer_len()],
-            ));
-            buffer = &mut buffer[routing.buffer_len()..];
-        }
-
-        match &mut packet.payload {
-            IpPayload::Icmpv6(icmp_repr) => {
-                icmp_repr.emit(
-                    &packet.header.src_addr,
-                    &packet.header.dst_addr,
-                    &mut Icmpv6Packet::new_unchecked(&mut buffer[..icmp_repr.buffer_len()]),
-                    checksum_caps,
-                );
-            }
-            #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
-            IpPayload::Udp(udp_repr, payload) => {
-                let udp_repr = SixlowpanUdpNhcRepr(*udp_repr);
-                udp_repr.emit(
-                    &mut SixlowpanUdpNhcPacket::new_unchecked(
-                        &mut buffer[..udp_repr.header_len() + payload.len()],
-                    ),
-                    &iphc_repr.src_addr,
-                    &iphc_repr.dst_addr,
-                    payload.len(),
-                    |buf| buf.copy_from_slice(payload),
-                    checksum_caps,
-                );
-            }
-            #[cfg(feature = "socket-tcp")]
-            IpPayload::Tcp(tcp_repr) => {
-                tcp_repr.emit(
-                    &mut TcpPacket::new_unchecked(&mut buffer[..tcp_repr.buffer_len()]),
-                    &packet.header.src_addr.into(),
-                    &packet.header.dst_addr.into(),
-                    checksum_caps,
-                );
-            }
-            #[cfg(feature = "socket-raw")]
-            IpPayload::Raw(_raw) => todo!(),
-
-            #[allow(unreachable_patterns)]
-            _ => unreachable!(),
-        }
-    }
-
-    /// Calculates three sizes:
-    ///  - total size: the size of a compressed IPv6 packet
-    ///  - compressed header size: the size of the compressed headers
-    ///  - uncompressed header size: the size of the headers that are not compressed
-    ///  They are returned as a tuple in the same order.
-    fn compressed_packet_size(
-        packet: &PacketV6,
-        ieee_repr: &Ieee802154Repr,
-    ) -> (usize, usize, usize) {
-        let last_header = packet.payload.as_sixlowpan_next_header();
-        let next_header = last_header;
-
-        #[cfg(feature = "proto-ipv6-hbh")]
-        let next_header = if packet.hop_by_hop.is_some() {
-            SixlowpanNextHeader::Compressed
-        } else {
-            next_header
-        };
-
-        #[cfg(feature = "proto-ipv6-routing")]
-        let next_header = if packet.routing.is_some() {
-            SixlowpanNextHeader::Compressed
-        } else {
-            next_header
-        };
-
-        let iphc = SixlowpanIphcRepr {
-            src_addr: packet.header.src_addr,
-            ll_src_addr: ieee_repr.src_addr,
-            dst_addr: packet.header.dst_addr,
-            ll_dst_addr: ieee_repr.dst_addr,
-            next_header,
-            hop_limit: packet.header.hop_limit,
-            ecn: None,
-            dscp: None,
-            flow_label: None,
-        };
-
-        let mut total_size = iphc.buffer_len();
-        let mut compressed_hdr_size = iphc.buffer_len();
-        let mut uncompressed_hdr_size = packet.header.buffer_len();
-
-        // Add the hop-by-hop to the sizes.
-        #[cfg(feature = "proto-ipv6-hbh")]
-        if let Some(hbh) = &packet.hop_by_hop {
-            #[allow(unused)]
-            let next_header = last_header;
-
-            #[cfg(feature = "proto-ipv6-routing")]
-            let next_header = if packet.routing.is_some() {
-                SixlowpanNextHeader::Compressed
-            } else {
-                last_header
-            };
-
-            let options_size = hbh.options.iter().map(|o| o.buffer_len()).sum::<usize>();
-
-            let ext_hdr = SixlowpanExtHeaderRepr {
-                ext_header_id: SixlowpanExtHeaderId::HopByHopHeader,
-                next_header,
-                length: hbh.buffer_len() as u8 + options_size as u8,
-            };
-
-            total_size += ext_hdr.buffer_len() + options_size;
-            compressed_hdr_size += ext_hdr.buffer_len() + options_size;
-            uncompressed_hdr_size += hbh.buffer_len() + options_size;
-        }
-
-        // Add the routing header to the sizes.
-        #[cfg(feature = "proto-ipv6-routing")]
-        if let Some(routing) = &packet.routing {
-            let ext_hdr = SixlowpanExtHeaderRepr {
-                ext_header_id: SixlowpanExtHeaderId::RoutingHeader,
-                next_header,
-                length: routing.buffer_len() as u8,
-            };
-            total_size += ext_hdr.buffer_len() + routing.buffer_len();
-            compressed_hdr_size += ext_hdr.buffer_len() + routing.buffer_len();
-            uncompressed_hdr_size += routing.buffer_len();
-        }
-
-        match packet.payload {
-            #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
-            IpPayload::Udp(udp_hdr, payload) => {
-                uncompressed_hdr_size += udp_hdr.header_len();
-
-                let udp_hdr = SixlowpanUdpNhcRepr(udp_hdr);
-                compressed_hdr_size += udp_hdr.header_len();
-
-                total_size += udp_hdr.header_len() + payload.len();
-            }
-            _ => {
-                total_size += packet.header.payload_len;
-            }
-        }
-
-        (total_size, compressed_hdr_size, uncompressed_hdr_size)
     }
 
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
@@ -768,6 +547,239 @@ fn decompress_udp(
     Ok(())
 }
 
+struct PacketSixlowpan<'p> {
+    iphc: SixlowpanIphcRepr,
+    #[cfg(feature = "proto-ipv6-hbh")]
+    hbh: Option<(SixlowpanExtHeaderRepr, &'p [Ipv6OptionRepr<'p>])>,
+    #[cfg(feature = "proto-ipv6-routing")]
+    routing: Option<(SixlowpanExtHeaderRepr, &'p Ipv6RoutingRepr)>,
+    payload: SixlowpanPayload<'p>,
+
+    header_diff: usize,
+}
+
+enum SixlowpanPayload<'p> {
+    Icmpv6(&'p Icmpv6Repr<'p>),
+    #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
+    Udp(UdpRepr, &'p [u8], Option<u16>),
+    #[cfg(feature = "proto-rpl")]
+    Raw(&'p [u8]),
+}
+
+impl<'p> PacketSixlowpan<'p> {
+    /// Create a 6LoWPAN compressed representation packet from an IPv6 representation.
+    fn new(packet: &'p PacketV6<'_>, ieee_repr: &Ieee802154Repr) -> Self {
+        let mut compressed = 0;
+        let mut uncompressed = 0;
+
+        let iphc = SixlowpanIphcRepr {
+            src_addr: packet.header().src_addr,
+            ll_src_addr: ieee_repr.src_addr,
+            dst_addr: packet.header().dst_addr,
+            ll_dst_addr: ieee_repr.dst_addr,
+            next_header: packet.header().next_header.into(),
+            hop_limit: packet.header().hop_limit,
+            ecn: None,
+            dscp: None,
+            flow_label: None,
+        };
+        compressed += iphc.buffer_len();
+        uncompressed += packet.header().buffer_len();
+
+        let mut last_header = packet.header().next_header;
+
+        #[cfg(feature = "proto-ipv6-hbh")]
+        let hbh = if let Some((next_header, hbh)) = packet.hop_by_hop() {
+            let ext_hdr = SixlowpanExtHeaderRepr {
+                ext_header_id: SixlowpanExtHeaderId::HopByHopHeader,
+                next_header: next_header.into(),
+                length: hbh.options.iter().map(|o| o.buffer_len() as u8).sum(),
+            };
+
+            compressed += ext_hdr.buffer_len();
+            uncompressed += hbh.buffer_len();
+
+            last_header = next_header;
+            Some((ext_hdr, &hbh.options[..]))
+        } else {
+            None
+        };
+
+        #[cfg(feature = "proto-ipv6-routing")]
+        let routing = if let Some((next_header, routing)) = packet.routing() {
+            let ext_hdr = SixlowpanExtHeaderRepr {
+                ext_header_id: SixlowpanExtHeaderId::RoutingHeader,
+                next_header: next_header.into(),
+                length: routing.buffer_len() as u8,
+            };
+
+            compressed += ext_hdr.buffer_len() + routing.buffer_len();
+            uncompressed += routing.buffer_len();
+
+            last_header = next_header;
+            Some((ext_hdr, routing))
+        } else {
+            None
+        };
+
+        let payload = match packet.payload() {
+            IpPayload::Icmpv6(icmp_repr) => SixlowpanPayload::Icmpv6(icmp_repr),
+            #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
+            IpPayload::Udp(udp_repr, payload) => {
+                compressed += SixlowpanUdpNhcRepr(*udp_repr).header_len();
+                uncompressed += udp_repr.header_len();
+
+                SixlowpanPayload::Udp(*udp_repr, payload, None)
+            }
+            #[cfg(feature = "proto-rpl")]
+            IpPayload::Raw(raw) => {
+                match last_header {
+                    IpProtocol::Udp => {
+                        // TODO: remove unwrap
+                        let udp_packet = UdpPacket::new_checked(raw).unwrap();
+                        let udp_repr = UdpRepr::parse(
+                            &udp_packet,
+                            &packet.header().src_addr.into(),
+                            &packet.header().dst_addr.into(),
+                            &ChecksumCapabilities::ignored(),
+                        )
+                        .unwrap();
+
+                        compressed += SixlowpanUdpNhcRepr(udp_repr).header_len();
+                        uncompressed += udp_repr.header_len();
+
+                        SixlowpanPayload::Udp(
+                            udp_repr,
+                            udp_packet.payload(),
+                            Some(udp_packet.checksum()),
+                        )
+                    }
+                    // Any other protocol does not need compression.
+                    _ => SixlowpanPayload::Raw(raw),
+                }
+            }
+            _ => unreachable!(),
+        };
+
+        PacketSixlowpan {
+            iphc,
+            #[cfg(feature = "proto-ipv6-hbh")]
+            hbh,
+            #[cfg(feature = "proto-ipv6-routing")]
+            routing,
+            payload,
+
+            header_diff: uncompressed - compressed,
+        }
+    }
+
+    /// Return the required length for the underlying buffer when emitting the packet.
+    fn buffer_len(&self) -> usize {
+        let mut len = 0;
+
+        len += self.iphc.buffer_len();
+
+        #[cfg(feature = "proto-ipv6-hbh")]
+        if let Some((ext_hdr, hbh)) = &self.hbh {
+            len += ext_hdr.buffer_len();
+            len += hbh.iter().map(|o| o.buffer_len()).sum::<usize>();
+        }
+
+        #[cfg(feature = "proto-ipv6-routing")]
+        if let Some((ext_hdr, routing)) = &self.routing {
+            len += ext_hdr.buffer_len() + routing.buffer_len();
+        }
+
+        match self.payload {
+            SixlowpanPayload::Icmpv6(icmp_repr) => len + icmp_repr.buffer_len(),
+            #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
+            SixlowpanPayload::Udp(udp_repr, payload, _) => {
+                len + SixlowpanUdpNhcRepr(udp_repr).header_len() + payload.len()
+            }
+            #[cfg(feature = "proto-rpl")]
+            SixlowpanPayload::Raw(payload) => len + payload.len(),
+        }
+    }
+
+    /// Return the difference between the compressed and uncompressed header sizes.
+    fn header_diff(&self) -> usize {
+        self.header_diff
+    }
+
+    /// Emit the packet into the given buffer.
+    fn emit(&self, mut buffer: &mut [u8], caps: &ChecksumCapabilities) {
+        let mut checksum_dst_addr = self.iphc.dst_addr;
+
+        self.iphc.emit(&mut SixlowpanIphcPacket::new_unchecked(
+            &mut buffer[..self.iphc.buffer_len()],
+        ));
+
+        buffer = &mut buffer[self.iphc.buffer_len()..];
+
+        #[cfg(feature = "proto-ipv6-hbh")]
+        if let Some((ext_hdr, hbh)) = &self.hbh {
+            ext_hdr.emit(&mut SixlowpanExtHeaderPacket::new_unchecked(
+                &mut buffer[..ext_hdr.buffer_len()],
+            ));
+            buffer = &mut buffer[ext_hdr.buffer_len()..];
+
+            for opt in hbh.iter() {
+                opt.emit(&mut Ipv6Option::new_unchecked(
+                    &mut buffer[..opt.buffer_len()],
+                ));
+                buffer = &mut buffer[opt.buffer_len()..];
+            }
+        }
+
+        #[cfg(feature = "proto-ipv6-routing")]
+        if let Some((ext_hdr, routing)) = &self.routing {
+            if let Ipv6RoutingRepr::Rpl(Ipv6SourceRoutingRepr { addresses, .. }) = routing {
+                checksum_dst_addr = *addresses.last().unwrap();
+            }
+
+            ext_hdr.emit(&mut SixlowpanExtHeaderPacket::new_unchecked(
+                &mut buffer[..ext_hdr.buffer_len()],
+            ));
+            buffer = &mut buffer[ext_hdr.buffer_len()..];
+
+            routing.emit(&mut Ipv6RoutingHeader::new_unchecked(
+                &mut buffer[..routing.buffer_len()],
+            ));
+            buffer = &mut buffer[routing.buffer_len()..];
+        }
+
+        match self.payload {
+            SixlowpanPayload::Icmpv6(icmp_repr) => icmp_repr.emit(
+                &self.iphc.src_addr,
+                &checksum_dst_addr,
+                &mut Icmpv6Packet::new_unchecked(&mut buffer[..icmp_repr.buffer_len()]),
+                caps,
+            ),
+            #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
+            SixlowpanPayload::Udp(udp_repr, payload, checksum) => {
+                let udp = SixlowpanUdpNhcRepr(udp_repr);
+                let mut udp_packet = SixlowpanUdpNhcPacket::new_unchecked(
+                    &mut buffer[..udp.header_len() + payload.len()],
+                );
+                udp.emit(
+                    &mut udp_packet,
+                    &self.iphc.src_addr,
+                    &checksum_dst_addr,
+                    payload.len(),
+                    |buf| buf.copy_from_slice(payload),
+                    caps,
+                );
+
+                if let Some(checksum) = checksum {
+                    udp_packet.set_checksum(checksum);
+                }
+            }
+            #[cfg(feature = "proto-rpl")]
+            SixlowpanPayload::Raw(payload) => buffer[..payload.len()].copy_from_slice(payload),
+        }
+    }
+}
+
 #[cfg(test)]
 #[cfg(all(feature = "proto-rpl", feature = "proto-ipv6-hbh"))]
 mod tests {
@@ -817,6 +829,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop-3"))]
     fn test_sixlowpan_compress_hop_by_hop_with_icmpv6() {
         let ieee_repr = Ieee802154Repr {
             frame_type: Ieee802154FrameType::Data,
@@ -832,8 +845,18 @@ mod tests {
             src_addr: Some(Ieee802154Address::Extended([0, 3, 0, 3, 0, 3, 0, 3])),
         };
 
-        let mut ip_packet = PacketV6 {
-            header: Ipv6Repr {
+        let dao = Icmpv6Repr::Rpl(RplRepr::DestinationAdvertisementObject(RplDao {
+            rpl_instance_id: RplInstanceId::Global(30),
+            expect_ack: false,
+            sequence: 241.into(),
+            dodag_id: Some(Ipv6Address::from_bytes(&[
+                253, 0, 0, 0, 0, 0, 0, 0, 2, 1, 0, 1, 0, 1, 0, 1,
+            ])),
+            options: heapless::Vec::new(),
+        }));
+
+        let ip_packet = PacketV6::new(
+            Ipv6Repr {
                 src_addr: Ipv6Address::from_bytes(&[
                     253, 0, 0, 0, 0, 0, 0, 0, 2, 3, 0, 3, 0, 3, 0, 3,
                 ]),
@@ -841,35 +864,17 @@ mod tests {
                     253, 0, 0, 0, 0, 0, 0, 0, 2, 1, 0, 1, 0, 1, 0, 1,
                 ]),
                 next_header: IpProtocol::Icmpv6,
-                payload_len: 66,
+                payload_len: dao.buffer_len(),
                 hop_limit: 64,
             },
-            #[cfg(feature = "proto-ipv6-hbh")]
-            hop_by_hop: None,
-            #[cfg(feature = "proto-ipv6-fragmentation")]
-            fragment: None,
-            #[cfg(feature = "proto-ipv6-routing")]
-            routing: None,
-            payload: IpPayload::Icmpv6(Icmpv6Repr::Rpl(RplRepr::DestinationAdvertisementObject {
-                rpl_instance_id: RplInstanceId::Global(30),
-                expect_ack: false,
-                sequence: 241,
-                dodag_id: Some(Ipv6Address::from_bytes(&[
-                    253, 0, 0, 0, 0, 0, 0, 0, 2, 1, 0, 1, 0, 1, 0, 1,
-                ])),
-                options: &[],
-            })),
-        };
+            IpPayload::Icmpv6(dao),
+        );
 
-        let (total_size, _, _) = InterfaceInner::compressed_packet_size(&mut ip_packet, &ieee_repr);
+        let sixlowpan_packet = PacketSixlowpan::new(&ip_packet, &ieee_repr);
+        let total_size = sixlowpan_packet.buffer_len();
         let mut buffer = vec![0u8; total_size];
 
-        InterfaceInner::ipv6_to_sixlowpan(
-            &ChecksumCapabilities::default(),
-            ip_packet,
-            &ieee_repr,
-            &mut buffer[..total_size],
-        );
+        sixlowpan_packet.emit(&mut buffer[..total_size], &ChecksumCapabilities::default());
 
         let result = [
             0x7e, 0x0, 0xfd, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x2, 0x3, 0x0, 0x3, 0x0, 0x3, 0x0,
@@ -885,6 +890,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop-3"))]
     fn test_sixlowpan_compress_hop_by_hop_with_udp() {
         let ieee_repr = Ieee802154Repr {
             frame_type: Ieee802154FrameType::Data,
@@ -915,45 +921,54 @@ mod tests {
             }))
             .unwrap();
 
-        let mut ip_packet = PacketV6 {
-            header: Ipv6Repr {
+        let mut options = heapless::Vec::new();
+        options
+            .push(RplOptionRepr::RplTarget(RplTarget {
+                prefix_length: 128,
+                prefix: heapless::Vec::from_slice(addr.as_bytes()).unwrap(),
+            }))
+            .unwrap();
+        options
+            .push(RplOptionRepr::TransitInformation(RplTransitInformation {
+                external: false,
+                path_control: 0,
+                path_sequence: 0,
+                path_lifetime: 30,
+                parent_address: Some(parent_address),
+            }))
+            .unwrap();
+
+        let icmp = Icmpv6Repr::Rpl(RplRepr::DestinationAdvertisementObject(RplDao {
+            rpl_instance_id: RplInstanceId::Global(30),
+            expect_ack: false,
+            sequence: 241.into(),
+            dodag_id: Some(Ipv6Address::from_bytes(&[
+                253, 0, 0, 0, 0, 0, 0, 0, 2, 1, 0, 1, 0, 1, 0, 1,
+            ])),
+            options,
+        }));
+
+        let mut ip_packet = PacketV6::new(
+            Ipv6Repr {
                 src_addr: addr,
                 dst_addr: parent_address,
                 next_header: IpProtocol::Icmpv6,
-                payload_len: 66,
+                payload_len: icmp.buffer_len(),
                 hop_limit: 64,
             },
-            #[cfg(feature = "proto-ipv6-hbh")]
-            hop_by_hop: Some(Ipv6HopByHopRepr {
-                options: hbh_options,
-            }),
-            #[cfg(feature = "proto-ipv6-fragmentation")]
-            fragment: None,
-            #[cfg(feature = "proto-ipv6-routing")]
-            routing: None,
-            payload: IpPayload::Icmpv6(Icmpv6Repr::Rpl(RplRepr::DestinationAdvertisementObject {
-                rpl_instance_id: RplInstanceId::Global(30),
-                expect_ack: false,
-                sequence: 241,
-                dodag_id: Some(Ipv6Address::from_bytes(&[
-                    253, 0, 0, 0, 0, 0, 0, 0, 2, 1, 0, 1, 0, 1, 0, 1,
-                ])),
-                options: &[
-                    5, 18, 0, 128, 253, 0, 0, 0, 0, 0, 0, 0, 2, 3, 0, 3, 0, 3, 0, 3, 6, 20, 0, 0,
-                    0, 30, 253, 0, 0, 0, 0, 0, 0, 0, 2, 1, 0, 1, 0, 1, 0, 1,
-                ],
-            })),
-        };
+            IpPayload::Icmpv6(icmp),
+        );
 
-        let (total_size, _, _) = InterfaceInner::compressed_packet_size(&mut ip_packet, &ieee_repr);
+        #[cfg(feature = "proto-rpl")]
+        ip_packet.add_hop_by_hop(Ipv6HopByHopRepr {
+            options: hbh_options,
+        });
+
+        let sixlowpan_packet = PacketSixlowpan::new(&ip_packet, &ieee_repr);
+        let total_size = sixlowpan_packet.buffer_len();
         let mut buffer = vec![0u8; total_size];
 
-        InterfaceInner::ipv6_to_sixlowpan(
-            &ChecksumCapabilities::default(),
-            ip_packet,
-            &ieee_repr,
-            &mut buffer[..total_size],
-        );
+        sixlowpan_packet.emit(&mut buffer[..total_size], &ChecksumCapabilities::default());
 
         let result = [
             0x7e, 0x0, 0xfd, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x2, 0x3, 0x0, 0x3, 0x0, 0x3, 0x0,

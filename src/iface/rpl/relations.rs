@@ -1,4 +1,4 @@
-use crate::time::Instant;
+use crate::time::{Duration, Instant};
 use crate::wire::Ipv6Address;
 
 use crate::config::RPL_RELATIONS_BUFFER_COUNT;
@@ -7,7 +7,33 @@ use crate::config::RPL_RELATIONS_BUFFER_COUNT;
 pub struct Relation {
     destination: Ipv6Address,
     next_hop: Ipv6Address,
-    expiration: Instant,
+    added: Instant,
+    lifetime: Duration,
+}
+
+impl core::fmt::Display for Relation {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "{} via {} (expires at {})",
+            self.destination,
+            self.next_hop,
+            self.added + self.lifetime
+        )
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl defmt::Format for Relation {
+    fn format(&self, fmt: defmt::Formatter) {
+        defmt::write!(
+            fmt,
+            "{} via {} (expires at {})",
+            self.destination,
+            self.next_hop,
+            self.added + self.lifetime
+        );
+    }
 }
 
 #[derive(Default, Debug)]
@@ -22,24 +48,28 @@ impl Relations {
         &mut self,
         destination: Ipv6Address,
         next_hop: Ipv6Address,
-        expiration: Instant,
+        now: Instant,
+        lifetime: Duration,
     ) {
         if let Some(r) = self
             .relations
             .iter_mut()
             .find(|r| r.destination == destination)
         {
+            net_trace!("Updating old relation information");
             r.next_hop = next_hop;
-            r.expiration = expiration;
+            r.added = now;
+            r.lifetime = lifetime;
         } else {
             let relation = Relation {
                 destination,
                 next_hop,
-                expiration,
+                added: now,
+                lifetime,
             };
 
             if let Err(e) = self.relations.push(relation) {
-                net_debug!("Unable to add relation, buffer is full");
+                net_trace!("unable to add relation, buffer is full");
             }
         }
     }
@@ -50,7 +80,7 @@ impl Relations {
     }
 
     /// Return the next hop for a specific IPv6 address, if there is one.
-    pub fn find_next_hop(&mut self, destination: Ipv6Address) -> Option<Ipv6Address> {
+    pub fn find_next_hop(&self, destination: Ipv6Address) -> Option<Ipv6Address> {
         self.relations.iter().find_map(|r| {
             if r.destination == destination {
                 Some(r.next_hop)
@@ -61,8 +91,21 @@ impl Relations {
     }
 
     /// Purge expired relations.
-    pub fn purge(&mut self, now: Instant) {
-        self.relations.retain(|r| r.expiration > now)
+    ///
+    /// Returns `true` when a relation was actually removed.
+    pub fn flush(&mut self, now: Instant) -> bool {
+        let len = self.relations.len();
+        for r in &self.relations {
+            if r.added + r.lifetime <= now {
+                net_trace!("removing {} relation (expired)", r.destination);
+            }
+        }
+        self.relations.retain(|r| r.added + r.lifetime > now);
+        self.relations.len() != len
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &Relation> {
+        self.relations.iter()
     }
 }
 
@@ -86,7 +129,12 @@ mod tests {
         let addrs = addresses(2);
 
         let mut relations = Relations::default();
-        relations.add_relation(addrs[0], addrs[1], Instant::now());
+        relations.add_relation(
+            addrs[0],
+            addrs[1],
+            Instant::now(),
+            Duration::from_secs(60 * 30),
+        );
         assert_eq!(relations.relations.len(), 1);
     }
 
@@ -98,7 +146,7 @@ mod tests {
         // The size of the buffer should still be RPL_RELATIONS_BUFFER_COUNT.
         let mut relations = Relations::default();
         for a in addrs {
-            relations.add_relation(a, a, Instant::now());
+            relations.add_relation(a, a, Instant::now(), Duration::from_secs(60 * 30));
         }
 
         assert_eq!(relations.relations.len(), RPL_RELATIONS_BUFFER_COUNT);
@@ -109,10 +157,20 @@ mod tests {
         let addrs = addresses(3);
 
         let mut relations = Relations::default();
-        relations.add_relation(addrs[0], addrs[1], Instant::now());
+        relations.add_relation(
+            addrs[0],
+            addrs[1],
+            Instant::now(),
+            Duration::from_secs(60 * 30),
+        );
         assert_eq!(relations.relations.len(), 1);
 
-        relations.add_relation(addrs[0], addrs[2], Instant::now());
+        relations.add_relation(
+            addrs[0],
+            addrs[2],
+            Instant::now(),
+            Duration::from_secs(60 * 30),
+        );
         assert_eq!(relations.relations.len(), 1);
 
         assert_eq!(relations.find_next_hop(addrs[0]), Some(addrs[2]));
@@ -123,11 +181,21 @@ mod tests {
         let addrs = addresses(3);
 
         let mut relations = Relations::default();
-        relations.add_relation(addrs[0], addrs[1], Instant::now());
+        relations.add_relation(
+            addrs[0],
+            addrs[1],
+            Instant::now(),
+            Duration::from_secs(60 * 30),
+        );
         assert_eq!(relations.relations.len(), 1);
         assert_eq!(relations.find_next_hop(addrs[0]), Some(addrs[1]));
 
-        relations.add_relation(addrs[0], addrs[2], Instant::now());
+        relations.add_relation(
+            addrs[0],
+            addrs[2],
+            Instant::now(),
+            Duration::from_secs(60 * 30),
+        );
         assert_eq!(relations.relations.len(), 1);
         assert_eq!(relations.find_next_hop(addrs[0]), Some(addrs[2]));
 
@@ -140,7 +208,12 @@ mod tests {
         let addrs = addresses(2);
 
         let mut relations = Relations::default();
-        relations.add_relation(addrs[0], addrs[1], Instant::now());
+        relations.add_relation(
+            addrs[0],
+            addrs[1],
+            Instant::now(),
+            Duration::from_secs(60 * 30),
+        );
         assert_eq!(relations.relations.len(), 1);
 
         relations.remove_relation(addrs[0]);
@@ -152,11 +225,16 @@ mod tests {
         let addrs = addresses(2);
 
         let mut relations = Relations::default();
-        relations.add_relation(addrs[0], addrs[1], Instant::now() - Duration::from_secs(1));
+        relations.add_relation(
+            addrs[0],
+            addrs[1],
+            Instant::now() - Duration::from_secs(60 * 30 + 1),
+            Duration::from_secs(60 * 30),
+        );
 
         assert_eq!(relations.relations.len(), 1);
 
-        relations.purge(Instant::now());
+        relations.flush(Instant::now());
         assert!(relations.relations.is_empty());
     }
 }

@@ -17,6 +17,32 @@ pub(crate) fn setup<'a>(medium: Medium) -> (Interface, SocketSet<'a>, TestingDev
         ])),
     });
 
+    #[cfg(feature = "proto-rpl")]
+    let config = Config {
+        rpl_config: Some(RplConfig::new(
+            RplModeOfOperation::NoDownwardRoutesMaintained,
+        )),
+        ..config
+    };
+
+    #[cfg(feature = "rpl-mop-1")]
+    let config = Config {
+        rpl_config: Some(RplConfig::new(RplModeOfOperation::NonStoringMode)),
+        ..config
+    };
+
+    #[cfg(feature = "rpl-mop-2")]
+    let config = Config {
+        rpl_config: Some(RplConfig::new(RplModeOfOperation::StoringMode)),
+        ..config
+    };
+
+    #[cfg(feature = "rpl-mop-3")]
+    let config = Config {
+        rpl_config: Some(RplConfig::new(RplModeOfOperation::StoringModeWithMulticast)),
+        ..config
+    };
+
     let mut iface = Interface::new(config, &mut device, Instant::ZERO);
 
     #[cfg(feature = "proto-ipv4")]

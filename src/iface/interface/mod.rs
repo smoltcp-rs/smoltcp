@@ -17,6 +17,9 @@ mod ipv6;
 #[cfg(feature = "proto-sixlowpan")]
 mod sixlowpan;
 
+#[cfg(feature = "proto-rpl")]
+mod rpl;
+
 #[cfg(feature = "proto-igmp")]
 mod igmp;
 #[cfg(feature = "socket-tcp")]
@@ -41,6 +44,8 @@ use super::fragmentation::{Fragmenter, FragmentsBuffer};
 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
 use super::neighbor::{Answer as NeighborAnswer, Cache as NeighborCache};
 use super::socket_set::SocketSet;
+#[cfg(feature = "proto-rpl")]
+use super::RplConfig;
 use crate::config::{
     IFACE_MAX_ADDR_COUNT, IFACE_MAX_MULTICAST_GROUP_COUNT,
     IFACE_MAX_SIXLOWPAN_ADDRESS_CONTEXT_COUNT,
@@ -117,6 +122,11 @@ pub struct InterfaceInner {
     /// When to report for (all or) the next multicast group membership via IGMP
     #[cfg(feature = "proto-igmp")]
     igmp_report_state: IgmpReportState,
+
+    current_frame: Option<Ieee802154Repr>,
+
+    #[cfg(feature = "proto-rpl")]
+    rpl: super::Rpl,
 }
 
 /// Configuration structure used for creating a network interface.
@@ -141,6 +151,9 @@ pub struct Config {
     /// **NOTE**: we use the same PAN ID for destination and source.
     #[cfg(feature = "medium-ieee802154")]
     pub pan_id: Option<Ieee802154Pan>,
+
+    #[cfg(feature = "proto-rpl")]
+    pub rpl_config: Option<RplConfig>,
 }
 
 impl Config {
@@ -150,6 +163,8 @@ impl Config {
             hardware_addr,
             #[cfg(feature = "medium-ieee802154")]
             pan_id: None,
+            #[cfg(feature = "proto-rpl")]
+            rpl_config: None,
         }
     }
 }
@@ -241,6 +256,11 @@ impl Interface {
                 #[cfg(feature = "proto-sixlowpan")]
                 sixlowpan_address_context: Vec::new(),
                 rand,
+
+                current_frame: None,
+
+                #[cfg(feature = "proto-rpl")]
+                rpl: super::Rpl::new(config.rpl_config.unwrap(), now),
             },
         }
     }
@@ -248,7 +268,14 @@ impl Interface {
     /// Get the socket context.
     ///
     /// The context is needed for some socket methods.
-    pub fn context(&mut self) -> &mut InterfaceInner {
+    pub fn context(&self) -> &InterfaceInner {
+        &self.inner
+    }
+
+    /// Get the socket context.
+    ///
+    /// The context is needed for some socket methods.
+    pub fn context_mut(&mut self) -> &mut InterfaceInner {
         &mut self.inner
     }
 
@@ -434,6 +461,9 @@ impl Interface {
             }
         }
 
+        #[cfg(feature = "proto-rpl")]
+        self.poll_rpl(device);
+
         let mut readiness_may_have_changed = false;
 
         loop {
@@ -472,22 +502,26 @@ impl Interface {
             return Some(Instant::from_millis(0));
         }
 
-        let inner = &mut self.inner;
+        #[cfg(feature = "proto-rpl")]
+        let poll_at_rpl = self.poll_at_rpl();
 
-        sockets
-            .items()
-            .filter_map(move |item| {
-                let socket_poll_at = item.socket.poll_at(inner);
-                match item
-                    .meta
-                    .poll_at(socket_poll_at, |ip_addr| inner.has_neighbor(&ip_addr))
-                {
-                    PollAt::Ingress => None,
-                    PollAt::Time(instant) => Some(instant),
-                    PollAt::Now => Some(Instant::from_millis(0)),
-                }
-            })
-            .min()
+        let inner = &mut self.inner;
+        let poll_at = sockets.items().filter_map(move |item| {
+            let socket_poll_at = item.socket.poll_at(inner);
+            match item
+                .meta
+                .poll_at(socket_poll_at, |ip_addr| inner.has_neighbor(&ip_addr))
+            {
+                PollAt::Ingress => None,
+                PollAt::Time(instant) => Some(instant),
+                PollAt::Now => Some(Instant::from_millis(0)),
+            }
+        });
+
+        #[cfg(feature = "proto-rpl")]
+        let poll_at = poll_at.chain(core::iter::once(poll_at_rpl));
+
+        poll_at.min()
     }
 
     /// Return an _advisory wait time_ for calling [poll] the next time.
@@ -909,7 +943,7 @@ impl InterfaceInner {
         tx_token: Tx,
         src_addr: &IpAddress,
         dst_addr: &IpAddress,
-        fragmenter: &mut Fragmenter,
+        #[allow(unused)] fragmenter: &mut Fragmenter,
     ) -> Result<(HardwareAddress, Tx), DispatchError>
     where
         Tx: TxToken,
@@ -969,80 +1003,119 @@ impl InterfaceInner {
             .route(dst_addr, self.now)
             .ok_or(DispatchError::NoRoute)?;
 
+        #[cfg(feature = "proto-rpl")]
+        let dst_addr = if let IpAddress::Ipv6(dst_addr) = dst_addr {
+            #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop3"))]
+            if let Some(dodag) = &self.rpl.dodag {
+                if let Some(next_hop) = dodag.relations.find_next_hop(dst_addr) {
+                    if next_hop == self.ipv6_addr().unwrap() {
+                        dst_addr.into()
+                    } else {
+                        net_trace!("next hop {}", next_hop);
+                        next_hop.into()
+                    }
+                } else if let Some(parent) = dodag.parent {
+                    parent.into()
+                } else {
+                    dst_addr.into()
+                }
+            } else {
+                dst_addr.into()
+            }
+
+            #[cfg(not(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop3")))]
+            dst_addr.into()
+        } else {
+            dst_addr
+        };
+
         match self.neighbor_cache.lookup(&dst_addr, self.now) {
             NeighborAnswer::Found(hardware_addr) => return Ok((hardware_addr, tx_token)),
-            NeighborAnswer::RateLimited => return Err(DispatchError::NeighborPending),
-            _ => (), // XXX
-        }
-
-        match (src_addr, dst_addr) {
-            #[cfg(all(feature = "medium-ethernet", feature = "proto-ipv4"))]
-            (&IpAddress::Ipv4(src_addr), IpAddress::Ipv4(dst_addr))
-                if matches!(self.caps.medium, Medium::Ethernet) =>
-            {
-                net_debug!(
-                    "address {} not in neighbor cache, sending ARP request",
-                    dst_addr
-                );
-                let src_hardware_addr = self.hardware_addr.ethernet_or_panic();
-
-                let arp_repr = ArpRepr::EthernetIpv4 {
-                    operation: ArpOperation::Request,
-                    source_hardware_addr: src_hardware_addr,
-                    source_protocol_addr: src_addr,
-                    target_hardware_addr: EthernetAddress::BROADCAST,
-                    target_protocol_addr: dst_addr,
-                };
-
-                if let Err(e) =
-                    self.dispatch_ethernet(tx_token, arp_repr.buffer_len(), |mut frame| {
-                        frame.set_dst_addr(EthernetAddress::BROADCAST);
-                        frame.set_ethertype(EthernetProtocol::Arp);
-
-                        arp_repr.emit(&mut ArpPacket::new_unchecked(frame.payload_mut()))
-                    })
-                {
-                    net_debug!("Failed to dispatch ARP request: {:?}", e);
-                    return Err(DispatchError::NeighborPending);
-                }
+            NeighborAnswer::RateLimited => {
+                net_debug!("neighbor {} pending", dst_addr);
+                return Err(DispatchError::NeighborPending);
             }
+            NeighborAnswer::NotFound => match (src_addr, dst_addr) {
+                #[cfg(all(feature = "medium-ethernet", feature = "proto-ipv4"))]
+                (&IpAddress::Ipv4(src_addr), IpAddress::Ipv4(dst_addr)) => {
+                    net_debug!(
+                        "address {} not in neighbor cache, sending ARP request",
+                        dst_addr
+                    );
+                    let src_hardware_addr = self.hardware_addr.ethernet_or_panic();
 
-            #[cfg(feature = "proto-ipv6")]
-            (&IpAddress::Ipv6(src_addr), IpAddress::Ipv6(dst_addr)) => {
-                net_debug!(
-                    "address {} not in neighbor cache, sending Neighbor Solicitation",
-                    dst_addr
-                );
+                    let arp_repr = ArpRepr::EthernetIpv4 {
+                        operation: ArpOperation::Request,
+                        source_hardware_addr: src_hardware_addr,
+                        source_protocol_addr: src_addr,
+                        target_hardware_addr: EthernetAddress::BROADCAST,
+                        target_protocol_addr: dst_addr,
+                    };
 
-                let solicit = Icmpv6Repr::Ndisc(NdiscRepr::NeighborSolicit {
-                    target_addr: dst_addr,
-                    lladdr: Some(self.hardware_addr.into()),
-                });
+                    if let Err(e) =
+                        self.dispatch_ethernet(tx_token, arp_repr.buffer_len(), |mut frame| {
+                            frame.set_dst_addr(EthernetAddress::BROADCAST);
+                            frame.set_ethertype(EthernetProtocol::Arp);
 
-                let packet = Packet::new_ipv6(
-                    Ipv6Repr {
-                        src_addr,
-                        dst_addr: dst_addr.solicited_node(),
-                        next_header: IpProtocol::Icmpv6,
-                        payload_len: solicit.buffer_len(),
-                        hop_limit: 0xff,
-                    },
-                    IpPayload::Icmpv6(solicit),
-                );
-
-                if let Err(e) =
-                    self.dispatch_ip(tx_token, PacketMeta::default(), packet, fragmenter)
-                {
-                    net_debug!("Failed to dispatch NDISC solicit: {:?}", e);
-                    return Err(DispatchError::NeighborPending);
+                            arp_repr.emit(&mut ArpPacket::new_unchecked(frame.payload_mut()))
+                        })
+                    {
+                        net_debug!("Failed to dispatch ARP request: {:?}", e);
+                        return Err(DispatchError::NeighborPending);
+                    }
                 }
-            }
 
-            #[allow(unreachable_patterns)]
-            _ => (),
+                #[cfg(all(feature = "proto-ipv6", feature = "proto-rpl"))]
+                (&IpAddress::Ipv6(_), IpAddress::Ipv6(_)) => {
+                    if let Some(dodag) = self.rpl.dodag.as_ref() {
+                        if let Some(parent) = dodag.parent {
+                            if let NeighborAnswer::Found(hardware_addr) =
+                                self.neighbor_cache.lookup(&parent.into(), self.now)
+                            {
+                                return Ok((hardware_addr, tx_token));
+                            }
+                        }
+                    }
+                }
+
+                #[cfg(all(feature = "proto-ipv6", not(feature = "proto-rpl")))]
+                (&IpAddress::Ipv6(src_addr), IpAddress::Ipv6(dst_addr)) => {
+                    net_debug!(
+                        "address {} not in neighbor cache, sending Neighbor Solicitation",
+                        dst_addr
+                    );
+
+                    let solicit = Icmpv6Repr::Ndisc(NdiscRepr::NeighborSolicit {
+                        target_addr: dst_addr,
+                        lladdr: Some(self.hardware_addr.into()),
+                    });
+
+                    let packet = Packet::new_ipv6(
+                        Ipv6Repr {
+                            src_addr,
+                            dst_addr: dst_addr.solicited_node(),
+                            next_header: IpProtocol::Icmpv6,
+                            payload_len: solicit.buffer_len(),
+                            hop_limit: 0xff,
+                        },
+                        IpPayload::Icmpv6(solicit),
+                    );
+
+                    if let Err(e) =
+                        self.dispatch_ip(tx_token, Default::default(), packet, fragmenter)
+                    {
+                        net_debug!("Failed to dispatch NDISC solicit: {:?}", e);
+                        return Err(DispatchError::NeighborPending);
+                    }
+                }
+
+                #[allow(unreachable_patterns)]
+                _ => (),
+            },
         }
 
         // The request got dispatched, limit the rate on the cache.
+        net_debug!("request dispatched, limiting rate on cache");
         self.neighbor_cache.limit_rate(self.now);
         Err(DispatchError::NeighborPending)
     }
@@ -1075,6 +1148,12 @@ impl InterfaceInner {
                 frag,
             )?;
             let addr = addr.ieee802154_or_panic();
+
+            let packet = match packet {
+                Packet::Ipv6(packet) => packet,
+                #[allow(unreachable_patterns)]
+                _ => unreachable!(),
+            };
 
             self.dispatch_ieee802154(addr, tx_token, meta, packet, frag);
             return Ok(());

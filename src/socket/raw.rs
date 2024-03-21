@@ -568,21 +568,18 @@ mod test {
                 #[cfg(feature = "medium-ieee802154")]
                 fn test_send_dispatch(#[case] medium: Medium) {
                     let (mut iface, _, _) = setup(medium);
-                    let mut cx = iface.context();
+                    let cx = iface.context_mut();
                     let mut socket = $socket(buffer(0), buffer(1));
 
                     assert!(socket.can_send());
-                    assert_eq!(
-                        socket.dispatch(&mut cx, |_, _| unreachable!()),
-                        Ok::<_, ()>(())
-                    );
+                    assert_eq!(socket.dispatch(cx, |_, _| unreachable!()), Ok::<_, ()>(()));
 
                     assert_eq!(socket.send_slice(&$packet[..]), Ok(()));
                     assert_eq!(socket.send_slice(b""), Err(SendError::BufferFull));
                     assert!(!socket.can_send());
 
                     assert_eq!(
-                        socket.dispatch(&mut cx, |_, (ip_repr, ip_payload)| {
+                        socket.dispatch(cx, |_, (ip_repr, ip_payload)| {
                             assert_eq!(ip_repr, $hdr);
                             assert_eq!(ip_payload, &$payload);
                             Err(())
@@ -592,7 +589,7 @@ mod test {
                     assert!(!socket.can_send());
 
                     assert_eq!(
-                        socket.dispatch(&mut cx, |_, (ip_repr, ip_payload)| {
+                        socket.dispatch(cx, |_, (ip_repr, ip_payload)| {
                             assert_eq!(ip_repr, $hdr);
                             assert_eq!(ip_payload, &$payload);
                             Ok::<_, ()>(())
@@ -611,11 +608,11 @@ mod test {
                 #[cfg(feature = "medium-ieee802154")]
                 fn test_recv_truncated_slice(#[case] medium: Medium) {
                     let (mut iface, _, _) = setup(medium);
-                    let mut cx = iface.context();
+                    let cx = iface.context_mut();
                     let mut socket = $socket(buffer(1), buffer(0));
 
                     assert!(socket.accepts(&$hdr));
-                    socket.process(&mut cx, &$hdr, &$payload);
+                    socket.process(cx, &$hdr, &$payload);
 
                     let mut slice = [0; 4];
                     assert_eq!(socket.recv_slice(&mut slice[..]), Err(RecvError::Truncated));
@@ -630,14 +627,14 @@ mod test {
                 #[cfg(feature = "medium-ieee802154")]
                 fn test_recv_truncated_packet(#[case] medium: Medium) {
                     let (mut iface, _, _) = setup(medium);
-                    let mut cx = iface.context();
+                    let cx = iface.context_mut();
                     let mut socket = $socket(buffer(1), buffer(0));
 
                     let mut buffer = vec![0; 128];
                     buffer[..$packet.len()].copy_from_slice(&$packet[..]);
 
                     assert!(socket.accepts(&$hdr));
-                    socket.process(&mut cx, &$hdr, &buffer);
+                    socket.process(cx, &$hdr, &buffer);
                 }
 
                 #[rstest]
@@ -649,11 +646,11 @@ mod test {
                 #[cfg(feature = "medium-ieee802154")]
                 fn test_peek_truncated_slice(#[case] medium: Medium) {
                     let (mut iface, _, _) = setup(medium);
-                    let mut cx = iface.context();
+                    let cx = iface.context_mut();
                     let mut socket = $socket(buffer(1), buffer(0));
 
                     assert!(socket.accepts(&$hdr));
-                    socket.process(&mut cx, &$hdr, &$payload);
+                    socket.process(cx, &$hdr, &$payload);
 
                     let mut slice = [0; 4];
                     assert_eq!(socket.peek_slice(&mut slice[..]), Err(RecvError::Truncated));
@@ -692,7 +689,7 @@ mod test {
         #[cfg(feature = "proto-ipv4")]
         {
             let (mut iface, _, _) = setup(medium);
-            let cx = iface.context();
+            let cx = iface.context_mut();
             let mut socket = ipv4_locals::socket(buffer(0), buffer(2));
 
             let mut wrong_version = ipv4_locals::PACKET_BYTES;
@@ -710,7 +707,7 @@ mod test {
         #[cfg(feature = "proto-ipv6")]
         {
             let (mut iface, _, _) = setup(medium);
-            let cx = iface.context();
+            let cx = iface.context_mut();
             let mut socket = ipv6_locals::socket(buffer(0), buffer(2));
 
             let mut wrong_version = ipv6_locals::PACKET_BYTES;
@@ -738,7 +735,7 @@ mod test {
         #[cfg(feature = "proto-ipv4")]
         {
             let (mut iface, _, _) = setup(medium);
-            let cx = iface.context();
+            let cx = iface.context_mut();
             let mut socket = ipv4_locals::socket(buffer(1), buffer(0));
             assert!(!socket.can_recv());
 
@@ -758,7 +755,7 @@ mod test {
         #[cfg(feature = "proto-ipv6")]
         {
             let (mut iface, _, _) = setup(medium);
-            let cx = iface.context();
+            let cx = iface.context_mut();
             let mut socket = ipv6_locals::socket(buffer(1), buffer(0));
             assert!(!socket.can_recv());
 
@@ -784,7 +781,7 @@ mod test {
         #[cfg(feature = "proto-ipv4")]
         {
             let (mut iface, _, _) = setup(medium);
-            let cx = iface.context();
+            let cx = iface.context_mut();
             let mut socket = ipv4_locals::socket(buffer(1), buffer(0));
 
             let mut cksumd_packet = ipv4_locals::PACKET_BYTES;
@@ -803,7 +800,7 @@ mod test {
         #[cfg(feature = "proto-ipv6")]
         {
             let (mut iface, _, _) = setup(medium);
-            let cx = iface.context();
+            let cx = iface.context_mut();
             let mut socket = ipv6_locals::socket(buffer(1), buffer(0));
 
             assert_eq!(socket.peek(), Err(RecvError::Exhausted));

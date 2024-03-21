@@ -722,7 +722,7 @@ mod test_ipv4 {
     #[cfg(feature = "medium-ethernet")]
     fn test_send_dispatch(#[case] medium: Medium) {
         let (mut iface, _, _) = setup(medium);
-        let cx = iface.context();
+        let cx = iface.context_mut();
 
         let mut socket = socket(buffer(0), buffer(1));
         let checksum = ChecksumCapabilities::default();
@@ -778,7 +778,7 @@ mod test_ipv4 {
     #[cfg(feature = "medium-ethernet")]
     fn test_set_hop_limit_v4(#[case] medium: Medium) {
         let (mut iface, _, _) = setup(medium);
-        let cx = iface.context();
+        let cx = iface.context_mut();
 
         let mut s = socket(buffer(0), buffer(1));
         let checksum = ChecksumCapabilities::default();
@@ -816,7 +816,7 @@ mod test_ipv4 {
     #[cfg(feature = "medium-ethernet")]
     fn test_recv_process(#[case] medium: Medium) {
         let (mut iface, _, _) = setup(medium);
-        let cx = iface.context();
+        let cx = iface.context_mut();
 
         let mut socket = socket(buffer(1), buffer(1));
         assert_eq!(socket.bind(Endpoint::Ident(0x1234)), Ok(()));
@@ -847,7 +847,7 @@ mod test_ipv4 {
     #[cfg(feature = "medium-ethernet")]
     fn test_accept_bad_id(#[case] medium: Medium) {
         let (mut iface, _, _) = setup(medium);
-        let cx = iface.context();
+        let cx = iface.context_mut();
 
         let mut socket = socket(buffer(1), buffer(1));
         assert_eq!(socket.bind(Endpoint::Ident(0x1234)), Ok(()));
@@ -872,7 +872,7 @@ mod test_ipv4 {
     #[cfg(feature = "medium-ethernet")]
     fn test_accepts_udp(#[case] medium: Medium) {
         let (mut iface, _, _) = setup(medium);
-        let cx = iface.context();
+        let cx = iface.context_mut();
 
         let mut socket = socket(buffer(1), buffer(1));
         assert_eq!(socket.bind(Endpoint::Udp(LOCAL_END_V4.into())), Ok(()));
@@ -985,7 +985,7 @@ mod test_ipv6 {
     #[cfg(feature = "medium-ethernet")]
     fn test_send_dispatch(#[case] medium: Medium) {
         let (mut iface, _, _) = setup(medium);
-        let cx = iface.context();
+        let cx = iface.context_mut();
 
         let mut socket = socket(buffer(0), buffer(1));
         let checksum = ChecksumCapabilities::default();
@@ -1016,7 +1016,7 @@ mod test_ipv6 {
         assert_eq!(
             socket.dispatch(cx, |_, (ip_repr, icmp_repr)| {
                 assert_eq!(ip_repr, LOCAL_IPV6_REPR.into());
-                assert_eq!(icmp_repr, ECHOV6_REPR.into());
+                assert_eq!(icmp_repr, ECHOV6_REPR.clone().into());
                 Err(())
             }),
             Err(())
@@ -1027,7 +1027,7 @@ mod test_ipv6 {
         assert_eq!(
             socket.dispatch(cx, |_, (ip_repr, icmp_repr)| {
                 assert_eq!(ip_repr, LOCAL_IPV6_REPR.into());
-                assert_eq!(icmp_repr, ECHOV6_REPR.into());
+                assert_eq!(icmp_repr, ECHOV6_REPR.clone().into());
                 Ok::<_, ()>(())
             }),
             Ok(())
@@ -1041,7 +1041,7 @@ mod test_ipv6 {
     #[cfg(feature = "medium-ethernet")]
     fn test_set_hop_limit(#[case] medium: Medium) {
         let (mut iface, _, _) = setup(medium);
-        let cx = iface.context();
+        let cx = iface.context_mut();
 
         let mut s = socket(buffer(0), buffer(1));
         let checksum = ChecksumCapabilities::default();
@@ -1079,7 +1079,7 @@ mod test_ipv6 {
     #[cfg(feature = "medium-ethernet")]
     fn test_recv_process(#[case] medium: Medium) {
         let (mut iface, _, _) = setup(medium);
-        let cx = iface.context();
+        let cx = iface.context_mut();
 
         let mut socket = socket(buffer(1), buffer(1));
         assert_eq!(socket.bind(Endpoint::Ident(0x1234)), Ok(()));
@@ -1110,7 +1110,7 @@ mod test_ipv6 {
     #[cfg(feature = "medium-ethernet")]
     fn test_truncated_recv_slice(#[case] medium: Medium) {
         let (mut iface, _, _) = setup(medium);
-        let cx = iface.context();
+        let cx = iface.context_mut();
 
         let mut socket = socket(buffer(1), buffer(1));
         assert_eq!(socket.bind(Endpoint::Ident(0x1234)), Ok(()));
@@ -1141,7 +1141,7 @@ mod test_ipv6 {
     #[cfg(feature = "medium-ethernet")]
     fn test_accept_bad_id(#[case] medium: Medium) {
         let (mut iface, _, _) = setup(medium);
-        let cx = iface.context();
+        let cx = iface.context_mut();
 
         let mut socket = socket(buffer(1), buffer(1));
         assert_eq!(socket.bind(Endpoint::Ident(0x1234)), Ok(()));
@@ -1166,7 +1166,7 @@ mod test_ipv6 {
     #[cfg(feature = "medium-ethernet")]
     fn test_accepts_udp(#[case] medium: Medium) {
         let (mut iface, _, _) = setup(medium);
-        let cx = iface.context();
+        let cx = iface.context_mut();
 
         let mut socket = socket(buffer(1), buffer(1));
         assert_eq!(socket.bind(Endpoint::Udp(LOCAL_END_V6.into())), Ok(()));

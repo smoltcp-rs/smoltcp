@@ -123,7 +123,7 @@ mod ndisc;
 ))]
 mod ndiscoption;
 #[cfg(feature = "proto-rpl")]
-mod rpl;
+pub(crate) mod rpl;
 #[cfg(all(feature = "proto-sixlowpan", feature = "medium-ieee802154"))]
 mod sixlowpan;
 mod tcp;
@@ -154,9 +154,18 @@ pub use self::arp::{
 
 #[cfg(feature = "proto-rpl")]
 pub use self::rpl::{
-    data::HopByHopOption as RplHopByHopRepr, data::Packet as RplHopByHopPacket,
-    options::Packet as RplOptionPacket, options::Repr as RplOptionRepr,
-    InstanceId as RplInstanceId, Repr as RplRepr,
+    hbh::HopByHopOption as RplHopByHopRepr,
+    hbh::Packet as RplHopByHopPacket,
+    options::{
+        DodagConfiguration as RplDodagConfiguration, Packet as RplOptionPacket,
+        PrefixInformation as RplPrefixInformation, Repr as RplOptionRepr,
+        RouteInformation as RplRouteInformation, RplTarget,
+        SolicitedInformation as RplSolicitedInformation,
+        TransitInformation as RplTransitInformation,
+    },
+    DestinationAdvertisementObject as RplDao, DestinationAdvertisementObjectAck as RplDaoAck,
+    DodagInformationObject as RplDio, DodagInformationSolicitation as RplDis,
+    InstanceId as RplInstanceId, Repr as RplRepr, SequenceCounter as RplSequenceCounter,
 };
 
 #[cfg(all(feature = "proto-sixlowpan", feature = "medium-ieee802154"))]
@@ -215,7 +224,8 @@ pub use self::ipv6hbh::{Header as Ipv6HopByHopHeader, Repr as Ipv6HopByHopRepr};
 
 #[cfg(feature = "proto-ipv6")]
 pub use self::ipv6routing::{
-    Header as Ipv6RoutingHeader, Repr as Ipv6RoutingRepr, Type as Ipv6RoutingType,
+    Header as Ipv6RoutingHeader, Repr as Ipv6RoutingRepr,
+    SourceRoutingRepr as Ipv6SourceRoutingRepr, Type as Ipv6RoutingType,
 };
 
 #[cfg(feature = "proto-ipv4")]

@@ -733,7 +733,7 @@ mod test {
     #[cfg(feature = "medium-ieee802154")]
     fn test_send_dispatch(#[case] medium: Medium) {
         let (mut iface, _, _) = setup(medium);
-        let cx = iface.context();
+        let cx = iface.context_mut();
         let mut socket = socket(buffer(0), buffer(1));
 
         assert_eq!(socket.bind(LOCAL_END), Ok(()));
@@ -783,7 +783,7 @@ mod test {
     #[cfg(feature = "medium-ieee802154")]
     fn test_recv_process(#[case] medium: Medium) {
         let (mut iface, _, _) = setup(medium);
-        let cx = iface.context();
+        let cx = iface.context_mut();
 
         let mut socket = socket(buffer(1), buffer(0));
 
@@ -824,7 +824,7 @@ mod test {
     #[cfg(feature = "medium-ieee802154")]
     fn test_peek_process(#[case] medium: Medium) {
         let (mut iface, _, _) = setup(medium);
-        let cx = iface.context();
+        let cx = iface.context_mut();
 
         let mut socket = socket(buffer(1), buffer(0));
 
@@ -853,7 +853,7 @@ mod test {
     #[cfg(feature = "medium-ieee802154")]
     fn test_recv_truncated_slice(#[case] medium: Medium) {
         let (mut iface, _, _) = setup(medium);
-        let cx = iface.context();
+        let cx = iface.context_mut();
 
         let mut socket = socket(buffer(1), buffer(0));
 
@@ -881,7 +881,7 @@ mod test {
     #[cfg(feature = "medium-ieee802154")]
     fn test_peek_truncated_slice(#[case] medium: Medium) {
         let (mut iface, _, _) = setup(medium);
-        let cx = iface.context();
+        let cx = iface.context_mut();
 
         let mut socket = socket(buffer(1), buffer(0));
 
@@ -910,7 +910,7 @@ mod test {
     #[cfg(feature = "medium-ieee802154")]
     fn test_set_hop_limit(#[case] medium: Medium) {
         let (mut iface, _, _) = setup(medium);
-        let cx = iface.context();
+        let cx = iface.context_mut();
 
         let mut s = socket(buffer(0), buffer(1));
 
@@ -945,7 +945,7 @@ mod test {
     #[cfg(feature = "medium-ieee802154")]
     fn test_doesnt_accept_wrong_port(#[case] medium: Medium) {
         let (mut iface, _, _) = setup(medium);
-        let cx = iface.context();
+        let cx = iface.context_mut();
 
         let mut socket = socket(buffer(1), buffer(0));
 
@@ -966,7 +966,7 @@ mod test {
     #[cfg(feature = "medium-ieee802154")]
     fn test_doesnt_accept_wrong_ip(#[case] medium: Medium) {
         let (mut iface, _, _) = setup(medium);
-        let cx = iface.context();
+        let cx = iface.context_mut();
 
         let mut port_bound_socket = socket(buffer(1), buffer(0));
         assert_eq!(port_bound_socket.bind(LOCAL_PORT), Ok(()));
@@ -1004,7 +1004,7 @@ mod test {
         let mut socket = socket(recv_buffer, buffer(0));
 
         let (mut iface, _, _) = setup(medium);
-        let cx = iface.context();
+        let cx = iface.context_mut();
 
         assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
 

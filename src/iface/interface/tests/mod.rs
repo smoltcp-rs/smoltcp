@@ -2,6 +2,13 @@
 mod ipv4;
 #[cfg(feature = "proto-ipv6")]
 mod ipv6;
+#[cfg(all(
+    feature = "rpl-mop-0",
+    feature = "rpl-mop-1",
+    feature = "rpl-mop-2",
+    feature = "rpl-mop-3",
+))]
+mod rpl;
 #[cfg(feature = "proto-sixlowpan")]
 mod sixlowpan;
 

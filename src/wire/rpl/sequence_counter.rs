@@ -1,12 +1,13 @@
-//! Implementation of sequence counters defined in [RFC 6550 § 7.2]. Values from 128 and greater
-//! are used as a linear sequence to indicate a restart and bootstrap the counter. Values less than
-//! or equal to 127 are used as a circular sequence number space of size 128. When operating in the
-//! circular region, if sequence numbers are detected to be too far apart, then they are not
-//! comparable.
-//!
-//! [RFC 6550 § 7.2]: https://datatracker.ietf.org/doc/html/rfc6550#section-7.2
+pub(crate) const SEQUENCE_WINDOW: u8 = 16;
 
-#[derive(Debug, Clone, Copy)]
+/// Implementation of sequence counters defined in [RFC 6550 § 7.2]. Values from 128 and greater
+/// are used as a linear sequence to indicate a restart and bootstrap the counter. Values less than
+/// or equal to 127 are used as a circular sequence number space of size 128. When operating in the
+/// circular region, if sequence numbers are detected to be too far apart, then they are not
+/// comparable.
+///
+/// [RFC 6550 § 7.2]: https://datatracker.ietf.org/doc/html/rfc6550#section-7.2
+#[derive(Debug, Clone, Copy, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct SequenceCounter(u8);
 
@@ -15,6 +16,18 @@ impl Default for SequenceCounter {
         // RFC6550 7.2 recommends 240 (256 - SEQUENCE_WINDOW) as the initialization value of the
         // counter.
         Self(240)
+    }
+}
+
+impl core::fmt::Display for SequenceCounter {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}", self.value())
+    }
+}
+
+impl From<u8> for SequenceCounter {
+    fn from(value: u8) -> Self {
+        Self(value)
     }
 }
 
@@ -61,7 +74,7 @@ impl PartialEq for SequenceCounter {
         } else {
             let result = if a > b { a - b } else { b - a };
 
-            if result <= super::consts::SEQUENCE_WINDOW as usize {
+            if result <= SEQUENCE_WINDOW as usize {
                 // RFC1982
                 a == b
             } else {
@@ -74,7 +87,6 @@ impl PartialEq for SequenceCounter {
 
 impl PartialOrd for SequenceCounter {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        use super::consts::SEQUENCE_WINDOW;
         use core::cmp::Ordering;
 
         let a = self.value() as usize;
