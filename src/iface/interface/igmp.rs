@@ -10,6 +10,8 @@ pub enum MulticastError {
     GroupTableFull,
     /// IPv6 multicast is not yet supported.
     Ipv6NotSupported,
+    /// Cannot join/leave the given multicast group.
+    Unaddressable,
 }
 
 impl core::fmt::Display for MulticastError {
@@ -18,6 +20,7 @@ impl core::fmt::Display for MulticastError {
             MulticastError::Exhausted => write!(f, "Exhausted"),
             MulticastError::GroupTableFull => write!(f, "GroupTableFull"),
             MulticastError::Ipv6NotSupported => write!(f, "Ipv6NotSupported"),
+            MulticastError::Unaddressable => write!(f, "Unaddressable"),
         }
     }
 }
@@ -68,9 +71,43 @@ impl Interface {
                     Ok(false)
                 }
             }
-            // Multicast is not yet implemented for other address families
+            #[cfg(feature = "proto-ipv6")]
+            IpAddress::Ipv6(addr) => {
+                // Build report packet containing this new address
+                let initial_report_record: &[MldAddressRecordRepr] = &[MldAddressRecordRepr {
+                    num_srcs: 0,
+                    mcast_addr: addr,
+                    record_type: MldRecordType::ChangeToInclude,
+                    aux_data_len: 0,
+                    payload: &[],
+                }];
+
+                let is_not_new = self
+                    .inner
+                    .ipv6_multicast_groups
+                    .insert(addr, ())
+                    .map_err(|_| MulticastError::GroupTableFull)?
+                    .is_some();
+                if is_not_new {
+                    Ok(false)
+                } else if let Some(pkt) = self.inner.mldv2_report_packet(initial_report_record) {
+                    // Send initial membership report
+                    let tx_token = device
+                        .transmit(timestamp)
+                        .ok_or(MulticastError::Exhausted)?;
+
+                    // NOTE(unwrap): packet destination is multicast, which is always routable and doesn't require neighbor discovery.
+                    self.inner
+                        .dispatch_ip(tx_token, PacketMeta::default(), pkt, &mut self.fragmenter)
+                        .unwrap();
+
+                    Ok(true)
+                } else {
+                    Ok(false)
+                }
+            }
             #[allow(unreachable_patterns)]
-            _ => Err(MulticastError::Ipv6NotSupported),
+            _ => Err(MulticastError::Unaddressable),
         }
     }
 

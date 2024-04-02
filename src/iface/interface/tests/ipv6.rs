@@ -1169,3 +1169,121 @@ fn get_source_address_empty_interface() {
         Ipv6Address::LOOPBACK
     );
 }
+
+#[rstest]
+#[case(Medium::Ip)]
+#[cfg(feature = "medium-ip")]
+#[case(Medium::Ethernet)]
+#[cfg(feature = "medium-ethernet")]
+fn test_join_ipv6_multicast_group(#[case] medium: Medium) {
+    fn recv_icmpv6(
+        device: &mut crate::tests::TestingDevice,
+        timestamp: Instant,
+    ) -> std::vec::Vec<Ipv6Packet<std::vec::Vec<u8>>> {
+        let caps = device.capabilities();
+        recv_all(device, timestamp)
+            .iter()
+            .filter_map(|frame| {
+                let ipv6_packet = match caps.medium {
+                    #[cfg(feature = "medium-ethernet")]
+                    Medium::Ethernet => {
+                        let eth_frame = EthernetFrame::new_checked(frame).ok()?;
+                        Ipv6Packet::new_checked(eth_frame.payload()).ok()?
+                    }
+                    #[cfg(feature = "medium-ip")]
+                    Medium::Ip => Ipv6Packet::new_checked(&frame[..]).ok()?,
+                    #[cfg(feature = "medium-ieee802154")]
+                    Medium::Ieee802154 => todo!(),
+                };
+                let buf = ipv6_packet.into_inner().to_vec();
+                Some(Ipv6Packet::new_unchecked(buf))
+            })
+            .collect::<std::vec::Vec<_>>()
+    }
+
+    let (mut iface, _sockets, mut device) = setup(medium);
+
+    let groups = [
+        Ipv6Address::from_parts(&[0xff05, 0, 0, 0, 0, 0, 0, 0x0001]),
+        Ipv6Address::from_parts(&[0xff0e, 0, 0, 0, 0, 0, 0, 0x0017]),
+    ];
+
+    let timestamp = Instant::from_millis(0);
+
+    for &group in &groups {
+        iface
+            .join_multicast_group(&mut device, group, timestamp)
+            .unwrap();
+        assert!(iface.has_multicast_group(group));
+    }
+    assert!(iface.has_multicast_group(Ipv6Address::LINK_LOCAL_ALL_NODES));
+
+    let reports = recv_icmpv6(&mut device, timestamp);
+    assert_eq!(reports.len(), 2);
+
+    let caps = device.capabilities();
+    let checksum_caps = &caps.checksum;
+    for (&group_addr, ipv6_packet) in groups.iter().zip(reports) {
+        let buf = ipv6_packet.into_inner();
+        let ipv6_packet = Ipv6Packet::new_unchecked(buf.as_slice());
+
+        let _ipv6_repr = Ipv6Repr::parse(&ipv6_packet).unwrap();
+        let ip_payload = ipv6_packet.payload();
+
+        // The first 2 octets of this payload hold the next-header indicator and the
+        // Hop-by-Hop header length (in 8-octet words, minus 1), which we parse as an
+        // Unknown option. The remaining 6 octets hold the Hop-by-Hop PadN and Router
+        // Alert options.
+        let hbh_header = Ipv6HopByHopHeader::new_checked(&ip_payload[..8]).unwrap();
+        let hbh_repr = Ipv6HopByHopRepr::parse(&hbh_header).unwrap();
+
+        let mut expected_hbh_repr = Ipv6HopByHopRepr::mldv2_router_alert(0);
+        expected_hbh_repr
+            .options
+            .insert(
+                0,
+                Ipv6OptionRepr::Unknown {
+                    type_: Ipv6OptionType::Unknown(IpProtocol::Icmpv6.into()),
+                    length: 0,
+                    data: &[],
+                },
+            )
+            .unwrap();
+        assert_eq!(hbh_repr, expected_hbh_repr);
+
+        let icmpv6_packet =
+            Icmpv6Packet::new_checked(&ip_payload[hbh_repr.buffer_len()..]).unwrap();
+        let icmpv6_repr = Icmpv6Repr::parse(
+            &ipv6_packet.src_addr(),
+            &ipv6_packet.dst_addr(),
+            &icmpv6_packet,
+            checksum_caps,
+        )
+        .unwrap();
+
+        let record_data = match icmpv6_repr {
+            Icmpv6Repr::Mld(MldRepr::Report {
+                nr_mcast_addr_rcrds,
+                data,
+            }) => {
+                assert_eq!(nr_mcast_addr_rcrds, 1);
+                data
+            }
+            other => panic!("unexpected icmpv6_repr: {:?}", other),
+        };
+
+        let record = MldAddressRecord::new_checked(record_data).unwrap();
+        let record_repr = MldAddressRecordRepr::parse(&record).unwrap();
+
+        assert_eq!(
+            record_repr,
+            MldAddressRecordRepr {
+                num_srcs: 0,
+                mcast_addr: group_addr,
+                record_type: MldRecordType::ChangeToInclude,
+                aux_data_len: 0,
+                payload: &[],
+            }
+        );
+    }
+}

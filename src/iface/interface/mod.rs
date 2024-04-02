@@ -114,6 +114,8 @@ pub struct InterfaceInner {
     routes: Routes,
     #[cfg(feature = "proto-igmp")]
     ipv4_multicast_groups: LinearMap<Ipv4Address, (), IFACE_MAX_MULTICAST_GROUP_COUNT>,
+    #[cfg(feature = "proto-ipv6")]
+    ipv6_multicast_groups: LinearMap<Ipv6Address, (), IFACE_MAX_MULTICAST_GROUP_COUNT>,
     /// When to report for (all or) the next multicast group membership via IGMP
     #[cfg(feature = "proto-igmp")]
     igmp_report_state: IgmpReportState,
@@ -228,6 +230,8 @@ impl Interface {
                 neighbor_cache: NeighborCache::new(),
                 #[cfg(feature = "proto-igmp")]
                 ipv4_multicast_groups: LinearMap::new(),
+                #[cfg(feature = "proto-ipv6")]
+                ipv6_multicast_groups: LinearMap::new(),
                 #[cfg(feature = "proto-igmp")]
                 igmp_report_state: IgmpReportState::Inactive,
                 #[cfg(feature = "medium-ieee802154")]
@@ -771,11 +775,13 @@ impl InterfaceInner {
                     || self.ipv4_multicast_groups.get(&key).is_some()
             }
             #[cfg(feature = "proto-ipv6")]
-            IpAddress::Ipv6(Ipv6Address::LINK_LOCAL_ALL_NODES) => true,
+            IpAddress::Ipv6(key) => {
+                key == Ipv6Address::LINK_LOCAL_ALL_NODES
+                    || self.has_solicited_node(key)
+                    || self.ipv6_multicast_groups.get(&key).is_some()
+            }
             #[cfg(feature = "proto-rpl")]
             IpAddress::Ipv6(Ipv6Address::LINK_LOCAL_ALL_RPL_NODES) => true,
-            #[cfg(feature = "proto-ipv6")]
-            IpAddress::Ipv6(addr) => self.has_solicited_node(addr),
             #[allow(unreachable_patterns)]
             _ => false,
         }
