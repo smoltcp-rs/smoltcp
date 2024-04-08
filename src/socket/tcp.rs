@@ -1123,21 +1123,21 @@ impl<'a> Socket<'a> {
             return Err(SendError::InvalidState);
         }
 
-        // The connection might have been idle for a long time, and so remote_last_ts
-        // would be far in the past. Unless we clear it here, we'll abort the connection
-        // down over in dispatch() by erroneously detecting it as timed out.
-        if self.tx_buffer.is_empty() {
-            self.remote_last_ts = None
-        }
-
-        let _old_length = self.tx_buffer.len();
+        let old_length = self.tx_buffer.len();
         let (size, result) = f(&mut self.tx_buffer);
         if size > 0 {
+            // The connection might have been idle for a long time, and so remote_last_ts
+            // would be far in the past. Unless we clear it here, we'll abort the connection
+            // down over in dispatch() by erroneously detecting it as timed out.
+            if old_length == 0 {
+                self.remote_last_ts = None
+            }
+
             #[cfg(any(test, feature = "verbose"))]
             tcp_trace!(
                 "tx buffer: enqueueing {} octets (now {})",
                 size,
-                _old_length + size
+                old_length + size
             );
         }
         Ok(result)
