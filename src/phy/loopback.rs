@@ -1,7 +1,7 @@
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 
-use crate::phy::{self, Device, DeviceCapabilities, Medium};
+use crate::phy::{self, ChecksumCapabilities, Device, DeviceCapabilities, Medium};
 use crate::time::Instant;
 
 /// A loopback device.
@@ -33,6 +33,7 @@ impl Device for Loopback {
         DeviceCapabilities {
             max_transmission_unit: 65535,
             medium: self.medium,
+            checksum: ChecksumCapabilities::ignored(),
             ..DeviceCapabilities::default()
         }
     }
