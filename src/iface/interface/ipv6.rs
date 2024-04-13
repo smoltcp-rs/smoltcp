@@ -1,6 +1,6 @@
 use super::*;
 
-/// Enum used for the process_hopbyhop function. In some cases, when discarding a packet, an ICMMP
+/// Enum used for the process_hopbyhop function. In some cases, when discarding a packet, an ICMP
 /// parameter problem message needs to be transmitted to the source of the address. In other cases,
 /// the processing of the IP packet can continue.
 #[allow(clippy::large_enum_variant)]
