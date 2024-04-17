@@ -1204,7 +1204,7 @@ fn test_join_ipv6_multicast_group(#[case] medium: Medium) {
     let (mut iface, _sockets, mut device) = setup(medium);
 
     let groups = [
-        Ipv6Address::from_parts(&[0xff05, 0, 0, 0, 0, 0, 0, 0x0001]),
+        Ipv6Address::from_parts(&[0xff05, 0, 0, 0, 0, 0, 0, 0x00fb]),
         Ipv6Address::from_parts(&[0xff0e, 0, 0, 0, 0, 0, 0, 0x0017]),
     ];
 
@@ -1285,5 +1285,10 @@ fn test_join_ipv6_multicast_group(#[case] medium: Medium) {
                 payload: &[],
             }
         );
+
+        iface
+            .leave_multicast_group(&mut device, group_addr, timestamp)
+            .unwrap();
+        assert!(!iface.has_multicast_group(group_addr));
     }
 }

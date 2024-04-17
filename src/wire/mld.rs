@@ -306,6 +306,17 @@ pub struct AddressRecordRepr<'a> {
 }
 
 impl<'a> AddressRecordRepr<'a> {
+    /// Create a new MLDv2 address record representation with an empty payload.
+    pub const fn new(record_type: RecordType, mcast_addr: Ipv6Address) -> Self {
+        Self {
+            record_type,
+            aux_data_len: 0,
+            num_srcs: 0,
+            mcast_addr,
+            payload: &[],
+        }
+    }
+
     /// Parse an MLDv2 address record and return a high-level representation.
     pub fn parse<T>(record: &AddressRecord<&'a T>) -> Result<Self>
     where
