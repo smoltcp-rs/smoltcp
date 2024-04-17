@@ -512,7 +512,7 @@ impl Dodag {
 
                 #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop-3"))]
                 if !matches!(mop, ModeOfOperation::NoDownwardRoutesMaintained) {
-                    self.schedule_dao(mop, child, parent, now);
+                    self.schedule_dao(mop, &[child], &[], parent, now);
                 }
             }
         } else {
@@ -525,17 +525,22 @@ impl Dodag {
     pub(crate) fn schedule_dao(
         &mut self,
         mop: ModeOfOperation,
-        child: Ipv6Address,
+        unicast_targets: &[Ipv6Address],
+        multicast_targets: &[Ipv6Address],
         parent: Ipv6Address,
         now: Instant,
     ) {
         #[cfg(feature = "rpl-mop-1")]
         if matches!(mop, ModeOfOperation::NonStoringMode) {
-            net_trace!("scheduling DAO: {} is parent of {}", parent, child);
+            net_trace!(
+                "scheduling DAO: {} is parent of {:?}",
+                parent,
+                unicast_targets
+            );
             self.daos
                 .push(Dao::new(
                     self.id,
-                    child,
+                    unicast_targets[0], // FIXME
                     Some(parent),
                     self.dao_seq_number,
                     self.default_lifetime,
@@ -547,13 +552,20 @@ impl Dodag {
             self.dao_seq_number.increment();
         }
 
-        #[cfg(feature = "rpl-mop-2")]
-        if matches!(mop, ModeOfOperation::StoringMode) {
-            net_trace!("scheduling DAO: {} is parent of {}", parent, child);
+        #[cfg(all(feature = "rpl-mop-2", feature = "rpl-mop-3"))]
+        if matches!(
+            mop,
+            ModeOfOperation::StoringMode | ModeOfOperation::StoringModeWithMulticast
+        ) {
+            net_trace!(
+                "scheduling DAO: {} is parent of {:?}",
+                parent,
+                unicast_targets
+            );
             self.daos
                 .push(Dao::new(
                     parent,
-                    child,
+                    unicast_targets[0], // FIXME
                     None,
                     self.dao_seq_number,
                     self.default_lifetime,
@@ -562,6 +574,29 @@ impl Dodag {
                     self.rank,
                 ))
                 .unwrap();
+
+            // If we are in MOP3, we also send a DOA with our subscribed multicast addresses.
+            #[cfg(feature = "rpl-mop-3")]
+            {
+                net_trace!("scheduling multicast DAO");
+                // TODO: What should be done about multiple targets/multicast groups?
+                // Only send multicast DAO if there is interest in multicast
+                if !multicast_targets.is_empty() {
+                    self.daos
+                        .push(Dao::new(
+                            parent,
+                            multicast_targets[0], // FIXME
+                            None,
+                            self.dao_seq_number,
+                            self.default_lifetime,
+                            self.instance_id,
+                            Some(self.id),
+                            self.rank,
+                        ))
+                        .unwrap();
+                }
+            }
+
             self.dao_seq_number.increment();
         }
 

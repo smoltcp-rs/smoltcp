@@ -120,7 +120,13 @@ impl Interface {
 
             #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop-3"))]
             if dodag.dao_expiration <= ctx.now {
-                dodag.schedule_dao(ctx.rpl.mode_of_operation, our_addr, parent_address, ctx.now);
+                dodag.schedule_dao(
+                    ctx.rpl.mode_of_operation,
+                    &[our_addr],
+                    &ctx.rpl_multicast_groups,
+                    parent_address,
+                    ctx.now,
+                );
             }
         }
 

@@ -127,6 +127,8 @@ pub struct InterfaceInner {
 
     #[cfg(feature = "proto-rpl")]
     rpl: super::Rpl,
+    #[cfg(feature = "rpl-mop-3")]
+    rpl_multicast_groups: heapless::Vec<Ipv6Address, IFACE_MAX_MULTICAST_GROUP_COUNT>,
 }
 
 /// Configuration structure used for creating a network interface.
@@ -261,6 +263,8 @@ impl Interface {
 
                 #[cfg(feature = "proto-rpl")]
                 rpl: super::Rpl::new(config.rpl_config.unwrap_or_default(), now),
+                #[cfg(feature = "rpl-mop-3")]
+                rpl_multicast_groups: heapless::Vec::new(),
             },
         }
     }
