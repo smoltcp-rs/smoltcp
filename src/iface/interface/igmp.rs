@@ -74,7 +74,10 @@ impl Interface {
             #[cfg(feature = "proto-ipv6")]
             IpAddress::Ipv6(addr) => {
                 // Build report packet containing this new address
-                let report_record = &[MldAddressRecordRepr::new(MldRecordType::ChangeToInclude, addr)];
+                let report_record = &[MldAddressRecordRepr::new(
+                    MldRecordType::ChangeToInclude,
+                    addr,
+                )];
                 let is_not_new = self
                     .inner
                     .ipv6_multicast_groups
@@ -142,7 +145,10 @@ impl Interface {
             }
             #[cfg(feature = "proto-ipv6")]
             IpAddress::Ipv6(addr) => {
-                let report_record = &[MldAddressRecordRepr::new(MldRecordType::ChangeToExclude, addr)];
+                let report_record = &[MldAddressRecordRepr::new(
+                    MldRecordType::ChangeToExclude,
+                    addr,
+                )];
                 let was_not_present = self.inner.ipv6_multicast_groups.remove(&addr).is_none();
                 if was_not_present {
                     Ok(false)
