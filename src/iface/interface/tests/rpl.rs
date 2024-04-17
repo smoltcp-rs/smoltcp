@@ -11,6 +11,8 @@ use crate::iface::RplModeOfOperation;
 #[cfg(feature = "rpl-mop-1")]
 #[case::mop2(RplModeOfOperation::StoringMode)]
 #[cfg(feature = "rpl-mop-2")]
+#[case::mop3(RplModeOfOperation::StoringModeWithMulticast)]
+#[cfg(feature = "rpl-mop-3")]
 fn unicast_dis(#[case] mop: RplModeOfOperation) {
     use crate::iface::rpl::{Dodag, Rank, RplInstanceId};
 
@@ -105,6 +107,8 @@ fn unicast_dis(#[case] mop: RplModeOfOperation) {
 #[cfg(feature = "rpl-mop-1")]
 #[case::mop2(RplModeOfOperation::StoringMode)]
 #[cfg(feature = "rpl-mop-2")]
+#[case::mop3(RplModeOfOperation::StoringModeWithMulticast)]
+#[cfg(feature = "rpl-mop-3")]
 fn dio_without_configuration(#[case] mop: RplModeOfOperation) {
     use crate::iface::rpl::{Rank, RplInstanceId};
 
@@ -160,6 +164,8 @@ fn dio_without_configuration(#[case] mop: RplModeOfOperation) {
 #[cfg(feature = "rpl-mop-1")]
 #[case::mop2(RplModeOfOperation::StoringMode)]
 #[cfg(feature = "rpl-mop-2")]
+#[case::mop3(RplModeOfOperation::StoringModeWithMulticast)]
+#[cfg(feature = "rpl-mop-3")]
 fn dio_with_increased_version_number(#[case] mop: RplModeOfOperation) {
     use crate::iface::rpl::{Dodag, ObjectiveFunction0, Parent, ParentSet, Rank, RplInstanceId};
 

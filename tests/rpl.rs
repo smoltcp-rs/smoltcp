@@ -21,6 +21,7 @@ fn init() {
 #[case::mop0(RplModeOfOperation::NoDownwardRoutesMaintained)]
 #[case::mop1(RplModeOfOperation::NonStoringMode)]
 #[case::mop2(RplModeOfOperation::StoringMode)]
+#[case::mop3(RplModeOfOperation::StoringModeWithMulticast)]
 fn root_node_only(#[case] mop: RplModeOfOperation) {
     let mut sim = sim::NetworkSim::new();
     sim.create_node(RplConfig::new(mop).add_root_config(RplRootConfig::new(
@@ -49,6 +50,7 @@ fn root_node_only(#[case] mop: RplModeOfOperation) {
 #[case::mop0(RplModeOfOperation::NoDownwardRoutesMaintained)]
 #[case::mop1(RplModeOfOperation::NonStoringMode)]
 #[case::mop2(RplModeOfOperation::StoringMode)]
+#[case::mop3(RplModeOfOperation::StoringModeWithMulticast)]
 fn normal_node_without_dodag(#[case] mop: RplModeOfOperation) {
     let mut sim = sim::NetworkSim::new();
     sim.create_node(RplConfig::new(mop));
@@ -77,6 +79,7 @@ fn normal_node_without_dodag(#[case] mop: RplModeOfOperation) {
 #[case::mop0(RplModeOfOperation::NoDownwardRoutesMaintained)]
 #[case::mop1(RplModeOfOperation::NonStoringMode)]
 #[case::mop2(RplModeOfOperation::StoringMode)]
+#[case::mop3(RplModeOfOperation::StoringModeWithMulticast)]
 fn root_and_normal_node(#[case] mop: RplModeOfOperation) {
     let mut sim = sim::topology(sim::NetworkSim::new(), mop, 1, 1);
 
@@ -121,6 +124,7 @@ fn root_and_normal_node(#[case] mop: RplModeOfOperation) {
 #[case::mop0(RplModeOfOperation::NoDownwardRoutesMaintained)]
 #[case::mop1(RplModeOfOperation::NonStoringMode)]
 #[case::mop2(RplModeOfOperation::StoringMode)]
+#[case::mop3(RplModeOfOperation::StoringModeWithMulticast)]
 fn root_and_normal_node_moved_out_of_range(#[case] mop: RplModeOfOperation) {
     let mut sim = sim::topology(sim::NetworkSim::new(), mop, 1, 1);
 
@@ -225,6 +229,7 @@ fn root_and_normal_node_moved_out_of_range(#[case] mop: RplModeOfOperation) {
 #[case::mop0(RplModeOfOperation::NoDownwardRoutesMaintained)]
 //#[case::mop1(RplModeOfOperation::NonStoringMode)]
 #[case::mop2(RplModeOfOperation::StoringMode)]
+#[case::mop3(RplModeOfOperation::StoringModeWithMulticast)]
 fn message_forwarding_to_root(#[case] mop: RplModeOfOperation) {
     let mut sim = sim::topology(sim::NetworkSim::new(), mop, 1, 2);
 
@@ -271,6 +276,7 @@ fn message_forwarding_to_root(#[case] mop: RplModeOfOperation) {
 #[case::mop0(RplModeOfOperation::NoDownwardRoutesMaintained)]
 //#[case::mop1(RplModeOfOperation::NonStoringMode)]
 #[case::mop2(RplModeOfOperation::StoringMode)]
+#[case::mop3(RplModeOfOperation::StoringModeWithMulticast)]
 fn message_forwarding_up_and_down(#[case] mop: RplModeOfOperation) {
     let mut sim = sim::topology(sim::NetworkSim::new(), mop, 2, 2);
 
@@ -358,6 +364,7 @@ fn message_forwarding_up_and_down(#[case] mop: RplModeOfOperation) {
 #[case::mop0(RplModeOfOperation::NoDownwardRoutesMaintained)]
 //#[case::mop1(RplModeOfOperation::NonStoringMode)]
 #[case::mop2(RplModeOfOperation::StoringMode)]
+#[case::mop3(RplModeOfOperation::StoringModeWithMulticast)]
 fn normal_node_change_parent(#[case] mop: RplModeOfOperation) {
     init();
 
@@ -433,6 +440,7 @@ fn normal_node_change_parent(#[case] mop: RplModeOfOperation) {
 #[case::mop0(RplModeOfOperation::NoDownwardRoutesMaintained)]
 //#[case::mop1(RplModeOfOperation::NonStoringMode)]
 #[case::mop2(RplModeOfOperation::StoringMode)]
+#[case::mop3(RplModeOfOperation::StoringModeWithMulticast)]
 fn parent_leaves_network_no_other_parent(#[case] mop: RplModeOfOperation) {
     let mut sim = sim::topology(sim::NetworkSim::new(), mop, 4, 2);
     sim.run(Duration::from_millis(500), ONE_HOUR);
@@ -467,6 +475,7 @@ fn parent_leaves_network_no_other_parent(#[case] mop: RplModeOfOperation) {
 // In MOP 2 the DTSN is incremented when a parent does not hear anymore from one of its children.
 #[rstest]
 #[case::mop2(RplModeOfOperation::StoringMode)]
+#[case::mop3(RplModeOfOperation::StoringModeWithMulticast)]
 fn dtsn_incremented_when_child_leaves_network(#[case] mop: RplModeOfOperation) {
     use std::collections::HashMap;
 
