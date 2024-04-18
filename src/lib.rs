@@ -147,6 +147,7 @@ pub mod config {
     pub const RPL_RELATIONS_BUFFER_COUNT: usize = 16;
     pub const RPL_PARENTS_BUFFER_COUNT: usize = 8;
     pub const RPL_MAX_OPTIONS: usize = 2;
+    pub const RPL_MAX_NEXT_HOP_PER_DESTINATION: usize = 4;
     pub const IPV6_HBH_MAX_OPTIONS: usize = 2;
 }
 

@@ -4,6 +4,7 @@ use smoltcp::iface::*;
 use smoltcp::time::*;
 use smoltcp::wire::*;
 use std::collections::VecDeque;
+use std::fmt::Display;
 
 type InitFn = Box<dyn Fn(&mut SocketSet<'static>) -> Vec<SocketHandle> + Send + Sync + 'static>;
 
@@ -36,6 +37,13 @@ pub struct Node {
     pub next_poll: Option<Instant>,
 }
 
+impl Display for Node {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Node[{}] with {}", self.id, self.device)?;
+        Ok(())
+    }
+}
+
 impl Node {
     /// Create a new node.
     pub fn new(id: usize, mut rpl: RplConfig) -> Self {
@@ -64,7 +72,7 @@ impl Node {
         });
 
         Self {
-            id: id as usize,
+            id,
             range: 101.,
             position: Position::from((0., 0.)),
             enabled: true,
@@ -121,6 +129,20 @@ pub struct NodeDevice {
     pub position: Position,
     pub rx_queue: VecDeque<Message>,
     pub tx_queue: VecDeque<Message>,
+}
+
+impl Display for NodeDevice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "NodeDevice[{}] at ({}, {})",
+            self.id,
+            self.position.x(),
+            self.position.y()
+        )?;
+
+        Ok(())
+    }
 }
 
 impl NodeDevice {

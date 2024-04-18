@@ -85,9 +85,18 @@ impl Interface {
             // If we did not hear from our parent for some time,
             // remove our parent. Ideally, we should check if we could find another parent.
             if parent.last_heard < ctx.now - dodag.dio_timer.max_expiration() * 2 {
-                dodag.remove_parent(
+                // dodag.remove_parent(
+                //     ctx.rpl.mode_of_operation,
+                //     our_addr,
+                //     &ctx.rpl.of,
+                //     ctx.now,
+                //     &mut ctx.rand,
+                // );
+                dodag.remove_parent();
+                dodag.find_new_parent(
                     ctx.rpl.mode_of_operation,
-                    our_addr,
+                    &[our_addr], // FIXME: what about multiple unicast targets
+                    &ctx.rpl_targets_multicast,
                     &ctx.rpl.of,
                     ctx.now,
                     &mut ctx.rand,
@@ -120,13 +129,16 @@ impl Interface {
 
             #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop-3"))]
             if dodag.dao_expiration <= ctx.now {
-                dodag.schedule_dao(
-                    ctx.rpl.mode_of_operation,
-                    &[our_addr],
-                    &ctx.rpl_multicast_groups,
-                    parent_address,
-                    ctx.now,
-                );
+                let _ = dodag
+                    .schedule_dao(
+                        ctx.rpl.mode_of_operation,
+                        &[our_addr],
+                        &ctx.rpl_targets_multicast[..],
+                        parent_address,
+                        ctx.now,
+                        false,
+                    )
+                    .inspect_err(|err| net_trace!("Could not transmit DAO with reason: {err}"));
             }
         }
 
@@ -367,9 +379,7 @@ impl InterfaceInner {
         dis: RplDis<'payload>,
     ) -> Option<Packet<'output>> {
         // We cannot handle a DIS when we are not part of any DODAG.
-        let Some(dodag) = &mut self.rpl.dodag else {
-            return None;
-        };
+        let dodag = self.rpl.dodag.as_mut()?;
 
         if let Some(frame) = self.current_frame.as_ref() {
             self.neighbor_cache.fill_with_expiration(
@@ -641,9 +651,18 @@ impl InterfaceInner {
                 dodag.parent_set.clear();
 
                 // We do NOT send a No-path DAO.
-                let _ = dodag.remove_parent(
+                // let _ = dodag.remove_parent(
+                //     self.rpl.mode_of_operation,
+                //     // our_addr,
+                //     &self.rpl.of,
+                //     self.now,
+                //     &mut self.rand,
+                // );
+                let _ = dodag.remove_parent();
+                dodag.find_new_parent(
                     self.rpl.mode_of_operation,
-                    our_addr,
+                    &[our_addr], // FIXME
+                    &self.rpl_targets_multicast[..],
                     &self.rpl.of,
                     self.now,
                     &mut self.rand,
@@ -675,9 +694,18 @@ impl InterfaceInner {
                 net_trace!("parent leaving, removing parent");
 
                 // Don't need to send a no-path DOA when parent is leaving.
-                let _ = dodag.remove_parent(
+                // let _ = dodag.remove_parent(
+                //     self.rpl.mode_of_operation,
+                //     // our_addr,
+                //     &self.rpl.of,
+                //     self.now,
+                //     &mut self.rand,
+                // );
+                let _ = dodag.remove_parent();
+                dodag.find_new_parent(
                     self.rpl.mode_of_operation,
-                    our_addr,
+                    &[our_addr], // FIXME
+                    &self.rpl_targets_multicast[..],
                     &self.rpl.of,
                     self.now,
                     &mut self.rand,
@@ -762,7 +790,8 @@ impl InterfaceInner {
             // Select and schedule DAO to new parent.
             dodag.find_new_parent(
                 self.rpl.mode_of_operation,
-                our_addr,
+                &[our_addr],
+                &self.rpl_targets_multicast[..],
                 &self.rpl.of,
                 self.now,
                 &mut self.rand,
@@ -850,14 +879,21 @@ impl InterfaceInner {
 
                         for target in &targets {
                             net_trace!("adding {} => {} relation", target, next_hop);
-                            dodag.relations.add_relation(
-                                *target,
-                                next_hop,
-                                self.now,
-                                crate::time::Duration::from_secs(
-                                    transit.path_lifetime as u64 * dodag.lifetime_unit as u64,
-                                ),
-                            );
+                            let _ = dodag
+                                .relations
+                                .add_relation(
+                                    *target,
+                                    &[next_hop],
+                                    self.now,
+                                    crate::time::Duration::from_secs(
+                                        transit.path_lifetime as u64 * dodag.lifetime_unit as u64,
+                                    ),
+                                )
+                                .inspect_err(|err| {
+                                    net_trace!(
+                                        "Could not add a relation to the dodag with reason {err}"
+                                    )
+                                });
                         }
 
                         targets.clear();
@@ -1101,7 +1137,8 @@ pub(crate) fn create_source_routing_header(
 
     loop {
         let next_hop = dodag.relations.find_next_hop(next);
-        if let Some(next_hop) = next_hop {
+        if let Some(&next_hop) = next_hop.and_then(|hop| hop.first()) {
+            // We only support unicast in SRH
             net_trace!("  via {}", next_hop);
             if next_hop == our_addr {
                 break;

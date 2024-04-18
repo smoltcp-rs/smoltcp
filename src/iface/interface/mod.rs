@@ -27,9 +27,6 @@ mod tcp;
 #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
 mod udp;
 
-#[cfg(feature = "proto-igmp")]
-pub use igmp::MulticastError;
-
 use super::packet::*;
 
 use core::result::Result;
@@ -128,7 +125,7 @@ pub struct InterfaceInner {
     #[cfg(feature = "proto-rpl")]
     rpl: super::Rpl,
     #[cfg(feature = "rpl-mop-3")]
-    rpl_multicast_groups: heapless::Vec<Ipv6Address, IFACE_MAX_MULTICAST_GROUP_COUNT>,
+    rpl_targets_multicast: heapless::Vec<Ipv6Address, IFACE_MAX_MULTICAST_GROUP_COUNT>,
 }
 
 /// Configuration structure used for creating a network interface.
@@ -264,7 +261,7 @@ impl Interface {
                 #[cfg(feature = "proto-rpl")]
                 rpl: super::Rpl::new(config.rpl_config.unwrap_or_default(), now),
                 #[cfg(feature = "rpl-mop-3")]
-                rpl_multicast_groups: heapless::Vec::new(),
+                rpl_targets_multicast: Default::default(),
             },
         }
     }
@@ -424,6 +421,169 @@ impl Interface {
             net_debug!("RFC 4944 specifies that the reassembly timeout MUST be set to a maximum of 60 seconds");
         }
         self.fragments.reassembly_timeout = timeout;
+    }
+
+    /// Add an address to a list of subscribed multicast IP addresses.
+    ///
+    /// Returns `Ok(announce_sent)` if the address was added successfully, where `announce_sent`
+    /// indicates whether an initial immediate announcement has been sent.
+    pub fn join_multicast_group<D, T: Into<IpAddress>>(
+        &mut self,
+        device: &mut D,
+        addr: T,
+        timestamp: Instant,
+    ) -> Result<bool, MulticastError>
+    where
+        D: Device + ?Sized,
+    {
+        self.inner.now = timestamp;
+
+        match addr.into() {
+            #[cfg(all(feature = "proto-ipv4", feature = "proto-igmp"))]
+            IpAddress::Ipv4(addr) => {
+                let is_not_new = self
+                    .inner
+                    .ipv4_multicast_groups
+                    .insert(addr, ())
+                    .map_err(|_| MulticastError::GroupTableFull)?
+                    .is_some();
+                if is_not_new {
+                    Ok(false)
+                } else if let Some(pkt) = self.inner.igmp_report_packet(IgmpVersion::Version2, addr)
+                {
+                    // Send initial membership report
+                    let tx_token = device
+                        .transmit(timestamp)
+                        .ok_or(MulticastError::Exhausted)?;
+
+                    // NOTE(unwrap): packet destination is multicast, which is always routable and doesn't require neighbor discovery.
+                    self.inner
+                        .dispatch_ip(tx_token, PacketMeta::default(), pkt, &mut self.fragmenter)
+                        .unwrap();
+
+                    Ok(true)
+                } else {
+                    Ok(false)
+                }
+            }
+            #[cfg(all(feature = "proto-ipv6", feature = "rpl-mop-3"))]
+            IpAddress::Ipv6(addr) => {
+                // Check if the multicast address is present in the current multicast targets
+                if !self.inner.rpl_targets_multicast.contains(&addr) {
+                    // Try to add the multicast target, otherwise abort
+                    self.inner
+                        .rpl_targets_multicast
+                        .push(addr)
+                        .map_err(|_err| MulticastError::GroupTableFull)?;
+
+                    // Schedule a new DAO for transmission if part of a dodag
+                    match &mut self.inner.rpl.dodag {
+                        Some(dodag) => {
+                            if let Some(parent) = &dodag.parent {
+                                dodag
+                                    .schedule_dao(
+                                        self.inner.rpl.mode_of_operation,
+                                        &[],
+                                        &[addr],
+                                        *parent,
+                                        self.inner.now,
+                                        false,
+                                    )
+                                    .map_err(|_err| MulticastError::Exhausted)?;
+                            }
+
+                            Ok(true)
+                        }
+                        None => Ok(false),
+                    }
+                } else {
+                    Ok(false)
+                }
+            }
+            // Multicast is not implemented/enabled for other address families
+            #[allow(unreachable_patterns)]
+            _ => Err(MulticastError::Unaddressable),
+        }
+    }
+
+    /// Remove an address from the subscribed multicast IP addresses.
+    ///
+    /// Returns `Ok(leave_sent)` if the address was removed successfully, where `leave_sent`
+    /// indicates whether an immediate leave packet has been sent.
+    pub fn leave_multicast_group<D, T: Into<IpAddress>>(
+        &mut self,
+        device: &mut D,
+        addr: T,
+        timestamp: Instant,
+    ) -> Result<bool, MulticastError>
+    where
+        D: Device + ?Sized,
+    {
+        self.inner.now = timestamp;
+
+        match addr.into() {
+            #[cfg(all(feature = "proto-ipv4", feature = "proto-igmp"))]
+            IpAddress::Ipv4(addr) => {
+                let was_not_present = self.inner.ipv4_multicast_groups.remove(&addr).is_none();
+                if was_not_present {
+                    Ok(false)
+                } else if let Some(pkt) = self.inner.igmp_leave_packet(addr) {
+                    // Send group leave packet
+                    let tx_token = device
+                        .transmit(timestamp)
+                        .ok_or(MulticastError::Exhausted)?;
+
+                    // NOTE(unwrap): packet destination is multicast, which is always routable and doesn't require neighbor discovery.
+                    self.inner
+                        .dispatch_ip(tx_token, PacketMeta::default(), pkt, &mut self.fragmenter)
+                        .unwrap();
+
+                    Ok(true)
+                } else {
+                    Ok(false)
+                }
+            }
+            #[cfg(all(feature = "proto-ipv6", feature = "rpl-mop-3"))]
+            IpAddress::Ipv6(addr) => {
+                if self.inner.rpl_targets_multicast.contains(&addr) {
+                    // Try to add the multicast target, otherwise abort
+                    self.inner
+                        .rpl_targets_multicast
+                        .retain(|multicast_group| multicast_group == &addr);
+
+                    // Schedule a new DAO for transmission if part of a dodag
+                    match &mut self.inner.rpl.dodag {
+                        Some(dodag) => {
+                            if let Some(parent) = &dodag.parent {
+                                dodag
+                                    .schedule_dao(
+                                        self.inner.rpl.mode_of_operation,
+                                        &[],
+                                        &[addr],
+                                        *parent,
+                                        self.inner.now,
+                                        true,
+                                    )
+                                    .map_err(|_err| MulticastError::Exhausted)?;
+                            }
+
+                            Ok(true)
+                        }
+                        None => Ok(false),
+                    }
+                } else {
+                    Ok(false)
+                }
+            }
+            // Multicast is not implemented/enabled for other address families
+            #[allow(unreachable_patterns)]
+            _ => Err(MulticastError::Unaddressable),
+        }
+    }
+
+    /// Check whether the interface listens to given destination multicast IP address.
+    pub fn has_multicast_group<T: Into<IpAddress>>(&self, addr: T) -> bool {
+        self.inner.has_multicast_group(addr)
     }
 
     /// Transmit packets queued in the given sockets, and receive packets queued
@@ -1011,11 +1171,16 @@ impl InterfaceInner {
         let dst_addr = if let IpAddress::Ipv6(dst_addr) = dst_addr {
             #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop3"))]
             if let Some(dodag) = &self.rpl.dodag {
-                if let Some(next_hop) = dodag.relations.find_next_hop(dst_addr) {
+                if let Some(&next_hop) = dodag
+                    .relations
+                    .find_next_hop(dst_addr)
+                    .and_then(|hop| hop.first())
+                // In unicast it is not possible to have multiple next_hops per destination
+                {
                     if next_hop == self.ipv6_addr().unwrap() {
                         dst_addr.into()
                     } else {
-                        net_trace!("next hop {}", next_hop);
+                        net_trace!("next hops {:?}", next_hop);
                         next_hop.into()
                     }
                 } else if let Some(parent) = dodag.parent {
@@ -1347,3 +1512,28 @@ enum DispatchError {
     /// should be retried later.
     NeighborPending,
 }
+
+/// Error type for `join_multicast_group`, `leave_multicast_group`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum MulticastError {
+    /// The hardware device transmit buffer is full. Try again later.
+    Exhausted,
+    /// The table of joined multicast groups is already full.
+    GroupTableFull,
+    /// The addresstype is unsupported
+    Unaddressable,
+}
+
+impl core::fmt::Display for MulticastError {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        match self {
+            MulticastError::Exhausted => write!(f, "Exhausted"),
+            MulticastError::GroupTableFull => write!(f, "GroupTableFull"),
+            MulticastError::Unaddressable => write!(f, "Unaddressable"),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for MulticastError {}
