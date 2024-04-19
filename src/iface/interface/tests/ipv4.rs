@@ -938,7 +938,10 @@ fn test_raw_socket_with_udp_socket(#[case] medium: Medium) {
         socket.recv(),
         Ok((
             &UDP_PAYLOAD[..],
-            IpEndpoint::new(src_addr.into(), 67).into()
+            udp::UdpMetadata {
+                local_address: Some(dst_addr.into()),
+                ..IpEndpoint::new(src_addr.into(), 67).into()
+            }
         ))
     );
 }
