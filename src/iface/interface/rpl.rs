@@ -1137,19 +1137,19 @@ pub(crate) fn create_source_routing_header(
 
     loop {
         let next_hop = dodag.relations.find_next_hop(next);
-        if let Some(&next_hop) = next_hop.and_then(|hop| hop.first()) {
+        if let Some(next_hop) = next_hop.and_then(|hop| hop.first()) {
             // We only support unicast in SRH
             net_trace!("  via {}", next_hop);
-            if next_hop == our_addr {
+            if next_hop.ip == our_addr {
                 break;
             }
 
-            if route.push(next_hop).is_err() {
+            if route.push(next_hop.ip).is_err() {
                 net_trace!("could not add hop to route buffer");
                 return None;
             }
 
-            next = next_hop;
+            next = next_hop.ip;
         } else {
             net_trace!("no route found, last next hop is {}", next);
             return None;

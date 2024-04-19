@@ -1171,17 +1171,17 @@ impl InterfaceInner {
         let dst_addr = if let IpAddress::Ipv6(dst_addr) = dst_addr {
             #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop3"))]
             if let Some(dodag) = &self.rpl.dodag {
-                if let Some(&next_hop) = dodag
+                if let Some(next_hop) = dodag
                     .relations
                     .find_next_hop(dst_addr)
                     .and_then(|hop| hop.first())
                 // In unicast it is not possible to have multiple next_hops per destination
                 {
-                    if next_hop == self.ipv6_addr().unwrap() {
+                    if next_hop.ip == self.ipv6_addr().unwrap() {
                         dst_addr.into()
                     } else {
                         net_trace!("next hops {:?}", next_hop);
-                        next_hop.into()
+                        next_hop.ip.into()
                     }
                 } else if let Some(parent) = dodag.parent {
                     parent.into()

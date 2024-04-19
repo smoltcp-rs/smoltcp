@@ -24,19 +24,17 @@ impl core::fmt::Display for RelationError {
 #[derive(Debug)]
 pub struct UnicastRelation {
     destination: Ipv6Address,
-    next_hops: [Ipv6Address; 1],
-    added: Instant,
-    lifetime: Duration,
+    next_hop: [RelationHop; 1],
 }
 
 impl core::fmt::Display for UnicastRelation {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
-            "{} via {} (expires at {})",
+            "{} via [{}] (expires at {})",
             self.destination,
-            self.next_hops[0],
-            self.added + self.lifetime
+            self.next_hop[0],
+            self.next_hop[0].added + self.next_hop[0].lifetime
         )
     }
 }
@@ -46,7 +44,7 @@ impl defmt::Format for UnicastRelation {
     fn format(&self, fmt: defmt::Formatter) {
         defmt::write!(
             fmt,
-            "{} via {} (expires at {})",
+            "{} via [{}] (expires at {})",
             self.destination,
             self.next_hop,
             self.added + self.lifetime
@@ -58,54 +56,99 @@ impl defmt::Format for UnicastRelation {
 #[derive(Debug)]
 pub struct MulticastRelation {
     destination: Ipv6Address,
-    next_hops: heapless::Vec<Ipv6Address, { RPL_MAX_NEXT_HOP_PER_DESTINATION }>,
-    added: Instant,
-    lifetime: Duration,
+    next_hops: heapless::Vec<RelationHop, { RPL_MAX_NEXT_HOP_PER_DESTINATION }>,
 }
 
+#[derive(Debug)]
+pub struct RelationHop {
+    pub ip: Ipv6Address,
+    pub added: Instant,
+    pub lifetime: Duration,
+}
+
+impl RelationHop {
+    pub fn expires_at(&self) -> Instant {
+        self.added + self.lifetime
+    }
+
+    pub fn has_expired(&self, now: Instant) -> bool {
+        self.expires_at() <= now
+    }
+}
+
+impl core::fmt::Display for RelationHop {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{} (expires at {})", self.ip, self.added + self.lifetime)
+    }
+}
+
+#[cfg(all(feature = "defmt", feature = "rpl-mop-3"))]
+impl defmt::Format for RelationHop {
+    fn format(&self, fmt: defmt::Formatter) {
+        defmt::write!(f, "{} (expires at {})", self.ip, self.added + self.lifetime)
+    }
+}
+
+#[cfg(feature = "rpl-mop-3")]
 impl MulticastRelation {
     /// Insert a next hop for this relation. If the next hop already exists, if
     /// will return Ok(true) otherwise Ok(false)
-    fn insert_next_hop(&mut self, ip: Ipv6Address) -> Result<bool, RelationError> {
-        if !self.next_hops.contains(&ip) {
-            self.next_hops
-                .push(ip)
-                .map_err(|_err| RelationError::NextHopExhausted)?;
+    fn insert_next_hop(
+        &mut self,
+        ip: Ipv6Address,
+        added: Instant,
+        lifetime: Duration,
+    ) -> Result<bool, RelationError> {
+        if let Some(next_hop) = self.next_hops.iter_mut().find(|hop| hop.ip == ip) {
+            next_hop.added = added;
+            next_hop.lifetime = lifetime;
+
             Ok(true)
         } else {
+            self.next_hops
+                .push(RelationHop {
+                    ip,
+                    added,
+                    lifetime,
+                })
+                .map_err(|_err| RelationError::NextHopExhausted)?;
             Ok(false)
         }
     }
 
     /// Removes the next_hop from this relation
     pub fn remove_next_hop(&mut self, ip: Ipv6Address) {
-        self.next_hops.retain(|next_hop| next_hop == &ip);
+        self.next_hops.retain(|next_hop| next_hop.ip == ip);
     }
 }
 
 #[cfg(feature = "rpl-mop-3")]
 impl core::fmt::Display for MulticastRelation {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(
-            f,
-            "{} via {:?} (expires at {})",
-            self.destination,
-            self.next_hops,
-            self.added + self.lifetime
-        )
+        write!(f, "{} via [", self.destination)?;
+
+        for hop in &self.next_hops {
+            write!(f, "{},", hop)?;
+        }
+
+        write!(f, "]")?;
+
+        Ok(())
     }
 }
 
 #[cfg(all(feature = "defmt", feature = "rpl-mop-3"))]
 impl defmt::Format for MulticastRelation {
     fn format(&self, fmt: defmt::Formatter) {
-        defmt::write!(
-            fmt,
-            "{} via {:?} (expires at {})",
-            self.destination,
-            self.next_hop,
-            self.added + self.lifetime
-        );
+        defmt::write!(f, "{} via [", self.destination)?;
+
+        for hop in self.next_hops {
+            defmt::write!(f, "{},", hop)?;
+        }
+
+        defmt::write!(f, "]")?;
+
+        Ok(())
     }
 }
 
@@ -126,10 +169,11 @@ impl Relation {
         if destination.is_multicast() {
             Ok(Self::Multicast(MulticastRelation {
                 destination,
-                next_hops: heapless::Vec::from_slice(next_hops)
-                    .map_err(|_err| RelationError::NextHopExhausted)?,
-                added: now,
-                lifetime,
+                next_hops: heapless::Vec::from_iter(next_hops.iter().map(|hop| RelationHop {
+                    ip: *hop,
+                    added: now,
+                    lifetime,
+                })),
             }))
         } else {
             if next_hops.len() > 1 {
@@ -137,9 +181,11 @@ impl Relation {
             }
             Ok(Self::Unicast(UnicastRelation {
                 destination,
-                next_hops: next_hops.try_into().unwrap(),
-                added: now,
-                lifetime,
+                next_hop: [RelationHop {
+                    ip: next_hops[0],
+                    added: now,
+                    lifetime,
+                }],
             }))
         }
     }
@@ -151,64 +197,41 @@ impl Relation {
         }
     }
 
-    pub fn insert_next_hop(&mut self, ip: Ipv6Address) -> Result<bool, RelationError> {
+    /// Insert a next hop for the given relation. If this is a unicast relation,
+    /// the previous will be overwritten and if it is a multicast relation it
+    /// will add an extra hop if the hop does not already exist. If there already
+    /// exists a hop in the multicast relation, the lifetime related metadata
+    /// will be updated.
+    pub fn insert_next_hop(
+        &mut self,
+        ip: Ipv6Address,
+        added: Instant,
+        lifetime: Duration,
+    ) -> Result<bool, RelationError> {
         match self {
             Self::Unicast(rel) => {
-                rel.next_hops[0] = ip;
+                let next_hop = &mut rel.next_hop[0];
+                next_hop.ip = ip;
+                next_hop.added = added;
+                next_hop.lifetime = lifetime;
                 Ok(true)
             }
-            Self::Multicast(rel) => rel.insert_next_hop(ip),
+            Self::Multicast(rel) => rel.insert_next_hop(ip, added, lifetime),
         }
     }
 
-    pub fn next_hop_unicast(&self) -> Option<&Ipv6Address> {
-        if let Self::Unicast(rel) = self {
-            Some(&rel.next_hops[0])
-        } else {
-            None
-        }
-    }
-
-    pub fn next_hop_multicast(&self) -> Option<&[Ipv6Address]> {
-        if let Self::Multicast(rel) = self {
-            Some(&rel.next_hops)
-        } else {
-            None
-        }
-    }
-
-    pub fn next_hop(&self) -> &[Ipv6Address] {
+    pub fn next_hop(&self) -> &[RelationHop] {
         match self {
-            Self::Unicast(rel) => &rel.next_hops,
+            Self::Unicast(rel) => &rel.next_hop,
             Self::Multicast(rel) => &rel.next_hops,
         }
     }
 
-    pub fn added_mut(&mut self) -> &mut Instant {
+    /// A relation has expired if all its possible hops have expired
+    pub fn has_expired(&self, now: Instant) -> bool {
         match self {
-            Self::Unicast(rel) => &mut rel.added,
-            Self::Multicast(rel) => &mut rel.added,
-        }
-    }
-
-    pub fn added(&self) -> Instant {
-        match self {
-            Self::Unicast(rel) => rel.added,
-            Self::Multicast(rel) => rel.added,
-        }
-    }
-
-    pub fn lifetime_mut(&mut self) -> &mut Duration {
-        match self {
-            Self::Unicast(rel) => &mut rel.lifetime,
-            Self::Multicast(rel) => &mut rel.lifetime,
-        }
-    }
-
-    pub fn lifetime(&self) -> Duration {
-        match self {
-            Self::Unicast(rel) => rel.lifetime,
-            Self::Multicast(rel) => rel.lifetime,
+            Self::Unicast(rel) => rel.next_hop.iter().all(|hop| hop.has_expired(now)),
+            Self::Multicast(rel) => rel.next_hops.iter().all(|hop| hop.has_expired(now)),
         }
     }
 }
@@ -244,10 +267,8 @@ impl Relations {
         {
             net_trace!("Updating old relation information");
             for next_hop in next_hops {
-                r.insert_next_hop(*next_hop)?;
+                r.insert_next_hop(*next_hop, now, lifetime)?;
             }
-            *r.added_mut() = now;
-            *r.lifetime_mut() = lifetime; // FIXME: How should this be handled for multicast?
         } else {
             let relation = Relation::new(destination, next_hops, now, lifetime)?;
 
@@ -265,11 +286,11 @@ impl Relations {
     }
 
     /// Return the next hop for a specific IPv6 address, if there is one.
-    pub fn find_next_hop(&self, destination: Ipv6Address) -> Option<&[Ipv6Address]> {
+    pub fn find_next_hop(&self, destination: Ipv6Address) -> Option<&[RelationHop]> {
         self.relations.iter().find_map(|r| {
             if r.destination() == destination {
                 match r {
-                    Relation::Unicast(r) => Some(&r.next_hops[..]),
+                    Relation::Unicast(r) => Some(&r.next_hop[..]),
                     Relation::Multicast(r) => Some(&r.next_hops),
                 }
             } else {
@@ -283,12 +304,29 @@ impl Relations {
     /// Returns `true` when a relation was actually removed.
     pub fn flush(&mut self, now: Instant) -> bool {
         let len = self.relations.len();
-        for r in &self.relations {
-            if r.added() + r.lifetime() <= now {
-                net_trace!("removing {} relation (expired)", r.destination());
+        self.relations.retain_mut(|r| {
+            // First flush all relations if it is a multicast relation
+            let has_expired = match r {
+                Relation::Unicast(rel) => rel.next_hop[0].has_expired(now),
+                Relation::Multicast(rel) => {
+                    rel.next_hops.retain(|hop| {
+                        if hop.has_expired(now) {
+                            net_trace!("Removing {} hop (expired)", hop);
+                            false
+                        } else {
+                            true
+                        }
+                    });
+                    rel.next_hops.is_empty()
+                }
+            };
+
+            if has_expired {
+                net_trace!("Removing {} (destination)", r.destination());
             }
-        }
-        self.relations.retain(|r| r.added() + r.lifetime() > now);
+
+            !has_expired
+        });
         self.relations.len() != len
     }
 
@@ -361,7 +399,10 @@ mod tests {
         );
         assert_eq!(relations.relations.len(), 1);
 
-        assert_eq!(relations.find_next_hop(addrs[0]), Some(&[addrs[2]][..]));
+        assert_eq!(
+            relations.find_next_hop(addrs[0]).map(|hop| hop[0].ip),
+            Some(addrs[2])
+        );
     }
 
     #[test]
@@ -376,7 +417,10 @@ mod tests {
             Duration::from_secs(60 * 30),
         );
         assert_eq!(relations.relations.len(), 1);
-        assert_eq!(relations.find_next_hop(addrs[0]), Some(&[addrs[1]][..]));
+        assert_eq!(
+            relations.find_next_hop(addrs[0]).map(|hop| hop[0].ip),
+            Some(addrs[1])
+        );
 
         relations.add_relation(
             addrs[0],
@@ -385,10 +429,13 @@ mod tests {
             Duration::from_secs(60 * 30),
         );
         assert_eq!(relations.relations.len(), 1);
-        assert_eq!(relations.find_next_hop(addrs[0]), Some(&[addrs[2]][..]));
+        assert_eq!(
+            relations.find_next_hop(addrs[0]).map(|hop| hop[0].ip),
+            Some(addrs[2])
+        );
 
         // Find the next hop of a destination not in the buffer.
-        assert_eq!(relations.find_next_hop(addrs[1]), None);
+        assert_eq!(relations.find_next_hop(addrs[1]).map(|hop| hop[0].ip), None);
     }
 
     #[test]

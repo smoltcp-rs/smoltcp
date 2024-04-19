@@ -87,6 +87,8 @@ fn root_and_normal_node(
     #[case] mop: RplModeOfOperation,
     #[case] multicast_group: Option<Ipv6Address>,
 ) {
+    init();
+
     let mut sim = sim::topology(sim::NetworkSim::new(), mop, 1, 1);
     if let Some(multicast_group) = multicast_group {
         let last_child = sim.nodes_mut().last_mut().unwrap();
@@ -96,10 +98,15 @@ fn root_and_normal_node(
             .expect("last_child should be able to join the multicast group");
     }
 
+    let mut pcap_file = if multicast_group.is_some() {
+        sim::PcapFile::new(std::path::Path::new("./multicast.pcap")).ok()
+    } else {
+        None
+    };
     sim.run(
         Duration::from_millis(500),
         Duration::from_secs(60 * 15),
-        None,
+        pcap_file.as_mut(),
     );
 
     assert!(!sim.msgs().is_empty());
