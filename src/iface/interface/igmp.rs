@@ -8,8 +8,6 @@ pub enum MulticastError {
     Exhausted,
     /// The table of joined multicast groups is already full.
     GroupTableFull,
-    /// IPv6 multicast is not yet supported.
-    Ipv6NotSupported,
     /// Cannot join/leave the given multicast group.
     Unaddressable,
 }
@@ -19,7 +17,6 @@ impl core::fmt::Display for MulticastError {
         match self {
             MulticastError::Exhausted => write!(f, "Exhausted"),
             MulticastError::GroupTableFull => write!(f, "GroupTableFull"),
-            MulticastError::Ipv6NotSupported => write!(f, "Ipv6NotSupported"),
             MulticastError::Unaddressable => write!(f, "Unaddressable"),
         }
     }
