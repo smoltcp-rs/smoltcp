@@ -97,6 +97,8 @@ pub struct InterfaceInner {
     #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
     neighbor_cache: NeighborCache,
     hardware_addr: HardwareAddress,
+    #[cfg(feature = "proto-vlan")]
+    vlan_config: Option<VlanConfig>,
     #[cfg(feature = "medium-ieee802154")]
     sequence_no: u8,
     #[cfg(feature = "medium-ieee802154")]
@@ -136,6 +138,9 @@ pub struct Config {
     /// Creating the interface panics if the address is not unicast.
     pub hardware_addr: HardwareAddress,
 
+    #[cfg(feature = "proto-vlan")]
+    pub vlan_config: Option<VlanConfig>,
+
     /// Set the IEEE802.15.4 PAN ID the interface will use.
     ///
     /// **NOTE**: we use the same PAN ID for destination and source.
@@ -148,6 +153,8 @@ impl Config {
         Config {
             random_seed: 0,
             hardware_addr,
+            #[cfg(feature = "proto-vlan")]
+            vlan_config: None,
             #[cfg(feature = "medium-ieee802154")]
             pan_id: None,
         }
@@ -220,6 +227,8 @@ impl Interface {
                 now,
                 caps,
                 hardware_addr: config.hardware_addr,
+                #[cfg(feature = "proto-vlan")]
+                vlan_config: config.vlan_config,
                 ip_addrs: Vec::new(),
                 #[cfg(feature = "proto-ipv4")]
                 any_ip: false,
@@ -859,12 +868,43 @@ impl InterfaceInner {
                     } => target_hardware_addr,
                 };
 
-                self.dispatch_ethernet(tx_token, arp_repr.buffer_len(), |mut frame| {
-                    frame.set_dst_addr(dst_hardware_addr);
-                    frame.set_ethertype(EthernetProtocol::Arp);
+                #[cfg(feature = "proto-vlan")]
+                let vlan_config = self.vlan_config.as_ref().copied();
 
-                    let mut packet = ArpPacket::new_unchecked(frame.payload_mut());
-                    arp_repr.emit(&mut packet);
+                #[cfg(feature = "proto-vlan")]
+                let buffer_len = arp_repr.buffer_len()
+                    + vlan_config
+                        .as_ref()
+                        .map(|vlan_config| vlan_config.get_additional_header_length())
+                        .unwrap_or(0);
+                #[cfg(not(feature = "proto-vlan"))]
+                let buffer_len = arp_repr.buffer_len();
+
+                self.dispatch_ethernet(tx_token, buffer_len, |mut frame| {
+                    frame.set_dst_addr(dst_hardware_addr);
+
+                    #[cfg(feature = "proto-vlan")]
+                    {
+                        let mut packet = if let Some(vlan_config) = vlan_config {
+                            frame.set_ethertype(vlan_config.get_outer_ethertype());
+                            vlan_config.emit_to_payload(frame.payload_mut(), EthernetProtocol::Arp);
+
+                            ArpPacket::new_unchecked(
+                                &mut frame.payload_mut()
+                                    [vlan_config.get_additional_header_length()..],
+                            )
+                        } else {
+                            frame.set_ethertype(EthernetProtocol::Arp);
+                            ArpPacket::new_unchecked(frame.payload_mut())
+                        };
+                        arp_repr.emit(&mut packet);
+                    }
+                    #[cfg(not(feature = "proto-vlan"))]
+                    {
+                        frame.set_ethertype(EthernetProtocol::Arp);
+                        let mut packet = ArpPacket::new_unchecked(frame.payload_mut());
+                        arp_repr.emit(&mut packet);
+                    }
                 })
             }
             EthernetPacket::Ip(packet) => {
@@ -994,14 +1034,44 @@ impl InterfaceInner {
                     target_protocol_addr: dst_addr,
                 };
 
-                if let Err(e) =
-                    self.dispatch_ethernet(tx_token, arp_repr.buffer_len(), |mut frame| {
-                        frame.set_dst_addr(EthernetAddress::BROADCAST);
-                        frame.set_ethertype(EthernetProtocol::Arp);
+                #[cfg(feature = "proto-vlan")]
+                let vlan_config = self.vlan_config.as_ref().copied();
 
-                        arp_repr.emit(&mut ArpPacket::new_unchecked(frame.payload_mut()))
-                    })
-                {
+                #[cfg(feature = "proto-vlan")]
+                let buffer_len = arp_repr.buffer_len()
+                    + vlan_config
+                        .as_ref()
+                        .map(|vlan_config| vlan_config.get_additional_header_length())
+                        .unwrap_or(0);
+                #[cfg(not(feature = "proto-vlan"))]
+                let buffer_len = arp_repr.buffer_len();
+
+                if let Err(e) = self.dispatch_ethernet(tx_token, buffer_len, |mut frame| {
+                    frame.set_dst_addr(EthernetAddress::BROADCAST);
+
+                    #[cfg(feature = "proto-vlan")]
+                    {
+                        let mut packet = if let Some(vlan_config) = vlan_config {
+                            frame.set_ethertype(vlan_config.get_outer_ethertype());
+                            vlan_config.emit_to_payload(frame.payload_mut(), EthernetProtocol::Arp);
+
+                            ArpPacket::new_unchecked(
+                                &mut frame.payload_mut()
+                                    [vlan_config.get_additional_header_length()..],
+                            )
+                        } else {
+                            frame.set_ethertype(EthernetProtocol::Arp);
+                            ArpPacket::new_unchecked(frame.payload_mut())
+                        };
+                        arp_repr.emit(&mut packet);
+                    }
+                    #[cfg(not(feature = "proto-vlan"))]
+                    {
+                        frame.set_ethertype(EthernetProtocol::Arp);
+                        let mut packet = ArpPacket::new_unchecked(frame.payload_mut());
+                        arp_repr.emit(&mut packet);
+                    }
+                }) {
                     net_debug!("Failed to dispatch ARP request: {:?}", e);
                     return Err(DispatchError::NeighborPending);
                 }
@@ -1094,6 +1164,14 @@ impl InterfaceInner {
         #[cfg(feature = "medium-ethernet")]
         if matches!(self.caps.medium, Medium::Ethernet) {
             total_len = EthernetFrame::<&[u8]>::buffer_len(total_len);
+            #[cfg(feature = "proto-vlan")]
+            {
+                total_len += self
+                    .vlan_config
+                    .as_ref()
+                    .map(|vlan_config| vlan_config.get_additional_header_length())
+                    .unwrap_or(0);
+            }
         }
 
         // If the medium is Ethernet, then we need to retrieve the destination hardware address.
@@ -1122,11 +1200,23 @@ impl InterfaceInner {
             frame.set_src_addr(src_addr);
             frame.set_dst_addr(dst_hardware_addr);
 
-            match repr.version() {
+            let ip_ethertype = match repr.version() {
                 #[cfg(feature = "proto-ipv4")]
-                IpVersion::Ipv4 => frame.set_ethertype(EthernetProtocol::Ipv4),
+                IpVersion::Ipv4 => EthernetProtocol::Ipv4,
                 #[cfg(feature = "proto-ipv6")]
-                IpVersion::Ipv6 => frame.set_ethertype(EthernetProtocol::Ipv6),
+                IpVersion::Ipv6 => EthernetProtocol::Ipv6,
+            };
+
+            #[cfg(feature = "proto-vlan")]
+            if let Some(vlan_config) = &self.vlan_config {
+                frame.set_ethertype(vlan_config.get_outer_ethertype());
+                vlan_config.emit_to_payload(frame.payload_mut(), ip_ethertype);
+            } else {
+                frame.set_ethertype(ip_ethertype);
+            }
+            #[cfg(not(feature = "proto-vlan"))]
+            {
+                frame.set_ethertype(ip_ethertype);
             }
 
             Ok(())
@@ -1202,7 +1292,22 @@ impl InterfaceInner {
                             #[cfg(feature = "medium-ethernet")]
                             if matches!(self.caps.medium, Medium::Ethernet) {
                                 emit_ethernet(&ip_repr, tx_buffer)?;
-                                tx_buffer = &mut tx_buffer[EthernetFrame::<&[u8]>::header_len()..];
+                                #[cfg(not(feature = "proto-vlan"))]
+                                {
+                                    tx_buffer =
+                                        &mut tx_buffer[EthernetFrame::<&[u8]>::header_len()..];
+                                }
+                                #[cfg(feature = "proto-vlan")]
+                                {
+                                    tx_buffer = &mut tx_buffer[EthernetFrame::<&[u8]>::header_len()
+                                        + self
+                                            .vlan_config
+                                            .as_ref()
+                                            .map(|vlan_config| {
+                                                vlan_config.get_additional_header_length()
+                                            })
+                                            .unwrap_or(0)..];
+                                }
                             }
 
                             // Change the offset for the next packet.
@@ -1229,7 +1334,21 @@ impl InterfaceInner {
                         #[cfg(feature = "medium-ethernet")]
                         if matches!(self.caps.medium, Medium::Ethernet) {
                             emit_ethernet(&ip_repr, tx_buffer)?;
-                            tx_buffer = &mut tx_buffer[EthernetFrame::<&[u8]>::header_len()..];
+                            #[cfg(not(feature = "proto-vlan"))]
+                            {
+                                tx_buffer = &mut tx_buffer[EthernetFrame::<&[u8]>::header_len()..];
+                            }
+                            #[cfg(feature = "proto-vlan")]
+                            {
+                                tx_buffer = &mut tx_buffer[EthernetFrame::<&[u8]>::header_len()
+                                    + self
+                                        .vlan_config
+                                        .as_ref()
+                                        .map(|vlan_config| {
+                                            vlan_config.get_additional_header_length()
+                                        })
+                                        .unwrap_or(0)..];
+                            }
                         }
 
                         emit_ip(&ip_repr, tx_buffer);
