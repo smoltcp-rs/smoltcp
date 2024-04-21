@@ -33,7 +33,6 @@ impl Interface<'_> {
                 tx_token,
                 PacketMeta::default(),
                 packet,
-                None,
                 fragmenter,
                 multicast_queue,
             ) {

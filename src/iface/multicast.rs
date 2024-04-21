@@ -43,7 +43,7 @@ impl MulticastMetadata {
         self.packet_metadata
     }
 
-    pub fn payload_type(&self) -> IpPayloadType {
+    pub(crate) fn payload_type(&self) -> IpPayloadType {
         self.ip_payload_type.clone()
     }
 }

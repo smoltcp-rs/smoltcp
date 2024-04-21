@@ -22,7 +22,6 @@ impl Interface<'_> {
                                 tx_token,
                                 PacketMeta::default(),
                                 pkt,
-                                None,
                                 &mut self.fragmenter,
                                 &mut self.multicast_queue,
                             )
@@ -59,7 +58,6 @@ impl Interface<'_> {
                                         tx_token,
                                         PacketMeta::default(),
                                         pkt,
-                                        None,
                                         &mut self.fragmenter,
                                         &mut self.multicast_queue,
                                     )

@@ -27,6 +27,8 @@ mod tcp;
 #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
 mod udp;
 
+mod multicast;
+
 use super::multicast::MulticastMetadata;
 use super::packet::*;
 
@@ -476,7 +478,6 @@ impl<'a> Interface<'a> {
                             tx_token,
                             PacketMeta::default(),
                             pkt,
-                            None,
                             &mut self.fragmenter,
                             &mut self.multicast_queue,
                         )
@@ -560,7 +561,6 @@ impl<'a> Interface<'a> {
                             tx_token,
                             PacketMeta::default(),
                             pkt,
-                            None,
                             &mut self.fragmenter,
                             &mut self.multicast_queue,
                         )
@@ -634,6 +634,9 @@ impl<'a> Interface<'a> {
         #[cfg(feature = "_proto-fragmentation")]
         self.fragments.assembler.remove_expired(timestamp);
 
+        // Poll multicast queue and dispatch if possible
+        self.poll_multicast(device);
+
         match self.inner.caps.medium {
             #[cfg(feature = "medium-ieee802154")]
             Medium::Ieee802154 =>
@@ -694,6 +697,8 @@ impl<'a> Interface<'a> {
             return Some(Instant::from_millis(0));
         }
 
+        let poll_at_multicast = self.poll_at_multicast();
+
         #[cfg(feature = "proto-rpl")]
         let poll_at_rpl = self.poll_at_rpl();
 
@@ -712,6 +717,7 @@ impl<'a> Interface<'a> {
 
         #[cfg(feature = "proto-rpl")]
         let poll_at = poll_at.chain(core::iter::once(poll_at_rpl));
+        let poll_at = poll_at.chain(poll_at_multicast);
 
         poll_at.min()
     }
@@ -774,7 +780,6 @@ impl<'a> Interface<'a> {
                                 tx_token,
                                 PacketMeta::default(),
                                 packet,
-                                None,
                                 &mut self.fragmenter,
                                 &mut self.multicast_queue,
                             ) {
@@ -794,7 +799,6 @@ impl<'a> Interface<'a> {
                                 tx_token,
                                 PacketMeta::default(),
                                 packet,
-                                None,
                                 &mut self.fragmenter,
                                 &mut self.multicast_queue,
                             ) {
@@ -843,7 +847,6 @@ impl<'a> Interface<'a> {
                         t,
                         meta,
                         response,
-                        None,
                         &mut self.fragmenter,
                         &mut self.multicast_queue,
                     )
@@ -1114,7 +1117,6 @@ impl InterfaceInner {
                 tx_token,
                 PacketMeta::default(),
                 packet,
-                None,
                 frag,
                 multicast_queue,
             ),
@@ -1375,9 +1377,73 @@ impl InterfaceInner {
         #[allow(unused_mut)] mut tx_token: Tx,
         meta: PacketMeta,
         packet: Packet,
-        hardware_addr: Option<HardwareAddress>,
         frag: &mut Fragmenter,
         multicast_queue: &mut PacketBuffer<'_, MulticastMetadata>,
+    ) -> Result<(), DispatchError> {
+        let (hardware_addr, tx_token) =
+            self.handle_hardware_addr_lookup(&packet, meta, frag, multicast_queue, tx_token)?;
+
+        self.transmit_ip(tx_token, meta, packet, hardware_addr, frag)
+    }
+
+    fn handle_hardware_addr_lookup<Tx>(
+        &mut self,
+        packet: &Packet,
+        meta: PacketMeta,
+        frag: &mut Fragmenter,
+        multicast_queue: &mut PacketBuffer<'_, MulticastMetadata>,
+        tx_token: Tx,
+    ) -> Result<(HardwareAddress, Tx), DispatchError>
+    where
+        Tx: TxToken,
+    {
+        let (mut addr, tx_token) = match self.caps.medium {
+            Medium::Ethernet | Medium::Ieee802154 => self.lookup_hardware_addr(
+                tx_token,
+                &packet.ip_repr().src_addr(),
+                &packet.ip_repr().dst_addr(),
+                frag,
+            )?,
+            _ => (
+                heapless::Vec::from_iter(core::iter::once(HardwareAddress::Ethernet(
+                    EthernetAddress([0; 6]),
+                ))),
+                tx_token,
+            ),
+        };
+        let first_addr = addr.pop().ok_or(DispatchError::NoRoute)?;
+
+        if !addr.is_empty() {
+            match packet {
+                Packet::Ipv4(_) => unimplemented!(),
+                Packet::Ipv6(packet) => {
+                    if !addr.is_empty() {
+                        let buffer = multicast_queue
+                            .enqueue(
+                                packet.payload().buffer_len(),
+                                MulticastMetadata::new(meta, packet, addr),
+                            )
+                            .map_err(|_err| DispatchError::Exhausted)?;
+                        packet
+                            .payload()
+                            .emit(&(*packet.header()).into(), buffer, &self.caps);
+                    }
+                }
+            }
+        }
+
+        Ok((first_addr, tx_token))
+    }
+
+    fn transmit_ip<Tx: TxToken>(
+        &mut self,
+        // NOTE(unused_mut): tx_token isn't always mutated, depending on
+        // the feature set that is used.
+        #[allow(unused_mut)] mut tx_token: Tx,
+        meta: PacketMeta,
+        packet: Packet,
+        hardware_addr: HardwareAddress,
+        frag: &mut Fragmenter,
     ) -> Result<(), DispatchError> {
         let mut ip_repr = packet.ip_repr();
         assert!(!ip_repr.dst_addr().is_unspecified());
@@ -1393,37 +1459,13 @@ impl InterfaceInner {
                 _ => unreachable!(),
             };
 
-            // If we already have been given a hardware address, do not do a lookup
-            let (addr, tx_token) = if let Some(addr) = hardware_addr {
-                (addr.ieee802154_or_panic(), tx_token)
-            } else {
-                let (mut addr, tx_token) = self.lookup_hardware_addr(
-                    tx_token,
-                    &ip_repr.src_addr(),
-                    &ip_repr.dst_addr(),
-                    frag,
-                )?;
-                let first_addr = addr
-                    .pop()
-                    .ok_or(DispatchError::NoRoute)?
-                    .ieee802154_or_panic();
-
-                if !addr.is_empty() {
-                    let buffer = multicast_queue
-                        .enqueue(
-                            packet.payload().buffer_len(),
-                            MulticastMetadata::new(meta, &packet, addr),
-                        )
-                        .map_err(|_err| DispatchError::Exhausted)?;
-                    packet
-                        .payload()
-                        .emit(&(*packet.header()).into(), buffer, &self.caps);
-                }
-
-                (first_addr, tx_token)
-            };
-
-            self.dispatch_ieee802154(addr, tx_token, meta, packet, frag);
+            self.dispatch_ieee802154(
+                hardware_addr.ieee802154_or_panic(),
+                tx_token,
+                meta,
+                packet,
+                frag,
+            );
 
             return Ok(());
         }
@@ -1446,36 +1488,8 @@ impl InterfaceInner {
 
         // If the medium is Ethernet, then we need to retrieve the destination hardware address.
         #[cfg(feature = "medium-ethernet")]
-        let (dst_hardware_addr, mut tx_token) = match (self.caps.medium, hardware_addr) {
-            (Medium::Ethernet, Some(addr)) => (addr.ethernet_or_panic(), tx_token),
-            (Medium::Ethernet, None) => {
-                let (mut addresses, tx_token) = self.lookup_hardware_addr(
-                    tx_token,
-                    &ip_repr.src_addr(),
-                    &ip_repr.dst_addr(),
-                    frag,
-                )?;
-
-                let first_address = addresses
-                    .pop()
-                    .ok_or(DispatchError::NoRoute)?
-                    .ethernet_or_panic();
-
-                // Schedule remaining addresses for later: TODO
-                // if !addr.is_empty() {
-                // let buffer = multicast_queue
-                //     .enqueue(
-                //         packet.payload().buffer_len(),
-                //         MulticastMetadata::new(meta, &packet, addr),
-                //     )
-                //     .map_err(|_err| DispatchError::Exhausted)?;
-                // packet
-                //     .payload()
-                //     .emit(buffer, packet.header(), &self.checksum_caps());
-                // }
-
-                (first_address, tx_token)
-            }
+        let (hardware_addr, mut tx_token) = match self.caps.medium {
+            Medium::Ethernet => (hardware_addr.ethernet_or_panic(), tx_token),
             _ => (EthernetAddress([0; 6]), tx_token),
         };
 
@@ -1486,7 +1500,7 @@ impl InterfaceInner {
 
             let src_addr = self.hardware_addr.ethernet_or_panic();
             frame.set_src_addr(src_addr);
-            frame.set_dst_addr(dst_hardware_addr);
+            frame.set_dst_addr(hardware_addr);
 
             match repr.version() {
                 #[cfg(feature = "proto-ipv4")]
@@ -1533,7 +1547,7 @@ impl InterfaceInner {
 
                         #[cfg(feature = "medium-ethernet")]
                         {
-                            frag.ipv4.dst_hardware_addr = dst_hardware_addr;
+                            frag.ipv4.dst_hardware_addr = hardware_addr;
                         }
 
                         // Save the total packet len (without the Ethernet header, but with the first
