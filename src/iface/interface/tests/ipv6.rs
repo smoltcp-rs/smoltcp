@@ -751,7 +751,10 @@ fn test_handle_valid_ndisc_request(#[case] medium: Medium) {
             &IpAddress::Ipv6(remote_ip_addr),
             &mut iface.fragmenter,
         ),
-        Ok((HardwareAddress::Ethernet(remote_hw_addr), MockTxToken))
+        Ok((
+            heapless::Vec::from_iter(core::iter::once(HardwareAddress::Ethernet(remote_hw_addr))),
+            MockTxToken
+        ))
     );
 }
 

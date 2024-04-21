@@ -1,6 +1,6 @@
 use super::*;
 
-impl Interface {
+impl Interface<'_> {
     /// Process fragments that still need to be sent for IPv4 packets.
     ///
     /// This function returns a boolean value indicating whether any packets were

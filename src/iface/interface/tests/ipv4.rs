@@ -457,7 +457,10 @@ fn test_handle_valid_arp_request(#[case] medium: Medium) {
             &IpAddress::Ipv4(remote_ip_addr),
             &mut iface.fragmenter,
         ),
-        Ok((HardwareAddress::Ethernet(remote_hw_addr), MockTxToken))
+        Ok((
+            heapless::Vec::from_iter(core::iter::once(HardwareAddress::Ethernet(remote_hw_addr))),
+            MockTxToken
+        ))
     );
 }
 
@@ -565,7 +568,10 @@ fn test_arp_flush_after_update_ip(#[case] medium: Medium) {
             &IpAddress::Ipv4(remote_ip_addr),
             &mut iface.fragmenter,
         ),
-        Ok((HardwareAddress::Ethernet(remote_hw_addr), MockTxToken))
+        Ok((
+            heapless::Vec::from_iter(core::iter::once(HardwareAddress::Ethernet(remote_hw_addr))),
+            MockTxToken
+        ))
     );
 
     // Update IP addrs to trigger ARP cache flush

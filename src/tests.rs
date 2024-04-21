@@ -1,7 +1,7 @@
 use crate::iface::*;
 use crate::wire::*;
 
-pub(crate) fn setup<'a>(medium: Medium) -> (Interface, SocketSet<'a>, TestingDevice) {
+pub(crate) fn setup<'a>(medium: Medium) -> (Interface<'static>, SocketSet<'a>, TestingDevice) {
     let mut device = TestingDevice::new(medium);
 
     let config = Config::new(match medium {
@@ -43,7 +43,7 @@ pub(crate) fn setup<'a>(medium: Medium) -> (Interface, SocketSet<'a>, TestingDev
         ..config
     };
 
-    let mut iface = Interface::new(config, &mut device, Instant::ZERO);
+    let mut iface = Interface::new(config, &mut device, &mut [][..], &mut [][..], Instant::ZERO);
 
     #[cfg(feature = "proto-ipv4")]
     {

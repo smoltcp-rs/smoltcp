@@ -5,7 +5,7 @@ use crate::wire::Result;
 // TODO: lower. Should be (6lowpan mtu) - (min 6lowpan header size) + (max ipv6 header size)
 pub(crate) const MAX_DECOMPRESSED_LEN: usize = 1500;
 
-impl Interface {
+impl Interface<'_> {
     /// Process fragments that still need to be sent for 6LoWPAN packets.
     ///
     /// This function returns a boolean value indicating whether any packets were

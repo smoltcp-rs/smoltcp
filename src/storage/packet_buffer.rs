@@ -229,6 +229,19 @@ impl<'a, H> PacketBuffer<'a, H> {
         }
     }
 
+    pub fn peek_mut(&mut self) -> Result<(&mut H, &mut [u8]), Empty> {
+        self.dequeue_padding();
+
+        if let Some(metadata) = self.metadata_ring.get_allocated_mut(0, 1).first_mut() {
+            Ok((
+                metadata.header.as_mut().unwrap(),
+                self.payload_ring.get_allocated_mut(0, metadata.size),
+            ))
+        } else {
+            Err(Empty)
+        }
+    }
+
     /// Return the maximum number packets that can be stored.
     pub fn packet_capacity(&self) -> usize {
         self.metadata_ring.capacity()

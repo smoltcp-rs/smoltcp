@@ -29,7 +29,7 @@ pub struct Node {
     pub pan_id: Ieee802154Pan,
     pub device: NodeDevice,
     pub last_transmitted: Instant,
-    pub interface: Interface,
+    pub interface: Interface<'static>,
     pub sockets: SocketSet<'static>,
     pub socket_handles: Vec<SocketHandle>,
     pub init: Option<InitFn>,
@@ -64,7 +64,8 @@ impl Node {
         config.rpl_config = Some(rpl);
         config.random_seed = Instant::now().total_micros() as u64;
 
-        let mut interface = Interface::new(config, &mut device, Instant::ZERO);
+        let mut interface =
+            Interface::new(config, &mut device, &mut [][..], &mut [][..], Instant::ZERO);
         interface.update_ip_addrs(|addresses| {
             addresses
                 .push(IpCidr::Ipv6(Ipv6Cidr::new(ipv6_address, 10)))

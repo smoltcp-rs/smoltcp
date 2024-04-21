@@ -1,6 +1,6 @@
 use super::*;
 
-impl Interface {
+impl Interface<'_> {
     /// Depending on `igmp_report_state` and the therein contained
     /// timeouts, send IGMP membership reports.
     pub(crate) fn igmp_egress<D>(&mut self, device: &mut D) -> bool
@@ -18,7 +18,14 @@ impl Interface {
                     if let Some(tx_token) = device.transmit(self.inner.now) {
                         // NOTE(unwrap): packet destination is multicast, which is always routable and doesn't require neighbor discovery.
                         self.inner
-                            .dispatch_ip(tx_token, PacketMeta::default(), pkt, &mut self.fragmenter)
+                            .dispatch_ip(
+                                tx_token,
+                                PacketMeta::default(),
+                                pkt,
+                                None,
+                                &mut self.fragmenter,
+                                &mut self.multicast_queue,
+                            )
                             .unwrap();
                     } else {
                         return false;
@@ -52,7 +59,9 @@ impl Interface {
                                         tx_token,
                                         PacketMeta::default(),
                                         pkt,
+                                        None,
                                         &mut self.fragmenter,
+                                        &mut self.multicast_queue,
                                     )
                                     .unwrap();
                             } else {

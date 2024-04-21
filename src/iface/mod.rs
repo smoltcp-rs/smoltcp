@@ -6,6 +6,7 @@ provides lookup and caching of hardware addresses, and handles management packet
 
 mod fragmentation;
 mod interface;
+mod multicast;
 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
 mod neighbor;
 mod route;

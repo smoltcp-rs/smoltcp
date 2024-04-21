@@ -10,7 +10,7 @@ use crate::wire::{Ipv6HopByHopRepr, Ipv6OptionRepr, RplDao, RplDaoAck};
 use crate::iface::rpl::*;
 use heapless::Vec;
 
-impl Interface {
+impl Interface<'_> {
     pub(super) fn poll_rpl<D>(&mut self, device: &mut D) -> bool
     where
         D: Device + ?Sized,
@@ -20,6 +20,7 @@ impl Interface {
             device: &mut D,
             packet: Packet,
             fragmenter: &mut Fragmenter,
+            multicast_queue: &mut PacketBuffer<'_, MulticastMetadata>,
         ) -> bool
         where
             D: Device + ?Sized,
@@ -28,7 +29,14 @@ impl Interface {
                 return false;
             };
 
-            match ctx.dispatch_ip(tx_token, PacketMeta::default(), packet, fragmenter) {
+            match ctx.dispatch_ip(
+                tx_token,
+                PacketMeta::default(),
+                packet,
+                None,
+                fragmenter,
+                multicast_queue,
+            ) {
                 Ok(()) => true,
                 Err(e) => {
                     net_debug!("failed to send packet: {:?}", e);
@@ -40,6 +48,7 @@ impl Interface {
         let Interface {
             inner: ctx,
             fragmenter,
+            multicast_queue,
             ..
         } = self;
 
@@ -68,6 +77,7 @@ impl Interface {
                 device,
                 Packet::new_ipv6(ipv6_repr, IpPayload::Icmpv6(icmp_rpl)),
                 fragmenter,
+                multicast_queue,
             );
         }
 
@@ -124,6 +134,7 @@ impl Interface {
                     device,
                     Packet::new_ipv6(ipv6_repr, IpPayload::Icmpv6(icmp)),
                     fragmenter,
+                    multicast_queue,
                 );
             }
 
@@ -186,7 +197,7 @@ impl Interface {
                 {
                     p.header_mut().dst_addr = new_dst_addr;
                     p.add_routing(source_route);
-                    return transmit(ctx, device, Packet::Ipv6(p), fragmenter);
+                    return transmit(ctx, device, Packet::Ipv6(p), fragmenter, multicast_queue);
                 }
             };
 
@@ -201,7 +212,7 @@ impl Interface {
                 }))
                 .unwrap();
             p.add_hop_by_hop(Ipv6HopByHopRepr { options });
-            return transmit(ctx, device, Packet::Ipv6(p), fragmenter);
+            return transmit(ctx, device, Packet::Ipv6(p), fragmenter, multicast_queue);
         }
 
         // Transmit any DAO that are queued.
@@ -262,7 +273,7 @@ impl Interface {
                 p.add_hop_by_hop(hbh);
 
                 net_trace!("transmitting DAO");
-                return transmit(ctx, device, Packet::Ipv6(p), fragmenter);
+                return transmit(ctx, device, Packet::Ipv6(p), fragmenter, multicast_queue);
             }
         }
 
@@ -290,6 +301,7 @@ impl Interface {
                 device,
                 Packet::new_ipv6(ipv6_repr, IpPayload::Icmpv6(icmp)),
                 fragmenter,
+                multicast_queue,
             );
         }
 
