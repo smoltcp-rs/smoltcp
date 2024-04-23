@@ -322,6 +322,12 @@ pub struct PcapFile {
 #[allow(unused)]
 impl PcapFile {
     pub fn new(path: &std::path::Path) -> std::io::Result<Self> {
+        let parent = path.parent();
+        if let Some(parent) = parent {
+            if !parent.exists() {
+                std::fs::create_dir_all(parent)?;
+            }
+        }
         let mut file = std::fs::File::create(path)?;
         PcapSink::global_header(&mut file, PcapLinkType::Ieee802154WithoutFcs);
 

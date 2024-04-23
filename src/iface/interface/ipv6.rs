@@ -187,6 +187,8 @@ impl InterfaceInner {
         sockets: &mut SocketSet,
         meta: PacketMeta,
         ipv6_packet: &Ipv6Packet<&'frame [u8]>,
+        previous_hop: Option<&HardwareAddress>,
+        multicast_queue: &mut PacketBuffer<'_, MulticastMetadata>,
     ) -> Option<Packet<'frame>> {
         let mut ipv6_repr = check!(Ipv6Repr::parse(ipv6_packet));
 
@@ -207,6 +209,7 @@ impl InterfaceInner {
             (None, ipv6_repr.next_header, ipv6_packet.payload())
         };
 
+        // Forward if not for us
         if !self.has_ip_addr(ipv6_repr.dst_addr)
             && !self.has_multicast_group(ipv6_repr.dst_addr)
             && !ipv6_repr.dst_addr.is_loopback()
@@ -225,6 +228,42 @@ impl InterfaceInner {
                 }
                 return self.forward(ipv6_repr, hbh, None, ip_payload);
             }
+        }
+
+        // if for us and multicast, process further and schedule forwarding
+        if ipv6_repr.dst_addr.is_multicast() {
+            // Construct forwarding packet if possible
+            let forwarding_packet = self.forward(ipv6_repr, hbh, None, ip_payload);
+            // Lookup hardware addresses to which we would like to forward the multicast packet
+            let haddrs =
+                self.lookup_hardware_addr_multicast(&ipv6_repr.dst_addr.into(), previous_hop);
+
+            // Schedule forwarding and process further if possible
+            match (&forwarding_packet, haddrs) {
+                (Some(Packet::Ipv6(forwarding_packet)), Ok(mut haddrs)) => {
+                    // filter out LL Broadcast as the other neighbours will have gotten the message too
+                    haddrs.retain(|haddr| haddr != &Ieee802154Address::BROADCAST.into());
+
+                    if !haddrs.is_empty() {
+                        let _ = self
+                            .schedule_multicast_packet(
+                                meta,
+                                forwarding_packet,
+                                haddrs,
+                                multicast_queue,
+                            )
+                            .inspect_err(|err| {
+                                net_trace!(
+                                    "Could not schedule multicast packets with reason {:?}",
+                                    err
+                                );
+                            });
+                    }
+                }
+                (Some(Packet::Ipv4(_)), Ok(_haddrs)) => unimplemented!(),
+                _ => {}
+            }
+            // Get destination hardware addresses
         }
 
         #[cfg(feature = "socket-raw")]

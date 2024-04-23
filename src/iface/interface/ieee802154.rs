@@ -15,6 +15,7 @@ impl InterfaceInner {
         meta: PacketMeta,
         sixlowpan_payload: &'payload [u8],
         _fragments: &'output mut FragmentsBuffer,
+        multicast_queue: &mut PacketBuffer<'_, MulticastMetadata>,
     ) -> Option<Packet<'output>> {
         let ieee802154_frame = check!(Ieee802154Frame::new_checked(sixlowpan_payload));
 
@@ -41,9 +42,14 @@ impl InterfaceInner {
         self.current_frame = Some(ieee802154_repr);
 
         match ieee802154_frame.payload() {
-            Some(payload) => {
-                self.process_sixlowpan(sockets, meta, &ieee802154_repr, payload, _fragments)
-            }
+            Some(payload) => self.process_sixlowpan(
+                sockets,
+                meta,
+                &ieee802154_repr,
+                payload,
+                _fragments,
+                multicast_queue,
+            ),
             None => None,
         }
     }

@@ -374,3 +374,178 @@ fn dio_with_increased_version_number(#[case] mop: RplModeOfOperation) {
     // know they have to leave the network
     assert_eq!(response, expected,);
 }
+
+#[rstest]
+fn packet_forwarding_with_multicast() {
+    use crate::iface::rpl::{Dodag, ObjectiveFunction0, Parent, ParentSet, Rank};
+
+    const MULTICAST_GROUP: Ipv6Address = Ipv6Address::new(0xff02, 0, 0, 0, 0, 0, 0, 3);
+    const MULTICAST_HOP: Ipv6Address = Ipv6Address::new(0xfd00, 0, 0, 0, 0, 0, 0, 2);
+    const MULTICAST_HOP_LL: HardwareAddress =
+        HardwareAddress::Ieee802154(Ieee802154Address::Extended([0, 0, 0, 0, 0, 0, 0, 2]));
+
+    let (mut iface, _, _) = setup(Medium::Ieee802154);
+
+    let ll_addr = Ieee802154Address::Extended([0, 0, 0, 0, 0, 0, 0, 1]);
+    let addr = ll_addr.as_link_local_address().unwrap();
+
+    let now = Instant::now();
+    let mut set = ParentSet::default();
+    let _ = set.add(Parent::new(
+        addr,
+        Rank::ROOT,
+        Default::default(),
+        RplSequenceCounter::from(240),
+        Default::default(),
+        now,
+    ));
+
+    // Setting a dodag configuration with parent
+    iface.inner.rpl.mode_of_operation = RplModeOfOperation::StoringModeWithMulticast;
+    iface.inner.rpl.of = ObjectiveFunction0::default();
+    iface.inner.rpl.is_root = false;
+    iface.inner.rpl.dodag = Some(Dodag {
+        instance_id: RplInstanceId::Local(30),
+        id: Default::default(),
+        version_number: Default::default(),
+        preference: 0,
+        rank: Rank::new(1024, 16),
+        dio_timer: Default::default(),
+        dao_expiration: Instant::now(),
+        dao_seq_number: Default::default(),
+        dao_acks: Default::default(),
+        daos: Default::default(),
+        parent: Some(addr),
+        without_parent: Default::default(),
+        authentication_enabled: Default::default(),
+        path_control_size: Default::default(),
+        dtsn: Default::default(),
+        dtsn_incremented_at: Instant::now(),
+        default_lifetime: Default::default(),
+        lifetime_unit: Default::default(),
+        grounded: false,
+        parent_set: set,
+        relations: Default::default(),
+    });
+    iface
+        .inner
+        .neighbor_cache
+        .fill(addr.into(), ll_addr.into(), Instant::from_secs(10 * 60));
+    iface.inner.neighbor_cache.fill(
+        MULTICAST_HOP.into(),
+        MULTICAST_HOP_LL,
+        Instant::from_secs(10 * 60),
+    );
+
+    let _response = iface.inner.process_rpl_dao(
+        Ipv6Repr {
+            src_addr: MULTICAST_HOP,
+            dst_addr: Ipv6Address::new(0xfd00, 0, 0, 0, 0, 0, 0, 1),
+            next_header: IpProtocol::Icmpv6,
+            payload_len: 0,  // does not matter
+            hop_limit: 0xff, // does not matter
+        },
+        RplDao {
+            rpl_instance_id: RplInstanceId::Local(30),
+            expect_ack: false,
+            sequence: RplSequenceCounter::new(42),
+            dodag_id: Default::default(),
+            options: heapless::Vec::from_iter([
+                RplOptionRepr::RplTarget(RplTarget {
+                    prefix_length: 64,
+                    prefix: heapless::Vec::from_slice(MULTICAST_GROUP.as_bytes()).unwrap(),
+                }),
+                RplOptionRepr::TransitInformation(RplTransitInformation {
+                    external: false,
+                    path_control: 0,
+                    path_sequence: 0,
+                    path_lifetime: 0xff,
+                    parent_address: Some(Ipv6Address::new(0xfd00, 0, 0, 0, 0, 0, 0, 1)),
+                }),
+            ]),
+        },
+    );
+    let _response = iface.inner.process_rpl_dao(
+        Ipv6Repr {
+            src_addr: MULTICAST_HOP,
+            dst_addr: Ipv6Address::new(0xfd00, 0, 0, 0, 0, 0, 0, 1),
+            next_header: IpProtocol::Icmpv6,
+            payload_len: 0,  // does not matter
+            hop_limit: 0xff, // does not matter
+        },
+        RplDao {
+            rpl_instance_id: RplInstanceId::Local(30),
+            expect_ack: false,
+            sequence: RplSequenceCounter::new(42),
+            dodag_id: Default::default(),
+            options: heapless::Vec::from_iter([
+                RplOptionRepr::RplTarget(RplTarget {
+                    prefix_length: 64,
+                    prefix: heapless::Vec::from_slice(
+                        Ipv6Address::new(0xfd00, 0, 0, 0, 0, 0, 0, 123).as_bytes(), // Just some other random child
+                    )
+                    .unwrap(),
+                }),
+                RplOptionRepr::TransitInformation(RplTransitInformation {
+                    external: false,
+                    path_control: 0,
+                    path_sequence: 0,
+                    path_lifetime: 0xff,
+                    parent_address: Some(Ipv6Address::new(0xfd00, 0, 0, 0, 0, 0, 0, 1)),
+                }),
+            ]),
+        },
+    );
+
+    let dodag = iface.inner.rpl.dodag.as_ref().unwrap();
+    assert!(
+        dodag
+            .relations
+            .iter()
+            .any(|rel| rel.is_multicast()
+                && rel.next_hop().iter().any(|hop| hop.ip == MULTICAST_HOP)),
+        "There should now be a relation with a multicast address added"
+    );
+
+    // Lookup haddrs if originating from this node
+    let haddrs = iface
+        .inner
+        .lookup_hardware_addr_multicast(&MULTICAST_GROUP.into(), None)
+        .unwrap();
+    let expected_haddrs: heapless::Vec<_, { IFACE_MAX_MULTICAST_DUPLICATION_COUNT }> =
+        heapless::Vec::from_slice(&[ll_addr.into(), MULTICAST_HOP_LL]).unwrap();
+    assert_eq!(
+        haddrs, expected_haddrs,
+        "If originating from this mote, the multicast packet should be forwarded up and down"
+    );
+
+    // Lookup haddrs if originating from the parent
+    let haddrs = iface
+        .inner
+        .lookup_hardware_addr_multicast(&MULTICAST_GROUP.into(), Some(&ll_addr.into()))
+        .unwrap();
+    let expected_haddrs: heapless::Vec<_, { IFACE_MAX_MULTICAST_DUPLICATION_COUNT }> =
+        heapless::Vec::from_slice(&[MULTICAST_HOP_LL]).unwrap();
+    assert_eq!(
+        haddrs, expected_haddrs,
+        "If originating from the parent, the multicast packet should only forward the packet down"
+    );
+
+    // Lookup haddrs if originating from one of the children
+    let haddrs = iface
+        .inner
+        .lookup_hardware_addr_multicast(&MULTICAST_GROUP.into(), Some(&MULTICAST_HOP_LL))
+        .unwrap();
+    let expected_haddrs: heapless::Vec<_, { IFACE_MAX_MULTICAST_DUPLICATION_COUNT }> =
+        heapless::Vec::from_slice(&[ll_addr.into()]).unwrap();
+    assert_eq!(haddrs, expected_haddrs, "If originating from one of the children, the multicast packet should be forwarded up and to the other interested children");
+
+    // Lookup haddrs of all local rpl motes, coming from this mote
+    let haddrs = iface
+        .inner
+        .lookup_hardware_addr_multicast(&Ipv6Address::LINK_LOCAL_ALL_RPL_NODES.into(), None)
+        .unwrap();
+    let expected_haddrs: heapless::Vec<_, { IFACE_MAX_MULTICAST_DUPLICATION_COUNT }> =
+        heapless::Vec::from_slice(&[Ieee802154Address::BROADCAST.into()]).unwrap();
+    assert_eq!(haddrs, expected_haddrs);
+}

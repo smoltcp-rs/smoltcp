@@ -67,8 +67,14 @@ impl Interface<'_> {
     /// Remove empty multicast packets from the multicast queue
     fn flush_multicast_queue(&mut self) {
         // We may get an error if the queue is empty, but then flushing was succesful
-        let _ = self
-            .multicast_queue
-            .dequeue_with(|meta, _packet| if meta.finished() { Ok(()) } else { Err(123) });
+        let _ = self.multicast_queue.dequeue_with(
+            |meta, _packet| {
+                if meta.finished() {
+                    Ok(())
+                } else {
+                    Err(123)
+                }
+            },
+        );
     }
 }

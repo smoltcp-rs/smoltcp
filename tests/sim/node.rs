@@ -1,6 +1,7 @@
 use super::Message;
 use super::Position;
 use smoltcp::iface::*;
+use smoltcp::storage::PacketMetadata;
 use smoltcp::time::*;
 use smoltcp::wire::*;
 use std::collections::VecDeque;
@@ -64,8 +65,13 @@ impl Node {
         config.rpl_config = Some(rpl);
         config.random_seed = Instant::now().total_micros() as u64;
 
-        let mut interface =
-            Interface::new(config, &mut device, &mut [][..], &mut [][..], Instant::ZERO);
+        let mut interface = Interface::<'static>::new(
+            config,
+            &mut device,
+            vec![PacketMetadata::EMPTY; 16],
+            vec![0; 2048],
+            Instant::ZERO,
+        );
         interface.update_ip_addrs(|addresses| {
             addresses
                 .push(IpCidr::Ipv6(Ipv6Cidr::new(ipv6_address, 10)))

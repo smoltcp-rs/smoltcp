@@ -6,6 +6,7 @@ use crate::{
 
 use super::packet::{IpPayloadType, PacketV6};
 
+#[derive(Debug, Clone)]
 pub struct MulticastMetadata {
     ll_send_to: heapless::Vec<HardwareAddress, IFACE_MAX_MULTICAST_DUPLICATION_COUNT>,
     packet_metadata: PacketMeta,

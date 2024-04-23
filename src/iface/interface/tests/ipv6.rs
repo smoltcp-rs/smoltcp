@@ -51,7 +51,9 @@ fn multicast_source_address(#[case] medium: Medium) {
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
-            &Ipv6Packet::new_checked(&data[..]).unwrap()
+            &Ipv6Packet::new_checked(&data[..]).unwrap(),
+            None,
+            &mut PacketBuffer::new(vec![], vec![]),
         ),
         response
     );
@@ -99,7 +101,9 @@ fn hop_by_hop_skip_with_icmp(#[case] medium: Medium) {
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
-            &Ipv6Packet::new_checked(&data[..]).unwrap()
+            &Ipv6Packet::new_checked(&data[..]).unwrap(),
+            None,
+            &mut PacketBuffer::new(vec![], vec![]),
         ),
         response
     );
@@ -134,7 +138,9 @@ fn hop_by_hop_discard_with_icmp(#[case] medium: Medium) {
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
-            &Ipv6Packet::new_checked(&data[..]).unwrap()
+            &Ipv6Packet::new_checked(&data[..]).unwrap(),
+            None,
+            &mut PacketBuffer::new(vec![], vec![]),
         ),
         response
     );
@@ -188,7 +194,9 @@ fn hop_by_hop_discard_param_problem(#[case] medium: Medium) {
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
-            &Ipv6Packet::new_checked(&data[..]).unwrap()
+            &Ipv6Packet::new_checked(&data[..]).unwrap(),
+            None,
+            &mut PacketBuffer::new(vec![], vec![]),
         ),
         response
     );
@@ -245,7 +253,9 @@ fn hop_by_hop_discard_with_multicast(#[case] medium: Medium) {
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
-            &Ipv6Packet::new_checked(&data[..]).unwrap()
+            &Ipv6Packet::new_checked(&data[..]).unwrap(),
+            None,
+            &mut PacketBuffer::new(vec![], vec![]),
         ),
         response
     );
@@ -304,7 +314,9 @@ fn imcp_empty_echo_request(#[case] medium: Medium) {
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
-            &Ipv6Packet::new_checked(&data[..]).unwrap()
+            &Ipv6Packet::new_checked(&data[..]).unwrap(),
+            None,
+            &mut PacketBuffer::new(vec![], vec![]),
         ),
         response
     );
@@ -364,7 +376,9 @@ fn icmp_echo_request(#[case] medium: Medium) {
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
-            &Ipv6Packet::new_checked(&data[..]).unwrap()
+            &Ipv6Packet::new_checked(&data[..]).unwrap(),
+            None,
+            &mut PacketBuffer::new(vec![], vec![]),
         ),
         response
     );
@@ -411,7 +425,9 @@ fn icmp_echo_reply_as_input(#[case] medium: Medium) {
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
-            &Ipv6Packet::new_checked(&data[..]).unwrap()
+            &Ipv6Packet::new_checked(&data[..]).unwrap(),
+            None,
+            &mut PacketBuffer::new(vec![], vec![]),
         ),
         response
     );
@@ -554,7 +570,9 @@ fn ndsic_neighbor_advertisement_ethernet(#[case] medium: Medium) {
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
-            &Ipv6Packet::new_checked(&data[..]).unwrap()
+            &Ipv6Packet::new_checked(&data[..]).unwrap(),
+            None,
+            &mut PacketBuffer::new(vec![], vec![]),
         ),
         response
     );
@@ -610,7 +628,9 @@ fn ndsic_neighbor_advertisement_ethernet_multicast_addr(#[case] medium: Medium) 
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
-            &Ipv6Packet::new_checked(&data[..]).unwrap()
+            &Ipv6Packet::new_checked(&data[..]).unwrap(),
+            None,
+            &mut PacketBuffer::new(vec![], vec![]),
         ),
         response
     );
@@ -662,7 +682,9 @@ fn ndsic_neighbor_advertisement_ieee802154(#[case] medium: Medium) {
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
-            &Ipv6Packet::new_checked(&data[..]).unwrap()
+            &Ipv6Packet::new_checked(&data[..]).unwrap(),
+            None,
+            &mut PacketBuffer::new(vec![], vec![]),
         ),
         response
     );
@@ -735,7 +757,8 @@ fn test_handle_valid_ndisc_request(#[case] medium: Medium) {
             &mut sockets,
             PacketMeta::default(),
             frame.into_inner(),
-            &mut iface.fragments
+            &mut iface.fragments,
+            &mut PacketBuffer::new(vec![], vec![]),
         ),
         Some(EthernetPacket::Ip(Packet::new_ipv6(
             ipv6_expected,
@@ -747,6 +770,7 @@ fn test_handle_valid_ndisc_request(#[case] medium: Medium) {
     assert_eq!(
         iface.inner.lookup_hardware_addr(
             MockTxToken,
+            None,
             &IpAddress::Ipv6(local_ip_addr),
             &IpAddress::Ipv6(remote_ip_addr),
             &mut iface.fragmenter,

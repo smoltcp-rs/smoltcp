@@ -59,7 +59,7 @@ pub struct MulticastRelation {
     next_hops: heapless::Vec<RelationHop, { RPL_MAX_NEXT_HOP_PER_DESTINATION }>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct RelationHop {
     pub ip: Ipv6Address,
     pub added: Instant,
@@ -233,6 +233,14 @@ impl Relation {
             Self::Unicast(rel) => rel.next_hop.iter().all(|hop| hop.has_expired(now)),
             Self::Multicast(rel) => rel.next_hops.iter().all(|hop| hop.has_expired(now)),
         }
+    }
+
+    pub fn is_multicast(&self) -> bool {
+        matches!(self, Self::Multicast(_))
+    }
+
+    pub fn is_unicast(&self) -> bool {
+        matches!(self, Self::Multicast(_))
     }
 }
 

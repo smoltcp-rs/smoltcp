@@ -41,6 +41,7 @@ fn test_any_ip_accept_arp(#[case] medium: Medium) {
             PacketMeta::default(),
             ETHERNET_FRAME_ARP(buffer.as_mut()),
             &mut iface.fragments,
+            &mut PacketBuffer::new(vec![], vec![]),
         )
         .is_none());
 
@@ -54,6 +55,7 @@ fn test_any_ip_accept_arp(#[case] medium: Medium) {
             PacketMeta::default(),
             ETHERNET_FRAME_ARP(buffer.as_mut()),
             &mut iface.fragments,
+            &mut PacketBuffer::new(vec![], vec![]),
         )
         .is_some());
 }
@@ -438,7 +440,8 @@ fn test_handle_valid_arp_request(#[case] medium: Medium) {
             &mut sockets,
             PacketMeta::default(),
             frame.into_inner(),
-            &mut iface.fragments
+            &mut iface.fragments,
+            &mut PacketBuffer::new(vec![], vec![]),
         ),
         Some(EthernetPacket::Arp(ArpRepr::EthernetIpv4 {
             operation: ArpOperation::Reply,
@@ -453,6 +456,7 @@ fn test_handle_valid_arp_request(#[case] medium: Medium) {
     assert_eq!(
         iface.inner.lookup_hardware_addr(
             MockTxToken,
+            None,
             &IpAddress::Ipv4(local_ip_addr),
             &IpAddress::Ipv4(remote_ip_addr),
             &mut iface.fragmenter,
@@ -496,7 +500,8 @@ fn test_handle_other_arp_request(#[case] medium: Medium) {
             &mut sockets,
             PacketMeta::default(),
             frame.into_inner(),
-            &mut iface.fragments
+            &mut iface.fragments,
+            &mut PacketBuffer::new(vec![], vec![]),
         ),
         None
     );
@@ -505,6 +510,7 @@ fn test_handle_other_arp_request(#[case] medium: Medium) {
     assert_eq!(
         iface.inner.lookup_hardware_addr(
             MockTxToken,
+            None,
             &IpAddress::Ipv4(Ipv4Address([0x7f, 0x00, 0x00, 0x01])),
             &IpAddress::Ipv4(remote_ip_addr),
             &mut iface.fragmenter,
@@ -549,7 +555,8 @@ fn test_arp_flush_after_update_ip(#[case] medium: Medium) {
             &mut sockets,
             PacketMeta::default(),
             frame.into_inner(),
-            &mut iface.fragments
+            &mut iface.fragments,
+            &mut PacketBuffer::new(vec![], vec![]),
         ),
         Some(EthernetPacket::Arp(ArpRepr::EthernetIpv4 {
             operation: ArpOperation::Reply,
@@ -564,6 +571,7 @@ fn test_arp_flush_after_update_ip(#[case] medium: Medium) {
     assert_eq!(
         iface.inner.lookup_hardware_addr(
             MockTxToken,
+            None,
             &IpAddress::Ipv4(local_ip_addr),
             &IpAddress::Ipv4(remote_ip_addr),
             &mut iface.fragmenter,

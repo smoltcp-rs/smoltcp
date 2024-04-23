@@ -19,6 +19,7 @@ impl Interface<'_> {
             ctx: &mut InterfaceInner,
             device: &mut D,
             packet: Packet,
+            previous_hop: Option<&HardwareAddress>,
             fragmenter: &mut Fragmenter,
             multicast_queue: &mut PacketBuffer<'_, MulticastMetadata>,
         ) -> bool
@@ -33,6 +34,7 @@ impl Interface<'_> {
                 tx_token,
                 PacketMeta::default(),
                 packet,
+                previous_hop,
                 fragmenter,
                 multicast_queue,
             ) {
@@ -75,6 +77,7 @@ impl Interface<'_> {
                 ctx,
                 device,
                 Packet::new_ipv6(ipv6_repr, IpPayload::Icmpv6(icmp_rpl)),
+                None,
                 fragmenter,
                 multicast_queue,
             );
@@ -132,6 +135,7 @@ impl Interface<'_> {
                     ctx,
                     device,
                     Packet::new_ipv6(ipv6_repr, IpPayload::Icmpv6(icmp)),
+                    None,
                     fragmenter,
                     multicast_queue,
                 );
@@ -196,7 +200,14 @@ impl Interface<'_> {
                 {
                     p.header_mut().dst_addr = new_dst_addr;
                     p.add_routing(source_route);
-                    return transmit(ctx, device, Packet::Ipv6(p), fragmenter, multicast_queue);
+                    return transmit(
+                        ctx,
+                        device,
+                        Packet::Ipv6(p),
+                        None,
+                        fragmenter,
+                        multicast_queue,
+                    );
                 }
             };
 
@@ -211,7 +222,14 @@ impl Interface<'_> {
                 }))
                 .unwrap();
             p.add_hop_by_hop(Ipv6HopByHopRepr { options });
-            return transmit(ctx, device, Packet::Ipv6(p), fragmenter, multicast_queue);
+            return transmit(
+                ctx,
+                device,
+                Packet::Ipv6(p),
+                None,
+                fragmenter,
+                multicast_queue,
+            );
         }
 
         // Transmit any DAO that are queued.
@@ -272,7 +290,14 @@ impl Interface<'_> {
                 p.add_hop_by_hop(hbh);
 
                 net_trace!("transmitting DAO");
-                return transmit(ctx, device, Packet::Ipv6(p), fragmenter, multicast_queue);
+                return transmit(
+                    ctx,
+                    device,
+                    Packet::Ipv6(p),
+                    None,
+                    fragmenter,
+                    multicast_queue,
+                );
             }
         }
 
@@ -299,6 +324,7 @@ impl Interface<'_> {
                 ctx,
                 device,
                 Packet::new_ipv6(ipv6_repr, IpPayload::Icmpv6(icmp)),
+                None,
                 fragmenter,
                 multicast_queue,
             );

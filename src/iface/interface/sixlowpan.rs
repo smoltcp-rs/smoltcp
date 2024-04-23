@@ -65,6 +65,7 @@ impl InterfaceInner {
         ieee802154_repr: &Ieee802154Repr,
         payload: &'payload [u8],
         f: &'output mut FragmentsBuffer,
+        multicast_queue: &mut PacketBuffer<'_, MulticastMetadata>,
     ) -> Option<Packet<'output>> {
         let payload = match check!(SixlowpanPacket::dispatch(payload)) {
             #[cfg(not(feature = "proto-sixlowpan-fragmentation"))]
@@ -100,7 +101,13 @@ impl InterfaceInner {
         };
 
         let packet = check!(Ipv6Packet::new_checked(payload));
-        self.process_ipv6(sockets, meta, &packet)
+        self.process_ipv6(
+            sockets,
+            meta,
+            &packet,
+            ieee802154_repr.src_addr.map(|addr| addr.into()).as_ref(),
+            multicast_queue,
+        )
     }
 
     #[cfg(feature = "proto-sixlowpan-fragmentation")]

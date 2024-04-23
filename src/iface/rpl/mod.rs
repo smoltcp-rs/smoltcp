@@ -34,6 +34,18 @@ pub enum ModeOfOperation {
     StoringModeWithMulticast,
 }
 
+#[cfg(feature = "std")]
+impl core::fmt::Display for ModeOfOperation {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            ModeOfOperation::NoDownwardRoutesMaintained => write!(f, "mop0"),
+            ModeOfOperation::NonStoringMode => write!(f, "mop1"),
+            ModeOfOperation::StoringMode => write!(f, "mop1"),
+            ModeOfOperation::StoringModeWithMulticast => write!(f, "mop3"),
+        }
+    }
+}
+
 impl From<crate::wire::rpl::ModeOfOperation> for ModeOfOperation {
     fn from(value: crate::wire::rpl::ModeOfOperation) -> Self {
         use crate::wire::rpl::ModeOfOperation as WireMop;
