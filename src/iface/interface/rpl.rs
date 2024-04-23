@@ -1045,7 +1045,9 @@ impl InterfaceInner {
             .as_ref()
             .map(|dodag| dodag.rank)
             .unwrap_or(Rank::new(u16::MAX, 1));
-        if hbh.rank_error || (hbh.down && rank <= sender_rank) || (!hbh.down && rank >= sender_rank)
+        if dbg!(hbh).rank_error
+            || (hbh.down && rank <= sender_rank)
+            || (!hbh.down && rank >= sender_rank)
         {
             net_trace!("RPL HBH: inconsistency detected, resetting trickle timer, dropping packet");
             hbh.rank_error = true;

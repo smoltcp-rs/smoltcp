@@ -490,7 +490,7 @@ fn message_forwarding_up_and_down(
 #[case::one(&[4])]
 #[case::two(&[4, 2])]
 #[case::three(&[4, 2, 3])]
-fn froward_multicast_up_and_down(#[case] multicast_receivers: &[usize]) {
+fn forward_multicast_up_and_down(#[case] multicast_receivers: &[usize]) {
     init();
 
     const MULTICAST_GROUP: Ipv6Address = Ipv6Address::new(0xff02, 0, 0, 0, 0, 0, 0, 3);
@@ -506,15 +506,16 @@ fn froward_multicast_up_and_down(#[case] multicast_receivers: &[usize]) {
         node.interface
             .join_multicast_group(&mut node.device, MULTICAST_GROUP, Instant::ZERO)
             .expect("node should be able to join the multicast group");
+
+        sim::udp_receiver_node(node, 1234);
     }
 
-    // Setup UDP
-    sim::udp_receiver_node(&mut sim.nodes_mut()[3], 1234);
+    // Setup UDP sender
     sim::udp_sender_node(&mut sim.nodes_mut()[4], 1234, MULTICAST_GROUP);
 
     let mut pcap_file = Some(
         sim::PcapFile::new(std::path::Path::new(&format!(
-            "sim_logs/froward_multicast_up_and_down{}.pcap",
+            "sim_logs/forward_multicast_up_and_down{}.pcap",
             multicast_receivers
                 .iter()
                 .map(|id| id.to_string())

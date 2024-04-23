@@ -166,7 +166,9 @@ impl InterfaceInner {
                 IpCidr::Ipv6(cidr) if cidr.address() != Ipv6Address::LOOPBACK => {
                     // Take the lower order 24 bits of the IPv6 address and
                     // append those bits to FF02:0:0:0:0:1:FF00::/104.
-                    addr.as_bytes()[14..] == cidr.address().as_bytes()[14..]
+                    addr.as_bytes()[..14]
+                        == Ipv6Address::new(0xFF02, 0, 0, 0, 0, 1, 0xFF00, 0).as_bytes()[..14]
+                        && addr.as_bytes()[14..] == cidr.address().as_bytes()[14..]
                 }
                 _ => false,
             }
@@ -241,7 +243,7 @@ impl InterfaceInner {
             // Schedule forwarding and process further if possible
             match (&forwarding_packet, haddrs) {
                 (Some(Packet::Ipv6(forwarding_packet)), Ok(mut haddrs)) => {
-                    // filter out LL Broadcast as the other neighbours will have gotten the message too
+                    // Filter out LL Broadcast as the other neighbours will have gotten the message too
                     haddrs.retain(|haddr| haddr != &Ieee802154Address::BROADCAST.into());
 
                     if !haddrs.is_empty() {
@@ -263,7 +265,6 @@ impl InterfaceInner {
                 (Some(Packet::Ipv4(_)), Ok(_haddrs)) => unimplemented!(),
                 _ => {}
             }
-            // Get destination hardware addresses
         }
 
         #[cfg(feature = "socket-raw")]
