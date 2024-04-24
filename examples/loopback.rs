@@ -12,6 +12,7 @@ use log::{debug, error, info};
 use smoltcp::iface::{Config, Interface, SocketSet};
 use smoltcp::phy::{Device, Loopback, Medium};
 use smoltcp::socket::tcp;
+use smoltcp::storage::PacketMetadata;
 use smoltcp::time::{Duration, Instant};
 use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr};
 
@@ -91,7 +92,17 @@ fn main() {
         Medium::Ieee802154 => todo!(),
     };
 
-    let mut iface = Interface::new(config, &mut device, Instant::now());
+    // Setup multicast queues
+    let mut metadata = [PacketMetadata::EMPTY; 16];
+    let mut multicast_packets = [0; 2048];
+
+    let mut iface = Interface::new(
+        config,
+        &mut device,
+        &mut metadata[..],
+        &mut multicast_packets[..],
+        Instant::now(),
+    );
     iface.update_ip_addrs(|ip_addrs| {
         ip_addrs
             .push(IpCidr::new(IpAddress::v4(127, 0, 0, 1), 8))

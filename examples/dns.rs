@@ -4,6 +4,7 @@ use smoltcp::iface::{Config, Interface, SocketSet};
 use smoltcp::phy::Device;
 use smoltcp::phy::{wait as phy_wait, Medium};
 use smoltcp::socket::dns::{self, GetQueryResultError};
+use smoltcp::storage::PacketMetadata;
 use smoltcp::time::Instant;
 use smoltcp::wire::{DnsQueryType, EthernetAddress, IpAddress, IpCidr, Ipv4Address, Ipv6Address};
 use std::os::unix::io::AsRawFd;
@@ -33,7 +34,13 @@ fn main() {
     };
     config.random_seed = rand::random();
 
-    let mut iface = Interface::new(config, &mut device, Instant::now());
+    let mut iface = Interface::new(
+        config,
+        &mut device,
+        vec![PacketMetadata::EMPTY; 16],
+        vec![0; 2048],
+        Instant::now(),
+    );
     iface.update_ip_addrs(|ip_addrs| {
         ip_addrs
             .push(IpCidr::new(IpAddress::v4(192, 168, 69, 1), 24))

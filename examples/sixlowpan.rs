@@ -43,6 +43,7 @@
 mod utils;
 
 use log::debug;
+use smoltcp::storage::PacketMetadata;
 use std::os::unix::io::AsRawFd;
 use std::str;
 
@@ -83,7 +84,13 @@ fn main() {
         config.rpl_config = None;
     }
 
-    let mut iface = Interface::new(config, &mut device, Instant::now());
+    let mut iface = Interface::new(
+        config,
+        &mut device,
+        vec![PacketMetadata::EMPTY; 16],
+        vec![0; 2048],
+        Instant::now(),
+    );
     iface.update_ip_addrs(|ip_addrs| {
         ip_addrs
             .push(IpCidr::new(

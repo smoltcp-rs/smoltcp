@@ -2,6 +2,7 @@
 mod utils;
 
 use log::*;
+use smoltcp::storage::PacketMetadata;
 use std::os::unix::io::AsRawFd;
 
 use smoltcp::iface::{Config, Interface, SocketSet};
@@ -36,7 +37,13 @@ fn main() {
         Medium::Ieee802154 => todo!(),
     };
     config.random_seed = rand::random();
-    let mut iface = Interface::new(config, &mut device, Instant::now());
+    let mut iface = Interface::new(
+        config,
+        &mut device,
+        vec![PacketMetadata::EMPTY; 16],
+        vec![0; 2048],
+        Instant::now(),
+    );
 
     // Create sockets
     let mut dhcp_socket = dhcpv4::Socket::new();
