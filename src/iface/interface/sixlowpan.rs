@@ -778,7 +778,10 @@ impl<'p> PacketSixlowpan<'p> {
                 );
 
                 if let Some(checksum) = checksum {
-                    udp_packet.set_checksum(checksum);
+                    // FIXME: The extra if is probably the result of the existence of a bug in reading the checksum from a packet. This happened while forwarding a UDP packet through multicast where the forwarded checksum suddenly got 0.
+                    if checksum != 0 {
+                        udp_packet.set_checksum(checksum);
+                    }
                 }
             }
             #[cfg(feature = "proto-rpl")]
