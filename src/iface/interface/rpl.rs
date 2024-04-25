@@ -108,7 +108,14 @@ impl Interface<'_> {
                 dodag.find_new_parent(
                     ctx.rpl.mode_of_operation,
                     &[our_addr], // FIXME: what about multiple unicast targets
-                    &ctx.rpl_targets_multicast,
+                    {
+                        #[cfg(feature = "rpl-mop-3")]
+                        {
+                            &ctx.rpl_targets_multicast
+                        }
+                        #[cfg(not(feature = "rpl-mop-3"))]
+                        &[]
+                    },
                     &ctx.rpl.of,
                     ctx.now,
                     &mut ctx.rand,
@@ -147,12 +154,19 @@ impl Interface<'_> {
                     .schedule_dao(
                         ctx.rpl.mode_of_operation,
                         &[our_addr],
-                        &ctx.rpl_targets_multicast[..],
+                        {
+                            #[cfg(feature = "rpl-mop-3")]
+                            {
+                                &ctx.rpl_targets_multicast[..]
+                            }
+                            #[cfg(not(feature = "rpl-mop-3"))]
+                            &[]
+                        },
                         parent_address,
                         ctx.now,
                         false,
                     )
-                    .inspect_err(|err| net_trace!("Could not transmit DAO with reason: {err}"));
+                    .inspect_err(|err| net_trace!("Could not transmit DAO with reason: {}", err));
             }
         }
 
@@ -699,7 +713,14 @@ impl InterfaceInner {
                 dodag.find_new_parent(
                     self.rpl.mode_of_operation,
                     &[our_addr], // FIXME
-                    &self.rpl_targets_multicast[..],
+                    {
+                        #[cfg(feature = "rpl-mop-3")]
+                        {
+                            &self.rpl_targets_multicast[..]
+                        }
+                        #[cfg(not(feature = "rpl-mop-3"))]
+                        &[][..]
+                    },
                     &self.rpl.of,
                     self.now,
                     &mut self.rand,
@@ -742,7 +763,14 @@ impl InterfaceInner {
                 dodag.find_new_parent(
                     self.rpl.mode_of_operation,
                     &[our_addr], // FIXME
-                    &self.rpl_targets_multicast[..],
+                    {
+                        #[cfg(feature = "rpl-mop-3")]
+                        {
+                            &self.rpl_targets_multicast[..]
+                        }
+                        #[cfg(not(feature = "rpl-mop-3"))]
+                        &[]
+                    },
                     &self.rpl.of,
                     self.now,
                     &mut self.rand,
@@ -828,7 +856,14 @@ impl InterfaceInner {
             dodag.find_new_parent(
                 self.rpl.mode_of_operation,
                 &[our_addr],
-                &self.rpl_targets_multicast[..],
+                {
+                    #[cfg(feature = "rpl-mop-3")]
+                    {
+                        &self.rpl_targets_multicast[..]
+                    }
+                    #[cfg(not(feature = "rpl-mop-3"))]
+                    &[]
+                },
                 &self.rpl.of,
                 self.now,
                 &mut self.rand,
@@ -928,7 +963,8 @@ impl InterfaceInner {
                                 )
                                 .inspect_err(|err| {
                                     net_trace!(
-                                        "Could not add a relation to the dodag with reason {err}"
+                                        "Could not add a relation to the dodag with reason {}",
+                                        err
                                     )
                                 });
                         }

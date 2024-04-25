@@ -32,3 +32,5 @@ pub use self::rpl::{
 
 #[cfg(feature = "proto-rpl")]
 use self::rpl::Rpl;
+
+pub use multicast::MulticastMetadata;

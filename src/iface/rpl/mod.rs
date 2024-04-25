@@ -39,8 +39,11 @@ impl core::fmt::Display for ModeOfOperation {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             ModeOfOperation::NoDownwardRoutesMaintained => write!(f, "mop0"),
+            #[cfg(feature = "rpl-mop-1")]
             ModeOfOperation::NonStoringMode => write!(f, "mop1"),
+            #[cfg(feature = "rpl-mop-2")]
             ModeOfOperation::StoringMode => write!(f, "mop1"),
+            #[cfg(feature = "rpl-mop-3")]
             ModeOfOperation::StoringModeWithMulticast => write!(f, "mop3"),
         }
     }
@@ -523,13 +526,25 @@ impl Dodag {
 
         if let Some(parent) = of.preferred_parent(&self.parent_set) {
             // Send a NO-PATH DAO in MOP 2 when we already had a parent.
-            #[cfg(feature = "rpl-mop-2")]
+            #[cfg(any(feature = "rpl-mop-2", feature = "rpl-mop-3"))]
             if let Some(old_parent) = old_parent {
-                if matches!(
-                    mop,
-                    ModeOfOperation::StoringMode | ModeOfOperation::StoringModeWithMulticast
-                ) && old_parent != parent
-                {
+                let is_mop2 = {
+                    #[cfg(feature = "rpl-mop-2")]
+                    {
+                        matches!(mop, ModeOfOperation::StoringMode)
+                    }
+                    #[cfg(not(feature = "rpl-mop-2"))]
+                    false
+                };
+                let is_mop3 = {
+                    #[cfg(feature = "rpl-mop-3")]
+                    {
+                        matches!(mop, ModeOfOperation::StoringModeWithMulticast)
+                    }
+                    #[cfg(not(feature = "rpl-mop-3"))]
+                    false
+                };
+                if (is_mop2 || is_mop3) && old_parent != parent {
                     net_trace!(
                         "scheduling NO-PATH DAO for {:?} and {:?} to {}",
                         targets,
@@ -712,6 +727,15 @@ impl core::fmt::Display for DodagTransmissionError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::DaoExhausted => write!(f, "DAO buffer is exhausted"),
+        }
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl defmt::Format for DodagTransmissionError {
+    fn format(&self, f: defmt::Formatter<'_>) {
+        match self {
+            Self::DaoExhausted => defmt::write!(f, "DAO buffer is exhausted"),
         }
     }
 }

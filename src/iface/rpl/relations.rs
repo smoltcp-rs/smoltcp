@@ -7,6 +7,7 @@ use crate::config::{RPL_MAX_NEXT_HOP_PER_DESTINATION, RPL_RELATIONS_BUFFER_COUNT
 pub enum RelationError {
     NextHopExhausted,
     ToFewNextHops,
+    RelationTypeNotSupported,
 }
 
 #[cfg(feature = "std")]
@@ -17,6 +18,22 @@ impl core::fmt::Display for RelationError {
         match self {
             RelationError::NextHopExhausted => write!(f, "Next hop exhausted"),
             RelationError::ToFewNextHops => write!(f, "Expected at least 1 next hop"),
+            RelationError::RelationTypeNotSupported => {
+                write!(f, "The type of destination is not supported as a relation")
+            }
+        }
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl defmt::Format for RelationError {
+    fn format(&self, f: defmt::Formatter<'_>) {
+        match self {
+            RelationError::NextHopExhausted => defmt::write!(f, "Next hop exhausted"),
+            RelationError::ToFewNextHops => defmt::write!(f, "Expected at least 1 next hop"),
+            RelationError::RelationTypeNotSupported => {
+                defmt::write!(f, "The type of destination is not supported as a relation")
+            }
         }
     }
 }
@@ -41,14 +58,14 @@ impl core::fmt::Display for UnicastRelation {
 
 #[cfg(feature = "defmt")]
 impl defmt::Format for UnicastRelation {
-    fn format(&self, fmt: defmt::Formatter) {
+    fn format(&self, f: defmt::Formatter) {
         defmt::write!(
-            fmt,
+            f,
             "{} via [{}] (expires at {})",
             self.destination,
-            self.next_hop,
-            self.added + self.lifetime
-        );
+            self.next_hop[0],
+            self.next_hop[0].added + self.next_hop[0].lifetime
+        )
     }
 }
 
@@ -82,9 +99,9 @@ impl core::fmt::Display for RelationHop {
     }
 }
 
-#[cfg(all(feature = "defmt", feature = "rpl-mop-3"))]
+#[cfg(feature = "defmt")]
 impl defmt::Format for RelationHop {
-    fn format(&self, fmt: defmt::Formatter) {
+    fn format(&self, f: defmt::Formatter) {
         defmt::write!(f, "{} (expires at {})", self.ip, self.added + self.lifetime)
     }
 }
@@ -159,6 +176,17 @@ pub enum Relation {
     Multicast(MulticastRelation),
 }
 
+#[cfg(feature = "defmt")]
+impl defmt::Format for Relation {
+    fn format(&self, fmt: defmt::Formatter) {
+        match self {
+            Self::Unicast(rel) => rel.format(fmt),
+            #[cfg(feature = "rpl-mop-3")]
+            Self::Multicast(rel) => rel.format(fmt),
+        }
+    }
+}
+
 impl Relation {
     pub fn new(
         destination: Ipv6Address,
@@ -167,14 +195,19 @@ impl Relation {
         lifetime: Duration,
     ) -> Result<Self, RelationError> {
         if destination.is_multicast() {
-            Ok(Self::Multicast(MulticastRelation {
-                destination,
-                next_hops: heapless::Vec::from_iter(next_hops.iter().map(|hop| RelationHop {
-                    ip: *hop,
-                    added: now,
-                    lifetime,
-                })),
-            }))
+            #[cfg(feature = "rpl-mop-3")]
+            {
+                Ok(Self::Multicast(MulticastRelation {
+                    destination,
+                    next_hops: heapless::Vec::from_iter(next_hops.iter().map(|hop| RelationHop {
+                        ip: *hop,
+                        added: now,
+                        lifetime,
+                    })),
+                }))
+            }
+            #[cfg(not(feature = "rpl-mop-3"))]
+            Err(RelationError::RelationTypeNotSupported)
         } else {
             if next_hops.len() > 1 {
                 return Err(RelationError::NextHopExhausted);
@@ -193,6 +226,7 @@ impl Relation {
     pub fn destination(&self) -> Ipv6Address {
         match self {
             Self::Unicast(rel) => rel.destination,
+            #[cfg(feature = "rpl-mop-3")]
             Self::Multicast(rel) => rel.destination,
         }
     }
@@ -216,6 +250,7 @@ impl Relation {
                 next_hop.lifetime = lifetime;
                 Ok(true)
             }
+            #[cfg(feature = "rpl-mop-3")]
             Self::Multicast(rel) => rel.insert_next_hop(ip, added, lifetime),
         }
     }
@@ -223,6 +258,7 @@ impl Relation {
     pub fn next_hop(&self) -> &[RelationHop] {
         match self {
             Self::Unicast(rel) => &rel.next_hop,
+            #[cfg(feature = "rpl-mop-3")]
             Self::Multicast(rel) => &rel.next_hops,
         }
     }
@@ -231,16 +267,22 @@ impl Relation {
     pub fn has_expired(&self, now: Instant) -> bool {
         match self {
             Self::Unicast(rel) => rel.next_hop.iter().all(|hop| hop.has_expired(now)),
+            #[cfg(feature = "rpl-mop-3")]
             Self::Multicast(rel) => rel.next_hops.iter().all(|hop| hop.has_expired(now)),
         }
     }
 
     pub fn is_multicast(&self) -> bool {
-        matches!(self, Self::Multicast(_))
+        #[cfg(feature = "rpl-mop-3")]
+        {
+            matches!(self, Self::Multicast(_))
+        }
+        #[cfg(not(feature = "rpl-mop-3"))]
+        false
     }
 
     pub fn is_unicast(&self) -> bool {
-        matches!(self, Self::Multicast(_))
+        matches!(self, Self::Unicast(_))
     }
 }
 
@@ -248,6 +290,7 @@ impl core::fmt::Display for Relation {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Unicast(rel) => rel.fmt(f),
+            #[cfg(feature = "rpl-mop-3")]
             Self::Multicast(rel) => rel.fmt(f),
         }
     }
@@ -299,6 +342,7 @@ impl Relations {
             if r.destination() == destination {
                 match r {
                     Relation::Unicast(r) => Some(&r.next_hop[..]),
+                    #[cfg(feature = "rpl-mop-3")]
                     Relation::Multicast(r) => Some(&r.next_hops),
                 }
             } else {
@@ -316,6 +360,7 @@ impl Relations {
             // First flush all relations if it is a multicast relation
             let has_expired = match r {
                 Relation::Unicast(rel) => rel.next_hop[0].has_expired(now),
+                #[cfg(feature = "rpl-mop-3")]
                 Relation::Multicast(rel) => {
                     rel.next_hops.retain(|hop| {
                         if hop.has_expired(now) {
