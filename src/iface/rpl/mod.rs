@@ -655,6 +655,8 @@ impl Dodag {
                         )
                     })
                     .unwrap();
+
+                self.dao_seq_number.increment();
             }
 
             // If we are in MOP3, we also send a DOA with our subscribed multicast addresses.
@@ -685,10 +687,10 @@ impl Dodag {
                             )
                         })
                         .unwrap();
+
+                    self.dao_seq_number.increment();
                 }
             }
-
-            self.dao_seq_number.increment();
         }
 
         let exp = (self.lifetime_unit as u64 * self.default_lifetime as u64)

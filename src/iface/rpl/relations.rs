@@ -156,16 +156,14 @@ impl core::fmt::Display for MulticastRelation {
 
 #[cfg(all(feature = "defmt", feature = "rpl-mop-3"))]
 impl defmt::Format for MulticastRelation {
-    fn format(&self, fmt: defmt::Formatter) {
-        defmt::write!(f, "{} via [", self.destination)?;
+    fn format(&self, f: defmt::Formatter) {
+        defmt::write!(f, "{} via [", self.destination);
 
-        for hop in self.next_hops {
-            defmt::write!(f, "{},", hop)?;
+        for hop in &self.next_hops {
+            defmt::write!(f, "{},", hop);
         }
 
-        defmt::write!(f, "]")?;
-
-        Ok(())
+        defmt::write!(f, "]");
     }
 }
 
@@ -316,7 +314,11 @@ impl Relations {
             .iter_mut()
             .find(|r| r.destination() == destination)
         {
-            net_trace!("Updating old relation information");
+            net_trace!(
+                "Updating old relation information for destination: {} with hops: {:?}",
+                destination,
+                next_hops
+            );
             for next_hop in next_hops {
                 r.insert_next_hop(*next_hop, now, lifetime)?;
             }
