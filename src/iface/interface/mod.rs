@@ -811,7 +811,6 @@ impl<'a> Interface<'a> {
                                 .and_then(|repr| repr.src_addr)
                                 .map(HardwareAddress::Ieee802154);
 
-                            net_debug!("Sending packet: {:?}", packet);
                             if let Err(err) = self.inner.dispatch_ip(
                                 tx_token,
                                 PacketMeta::default(),
@@ -820,17 +819,7 @@ impl<'a> Interface<'a> {
                                 &mut self.fragmenter,
                                 &mut self.multicast_queue,
                             ) {
-                                net_debug!(
-                                    "Failed to send response: {:?} with original pkg {:?}",
-                                    err,
-                                    &frame
-                                );
-                                if let Some(dodag) = &self.inner.rpl.dodag {
-                                    net_debug!("Current DODAG relations:");
-                                    for rel in dodag.relations.iter() {
-                                        net_debug!("Relation: {}", rel);
-                                    }
-                                }
+                                net_debug!("Failed to send response: {:?}", err);
                             }
                         }
                     }
