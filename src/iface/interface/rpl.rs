@@ -260,7 +260,11 @@ impl Interface<'_> {
             dodag.daos.iter_mut().for_each(|dao| {
                 if !dao.needs_sending {
                     let Some(next_tx) = dao.next_tx else {
-                        dao.next_tx = Some(ctx.now + dodag.dio_timer.min_expiration());
+                        let next_tx = dodag.dio_timer.min_expiration();
+                        // Add a random noise offset between 16ms up to ~4s
+                        let noise = Duration::from_millis((ctx.rand.rand_u16() & 0x0ff0) as u64);
+
+                        dao.next_tx = Some(ctx.now + next_tx + noise);
                         return;
                     };
 
