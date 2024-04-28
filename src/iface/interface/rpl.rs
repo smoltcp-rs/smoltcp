@@ -261,10 +261,19 @@ impl Interface<'_> {
                 if !dao.needs_sending {
                     let Some(next_tx) = dao.next_tx else {
                         let next_tx = dodag.dio_timer.min_expiration();
-                        // Add a random noise offset between 16ms up to ~4s
-                        let noise = Duration::from_millis((ctx.rand.rand_u16() & 0x0ff0) as u64);
+                        // Add a random noise offset between 0ms up to 128ms
+                        let noise = Duration::from_millis((ctx.rand.rand_u16() % 0x4) as u64) * 32;
+                        // We always want the multicast DAO to come later than
+                        // similary scheduled unicast DAOs, so we introduce here
+                        // a small offset such that the unicast DAO always
+                        // arrives first if scheduled at the same time.
+                        let multicast_bias = if dao.has_multicast_target() {
+                            Duration::from_millis(128)
+                        } else {
+                            Duration::from_micros(0)
+                        };
 
-                        dao.next_tx = Some(ctx.now + next_tx + noise);
+                        dao.next_tx = Some(ctx.now + next_tx + multicast_bias + noise);
                         return;
                     };
 

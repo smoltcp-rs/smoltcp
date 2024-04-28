@@ -294,6 +294,10 @@ impl Dao {
             options,
         })
     }
+
+    pub(crate) fn has_multicast_target(&mut self) -> bool {
+        self.targets.iter().any(|target| target.is_multicast())
+    }
 }
 
 impl Rpl {
