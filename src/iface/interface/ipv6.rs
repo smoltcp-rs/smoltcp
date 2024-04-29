@@ -232,8 +232,16 @@ impl InterfaceInner {
             }
         }
 
+        // Disallow list of forwardable multicast packets
+        let should_forward_multicast = match ipv6_repr.dst_addr.into() {
+            #[cfg(feature = "proto-ipv6")]
+            IpAddress::Ipv6(Ipv6Address::LINK_LOCAL_ALL_NODES) => false,
+            #[cfg(feature = "proto-rpl")]
+            IpAddress::Ipv6(Ipv6Address::LINK_LOCAL_ALL_RPL_NODES) => false,
+            _ => true,
+        };
         // if for us and multicast, process further and schedule forwarding
-        if ipv6_repr.dst_addr.is_multicast() {
+        if should_forward_multicast && ipv6_repr.dst_addr.is_multicast() {
             // Construct forwarding packet if possible
             let forwarding_packet = self.forward(ipv6_repr, hbh, None, ip_payload);
             // Lookup hardware addresses to which we would like to forward the multicast packet
@@ -242,10 +250,7 @@ impl InterfaceInner {
 
             // Schedule forwarding and process further if possible
             match (&forwarding_packet, haddrs) {
-                (Some(Packet::Ipv6(forwarding_packet)), Ok(mut haddrs)) => {
-                    // Filter out LL Broadcast as the other neighbours will have gotten the message too
-                    haddrs.retain(|haddr| haddr != &Ieee802154Address::BROADCAST.into());
-
+                (Some(Packet::Ipv6(forwarding_packet)), Ok(haddrs)) => {
                     if !haddrs.is_empty() {
                         let _ = self
                             .schedule_multicast_packet(
