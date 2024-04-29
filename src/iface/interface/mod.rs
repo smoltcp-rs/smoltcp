@@ -1235,46 +1235,14 @@ impl InterfaceInner {
                             )))
                         }
                         Ipv6Address::LINK_LOCAL_ALL_NODES | Ipv6Address::LINK_LOCAL_ALL_ROUTERS => {
-                            #[cfg(feature = "rpl-mop-3")]
-                            // TODO: Filter previous hop from next hops to prevent loops
-                            if let Some(dodag) = &self.rpl.dodag {
-                                let parent = dodag.parent.iter().copied();
-                                let next_hops = dodag
-                                    .relations
-                                    .iter()
-                                    .filter(|rel| rel.is_unicast())
-                                    .map(|rel| rel.next_hop());
-                                let downwards =
-                                    next_hops.flat_map(|hops| hops.iter()).map(|hop| hop.ip);
-                                let hardware_addrs = parent
-                                    .chain(downwards)
-                                    .flat_map(|hop| {
-                                        match self.neighbor_cache.lookup(&hop.into(), self.now) {
-                                            NeighborAnswer::Found(haddr) => Some(haddr),
-                                            NeighborAnswer::NotFound => None,
-                                            NeighborAnswer::RateLimited => None,
-                                        }
-                                    })
-                                    .filter(|haddr| Some(haddr) != previous_hop);
-
-                                heapless::Vec::from_iter(hardware_addrs)
-                            } else {
-                                // Not sure if this is correct
-                                heapless::Vec::from_iter(core::iter::once(
-                                    HardwareAddress::Ieee802154(Ieee802154Address::BROADCAST),
-                                ))
-                            }
-                            #[cfg(not(feature = "rpl-mop-3"))]
-                            {
-                                heapless::Vec::from_iter(core::iter::once(
-                                    HardwareAddress::Ieee802154(Ieee802154Address::BROADCAST),
-                                ))
-                            }
+                            heapless::Vec::from_iter(core::iter::once(HardwareAddress::Ieee802154(
+                                Ieee802154Address::BROADCAST,
+                            )))
                         }
                         // Handle the joined multicast groups
                         _ => {
                             #[cfg(feature = "rpl-mop-3")]
-                            // TODO: Filter previous hop from next hops to prevent loops
+                            // If in a DODAG, filter out the previous hop and compile a list of the remaining canditates
                             if let Some(dodag) = &self.rpl.dodag {
                                 let parent = dodag.parent.iter().copied();
                                 let next_hops = dodag.relations.find_next_hop(addr);
