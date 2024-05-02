@@ -166,6 +166,23 @@ impl InterfaceInner {
         })
     }
 
+    /// Get the first link-local IPv6 address of the interface, if present.
+    fn link_local_ipv6_address(&self) -> Option<Ipv6Address> {
+        self.ip_addrs.iter().find_map(|addr| match *addr {
+            #[cfg(feature = "proto-ipv4")]
+            IpCidr::Ipv4(_) => None,
+            #[cfg(feature = "proto-ipv6")]
+            IpCidr::Ipv6(cidr) => {
+                let addr = cidr.address();
+                if addr.is_link_local() {
+                    Some(addr)
+                } else {
+                    None
+                }
+            }
+        })
+    }
+
     pub(super) fn process_ipv6<'frame>(
         &mut self,
         sockets: &mut SocketSet,
@@ -518,22 +535,5 @@ impl InterfaceInner {
             },
             IpPayload::HopByHopIcmpv6(hbh_repr, Icmpv6Repr::Mld(mld_repr)),
         ))
-    }
-
-    /// Get the first link-local IPv6 address of the interface, if present.
-    fn link_local_ipv6_address(&self) -> Option<Ipv6Address> {
-        self.ip_addrs.iter().find_map(|addr| match *addr {
-            #[cfg(feature = "proto-ipv4")]
-            IpCidr::Ipv4(_) => None,
-            #[cfg(feature = "proto-ipv6")]
-            IpCidr::Ipv6(cidr) => {
-                let addr = cidr.address();
-                if addr.is_link_local() {
-                    Some(addr)
-                } else {
-                    None
-                }
-            }
-        })
     }
 }

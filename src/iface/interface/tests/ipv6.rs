@@ -1231,25 +1231,25 @@ fn test_join_ipv6_multicast_group(#[case] medium: Medium) {
         let ip_payload = ipv6_packet.payload();
 
         // The first 2 octets of this payload hold the next-header indicator and the
-        // Hop-by-Hop header length (in 8-octet words, minus 1), which we parse as an
-        // Unknown option. The remaining 6 octets hold the Hop-by-Hop PadN and Router
-        // Alert options.
+        // Hop-by-Hop header length (in 8-octet words, minus 1). The remaining 6 octets
+        // hold the Hop-by-Hop PadN and Router Alert options.
         let hbh_header = Ipv6HopByHopHeader::new_checked(&ip_payload[..8]).unwrap();
         let hbh_repr = Ipv6HopByHopRepr::parse(&hbh_header).unwrap();
 
-        let mut expected_hbh_repr = Ipv6HopByHopRepr::mldv2_router_alert(0);
-        expected_hbh_repr
-            .options
-            .insert(
-                0,
-                Ipv6OptionRepr::Unknown {
-                    type_: Ipv6OptionType::Unknown(IpProtocol::Icmpv6.into()),
-                    length: 0,
-                    data: &[],
-                },
-            )
-            .unwrap();
-        assert_eq!(hbh_repr, expected_hbh_repr);
+        assert_eq!(hbh_repr.options.len(), 3);
+        assert_eq!(
+            hbh_repr.options[0],
+            Ipv6OptionRepr::Unknown {
+                type_: Ipv6OptionType::Unknown(IpProtocol::Icmpv6.into()),
+                length: 0,
+                data: &[],
+            }
+        );
+        assert_eq!(hbh_repr.options[1], Ipv6OptionRepr::PadN(0));
+        assert_eq!(
+            hbh_repr.options[2],
+            Ipv6OptionRepr::RouterAlert(Ipv6OptionRouterAlert::MulticastListenerDiscovery)
+        );
 
         let icmpv6_packet =
             Icmpv6Packet::new_checked(&ip_payload[hbh_repr.buffer_len()..]).unwrap();
