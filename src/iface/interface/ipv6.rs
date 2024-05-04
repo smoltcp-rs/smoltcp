@@ -250,6 +250,7 @@ impl InterfaceInner {
 
             // Schedule forwarding and process further if possible
             match (&forwarding_packet, haddrs) {
+                #[cfg(feature = "proto-ipv6")]
                 (Some(Packet::Ipv6(forwarding_packet)), Ok(haddrs)) => {
                     if !haddrs.is_empty() {
                         let _ = self
@@ -267,7 +268,10 @@ impl InterfaceInner {
                             });
                     }
                 }
-                (Some(Packet::Ipv4(_)), Ok(_haddrs)) => unimplemented!(),
+                #[cfg(feature = "proto-ipv4")]
+                (Some(Packet::Ipv4(_)), Ok(_haddrs)) => {
+                    unimplemented!()
+                }
                 _ => {}
             }
         }

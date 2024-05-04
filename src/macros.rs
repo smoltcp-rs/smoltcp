@@ -167,3 +167,46 @@ macro_rules! set {
         NetworkEndian::write_u32(&mut $buffer.as_mut()[$field], $value);
     }};
 }
+
+macro_rules! matches_cfg {
+    ([$($sel:tt)*] $expression:expr, $pattern:pat $(if $guard:expr)? $(,)?) => {
+        {
+            #[cfg($($sel)*)]
+            {
+                matches!($expression, $pattern $(if $guard)?)
+            }
+            #[cfg(not($($sel)*))]
+            {
+                false
+            }
+        }
+    };
+}
+
+macro_rules! cfg_match {
+    (($expression:expr) {
+        $($(cfg[$($sel:tt)*])? ($pattern:pat) => $arm_expr:block)*
+    }) => {
+        match $expression {
+            $(
+                $(#[cfg($($sel)*)])?
+                $pattern => $arm_expr,
+            )*
+        }
+    };
+}
+
+macro_rules! cfg_or {
+    ([$($sel:tt)*] $expression:expr, $or_other:expr) => {
+        {
+            #[cfg($($sel)*)]
+            {
+                $expression
+            }
+            #[cfg(not($($sel)*))]
+            {
+                $or_other
+            }
+        }
+    };
+}

@@ -1515,16 +1515,33 @@ impl InterfaceInner {
         Tx: TxToken,
     {
         let (mut addr, tx_token) = match self.caps.medium {
-            Medium::Ethernet | Medium::Ieee802154 => self.lookup_hardware_addr(
-                tx_token,
-                previous_hop,
-                &packet.ip_repr().src_addr(),
-                &packet.ip_repr().dst_addr(),
-                frag,
-            )?,
+            medium
+                if matches_cfg!([feature = "medium-ethernet"] medium, Medium::Ethernet)
+                    && matches_cfg!(
+                        [feature = "medium-ieee802154"]
+                        medium,
+                        Medium::Ieee802154
+                    ) =>
+            {
+                self.lookup_hardware_addr(
+                    tx_token,
+                    previous_hop,
+                    &packet.ip_repr().src_addr(),
+                    &packet.ip_repr().dst_addr(),
+                    frag,
+                )?
+            }
+            #[cfg(feature = "medium-ethernet")]
             _ => (
                 heapless::Vec::from_iter(core::iter::once(HardwareAddress::Ethernet(
                     EthernetAddress([0; 6]),
+                ))),
+                tx_token,
+            ),
+            #[cfg(all(not(feature = "medium-ethernet"), feature = "medium-ieee802154"))]
+            _ => (
+                heapless::Vec::from_iter(core::iter::once(HardwareAddress::Ieee802154(
+                    Ieee802154Address::BROADCAST,
                 ))),
                 tx_token,
             ),
@@ -1533,7 +1550,9 @@ impl InterfaceInner {
 
         if !addr.is_empty() {
             match packet {
+                #[cfg(feature = "proto-ipv4")]
                 Packet::Ipv4(_) => unimplemented!(),
+                #[cfg(feature = "proto-ipv6")]
                 Packet::Ipv6(packet) => {
                     if !addr.is_empty() {
                         self.schedule_multicast_packet(meta, packet, addr, multicast_queue)?;
