@@ -1517,7 +1517,7 @@ impl InterfaceInner {
         let (mut addr, tx_token) = match self.caps.medium {
             medium
                 if matches_cfg!([feature = "medium-ethernet"] medium, Medium::Ethernet)
-                    && matches_cfg!(
+                    || matches_cfg!(
                         [feature = "medium-ieee802154"]
                         medium,
                         Medium::Ieee802154
