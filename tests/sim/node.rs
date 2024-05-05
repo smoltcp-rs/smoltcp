@@ -82,7 +82,7 @@ impl Node {
             id,
             range: 101.,
             position: Position::from((0., 0.)),
-            enabled: true,
+            enabled: false,
             is_sending: false,
             parent_changed: false,
             previous_parent: None,
@@ -98,6 +98,15 @@ impl Node {
             application: None,
             next_poll: Some(Instant::ZERO),
             last_transmitted: Instant::ZERO,
+        }
+    }
+
+    /// Initializes the node
+    pub fn init(&mut self) {
+        self.enabled = true;
+        if let Some(init) = &self.init {
+            let handles = init(&mut self.sockets);
+            self.socket_handles = handles;
         }
     }
 

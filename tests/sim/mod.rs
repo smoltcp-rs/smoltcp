@@ -183,13 +183,11 @@ impl NetworkSim {
             .find(|node| node.ieee_address == destination)
     }
 
-    /// Initialize the simulation.
+    /// Initialize the simulation. This is a shortcut to initialize all the nodes individually.
+    /// Nodes need to be initialized to be enabled, otherwise they will not show up in the simulation.
     pub fn init(&mut self) {
         for node in &mut self.nodes {
-            if let Some(init) = &node.init {
-                let handles = init(&mut node.sockets);
-                node.socket_handles = handles;
-            }
+            node.init();
         }
     }
 

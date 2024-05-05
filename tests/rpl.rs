@@ -29,6 +29,7 @@ fn root_node_only(#[case] mop: RplModeOfOperation) {
         Ipv6Address::default(),
     )));
 
+    sim.init();
     sim.run(Duration::from_millis(500), ONE_HOUR, None);
 
     assert!(!sim.msgs().is_empty());
@@ -55,6 +56,7 @@ fn normal_node_without_dodag(#[case] mop: RplModeOfOperation) {
     let mut sim = sim::NetworkSim::new();
     sim.create_node(RplConfig::new(mop));
 
+    sim.init();
     sim.run(Duration::from_millis(500), ONE_HOUR, None);
 
     assert!(!sim.msgs().is_empty());
@@ -116,6 +118,7 @@ fn root_and_normal_node(
         )))
         .unwrap(),
     );
+    sim.init();
     sim.run(
         Duration::from_millis(500),
         Duration::from_secs(60 * 15),
@@ -183,6 +186,7 @@ fn root_and_normal_node_moved_out_of_range(
     } else {
         None
     };
+    sim.init();
     sim.run(Duration::from_millis(100), ONE_HOUR, pcap_file.as_mut());
 
     assert!(!sim.msgs().is_empty());
@@ -535,6 +539,76 @@ fn forward_multicast_up_and_down(#[case] multicast_receivers: &[usize]) {
 }
 
 #[rstest]
+#[case::root_one(&[4], 0)]
+#[case::root_two(&[4, 2], 0)]
+#[case::root_three(&[4, 2, 3], 0)]
+fn forward_multicast_staged_initialization(
+    #[case] multicast_receivers: &[usize],
+    #[case] multicast_sender: usize,
+) {
+    init();
+
+    const MULTICAST_GROUP: Ipv6Address = Ipv6Address::new(0xff02, 0, 0, 0, 0, 0, 0, 3);
+    let mut sim = sim::topology(
+        sim::NetworkSim::new(),
+        RplModeOfOperation::StoringModeWithMulticast,
+        2,
+        2,
+    );
+    // Subscribe to multicast group
+    for receiver in multicast_receivers {
+        let node = &mut sim.nodes_mut()[*receiver];
+        node.interface
+            .join_multicast_group(&mut node.device, MULTICAST_GROUP, Instant::ZERO)
+            .expect("node should be able to join the multicast group");
+
+        sim::udp_receiver_node(node, 1234);
+    }
+
+    // Setup UDP sender
+    sim::udp_sender_node(
+        &mut sim.nodes_mut()[multicast_sender],
+        1234,
+        MULTICAST_GROUP,
+    );
+
+    let mut pcap_file = Some(
+        sim::PcapFile::new(std::path::Path::new(&format!(
+            "sim_logs/forward_multicast_staged_init{}.pcap",
+            multicast_receivers
+                .iter()
+                .map(|id| id.to_string())
+                .fold(String::new(), |a, b| a + "-" + &b),
+        )))
+        .unwrap(),
+    );
+
+    let nodes_len = sim.nodes().len();
+    for node in 0..nodes_len {
+        let node = &mut sim.nodes_mut()[node];
+        node.init();
+
+        // Run for a while
+        sim.run(
+            Duration::from_millis(500),
+            Duration::from_secs(60 * 5),
+            pcap_file.as_mut(),
+        );
+        sim.clear_msgs();
+    }
+
+    // At the end run with the entire network up
+    sim.init();
+    sim.run(
+        Duration::from_millis(500),
+        Duration::from_secs(60 * 5),
+        pcap_file.as_mut(),
+    );
+
+    assert!(!sim.msgs().is_empty());
+}
+
+#[rstest]
 #[case::mop0(RplModeOfOperation::NoDownwardRoutesMaintained, None)]
 //#[case::mop1(RplModeOfOperation::NonStoringMode)]
 #[case::mop2(RplModeOfOperation::StoringMode, None)]
@@ -558,6 +632,7 @@ fn normal_node_change_parent(
             .expect("last_child should be able to join the multicast group");
     }
 
+    sim.init();
     sim.run(
         Duration::from_millis(500),
         Duration::from_secs(60 * 5),
@@ -636,6 +711,7 @@ fn normal_node_change_parent(
 #[case::mop3(RplModeOfOperation::StoringModeWithMulticast)]
 fn parent_leaves_network_no_other_parent(#[case] mop: RplModeOfOperation) {
     let mut sim = sim::topology(sim::NetworkSim::new(), mop, 4, 2);
+    sim.init();
     sim.run(Duration::from_millis(500), ONE_HOUR, None);
 
     // Parent leaves network, child node does not have an alternative parent.
@@ -676,6 +752,7 @@ fn dtsn_incremented_when_child_leaves_network(#[case] mop: RplModeOfOperation) {
     sim.nodes_mut()[4].set_position(sim::Position((200., 100.)));
     sim.nodes_mut()[5].set_position(sim::Position((-100., 0.)));
 
+    sim.init();
     sim.run(Duration::from_millis(500), ONE_HOUR, None);
 
     // One node is moved out of the range of its parent.
