@@ -1161,6 +1161,21 @@ impl InterfaceInner {
     }
 
     fn has_neighbor(&self, addr: &IpAddress) -> bool {
+        if addr.is_multicast() {
+            #[cfg(feature = "proto-rpl")]
+            {
+                if let Some(dodag) = &self.rpl.dodag {
+                    return dodag
+                        .relations
+                        .iter()
+                        .any(|rel| &IpAddress::Ipv6(rel.destination()) == addr)
+                        || dodag.parent.is_some();
+                }
+            }
+            // FIXME: Do something useful here
+            return true;
+        }
+
         match self.route(addr, self.now) {
             Some(_routed_addr) => match self.caps.medium {
                 #[cfg(feature = "medium-ethernet")]
