@@ -540,8 +540,11 @@ fn forward_multicast_up_and_down(#[case] multicast_receivers: &[usize]) {
 
 #[rstest]
 #[case::root_one(&[4], 0)]
+#[case::child_one(&[4], 4)]
 #[case::root_two(&[4, 2], 0)]
+#[case::child_two(&[4, 2], 4)]
 #[case::root_three(&[4, 2, 3], 0)]
+#[case::child_three(&[4, 2, 3], 4)]
 fn forward_multicast_staged_initialization(
     #[case] multicast_receivers: &[usize],
     #[case] multicast_sender: usize,
@@ -574,11 +577,12 @@ fn forward_multicast_staged_initialization(
 
     let mut pcap_file = Some(
         sim::PcapFile::new(std::path::Path::new(&format!(
-            "sim_logs/forward_multicast_staged_init{}.pcap",
+            "sim_logs/forward_multicast_staged_init_r{}-s{}.pcap",
             multicast_receivers
                 .iter()
                 .map(|id| id.to_string())
                 .fold(String::new(), |a, b| a + "-" + &b),
+            multicast_sender,
         )))
         .unwrap(),
     );
