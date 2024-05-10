@@ -122,7 +122,6 @@ impl<'a> Repr<'a> {
     pub fn push_padn_option(&mut self, n: u8) {
         self.options.push(Ipv6OptionRepr::PadN(n)).unwrap();
     }
-
 }
 
 #[cfg(test)]
