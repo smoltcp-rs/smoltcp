@@ -1245,11 +1245,11 @@ fn test_join_ipv6_multicast_group(#[case] medium: Medium) {
                 data: &[],
             }
         );
-        assert_eq!(hbh_repr.options[1], Ipv6OptionRepr::PadN(0));
         assert_eq!(
-            hbh_repr.options[2],
+            hbh_repr.options[1],
             Ipv6OptionRepr::RouterAlert(Ipv6OptionRouterAlert::MulticastListenerDiscovery)
         );
+        assert_eq!(hbh_repr.options[2], Ipv6OptionRepr::PadN(0));
 
         let icmpv6_packet =
             Icmpv6Packet::new_checked(&ip_payload[hbh_repr.buffer_len()..]).unwrap();
