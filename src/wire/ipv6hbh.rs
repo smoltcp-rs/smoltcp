@@ -107,10 +107,9 @@ impl<'a> Repr<'a> {
         }
     }
 
-    /// The hop-by-hop header containing a PadN and a MLDv2 router alert option.
-    pub fn mldv2_router_alert(n: u8) -> Self {
+    /// The hop-by-hop header containing a MLDv2 router alert option
+    pub fn mldv2_router_alert() -> Self {
         let mut options = Vec::new();
-        options.push(Ipv6OptionRepr::PadN(n)).unwrap();
         options
             .push(Ipv6OptionRepr::RouterAlert(
                 RouterAlert::MulticastListenerDiscovery,
@@ -118,6 +117,12 @@ impl<'a> Repr<'a> {
             .unwrap();
         Self { options }
     }
+
+    /// Append a PadN option to the vector of hop-by-hop options
+    pub fn push_padn_option(&mut self, n: u8) {
+        self.options.push(Ipv6OptionRepr::PadN(n)).unwrap();
+    }
+
 }
 
 #[cfg(test)]

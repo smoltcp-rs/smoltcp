@@ -514,7 +514,9 @@ impl InterfaceInner {
             data: &[],
         };
 
-        let hbh_repr = Ipv6HopByHopRepr::mldv2_router_alert(0);
+        let mut hbh_repr = Ipv6HopByHopRepr::mldv2_router_alert();
+        hbh_repr.push_padn_option(0);
+
         let mld_repr = MldRepr::ReportRecordReprs(records);
         let records_len = records
             .iter()
