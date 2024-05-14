@@ -87,6 +87,14 @@ impl Address {
         0x02,
     ]);
 
+    /// The link-local [all MLVDv2-capable routers multicast address].
+    ///
+    /// [all MLVDv2-capable routers multicast address]: https://tools.ietf.org/html/rfc3810#section-11
+    pub const LINK_LOCAL_ALL_MLDV2_ROUTERS: Address = Address([
+        0xff, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x16,
+    ]);
+
     /// The link-local [all RPL nodes multicast address].
     ///
     /// [all RPL nodes multicast address]: https://www.rfc-editor.org/rfc/rfc6550.html#section-20.19

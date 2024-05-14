@@ -218,10 +218,10 @@ reassembly-buffer-count-8 = []
 reassembly-buffer-count-16 = []
 reassembly-buffer-count-32 = []
 
-ipv6-hbh-max-options-1 = [] # Default
+ipv6-hbh-max-options-1 = []
 ipv6-hbh-max-options-2 = []
 ipv6-hbh-max-options-3 = []
-ipv6-hbh-max-options-4 = []
+ipv6-hbh-max-options-4 = [] # Default
 ipv6-hbh-max-options-8 = []
 ipv6-hbh-max-options-16 = []
 ipv6-hbh-max-options-32 = []
@@ -295,6 +295,10 @@ required-features = ["log", "medium-ethernet", "proto-ipv4", "socket-tcp"]
 [[example]]
 name = "multicast"
 required-features = ["std", "medium-ethernet", "medium-ip", "phy-tuntap_interface", "proto-ipv4", "proto-igmp", "socket-udp"]
+
+[[example]]
+name = "multicast6"
+required-features = ["std", "medium-ethernet", "medium-ip", "phy-tuntap_interface", "proto-ipv6", "socket-udp"]
 
 [[example]]
 name = "benchmark"
