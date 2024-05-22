@@ -523,7 +523,17 @@ impl<'a> Socket<'a> {
             panic!("receiving buffer too large, cannot exceed 1 GiB")
         }
         let rx_cap_log2 = mem::size_of::<usize>() * 8 - rx_capacity.leading_zeros() as usize;
+        let remote_win_shift = rx_cap_log2.saturating_sub(16) as u8;
+        Self::new_with_window_scaling(rx_buffer, tx_buffer, remote_win_shift)
+    }
 
+    /// Create a socket using the given buffers and window scaling factor defined in [RFC 1323].
+    ///
+    /// See also the [local_recv_win_scale](#method.local_recv_win_scale) method.
+    pub fn new_with_window_scaling<T>(rx_buffer: T, tx_buffer: T, recv_win_scale: u8) -> Socket<'a>
+    where
+        T: Into<SocketBuffer<'a>>,
+    {
         Socket {
             state: State::Closed,
             timer: Timer::new(),
@@ -543,7 +553,7 @@ impl<'a> Socket<'a> {
             remote_last_ack: None,
             remote_last_win: 0,
             remote_win_len: 0,
-            remote_win_shift: rx_cap_log2.saturating_sub(16) as u8,
+            remote_win_shift: recv_win_scale,
             remote_win_scale: None,
             remote_has_sack: false,
             remote_mss: DEFAULT_MSS,
@@ -772,6 +782,14 @@ impl<'a> Socket<'a> {
             // until the next packet, unless we wind up the timer explicitly.
             self.timer.set_keep_alive();
         }
+    }
+
+    /// Return the local receive window scaling factor defined in [RFC 1323].
+    ///
+    /// The value will become constant after the connection is established.
+    /// It may be reset to 0 during the handshake if remote side does not support window scaling.
+    pub fn local_recv_win_scale(&self) -> u8 {
+        self.remote_win_shift
     }
 
     /// Return the time-to-live (IPv4) or hop limit (IPv6) value used in outgoing packets.
@@ -2600,6 +2618,46 @@ impl<'a> Socket<'a> {
                 .min()
                 .unwrap_or(&PollAt::Ingress)
         }
+    }
+}
+
+impl Socket<'static> {
+    /// TODO: DOCS
+    pub fn replace_recv_buffer<T: Into<SocketBuffer<'static>>>(
+        &mut self,
+        new_buffer: T,
+    ) -> Result<SocketBuffer<'static>, SocketBuffer<'static>> {
+        let mut replaced_buf = new_buffer.into();
+        /* Check if the new buffer is valid
+         * Requirements:
+         * 1. The new buffer must be larger than the length of remaining data in the current buffer
+         * 2. The new buffer must be multiple of (1 << self.remote_win_shift)
+         */
+        if replaced_buf.capacity() < self.rx_buffer.len()
+            || replaced_buf.capacity() % (1 << self.remote_win_shift) != 0
+        {
+            return Err(replaced_buf);
+        }
+        replaced_buf.clear();
+        self.rx_buffer.dequeue_many_with(|buf| {
+            let enqueued_len = replaced_buf.enqueue_slice(buf);
+            assert_eq!(enqueued_len, buf.len());
+            (enqueued_len, replaced_buf.get_allocated(0, enqueued_len))
+        });
+        if self.rx_buffer.len() > 0 {
+            // copy the wrapped around part
+            self.rx_buffer.dequeue_many_with(|buf| {
+                let enqueued_len = replaced_buf.enqueue_slice(buf);
+                assert_eq!(enqueued_len, buf.len());
+                (
+                    enqueued_len,
+                    replaced_buf.get_allocated(buf.len() - enqueued_len, enqueued_len),
+                )
+            });
+        }
+        assert_eq!(self.rx_buffer.len(), 0);
+        mem::swap(&mut self.rx_buffer, &mut replaced_buf);
+        Ok(replaced_buf)
     }
 }
 
