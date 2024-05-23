@@ -2668,7 +2668,7 @@ impl Socket<'static> {
             assert_eq!(enqueued_len, buf.len());
             (enqueued_len, replaced_buf.get_allocated(0, enqueued_len))
         });
-        if self.rx_buffer.len() > 0 {
+        if !self.rx_buffer.is_empty() {
             // copy the wrapped around part
             self.rx_buffer.dequeue_many_with(|buf| {
                 let enqueued_len = replaced_buf.enqueue_slice(buf);
