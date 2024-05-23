@@ -529,11 +529,21 @@ impl<'a> Socket<'a> {
 
     /// Create a socket using the given buffers and window scaling factor defined in [RFC 1323].
     ///
+    /// # Panics
+    ///
+    /// Panics if the window scaling factor is greater than 14.
+    ///
     /// See also the [local_recv_win_scale](#method.local_recv_win_scale) method.
     pub fn new_with_window_scaling<T>(rx_buffer: T, tx_buffer: T, recv_win_scale: u8) -> Socket<'a>
     where
         T: Into<SocketBuffer<'a>>,
     {
+        if recv_win_scale > 14 {
+            panic!("window scaling factor too large, must be <= 14")
+        }
+
+        let (rx_buffer, tx_buffer) = (rx_buffer.into(), tx_buffer.into());
+
         Socket {
             state: State::Closed,
             timer: Timer::new(),
