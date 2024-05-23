@@ -109,11 +109,12 @@ pub struct InterfaceInner {
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
     tag: u16,
     ip_addrs: Vec<IpCidr, IFACE_MAX_ADDR_COUNT>,
-    #[cfg(feature = "proto-ipv4")]
     any_ip: bool,
     routes: Routes,
     #[cfg(feature = "proto-igmp")]
     ipv4_multicast_groups: LinearMap<Ipv4Address, (), IFACE_MAX_MULTICAST_GROUP_COUNT>,
+    #[cfg(feature = "proto-ipv6")]
+    ipv6_multicast_groups: LinearMap<Ipv6Address, (), IFACE_MAX_MULTICAST_GROUP_COUNT>,
     /// When to report for (all or) the next multicast group membership via IGMP
     #[cfg(feature = "proto-igmp")]
     igmp_report_state: IgmpReportState,
@@ -221,13 +222,14 @@ impl Interface {
                 caps,
                 hardware_addr: config.hardware_addr,
                 ip_addrs: Vec::new(),
-                #[cfg(feature = "proto-ipv4")]
                 any_ip: false,
                 routes: Routes::new(),
                 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
                 neighbor_cache: NeighborCache::new(),
                 #[cfg(feature = "proto-igmp")]
                 ipv4_multicast_groups: LinearMap::new(),
+                #[cfg(feature = "proto-ipv6")]
+                ipv6_multicast_groups: LinearMap::new(),
                 #[cfg(feature = "proto-igmp")]
                 igmp_report_state: IgmpReportState::Inactive,
                 #[cfg(feature = "medium-ieee802154")]
@@ -358,16 +360,10 @@ impl Interface {
     /// Enable or disable the AnyIP capability.
     ///
     /// AnyIP allowins packets to be received
-    /// locally on IPv4 addresses other than the interface's configured [ip_addrs].
+    /// locally on IP addresses other than the interface's configured [ip_addrs].
     /// When AnyIP is enabled and a route prefix in [`routes`](Self::routes) specifies one of
     /// the interface's [`ip_addrs`](Self::ip_addrs) as its gateway, the interface will accept
     /// packets addressed to that prefix.
-    ///
-    /// # IPv6
-    ///
-    /// This option is not available or required for IPv6 as packets sent to
-    /// the interface are not filtered by IPv6 address.
-    #[cfg(feature = "proto-ipv4")]
     pub fn set_any_ip(&mut self, any_ip: bool) {
         self.inner.any_ip = any_ip;
     }
@@ -375,7 +371,6 @@ impl Interface {
     /// Get whether AnyIP is enabled.
     ///
     /// See [`set_any_ip`](Self::set_any_ip) for details on AnyIP
-    #[cfg(feature = "proto-ipv4")]
     pub fn any_ip(&self) -> bool {
         self.inner.any_ip
     }
@@ -771,11 +766,13 @@ impl InterfaceInner {
                     || self.ipv4_multicast_groups.get(&key).is_some()
             }
             #[cfg(feature = "proto-ipv6")]
-            IpAddress::Ipv6(Ipv6Address::LINK_LOCAL_ALL_NODES) => true,
+            IpAddress::Ipv6(key) => {
+                key == Ipv6Address::LINK_LOCAL_ALL_NODES
+                    || self.has_solicited_node(key)
+                    || self.ipv6_multicast_groups.get(&key).is_some()
+            }
             #[cfg(feature = "proto-rpl")]
             IpAddress::Ipv6(Ipv6Address::LINK_LOCAL_ALL_RPL_NODES) => true,
-            #[cfg(feature = "proto-ipv6")]
-            IpAddress::Ipv6(addr) => self.has_solicited_node(addr),
             #[allow(unreachable_patterns)]
             _ => false,
         }

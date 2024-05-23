@@ -166,6 +166,23 @@ impl InterfaceInner {
         })
     }
 
+    /// Get the first link-local IPv6 address of the interface, if present.
+    fn link_local_ipv6_address(&self) -> Option<Ipv6Address> {
+        self.ip_addrs.iter().find_map(|addr| match *addr {
+            #[cfg(feature = "proto-ipv4")]
+            IpCidr::Ipv4(_) => None,
+            #[cfg(feature = "proto-ipv6")]
+            IpCidr::Ipv6(cidr) => {
+                let addr = cidr.address();
+                if addr.is_link_local() {
+                    Some(addr)
+                } else {
+                    None
+                }
+            }
+        })
+    }
+
     pub(super) fn process_ipv6<'frame>(
         &mut self,
         sockets: &mut SocketSet,
@@ -193,8 +210,17 @@ impl InterfaceInner {
             && !self.has_multicast_group(ipv6_repr.dst_addr)
             && !ipv6_repr.dst_addr.is_loopback()
         {
-            net_trace!("packet IP address not for this interface");
-            return None;
+            // If AnyIP is enabled, also check if the packet is routed locally.
+            if !self.any_ip
+                || !ipv6_repr.dst_addr.is_unicast()
+                || self
+                    .routes
+                    .lookup(&IpAddress::Ipv6(ipv6_repr.dst_addr), self.now)
+                    .map_or(true, |router_addr| !self.has_ip_addr(router_addr))
+            {
+                net_trace!("packet IP address not for this interface");
+                return None;
+            }
         }
 
         #[cfg(feature = "socket-raw")]
@@ -238,7 +264,8 @@ impl InterfaceInner {
 
         for opt_repr in &hbh_repr.options {
             match opt_repr {
-                Ipv6OptionRepr::Pad1 | Ipv6OptionRepr::PadN(_) => (),
+                Ipv6OptionRepr::Pad1 | Ipv6OptionRepr::PadN(_) | Ipv6OptionRepr::RouterAlert(_) => {
+                }
                 #[cfg(feature = "proto-rpl")]
                 Ipv6OptionRepr::Rpl(_) => {}
 
@@ -470,6 +497,54 @@ impl InterfaceInner {
         Some(Packet::new_ipv6(
             ipv6_reply_repr,
             IpPayload::Icmpv6(icmp_repr),
+        ))
+    }
+
+    pub(super) fn mldv2_report_packet<'any>(
+        &self,
+        records: &'any [MldAddressRecordRepr<'any>],
+    ) -> Option<Packet<'any>> {
+        // Per [RFC 3810 § 5.2.13], source addresses must be link-local, falling
+        // back to the unspecified address if we haven't acquired one.
+        // [RFC 3810 § 5.2.13]: https://tools.ietf.org/html/rfc3810#section-5.2.13
+        let src_addr = self
+            .link_local_ipv6_address()
+            .unwrap_or(Ipv6Address::UNSPECIFIED);
+
+        // Per [RFC 3810 § 5.2.14], all MLDv2 reports are sent to ff02::16.
+        // [RFC 3810 § 5.2.14]: https://tools.ietf.org/html/rfc3810#section-5.2.14
+        let dst_addr = Ipv6Address::LINK_LOCAL_ALL_MLDV2_ROUTERS;
+
+        // Create a dummy IPv6 extension header so we can calculate the total length of the packet.
+        // The actual extension header will be created later by Packet::emit_payload().
+        let dummy_ext_hdr = Ipv6ExtHeaderRepr {
+            next_header: IpProtocol::Unknown(0),
+            length: 0,
+            data: &[],
+        };
+
+        let mut hbh_repr = Ipv6HopByHopRepr::mldv2_router_alert();
+        hbh_repr.push_padn_option(0);
+
+        let mld_repr = MldRepr::ReportRecordReprs(records);
+        let records_len = records
+            .iter()
+            .map(MldAddressRecordRepr::buffer_len)
+            .sum::<usize>();
+
+        // All MLDv2 messages must be sent with an IPv6 Hop limit of 1.
+        Some(Packet::new_ipv6(
+            Ipv6Repr {
+                src_addr,
+                dst_addr,
+                next_header: IpProtocol::HopByHop,
+                payload_len: dummy_ext_hdr.header_len()
+                    + hbh_repr.buffer_len()
+                    + mld_repr.buffer_len()
+                    + records_len,
+                hop_limit: 1,
+            },
+            IpPayload::HopByHopIcmpv6(hbh_repr, Icmpv6Repr::Mld(mld_repr)),
         ))
     }
 }

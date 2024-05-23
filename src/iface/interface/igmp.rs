@@ -8,8 +8,8 @@ pub enum MulticastError {
     Exhausted,
     /// The table of joined multicast groups is already full.
     GroupTableFull,
-    /// IPv6 multicast is not yet supported.
-    Ipv6NotSupported,
+    /// Cannot join/leave the given multicast group.
+    Unaddressable,
 }
 
 impl core::fmt::Display for MulticastError {
@@ -17,7 +17,7 @@ impl core::fmt::Display for MulticastError {
         match self {
             MulticastError::Exhausted => write!(f, "Exhausted"),
             MulticastError::GroupTableFull => write!(f, "GroupTableFull"),
-            MulticastError::Ipv6NotSupported => write!(f, "Ipv6NotSupported"),
+            MulticastError::Unaddressable => write!(f, "Unaddressable"),
         }
     }
 }
@@ -68,9 +68,39 @@ impl Interface {
                     Ok(false)
                 }
             }
-            // Multicast is not yet implemented for other address families
+            #[cfg(feature = "proto-ipv6")]
+            IpAddress::Ipv6(addr) => {
+                // Build report packet containing this new address
+                let report_record = &[MldAddressRecordRepr::new(
+                    MldRecordType::ChangeToInclude,
+                    addr,
+                )];
+                let is_not_new = self
+                    .inner
+                    .ipv6_multicast_groups
+                    .insert(addr, ())
+                    .map_err(|_| MulticastError::GroupTableFull)?
+                    .is_some();
+                if is_not_new {
+                    Ok(false)
+                } else if let Some(pkt) = self.inner.mldv2_report_packet(report_record) {
+                    // Send initial membership report
+                    let tx_token = device
+                        .transmit(timestamp)
+                        .ok_or(MulticastError::Exhausted)?;
+
+                    // NOTE(unwrap): packet destination is multicast, which is always routable and doesn't require neighbor discovery.
+                    self.inner
+                        .dispatch_ip(tx_token, PacketMeta::default(), pkt, &mut self.fragmenter)
+                        .unwrap();
+
+                    Ok(true)
+                } else {
+                    Ok(false)
+                }
+            }
             #[allow(unreachable_patterns)]
-            _ => Err(MulticastError::Ipv6NotSupported),
+            _ => Err(MulticastError::Unaddressable),
         }
     }
 
@@ -110,9 +140,33 @@ impl Interface {
                     Ok(false)
                 }
             }
-            // Multicast is not yet implemented for other address families
+            #[cfg(feature = "proto-ipv6")]
+            IpAddress::Ipv6(addr) => {
+                let report_record = &[MldAddressRecordRepr::new(
+                    MldRecordType::ChangeToExclude,
+                    addr,
+                )];
+                let was_not_present = self.inner.ipv6_multicast_groups.remove(&addr).is_none();
+                if was_not_present {
+                    Ok(false)
+                } else if let Some(pkt) = self.inner.mldv2_report_packet(report_record) {
+                    // Send group leave packet
+                    let tx_token = device
+                        .transmit(timestamp)
+                        .ok_or(MulticastError::Exhausted)?;
+
+                    // NOTE(unwrap): packet destination is multicast, which is always routable and doesn't require neighbor discovery.
+                    self.inner
+                        .dispatch_ip(tx_token, PacketMeta::default(), pkt, &mut self.fragmenter)
+                        .unwrap();
+
+                    Ok(true)
+                } else {
+                    Ok(false)
+                }
+            }
             #[allow(unreachable_patterns)]
-            _ => Err(MulticastError::Ipv6NotSupported),
+            _ => Err(MulticastError::Unaddressable),
         }
     }
 
