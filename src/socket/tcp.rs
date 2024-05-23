@@ -8219,4 +8219,56 @@ mod test {
             }]
         );
     }
+
+    // =========================================================================================//
+    // Tests for window scaling
+    // =========================================================================================//
+
+    fn socket_established_with_window_scaling() -> TestSocket {
+        let mut s = socket_established();
+        s.remote_win_shift = 10;
+        const BASE: usize = 1 << 10;
+        s.tx_buffer = SocketBuffer::new(vec![0u8; 64 * BASE]);
+        s.rx_buffer = SocketBuffer::new(vec![0u8; 64 * BASE]);
+        s
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_new_with_too_large_window_scale() {
+        Socket::new_with_window_scaling(
+            SocketBuffer::new(Vec::with_capacity(128)),
+            SocketBuffer::new(Vec::with_capacity(128)),
+            15,
+        );
+    }
+
+    #[test]
+    fn test_new_with_window_scale() {
+        let socket = Socket::new_with_window_scaling(
+            SocketBuffer::new(Vec::with_capacity(128)),
+            SocketBuffer::new(Vec::with_capacity(128)),
+            14,
+        );
+        assert_eq!(socket.local_recv_win_scale(), 14);
+    }
+
+    #[test]
+    fn test_resize_recv_buffer_invalid_size() {
+        let mut s = socket_established_with_window_scaling();
+        assert_eq!(s.rx_buffer.enqueue_slice(&[42; 31 * 1024]), 31 * 1024);
+        assert_eq!(s.rx_buffer.len(), 31 * 1024);
+        assert!(s
+            .replace_recv_buffer(SocketBuffer::new(vec![7u8; 32 * 1024 + 512]))
+            .is_err());
+        assert!(s
+            .replace_recv_buffer(SocketBuffer::new(vec![7u8; 16 * 1024]))
+            .is_err());
+        let old_buffer = s
+            .replace_recv_buffer(SocketBuffer::new(vec![7u8; 32 * 1024]))
+            .unwrap();
+        assert_eq!(old_buffer.capacity(), 64 * 1024);
+        assert_eq!(s.rx_buffer.len(), 31 * 1024);
+        assert_eq!(s.rx_buffer.capacity(), 32 * 1024);
+    }
 }
