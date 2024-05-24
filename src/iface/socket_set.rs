@@ -179,6 +179,7 @@ impl<'a> SocketSet<'a> {
 }
 
 #[cfg(test)]
+#[cfg(all(feature = "socket-tcp", any(feature = "std", feature = "alloc")))]
 pub(crate) mod test {
     use crate::iface::socket_set::new_handle;
     use crate::iface::SocketSet;
