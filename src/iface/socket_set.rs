@@ -29,6 +29,11 @@ pub(crate) struct Item<'a> {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct SocketHandle(usize);
 
+#[cfg(test)]
+pub(crate) fn new_handle(index: usize) -> SocketHandle {
+    SocketHandle(index)
+}
+
 impl fmt::Display for SocketHandle {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "#{}", self.0)
@@ -53,7 +58,10 @@ impl<'a> SocketSet<'a> {
         SocketsT: Into<ManagedSlice<'a, SocketStorage<'a>>>,
     {
         let sockets = sockets.into();
-        SocketSet { sockets, first_empty_index: 0 }
+        SocketSet {
+            sockets,
+            first_empty_index: 0,
+        }
     }
 
     /// Add a socket to the set, and return its handle.
@@ -75,21 +83,20 @@ impl<'a> SocketSet<'a> {
         let socket = socket.upcast();
 
         if self.first_empty_index < self.sockets.len() {
-            let handle = put(self.first_empty_index, &mut self.sockets[self.first_empty_index], socket);
+            let handle = put(
+                self.first_empty_index,
+                &mut self.sockets[self.first_empty_index],
+                socket,
+            );
 
-            let mut set_index = false;
             for i in (self.first_empty_index + 1)..self.sockets.len() {
                 if self.sockets[i].inner.is_none() {
                     self.first_empty_index = i;
-                    set_index = true;
-                    break;
+                    return handle;
                 }
             }
 
-            if !set_index {
-                self.first_empty_index = self.sockets.len();
-            }
-
+            self.first_empty_index = self.sockets.len();
             return handle;
         }
 
@@ -145,7 +152,7 @@ impl<'a> SocketSet<'a> {
                 }
 
                 item.socket
-            },
+            }
             None => panic!("handle does not refer to a valid socket"),
         }
     }
@@ -168,5 +175,82 @@ impl<'a> SocketSet<'a> {
     /// Iterate every socket in this set.
     pub(crate) fn items_mut(&mut self) -> impl Iterator<Item = &mut Item<'a>> + '_ {
         self.sockets.iter_mut().filter_map(|x| x.inner.as_mut())
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod test {
+    use crate::iface::socket_set::new_handle;
+    use crate::iface::SocketSet;
+    use crate::socket::tcp;
+    use crate::socket::tcp::Socket;
+    use std::ptr;
+
+    fn gen_owned_socket() -> Socket<'static> {
+        let rx = tcp::SocketBuffer::new(vec![0; 1]);
+        let tx = tcp::SocketBuffer::new(vec![0; 1]);
+        Socket::new(rx, tx)
+    }
+
+    fn gen_owned_socket_set(size: usize) -> SocketSet<'static> {
+        let mut socket_set = SocketSet::new(Vec::with_capacity(size));
+        for _ in 0..size {
+            socket_set.add(gen_owned_socket());
+        }
+
+        socket_set
+    }
+
+    #[test]
+    fn test_add() {
+        let socket_set = gen_owned_socket_set(5);
+        assert_eq!(socket_set.first_empty_index, 5);
+    }
+
+    #[test]
+    fn test_remove() {
+        let mut socket_set = gen_owned_socket_set(10);
+
+        let removed_socket = socket_set.remove(new_handle(5));
+        for socket in socket_set.iter() {
+            assert!(!ptr::eq(socket.1, &removed_socket));
+        }
+
+        assert_eq!(socket_set.first_empty_index, 5);
+    }
+
+    #[test]
+    fn test_remove_add_integrity() {
+        let mut socket_set = gen_owned_socket_set(10);
+
+        for remove_index in 0..10 {
+            let removed_socket = socket_set.remove(new_handle(remove_index));
+            for socket in socket_set.iter() {
+                assert!(!ptr::eq(socket.1, &removed_socket));
+            }
+
+            let new_socket = gen_owned_socket();
+            let handle = socket_set.add(new_socket);
+            assert_eq!(handle.0, remove_index);
+        }
+
+        assert_eq!(socket_set.first_empty_index, 10);
+    }
+
+    #[test]
+    fn test_full_reconstruct() {
+        let mut socket_set = gen_owned_socket_set(10);
+
+        for index in 0..10 {
+            socket_set.remove(new_handle(index));
+        }
+
+        assert_eq!(socket_set.first_empty_index, 0);
+
+        for _ in 0..10 {
+            socket_set.add(gen_owned_socket());
+        }
+
+        assert_eq!(socket_set.first_empty_index, 10);
     }
 }
