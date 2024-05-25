@@ -312,16 +312,14 @@ impl Address {
     }
 }
 
-#[cfg(feature = "std")]
-impl From<::std::net::Ipv6Addr> for Address {
-    fn from(x: ::std::net::Ipv6Addr) -> Address {
+impl From<::core::net::Ipv6Addr> for Address {
+    fn from(x: ::core::net::Ipv6Addr) -> Address {
         Address(x.octets())
     }
 }
 
-#[cfg(feature = "std")]
-impl From<Address> for ::std::net::Ipv6Addr {
-    fn from(Address(x): Address) -> ::std::net::Ipv6Addr {
+impl From<Address> for ::core::net::Ipv6Addr {
+    fn from(Address(x): Address) -> ::core::net::Ipv6Addr {
         x.into()
     }
 }

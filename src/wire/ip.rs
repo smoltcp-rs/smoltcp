@@ -195,38 +195,37 @@ impl Address {
     }
 }
 
-#[cfg(all(feature = "std", feature = "proto-ipv4", feature = "proto-ipv6"))]
-impl From<::std::net::IpAddr> for Address {
-    fn from(x: ::std::net::IpAddr) -> Address {
+#[cfg(all(feature = "proto-ipv4", feature = "proto-ipv6"))]
+impl From<::core::net::IpAddr> for Address {
+    fn from(x: ::core::net::IpAddr) -> Address {
         match x {
-            ::std::net::IpAddr::V4(ipv4) => Address::Ipv4(ipv4.into()),
-            ::std::net::IpAddr::V6(ipv6) => Address::Ipv6(ipv6.into()),
+            ::core::net::IpAddr::V4(ipv4) => Address::Ipv4(ipv4.into()),
+            ::core::net::IpAddr::V6(ipv6) => Address::Ipv6(ipv6.into()),
         }
     }
 }
 
-#[cfg(feature = "std")]
-impl From<Address> for ::std::net::IpAddr {
-    fn from(x: Address) -> ::std::net::IpAddr {
+impl From<Address> for ::core::net::IpAddr {
+    fn from(x: Address) -> ::core::net::IpAddr {
         match x {
             #[cfg(feature = "proto-ipv4")]
-            Address::Ipv4(ipv4) => ::std::net::IpAddr::V4(ipv4.into()),
+            Address::Ipv4(ipv4) => ::core::net::IpAddr::V4(ipv4.into()),
             #[cfg(feature = "proto-ipv6")]
-            Address::Ipv6(ipv6) => ::std::net::IpAddr::V6(ipv6.into()),
+            Address::Ipv6(ipv6) => ::core::net::IpAddr::V6(ipv6.into()),
         }
     }
 }
 
-#[cfg(all(feature = "std", feature = "proto-ipv4"))]
-impl From<::std::net::Ipv4Addr> for Address {
-    fn from(ipv4: ::std::net::Ipv4Addr) -> Address {
+#[cfg(feature = "proto-ipv4")]
+impl From<::core::net::Ipv4Addr> for Address {
+    fn from(ipv4: ::core::net::Ipv4Addr) -> Address {
         Address::Ipv4(ipv4.into())
     }
 }
 
-#[cfg(all(feature = "std", feature = "proto-ipv6"))]
-impl From<::std::net::Ipv6Addr> for Address {
-    fn from(ipv6: ::std::net::Ipv6Addr) -> Address {
+#[cfg(feature = "proto-ipv6")]
+impl From<::core::net::Ipv6Addr> for Address {
+    fn from(ipv6: ::core::net::Ipv6Addr) -> Address {
         Address::Ipv6(ipv6.into())
     }
 }
@@ -395,9 +394,9 @@ impl Endpoint {
     }
 }
 
-#[cfg(all(feature = "std", feature = "proto-ipv4", feature = "proto-ipv6"))]
-impl From<::std::net::SocketAddr> for Endpoint {
-    fn from(x: ::std::net::SocketAddr) -> Endpoint {
+#[cfg(all(feature = "proto-ipv4", feature = "proto-ipv6"))]
+impl From<::core::net::SocketAddr> for Endpoint {
+    fn from(x: ::core::net::SocketAddr) -> Endpoint {
         Endpoint {
             addr: x.ip().into(),
             port: x.port(),
@@ -405,9 +404,9 @@ impl From<::std::net::SocketAddr> for Endpoint {
     }
 }
 
-#[cfg(all(feature = "std", feature = "proto-ipv4"))]
-impl From<::std::net::SocketAddrV4> for Endpoint {
-    fn from(x: ::std::net::SocketAddrV4) -> Endpoint {
+#[cfg(feature = "proto-ipv4")]
+impl From<::core::net::SocketAddrV4> for Endpoint {
+    fn from(x: ::core::net::SocketAddrV4) -> Endpoint {
         Endpoint {
             addr: (*x.ip()).into(),
             port: x.port(),
@@ -415,9 +414,9 @@ impl From<::std::net::SocketAddrV4> for Endpoint {
     }
 }
 
-#[cfg(all(feature = "std", feature = "proto-ipv6"))]
-impl From<::std::net::SocketAddrV6> for Endpoint {
-    fn from(x: ::std::net::SocketAddrV6) -> Endpoint {
+#[cfg(feature = "proto-ipv6")]
+impl From<::core::net::SocketAddrV6> for Endpoint {
+    fn from(x: ::core::net::SocketAddrV6) -> Endpoint {
         Endpoint {
             addr: (*x.ip()).into(),
             port: x.port(),
@@ -466,9 +465,9 @@ impl ListenEndpoint {
     }
 }
 
-#[cfg(all(feature = "std", feature = "proto-ipv4", feature = "proto-ipv6"))]
-impl From<::std::net::SocketAddr> for ListenEndpoint {
-    fn from(x: ::std::net::SocketAddr) -> ListenEndpoint {
+#[cfg(all(feature = "proto-ipv4", feature = "proto-ipv6"))]
+impl From<::core::net::SocketAddr> for ListenEndpoint {
+    fn from(x: ::core::net::SocketAddr) -> ListenEndpoint {
         ListenEndpoint {
             addr: Some(x.ip().into()),
             port: x.port(),
@@ -476,9 +475,9 @@ impl From<::std::net::SocketAddr> for ListenEndpoint {
     }
 }
 
-#[cfg(all(feature = "std", feature = "proto-ipv4"))]
-impl From<::std::net::SocketAddrV4> for ListenEndpoint {
-    fn from(x: ::std::net::SocketAddrV4) -> ListenEndpoint {
+#[cfg(feature = "proto-ipv4")]
+impl From<::core::net::SocketAddrV4> for ListenEndpoint {
+    fn from(x: ::core::net::SocketAddrV4) -> ListenEndpoint {
         ListenEndpoint {
             addr: Some((*x.ip()).into()),
             port: x.port(),
@@ -486,9 +485,9 @@ impl From<::std::net::SocketAddrV4> for ListenEndpoint {
     }
 }
 
-#[cfg(all(feature = "std", feature = "proto-ipv6"))]
-impl From<::std::net::SocketAddrV6> for ListenEndpoint {
-    fn from(x: ::std::net::SocketAddrV6) -> ListenEndpoint {
+#[cfg(feature = "proto-ipv6")]
+impl From<::core::net::SocketAddrV6> for ListenEndpoint {
+    fn from(x: ::core::net::SocketAddrV6) -> ListenEndpoint {
         ListenEndpoint {
             addr: Some((*x.ip()).into()),
             port: x.port(),
