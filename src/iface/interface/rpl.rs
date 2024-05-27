@@ -946,7 +946,9 @@ impl InterfaceInner {
                         // DAO.
                         for target in &targets {
                             net_trace!("remove {} relation (NO-PATH)", target);
-                            dodag.relations.remove_relation(*target);
+                            dodag
+                                .relations
+                                .remove_hop_from_relation(*target, ip_repr.src_addr);
                         }
                     } else {
                         let next_hop = match self.rpl.mode_of_operation {

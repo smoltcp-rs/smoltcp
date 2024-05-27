@@ -334,8 +334,27 @@ impl Relations {
     }
 
     /// Remove all relation entries for a specific destination.
-    pub fn remove_relation(&mut self, destination: Ipv6Address) {
-        self.relations.retain(|r| r.destination() != destination)
+    pub fn remove_hop_from_relation(&mut self, destination: Ipv6Address, hop: Ipv6Address) {
+        self.relations.retain_mut(|r| match r {
+            Relation::Unicast(r) => !(r.destination == destination && r.next_hop[0].ip == hop),
+            Relation::Multicast(r) => {
+                // Do nothing if the destination is not correct
+                if r.destination != destination {
+                    return true;
+                }
+
+                let pos = r.next_hops.iter().position(|h| h.ip == hop);
+
+                // Remove if position exists
+                let Some(pos) = pos else {
+                    return true; // Does not exist, so do nothing
+                };
+                r.next_hops.swap_remove(pos);
+
+                // Remove relation if still it has no more hops
+                !r.next_hops.is_empty()
+            }
+        })
     }
 
     /// Return the next hop for a specific IPv6 address, if there is one.
@@ -506,7 +525,7 @@ mod tests {
         );
         assert_eq!(relations.relations.len(), 1);
 
-        relations.remove_relation(addrs[0]);
+        relations.remove_hop_from_relation(addrs[0], addrs[1]);
         assert!(relations.relations.is_empty());
     }
 
