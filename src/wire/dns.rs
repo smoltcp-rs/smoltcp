@@ -417,9 +417,9 @@ impl<'a> Repr<'a> {
     }
 
     /// Emit a high-level representation into a DNS packet.
-    pub fn emit<T: ?Sized>(&self, packet: &mut Packet<&mut T>)
+    pub fn emit<T>(&self, packet: &mut Packet<&mut T>)
     where
-        T: AsRef<[u8]> + AsMut<[u8]>,
+        T: AsRef<[u8]> + AsMut<[u8]> + ?Sized,
     {
         packet.set_transaction_id(self.transaction_id);
         packet.set_flags(self.flags);

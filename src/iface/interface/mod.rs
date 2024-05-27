@@ -580,7 +580,7 @@ impl Interface {
 
         enum EgressError {
             Exhausted,
-            Dispatch(DispatchError),
+            Dispatch,
         }
 
         let mut emitted_any = false;
@@ -602,7 +602,7 @@ impl Interface {
 
                 inner
                     .dispatch_ip(t, meta, response, &mut self.fragmenter)
-                    .map_err(EgressError::Dispatch)?;
+                    .map_err(|_| EgressError::Dispatch)?;
 
                 emitted_any = true;
 
@@ -673,7 +673,7 @@ impl Interface {
 
             match result {
                 Err(EgressError::Exhausted) => break, // Device buffer full.
-                Err(EgressError::Dispatch(_)) => {
+                Err(EgressError::Dispatch) => {
                     // `NeighborCache` already takes care of rate limiting the neighbor discovery
                     // requests from the socket. However, without an additional rate limiting
                     // mechanism, we would spin on every socket that has yet to discover its

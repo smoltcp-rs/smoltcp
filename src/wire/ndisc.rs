@@ -534,7 +534,7 @@ mod test {
 
     #[test]
     fn test_router_advert_repr_emit() {
-        let mut bytes = vec![0x2a; 24];
+        let mut bytes = [0x2a; 24];
         let mut packet = Packet::new_unchecked(&mut bytes[..]);
         create_repr().emit(
             &MOCK_IP_ADDR_1,

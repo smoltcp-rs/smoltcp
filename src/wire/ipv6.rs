@@ -1425,7 +1425,7 @@ pub(crate) mod test {
 
     #[test]
     fn test_repr_parse_bad_version() {
-        let mut bytes = vec![0; 40];
+        let mut bytes = [0; 40];
         let mut packet = Packet::new_unchecked(&mut bytes[..]);
         packet.set_version(4);
         packet.set_payload_len(0);
@@ -1435,7 +1435,7 @@ pub(crate) mod test {
 
     #[test]
     fn test_repr_parse_smaller_than_header() {
-        let mut bytes = vec![0; 40];
+        let mut bytes = [0; 40];
         let mut packet = Packet::new_unchecked(&mut bytes[..]);
         packet.set_version(6);
         packet.set_payload_len(39);
@@ -1445,7 +1445,7 @@ pub(crate) mod test {
 
     #[test]
     fn test_repr_parse_smaller_than_payload() {
-        let mut bytes = vec![0; 40];
+        let mut bytes = [0; 40];
         let mut packet = Packet::new_unchecked(&mut bytes[..]);
         packet.set_version(6);
         packet.set_payload_len(1);
