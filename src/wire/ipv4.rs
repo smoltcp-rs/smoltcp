@@ -110,16 +110,14 @@ impl Address {
     }
 }
 
-#[cfg(feature = "std")]
-impl From<::std::net::Ipv4Addr> for Address {
-    fn from(x: ::std::net::Ipv4Addr) -> Address {
+impl From<::core::net::Ipv4Addr> for Address {
+    fn from(x: ::core::net::Ipv4Addr) -> Address {
         Address(x.octets())
     }
 }
 
-#[cfg(feature = "std")]
-impl From<Address> for ::std::net::Ipv4Addr {
-    fn from(Address(x): Address) -> ::std::net::Ipv4Addr {
+impl From<Address> for ::core::net::Ipv4Addr {
+    fn from(Address(x): Address) -> ::core::net::Ipv4Addr {
         x.into()
     }
 }

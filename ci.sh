@@ -4,7 +4,7 @@ set -eox pipefail
 
 export DEFMT_LOG=trace
 
-MSRV="1.65.0"
+MSRV="1.77.0"
 
 RUSTC_VERSIONS=(
     $MSRV

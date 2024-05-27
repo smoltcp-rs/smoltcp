@@ -526,7 +526,7 @@ mod test {
 
     #[test]
     fn test_query_construct() {
-        let mut bytes = vec![0xff; 44];
+        let mut bytes = [0xff; 44];
         let mut packet = Packet::new_unchecked(&mut bytes[..]);
         packet.set_msg_type(Message::MldQuery);
         packet.set_msg_code(0);
@@ -567,7 +567,7 @@ mod test {
 
     #[test]
     fn test_record_construct() {
-        let mut bytes = vec![0xff; 44];
+        let mut bytes = [0xff; 44];
         let mut packet = Packet::new_unchecked(&mut bytes[..]);
         packet.set_msg_type(Message::MldReport);
         packet.set_msg_code(0);

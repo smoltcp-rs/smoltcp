@@ -176,7 +176,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// Return the ECN field (when it is inlined).
     pub fn ecn_field(&self) -> Option<u8> {
         match self.tf_field() {
-            0b00 | 0b01 | 0b10 => {
+            0b00..=0b10 => {
                 let start = self.ip_fields_start() as usize;
                 Some(self.buffer.as_ref()[start..][0] & 0b1100_0000)
             }
@@ -341,7 +341,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
                 0,
                 AddressMode::NotSupported,
             ))),
-            (1, 1, 0b01 | 0b10 | 0b11) => Ok(UnresolvedAddress::Reserved),
+            (1, 1, 0b01..=0b11) => Ok(UnresolvedAddress::Reserved),
             _ => Err(Error),
         }
     }

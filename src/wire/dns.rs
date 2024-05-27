@@ -417,9 +417,9 @@ impl<'a> Repr<'a> {
     }
 
     /// Emit a high-level representation into a DNS packet.
-    pub fn emit<T: ?Sized>(&self, packet: &mut Packet<&mut T>)
+    pub fn emit<T>(&self, packet: &mut Packet<&mut T>)
     where
-        T: AsRef<[u8]> + AsMut<[u8]>,
+        T: AsRef<[u8]> + AsMut<[u8]> + ?Sized,
     {
         packet.set_transaction_id(self.transaction_id);
         packet.set_flags(self.flags);
@@ -779,8 +779,7 @@ mod test {
             },
         };
 
-        let mut buf = Vec::new();
-        buf.resize(repr.buffer_len(), 0);
+        let mut buf = vec![0; repr.buffer_len()];
         repr.emit(&mut Packet::new_unchecked(&mut buf));
 
         let want = &[
