@@ -779,8 +779,7 @@ mod test {
             },
         };
 
-        let mut buf = Vec::new();
-        buf.resize(repr.buffer_len(), 0);
+        let mut buf = vec![0; repr.buffer_len()];
         repr.emit(&mut Packet::new_unchecked(&mut buf));
 
         let want = &[
