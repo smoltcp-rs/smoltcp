@@ -265,7 +265,7 @@ pub use self::udp::{Packet as UdpPacket, Repr as UdpRepr, HEADER_LEN as UDP_HEAD
 
 pub use self::tcp::{
     Control as TcpControl, Packet as TcpPacket, Repr as TcpRepr, SeqNumber as TcpSeqNumber,
-    TcpOption, HEADER_LEN as TCP_HEADER_LEN,
+    TcpOption, TcpTimestampGenerator, TcpTimestampRepr, HEADER_LEN as TCP_HEADER_LEN,
 };
 
 #[cfg(feature = "proto-dhcpv4")]
