@@ -63,6 +63,30 @@ impl Display for ConnectError {
 #[cfg(feature = "std")]
 impl std::error::Error for ConnectError {}
 
+/// Error returned by set_*
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum ArgumentError {
+    InvalidArgs,
+    InvalidState,
+    InsufficientResource,
+}
+
+impl Display for crate::socket::tcp::ArgumentError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            crate::socket::tcp::ArgumentError::InvalidArgs => write!(f, "invalid arguments by RFC"),
+            crate::socket::tcp::ArgumentError::InvalidState => write!(f, "invalid state"),
+            crate::socket::tcp::ArgumentError::InsufficientResource => {
+                write!(f, "insufficient runtime resource")
+            }
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for crate::socket::tcp::ArgumentError {}
+
 /// Error returned by [`Socket::send`]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -728,6 +752,41 @@ impl<'a> Socket<'a> {
             // If the connection is idle and we've just set the option, it would not take effect
             // until the next packet, unless we wind up the timer explicitly.
             self.timer.set_keep_alive();
+        }
+    }
+
+    /// Return the local receive window scaling factor defined in [RFC 1323].
+    ///
+    /// The value will become constant after the connection is established.
+    /// It may be reset to 0 during the handshake if remote side does not support window scaling.
+    pub fn local_recv_win_scale(&self) -> u8 {
+        self.remote_win_shift
+    }
+
+    /// Set the local receive window scaling factor defined in [RFC 1323].
+    ///
+    /// The value will become constant after the connection is established.
+    /// It may be reset to 0 during the handshake if remote side does not support window scaling.
+    ///
+    /// # Errors
+    /// `Err(ArgumentError::InvalidArgs)` if the scale is greater than 14.
+    /// `Err(ArgumentError::InvalidState)` if the socket is not in the `Closed` or `Listen` state.
+    /// `Err(ArgumentError::InsufficientResource)` if the receive buffer is smaller than (1<<scale) bytes.
+    pub fn set_local_recv_win_scale(&mut self, scale: u8) -> Result<(), ArgumentError> {
+        if scale > 14 {
+            return Err(ArgumentError::InvalidArgs);
+        }
+
+        if self.rx_buffer.capacity() < (1 << scale) as usize {
+            return Err(ArgumentError::InsufficientResource);
+        }
+
+        match self.state {
+            State::Closed | State::Listen => {
+                self.remote_win_shift = scale;
+                Ok(())
+            }
+            _ => Err(ArgumentError::InvalidState),
         }
     }
 
@@ -2476,6 +2535,60 @@ impl<'a> Socket<'a> {
                 .min()
                 .unwrap_or(&PollAt::Ingress)
         }
+    }
+}
+
+impl Socket<'static> {
+    /// Replace the receive buffer with a new one.
+    ///
+    /// The requirements for the new buffer are:
+    /// 1. The new buffer must be larger than the length of remaining data in the current buffer
+    /// 2. The new buffer must be multiple of (1 << self.remote_win_shift)
+    ///
+    /// Note: self.remote_win_shift cannot be modified after the connection is established. Use
+    /// `new_with_window_scaling` to create a new socket with a pre-defined window scale. Details can
+    /// be found in [RFC 1323].
+    ///
+    /// If the new buffer does not meet the requirements, the new buffer is returned as an error;
+    /// otherwise, the old buffer is returned as an Ok value.
+    ///
+    /// See also the [new_with_window_scaling](struct.Socket.html#method.new_with_window_scaling) and
+    /// [local_recv_win_scale](struct.Socket.html#method.local_recv_win_scale) methods.
+    pub fn replace_recv_buffer<T: Into<SocketBuffer<'static>>>(
+        &mut self,
+        new_buffer: T,
+    ) -> Result<SocketBuffer<'static>, SocketBuffer<'static>> {
+        let mut replaced_buf = new_buffer.into();
+        /* Check if the new buffer is valid
+         * Requirements:
+         * 1. The new buffer must be larger than the length of remaining data in the current buffer
+         * 2. The new buffer must be multiple of (1 << self.remote_win_shift)
+         */
+        if replaced_buf.capacity() < self.rx_buffer.len()
+            || replaced_buf.capacity() % (1 << self.remote_win_shift) != 0
+        {
+            return Err(replaced_buf);
+        }
+        replaced_buf.clear();
+        self.rx_buffer.dequeue_many_with(|buf| {
+            let enqueued_len = replaced_buf.enqueue_slice(buf);
+            assert_eq!(enqueued_len, buf.len());
+            (enqueued_len, replaced_buf.get_allocated(0, enqueued_len))
+        });
+        if !self.rx_buffer.is_empty() {
+            // copy the wrapped around part
+            self.rx_buffer.dequeue_many_with(|buf| {
+                let enqueued_len = replaced_buf.enqueue_slice(buf);
+                assert_eq!(enqueued_len, buf.len());
+                (
+                    enqueued_len,
+                    replaced_buf.get_allocated(buf.len() - enqueued_len, enqueued_len),
+                )
+            });
+        }
+        assert_eq!(self.rx_buffer.len(), 0);
+        mem::swap(&mut self.rx_buffer, &mut replaced_buf);
+        Ok(replaced_buf)
     }
 }
 
@@ -7428,5 +7541,71 @@ mod test {
 
         s.set_congestion_control(CongestionControl::None);
         assert_eq!(s.congestion_control(), CongestionControl::None);
+    }
+
+    // =========================================================================================//
+    // Tests for window scaling
+    // =========================================================================================//
+
+    fn socket_established_with_window_scaling() -> TestSocket {
+        let mut s = socket_established();
+        s.remote_win_shift = 10;
+        const BASE: usize = 1 << 10;
+        s.tx_buffer = SocketBuffer::new(vec![0u8; 64 * BASE]);
+        s.rx_buffer = SocketBuffer::new(vec![0u8; 64 * BASE]);
+        s
+    }
+
+    #[test]
+    fn test_too_large_window_scale() {
+        let mut socket = Socket::new(
+            SocketBuffer::new(vec![0; 8 * (1 << 15)]),
+            SocketBuffer::new(vec![0; 8 * (1 << 15)]),
+        );
+        assert!(socket.set_local_recv_win_scale(15).is_err())
+    }
+
+    #[test]
+    fn test_set_window_scale() {
+        let mut socket = Socket::new(
+            SocketBuffer::new(vec![0; 128]),
+            SocketBuffer::new(vec![0; 128]),
+        );
+        assert!(matches!(socket.state, State::Closed));
+        assert_eq!(socket.rx_buffer.capacity(), 128);
+        assert!(socket.set_local_recv_win_scale(6).is_ok());
+        assert!(socket.set_local_recv_win_scale(14).is_err());
+        assert_eq!(socket.local_recv_win_scale(), 6);
+    }
+
+    #[test]
+    fn test_set_scale_with_tcp_state() {
+        let mut socket = socket();
+        assert!(socket.set_local_recv_win_scale(1).is_ok());
+        let mut socket = socket_established();
+        assert!(socket.set_local_recv_win_scale(1).is_err());
+        let mut socket = socket_listen();
+        assert!(socket.set_local_recv_win_scale(1).is_ok());
+        let mut socket = socket_syn_received();
+        assert!(socket.set_local_recv_win_scale(1).is_err());
+    }
+
+    #[test]
+    fn test_resize_recv_buffer_invalid_size() {
+        let mut s = socket_established_with_window_scaling();
+        assert_eq!(s.rx_buffer.enqueue_slice(&[42; 31 * 1024]), 31 * 1024);
+        assert_eq!(s.rx_buffer.len(), 31 * 1024);
+        assert!(s
+            .replace_recv_buffer(SocketBuffer::new(vec![7u8; 32 * 1024 + 512]))
+            .is_err());
+        assert!(s
+            .replace_recv_buffer(SocketBuffer::new(vec![7u8; 16 * 1024]))
+            .is_err());
+        let old_buffer = s
+            .replace_recv_buffer(SocketBuffer::new(vec![7u8; 32 * 1024]))
+            .unwrap();
+        assert_eq!(old_buffer.capacity(), 64 * 1024);
+        assert_eq!(s.rx_buffer.len(), 31 * 1024);
+        assert_eq!(s.rx_buffer.capacity(), 32 * 1024);
     }
 }
