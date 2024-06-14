@@ -524,24 +524,6 @@ impl<'a> Socket<'a> {
         }
         let rx_cap_log2 = mem::size_of::<usize>() * 8 - rx_capacity.leading_zeros() as usize;
         let remote_win_shift = rx_cap_log2.saturating_sub(16) as u8;
-        Self::new_with_window_scaling(rx_buffer, tx_buffer, remote_win_shift)
-    }
-
-    /// Create a socket using the given buffers and window scaling factor defined in [RFC 1323].
-    ///
-    /// # Panics
-    ///
-    /// Panics if the window scaling factor is greater than 14.
-    ///
-    /// See also the [local_recv_win_scale](#method.local_recv_win_scale) method.
-    pub fn new_with_window_scaling<T>(rx_buffer: T, tx_buffer: T, recv_win_scale: u8) -> Socket<'a>
-    where
-        T: Into<SocketBuffer<'a>>,
-    {
-        if recv_win_scale > 14 {
-            panic!("window scaling factor too large, must be <= 14")
-        }
-
         let (rx_buffer, tx_buffer) = (rx_buffer.into(), tx_buffer.into());
 
         Socket {
@@ -563,7 +545,7 @@ impl<'a> Socket<'a> {
             remote_last_ack: None,
             remote_last_win: 0,
             remote_win_len: 0,
-            remote_win_shift: recv_win_scale,
+            remote_win_shift,
             remote_win_scale: None,
             remote_has_sack: false,
             remote_mss: DEFAULT_MSS,
@@ -800,6 +782,28 @@ impl<'a> Socket<'a> {
     /// It may be reset to 0 during the handshake if remote side does not support window scaling.
     pub fn local_recv_win_scale(&self) -> u8 {
         self.remote_win_shift
+    }
+
+    /// Set the local receive window scaling factor defined in [RFC 1323].
+    ///
+    /// The value will become constant after the connection is established.
+    /// It may be reset to 0 during the handshake if remote side does not support window scaling.
+    ///
+    /// # Errors
+    /// Returns an error if the socket is not in the `Closed` or `Listen` state, or if the
+    /// receive buffer is smaller than (1<<scale) bytes.
+    pub fn set_local_recv_win_scale(&mut self, scale: u8) -> Result<(), ()> {
+        if self.rx_buffer.capacity() < (1 << scale) as usize {
+            return Err(());
+        }
+
+        match self.state {
+            State::Closed | State::Listen => {
+                self.remote_win_shift = scale;
+                Ok(())
+            }
+            _ => Err(()),
+        }
     }
 
     /// Return the time-to-live (IPv4) or hop limit (IPv6) value used in outgoing packets.
@@ -8248,23 +8252,37 @@ mod test {
     }
 
     #[test]
-    #[should_panic]
-    fn test_new_with_too_large_window_scale() {
-        Socket::new_with_window_scaling(
-            SocketBuffer::new(Vec::with_capacity(128)),
-            SocketBuffer::new(Vec::with_capacity(128)),
-            15,
+    fn test_too_large_window_scale() {
+        let mut socket = Socket::new(
+            SocketBuffer::new(vec![0; 128]),
+            SocketBuffer::new(vec![0; 128]),
         );
+        assert!(socket.set_local_recv_win_scale(15).is_err())
     }
 
     #[test]
-    fn test_new_with_window_scale() {
-        let socket = Socket::new_with_window_scaling(
-            SocketBuffer::new(Vec::with_capacity(128)),
-            SocketBuffer::new(Vec::with_capacity(128)),
-            14,
+    fn test_set_window_scale() {
+        let mut socket = Socket::new(
+            SocketBuffer::new(vec![0; 128]),
+            SocketBuffer::new(vec![0; 128]),
         );
-        assert_eq!(socket.local_recv_win_scale(), 14);
+        assert!(matches!(socket.state, State::Closed));
+        assert_eq!(socket.rx_buffer.capacity(), 128);
+        assert!(socket.set_local_recv_win_scale(6).is_ok());
+        assert!(socket.set_local_recv_win_scale(14).is_err());
+        assert_eq!(socket.local_recv_win_scale(), 6);
+    }
+
+    #[test]
+    fn test_set_scale_with_tcp_state() {
+        let mut socket = socket();
+        assert!(socket.set_local_recv_win_scale(1).is_ok());
+        let mut socket = socket_established();
+        assert!(socket.set_local_recv_win_scale(1).is_err());
+        let mut socket = socket_listen();
+        assert!(socket.set_local_recv_win_scale(1).is_ok());
+        let mut socket = socket_syn_received();
+        assert!(socket.set_local_recv_win_scale(1).is_err());
     }
 
     #[test]
