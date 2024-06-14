@@ -63,6 +63,30 @@ impl Display for ConnectError {
 #[cfg(feature = "std")]
 impl std::error::Error for ConnectError {}
 
+/// Error returned by set_*
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum ArgumentError {
+    InvalidArgs,
+    InvalidState,
+    InsufficientResource,
+}
+
+impl Display for crate::socket::tcp::ArgumentError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            crate::socket::tcp::ArgumentError::InvalidArgs => write!(f, "invalid arguments by RFC"),
+            crate::socket::tcp::ArgumentError::InvalidState => write!(f, "invalid state"),
+            crate::socket::tcp::ArgumentError::InsufficientResource => {
+                write!(f, "insufficient runtime resource")
+            }
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for crate::socket::tcp::ArgumentError {}
+
 /// Error returned by [`Socket::send`]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -523,8 +547,6 @@ impl<'a> Socket<'a> {
             panic!("receiving buffer too large, cannot exceed 1 GiB")
         }
         let rx_cap_log2 = mem::size_of::<usize>() * 8 - rx_capacity.leading_zeros() as usize;
-        let remote_win_shift = rx_cap_log2.saturating_sub(16) as u8;
-        let (rx_buffer, tx_buffer) = (rx_buffer.into(), tx_buffer.into());
 
         Socket {
             state: State::Closed,
@@ -545,7 +567,7 @@ impl<'a> Socket<'a> {
             remote_last_ack: None,
             remote_last_win: 0,
             remote_win_len: 0,
-            remote_win_shift,
+            remote_win_shift: rx_cap_log2.saturating_sub(16) as u8,
             remote_win_scale: None,
             remote_has_sack: false,
             remote_mss: DEFAULT_MSS,
@@ -790,11 +812,16 @@ impl<'a> Socket<'a> {
     /// It may be reset to 0 during the handshake if remote side does not support window scaling.
     ///
     /// # Errors
-    /// Returns an error if the socket is not in the `Closed` or `Listen` state, or if the
-    /// receive buffer is smaller than (1<<scale) bytes.
-    pub fn set_local_recv_win_scale(&mut self, scale: u8) -> Result<(), ()> {
+    /// `Err(ArgumentError::InvalidArgs)` if the scale is greater than 14.
+    /// `Err(ArgumentError::InvalidState)` if the socket is not in the `Closed` or `Listen` state.
+    /// `Err(ArgumentError::InsufficientResource)` if the receive buffer is smaller than (1<<scale) bytes.
+    pub fn set_local_recv_win_scale(&mut self, scale: u8) -> Result<(), ArgumentError> {
+        if scale > 14 {
+            return Err(ArgumentError::InvalidArgs);
+        }
+
         if self.rx_buffer.capacity() < (1 << scale) as usize {
-            return Err(());
+            return Err(ArgumentError::InsufficientResource);
         }
 
         match self.state {
@@ -802,7 +829,7 @@ impl<'a> Socket<'a> {
                 self.remote_win_shift = scale;
                 Ok(())
             }
-            _ => Err(()),
+            _ => Err(ArgumentError::InvalidState),
         }
     }
 
@@ -8254,8 +8281,8 @@ mod test {
     #[test]
     fn test_too_large_window_scale() {
         let mut socket = Socket::new(
-            SocketBuffer::new(vec![0; 128]),
-            SocketBuffer::new(vec![0; 128]),
+            SocketBuffer::new(vec![0; 8 * (1 << 15)]),
+            SocketBuffer::new(vec![0; 8 * (1 << 15)]),
         );
         assert!(socket.set_local_recv_win_scale(15).is_err())
     }
