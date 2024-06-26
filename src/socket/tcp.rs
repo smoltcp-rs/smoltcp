@@ -1,6 +1,6 @@
 // Heads up! Before working on this file you should read, at least, RFC 793 and
-// the parts of RFC 1122 that discuss TCP. Consult RFC 7414 when implementing
-// a new feature.
+// the parts of RFC 1122 that discuss TCP, as well as RFC 7323 for some of the TCP options.
+// Consult RFC 7414 when implementing a new feature.
 
 use core::fmt::Display;
 #[cfg(feature = "async")]
@@ -14,7 +14,7 @@ use crate::storage::{Assembler, RingBuffer};
 use crate::time::{Duration, Instant};
 use crate::wire::{
     IpAddress, IpEndpoint, IpListenEndpoint, IpProtocol, IpRepr, TcpControl, TcpRepr, TcpSeqNumber,
-    TCP_HEADER_LEN,
+    TcpTimestampGenerator, TcpTimestampRepr, TCP_HEADER_LEN,
 };
 
 mod congestion;
@@ -482,6 +482,12 @@ pub struct Socket<'a> {
     /// The congestion control algorithm.
     congestion_controller: congestion::AnyController,
 
+    /// tsval generator - if some, tcp timestamp is enabled
+    tsval_generator: Option<TcpTimestampGenerator>,
+
+    /// 0 if not seen or timestamp not enabled
+    last_remote_tsval: u32,
+
     #[cfg(feature = "async")]
     rx_waker: WakerRegistration,
     #[cfg(feature = "async")]
@@ -540,6 +546,8 @@ impl<'a> Socket<'a> {
             ack_delay_timer: AckDelayTimer::Idle,
             challenge_ack_timer: Instant::from_secs(0),
             nagle: true,
+            tsval_generator: None,
+            last_remote_tsval: 0,
             congestion_controller: congestion::AnyController::new(),
 
             #[cfg(feature = "async")]
@@ -547,6 +555,16 @@ impl<'a> Socket<'a> {
             #[cfg(feature = "async")]
             tx_waker: WakerRegistration::new(),
         }
+    }
+
+    /// Enable or disable TCP Timestamp.
+    pub fn set_tsval_generator(&mut self, generator: Option<TcpTimestampGenerator>) {
+        self.tsval_generator = generator;
+    }
+
+    /// Return whether TCP Timestamp is enabled.
+    pub fn timestamp_enabled(&self) -> bool {
+        self.tsval_generator.is_some()
     }
 
     /// Set an algorithm for congestion control.
@@ -1300,6 +1318,7 @@ impl<'a> Socket<'a> {
             max_seg_size: None,
             sack_permitted: false,
             sack_ranges: [None, None, None],
+            timestamp: None,
             payload: &[],
         };
         let ip_reply_repr = IpRepr::new(
@@ -1330,6 +1349,9 @@ impl<'a> Socket<'a> {
 
     fn ack_reply(&mut self, ip_repr: &IpRepr, repr: &TcpRepr) -> (IpRepr, TcpRepr<'static>) {
         let (mut ip_reply_repr, mut reply_repr) = Self::reply(ip_repr, repr);
+        reply_repr.timestamp = repr
+            .timestamp
+            .and_then(|tcp_ts| tcp_ts.generate_reply(self.tsval_generator));
 
         // From RFC 793:
         // [...] an empty acknowledgment segment containing the current send-sequence number
@@ -1725,6 +1747,10 @@ impl<'a> Socket<'a> {
                 if self.remote_win_scale.is_none() {
                     self.remote_win_shift = 0;
                 }
+                // Remote doesn't support timestamping, don't do it.
+                if repr.timestamp.is_none() {
+                    self.tsval_generator = None;
+                }
                 self.set_state(State::SynReceived);
                 self.timer.set_for_idle(cx.now(), self.keep_alive);
             }
@@ -1766,6 +1792,10 @@ impl<'a> Socket<'a> {
                 // Remote doesn't support window scaling, don't do it.
                 if self.remote_win_scale.is_none() {
                     self.remote_win_shift = 0;
+                }
+                // Remote doesn't support timestamping, don't do it.
+                if repr.timestamp.is_none() {
+                    self.tsval_generator = None;
                 }
 
                 self.set_state(State::Established);
@@ -1952,6 +1982,11 @@ impl<'a> Socket<'a> {
             if self.remote_last_seq < self.local_seq_no {
                 self.remote_last_seq = self.local_seq_no
             }
+        }
+
+        // update last remote tsval
+        if let Some(timestamp) = repr.timestamp {
+            self.last_remote_tsval = timestamp.tsval;
         }
 
         let payload_len = payload.len();
@@ -2246,6 +2281,10 @@ impl<'a> Socket<'a> {
             max_seg_size: None,
             sack_permitted: false,
             sack_ranges: [None, None, None],
+            timestamp: TcpTimestampRepr::generate_reply_with_tsval(
+                self.tsval_generator,
+                self.last_remote_tsval,
+            ),
             payload: &[],
         };
 
@@ -2574,6 +2613,7 @@ mod test {
         max_seg_size: None,
         sack_permitted: false,
         sack_ranges: [None, None, None],
+        timestamp: None,
         payload: &[],
     };
     const _RECV_IP_TEMPL: IpRepr = IpReprIpvX(IpvXRepr {
@@ -2594,6 +2634,7 @@ mod test {
         max_seg_size: None,
         sack_permitted: false,
         sack_ranges: [None, None, None],
+        timestamp: None,
         payload: &[],
     };
 
@@ -7428,5 +7469,240 @@ mod test {
 
         s.set_congestion_control(CongestionControl::None);
         assert_eq!(s.congestion_control(), CongestionControl::None);
+    }
+
+    // =========================================================================================//
+    // Timestamp tests
+    // =========================================================================================//
+
+    #[test]
+    fn test_tsval_established_connection() {
+        let mut s = socket_established();
+        s.set_tsval_generator(Some(|| 1));
+
+        assert!(s.timestamp_enabled());
+
+        // First roundtrip after establishing.
+        s.send_slice(b"abcdef").unwrap();
+        recv!(
+            s,
+            [TcpRepr {
+                seq_number: LOCAL_SEQ + 1,
+                ack_number: Some(REMOTE_SEQ + 1),
+                payload: &b"abcdef"[..],
+                timestamp: Some(TcpTimestampRepr::new(1, 0)),
+                ..RECV_TEMPL
+            }]
+        );
+        assert_eq!(s.tx_buffer.len(), 6);
+        send!(
+            s,
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1 + 6),
+                timestamp: Some(TcpTimestampRepr::new(500, 1)),
+                ..SEND_TEMPL
+            }
+        );
+        assert_eq!(s.tx_buffer.len(), 0);
+        // Second roundtrip.
+        s.send_slice(b"foobar").unwrap();
+        recv!(
+            s,
+            [TcpRepr {
+                seq_number: LOCAL_SEQ + 1 + 6,
+                ack_number: Some(REMOTE_SEQ + 1),
+                payload: &b"foobar"[..],
+                timestamp: Some(TcpTimestampRepr::new(1, 500)),
+                ..RECV_TEMPL
+            }]
+        );
+        send!(
+            s,
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1 + 6 + 6),
+                ..SEND_TEMPL
+            }
+        );
+        assert_eq!(s.tx_buffer.len(), 0);
+    }
+
+    #[test]
+    fn test_tsval_disabled_in_remote_client() {
+        let mut s = socket_listen();
+        s.set_tsval_generator(Some(|| 1));
+        assert!(s.timestamp_enabled());
+        send!(
+            s,
+            TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: REMOTE_SEQ,
+                ack_number: None,
+                ..SEND_TEMPL
+            }
+        );
+        assert_eq!(s.state(), State::SynReceived);
+        assert_eq!(s.tuple, Some(TUPLE));
+        assert!(!s.timestamp_enabled());
+        recv!(
+            s,
+            [TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: LOCAL_SEQ,
+                ack_number: Some(REMOTE_SEQ + 1),
+                max_seg_size: Some(BASE_MSS),
+                ..RECV_TEMPL
+            }]
+        );
+        send!(
+            s,
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                ..SEND_TEMPL
+            }
+        );
+        assert_eq!(s.state(), State::Established);
+        assert_eq!(s.local_seq_no, LOCAL_SEQ + 1);
+        assert_eq!(s.remote_seq_no, REMOTE_SEQ + 1);
+    }
+
+    #[test]
+    fn test_tsval_disabled_in_local_server() {
+        let mut s = socket_listen();
+        // s.set_timestamp(false); // commented to alert if the default state changes
+        assert!(!s.timestamp_enabled());
+        send!(
+            s,
+            TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: REMOTE_SEQ,
+                ack_number: None,
+                timestamp: Some(TcpTimestampRepr::new(500, 0)),
+                ..SEND_TEMPL
+            }
+        );
+        assert_eq!(s.state(), State::SynReceived);
+        assert_eq!(s.tuple, Some(TUPLE));
+        assert!(!s.timestamp_enabled());
+        recv!(
+            s,
+            [TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: LOCAL_SEQ,
+                ack_number: Some(REMOTE_SEQ + 1),
+                max_seg_size: Some(BASE_MSS),
+                ..RECV_TEMPL
+            }]
+        );
+        send!(
+            s,
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                ..SEND_TEMPL
+            }
+        );
+        assert_eq!(s.state(), State::Established);
+        assert_eq!(s.local_seq_no, LOCAL_SEQ + 1);
+        assert_eq!(s.remote_seq_no, REMOTE_SEQ + 1);
+    }
+
+    #[test]
+    fn test_tsval_disabled_in_remote_server() {
+        let mut s = socket();
+        s.set_tsval_generator(Some(|| 1));
+        assert!(s.timestamp_enabled());
+        s.local_seq_no = LOCAL_SEQ;
+        s.socket
+            .connect(&mut s.cx, REMOTE_END, LOCAL_END.port)
+            .unwrap();
+        assert_eq!(s.tuple, Some(TUPLE));
+        recv!(
+            s,
+            [TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: LOCAL_SEQ,
+                ack_number: None,
+                max_seg_size: Some(BASE_MSS),
+                window_scale: Some(0),
+                sack_permitted: true,
+                timestamp: Some(TcpTimestampRepr::new(1, 0)),
+                ..RECV_TEMPL
+            }]
+        );
+        send!(
+            s,
+            TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: REMOTE_SEQ,
+                ack_number: Some(LOCAL_SEQ + 1),
+                max_seg_size: Some(BASE_MSS - 80),
+                window_scale: Some(0),
+                timestamp: None,
+                ..SEND_TEMPL
+            }
+        );
+        assert!(!s.timestamp_enabled());
+        s.send_slice(b"abcdef").unwrap();
+        recv!(
+            s,
+            [TcpRepr {
+                seq_number: LOCAL_SEQ + 1,
+                ack_number: Some(REMOTE_SEQ + 1),
+                payload: &b"abcdef"[..],
+                timestamp: None,
+                ..RECV_TEMPL
+            }]
+        );
+    }
+
+    #[test]
+    fn test_tsval_disabled_in_local_client() {
+        let mut s = socket();
+        // s.set_timestamp(false); // commented to alert if the default state changes
+        assert!(!s.timestamp_enabled());
+        s.local_seq_no = LOCAL_SEQ;
+        s.socket
+            .connect(&mut s.cx, REMOTE_END, LOCAL_END.port)
+            .unwrap();
+        assert_eq!(s.tuple, Some(TUPLE));
+        recv!(
+            s,
+            [TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: LOCAL_SEQ,
+                ack_number: None,
+                max_seg_size: Some(BASE_MSS),
+                window_scale: Some(0),
+                sack_permitted: true,
+                ..RECV_TEMPL
+            }]
+        );
+        send!(
+            s,
+            TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: REMOTE_SEQ,
+                ack_number: Some(LOCAL_SEQ + 1),
+                max_seg_size: Some(BASE_MSS - 80),
+                window_scale: Some(0),
+                timestamp: Some(TcpTimestampRepr::new(500, 0)),
+                ..SEND_TEMPL
+            }
+        );
+        assert!(!s.timestamp_enabled());
+        s.send_slice(b"abcdef").unwrap();
+        recv!(
+            s,
+            [TcpRepr {
+                seq_number: LOCAL_SEQ + 1,
+                ack_number: Some(REMOTE_SEQ + 1),
+                payload: &b"abcdef"[..],
+                timestamp: None,
+                ..RECV_TEMPL
+            }]
+        );
     }
 }

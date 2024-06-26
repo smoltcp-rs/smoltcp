@@ -169,6 +169,7 @@ pub fn tcp_not_accepted() {
         max_seg_size: None,
         sack_permitted: false,
         sack_ranges: [None, None, None],
+        timestamp: None,
         payload: &[],
     };
 
@@ -212,6 +213,7 @@ pub fn tcp_not_accepted() {
                 max_seg_size: None,
                 sack_permitted: false,
                 sack_ranges: [None, None, None],
+                timestamp: None,
                 payload: &[],
             })
         ))
