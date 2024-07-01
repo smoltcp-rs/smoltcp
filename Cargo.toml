@@ -16,8 +16,13 @@ license = "0BSD"
 # ensure that the correct features are enabled.
 autoexamples = false
 
+[dependencies.managed]
+rev = "428ccc2def4ce0e14a669320ef0a676d3c79afac"
+git = "https://github.com/cavivie/rust-managed.git"
+default-features = false
+features = ["map"]
+
 [dependencies]
-managed = { version = "0.8", default-features = false, features = ["map"] }
 byteorder = { version = "1.0", default-features = false }
 log = { version = "0.4.4", default-features = false, optional = true }
 libc = { version = "0.2.18", optional = true }

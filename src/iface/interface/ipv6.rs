@@ -183,12 +183,15 @@ impl InterfaceInner {
         })
     }
 
-    pub(super) fn process_ipv6<'frame>(
+    pub(super) fn process_ipv6<'frame, 'socket, S>(
         &mut self,
-        sockets: &mut SocketSet,
+        sockets: &mut S,
         meta: PacketMeta,
         ipv6_packet: &Ipv6Packet<&'frame [u8]>,
-    ) -> Option<Packet<'frame>> {
+    ) -> Option<Packet<'frame>>
+    where
+        S: AnySocketSet<'socket>,
+    {
         let ipv6_repr = check!(Ipv6Repr::parse(ipv6_packet));
 
         if !ipv6_repr.src_addr.is_unicast() {
@@ -297,15 +300,18 @@ impl InterfaceInner {
 
     /// Given the next header value forward the payload onto the correct process
     /// function.
-    fn process_nxt_hdr<'frame>(
+    fn process_nxt_hdr<'frame, 'socket, S>(
         &mut self,
-        sockets: &mut SocketSet,
+        sockets: &mut S,
         meta: PacketMeta,
         ipv6_repr: Ipv6Repr,
         nxt_hdr: IpProtocol,
         handled_by_raw_socket: bool,
         ip_payload: &'frame [u8],
-    ) -> Option<Packet<'frame>> {
+    ) -> Option<Packet<'frame>>
+    where
+        S: AnySocketSet<'socket>,
+    {
         match nxt_hdr {
             IpProtocol::Icmpv6 => self.process_icmpv6(sockets, ipv6_repr, ip_payload),
 
@@ -340,12 +346,15 @@ impl InterfaceInner {
         }
     }
 
-    pub(super) fn process_icmpv6<'frame>(
+    pub(super) fn process_icmpv6<'frame, 'socket, S>(
         &mut self,
-        _sockets: &mut SocketSet,
+        _sockets: &mut S,
         ip_repr: Ipv6Repr,
         ip_payload: &'frame [u8],
-    ) -> Option<Packet<'frame>> {
+    ) -> Option<Packet<'frame>>
+    where
+        S: AnySocketSet<'socket>,
+    {
         let icmp_packet = check!(Icmpv6Packet::new_checked(ip_payload));
         let icmp_repr = check!(Icmpv6Repr::parse(
             &ip_repr.src_addr,
