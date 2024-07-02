@@ -7,14 +7,17 @@ use crate::socket::dns::Socket as DnsSocket;
 use crate::socket::udp::Socket as UdpSocket;
 
 impl InterfaceInner {
-    pub(super) fn process_udp<'frame>(
+    pub(super) fn process_udp<'frame, 'socket, S>(
         &mut self,
-        sockets: &mut SocketSet,
+        sockets: &mut S,
         meta: PacketMeta,
         handled_by_raw_socket: bool,
         ip_repr: IpRepr,
         ip_payload: &'frame [u8],
-    ) -> Option<Packet<'frame>> {
+    ) -> Option<Packet<'frame>>
+    where
+        S: AnySocketSet<'socket>,
+    {
         let (src_addr, dst_addr) = (ip_repr.src_addr(), ip_repr.dst_addr());
         let udp_packet = check!(UdpPacket::new_checked(ip_payload));
         let udp_repr = check!(UdpRepr::parse(

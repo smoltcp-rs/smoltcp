@@ -9,13 +9,16 @@ impl InterfaceInner {
         no
     }
 
-    pub(super) fn process_ieee802154<'output, 'payload: 'output>(
+    pub(super) fn process_ieee802154<'output, 'payload: 'output, 'socket, S>(
         &mut self,
-        sockets: &mut SocketSet,
+        sockets: &mut S,
         meta: PacketMeta,
         sixlowpan_payload: &'payload [u8],
         _fragments: &'output mut FragmentsBuffer,
-    ) -> Option<Packet<'output>> {
+    ) -> Option<Packet<'output>>
+    where
+        S: AnySocketSet<'socket>,
+    {
         let ieee802154_frame = check!(Ieee802154Frame::new_checked(sixlowpan_payload));
 
         if ieee802154_frame.frame_type() != Ieee802154FrameType::Data {
