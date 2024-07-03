@@ -342,7 +342,7 @@ impl InterfaceInner {
 
     pub(super) fn process_icmpv6<'frame>(
         &mut self,
-        _sockets: &mut SocketSet,
+        sockets: &mut SocketSet,
         ip_repr: Ipv6Repr,
         ip_payload: &'frame [u8],
     ) -> Option<Packet<'frame>> {
@@ -360,7 +360,7 @@ impl InterfaceInner {
         #[cfg(feature = "socket-icmp")]
         {
             use crate::socket::icmp::Socket as IcmpSocket;
-            for icmp_socket in _sockets
+            for icmp_socket in sockets
                 .items_mut()
                 .filter_map(|i| IcmpSocket::downcast_mut(&mut i.socket))
             {
@@ -393,9 +393,9 @@ impl InterfaceInner {
             #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
             Icmpv6Repr::Ndisc(repr) if ip_repr.hop_limit == 0xff => match self.caps.medium {
                 #[cfg(feature = "medium-ethernet")]
-                Medium::Ethernet => self.process_ndisc(ip_repr, repr),
+                Medium::Ethernet => self.process_ndisc(sockets, ip_repr, repr),
                 #[cfg(feature = "medium-ieee802154")]
-                Medium::Ieee802154 => self.process_ndisc(ip_repr, repr),
+                Medium::Ieee802154 => self.process_ndisc(sockets, ip_repr, repr),
                 #[cfg(feature = "medium-ip")]
                 Medium::Ip => None,
             },
@@ -413,9 +413,20 @@ impl InterfaceInner {
     #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
     pub(super) fn process_ndisc<'frame>(
         &mut self,
+        sockets: &mut SocketSet,
         ip_repr: Ipv6Repr,
         repr: NdiscRepr<'frame>,
     ) -> Option<Packet<'frame>> {
+        // todo add feature slaac
+        {
+            use crate::socket::slaac::Socket as SlaacSocket;
+            if let Some(slaac_socket) = sockets
+                .items_mut()
+                .find_map(|i| SlaacSocket::downcast_mut(&mut i.socket))
+            {
+                slaac_socket.process(self, &ip_repr, &repr);
+            }
+        }
         match repr {
             NdiscRepr::NeighborAdvert {
                 lladdr,
