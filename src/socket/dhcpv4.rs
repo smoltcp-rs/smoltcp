@@ -140,7 +140,7 @@ impl Default for RetryConfig {
 }
 
 /// Return value for the `Dhcpv4Socket::poll` function
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Event<'a> {
     /// Configuration has been lost (for example, the lease has expired)
