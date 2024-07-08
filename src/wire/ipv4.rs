@@ -156,11 +156,8 @@ impl Cidr {
     ///
     /// # Panics
     /// This function panics if the prefix length is larger than 32.
-    #[allow(clippy::no_effect)]
     pub const fn new(address: Address, prefix_len: u8) -> Cidr {
-        // Replace with const panic (or assert) when stabilized
-        // see: https://github.com/rust-lang/rust/issues/51999
-        ["Prefix length should be <= 32"][(prefix_len > 32) as usize];
+        assert!(prefix_len <= 32);
         Cidr {
             address,
             prefix_len,
