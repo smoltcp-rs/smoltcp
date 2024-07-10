@@ -2660,9 +2660,7 @@ impl<'a> Socket<'a> {
                 .unwrap_or(&PollAt::Ingress)
         }
     }
-}
 
-impl Socket<'static> {
     /// Replace the receive buffer with a new one.
     ///
     /// The requirements for the new buffer are:
@@ -2678,10 +2676,10 @@ impl Socket<'static> {
     ///
     /// See also the [new_with_window_scaling](struct.Socket.html#method.new_with_window_scaling) and
     /// [local_recv_win_scale](struct.Socket.html#method.local_recv_win_scale) methods.
-    pub fn replace_recv_buffer<T: Into<SocketBuffer<'static>>>(
+    pub fn replace_recv_buffer<T: Into<SocketBuffer<'a>>>(
         &mut self,
         new_buffer: T,
-    ) -> Result<SocketBuffer<'static>, SocketBuffer<'static>> {
+    ) -> Result<SocketBuffer<'a>, SocketBuffer<'a>> {
         let mut replaced_buf = new_buffer.into();
         /* Check if the new buffer is valid
          * Requirements:
