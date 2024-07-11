@@ -887,6 +887,7 @@ impl<'a> Socket<'a> {
     fn reset(&mut self) {
         let rx_cap_log2 =
             mem::size_of::<usize>() * 8 - self.rx_buffer.capacity().leading_zeros() as usize;
+        let new_rx_win_shift = rx_cap_log2.saturating_sub(16) as u8;
 
         self.state = State::Closed;
         self.timer = Timer::new();
@@ -904,7 +905,10 @@ impl<'a> Socket<'a> {
         self.remote_last_win = 0;
         self.remote_win_len = 0;
         self.remote_win_scale = None;
-        self.remote_win_shift = rx_cap_log2.saturating_sub(16) as u8;
+        // keep user-specified window scaling across connect()/listen()
+        if self.remote_win_shift < new_rx_win_shift {
+            self.remote_win_shift = new_rx_win_shift;
+        }
         self.remote_mss = DEFAULT_MSS;
         self.remote_last_ts = None;
         self.ack_delay_timer = AckDelayTimer::Idle;
@@ -2388,6 +2392,7 @@ impl<'a> Socket<'a> {
         } else if self.timer.should_close(cx.now()) {
             // If we have spent enough time in the TIME-WAIT state, close the socket.
             tcp_trace!("TIME-WAIT timer expired");
+            self.remote_win_shift = 0;
             self.reset();
             return Ok(());
         } else {
