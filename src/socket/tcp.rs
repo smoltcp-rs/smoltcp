@@ -2672,15 +2672,10 @@ impl<'a> Socket<'a> {
     /// 1. The new buffer must be larger than the length of remaining data in the current buffer
     /// 2. The new buffer must be multiple of (1 << self.remote_win_shift)
     ///
-    /// Note: self.remote_win_shift cannot be modified after the connection is established. Use
-    /// `new_with_window_scaling` to create a new socket with a pre-defined window scale. Details can
-    /// be found in [RFC 1323].
-    ///
     /// If the new buffer does not meet the requirements, the new buffer is returned as an error;
     /// otherwise, the old buffer is returned as an Ok value.
     ///
-    /// See also the [new_with_window_scaling](struct.Socket.html#method.new_with_window_scaling) and
-    /// [local_recv_win_scale](struct.Socket.html#method.local_recv_win_scale) methods.
+    /// See also the [local_recv_win_scale](struct.Socket.html#method.local_recv_win_scale) methods.
     pub fn replace_recv_buffer<T: Into<SocketBuffer<'a>>>(
         &mut self,
         new_buffer: T,
