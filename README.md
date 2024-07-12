@@ -513,14 +513,14 @@ cargo run --release --example benchmark -- --tap tap0 [reader|writer]
 It establishes a connection to itself from a different thread and reads or writes a large amount
 of data in one direction.
 
-A typical result (achieved on a Intel Core i7-7500U CPU and a Linux 4.9.65 x86_64 kernel running
-on a Dell XPS 13 9360 laptop) is as follows:
+A typical result (achieved on a Intel Core i5-13500H CPU and a Linux 6.9.9 x86_64 kernel running
+on a LENOVO XiaoXinPro 14 IRH8 laptop) is as follows:
 
 ```
 $ cargo run -q --release --example benchmark -- --tap tap0 reader
-throughput: 2.556 Gbps
+throughput: 3.673 Gbps
 $ cargo run -q --release --example benchmark -- --tap tap0 writer
-throughput: 5.301 Gbps
+throughput: 7.905 Gbps
 ```
 
 ## Bare-metal usage examples
