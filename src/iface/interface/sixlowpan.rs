@@ -58,14 +58,17 @@ impl InterfaceInner {
         tag
     }
 
-    pub(super) fn process_sixlowpan<'output, 'payload: 'output>(
+    pub(super) fn process_sixlowpan<'output, 'payload: 'output, 'socket, S>(
         &mut self,
-        sockets: &mut SocketSet,
+        sockets: &mut S,
         meta: PacketMeta,
         ieee802154_repr: &Ieee802154Repr,
         payload: &'payload [u8],
         f: &'output mut FragmentsBuffer,
-    ) -> Option<Packet<'output>> {
+    ) -> Option<Packet<'output>>
+    where
+        S: AnySocketSet<'socket>,
+    {
         let payload = match check!(SixlowpanPacket::dispatch(payload)) {
             #[cfg(not(feature = "proto-sixlowpan-fragmentation"))]
             SixlowpanPacket::FragmentHeader => {

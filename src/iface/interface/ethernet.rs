@@ -1,13 +1,16 @@
 use super::*;
 
 impl InterfaceInner {
-    pub(super) fn process_ethernet<'frame>(
+    pub(super) fn process_ethernet<'frame, 'socket, S>(
         &mut self,
-        sockets: &mut SocketSet,
+        sockets: &mut S,
         meta: crate::phy::PacketMeta,
         frame: &'frame [u8],
         fragments: &'frame mut FragmentsBuffer,
-    ) -> Option<EthernetPacket<'frame>> {
+    ) -> Option<EthernetPacket<'frame>>
+    where
+        S: AnySocketSet<'socket>,
+    {
         let eth_frame = check!(EthernetFrame::new_checked(frame));
 
         // Ignore any packets not directed to our hardware address or any of the multicast groups.

@@ -3,12 +3,15 @@ use super::*;
 use crate::socket::tcp::Socket;
 
 impl InterfaceInner {
-    pub(crate) fn process_tcp<'frame>(
+    pub(crate) fn process_tcp<'frame, 'socket, S>(
         &mut self,
-        sockets: &mut SocketSet,
+        sockets: &mut S,
         ip_repr: IpRepr,
         ip_payload: &'frame [u8],
-    ) -> Option<Packet<'frame>> {
+    ) -> Option<Packet<'frame>>
+    where
+        S: AnySocketSet<'socket>,
+    {
         let (src_addr, dst_addr) = (ip_repr.src_addr(), ip_repr.dst_addr());
         let tcp_packet = check!(TcpPacket::new_checked(ip_payload));
         let tcp_repr = check!(TcpRepr::parse(
