@@ -70,6 +70,8 @@ macro_rules! check {
     };
 }
 use check;
+use crate::iface::packet::IpPayload::Icmpv6;
+use crate::wire::ip::Repr;
 
 /// A  network interface.
 ///
@@ -667,6 +669,13 @@ impl Interface {
                         inner,
                         PacketMeta::default(),
                         Packet::new(ip, IpPayload::Udp(udp, dns)),
+                    )
+                }),
+                Socket::Slaac(socket) => socket.dispatch(&mut self.inner, |inner, (ipv6_repr, ndisc)| {
+                    respond(
+                        inner,
+                        PacketMeta::default(),
+                        Packet::new_ipv6(ipv6_repr, Icmpv6(Icmpv6Repr::Ndisc(ndisc))),
                     )
                 }),
             };
