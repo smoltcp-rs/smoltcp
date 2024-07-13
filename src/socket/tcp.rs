@@ -674,13 +674,31 @@ impl<'a> Socket<'a> {
     /// Return the current window field value, including scaling according to RFC 1323.
     ///
     /// Used in internal calculations as well as packet generation.
-    ///
     #[inline]
     fn scaled_window(&self) -> u16 {
         cmp::min(
             self.rx_buffer.window() >> self.remote_win_shift as usize,
             (1 << 16) - 1,
         ) as u16
+    }
+
+    /// Return the last window field value, including scaling according to RFC 1323.
+    ///
+    /// Used in internal calculations as well as packet generation.
+    ///
+    /// Unlike `remote_last_win`, we take into account new packets received (but not acknowledged)
+    /// since the last window update and adjust the window length accordingly. This ensures a fair
+    /// comparison between the last window length and the new window length we're going to
+    /// advertise.
+    #[inline]
+    fn last_scaled_window(&self) -> Option<u16> {
+        let last_ack = self.remote_last_ack?;
+        let next_ack = self.remote_seq_no + self.rx_buffer.len();
+
+        let last_win = (self.remote_last_win as usize) << self.remote_win_shift;
+        let last_win_adjusted = last_ack + last_win - next_ack;
+
+        Some(cmp::min(last_win_adjusted >> self.remote_win_shift, (1 << 16) - 1) as u16)
     }
 
     /// Set the timeout duration.
@@ -2165,13 +2183,26 @@ impl<'a> Socket<'a> {
         }
     }
 
+    /// Return whether we should send ACK immediately due to significant window updates.
+    ///
+    /// ACKs with significant window updates should be sent immediately to let the sender know that
+    /// more data can be sent. According to the Linux kernel implementation, "significant" means
+    /// doubling the receive window. The Linux kernel implementation can be found at
+    /// <https://elixir.bootlin.com/linux/v6.9.9/source/net/ipv4/tcp.c#L1472>.
     fn window_to_update(&self) -> bool {
         match self.state {
             State::SynSent
             | State::SynReceived
             | State::Established
             | State::FinWait1
-            | State::FinWait2 => self.scaled_window() > self.remote_last_win,
+            | State::FinWait2 => {
+                let new_win = self.scaled_window();
+                if let Some(last_win) = self.last_scaled_window() {
+                    new_win > 0 && new_win / 2 >= last_win
+                } else {
+                    false
+                }
+            }
             _ => false,
         }
     }
@@ -2237,7 +2268,7 @@ impl<'a> Socket<'a> {
         } else if self.ack_to_transmit() && self.delayed_ack_expired(cx.now()) {
             // If we have data to acknowledge, do it.
             tcp_trace!("outgoing segment will acknowledge");
-        } else if self.window_to_update() && self.delayed_ack_expired(cx.now()) {
+        } else if self.window_to_update() {
             // If we have window length increase to advertise, do it.
             tcp_trace!("outgoing segment will update window");
         } else if self.state == State::Closed {
@@ -2491,8 +2522,11 @@ impl<'a> Socket<'a> {
         } else if self.seq_to_transmit(cx) {
             // We have a data or flag packet to transmit.
             PollAt::Now
+        } else if self.window_to_update() {
+            // The receive window has been raised significantly.
+            PollAt::Now
         } else {
-            let want_ack = self.ack_to_transmit() || self.window_to_update();
+            let want_ack = self.ack_to_transmit();
 
             let delayed_ack_poll_at = match (want_ack, self.ack_delay_timer) {
                 (false, _) => PollAt::Ingress,
@@ -2826,7 +2860,7 @@ mod test {
         s.local_seq_no = LOCAL_SEQ + 1;
         s.remote_last_seq = LOCAL_SEQ + 1;
         s.remote_last_ack = Some(REMOTE_SEQ + 1);
-        s.remote_last_win = 64;
+        s.remote_last_win = s.scaled_window();
         s
     }
 
@@ -6364,6 +6398,63 @@ mod test {
             window_len: 6,
             ..RECV_TEMPL
         }));
+    }
+
+    #[test]
+    fn test_window_update_with_delay_ack() {
+        let mut s = socket_established_with_buffer_sizes(6, 6);
+        s.ack_delay = Some(Duration::from_millis(10));
+
+        send!(
+            s,
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                payload: &b"abcdef"[..],
+                ..SEND_TEMPL
+            }
+        );
+
+        recv_nothing!(s, time 5);
+
+        s.recv(|buffer| {
+            assert_eq!(&buffer[..2], b"ab");
+            (2, ())
+        })
+        .unwrap();
+        recv!(
+            s,
+            time 5,
+            Ok(TcpRepr {
+                seq_number: LOCAL_SEQ + 1,
+                ack_number: Some(REMOTE_SEQ + 1 + 6),
+                window_len: 2,
+                ..RECV_TEMPL
+            })
+        );
+
+        s.recv(|buffer| {
+            assert_eq!(&buffer[..1], b"c");
+            (1, ())
+        })
+        .unwrap();
+        recv_nothing!(s, time 5);
+
+        s.recv(|buffer| {
+            assert_eq!(&buffer[..1], b"d");
+            (1, ())
+        })
+        .unwrap();
+        recv!(
+            s,
+            time 5,
+            Ok(TcpRepr {
+                seq_number: LOCAL_SEQ + 1,
+                ack_number: Some(REMOTE_SEQ + 1 + 6),
+                window_len: 4,
+                ..RECV_TEMPL
+            })
+        );
     }
 
     #[test]

@@ -293,6 +293,10 @@ name = "loopback"
 required-features = ["log", "medium-ethernet", "proto-ipv4", "socket-tcp"]
 
 [[example]]
+name = "loopback_benchmark"
+required-features = ["std", "log", "medium-ethernet", "proto-ipv4", "socket-tcp"]
+
+[[example]]
 name = "multicast"
 required-features = ["std", "medium-ethernet", "medium-ip", "phy-tuntap_interface", "proto-ipv4", "proto-igmp", "socket-udp"]
 

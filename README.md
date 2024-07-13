@@ -553,6 +553,30 @@ is possible; otherwise, nothing at all will be displayed and no options are acce
 
 [wireshark]: https://wireshark.org
 
+### examples/loopback\_benchmark.rs
+
+_examples/loopback_benchmark.rs_ is another simple throughput benchmark.
+
+Read its [source code](/examples/loopback_benchmark.rs), then run it as:
+
+```sh
+cargo run --release --example loopback_benchmark
+```
+
+It establishes a connection to itself via a loopback interface and transfers a large amount
+of data in one direction.
+
+A typical result (achieved on a Intel Core i5-13500H CPU and a Linux 6.9.9 x86_64 kernel running
+on a LENOVO XiaoXinPro 14 IRH8 laptop) is as follows:
+
+```
+$ cargo run --release --example loopback_benchmark
+done in 0.558 s, bandwidth is 15.395083 Gbps
+```
+
+Note: Although the loopback interface can be used in bare-metal environments,
+this benchmark _does_ rely on `std` to be able to measure the time cost.
+
 ## License
 
 _smoltcp_ is distributed under the terms of 0-clause BSD license.
