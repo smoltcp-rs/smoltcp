@@ -396,6 +396,13 @@ impl Interface {
     /// This function returns a boolean value indicating whether any packets were
     /// processed or emitted, and thus, whether the readiness of any socket might
     /// have changed.
+    ///
+    /// # Note
+    /// This function performs a bounded amount of work per call to avoid
+    /// starving other tasks of CPU time. If it returns true, there may still be
+    /// packets to be received or transmitted. Depending on system design,
+    /// calling this function in a loop may cause a denial of service if
+    /// packets cannot be processed faster than they arrive.
     pub fn poll<D>(
         &mut self,
         timestamp: Instant,
@@ -429,23 +436,12 @@ impl Interface {
             }
         }
 
-        let mut readiness_may_have_changed = false;
+        let mut readiness_may_have_changed = self.socket_ingress(device, sockets);
+        readiness_may_have_changed |= self.socket_egress(device, sockets);
 
-        loop {
-            let mut did_something = false;
-            did_something |= self.socket_ingress(device, sockets);
-            did_something |= self.socket_egress(device, sockets);
-
-            #[cfg(feature = "proto-igmp")]
-            {
-                did_something |= self.igmp_egress(device);
-            }
-
-            if did_something {
-                readiness_may_have_changed = true;
-            } else {
-                break;
-            }
+        #[cfg(feature = "proto-igmp")]
+        {
+            readiness_may_have_changed |= self.igmp_egress(device);
         }
 
         readiness_may_have_changed
@@ -507,67 +503,65 @@ impl Interface {
     {
         let mut processed_any = false;
 
-        while let Some((rx_token, tx_token)) = device.receive(self.inner.now) {
-            let rx_meta = rx_token.meta();
-            rx_token.consume(|frame| {
-                if frame.is_empty() {
-                    return;
-                }
+        let Some((rx_token, tx_token)) = device.receive(self.inner.now) else {
+            return processed_any;
+        };
 
-                match self.inner.caps.medium {
-                    #[cfg(feature = "medium-ethernet")]
-                    Medium::Ethernet => {
-                        if let Some(packet) = self.inner.process_ethernet(
-                            sockets,
-                            rx_meta,
-                            frame,
-                            &mut self.fragments,
-                        ) {
-                            if let Err(err) =
-                                self.inner.dispatch(tx_token, packet, &mut self.fragmenter)
-                            {
-                                net_debug!("Failed to send response: {:?}", err);
-                            }
-                        }
-                    }
-                    #[cfg(feature = "medium-ip")]
-                    Medium::Ip => {
-                        if let Some(packet) =
-                            self.inner
-                                .process_ip(sockets, rx_meta, frame, &mut self.fragments)
+        let rx_meta = rx_token.meta();
+        rx_token.consume(|frame| {
+            if frame.is_empty() {
+                return;
+            }
+
+            match self.inner.caps.medium {
+                #[cfg(feature = "medium-ethernet")]
+                Medium::Ethernet => {
+                    if let Some(packet) =
+                        self.inner
+                            .process_ethernet(sockets, rx_meta, frame, &mut self.fragments)
+                    {
+                        if let Err(err) =
+                            self.inner.dispatch(tx_token, packet, &mut self.fragmenter)
                         {
-                            if let Err(err) = self.inner.dispatch_ip(
-                                tx_token,
-                                PacketMeta::default(),
-                                packet,
-                                &mut self.fragmenter,
-                            ) {
-                                net_debug!("Failed to send response: {:?}", err);
-                            }
-                        }
-                    }
-                    #[cfg(feature = "medium-ieee802154")]
-                    Medium::Ieee802154 => {
-                        if let Some(packet) = self.inner.process_ieee802154(
-                            sockets,
-                            rx_meta,
-                            frame,
-                            &mut self.fragments,
-                        ) {
-                            if let Err(err) = self.inner.dispatch_ip(
-                                tx_token,
-                                PacketMeta::default(),
-                                packet,
-                                &mut self.fragmenter,
-                            ) {
-                                net_debug!("Failed to send response: {:?}", err);
-                            }
+                            net_debug!("Failed to send response: {:?}", err);
                         }
                     }
                 }
-                processed_any = true;
-            });
-        }
+                #[cfg(feature = "medium-ip")]
+                Medium::Ip => {
+                    if let Some(packet) =
+                        self.inner
+                            .process_ip(sockets, rx_meta, frame, &mut self.fragments)
+                    {
+                        if let Err(err) = self.inner.dispatch_ip(
+                            tx_token,
+                            PacketMeta::default(),
+                            packet,
+                            &mut self.fragmenter,
+                        ) {
+                            net_debug!("Failed to send response: {:?}", err);
+                        }
+                    }
+                }
+                #[cfg(feature = "medium-ieee802154")]
+                Medium::Ieee802154 => {
+                    if let Some(packet) =
+                        self.inner
+                            .process_ieee802154(sockets, rx_meta, frame, &mut self.fragments)
+                    {
+                        if let Err(err) = self.inner.dispatch_ip(
+                            tx_token,
+                            PacketMeta::default(),
+                            packet,
+                            &mut self.fragmenter,
+                        ) {
+                            net_debug!("Failed to send response: {:?}", err);
+                        }
+                    }
+                }
+            }
+            processed_any = true;
+        });
 
         processed_any
     }
