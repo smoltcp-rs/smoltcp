@@ -1204,7 +1204,7 @@ impl<'a> Socket<'a> {
         self.rx_buffer.len()
     }
 
-    fn set_state(&mut self, state: State) {
+    pub fn set_state(&mut self, state: State) {
         if self.state != state {
             tcp_trace!("state={}=>{}", self.state, state);
         }

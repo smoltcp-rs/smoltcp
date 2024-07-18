@@ -599,6 +599,7 @@ impl Interface {
 
         enum EgressError {
             Exhausted,
+            MismatchingSrcIp,
             Dispatch(DispatchError),
         }
 
@@ -614,6 +615,12 @@ impl Interface {
             let mut neighbor_addr = None;
             let mut respond = |inner: &mut InterfaceInner, meta: PacketMeta, response: Packet| {
                 neighbor_addr = Some(response.ip_repr().dst_addr());
+
+                if !inner.has_ip_addr(response.ip_repr().src_addr()) {
+                    net_debug!("failed to transmit IP: mismatched src addr");
+                    return Err(EgressError::MismatchingSrcIp);
+                }
+
                 let t = device.transmit(inner.now).ok_or_else(|| {
                     net_debug!("failed to transmit IP: device exhausted");
                     EgressError::Exhausted
@@ -663,13 +670,19 @@ impl Interface {
                     })
                 }
                 #[cfg(feature = "socket-tcp")]
-                Socket::Tcp(socket) => socket.dispatch(&mut self.inner, |inner, (ip, tcp)| {
+                Socket::Tcp(socket) => match socket.dispatch(&mut self.inner, |inner, (ip, tcp)| {
                     respond(
                         inner,
                         PacketMeta::default(),
                         Packet::new(ip, IpPayload::Tcp(tcp)),
                     )
-                }),
+                }) {
+                    Err(EgressError::MismatchingSrcIp) => {
+                        socket.set_state(tcp::State::Closed);
+                        Err(EgressError::MismatchingSrcIp)
+                    }
+                    r => r,
+                },
                 #[cfg(feature = "socket-dhcpv4")]
                 Socket::Dhcpv4(socket) => {
                     socket.dispatch(&mut self.inner, |inner, (ip, udp, dhcp)| {
@@ -702,6 +715,7 @@ impl Interface {
                         neighbor_addr.expect("non-IP response packet"),
                     );
                 }
+                Err(EgressError::MismatchingSrcIp) => {}
                 Ok(()) => {}
             }
         }
