@@ -11,6 +11,7 @@ use crate::wire::{NdiscPrefixInformation, NdiscRedirectedHeader};
 
 bitflags! {
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+    #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone, Copy)]
     pub struct RouterFlags: u8 {
         const MANAGED = 0b10000000;
         const OTHER   = 0b01000000;
@@ -19,6 +20,7 @@ bitflags! {
 
 bitflags! {
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+    #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone, Copy)]
     pub struct NeighborFlags: u8 {
         const ROUTER    = 0b10000000;
         const SOLICITED = 0b01000000;

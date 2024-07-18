@@ -38,6 +38,7 @@ enum_with_unknown! {
 }
 
 bitflags! {
+    #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone, Copy)]
     pub struct Flags: u16 {
         const BROADCAST = 0b1000_0000_0000_0000;
     }
