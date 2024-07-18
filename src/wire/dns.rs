@@ -1,6 +1,5 @@
 #![allow(dead_code)]
 
-use bitflags::bitflags;
 use byteorder::{ByteOrder, NetworkEndian};
 use core::iter;
 use core::iter::Iterator;
@@ -46,8 +45,7 @@ enum_with_unknown! {
     }
 }
 
-bitflags! {
-    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+defmt_bitflags! {
     #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone, Copy)]
     pub struct Flags: u16 {
         const RESPONSE            = 0b1000_0000_0000_0000;

@@ -1,4 +1,3 @@
-use bitflags::bitflags;
 use byteorder::{ByteOrder, NetworkEndian};
 
 use super::{Error, Result};
@@ -9,8 +8,7 @@ use crate::wire::RawHardwareAddress;
 use crate::wire::{NdiscOption, NdiscOptionRepr};
 use crate::wire::{NdiscPrefixInformation, NdiscRedirectedHeader};
 
-bitflags! {
-    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+defmt_bitflags! {
     #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone, Copy)]
     pub struct RouterFlags: u8 {
         const MANAGED = 0b10000000;
@@ -18,8 +16,7 @@ bitflags! {
     }
 }
 
-bitflags! {
-    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+defmt_bitflags! {
     #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone, Copy)]
     pub struct NeighborFlags: u8 {
         const ROUTER    = 0b10000000;
