@@ -1,6 +1,5 @@
 // See https://tools.ietf.org/html/rfc2131 for the DHCP specification.
 
-use bitflags::bitflags;
 use byteorder::{ByteOrder, NetworkEndian};
 use core::iter;
 use heapless::Vec;
@@ -37,7 +36,8 @@ enum_with_unknown! {
     }
 }
 
-bitflags! {
+defmt_bitflags! {
+    #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone, Copy)]
     pub struct Flags: u16 {
         const BROADCAST = 0b1000_0000_0000_0000;
     }

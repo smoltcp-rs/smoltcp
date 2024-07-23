@@ -1,4 +1,3 @@
-use bitflags::bitflags;
 use byteorder::{ByteOrder, NetworkEndian};
 use core::fmt;
 
@@ -37,8 +36,8 @@ impl fmt::Display for Type {
     }
 }
 
-bitflags! {
-    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+defmt_bitflags! {
+    #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone, Copy)]
     pub struct PrefixInfoFlags: u8 {
         const ON_LINK  = 0b10000000;
         const ADDRCONF = 0b01000000;

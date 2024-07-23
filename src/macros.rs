@@ -167,3 +167,32 @@ macro_rules! set {
         NetworkEndian::write_u32(&mut $buffer.as_mut()[$field], $value);
     }};
 }
+
+macro_rules! defmt_bitflags {
+    (
+        $(#[$outer:meta])*
+        $vis:vis struct $BitFlags:ident: $T:ty {
+            $(
+                $(#[$inner:ident $($args:tt)*])*
+                const $Flag:tt = $value:expr;
+            )*
+        }
+    ) => {
+        bitflags::bitflags! {
+            $(#[$outer])*
+            $vis struct $BitFlags: $T {
+                $(
+                    $(#[$inner $($args)*])*
+                    const $Flag = $value;
+                )*
+            }
+        }
+
+        #[cfg(feature = "defmt")]
+        impl defmt::Format for $BitFlags {
+            fn format(&self, fmt: defmt::Formatter<'_>) {
+                defmt::write!(fmt, "{}({})", stringify!($BitFlags), self.bits());
+            }
+        }
+    }
+}

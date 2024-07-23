@@ -1,6 +1,5 @@
 #![allow(dead_code)]
 
-use bitflags::bitflags;
 use byteorder::{ByteOrder, NetworkEndian};
 use core::iter;
 use core::iter::Iterator;
@@ -46,8 +45,8 @@ enum_with_unknown! {
     }
 }
 
-bitflags! {
-    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+defmt_bitflags! {
+    #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone, Copy)]
     pub struct Flags: u16 {
         const RESPONSE            = 0b1000_0000_0000_0000;
         const AUTHORITATIVE       = 0b0000_0100_0000_0000;
@@ -223,7 +222,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
 
     pub fn set_flags(&mut self, val: Flags) {
         let field = &mut self.buffer.as_mut()[field::FLAGS];
-        let mask = Flags::all().bits;
+        let mask = Flags::all().bits();
         let old = NetworkEndian::read_u16(field);
         NetworkEndian::write_u16(field, (old & !mask) | val.bits());
     }
