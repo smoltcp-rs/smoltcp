@@ -28,6 +28,6 @@ impl WakerRegistration {
 
     /// Wake the registered waker, if any.
     pub fn wake(&mut self) {
-        self.waker.take().map(|w| w.wake());
+        self.waker.take().map(Waker::wake);
     }
 }

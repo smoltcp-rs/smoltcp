@@ -715,7 +715,7 @@ impl InterfaceInner {
     pub(crate) fn get_source_address(&self, dst_addr: &IpAddress) -> Option<IpAddress> {
         match dst_addr {
             #[cfg(feature = "proto-ipv4")]
-            IpAddress::Ipv4(addr) => self.get_source_address_ipv4(*addr).map(|a| a.into()),
+            IpAddress::Ipv4(addr) => self.get_source_address_ipv4(*addr).map(Into::into),
             #[cfg(feature = "proto-ipv6")]
             IpAddress::Ipv6(addr) => Some(self.get_source_address_ipv6(addr).into()),
         }

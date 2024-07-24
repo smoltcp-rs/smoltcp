@@ -1021,7 +1021,7 @@ impl<'a> Repr<'a> {
             if self.sack_permitted {
                 let tmp = options;
                 options = TcpOption::SackPermitted.emit(tmp);
-            } else if self.ack_number.is_some() && self.sack_ranges.iter().any(|s| s.is_some()) {
+            } else if self.ack_number.is_some() && self.sack_ranges.iter().any(Option::is_some) {
                 let tmp = options;
                 options = TcpOption::SackRange(self.sack_ranges).emit(tmp);
             }

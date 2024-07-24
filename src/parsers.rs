@@ -300,14 +300,14 @@ impl<'a> Parser<'a> {
     fn accept_ip(&mut self) -> Result<IpAddress> {
         #[cfg(feature = "proto-ipv4")]
         #[allow(clippy::single_match)]
-        match self.try_do(|p| p.accept_ipv4()) {
+        match self.try_do(Parser::accept_ipv4) {
             Some(ipv4) => return Ok(IpAddress::Ipv4(ipv4)),
             None => (),
         }
 
         #[cfg(feature = "proto-ipv6")]
         #[allow(clippy::single_match)]
-        match self.try_do(|p| p.accept_ipv6()) {
+        match self.try_do(Parser::accept_ipv6) {
             Some(ipv6) => return Ok(IpAddress::Ipv6(ipv6)),
             None => (),
         }
@@ -357,14 +357,14 @@ impl<'a> Parser<'a> {
     fn accept_ip_endpoint(&mut self) -> Result<IpEndpoint> {
         #[cfg(feature = "proto-ipv4")]
         #[allow(clippy::single_match)]
-        match self.try_do(|p| p.accept_ipv4_endpoint()) {
+        match self.try_do(Parser::accept_ipv4_endpoint) {
             Some(ipv4) => return Ok(ipv4),
             None => (),
         }
 
         #[cfg(feature = "proto-ipv6")]
         #[allow(clippy::single_match)]
-        match self.try_do(|p| p.accept_ipv6_endpoint()) {
+        match self.try_do(Parser::accept_ipv6_endpoint) {
             Some(ipv6) => return Ok(ipv6),
             None => (),
         }
@@ -379,7 +379,7 @@ impl FromStr for EthernetAddress {
 
     /// Parse a string representation of an Ethernet address.
     fn from_str(s: &str) -> Result<EthernetAddress> {
-        Parser::new(s).until_eof(|p| p.accept_mac())
+        Parser::new(s).until_eof(Parser::accept_mac)
     }
 }
 
@@ -389,7 +389,7 @@ impl FromStr for Ipv4Address {
 
     /// Parse a string representation of an IPv4 address.
     fn from_str(s: &str) -> Result<Ipv4Address> {
-        Parser::new(s).until_eof(|p| p.accept_ipv4())
+        Parser::new(s).until_eof(Parser::accept_ipv4)
     }
 }
 
@@ -399,7 +399,7 @@ impl FromStr for Ipv6Address {
 
     /// Parse a string representation of an IPv6 address.
     fn from_str(s: &str) -> Result<Ipv6Address> {
-        Parser::new(s).until_eof(|p| p.accept_ipv6())
+        Parser::new(s).until_eof(Parser::accept_ipv6)
     }
 }
 
@@ -408,7 +408,7 @@ impl FromStr for IpAddress {
 
     /// Parse a string representation of an IP address.
     fn from_str(s: &str) -> Result<IpAddress> {
-        Parser::new(s).until_eof(|p| p.accept_ip())
+        Parser::new(s).until_eof(Parser::accept_ip)
     }
 }
 
@@ -470,7 +470,7 @@ impl FromStr for IpEndpoint {
     type Err = ();
 
     fn from_str(s: &str) -> Result<IpEndpoint> {
-        Parser::new(s).until_eof(|p| p.accept_ip_endpoint())
+        Parser::new(s).until_eof(Parser::accept_ip_endpoint)
     }
 }
 

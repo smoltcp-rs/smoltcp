@@ -1158,7 +1158,7 @@ fn get_source_address_only_link_local() {
 fn get_source_address_empty_interface() {
     let (mut iface, _, _) = setup(Medium::Ip);
 
-    iface.update_ip_addrs(|ips| ips.clear());
+    iface.update_ip_addrs(heapless::Vec::clear);
 
     // List of addresses we test:
     //   ::1               -> ::1

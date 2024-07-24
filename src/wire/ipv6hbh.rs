@@ -92,7 +92,7 @@ impl<'a> Repr<'a> {
     /// Return the length, in bytes, of a header that will be emitted from this high-level
     /// representation.
     pub fn buffer_len(&self) -> usize {
-        self.options.iter().map(|o| o.buffer_len()).sum()
+        self.options.iter().map(Ipv6OptionRepr::buffer_len).sum()
     }
 
     /// Emit a high-level representation into an IPv6 Hop-by-Hop Header.
