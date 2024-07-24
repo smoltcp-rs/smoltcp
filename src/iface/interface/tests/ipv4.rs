@@ -752,7 +752,7 @@ fn test_handle_igmp(#[case] medium: Medium) {
 
     let leaves = recv_igmp(&mut device, timestamp);
     assert_eq!(leaves.len(), 2);
-    for (i, group_addr) in groups.iter().cloned().enumerate() {
+    for (i, group_addr) in groups.iter().copied().enumerate() {
         assert_eq!(leaves[i].0.next_header, IpProtocol::Igmp);
         assert_eq!(leaves[i].0.dst_addr, Ipv4Address::MULTICAST_ALL_ROUTERS);
         assert_eq!(leaves[i].1, IgmpRepr::LeaveGroup { group_addr });

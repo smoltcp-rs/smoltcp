@@ -4,7 +4,8 @@
     clippy::trivially_copy_pass_by_ref,
     clippy::needless_pass_by_value,
     clippy::unused_self,
-    clippy::unnecessary_wraps
+    clippy::unnecessary_wraps,
+    clippy::cloned_instead_of_copied
 )]
 
 //! The _smoltcp_ library is built in a layered structure, with the layers corresponding
