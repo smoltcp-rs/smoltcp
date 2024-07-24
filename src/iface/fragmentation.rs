@@ -138,6 +138,7 @@ impl<K> PacketAssembler<K> {
     ///
     /// - Returns [`Error::PacketAssemblerBufferTooSmall`] when trying to add data into the buffer at a non-existing
     /// place.
+    #[cfg_attr(feature = "alloc", allow(clippy::unnecessary_wraps))]
     pub(crate) fn add(&mut self, data: &[u8], offset: usize) -> Result<(), AssemblerError> {
         #[cfg(not(feature = "alloc"))]
         if self.buffer.len() < offset + data.len() {

@@ -83,7 +83,9 @@ impl Interface {
                     .is_some();
                 if is_not_new {
                     Ok(false)
-                } else if let Some(pkt) = self.inner.mldv2_report_packet(report_record) {
+                } else {
+                    let pkt = self.inner.mldv2_report_packet(report_record);
+
                     // Send initial membership report
                     let tx_token = device
                         .transmit(timestamp)
@@ -95,8 +97,6 @@ impl Interface {
                         .unwrap();
 
                     Ok(true)
-                } else {
-                    Ok(false)
                 }
             }
             #[allow(unreachable_patterns)]
@@ -149,7 +149,9 @@ impl Interface {
                 let was_not_present = self.inner.ipv6_multicast_groups.remove(&addr).is_none();
                 if was_not_present {
                     Ok(false)
-                } else if let Some(pkt) = self.inner.mldv2_report_packet(report_record) {
+                } else {
+                    let pkt = self.inner.mldv2_report_packet(report_record);
+
                     // Send group leave packet
                     let tx_token = device
                         .transmit(timestamp)
@@ -161,8 +163,6 @@ impl Interface {
                         .unwrap();
 
                     Ok(true)
-                } else {
-                    Ok(false)
                 }
             }
             #[allow(unreachable_patterns)]

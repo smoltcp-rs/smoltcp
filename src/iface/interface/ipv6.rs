@@ -246,7 +246,7 @@ impl InterfaceInner {
         let param_problem = || {
             let payload_len =
                 icmp_reply_payload_len(ip_payload.len(), IPV6_MIN_MTU, ipv6_repr.buffer_len());
-            self.icmpv6_reply(
+            Some(self.icmpv6_reply(
                 ipv6_repr,
                 Icmpv6Repr::ParamProblem {
                     reason: Icmpv6ParamProblem::UnrecognizedOption,
@@ -254,7 +254,7 @@ impl InterfaceInner {
                     header: ipv6_repr,
                     data: &ip_payload[0..payload_len],
                 },
-            )
+            ))
         };
 
         let ext_hdr = check!(Ipv6ExtHeader::new_checked(ip_payload));
@@ -335,7 +335,7 @@ impl InterfaceInner {
                     header: ipv6_repr,
                     data: &ip_payload[0..payload_len],
                 };
-                self.icmpv6_reply(ipv6_repr, icmp_reply_repr)
+                Some(self.icmpv6_reply(ipv6_repr, icmp_reply_repr))
             }
         }
     }
@@ -383,7 +383,7 @@ impl InterfaceInner {
                     seq_no,
                     data,
                 };
-                self.icmpv6_reply(ip_repr, icmp_reply_repr)
+                Some(self.icmpv6_reply(ip_repr, icmp_reply_repr))
             }
 
             // Ignore any echo replies.
@@ -477,7 +477,7 @@ impl InterfaceInner {
         &self,
         ipv6_repr: Ipv6Repr,
         icmp_repr: Icmpv6Repr<'icmp>,
-    ) -> Option<Packet<'frame>> {
+    ) -> Packet<'frame> {
         let src_addr = ipv6_repr.dst_addr;
         let dst_addr = ipv6_repr.src_addr;
 
@@ -494,16 +494,14 @@ impl InterfaceInner {
             payload_len: icmp_repr.buffer_len(),
             hop_limit: 64,
         };
-        Some(Packet::new_ipv6(
-            ipv6_reply_repr,
-            IpPayload::Icmpv6(icmp_repr),
-        ))
+
+        Packet::new_ipv6(ipv6_reply_repr, IpPayload::Icmpv6(icmp_repr))
     }
 
     pub(super) fn mldv2_report_packet<'any>(
         &self,
         records: &'any [MldAddressRecordRepr<'any>],
-    ) -> Option<Packet<'any>> {
+    ) -> Packet<'any> {
         // Per [RFC 3810 § 5.2.13], source addresses must be link-local, falling
         // back to the unspecified address if we haven't acquired one.
         // [RFC 3810 § 5.2.13]: https://tools.ietf.org/html/rfc3810#section-5.2.13
@@ -533,7 +531,7 @@ impl InterfaceInner {
             .sum::<usize>();
 
         // All MLDv2 messages must be sent with an IPv6 Hop limit of 1.
-        Some(Packet::new_ipv6(
+        Packet::new_ipv6(
             Ipv6Repr {
                 src_addr,
                 dst_addr,
@@ -545,6 +543,6 @@ impl InterfaceInner {
                 hop_limit: 1,
             },
             IpPayload::HopByHopIcmpv6(hbh_repr, Icmpv6Repr::Mld(mld_repr)),
-        ))
+        )
     }
 }

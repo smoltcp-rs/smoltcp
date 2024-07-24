@@ -29,7 +29,7 @@ impl TunTapInterface {
     /// or a corresponding capability set on the executable.
     pub fn new(name: &str, medium: Medium) -> io::Result<TunTapInterface> {
         let lower = sys::TunTapInterfaceDesc::new(name, medium)?;
-        let mtu = lower.interface_mtu()?;
+        let mtu = lower.interface_mtu();
         Ok(TunTapInterface {
             lower: Rc::new(RefCell::new(lower)),
             mtu,
@@ -42,7 +42,7 @@ impl TunTapInterface {
     /// On platforms like Android, a file descriptor to a tun interface is exposed.
     /// On these platforms, a TunTapInterface cannot be instantiated with a name.
     pub fn from_fd(fd: RawFd, medium: Medium, mtu: usize) -> io::Result<TunTapInterface> {
-        let lower = sys::TunTapInterfaceDesc::from_fd(fd, mtu)?;
+        let lower = sys::TunTapInterfaceDesc::from_fd(fd, mtu);
         Ok(TunTapInterface {
             lower: Rc::new(RefCell::new(lower)),
             mtu,

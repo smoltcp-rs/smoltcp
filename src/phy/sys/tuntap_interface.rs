@@ -35,8 +35,8 @@ impl TunTapInterfaceDesc {
         Ok(TunTapInterfaceDesc { lower, mtu })
     }
 
-    pub fn from_fd(fd: RawFd, mtu: usize) -> io::Result<TunTapInterfaceDesc> {
-        Ok(TunTapInterfaceDesc { lower: fd, mtu })
+    pub fn from_fd(fd: RawFd, mtu: usize) -> TunTapInterfaceDesc {
+        TunTapInterfaceDesc { lower: fd, mtu }
     }
 
     fn attach_interface_ifreq(
@@ -88,8 +88,8 @@ impl TunTapInterfaceDesc {
         Ok(mtu)
     }
 
-    pub fn interface_mtu(&self) -> io::Result<usize> {
-        Ok(self.mtu)
+    pub fn interface_mtu(&self) -> usize {
+        self.mtu
     }
 
     pub fn recv(&mut self, buffer: &mut [u8]) -> io::Result<usize> {

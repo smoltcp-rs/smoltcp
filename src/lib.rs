@@ -3,9 +3,9 @@
 #![warn(
     clippy::trivially_copy_pass_by_ref,
     clippy::needless_pass_by_value,
-    clippy::unused_self
+    clippy::unused_self,
+    clippy::unnecessary_wraps
 )]
-#![allow(clippy::wildcard_imports)]
 
 //! The _smoltcp_ library is built in a layered structure, with the layers corresponding
 //! to the levels of API abstraction. Only the highest layers would be used by a typical

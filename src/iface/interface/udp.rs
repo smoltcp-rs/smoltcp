@@ -72,7 +72,7 @@ impl InterfaceInner {
                     header: ipv6_repr,
                     data: &ip_payload[0..payload_len],
                 };
-                self.icmpv6_reply(ipv6_repr, icmpv6_reply_repr)
+                Some(self.icmpv6_reply(ipv6_repr, icmpv6_reply_repr))
             }
         }
     }
