@@ -510,7 +510,7 @@ impl<T: AsRef<[u8]>> UdpNhcPacket<T> {
     get_field!(ports_field, 0b11, 0);
 
     /// Returns the index of the start of the next header compressed fields.
-    const fn nhc_fields_start(&self) -> usize {
+    const fn nhc_fields_start() -> usize {
         1
     }
 
@@ -520,21 +520,21 @@ impl<T: AsRef<[u8]>> UdpNhcPacket<T> {
             0b00 | 0b01 => {
                 // The full 16 bits are carried in-line.
                 let data = self.buffer.as_ref();
-                let start = self.nhc_fields_start();
+                let start = Self::nhc_fields_start();
 
                 NetworkEndian::read_u16(&data[start..start + 2])
             }
             0b10 => {
                 // The first 8 bits are elided.
                 let data = self.buffer.as_ref();
-                let start = self.nhc_fields_start();
+                let start = Self::nhc_fields_start();
 
                 0xf000 + data[start] as u16
             }
             0b11 => {
                 // The first 12 bits are elided.
                 let data = self.buffer.as_ref();
-                let start = self.nhc_fields_start();
+                let start = Self::nhc_fields_start();
 
                 0xf0b0 + (data[start] >> 4) as u16
             }
@@ -548,28 +548,28 @@ impl<T: AsRef<[u8]>> UdpNhcPacket<T> {
             0b00 => {
                 // The full 16 bits are carried in-line.
                 let data = self.buffer.as_ref();
-                let idx = self.nhc_fields_start();
+                let idx = Self::nhc_fields_start();
 
                 NetworkEndian::read_u16(&data[idx + 2..idx + 4])
             }
             0b01 => {
                 // The first 8 bits are elided.
                 let data = self.buffer.as_ref();
-                let idx = self.nhc_fields_start();
+                let idx = Self::nhc_fields_start();
 
                 0xf000 + data[idx] as u16
             }
             0b10 => {
                 // The full 16 bits are carried in-line.
                 let data = self.buffer.as_ref();
-                let idx = self.nhc_fields_start();
+                let idx = Self::nhc_fields_start();
 
                 NetworkEndian::read_u16(&data[idx + 1..idx + 1 + 2])
             }
             0b11 => {
                 // The first 12 bits are elided.
                 let data = self.buffer.as_ref();
-                let start = self.nhc_fields_start();
+                let start = Self::nhc_fields_start();
 
                 0xf0b0 + (data[start] & 0xff) as u16
             }
@@ -582,7 +582,7 @@ impl<T: AsRef<[u8]>> UdpNhcPacket<T> {
         if self.checksum_field() == 0b0 {
             // The first 12 bits are elided.
             let data = self.buffer.as_ref();
-            let start = self.nhc_fields_start() + self.ports_size();
+            let start = Self::nhc_fields_start() + self.ports_size();
             Some(NetworkEndian::read_u16(&data[start..start + 2]))
         } else {
             // The checksum is elided and needs to be recomputed on the 6LoWPAN termination point.

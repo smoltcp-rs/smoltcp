@@ -95,6 +95,6 @@ impl InterfaceInner {
             src_addr: Some(frag.sixlowpan.ll_src_addr),
         };
 
-        self.dispatch_sixlowpan_frag(tx_token, ieee_repr, frag);
+        Self::dispatch_sixlowpan_frag(tx_token, ieee_repr, frag);
     }
 }

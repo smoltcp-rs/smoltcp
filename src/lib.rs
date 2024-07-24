@@ -1,6 +1,10 @@
 #![cfg_attr(not(any(test, feature = "std")), no_std)]
 #![deny(unsafe_code)]
-#![warn(clippy::trivially_copy_pass_by_ref, clippy::needless_pass_by_value)]
+#![warn(
+    clippy::trivially_copy_pass_by_ref,
+    clippy::needless_pass_by_value,
+    clippy::unused_self
+)]
 #![allow(clippy::wildcard_imports)]
 
 //! The _smoltcp_ library is built in a layered structure, with the layers corresponding

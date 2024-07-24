@@ -646,7 +646,6 @@ impl InterfaceInner {
 
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
     pub(super) fn dispatch_sixlowpan_frag<Tx: TxToken>(
-        &mut self,
         tx_token: Tx,
         ieee_repr: Ieee802154Repr,
         frag: &mut Fragmenter,
