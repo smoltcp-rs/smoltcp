@@ -928,7 +928,7 @@ fn test_icmp_reply_size(#[case] medium: Medium) {
             &mut sockets,
             PacketMeta::default(),
             false,
-            ip_repr.into(),
+            &ip_repr.into(),
             payload,
         ),
         Some(Packet::new_ipv6(

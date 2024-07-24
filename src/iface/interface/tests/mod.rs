@@ -58,7 +58,7 @@ impl TxToken for MockTxToken {
 fn test_new_panic() {
     let mut device = Loopback::new(Medium::Ethernet);
     let config = Config::new(HardwareAddress::Ip);
-    Interface::new(config, &mut device, Instant::ZERO);
+    Interface::new(&config, &mut device, Instant::ZERO);
 }
 
 #[rstest]
@@ -132,7 +132,7 @@ fn test_handle_udp_broadcast(
             &mut sockets,
             PacketMeta::default(),
             false,
-            ip_repr,
+            &ip_repr,
             packet.into_inner(),
         ),
         None
@@ -185,7 +185,7 @@ pub fn tcp_not_accepted() {
     assert_eq!(
         iface.inner.process_tcp(
             &mut sockets,
-            IpRepr::Ipv6(Ipv6Repr {
+            &IpRepr::Ipv6(Ipv6Repr {
                 src_addr: Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 2),
                 dst_addr: Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1),
                 next_header: IpProtocol::Tcp,
@@ -229,7 +229,7 @@ pub fn tcp_not_accepted() {
     assert_eq!(
         iface.inner.process_tcp(
             &mut sockets,
-            IpRepr::Ipv6(Ipv6Repr {
+            &IpRepr::Ipv6(Ipv6Repr {
                 src_addr: Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 2),
                 dst_addr: Ipv6Address::UNSPECIFIED,
                 next_header: IpProtocol::Tcp,

@@ -204,11 +204,11 @@ impl InterfaceInner {
 
             #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
             IpProtocol::Udp => {
-                self.process_udp(sockets, meta, handled_by_raw_socket, ip_repr, ip_payload)
+                self.process_udp(sockets, meta, handled_by_raw_socket, &ip_repr, ip_payload)
             }
 
             #[cfg(feature = "socket-tcp")]
-            IpProtocol::Tcp => self.process_tcp(sockets, ip_repr, ip_payload),
+            IpProtocol::Tcp => self.process_tcp(sockets, &ip_repr, ip_payload),
 
             _ if handled_by_raw_socket => None,
 

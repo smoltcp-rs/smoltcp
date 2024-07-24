@@ -161,7 +161,7 @@ impl Interface {
     /// # Panics
     /// This function panics if the [`Config::hardware_address`] does not match
     /// the medium of the device.
-    pub fn new<D>(config: Config, device: &mut D, now: Instant) -> Self
+    pub fn new<D>(config: &Config, device: &mut D, now: Instant) -> Self
     where
         D: Device + ?Sized,
     {

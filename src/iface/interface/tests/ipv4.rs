@@ -296,7 +296,7 @@ fn test_icmp_error_port_unreachable(#[case] medium: Medium) {
     assert_eq!(
         iface
             .inner
-            .process_udp(&mut sockets, PacketMeta::default(), false, ip_repr, data),
+            .process_udp(&mut sockets, PacketMeta::default(), false, &ip_repr, data),
         Some(expected_repr)
     );
 
@@ -326,7 +326,7 @@ fn test_icmp_error_port_unreachable(#[case] medium: Medium) {
             &mut sockets,
             PacketMeta::default(),
             false,
-            ip_repr,
+            &ip_repr,
             packet_broadcast.into_inner(),
         ),
         None
@@ -1010,7 +1010,7 @@ fn test_icmp_reply_size(#[case] medium: Medium) {
             &mut sockets,
             PacketMeta::default(),
             false,
-            ip_repr.into(),
+            &ip_repr.into(),
             payload,
         ),
         Some(Packet::new_ipv4(

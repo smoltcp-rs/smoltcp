@@ -17,7 +17,7 @@ pub(crate) fn setup<'a>(medium: Medium) -> (Interface, SocketSet<'a>, TestingDev
         ])),
     });
 
-    let mut iface = Interface::new(config, &mut device, Instant::ZERO);
+    let mut iface = Interface::new(&config, &mut device, Instant::ZERO);
 
     #[cfg(feature = "proto-ipv4")]
     {

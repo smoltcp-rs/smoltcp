@@ -12,7 +12,7 @@ impl InterfaceInner {
         sockets: &mut SocketSet,
         meta: PacketMeta,
         handled_by_raw_socket: bool,
-        ip_repr: IpRepr,
+        ip_repr: &IpRepr,
         ip_payload: &'frame [u8],
     ) -> Option<Packet<'frame>> {
         let (src_addr, dst_addr) = (ip_repr.src_addr(), ip_repr.dst_addr());
@@ -29,8 +29,8 @@ impl InterfaceInner {
             .items_mut()
             .filter_map(|i| UdpSocket::downcast_mut(&mut i.socket))
         {
-            if udp_socket.accepts(self, &ip_repr, udp_repr) {
-                udp_socket.process(self, meta, &ip_repr, udp_repr, udp_packet.payload());
+            if udp_socket.accepts(self, ip_repr, udp_repr) {
+                udp_socket.process(self, meta, ip_repr, udp_repr, udp_packet.payload());
                 return None;
             }
         }
@@ -40,8 +40,8 @@ impl InterfaceInner {
             .items_mut()
             .filter_map(|i| DnsSocket::downcast_mut(&mut i.socket))
         {
-            if dns_socket.accepts(&ip_repr, udp_repr) {
-                dns_socket.process(self, &ip_repr, udp_repr, udp_packet.payload());
+            if dns_socket.accepts(ip_repr, udp_repr) {
+                dns_socket.process(self, ip_repr, udp_repr, udp_packet.payload());
                 return None;
             }
         }
@@ -53,7 +53,7 @@ impl InterfaceInner {
             #[cfg(feature = "proto-ipv6")]
             IpRepr::Ipv6(_) if handled_by_raw_socket => None,
             #[cfg(feature = "proto-ipv4")]
-            IpRepr::Ipv4(ipv4_repr) => {
+            &IpRepr::Ipv4(ipv4_repr) => {
                 let payload_len =
                     icmp_reply_payload_len(ip_payload.len(), IPV4_MIN_MTU, ipv4_repr.buffer_len());
                 let icmpv4_reply_repr = Icmpv4Repr::DstUnreachable {
@@ -64,7 +64,7 @@ impl InterfaceInner {
                 self.icmpv4_reply(ipv4_repr, icmpv4_reply_repr)
             }
             #[cfg(feature = "proto-ipv6")]
-            IpRepr::Ipv6(ipv6_repr) => {
+            &IpRepr::Ipv6(ipv6_repr) => {
                 let payload_len =
                     icmp_reply_payload_len(ip_payload.len(), IPV6_MIN_MTU, ipv6_repr.buffer_len());
                 let icmpv6_reply_repr = Icmpv6Repr::DstUnreachable {

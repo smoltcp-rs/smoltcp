@@ -540,7 +540,7 @@ impl<T: Into<Address>> From<(T, u16)> for ListenEndpoint {
 ///
 /// This enum abstracts the various versions of IP packets. It either contains an IPv4
 /// or IPv6 concrete high-level representation.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Repr {
     #[cfg(feature = "proto-ipv4")]
