@@ -536,12 +536,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
             // a 802.15.4 short address or a 802.15.4 extended address which can be
             // converted to a eui64 address.
             let is_eui_64 = ll_src_addr
-                .map(|addr| {
-                    addr.as_eui_64()
-                        .map(|addr| addr[..] == src[8..])
-                        .unwrap_or(false)
-                })
-                .unwrap_or(false);
+                .is_some_and(|addr| addr.as_eui_64().is_some_and(|addr| addr[..] == src[8..]));
 
             if src[8..14] == [0, 0, 0, 0xff, 0xfe, 0] {
                 let ll = [src[14], src[15]];
@@ -624,12 +619,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
             }
         } else if dst_addr.is_link_local() {
             let is_eui_64 = ll_dst_addr
-                .map(|addr| {
-                    addr.as_eui_64()
-                        .map(|addr| addr[..] == dst[8..])
-                        .unwrap_or(false)
-                })
-                .unwrap_or(false);
+                .is_some_and(|addr| addr.as_eui_64().is_some_and(|addr| addr[..] == dst[8..]));
 
             if dst[8..14] == [0, 0, 0, 0xff, 0xfe, 0] {
                 let ll = [dst[14], dst[15]];
@@ -776,12 +766,7 @@ impl Repr {
 
             let is_eui_64 = self
                 .ll_src_addr
-                .map(|addr| {
-                    addr.as_eui_64()
-                        .map(|addr| addr[..] == src[8..])
-                        .unwrap_or(false)
-                })
-                .unwrap_or(false);
+                .is_some_and(|addr| addr.as_eui_64().is_some_and(|addr| addr[..] == src[8..]));
 
             if src[8..14] == [0, 0, 0, 0xff, 0xfe, 0] {
                 if self.ll_src_addr == Some(LlAddress::Short(ll)) {
@@ -813,12 +798,7 @@ impl Repr {
         } else if self.dst_addr.is_link_local() {
             let is_eui_64 = self
                 .ll_dst_addr
-                .map(|addr| {
-                    addr.as_eui_64()
-                        .map(|addr| addr[..] == dst[8..])
-                        .unwrap_or(false)
-                })
-                .unwrap_or(false);
+                .is_some_and(|addr| addr.as_eui_64().is_some_and(|addr| addr[..] == dst[8..]));
 
             if dst[8..14] == [0, 0, 0, 0xff, 0xfe, 0] {
                 let ll = [dst[14], dst[15]];

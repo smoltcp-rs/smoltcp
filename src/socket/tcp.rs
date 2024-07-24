@@ -203,8 +203,7 @@ impl RttEstimator {
     fn on_send(&mut self, timestamp: Instant, seq: TcpSeqNumber) {
         if self
             .max_seq_sent
-            .map(|max_seq_sent| seq > max_seq_sent)
-            .unwrap_or(true)
+            .map_or(true, |max_seq_sent| seq > max_seq_sent)
         {
             self.max_seq_sent = Some(seq);
             if self.timestamp.is_none() {
@@ -1399,7 +1398,7 @@ impl<'a> Socket<'a> {
             if let Some(last_seg_seq) = self.local_rx_last_seq.map(|s| s.0 as u32) {
                 reply_repr.sack_ranges[0] = self
                     .assembler
-                    .iter_data(reply_repr.ack_number.map(|s| s.0 as usize).unwrap_or(0))
+                    .iter_data(reply_repr.ack_number.map_or(0, |s| s.0 as usize))
                     .map(|(left, right)| (left as u32, right as u32))
                     .find(|(left, right)| *left <= last_seg_seq && *right >= last_seg_seq);
             }
@@ -1414,7 +1413,7 @@ impl<'a> Socket<'a> {
                 // most quickly advance the acknowledgement number.
                 reply_repr.sack_ranges[0] = self
                     .assembler
-                    .iter_data(reply_repr.ack_number.map(|s| s.0 as usize).unwrap_or(0))
+                    .iter_data(reply_repr.ack_number.map_or(0, |s| s.0 as usize))
                     .map(|(left, right)| (left as u32, right as u32))
                     .next();
             }

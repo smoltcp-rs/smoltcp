@@ -466,10 +466,10 @@ impl<'a> Socket<'a> {
             return None;
         }
 
-        let mut lease_duration = dhcp_repr
-            .lease_duration
-            .map(|d| Duration::from_secs(d as _))
-            .unwrap_or(DEFAULT_LEASE_DURATION);
+        let mut lease_duration = match dhcp_repr.lease_duration {
+            Some(d) => Duration::from_secs(d as _),
+            None => DEFAULT_LEASE_DURATION,
+        };
         if let Some(max_lease_duration) = max_lease_duration {
             lease_duration = lease_duration.min(max_lease_duration);
         }
