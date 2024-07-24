@@ -777,11 +777,11 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
                             ip_packet.frag_offset()
                         )?;
                         return Ok(());
-                    } else {
-                        write!(f, "{indent}{ip_repr}")?;
-                        format_checksum(f, ip_packet.verify_checksum())?;
-                        (ip_repr, ip_packet.payload())
                     }
+
+                    write!(f, "{indent}{ip_repr}")?;
+                    format_checksum(f, ip_packet.verify_checksum())?;
+                    (ip_repr, ip_packet.payload())
                 }
             },
         };

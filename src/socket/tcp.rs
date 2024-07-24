@@ -869,9 +869,9 @@ impl<'a> Socket<'a> {
             // get aborted between the abort() and the next listen().
             if matches!(self.state, State::Listen) && self.listen_endpoint == local_endpoint {
                 return Ok(());
-            } else {
-                return Err(ListenError::InvalidState);
             }
+
+            return Err(ListenError::InvalidState);
         }
 
         self.reset();

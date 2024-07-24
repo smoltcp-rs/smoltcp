@@ -100,14 +100,14 @@ impl<'a, H> PacketBuffer<'a, H> {
                 // the padding necessary to circle around to the beginning of the
                 // ring buffer.
                 return Err(Full);
-            } else {
-                // Add padding to the end of the ring buffer so that the
-                // contiguous window is at the beginning of the ring buffer.
-                *self.metadata_ring.enqueue_one()? = PacketMetadata::padding(contig_window);
-                // note(discard): function does not write to the result
-                // enqueued padding buffer location
-                let _buf_enqueued = self.payload_ring.enqueue_many(contig_window);
             }
+
+            // Add padding to the end of the ring buffer so that the
+            // contiguous window is at the beginning of the ring buffer.
+            *self.metadata_ring.enqueue_one()? = PacketMetadata::padding(contig_window);
+            // note(discard): function does not write to the result
+            // enqueued padding buffer location
+            let _buf_enqueued = self.payload_ring.enqueue_many(contig_window);
         }
 
         *self.metadata_ring.enqueue_one()? = PacketMetadata::packet(size, header);
@@ -144,14 +144,14 @@ impl<'a, H> PacketBuffer<'a, H> {
                 // the padding necessary to circle around to the beginning of the
                 // ring buffer.
                 return Err(Full);
-            } else {
-                // Add padding to the end of the ring buffer so that the
-                // contiguous window is at the beginning of the ring buffer.
-                *self.metadata_ring.enqueue_one()? = PacketMetadata::padding(contig_window);
-                // note(discard): function does not write to the result
-                // enqueued padding buffer location
-                let _buf_enqueued = self.payload_ring.enqueue_many(contig_window);
             }
+
+            // Add padding to the end of the ring buffer so that the
+            // contiguous window is at the beginning of the ring buffer.
+            *self.metadata_ring.enqueue_one()? = PacketMetadata::padding(contig_window);
+            // note(discard): function does not write to the result
+            // enqueued padding buffer location
+            let _buf_enqueued = self.payload_ring.enqueue_many(contig_window);
         }
 
         let (size, _) = self
