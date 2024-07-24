@@ -323,7 +323,7 @@ impl Interface {
     /// Get an address from the interface that could be used as source address. This is the first
     /// IPv4 address from the list of addresses in the interface.
     #[cfg(feature = "proto-ipv4")]
-    pub fn get_source_address_ipv4(&self, dst_addr: &Ipv4Address) -> Option<Ipv4Address> {
+    pub fn get_source_address_ipv4(&self, dst_addr: Ipv4Address) -> Option<Ipv4Address> {
         self.inner.get_source_address_ipv4(dst_addr)
     }
 
@@ -715,7 +715,7 @@ impl InterfaceInner {
     pub(crate) fn get_source_address(&self, dst_addr: &IpAddress) -> Option<IpAddress> {
         match dst_addr {
             #[cfg(feature = "proto-ipv4")]
-            IpAddress::Ipv4(addr) => self.get_source_address_ipv4(addr).map(|a| a.into()),
+            IpAddress::Ipv4(addr) => self.get_source_address_ipv4(*addr).map(|a| a.into()),
             #[cfg(feature = "proto-ipv6")]
             IpAddress::Ipv6(addr) => Some(self.get_source_address_ipv6(addr).into()),
         }

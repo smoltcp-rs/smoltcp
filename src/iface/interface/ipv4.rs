@@ -46,7 +46,7 @@ impl InterfaceInner {
     /// **NOTE**: unlike for IPv6, no specific selection algorithm is implemented. The first IPv4
     /// address from the interface is returned.
     #[allow(unused)]
-    pub(crate) fn get_source_address_ipv4(&self, _dst_addr: &Ipv4Address) -> Option<Ipv4Address> {
+    pub(crate) fn get_source_address_ipv4(&self, _dst_addr: Ipv4Address) -> Option<Ipv4Address> {
         for cidr in self.ip_addrs.iter() {
             #[allow(irrefutable_let_patterns)] // if only ipv4 is enabled
             if let IpCidr::Ipv4(cidr) = cidr {
@@ -172,7 +172,7 @@ impl InterfaceInner {
                             &ipv4_repr.dst_addr.into(),
                             &self.caps.checksum
                         ));
-                        dhcp_socket.process(self, &ipv4_repr, &udp_repr, udp_packet.payload());
+                        dhcp_socket.process(self, &ipv4_repr, udp_repr, udp_packet.payload());
                         return None;
                     }
                 }

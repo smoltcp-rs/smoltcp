@@ -43,7 +43,7 @@ enum_with_unknown! {
 
 impl AddressingMode {
     /// Return the size in octets of the address.
-    const fn size(&self) -> usize {
+    const fn size(self) -> usize {
         match self {
             AddressingMode::Absent => 0,
             AddressingMode::Short => 2,

@@ -562,7 +562,7 @@ impl<'a> Socket<'a> {
             match *remote_endpoint {
                 #[cfg(feature = "proto-ipv4")]
                 IpAddress::Ipv4(dst_addr) => {
-                    let src_addr = match cx.get_source_address_ipv4(&dst_addr) {
+                    let src_addr = match cx.get_source_address_ipv4(dst_addr) {
                         Some(addr) => addr,
                         None => {
                             net_trace!(

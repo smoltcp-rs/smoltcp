@@ -754,8 +754,8 @@ pub mod checksum {
 
     #[cfg(feature = "proto-ipv4")]
     pub fn pseudo_header_v4(
-        src_addr: &Ipv4Address,
-        dst_addr: &Ipv4Address,
+        src_addr: Ipv4Address,
+        dst_addr: Ipv4Address,
         next_header: Protocol,
         length: u32,
     ) -> u16 {
@@ -797,7 +797,7 @@ pub mod checksum {
         match (src_addr, dst_addr) {
             #[cfg(feature = "proto-ipv4")]
             (Address::Ipv4(src_addr), Address::Ipv4(dst_addr)) => {
-                pseudo_header_v4(src_addr, dst_addr, next_header, length)
+                pseudo_header_v4(*src_addr, *dst_addr, next_header, length)
             }
             #[cfg(feature = "proto-ipv6")]
             (Address::Ipv6(src_addr), Address::Ipv6(dst_addr)) => {

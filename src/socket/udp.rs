@@ -459,7 +459,7 @@ impl<'a> Socket<'a> {
         Ok((length, endpoint))
     }
 
-    pub(crate) fn accepts(&self, cx: &mut Context, ip_repr: &IpRepr, repr: &UdpRepr) -> bool {
+    pub(crate) fn accepts(&self, cx: &mut Context, ip_repr: &IpRepr, repr: UdpRepr) -> bool {
         if self.endpoint.port != repr.dst_port {
             return false;
         }
@@ -479,7 +479,7 @@ impl<'a> Socket<'a> {
         cx: &mut Context,
         meta: PacketMeta,
         ip_repr: &IpRepr,
-        repr: &UdpRepr,
+        repr: UdpRepr,
         payload: &[u8],
     ) {
         debug_assert!(self.accepts(cx, ip_repr, repr));
@@ -822,22 +822,22 @@ mod test {
         assert!(!socket.can_recv());
         assert_eq!(socket.recv(), Err(RecvError::Exhausted));
 
-        assert!(socket.accepts(cx, &REMOTE_IP_REPR, &REMOTE_UDP_REPR));
+        assert!(socket.accepts(cx, &REMOTE_IP_REPR, REMOTE_UDP_REPR));
         socket.process(
             cx,
             PacketMeta::default(),
             &REMOTE_IP_REPR,
-            &REMOTE_UDP_REPR,
+            REMOTE_UDP_REPR,
             PAYLOAD,
         );
         assert!(socket.can_recv());
 
-        assert!(socket.accepts(cx, &REMOTE_IP_REPR, &REMOTE_UDP_REPR));
+        assert!(socket.accepts(cx, &REMOTE_IP_REPR, REMOTE_UDP_REPR));
         socket.process(
             cx,
             PacketMeta::default(),
             &REMOTE_IP_REPR,
-            &REMOTE_UDP_REPR,
+            REMOTE_UDP_REPR,
             PAYLOAD,
         );
 
@@ -869,7 +869,7 @@ mod test {
             cx,
             PacketMeta::default(),
             &REMOTE_IP_REPR,
-            &REMOTE_UDP_REPR,
+            REMOTE_UDP_REPR,
             PAYLOAD,
         );
         assert_eq!(
@@ -898,12 +898,12 @@ mod test {
 
         assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
 
-        assert!(socket.accepts(cx, &REMOTE_IP_REPR, &REMOTE_UDP_REPR));
+        assert!(socket.accepts(cx, &REMOTE_IP_REPR, REMOTE_UDP_REPR));
         socket.process(
             cx,
             PacketMeta::default(),
             &REMOTE_IP_REPR,
-            &REMOTE_UDP_REPR,
+            REMOTE_UDP_REPR,
             PAYLOAD,
         );
 
@@ -930,7 +930,7 @@ mod test {
             cx,
             PacketMeta::default(),
             &REMOTE_IP_REPR,
-            &REMOTE_UDP_REPR,
+            REMOTE_UDP_REPR,
             PAYLOAD,
         );
 
@@ -991,9 +991,9 @@ mod test {
         assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
 
         let mut udp_repr = REMOTE_UDP_REPR;
-        assert!(socket.accepts(cx, &REMOTE_IP_REPR, &udp_repr));
+        assert!(socket.accepts(cx, &REMOTE_IP_REPR, udp_repr));
         udp_repr.dst_port += 1;
-        assert!(!socket.accepts(cx, &REMOTE_IP_REPR, &udp_repr));
+        assert!(!socket.accepts(cx, &REMOTE_IP_REPR, udp_repr));
     }
 
     #[rstest]
@@ -1009,11 +1009,11 @@ mod test {
 
         let mut port_bound_socket = socket(buffer(1), buffer(0));
         assert_eq!(port_bound_socket.bind(LOCAL_PORT), Ok(()));
-        assert!(port_bound_socket.accepts(cx, &BAD_IP_REPR, &REMOTE_UDP_REPR));
+        assert!(port_bound_socket.accepts(cx, &BAD_IP_REPR, REMOTE_UDP_REPR));
 
         let mut ip_bound_socket = socket(buffer(1), buffer(0));
         assert_eq!(ip_bound_socket.bind(LOCAL_END), Ok(()));
-        assert!(!ip_bound_socket.accepts(cx, &BAD_IP_REPR, &REMOTE_UDP_REPR));
+        assert!(!ip_bound_socket.accepts(cx, &BAD_IP_REPR, REMOTE_UDP_REPR));
     }
 
     #[test]
@@ -1051,7 +1051,7 @@ mod test {
             src_port: REMOTE_PORT,
             dst_port: LOCAL_PORT,
         };
-        socket.process(cx, PacketMeta::default(), &REMOTE_IP_REPR, &repr, &[]);
+        socket.process(cx, PacketMeta::default(), &REMOTE_IP_REPR, repr, &[]);
         assert_eq!(socket.recv(), Ok((&[][..], remote_metadata_with_local())));
     }
 

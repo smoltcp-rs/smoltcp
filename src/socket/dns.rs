@@ -364,7 +364,7 @@ impl<'a> Socket<'a> {
             .register(waker);
     }
 
-    pub(crate) fn accepts(&self, ip_repr: &IpRepr, udp_repr: &UdpRepr) -> bool {
+    pub(crate) fn accepts(&self, ip_repr: &IpRepr, udp_repr: UdpRepr) -> bool {
         (udp_repr.src_port == DNS_PORT
             && self
                 .servers
@@ -377,7 +377,7 @@ impl<'a> Socket<'a> {
         &mut self,
         _cx: &mut Context,
         ip_repr: &IpRepr,
-        udp_repr: &UdpRepr,
+        udp_repr: UdpRepr,
         payload: &[u8],
     ) {
         debug_assert!(self.accepts(ip_repr, udp_repr));

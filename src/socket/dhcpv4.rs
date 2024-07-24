@@ -305,7 +305,7 @@ impl<'a> Socket<'a> {
         &mut self,
         cx: &mut Context,
         ip_repr: &Ipv4Repr,
-        repr: &UdpRepr,
+        repr: UdpRepr,
         payload: &[u8],
     ) {
         let src_ip = ip_repr.src_addr;
@@ -821,7 +821,7 @@ mod test {
             .emit(&mut DhcpPacket::new_unchecked(&mut payload))
             .unwrap();
 
-        s.socket.process(&mut s.cx, &ip_repr, &udp_repr, &payload)
+        s.socket.process(&mut s.cx, &ip_repr, udp_repr, &payload)
     }
 
     fn recv(s: &mut TestSocket, timestamp: Instant, reprs: &[(Ipv4Repr, UdpRepr, DhcpRepr)]) {
