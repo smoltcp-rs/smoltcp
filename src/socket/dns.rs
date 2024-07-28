@@ -167,7 +167,7 @@ impl<'a> Socket<'a> {
     ///
     /// # Panics
     ///
-    /// Panics if `servers.len() > MAX_SERVER_COUNT`
+    /// Panics if `servers.len() > DNS_MAX_SERVER_COUNT`
     pub fn update_servers(&mut self, servers: &[IpAddress]) {
         self.servers = Vec::from_slice(servers).unwrap();
     }
@@ -698,4 +698,11 @@ fn copy_name<'a, const N: usize>(
     dest.push(0).map_err(|_| wire::Error)?;
 
     Ok(())
+}
+
+/// Returns the maximum allowed length of the slice passed to
+/// the `dns::Socket::update_servers()`. If the length is
+/// exceeded, `update_servers()` will panic.
+pub const fn max_dns_server_count() -> usize {
+    DNS_MAX_SERVER_COUNT
 }
