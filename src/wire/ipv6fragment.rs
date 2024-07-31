@@ -157,6 +157,7 @@ impl Repr {
     where
         T: AsRef<[u8]> + ?Sized,
     {
+        header.check_len()?;
         Ok(Repr {
             frag_offset: header.frag_offset(),
             more_frags: header.more_frags(),

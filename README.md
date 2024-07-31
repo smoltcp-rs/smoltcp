@@ -12,7 +12,7 @@ include complicated compile-time computations, such as macro or type tricks, eve
 at cost of performance degradation.
 
 _smoltcp_ does not need heap allocation *at all*, is [extensively documented][docs],
-and compiles on stable Rust 1.65 and later.
+and compiles on stable Rust 1.77 and later.
 
 _smoltcp_ achieves [~Gbps of throughput](#examplesbenchmarkrs) when tested against
 the Linux TCP stack in loopback mode.
@@ -62,7 +62,7 @@ There are 3 supported mediums.
     hop-by-hop option.
 
 #### 6LoWPAN
-  
+
   * Implementation of [RFC6282](https://tools.ietf.org/rfc/rfc6282.txt).
   * Fragmentation is supported, as defined in [RFC4944](https://tools.ietf.org/rfc/rfc4944.txt).
   * UDP header compression/decompression is supported.
@@ -229,8 +229,8 @@ They can be set in two ways:
 - Via Cargo features: enable a feature like `<name>-<value>`. `name` must be in lowercase and
 use dashes instead of underscores. For example. `iface-max-addr-count-3`. Only a selection of values
 is available, check `Cargo.toml` for the list.
-- Via environment variables at build time: set the variable named `SMOLTCP_<value>`. For example 
-`SMOLTCP_IFACE_MAX_ADDR_COUNT=3 cargo build`. You can also set them in the `[env]` section of `.cargo/config.toml`. 
+- Via environment variables at build time: set the variable named `SMOLTCP_<value>`. For example
+`SMOLTCP_IFACE_MAX_ADDR_COUNT=3 cargo build`. You can also set them in the `[env]` section of `.cargo/config.toml`.
 Any value can be set, unlike with Cargo features.
 
 Environment variables take precedence over Cargo features. If two Cargo features are enabled for the same setting
@@ -286,7 +286,7 @@ Maximum length of DNS names that can be queried. Default: 255.
 
 ### IPV6_HBH_MAX_OPTIONS
 
-The maximum amount of parsed options the IPv6 Hop-by-Hop header can hold. Default: 1.
+The maximum amount of parsed options the IPv6 Hop-by-Hop header can hold. Default: 4.
 
 ## Hosted usage examples
 
@@ -513,14 +513,14 @@ cargo run --release --example benchmark -- --tap tap0 [reader|writer]
 It establishes a connection to itself from a different thread and reads or writes a large amount
 of data in one direction.
 
-A typical result (achieved on a Intel Core i7-7500U CPU and a Linux 4.9.65 x86_64 kernel running
-on a Dell XPS 13 9360 laptop) is as follows:
+A typical result (achieved on a Intel Core i5-13500H CPU and a Linux 6.9.9 x86_64 kernel running
+on a LENOVO XiaoXinPro 14 IRH8 laptop) is as follows:
 
 ```
 $ cargo run -q --release --example benchmark -- --tap tap0 reader
-throughput: 2.556 Gbps
+throughput: 3.673 Gbps
 $ cargo run -q --release --example benchmark -- --tap tap0 writer
-throughput: 5.301 Gbps
+throughput: 7.905 Gbps
 ```
 
 ## Bare-metal usage examples
@@ -552,6 +552,30 @@ If the `std` feature is enabled, it will print logs and packet dumps, and fault 
 is possible; otherwise, nothing at all will be displayed and no options are accepted.
 
 [wireshark]: https://wireshark.org
+
+### examples/loopback\_benchmark.rs
+
+_examples/loopback_benchmark.rs_ is another simple throughput benchmark.
+
+Read its [source code](/examples/loopback_benchmark.rs), then run it as:
+
+```sh
+cargo run --release --example loopback_benchmark
+```
+
+It establishes a connection to itself via a loopback interface and transfers a large amount
+of data in one direction.
+
+A typical result (achieved on a Intel Core i5-13500H CPU and a Linux 6.9.9 x86_64 kernel running
+on a LENOVO XiaoXinPro 14 IRH8 laptop) is as follows:
+
+```
+$ cargo run --release --example loopback_benchmark
+done in 0.558 s, bandwidth is 15.395083 Gbps
+```
+
+Note: Although the loopback interface can be used in bare-metal environments,
+this benchmark _does_ rely on `std` to be able to measure the time cost.
 
 ## License
 

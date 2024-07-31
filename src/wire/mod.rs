@@ -97,9 +97,9 @@ pub mod ieee802154;
 mod igmp;
 pub(crate) mod ip;
 #[cfg(feature = "proto-ipv4")]
-mod ipv4;
+pub(crate) mod ipv4;
 #[cfg(feature = "proto-ipv6")]
-mod ipv6;
+pub(crate) mod ipv6;
 #[cfg(feature = "proto-ipv6")]
 mod ipv6ext_header;
 #[cfg(feature = "proto-ipv6")]
@@ -191,7 +191,7 @@ pub use self::ipv4::{
 };
 
 #[cfg(feature = "proto-ipv6")]
-pub(crate) use self::ipv6::Scope as Ipv6AddressScope;
+pub(crate) use self::ipv6::MulticastScope as Ipv6MulticastScope;
 #[cfg(feature = "proto-ipv6")]
 pub use self::ipv6::{
     Address as Ipv6Address, Cidr as Ipv6Cidr, Packet as Ipv6Packet, Repr as Ipv6Repr,
@@ -201,7 +201,7 @@ pub use self::ipv6::{
 #[cfg(feature = "proto-ipv6")]
 pub use self::ipv6option::{
     FailureType as Ipv6OptionFailureType, Ipv6Option, Ipv6OptionsIterator, Repr as Ipv6OptionRepr,
-    Type as Ipv6OptionType,
+    RouterAlert as Ipv6OptionRouterAlert, Type as Ipv6OptionType,
 };
 
 #[cfg(feature = "proto-ipv6")]
@@ -256,26 +256,30 @@ pub use self::ndiscoption::{
 };
 
 #[cfg(feature = "proto-ipv6")]
-pub use self::mld::{AddressRecord as MldAddressRecord, Repr as MldRepr};
+pub use self::mld::{
+    AddressRecord as MldAddressRecord, AddressRecordRepr as MldAddressRecordRepr,
+    RecordType as MldRecordType, Repr as MldRepr,
+};
 
 pub use self::udp::{Packet as UdpPacket, Repr as UdpRepr, HEADER_LEN as UDP_HEADER_LEN};
 
 pub use self::tcp::{
     Control as TcpControl, Packet as TcpPacket, Repr as TcpRepr, SeqNumber as TcpSeqNumber,
-    TcpOption, HEADER_LEN as TCP_HEADER_LEN,
+    TcpOption, TcpTimestampGenerator, TcpTimestampRepr, HEADER_LEN as TCP_HEADER_LEN,
 };
 
 #[cfg(feature = "proto-dhcpv4")]
 pub use self::dhcpv4::{
-    DhcpOption, DhcpOptionWriter, MessageType as DhcpMessageType, Packet as DhcpPacket,
-    Repr as DhcpRepr, CLIENT_PORT as DHCP_CLIENT_PORT,
+    DhcpOption, DhcpOptionWriter, Flags as DhcpFlags, MessageType as DhcpMessageType,
+    OpCode as DhcpOpCode, Packet as DhcpPacket, Repr as DhcpRepr, CLIENT_PORT as DHCP_CLIENT_PORT,
     MAX_DNS_SERVER_COUNT as DHCP_MAX_DNS_SERVER_COUNT, SERVER_PORT as DHCP_SERVER_PORT,
 };
 
 #[cfg(feature = "proto-dns")]
 pub use self::dns::{
-    Flags as DnsFlags, Opcode as DnsOpcode, Packet as DnsPacket, Rcode as DnsRcode,
-    Repr as DnsRepr, Type as DnsQueryType,
+    Flags as DnsFlags, Opcode as DnsOpcode, Packet as DnsPacket, Question as DnsQuestion,
+    Rcode as DnsRcode, Record as DnsRecord, RecordData as DnsRecordData, Repr as DnsRepr,
+    Type as DnsQueryType,
 };
 
 #[cfg(feature = "proto-ipsec-ah")]

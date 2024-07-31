@@ -36,7 +36,7 @@ feature("fragmentation_buffer_size", default=1500, min=256, max=65536, pow2=True
 feature("assembler_max_segment_count", default=4, min=1, max=32, pow2=4)
 feature("reassembly_buffer_size", default=1500, min=256, max=65536, pow2=True)
 feature("reassembly_buffer_count", default=1, min=1, max=32, pow2=4)
-feature("ipv6_hbh_max_options", default=1, min=1, max=32, pow2=4)
+feature("ipv6_hbh_max_options", default=4, min=1, max=32, pow2=4)
 feature("dns_max_result_count", default=1, min=1, max=32, pow2=4)
 feature("dns_max_server_count", default=1, min=1, max=32, pow2=4)
 feature("dns_max_name_size", default=255, min=64, max=255, pow2=True)

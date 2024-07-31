@@ -25,7 +25,6 @@ impl fmt::Display for EtherType {
 
 /// A six-octet Ethernet II address.
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Address(pub [u8; 6]);
 
 impl Address {
@@ -75,6 +74,23 @@ impl fmt::Display for Address {
             f,
             "{:02x}-{:02x}-{:02x}-{:02x}-{:02x}-{:02x}",
             bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5]
+        )
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl defmt::Format for Address {
+    fn format(&self, fmt: defmt::Formatter) {
+        let bytes = self.0;
+        defmt::write!(
+            fmt,
+            "{:02x}-{:02x}-{:02x}-{:02x}-{:02x}-{:02x}",
+            bytes[0],
+            bytes[1],
+            bytes[2],
+            bytes[3],
+            bytes[4],
+            bytes[5]
         )
     }
 }
@@ -283,6 +299,7 @@ impl Repr {
 
     /// Emit a high-level representation into an Ethernet II frame.
     pub fn emit<T: AsRef<[u8]> + AsMut<[u8]>>(&self, frame: &mut Frame<T>) {
+        assert!(frame.buffer.as_ref().len() >= self.buffer_len());
         frame.set_src_addr(self.src_addr);
         frame.set_dst_addr(self.dst_addr);
         frame.set_ethertype(self.ethertype);

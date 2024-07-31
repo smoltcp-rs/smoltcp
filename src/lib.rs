@@ -65,7 +65,7 @@
 //!
 //! # Minimum Supported Rust Version (MSRV)
 //!
-//! This crate is guaranteed to compile on stable Rust 1.65 and up with any valid set of features.
+//! This crate is guaranteed to compile on stable Rust 1.77 and up with any valid set of features.
 //! It *might* compile on older versions but that may change in any new patch release.
 //!
 //! The exception is when using the `defmt` feature, in which case `defmt`'s MSRV applies, which
@@ -146,7 +146,7 @@ pub mod config {
     pub const REASSEMBLY_BUFFER_SIZE: usize = 1500;
     pub const RPL_RELATIONS_BUFFER_COUNT: usize = 16;
     pub const RPL_PARENTS_BUFFER_COUNT: usize = 8;
-    pub const IPV6_HBH_MAX_OPTIONS: usize = 2;
+    pub const IPV6_HBH_MAX_OPTIONS: usize = 4;
 }
 
 #[cfg(not(test))]

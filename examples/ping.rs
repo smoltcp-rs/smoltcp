@@ -187,11 +187,8 @@ fn main() {
                         remote_addr
                     );
                     icmp_repr.emit(
-                        &iface
-                            .get_source_address_ipv6(&address)
-                            .unwrap()
-                            .into_address(),
-                        &remote_addr,
+                        &iface.get_source_address_ipv6(&address),
+                        &address,
                         &mut icmp_packet,
                         &device_caps.checksum,
                     );
@@ -223,11 +220,8 @@ fn main() {
                 IpAddress::Ipv6(address) => {
                     let icmp_packet = Icmpv6Packet::new_checked(&payload).unwrap();
                     let icmp_repr = Icmpv6Repr::parse(
-                        &remote_addr,
-                        &iface
-                            .get_source_address_ipv6(&address)
-                            .unwrap()
-                            .into_address(),
+                        &address,
+                        &iface.get_source_address_ipv6(&address),
                         &icmp_packet,
                         &device_caps.checksum,
                     )

@@ -174,6 +174,7 @@ pub struct Repr<'a> {
 impl<'a> Repr<'a> {
     /// Parse an IPSec Authentication Header packet and return a high-level representation.
     pub fn parse<T: AsRef<[u8]> + ?Sized>(packet: &Packet<&'a T>) -> Result<Repr<'a>> {
+        packet.check_len()?;
         Ok(Repr {
             next_header: packet.next_header(),
             security_parameters_index: packet.security_parameters_index(),

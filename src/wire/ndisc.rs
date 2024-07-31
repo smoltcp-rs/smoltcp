@@ -230,6 +230,8 @@ impl<'a> Repr<'a> {
     where
         T: AsRef<[u8]> + ?Sized,
     {
+        packet.check_len()?;
+
         let (mut src_ll_addr, mut mtu, mut prefix_info, mut target_ll_addr, mut redirected_hdr) =
             (None, None, None, None, None);
 
@@ -457,9 +459,13 @@ impl<'a> Repr<'a> {
 mod test {
     use super::*;
     use crate::phy::ChecksumCapabilities;
-    use crate::wire::ip::test::{MOCK_IP_ADDR_1, MOCK_IP_ADDR_2};
     use crate::wire::EthernetAddress;
     use crate::wire::Icmpv6Repr;
+
+    const MOCK_IP_ADDR_1: Ipv6Address =
+        Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
+    const MOCK_IP_ADDR_2: Ipv6Address =
+        Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]);
 
     static ROUTER_ADVERT_BYTES: [u8; 24] = [
         0x86, 0x00, 0xa9, 0xde, 0x40, 0x80, 0x03, 0x84, 0x00, 0x00, 0x03, 0x84, 0x00, 0x00, 0x03,
@@ -528,7 +534,7 @@ mod test {
 
     #[test]
     fn test_router_advert_repr_emit() {
-        let mut bytes = vec![0x2a; 24];
+        let mut bytes = [0x2a; 24];
         let mut packet = Packet::new_unchecked(&mut bytes[..]);
         create_repr().emit(
             &MOCK_IP_ADDR_1,

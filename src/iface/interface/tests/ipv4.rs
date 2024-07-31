@@ -1,6 +1,64 @@
 use super::*;
 
 #[rstest]
+#[case(Medium::Ethernet)]
+#[cfg(feature = "medium-ethernet")]
+fn test_any_ip_accept_arp(#[case] medium: Medium) {
+    let mut buffer = [0u8; 64];
+    #[allow(non_snake_case)]
+    fn ETHERNET_FRAME_ARP(buffer: &mut [u8]) -> &[u8] {
+        let ethernet_repr = EthernetRepr {
+            src_addr: EthernetAddress::from_bytes(&[0x02, 0x02, 0x02, 0x02, 0x02, 0x03]),
+            dst_addr: EthernetAddress::from_bytes(&[0x02, 0x02, 0x02, 0x02, 0x02, 0x02]),
+            ethertype: EthernetProtocol::Arp,
+        };
+        let frame_repr = ArpRepr::EthernetIpv4 {
+            operation: ArpOperation::Request,
+            source_hardware_addr: EthernetAddress::from_bytes(&[
+                0x02, 0x02, 0x02, 0x02, 0x02, 0x03,
+            ]),
+            source_protocol_addr: Ipv4Address::from_bytes(&[192, 168, 1, 2]),
+            target_hardware_addr: EthernetAddress::from_bytes(&[
+                0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
+            ]),
+            target_protocol_addr: Ipv4Address::from_bytes(&[192, 168, 1, 3]),
+        };
+        let mut frame = EthernetFrame::new_unchecked(&mut buffer[..]);
+        ethernet_repr.emit(&mut frame);
+
+        let mut frame = ArpPacket::new_unchecked(&mut buffer[ethernet_repr.buffer_len()..]);
+        frame_repr.emit(&mut frame);
+
+        &buffer[..ethernet_repr.buffer_len() + frame_repr.buffer_len()]
+    }
+
+    let (mut iface, mut sockets, _) = setup(medium);
+
+    assert!(iface
+        .inner
+        .process_ethernet(
+            &mut sockets,
+            PacketMeta::default(),
+            ETHERNET_FRAME_ARP(buffer.as_mut()),
+            &mut iface.fragments,
+        )
+        .is_none());
+
+    // Accept any IP address
+    iface.set_any_ip(true);
+
+    assert!(iface
+        .inner
+        .process_ethernet(
+            &mut sockets,
+            PacketMeta::default(),
+            ETHERNET_FRAME_ARP(buffer.as_mut()),
+            &mut iface.fragments,
+        )
+        .is_some());
+}
+
+#[rstest]
 #[case(Medium::Ip)]
 #[cfg(feature = "medium-ip")]
 #[case(Medium::Ethernet)]
@@ -236,15 +294,9 @@ fn test_icmp_error_port_unreachable(#[case] medium: Medium) {
     // Ensure that the unknown protocol triggers an error response.
     // And we correctly handle no payload.
     assert_eq!(
-        iface.inner.process_udp(
-            &mut sockets,
-            PacketMeta::default(),
-            ip_repr,
-            udp_repr,
-            false,
-            &UDP_PAYLOAD,
-            data
-        ),
+        iface
+            .inner
+            .process_udp(&mut sockets, PacketMeta::default(), false, ip_repr, data),
         Some(expected_repr)
     );
 
@@ -273,10 +325,8 @@ fn test_icmp_error_port_unreachable(#[case] medium: Medium) {
         iface.inner.process_udp(
             &mut sockets,
             PacketMeta::default(),
-            ip_repr,
-            udp_repr,
             false,
-            &UDP_PAYLOAD,
+            ip_repr,
             packet_broadcast.into_inner(),
         ),
         None
@@ -573,7 +623,6 @@ fn test_icmpv4_socket(#[case] medium: Medium) {
         payload_len: 24,
         hop_limit: 64,
     };
-    let ip_repr = IpRepr::Ipv4(ipv4_repr);
 
     // Open a socket and ensure the packet is handled due to the listening
     // socket.
@@ -591,7 +640,9 @@ fn test_icmpv4_socket(#[case] medium: Medium) {
         ..ipv4_repr
     };
     assert_eq!(
-        iface.inner.process_icmpv4(&mut sockets, ip_repr, icmp_data),
+        iface
+            .inner
+            .process_icmpv4(&mut sockets, ipv4_repr, icmp_data),
         Some(Packet::new_ipv4(ipv4_reply, IpPayload::Icmpv4(echo_reply)))
     );
 
@@ -794,6 +845,7 @@ fn test_raw_socket_no_reply(#[case] medium: Medium) {
     feature = "medium-ethernet"
 ))]
 fn test_raw_socket_with_udp_socket(#[case] medium: Medium) {
+    use crate::socket::udp;
     use crate::wire::{IpEndpoint, IpVersion, UdpPacket, UdpRepr};
 
     static UDP_PAYLOAD: [u8; 5] = [0x48, 0x65, 0x6c, 0x6c, 0x6f];
@@ -886,7 +938,10 @@ fn test_raw_socket_with_udp_socket(#[case] medium: Medium) {
         socket.recv(),
         Ok((
             &UDP_PAYLOAD[..],
-            IpEndpoint::new(src_addr.into(), 67).into()
+            udp::UdpMetadata {
+                local_address: Some(dst_addr.into()),
+                ..IpEndpoint::new(src_addr.into(), 67).into()
+            }
         ))
     );
 }
@@ -954,10 +1009,8 @@ fn test_icmp_reply_size(#[case] medium: Medium) {
         iface.inner.process_udp(
             &mut sockets,
             PacketMeta::default(),
-            ip_repr.into(),
-            udp_repr,
             false,
-            &vec![0x2a; MAX_PAYLOAD_LEN],
+            ip_repr.into(),
             payload,
         ),
         Some(Packet::new_ipv4(

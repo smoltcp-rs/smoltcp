@@ -195,38 +195,37 @@ impl Address {
     }
 }
 
-#[cfg(all(feature = "std", feature = "proto-ipv4", feature = "proto-ipv6"))]
-impl From<::std::net::IpAddr> for Address {
-    fn from(x: ::std::net::IpAddr) -> Address {
+#[cfg(all(feature = "proto-ipv4", feature = "proto-ipv6"))]
+impl From<::core::net::IpAddr> for Address {
+    fn from(x: ::core::net::IpAddr) -> Address {
         match x {
-            ::std::net::IpAddr::V4(ipv4) => Address::Ipv4(ipv4.into()),
-            ::std::net::IpAddr::V6(ipv6) => Address::Ipv6(ipv6.into()),
+            ::core::net::IpAddr::V4(ipv4) => Address::Ipv4(ipv4.into()),
+            ::core::net::IpAddr::V6(ipv6) => Address::Ipv6(ipv6.into()),
         }
     }
 }
 
-#[cfg(feature = "std")]
-impl From<Address> for ::std::net::IpAddr {
-    fn from(x: Address) -> ::std::net::IpAddr {
+impl From<Address> for ::core::net::IpAddr {
+    fn from(x: Address) -> ::core::net::IpAddr {
         match x {
             #[cfg(feature = "proto-ipv4")]
-            Address::Ipv4(ipv4) => ::std::net::IpAddr::V4(ipv4.into()),
+            Address::Ipv4(ipv4) => ::core::net::IpAddr::V4(ipv4.into()),
             #[cfg(feature = "proto-ipv6")]
-            Address::Ipv6(ipv6) => ::std::net::IpAddr::V6(ipv6.into()),
+            Address::Ipv6(ipv6) => ::core::net::IpAddr::V6(ipv6.into()),
         }
     }
 }
 
-#[cfg(all(feature = "std", feature = "proto-ipv4"))]
-impl From<::std::net::Ipv4Addr> for Address {
-    fn from(ipv4: ::std::net::Ipv4Addr) -> Address {
+#[cfg(feature = "proto-ipv4")]
+impl From<::core::net::Ipv4Addr> for Address {
+    fn from(ipv4: ::core::net::Ipv4Addr) -> Address {
         Address::Ipv4(ipv4.into())
     }
 }
 
-#[cfg(all(feature = "std", feature = "proto-ipv6"))]
-impl From<::std::net::Ipv6Addr> for Address {
-    fn from(ipv6: ::std::net::Ipv6Addr) -> Address {
+#[cfg(feature = "proto-ipv6")]
+impl From<::core::net::Ipv6Addr> for Address {
+    fn from(ipv6: ::core::net::Ipv6Addr) -> Address {
         Address::Ipv6(ipv6.into())
     }
 }
@@ -391,13 +390,13 @@ pub struct Endpoint {
 impl Endpoint {
     /// Create an endpoint address from given address and port.
     pub const fn new(addr: Address, port: u16) -> Endpoint {
-        Endpoint { addr: addr, port }
+        Endpoint { addr, port }
     }
 }
 
-#[cfg(all(feature = "std", feature = "proto-ipv4", feature = "proto-ipv6"))]
-impl From<::std::net::SocketAddr> for Endpoint {
-    fn from(x: ::std::net::SocketAddr) -> Endpoint {
+#[cfg(all(feature = "proto-ipv4", feature = "proto-ipv6"))]
+impl From<::core::net::SocketAddr> for Endpoint {
+    fn from(x: ::core::net::SocketAddr) -> Endpoint {
         Endpoint {
             addr: x.ip().into(),
             port: x.port(),
@@ -405,9 +404,9 @@ impl From<::std::net::SocketAddr> for Endpoint {
     }
 }
 
-#[cfg(all(feature = "std", feature = "proto-ipv4"))]
-impl From<::std::net::SocketAddrV4> for Endpoint {
-    fn from(x: ::std::net::SocketAddrV4) -> Endpoint {
+#[cfg(feature = "proto-ipv4")]
+impl From<::core::net::SocketAddrV4> for Endpoint {
+    fn from(x: ::core::net::SocketAddrV4) -> Endpoint {
         Endpoint {
             addr: (*x.ip()).into(),
             port: x.port(),
@@ -415,9 +414,9 @@ impl From<::std::net::SocketAddrV4> for Endpoint {
     }
 }
 
-#[cfg(all(feature = "std", feature = "proto-ipv6"))]
-impl From<::std::net::SocketAddrV6> for Endpoint {
-    fn from(x: ::std::net::SocketAddrV6) -> Endpoint {
+#[cfg(feature = "proto-ipv6")]
+impl From<::core::net::SocketAddrV6> for Endpoint {
+    fn from(x: ::core::net::SocketAddrV6) -> Endpoint {
         Endpoint {
             addr: (*x.ip()).into(),
             port: x.port(),
@@ -466,9 +465,9 @@ impl ListenEndpoint {
     }
 }
 
-#[cfg(all(feature = "std", feature = "proto-ipv4", feature = "proto-ipv6"))]
-impl From<::std::net::SocketAddr> for ListenEndpoint {
-    fn from(x: ::std::net::SocketAddr) -> ListenEndpoint {
+#[cfg(all(feature = "proto-ipv4", feature = "proto-ipv6"))]
+impl From<::core::net::SocketAddr> for ListenEndpoint {
+    fn from(x: ::core::net::SocketAddr) -> ListenEndpoint {
         ListenEndpoint {
             addr: Some(x.ip().into()),
             port: x.port(),
@@ -476,9 +475,9 @@ impl From<::std::net::SocketAddr> for ListenEndpoint {
     }
 }
 
-#[cfg(all(feature = "std", feature = "proto-ipv4"))]
-impl From<::std::net::SocketAddrV4> for ListenEndpoint {
-    fn from(x: ::std::net::SocketAddrV4) -> ListenEndpoint {
+#[cfg(feature = "proto-ipv4")]
+impl From<::core::net::SocketAddrV4> for ListenEndpoint {
+    fn from(x: ::core::net::SocketAddrV4) -> ListenEndpoint {
         ListenEndpoint {
             addr: Some((*x.ip()).into()),
             port: x.port(),
@@ -486,9 +485,9 @@ impl From<::std::net::SocketAddrV4> for ListenEndpoint {
     }
 }
 
-#[cfg(all(feature = "std", feature = "proto-ipv6"))]
-impl From<::std::net::SocketAddrV6> for ListenEndpoint {
-    fn from(x: ::std::net::SocketAddrV6) -> ListenEndpoint {
+#[cfg(feature = "proto-ipv6")]
+impl From<::core::net::SocketAddrV6> for ListenEndpoint {
+    fn from(x: ::core::net::SocketAddrV6) -> ListenEndpoint {
         ListenEndpoint {
             addr: Some((*x.ip()).into()),
             port: x.port(),
@@ -753,7 +752,42 @@ pub mod checksum {
         propagate_carries(accum)
     }
 
-    /// Compute an IP pseudo header checksum.
+    #[cfg(feature = "proto-ipv4")]
+    pub fn pseudo_header_v4(
+        src_addr: &Ipv4Address,
+        dst_addr: &Ipv4Address,
+        next_header: Protocol,
+        length: u32,
+    ) -> u16 {
+        let mut proto_len = [0u8; 4];
+        proto_len[1] = next_header.into();
+        NetworkEndian::write_u16(&mut proto_len[2..4], length as u16);
+
+        combine(&[
+            data(src_addr.as_bytes()),
+            data(dst_addr.as_bytes()),
+            data(&proto_len[..]),
+        ])
+    }
+
+    #[cfg(feature = "proto-ipv6")]
+    pub fn pseudo_header_v6(
+        src_addr: &Ipv6Address,
+        dst_addr: &Ipv6Address,
+        next_header: Protocol,
+        length: u32,
+    ) -> u16 {
+        let mut proto_len = [0u8; 4];
+        proto_len[1] = next_header.into();
+        NetworkEndian::write_u16(&mut proto_len[2..4], length as u16);
+
+        combine(&[
+            data(src_addr.as_bytes()),
+            data(dst_addr.as_bytes()),
+            data(&proto_len[..]),
+        ])
+    }
+
     pub fn pseudo_header(
         src_addr: &Address,
         dst_addr: &Address,
@@ -762,32 +796,15 @@ pub mod checksum {
     ) -> u16 {
         match (src_addr, dst_addr) {
             #[cfg(feature = "proto-ipv4")]
-            (&Address::Ipv4(src_addr), &Address::Ipv4(dst_addr)) => {
-                let mut proto_len = [0u8; 4];
-                proto_len[1] = next_header.into();
-                NetworkEndian::write_u16(&mut proto_len[2..4], length as u16);
-
-                combine(&[
-                    data(src_addr.as_bytes()),
-                    data(dst_addr.as_bytes()),
-                    data(&proto_len[..]),
-                ])
+            (Address::Ipv4(src_addr), Address::Ipv4(dst_addr)) => {
+                pseudo_header_v4(src_addr, dst_addr, next_header, length)
             }
-
             #[cfg(feature = "proto-ipv6")]
-            (&Address::Ipv6(src_addr), &Address::Ipv6(dst_addr)) => {
-                let mut proto_len = [0u8; 8];
-                proto_len[7] = next_header.into();
-                NetworkEndian::write_u32(&mut proto_len[0..4], length);
-                combine(&[
-                    data(src_addr.as_bytes()),
-                    data(dst_addr.as_bytes()),
-                    data(&proto_len[..]),
-                ])
+            (Address::Ipv6(src_addr), Address::Ipv6(dst_addr)) => {
+                pseudo_header_v6(src_addr, dst_addr, next_header, length)
             }
-
             #[allow(unreachable_patterns)]
-            _ => panic!("Unexpected pseudo header addresses: {src_addr}, {dst_addr}"),
+            _ => unreachable!(),
         }
     }
 
@@ -881,36 +898,6 @@ pub fn pretty_print_ip_payload<T: Into<Repr>>(
 #[cfg(test)]
 pub(crate) mod test {
     #![allow(unused)]
-
-    #[cfg(feature = "proto-ipv6")]
-    pub(crate) const MOCK_IP_ADDR_1: IpAddress = IpAddress::Ipv6(Ipv6Address([
-        0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
-    ]));
-    #[cfg(feature = "proto-ipv6")]
-    pub(crate) const MOCK_IP_ADDR_2: IpAddress = IpAddress::Ipv6(Ipv6Address([
-        0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2,
-    ]));
-    #[cfg(feature = "proto-ipv6")]
-    pub(crate) const MOCK_IP_ADDR_3: IpAddress = IpAddress::Ipv6(Ipv6Address([
-        0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3,
-    ]));
-    #[cfg(feature = "proto-ipv6")]
-    pub(crate) const MOCK_IP_ADDR_4: IpAddress = IpAddress::Ipv6(Ipv6Address([
-        0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4,
-    ]));
-    #[cfg(feature = "proto-ipv6")]
-    pub(crate) const MOCK_UNSPECIFIED: IpAddress = IpAddress::Ipv6(Ipv6Address::UNSPECIFIED);
-
-    #[cfg(all(feature = "proto-ipv4", not(feature = "proto-ipv6")))]
-    pub(crate) const MOCK_IP_ADDR_1: IpAddress = IpAddress::Ipv4(Ipv4Address([192, 168, 1, 1]));
-    #[cfg(all(feature = "proto-ipv4", not(feature = "proto-ipv6")))]
-    pub(crate) const MOCK_IP_ADDR_2: IpAddress = IpAddress::Ipv4(Ipv4Address([192, 168, 1, 2]));
-    #[cfg(all(feature = "proto-ipv4", not(feature = "proto-ipv6")))]
-    pub(crate) const MOCK_IP_ADDR_3: IpAddress = IpAddress::Ipv4(Ipv4Address([192, 168, 1, 3]));
-    #[cfg(all(feature = "proto-ipv4", not(feature = "proto-ipv6")))]
-    pub(crate) const MOCK_IP_ADDR_4: IpAddress = IpAddress::Ipv4(Ipv4Address([192, 168, 1, 4]));
-    #[cfg(all(feature = "proto-ipv4", not(feature = "proto-ipv6")))]
-    pub(crate) const MOCK_UNSPECIFIED: IpAddress = IpAddress::Ipv4(Ipv4Address::UNSPECIFIED);
 
     use super::*;
     use crate::wire::{IpAddress, IpCidr, IpProtocol};

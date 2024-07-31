@@ -399,6 +399,8 @@ impl<'a> Repr<'a> {
     where
         T: AsRef<[u8]> + ?Sized,
     {
+        packet.check_len()?;
+
         // Valid checksum is expected.
         if checksum_caps.icmpv4.rx() && !packet.verify_checksum() {
             return Err(Error);

@@ -4,12 +4,7 @@
 use super::{Error, NextHeader, Result, DISPATCH_EXT_HEADER, DISPATCH_UDP_HEADER};
 use crate::{
     phy::ChecksumCapabilities,
-    wire::{
-        ip::{checksum, Address as IpAddress},
-        ipv6,
-        udp::Repr as UdpRepr,
-        IpProtocol,
-    },
+    wire::{ip::checksum, ipv6, udp::Repr as UdpRepr, IpProtocol},
 };
 use byteorder::{ByteOrder, NetworkEndian};
 use ipv6::Address;
@@ -708,9 +703,9 @@ impl<'a> UdpNhcRepr {
         if checksum_caps.udp.rx() {
             let payload_len = packet.payload().len();
             let chk_sum = !checksum::combine(&[
-                checksum::pseudo_header(
-                    &IpAddress::Ipv6(*src_addr),
-                    &IpAddress::Ipv6(*dst_addr),
+                checksum::pseudo_header_v6(
+                    src_addr,
+                    dst_addr,
                     crate::wire::ip::Protocol::Udp,
                     payload_len as u32 + 8,
                 ),
@@ -763,9 +758,9 @@ impl<'a> UdpNhcRepr {
 
         if checksum_caps.udp.tx() {
             let chk_sum = !checksum::combine(&[
-                checksum::pseudo_header(
-                    &IpAddress::Ipv6(*src_addr),
-                    &IpAddress::Ipv6(*dst_addr),
+                checksum::pseudo_header_v6(
+                    src_addr,
+                    dst_addr,
                     crate::wire::ip::Protocol::Udp,
                     payload_len as u32 + 8,
                 ),

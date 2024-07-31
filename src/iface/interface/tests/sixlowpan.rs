@@ -277,6 +277,7 @@ fn test_echo_request_sixlowpan_128_bytes() {
 #[cfg(feature = "proto-sixlowpan-fragmentation")]
 fn test_sixlowpan_udp_with_fragmentation() {
     use crate::phy::Checksum;
+    use crate::socket::udp;
 
     let mut ieee802154_repr = Ieee802154Repr {
         frame_type: Ieee802154FrameType::Data,
@@ -367,14 +368,23 @@ In at rhoncus tortor. Cras blandit tellus diam, varius vestibulum nibh commodo n
         socket.recv(),
         Ok((
             &udp_data[..],
-            IpEndpoint {
-                addr: IpAddress::Ipv6(Ipv6Address([
-                    0xfe, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x40, 0x42, 0x42, 0x42, 0x42, 0x42,
-                    0xb, 0x1a,
-                ])),
-                port: 54217,
+            udp::UdpMetadata {
+                local_address: Some(
+                    Ipv6Address([
+                        0xfe, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x92, 0xfc, 0x48, 0xc2, 0xa4,
+                        0x41, 0xfc, 0x76,
+                    ])
+                    .into()
+                ),
+                ..IpEndpoint {
+                    addr: IpAddress::Ipv6(Ipv6Address([
+                        0xfe, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x40, 0x42, 0x42, 0x42, 0x42,
+                        0x42, 0xb, 0x1a,
+                    ])),
+                    port: 54217,
+                }
+                .into()
             }
-            .into()
         ))
     );
 

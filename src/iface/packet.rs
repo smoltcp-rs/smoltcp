@@ -84,12 +84,51 @@ impl<'p> Packet<'p> {
             #[cfg(feature = "proto-igmp")]
             IpPayload::Igmp(igmp_repr) => igmp_repr.emit(&mut IgmpPacket::new_unchecked(payload)),
             #[cfg(feature = "proto-ipv6")]
-            IpPayload::Icmpv6(icmpv6_repr) => icmpv6_repr.emit(
-                &_ip_repr.src_addr(),
-                &_ip_repr.dst_addr(),
-                &mut Icmpv6Packet::new_unchecked(payload),
-                &caps.checksum,
-            ),
+            IpPayload::Icmpv6(icmpv6_repr) => {
+                let ipv6_repr = match _ip_repr {
+                    #[cfg(feature = "proto-ipv4")]
+                    IpRepr::Ipv4(_) => unreachable!(),
+                    IpRepr::Ipv6(repr) => repr,
+                };
+
+                icmpv6_repr.emit(
+                    &ipv6_repr.src_addr,
+                    &ipv6_repr.dst_addr,
+                    &mut Icmpv6Packet::new_unchecked(payload),
+                    &caps.checksum,
+                )
+            }
+            #[cfg(feature = "proto-ipv6")]
+            IpPayload::HopByHopIcmpv6(hbh_repr, icmpv6_repr) => {
+                let ipv6_repr = match _ip_repr {
+                    #[cfg(feature = "proto-ipv4")]
+                    IpRepr::Ipv4(_) => unreachable!(),
+                    IpRepr::Ipv6(repr) => repr,
+                };
+
+                let ipv6_ext_hdr = Ipv6ExtHeaderRepr {
+                    next_header: IpProtocol::Icmpv6,
+                    length: 0,
+                    data: &[],
+                };
+                ipv6_ext_hdr.emit(&mut Ipv6ExtHeader::new_unchecked(
+                    &mut payload[..ipv6_ext_hdr.header_len()],
+                ));
+
+                let hbh_start = ipv6_ext_hdr.header_len();
+                let hbh_end = hbh_start + hbh_repr.buffer_len();
+                hbh_repr.emit(&mut Ipv6HopByHopHeader::new_unchecked(
+                    &mut payload[hbh_start..hbh_end],
+                ));
+
+                icmpv6_repr.emit(
+                    &ipv6_repr.src_addr,
+                    &ipv6_repr.dst_addr,
+                    &mut Icmpv6Packet::new_unchecked(&mut payload[hbh_end..]),
+                    &caps.checksum,
+                );
+            }
+
             #[cfg(feature = "socket-raw")]
             IpPayload::Raw(raw_packet) => payload.copy_from_slice(raw_packet),
             #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
@@ -172,6 +211,8 @@ pub(crate) enum IpPayload<'p> {
     Igmp(IgmpRepr),
     #[cfg(feature = "proto-ipv6")]
     Icmpv6(Icmpv6Repr<'p>),
+    #[cfg(feature = "proto-ipv6")]
+    HopByHopIcmpv6(Ipv6HopByHopRepr<'p>, Icmpv6Repr<'p>),
     #[cfg(feature = "socket-raw")]
     Raw(&'p [u8]),
     #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
@@ -192,6 +233,8 @@ impl<'p> IpPayload<'p> {
             Self::Dhcpv4(..) => unreachable!(),
             #[cfg(feature = "proto-ipv6")]
             Self::Icmpv6(_) => SixlowpanNextHeader::Uncompressed(IpProtocol::Icmpv6),
+            #[cfg(feature = "proto-ipv6")]
+            Self::HopByHopIcmpv6(_, _) => unreachable!(),
             #[cfg(feature = "proto-igmp")]
             Self::Igmp(_) => unreachable!(),
             #[cfg(feature = "socket-tcp")]

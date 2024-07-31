@@ -1,13 +1,6 @@
 use super::*;
 
-#[cfg(feature = "socket-icmp")]
-use crate::socket::icmp;
-use crate::socket::AnySocket;
-
-use crate::phy::PacketMeta;
-use crate::wire::*;
-
-/// Enum used for the process_hopbyhop function. In some cases, when discarding a packet, an ICMMP
+/// Enum used for the process_hopbyhop function. In some cases, when discarding a packet, an ICMP
 /// parameter problem message needs to be transmitted to the source of the address. In other cases,
 /// the processing of the IP packet can continue.
 #[allow(clippy::large_enum_variant)]
@@ -26,6 +19,170 @@ impl Default for HopByHopResponse<'_> {
 }
 
 impl InterfaceInner {
+    /// Return the IPv6 address that is a candidate source address for the given destination
+    /// address, based on RFC 6724.
+    ///
+    /// # Panics
+    /// This function panics if the destination address is unspecified.
+    #[allow(unused)]
+    pub(crate) fn get_source_address_ipv6(&self, dst_addr: &Ipv6Address) -> Ipv6Address {
+        assert!(!dst_addr.is_unspecified());
+
+        // See RFC 6724 Section 4: Candidate source address
+        fn is_candidate_source_address(dst_addr: &Ipv6Address, src_addr: &Ipv6Address) -> bool {
+            // For all multicast and link-local destination addresses, the candidate address MUST
+            // only be an address from the same link.
+            if dst_addr.is_link_local() && !src_addr.is_link_local() {
+                return false;
+            }
+
+            if dst_addr.is_multicast()
+                && matches!(dst_addr.multicast_scope(), Ipv6MulticastScope::LinkLocal)
+                && src_addr.is_multicast()
+                && !matches!(src_addr.multicast_scope(), Ipv6MulticastScope::LinkLocal)
+            {
+                return false;
+            }
+
+            // Unspecified addresses and multicast address can not be in the candidate source address
+            // list. Except when the destination multicast address has a link-local scope, then the
+            // source address can also be link-local multicast.
+            if src_addr.is_unspecified() || src_addr.is_multicast() {
+                return false;
+            }
+
+            true
+        }
+
+        // See RFC 6724 Section 2.2: Common Prefix Length
+        fn common_prefix_length(dst_addr: &Ipv6Cidr, src_addr: &Ipv6Address) -> usize {
+            let addr = dst_addr.address();
+            let mut bits = 0;
+            for (l, r) in addr.as_bytes().iter().zip(src_addr.as_bytes().iter()) {
+                if l == r {
+                    bits += 8;
+                } else {
+                    bits += (l ^ r).leading_zeros();
+                    break;
+                }
+            }
+
+            bits = bits.min(dst_addr.prefix_len() as u32);
+
+            bits as usize
+        }
+
+        // If the destination address is a loopback address, or when there are no IPv6 addresses in
+        // the interface, then the loopback address is the only candidate source address.
+        if dst_addr.is_loopback()
+            || self
+                .ip_addrs
+                .iter()
+                .filter(|a| matches!(a, IpCidr::Ipv6(_)))
+                .count()
+                == 0
+        {
+            return Ipv6Address::LOOPBACK;
+        }
+
+        let mut candidate = self
+            .ip_addrs
+            .iter()
+            .find_map(|a| match a {
+                #[cfg(feature = "proto-ipv4")]
+                IpCidr::Ipv4(_) => None,
+                IpCidr::Ipv6(a) => Some(a),
+            })
+            .unwrap(); // NOTE: we check above that there is at least one IPv6 address.
+
+        for addr in self.ip_addrs.iter().filter_map(|a| match a {
+            #[cfg(feature = "proto-ipv4")]
+            IpCidr::Ipv4(_) => None,
+            #[cfg(feature = "proto-ipv6")]
+            IpCidr::Ipv6(a) => Some(a),
+        }) {
+            if !is_candidate_source_address(dst_addr, &addr.address()) {
+                continue;
+            }
+
+            // Rule 1: prefer the address that is the same as the output destination address.
+            if candidate.address() != *dst_addr && addr.address() == *dst_addr {
+                candidate = addr;
+            }
+
+            // Rule 2: prefer appropriate scope.
+            if (candidate.address().multicast_scope() as u8)
+                < (addr.address().multicast_scope() as u8)
+            {
+                if (candidate.address().multicast_scope() as u8)
+                    < (dst_addr.multicast_scope() as u8)
+                {
+                    candidate = addr;
+                }
+            } else if (addr.address().multicast_scope() as u8) > (dst_addr.multicast_scope() as u8)
+            {
+                candidate = addr;
+            }
+
+            // Rule 3: avoid deprecated addresses (TODO)
+            // Rule 4: prefer home addresses (TODO)
+            // Rule 5: prefer outgoing interfaces (TODO)
+            // Rule 5.5: prefer addresses in a prefix advertises by the next-hop (TODO).
+            // Rule 6: prefer matching label (TODO)
+            // Rule 7: prefer temporary addresses (TODO)
+            // Rule 8: use longest matching prefix
+            if common_prefix_length(candidate, dst_addr) < common_prefix_length(addr, dst_addr) {
+                candidate = addr;
+            }
+        }
+
+        candidate.address()
+    }
+
+    /// Determine if the given `Ipv6Address` is the solicited node
+    /// multicast address for a IPv6 addresses assigned to the interface.
+    /// See [RFC 4291 § 2.7.1] for more details.
+    ///
+    /// [RFC 4291 § 2.7.1]: https://tools.ietf.org/html/rfc4291#section-2.7.1
+    pub fn has_solicited_node(&self, addr: Ipv6Address) -> bool {
+        self.ip_addrs.iter().any(|cidr| {
+            match *cidr {
+                IpCidr::Ipv6(cidr) if cidr.address() != Ipv6Address::LOOPBACK => {
+                    // Take the lower order 24 bits of the IPv6 address and
+                    // append those bits to FF02:0:0:0:0:1:FF00::/104.
+                    addr.as_bytes()[14..] == cidr.address().as_bytes()[14..]
+                }
+                _ => false,
+            }
+        })
+    }
+
+    /// Get the first IPv6 address if present.
+    pub fn ipv6_addr(&self) -> Option<Ipv6Address> {
+        self.ip_addrs.iter().find_map(|addr| match *addr {
+            IpCidr::Ipv6(cidr) => Some(cidr.address()),
+            #[allow(unreachable_patterns)]
+            _ => None,
+        })
+    }
+
+    /// Get the first link-local IPv6 address of the interface, if present.
+    fn link_local_ipv6_address(&self) -> Option<Ipv6Address> {
+        self.ip_addrs.iter().find_map(|addr| match *addr {
+            #[cfg(feature = "proto-ipv4")]
+            IpCidr::Ipv4(_) => None,
+            #[cfg(feature = "proto-ipv6")]
+            IpCidr::Ipv6(cidr) => {
+                let addr = cidr.address();
+                if addr.is_link_local() {
+                    Some(addr)
+                } else {
+                    None
+                }
+            }
+        })
+    }
+
     pub(super) fn process_ipv6<'frame>(
         &mut self,
         sockets: &mut SocketSet,
@@ -53,8 +210,17 @@ impl InterfaceInner {
             && !self.has_multicast_group(ipv6_repr.dst_addr)
             && !ipv6_repr.dst_addr.is_loopback()
         {
-            net_trace!("packet IP address not for this interface");
-            return None;
+            // If AnyIP is enabled, also check if the packet is routed locally.
+            if !self.any_ip
+                || !ipv6_repr.dst_addr.is_unicast()
+                || self
+                    .routes
+                    .lookup(&IpAddress::Ipv6(ipv6_repr.dst_addr), self.now)
+                    .map_or(true, |router_addr| !self.has_ip_addr(router_addr))
+            {
+                net_trace!("packet IP address not for this interface");
+                return None;
+            }
         }
 
         #[cfg(feature = "socket-raw")]
@@ -98,7 +264,8 @@ impl InterfaceInner {
 
         for opt_repr in &hbh_repr.options {
             match opt_repr {
-                Ipv6OptionRepr::Pad1 | Ipv6OptionRepr::PadN(_) => (),
+                Ipv6OptionRepr::Pad1 | Ipv6OptionRepr::PadN(_) | Ipv6OptionRepr::RouterAlert(_) => {
+                }
                 #[cfg(feature = "proto-rpl")]
                 Ipv6OptionRepr::Rpl(_) => {}
 
@@ -140,28 +307,16 @@ impl InterfaceInner {
         ip_payload: &'frame [u8],
     ) -> Option<Packet<'frame>> {
         match nxt_hdr {
-            IpProtocol::Icmpv6 => self.process_icmpv6(sockets, ipv6_repr.into(), ip_payload),
+            IpProtocol::Icmpv6 => self.process_icmpv6(sockets, ipv6_repr, ip_payload),
 
             #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
-            IpProtocol::Udp => {
-                let udp_packet = check!(UdpPacket::new_checked(ip_payload));
-                let udp_repr = check!(UdpRepr::parse(
-                    &udp_packet,
-                    &ipv6_repr.src_addr.into(),
-                    &ipv6_repr.dst_addr.into(),
-                    &self.checksum_caps(),
-                ));
-
-                self.process_udp(
-                    sockets,
-                    meta,
-                    ipv6_repr.into(),
-                    udp_repr,
-                    handled_by_raw_socket,
-                    udp_packet.payload(),
-                    ip_payload,
-                )
-            }
+            IpProtocol::Udp => self.process_udp(
+                sockets,
+                meta,
+                handled_by_raw_socket,
+                ipv6_repr.into(),
+                ip_payload,
+            ),
 
             #[cfg(feature = "socket-tcp")]
             IpProtocol::Tcp => self.process_tcp(sockets, ipv6_repr.into(), ip_payload),
@@ -188,13 +343,13 @@ impl InterfaceInner {
     pub(super) fn process_icmpv6<'frame>(
         &mut self,
         _sockets: &mut SocketSet,
-        ip_repr: IpRepr,
+        ip_repr: Ipv6Repr,
         ip_payload: &'frame [u8],
     ) -> Option<Packet<'frame>> {
         let icmp_packet = check!(Icmpv6Packet::new_checked(ip_payload));
         let icmp_repr = check!(Icmpv6Repr::parse(
-            &ip_repr.src_addr(),
-            &ip_repr.dst_addr(),
+            &ip_repr.src_addr,
+            &ip_repr.dst_addr,
             &icmp_packet,
             &self.caps.checksum,
         ));
@@ -203,13 +358,16 @@ impl InterfaceInner {
         let mut handled_by_icmp_socket = false;
 
         #[cfg(feature = "socket-icmp")]
-        for icmp_socket in _sockets
-            .items_mut()
-            .filter_map(|i| icmp::Socket::downcast_mut(&mut i.socket))
         {
-            if icmp_socket.accepts(self, &ip_repr, &icmp_repr.into()) {
-                icmp_socket.process(self, &ip_repr, &icmp_repr.into());
-                handled_by_icmp_socket = true;
+            use crate::socket::icmp::Socket as IcmpSocket;
+            for icmp_socket in _sockets
+                .items_mut()
+                .filter_map(|i| IcmpSocket::downcast_mut(&mut i.socket))
+            {
+                if icmp_socket.accepts_v6(self, &ip_repr, &icmp_repr) {
+                    icmp_socket.process_v6(self, &ip_repr, &icmp_repr);
+                    handled_by_icmp_socket = true;
+                }
             }
         }
 
@@ -219,35 +377,27 @@ impl InterfaceInner {
                 ident,
                 seq_no,
                 data,
-            } => match ip_repr {
-                IpRepr::Ipv6(ipv6_repr) => {
-                    let icmp_reply_repr = Icmpv6Repr::EchoReply {
-                        ident,
-                        seq_no,
-                        data,
-                    };
-                    self.icmpv6_reply(ipv6_repr, icmp_reply_repr)
-                }
-                #[allow(unreachable_patterns)]
-                _ => unreachable!(),
-            },
+            } => {
+                let icmp_reply_repr = Icmpv6Repr::EchoReply {
+                    ident,
+                    seq_no,
+                    data,
+                };
+                self.icmpv6_reply(ip_repr, icmp_reply_repr)
+            }
 
             // Ignore any echo replies.
             Icmpv6Repr::EchoReply { .. } => None,
 
             // Forward any NDISC packets to the ndisc packet handler
             #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
-            Icmpv6Repr::Ndisc(repr) if ip_repr.hop_limit() == 0xff => match ip_repr {
-                IpRepr::Ipv6(ipv6_repr) => match self.caps.medium {
-                    #[cfg(feature = "medium-ethernet")]
-                    Medium::Ethernet => self.process_ndisc(ipv6_repr, repr),
-                    #[cfg(feature = "medium-ieee802154")]
-                    Medium::Ieee802154 => self.process_ndisc(ipv6_repr, repr),
-                    #[cfg(feature = "medium-ip")]
-                    Medium::Ip => None,
-                },
-                #[allow(unreachable_patterns)]
-                _ => unreachable!(),
+            Icmpv6Repr::Ndisc(repr) if ip_repr.hop_limit == 0xff => match self.caps.medium {
+                #[cfg(feature = "medium-ethernet")]
+                Medium::Ethernet => self.process_ndisc(ip_repr, repr),
+                #[cfg(feature = "medium-ieee802154")]
+                Medium::Ieee802154 => self.process_ndisc(ip_repr, repr),
+                #[cfg(feature = "medium-ip")]
+                Medium::Ip => None,
             },
 
             // Don't report an error if a packet with unknown type
@@ -333,11 +483,8 @@ impl InterfaceInner {
 
         let src_addr = if src_addr.is_unicast() {
             src_addr
-        } else if let Some(addr) = self.get_source_address_ipv6(&dst_addr) {
-            addr
         } else {
-            net_debug!("no suitable source address found");
-            return None;
+            self.get_source_address_ipv6(&dst_addr)
         };
 
         let ipv6_reply_repr = Ipv6Repr {
@@ -350,6 +497,54 @@ impl InterfaceInner {
         Some(Packet::new_ipv6(
             ipv6_reply_repr,
             IpPayload::Icmpv6(icmp_repr),
+        ))
+    }
+
+    pub(super) fn mldv2_report_packet<'any>(
+        &self,
+        records: &'any [MldAddressRecordRepr<'any>],
+    ) -> Option<Packet<'any>> {
+        // Per [RFC 3810 § 5.2.13], source addresses must be link-local, falling
+        // back to the unspecified address if we haven't acquired one.
+        // [RFC 3810 § 5.2.13]: https://tools.ietf.org/html/rfc3810#section-5.2.13
+        let src_addr = self
+            .link_local_ipv6_address()
+            .unwrap_or(Ipv6Address::UNSPECIFIED);
+
+        // Per [RFC 3810 § 5.2.14], all MLDv2 reports are sent to ff02::16.
+        // [RFC 3810 § 5.2.14]: https://tools.ietf.org/html/rfc3810#section-5.2.14
+        let dst_addr = Ipv6Address::LINK_LOCAL_ALL_MLDV2_ROUTERS;
+
+        // Create a dummy IPv6 extension header so we can calculate the total length of the packet.
+        // The actual extension header will be created later by Packet::emit_payload().
+        let dummy_ext_hdr = Ipv6ExtHeaderRepr {
+            next_header: IpProtocol::Unknown(0),
+            length: 0,
+            data: &[],
+        };
+
+        let mut hbh_repr = Ipv6HopByHopRepr::mldv2_router_alert();
+        hbh_repr.push_padn_option(0);
+
+        let mld_repr = MldRepr::ReportRecordReprs(records);
+        let records_len = records
+            .iter()
+            .map(MldAddressRecordRepr::buffer_len)
+            .sum::<usize>();
+
+        // All MLDv2 messages must be sent with an IPv6 Hop limit of 1.
+        Some(Packet::new_ipv6(
+            Ipv6Repr {
+                src_addr,
+                dst_addr,
+                next_header: IpProtocol::HopByHop,
+                payload_len: dummy_ext_hdr.header_len()
+                    + hbh_repr.buffer_len()
+                    + mld_repr.buffer_len()
+                    + records_len,
+                hop_limit: 1,
+            },
+            IpPayload::HopByHopIcmpv6(hbh_repr, Icmpv6Repr::Mld(mld_repr)),
         ))
     }
 }

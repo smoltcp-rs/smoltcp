@@ -234,6 +234,7 @@ impl defmt::Format for Repr {
 impl Repr {
     /// Parse a 6LoWPAN Fragment header.
     pub fn parse<T: AsRef<[u8]>>(packet: &Packet<T>) -> Result<Self> {
+        packet.check_len()?;
         let size = packet.datagram_size();
         let tag = packet.datagram_tag();
 

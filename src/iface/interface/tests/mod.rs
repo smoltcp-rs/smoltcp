@@ -66,6 +66,7 @@ fn test_new_panic() {
 fn test_handle_udp_broadcast(
     #[values(Medium::Ip, Medium::Ethernet, Medium::Ieee802154)] medium: Medium,
 ) {
+    use crate::socket::udp;
     use crate::wire::IpEndpoint;
 
     static UDP_PAYLOAD: [u8; 5] = [0x48, 0x65, 0x6c, 0x6c, 0x6f];
@@ -108,6 +109,7 @@ fn test_handle_udp_broadcast(
         payload_len: udp_repr.header_len() + UDP_PAYLOAD.len(),
         hop_limit: 0x40,
     });
+    let dst_addr = ip_repr.dst_addr();
 
     // Bind the socket to port 68
     let socket = sockets.get_mut::<udp::Socket>(socket_handle);
@@ -129,10 +131,8 @@ fn test_handle_udp_broadcast(
         iface.inner.process_udp(
             &mut sockets,
             PacketMeta::default(),
-            ip_repr,
-            udp_repr,
             false,
-            &UDP_PAYLOAD,
+            ip_repr,
             packet.into_inner(),
         ),
         None
@@ -144,7 +144,13 @@ fn test_handle_udp_broadcast(
     assert!(socket.can_recv());
     assert_eq!(
         socket.recv(),
-        Ok((&UDP_PAYLOAD[..], IpEndpoint::new(src_ip.into(), 67).into()))
+        Ok((
+            &UDP_PAYLOAD[..],
+            udp::UdpMetadata {
+                local_address: Some(dst_addr),
+                ..IpEndpoint::new(src_ip.into(), 67).into()
+            }
+        ))
     );
 }
 
@@ -163,6 +169,7 @@ pub fn tcp_not_accepted() {
         max_seg_size: None,
         sack_permitted: false,
         sack_ranges: [None, None, None],
+        timestamp: None,
         payload: &[],
     };
 
@@ -206,6 +213,7 @@ pub fn tcp_not_accepted() {
                 max_seg_size: None,
                 sack_permitted: false,
                 sack_ranges: [None, None, None],
+                timestamp: None,
                 payload: &[],
             })
         ))

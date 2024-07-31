@@ -6,7 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-No unreleased changes yet.
+### Changed
+- iface: The `poll` function now only performs a single cycle of processing sockets ([#954](https://github.com/smoltcp-rs/smoltcp/pull/954))
 
 ## [0.11.0] - 2023-12-23
 

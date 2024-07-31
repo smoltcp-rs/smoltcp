@@ -1,16 +1,6 @@
-use super::check;
-use super::DispatchError;
-use super::EthernetPacket;
-use super::FragmentsBuffer;
-use super::InterfaceInner;
-use super::SocketSet;
-use core::result::Result;
-
-use crate::phy::TxToken;
-use crate::wire::*;
+use super::*;
 
 impl InterfaceInner {
-    #[cfg(feature = "medium-ethernet")]
     pub(super) fn process_ethernet<'frame>(
         &mut self,
         sockets: &mut SocketSet,
@@ -49,7 +39,6 @@ impl InterfaceInner {
         }
     }
 
-    #[cfg(feature = "medium-ethernet")]
     pub(super) fn dispatch_ethernet<Tx, F>(
         &mut self,
         tx_token: Tx,

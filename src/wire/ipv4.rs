@@ -110,16 +110,14 @@ impl Address {
     }
 }
 
-#[cfg(feature = "std")]
-impl From<::std::net::Ipv4Addr> for Address {
-    fn from(x: ::std::net::Ipv4Addr) -> Address {
+impl From<::core::net::Ipv4Addr> for Address {
+    fn from(x: ::core::net::Ipv4Addr) -> Address {
         Address(x.octets())
     }
 }
 
-#[cfg(feature = "std")]
-impl From<Address> for ::std::net::Ipv4Addr {
-    fn from(Address(x): Address) -> ::std::net::Ipv4Addr {
+impl From<Address> for ::core::net::Ipv4Addr {
+    fn from(Address(x): Address) -> ::core::net::Ipv4Addr {
         x.into()
     }
 }
@@ -158,11 +156,8 @@ impl Cidr {
     ///
     /// # Panics
     /// This function panics if the prefix length is larger than 32.
-    #[allow(clippy::no_effect)]
     pub const fn new(address: Address, prefix_len: u8) -> Cidr {
-        // Replace with const panic (or assert) when stabilized
-        // see: https://github.com/rust-lang/rust/issues/51999
-        ["Prefix length should be <= 32"][(prefix_len > 32) as usize];
+        assert!(prefix_len <= 32);
         Cidr {
             address,
             prefix_len,
@@ -633,6 +628,7 @@ impl Repr {
         packet: &Packet<&T>,
         checksum_caps: &ChecksumCapabilities,
     ) -> Result<Repr> {
+        packet.check_len()?;
         // Version 4 is expected.
         if packet.version() != 4 {
             return Err(Error);
@@ -795,8 +791,19 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
 }
 
 #[cfg(test)]
-mod test {
+pub(crate) mod test {
     use super::*;
+
+    #[allow(unused)]
+    pub(crate) const MOCK_IP_ADDR_1: Address = Address([192, 168, 1, 1]);
+    #[allow(unused)]
+    pub(crate) const MOCK_IP_ADDR_2: Address = Address([192, 168, 1, 2]);
+    #[allow(unused)]
+    pub(crate) const MOCK_IP_ADDR_3: Address = Address([192, 168, 1, 3]);
+    #[allow(unused)]
+    pub(crate) const MOCK_IP_ADDR_4: Address = Address([192, 168, 1, 4]);
+    #[allow(unused)]
+    pub(crate) const MOCK_UNSPECIFIED: Address = Address::UNSPECIFIED;
 
     static PACKET_BYTES: [u8; 30] = [
         0x45, 0x00, 0x00, 0x1e, 0x01, 0x02, 0x62, 0x03, 0x1a, 0x01, 0xd5, 0x6e, 0x11, 0x12, 0x13,

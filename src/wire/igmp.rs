@@ -205,6 +205,8 @@ impl Repr {
     where
         T: AsRef<[u8]> + ?Sized,
     {
+        packet.check_len()?;
+
         // Check if the address is 0.0.0.0 or multicast
         let addr = packet.group_addr();
         if !addr.is_unspecified() && !addr.is_multicast() {
