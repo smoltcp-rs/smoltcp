@@ -160,6 +160,12 @@ impl<'a> Socket<'a> {
         self.rx_waker.register(waker)
     }
 
+    /// Returns `true` if a recv waker is registered.
+    #[cfg(feature = "async")]
+    pub fn recv_waker_registered(&self) -> bool {
+        self.rx_waker.registered()
+    }
+
     /// Register a waker for send operations.
     ///
     /// The waker is woken on state changes that might affect the return value
@@ -176,6 +182,12 @@ impl<'a> Socket<'a> {
     #[cfg(feature = "async")]
     pub fn register_send_waker(&mut self, waker: &Waker) {
         self.tx_waker.register(waker)
+    }
+
+    /// Returns `true` if a send waker is registered.
+    #[cfg(feature = "async")]
+    pub fn send_waker_registered(&self) -> bool {
+        self.tx_waker.registered()
     }
 
     /// Return the time-to-live (IPv4) or hop limit (IPv6) value used in outgoing packets.

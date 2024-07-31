@@ -26,6 +26,11 @@ impl WakerRegistration {
         }
     }
 
+    /// Returns `true` if a waker is registered.
+    pub fn registered(&self) -> bool {
+        self.waker.is_some()
+    }
+
     /// Wake the registered waker, if any.
     pub fn wake(&mut self) {
         self.waker.take().map(|w| w.wake());
