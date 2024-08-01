@@ -653,7 +653,7 @@ impl Interface {
                     )
                 }) {
                     Err(EgressError::MismatchingSrcIp) => {
-                        socket.set_state(tcp::State::Closed);
+                        socket.close();
                         Err(EgressError::MismatchingSrcIp)
                     }
                     r => r,
