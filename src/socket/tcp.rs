@@ -812,7 +812,7 @@ impl<'a> Socket<'a> {
         self.state
     }
 
-    fn reset(&mut self) {
+    pub fn reset(&mut self) {
         let rx_cap_log2 =
             mem::size_of::<usize>() * 8 - self.rx_buffer.capacity().leading_zeros() as usize;
 

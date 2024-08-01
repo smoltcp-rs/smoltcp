@@ -574,7 +574,7 @@ impl Interface {
 
         enum EgressError {
             Exhausted,
-            MismatchingSrcIp,
+            MismatchedSrcIp,
             Dispatch,
         }
 
@@ -593,7 +593,7 @@ impl Interface {
 
                 if !inner.has_ip_addr(response.ip_repr().src_addr()) {
                     net_debug!("failed to transmit IP: mismatched src addr");
-                    return Err(EgressError::MismatchingSrcIp);
+                    return Err(EgressError::MismatchedSrcIp);
                 }
 
                 let t = device.transmit(inner.now).ok_or_else(|| {
@@ -652,9 +652,10 @@ impl Interface {
                         Packet::new(ip, IpPayload::Tcp(tcp)),
                     )
                 }) {
-                    Err(EgressError::MismatchingSrcIp) => {
-                        socket.close();
-                        Err(EgressError::MismatchingSrcIp)
+                    Err(EgressError::MismatchedSrcIp) => {
+                        // FIXME: Should this be `close()` or `abort()`?
+                        socket.reset();
+                        Err(EgressError::MismatchedSrcIp)
                     }
                     r => r,
                 },
@@ -690,7 +691,7 @@ impl Interface {
                         neighbor_addr.expect("non-IP response packet"),
                     );
                 }
-                Err(EgressError::MismatchingSrcIp) => {}
+                Err(EgressError::MismatchedSrcIp) => {},
                 Ok(()) => {}
             }
         }
