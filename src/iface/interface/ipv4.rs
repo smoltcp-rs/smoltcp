@@ -196,6 +196,10 @@ impl InterfaceInner {
             }
         }
 
+        #[cfg(feature = "medium-ethernet")]
+        self.neighbor_cache
+            .reset_expiry_if_existing(IpAddress::Ipv4(ipv4_repr.src_addr), self.now);
+
         match ipv4_repr.next_header {
             IpProtocol::Icmp => self.process_icmpv4(sockets, ipv4_repr, ip_payload),
 

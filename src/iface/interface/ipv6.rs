@@ -228,6 +228,10 @@ impl InterfaceInner {
         #[cfg(not(feature = "socket-raw"))]
         let handled_by_raw_socket = false;
 
+        #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
+        self.neighbor_cache
+            .reset_expiry_if_existing(IpAddress::Ipv6(ipv6_repr.src_addr), self.now);
+
         self.process_nxt_hdr(
             sockets,
             meta,
