@@ -91,6 +91,7 @@ fn test_no_icmp_no_unicast(#[case] medium: Medium) {
         iface.inner.process_ipv4(
             &mut sockets,
             PacketMeta::default(),
+            HardwareAddress::default(),
             &frame,
             &mut iface.fragments
         ),
@@ -152,6 +153,7 @@ fn test_icmp_error_no_payload(#[case] medium: Medium) {
         iface.inner.process_ipv4(
             &mut sockets,
             PacketMeta::default(),
+            HardwareAddress::default(),
             &frame,
             &mut iface.fragments
         ),
@@ -397,6 +399,7 @@ fn test_handle_ipv4_broadcast(#[case] medium: Medium) {
         iface.inner.process_ipv4(
             &mut sockets,
             PacketMeta::default(),
+            HardwareAddress::default(),
             &frame,
             &mut iface.fragments
         ),
@@ -828,6 +831,7 @@ fn test_raw_socket_no_reply(#[case] medium: Medium) {
         iface.inner.process_ipv4(
             &mut sockets,
             PacketMeta::default(),
+            HardwareAddress::default(),
             &frame,
             &mut iface.fragments
         ),
@@ -925,6 +929,7 @@ fn test_raw_socket_with_udp_socket(#[case] medium: Medium) {
         iface.inner.process_ipv4(
             &mut sockets,
             PacketMeta::default(),
+            HardwareAddress::default(),
             &frame,
             &mut iface.fragments
         ),

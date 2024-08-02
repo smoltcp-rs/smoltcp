@@ -91,6 +91,7 @@ impl InterfaceInner {
         &mut self,
         sockets: &mut SocketSet,
         meta: PacketMeta,
+        source_hardware_addr: HardwareAddress,
         ipv4_packet: &Ipv4Packet<&'a [u8]>,
         frag: &'a mut FragmentsBuffer,
     ) -> Option<Packet<'a>> {
@@ -197,8 +198,13 @@ impl InterfaceInner {
         }
 
         #[cfg(feature = "medium-ethernet")]
-        self.neighbor_cache
-            .reset_expiry_if_existing(IpAddress::Ipv4(ipv4_repr.src_addr), self.now);
+        if self.is_unicast_v4(ipv4_repr.dst_addr) {
+            self.neighbor_cache.reset_expiry_if_existing(
+                IpAddress::Ipv4(ipv4_repr.src_addr),
+                source_hardware_addr,
+                self.now,
+            );
+        }
 
         match ipv4_repr.next_header {
             IpProtocol::Icmp => self.process_icmpv4(sockets, ipv4_repr, ip_payload),

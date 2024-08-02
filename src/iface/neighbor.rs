@@ -63,13 +63,20 @@ impl Cache {
         }
     }
 
-    pub fn reset_expiry_if_existing(&mut self, protocol_addr: IpAddress, timestamp: Instant) {
+    pub fn reset_expiry_if_existing(
+        &mut self,
+        protocol_addr: IpAddress,
+        source_hardware_addr: HardwareAddress,
+        timestamp: Instant,
+    ) {
         if let Some(Neighbor {
             expires_at,
-            hardware_addr: _,
+            hardware_addr,
         }) = self.storage.get_mut(&protocol_addr)
         {
-            *expires_at = timestamp + Self::ENTRY_LIFETIME;
+            if source_hardware_addr == *hardware_addr {
+                *expires_at = timestamp + Self::ENTRY_LIFETIME;
+            }
         }
     }
 
