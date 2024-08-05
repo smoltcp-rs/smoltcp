@@ -61,11 +61,15 @@ fn test_new_panic() {
     Interface::new(config, &mut device, Instant::ZERO);
 }
 
+#[cfg(feature = "socket-udp")]
 #[rstest]
-#[cfg(feature = "default")]
-fn test_handle_udp_broadcast(
-    #[values(Medium::Ip, Medium::Ethernet, Medium::Ieee802154)] medium: Medium,
-) {
+#[case::ip(Medium::Ip)]
+#[cfg(feature = "medium-ip")]
+#[case::ethernet(Medium::Ethernet)]
+#[cfg(feature = "medium-ethernet")]
+#[case::ieee802154(Medium::Ieee802154)]
+#[cfg(feature = "medium-ieee802154")]
+fn test_handle_udp_broadcast(#[case] medium: Medium) {
     use crate::socket::udp;
     use crate::wire::IpEndpoint;
 
