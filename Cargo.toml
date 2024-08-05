@@ -16,6 +16,9 @@ license = "0BSD"
 # ensure that the correct features are enabled.
 autoexamples = false
 
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(fuzzing)'] }
+
 [dependencies]
 managed = { version = "0.8", default-features = false, features = ["map"] }
 byteorder = { version = "1.0", default-features = false }
