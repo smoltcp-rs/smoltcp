@@ -328,6 +328,30 @@ pub enum HardwareAddress {
     feature = "medium-ethernet",
     feature = "medium-ieee802154"
 ))]
+#[cfg(test)]
+impl Default for HardwareAddress {
+    fn default() -> Self {
+        #![allow(unreachable_code)]
+        #[cfg(feature = "medium-ethernet")]
+        {
+            return Self::Ethernet(EthernetAddress::default());
+        }
+        #[cfg(feature = "medium-ip")]
+        {
+            return Self::Ip;
+        }
+        #[cfg(feature = "medium-ieee802154")]
+        {
+            Self::Ieee802154(Ieee802154Address::default())
+        }
+    }
+}
+
+#[cfg(any(
+    feature = "medium-ip",
+    feature = "medium-ethernet",
+    feature = "medium-ieee802154"
+))]
 impl HardwareAddress {
     pub const fn as_bytes(&self) -> &[u8] {
         match self {
