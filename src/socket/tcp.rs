@@ -337,19 +337,12 @@ impl Timer {
 
     fn set_for_retransmit(&mut self, timestamp: Instant, delay: Duration) {
         match *self {
-            Timer::Idle { .. } | Timer::FastRetransmit { .. } => {
+            Timer::Idle { .. } | Timer::FastRetransmit { .. } | Timer::Retransmit { .. } => {
                 *self = Timer::Retransmit {
                     expires_at: timestamp + delay,
                     delay,
                 }
             }
-            Timer::Retransmit { expires_at, delay } if timestamp >= expires_at => {
-                *self = Timer::Retransmit {
-                    expires_at: timestamp + delay,
-                    delay: delay * 2,
-                }
-            }
-            Timer::Retransmit { .. } => (),
             Timer::Close { .. } => (),
         }
     }
@@ -7521,7 +7514,7 @@ mod test {
         assert_eq!(r.should_retransmit(Instant::from_millis(1200)), None);
         assert_eq!(
             r.should_retransmit(Instant::from_millis(1301)),
-            Some(Duration::from_millis(300))
+            Some(Duration::from_millis(200))
         );
         r.set_for_idle(Instant::from_millis(1301), None);
         assert_eq!(r.should_retransmit(Instant::from_millis(1350)), None);
