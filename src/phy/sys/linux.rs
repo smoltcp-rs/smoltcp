@@ -9,12 +9,12 @@ pub const ETH_P_IEEE802154: libc::c_short = 0x00F6;
 // https://github.com/golang/sys/blob/master/unix/zerrors_linux_<arch>.go
 pub const TUNSETIFF: libc::c_ulong = if cfg!(any(
     target_arch = "mips",
+    all(target_arch = "mips", target_endian = "little"),
     target_arch = "mips64",
-    target_arch = "mips64el",
-    target_arch = "mipsel",
+    all(target_arch = "mips64", target_endian = "little"),
     target_arch = "powerpc",
     target_arch = "powerpc64",
-    target_arch = "powerpc64le",
+    all(target_arch = "powerpc64", target_endian = "little"),
     target_arch = "sparc64"
 )) {
     0x800454CA
