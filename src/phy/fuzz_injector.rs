@@ -1,3 +1,6 @@
+extern crate alloc;
+use alloc::vec::Vec;
+
 use crate::phy::{self, Device, DeviceCapabilities};
 use crate::time::Instant;
 
@@ -92,11 +95,12 @@ pub struct RxToken<'a, Rx: phy::RxToken, F: Fuzzer + 'a> {
 impl<'a, Rx: phy::RxToken, FRx: Fuzzer> phy::RxToken for RxToken<'a, Rx, FRx> {
     fn consume<R, F>(self, f: F) -> R
     where
-        F: FnOnce(&mut [u8]) -> R,
+        F: FnOnce(&[u8]) -> R,
     {
         self.token.consume(|buffer| {
-            self.fuzzer.fuzz_packet(buffer);
-            f(buffer)
+            let mut new_buffer: Vec<u8> = buffer.to_vec();
+            self.fuzzer.fuzz_packet(&mut new_buffer);
+            f(&mut new_buffer)
         })
     }
 
