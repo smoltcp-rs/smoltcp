@@ -249,6 +249,11 @@ dns-max-name-size-64 = []
 dns-max-name-size-128 = []
 dns-max-name-size-255 = [] # Default
 
+dhcp-max-domain-name-size-32 = []
+dhcp-max-domain-name-size-64 = [] # Default
+dhcp-max-domain-name-size-128 = []
+dhcp-max-domain-name-size-256 = []
+
 rpl-relations-buffer-count-1 = []
 rpl-relations-buffer-count-2 = []
 rpl-relations-buffer-count-4 = []

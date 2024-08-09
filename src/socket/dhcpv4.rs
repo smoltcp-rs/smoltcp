@@ -1,6 +1,8 @@
+use core::str::FromStr;
 #[cfg(feature = "async")]
 use core::task::Waker;
 
+use crate::config::DHCP_MAX_DOMAIN_NAME_SIZE;
 use crate::iface::Context;
 use crate::time::{Duration, Instant};
 use crate::wire::dhcpv4::field as dhcpv4_field;
@@ -9,7 +11,7 @@ use crate::wire::{
     UdpRepr, DHCP_CLIENT_PORT, DHCP_MAX_DNS_SERVER_COUNT, DHCP_SERVER_PORT, UDP_HEADER_LEN,
 };
 use crate::wire::{DhcpOption, HardwareAddress};
-use heapless::Vec;
+use heapless::{String, Vec};
 
 #[cfg(feature = "async")]
 use super::WakerRegistration;
@@ -22,6 +24,7 @@ const DEFAULT_PARAMETER_REQUEST_LIST: &[u8] = &[
     dhcpv4_field::OPT_SUBNET_MASK,
     dhcpv4_field::OPT_ROUTER,
     dhcpv4_field::OPT_DOMAIN_NAME_SERVER,
+    dhcpv4_field::OPT_DOMAIN_NAME,
 ];
 
 /// IPv4 configuration data provided by the DHCP server.
@@ -38,6 +41,8 @@ pub struct Config<'a> {
     pub router: Option<Ipv4Address>,
     /// DNS servers
     pub dns_servers: Vec<Ipv4Address, DHCP_MAX_DNS_SERVER_COUNT>,
+    /// Domain name
+    pub domain_name: Option<String<DHCP_MAX_DOMAIN_NAME_SIZE>>,
     /// Received DHCP packet
     pub packet: Option<DhcpPacket<&'a [u8]>>,
 }
@@ -494,6 +499,10 @@ impl<'a> Socket<'a> {
             address: Ipv4Cidr::new(dhcp_repr.your_ip, prefix_len),
             router: dhcp_repr.router,
             dns_servers,
+            domain_name: dhcp_repr
+                .domain_name
+                .map(String::from_str)
+                .and_then(Result::ok),
             packet: None,
         };
 
@@ -589,6 +598,7 @@ impl<'a> Socket<'a> {
             renew_duration: None,
             rebind_duration: None,
             dns_servers: None,
+            domain_name: None,
             additional_options: self.outgoing_options,
         };
 
@@ -739,6 +749,7 @@ impl<'a> Socket<'a> {
                 address: state.config.address,
                 router: state.config.router,
                 dns_servers: state.config.dns_servers.clone(),
+                domain_name: state.config.domain_name.clone(),
                 packet: self
                     .receive_packet_buffer
                     .as_deref()
@@ -779,6 +790,7 @@ impl<'a> Socket<'a> {
 #[cfg(test)]
 mod test {
 
+    use core::str::FromStr;
     use std::ops::{Deref, DerefMut};
 
     use super::*;
@@ -886,6 +898,7 @@ mod test {
     const DNS_IP_2: Ipv4Address = Ipv4Address([1, 1, 1, 2]);
     const DNS_IP_3: Ipv4Address = Ipv4Address([1, 1, 1, 3]);
     const DNS_IPS: &[Ipv4Address] = &[DNS_IP_1, DNS_IP_2, DNS_IP_3];
+    const DOMAIN_NAME: &str = "my.domain";
 
     const MASK_24: Ipv4Address = Ipv4Address([255, 255, 255, 0]);
 
@@ -969,6 +982,7 @@ mod test {
         server_identifier: None,
         parameter_request_list: None,
         dns_servers: None,
+        domain_name: None,
         max_size: None,
         renew_duration: None,
         rebind_duration: None,
@@ -979,7 +993,7 @@ mod test {
     const DHCP_DISCOVER: DhcpRepr = DhcpRepr {
         message_type: DhcpMessageType::Discover,
         client_identifier: Some(MY_MAC),
-        parameter_request_list: Some(&[1, 3, 6]),
+        parameter_request_list: Some(&[1, 3, 6, 15]),
         max_size: Some(1432),
         ..DHCP_DEFAULT
     };
@@ -994,6 +1008,7 @@ mod test {
             router: Some(SERVER_IP),
             subnet_mask: Some(MASK_24),
             dns_servers: Some(Vec::from_slice(DNS_IPS).unwrap()),
+            domain_name: Some(DOMAIN_NAME),
             lease_duration: Some(1000),
 
             ..DHCP_DEFAULT
@@ -1007,7 +1022,7 @@ mod test {
         max_size: Some(1432),
 
         requested_ip: Some(MY_IP),
-        parameter_request_list: Some(&[1, 3, 6]),
+        parameter_request_list: Some(&[1, 3, 6, 15]),
         ..DHCP_DEFAULT
     };
 
@@ -1021,6 +1036,7 @@ mod test {
             router: Some(SERVER_IP),
             subnet_mask: Some(MASK_24),
             dns_servers: Some(Vec::from_slice(DNS_IPS).unwrap()),
+            domain_name: Some(DOMAIN_NAME),
             lease_duration: Some(1000),
 
             ..DHCP_DEFAULT
@@ -1042,7 +1058,7 @@ mod test {
         max_size: Some(1432),
 
         requested_ip: None,
-        parameter_request_list: Some(&[1, 3, 6]),
+        parameter_request_list: Some(&[1, 3, 6, 15]),
         ..DHCP_DEFAULT
     };
 
@@ -1054,7 +1070,7 @@ mod test {
         max_size: Some(1432),
 
         requested_ip: None,
-        parameter_request_list: Some(&[1, 3, 6]),
+        parameter_request_list: Some(&[1, 3, 6, 15]),
         ..DHCP_DEFAULT
     };
 
@@ -1097,6 +1113,7 @@ mod test {
                 },
                 address: Ipv4Cidr::new(MY_IP, 24),
                 dns_servers: Vec::from_slice(DNS_IPS).unwrap(),
+                domain_name: Some(String::from_str(DOMAIN_NAME).unwrap()),
                 router: Some(SERVER_IP),
                 packet: None,
             },
@@ -1132,6 +1149,7 @@ mod test {
                 },
                 address: Ipv4Cidr::new(MY_IP, 24),
                 dns_servers: Vec::from_slice(DNS_IPS).unwrap(),
+                domain_name: Some(String::from_str(DOMAIN_NAME).unwrap()),
                 router: Some(SERVER_IP),
                 packet: None,
             }))
@@ -1170,6 +1188,7 @@ mod test {
                 },
                 address: Ipv4Cidr::new(MY_IP, 24),
                 dns_servers: Vec::from_slice(DNS_IPS).unwrap(),
+                domain_name: Some(String::from_str(DOMAIN_NAME).unwrap()),
                 router: Some(SERVER_IP),
                 packet: None,
             }))

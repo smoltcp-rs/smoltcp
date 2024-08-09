@@ -647,6 +647,8 @@ pub struct Repr<'a> {
     pub parameter_request_list: Option<&'a [u8]>,
     /// DNS servers
     pub dns_servers: Option<Vec<Ipv4Address, MAX_DNS_SERVER_COUNT>>,
+    /// Domain name
+    pub domain_name: Option<&'a str>,
     /// The maximum size dhcp packet the interface can receive
     pub max_size: Option<u16>,
     /// The DHCP IP lease duration, specified in seconds.
@@ -691,6 +693,10 @@ impl<'a> Repr<'a> {
         if let Some(dns_servers) = &self.dns_servers {
             len += 2;
             len += dns_servers.iter().count() * core::mem::size_of::<u32>();
+        }
+        if let Some(domain_name) = &self.domain_name {
+            len += 2;
+            len += domain_name.as_bytes().len();
         }
         if let Some(list) = self.parameter_request_list {
             len += list.len() + 2;
@@ -738,6 +744,7 @@ impl<'a> Repr<'a> {
         let mut subnet_mask = None;
         let mut parameter_request_list = None;
         let mut dns_servers = None;
+        let mut domain_name = None;
         let mut max_size = None;
         let mut lease_duration = None;
         let mut renew_duration = None;
@@ -802,6 +809,11 @@ impl<'a> Repr<'a> {
                         net_trace!("DHCP domain name servers contained invalid address");
                     }
                 }
+                (field::OPT_DOMAIN_NAME, _) => {
+                    if let Ok(name) = core::str::from_utf8(data) {
+                        domain_name = Some(name);
+                    }
+                }
                 _ => {}
             }
         }
@@ -824,6 +836,7 @@ impl<'a> Repr<'a> {
             client_identifier,
             parameter_request_list,
             dns_servers,
+            domain_name,
             max_size,
             lease_duration,
             renew_duration,
@@ -937,6 +950,13 @@ impl<'a> Repr<'a> {
                 options.emit(DhcpOption {
                     kind: field::OPT_DOMAIN_NAME_SERVER,
                     data: &servers[..data_len],
+                })?;
+            }
+
+            if let Some(domain_name) = &self.domain_name {
+                options.emit(DhcpOption {
+                    kind: field::OPT_DOMAIN_NAME,
+                    data: domain_name.as_bytes(),
                 })?;
             }
 
@@ -1167,6 +1187,7 @@ mod test {
             server_identifier: None,
             parameter_request_list: None,
             dns_servers: None,
+            domain_name: None,
             max_size: None,
             renew_duration: None,
             rebind_duration: None,
@@ -1197,6 +1218,7 @@ mod test {
             server_identifier: None,
             parameter_request_list: Some(&[1, 3, 6, 42]),
             dns_servers: None,
+            domain_name: None,
             additional_options: &[],
         }
     }

@@ -136,6 +136,7 @@ pub mod config {
     pub const DNS_MAX_NAME_SIZE: usize = 255;
     pub const DNS_MAX_RESULT_COUNT: usize = 1;
     pub const DNS_MAX_SERVER_COUNT: usize = 1;
+    pub const DHCP_MAX_DOMAIN_NAME_SIZE: usize = 64;
     pub const FRAGMENTATION_BUFFER_SIZE: usize = 1500;
     pub const IFACE_MAX_ADDR_COUNT: usize = 8;
     pub const IFACE_MAX_MULTICAST_GROUP_COUNT: usize = 4;
