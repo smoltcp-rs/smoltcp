@@ -97,6 +97,7 @@ use crate::time::Instant;
 mod sys;
 
 mod fault_injector;
+#[cfg(feature = "alloc")]
 mod fuzz_injector;
 #[cfg(feature = "alloc")]
 mod loopback;
@@ -117,6 +118,7 @@ mod tuntap_interface;
 pub use self::sys::wait;
 
 pub use self::fault_injector::FaultInjector;
+#[cfg(feature = "alloc")]
 pub use self::fuzz_injector::{FuzzInjector, Fuzzer};
 #[cfg(feature = "alloc")]
 pub use self::loopback::Loopback;
