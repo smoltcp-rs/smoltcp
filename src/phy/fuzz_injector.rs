@@ -1,8 +1,6 @@
-extern crate alloc;
-use alloc::vec::Vec;
-
 use crate::phy::{self, Device, DeviceCapabilities};
 use crate::time::Instant;
+use alloc::vec::Vec;
 
 // This could be fixed once associated consts are stable.
 const MTU: usize = 1536;
