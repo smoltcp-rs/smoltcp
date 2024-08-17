@@ -648,6 +648,7 @@ pub struct Repr<'a> {
     /// DNS servers
     pub dns_servers: Option<Vec<Ipv4Address, MAX_DNS_SERVER_COUNT>>,
     /// Domain name
+    #[cfg(feature = "proto-domainname")]
     pub domain_name: Option<&'a str>,
     /// The maximum size dhcp packet the interface can receive
     pub max_size: Option<u16>,
@@ -694,6 +695,7 @@ impl<'a> Repr<'a> {
             len += 2;
             len += dns_servers.iter().count() * core::mem::size_of::<u32>();
         }
+        #[cfg(feature = "proto-domainname")]
         if let Some(domain_name) = &self.domain_name {
             len += 2;
             len += domain_name.as_bytes().len();
@@ -744,6 +746,7 @@ impl<'a> Repr<'a> {
         let mut subnet_mask = None;
         let mut parameter_request_list = None;
         let mut dns_servers = None;
+        #[cfg(feature = "proto-domainname")]
         let mut domain_name = None;
         let mut max_size = None;
         let mut lease_duration = None;
@@ -809,10 +812,9 @@ impl<'a> Repr<'a> {
                         net_trace!("DHCP domain name servers contained invalid address");
                     }
                 }
+                #[cfg(feature = "proto-domainname")]
                 (field::OPT_DOMAIN_NAME, _) => {
-                    if let Ok(name) = core::str::from_utf8(data) {
-                        domain_name = Some(name);
-                    }
+                    domain_name = core::str::from_utf8(data).ok();
                 }
                 _ => {}
             }
@@ -836,6 +838,7 @@ impl<'a> Repr<'a> {
             client_identifier,
             parameter_request_list,
             dns_servers,
+            #[cfg(feature = "proto-domainname")]
             domain_name,
             max_size,
             lease_duration,
@@ -953,6 +956,7 @@ impl<'a> Repr<'a> {
                 })?;
             }
 
+            #[cfg(feature = "proto-domainname")]
             if let Some(domain_name) = &self.domain_name {
                 options.emit(DhcpOption {
                     kind: field::OPT_DOMAIN_NAME,
@@ -1187,6 +1191,7 @@ mod test {
             server_identifier: None,
             parameter_request_list: None,
             dns_servers: None,
+            #[cfg(feature = "proto-domainname")]
             domain_name: None,
             max_size: None,
             renew_duration: None,
@@ -1218,6 +1223,7 @@ mod test {
             server_identifier: None,
             parameter_request_list: Some(&[1, 3, 6, 42]),
             dns_servers: None,
+            #[cfg(feature = "proto-domainname")]
             domain_name: None,
             additional_options: &[],
         }

@@ -2,6 +2,7 @@ use core::str::FromStr;
 #[cfg(feature = "async")]
 use core::task::Waker;
 
+#[cfg(feature = "proto-domainname")]
 use crate::config::DHCP_MAX_DOMAIN_NAME_SIZE;
 use crate::iface::Context;
 use crate::time::{Duration, Instant};
@@ -24,6 +25,7 @@ const DEFAULT_PARAMETER_REQUEST_LIST: &[u8] = &[
     dhcpv4_field::OPT_SUBNET_MASK,
     dhcpv4_field::OPT_ROUTER,
     dhcpv4_field::OPT_DOMAIN_NAME_SERVER,
+    #[cfg(feature = "proto-domainname")]
     dhcpv4_field::OPT_DOMAIN_NAME,
 ];
 
@@ -42,6 +44,7 @@ pub struct Config<'a> {
     /// DNS servers
     pub dns_servers: Vec<Ipv4Address, DHCP_MAX_DNS_SERVER_COUNT>,
     /// Domain name
+    #[cfg(feature = "proto-domainname")]
     pub domain_name: Option<String<DHCP_MAX_DOMAIN_NAME_SIZE>>,
     /// Received DHCP packet
     pub packet: Option<DhcpPacket<&'a [u8]>>,
@@ -499,6 +502,7 @@ impl<'a> Socket<'a> {
             address: Ipv4Cidr::new(dhcp_repr.your_ip, prefix_len),
             router: dhcp_repr.router,
             dns_servers,
+            #[cfg(feature = "proto-domainname")]
             domain_name: dhcp_repr
                 .domain_name
                 .map(String::from_str)
@@ -598,6 +602,7 @@ impl<'a> Socket<'a> {
             renew_duration: None,
             rebind_duration: None,
             dns_servers: None,
+            #[cfg(feature = "proto-domainname")]
             domain_name: None,
             additional_options: self.outgoing_options,
         };
@@ -749,6 +754,7 @@ impl<'a> Socket<'a> {
                 address: state.config.address,
                 router: state.config.router,
                 dns_servers: state.config.dns_servers.clone(),
+                #[cfg(feature = "proto-domainname")]
                 domain_name: state.config.domain_name.clone(),
                 packet: self
                     .receive_packet_buffer
