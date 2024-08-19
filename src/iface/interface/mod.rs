@@ -111,10 +111,8 @@ pub struct InterfaceInner {
     ip_addrs: Vec<IpCidr, IFACE_MAX_ADDR_COUNT>,
     any_ip: bool,
     routes: Routes,
-    #[cfg(feature = "proto-igmp")]
-    ipv4_multicast_groups: LinearMap<Ipv4Address, (), IFACE_MAX_MULTICAST_GROUP_COUNT>,
-    #[cfg(feature = "proto-ipv6")]
-    ipv6_multicast_groups: LinearMap<Ipv6Address, (), IFACE_MAX_MULTICAST_GROUP_COUNT>,
+    #[cfg(any(feature = "proto-igmp", feature = "proto-ipv6"))]
+    multicast_groups: LinearMap<IpAddress, (), IFACE_MAX_MULTICAST_GROUP_COUNT>,
     /// When to report for (all or) the next multicast group membership via IGMP
     #[cfg(feature = "proto-igmp")]
     igmp_report_state: IgmpReportState,
@@ -226,10 +224,8 @@ impl Interface {
                 routes: Routes::new(),
                 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
                 neighbor_cache: NeighborCache::new(),
-                #[cfg(feature = "proto-igmp")]
-                ipv4_multicast_groups: LinearMap::new(),
-                #[cfg(feature = "proto-ipv6")]
-                ipv6_multicast_groups: LinearMap::new(),
+                #[cfg(any(feature = "proto-igmp", feature = "proto-ipv6"))]
+                multicast_groups: LinearMap::new(),
                 #[cfg(feature = "proto-igmp")]
                 igmp_report_state: IgmpReportState::Inactive,
                 #[cfg(feature = "medium-ieee802154")]
@@ -753,17 +749,18 @@ impl InterfaceInner {
     /// If built without feature `proto-igmp` this function will
     /// always return `false` when using IPv4.
     fn has_multicast_group<T: Into<IpAddress>>(&self, addr: T) -> bool {
-        match addr.into() {
+        let addr = addr.into();
+        match addr {
             #[cfg(feature = "proto-igmp")]
             IpAddress::Ipv4(key) => {
                 key == Ipv4Address::MULTICAST_ALL_SYSTEMS
-                    || self.ipv4_multicast_groups.get(&key).is_some()
+                    || self.multicast_groups.get(&addr).is_some()
             }
             #[cfg(feature = "proto-ipv6")]
             IpAddress::Ipv6(key) => {
                 key == Ipv6Address::LINK_LOCAL_ALL_NODES
                     || self.has_solicited_node(key)
-                    || self.ipv6_multicast_groups.get(&key).is_some()
+                    || self.multicast_groups.get(&addr).is_some()
             }
             #[cfg(feature = "proto-rpl")]
             IpAddress::Ipv6(Ipv6Address::LINK_LOCAL_ALL_RPL_NODES) => true,
@@ -784,7 +781,6 @@ impl InterfaceInner {
             #[cfg(feature = "proto-ipv4")]
             Ok(IpVersion::Ipv4) => {
                 let ipv4_packet = check!(Ipv4Packet::new_checked(ip_payload));
-
                 self.process_ipv4(sockets, meta, HardwareAddress::Ip, &ipv4_packet, frag)
             }
             #[cfg(feature = "proto-ipv6")]
