@@ -1710,9 +1710,9 @@ impl<'a> Socket<'a> {
         let mut control = repr.control;
         control = control.quash_psh();
 
-        // If a FIN is received at the end of the current segment but the start of the segment
-        // is not at the start of the receive window, disregard this FIN.
-        if control == TcpControl::Fin && window_start != segment_start {
+        // If a FIN is received at the end of the current segment, but
+        // we have a hole in the assembler before the current segment, disregard this FIN.
+        if control == TcpControl::Fin && window_start < segment_start {
             tcp_trace!("ignoring FIN because we don't have full data yet. window_start={} segment_start={}", window_start, segment_start);
             control = TcpControl::None;
         }
@@ -4235,6 +4235,50 @@ mod test {
             (3, ())
         })
         .unwrap();
+    }
+
+    #[test]
+    fn test_established_receive_partially_outside_window_fin() {
+        let mut s = socket_established();
+
+        send!(
+            s,
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                payload: &b"abc"[..],
+                ..SEND_TEMPL
+            }
+        );
+
+        s.recv(|data| {
+            assert_eq!(data, b"abc");
+            (3, ())
+        })
+        .unwrap();
+
+        // Peer decides to retransmit (perhaps because the ACK was lost)
+        // and also pushed data, and sent a FIN.
+        send!(
+            s,
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                control: TcpControl::Fin,
+                payload: &b"abcdef"[..],
+                ..SEND_TEMPL
+            }
+        );
+
+        s.recv(|data| {
+            assert_eq!(data, b"def");
+            (3, ())
+        })
+        .unwrap();
+
+        // We should accept the FIN, because even though the last packet was partially
+        // outside the receive window, there is no hole after adding its data to the assembler.
+        assert_eq!(s.state, State::CloseWait);
     }
 
     #[test]
