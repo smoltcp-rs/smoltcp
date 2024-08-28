@@ -369,6 +369,29 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
         &self.storage[start_at..start_at + size]
     }
 
+    /// Return the largest contiguous slice of allocated buffer elements starting
+    /// at the given offset past the first allocated element, and up to the given size.
+    #[must_use]
+    pub fn get_allocated_mut(&mut self, offset: usize, mut size: usize) -> &mut [T] {
+        let start_at = self.get_idx(offset);
+        // We can't read past the end of the allocated data.
+        if offset > self.length {
+            return &mut [];
+        }
+        // We can't read more than we have allocated.
+        let clamped_length = self.length - offset;
+        if size > clamped_length {
+            size = clamped_length
+        }
+        // We can't contiguously dequeue past the end of the storage.
+        let until_end = self.capacity() - start_at;
+        if size > until_end {
+            size = until_end
+        }
+
+        &mut self.storage[start_at..start_at + size]
+    }
+
     /// Read as many elements from allocated buffer elements into the given slice
     /// starting at the given offset past the first allocated element, and return
     /// the amount read.

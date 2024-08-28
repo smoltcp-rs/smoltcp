@@ -142,11 +142,13 @@ pub mod config {
     pub const IFACE_MAX_ROUTE_COUNT: usize = 4;
     pub const IFACE_MAX_SIXLOWPAN_ADDRESS_CONTEXT_COUNT: usize = 4;
     pub const IFACE_NEIGHBOR_CACHE_COUNT: usize = 3;
+    pub const IFACE_MAX_MULTICAST_DUPLICATION_COUNT: usize = 16;
     pub const REASSEMBLY_BUFFER_COUNT: usize = 4;
     pub const REASSEMBLY_BUFFER_SIZE: usize = 1500;
     pub const RPL_RELATIONS_BUFFER_COUNT: usize = 16;
     pub const RPL_PARENTS_BUFFER_COUNT: usize = 8;
     pub const RPL_MAX_OPTIONS: usize = 2;
+    pub const RPL_MAX_NEXT_HOP_PER_DESTINATION: usize = 4;
     pub const IPV6_HBH_MAX_OPTIONS: usize = 2;
 }
 

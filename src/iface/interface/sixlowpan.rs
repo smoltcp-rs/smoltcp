@@ -5,7 +5,7 @@ use crate::wire::Result;
 // TODO: lower. Should be (6lowpan mtu) - (min 6lowpan header size) + (max ipv6 header size)
 pub(crate) const MAX_DECOMPRESSED_LEN: usize = 1500;
 
-impl Interface {
+impl Interface<'_> {
     /// Process fragments that still need to be sent for 6LoWPAN packets.
     ///
     /// This function returns a boolean value indicating whether any packets were
@@ -65,6 +65,7 @@ impl InterfaceInner {
         ieee802154_repr: &Ieee802154Repr,
         payload: &'payload [u8],
         f: &'output mut FragmentsBuffer,
+        multicast_queue: &mut PacketBuffer<'_, MulticastMetadata>,
     ) -> Option<Packet<'output>> {
         let payload = match check!(SixlowpanPacket::dispatch(payload)) {
             #[cfg(not(feature = "proto-sixlowpan-fragmentation"))]
@@ -100,7 +101,13 @@ impl InterfaceInner {
         };
 
         let packet = check!(Ipv6Packet::new_checked(payload));
-        self.process_ipv6(sockets, meta, &packet)
+        self.process_ipv6(
+            sockets,
+            meta,
+            &packet,
+            ieee802154_repr.src_addr.map(|addr| addr.into()).as_ref(),
+            multicast_queue,
+        )
     }
 
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
@@ -771,7 +778,10 @@ impl<'p> PacketSixlowpan<'p> {
                 );
 
                 if let Some(checksum) = checksum {
-                    udp_packet.set_checksum(checksum);
+                    // FIXME: The extra if is probably the result of the existence of a bug in reading the checksum from a packet. This happened while forwarding a UDP packet through multicast where the forwarded checksum suddenly got 0.
+                    if checksum != 0 {
+                        udp_packet.set_checksum(checksum);
+                    }
                 }
             }
             #[cfg(feature = "proto-rpl")]

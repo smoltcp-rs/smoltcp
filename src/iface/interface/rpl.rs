@@ -10,7 +10,7 @@ use crate::wire::{Ipv6HopByHopRepr, Ipv6OptionRepr, RplDao, RplDaoAck};
 use crate::iface::rpl::*;
 use heapless::Vec;
 
-impl Interface {
+impl Interface<'_> {
     pub(super) fn poll_rpl<D>(&mut self, device: &mut D) -> bool
     where
         D: Device + ?Sized,
@@ -19,7 +19,9 @@ impl Interface {
             ctx: &mut InterfaceInner,
             device: &mut D,
             packet: Packet,
+            previous_hop: Option<&HardwareAddress>,
             fragmenter: &mut Fragmenter,
+            multicast_queue: &mut PacketBuffer<'_, MulticastMetadata>,
         ) -> bool
         where
             D: Device + ?Sized,
@@ -28,7 +30,14 @@ impl Interface {
                 return false;
             };
 
-            match ctx.dispatch_ip(tx_token, PacketMeta::default(), packet, fragmenter) {
+            match ctx.dispatch_ip(
+                tx_token,
+                PacketMeta::default(),
+                packet,
+                previous_hop,
+                fragmenter,
+                multicast_queue,
+            ) {
                 Ok(()) => true,
                 Err(e) => {
                     net_debug!("failed to send packet: {:?}", e);
@@ -40,6 +49,7 @@ impl Interface {
         let Interface {
             inner: ctx,
             fragmenter,
+            multicast_queue,
             ..
         } = self;
 
@@ -67,7 +77,9 @@ impl Interface {
                 ctx,
                 device,
                 Packet::new_ipv6(ipv6_repr, IpPayload::Icmpv6(icmp_rpl)),
+                None,
                 fragmenter,
+                multicast_queue,
             );
         }
 
@@ -85,9 +97,25 @@ impl Interface {
             // If we did not hear from our parent for some time,
             // remove our parent. Ideally, we should check if we could find another parent.
             if parent.last_heard < ctx.now - dodag.dio_timer.max_expiration() * 2 {
-                dodag.remove_parent(
+                // dodag.remove_parent(
+                //     ctx.rpl.mode_of_operation,
+                //     our_addr,
+                //     &ctx.rpl.of,
+                //     ctx.now,
+                //     &mut ctx.rand,
+                // );
+                dodag.remove_parent();
+                dodag.find_new_parent(
                     ctx.rpl.mode_of_operation,
-                    our_addr,
+                    &[our_addr], // FIXME: what about multiple unicast targets
+                    {
+                        #[cfg(feature = "rpl-mop-3")]
+                        {
+                            &ctx.rpl_targets_multicast
+                        }
+                        #[cfg(not(feature = "rpl-mop-3"))]
+                        &[]
+                    },
                     &ctx.rpl.of,
                     ctx.now,
                     &mut ctx.rand,
@@ -114,13 +142,31 @@ impl Interface {
                     ctx,
                     device,
                     Packet::new_ipv6(ipv6_repr, IpPayload::Icmpv6(icmp)),
+                    None,
                     fragmenter,
+                    multicast_queue,
                 );
             }
 
             #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop-3"))]
             if dodag.dao_expiration <= ctx.now {
-                dodag.schedule_dao(ctx.rpl.mode_of_operation, our_addr, parent_address, ctx.now);
+                let _ = dodag
+                    .schedule_dao(
+                        ctx.rpl.mode_of_operation,
+                        &[our_addr],
+                        {
+                            #[cfg(feature = "rpl-mop-3")]
+                            {
+                                &ctx.rpl_targets_multicast[..]
+                            }
+                            #[cfg(not(feature = "rpl-mop-3"))]
+                            &[]
+                        },
+                        parent_address,
+                        ctx.now,
+                        false,
+                    )
+                    .inspect_err(|err| net_trace!("Could not transmit DAO with reason: {}", err));
             }
         }
 
@@ -168,7 +214,14 @@ impl Interface {
                 {
                     p.header_mut().dst_addr = new_dst_addr;
                     p.add_routing(source_route);
-                    return transmit(ctx, device, Packet::Ipv6(p), fragmenter);
+                    return transmit(
+                        ctx,
+                        device,
+                        Packet::Ipv6(p),
+                        None,
+                        fragmenter,
+                        multicast_queue,
+                    );
                 }
             };
 
@@ -183,7 +236,14 @@ impl Interface {
                 }))
                 .unwrap();
             p.add_hop_by_hop(Ipv6HopByHopRepr { options });
-            return transmit(ctx, device, Packet::Ipv6(p), fragmenter);
+            return transmit(
+                ctx,
+                device,
+                Packet::Ipv6(p),
+                None,
+                fragmenter,
+                multicast_queue,
+            );
         }
 
         // Transmit any DAO that are queued.
@@ -200,7 +260,20 @@ impl Interface {
             dodag.daos.iter_mut().for_each(|dao| {
                 if !dao.needs_sending {
                     let Some(next_tx) = dao.next_tx else {
-                        dao.next_tx = Some(ctx.now + dodag.dio_timer.min_expiration());
+                        let next_tx = dodag.dio_timer.min_expiration();
+                        // Add a random noise offset between 0ms up to 128ms
+                        let noise = Duration::from_millis((ctx.rand.rand_u16() % 0x4) as u64) * 32;
+                        // We always want the multicast DAO to come later than
+                        // similary scheduled unicast DAOs, so we introduce here
+                        // a small offset such that the unicast DAO always
+                        // arrives first if scheduled at the same time.
+                        let multicast_bias = if dao.has_multicast_target() {
+                            Duration::from_millis(128)
+                        } else {
+                            Duration::from_micros(0)
+                        };
+
+                        dao.next_tx = Some(ctx.now + next_tx + multicast_bias + noise);
                         return;
                     };
 
@@ -244,7 +317,14 @@ impl Interface {
                 p.add_hop_by_hop(hbh);
 
                 net_trace!("transmitting DAO");
-                return transmit(ctx, device, Packet::Ipv6(p), fragmenter);
+                return transmit(
+                    ctx,
+                    device,
+                    Packet::Ipv6(p),
+                    None,
+                    fragmenter,
+                    multicast_queue,
+                );
             }
         }
 
@@ -271,7 +351,9 @@ impl Interface {
                 ctx,
                 device,
                 Packet::new_ipv6(ipv6_repr, IpPayload::Icmpv6(icmp)),
+                None,
                 fragmenter,
+                multicast_queue,
             );
         }
 
@@ -361,9 +443,7 @@ impl InterfaceInner {
         dis: RplDis<'payload>,
     ) -> Option<Packet<'output>> {
         // We cannot handle a DIS when we are not part of any DODAG.
-        let Some(dodag) = &mut self.rpl.dodag else {
-            return None;
-        };
+        let dodag = self.rpl.dodag.as_mut()?;
 
         if let Some(frame) = self.current_frame.as_ref() {
             self.neighbor_cache.fill_with_expiration(
@@ -635,9 +715,25 @@ impl InterfaceInner {
                 dodag.parent_set.clear();
 
                 // We do NOT send a No-path DAO.
-                let _ = dodag.remove_parent(
+                // let _ = dodag.remove_parent(
+                //     self.rpl.mode_of_operation,
+                //     // our_addr,
+                //     &self.rpl.of,
+                //     self.now,
+                //     &mut self.rand,
+                // );
+                let _ = dodag.remove_parent();
+                dodag.find_new_parent(
                     self.rpl.mode_of_operation,
-                    our_addr,
+                    &[our_addr], // FIXME
+                    {
+                        #[cfg(feature = "rpl-mop-3")]
+                        {
+                            &self.rpl_targets_multicast[..]
+                        }
+                        #[cfg(not(feature = "rpl-mop-3"))]
+                        &[][..]
+                    },
                     &self.rpl.of,
                     self.now,
                     &mut self.rand,
@@ -669,9 +765,25 @@ impl InterfaceInner {
                 net_trace!("parent leaving, removing parent");
 
                 // Don't need to send a no-path DOA when parent is leaving.
-                let _ = dodag.remove_parent(
+                // let _ = dodag.remove_parent(
+                //     self.rpl.mode_of_operation,
+                //     // our_addr,
+                //     &self.rpl.of,
+                //     self.now,
+                //     &mut self.rand,
+                // );
+                let _ = dodag.remove_parent();
+                dodag.find_new_parent(
                     self.rpl.mode_of_operation,
-                    our_addr,
+                    &[our_addr], // FIXME
+                    {
+                        #[cfg(feature = "rpl-mop-3")]
+                        {
+                            &self.rpl_targets_multicast[..]
+                        }
+                        #[cfg(not(feature = "rpl-mop-3"))]
+                        &[]
+                    },
                     &self.rpl.of,
                     self.now,
                     &mut self.rand,
@@ -756,7 +868,15 @@ impl InterfaceInner {
             // Select and schedule DAO to new parent.
             dodag.find_new_parent(
                 self.rpl.mode_of_operation,
-                our_addr,
+                &[our_addr],
+                {
+                    #[cfg(feature = "rpl-mop-3")]
+                    {
+                        &self.rpl_targets_multicast[..]
+                    }
+                    #[cfg(not(feature = "rpl-mop-3"))]
+                    &[]
+                },
                 &self.rpl.of,
                 self.now,
                 &mut self.rand,
@@ -826,7 +946,9 @@ impl InterfaceInner {
                         // DAO.
                         for target in &targets {
                             net_trace!("remove {} relation (NO-PATH)", target);
-                            dodag.relations.remove_relation(*target);
+                            dodag
+                                .relations
+                                .remove_hop_from_relation(*target, ip_repr.src_addr);
                         }
                     } else {
                         let next_hop = match self.rpl.mode_of_operation {
@@ -844,14 +966,22 @@ impl InterfaceInner {
 
                         for target in &targets {
                             net_trace!("adding {} => {} relation", target, next_hop);
-                            dodag.relations.add_relation(
-                                *target,
-                                next_hop,
-                                self.now,
-                                crate::time::Duration::from_secs(
-                                    transit.path_lifetime as u64 * dodag.lifetime_unit as u64,
-                                ),
-                            );
+                            let _ = dodag
+                                .relations
+                                .add_relation(
+                                    *target,
+                                    &[next_hop],
+                                    self.now,
+                                    crate::time::Duration::from_secs(
+                                        transit.path_lifetime as u64 * dodag.lifetime_unit as u64,
+                                    ),
+                                )
+                                .inspect_err(|err| {
+                                    net_trace!(
+                                        "Could not add a relation to the dodag with reason {}",
+                                        err
+                                    )
+                                });
                         }
 
                         targets.clear();
@@ -960,7 +1090,12 @@ impl InterfaceInner {
         //  is moving to a new Version number. However, the standard does not define when a new
         //  Version number should be used. Therefore, we immediately drop the packet when a Rank
         //  error is detected, or when the bit was already set.
-        let rank = self.rpl.dodag.as_ref().unwrap().rank;
+        let rank = self
+            .rpl
+            .dodag
+            .as_ref()
+            .map(|dodag| dodag.rank)
+            .unwrap_or(Rank::new(u16::MAX, 1));
         if hbh.rank_error || (hbh.down && rank <= sender_rank) || (!hbh.down && rank >= sender_rank)
         {
             net_trace!("RPL HBH: inconsistency detected, resetting trickle timer, dropping packet");
@@ -1090,18 +1225,19 @@ pub(crate) fn create_source_routing_header(
 
     loop {
         let next_hop = dodag.relations.find_next_hop(next);
-        if let Some(next_hop) = next_hop {
+        if let Some(next_hop) = next_hop.and_then(|hop| hop.first()) {
+            // We only support unicast in SRH
             net_trace!("  via {}", next_hop);
-            if next_hop == our_addr {
+            if next_hop.ip == our_addr {
                 break;
             }
 
-            if route.push(next_hop).is_err() {
+            if route.push(next_hop.ip).is_err() {
                 net_trace!("could not add hop to route buffer");
                 return None;
             }
 
-            next = next_hop;
+            next = next_hop.ip;
         } else {
             net_trace!("no route found, last next hop is {}", next);
             return None;

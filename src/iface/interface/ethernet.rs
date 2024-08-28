@@ -7,6 +7,7 @@ impl InterfaceInner {
         meta: crate::phy::PacketMeta,
         frame: &'frame [u8],
         fragments: &'frame mut FragmentsBuffer,
+        multicast_queue: &mut PacketBuffer<'_, MulticastMetadata>,
     ) -> Option<EthernetPacket<'frame>> {
         let eth_frame = check!(EthernetFrame::new_checked(frame));
 
@@ -31,8 +32,14 @@ impl InterfaceInner {
             #[cfg(feature = "proto-ipv6")]
             EthernetProtocol::Ipv6 => {
                 let ipv6_packet = check!(Ipv6Packet::new_checked(eth_frame.payload()));
-                self.process_ipv6(sockets, meta, &ipv6_packet)
-                    .map(EthernetPacket::Ip)
+                self.process_ipv6(
+                    sockets,
+                    meta,
+                    &ipv6_packet,
+                    Some(&eth_frame.src_addr().into()),
+                    multicast_queue,
+                )
+                .map(EthernetPacket::Ip)
             }
             // Drop all other traffic.
             _ => None,

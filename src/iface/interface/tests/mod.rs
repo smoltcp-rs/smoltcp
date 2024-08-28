@@ -65,7 +65,15 @@ impl TxToken for MockTxToken {
 fn test_new_panic() {
     let mut device = Loopback::new(Medium::Ethernet);
     let config = Config::new(HardwareAddress::Ip);
-    Interface::new(config, &mut device, Instant::ZERO);
+    let mut meta = [];
+    let mut payload = [];
+    Interface::new(
+        config,
+        &mut device,
+        &mut meta[..],
+        &mut payload[..],
+        Instant::ZERO,
+    );
 }
 
 #[rstest]

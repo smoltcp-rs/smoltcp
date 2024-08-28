@@ -27,13 +27,14 @@ mod tcp;
 #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
 mod udp;
 
-#[cfg(feature = "proto-igmp")]
-pub use igmp::MulticastError;
+mod multicast;
 
+use super::multicast::MulticastMetadata;
 use super::packet::*;
 
 use core::result::Result;
 use heapless::{LinearMap, Vec};
+use managed::ManagedSlice;
 
 #[cfg(feature = "_proto-fragmentation")]
 use super::fragmentation::FragKey;
@@ -47,7 +48,7 @@ use super::socket_set::SocketSet;
 #[cfg(feature = "proto-rpl")]
 use super::RplConfig;
 use crate::config::{
-    IFACE_MAX_ADDR_COUNT, IFACE_MAX_MULTICAST_GROUP_COUNT,
+    IFACE_MAX_ADDR_COUNT, IFACE_MAX_MULTICAST_DUPLICATION_COUNT, IFACE_MAX_MULTICAST_GROUP_COUNT,
     IFACE_MAX_SIXLOWPAN_ADDRESS_CONTEXT_COUNT,
 };
 use crate::iface::Routes;
@@ -55,6 +56,7 @@ use crate::phy::PacketMeta;
 use crate::phy::{ChecksumCapabilities, Device, DeviceCapabilities, Medium, RxToken, TxToken};
 use crate::rand::Rand;
 use crate::socket::*;
+use crate::storage::{PacketBuffer, PacketMetadata};
 use crate::time::{Duration, Instant};
 
 use crate::wire::*;
@@ -81,10 +83,11 @@ use check;
 /// The network interface logically owns a number of other data structures; to avoid
 /// a dependency on heap allocation, it instead owns a `BorrowMut<[T]>`, which can be
 /// a `&mut [T]`, or `Vec<T>` if a heap is available.
-pub struct Interface {
+pub struct Interface<'a> {
     pub(crate) inner: InterfaceInner,
     fragments: FragmentsBuffer,
     fragmenter: Fragmenter,
+    multicast_queue: PacketBuffer<'a, MulticastMetadata>,
 }
 
 /// The device independent part of an Ethernet network interface.
@@ -127,6 +130,8 @@ pub struct InterfaceInner {
 
     #[cfg(feature = "proto-rpl")]
     rpl: super::Rpl,
+    #[cfg(feature = "rpl-mop-3")]
+    rpl_targets_multicast: heapless::Vec<Ipv6Address, IFACE_MAX_MULTICAST_GROUP_COUNT>,
 }
 
 /// Configuration structure used for creating a network interface.
@@ -169,15 +174,23 @@ impl Config {
     }
 }
 
-impl Interface {
+impl<'a> Interface<'a> {
     /// Create a network interface using the previously provided configuration.
     ///
     /// # Panics
     /// This function panics if the [`Config::hardware_address`] does not match
     /// the medium of the device.
-    pub fn new<D>(config: Config, device: &mut D, now: Instant) -> Self
+    pub fn new<D, MS, PS>(
+        config: Config,
+        device: &mut D,
+        metadata_storage: MS,
+        payload_storage: PS,
+        now: Instant,
+    ) -> Self
     where
         D: Device + ?Sized,
+        MS: Into<ManagedSlice<'a, PacketMetadata<MulticastMetadata>>>,
+        PS: Into<ManagedSlice<'a, u8>>,
     {
         let caps = device.capabilities();
         assert_eq!(
@@ -231,6 +244,8 @@ impl Interface {
                 reassembly_timeout: Duration::from_secs(60),
             },
             fragmenter: Fragmenter::new(),
+            multicast_queue: PacketBuffer::new(metadata_storage, payload_storage),
+
             inner: InterfaceInner {
                 now,
                 caps,
@@ -260,7 +275,9 @@ impl Interface {
                 current_frame: None,
 
                 #[cfg(feature = "proto-rpl")]
-                rpl: super::Rpl::new(config.rpl_config.unwrap(), now),
+                rpl: super::Rpl::new(config.rpl_config.unwrap_or_default(), now),
+                #[cfg(feature = "rpl-mop-3")]
+                rpl_targets_multicast: Default::default(),
             },
         }
     }
@@ -422,6 +439,183 @@ impl Interface {
         self.fragments.reassembly_timeout = timeout;
     }
 
+    /// Add an address to a list of subscribed multicast IP addresses.
+    ///
+    /// Returns `Ok(announce_sent)` if the address was added successfully, where `announce_sent`
+    /// indicates whether an initial immediate announcement has been sent.
+    pub fn join_multicast_group<D, T: Into<IpAddress>>(
+        &mut self,
+        device: &mut D,
+        addr: T,
+        timestamp: Instant,
+    ) -> Result<bool, MulticastError>
+    where
+        D: Device + ?Sized,
+    {
+        self.inner.now = timestamp;
+
+        match addr.into() {
+            #[cfg(all(feature = "proto-ipv4", feature = "proto-igmp"))]
+            IpAddress::Ipv4(addr) => {
+                let is_not_new = self
+                    .inner
+                    .ipv4_multicast_groups
+                    .insert(addr, ())
+                    .map_err(|_| MulticastError::GroupTableFull)?
+                    .is_some();
+                if is_not_new {
+                    Ok(false)
+                } else if let Some(pkt) = self.inner.igmp_report_packet(IgmpVersion::Version2, addr)
+                {
+                    // Send initial membership report
+                    let tx_token = device
+                        .transmit(timestamp)
+                        .ok_or(MulticastError::Exhausted)?;
+
+                    // NOTE(unwrap): packet destination is multicast, which is always routable and doesn't require neighbor discovery.
+                    self.inner
+                        .dispatch_ip(
+                            tx_token,
+                            PacketMeta::default(),
+                            pkt,
+                            None,
+                            &mut self.fragmenter,
+                            &mut self.multicast_queue,
+                        )
+                        .unwrap();
+
+                    Ok(true)
+                } else {
+                    Ok(false)
+                }
+            }
+            #[cfg(all(feature = "proto-ipv6", feature = "rpl-mop-3"))]
+            IpAddress::Ipv6(addr) => {
+                // Check if the multicast address is present in the current multicast targets
+                if !self.inner.rpl_targets_multicast.contains(&addr) {
+                    // Try to add the multicast target, otherwise abort
+                    self.inner
+                        .rpl_targets_multicast
+                        .push(addr)
+                        .map_err(|_err| MulticastError::GroupTableFull)?;
+
+                    // Schedule a new DAO for transmission if part of a dodag
+                    match &mut self.inner.rpl.dodag {
+                        Some(dodag) => {
+                            if let Some(parent) = &dodag.parent {
+                                dodag
+                                    .schedule_dao(
+                                        self.inner.rpl.mode_of_operation,
+                                        &[],
+                                        &[addr],
+                                        *parent,
+                                        self.inner.now,
+                                        false,
+                                    )
+                                    .map_err(|_err| MulticastError::Exhausted)?;
+                            }
+
+                            Ok(true)
+                        }
+                        None => Ok(false),
+                    }
+                } else {
+                    Ok(false)
+                }
+            }
+            // Multicast is not implemented/enabled for other address families
+            #[allow(unreachable_patterns)]
+            _ => Err(MulticastError::Unaddressable),
+        }
+    }
+
+    /// Remove an address from the subscribed multicast IP addresses.
+    ///
+    /// Returns `Ok(leave_sent)` if the address was removed successfully, where `leave_sent`
+    /// indicates whether an immediate leave packet has been sent.
+    pub fn leave_multicast_group<D, T: Into<IpAddress>>(
+        &mut self,
+        device: &mut D,
+        addr: T,
+        timestamp: Instant,
+    ) -> Result<bool, MulticastError>
+    where
+        D: Device + ?Sized,
+    {
+        self.inner.now = timestamp;
+
+        match addr.into() {
+            #[cfg(all(feature = "proto-ipv4", feature = "proto-igmp"))]
+            IpAddress::Ipv4(addr) => {
+                let was_not_present = self.inner.ipv4_multicast_groups.remove(&addr).is_none();
+                if was_not_present {
+                    Ok(false)
+                } else if let Some(pkt) = self.inner.igmp_leave_packet(addr) {
+                    // Send group leave packet
+                    let tx_token = device
+                        .transmit(timestamp)
+                        .ok_or(MulticastError::Exhausted)?;
+
+                    // NOTE(unwrap): packet destination is multicast, which is always routable and doesn't require neighbor discovery.
+                    self.inner
+                        .dispatch_ip(
+                            tx_token,
+                            PacketMeta::default(),
+                            pkt,
+                            None,
+                            &mut self.fragmenter,
+                            &mut self.multicast_queue,
+                        )
+                        .unwrap();
+
+                    Ok(true)
+                } else {
+                    Ok(false)
+                }
+            }
+            #[cfg(all(feature = "proto-ipv6", feature = "rpl-mop-3"))]
+            IpAddress::Ipv6(addr) => {
+                if self.inner.rpl_targets_multicast.contains(&addr) {
+                    // Try to add the multicast target, otherwise abort
+                    self.inner
+                        .rpl_targets_multicast
+                        .retain(|multicast_group| multicast_group == &addr);
+
+                    // Schedule a new DAO for transmission if part of a dodag
+                    match &mut self.inner.rpl.dodag {
+                        Some(dodag) => {
+                            if let Some(parent) = &dodag.parent {
+                                dodag
+                                    .schedule_dao(
+                                        self.inner.rpl.mode_of_operation,
+                                        &[],
+                                        &[addr],
+                                        *parent,
+                                        self.inner.now,
+                                        true,
+                                    )
+                                    .map_err(|_err| MulticastError::Exhausted)?;
+                            }
+
+                            Ok(true)
+                        }
+                        None => Ok(false),
+                    }
+                } else {
+                    Ok(false)
+                }
+            }
+            // Multicast is not implemented/enabled for other address families
+            #[allow(unreachable_patterns)]
+            _ => Err(MulticastError::Unaddressable),
+        }
+    }
+
+    /// Check whether the interface listens to given destination multicast IP address.
+    pub fn has_multicast_group<T: Into<IpAddress>>(&self, addr: T) -> bool {
+        self.inner.has_multicast_group(addr)
+    }
+
     /// Transmit packets queued in the given sockets, and receive packets queued
     /// in the device.
     ///
@@ -441,6 +635,9 @@ impl Interface {
 
         #[cfg(feature = "_proto-fragmentation")]
         self.fragments.assembler.remove_expired(timestamp);
+
+        // Poll multicast queue and dispatch if possible
+        self.poll_multicast(device);
 
         match self.inner.caps.medium {
             #[cfg(feature = "medium-ieee802154")]
@@ -502,6 +699,8 @@ impl Interface {
             return Some(Instant::from_millis(0));
         }
 
+        let poll_at_multicast = self.poll_at_multicast();
+
         #[cfg(feature = "proto-rpl")]
         let poll_at_rpl = self.poll_at_rpl();
 
@@ -520,6 +719,7 @@ impl Interface {
 
         #[cfg(feature = "proto-rpl")]
         let poll_at = poll_at.chain(core::iter::once(poll_at_rpl));
+        let poll_at = poll_at.chain(poll_at_multicast);
 
         poll_at.min()
     }
@@ -561,25 +761,35 @@ impl Interface {
                             rx_meta,
                             frame,
                             &mut self.fragments,
+                            &mut self.multicast_queue,
                         ) {
-                            if let Err(err) =
-                                self.inner.dispatch(tx_token, packet, &mut self.fragmenter)
-                            {
+                            if let Err(err) = self.inner.dispatch(
+                                tx_token,
+                                packet,
+                                &mut self.fragmenter,
+                                &mut self.multicast_queue,
+                            ) {
                                 net_debug!("Failed to send response: {:?}", err);
                             }
                         }
                     }
                     #[cfg(feature = "medium-ip")]
                     Medium::Ip => {
-                        if let Some(packet) =
-                            self.inner
-                                .process_ip(sockets, rx_meta, frame, &mut self.fragments)
-                        {
+                        if let Some(packet) = self.inner.process_ip(
+                            sockets,
+                            rx_meta,
+                            frame,
+                            None,
+                            &mut self.fragments,
+                            &mut self.multicast_queue,
+                        ) {
                             if let Err(err) = self.inner.dispatch_ip(
                                 tx_token,
                                 PacketMeta::default(),
                                 packet,
+                                None,
                                 &mut self.fragmenter,
+                                &mut self.multicast_queue,
                             ) {
                                 net_debug!("Failed to send response: {:?}", err);
                             }
@@ -592,12 +802,22 @@ impl Interface {
                             rx_meta,
                             frame,
                             &mut self.fragments,
+                            &mut self.multicast_queue,
                         ) {
+                            let frame = Ieee802154Frame::new_checked(&*frame).ok();
+                            let src_addr = frame
+                                .as_ref()
+                                .and_then(|frame| Ieee802154Repr::parse(frame).ok())
+                                .and_then(|repr| repr.src_addr)
+                                .map(HardwareAddress::Ieee802154);
+
                             if let Err(err) = self.inner.dispatch_ip(
                                 tx_token,
                                 PacketMeta::default(),
                                 packet,
+                                src_addr.as_ref(),
                                 &mut self.fragmenter,
+                                &mut self.multicast_queue,
                             ) {
                                 net_debug!("Failed to send response: {:?}", err);
                             }
@@ -640,7 +860,14 @@ impl Interface {
                 })?;
 
                 inner
-                    .dispatch_ip(t, meta, response, &mut self.fragmenter)
+                    .dispatch_ip(
+                        t,
+                        meta,
+                        response,
+                        None,
+                        &mut self.fragmenter,
+                        &mut self.multicast_queue,
+                    )
                     .map_err(EgressError::Dispatch)?;
 
                 emitted_any = true;
@@ -809,7 +1036,9 @@ impl InterfaceInner {
             #[cfg(feature = "proto-rpl")]
             IpAddress::Ipv6(Ipv6Address::LINK_LOCAL_ALL_RPL_NODES) => true,
             #[cfg(feature = "proto-ipv6")]
-            IpAddress::Ipv6(addr) => self.has_solicited_node(addr),
+            IpAddress::Ipv6(addr) if self.has_solicited_node(addr) => true,
+            #[cfg(all(feature = "proto-ipv6", feature = "rpl-mop-3"))]
+            IpAddress::Ipv6(addr) if self.rpl_targets_multicast.contains(&addr) => true,
             #[allow(unreachable_patterns)]
             _ => false,
         }
@@ -821,7 +1050,9 @@ impl InterfaceInner {
         sockets: &mut SocketSet,
         meta: PacketMeta,
         ip_payload: &'frame [u8],
+        previous_hop: Option<&HardwareAddress>,
         frag: &'frame mut FragmentsBuffer,
+        multicast_queue: &mut PacketBuffer<'_, MulticastMetadata>,
     ) -> Option<Packet<'frame>> {
         match IpVersion::of_packet(ip_payload) {
             #[cfg(feature = "proto-ipv4")]
@@ -833,7 +1064,7 @@ impl InterfaceInner {
             #[cfg(feature = "proto-ipv6")]
             Ok(IpVersion::Ipv6) => {
                 let ipv6_packet = check!(Ipv6Packet::new_checked(ip_payload));
-                self.process_ipv6(sockets, meta, &ipv6_packet)
+                self.process_ipv6(sockets, meta, &ipv6_packet, previous_hop, multicast_queue)
             }
             // Drop all other traffic.
             _ => None,
@@ -879,6 +1110,7 @@ impl InterfaceInner {
         tx_token: Tx,
         packet: EthernetPacket,
         frag: &mut Fragmenter,
+        multicast_queue: &mut PacketBuffer<'_, MulticastMetadata>,
     ) -> Result<(), DispatchError>
     where
         Tx: TxToken,
@@ -901,9 +1133,14 @@ impl InterfaceInner {
                     arp_repr.emit(&mut packet);
                 })
             }
-            EthernetPacket::Ip(packet) => {
-                self.dispatch_ip(tx_token, PacketMeta::default(), packet, frag)
-            }
+            EthernetPacket::Ip(packet) => self.dispatch_ip(
+                tx_token,
+                PacketMeta::default(),
+                packet,
+                None,
+                frag,
+                multicast_queue,
+            ),
         }
     }
 
@@ -924,6 +1161,21 @@ impl InterfaceInner {
     }
 
     fn has_neighbor(&self, addr: &IpAddress) -> bool {
+        if addr.is_multicast() {
+            #[cfg(feature = "proto-rpl")]
+            {
+                if let Some(dodag) = &self.rpl.dodag {
+                    return dodag
+                        .relations
+                        .iter()
+                        .any(|rel| &IpAddress::Ipv6(rel.destination()) == addr)
+                        || dodag.parent.is_some();
+                }
+            }
+            // FIXME: Do something useful here
+            return true;
+        }
+
         match self.route(addr, self.now) {
             Some(_routed_addr) => match self.caps.medium {
                 #[cfg(feature = "medium-ethernet")]
@@ -937,66 +1189,145 @@ impl InterfaceInner {
         }
     }
 
+    /// Lookup the hardware address when the destination is broadcast
+    fn lookup_hardware_addr_broadcast(
+        &mut self,
+        dst_addr: &IpAddress,
+    ) -> Result<Vec<HardwareAddress, { IFACE_MAX_MULTICAST_DUPLICATION_COUNT }>, DispatchError>
+    {
+        debug_assert!(dst_addr.is_broadcast());
+        let hardware_addr = match self.caps.medium {
+            #[cfg(feature = "medium-ethernet")]
+            Medium::Ethernet => HardwareAddress::Ethernet(EthernetAddress::BROADCAST),
+            #[cfg(feature = "medium-ieee802154")]
+            Medium::Ieee802154 => HardwareAddress::Ieee802154(Ieee802154Address::BROADCAST),
+            #[cfg(feature = "medium-ip")]
+            Medium::Ip => unreachable!(),
+        };
+
+        Ok(heapless::Vec::from_iter(core::iter::once(hardware_addr)))
+    }
+
+    /// Lookup the hardware address when the destination is multicast
+    fn lookup_hardware_addr_multicast(
+        &mut self,
+        dst_addr: &IpAddress,
+        previous_hop: Option<&HardwareAddress>,
+    ) -> Result<Vec<HardwareAddress, { IFACE_MAX_MULTICAST_DUPLICATION_COUNT }>, DispatchError>
+    {
+        debug_assert!(dst_addr.is_multicast());
+
+        let b = dst_addr.as_bytes();
+        let hardware_addresses = match *dst_addr {
+            #[cfg(feature = "proto-ipv4")]
+            IpAddress::Ipv4(_addr) => match self.caps.medium {
+                #[cfg(feature = "medium-ethernet")]
+                Medium::Ethernet => {
+                    heapless::Vec::from_iter(core::iter::once(HardwareAddress::Ethernet(
+                        EthernetAddress::from_bytes(&[0x01, 0x00, 0x5e, b[1] & 0x7F, b[2], b[3]]),
+                    )))
+                }
+                #[cfg(feature = "medium-ieee802154")]
+                Medium::Ieee802154 => unreachable!(),
+                #[cfg(feature = "medium-ip")]
+                Medium::Ip => unreachable!(),
+            },
+            #[cfg(feature = "proto-ipv6")]
+            IpAddress::Ipv6(addr) => match self.caps.medium {
+                #[cfg(feature = "medium-ethernet")]
+                Medium::Ethernet => {
+                    heapless::Vec::from_iter(core::iter::once(HardwareAddress::Ethernet(
+                        EthernetAddress::from_bytes(&[0x33, 0x33, b[12], b[13], b[14], b[15]]),
+                    )))
+                }
+                #[cfg(feature = "medium-ieee802154")]
+                Medium::Ieee802154 => {
+                    match addr {
+                        // Handle well known multicast groups
+                        Ipv6Address::LINK_LOCAL_ALL_RPL_NODES => {
+                            heapless::Vec::from_iter(core::iter::once(HardwareAddress::Ieee802154(
+                                Ieee802154Address::BROADCAST,
+                            )))
+                        }
+                        Ipv6Address::LINK_LOCAL_ALL_NODES | Ipv6Address::LINK_LOCAL_ALL_ROUTERS => {
+                            heapless::Vec::from_iter(core::iter::once(HardwareAddress::Ieee802154(
+                                Ieee802154Address::BROADCAST,
+                            )))
+                        }
+                        // Handle the joined multicast groups
+                        _ => {
+                            #[cfg(feature = "rpl-mop-3")]
+                            // If in a DODAG, filter out the previous hop and compile a list of the remaining canditates
+                            if let Some(dodag) = &self.rpl.dodag {
+                                let parent = dodag.parent.iter().copied();
+                                let next_hops = dodag.relations.find_next_hop(addr);
+                                let downwards = next_hops
+                                    .iter()
+                                    .flat_map(|hops| hops.iter())
+                                    .map(|hop| hop.ip);
+                                let hardware_addrs = parent
+                                    .chain(downwards)
+                                    .flat_map(|hop| {
+                                        match self.neighbor_cache.lookup(&hop.into(), self.now) {
+                                            NeighborAnswer::Found(haddr) => Some(haddr),
+                                            NeighborAnswer::NotFound => None,
+                                            NeighborAnswer::RateLimited => None,
+                                        }
+                                    })
+                                    .filter(|haddr| Some(haddr) != previous_hop);
+
+                                heapless::Vec::from_iter(hardware_addrs)
+                            } else {
+                                // Not sure if this is correct
+                                heapless::Vec::from_iter(core::iter::once(
+                                    HardwareAddress::Ieee802154(Ieee802154Address::BROADCAST),
+                                ))
+                            }
+                            #[cfg(not(feature = "rpl-mop-3"))]
+                            {
+                                heapless::Vec::from_iter(core::iter::once(
+                                    HardwareAddress::Ieee802154(Ieee802154Address::BROADCAST),
+                                ))
+                            }
+                        }
+                    }
+                }
+                #[cfg(feature = "medium-ip")]
+                Medium::Ip => unreachable!(),
+            },
+        };
+
+        Ok(hardware_addresses)
+    }
+
     #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
     fn lookup_hardware_addr<Tx>(
         &mut self,
         tx_token: Tx,
+        previous_hop: Option<&HardwareAddress>,
         src_addr: &IpAddress,
         dst_addr: &IpAddress,
+        // previous_hop: Option<HardwareAddress>,
         #[allow(unused)] fragmenter: &mut Fragmenter,
-    ) -> Result<(HardwareAddress, Tx), DispatchError>
+    ) -> Result<
+        (
+            heapless::Vec<HardwareAddress, { IFACE_MAX_MULTICAST_DUPLICATION_COUNT }>,
+            Tx,
+        ),
+        DispatchError,
+    >
     where
         Tx: TxToken,
     {
         if self.is_broadcast(dst_addr) {
-            let hardware_addr = match self.caps.medium {
-                #[cfg(feature = "medium-ethernet")]
-                Medium::Ethernet => HardwareAddress::Ethernet(EthernetAddress::BROADCAST),
-                #[cfg(feature = "medium-ieee802154")]
-                Medium::Ieee802154 => HardwareAddress::Ieee802154(Ieee802154Address::BROADCAST),
-                #[cfg(feature = "medium-ip")]
-                Medium::Ip => unreachable!(),
-            };
-
-            return Ok((hardware_addr, tx_token));
+            return Ok((self.lookup_hardware_addr_broadcast(dst_addr)?, tx_token));
         }
 
         if dst_addr.is_multicast() {
-            let b = dst_addr.as_bytes();
-            let hardware_addr = match *dst_addr {
-                #[cfg(feature = "proto-ipv4")]
-                IpAddress::Ipv4(_addr) => match self.caps.medium {
-                    #[cfg(feature = "medium-ethernet")]
-                    Medium::Ethernet => HardwareAddress::Ethernet(EthernetAddress::from_bytes(&[
-                        0x01,
-                        0x00,
-                        0x5e,
-                        b[1] & 0x7F,
-                        b[2],
-                        b[3],
-                    ])),
-                    #[cfg(feature = "medium-ieee802154")]
-                    Medium::Ieee802154 => unreachable!(),
-                    #[cfg(feature = "medium-ip")]
-                    Medium::Ip => unreachable!(),
-                },
-                #[cfg(feature = "proto-ipv6")]
-                IpAddress::Ipv6(_addr) => match self.caps.medium {
-                    #[cfg(feature = "medium-ethernet")]
-                    Medium::Ethernet => HardwareAddress::Ethernet(EthernetAddress::from_bytes(&[
-                        0x33, 0x33, b[12], b[13], b[14], b[15],
-                    ])),
-                    #[cfg(feature = "medium-ieee802154")]
-                    Medium::Ieee802154 => {
-                        // Not sure if this is correct
-                        HardwareAddress::Ieee802154(Ieee802154Address::BROADCAST)
-                    }
-                    #[cfg(feature = "medium-ip")]
-                    Medium::Ip => unreachable!(),
-                },
-            };
-
-            return Ok((hardware_addr, tx_token));
+            return Ok((
+                self.lookup_hardware_addr_multicast(dst_addr, previous_hop)?,
+                tx_token,
+            ));
         }
 
         let dst_addr = self
@@ -1007,12 +1338,17 @@ impl InterfaceInner {
         let dst_addr = if let IpAddress::Ipv6(dst_addr) = dst_addr {
             #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop3"))]
             if let Some(dodag) = &self.rpl.dodag {
-                if let Some(next_hop) = dodag.relations.find_next_hop(dst_addr) {
-                    if next_hop == self.ipv6_addr().unwrap() {
+                if let Some(next_hop) = dodag
+                    .relations
+                    .find_next_hop(dst_addr)
+                    .and_then(|hop| hop.first())
+                // In unicast it is not possible to have multiple next_hops per destination
+                {
+                    if next_hop.ip == self.ipv6_addr().unwrap() {
                         dst_addr.into()
                     } else {
-                        net_trace!("next hop {}", next_hop);
-                        next_hop.into()
+                        net_trace!("next hops {:?}", next_hop);
+                        next_hop.ip.into()
                     }
                 } else if let Some(parent) = dodag.parent {
                     parent.into()
@@ -1030,7 +1366,12 @@ impl InterfaceInner {
         };
 
         match self.neighbor_cache.lookup(&dst_addr, self.now) {
-            NeighborAnswer::Found(hardware_addr) => return Ok((hardware_addr, tx_token)),
+            NeighborAnswer::Found(hardware_addr) => {
+                return Ok((
+                    heapless::Vec::from_iter(core::iter::once(hardware_addr)),
+                    tx_token,
+                ))
+            }
             NeighborAnswer::RateLimited => {
                 net_debug!("neighbor {} pending", dst_addr);
                 return Err(DispatchError::NeighborPending);
@@ -1072,7 +1413,10 @@ impl InterfaceInner {
                             if let NeighborAnswer::Found(hardware_addr) =
                                 self.neighbor_cache.lookup(&parent.into(), self.now)
                             {
-                                return Ok((hardware_addr, tx_token));
+                                return Ok((
+                                    heapless::Vec::from_iter(core::iter::once(hardware_addr)),
+                                    tx_token,
+                                ));
                             }
                         }
                     }
@@ -1125,6 +1469,31 @@ impl InterfaceInner {
         self.neighbor_cache.flush()
     }
 
+    /// Convenience method for scheduling a multicast packet for later transmission
+    fn schedule_multicast_packet(
+        &self,
+        meta: PacketMeta,
+        packet: &PacketV6<'_>,
+        ll_addrs: heapless::Vec<HardwareAddress, { IFACE_MAX_MULTICAST_DUPLICATION_COUNT }>,
+        multicast_queue: &mut PacketBuffer<'_, MulticastMetadata>,
+    ) -> Result<(), DispatchError> {
+        let buffer = multicast_queue
+            .enqueue(
+                packet.payload().buffer_len(),
+                MulticastMetadata::new(meta, packet, ll_addrs),
+            )
+            .map_err(|_err| DispatchError::Exhausted)?;
+        packet
+            .payload()
+            .emit(&(*packet.header()).into(), buffer, &self.caps);
+
+        Ok(())
+    }
+
+    /// Transmit an IP packet or schedule it into multiple transmissions when
+    /// fragmentation is needed or retransmissions with multicast
+    ///
+    /// If the hardware address is already known, use this one, otherwise do a lookup
     fn dispatch_ip<Tx: TxToken>(
         &mut self,
         // NOTE(unused_mut): tx_token isn't always mutated, depending on
@@ -1132,6 +1501,92 @@ impl InterfaceInner {
         #[allow(unused_mut)] mut tx_token: Tx,
         meta: PacketMeta,
         packet: Packet,
+        previous_hop: Option<&HardwareAddress>,
+        frag: &mut Fragmenter,
+        multicast_queue: &mut PacketBuffer<'_, MulticastMetadata>,
+    ) -> Result<(), DispatchError> {
+        let (hardware_addr, tx_token) = self.handle_hardware_addr_lookup(
+            &packet,
+            meta,
+            previous_hop,
+            frag,
+            multicast_queue,
+            tx_token,
+        )?;
+
+        self.transmit_ip(tx_token, meta, packet, hardware_addr, frag)
+    }
+
+    fn handle_hardware_addr_lookup<Tx>(
+        &mut self,
+        packet: &Packet,
+        meta: PacketMeta,
+        previous_hop: Option<&HardwareAddress>,
+        frag: &mut Fragmenter,
+        multicast_queue: &mut PacketBuffer<'_, MulticastMetadata>,
+        tx_token: Tx,
+    ) -> Result<(HardwareAddress, Tx), DispatchError>
+    where
+        Tx: TxToken,
+    {
+        let (mut addr, tx_token) = match self.caps.medium {
+            medium
+                if matches_cfg!([feature = "medium-ethernet"] medium, Medium::Ethernet)
+                    || matches_cfg!(
+                        [feature = "medium-ieee802154"]
+                        medium,
+                        Medium::Ieee802154
+                    ) =>
+            {
+                self.lookup_hardware_addr(
+                    tx_token,
+                    previous_hop,
+                    &packet.ip_repr().src_addr(),
+                    &packet.ip_repr().dst_addr(),
+                    frag,
+                )?
+            }
+            #[cfg(feature = "medium-ethernet")]
+            _ => (
+                heapless::Vec::from_iter(core::iter::once(HardwareAddress::Ethernet(
+                    EthernetAddress([0; 6]),
+                ))),
+                tx_token,
+            ),
+            #[cfg(all(not(feature = "medium-ethernet"), feature = "medium-ieee802154"))]
+            _ => (
+                heapless::Vec::from_iter(core::iter::once(HardwareAddress::Ieee802154(
+                    Ieee802154Address::BROADCAST,
+                ))),
+                tx_token,
+            ),
+        };
+        let first_addr = addr.pop().ok_or(DispatchError::NoRoute)?;
+
+        if !addr.is_empty() {
+            match packet {
+                #[cfg(feature = "proto-ipv4")]
+                Packet::Ipv4(_) => unimplemented!(),
+                #[cfg(feature = "proto-ipv6")]
+                Packet::Ipv6(packet) => {
+                    if !addr.is_empty() {
+                        self.schedule_multicast_packet(meta, packet, addr, multicast_queue)?;
+                    }
+                }
+            }
+        }
+
+        Ok((first_addr, tx_token))
+    }
+
+    fn transmit_ip<Tx: TxToken>(
+        &mut self,
+        // NOTE(unused_mut): tx_token isn't always mutated, depending on
+        // the feature set that is used.
+        #[allow(unused_mut)] mut tx_token: Tx,
+        meta: PacketMeta,
+        packet: Packet,
+        hardware_addr: HardwareAddress,
         frag: &mut Fragmenter,
     ) -> Result<(), DispatchError> {
         let mut ip_repr = packet.ip_repr();
@@ -1141,21 +1596,21 @@ impl InterfaceInner {
 
         #[cfg(feature = "medium-ieee802154")]
         if matches!(self.caps.medium, Medium::Ieee802154) {
-            let (addr, tx_token) = self.lookup_hardware_addr(
-                tx_token,
-                &ip_repr.src_addr(),
-                &ip_repr.dst_addr(),
-                frag,
-            )?;
-            let addr = addr.ieee802154_or_panic();
-
+            // Schedule the remaining multicast transmissions
             let packet = match packet {
                 Packet::Ipv6(packet) => packet,
                 #[allow(unreachable_patterns)]
                 _ => unreachable!(),
             };
 
-            self.dispatch_ieee802154(addr, tx_token, meta, packet, frag);
+            self.dispatch_ieee802154(
+                hardware_addr.ieee802154_or_panic(),
+                tx_token,
+                meta,
+                packet,
+                frag,
+            );
+
             return Ok(());
         }
 
@@ -1177,18 +1632,8 @@ impl InterfaceInner {
 
         // If the medium is Ethernet, then we need to retrieve the destination hardware address.
         #[cfg(feature = "medium-ethernet")]
-        let (dst_hardware_addr, mut tx_token) = match self.caps.medium {
-            Medium::Ethernet => {
-                match self.lookup_hardware_addr(
-                    tx_token,
-                    &ip_repr.src_addr(),
-                    &ip_repr.dst_addr(),
-                    frag,
-                )? {
-                    (HardwareAddress::Ethernet(addr), tx_token) => (addr, tx_token),
-                    (_, _) => unreachable!(),
-                }
-            }
+        let (hardware_addr, mut tx_token) = match self.caps.medium {
+            Medium::Ethernet => (hardware_addr.ethernet_or_panic(), tx_token),
             _ => (EthernetAddress([0; 6]), tx_token),
         };
 
@@ -1199,7 +1644,7 @@ impl InterfaceInner {
 
             let src_addr = self.hardware_addr.ethernet_or_panic();
             frame.set_src_addr(src_addr);
-            frame.set_dst_addr(dst_hardware_addr);
+            frame.set_dst_addr(hardware_addr);
 
             match repr.version() {
                 #[cfg(feature = "proto-ipv4")]
@@ -1216,7 +1661,7 @@ impl InterfaceInner {
             repr.emit(&mut tx_buffer, &self.caps.checksum);
 
             let payload = &mut tx_buffer[repr.header_len()..];
-            packet.emit_payload(repr, payload, &caps)
+            packet.emit_payload(payload, &caps)
         };
 
         let total_ip_len = ip_repr.buffer_len();
@@ -1246,7 +1691,7 @@ impl InterfaceInner {
 
                         #[cfg(feature = "medium-ethernet")]
                         {
-                            frag.ipv4.dst_hardware_addr = dst_hardware_addr;
+                            frag.ipv4.dst_hardware_addr = hardware_addr;
                         }
 
                         // Save the total packet len (without the Ethernet header, but with the first
@@ -1342,4 +1787,34 @@ enum DispatchError {
     /// the neighbor for it yet. Discovery has been initiated, dispatch
     /// should be retried later.
     NeighborPending,
+    /// When we cannot immediatly dispatch a packet and need to wait for the
+    /// underlying physical layer to process its current tasks, a packet may
+    /// need to be stored somewhere. If this storage buffer is full, we cannot
+    /// schedule it for later transmission.
+    Exhausted,
 }
+
+/// Error type for `join_multicast_group`, `leave_multicast_group`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum MulticastError {
+    /// The hardware device transmit buffer is full. Try again later.
+    Exhausted,
+    /// The table of joined multicast groups is already full.
+    GroupTableFull,
+    /// The addresstype is unsupported
+    Unaddressable,
+}
+
+impl core::fmt::Display for MulticastError {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        match self {
+            MulticastError::Exhausted => write!(f, "Exhausted"),
+            MulticastError::GroupTableFull => write!(f, "GroupTableFull"),
+            MulticastError::Unaddressable => write!(f, "Unaddressable"),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for MulticastError {}

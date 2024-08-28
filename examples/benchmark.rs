@@ -12,6 +12,7 @@ use std::thread;
 use smoltcp::iface::{Config, Interface, SocketSet};
 use smoltcp::phy::{wait as phy_wait, Device, Medium};
 use smoltcp::socket::tcp;
+use smoltcp::storage::PacketMetadata;
 use smoltcp::time::{Duration, Instant};
 use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr};
 
@@ -97,7 +98,13 @@ fn main() {
     };
     config.random_seed = rand::random();
 
-    let mut iface = Interface::new(config, &mut device, Instant::now());
+    let mut iface = Interface::new(
+        config,
+        &mut device,
+        vec![PacketMetadata::EMPTY; 16],
+        vec![0; 2048],
+        Instant::now(),
+    );
     iface.update_ip_addrs(|ip_addrs| {
         ip_addrs
             .push(IpCidr::new(IpAddress::v4(192, 168, 69, 1), 24))

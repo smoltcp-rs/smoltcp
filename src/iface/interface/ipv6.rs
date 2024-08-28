@@ -166,7 +166,9 @@ impl InterfaceInner {
                 IpCidr::Ipv6(cidr) if cidr.address() != Ipv6Address::LOOPBACK => {
                     // Take the lower order 24 bits of the IPv6 address and
                     // append those bits to FF02:0:0:0:0:1:FF00::/104.
-                    addr.as_bytes()[14..] == cidr.address().as_bytes()[14..]
+                    addr.as_bytes()[..14]
+                        == Ipv6Address::new(0xFF02, 0, 0, 0, 0, 1, 0xFF00, 0).as_bytes()[..14]
+                        && addr.as_bytes()[14..] == cidr.address().as_bytes()[14..]
                 }
                 _ => false,
             }
@@ -187,6 +189,8 @@ impl InterfaceInner {
         sockets: &mut SocketSet,
         meta: PacketMeta,
         ipv6_packet: &Ipv6Packet<&'frame [u8]>,
+        previous_hop: Option<&HardwareAddress>,
+        multicast_queue: &mut PacketBuffer<'_, MulticastMetadata>,
     ) -> Option<Packet<'frame>> {
         let mut ipv6_repr = check!(Ipv6Repr::parse(ipv6_packet));
 
@@ -207,6 +211,7 @@ impl InterfaceInner {
             (None, ipv6_repr.next_header, ipv6_packet.payload())
         };
 
+        // Forward if not for us
         if !self.has_ip_addr(ipv6_repr.dst_addr)
             && !self.has_multicast_group(ipv6_repr.dst_addr)
             && !ipv6_repr.dst_addr.is_loopback()
@@ -224,6 +229,50 @@ impl InterfaceInner {
                     ipv6_repr.payload_len -= 2 + hbh.buffer_len();
                 }
                 return self.forward(ipv6_repr, hbh, None, ip_payload);
+            }
+        }
+
+        // Disallow list of forwardable multicast packets
+        let should_forward_multicast = match ipv6_repr.dst_addr.into() {
+            #[cfg(feature = "proto-ipv6")]
+            IpAddress::Ipv6(Ipv6Address::LINK_LOCAL_ALL_NODES) => false,
+            #[cfg(feature = "proto-rpl")]
+            IpAddress::Ipv6(Ipv6Address::LINK_LOCAL_ALL_RPL_NODES) => false,
+            _ => true,
+        };
+        // if for us and multicast, process further and schedule forwarding
+        if should_forward_multicast && ipv6_repr.dst_addr.is_multicast() {
+            // Construct forwarding packet if possible
+            let forwarding_packet = self.forward(ipv6_repr, hbh, None, ip_payload);
+            // Lookup hardware addresses to which we would like to forward the multicast packet
+            let haddrs =
+                self.lookup_hardware_addr_multicast(&ipv6_repr.dst_addr.into(), previous_hop);
+
+            // Schedule forwarding and process further if possible
+            match (&forwarding_packet, haddrs) {
+                #[cfg(feature = "proto-ipv6")]
+                (Some(Packet::Ipv6(forwarding_packet)), Ok(haddrs)) => {
+                    if !haddrs.is_empty() {
+                        let _ = self
+                            .schedule_multicast_packet(
+                                meta,
+                                forwarding_packet,
+                                haddrs,
+                                multicast_queue,
+                            )
+                            .inspect_err(|err| {
+                                net_trace!(
+                                    "Could not schedule multicast packets with reason {:?}",
+                                    err
+                                );
+                            });
+                    }
+                }
+                #[cfg(feature = "proto-ipv4")]
+                (Some(Packet::Ipv4(_)), Ok(_haddrs)) => {
+                    unimplemented!()
+                }
+                _ => {}
             }
         }
 

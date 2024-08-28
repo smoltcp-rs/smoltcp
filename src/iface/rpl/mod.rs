@@ -7,6 +7,7 @@ mod rank;
 mod relations;
 mod trickle;
 
+use crate::config::RPL_MAX_OPTIONS;
 use crate::rand::Rand;
 use crate::time::{Duration, Instant};
 use crate::wire::{
@@ -31,6 +32,21 @@ pub enum ModeOfOperation {
     StoringMode,
     #[cfg(feature = "rpl-mop-3")]
     StoringModeWithMulticast,
+}
+
+#[cfg(feature = "std")]
+impl core::fmt::Display for ModeOfOperation {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            ModeOfOperation::NoDownwardRoutesMaintained => write!(f, "mop0"),
+            #[cfg(feature = "rpl-mop-1")]
+            ModeOfOperation::NonStoringMode => write!(f, "mop1"),
+            #[cfg(feature = "rpl-mop-2")]
+            ModeOfOperation::StoringMode => write!(f, "mop1"),
+            #[cfg(feature = "rpl-mop-3")]
+            ModeOfOperation::StoringModeWithMulticast => write!(f, "mop3"),
+        }
+    }
 }
 
 impl From<crate::wire::rpl::ModeOfOperation> for ModeOfOperation {
@@ -66,10 +82,20 @@ impl From<ModeOfOperation> for crate::wire::rpl::ModeOfOperation {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
     pub mode_of_operation: ModeOfOperation,
     pub root: Option<RootConfig>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        // TODO: Make some kind of leaf mode
+        Self {
+            mode_of_operation: ModeOfOperation::NoDownwardRoutesMaintained,
+            root: None,
+        }
+    }
 }
 
 impl Config {
@@ -92,7 +118,7 @@ impl Config {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RootConfig {
     pub instance_id: RplInstanceId,
     pub dodag_id: Ipv6Address,
@@ -177,7 +203,7 @@ pub(crate) struct Dao {
     pub next_tx: Option<Instant>,
     pub sent_count: u8,
     pub to: Ipv6Address,
-    pub child: Ipv6Address,
+    pub targets: heapless::Vec<Ipv6Address, { RPL_MAX_OPTIONS - 1 }>,
     pub parent: Option<Ipv6Address>,
     pub sequence: RplSequenceCounter,
     pub is_no_path: bool,
@@ -192,7 +218,7 @@ impl Dao {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         to: Ipv6Address,
-        child: Ipv6Address,
+        targets: &[Ipv6Address; RPL_MAX_OPTIONS - 1],
         parent: Option<Ipv6Address>,
         sequence: RplSequenceCounter,
         lifetime: u8,
@@ -205,7 +231,7 @@ impl Dao {
             next_tx: None,
             sent_count: 0,
             to,
-            child,
+            targets: heapless::Vec::from_slice(targets).unwrap(), // Length check in types
             parent,
             sequence,
             lifetime,
@@ -218,7 +244,7 @@ impl Dao {
 
     pub(crate) fn no_path(
         to: Ipv6Address,
-        child: Ipv6Address,
+        targets: heapless::Vec<Ipv6Address, { RPL_MAX_OPTIONS - 1 }>,
         sequence: RplSequenceCounter,
         instance_id: RplInstanceId,
         dodag_id: Option<Ipv6Address>,
@@ -229,7 +255,7 @@ impl Dao {
             next_tx: None,
             sent_count: 0,
             to,
-            child,
+            targets,
             parent: None,
             sequence,
             lifetime: 0,
@@ -242,12 +268,14 @@ impl Dao {
 
     pub(crate) fn as_rpl_dao_repr<'dao>(&mut self) -> RplRepr<'dao> {
         let mut options = heapless::Vec::new();
-        options
-            .push(RplOptionRepr::RplTarget(RplTarget {
-                prefix_length: 64, // TODO: get the prefix length from the address.
-                prefix: heapless::Vec::from_slice(self.child.as_bytes()).unwrap(),
-            }))
-            .unwrap();
+        for target in &self.targets {
+            options
+                .push(RplOptionRepr::RplTarget(RplTarget {
+                    prefix_length: 64, // TODO: get the prefix length from the address.
+                    prefix: heapless::Vec::from_slice(target.as_bytes()).unwrap(),
+                }))
+                .unwrap();
+        }
         options
             .push(RplOptionRepr::TransitInformation(RplTransitInformation {
                 external: false,
@@ -265,6 +293,10 @@ impl Dao {
             dodag_id: self.dodag_id,
             options,
         })
+    }
+
+    pub(crate) fn has_multicast_target(&mut self) -> bool {
+        self.targets.iter().any(|target| target.is_multicast())
     }
 }
 
@@ -412,20 +444,22 @@ impl Dodag {
     }
     /// ## Panics
     /// This function will panic if the DODAG does not have a parent selected.
-    pub(crate) fn remove_parent<OF: ObjectiveFunction>(
+    // pub(crate) fn remove_parent<OF: ObjectiveFunction>(
+    pub(crate) fn remove_parent(
         &mut self,
-        mop: ModeOfOperation,
-        our_addr: Ipv6Address,
-        of: &OF,
-        now: Instant,
-        rand: &mut Rand,
+        // mop: ModeOfOperation,
+        // our_addr: Ipv6Address,
+        // of: &OF,
+        // now: Instant,
+        // rand: &mut Rand,
     ) -> Ipv6Address {
         let old_parent = self.parent.unwrap();
 
         self.parent = None;
         self.parent_set.remove(&old_parent);
 
-        self.find_new_parent(mop, our_addr, of, now, rand);
+        // FIXME: Probably not a good idea to have a recursive loop in function calls
+        // self.find_new_parent(mop, our_addr, of, now, rand);
 
         old_parent
     }
@@ -436,32 +470,54 @@ impl Dodag {
     pub(crate) fn remove_parent_with_no_path<OF: ObjectiveFunction>(
         &mut self,
         mop: ModeOfOperation,
-        our_addr: Ipv6Address,
-        child: Ipv6Address,
+        // our_addr: Ipv6Address,
+        targets: &[Ipv6Address],
+        targets_multicast: &[Ipv6Address],
         of: &OF,
         now: Instant,
         rand: &mut Rand,
     ) {
-        let old_parent = self.remove_parent(mop, our_addr, of, now, rand);
+        // let old_parent = self.remove_parent(mop, our_addr, of, now, rand);
+        let old_parent = self.remove_parent();
 
-        #[cfg(feature = "rpl-mop-2")]
-        self.daos
-            .push(Dao::no_path(
-                old_parent,
-                child,
-                self.dao_seq_number,
-                self.instance_id,
-                Some(self.id),
-                self.rank,
-            ))
-            .unwrap();
-        self.dao_seq_number.increment();
+        #[cfg(any(feature = "rpl-mop-2", feature = "rpl-mop-3"))]
+        {
+            for targets in targets.chunks(RPL_MAX_OPTIONS - 1) {
+                self.daos
+                    .push(Dao::no_path(
+                        old_parent,
+                        heapless::Vec::from_slice(targets).unwrap(),
+                        self.dao_seq_number,
+                        self.instance_id,
+                        Some(self.id),
+                        self.rank,
+                    ))
+                    .unwrap();
+                self.dao_seq_number.increment();
+            }
+
+            #[cfg(feature = "rpl-mop-3")]
+            for targets in targets_multicast.chunks(RPL_MAX_OPTIONS - 1) {
+                self.daos
+                    .push(Dao::no_path(
+                        old_parent,
+                        heapless::Vec::from_slice(targets).unwrap(),
+                        self.dao_seq_number,
+                        self.instance_id,
+                        Some(self.id),
+                        self.rank,
+                    ))
+                    .unwrap();
+                self.dao_seq_number.increment();
+            }
+        }
     }
 
     pub(crate) fn find_new_parent<OF: ObjectiveFunction>(
         &mut self,
         mop: ModeOfOperation,
-        child: Ipv6Address,
+        targets: &[Ipv6Address],
+        targets_multicast: &[Ipv6Address],
         of: &OF,
         now: Instant,
         rand: &mut Rand,
@@ -474,21 +530,40 @@ impl Dodag {
 
         if let Some(parent) = of.preferred_parent(&self.parent_set) {
             // Send a NO-PATH DAO in MOP 2 when we already had a parent.
-            #[cfg(feature = "rpl-mop-2")]
+            #[cfg(any(feature = "rpl-mop-2", feature = "rpl-mop-3"))]
             if let Some(old_parent) = old_parent {
-                if matches!(mop, ModeOfOperation::StoringMode) && old_parent != parent {
-                    net_trace!("scheduling NO-PATH DAO for {} to {}", child, old_parent);
-                    match self.daos.push(Dao::no_path(
-                        old_parent,
-                        child,
-                        self.dao_seq_number,
-                        self.instance_id,
-                        Some(self.id),
-                        self.rank,
-                    )) {
-                        Ok(_) => self.dao_seq_number.increment(),
-                        Err(_) => net_trace!("could not schedule DAO"),
+                let is_mop2 = {
+                    #[cfg(feature = "rpl-mop-2")]
+                    {
+                        matches!(mop, ModeOfOperation::StoringMode)
                     }
+                    #[cfg(not(feature = "rpl-mop-2"))]
+                    false
+                };
+                let is_mop3 = {
+                    #[cfg(feature = "rpl-mop-3")]
+                    {
+                        matches!(mop, ModeOfOperation::StoringModeWithMulticast)
+                    }
+                    #[cfg(not(feature = "rpl-mop-3"))]
+                    false
+                };
+                if (is_mop2 || is_mop3) && old_parent != parent {
+                    net_trace!(
+                        "scheduling NO-PATH DAO for {:?} and {:?} to {}",
+                        targets,
+                        targets_multicast,
+                        old_parent
+                    );
+                    self.remove_parent_with_no_path(
+                        mop,
+                        // our_addr,
+                        targets,
+                        targets_multicast,
+                        of,
+                        now,
+                        rand,
+                    )
                 }
             }
 
@@ -502,7 +577,7 @@ impl Dodag {
 
                 #[cfg(any(feature = "rpl-mop-1", feature = "rpl-mop-2", feature = "rpl-mop-3"))]
                 if !matches!(mop, ModeOfOperation::NoDownwardRoutesMaintained) {
-                    self.schedule_dao(mop, child, parent, now);
+                    self.schedule_dao(mop, targets, targets_multicast, parent, now, false);
                 }
             }
         } else {
@@ -515,50 +590,119 @@ impl Dodag {
     pub(crate) fn schedule_dao(
         &mut self,
         mop: ModeOfOperation,
-        child: Ipv6Address,
+        targets: &[Ipv6Address],
+        targets_multicast: &[Ipv6Address],
         parent: Ipv6Address,
         now: Instant,
-    ) {
+        is_no_path: bool,
+    ) -> Result<(), DodagTransmissionError> {
+        use heapless::LinearMap;
+
         #[cfg(feature = "rpl-mop-1")]
         if matches!(mop, ModeOfOperation::NonStoringMode) {
-            net_trace!("scheduling DAO: {} is parent of {}", parent, child);
-            self.daos
-                .push(Dao::new(
-                    self.id,
-                    child,
-                    Some(parent),
-                    self.dao_seq_number,
-                    self.default_lifetime,
-                    self.instance_id,
-                    Some(self.id),
-                    self.rank,
-                ))
-                .unwrap();
-            self.dao_seq_number.increment();
+            net_trace!("scheduling DAO: {} is parent of {:?}", parent, targets);
+            for targets in targets.chunks(RPL_MAX_OPTIONS - 1) {
+                self.daos
+                    .push(if is_no_path {
+                        Dao::no_path(
+                            self.id,
+                            targets.try_into().unwrap(), // Checks in the types
+                            self.dao_seq_number,
+                            self.instance_id,
+                            Some(self.id),
+                            self.rank,
+                        )
+                    } else {
+                        Dao::new(
+                            self.id,
+                            targets.try_into().unwrap(), // Checks in the types
+                            Some(parent),
+                            self.dao_seq_number,
+                            self.default_lifetime,
+                            self.instance_id,
+                            Some(self.id),
+                            self.rank,
+                        )
+                    })
+                    .map_err(|_err| DodagTransmissionError::DaoExhausted);
+                self.dao_seq_number.increment();
+            }
         }
 
-        #[cfg(feature = "rpl-mop-2")]
-        if matches!(mop, ModeOfOperation::StoringMode) {
-            net_trace!("scheduling DAO: {} is parent of {}", parent, child);
-            self.daos
-                .push(Dao::new(
-                    parent,
-                    child,
-                    None,
-                    self.dao_seq_number,
-                    self.default_lifetime,
-                    self.instance_id,
-                    Some(self.id),
-                    self.rank,
-                ))
-                .unwrap();
-            self.dao_seq_number.increment();
+        #[cfg(all(feature = "rpl-mop-2", feature = "rpl-mop-3"))]
+        if matches!(
+            mop,
+            ModeOfOperation::StoringMode | ModeOfOperation::StoringModeWithMulticast
+        ) {
+            net_trace!("scheduling DAO: {} is parent of {:?}", parent, targets);
+            for targets in targets.chunks(RPL_MAX_OPTIONS - 1) {
+                self.daos
+                    .push(if is_no_path {
+                        Dao::no_path(
+                            parent,
+                            targets.try_into().unwrap(), // Checks in the types
+                            self.dao_seq_number,
+                            self.instance_id,
+                            Some(self.id),
+                            self.rank,
+                        )
+                    } else {
+                        Dao::new(
+                            parent,
+                            targets.try_into().unwrap(), // Checks in the types
+                            None,
+                            self.dao_seq_number,
+                            self.default_lifetime,
+                            self.instance_id,
+                            Some(self.id),
+                            self.rank,
+                        )
+                    })
+                    .unwrap();
+
+                self.dao_seq_number.increment();
+            }
+
+            // If we are in MOP3, we also send a DOA with our subscribed multicast addresses.
+            #[cfg(feature = "rpl-mop-3")]
+            {
+                net_trace!("scheduling multicast DAO");
+                for targets in targets_multicast.chunks(RPL_MAX_OPTIONS - 1) {
+                    self.daos
+                        .push(if is_no_path {
+                            Dao::no_path(
+                                parent,
+                                targets.try_into().unwrap(), // Checks in the types
+                                self.dao_seq_number,
+                                self.instance_id,
+                                Some(self.id),
+                                self.rank,
+                            )
+                        } else {
+                            Dao::new(
+                                parent,
+                                targets.try_into().unwrap(), // Checks in the types
+                                None,
+                                self.dao_seq_number,
+                                self.default_lifetime,
+                                self.instance_id,
+                                Some(self.id),
+                                self.rank,
+                            )
+                        })
+                        .unwrap();
+
+                    self.dao_seq_number.increment();
+                }
+            }
         }
 
         let exp = (self.lifetime_unit as u64 * self.default_lifetime as u64)
             .checked_sub(2 * 60)
             .unwrap_or(2 * 60);
         self.dao_expiration = now + Duration::from_secs(exp);
+
+        Ok(())
     }
 
     /// ## Panics
@@ -577,5 +721,27 @@ impl Dodag {
             dodag_id: Some(self.id),
             options,
         })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum DodagTransmissionError {
+    DaoExhausted,
+}
+
+impl core::fmt::Display for DodagTransmissionError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::DaoExhausted => write!(f, "DAO buffer is exhausted"),
+        }
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl defmt::Format for DodagTransmissionError {
+    fn format(&self, f: defmt::Formatter<'_>) {
+        match self {
+            Self::DaoExhausted => defmt::write!(f, "DAO buffer is exhausted"),
+        }
     }
 }

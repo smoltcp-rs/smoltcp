@@ -1,3 +1,5 @@
+use std::fs::File;
+
 use smoltcp::iface::*;
 use smoltcp::phy::{PcapLinkType, PcapSink};
 use smoltcp::time::*;
@@ -181,20 +183,18 @@ impl NetworkSim {
             .find(|node| node.ieee_address == destination)
     }
 
-    /// Initialize the simulation.
+    /// Initialize the simulation. This is a shortcut to initialize all the nodes individually.
+    /// Nodes need to be initialized to be enabled, otherwise they will not show up in the simulation.
     pub fn init(&mut self) {
         for node in &mut self.nodes {
-            if let Some(init) = &node.init {
-                let handles = init(&mut node.sockets);
-                node.socket_handles = handles;
-            }
+            node.init();
         }
     }
 
     /// Run the simluation for a specific duration with a specified step.
     /// *NOTE*: the simulation uses the step as a maximum step. If a smoltcp interface needs to be
     /// polled more often, then the simulation will do so.
-    pub fn run(&mut self, step: Duration, duration: Duration) {
+    pub fn run(&mut self, step: Duration, duration: Duration, pcap_file: Option<&mut PcapFile>) {
         let start = self.now;
         while self.now < start + duration {
             let (new_step, _, _) = self.on_tick(self.now, step);
@@ -206,6 +206,10 @@ impl NetworkSim {
             } else {
                 self.now += step;
             }
+        }
+
+        if let Some(file) = pcap_file {
+            file.append_messages(self)
         }
     }
 
@@ -305,17 +309,32 @@ impl NetworkSim {
 
         (step, broadcast_msgs, unicast_msgs)
     }
+}
 
-    /// Save the messages to a specified path in the PCAP format.
-    #[allow(unused)]
-    pub fn save_pcap(&self, path: &std::path::Path) -> std::io::Result<()> {
-        let mut pcap_file = std::fs::File::create(path).unwrap();
-        PcapSink::global_header(&mut pcap_file, PcapLinkType::Ieee802154WithoutFcs);
+#[allow(unused)]
+/// Helper for writing messages from the simulator to a PCAP file
+pub struct PcapFile {
+    file: File,
+}
 
-        for msg in &self.messages {
-            PcapSink::packet(&mut pcap_file, msg.at, &msg.data);
+#[allow(unused)]
+impl PcapFile {
+    pub fn new(path: &std::path::Path) -> std::io::Result<Self> {
+        let parent = path.parent();
+        if let Some(parent) = parent {
+            if !parent.exists() {
+                std::fs::create_dir_all(parent)?;
+            }
         }
+        let mut file = std::fs::File::create(path)?;
+        PcapSink::global_header(&mut file, PcapLinkType::Ieee802154WithoutFcs);
 
-        Ok(())
+        Ok(Self { file })
+    }
+
+    pub fn append_messages(&mut self, sim: &NetworkSim) {
+        for msg in &sim.messages {
+            PcapSink::packet(&mut self.file, msg.at, &msg.data);
+        }
     }
 }

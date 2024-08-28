@@ -21,6 +21,7 @@ fn init() {
 #[case::mop0(RplModeOfOperation::NoDownwardRoutesMaintained)]
 #[case::mop1(RplModeOfOperation::NonStoringMode)]
 #[case::mop2(RplModeOfOperation::StoringMode)]
+#[case::mop3(RplModeOfOperation::StoringModeWithMulticast)]
 fn root_node_only(#[case] mop: RplModeOfOperation) {
     let mut sim = sim::NetworkSim::new();
     sim.create_node(RplConfig::new(mop).add_root_config(RplRootConfig::new(
@@ -28,7 +29,8 @@ fn root_node_only(#[case] mop: RplModeOfOperation) {
         Ipv6Address::default(),
     )));
 
-    sim.run(Duration::from_millis(500), ONE_HOUR);
+    sim.init();
+    sim.run(Duration::from_millis(500), ONE_HOUR, None);
 
     assert!(!sim.msgs().is_empty());
 
@@ -49,11 +51,13 @@ fn root_node_only(#[case] mop: RplModeOfOperation) {
 #[case::mop0(RplModeOfOperation::NoDownwardRoutesMaintained)]
 #[case::mop1(RplModeOfOperation::NonStoringMode)]
 #[case::mop2(RplModeOfOperation::StoringMode)]
+#[case::mop3(RplModeOfOperation::StoringModeWithMulticast)]
 fn normal_node_without_dodag(#[case] mop: RplModeOfOperation) {
     let mut sim = sim::NetworkSim::new();
     sim.create_node(RplConfig::new(mop));
 
-    sim.run(Duration::from_millis(500), ONE_HOUR);
+    sim.init();
+    sim.run(Duration::from_millis(500), ONE_HOUR, None);
 
     assert!(!sim.msgs().is_empty());
 
@@ -72,15 +76,54 @@ fn normal_node_without_dodag(#[case] mop: RplModeOfOperation) {
 /// For MOP1, MOP2 and MOP3, DAOs and DAO-ACKs should be transmitted.
 /// We run the simulation for 15 minutes. During this period, around 7 DIOs should be transmitted
 /// by each node (root and normal node). In MOP1, MOP2 and MOP3, the normal node should transmit 1
-/// DAO and the root 1 DAO-ACK. By default, DAOs require an ACK in smoltcp.
+/// DAO and the root 1 DAO-ACK. By default, DAOs require an ACK in smoltcp, unless one of the nodes
+/// has joined a multicast group. Then there should be an extra DAO for the multicast group to
+/// which the node is subscribed
 #[rstest]
-#[case::mop0(RplModeOfOperation::NoDownwardRoutesMaintained)]
-#[case::mop1(RplModeOfOperation::NonStoringMode)]
-#[case::mop2(RplModeOfOperation::StoringMode)]
-fn root_and_normal_node(#[case] mop: RplModeOfOperation) {
-    let mut sim = sim::topology(sim::NetworkSim::new(), mop, 1, 1);
+#[case::mop0(RplModeOfOperation::NoDownwardRoutesMaintained, None)]
+#[case::mop1(RplModeOfOperation::NonStoringMode, None)]
+#[case::mop2(RplModeOfOperation::StoringMode, None)]
+#[case::mop3(RplModeOfOperation::StoringModeWithMulticast, None)]
+#[case::mop3_multicast(RplModeOfOperation::StoringModeWithMulticast, Some(Ipv6Address::from_parts(&[0xff02, 0, 0, 0, 0, 0, 0, 3])))]
+fn root_and_normal_node(
+    #[case] mop: RplModeOfOperation,
+    #[case] multicast_group: Option<Ipv6Address>,
+) {
+    init();
 
-    sim.run(Duration::from_millis(500), Duration::from_secs(60 * 15));
+    let mut sim = sim::topology(sim::NetworkSim::new(), mop, 1, 1);
+    if let Some(multicast_group) = multicast_group {
+        let last_child = sim.nodes_mut().last_mut().unwrap();
+        last_child
+            .interface
+            .join_multicast_group(&mut last_child.device, multicast_group, Instant::ZERO)
+            .expect("last_child should be able to join the multicast group");
+    }
+
+    // let mut pcap_file = None;
+    let mut pcap_file = Some(
+        sim::PcapFile::new(std::path::Path::new(&format!(
+            "sim_logs/root_and_normal_node-{}-{}.pcap",
+            match mop {
+                RplModeOfOperation::NoDownwardRoutesMaintained => "mop0",
+                RplModeOfOperation::NonStoringMode => "mop1",
+                RplModeOfOperation::StoringMode => "mop2",
+                RplModeOfOperation::StoringModeWithMulticast => "mop3",
+            },
+            if multicast_group.is_some() {
+                "with-multicast"
+            } else {
+                "no-multicast"
+            }
+        )))
+        .unwrap(),
+    );
+    sim.init();
+    sim.run(
+        Duration::from_millis(500),
+        Duration::from_secs(60 * 15),
+        pcap_file.as_mut(),
+    );
 
     assert!(!sim.msgs().is_empty());
 
@@ -95,8 +138,8 @@ fn root_and_normal_node(#[case] mop: RplModeOfOperation) {
             let dao_count = sim.msgs().iter().filter(|m| m.is_dao()).count();
             let dao_ack_count = sim.msgs().iter().filter(|m| m.is_dao_ack()).count();
 
-            assert_eq!(dao_count, 1);
-            assert_eq!(dao_ack_count, 1);
+            assert_eq!(dao_count, if multicast_group.is_some() { 2 } else { 1 });
+            assert_eq!(dao_ack_count, dao_count);
         }
         _ => (),
     }
@@ -118,13 +161,33 @@ fn root_and_normal_node(#[case] mop: RplModeOfOperation) {
 }
 
 #[rstest]
-#[case::mop0(RplModeOfOperation::NoDownwardRoutesMaintained)]
-#[case::mop1(RplModeOfOperation::NonStoringMode)]
-#[case::mop2(RplModeOfOperation::StoringMode)]
-fn root_and_normal_node_moved_out_of_range(#[case] mop: RplModeOfOperation) {
+#[case::mop0(RplModeOfOperation::NoDownwardRoutesMaintained, None)]
+#[case::mop1(RplModeOfOperation::NonStoringMode, None)]
+#[case::mop2(RplModeOfOperation::StoringMode, None)]
+#[case::mop3(RplModeOfOperation::StoringModeWithMulticast, None)]
+#[case::mop3_multicast(RplModeOfOperation::StoringModeWithMulticast, Some(Ipv6Address::from_parts(&[0xff02, 0, 0, 0, 0, 0, 0, 3])))]
+fn root_and_normal_node_moved_out_of_range(
+    #[case] mop: RplModeOfOperation,
+    #[case] multicast_group: Option<Ipv6Address>,
+) {
     let mut sim = sim::topology(sim::NetworkSim::new(), mop, 1, 1);
+    if let Some(multicast_group) = multicast_group {
+        let last_child = sim.nodes_mut().last_mut().unwrap();
+        last_child
+            .interface
+            .join_multicast_group(&mut last_child.device, multicast_group, Instant::ZERO)
+            .expect("last_child should be able to join the multicast group");
+    }
 
-    sim.run(Duration::from_millis(100), ONE_HOUR);
+    // Setup pcap file for multicast
+    let mut pcap_file = if multicast_group.is_some() {
+        use std::path::Path;
+        Some(sim::PcapFile::new(Path::new(&format!("sim_logs/multicast-{mop}.pcap"))).unwrap())
+    } else {
+        None
+    };
+    sim.init();
+    sim.run(Duration::from_millis(100), ONE_HOUR, pcap_file.as_mut());
 
     assert!(!sim.msgs().is_empty());
 
@@ -149,7 +212,7 @@ fn root_and_normal_node_moved_out_of_range(#[case] mop: RplModeOfOperation) {
     // Move the node far from the root node.
     sim.nodes_mut()[1].set_position(sim::Position((1000., 0.)));
 
-    sim.run(Duration::from_millis(400), ONE_HOUR);
+    sim.run(Duration::from_millis(400), ONE_HOUR, pcap_file.as_mut());
 
     match mop {
         RplModeOfOperation::NonStoringMode | RplModeOfOperation::StoringMode => {
@@ -197,7 +260,7 @@ fn root_and_normal_node_moved_out_of_range(#[case] mop: RplModeOfOperation) {
     // Move the node back in range of the root node.
     sim.nodes_mut()[1].set_position(sim::Position((100., 0.)));
 
-    sim.run(Duration::from_millis(100), ONE_HOUR);
+    sim.run(Duration::from_millis(100), ONE_HOUR, pcap_file.as_mut());
 
     // NOTE: in rare cases, I don't know why, 2 DIS messages are transmitted instead of just 1.
     let dis_count = sim.msgs().iter().filter(|m| m.is_dis()).count();
@@ -222,18 +285,48 @@ fn root_and_normal_node_moved_out_of_range(#[case] mop: RplModeOfOperation) {
 }
 
 #[rstest]
-#[case::mop0(RplModeOfOperation::NoDownwardRoutesMaintained)]
+#[case::mop0(RplModeOfOperation::NoDownwardRoutesMaintained, None)]
 //#[case::mop1(RplModeOfOperation::NonStoringMode)]
-#[case::mop2(RplModeOfOperation::StoringMode)]
-fn message_forwarding_to_root(#[case] mop: RplModeOfOperation) {
+#[case::mop2(RplModeOfOperation::StoringMode, None)]
+#[case::mop3(RplModeOfOperation::StoringModeWithMulticast, None)]
+#[case::mop3_multicast(RplModeOfOperation::StoringModeWithMulticast, Some(Ipv6Address::from_parts(&[0xff02, 0, 0, 0, 0, 0, 0, 3])))]
+fn message_forwarding_to_root(
+    #[case] mop: RplModeOfOperation,
+    #[case] multicast_group: Option<Ipv6Address>,
+) {
     let mut sim = sim::topology(sim::NetworkSim::new(), mop, 1, 2);
+    if let Some(multicast_group) = multicast_group {
+        let last_child = sim.nodes_mut().last_mut().unwrap();
+        last_child
+            .interface
+            .join_multicast_group(&mut last_child.device, multicast_group, Instant::ZERO)
+            .expect("last_child should be able to join the multicast group");
+    }
 
     let dst_addr = sim.nodes()[0].ip_address;
     sim::udp_receiver_node(&mut sim.nodes_mut()[0], 1234);
     sim::udp_sender_node(&mut sim.nodes_mut()[2], 1234, dst_addr);
 
     sim.init();
-    sim.run(Duration::from_millis(500), ONE_HOUR);
+    // let mut pcap_file = None;
+    let mut pcap_file = Some(
+        sim::PcapFile::new(std::path::Path::new(&format!(
+            "sim_logs/message-forwarding-to-root-{}-{}.pcap",
+            match mop {
+                RplModeOfOperation::NoDownwardRoutesMaintained => "mop0",
+                RplModeOfOperation::NonStoringMode => "mop1",
+                RplModeOfOperation::StoringMode => "mop2",
+                RplModeOfOperation::StoringModeWithMulticast => "mop3",
+            },
+            if multicast_group.is_some() {
+                "with-multicast"
+            } else {
+                "no-multicast"
+            }
+        )))
+        .unwrap(),
+    );
+    sim.run(Duration::from_millis(500), ONE_HOUR, pcap_file.as_mut());
 
     assert!(!sim.msgs().is_empty());
 
@@ -268,18 +361,53 @@ fn message_forwarding_to_root(#[case] mop: RplModeOfOperation) {
 }
 
 #[rstest]
-#[case::mop0(RplModeOfOperation::NoDownwardRoutesMaintained)]
+#[case::mop0(RplModeOfOperation::NoDownwardRoutesMaintained, None)]
 //#[case::mop1(RplModeOfOperation::NonStoringMode)]
-#[case::mop2(RplModeOfOperation::StoringMode)]
-fn message_forwarding_up_and_down(#[case] mop: RplModeOfOperation) {
+#[case::mop2(RplModeOfOperation::StoringMode, None)]
+#[case::mop3(RplModeOfOperation::StoringModeWithMulticast, None)]
+#[case::mop3_multicast(RplModeOfOperation::StoringModeWithMulticast, Some(Ipv6Address::from_parts(&[0xff02, 0, 0, 0, 0, 0, 0, 3])))]
+fn message_forwarding_up_and_down(
+    #[case] mop: RplModeOfOperation,
+    #[case] multicast_group: Option<Ipv6Address>,
+) {
+    init();
+
     let mut sim = sim::topology(sim::NetworkSim::new(), mop, 2, 2);
+    if let Some(multicast_group) = multicast_group {
+        let last_child = &mut sim.nodes_mut()[4];
+        last_child
+            .interface
+            .join_multicast_group(&mut last_child.device, multicast_group, Instant::ZERO)
+            .expect("last_child should be able to join the multicast group");
+    }
 
     let dst_addr = sim.nodes()[3].ip_address;
     sim::udp_receiver_node(&mut sim.nodes_mut()[3], 1234);
     sim::udp_sender_node(&mut sim.nodes_mut()[4], 1234, dst_addr);
 
     sim.init();
-    sim.run(Duration::from_millis(500), Duration::from_secs(60 * 15));
+    let mut pcap_file = Some(
+        sim::PcapFile::new(std::path::Path::new(&format!(
+            "sim_logs/message_forwarding_up_and_down-{}-{}.pcap",
+            match mop {
+                RplModeOfOperation::NoDownwardRoutesMaintained => "mop0",
+                RplModeOfOperation::NonStoringMode => "mop1",
+                RplModeOfOperation::StoringMode => "mop2",
+                RplModeOfOperation::StoringModeWithMulticast => "mop3",
+            },
+            if multicast_group.is_some() {
+                "with-multicast"
+            } else {
+                "no-multicast"
+            }
+        )))
+        .unwrap(),
+    );
+    sim.run(
+        Duration::from_millis(500),
+        Duration::from_secs(60 * 15),
+        pcap_file.as_mut(),
+    );
 
     assert!(!sim.msgs().is_empty());
 
@@ -343,9 +471,17 @@ fn message_forwarding_up_and_down(#[case] mop: RplModeOfOperation) {
             assert!(dao_ack_packets_with_routing == 4,);
             assert!(dao_ack_packets_without_routing == 2,);
         }
-        RplModeOfOperation::StoringMode | RplModeOfOperation::StoringModeWithMulticast => {
+        RplModeOfOperation::StoringMode => {
             assert!(dao_ack_packets_with_routing == 0,);
             assert!(dao_ack_packets_without_routing == 6,);
+        }
+        RplModeOfOperation::StoringModeWithMulticast if multicast_group.is_none() => {
+            assert_eq!(dao_ack_packets_with_routing, 0,);
+            assert_eq!(dao_ack_packets_without_routing, 6,);
+        }
+        RplModeOfOperation::StoringModeWithMulticast if multicast_group.is_some() => {
+            assert_eq!(dao_ack_packets_with_routing, 0,);
+            assert_eq!(dao_ack_packets_without_routing, 6 + 2,); // 1x joining multicast generates 2 DAOs
         }
         _ => {
             assert!(dao_ack_packets_with_routing == 0,);
@@ -355,14 +491,157 @@ fn message_forwarding_up_and_down(#[case] mop: RplModeOfOperation) {
 }
 
 #[rstest]
-#[case::mop0(RplModeOfOperation::NoDownwardRoutesMaintained)]
+#[case::one(&[4])]
+#[case::two(&[4, 2])]
+#[case::three(&[4, 2, 3])]
+fn forward_multicast_up_and_down(#[case] multicast_receivers: &[usize]) {
+    init();
+
+    const MULTICAST_GROUP: Ipv6Address = Ipv6Address::new(0xff02, 0, 0, 0, 0, 0, 0, 3);
+    let mut sim = sim::topology(
+        sim::NetworkSim::new(),
+        RplModeOfOperation::StoringModeWithMulticast,
+        2,
+        2,
+    );
+    // Subscribe to multicast group
+    for receiver in multicast_receivers {
+        let node = &mut sim.nodes_mut()[*receiver];
+        node.interface
+            .join_multicast_group(&mut node.device, MULTICAST_GROUP, Instant::ZERO)
+            .expect("node should be able to join the multicast group");
+
+        sim::udp_receiver_node(node, 1234);
+    }
+
+    // Setup UDP sender
+    sim::udp_sender_node(&mut sim.nodes_mut()[4], 1234, MULTICAST_GROUP);
+
+    let mut pcap_file = Some(
+        sim::PcapFile::new(std::path::Path::new(&format!(
+            "sim_logs/forward_multicast_up_and_down{}.pcap",
+            multicast_receivers
+                .iter()
+                .map(|id| id.to_string())
+                .fold(String::new(), |a, b| a + "-" + &b),
+        )))
+        .unwrap(),
+    );
+
+    sim.init();
+    sim.run(
+        Duration::from_millis(500),
+        Duration::from_secs(60 * 5),
+        pcap_file.as_mut(),
+    );
+
+    assert!(!sim.msgs().is_empty());
+}
+
+#[rstest]
+#[case::root_one(&[4], 0)]
+#[case::child_one(&[4], 4)]
+#[case::root_two(&[4, 2], 0)]
+#[case::child_two(&[4, 2], 4)]
+#[case::root_three(&[4, 2, 3], 0)]
+#[case::child_three(&[4, 2, 3], 4)]
+fn forward_multicast_staged_initialization(
+    #[case] multicast_receivers: &[usize],
+    #[case] multicast_sender: usize,
+) {
+    init();
+
+    const MULTICAST_GROUP: Ipv6Address = Ipv6Address::new(0xff02, 0, 0, 0, 0, 0, 0, 3);
+    let mut sim = sim::topology(
+        sim::NetworkSim::new(),
+        RplModeOfOperation::StoringModeWithMulticast,
+        2,
+        2,
+    );
+    // Subscribe to multicast group
+    for receiver in multicast_receivers {
+        let node = &mut sim.nodes_mut()[*receiver];
+        node.interface
+            .join_multicast_group(&mut node.device, MULTICAST_GROUP, Instant::ZERO)
+            .expect("node should be able to join the multicast group");
+
+        sim::udp_receiver_node(node, 1234);
+    }
+
+    // Setup UDP sender
+    sim::udp_sender_node(
+        &mut sim.nodes_mut()[multicast_sender],
+        1234,
+        MULTICAST_GROUP,
+    );
+
+    let mut pcap_file = Some(
+        sim::PcapFile::new(std::path::Path::new(&format!(
+            "sim_logs/forward_multicast_staged_init_r{}-s{}.pcap",
+            multicast_receivers
+                .iter()
+                .map(|id| id.to_string())
+                .fold(String::new(), |a, b| a + "-" + &b),
+            multicast_sender,
+        )))
+        .unwrap(),
+    );
+
+    let nodes_len = sim.nodes().len();
+    for node in 0..nodes_len {
+        let node = &mut sim.nodes_mut()[node];
+        node.init();
+
+        // Run for a while
+        sim.run(
+            Duration::from_millis(500),
+            Duration::from_secs(60 * 5),
+            pcap_file.as_mut(),
+        );
+        sim.clear_msgs();
+    }
+
+    // At the end run with the entire network up
+    sim.init();
+    sim.run(
+        Duration::from_millis(500),
+        Duration::from_secs(60 * 5),
+        pcap_file.as_mut(),
+    );
+
+    assert!(!sim.msgs().is_empty());
+}
+
+#[rstest]
+#[case::mop0(RplModeOfOperation::NoDownwardRoutesMaintained, None)]
 //#[case::mop1(RplModeOfOperation::NonStoringMode)]
-#[case::mop2(RplModeOfOperation::StoringMode)]
-fn normal_node_change_parent(#[case] mop: RplModeOfOperation) {
+#[case::mop2(RplModeOfOperation::StoringMode, None)]
+#[case::mop3(RplModeOfOperation::StoringModeWithMulticast, None)]
+#[case::mop3_multicast(
+    RplModeOfOperation::StoringModeWithMulticast,
+    Some(Ipv6Address::new(0xff02, 0, 0, 0, 0, 0, 0, 3))
+)]
+fn normal_node_change_parent(
+    #[case] mop: RplModeOfOperation,
+    #[case] multicast_group: Option<Ipv6Address>,
+) {
     init();
 
     let mut sim = sim::topology(sim::NetworkSim::new(), mop, 1, 3);
-    sim.run(Duration::from_millis(500), Duration::from_secs(60 * 5));
+    if let Some(multicast_group) = multicast_group {
+        let last_child = sim.nodes_mut().last_mut().unwrap();
+        last_child
+            .interface
+            .join_multicast_group(&mut last_child.device, multicast_group, Instant::ZERO)
+            .expect("last_child should be able to join the multicast group");
+    }
+
+    sim.init();
+    sim.run(
+        Duration::from_millis(500),
+        Duration::from_secs(60 * 5),
+        None,
+    );
 
     assert!(!sim.msgs().is_empty());
 
@@ -370,7 +649,7 @@ fn normal_node_change_parent(#[case] mop: RplModeOfOperation) {
     sim.nodes_mut()[3].set_position(sim::Position((150., -50.)));
     sim.clear_msgs();
 
-    sim.run(Duration::from_millis(500), ONE_HOUR);
+    sim.run(Duration::from_millis(500), ONE_HOUR, None);
 
     // Counter for sent NO-PATH DAOs
     let mut no_path_dao_count = 0;
@@ -433,9 +712,11 @@ fn normal_node_change_parent(#[case] mop: RplModeOfOperation) {
 #[case::mop0(RplModeOfOperation::NoDownwardRoutesMaintained)]
 //#[case::mop1(RplModeOfOperation::NonStoringMode)]
 #[case::mop2(RplModeOfOperation::StoringMode)]
+#[case::mop3(RplModeOfOperation::StoringModeWithMulticast)]
 fn parent_leaves_network_no_other_parent(#[case] mop: RplModeOfOperation) {
     let mut sim = sim::topology(sim::NetworkSim::new(), mop, 4, 2);
-    sim.run(Duration::from_millis(500), ONE_HOUR);
+    sim.init();
+    sim.run(Duration::from_millis(500), ONE_HOUR, None);
 
     // Parent leaves network, child node does not have an alternative parent.
     // The child node should send INFINITE_RANK DIO and after that only send DIS messages
@@ -444,7 +725,7 @@ fn parent_leaves_network_no_other_parent(#[case] mop: RplModeOfOperation) {
 
     sim.clear_msgs();
 
-    sim.run(Duration::from_millis(500), ONE_HOUR);
+    sim.run(Duration::from_millis(500), ONE_HOUR, None);
 
     let no_parent_node_msgs: Vec<_> = sim.msgs().iter().filter(|m| m.from.0 == 5).collect();
 
@@ -467,6 +748,7 @@ fn parent_leaves_network_no_other_parent(#[case] mop: RplModeOfOperation) {
 // In MOP 2 the DTSN is incremented when a parent does not hear anymore from one of its children.
 #[rstest]
 #[case::mop2(RplModeOfOperation::StoringMode)]
+#[case::mop3(RplModeOfOperation::StoringModeWithMulticast)]
 fn dtsn_incremented_when_child_leaves_network(#[case] mop: RplModeOfOperation) {
     use std::collections::HashMap;
 
@@ -474,14 +756,15 @@ fn dtsn_incremented_when_child_leaves_network(#[case] mop: RplModeOfOperation) {
     sim.nodes_mut()[4].set_position(sim::Position((200., 100.)));
     sim.nodes_mut()[5].set_position(sim::Position((-100., 0.)));
 
-    sim.run(Duration::from_millis(500), ONE_HOUR);
+    sim.init();
+    sim.run(Duration::from_millis(500), ONE_HOUR, None);
 
     // One node is moved out of the range of its parent.
     sim.nodes_mut()[4].set_position(sim::Position((500., 500.)));
 
     sim.clear_msgs();
 
-    sim.run(Duration::from_millis(500), ONE_HOUR);
+    sim.run(Duration::from_millis(500), ONE_HOUR, None);
 
     // Keep track of when was the first DIO with increased DTSN sent
     let mut dio_at = Instant::ZERO;

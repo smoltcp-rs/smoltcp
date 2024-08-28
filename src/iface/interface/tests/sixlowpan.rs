@@ -18,7 +18,8 @@ fn ieee802154_wrong_pan_id(#[case] medium: Medium) {
             &mut sockets,
             PacketMeta::default(),
             &data[..],
-            &mut iface.fragments
+            &mut iface.fragments,
+            &mut PacketBuffer::new(vec![], vec![]),
         ),
         response,
     );
@@ -73,7 +74,8 @@ fn icmp_echo_request(#[case] medium: Medium) {
             &mut sockets,
             PacketMeta::default(),
             &data[..],
-            &mut iface.fragments
+            &mut iface.fragments,
+            &mut PacketBuffer::new(vec![], vec![]),
         ),
         response,
     );
@@ -176,7 +178,8 @@ fn test_echo_request_sixlowpan_128_bytes() {
             PacketMeta::default(),
             &ieee802154_repr,
             &request_first_part_packet.into_inner()[..],
-            &mut iface.fragments
+            &mut iface.fragments,
+            &mut PacketBuffer::new(vec![], vec![]),
         ),
         None
     );
@@ -204,6 +207,7 @@ fn test_echo_request_sixlowpan_128_bytes() {
             &ieee802154_repr,
             &request_second_part,
             &mut iface.fragments,
+            &mut PacketBuffer::new(vec![], vec![]),
         )
         .unwrap()
     {
@@ -346,7 +350,8 @@ fn test_sixlowpan_udp_with_fragmentation() {
             PacketMeta::default(),
             &ieee802154_repr,
             udp_first_part,
-            &mut iface.fragments
+            &mut iface.fragments,
+            &mut PacketBuffer::new(vec![], vec![]),
         ),
         None
     );
@@ -366,7 +371,8 @@ fn test_sixlowpan_udp_with_fragmentation() {
             PacketMeta::default(),
             &ieee802154_repr,
             udp_second_part,
-            &mut iface.fragments
+            &mut iface.fragments,
+            &mut PacketBuffer::new(vec![], vec![]),
         ),
         None
     );

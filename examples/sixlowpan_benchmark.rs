@@ -49,6 +49,7 @@ use std::str;
 use smoltcp::iface::{Config, Interface, SocketSet};
 use smoltcp::phy::{wait as phy_wait, Device, Medium, RawSocket};
 use smoltcp::socket::tcp;
+use smoltcp::storage::PacketMetadata;
 use smoltcp::wire::{EthernetAddress, Ieee802154Address, Ieee802154Pan, IpAddress, IpCidr};
 
 //For benchmark
@@ -159,7 +160,13 @@ fn main() {
     config.random_seed = rand::random();
     config.pan_id = Some(Ieee802154Pan(0xbeef));
 
-    let mut iface = Interface::new(config, &mut device, Instant::now());
+    let mut iface = Interface::new(
+        config,
+        &mut device,
+        vec![PacketMetadata::EMPTY; 16],
+        vec![0; 2048],
+        Instant::now(),
+    );
     iface.update_ip_addrs(|ip_addrs| {
         ip_addrs
             .push(IpCidr::new(

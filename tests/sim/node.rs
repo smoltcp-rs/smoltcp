@@ -1,9 +1,11 @@
 use super::Message;
 use super::Position;
 use smoltcp::iface::*;
+use smoltcp::storage::PacketMetadata;
 use smoltcp::time::*;
 use smoltcp::wire::*;
 use std::collections::VecDeque;
+use std::fmt::Display;
 
 type InitFn = Box<dyn Fn(&mut SocketSet<'static>) -> Vec<SocketHandle> + Send + Sync + 'static>;
 
@@ -28,12 +30,19 @@ pub struct Node {
     pub pan_id: Ieee802154Pan,
     pub device: NodeDevice,
     pub last_transmitted: Instant,
-    pub interface: Interface,
+    pub interface: Interface<'static>,
     pub sockets: SocketSet<'static>,
     pub socket_handles: Vec<SocketHandle>,
     pub init: Option<InitFn>,
     pub application: Option<AppFn>,
     pub next_poll: Option<Instant>,
+}
+
+impl Display for Node {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Node[{}] with {}", self.id, self.device)?;
+        Ok(())
+    }
 }
 
 impl Node {
@@ -56,7 +65,13 @@ impl Node {
         config.rpl_config = Some(rpl);
         config.random_seed = Instant::now().total_micros() as u64;
 
-        let mut interface = Interface::new(config, &mut device, Instant::ZERO);
+        let mut interface = Interface::<'static>::new(
+            config,
+            &mut device,
+            vec![PacketMetadata::EMPTY; 16],
+            vec![0; 2048],
+            Instant::ZERO,
+        );
         interface.update_ip_addrs(|addresses| {
             addresses
                 .push(IpCidr::Ipv6(Ipv6Cidr::new(ipv6_address, 10)))
@@ -64,10 +79,10 @@ impl Node {
         });
 
         Self {
-            id: id as usize,
+            id,
             range: 101.,
             position: Position::from((0., 0.)),
-            enabled: true,
+            enabled: false,
             is_sending: false,
             parent_changed: false,
             previous_parent: None,
@@ -83,6 +98,15 @@ impl Node {
             application: None,
             next_poll: Some(Instant::ZERO),
             last_transmitted: Instant::ZERO,
+        }
+    }
+
+    /// Initializes the node
+    pub fn init(&mut self) {
+        self.enabled = true;
+        if let Some(init) = &self.init {
+            let handles = init(&mut self.sockets);
+            self.socket_handles = handles;
         }
     }
 
@@ -121,6 +145,20 @@ pub struct NodeDevice {
     pub position: Position,
     pub rx_queue: VecDeque<Message>,
     pub tx_queue: VecDeque<Message>,
+}
+
+impl Display for NodeDevice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "NodeDevice[{}] at ({}, {})",
+            self.id,
+            self.position.x(),
+            self.position.y()
+        )?;
+
+        Ok(())
+    }
 }
 
 impl NodeDevice {
