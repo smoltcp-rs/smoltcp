@@ -47,3 +47,11 @@ jobs:
       - uses: actions/checkout@v4
       - name: Run Tests nightly
         run: ./ci.sh test nightly
+
+  test-build-16bit:
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build for target with 16 bit pointer
+        run: ./ci.sh build_16bit

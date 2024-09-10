@@ -82,6 +82,16 @@ clippy() {
     cargo +$MSRV clippy --tests --examples -- -D warnings
 }
 
+build_16bit() {
+    rustup toolchain install nightly
+    rustup +nightly component add rust-src
+
+    TARGET_WITH_16BIT_POINTER=msp430-none-elf
+    for features in ${FEATURES_CHECK[@]}; do
+        cargo +nightly build -Z build-std=core,alloc --target $TARGET_WITH_16BIT_POINTER --no-default-features --features=$features
+    done
+}
+
 coverage() {
     for features in ${FEATURES_TEST[@]}; do
         cargo llvm-cov --no-report --no-default-features --features "$features"
@@ -119,6 +129,10 @@ fi
 
 if [[ $1 == "clippy" || $1 == "all" ]]; then
     clippy
+fi
+
+if [[ $1 == "build_16bit" || $1 == "all" ]]; then
+    build_16bit
 fi
 
 if [[ $1 == "coverage" || $1 == "all" ]]; then

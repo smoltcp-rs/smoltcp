@@ -5,7 +5,7 @@
 use core::fmt::Display;
 #[cfg(feature = "async")]
 use core::task::Waker;
-use core::{cmp, fmt, mem};
+use core::{fmt, mem};
 
 #[cfg(feature = "async")]
 use crate::socket::WakerRegistration;
@@ -510,6 +510,7 @@ impl<'a> Socket<'a> {
         // [...] the above constraints imply that 2 * the max window size must be less
         // than 2**31 [...] Thus, the shift count must be limited to 14 (which allows
         // windows of 2**30 = 1 Gbyte).
+        #[cfg(not(target_pointer_width = "16"))] // Prevent overflow
         if rx_capacity > (1 << 30) {
             panic!("receiving buffer too large, cannot exceed 1 GiB")
         }
@@ -676,10 +677,7 @@ impl<'a> Socket<'a> {
     /// Used in internal calculations as well as packet generation.
     #[inline]
     fn scaled_window(&self) -> u16 {
-        cmp::min(
-            self.rx_buffer.window() >> self.remote_win_shift as usize,
-            (1 << 16) - 1,
-        ) as u16
+        u16::try_from(self.rx_buffer.window() >> self.remote_win_shift).unwrap_or(u16::MAX)
     }
 
     /// Return the last window field value, including scaling according to RFC 1323.
@@ -698,7 +696,7 @@ impl<'a> Socket<'a> {
         let last_win = (self.remote_last_win as usize) << self.remote_win_shift;
         let last_win_adjusted = last_ack + last_win - next_ack;
 
-        Some(cmp::min(last_win_adjusted >> self.remote_win_shift, (1 << 16) - 1) as u16)
+        Some(u16::try_from(last_win_adjusted >> self.remote_win_shift).unwrap_or(u16::MAX))
     }
 
     /// Set the timeout duration.
@@ -2335,7 +2333,7 @@ impl<'a> Socket<'a> {
             State::SynSent | State::SynReceived => {
                 repr.control = TcpControl::Syn;
                 // window len must NOT be scaled in SYNs.
-                repr.window_len = self.rx_buffer.window().min((1 << 16) - 1) as u16;
+                repr.window_len = u16::try_from(self.rx_buffer.window()).unwrap_or(u16::MAX);
                 if self.state == State::SynSent {
                     repr.ack_number = None;
                     repr.window_scale = Some(self.remote_win_shift);
@@ -3075,7 +3073,7 @@ mod test {
                     ack_number: Some(REMOTE_SEQ + 1),
                     max_seg_size: Some(BASE_MSS),
                     window_scale: Some(*shift_amt),
-                    window_len: cmp::min(*buffer_size, 65535) as u16,
+                    window_len: u16::try_from(*buffer_size).unwrap_or(u16::MAX),
                     ..RECV_TEMPL
                 }]
             );
@@ -3810,7 +3808,7 @@ mod test {
                     ack_number: None,
                     max_seg_size: Some(BASE_MSS),
                     window_scale: Some(*shift_amt),
-                    window_len: cmp::min(*buffer_size, 65535) as u16,
+                    window_len: u16::try_from(*buffer_size).unwrap_or(u16::MAX),
                     sack_permitted: true,
                     ..RECV_TEMPL
                 }]
