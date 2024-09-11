@@ -894,7 +894,6 @@ impl InterfaceInner {
     fn lookup_hardware_addr<Tx>(
         &mut self,
         tx_token: Tx,
-        src_addr: &IpAddress,
         dst_addr: &IpAddress,
         fragmenter: &mut Fragmenter,
     ) -> Result<(HardwareAddress, Tx), DispatchError>
@@ -962,11 +961,9 @@ impl InterfaceInner {
             _ => (), // XXX
         }
 
-        match (src_addr, dst_addr) {
+        match dst_addr {
             #[cfg(all(feature = "medium-ethernet", feature = "proto-ipv4"))]
-            (&IpAddress::Ipv4(src_addr), IpAddress::Ipv4(dst_addr))
-                if matches!(self.caps.medium, Medium::Ethernet) =>
-            {
+            IpAddress::Ipv4(dst_addr) if matches!(self.caps.medium, Medium::Ethernet) => {
                 net_debug!(
                     "address {} not in neighbor cache, sending ARP request",
                     dst_addr
@@ -976,7 +973,9 @@ impl InterfaceInner {
                 let arp_repr = ArpRepr::EthernetIpv4 {
                     operation: ArpOperation::Request,
                     source_hardware_addr: src_hardware_addr,
-                    source_protocol_addr: src_addr,
+                    source_protocol_addr: self
+                        .get_source_address_ipv4(&dst_addr)
+                        .ok_or(DispatchError::NoRoute)?,
                     target_hardware_addr: EthernetAddress::BROADCAST,
                     target_protocol_addr: dst_addr,
                 };
@@ -995,7 +994,7 @@ impl InterfaceInner {
             }
 
             #[cfg(feature = "proto-ipv6")]
-            (&IpAddress::Ipv6(src_addr), IpAddress::Ipv6(dst_addr)) => {
+            IpAddress::Ipv6(dst_addr) => {
                 net_debug!(
                     "address {} not in neighbor cache, sending Neighbor Solicitation",
                     dst_addr
@@ -1008,7 +1007,7 @@ impl InterfaceInner {
 
                 let packet = Packet::new_ipv6(
                     Ipv6Repr {
-                        src_addr,
+                        src_addr: self.get_source_address_ipv6(&dst_addr),
                         dst_addr: dst_addr.solicited_node(),
                         next_header: IpProtocol::Icmpv6,
                         payload_len: solicit.buffer_len(),
@@ -1055,12 +1054,8 @@ impl InterfaceInner {
 
         #[cfg(feature = "medium-ieee802154")]
         if matches!(self.caps.medium, Medium::Ieee802154) {
-            let (addr, tx_token) = self.lookup_hardware_addr(
-                tx_token,
-                &ip_repr.src_addr(),
-                &ip_repr.dst_addr(),
-                frag,
-            )?;
+            let (addr, tx_token) =
+                self.lookup_hardware_addr(tx_token, &ip_repr.dst_addr(), frag)?;
             let addr = addr.ieee802154_or_panic();
 
             self.dispatch_ieee802154(addr, tx_token, meta, packet, frag);
@@ -1087,12 +1082,7 @@ impl InterfaceInner {
         #[cfg(feature = "medium-ethernet")]
         let (dst_hardware_addr, mut tx_token) = match self.caps.medium {
             Medium::Ethernet => {
-                match self.lookup_hardware_addr(
-                    tx_token,
-                    &ip_repr.src_addr(),
-                    &ip_repr.dst_addr(),
-                    frag,
-                )? {
+                match self.lookup_hardware_addr(tx_token, &ip_repr.dst_addr(), frag)? {
                     (HardwareAddress::Ethernet(addr), tx_token) => (addr, tx_token),
                     (_, _) => unreachable!(),
                 }
