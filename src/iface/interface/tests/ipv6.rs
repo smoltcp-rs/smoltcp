@@ -1289,7 +1289,7 @@ fn test_join_ipv6_multicast_group(#[case] medium: Medium) {
             .collect::<std::vec::Vec<_>>()
     }
 
-    let (mut iface, _sockets, mut device) = setup(medium);
+    let (mut iface, mut sockets, mut device) = setup(medium);
 
     let groups = [
         Ipv6Address::from_parts(&[0xff05, 0, 0, 0, 0, 0, 0, 0x00fb]),
@@ -1299,11 +1299,11 @@ fn test_join_ipv6_multicast_group(#[case] medium: Medium) {
     let timestamp = Instant::from_millis(0);
 
     for &group in &groups {
-        iface
-            .join_multicast_group(&mut device, group, timestamp)
-            .unwrap();
+        iface.join_multicast_group(group).unwrap();
         assert!(iface.has_multicast_group(group));
     }
+    assert!(iface.has_multicast_group(Ipv6Address::LINK_LOCAL_ALL_NODES));
+    iface.poll(timestamp, &mut device, &mut sockets);
     assert!(iface.has_multicast_group(Ipv6Address::LINK_LOCAL_ALL_NODES));
 
     let reports = recv_icmpv6(&mut device, timestamp);
@@ -1374,9 +1374,9 @@ fn test_join_ipv6_multicast_group(#[case] medium: Medium) {
             }
         );
 
-        iface
-            .leave_multicast_group(&mut device, group_addr, timestamp)
-            .unwrap();
+        iface.leave_multicast_group(group_addr).unwrap();
+        assert!(!iface.has_multicast_group(group_addr));
+        iface.poll(timestamp, &mut device, &mut sockets);
         assert!(!iface.has_multicast_group(group_addr));
     }
 }
