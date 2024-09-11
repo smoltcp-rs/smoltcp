@@ -456,7 +456,6 @@ fn test_handle_valid_arp_request(#[case] medium: Medium) {
     assert_eq!(
         iface.inner.lookup_hardware_addr(
             MockTxToken,
-            &IpAddress::Ipv4(local_ip_addr),
             &IpAddress::Ipv4(remote_ip_addr),
             &mut iface.fragmenter,
         ),
@@ -505,7 +504,6 @@ fn test_handle_other_arp_request(#[case] medium: Medium) {
     assert_eq!(
         iface.inner.lookup_hardware_addr(
             MockTxToken,
-            &IpAddress::Ipv4(Ipv4Address([0x7f, 0x00, 0x00, 0x01])),
             &IpAddress::Ipv4(remote_ip_addr),
             &mut iface.fragmenter,
         ),
@@ -564,7 +562,6 @@ fn test_arp_flush_after_update_ip(#[case] medium: Medium) {
     assert_eq!(
         iface.inner.lookup_hardware_addr(
             MockTxToken,
-            &IpAddress::Ipv4(local_ip_addr),
             &IpAddress::Ipv4(remote_ip_addr),
             &mut iface.fragmenter,
         ),

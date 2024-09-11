@@ -834,7 +834,6 @@ fn test_handle_valid_ndisc_request(#[case] medium: Medium) {
     assert_eq!(
         iface.inner.lookup_hardware_addr(
             MockTxToken,
-            &IpAddress::Ipv6(local_ip_addr),
             &IpAddress::Ipv6(remote_ip_addr),
             &mut iface.fragmenter,
         ),
