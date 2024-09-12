@@ -209,7 +209,7 @@ impl InterfaceInner {
         match ipv4_repr.next_header {
             IpProtocol::Icmp => self.process_icmpv4(sockets, ipv4_repr, ip_payload),
 
-            #[cfg(feature = "proto-igmp")]
+            #[cfg(feature = "multicast")]
             IpProtocol::Igmp => self.process_igmp(ipv4_repr, ip_payload),
 
             #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
@@ -462,49 +462,6 @@ impl InterfaceInner {
 
             // Update the frag offset for the next fragment.
             frag.ipv4.frag_offset += payload_len as u16;
-        })
-    }
-
-    #[cfg(feature = "proto-igmp")]
-    pub(super) fn igmp_report_packet<'any>(
-        &self,
-        version: IgmpVersion,
-        group_addr: Ipv4Address,
-    ) -> Option<Packet<'any>> {
-        let iface_addr = self.ipv4_addr()?;
-        let igmp_repr = IgmpRepr::MembershipReport {
-            group_addr,
-            version,
-        };
-        let pkt = Packet::new_ipv4(
-            Ipv4Repr {
-                src_addr: iface_addr,
-                // Send to the group being reported
-                dst_addr: group_addr,
-                next_header: IpProtocol::Igmp,
-                payload_len: igmp_repr.buffer_len(),
-                hop_limit: 1,
-                // [#183](https://github.com/m-labs/smoltcp/issues/183).
-            },
-            IpPayload::Igmp(igmp_repr),
-        );
-        Some(pkt)
-    }
-
-    #[cfg(feature = "proto-igmp")]
-    pub(super) fn igmp_leave_packet<'any>(&self, group_addr: Ipv4Address) -> Option<Packet<'any>> {
-        self.ipv4_addr().map(|iface_addr| {
-            let igmp_repr = IgmpRepr::LeaveGroup { group_addr };
-            Packet::new_ipv4(
-                Ipv4Repr {
-                    src_addr: iface_addr,
-                    dst_addr: Ipv4Address::MULTICAST_ALL_ROUTERS,
-                    next_header: IpProtocol::Igmp,
-                    payload_len: igmp_repr.buffer_len(),
-                    hop_limit: 1,
-                },
-                IpPayload::Igmp(igmp_repr),
-            )
         })
     }
 }

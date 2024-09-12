@@ -659,9 +659,9 @@ fn test_icmpv4_socket(#[case] medium: Medium) {
 
 #[rstest]
 #[case(Medium::Ip)]
-#[cfg(all(feature = "proto-igmp", feature = "medium-ip"))]
+#[cfg(all(feature = "multicast", feature = "medium-ip"))]
 #[case(Medium::Ethernet)]
-#[cfg(all(feature = "proto-igmp", feature = "medium-ethernet"))]
+#[cfg(all(feature = "multicast", feature = "medium-ethernet"))]
 fn test_handle_igmp(#[case] medium: Medium) {
     fn recv_igmp(
         device: &mut crate::tests::TestingDevice,

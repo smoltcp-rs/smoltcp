@@ -50,7 +50,6 @@ defmt = ["dep:defmt", "heapless/defmt-03"]
 
 "proto-ipv4" = []
 "proto-ipv4-fragmentation" = ["proto-ipv4", "_proto-fragmentation"]
-"proto-igmp" = ["proto-ipv4"]
 "proto-dhcpv4" = ["proto-ipv4"]
 "proto-ipv6" = []
 "proto-ipv6-hbh" = ["proto-ipv6"]
@@ -63,6 +62,8 @@ defmt = ["dep:defmt", "heapless/defmt-03"]
 "proto-ipsec" = ["proto-ipsec-ah", "proto-ipsec-esp"]
 "proto-ipsec-ah" = []
 "proto-ipsec-esp" = []
+
+"multicast" = []
 
 "socket" = []
 "socket-raw" = ["socket"]
@@ -96,10 +97,10 @@ default = [
   "std", "log", # needed for `cargo test --no-default-features --features default` :/
   "medium-ethernet", "medium-ip", "medium-ieee802154",
   "phy-raw_socket", "phy-tuntap_interface",
-  "proto-ipv4", "proto-igmp", "proto-dhcpv4", "proto-ipv6", "proto-dns",
+  "proto-ipv4",  "proto-dhcpv4", "proto-ipv6", "proto-dns",
   "proto-ipv4-fragmentation", "proto-sixlowpan-fragmentation",
   "socket-raw", "socket-icmp", "socket-udp", "socket-tcp", "socket-dhcpv4", "socket-dns", "socket-mdns",
-  "packetmeta-id", "async"
+  "packetmeta-id", "async", "multicast"
 ]
 
 # Private features
@@ -301,7 +302,7 @@ required-features = ["std", "log", "medium-ethernet", "proto-ipv4", "socket-tcp"
 
 [[example]]
 name = "multicast"
-required-features = ["std", "medium-ethernet", "medium-ip", "phy-tuntap_interface", "proto-ipv4", "proto-igmp", "socket-udp"]
+required-features = ["std", "medium-ethernet", "medium-ip", "phy-tuntap_interface", "proto-ipv4", "multicast", "socket-udp"]
 
 [[example]]
 name = "multicast6"
