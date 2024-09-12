@@ -66,7 +66,7 @@ fn main() {
 
     // Join a multicast group
     iface
-        .join_multicast_group(&mut device, Ipv6Address::from_parts(&GROUP), Instant::now())
+        .join_multicast_group(Ipv6Address::from_parts(&GROUP))
         .unwrap();
 
     loop {

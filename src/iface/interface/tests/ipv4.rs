@@ -702,10 +702,9 @@ fn test_handle_igmp(#[case] medium: Medium) {
     // Join multicast groups
     let timestamp = Instant::ZERO;
     for group in &groups {
-        iface
-            .join_multicast_group(&mut device, *group, timestamp)
-            .unwrap();
+        iface.join_multicast_group(*group).unwrap();
     }
+    iface.poll(timestamp, &mut device, &mut sockets);
 
     let reports = recv_igmp(&mut device, timestamp);
     assert_eq!(reports.len(), 2);
@@ -745,10 +744,9 @@ fn test_handle_igmp(#[case] medium: Medium) {
     // Leave multicast groups
     let timestamp = Instant::ZERO;
     for group in &groups {
-        iface
-            .leave_multicast_group(&mut device, *group, timestamp)
-            .unwrap();
+        iface.leave_multicast_group(*group).unwrap();
     }
+    iface.poll(timestamp, &mut device, &mut sockets);
 
     let leaves = recv_igmp(&mut device, timestamp);
     assert_eq!(leaves.len(), 2);

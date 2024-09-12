@@ -82,6 +82,16 @@ pub struct Interface {
     fragmenter: Fragmenter,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MulticastGroupState {
+    /// Joining group, we have to send the join packet.
+    Joining,
+    /// We've already sent the join packet, we have nothing to do.
+    Joined,
+    /// We want to leave the group, we have to send a leave packet.
+    Leaving,
+}
+
 /// The device independent part of an Ethernet network interface.
 ///
 /// Separating the device from the data required for processing and dispatching makes
@@ -112,7 +122,7 @@ pub struct InterfaceInner {
     any_ip: bool,
     routes: Routes,
     #[cfg(any(feature = "proto-igmp", feature = "proto-ipv6"))]
-    multicast_groups: LinearMap<IpAddress, (), IFACE_MAX_MULTICAST_GROUP_COUNT>,
+    multicast_groups: LinearMap<IpAddress, MulticastGroupState, IFACE_MAX_MULTICAST_GROUP_COUNT>,
     /// When to report for (all or) the next multicast group membership via IGMP
     #[cfg(feature = "proto-igmp")]
     igmp_report_state: IgmpReportState,
@@ -437,7 +447,7 @@ impl Interface {
 
         #[cfg(feature = "proto-igmp")]
         {
-            readiness_may_have_changed |= self.igmp_egress(device);
+            readiness_may_have_changed |= self.multicast_egress(device);
         }
 
         readiness_may_have_changed
@@ -749,18 +759,29 @@ impl InterfaceInner {
     /// If built without feature `proto-igmp` this function will
     /// always return `false` when using IPv4.
     fn has_multicast_group<T: Into<IpAddress>>(&self, addr: T) -> bool {
+        /// Return false if we don't have the multicast group,
+        /// or we're leaving it.
+        fn wanted_state(x: Option<&MulticastGroupState>) -> bool {
+            match x {
+                None => false,
+                Some(MulticastGroupState::Joining) => true,
+                Some(MulticastGroupState::Joined) => true,
+                Some(MulticastGroupState::Leaving) => false,
+            }
+        }
+
         let addr = addr.into();
         match addr {
             #[cfg(feature = "proto-igmp")]
             IpAddress::Ipv4(key) => {
                 key == Ipv4Address::MULTICAST_ALL_SYSTEMS
-                    || self.multicast_groups.get(&addr).is_some()
+                    || wanted_state(self.multicast_groups.get(&addr))
             }
             #[cfg(feature = "proto-ipv6")]
             IpAddress::Ipv6(key) => {
                 key == Ipv6Address::LINK_LOCAL_ALL_NODES
                     || self.has_solicited_node(key)
-                    || self.multicast_groups.get(&addr).is_some()
+                    || wanted_state(self.multicast_groups.get(&addr))
             }
             #[cfg(feature = "proto-rpl")]
             IpAddress::Ipv6(Ipv6Address::LINK_LOCAL_ALL_RPL_NODES) => true,
