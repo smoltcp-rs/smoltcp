@@ -93,7 +93,7 @@ mod icmpv4;
 mod icmpv6;
 #[cfg(feature = "medium-ieee802154")]
 pub mod ieee802154;
-#[cfg(feature = "proto-igmp")]
+#[cfg(feature = "proto-ipv4")]
 mod igmp;
 pub(crate) mod ip;
 #[cfg(feature = "proto-ipv4")]
@@ -225,7 +225,7 @@ pub use self::icmpv4::{
     TimeExceeded as Icmpv4TimeExceeded,
 };
 
-#[cfg(feature = "proto-igmp")]
+#[cfg(feature = "proto-ipv4")]
 pub use self::igmp::{IgmpVersion, Packet as IgmpPacket, Repr as IgmpRepr};
 
 #[cfg(feature = "proto-ipv6")]
