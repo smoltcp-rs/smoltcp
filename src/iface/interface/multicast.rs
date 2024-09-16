@@ -145,10 +145,7 @@ impl Interface {
     /// - Send join/leave packets according to the multicast group state.
     /// - Depending on `igmp_report_state` and the therein contained
     ///   timeouts, send IGMP membership reports.
-    pub(crate) fn multicast_egress<D>(&mut self, device: &mut D)
-    where
-        D: Device + ?Sized,
-    {
+    pub(crate) fn multicast_egress(&mut self, device: &mut (impl Device + ?Sized)) {
         // Process multicast joins.
         while let Some((&addr, _)) = self
             .inner
