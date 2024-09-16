@@ -68,6 +68,12 @@ check() {
     for features in ${FEATURES_CHECK[@]}; do
         cargo +$version check --no-default-features --features "$features"
     done
+
+    cargo +$version check --examples
+
+    if [[ $version == "nightly" ]]; then
+        cargo +$version check --benches
+    fi
 }
 
 clippy() {
