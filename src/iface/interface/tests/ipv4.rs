@@ -721,20 +721,14 @@ fn test_handle_igmp(#[case] medium: Medium) {
     }
 
     // General query
-    let timestamp = Instant::ZERO;
     const GENERAL_QUERY_BYTES: &[u8] = &[
         0x46, 0xc0, 0x00, 0x24, 0xed, 0xb4, 0x00, 0x00, 0x01, 0x02, 0x47, 0x43, 0xac, 0x16, 0x63,
         0x04, 0xe0, 0x00, 0x00, 0x01, 0x94, 0x04, 0x00, 0x00, 0x11, 0x64, 0xec, 0x8f, 0x00, 0x00,
         0x00, 0x00, 0x02, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00,
     ];
-    {
-        // Transmit GENERAL_QUERY_BYTES into loopback
-        let tx_token = device.transmit(timestamp).unwrap();
-        tx_token.consume(GENERAL_QUERY_BYTES.len(), |buffer| {
-            buffer.copy_from_slice(GENERAL_QUERY_BYTES);
-        });
-    }
+    device.rx_queue.push_back(GENERAL_QUERY_BYTES.to_vec());
+
     // Trigger processing until all packets received through the
     // loopback have been processed, including responses to
     // GENERAL_QUERY_BYTES. Therefore `recv_all()` would return 0

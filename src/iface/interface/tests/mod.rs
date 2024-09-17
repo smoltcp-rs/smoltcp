@@ -30,10 +30,8 @@ fn fill_slice(s: &mut [u8], val: u8) {
 #[allow(unused)]
 fn recv_all(device: &mut crate::tests::TestingDevice, timestamp: Instant) -> Vec<Vec<u8>> {
     let mut pkts = Vec::new();
-    while let Some((rx, _tx)) = device.receive(timestamp) {
-        rx.consume(|pkt| {
-            pkts.push(pkt.to_vec());
-        });
+    while let Some(pkt) = device.tx_queue.pop_front() {
+        pkts.push(pkt)
     }
     pkts
 }

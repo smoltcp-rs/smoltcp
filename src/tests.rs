@@ -1,4 +1,8 @@
+use std::collections::VecDeque;
+
 use crate::iface::*;
+use crate::phy::{self, Device, DeviceCapabilities, Medium};
+use crate::time::Instant;
 use crate::wire::*;
 
 pub(crate) fn setup<'a>(medium: Medium) -> (Interface, SocketSet<'a>, TestingDevice) {
@@ -49,16 +53,11 @@ pub(crate) fn setup<'a>(medium: Medium) -> (Interface, SocketSet<'a>, TestingDev
     (iface, SocketSet::new(vec![]), device)
 }
 
-use heapless::Deque;
-use heapless::Vec;
-
-use crate::phy::{self, Device, DeviceCapabilities, Medium};
-use crate::time::Instant;
-
 /// A testing device.
 #[derive(Debug)]
 pub struct TestingDevice {
-    pub(crate) queue: Deque<Vec<u8, 1514>, 4>,
+    pub(crate) tx_queue: VecDeque<Vec<u8>>,
+    pub(crate) rx_queue: VecDeque<Vec<u8>>,
     max_transmission_unit: usize,
     medium: Medium,
 }
@@ -71,7 +70,8 @@ impl TestingDevice {
     /// in FIFO order.
     pub fn new(medium: Medium) -> Self {
         TestingDevice {
-            queue: Deque::new(),
+            tx_queue: VecDeque::new(),
+            rx_queue: VecDeque::new(),
             max_transmission_unit: match medium {
                 #[cfg(feature = "medium-ethernet")]
                 Medium::Ethernet => 1514,
@@ -98,10 +98,10 @@ impl Device for TestingDevice {
     }
 
     fn receive(&mut self, _timestamp: Instant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
-        self.queue.pop_front().map(move |buffer| {
+        self.rx_queue.pop_front().map(move |buffer| {
             let rx = RxToken { buffer };
             let tx = TxToken {
-                queue: &mut self.queue,
+                queue: &mut self.tx_queue,
             };
             (rx, tx)
         })
@@ -109,14 +109,14 @@ impl Device for TestingDevice {
 
     fn transmit(&mut self, _timestamp: Instant) -> Option<Self::TxToken<'_>> {
         Some(TxToken {
-            queue: &mut self.queue,
+            queue: &mut self.tx_queue,
         })
     }
 }
 
 #[doc(hidden)]
 pub struct RxToken {
-    buffer: Vec<u8, 1514>,
+    buffer: Vec<u8>,
 }
 
 impl phy::RxToken for RxToken {
@@ -131,7 +131,7 @@ impl phy::RxToken for RxToken {
 #[doc(hidden)]
 #[derive(Debug)]
 pub struct TxToken<'a> {
-    queue: &'a mut Deque<Vec<u8, 1514>, 4>,
+    queue: &'a mut VecDeque<Vec<u8>>,
 }
 
 impl<'a> phy::TxToken for TxToken<'a> {
@@ -139,10 +139,9 @@ impl<'a> phy::TxToken for TxToken<'a> {
     where
         F: FnOnce(&mut [u8]) -> R,
     {
-        let mut buffer = Vec::new();
-        buffer.resize(len, 0).unwrap();
+        let mut buffer = vec![0; len];
         let result = f(&mut buffer);
-        self.queue.push_back(buffer).unwrap();
+        self.queue.push_back(buffer);
         result
     }
 }
