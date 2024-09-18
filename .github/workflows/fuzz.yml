@@ -10,7 +10,7 @@ jobs:
     env:
       RUSTUP_TOOLCHAIN: nightly
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Install cargo-fuzz
         run: cargo install cargo-fuzz
       - name: Fuzz
