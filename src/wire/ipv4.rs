@@ -108,6 +108,32 @@ impl Address {
     pub const fn into_address(self) -> super::IpAddress {
         super::IpAddress::Ipv4(self)
     }
+
+    /// If `self` is a CIDR-compatible subnet mask, return `Some(prefix_len)`,
+    /// where `prefix_len` is the number of leading zeroes. Return `None` otherwise.
+    pub fn prefix_len(&self) -> Option<u8> {
+        let mut ones = true;
+        let mut prefix_len = 0;
+        for byte in self.as_bytes() {
+            let mut mask = 0x80;
+            for _ in 0..8 {
+                let one = *byte & mask != 0;
+                if ones {
+                    // Expect 1s until first 0
+                    if one {
+                        prefix_len += 1;
+                    } else {
+                        ones = false;
+                    }
+                } else if one {
+                    // 1 where 0 was expected
+                    return None;
+                }
+                mask >>= 1;
+            }
+        }
+        Some(prefix_len)
+    }
 }
 
 impl From<::core::net::Ipv4Addr> for Address {
