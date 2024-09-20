@@ -830,7 +830,7 @@ impl InterfaceInner {
 
         match addr {
             #[cfg(feature = "proto-ipv4")]
-            IpAddress::Ipv4(key) => key == Ipv4Address::MULTICAST_ALL_SYSTEMS,
+            IpAddress::Ipv4(key) => key == IPV4_MULTICAST_ALL_SYSTEMS,
             #[cfg(feature = "proto-rpl")]
             IpAddress::Ipv6(Ipv6Address::LINK_LOCAL_ALL_RPL_NODES) => true,
             #[cfg(feature = "proto-ipv6")]
@@ -987,30 +987,35 @@ impl InterfaceInner {
         }
 
         if dst_addr.is_multicast() {
-            let b = dst_addr.as_bytes();
             let hardware_addr = match *dst_addr {
                 #[cfg(feature = "proto-ipv4")]
-                IpAddress::Ipv4(_addr) => match self.caps.medium {
+                IpAddress::Ipv4(addr) => match self.caps.medium {
                     #[cfg(feature = "medium-ethernet")]
-                    Medium::Ethernet => HardwareAddress::Ethernet(EthernetAddress::from_bytes(&[
-                        0x01,
-                        0x00,
-                        0x5e,
-                        b[1] & 0x7F,
-                        b[2],
-                        b[3],
-                    ])),
+                    Medium::Ethernet => {
+                        let b = addr.octets();
+                        HardwareAddress::Ethernet(EthernetAddress::from_bytes(&[
+                            0x01,
+                            0x00,
+                            0x5e,
+                            b[1] & 0x7F,
+                            b[2],
+                            b[3],
+                        ]))
+                    }
                     #[cfg(feature = "medium-ieee802154")]
                     Medium::Ieee802154 => unreachable!(),
                     #[cfg(feature = "medium-ip")]
                     Medium::Ip => unreachable!(),
                 },
                 #[cfg(feature = "proto-ipv6")]
-                IpAddress::Ipv6(_addr) => match self.caps.medium {
+                IpAddress::Ipv6(addr) => match self.caps.medium {
                     #[cfg(feature = "medium-ethernet")]
-                    Medium::Ethernet => HardwareAddress::Ethernet(EthernetAddress::from_bytes(&[
-                        0x33, 0x33, b[12], b[13], b[14], b[15],
-                    ])),
+                    Medium::Ethernet => {
+                        let b = addr.as_bytes();
+                        HardwareAddress::Ethernet(EthernetAddress::from_bytes(&[
+                            0x33, 0x33, b[12], b[13], b[14], b[15],
+                        ]))
+                    }
                     #[cfg(feature = "medium-ieee802154")]
                     Medium::Ieee802154 => {
                         // Not sure if this is correct

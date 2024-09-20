@@ -6,10 +6,10 @@ use core::iter;
 use core::iter::Iterator;
 
 use super::{Error, Result};
-#[cfg(feature = "proto-ipv4")]
-use crate::wire::Ipv4Address;
 #[cfg(feature = "proto-ipv6")]
 use crate::wire::Ipv6Address;
+#[cfg(feature = "proto-ipv4")]
+use crate::wire::{Ipv4Address, Ipv4AddressExt};
 
 enum_with_unknown! {
     /// DNS OpCodes

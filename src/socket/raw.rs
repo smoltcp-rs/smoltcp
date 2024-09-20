@@ -494,8 +494,8 @@ mod test {
 
         pub const IP_PROTO: u8 = 63;
         pub const HEADER_REPR: IpRepr = IpRepr::Ipv4(Ipv4Repr {
-            src_addr: Ipv4Address([10, 0, 0, 1]),
-            dst_addr: Ipv4Address([10, 0, 0, 2]),
+            src_addr: Ipv4Address::new(10, 0, 0, 1),
+            dst_addr: Ipv4Address::new(10, 0, 0, 2),
             next_header: IpProtocol::Unknown(IP_PROTO),
             payload_len: 4,
             hop_limit: 64,

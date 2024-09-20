@@ -4,7 +4,7 @@ use core::fmt;
 use super::{Error, Result};
 use crate::phy::ChecksumCapabilities;
 #[cfg(feature = "proto-ipv4")]
-use crate::wire::{Ipv4Address, Ipv4Cidr, Ipv4Packet, Ipv4Repr};
+use crate::wire::{Ipv4Address, Ipv4AddressExt, Ipv4Cidr, Ipv4Packet, Ipv4Repr};
 #[cfg(feature = "proto-ipv6")]
 use crate::wire::{Ipv6Address, Ipv6Cidr, Ipv6Packet, Ipv6Repr};
 
@@ -127,16 +127,6 @@ impl Address {
         }
     }
 
-    /// Return an address as a sequence of octets, in big-endian.
-    pub const fn as_bytes(&self) -> &[u8] {
-        match self {
-            #[cfg(feature = "proto-ipv4")]
-            Address::Ipv4(addr) => addr.as_bytes(),
-            #[cfg(feature = "proto-ipv6")]
-            Address::Ipv6(addr) => addr.as_bytes(),
-        }
-    }
-
     /// Query whether the address is a valid unicast address.
     pub fn is_unicast(&self) -> bool {
         match self {
@@ -193,8 +183,8 @@ impl Address {
 impl From<::core::net::IpAddr> for Address {
     fn from(x: ::core::net::IpAddr) -> Address {
         match x {
-            ::core::net::IpAddr::V4(ipv4) => Address::Ipv4(ipv4.into()),
-            ::core::net::IpAddr::V6(ipv6) => Address::Ipv6(ipv6.into()),
+            ::core::net::IpAddr::V4(ipv4) => Address::Ipv4(ipv4),
+            ::core::net::IpAddr::V6(ipv6) => Address::Ipv6(ipv6),
         }
     }
 }
@@ -221,13 +211,6 @@ impl From<::core::net::Ipv4Addr> for Address {
 impl From<::core::net::Ipv6Addr> for Address {
     fn from(ipv6: ::core::net::Ipv6Addr) -> Address {
         Address::Ipv6(ipv6.into())
-    }
-}
-
-#[cfg(feature = "proto-ipv4")]
-impl From<Ipv4Address> for Address {
-    fn from(addr: Ipv4Address) -> Self {
-        Address::Ipv4(addr)
     }
 }
 
@@ -758,8 +741,8 @@ pub mod checksum {
         NetworkEndian::write_u16(&mut proto_len[2..4], length as u16);
 
         combine(&[
-            data(src_addr.as_bytes()),
-            data(dst_addr.as_bytes()),
+            data(&src_addr.octets()),
+            data(&dst_addr.octets()),
             data(&proto_len[..]),
         ])
     }

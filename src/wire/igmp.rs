@@ -5,7 +5,7 @@ use super::{Error, Result};
 use crate::time::Duration;
 use crate::wire::ip::checksum;
 
-use crate::wire::Ipv4Address;
+use crate::wire::{Ipv4Address, Ipv4AddressExt};
 
 enum_with_unknown! {
     /// Internet Group Management Protocol v1/v2 message version/type.
@@ -156,7 +156,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     #[inline]
     pub fn set_group_address(&mut self, addr: Ipv4Address) {
         let data = self.buffer.as_mut();
-        data[field::GROUP_ADDRESS].copy_from_slice(addr.as_bytes());
+        data[field::GROUP_ADDRESS].copy_from_slice(&addr.octets());
     }
 
     /// Compute and fill in the header checksum.

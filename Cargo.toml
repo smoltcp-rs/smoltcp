@@ -25,7 +25,7 @@ byteorder = { version = "1.0", default-features = false }
 log = { version = "0.4.4", default-features = false, optional = true }
 libc = { version = "0.2.18", optional = true }
 bitflags = { version = "1.0", default-features = false }
-defmt = { version = "0.3", optional = true }
+defmt = { version = "0.3.8", optional = true, features = ["ip_in_core"] }
 cfg-if = "1.0.0"
 heapless = "0.8"
 

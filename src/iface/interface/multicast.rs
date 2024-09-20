@@ -334,9 +334,7 @@ impl InterfaceInner {
                 max_resp_time,
             } => {
                 // General query
-                if group_addr.is_unspecified()
-                    && ipv4_repr.dst_addr == Ipv4Address::MULTICAST_ALL_SYSTEMS
-                {
+                if group_addr.is_unspecified() && ipv4_repr.dst_addr == IPV4_MULTICAST_ALL_SYSTEMS {
                     let ipv4_multicast_group_count = self
                         .multicast
                         .groups
@@ -418,7 +416,7 @@ impl InterfaceInner {
             Packet::new_ipv4(
                 Ipv4Repr {
                     src_addr: iface_addr,
-                    dst_addr: Ipv4Address::MULTICAST_ALL_ROUTERS,
+                    dst_addr: IPV4_MULTICAST_ALL_ROUTERS,
                     next_header: IpProtocol::Igmp,
                     payload_len: igmp_repr.buffer_len(),
                     hop_limit: 1,

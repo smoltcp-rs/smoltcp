@@ -6,7 +6,7 @@ use core::fmt;
 use super::{Error, Result};
 use crate::wire::ip::pretty_print_ip_payload;
 #[cfg(feature = "proto-ipv4")]
-use crate::wire::ipv4;
+use crate::wire::{Ipv4Address, Ipv4AddressExt};
 
 pub use super::IpProtocol as Protocol;
 
@@ -246,11 +246,9 @@ impl Address {
 
     #[cfg(feature = "proto-ipv4")]
     /// Convert an IPv4 mapped IPv6 address to an IPv4 address.
-    pub fn as_ipv4(&self) -> Option<ipv4::Address> {
+    pub fn as_ipv4(&self) -> Option<Ipv4Address> {
         if self.is_ipv4_mapped() {
-            Some(ipv4::Address::from_bytes(
-                &self.0[IPV4_MAPPED_PREFIX_SIZE..],
-            ))
+            Some(Ipv4Address::from_bytes(&self.0[IPV4_MAPPED_PREFIX_SIZE..]))
         } else {
             None
         }
@@ -474,11 +472,11 @@ impl defmt::Format for Address {
 
 #[cfg(feature = "proto-ipv4")]
 /// Convert the given IPv4 address into a IPv4-mapped IPv6 address
-impl From<ipv4::Address> for Address {
-    fn from(address: ipv4::Address) -> Self {
+impl From<Ipv4Address> for Address {
+    fn from(address: Ipv4Address) -> Self {
         let mut b = [0_u8; ADDR_SIZE];
         b[..Self::IPV4_MAPPED_PREFIX.len()].copy_from_slice(&Self::IPV4_MAPPED_PREFIX);
-        b[Self::IPV4_MAPPED_PREFIX.len()..].copy_from_slice(&address.0);
+        b[Self::IPV4_MAPPED_PREFIX.len()..].copy_from_slice(&address.octets());
         Self(b)
     }
 }

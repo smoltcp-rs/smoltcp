@@ -5,8 +5,9 @@ use crate::iface::Context;
 use crate::time::{Duration, Instant};
 use crate::wire::dhcpv4::field as dhcpv4_field;
 use crate::wire::{
-    DhcpMessageType, DhcpPacket, DhcpRepr, IpAddress, IpProtocol, Ipv4Address, Ipv4Cidr, Ipv4Repr,
-    UdpRepr, DHCP_CLIENT_PORT, DHCP_MAX_DNS_SERVER_COUNT, DHCP_SERVER_PORT, UDP_HEADER_LEN,
+    DhcpMessageType, DhcpPacket, DhcpRepr, IpAddress, IpProtocol, Ipv4Address, Ipv4AddressExt,
+    Ipv4Cidr, Ipv4Repr, UdpRepr, DHCP_CLIENT_PORT, DHCP_MAX_DNS_SERVER_COUNT, DHCP_SERVER_PORT,
+    UDP_HEADER_LEN,
 };
 use crate::wire::{DhcpOption, HardwareAddress};
 use heapless::Vec;
@@ -880,14 +881,14 @@ mod test {
 
     const TXID: u32 = 0x12345678;
 
-    const MY_IP: Ipv4Address = Ipv4Address([192, 168, 1, 42]);
-    const SERVER_IP: Ipv4Address = Ipv4Address([192, 168, 1, 1]);
-    const DNS_IP_1: Ipv4Address = Ipv4Address([1, 1, 1, 1]);
-    const DNS_IP_2: Ipv4Address = Ipv4Address([1, 1, 1, 2]);
-    const DNS_IP_3: Ipv4Address = Ipv4Address([1, 1, 1, 3]);
+    const MY_IP: Ipv4Address = Ipv4Address::new(192, 168, 1, 42);
+    const SERVER_IP: Ipv4Address = Ipv4Address::new(192, 168, 1, 1);
+    const DNS_IP_1: Ipv4Address = Ipv4Address::new(1, 1, 1, 1);
+    const DNS_IP_2: Ipv4Address = Ipv4Address::new(1, 1, 1, 2);
+    const DNS_IP_3: Ipv4Address = Ipv4Address::new(1, 1, 1, 3);
     const DNS_IPS: &[Ipv4Address] = &[DNS_IP_1, DNS_IP_2, DNS_IP_3];
 
-    const MASK_24: Ipv4Address = Ipv4Address([255, 255, 255, 0]);
+    const MASK_24: Ipv4Address = Ipv4Address::new(255, 255, 255, 0);
 
     const MY_MAC: EthernetAddress = EthernetAddress([0x02, 0x02, 0x02, 0x02, 0x02, 0x02]);
 

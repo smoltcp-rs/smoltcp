@@ -200,17 +200,17 @@ mod test {
     #[cfg(all(feature = "proto-ipv4", not(feature = "proto-ipv6")))]
     mod mock {
         use super::super::*;
-        pub const ADDR_1A: Ipv4Address = Ipv4Address([192, 0, 2, 1]);
-        pub const ADDR_1B: Ipv4Address = Ipv4Address([192, 0, 2, 13]);
-        pub const ADDR_1C: Ipv4Address = Ipv4Address([192, 0, 2, 42]);
+        pub const ADDR_1A: Ipv4Address = Ipv4Address::new(192, 0, 2, 1);
+        pub const ADDR_1B: Ipv4Address = Ipv4Address::new(192, 0, 2, 13);
+        pub const ADDR_1C: Ipv4Address = Ipv4Address::new(192, 0, 2, 42);
         pub fn cidr_1() -> Ipv4Cidr {
-            Ipv4Cidr::new(Ipv4Address([192, 0, 2, 0]), 24)
+            Ipv4Cidr::new(Ipv4Address::new(192, 0, 2, 0), 24)
         }
 
-        pub const ADDR_2A: Ipv4Address = Ipv4Address([198, 51, 100, 1]);
-        pub const ADDR_2B: Ipv4Address = Ipv4Address([198, 51, 100, 21]);
+        pub const ADDR_2A: Ipv4Address = Ipv4Address::new(198, 51, 100, 1);
+        pub const ADDR_2B: Ipv4Address = Ipv4Address::new(198, 51, 100, 21);
         pub fn cidr_2() -> Ipv4Cidr {
-            Ipv4Cidr::new(Ipv4Address([198, 51, 100, 0]), 24)
+            Ipv4Cidr::new(Ipv4Address::new(198, 51, 100, 0), 24)
         }
     }
 

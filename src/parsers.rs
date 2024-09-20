@@ -10,7 +10,7 @@ use core::str::FromStr;
 use crate::wire::EthernetAddress;
 use crate::wire::{IpAddress, IpCidr, IpEndpoint};
 #[cfg(feature = "proto-ipv4")]
-use crate::wire::{Ipv4Address, Ipv4Cidr};
+use crate::wire::{Ipv4Address, Ipv4AddressExt, Ipv4Cidr};
 #[cfg(feature = "proto-ipv6")]
 use crate::wire::{Ipv6Address, Ipv6Cidr};
 
@@ -294,7 +294,7 @@ impl<'a> Parser<'a> {
     #[cfg(feature = "proto-ipv4")]
     fn accept_ipv4(&mut self) -> Result<Ipv4Address> {
         let octets = self.accept_ipv4_octets()?;
-        Ok(Ipv4Address(octets))
+        Ok(Ipv4Address::from_bytes(&octets))
     }
 
     fn accept_ip(&mut self) -> Result<IpAddress> {
@@ -380,16 +380,6 @@ impl FromStr for EthernetAddress {
     /// Parse a string representation of an Ethernet address.
     fn from_str(s: &str) -> Result<EthernetAddress> {
         Parser::new(s).until_eof(|p| p.accept_mac())
-    }
-}
-
-#[cfg(feature = "proto-ipv4")]
-impl FromStr for Ipv4Address {
-    type Err = ();
-
-    /// Parse a string representation of an IPv4 address.
-    fn from_str(s: &str) -> Result<Ipv4Address> {
-        Parser::new(s).until_eof(|p| p.accept_ipv4())
     }
 }
 
@@ -527,26 +517,6 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "proto-ipv4")]
-    fn test_ipv4() {
-        assert_eq!(Ipv4Address::from_str(""), Err(()));
-        assert_eq!(
-            Ipv4Address::from_str("1.2.3.4"),
-            Ok(Ipv4Address([1, 2, 3, 4]))
-        );
-        assert_eq!(
-            Ipv4Address::from_str("001.2.3.4"),
-            Ok(Ipv4Address([1, 2, 3, 4]))
-        );
-        assert_eq!(Ipv4Address::from_str("0001.2.3.4"), Err(()));
-        assert_eq!(Ipv4Address::from_str("999.2.3.4"), Err(()));
-        assert_eq!(Ipv4Address::from_str("1.2.3.4.5"), Err(()));
-        assert_eq!(Ipv4Address::from_str("1.2.3"), Err(()));
-        assert_eq!(Ipv4Address::from_str("1.2.3."), Err(()));
-        assert_eq!(Ipv4Address::from_str("1.2.3.4."), Err(()));
-    }
-
-    #[test]
     #[cfg(feature = "proto-ipv6")]
     fn test_ipv6() {
         // Obviously not valid
@@ -630,7 +600,7 @@ mod test {
         assert_eq!(IpAddress::from_str(""), Err(()));
         assert_eq!(
             IpAddress::from_str("1.2.3.4"),
-            Ok(IpAddress::Ipv4(Ipv4Address([1, 2, 3, 4])))
+            Ok(IpAddress::Ipv4(Ipv4Address::new(1, 2, 3, 4)))
         );
         assert_eq!(IpAddress::from_str("x"), Err(()));
     }
@@ -654,19 +624,19 @@ mod test {
         let tests = [
             (
                 "127.0.0.1/8",
-                Ok(Ipv4Cidr::new(Ipv4Address([127, 0, 0, 1]), 8u8)),
+                Ok(Ipv4Cidr::new(Ipv4Address::new(127, 0, 0, 1), 8u8)),
             ),
             (
                 "192.168.1.1/24",
-                Ok(Ipv4Cidr::new(Ipv4Address([192, 168, 1, 1]), 24u8)),
+                Ok(Ipv4Cidr::new(Ipv4Address::new(192, 168, 1, 1), 24u8)),
             ),
             (
                 "8.8.8.8/32",
-                Ok(Ipv4Cidr::new(Ipv4Address([8, 8, 8, 8]), 32u8)),
+                Ok(Ipv4Cidr::new(Ipv4Address::new(8, 8, 8, 8), 32u8)),
             ),
             (
                 "8.8.8.8/0",
-                Ok(Ipv4Cidr::new(Ipv4Address([8, 8, 8, 8]), 0u8)),
+                Ok(Ipv4Cidr::new(Ipv4Address::new(8, 8, 8, 8), 0u8)),
             ),
             ("", Err(())),
             ("1", Err(())),

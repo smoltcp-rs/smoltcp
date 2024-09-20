@@ -188,7 +188,12 @@ pub use self::ip::{
 pub use self::ipv4::{
     Address as Ipv4Address, Cidr as Ipv4Cidr, Key as Ipv4FragKey, Packet as Ipv4Packet,
     Repr as Ipv4Repr, HEADER_LEN as IPV4_HEADER_LEN, MIN_MTU as IPV4_MIN_MTU,
+    MULTICAST_ALL_ROUTERS as IPV4_MULTICAST_ALL_ROUTERS,
+    MULTICAST_ALL_SYSTEMS as IPV4_MULTICAST_ALL_SYSTEMS,
 };
+
+#[cfg(feature = "proto-ipv4")]
+pub(crate) use self::ipv4::AddressExt as Ipv4AddressExt;
 
 #[cfg(feature = "proto-ipv6")]
 pub(crate) use self::ipv6::MulticastScope as Ipv6MulticastScope;

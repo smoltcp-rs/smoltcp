@@ -22,9 +22,9 @@ mod wire {
     ]));
 
     #[cfg(all(not(feature = "proto-ipv6"), feature = "proto-ipv4"))]
-    const SRC_ADDR: IpAddress = IpAddress::Ipv4(Ipv4Address([192, 168, 1, 1]));
+    const SRC_ADDR: IpAddress = IpAddress::Ipv4(Ipv4Address::new(192, 168, 1, 1));
     #[cfg(all(not(feature = "proto-ipv6"), feature = "proto-ipv4"))]
-    const DST_ADDR: IpAddress = IpAddress::Ipv4(Ipv4Address([192, 168, 1, 2]));
+    const DST_ADDR: IpAddress = IpAddress::Ipv4(Ipv4Address::new(192, 168, 1, 2));
 
     #[bench]
     #[cfg(any(feature = "proto-ipv6", feature = "proto-ipv4"))]
@@ -84,8 +84,8 @@ mod wire {
     #[cfg(feature = "proto-ipv4")]
     fn bench_emit_ipv4(b: &mut test::Bencher) {
         let repr = Ipv4Repr {
-            src_addr: Ipv4Address([192, 168, 1, 1]),
-            dst_addr: Ipv4Address([192, 168, 1, 2]),
+            src_addr: Ipv4Address::new(192, 168, 1, 1),
+            dst_addr: Ipv4Address::new(192, 168, 1, 2),
             next_header: IpProtocol::Tcp,
             payload_len: 100,
             hop_limit: 64,

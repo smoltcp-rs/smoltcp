@@ -678,8 +678,8 @@ mod test_ipv4 {
     use super::tests_common::*;
     use crate::wire::{Icmpv4DstUnreachable, IpEndpoint, Ipv4Address};
 
-    const REMOTE_IPV4: Ipv4Address = Ipv4Address([192, 168, 1, 2]);
-    const LOCAL_IPV4: Ipv4Address = Ipv4Address([192, 168, 1, 1]);
+    const REMOTE_IPV4: Ipv4Address = Ipv4Address::new(192, 168, 1, 2);
+    const LOCAL_IPV4: Ipv4Address = Ipv4Address::new(192, 168, 1, 1);
     const LOCAL_END_V4: IpEndpoint = IpEndpoint {
         addr: IpAddress::Ipv4(LOCAL_IPV4),
         port: LOCAL_PORT,
@@ -711,7 +711,7 @@ mod test_ipv4 {
     fn test_send_unaddressable() {
         let mut socket = socket(buffer(0), buffer(1));
         assert_eq!(
-            socket.send_slice(b"abcdef", IpAddress::Ipv4(Ipv4Address::default())),
+            socket.send_slice(b"abcdef", IpAddress::Ipv4(Ipv4Address::new(0, 0, 0, 0))),
             Err(SendError::Unaddressable)
         );
         assert_eq!(socket.send_slice(b"abcdef", REMOTE_IPV4.into()), Ok(()));

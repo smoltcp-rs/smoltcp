@@ -28,7 +28,7 @@ const MDNS_IPV6_ADDR: IpAddress = IpAddress::Ipv6(crate::wire::Ipv6Address([
 
 #[cfg(feature = "proto-ipv4")]
 #[allow(unused)]
-const MDNS_IPV4_ADDR: IpAddress = IpAddress::Ipv4(crate::wire::Ipv4Address([224, 0, 0, 251]));
+const MDNS_IPV4_ADDR: IpAddress = IpAddress::Ipv4(crate::wire::Ipv4Address::new(224, 0, 0, 251));
 
 /// Error returned by [`Socket::start_query`]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
