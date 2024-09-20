@@ -557,7 +557,8 @@ impl InterfaceInner {
     ///  - total size: the size of a compressed IPv6 packet
     ///  - compressed header size: the size of the compressed headers
     ///  - uncompressed header size: the size of the headers that are not compressed
-    ///  They are returned as a tuple in the same order.
+    ///
+    /// They are returned as a tuple in the same order.
     fn compressed_packet_size(
         packet: &PacketV6,
         ieee_repr: &Ieee802154Repr,

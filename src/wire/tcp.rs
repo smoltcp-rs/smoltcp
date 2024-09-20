@@ -1,5 +1,5 @@
 use byteorder::{ByteOrder, NetworkEndian};
-use core::{cmp, fmt, i32, ops};
+use core::{cmp, fmt, ops};
 
 use super::{Error, Result};
 use crate::phy::ChecksumCapabilities;

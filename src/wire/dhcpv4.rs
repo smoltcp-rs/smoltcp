@@ -443,7 +443,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     pub fn set_hardware_type(&mut self, value: Hardware) {
         let data = self.buffer.as_mut();
         let number: u16 = value.into();
-        assert!(number <= u16::from(u8::max_value())); // TODO: Replace with TryFrom when it's stable
+        assert!(number <= u16::from(u8::MAX)); // TODO: Replace with TryFrom when it's stable
         data[field::HTYPE] = number as u8;
     }
 

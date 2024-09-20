@@ -586,6 +586,7 @@ impl<'a> Socket<'a> {
     /// * Small embedded processors (such as Cortex-M0, Cortex-M1, and Cortex-M3) do not have an FPU, and floating point operations consume significant amounts of CPU time and Flash space.
     /// * Interrupt handlers should almost always avoid floating-point operations.
     /// * Kernel-mode code on desktop processors usually avoids FPU operations to reduce the penalty of saving and restoring FPU registers.
+    ///
     /// In all these cases, `CongestionControl::Reno` is a better choice of congestion control algorithm.
     pub fn set_congestion_control(&mut self, congestion_control: CongestionControl) {
         use congestion::*;
@@ -1967,7 +1968,7 @@ impl<'a> Socket<'a> {
                         "received duplicate ACK for seq {} (duplicate nr {}{})",
                         ack_number,
                         self.local_rx_dup_acks,
-                        if self.local_rx_dup_acks == u8::max_value() {
+                        if self.local_rx_dup_acks == u8::MAX {
                             "+"
                         } else {
                             ""
@@ -2569,7 +2570,6 @@ impl<'a> fmt::Write for Socket<'a> {
 mod test {
     use super::*;
     use crate::wire::IpRepr;
-    use core::i32;
     use std::ops::{Deref, DerefMut};
     use std::vec::Vec;
 
@@ -6126,7 +6126,7 @@ mod test {
         });
 
         // A lot of retransmits happen here
-        s.local_rx_dup_acks = u8::max_value() - 1;
+        s.local_rx_dup_acks = u8::MAX - 1;
 
         // Send 3 more ACKs, which could overflow local_rx_dup_acks,
         // but intended behaviour is that we saturate the bounds
@@ -6148,7 +6148,7 @@ mod test {
         });
         assert_eq!(
             s.local_rx_dup_acks,
-            u8::max_value(),
+            u8::MAX,
             "duplicate ACK count should not overflow but saturate"
         );
     }
