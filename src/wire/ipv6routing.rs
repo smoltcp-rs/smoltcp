@@ -1,7 +1,7 @@
 use super::{Error, Result};
 use core::fmt;
 
-use crate::wire::Ipv6Address as Address;
+use crate::wire::{Ipv6Address as Address, Ipv6AddressExt};
 
 enum_with_unknown! {
     /// IPv6 Extension Routing Header Routing Type
@@ -286,7 +286,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Header<T> {
     /// This function may panic if this header is not the Type 2 Routing Header routing type.
     pub fn set_home_address(&mut self, value: Address) {
         let data = self.buffer.as_mut();
-        data[field::HOME_ADDRESS].copy_from_slice(value.as_bytes());
+        data[field::HOME_ADDRESS].copy_from_slice(&value.octets());
     }
 }
 
@@ -399,7 +399,7 @@ impl<'a> Repr<'a> {
     pub const fn buffer_len(&self) -> usize {
         match self {
             // Routing Type + Segments Left + Reserved + Home Address
-            Repr::Type2 { home_address, .. } => 2 + 4 + home_address.as_bytes().len(),
+            Repr::Type2 { home_address, .. } => 2 + 4 + home_address.octets().len(),
             Repr::Rpl { addresses, .. } => 2 + 4 + addresses.len(),
         }
     }
@@ -484,7 +484,7 @@ mod test {
     // A representation of a Type 2 Routing header
     static REPR_TYPE2: Repr = Repr::Type2 {
         segments_left: 1,
-        home_address: Address::LOOPBACK,
+        home_address: Address::LOCALHOST,
     };
 
     // A Source Routing Header with full IPv6 addresses in bytes
@@ -552,7 +552,7 @@ mod test {
         let header = Header::new_unchecked(&BYTES_TYPE2[..]);
         assert_eq!(header.routing_type(), Type::Type2);
         assert_eq!(header.segments_left(), 1);
-        assert_eq!(header.home_address(), Address::LOOPBACK);
+        assert_eq!(header.home_address(), Address::LOCALHOST);
 
         let header = Header::new_unchecked(&BYTES_SRH_FULL[..]);
         assert_eq!(header.routing_type(), Type::Rpl);

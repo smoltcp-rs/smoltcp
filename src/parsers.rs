@@ -277,7 +277,7 @@ impl<'a> Parser<'a> {
         // end of the address.
         addr[8 - tail_idx..].copy_from_slice(&tail[..tail_idx]);
 
-        Ok(Ipv6Address::from_parts(&addr))
+        Ok(Ipv6Address::from(addr))
     }
 
     fn accept_ipv4_octets(&mut self) -> Result<[u8; 4]> {
@@ -380,16 +380,6 @@ impl FromStr for EthernetAddress {
     /// Parse a string representation of an Ethernet address.
     fn from_str(s: &str) -> Result<EthernetAddress> {
         Parser::new(s).until_eof(|p| p.accept_mac())
-    }
-}
-
-#[cfg(feature = "proto-ipv6")]
-impl FromStr for Ipv6Address {
-    type Err = ();
-
-    /// Parse a string representation of an IPv6 address.
-    fn from_str(s: &str) -> Result<Ipv6Address> {
-        Parser::new(s).until_eof(|p| p.accept_ipv6())
     }
 }
 
@@ -517,84 +507,6 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "proto-ipv6")]
-    fn test_ipv6() {
-        // Obviously not valid
-        assert_eq!(Ipv6Address::from_str(""), Err(()));
-        assert_eq!(
-            Ipv6Address::from_str("fe80:0:0:0:0:0:0:1"),
-            Ok(Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1))
-        );
-        assert_eq!(Ipv6Address::from_str("::1"), Ok(Ipv6Address::LOOPBACK));
-        assert_eq!(Ipv6Address::from_str("::"), Ok(Ipv6Address::UNSPECIFIED));
-        assert_eq!(
-            Ipv6Address::from_str("fe80::1"),
-            Ok(Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1))
-        );
-        assert_eq!(
-            Ipv6Address::from_str("1234:5678::"),
-            Ok(Ipv6Address::new(0x1234, 0x5678, 0, 0, 0, 0, 0, 0))
-        );
-        assert_eq!(
-            Ipv6Address::from_str("1234:5678::8765:4321"),
-            Ok(Ipv6Address::new(0x1234, 0x5678, 0, 0, 0, 0, 0x8765, 0x4321))
-        );
-        // Two double colons in address
-        assert_eq!(Ipv6Address::from_str("1234:5678::1::1"), Err(()));
-        assert_eq!(
-            Ipv6Address::from_str("4444:333:22:1::4"),
-            Ok(Ipv6Address::new(0x4444, 0x0333, 0x0022, 0x0001, 0, 0, 0, 4))
-        );
-        assert_eq!(
-            Ipv6Address::from_str("1:1:1:1:1:1::"),
-            Ok(Ipv6Address::new(1, 1, 1, 1, 1, 1, 0, 0))
-        );
-        assert_eq!(
-            Ipv6Address::from_str("::1:1:1:1:1:1"),
-            Ok(Ipv6Address::new(0, 0, 1, 1, 1, 1, 1, 1))
-        );
-        assert_eq!(Ipv6Address::from_str("::1:1:1:1:1:1:1"), Err(()));
-        // Double colon appears too late indicating an address that is too long
-        assert_eq!(Ipv6Address::from_str("1:1:1:1:1:1:1::"), Err(()));
-        // Section after double colon is too long for a valid address
-        assert_eq!(Ipv6Address::from_str("::1:1:1:1:1:1:1"), Err(()));
-        // Obviously too long
-        assert_eq!(Ipv6Address::from_str("1:1:1:1:1:1:1:1:1"), Err(()));
-        // Address is too short
-        assert_eq!(Ipv6Address::from_str("1:1:1:1:1:1:1"), Err(()));
-        // Long number
-        assert_eq!(Ipv6Address::from_str("::000001"), Err(()));
-        // IPv4-Mapped address
-        assert_eq!(
-            Ipv6Address::from_str("::ffff:192.168.1.1"),
-            Ok(Ipv6Address([
-                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 192, 168, 1, 1
-            ]))
-        );
-        assert_eq!(
-            Ipv6Address::from_str("0:0:0:0:0:ffff:192.168.1.1"),
-            Ok(Ipv6Address([
-                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 192, 168, 1, 1
-            ]))
-        );
-        assert_eq!(
-            Ipv6Address::from_str("0::ffff:192.168.1.1"),
-            Ok(Ipv6Address([
-                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 192, 168, 1, 1
-            ]))
-        );
-        // Only ffff is allowed in position 6 when IPv4 mapped
-        assert_eq!(Ipv6Address::from_str("0:0:0:0:0:eeee:192.168.1.1"), Err(()));
-        // Positions 1-5 must be 0 when IPv4 mapped
-        assert_eq!(Ipv6Address::from_str("0:0:0:0:1:ffff:192.168.1.1"), Err(()));
-        assert_eq!(Ipv6Address::from_str("1::ffff:192.168.1.1"), Err(()));
-        // Out of range ipv4 octet
-        assert_eq!(Ipv6Address::from_str("0:0:0:0:0:ffff:256.168.1.1"), Err(()));
-        // Invalid hex in ipv4 octet
-        assert_eq!(Ipv6Address::from_str("0:0:0:0:0:ffff:c0.168.1.1"), Err(()));
-    }
-
-    #[test]
     #[cfg(feature = "proto-ipv4")]
     fn test_ip_ipv4() {
         assert_eq!(IpAddress::from_str(""), Err(()));
@@ -668,7 +580,7 @@ mod test {
                     64u8,
                 )),
             ),
-            ("::1/128", Ok(Ipv6Cidr::new(Ipv6Address::LOOPBACK, 128u8))),
+            ("::1/128", Ok(Ipv6Cidr::new(Ipv6Address::LOCALHOST, 128u8))),
             ("::/128", Ok(Ipv6Cidr::new(Ipv6Address::UNSPECIFIED, 128u8))),
             (
                 "fe80:0:0:0:0:0:0:1/64",

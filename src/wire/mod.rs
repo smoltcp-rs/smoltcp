@@ -196,12 +196,16 @@ pub use self::ipv4::{
 pub(crate) use self::ipv4::AddressExt as Ipv4AddressExt;
 
 #[cfg(feature = "proto-ipv6")]
-pub(crate) use self::ipv6::MulticastScope as Ipv6MulticastScope;
-#[cfg(feature = "proto-ipv6")]
 pub use self::ipv6::{
     Address as Ipv6Address, Cidr as Ipv6Cidr, Packet as Ipv6Packet, Repr as Ipv6Repr,
-    HEADER_LEN as IPV6_HEADER_LEN, MIN_MTU as IPV6_MIN_MTU,
+    HEADER_LEN as IPV6_HEADER_LEN,
+    LINK_LOCAL_ALL_MLDV2_ROUTERS as IPV6_LINK_LOCAL_ALL_MLDV2_ROUTERS,
+    LINK_LOCAL_ALL_NODES as IPV6_LINK_LOCAL_ALL_NODES,
+    LINK_LOCAL_ALL_ROUTERS as IPV6_LINK_LOCAL_ALL_ROUTERS,
+    LINK_LOCAL_ALL_RPL_NODES as IPV6_LINK_LOCAL_ALL_RPL_NODES, MIN_MTU as IPV6_MIN_MTU,
 };
+#[cfg(feature = "proto-ipv6")]
+pub(crate) use self::ipv6::{AddressExt as Ipv6AddressExt, MulticastScope as Ipv6MulticastScope};
 
 #[cfg(feature = "proto-ipv6")]
 pub use self::ipv6option::{

@@ -13,13 +13,9 @@ mod wire {
     extern crate test;
 
     #[cfg(feature = "proto-ipv6")]
-    const SRC_ADDR: IpAddress = IpAddress::Ipv6(Ipv6Address([
-        0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
-    ]));
+    const SRC_ADDR: IpAddress = IpAddress::Ipv6(Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1));
     #[cfg(feature = "proto-ipv6")]
-    const DST_ADDR: IpAddress = IpAddress::Ipv6(Ipv6Address([
-        0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2,
-    ]));
+    const DST_ADDR: IpAddress = IpAddress::Ipv6(Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 2));
 
     #[cfg(all(not(feature = "proto-ipv6"), feature = "proto-ipv4"))]
     const SRC_ADDR: IpAddress = IpAddress::Ipv4(Ipv4Address::new(192, 168, 1, 1));
@@ -102,8 +98,8 @@ mod wire {
     #[cfg(feature = "proto-ipv6")]
     fn bench_emit_ipv6(b: &mut test::Bencher) {
         let repr = Ipv6Repr {
-            src_addr: Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
-            dst_addr: Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]),
+            src_addr: Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1),
+            dst_addr: Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 2),
             next_header: IpProtocol::Tcp,
             payload_len: 100,
             hop_limit: 64,

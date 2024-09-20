@@ -6,7 +6,7 @@ use crate::phy::ChecksumCapabilities;
 #[cfg(feature = "proto-ipv4")]
 use crate::wire::{Ipv4Address, Ipv4AddressExt, Ipv4Cidr, Ipv4Packet, Ipv4Repr};
 #[cfg(feature = "proto-ipv6")]
-use crate::wire::{Ipv6Address, Ipv6Cidr, Ipv6Packet, Ipv6Repr};
+use crate::wire::{Ipv6Address, Ipv6AddressExt, Ipv6Cidr, Ipv6Packet, Ipv6Repr};
 
 /// Internet protocol version.
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
@@ -193,24 +193,17 @@ impl From<Address> for ::core::net::IpAddr {
     fn from(x: Address) -> ::core::net::IpAddr {
         match x {
             #[cfg(feature = "proto-ipv4")]
-            Address::Ipv4(ipv4) => ::core::net::IpAddr::V4(ipv4.into()),
+            Address::Ipv4(ipv4) => ::core::net::IpAddr::V4(ipv4),
             #[cfg(feature = "proto-ipv6")]
-            Address::Ipv6(ipv6) => ::core::net::IpAddr::V6(ipv6.into()),
+            Address::Ipv6(ipv6) => ::core::net::IpAddr::V6(ipv6),
         }
     }
 }
 
 #[cfg(feature = "proto-ipv4")]
-impl From<::core::net::Ipv4Addr> for Address {
-    fn from(ipv4: ::core::net::Ipv4Addr) -> Address {
-        Address::Ipv4(ipv4.into())
-    }
-}
-
-#[cfg(feature = "proto-ipv6")]
-impl From<::core::net::Ipv6Addr> for Address {
-    fn from(ipv6: ::core::net::Ipv6Addr) -> Address {
-        Address::Ipv6(ipv6.into())
+impl From<Ipv4Address> for Address {
+    fn from(ipv4: Ipv4Address) -> Address {
+        Address::Ipv4(ipv4)
     }
 }
 
@@ -759,8 +752,8 @@ pub mod checksum {
         NetworkEndian::write_u16(&mut proto_len[2..4], length as u16);
 
         combine(&[
-            data(src_addr.as_bytes()),
-            data(dst_addr.as_bytes()),
+            data(&src_addr.octets()),
+            data(&dst_addr.octets()),
             data(&proto_len[..]),
         ])
     }

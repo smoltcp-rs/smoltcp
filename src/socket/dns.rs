@@ -22,9 +22,9 @@ const RETRANSMIT_TIMEOUT: Duration = Duration::from_millis(10_000); // Should ge
 
 #[cfg(feature = "proto-ipv6")]
 #[allow(unused)]
-const MDNS_IPV6_ADDR: IpAddress = IpAddress::Ipv6(crate::wire::Ipv6Address([
-    0xff, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xfb,
-]));
+const MDNS_IPV6_ADDR: IpAddress = IpAddress::Ipv6(crate::wire::Ipv6Address::new(
+    0xff02, 0, 0, 0, 0, 0, 0, 0xfb,
+));
 
 #[cfg(feature = "proto-ipv4")]
 #[allow(unused)]

@@ -98,7 +98,7 @@ fn test_handle_udp_broadcast(#[case] medium: Medium) {
     #[cfg(feature = "proto-ipv6")]
     let ip_repr = IpRepr::Ipv6(Ipv6Repr {
         src_addr: src_ip,
-        dst_addr: Ipv6Address::LINK_LOCAL_ALL_NODES,
+        dst_addr: IPV6_LINK_LOCAL_ALL_NODES,
         next_header: IpProtocol::Udp,
         payload_len: udp_repr.header_len() + UDP_PAYLOAD.len(),
         hop_limit: 0x40,

@@ -832,10 +832,10 @@ impl InterfaceInner {
             #[cfg(feature = "proto-ipv4")]
             IpAddress::Ipv4(key) => key == IPV4_MULTICAST_ALL_SYSTEMS,
             #[cfg(feature = "proto-rpl")]
-            IpAddress::Ipv6(Ipv6Address::LINK_LOCAL_ALL_RPL_NODES) => true,
+            IpAddress::Ipv6(IPV6_LINK_LOCAL_ALL_RPL_NODES) => true,
             #[cfg(feature = "proto-ipv6")]
             IpAddress::Ipv6(key) => {
-                key == Ipv6Address::LINK_LOCAL_ALL_NODES || self.has_solicited_node(key)
+                key == IPV6_LINK_LOCAL_ALL_NODES || self.has_solicited_node(key)
             }
             #[allow(unreachable_patterns)]
             _ => false,
@@ -1011,7 +1011,7 @@ impl InterfaceInner {
                 IpAddress::Ipv6(addr) => match self.caps.medium {
                     #[cfg(feature = "medium-ethernet")]
                     Medium::Ethernet => {
-                        let b = addr.as_bytes();
+                        let b = addr.octets();
                         HardwareAddress::Ethernet(EthernetAddress::from_bytes(&[
                             0x33, 0x33, b[12], b[13], b[14], b[15],
                         ]))

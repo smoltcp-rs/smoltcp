@@ -58,7 +58,7 @@ impl InterfaceInner {
         fn common_prefix_length(dst_addr: &Ipv6Cidr, src_addr: &Ipv6Address) -> usize {
             let addr = dst_addr.address();
             let mut bits = 0;
-            for (l, r) in addr.as_bytes().iter().zip(src_addr.as_bytes().iter()) {
+            for (l, r) in addr.octets().iter().zip(src_addr.octets().iter()) {
                 if l == r {
                     bits += 8;
                 } else {
@@ -82,7 +82,7 @@ impl InterfaceInner {
                 .count()
                 == 0
         {
-            return Ipv6Address::LOOPBACK;
+            return Ipv6Address::LOCALHOST;
         }
 
         let mut candidate = self
@@ -147,10 +147,10 @@ impl InterfaceInner {
     pub fn has_solicited_node(&self, addr: Ipv6Address) -> bool {
         self.ip_addrs.iter().any(|cidr| {
             match *cidr {
-                IpCidr::Ipv6(cidr) if cidr.address() != Ipv6Address::LOOPBACK => {
+                IpCidr::Ipv6(cidr) if cidr.address() != Ipv6Address::LOCALHOST => {
                     // Take the lower order 24 bits of the IPv6 address and
                     // append those bits to FF02:0:0:0:0:1:FF00::/104.
-                    addr.as_bytes()[14..] == cidr.address().as_bytes()[14..]
+                    addr.octets()[14..] == cidr.address().octets()[14..]
                 }
                 _ => false,
             }
@@ -524,7 +524,7 @@ impl InterfaceInner {
 
         // Per [RFC 3810 § 5.2.14], all MLDv2 reports are sent to ff02::16.
         // [RFC 3810 § 5.2.14]: https://tools.ietf.org/html/rfc3810#section-5.2.14
-        let dst_addr = Ipv6Address::LINK_LOCAL_ALL_MLDV2_ROUTERS;
+        let dst_addr = IPV6_LINK_LOCAL_ALL_MLDV2_ROUTERS;
 
         // Create a dummy IPv6 extension header so we can calculate the total length of the packet.
         // The actual extension header will be created later by Packet::emit_payload().

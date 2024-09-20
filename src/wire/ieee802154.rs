@@ -3,7 +3,7 @@ use core::fmt;
 use byteorder::{ByteOrder, LittleEndian};
 
 use super::{Error, Result};
-use crate::wire::ipv6::Address as Ipv6Address;
+use crate::wire::{Ipv6Address, Ipv6AddressExt};
 
 enum_with_unknown! {
     /// IEEE 802.15.4 frame type.
