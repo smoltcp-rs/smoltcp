@@ -1806,6 +1806,7 @@ impl<'a> Socket<'a> {
                 self.remote_seq_no = repr.seq_number + 1;
                 self.remote_last_seq = self.local_seq_no + 1;
                 self.remote_last_ack = Some(repr.seq_number);
+                self.remote_has_sack = repr.sack_permitted;
                 self.remote_win_scale = repr.window_scale;
                 // Remote doesn't support window scaling, don't do it.
                 if self.remote_win_scale.is_none() {
@@ -3722,6 +3723,63 @@ mod test {
         let mut s = socket();
         s.close();
         assert_eq!(s.state, State::Closed);
+    }
+
+    #[test]
+    fn test_syn_sent_sack_option() {
+        let mut s = socket_syn_sent();
+        recv!(
+            s,
+            [TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: LOCAL_SEQ,
+                ack_number: None,
+                max_seg_size: Some(BASE_MSS),
+                window_scale: Some(0),
+                sack_permitted: true,
+                ..RECV_TEMPL
+            }]
+        );
+        send!(
+            s,
+            TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: REMOTE_SEQ,
+                ack_number: Some(LOCAL_SEQ + 1),
+                max_seg_size: Some(BASE_MSS - 80),
+                window_scale: Some(0),
+                sack_permitted: true,
+                ..SEND_TEMPL
+            }
+        );
+        assert!(s.remote_has_sack);
+
+        let mut s = socket_syn_sent();
+        recv!(
+            s,
+            [TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: LOCAL_SEQ,
+                ack_number: None,
+                max_seg_size: Some(BASE_MSS),
+                window_scale: Some(0),
+                sack_permitted: true,
+                ..RECV_TEMPL
+            }]
+        );
+        send!(
+            s,
+            TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: REMOTE_SEQ,
+                ack_number: Some(LOCAL_SEQ + 1),
+                max_seg_size: Some(BASE_MSS - 80),
+                window_scale: Some(0),
+                sack_permitted: false,
+                ..SEND_TEMPL
+            }
+        );
+        assert!(!s.remote_has_sack);
     }
 
     #[test]
