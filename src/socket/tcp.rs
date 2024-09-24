@@ -5,7 +5,7 @@
 use core::fmt::Display;
 #[cfg(feature = "async")]
 use core::task::Waker;
-use core::{cmp, fmt, mem};
+use core::{fmt, mem};
 
 #[cfg(feature = "async")]
 use crate::socket::WakerRegistration;
@@ -510,6 +510,7 @@ impl<'a> Socket<'a> {
         // [...] the above constraints imply that 2 * the max window size must be less
         // than 2**31 [...] Thus, the shift count must be limited to 14 (which allows
         // windows of 2**30 = 1 Gbyte).
+        #[cfg(not(target_pointer_width = "16"))] // Prevent overflow
         if rx_capacity > (1 << 30) {
             panic!("receiving buffer too large, cannot exceed 1 GiB")
         }
@@ -676,10 +677,7 @@ impl<'a> Socket<'a> {
     /// Used in internal calculations as well as packet generation.
     #[inline]
     fn scaled_window(&self) -> u16 {
-        cmp::min(
-            self.rx_buffer.window() >> self.remote_win_shift as usize,
-            (1 << 16) - 1,
-        ) as u16
+        u16::try_from(self.rx_buffer.window() >> self.remote_win_shift).unwrap_or(u16::MAX)
     }
 
     /// Return the last window field value, including scaling according to RFC 1323.
@@ -698,7 +696,7 @@ impl<'a> Socket<'a> {
         let last_win = (self.remote_last_win as usize) << self.remote_win_shift;
         let last_win_adjusted = last_ack + last_win - next_ack;
 
-        Some(cmp::min(last_win_adjusted >> self.remote_win_shift, (1 << 16) - 1) as u16)
+        Some(u16::try_from(last_win_adjusted >> self.remote_win_shift).unwrap_or(u16::MAX))
     }
 
     /// Set the timeout duration.
@@ -1710,9 +1708,9 @@ impl<'a> Socket<'a> {
         let mut control = repr.control;
         control = control.quash_psh();
 
-        // If a FIN is received at the end of the current segment but the start of the segment
-        // is not at the start of the receive window, disregard this FIN.
-        if control == TcpControl::Fin && window_start != segment_start {
+        // If a FIN is received at the end of the current segment, but
+        // we have a hole in the assembler before the current segment, disregard this FIN.
+        if control == TcpControl::Fin && window_start < segment_start {
             tcp_trace!("ignoring FIN because we don't have full data yet. window_start={} segment_start={}", window_start, segment_start);
             control = TcpControl::None;
         }
@@ -1806,6 +1804,7 @@ impl<'a> Socket<'a> {
                 self.remote_seq_no = repr.seq_number + 1;
                 self.remote_last_seq = self.local_seq_no + 1;
                 self.remote_last_ack = Some(repr.seq_number);
+                self.remote_has_sack = repr.sack_permitted;
                 self.remote_win_scale = repr.window_scale;
                 // Remote doesn't support window scaling, don't do it.
                 if self.remote_win_scale.is_none() {
@@ -2334,7 +2333,7 @@ impl<'a> Socket<'a> {
             State::SynSent | State::SynReceived => {
                 repr.control = TcpControl::Syn;
                 // window len must NOT be scaled in SYNs.
-                repr.window_len = self.rx_buffer.window().min((1 << 16) - 1) as u16;
+                repr.window_len = u16::try_from(self.rx_buffer.window()).unwrap_or(u16::MAX);
                 if self.state == State::SynSent {
                     repr.ack_number = None;
                     repr.window_scale = Some(self.remote_win_shift);
@@ -3074,7 +3073,7 @@ mod test {
                     ack_number: Some(REMOTE_SEQ + 1),
                     max_seg_size: Some(BASE_MSS),
                     window_scale: Some(*shift_amt),
-                    window_len: cmp::min(*buffer_size, 65535) as u16,
+                    window_len: u16::try_from(*buffer_size).unwrap_or(u16::MAX),
                     ..RECV_TEMPL
                 }]
             );
@@ -3725,6 +3724,63 @@ mod test {
     }
 
     #[test]
+    fn test_syn_sent_sack_option() {
+        let mut s = socket_syn_sent();
+        recv!(
+            s,
+            [TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: LOCAL_SEQ,
+                ack_number: None,
+                max_seg_size: Some(BASE_MSS),
+                window_scale: Some(0),
+                sack_permitted: true,
+                ..RECV_TEMPL
+            }]
+        );
+        send!(
+            s,
+            TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: REMOTE_SEQ,
+                ack_number: Some(LOCAL_SEQ + 1),
+                max_seg_size: Some(BASE_MSS - 80),
+                window_scale: Some(0),
+                sack_permitted: true,
+                ..SEND_TEMPL
+            }
+        );
+        assert!(s.remote_has_sack);
+
+        let mut s = socket_syn_sent();
+        recv!(
+            s,
+            [TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: LOCAL_SEQ,
+                ack_number: None,
+                max_seg_size: Some(BASE_MSS),
+                window_scale: Some(0),
+                sack_permitted: true,
+                ..RECV_TEMPL
+            }]
+        );
+        send!(
+            s,
+            TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: REMOTE_SEQ,
+                ack_number: Some(LOCAL_SEQ + 1),
+                max_seg_size: Some(BASE_MSS - 80),
+                window_scale: Some(0),
+                sack_permitted: false,
+                ..SEND_TEMPL
+            }
+        );
+        assert!(!s.remote_has_sack);
+    }
+
+    #[test]
     fn test_syn_sent_win_scale_buffers() {
         for (buffer_size, shift_amt) in &[
             (64, 0),
@@ -3752,7 +3808,7 @@ mod test {
                     ack_number: None,
                     max_seg_size: Some(BASE_MSS),
                     window_scale: Some(*shift_amt),
-                    window_len: cmp::min(*buffer_size, 65535) as u16,
+                    window_len: u16::try_from(*buffer_size).unwrap_or(u16::MAX),
                     sack_permitted: true,
                     ..RECV_TEMPL
                 }]
@@ -4235,6 +4291,50 @@ mod test {
             (3, ())
         })
         .unwrap();
+    }
+
+    #[test]
+    fn test_established_receive_partially_outside_window_fin() {
+        let mut s = socket_established();
+
+        send!(
+            s,
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                payload: &b"abc"[..],
+                ..SEND_TEMPL
+            }
+        );
+
+        s.recv(|data| {
+            assert_eq!(data, b"abc");
+            (3, ())
+        })
+        .unwrap();
+
+        // Peer decides to retransmit (perhaps because the ACK was lost)
+        // and also pushed data, and sent a FIN.
+        send!(
+            s,
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                control: TcpControl::Fin,
+                payload: &b"abcdef"[..],
+                ..SEND_TEMPL
+            }
+        );
+
+        s.recv(|data| {
+            assert_eq!(data, b"def");
+            (3, ())
+        })
+        .unwrap();
+
+        // We should accept the FIN, because even though the last packet was partially
+        // outside the receive window, there is no hole after adding its data to the assembler.
+        assert_eq!(s.state, State::CloseWait);
     }
 
     #[test]

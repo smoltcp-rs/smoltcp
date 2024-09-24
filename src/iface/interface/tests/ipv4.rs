@@ -91,6 +91,7 @@ fn test_no_icmp_no_unicast(#[case] medium: Medium) {
         iface.inner.process_ipv4(
             &mut sockets,
             PacketMeta::default(),
+            HardwareAddress::default(),
             &frame,
             &mut iface.fragments
         ),
@@ -152,6 +153,7 @@ fn test_icmp_error_no_payload(#[case] medium: Medium) {
         iface.inner.process_ipv4(
             &mut sockets,
             PacketMeta::default(),
+            HardwareAddress::default(),
             &frame,
             &mut iface.fragments
         ),
@@ -397,6 +399,7 @@ fn test_handle_ipv4_broadcast(#[case] medium: Medium) {
         iface.inner.process_ipv4(
             &mut sockets,
             PacketMeta::default(),
+            HardwareAddress::default(),
             &frame,
             &mut iface.fragments
         ),
@@ -453,7 +456,6 @@ fn test_handle_valid_arp_request(#[case] medium: Medium) {
     assert_eq!(
         iface.inner.lookup_hardware_addr(
             MockTxToken,
-            &IpAddress::Ipv4(local_ip_addr),
             &IpAddress::Ipv4(remote_ip_addr),
             &mut iface.fragmenter,
         ),
@@ -502,7 +504,6 @@ fn test_handle_other_arp_request(#[case] medium: Medium) {
     assert_eq!(
         iface.inner.lookup_hardware_addr(
             MockTxToken,
-            &IpAddress::Ipv4(Ipv4Address([0x7f, 0x00, 0x00, 0x01])),
             &IpAddress::Ipv4(remote_ip_addr),
             &mut iface.fragmenter,
         ),
@@ -561,7 +562,6 @@ fn test_arp_flush_after_update_ip(#[case] medium: Medium) {
     assert_eq!(
         iface.inner.lookup_hardware_addr(
             MockTxToken,
-            &IpAddress::Ipv4(local_ip_addr),
             &IpAddress::Ipv4(remote_ip_addr),
             &mut iface.fragmenter,
         ),
@@ -659,9 +659,9 @@ fn test_icmpv4_socket(#[case] medium: Medium) {
 
 #[rstest]
 #[case(Medium::Ip)]
-#[cfg(all(feature = "proto-igmp", feature = "medium-ip"))]
+#[cfg(all(feature = "multicast", feature = "medium-ip"))]
 #[case(Medium::Ethernet)]
-#[cfg(all(feature = "proto-igmp", feature = "medium-ethernet"))]
+#[cfg(all(feature = "multicast", feature = "medium-ethernet"))]
 fn test_handle_igmp(#[case] medium: Medium) {
     fn recv_igmp(
         device: &mut crate::tests::TestingDevice,
@@ -702,10 +702,9 @@ fn test_handle_igmp(#[case] medium: Medium) {
     // Join multicast groups
     let timestamp = Instant::ZERO;
     for group in &groups {
-        iface
-            .join_multicast_group(&mut device, *group, timestamp)
-            .unwrap();
+        iface.join_multicast_group(*group).unwrap();
     }
+    iface.poll(timestamp, &mut device, &mut sockets);
 
     let reports = recv_igmp(&mut device, timestamp);
     assert_eq!(reports.len(), 2);
@@ -722,20 +721,14 @@ fn test_handle_igmp(#[case] medium: Medium) {
     }
 
     // General query
-    let timestamp = Instant::ZERO;
     const GENERAL_QUERY_BYTES: &[u8] = &[
         0x46, 0xc0, 0x00, 0x24, 0xed, 0xb4, 0x00, 0x00, 0x01, 0x02, 0x47, 0x43, 0xac, 0x16, 0x63,
         0x04, 0xe0, 0x00, 0x00, 0x01, 0x94, 0x04, 0x00, 0x00, 0x11, 0x64, 0xec, 0x8f, 0x00, 0x00,
         0x00, 0x00, 0x02, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00,
     ];
-    {
-        // Transmit GENERAL_QUERY_BYTES into loopback
-        let tx_token = device.transmit(timestamp).unwrap();
-        tx_token.consume(GENERAL_QUERY_BYTES.len(), |buffer| {
-            buffer.copy_from_slice(GENERAL_QUERY_BYTES);
-        });
-    }
+    device.rx_queue.push_back(GENERAL_QUERY_BYTES.to_vec());
+
     // Trigger processing until all packets received through the
     // loopback have been processed, including responses to
     // GENERAL_QUERY_BYTES. Therefore `recv_all()` would return 0
@@ -745,10 +738,9 @@ fn test_handle_igmp(#[case] medium: Medium) {
     // Leave multicast groups
     let timestamp = Instant::ZERO;
     for group in &groups {
-        iface
-            .leave_multicast_group(&mut device, *group, timestamp)
-            .unwrap();
+        iface.leave_multicast_group(*group).unwrap();
     }
+    iface.poll(timestamp, &mut device, &mut sockets);
 
     let leaves = recv_igmp(&mut device, timestamp);
     assert_eq!(leaves.len(), 2);
@@ -828,6 +820,7 @@ fn test_raw_socket_no_reply(#[case] medium: Medium) {
         iface.inner.process_ipv4(
             &mut sockets,
             PacketMeta::default(),
+            HardwareAddress::default(),
             &frame,
             &mut iface.fragments
         ),
@@ -925,6 +918,7 @@ fn test_raw_socket_with_udp_socket(#[case] medium: Medium) {
         iface.inner.process_ipv4(
             &mut sockets,
             PacketMeta::default(),
+            HardwareAddress::default(),
             &frame,
             &mut iface.fragments
         ),

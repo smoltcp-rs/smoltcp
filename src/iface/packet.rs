@@ -81,7 +81,7 @@ impl<'p> Packet<'p> {
             IpPayload::Icmpv4(icmpv4_repr) => {
                 icmpv4_repr.emit(&mut Icmpv4Packet::new_unchecked(payload), &caps.checksum)
             }
-            #[cfg(feature = "proto-igmp")]
+            #[cfg(all(feature = "proto-ipv4", feature = "multicast"))]
             IpPayload::Igmp(igmp_repr) => igmp_repr.emit(&mut IgmpPacket::new_unchecked(payload)),
             #[cfg(feature = "proto-ipv6")]
             IpPayload::Icmpv6(icmpv6_repr) => {
@@ -207,7 +207,7 @@ pub(crate) struct PacketV6<'p> {
 pub(crate) enum IpPayload<'p> {
     #[cfg(feature = "proto-ipv4")]
     Icmpv4(Icmpv4Repr<'p>),
-    #[cfg(feature = "proto-igmp")]
+    #[cfg(all(feature = "proto-ipv4", feature = "multicast"))]
     Igmp(IgmpRepr),
     #[cfg(feature = "proto-ipv6")]
     Icmpv6(Icmpv6Repr<'p>),
@@ -235,7 +235,7 @@ impl<'p> IpPayload<'p> {
             Self::Icmpv6(_) => SixlowpanNextHeader::Uncompressed(IpProtocol::Icmpv6),
             #[cfg(feature = "proto-ipv6")]
             Self::HopByHopIcmpv6(_, _) => unreachable!(),
-            #[cfg(feature = "proto-igmp")]
+            #[cfg(all(feature = "proto-ipv4", feature = "multicast"))]
             Self::Igmp(_) => unreachable!(),
             #[cfg(feature = "socket-tcp")]
             Self::Tcp(_) => SixlowpanNextHeader::Uncompressed(IpProtocol::Tcp),
@@ -258,20 +258,4 @@ pub(crate) fn icmp_reply_payload_len(len: usize, mtu: usize, header_len: usize) 
     //
     // <min mtu> - IP Header Size * 2 - ICMPv4 DstUnreachable hdr size
     len.min(mtu - header_len * 2 - 8)
-}
-
-#[cfg(feature = "proto-igmp")]
-pub(crate) enum IgmpReportState {
-    Inactive,
-    ToGeneralQuery {
-        version: IgmpVersion,
-        timeout: crate::time::Instant,
-        interval: crate::time::Duration,
-        next_index: usize,
-    },
-    ToSpecificQuery {
-        version: IgmpVersion,
-        timeout: crate::time::Instant,
-        group: Ipv4Address,
-    },
 }

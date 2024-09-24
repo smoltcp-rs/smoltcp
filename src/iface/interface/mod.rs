@@ -17,20 +17,17 @@ mod ipv6;
 #[cfg(feature = "proto-sixlowpan")]
 mod sixlowpan;
 
-#[cfg(feature = "proto-igmp")]
-mod igmp;
+#[cfg(feature = "multicast")]
+pub(crate) mod multicast;
 #[cfg(feature = "socket-tcp")]
 mod tcp;
 #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
 mod udp;
 
-#[cfg(feature = "proto-igmp")]
-pub use igmp::MulticastError;
-
 use super::packet::*;
 
 use core::result::Result;
-use heapless::{LinearMap, Vec};
+use heapless::Vec;
 
 #[cfg(feature = "_proto-fragmentation")]
 use super::fragmentation::FragKey;
@@ -41,10 +38,7 @@ use super::fragmentation::{Fragmenter, FragmentsBuffer};
 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
 use super::neighbor::{Answer as NeighborAnswer, Cache as NeighborCache};
 use super::socket_set::SocketSet;
-use crate::config::{
-    IFACE_MAX_ADDR_COUNT, IFACE_MAX_MULTICAST_GROUP_COUNT,
-    IFACE_MAX_SIXLOWPAN_ADDRESS_CONTEXT_COUNT,
-};
+use crate::config::{IFACE_MAX_ADDR_COUNT, IFACE_MAX_SIXLOWPAN_ADDRESS_CONTEXT_COUNT};
 use crate::iface::Routes;
 use crate::phy::PacketMeta;
 use crate::phy::{ChecksumCapabilities, Device, DeviceCapabilities, Medium, RxToken, TxToken};
@@ -70,6 +64,44 @@ macro_rules! check {
     };
 }
 use check;
+
+/// Result returned by [`Interface::poll`].
+///
+/// This contains information on whether socket states might have changed.
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum PollResult {
+    /// Socket state is guaranteed to not have changed.
+    None,
+    /// You should check the state of sockets again for received data or completion of operations.
+    SocketStateChanged,
+}
+
+/// Result returned by [`Interface::poll_ingress_single`].
+///
+/// This contains information on whether a packet was processed or not,
+/// and whether it might've affected socket states.
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum PollIngressSingleResult {
+    /// No packet was processed. You don't need to call [`Interface::poll_ingress_single`]
+    /// again, until more packets arrive.
+    ///
+    /// Socket state is guaranteed to not have changed.
+    None,
+    /// A packet was processed.
+    ///
+    /// There may be more packets in the device's RX queue, so you should call [`Interface::poll_ingress_single`] again.
+    ///
+    /// Socket state is guaranteed to not have changed.
+    PacketProcessed,
+    /// A packet was processed, which might have caused socket state to change.
+    ///
+    /// There may be more packets in the device's RX queue, so you should call [`Interface::poll_ingress_single`] again.
+    ///
+    /// You should check the state of sockets again for received data or completion of operations.
+    SocketStateChanged,
+}
 
 /// A  network interface.
 ///
@@ -111,13 +143,8 @@ pub struct InterfaceInner {
     ip_addrs: Vec<IpCidr, IFACE_MAX_ADDR_COUNT>,
     any_ip: bool,
     routes: Routes,
-    #[cfg(feature = "proto-igmp")]
-    ipv4_multicast_groups: LinearMap<Ipv4Address, (), IFACE_MAX_MULTICAST_GROUP_COUNT>,
-    #[cfg(feature = "proto-ipv6")]
-    ipv6_multicast_groups: LinearMap<Ipv6Address, (), IFACE_MAX_MULTICAST_GROUP_COUNT>,
-    /// When to report for (all or) the next multicast group membership via IGMP
-    #[cfg(feature = "proto-igmp")]
-    igmp_report_state: IgmpReportState,
+    #[cfg(feature = "multicast")]
+    multicast: multicast::State,
 }
 
 /// Configuration structure used for creating a network interface.
@@ -161,10 +188,7 @@ impl Interface {
     /// # Panics
     /// This function panics if the [`Config::hardware_address`] does not match
     /// the medium of the device.
-    pub fn new<D>(config: Config, device: &mut D, now: Instant) -> Self
-    where
-        D: Device + ?Sized,
-    {
+    pub fn new(config: Config, device: &mut (impl Device + ?Sized), now: Instant) -> Self {
         let caps = device.capabilities();
         assert_eq!(
             config.hardware_addr.medium(),
@@ -226,12 +250,8 @@ impl Interface {
                 routes: Routes::new(),
                 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
                 neighbor_cache: NeighborCache::new(),
-                #[cfg(feature = "proto-igmp")]
-                ipv4_multicast_groups: LinearMap::new(),
-                #[cfg(feature = "proto-ipv6")]
-                ipv6_multicast_groups: LinearMap::new(),
-                #[cfg(feature = "proto-igmp")]
-                igmp_report_state: IgmpReportState::Inactive,
+                #[cfg(feature = "multicast")]
+                multicast: multicast::State::new(),
                 #[cfg(feature = "medium-ieee802154")]
                 sequence_no,
                 #[cfg(feature = "medium-ieee802154")]
@@ -390,61 +410,107 @@ impl Interface {
         self.fragments.reassembly_timeout = timeout;
     }
 
-    /// Transmit packets queued in the given sockets, and receive packets queued
+    /// Transmit packets queued in the sockets, and receive packets queued
     /// in the device.
     ///
-    /// This function returns a boolean value indicating whether any packets were
-    /// processed or emitted, and thus, whether the readiness of any socket might
-    /// have changed.
+    /// This function returns a value indicating whether the state of any socket
+    /// might have changed.
     ///
-    /// # Note
-    /// This function performs a bounded amount of work per call to avoid
-    /// starving other tasks of CPU time. If it returns true, there may still be
-    /// packets to be received or transmitted. Depending on system design,
-    /// calling this function in a loop may cause a denial of service if
-    /// packets cannot be processed faster than they arrive.
-    pub fn poll<D>(
+    /// ## DoS warning
+    ///
+    /// This function processes all packets in the device's queue. This can
+    /// be an unbounded amount of work if packets arrive faster than they're
+    /// processed.
+    ///
+    /// If this is a concern for your application (i.e. your environment doesn't
+    /// have preemptive scheduling, or `poll()` is called from a main loop where
+    /// other important things are processed), you may use the lower-level methods
+    /// [`poll_egress()`](Self::poll_egress) and [`poll_ingress_single()`](Self::poll_ingress_single).
+    /// This allows you to insert yields or process other events between processing
+    /// individual ingress packets.
+    pub fn poll(
         &mut self,
         timestamp: Instant,
-        device: &mut D,
+        device: &mut (impl Device + ?Sized),
         sockets: &mut SocketSet<'_>,
-    ) -> bool
-    where
-        D: Device + ?Sized,
-    {
+    ) -> PollResult {
+        self.inner.now = timestamp;
+
+        let mut res = PollResult::None;
+
+        #[cfg(feature = "_proto-fragmentation")]
+        self.fragments.assembler.remove_expired(timestamp);
+
+        // Process ingress while there's packets available.
+        loop {
+            match self.socket_ingress(device, sockets) {
+                PollIngressSingleResult::None => break,
+                PollIngressSingleResult::PacketProcessed => {}
+                PollIngressSingleResult::SocketStateChanged => res = PollResult::SocketStateChanged,
+            }
+        }
+
+        // Process egress.
+        match self.poll_egress(timestamp, device, sockets) {
+            PollResult::None => {}
+            PollResult::SocketStateChanged => res = PollResult::SocketStateChanged,
+        }
+
+        res
+    }
+
+    /// Transmit packets queued in the sockets.
+    ///
+    /// This function returns a value indicating whether the state of any socket
+    /// might have changed.
+    ///
+    /// This is guaranteed to always perform a bounded amount of work.
+    pub fn poll_egress(
+        &mut self,
+        timestamp: Instant,
+        device: &mut (impl Device + ?Sized),
+        sockets: &mut SocketSet<'_>,
+    ) -> PollResult {
+        self.inner.now = timestamp;
+
+        match self.inner.caps.medium {
+            #[cfg(feature = "medium-ieee802154")]
+            Medium::Ieee802154 => {
+                #[cfg(feature = "proto-sixlowpan-fragmentation")]
+                self.sixlowpan_egress(device);
+            }
+            #[cfg(any(feature = "medium-ethernet", feature = "medium-ip"))]
+            _ => {
+                #[cfg(feature = "proto-ipv4-fragmentation")]
+                self.ipv4_egress(device);
+            }
+        }
+
+        #[cfg(feature = "multicast")]
+        self.multicast_egress(device);
+
+        self.socket_egress(device, sockets)
+    }
+
+    /// Process one incoming packet queued in the device.
+    ///
+    /// Returns a value indicating:
+    /// - whether a packet was processed, in which case you have to call this method again in case there's more packets queued.
+    /// - whether the state of any socket might have changed.
+    ///
+    /// Since it processes at most one packet, this is guaranteed to always perform a bounded amount of work.
+    pub fn poll_ingress_single(
+        &mut self,
+        timestamp: Instant,
+        device: &mut (impl Device + ?Sized),
+        sockets: &mut SocketSet<'_>,
+    ) -> PollIngressSingleResult {
         self.inner.now = timestamp;
 
         #[cfg(feature = "_proto-fragmentation")]
         self.fragments.assembler.remove_expired(timestamp);
 
-        match self.inner.caps.medium {
-            #[cfg(feature = "medium-ieee802154")]
-            Medium::Ieee802154 =>
-            {
-                #[cfg(feature = "proto-sixlowpan-fragmentation")]
-                if self.sixlowpan_egress(device) {
-                    return true;
-                }
-            }
-            #[cfg(any(feature = "medium-ethernet", feature = "medium-ip"))]
-            _ =>
-            {
-                #[cfg(feature = "proto-ipv4-fragmentation")]
-                if self.ipv4_egress(device) {
-                    return true;
-                }
-            }
-        }
-
-        let mut readiness_may_have_changed = self.socket_ingress(device, sockets);
-        readiness_may_have_changed |= self.socket_egress(device, sockets);
-
-        #[cfg(feature = "proto-igmp")]
-        {
-            readiness_may_have_changed |= self.igmp_egress(device);
-        }
-
-        readiness_may_have_changed
+        self.socket_ingress(device, sockets)
     }
 
     /// Return a _soft deadline_ for calling [poll] the next time.
@@ -497,20 +563,19 @@ impl Interface {
         }
     }
 
-    fn socket_ingress<D>(&mut self, device: &mut D, sockets: &mut SocketSet<'_>) -> bool
-    where
-        D: Device + ?Sized,
-    {
-        let mut processed_any = false;
-
+    fn socket_ingress(
+        &mut self,
+        device: &mut (impl Device + ?Sized),
+        sockets: &mut SocketSet<'_>,
+    ) -> PollIngressSingleResult {
         let Some((rx_token, tx_token)) = device.receive(self.inner.now) else {
-            return processed_any;
+            return PollIngressSingleResult::None;
         };
 
         let rx_meta = rx_token.meta();
         rx_token.consume(|frame| {
             if frame.is_empty() {
-                return;
+                return PollIngressSingleResult::PacketProcessed;
             }
 
             match self.inner.caps.medium {
@@ -560,16 +625,22 @@ impl Interface {
                     }
                 }
             }
-            processed_any = true;
-        });
 
-        processed_any
+            // TODO: Propagate the PollIngressSingleResult from deeper.
+            // There's many received packets that we process but can't cause sockets
+            // to change state. For example IP fragments, multicast stuff, ICMP pings
+            // if they dont't match any raw socket...
+            // We should return `PacketProcessed` for these to save the user from
+            // doing useless socket polls.
+            PollIngressSingleResult::SocketStateChanged
+        })
     }
 
-    fn socket_egress<D>(&mut self, device: &mut D, sockets: &mut SocketSet<'_>) -> bool
-    where
-        D: Device + ?Sized,
-    {
+    fn socket_egress(
+        &mut self,
+        device: &mut (impl Device + ?Sized),
+        sockets: &mut SocketSet<'_>,
+    ) -> PollResult {
         let _caps = device.capabilities();
 
         enum EgressError {
@@ -578,7 +649,7 @@ impl Interface {
             Dispatch,
         }
 
-        let mut emitted_any = false;
+        let mut result = PollResult::None;
         for item in sockets.items_mut() {
             if !item
                 .meta
@@ -605,7 +676,7 @@ impl Interface {
                     .dispatch_ip(t, meta, response, &mut self.fragmenter)
                     .map_err(|_| EgressError::Dispatch)?;
 
-                emitted_any = true;
+                result = PollResult::SocketStateChanged;
 
                 Ok(())
             };
@@ -695,7 +766,7 @@ impl Interface {
                 Ok(()) => {}
             }
         }
-        emitted_any
+        result
     }
 }
 
@@ -764,24 +835,23 @@ impl InterfaceInner {
     }
 
     /// Check whether the interface listens to given destination multicast IP address.
-    ///
-    /// If built without feature `proto-igmp` this function will
-    /// always return `false` when using IPv4.
     fn has_multicast_group<T: Into<IpAddress>>(&self, addr: T) -> bool {
-        match addr.into() {
-            #[cfg(feature = "proto-igmp")]
-            IpAddress::Ipv4(key) => {
-                key == Ipv4Address::MULTICAST_ALL_SYSTEMS
-                    || self.ipv4_multicast_groups.get(&key).is_some()
-            }
-            #[cfg(feature = "proto-ipv6")]
-            IpAddress::Ipv6(key) => {
-                key == Ipv6Address::LINK_LOCAL_ALL_NODES
-                    || self.has_solicited_node(key)
-                    || self.ipv6_multicast_groups.get(&key).is_some()
-            }
+        let addr = addr.into();
+
+        #[cfg(feature = "multicast")]
+        if self.multicast.has_multicast_group(addr) {
+            return true;
+        }
+
+        match addr {
+            #[cfg(feature = "proto-ipv4")]
+            IpAddress::Ipv4(key) => key == Ipv4Address::MULTICAST_ALL_SYSTEMS,
             #[cfg(feature = "proto-rpl")]
             IpAddress::Ipv6(Ipv6Address::LINK_LOCAL_ALL_RPL_NODES) => true,
+            #[cfg(feature = "proto-ipv6")]
+            IpAddress::Ipv6(key) => {
+                key == Ipv6Address::LINK_LOCAL_ALL_NODES || self.has_solicited_node(key)
+            }
             #[allow(unreachable_patterns)]
             _ => false,
         }
@@ -799,13 +869,12 @@ impl InterfaceInner {
             #[cfg(feature = "proto-ipv4")]
             Ok(IpVersion::Ipv4) => {
                 let ipv4_packet = check!(Ipv4Packet::new_checked(ip_payload));
-
-                self.process_ipv4(sockets, meta, &ipv4_packet, frag)
+                self.process_ipv4(sockets, meta, HardwareAddress::Ip, &ipv4_packet, frag)
             }
             #[cfg(feature = "proto-ipv6")]
             Ok(IpVersion::Ipv6) => {
                 let ipv6_packet = check!(Ipv6Packet::new_checked(ip_payload));
-                self.process_ipv6(sockets, meta, &ipv6_packet)
+                self.process_ipv6(sockets, meta, HardwareAddress::Ip, &ipv6_packet)
             }
             // Drop all other traffic.
             _ => None,
@@ -913,7 +982,6 @@ impl InterfaceInner {
     fn lookup_hardware_addr<Tx>(
         &mut self,
         tx_token: Tx,
-        src_addr: &IpAddress,
         dst_addr: &IpAddress,
         fragmenter: &mut Fragmenter,
     ) -> Result<(HardwareAddress, Tx), DispatchError>
@@ -981,11 +1049,9 @@ impl InterfaceInner {
             _ => (), // XXX
         }
 
-        match (src_addr, dst_addr) {
+        match dst_addr {
             #[cfg(all(feature = "medium-ethernet", feature = "proto-ipv4"))]
-            (&IpAddress::Ipv4(src_addr), IpAddress::Ipv4(dst_addr))
-                if matches!(self.caps.medium, Medium::Ethernet) =>
-            {
+            IpAddress::Ipv4(dst_addr) if matches!(self.caps.medium, Medium::Ethernet) => {
                 net_debug!(
                     "address {} not in neighbor cache, sending ARP request",
                     dst_addr
@@ -995,7 +1061,9 @@ impl InterfaceInner {
                 let arp_repr = ArpRepr::EthernetIpv4 {
                     operation: ArpOperation::Request,
                     source_hardware_addr: src_hardware_addr,
-                    source_protocol_addr: src_addr,
+                    source_protocol_addr: self
+                        .get_source_address_ipv4(&dst_addr)
+                        .ok_or(DispatchError::NoRoute)?,
                     target_hardware_addr: EthernetAddress::BROADCAST,
                     target_protocol_addr: dst_addr,
                 };
@@ -1014,7 +1082,7 @@ impl InterfaceInner {
             }
 
             #[cfg(feature = "proto-ipv6")]
-            (&IpAddress::Ipv6(src_addr), IpAddress::Ipv6(dst_addr)) => {
+            IpAddress::Ipv6(dst_addr) => {
                 net_debug!(
                     "address {} not in neighbor cache, sending Neighbor Solicitation",
                     dst_addr
@@ -1027,7 +1095,7 @@ impl InterfaceInner {
 
                 let packet = Packet::new_ipv6(
                     Ipv6Repr {
-                        src_addr,
+                        src_addr: self.get_source_address_ipv6(&dst_addr),
                         dst_addr: dst_addr.solicited_node(),
                         next_header: IpProtocol::Icmpv6,
                         payload_len: solicit.buffer_len(),
@@ -1074,12 +1142,8 @@ impl InterfaceInner {
 
         #[cfg(feature = "medium-ieee802154")]
         if matches!(self.caps.medium, Medium::Ieee802154) {
-            let (addr, tx_token) = self.lookup_hardware_addr(
-                tx_token,
-                &ip_repr.src_addr(),
-                &ip_repr.dst_addr(),
-                frag,
-            )?;
+            let (addr, tx_token) =
+                self.lookup_hardware_addr(tx_token, &ip_repr.dst_addr(), frag)?;
             let addr = addr.ieee802154_or_panic();
 
             self.dispatch_ieee802154(addr, tx_token, meta, packet, frag);
@@ -1106,12 +1170,7 @@ impl InterfaceInner {
         #[cfg(feature = "medium-ethernet")]
         let (dst_hardware_addr, mut tx_token) = match self.caps.medium {
             Medium::Ethernet => {
-                match self.lookup_hardware_addr(
-                    tx_token,
-                    &ip_repr.src_addr(),
-                    &ip_repr.dst_addr(),
-                    frag,
-                )? {
+                match self.lookup_hardware_addr(tx_token, &ip_repr.dst_addr(), frag)? {
                     (HardwareAddress::Ethernet(addr), tx_token) => (addr, tx_token),
                     (_, _) => unreachable!(),
                 }

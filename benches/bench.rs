@@ -42,6 +42,7 @@ mod wire {
             sack_permitted: false,
             sack_ranges: [None, None, None],
             payload: &PAYLOAD_BYTES,
+            timestamp: None,
         };
         let mut bytes = vec![0xa5; repr.buffer_len()];
 

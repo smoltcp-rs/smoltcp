@@ -86,6 +86,7 @@ fn any_ip(#[case] medium: Medium) {
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
+            HardwareAddress::default(),
             &Ipv6Packet::new_checked(&data[..]).unwrap()
         ),
         None
@@ -98,6 +99,7 @@ fn any_ip(#[case] medium: Medium) {
         .process_ipv6(
             &mut sockets,
             PacketMeta::default(),
+            HardwareAddress::default(),
             &Ipv6Packet::new_checked(&data[..]).unwrap()
         )
         .is_some());
@@ -125,6 +127,7 @@ fn multicast_source_address(#[case] medium: Medium) {
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
+            HardwareAddress::default(),
             &Ipv6Packet::new_checked(&data[..]).unwrap()
         ),
         response
@@ -173,6 +176,7 @@ fn hop_by_hop_skip_with_icmp(#[case] medium: Medium) {
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
+            HardwareAddress::default(),
             &Ipv6Packet::new_checked(&data[..]).unwrap()
         ),
         response
@@ -208,6 +212,7 @@ fn hop_by_hop_discard_with_icmp(#[case] medium: Medium) {
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
+            HardwareAddress::default(),
             &Ipv6Packet::new_checked(&data[..]).unwrap()
         ),
         response
@@ -262,6 +267,7 @@ fn hop_by_hop_discard_param_problem(#[case] medium: Medium) {
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
+            HardwareAddress::default(),
             &Ipv6Packet::new_checked(&data[..]).unwrap()
         ),
         response
@@ -319,6 +325,7 @@ fn hop_by_hop_discard_with_multicast(#[case] medium: Medium) {
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
+            HardwareAddress::default(),
             &Ipv6Packet::new_checked(&data[..]).unwrap()
         ),
         response
@@ -378,6 +385,7 @@ fn imcp_empty_echo_request(#[case] medium: Medium) {
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
+            HardwareAddress::default(),
             &Ipv6Packet::new_checked(&data[..]).unwrap()
         ),
         response
@@ -438,6 +446,7 @@ fn icmp_echo_request(#[case] medium: Medium) {
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
+            HardwareAddress::default(),
             &Ipv6Packet::new_checked(&data[..]).unwrap()
         ),
         response
@@ -485,6 +494,7 @@ fn icmp_echo_reply_as_input(#[case] medium: Medium) {
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
+            HardwareAddress::default(),
             &Ipv6Packet::new_checked(&data[..]).unwrap()
         ),
         response
@@ -533,6 +543,7 @@ fn unknown_proto_with_multicast_dst_address(#[case] medium: Medium) {
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
+            HardwareAddress::default(),
             &Ipv6Packet::new_checked(&data[..]).unwrap()
         ),
         response
@@ -582,6 +593,7 @@ fn unknown_proto(#[case] medium: Medium) {
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
+            HardwareAddress::default(),
             &Ipv6Packet::new_checked(&data[..]).unwrap()
         ),
         response
@@ -626,6 +638,7 @@ fn ndsic_neighbor_advertisement_ethernet(#[case] medium: Medium) {
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
+            HardwareAddress::default(),
             &Ipv6Packet::new_checked(&data[..]).unwrap()
         ),
         response
@@ -682,6 +695,7 @@ fn ndsic_neighbor_advertisement_ethernet_multicast_addr(#[case] medium: Medium) 
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
+            HardwareAddress::default(),
             &Ipv6Packet::new_checked(&data[..]).unwrap()
         ),
         response
@@ -734,6 +748,7 @@ fn ndsic_neighbor_advertisement_ieee802154(#[case] medium: Medium) {
         iface.inner.process_ipv6(
             &mut sockets,
             PacketMeta::default(),
+            HardwareAddress::default(),
             &Ipv6Packet::new_checked(&data[..]).unwrap()
         ),
         response
@@ -819,7 +834,6 @@ fn test_handle_valid_ndisc_request(#[case] medium: Medium) {
     assert_eq!(
         iface.inner.lookup_hardware_addr(
             MockTxToken,
-            &IpAddress::Ipv6(local_ip_addr),
             &IpAddress::Ipv6(remote_ip_addr),
             &mut iface.fragmenter,
         ),
@@ -1275,7 +1289,7 @@ fn test_join_ipv6_multicast_group(#[case] medium: Medium) {
             .collect::<std::vec::Vec<_>>()
     }
 
-    let (mut iface, _sockets, mut device) = setup(medium);
+    let (mut iface, mut sockets, mut device) = setup(medium);
 
     let groups = [
         Ipv6Address::from_parts(&[0xff05, 0, 0, 0, 0, 0, 0, 0x00fb]),
@@ -1285,11 +1299,11 @@ fn test_join_ipv6_multicast_group(#[case] medium: Medium) {
     let timestamp = Instant::from_millis(0);
 
     for &group in &groups {
-        iface
-            .join_multicast_group(&mut device, group, timestamp)
-            .unwrap();
+        iface.join_multicast_group(group).unwrap();
         assert!(iface.has_multicast_group(group));
     }
+    assert!(iface.has_multicast_group(Ipv6Address::LINK_LOCAL_ALL_NODES));
+    iface.poll(timestamp, &mut device, &mut sockets);
     assert!(iface.has_multicast_group(Ipv6Address::LINK_LOCAL_ALL_NODES));
 
     let reports = recv_icmpv6(&mut device, timestamp);
@@ -1360,9 +1374,9 @@ fn test_join_ipv6_multicast_group(#[case] medium: Medium) {
             }
         );
 
-        iface
-            .leave_multicast_group(&mut device, group_addr, timestamp)
-            .unwrap();
+        iface.leave_multicast_group(group_addr).unwrap();
+        assert!(!iface.has_multicast_group(group_addr));
+        iface.poll(timestamp, &mut device, &mut sockets);
         assert!(!iface.has_multicast_group(group_addr));
     }
 }

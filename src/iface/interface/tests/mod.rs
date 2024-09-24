@@ -5,7 +5,7 @@ mod ipv6;
 #[cfg(feature = "proto-sixlowpan")]
 mod sixlowpan;
 
-#[cfg(feature = "proto-igmp")]
+#[allow(unused)]
 use std::vec::Vec;
 
 use crate::tests::setup;
@@ -27,13 +27,11 @@ fn fill_slice(s: &mut [u8], val: u8) {
     }
 }
 
-#[cfg(feature = "proto-igmp")]
+#[allow(unused)]
 fn recv_all(device: &mut crate::tests::TestingDevice, timestamp: Instant) -> Vec<Vec<u8>> {
     let mut pkts = Vec::new();
-    while let Some((rx, _tx)) = device.receive(timestamp) {
-        rx.consume(|pkt| {
-            pkts.push(pkt.to_vec());
-        });
+    while let Some(pkt) = device.tx_queue.pop_front() {
+        pkts.push(pkt)
     }
     pkts
 }
@@ -61,11 +59,15 @@ fn test_new_panic() {
     Interface::new(config, &mut device, Instant::ZERO);
 }
 
+#[cfg(feature = "socket-udp")]
 #[rstest]
-#[cfg(feature = "default")]
-fn test_handle_udp_broadcast(
-    #[values(Medium::Ip, Medium::Ethernet, Medium::Ieee802154)] medium: Medium,
-) {
+#[case::ip(Medium::Ip)]
+#[cfg(feature = "medium-ip")]
+#[case::ethernet(Medium::Ethernet)]
+#[cfg(feature = "medium-ethernet")]
+#[case::ieee802154(Medium::Ieee802154)]
+#[cfg(feature = "medium-ieee802154")]
+fn test_handle_udp_broadcast(#[case] medium: Medium) {
     use crate::socket::udp;
     use crate::wire::IpEndpoint;
 
