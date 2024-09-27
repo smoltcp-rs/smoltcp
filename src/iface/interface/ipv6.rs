@@ -288,12 +288,13 @@ impl InterfaceInner {
                         Ipv6OptionFailureType::DiscardSendAll => {
                             return HopByHopResponse::Discard(param_problem());
                         }
-                        Ipv6OptionFailureType::DiscardSendUnicast
-                            if !ipv6_repr.dst_addr.is_multicast() =>
-                        {
-                            return HopByHopResponse::Discard(param_problem());
+                        Ipv6OptionFailureType::DiscardSendUnicast => {
+                            if !ipv6_repr.dst_addr.is_multicast() {
+                                return HopByHopResponse::Discard(param_problem());
+                            } else {
+                                return HopByHopResponse::Discard(None);
+                            }
                         }
-                        _ => unreachable!(),
                     }
                 }
             }
