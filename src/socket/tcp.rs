@@ -2057,19 +2057,19 @@ impl<'a> Socket<'a> {
 
         // Handle delayed acks
         if let Some(ack_delay) = self.ack_delay {
-            if self.ack_to_transmit() || self.window_to_update() {
+            if self.ack_to_transmit() {
                 self.ack_delay_timer = match self.ack_delay_timer {
                     AckDelayTimer::Idle => {
                         tcp_trace!("starting delayed ack timer");
-
                         AckDelayTimer::Waiting(cx.now() + ack_delay)
                     }
-                    // RFC1122 says "in a stream of full-sized segments there SHOULD be an ACK
-                    // for at least every second segment".
-                    // For now, we send an ACK every second received packet, full-sized or not.
-                    AckDelayTimer::Waiting(_) => {
+                    AckDelayTimer::Waiting(_) if self.immediate_ack_to_transmit() => {
                         tcp_trace!("delayed ack timer already started, forcing expiry");
                         AckDelayTimer::Immediate
+                    }
+                    timer @ AckDelayTimer::Waiting(_) => {
+                        tcp_trace!("waiting until delayed ack timer expires");
+                        timer
                     }
                     AckDelayTimer::Immediate => {
                         tcp_trace!("delayed ack timer already force-expired");
@@ -2178,6 +2178,24 @@ impl<'a> Socket<'a> {
     fn ack_to_transmit(&self) -> bool {
         if let Some(remote_last_ack) = self.remote_last_ack {
             remote_last_ack < self.remote_seq_no + self.rx_buffer.len()
+        } else {
+            false
+        }
+    }
+
+    /// Return whether to send ACK immediately due to the amount of unacknowledged data.
+    ///
+    /// RFC 9293 states "An ACK SHOULD be generated for at least every second full-sized segment or
+    /// 2*RMSS bytes of new data (where RMSS is the MSS specified by the TCP endpoint receiving the
+    /// segments to be acknowledged, or the default value if not specified) (SHLD-19)."
+    ///
+    /// Note that the RFC above only says "at least 2*RMSS bytes", which is not a hard requirement.
+    /// In practice, we follow the Linux kernel's empirical value of sending an ACK for every RMSS
+    /// byte of new data. For details, see
+    /// <https://elixir.bootlin.com/linux/v6.11.4/source/net/ipv4/tcp_input.c#L5747>.
+    fn immediate_ack_to_transmit(&self) -> bool {
+        if let Some(remote_last_ack) = self.remote_last_ack {
+            remote_last_ack + self.remote_mss < self.remote_seq_no + self.rx_buffer.len()
         } else {
             false
         }
@@ -7361,15 +7379,15 @@ mod test {
     }
 
     #[test]
-    fn test_delayed_ack_every_second_packet() {
-        let mut s = socket_established();
+    fn test_delayed_ack_every_rmss() {
+        let mut s = socket_established_with_buffer_sizes(DEFAULT_MSS * 2, DEFAULT_MSS * 2);
         s.set_ack_delay(Some(ACK_DELAY_DEFAULT));
         send!(
             s,
             TcpRepr {
                 seq_number: REMOTE_SEQ + 1,
                 ack_number: Some(LOCAL_SEQ + 1),
-                payload: &b"abc"[..],
+                payload: &[0; DEFAULT_MSS - 1],
                 ..SEND_TEMPL
             }
         );
@@ -7380,35 +7398,48 @@ mod test {
         send!(
             s,
             TcpRepr {
-                seq_number: REMOTE_SEQ + 1 + 3,
+                seq_number: REMOTE_SEQ + 1 + (DEFAULT_MSS - 1),
                 ack_number: Some(LOCAL_SEQ + 1),
-                payload: &b"def"[..],
+                payload: &b"a"[..],
                 ..SEND_TEMPL
             }
         );
 
-        // Every 2nd packet, ACK is sent without delay.
+        // No ACK is immediately sent.
+        recv_nothing!(s);
+
+        send!(
+            s,
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1 + DEFAULT_MSS,
+                ack_number: Some(LOCAL_SEQ + 1),
+                payload: &b"a"[..],
+                ..SEND_TEMPL
+            }
+        );
+
+        // RMSS+1 bytes of data has been received, so ACK is sent without delay.
         recv!(
             s,
             Ok(TcpRepr {
                 seq_number: LOCAL_SEQ + 1,
-                ack_number: Some(REMOTE_SEQ + 1 + 6),
-                window_len: 58,
+                ack_number: Some(REMOTE_SEQ + 1 + (DEFAULT_MSS + 1)),
+                window_len: (DEFAULT_MSS - 1) as u16,
                 ..RECV_TEMPL
             })
         );
     }
 
     #[test]
-    fn test_delayed_ack_three_packets() {
-        let mut s = socket_established();
+    fn test_delayed_ack_every_rmss_or_more() {
+        let mut s = socket_established_with_buffer_sizes(DEFAULT_MSS * 2, DEFAULT_MSS * 2);
         s.set_ack_delay(Some(ACK_DELAY_DEFAULT));
         send!(
             s,
             TcpRepr {
                 seq_number: REMOTE_SEQ + 1,
                 ack_number: Some(LOCAL_SEQ + 1),
-                payload: &b"abc"[..],
+                payload: &[0; DEFAULT_MSS],
                 ..SEND_TEMPL
             }
         );
@@ -7419,9 +7450,9 @@ mod test {
         send!(
             s,
             TcpRepr {
-                seq_number: REMOTE_SEQ + 1 + 3,
+                seq_number: REMOTE_SEQ + 1 + DEFAULT_MSS,
                 ack_number: Some(LOCAL_SEQ + 1),
-                payload: &b"def"[..],
+                payload: &b"a"[..],
                 ..SEND_TEMPL
             }
         );
@@ -7429,20 +7460,20 @@ mod test {
         send!(
             s,
             TcpRepr {
-                seq_number: REMOTE_SEQ + 1 + 6,
+                seq_number: REMOTE_SEQ + 1 + (DEFAULT_MSS + 1),
                 ack_number: Some(LOCAL_SEQ + 1),
-                payload: &b"ghi"[..],
+                payload: &b"b"[..],
                 ..SEND_TEMPL
             }
         );
 
-        // Every 2nd (or more) packet, ACK is sent without delay.
+        // RMSS+2 bytes of data has been received, so ACK is sent without delay.
         recv!(
             s,
             Ok(TcpRepr {
                 seq_number: LOCAL_SEQ + 1,
-                ack_number: Some(REMOTE_SEQ + 1 + 9),
-                window_len: 55,
+                ack_number: Some(REMOTE_SEQ + 1 + (DEFAULT_MSS + 2)),
+                window_len: (DEFAULT_MSS - 2) as u16,
                 ..RECV_TEMPL
             })
         );
