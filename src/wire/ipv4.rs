@@ -51,7 +51,9 @@ pub(crate) trait AddressExt {
     fn from_bytes(data: &[u8]) -> Self;
 
     /// Query whether the address is an unicast address.
-    fn is_unicast(&self) -> bool;
+    ///
+    /// `x_` prefix is to avoid a collision with the still-unstable method in `core::ip`.
+    fn x_is_unicast(&self) -> bool;
 
     /// If `self` is a CIDR-compatible subnet mask, return `Some(prefix_len)`,
     /// where `prefix_len` is the number of leading zeroes. Return `None` otherwise.
@@ -66,7 +68,7 @@ impl AddressExt for Address {
     }
 
     /// Query whether the address is an unicast address.
-    fn is_unicast(&self) -> bool {
+    fn x_is_unicast(&self) -> bool {
         !(self.is_broadcast() || self.is_multicast() || self.is_unspecified())
     }
 

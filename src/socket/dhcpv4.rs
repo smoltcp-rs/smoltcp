@@ -366,7 +366,7 @@ impl<'a> Socket<'a> {
 
         match (&mut self.state, dhcp_repr.message_type) {
             (ClientState::Discovering(_state), DhcpMessageType::Offer) => {
-                if !dhcp_repr.your_ip.is_unicast() {
+                if !dhcp_repr.your_ip.x_is_unicast() {
                     net_debug!("DHCP ignoring OFFER because your_ip is not unicast");
                     return;
                 }
@@ -462,7 +462,7 @@ impl<'a> Socket<'a> {
             }
         };
 
-        if !dhcp_repr.your_ip.is_unicast() {
+        if !dhcp_repr.your_ip.x_is_unicast() {
             net_debug!("DHCP ignoring ACK because your_ip is not unicast");
             return None;
         }
@@ -483,7 +483,7 @@ impl<'a> Socket<'a> {
             .dns_servers
             .iter()
             .flatten()
-            .filter(|s| s.is_unicast())
+            .filter(|s| s.x_is_unicast())
             .for_each(|a| {
                 // This will never produce an error, as both the arrays and `dns_servers`
                 // have length DHCP_MAX_DNS_SERVER_COUNT

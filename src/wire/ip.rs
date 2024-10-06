@@ -131,9 +131,9 @@ impl Address {
     pub fn is_unicast(&self) -> bool {
         match self {
             #[cfg(feature = "proto-ipv4")]
-            Address::Ipv4(addr) => addr.is_unicast(),
+            Address::Ipv4(addr) => addr.x_is_unicast(),
             #[cfg(feature = "proto-ipv6")]
-            Address::Ipv6(addr) => addr.is_unicast(),
+            Address::Ipv6(addr) => addr.x_is_unicast(),
         }
     }
 

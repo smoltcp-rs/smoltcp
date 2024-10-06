@@ -37,9 +37,9 @@ impl InterfaceInner {
             }
 
             if dst_addr.is_multicast()
-                && matches!(dst_addr.multicast_scope(), Ipv6MulticastScope::LinkLocal)
+                && matches!(dst_addr.x_multicast_scope(), Ipv6MulticastScope::LinkLocal)
                 && src_addr.is_multicast()
-                && !matches!(src_addr.multicast_scope(), Ipv6MulticastScope::LinkLocal)
+                && !matches!(src_addr.x_multicast_scope(), Ipv6MulticastScope::LinkLocal)
             {
                 return false;
             }
@@ -111,15 +111,16 @@ impl InterfaceInner {
             }
 
             // Rule 2: prefer appropriate scope.
-            if (candidate.address().multicast_scope() as u8)
-                < (addr.address().multicast_scope() as u8)
+            if (candidate.address().x_multicast_scope() as u8)
+                < (addr.address().x_multicast_scope() as u8)
             {
-                if (candidate.address().multicast_scope() as u8)
-                    < (dst_addr.multicast_scope() as u8)
+                if (candidate.address().x_multicast_scope() as u8)
+                    < (dst_addr.x_multicast_scope() as u8)
                 {
                     candidate = addr;
                 }
-            } else if (addr.address().multicast_scope() as u8) > (dst_addr.multicast_scope() as u8)
+            } else if (addr.address().x_multicast_scope() as u8)
+                > (dst_addr.x_multicast_scope() as u8)
             {
                 candidate = addr;
             }
@@ -192,7 +193,7 @@ impl InterfaceInner {
     ) -> Option<Packet<'frame>> {
         let ipv6_repr = check!(Ipv6Repr::parse(ipv6_packet));
 
-        if !ipv6_repr.src_addr.is_unicast() {
+        if !ipv6_repr.src_addr.x_is_unicast() {
             // Discard packets with non-unicast source addresses.
             net_debug!("non-unicast source address");
             return None;
@@ -213,7 +214,7 @@ impl InterfaceInner {
         {
             // If AnyIP is enabled, also check if the packet is routed locally.
             if !self.any_ip
-                || !ipv6_repr.dst_addr.is_unicast()
+                || !ipv6_repr.dst_addr.x_is_unicast()
                 || self
                     .routes
                     .lookup(&IpAddress::Ipv6(ipv6_repr.dst_addr), self.now)
@@ -230,7 +231,7 @@ impl InterfaceInner {
         let handled_by_raw_socket = false;
 
         #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
-        if ipv6_repr.dst_addr.is_unicast() {
+        if ipv6_repr.dst_addr.x_is_unicast() {
             self.neighbor_cache.reset_expiry_if_existing(
                 IpAddress::Ipv6(ipv6_repr.src_addr),
                 source_hardware_addr,
@@ -436,7 +437,7 @@ impl InterfaceInner {
                 let ip_addr = ip_repr.src_addr.into();
                 if let Some(lladdr) = lladdr {
                     let lladdr = check!(lladdr.parse(self.caps.medium));
-                    if !lladdr.is_unicast() || !target_addr.is_unicast() {
+                    if !lladdr.is_unicast() || !target_addr.x_is_unicast() {
                         return None;
                     }
                     if flags.contains(NdiscNeighborFlags::OVERRIDE)
@@ -454,7 +455,7 @@ impl InterfaceInner {
             } => {
                 if let Some(lladdr) = lladdr {
                     let lladdr = check!(lladdr.parse(self.caps.medium));
-                    if !lladdr.is_unicast() || !target_addr.is_unicast() {
+                    if !lladdr.is_unicast() || !target_addr.x_is_unicast() {
                         return None;
                     }
                     self.neighbor_cache
@@ -492,7 +493,7 @@ impl InterfaceInner {
         let src_addr = ipv6_repr.dst_addr;
         let dst_addr = ipv6_repr.src_addr;
 
-        let src_addr = if src_addr.is_unicast() {
+        let src_addr = if src_addr.x_is_unicast() {
             src_addr
         } else {
             self.get_source_address_ipv6(&dst_addr)
