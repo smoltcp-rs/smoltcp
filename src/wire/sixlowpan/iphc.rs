@@ -6,7 +6,7 @@
 use super::{
     AddressContext, AddressMode, Error, NextHeader, Result, UnresolvedAddress, DISPATCH_IPHC_HEADER,
 };
-use crate::wire::{ieee802154::Address as LlAddress, ipv6, IpProtocol};
+use crate::wire::{ieee802154::Address as LlAddress, ipv6, ipv6::AddressExt, IpProtocol};
 use byteorder::{ByteOrder, NetworkEndian};
 
 mod field {
@@ -526,7 +526,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     ) -> usize {
         self.set_cid_field(0);
         self.set_sac_field(0);
-        let src = src_addr.as_bytes();
+        let src = src_addr.octets();
         if src_addr == ipv6::Address::UNSPECIFIED {
             self.set_sac_field(1);
             self.set_sam_field(0b00);
@@ -574,7 +574,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
         } else {
             // We cannot elide anything.
             self.set_sam_field(0b00);
-            self.set_field(idx, src);
+            self.set_field(idx, &src);
             idx += 16;
         }
 
@@ -593,7 +593,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
         self.set_dac_field(0);
         self.set_dam_field(0);
         self.set_m_field(0);
-        let dst = dst_addr.as_bytes();
+        let dst = dst_addr.octets();
         if dst_addr.is_multicast() {
             self.set_m_field(1);
 
@@ -619,7 +619,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
             } else {
                 self.set_dam_field(0b11);
 
-                self.set_field(idx, dst);
+                self.set_field(idx, &dst);
                 idx += 16;
             }
         } else if dst_addr.is_link_local() {
@@ -653,7 +653,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
         } else {
             self.set_dam_field(0b00);
 
-            self.set_field(idx, dst);
+            self.set_field(idx, &dst);
             idx += 16;
         }
 
@@ -771,7 +771,7 @@ impl Repr {
         len += if self.src_addr == ipv6::Address::UNSPECIFIED {
             0
         } else if self.src_addr.is_link_local() {
-            let src = self.src_addr.as_bytes();
+            let src = self.src_addr.octets();
             let ll = [src[14], src[15]];
 
             let is_eui_64 = self
@@ -799,7 +799,7 @@ impl Repr {
         };
 
         // Add the size of the destination header
-        let dst = self.dst_addr.as_bytes();
+        let dst = self.dst_addr.octets();
         len += if self.dst_addr.is_multicast() {
             if dst[1] == 0x02 && dst[2..15] == [0; 13] {
                 1

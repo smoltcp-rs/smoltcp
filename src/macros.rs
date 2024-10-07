@@ -132,7 +132,7 @@ macro_rules! get {
 #[cfg(feature = "proto-rpl")]
 macro_rules! set {
     ($buffer:expr, address: $address:ident, field: $field:expr $(,)?) => {{
-        $buffer.as_mut()[$field].copy_from_slice($address.as_bytes());
+        $buffer.as_mut()[$field].copy_from_slice(&$address.octets());
     }};
 
     ($buffer:expr, $value:ident, field: $field:expr $(,)?) => {

@@ -172,45 +172,34 @@ mod test {
     #[cfg(feature = "proto-ipv6")]
     mod mock {
         use super::super::*;
-        pub const ADDR_1A: Ipv6Address =
-            Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 1]);
-        pub const ADDR_1B: Ipv6Address =
-            Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 13]);
-        pub const ADDR_1C: Ipv6Address =
-            Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 42]);
+        pub const ADDR_1A: Ipv6Address = Ipv6Address::new(0xfe80, 0, 0, 2, 0, 0, 0, 1);
+        pub const ADDR_1B: Ipv6Address = Ipv6Address::new(0xfe80, 0, 0, 2, 0, 0, 0, 13);
+        pub const ADDR_1C: Ipv6Address = Ipv6Address::new(0xfe80, 0, 0, 2, 0, 0, 0, 42);
         pub fn cidr_1() -> Ipv6Cidr {
-            Ipv6Cidr::new(
-                Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0]),
-                64,
-            )
+            Ipv6Cidr::new(Ipv6Address::new(0xfe80, 0, 0, 2, 0, 0, 0, 0), 64)
         }
 
-        pub const ADDR_2A: Ipv6Address =
-            Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 51, 100, 0, 0, 0, 0, 0, 0, 0, 1]);
-        pub const ADDR_2B: Ipv6Address =
-            Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 51, 100, 0, 0, 0, 0, 0, 0, 0, 21]);
+        pub const ADDR_2A: Ipv6Address = Ipv6Address::new(0xfe80, 0, 0, 0x3364, 0, 0, 0, 1);
+        pub const ADDR_2B: Ipv6Address = Ipv6Address::new(0xfe80, 0, 0, 0x3364, 0, 0, 0, 21);
         pub fn cidr_2() -> Ipv6Cidr {
-            Ipv6Cidr::new(
-                Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 51, 100, 0, 0, 0, 0, 0, 0, 0, 0]),
-                64,
-            )
+            Ipv6Cidr::new(Ipv6Address::new(0xfe80, 0, 0, 0x3364, 0, 0, 0, 0), 64)
         }
     }
 
     #[cfg(all(feature = "proto-ipv4", not(feature = "proto-ipv6")))]
     mod mock {
         use super::super::*;
-        pub const ADDR_1A: Ipv4Address = Ipv4Address([192, 0, 2, 1]);
-        pub const ADDR_1B: Ipv4Address = Ipv4Address([192, 0, 2, 13]);
-        pub const ADDR_1C: Ipv4Address = Ipv4Address([192, 0, 2, 42]);
+        pub const ADDR_1A: Ipv4Address = Ipv4Address::new(192, 0, 2, 1);
+        pub const ADDR_1B: Ipv4Address = Ipv4Address::new(192, 0, 2, 13);
+        pub const ADDR_1C: Ipv4Address = Ipv4Address::new(192, 0, 2, 42);
         pub fn cidr_1() -> Ipv4Cidr {
-            Ipv4Cidr::new(Ipv4Address([192, 0, 2, 0]), 24)
+            Ipv4Cidr::new(Ipv4Address::new(192, 0, 2, 0), 24)
         }
 
-        pub const ADDR_2A: Ipv4Address = Ipv4Address([198, 51, 100, 1]);
-        pub const ADDR_2B: Ipv4Address = Ipv4Address([198, 51, 100, 21]);
+        pub const ADDR_2A: Ipv4Address = Ipv4Address::new(198, 51, 100, 1);
+        pub const ADDR_2B: Ipv4Address = Ipv4Address::new(198, 51, 100, 21);
         pub fn cidr_2() -> Ipv4Cidr {
-            Ipv4Cidr::new(Ipv4Address([198, 51, 100, 0]), 24)
+            Ipv4Cidr::new(Ipv4Address::new(198, 51, 100, 0), 24)
         }
     }
 

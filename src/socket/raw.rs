@@ -494,8 +494,8 @@ mod test {
 
         pub const IP_PROTO: u8 = 63;
         pub const HEADER_REPR: IpRepr = IpRepr::Ipv4(Ipv4Repr {
-            src_addr: Ipv4Address([10, 0, 0, 1]),
-            dst_addr: Ipv4Address([10, 0, 0, 2]),
+            src_addr: Ipv4Address::new(10, 0, 0, 1),
+            dst_addr: Ipv4Address::new(10, 0, 0, 2),
             next_header: IpProtocol::Unknown(IP_PROTO),
             payload_len: 4,
             hop_limit: 64,
@@ -525,14 +525,8 @@ mod test {
 
         pub const IP_PROTO: u8 = 63;
         pub const HEADER_REPR: IpRepr = IpRepr::Ipv6(Ipv6Repr {
-            src_addr: Ipv6Address([
-                0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                0x00, 0x01,
-            ]),
-            dst_addr: Ipv6Address([
-                0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                0x00, 0x02,
-            ]),
+            src_addr: Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1),
+            dst_addr: Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 2),
             next_header: IpProtocol::Unknown(IP_PROTO),
             payload_len: 4,
             hop_limit: 64,

@@ -6,6 +6,7 @@
 use super::{Error, Result};
 use crate::wire::ieee802154::Address as LlAddress;
 use crate::wire::ipv6;
+use crate::wire::ipv6::AddressExt;
 use crate::wire::IpProtocol;
 
 pub mod frag;

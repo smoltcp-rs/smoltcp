@@ -70,7 +70,7 @@ impl InterfaceInner {
 
     /// Checks if an ipv4 address is unicast, taking into account subnet broadcast addresses
     fn is_unicast_v4(&self, address: Ipv4Address) -> bool {
-        address.is_unicast() && !self.is_broadcast_v4(address)
+        address.x_is_unicast() && !self.is_broadcast_v4(address)
     }
 
     /// Get the first IPv4 address of the interface.
@@ -182,7 +182,7 @@ impl InterfaceInner {
             // Ignore IP packets not directed at us, or broadcast, or any of the multicast groups.
             // If AnyIP is enabled, also check if the packet is routed locally.
             if !self.any_ip
-                || !ipv4_repr.dst_addr.is_unicast()
+                || !ipv4_repr.dst_addr.x_is_unicast()
                 || self
                     .routes
                     .lookup(&IpAddress::Ipv4(ipv4_repr.dst_addr), self.now)
@@ -260,7 +260,7 @@ impl InterfaceInner {
                 }
 
                 // Discard packets with non-unicast source addresses.
-                if !source_protocol_addr.is_unicast() || !source_hardware_addr.is_unicast() {
+                if !source_protocol_addr.x_is_unicast() || !source_hardware_addr.is_unicast() {
                     net_debug!("arp: non-unicast source address");
                     return None;
                 }

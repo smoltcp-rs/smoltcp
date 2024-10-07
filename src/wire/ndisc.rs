@@ -4,8 +4,8 @@ use byteorder::{ByteOrder, NetworkEndian};
 use super::{Error, Result};
 use crate::time::Duration;
 use crate::wire::icmpv6::{field, Message, Packet};
-use crate::wire::Ipv6Address;
 use crate::wire::RawHardwareAddress;
+use crate::wire::{Ipv6Address, Ipv6AddressExt};
 use crate::wire::{NdiscOption, NdiscOptionRepr};
 use crate::wire::{NdiscPrefixInformation, NdiscRedirectedHeader};
 
@@ -159,7 +159,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     #[inline]
     pub fn set_target_addr(&mut self, value: Ipv6Address) {
         let data = self.buffer.as_mut();
-        data[field::TARGET_ADDR].copy_from_slice(value.as_bytes());
+        data[field::TARGET_ADDR].copy_from_slice(&value.octets());
     }
 }
 
@@ -184,7 +184,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     #[inline]
     pub fn set_dest_addr(&mut self, value: Ipv6Address) {
         let data = self.buffer.as_mut();
-        data[field::DEST_ADDR].copy_from_slice(value.as_bytes());
+        data[field::DEST_ADDR].copy_from_slice(&value.octets());
     }
 }
 
@@ -462,10 +462,8 @@ mod test {
     use crate::wire::EthernetAddress;
     use crate::wire::Icmpv6Repr;
 
-    const MOCK_IP_ADDR_1: Ipv6Address =
-        Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
-    const MOCK_IP_ADDR_2: Ipv6Address =
-        Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]);
+    const MOCK_IP_ADDR_1: Ipv6Address = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
+    const MOCK_IP_ADDR_2: Ipv6Address = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 2);
 
     static ROUTER_ADVERT_BYTES: [u8; 24] = [
         0x86, 0x00, 0xa9, 0xde, 0x40, 0x80, 0x03, 0x84, 0x00, 0x00, 0x03, 0x84, 0x00, 0x00, 0x03,

@@ -19,9 +19,9 @@ use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr, Ipv6Address};
 // will send packets to the multicast group we join below on tap0.
 
 const PORT: u16 = 8123;
-const GROUP: [u16; 8] = [0xff02, 0, 0, 0, 0, 0, 0, 0x1234];
-const LOCAL_ADDR: [u16; 8] = [0xfe80, 0, 0, 0, 0, 0, 0, 0x101];
-const ROUTER_ADDR: [u16; 8] = [0xfe80, 0, 0, 0, 0, 0, 0, 0x100];
+const GROUP: Ipv6Address = Ipv6Address::new(0xff02, 0, 0, 0, 0, 0, 0, 0x1234);
+const LOCAL_ADDR: Ipv6Address = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 0x101);
+const ROUTER_ADDR: Ipv6Address = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 0x100);
 
 fn main() {
     utils::setup_logging("warn");
@@ -37,7 +37,6 @@ fn main() {
         utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
 
     // Create interface
-    let local_addr = Ipv6Address::from_parts(&LOCAL_ADDR);
     let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x02]);
     let mut config = match device.capabilities().medium {
         Medium::Ethernet => Config::new(ethernet_addr.into()),
@@ -49,12 +48,12 @@ fn main() {
     let mut iface = Interface::new(config, &mut device, Instant::now());
     iface.update_ip_addrs(|ip_addrs| {
         ip_addrs
-            .push(IpCidr::new(IpAddress::from(local_addr), 64))
+            .push(IpCidr::new(IpAddress::from(LOCAL_ADDR), 64))
             .unwrap();
     });
     iface
         .routes_mut()
-        .add_default_ipv6_route(Ipv6Address::from_parts(&ROUTER_ADDR))
+        .add_default_ipv6_route(ROUTER_ADDR)
         .unwrap();
 
     // Create sockets
@@ -65,9 +64,7 @@ fn main() {
     let udp_handle = sockets.add(udp_socket);
 
     // Join a multicast group
-    iface
-        .join_multicast_group(Ipv6Address::from_parts(&GROUP))
-        .unwrap();
+    iface.join_multicast_group(GROUP).unwrap();
 
     loop {
         let timestamp = Instant::now();

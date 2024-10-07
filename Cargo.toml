@@ -2,7 +2,7 @@
 name = "smoltcp"
 version = "0.11.0"
 edition = "2021"
-rust-version = "1.77"
+rust-version = "1.80"
 authors = ["whitequark <whitequark@whitequark.org>"]
 description = "A TCP/IP stack designed for bare-metal, real-time systems without a heap."
 documentation = "https://docs.rs/smoltcp/"
@@ -25,7 +25,7 @@ byteorder = { version = "1.0", default-features = false }
 log = { version = "0.4.4", default-features = false, optional = true }
 libc = { version = "0.2.18", optional = true }
 bitflags = { version = "1.0", default-features = false }
-defmt = { version = "0.3", optional = true }
+defmt = { version = "0.3.8", optional = true, features = ["ip_in_core"] }
 cfg-if = "1.0.0"
 heapless = "0.8"
 

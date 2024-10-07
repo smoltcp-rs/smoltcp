@@ -12,7 +12,7 @@ use smoltcp::wire::{
 };
 
 const MDNS_PORT: u16 = 5353;
-const MDNS_GROUP: [u8; 4] = [224, 0, 0, 251];
+const MDNS_GROUP: Ipv4Address = Ipv4Address::new(224, 0, 0, 251);
 
 fn main() {
     utils::setup_logging("warn");
@@ -81,9 +81,7 @@ fn main() {
     let udp_handle = sockets.add(udp_socket);
 
     // Join a multicast group to receive mDNS traffic
-    iface
-        .join_multicast_group(Ipv4Address::from_bytes(&MDNS_GROUP))
-        .unwrap();
+    iface.join_multicast_group(MDNS_GROUP).unwrap();
 
     loop {
         let timestamp = Instant::now();

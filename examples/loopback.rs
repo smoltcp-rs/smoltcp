@@ -3,7 +3,6 @@
 #![allow(clippy::collapsible_if)]
 
 #[cfg(feature = "std")]
-#[allow(dead_code)]
 mod utils;
 
 use core::str;

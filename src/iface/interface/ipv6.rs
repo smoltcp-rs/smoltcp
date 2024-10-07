@@ -37,9 +37,9 @@ impl InterfaceInner {
             }
 
             if dst_addr.is_multicast()
-                && matches!(dst_addr.multicast_scope(), Ipv6MulticastScope::LinkLocal)
+                && matches!(dst_addr.x_multicast_scope(), Ipv6MulticastScope::LinkLocal)
                 && src_addr.is_multicast()
-                && !matches!(src_addr.multicast_scope(), Ipv6MulticastScope::LinkLocal)
+                && !matches!(src_addr.x_multicast_scope(), Ipv6MulticastScope::LinkLocal)
             {
                 return false;
             }
@@ -58,7 +58,7 @@ impl InterfaceInner {
         fn common_prefix_length(dst_addr: &Ipv6Cidr, src_addr: &Ipv6Address) -> usize {
             let addr = dst_addr.address();
             let mut bits = 0;
-            for (l, r) in addr.as_bytes().iter().zip(src_addr.as_bytes().iter()) {
+            for (l, r) in addr.octets().iter().zip(src_addr.octets().iter()) {
                 if l == r {
                     bits += 8;
                 } else {
@@ -82,7 +82,7 @@ impl InterfaceInner {
                 .count()
                 == 0
         {
-            return Ipv6Address::LOOPBACK;
+            return Ipv6Address::LOCALHOST;
         }
 
         let mut candidate = self
@@ -111,15 +111,16 @@ impl InterfaceInner {
             }
 
             // Rule 2: prefer appropriate scope.
-            if (candidate.address().multicast_scope() as u8)
-                < (addr.address().multicast_scope() as u8)
+            if (candidate.address().x_multicast_scope() as u8)
+                < (addr.address().x_multicast_scope() as u8)
             {
-                if (candidate.address().multicast_scope() as u8)
-                    < (dst_addr.multicast_scope() as u8)
+                if (candidate.address().x_multicast_scope() as u8)
+                    < (dst_addr.x_multicast_scope() as u8)
                 {
                     candidate = addr;
                 }
-            } else if (addr.address().multicast_scope() as u8) > (dst_addr.multicast_scope() as u8)
+            } else if (addr.address().x_multicast_scope() as u8)
+                > (dst_addr.x_multicast_scope() as u8)
             {
                 candidate = addr;
             }
@@ -147,10 +148,10 @@ impl InterfaceInner {
     pub fn has_solicited_node(&self, addr: Ipv6Address) -> bool {
         self.ip_addrs.iter().any(|cidr| {
             match *cidr {
-                IpCidr::Ipv6(cidr) if cidr.address() != Ipv6Address::LOOPBACK => {
+                IpCidr::Ipv6(cidr) if cidr.address() != Ipv6Address::LOCALHOST => {
                     // Take the lower order 24 bits of the IPv6 address and
                     // append those bits to FF02:0:0:0:0:1:FF00::/104.
-                    addr.as_bytes()[14..] == cidr.address().as_bytes()[14..]
+                    addr.octets()[14..] == cidr.address().octets()[14..]
                 }
                 _ => false,
             }
@@ -192,7 +193,7 @@ impl InterfaceInner {
     ) -> Option<Packet<'frame>> {
         let ipv6_repr = check!(Ipv6Repr::parse(ipv6_packet));
 
-        if !ipv6_repr.src_addr.is_unicast() {
+        if !ipv6_repr.src_addr.x_is_unicast() {
             // Discard packets with non-unicast source addresses.
             net_debug!("non-unicast source address");
             return None;
@@ -213,7 +214,7 @@ impl InterfaceInner {
         {
             // If AnyIP is enabled, also check if the packet is routed locally.
             if !self.any_ip
-                || !ipv6_repr.dst_addr.is_unicast()
+                || !ipv6_repr.dst_addr.x_is_unicast()
                 || self
                     .routes
                     .lookup(&IpAddress::Ipv6(ipv6_repr.dst_addr), self.now)
@@ -230,7 +231,7 @@ impl InterfaceInner {
         let handled_by_raw_socket = false;
 
         #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
-        if ipv6_repr.dst_addr.is_unicast() {
+        if ipv6_repr.dst_addr.x_is_unicast() {
             self.neighbor_cache.reset_expiry_if_existing(
                 IpAddress::Ipv6(ipv6_repr.src_addr),
                 source_hardware_addr,
@@ -436,7 +437,7 @@ impl InterfaceInner {
                 let ip_addr = ip_repr.src_addr.into();
                 if let Some(lladdr) = lladdr {
                     let lladdr = check!(lladdr.parse(self.caps.medium));
-                    if !lladdr.is_unicast() || !target_addr.is_unicast() {
+                    if !lladdr.is_unicast() || !target_addr.x_is_unicast() {
                         return None;
                     }
                     if flags.contains(NdiscNeighborFlags::OVERRIDE)
@@ -454,7 +455,7 @@ impl InterfaceInner {
             } => {
                 if let Some(lladdr) = lladdr {
                     let lladdr = check!(lladdr.parse(self.caps.medium));
-                    if !lladdr.is_unicast() || !target_addr.is_unicast() {
+                    if !lladdr.is_unicast() || !target_addr.x_is_unicast() {
                         return None;
                     }
                     self.neighbor_cache
@@ -492,7 +493,7 @@ impl InterfaceInner {
         let src_addr = ipv6_repr.dst_addr;
         let dst_addr = ipv6_repr.src_addr;
 
-        let src_addr = if src_addr.is_unicast() {
+        let src_addr = if src_addr.x_is_unicast() {
             src_addr
         } else {
             self.get_source_address_ipv6(&dst_addr)
@@ -524,7 +525,7 @@ impl InterfaceInner {
 
         // Per [RFC 3810 § 5.2.14], all MLDv2 reports are sent to ff02::16.
         // [RFC 3810 § 5.2.14]: https://tools.ietf.org/html/rfc3810#section-5.2.14
-        let dst_addr = Ipv6Address::LINK_LOCAL_ALL_MLDV2_ROUTERS;
+        let dst_addr = IPV6_LINK_LOCAL_ALL_MLDV2_ROUTERS;
 
         // Create a dummy IPv6 extension header so we can calculate the total length of the packet.
         // The actual extension header will be created later by Packet::emit_payload().

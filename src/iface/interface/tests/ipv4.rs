@@ -72,7 +72,7 @@ fn test_no_icmp_no_unicast(#[case] medium: Medium) {
     // this should not trigger and Destination Unreachable
     // response. See RFC 1122 § 3.2.2.
     let repr = IpRepr::Ipv4(Ipv4Repr {
-        src_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x01]),
+        src_addr: Ipv4Address::new(0x7f, 0x00, 0x00, 0x01),
         dst_addr: Ipv4Address::BROADCAST,
         next_header: IpProtocol::Unknown(0x0c),
         payload_len: 0,
@@ -110,8 +110,8 @@ fn test_icmp_error_no_payload(#[case] medium: Medium) {
 
     // Unknown Ipv4 Protocol with no payload
     let repr = IpRepr::Ipv4(Ipv4Repr {
-        src_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x02]),
-        dst_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x01]),
+        src_addr: Ipv4Address::new(0x7f, 0x00, 0x00, 0x02),
+        dst_addr: Ipv4Address::new(0x7f, 0x00, 0x00, 0x01),
         next_header: IpProtocol::Unknown(0x0c),
         payload_len: 0,
         hop_limit: 0x40,
@@ -126,8 +126,8 @@ fn test_icmp_error_no_payload(#[case] medium: Medium) {
     let icmp_repr = Icmpv4Repr::DstUnreachable {
         reason: Icmpv4DstUnreachable::ProtoUnreachable,
         header: Ipv4Repr {
-            src_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x02]),
-            dst_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x01]),
+            src_addr: Ipv4Address::new(0x7f, 0x00, 0x00, 0x02),
+            dst_addr: Ipv4Address::new(0x7f, 0x00, 0x00, 0x01),
             next_header: IpProtocol::Unknown(12),
             payload_len: 0,
             hop_limit: 64,
@@ -137,8 +137,8 @@ fn test_icmp_error_no_payload(#[case] medium: Medium) {
 
     let expected_repr = Packet::new_ipv4(
         Ipv4Repr {
-            src_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x01]),
-            dst_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x02]),
+            src_addr: Ipv4Address::new(0x7f, 0x00, 0x00, 0x01),
+            dst_addr: Ipv4Address::new(0x7f, 0x00, 0x00, 0x02),
             next_header: IpProtocol::Icmp,
             payload_len: icmp_repr.buffer_len(),
             hop_limit: 64,
@@ -170,62 +170,70 @@ fn test_local_subnet_broadcasts(#[case] medium: Medium) {
     let (mut iface, _, _device) = setup(medium);
     iface.update_ip_addrs(|addrs| {
         addrs.iter_mut().next().map(|addr| {
-            *addr = IpCidr::Ipv4(Ipv4Cidr::new(Ipv4Address([192, 168, 1, 23]), 24));
+            *addr = IpCidr::Ipv4(Ipv4Cidr::new(Ipv4Address::new(192, 168, 1, 23), 24));
         });
     });
 
     assert!(iface
         .inner
-        .is_broadcast_v4(Ipv4Address([255, 255, 255, 255])));
+        .is_broadcast_v4(Ipv4Address::new(255, 255, 255, 255)));
     assert!(!iface
         .inner
-        .is_broadcast_v4(Ipv4Address([255, 255, 255, 254])));
-    assert!(iface.inner.is_broadcast_v4(Ipv4Address([192, 168, 1, 255])));
-    assert!(!iface.inner.is_broadcast_v4(Ipv4Address([192, 168, 1, 254])));
-
-    iface.update_ip_addrs(|addrs| {
-        addrs.iter_mut().next().map(|addr| {
-            *addr = IpCidr::Ipv4(Ipv4Cidr::new(Ipv4Address([192, 168, 23, 24]), 16));
-        });
-    });
+        .is_broadcast_v4(Ipv4Address::new(255, 255, 255, 254)));
     assert!(iface
         .inner
-        .is_broadcast_v4(Ipv4Address([255, 255, 255, 255])));
+        .is_broadcast_v4(Ipv4Address::new(192, 168, 1, 255)));
     assert!(!iface
         .inner
-        .is_broadcast_v4(Ipv4Address([255, 255, 255, 254])));
-    assert!(!iface
-        .inner
-        .is_broadcast_v4(Ipv4Address([192, 168, 23, 255])));
-    assert!(!iface
-        .inner
-        .is_broadcast_v4(Ipv4Address([192, 168, 23, 254])));
-    assert!(!iface
-        .inner
-        .is_broadcast_v4(Ipv4Address([192, 168, 255, 254])));
-    assert!(iface
-        .inner
-        .is_broadcast_v4(Ipv4Address([192, 168, 255, 255])));
+        .is_broadcast_v4(Ipv4Address::new(192, 168, 1, 254)));
 
     iface.update_ip_addrs(|addrs| {
         addrs.iter_mut().next().map(|addr| {
-            *addr = IpCidr::Ipv4(Ipv4Cidr::new(Ipv4Address([192, 168, 23, 24]), 8));
+            *addr = IpCidr::Ipv4(Ipv4Cidr::new(Ipv4Address::new(192, 168, 23, 24), 16));
         });
     });
     assert!(iface
         .inner
-        .is_broadcast_v4(Ipv4Address([255, 255, 255, 255])));
+        .is_broadcast_v4(Ipv4Address::new(255, 255, 255, 255)));
     assert!(!iface
         .inner
-        .is_broadcast_v4(Ipv4Address([255, 255, 255, 254])));
-    assert!(!iface.inner.is_broadcast_v4(Ipv4Address([192, 23, 1, 255])));
-    assert!(!iface.inner.is_broadcast_v4(Ipv4Address([192, 23, 1, 254])));
+        .is_broadcast_v4(Ipv4Address::new(255, 255, 255, 254)));
     assert!(!iface
         .inner
-        .is_broadcast_v4(Ipv4Address([192, 255, 255, 254])));
+        .is_broadcast_v4(Ipv4Address::new(192, 168, 23, 255)));
+    assert!(!iface
+        .inner
+        .is_broadcast_v4(Ipv4Address::new(192, 168, 23, 254)));
+    assert!(!iface
+        .inner
+        .is_broadcast_v4(Ipv4Address::new(192, 168, 255, 254)));
     assert!(iface
         .inner
-        .is_broadcast_v4(Ipv4Address([192, 255, 255, 255])));
+        .is_broadcast_v4(Ipv4Address::new(192, 168, 255, 255)));
+
+    iface.update_ip_addrs(|addrs| {
+        addrs.iter_mut().next().map(|addr| {
+            *addr = IpCidr::Ipv4(Ipv4Cidr::new(Ipv4Address::new(192, 168, 23, 24), 8));
+        });
+    });
+    assert!(iface
+        .inner
+        .is_broadcast_v4(Ipv4Address::new(255, 255, 255, 255)));
+    assert!(!iface
+        .inner
+        .is_broadcast_v4(Ipv4Address::new(255, 255, 255, 254)));
+    assert!(!iface
+        .inner
+        .is_broadcast_v4(Ipv4Address::new(192, 23, 1, 255)));
+    assert!(!iface
+        .inner
+        .is_broadcast_v4(Ipv4Address::new(192, 23, 1, 254)));
+    assert!(!iface
+        .inner
+        .is_broadcast_v4(Ipv4Address::new(192, 255, 255, 254)));
+    assert!(iface
+        .inner
+        .is_broadcast_v4(Ipv4Address::new(192, 255, 255, 255)));
 }
 
 #[rstest]
@@ -250,8 +258,8 @@ fn test_icmp_error_port_unreachable(#[case] medium: Medium) {
     };
 
     let ip_repr = IpRepr::Ipv4(Ipv4Repr {
-        src_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x02]),
-        dst_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x01]),
+        src_addr: Ipv4Address::new(0x7f, 0x00, 0x00, 0x02),
+        dst_addr: Ipv4Address::new(0x7f, 0x00, 0x00, 0x01),
         next_header: IpProtocol::Udp,
         payload_len: udp_repr.header_len() + UDP_PAYLOAD.len(),
         hop_limit: 64,
@@ -274,8 +282,8 @@ fn test_icmp_error_port_unreachable(#[case] medium: Medium) {
     let icmp_repr = Icmpv4Repr::DstUnreachable {
         reason: Icmpv4DstUnreachable::PortUnreachable,
         header: Ipv4Repr {
-            src_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x02]),
-            dst_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x01]),
+            src_addr: Ipv4Address::new(0x7f, 0x00, 0x00, 0x02),
+            dst_addr: Ipv4Address::new(0x7f, 0x00, 0x00, 0x01),
             next_header: IpProtocol::Udp,
             payload_len: udp_repr.header_len() + UDP_PAYLOAD.len(),
             hop_limit: 64,
@@ -284,8 +292,8 @@ fn test_icmp_error_port_unreachable(#[case] medium: Medium) {
     };
     let expected_repr = Packet::new_ipv4(
         Ipv4Repr {
-            src_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x01]),
-            dst_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x02]),
+            src_addr: Ipv4Address::new(0x7f, 0x00, 0x00, 0x01),
+            dst_addr: Ipv4Address::new(0x7f, 0x00, 0x00, 0x02),
             next_header: IpProtocol::Icmp,
             payload_len: icmp_repr.buffer_len(),
             hop_limit: 64,
@@ -303,7 +311,7 @@ fn test_icmp_error_port_unreachable(#[case] medium: Medium) {
     );
 
     let ip_repr = IpRepr::Ipv4(Ipv4Repr {
-        src_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x02]),
+        src_addr: Ipv4Address::new(0x7f, 0x00, 0x00, 0x02),
         dst_addr: Ipv4Address::BROADCAST,
         next_header: IpProtocol::Udp,
         payload_len: udp_repr.header_len() + UDP_PAYLOAD.len(),
@@ -346,7 +354,7 @@ fn test_handle_ipv4_broadcast(#[case] medium: Medium) {
     let (mut iface, mut sockets, _device) = setup(medium);
 
     let our_ipv4_addr = iface.ipv4_addr().unwrap();
-    let src_ipv4_addr = Ipv4Address([127, 0, 0, 2]);
+    let src_ipv4_addr = Ipv4Address::new(127, 0, 0, 2);
 
     // ICMPv4 echo request
     let icmpv4_data: [u8; 4] = [0xaa, 0x00, 0x00, 0xff];
@@ -415,8 +423,8 @@ fn test_handle_valid_arp_request(#[case] medium: Medium) {
 
     let mut eth_bytes = vec![0u8; 42];
 
-    let local_ip_addr = Ipv4Address([0x7f, 0x00, 0x00, 0x01]);
-    let remote_ip_addr = Ipv4Address([0x7f, 0x00, 0x00, 0x02]);
+    let local_ip_addr = Ipv4Address::new(0x7f, 0x00, 0x00, 0x01);
+    let remote_ip_addr = Ipv4Address::new(0x7f, 0x00, 0x00, 0x02);
     let local_hw_addr = EthernetAddress([0x02, 0x02, 0x02, 0x02, 0x02, 0x02]);
     let remote_hw_addr = EthernetAddress([0x52, 0x54, 0x00, 0x00, 0x00, 0x00]);
 
@@ -471,7 +479,7 @@ fn test_handle_other_arp_request(#[case] medium: Medium) {
 
     let mut eth_bytes = vec![0u8; 42];
 
-    let remote_ip_addr = Ipv4Address([0x7f, 0x00, 0x00, 0x02]);
+    let remote_ip_addr = Ipv4Address::new(0x7f, 0x00, 0x00, 0x02);
     let remote_hw_addr = EthernetAddress([0x52, 0x54, 0x00, 0x00, 0x00, 0x00]);
 
     let repr = ArpRepr::EthernetIpv4 {
@@ -479,7 +487,7 @@ fn test_handle_other_arp_request(#[case] medium: Medium) {
         source_hardware_addr: remote_hw_addr,
         source_protocol_addr: remote_ip_addr,
         target_hardware_addr: EthernetAddress::default(),
-        target_protocol_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x03]),
+        target_protocol_addr: Ipv4Address::new(0x7f, 0x00, 0x00, 0x03),
     };
 
     let mut frame = EthernetFrame::new_unchecked(&mut eth_bytes);
@@ -519,8 +527,8 @@ fn test_arp_flush_after_update_ip(#[case] medium: Medium) {
 
     let mut eth_bytes = vec![0u8; 42];
 
-    let local_ip_addr = Ipv4Address([0x7f, 0x00, 0x00, 0x01]);
-    let remote_ip_addr = Ipv4Address([0x7f, 0x00, 0x00, 0x02]);
+    let local_ip_addr = Ipv4Address::new(0x7f, 0x00, 0x00, 0x01);
+    let remote_ip_addr = Ipv4Address::new(0x7f, 0x00, 0x00, 0x02);
     let local_hw_addr = EthernetAddress([0x02, 0x02, 0x02, 0x02, 0x02, 0x02]);
     let remote_hw_addr = EthernetAddress([0x52, 0x54, 0x00, 0x00, 0x00, 0x00]);
 
@@ -529,7 +537,7 @@ fn test_arp_flush_after_update_ip(#[case] medium: Medium) {
         source_hardware_addr: remote_hw_addr,
         source_protocol_addr: remote_ip_addr,
         target_hardware_addr: EthernetAddress::default(),
-        target_protocol_addr: Ipv4Address([0x7f, 0x00, 0x00, 0x01]),
+        target_protocol_addr: Ipv4Address::new(0x7f, 0x00, 0x00, 0x01),
     };
 
     let mut frame = EthernetFrame::new_unchecked(&mut eth_bytes);
@@ -569,7 +577,7 @@ fn test_arp_flush_after_update_ip(#[case] medium: Medium) {
     );
 
     // Update IP addrs to trigger ARP cache flush
-    let local_ip_addr_new = Ipv4Address([0x7f, 0x00, 0x00, 0x01]);
+    let local_ip_addr_new = Ipv4Address::new(0x7f, 0x00, 0x00, 0x01);
     iface.update_ip_addrs(|addrs| {
         addrs.iter_mut().next().map(|addr| {
             *addr = IpCidr::Ipv4(Ipv4Cidr::new(local_ip_addr_new, 24));
@@ -746,7 +754,7 @@ fn test_handle_igmp(#[case] medium: Medium) {
     assert_eq!(leaves.len(), 2);
     for (i, group_addr) in groups.iter().cloned().enumerate() {
         assert_eq!(leaves[i].0.next_header, IpProtocol::Igmp);
-        assert_eq!(leaves[i].0.dst_addr, Ipv4Address::MULTICAST_ALL_ROUTERS);
+        assert_eq!(leaves[i].0.dst_addr, IPV4_MULTICAST_ALL_ROUTERS);
         assert_eq!(leaves[i].1, IgmpRepr::LeaveGroup { group_addr });
     }
 }
@@ -771,8 +779,8 @@ fn test_raw_socket_no_reply(#[case] medium: Medium) {
     let raw_socket = raw::Socket::new(IpVersion::Ipv4, IpProtocol::Udp, rx_buffer, tx_buffer);
     sockets.add(raw_socket);
 
-    let src_addr = Ipv4Address([127, 0, 0, 2]);
-    let dst_addr = Ipv4Address([127, 0, 0, 1]);
+    let src_addr = Ipv4Address::new(127, 0, 0, 2);
+    let dst_addr = Ipv4Address::new(127, 0, 0, 1);
 
     const PAYLOAD_LEN: usize = 10;
 
@@ -871,8 +879,8 @@ fn test_raw_socket_with_udp_socket(#[case] medium: Medium) {
     );
     sockets.add(raw_socket);
 
-    let src_addr = Ipv4Address([127, 0, 0, 2]);
-    let dst_addr = Ipv4Address([127, 0, 0, 1]);
+    let src_addr = Ipv4Address::new(127, 0, 0, 2);
+    let dst_addr = Ipv4Address::new(127, 0, 0, 1);
 
     let udp_repr = UdpRepr {
         src_port: 67,
@@ -951,8 +959,8 @@ fn test_icmp_reply_size(#[case] medium: Medium) {
 
     let (mut iface, mut sockets, _device) = setup(medium);
 
-    let src_addr = Ipv4Address([192, 168, 1, 1]);
-    let dst_addr = Ipv4Address([192, 168, 1, 2]);
+    let src_addr = Ipv4Address::new(192, 168, 1, 1);
+    let dst_addr = Ipv4Address::new(192, 168, 1, 2);
 
     // UDP packet that if not tructated will cause a icmp port unreachable reply
     // to exceed the minimum mtu bytes in length.

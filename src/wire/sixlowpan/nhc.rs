@@ -862,8 +862,8 @@ mod test {
 
         let payload = b"Hello World!";
 
-        let src_addr = ipv6::Address::default();
-        let dst_addr = ipv6::Address::default();
+        let src_addr = ipv6::Address::UNSPECIFIED;
+        let dst_addr = ipv6::Address::UNSPECIFIED;
 
         let len = udp.header_len() + payload.len();
         let mut buffer = [0u8; 127];

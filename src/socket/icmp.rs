@@ -678,8 +678,8 @@ mod test_ipv4 {
     use super::tests_common::*;
     use crate::wire::{Icmpv4DstUnreachable, IpEndpoint, Ipv4Address};
 
-    const REMOTE_IPV4: Ipv4Address = Ipv4Address([192, 168, 1, 2]);
-    const LOCAL_IPV4: Ipv4Address = Ipv4Address([192, 168, 1, 1]);
+    const REMOTE_IPV4: Ipv4Address = Ipv4Address::new(192, 168, 1, 2);
+    const LOCAL_IPV4: Ipv4Address = Ipv4Address::new(192, 168, 1, 1);
     const LOCAL_END_V4: IpEndpoint = IpEndpoint {
         addr: IpAddress::Ipv4(LOCAL_IPV4),
         port: LOCAL_PORT,
@@ -711,7 +711,7 @@ mod test_ipv4 {
     fn test_send_unaddressable() {
         let mut socket = socket(buffer(0), buffer(1));
         assert_eq!(
-            socket.send_slice(b"abcdef", IpAddress::Ipv4(Ipv4Address::default())),
+            socket.send_slice(b"abcdef", IpAddress::Ipv4(Ipv4Address::new(0, 0, 0, 0))),
             Err(SendError::Unaddressable)
         );
         assert_eq!(socket.send_slice(b"abcdef", REMOTE_IPV4.into()), Ok(()));
@@ -940,10 +940,8 @@ mod test_ipv6 {
 
     use crate::wire::{Icmpv6DstUnreachable, IpEndpoint, Ipv6Address};
 
-    const REMOTE_IPV6: Ipv6Address =
-        Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]);
-    const LOCAL_IPV6: Ipv6Address =
-        Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
+    const REMOTE_IPV6: Ipv6Address = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 2);
+    const LOCAL_IPV6: Ipv6Address = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
     const LOCAL_END_V6: IpEndpoint = IpEndpoint {
         addr: IpAddress::Ipv6(LOCAL_IPV6),
         port: LOCAL_PORT,
@@ -974,7 +972,7 @@ mod test_ipv6 {
     fn test_send_unaddressable() {
         let mut socket = socket(buffer(0), buffer(1));
         assert_eq!(
-            socket.send_slice(b"abcdef", IpAddress::Ipv6(Ipv6Address::default())),
+            socket.send_slice(b"abcdef", IpAddress::Ipv6(Ipv6Address::UNSPECIFIED)),
             Err(SendError::Unaddressable)
         );
         assert_eq!(socket.send_slice(b"abcdef", REMOTE_IPV6.into()), Ok(()));

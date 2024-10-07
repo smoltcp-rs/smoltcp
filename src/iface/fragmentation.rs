@@ -137,7 +137,7 @@ impl<K> PacketAssembler<K> {
     /// # Errors
     ///
     /// - Returns [`Error::PacketAssemblerBufferTooSmall`] when trying to add data into the buffer at a non-existing
-    /// place.
+    ///   place.
     pub(crate) fn add(&mut self, data: &[u8], offset: usize) -> Result<(), AssemblerError> {
         #[cfg(not(feature = "alloc"))]
         if self.buffer.len() < offset + data.len() {
@@ -329,8 +329,8 @@ impl Fragmenter {
             #[cfg(feature = "proto-ipv4-fragmentation")]
             ipv4: Ipv4Fragmenter {
                 repr: Ipv4Repr {
-                    src_addr: Ipv4Address::default(),
-                    dst_addr: Ipv4Address::default(),
+                    src_addr: Ipv4Address::new(0, 0, 0, 0),
+                    dst_addr: Ipv4Address::new(0, 0, 0, 0),
                     next_header: IpProtocol::Unknown(0),
                     payload_len: 0,
                     hop_limit: 0,
@@ -373,8 +373,8 @@ impl Fragmenter {
         #[cfg(feature = "proto-ipv4-fragmentation")]
         {
             self.ipv4.repr = Ipv4Repr {
-                src_addr: Ipv4Address::default(),
-                dst_addr: Ipv4Address::default(),
+                src_addr: Ipv4Address::new(0, 0, 0, 0),
+                dst_addr: Ipv4Address::new(0, 0, 0, 0),
                 next_header: IpProtocol::Unknown(0),
                 payload_len: 0,
                 hop_limit: 0,

@@ -586,6 +586,7 @@ impl<'a> Socket<'a> {
     /// * Small embedded processors (such as Cortex-M0, Cortex-M1, and Cortex-M3) do not have an FPU, and floating point operations consume significant amounts of CPU time and Flash space.
     /// * Interrupt handlers should almost always avoid floating-point operations.
     /// * Kernel-mode code on desktop processors usually avoids FPU operations to reduce the penalty of saving and restoring FPU registers.
+    ///
     /// In all these cases, `CongestionControl::Reno` is a better choice of congestion control algorithm.
     pub fn set_congestion_control(&mut self, congestion_control: CongestionControl) {
         use congestion::*;
@@ -1967,7 +1968,7 @@ impl<'a> Socket<'a> {
                         "received duplicate ACK for seq {} (duplicate nr {}{})",
                         ack_number,
                         self.local_rx_dup_acks,
-                        if self.local_rx_dup_acks == u8::max_value() {
+                        if self.local_rx_dup_acks == u8::MAX {
                             "+"
                         } else {
                             ""
@@ -2569,7 +2570,6 @@ impl<'a> fmt::Write for Socket<'a> {
 mod test {
     use super::*;
     use crate::wire::IpRepr;
-    use core::i32;
     use std::ops::{Deref, DerefMut};
     use std::vec::Vec;
 
@@ -2582,14 +2582,6 @@ mod test {
     const LISTEN_END: IpListenEndpoint = IpListenEndpoint {
         addr: None,
         port: LOCAL_PORT,
-    };
-    const LOCAL_END: IpEndpoint = IpEndpoint {
-        addr: LOCAL_ADDR.into_address(),
-        port: LOCAL_PORT,
-    };
-    const REMOTE_END: IpEndpoint = IpEndpoint {
-        addr: REMOTE_ADDR.into_address(),
-        port: REMOTE_PORT,
     };
     const TUPLE: Tuple = Tuple {
         local: LOCAL_END,
@@ -2604,27 +2596,39 @@ mod test {
             use crate::wire::Ipv4Repr as IpvXRepr;
             use IpRepr::Ipv4 as IpReprIpvX;
 
-            const LOCAL_ADDR: IpvXAddress = IpvXAddress([192, 168, 1, 1]);
-            const REMOTE_ADDR: IpvXAddress = IpvXAddress([192, 168, 1, 2]);
-            const OTHER_ADDR: IpvXAddress = IpvXAddress([192, 168, 1, 3]);
+            const LOCAL_ADDR: IpvXAddress = IpvXAddress::new(192, 168, 1, 1);
+            const REMOTE_ADDR: IpvXAddress = IpvXAddress::new(192, 168, 1, 2);
+            const OTHER_ADDR: IpvXAddress = IpvXAddress::new(192, 168, 1, 3);
 
             const BASE_MSS: u16 = 1460;
+
+            const LOCAL_END: IpEndpoint = IpEndpoint {
+                addr: IpAddress::Ipv4(LOCAL_ADDR),
+                port: LOCAL_PORT,
+            };
+            const REMOTE_END: IpEndpoint = IpEndpoint {
+                addr: IpAddress::Ipv4(REMOTE_ADDR),
+                port: REMOTE_PORT,
+            };
         } else {
             use crate::wire::Ipv6Address as IpvXAddress;
             use crate::wire::Ipv6Repr as IpvXRepr;
             use IpRepr::Ipv6 as IpReprIpvX;
 
-            const LOCAL_ADDR: IpvXAddress = IpvXAddress([
-                0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
-            ]);
-            const REMOTE_ADDR: IpvXAddress = IpvXAddress([
-                0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2,
-            ]);
-            const OTHER_ADDR: IpvXAddress = IpvXAddress([
-                0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3,
-            ]);
+            const LOCAL_ADDR: IpvXAddress = IpvXAddress::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
+            const REMOTE_ADDR: IpvXAddress = IpvXAddress::new(0xfe80, 0, 0, 0, 0, 0, 0, 2);
+            const OTHER_ADDR: IpvXAddress = IpvXAddress::new(0xfe80, 0, 0, 0, 0, 0, 0, 3);
 
             const BASE_MSS: u16 = 1440;
+
+            const LOCAL_END: IpEndpoint = IpEndpoint {
+                addr: IpAddress::Ipv6(LOCAL_ADDR),
+                port: LOCAL_PORT,
+            };
+            const REMOTE_END: IpEndpoint = IpEndpoint {
+                addr: IpAddress::Ipv6(REMOTE_ADDR),
+                port: REMOTE_PORT,
+            };
         }
     }
 
@@ -6126,7 +6130,7 @@ mod test {
         });
 
         // A lot of retransmits happen here
-        s.local_rx_dup_acks = u8::max_value() - 1;
+        s.local_rx_dup_acks = u8::MAX - 1;
 
         // Send 3 more ACKs, which could overflow local_rx_dup_acks,
         // but intended behaviour is that we saturate the bounds
@@ -6148,7 +6152,7 @@ mod test {
         });
         assert_eq!(
             s.local_rx_dup_acks,
-            u8::max_value(),
+            u8::MAX,
             "duplicate ACK count should not overflow but saturate"
         );
     }
