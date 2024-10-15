@@ -5,9 +5,9 @@ use crate::iface::Context;
 use crate::time::{Duration, Instant};
 use crate::wire::dhcpv4::field as dhcpv4_field;
 use crate::wire::{
-    DhcpMessageType, DhcpPacket, DhcpRepr, IpAddress, IpProtocol, Ipv4Address, Ipv4AddressExt,
-    Ipv4Cidr, Ipv4Repr, UdpRepr, DHCP_CLIENT_PORT, DHCP_MAX_DNS_SERVER_COUNT, DHCP_SERVER_PORT,
-    UDP_HEADER_LEN,
+    DhcpMessageType, DhcpPacket, DhcpRepr, IpAddress, IpAddressExt, IpProtocol, Ipv4Address,
+    Ipv4AddressExt, Ipv4Cidr, Ipv4Repr, UdpRepr, DHCP_CLIENT_PORT, DHCP_MAX_DNS_SERVER_COUNT,
+    DHCP_SERVER_PORT, UDP_HEADER_LEN,
 };
 use crate::wire::{DhcpOption, HardwareAddress};
 use heapless::Vec;
@@ -454,7 +454,7 @@ impl<'a> Socket<'a> {
             }
         };
 
-        let prefix_len = match IpAddress::Ipv4(subnet_mask).prefix_len() {
+        let prefix_len = match IpAddress::V4(subnet_mask).prefix_len() {
             Some(prefix_len) => prefix_len,
             None => {
                 net_debug!("DHCP ignoring ACK because subnet_mask is not a valid mask");

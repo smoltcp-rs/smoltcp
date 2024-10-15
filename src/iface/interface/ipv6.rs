@@ -227,7 +227,7 @@ impl InterfaceInner {
 
             if self
                 .routes
-                .lookup(&IpAddress::Ipv6(ipv6_repr.dst_addr), self.now)
+                .lookup(&IpAddress::V6(ipv6_repr.dst_addr), self.now)
                 .map_or(true, |router_addr| !self.has_ip_addr(router_addr))
             {
                 net_trace!("Rejecting IPv6 packet; no matching routes");
@@ -244,7 +244,7 @@ impl InterfaceInner {
         #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
         if ipv6_repr.dst_addr.x_is_unicast() {
             self.neighbor_cache.reset_expiry_if_existing(
-                IpAddress::Ipv6(ipv6_repr.src_addr),
+                IpAddress::V6(ipv6_repr.src_addr),
                 source_hardware_addr,
                 self.now,
             );

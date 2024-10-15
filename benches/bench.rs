@@ -13,9 +13,9 @@ mod wire {
     extern crate test;
 
     #[cfg(feature = "proto-ipv6")]
-    const SRC_ADDR: IpAddress = IpAddress::Ipv6(Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1));
+    const SRC_ADDR: IpAddress = IpAddress::V6(Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1));
     #[cfg(feature = "proto-ipv6")]
-    const DST_ADDR: IpAddress = IpAddress::Ipv6(Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 2));
+    const DST_ADDR: IpAddress = IpAddress::V6(Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 2));
 
     #[cfg(all(not(feature = "proto-ipv6"), feature = "proto-ipv4"))]
     const SRC_ADDR: IpAddress = IpAddress::Ipv4(Ipv4Address::new(192, 168, 1, 1));

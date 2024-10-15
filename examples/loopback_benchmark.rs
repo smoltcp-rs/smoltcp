@@ -6,7 +6,7 @@ use smoltcp::iface::{Config, Interface, SocketSet};
 use smoltcp::phy::{Device, Loopback, Medium};
 use smoltcp::socket::tcp;
 use smoltcp::time::Instant;
-use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr};
+use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr, Ipv4Address};
 
 fn main() {
     let device = Loopback::new(Medium::Ethernet);
@@ -33,7 +33,10 @@ fn main() {
     let mut iface = Interface::new(config, &mut device, Instant::now());
     iface.update_ip_addrs(|ip_addrs| {
         ip_addrs
-            .push(IpCidr::new(IpAddress::v4(127, 0, 0, 1), 8))
+            .push(IpCidr::new(
+                IpAddress::V4(Ipv4Address::new(127, 0, 0, 1)),
+                8,
+            ))
             .unwrap();
     });
 
@@ -81,7 +84,11 @@ fn main() {
         if !socket.is_open() && !did_connect {
             debug!("connecting");
             socket
-                .connect(cx, (IpAddress::v4(127, 0, 0, 1), 1234), 65000)
+                .connect(
+                    cx,
+                    (IpAddress::V4(Ipv4Address::new(127, 0, 0, 1)), 1234),
+                    65000,
+                )
                 .unwrap();
             did_connect = true;
         }

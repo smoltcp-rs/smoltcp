@@ -322,7 +322,7 @@ fn test_icmp_error_port_unreachable(#[case] medium: Medium) {
     udp_repr.emit(
         &mut packet_broadcast,
         &ip_repr.src_addr(),
-        &IpAddress::Ipv4(Ipv4Address::BROADCAST),
+        &IpAddress::V4(Ipv4Address::BROADCAST),
         UDP_PAYLOAD.len(),
         |buf| buf.copy_from_slice(&UDP_PAYLOAD),
         &ChecksumCapabilities::default(),
@@ -464,7 +464,7 @@ fn test_handle_valid_arp_request(#[case] medium: Medium) {
     assert_eq!(
         iface.inner.lookup_hardware_addr(
             MockTxToken,
-            &IpAddress::Ipv4(remote_ip_addr),
+            &IpAddress::V4(remote_ip_addr),
             &mut iface.fragmenter,
         ),
         Ok((HardwareAddress::Ethernet(remote_hw_addr), MockTxToken))
@@ -512,7 +512,7 @@ fn test_handle_other_arp_request(#[case] medium: Medium) {
     assert_eq!(
         iface.inner.lookup_hardware_addr(
             MockTxToken,
-            &IpAddress::Ipv4(remote_ip_addr),
+            &IpAddress::V4(remote_ip_addr),
             &mut iface.fragmenter,
         ),
         Err(DispatchError::NeighborPending)
@@ -570,7 +570,7 @@ fn test_arp_flush_after_update_ip(#[case] medium: Medium) {
     assert_eq!(
         iface.inner.lookup_hardware_addr(
             MockTxToken,
-            &IpAddress::Ipv4(remote_ip_addr),
+            &IpAddress::V4(remote_ip_addr),
             &mut iface.fragmenter,
         ),
         Ok((HardwareAddress::Ethernet(remote_hw_addr), MockTxToken))
@@ -585,7 +585,7 @@ fn test_arp_flush_after_update_ip(#[case] medium: Medium) {
     });
 
     // ARP cache flush after address change
-    assert!(!iface.inner.has_neighbor(&IpAddress::Ipv4(remote_ip_addr)));
+    assert!(!iface.inner.has_neighbor(&IpAddress::V4(remote_ip_addr)));
 }
 
 #[rstest]
@@ -660,7 +660,7 @@ fn test_icmpv4_socket(#[case] medium: Medium) {
         socket.recv(),
         Ok((
             icmp_data,
-            IpAddress::Ipv4(Ipv4Address::new(0x7f, 0x00, 0x00, 0x02))
+            IpAddress::V4(Ipv4Address::new(0x7f, 0x00, 0x00, 0x02))
         ))
     );
 }
@@ -765,7 +765,7 @@ fn test_handle_igmp(#[case] medium: Medium) {
 #[case(Medium::Ethernet)]
 #[cfg(all(feature = "socket-raw", feature = "medium-ethernet"))]
 fn test_raw_socket_no_reply(#[case] medium: Medium) {
-    use crate::wire::{IpVersion, UdpPacket, UdpRepr};
+    use crate::wire::{UdpPacket, UdpRepr};
 
     let (mut iface, mut sockets, _) = setup(medium);
 
@@ -776,7 +776,7 @@ fn test_raw_socket_no_reply(#[case] medium: Medium) {
         vec![raw::PacketMetadata::EMPTY; packets],
         vec![0; 48 * packets],
     );
-    let raw_socket = raw::Socket::new(IpVersion::Ipv4, IpProtocol::Udp, rx_buffer, tx_buffer);
+    let raw_socket = raw::Socket::new_v4(IpProtocol::Udp, rx_buffer, tx_buffer);
     sockets.add(raw_socket);
 
     let src_addr = Ipv4Address::new(127, 0, 0, 2);
@@ -847,7 +847,7 @@ fn test_raw_socket_no_reply(#[case] medium: Medium) {
 ))]
 fn test_raw_socket_with_udp_socket(#[case] medium: Medium) {
     use crate::socket::udp;
-    use crate::wire::{IpEndpoint, IpVersion, UdpPacket, UdpRepr};
+    use crate::wire::{IpEndpoint, UdpPacket, UdpRepr};
 
     static UDP_PAYLOAD: [u8; 5] = [0x48, 0x65, 0x6c, 0x6c, 0x6f];
 
@@ -871,12 +871,7 @@ fn test_raw_socket_with_udp_socket(#[case] medium: Medium) {
         vec![raw::PacketMetadata::EMPTY; packets],
         vec![0; 48 * packets],
     );
-    let raw_socket = raw::Socket::new(
-        IpVersion::Ipv4,
-        IpProtocol::Udp,
-        raw_rx_buffer,
-        raw_tx_buffer,
-    );
+    let raw_socket = raw::Socket::new_v4(IpProtocol::Udp, raw_rx_buffer, raw_tx_buffer);
     sockets.add(raw_socket);
 
     let src_addr = Ipv4Address::new(127, 0, 0, 2);

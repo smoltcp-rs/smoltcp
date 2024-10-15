@@ -27,10 +27,16 @@ pub(crate) fn setup<'a>(medium: Medium) -> (Interface, SocketSet<'a>, TestingDev
     {
         iface.update_ip_addrs(|ip_addrs| {
             ip_addrs
-                .push(IpCidr::new(IpAddress::v4(192, 168, 1, 1), 24))
+                .push(IpCidr::new(
+                    IpAddress::V4(Ipv4Address::new(192, 168, 1, 1)),
+                    24,
+                ))
                 .unwrap();
             ip_addrs
-                .push(IpCidr::new(IpAddress::v4(127, 0, 0, 1), 8))
+                .push(IpCidr::new(
+                    IpAddress::V4(Ipv4Address::new(127, 0, 0, 1)),
+                    8,
+                ))
                 .unwrap();
         });
     }
@@ -39,13 +45,22 @@ pub(crate) fn setup<'a>(medium: Medium) -> (Interface, SocketSet<'a>, TestingDev
     {
         iface.update_ip_addrs(|ip_addrs| {
             ip_addrs
-                .push(IpCidr::new(IpAddress::v6(0xfe80, 0, 0, 0, 0, 0, 0, 1), 64))
+                .push(IpCidr::new(
+                    IpAddress::V6(Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1)),
+                    64,
+                ))
                 .unwrap();
             ip_addrs
-                .push(IpCidr::new(IpAddress::v6(0, 0, 0, 0, 0, 0, 0, 1), 128))
+                .push(IpCidr::new(
+                    IpAddress::V6(Ipv6Address::new(0, 0, 0, 0, 0, 0, 0, 1)),
+                    128,
+                ))
                 .unwrap();
             ip_addrs
-                .push(IpCidr::new(IpAddress::v6(0xfdbe, 0, 0, 0, 0, 0, 0, 1), 64))
+                .push(IpCidr::new(
+                    IpAddress::V6(Ipv6Address::new(0xfdbe, 0, 0, 0, 0, 0, 0, 1)),
+                    64,
+                ))
                 .unwrap();
         });
     }

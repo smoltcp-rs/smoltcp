@@ -181,8 +181,9 @@ pub use self::ieee802154::{
 pub use self::ip::{
     Address as IpAddress, Cidr as IpCidr, Endpoint as IpEndpoint,
     ListenEndpoint as IpListenEndpoint, Protocol as IpProtocol, Repr as IpRepr,
-    Version as IpVersion,
 };
+
+pub(crate) use self::ip::{AddressExt as IpAddressExt, Version as IpVersion};
 
 #[cfg(feature = "proto-ipv4")]
 pub use self::ipv4::{

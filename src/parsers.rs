@@ -297,24 +297,6 @@ impl<'a> Parser<'a> {
         Ok(Ipv4Address::from_bytes(&octets))
     }
 
-    fn accept_ip(&mut self) -> Result<IpAddress> {
-        #[cfg(feature = "proto-ipv4")]
-        #[allow(clippy::single_match)]
-        match self.try_do(|p| p.accept_ipv4()) {
-            Some(ipv4) => return Ok(IpAddress::Ipv4(ipv4)),
-            None => (),
-        }
-
-        #[cfg(feature = "proto-ipv6")]
-        #[allow(clippy::single_match)]
-        match self.try_do(|p| p.accept_ipv6()) {
-            Some(ipv6) => return Ok(IpAddress::Ipv6(ipv6)),
-            None => (),
-        }
-
-        Err(())
-    }
-
     #[cfg(feature = "proto-ipv4")]
     fn accept_ipv4_endpoint(&mut self) -> Result<IpEndpoint> {
         let ip = self.accept_ipv4()?;
@@ -327,7 +309,7 @@ impl<'a> Parser<'a> {
         };
 
         Ok(IpEndpoint {
-            addr: IpAddress::Ipv4(ip),
+            addr: IpAddress::V4(ip),
             port: port as u16,
         })
     }
@@ -342,13 +324,13 @@ impl<'a> Parser<'a> {
             let port = self.accept_number(5, 65535, false)?;
 
             Ok(IpEndpoint {
-                addr: IpAddress::Ipv6(ip),
+                addr: IpAddress::V6(ip),
                 port: port as u16,
             })
         } else {
             let ip = self.accept_ipv6()?;
             Ok(IpEndpoint {
-                addr: IpAddress::Ipv6(ip),
+                addr: IpAddress::V6(ip),
                 port: 0,
             })
         }
@@ -380,15 +362,6 @@ impl FromStr for EthernetAddress {
     /// Parse a string representation of an Ethernet address.
     fn from_str(s: &str) -> Result<EthernetAddress> {
         Parser::new(s).until_eof(|p| p.accept_mac())
-    }
-}
-
-impl FromStr for IpAddress {
-    type Err = ();
-
-    /// Parse a string representation of an IP address.
-    fn from_str(s: &str) -> Result<IpAddress> {
-        Parser::new(s).until_eof(|p| p.accept_ip())
     }
 }
 
@@ -509,25 +482,23 @@ mod test {
     #[test]
     #[cfg(feature = "proto-ipv4")]
     fn test_ip_ipv4() {
-        assert_eq!(IpAddress::from_str(""), Err(()));
+        assert!(IpAddress::from_str("").is_err());
         assert_eq!(
             IpAddress::from_str("1.2.3.4"),
-            Ok(IpAddress::Ipv4(Ipv4Address::new(1, 2, 3, 4)))
+            Ok(IpAddress::V4(Ipv4Address::new(1, 2, 3, 4)))
         );
-        assert_eq!(IpAddress::from_str("x"), Err(()));
+        assert!(IpAddress::from_str("x").is_err());
     }
 
     #[test]
     #[cfg(feature = "proto-ipv6")]
     fn test_ip_ipv6() {
-        assert_eq!(IpAddress::from_str(""), Err(()));
+        assert!(IpAddress::from_str("").is_err());
         assert_eq!(
             IpAddress::from_str("fe80::1"),
-            Ok(IpAddress::Ipv6(Ipv6Address::new(
-                0xfe80, 0, 0, 0, 0, 0, 0, 1
-            )))
+            Ok(IpAddress::V6(Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1)))
         );
-        assert_eq!(IpAddress::from_str("x"), Err(()));
+        assert!(IpAddress::from_str("x").is_err());
     }
 
     #[test]
@@ -604,14 +575,14 @@ mod test {
         assert_eq!(
             IpEndpoint::from_str("127.0.0.1"),
             Ok(IpEndpoint {
-                addr: IpAddress::v4(127, 0, 0, 1),
+                addr: IpAddress::V4(Ipv4Address::new(127, 0, 0, 1)),
                 port: 0
             })
         );
         assert_eq!(
             IpEndpoint::from_str("127.0.0.1:12345"),
             Ok(IpEndpoint {
-                addr: IpAddress::v4(127, 0, 0, 1),
+                addr: IpAddress::V4(Ipv4Address::new(127, 0, 0, 1)),
                 port: 12345
             })
         );
@@ -625,21 +596,21 @@ mod test {
         assert_eq!(
             IpEndpoint::from_str("fe80::1"),
             Ok(IpEndpoint {
-                addr: IpAddress::v6(0xfe80, 0, 0, 0, 0, 0, 0, 1),
+                addr: IpAddress::V6(Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1)),
                 port: 0
             })
         );
         assert_eq!(
             IpEndpoint::from_str("[fe80::1]:12345"),
             Ok(IpEndpoint {
-                addr: IpAddress::v6(0xfe80, 0, 0, 0, 0, 0, 0, 1),
+                addr: IpAddress::V6(Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1)),
                 port: 12345
             })
         );
         assert_eq!(
             IpEndpoint::from_str("[::]:12345"),
             Ok(IpEndpoint {
-                addr: IpAddress::v6(0, 0, 0, 0, 0, 0, 0, 0),
+                addr: IpAddress::V6(Ipv6Address::new(0, 0, 0, 0, 0, 0, 0, 0)),
                 port: 12345
             })
         );

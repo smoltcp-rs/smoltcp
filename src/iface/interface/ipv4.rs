@@ -197,7 +197,7 @@ impl InterfaceInner {
 
             if self
                 .routes
-                .lookup(&IpAddress::Ipv4(ipv4_repr.dst_addr), self.now)
+                .lookup(&IpAddress::V4(ipv4_repr.dst_addr), self.now)
                 .map_or(true, |router_addr| !self.has_ip_addr(router_addr))
             {
                 net_trace!("Rejecting IPv4 packet; no matching routes");
@@ -209,7 +209,7 @@ impl InterfaceInner {
         #[cfg(feature = "medium-ethernet")]
         if self.is_unicast_v4(ipv4_repr.dst_addr) {
             self.neighbor_cache.reset_expiry_if_existing(
-                IpAddress::Ipv4(ipv4_repr.src_addr),
+                IpAddress::V4(ipv4_repr.src_addr),
                 source_hardware_addr,
                 self.now,
             );
@@ -279,7 +279,7 @@ impl InterfaceInner {
                     return None;
                 }
 
-                if !self.in_same_network(&IpAddress::Ipv4(source_protocol_addr)) {
+                if !self.in_same_network(&IpAddress::V4(source_protocol_addr)) {
                     net_debug!("arp: source IP address not in same network as us");
                     return None;
                 }
@@ -437,11 +437,11 @@ impl InterfaceInner {
             frame.set_src_addr(src_addr);
             frame.set_dst_addr(frag.ipv4.dst_hardware_addr);
 
-            match repr.version() {
+            match repr {
                 #[cfg(feature = "proto-ipv4")]
-                IpVersion::Ipv4 => frame.set_ethertype(EthernetProtocol::Ipv4),
+                IpRepr::Ipv4(_) => frame.set_ethertype(EthernetProtocol::Ipv4),
                 #[cfg(feature = "proto-ipv6")]
-                IpVersion::Ipv6 => frame.set_ethertype(EthernetProtocol::Ipv6),
+                IpRepr::Ipv6(_) => frame.set_ethertype(EthernetProtocol::Ipv6),
             }
         };
 

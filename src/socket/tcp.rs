@@ -894,7 +894,7 @@ impl<'a> Socket<'a> {
     /// # {
     /// # use smoltcp::socket::tcp::{Socket, SocketBuffer};
     /// # use smoltcp::iface::Interface;
-    /// # use smoltcp::wire::IpAddress;
+    /// # use smoltcp::wire::{IpAddress, Ipv4Address};
     /// #
     /// # fn get_ephemeral_port() -> u16 {
     /// #     49152
@@ -909,7 +909,7 @@ impl<'a> Socket<'a> {
     /// #
     /// socket.connect(
     ///     iface.context(),
-    ///     (IpAddress::v4(10, 0, 0, 1), 80),
+    ///     (IpAddress::V4(Ipv4Address::new(10, 0, 0, 1)), 80),
     ///     get_ephemeral_port()
     /// ).unwrap();
     /// # }
@@ -959,7 +959,7 @@ impl<'a> Socket<'a> {
             port: local_endpoint.port,
         };
 
-        if local_endpoint.addr.version() != remote_endpoint.addr.version() {
+        if local_endpoint.addr.is_ipv4() != remote_endpoint.addr.is_ipv4() {
             return Err(ConnectError::Unaddressable);
         }
 
@@ -2103,9 +2103,11 @@ impl<'a> Socket<'a> {
     fn seq_to_transmit(&self, cx: &mut Context) -> bool {
         let ip_header_len = match self.tuple.unwrap().local.addr {
             #[cfg(feature = "proto-ipv4")]
-            IpAddress::Ipv4(_) => crate::wire::IPV4_HEADER_LEN,
+            IpAddress::V4(_) => crate::wire::IPV4_HEADER_LEN,
             #[cfg(feature = "proto-ipv6")]
-            IpAddress::Ipv6(_) => crate::wire::IPV6_HEADER_LEN,
+            IpAddress::V6(_) => crate::wire::IPV6_HEADER_LEN,
+            #[allow(unreachable_patterns)]
+            _ => unreachable!(),
         };
 
         // Max segment size we're able to send due to MTU limitations.
@@ -2603,11 +2605,11 @@ mod test {
             const BASE_MSS: u16 = 1460;
 
             const LOCAL_END: IpEndpoint = IpEndpoint {
-                addr: IpAddress::Ipv4(LOCAL_ADDR),
+                addr: IpAddress::V4(LOCAL_ADDR),
                 port: LOCAL_PORT,
             };
             const REMOTE_END: IpEndpoint = IpEndpoint {
-                addr: IpAddress::Ipv4(REMOTE_ADDR),
+                addr: IpAddress::V4(REMOTE_ADDR),
                 port: REMOTE_PORT,
             };
         } else {
@@ -2622,11 +2624,11 @@ mod test {
             const BASE_MSS: u16 = 1440;
 
             const LOCAL_END: IpEndpoint = IpEndpoint {
-                addr: IpAddress::Ipv6(LOCAL_ADDR),
+                addr: IpAddress::V6(LOCAL_ADDR),
                 port: LOCAL_PORT,
             };
             const REMOTE_END: IpEndpoint = IpEndpoint {
-                addr: IpAddress::Ipv6(REMOTE_ADDR),
+                addr: IpAddress::V6(REMOTE_ADDR),
                 port: REMOTE_PORT,
             };
         }
@@ -2735,8 +2737,8 @@ mod test {
             .socket
             .dispatch(&mut socket.cx, |_, (ip_repr, tcp_repr)| {
                 assert_eq!(ip_repr.next_header(), IpProtocol::Tcp);
-                assert_eq!(ip_repr.src_addr(), LOCAL_ADDR.into());
-                assert_eq!(ip_repr.dst_addr(), REMOTE_ADDR.into());
+                assert_eq!(ip_repr.src_addr(), LOCAL_ADDR);
+                assert_eq!(ip_repr.dst_addr(), REMOTE_ADDR);
                 assert_eq!(ip_repr.payload_len(), tcp_repr.buffer_len());
 
                 net_trace!("recv: {}", tcp_repr);

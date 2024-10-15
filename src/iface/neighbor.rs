@@ -5,7 +5,7 @@ use heapless::LinearMap;
 
 use crate::config::IFACE_NEIGHBOR_CACHE_COUNT;
 use crate::time::{Duration, Instant};
-use crate::wire::{HardwareAddress, IpAddress};
+use crate::wire::{HardwareAddress, IpAddress, IpAddressExt};
 
 /// A cached neighbor.
 ///
@@ -86,7 +86,7 @@ impl Cache {
         hardware_addr: HardwareAddress,
         timestamp: Instant,
     ) {
-        debug_assert!(protocol_addr.is_unicast());
+        debug_assert!(protocol_addr.x_is_unicast());
         debug_assert!(hardware_addr.is_unicast());
 
         let expires_at = timestamp + Self::ENTRY_LIFETIME;
@@ -99,7 +99,7 @@ impl Cache {
         hardware_addr: HardwareAddress,
         expires_at: Instant,
     ) {
-        debug_assert!(protocol_addr.is_unicast());
+        debug_assert!(protocol_addr.x_is_unicast());
         debug_assert!(hardware_addr.is_unicast());
 
         let neighbor = Neighbor {
@@ -148,7 +148,7 @@ impl Cache {
     }
 
     pub(crate) fn lookup(&self, protocol_addr: &IpAddress, timestamp: Instant) -> Answer {
-        assert!(protocol_addr.is_unicast());
+        assert!(protocol_addr.x_is_unicast());
 
         if let Some(&Neighbor {
             expires_at,

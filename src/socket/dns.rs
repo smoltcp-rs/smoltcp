@@ -22,13 +22,13 @@ const RETRANSMIT_TIMEOUT: Duration = Duration::from_millis(10_000); // Should ge
 
 #[cfg(feature = "proto-ipv6")]
 #[allow(unused)]
-const MDNS_IPV6_ADDR: IpAddress = IpAddress::Ipv6(crate::wire::Ipv6Address::new(
+const MDNS_IPV6_ADDR: IpAddress = IpAddress::V6(crate::wire::Ipv6Address::new(
     0xff02, 0, 0, 0, 0, 0, 0, 0xfb,
 ));
 
 #[cfg(feature = "proto-ipv4")]
 #[allow(unused)]
-const MDNS_IPV4_ADDR: IpAddress = IpAddress::Ipv4(crate::wire::Ipv4Address::new(224, 0, 0, 251));
+const MDNS_IPV4_ADDR: IpAddress = IpAddress::V4(crate::wire::Ipv4Address::new(224, 0, 0, 251));
 
 /// Error returned by [`Socket::start_query`]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]

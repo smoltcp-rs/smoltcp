@@ -11,7 +11,7 @@ use smoltcp::iface::{Config, Interface, SocketSet};
 use smoltcp::phy::{wait as phy_wait, Device, Medium};
 use smoltcp::socket::tcp;
 use smoltcp::time::{Duration, Instant};
-use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr};
+use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr, Ipv4Address};
 
 const AMOUNT: usize = 1_000_000_000;
 
@@ -98,7 +98,10 @@ fn main() {
     let mut iface = Interface::new(config, &mut device, Instant::now());
     iface.update_ip_addrs(|ip_addrs| {
         ip_addrs
-            .push(IpCidr::new(IpAddress::v4(192, 168, 69, 1), 24))
+            .push(IpCidr::new(
+                IpAddress::V4(Ipv4Address::new(192, 168, 69, 1)),
+                24,
+            ))
             .unwrap();
     });
 

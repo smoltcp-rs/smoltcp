@@ -156,7 +156,7 @@ impl Interface {
         {
             match addr {
                 #[cfg(feature = "proto-ipv4")]
-                IpAddress::Ipv4(addr) => {
+                IpAddress::V4(addr) => {
                     if let Some(pkt) = self.inner.igmp_report_packet(IgmpVersion::Version2, addr) {
                         let Some(tx_token) = device.transmit(self.inner.now) else {
                             break;
@@ -169,7 +169,7 @@ impl Interface {
                     }
                 }
                 #[cfg(feature = "proto-ipv6")]
-                IpAddress::Ipv6(addr) => {
+                IpAddress::V6(addr) => {
                     if let Some(pkt) = self.inner.mldv2_report_packet(&[MldAddressRecordRepr::new(
                         MldRecordType::ChangeToInclude,
                         addr,
@@ -184,6 +184,8 @@ impl Interface {
                             .unwrap();
                     }
                 }
+                #[allow(unreachable_patterns)]
+                _ => unreachable!(),
             }
 
             // NOTE(unwrap): this is always replacing an existing entry, so it can't fail due to the map being full.
@@ -204,7 +206,7 @@ impl Interface {
         {
             match addr {
                 #[cfg(feature = "proto-ipv4")]
-                IpAddress::Ipv4(addr) => {
+                IpAddress::V4(addr) => {
                     if let Some(pkt) = self.inner.igmp_leave_packet(addr) {
                         let Some(tx_token) = device.transmit(self.inner.now) else {
                             break;
@@ -217,7 +219,7 @@ impl Interface {
                     }
                 }
                 #[cfg(feature = "proto-ipv6")]
-                IpAddress::Ipv6(addr) => {
+                IpAddress::V6(addr) => {
                     if let Some(pkt) = self.inner.mldv2_report_packet(&[MldAddressRecordRepr::new(
                         MldRecordType::ChangeToExclude,
                         addr,
@@ -232,6 +234,8 @@ impl Interface {
                             .unwrap();
                     }
                 }
+                #[allow(unreachable_patterns)]
+                _ => unreachable!(),
             }
 
             self.inner.multicast.groups.remove(&addr);
@@ -267,7 +271,7 @@ impl Interface {
                     .groups
                     .iter()
                     .filter_map(|(addr, _)| match addr {
-                        IpAddress::Ipv4(addr) => Some(*addr),
+                        IpAddress::V4(addr) => Some(*addr),
                         #[allow(unreachable_patterns)]
                         _ => None,
                     })
@@ -339,7 +343,7 @@ impl InterfaceInner {
                         .multicast
                         .groups
                         .keys()
-                        .filter(|a| matches!(a, IpAddress::Ipv4(_)))
+                        .filter(|a| matches!(a, IpAddress::V4(_)))
                         .count();
 
                     // Are we member in any groups?

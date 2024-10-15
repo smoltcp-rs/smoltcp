@@ -624,11 +624,11 @@ mod test {
             const OTHER_ADDR: IpvXAddress = IpvXAddress::new(192, 168, 1, 3);
 
             const LOCAL_END: IpEndpoint = IpEndpoint {
-                addr: IpAddress::Ipv4(LOCAL_ADDR),
+                addr: IpAddress::V4(LOCAL_ADDR),
                 port: LOCAL_PORT,
             };
             const REMOTE_END: IpEndpoint = IpEndpoint {
-                addr: IpAddress::Ipv4(REMOTE_ADDR),
+                addr: IpAddress::V4(REMOTE_ADDR),
                 port: REMOTE_PORT,
             };
         } else {
@@ -641,11 +641,11 @@ mod test {
             const OTHER_ADDR: IpvXAddress = IpvXAddress::new(0xfe80, 0, 0, 0, 0, 0, 0, 3);
 
             const LOCAL_END: IpEndpoint = IpEndpoint {
-                addr: IpAddress::Ipv6(LOCAL_ADDR),
+                addr: IpAddress::V6(LOCAL_ADDR),
                 port: LOCAL_PORT,
             };
             const REMOTE_END: IpEndpoint = IpEndpoint {
-                addr: IpAddress::Ipv6(REMOTE_ADDR),
+                addr: IpAddress::V6(REMOTE_ADDR),
                 port: REMOTE_PORT,
             };
         }

@@ -2,7 +2,7 @@ use heapless::Vec;
 
 use crate::config::IFACE_MAX_ROUTE_COUNT;
 use crate::time::Instant;
-use crate::wire::{IpAddress, IpCidr};
+use crate::wire::{IpAddress, IpAddressExt, IpCidr};
 #[cfg(feature = "proto-ipv4")]
 use crate::wire::{Ipv4Address, Ipv4Cidr};
 #[cfg(feature = "proto-ipv6")]
@@ -147,7 +147,7 @@ impl Routes {
     }
 
     pub(crate) fn lookup(&self, addr: &IpAddress, timestamp: Instant) -> Option<IpAddress> {
-        assert!(addr.is_unicast());
+        assert!(addr.x_is_unicast());
 
         self.storage
             .iter()

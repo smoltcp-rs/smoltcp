@@ -73,7 +73,7 @@ fn any_ip(#[case] medium: Medium) {
                     Ipv6Address::new(0xfdbe, 0, 0, 0, 0, 0, 0, 0),
                     64,
                 )),
-                via_router: IpAddress::Ipv6(Ipv6Address::new(0xfdbe, 0, 0, 0, 0, 0, 0, 0x0001)),
+                via_router: IpAddress::V6(Ipv6Address::new(0xfdbe, 0, 0, 0, 0, 0, 0, 0x0001)),
                 preferred_until: None,
                 expires_at: None,
             })
@@ -644,7 +644,7 @@ fn ndsic_neighbor_advertisement_ethernet(#[case] medium: Medium) {
 
     assert_eq!(
         iface.inner.neighbor_cache.lookup(
-            &IpAddress::Ipv6(Ipv6Address::new(0xfdbe, 0, 0, 0, 0, 0, 0, 0x0002)),
+            &IpAddress::V6(Ipv6Address::new(0xfdbe, 0, 0, 0, 0, 0, 0, 0x0002)),
             iface.inner.now,
         ),
         NeighborAnswer::Found(HardwareAddress::Ethernet(EthernetAddress::from_bytes(&[
@@ -701,7 +701,7 @@ fn ndsic_neighbor_advertisement_ethernet_multicast_addr(#[case] medium: Medium) 
 
     assert_eq!(
         iface.inner.neighbor_cache.lookup(
-            &IpAddress::Ipv6(Ipv6Address::new(0xfdbe, 0, 0, 0, 0, 0, 0, 0x0002)),
+            &IpAddress::V6(Ipv6Address::new(0xfdbe, 0, 0, 0, 0, 0, 0, 0x0002)),
             iface.inner.now,
         ),
         NeighborAnswer::NotFound,
@@ -754,7 +754,7 @@ fn ndsic_neighbor_advertisement_ieee802154(#[case] medium: Medium) {
 
     assert_eq!(
         iface.inner.neighbor_cache.lookup(
-            &IpAddress::Ipv6(Ipv6Address::new(0xfdbe, 0, 0, 0, 0, 0, 0, 0x0002)),
+            &IpAddress::V6(Ipv6Address::new(0xfdbe, 0, 0, 0, 0, 0, 0, 0x0002)),
             iface.inner.now,
         ),
         NeighborAnswer::Found(HardwareAddress::Ieee802154(Ieee802154Address::from_bytes(
@@ -832,7 +832,7 @@ fn test_handle_valid_ndisc_request(#[case] medium: Medium) {
     assert_eq!(
         iface.inner.lookup_hardware_addr(
             MockTxToken,
-            &IpAddress::Ipv6(remote_ip_addr),
+            &IpAddress::V6(remote_ip_addr),
             &mut iface.fragmenter,
         ),
         Ok((HardwareAddress::Ethernet(remote_hw_addr), MockTxToken))
@@ -850,11 +850,14 @@ fn test_solicited_node_addrs(#[case] medium: Medium) {
     let (mut iface, _, _) = setup(medium);
     let mut new_addrs = heapless::Vec::<IpCidr, IFACE_MAX_ADDR_COUNT>::new();
     new_addrs
-        .push(IpCidr::new(IpAddress::v6(0xfe80, 0, 0, 0, 1, 2, 0, 2), 64))
+        .push(IpCidr::new(
+            IpAddress::V6(Ipv6Address::new(0xfe80, 0, 0, 0, 1, 2, 0, 2)),
+            64,
+        ))
         .unwrap();
     new_addrs
         .push(IpCidr::new(
-            IpAddress::v6(0xfe80, 0, 0, 0, 3, 4, 0, 0xffff),
+            IpAddress::V6(Ipv6Address::new(0xfe80, 0, 0, 0, 3, 4, 0, 0xffff)),
             64,
         ))
         .unwrap();

@@ -51,7 +51,9 @@ use smoltcp::phy::{wait as phy_wait, Device, Medium, RawSocket};
 use smoltcp::socket::tcp;
 use smoltcp::socket::udp;
 use smoltcp::time::Instant;
-use smoltcp::wire::{EthernetAddress, Ieee802154Address, Ieee802154Pan, IpAddress, IpCidr};
+use smoltcp::wire::{
+    EthernetAddress, Ieee802154Address, Ieee802154Pan, IpAddress, IpCidr, Ipv6Address,
+};
 
 fn main() {
     utils::setup_logging("");
@@ -83,7 +85,9 @@ fn main() {
     iface.update_ip_addrs(|ip_addrs| {
         ip_addrs
             .push(IpCidr::new(
-                IpAddress::v6(0xfe80, 0, 0, 0, 0x180b, 0x4242, 0x4242, 0x4242),
+                IpAddress::V6(Ipv6Address::new(
+                    0xfe80, 0, 0, 0, 0x180b, 0x4242, 0x4242, 0x4242,
+                )),
                 64,
             ))
             .unwrap();

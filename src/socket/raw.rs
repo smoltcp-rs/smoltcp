@@ -95,9 +95,7 @@ pub struct Socket<'a> {
 }
 
 impl<'a> Socket<'a> {
-    /// Create a raw IP socket bound to the given IP version and datagram protocol,
-    /// with the given buffers.
-    pub fn new(
+    fn new(
         ip_version: IpVersion,
         ip_protocol: IpProtocol,
         rx_buffer: PacketBuffer<'a>,
@@ -113,6 +111,26 @@ impl<'a> Socket<'a> {
             #[cfg(feature = "async")]
             tx_waker: WakerRegistration::new(),
         }
+    }
+
+    /// Create a raw IPv4 socket bound to the datagram protocol with the given buffers.
+    #[cfg(feature = "proto-ipv4")]
+    pub fn new_v4(
+        ip_protocol: IpProtocol,
+        rx_buffer: PacketBuffer<'a>,
+        tx_buffer: PacketBuffer<'a>,
+    ) -> Socket<'a> {
+        Self::new(IpVersion::Ipv4, ip_protocol, rx_buffer, tx_buffer)
+    }
+
+    /// Create a raw IPv6 socket bound to the datagram protocol with the given buffers.
+    #[cfg(feature = "proto-ipv6")]
+    pub fn new_v6(
+        ip_protocol: IpProtocol,
+        rx_buffer: PacketBuffer<'a>,
+        tx_buffer: PacketBuffer<'a>,
+    ) -> Socket<'a> {
+        Self::new(IpVersion::Ipv6, ip_protocol, rx_buffer, tx_buffer)
     }
 
     /// Register a waker for receive operations.
@@ -150,10 +168,22 @@ impl<'a> Socket<'a> {
         self.tx_waker.register(waker)
     }
 
-    /// Return the IP version the socket is bound to.
+    /// Returns true if this socket is an IPv4 raw socket, and false otherwise.
     #[inline]
-    pub fn ip_version(&self) -> IpVersion {
-        self.ip_version
+    pub fn is_ipv4(&self) -> bool {
+        #[cfg(feature = "proto-ipv4")]
+        return self.ip_version == IpVersion::Ipv4;
+        #[cfg(not(feature = "proto-ipv4"))]
+        false
+    }
+
+    /// Returns true if this socket is an IPv6 raw socket, and false otherwise.
+    #[inline]
+    pub fn is_ipv6(&self) -> bool {
+        #[cfg(feature = "proto-ipv6")]
+        return self.ip_version == IpVersion::Ipv6;
+        #[cfg(not(feature = "proto-ipv6"))]
+        false
     }
 
     /// Return the IP protocol the socket is bound to.
@@ -328,7 +358,7 @@ impl<'a> Socket<'a> {
     }
 
     pub(crate) fn accepts(&self, ip_repr: &IpRepr) -> bool {
-        if ip_repr.version() != self.ip_version {
+        if ip_repr.is_ipv4() != self.is_ipv4() {
             return false;
         }
         if ip_repr.next_header() != self.ip_protocol {
@@ -484,12 +514,7 @@ mod test {
             rx_buffer: PacketBuffer<'static>,
             tx_buffer: PacketBuffer<'static>,
         ) -> Socket<'static> {
-            Socket::new(
-                IpVersion::Ipv4,
-                IpProtocol::Unknown(IP_PROTO),
-                rx_buffer,
-                tx_buffer,
-            )
+            Socket::new_v4(IpProtocol::Unknown(IP_PROTO), rx_buffer, tx_buffer)
         }
 
         pub const IP_PROTO: u8 = 63;
@@ -515,12 +540,7 @@ mod test {
             rx_buffer: PacketBuffer<'static>,
             tx_buffer: PacketBuffer<'static>,
         ) -> Socket<'static> {
-            Socket::new(
-                IpVersion::Ipv6,
-                IpProtocol::Unknown(IP_PROTO),
-                rx_buffer,
-                tx_buffer,
-            )
+            Socket::new_v6(IpProtocol::Unknown(IP_PROTO), rx_buffer, tx_buffer)
         }
 
         pub const IP_PROTO: u8 = 63;
@@ -816,8 +836,7 @@ mod test {
     fn test_doesnt_accept_wrong_proto() {
         #[cfg(feature = "proto-ipv4")]
         {
-            let socket = Socket::new(
-                IpVersion::Ipv4,
+            let socket = Socket::new_v4(
                 IpProtocol::Unknown(ipv4_locals::IP_PROTO + 1),
                 buffer(1),
                 buffer(1),
@@ -828,8 +847,7 @@ mod test {
         }
         #[cfg(feature = "proto-ipv6")]
         {
-            let socket = Socket::new(
-                IpVersion::Ipv6,
+            let socket = Socket::new_v6(
                 IpProtocol::Unknown(ipv6_locals::IP_PROTO + 1),
                 buffer(1),
                 buffer(1),
