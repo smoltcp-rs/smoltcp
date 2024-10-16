@@ -181,13 +181,27 @@ impl InterfaceInner {
         {
             // Ignore IP packets not directed at us, or broadcast, or any of the multicast groups.
             // If AnyIP is enabled, also check if the packet is routed locally.
-            if !self.any_ip
-                || !ipv4_repr.dst_addr.x_is_unicast()
-                || self
-                    .routes
-                    .lookup(&IpAddress::Ipv4(ipv4_repr.dst_addr), self.now)
-                    .map_or(true, |router_addr| !self.has_ip_addr(router_addr))
+
+            if !self.any_ip {
+                net_trace!("Rejecting IPv4 packet; any_ip=false");
+                return None;
+            }
+
+            if !ipv4_repr.dst_addr.x_is_unicast() {
+                net_trace!(
+                    "Rejecting IPv4 packet; {} is not a unicast address",
+                    ipv4_repr.dst_addr
+                );
+                return None;
+            }
+
+            if self
+                .routes
+                .lookup(&IpAddress::Ipv4(ipv4_repr.dst_addr), self.now)
+                .map_or(true, |router_addr| !self.has_ip_addr(router_addr))
             {
+                net_trace!("Rejecting IPv4 packet; no matching routes");
+
                 return None;
             }
         }

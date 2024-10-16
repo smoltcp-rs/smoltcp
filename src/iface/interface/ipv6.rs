@@ -212,15 +212,26 @@ impl InterfaceInner {
             && !self.has_multicast_group(ipv6_repr.dst_addr)
             && !ipv6_repr.dst_addr.is_loopback()
         {
-            // If AnyIP is enabled, also check if the packet is routed locally.
-            if !self.any_ip
-                || !ipv6_repr.dst_addr.x_is_unicast()
-                || self
-                    .routes
-                    .lookup(&IpAddress::Ipv6(ipv6_repr.dst_addr), self.now)
-                    .map_or(true, |router_addr| !self.has_ip_addr(router_addr))
+            if !self.any_ip {
+                net_trace!("Rejecting IPv6 packet; any_ip=false");
+                return None;
+            }
+
+            if !ipv6_repr.dst_addr.x_is_unicast() {
+                net_trace!(
+                    "Rejecting IPv6 packet; {} is not a unicast address",
+                    ipv6_repr.dst_addr
+                );
+                return None;
+            }
+
+            if self
+                .routes
+                .lookup(&IpAddress::Ipv6(ipv6_repr.dst_addr), self.now)
+                .map_or(true, |router_addr| !self.has_ip_addr(router_addr))
             {
-                net_trace!("packet IP address not for this interface");
+                net_trace!("Rejecting IPv6 packet; no matching routes");
+
                 return None;
             }
         }
