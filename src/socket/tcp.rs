@@ -1508,11 +1508,6 @@ impl<'a> Socket<'a> {
             (State::Listen, _, None) => (),
             // This case is handled in `accepts()`.
             (State::Listen, _, Some(_)) => unreachable!(),
-            // Every packet after the initial SYN must be an acknowledgement.
-            (_, _, None) => {
-                net_debug!("expecting an ACK");
-                return None;
-            }
             // SYN|ACK in the SYN-SENT state must have the exact ACK number.
             (State::SynSent, TcpControl::Syn, Some(ack_number)) => {
                 if ack_number != self.local_seq_no + 1 {
@@ -1520,6 +1515,10 @@ impl<'a> Socket<'a> {
                     return Some(Self::rst_reply(ip_repr, repr));
                 }
             }
+            // TCP simultaneous open.
+            // This is required by RFC 9293, which states "A TCP implementation MUST support
+            // simultaneous open attempts (MUST-10)."
+            (State::SynSent, TcpControl::Syn, None) => (),
             // ACKs in the SYN-SENT state are invalid.
             (State::SynSent, TcpControl::None, Some(ack_number)) => {
                 // If the sequence number matches, ignore it instead of RSTing.
@@ -1541,6 +1540,11 @@ impl<'a> Socket<'a> {
             // Anything else in the SYN-SENT state is invalid.
             (State::SynSent, _, _) => {
                 net_debug!("expecting a SYN|ACK");
+                return None;
+            }
+            // Every packet after the initial SYN must be an acknowledgement.
+            (_, _, None) => {
+                net_debug!("expecting an ACK");
                 return None;
             }
             // ACK in the SYN-RECEIVED state must have the exact ACK number, or we RST it.
@@ -1722,7 +1726,10 @@ impl<'a> Socket<'a> {
             (State::Listen, TcpControl::Rst) => return None,
 
             // RSTs in SYN-RECEIVED flip the socket back to the LISTEN state.
-            (State::SynReceived, TcpControl::Rst) => {
+            // Here we need to additionally check `listen_endpoint`, because we want to make sure
+            // that SYN-RECEIVED was actually converted from the LISTEN state (another possible
+            // reason is TCP simultaneous open).
+            (State::SynReceived, TcpControl::Rst) if self.listen_endpoint.port != 0 => {
                 tcp_trace!("received RST");
                 self.tuple = None;
                 self.set_state(State::Listen);
@@ -1789,8 +1796,13 @@ impl<'a> Socket<'a> {
             }
 
             // SYN|ACK packets in the SYN-SENT state change it to ESTABLISHED.
+            // SYN packets in the SYN-SENT state change it to SYN-RECEIVED.
             (State::SynSent, TcpControl::Syn) => {
-                tcp_trace!("received SYN|ACK");
+                if repr.ack_number.is_some() {
+                    tcp_trace!("received SYN|ACK");
+                } else {
+                    tcp_trace!("received SYN");
+                }
                 if let Some(max_seg_size) = repr.max_seg_size {
                     if max_seg_size == 0 {
                         tcp_trace!("received SYNACK with zero MSS, ignoring");
@@ -1816,7 +1828,11 @@ impl<'a> Socket<'a> {
                     self.tsval_generator = None;
                 }
 
-                self.set_state(State::Established);
+                if repr.ack_number.is_some() {
+                    self.set_state(State::Established);
+                } else {
+                    self.set_state(State::SynReceived);
+                }
                 self.timer.set_for_idle(cx.now(), self.keep_alive);
             }
 
@@ -2333,6 +2349,7 @@ impl<'a> Socket<'a> {
             // We transmit a SYN|ACK in the SYN-RECEIVED state.
             State::SynSent | State::SynReceived => {
                 repr.control = TcpControl::Syn;
+                repr.seq_number = self.local_seq_no;
                 // window len must NOT be scaled in SYNs.
                 repr.window_len = u16::try_from(self.rx_buffer.window()).unwrap_or(u16::MAX);
                 if self.state == State::SynSent {
@@ -3538,6 +3555,78 @@ mod test {
     }
 
     #[test]
+    fn test_syn_sent_syn_received_ack() {
+        let mut s = socket_syn_sent();
+        recv!(
+            s,
+            [TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: LOCAL_SEQ,
+                ack_number: None,
+                max_seg_size: Some(BASE_MSS),
+                window_scale: Some(0),
+                sack_permitted: true,
+                ..RECV_TEMPL
+            }]
+        );
+
+        // A SYN packet changes the SYN-SENT state to SYN-RECEIVED.
+        send!(
+            s,
+            TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: REMOTE_SEQ,
+                ack_number: None,
+                max_seg_size: Some(BASE_MSS - 80),
+                window_scale: Some(0),
+                ..SEND_TEMPL
+            }
+        );
+        assert_eq!(s.state, State::SynReceived);
+
+        // The socket will then send a SYN|ACK packet.
+        recv!(
+            s,
+            [TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: LOCAL_SEQ,
+                ack_number: Some(REMOTE_SEQ + 1),
+                max_seg_size: Some(BASE_MSS),
+                window_scale: Some(0),
+                ..RECV_TEMPL
+            }]
+        );
+        recv_nothing!(s);
+
+        // The socket may retransmit the SYN|ACK packet.
+        recv!(
+            s,
+            time 1001,
+            Ok(TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: LOCAL_SEQ,
+                ack_number: Some(REMOTE_SEQ + 1),
+                max_seg_size: Some(BASE_MSS),
+                window_scale: Some(0),
+                ..RECV_TEMPL
+            })
+        );
+
+        // An ACK packet changes the SYN-RECEIVED state to ESTABLISHED.
+        send!(
+            s,
+            TcpRepr {
+                control: TcpControl::None,
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                ..SEND_TEMPL
+            }
+        );
+        assert_eq!(s.state, State::Established);
+        sanity!(s, socket_established());
+    }
+
+    #[test]
     fn test_syn_sent_syn_ack_not_incremented() {
         let mut s = socket_syn_sent();
         recv!(
@@ -3571,6 +3660,49 @@ mod test {
             })
         );
         assert_eq!(s.state, State::SynSent);
+    }
+
+    #[test]
+    fn test_syn_sent_syn_received_rst() {
+        let mut s = socket_syn_sent();
+        recv!(
+            s,
+            [TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: LOCAL_SEQ,
+                ack_number: None,
+                max_seg_size: Some(BASE_MSS),
+                window_scale: Some(0),
+                sack_permitted: true,
+                ..RECV_TEMPL
+            }]
+        );
+
+        // A SYN packet changes the SYN-SENT state to SYN-RECEIVED.
+        send!(
+            s,
+            TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: REMOTE_SEQ,
+                ack_number: None,
+                max_seg_size: Some(BASE_MSS - 80),
+                window_scale: Some(0),
+                ..SEND_TEMPL
+            }
+        );
+        assert_eq!(s.state, State::SynReceived);
+
+        // A RST packet changes the SYN-RECEIVED state to CLOSED.
+        send!(
+            s,
+            TcpRepr {
+                control: TcpControl::Rst,
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ),
+                ..SEND_TEMPL
+            }
+        );
+        assert_eq!(s.state, State::Closed);
     }
 
     #[test]
