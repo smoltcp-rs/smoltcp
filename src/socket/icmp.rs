@@ -412,6 +412,16 @@ impl<'a> Socket<'a> {
         Ok((length, endpoint))
     }
 
+    /// Return the amount of octets queued in the transmit buffer.
+    pub fn send_queue(&self) -> usize {
+        self.tx_buffer.payload_bytes_count()
+    }
+
+    /// Return the amount of octets queued in the receive buffer.
+    pub fn recv_queue(&self) -> usize {
+        self.rx_buffer.payload_bytes_count()
+    }
+
     /// Fitler determining whether the socket accepts a given ICMPv4 packet.
     /// Accepted packets are enqueued into the socket's receive buffer.
     #[cfg(feature = "proto-ipv4")]
