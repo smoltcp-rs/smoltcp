@@ -239,6 +239,11 @@ impl<'a, H> PacketBuffer<'a, H> {
         self.payload_ring.capacity()
     }
 
+    /// Return the current number of bytes in the payload ring buffer.
+    pub fn payload_bytes_count(&self) -> usize {
+        self.payload_ring.len()
+    }
+
     /// Reset the packet buffer and clear any staged.
     #[allow(unused)]
     pub(crate) fn reset(&mut self) {

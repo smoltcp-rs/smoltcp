@@ -459,6 +459,22 @@ impl<'a> Socket<'a> {
         Ok((length, endpoint))
     }
 
+    /// Return the amount of octets queued in the transmit buffer.
+    ///
+    /// Note that the Berkeley sockets interface does not have an equivalent of this API.
+    pub fn send_queue(&self) -> usize {
+        self.tx_buffer.payload_bytes_count()
+    }
+
+    /// Return the amount of octets queued in the receive buffer. This value can be larger than
+    /// the slice read by the next `recv` or `peek` call because it includes all queued octets,
+    /// and not only the octets that may be returned as a contiguous slice.
+    ///
+    /// Note that the Berkeley sockets interface does not have an equivalent of this API.
+    pub fn recv_queue(&self) -> usize {
+        self.rx_buffer.payload_bytes_count()
+    }
+
     pub(crate) fn accepts(&self, cx: &mut Context, ip_repr: &IpRepr, repr: &UdpRepr) -> bool {
         if self.endpoint.port != repr.dst_port {
             return false;

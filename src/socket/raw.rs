@@ -327,6 +327,16 @@ impl<'a> Socket<'a> {
         Ok(length)
     }
 
+    /// Return the amount of octets queued in the transmit buffer.
+    pub fn send_queue(&self) -> usize {
+        self.tx_buffer.payload_bytes_count()
+    }
+
+    /// Return the amount of octets queued in the receive buffer.
+    pub fn recv_queue(&self) -> usize {
+        self.rx_buffer.payload_bytes_count()
+    }
+
     pub(crate) fn accepts(&self, ip_repr: &IpRepr) -> bool {
         if ip_repr.version() != self.ip_version {
             return false;
