@@ -793,6 +793,12 @@ impl<'a> Socket<'a> {
         self.hop_limit = hop_limit
     }
 
+    /// Return the listen endpoint
+    #[inline]
+    pub fn listen_endpoint(&self) -> IpListenEndpoint {
+        self.listen_endpoint
+    }
+
     /// Return the local endpoint, or None if not connected.
     #[inline]
     pub fn local_endpoint(&self) -> Option<IpEndpoint> {
