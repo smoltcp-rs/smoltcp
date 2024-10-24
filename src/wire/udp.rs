@@ -234,7 +234,7 @@ impl Repr {
             match (src_addr, dst_addr) {
                 // ... except on UDP-over-IPv4, where it can be omitted.
                 #[cfg(feature = "proto-ipv4")]
-                (&IpAddress::Ipv4(_), &IpAddress::Ipv4(_)) if packet.checksum() == 0 => (),
+                (&IpAddress::V4(_), &IpAddress::V4(_)) if packet.checksum() == 0 => (),
                 _ => return Err(Error),
             }
         }
