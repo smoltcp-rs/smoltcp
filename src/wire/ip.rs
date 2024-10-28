@@ -4,9 +4,9 @@ use core::fmt;
 use super::{Error, Result};
 use crate::phy::ChecksumCapabilities;
 #[cfg(feature = "proto-ipv4")]
-use crate::wire::{Ipv4Address, Ipv4Cidr, Ipv4Packet, Ipv4Repr};
+use crate::wire::{Ipv4Address, Ipv4AddressExt, Ipv4Cidr, Ipv4Packet, Ipv4Repr};
 #[cfg(feature = "proto-ipv6")]
-use crate::wire::{Ipv6Address, Ipv6Cidr, Ipv6Packet, Ipv6Repr};
+use crate::wire::{Ipv6Address, Ipv6AddressExt, Ipv6Cidr, Ipv6Packet, Ipv6Repr};
 
 /// Internet protocol version.
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
@@ -127,23 +127,13 @@ impl Address {
         }
     }
 
-    /// Return an address as a sequence of octets, in big-endian.
-    pub const fn as_bytes(&self) -> &[u8] {
-        match self {
-            #[cfg(feature = "proto-ipv4")]
-            Address::Ipv4(addr) => addr.as_bytes(),
-            #[cfg(feature = "proto-ipv6")]
-            Address::Ipv6(addr) => addr.as_bytes(),
-        }
-    }
-
     /// Query whether the address is a valid unicast address.
     pub fn is_unicast(&self) -> bool {
         match self {
             #[cfg(feature = "proto-ipv4")]
-            Address::Ipv4(addr) => addr.is_unicast(),
+            Address::Ipv4(addr) => addr.x_is_unicast(),
             #[cfg(feature = "proto-ipv6")]
-            Address::Ipv6(addr) => addr.is_unicast(),
+            Address::Ipv6(addr) => addr.x_is_unicast(),
         }
     }
 
@@ -180,27 +170,12 @@ impl Address {
     /// If `self` is a CIDR-compatible subnet mask, return `Some(prefix_len)`,
     /// where `prefix_len` is the number of leading zeroes. Return `None` otherwise.
     pub fn prefix_len(&self) -> Option<u8> {
-        let mut ones = true;
-        let mut prefix_len = 0;
-        for byte in self.as_bytes() {
-            let mut mask = 0x80;
-            for _ in 0..8 {
-                let one = *byte & mask != 0;
-                if ones {
-                    // Expect 1s until first 0
-                    if one {
-                        prefix_len += 1;
-                    } else {
-                        ones = false;
-                    }
-                } else if one {
-                    // 1 where 0 was expected
-                    return None;
-                }
-                mask >>= 1;
-            }
+        match self {
+            #[cfg(feature = "proto-ipv4")]
+            Address::Ipv4(addr) => addr.prefix_len(),
+            #[cfg(feature = "proto-ipv6")]
+            Address::Ipv6(addr) => addr.prefix_len(),
         }
-        Some(prefix_len)
     }
 }
 
@@ -208,8 +183,8 @@ impl Address {
 impl From<::core::net::IpAddr> for Address {
     fn from(x: ::core::net::IpAddr) -> Address {
         match x {
-            ::core::net::IpAddr::V4(ipv4) => Address::Ipv4(ipv4.into()),
-            ::core::net::IpAddr::V6(ipv6) => Address::Ipv6(ipv6.into()),
+            ::core::net::IpAddr::V4(ipv4) => Address::Ipv4(ipv4),
+            ::core::net::IpAddr::V6(ipv6) => Address::Ipv6(ipv6),
         }
     }
 }
@@ -218,31 +193,17 @@ impl From<Address> for ::core::net::IpAddr {
     fn from(x: Address) -> ::core::net::IpAddr {
         match x {
             #[cfg(feature = "proto-ipv4")]
-            Address::Ipv4(ipv4) => ::core::net::IpAddr::V4(ipv4.into()),
+            Address::Ipv4(ipv4) => ::core::net::IpAddr::V4(ipv4),
             #[cfg(feature = "proto-ipv6")]
-            Address::Ipv6(ipv6) => ::core::net::IpAddr::V6(ipv6.into()),
+            Address::Ipv6(ipv6) => ::core::net::IpAddr::V6(ipv6),
         }
     }
 }
 
 #[cfg(feature = "proto-ipv4")]
-impl From<::core::net::Ipv4Addr> for Address {
-    fn from(ipv4: ::core::net::Ipv4Addr) -> Address {
-        Address::Ipv4(ipv4.into())
-    }
-}
-
-#[cfg(feature = "proto-ipv6")]
-impl From<::core::net::Ipv6Addr> for Address {
-    fn from(ipv6: ::core::net::Ipv6Addr) -> Address {
-        Address::Ipv6(ipv6.into())
-    }
-}
-
-#[cfg(feature = "proto-ipv4")]
 impl From<Ipv4Address> for Address {
-    fn from(addr: Ipv4Address) -> Self {
-        Address::Ipv4(addr)
+    fn from(ipv4: Ipv4Address) -> Address {
+        Address::Ipv4(ipv4)
     }
 }
 
@@ -773,8 +734,8 @@ pub mod checksum {
         NetworkEndian::write_u16(&mut proto_len[2..4], length as u16);
 
         combine(&[
-            data(src_addr.as_bytes()),
-            data(dst_addr.as_bytes()),
+            data(&src_addr.octets()),
+            data(&dst_addr.octets()),
             data(&proto_len[..]),
         ])
     }
@@ -791,8 +752,8 @@ pub mod checksum {
         NetworkEndian::write_u16(&mut proto_len[2..4], length as u16);
 
         combine(&[
-            data(src_addr.as_bytes()),
-            data(dst_addr.as_bytes()),
+            data(&src_addr.octets()),
+            data(&dst_addr.octets()),
             data(&proto_len[..]),
         ])
     }

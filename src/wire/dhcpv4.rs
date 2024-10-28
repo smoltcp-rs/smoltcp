@@ -7,7 +7,7 @@ use heapless::Vec;
 
 use super::{Error, Result};
 use crate::wire::arp::Hardware;
-use crate::wire::{EthernetAddress, Ipv4Address};
+use crate::wire::{EthernetAddress, Ipv4Address, Ipv4AddressExt};
 
 pub const SERVER_PORT: u16 = 67;
 pub const CLIENT_PORT: u16 = 68;
@@ -443,7 +443,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     pub fn set_hardware_type(&mut self, value: Hardware) {
         let data = self.buffer.as_mut();
         let number: u16 = value.into();
-        assert!(number <= u16::from(u8::max_value())); // TODO: Replace with TryFrom when it's stable
+        assert!(number <= u16::from(u8::MAX)); // TODO: Replace with TryFrom when it's stable
         data[field::HTYPE] = number as u8;
     }
 
@@ -503,25 +503,25 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// and can respond to ARP requests”.
     pub fn set_client_ip(&mut self, value: Ipv4Address) {
         let field = &mut self.buffer.as_mut()[field::CIADDR];
-        field.copy_from_slice(value.as_bytes());
+        field.copy_from_slice(&value.octets());
     }
 
     /// Sets the value of the `yiaddr` field.
     pub fn set_your_ip(&mut self, value: Ipv4Address) {
         let field = &mut self.buffer.as_mut()[field::YIADDR];
-        field.copy_from_slice(value.as_bytes());
+        field.copy_from_slice(&value.octets());
     }
 
     /// Sets the value of the `siaddr` field.
     pub fn set_server_ip(&mut self, value: Ipv4Address) {
         let field = &mut self.buffer.as_mut()[field::SIADDR];
-        field.copy_from_slice(value.as_bytes());
+        field.copy_from_slice(&value.octets());
     }
 
     /// Sets the value of the `giaddr` field.
     pub fn set_relay_agent_ip(&mut self, value: Ipv4Address) {
         let field = &mut self.buffer.as_mut()[field::GIADDR];
-        field.copy_from_slice(value.as_bytes());
+        field.copy_from_slice(&value.octets());
     }
 
     /// Sets the flags to the specified value.
@@ -881,26 +881,26 @@ impl<'a> Repr<'a> {
             if let Some(val) = &self.server_identifier {
                 options.emit(DhcpOption {
                     kind: field::OPT_SERVER_IDENTIFIER,
-                    data: val.as_bytes(),
+                    data: &val.octets(),
                 })?;
             }
 
             if let Some(val) = &self.router {
                 options.emit(DhcpOption {
                     kind: field::OPT_ROUTER,
-                    data: val.as_bytes(),
+                    data: &val.octets(),
                 })?;
             }
             if let Some(val) = &self.subnet_mask {
                 options.emit(DhcpOption {
                     kind: field::OPT_SUBNET_MASK,
-                    data: val.as_bytes(),
+                    data: &val.octets(),
                 })?;
             }
             if let Some(val) = &self.requested_ip {
                 options.emit(DhcpOption {
                     kind: field::OPT_REQUESTED_IP,
-                    data: val.as_bytes(),
+                    data: &val.octets(),
                 })?;
             }
             if let Some(val) = &self.max_size {
@@ -930,7 +930,7 @@ impl<'a> Repr<'a> {
                     .iter()
                     .enumerate()
                     .inspect(|(i, ip)| {
-                        servers[(i * IP_SIZE)..((i + 1) * IP_SIZE)].copy_from_slice(ip.as_bytes());
+                        servers[(i * IP_SIZE)..((i + 1) * IP_SIZE)].copy_from_slice(&ip.octets());
                     })
                     .count()
                     * IP_SIZE;
@@ -1029,7 +1029,7 @@ mod test {
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     ];
 
-    const IP_NULL: Ipv4Address = Ipv4Address([0, 0, 0, 0]);
+    const IP_NULL: Ipv4Address = Ipv4Address::new(0, 0, 0, 0);
     const CLIENT_MAC: EthernetAddress = EthernetAddress([0x0, 0x0b, 0x82, 0x01, 0xfc, 0x42]);
     const DHCP_SIZE: u16 = 1500;
 
@@ -1236,9 +1236,9 @@ mod test {
             let mut repr = offer_repr();
             repr.dns_servers = Some(
                 Vec::from_slice(&[
-                    Ipv4Address([163, 1, 74, 6]),
-                    Ipv4Address([163, 1, 74, 7]),
-                    Ipv4Address([163, 1, 74, 3]),
+                    Ipv4Address::new(163, 1, 74, 6),
+                    Ipv4Address::new(163, 1, 74, 7),
+                    Ipv4Address::new(163, 1, 74, 3),
                 ])
                 .unwrap(),
             );
@@ -1255,9 +1255,9 @@ mod test {
             repr_parsed.dns_servers,
             Some(
                 Vec::from_slice(&[
-                    Ipv4Address([163, 1, 74, 6]),
-                    Ipv4Address([163, 1, 74, 7]),
-                    Ipv4Address([163, 1, 74, 3]),
+                    Ipv4Address::new(163, 1, 74, 6),
+                    Ipv4Address::new(163, 1, 74, 7),
+                    Ipv4Address::new(163, 1, 74, 3),
                 ])
                 .unwrap()
             )
@@ -1295,9 +1295,9 @@ mod test {
             repr.dns_servers,
             Some(
                 Vec::from_slice(&[
-                    Ipv4Address([163, 1, 74, 6]),
-                    Ipv4Address([163, 1, 74, 7]),
-                    Ipv4Address([163, 1, 74, 3])
+                    Ipv4Address::new(163, 1, 74, 6),
+                    Ipv4Address::new(163, 1, 74, 7),
+                    Ipv4Address::new(163, 1, 74, 3)
                 ])
                 .unwrap()
             )

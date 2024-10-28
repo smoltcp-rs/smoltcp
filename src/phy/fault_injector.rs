@@ -315,10 +315,10 @@ impl<'a, Tx: phy::TxToken> phy::TxToken for TxToken<'a, Tx> {
             return f(&mut self.junk[..len]);
         }
 
-        self.token.consume(len, |mut buf| {
+        self.token.consume(len, |buf| {
             if self.state.maybe(self.config.corrupt_pct) {
                 net_trace!("tx: corrupting a packet");
-                self.state.corrupt(&mut buf)
+                self.state.corrupt(&mut *buf);
             }
             f(buf)
         })

@@ -586,6 +586,7 @@ impl<'a> Socket<'a> {
     /// * Small embedded processors (such as Cortex-M0, Cortex-M1, and Cortex-M3) do not have an FPU, and floating point operations consume significant amounts of CPU time and Flash space.
     /// * Interrupt handlers should almost always avoid floating-point operations.
     /// * Kernel-mode code on desktop processors usually avoids FPU operations to reduce the penalty of saving and restoring FPU registers.
+    ///
     /// In all these cases, `CongestionControl::Reno` is a better choice of congestion control algorithm.
     pub fn set_congestion_control(&mut self, congestion_control: CongestionControl) {
         use congestion::*;
@@ -790,6 +791,12 @@ impl<'a> Socket<'a> {
         }
 
         self.hop_limit = hop_limit
+    }
+
+    /// Return the listen endpoint
+    #[inline]
+    pub fn listen_endpoint(&self) -> IpListenEndpoint {
+        self.listen_endpoint
     }
 
     /// Return the local endpoint, or None if not connected.
@@ -1507,11 +1514,6 @@ impl<'a> Socket<'a> {
             (State::Listen, _, None) => (),
             // This case is handled in `accepts()`.
             (State::Listen, _, Some(_)) => unreachable!(),
-            // Every packet after the initial SYN must be an acknowledgement.
-            (_, _, None) => {
-                net_debug!("expecting an ACK");
-                return None;
-            }
             // SYN|ACK in the SYN-SENT state must have the exact ACK number.
             (State::SynSent, TcpControl::Syn, Some(ack_number)) => {
                 if ack_number != self.local_seq_no + 1 {
@@ -1519,6 +1521,10 @@ impl<'a> Socket<'a> {
                     return Some(Self::rst_reply(ip_repr, repr));
                 }
             }
+            // TCP simultaneous open.
+            // This is required by RFC 9293, which states "A TCP implementation MUST support
+            // simultaneous open attempts (MUST-10)."
+            (State::SynSent, TcpControl::Syn, None) => (),
             // ACKs in the SYN-SENT state are invalid.
             (State::SynSent, TcpControl::None, Some(ack_number)) => {
                 // If the sequence number matches, ignore it instead of RSTing.
@@ -1540,6 +1546,11 @@ impl<'a> Socket<'a> {
             // Anything else in the SYN-SENT state is invalid.
             (State::SynSent, _, _) => {
                 net_debug!("expecting a SYN|ACK");
+                return None;
+            }
+            // Every packet after the initial SYN must be an acknowledgement.
+            (_, _, None) => {
+                net_debug!("expecting an ACK");
                 return None;
             }
             // ACK in the SYN-RECEIVED state must have the exact ACK number, or we RST it.
@@ -1721,7 +1732,10 @@ impl<'a> Socket<'a> {
             (State::Listen, TcpControl::Rst) => return None,
 
             // RSTs in SYN-RECEIVED flip the socket back to the LISTEN state.
-            (State::SynReceived, TcpControl::Rst) => {
+            // Here we need to additionally check `listen_endpoint`, because we want to make sure
+            // that SYN-RECEIVED was actually converted from the LISTEN state (another possible
+            // reason is TCP simultaneous open).
+            (State::SynReceived, TcpControl::Rst) if self.listen_endpoint.port != 0 => {
                 tcp_trace!("received RST");
                 self.tuple = None;
                 self.set_state(State::Listen);
@@ -1788,8 +1802,13 @@ impl<'a> Socket<'a> {
             }
 
             // SYN|ACK packets in the SYN-SENT state change it to ESTABLISHED.
+            // SYN packets in the SYN-SENT state change it to SYN-RECEIVED.
             (State::SynSent, TcpControl::Syn) => {
-                tcp_trace!("received SYN|ACK");
+                if repr.ack_number.is_some() {
+                    tcp_trace!("received SYN|ACK");
+                } else {
+                    tcp_trace!("received SYN");
+                }
                 if let Some(max_seg_size) = repr.max_seg_size {
                     if max_seg_size == 0 {
                         tcp_trace!("received SYNACK with zero MSS, ignoring");
@@ -1815,7 +1834,11 @@ impl<'a> Socket<'a> {
                     self.tsval_generator = None;
                 }
 
-                self.set_state(State::Established);
+                if repr.ack_number.is_some() {
+                    self.set_state(State::Established);
+                } else {
+                    self.set_state(State::SynReceived);
+                }
                 self.timer.set_for_idle(cx.now(), self.keep_alive);
             }
 
@@ -1967,7 +1990,7 @@ impl<'a> Socket<'a> {
                         "received duplicate ACK for seq {} (duplicate nr {}{})",
                         ack_number,
                         self.local_rx_dup_acks,
-                        if self.local_rx_dup_acks == u8::max_value() {
+                        if self.local_rx_dup_acks == u8::MAX {
                             "+"
                         } else {
                             ""
@@ -2056,19 +2079,19 @@ impl<'a> Socket<'a> {
 
         // Handle delayed acks
         if let Some(ack_delay) = self.ack_delay {
-            if self.ack_to_transmit() || self.window_to_update() {
+            if self.ack_to_transmit() {
                 self.ack_delay_timer = match self.ack_delay_timer {
                     AckDelayTimer::Idle => {
                         tcp_trace!("starting delayed ack timer");
-
                         AckDelayTimer::Waiting(cx.now() + ack_delay)
                     }
-                    // RFC1122 says "in a stream of full-sized segments there SHOULD be an ACK
-                    // for at least every second segment".
-                    // For now, we send an ACK every second received packet, full-sized or not.
-                    AckDelayTimer::Waiting(_) => {
+                    AckDelayTimer::Waiting(_) if self.immediate_ack_to_transmit() => {
                         tcp_trace!("delayed ack timer already started, forcing expiry");
                         AckDelayTimer::Immediate
+                    }
+                    timer @ AckDelayTimer::Waiting(_) => {
+                        tcp_trace!("waiting until delayed ack timer expires");
+                        timer
                     }
                     AckDelayTimer::Immediate => {
                         tcp_trace!("delayed ack timer already force-expired");
@@ -2177,6 +2200,24 @@ impl<'a> Socket<'a> {
     fn ack_to_transmit(&self) -> bool {
         if let Some(remote_last_ack) = self.remote_last_ack {
             remote_last_ack < self.remote_seq_no + self.rx_buffer.len()
+        } else {
+            false
+        }
+    }
+
+    /// Return whether to send ACK immediately due to the amount of unacknowledged data.
+    ///
+    /// RFC 9293 states "An ACK SHOULD be generated for at least every second full-sized segment or
+    /// 2*RMSS bytes of new data (where RMSS is the MSS specified by the TCP endpoint receiving the
+    /// segments to be acknowledged, or the default value if not specified) (SHLD-19)."
+    ///
+    /// Note that the RFC above only says "at least 2*RMSS bytes", which is not a hard requirement.
+    /// In practice, we follow the Linux kernel's empirical value of sending an ACK for every RMSS
+    /// byte of new data. For details, see
+    /// <https://elixir.bootlin.com/linux/v6.11.4/source/net/ipv4/tcp_input.c#L5747>.
+    fn immediate_ack_to_transmit(&self) -> bool {
+        if let Some(remote_last_ack) = self.remote_last_ack {
+            remote_last_ack + self.remote_mss < self.remote_seq_no + self.rx_buffer.len()
         } else {
             false
         }
@@ -2332,6 +2373,7 @@ impl<'a> Socket<'a> {
             // We transmit a SYN|ACK in the SYN-RECEIVED state.
             State::SynSent | State::SynReceived => {
                 repr.control = TcpControl::Syn;
+                repr.seq_number = self.local_seq_no;
                 // window len must NOT be scaled in SYNs.
                 repr.window_len = u16::try_from(self.rx_buffer.window()).unwrap_or(u16::MAX);
                 if self.state == State::SynSent {
@@ -2569,7 +2611,6 @@ impl<'a> fmt::Write for Socket<'a> {
 mod test {
     use super::*;
     use crate::wire::IpRepr;
-    use core::i32;
     use std::ops::{Deref, DerefMut};
     use std::vec::Vec;
 
@@ -2582,14 +2623,6 @@ mod test {
     const LISTEN_END: IpListenEndpoint = IpListenEndpoint {
         addr: None,
         port: LOCAL_PORT,
-    };
-    const LOCAL_END: IpEndpoint = IpEndpoint {
-        addr: LOCAL_ADDR.into_address(),
-        port: LOCAL_PORT,
-    };
-    const REMOTE_END: IpEndpoint = IpEndpoint {
-        addr: REMOTE_ADDR.into_address(),
-        port: REMOTE_PORT,
     };
     const TUPLE: Tuple = Tuple {
         local: LOCAL_END,
@@ -2604,27 +2637,39 @@ mod test {
             use crate::wire::Ipv4Repr as IpvXRepr;
             use IpRepr::Ipv4 as IpReprIpvX;
 
-            const LOCAL_ADDR: IpvXAddress = IpvXAddress([192, 168, 1, 1]);
-            const REMOTE_ADDR: IpvXAddress = IpvXAddress([192, 168, 1, 2]);
-            const OTHER_ADDR: IpvXAddress = IpvXAddress([192, 168, 1, 3]);
+            const LOCAL_ADDR: IpvXAddress = IpvXAddress::new(192, 168, 1, 1);
+            const REMOTE_ADDR: IpvXAddress = IpvXAddress::new(192, 168, 1, 2);
+            const OTHER_ADDR: IpvXAddress = IpvXAddress::new(192, 168, 1, 3);
 
             const BASE_MSS: u16 = 1460;
+
+            const LOCAL_END: IpEndpoint = IpEndpoint {
+                addr: IpAddress::Ipv4(LOCAL_ADDR),
+                port: LOCAL_PORT,
+            };
+            const REMOTE_END: IpEndpoint = IpEndpoint {
+                addr: IpAddress::Ipv4(REMOTE_ADDR),
+                port: REMOTE_PORT,
+            };
         } else {
             use crate::wire::Ipv6Address as IpvXAddress;
             use crate::wire::Ipv6Repr as IpvXRepr;
             use IpRepr::Ipv6 as IpReprIpvX;
 
-            const LOCAL_ADDR: IpvXAddress = IpvXAddress([
-                0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
-            ]);
-            const REMOTE_ADDR: IpvXAddress = IpvXAddress([
-                0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2,
-            ]);
-            const OTHER_ADDR: IpvXAddress = IpvXAddress([
-                0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3,
-            ]);
+            const LOCAL_ADDR: IpvXAddress = IpvXAddress::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
+            const REMOTE_ADDR: IpvXAddress = IpvXAddress::new(0xfe80, 0, 0, 0, 0, 0, 0, 2);
+            const OTHER_ADDR: IpvXAddress = IpvXAddress::new(0xfe80, 0, 0, 0, 0, 0, 0, 3);
 
             const BASE_MSS: u16 = 1440;
+
+            const LOCAL_END: IpEndpoint = IpEndpoint {
+                addr: IpAddress::Ipv6(LOCAL_ADDR),
+                port: LOCAL_PORT,
+            };
+            const REMOTE_END: IpEndpoint = IpEndpoint {
+                addr: IpAddress::Ipv6(REMOTE_ADDR),
+                port: REMOTE_PORT,
+            };
         }
     }
 
@@ -3534,6 +3579,78 @@ mod test {
     }
 
     #[test]
+    fn test_syn_sent_syn_received_ack() {
+        let mut s = socket_syn_sent();
+        recv!(
+            s,
+            [TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: LOCAL_SEQ,
+                ack_number: None,
+                max_seg_size: Some(BASE_MSS),
+                window_scale: Some(0),
+                sack_permitted: true,
+                ..RECV_TEMPL
+            }]
+        );
+
+        // A SYN packet changes the SYN-SENT state to SYN-RECEIVED.
+        send!(
+            s,
+            TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: REMOTE_SEQ,
+                ack_number: None,
+                max_seg_size: Some(BASE_MSS - 80),
+                window_scale: Some(0),
+                ..SEND_TEMPL
+            }
+        );
+        assert_eq!(s.state, State::SynReceived);
+
+        // The socket will then send a SYN|ACK packet.
+        recv!(
+            s,
+            [TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: LOCAL_SEQ,
+                ack_number: Some(REMOTE_SEQ + 1),
+                max_seg_size: Some(BASE_MSS),
+                window_scale: Some(0),
+                ..RECV_TEMPL
+            }]
+        );
+        recv_nothing!(s);
+
+        // The socket may retransmit the SYN|ACK packet.
+        recv!(
+            s,
+            time 1001,
+            Ok(TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: LOCAL_SEQ,
+                ack_number: Some(REMOTE_SEQ + 1),
+                max_seg_size: Some(BASE_MSS),
+                window_scale: Some(0),
+                ..RECV_TEMPL
+            })
+        );
+
+        // An ACK packet changes the SYN-RECEIVED state to ESTABLISHED.
+        send!(
+            s,
+            TcpRepr {
+                control: TcpControl::None,
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                ..SEND_TEMPL
+            }
+        );
+        assert_eq!(s.state, State::Established);
+        sanity!(s, socket_established());
+    }
+
+    #[test]
     fn test_syn_sent_syn_ack_not_incremented() {
         let mut s = socket_syn_sent();
         recv!(
@@ -3567,6 +3684,49 @@ mod test {
             })
         );
         assert_eq!(s.state, State::SynSent);
+    }
+
+    #[test]
+    fn test_syn_sent_syn_received_rst() {
+        let mut s = socket_syn_sent();
+        recv!(
+            s,
+            [TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: LOCAL_SEQ,
+                ack_number: None,
+                max_seg_size: Some(BASE_MSS),
+                window_scale: Some(0),
+                sack_permitted: true,
+                ..RECV_TEMPL
+            }]
+        );
+
+        // A SYN packet changes the SYN-SENT state to SYN-RECEIVED.
+        send!(
+            s,
+            TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: REMOTE_SEQ,
+                ack_number: None,
+                max_seg_size: Some(BASE_MSS - 80),
+                window_scale: Some(0),
+                ..SEND_TEMPL
+            }
+        );
+        assert_eq!(s.state, State::SynReceived);
+
+        // A RST packet changes the SYN-RECEIVED state to CLOSED.
+        send!(
+            s,
+            TcpRepr {
+                control: TcpControl::Rst,
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ),
+                ..SEND_TEMPL
+            }
+        );
+        assert_eq!(s.state, State::Closed);
     }
 
     #[test]
@@ -6126,7 +6286,7 @@ mod test {
         });
 
         // A lot of retransmits happen here
-        s.local_rx_dup_acks = u8::max_value() - 1;
+        s.local_rx_dup_acks = u8::MAX - 1;
 
         // Send 3 more ACKs, which could overflow local_rx_dup_acks,
         // but intended behaviour is that we saturate the bounds
@@ -6148,7 +6308,7 @@ mod test {
         });
         assert_eq!(
             s.local_rx_dup_acks,
-            u8::max_value(),
+            u8::MAX,
             "duplicate ACK count should not overflow but saturate"
         );
     }
@@ -7357,15 +7517,15 @@ mod test {
     }
 
     #[test]
-    fn test_delayed_ack_every_second_packet() {
-        let mut s = socket_established();
+    fn test_delayed_ack_every_rmss() {
+        let mut s = socket_established_with_buffer_sizes(DEFAULT_MSS * 2, DEFAULT_MSS * 2);
         s.set_ack_delay(Some(ACK_DELAY_DEFAULT));
         send!(
             s,
             TcpRepr {
                 seq_number: REMOTE_SEQ + 1,
                 ack_number: Some(LOCAL_SEQ + 1),
-                payload: &b"abc"[..],
+                payload: &[0; DEFAULT_MSS - 1],
                 ..SEND_TEMPL
             }
         );
@@ -7376,35 +7536,48 @@ mod test {
         send!(
             s,
             TcpRepr {
-                seq_number: REMOTE_SEQ + 1 + 3,
+                seq_number: REMOTE_SEQ + 1 + (DEFAULT_MSS - 1),
                 ack_number: Some(LOCAL_SEQ + 1),
-                payload: &b"def"[..],
+                payload: &b"a"[..],
                 ..SEND_TEMPL
             }
         );
 
-        // Every 2nd packet, ACK is sent without delay.
+        // No ACK is immediately sent.
+        recv_nothing!(s);
+
+        send!(
+            s,
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1 + DEFAULT_MSS,
+                ack_number: Some(LOCAL_SEQ + 1),
+                payload: &b"a"[..],
+                ..SEND_TEMPL
+            }
+        );
+
+        // RMSS+1 bytes of data has been received, so ACK is sent without delay.
         recv!(
             s,
             Ok(TcpRepr {
                 seq_number: LOCAL_SEQ + 1,
-                ack_number: Some(REMOTE_SEQ + 1 + 6),
-                window_len: 58,
+                ack_number: Some(REMOTE_SEQ + 1 + (DEFAULT_MSS + 1)),
+                window_len: (DEFAULT_MSS - 1) as u16,
                 ..RECV_TEMPL
             })
         );
     }
 
     #[test]
-    fn test_delayed_ack_three_packets() {
-        let mut s = socket_established();
+    fn test_delayed_ack_every_rmss_or_more() {
+        let mut s = socket_established_with_buffer_sizes(DEFAULT_MSS * 2, DEFAULT_MSS * 2);
         s.set_ack_delay(Some(ACK_DELAY_DEFAULT));
         send!(
             s,
             TcpRepr {
                 seq_number: REMOTE_SEQ + 1,
                 ack_number: Some(LOCAL_SEQ + 1),
-                payload: &b"abc"[..],
+                payload: &[0; DEFAULT_MSS],
                 ..SEND_TEMPL
             }
         );
@@ -7415,9 +7588,9 @@ mod test {
         send!(
             s,
             TcpRepr {
-                seq_number: REMOTE_SEQ + 1 + 3,
+                seq_number: REMOTE_SEQ + 1 + DEFAULT_MSS,
                 ack_number: Some(LOCAL_SEQ + 1),
-                payload: &b"def"[..],
+                payload: &b"a"[..],
                 ..SEND_TEMPL
             }
         );
@@ -7425,20 +7598,20 @@ mod test {
         send!(
             s,
             TcpRepr {
-                seq_number: REMOTE_SEQ + 1 + 6,
+                seq_number: REMOTE_SEQ + 1 + (DEFAULT_MSS + 1),
                 ack_number: Some(LOCAL_SEQ + 1),
-                payload: &b"ghi"[..],
+                payload: &b"b"[..],
                 ..SEND_TEMPL
             }
         );
 
-        // Every 2nd (or more) packet, ACK is sent without delay.
+        // RMSS+2 bytes of data has been received, so ACK is sent without delay.
         recv!(
             s,
             Ok(TcpRepr {
                 seq_number: LOCAL_SEQ + 1,
-                ack_number: Some(REMOTE_SEQ + 1 + 9),
-                window_len: 55,
+                ack_number: Some(REMOTE_SEQ + 1 + (DEFAULT_MSS + 2)),
+                window_len: (DEFAULT_MSS - 2) as u16,
                 ..RECV_TEMPL
             })
         );

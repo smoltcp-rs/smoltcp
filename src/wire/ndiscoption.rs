@@ -4,7 +4,7 @@ use core::fmt;
 
 use super::{Error, Result};
 use crate::time::Duration;
-use crate::wire::{Ipv6Address, Ipv6Packet, Ipv6Repr, MAX_HARDWARE_ADDRESS_LEN};
+use crate::wire::{Ipv6Address, Ipv6AddressExt, Ipv6Packet, Ipv6Repr, MAX_HARDWARE_ADDRESS_LEN};
 
 use crate::wire::RawHardwareAddress;
 
@@ -356,7 +356,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> NdiscOption<T> {
     #[inline]
     pub fn set_prefix(&mut self, addr: Ipv6Address) {
         let data = self.buffer.as_mut();
-        data[field::PREFIX].copy_from_slice(addr.as_bytes());
+        data[field::PREFIX].copy_from_slice(&addr.octets());
     }
 }
 

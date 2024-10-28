@@ -459,6 +459,22 @@ impl<'a> Socket<'a> {
         Ok((length, endpoint))
     }
 
+    /// Return the amount of octets queued in the transmit buffer.
+    ///
+    /// Note that the Berkeley sockets interface does not have an equivalent of this API.
+    pub fn send_queue(&self) -> usize {
+        self.tx_buffer.payload_bytes_count()
+    }
+
+    /// Return the amount of octets queued in the receive buffer. This value can be larger than
+    /// the slice read by the next `recv` or `peek` call because it includes all queued octets,
+    /// and not only the octets that may be returned as a contiguous slice.
+    ///
+    /// Note that the Berkeley sockets interface does not have an equivalent of this API.
+    pub fn recv_queue(&self) -> usize {
+        self.rx_buffer.payload_bytes_count()
+    }
+
     pub(crate) fn accepts(&self, cx: &mut Context, ip_repr: &IpRepr, repr: &UdpRepr) -> bool {
         if self.endpoint.port != repr.dst_port {
             return false;
@@ -619,34 +635,38 @@ mod test {
             use crate::wire::Ipv4Repr as IpvXRepr;
             use IpRepr::Ipv4 as IpReprIpvX;
 
-            const LOCAL_ADDR: IpvXAddress = IpvXAddress([192, 168, 1, 1]);
-            const REMOTE_ADDR: IpvXAddress = IpvXAddress([192, 168, 1, 2]);
-            const OTHER_ADDR: IpvXAddress = IpvXAddress([192, 168, 1, 3]);
+            const LOCAL_ADDR: IpvXAddress = IpvXAddress::new(192, 168, 1, 1);
+            const REMOTE_ADDR: IpvXAddress = IpvXAddress::new(192, 168, 1, 2);
+            const OTHER_ADDR: IpvXAddress = IpvXAddress::new(192, 168, 1, 3);
+
+            const LOCAL_END: IpEndpoint = IpEndpoint {
+                addr: IpAddress::Ipv4(LOCAL_ADDR),
+                port: LOCAL_PORT,
+            };
+            const REMOTE_END: IpEndpoint = IpEndpoint {
+                addr: IpAddress::Ipv4(REMOTE_ADDR),
+                port: REMOTE_PORT,
+            };
         } else {
             use crate::wire::Ipv6Address as IpvXAddress;
             use crate::wire::Ipv6Repr as IpvXRepr;
             use IpRepr::Ipv6 as IpReprIpvX;
 
-            const LOCAL_ADDR: IpvXAddress = IpvXAddress([
-                0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
-            ]);
-            const REMOTE_ADDR: IpvXAddress = IpvXAddress([
-                0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2,
-            ]);
-            const OTHER_ADDR: IpvXAddress = IpvXAddress([
-                0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3,
-            ]);
+            const LOCAL_ADDR: IpvXAddress = IpvXAddress::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
+            const REMOTE_ADDR: IpvXAddress = IpvXAddress::new(0xfe80, 0, 0, 0, 0, 0, 0, 2);
+            const OTHER_ADDR: IpvXAddress = IpvXAddress::new(0xfe80, 0, 0, 0, 0, 0, 0, 3);
+
+            const LOCAL_END: IpEndpoint = IpEndpoint {
+                addr: IpAddress::Ipv6(LOCAL_ADDR),
+                port: LOCAL_PORT,
+            };
+            const REMOTE_END: IpEndpoint = IpEndpoint {
+                addr: IpAddress::Ipv6(REMOTE_ADDR),
+                port: REMOTE_PORT,
+            };
         }
     }
 
-    pub const LOCAL_END: IpEndpoint = IpEndpoint {
-        addr: LOCAL_ADDR.into_address(),
-        port: LOCAL_PORT,
-    };
-    pub const REMOTE_END: IpEndpoint = IpEndpoint {
-        addr: REMOTE_ADDR.into_address(),
-        port: REMOTE_PORT,
-    };
     fn remote_metadata_with_local() -> UdpMetadata {
         // Would be great as a const once we have const `.into()`.
         UdpMetadata {

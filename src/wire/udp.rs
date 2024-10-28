@@ -354,9 +354,9 @@ mod test {
     use crate::wire::Ipv4Address;
 
     #[cfg(feature = "proto-ipv4")]
-    const SRC_ADDR: Ipv4Address = Ipv4Address([192, 168, 1, 1]);
+    const SRC_ADDR: Ipv4Address = Ipv4Address::new(192, 168, 1, 1);
     #[cfg(feature = "proto-ipv4")]
-    const DST_ADDR: Ipv4Address = Ipv4Address([192, 168, 1, 2]);
+    const DST_ADDR: Ipv4Address = Ipv4Address::new(192, 168, 1, 2);
 
     #[cfg(feature = "proto-ipv4")]
     static PACKET_BYTES: [u8; 12] = [

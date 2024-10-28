@@ -6,7 +6,7 @@ use byteorder::{ByteOrder, NetworkEndian};
 
 use super::{Error, Result};
 use crate::wire::icmpv6::Packet;
-use crate::wire::ipv6::Address;
+use crate::wire::ipv6::{Address, AddressExt};
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -508,7 +508,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     pub fn set_dao_dodag_id(&mut self, address: Option<Address>) {
         match address {
             Some(address) => {
-                self.buffer.as_mut()[field::DAO_DODAG_ID].copy_from_slice(address.as_bytes());
+                self.buffer.as_mut()[field::DAO_DODAG_ID].copy_from_slice(&address.octets());
                 self.set_dao_dodag_id_present(true);
             }
             None => {
@@ -594,7 +594,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     pub fn set_dao_ack_dodag_id(&mut self, address: Option<Address>) {
         match address {
             Some(address) => {
-                self.buffer.as_mut()[field::DAO_ACK_DODAG_ID].copy_from_slice(address.as_bytes());
+                self.buffer.as_mut()[field::DAO_ACK_DODAG_ID].copy_from_slice(&address.octets());
                 self.set_dao_ack_dodag_id_present(true);
             }
             None => {
@@ -866,7 +866,7 @@ pub mod options {
     use byteorder::{ByteOrder, NetworkEndian};
 
     use super::{Error, InstanceId, Result};
-    use crate::wire::ipv6::Address;
+    use crate::wire::ipv6::{Address, AddressExt};
 
     /// A read/write wrapper around a RPL Control Message Option.
     #[derive(Debug, Clone)]
@@ -1497,7 +1497,7 @@ pub mod options {
         #[inline]
         pub fn set_transit_info_parent_address(&mut self, address: Address) {
             self.buffer.as_mut()[field::TRANSIT_INFO_PARENT_ADDRESS]
-                .copy_from_slice(address.as_bytes());
+                .copy_from_slice(&address.octets());
         }
     }
 
@@ -2095,7 +2095,7 @@ pub mod options {
                 Repr::DagMetricContainer => todo!(),
                 Repr::RouteInformation { prefix, .. } => 2 + 6 + prefix.len(),
                 Repr::DodagConfiguration { .. } => 2 + 14,
-                Repr::RplTarget { prefix, .. } => 2 + 2 + prefix.0.len(),
+                Repr::RplTarget { prefix, .. } => 2 + 2 + prefix.octets().len(),
                 Repr::TransitInformation { parent_address, .. } => {
                     2 + 4 + if parent_address.is_some() { 16 } else { 0 }
                 }
@@ -2165,7 +2165,7 @@ pub mod options {
                 } => {
                     packet.clear_rpl_target_flags();
                     packet.set_rpl_target_prefix_length(*prefix_length);
-                    packet.set_rpl_target_prefix(prefix.as_bytes());
+                    packet.set_rpl_target_prefix(&prefix.octets());
                 }
                 Repr::TransitInformation {
                     external,
@@ -2616,7 +2616,7 @@ mod tests {
                 prefix,
             } => {
                 assert_eq!(prefix_length, 128);
-                assert_eq!(prefix.as_bytes(), &target_prefix[..]);
+                assert_eq!(prefix.octets(), target_prefix);
             }
             _ => unreachable!(),
         }
@@ -2707,9 +2707,7 @@ mod tests {
                 assert_eq!(status, 0x0);
                 assert_eq!(
                     dodag_id,
-                    Some(Ipv6Address([
-                        254, 128, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 1
-                    ]))
+                    Some(Ipv6Address::new(0xfe80, 0, 0, 0, 0x0200, 0, 0, 1))
                 );
             }
             _ => unreachable!(),

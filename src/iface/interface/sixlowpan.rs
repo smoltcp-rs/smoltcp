@@ -114,6 +114,15 @@ impl InterfaceInner {
         // unless we have a complete one after processing this fragment.
         let frag = check!(SixlowpanFragPacket::new_checked(payload));
 
+        // From RFC 4944 § 5.3: "The value of datagram_size SHALL be 40 octets more than the value
+        // of Payload Length in the IPv6 header of the packet."
+        // We should check that this is true, otherwise `buffer.split_at_mut(40)` will panic, since
+        // we assume that the decompressed packet is at least 40 bytes.
+        if frag.datagram_size() < 40 {
+            net_debug!("6LoWPAN: fragment size too small");
+            return None;
+        }
+
         // The key specifies to which 6LoWPAN fragment it belongs too.
         // It is based on the link layer addresses, the tag and the size.
         let key = FragKey::Sixlowpan(frag.get_key(ieee802154_repr));
@@ -548,7 +557,8 @@ impl InterfaceInner {
     ///  - total size: the size of a compressed IPv6 packet
     ///  - compressed header size: the size of the compressed headers
     ///  - uncompressed header size: the size of the headers that are not compressed
-    ///  They are returned as a tuple in the same order.
+    ///
+    /// They are returned as a tuple in the same order.
     fn compressed_packet_size(
         packet: &PacketV6,
         ieee_repr: &Ieee802154Repr,

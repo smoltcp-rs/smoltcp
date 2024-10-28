@@ -51,19 +51,42 @@ impl RouterAlert {
     pub const DATA_LEN: u8 = 2;
 }
 
-enum_with_unknown! {
-    /// Action required when parsing the given IPv6 Extension
-    /// Header Option Type fails
-    pub enum FailureType(u8) {
-        /// Skip this option and continue processing the packet
-        Skip               = 0b00000000,
-        /// Discard the containing packet
-        Discard            = 0b01000000,
-        /// Discard the containing packet and notify the sender
-        DiscardSendAll     = 0b10000000,
-        /// Discard the containing packet and only notify the sender
-        /// if the sender is a unicast address
-        DiscardSendUnicast = 0b11000000,
+/// Action required when parsing the given IPv6 Extension
+/// Header Option Type fails
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum FailureType {
+    /// Skip this option and continue processing the packet
+    Skip = 0b00000000,
+    /// Discard the containing packet
+    Discard = 0b01000000,
+    /// Discard the containing packet and notify the sender
+    DiscardSendAll = 0b10000000,
+    /// Discard the containing packet and only notify the sender
+    /// if the sender is a unicast address
+    DiscardSendUnicast = 0b11000000,
+}
+
+impl From<u8> for FailureType {
+    fn from(value: u8) -> FailureType {
+        match value & 0b11000000 {
+            0b00000000 => FailureType::Skip,
+            0b01000000 => FailureType::Discard,
+            0b10000000 => FailureType::DiscardSendAll,
+            0b11000000 => FailureType::DiscardSendUnicast,
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl From<FailureType> for u8 {
+    fn from(value: FailureType) -> Self {
+        match value {
+            FailureType::Skip => 0b00000000,
+            FailureType::Discard => 0b01000000,
+            FailureType::DiscardSendAll => 0b10000000,
+            FailureType::DiscardSendUnicast => 0b11000000,
+        }
     }
 }
 
@@ -74,7 +97,6 @@ impl fmt::Display for FailureType {
             FailureType::Discard => write!(f, "discard"),
             FailureType::DiscardSendAll => write!(f, "discard and send error"),
             FailureType::DiscardSendUnicast => write!(f, "discard and send error if unicast"),
-            FailureType::Unknown(id) => write!(f, "Unknown({id})"),
         }
     }
 }
