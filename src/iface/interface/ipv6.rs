@@ -422,6 +422,16 @@ impl InterfaceInner {
                 #[cfg(feature = "medium-ip")]
                 Medium::Ip => None,
             },
+            #[cfg(feature = "multicast")]
+            Icmpv6Repr::Mld(repr) => match repr {
+                // [RFC 3810 § 6.2], reception checks
+                MldRepr::Query { .. }
+                    if ip_repr.hop_limit == 1 && ip_repr.src_addr.is_link_local() =>
+                {
+                    self.process_mldv2(ip_repr, repr)
+                }
+                _ => None,
+            },
 
             // Don't report an error if a packet with unknown type
             // has been handled by an ICMP socket
