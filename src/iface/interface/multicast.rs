@@ -499,8 +499,10 @@ impl InterfaceInner {
                 max_resp_code,
                 ..
             } => {
-                // Do not respont immediately to the query
-                let delay = crate::time::Duration::from_millis(max_resp_code.into()) / 3;
+                // Do not respont immediately to the query, but wait a random time
+                let delay = crate::time::Duration::from_millis(
+                    (self.rand.rand_u16() % max_resp_code).into(),
+                );
                 // General query
                 if mcast_addr.is_unspecified()
                     && (ip_repr.dst_addr == IPV6_LINK_LOCAL_ALL_NODES
