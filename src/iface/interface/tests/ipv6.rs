@@ -1296,6 +1296,10 @@ fn test_join_ipv6_multicast_group(#[case] medium: Medium) {
 
     let timestamp = Instant::from_millis(0);
 
+    // Drain the unsolicited node multicast report from the device
+    iface.poll(timestamp, &mut device, &mut sockets);
+    let _ = recv_icmpv6(&mut device, timestamp);
+
     for &group in &groups {
         iface.join_multicast_group(group).unwrap();
         assert!(iface.has_multicast_group(group));
@@ -1372,10 +1376,12 @@ fn test_join_ipv6_multicast_group(#[case] medium: Medium) {
             }
         );
 
-        iface.leave_multicast_group(group_addr).unwrap();
-        assert!(!iface.has_multicast_group(group_addr));
-        iface.poll(timestamp, &mut device, &mut sockets);
-        assert!(!iface.has_multicast_group(group_addr));
+        if !group_addr.is_solicited_node_multicast() {
+            iface.leave_multicast_group(group_addr).unwrap();
+            assert!(!iface.has_multicast_group(group_addr));
+            iface.poll(timestamp, &mut device, &mut sockets);
+            assert!(!iface.has_multicast_group(group_addr));
+        }
     }
 }
 

@@ -1,10 +1,10 @@
 use core::result::Result;
-use heapless::LinearMap;
+use heapless::{LinearMap, Vec};
 
 #[cfg(any(feature = "proto-ipv4", feature = "proto-ipv6"))]
 use super::{check, IpPayload, Packet};
 use super::{Interface, InterfaceInner};
-use crate::config::IFACE_MAX_MULTICAST_GROUP_COUNT;
+use crate::config::{IFACE_MAX_ADDR_COUNT, IFACE_MAX_MULTICAST_GROUP_COUNT};
 use crate::phy::{Device, PacketMeta};
 use crate::wire::*;
 
@@ -154,6 +154,36 @@ impl Interface {
     /// Check whether the interface listens to given destination multicast IP address.
     pub fn has_multicast_group<T: Into<IpAddress>>(&self, addr: T) -> bool {
         self.inner.has_multicast_group(addr)
+    }
+
+    #[cfg(feature = "proto-ipv6")]
+    pub(super) fn update_solicited_node_groups(&mut self) {
+        // Remove old solicited-node multicast addresses
+        let removals: Vec<_, IFACE_MAX_MULTICAST_GROUP_COUNT> = self
+            .inner
+            .multicast
+            .groups
+            .keys()
+            .filter_map(|group_addr| match group_addr {
+                IpAddress::Ipv6(address)
+                    if address.is_solicited_node_multicast()
+                        && self.inner.has_solicited_node(*address) =>
+                {
+                    Some(*group_addr)
+                }
+                _ => None,
+            })
+            .collect();
+        for removal in removals {
+            let _ = self.leave_multicast_group(removal);
+        }
+
+        let cidrs: Vec<IpCidr, IFACE_MAX_ADDR_COUNT> = Vec::from_slice(self.ip_addrs()).unwrap();
+        for cidr in cidrs {
+            if let IpCidr::Ipv6(cidr) = cidr {
+                let _ = self.join_multicast_group(cidr.address().solicited_node());
+            }
+        }
     }
 
     /// Do multicast egress.
