@@ -77,6 +77,7 @@ defmt = ["dep:defmt", "heapless/defmt"]
 "socket-dhcpv4" = ["socket", "medium-ethernet", "proto-dhcpv4"]
 "socket-dns" = ["socket", "proto-dns"]
 "socket-mdns" = ["socket-dns"]
+"socket-eth" = ["socket", "medium-ethernet"]
 
 # Enable Cubic TCP congestion control algorithm, and it is used as a default congestion controller.
 #
@@ -103,7 +104,7 @@ default = [
   "phy-raw_socket", "phy-tuntap_interface",
   "proto-ipv4",  "proto-dhcpv4", "proto-ipv6", "proto-dns",
   "proto-ipv4-fragmentation", "proto-sixlowpan-fragmentation",
-  "socket-raw", "socket-icmp", "socket-udp", "socket-tcp", "socket-dhcpv4", "socket-dns", "socket-mdns",
+  "socket-raw", "socket-icmp", "socket-udp", "socket-tcp", "socket-dhcpv4", "socket-dns", "socket-mdns", "socket-eth",
   "packetmeta-id", "async", "multicast"
 ]
 
