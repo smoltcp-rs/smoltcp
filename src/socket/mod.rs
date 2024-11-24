@@ -71,6 +71,8 @@ pub enum Socket<'a> {
     Dhcpv4(dhcpv4::Socket<'a>),
     #[cfg(feature = "socket-dns")]
     Dns(dns::Socket<'a>),
+    #[cfg(feature = "socket-eth")]
+    Eth(eth::Socket<'a>),
 }
 
 impl<'a> Socket<'a> {
@@ -88,6 +90,8 @@ impl<'a> Socket<'a> {
             Socket::Dhcpv4(s) => s.poll_at(cx),
             #[cfg(feature = "socket-dns")]
             Socket::Dns(s) => s.poll_at(cx),
+            #[cfg(feature = "socket-eth")]
+            Socket::Eth(s) => s.poll_at(cx),
         }
     }
 }
@@ -141,3 +145,5 @@ from_socket!(tcp::Socket<'a>, Tcp);
 from_socket!(dhcpv4::Socket<'a>, Dhcpv4);
 #[cfg(feature = "socket-dns")]
 from_socket!(dns::Socket<'a>, Dns);
+#[cfg(feature = "socket-eth")]
+from_socket!(eth::Socket<'a>, Eth);
