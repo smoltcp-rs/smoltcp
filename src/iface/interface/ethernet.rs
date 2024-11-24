@@ -18,6 +18,13 @@ impl InterfaceInner {
             return None;
         }
 
+        #[cfg(feature = "socket-eth")]
+        let _ = self.eth_socket_filter(
+            sockets,
+            &EthernetRepr::parse(&eth_frame).unwrap(),
+            eth_frame.payload(),
+        );
+
         match eth_frame.ethertype() {
             #[cfg(feature = "proto-ipv4")]
             EthernetProtocol::Arp => self.process_arp(self.now, &eth_frame),
