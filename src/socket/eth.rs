@@ -333,6 +333,41 @@ impl<'a> Socket<'a> {
         self.rx_waker.wake();
     }
 
+    pub(crate) fn dispatch<F, E>(&mut self, cx: &mut Context, emit: F) -> Result<(), E>
+    where
+        F: FnOnce(&mut Context, (EthernetRepr, &[u8])) -> Result<(), E>,
+    {
+        let ethertype = self.ethertype;
+        let res = self.tx_buffer.dequeue_with(|&mut (), buffer| {
+            #[allow(clippy::useless_asref)]
+            let frame = match EthernetFrame::new_checked(buffer.as_ref()) {
+                Ok(x) => x,
+                Err(_) => {
+                    net_trace!("eth: malformed ethernet frame in queue, dropping.");
+                    return Ok(());
+                }
+            };
+            let eth_repr = match EthernetRepr::parse(&frame) {
+                Ok(r) => r,
+                Err(_) => {
+                    net_trace!("eth: malformed ethernet frame in queue, dropping.");
+                    return Ok(());
+                }
+            };
+            net_trace!("eth:{}: sending", ethertype.unwrap_or(0));
+            emit(cx, (eth_repr, frame.payload()))
+        });
+        match res {
+            Err(Empty) => Ok(()),
+            Ok(Err(e)) => Err(e),
+            Ok(Ok(())) => {
+                #[cfg(feature = "async")]
+                self.tx_waker.wake();
+                Ok(())
+            }
+        }
+    }
+
     pub(crate) fn poll_at(&self, _cx: &mut Context) -> PollAt {
         if self.tx_buffer.is_empty() {
             PollAt::Ingress
@@ -342,4 +377,62 @@ impl<'a> Socket<'a> {
     }
 }
 
+#[cfg(test)]
+mod test {
+    use super::*;
 
+    use crate::phy::Medium;
+    use crate::tests::setup;
+    use crate::wire::ethernet::EtherType;
+
+    fn buffer(packets: usize) -> PacketBuffer<'static> {
+        PacketBuffer::new(vec![PacketMetadata::EMPTY; packets], vec![0; 48 * packets])
+    }
+
+    const ETHER_TYPE: u16 = 0x1234;
+
+    fn socket(
+        rx_buffer: PacketBuffer<'static>,
+        tx_buffer: PacketBuffer<'static>,
+    ) -> Socket<'static> {
+        Socket::new(Some(ETHER_TYPE), rx_buffer, tx_buffer)
+    }
+
+    #[rustfmt::skip]
+    pub const PACKET_BYTES: [u8; 18] = [
+        0xaa, 0xbb, 0xcc, 0x12, 0x34, 0x56,
+        0xaa, 0xbb, 0xcc, 0x78, 0x90, 0x12,
+        0x12, 0x34,
+        0xaa, 0x00, 0x00, 0xff,
+    ];
+    pub const PACKET_PAYLOAD: [u8; 4] = [0xaa, 0x00, 0x00, 0xff];
+
+    #[test]
+    fn test_send() {
+        let (mut iface, _, _) = setup(Medium::Ethernet);
+        let cx = iface.context();
+        let mut socket = socket(buffer(1), buffer(1));
+        assert!(socket.can_send());
+        assert_eq!(socket.send_slice(&PACKET_BYTES[..]), Ok(()));
+        assert_eq!(socket.send_slice(b""), Err(SendError::BufferFull));
+        assert!(!socket.can_send());
+        assert_eq!(
+            socket.dispatch(cx, |_, (eth_repr, eth_payload)| {
+                assert_eq!(eth_repr.ethertype, EtherType::from(ETHER_TYPE));
+                assert_eq!(eth_payload, PACKET_PAYLOAD);
+                Err(())
+            }),
+            Err(())
+        );
+        assert!(!socket.can_send());
+        assert_eq!(
+            socket.dispatch(cx, |_, (eth_repr, eth_payload)| {
+                assert_eq!(eth_repr.ethertype, EtherType::from(ETHER_TYPE));
+                assert_eq!(eth_payload, PACKET_PAYLOAD);
+                Ok::<_, ()>(())
+            }),
+            Ok(())
+        );
+        assert!(socket.can_send());
+    }
+}
