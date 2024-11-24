@@ -908,6 +908,28 @@ impl InterfaceInner {
         handled_by_raw_socket
     }
 
+    #[cfg(feature = "socket-eth")]
+    fn eth_socket_filter(
+        &mut self,
+        sockets: &mut SocketSet,
+        eth_repr: &EthernetRepr,
+        eth_payload: &[u8],
+    ) -> bool {
+        let mut handled_by_eth_socket = false;
+
+        // Pass every IP packet to all raw sockets we have registered.
+        for eth_socket in sockets
+            .items_mut()
+            .filter_map(|i| eth::Socket::downcast_mut(&mut i.socket))
+        {
+            if eth_socket.accepts(eth_repr) {
+                eth_socket.process(self, eth_repr, eth_payload);
+                handled_by_eth_socket = true;
+            }
+        }
+        handled_by_eth_socket
+    }
+
     /// Checks if an address is broadcast, taking into account ipv4 subnet-local
     /// broadcast addresses.
     pub(crate) fn is_broadcast(&self, address: &IpAddress) -> bool {

@@ -9,6 +9,9 @@ use crate::socket::WakerRegistration;
 
 use crate::storage::Empty;
 
+use crate::wire::EthernetFrame;
+use crate::wire::EthernetRepr;
+
 /// Error returned by [`Socket::send`]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -292,6 +295,42 @@ impl<'a> Socket<'a> {
     /// Return the amount of octets queued in the receive buffer.
     pub fn recv_queue(&self) -> usize {
         self.rx_buffer.payload_bytes_count()
+    }
+
+    pub(crate) fn accepts(&self, eth_repr: &EthernetRepr) -> bool {
+        match self.ethertype {
+            Some(e) if e == eth_repr.ethertype.into() => true,
+            Some(_) => false,
+            None => true,
+        }
+    }
+
+    pub(crate) fn process(&mut self, _cx: &mut Context, eth_repr: &EthernetRepr, payload: &[u8]) {
+        debug_assert!(self.accepts(eth_repr));
+
+        let header_len = eth_repr.buffer_len();
+        let total_len = header_len + payload.len();
+
+        net_trace!(
+            "eth:{}: receiving {} octets",
+            self.ethertype.unwrap_or(0),
+            total_len
+        );
+
+        match self.rx_buffer.enqueue(total_len, ()) {
+            Ok(buf) => {
+                let mut frame = EthernetFrame::new_checked(buf).expect("internal ethernet error");
+                eth_repr.emit(&mut frame);
+                frame.payload_mut().copy_from_slice(payload);
+            }
+            Err(_) => net_trace!(
+                "eth:{}: buffer full, dropped incoming packet",
+                self.ethertype.unwrap_or(0)
+            ),
+        }
+
+        #[cfg(feature = "async")]
+        self.rx_waker.wake();
     }
 
     pub(crate) fn poll_at(&self, _cx: &mut Context) -> PollAt {
