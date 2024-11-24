@@ -751,8 +751,23 @@ impl Interface {
                     )
                 }),
                 #[cfg(feature = "socket-eth")]
-                Socket::Eth(_socket) => {
-                    todo!();
+                Socket::Eth(socket) => {
+                    socket.dispatch(&mut self.inner, |inner, (eth_repr, payload)| {
+                        let token = device.transmit(inner.now).ok_or_else(|| {
+                            net_debug!("failed to transmit raw ETH: device exhausted");
+                            EgressError::Exhausted
+                        })?;
+                        inner.dispatch_ethernet(token, payload.len(), |mut frame| {
+                            frame.set_dst_addr(eth_repr.dst_addr);
+                            frame.set_src_addr(eth_repr.src_addr);
+                            frame.set_ethertype(eth_repr.ethertype);
+                            frame.payload_mut().copy_from_slice(payload);
+                        });
+
+                        result = PollResult::SocketStateChanged;
+
+                        Ok(())
+                    })
                 }
             };
 
