@@ -941,7 +941,8 @@ impl InterfaceInner {
 
                     let mut packet = ArpPacket::new_unchecked(frame.payload_mut());
                     arp_repr.emit(&mut packet);
-                })
+                });
+                Ok(())
             }
             EthernetPacket::Ip(packet) => {
                 self.dispatch_ip(tx_token, PacketMeta::default(), packet, frag)
@@ -1074,17 +1075,12 @@ impl InterfaceInner {
                     target_protocol_addr: dst_addr,
                 };
 
-                if let Err(e) =
-                    self.dispatch_ethernet(tx_token, arp_repr.buffer_len(), |mut frame| {
-                        frame.set_dst_addr(EthernetAddress::BROADCAST);
-                        frame.set_ethertype(EthernetProtocol::Arp);
+                self.dispatch_ethernet(tx_token, arp_repr.buffer_len(), |mut frame| {
+                    frame.set_dst_addr(EthernetAddress::BROADCAST);
+                    frame.set_ethertype(EthernetProtocol::Arp);
 
-                        arp_repr.emit(&mut ArpPacket::new_unchecked(frame.payload_mut()))
-                    })
-                {
-                    net_debug!("Failed to dispatch ARP request: {:?}", e);
-                    return Err(DispatchError::NeighborPending);
-                }
+                    arp_repr.emit(&mut ArpPacket::new_unchecked(frame.payload_mut()))
+                });
             }
 
             #[cfg(feature = "proto-ipv6")]
