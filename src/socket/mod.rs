@@ -18,6 +18,8 @@ use crate::time::Instant;
 pub mod dhcpv4;
 #[cfg(feature = "socket-dns")]
 pub mod dns;
+#[cfg(feature = "socket-eth")]
+pub mod eth;
 #[cfg(feature = "socket-icmp")]
 pub mod icmp;
 #[cfg(feature = "socket-raw")]
