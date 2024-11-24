@@ -45,12 +45,7 @@ impl InterfaceInner {
         }
     }
 
-    pub(super) fn dispatch_ethernet<Tx, F>(
-        &mut self,
-        tx_token: Tx,
-        buffer_len: usize,
-        f: F,
-    ) -> Result<(), DispatchError>
+    pub(super) fn dispatch_ethernet<Tx, F>(&mut self, tx_token: Tx, buffer_len: usize, f: F)
     where
         Tx: TxToken,
         F: FnOnce(EthernetFrame<&mut [u8]>),
@@ -64,8 +59,6 @@ impl InterfaceInner {
             frame.set_src_addr(src_addr);
 
             f(frame);
-
-            Ok(())
         })
     }
 }
