@@ -750,6 +750,10 @@ impl Interface {
                         Packet::new(ip, IpPayload::Udp(udp, dns)),
                     )
                 }),
+                #[cfg(feature = "socket-eth")]
+                Socket::Eth(_socket) => {
+                    todo!();
+                }
             };
 
             match result {
