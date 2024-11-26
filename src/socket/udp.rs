@@ -14,8 +14,10 @@ use crate::wire::{IpAddress, IpEndpoint, IpListenEndpoint, IpProtocol, IpRepr, U
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct UdpMetadata {
+    /// The IP endpoint from which an incoming datagram was received, or to which an outgoing
+    /// datagram will be sent.
     pub endpoint: IpEndpoint,
-    /// The IP address to which an incoming datagram was sent, or to which an outgoing datagram
+    /// The IP address to which an incoming datagram was sent, or from which an outgoing datagram
     /// will be sent. Incoming datagrams always have this set. On outgoing datagrams, if it is not
     /// set, and the socket is not bound to a single address anyway, a suitable address will be
     /// determined using the algorithms of RFC 6724 (candidate source address selection) or some
