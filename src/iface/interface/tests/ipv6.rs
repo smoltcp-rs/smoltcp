@@ -1568,3 +1568,41 @@ fn test_handle_valid_multicast_query(#[case] medium: Medium) {
         assert_eq!(record_reprs, expected_records);
     }
 }
+
+#[rstest]
+#[case(Medium::Ethernet)]
+#[cfg(all(feature = "multicast", feature = "medium-ethernet"))]
+fn test_solicited_node_multicast_autojoin(#[case] medium: Medium) {
+    let (mut iface, _, _) = setup(medium);
+
+    let addr1 = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
+    let addr2 = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 2);
+
+    iface.update_ip_addrs(|ip_addrs| {
+        ip_addrs.clear();
+        ip_addrs.push(IpCidr::new(addr1.into(), 64)).unwrap();
+    });
+    assert!(iface.has_multicast_group(addr1.solicited_node()));
+    assert!(!iface.has_multicast_group(addr2.solicited_node()));
+
+    iface.update_ip_addrs(|ip_addrs| {
+        ip_addrs.clear();
+        ip_addrs.push(IpCidr::new(addr2.into(), 64)).unwrap();
+    });
+    assert!(!iface.has_multicast_group(addr1.solicited_node()));
+    assert!(iface.has_multicast_group(addr2.solicited_node()));
+
+    iface.update_ip_addrs(|ip_addrs| {
+        ip_addrs.clear();
+        ip_addrs.push(IpCidr::new(addr1.into(), 64)).unwrap();
+        ip_addrs.push(IpCidr::new(addr2.into(), 64)).unwrap();
+    });
+    assert!(iface.has_multicast_group(addr1.solicited_node()));
+    assert!(iface.has_multicast_group(addr2.solicited_node()));
+
+    iface.update_ip_addrs(|ip_addrs| {
+        ip_addrs.clear();
+    });
+    assert!(!iface.has_multicast_group(addr1.solicited_node()));
+    assert!(!iface.has_multicast_group(addr2.solicited_node()));
+}
