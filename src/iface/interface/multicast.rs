@@ -164,15 +164,8 @@ impl Interface {
             .multicast
             .groups
             .keys()
-            .filter_map(|group_addr| match group_addr {
-                IpAddress::Ipv6(address)
-                    if address.is_solicited_node_multicast()
-                        && !self.inner.has_solicited_node(*address) =>
-                {
-                    Some(*group_addr)
-                }
-                _ => None,
-            })
+            .cloned()
+            .filter(|a| matches!(a, IpAddress::Ipv6(a) if a.is_solicited_node_multicast() && !self.inner.has_solicited_node(*a)))
             .collect();
         for removal in removals {
             let _ = self.leave_multicast_group(removal);
