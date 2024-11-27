@@ -167,7 +167,7 @@ impl Interface {
             .filter_map(|group_addr| match group_addr {
                 IpAddress::Ipv6(address)
                     if address.is_solicited_node_multicast()
-                        && self.inner.has_solicited_node(*address) =>
+                        && !self.inner.has_solicited_node(*address) =>
                 {
                     Some(*group_addr)
                 }
