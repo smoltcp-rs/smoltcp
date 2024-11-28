@@ -1420,15 +1420,12 @@ fn test_handle_valid_multicast_query(#[case] medium: Medium) {
 
     let mut eth_bytes = vec![0u8; 86];
 
-    let local_ip_addr = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 101);
+    let local_ip_addr = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
     let remote_ip_addr = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 100);
     let remote_hw_addr = EthernetAddress([0x52, 0x54, 0x00, 0x00, 0x00, 0x00]);
     let query_ip_addr = Ipv6Address::new(0xff02, 0, 0, 0, 0, 0, 0, 0x1234);
 
     iface.join_multicast_group(query_ip_addr).unwrap();
-    iface
-        .join_multicast_group(local_ip_addr.solicited_node())
-        .unwrap();
 
     iface.poll(timestamp, &mut device, &mut sockets);
     // flush multicast reports from the join_multicast_group calls
@@ -1439,7 +1436,7 @@ fn test_handle_valid_multicast_query(#[case] medium: Medium) {
         (
             Ipv6Address::UNSPECIFIED,
             IPV6_LINK_LOCAL_ALL_NODES,
-            vec![query_ip_addr, local_ip_addr.solicited_node()],
+            vec![local_ip_addr.solicited_node(), query_ip_addr],
         ),
         // Address specific query, expect only the queried address back
         (query_ip_addr, query_ip_addr, vec![query_ip_addr]),
