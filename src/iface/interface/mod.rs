@@ -361,7 +361,12 @@ impl Interface {
     pub fn update_ip_addrs<F: FnOnce(&mut Vec<IpCidr, IFACE_MAX_ADDR_COUNT>)>(&mut self, f: F) {
         f(&mut self.inner.ip_addrs);
         InterfaceInner::flush_neighbor_cache(&mut self.inner);
-        InterfaceInner::check_ip_addrs(&self.inner.ip_addrs)
+        InterfaceInner::check_ip_addrs(&self.inner.ip_addrs);
+
+        #[cfg(all(feature = "proto-ipv6", feature = "multicast"))]
+        if self.inner.caps.medium == Medium::Ethernet {
+            self.update_solicited_node_groups();
+        }
     }
 
     /// Check whether the interface has the given IP address assigned.

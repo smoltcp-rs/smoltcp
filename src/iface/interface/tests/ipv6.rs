@@ -1296,6 +1296,10 @@ fn test_join_ipv6_multicast_group(#[case] medium: Medium) {
 
     let timestamp = Instant::from_millis(0);
 
+    // Drain the unsolicited node multicast report from the device
+    iface.poll(timestamp, &mut device, &mut sockets);
+    let _ = recv_icmpv6(&mut device, timestamp);
+
     for &group in &groups {
         iface.join_multicast_group(group).unwrap();
         assert!(iface.has_multicast_group(group));
@@ -1372,10 +1376,12 @@ fn test_join_ipv6_multicast_group(#[case] medium: Medium) {
             }
         );
 
-        iface.leave_multicast_group(group_addr).unwrap();
-        assert!(!iface.has_multicast_group(group_addr));
-        iface.poll(timestamp, &mut device, &mut sockets);
-        assert!(!iface.has_multicast_group(group_addr));
+        if !group_addr.is_solicited_node_multicast() {
+            iface.leave_multicast_group(group_addr).unwrap();
+            assert!(!iface.has_multicast_group(group_addr));
+            iface.poll(timestamp, &mut device, &mut sockets);
+            assert!(!iface.has_multicast_group(group_addr));
+        }
     }
 }
 
@@ -1414,15 +1420,12 @@ fn test_handle_valid_multicast_query(#[case] medium: Medium) {
 
     let mut eth_bytes = vec![0u8; 86];
 
-    let local_ip_addr = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 101);
+    let local_ip_addr = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
     let remote_ip_addr = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 100);
     let remote_hw_addr = EthernetAddress([0x52, 0x54, 0x00, 0x00, 0x00, 0x00]);
     let query_ip_addr = Ipv6Address::new(0xff02, 0, 0, 0, 0, 0, 0, 0x1234);
 
     iface.join_multicast_group(query_ip_addr).unwrap();
-    iface
-        .join_multicast_group(local_ip_addr.solicited_node())
-        .unwrap();
 
     iface.poll(timestamp, &mut device, &mut sockets);
     // flush multicast reports from the join_multicast_group calls
@@ -1433,7 +1436,7 @@ fn test_handle_valid_multicast_query(#[case] medium: Medium) {
         (
             Ipv6Address::UNSPECIFIED,
             IPV6_LINK_LOCAL_ALL_NODES,
-            vec![query_ip_addr, local_ip_addr.solicited_node()],
+            vec![local_ip_addr.solicited_node(), query_ip_addr],
         ),
         // Address specific query, expect only the queried address back
         (query_ip_addr, query_ip_addr, vec![query_ip_addr]),
@@ -1561,4 +1564,42 @@ fn test_handle_valid_multicast_query(#[case] medium: Medium) {
 
         assert_eq!(record_reprs, expected_records);
     }
+}
+
+#[rstest]
+#[case(Medium::Ethernet)]
+#[cfg(all(feature = "multicast", feature = "medium-ethernet"))]
+fn test_solicited_node_multicast_autojoin(#[case] medium: Medium) {
+    let (mut iface, _, _) = setup(medium);
+
+    let addr1 = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
+    let addr2 = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 2);
+
+    iface.update_ip_addrs(|ip_addrs| {
+        ip_addrs.clear();
+        ip_addrs.push(IpCidr::new(addr1.into(), 64)).unwrap();
+    });
+    assert!(iface.has_multicast_group(addr1.solicited_node()));
+    assert!(!iface.has_multicast_group(addr2.solicited_node()));
+
+    iface.update_ip_addrs(|ip_addrs| {
+        ip_addrs.clear();
+        ip_addrs.push(IpCidr::new(addr2.into(), 64)).unwrap();
+    });
+    assert!(!iface.has_multicast_group(addr1.solicited_node()));
+    assert!(iface.has_multicast_group(addr2.solicited_node()));
+
+    iface.update_ip_addrs(|ip_addrs| {
+        ip_addrs.clear();
+        ip_addrs.push(IpCidr::new(addr1.into(), 64)).unwrap();
+        ip_addrs.push(IpCidr::new(addr2.into(), 64)).unwrap();
+    });
+    assert!(iface.has_multicast_group(addr1.solicited_node()));
+    assert!(iface.has_multicast_group(addr2.solicited_node()));
+
+    iface.update_ip_addrs(|ip_addrs| {
+        ip_addrs.clear();
+    });
+    assert!(!iface.has_multicast_group(addr1.solicited_node()));
+    assert!(!iface.has_multicast_group(addr2.solicited_node()));
 }
