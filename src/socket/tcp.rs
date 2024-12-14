@@ -337,19 +337,12 @@ impl Timer {
 
     fn set_for_retransmit(&mut self, timestamp: Instant, delay: Duration) {
         match *self {
-            Timer::Idle { .. } | Timer::FastRetransmit { .. } => {
+            Timer::Idle { .. } | Timer::FastRetransmit { .. } | Timer::Retransmit { .. } => {
                 *self = Timer::Retransmit {
                     expires_at: timestamp + delay,
                     delay,
                 }
             }
-            Timer::Retransmit { expires_at, delay } if timestamp >= expires_at => {
-                *self = Timer::Retransmit {
-                    expires_at: timestamp + delay,
-                    delay: delay * 2,
-                }
-            }
-            Timer::Retransmit { .. } => (),
             Timer::Close { .. } => (),
         }
     }
@@ -1842,11 +1835,14 @@ impl<'a> Socket<'a> {
                 self.timer.set_for_idle(cx.now(), self.keep_alive);
             }
 
-            // ACK packets in ESTABLISHED state reset the retransmit timer,
-            // except for duplicate ACK packets which preserve it.
+            // RFC 6298: (5.2) ACK of all outstanding data turn off the retransmit timer.
+            // (5.3) ACK of new data in ESTABLISHED state restart the retransmit timer.
             (State::Established, TcpControl::None) => {
-                if !self.timer.is_retransmit() || ack_all {
+                if ack_all {
                     self.timer.set_for_idle(cx.now(), self.keep_alive);
+                } else if ack_len > 0 {
+                    self.timer
+                        .set_for_retransmit(cx.now(), self.rtte.retransmission_timeout());
                 }
             }
 
@@ -2528,9 +2524,10 @@ impl<'a> Socket<'a> {
                 .post_transmit(cx.now(), repr.segment_len());
         }
 
-        if !self.seq_to_transmit(cx) && repr.segment_len() > 0 {
-            // If we've transmitted all data we could (and there was something at all,
-            // data or flag, to transmit, not just an ACK), wind up the retransmit timer.
+        if !self.seq_to_transmit(cx) && repr.segment_len() > 0 && !self.timer.is_retransmit() {
+            // RFC 6298: (5.1) If we've transmitted all data we could (and there was
+            // something at all, data or flag, to transmit, not just an ACK), start the
+            // retransmit timer if it is not already running.
             self.timer
                 .set_for_retransmit(cx.now(), self.rtte.retransmission_timeout());
         }
@@ -5679,6 +5676,45 @@ mod test {
     }
 
     #[test]
+    fn test_retransmit_timer_restart_on_partial_ack() {
+        let mut s = socket_established();
+        s.remote_mss = 6;
+        s.send_slice(b"abcdef012345").unwrap();
+
+        recv!(s, time 0, Ok(TcpRepr {
+            control:    TcpControl::None,
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"abcdef"[..],
+            ..RECV_TEMPL
+        }), exact);
+        recv!(s, time 0, Ok(TcpRepr {
+            control:    TcpControl::Psh,
+            seq_number: LOCAL_SEQ + 1 + 6,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"012345"[..],
+            ..RECV_TEMPL
+        }), exact);
+        // Acknowledge the first packet
+        send!(s, time 600, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1 + 6),
+            window_len: 6,
+            ..SEND_TEMPL
+        });
+        // The ACK of the first packet should restart the retransmit timer and delay a retransmission.
+        recv_nothing!(s, time 1500);
+        // The second packet should be re-sent.
+        recv!(s, time 1600, Ok(TcpRepr {
+            control:    TcpControl::Psh,
+            seq_number: LOCAL_SEQ + 1 + 6,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"012345"[..],
+            ..RECV_TEMPL
+        }), exact);
+    }
+
+    #[test]
     fn test_data_retransmit_bursts_half_ack_close() {
         let mut s = socket_established();
         s.remote_mss = 6;
@@ -7794,7 +7830,7 @@ mod test {
         assert_eq!(r.should_retransmit(Instant::from_millis(1200)), None);
         assert_eq!(
             r.should_retransmit(Instant::from_millis(1301)),
-            Some(Duration::from_millis(300))
+            Some(Duration::from_millis(200))
         );
         r.set_for_idle(Instant::from_millis(1301), None);
         assert_eq!(r.should_retransmit(Instant::from_millis(1350)), None);
