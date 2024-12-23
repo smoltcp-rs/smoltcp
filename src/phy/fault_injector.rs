@@ -196,10 +196,12 @@ impl<D: Device> FaultInjector<D> {
 }
 
 impl<D: Device> Device for FaultInjector<D> {
-    type RxToken<'a> = RxToken<'a>
+    type RxToken<'a>
+        = RxToken<'a>
     where
         Self: 'a;
-    type TxToken<'a> = TxToken<'a, D::TxToken<'a>>
+    type TxToken<'a>
+        = TxToken<'a, D::TxToken<'a>>
     where
         Self: 'a;
 

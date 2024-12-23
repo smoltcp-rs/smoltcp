@@ -59,10 +59,12 @@ impl RawSocket {
 }
 
 impl Device for RawSocket {
-    type RxToken<'a> = RxToken
+    type RxToken<'a>
+        = RxToken
     where
         Self: 'a;
-    type TxToken<'a> = TxToken
+    type TxToken<'a>
+        = TxToken
     where
         Self: 'a;
 

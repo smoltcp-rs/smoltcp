@@ -165,10 +165,12 @@ impl<D: Device, S> Device for PcapWriter<D, S>
 where
     S: PcapSink,
 {
-    type RxToken<'a> = RxToken<'a, D::RxToken<'a>, S>
+    type RxToken<'a>
+        = RxToken<'a, D::RxToken<'a>, S>
     where
         Self: 'a;
-    type TxToken<'a> = TxToken<'a, D::TxToken<'a>, S>
+    type TxToken<'a>
+        = TxToken<'a, D::TxToken<'a>, S>
     where
         Self: 'a;
 
