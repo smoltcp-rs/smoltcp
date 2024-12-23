@@ -344,9 +344,10 @@ impl Timer {
                 }
             }
             Timer::Retransmit { expires_at, delay } if timestamp >= expires_at => {
+                let delay = delay * 2;
                 *self = Timer::Retransmit {
                     expires_at: timestamp + delay,
-                    delay: delay * 2,
+                    delay,
                 }
             }
             Timer::Retransmit { .. } => (),
@@ -2285,11 +2286,9 @@ impl<'a> Socket<'a> {
                 // to be sent again.
                 self.remote_last_seq = self.local_seq_no;
 
-                // Clear the `should_retransmit` state. If we can't retransmit right
-                // now for whatever reason (like zero window), this avoids an
-                // infinite polling loop where `poll_at` returns `Now` but `dispatch`
-                // can't actually do anything.
-                self.timer.set_for_idle(cx.now(), self.keep_alive);
+                // Set next time of retransmission. `set_for_retransmit` will exponentially increase it.
+                self.timer
+                    .set_for_retransmit(cx.now(), self.rtte.retransmission_timeout());
 
                 // Inform RTTE, so that it can avoid bogus measurements.
                 self.rtte.on_retransmit();
@@ -6355,6 +6354,39 @@ mod test {
         recv_nothing!(s);
     }
 
+    #[test]
+    fn test_retransmit_exponential_backoff() {
+        let mut s = socket_established();
+        s.send_slice(b"abcdef").unwrap();
+        recv!(s, time 0, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"abcdef"[..],
+            ..RECV_TEMPL
+        }));
+
+        let expected_retransmission_instant = s.rtte.retransmission_timeout().millis() as i64;
+
+        recv_nothing!(s, time expected_retransmission_instant - 1);
+        recv!(s, time expected_retransmission_instant, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"abcdef"[..],
+            ..RECV_TEMPL
+        }));
+
+        // "current time" is expected_retransmission_instant, and we want to wait 2 * retransmission timeout
+        let expected_retransmission_instant = 3 * expected_retransmission_instant;
+
+        recv_nothing!(s, time expected_retransmission_instant - 1);
+        recv!(s, time expected_retransmission_instant, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"abcdef"[..],
+            ..RECV_TEMPL
+        }));
+    }
+
     // =========================================================================================//
     // Tests for window management.
     // =========================================================================================//
@@ -7794,7 +7826,7 @@ mod test {
         assert_eq!(r.should_retransmit(Instant::from_millis(1200)), None);
         assert_eq!(
             r.should_retransmit(Instant::from_millis(1301)),
-            Some(Duration::from_millis(300))
+            Some(Duration::from_millis(200))
         );
         r.set_for_idle(Instant::from_millis(1301), None);
         assert_eq!(r.should_retransmit(Instant::from_millis(1350)), None);
