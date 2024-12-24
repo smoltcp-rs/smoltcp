@@ -117,13 +117,22 @@ fn main() {
     let mut iface = Interface::new(config, &mut device, Instant::now());
     iface.update_ip_addrs(|ip_addrs| {
         ip_addrs
-            .push(IpCidr::new(IpAddress::v4(192, 168, 69, 1), 24))
+            .push(IpCidr::new(
+                IpAddress::V4(Ipv4Address::new(192, 168, 69, 1)),
+                24,
+            ))
             .unwrap();
         ip_addrs
-            .push(IpCidr::new(IpAddress::v6(0xfdaa, 0, 0, 0, 0, 0, 0, 1), 64))
+            .push(IpCidr::new(
+                IpAddress::V6(Ipv6Address::new(0xfdaa, 0, 0, 0, 0, 0, 0, 1)),
+                64,
+            ))
             .unwrap();
         ip_addrs
-            .push(IpCidr::new(IpAddress::v6(0xfe80, 0, 0, 0, 0, 0, 0, 1), 64))
+            .push(IpCidr::new(
+                IpAddress::V6(Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1)),
+                64,
+            ))
             .unwrap();
     });
     iface
@@ -164,7 +173,7 @@ fn main() {
             NetworkEndian::write_i64(&mut echo_payload, timestamp.total_millis());
 
             match remote_addr {
-                IpAddress::Ipv4(_) => {
+                IpAddress::V4(_) => {
                     let (icmp_repr, mut icmp_packet) = send_icmp_ping!(
                         Icmpv4Repr,
                         Icmpv4Packet,
@@ -176,7 +185,7 @@ fn main() {
                     );
                     icmp_repr.emit(&mut icmp_packet, &device_caps.checksum);
                 }
-                IpAddress::Ipv6(address) => {
+                IpAddress::V6(address) => {
                     let (icmp_repr, mut icmp_packet) = send_icmp_ping!(
                         Icmpv6Repr,
                         Icmpv6Packet,
@@ -204,7 +213,7 @@ fn main() {
             let (payload, _) = socket.recv().unwrap();
 
             match remote_addr {
-                IpAddress::Ipv4(_) => {
+                IpAddress::V4(_) => {
                     let icmp_packet = Icmpv4Packet::new_checked(&payload).unwrap();
                     let icmp_repr = Icmpv4Repr::parse(&icmp_packet, &device_caps.checksum).unwrap();
                     get_icmp_pong!(
@@ -217,7 +226,7 @@ fn main() {
                         received
                     );
                 }
-                IpAddress::Ipv6(address) => {
+                IpAddress::V6(address) => {
                     let icmp_packet = Icmpv6Packet::new_checked(&payload).unwrap();
                     let icmp_repr = Icmpv6Repr::parse(
                         &address,

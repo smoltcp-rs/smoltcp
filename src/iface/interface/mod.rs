@@ -791,9 +791,11 @@ impl InterfaceInner {
     pub(crate) fn get_source_address(&self, dst_addr: &IpAddress) -> Option<IpAddress> {
         match dst_addr {
             #[cfg(feature = "proto-ipv4")]
-            IpAddress::Ipv4(addr) => self.get_source_address_ipv4(addr).map(|a| a.into()),
+            IpAddress::V4(addr) => self.get_source_address_ipv4(addr).map(|a| a.into()),
             #[cfg(feature = "proto-ipv6")]
-            IpAddress::Ipv6(addr) => Some(self.get_source_address_ipv6(addr).into()),
+            IpAddress::V6(addr) => Some(self.get_source_address_ipv6(addr).into()),
+            #[allow(unreachable_patterns)]
+            _ => unreachable!(),
         }
     }
 
@@ -812,7 +814,7 @@ impl InterfaceInner {
 
     fn check_ip_addrs(addrs: &[IpCidr]) {
         for cidr in addrs {
-            if !cidr.address().is_unicast() && !cidr.address().is_unspecified() {
+            if !cidr.address().x_is_unicast() && !cidr.address().is_unspecified() {
                 panic!("IP address {} is not unicast", cidr.address())
             }
         }
@@ -835,13 +837,11 @@ impl InterfaceInner {
 
         match addr {
             #[cfg(feature = "proto-ipv4")]
-            IpAddress::Ipv4(key) => key == IPV4_MULTICAST_ALL_SYSTEMS,
+            IpAddress::V4(key) => key == IPV4_MULTICAST_ALL_SYSTEMS,
             #[cfg(feature = "proto-rpl")]
-            IpAddress::Ipv6(IPV6_LINK_LOCAL_ALL_RPL_NODES) => true,
+            IpAddress::V6(IPV6_LINK_LOCAL_ALL_RPL_NODES) => true,
             #[cfg(feature = "proto-ipv6")]
-            IpAddress::Ipv6(key) => {
-                key == IPV6_LINK_LOCAL_ALL_NODES || self.has_solicited_node(key)
-            }
+            IpAddress::V6(key) => key == IPV6_LINK_LOCAL_ALL_NODES || self.has_solicited_node(key),
             #[allow(unreachable_patterns)]
             _ => false,
         }
@@ -898,9 +898,11 @@ impl InterfaceInner {
     pub(crate) fn is_broadcast(&self, address: &IpAddress) -> bool {
         match address {
             #[cfg(feature = "proto-ipv4")]
-            IpAddress::Ipv4(address) => self.is_broadcast_v4(*address),
+            IpAddress::V4(address) => self.is_broadcast_v4(*address),
             #[cfg(feature = "proto-ipv6")]
-            IpAddress::Ipv6(_) => false,
+            IpAddress::V6(_) => false,
+            #[allow(unreachable_patterns)]
+            _ => unreachable!(),
         }
     }
 
@@ -994,7 +996,7 @@ impl InterfaceInner {
         if dst_addr.is_multicast() {
             let hardware_addr = match *dst_addr {
                 #[cfg(feature = "proto-ipv4")]
-                IpAddress::Ipv4(addr) => match self.caps.medium {
+                IpAddress::V4(addr) => match self.caps.medium {
                     #[cfg(feature = "medium-ethernet")]
                     Medium::Ethernet => {
                         let b = addr.octets();
@@ -1013,7 +1015,7 @@ impl InterfaceInner {
                     Medium::Ip => unreachable!(),
                 },
                 #[cfg(feature = "proto-ipv6")]
-                IpAddress::Ipv6(addr) => match self.caps.medium {
+                IpAddress::V6(addr) => match self.caps.medium {
                     #[cfg(feature = "medium-ethernet")]
                     Medium::Ethernet => {
                         let b = addr.octets();
@@ -1029,6 +1031,8 @@ impl InterfaceInner {
                     #[cfg(feature = "medium-ip")]
                     Medium::Ip => unreachable!(),
                 },
+                #[allow(unreachable_patterns)]
+                _ => unreachable!(),
             };
 
             return Ok((hardware_addr, tx_token));
@@ -1046,7 +1050,7 @@ impl InterfaceInner {
 
         match dst_addr {
             #[cfg(all(feature = "medium-ethernet", feature = "proto-ipv4"))]
-            IpAddress::Ipv4(dst_addr) if matches!(self.caps.medium, Medium::Ethernet) => {
+            IpAddress::V4(dst_addr) if matches!(self.caps.medium, Medium::Ethernet) => {
                 net_debug!(
                     "address {} not in neighbor cache, sending ARP request",
                     dst_addr
@@ -1077,7 +1081,7 @@ impl InterfaceInner {
             }
 
             #[cfg(feature = "proto-ipv6")]
-            IpAddress::Ipv6(dst_addr) => {
+            IpAddress::V6(dst_addr) => {
                 net_debug!(
                     "address {} not in neighbor cache, sending Neighbor Solicitation",
                     dst_addr
@@ -1182,11 +1186,11 @@ impl InterfaceInner {
             frame.set_src_addr(src_addr);
             frame.set_dst_addr(dst_hardware_addr);
 
-            match repr.version() {
+            match repr {
                 #[cfg(feature = "proto-ipv4")]
-                IpVersion::Ipv4 => frame.set_ethertype(EthernetProtocol::Ipv4),
+                IpRepr::Ipv4(_) => frame.set_ethertype(EthernetProtocol::Ipv4),
                 #[cfg(feature = "proto-ipv6")]
-                IpVersion::Ipv6 => frame.set_ethertype(EthernetProtocol::Ipv6),
+                IpRepr::Ipv6(_) => frame.set_ethertype(EthernetProtocol::Ipv6),
             }
 
             Ok(())
