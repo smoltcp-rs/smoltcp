@@ -255,6 +255,9 @@ enum Timer {
     Idle {
         keep_alive_at: Option<Instant>,
     },
+    ZeroWindowProbe {
+        expires_at: Instant,
+    },
     Retransmit {
         expires_at: Instant,
         delay: Duration,
@@ -309,6 +312,7 @@ impl Timer {
             Timer::Idle {
                 keep_alive_at: None,
             } => PollAt::Ingress,
+            Timer::ZeroWindowProbe { expires_at, .. } => PollAt::Time(expires_at),
             Timer::Retransmit { expires_at, .. } => PollAt::Time(expires_at),
             Timer::FastRetransmit => PollAt::Now,
             Timer::Close { expires_at } => PollAt::Time(expires_at),
@@ -337,7 +341,7 @@ impl Timer {
 
     fn set_for_retransmit(&mut self, timestamp: Instant, delay: Duration) {
         match *self {
-            Timer::Idle { .. } | Timer::FastRetransmit { .. } => {
+            Timer::Idle { .. } | Timer::FastRetransmit { .. } | Timer::ZeroWindowProbe { .. } => {
                 *self = Timer::Retransmit {
                     expires_at: timestamp + delay,
                     delay,
@@ -361,6 +365,19 @@ impl Timer {
     fn set_for_close(&mut self, timestamp: Instant) {
         *self = Timer::Close {
             expires_at: timestamp + CLOSE_DELAY,
+        }
+    }
+
+    fn set_for_zero_window_probe(&mut self, timestamp: Instant, delay: Duration) {
+        *self = Timer::ZeroWindowProbe {
+            expires_at: timestamp + delay,
+        }
+    }
+
+    fn is_idle(&self) -> bool {
+        match *self {
+            Timer::Idle { .. } => true,
+            _ => false,
         }
     }
 
@@ -2049,6 +2066,8 @@ impl<'a> Socket<'a> {
             return None;
         };
 
+        self.check_zero_window(cx.now());
+
         // Place payload octets into the buffer.
         tcp_trace!(
             "rx buffer: receiving {} octets at offset {}",
@@ -2119,6 +2138,19 @@ impl<'a> Socket<'a> {
         match (self.remote_last_ts, self.timeout) {
             (Some(remote_last_ts), Some(timeout)) => timestamp >= remote_last_ts + timeout,
             (_, _) => false,
+        }
+    }
+
+    fn check_zero_window(&mut self, timestamp: Instant) {
+        tcp_trace!(
+            "check zero window: {} {} {}",
+            self.remote_win_len,
+            self.tx_buffer.len(),
+            self.timer.is_idle()
+        );
+        if self.remote_win_len == 0 && self.tx_buffer.len() != 0 && self.timer.is_idle() {
+            let delay = self.rtte.retransmission_timeout();
+            self.timer.set_for_zero_window_probe(timestamp, delay);
         }
     }
 
@@ -2817,6 +2849,10 @@ mod test {
         ($socket:ident, [$( $repr:expr ),*]) => ({
             $( recv!($socket, Ok($repr)); )*
             recv_nothing!($socket)
+        });
+        ($socket:ident, time $time:expr, [$( $repr:expr ),*]) => ({
+            $( recv!($socket, time $time, Ok($repr)); )*
+            recv_nothing!($socket, time $time)
         });
         ($socket:ident, $result:expr) =>
             (recv!($socket, time 0, $result));
@@ -6658,6 +6694,36 @@ mod test {
             window_len: 6,
             ..RECV_TEMPL
         }));
+    }
+
+    #[test]
+    fn test_zero_window_probe() {
+        let mut s = socket_established();
+
+        send!(
+            s,
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                window_len: 0,
+                ..SEND_TEMPL
+            }
+        );
+
+        assert!(matches!(s.timer, Timer::ZeroWindowProbe { .. }));
+
+        s.send_slice(b"abcdef123456!@#$%^").unwrap();
+        recv!(
+            s,
+            time 0,
+            [TcpRepr {
+                seq_number: LOCAL_SEQ + 1,
+                ack_number: Some(REMOTE_SEQ + 1),
+                payload: &b"abcdef"[..],
+                ..RECV_TEMPL
+            }]
+        );
+        recv_nothing!(s, time 699);
     }
 
     #[test]
