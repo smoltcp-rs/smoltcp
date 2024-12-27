@@ -2762,6 +2762,7 @@ mod test {
         }
     }
 
+    #[track_caller]
     fn recv<F>(socket: &mut TestSocket, timestamp: Instant, mut f: F)
     where
         F: FnMut(Result<TcpRepr, ()>),
@@ -2787,6 +2788,7 @@ mod test {
         }
     }
 
+    #[track_caller]
     fn recv_nothing(socket: &mut TestSocket, timestamp: Instant) {
         socket.cx.set_now(timestamp);
 
@@ -2799,6 +2801,7 @@ mod test {
         assert_eq!(result, Ok(()))
     }
 
+    #[collapse_debuginfo(yes)]
     macro_rules! send {
         ($socket:ident, $repr:expr) =>
             (send!($socket, time 0, $repr));
@@ -2810,6 +2813,7 @@ mod test {
             (assert_eq!(send(&mut $socket, Instant::from_millis($time), &$repr), $result));
     }
 
+    #[collapse_debuginfo(yes)]
     macro_rules! recv {
         ($socket:ident, [$( $repr:expr ),*]) => ({
             $( recv!($socket, Ok($repr)); )*
@@ -2830,11 +2834,13 @@ mod test {
             (recv(&mut $socket, Instant::from_millis($time), |repr| assert_eq!(repr, $result)));
     }
 
+    #[collapse_debuginfo(yes)]
     macro_rules! recv_nothing {
         ($socket:ident) => (recv_nothing!($socket, time 0));
         ($socket:ident, time $time:expr) => (recv_nothing(&mut $socket, Instant::from_millis($time)));
     }
 
+    #[collapse_debuginfo(yes)]
     macro_rules! sanity {
         ($socket1:expr, $socket2:expr) => {{
             let (s1, s2) = ($socket1, $socket2);
