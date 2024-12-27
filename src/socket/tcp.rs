@@ -6411,6 +6411,38 @@ mod test {
         recv_nothing!(s);
     }
 
+    #[test]
+    fn test_retransmit_exponential_backoff() {
+        let mut s = socket_established();
+        s.send_slice(b"abcdef").unwrap();
+        recv!(s, time 0, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"abcdef"[..],
+            ..RECV_TEMPL
+        }));
+
+        let expected_retransmission_instant = s.rtte.retransmission_timeout().total_millis() as i64;
+        recv_nothing!(s, time expected_retransmission_instant - 1);
+        recv!(s, time expected_retransmission_instant, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"abcdef"[..],
+            ..RECV_TEMPL
+        }));
+
+        // "current time" is expected_retransmission_instant, and we want to wait 2 * retransmission timeout
+        let expected_retransmission_instant = 3 * expected_retransmission_instant;
+
+        recv_nothing!(s, time expected_retransmission_instant - 1);
+        recv!(s, time expected_retransmission_instant, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"abcdef"[..],
+            ..RECV_TEMPL
+        }));
+    }
+
     // =========================================================================================//
     // Tests for window management.
     // =========================================================================================//
