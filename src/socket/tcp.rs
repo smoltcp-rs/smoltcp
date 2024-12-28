@@ -1713,7 +1713,7 @@ impl<'a> Socket<'a> {
                         ack_of_fin = true;
                     }
 
-                    ack_all = self.remote_last_seq == ack_number
+                    ack_all = self.remote_last_seq <= ack_number;
                 }
 
                 self.rtte.on_ack(cx.now(), ack_number);
@@ -6441,6 +6441,85 @@ mod test {
             payload:    &b"abcdef"[..],
             ..RECV_TEMPL
         }));
+    }
+
+    #[test]
+    fn test_data_retransmit_ack_more_than_expected() {
+        let mut s = socket_established();
+        s.remote_mss = 6;
+        s.send_slice(b"aaaaaabbbbbbcccccc").unwrap();
+
+        recv!(s, time 0, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"aaaaaa"[..],
+            ..RECV_TEMPL
+        }));
+        recv!(s, time 0, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1 + 6,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"bbbbbb"[..],
+            ..RECV_TEMPL
+        }));
+        recv!(s, time 0, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1 + 12,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"cccccc"[..],
+            ..RECV_TEMPL
+        }));
+        recv_nothing!(s, time 0);
+
+        recv_nothing!(s, time 50);
+
+        // retransmit timer expires, we want to retransmit all 3 packets
+        // but we only manage to retransmit 2 (due to e.g. lack of device buffer space)
+        assert!(s.timer.is_retransmit());
+        recv!(s, time 1000, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"aaaaaa"[..],
+            ..RECV_TEMPL
+        }));
+        recv!(s, time 1000, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1 + 6,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"bbbbbb"[..],
+            ..RECV_TEMPL
+        }));
+
+        // ack first packet.
+        send!(
+            s,
+            time 3000,
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1 + 6),
+                ..SEND_TEMPL
+            }
+        );
+
+        // this should keep retransmit timer on, because there's
+        // still unacked data.
+        assert!(s.timer.is_retransmit());
+
+        // ack all three packets.
+        // This might confuse the TCP stack because after the retransmit
+        // it "thinks" the 3rd packet hasn't been transmitted yet, but it is getting acked.
+        send!(
+            s,
+            time 3000,
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1 + 18),
+                ..SEND_TEMPL
+            }
+        );
+
+        // this should exit retransmit mode.
+        assert!(!s.timer.is_retransmit());
+        // and consider all data ACKed.
+        assert!(s.tx_buffer.is_empty());
+        recv_nothing!(s, time 5000);
     }
 
     // =========================================================================================//
