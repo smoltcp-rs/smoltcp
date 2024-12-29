@@ -2806,11 +2806,14 @@ mod test {
     fn recv_nothing(socket: &mut TestSocket, timestamp: Instant) {
         socket.cx.set_now(timestamp);
 
-        let result: Result<(), ()> = socket
-            .socket
-            .dispatch(&mut socket.cx, |_, (_ip_repr, _tcp_repr)| {
+        let mut fail = false;
+        let result: Result<(), ()> = socket.socket.dispatch(&mut socket.cx, |_, _| {
+            fail = true;
+            Ok(())
+        });
+        if fail {
                 panic!("Should not send a packet")
-            });
+        }
 
         assert_eq!(result, Ok(()))
     }
@@ -2832,6 +2835,10 @@ mod test {
         ($socket:ident, [$( $repr:expr ),*]) => ({
             $( recv!($socket, Ok($repr)); )*
             recv_nothing!($socket)
+        });
+        ($socket:ident, time $time:expr, [$( $repr:expr ),*]) => ({
+            $( recv!($socket, time $time, Ok($repr)); )*
+            recv_nothing!($socket, time $time)
         });
         ($socket:ident, $result:expr) =>
             (recv!($socket, time 0, $result));
