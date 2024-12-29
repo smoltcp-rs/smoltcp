@@ -1796,7 +1796,6 @@ impl<'a> Socket<'a> {
             // ACK packets in the SYN-RECEIVED state change it to ESTABLISHED.
             (State::SynReceived, TcpControl::None) => {
                 self.set_state(State::Established);
-                self.timer.set_for_idle(cx.now(), self.keep_alive);
             }
 
             // FIN packets in the SYN-RECEIVED state change it to CLOSE-WAIT.
@@ -1806,7 +1805,6 @@ impl<'a> Socket<'a> {
                 self.remote_seq_no += 1;
                 self.rx_fin_received = true;
                 self.set_state(State::CloseWait);
-                self.timer.set_for_idle(cx.now(), self.keep_alive);
             }
 
             // SYN|ACK packets in the SYN-SENT state change it to ESTABLISHED.
@@ -1847,26 +1845,15 @@ impl<'a> Socket<'a> {
                 } else {
                     self.set_state(State::SynReceived);
                 }
-                self.timer.set_for_idle(cx.now(), self.keep_alive);
             }
 
-            // RFC 6298: (5.2) ACK of all outstanding data turn off the retransmit timer.
-            // (5.3) ACK of new data in ESTABLISHED state restart the retransmit timer.
-            (State::Established, TcpControl::None) => {
-                if ack_all {
-                    self.timer.set_for_idle(cx.now(), self.keep_alive);
-                } else if ack_len > 0 {
-                    self.timer
-                        .set_for_retransmit(cx.now(), self.rtte.retransmission_timeout());
-                }
-            }
+            (State::Established, TcpControl::None) => {}
 
             // FIN packets in ESTABLISHED state indicate the remote side has closed.
             (State::Established, TcpControl::Fin) => {
                 self.remote_seq_no += 1;
                 self.rx_fin_received = true;
                 self.set_state(State::CloseWait);
-                self.timer.set_for_idle(cx.now(), self.keep_alive);
             }
 
             // ACK packets in FIN-WAIT-1 state change it to FIN-WAIT-2, if we've already
@@ -1874,9 +1861,6 @@ impl<'a> Socket<'a> {
             (State::FinWait1, TcpControl::None) => {
                 if ack_of_fin {
                     self.set_state(State::FinWait2);
-                }
-                if ack_all {
-                    self.timer.set_for_idle(cx.now(), self.keep_alive);
                 }
             }
 
@@ -1890,14 +1874,10 @@ impl<'a> Socket<'a> {
                     self.timer.set_for_close(cx.now());
                 } else {
                     self.set_state(State::Closing);
-                    self.timer.set_for_idle(cx.now(), self.keep_alive);
                 }
             }
 
-            // Data packets in FIN-WAIT-2 reset the idle timer.
-            (State::FinWait2, TcpControl::None) => {
-                self.timer.set_for_idle(cx.now(), self.keep_alive);
-            }
+            (State::FinWait2, TcpControl::None) => {}
 
             // FIN packets in FIN-WAIT-2 state change it to TIME-WAIT.
             (State::FinWait2, TcpControl::Fin) => {
@@ -1912,15 +1892,10 @@ impl<'a> Socket<'a> {
                 if ack_of_fin {
                     self.set_state(State::TimeWait);
                     self.timer.set_for_close(cx.now());
-                } else {
-                    self.timer.set_for_idle(cx.now(), self.keep_alive);
                 }
             }
 
-            // ACK packets in CLOSE-WAIT state reset the retransmit timer.
-            (State::CloseWait, TcpControl::None) => {
-                self.timer.set_for_idle(cx.now(), self.keep_alive);
-            }
+            (State::CloseWait, TcpControl::None) => {}
 
             // ACK packets in LAST-ACK state change it to CLOSED.
             (State::LastAck, TcpControl::None) => {
@@ -1928,8 +1903,6 @@ impl<'a> Socket<'a> {
                     // Clear the remote endpoint, or we'll send an RST there.
                     self.set_state(State::Closed);
                     self.tuple = None;
-                } else {
-                    self.timer.set_for_idle(cx.now(), self.keep_alive);
                 }
             }
 
@@ -2038,6 +2011,25 @@ impl<'a> Socket<'a> {
         // update last remote tsval
         if let Some(timestamp) = repr.timestamp {
             self.last_remote_tsval = timestamp.tsval;
+        }
+
+        // update timers.
+        match self.timer {
+            Timer::Retransmit { .. } | Timer::FastRetransmit => {
+                if ack_all {
+                    // RFC 6298: (5.2) ACK of all outstanding data turn off the retransmit timer.
+                    self.timer.set_for_idle(cx.now(), self.keep_alive);
+                } else if ack_len > 0 {
+                    // (5.3) ACK of new data in ESTABLISHED state restart the retransmit timer.
+                    let rto = self.rtte.retransmission_timeout();
+                    self.timer.set_for_retransmit(cx.now(), rto);
+                }
+            }
+            Timer::Idle { .. } => {
+                // any packet on idle refresh the keepalive timer.
+                self.timer.set_for_idle(cx.now(), self.keep_alive);
+            }
+            _ => {}
         }
 
         let payload_len = payload.len();
@@ -2537,12 +2529,12 @@ impl<'a> Socket<'a> {
                 .post_transmit(cx.now(), repr.segment_len());
         }
 
-        if !self.seq_to_transmit(cx) && repr.segment_len() > 0 && !self.timer.is_retransmit() {
-            // RFC 6298: (5.1) If we've transmitted all data we could (and there was
-            // something at all, data or flag, to transmit, not just an ACK), start the
-            // retransmit timer if it is not already running.
-            self.timer
-                .set_for_retransmit(cx.now(), self.rtte.retransmission_timeout());
+        if repr.segment_len() > 0 && !self.timer.is_retransmit() {
+            // RFC 6298 (5.1) Every time a packet containing data is sent (including a
+            // retransmission), if the timer is not running, start it running
+            // so that it will expire after RTO seconds.
+            let rto = self.rtte.retransmission_timeout();
+            self.timer.set_for_retransmit(cx.now(), rto);
         }
 
         if self.state == State::Closed {
@@ -2812,7 +2804,7 @@ mod test {
             Ok(())
         });
         if fail {
-                panic!("Should not send a packet")
+            panic!("Should not send a packet")
         }
 
         assert_eq!(result, Ok(()))
@@ -2955,6 +2947,9 @@ mod test {
         s.state = State::Closing;
         s.remote_last_seq = LOCAL_SEQ + 1 + 1;
         s.remote_seq_no = REMOTE_SEQ + 1 + 1;
+        s.timer = Timer::Retransmit {
+            expires_at: Instant::from_millis_const(1000),
+        };
         s
     }
 
@@ -6527,6 +6522,85 @@ mod test {
         // and consider all data ACKed.
         assert!(s.tx_buffer.is_empty());
         recv_nothing!(s, time 5000);
+    }
+
+    #[test]
+    fn test_retransmit_fin() {
+        let mut s = socket_established();
+        s.close();
+        recv!(s, time 0, Ok(TcpRepr {
+            control: TcpControl::Fin,
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            ..RECV_TEMPL
+        }));
+
+        recv_nothing!(s, time 999);
+        recv!(s, time 1000, Ok(TcpRepr {
+            control: TcpControl::Fin,
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            ..RECV_TEMPL
+        }));
+    }
+
+    #[test]
+    fn test_retransmit_fin_wait() {
+        let mut s = socket_fin_wait_1();
+        // we send FIN
+        recv!(
+            s,
+            [TcpRepr {
+                control: TcpControl::Fin,
+                seq_number: LOCAL_SEQ + 1,
+                ack_number: Some(REMOTE_SEQ + 1),
+                ..RECV_TEMPL
+            }]
+        );
+        // remote also sends FIN, does NOT ack ours.
+        send!(
+            s,
+            TcpRepr {
+                control: TcpControl::Fin,
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                ..SEND_TEMPL
+            }
+        );
+        // we ack it
+        recv!(
+            s,
+            [TcpRepr {
+                control: TcpControl::None,
+                seq_number: LOCAL_SEQ + 2,
+                ack_number: Some(REMOTE_SEQ + 2),
+                ..RECV_TEMPL
+            }]
+        );
+
+        // we haven't got an ACK for our FIN, we should retransmit.
+        recv_nothing!(s, time 999);
+        recv!(
+            s,
+            time 1000,
+            [TcpRepr {
+                control: TcpControl::Fin,
+                seq_number: LOCAL_SEQ + 1,
+                ack_number: Some(REMOTE_SEQ + 2),
+                ..RECV_TEMPL
+            }]
+        );
+        recv_nothing!(s, time 2999);
+        recv!(
+            s,
+            time 3000,
+            [TcpRepr {
+                control: TcpControl::Fin,
+                seq_number: LOCAL_SEQ + 1,
+                ack_number: Some(REMOTE_SEQ + 2),
+                ..RECV_TEMPL
+            }]
+        );
     }
 
     // =========================================================================================//
