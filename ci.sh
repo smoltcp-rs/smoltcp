@@ -60,6 +60,10 @@ test() {
     fi
 }
 
+netsim() {
+    cargo test --release --features _netsim netsim
+}
+
 check() {
     local version=$1
     rustup toolchain install $version
@@ -138,4 +142,8 @@ fi
 
 if [[ $1 == "coverage" || $1 == "all" ]]; then
     coverage
+fi
+
+if [[ $1 == "netsim" || $1 == "all" ]]; then
+    netsim
 fi
