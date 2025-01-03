@@ -351,6 +351,25 @@ impl<T: AsRef<[u8]>> Packet<T> {
         Ok([None, None, None])
     }
 
+    /// Validate the partial checksum.
+    ///
+    /// # Panics
+    /// This function panics unless `src_addr` and `dst_addr` belong to the same family,
+    /// and that family is IPv4 or IPv6.
+    ///
+    /// # Fuzzing
+    /// This function always returns `true` when fuzzing.
+    pub fn verify_partial_checksum(&self, src_addr: &IpAddress, dst_addr: &IpAddress) -> bool {
+        if cfg!(fuzzing) {
+            return true;
+        }
+
+        let data = self.buffer.as_ref();
+
+        checksum::pseudo_header(src_addr, dst_addr, IpProtocol::Tcp, data.len() as u32)
+            == self.checksum()
+    }
+
     /// Validate the packet checksum.
     ///
     /// # Panics
