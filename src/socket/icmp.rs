@@ -571,7 +571,7 @@ impl<'a> Socket<'a> {
             );
             match *remote_endpoint {
                 #[cfg(feature = "proto-ipv4")]
-                IpAddress::Ipv4(dst_addr) => {
+                IpAddress::V4(dst_addr) => {
                     let src_addr = match cx.get_source_address_ipv4(&dst_addr) {
                         Some(addr) => addr,
                         None => {
@@ -603,7 +603,7 @@ impl<'a> Socket<'a> {
                     emit(cx, (ip_repr, IcmpRepr::Ipv4(repr)))
                 }
                 #[cfg(feature = "proto-ipv6")]
-                IpAddress::Ipv6(dst_addr) => {
+                IpAddress::V6(dst_addr) => {
                     let src_addr = cx.get_source_address_ipv6(&dst_addr);
 
                     let packet = Icmpv6Packet::new_unchecked(&*packet_buf);
@@ -631,6 +631,8 @@ impl<'a> Socket<'a> {
                     });
                     emit(cx, (ip_repr, IcmpRepr::Ipv6(repr)))
                 }
+                #[allow(unreachable_patterns)]
+                _ => unreachable!(),
             }
         });
         match res {
@@ -691,7 +693,7 @@ mod test_ipv4 {
     const REMOTE_IPV4: Ipv4Address = Ipv4Address::new(192, 168, 1, 2);
     const LOCAL_IPV4: Ipv4Address = Ipv4Address::new(192, 168, 1, 1);
     const LOCAL_END_V4: IpEndpoint = IpEndpoint {
-        addr: IpAddress::Ipv4(LOCAL_IPV4),
+        addr: IpAddress::V4(LOCAL_IPV4),
         port: LOCAL_PORT,
     };
 
@@ -721,7 +723,7 @@ mod test_ipv4 {
     fn test_send_unaddressable() {
         let mut socket = socket(buffer(0), buffer(1));
         assert_eq!(
-            socket.send_slice(b"abcdef", IpAddress::Ipv4(Ipv4Address::new(0, 0, 0, 0))),
+            socket.send_slice(b"abcdef", IpAddress::V4(Ipv4Address::new(0, 0, 0, 0))),
             Err(SendError::Unaddressable)
         );
         assert_eq!(socket.send_slice(b"abcdef", REMOTE_IPV4.into()), Ok(()));
@@ -953,7 +955,7 @@ mod test_ipv6 {
     const REMOTE_IPV6: Ipv6Address = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 2);
     const LOCAL_IPV6: Ipv6Address = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
     const LOCAL_END_V6: IpEndpoint = IpEndpoint {
-        addr: IpAddress::Ipv6(LOCAL_IPV6),
+        addr: IpAddress::V6(LOCAL_IPV6),
         port: LOCAL_PORT,
     };
     static ECHOV6_REPR: Icmpv6Repr = Icmpv6Repr::EchoRequest {
@@ -982,7 +984,7 @@ mod test_ipv6 {
     fn test_send_unaddressable() {
         let mut socket = socket(buffer(0), buffer(1));
         assert_eq!(
-            socket.send_slice(b"abcdef", IpAddress::Ipv6(Ipv6Address::UNSPECIFIED)),
+            socket.send_slice(b"abcdef", IpAddress::V6(Ipv6Address::UNSPECIFIED)),
             Err(SendError::Unaddressable)
         );
         assert_eq!(socket.send_slice(b"abcdef", REMOTE_IPV6.into()), Ok(()));

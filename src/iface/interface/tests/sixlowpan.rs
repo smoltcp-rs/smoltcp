@@ -215,7 +215,7 @@ fn test_echo_request_sixlowpan_128_bytes() {
     );
 
     iface.inner.neighbor_cache.fill(
-        IpAddress::Ipv6(Ipv6Address::new(
+        IpAddress::V6(Ipv6Address::new(
             0xfe80, 0, 0, 0, 0x4042, 0x4242, 0x4242, 0x0b1a,
         )),
         HardwareAddress::Ieee802154(Ieee802154Address::default()),
@@ -361,7 +361,7 @@ In at rhoncus tortor. Cras blandit tellus diam, varius vestibulum nibh commodo n
                     Ipv6Address::new(0xfe80, 0, 0, 0, 0x92fc, 0x48c2, 0xa441, 0xfc76).into()
                 ),
                 ..IpEndpoint {
-                    addr: IpAddress::Ipv6(Ipv6Address::new(
+                    addr: IpAddress::V6(Ipv6Address::new(
                         0xfe80, 0, 0, 0, 0x4042, 0x4242, 0x4242, 0x0b1a
                     )),
                     port: 54217,

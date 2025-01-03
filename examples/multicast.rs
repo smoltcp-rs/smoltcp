@@ -7,8 +7,8 @@ use smoltcp::phy::{wait as phy_wait, Device, Medium};
 use smoltcp::socket::{raw, udp};
 use smoltcp::time::Instant;
 use smoltcp::wire::{
-    EthernetAddress, IgmpPacket, IgmpRepr, IpAddress, IpCidr, IpProtocol, IpVersion, Ipv4Address,
-    Ipv4Packet, Ipv6Address,
+    EthernetAddress, IgmpPacket, IgmpRepr, IpAddress, IpCidr, IpProtocol, Ipv4Address, Ipv4Packet,
+    Ipv6Address,
 };
 
 const MDNS_PORT: u16 = 5353;
@@ -40,13 +40,22 @@ fn main() {
     let mut iface = Interface::new(config, &mut device, Instant::now());
     iface.update_ip_addrs(|ip_addrs| {
         ip_addrs
-            .push(IpCidr::new(IpAddress::v4(192, 168, 69, 1), 24))
+            .push(IpCidr::new(
+                IpAddress::V4(Ipv4Address::new(192, 168, 69, 1)),
+                24,
+            ))
             .unwrap();
         ip_addrs
-            .push(IpCidr::new(IpAddress::v6(0xfdaa, 0, 0, 0, 0, 0, 0, 1), 64))
+            .push(IpCidr::new(
+                IpAddress::V6(Ipv6Address::new(0xfdaa, 0, 0, 0, 0, 0, 0, 1)),
+                64,
+            ))
             .unwrap();
         ip_addrs
-            .push(IpCidr::new(IpAddress::v6(0xfe80, 0, 0, 0, 0, 0, 0, 1), 64))
+            .push(IpCidr::new(
+                IpAddress::V6(Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1)),
+                64,
+            ))
             .unwrap();
     });
     iface
@@ -65,12 +74,7 @@ fn main() {
     let raw_rx_buffer = raw::PacketBuffer::new(vec![raw::PacketMetadata::EMPTY; 2], vec![0; 512]);
     // Will not send IGMP
     let raw_tx_buffer = raw::PacketBuffer::new(vec![], vec![]);
-    let raw_socket = raw::Socket::new(
-        IpVersion::Ipv4,
-        IpProtocol::Igmp,
-        raw_rx_buffer,
-        raw_tx_buffer,
-    );
+    let raw_socket = raw::Socket::new_v4(IpProtocol::Igmp, raw_rx_buffer, raw_tx_buffer);
     let raw_handle = sockets.add(raw_socket);
 
     // Must fit mDNS payload of at least one packet
