@@ -502,6 +502,8 @@ impl<'a> Socket<'a> {
         // Times T1 and T2 are configurable by the server through
         // options. T1 defaults to (0.5 * duration_of_lease). T2
         // defaults to (0.875 * duration_of_lease).
+        // When receiving T1 and T2, they must be in the order:
+        // T1 < T2 < lease_duration
         let (renew_duration, rebind_duration) = match (
             dhcp_repr
                 .renew_duration
@@ -510,8 +512,11 @@ impl<'a> Socket<'a> {
                 .rebind_duration
                 .map(|d| Duration::from_secs(d as u64)),
         ) {
-            (Some(renew_duration), Some(rebind_duration)) => (renew_duration, rebind_duration),
-            (None, None) => (lease_duration / 2, lease_duration * 7 / 8),
+            (Some(renew_duration), Some(rebind_duration))
+                if renew_duration < rebind_duration && rebind_duration < lease_duration =>
+            {
+                (renew_duration, rebind_duration)
+            }
             // RFC 2131 does not say what to do if only one value is
             // provided, so:
 
@@ -519,7 +524,7 @@ impl<'a> Socket<'a> {
             // between T1 and the duration of the lease. If T1 is set to
             // the default (0.5 * duration_of_lease), then T2 will also
             // be set to the default (0.875 * duration_of_lease).
-            (Some(renew_duration), None) => (
+            (Some(renew_duration), None) if renew_duration < lease_duration => (
                 renew_duration,
                 renew_duration + (lease_duration - renew_duration) * 3 / 4,
             ),
@@ -527,8 +532,15 @@ impl<'a> Socket<'a> {
             // If only T2 is provided, then T1 will be set to be
             // whichever is smaller of the default (0.5 *
             // duration_of_lease) or T2.
-            (None, Some(rebind_duration)) => {
+            (None, Some(rebind_duration)) if rebind_duration < lease_duration => {
                 ((lease_duration / 2).min(rebind_duration), rebind_duration)
+            }
+
+            // Use the defaults if the following order is not met:
+            // T1 < T2 < lease_duration
+            (_, _) => {
+                net_debug!("using default T1 and T2 values since the provided values are invalid");
+                (lease_duration / 2, lease_duration * 7 / 8)
             }
         };
         let renew_at = now + renew_duration;
