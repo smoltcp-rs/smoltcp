@@ -42,10 +42,12 @@ impl<D: Device> Tracer<D> {
 }
 
 impl<D: Device> Device for Tracer<D> {
-    type RxToken<'a> = RxToken<D::RxToken<'a>>
+    type RxToken<'a>
+        = RxToken<D::RxToken<'a>>
     where
         Self: 'a;
-    type TxToken<'a> = TxToken<D::TxToken<'a>>
+    type TxToken<'a>
+        = TxToken<D::TxToken<'a>>
     where
         Self: 'a;
 

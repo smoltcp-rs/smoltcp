@@ -47,10 +47,12 @@ where
     FTx: Fuzzer,
     FRx: Fuzzer,
 {
-    type RxToken<'a> = RxToken<'a, D::RxToken<'a>, FRx>
+    type RxToken<'a>
+        = RxToken<'a, D::RxToken<'a>, FRx>
     where
         Self: 'a;
-    type TxToken<'a> = TxToken<'a, D::TxToken<'a>, FTx>
+    type TxToken<'a>
+        = TxToken<'a, D::TxToken<'a>, FTx>
     where
         Self: 'a;
 

@@ -125,6 +125,11 @@ pub(crate) trait AddressExt {
     /// `x_` prefix is to avoid a collision with the still-unstable method in `core::ip`.
     fn x_multicast_scope(&self) -> MulticastScope;
 
+    /// Query whether the IPv6 address is a [solicited-node multicast address].
+    ///
+    /// [Solicited-node multicast address]: https://datatracker.ietf.org/doc/html/rfc4291#section-2.7.1
+    fn is_solicited_node_multicast(&self) -> bool;
+
     /// If `self` is a CIDR-compatible subnet mask, return `Some(prefix_len)`,
     /// where `prefix_len` is the number of leading zeroes. Return `None` otherwise.
     fn prefix_len(&self) -> Option<u8>;
@@ -191,6 +196,13 @@ impl AddressExt for Address {
         } else {
             MulticastScope::Unknown
         }
+    }
+
+    fn is_solicited_node_multicast(&self) -> bool {
+        self.octets()[0..13]
+            == [
+                0xff, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0xFF,
+            ]
     }
 
     fn prefix_len(&self) -> Option<u8> {
@@ -680,6 +692,8 @@ pub(crate) mod test {
     const UNIQUE_LOCAL_ADDR: Address = Address::new(0xfd00, 0, 0, 201, 1, 1, 1, 1);
     const GLOBAL_UNICAST_ADDR: Address = Address::new(0x2001, 0xdb8, 0x3, 0, 0, 0, 0, 1);
 
+    const TEST_SOL_NODE_MCAST_ADDR: Address = Address::new(0xff02, 0, 0, 0, 0, 1, 0xff01, 101);
+
     #[test]
     fn test_basic_multicast() {
         assert!(!LINK_LOCAL_ALL_ROUTERS.is_unspecified());
@@ -688,12 +702,14 @@ pub(crate) mod test {
         assert!(!LINK_LOCAL_ALL_ROUTERS.is_loopback());
         assert!(!LINK_LOCAL_ALL_ROUTERS.x_is_unique_local());
         assert!(!LINK_LOCAL_ALL_ROUTERS.is_global_unicast());
+        assert!(!LINK_LOCAL_ALL_ROUTERS.is_solicited_node_multicast());
         assert!(!LINK_LOCAL_ALL_NODES.is_unspecified());
         assert!(LINK_LOCAL_ALL_NODES.is_multicast());
         assert!(!LINK_LOCAL_ALL_NODES.is_link_local());
         assert!(!LINK_LOCAL_ALL_NODES.is_loopback());
         assert!(!LINK_LOCAL_ALL_NODES.x_is_unique_local());
         assert!(!LINK_LOCAL_ALL_NODES.is_global_unicast());
+        assert!(!LINK_LOCAL_ALL_NODES.is_solicited_node_multicast());
     }
 
     #[test]
@@ -704,6 +720,7 @@ pub(crate) mod test {
         assert!(!LINK_LOCAL_ADDR.is_loopback());
         assert!(!LINK_LOCAL_ADDR.x_is_unique_local());
         assert!(!LINK_LOCAL_ADDR.is_global_unicast());
+        assert!(!LINK_LOCAL_ADDR.is_solicited_node_multicast());
     }
 
     #[test]
@@ -714,6 +731,7 @@ pub(crate) mod test {
         assert!(Address::LOCALHOST.is_loopback());
         assert!(!Address::LOCALHOST.x_is_unique_local());
         assert!(!Address::LOCALHOST.is_global_unicast());
+        assert!(!Address::LOCALHOST.is_solicited_node_multicast());
     }
 
     #[test]
@@ -724,6 +742,7 @@ pub(crate) mod test {
         assert!(!UNIQUE_LOCAL_ADDR.is_loopback());
         assert!(UNIQUE_LOCAL_ADDR.x_is_unique_local());
         assert!(!UNIQUE_LOCAL_ADDR.is_global_unicast());
+        assert!(!UNIQUE_LOCAL_ADDR.is_solicited_node_multicast());
     }
 
     #[test]
@@ -734,6 +753,18 @@ pub(crate) mod test {
         assert!(!GLOBAL_UNICAST_ADDR.is_loopback());
         assert!(!GLOBAL_UNICAST_ADDR.x_is_unique_local());
         assert!(GLOBAL_UNICAST_ADDR.is_global_unicast());
+        assert!(!GLOBAL_UNICAST_ADDR.is_solicited_node_multicast());
+    }
+
+    #[test]
+    fn test_sollicited_node_multicast() {
+        assert!(!TEST_SOL_NODE_MCAST_ADDR.is_unspecified());
+        assert!(TEST_SOL_NODE_MCAST_ADDR.is_multicast());
+        assert!(!TEST_SOL_NODE_MCAST_ADDR.is_link_local());
+        assert!(!TEST_SOL_NODE_MCAST_ADDR.is_loopback());
+        assert!(!TEST_SOL_NODE_MCAST_ADDR.x_is_unique_local());
+        assert!(!TEST_SOL_NODE_MCAST_ADDR.is_global_unicast());
+        assert!(TEST_SOL_NODE_MCAST_ADDR.is_solicited_node_multicast());
     }
 
     #[test]

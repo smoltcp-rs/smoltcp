@@ -1,10 +1,10 @@
 use core::result::Result;
-use heapless::LinearMap;
+use heapless::{LinearMap, Vec};
 
-#[cfg(feature = "proto-ipv4")]
+#[cfg(any(feature = "proto-ipv4", feature = "proto-ipv6"))]
 use super::{check, IpPayload, Packet};
 use super::{Interface, InterfaceInner};
-use crate::config::IFACE_MAX_MULTICAST_GROUP_COUNT;
+use crate::config::{IFACE_MAX_ADDR_COUNT, IFACE_MAX_MULTICAST_GROUP_COUNT};
 use crate::phy::{Device, PacketMeta};
 use crate::wire::*;
 
@@ -34,6 +34,18 @@ pub(crate) enum IgmpReportState {
     },
 }
 
+#[cfg(feature = "proto-ipv6")]
+pub(crate) enum MldReportState {
+    Inactive,
+    ToGeneralQuery {
+        timeout: crate::time::Instant,
+    },
+    ToSpecificQuery {
+        group: Ipv6Address,
+        timeout: crate::time::Instant,
+    },
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum GroupState {
     /// Joining group, we have to send the join packet.
@@ -49,6 +61,8 @@ pub(crate) struct State {
     /// When to report for (all or) the next multicast group membership via IGMP
     #[cfg(feature = "proto-ipv4")]
     igmp_report_state: IgmpReportState,
+    #[cfg(feature = "proto-ipv6")]
+    mld_report_state: MldReportState,
 }
 
 impl State {
@@ -57,6 +71,8 @@ impl State {
             groups: LinearMap::new(),
             #[cfg(feature = "proto-ipv4")]
             igmp_report_state: IgmpReportState::Inactive,
+            #[cfg(feature = "proto-ipv6")]
+            mld_report_state: MldReportState::Inactive,
         }
     }
 
@@ -138,6 +154,29 @@ impl Interface {
     /// Check whether the interface listens to given destination multicast IP address.
     pub fn has_multicast_group<T: Into<IpAddress>>(&self, addr: T) -> bool {
         self.inner.has_multicast_group(addr)
+    }
+
+    #[cfg(feature = "proto-ipv6")]
+    pub(super) fn update_solicited_node_groups(&mut self) {
+        // Remove old solicited-node multicast addresses
+        let removals: Vec<_, IFACE_MAX_MULTICAST_GROUP_COUNT> = self
+            .inner
+            .multicast
+            .groups
+            .keys()
+            .cloned()
+            .filter(|a| matches!(a, IpAddress::Ipv6(a) if a.is_solicited_node_multicast() && !self.inner.has_solicited_node(*a)))
+            .collect();
+        for removal in removals {
+            let _ = self.leave_multicast_group(removal);
+        }
+
+        let cidrs: Vec<IpCidr, IFACE_MAX_ADDR_COUNT> = Vec::from_slice(self.ip_addrs()).unwrap();
+        for cidr in cidrs {
+            if let IpCidr::Ipv6(cidr) = cidr {
+                let _ = self.join_multicast_group(cidr.address().solicited_node());
+            }
+        }
     }
 
     /// Do multicast egress.
@@ -306,6 +345,46 @@ impl Interface {
             }
             _ => {}
         }
+        #[cfg(feature = "proto-ipv6")]
+        match self.inner.multicast.mld_report_state {
+            MldReportState::ToGeneralQuery { timeout } if self.inner.now >= timeout => {
+                let records = self
+                    .inner
+                    .multicast
+                    .groups
+                    .iter()
+                    .filter_map(|(addr, _)| match addr {
+                        IpAddress::Ipv6(addr) => Some(MldAddressRecordRepr::new(
+                            MldRecordType::ModeIsExclude,
+                            *addr,
+                        )),
+                        #[allow(unreachable_patterns)]
+                        _ => None,
+                    })
+                    .collect::<heapless::Vec<_, IFACE_MAX_MULTICAST_GROUP_COUNT>>();
+                if let Some(pkt) = self.inner.mldv2_report_packet(&records) {
+                    if let Some(tx_token) = device.transmit(self.inner.now) {
+                        self.inner
+                            .dispatch_ip(tx_token, PacketMeta::default(), pkt, &mut self.fragmenter)
+                            .unwrap();
+                    };
+                };
+                self.inner.multicast.mld_report_state = MldReportState::Inactive;
+            }
+            MldReportState::ToSpecificQuery { group, timeout } if self.inner.now >= timeout => {
+                let record = MldAddressRecordRepr::new(MldRecordType::ModeIsExclude, group);
+                if let Some(pkt) = self.inner.mldv2_report_packet(&[record]) {
+                    if let Some(tx_token) = device.transmit(self.inner.now) {
+                        // NOTE(unwrap): packet destination is multicast, which is always routable and doesn't require neighbor discovery.
+                        self.inner
+                            .dispatch_ip(tx_token, PacketMeta::default(), pkt, &mut self.fragmenter)
+                            .unwrap();
+                    }
+                }
+                self.inner.multicast.mld_report_state = MldReportState::Inactive;
+            }
+            _ => {}
+        }
     }
 }
 
@@ -424,5 +503,56 @@ impl InterfaceInner {
                 IpPayload::Igmp(igmp_repr),
             )
         })
+    }
+
+    /// Host duties of the **MLDv2** protocol.
+    ///
+    /// Sets up `mld_report_state` for responding to MLD general/specific membership queries.
+    /// Membership must not be reported immediately in order to avoid flooding the network
+    /// after a query is broadcasted by a router; Currently the delay is fixed and not randomized.
+    #[cfg(feature = "proto-ipv6")]
+    pub(super) fn process_mldv2<'frame>(
+        &mut self,
+        ip_repr: Ipv6Repr,
+        repr: MldRepr<'frame>,
+    ) -> Option<Packet<'frame>> {
+        match repr {
+            MldRepr::Query {
+                mcast_addr,
+                max_resp_code,
+                ..
+            } => {
+                // Do not respont immediately to the query, but wait a random time
+                let delay = crate::time::Duration::from_millis(
+                    (self.rand.rand_u16() % max_resp_code).into(),
+                );
+                // General query
+                if mcast_addr.is_unspecified()
+                    && (ip_repr.dst_addr == IPV6_LINK_LOCAL_ALL_NODES
+                        || self.has_ip_addr(ip_repr.dst_addr))
+                {
+                    let ipv6_multicast_group_count = self
+                        .multicast
+                        .groups
+                        .keys()
+                        .filter(|a| matches!(a, IpAddress::Ipv6(_)))
+                        .count();
+                    if ipv6_multicast_group_count != 0 {
+                        self.multicast.mld_report_state = MldReportState::ToGeneralQuery {
+                            timeout: self.now + delay,
+                        };
+                    }
+                }
+                if self.has_multicast_group(mcast_addr) && ip_repr.dst_addr == mcast_addr {
+                    self.multicast.mld_report_state = MldReportState::ToSpecificQuery {
+                        group: mcast_addr,
+                        timeout: self.now + delay,
+                    };
+                }
+                None
+            }
+            MldRepr::Report { .. } => None,
+            MldRepr::ReportRecordReprs { .. } => None,
+        }
     }
 }

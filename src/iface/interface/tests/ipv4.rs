@@ -761,6 +761,82 @@ fn test_handle_igmp(#[case] medium: Medium) {
 
 #[rstest]
 #[case(Medium::Ip)]
+#[cfg(all(feature = "proto-ipv4-fragmentation", feature = "medium-ip"))]
+#[case(Medium::Ethernet)]
+#[cfg(all(feature = "proto-ipv4-fragmentation", feature = "medium-ethernet"))]
+fn test_packet_len(#[case] medium: Medium) {
+    use crate::config::FRAGMENTATION_BUFFER_SIZE;
+
+    let (mut iface, _, _) = setup(medium);
+
+    struct TestTxToken {
+        max_transmission_unit: usize,
+    }
+
+    impl TxToken for TestTxToken {
+        fn consume<R, F>(self, len: usize, f: F) -> R
+        where
+            F: FnOnce(&mut [u8]) -> R,
+        {
+            net_debug!("TxToken get len: {}", len);
+            assert!(len <= self.max_transmission_unit);
+            let mut junk = [0; 1536];
+            f(&mut junk[..len])
+        }
+    }
+
+    iface.inner.neighbor_cache.fill(
+        IpAddress::Ipv4(Ipv4Address::new(127, 0, 0, 1)),
+        HardwareAddress::Ethernet(EthernetAddress::from_bytes(&[
+            0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
+        ])),
+        Instant::ZERO,
+    );
+
+    for ip_packet_len in [
+        100,
+        iface.inner.ip_mtu(),
+        iface.inner.ip_mtu() + 1,
+        FRAGMENTATION_BUFFER_SIZE,
+    ] {
+        net_debug!("ip_packet_len: {}", ip_packet_len);
+
+        let mut ip_repr = Ipv4Repr {
+            src_addr: Ipv4Address::new(127, 0, 0, 1),
+            dst_addr: Ipv4Address::new(127, 0, 0, 1),
+            next_header: IpProtocol::Udp,
+            payload_len: 0,
+            hop_limit: 64,
+        };
+        let udp_repr = UdpRepr {
+            src_port: 12345,
+            dst_port: 54321,
+        };
+
+        let ip_packet_payload_len = ip_packet_len - ip_repr.buffer_len();
+        let udp_packet_payload_len = ip_packet_payload_len - udp_repr.header_len();
+        ip_repr.payload_len = ip_packet_payload_len;
+
+        let udp_packet_payload = vec![1; udp_packet_payload_len];
+        let ip_payload = IpPayload::Udp(udp_repr, &udp_packet_payload);
+        let ip_packet = Packet::new_ipv4(ip_repr, ip_payload);
+
+        assert_eq!(
+            iface.inner.dispatch_ip(
+                TestTxToken {
+                    max_transmission_unit: iface.inner.caps.max_transmission_unit
+                },
+                PacketMeta::default(),
+                ip_packet,
+                &mut iface.fragmenter,
+            ),
+            Ok(())
+        );
+    }
+}
+
+#[rstest]
+#[case(Medium::Ip)]
 #[cfg(all(feature = "socket-raw", feature = "medium-ip"))]
 #[case(Medium::Ethernet)]
 #[cfg(all(feature = "socket-raw", feature = "medium-ethernet"))]

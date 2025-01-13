@@ -478,6 +478,10 @@ pub struct RawHardwareAddress {
 
 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
 impl RawHardwareAddress {
+    /// Create a new `RawHardwareAddress` from a byte slice.
+    ///
+    /// # Panics
+    /// Panics if `addr.len() > MAX_HARDWARE_ADDRESS_LEN`.
     pub fn from_bytes(addr: &[u8]) -> Self {
         let mut data = [0u8; MAX_HARDWARE_ADDRESS_LEN];
         data[..addr.len()].copy_from_slice(addr);
@@ -504,7 +508,7 @@ impl RawHardwareAddress {
         match medium {
             #[cfg(feature = "medium-ethernet")]
             Medium::Ethernet => {
-                if self.len() < 6 {
+                if self.len() != 6 {
                     return Err(Error);
                 }
                 Ok(HardwareAddress::Ethernet(EthernetAddress::from_bytes(
@@ -513,7 +517,7 @@ impl RawHardwareAddress {
             }
             #[cfg(feature = "medium-ieee802154")]
             Medium::Ieee802154 => {
-                if self.len() < 8 {
+                if self.len() != 8 {
                     return Err(Error);
                 }
                 Ok(HardwareAddress::Ieee802154(Ieee802154Address::from_bytes(
@@ -557,5 +561,39 @@ impl From<Ieee802154Address> for RawHardwareAddress {
 impl From<HardwareAddress> for RawHardwareAddress {
     fn from(addr: HardwareAddress) -> Self {
         Self::from_bytes(addr.as_bytes())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+
+    #[rstest]
+    #[cfg(feature = "medium-ethernet")]
+    #[case((Medium::Ethernet, &[0u8; 6][..]), Ok(HardwareAddress::Ethernet(EthernetAddress([0, 0, 0, 0, 0, 0]))))]
+    #[cfg(feature = "medium-ethernet")]
+    #[case((Medium::Ethernet, &[1u8; 5][..]), Err(Error))]
+    #[cfg(feature = "medium-ethernet")]
+    #[case((Medium::Ethernet, &[1u8; 7][..]), Err(Error))]
+    #[cfg(feature = "medium-ieee802154")]
+    #[case((Medium::Ieee802154, &[0u8; 8][..]), Ok(HardwareAddress::Ieee802154(Ieee802154Address::Extended([0, 0, 0, 0, 0, 0, 0, 0]))))]
+    #[cfg(feature = "medium-ieee802154")]
+    #[case((Medium::Ieee802154, &[1u8; 2][..]), Err(Error))]
+    #[cfg(feature = "medium-ieee802154")]
+    #[case((Medium::Ieee802154, &[1u8; 1][..]), Err(Error))]
+    fn parse_hardware_address(
+        #[case] input: (Medium, &[u8]),
+        #[case] expected: Result<HardwareAddress>,
+    ) {
+        let (medium, input) = input;
+
+        // NOTE: we check the length since `RawHardwareAddress::parse()` panics if the length is
+        // invalid. MAX_HARDWARE_ADDRESS_LEN is based on the medium, and depending on the feature
+        // flags, it can be different.
+        if input.len() < MAX_HARDWARE_ADDRESS_LEN {
+            let raw = RawHardwareAddress::from_bytes(input);
+            assert_eq!(raw.parse(medium), expected);
+        }
     }
 }
