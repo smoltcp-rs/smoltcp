@@ -384,6 +384,7 @@ mod test {
     use crate::phy::Medium;
     use crate::tests::setup;
     use crate::wire::ethernet::EtherType;
+    use crate::wire::EthernetAddress;
 
     fn buffer(packets: usize) -> PacketBuffer<'static> {
         PacketBuffer::new(vec![PacketMetadata::EMPTY; packets], vec![0; 48 * packets])
@@ -405,6 +406,8 @@ mod test {
         0x12, 0x34,
         0xaa, 0x00, 0x00, 0xff,
     ];
+    pub const PACKET_RECEIVER: [u8; 6] = [0xaa, 0xbb, 0xcc, 0x12, 0x34, 0x56];
+    pub const PACKET_SENDER: [u8; 6] = [0xaa, 0xbb, 0xcc, 0x78, 0x90, 0x12];
     pub const PACKET_PAYLOAD: [u8; 4] = [0xaa, 0x00, 0x00, 0xff];
 
     #[test]
@@ -434,5 +437,35 @@ mod test {
             Ok(())
         );
         assert!(socket.can_send());
+    }
+
+    #[test]
+    fn test_recv() {
+        let (mut iface, _, _) = setup(Medium::Ethernet);
+        let cx = iface.context();
+        let mut socket = socket(buffer(1), buffer(1));
+
+        assert!(!socket.can_recv());
+        assert_eq!(socket.recv(), Err(RecvError::Exhausted));
+        assert_eq!(socket.peek(), Err(RecvError::Exhausted));
+
+        let frameinfo = EthernetRepr {
+            src_addr: EthernetAddress::from_bytes(&PACKET_SENDER),
+            dst_addr: EthernetAddress::from_bytes(&PACKET_RECEIVER),
+            ethertype: ETHER_TYPE.into(),
+        };
+
+        assert!(socket.accepts(&frameinfo));
+        socket.process(cx, &frameinfo, &PACKET_PAYLOAD);
+        assert!(socket.can_recv());
+
+        assert!(socket.accepts(&frameinfo));
+        socket.process(cx, &frameinfo, &PACKET_PAYLOAD);
+
+        assert_eq!(socket.peek(), Ok(&PACKET_BYTES[..]));
+        assert_eq!(socket.peek(), Ok(&PACKET_BYTES[..]));
+        assert_eq!(socket.recv(), Ok(&PACKET_BYTES[..]));
+        assert!(!socket.can_recv());
+        assert_eq!(socket.peek(), Err(RecvError::Exhausted));
     }
 }
