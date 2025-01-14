@@ -126,10 +126,7 @@ impl InterfaceInner {
                 // NOTE: according to the standard, the total length needs to be
                 // recomputed, as well as the checksum. However, we don't really use
                 // the IPv4 header after the packet is reassembled.
-                match f.assemble() {
-                    Some(payload) => payload,
-                    None => return None,
-                }
+                f.assemble()?
             } else {
                 ipv4_packet.payload()
             }
