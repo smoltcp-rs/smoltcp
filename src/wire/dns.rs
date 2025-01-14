@@ -410,7 +410,7 @@ pub struct Repr<'a> {
     pub question: Question<'a>,
 }
 
-impl<'a> Repr<'a> {
+impl Repr<'_> {
     /// Return the length of a packet that will be emitted from this high-level representation.
     pub const fn buffer_len(&self) -> usize {
         field::HEADER_END + self.question.buffer_len()

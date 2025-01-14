@@ -240,7 +240,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Ipv6Option<T> {
     }
 }
 
-impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Ipv6Option<&'a mut T> {
+impl<T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Ipv6Option<&mut T> {
     /// Return a mutable pointer to the option data.
     ///
     /// # Panics
@@ -253,7 +253,7 @@ impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Ipv6Option<&'a mut T> {
     }
 }
 
-impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Ipv6Option<&'a T> {
+impl<T: AsRef<[u8]> + ?Sized> fmt::Display for Ipv6Option<&T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match Repr::parse(self) {
             Ok(repr) => write!(f, "{repr}"),
@@ -425,7 +425,7 @@ impl<'a> Iterator for Ipv6OptionsIterator<'a> {
     }
 }
 
-impl<'a> fmt::Display for Repr<'a> {
+impl fmt::Display for Repr<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "IPv6 Option ")?;
         match *self {

@@ -92,7 +92,7 @@ pub struct RxToken<'a, Rx: phy::RxToken, F: Fuzzer + 'a> {
     token: Rx,
 }
 
-impl<'a, Rx: phy::RxToken, FRx: Fuzzer> phy::RxToken for RxToken<'a, Rx, FRx> {
+impl<Rx: phy::RxToken, FRx: Fuzzer> phy::RxToken for RxToken<'_, Rx, FRx> {
     fn consume<R, F>(self, f: F) -> R
     where
         F: FnOnce(&[u8]) -> R,
@@ -115,7 +115,7 @@ pub struct TxToken<'a, Tx: phy::TxToken, F: Fuzzer + 'a> {
     token: Tx,
 }
 
-impl<'a, Tx: phy::TxToken, FTx: Fuzzer> phy::TxToken for TxToken<'a, Tx, FTx> {
+impl<Tx: phy::TxToken, FTx: Fuzzer> phy::TxToken for TxToken<'_, Tx, FTx> {
     fn consume<R, F>(self, len: usize, f: F) -> R
     where
         F: FnOnce(&mut [u8]) -> R,

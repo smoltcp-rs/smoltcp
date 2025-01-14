@@ -332,7 +332,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Header<T> {
     }
 }
 
-impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Header<&'a T> {
+impl<T: AsRef<[u8]> + ?Sized> fmt::Display for Header<&T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match Repr::parse(self) {
             Ok(repr) => write!(f, "{repr}"),
@@ -435,7 +435,7 @@ impl<'a> Repr<'a> {
     }
 }
 
-impl<'a> fmt::Display for Repr<'a> {
+impl fmt::Display for Repr<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Repr::Type2 {

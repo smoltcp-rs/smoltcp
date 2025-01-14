@@ -352,7 +352,7 @@ impl<'a> AssemblerIter<'a> {
     }
 }
 
-impl<'a> Iterator for AssemblerIter<'a> {
+impl Iterator for AssemblerIter<'_> {
     type Item = (usize, usize);
 
     fn next(&mut self) -> Option<(usize, usize)> {

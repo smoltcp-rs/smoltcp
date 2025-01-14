@@ -686,10 +686,10 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> UdpNhcPacket<T> {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct UdpNhcRepr(pub UdpRepr);
 
-impl<'a> UdpNhcRepr {
+impl UdpNhcRepr {
     /// Parse a 6LoWPAN NHC UDP packet and return a high-level representation.
     pub fn parse<T: AsRef<[u8]> + ?Sized>(
-        packet: &UdpNhcPacket<&'a T>,
+        packet: &UdpNhcPacket<&T>,
         src_addr: &ipv6::Address,
         dst_addr: &ipv6::Address,
         checksum_caps: &ChecksumCapabilities,

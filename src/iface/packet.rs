@@ -223,7 +223,7 @@ pub(crate) enum IpPayload<'p> {
     Dhcpv4(UdpRepr, DhcpRepr<'p>),
 }
 
-impl<'p> IpPayload<'p> {
+impl IpPayload<'_> {
     #[cfg(feature = "proto-sixlowpan")]
     pub(crate) fn as_sixlowpan_next_header(&self) -> SixlowpanNextHeader {
         match self {

@@ -76,7 +76,7 @@ pub struct TxToken<'a> {
     queue: &'a mut VecDeque<Vec<u8>>,
 }
 
-impl<'a> phy::TxToken for TxToken<'a> {
+impl phy::TxToken for TxToken<'_> {
     fn consume<R, F>(self, len: usize, f: F) -> R
     where
         F: FnOnce(&mut [u8]) -> R,

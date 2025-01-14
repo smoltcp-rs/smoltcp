@@ -154,7 +154,7 @@ pub struct Packet<'a> {
     prefix: &'static str,
 }
 
-impl<'a> fmt::Display for Packet<'a> {
+impl fmt::Display for Packet<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut indent = PrettyIndent::new(self.prefix);
         match self.medium {

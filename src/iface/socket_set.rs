@@ -13,7 +13,7 @@ pub struct SocketStorage<'a> {
     inner: Option<Item<'a>>,
 }
 
-impl<'a> SocketStorage<'a> {
+impl SocketStorage<'_> {
     pub const EMPTY: Self = Self { inner: None };
 }
 

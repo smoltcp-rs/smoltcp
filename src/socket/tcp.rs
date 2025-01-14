@@ -2603,7 +2603,7 @@ impl<'a> Socket<'a> {
     }
 }
 
-impl<'a> fmt::Write for Socket<'a> {
+impl fmt::Write for Socket<'_> {
     fn write_str(&mut self, slice: &str) -> fmt::Result {
         let slice = slice.as_bytes();
         if self.send_slice(slice) == Ok(slice.len()) {

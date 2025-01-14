@@ -119,7 +119,7 @@ impl<'a, T: PrettyPrint + AsRef<[u8]>> PrettyPrinter<'a, T> {
     }
 }
 
-impl<'a, T: PrettyPrint> fmt::Display for PrettyPrinter<'a, T> {
+impl<T: PrettyPrint> fmt::Display for PrettyPrinter<'_, T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         T::pretty_print(&self.buffer, f, &mut PrettyIndent::new(self.prefix))
     }

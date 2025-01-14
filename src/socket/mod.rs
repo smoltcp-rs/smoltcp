@@ -71,7 +71,7 @@ pub enum Socket<'a> {
     Dns(dns::Socket<'a>),
 }
 
-impl<'a> Socket<'a> {
+impl Socket<'_> {
     pub(crate) fn poll_at(&self, cx: &mut Context) -> PollAt {
         match self {
             #[cfg(feature = "socket-raw")]

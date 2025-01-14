@@ -273,7 +273,7 @@ pub struct RxToken<'a> {
     meta: PacketMeta,
 }
 
-impl<'a> phy::RxToken for RxToken<'a> {
+impl phy::RxToken for RxToken<'_> {
     fn consume<R, F>(self, f: F) -> R
     where
         F: FnOnce(&[u8]) -> R,
@@ -295,7 +295,7 @@ pub struct TxToken<'a, Tx: phy::TxToken> {
     timestamp: Instant,
 }
 
-impl<'a, Tx: phy::TxToken> phy::TxToken for TxToken<'a, Tx> {
+impl<Tx: phy::TxToken> phy::TxToken for TxToken<'_, Tx> {
     fn consume<R, F>(mut self, len: usize, f: F) -> R
     where
         F: FnOnce(&mut [u8]) -> R,

@@ -62,7 +62,7 @@ pub enum AddressMode<'a> {
 const LINK_LOCAL_PREFIX: [u8; 2] = [0xfe, 0x80];
 const EUI64_MIDDLE_VALUE: [u8; 2] = [0xff, 0xfe];
 
-impl<'a> UnresolvedAddress<'a> {
+impl UnresolvedAddress<'_> {
     pub fn resolve(
         self,
         ll_address: Option<LlAddress>,
