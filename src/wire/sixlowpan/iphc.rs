@@ -154,24 +154,24 @@ impl<T: AsRef<[u8]>> Packet<T> {
         }
     }
 
-    /// Return the Source Context Identifier.
-    pub fn src_context_id(&self) -> Option<u8> {
+    /// Return the Context Identifier.
+    pub fn context_id(&self) -> Option<u8> {
         if self.cid_field() == 1 {
             let data = self.buffer.as_ref();
-            Some(data[2] >> 4)
+            Some(data[2])
         } else {
             None
         }
     }
 
+    /// Return the Source Context Identifier.
+    pub fn src_context_id(&self) -> Option<u8> {
+        self.context_id().map(|id| id >> 4)
+    }
+
     /// Return the Destination Context Identifier.
     pub fn dst_context_id(&self) -> Option<u8> {
-        if self.cid_field() == 1 {
-            let data = self.buffer.as_ref();
-            Some(data[2] & 0x0f)
-        } else {
-            None
-        }
+        self.context_id().map(|id| id & 0x0f)
     }
 
     /// Return the ECN field (when it is inlined).
@@ -739,8 +739,6 @@ impl Repr {
             return Err(Error);
         }
 
-        let mut context = 0u8;
-
         let src_addr = match packet.src_addr()? {
             UnresolvedAddress::WithoutContext(mode) => match mode {
                 AddressMode::FullInline(d) => SourceAddress::LinkLocal(
@@ -759,28 +757,25 @@ impl Repr {
                 AddressMode::Unspecified => SourceAddress::Unspecified,
                 AddressMode::NotSupported => unreachable!(),
             },
-            UnresolvedAddress::WithContext((cid, mode)) => {
-                context |= (cid << 4) as u8;
-                match mode {
-                    AddressMode::FullInline(d) => SourceAddress::LinkLocal(
-                        LinkLocalAddress::InLine128bits(d.try_into().map_err(|_| Error)?),
-                    ),
-                    AddressMode::InLine64bits(d) => SourceAddress::Contextual(
-                        ContextualAddress::InLine64bits(d.try_into().map_err(|_| Error)?),
-                    ),
-                    AddressMode::InLine16bits(d) => SourceAddress::Contextual(
-                        ContextualAddress::InLine16bits(d.try_into().map_err(|_| Error)?),
-                    ),
-                    AddressMode::FullyElided => {
-                        SourceAddress::Contextual(ContextualAddress::FullyElided)
-                    }
-                    AddressMode::Multicast48bits(_) => unreachable!(),
-                    AddressMode::Multicast32bits(_) => unreachable!(),
-                    AddressMode::Multicast8bits(_) => unreachable!(),
-                    AddressMode::Unspecified => SourceAddress::Unspecified,
-                    AddressMode::NotSupported => unreachable!(),
+            UnresolvedAddress::WithContext((_, mode)) => match mode {
+                AddressMode::FullInline(d) => SourceAddress::LinkLocal(
+                    LinkLocalAddress::InLine128bits(d.try_into().map_err(|_| Error)?),
+                ),
+                AddressMode::InLine64bits(d) => SourceAddress::Contextual(
+                    ContextualAddress::InLine64bits(d.try_into().map_err(|_| Error)?),
+                ),
+                AddressMode::InLine16bits(d) => SourceAddress::Contextual(
+                    ContextualAddress::InLine16bits(d.try_into().map_err(|_| Error)?),
+                ),
+                AddressMode::FullyElided => {
+                    SourceAddress::Contextual(ContextualAddress::FullyElided)
                 }
-            }
+                AddressMode::Multicast48bits(_) => unreachable!(),
+                AddressMode::Multicast32bits(_) => unreachable!(),
+                AddressMode::Multicast8bits(_) => unreachable!(),
+                AddressMode::Unspecified => SourceAddress::Unspecified,
+                AddressMode::NotSupported => unreachable!(),
+            },
             UnresolvedAddress::Reserved => unreachable!(),
         };
         let dst_addr = match packet.dst_addr()? {
@@ -809,41 +804,38 @@ impl Repr {
                 AddressMode::Unspecified => unreachable!(),
                 AddressMode::NotSupported => DestinationAddress::NotSupported,
             },
-            UnresolvedAddress::WithContext((cid, mode)) => {
-                context |= (cid & 0xF) as u8;
-                match mode {
-                    AddressMode::FullInline(d) => DestinationAddress::LinkLocal(
-                        LinkLocalAddress::InLine128bits(d.try_into().map_err(|_| Error)?),
-                    ),
-                    AddressMode::InLine64bits(d) => DestinationAddress::Contextual(
-                        ContextualAddress::InLine64bits(d.try_into().map_err(|_| Error)?),
-                    ),
-                    AddressMode::InLine16bits(d) => DestinationAddress::Contextual(
-                        ContextualAddress::InLine16bits(d.try_into().map_err(|_| Error)?),
-                    ),
-                    AddressMode::FullyElided => {
-                        DestinationAddress::Contextual(ContextualAddress::FullyElided)
-                    }
-                    AddressMode::Multicast48bits(d) => DestinationAddress::Multicast(
-                        MulticastAddress::Inline48bits(d.try_into().map_err(|_| Error)?),
-                    ),
-                    AddressMode::Multicast32bits(d) => DestinationAddress::Multicast(
-                        MulticastAddress::Inline32bits(d.try_into().map_err(|_| Error)?),
-                    ),
-                    AddressMode::Multicast8bits(d) => {
-                        DestinationAddress::Multicast(MulticastAddress::Inline8bits(d[0]))
-                    }
-                    AddressMode::Unspecified => unreachable!(),
-                    AddressMode::NotSupported => DestinationAddress::NotSupported,
+            UnresolvedAddress::WithContext((_, mode)) => match mode {
+                AddressMode::FullInline(d) => DestinationAddress::LinkLocal(
+                    LinkLocalAddress::InLine128bits(d.try_into().map_err(|_| Error)?),
+                ),
+                AddressMode::InLine64bits(d) => DestinationAddress::Contextual(
+                    ContextualAddress::InLine64bits(d.try_into().map_err(|_| Error)?),
+                ),
+                AddressMode::InLine16bits(d) => DestinationAddress::Contextual(
+                    ContextualAddress::InLine16bits(d.try_into().map_err(|_| Error)?),
+                ),
+                AddressMode::FullyElided => {
+                    DestinationAddress::Contextual(ContextualAddress::FullyElided)
                 }
-            }
+                AddressMode::Multicast48bits(d) => DestinationAddress::Multicast(
+                    MulticastAddress::Inline48bits(d.try_into().map_err(|_| Error)?),
+                ),
+                AddressMode::Multicast32bits(d) => DestinationAddress::Multicast(
+                    MulticastAddress::Inline32bits(d.try_into().map_err(|_| Error)?),
+                ),
+                AddressMode::Multicast8bits(d) => {
+                    DestinationAddress::Multicast(MulticastAddress::Inline8bits(d[0]))
+                }
+                AddressMode::Unspecified => unreachable!(),
+                AddressMode::NotSupported => DestinationAddress::NotSupported,
+            },
             UnresolvedAddress::Reserved => DestinationAddress::NotSupported,
         };
 
         Ok(Self {
             src_addr,
             dst_addr,
-            context_identifier: Some(context),
+            context_identifier: packet.src_context_id(),
             next_header: packet.next_header(),
             hop_limit: packet.hop_limit(),
             ecn: packet.ecn_field(),
