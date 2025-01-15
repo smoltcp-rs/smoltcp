@@ -748,6 +748,7 @@ fn decompress_ext_hdr<'d>(
 }
 
 // NOTE: we always inline this function into the sixlowpan_to_ipv6 function, since it is only used there.
+#[allow(clippy::too_many_arguments)]
 #[inline(always)]
 fn decompress_udp(
     address_context: &[SixlowpanAddressContext],

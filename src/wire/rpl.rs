@@ -2440,8 +2440,8 @@ mod tests {
             &mut buffer[..repr.buffer_len()],
         ));
         icmp_repr.emit(
-            &src_addr.into(),
-            &dst_addr.into(),
+            &src_addr,
+            &dst_addr,
             &mut Icmpv6Packet::new_unchecked(
                 &mut buffer[repr.buffer_len()..][..icmp_repr.buffer_len()],
             ),
