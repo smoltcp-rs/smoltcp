@@ -2,7 +2,10 @@ use core::fmt;
 
 use byteorder::{ByteOrder, LittleEndian};
 
-use super::{Error, Result};
+use super::{ipv6, Error, Result};
+use crate::wire::sixlowpan::{
+    DestinationAddress, LinkLocalAddress, MulticastAddress, SourceAddress,
+};
 use crate::wire::{Ipv6Address, Ipv6AddressExt};
 
 enum_with_unknown! {
@@ -1003,6 +1006,105 @@ impl Repr {
         if let Some(src_addr) = self.src_addr {
             frame.set_src_addr(src_addr);
         }
+    }
+}
+
+pub fn compress_source_address(
+    src_addr: ipv6::Address,
+    ll_src_addr: Option<Address>,
+) -> SourceAddress {
+    let src = src_addr.octets();
+
+    if src_addr == ipv6::Address::UNSPECIFIED {
+        SourceAddress::Unspecified
+    } else if src_addr.is_link_local() {
+        // We have a link local address.
+        // The remainder of the address can be elided when the context contains
+        // a 802.15.4 short address or a 802.15.4 extended address which can be
+        // converted to a eui64 address.
+        let is_eui_64 = ll_src_addr
+            .map(|addr| {
+                addr.as_eui_64()
+                    .map(|addr| addr[..] == src[8..])
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false);
+
+        if src[8..14] == [0, 0, 0, 0xff, 0xfe, 0] {
+            let ll = [src[14], src[15]];
+
+            if ll_src_addr == Some(crate::wire::ieee802154::Address::Short(ll)) {
+                // We have the context from the 802.15.4 frame.
+                // The context contains the short address.
+                // We can elide the source address.
+                SourceAddress::LinkLocal(LinkLocalAddress::FullyElided)
+            } else {
+                // We don't have the context from the 802.15.4 frame.
+                // We cannot elide the source address, however we can elide 112 bits.
+                SourceAddress::LinkLocal(LinkLocalAddress::InLine16bits(
+                    src[14..].try_into().unwrap(),
+                ))
+            }
+        } else if is_eui_64 {
+            // We have the context from the 802.15.4 frame.
+            // The context contains the extended address.
+            // We can elide the source address.
+            SourceAddress::LinkLocal(LinkLocalAddress::FullyElided)
+        } else {
+            // We cannot elide the source address, however we can elide 64 bits.
+            SourceAddress::LinkLocal(LinkLocalAddress::InLine64bits(src[8..].try_into().unwrap()))
+        }
+    } else {
+        // We cannot elide anything.
+        SourceAddress::LinkLocal(LinkLocalAddress::InLine128bits(src))
+    }
+}
+
+pub fn compress_destination_address(
+    dst_addr: ipv6::Address,
+    ll_dst_addr: Option<Address>,
+) -> DestinationAddress {
+    let dst = dst_addr.octets();
+    if dst_addr.is_multicast() {
+        if dst[1] == 0x02 && dst[2..15] == [0; 13] {
+            DestinationAddress::Multicast(MulticastAddress::Inline8bits(dst[15]))
+        } else if dst[2..13] == [0; 11] {
+            let address = [dst[1], dst[13], dst[14], dst[15]];
+            DestinationAddress::Multicast(MulticastAddress::Inline32bits(address))
+        } else if dst[2..11] == [0; 9] {
+            let address = [dst[1], dst[11], dst[12], dst[13], dst[14], dst[15]];
+            DestinationAddress::Multicast(MulticastAddress::Inline48bits(address))
+        } else {
+            DestinationAddress::Multicast(MulticastAddress::FullInline(dst))
+        }
+    } else if dst_addr.is_link_local() {
+        let is_eui_64 = ll_dst_addr
+            .map(|addr| {
+                addr.as_eui_64()
+                    .map(|addr| addr[..] == dst[8..])
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false);
+
+        if dst[8..14] == [0, 0, 0, 0xff, 0xfe, 0] {
+            let ll = [dst[14], dst[15]];
+
+            if ll_dst_addr == Some(crate::wire::ieee802154::Address::Short(ll)) {
+                DestinationAddress::LinkLocal(LinkLocalAddress::FullyElided)
+            } else {
+                DestinationAddress::LinkLocal(LinkLocalAddress::InLine16bits(
+                    dst[14..].try_into().unwrap(),
+                ))
+            }
+        } else if is_eui_64 {
+            DestinationAddress::LinkLocal(LinkLocalAddress::FullyElided)
+        } else {
+            DestinationAddress::LinkLocal(LinkLocalAddress::InLine64bits(
+                dst[8..].try_into().unwrap(),
+            ))
+        }
+    } else {
+        DestinationAddress::LinkLocal(LinkLocalAddress::InLine128bits(dst))
     }
 }
 

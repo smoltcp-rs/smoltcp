@@ -138,20 +138,29 @@ fn test_echo_request_sixlowpan_128_bytes() {
     let request_first_part_iphc_packet =
         SixlowpanIphcPacket::new_checked(request_first_part_packet.payload()).unwrap();
 
-    let request_first_part_iphc_repr = SixlowpanIphcRepr::parse(
-        &request_first_part_iphc_packet,
-        ieee802154_repr.src_addr,
-        ieee802154_repr.dst_addr,
-        &iface.inner.sixlowpan_address_context,
-    )
-    .unwrap();
+    let request_first_part_iphc_repr =
+        SixlowpanIphcRepr::parse(&request_first_part_iphc_packet).unwrap();
 
     assert_eq!(
-        request_first_part_iphc_repr.src_addr,
+        request_first_part_iphc_repr
+            .src_addr
+            .resolve(
+                ieee802154_repr.src_addr,
+                &iface.inner.sixlowpan_address_context,
+                request_first_part_iphc_repr.context_identifier
+            )
+            .unwrap(),
         Ipv6Address::new(0xfe80, 0, 0, 0, 0x4042, 0x4242, 0x4242, 0x0b1a),
     );
     assert_eq!(
-        request_first_part_iphc_repr.dst_addr,
+        request_first_part_iphc_repr
+            .dst_addr
+            .resolve(
+                ieee802154_repr.dst_addr,
+                &iface.inner.sixlowpan_address_context,
+                request_first_part_iphc_repr.context_identifier
+            )
+            .unwrap(),
         Ipv6Address::new(0xfe80, 0, 0, 0, 0x92fc, 0x48c2, 0xa441, 0xfc76),
     );
 

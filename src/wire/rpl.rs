@@ -2406,16 +2406,22 @@ mod tests {
         let ll_dst_address = Ieee802154Address::Short([0xff, 0xff]);
 
         let packet = SixlowpanIphcPacket::new_checked(&data).unwrap();
-        let repr =
-            SixlowpanIphcRepr::parse(&packet, Some(ll_src_address), Some(ll_dst_address), &[])
-                .unwrap();
+        let repr = SixlowpanIphcRepr::parse(&packet).unwrap();
+        let src_addr = &repr
+            .src_addr
+            .resolve(Some(ll_src_address), &[], repr.context_identifier)
+            .unwrap();
+        let dst_addr = &repr
+            .dst_addr
+            .resolve(Some(ll_dst_address), &[], repr.context_identifier)
+            .unwrap();
 
         let icmp_repr = match repr.next_header {
             SixlowpanNextHeader::Uncompressed(IpProtocol::Icmpv6) => {
                 let icmp_packet = Icmpv6Packet::new_checked(packet.payload()).unwrap();
                 match Icmpv6Repr::parse(
-                    &repr.src_addr,
-                    &repr.dst_addr,
+                    &src_addr,
+                    &dst_addr,
                     &icmp_packet,
                     &ChecksumCapabilities::ignored(),
                 ) {
@@ -2434,8 +2440,8 @@ mod tests {
             &mut buffer[..repr.buffer_len()],
         ));
         icmp_repr.emit(
-            &repr.src_addr.into(),
-            &repr.dst_addr.into(),
+            &src_addr.into(),
+            &dst_addr.into(),
             &mut Icmpv6Packet::new_unchecked(
                 &mut buffer[repr.buffer_len()..][..icmp_repr.buffer_len()],
             ),

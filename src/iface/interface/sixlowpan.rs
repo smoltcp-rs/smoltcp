@@ -1,4 +1,5 @@
 use super::*;
+use crate::wire::ieee802154::{compress_destination_address, compress_source_address};
 use crate::wire::Result;
 
 // Max len of non-fragmented packets after decompression (including ipv6 header and payload)
@@ -206,12 +207,7 @@ impl InterfaceInner {
         buffer: &mut [u8],
     ) -> Result<usize> {
         let iphc = SixlowpanIphcPacket::new_checked(iphc_payload)?;
-        let iphc_repr = SixlowpanIphcRepr::parse(
-            &iphc,
-            ieee802154_repr.src_addr,
-            ieee802154_repr.dst_addr,
-            address_context,
-        )?;
+        let iphc_repr = SixlowpanIphcRepr::parse(&iphc)?;
 
         // The first thing we have to decompress is the IPv6 header. However, at this point we
         // don't know the total size of the packet, neither the next header, since that can be a
@@ -245,6 +241,8 @@ impl InterfaceInner {
                     }
                     SixlowpanNhcPacket::UdpHeader => {
                         decompress_udp(
+                            address_context,
+                            ieee802154_repr,
                             data,
                             &iphc_repr,
                             buffer,
@@ -282,8 +280,16 @@ impl InterfaceInner {
         }
 
         let ipv6_repr = Ipv6Repr {
-            src_addr: iphc_repr.src_addr,
-            dst_addr: iphc_repr.dst_addr,
+            src_addr: iphc_repr.src_addr.resolve(
+                ieee802154_repr.src_addr,
+                address_context,
+                iphc_repr.context_identifier,
+            )?,
+            dst_addr: iphc_repr.dst_addr.resolve(
+                ieee802154_repr.dst_addr,
+                address_context,
+                iphc_repr.context_identifier,
+            )?,
             next_header: decompress_next_header(iphc_repr.next_header, iphc.payload())?,
             payload_len: total_len.unwrap_or(payload_len) - 40,
             hop_limit: iphc_repr.hop_limit,
@@ -446,10 +452,9 @@ impl InterfaceInner {
         };
 
         let iphc_repr = SixlowpanIphcRepr {
-            src_addr: packet.header.src_addr,
-            ll_src_addr: ieee_repr.src_addr,
-            dst_addr: packet.header.dst_addr,
-            ll_dst_addr: ieee_repr.dst_addr,
+            src_addr: compress_source_address(packet.header.src_addr, ieee_repr.src_addr),
+            dst_addr: compress_destination_address(packet.header.dst_addr, ieee_repr.dst_addr),
+            context_identifier: None,
             next_header,
             hop_limit: packet.header.hop_limit,
             ecn: None,
@@ -529,8 +534,8 @@ impl InterfaceInner {
                     &mut SixlowpanUdpNhcPacket::new_unchecked(
                         &mut buffer[..udp_repr.header_len() + payload.len()],
                     ),
-                    &iphc_repr.src_addr,
-                    &iphc_repr.dst_addr,
+                    &packet.header.src_addr,
+                    &packet.header.dst_addr,
                     payload.len(),
                     |buf| buf.copy_from_slice(payload),
                     checksum_caps,
@@ -581,10 +586,9 @@ impl InterfaceInner {
         };
 
         let iphc = SixlowpanIphcRepr {
-            src_addr: packet.header.src_addr,
-            ll_src_addr: ieee_repr.src_addr,
-            dst_addr: packet.header.dst_addr,
-            ll_dst_addr: ieee_repr.dst_addr,
+            src_addr: compress_source_address(packet.header.src_addr, ieee_repr.src_addr),
+            dst_addr: compress_destination_address(packet.header.dst_addr, ieee_repr.dst_addr),
+            context_identifier: None,
             next_header,
             hop_limit: packet.header.hop_limit,
             ecn: None,
@@ -746,6 +750,8 @@ fn decompress_ext_hdr<'d>(
 // NOTE: we always inline this function into the sixlowpan_to_ipv6 function, since it is only used there.
 #[inline(always)]
 fn decompress_udp(
+    address_context: &[SixlowpanAddressContext],
+    ieee802154_repr: &Ieee802154Repr,
     data: &[u8],
     iphc_repr: &SixlowpanIphcRepr,
     buffer: &mut [u8],
@@ -757,8 +763,16 @@ fn decompress_udp(
     let payload = udp_packet.payload();
     let udp_repr = SixlowpanUdpNhcRepr::parse(
         &udp_packet,
-        &iphc_repr.src_addr,
-        &iphc_repr.dst_addr,
+        &iphc_repr.src_addr.resolve(
+            ieee802154_repr.src_addr,
+            address_context,
+            iphc_repr.context_identifier,
+        )?,
+        &iphc_repr.dst_addr.resolve(
+            ieee802154_repr.dst_addr,
+            address_context,
+            iphc_repr.context_identifier,
+        )?,
         &ChecksumCapabilities::ignored(),
     )?;
     if udp_repr.header_len() + payload.len() > buffer.len() {

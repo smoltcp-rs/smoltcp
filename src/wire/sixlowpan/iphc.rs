@@ -4,9 +4,10 @@
 //! [RFC 6282 § 3.1]: https://datatracker.ietf.org/doc/html/rfc6282#section-3.1
 
 use super::{
-    AddressContext, AddressMode, Error, NextHeader, Result, UnresolvedAddress, DISPATCH_IPHC_HEADER,
+    AddressMode, ContextualAddress, DestinationAddress, Error, LinkLocalAddress, MulticastAddress,
+    NextHeader, Result, SourceAddress, UnresolvedAddress, DISPATCH_IPHC_HEADER,
 };
-use crate::wire::{ieee802154::Address as LlAddress, ipv6, ipv6::AddressExt, IpProtocol};
+use crate::wire::IpProtocol;
 use byteorder::{ByteOrder, NetworkEndian};
 
 mod field {
@@ -515,67 +516,71 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
         idx
     }
 
+    /// Set the Context Identifier Extension
+    ///
+    /// **NOTE**: `idx` is the offset at which the Next Header needs to be written to.
+    fn set_context_identifier(&mut self, cid: Option<u8>, mut idx: usize) -> usize {
+        if let Some(cid) = cid {
+            self.set_cid_field(1);
+            self.set_field(idx, &[cid]);
+            idx += 1;
+        } else {
+            self.set_cid_field(0);
+        }
+
+        idx
+    }
+
     /// Set the Source Address based on the IPv6 address and the Link-Local address.
     ///
     /// **NOTE**: `idx` is the offset at which the Next Header needs to be written to.
-    fn set_src_address(
-        &mut self,
-        src_addr: ipv6::Address,
-        ll_src_addr: Option<LlAddress>,
-        mut idx: usize,
-    ) -> usize {
-        self.set_cid_field(0);
-        self.set_sac_field(0);
-        let src = src_addr.octets();
-        if src_addr == ipv6::Address::UNSPECIFIED {
-            self.set_sac_field(1);
-            self.set_sam_field(0b00);
-        } else if src_addr.is_link_local() {
-            // We have a link local address.
-            // The remainder of the address can be elided when the context contains
-            // a 802.15.4 short address or a 802.15.4 extended address which can be
-            // converted to a eui64 address.
-            let is_eui_64 = ll_src_addr
-                .map(|addr| {
-                    addr.as_eui_64()
-                        .map(|addr| addr[..] == src[8..])
-                        .unwrap_or(false)
-                })
-                .unwrap_or(false);
-
-            if src[8..14] == [0, 0, 0, 0xff, 0xfe, 0] {
-                let ll = [src[14], src[15]];
-
-                if ll_src_addr == Some(LlAddress::Short(ll)) {
-                    // We have the context from the 802.15.4 frame.
-                    // The context contains the short address.
-                    // We can elide the source address.
-                    self.set_sam_field(0b11);
-                } else {
-                    // We don't have the context from the 802.15.4 frame.
-                    // We cannot elide the source address, however we can elide 112 bits.
-                    self.set_sam_field(0b10);
-
-                    self.set_field(idx, &src[14..]);
-                    idx += 2;
+    fn set_src_address(&mut self, src_addr: SourceAddress, mut idx: usize) -> usize {
+        match src_addr {
+            SourceAddress::LinkLocal(address) => {
+                self.set_sac_field(0);
+                match address {
+                    LinkLocalAddress::InLine128bits(address) => {
+                        self.set_sam_field(0b00);
+                        self.set_field(idx, &address);
+                        idx += address.len();
+                    }
+                    LinkLocalAddress::InLine64bits(address) => {
+                        self.set_sam_field(0b01);
+                        self.set_field(idx, &address);
+                        idx += address.len();
+                    }
+                    LinkLocalAddress::InLine16bits(address) => {
+                        self.set_sam_field(0b10);
+                        self.set_field(idx, &address);
+                        idx += address.len();
+                    }
+                    LinkLocalAddress::FullyElided => {
+                        self.set_sam_field(0b11);
+                    }
                 }
-            } else if is_eui_64 {
-                // We have the context from the 802.15.4 frame.
-                // The context contains the extended address.
-                // We can elide the source address.
-                self.set_sam_field(0b11);
-            } else {
-                // We cannot elide the source address, however we can elide 64 bits.
-                self.set_sam_field(0b01);
-
-                self.set_field(idx, &src[8..]);
-                idx += 8;
             }
-        } else {
-            // We cannot elide anything.
-            self.set_sam_field(0b00);
-            self.set_field(idx, &src);
-            idx += 16;
+            SourceAddress::Unspecified => {
+                self.set_sac_field(1);
+                self.set_sam_field(0b00);
+            }
+            SourceAddress::Contextual(address) => {
+                self.set_sac_field(1);
+                match address {
+                    ContextualAddress::InLine64bits(address) => {
+                        self.set_sam_field(0b01);
+                        self.set_field(idx, &address);
+                        idx += address.len();
+                    }
+                    ContextualAddress::InLine16bits(address) => {
+                        self.set_sam_field(0b10);
+                        self.set_field(idx, &address);
+                        idx += address.len();
+                    }
+                    ContextualAddress::FullyElided => {
+                        self.set_sam_field(0b11);
+                    }
+                }
+            }
         }
 
         idx
@@ -584,77 +589,85 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     /// Set the Destination Address based on the IPv6 address and the Link-Local address.
     ///
     /// **NOTE**: `idx` is the offset at which the Next Header needs to be written to.
-    fn set_dst_address(
-        &mut self,
-        dst_addr: ipv6::Address,
-        ll_dst_addr: Option<LlAddress>,
-        mut idx: usize,
-    ) -> usize {
-        self.set_dac_field(0);
-        self.set_dam_field(0);
-        self.set_m_field(0);
-        let dst = dst_addr.octets();
-        if dst_addr.is_multicast() {
-            self.set_m_field(1);
-
-            if dst[1] == 0x02 && dst[2..15] == [0; 13] {
-                self.set_dam_field(0b11);
-
-                self.set_field(idx, &[dst[15]]);
-                idx += 1;
-            } else if dst[2..13] == [0; 11] {
-                self.set_dam_field(0b10);
-
-                self.set_field(idx, &[dst[1]]);
-                idx += 1;
-                self.set_field(idx, &dst[13..]);
-                idx += 3;
-            } else if dst[2..11] == [0; 9] {
-                self.set_dam_field(0b01);
-
-                self.set_field(idx, &[dst[1]]);
-                idx += 1;
-                self.set_field(idx, &dst[11..]);
-                idx += 5;
-            } else {
-                self.set_dam_field(0b11);
-
-                self.set_field(idx, &dst);
-                idx += 16;
-            }
-        } else if dst_addr.is_link_local() {
-            let is_eui_64 = ll_dst_addr
-                .map(|addr| {
-                    addr.as_eui_64()
-                        .map(|addr| addr[..] == dst[8..])
-                        .unwrap_or(false)
-                })
-                .unwrap_or(false);
-
-            if dst[8..14] == [0, 0, 0, 0xff, 0xfe, 0] {
-                let ll = [dst[14], dst[15]];
-
-                if ll_dst_addr == Some(LlAddress::Short(ll)) {
-                    self.set_dam_field(0b11);
-                } else {
-                    self.set_dam_field(0b10);
-
-                    self.set_field(idx, &dst[14..]);
-                    idx += 2;
+    fn set_dst_address(&mut self, dst_addr: DestinationAddress, mut idx: usize) -> usize {
+        match dst_addr {
+            DestinationAddress::LinkLocal(address) => {
+                self.set_m_field(0);
+                self.set_dac_field(0);
+                match address {
+                    LinkLocalAddress::InLine128bits(address) => {
+                        self.set_dam_field(0b00);
+                        self.set_field(idx, &address);
+                        idx += address.len();
+                    }
+                    LinkLocalAddress::InLine64bits(address) => {
+                        self.set_dam_field(0b01);
+                        self.set_field(idx, &address);
+                        idx += address.len();
+                    }
+                    LinkLocalAddress::InLine16bits(address) => {
+                        self.set_dam_field(0b10);
+                        self.set_field(idx, &address);
+                        idx += address.len();
+                    }
+                    LinkLocalAddress::FullyElided => {
+                        self.set_dam_field(0b11);
+                    }
                 }
-            } else if is_eui_64 {
-                self.set_dam_field(0b11);
-            } else {
-                self.set_dam_field(0b01);
-
-                self.set_field(idx, &dst[8..]);
-                idx += 8;
             }
-        } else {
-            self.set_dam_field(0b00);
-
-            self.set_field(idx, &dst);
-            idx += 16;
+            DestinationAddress::Contextual(address) => {
+                self.set_m_field(0);
+                self.set_dac_field(1);
+                match address {
+                    ContextualAddress::InLine64bits(address) => {
+                        self.set_dam_field(0b01);
+                        self.set_field(idx, &address);
+                        idx += address.len();
+                    }
+                    ContextualAddress::InLine16bits(address) => {
+                        self.set_dam_field(0b10);
+                        self.set_field(idx, &address);
+                        idx += address.len();
+                    }
+                    ContextualAddress::FullyElided => {
+                        self.set_dam_field(0b11);
+                    }
+                }
+            }
+            DestinationAddress::NotSupported => unimplemented!(),
+            DestinationAddress::Multicast(address) => {
+                self.set_m_field(1);
+                self.set_dac_field(0);
+                match address {
+                    MulticastAddress::FullInline(address) => {
+                        self.set_dam_field(0b00);
+                        self.set_field(idx, &address);
+                        idx += address.len();
+                    }
+                    MulticastAddress::Inline48bits(address) => {
+                        self.set_dam_field(0b01);
+                        self.set_field(idx, &address);
+                        idx += address.len();
+                    }
+                    MulticastAddress::Inline32bits(address) => {
+                        self.set_dam_field(0b10);
+                        self.set_field(idx, &address);
+                        idx += address.len();
+                    }
+                    MulticastAddress::Inline8bits(address) => {
+                        self.set_dam_field(0b11);
+                        self.set_field(idx, &[address]);
+                        idx += 1;
+                    }
+                }
+            }
+            DestinationAddress::ContextualMulticast(address) => {
+                self.set_m_field(1);
+                self.set_dac_field(1);
+                self.set_dam_field(0b00);
+                self.set_field(idx, &address);
+                idx += address.len();
+            }
         }
 
         idx
@@ -680,10 +693,9 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
 /// A high-level representation of a 6LoWPAN IPHC header.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct Repr {
-    pub src_addr: ipv6::Address,
-    pub ll_src_addr: Option<LlAddress>,
-    pub dst_addr: ipv6::Address,
-    pub ll_dst_addr: Option<LlAddress>,
+    pub src_addr: SourceAddress,
+    pub dst_addr: DestinationAddress,
+    pub context_identifier: Option<u8>,
     pub next_header: NextHeader,
     pub hop_limit: u8,
     // TODO(thvdveld): refactor the following fields into something else
@@ -696,7 +708,7 @@ impl core::fmt::Display for Repr {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
-            "IPHC src={} dst={} nxt-hdr={} hop-limit={}",
+            "IPHC src={:?} dst={:?} nxt-hdr={} hop-limit={}",
             self.src_addr, self.dst_addr, self.next_header, self.hop_limit
         )
     }
@@ -718,15 +730,7 @@ impl defmt::Format for Repr {
 
 impl Repr {
     /// Parse a 6LoWPAN IPHC header and return a high-level representation.
-    ///
-    /// The `ll_src_addr` and `ll_dst_addr` are the link-local addresses used for resolving the
-    /// IPv6 packets.
-    pub fn parse<T: AsRef<[u8]> + ?Sized>(
-        packet: &Packet<&T>,
-        ll_src_addr: Option<LlAddress>,
-        ll_dst_addr: Option<LlAddress>,
-        addr_context: &[AddressContext],
-    ) -> Result<Self> {
+    pub fn parse<T: AsRef<[u8]> + ?Sized>(packet: &Packet<&T>) -> Result<Self> {
         // Ensure basic accessors will work.
         packet.check_len()?;
 
@@ -735,14 +739,111 @@ impl Repr {
             return Err(Error);
         }
 
-        let src_addr = packet.src_addr()?.resolve(ll_src_addr, addr_context)?;
-        let dst_addr = packet.dst_addr()?.resolve(ll_dst_addr, addr_context)?;
+        let mut context = 0u8;
+
+        let src_addr = match packet.src_addr()? {
+            UnresolvedAddress::WithoutContext(mode) => match mode {
+                AddressMode::FullInline(d) => SourceAddress::LinkLocal(
+                    LinkLocalAddress::InLine128bits(d.try_into().map_err(|_| Error)?),
+                ),
+                AddressMode::InLine64bits(d) => SourceAddress::LinkLocal(
+                    LinkLocalAddress::InLine64bits(d.try_into().map_err(|_| Error)?),
+                ),
+                AddressMode::InLine16bits(d) => SourceAddress::LinkLocal(
+                    LinkLocalAddress::InLine16bits(d.try_into().map_err(|_| Error)?),
+                ),
+                AddressMode::FullyElided => SourceAddress::LinkLocal(LinkLocalAddress::FullyElided),
+                AddressMode::Multicast48bits(_) => unreachable!(),
+                AddressMode::Multicast32bits(_) => unreachable!(),
+                AddressMode::Multicast8bits(_) => unreachable!(),
+                AddressMode::Unspecified => SourceAddress::Unspecified,
+                AddressMode::NotSupported => unreachable!(),
+            },
+            UnresolvedAddress::WithContext((cid, mode)) => {
+                context |= (cid << 4) as u8;
+                match mode {
+                    AddressMode::FullInline(d) => SourceAddress::LinkLocal(
+                        LinkLocalAddress::InLine128bits(d.try_into().map_err(|_| Error)?),
+                    ),
+                    AddressMode::InLine64bits(d) => SourceAddress::Contextual(
+                        ContextualAddress::InLine64bits(d.try_into().map_err(|_| Error)?),
+                    ),
+                    AddressMode::InLine16bits(d) => SourceAddress::Contextual(
+                        ContextualAddress::InLine16bits(d.try_into().map_err(|_| Error)?),
+                    ),
+                    AddressMode::FullyElided => {
+                        SourceAddress::Contextual(ContextualAddress::FullyElided)
+                    }
+                    AddressMode::Multicast48bits(_) => unreachable!(),
+                    AddressMode::Multicast32bits(_) => unreachable!(),
+                    AddressMode::Multicast8bits(_) => unreachable!(),
+                    AddressMode::Unspecified => SourceAddress::Unspecified,
+                    AddressMode::NotSupported => unreachable!(),
+                }
+            }
+            UnresolvedAddress::Reserved => unreachable!(),
+        };
+        let dst_addr = match packet.dst_addr()? {
+            UnresolvedAddress::WithoutContext(mode) => match mode {
+                AddressMode::FullInline(d) => DestinationAddress::LinkLocal(
+                    LinkLocalAddress::InLine128bits(d.try_into().map_err(|_| Error)?),
+                ),
+                AddressMode::InLine64bits(d) => DestinationAddress::LinkLocal(
+                    LinkLocalAddress::InLine64bits(d.try_into().map_err(|_| Error)?),
+                ),
+                AddressMode::InLine16bits(d) => DestinationAddress::LinkLocal(
+                    LinkLocalAddress::InLine16bits(d.try_into().map_err(|_| Error)?),
+                ),
+                AddressMode::FullyElided => {
+                    DestinationAddress::LinkLocal(LinkLocalAddress::FullyElided)
+                }
+                AddressMode::Multicast48bits(d) => DestinationAddress::Multicast(
+                    MulticastAddress::Inline48bits(d.try_into().map_err(|_| Error)?),
+                ),
+                AddressMode::Multicast32bits(d) => DestinationAddress::Multicast(
+                    MulticastAddress::Inline32bits(d.try_into().map_err(|_| Error)?),
+                ),
+                AddressMode::Multicast8bits(d) => {
+                    DestinationAddress::Multicast(MulticastAddress::Inline8bits(d[0]))
+                }
+                AddressMode::Unspecified => unreachable!(),
+                AddressMode::NotSupported => DestinationAddress::NotSupported,
+            },
+            UnresolvedAddress::WithContext((cid, mode)) => {
+                context |= (cid & 0xF) as u8;
+                match mode {
+                    AddressMode::FullInline(d) => DestinationAddress::LinkLocal(
+                        LinkLocalAddress::InLine128bits(d.try_into().map_err(|_| Error)?),
+                    ),
+                    AddressMode::InLine64bits(d) => DestinationAddress::Contextual(
+                        ContextualAddress::InLine64bits(d.try_into().map_err(|_| Error)?),
+                    ),
+                    AddressMode::InLine16bits(d) => DestinationAddress::Contextual(
+                        ContextualAddress::InLine16bits(d.try_into().map_err(|_| Error)?),
+                    ),
+                    AddressMode::FullyElided => {
+                        DestinationAddress::Contextual(ContextualAddress::FullyElided)
+                    }
+                    AddressMode::Multicast48bits(d) => DestinationAddress::Multicast(
+                        MulticastAddress::Inline48bits(d.try_into().map_err(|_| Error)?),
+                    ),
+                    AddressMode::Multicast32bits(d) => DestinationAddress::Multicast(
+                        MulticastAddress::Inline32bits(d.try_into().map_err(|_| Error)?),
+                    ),
+                    AddressMode::Multicast8bits(d) => {
+                        DestinationAddress::Multicast(MulticastAddress::Inline8bits(d[0]))
+                    }
+                    AddressMode::Unspecified => unreachable!(),
+                    AddressMode::NotSupported => DestinationAddress::NotSupported,
+                }
+            }
+            UnresolvedAddress::Reserved => DestinationAddress::NotSupported,
+        };
 
         Ok(Self {
             src_addr,
-            ll_src_addr,
             dst_addr,
-            ll_dst_addr,
+            context_identifier: Some(context),
             next_header: packet.next_header(),
             hop_limit: packet.hop_limit(),
             ecn: packet.ecn_field(),
@@ -767,74 +868,48 @@ impl Repr {
             _ => 1,
         };
 
+        len += match self.context_identifier {
+            None => 0,
+            Some(_) => 1,
+        };
+
         // Add the length of the source address
-        len += if self.src_addr == ipv6::Address::UNSPECIFIED {
-            0
-        } else if self.src_addr.is_link_local() {
-            let src = self.src_addr.octets();
-            let ll = [src[14], src[15]];
-
-            let is_eui_64 = self
-                .ll_src_addr
-                .map(|addr| {
-                    addr.as_eui_64()
-                        .map(|addr| addr[..] == src[8..])
-                        .unwrap_or(false)
-                })
-                .unwrap_or(false);
-
-            if src[8..14] == [0, 0, 0, 0xff, 0xfe, 0] {
-                if self.ll_src_addr == Some(LlAddress::Short(ll)) {
-                    0
-                } else {
-                    2
-                }
-            } else if is_eui_64 {
-                0
-            } else {
-                8
-            }
-        } else {
-            16
+        len += match self.src_addr {
+            SourceAddress::LinkLocal(address) => match address {
+                LinkLocalAddress::InLine128bits(a) => a.len(),
+                LinkLocalAddress::InLine64bits(a) => a.len(),
+                LinkLocalAddress::InLine16bits(a) => a.len(),
+                LinkLocalAddress::FullyElided => 0,
+            },
+            SourceAddress::Unspecified => 0,
+            SourceAddress::Contextual(address) => match address {
+                ContextualAddress::InLine64bits(a) => a.len(),
+                ContextualAddress::InLine16bits(a) => a.len(),
+                ContextualAddress::FullyElided => 0,
+            },
         };
 
         // Add the size of the destination header
-        let dst = self.dst_addr.octets();
-        len += if self.dst_addr.is_multicast() {
-            if dst[1] == 0x02 && dst[2..15] == [0; 13] {
-                1
-            } else if dst[2..13] == [0; 11] {
-                4
-            } else if dst[2..11] == [0; 9] {
-                6
-            } else {
-                16
-            }
-        } else if self.dst_addr.is_link_local() {
-            let is_eui_64 = self
-                .ll_dst_addr
-                .map(|addr| {
-                    addr.as_eui_64()
-                        .map(|addr| addr[..] == dst[8..])
-                        .unwrap_or(false)
-                })
-                .unwrap_or(false);
-
-            if dst[8..14] == [0, 0, 0, 0xff, 0xfe, 0] {
-                let ll = [dst[14], dst[15]];
-
-                if self.ll_dst_addr == Some(LlAddress::Short(ll)) {
-                    0
-                } else {
-                    2
-                }
-            } else if is_eui_64 {
-                0
-            } else {
-                8
-            }
-        } else {
-            16
+        len += match self.dst_addr {
+            DestinationAddress::LinkLocal(address) => match address {
+                LinkLocalAddress::InLine128bits(a) => a.len(),
+                LinkLocalAddress::InLine64bits(a) => a.len(),
+                LinkLocalAddress::InLine16bits(a) => a.len(),
+                LinkLocalAddress::FullyElided => 0,
+            },
+            DestinationAddress::Contextual(address) => match address {
+                ContextualAddress::InLine64bits(a) => a.len(),
+                ContextualAddress::InLine16bits(a) => a.len(),
+                ContextualAddress::FullyElided => 0,
+            },
+            DestinationAddress::NotSupported => unimplemented!(),
+            DestinationAddress::Multicast(address) => match address {
+                MulticastAddress::FullInline(a) => a.len(),
+                MulticastAddress::Inline48bits(a) => a.len(),
+                MulticastAddress::Inline32bits(a) => a.len(),
+                MulticastAddress::Inline8bits(_) => 1,
+            },
+            DestinationAddress::ContextualMulticast(a) => a.len(),
         };
 
         len += match (self.ecn, self.dscp, self.flow_label) {
@@ -859,8 +934,9 @@ impl Repr {
 
         let idx = packet.set_next_header(self.next_header, idx);
         let idx = packet.set_hop_limit(self.hop_limit, idx);
-        let idx = packet.set_src_address(self.src_addr, self.ll_src_addr, idx);
-        packet.set_dst_address(self.dst_addr, self.ll_dst_addr, idx);
+        let idx = packet.set_context_identifier(self.context_identifier, idx);
+        let idx = packet.set_src_address(self.src_addr, idx);
+        packet.set_dst_address(self.dst_addr, idx);
     }
 }
 
