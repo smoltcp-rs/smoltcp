@@ -439,7 +439,8 @@ impl Interface {
     /// If this is a concern for your application (i.e. your environment doesn't
     /// have preemptive scheduling, or `poll()` is called from a main loop where
     /// other important things are processed), you may use the lower-level methods
-    /// [`poll_egress()`](Self::poll_egress) and [`poll_ingress_single()`](Self::poll_ingress_single).
+    /// [`poll_egress()`](Self::poll_egress), [`poll_maintenance()`](Self::poll_maintenance)
+    /// and [`poll_ingress_single()`](Self::poll_ingress_single).
     /// This allows you to insert yields or process other events between processing
     /// individual ingress packets.
     pub fn poll(
@@ -452,8 +453,7 @@ impl Interface {
 
         let mut res = PollResult::None;
 
-        #[cfg(feature = "_proto-fragmentation")]
-        self.fragments.assembler.remove_expired(timestamp);
+        self.poll_maintenance(timestamp);
 
         // Process ingress while there's packets available.
         loop {
@@ -527,6 +527,16 @@ impl Interface {
         self.fragments.assembler.remove_expired(timestamp);
 
         self.socket_ingress(device, sockets)
+    }
+
+    /// Maintain stateful processing on the device.
+    ///
+    /// This is guaranteed to always perform a bounded amount of work.
+    pub fn poll_maintenance(&mut self, timestamp: Instant) {
+        self.inner.now = timestamp;
+
+        #[cfg(feature = "_proto-fragmentation")]
+        self.fragments.assembler.remove_expired(timestamp);
     }
 
     /// Return a _soft deadline_ for calling [poll] the next time.
