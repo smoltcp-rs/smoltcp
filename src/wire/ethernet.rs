@@ -65,6 +65,17 @@ impl Address {
     pub const fn is_local(&self) -> bool {
         self.0[0] & 0x02 != 0
     }
+
+    /// Convert the address to an Extended Unique Identifier (EUI-64)
+    pub fn as_eui_64(&self) -> Option<[u8; 8]> {
+        let mut bytes = [0; 8];
+        bytes[0..3].copy_from_slice(&self.0[0..3]);
+        bytes[3] = 0xFF;
+        bytes[4] = 0xFE;
+        bytes[5..8].copy_from_slice(&self.0[3..6]);
+        bytes[0] ^= 1 << 1;
+        Some(bytes)
+    }
 }
 
 impl fmt::Display for Address {
