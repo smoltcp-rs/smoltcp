@@ -252,7 +252,7 @@ impl Cidr {
     ///
     /// # Panics
     /// This function panics if the given prefix length is invalid for the given address.
-    pub fn new(addr: Address, prefix_len: u8) -> Cidr {
+    pub const fn new(addr: Address, prefix_len: u8) -> Cidr {
         match addr {
             #[cfg(feature = "proto-ipv4")]
             Address::Ipv4(addr) => Cidr::Ipv4(Ipv4Cidr::new(addr, prefix_len)),
