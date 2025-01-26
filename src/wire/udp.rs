@@ -101,6 +101,23 @@ impl<T: AsRef<[u8]>> Packet<T> {
         NetworkEndian::read_u16(&data[field::CHECKSUM])
     }
 
+    /// Validate the partial packet checksum.
+    ///
+    /// # Panics
+    /// This function panics unless `src_addr` and `dst_addr` belong to the same family,
+    /// and that family is IPv4 or IPv6.
+    ///
+    /// # Fuzzing
+    /// This function always returns `true` when fuzzing.
+    pub fn verify_partial_checksum(&self, src_addr: &IpAddress, dst_addr: &IpAddress) -> bool {
+        if cfg!(fuzzing) {
+            return true;
+        }
+
+        checksum::pseudo_header(src_addr, dst_addr, IpProtocol::Udp, self.len() as u32)
+            == self.checksum()
+    }
+
     /// Validate the packet checksum.
     ///
     /// # Panics
