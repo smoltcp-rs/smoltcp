@@ -1299,16 +1299,24 @@ impl InterfaceInner {
             }
             // We don't support IPv6 fragmentation yet.
             #[cfg(feature = "proto-ipv6")]
-            IpRepr::Ipv6(_) => tx_token.consume(total_len, |mut tx_buffer| {
-                #[cfg(feature = "medium-ethernet")]
-                if matches!(self.caps.medium, Medium::Ethernet) {
-                    emit_ethernet(&ip_repr, tx_buffer)?;
-                    tx_buffer = &mut tx_buffer[EthernetFrame::<&[u8]>::header_len()..];
-                }
+            IpRepr::Ipv6(_) => {
+                // Check if we need to fragment it.
+                if total_ip_len > self.caps.ip_mtu() {
+                    net_debug!("IPv6 fragmentation support is unimplemented. Dropping.");
+                    Ok(())
+                } else {
+                    tx_token.consume(total_len, |mut tx_buffer| {
+                        #[cfg(feature = "medium-ethernet")]
+                        if matches!(self.caps.medium, Medium::Ethernet) {
+                            emit_ethernet(&ip_repr, tx_buffer)?;
+                            tx_buffer = &mut tx_buffer[EthernetFrame::<&[u8]>::header_len()..];
+                        }
 
-                emit_ip(&ip_repr, tx_buffer);
-                Ok(())
-            }),
+                        emit_ip(&ip_repr, tx_buffer);
+                        Ok(())
+                    })
+                }
+            }
         }
     }
 }
