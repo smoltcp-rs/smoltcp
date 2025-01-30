@@ -168,6 +168,297 @@ impl<'a> UnresolvedAddress<'a> {
     }
 }
 
+impl SourceAddress {
+    pub fn resolve(
+        self,
+        ll_address: Option<LlAddress>,
+        addr_context: &[AddressContext],
+        context_identifier: Option<u8>,
+    ) -> Result<ipv6::Address> {
+        let mut bytes = [0; 16];
+
+        let copy_context = |bytes: &mut [u8]| -> Result<()> {
+            let index = (context_identifier.unwrap_or(0) >> 4) as usize;
+            if index >= addr_context.len() {
+                return Err(Error);
+            }
+
+            let context = addr_context[index];
+            bytes[..ADDRESS_CONTEXT_LENGTH].copy_from_slice(&context.0);
+
+            Ok(())
+        };
+
+        match self {
+            SourceAddress::LinkLocal(address) => match address {
+                LinkLocalAddress::InLine128bits(addr) => Ok(ipv6::Address::from_bytes(&addr)),
+                LinkLocalAddress::InLine64bits(addr) => {
+                    bytes[0..2].copy_from_slice(&LINK_LOCAL_PREFIX[..]);
+                    bytes[8..].copy_from_slice(&addr);
+                    Ok(ipv6::Address::from_bytes(&bytes[..]))
+                }
+                LinkLocalAddress::InLine16bits(addr) => {
+                    bytes[0..2].copy_from_slice(&LINK_LOCAL_PREFIX[..]);
+                    bytes[11..13].copy_from_slice(&EUI64_MIDDLE_VALUE[..]);
+                    bytes[14..].copy_from_slice(&addr);
+                    Ok(ipv6::Address::from_bytes(&bytes[..]))
+                }
+                LinkLocalAddress::FullyElided => {
+                    bytes[0..2].copy_from_slice(&LINK_LOCAL_PREFIX[..]);
+                    match ll_address {
+                        Some(LlAddress::Short(ll)) => {
+                            bytes[11..13].copy_from_slice(&EUI64_MIDDLE_VALUE[..]);
+                            bytes[14..].copy_from_slice(&ll);
+                        }
+                        Some(addr @ LlAddress::Extended(_)) => match addr.as_eui_64() {
+                            Some(addr) => bytes[8..].copy_from_slice(&addr),
+                            None => return Err(Error),
+                        },
+                        Some(LlAddress::Absent) => return Err(Error),
+                        None => return Err(Error),
+                    }
+                    Ok(ipv6::Address::from_bytes(&bytes[..]))
+                }
+            },
+            SourceAddress::Unspecified => Ok(ipv6::Address::UNSPECIFIED),
+            SourceAddress::Contextual(address) => match address {
+                ContextualAddress::InLine64bits(addr) => {
+                    copy_context(&mut bytes[..])?;
+                    bytes[16 - addr.len()..].copy_from_slice(&addr);
+                    Ok(ipv6::Address::from_bytes(&bytes[..]))
+                }
+                ContextualAddress::InLine16bits(addr) => {
+                    copy_context(&mut bytes[..])?;
+                    bytes[16 - addr.len()..].copy_from_slice(&addr);
+                    Ok(ipv6::Address::from_bytes(&bytes[..]))
+                }
+                ContextualAddress::FullyElided => {
+                    match ll_address {
+                        Some(LlAddress::Short(ll)) => {
+                            bytes[11..13].copy_from_slice(&EUI64_MIDDLE_VALUE[..]);
+                            bytes[14..].copy_from_slice(&ll);
+                        }
+                        Some(addr @ LlAddress::Extended(_)) => match addr.as_eui_64() {
+                            Some(addr) => bytes[8..].copy_from_slice(&addr),
+                            None => return Err(Error),
+                        },
+                        Some(LlAddress::Absent) => return Err(Error),
+                        None => return Err(Error),
+                    }
+
+                    copy_context(&mut bytes[..])?;
+
+                    Ok(ipv6::Address::from_bytes(&bytes[..]))
+                }
+            },
+        }
+    }
+}
+
+impl DestinationAddress {
+    pub fn resolve(
+        self,
+        ll_address: Option<LlAddress>,
+        addr_context: &[AddressContext],
+        context_identifier: Option<u8>,
+    ) -> Result<ipv6::Address> {
+        let mut bytes = [0; 16];
+
+        let copy_context = |bytes: &mut [u8]| -> Result<()> {
+            let index = (context_identifier.unwrap_or(0) & 0xF) as usize;
+            if index >= addr_context.len() {
+                return Err(Error);
+            }
+
+            let context = addr_context[index];
+            bytes[..ADDRESS_CONTEXT_LENGTH].copy_from_slice(&context.0);
+
+            Ok(())
+        };
+
+        match self {
+            DestinationAddress::LinkLocal(address) => match address {
+                LinkLocalAddress::InLine128bits(addr) => Ok(ipv6::Address::from_bytes(&addr)),
+                LinkLocalAddress::InLine64bits(addr) => {
+                    bytes[0..2].copy_from_slice(&LINK_LOCAL_PREFIX[..]);
+                    bytes[8..].copy_from_slice(&addr);
+                    Ok(ipv6::Address::from_bytes(&bytes[..]))
+                }
+                LinkLocalAddress::InLine16bits(addr) => {
+                    bytes[0..2].copy_from_slice(&LINK_LOCAL_PREFIX[..]);
+                    bytes[11..13].copy_from_slice(&EUI64_MIDDLE_VALUE[..]);
+                    bytes[14..].copy_from_slice(&addr);
+                    Ok(ipv6::Address::from_bytes(&bytes[..]))
+                }
+                LinkLocalAddress::FullyElided => {
+                    bytes[0..2].copy_from_slice(&LINK_LOCAL_PREFIX[..]);
+                    match ll_address {
+                        Some(LlAddress::Short(ll)) => {
+                            bytes[11..13].copy_from_slice(&EUI64_MIDDLE_VALUE[..]);
+                            bytes[14..].copy_from_slice(&ll);
+                        }
+                        Some(addr @ LlAddress::Extended(_)) => match addr.as_eui_64() {
+                            Some(addr) => bytes[8..].copy_from_slice(&addr),
+                            None => return Err(Error),
+                        },
+                        Some(LlAddress::Absent) => return Err(Error),
+                        None => return Err(Error),
+                    }
+                    Ok(ipv6::Address::from_bytes(&bytes[..]))
+                }
+            },
+            DestinationAddress::Contextual(address) => match address {
+                ContextualAddress::InLine64bits(addr) => {
+                    copy_context(&mut bytes[..])?;
+                    bytes[16 - addr.len()..].copy_from_slice(&addr);
+                    Ok(ipv6::Address::from_bytes(&bytes[..]))
+                }
+                ContextualAddress::InLine16bits(addr) => {
+                    copy_context(&mut bytes[..])?;
+                    bytes[16 - addr.len()..].copy_from_slice(&addr);
+                    Ok(ipv6::Address::from_bytes(&bytes[..]))
+                }
+                ContextualAddress::FullyElided => {
+                    match ll_address {
+                        Some(LlAddress::Short(ll)) => {
+                            bytes[11..13].copy_from_slice(&EUI64_MIDDLE_VALUE[..]);
+                            bytes[14..].copy_from_slice(&ll);
+                        }
+                        Some(addr @ LlAddress::Extended(_)) => match addr.as_eui_64() {
+                            Some(addr) => bytes[8..].copy_from_slice(&addr),
+                            None => return Err(Error),
+                        },
+                        Some(LlAddress::Absent) => return Err(Error),
+                        None => return Err(Error),
+                    }
+
+                    copy_context(&mut bytes[..])?;
+
+                    Ok(ipv6::Address::from_bytes(&bytes[..]))
+                }
+            },
+            DestinationAddress::NotSupported => Err(Error),
+            DestinationAddress::Multicast(address) => match address {
+                MulticastAddress::FullInline(addr) => Ok(ipv6::Address::from_bytes(&addr)),
+                MulticastAddress::Inline48bits(addr) => {
+                    bytes[0] = 0xff;
+                    bytes[1] = addr[0];
+                    bytes[11..].copy_from_slice(&addr[1..][..5]);
+                    Ok(ipv6::Address::from_bytes(&bytes[..]))
+                }
+                MulticastAddress::Inline32bits(addr) => {
+                    bytes[0] = 0xff;
+                    bytes[1] = addr[0];
+                    bytes[13..].copy_from_slice(&addr[1..][..3]);
+                    Ok(ipv6::Address::from_bytes(&bytes[..]))
+                }
+                MulticastAddress::Inline8bits(addr) => {
+                    bytes[0] = 0xff;
+                    bytes[1] = 0x02;
+                    bytes[15] = addr;
+                    Ok(ipv6::Address::from_bytes(&bytes[..]))
+                }
+            },
+            DestinationAddress::ContextualMulticast(addr) => {
+                bytes[3] = ADDRESS_CONTEXT_LENGTH as _;
+                copy_context(&mut bytes[4..])?;
+                bytes[0] = 0xff;
+                bytes[1] = addr[0];
+                bytes[2] = addr[1];
+                bytes[12] = addr[2];
+                bytes[13] = addr[3];
+                bytes[14] = addr[4];
+                bytes[15] = addr[5];
+
+                Ok(ipv6::Address::from_bytes(&bytes[..]))
+            }
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum LinkLocalAddress {
+    /// The full address is carried in-line.
+    InLine128bits([u8; 16]),
+    /// The first 64-bits of the address are elided. The value of those bits
+    /// is the link-local prefix padded with zeros. The remaining 64 bits are
+    /// carried in-line.
+    InLine64bits([u8; 8]),
+    /// The first 112 bits of the address are elided. The value of the first
+    /// 64 bits is the link-local prefix padded with zeros. The following 64 bits
+    /// are 0000:00ff:fe00:XXXX, where XXXX are the 16 bits carried in-line.
+    InLine16bits([u8; 2]),
+    /// The address is fully elided. The first 64 bits of the address are
+    /// the link-local prefix padded with zeros. The remaining 64 bits are
+    /// computed from the encapsulating header (e.g., 802.15.4 or IPv6 address)
+    /// as specified in Section 3.2.2.
+    FullyElided,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum ContextualAddress {
+    /// The address is derived using context information and the 64 bits carried in-line.
+    /// Bits covered by context information are always used. Any IID bits not covered by
+    /// context information are taken directly from the corresponding bits carried in-line.
+    /// Any remaining bits are zero.
+    InLine64bits([u8; 8]),
+    /// The address is derived using context information and the 16 bits carried in-line.
+    /// Bits covered by context information are always used.
+    /// Any IID bits not covered by context information are taken directly from their
+    /// corresponding bits in the 16-bit to IID mapping given by 0000:00ff:fe00:XXXX,
+    /// where XXXX are the 16 bits carried in-line.
+    /// Any remaining bits are zero.
+    InLine16bits([u8; 2]),
+    /// The address is fully elided and is derived using context information and
+    /// the encapsulating header (e.g., 802.15.4 or IPv6 source address).
+    /// Bits covered by context information are always used.
+    /// Any IID bits not covered by context information are computed from
+    /// the encapsulating header as specified in Section 3.2.2.
+    /// Any remaining bits are zero.
+    FullyElided,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum SourceAddress {
+    LinkLocal(LinkLocalAddress),
+    /// The UNSPECIFIED address, ::
+    Unspecified,
+    Contextual(ContextualAddress),
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum MulticastAddress {
+    /// The full address is carried in-line.
+    FullInline([u8; 16]),
+    /// The address takes the form ffXX::00XX:XXXX:XXXX.
+    Inline48bits([u8; 6]),
+    /// The address takes the form ffXX::00XX:XXXX.
+    Inline32bits([u8; 4]),
+    /// The address takes the form ff02::00XX.
+    Inline8bits(u8),
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum DestinationAddress {
+    LinkLocal(LinkLocalAddress),
+    Contextual(ContextualAddress),
+    NotSupported,
+    Multicast(MulticastAddress),
+    /// This format is designed to match Unicast-Prefix-based IPv6 Multicast Addresses
+    /// as defined in [RFC3306] and [RFC3956]. The multicast address takes the
+    /// form ffXX:XXLL:PPPP:PPPP:PPPP:PPPP:XXXX:XXXX. where the X are the nibbles
+    /// that are carried in-line, in the order in which they appear in this format.
+    /// P denotes nibbles used to encode the prefix itself.
+    /// L denotes nibbles used to encode the prefix length.
+    /// The prefix information P and L is taken from the specified context.
+    ContextualMulticast([u8; 6]),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum SixlowpanPacket {
