@@ -351,5 +351,9 @@ required-features = ["std", "medium-ieee802154", "phy-raw_socket", "proto-sixlow
 name = "dns"
 required-features = ["std", "medium-ethernet", "medium-ip", "phy-tuntap_interface", "proto-ipv4", "socket-dns"]
 
+[[example]]
+name = "slaac"
+required-features = ["std", "medium-ethernet", "medium-ip", "phy-tuntap_interface", "proto-ipv6", "socket-udp"]
+
 [profile.release]
 debug = 2
