@@ -840,6 +840,255 @@ fn test_handle_valid_ndisc_request(#[case] medium: Medium) {
 }
 
 #[rstest]
+#[case(Medium::Ethernet)]
+#[cfg(feature = "medium-ethernet")]
+fn test_router_advertisement(#[case] medium: Medium) {
+    fn recv_icmpv6(
+        device: &mut crate::tests::TestingDevice,
+        timestamp: Instant,
+    ) -> std::vec::Vec<Ipv6Packet<std::vec::Vec<u8>>> {
+        let caps = device.capabilities();
+        recv_all(device, timestamp)
+            .iter()
+            .filter_map(|frame| {
+                let ipv6_packet = match caps.medium {
+                    #[cfg(feature = "medium-ethernet")]
+                    Medium::Ethernet => {
+                        let eth_frame = EthernetFrame::new_checked(frame).ok()?;
+                        Ipv6Packet::new_checked(eth_frame.payload()).ok()?
+                    }
+                    #[cfg(feature = "medium-ip")]
+                    Medium::Ip => Ipv6Packet::new_checked(&frame[..]).ok()?,
+                    #[cfg(feature = "medium-ieee802154")]
+                    Medium::Ieee802154 => todo!(),
+                };
+                let buf = ipv6_packet.into_inner().to_vec();
+                Some(Ipv6Packet::new_unchecked(buf))
+            })
+            .collect::<std::vec::Vec<_>>()
+    }
+    let prefix_addr = Ipv6Address::new(0x2001, 0xdb8, 0x3, 0, 0, 0, 0, 0);
+
+    let mut device = crate::tests::TestingDevice::new(medium);
+    let caps = device.capabilities();
+    let checksum_caps = &caps.checksum;
+
+    let mut eth_bytes = vec![0u8; 102];
+
+    // Create mac addresses with derived link local addresses
+    let local_hw_addr = EthernetAddress([0x02, 0x02, 0x02, 0x02, 0x02, 0x02]);
+    let remote_hw_addr = EthernetAddress([0x52, 0x54, 0x00, 0x00, 0x00, 0x00]);
+    let ll_prefix = Ipv6Cidr::new(Ipv6Cidr::LINK_LOCAL_PREFIX.address(), 64);
+    let local_ip_addr =
+        Ipv6Cidr::from_link_prefix(&ll_prefix, HardwareAddress::Ethernet(local_hw_addr)).unwrap();
+    let remote_ip_addr =
+        Ipv6Cidr::from_link_prefix(&ll_prefix, HardwareAddress::Ethernet(remote_hw_addr)).unwrap();
+
+    // Create config with slaac enabled
+    let mut config = Config::new(match medium {
+        #[cfg(feature = "medium-ethernet")]
+        Medium::Ethernet => HardwareAddress::Ethernet(local_hw_addr),
+        _ => panic!("Not supported"),
+    });
+    config.slaac = true;
+
+    // Set up interface with link local address
+    let mut iface = Interface::new(config, &mut device, Instant::ZERO);
+    iface.update_ip_addrs(|ip_addrs| {
+        ip_addrs.push(IpCidr::Ipv6(local_ip_addr)).unwrap();
+    });
+
+    let mut sockets = SocketSet::new(vec![]);
+    iface.poll(Instant::ZERO, &mut device, &mut sockets);
+
+    let transmitted: std::vec::Vec<Ipv6Packet<std::vec::Vec<u8>>> =
+        recv_icmpv6(&mut device, Instant::ZERO)
+            .into_iter()
+            .filter(|packet| {
+                // Filter for router solicitations
+                packet.dst_addr() == IPV6_LINK_LOCAL_ALL_ROUTERS
+            })
+            .collect();
+
+    assert_eq!(transmitted.len(), 1);
+
+    for ipv6_packet in transmitted.into_iter() {
+        let buf = ipv6_packet.into_inner();
+        let ipv6_packet = Ipv6Packet::new_unchecked(buf.as_slice());
+        let ipv6_repr = Ipv6Repr::parse(&ipv6_packet).unwrap();
+        if ipv6_repr.dst_addr == IPV6_LINK_LOCAL_ALL_MLDV2_ROUTERS {
+            continue; // Skip MLD reports
+        }
+        let icmpv6_packet = Icmpv6Packet::new_checked(ipv6_packet.payload()).unwrap();
+        let icmp_repr = Icmpv6Repr::parse(
+            &ipv6_repr.src_addr,
+            &ipv6_repr.dst_addr,
+            &icmpv6_packet,
+            checksum_caps,
+        )
+        .unwrap();
+
+        assert_eq!(
+            icmp_repr,
+            Icmpv6Repr::Ndisc(NdiscRepr::RouterSolicit {
+                lladdr: Some(local_hw_addr.into()),
+            })
+        );
+
+        assert_eq!(ipv6_repr.dst_addr, IPV6_LINK_LOCAL_ALL_ROUTERS);
+        println!("repr {:?}", icmp_repr);
+    }
+
+    // Craft the router advertisement
+    let mut prefix_information = NdiscPrefixInformation {
+        prefix: prefix_addr,
+        prefix_len: 64,
+        flags: NdiscPrefixInfoFlags::ADDRCONF,
+        valid_lifetime: Duration::from_secs(600),
+        preferred_lifetime: Duration::from_secs(300),
+    };
+    let mut advertisement = NdiscRepr::RouterAdvert {
+        hop_limit: 255,
+        flags: NdiscRouterFlags::empty(),
+        router_lifetime: Duration::from_secs(600),
+        reachable_time: Duration::from_secs(0),
+        retrans_time: Duration::from_secs(0),
+        lladdr: None,
+        mtu: None,
+        prefix_info: Some(prefix_information),
+    };
+    let ip_repr = IpRepr::Ipv6(Ipv6Repr {
+        src_addr: remote_ip_addr.address(),
+        dst_addr: local_ip_addr.address(),
+        next_header: IpProtocol::Icmpv6,
+        hop_limit: 255,
+        payload_len: advertisement.buffer_len(),
+    });
+    let mut frame = EthernetFrame::new_unchecked(&mut eth_bytes);
+    frame.set_dst_addr(local_hw_addr);
+    frame.set_src_addr(remote_hw_addr);
+    frame.set_ethertype(EthernetProtocol::Ipv6);
+    ip_repr.emit(frame.payload_mut(), &ChecksumCapabilities::default());
+    Icmpv6Repr::Ndisc(advertisement).emit(
+        &remote_ip_addr.address(),
+        &local_ip_addr.address(),
+        &mut Icmpv6Packet::new_unchecked(&mut frame.payload_mut()[ip_repr.header_len()..]),
+        &ChecksumCapabilities::default(),
+    );
+
+    iface.inner.process_ethernet(
+        &mut sockets,
+        PacketMeta::default(),
+        frame.into_inner(),
+        &mut iface.fragments,
+    );
+
+    iface.poll(Instant::ZERO, &mut device, &mut sockets);
+
+    // Expect to have these two addresses after the router advertisement
+    let expected_addrs = [
+        IpCidr::Ipv6(local_ip_addr),
+        IpCidr::Ipv6(Ipv6Cidr::new(
+            Ipv6Address::new(0x2001, 0xdb8, 0x3, 0x0, 0x2, 0x2ff, 0xfe02, 0x202),
+            64,
+        )),
+    ];
+    for (generated, expected) in iface.ip_addrs().iter().zip(expected_addrs.iter()) {
+        assert_eq!(generated, expected);
+    }
+    // Verify the pushed route matches expected
+    iface.routes_mut().update(|route| {
+        assert_eq!(route.len(), 1);
+        assert_eq!(
+            route[0].cidr,
+            IpCidr::new(IpAddress::v6(0, 0, 0, 0, 0, 0, 0, 0), 0)
+        );
+        assert_eq!(
+            route[0].via_router,
+            IpAddress::Ipv6(remote_ip_addr.address())
+        );
+        assert_eq!(route[0].preferred_until, None);
+        assert_eq!(route[0].expires_at, None);
+    });
+
+    // Craft a router advertisement with zero lifetime for the prefix
+    // to remove the prefix, but retain the route
+    prefix_information.valid_lifetime = Duration::ZERO;
+    prefix_information.preferred_lifetime = Duration::ZERO;
+    if let NdiscRepr::RouterAdvert {
+        ref mut prefix_info,
+        ..
+    } = advertisement
+    {
+        *prefix_info = Some(prefix_information);
+    }
+
+    let mut frame = EthernetFrame::new_unchecked(&mut eth_bytes);
+    frame.set_dst_addr(local_hw_addr);
+    frame.set_src_addr(remote_hw_addr);
+    frame.set_ethertype(EthernetProtocol::Ipv6);
+    ip_repr.emit(frame.payload_mut(), &ChecksumCapabilities::default());
+    Icmpv6Repr::Ndisc(advertisement).emit(
+        &remote_ip_addr.address(),
+        &local_ip_addr.address(),
+        &mut Icmpv6Packet::new_unchecked(&mut frame.payload_mut()[ip_repr.header_len()..]),
+        &ChecksumCapabilities::default(),
+    );
+
+    iface.inner.process_ethernet(
+        &mut sockets,
+        PacketMeta::default(),
+        frame.into_inner(),
+        &mut iface.fragments,
+    );
+
+    let now = Instant::from_secs(10);
+
+    iface.poll(now, &mut device, &mut sockets);
+    assert_eq!(iface.ip_addrs().len(), 1);
+    iface.routes_mut().update(|route| {
+        assert_eq!(route.len(), 1);
+    });
+
+    // Craft router advertisement with zero router lifetime
+    // to remove the route
+    if let NdiscRepr::RouterAdvert {
+        ref mut prefix_info,
+        ref mut router_lifetime,
+        ..
+    } = advertisement
+    {
+        *prefix_info = None;
+        *router_lifetime = Duration::ZERO;
+    }
+
+    let mut frame = EthernetFrame::new_unchecked(&mut eth_bytes);
+    frame.set_dst_addr(local_hw_addr);
+    frame.set_src_addr(remote_hw_addr);
+    frame.set_ethertype(EthernetProtocol::Ipv6);
+    ip_repr.emit(frame.payload_mut(), &ChecksumCapabilities::default());
+    Icmpv6Repr::Ndisc(advertisement).emit(
+        &remote_ip_addr.address(),
+        &local_ip_addr.address(),
+        &mut Icmpv6Packet::new_unchecked(&mut frame.payload_mut()[ip_repr.header_len()..]),
+        &ChecksumCapabilities::default(),
+    );
+
+    iface.inner.process_ethernet(
+        &mut sockets,
+        PacketMeta::default(),
+        frame.into_inner(),
+        &mut iface.fragments,
+    );
+
+    let now = Instant::from_secs(20);
+    iface.poll(now, &mut device, &mut sockets);
+    iface.routes_mut().update(|route| {
+        assert_eq!(route.len(), 0);
+    });
+}
+
+#[rstest]
 #[case(Medium::Ip)]
 #[cfg(feature = "medium-ip")]
 #[case(Medium::Ethernet)]
