@@ -271,6 +271,12 @@ impl Cidr {
         prefix_len: 104,
     };
 
+    /// The link-local address prefix.
+    pub const LINK_LOCAL_PREFIX: Cidr = Cidr {
+        address: Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 0),
+        prefix_len: 10,
+    };
+
     /// Create an IPv6 CIDR block from the given address and prefix length.
     ///
     /// # Panics

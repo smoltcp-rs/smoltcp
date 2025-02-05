@@ -103,8 +103,8 @@ The ICMPv6 protocol is supported, and ICMP sockets are available.
 #### NDISC
 
   * Neighbor Advertisement messages are generated in response to Neighbor Solicitations.
-  * Router Advertisement messages are **not** generated or read.
-  * Router Solicitation messages are **not** generated or read.
+  * Router Advertisement messages are read, but **not** generated.
+  * Router Solicitation messages are generated, but **not** read.
   * Redirected Header messages are **not** generated or read.
 
 ### UDP layer
