@@ -194,6 +194,15 @@ iface-max-route-count-256 = []
 iface-max-route-count-512 = []
 iface-max-route-count-1024 = []
 
+iface-max-prefix-count-1 = [] # Default
+iface-max-prefix-count-2 = []
+iface-max-prefix-count-3 = []
+iface-max-prefix-count-4 = []
+iface-max-prefix-count-5 = []
+iface-max-prefix-count-6 = []
+iface-max-prefix-count-7 = []
+iface-max-prefix-count-8 = []
+
 fragmentation-buffer-size-256 = []
 fragmentation-buffer-size-512 = []
 fragmentation-buffer-size-1024 = []

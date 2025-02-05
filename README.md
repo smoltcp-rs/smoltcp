@@ -256,6 +256,11 @@ Amount of "IP address -> hardware address" entries the neighbor cache (also know
 
 Max amount of routes that can be added to one interface. Includes the default route. Includes both IPv4 and IPv6. Default: 2.
 
+### `IFACE_MAX_PREFIX_COUNT`
+
+Max amount of IPv6 prefixes that can be added to one interface via SLAAC.
+Should be lower or equal to `IFACE_MAX_ADDR_COUNT`.
+
 ### `FRAGMENTATION_BUFFER_SIZE`
 
 Size of the buffer used for fragmenting outgoing packets larger than the MTU. Packets larger than this setting will be dropped instead of fragmented. Default: 1500.
