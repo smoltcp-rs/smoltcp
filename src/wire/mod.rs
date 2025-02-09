@@ -426,6 +426,17 @@ impl HardwareAddress {
             HardwareAddress::Ieee802154(_) => Medium::Ieee802154,
         }
     }
+
+    pub fn as_eui_64(&self) -> Option<[u8; 8]> {
+        match self {
+            #[cfg(feature = "medium-ip")]
+            HardwareAddress::Ip => None,
+            #[cfg(feature = "medium-ethernet")]
+            HardwareAddress::Ethernet(ethernet) => ethernet.as_eui_64(),
+            #[cfg(feature = "medium-ieee802154")]
+            HardwareAddress::Ieee802154(ieee802154) => ieee802154.as_eui_64(),
+        }
+    }
 }
 
 #[cfg(any(
