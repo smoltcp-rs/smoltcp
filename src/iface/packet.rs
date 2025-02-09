@@ -239,7 +239,7 @@ impl<'p> IpPayload<'p> {
             Self::Igmp(_) => unreachable!(),
             #[cfg(feature = "socket-tcp")]
             Self::Tcp(_) => SixlowpanNextHeader::Uncompressed(IpProtocol::Tcp),
-            #[cfg(feature = "socket-udp")]
+            #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
             Self::Udp(..) => SixlowpanNextHeader::Compressed,
             #[cfg(feature = "socket-raw")]
             Self::Raw(_) => todo!(),
