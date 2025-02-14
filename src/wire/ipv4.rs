@@ -100,6 +100,7 @@ impl AddressExt for Address {
 /// A specification of an IPv4 CIDR block, containing an address and a variable-length
 /// subnet masking prefix length.
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct Cidr {
     address: Address,
     prefix_len: u8,

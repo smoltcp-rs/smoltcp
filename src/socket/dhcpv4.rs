@@ -115,6 +115,7 @@ enum ClientState {
 /// Timeout and retry configuration.
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[non_exhaustive]
 pub struct RetryConfig {
     pub discover_timeout: Duration,

@@ -178,6 +178,7 @@ impl ops::Sub<Instant> for Instant {
 
 /// A relative amount of time.
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct Duration {
     micros: u64,
 }

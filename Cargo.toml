@@ -28,6 +28,7 @@ bitflags = { version = "1.0", default-features = false }
 defmt = { version = "0.3.8", optional = true, features = ["ip_in_core"] }
 cfg-if = "1.0.0"
 heapless = "0.8"
+serde = { version = "1.0.217", default-features = false, features = ["derive"], optional = true }
 
 [dev-dependencies]
 env_logger = "0.10"
@@ -41,6 +42,8 @@ std = ["managed/std", "alloc"]
 alloc = ["managed/alloc", "defmt?/alloc"]
 verbose = []
 defmt = ["dep:defmt", "heapless/defmt-03"]
+# Implement serde Serialize / Deserialize
+serde = ["dep:serde", "heapless/serde"]
 "medium-ethernet" = ["socket"]
 "medium-ip" = ["socket"]
 "medium-ieee802154" = ["socket", "proto-sixlowpan"]
