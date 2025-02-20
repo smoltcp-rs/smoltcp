@@ -2692,23 +2692,33 @@ impl<'a> Socket<'a> {
             return Err(replaced_buf);
         }
         replaced_buf.clear();
-        self.rx_buffer.dequeue_many_with(|buf| {
-            let enqueued_len = replaced_buf.enqueue_slice(buf);
-            assert_eq!(enqueued_len, buf.len());
-            (enqueued_len, replaced_buf.get_allocated(0, enqueued_len))
-        });
-        if !self.rx_buffer.is_empty() {
-            // copy the wrapped around part
-            self.rx_buffer.dequeue_many_with(|buf| {
-                let enqueued_len = replaced_buf.enqueue_slice(buf);
-                assert_eq!(enqueued_len, buf.len());
-                (
-                    enqueued_len,
-                    replaced_buf.get_allocated(buf.len() - enqueued_len, enqueued_len),
-                )
-            });
+
+        // We should copy both allocated data and unallocated data (for assembler)
+        let allocated1 = self.rx_buffer.get_allocated(0, self.rx_buffer.len());
+        let l = replaced_buf.enqueue_slice(allocated1);
+        assert_eq!(l, allocated1.len());
+        if allocated1.len() < self.rx_buffer.len() {
+            let allocated2 = self
+                .rx_buffer
+                .get_allocated(allocated1.len(), self.rx_buffer.len() - allocated1.len());
+            let l = replaced_buf.enqueue_slice(allocated2);
+            assert_eq!(l, allocated2.len());
         }
-        assert_eq!(self.rx_buffer.len(), 0);
+
+        // make sure assembler can work properly
+        let unallocated1 = self.rx_buffer.get_unallocated(0, self.rx_buffer.window());
+        let unallocated1_len = unallocated1.len();
+        let l = replaced_buf.write_unallocated(0, unallocated1);
+        assert_eq!(l, unallocated1.len());
+        if unallocated1_len < self.rx_buffer.window() {
+            let unallocated2 = self
+                .rx_buffer
+                .get_unallocated(unallocated1_len, self.rx_buffer.window() - unallocated1_len);
+            let l = replaced_buf.write_unallocated(unallocated1_len, unallocated2);
+            assert_eq!(l, unallocated2.len());
+        }
+        assert_eq!(replaced_buf.len(), self.rx_buffer.len());
+
         mem::swap(&mut self.rx_buffer, &mut replaced_buf);
         Ok(replaced_buf)
     }
