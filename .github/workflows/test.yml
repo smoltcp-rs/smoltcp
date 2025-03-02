@@ -7,7 +7,7 @@ name: Test
 jobs:
   tests:
     runs-on: ubuntu-22.04
-    needs: [check-msrv, test-msrv, test-stable, clippy]
+    needs: [check-msrv, test-msrv, test-stable, clippy, test-netsim]
     steps:
       - name: Done
         run: exit 0
@@ -47,6 +47,14 @@ jobs:
       - uses: actions/checkout@v4
       - name: Run Tests nightly
         run: ./ci.sh test nightly
+
+  test-netsim:
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run network-simulation tests
+        run: ./ci.sh netsim
 
   test-build-16bit:
     runs-on: ubuntu-22.04
