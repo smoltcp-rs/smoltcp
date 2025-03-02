@@ -363,7 +363,11 @@ impl Interface {
         InterfaceInner::flush_neighbor_cache(&mut self.inner);
         InterfaceInner::check_ip_addrs(&self.inner.ip_addrs);
 
-        #[cfg(all(feature = "proto-ipv6", feature = "multicast"))]
+        #[cfg(all(
+            feature = "proto-ipv6",
+            feature = "multicast",
+            feature = "medium-ethernet"
+        ))]
         if self.inner.caps.medium == Medium::Ethernet {
             self.update_solicited_node_groups();
         }
