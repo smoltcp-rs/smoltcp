@@ -38,8 +38,15 @@ use super::fragmentation::{Fragmenter, FragmentsBuffer};
 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
 use super::neighbor::{Answer as NeighborAnswer, Cache as NeighborCache};
 use super::socket_set::SocketSet;
-use crate::config::{IFACE_MAX_ADDR_COUNT, IFACE_MAX_SIXLOWPAN_ADDRESS_CONTEXT_COUNT};
+use crate::config::{
+    IFACE_MAX_ADDR_COUNT, IFACE_MAX_PREFIX_COUNT, IFACE_MAX_SIXLOWPAN_ADDRESS_CONTEXT_COUNT,
+};
 use crate::iface::Routes;
+#[cfg(all(
+    feature = "proto-ipv6",
+    any(feature = "medium-ethernet", feature = "medium-ieee802154")
+))]
+use crate::iface::Slaac;
 use crate::phy::PacketMeta;
 use crate::phy::{ChecksumCapabilities, Device, DeviceCapabilities, Medium, RxToken, TxToken};
 use crate::rand::Rand;
@@ -142,6 +149,16 @@ pub struct InterfaceInner {
     tag: u16,
     ip_addrs: Vec<IpCidr, IFACE_MAX_ADDR_COUNT>,
     any_ip: bool,
+    #[cfg(all(
+        feature = "proto-ipv6",
+        any(feature = "medium-ethernet", feature = "medium-ieee802154")
+    ))]
+    slaac_enabled: bool,
+    #[cfg(all(
+        feature = "proto-ipv6",
+        any(feature = "medium-ethernet", feature = "medium-ieee802154")
+    ))]
+    slaac: Slaac,
     routes: Routes,
     #[cfg(feature = "multicast")]
     multicast: multicast::State,
@@ -169,6 +186,10 @@ pub struct Config {
     /// **NOTE**: we use the same PAN ID for destination and source.
     #[cfg(feature = "medium-ieee802154")]
     pub pan_id: Option<Ieee802154Pan>,
+
+    /// Enable stateless address autoconfiguration on the interface.
+    #[cfg(feature = "proto-ipv6")]
+    pub slaac: bool,
 }
 
 impl Config {
@@ -178,6 +199,8 @@ impl Config {
             hardware_addr,
             #[cfg(feature = "medium-ieee802154")]
             pan_id: None,
+            #[cfg(feature = "proto-ipv6")]
+            slaac: false,
         }
     }
 }
@@ -262,6 +285,16 @@ impl Interface {
                 ipv4_id,
                 #[cfg(feature = "proto-sixlowpan")]
                 sixlowpan_address_context: Vec::new(),
+                #[cfg(all(
+                    feature = "proto-ipv6",
+                    any(feature = "medium-ethernet", feature = "medium-ieee802154")
+                ))]
+                slaac_enabled: config.slaac,
+                #[cfg(all(
+                    feature = "proto-ipv6",
+                    any(feature = "medium-ethernet", feature = "medium-ieee802154")
+                ))]
+                slaac: Slaac::new(),
                 rand,
             },
         }
@@ -434,7 +467,8 @@ impl Interface {
     /// If this is a concern for your application (i.e. your environment doesn't
     /// have preemptive scheduling, or `poll()` is called from a main loop where
     /// other important things are processed), you may use the lower-level methods
-    /// [`poll_egress()`](Self::poll_egress) and [`poll_ingress_single()`](Self::poll_ingress_single).
+    /// [`poll_egress()`](Self::poll_egress), [`poll_maintenance()`](Self::poll_maintenance)
+    /// and [`poll_ingress_single()`](Self::poll_ingress_single).
     /// This allows you to insert yields or process other events between processing
     /// individual ingress packets.
     pub fn poll(
@@ -447,8 +481,7 @@ impl Interface {
 
         let mut res = PollResult::None;
 
-        #[cfg(feature = "_proto-fragmentation")]
-        self.fragments.assembler.remove_expired(timestamp);
+        self.poll_maintenance(timestamp);
 
         // Process ingress while there's packets available.
         loop {
@@ -495,6 +528,14 @@ impl Interface {
             }
         }
 
+        #[cfg(all(
+            feature = "proto-ipv6",
+            any(feature = "medium-ethernet", feature = "medium-ieee802154")
+        ))]
+        if self.inner.slaac_enabled {
+            self.ndisc_rs_egress(device);
+        }
+
         #[cfg(feature = "multicast")]
         self.multicast_egress(device);
 
@@ -522,6 +563,24 @@ impl Interface {
         self.socket_ingress(device, sockets)
     }
 
+    /// Maintain stateful processing on the device.
+    ///
+    /// This is guaranteed to always perform a bounded amount of work.
+    pub fn poll_maintenance(&mut self, timestamp: Instant) {
+        self.inner.now = timestamp;
+
+        #[cfg(feature = "_proto-fragmentation")]
+        self.fragments.assembler.remove_expired(timestamp);
+
+        #[cfg(all(
+            feature = "proto-ipv6",
+            any(feature = "medium-ethernet", feature = "medium-ieee802154")
+        ))]
+        if self.inner.slaac.sync_required(timestamp) {
+            self.sync_slaac_state(timestamp)
+        }
+    }
+
     /// Return a _soft deadline_ for calling [poll] the next time.
     /// The [Instant] returned is the time at which you should call [poll] next.
     /// It is harmless (but wastes energy) to call it before the [Instant], and
@@ -540,6 +599,15 @@ impl Interface {
 
         let inner = &mut self.inner;
 
+        let other_polls = [
+            #[cfg(all(
+                feature = "proto-ipv6",
+                any(feature = "medium-ethernet", feature = "medium-ieee802154")
+            ))]
+            inner.slaac.poll_at(timestamp),
+            None,
+        ];
+
         sockets
             .items()
             .filter_map(move |item| {
@@ -553,6 +621,7 @@ impl Interface {
                     PollAt::Now => Some(Instant::from_millis(0)),
                 }
             })
+            .chain(other_polls.into_iter().flatten())
             .min()
     }
 

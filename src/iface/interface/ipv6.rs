@@ -1,5 +1,7 @@
 use super::*;
 
+use crate::iface::Route;
+
 /// Enum used for the process_hopbyhop function. In some cases, when discarding a packet, an ICMP
 /// parameter problem message needs to be transmitted to the source of the address. In other cases,
 /// the processing of the IP packet can continue.
@@ -502,6 +504,30 @@ impl InterfaceInner {
                     None
                 }
             }
+            NdiscRepr::RouterAdvert {
+                hop_limit: _,
+                flags: _,
+                router_lifetime,
+                reachable_time: _,
+                retrans_time: _,
+                lladdr: _,
+                mtu: _,
+                prefix_info,
+            } if self.slaac_enabled => {
+                if ip_repr.src_addr.is_link_local()
+                    && (ip_repr.dst_addr == IPV6_LINK_LOCAL_ALL_NODES
+                        || ip_repr.dst_addr.is_link_local())
+                    && ip_repr.hop_limit == 255
+                {
+                    self.slaac.process_advertisement(
+                        &ip_repr.src_addr,
+                        router_lifetime,
+                        prefix_info,
+                        self.now,
+                    )
+                }
+                None
+            }
             _ => None,
         }
     }
@@ -579,5 +605,134 @@ impl InterfaceInner {
             },
             IpPayload::HopByHopIcmpv6(hbh_repr, Icmpv6Repr::Mld(mld_repr)),
         ))
+    }
+}
+
+impl Interface {
+    /// Synchronize the slaac address and router state with the interface state.
+    #[cfg(all(
+        feature = "proto-ipv6",
+        any(feature = "medium-ethernet", feature = "medium-ieee802154")
+    ))]
+    pub(super) fn sync_slaac_state(&mut self, timestamp: Instant) {
+        let required_addresses: Vec<_, IFACE_MAX_PREFIX_COUNT> = self
+            .inner
+            .slaac
+            .prefix()
+            .iter()
+            .filter_map(|(prefix, prefixinfo)| {
+                if prefixinfo.is_valid(timestamp) {
+                    Ipv6Cidr::from_link_prefix(prefix, self.inner.hardware_addr())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let removed_addresses: Vec<_, IFACE_MAX_PREFIX_COUNT> = self
+            .inner
+            .slaac
+            .prefix()
+            .iter()
+            .filter_map(|(prefix, prefixinfo)| {
+                if !prefixinfo.is_valid(timestamp) {
+                    Ipv6Cidr::from_link_prefix(prefix, self.inner.hardware_addr())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        self.update_ip_addrs(|addresses| {
+            for address in required_addresses {
+                if !addresses.contains(&IpCidr::Ipv6(address)) {
+                    let _ = addresses.push(IpCidr::Ipv6(address));
+                }
+            }
+            addresses.retain(|address| {
+                if let IpCidr::Ipv6(address) = address {
+                    !removed_addresses.contains(address)
+                } else {
+                    true
+                }
+            });
+        });
+
+        {
+            let required_routes = self
+                .inner
+                .slaac
+                .routes()
+                .into_iter()
+                .filter(|required| required.is_valid(timestamp));
+
+            let removed_routes = self
+                .inner
+                .slaac
+                .routes()
+                .into_iter()
+                .filter(|r| !r.is_valid(timestamp));
+
+            self.inner.routes.update(|routes| {
+                routes.retain(|r| match (&r.cidr, &r.via_router) {
+                    (IpCidr::Ipv6(cidr), IpAddress::Ipv6(via_router)) => !removed_routes
+                        .clone()
+                        .any(|f| f.same_route(cidr, via_router)),
+                    _ => true,
+                });
+
+                for route in required_routes {
+                    if routes.iter().all(|r| match (&r.cidr, &r.via_router) {
+                        (IpCidr::Ipv6(cidr), IpAddress::Ipv6(via_router)) => {
+                            !route.same_route(cidr, via_router)
+                        }
+                        _ => false,
+                    }) {
+                        let _ = routes.push(Route {
+                            cidr: route.cidr.into(),
+                            via_router: route.via_router.into(),
+                            preferred_until: None,
+                            expires_at: None,
+                        });
+                    }
+                }
+            });
+        }
+
+        self.inner.slaac.update_slaac_state(timestamp);
+    }
+
+    /// Emit a router solicitation when required by the interface's slaac state machine.
+    #[cfg(all(
+        feature = "proto-ipv6",
+        any(feature = "medium-ethernet", feature = "medium-ieee802154")
+    ))]
+    pub(super) fn ndisc_rs_egress(&mut self, device: &mut (impl Device + ?Sized)) {
+        if !self.inner.slaac.rs_required(self.inner.now) {
+            return;
+        }
+        let rs_repr = Icmpv6Repr::Ndisc(NdiscRepr::RouterSolicit {
+            lladdr: Some(self.hardware_addr().into()),
+        });
+        let ipv6_repr = Ipv6Repr {
+            src_addr: self.inner.link_local_ipv6_address().unwrap(),
+            dst_addr: IPV6_LINK_LOCAL_ALL_ROUTERS,
+            next_header: IpProtocol::Icmpv6,
+            payload_len: rs_repr.buffer_len(),
+            hop_limit: 255,
+        };
+        let packet = Packet::new_ipv6(ipv6_repr, IpPayload::Icmpv6(rs_repr));
+        let Some(tx_token) = device.transmit(self.inner.now) else {
+            return;
+        };
+        // NOTE(unwrap): packet destination is multicast, which is always routable and doesn't require neighbor discovery.
+        self.inner
+            .dispatch_ip(
+                tx_token,
+                PacketMeta::default(),
+                packet,
+                &mut self.fragmenter,
+            )
+            .unwrap();
+        self.inner.slaac.rs_sent(self.inner.now);
     }
 }
