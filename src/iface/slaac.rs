@@ -189,7 +189,7 @@ impl Slaac {
         now: Instant,
     ) {
         if let Some(prefix) = prefix {
-            if prefix.valid_prefix_info() {
+            if prefix.is_valid_prefix_info() {
                 self.process_prefix(prefix, now)
             }
         }
