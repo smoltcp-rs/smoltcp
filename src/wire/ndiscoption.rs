@@ -405,7 +405,7 @@ pub struct PrefixInformation {
 impl PrefixInformation {
     /// Validates the prefix information option against check a, b, c in
     /// https://www.rfc-editor.org/rfc/rfc4862#section-5.5.3
-    pub fn valid_prefix_info(&self) -> bool {
+    pub fn is_valid_prefix_info(&self) -> bool {
         self.flags.contains(PrefixInfoFlags::ADDRCONF)
             && !self.prefix.is_link_local()
             && self.preferred_lifetime <= self.valid_lifetime
