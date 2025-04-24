@@ -172,6 +172,7 @@ iface-neighbor-cache-count-256 = []
 iface-neighbor-cache-count-512 = []
 iface-neighbor-cache-count-1024 = []
 
+iface-max-route-count-0 = []
 iface-max-route-count-1 = []
 iface-max-route-count-2 = [] # Default
 iface-max-route-count-3 = []
