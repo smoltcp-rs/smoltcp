@@ -1513,10 +1513,12 @@ impl<'a> Socket<'a> {
             return false;
         }
 
-        // If we're still listening for SYNs and the packet has an ACK, it cannot
-        // be destined to this socket, but another one may well listen on the same
-        // local endpoint.
-        if self.state == State::Listen && repr.ack_number.is_some() {
+        // If we're still listening for SYNs and the packet has an ACK or a RST,
+        // it cannot be destined to this socket, but another one may well listen
+        // on the same local endpoint.
+        if self.state == State::Listen
+            && (repr.ack_number.is_some() || repr.control == TcpControl::Rst)
+        {
             return false;
         }
 
