@@ -1513,10 +1513,12 @@ impl<'a> Socket<'a> {
             return false;
         }
 
-        // If we're still listening for SYNs and the packet has an ACK, it cannot
-        // be destined to this socket, but another one may well listen on the same
-        // local endpoint.
-        if self.state == State::Listen && repr.ack_number.is_some() {
+        // If we're still listening for SYNs and the packet has an ACK or a RST,
+        // it cannot be destined to this socket, but another one may well listen
+        // on the same local endpoint.
+        if self.state == State::Listen
+            && (repr.ack_number.is_some() || repr.control == TcpControl::Rst)
+        {
             return false;
         }
 
@@ -3284,15 +3286,13 @@ mod test {
     #[test]
     fn test_listen_rst() {
         let mut s = socket_listen();
-        send!(
-            s,
-            TcpRepr {
-                control: TcpControl::Rst,
-                seq_number: REMOTE_SEQ,
-                ack_number: None,
-                ..SEND_TEMPL
-            }
-        );
+        let tcp_repr = TcpRepr {
+            control: TcpControl::Rst,
+            seq_number: REMOTE_SEQ,
+            ack_number: None,
+            ..SEND_TEMPL
+        };
+        assert!(!s.socket.accepts(&mut s.cx, &SEND_IP_TEMPL, &tcp_repr));
         assert_eq!(s.state, State::Listen);
     }
 
