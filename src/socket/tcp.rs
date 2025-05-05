@@ -3286,15 +3286,13 @@ mod test {
     #[test]
     fn test_listen_rst() {
         let mut s = socket_listen();
-        send!(
-            s,
-            TcpRepr {
-                control: TcpControl::Rst,
-                seq_number: REMOTE_SEQ,
-                ack_number: None,
-                ..SEND_TEMPL
-            }
-        );
+        let tcp_repr = TcpRepr {
+            control: TcpControl::Rst,
+            seq_number: REMOTE_SEQ,
+            ack_number: None,
+            ..SEND_TEMPL
+        };
+        assert!(!s.socket.accepts(&mut s.cx, &SEND_IP_TEMPL, &tcp_repr));
         assert_eq!(s.state, State::Listen);
     }
 
