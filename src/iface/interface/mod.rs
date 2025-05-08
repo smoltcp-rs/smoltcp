@@ -460,9 +460,11 @@ impl Interface {
         }
 
         // Process egress.
-        match self.poll_egress(timestamp, device, sockets) {
-            PollResult::None => {}
-            PollResult::SocketStateChanged => res = PollResult::SocketStateChanged,
+        loop {
+            match self.poll_egress(timestamp, device, sockets) {
+                PollResult::None => break,
+                PollResult::SocketStateChanged => res = PollResult::SocketStateChanged,
+            }
         }
 
         res
