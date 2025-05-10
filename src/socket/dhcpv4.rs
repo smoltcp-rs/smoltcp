@@ -72,6 +72,8 @@ struct RequestState {
     server: ServerInfo,
     /// IP address that we're trying to request.
     requested_ip: Ipv4Address,
+    /// Transaction ID from server's `Offer` message
+    offer_transaction_id: u32,
 }
 
 #[derive(Debug)]
@@ -379,6 +381,7 @@ impl<'a> Socket<'a> {
                         identifier: server_identifier,
                     },
                     requested_ip: dhcp_repr.your_ip, // use the offered ip
+                    offer_transaction_id: dhcp_repr.transaction_id,
                 });
             }
             (ClientState::Requesting(state), DhcpMessageType::Ack) => {
@@ -652,6 +655,7 @@ impl<'a> Socket<'a> {
                 dhcp_repr.message_type = DhcpMessageType::Request;
                 dhcp_repr.requested_ip = Some(state.requested_ip);
                 dhcp_repr.server_identifier = Some(state.server.identifier);
+                dhcp_repr.transaction_id = state.offer_transaction_id;
 
                 net_debug!(
                     "DHCP send request to {}: {:?}",
@@ -666,7 +670,7 @@ impl<'a> Socket<'a> {
                     + (self.retry_config.initial_request_timeout << (state.retry as u32 / 2));
                 state.retry += 1;
 
-                self.transaction_id = next_transaction_id;
+                self.transaction_id = state.offer_transaction_id;
                 Ok(())
             }
             ClientState::Renewing(state) => {
