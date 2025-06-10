@@ -527,9 +527,6 @@ pub struct Socket<'a> {
     /// Used for rate-limiting: No more challenge ACKs will be sent until this instant.
     challenge_ack_timer: Instant,
 
-    /// If this is set, we will not send a SYN|ACK until this is unset.
-    synack_paused: bool,
-
     /// Nagle's Algorithm enabled.
     nagle: bool,
 
@@ -546,6 +543,10 @@ pub struct Socket<'a> {
     rx_waker: WakerRegistration,
     #[cfg(feature = "async")]
     tx_waker: WakerRegistration,
+
+    /// If this is set, we will not send a SYN|ACK until this is unset.
+    #[cfg(feature = "socket-tcp-pause-synack")]
+    synack_paused: bool,
 }
 
 const DEFAULT_MSS: usize = 536;
@@ -604,12 +605,14 @@ impl<'a> Socket<'a> {
             tsval_generator: None,
             last_remote_tsval: 0,
             congestion_controller: congestion::AnyController::new(),
-            synack_paused: false,
 
             #[cfg(feature = "async")]
             rx_waker: WakerRegistration::new(),
             #[cfg(feature = "async")]
             tx_waker: WakerRegistration::new(),
+
+            #[cfg(feature = "socket-tcp-pause-synack")]
+            synack_paused: false,
         }
     }
 
@@ -733,6 +736,7 @@ impl<'a> Socket<'a> {
     /// When this flag is set, the socket will get stuck in `SynReceived` state without sending
     /// any SYN|ACK packets back, until this flag is unset. This is useful for certain niche TCP
     /// proxy usecases.
+    #[cfg(feature = "socket-tcp-pause-synack")]
     pub fn pause_synack(&mut self, pause: bool) {
         self.synack_paused = pause;
     }
@@ -2385,6 +2389,7 @@ impl<'a> Socket<'a> {
                 .on_retransmit(cx.now());
         }
 
+        #[cfg(feature = "socket-tcp-pause-synack")]
         if matches!(self.state, State::SynReceived) && self.synack_paused {
             return Ok(());
         }
