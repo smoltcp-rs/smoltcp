@@ -3354,6 +3354,37 @@ mod test {
         sanity!(s, socket_established());
     }
 
+    #[cfg(feature = "socket-tcp-pause-synack")]
+    #[test]
+    fn test_syn_paused_ack() {
+        let mut s = socket_syn_received();
+
+        s.pause_synack(true);
+        recv_nothing!(s);
+        assert_eq!(s.state, State::SynReceived);
+
+        s.pause_synack(false);
+        recv!(
+            s,
+            [TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: LOCAL_SEQ,
+                ack_number: Some(REMOTE_SEQ + 1),
+                max_seg_size: Some(BASE_MSS),
+                ..RECV_TEMPL
+            }]
+        );
+        send!(
+            s,
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                ..SEND_TEMPL
+            }
+        );
+        assert_eq!(s.state, State::Established);
+    }
+
     #[test]
     fn test_syn_received_ack_too_low() {
         let mut s = socket_syn_received();
