@@ -688,11 +688,12 @@ pub mod checksum {
         // For each 32-byte chunk...
         const CHUNK_SIZE: usize = 32;
         while data.len() >= CHUNK_SIZE {
-            let mut d = &data[..CHUNK_SIZE];
+            let chunk = &data[..CHUNK_SIZE];
+            let mut i = 0;
             // ... take by 2 bytes and sum them.
-            while d.len() >= 2 {
-                accum += NetworkEndian::read_u16(d) as u32;
-                d = &d[2..];
+            while i + 1 < CHUNK_SIZE {
+                accum += u16::from_be_bytes([chunk[i], chunk[i + 1]]) as u32;
+                i += 2;
             }
 
             data = &data[CHUNK_SIZE..];
@@ -700,14 +701,15 @@ pub mod checksum {
 
         // Sum the rest that does not fit the last 32-byte chunk,
         // taking by 2 bytes.
-        while data.len() >= 2 {
-            accum += NetworkEndian::read_u16(data) as u32;
-            data = &data[2..];
+        let mut i = 0;
+        while i + 1 < data.len() {
+            accum += u16::from_be_bytes([data[i], data[i + 1]]) as u32;
+            i += 2;
         }
 
         // Add the last remaining odd byte, if any.
-        if let Some(&value) = data.first() {
-            accum += (value as u32) << 8;
+        if i < data.len() {
+            accum += (data[i] as u32) << 8;
         }
 
         propagate_carries(accum)
