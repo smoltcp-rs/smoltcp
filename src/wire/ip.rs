@@ -682,34 +682,30 @@ pub mod checksum {
     }
 
     /// Compute an RFC 1071 compliant checksum (without the final complement).
-    pub fn data(mut data: &[u8]) -> u16 {
+    pub fn data(data: &[u8]) -> u16 {
         let mut accum = 0;
 
         // For each 32-byte chunk...
         const CHUNK_SIZE: usize = 32;
-        while data.len() >= CHUNK_SIZE {
-            let chunk = &data[..CHUNK_SIZE];
-            let mut i = 0;
+        const WORD_SIZE: usize = 2;
+        for chunk in data.chunks_exact(CHUNK_SIZE) {
             // ... take by 2 bytes and sum them.
-            while i + 1 < CHUNK_SIZE {
-                accum += u16::from_be_bytes([chunk[i], chunk[i + 1]]) as u32;
-                i += 2;
+            for pair in chunk.chunks_exact(WORD_SIZE) {
+                accum += u16::from_be_bytes([pair[0], pair[1]]) as u32;
             }
-
-            data = &data[CHUNK_SIZE..];
         }
 
         // Sum the rest that does not fit the last 32-byte chunk,
         // taking by 2 bytes.
-        let mut i = 0;
-        while i + 1 < data.len() {
-            accum += u16::from_be_bytes([data[i], data[i + 1]]) as u32;
-            i += 2;
+        let remainder = data.chunks_exact(CHUNK_SIZE).remainder();
+        for pair in remainder.chunks_exact(WORD_SIZE) {
+            accum += u16::from_be_bytes([pair[0], pair[1]]) as u32;
         }
 
         // Add the last remaining odd byte, if any.
-        if i < data.len() {
-            accum += (data[i] as u32) << 8;
+        let last = remainder.chunks_exact(WORD_SIZE).remainder();
+        if !last.is_empty() {
+            accum += (last[0] as u32) << 8;
         }
 
         propagate_carries(accum)
