@@ -688,7 +688,8 @@ pub mod checksum {
         // For each 32-byte chunk...
         const CHUNK_SIZE: usize = 32;
         const WORD_SIZE: usize = 2;
-        for chunk in data.chunks_exact(CHUNK_SIZE) {
+        let mut chunks = data.chunks_exact(CHUNK_SIZE);
+        for chunk in &mut chunks {
             // ... take by 2 bytes and sum them.
             for pair in chunk.chunks_exact(WORD_SIZE) {
                 accum += u16::from_be_bytes([pair[0], pair[1]]) as u32;
@@ -697,15 +698,15 @@ pub mod checksum {
 
         // Sum the rest that does not fit the last 32-byte chunk,
         // taking by 2 bytes.
-        let remainder = data.chunks_exact(CHUNK_SIZE).remainder();
-        for pair in remainder.chunks_exact(WORD_SIZE) {
+        let remainder = chunks.remainder();
+        let mut word_pairs = remainder.chunks_exact(WORD_SIZE);
+        for pair in &mut word_pairs {
             accum += u16::from_be_bytes([pair[0], pair[1]]) as u32;
         }
 
         // Add the last remaining odd byte, if any.
-        let last = remainder.chunks_exact(WORD_SIZE).remainder();
-        if !last.is_empty() {
-            accum += (last[0] as u32) << 8;
+        if let Some(&byte) = word_pairs.remainder().first() {
+            accum += (byte as u32) << 8;
         }
 
         propagate_carries(accum)
