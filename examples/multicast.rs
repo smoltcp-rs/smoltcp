@@ -66,8 +66,8 @@ fn main() {
     // Will not send IGMP
     let raw_tx_buffer = raw::PacketBuffer::new(vec![], vec![]);
     let raw_socket = raw::Socket::new(
-        IpVersion::Ipv4,
-        IpProtocol::Igmp,
+        Some(IpVersion::Ipv4),
+        Some(IpProtocol::Igmp),
         raw_rx_buffer,
         raw_tx_buffer,
     );

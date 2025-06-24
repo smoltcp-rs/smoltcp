@@ -852,7 +852,12 @@ fn test_raw_socket_no_reply(#[case] medium: Medium) {
         vec![raw::PacketMetadata::EMPTY; packets],
         vec![0; 48 * packets],
     );
-    let raw_socket = raw::Socket::new(IpVersion::Ipv4, IpProtocol::Udp, rx_buffer, tx_buffer);
+    let raw_socket = raw::Socket::new(
+        Some(IpVersion::Ipv4),
+        Some(IpProtocol::Udp),
+        rx_buffer,
+        tx_buffer,
+    );
     sockets.add(raw_socket);
 
     let src_addr = Ipv4Address::new(127, 0, 0, 2);
@@ -948,8 +953,8 @@ fn test_raw_socket_with_udp_socket(#[case] medium: Medium) {
         vec![0; 48 * packets],
     );
     let raw_socket = raw::Socket::new(
-        IpVersion::Ipv4,
-        IpProtocol::Udp,
+        Some(IpVersion::Ipv4),
+        Some(IpProtocol::Udp),
         raw_rx_buffer,
         raw_tx_buffer,
     );
