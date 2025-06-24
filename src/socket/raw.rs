@@ -856,4 +856,94 @@ mod test {
             assert!(!socket.accepts(&ipv4_locals::HEADER_REPR));
         }
     }
+
+    fn check_dispatch(socket: &mut Socket<'_>, cx: &mut Context) {
+        // Check dispatch returns Ok(()) and calls the emit closure
+        let mut emitted = false;
+        assert_eq!(
+            socket.dispatch(cx, |_, _| {
+                emitted = true;
+                Ok(())
+            }),
+            Ok::<_, ()>(())
+        );
+        assert!(emitted);
+    }
+
+    #[rstest]
+    #[case::ip(Medium::Ip)]
+    #[case::ethernet(Medium::Ethernet)]
+    #[cfg(feature = "medium-ethernet")]
+    #[case::ieee802154(Medium::Ieee802154)]
+    #[cfg(feature = "medium-ieee802154")]
+    fn test_unfiltered_sends_all(#[case] medium: Medium) {
+        // Test a single unfiltered socket can send packets with different IP versions and next
+        // headers
+        let mut socket = Socket::new(None, None, buffer(0), buffer(2));
+        #[cfg(feature = "proto-ipv4")]
+        {
+            let (mut iface, _, _) = setup(medium);
+            let cx = iface.context();
+
+            let mut udp_packet = ipv4_locals::PACKET_BYTES;
+            Ipv4Packet::new_unchecked(&mut udp_packet).set_next_header(IpProtocol::Udp);
+
+            assert_eq!(socket.send_slice(&udp_packet), Ok(()));
+            check_dispatch(&mut socket, cx);
+
+            let mut tcp_packet = ipv4_locals::PACKET_BYTES;
+            Ipv4Packet::new_unchecked(&mut tcp_packet).set_next_header(IpProtocol::Tcp);
+
+            assert_eq!(socket.send_slice(&tcp_packet[..]), Ok(()));
+            check_dispatch(&mut socket, cx);
+        }
+        #[cfg(feature = "proto-ipv6")]
+        {
+            let (mut iface, _, _) = setup(medium);
+            let cx = iface.context();
+
+            let mut udp_packet = ipv6_locals::PACKET_BYTES;
+            Ipv6Packet::new_unchecked(&mut udp_packet).set_next_header(IpProtocol::Udp);
+
+            assert_eq!(socket.send_slice(&ipv6_locals::PACKET_BYTES), Ok(()));
+            check_dispatch(&mut socket, cx);
+
+            let mut tcp_packet = ipv6_locals::PACKET_BYTES;
+            Ipv6Packet::new_unchecked(&mut tcp_packet).set_next_header(IpProtocol::Tcp);
+
+            assert_eq!(socket.send_slice(&tcp_packet[..]), Ok(()));
+            check_dispatch(&mut socket, cx);
+        }
+    }
+
+    #[rstest]
+    #[case::proto(IpProtocol::Icmp)]
+    #[case::proto(IpProtocol::Tcp)]
+    #[case::proto(IpProtocol::Udp)]
+    fn test_unfiltered_accepts_all(#[case] proto: IpProtocol) {
+        // Test an unfiltered socket can accept packets with different IP versions and next headers
+        let socket = Socket::new(None, None, buffer(0), buffer(0));
+        #[cfg(feature = "proto-ipv4")]
+        {
+            let header_repr = IpRepr::Ipv4(Ipv4Repr {
+                src_addr: Ipv4Address::new(10, 0, 0, 1),
+                dst_addr: Ipv4Address::new(10, 0, 0, 2),
+                next_header: proto,
+                payload_len: 4,
+                hop_limit: 64,
+            });
+            assert!(socket.accepts(&header_repr));
+        }
+        #[cfg(feature = "proto-ipv6")]
+        {
+            let header_repr = IpRepr::Ipv6(Ipv6Repr {
+                src_addr: Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1),
+                dst_addr: Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 2),
+                next_header: proto,
+                payload_len: 4,
+                hop_limit: 64,
+            });
+            assert!(socket.accepts(&header_repr));
+        }
+    }
 }
