@@ -543,6 +543,10 @@ pub struct Socket<'a> {
     rx_waker: WakerRegistration,
     #[cfg(feature = "async")]
     tx_waker: WakerRegistration,
+
+    /// If this is set, we will not send a SYN|ACK until this is unset.
+    #[cfg(feature = "socket-tcp-pause-synack")]
+    synack_paused: bool,
 }
 
 const DEFAULT_MSS: usize = 536;
@@ -606,6 +610,9 @@ impl<'a> Socket<'a> {
             rx_waker: WakerRegistration::new(),
             #[cfg(feature = "async")]
             tx_waker: WakerRegistration::new(),
+
+            #[cfg(feature = "socket-tcp-pause-synack")]
+            synack_paused: false,
         }
     }
 
@@ -722,6 +729,16 @@ impl<'a> Socket<'a> {
     /// See also the [set_nagle_enabled](#method.set_nagle_enabled) method.
     pub fn nagle_enabled(&self) -> bool {
         self.nagle
+    }
+
+    /// Pause sending of SYN|ACK packets.
+    ///
+    /// When this flag is set, the socket will get stuck in `SynReceived` state without sending
+    /// any SYN|ACK packets back, until this flag is unset. This is useful for certain niche TCP
+    /// proxy usecases.
+    #[cfg(feature = "socket-tcp-pause-synack")]
+    pub fn pause_synack(&mut self, pause: bool) {
+        self.synack_paused = pause;
     }
 
     /// Return the current window field value, including scaling according to RFC 1323.
@@ -2372,6 +2389,11 @@ impl<'a> Socket<'a> {
                 .on_retransmit(cx.now());
         }
 
+        #[cfg(feature = "socket-tcp-pause-synack")]
+        if matches!(self.state, State::SynReceived) && self.synack_paused {
+            return Ok(());
+        }
+
         // Decide whether we're sending a packet.
         if self.seq_to_transmit(cx) {
             // If we have data to transmit and it fits into partner's window, do it.
@@ -3330,6 +3352,37 @@ mod test {
         );
         assert_eq!(s.state, State::Established);
         sanity!(s, socket_established());
+    }
+
+    #[cfg(feature = "socket-tcp-pause-synack")]
+    #[test]
+    fn test_syn_paused_ack() {
+        let mut s = socket_syn_received();
+
+        s.pause_synack(true);
+        recv_nothing!(s);
+        assert_eq!(s.state, State::SynReceived);
+
+        s.pause_synack(false);
+        recv!(
+            s,
+            [TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: LOCAL_SEQ,
+                ack_number: Some(REMOTE_SEQ + 1),
+                max_seg_size: Some(BASE_MSS),
+                ..RECV_TEMPL
+            }]
+        );
+        send!(
+            s,
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                ..SEND_TEMPL
+            }
+        );
+        assert_eq!(s.state, State::Established);
     }
 
     #[test]
