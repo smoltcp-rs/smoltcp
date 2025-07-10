@@ -522,6 +522,22 @@ impl Interface {
         self.socket_ingress(device, sockets)
     }
 
+    pub fn poll_ingress_single_frame(
+        &mut self,
+        timestamp: Instant,
+        tx_token: impl TxToken,
+        sockets: &mut SocketSet<'_>,
+        rx_meta: PacketMeta,
+        frame: &[u8],
+    ) -> PollIngressSingleResult {
+        self.inner.now = timestamp;
+
+        #[cfg(feature = "_proto-fragmentation")]
+        self.fragments.assembler.remove_expired(timestamp);
+
+        self.ingress_single_frame(tx_token, sockets, rx_meta, frame)
+    }
+
     /// Return a _soft deadline_ for calling [poll] the next time.
     /// The [Instant] returned is the time at which you should call [poll] next.
     /// It is harmless (but wastes energy) to call it before the [Instant], and
@@ -574,12 +590,12 @@ impl Interface {
 
     /// Allows user to just ingress a single frame
     /// This can be useful if Smoltcp is being used in combination with Layer 2 protocols
-    pub fn poll_ingress_single_frame<'frame>(
+    fn ingress_single_frame(
         &mut self,
-        sockets: &mut SocketSet,
-        rx_meta: crate::phy::PacketMeta,
-        frame: &'frame [u8],
         tx_token: impl TxToken,
+        sockets: &mut SocketSet,
+        rx_meta: PacketMeta,
+        frame: &[u8],
     ) -> PollIngressSingleResult {
         if frame.is_empty() {
             return PollIngressSingleResult::PacketProcessed;
@@ -650,7 +666,7 @@ impl Interface {
         };
 
         let rx_meta = rx_token.meta();
-        rx_token.consume(|frame| self.poll_ingress_single_frame(sockets, rx_meta, frame, tx_token))
+        rx_token.consume(|frame| self.ingress_single_frame(tx_token, sockets, rx_meta, frame))
     }
 
     fn socket_egress(
