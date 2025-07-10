@@ -522,6 +522,8 @@ impl Interface {
         self.socket_ingress(device, sockets)
     }
 
+    /// Allows user to just ingress a single frame
+    /// This can be useful if TCP/IP stack is being used in combination with Layer 2 protocols
     pub fn poll_ingress_single_frame(
         &mut self,
         timestamp: Instant,
@@ -588,8 +590,6 @@ impl Interface {
         }
     }
 
-    /// Allows user to just ingress a single frame
-    /// This can be useful if Smoltcp is being used in combination with Layer 2 protocols
     fn ingress_single_frame(
         &mut self,
         tx_token: impl TxToken,
