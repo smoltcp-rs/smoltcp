@@ -1129,12 +1129,12 @@ fn get_source_address(#[case] medium: Medium) {
     });
 
     // List of addresses we test:
-    //   172.18.1.255 -> 172.18.1.2
+    //   172.18.1.254 -> 172.18.1.2
     //   172.24.24.12 -> 172.24.24.14
-    //   172.24.23.255 -> 172.18.1.2
-    const UNIQUE_LOCAL_ADDR1: Ipv4Address = Ipv4Address::new(172, 18, 1, 255);
+    //   172.24.23.254 -> 172.18.1.2
+    const UNIQUE_LOCAL_ADDR1: Ipv4Address = Ipv4Address::new(172, 18, 1, 254);
     const UNIQUE_LOCAL_ADDR2: Ipv4Address = Ipv4Address::new(172, 24, 24, 12);
-    const UNIQUE_LOCAL_ADDR3: Ipv4Address = Ipv4Address::new(172, 24, 23, 255);
+    const UNIQUE_LOCAL_ADDR3: Ipv4Address = Ipv4Address::new(172, 24, 23, 254);
 
     assert_eq!(
         iface.inner.get_source_address_ipv4(&UNIQUE_LOCAL_ADDR1),
@@ -1162,12 +1162,12 @@ fn get_source_address_empty_interface(#[case] medium: Medium) {
     iface.update_ip_addrs(|ips| ips.clear());
 
     // List of addresses we test:
-    //   172.18.1.255 -> None
+    //   172.18.1.254 -> None
     //   172.24.24.12 -> None
-    //   172.24.23.255 -> None
-    const UNIQUE_LOCAL_ADDR1: Ipv4Address = Ipv4Address::new(172, 18, 1, 255);
+    //   172.24.23.254 -> None
+    const UNIQUE_LOCAL_ADDR1: Ipv4Address = Ipv4Address::new(172, 18, 1, 254);
     const UNIQUE_LOCAL_ADDR2: Ipv4Address = Ipv4Address::new(172, 24, 24, 12);
-    const UNIQUE_LOCAL_ADDR3: Ipv4Address = Ipv4Address::new(172, 24, 23, 255);
+    const UNIQUE_LOCAL_ADDR3: Ipv4Address = Ipv4Address::new(172, 24, 23, 254);
 
     assert_eq!(
         iface.inner.get_source_address_ipv4(&UNIQUE_LOCAL_ADDR1),
