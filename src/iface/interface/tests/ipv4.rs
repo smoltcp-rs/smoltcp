@@ -1031,7 +1031,11 @@ fn test_raw_socket_with_udp_socket(#[case] medium: Medium) {
 
 #[rstest]
 #[case(Medium::Ip)]
-#[cfg(all(feature = "socket-raw", feature = "proto-ipv4-fragmentation", feature = "medium-ip"))]
+#[cfg(all(
+    feature = "socket-raw",
+    feature = "proto-ipv4-fragmentation",
+    feature = "medium-ip"
+))]
 #[case(Medium::Ethernet)]
 #[cfg(all(
     feature = "socket-raw",
@@ -1039,12 +1043,16 @@ fn test_raw_socket_with_udp_socket(#[case] medium: Medium) {
     feature = "medium-ethernet"
 ))]
 fn test_raw_socket_tx_fragmentation(#[case] medium: Medium) {
+    use std::panic::AssertUnwindSafe;
+
     let (mut iface, mut sockets, device) = setup(medium);
     let mtu = device.capabilities().max_transmission_unit;
 
     let packets = 5;
-    let rx_buffer =
-        raw::PacketBuffer::new(vec![raw::PacketMetadata::EMPTY; packets], vec![0; mtu * packets]);
+    let rx_buffer = raw::PacketBuffer::new(
+        vec![raw::PacketMetadata::EMPTY; packets],
+        vec![0; mtu * packets],
+    );
     let tx_buffer = raw::PacketBuffer::new(
         vec![raw::PacketMetadata::EMPTY; packets],
         vec![0; mtu * packets],
@@ -1058,9 +1066,9 @@ fn test_raw_socket_tx_fragmentation(#[case] medium: Medium) {
     let _handle = sockets.add(socket);
 
     let tx_packet_sizes = vec![
-        mtu * 3 / 4,   // Smaller than MTU
-        mtu * 5 / 4,   // Larger than MTU, requires fragmentation
-        mtu * 9 / 4,   // Much larger, requires two fragments
+        mtu * 3 / 4, // Smaller than MTU
+        mtu * 5 / 4, // Larger than MTU, requires fragmentation
+        mtu * 9 / 4, // Much larger, requires two fragments
     ];
     for packet_size in tx_packet_sizes {
         let payload_len = packet_size - IPV4_HEADER_LEN;
@@ -1077,15 +1085,17 @@ fn test_raw_socket_tx_fragmentation(#[case] medium: Medium) {
         let packet = Packet::new_ipv4(ip_repr, ip_payload);
 
         // This should not panic for any payload size
-        let result = iface.inner.dispatch_ip(
-            MockTxToken {},
-            PacketMeta::default(),
-            packet,
-            &mut iface.fragmenter,
-        );
+        let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
+            iface.inner.dispatch_ip(
+                MockTxToken {},
+                PacketMeta::default(),
+                packet,
+                &mut iface.fragmenter,
+            )
+        }));
 
         // All transmissions should succeed without panicking
-        assert!(result.is_ok(), "Failed for packet size: {} with error: {:?}", packet_size, result.err());
+        assert!(result.is_ok(), "Failed for packet size: {}", packet_size,);
     }
 }
 
