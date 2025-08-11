@@ -172,8 +172,9 @@ pub mod phy;
 #[cfg(feature = "socket")]
 pub mod socket;
 pub mod storage;
-pub mod time;
 pub mod wire;
+
+pub use smoltcp_device::time;
 
 #[cfg(all(
     test,

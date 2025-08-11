@@ -1,0 +1,22 @@
+[package]
+name = "smoltcp-device"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.81"
+
+[dependencies]
+defmt = { version = "0.3.8", optional = true, features = ["ip_in_core"] }
+
+[features]
+defmt = ["dep:defmt"]
+
+std = []
+
+"proto-ipv4" = []
+"proto-ipv6" = []
+
+"medium-ethernet" = []
+"medium-ip" = []
+"medium-ieee802154" = []
+
+"packetmeta-id" = []

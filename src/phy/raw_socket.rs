@@ -69,11 +69,12 @@ impl Device for RawSocket {
         Self: 'a;
 
     fn capabilities(&self) -> DeviceCapabilities {
-        DeviceCapabilities {
-            max_transmission_unit: self.mtu,
-            medium: self.medium,
-            ..DeviceCapabilities::default()
-        }
+        let mut capabilities = DeviceCapabilities::default();
+
+        capabilities.max_transmission_unit = self.mtu;
+        capabilities.medium = self.medium;
+
+        capabilities
     }
 
     fn receive(&mut self, _timestamp: Instant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {

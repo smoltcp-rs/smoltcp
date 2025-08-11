@@ -31,12 +31,13 @@ impl Device for Loopback {
     type TxToken<'a> = TxToken<'a>;
 
     fn capabilities(&self) -> DeviceCapabilities {
-        DeviceCapabilities {
-            max_transmission_unit: 65535,
-            medium: self.medium,
-            checksum: ChecksumCapabilities::ignored(),
-            ..DeviceCapabilities::default()
-        }
+        let mut capabilities = DeviceCapabilities::default();
+
+        capabilities.max_transmission_unit = 65535;
+        capabilities.medium = self.medium;
+        capabilities.checksum = ChecksumCapabilities::ignored();
+
+        capabilities
     }
 
     fn receive(&mut self, _timestamp: Instant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
