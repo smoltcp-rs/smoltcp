@@ -90,11 +90,12 @@ impl Device for TestingDevice {
     type TxToken<'a> = TxToken<'a>;
 
     fn capabilities(&self) -> DeviceCapabilities {
-        DeviceCapabilities {
-            medium: self.medium,
-            max_transmission_unit: self.max_transmission_unit,
-            ..DeviceCapabilities::default()
-        }
+        let mut capabilities = DeviceCapabilities::default();
+
+        capabilities.max_transmission_unit = self.max_transmission_unit;
+        capabilities.medium = self.medium;
+
+        capabilities
     }
 
     fn receive(&mut self, _timestamp: Instant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {

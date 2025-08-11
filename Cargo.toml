@@ -1,3 +1,6 @@
+[workspace]
+members = ["smoltcp-device"]
+
 [package]
 name = "smoltcp"
 version = "0.12.0"
@@ -28,6 +31,7 @@ bitflags = { version = "1.0", default-features = false }
 defmt = { version = "0.3.8", optional = true, features = ["ip_in_core"] }
 cfg-if = "1.0.0"
 heapless = "0.9"
+smoltcp-device = { version = "0.1.0", path = "smoltcp-device" }
 
 [dev-dependencies]
 env_logger = "0.10"
@@ -40,21 +44,21 @@ rand_chacha = "0.3.1"
 idna = { version = "=1.0.1" }
 
 [features]
-std = ["managed/std", "alloc"]
+std = ["managed/std", "alloc", "smoltcp-device/std"]
 alloc = ["managed/alloc", "defmt?/alloc"]
 verbose = []
 defmt = ["dep:defmt", "heapless/defmt"]
-"medium-ethernet" = ["socket"]
-"medium-ip" = ["socket"]
-"medium-ieee802154" = ["socket", "proto-sixlowpan"]
+"medium-ethernet" = ["socket", "smoltcp-device/medium-ethernet"]
+"medium-ip" = ["socket", "smoltcp-device/medium-ip"]
+"medium-ieee802154" = ["socket", "proto-sixlowpan", "smoltcp-device/medium-ieee802154"]
 
 "phy-raw_socket" = ["std", "libc"]
 "phy-tuntap_interface" = ["std", "libc", "medium-ethernet"]
 
-"proto-ipv4" = []
+"proto-ipv4" = ["smoltcp-device/proto-ipv4"]
 "proto-ipv4-fragmentation" = ["proto-ipv4", "_proto-fragmentation"]
 "proto-dhcpv4" = ["proto-ipv4"]
-"proto-ipv6" = []
+"proto-ipv6" = ["smoltcp-device/proto-ipv6"]
 "proto-ipv6-hbh" = ["proto-ipv6"]
 "proto-ipv6-fragmentation" = ["proto-ipv6", "_proto-fragmentation"]
 "proto-ipv6-routing" = ["proto-ipv6"]
@@ -93,7 +97,7 @@ defmt = ["dep:defmt", "heapless/defmt"]
 # Enable Reno TCP congestion control algorithm, and it is used as a default congestion controller.
 "socket-tcp-reno" = []
 
-"packetmeta-id" = []
+"packetmeta-id" = ["smoltcp-device/packetmeta-id"]
 
 "async" = []
 
