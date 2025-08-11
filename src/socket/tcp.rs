@@ -1677,7 +1677,11 @@ impl<'a> Socket<'a> {
         }
 
         let window_start = self.remote_seq_no + self.rx_buffer.len();
-        let window_end = self.remote_seq_no + self.rx_buffer.capacity();
+        let window_end = if let Some(last_ack) = self.remote_last_ack {
+            last_ack + ((self.remote_last_win as usize) << self.remote_win_shift)
+        } else {
+            window_start
+        };
         let segment_start = repr.seq_number;
         let segment_end = repr.seq_number + repr.payload.len();
 
