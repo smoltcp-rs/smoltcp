@@ -1677,7 +1677,11 @@ impl<'a> Socket<'a> {
         }
 
         let window_start = self.remote_seq_no + self.rx_buffer.len();
-        let window_end = self.remote_seq_no + self.rx_buffer.capacity();
+        let window_end = if let Some(last_ack) = self.remote_last_ack {
+            last_ack + ((self.remote_last_win as usize) << self.remote_win_shift)
+        } else {
+            window_start
+        };
         let segment_start = repr.seq_number;
         let segment_end = repr.seq_number + repr.payload.len();
 
@@ -6784,6 +6788,74 @@ mod test {
                 seq_number: LOCAL_SEQ + 1,
                 ack_number: Some(REMOTE_SEQ + 1),
                 payload: &[0; 1000][..],
+                ..RECV_TEMPL
+            })
+        );
+    }
+
+    #[test]
+    fn test_recv_out_of_recv_win() {
+        let mut s = socket_established();
+        s.set_ack_delay(Some(ACK_DELAY_DEFAULT));
+        s.remote_mss = 32;
+
+        // No ACKs are sent due to the ACK delay.
+        send!(
+            s,
+            TcpRepr {
+                control: TcpControl::Psh,
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                payload: &[0; 32],
+                ..SEND_TEMPL
+            }
+        );
+        recv_nothing!(s);
+
+        // RMSS+1 bytes of data has been received, so ACK is sent without delay.
+        send!(
+            s,
+            TcpRepr {
+                control: TcpControl::Psh,
+                seq_number: REMOTE_SEQ + 33,
+                ack_number: Some(LOCAL_SEQ + 1),
+                payload: &[0; 1],
+                ..SEND_TEMPL
+            }
+        );
+        recv!(
+            s,
+            Ok(TcpRepr {
+                seq_number: LOCAL_SEQ + 1,
+                ack_number: Some(REMOTE_SEQ + 34),
+                window_len: 31,
+                ..RECV_TEMPL
+            })
+        );
+
+        // This frees up a byte in the receive buffer. However, the remote shouldn't be aware of
+        // this since no ACKs are sent.
+        s.recv_slice(&mut [0; 1]).unwrap();
+        recv_nothing!(s);
+
+        // Now, if the remote wants to send one byte outside of the receive window that we
+        // previously advertised, it should not succeed.
+        send!(
+            s,
+            TcpRepr {
+                control: TcpControl::Psh,
+                seq_number: REMOTE_SEQ + 34,
+                ack_number: Some(LOCAL_SEQ + 1),
+                payload: &[0; 32],
+                ..SEND_TEMPL
+            }
+        );
+        recv!(
+            s,
+            Ok(TcpRepr {
+                seq_number: LOCAL_SEQ + 1,
+                ack_number: Some(REMOTE_SEQ + 65),
+                window_len: 1, // The last byte isn't accepted.
                 ..RECV_TEMPL
             })
         );
