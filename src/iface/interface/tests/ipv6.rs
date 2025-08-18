@@ -989,6 +989,7 @@ fn get_source_address() {
     //   fd00::201:1:1:1:1 -> fd00::201:1:1:1:2
     //   fd01::201:1:1:1:1 -> fd01::201:1:1:1:2
     //   fd02::201:1:1:1:1 -> fd00::201:1:1:1:2 (because first added in the list)
+    //   fd01::201:1:1:1:3 -> fd01::201:1:1:1:2 (because in same subnet)
     //   ff02::1           -> fe80::1 (same scope)
     //   2001:db8:3::2     -> 2001:db8:3::1
     //   2001:db9:3::2     -> 2001:db8:3::1
@@ -996,6 +997,7 @@ fn get_source_address() {
     const UNIQUE_LOCAL_ADDR1: Ipv6Address = Ipv6Address::new(0xfd00, 0, 0, 201, 1, 1, 1, 1);
     const UNIQUE_LOCAL_ADDR2: Ipv6Address = Ipv6Address::new(0xfd01, 0, 0, 201, 1, 1, 1, 1);
     const UNIQUE_LOCAL_ADDR3: Ipv6Address = Ipv6Address::new(0xfd02, 0, 0, 201, 1, 1, 1, 1);
+    const UNIQUE_LOCAL_ADDR4: Ipv6Address = Ipv6Address::new(0xfd01, 0, 0, 201, 1, 1, 1, 3);
     const GLOBAL_UNICAST_ADDR1: Ipv6Address =
         Ipv6Address::new(0x2001, 0x0db8, 0x0003, 0, 0, 0, 0, 2);
     const GLOBAL_UNICAST_ADDR2: Ipv6Address =
@@ -1021,6 +1023,10 @@ fn get_source_address() {
     assert_eq!(
         iface.inner.get_source_address_ipv6(&UNIQUE_LOCAL_ADDR3),
         OWN_UNIQUE_LOCAL_ADDR1
+    );
+    assert_eq!(
+        iface.inner.get_source_address_ipv6(&UNIQUE_LOCAL_ADDR4),
+        OWN_UNIQUE_LOCAL_ADDR2
     );
     assert_eq!(
         iface
