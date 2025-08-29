@@ -340,14 +340,15 @@ pub trait TxToken {
 ///
 /// This struct is marked as `#[non_exhaustive]`. This means it is not possible to
 /// create it directly by specifying all fields. You have to instead create it with
-/// default values and then set the fields you want. This makes adding metadata
-/// fields a non-breaking change.
+/// default values and then set the fields you want using setters. This makes adding
+/// metadata fields, as well as mixing multiple device implementations with different
+/// metadata fields, a non-breaking change.
 ///
 /// ```rust
 /// let mut meta = smoltcp_devicephy::PacketMeta::default();
 /// #[cfg(feature = "packetmeta-id")]
 /// {
-///     meta.id = 15;
+///     meta.set_id(15);
 /// }
 /// ```
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -355,5 +356,28 @@ pub trait TxToken {
 #[non_exhaustive]
 pub struct PacketMeta {
     #[cfg(feature = "packetmeta-id")]
-    pub id: u32,
+    id: Option<u32>,
+}
+
+impl PacketMeta {
+    #[inline]
+    pub fn set_id(&mut self, _id: u32) {
+        #[cfg(feature = "packetmeta-id")]
+        {
+            self.id = Some(_id);
+        }
+    }
+
+    #[inline]
+    pub fn id(&self) -> Option<u32> {
+        #[cfg(feature = "packetmeta-id")]
+        {
+            self.id
+        }
+
+        #[cfg(not(feature = "packetmeta-id"))]
+        {
+            None
+        }
+    }
 }
