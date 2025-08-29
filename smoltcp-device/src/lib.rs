@@ -201,19 +201,6 @@ pub struct DeviceCapabilities {
     pub checksum: ChecksumCapabilities,
 }
 
-impl DeviceCapabilities {
-    pub fn ip_mtu(&self) -> usize {
-        match self.medium {
-            #[cfg(feature = "medium-ethernet")]
-            Medium::Ethernet => self.max_transmission_unit - 14,
-            #[cfg(feature = "medium-ip")]
-            Medium::Ip => self.max_transmission_unit,
-            #[cfg(feature = "medium-ieee802154")]
-            Medium::Ieee802154 => self.max_transmission_unit, // TODO(thvdveld): what is the MTU for Medium::IEEE802
-        }
-    }
-}
-
 /// Type of medium of a device.
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]

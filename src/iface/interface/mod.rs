@@ -788,7 +788,15 @@ impl InterfaceInner {
 
     #[allow(unused)] // unused depending on which sockets are enabled
     pub(crate) fn ip_mtu(&self) -> usize {
-        self.caps.ip_mtu()
+        match self.caps.medium {
+            #[cfg(feature = "medium-ethernet")]
+            Medium::Ethernet => self.caps.max_transmission_unit - 14,
+            #[cfg(feature = "medium-ip")]
+            Medium::Ip => self.caps.max_transmission_unit,
+            #[cfg(feature = "medium-ieee802154")]
+            Medium::Ieee802154 => self.caps.max_transmission_unit, // TODO(thvdveld): what is the MTU for Medium::IEEE802
+            _ => unimplemented!(),
+        }
     }
 
     #[allow(unused)] // unused depending on which sockets are enabled, and in tests
@@ -1215,7 +1223,7 @@ impl InterfaceInner {
             #[cfg(feature = "proto-ipv4")]
             IpRepr::Ipv4(repr) => {
                 // If we have an IPv4 packet, then we need to check if we need to fragment it.
-                if total_ip_len > self.caps.ip_mtu() {
+                if total_ip_len > self.ip_mtu() {
                     #[cfg(feature = "proto-ipv4-fragmentation")]
                     {
                         net_debug!("start fragmentation");
@@ -1224,7 +1232,7 @@ impl InterfaceInner {
                         let tx_len = self.caps.max_transmission_unit;
 
                         let ip_header_len = repr.buffer_len();
-                        let first_frag_ip_len = self.caps.ip_mtu();
+                        let first_frag_ip_len = self.ip_mtu();
 
                         if frag.buffer.len() < total_ip_len {
                             net_debug!(
@@ -1312,7 +1320,7 @@ impl InterfaceInner {
             #[cfg(feature = "proto-ipv6")]
             IpRepr::Ipv6(_) => {
                 // Check if we need to fragment it.
-                if total_ip_len > self.caps.ip_mtu() {
+                if total_ip_len > self.ip_mtu() {
                     net_debug!("IPv6 fragmentation support is unimplemented. Dropping.");
                     Ok(())
                 } else {
