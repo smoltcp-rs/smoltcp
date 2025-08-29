@@ -12,9 +12,6 @@ defmt = ["dep:defmt"]
 
 std = []
 
-"proto-ipv4" = []
-"proto-ipv6" = []
-
 "medium-ethernet" = []
 "medium-ip" = []
 "medium-ieee802154" = []

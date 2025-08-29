@@ -134,9 +134,7 @@ pub struct ChecksumCapabilities {
     pub ipv4: Checksum,
     pub udp: Checksum,
     pub tcp: Checksum,
-    #[cfg(feature = "proto-ipv4")]
     pub icmpv4: Checksum,
-    #[cfg(feature = "proto-ipv6")]
     pub icmpv6: Checksum,
 }
 
@@ -148,9 +146,7 @@ impl ChecksumCapabilities {
             ipv4: Checksum::None,
             udp: Checksum::None,
             tcp: Checksum::None,
-            #[cfg(feature = "proto-ipv4")]
             icmpv4: Checksum::None,
-            #[cfg(feature = "proto-ipv6")]
             icmpv6: Checksum::None,
         }
     }
