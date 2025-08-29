@@ -217,7 +217,7 @@ impl<D: Device> Device for FaultInjector<D> {
         let (rx_token, tx_token) = self.inner.receive(timestamp)?;
         let rx_meta = <D::RxToken<'_> as phy::RxToken>::meta(&rx_token);
 
-        let len = super::RxToken::consume(rx_token, |buffer| {
+        let len = phy::RxToken::consume(rx_token, |buffer| {
             if (self.config.max_size > 0 && buffer.len() > self.config.max_size)
                 || buffer.len() > self.rx_buf.len()
             {

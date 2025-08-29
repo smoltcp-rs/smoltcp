@@ -1,0 +1,13 @@
+[package]
+name = "smoltcp-device-mock"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.81"
+
+[dependencies]
+smoltcp-device = { version = "0.1.0", path = "../smoltcp-device" }
+
+[features]
+medium-ethernet = ["smoltcp-device/provides-medium-ethernet"]
+medium-ieee802154 = ["smoltcp-device/provides-medium-ieee802154"]
+medium-ip = ["smoltcp-device/provides-medium-ip"]

@@ -5,10 +5,11 @@ use std::os::unix::io::AsRawFd;
 use std::str::{self, FromStr};
 
 use smoltcp::iface::{Config, Interface, SocketSet};
-use smoltcp::phy::{wait as phy_wait, Device, Medium};
 use smoltcp::socket::tcp;
 use smoltcp::time::Instant;
 use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr, Ipv4Address, Ipv6Address};
+use smoltcp_device::{Device, Medium};
+use smoltcp_device_unix::wait as phy_wait;
 
 fn main() {
     utils::setup_logging("");
